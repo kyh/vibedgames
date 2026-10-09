@@ -33,24 +33,113 @@ Room features — game-agnostic services the party server now runs for every roo
   blocking a message), so a room survives a restart mid-session. A host back
   from a dropped transport re-sends every shared-state key the server holds
   differently, so nothing written in the last second before a restart is lost.
+- A client back from a drop sends the latest of its player state, held input
+  and (as host) world once, from `sync`. What it wrote while away is no longer
+  queued and replayed to every peer; events and claims still queue.
+
+Shared state:
+
+- Shared state travels as path ops — the leaves that changed — instead of whole
+  top-level keys. The client diffs each write against its copy of the room's
+  state; the server reads (`readPatch`), applies (`applyPatch`, copy-on-write)
+  and relays the ops, and every untouched subtree keeps its identity on the
+  receiving end. Arrays diff by index while their length holds and are
+  replaced otherwise, so keep growing collections in objects keyed by id.
+  Because a patch touches only those leaves, an edit a game makes to what it
+  reads from `sharedState` is no longer overwritten by the next patch: it
+  lasts, and that client's copy drifts from the room's. Clone before editing.
+- The function form of `updateSharedState` deletes the keys it leaves out, for
+  everyone: before, only the writer lost them. A key set to `undefined` is
+  deleted too.
+- A guest's refused shared write rewinds completely: the server answers with
+  the whole state as one op, so a key the room never had disappears as well.
+- A write the server would refuse (too big, too deep, a prototype key) is
+  caught client-side: it stays unsent, warns once, and is undone on the writer
+  too, the keys it wrote going back to what the room holds.
+- Shared writes made before admission wait for `sync`, then go out; the host
+  of an empty room seeds them along with `initialState`.
+- `applyPatch`, `diffState`, `readPatch`, `PatchOp` and `PatchSegment` are
+  exported.
+- Writes batch per task: every `updateSharedState` call in one task leaves as
+  one `state_patch`, every `updateMyState` call as one `player_state_patch`, on
+  a microtask. An event, claim or input sent at once flushes pending writes
+  first, and state writes and coalesced events never overtake each other. A
+  write is read when its batch leaves, so an object the game goes on mutating
+  after writing it (a live world) leaves as it stands then: write a copy.
+
+Matchmaking:
+
+- Lobbies: a room created with the `lobby` option lists itself there, and
+  `listRooms({ host, lobby })` returns the list, fullest first: each room's id,
+  players, cap, lock and meta. A room without a lobby is private and listed
+  nowhere.
+- `quickMatch({ host, lobby, maxPlayers })` names a room to join: the fullest
+  unlocked one with a free seat, or a new one. The lobby holds each seat it
+  hands out for a few seconds, so players matching at once fill one room.
+- `setRoomInfo({ locked, meta })`, host only, and `roomInfo` for everyone. A
+  locked room sends newcomers to an overflow sibling, as a full one does, and
+  no quick match picks it; a dropped player still reclaims its seat. Meta is up
+  to `MAX_ROOM_META_CHARS` of JSON, and lobbies list it.
+- `MAX_ROOM_CAP` (the ceiling on `maxPlayers`), `LOBBY_PARTY`, `isLobbyName`,
+  `RoomInfo` and `RoomListing` are exported. The party server answers HTTP
+  cross-origin, so a game's page can reach its lobby.
+
+Connection lifecycle:
+
+- `connectionStatus` is `"connecting" | "connected" | "reconnecting" | "offline"`.
+  `"disconnected"` and `"error"` are gone: the socket redials by itself, so a
+  client not yet admitted is connecting, and one that was is reconnecting.
+- Offline mode: `offline` (never dial), `fallbackMs` (go offline when no room
+  admits the client within that many ms of rendered frames) and `goOffline()`
+  (leave and play on alone). Offline the client is a local room of one with
+  the same API: it hosts, writes apply locally, events loop back, claims are
+  granted at once, and `serverNow()` reads the local clock. `OFFLINE_PLAYER_ID`
+  is its player id.
+- `sendToHost(event, payload)`: an intent for the host alone. The host handles
+  its own at once instead of a server round trip.
+- `JsonValue` and `JsonRecord` are exported.
 
 Netcode helpers:
+
+- Adaptive interpolation delay. `RemoteClock.hold()` measures how far behind a
+  sender's clock to render for its stream never to run dry: each send interval
+  plus how late the next update lands, covering 95% of the last five seconds,
+  ignoring idle silences, slewed. The first estimate eases in too, from the
+  reader's floor (`hold(now, floor)`; an `Interpolator` passes its `delayMs`),
+  so a new stream slows into a longer delay instead of stepping back, and
+  without first idling at the floor. An `Interpolator` renders at the larger of
+  that and `delayMs`, so a jittery route or a device too busy to read its
+  messages on time no longer starves the buffer. `Interpolator.renderTime()`
+  is the moment it draws, for anything else on the same sender's timeline.
+  Measured on flappy-dragons with two clients at 28 fps under 80 ± 40 ms of
+  lag: 35–48% of remote frames drawn past the newest update before, 2–4%
+  after.
 
 - `FixedRate`: a send clock for variable frame loops that keeps its remainder
   (a reset-to-0 throttle drifts low and alternates gap lengths) and drops backlog
   after a stall instead of bursting.
 - `Interpolator` (+ `RemoteClock`, `SenderClock`): snapshot interpolation for
   remote entities from stamped updates. Renders a fixed delay behind the clock,
-  with bounded extrapolation and idle-gap bridging. `RemoteClock` estimates one
-  sender's clock (sliding-window minimum, slewed) for stamps not in server time.
+  with bounded extrapolation and idle-gap bridging. `RemoteClock` learns how
+  late one sender's (or one host stream's) updates arrive — sliding-window
+  minimum, slewed — so the delay covers jitter, not the relay; `relearn()`
+  measures a new route (a host change) without jumping.
 - `Reconciler`: client-side prediction correction for a guest's own body. It
   compares the host's copy with the predicted trajectory at the matching time
   (from an acked input `seq` plus how long the host has applied it), or with the
   nearest point when no timing is given. Errors are eased out or snapped.
 - `lerp`, `lerpAngle`.
+- `netStats()` and `window.__VG_NET__`: every `Interpolator` frame counted, with
+  the ones drawn past the newest update (starved) or held past the
+  extrapolation limit (stalled), plus each live client's room, host flag and
+  round trip — what a lag check reads.
 
 Server: no longer echoes a host's own `state_patch` back to it; clients already
 applied it.
+
+React: `useMultiplayerRoom` rendered in a loop until React gave up, because
+`getSnapshot()` built a new object on every read. It now returns the same
+snapshot until the state in it changes.
 
 ## 0.2.0 — 2026-07-24
 

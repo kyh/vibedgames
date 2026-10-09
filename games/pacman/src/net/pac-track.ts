@@ -1,15 +1,17 @@
 // One rival pac's motion on this screen. Every player simulates their own pac
 // and reports it on a steady 20 Hz clock, stamped with the room's server time
 // (`client.serverNow()`). A stamp reaches us after the whole relay — sender to
-// server to us — which differs per rival, so each track keeps its own clock
-// (the Interpolator's private RemoteClock): it learns that rival's fastest
-// recent transit from arrivals, and the rival is drawn RIVAL_DELAY_MS behind
-// it, blending the two reports either side of that moment. Reports that arrive
-// bunched or late still play back as the sender's steady motion, on a slow
-// route as on a fast one. A respawn, or any jump further than the neighbouring
-// cell, snaps instead of gliding through walls.
+// server to us — which differs per rival, so each track keeps its own
+// RemoteClock: it learns that rival's fastest recent transit from arrivals and
+// how much later than that its reports land, and the rival is drawn
+// RIVAL_DELAY_MS behind it, or as far as that lateness needs, blending the two
+// reports either side of that moment. Reports that arrive bunched or late
+// still play back as the sender's steady motion, on a slow route as on a fast
+// one. When our own connection comes back, the route is new and every track
+// relearns it. A respawn, or any jump further than the neighbouring cell,
+// snaps instead of gliding through walls.
 
-import { Interpolator, lerp } from "@vibedgames/multiplayer";
+import { Interpolator, RemoteClock, lerp } from "@vibedgames/multiplayer";
 import type { Player } from "@vibedgames/multiplayer";
 
 import { RIVAL_DELAY_MS, RIVAL_EXTRAPOLATE_MS } from "../shared/constants";
@@ -70,8 +72,10 @@ const cellsApart = (a: PacPose, b: PacPose): number =>
   Math.abs(Math.round(a.x) - Math.round(b.x)) + Math.abs(Math.round(a.z) - Math.round(b.z));
 
 export class PacTrack {
-  /** No `clock` option: each track's own RemoteClock learns its rival's route. */
+  /** This rival's own clock: it learns the route its reports take to us. */
+  private readonly clock = new RemoteClock();
   private readonly interp = new Interpolator<PacPose>({
+    clock: this.clock,
     delayMs: RIVAL_DELAY_MS,
     lerp: lerpPose,
     maxExtrapolateMs: RIVAL_EXTRAPOLATE_MS,
@@ -94,5 +98,15 @@ export class PacTrack {
   /** Where to draw the pac now; undefined before its first report. */
   sample(localNow?: number): PacPose | undefined {
     return this.interp.sample(localNow);
+  }
+
+  /**
+   * Our own connection came back: this rival's reports now reach us by
+   * another route. The clock measures it from the next arrival and eases onto
+   * it; timed by the old route's quicker trips, a slower one would run the pac
+   * past its newest report for seconds.
+   */
+  relearn(): void {
+    this.clock.relearn();
   }
 }

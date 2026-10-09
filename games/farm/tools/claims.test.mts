@@ -181,7 +181,7 @@ test("a claim key names its farm and target, and nothing else parses", () => {
  *  of each grant lands in the host's farm and the room's shared keys. */
 const hosting = (host: Farmer) => {
   const shared: JsonObject = {};
-  const writer = { patchShared: (patch: JsonObject) => Object.assign(shared, patch) };
+  const writer = { updateSharedState: (patch: JsonObject) => Object.assign(shared, patch) };
   const sync = new FarmSync(
     { objectBack: () => {}, objectGone: () => {}, redrawTile: () => {}, world: () => host.world },
     () => [],

@@ -1,7 +1,8 @@
 // Two-client online smoke: host + guest through join, wire traffic, pause,
-// host drop/reconnect, host stall, match end + rematch, late join and host
-// leave. Needs the party server on :8787 and Chrome (playwright-core, channel
-// "chrome"), so it is `pnpm test:online`, not part of `pnpm test`.
+// transport blips, host drop/reconnect, host stall, match end + rematch, late
+// join, host leave, and a server that never admits anyone. Needs the party
+// server on :8787 and Chrome (playwright-core, channel "chrome"), so it is
+// `pnpm test:online`, not part of `pnpm test`.
 // `node tools/two-client.mjs [--url http://localhost:PORT]` — without --url it
 // launches its own vite on :5302.
 import assert from "node:assert/strict";
@@ -41,7 +42,7 @@ const startVite = async () => {
   return child;
 };
 
-const openClient = async (browser, base, name, hero) => {
+const openClient = async (browser, base, name, hero, prepare) => {
   const context = await browser.newContext({ viewport: { height: 720, width: 1280 } });
   const page = await context.newPage();
   page.on("pageerror", (e) => errors.push(`${name}: ${e.message}`));
@@ -51,6 +52,7 @@ const openClient = async (browser, base, name, hero) => {
       errors.push(`${name}: ${m.text()}`);
     }
   });
+  await prepare?.(page);
   await page.goto(`${base}/?auto=1&online=1&room=${room}&hero=${hero}`);
   return { context, name, page };
 };
@@ -100,6 +102,25 @@ const key = (page, type, name, keyCode, extra = {}) =>
       ),
     { extra, key: name, keyCode, type },
   );
+/** Drop a client's transport as a network blip does: the room holds its seat
+ *  (a 1000 close would be a deliberate leave). It shows RECONNECTING… until
+ *  `reconnect()`. */
+const blip = async (client) => {
+  await client.page.evaluate(() => window.__moba.scene.net.socket.close(4000));
+  await until(
+    client.page,
+    () => window.__moba.scene.connectionNotice?.text === "RECONNECTING…",
+    `${client.name} shows reconnecting`,
+  );
+};
+const reconnect = async (client) => {
+  await client.page.evaluate(() => window.__moba.scene.net.socket.reconnect());
+  await until(
+    client.page,
+    () => window.__moba.online().status === "connected" && !window.__moba.scene.connectionNotice,
+    `${client.name} back, notice cleared`,
+  );
+};
 const gameTime = (page) => page.evaluate(() => window.__moba.world.gameTime);
 const phase = (page) => page.evaluate(() => window.__moba.world.phase);
 const isPaused = (page) => page.evaluate(() => window.__moba.scene.controlsPaused);
@@ -114,14 +135,14 @@ const clockAdvances = async (page, label) => {
   assert.ok(t1 - t0 > 1.5, label);
 };
 
-const movesOnArrow = async (page, id, sim = page) => {
+const movesOnArrow = async (page, id, sim = page, [arrow, keyCode] = ["ArrowRight", 39]) => {
   const before = await unitOf(sim, id);
-  await key(page, "keydown", "ArrowRight", 39);
+  await key(page, "keydown", arrow, keyCode);
   await wait(700);
-  await key(page, "keyup", "ArrowRight", 39);
+  await key(page, "keyup", arrow, keyCode);
   const after = await unitOf(sim, id);
   assert.ok(before && after, "unit present");
-  assert.ok(Math.hypot(after.x - before.x, after.y - before.y) > 0.5, "moved on ArrowRight");
+  assert.ok(Math.hypot(after.x - before.x, after.y - before.y) > 0.5, `moved on ${arrow}`);
 };
 
 const pauseDoesNotFreeze = async (pauser, other) => {
@@ -216,6 +237,30 @@ const run = async (base) => {
       await seesUnit(a.page, bId, "host sees guest");
       await seesUnit(b.page, aId, "guest sees host");
       await seesUnit(b.page, bId, "guest sees itself");
+    });
+    // Before the guest casts Q below: its blink can land the hero inside the
+    // dire ancient's keep (blocked high ground), and no arrow moves it out.
+    await step("guest transport blip: input held while away, plays on after", async () => {
+      await blip(b);
+      const away = await unitOf(a.page, bId);
+      await key(b.page, "keydown", "ArrowRight", 39);
+      await wait(700);
+      await key(b.page, "keyup", "ArrowRight", 39);
+      const held = await unitOf(a.page, bId);
+      assert.ok(Math.hypot(held.x - away.x, held.y - away.y) < 0.5, "no input while reconnecting");
+      await reconnect(b);
+      await clockAdvances(b.page, "guest renders the host's clock again");
+      // Left, toward the middle: the dire spawn sits just west of the keep.
+      await movesOnArrow(b.page, bId, a.page, ["ArrowLeft", 37]);
+    });
+    await step("host transport blip: the host keeps its seat and its match", async () => {
+      await blip(a);
+      const away = await gameTime(a.page);
+      await reconnect(a);
+      const back = await online(a.page);
+      assert.equal(back.isHost, true, "a blip keeps the host role");
+      await clockAdvances(b.page, "guest renders the host's clock again");
+      assert.ok((await gameTime(a.page)) > away, "the match carried on rather than restarting");
     });
     await step("guest input crosses the wire", async () => {
       await movesOnArrow(b.page, bId, a.page);
@@ -332,6 +377,29 @@ const run = async (base) => {
       await movesOnArrow(other.page, other === b ? bId : cId, next.page);
       assert.equal(await phase(next.page), "playing");
       assert.equal(await hasResult(other.page), false);
+    });
+    await step("no room admits: PLAY ONLINE says so, then plays the bots", async () => {
+      // A party server out of reach: every dial is refused.
+      const d = await openClient(browser, base, "D", "ironvow", (page) =>
+        page.routeWebSocket(/\/parties\//u, (ws) => ws.close({ code: 1011 })),
+      );
+      await until(
+        d.page,
+        () => window.__moba?.scene.connectionNotice?.text === "CONNECTING…",
+        "connecting notice",
+        { timeout: 45_000 },
+      );
+      // The 8 s fallback counts rendered frames, so a slow page takes longer.
+      await until(
+        d.page,
+        () =>
+          !window.__moba.scene.isOnline() &&
+          window.__moba.scene.scene.get("Hud").banner?.text.text.startsWith("SERVER UNREACHABLE"),
+        "fell back to a bot match, and says so",
+        { timeout: 60_000 },
+      );
+      await movesOnArrow(d.page, "you");
+      await d.context.close();
     });
     await c.context.close();
     await b.context.close();

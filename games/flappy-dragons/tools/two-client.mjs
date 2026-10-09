@@ -35,6 +35,8 @@ const snapshot = (page) =>
     const { scene, net } = window.__fb;
     const server = net.serverNow(performance.now());
     return {
+      // Rivals whose connection dropped, drawn faded while the room holds their seat.
+      away: [...scene.ghosts.values()].filter((ghost) => ghost.away).length,
       // This client's server time against the machine's wall clock, which the
       // local party server shares: how far its course is from the room's.
       clock: server === null ? null : server - Date.now(),
@@ -46,6 +48,7 @@ const snapshot = (page) =>
       phase: scene.phase,
       pipes: [...scene.pipes.keys()].toSorted((a, b) => a - b),
       players: Object.keys(net.players).length,
+      rivals: scene.rivalIds.length,
       seed: scene.seed,
       status: net.connectionStatus,
       worldX: scene.worldX,
@@ -93,6 +96,33 @@ const crashOf = async (page, label) => {
   }
   throw new Error(`timeout: ${label}`);
 };
+
+/**
+ * A network blip, not a leave: `page`'s socket drops with a code other than
+ * 1000 and 1001, so the room holds its seat, then redials. Resolves with what
+ * `watcher` showed of that player while it was away and once it was back.
+ */
+const blip = async (page, watcher) => {
+  await page.evaluate(() => window.__fb.net.client.socket.close(4000));
+  await waitFor(page, () => window.__fb.net.connectionStatus === "reconnecting", "blip drops");
+  await waitFor(
+    watcher,
+    () => document.querySelector("#board .row.away")?.textContent.includes("reconnecting"),
+    "blip shows on the board",
+  );
+  const away = await snapshot(watcher);
+  await page.evaluate(() => window.__fb.net.client.socket.reconnect());
+  await waitFor(page, () => window.__fb.net.connectionStatus === "connected", "blip redials");
+  await waitFor(
+    watcher,
+    () => document.querySelector("#board .row.away") === null,
+    "blip back on the board",
+  );
+  return { away, back: await snapshot(watcher) };
+};
+
+/** One rival, still racing, with `away` of them drawn as dropped. */
+const racesOne = (s, away) => s.rivals === 1 && s.ghosts === 1 && s.away === away;
 
 /** A race crash respawns into the ready hover; the first flap relaunches it. */
 const respawnAndFly = async (page, label) => {
@@ -300,9 +330,9 @@ const main = async () => {
     const { seed: seedBefore } = await snapshot(guest);
     await host.close();
     await waitFor(guest, () => window.__fb.net.isHost, "guest promoted", 10_000);
-    // The server holds the departed seat for a reconnect; the game must not
-    // treat that held seat as a rival (no frozen ghost, no "2 players").
-    await waitFor(guest, () => window.__fb.scene.rivalIds.length === 0, "held seat ignored");
+    // Closing a page is a leave, not a drop: the seat frees at once, so the
+    // promoted guest races no one (no frozen ghost, no "2 players").
+    await waitFor(guest, () => window.__fb.scene.rivalIds.length === 0, "departed host gone");
     g = await snapshot(guest);
     step("guest promoted to host on host leave", g.host && g.ghosts === 0, JSON.stringify(g));
     step("promoted host keeps the seed", g.seed === seedBefore, `${g.seed}`);
@@ -351,6 +381,19 @@ const main = async () => {
     await crashOf(late, "late crash");
     await respawnAndFly(late, "late respawn");
     step("late joiner respawns into the race", true);
+    // The room holds the late joiner's seat through a blip: the promoted host
+    // races on with it, faded and reconnecting, and has it back on redial.
+    const seen = await blip(late, guest);
+    step(
+      "a dropped rival stays in the race, faded and reconnecting",
+      racesOne(seen.away, 1),
+      JSON.stringify(seen.away),
+    );
+    step(
+      "back from the blip, the rival races on",
+      racesOne(seen.back, 0),
+      JSON.stringify(seen.back),
+    );
     await guest.close();
     await late.close();
     for (const [who, list] of Object.entries(errors)) {

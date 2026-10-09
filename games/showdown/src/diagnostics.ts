@@ -45,7 +45,7 @@ export interface DiagnosticsSource {
 export interface NetDiagnostics {
   /** Snapshots sent (host) or received (guest) per second. */
   snapshotHz: number;
-  /** Mean size of one snapshot frame on the wire, bytes. */
+  /** Mean size of one whole snapshot frame, bytes: the most a tick's frame costs, as only changed leaves travel. */
   snapshotBytes: number;
   /** Intents this client sent per second. */
   intentsHz: number;
@@ -53,7 +53,7 @@ export interface NetDiagnostics {
   lagMs: number | null;
   /** Guest: the last position error the host reported, world units (under 0.12 is ignored). */
   correction: number | null;
-  /** Guest: how far behind server time remote bodies render (the relay's fastest recent trip plus INTERP_DELAY_MS), ms. */
+  /** Guest: how far behind server time remote bodies render (the relay's fastest recent trip plus the render delay: INTERP_DELAY_MS, or more when the stream needs it), ms. */
   interpDelayMs: number | null;
 }
 

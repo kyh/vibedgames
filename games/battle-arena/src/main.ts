@@ -337,7 +337,6 @@ const main = async (): Promise<void> => {
       score: 0,
     }),
   }));
-  let onlineMatch = false;
   let froze = false;
   const matchLoop = (t: number): void => {
     frame += 1;
@@ -350,7 +349,6 @@ const main = async (): Promise<void> => {
   };
   const startMatch = (opts: SceneOpts): void => {
     notifyGameStarted();
-    onlineMatch = opts.online;
     const custom = (opts.online ? null : localMapDraft) ?? bundledMap;
     if (custom) {
       applyMapData(custom);
@@ -403,15 +401,17 @@ const main = async (): Promise<void> => {
   // no-ops pause until notifyGameStarted has fired, i.e. only during a match).
   // HARD RULE: never freeze a live online session — it's host-authoritative
   // and shared with another client, so stopping our loop just desyncs/stalls
-  // them; the wrapper's overlay alone is the pause UI there. Offline is safe:
-  // sim time only ever advances inside matchLoop (world.ts step() does
-  // `w.now += dt * 1000`; abilities/PendingStrike run off that sim clock, not
-  // Date.now/performance.now), so simply not scheduling the loop holds
-  // everything — cooldowns included — dead in place with nothing to unwind.
+  // them; the wrapper's overlay alone is the pause UI there. Offline is safe —
+  // solo, or an online match whose client fell back to the SDK's room of one
+  // (GameScene.isLive): sim time only ever advances inside matchLoop
+  // (world.ts step() does `w.now += dt * 1000`; abilities/PendingStrike run
+  // off that sim clock, not Date.now/performance.now), so simply not
+  // scheduling the loop holds everything — cooldowns included — dead in place
+  // with nothing to unwind.
   // timer.reset() on resume avoids a huge first delta from the real-time gap
   // (belt-and-suspenders: matchLoop already caps a frame at MAX_FRAME_S).
   const pauseOverlay = createPauseOverlay({
-    isLive: () => onlineMatch,
+    isLive: () => activeScene?.isLive ?? false,
     mute: {
       get: () => activeScene?.audio.isMuted ?? true,
       set: (next) => activeScene?.audio.setMuted(next),
@@ -422,7 +422,7 @@ const main = async (): Promise<void> => {
     onPause: () => {
       pauseOverlay.show();
       activeScene?.pauseAudio();
-      if (onlineMatch || !activeScene) {
+      if (!activeScene || activeScene.isLive) {
         return;
       }
       froze = true;

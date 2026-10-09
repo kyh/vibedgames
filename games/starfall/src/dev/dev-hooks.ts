@@ -94,7 +94,12 @@ export interface StarfallDevHooks {
   setShield: (hp: number) => void;
   damage: (amount: number) => string;
   grantWeapon: (ref: number | string) => void;
-  spawnItem: (cls: "weapon" | "shield" | "booster", name: string, x?: number, y?: number) => void;
+  spawnItem: (
+    cls: "weapon" | "shield" | "booster",
+    name: string,
+    x?: number,
+    y?: number,
+  ) => string | null;
   dropShards: (count: number, x?: number, y?: number) => void;
   fire: () => void;
   spawnBeacon: (x?: number, y?: number, chargeS?: number, activeS?: number) => boolean;
@@ -262,10 +267,16 @@ export const installDevHooks = (scene: SceneInternals): void => {
       return e.id;
     },
     /** Host only: drop a live item at (x,y) (defaults to the ship, so it gets
-     *  picked up next frame, which is how stacking is exercised). */
-    spawnItem: (cls: "weapon" | "shield" | "booster", name: string, x?: number, y?: number) => {
+     *  picked up next frame, which is how stacking is exercised). Returns its
+     *  id, or null when nothing was dropped. */
+    spawnItem: (
+      cls: "weapon" | "shield" | "booster",
+      name: string,
+      x?: number,
+      y?: number,
+    ): string | null => {
       if (!scene.link.amHost) {
-        return;
+        return null;
       }
       let drop: ItemDrop | null = null;
       if (cls === "weapon") {
@@ -285,9 +296,11 @@ export const installDevHooks = (scene: SceneInternals): void => {
         }
       }
       if (!drop) {
-        return;
+        return null;
       }
-      scene.world.items.push(spawnItemState(x ?? scene.pilot.shipX, y ?? scene.pilot.shipY, drop));
+      const item = spawnItemState(x ?? scene.pilot.shipX, y ?? scene.pilot.shipY, drop);
+      scene.world.items.push(item);
+      return item.id;
     },
     summary: (): StarfallSummary => ({
       alive: scene.pilot.alive,

@@ -1703,9 +1703,11 @@ export const ENEMY_DESPAWN_INTERVAL_MS = 1500;
 export const PLAYER_NET_HZ = 20;
 /** Host world snapshots. Every enemy rides each one, so this stays at 20 Hz. */
 export const WORLD_NET_HZ = 20;
-/** How far behind the moment its updates arrive a remote ship (and its
- *  shots) is drawn (ms): two 20 Hz send intervals, enough to ride out arrival
- *  jitter. The relay itself is learnt per sender (net/peer-roster.ts). */
+/** The least a remote ship (and its shots) is drawn behind the moment its
+ *  updates arrive (ms): two 20 Hz send intervals, enough to ride out arrival
+ *  jitter on a good route. The relay itself is learnt per sender, and so is
+ *  the jitter: the delay grows past this when the stream needs more
+ *  (net/peer-roster.ts). */
 export const REMOTE_RENDER_DELAY_MS = 100;
 /** Interest radius (px, on the player-state `x`/`y`): two players farther
  *  apart stop receiving each other's state — the host still sees everyone.
@@ -1781,8 +1783,8 @@ export type EnemyState = {
   /** Facing; for a winding-up/charging LANCER this is the locked charge vector. */
   angle: number;
   hp: number;
-  // sim-clock deadlines (each client's own; the wire carries them relative to
-  // a share's stamp); clients render telegraphs/blinks from these
+  // sim-clock deadlines (each client's own; the wire carries them as ms since
+  // the arena epoch); clients render telegraphs/blinks from these
   /** 0 = none. While now < this: wind-up visuals. */
   telegraphUntil: number;
   /** LANCER only: locked-vector charge window. */
@@ -1834,9 +1836,9 @@ export type ShardState = {
 
 /**
  * Host-owned world: the host's working copy, and each guest's dead-reckoned
- * copy of it. On the wire it travels as stamped row buckets that change only
- * when an entity spawns, dies or turns (net/world-wire.ts); host deadlines in
- * a guest's copy are already converted to the guest's own clock.
+ * copy of it. On the wire every entity is a row keyed by id that changes only
+ * when the entity spawns, dies, turns or changes (net/world-wire.ts); host
+ * deadlines in a guest's copy are already converted to the guest's own clock.
  */
 export type SharedState = {
   asteroids: AsteroidState[];
@@ -2125,5 +2127,6 @@ export const spawnEnemyState = (kind: EnemyKind, x: number, y: number): EnemySta
 
 // ---- offline fallback ---------------------------------------------------------
 
-/** How long to wait for the party server before starting a solo arena. */
+/** How long the party server has to admit this client (rendered frames, the
+ *  SDK's `fallbackMs`) before it goes offline into a solo arena. */
 export const OFFLINE_FALLBACK_MS = 4000;

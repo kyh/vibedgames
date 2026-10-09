@@ -109,11 +109,28 @@ const pose = remote.sample();
 
 An `Interpolator` reads stamps through a `RemoteClock`, which learns from
 arrivals how long one sender's updates take to reach you — sender to server to
-you — so the delay only has to cover jitter. Entities from one sender (a host's
-world snapshot) share one: `new Interpolator({ clock: hostClock, lerp })`, and
-`hostClock.reset()` when the host changes, because the new host's route differs.
-Stamps in server time stay continuous across reloads and host changes and mean
-the same instant to every client.
+you — so the delay only has to cover jitter. The clock also measures that
+jitter: each update must stay the newest until the next one lands, so it tracks
+each send interval plus how late the next update arrives (`hold()`, covering 95%
+of the last five seconds). The `Interpolator` renders at the larger of that and
+`delayMs`, and the buffer grows on a jittery route, or on a device busy enough
+to read its messages a frame late, instead of running dry. Changes slew, the
+first measurement included, so playback slows or speeds a little rather than
+jumping. Draw anything else from that sender (its shots, its effects) at
+`interp.renderTime()`, so it stays on the same timeline, and keep their stamps
+out of the clock: it sizes the buffer from the gaps between the stamps it sees,
+so a shot stamped between two poses reads as one more pose and shrinks it.
+Entities from one sender (a host's world snapshot) share one clock:
+`new Interpolator({ clock: hostClock, lerp })`, and `hostClock.relearn()` when
+the host changes: the new host's route differs, while its stamps carry straight
+on, so the clock eases onto the new route instead of jumping (a route over
+250 ms slower or faster is taken at once: easing onto one much slower would
+freeze remotes for seconds). Relearn every clock you keep when your own connection
+comes back (`connectionStatus` from `reconnecting` to `connected`) too: every
+sender's route to you is new, and a clock timed by the old, quicker one runs
+remotes past their newest update until its window forgets it, about 2 s of
+freeze on a route 400 ms slower. Stamps in server time stay continuous across
+reloads and host changes and mean the same instant to every client.
 
 Don't render on `client.serverClock` directly: a stamp reaches you a whole relay
 (sender → server → you, often 100–200 ms) after it was taken, so ~100 ms behind
@@ -142,6 +159,15 @@ Errors inside `deadZone` are ignored, mid-size ones ease out over ~100 ms, and
 ones past `snapDistance` (knockback, a missed collision) apply at once.
 Teleports are not errors: place the body, then call `clear()`.
 
+**Net stats** — how often remotes ran out of data. Every frame an
+`Interpolator` renders is counted; one drawn past the newest update (the next
+came too late, so it extrapolated or held) is _starved_, and one held still past
+`maxExtrapolateMs` is _stalled_ — a visible freeze. `netStats()` returns the
+page's totals. Tooling reads the same numbers, and each live client's room, host
+flag and round trip, from `window.__VG_NET__`: the multiplayer skill's
+`net-check` script plays two clients under injected latency and judges a game by
+them, with nothing for the game to wire up.
+
 ## Model: host-authoritative, last-write-wins
 
 The first player is the host and is the only writer of shared state. Intents go
@@ -161,7 +187,9 @@ restores them, and a host that kept the role re-sends anything newer.
 
 ## Shared state
 
-One object synced to everyone. Patches shallow-merge by key.
+One object synced to everyone. The object form replaces each key it names and
+keeps the rest; the function form returns the whole next state, so a key it
+leaves out is deleted for everyone. A key set to `undefined` is deleted too.
 
 ```tsx
 const room = useMultiplayerRoom({ host, party, room, initialState: { started: false } });
@@ -169,6 +197,29 @@ const [game, setGame] = useMultiplayerState(room);
 
 if (isHost) setGame({ started: true });
 ```
+
+Only what changed travels, down to the leaf. The client diffs each write
+against its copy of the room's state and sends path ops, so a host that moves
+one unit of two hundred sends that unit's `x`, not the map. Applying ops copies
+only the objects along each changed path: every untouched subtree keeps its
+identity, so a memoized view of it skips the update. Two consequences for how
+you shape state:
+
+- Keep a collection that grows and shrinks in an object keyed by id
+  (`units: { u7: { x, y } }`). An array diffs element by element only while its
+  length holds; any other change re-sends it whole.
+- Mutating in place still syncs (the client diffs against a private copy), but
+  a new object per change is what keeps identities meaningful for views.
+- What `sharedState` holds is the room's copy, never yours to edit: clone what
+  you read before changing it. A patch touches only the leaves that changed, so
+  nothing overwrites an edit made there; it outlives the next patch, and that
+  client's copy drifts from the room's.
+
+The server refuses a write that would nest deeper than `MAX_STATE_DEPTH`, holds
+a prototype key, or exceeds `MAX_MESSAGE_BYTES`. The client checks first: such
+a write stays unsent and warns once, and the keys it wrote go back to what the
+room holds, as the server rewinds a guest's refused write, so the writer never
+sees a state nobody else has.
 
 `initialState` is applied once, by the first host of a still-empty room, and is
 never re-applied on host migration — so a host leaving mid-game cannot reset the
@@ -188,12 +239,26 @@ useEffect(() => {
 }, [setPlayer]);
 ```
 
+Writes batch per task. However many `updateSharedState` and `updateMyState`
+calls one frame makes, the shared state leaves as one diff and this player's
+state as one merged patch, on a microtask. Batching never reorders: an event, a
+claim or an input sent at once flushes pending writes first, and a coalesced
+event never overtakes a state write, nor a state write a coalesced event.
+
+A write is read when the batch leaves, not when you call it, and the client
+keeps what you passed as its shared state. So never hand it an object you go on
+changing: a world your sim steps after the write leaves as it stands after the
+step, under the stamp you wrote before it, and a host back from a drop re-sends
+it as it stands then. Write a copy of a live world (`structuredClone`), or
+build fresh objects each time.
+
 ## Events
 
 Fire-and-forget messages. Handled by the `onEvent` callback in the room config.
 
 ```ts
 room.sendEvent("explosion", { x: 100, y: 200 });
+client.sendToHost("move", { dir: "left" }); // an intent: the host's onEvent applies it
 
 room.sendEvent("hit", dmg, { to: victimId }); // one player
 room.sendEvent("spawn", data, { except: room.playerId }); // everyone else
@@ -205,10 +270,15 @@ rapid same-type events into one wire message without reordering them against
 state patches. Events are not buffered — a player who is away misses them, so
 anything that must survive a reconnect belongs in state.
 
+`sendToHost` is how a player asks the host to change shared state. A guest's
+intent goes to the host alone; the host's own is handed to its `onEvent` at
+once rather than bounced off the server. So one `onEvent` branch validates and
+applies every player's intents, the host's included.
+
 ## Room metadata
 
 ```tsx
-const isConnected = room.connectionStatus === "connected";
+const status = room.connectionStatus; // "connecting" | "connected" | "reconnecting" | "offline"
 const players = Object.values(room.players);
 const myId = room.playerId;
 const actualRoom = room.room; // may be an overflow sibling — see below
@@ -227,14 +297,88 @@ useMultiplayerRoom({ host, party, room, maxPlayers: 8 });
 At capacity the client is transparently reconnected into a sibling room
 (`{room}~2`, `{room}~3`, …) — an independent world with its own host and shared
 state. Read `room.room` to show players which instance they landed in. Omit
-`maxPlayers` for no cap (the server still clamps to a hard ceiling).
+`maxPlayers` for no cap (the server still clamps to `MAX_ROOM_CAP`).
+
+## Lobbies and quick match
+
+A room created with `lobby` lists itself there; `listRooms` reads the list and
+`quickMatch` picks a room from it.
+
+```ts
+import { listRooms, quickMatch } from "@vibedgames/multiplayer";
+
+const lobby = "my-game"; // one lobby per game, or per mode
+const room = await quickMatch({ host, lobby, maxPlayers: 4 });
+const client = new MultiplayerClient({ host, party, room, lobby, maxPlayers: 4 });
+
+const rooms = await listRooms({ host, lobby }); // fullest first, for a lobby screen
+// [{ room, players: 3, capacity: 4, locked: false, meta: { mode: "ffa" } }, …]
+```
+
+`quickMatch` sends a player to the fullest unlocked room with a free seat, or
+names a new one. The lobby holds each seat it hands out for a few seconds, so
+players matching at once fill one room rather than each opening their own; a
+room that still overfills sends the extra player to an overflow sibling, which
+lists itself too.
+
+The host publishes the room's lock and meta. Locked, the room takes no new
+players (they go on to an overflow sibling, as from a full room) and no quick
+match picks it, while a dropped player still reclaims its seat; meta (at most
+`MAX_ROOM_META_CHARS` of JSON) is what the lobby lists. Meta is whatever a host
+wrote: show it, don't trust it.
+
+```ts
+client.setRoomInfo({ locked: true, meta: { mode: "ffa", round: 2 } }); // host only
+client.roomInfo; // { locked: true, meta: { mode: "ffa", round: 2 } }, for everyone
+```
+
+A room takes its lobby from its first player and keeps it until it empties, like
+`maxPlayers`. Omit `lobby` for a private room: it lists nowhere, so only its id
+reaches it — make that id unguessable (`crypto.randomUUID()`) and share a link.
+
+## Offline mode
+
+```ts
+new MultiplayerClient({ host, party, room, fallbackMs: 6000 }); // no room in 6 s → offline
+new MultiplayerClient({ host, party, room, offline: true }); // never dial (?offline=1, trailers)
+client.goOffline(); // leave the room and play on alone ("play solo")
+```
+
+Offline, the client is a local room of one with the same API, so a game runs
+one code path for online and solo play. `connectionStatus` is `"offline"` and
+the player id is `OFFLINE_PLAYER_ID`; this client is the host. State updates
+apply locally, events and host intents loop back to `onEvent` (honouring
+`to`/`except`), claims are granted at once and lapse on their TTL, and
+`serverNow()` reads the local clock (`performance.now()`, unless a time probe
+returned before the client went offline). Tick rooms don't tick offline: run
+the sim locally.
+
+Offline, `onEvent` and `onClaim` run inside the call that caused them:
+`sendEvent`, `sendToHost` and `claim` return after the handler has. A handler
+that writes the world runs in the middle of its caller, so a caller that holds
+a copy of the world to write back afterwards (a sim step) must not let the
+handler write it too; settle such grants on the next step instead.
+
+`fallbackMs` counts rendered frames from the first one after the client is
+created, each worth at most 100 ms, so loading time, a hidden tab and a stalled
+main thread don't count against it. Once a room has admitted the client, a drop
+is `"reconnecting"`, never a fallback.
+`goOffline()` leaves deliberately, so the room frees the seat at once; shared
+state and this player's state carry over. A new client is the way back online.
 
 ## Reconnection
 
 A dropped connection holds the player's seat, identity and state for 30s
 (`RECONNECT_GRACE_MS`) against a client-secret token, so a network blip is a
 pause rather than a leave + rejoin. A deliberate `destroy()` skips the grace
-window and leaves immediately.
+window and leaves immediately, and so does closing or reloading the page: the
+token lives in the page's memory, so the server frees the seat at once.
+
+While the connection is down (`"reconnecting"`), state updates and inputs apply
+locally but are not queued: on reconnect the client sends its latest player state and held
+input, and a host re-sends whatever of its world the server holds differently.
+Peers never get a burst of stale frames. Events and claims do queue, and go out
+on reconnect.
 
 ## Server time
 
@@ -362,8 +506,8 @@ The server enforces game-agnostic structural limits regardless
 Speaks the vibedgames party server's protocol
 ([`apps/party`](https://github.com/kyh/vibedgames/tree/main/apps/party)), which
 handles shared state, player state, events, capacity, reconnection, host
-election, server time, claims, ticks, interest and limits generically — it never
-knows a game's shape.
+election, server time, claims, ticks, interest, limits, locks and lobbies
+generically — it never knows a game's shape.
 
 ## License
 

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { localClaims, PICKUP_CLAIMS, PickupClaims, pickupKey } from "../src/net/pickup-claims";
+import { MultiplayerClient, OFFLINE_PLAYER_ID } from "@vibedgames/multiplayer";
+import { PICKUP_CLAIMS, PickupClaims, pickupKey } from "../src/net/pickup-claims";
 import type { ClaimRoom } from "../src/net/pickup-claims";
 import { BASE_RANGE, baseStats, newGrid } from "../src/shared/constants";
 import type { Powerup, SharedState } from "../src/shared/constants";
@@ -173,16 +174,46 @@ test("a new round names its power-ups afresh, and the host clears the last round
   assert.deepEqual(host.claims.reach(host.room, round2, "h", fire), fire);
 });
 
-test("offline, the only claimant wins at once and the host step grants it", () => {
-  const room = localClaims("solo");
-  const claims = new PickupClaims();
-  const state = world([fire, { col: 7, kind: "speed", row: 1 }]);
-  claims.reach(room, state, "solo", fire);
-  claims.reach(room, state, "bot-1", { col: 7, row: 1 });
-  const granted = claims.settle(room, state, "solo");
-  assert.equal(granted?.stats["solo"]?.range, BASE_RANGE + 1);
-  assert.ok((granted?.stats["bot-1"]?.speed ?? Infinity) < baseStats().speed);
-  assert.deepEqual(granted?.powerups, {});
-  room.clearClaims(PICKUP_CLAIMS);
-  assert.equal(room.ownerOf(pickupKey(1, fire)), null);
+test("offline, the room grants a claim before claim() returns, and the host step grants it once", () => {
+  const me = OFFLINE_PLAYER_ID;
+  const heard: [string, string | null][] = [];
+  // The room the scene plays offline: a client that never dials.
+  const room = new MultiplayerClient({
+    host: "http://127.0.0.1:9",
+    offline: true,
+    onClaim: (key, owner) => heard.push([key, owner]),
+    party: "vg-server",
+    room: "pickup-claims-smoke",
+  });
+  try {
+    const claims = new PickupClaims();
+    const speed: Powerup = { col: 7, kind: "speed", row: 1 };
+    let state = world([fire, speed]);
+    claims.reach(room, state, me, fire);
+    claims.reach(room, state, "bot-1", speed);
+    const keys = [pickupKey(1, fire), pickupKey(1, speed)];
+    assert.deepEqual(heard, [
+      [keys[0], me],
+      [keys[1], me],
+    ]);
+    for (const [key, owner] of heard) {
+      assert.equal(claims.heard(key, owner, me), null, "a grant to this client is no loss");
+    }
+    const granted = claims.settle(room, state, me);
+    assert.equal(granted?.stats[me]?.range, BASE_RANGE + 1);
+    assert.ok((granted?.stats["bot-1"]?.speed ?? Infinity) < baseStats().speed);
+    assert.deepEqual(granted?.powerups, {});
+    state = { ...state, ...granted };
+    assert.equal(claims.settle(room, state, me), null, "nothing left to grant");
+    assert.equal(claims.stats(state, me).range, BASE_RANGE + 1, "counted once");
+    heard.length = 0;
+    room.clearClaims(PICKUP_CLAIMS);
+    assert.deepEqual(heard, [
+      [keys[0], null],
+      [keys[1], null],
+    ]);
+    assert.equal(room.ownerOf(pickupKey(1, fire)), null);
+  } finally {
+    room.destroy();
+  }
 });

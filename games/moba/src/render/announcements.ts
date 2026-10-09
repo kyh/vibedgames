@@ -1,10 +1,11 @@
 // The centre-screen objective banner: one notice shows at a time, higher
 // priorities interrupt, and a small queue holds the rest until they expire.
+// A status (the connection's) holds the ribbon over all of them while it lasts.
 
 import type Phaser from "phaser";
 import { Math as PhaserMath } from "phaser";
 
-import type { ObjectiveNotice } from "../scenes/game-scene";
+import type { ObjectiveNotice, StatusNotice } from "../scenes/game-scene";
 import { FONT } from "./font";
 import { reducedMotion } from "./presentation-settings";
 
@@ -20,9 +21,14 @@ const TONE_COLORS = { bad: "#ffb0a4", good: "#9bf0b4", neutral: "#fff3c4" } sati
   string
 >;
 
-interface Announcement {
-  entry: ObjectiveNotice;
+/** What the ribbon is showing, and for how long (ms). */
+interface Shown {
+  entry: StatusNotice;
   age: number;
+}
+
+interface Announcement extends Shown {
+  entry: ObjectiveNotice;
   remaining: number;
 }
 
@@ -31,6 +37,7 @@ export class AnnouncementBanner {
   private readonly text: Phaser.GameObjects.Text;
   private active: Announcement | null = null;
   private pending: Announcement[] = [];
+  private status: Shown | null = null;
   private readonly scene: Phaser.Scene;
 
   constructor(scene: Phaser.Scene) {
@@ -52,6 +59,16 @@ export class AnnouncementBanner {
       .setOrigin(0.5)
       .setDepth(46_000)
       .setAlpha(0);
+  }
+
+  /** Hold `entry` up, never fading, until it changes or clears (null). The
+   *  queue runs on behind it. */
+  setStatus(entry: StatusNotice | null): void {
+    if (entry === (this.status?.entry ?? null)) {
+      return;
+    }
+    this.status = entry && { age: 0, entry };
+    this.layout();
   }
 
   queue(entry: ObjectiveNotice, now: number): void {
@@ -98,6 +115,9 @@ export class AnnouncementBanner {
   }
 
   update(delta: number, now: number): void {
+    if (this.status) {
+      this.status.age += delta;
+    }
     for (const p of this.pending) {
       p.remaining -= delta;
     }
@@ -126,18 +146,20 @@ export class AnnouncementBanner {
   clear(): void {
     this.active = null;
     this.pending = [];
+    this.status = null;
     this.text.setAlpha(0);
     this.ribbon.setAlpha(0);
   }
 
   layout(): void {
-    const { active } = this;
-    if (!active) {
+    const { status } = this;
+    const shown: Shown | null = status ?? this.active;
+    if (!shown) {
       this.text.setAlpha(0);
       this.ribbon.setAlpha(0);
       return;
     }
-    const { text, tone } = active.entry;
+    const { text, tone } = shown.entry;
     const W = this.scene.scale.width;
     const cy = this.scene.scale.height * 0.26;
     const color = TONE_COLORS[tone];
@@ -150,8 +172,8 @@ export class AnnouncementBanner {
     const fit = Math.min(1, (W - 56) / Math.max(1, this.text.width));
     const entrance = reducedMotion()
       ? 1
-      : 0.6 + 0.4 * PhaserMath.Easing.Back.Out(Math.min(1, active.age / 320));
-    const alpha = Math.min(1, Math.max(0, (SHOW_MS - active.age) / 700));
+      : 0.6 + 0.4 * PhaserMath.Easing.Back.Out(Math.min(1, shown.age / 320));
+    const alpha = status ? 1 : Math.min(1, Math.max(0, (SHOW_MS - shown.age) / 700));
     this.text
       .setPosition(W / 2, cy - 4)
       .setScale(fit * entrance)

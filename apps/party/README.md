@@ -12,28 +12,41 @@ Real-time multiplayer server. Manages rooms, player state, and event broadcastin
 Clients connect via WebSocket. The server handles:
 
 - **Player join/leave** — auto-assigns colors, host migration
-- **Shared state** — `state_patch` messages merged server-side, broadcast to all
+- **Shared state** — `state_patch` messages carry path ops (the leaves that
+  changed), applied server-side and relayed to everyone but the host
 - **Player state** — `player_state_patch` per-player, broadcast to others
 - **Events** — `emit` pass-through for custom game events, optionally addressed
   to (`to`) or excluding (`except`) specific player ids
-- **Reconnection grace** — a dropped (non-1000-close) player's seat is held for
+- **Reconnection grace** — a dropped player's seat is held for
   30s keyed by a client-secret reconnect token; peers see `connected: false`
   until reclaim or expiry. Events fired during the window are NOT buffered or
   replayed — only the seat and its state survive; shared state re-syncs on
-  reclaim. Deliberate leaves (`destroy()`, close code 1000) skip the grace
-  window entirely.
+  reclaim. Deliberate leaves (`destroy()`, close code 1000) and pages that
+  unload (a closed tab, a reload: the browser's 1001) skip the grace window
+  entirely; the token lived in that page, so nothing could reclaim the seat.
 - **Host liveness** — clients heartbeat on a rAF interval (so a backgrounded tab
   stops); a host silent past `HOST_LIVENESS_TIMEOUT_MS` loses the role and the
   server elects a new one, rather than waiting out the TCP timeout. A separate
   `ping`/`pong` distinguishes "hidden" from "gone" for eviction.
 - **Capacity + overflow** — a client advertises its cap via `_maxPlayers`
-  (clamped to a hard ceiling of 64). A join over the cap is redirected to a
+  (clamped to `MAX_ROOM_CAP`, 64). A join over the cap is redirected to a
   sibling room (`{room}~2`, `~3`, …) and reconnects there; a reconnect reclaim
   is never bounced.
-- **Structural limits** — messages over `MAX_MESSAGE_BYTES` are rejected, and
-  patches are checked for shape (plain objects, bounded depth, no cycles or
-  functions). Game-specific schemas are the client's job — the server never
-  knows a game's shape.
+- **Locks + meta** — `room_info`, host only: a locked room redirects newcomers
+  to the overflow sibling as a full one does (a reclaim still gets in), and its
+  meta, at most `MAX_ROOM_META_CHARS` of JSON, is broadcast and listed.
+- **Lobbies** — a room whose rules name a `lobby` reports its players, cap,
+  lock and meta to the `VgLobby` Durable Object of that name: on joins, leaves
+  and changes, debounced, and on every 30 s sweep. `GET /parties/vg-lobby/:lobby`
+  lists the rooms fullest first; `POST` matches a player into the fullest
+  unlocked room with a free seat, or names a new room, holding the seat for a
+  few seconds so simultaneous matches fill one room. A room that misses its
+  reports for 75 s drops off. HTTP routes answer cross-origin (`cors: true`).
+- **Structural limits** — messages over `MAX_MESSAGE_BYTES` are rejected, player
+  patches are checked for shape (plain objects, bounded depth, no prototype
+  keys), and state ops for their paths (keys and indices, no prototype keys) and
+  for how deep they write. Game-specific schemas are the client's job — the
+  server never knows a game's shape.
 - **Server time** — `time` probes are answered with the server's clock at once;
   the SDK turns them into `serverNow()`, one timebase for every client.
 - **Claims** — `claim`/`release`/`clear_claims`: first come, first served per
@@ -79,9 +92,9 @@ is a reserved game slug).
   game state, since room slugs are guessable and games are untrusted code. Wakes the
   room's Durable Object; with no open connections it sleeps again right after.
 
-There is no global room-listing endpoint: Durable Objects have no "list all
-instances" primitive, and maintaining a registry (KV or a directory DO) isn't
-warranted yet. Inspect rooms by id.
+Durable Objects have no "list all instances" primitive, so there is no global
+room list: rooms list themselves in the lobby they name, and a room without one
+is reachable only by id.
 
 ## Design rationale
 
@@ -98,17 +111,22 @@ protocol. Both halves fight this model: authority lives in a client (the host), 
 the server never knows a game's shape — games are untrusted user code shipped against
 one shared, generic relay. Adopting it would mean per-game server code.
 
+Two of its ideas we take without the model. What its schemas buy on the wire: shared
+state syncs as deltas, JSON path ops naming the leaves that changed, so a host moving
+one unit of many sends that unit's coordinates, not the world. And its `joinOrCreate`:
+a lobby lists rooms and matches players into open ones (see Lobbies above).
+
 So we deliberately skip the Colyseus features that only make sense inside that model:
 
 - Declarative `@type` schemas with a binary protocol
 - Server simulation (`setSimulationInterval`) — the tick loop here orders inputs; it simulates nothing
 - Per-field filtered sync (`@filter`) — interest here is one radius rule over player state
-- Server-driven matchmaker — rooms are client-chosen ids
-- Lobby room
+- A matchmaker with filters and ratings — `quickMatch` fills the fullest open room in
+  one lobby; a game wanting modes uses one lobby per mode
 - Redis-backed presence / multi-process scaling — a Durable Object per room gives this for free
 
-Overflow rooms (`{room}~2`, `{room}~3`, …) follow from having no matchmaker: they are
-independent worlds with their own host and `sharedState`, and no cross-room matchmaking.
+Overflow rooms (`{room}~2`, `{room}~3`, …) are independent worlds with their own host
+and `sharedState`; one of a listed room lists itself in the same lobby.
 
 ### Anti-patterns
 

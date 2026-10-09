@@ -1,7 +1,9 @@
-// Two-client online smoke: host + guest through join, wire traffic, pause,
-// rematch, host handoff and a late join. Needs the party server on :8787 and
-// Chrome. `node tools/two-client.mjs [--url http://localhost:PORT]` — without
-// --url it launches its own vite on :5313.
+// Two-client online smoke: host + guest through join, wire traffic, pause, a
+// dropped connection on either side, rematch, host handoff and a late join;
+// then a client no room admits, which plays on against bots offline.
+// Needs the party server on :8787 and Chrome.
+// `node tools/two-client.mjs [--url http://localhost:PORT]` — without --url it
+// launches its own vite on :5313.
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
@@ -36,7 +38,7 @@ const startVite = async () => {
   return child;
 };
 
-const openClient = async (browser, base, name) => {
+const openClient = async (browser, base, name, prepare) => {
   const context = await browser.newContext({ viewport: { height: 540, width: 960 } });
   const page = await context.newPage();
   page.on("pageerror", (e) => errors.push(`${name}: ${e.message}`));
@@ -45,6 +47,7 @@ const openClient = async (browser, base, name) => {
       errors.push(`${name}: ${m.text()}`);
     }
   });
+  await prepare?.(page);
   await page.goto(`${base}/?online=1&room=${room}&name=${name}`);
   return { context, name, page };
 };
@@ -115,6 +118,15 @@ const movesOnKey = async (page, id, sim = page) => {
   assert.ok(before && after, "unit present");
   assert.ok(Math.hypot(after.x - before.x, after.y - before.y) > 0.5, "moved on KeyW");
 };
+
+// A network blip, as the SDK's tests make one: the transport drops without a
+// leave, so the server holds the seat, until the socket redials.
+const dropTransport = (page) => page.evaluate(() => window.__ba.net.socket.close(4000));
+const restoreTransport = (page) => page.evaluate(() => window.__ba.net.socket.reconnect());
+
+// (the scene appears once the arena has loaded)
+const showsStatus = (page, text, label) =>
+  until(page, (expected) => window.__ba?.statusEl.textContent === expected, label, 45_000, text);
 
 const run = async (base) => {
   // Both clients must keep simulating; Chrome otherwise throttles whichever
@@ -197,6 +209,44 @@ const run = async (base) => {
       await key(host.page, "keydown", "Escape", "Escape");
       await until(host.page, () => !window.__ba.controlsPaused, "host resumed");
       assert.equal(await isPaused(host.page), false);
+    });
+    await step("a guest's own drop reads Reconnecting…, then it plays on", async () => {
+      await dropTransport(guest.page);
+      await showsStatus(guest.page, "Reconnecting…", "guest shows its own drop");
+      await until(
+        host.page,
+        (id) => window.__ba.net.players[id]?.connected === false,
+        "host holds the guest's seat",
+        20_000,
+        guestId,
+      );
+      await restoreTransport(guest.page);
+      await until(
+        guest.page,
+        () => window.__GAME_DIAGNOSTICS__.online.connection === "connected",
+        "guest back in the room",
+      );
+      await showsStatus(guest.page, "", "guest back in the match");
+      await movesOnKey(guest.page, guestId, host.page);
+    });
+    await step("a host's own drop: the guest waits, the host keeps the role", async () => {
+      await dropTransport(host.page);
+      await showsStatus(host.page, "Reconnecting…", "host shows its own drop");
+      await showsStatus(guest.page, "Host reconnecting…", "guest waits for the host");
+      // back inside the server's host-liveness window (6 s), so the role stays
+      await restoreTransport(host.page);
+      await until(
+        host.page,
+        (id) => {
+          const d = window.__GAME_DIAGNOSTICS__.online;
+          return d.authority && d.hostId === id && d.takeover === "own";
+        },
+        "host carries the match on from its own world",
+        20_000,
+        hostId,
+      );
+      await showsStatus(guest.page, "", "guest plays on");
+      await movesOnKey(guest.page, guestId, host.page);
     });
     await step("rematch from the host", async () => {
       await endMatch(host.page);
@@ -287,6 +337,42 @@ const run = async (base) => {
       );
       assert.ok((await gameTime(late.page)) > 1, "late joiner lands in a live clock");
       await late.context.close();
+    });
+    await step("no room admits: Connecting…, then a match vs bots, offline", async () => {
+      // A party server out of reach: every dial is refused.
+      const lone = await openClient(browser, base, "Lone", (page) =>
+        page.routeWebSocket(/\/parties\//u, (ws) => ws.close({ code: 1011 })),
+      );
+      await showsStatus(lone.page, "Connecting…", "no room yet");
+      // The 8 s fallback counts rendered frames, so a slow page takes longer.
+      await until(
+        lone.page,
+        () => {
+          const d = window.__GAME_DIAGNOSTICS__;
+          return d?.online?.connection === "offline" && d.online.authority && !!d.player;
+        },
+        "hosts its own room of one",
+        60_000,
+      );
+      await until(
+        lone.page,
+        () => document.querySelector("#ba-toasts")?.textContent?.includes("SERVER UNREACHABLE"),
+        "says why",
+      );
+      const heroes = await lone.page.evaluate(
+        () => [...window.__ba.world.units.values()].filter((u) => u.kind === "hero").length,
+      );
+      assert.equal(heroes, 4, "bots fill the arena");
+      await movesOnKey(lone.page, "solo");
+      // nobody shares this match, so a pause freezes it as it does solo
+      await key(lone.page, "keydown", "Escape", "Escape");
+      await until(lone.page, () => window.__ba.controlsPaused, "paused");
+      const t0 = await gameTime(lone.page);
+      await wait(1000);
+      assert.equal(await gameTime(lone.page), t0, "frozen while paused");
+      await key(lone.page, "keydown", "Escape", "Escape");
+      await until(lone.page, () => !window.__ba.controlsPaused, "resumed");
+      await lone.context.close();
     });
   } finally {
     console.log(results.join("\n"));

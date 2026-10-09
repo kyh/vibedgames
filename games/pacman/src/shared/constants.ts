@@ -319,13 +319,14 @@ export const OFFLINE_FALLBACK_MS = 8000;
 /** Own pac position/score send rate. */
 export const NET_TICK_HZ = 20;
 /**
- * How far behind its fastest recent report a rival is drawn (ms). Each rival's
- * clock learns its route's quickest transit, so the delay only has to cover
- * how much slower a report may be than that, plus one 50 ms send interval:
- * 150 holds a relay that wanders over 100 ms (50 to 150 ms) without running
- * past the newest report, on a fast route or a slow one.
+ * The least a rival is drawn behind its fastest recent report (ms): one 50 ms
+ * send interval plus a little jitter, the usual floor for a 20 Hz sender. Each
+ * rival's clock also measures how much later than that its reports land
+ * (`RemoteClock.hold`), and on a route that wanders more the delay grows to
+ * cover it: a calm route draws the rival this close, and a jittery one still
+ * never runs past the newest report.
  */
-export const RIVAL_DELAY_MS = 150;
+export const RIVAL_DELAY_MS = 100;
 /**
  * How far past its newest report a rival is carried on when the next one is
  * late (ms) — one whole step. Never past the next cell centre (pac-track), so

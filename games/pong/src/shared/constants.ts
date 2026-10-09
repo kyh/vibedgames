@@ -123,7 +123,7 @@ export const MP_MAX_PLAYERS = 2;
 export const OFFLINE_FALLBACK_MS = 4000;
 // A rollback that moves the drawn ball up to this far (world units) is eased
 // out of the picture over BALL_EASE_S; a larger jump is a different rally and
-// snaps. The rival's paddle eases the same way.
+// snaps.
 export const BALL_SNAP = 3;
 export const BALL_EASE_S = 0.08;
 

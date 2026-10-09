@@ -3,6 +3,8 @@ import { test } from "node:test";
 
 import { FixedRate } from "../src/fixed-rate.js";
 import { Interpolator, lerp, lerpAngle } from "../src/interpolation.js";
+import { netStats } from "../src/net-stats.js";
+import type { NetProbe } from "../src/net-stats.js";
 import { Reconciler } from "../src/prediction.js";
 import { RemoteClock } from "../src/remote-clock.js";
 import { ServerClock } from "../src/server-clock.js";
@@ -72,6 +74,28 @@ test("RemoteClock estimates the offset from the fastest arrival and slews revisi
   assert.equal(clock.now(10_400), 5000);
 });
 
+test("RemoteClock relearns a new route by easing onto it, not riding the old one", () => {
+  // Server-time stamps reach us 10 s + the trip later on our clock. Host A's route: 40 ms.
+  const relearned = new RemoteClock();
+  const stale = new RemoteClock();
+  for (const clock of [relearned, stale]) {
+    clock.observe(0, 10_040);
+    clock.observe(50, 10_090);
+    assert.equal(clock.now(10_100), 60);
+  }
+  // Host B takes over the same timebase by a route 50 ms slower.
+  relearned.relearn();
+  for (const clock of [relearned, stale]) {
+    clock.observe(100, 10_190);
+  }
+  // Eased, not jumped: 100 ms on, 10 ms of the 50 has applied…
+  assert.equal(relearned.now(10_200), 150);
+  // …and by half a second it runs on B's route, while the stale clock still
+  // reads the old route's 40 ms and draws every frame from B 50 ms early.
+  assert.equal(relearned.now(10_700), 610);
+  assert.equal(stale.now(10_700), 660);
+});
+
 test("ServerClock reads the offset off the fastest probe and keeps it", () => {
   const clock = new ServerClock();
   assert.equal(clock.synced, false);
@@ -133,6 +157,45 @@ test("Interpolator on a shared clock renders without estimating per sender", () 
   assert.equal(interp.sample(175)?.x, 7.5, "server time 1 000 075, drawn 100 ms behind");
 });
 
+test("Interpolator counts the frames it draws past the newest update, for __VG_NET__", () => {
+  const clock = new ServerClock();
+  clock.sample(0, 1_000_000, 0);
+  const interp = new Interpolator<Pose>({
+    clock,
+    delayMs: 100,
+    lerp: lerpPose,
+    maxExtrapolateMs: 50,
+  });
+  const before = netStats();
+  for (const [stamp, x] of [
+    [1_000_000, 0],
+    [1_000_100, 10],
+  ] as const) {
+    interp.push(stamp, { x }, 0);
+  }
+  // Drawn at server time 1 000 050 (between the updates), then 30 ms past the
+  // newest (extrapolated: starved), then 100 ms past it, beyond the 50 ms
+  // limit (held: starved and stalled).
+  for (const localNow of [150, 230, 300]) {
+    interp.sample(localNow);
+  }
+  const after = netStats();
+  assert.deepEqual(
+    {
+      frames: after.frames - before.frames,
+      stalled: after.stalled - before.stalled,
+      starved: after.starved - before.starved,
+      updates: after.updates - before.updates,
+    },
+    { frames: 3, stalled: 1, starved: 2, updates: 2 },
+  );
+  const probe: NetProbe | undefined = Object.getOwnPropertyDescriptor(
+    globalThis,
+    "__VG_NET__",
+  )?.value;
+  assert.deepEqual(probe?.stats(), after, "the page global reads the same totals");
+});
+
 test("Interpolator renders jittery 20 Hz updates as steady motion", () => {
   const interp = new Interpolator<Pose>({ delayMs: 100, lerp: lerpPose });
   // Units per ms on the sender's clock.
@@ -167,6 +230,156 @@ test("Interpolator renders jittery 20 Hz updates as steady motion", () => {
     // Within 15% of true per-frame motion: no surges, stalls or reversals.
     assert.ok(Math.abs(step - expected) < expected * 0.15, `frame step ${step} vs ${expected}`);
   }
+});
+
+/** A stream of `seconds` at `hz`: each stamp, and when it lands — skew, a fixed route and up to `jitterMs` more. */
+const stream = (hz: number, seconds: number, jitterMs: number): { at: number; t: number }[] =>
+  Array.from({ length: hz * seconds }, (_, i) => {
+    const t = (i * 1000) / hz;
+    return { at: t + 7000 + 60 + noise(i) * jitterMs, t };
+  });
+
+test("RemoteClock measures the delay a stream needs: its interval plus how late the next update lands", () => {
+  const steady = new RemoteClock();
+  for (const { at, t } of stream(20, 5, 0)) {
+    steady.observe(t, at);
+  }
+  // The first read starts easing the estimate in; two seconds on it is there.
+  assert.equal(steady.hold(12_100), 0, "the first estimate eases in from nothing");
+  assert.ok(Math.abs(steady.hold(14_100) - 50) < 1, "an even stream needs one interval");
+
+  const jittery = new RemoteClock();
+  for (const { at, t } of stream(20, 5, 80)) {
+    jittery.observe(t, at);
+  }
+  jittery.hold(12_100);
+  const hold = jittery.hold(14_100);
+  // 95% of updates land within the interval plus 95% of the jitter.
+  assert.ok(hold > 110 && hold < 132, `hold ${hold}`);
+});
+
+test("RemoteClock eases a new stream's hold in from its reader's floor", () => {
+  const clock = new RemoteClock();
+  for (const { at, t } of stream(20, 5, 80)) {
+    clock.observe(t, at);
+  }
+  // The stream needs more than the reader's 100 ms: it starts there, not at 0,
+  // and grows by at most a tenth of the time since.
+  assert.equal(clock.hold(12_100, 100), 100);
+  const next = clock.hold(12_200, 100);
+  assert.ok(next > 100 && next <= 110 + 1e-9, `hold ${next}`);
+  assert.ok(clock.hold(14_100, 100) > 110, "and gets there");
+  // Below the floor there is nothing to ease: the reader draws at its floor.
+  const steady = new RemoteClock();
+  for (const { at, t } of stream(20, 5, 0)) {
+    steady.observe(t, at);
+  }
+  assert.ok(Math.abs(steady.hold(12_100, 100) - 50) < 1, "an even stream needs one interval");
+});
+
+test("RemoteClock's hold ignores idle silences and other entities' copies of a stamp", () => {
+  const clock = new RemoteClock();
+  const arrivals = stream(20, 3, 0);
+  for (const { at, t } of arrivals) {
+    clock.observe(t, at);
+    // A second entity in the same message.
+    clock.observe(t, at + 2);
+  }
+  // Two seconds of silence, then the stream picks up again.
+  for (const { at, t } of stream(20, 1, 0)) {
+    clock.observe(t + 5000, at + 5000);
+  }
+  clock.hold(12_000);
+  assert.ok(Math.abs(clock.hold(13_000) - 50) < 1, `hold ${clock.hold(13_000)}`);
+
+  clock.reset();
+  assert.equal(clock.hold(13_100), 0, "a reset clock has measured nothing");
+});
+
+test("RemoteClock slews a changed hold instead of jumping render time", () => {
+  const clock = new RemoteClock();
+  for (const { at, t } of stream(20, 5, 0)) {
+    clock.observe(t, at);
+  }
+  clock.hold(11_100);
+  const before = clock.hold(12_100);
+  assert.ok(Math.abs(before - 50) < 1, `settled at ${before}`);
+  // The route turns jittery.
+  for (const { at, t } of stream(20, 5, 160)) {
+    clock.observe(t + 5000, at + 5000);
+  }
+  const after = clock.hold(12_200);
+  assert.ok(after - before <= 100 * 0.1 + 1e-9, `moved ${after - before} in 100 ms`);
+  assert.ok(clock.hold(22_000) > 150, "and gets there");
+});
+
+test("Interpolator renders a jittery stream at the hold it needs, where a fixed delay runs dry", () => {
+  const starvedShare = (
+    interp: Interpolator<Pose>,
+    arrivals: { at: number; t: number }[],
+  ): number => {
+    let next = 0;
+    let newest = Number.NEGATIVE_INFINITY;
+    let frames = 0;
+    let starved = 0;
+    for (let at = 7000 + 2000; at < 7000 + 9500; at += 1000 / 30) {
+      while (next < arrivals.length && (arrivals[next]?.at ?? Infinity) <= at) {
+        const arrival = arrivals[next];
+        if (arrival) {
+          interp.push(arrival.t, { x: arrival.t }, arrival.at);
+          newest = Math.max(newest, arrival.t);
+        }
+        next += 1;
+      }
+      interp.sample(at);
+      frames += 1;
+      if (interp.renderTime(at) > newest) {
+        starved += 1;
+      }
+    }
+    return starved / frames;
+  };
+  const arrivals = stream(20, 10, 120);
+  const adaptive = starvedShare(new Interpolator<Pose>({ lerp: lerpPose }), arrivals);
+  // The same 100 ms on a clock with no arrival model: the default before the hold.
+  const route = new RemoteClock();
+  const fixed = starvedShare(
+    new Interpolator<Pose>({
+      clock: { now: (t) => route.now(t), observe: (a, b) => route.observe(a, b), synced: true },
+      lerp: lerpPose,
+    }),
+    arrivals,
+  );
+  assert.ok(adaptive < 0.08, `adaptive starved ${adaptive}`);
+  assert.ok(fixed > 0.3, `fixed starved ${fixed}`);
+});
+
+test("Interpolator eases a new stream into a hold above its delay instead of stepping back", () => {
+  const interp = new Interpolator<Pose>({ lerp: lerpPose });
+  const arrivals = stream(20, 6, 120);
+  let next = 0;
+  let previous = Number.NEGATIVE_INFINITY;
+  let backward = 0;
+  for (let at = 7000; at < 7000 + 6000; at += 1000 / 60) {
+    while (next < arrivals.length && (arrivals[next]?.at ?? Infinity) <= at) {
+      const arrival = arrivals[next];
+      if (arrival) {
+        interp.push(arrival.t, { x: arrival.t }, arrival.at);
+      }
+      next += 1;
+    }
+    if (next === 0) {
+      continue;
+    }
+    const renderAt = interp.renderTime(at);
+    if (renderAt < previous) {
+      backward = Math.max(backward, previous - renderAt);
+    }
+    previous = renderAt;
+  }
+  const hold = interp.clock.hold?.(7000 + 6000) ?? 0;
+  assert.ok(hold > 100, `the stream needs more than delayMs: ${hold}`);
+  assert.equal(backward, 0, `render time stepped back ${backward} ms`);
 });
 
 test("Interpolator extrapolates a late update briefly, then holds", () => {

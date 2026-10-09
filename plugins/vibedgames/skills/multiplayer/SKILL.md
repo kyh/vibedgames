@@ -64,7 +64,30 @@ const client = new MultiplayerClient({
 client.room; // the room you actually landed in — "arena" or an overflow sibling
 ```
 
-`useMultiplayerRoom` takes the same `maxPlayers` option; read the live id off `room.room` for "Room #2"-style UI. Enforced server-side and clamped to a hard ceiling. All clients must pass the **same** `maxPlayers` (ship it in shared config). Overflow rooms are independent worlds (separate host, separate `sharedState`) — no cross-room matchmaking. Omit `maxPlayers` for unlimited.
+`useMultiplayerRoom` takes the same `maxPlayers` option; read the live id off `room.room` for "Room #2"-style UI. Enforced server-side and clamped to `MAX_ROOM_CAP` (64). All clients must pass the **same** `maxPlayers` (ship it in shared config). Overflow rooms are independent worlds (separate host, separate `sharedState`). Omit `maxPlayers` for unlimited.
+
+## Quick match, lobbies, private rooms
+
+For "Play online" without a room code, list rooms in a lobby and quick-match into one:
+
+```ts
+import { MultiplayerClient, quickMatch } from "@vibedgames/multiplayer";
+
+const lobby = "bomberman"; // one per game, or per mode
+const room = await quickMatch({ host: PARTY_HOST, lobby, maxPlayers: 4 });
+const client = new MultiplayerClient({
+  host: PARTY_HOST,
+  party: "vg-server",
+  room,
+  lobby,
+  maxPlayers: 4,
+});
+```
+
+- `quickMatch` returns the fullest unlocked room with a free seat, or a new room id. Players matching at the same moment land together.
+- `listRooms({ host: PARTY_HOST, lobby })` returns `{ room, players, capacity, locked, meta }[]`, fullest first, for a room browser.
+- The host publishes with `client.setRoomInfo({ locked, meta })`; everyone reads `client.roomInfo`. Lock when a round starts, so latecomers get a fresh room instead of joining mid-round, and unlock when it ends. `meta` (≤ `MAX_ROOM_META_CHARS` of JSON) is what a room browser shows; it is host-written, so display it, never trust it.
+- Private room ("play with friends"): omit `lobby` and use an unguessable id (`crypto.randomUUID()`) shared as a link. A room takes its lobby from its first player, so a friend joining with `lobby` set doesn't list it.
 
 ## Host-only writes (important)
 
@@ -74,20 +97,21 @@ client.room; // the room you actually landed in — "arena" or an overflow sibli
 // Wrong — non-host's mutation gets reverted, the UI flickers.
 client.updateSharedState({ score: client.sharedState.score + 10 });
 
-// Right — gate the mutation; non-hosts request the change instead.
-if (client.isHost) {
-  client.updateSharedState({ score: client.sharedState.score + 10 });
-} else {
-  client.sendEvent("score_request", { delta: 10 });
+// Right — every player, the host included, asks; the host's onEvent applies it.
+client.sendToHost("score_request", { delta: 10 });
+
+// in the client's onEvent:
+if (event === "score_request" && client.isHost) {
+  client.updateSharedState({ score: client.sharedState.score + payload.delta });
 }
 ```
 
-The pattern: **intents go up via `sendEvent`, state comes down via `sharedState` patches**. Host listens for intent events, validates, and writes the result.
+The pattern: **intents go up via `sendToHost`, state comes down via `sharedState` patches**. The host validates each intent and writes the result. A guest's intent reaches the host alone; the host's own is handled at once, without a server round trip.
 
 `updateMyState` is _not_ host-gated — players always own their own slot. **The corollary bites: the host cannot use `updateMyState` to mark _other_ players dead/disabled either, because that call only ever writes the caller's own slot.** Cross-player flags (deaths, scores, banned-from-round) belong in `sharedState`.
 
 - **The host sim owes wall-clock time.** Phaser clamps `update()`'s `delta` when the tab is unfocused; a host that integrates `delta` crawls for every guest. Step the host sim from real elapsed time (a fixed-step loop over `performance.now()` deltas), not the engine's delta.
-- **`offline` (no server) ≠ solo.** A connected host alone in a room is `offline === false`; gate bots and start-screen holds on `Object.keys(client.players).length <= 1`, never on `offline`.
+- **Offline (no server) ≠ solo.** A connected host alone in a room is not `connectionStatus === "offline"`; gate bots and start-screen holds on `Object.keys(client.players).length <= 1`, never on being offline.
 
 ### `updateSharedState` merges — your "reset" patch must include every field
 
@@ -109,7 +133,7 @@ client.updateSharedState({
 });
 ```
 
-Keep a single `emptyState()` factory whose return type matches your `SharedState` exactly (so TS errors when you add a field). The function form `updateSharedState(prev => emptyState())` still goes through the same merge on the wire, so it still needs every field populated.
+Keep a single `emptyState()` factory whose return type matches your `SharedState` exactly (so TS errors when you add a field). The function form replaces the whole state instead: `updateSharedState(() => emptyState())` resets cleanly, and any key it leaves out is deleted for everyone.
 
 ### Don't read player order before the first sync arrives
 
@@ -144,18 +168,29 @@ setSpawn(SPAWNS[idx]);
 1. Run the game's dev server, open it in **two browser tabs** with the same room id (use an incognito window for tab 2 if the game reads per-browser storage). Tab 1 is host.
 2. Smoke both directions: move in tab 2, confirm tab 1 renders it; trigger a host write in tab 1, confirm tab 2 receives the patch.
 3. **Host migration:** close tab 1. Tab 2 must promote to host and the round must survive (if the world resets here, you're re-seeding on promotion — see Seeding host-side).
-4. **Latency pass:** in one tab, DevTools → Network → custom throttling profile with ~200ms latency (DevTools throttling applies to WebSockets). Play for a minute. Movement jitter, rubber-banding, and event/state races only show up here — localhost's ~0ms RTT hides all of them.
+4. **Latency pass:** run the net check against the dev server. It opens two headless clients in a fresh room with 80 ms ± 40 ms one-way lag on the party socket, moves both, and reports how often each drew the other past the newest update (`starved`) or froze (`stalled`):
+
+   ```bash
+   SKILL="${CLAUDE_SKILL_DIR}"
+   [ -d "$SKILL" ] || for d in .agents/skills .claude/skills ~/.agents/skills ~/.claude/skills; do
+     [ -d "$d/multiplayer" ] && SKILL=$d/multiplayer && break
+   done
+   node "$SKILL/scripts/net-check.mjs" http://localhost:5173 --json
+   ```
+
+   Exit 0 is smooth; 1 is choppy, stalling or never connected; 3 means it couldn't judge (remotes not drawn through `Interpolator`, or the machine ran a page under 20 fps; with no GPU, as in most containers, add `--no-draw` for a WebGL game: its draws become no-ops and everything else runs). It needs `playwright` in the game project, a `?room=` query param (rename with `--room-param`), and keys from your `window.__GAME_PLAYTEST__` moves (else arrows + WASD). By hand, the same pass is DevTools → Network → a custom ~200 ms latency profile (it applies to WebSockets) in one of two tabs. Localhost's ~0 ms round trip hides jitter, rubber-banding and event/state races; this is where they show.
+
 5. **Automated two-client check:** a Playwright harness with two headless contexts in one room — run one suite at a time, unique room id per run, `client.destroy()` before closing a context, assert on both clients' state. The full trap list — GPU flags, grace/eviction timing, blips vs leaves, virtual time — is in [references/architecture.md](references/architecture.md) → Automated two-client check.
 
 ## Anti-patterns
 
-- ❌ **Mutating the local mirror directly.** `client.sharedState.score = 100` is silently overwritten on the next patch.
+- ❌ **Mutating the local mirror directly.** `client.sharedState.score = 100` (or pushing into an array read from it) is never sent, and nothing overwrites it: a patch touches only the leaves that changed, so the edit outlives it and this client's copy drifts from the room's. Write through `updateSharedState`; `structuredClone` anything read from shared state before editing it.
 - ❌ **Sending positions as events.** Position belongs in `updateMyState`. Events are for things that _happened_.
 - ❌ **Drawing remotes at their newest value.** Snapping, per-packet tweens and exponential "chase the latest" lerps all show network jitter as stutter. Stamp sends with `t: client.serverNow()` and render through `Interpolator` (never on `client.serverClock` with a fixed delay — a stamp arrives a whole relay late).
 - ❌ **Letting the host settle races.** A guest's pickup waits a round trip and the host wins every tie. Use `client.claim(key)`.
 - ❌ **Making a guest wait for the host to move its own character.** That is a full round trip of input lag. Predict locally and correct with `Reconciler` — against where the body _was_, never where it is now.
 - ❌ **`acc = 0` or `frame % n` send throttles.** They drift, alternate gap lengths, or scale with refresh rate. Use `FixedRate`.
-- ❌ **Whole-world snapshots every tick.** The SDK re-sends any object or array key in full on every call. Send small primitive rows per tick, slow-changing state on change, and the full world rarely (for host handover).
+- ❌ **Arrays for collections that grow and shrink.** Shared state diffs to the leaf, so a world written every tick sends only what moved — but an array that changes length is re-sent whole. Key collections by id (`units: { u7: {...} }`). Player state is coarser still: `updateMyState` re-sends any object or array key in full on every call, so keep it to flat primitives.
 - ❌ **Welding multiplayer into Phaser scene `update()`.** Use the adapter pattern. Single-player should still work after `rm -rf net/`.
 - ❌ **No connection-state UI.** A disconnected game looks identical to a frozen one. Render the status.
 - ❌ **Freezing a sim whose timers are raw `Date.now()`.** Resume mass-expires every fuse. Pause via an offset sim clock; online, pause = spectator.

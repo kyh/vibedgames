@@ -12,7 +12,7 @@ The oRPC API's single source of truth: every procedure's input, output and OpenA
 | `deploy`   | Game deploys: create (presigned R2 upload URLs) + finalize          |
 | `generate` | Asset generation proxy for `vg generate` (server holds the API key) |
 | `playtest` | Decision-model proxy for `vg playtest run`, and the in-page token   |
-| `credits`  | Balance + usage, code redemption, Stripe checkout                   |
+| `credits`  | Balance + usage, code redemption, Stripe checkout (when configured) |
 | `admin`    | Admin-only operations                                               |
 
 ## Layout

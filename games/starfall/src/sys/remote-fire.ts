@@ -49,11 +49,11 @@ export interface RemoteFireDeps {
 /**
  * Every other player's shots, rebuilt from their `fire` events and flown
  * here with the same beam code as mine (sys/beam-sim.ts). A shot is stamped
- * with server time, like its shooter's pose, and plays on the clock that
- * shooter's ship is drawn on (net/peer-roster.ts) — REMOTE_RENDER_DELAY_MS
- * behind the moment its updates arrive — so it leaves the hull where you see
- * it. Victims hit-test these copies (sys/shield.ts): what drains you is what
- * you saw.
+ * with server time, like its shooter's pose, and plays at the moment that
+ * shooter's ship is drawn at (net/peer-roster.ts renderTime) — at least
+ * REMOTE_RENDER_DELAY_MS behind the moment its updates arrive, more when its
+ * stream needs it — so it leaves the hull where you see it. Victims hit-test
+ * these copies (sys/shield.ts): what drains you is what you saw.
  */
 export class RemoteFire {
   private readonly shooters = new Map<string, Shooter>();
@@ -77,10 +77,13 @@ export class RemoteFire {
   }
 
   /** A `fire` event (socket listener): decode and queue — the work happens
-   *  in the frame loop. Its arrival also teaches the shooter's clock. Events
-   *  are not interest-filtered: a shooter out of range fires from past the
-   *  edge of the screen, so its shots are dropped here, like the hull. */
-  receive(from: string, payload: WireValue, perfNow: number): void {
+   *  in the frame loop. Its stamp does not teach the shooter's clock: that
+   *  clock sizes the hull's pose buffer from how long each pose stays the
+   *  newest, and a shot landing between two poses would read as a pose. A
+   *  shot from a shooter with no state yet never plays anyway. Events are
+   *  not interest-filtered: a shooter out of range fires from past the edge
+   *  of the screen, so its shots are dropped here, like the hull. */
+  receive(from: string, payload: WireValue): void {
     if (from === this.link.myId || this.link.peers[from]?.visible === false) {
       return;
     }
@@ -88,7 +91,6 @@ export class RemoteFire {
     if (!spec) {
       return;
     }
-    this.roster.observe(from, spec.t, perfNow);
     const { queue } = this.shooterFor(from);
     queue.push(spec);
     if (queue.length > QUEUE_CAP) {

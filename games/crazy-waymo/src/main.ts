@@ -126,8 +126,8 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 0.62;
 container.append(renderer.domElement);
 
-// Trailer mode (?trailer=1): forces an offline solo session at construction
-// and skips the landing screen; the director itself is a lazy chunk loaded
+// Trailer mode (?trailer=1): plays offline (the room is never dialled) and
+// skips the landing screen; the director itself is a lazy chunk loaded
 // below — zero cost normally.
 const trailerMode = new URLSearchParams(window.location.search).has("trailer");
 setRenderCapabilities({ multiDraw: renderer.extensions.has("WEBGL_multi_draw") });

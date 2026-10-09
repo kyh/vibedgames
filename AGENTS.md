@@ -125,7 +125,7 @@ vg playtest screenshot /tmp/after.png
 
 The auth form uses react-hook-form, so prefer the `data-test` attributes over positional refs for the two credential fields; everything else is reliable off `snapshot`.
 
-Six flows cover all ten `useMutation` sites in the app: `/settings` (create + revoke an API key), `/admin/invites` (create + revoke a code), `/admin/users` (create a user, grant credits, then re-check `/settings`), `/home` (delete a game), `/settings` again (click "Have a code? Redeem it" and type `DEV123` into the dialog — that is the `credits.redeem` mutation; a second redeem by the same account answers 409; the buy buttons fire `credits.checkout`, which answers 412 without `STRIPE_SECRET_KEY`), `/auth/cli?code=<code>` (confirm a CLI device code — fires on mount, and deliberately invalidates nothing).
+Six flows cover all ten `useMutation` sites in the app: `/settings` (create + revoke an API key), `/admin/invites` (create + revoke a code), `/admin/users` (create a user, grant credits, then re-check `/settings`), `/home` (delete a game), `/settings` again (click "Have a code? Redeem it" and type `DEV123` into the dialog — that is the `credits.redeem` mutation; a second redeem by the same account answers 409; the buy buttons, which fire `credits.checkout`, render only when both `STRIPE_*` keys are set — without them `credits.me` reports `purchasesEnabled: false` and the section offers a code button instead), `/auth/cli?code=<code>` (confirm a CLI device code — fires on mount, and deliberately invalidates nothing).
 
 ## Platform matrix
 

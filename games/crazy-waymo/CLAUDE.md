@@ -258,6 +258,17 @@ sample count is reported explicitly, never as proof of stable memory.
 Safari with one owned iPhone simulator; see `--help` for Appium setup. Run these
 serially. Neither simulator nor desktop throttling measures phone thermals.
 
+**Lag check.** Point the multiplayer skill's `scripts/net-check.mjs` at
+`http://localhost:5193/?online`: on the dev server `?online&room=<id>` skips
+the title into a run in that room, every such client from the same street, so
+the check's two clients meet and drive at once. Without a GPU two
+software-rendered pages take about ten minutes to load and then draw ~1 fps,
+so the stock check gives up on them ("never connected" after 30 s each) and a
+longer wait only reads "too slow": that is the machine, not the netcode. With
+the draw stubbed (dev publishes `window.__renderer` and `__post`; replace
+their `render` from an init script) both pages load in under a minute and run
+at 60 fps.
+
 City transforms seal after load (`render/static-world-group.ts`); editor roots
 stay live. Late parcel cells must compose their world matrices after attachment
 before adopting frozen flags. Baked restoration skips cache recapture; the cold

@@ -4,6 +4,7 @@ import { PhysicalGamepad, stickDirection4 } from "@vibedgames/gamepad";
 import type { Dir4 } from "@vibedgames/gamepad";
 import { attachVirtualGamepad, safeAreaInset } from "@vibedgames/gamepad/phaser";
 import type { Inset } from "@vibedgames/gamepad/phaser";
+import type { MultiplayerConnectionStatus } from "@vibedgames/multiplayer";
 import { HOTBAR } from "../systems/inventory";
 import { store } from "../systems/store";
 import { itemIcon, itemName } from "../data/items";
@@ -38,6 +39,15 @@ const BAR_FULL = 0x7e_d9_57;
 const BAR_HP_FULL = 0xff_7b_7b;
 const BAR_LOW = 0xff_cf_4d;
 const BAR_EMPTY = 0xff_5d_5d;
+
+/** What the HUD says while this farmer is out of the co-op room: joining it,
+ *  or back from a drop while the room holds the seat. Offline play is quiet. */
+const CONNECTION_NOTICE: Partial<
+  Record<MultiplayerConnectionStatus, { text: string; color: string }>
+> = {
+  connecting: { color: "#dfe9ff", text: "Connecting…" },
+  reconnecting: { color: "#ffd27a", text: "Reconnecting…" },
+};
 
 export type ModalKind = "shop" | "animals" | "sleep";
 
@@ -132,6 +142,11 @@ export class HudScene extends Scene {
   private toolTip!: Phaser.GameObjects.Text;
   private actionTip: Phaser.GameObjects.Text | null = null;
   private notices: ToastNotice[] = [];
+  /** The co-op connection's notice (CONNECTION_NOTICE): it heads the toast
+   *  column for as long as the status lasts. */
+  private netNotice!: Phaser.GameObjects.Text;
+  /** The status the notice last showed. */
+  private netShown: MultiplayerConnectionStatus | null = null;
   private dayCard: DayCard | null = null;
   private modal: Phaser.GameObjects.Container | null = null;
   private modalKind: ModalKind | null = null;
@@ -167,6 +182,7 @@ export class HudScene extends Scene {
     this.padStickDir = null;
     this.dialogueBox = null;
     this.notices = [];
+    this.netShown = null;
     this.dayCard = null;
     this.hudSig = "";
     this.slot = SLOT;
@@ -240,6 +256,18 @@ export class HudScene extends Scene {
         strokeThickness: 3,
       })
       .setOrigin(0.5, 1);
+
+    this.netNotice = this.add
+      .text(0, 0, "", {
+        fontFamily: FONT,
+        fontSize: "12px",
+        fontStyle: "bold",
+        stroke: "#2a1e0e",
+        strokeThickness: 3,
+      })
+      .setOrigin(0.5, 0)
+      .setDepth(100)
+      .setVisible(false);
 
     // Touch controls live HERE (not in GameScene) so the overlay isn't
     // transformed by the game camera's zoom. The Hud's input plugin processes
@@ -473,6 +501,21 @@ export class HudScene extends Scene {
     this.toolTip.setText(tip);
     const hint = this.g.uiOpen || this.dialogueBox ? null : this.g.actionHint();
     this.actionTip?.setText(hint ?? "").setVisible(hint !== null);
+    this.showConnection(this.g.connectionStatus());
+  }
+
+  /** Head the toast column with the connection's notice while it lasts. */
+  private showConnection(status: MultiplayerConnectionStatus | null): void {
+    if (status === this.netShown) {
+      return;
+    }
+    this.netShown = status;
+    const notice = status === null ? undefined : CONNECTION_NOTICE[status];
+    if (notice) {
+      this.netNotice.setText(notice.text).setColor(notice.color);
+    }
+    this.netNotice.setVisible(notice !== undefined);
+    this.layoutNotices();
   }
 
   /** Everything the Graphics-drawn HUD (hotbar, panels, bars) depends on. */
@@ -616,6 +659,10 @@ export class HudScene extends Scene {
   private layoutNotices(): void {
     const W = this.scale.width;
     let y = 92 + this.inset.top;
+    if (this.netNotice.visible) {
+      this.netNotice.setPosition(W / 2, y);
+      y += this.netNotice.height + 8;
+    }
     for (const notice of this.notices) {
       notice.node.setWordWrapWidth(Math.max(80, W - 48 - this.inset.left - this.inset.right));
       notice.node.setPosition(W / 2, y);

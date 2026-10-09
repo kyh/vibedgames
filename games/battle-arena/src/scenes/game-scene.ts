@@ -7,11 +7,12 @@ import { AbilityGuide } from "../render/ability-guide";
 // on the same movement code, draws everyone else interpolated slightly in the
 // past (net/mirror.ts), and sends its input to the host once per tick when it
 // changes. Only the server elects a host.
-import { MultiplayerClient, ServerClock } from "@vibedgames/multiplayer";
+import { MultiplayerClient } from "@vibedgames/multiplayer";
 import {
   ARENA_BOT_FILL,
   KILL_GOAL_FFA,
   MAX_CATCH_UP_TICKS,
+  ONLINE_FALLBACK_MS,
   SHOP_RADIUS,
   SIM_DT,
 } from "../data/config";
@@ -192,7 +193,7 @@ export class GameScene {
   // host: the fixed-step loop, frame stream and guest input buffers
   private hostNet = new HostNet();
   // guest: the host's world as received, and the own hero's prediction
-  private readonly mirror: NetMirror;
+  private readonly mirror = new NetMirror();
   private readonly predictor = new OwnHeroPredictor();
   // guest: controls held this frame (the predictor samples them per tick)
   private held: HeldInput = { attack: false, ax: 0, ay: 1, mx: 0, my: 0 };
@@ -211,13 +212,6 @@ export class GameScene {
   private neutralPending = false;
   // enemies (creeps + champions) the local player has slain this match
   private takedowns = 0;
-  /** A closed tab must vacate its seat now: an un-destroyed socket parks the
-   * host in the server's reconnect grace and guests stare at a frozen world. */
-  private readonly onPageHide = (event: PageTransitionEvent): void => {
-    if (!event.persisted) {
-      this.net?.destroy();
-    }
-  };
 
   private view: View;
   private controls: Controls;
@@ -239,8 +233,11 @@ export class GameScene {
     this.online = { kind: opts.online ? "connecting" : "offline" };
     if (opts.online) {
       this.world = emptyGuestWorld();
-      window.addEventListener("pagehide", this.onPageHide);
+      // No unload hook: a page that closes or reloads leaves the room at once
+      // (the browser closes the socket with 1001, which the server takes as a leave).
       this.net = new MultiplayerClient({
+        // no room in time: the client becomes a room of one, hosted like any
+        fallbackMs: ONLINE_FALLBACK_MS,
         host: MULTIPLAYER_HOST,
         maxPlayers: ARENA_BOT_FILL,
         onEvent: (e, p, from) => this.onNetEvent(e, p, from),
@@ -253,8 +250,6 @@ export class GameScene {
         this.introTime = INTRO_S;
       }
     }
-    // frames are stamped with the room's server time, whoever hosts
-    this.mirror = new NetMirror(this.net?.serverClock ?? new ServerClock());
 
     this.worldView = new WorldView(view.scene, lib);
     this.worldView.localId = this.localId;
@@ -349,6 +344,12 @@ export class GameScene {
     return this.net === null;
   }
 
+  /** Whether other players can share this match: an online scene whose client
+   *  has not fallen back to the SDK's room of one. main.ts never freezes it. */
+  get isLive(): boolean {
+    return this.net !== null && this.net.connectionStatus !== "offline";
+  }
+
   private get amHost(): boolean {
     return this.online.kind === "offline" || this.online.kind === "host";
   }
@@ -356,6 +357,23 @@ export class GameScene {
   private get hostDropped(): boolean {
     const { net } = this;
     return !!net && net.hostId !== null && net.players[net.hostId]?.connected === false;
+  }
+
+  /** The centre line: our own connection while it is down — not yet admitted,
+   *  or dropped and redialling — else what the match waits on: a host in its
+   *  reconnect grace, or our hero's spawn. */
+  private statusLine(me: Unit | null): string {
+    const status = this.net?.connectionStatus;
+    if (status === "connecting") {
+      return "Connecting…";
+    }
+    if (status === "reconnecting") {
+      return "Reconnecting…";
+    }
+    if (me) {
+      return this.hostDropped ? "Host reconnecting…" : "";
+    }
+    return this.world.phase === "ended" ? "" : "Joining the arena…";
   }
 
   private localUnit(): Unit | null {
@@ -406,8 +424,8 @@ export class GameScene {
     const rdt = frameDt * this.fx.scaleNow();
     this.worldView.smoothUnits = this.online.kind !== "guest";
     this.worldView.sync(this.world, rdt);
+    this.statusEl.textContent = this.statusLine(me);
     if (me) {
-      this.statusEl.textContent = this.hostDropped ? "Host reconnecting…" : "";
       this.hud.update(this.world, me, this.controls.scoreHeld(), frameDt);
       // listener facing must match the CAMERA frame so stereo pan tracks the
       // screen — the camera chases the aim on every input source
@@ -419,11 +437,7 @@ export class GameScene {
       }
       this.feedTouchCooldowns(me);
     } else if (this.world.phase === "ended") {
-      this.statusEl.textContent = "";
       this.hud.updateUnassigned(this.world, frameDt);
-    } else {
-      this.statusEl.textContent =
-        this.online.kind === "connecting" ? "Connecting…" : "Joining the arena…";
     }
     this.hints.update(this.world, me);
     this.driveIntro();
@@ -665,8 +679,14 @@ export class GameScene {
     if (!net) {
       return null;
     }
-    const id = net.connectionStatus === "connected" ? net.playerId : null;
+    // Offline — no room admitted us in time — the client is a room of one,
+    // seated and hosting like any other.
+    const seated = net.connectionStatus === "connected" || net.connectionStatus === "offline";
+    const id = seated ? net.playerId : null;
     if (!id) {
+      // Out of the room — not yet admitted, or dropped and redialling — there
+      // is no seat, so nothing predicts or sends: the SDK queues events while
+      // reconnecting, and every input and frame is one.
       if (this.online.kind !== "connecting") {
         this.resetHeldInput();
         this.neutralPending = true;
@@ -737,6 +757,14 @@ export class GameScene {
       this.picks = { ...this.picks, ...roster.picks };
       this.assign = roster.seats;
       this.acc = 0;
+      if (net.connectionStatus === "offline") {
+        // no server answered: say why this match is against bots
+        this.world.fx.push({
+          kind: "notice",
+          t: "notify",
+          text: "SERVER UNREACHABLE — PLAYING VS BOTS",
+        });
+      }
       // stamps stay on server time; the world goes out whole on the first tick
       this.hostNet = new HostNet();
       this.hostNet.alreadySent(this.world.fx);
@@ -829,10 +857,12 @@ export class GameScene {
     }
   }
 
+  /** Tell the host our pick every 3 s, so a host that missed it (a new one,
+   *  one in its reconnect grace) still spawns our champion. A host hands its
+   *  own pick to onNetEvent at once. */
   private announcePick(net: MultiplayerClient): void {
     const id = net.playerId;
-    const host = net.hostId;
-    if (!id || !host) {
+    if (!id || !net.hostId) {
       return;
     }
     const now = performance.now();
@@ -841,7 +871,7 @@ export class GameScene {
     }
     const pick = { champId: this.champId, name: this.name };
     this.picks[id] ??= pick;
-    net.sendEvent(INTENT_EVENT, { kind: "join", ...pick } satisfies Intent, { to: host });
+    net.sendToHost(INTENT_EVENT, { kind: "join", ...pick } satisfies Intent);
     this.joinResendAt = now;
   }
 
@@ -875,7 +905,6 @@ export class GameScene {
     if (host) {
       this.hostNet.advance(this.world, elapsed * 1000, this.hostLink(net, seat.id));
     } else if (me && this.world.phase === "playing") {
-      const target = net.hostId;
       // a host in its reconnect grace hears nothing: stand still until it is back
       if (this.hostDropped) {
         this.holdNeutral(me);
@@ -887,11 +916,7 @@ export class GameScene {
         performance.now(),
         this.world.now,
         this.held,
-        (p) => {
-          if (target) {
-            net.sendEvent(INTENT_EVENT, inputWire(p), { to: target });
-          }
-        },
+        (p) => net.sendToHost(INTENT_EVENT, inputWire(p)),
       );
       this.predictor.render(me, this.world.units, this.held);
     }
@@ -1129,11 +1154,10 @@ export class GameScene {
     if (!me) {
       return;
     }
-    const host = this.net?.hostId;
     if (this.amHost) {
       buyItem(this.world, me, itemId);
-    } else if (host) {
-      this.net?.sendEvent(INTENT_EVENT, { itemId, kind: "buy" } satisfies Intent, { to: host });
+    } else {
+      this.net?.sendToHost(INTENT_EVENT, { itemId, kind: "buy" } satisfies Intent);
     }
   }
 
@@ -1285,7 +1309,7 @@ export class GameScene {
   }
 
   /** Pause/transport loss releases a persistent attack/move without stopping
-   * an online host. If disconnected, defer the release until identity is valid. */
+   * an online host. Out of the room, defer the release until a seat is back. */
   private flushNeutralInput(): void {
     if (!this.neutralPending) {
       return;
@@ -1361,7 +1385,7 @@ export class GameScene {
             // where this client's world came from when it last took over
             takeover: this.takeover,
             // host → server → guest trip the mirror renders behind (ms)
-            trip: this.online.kind === "guest" ? Math.round(this.mirror.clock.trip) : 0,
+            trip: this.online.kind === "guest" ? this.mirror.trip(this.net.serverClock) : 0,
           }
         : null,
       phase: this.world.phase,

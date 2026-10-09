@@ -92,8 +92,6 @@ export class HostNet {
   private readonly rate = new FixedRate(NET_HZ);
   private sinceCheckpoint = 0;
   private checkpointMark: CheckpointMark | null = null;
-  private castKey = "";
-  private statusKey = "";
   private lastStamp = -1;
   // the guest body's input stream, for the remote player it was opened for
   private copy: GuestCopy | null = null;
@@ -125,27 +123,35 @@ export class HostNet {
     return this.copy;
   }
 
-  /** A peer's event. Only the remote player's `in` (input ticks) concerns the host. */
+  /** This tab took the authority, or got it back after its own connection
+   * dropped: the guest's input reaches it by a new route. */
+  admit(): void {
+    this.copy?.relearn();
+  }
+
+  /** A peer's event, as it lands. Only the remote player's `in` (input
+   * ticks) concerns the host. */
   receive(event: string, payload: JsonValue, from: string): void {
     if (event !== "in" || from !== this.seat.remoteId) {
       return;
     }
     const msg = readNetInputs(payload);
     if (msg) {
-      this.guestCopy()?.receive(msg, this.room.seq);
+      this.guestCopy()?.receive(msg, this.room.seq, performance.now());
     }
   }
 
   /** One host sim step of the guest's body, hit-stop or not — the guest never
-   * freezes its own prediction. Runs before the step's combat. */
-  stepGuest(): boolean {
+   * freezes its own prediction. Runs before the step's combat; the step ends
+   * at `now` on this tab's clock. */
+  stepGuest(now: number): boolean {
     const copy = this.guestCopy();
     const { remote } = this.seat;
     if (!copy || !remote) {
       return false;
     }
     copy.enter(this.room.seq);
-    const moved = copy.step(remote.body, this.run.match?.frozen ?? false);
+    const moved = copy.step(remote.body, this.run.match?.frozen ?? false, now);
     while (copy.takeStomp()) {
       this.combat.claimedStomp(remote);
     }
@@ -188,8 +194,13 @@ export class HostNet {
     }
     // A peer parked in the reconnect grace window is listed but not playing:
     // treated as present it would hold a seat and freeze a duel against a
-    // ghost until the server reaps it.
-    const live = (id: string | null): boolean => sess.players[id ?? ""]?.connected !== false;
+    // ghost until the server reaps it. One who left (a closed tab leaves at
+    // once) is not listed at all, and its seat is free too: a checkpoint
+    // seating a player it does not carry is refused by every reader.
+    const live = (id: string | null): boolean => {
+      const p = id === null ? undefined : sess.players[id];
+      return p !== undefined && p.connected !== false;
+    };
     const other = sess.otherPlayer();
     if (this.seat.seats.host && !live(this.seat.seats.host)) {
       this.seat.seats.host = null;
@@ -238,6 +249,8 @@ export class HostNet {
     const spawn = (this.run.match ? this.room.vsSpawns[index] : undefined) ?? this.room.roomSpawn;
     this.seat.remote = this.hooks.spawnPlayer(HEROES[hero], this.room.grid, spawn.x, spawn.y);
     this.seat.remoteId = id;
+    // A guest back from a drop keeps its input stream, by a new route.
+    this.guestCopy()?.relearn();
     if (this.run.match) {
       this.run.match.beginMatch();
       this.versus.respawn();
@@ -249,11 +262,12 @@ export class HostNet {
   }
 
   // Host: a snapshot each 1/30 s of the frame clock (FixedRate keeps the
-  // remainder, so the cadence holds at any refresh rate); the cast, room and
-  // checkpoint ride along when they changed or fell due. Each is stamped with
-  // the room's server time as it goes out — not sim time, which hit-stop and a
-  // throttled tab bend — so a frozen host stamps a world standing still, and a
-  // new host's stamps carry straight on from the old one's.
+  // remainder, so the cadence holds at any refresh rate), with the cast and
+  // status beside it, and the room and checkpoint when they changed or fell
+  // due. Each is stamped with the room's server time as it goes out — not sim
+  // time, which hit-stop and a throttled tab bend — so a frozen host stamps a
+  // world standing still, and a new host's stamps carry straight on from the
+  // old one's.
   broadcast(dts: number, force = false) {
     const sess = this.seat.session;
     if (
@@ -278,24 +292,15 @@ export class HostNet {
       mark.progress !== last.progress;
     const complete = force || this.room.dirty || changed || this.sinceCheckpoint >= CHECKPOINT_MS;
     // Strictly increasing, even for two forced sends in one frame.
-    const t = Math.max(this.lastStamp + 1, Math.round(sess.serverClock.now()));
+    const t = Math.max(this.lastStamp + 1, Math.round(sess.serverNow()));
     this.lastStamp = t;
     // One message, so a guest always reads a snapshot with the cast, status,
-    // room and checkpoint it was sent beside.
+    // room and checkpoint it was sent beside. The SDK sends only the leaves
+    // that changed, so a cast or status written unchanged costs nothing.
     const patch: Record<string, JsonValue> = {};
     patch.snap = this.encodeSnapshot(t);
-    const cast = this.encodeCast();
-    const castKey = JSON.stringify(cast);
-    if (castKey !== this.castKey) {
-      this.castKey = castKey;
-      patch.cast = cast;
-    }
-    const status = this.encodeStatus();
-    const statusKey = JSON.stringify(status);
-    if (statusKey !== this.statusKey) {
-      this.statusKey = statusKey;
-      patch.status = status;
-    }
+    patch.cast = this.encodeCast();
+    patch.status = this.encodeStatus();
     if (complete) {
       const checkpoint = this.checkpoint.encode(t);
       if (!checkpoint) {

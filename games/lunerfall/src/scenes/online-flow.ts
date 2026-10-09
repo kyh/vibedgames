@@ -27,6 +27,8 @@ import type { RoomBuilder } from "./room-builder";
 import type { SceneChrome, SceneHooks } from "./scene-hooks";
 import type { VersusFlow } from "./versus-flow";
 
+const RECONNECTING = "RECONNECTING…";
+
 export interface OnlineFlowDeps {
   scene: Scene;
   run: RunState;
@@ -109,13 +111,12 @@ export class OnlineFlow {
     });
   }
 
-  // Online: tick the socket, drain this frame's input and resolve authority.
-  // Returns false when the frame must stop here (room full, session not ready).
+  // Online: drain this frame's input and resolve authority. Returns false
+  // when the frame must stop here (room full, session not ready).
   updateSession(): boolean {
     if (!this.seat.session) {
       return true;
     }
-    this.seat.session.tick();
     if (this.seat.session.roomFull) {
       this.scene.scene.start("select", { roomFull: true });
       return false;
@@ -206,9 +207,15 @@ export class OnlineFlow {
         this.seat.neutralOnAdmission = true;
       }
       this.wasConnected = false;
+      // The room holds the seat while the socket redials; the frame freezes
+      // until it is back, so say why.
+      if (sess.connectionStatus === "reconnecting") {
+        this.banners.show(RECONNECTING, 100_000, "connecting");
+      }
       return false;
     }
     this.wasConnected = true;
+    this.banners.dismiss(RECONNECTING);
     if (sess.offline) {
       if (this.run.state === "connecting") {
         this.beginExpedition();
@@ -252,7 +259,8 @@ export class OnlineFlow {
     );
   }
 
-  // Newly elected host: adopt the checkpoint under a fresh term and broadcast.
+  // Newly elected host, or the host back from its own drop: adopt the
+  // checkpoint under a fresh term and broadcast.
   private takeOverAsHost(sess: NetSession, c: ExpeditionCheckpoint, room: NetRoom) {
     // A promoted guest's own body was predicted exactly and is newer than any
     // checkpoint (they go up once a second): keep it, rewind only the world.
@@ -268,6 +276,7 @@ export class OnlineFlow {
       term: c.term + 1,
     };
     this.checkpoint.adopt(c, room, own);
+    this.hostNet.admit();
     this.hostNet.syncRemotePresence();
     this.room.dirty = true;
     this.hostNet.broadcast(0, true);
@@ -319,11 +328,7 @@ export class OnlineFlow {
     // Snapshots older than the adopted checkpoint describe a world it replaced;
     // the one it rode with is the first to apply.
     this.room.guest.snapT = c.t - 1;
-    this.room.guest.payoff = {
-      bossAlive: c.boss !== null && !c.boss.dead,
-      cleared: c.cleared,
-      room: c.room,
-    };
+    this.room.guest.payoff = { clearAt: null, cleared: c.cleared, room: c.room };
     this.run.downedNet = c.lastStand
       ? { bleed: c.lastStand.bleed, rev: c.lastStand.revive / REVIVE_HOLD }
       : null;

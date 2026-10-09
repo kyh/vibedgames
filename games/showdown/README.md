@@ -100,9 +100,11 @@ Netcode (`src/net/`):
   of 32 headings, at most 30 a second, plus attack, super and evade. A guest moves
   its own body by exactly what it sent, so both copies run the same input.
 - **The host publishes 30 snapshots a second** (`FixedRate`): one integer row per
-  brawler with trailing zeros dropped, about 0.5 KB for eight. The roster, loot
-  boxes, cubes and broken walls go out only when they change; bullets and bombs
-  travel as spawn rows in the fx batch and every client flies them itself.
+  brawler with trailing zeros dropped, about 0.5 KB for eight, of which only the
+  leaves that changed travel (under 0.3 KB a tick in a busy brawl). The roster,
+  loot boxes, cubes and broken walls ride the same write and so cost nothing
+  until they change; bullets and bombs travel as spawn rows in the fx batch and
+  every client flies them itself.
 - **A guest predicts its own body** with the host's movement code, from the frame
   a key goes down, and draws its own shots, swings, rolls and leaps at once. Each
   row carries the newest intent the host applied to that body and for how long, so
@@ -113,11 +115,13 @@ Netcode (`src/net/`):
   second, so a lost request cannot lock dodging.
 - **Everyone else renders on server time.** The host stamps each frame with the
   room's server clock (`client.serverNow()`), and a guest draws remote bodies,
-  fx, projectile spawns and loot changes 100 ms behind the newest frame that
-  could have arrived by now (`Interpolator` on a `RemoteClock` read off the
-  frames' arrivals, so the relay's latency is learned): motion is even however
-  frames arrive, a muzzle flash leaves the muzzle it belongs to, and a change of
-  host keeps the timeline — only the new host's route is timed afresh.
+  fx, projectile spawns and loot changes at one render time: 100 ms behind the
+  newest frame that could have arrived by now, or as far as a jittery stream
+  needs (`Interpolator` on a `RemoteClock` read off the frames' arrivals, so the
+  relay's latency and jitter are learned): motion is even however frames
+  arrive, a muzzle flash leaves the muzzle it belongs to, and a change of host
+  keeps the timeline — the clock relearns the new host's route and eases onto
+  it.
 - **Loot stays the host's.** Power cubes go to whichever body the host's sim
   walks over them first, bots and guests' copies alike, and boxes break on the
   host's damage. The room's first-come claims would only settle the rare race a

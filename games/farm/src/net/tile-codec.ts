@@ -7,8 +7,11 @@ import type { World } from "../world/world";
 
 // Wire shapes for the co-op farm's soil: a guest's farming intent (an event to
 // the host) and the host's per-tile shared keys. Each farmed tile is its own
-// primitive key, `t<idx>` → one packed number, so an action sends that one key
-// and the SDK's per-key diff keeps everything else off the wire.
+// top-level primitive key, `t<idx>` → one packed number, so an action sends one
+// op naming that key, the shortest path the SDK's leaf diff has. Tiles nested
+// under one object would add the parent's name to every action's op, won back
+// only by whole-farm writes (a night's growth, a fresh room): no fewer bytes
+// over a session.
 
 /** One tile's farm state — what the shared key packs. */
 export interface TileState {

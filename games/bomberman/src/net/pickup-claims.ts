@@ -22,32 +22,12 @@ export const PICKUP_CLAIMS = "pickup:";
 export const pickupKey = (round: number, pickup: Pick<Powerup, "col" | "row">): string =>
   `${PICKUP_CLAIMS}${pickup.col},${pickup.row}:${round}`;
 
-/** The claims a room arbitrates: the `MultiplayerClient`, or `localClaims` offline. */
+/** The claims a room arbitrates: the `MultiplayerClient`, which offline grants each one at once. */
 export interface ClaimRoom {
   claim: (key: string) => void;
   clearClaims: (prefix: string) => void;
   ownerOf: (key: string) => string | null;
 }
-
-/** First come, first served on this machine: the room's claims, offline, where `me` is the only claimant. */
-export const localClaims = (me: string): ClaimRoom => {
-  const owners = new Map<string, string>();
-  return {
-    claim: (key) => {
-      if (!owners.has(key)) {
-        owners.set(key, me);
-      }
-    },
-    clearClaims: (prefix) => {
-      for (const key of owners.keys()) {
-        if (key.startsWith(prefix)) {
-          owners.delete(key);
-        }
-      }
-    },
-    ownerOf: (key) => owners.get(key) ?? null,
-  };
-};
 
 /** A claim this client made: for its own body or, as host, for a bot. */
 export interface PickupClaim {

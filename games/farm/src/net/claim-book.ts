@@ -3,7 +3,7 @@ import { ClaimTicket } from "./claims";
 // The claims this farmer is still waiting on the server's word for, and how
 // each settles. See ./claims for what is claimed and why.
 
-/** Where claims go: NetSession, or a test double. */
+/** Where claims go: the room's client, or a test double. */
 export interface ClaimNet {
   readonly playerId: string | null;
   claim: (key: string, options?: { ttlMs?: number }) => void;

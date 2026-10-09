@@ -18,7 +18,7 @@ import { createTouchControls, notifyGameStarted, watchControlContext } from "@re
 import { PhysicalGamepad, stickDirection4 } from "@vibedgames/gamepad";
 import type { Dir4 } from "@vibedgames/gamepad";
 import { FixedRate } from "@vibedgames/multiplayer";
-import type { ClaimMap } from "@vibedgames/multiplayer";
+import type { ClaimMap, JsonValue } from "@vibedgames/multiplayer";
 import { isPlaytestRequested } from "@vibedgames/playtest";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 
@@ -37,8 +37,7 @@ import { readPacSample } from "../net/pac-track";
 import { PELLET_CLAIM_PREFIX, PelletClaims } from "../net/pellet-claims";
 import type { LostEat } from "../net/pellet-claims";
 import { RemotePacs } from "../net/remote-pacs";
-import { NetSession, isJsonNumber, isJsonObject } from "../net/session";
-import type { JsonValue } from "../net/session";
+import { isJsonNumber, isJsonObject, joinRoom } from "../net/session";
 import type { Dir } from "../shared/constants";
 import { fleeStep, flood, navTo, nearestCell, openDirs } from "../shared/maze-nav";
 import type { Cell, NavTarget } from "../shared/maze-nav";
@@ -580,22 +579,26 @@ export class GameScene {
   // ---- multiplayer (shared-maze pellet race) ---------------------------------
   // The maze + pellets come from the static MAP (identical on every client);
   // players race to grab them. Ghosts stay LOCAL — each player dodges their
-  // own, so a heart's frightened time is the eater's alone. Solo/offline runs
-  // the same code against a local loopback.
+  // own, so a heart's frightened time is the eater's alone. Offline (no room
+  // within OFFLINE_FALLBACK_MS of play, `?offline=1`, a playtest) the client
+  // is a room of one with the same API: it hosts, and its claims are granted
+  // at once, so solo runs the same code.
   // On the wire: each player's own pac as player state (sendMyState, 20 Hz,
   // server-time stamped), one server-arbitrated claim per pellet per round
   // (../net/pellet-claims) — which IS the board — and the round number, the
   // one shared primitive, written by the host.
-  private net = new NetSession({
+  private readonly net = joinRoom({
     fallbackMs: OFFLINE_FALLBACK_MS,
-    // A playtest stages state and restarts at will; that must never land in a live room.
-    forceOffline: isPlaytestRequested(),
     limits: PAC_LIMITS,
     maxPlayers: MP_MAX_PLAYERS,
+    // A playtest stages state and restarts at will; that must never land in a live room.
+    offline: isPlaytestRequested(),
     onEvent: (event, payload, from) => this.handleNetEvent(event, payload, from),
     room: ROOM,
   });
   private remotePacs: RemotePacs;
+  /** Our own connection dropped and the room has not admitted us again yet. */
+  private ownDrop = false;
   /** Rivals present this frame (see presentRivals). */
   private rivalIds: string[] = [];
   /** Own-pac send clock: keeps its remainder, so reports land every 50 ms rather than 67/83. */
@@ -769,6 +772,9 @@ export class GameScene {
     this.fx = new FxPool(this.scene);
     this.powerHalo = new PowerHalo(this.scene);
     this.remotePacs = new RemotePacs(this.scene);
+    // Every notification, not every frame: a drop and the reconnect after it
+    // can both land while the tab is hidden and no frame runs.
+    this.net.subscribe(() => this.watchOwnConnection());
     this.best = loadBest();
     this.bindInput();
     this.setPhase("title");
@@ -788,6 +794,13 @@ export class GameScene {
     return this.phase === "ready" || this.phase === "playing" || this.phase === "win";
   }
 
+  /** A room answers what this client writes: the one it is in, or, offline,
+   *  itself. Not while (re)connecting, when a claim only waits in the queue. */
+  private get netLive(): boolean {
+    const status = this.net.connectionStatus;
+    return status === "connected" || status === "offline";
+  }
+
   /** Other players in the round right now. A seat the server holds for a
    *  reconnect is not a rival: its last state would park a frozen pac in the
    *  maze for the whole grace window and keep a lone player on race rules. Nor
@@ -797,6 +810,20 @@ export class GameScene {
     return Object.entries(this.net.players)
       .filter(([id, p]) => id !== me && p.connected !== false && readPacSample(p.state) !== null)
       .map(([id]) => id);
+  }
+
+  /**
+   * Back in the room after our own connection dropped: rivals' reports now
+   * reach us by another route, so every track measures it afresh.
+   */
+  private watchOwnConnection(): void {
+    const status = this.net.connectionStatus;
+    if (status === "reconnecting") {
+      this.ownDrop = true;
+    } else if (status === "connected" && this.ownDrop) {
+      this.ownDrop = false;
+      this.remotePacs.relearn();
+    }
   }
 
   private handleNetEvent(event: string, payload: JsonValue, from: string): void {
@@ -884,7 +911,7 @@ export class GameScene {
         this.updateHud();
       }
     }
-    if (this.net.live) {
+    if (this.netLive) {
       for (const key of this.pellets.overdue(performance.now(), CLAIM_RETRY_MS)) {
         this.net.claim(key);
       }
@@ -935,7 +962,7 @@ export class GameScene {
 
   /** The room's round, or null before its first host has named one. */
   private readSharedRound(): number | null {
-    const round = this.net.sharedState?.["round"];
+    const { round } = this.net.sharedState;
     return isJsonNumber(round) ? round : null;
   }
 
@@ -962,7 +989,7 @@ export class GameScene {
   private hostFreshMaze(): number {
     const round = this.boardRound + 1;
     this.net.clearClaims(PELLET_CLAIM_PREFIX);
-    this.net.patchShared({ round });
+    this.net.updateSharedState({ round });
     return round;
   }
 
@@ -1045,15 +1072,18 @@ export class GameScene {
    * need no host at all.
    */
   updateNet(dt: number): void {
-    this.net.tick();
     this.rivalIds = this.presentRivals();
     // An empty room has no round yet: its first host names the one this maze shows.
-    if (this.net.isHost && this.net.live && this.readSharedRound() === null) {
-      this.net.patchShared({ round: this.boardRound });
+    if (this.net.isHost && this.netLive && this.readSharedRound() === null) {
+      this.net.updateSharedState({ round: this.boardRound });
     }
-    if (!this.net.offline && this.netRate.due(dt * 1000)) {
-      this.sendMyState();
-      // Standings only change as fast as the scores arrive.
+    if (this.netRate.due(dt * 1000)) {
+      // Offline there is nobody to report to.
+      if (this.net.connectionStatus !== "offline") {
+        this.sendMyState();
+      }
+      // Standings only change as fast as the scores arrive; the connection
+      // line follows the client's status on the same beat.
       this.updateNetHud();
     }
     this.remotePacs.update(this.net.players, this.rivalIds, this.t);
@@ -1072,7 +1102,7 @@ export class GameScene {
       this.net.updateMyState({ active: false });
       return;
     }
-    if (!this.net.clockSynced) {
+    if (!this.net.serverClock.synced) {
       return;
     }
     this.net.updateMyState({
@@ -1085,14 +1115,35 @@ export class GameScene {
     });
   }
 
-  private updateNetHud(): void {
-    let netInfo = "";
-    if (this.net.live && !this.net.offline) {
-      netInfo = this.racing ? `RACE · ${this.rivalIds.length + 1} PLAYERS` : "ONLINE · WAITING";
+  /** The line over the maze: the room while in one, and the wait for it while
+   *  (re)connecting, so rivals frozen by our own dropped connection read as
+   *  that rather than as a hang. */
+  private netLine(): string {
+    switch (this.net.connectionStatus) {
+      case "connected": {
+        return this.racing ? `RACE · ${this.rivalIds.length + 1} PLAYERS` : "ONLINE · WAITING";
+      }
+      case "connecting": {
+        return "CONNECTING…";
+      }
+      case "reconnecting": {
+        return "RECONNECTING…";
+      }
+      case "offline": {
+        // A solo game needs no line.
+        return "";
+      }
+      // no default
     }
+  }
+
+  private updateNetHud(): void {
+    const netInfo = this.netLine();
     if (netInfo !== this.netInfoText) {
       this.netInfoText = netInfo;
       this.netInfoEl.textContent = netInfo;
+      // index.html backs the (re)connecting line so it reads on the fog.
+      this.netInfoEl.dataset["status"] = this.net.connectionStatus;
       // A rival arriving or leaving reworded the result card.
       this.updateHud();
     }

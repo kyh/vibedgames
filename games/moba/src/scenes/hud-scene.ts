@@ -1620,6 +1620,7 @@ export class HudScene extends Scene {
     this.pollPad();
     this.updateMinimap();
     this.updateFeed();
+    this.banner.setStatus(this.gs.connectionNotice);
     this.banner.update(Math.min(delta, 100), this.time.now);
     // scoreboard refreshes at 4Hz, not per frame — renderBoard rebuilds every
     // Text object, which is far too much churn to run at 60fps while Tab is held

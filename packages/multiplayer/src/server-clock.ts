@@ -75,7 +75,20 @@ export class ServerClock {
     }
   }
 
-  /** Server time (ms since the epoch) at local time `localNow`; the local clock before any probe returns. */
+  /**
+   * Offline: no server to probe, and the room is this client alone. A clock
+   * that measured the server keeps that offset, so stamps taken online stay
+   * comparable; one that never did takes the local clock as the room's.
+   */
+  adoptLocal(): void {
+    if (this.target === null) {
+      this.target = 0;
+      this.bestRtt = 0;
+    }
+  }
+
+  /** Server time (ms since the epoch) at local time `localNow`; the local clock
+   *  (`performance.now()`) before any probe returns, or offline without one. */
   now(localNow: number = now()): number {
     const { target } = this;
     if (target === null) {

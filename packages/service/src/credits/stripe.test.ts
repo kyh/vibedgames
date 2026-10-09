@@ -3,7 +3,7 @@ import { describe, test } from "node:test";
 import type { Db } from "@repo/db/drizzle-client";
 
 import type { PurchaseInput } from "./credit-ledger";
-import { handleStripeWebhook, verifyStripeSignature } from "./stripe";
+import { handleStripeWebhook, purchasesEnabled, verifyStripeSignature } from "./stripe";
 
 /**
  * Only a signed `checkout.session.completed` (or its async twin) for a paid
@@ -136,5 +136,18 @@ describe("handleStripeWebhook", () => {
       { billing: undefined, db },
     );
     assert.equal(res.status, 412);
+  });
+});
+
+describe("purchasesEnabled", () => {
+  test("opens purchases only with both keys: either alone would take money it can't credit", () => {
+    assert.equal(purchasesEnabled({}), false);
+    assert.equal(purchasesEnabled({ stripeSecretKey: "sk_test" }), false);
+    assert.equal(purchasesEnabled({ stripeWebhookSecret: SECRET }), false);
+    assert.equal(purchasesEnabled({ stripeSecretKey: "", stripeWebhookSecret: SECRET }), false);
+    assert.equal(
+      purchasesEnabled({ stripeSecretKey: "sk_test", stripeWebhookSecret: SECRET }),
+      true,
+    );
   });
 });

@@ -92,7 +92,10 @@ export type Blast = {
  * authoritative grid position. `t` is when the step onto it began on the
  * room's server clock and `s` how long it takes (0 for a spawn, which
  * receivers place without walking); receivers derive the walk cycle and
- * facing from the steps themselves.
+ * facing from the steps themselves. `h` is the server time, stamped
+ * PLAYER_BEAT_HZ times a second while the body is on the board and another
+ * player is in the room: receivers learn this player's route from it, and
+ * that a body at rest still stands.
  */
 export interface PlayerState {
   col: number;
@@ -100,7 +103,11 @@ export interface PlayerState {
   colorIdx: number;
   t: number;
   s: number;
+  h: number;
 }
+
+/** The heartbeat's rate: the SDK's 100 ms least delay covers a 20 Hz sender. */
+export const PLAYER_BEAT_HZ = 20;
 
 /**
  * A host-controlled CPU fighter. Lives in shared state (not a real
@@ -118,19 +125,16 @@ export type Bot = {
 };
 
 /**
- * The single shared world. The multiplayer client shallow-merges patches
- * (`{...prev, ...patch}`), so the host always rewrites each nested object
- * wholesale — every field that can reset MUST be present in `emptyShared()`.
+ * The single shared world. A write replaces each top-level field it names,
+ * and only the leaves that changed travel (an opened crate is one cell of
+ * `grid`), so every field that can reset MUST be present in `emptyShared()`.
  */
 export type SharedState = {
   /** Missing only in legacy rooms; read through readArena at the boundary. */
   arena?: Arena;
-  /** Wire only: the sim clock (see util/clock), written with each round and whenever it changes. */
+  /** The sim clock (see util/clock): on every host write, on the wire only when it changed. */
   clock?: ClockStamp;
-  /** On the wire, the layout the round began with; in memory, the current board. */
   grid: Cell[][];
-  /** Wire only: the crates opened since `grid` was written (see net/grid-wire). */
-  opened?: string;
   bombs: Record<string, Bomb>;
   blasts: Record<string, Blast>;
   powerups: Record<string, Powerup>;
@@ -176,6 +180,14 @@ export const SPAWN_POINTS: readonly [Spawn, Spawn, Spawn, Spawn] = [
   { col: GRID_COLS - 2, row: 1 },
   { col: 1, row: GRID_ROWS - 2 },
 ];
+
+/**
+ * A room seats one player per corner. The next is sent on to a sibling room
+ * (`bomberman-v4~2`, …), a match of its own with bots in the empty corners,
+ * instead of spawning on the first player. Room rules come from the first
+ * client in, so every client ships this same cap.
+ */
+export const MAX_PLAYERS = SPAWN_POINTS.length;
 
 /** True for the 2x2 corner pockets kept crate-free so players can break out. */
 const isSafeCorner = (c: number, r: number): boolean =>

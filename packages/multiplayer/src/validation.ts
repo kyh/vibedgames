@@ -55,14 +55,23 @@ export const MAX_MESSAGE_BYTES = 1_048_576;
 export const MAX_STATE_DEPTH = 32;
 
 /** Keys that could poison prototypes when patches are merged downstream. */
-const FORBIDDEN_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+export const FORBIDDEN_KEYS: ReadonlySet<string> = new Set([
+  "__proto__",
+  "constructor",
+  "prototype",
+]);
 
-// This runs on every state/player patch (the server's per-tick hot path), so
-// it iterates keys without the tuple-array allocations of Object.entries and
-// never recurses into primitives — a big array of numbers costs one container
-// check per element, keeping the walk proportional to container count, not
-// payload size. The 1 MiB message cap bounds total work.
-const walk = (value: JsonValue, depth: number): string | null => {
+/**
+ * Why `value` — a container `depth` levels down, the state itself being level
+ * 1 — nests past `MAX_STATE_DEPTH` or holds a prototype key; null if neither.
+ *
+ * This runs on every state/player patch (the server's per-tick hot path), so
+ * it iterates keys without the tuple-array allocations of Object.entries and
+ * never recurses into primitives — a big array of numbers costs one container
+ * check per element, keeping the walk proportional to container count, not
+ * payload size. The 1 MiB message cap bounds total work.
+ */
+export const findNestingIssue = (value: JsonValue, depth: number): string | null => {
   if (depth > MAX_STATE_DEPTH) {
     return `nesting exceeds ${MAX_STATE_DEPTH} levels`;
   }
@@ -71,7 +80,7 @@ const walk = (value: JsonValue, depth: number): string | null => {
       if (!(item instanceof Object)) {
         continue;
       }
-      const issue = walk(item, depth + 1);
+      const issue = findNestingIssue(item, depth + 1);
       if (issue) {
         return issue;
       }
@@ -90,7 +99,7 @@ const walk = (value: JsonValue, depth: number): string | null => {
       if (child === undefined || !(child instanceof Object)) {
         continue;
       }
-      const issue = walk(child, depth + 1);
+      const issue = findNestingIssue(child, depth + 1);
       if (issue) {
         return issue;
       }
@@ -104,13 +113,13 @@ const walk = (value: JsonValue, depth: number): string | null => {
  * (a string/array root would spread index keys into room state), bounded in
  * depth, and free of prototype-polluting keys. Returns a human-readable issue
  * or null when the patch is acceptable. The party server runs this on every
- * `state_patch` / `player_state_patch` before merging.
+ * `player_state_patch` before merging; a `state_patch` is ops (`readPatch`).
  */
 export const findStructuralIssue = (data: JsonValue): string | null => {
   if (data === null || Array.isArray(data) || !(data instanceof Object)) {
     return "patch must be a plain object";
   }
-  return walk(data, 1);
+  return findNestingIssue(data, 1);
 };
 
 export interface SchemaViolation {

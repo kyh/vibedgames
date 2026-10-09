@@ -5,6 +5,7 @@ import type { CharAction } from "../data/character";
 import { CROP_ORDER } from "../data/crops";
 import { parseWorldMap } from "../world/worldmap";
 import { setWorldMap, getWorldMap } from "../world/map-store";
+import { disableSaves } from "../systems/save";
 import { FARMER_HURT_MS, SKELETON_CONTACT_MS, SKELETON_HURT_MS } from "../config";
 
 const CHAR = { frameHeight: 64, frameWidth: 96 };
@@ -217,6 +218,15 @@ export class BootScene extends Scene {
     // (lazy-loaded so gallery code stays out of the main chunk)
     if (params.has("gallery")) {
       void this.startGallery();
+      return;
+    }
+    // DEV: ?online skips the title into a fresh co-op farm, in the ?room= room
+    // when one is named — how the multiplayer lag check's two clients meet
+    // with no menu in the way. Like a staged playtest run, it neither reads
+    // nor overwrites the player's real save.
+    if (import.meta.env.DEV && params.has("online")) {
+      disableSaves();
+      this.scene.start("Game", { mode: "new" });
       return;
     }
     this.scene.start("Title");

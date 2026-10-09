@@ -2,6 +2,7 @@ import type Phaser from "phaser";
 import { Animations, Cameras, Math as PhaserMath, Scene, Scenes } from "phaser";
 import { PhysicalGamepad } from "@vibedgames/gamepad";
 import type { PhaserGamepad } from "@vibedgames/gamepad/phaser";
+import type { MultiplayerClient, MultiplayerConnectionStatus } from "@vibedgames/multiplayer";
 import { notifyGameStarted } from "@repo/embed";
 import {
   TILE,
@@ -32,7 +33,7 @@ import { ClaimTicket, WORK_HOLD_MS, claimKey, claimPrefix, parseClaimKey } from 
 import type { ClaimTarget } from "../net/claims";
 import { FarmSync, roomEpoch } from "../net/farm-sync";
 import { FarmerSender } from "../net/farmer-wire";
-import { NetSession } from "../net/session";
+import { openSession } from "../net/session";
 import { RemoteFarmers, farmerTag } from "../net/remote-farmers";
 import { parseTileIntent } from "../net/tile-codec";
 import type { TileIntent } from "../net/tile-codec";
@@ -203,7 +204,10 @@ export class GameScene extends Scene {
   // Created in create(), NOT at page load: Phaser constructs every scene at
   // boot, and a socket opened from the title screen would join (and possibly
   // HOST) the room with no world and no update loop — a dead room for everyone.
-  private net?: NetSession;
+  // Its offline deadline (fallbackMs) counts from the first frame after that,
+  // so it runs on play, never on the title screen. Offline, it is a room of one
+  // that this farmer hosts.
+  private net?: MultiplayerClient;
   private remoteFarmers?: RemoteFarmers;
   private readonly farmerSender = new FarmerSender();
   /** Bumped whenever the local clip (re)starts: peers seek only on a change and
@@ -297,7 +301,7 @@ export class GameScene extends Scene {
     // worlds (tilling grass that is water elsewhere) is worse than playing it
     // solo (Phase 1). The session survives mine trips: only created once.
     if (!trailerStaging && !this.solo && !this.net && this.seed === FARM_SEED) {
-      this.net = new NetSession({
+      this.net = openSession({
         fallbackMs: OFFLINE_FALLBACK_MS,
         interest: { radius: MP_INTEREST_RADIUS },
         limits: MP_LIMITS,
@@ -790,7 +794,6 @@ export class GameScene extends Scene {
     const dt = Math.min(dms, 50) / 1000;
     this.gamepad?.update();
     this.pollPad();
-    this.net?.tick();
     if (this.net && this.isOnline()) {
       this.claims.poll(this.net);
     }
@@ -825,12 +828,18 @@ export class GameScene extends Scene {
   // ---- multiplayer: sync ----------------------------------------------------
 
   /**
-   * True only when actually connected to a live co-op room (not the solo
-   * fallback) — used by the wrapper's pause handler so it never freezes a
-   * session other players are relying on.
+   * True only while in a live co-op room: not still connecting, not dropped
+   * and waiting to be readmitted, not offline. Used by the wrapper's pause
+   * handler so it never freezes a session other players are relying on.
    */
   isOnline(): boolean {
-    return this.net !== undefined && this.net.live && !this.net.offline;
+    return this.net?.connectionStatus === "connected";
+  }
+
+  /** Where this farmer stands with the co-op room, for the HUD's notice; null
+   *  on a farm that never joins it (an older save's map, a staged run). */
+  connectionStatus(): MultiplayerConnectionStatus | null {
+    return this.net?.connectionStatus ?? null;
   }
 
   /** Live co-op keeps its clock and connection; only this farmer takes a break. */
@@ -898,7 +907,7 @@ export class GameScene extends Scene {
 
   /** Host: the world's side of a granted claim, published, whoever won it —
    *  the host's own claims' effects have already landed here. */
-  private applyGrant(net: NetSession, key: string, owner: string): void {
+  private applyGrant(net: MultiplayerClient, key: string, owner: string): void {
     const claim = parseClaimKey(key);
     if (!claim || claim.epoch !== this.farmSync.epoch) {
       return;
@@ -936,7 +945,7 @@ export class GameScene extends Scene {
   /** Host: every grant the room holds, applied — the claims are the room's
    *  record of who took what, and a host that left may not have applied the
    *  last of them. (Grants a dropped connection missed come with the sync.) */
-  private applyHeldGrants(net: NetSession): void {
+  private applyHeldGrants(net: MultiplayerClient): void {
     for (const [key, { owner }] of Object.entries(net.claims)) {
       this.applyGrant(net, key, owner);
     }
@@ -945,7 +954,7 @@ export class GameScene extends Scene {
   /** Host: crop `gen` of tile `idx` is in, so the claims on the crop before it
    *  — its planting and its harvest — can never be contested again. Give them
    *  back, so a long session never runs the room out of claims. */
-  private releaseSpent(net: NetSession, idx: number, gen: number): void {
+  private releaseSpent(net: MultiplayerClient, idx: number, gen: number): void {
     if (gen <= 1) {
       return;
     }
@@ -986,10 +995,11 @@ export class GameScene extends Scene {
 
   /** After tilling, watering or planting: a guest keeps its change protected
    *  and asks the host to make the same one. The host publishes its tilling
-   *  and watering at once, its planting when the claim is granted. */
+   *  and watering at once, its planting when the claim is granted. Offline
+   *  there is no room to tell. */
   private netTileAction(intent: TileIntent): void {
     const { net } = this;
-    if (!net || net.offline) {
+    if (!net || net.connectionStatus === "offline") {
       return;
     }
     if (this.amHost) {
@@ -1003,16 +1013,17 @@ export class GameScene extends Scene {
   }
 
   /** After a claimed harvest: a guest shields its tile from older host values
-   *  until the host, hearing the grant, publishes the same. */
+   *  until the host, hearing the grant, publishes the same. (Offline, this
+   *  farmer hosts its room of one.) */
   private shieldTile(idx: number): void {
-    if (this.net && !this.net.offline && !this.amHost) {
+    if (!this.amHost) {
       this.farmSync.protectTile(idx, performance.now());
     }
   }
 
   /** After a claimed fell, break or pick: the same, for the object. */
   private shieldClear(id: number): void {
-    if (this.net && !this.net.offline && !this.amHost) {
+    if (!this.amHost) {
       this.farmSync.protectClear(id, performance.now());
     }
   }
@@ -1070,7 +1081,7 @@ export class GameScene extends Scene {
     }
     const shared = net.sharedState;
     const now = performance.now();
-    if (shared && shared !== this.lastShared) {
+    if (shared !== this.lastShared) {
       this.farmSync.adopt(shared, now);
       this.adoptClock(net, shared);
     }
@@ -1081,7 +1092,7 @@ export class GameScene extends Scene {
   /** Guest: the host's clock anchor (runClock reads the minute off it). A later
    *  day means this farmer slept too — the same personal night the host gets
    *  in endDay. */
-  private adoptClock(net: NetSession, shared: JsonObject): void {
+  private adoptClock(net: MultiplayerClient, shared: JsonObject): void {
     const anchor = readClock(shared);
     if (!anchor) {
       return;
@@ -1110,7 +1121,7 @@ export class GameScene extends Scene {
     if (this.isOnline()) {
       // Stamps are server time, so peers read them as the same instant; until
       // the clock is measured (a round trip after joining) there is none.
-      const update = net.timeSynced
+      const update = net.serverClock.synced
         ? this.farmerSender.tick(this.player, this.moving, this.poseRevision, net.serverNow())
         : null;
       if (update) {
@@ -1129,7 +1140,7 @@ export class GameScene extends Scene {
   /** Host: the whole farm once (per new host or scene start), then the clock's
    *  anchor whenever it changes — when the clock starts, stops or turns a day,
    *  never in between: every client reads the minute off it alone. */
-  private publishHost(net: NetSession): void {
+  private publishHost(net: MultiplayerClient): void {
     if (this.publishedAs !== net.playerId) {
       this.publishedAs = net.playerId;
       this.publishedAnchor = null;
@@ -1144,7 +1155,7 @@ export class GameScene extends Scene {
     }
     const anchor = this.clockAnchor;
     if (anchor && anchor !== this.publishedAnchor) {
-      net.patchShared(clockPatch(anchor));
+      net.updateSharedState(clockPatch(anchor));
       this.publishedAnchor = anchor;
     }
   }
@@ -1153,12 +1164,13 @@ export class GameScene extends Scene {
    * The day clock. In the room every client reads it off the anchor on the
    * server clock; the host re-anchors it when its clock starts, stops (a menu,
    * a fade, fishing) or turns a day, and a guest's own menu never stops it.
-   * Offline — and until the room's clock is measured, since a clock frozen in
-   * the connect window reads as a hang — it runs on this frame's time.
+   * Out of the room (offline, connecting, reconnecting) — and until its clock
+   * is measured, since a clock frozen in the connect window reads as a hang —
+   * it runs on this frame's time.
    */
   private runClock(dt: number, running: boolean): void {
     const { net } = this;
-    if (!net || !this.isOnline() || !net.timeSynced) {
+    if (!net || !this.isOnline() || !net.serverClock.synced) {
       if (running) {
         this.advanceTime(dt);
       }
@@ -2127,7 +2139,7 @@ export class GameScene extends Scene {
     this.cameras.main.once(Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
       // Unsynced, no update was ever sent: no peer has this farmer to hide.
       const { net } = this;
-      if (net && this.isOnline() && net.timeSynced) {
+      if (net && this.isOnline() && net.serverClock.synced) {
         net.updateMyState(this.farmerSender.away(net.serverNow()));
       }
       this.scene.stop("Hud");
@@ -2170,8 +2182,11 @@ export class GameScene extends Scene {
       // world the host publishes. Connected guests get theirs in adoptClock.
       if (this.amHost) {
         const changed = this.runOvernight();
-        if (this.net && !this.net.offline) {
-          this.farmSync.publishTiles(this.net, changed);
+        // Mid-reconnect too: the patch applies here, and the reconnect
+        // re-sends whatever the room holds differently.
+        const { net } = this;
+        if (net && net.connectionStatus !== "offline") {
+          this.farmSync.publishTiles(net, changed);
         }
         this.day += 1;
         this.shipping = { day: this.day, shipments: 0, shippedGold: 0 };

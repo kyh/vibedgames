@@ -312,7 +312,12 @@ const main = async () => {
     });
     h = await snapshot(host);
     step("a far farmer leaves the guest's view; the host still sees everyone", h.remote === 1);
-    await host.evaluate((p) => window.__gs.player.setPosition(p.x, p.y), home);
+    // A block body: setPosition returns the sprite, and handing that back to
+    // Playwright serializes the whole game graph on the host's main thread —
+    // long enough to stop its heartbeats and lose it the host role.
+    await host.evaluate((p) => {
+      window.__gs.player.setPosition(p.x, p.y);
+    }, home);
     await waitFor(guest, () => window.__gs.remoteFarmers.count() === 1, "host back in view", {
       timeoutMs: 5000,
     });

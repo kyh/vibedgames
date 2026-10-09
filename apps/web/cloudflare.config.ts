@@ -8,10 +8,16 @@ const secrets = {
   R2_ACCESS_KEY_ID: bindings.secret(),
   R2_ACCOUNT_ID: bindings.secret(),
   R2_SECRET_ACCESS_KEY: bindings.secret(),
-  // Credit purchases (packages/service/src/credits/stripe.ts). A Preview takes Stripe's test-mode keys.
+  TYPESAFE_API_KEY: bindings.secret(),
+};
+
+// Credit purchases (packages/service/src/credits/stripe.ts) are optional: until both keys are set,
+// purchases stay off and Settings offers codes only. A deploy requires every secret it declares,
+// so a production build leaves these out; one set later with `cf workers secrets update` binds anyway,
+// and deploys keep it. `vite dev` declares them to fold `.env` in.
+const stripeSecrets = {
   STRIPE_SECRET_KEY: bindings.secret(),
   STRIPE_WEBHOOK_SECRET: bindings.secret(),
-  TYPESAFE_API_KEY: bindings.secret(),
 };
 
 // A Preview binds preview-only resources, so a PR can never write the prod D1 or bucket
@@ -33,21 +39,28 @@ const productionEnv = {
   R2_BUCKET_NAME: bindings.text("vibedgames-games"),
 };
 
-export default defineConfig(({ isPreview }) => ({
-  worker: {
-    compatibilityDate: "2026-04-12",
-    compatibilityFlags: ["nodejs_compat"],
-    entrypoint: "@tanstack/react-start/server-entry",
-    env: isPreview ? previewEnv : productionEnv,
-    name: "vibedgames-web",
-    observability: { enabled: true },
-    // a Preview must not claim the production hostnames
-    triggers: isPreview
-      ? []
-      : [
-          triggers.fetch({ pattern: "vibedgames.com/*", zone: "vibedgames.com" }),
-          triggers.fetch({ pattern: "www.vibedgames.com/*", zone: "vibedgames.com" }),
-        ],
-    workersDev: true,
-  },
-}));
+export default defineConfig(({ isPreview, mode }) => {
+  const base = isPreview ? previewEnv : productionEnv;
+  // One shape in every mode keeps the generated Env stable. It types the Stripe keys as strings
+  // though a production Worker may lack them; only BillingConfig's optional fields read them.
+  const env: typeof base & Partial<typeof stripeSecrets> =
+    mode === "production" ? base : { ...base, ...stripeSecrets };
+  return {
+    worker: {
+      compatibilityDate: "2026-04-12",
+      compatibilityFlags: ["nodejs_compat"],
+      entrypoint: "@tanstack/react-start/server-entry",
+      env,
+      name: "vibedgames-web",
+      observability: { enabled: true },
+      // a Preview must not claim the production hostnames
+      triggers: isPreview
+        ? []
+        : [
+            triggers.fetch({ pattern: "vibedgames.com/*", zone: "vibedgames.com" }),
+            triggers.fetch({ pattern: "www.vibedgames.com/*", zone: "vibedgames.com" }),
+          ],
+      workersDev: true,
+    },
+  };
+});

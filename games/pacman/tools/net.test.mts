@@ -263,7 +263,10 @@ const playWalk = (transit: (i: number) => number): Playback => {
   const playback: Playback = { lags: [], steps: [] };
   let next = 0;
   let prev: number | null = null;
-  const settled = landed(0) + 300;
+  // Judged from a second in: by then the track's clock has measured how late
+  // this stream's reports land (it takes that first measure whole, about a
+  // dozen reports in) and the buffer covers it.
+  const settled = landed(0) + 1000;
   const end = landed(79) - 300;
   for (let at = landed(0); at < end; at += FRAME_MS) {
     while (next < reports.length && landed(next) <= at) {
@@ -305,18 +308,84 @@ test("each rival's clock learns its own route: a slow one walks as steadily, onl
   // Two 125–175 ms trips: past any fixed delay a shared server clock could use for both.
   const slow = playWalk((i) => 250 + noise(i) * 100);
   assertSteady(slow.steps);
-  // Each is drawn its own fastest transit plus RIVAL_DELAY_MS behind the sender.
-  for (const [route, floor] of [
-    [fast, 50],
-    [slow, 250],
-  ] as const) {
-    for (const lag of route.lags) {
-      assert.ok(
-        Math.abs(lag - (floor + RIVAL_DELAY_MS)) < 1,
-        `lag ${lag} on the ${floor} ms route`,
-      );
+  // The same stream 200 ms slower is drawn exactly 200 ms later, frame for frame.
+  assert.equal(slow.lags.length, fast.lags.length);
+  for (const [i, lag] of slow.lags.entries()) {
+    const fastLag = fast.lags[i] ?? Number.NaN;
+    assert.ok(Math.abs(lag - fastLag - 200) < 1, `frame ${i}: ${lag} vs ${fastLag}`);
+  }
+});
+
+test("a calm route draws a rival RIVAL_DELAY_MS behind; a jittery one only as far as it needs", () => {
+  // Relays of 40–60 ms: the least delay covers them.
+  const calm = playWalk((i) => 40 + noise(i) * 20);
+  assertSteady(calm.steps);
+  for (const lag of calm.lags) {
+    // Past the fastest transit, plus the part of a frame that report waited to be read.
+    const behind = lag - 40 - RIVAL_DELAY_MS;
+    assert.ok(behind > -1 && behind < FRAME_MS + 1, `lag ${lag} on the calm route`);
+  }
+  // Relays wandering 50–150 ms: the delay grows to cover the wander (the walk
+  // above stays steady on them), and no further than one send interval plus
+  // it, plus that frame.
+  for (const lag of playWalk(relay).lags) {
+    const delay = lag - 50;
+    assert.ok(delay > RIVAL_DELAY_MS - 1 && delay < 50 + 100 + FRAME_MS + 1, `delay ${delay}`);
+  }
+});
+
+/** A report and the local time it reached us. */
+interface Delivery {
+  at: number;
+  report: PacSample;
+}
+
+/**
+ * A walking rival's reports across our own drop, in order as over one socket:
+ * over 50–70 ms until it, none of the second's worth it sent while we were
+ * away, then over 450–470 ms. The 61st is the first over the new route.
+ */
+const acrossDrop = (): Delivery[] => {
+  const deliveries: Delivery[] = [];
+  let last = Number.NEGATIVE_INFINITY;
+  for (const [i, report] of walk(200, { t: T0, x: 1, z: 1 }).entries()) {
+    if (i < 60 || i >= 80) {
+      last = Math.max(last, local(report.t) + (i < 60 ? 50 : 450) + noise(i) * 20);
+      deliveries.push({ at: last, report });
     }
   }
+  return deliveries;
+};
+
+test("back from our own drop onto a much slower route, a rival plays on at once", () => {
+  const deliveries = acrossDrop();
+  const back = deliveries[60]?.at ?? Number.NaN;
+  const end = (deliveries.at(-1)?.at ?? 0) - 300;
+  const track = new PacTrack();
+  const steps: number[] = [];
+  let relearned = false;
+  let prev = Number.NaN;
+  for (let at = deliveries[0]?.at ?? 0; at < end; at += FRAME_MS) {
+    if (!relearned && at >= back) {
+      // The room admits us again: the scene relearns every track then.
+      relearned = true;
+      track.relearn();
+    }
+    const newest = deliveries.findLast((delivery) => delivery.at <= at)?.report;
+    assert.ok(newest);
+    track.push(newest, at);
+    const x = track.sample(at)?.x ?? Number.NaN;
+    if (at >= back) {
+      // Timed by the old route's quicker trips, it would run past its newest
+      // report and freeze there for two seconds.
+      assert.ok(x <= newest.x + 1e-9, `${(at - back).toFixed(0)} ms back: ${x}`);
+    }
+    if (at >= back + 200) {
+      steps.push(x - prev);
+    }
+    prev = x;
+  }
+  assertSteady(steps);
 });
 
 test("a respawn snaps the pac home instead of gliding it back through the walls", () => {

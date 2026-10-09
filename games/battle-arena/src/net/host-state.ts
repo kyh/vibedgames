@@ -31,12 +31,10 @@ export const humanRoster = (world: World) => {
 };
 
 /** Election transfers the accepted simulation in place. Only an absent
- * snapshot seeds a room; cloning keeps later host steps out of the SDK cache. */
+ * snapshot seeds a room; applySnapshot copies, so later host steps never
+ * reach the SDK's copy of the room. */
 export const restoreHostState = (world: World, snapshot: Snapshot | null) => {
-  applySnapshot(
-    world,
-    snapshot ? structuredClone(snapshot) : encodeWorld(createWorld(ONLINE_SEED)),
-  );
+  applySnapshot(world, snapshot ?? encodeWorld(createWorld(ONLINE_SEED)));
   world.fx.length = 0;
   return humanRoster(world);
 };

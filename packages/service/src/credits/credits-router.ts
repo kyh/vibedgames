@@ -2,7 +2,7 @@ import { ORPCError } from "@orpc/server";
 
 import { os, requireSession } from "../orpc";
 import { getBalanceMicro, listEntries, redeemCreditCode } from "./credit-ledger";
-import { createCheckoutSession, StripeError } from "./stripe";
+import { createCheckoutSession, purchasesEnabled, StripeError } from "./stripe";
 
 const authed = os.credits.use(requireSession);
 
@@ -15,9 +15,10 @@ export const creditsRouter = {
   // link, and paying it still takes a person at a browser.
   checkout: authed.checkout.handler(async ({ context, input }) => {
     const { billing } = context;
-    if (!billing?.stripeSecretKey) {
+    if (!purchasesEnabled(billing)) {
       throw new ORPCError("PRECONDITION_FAILED", {
-        message: "Credit purchases are not configured on the server.",
+        message:
+          "Card purchases aren't open yet. Add credit with a code instead: `vg credits redeem <code>`, or Settings → Credits.",
       });
     }
     // Back to the page that shows the balance; it watches for the credit to land.
@@ -26,16 +27,13 @@ export const creditsRouter = {
     const success = new URL(settings);
     success.searchParams.set("purchase", "success");
     try {
-      const url = await createCheckoutSession(
-        { ...billing, stripeSecretKey: billing.stripeSecretKey },
-        {
-          amountUsd: input.amountUsd,
-          cancelUrl: settings.href,
-          email: context.session.user.email,
-          successUrl: success.href,
-          userId: context.session.user.id,
-        },
-      );
+      const url = await createCheckoutSession(billing, {
+        amountUsd: input.amountUsd,
+        cancelUrl: settings.href,
+        email: context.session.user.email,
+        successUrl: success.href,
+        userId: context.session.user.id,
+      });
       return { url };
     } catch (error) {
       if (error instanceof StripeError) {
@@ -49,7 +47,7 @@ export const creditsRouter = {
     const userId = context.session.user.id;
     const balanceMicro = await getBalanceMicro(context.db, userId);
     const entries = await listEntries(context.db, userId, 100);
-    return { balanceMicro, entries };
+    return { balanceMicro, entries, purchasesEnabled: purchasesEnabled(context.billing) };
   }),
 
   redeem: authed.redeem.handler(async ({ context, input }) => {

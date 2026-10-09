@@ -556,6 +556,14 @@
       #netinfo:empty {
         display: none;
       }
+      /* Waiting on a room is news, not an aside: it gets the standings chip's
+         backing, since bare white type vanishes into the cream fog. */
+      #netinfo[data-status="connecting"],
+      #netinfo[data-status="reconnecting"] {
+        padding: 3px 9px;
+        border-radius: 8px;
+        background: rgba(20, 12, 30, 0.5);
+      }
       /* Standings flow inside the HUD column, under the score row: as a second
          fixed top-left corner they stacked straight through the SCORE pill. */
       #board {

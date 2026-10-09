@@ -142,13 +142,14 @@ export class Prediction {
     this.outbox.push(bits);
   }
 
-  /** The ticks not yet sent, as one `in` message — once two are waiting (30 Hz
+  /** The ticks not yet sent, as one `in` message stamped `t` (the room's
+   * server time the newest one's step ended at) — once two are waiting (30 Hz
    * at the 60 Hz sim), or now when forced (leaving a room). */
-  flush(room: number, force = false): NetInputs | null {
+  flush(room: number, t: number, force = false): NetInputs | null {
     if (this.outbox.length === 0 || (!force && this.outbox.length < 2)) {
       return null;
     }
-    const msg = { room, seq: this.seq, ticks: this.outbox };
+    const msg = { room, seq: this.seq, t, ticks: this.outbox };
     this.outbox = [];
     return msg;
   }

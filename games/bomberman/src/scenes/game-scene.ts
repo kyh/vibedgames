@@ -7,14 +7,14 @@ import {
 import type { TouchControls } from "@repo/embed";
 import { PhysicalGamepad, attachVirtualGamepad, stickDirection4 } from "@vibedgames/gamepad/phaser";
 import type { PhaserGamepad } from "@vibedgames/gamepad/phaser";
-import { MultiplayerClient, RemoteClock } from "@vibedgames/multiplayer";
+import { FixedRate, MultiplayerClient, RemoteClock } from "@vibedgames/multiplayer";
 import {
   isPlaytestRequested,
   publishDiagnostics,
   publishPlaytest,
   publishTestHooks,
 } from "@vibedgames/playtest";
-import type { Player, SenderClock } from "@vibedgames/multiplayer";
+import type { JsonRecord, JsonValue, Player } from "@vibedgames/multiplayer";
 import type Phaser from "phaser";
 import { BlendModes, Input, Math as PhaserMath, Scale, Scene, Scenes } from "phaser";
 import { createArena, readArena } from "../shared/arena";
@@ -23,12 +23,12 @@ import { BattleFx } from "../fx/battle-fx";
 import { CharacterAction, VICTORY_ACTION_MS } from "../render/character-action";
 import type { CharacterPose } from "../render/character-action";
 import { blastFrame, fireCells, freshCue } from "../render/blast-frame";
+import { BotStride } from "../render/bot-stride";
 import { RoundHud } from "../render/round-hud";
 import { DirInput, stickDirs } from "../input/dir-input";
 import { BombPrediction, fuseStart } from "../net/bomb-prediction";
-import { applyOpened, encodeOpened } from "../net/grid-wire";
-import { localClaims, PICKUP_CLAIMS, PickupClaims, pickupKey } from "../net/pickup-claims";
-import type { ClaimRoom } from "../net/pickup-claims";
+import { TurnTrack } from "../net/bot-track";
+import { PICKUP_CLAIMS, PickupClaims, pickupKey } from "../net/pickup-claims";
 import { StepTrack, WALK_GRACE_MS } from "../net/step-track";
 import type { StepPose } from "../net/step-track";
 import { playtestManifest } from "../playtest-manifest";
@@ -59,6 +59,8 @@ import {
   GRID_COLS,
   GRID_ROWS,
   HOST_STEP_MS,
+  MAX_PLAYERS,
+  PLAYER_BEAT_HZ,
   PLAYER_LIMITS,
   SPAWN_POINTS,
   SPEED_STEP_MS,
@@ -84,12 +86,10 @@ import { buildControls, ensureStyle as ensureControlsStyle } from "../pause-over
 import {
   adoptClock,
   clockStamp,
-  localClock,
   now as simNow,
   pauseClock,
   readClock,
   resumeClock,
-  sameStamp,
   setClockBase,
   simClock,
 } from "../util/clock";
@@ -100,7 +100,7 @@ declare global {
     /** Dev-console hook (DEV builds only). */
     __bb?: {
       scene: GameScene;
-      client: MultiplayerClient | undefined;
+      client: MultiplayerClient;
       audio: typeof audioDiagnostics;
       simNow: () => number;
     };
@@ -179,15 +179,13 @@ const MULTIPLAYER_HOST = import.meta.env.DEV
 
 /** `?room=<code>` isolates a match (test harness, private lobby); everyone else shares one
  *  room, versioned with the wire format so a tab on an older bundle never shares a match. */
-const ROOM = new URLSearchParams(location.search).get("room") || "bomberman-v3";
+const ROOM = new URLSearchParams(location.search).get("room") || "bomberman-v4";
 /** A playtest reseeds and restarts the round at will, so without a `?room` of
  *  its own it plays solo rather than dial the room everyone else shares. */
 const SOLO_PLAYTEST = isPlaytestRequested() && !new URLSearchParams(location.search).has("room");
 const BOMB_BUTTON_INSET = 84;
 const BOMB_BUTTON_RADIUS = 52;
 
-/** Remote movers are drawn this far behind their sender's clock; it covers arrival jitter. */
-const REMOTE_DELAY_MS = 100;
 /** A step that follows straight on from the last starts where that one ended, back at most this far. */
 const MAX_CARRY_MS = 50;
 /** Longest frame the camera and the host's catch-up take into account. */
@@ -301,7 +299,6 @@ const emptyShared = (
   bots: {},
   deaths: {},
   grid: createArena(arena, random),
-  opened: "",
   powerups: {},
   // A whole millisecond: the round names its power-up claims.
   startedAt: Math.round(simNow()),
@@ -309,18 +306,13 @@ const emptyShared = (
   winner: null,
 });
 
-/** JSON value as it comes off the wire — multiplayer payloads are JSON.parse output. */
-type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
-interface JsonObject {
-  [key: string]: JsonValue;
-}
 /** One field of a wire JSON dictionary — unvalidated until narrowed. */
-type WireField = NonNullable<Player["state"]>[string] | undefined;
+type WireField = JsonValue | undefined;
 
 // Wire-JSON narrowing helpers. Runtime `typeof` is banned by the lint, so these
 // use typeof-free checks; JSON can only carry finite numbers, so Number.isFinite
 // is the exact number test.
-const isJsonObject = (v: WireField): v is JsonObject =>
+const isJsonObject = (v: WireField): v is JsonRecord =>
   Object.prototype.toString.call(v) === "[object Object]";
 const isJsonNumber = (v: WireField): v is number => Number.isFinite(v);
 
@@ -338,7 +330,14 @@ const readPlayerState = (player: Player | undefined): PartialPS => {
     const v = s[k];
     return isJsonNumber(v) ? v : undefined;
   };
-  return { col: num("col"), colorIdx: num("colorIdx"), row: num("row"), s: num("s"), t: num("t") };
+  return {
+    col: num("col"),
+    colorIdx: num("colorIdx"),
+    h: num("h"),
+    row: num("row"),
+    s: num("s"),
+    t: num("t"),
+  };
 };
 
 /** The owner's press counter, as an untrusted guest sends it. */
@@ -390,26 +389,24 @@ export class GameScene extends Scene {
   private readonly prediction = new BombPrediction();
   /** Power-ups this client claimed: for its own body, or as host for its bots. */
   private readonly pickupClaims = new PickupClaims();
-  /** The room's claims offline, where this client is the only claimant. */
-  private readonly offlineClaims = localClaims("solo");
   private readonly hostStep = new FixedStep(HOST_STEP_MS, MAX_FRAME_MS);
 
   /** Remote humans, each drawn on its own sender's clock. */
   private readonly humanTracks = new Map<string, StepTrack>();
-  /** Bots, stepping on the sim clock: drawn on time by the host, on its stream by everyone else. */
-  private readonly botTracks = new Map<string, StepTrack>();
-  /** The host's stream as a guest receives it, learned from the bots' steps. */
-  private readonly hostStream = new RemoteClock();
+  /** Bots, turning on the sim clock: drawn on time by the host, from its turns by everyone else. */
+  private readonly botTracks = new Map<string, BotStride | TurnTrack>();
+  /** Each bot's turns as a guest receives them, learned per bot and kept across rounds. */
+  private readonly botClocks = new Map<string, RemoteClock>();
   /** Last state taken in per mover, so a repeated notify is a no-op. */
   private readonly ingested = new Map<string, string>();
   private ingestRound: number | null = null;
-  /** Who sends the bots' steps: this client ("self") or the host it follows. */
+  /** Who sends the bots' turns: this client ("self") or the host it follows. */
   private botSender: string | null = null;
+  /** Our own connection dropped and the room has not admitted us again yet. */
+  private ownDrop = false;
+  /** The heartbeat's send clock: see PlayerState's `h`. */
+  private readonly beat = new FixedRate(PLAYER_BEAT_HZ);
 
-  /** `shared()` decodes the wire state once per change. */
-  private sharedFrom: MultiplayerClient["sharedState"] | null = null;
-  private sharedView: SharedState | null = null;
-  private gridCache: { base: Cell[][]; opened: string | undefined; grid: Cell[][] } | null = null;
   /** Arrow + WASD key pairs per direction — either key held keeps you moving. */
   private heldKeys!: Record<Dir, [Phaser.Input.Keyboard.Key, Phaser.Input.Keyboard.Key]>;
   /** Touch controls: a floating move-joystick (snapped to 4 directions) plus a
@@ -484,36 +481,22 @@ export class GameScene extends Scene {
     this.padArmed = false;
   }
 
-  // Solo fallback: if the party server can't be reached, this client becomes
-  // its own host over the same code paths — events loop back, shared state
-  // lives locally, and the bots make it a real match (you vs 3 bots).
-  private offline = false;
-  private everConnected = false;
   /** `roomReady` as of the last frame — see watchRoomClock. */
   private roomWasReady = false;
-  /** Stamped on the first update() tick (not create()) — see maybeGoOffline. */
-  private bootedAt = 0;
-  private offlineShared: SharedState | null = null;
-  private offlineMyState: JsonObject = {};
+
+  /** A room of one with no server (see create()): asked for, or no room answered in time. */
+  private get offline(): boolean {
+    return this.client.connectionStatus === "offline";
+  }
 
   /** In the room with its clock measured: until the first probe returns, server time reads the local clock. */
   private get roomReady(): boolean {
     return this.client.connectionStatus === "connected" && this.client.serverClock.synced;
   }
 
-  /** In the room, or running the solo offline fallback. */
+  /** In the room, or offline. */
   private get live(): boolean {
     return this.offline || this.roomReady;
-  }
-
-  /** Who holds each claim: the room online, this machine offline. */
-  private get claimRoom(): ClaimRoom {
-    return this.offline ? this.offlineClaims : this.client;
-  }
-
-  /** The clock steps are stamped on: the room's server clock, or this machine's offline. */
-  private get roomClock(): SenderClock {
-    return this.offline ? localClock : this.client.serverClock;
   }
 
   /**
@@ -526,8 +509,9 @@ export class GameScene extends Scene {
     return Object.keys(this.peers).length <= 1;
   }
 
+  /** Offline, this client hosts its room of one. */
   private get amHost(): boolean {
-    return this.offline || (this.roomReady && this.client.isHost);
+    return this.live && this.client.isHost;
   }
 
   /** Freeze a solo simulation. The paused stamp goes out before the loop
@@ -584,16 +568,13 @@ export class GameScene extends Scene {
   }
 
   private get myId(): string | null {
-    return this.offline ? "solo" : this.client.playerId;
+    return this.client.playerId;
   }
 
   /** Humans in the arena. A dropped peer's seat is held for the reconnect
    *  grace window, but until it returns it must not keep a corner from a bot,
    *  stand as an unkillable ghost or hold the round open. */
   private get peers(): typeof this.client.players {
-    if (this.offline) {
-      return { solo: { id: "solo", state: this.offlineMyState } };
-    }
     const present: typeof this.client.players = {};
     for (const [id, player] of Object.entries(this.client.players)) {
       if (player.connected !== false) {
@@ -603,89 +584,16 @@ export class GameScene extends Scene {
     return present;
   }
 
-  /** An intent for the host, sent to the host alone. The host — and the
-   *  offline stand-in — acts on its own intents at once, with no server hop. */
-  private netToHost(event: string, payload: JsonObject): void {
-    const id = this.myId;
-    if (this.amHost && id) {
-      this.handleEvent(event, payload, id);
-      return;
-    }
-    const host = this.offline ? null : this.client.hostId;
-    if (host) {
-      this.client.sendEvent(event, payload, { to: host });
-    }
-  }
-
-  /** Per-player state shallow-merges, mirroring the package's semantics. */
-  private netUpdateMyState(patch: JsonObject): void {
-    this.netDirty = true;
-    if (this.offline) {
-      Object.assign(this.offlineMyState, patch);
-    } else {
-      this.client.updateMyState(patch);
-    }
-  }
-
-  /** Shared-state patches shallow-merge, mirroring the package's semantics. */
+  /**
+   * The host's write to the world, with the sim clock. Only the leaves that
+   * changed go out: an opened crate is one cell of the board, and a clock
+   * that held still since the last write is nothing at all.
+   */
   private netPatchShared(patch: Partial<SharedState>): void {
     this.netDirty = true;
-    if (this.offline) {
-      if (this.offlineShared) {
-        this.offlineShared = { ...this.offlineShared, ...patch, clock: clockStamp() };
-        this.ingestNet();
-      }
-    } else if (this.amHost) {
-      this.client.updateSharedState({ ...this.gridToWire(patch), ...this.clockToWire() });
+    if (this.amHost) {
+      this.client.updateSharedState({ ...patch, clock: clockStamp() });
     }
-  }
-
-  /** The sim clock rides the wire only when it changes: a pause or a resume. */
-  private clockToWire(): Partial<SharedState> {
-    const stamp = clockStamp();
-    const wire = this.client.sharedState;
-    return isShared(wire) && sameStamp(wire.clock, stamp) ? {} : { clock: stamp };
-  }
-
-  /** A changed board goes out as the crates opened since the round's layout,
-   *  not as the 4.8 KB grid (see net/grid-wire). */
-  private gridToWire(patch: Partial<SharedState>): Partial<SharedState> {
-    const { grid, ...rest } = patch;
-    const wire = this.client.sharedState;
-    if (!grid || !isShared(wire)) {
-      return patch;
-    }
-    return { ...rest, opened: encodeOpened(wire.grid, grid) };
-  }
-
-  /** Poll once per frame: drives the solo-fallback grace window. */
-  private maybeGoOffline(): void {
-    // Start the grace window on the FIRST update() tick, not at create():
-    // counting load time against the deadline would wrongly drop a slow-booting
-    // client to solo before its socket ever got a chance to connect.
-    if (this.bootedAt === 0) {
-      this.bootedAt = Date.now();
-    }
-    if (this.client.connectionStatus === "connected") {
-      this.everConnected = true;
-      return;
-    }
-    // Once we've been in a room, a drop is transient — let the socket
-    // reconnect instead of permanently stranding the player in solo.
-    if (this.everConnected) {
-      return;
-    }
-    // Pre-connect errors/closes are NOT instant failures: the socket retries
-    // by itself, so the deadline is the only fallback trigger.
-    if (Date.now() - this.bootedAt < OFFLINE_FALLBACK_MS) {
-      return;
-    }
-    this.offline = true;
-    setClockBase(localClock);
-    // no subscribe() offline — kick the first onUpdate
-    this.netDirty = true;
-    // stop reconnect attempts; refresh to go online
-    this.client.destroy();
   }
 
   /** The room goes live once its clock is measured, and no room message says when. */
@@ -766,46 +674,43 @@ export class GameScene extends Scene {
       .reserve(192);
     this.battleFx = new BattleFx(this);
 
-    // Explicit offline boot (?offline=1): never dial the party server. A
-    // failed WebSocket handshake logs a browser console error the page cannot
-    // suppress, so an offline-by-intent run (bot playtest, deliberate solo)
-    // must skip the socket entirely rather than lean on the failure fallback
-    // (maybeGoOffline), which would also hold the round behind `live` for the
-    // whole grace window. Every `this.client` access is guarded by
-    // `this.offline`, so the client simply never exists on this path.
-    if (isOfflineRequested() || SOLO_PLAYTEST) {
-      this.offline = true;
-      setClockBase(localClock);
-      // no subscribe() offline — kick the first onUpdate
+    // Offline by intent (?offline=1, a solo playtest) the client never dials:
+    // a failed WebSocket handshake logs a console error the page cannot
+    // suppress, and waiting out the fallback would hold the round behind
+    // `live` for the whole deadline. Otherwise it goes offline by itself when
+    // no room admits it within OFFLINE_FALLBACK_MS of play. Offline it is a
+    // room of one that this client hosts over the same code paths: intents
+    // loop back, the world applies locally, claims are granted at once, and
+    // the bots make it a real match (you vs 3 bots).
+    // No `initialState`: the round is stamped on the room's clock, so the
+    // first host seeds it once that clock is in (ensureSeeded), and a promoted
+    // guest keeps the live round.
+    this.client = new MultiplayerClient({
+      fallbackMs: OFFLINE_FALLBACK_MS,
+      host: MULTIPLAYER_HOST,
+      limits: PLAYER_LIMITS,
+      maxPlayers: MAX_PLAYERS,
+      offline: isOfflineRequested() || SOLO_PLAYTEST,
+      onClaim: (key, owner) => this.onClaimHeard(key, owner),
+      onEvent: (event, payload, from) => this.handleEvent(event, payload, from),
+      party: "vg-server",
+      room: ROOM,
+    });
+    // Sim time is server time: every client reads fuses and bot steps alike.
+    // Offline the server clock is this machine's.
+    setClockBase(this.client.serverClock);
+    // The SDK notifies once per room message (offline, once per write), so
+    // every step a mover reports reaches its track even when several land in
+    // one frame, and a drop and the reconnect after it are both seen even
+    // while the tab is hidden and runs no frame.
+    this.client.subscribe(() => {
+      this.watchOwnConnection();
+      this.syncSharedClock();
+      this.ingestNet();
       this.netDirty = true;
-      this.ensureSeeded();
-    } else {
-      // No `initialState`: the package re-applies it whenever a client becomes
-      // host, which would wipe a live round on host migration. Instead the first
-      // host seeds the world explicitly (see `ensureSeeded`) — a promoted guest
-      // already has the shared state and won't reset it.
-      this.client = new MultiplayerClient({
-        host: MULTIPLAYER_HOST,
-        limits: PLAYER_LIMITS,
-        onClaim: (key, owner) => this.onClaimHeard(key, owner),
-        onEvent: (event, payload, from) => {
-          // SAFETY: wire payloads are JSON.parse output (or loop back from
-          // netToHost's JsonObject), so they are JSON values by construction.
-          this.handleEvent(event, payload as JsonValue, from);
-        },
-        party: "vg-server",
-        room: ROOM,
-      });
-      // Sim time is server time: every client reads fuses and bot steps alike.
-      setClockBase(this.client.serverClock);
-      // The SDK notifies once per room message, so every step a mover
-      // reports reaches its track even when several land in one frame.
-      this.client.subscribe(() => {
-        this.syncSharedClock();
-        this.ingestNet();
-        this.netDirty = true;
-      });
-    }
+    });
+    // A client offline from the start already hosts: its world is seeded now.
+    this.ensureSeeded();
 
     this.bindInput();
 
@@ -813,10 +718,7 @@ export class GameScene extends Scene {
       this.scale.off(Scale.Events.RESIZE, this.applyZoom, this);
       this.gamepad.destroy();
       this.touchControls?.destroy();
-      // offline already destroyed it
-      if (!this.offline) {
-        this.client.destroy();
-      }
+      this.client.destroy();
     });
 
     if (import.meta.env.DEV) {
@@ -865,7 +767,7 @@ export class GameScene extends Scene {
     this.random = seededRandom(seed);
     this.playtestScore.reset();
     const next = emptyShared("classic", this.random);
-    next.startedAt = Math.max(next.startedAt, (this.offlineShared?.startedAt ?? 0) + 1);
+    next.startedAt = Math.max(next.startedAt, (this.shared()?.startedAt ?? 0) + 1);
     this.writeShared(next);
   }
 
@@ -888,17 +790,13 @@ export class GameScene extends Scene {
     const now = performance.now();
     const elapsed = this.frameAt === 0 ? 0 : Math.min(MAX_FRAME_MS, now - this.frameAt);
     this.frame += 1;
-    if (!this.offline) {
-      this.watchRoomClock();
-      this.maybeGoOffline();
-    }
+    this.watchRoomClock();
     if (this.prediction.settle(this.shared()?.bombs ?? {}, now)) {
       this.netDirty = true;
     }
-    // subscribe() (online) and the net* writers (offline) mark the scene
-    // dirty; run the render sync at most once per frame, and only when
-    // something actually changed. Runs even while connecting so the HUD
-    // shows the connection status.
+    // subscribe() marks the scene dirty; run the render sync at most once per
+    // frame, and only when something actually changed. Runs even while
+    // connecting so the HUD shows the connection status.
     if (this.netDirty) {
       this.netDirty = false;
       this.onUpdate();
@@ -910,6 +808,7 @@ export class GameScene extends Scene {
       this.gamepad.update();
       this.applyPadActions();
       this.handleInput(now);
+      this.sendBeat(elapsed, now);
       this.claimUnderfoot();
       // Hold the world (bots, bombs, round end) while the start screen is up, or
       // the round can be decided against a player who is still reading. Only safe
@@ -1199,8 +1098,27 @@ export class GameScene extends Scene {
     this.stepStartedAt = start;
     this.stepEndsAt = start + stride;
     // Published on the room's clock, the one every receiver draws against.
-    const t = Math.round(this.roomClock.now(now) - (now - start));
-    this.netUpdateMyState({ col: this.myCol, row: this.myRow, s: stride, t });
+    const t = Math.round(this.client.serverNow(now) - (now - start));
+    this.client.updateMyState({ col: this.myCol, row: this.myRow, s: stride, t });
+  }
+
+  /**
+   * While the body is on the board and another player is in the room to draw
+   * it, the room's clock on a steady beat: a message carrying one key. Each
+   * other player draws this body on its own clock of this sender, which
+   * learns from the beats how long they take and how late they run, and the
+   * newest beat tells it a body at rest is still there. A step in the same
+   * frame leaves with it. Alone against bots there is nobody to tell.
+   */
+  private sendBeat(elapsed: number, now: number): void {
+    if (
+      this.beat.due(elapsed) &&
+      this.ownSpawned &&
+      this.roomReady &&
+      Object.keys(this.peers).length > 1
+    ) {
+      this.client.updateMyState({ h: Math.round(this.client.serverNow(now)) });
+    }
   }
 
   /** Held by a key of either set, or the pad's d-pad. */
@@ -1269,7 +1187,7 @@ export class GameScene extends Scene {
     } else {
       this.prediction.add(bomb, performance.now());
       this.netDirty = true;
-      this.netToHost("place_bomb", { at, col, localId, round: state.startedAt, row });
+      this.client.sendToHost("place_bomb", { at, col, localId, round: state.startedAt, row });
     }
     sfx.place(true);
     this.pulsePlayer(id, "place");
@@ -1290,7 +1208,8 @@ export class GameScene extends Scene {
     }
     // The accepted replacement snapshot owns respawn, including reconnects
     // that missed the request. Old requests cannot restart a newer round.
-    this.netToHost("request_restart", { round: state.startedAt });
+    // The host (and an offline client) handles its own request at once.
+    this.client.sendToHost("request_restart", { round: state.startedAt });
   }
 
   private respawnSelf(): void {
@@ -1325,12 +1244,12 @@ export class GameScene extends Scene {
 
   /** A zero-length step: everyone else places the body there instead of walking it over. */
   private publishSpawn(col: number, row: number, idx: number): void {
-    this.netUpdateMyState({
+    this.client.updateMyState({
       col,
       colorIdx: idx % COLORS.length,
       row,
       s: 0,
-      t: Math.round(this.roomClock.now()),
+      t: Math.round(this.client.serverNow()),
     });
   }
 
@@ -1370,7 +1289,7 @@ export class GameScene extends Scene {
       return;
     }
     const tile = { col: this.myCol, row: this.myRow };
-    const pickup = this.pickupClaims.reach(this.claimRoom, state, id, tile);
+    const pickup = this.pickupClaims.reach(this.client, state, id, tile);
     if (!pickup) {
       return;
     }
@@ -1391,8 +1310,11 @@ export class GameScene extends Scene {
 
   /**
    * The room named an owner for a claim. A power-up this client took that
-   * went to someone else comes back off its stats; the host hands every
-   * grant to its claimant at once, before a guest's next press can need it.
+   * went to someone else comes back off its stats. The host hands a grant to
+   * another player at once, before that guest's next press can need it. Its
+   * own grants (its body's, its bots', every one offline) settle in the host
+   * step: offline a bot's grant arrives inside claim(), mid-step, where
+   * settling would race the step's own write of the world and grant twice.
    */
   private onClaimHeard(key: string, owner: string | null): void {
     const id = this.myId;
@@ -1400,7 +1322,7 @@ export class GameScene extends Scene {
     if (lost?.fighter === id && this.statsEl?.dataset["pickup"] === lost.pickup.kind) {
       this.clearPickupNote();
     }
-    if (owner !== null && this.amHost) {
+    if (owner !== null && owner !== id && this.amHost) {
       this.settlePickups();
     }
     this.netDirty = true;
@@ -1410,7 +1332,7 @@ export class GameScene extends Scene {
   private settlePickups(): void {
     const id = this.myId;
     const state = this.shared();
-    const granted = id && state ? this.pickupClaims.settle(this.claimRoom, state, id) : null;
+    const granted = id && state ? this.pickupClaims.settle(this.client, state, id) : null;
     if (granted) {
       this.netPatchShared(granted);
     }
@@ -1500,54 +1422,60 @@ export class GameScene extends Scene {
 
   // ---- shared-state rendering ----------------------------------------------
 
+  /** The world, once the first host has seeded it. */
   private shared(): SharedState | null {
-    // local state is authoritative solo
-    if (this.offline) {
-      return this.offlineShared;
-    }
-    // Online the wire carries the round's layout plus the crates opened
-    // since; decode once per change, not per read.
-    const wire = this.client.sharedState;
-    if (wire !== this.sharedFrom) {
-      this.sharedFrom = wire;
-      this.sharedView = isShared(wire)
-        ? { ...wire, grid: this.boardOf(wire.grid, wire.opened) }
-        : null;
-    }
-    return this.sharedView;
-  }
-
-  private boardOf(base: Cell[][], opened: string | undefined): Cell[][] {
-    const cached = this.gridCache;
-    if (cached?.base === base && cached.opened === opened) {
-      return cached.grid;
-    }
-    const grid = applyOpened(base, opened);
-    this.gridCache = { base, grid, opened };
-    return grid;
+    const state = this.client.sharedState;
+    return isShared(state) ? state : null;
   }
 
   /**
-   * Take every remote mover's newest step into its track. Runs per room
-   * message, so two steps that land in one frame are both walked — the
-   * once-a-frame render sync would see only the second and slide straight
-   * through the pillar between them.
+   * Back in the room after our own connection dropped: every sender's route
+   * here is new, so each clock kept for one measures it afresh before the
+   * room's state is taken in. (A host change moves only the bots' route; see
+   * ingestNet.)
+   */
+  private watchOwnConnection(): void {
+    const status = this.client.connectionStatus;
+    if (status === "reconnecting") {
+      this.ownDrop = true;
+    } else if (status === "connected" && this.ownDrop) {
+      this.ownDrop = false;
+      for (const track of this.humanTracks.values()) {
+        track.relearn();
+      }
+      for (const clock of this.botClocks.values()) {
+        clock.relearn();
+      }
+    }
+  }
+
+  /**
+   * Take every remote mover's newest step, beat or turn into its track.
+   * Runs per room message, so two steps that land in one frame are both
+   * walked — the once-a-frame render sync would see only the second and slide
+   * straight through the pillar between them.
    */
   private ingestNet(): void {
     const state = this.shared();
     const botSender = this.amHost ? "self" : this.client.hostId;
     if (botSender !== this.botSender) {
-      // A new sender: learn its relay afresh, and draw its bots on its terms.
+      // A new host's turns come another way: each bot's clock learns the
+      // route afresh, easing over to it. Simulating the bots here, or no
+      // longer, draws them another way altogether.
+      if ((botSender === "self") !== (this.botSender === "self")) {
+        this.dropTracks(this.botTracks);
+      }
       this.botSender = botSender;
-      this.hostStream.reset();
-      this.dropTracks(this.botTracks);
+      for (const clock of this.botClocks.values()) {
+        clock.relearn();
+      }
     }
     const round = state?.startedAt ?? null;
     if (round !== this.ingestRound) {
       // A new round respawns everyone: place them, never walk them there.
       this.ingestRound = round;
-      this.dropTracks(this.humanTracks);
-      this.dropTracks(this.botTracks);
+      this.clearTracks(this.humanTracks);
+      this.clearTracks(this.botTracks);
     }
     for (const [id, player] of Object.entries(this.peers)) {
       if (id !== this.myId) {
@@ -1560,46 +1488,65 @@ export class GameScene extends Scene {
   }
 
   private ingestHuman(id: string, ps: PartialPS): void {
-    const { col, row, t, s } = ps;
-    const key = `${col},${row},${t},${s}`;
-    if (
-      col === undefined ||
-      row === undefined ||
-      t === undefined ||
-      s === undefined ||
-      this.ingested.get(id) === key
-    ) {
-      return;
-    }
-    this.ingested.set(id, key);
     let track = this.humanTracks.get(id);
     if (!track) {
-      track = new StepTrack({ clock: new RemoteClock(), delayMs: REMOTE_DELAY_MS });
+      track = new StepTrack();
       this.humanTracks.set(id, track);
     }
-    track.step({ col, row }, t, s);
+    const { col, row, t, s, h } = ps;
+    const key = `${col},${row},${t},${s}`;
+    if (
+      col !== undefined &&
+      row !== undefined &&
+      t !== undefined &&
+      s !== undefined &&
+      this.ingested.get(id) !== key
+    ) {
+      this.ingested.set(id, key);
+      track.step({ col, row }, t, s);
+    }
+    if (h !== undefined) {
+      track.beat(h);
+    }
   }
 
   private ingestBot(bot: Bot): void {
-    const key = `${bot.col},${bot.row}`;
+    const own = this.botSender === "self";
+    // A guest draws every turn, moved or not; the host only the strides.
+    const key = own ? `${bot.col},${bot.row}` : `${bot.col},${bot.row},${bot.nextMoveAt}`;
     if (this.ingested.get(bot.id) === key) {
       return;
     }
     this.ingested.set(bot.id, key);
-    let track = this.botTracks.get(bot.id);
-    if (!track) {
-      // The host draws its own bots on time; everyone else, behind the host's stream.
-      track =
-        this.botSender === "self"
-          ? new StepTrack({ clock: simClock, delayMs: 0 })
-          : new StepTrack({ clock: this.hostStream, delayMs: REMOTE_DELAY_MS });
-      this.botTracks.set(bot.id, track);
-    }
-    // A bot that moved set off on the step its next turn is a stride after.
-    track.step({ col: bot.col, row: bot.row }, bot.nextMoveAt - BOT_MOVE_MS, BOT_MOVE_MS);
+    // The turn sets the next one a stride after.
+    this.botTrack(bot.id, own).turn(bot, bot.nextMoveAt - BOT_MOVE_MS, bot.dir);
   }
 
-  private dropTracks(tracks: Map<string, StepTrack>): void {
+  /** The host draws its own bots on time; everyone else, from their turns on each bot's clock. */
+  private botTrack(id: string, own: boolean): BotStride | TurnTrack {
+    let track = this.botTracks.get(id);
+    if (!track) {
+      if (own) {
+        track = new BotStride(simClock);
+      } else {
+        const clock = this.botClocks.get(id) ?? new RemoteClock();
+        this.botClocks.set(id, clock);
+        track = new TurnTrack(clock);
+      }
+      this.botTracks.set(id, track);
+    }
+    return track;
+  }
+
+  /** Forget every body's place, to be taken in afresh: the next state places each. */
+  private clearTracks(tracks: Map<string, BotStride | StepTrack | TurnTrack>): void {
+    for (const [id, track] of tracks) {
+      track.clear();
+      this.ingested.delete(id);
+    }
+  }
+
+  private dropTracks(tracks: Map<string, BotStride | StepTrack | TurnTrack>): void {
     for (const id of tracks.keys()) {
       this.ingested.delete(id);
     }
@@ -1607,17 +1554,12 @@ export class GameScene extends Scene {
   }
 
   /**
-   * The first host to connect seeds the world. Guests adopt the host's
-   * existing state; a guest promoted to host after a migration keeps the
-   * live round instead of resetting it.
+   * The first host to connect seeds the world — an offline client too, as it
+   * hosts its room of one. Guests adopt the host's existing state; a guest
+   * promoted to host after a migration keeps the live round instead of
+   * resetting it.
    */
   private ensureSeeded(): void {
-    if (this.offline) {
-      if (!this.offlineShared) {
-        this.offlineShared = emptyShared("classic", this.random);
-      }
-      return;
-    }
     if (this.amHost && !this.shared()) {
       this.writeShared(emptyShared("classic", this.random));
     }
@@ -1846,7 +1788,7 @@ export class GameScene extends Scene {
       return;
     }
     const seen = new Set<string>();
-    for (const [key, pu] of Object.entries(this.pickupClaims.visible(this.claimRoom, s))) {
+    for (const [key, pu] of Object.entries(this.pickupClaims.visible(this.client, s))) {
       seen.add(key);
       if (this.powerupObjs.has(key)) {
         continue;
@@ -1901,7 +1843,7 @@ export class GameScene extends Scene {
    *  client's own pickups cued on the step, and burnt ones just go. */
   private cueTaken(s: SharedState, pickup: Powerup): void {
     const key = pickupKey(s.startedAt, pickup);
-    const taker = this.pickupClaims.fighterOf(key) ?? this.claimRoom.ownerOf(key);
+    const taker = this.pickupClaims.fighterOf(key) ?? this.client.ownerOf(key);
     if (this.feedbackEnabled && taker !== null && taker !== this.myId) {
       this.burst(colX(pickup.col), rowY(pickup.row), POWERUP_GLOW[pickup.kind], 14);
     }
@@ -1989,6 +1931,7 @@ export class GameScene extends Scene {
         this.deathSeen.delete(id);
         this.humanTracks.delete(id);
         this.botTracks.delete(id);
+        this.botClocks.delete(id);
         this.ingested.delete(id);
       }
     }
@@ -2115,46 +2058,47 @@ export class GameScene extends Scene {
 
   /**
    * The sim on a fixed step of sim time — exact strides and fuses at any
-   * frame rate — with the frame's steps merged into one patch. Only a frame
-   * slow enough to hold two bot turns sends twice: merged, a bot's two steps
-   * would arrive as one two-tile jump.
+   * frame rate. Every write in a frame leaves as one message, so a frame
+   * stops at a step that turned the bots and leaves the rest for the next:
+   * two turns in one message would reach guests as one two-tile jump.
    */
   private hostSteps(): void {
-    const steps = this.hostStep.due(simNow());
     const shared = this.shared();
     const id = this.myId;
-    if (steps.length === 0 || !shared || !id) {
+    if (!shared || !id) {
       return;
     }
     const world = { ...shared };
     const humans = this.humans();
-    let merged: Partial<SharedState> = {};
-    for (const at of steps) {
+    const now = simNow();
+    let stepped = false;
+    for (let at = this.hostStep.next(now); at !== null; at = this.hostStep.next(now)) {
+      stepped = true;
       const { patch } = simHostTick(world, humans, at, this.random);
-      if (patch?.bots && merged.bots) {
-        this.netPatchShared(merged);
-        merged = {};
-      }
       if (patch) {
         Object.assign(world, patch);
-        Object.assign(merged, patch);
+        this.netPatchShared(patch);
+      }
+      if (patch?.bots) {
+        break;
       }
     }
-    // Claims settled since the last step, a new host's inherited ones included.
-    const granted = this.pickupClaims.settle(this.claimRoom, world, id);
+    if (!stepped) {
+      return;
+    }
+    // Claims granted since the last step: this client's own (see onClaimHeard),
+    // and a new host's inherited ones.
+    const granted = this.pickupClaims.settle(this.client, world, id);
     if (granted) {
       Object.assign(world, granted);
-      Object.assign(merged, granted);
+      this.netPatchShared(granted);
     }
     // Bots take power-ups the way players do, through the room. The sprite goes
     // on the next sync, while the claim still names the bot that took it.
     for (const bot of Object.values(world.bots)) {
-      if (!world.deaths[bot.id] && this.pickupClaims.reach(this.claimRoom, world, bot.id, bot)) {
+      if (!world.deaths[bot.id] && this.pickupClaims.reach(this.client, world, bot.id, bot)) {
         this.netDirty = true;
       }
-    }
-    if (Object.keys(merged).length > 0) {
-      this.netPatchShared(merged);
     }
   }
 
@@ -2347,7 +2291,7 @@ export class GameScene extends Scene {
   private playerView(state: SharedState, id: string): SharedState {
     return {
       ...state,
-      powerups: this.pickupClaims.visible(this.claimRoom, state),
+      powerups: this.pickupClaims.visible(this.client, state),
       stats: { ...state.stats, [id]: this.pickupClaims.stats(state, id) },
     };
   }
@@ -2401,18 +2345,11 @@ export class GameScene extends Scene {
     return !s.deaths[id];
   }
 
-  /** A whole round: the layout goes out in full, with nothing opened yet. Last
-   *  round's power-up claims go: their keys name the round, but a room holds only so many. */
+  /** A whole round, every field written. Last round's power-up claims go:
+   *  their keys name the round, but a room holds only so many. */
   private writeShared(next: SharedState): void {
-    this.netDirty = true;
-    if (this.offline) {
-      this.offlineShared = { ...next, clock: clockStamp() };
-      this.offlineClaims.clearClaims(PICKUP_CLAIMS);
-      this.ingestNet();
-      return;
-    }
+    this.netPatchShared(next);
     if (this.amHost) {
-      this.client.updateSharedState({ ...next, clock: clockStamp() });
       this.client.clearClaims(PICKUP_CLAIMS);
     }
   }
@@ -2503,11 +2440,10 @@ export class GameScene extends Scene {
   // ---- HUD -----------------------------------------------------------------
 
   private statusText(): string {
-    if (!this.offline) {
-      const cs = this.client.connectionStatus;
-      if (cs !== "connected") {
-        return `${cs}…`;
-      }
+    if (!this.live) {
+      // Not admitted yet (or admitted, with the room's clock still coming in),
+      // or admitted before and redialling while the room holds the seat.
+      return this.client.connectionStatus === "reconnecting" ? "reconnecting…" : "connecting…";
     }
     const s = this.shared();
     const restart = TOUCH_UI ? "tap to restart" : "press R";

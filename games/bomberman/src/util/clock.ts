@@ -2,24 +2,24 @@
 //
 // Bomb fuses, blast lifetimes, the round id and bot cadence are timestamps on
 // this clock (compare a stored `placedAt`/`nextMoveAt` against `now()`).
-// Online its base is the party server's clock (`client.serverClock`), which
-// every client measures for itself, so a stamp means the same instant to every
-// player and a new host changes nothing. Offline the base is this machine's own
-// clock.
+// Its base is the room's clock (`client.serverClock`). Online that is the party
+// server's, which every client measures for itself, so a stamp means the same
+// instant to every player and a new host changes nothing. Offline it is this
+// machine's own.
 //
 // Pausing a solo arena freezes it: `now()` holds still, and on resume the
 // paused span joins the offset, so a bomb with 2 s of fuse left before a pause
-// still has ~2 s after. The host publishes its stamp (the offset, or the frozen
-// time) whenever it changes, and every other client adopts it as is: nothing
-// is estimated from when it arrived. Only sim timing reads `now()`; net
-// heartbeats, connection deadlines and logging stay on real `Date.now()`,
-// because pausing those would break reconnection.
+// still has ~2 s after. The host writes its stamp (the offset, or the frozen
+// time) with the world, which sends it only when it changed, and every other
+// client adopts it as is: nothing is estimated from when it arrived. Only sim
+// timing reads `now()`; net heartbeats, connection deadlines and logging stay
+// on real `Date.now()`, because pausing those would break reconnection.
 
 import type { SenderClock } from "@vibedgames/multiplayer";
 
 export type ClockStamp = { kind: "running"; offset: number } | { kind: "paused"; now: number };
 
-/** This machine's clock, on the server's epoch: the base offline. */
+/** This machine's clock, on the server's epoch: the base until the scene sets the room's. */
 export const localClock: SenderClock = {
   now: (localNow = performance.now()) => performance.timeOrigin + localNow,
   synced: true,
@@ -28,7 +28,7 @@ export const localClock: SenderClock = {
 let base: SenderClock = localClock;
 let clock: ClockStamp = { kind: "running", offset: 0 };
 
-/** Run sim time on `source`: the room's server clock online, `localClock` offline. */
+/** Run sim time on `source`: the room's clock, `client.serverClock`. */
 export const setClockBase = (source: SenderClock): void => {
   base = source;
 };
@@ -57,14 +57,6 @@ export const simClock: SenderClock = {
 };
 
 export const clockStamp = (): ClockStamp => clock;
-
-/** True when two stamps say the same thing: the host sends its stamp only when it changes. */
-export const sameStamp = (a: ClockStamp | undefined, b: ClockStamp): boolean => {
-  if (a?.kind === "paused" && b.kind === "paused") {
-    return a.now === b.now;
-  }
-  return a?.kind === "running" && b.kind === "running" && a.offset === b.offset;
-};
 
 /** Follow the room's stamp. Every client shares the base, so it applies as is. */
 export const adoptClock = (stamp: ClockStamp | null): void => {

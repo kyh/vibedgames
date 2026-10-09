@@ -70,6 +70,13 @@ export class RemotePacs {
     }
   }
 
+  /** Back in the room after our own connection dropped: every rival's route to us is new. */
+  relearn(): void {
+    for (const pac of this.pacs.values()) {
+      pac.track.relearn();
+    }
+  }
+
   private spawn(id: string): RemotePac {
     const mat = new THREE.MeshStandardMaterial({
       color: colorForId(id),

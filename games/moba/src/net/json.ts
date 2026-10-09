@@ -1,15 +1,15 @@
 // The JSON wire domain. Multiplayer payloads and shared-state values arrive
-// as JSON websocket frames (or local echoes of JSON-safe sends), so JsonValue
-// names their entire input domain — parsers take it instead of `unknown`.
-// The guards below discriminate scalars without `typeof` by exploiting JSON's
-// limits: JSON.parse never yields NaN/Infinity, boxed primitives, or functions.
+// as JSON websocket frames (or local echoes of JSON-safe sends), so the SDK's
+// JsonValue names their entire input domain — parsers take it instead of
+// `unknown`. The guards below discriminate scalars without `typeof` by
+// exploiting JSON's limits: JSON.parse never yields NaN/Infinity, boxed
+// primitives, or functions.
 
-export type JsonValue = string | number | boolean | null | JsonValue[] | JsonObject;
-export interface JsonObject {
-  [k: string]: JsonValue;
-}
+import type { JsonRecord, JsonValue } from "@vibedgames/multiplayer";
 
-export const isJsonObject = (v: JsonValue | undefined): v is JsonObject =>
+export type { JsonRecord as JsonObject, JsonValue } from "@vibedgames/multiplayer";
+
+export const isJsonObject = (v: JsonValue | undefined): v is JsonRecord =>
   v instanceof Object && !Array.isArray(v);
 
 export const isJsonNumber = (v: JsonValue | undefined): v is number => Number.isFinite(v);

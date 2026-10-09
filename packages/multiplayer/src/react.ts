@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
-import type { JsonRecord, JsonValue, MultiplayerOptions, SendEventOptions } from "./types.js";
+import type {
+  JsonRecord,
+  JsonValue,
+  MultiplayerOptions,
+  RoomInfo,
+  SendEventOptions,
+} from "./types.js";
 import { MultiplayerClient } from "./client.js";
 import type { MultiplayerSnapshot } from "./client.js";
 
@@ -24,6 +30,12 @@ export type MultiplayerRoom<TShared = JsonRecord> = MultiplayerSnapshot & {
   updateSharedState: (updater: Partial<TShared> | SharedUpdaterFn<TShared>) => void;
   updateMyState: (updater: JsonRecord | ((previous: JsonRecord) => JsonRecord)) => void;
   sendEvent: (event: string, payload: JsonValue, options?: SendEventOptions) => void;
+  /** An intent for the host alone; see `MultiplayerClient.sendToHost`. */
+  sendToHost: (event: string, payload: JsonValue) => void;
+  /** Leave the room and play on alone; see `MultiplayerClient.goOffline`. */
+  goOffline: () => void;
+  /** Host only: lock the room or set its meta; see `MultiplayerClient.setRoomInfo`. */
+  setRoomInfo: (info: Partial<RoomInfo>) => void;
 };
 
 export type UseMultiplayerRoomConfig<TShared> = MultiplayerOptions & {
@@ -36,17 +48,20 @@ export const useMultiplayerRoom = <TShared extends JsonRecord = JsonRecord>(
   // Stable client instance — only recreate if connection params change. The
   // swap happens as a render-phase state reset so the rest of this render
   // already sees the new client; the old one is torn down by effect cleanup.
-  const rules = JSON.stringify([config.tickRate, config.interest, config.limits]);
-  const key = `${config.host}/${config.party}/${config.room}/${config.maxPlayers ?? ""}/${rules}`;
+  const rules = JSON.stringify([config.tickRate, config.interest, config.limits, config.lobby]);
+  const key = `${config.host}/${config.party}/${config.room}/${config.maxPlayers ?? ""}/${rules}/${config.offline === true}`;
   const [entry, setEntry] = useState<{ client: MultiplayerClient; key: string } | null>(null);
   let client = entry !== null && entry.key === key ? entry.client : null;
   if (client === null) {
     client = new MultiplayerClient({
+      fallbackMs: config.fallbackMs,
       host: config.host,
       initialState: config.initialState,
       interest: config.interest,
       limits: config.limits,
+      lobby: config.lobby,
       maxPlayers: config.maxPlayers,
+      offline: config.offline,
       onClaim: config.onClaim,
       onEvent: config.onEvent,
       onTick: config.onTick,
@@ -87,8 +102,8 @@ export const useMultiplayerRoom = <TShared extends JsonRecord = JsonRecord>(
         // so the stored JsonRecord is the TShared the game last produced.
         client.updateSharedState((prev) => (updater as (p: TShared) => TShared)(prev as TShared));
       } else {
-        // SAFETY: a Partial<TShared> patch is shallow-merged into the current
-        // TShared; `undefined` values are dropped key-wise by JSON on send.
+        // SAFETY: a Partial<TShared> patch replaces the keys it names in the
+        // current TShared, and a key it sets to `undefined` is deleted.
         client.updateSharedState(updater as TShared);
       }
     },
@@ -108,17 +123,29 @@ export const useMultiplayerRoom = <TShared extends JsonRecord = JsonRecord>(
     [client],
   );
 
+  const sendToHost = useCallback(
+    (event: string, payload: JsonValue) => client.sendToHost(event, payload),
+    [client],
+  );
+
+  const goOffline = useCallback(() => client.goOffline(), [client]);
+
+  const setRoomInfo = useCallback((info: Partial<RoomInfo>) => client.setRoomInfo(info), [client]);
+
   return useMemo(
     () => ({
       ...snapshot,
+      goOffline,
       sendEvent,
+      sendToHost,
+      setRoomInfo,
       // SAFETY: same invariant as updateSharedState — the stored JsonRecord is
       // whatever TShared the game seeded and last wrote.
       sharedState: snapshot.sharedState as TShared,
       updateMyState,
       updateSharedState,
     }),
-    [snapshot, updateSharedState, updateMyState, sendEvent],
+    [snapshot, updateSharedState, updateMyState, sendEvent, sendToHost, goOffline, setRoomInfo],
   );
 };
 

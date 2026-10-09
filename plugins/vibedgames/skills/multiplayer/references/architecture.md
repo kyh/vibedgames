@@ -26,7 +26,12 @@ import { MultiplayerClient } from "@vibedgames/multiplayer";
 export const PARTY_HOST = "https://party.vibedgames.com";
 
 export const client = new MultiplayerClient({
+  // No room within 6 s of play: a local room of one (see Offline fallback).
+  fallbackMs: 6000,
   host: PARTY_HOST,
+  // Offline by intent: never dial.
+  offline: new URLSearchParams(location.search).has("offline"),
+  onEvent: (event, payload, from) => applyIntent(event, payload, from),
   party: "vg-server",
   room: "my-game-room",
 });
@@ -48,19 +53,16 @@ export const session = {
     return client.sharedState as { score: number; phase: string };
   },
 
-  // Host-only writes wrapped — non-host calls become intent events.
+  // Host-owned writes go through the host: it applies its own intents at
+  // once, and a guest's reach it alone. `applyIntent` (the client's onEvent)
+  // validates each one and writes the result.
   setScore(score: number) {
-    if (client.isHost) client.updateSharedState({ score });
-    else client.sendEvent("set_score", { score });
+    client.sendToHost("set_score", { score });
   },
 
   // Player-owned writes pass straight through.
   setPosition(x: number, y: number) {
     client.updateMyState({ x, y });
-  },
-
-  onIntent(handler: (event: string, payload: unknown, from: string) => void) {
-    return client.subscribe(() => {}); // wire onEvent in the client config
   },
 };
 ```
@@ -87,23 +89,33 @@ re-seeds:
 ```ts
 const client = new MultiplayerClient({ host, party, room /* no initialState */ });
 
-const emptyWorld = () => ({ grid: newGrid(), scores: {}, winner: null, startedAt: Date.now() });
+const emptyWorld = () => ({
+  grid: newGrid(),
+  scores: {},
+  winner: null,
+  startedAt: client.serverNow(),
+});
 const seeded = (s) => Array.isArray(s.grid); // any reliable "is populated" check
 
-client.subscribe(() => {
-  // First host seeds. A guest promoted later already holds the live state,
-  // so `seeded` is true and the round survives the migration.
-  if (client.isHost && client.connectionStatus === "connected" && !seeded(client.sharedState)) {
+const onChange = () => {
+  // First host seeds — an offline client too, as it hosts its room of one. A
+  // guest promoted later already holds the live state, so `seeded` is true
+  // and the round survives the migration. No client is host before `sync`
+  // has delivered the room's state, so a host never seeds over it.
+  if (client.isHost && !seeded(client.sharedState)) {
     client.updateSharedState(emptyWorld());
   }
   render();
-});
+};
+client.subscribe(onChange);
+onChange(); // a client created offline has nothing to notify about yet
 ```
 
 ## Offline ≠ solo
 
-"Offline" means no server reachable (the connect fallback below fired) — a
-connected player alone in a room is **online, solo**. Bots, start-screen holds,
+Offline (`connectionStatus === "offline"`) means a local room of one, with no
+server: the connect fallback below fired, or the game asked for it. A connected
+player alone in a room is **online, solo**. Bots, start-screen holds,
 "waiting for players" copy and any solo-only rule must gate on the human count,
 `Object.keys(client.players).length <= 1`, never on an `offline` flag. Gating
 on `offline` gives a connected solo host no bots and an offline player a
@@ -111,8 +123,20 @@ on `offline` gives a connected solo host no bots and an offline player a
 
 ## Throttling
 
-Don't send state every frame. 20–30 Hz is plenty, on a clock that ignores the
-frame rate. `frame % 3` sends 48 times a second on a 144 Hz monitor. The other
+Calls batch per frame: however many `updateMyState` / `updateSharedState` calls
+one task makes, each kind leaves as one message, so write state where the code
+changes it. A write is read when the batch leaves, not at the call: never write
+an object your sim goes on mutating that frame (a live world, an encoder view
+over the sim's own objects). It would leave as it stands after the mutation,
+under the stamp written before it. Write `structuredClone(world)` or freshly
+built objects. The reverse holds for reading: what `client.sharedState` holds
+is the room's copy, and a patch touches only the leaves that changed, so an
+edit made there (a guest adopting the host's world and stepping it) is never
+overwritten and the copy drifts from the room's. Clone what you read before
+you edit it.
+
+What costs is the rate. Don't send state every frame. 20–30 Hz is plenty, on a
+clock that ignores the frame rate. `frame % 3` sends 48 times a second on a 144 Hz monitor. The other
 usual throttle, `acc += dt; if (acc >= 1 / 20) { acc = 0; send(); }`, throws away
 the remainder: at 60 fps it fires every 4th frame (~15 Hz) with uneven gaps, and
 receivers see the unevenness as stutter. `FixedRate` keeps the remainder:
@@ -131,8 +155,11 @@ function update(deltaMs: number) {
 
 Keep ticking while the player stands still. Unchanged primitives never ride
 the wire, so an idle tick costs only the `t` key, and the receiver gets a final
-resting sample. Never put a big array or object in a per-tick patch: the SDK
-diffs only primitive keys and re-sends every object or array value whole.
+resting sample. Never put a big array or object in a per-tick `updateMyState`:
+player state diffs only primitive keys and re-sends every object or array value
+whole. Shared state diffs to the leaf — a host writing its whole world each tick
+sends only what changed — except that an array which changes length is re-sent
+whole, so key growing collections by id.
 
 For input intents (`sendEvent`), prefer **send-on-change**: only emit when the
 held-button state flips, never every frame. Address them to the host:
@@ -146,8 +173,9 @@ no overlay reads as a bug:
 
 ```ts
 client.subscribe(() => {
-  const status = client.connectionStatus; // "connecting" | "connected" | "disconnected" | "error"
-  showOverlay(status !== "connected");
+  // "connecting" (first dial) | "connected" | "reconnecting" (seat held) | "offline"
+  const status = client.connectionStatus;
+  showOverlay(status === "connecting" || status === "reconnecting", status);
 });
 ```
 
@@ -158,26 +186,38 @@ avatar, badge the name), don't remove them; `player_left` firing (the id
 vanishing from `client.players`) is the real removal. Treat a missing
 `connected` field as connected. Events fired during the window are **not**
 buffered or replayed to the dropped player — only their seat and state
-survive. A deliberate `client.destroy()` leaves immediately, no grace window.
+survive. A deliberate `client.destroy()` leaves immediately, no grace window,
+and so does a tab that closes or reloads (the browser closes its socket with
+1001): the token died with the page, so the seat is freed at once.
 
-### Offline fallback that doesn't strand players
+**Your own drop:** keep the game loop running. While the socket is down the
+SDK sends no state patches or inputs; on reconnect it sends this player's
+latest state and held input, and a host re-sends whatever of its world the
+server holds differently. Events and claims made while away do queue and go
+out on reconnect, so never stream per-frame state as events.
 
-A game that plays solo when no server answers needs two guards, or a transient
-failure drops a live room into single-player for good:
+### Offline fallback
 
-- **A connect deadline, started on the first `update()` tick** (`bootedAt`),
-  not at `create()` — load time counted against the deadline drops a
-  slow-booting client to solo before its socket ever connects. The example
-  games use 4–8 s (`OFFLINE_FALLBACK_MS`). Pre-connect errors and closes are
-  **not** instant failures: the socket retries by itself, so the deadline is
-  the only fallback trigger.
-- **`everConnected`**: once `connectionStatus` has been `"connected"`, never
-  fall back. A later drop is transient — let the socket reconnect (the seat is
-  held for `RECONNECT_GRACE_MS`) and show the status overlay instead.
+Pass `fallbackMs` and the SDK plays solo when no server answers. If no room
+admits the client within that long, it goes offline: a local room of one with
+the same API. It is the host, writes apply locally, events and `sendToHost`
+loop back to `onEvent`, claims are granted at once, and `serverNow()` reads
+the local clock. Don't write stand-ins for an offline game: the client is one.
+The example games use 4–8 s.
 
-Going offline is `client.destroy()` plus a local stand-in for `client.players`
-(a synthesized self entry, so every `id === myId` render path still works).
-Refresh to go back online.
+- **The deadline counts rendered frames**, from the first one after the client
+  is created, each worth at most 100 ms. Loading time, a hidden tab and a
+  stalled main thread don't count, so a slow boot isn't dropped to solo before
+  its socket ever connects. Still, create the client when the game can play,
+  not before a long load.
+- **Once admitted, a drop is `"reconnecting"`, never a fallback.** The seat is
+  held for `RECONNECT_GRACE_MS` while the socket redials; show the overlay.
+- **Offline by intent** (`?offline=1`, a trailer): `offline: true` never dials.
+- **"Play solo"**: `client.goOffline()` leaves the room (the seat frees at once)
+  and plays on from the room's world. Subscribers see `"offline"`.
+
+A new client is the way back online (a page refresh). Tick rooms don't tick
+offline: run the sim locally.
 
 ### Stale host
 
@@ -254,7 +294,20 @@ interp.push(s.t, { x: s.x, y: s.y, angle: s.angle });
 const pose = interp.sample(); // undefined until the first update
 ```
 
-- **Delay.** 100 ms suits 20–30 Hz senders; use ~150 ms for 10–15 Hz.
+- **Delay.** `delayMs` is the least delay: 100 ms suits 20–30 Hz senders, ~150
+  ms 10–15 Hz. The `RemoteClock` measures what the stream needs (each send
+  interval plus how late the next update lands) and the buffer grows past
+  `delayMs` when that is more: a jittery route, or a device too busy to read its
+  messages on time. Never hand-tune the delay up for one bad network.
+- **One timeline per sender.** Anything else you draw from a sender — its
+  shots, its effects, a hit flash — goes at `interp.renderTime()`, never at
+  `clock.now() - DELAY`: the delay grows with the stream, and a hand-computed
+  one drifts off the bodies it belongs to. With no Interpolator to ask, use
+  `clock.now(t) - Math.max(DELAY, clock.hold(t, DELAY))`: passing your floor
+  lets a new stream's first estimate ease in from where you draw it. Keep those events' stamps out of
+  the clock (`observe`): it sizes the buffer from the gaps between the stamps
+  it sees, and a shot stamped between two poses reads as one more pose, so the
+  buffer comes out too small.
 - **Discontinuities.** Call `clear()` on a respawn or teleport, so the entity
   snaps instead of gliding through walls.
 - **Which clock.** Each `Interpolator` reads stamps through a `RemoteClock`
@@ -264,8 +317,19 @@ const pose = interp.sample(); // undefined until the first update
   relay (sender → server → you, often 100–200 ms) after it was taken.
 - **Host snapshots.** The host stamps each snapshot with `client.serverNow()`
   too; the units in it share one `RemoteClock`
-  (`new Interpolator({ clock: hostClock, lerp })`). `reset()` it when `hostId`
-  changes: the new host's route differs, while its stamps carry straight on.
+  (`new Interpolator({ clock: hostClock, lerp })`). `relearn()` it when `hostId`
+  changes: the new host's route differs, while its stamps carry straight on, so
+  the clock eases onto the new route instead of jumping.
+- **Your own reconnect.** When `connectionStatus` goes from `reconnecting` back
+  to `connected`, `relearn()` every clock you keep, per sender or per host:
+  every route to you is new. A clock timed by the old, quicker route runs
+  remotes past their newest update until its window forgets it (pacman froze
+  rivals about 2 s on a route 400 ms slower). Give each `Interpolator` an
+  explicit `RemoteClock` so you hold a reference to relearn (the
+  `Interpolator` never resets a clock it was handed: stamp with
+  `serverNow()`, which never jumps back). Watch the status in
+  a `subscribe` listener rather than the frame loop: a drop and its reconnect
+  can both land while the tab is hidden.
 - **Grid or step movers.** Stamp each step when it starts, like any other
   update. Never stamp a future arrival time: the clock reads every stamp as send
   time, so a shifted stamp skews every entity from that sender. Set `delayMs` to
@@ -349,30 +413,42 @@ everyone. Pick the radius past the edge of the screen, so nobody pops in view.
 patches outside the range. It is a cheap guard against a hacked client writing
 nonsense into its own slot, not a substitute for the host validating intents.
 
-Room rules (`tickRate`, `interest`, `limits`, like `maxPlayers`) come from the
-first client into an empty room, so every client must pass the same ones.
+Room rules (`tickRate`, `interest`, `limits`, `lobby`, like `maxPlayers`) come
+from the first client into an empty room, so every client must pass the same
+ones.
 
 ## Automated two-client check
 
-Two headless browsers in one room, driven by Playwright. The traps, in the
-order they bite:
+For lag, start with `scripts/net-check.mjs` (SKILL.md → Local dev loop): it
+already runs two clients in a fresh room with lag on the party socket
+(Playwright WebSocket routing, frames delayed but never reordered), drives both
+from your playtest moves, and judges each by `window.__VG_NET__` — the SDK's
+count of `Interpolator` frames drawn past the newest update (starved) or frozen
+(stalled). It reports each page's frame rate and calls a page under 20 fps "too
+slow" rather than blaming the netcode; run it with a real GPU when you can.
+`--set-state <name>` calls a `__GAME_TEST_HOOKS__` state first, for a game whose
+menu stands between load and the room (`active-play` usually starts a solo run,
+so it isn't the default).
+
+For everything else, write a harness: two headless browsers in one room, driven
+by Playwright. The traps, in the order they bite:
 
 - **Run suites one at a time.** Two headless Chromes starve each other's rAF —
   the host looks frozen and every timing assertion lies.
 - **Heavy games need a real GPU and no throttling:**
   `--use-angle=metal --ignore-gpu-blocklist` (SwiftShader runs at ~4 fps) plus
   `--disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-renderer-backgrounding`.
-- **Closing a context is a transport drop, not a leave.** No close frame is
-  sent, so the seat is parked for `RECONNECT_GRACE_MS` (30 s) and reaped at
-  `EVICTION_TIMEOUT_MS` (75 s) — both exported from `@vibedgames/multiplayer`.
-  Wait for those, or call `client.destroy()` before closing to leave cleanly.
+- **Closing a page or a context is a leave.** The browser closes its sockets
+  with 1001, which the server takes as a leave, as when a player closes the
+  tab: the seat frees and a new host is elected at once. To test a drop that
+  holds the seat (`RECONNECT_GRACE_MS`, 30 s), blip the socket instead.
 - **A "blip" is `socket.close(4000)` then `socket.reconnect()`** on the
   underlying PartySocket (expose a dev hook from your `net/` layer — the
-  client keeps its socket private). Close code `1000` is a deliberate leave and
-  elects a new host immediately.
+  client keeps its socket private). Close codes `1000` (`destroy()`) and `1001`
+  (a page unloading) are leaves and elect a new host immediately.
 - **Playwright does not throttle background tabs.** To test host migration,
-  silence the host explicitly (kill its heartbeat via the blip hook, or close
-  the context and wait out the grace window).
+  silence the host explicitly: blip it and keep it away past the 6 s liveness
+  window, or close its page, which leaves at once.
 - **Concurrent QA agents join each other's rooms.** Use a unique room id per
   run (`arena-${Date.now()}`).
 - **`--virtual-time-budget` fast-forwards `performance.now()`**, so the

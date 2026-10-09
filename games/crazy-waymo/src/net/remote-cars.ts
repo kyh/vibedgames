@@ -2,20 +2,23 @@
 // generated from a fixed CITY_SEED, so every client already builds an identical
 // map — remote cars just need their networked transforms placed on it. Every
 // owner stamps its pose with the room's server clock (GameScene.updateNet).
-// Each car is drawn on its own owner's relay clock — the RemoteClock its
-// Interpolator keeps, which learns how long that owner's updates take to reach
-// us — INTERP_DELAY_MS behind it, blended between the two updates around that
-// moment, so it moves as smoothly as it was driven however unevenly the
-// updates arrive. Read against this client's server clock the same stamp dates
-// the pose, so a taxi whose newest one is old reads as away, then gone. The
-// server relays only players within the room's interest radius (MP_INTEREST);
-// past it a player reads `visible: false` and is not tracked at all. Inside
-// it, cars are distance-culled so a crowded neighbourhood stays cheap (only
-// nearby taxis are in the scene).
+// Each car is drawn on its own owner's relay clock — a RemoteClock that
+// learns how long that owner's updates take to reach us and how much later
+// than that they land — at least INTERP_DELAY_MS behind it, or as far back as
+// that lateness needs, blended between the two updates around that moment, so
+// it moves as smoothly as it was driven however unevenly the updates arrive.
+// When the owner's connection comes back, or ours does, its updates take a new
+// route, and the clock measures it afresh.
+// Read against this client's server clock the same stamp dates the pose, so a
+// taxi whose newest one is old reads as away, then gone. The server relays
+// only players within the room's interest radius (MP_INTEREST); past it a
+// player reads `visible: false` and is not tracked at all. Inside it, cars are
+// distance-culled so a crowded neighbourhood stays cheap (only nearby taxis
+// are in the scene).
 
 import * as THREE from "three";
 
-import { Interpolator, lerp, lerpAngle } from "@vibedgames/multiplayer";
+import { Interpolator, RemoteClock, lerp, lerpAngle } from "@vibedgames/multiplayer";
 import type { Player, PlayerMap, SenderClock } from "@vibedgames/multiplayer";
 
 import type { ModelCache } from "../assets/loader";
@@ -37,14 +40,17 @@ const DROP_RADIUS_SQ = DROP_RADIUS * DROP_RADIUS;
 /** Consecutive updates farther apart than this are a respawn/reset — snap,
  *  don't streak the taxi across the map through buildings. */
 const SNAP_DIST_SQ = 40 * 40;
-/** How far behind its owner's relay clock a car is drawn: one 20 Hz send
- *  interval plus arrival jitter. The relay itself (owner → server → here) is
- *  learnt per owner by the clock, so a slow route costs no stalls and a fast
- *  one no extra lag. */
+/** The least a car is drawn behind its owner's relay clock: one 20 Hz send
+ *  interval plus a calm link's jitter. The relay itself (owner → server →
+ *  here) is learnt per owner by the clock, so a slow route costs no stalls and
+ *  a fast one no extra lag, and so is how late its updates land: on a jittery
+ *  link, or a page too busy to read them on time, the car is drawn as much
+ *  further back as that needs (RemoteClock.hold). */
 const INTERP_DELAY_MS = 100;
 /** A late update is covered by coasting this long; after that the car holds. */
 const MAX_EXTRAPOLATE_MS = 200;
-/** Updates kept per car — several times the delay at 20 Hz. */
+/** Updates kept per car: 750 ms at 20 Hz, several times what a live link's
+ *  lateness holds a car back. */
 const INTERP_CAPACITY = 16;
 /** Two updates further apart than this bracket a silence, not motion: never
  *  coast on the pace measured across one. */
@@ -196,8 +202,13 @@ interface Peer {
    *  that player's state changes, so the same object means nothing new. */
   source: Player["state"];
   latest: RemoteState;
+  /** This owner's relay clock, which its interpolator draws on. */
+  readonly clock: RemoteClock;
   readonly interp: Interpolator<RemotePose>;
   connected: boolean;
+  /** Back from its own drop and not heard from since: all there is to draw
+   *  is where it dropped, so it stays out of the city until it speaks. */
+  rejoining: boolean;
   lastMsgAt: number;
   /** A chat line to show if the car is on screen this frame. */
   chat: string | null;
@@ -317,6 +328,14 @@ export class RemoteCars {
     return this.visible;
   }
 
+  /** Back in the room after our own connection dropped: every owner's
+   *  updates now reach us by a new route, which each clock measures afresh. */
+  relearn(): void {
+    for (const peer of this.peers.values()) {
+      peer.clock.relearn();
+    }
+  }
+
   dispose(): void {
     for (const peer of this.peers.values()) {
       this.drop(peer);
@@ -325,12 +344,17 @@ export class RemoteCars {
     this.lastPlayers = null;
   }
 
-  /** Connected with a pose stamped within STALE_MS — or staged, which holds
-   *  until replaced. Until this client has measured the server clock it reads
-   *  the local one, which dates no stamp, so nothing live is present yet. */
+  /** Connected (and heard from since, if back from a drop) with a pose
+   *  stamped within STALE_MS — or staged, which holds until replaced. Until
+   *  this client has measured the server clock it reads the local one, which
+   *  dates no stamp, so nothing live is present yet. */
   private present(peer: Peer, serverNow: number): boolean {
     return (
-      this.staged || (peer.connected && this.clock.synced && serverNow - peer.latest.t <= STALE_MS)
+      this.staged ||
+      (peer.connected &&
+        !peer.rejoining &&
+        this.clock.synced &&
+        serverNow - peer.latest.t <= STALE_MS)
     );
   }
 
@@ -375,6 +399,14 @@ export class RemoteCars {
   private adopt(id: string, player: Player, now: number): void {
     const known = this.peers.get(id);
     const connected = player.connected !== false;
+    if (known !== undefined && connected && !known.connected) {
+      // Back from its own drop: its updates may come by another route. Timed
+      // by the old route's quicker trips, a slower one runs the car past its
+      // newest update until those trips age out of the clock's window. Until
+      // the first of them lands, the car would stand frozen where it dropped.
+      known.clock.relearn();
+      known.rejoining = true;
+    }
     if (known !== undefined && known.source === player.state) {
       known.connected = connected;
       known.generation = this.generation;
@@ -403,9 +435,10 @@ export class RemoteCars {
   private track(id: string, first: RemoteState, now: number): Peer {
     // The blend writes here every frame instead of allocating a pose.
     const out: RemotePose = { h: 0, t: 0, vx: 0, vz: 0, x: 0, y: 0, z: 0 };
-    // No `clock`: the Interpolator keeps a private RemoteClock, this owner's.
+    const clock = new RemoteClock();
     const interp = new Interpolator<RemotePose>({
       capacity: INTERP_CAPACITY,
+      clock,
       delayMs: INTERP_DELAY_MS,
       lerp: (a, b, alpha) => blendPose(out, a, b, alpha),
       maxExtrapolateMs: MAX_EXTRAPOLATE_MS,
@@ -415,6 +448,7 @@ export class RemoteCars {
     }
     const peer: Peer = {
       chat: null,
+      clock,
       connected: true,
       generation: this.generation,
       id,
@@ -422,6 +456,7 @@ export class RemoteCars {
       // Don't replay a bubble that predates our arrival.
       lastMsgAt: first.msgAt,
       latest: first,
+      rejoining: false,
       source: undefined,
       view: null,
     };
@@ -434,11 +469,12 @@ export class RemoteCars {
     if (!this.staged && next.t !== prev.t) {
       const dx = next.x - prev.x;
       const dz = next.z - prev.z;
-      // A respawn, or an owner back from a long silence: show the new pose at
-      // once instead of gliding there from the old one.
-      if (dx * dx + dz * dz > SNAP_DIST_SQ || next.t - prev.t > STALE_MS) {
+      // A respawn, or an owner back from a long silence or a drop: show the
+      // new pose at once instead of gliding there from the old one.
+      if (peer.rejoining || dx * dx + dz * dz > SNAP_DIST_SQ || next.t - prev.t > STALE_MS) {
         peer.interp.clear();
       }
+      peer.rejoining = false;
       peer.interp.push(next.t, next, now);
     }
     if (next.msg && next.msgAt > peer.lastMsgAt) {

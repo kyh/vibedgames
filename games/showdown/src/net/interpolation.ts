@@ -1,14 +1,15 @@
-// How a guest draws every brawler it does not control. Each one renders a fixed
-// delay behind the host's frames as they arrive (frame-clock.ts, one clock for
-// every body), blending the two frames that bracket that moment
-// (`Interpolator`), so motion is as even as the host's sim however unevenly
-// frames arrive — never a chase toward the newest pose, which surges on every
-// packet and stalls on every gap. Positions come from the host's actual
-// motion, so a body pushing into a wall is drawn against it, not inside it.
+// How a guest draws every brawler it does not control. Each one renders behind
+// the host's frames as they arrive, INTERP_DELAY_MS or as far as the stream
+// needs (frame-clock.ts, one clock for every body), blending the two frames
+// that bracket that moment (`Interpolator`), so motion is as even as the host's
+// sim however unevenly frames arrive — never a chase toward the newest pose,
+// which surges on every packet and stalls on every gap. Positions come from the
+// host's actual motion, so a body pushing into a wall is drawn against it, not
+// inside it.
 //
 // The discrete half of each row (health, death, cues, bush cover) is applied
-// when render time reaches the frame that carried it, so a swing starts when
-// the body swinging it gets there.
+// when that same render time reaches the frame that carried it, so a swing
+// starts when the body swinging it gets there.
 import { Interpolator, lerp, lerpAngle } from "@vibedgames/multiplayer";
 import type { SenderClock } from "@vibedgames/multiplayer";
 
@@ -141,8 +142,9 @@ export class PuppetTrack {
     }
   }
 
-  /** Pose the body for local time `now` (render time `renderAt` on the room's server clock). */
-  pose(b: PuppetBody, now: number, renderAt: number, world: MoverWorld): void {
+  /** Pose the body for local time `now`, applying the rows its render time has reached. */
+  pose(b: PuppetBody, now: number, world: MoverWorld): void {
+    const renderAt = this.interp.renderTime(now);
     while (this.pending.length > 0) {
       const [row] = this.pending;
       if (!row || row.t > renderAt) {

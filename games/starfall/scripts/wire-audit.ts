@@ -1,10 +1,12 @@
 /**
  * 32-player worst-case bandwidth audit.
  *
- * Both wires are measured the way the SDK sends them: a key whose value is a
- * primitive equal to the last one sent stays off the wire, an object or array
- * key goes whole every time it is written. Every byte count includes the
- * envelope the party server forwards (`state_patch`, `player_state`, `event`).
+ * Both wires are measured the way the SDK sends them. Player state goes by
+ * key: a primitive equal to the last one sent stays off the wire, an object or
+ * array key goes whole every time it is written. Shared state goes as path
+ * ops, the leaves that changed (the SDK's own `diffState`). Every byte count
+ * includes the envelope the party server forwards (`state_patch`,
+ * `player_state`, `event`).
  *
  * V6 (before): the host wrote every non-empty world array every share (all
  * of them are always "moving"), and each client wrote its whole state at
@@ -12,31 +14,36 @@
  * ARC chain; QA measured 7–15 under autofire). Its encoders are inlined
  * below, since the game no longer ships them.
  *
- * V7 (after): the real encoders. The world goes as stamped row buckets
- * written only when an entity in them spawns, turns or is taken, plus every
- * enemy's motion each share (net/world-wire.ts); a client sends flat
- * primitives at PLAYER_NET_HZ, so a moving ship's update is its stamp (server
- * time, epoch ms) and pose; each trigger pull is one `fire` event
- * (net/fire-wire.ts). The world is run for a simulated minute at the caps to
- * get the steady patch, not just one tick.
+ * V7 (after): the real encoders. The world goes as rows keyed by id, each
+ * rewritten only when its entity spawns, turns, changes or drifts off the
+ * line the row describes, and deleted when it goes, plus every enemy's motion
+ * each share (net/world-wire.ts). (The row buckets it replaced, re-sent whole
+ * whenever one entity in them changed, cost 5,783 B a share here.) A client
+ * sends flat primitives at PLAYER_NET_HZ, so a moving ship's update is its
+ * stamp (server time, epoch ms) and pose; each trigger pull is one `fire`
+ * event (net/fire-wire.ts). The world is run for a simulated minute at the
+ * caps to get the steady patch, not just one tick.
  *
- * Caps (shared/constants.ts), arena at the 32-player bounds so coordinates
- * use max digits: 110 asteroids, 80 enemies (a boss with lances, snipers
- * mid-telegraph), 160 enemy shots, 48 shards, 7 items, the UFO, 4 pulls and a
- * live beacon.
+ * Caps (shared/constants.ts), arena at the 32-player bounds and two hours in,
+ * so coordinates and arena times use max digits: 110 asteroids, 80 enemies (a
+ * boss with lances, snipers mid-telegraph), 160 enemy shots, 48 shards, 7
+ * items, the UFO, 4 pulls and a live beacon.
  *
  * Run: node_modules/.bin/tsx scripts/wire-audit.ts
  */
 
+import { applyPatch, diffState } from "@vibedgames/multiplayer";
+
 import { FIRE_BASE, encodeFire } from "../src/net/fire-wire";
 import type { WireRecord } from "../src/net/wire-read";
-import { WorldEncoder } from "../src/net/world-wire";
+import { encodeWorld, stepUfo } from "../src/net/world-wire";
 import {
   ASTEROID_CAP_MAX,
   ENEMY_CAP_MAX,
   ITEMS_MAX_LIVE,
   PLAYER_NET_HZ,
   SHARDS_MAX_LIVE,
+  UFO_SPEED,
   WEAPONS_SPECIAL,
   WORLD_H,
   WORLD_NET_HZ,
@@ -64,6 +71,8 @@ const PEERS = PLAYERS - 1;
 /** V6's accumulator reset to 0 each send: 50 ms at 60 fps drifted to ~17 Hz. */
 const V6_HZ = 17;
 const EPOCH = 1_752_566_400_000;
+/** How long the arena has been running: world times ride as ms since its start. */
+const ARENA_AGE_MS = 2 * 60 * 60 * 1000;
 /** Simulated minute at the world share rate. */
 const TICKS = 60 * WORLD_NET_HZ;
 
@@ -92,7 +101,7 @@ const diffKeys = (prev: WireRecord, next: WireRecord): WireRecord => {
   }
   return out;
 };
-const statePatchMsg = (data: WireRecord): number => bytes({ data, type: "state_patch" });
+const statePatchMsg = <T>(data: T): number => bytes({ data, type: "state_patch" });
 const playerStateMsg = (state: WireRecord): number =>
   bytes({ data: { id: PEER_ID, state }, type: "player_state" });
 const eventMsg = (event: string, payload: WireRecord): number =>
@@ -178,7 +187,7 @@ const makePull = (now: number): PullState => ({
 });
 
 const atCaps = (now: number): SharedState => ({
-  arenaEpoch: EPOCH,
+  arenaEpoch: now - ARENA_AGE_MS,
   asteroids: Array.from({ length: ASTEROID_CAP_MAX }, makeAsteroid),
   beacon: {
     activeAt: now + 8000,
@@ -384,7 +393,10 @@ const stepWorld = (w: SharedState, now: number): void => {
     w.shards.splice(Math.floor(roll() * w.shards.length), 1);
     w.shards.push(makeShard(now));
   }
-  // UFO cruising, beacon contested now and then.
+  // UFO cruising to a new destination now and then, beacon contested now and then.
+  if (w.ufo) {
+    stepUfo(w.ufo, UFO_SPEED * dt);
+  }
   if (w.ufo && roll() < 0.2 / WORLD_NET_HZ) {
     w.ufo.destX = fx();
     w.ufo.destY = fy();
@@ -394,23 +406,25 @@ const stepWorld = (w: SharedState, now: number): void => {
   }
 };
 
-const encoder = new WorldEncoder();
 const world7 = atCaps(EPOCH);
 let shared7: WireRecord = {};
 /** Bytes each key family put on the wire over the simulated minute. */
 const perFamily = new Map<string, number>();
 const v7Patch = (now: number, tally: boolean): number => {
-  // The audit's sim clock doubles as server time: both are epoch ms.
-  const patch = encoder.encode(world7, now, Math.round(now));
-  const delta = diffKeys(shared7, patch);
-  shared7 = { ...shared7, ...patch };
+  // The audit's sim clock doubles as server time: both are epoch ms. The
+  // encoder reads what the room holds, as the host does from sharedState.
+  const patch = encodeWorld(world7, now, Math.round(now), shared7);
+  const ops = diffState(shared7, { ...shared7, ...patch }, Object.keys(patch));
+  // The SDK diffs against a private copy of the room's state, never the
+  // objects the game wrote.
+  shared7 = applyPatch(shared7, structuredClone(ops));
   if (tally) {
-    for (const [key, value] of Object.entries(delta)) {
-      const family = key.replace(/\d+$/u, "");
-      perFamily.set(family, (perFamily.get(family) ?? 0) + bytes(value) + key.length + 4);
+    for (const op of ops) {
+      const family = String(op[0][0]).replace(/\d+$/u, "");
+      perFamily.set(family, (perFamily.get(family) ?? 0) + bytes(op) + 1);
     }
   }
-  return statePatchMsg(delta);
+  return statePatchMsg(ops);
 };
 const firstShare = v7Patch(EPOCH, false);
 let worldTotal = 0;

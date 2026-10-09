@@ -818,11 +818,12 @@ const script = (f: number): Partial<BodyInput> => ({
       freeze.edge === null,
   );
   check(
-    "the input parser rejects junk bits and empty sends",
-    readNetInputs({ room: 1, seq: 9, ticks: [3, 4] }) !== null &&
-      readNetInputs({ room: 1, seq: 9, ticks: [] }) === null &&
-      readNetInputs({ room: 1, seq: 9, ticks: [99_999] }) === null &&
-      readNetInputs({ room: 1, seq: 9.5, ticks: [1] }) === null,
+    "the input parser rejects junk bits, empty and unstamped sends",
+    readNetInputs({ room: 1, seq: 9, t: 1e12, ticks: [3, 4] }) !== null &&
+      readNetInputs({ room: 1, seq: 9, t: 1e12, ticks: [] }) === null &&
+      readNetInputs({ room: 1, seq: 9, t: 1e12, ticks: [99_999] }) === null &&
+      readNetInputs({ room: 1, seq: 9.5, t: 1e12, ticks: [1] }) === null &&
+      readNetInputs({ room: 1, seq: 9, ticks: [3, 4] }) === null,
   );
   check(
     "the snapshot parser rejects a short player row",

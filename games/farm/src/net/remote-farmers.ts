@@ -11,14 +11,20 @@ import type { FarmerSample } from "./farmer-wire";
 // Renders the other players' farmers in the shared co-op world. They're the
 // same character sprite as the local player, name-tagged and depth-sorted with
 // everything else. Each sender stamps its 20 Hz updates with the room's server
-// clock, and each farmer here plays them back ~100 ms behind the moment they
-// could have arrived — every farmer on its own sender's clock (farmerTrack),
-// which learns that sender's route — blending the two updates around that
+// clock, and each farmer here plays them back 100 ms or more behind the moment
+// they could have arrived — every farmer on its own sender's clock
+// (farmerTrack), which learns that sender's route and how far behind its
+// stream must play never to run dry — blending the two updates around that
 // moment: position, facing and clip all from the same pair, so a farmer never
 // walks before the walk clip starts or slides in an idle pose.
 
 /** A farmer's name tag: the first characters of its player id. */
 export const farmerTag = (id: string): string => id.slice(0, 4);
+
+const FARMER_ALPHA = 0.92;
+/** A farmer whose connection dropped stands where it was, faded, while the
+ *  room holds its seat for the reconnect. */
+const DROPPED_ALPHA = 0.4;
 
 interface Farmer {
   sprite: Phaser.GameObjects.Sprite;
@@ -30,7 +36,21 @@ interface Farmer {
   /** The clip revision and playing flag last applied (null: none yet). */
   revision: number | null;
   playing: boolean;
+  /** Its connection is down and the room is holding its seat. */
+  dropped: boolean;
 }
+
+/** Mark a farmer whose connection dropped — faded, its tag saying so — or
+ *  unmark it once it is back. Without this it would just stand frozen, as if
+ *  its farmer had stopped playing or the room had stalled. */
+const showDropped = (f: Farmer, id: string, dropped: boolean): void => {
+  if (f.dropped === dropped) {
+    return;
+  }
+  f.dropped = dropped;
+  f.sprite.setAlpha(dropped ? DROPPED_ALPHA : FARMER_ALPHA);
+  f.label.setText(dropped ? `${farmerTag(id)} reconnecting…` : farmerTag(id));
+};
 
 export class RemoteFarmers {
   private farmers = new Map<string, Farmer>();
@@ -43,7 +63,9 @@ export class RemoteFarmers {
 
   /** Take in the room's player states; call every frame (unchanged ones cost nothing).
    *  A farmer out of interest range (`visible: false`) is dropped, playback and
-   *  all: its state stops updating, and comes back whole when it is in range. */
+   *  all: its state stops updating, and comes back whole when it is in range.
+   *  One whose connection dropped (`connected: false`) stays, marked as
+   *  reconnecting, until it is back or the room gives its seat up. */
   sync(players: PlayerMap, myId: string | null): void {
     const seen = new Set<string>();
     for (const [id, player] of Object.entries(players)) {
@@ -53,6 +75,7 @@ export class RemoteFarmers {
       const known = this.farmers.get(id);
       if (known && known.state === player.state) {
         seen.add(id);
+        showDropped(known, id, player.connected === false);
         continue;
       }
       const read = readFarmer(player.state);
@@ -61,6 +84,7 @@ export class RemoteFarmers {
       }
       seen.add(id);
       const f = known ?? this.spawn(id, read.sample);
+      showDropped(f, id, player.connected === false);
       f.state = player.state;
       const { sample } = read;
       const last = f.track.latest;
@@ -84,7 +108,7 @@ export class RemoteFarmers {
     }
   }
 
-  /** Draw every farmer ~100 ms behind its updates' arrival, on its sender's clock. */
+  /** Draw every farmer at its track's render time, on its sender's clock. */
   update(now = performance.now()): void {
     for (const f of this.farmers.values()) {
       const s = f.track.sample(now);
@@ -160,7 +184,7 @@ export class RemoteFarmers {
     const sprite = this.scene.add
       .sprite(s.x, s.y, "p-idle")
       .setOrigin(0.5, CHAR_ORIGIN_Y)
-      .setAlpha(0.92)
+      .setAlpha(FARMER_ALPHA)
       .setVisible(!s.away);
     sprite.play("p-idle");
     const label = this.scene.add
@@ -174,6 +198,7 @@ export class RemoteFarmers {
       .setOrigin(0.5, 1)
       .setVisible(!s.away);
     const f: Farmer = {
+      dropped: false,
       label,
       playing: true,
       revision: null,

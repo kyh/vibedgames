@@ -1,7 +1,7 @@
 import type Phaser from "phaser";
 import type { Scene } from "phaser";
 
-import { Interpolator } from "@vibedgames/multiplayer";
+import { Interpolator, RemoteClock } from "@vibedgames/multiplayer";
 
 import { sfx } from "../audio/sfx";
 import { COLORS, MAX_LAG, MAX_STEPS, STEP } from "../config";
@@ -14,7 +14,7 @@ import type { Player } from "../entities/player";
 import { onBossHead, onEnemyHead } from "../entities/player-body";
 import type { PlayerBody } from "../entities/player-body";
 import type { ExpeditionCheckpoint } from "../net/checkpoint";
-import { INTERP_MS, lerpBoss, lerpEnemy, lerpPlayer, lerpProj, RelayClock } from "../net/interp";
+import { INTERP_MS, lerpBoss, lerpEnemy, lerpPlayer, lerpProj } from "../net/interp";
 import type { ProjPose } from "../net/interp";
 import type { JsonValue } from "../net/json";
 import { parseEnemy, parseHero, readCast, readSnapshot, readStatus } from "../net/parse";
@@ -67,9 +67,9 @@ const INBOX = 32;
 const STOMP_HUSH = 700;
 
 // One snapshot as it landed, with the cast, status and room beside it, and
-// the server time it landed at (null before this client's clock is set).
+// when it landed (performance.now ms): the relay clock learns from that.
 interface Arrival {
-  arrived: number | null;
+  receivedAt: number;
   snap: JsonValue;
   cast: JsonValue | undefined;
   status: JsonValue | undefined;
@@ -97,8 +97,9 @@ export interface GuestSyncDeps {
 //             shipped to the host; host edges replayed into it, drift
 //             reconciled at the acked tick (net/predict.ts)
 //   puppet  — everyone else, projectiles too: drawn between the two
-//             snapshots that bracket render time — INTERP_MS behind the
-//             relay clock (net/interp.ts), on the room's server time
+//             snapshots that bracket render time — at least INTERP_MS
+//             behind the relay clock, more when the stream needs it
+//             (net/interp.ts), on the room's server time
 // Rooms change when a snapshot names the next one and its layout is in hand;
 // checkpoints only dress the room (merchant stock, features) and the relic
 // list, so a missing or rejected one never stops the guest.
@@ -117,8 +118,9 @@ export class GuestSync {
   private readonly versus: VersusFlow;
   private readonly hooks: SceneHooks;
   private readonly prediction = new Prediction();
-  // server time less the relay: every puppet renders on it, whoever is host
-  private readonly clock = new RelayClock(() => this.seat.session?.serverClock);
+  // the relay clock (net/interp.ts): server time less the relay, learnt from
+  // each snapshot's arrival. Every puppet renders on it, whoever is host.
+  private readonly clock = new RemoteClock();
   private readonly remote = new Interpolator<PlayerPose>({
     clock: this.clock,
     delayMs: INTERP_MS,
@@ -134,6 +136,9 @@ export class GuestSync {
   // sprite offset easing out a replayed edge's jump
   private driftX = 0;
   private driftY = 0;
+  // when (performance.now ms) the newest predicted tick's step ended: the
+  // frame clock less the time still owed, a tick apart from the one before
+  private tickAt = 0;
 
   constructor(deps: GuestSyncDeps) {
     this.scene = deps.scene;
@@ -158,18 +163,18 @@ export class GuestSync {
       return;
     }
     this.seenSnap = snap;
-    const server = this.seat.session?.serverClock;
-    const arrived = server?.synced ? server.now() : null;
-    this.inbox.push({ arrived, cast, room, snap, status });
+    this.inbox.push({ cast, receivedAt: performance.now(), room, snap, status });
     if (this.inbox.length > INBOX) {
       this.inbox.shift();
     }
   }
 
   /** A new authority adopted: everything predicted before is stale. Stamps
-   * are server time, so the render clock carries on whoever the host is. */
+   * are server time, so the relay clock carries on whoever the host is: it
+   * only relearns the route, which a new host or a reconnect changes. */
   admit(): void {
     this.prediction.admit();
+    this.clock.relearn();
     this.remote.clear();
     this.remotePrev = null;
     this.driftX = 0;
@@ -182,8 +187,9 @@ export class GuestSync {
     this.prediction.dropQueued(this.seat.player.body);
   }
 
-  // Guest frame: apply what the host sent, predict my body, draw the rest.
-  step(dts: number) {
+  // Guest frame (it began at `frameAt`): apply what the host sent, predict my
+  // body, draw the rest.
+  step(dts: number, frameAt: number) {
     const sess = this.seat.session;
     if (!sess?.live) {
       return;
@@ -195,7 +201,7 @@ export class GuestSync {
       return;
     }
     this.versus.noticeOpponentGone(sess);
-    this.predict(dts, sess);
+    this.predict(dts, frameAt, sess);
     this.renderViews();
     this.lastStand.render();
   }
@@ -226,10 +232,10 @@ export class GuestSync {
       ) {
         continue;
       }
-      if (arrival.arrived !== null) {
-        this.clock.learn(s.t, arrival.arrived);
-      }
-      this.apply(s, cast, status);
+      // The relay clock learns from when the snapshot landed, not when this
+      // frame drains it; every push below carries that same arrival.
+      this.clock.observe(s.t, arrival.receivedAt);
+      this.apply(s, cast, status, arrival.receivedAt);
       if (this.run.state !== "active") {
         return;
       }
@@ -277,7 +283,7 @@ export class GuestSync {
     return true;
   }
 
-  private apply(s: Snapshot, cast: NetCast, status: NetStatus) {
+  private apply(s: Snapshot, cast: NetCast, status: NetStatus, receivedAt: number) {
     this.room.guest.snapT = s.t;
     this.run.hearts = status.hearts;
     this.run.maxHearts = status.maxHearts;
@@ -303,25 +309,22 @@ export class GuestSync {
         this.remotePrev = null;
       }
       this.seat.remoteId = other.id;
-      this.remote.push(s.t, other);
+      this.remote.push(s.t, other, receivedAt);
     }
     if (this.seat.mode === "versus") {
       // Versus: per-duelist hearts + round state travel on s.vs; the shared
       // hearts / last-stand / shared-death rules don't apply.
       this.versus.applyNet(s.vs);
-      this.applyProj(s);
+      this.applyProj(s, receivedAt);
       this.hooks.updateHud();
       return;
     }
     const downed = players.find((p) => p.downed)?.id ?? null;
     this.lastStand.applyNet(status.over ? null : s.lastStand, downed, status.hearts);
-    this.applyEnemies(s, cast);
-    this.applyBoss(s, status.biome);
-    this.applyPayoffEdges(s, status.cleared);
-    this.applyProj(s);
-    for (const d of this.room.doors) {
-      d.setActive(status.cleared);
-    }
+    this.applyEnemies(s, cast, receivedAt);
+    this.applyBoss(s, status.biome, receivedAt);
+    this.applyClear(s, status.cleared);
+    this.applyProj(s, receivedAt);
     this.hooks.updateHud();
     // Hearts hit 0 while a last stand is live → downed, not dead (yet).
     if (status.over || (this.run.hearts <= 0 && !this.run.downedNet)) {
@@ -410,29 +413,36 @@ export class GuestSync {
     return true;
   }
 
-  /** Fresh same-room snapshots only. Initial cleared/dead states are quiet. */
-  private applyPayoffEdges(s: Snapshot, cleared: boolean) {
-    const boss = s.boss ? decodeBoss(s.boss) : null;
+  /** The doors open with the room. A room that clears while this guest is in
+   * it does so at the kill that cleared it: its doors and cue wait for render
+   * time to reach this snapshot (renderClear). Initially cleared is quiet. */
+  private applyClear(s: Snapshot, cleared: boolean) {
     const prev = this.room.guest.payoff;
-    if (prev && prev.room === s.room) {
-      if (prev.bossAlive && boss?.state === "dead") {
-        this.progress.bossDefeatFx(boss.x, boss.y, this.expedition.biome);
-        sfx.boom("essential");
-        this.hooks.shake(420, 0.02);
-        this.banners.show(`${bossKind(this.expedition.biome).name} SLAIN`, 1800, "payoff");
-      }
-      if (!prev.cleared && cleared) {
-        this.progress.roomClearFx(this.expedition.type, this.expedition.biome);
-      }
+    let clearAt: number | null = null;
+    if (prev !== null && prev.room === s.room) {
+      clearAt = !prev.cleared && cleared ? s.t : prev.clearAt;
     }
-    this.room.guest.payoff = {
-      bossAlive: boss !== null && boss.state !== "dead",
-      cleared,
-      room: s.room,
-    };
+    this.room.guest.payoff = { clearAt, cleared, room: s.room };
+    for (const d of this.room.doors) {
+      d.setActive(cleared && clearAt === null);
+    }
   }
 
-  private applyEnemies(s: Snapshot, cast: NetCast) {
+  private renderClear(now: number) {
+    const { payoff } = this.room.guest;
+    // Every puppet shares the relay clock and INTERP_MS, so the remote's
+    // render time is the moment this guest draws the host's whole world at.
+    if (!payoff || payoff.clearAt === null || this.remote.renderTime(now) < payoff.clearAt) {
+      return;
+    }
+    payoff.clearAt = null;
+    for (const d of this.room.doors) {
+      d.setActive(true);
+    }
+    this.progress.roomClearFx(this.expedition.type, this.expedition.biome);
+  }
+
+  private applyEnemies(s: Snapshot, cast: NetCast, receivedAt: number) {
     const puppets = this.room.guest.enemyPuppets;
     const listed = new Set<number>();
     for (const row of s.enemies) {
@@ -472,7 +482,7 @@ export class GuestSync {
       }
       p.seen = s.t;
       p.gone = null;
-      p.interp.push(s.t, pose);
+      p.interp.push(s.t, pose, receivedAt);
     }
     for (const [id, p] of puppets) {
       if (!listed.has(id) && p.gone === null) {
@@ -481,7 +491,7 @@ export class GuestSync {
     }
   }
 
-  private applyBoss(s: Snapshot, biome: number) {
+  private applyBoss(s: Snapshot, biome: number, receivedAt: number) {
     const g = this.room.guest;
     if (!s.boss) {
       if (g.bossPuppet) {
@@ -505,7 +515,7 @@ export class GuestSync {
       view: this.rooms.bossView(pose.x, pose.y, biome),
     };
     g.bossPuppet.seen = s.t;
-    g.bossPuppet.interp.push(s.t, pose);
+    g.bossPuppet.interp.push(s.t, pose, receivedAt);
     // A dead/stale first snapshot stays quiet. A later live one can
     // establish the encounter even if that earlier packet built the puppet.
     if (pose.state !== "dead") {
@@ -516,7 +526,7 @@ export class GuestSync {
   // A projectile's rows are blended like any puppet's. Flying one forward from
   // its newest row would read the gap between stamps as flight time — and the
   // host's projectiles stand still through hit-stop while the stamps go on.
-  private applyProj(s: Snapshot) {
+  private applyProj(s: Snapshot, receivedAt: number) {
     const flying = this.room.guest.proj;
     const listed = new Set<number>();
     for (const row of s.proj) {
@@ -544,7 +554,7 @@ export class GuestSync {
       }
       p.seen = s.t;
       p.gone = null;
-      p.interp.push(s.t, { vx, vy, x, y });
+      p.interp.push(s.t, { vx, vy, x, y }, receivedAt);
     }
     for (const [id, p] of flying) {
       if (!listed.has(id) && p.gone === null) {
@@ -578,7 +588,7 @@ export class GuestSync {
 
   // Exactly one driver advances my body: the fixed-step sim on my own input.
   // Every tick also queues for the host; two at a time go up (30 Hz).
-  private predict(dts: number, sess: NetSession) {
+  private predict(dts: number, frameAt: number, sess: NetSession) {
     const frozen =
       this.seat.mode === "versus" &&
       this.run.matchNet !== null &&
@@ -591,6 +601,9 @@ export class GuestSync {
       this.prediction.step(body, this.stomps);
       this.run.acc -= STEP;
       steps += 1;
+    }
+    if (steps > 0) {
+      this.tickAt = frameAt - this.run.acc * 1000;
     }
     this.flushInput(sess);
     // Prediction is movement only: combat intents resolve on the host.
@@ -638,25 +651,33 @@ export class GuestSync {
     return false;
   };
 
+  // Stamped with the server time the newest tick's step ended at: the host's
+  // copy plays the ticks on that timeline, so they must be a tick apart and
+  // never stamped later than they were stepped.
   private flushInput(sess: NetSession, force = false) {
-    const msg = this.prediction.flush(this.room.seq, force);
+    const msg = this.prediction.flush(
+      this.room.seq,
+      Math.floor(sess.serverNow(this.tickAt)),
+      force,
+    );
     if (msg) {
       sess.sendToHost("in", msg);
     }
   }
 
-  // Puppets render INTERP_MS behind the relay clock; their cues fire off the
-  // drawn pose, so a sound lands with the animation it belongs to.
+  // Puppets render behind the relay clock, as far as the stream needs; their
+  // cues fire off the drawn pose, so a sound lands with the animation it
+  // belongs to, and they show and vanish at the render time that draws them.
   private renderViews() {
     if (!this.clock.synced) {
       return;
     }
     const now = performance.now();
-    const renderAt = this.clock.now(now) - INTERP_MS;
     this.renderRemote(now);
-    this.renderEnemies(now, renderAt);
+    this.renderEnemies(now);
     this.renderBoss(now);
-    this.renderProj(now, renderAt);
+    this.renderProj(now);
+    this.renderClear(now);
   }
 
   private renderRemote(now: number) {
@@ -714,8 +735,9 @@ export class GuestSync {
     }
   }
 
-  private renderEnemies(now: number, renderAt: number) {
+  private renderEnemies(now: number) {
     for (const [id, p] of this.room.guest.enemyPuppets) {
+      const renderAt = p.interp.renderTime(now);
       if (p.gone !== null && renderAt > p.gone) {
         p.view.destroy();
         this.room.guest.enemyPuppets.delete(id);
@@ -744,7 +766,13 @@ export class GuestSync {
     if (!p || !pose) {
       return;
     }
-    if (p.prev && pose.flash && !p.prev.flash && now > p.hushUntil) {
+    const { prev } = p;
+    if (prev && prev.state !== "dead" && pose.state === "dead") {
+      this.progress.bossDefeatFx(pose.x, pose.y, this.expedition.biome);
+      sfx.boom("essential");
+      this.hooks.shake(420, 0.02);
+      this.banners.show(`${bossKind(this.expedition.biome).name} SLAIN`, 1800, "payoff");
+    } else if (prev && pose.flash && !prev.flash && now > p.hushUntil) {
       sfx.hit();
     }
     p.prev = pose;
@@ -754,8 +782,9 @@ export class GuestSync {
     }
   }
 
-  private renderProj(now: number, renderAt: number) {
+  private renderProj(now: number) {
     for (const [id, p] of this.room.guest.proj) {
+      const renderAt = p.interp.renderTime(now);
       if (p.gone !== null && renderAt > p.gone) {
         p.spr.destroy();
         this.room.guest.proj.delete(id);

@@ -70,8 +70,8 @@ export interface Point {
 }
 
 // One remote actor on a guest: its view, the host-stamped poses it renders
-// INTERP_MS behind the relay clock (net/interp.ts), the pose drawn last frame
-// (cue edges), and when the host stopped reporting it.
+// behind the relay clock (net/interp.ts), the pose drawn last frame (cue
+// edges), and when the host stopped reporting it.
 export interface Puppet<V, P> {
   view: V;
   interp: Interpolator<P>;
@@ -113,7 +113,9 @@ export interface GuestRoomView {
   enemyPuppets: Map<number, Puppet<Enemy, EnemyPose>>;
   bossPuppet: Puppet<Boss, BossPose> | undefined;
   proj: Map<number, ProjPuppet>;
-  payoff: { room: number; cleared: boolean; bossAlive: boolean } | null;
+  // the room's cleared state as the newest snapshot has it, and the stamp of
+  // the one that cleared it while render time has yet to reach it
+  payoff: { room: number; cleared: boolean; clearAt: number | null } | null;
   // stamp of the newest checkpoint applied
   progressT: number;
   // stamp of the newest snapshot applied (server time, ms)

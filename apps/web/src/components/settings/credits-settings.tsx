@@ -35,7 +35,8 @@ const landedSince = (entries: { kind: string; createdAt: Date }[] | undefined, s
   ) ?? false;
 
 /**
- * A small button under the buy presets that opens the code field in a dialog.
+ * A small link under the buy presets (a full button while codes are the only
+ * way to add credit) that opens the code field in a dialog.
  * A `?code=` link opens it straight away with the code filled in. A full code
  * redeems itself; a refused one shakes and clears inside `OTPInput`, and its
  * message comes from the query client's default mutation `onError`
@@ -45,9 +46,12 @@ const landedSince = (entries: { kind: string; createdAt: Date }[] | undefined, s
 const RedeemCode = ({
   defaultValue,
   onRedeemed,
+  primary = false,
 }: {
   defaultValue: string;
   onRedeemed: () => void;
+  /** A full button rather than a link under the presets: codes are the only way in. */
+  primary?: boolean;
 }) => {
   const orpc = useORPC();
   const qc = useQueryClient();
@@ -67,15 +71,19 @@ const RedeemCode = ({
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger
         render={
-          <Button
-            type="button"
-            variant="link"
-            size="sm"
-            className="text-muted-foreground hover:text-foreground h-auto px-0 text-xs"
-          />
+          primary ? (
+            <Button type="button" variant="outline" size="sm" />
+          ) : (
+            <Button
+              type="button"
+              variant="link"
+              size="sm"
+              className="text-muted-foreground hover:text-foreground h-auto px-0 text-xs"
+            />
+          )
         }
       >
-        Have a code? Redeem it
+        {primary ? "Redeem a code" : "Have a code? Redeem it"}
       </DialogTrigger>
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
@@ -145,6 +153,15 @@ const BuyCredits = ({ children }: { children: React.ReactNode }) => {
     </div>
   );
 };
+
+/** Card purchases stay off until the server holds both Stripe keys; codes still add credit. */
+const AddCredit = ({ children }: { children: React.ReactNode }) => (
+  <div className="space-y-2">
+    <div className="text-sm font-medium">Add credit</div>
+    {children}
+    <p className="text-muted-foreground text-xs">Card payments aren&apos;t open yet.</p>
+  </div>
+);
 
 const CreditsSkeleton = () => (
   <div className="space-y-8">
@@ -229,8 +246,10 @@ export const CreditsSettings = ({
       <header>
         <h2 className="text-base font-semibold">Credits</h2>
         <p className="text-muted-foreground mt-1 text-sm">
-          Credits cover asset generation; deploys, hosting and multiplayer are free. Buy credits, or
-          redeem a code if you have one.
+          Credits cover asset generation; deploys, hosting and multiplayer are free.
+          {credits.data?.purchasesEnabled === true &&
+            " Buy credits, or redeem a code if you have one."}
+          {credits.data?.purchasesEnabled === false && " Redeem a code to add credit."}
         </p>
       </header>
 
@@ -259,9 +278,15 @@ export const CreditsSettings = ({
                   )}
                 </div>
 
-                <BuyCredits>
-                  <RedeemCode defaultValue={code ?? ""} onRedeemed={onCodeRedeemed} />
-                </BuyCredits>
+                {credits.data.purchasesEnabled ? (
+                  <BuyCredits>
+                    <RedeemCode defaultValue={code ?? ""} onRedeemed={onCodeRedeemed} />
+                  </BuyCredits>
+                ) : (
+                  <AddCredit>
+                    <RedeemCode defaultValue={code ?? ""} onRedeemed={onCodeRedeemed} primary />
+                  </AddCredit>
+                )}
 
                 <div>
                   {credits.data.entries.length === 0 && (

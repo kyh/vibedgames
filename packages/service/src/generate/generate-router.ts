@@ -19,6 +19,7 @@ import {
   isUnbilledTerminalStatus,
   parseBillableUnits,
 } from "../credits/queue-calls";
+import { purchasesEnabled } from "../credits/stripe";
 import { os, requireSession } from "../orpc";
 import { MAX_PARAMS_BYTES } from "./limits";
 import {
@@ -235,19 +236,24 @@ const platformFetchJson =
  * Gate a queue submit on remaining credits. Balance must be positive to
  * start a generation; the estimated hold may push it negative, which
  * simply blocks the next submit. The message carries the
- * `insufficient_credits` token so agents can branch on it.
+ * `insufficient_credits` token so agents can branch on it, and offers only
+ * the ways to add credit that are open.
  */
-const requirePositiveBalance = async (db: Db, userId: string): Promise<void> => {
+const requirePositiveBalance = async (db: Db, userId: string, canBuy: boolean): Promise<void> => {
   const balanceMicro = await getBalanceMicro(db, userId);
   if (balanceMicro > 0) {
     return;
   }
+  const addCredit = canBuy
+    ? "`vg credits buy <usd>` prints a checkout link for a person to pay, " +
+      "`vg credits redeem <code>` applies a credit code, " +
+      "or buy at https://vibedgames.com/settings#credits."
+    : "`vg credits redeem <code>` applies a credit code, " +
+      "or redeem one at https://vibedgames.com/settings#credits.";
   throw new ORPCError("FORBIDDEN", {
     message:
       `insufficient_credits: your balance is ${formatUsd(balanceMicro)}. ` +
-      "Generation is paused until the account has credit: `vg credits buy <usd>` prints a " +
-      "checkout link for a person to pay, `vg credits redeem <code>` applies a credit code, " +
-      "or buy at https://vibedgames.com/settings#credits.",
+      `Generation is paused until the account has credit: ${addCredit}`,
   });
 };
 
@@ -313,7 +319,7 @@ export const generateRouter = {
     if (queueCall.kind === "submit") {
       const gated = context.session.user.role !== "admin";
       if (gated) {
-        await requirePositiveBalance(context.db, userId);
+        await requirePositiveBalance(context.db, userId, purchasesEnabled(context.billing));
       }
       pricing = await getEndpointPricing(queueCall.endpointId, platformFetchJson(apiKey, config));
       if (gated) {

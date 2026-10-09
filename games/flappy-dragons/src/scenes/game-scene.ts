@@ -13,8 +13,7 @@ import { courseStart, courseX, followCourse } from "../net/course";
 import { RivalMotion } from "../net/rival-motion";
 import { NetSession, isJsonNumber, isJsonObject } from "../net/session";
 import { publishPlaytestSurface } from "../playtest";
-import type { JsonValue } from "../net/session";
-import type { Player, PlayerMap } from "@vibedgames/multiplayer";
+import type { JsonValue, Player, PlayerMap } from "@vibedgames/multiplayer";
 import { FlightFx, prefersReducedMotion } from "./flight-fx";
 import {
   ART_SCALE,
@@ -83,6 +82,8 @@ interface Ghost {
   motion: RivalMotion;
   /** Liveness last drawn, so the tint is only rewritten when it flips. */
   live: boolean | null;
+  /** Its connection dropped and the room is holding its seat (see markAway). */
+  away: boolean;
   /** Frame it was last listed as a rival; anything older has left. */
   seen: number;
 }
@@ -126,14 +127,6 @@ const TOUCH = isCoarsePointer();
 /** DEV-only room override (?room=): the two-client harness isolates each run
  *  so a stale room's course can't leak into assertions. */
 const ROOM = (import.meta.env.DEV && new URLSearchParams(location.search).get("room")) || MP_ROOM;
-
-const createSession = (forceOffline: boolean): NetSession =>
-  new NetSession({
-    fallbackMs: OFFLINE_FALLBACK_MS,
-    forceOffline,
-    maxPlayers: MP_MAX_PLAYERS,
-    room: ROOM,
-  });
 
 const HINT_FLAP = TOUCH ? "TAP TO FLAP" : "CLICK · SPACE — FLAP";
 const HINT_RESTART = TOUCH ? "TAP ANYWHERE TO RESTART" : "CLICK OR PRESS SPACE TO RESTART";
@@ -184,6 +177,27 @@ const destroyPipe = (pipe: Pipe): void => {
   pipe.botBody.destroy();
   pipe.coin?.destroy();
   pipe.glint?.destroy();
+};
+
+/**
+ * A rival whose connection dropped is still in the race: the room holds its
+ * seat while it redials. Its stream has stopped, so its dragon waits faded
+ * where it was last drawn, and the board says it is reconnecting: it neither
+ * vanishes as if it had left nor hangs there like a stalled race. Back, its
+ * samples may come by another route, so its clock measures that afresh.
+ */
+const markAway = (ghost: Ghost, away: boolean): void => {
+  if (away === ghost.away) {
+    return;
+  }
+  ghost.away = away;
+  // Back, the next pose drawn restyles it.
+  ghost.live = null;
+  if (away) {
+    ghost.sprite.setAlpha(0.16).setTint(0x90_99_b0);
+  } else {
+    ghost.motion.relearn();
+  }
 };
 
 const randomSeed = (): number =>
@@ -274,16 +288,26 @@ interface BoardRow {
   score: number;
   live: boolean;
   me: boolean;
+  /** Its connection dropped; the room holds its seat while it redials. */
+  away: boolean;
 }
+
+/** A row's mark: flying, crashed, or reconnecting. */
+const rowMark = (r: BoardRow): string => {
+  if (r.away) {
+    return "📡";
+  }
+  return r.live ? "🐉" : "💀";
+};
 
 /** The top-8 leaderboard rows as one fragment. */
 const renderStandings = (rows: readonly BoardRow[]): DocumentFragment => {
   const frag = document.createDocumentFragment();
   for (const r of rows.slice(0, 8)) {
     const row = document.createElement("div");
-    row.className = `row${r.me ? " me" : ""}${r.live ? "" : " dead"}`;
+    row.className = `row${r.me ? " me" : ""}${r.live ? "" : " dead"}${r.away ? " away" : ""}`;
     const name = document.createElement("span");
-    name.textContent = `${r.live ? "🐉" : "💀"} ${r.me ? "you" : r.id.slice(0, 4)}`;
+    name.textContent = `${rowMark(r)} ${r.me ? "you" : r.id.slice(0, 4)}${r.away ? " reconnecting…" : ""}`;
     const sc = document.createElement("span");
     sc.className = "sc";
     sc.textContent = String(r.score);
@@ -322,9 +346,9 @@ export class GameScene extends Scene {
 
   private pipes = new Map<number, Pipe>();
   private ghosts = new Map<string, Ghost>();
-  /** Other players present this frame, sorted so every client agrees on lane
-   *  order. A seat the server holds for a reconnect is not a rival: its last
-   *  state would hang a frozen ghost in your lane for the whole grace window. */
+  /** Other players this frame, sorted so every client agrees on lane order.
+   *  One whose connection dropped is still racing while the server holds its
+   *  seat for the reconnect (see markAway). */
   private rivalIds: string[] = [];
   /** The player map `rivalIds` was derived from; the SDK swaps it on every change. */
   private rivalSource: PlayerMap | null = null;
@@ -353,6 +377,8 @@ export class GameScene extends Scene {
   private boardAcc = 0;
   private boardSig = "";
   private lastNetInfo = "";
+  /** Our own connection dropped and the room has not admitted us again yet. */
+  private ownDrop = false;
 
   private hintEl: HTMLElement | null = null;
   private gatesEl: HTMLElement | null = null;
@@ -401,9 +427,18 @@ export class GameScene extends Scene {
     // Escape is keyboard-only, so a phone otherwise has no way to leave a run.
     this.touchControls = createTouchControls();
 
-    // A playtest is a solo run: it must never join (or stage state into) the
-    // shared public room.
-    this.net = createSession(isPlaytestRequested());
+    // Assets are loaded by now: the client's fallback deadline counts from
+    // the next frame. A playtest is a solo run: it must never join (or stage
+    // state into) the shared public room.
+    this.net = new NetSession({
+      fallbackMs: OFFLINE_FALLBACK_MS,
+      maxPlayers: MP_MAX_PLAYERS,
+      offline: isPlaytestRequested(),
+      room: ROOM,
+    });
+    // Every notification, not every frame: a drop and the reconnect after it
+    // can both land while the tab is hidden and runs no frames.
+    this.net.subscribe(() => this.watchOwnConnection());
 
     this.bgLayers = BG_FACTORS.map((factor, i) => ({
       factor,
@@ -545,22 +580,12 @@ export class GameScene extends Scene {
   }
 
   // ---- playtest hooks (see ../playtest.ts) -----------------------------------
-
-  /** Staged state must never reach a live room: swap to a local session first. */
-  private goSolo(): void {
-    if (this.net.offline) {
-      return;
-    }
-    this.net.destroy();
-    this.net = createSession(true);
-    if (import.meta.env.DEV) {
-      window.__fb = { net: this.net, scene: this };
-    }
-  }
+  // Staged state must never reach a live room: each hook leaves it first, and
+  // the run goes on solo.
 
   /** Reseed the course and restart the run on it, skipping the get-ready count. */
   testSeed(seed: number): void {
-    this.goSolo();
+    this.net.goOffline();
     this.cancelCountdown();
     this.resetRun(1 + (Math.abs(Math.trunc(seed)) % 0x7f_ff_ff_ff));
   }
@@ -574,7 +599,7 @@ export class GameScene extends Scene {
     if (name !== "active-play") {
       return this.phase;
     }
-    this.goSolo();
+    this.net.goOffline();
     this.dismissStartScreen();
     this.cancelCountdown();
     if (this.phase !== "ready") {
@@ -763,12 +788,16 @@ export class GameScene extends Scene {
     return this.rivalIds.length > 0;
   }
   /**
-   * True only when actually connected to a live party room (not the solo
-   * fallback) — used by the wrapper's pause handler so it never freezes a
-   * session other players are relying on.
+   * True while this player has a seat in a live party room: connected, or
+   * reconnecting while the room holds the seat and the others race its
+   * faded dragon (not solo, nor still connecting). The wrapper's pause
+   * handler reads it so it never freezes a session other players are
+   * relying on: frozen through a reconnect, the dragon would come back to
+   * them standing still for the rest of the pause.
    */
   isOnline(): boolean {
-    return this.net.live && !this.net.offline;
+    const status = this.net.connectionStatus;
+    return status === "connected" || status === "reconnecting";
   }
   /**
    * Everything local-only — the get-ready 3-2-1 (an input gate plus pose
@@ -800,9 +829,10 @@ export class GameScene extends Scene {
     return this.racing || this.worldX > 0;
   }
   /**
-   * The course is not ours to restart: a race, or a guest whose only rival is
-   * the host's seat held for a reconnect (so not `racing`). It scrolls on the
-   * room's clock, a crash respawns, and only the host writes it.
+   * The course is not ours to restart: a race, or any guest's, alone or not
+   * (still joining, or its host just left and the room has yet to promote
+   * it). It scrolls on the room's clock, a crash respawns, and only the host
+   * writes it.
    */
   private get sharedCourse(): boolean {
     return this.racing || !this.net.isHost;
@@ -821,7 +851,6 @@ export class GameScene extends Scene {
     if (this.padFlapPressed()) {
       this.handleInput();
     }
-    this.net.tick();
     this.rivalIds = this.presentRivals();
     // In a race the dragon steps on real time, keeping pace with a course on
     // the room's clock; a solo run pauses through a stall rather than
@@ -895,7 +924,7 @@ export class GameScene extends Scene {
     this.checkDeath();
   }
 
-  /** Other present players, re-derived only when the SDK hands over a new player map. */
+  /** Other seated players, re-derived only when the SDK hands over a new player map. */
   private presentRivals(): string[] {
     const { players } = this.net;
     if (players === this.rivalSource) {
@@ -903,9 +932,8 @@ export class GameScene extends Scene {
     }
     this.rivalSource = players;
     const me = this.net.playerId;
-    return Object.entries(players)
-      .filter(([id, p]) => id !== me && p.connected !== false)
-      .map(([id]) => id)
+    return Object.keys(players)
+      .filter((id) => id !== me)
       .toSorted();
   }
 
@@ -913,7 +941,7 @@ export class GameScene extends Scene {
 
   /** The room's course from shared state, parsed once per new object. */
   private roomCourse(): Course | null {
-    const ref = this.net.sharedState?.["course"];
+    const ref = this.net.sharedState["course"];
     if (ref !== this.courseRef) {
       this.courseRef = ref;
       this.course = readCourse(ref);
@@ -1045,8 +1073,8 @@ export class GameScene extends Scene {
     }
     // On a shared course the respawn timer owns the comeback — a tap on the
     // gameover screen must not restart(), which reseeds and rewinds the course
-    // to zero. A guest never may: alone beside a held host seat it would
-    // rewind its own scroll, which becomes the room's if it is promoted.
+    // to zero. A guest never may: alone, it would rewind its own scroll,
+    // which becomes the room's if it is promoted.
     if (this.sharedCourse) {
       return;
     }
@@ -1124,7 +1152,7 @@ export class GameScene extends Scene {
     this.seed = seed;
     // Publish the reroll, or ensureSeed() re-adopts the stale shared seed
     // next frame and every solo run replays the identical course. (Offline
-    // this writes the local loopback state.) Only the course's owner may:
+    // the client applies it locally.) Only the course's owner may:
     // every caller is the host by now, but a guest's write would be refused.
     // No race runs on the new seed until someone joins.
     if (this.net.isHost) {
@@ -1435,6 +1463,23 @@ export class GameScene extends Scene {
 
   // ---- ghosts (other players) ----------------------------------------------
 
+  /**
+   * Back in the room after our own connection dropped: the socket may have
+   * redialled by another route, so every rival's clock measures it afresh,
+   * before the first sample to come by it is pushed.
+   */
+  private watchOwnConnection(): void {
+    const status = this.net.connectionStatus;
+    if (status === "reconnecting") {
+      this.ownDrop = true;
+    } else if (status === "connected" && this.ownDrop) {
+      this.ownDrop = false;
+      for (const ghost of this.ghosts.values()) {
+        ghost.motion.relearn();
+      }
+    }
+  }
+
   private syncGhosts(time: number): void {
     if (!this.racing) {
       for (const g of this.ghosts.values()) {
@@ -1456,9 +1501,14 @@ export class GameScene extends Scene {
       }
       ghost.seen = frame;
       laneX += ghost.gap;
-      // Drawn ~100 ms behind the moment the rival's samples land, blending
-      // the two around it: as smooth as its flight on its own screen, however
-      // unevenly the packets arrive.
+      if (ghost.away) {
+        // Its stream has stopped: it waits in its lane where it was last drawn.
+        ghost.sprite.x = laneX;
+        continue;
+      }
+      // Drawn 100 ms or more behind the moment the rival's samples land, as
+      // far as its stream needs, blending the two around it: as smooth as its
+      // flight on its own screen, however unevenly the packets arrive.
       const pose = ghost.motion.sample(time);
       if (!pose) {
         continue;
@@ -1486,8 +1536,15 @@ export class GameScene extends Scene {
 
   /** A rival's ghost with its newest sample pushed, or null until it has sent one. */
   private feedGhost(id: string, time: number): Ghost | null {
-    const state = this.net.players[id]?.state;
+    const player = this.net.players[id];
+    const away = player?.connected === false;
     const known = this.ghosts.get(id);
+    // Ahead of the push, so a rival back from a drop has relearned its clock
+    // before the first sample to come by its new route.
+    if (known) {
+      markAway(known, away);
+    }
+    const state = player?.state;
     // The state is polled every frame; only a new stamp is a new sample.
     if (known && state?.["t"] === known.motion.stamp) {
       return known;
@@ -1498,14 +1555,16 @@ export class GameScene extends Scene {
     }
     let ghost = known;
     if (!ghost) {
+      // At its own height, for one first met mid-drop that is never sampled.
       const sprite = this.add
-        .sprite(0, 0, `dragon-${peer.skin}-1`)
+        .sprite(0, peer.y + DRAGON_SPRITE_OFFSET_Y, `dragon-${peer.skin}-1`)
         .setDepth(8)
         .setScale(
           ART_SCALE * (GHOST_SCALE_MIN + hashId(id, 3) * (GHOST_SCALE_MAX - GHOST_SCALE_MIN)),
         );
       sprite.play(`fly-${peer.skin}`);
       ghost = {
+        away: false,
         gap: GHOST_GAP_MIN + hashId(id, 1) * (GHOST_GAP_MAX - GHOST_GAP_MIN),
         live: null,
         motion: new RivalMotion(),
@@ -1514,6 +1573,7 @@ export class GameScene extends Scene {
         sprite,
       };
       this.ghosts.set(id, ghost);
+      markAway(ghost, away);
     } else if (ghost.skin !== peer.skin) {
       ghost.skin = peer.skin;
       ghost.sprite.play(`fly-${peer.skin}`);
@@ -1527,12 +1587,12 @@ export class GameScene extends Scene {
   /**
    * Streams this dragon on a steady clock (FixedRate keeps the remainder,
    * where a reset-to-zero throttle drifted to 17–18 Hz with uneven gaps).
-   * Only while racing: alone, nobody is listening — and the first tick of a
-   * stream goes out at once, so a joiner sees this dragon immediately. The
-   * course needs no stream: it runs on the room's clock.
+   * Only while racing: alone (offline too), nobody is listening — and the
+   * first tick of a stream goes out at once, so a joiner sees this dragon
+   * immediately. The course needs no stream: it runs on the room's clock.
    */
   private broadcast(elapsedMs: number, now: number | null): void {
-    if (this.net.offline || !this.racing) {
+    if (!this.racing) {
       this.streamingState = false;
       return;
     }
@@ -1546,9 +1606,9 @@ export class GameScene extends Scene {
     }
     this.streamingState = true;
     // Stamped with the room's server time at this frame: continuous across a
-    // reload and comparable between senders. Every rival draws it ~100 ms
-    // behind the moment it lands. Unchanged keys stay off the wire, so a
-    // hovering or crashed dragon costs only `t`.
+    // reload and comparable between senders. Every rival draws it 100 ms or
+    // more behind the moment it lands (see RivalMotion). Unchanged keys stay
+    // off the wire, so a hovering or crashed dragon costs only `t`.
     this.net.updateMyState({
       life: this.life,
       live: this.alive,
@@ -1745,10 +1805,15 @@ export class GameScene extends Scene {
   }
 
   private netInfoLine(): string {
-    if (!this.net.live) {
+    const status = this.net.connectionStatus;
+    if (status === "connecting") {
       return "connecting…";
     }
-    if (this.net.offline) {
+    // Our own drop: the room holds the seat while the socket redials.
+    if (status === "reconnecting") {
+      return "reconnecting…";
+    }
+    if (status === "offline") {
       return "offline · solo";
     }
     if (this.racing) {
@@ -1780,7 +1845,7 @@ export class GameScene extends Scene {
         this.boardEl.replaceChildren();
       }
       this.boardSig = "";
-      if (this.phase === "ready" && this.net.live && !this.net.offline) {
+      if (this.phase === "ready" && this.isOnline()) {
         this.setHint(HINT_FLAP);
       }
       return;
@@ -1793,7 +1858,7 @@ export class GameScene extends Scene {
 
     // Standings change a few times a second at most — skip the 60 Hz DOM
     // rebuild while nothing moved.
-    const sig = rows.map((r) => `${r.id}:${r.score}:${r.live ? 1 : 0}`).join("|");
+    const sig = rows.map((r) => `${r.id}:${r.score}:${r.live ? 1 : 0}:${r.away ? 1 : 0}`).join("|");
     if (sig === this.boardSig) {
       return;
     }
@@ -1804,10 +1869,19 @@ export class GameScene extends Scene {
   /** Best-first standings: mine live-local, every rival from its last wire state. */
   private standings(): BoardRow[] {
     const me = this.net.playerId ?? SOLO_ROW_ID;
-    const rows: BoardRow[] = [{ id: me, live: this.alive, me: true, score: this.score }];
+    const rows: BoardRow[] = [
+      { away: false, id: me, live: this.alive, me: true, score: this.score },
+    ];
     for (const id of this.rivalIds) {
-      const ps = readPeer(this.net.players[id]?.state);
-      rows.push({ id, live: ps?.live ?? false, me: false, score: ps?.score ?? 0 });
+      const player = this.net.players[id];
+      const ps = readPeer(player?.state);
+      rows.push({
+        away: player?.connected === false,
+        id,
+        live: ps?.live ?? false,
+        me: false,
+        score: ps?.score ?? 0,
+      });
     }
     rows.sort((a, b) => b.score - a.score);
     return rows;

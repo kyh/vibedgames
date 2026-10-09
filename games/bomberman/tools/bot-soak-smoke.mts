@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { localClaims, PickupClaims } from "../src/net/pickup-claims";
+import { MultiplayerClient, OFFLINE_PLAYER_ID } from "@vibedgames/multiplayer";
+import { PickupClaims } from "../src/net/pickup-claims";
 import type { ClaimRoom } from "../src/net/pickup-claims";
 import { hostTick } from "../src/sim/host-sim";
 import { createArena } from "../src/shared/arena";
@@ -64,7 +65,7 @@ const collect = (s: SharedState, claims: PickupClaims, room: ClaimRoom): SharedS
       claims.reach(room, s, fighter.id, fighter);
     }
   }
-  return merged(s, claims.settle(room, s, "host"));
+  return merged(s, claims.settle(room, s, OFFLINE_PLAYER_ID));
 };
 
 /** Run host ticks at the scene's cadence; every bot die rolls "bomb now". */
@@ -133,7 +134,13 @@ const soak = (seed: number, ms: number): Round => {
   const crates = crateCount(s.grid);
   const round: Round = { botDeaths: [], cratesOpened: 0, humanDiedAt: null, winner: null };
   const claims = new PickupClaims();
-  const room = localClaims("host");
+  // A solo host's room: the client offline, where it is the only claimant.
+  const room = new MultiplayerClient({
+    host: "http://127.0.0.1:9",
+    offline: true,
+    party: "vg-server",
+    room: "bot-soak",
+  });
   for (let now = 1000; now <= 1000 + ms && !s.winner; now += TICK_MS) {
     const { patch } = hostTick(s, [human], now, random);
     if (!patch) {
@@ -163,6 +170,7 @@ const soak = (seed: number, ms: number): Round => {
       round.botDeaths.push(own ? selfInflicted : "rival");
     }
   }
+  room.destroy();
   round.winner = s.winner;
   round.cratesOpened = crates - crateCount(s.grid);
   return round;

@@ -1,7 +1,9 @@
 // Host-authoritative simulation: one pure step over the shared world. State
 // and the humans' positions come in, and a shallow patch comes out: only the
-// fields that changed, since bot moves fire every tick and the 285-cell grid
-// must not ride along. Power-ups are not collected here: whoever steps on one
+// fields that changed. The SDK sends a field's changed leaves and never looks
+// at a field the patch leaves out, so a tick that turns a bot doesn't walk
+// the 285-cell grid; and the scene ends a frame at a patch that turned the
+// bots (see hostSteps). Power-ups are not collected here: whoever steps on one
 // claims it from the room (net/pickup-claims). No Phaser, no clock, no
 // network: the scene owns those, which keeps this runnable under Node.
 
@@ -390,8 +392,8 @@ const botWander = (ctx: BotContext, bot: Bot, windows: Map<string, Burn>): void 
   moveBot(bot, pick, now);
 };
 
-/** What a bot's turn changed. Each flag puts a whole record on the wire, so
- *  a turn that only rescheduled the bot must not resend the bombs. */
+/** What a bot's turn changed. Each flag puts its record in the patch, so a
+ *  turn that only rescheduled the bot leaves the bombs out. */
 interface Turn {
   bot: boolean;
   bomb: boolean;

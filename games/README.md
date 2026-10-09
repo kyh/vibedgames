@@ -28,8 +28,9 @@ Every game is a standalone Vite app (`@repo/<name>`) — no platform code, only
 the same packages any user's game can install:
 
 - **`@vibedgames/multiplayer`** — host-authoritative rooms. Games degrade to
-  solo/bot play when the party server is unreachable; that fallback is part of
-  the game, not an error path.
+  solo/bot play when the party server is unreachable (the client's
+  `fallbackMs`, a local room of one); that fallback is part of the game, not an
+  error path.
 - **`@vibedgames/gamepad`** — touch overlay + physical controllers. Every game
   ships a `src/controls.ts` manifest so the web app can render its controls.
 - **`@repo/embed`** — postMessage bridge used when the game runs inside the web

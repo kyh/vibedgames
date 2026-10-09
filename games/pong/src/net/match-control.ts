@@ -6,7 +6,7 @@
 // a timeline breaks; nothing else about the match depends on who hosts, so a
 // host migration changes nothing and the match plays on.
 
-import type { TickInfo } from "@vibedgames/multiplayer";
+import type { JsonValue, MultiplayerConnectionStatus, TickInfo } from "@vibedgames/multiplayer";
 
 import { MP_MAX_PLAYERS, OFFLINE_FALLBACK_MS, TICK_RATE } from "../shared/constants";
 import type { SlotInput } from "../shared/input";
@@ -16,7 +16,6 @@ import { LocalDriver } from "./local-driver";
 import { RECORD_KEY, readRecord, recordJson, rivalOf, seatOf, seatPair } from "./match-record";
 import type { MatchRecord } from "./match-record";
 import { NetSession, isJsonNumber, isJsonObject } from "./session";
-import type { JsonValue } from "./session";
 import { TickDriver } from "./tick-driver";
 
 /** A new match starts this many ticks after the record goes out (0.5 s):
@@ -42,24 +41,35 @@ const soloOpening = (slot: Slot, held: SlotInput): SimState => {
 };
 
 export class MatchControl {
-  private readonly room: string;
-  private net: NetSession;
+  private readonly net: NetSession;
   private current: Driver;
   /** Names a match's effects: a new record or a fresh solo game opens a new scope. */
   private scopeName: string;
   private soloGames = 0;
+  /** The tick on screen (see show). */
   private shownTick = 0;
-  private connectedBefore = false;
   /** The record id this client last asked the host to re-base. */
   private resyncAsked = -1;
   /** Host: a seated player asked for a re-base of this record id. */
   private rebaseWanted = -1;
+  /** The connection's status as last heard, to notice this client back from a drop. */
+  private lastStatus: MultiplayerConnectionStatus;
 
   constructor(room: string, held: SlotInput) {
-    this.room = room;
-    this.net = this.connect(false);
+    this.net = new NetSession({
+      fallbackMs: OFFLINE_FALLBACK_MS,
+      maxPlayers: MP_MAX_PLAYERS,
+      onEvent: (event, payload, from) => this.handleEvent(event, payload, from),
+      onTick: (tick) => this.handleTick(tick),
+      room,
+      tickRate: TICK_RATE,
+    });
     this.scopeName = this.nextSoloScope();
     this.current = new LocalDriver(soloOpening(0, held), 0);
+    this.lastStatus = this.net.connectionStatus;
+    // Heard as it happens, not read each frame: a drop and its reconnect can
+    // both pass while the tab is hidden and no frame runs.
+    this.net.client.subscribe(() => this.noteStatus());
   }
 
   get driver(): Driver {
@@ -82,56 +92,53 @@ export class MatchControl {
 
   get link(): Link {
     const { net } = this;
-    if (!net.live) {
-      return this.connectedBefore ? "reconnecting" : "connecting";
-    }
-    if (net.offline) {
+    const status = net.connectionStatus;
+    if (status === "offline") {
       return "solo";
+    }
+    if (status !== "connected") {
+      return status;
     }
     return net.otherPlayer() === null ? "open" : "live";
   }
 
-  /** Each frame: settle which match runs, then run it. Returns the fractional tick to show. */
+  /** Each frame: settle which match runs, then run it. Returns the horizon:
+   *  the fractional tick this player's input lands at. */
   frame(input: SlotInput, dtMs: number, running: boolean): number {
-    const { net } = this;
-    net.tick();
-    if (net.live && !net.offline) {
-      this.connectedBefore = true;
-    }
     this.hostDuties();
     this.syncMatch();
     const { current } = this;
-    const horizon =
-      current.kind === "tick" ? current.frame(input) : current.frame(input, dtMs, running);
-    this.shownTick = Math.floor(horizon);
-    return horizon;
+    return current.kind === "tick" ? current.frame(input) : current.frame(input, dtMs, running);
   }
 
-  /** Leave the room for a solo game against the AI — from `base`, or a fresh opening. */
+  /** The scene draws the match at tick `tick` — behind the horizon while the
+   *  ball is on the rival's half. A match the rival leaves carries on from it. */
+  show(tick: number): void {
+    this.shownTick = tick;
+  }
+
+  /** Leave the room for a solo game against the AI — from `base`, or a fresh
+   *  opening. The room frees the seat at once; this client plays on offline. */
   goOffline(held: SlotInput, base?: SimState): void {
-    this.net.destroy();
-    this.net = this.connect(true);
+    this.net.client.goOffline();
     this.scopeName = this.nextSoloScope();
     this.current = new LocalDriver(base ?? soloOpening(0, held), 0);
-    this.connectedBefore = false;
-    this.resyncAsked = -1;
-    this.rebaseWanted = -1;
   }
 
   destroy(): void {
-    this.net.destroy();
+    this.net.client.destroy();
   }
 
-  private connect(offline: boolean): NetSession {
-    return new NetSession({
-      fallbackMs: OFFLINE_FALLBACK_MS,
-      forceOffline: offline,
-      maxPlayers: MP_MAX_PLAYERS,
-      onEvent: (event, payload, from) => this.handleEvent(event, payload, from),
-      onTick: (tick) => this.handleTick(tick),
-      room: this.room,
-      tickRate: TICK_RATE,
-    });
+  /** Back from this client's own drop, the tick stream reaches it by a new
+   *  route, and the ticks it missed have just replayed in one burst: the
+   *  match's tick clock measures afresh. */
+  private noteStatus(): void {
+    const status = this.net.connectionStatus;
+    const { current } = this;
+    if (current.kind === "tick" && status === "connected" && this.lastStatus === "reconnecting") {
+      current.relearn();
+    }
+    this.lastStatus = status;
   }
 
   private nextSoloScope(): string {
@@ -170,12 +177,10 @@ export class MatchControl {
     return slot;
   }
 
-  /** Follow the room's record: start its match once seated, play on alone when the rival leaves. */
+  /** Follow the room's record: start its match once seated, play on alone
+   *  when the rival leaves — or when no tick clock runs (offline). */
   private syncMatch(): void {
     const { net, current } = this;
-    if (net.offline) {
-      return;
-    }
     const record = readRecord(net.sharedState);
     const clock = net.tickClock;
     const slot =
@@ -192,8 +197,9 @@ export class MatchControl {
       return;
     }
     if (current.kind === "tick") {
-      // The rival is gone for good: the AI takes their paddle, and the match
-      // carries on from what is on screen — on this client's clock now.
+      // The rival is gone for good, or the room is: the AI takes their
+      // paddle, and the match carries on from what is on screen — on this
+      // client's clock now.
       const shown = current.engine.stateAt(this.shownTick) ?? current.engine.confirmed;
       this.current = new LocalDriver(cloneSim(shown), current.mySlot);
     }
@@ -205,7 +211,7 @@ export class MatchControl {
       return;
     }
     this.resyncAsked = id;
-    this.net.sendToHost("resync", { id });
+    this.net.client.sendToHost("resync", { id });
   }
 
   /**
@@ -241,14 +247,14 @@ export class MatchControl {
       seed: randomSeed(),
       start: clock.n + START_LEAD_TICKS,
     };
-    net.patchShared({ [RECORD_KEY]: recordJson(record) });
+    net.client.updateSharedState({ [RECORD_KEY]: recordJson(record) });
     this.rebaseWanted = -1;
   }
 
   /** Host: the two players in the room, when a record can go out now. */
   private hostPair(): [string, string] | null {
     const { net } = this;
-    if (net.offline || !net.live || !net.isHost || !net.clockSynced) {
+    if (net.connectionStatus !== "connected" || !net.isHost || !net.clockSynced) {
       return null;
     }
     const [first, second, ...more] = Object.keys(net.players);

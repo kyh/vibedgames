@@ -101,7 +101,8 @@ export const MP_LIMITS = {
 } as const;
 export const OFFLINE_FALLBACK_MS = 6000;
 /** Player position/facing broadcast rate, stamped with server time; peers
- *  render it ~100 ms behind its arrival (net/farmer-wire). */
+ *  render it 100 ms or more behind its arrival, as far as the stream needs
+ *  (net/farmer-wire). */
 export const NET_TICK_HZ = 20;
 /** How long a guest's own farming outranks older host values for that tile. */
 export const PENDING_EDIT_MS = 1500;

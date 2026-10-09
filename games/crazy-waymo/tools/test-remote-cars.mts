@@ -7,7 +7,7 @@
 import { setTimeout as settle } from "node:timers/promises";
 
 import * as THREE from "three";
-import { FixedRate } from "@vibedgames/multiplayer";
+import { FixedRate, netStats } from "@vibedgames/multiplayer";
 import type { PlayerMap } from "@vibedgames/multiplayer";
 
 import { ModelCache } from "../src/assets/loader.ts";
@@ -312,9 +312,12 @@ const checkSmoothMotion = (check: Check): void => {
     `per-frame speed ${(typical.minStep * 100).toFixed(0)}–${(typical.maxStep * 100).toFixed(0)}% of true`,
   );
   check("a remote taxi cruising straight never rubber-bands backwards", typical.backwards === 0);
+  // Behind its fastest relay (40 ms) by the 100 ms render delay, or by as
+  // much as the link's lateness needs: each 50 ms interval plus the 100 ms
+  // spread, plus the frame an arrival waits to be read.
   check(
-    "a remote taxi trails its owner by the render delay plus its fastest relay",
-    typical.lagMs > 120 && typical.lagMs < 200,
+    "a remote taxi trails its owner by its fastest relay plus what its link's lateness needs",
+    typical.lagMs > 40 + 100 && typical.lagMs < 40 + 50 + 100 + FRAME_MS,
     `${typical.lagMs.toFixed(0)} ms behind`,
   );
   // 150–250 ms: the owner's relay clock learns the slower route, so the car
@@ -372,18 +375,6 @@ const checkPresence = (check: Check): void => {
     "a returning player shows at once where they are, not gliding from where they left",
     back === 60 && beaconHex(rx.car()) === colour,
     `${back}`,
-  );
-
-  rx.send(drive("h", 26_000, 30_000, () => parkedAt(60)));
-  rx.run(SKEW_MS + 27_000);
-  rx.setConnected("h", false);
-  rx.run(rx.now + 1);
-  const dropped = rx.remote.count();
-  rx.setConnected("h", true);
-  rx.run(rx.now + 1);
-  check(
-    "a dropped connection hides the taxi at once; reconnecting restores it",
-    dropped === 0 && rx.remote.count() === 1,
   );
 
   // Joining a room that still holds a hidden tab's last pose, a minute old.
@@ -450,6 +441,95 @@ const checkRespawn = (check: Check): void => {
     "a respawn snaps the taxi to its new spot instead of streaking it across the map",
     streak === 0 && snapped !== null && snapped < SKEW_MS + 3000 + 150,
   );
+};
+
+const checkOwnerDrop = (check: Check): void => {
+  // Its owner's connection drops: nothing it sends while away reaches us, and
+  // the notice that it is back lands before its first pose since, 15 u on.
+  const rx = new Receiver();
+  rx.send(drive("o", 0, 2000, () => parkedAt(60)));
+  rx.send(drive("o", 3000, 5000, () => parkedAt(75)));
+  rx.run(SKEW_MS + 2100);
+  rx.setConnected("o", false);
+  rx.run(rx.now + 1);
+  const dropped = rx.remote.count();
+  rx.run(SKEW_MS + 3000);
+  rx.setConnected("o", true);
+  rx.run(rx.now + 1);
+  const unheard = rx.remote.count();
+  let first: number | undefined;
+  rx.run(SKEW_MS + 3300, () => {
+    first ??= rx.car()?.position.x;
+  });
+  check(
+    "a dropped connection hides the taxi at once; back, it shows with its first pose since, where it is",
+    dropped === 0 && unheard === 0 && first === 75,
+    `${first}`,
+  );
+};
+
+/**
+ * A taxi cruising at 30 u/s while a link breaks for a second and comes back
+ * by a route 400 ms slower: ours (the scene relearns every taxi when the room
+ * admits us again) or its owner's (it drops out of the room and reconnects).
+ * What reached us before the break came 40–60 ms after it was sent; nothing
+ * sent during it arrives at all. Read from 250 ms after the first update over
+ * the new route.
+ */
+const acrossDrop = (whose: "ours" | "owner") => {
+  const rx = new Receiver();
+  const speed = 30;
+  const before = drive("d", 0, 4000, cruise(speed), (i) => 40 + 20 * noise(i));
+  const after = drive("d", 5000, 9000, cruise(speed), (i) => 440 + 20 * noise(i));
+  const lost = before.at(-1)?.arrive ?? 0;
+  const back = after[0]?.arrive ?? 0;
+  rx.send([...before, ...after]);
+  rx.run(lost + 100);
+  if (whose === "owner") {
+    rx.setConnected("d", false);
+  }
+  rx.run(back - 1);
+  if (whose === "ours") {
+    rx.remote.relearn();
+  } else {
+    rx.setConnected("d", true);
+  }
+  const from = back + 250;
+  const until = SKEW_MS + 8600;
+  rx.run(from);
+  const counted = netStats();
+  let prev: number | null = null;
+  let minStep = Infinity;
+  let maxStep = 0;
+  rx.run(until, () => {
+    const x = rx.car()?.position.x ?? Number.NaN;
+    if (prev !== null) {
+      const step = (x - prev) / ((speed * FRAME_MS) / 1000);
+      minStep = Math.min(minStep, step);
+      maxStep = Math.max(maxStep, step);
+    }
+    prev = x;
+  });
+  const stats = netStats();
+  return {
+    frames: stats.frames - counted.frames,
+    maxStep,
+    minStep,
+    starved: stats.starved - counted.starved,
+  };
+};
+
+const checkRouteChange = (check: Check): void => {
+  for (const whose of ["ours", "owner"] as const) {
+    const back = acrossDrop(whose);
+    check(
+      whose === "ours"
+        ? "back from our own drop onto a slower route, a taxi runs smoothly within a quarter second, never past its newest update"
+        : "an owner back from its drop by a slower route runs smoothly within a quarter second, never past its newest update",
+      back.frames > 0 && back.starved === 0 && back.minStep > 0.8 && back.maxStep < 1.2,
+      `${back.starved} of ${back.frames} frames past the newest, per-frame speed ${(back.minStep * 100).toFixed(0)}–${(back.maxStep * 100).toFixed(0)}% of true`,
+    );
+  }
 };
 
 const checkCullAndBodies = async (check: Check): Promise<void> => {
@@ -596,6 +676,8 @@ export const checkRemoteCars = async (check: Check): Promise<void> => {
   checkSmoothMotion(check);
   checkPresence(check);
   checkRespawn(check);
+  checkOwnerDrop(check);
+  checkRouteChange(check);
   checkInterest(check);
   await checkCullAndBodies(check);
   checkStaged(check);

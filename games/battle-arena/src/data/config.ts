@@ -35,9 +35,11 @@ export const MAX_CATCH_UP_TICKS = 5;
 // The host sends a frame every tick and the whole world this often (~1 Hz) —
 // for late joiners, and a promoted guest whose own copy missed frames.
 export const FULL_SNAPSHOT_TICKS = 30;
-// How far behind the newest frame's arrival remote bodies are drawn (ms):
-// three frames, so one late or bunched frame never empties the buffer. The
-// trip itself is measured on the server clock (net/mirror.ts), not budgeted here.
+// The least time behind the newest frame's arrival remote bodies are drawn
+// (ms): three frames, so one late or bunched frame never empties the buffer.
+// A jittery route draws them further back, as far as the SDK's RemoteClock
+// measures the stream needs. The trip itself is measured off the frames'
+// arrivals (net/mirror.ts), not budgeted here.
 export const INTERP_DELAY_MS = 100;
 // An unchanged guest input is re-sent this often (ms), so a new host — or one
 // back from a dropout — learns it without waiting for a key change.
@@ -46,6 +48,10 @@ export const INPUT_KEEPALIVE_MS = 200;
 // arrival, so arrival jitter never changes how many ticks an input is applied
 // for. It grows to cover the slowest recent arrival, by two ticks at most.
 export const INPUT_JITTER_TICKS = 2;
+// An online match no room has admitted after this long (ms of rendered frames,
+// so loading doesn't count) goes on against bots in the SDK's offline room of
+// one. A drop after joining is a reconnect, never this.
+export const ONLINE_FALLBACK_MS = 8000;
 
 // ── Throne (the magnet at center) ────────────────────────────────────────────
 // world units

@@ -14,18 +14,29 @@ export class FixedStep {
     this.maxBacklogMs = maxBacklogMs;
   }
 
-  /** The sim times of the steps due by `now`, oldest first. */
-  due(now: number): number[] {
+  /**
+   * The sim time of the oldest step due by `now`, taken, or null when none
+   * is. A step not taken stays due: the next call that reaches it returns it.
+   */
+  next(now: number): number | null {
     if (this.last === null || now < this.last - this.maxBacklogMs) {
       // First step, or the clock was replaced (a promoted host adopts the room's).
       this.last = now - this.stepMs;
     } else if (now - this.last > this.maxBacklogMs) {
       this.last = now - this.maxBacklogMs;
     }
+    if (now - this.last < this.stepMs) {
+      return null;
+    }
+    this.last += this.stepMs;
+    return this.last;
+  }
+
+  /** The sim times of every step due by `now`, oldest first. */
+  due(now: number): number[] {
     const due: number[] = [];
-    while (now - this.last >= this.stepMs) {
-      this.last += this.stepMs;
-      due.push(this.last);
+    for (let at = this.next(now); at !== null; at = this.next(now)) {
+      due.push(at);
     }
     return due;
   }

@@ -5,21 +5,21 @@
 // HostNet over the real sim.
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { netStats } from "@vibedgames/multiplayer";
 import { isJsonNumber, isJsonObject } from "../src/data/json.ts";
 import { SPAWNS, CAMPS } from "../src/data/map.ts";
-import { ArrivalClock } from "../src/net/arrival-clock.ts";
 import { HostNet } from "../src/net/host-net.ts";
 import type { HostLink } from "../src/net/host-net.ts";
 import { inputWire, parseInput } from "../src/net/input.ts";
 import { NetMirror, parseFrame } from "../src/net/mirror.ts";
 import { OwnHeroPredictor } from "../src/net/own-hero.ts";
 import type { HeldInput } from "../src/net/own-hero.ts";
-import { emptyGuestWorld, isSnapshot } from "../src/net/snapshot.ts";
-import type { Frame } from "../src/net/snapshot.ts";
+import { emptyGuestWorld, encodeWorld, isSnapshot } from "../src/net/snapshot.ts";
+import type { Frame, Snapshot } from "../src/net/snapshot.ts";
 import { applyKnockback, handleDeath } from "../src/sim/combat.ts";
 import { createWorld, ensureBots, setHeroInput, spawnHero } from "../src/sim/world.ts";
 import type { Unit, World } from "../src/sim/types.ts";
-import { Pipe, noise } from "./net-sim.mts";
+import { Pipe, noise, sharedCopy } from "./net-sim.mts";
 
 const GUEST = "guest";
 const HOST = "host";
@@ -67,15 +67,21 @@ const match = (opts: MatchOptions = {}) => {
   const hostNet = new HostNet();
   const guestWorld = emptyGuestWorld();
   let now = 5000;
-  // one process plays both ends: the room's server clock is the harness clock
-  const serverClock = { now: (localNow?: number) => localNow ?? now, synced: true };
-  const mirror = new NetMirror(serverClock);
+  const mirror = new NetMirror();
   mirror.ownId = guestHero.id;
   const predictor = new OwnHeroPredictor();
   const held: HeldInput = { attack: false, ax: 1, ay: 0, mx: 0, my: 0 };
   const frames: Frame[] = [];
+  // the room's shared state: the host's copy and the guest's, in step by ops
+  const hostRoom = sharedCopy();
+  const guestRoom = sharedCopy();
   let snapshots = 0;
   let snapshotBytes = 0;
+  // what the snapshots cost on the wire: the ops, the leaves that changed
+  let snapshotOpsBytes = 0;
+  // every snapshot the host wrote, beside a copy taken as it wrote it: the
+  // SDK reads a write when the task ends and keeps it as the room's state
+  const written: { snap: Snapshot; copy: Snapshot }[] = [];
   let fxSent = 0;
   let fxReceived = 0;
   const link: HostLink = {
@@ -83,11 +89,15 @@ const match = (opts: MatchOptions = {}) => {
       const u = world.units.get(`h-${owner}`);
       return owner !== HOST && u?.alive && world.phase === "playing" ? u : null;
     },
+    // one process plays both ends: the room's server clock is the harness clock
     now: () => now,
     publish: (snap, t) => {
       snapshots += 1;
       snapshotBytes = JSON.stringify(snap).length;
-      toGuest.send(now, { kind: "snap", snap, t });
+      written.push({ copy: structuredClone(snap), snap });
+      const ops = hostRoom.write({ snap, snapT: t });
+      snapshotOpsBytes += JSON.stringify(ops).length;
+      toGuest.send(now, { kind: "state", ops });
     },
     sendFrame: (frame) => {
       frames.push(frame);
@@ -108,11 +118,13 @@ const match = (opts: MatchOptions = {}) => {
       if (!isJsonObject(message)) {
         continue;
       }
-      if (message["kind"] === "snap") {
-        const { snap, t } = message;
+      if (message["kind"] === "state") {
+        // as the scene adopts a snapshot: read straight off the room's state
+        guestRoom.apply(message["ops"] ?? null);
+        const { snap, snapT } = guestRoom.state;
         if (isSnapshot(snap)) {
           // the guest hears the stream from its first frame: every snapshot is live
-          mirror.applySnapshot(guestWorld, snap, isJsonNumber(t) ? t : null, now, true);
+          mirror.applySnapshot(guestWorld, snap, isJsonNumber(snapT) ? snapT : null, now, true);
         }
       } else {
         const frame = parseFrame(message["frame"] ?? null);
@@ -175,10 +187,17 @@ const match = (opts: MatchOptions = {}) => {
       return fxSent;
     },
     guestHero,
+    /** What `sharedState` reads on the guest, and on the host. */
+    get guestRoom() {
+      return guestRoom.state;
+    },
     guestWorld,
     held,
     hostHero,
     hostNet,
+    get hostRoom() {
+      return hostRoom.state;
+    },
     me: () => guestWorld.units.get(guestHero.id) ?? null,
     get now() {
       return now;
@@ -191,12 +210,16 @@ const match = (opts: MatchOptions = {}) => {
     get snapshotBytes() {
       return snapshotBytes;
     },
+    get snapshotOpsBytes() {
+      return snapshotOpsBytes;
+    },
     get snapshots() {
       return snapshots;
     },
     toGuest,
     toHost,
     world,
+    written,
   };
 };
 
@@ -365,6 +388,24 @@ test("remote bodies move smoothly through jitter; nothing is lost", () => {
   assert.equal(m.fxReceived, m.fxSent, "every fx the host sent arrived");
 });
 
+test("a jittery route draws remote bodies further back instead of running them dry", () => {
+  // frames land up to 150 ms after the fastest: past what INTERP_DELAY_MS covers
+  const m = match({ jitterMs: 150, oneWayMs: 80 });
+  settle(m);
+  // the clock measures what the stream needs
+  m.run(5000);
+  const before = netStats();
+  m.run(10_000);
+  const after = netStats();
+  const frames = after.frames - before.frames;
+  const starved = (after.starved - before.starved) / frames;
+  assert.ok(frames >= 590, `the host's hero drawn every frame (${frames})`);
+  assert.ok(
+    starved < 0.03,
+    `drawn past the newest frame ${(starved * 100).toFixed(1)}% of the time`,
+  );
+});
+
 test("a host below 30 fps keeps real time; payload stays small", () => {
   const m = match({ bots: true, hostFps: 20 });
   const start = m.world.now;
@@ -387,12 +428,15 @@ test("a host below 30 fps keeps real time; payload stays small", () => {
   const avg = sizes.reduce((sum, n) => sum + n, 0) / sizes.length;
   const p99 = sizes[Math.floor(sizes.length * 0.99)] ?? 0;
   const perSecond = m.toGuest.bytes / 30;
+  // ~1 Hz, as the leaves that changed since the one before
+  const snapOps = m.snapshotOpsBytes / m.snapshots;
   console.log(
-    `  payload: old snapshot ${oldBytes} B × 15 Hz; frame avg ${Math.round(avg)} B, p99 ${p99} B × 30 Hz; full snapshot ${m.snapshotBytes} B × 1 Hz; ${Math.round(perSecond / 1024)} KB/s per guest`,
+    `  payload: old snapshot ${oldBytes} B × 15 Hz; frame avg ${Math.round(avg)} B, p99 ${p99} B × 30 Hz; full snapshot ${m.snapshotBytes} B, its ops avg ${Math.round(snapOps)} B × 1 Hz; ${Math.round(perSecond / 1024)} KB/s per guest`,
   );
   assert.ok(avg < 1000, `frames average under 1 KB (${avg})`);
   assert.ok(p99 < 3000, `frames stay under 3 KB (p99 ${p99})`);
   assert.ok(m.snapshotBytes < oldBytes / 2, "the full snapshot is compact too");
+  assert.ok(snapOps < m.snapshotBytes / 3, `a snapshot's ops are a fraction of it (${snapOps})`);
   assert.ok(perSecond < (oldBytes * 15) / 20, "at least 20× less traffic than before");
   assert.ok(m.snapshots >= 29 && m.snapshots <= 32, `~1 Hz full snapshots (${m.snapshots})`);
 });
@@ -413,6 +457,18 @@ const sameView = (host: World, guest: World): void => {
   }
   assert.equal(guest.units.size, host.units.size);
   assert.equal(guest.phase, host.phase);
+  for (const key of ["grounds", "coins", "deliveries"] as const) {
+    assert.deepEqual(
+      guest[key].map((item) => item.id),
+      host[key].map((item) => item.id),
+      key,
+    );
+  }
+  assert.deepEqual(
+    [...guest.projectiles.keys()].toSorted(),
+    [...host.projectiles.keys()].toSorted(),
+    "projectiles",
+  );
 };
 
 test("frames keep a guest's world in step with the host's through a busy match", () => {
@@ -423,6 +479,15 @@ test("frames keep a guest's world in step with the host's through a busy match",
     // is the host's — from deltas alone between the 1 Hz snapshots
     m.run(400, false);
     sameView(m.world, m.guestWorld);
+    // nothing the guest did to its world reached its copy of the room, which
+    // the next snapshot's ops build on
+    assert.deepEqual(m.guestRoom, m.hostRoom, "the guest's copy of the room is the host's");
+  }
+  // nor did the host's sim reach what it wrote, which the SDK holds as the
+  // room's state (and re-sends from, back from a drop) under that write's stamp
+  assert.ok(m.written.length >= 25, `snapshots written (${m.written.length})`);
+  for (const { snap, copy } of m.written) {
+    assert.deepEqual(snap, copy, `the snapshot at ${Math.round(copy.now)} ms stays as written`);
   }
 });
 
@@ -432,57 +497,104 @@ const routeB = (i: number) => {
   return { at: sent - 1_000_000 + 100 + noise(i + 500) * 80, sent };
 };
 
+/** A mirror fed bare frames: only their stamps and arrival times count here. */
+const stampedStream = () => {
+  const mirror = new NetMirror();
+  const world = emptyGuestWorld();
+  return {
+    /** A frame stamped `sent` (server time) lands at local time `at`. */
+    arrive: (sent: number, at: number): void => {
+      mirror.applyFrame(world, { gt: 0, n: 0, t: sent }, at);
+    },
+    /** A render at local time `at`, which reads the clock. */
+    draw: (at: number): void => {
+      mirror.render(world, at);
+    },
+    mirror,
+  };
+};
+
 test("the mirror clock is server time less the fastest recent trip, re-learned per host", () => {
+  // the room's server clock as this guest measures it: the local clock until
+  // the first probe returns, a million ms ahead of it from then on
   let synced = false;
   const server = {
-    now: (localNow?: number) => (localNow ?? 0) + 1_000_000,
+    now: (localNow = 0) => localNow + (synced ? 1_000_000 : 0),
     get synced() {
       return synced;
     },
   };
-  const clock = new ArrivalClock(server);
-  // before the server clock is measured there is no trip to learn
-  clock.arrived(1_000_000, 50);
-  assert.equal(clock.synced, false, "an unsynced server clock teaches nothing");
+  /** How far behind server time a mirror's clock reads at local time `at`. */
+  const tripAt = (mirror: NetMirror, at: number): number => server.now(at) - mirror.clock.now(at);
+  // a frame that lands before the server clock is measured teaches the clock
+  // all the same: it learns from local arrival times, never that measurement,
+  // and only the trip the mirror reports waits for it
+  const early = stampedStream();
+  early.arrive(1_000_000, 50);
+  early.draw(50);
+  assert.equal(early.mirror.trip(server), 0, "no trip to report on an unmeasured server clock");
   synced = true;
+  assert.equal(early.mirror.trip(server), 50, "an unsynced server clock teaches nothing wrong");
+  // frames alone teach it: the snapshot found on joining puts bodies on screen
+  // with its own stamp, which is as old as the snapshot, not one trip
+  const room = createWorld(7);
+  ensureBots(room);
+  const joined = new NetMirror();
+  const copy = emptyGuestWorld();
+  joined.applySnapshot(copy, encodeWorld(room), 1_000_000, 900, false);
+  joined.render(copy, 900);
+  assert.ok(
+    [...copy.units.values()].some((u) => u.kind === "hero"),
+    "bodies drawn from it",
+  );
+  assert.equal(joined.clock.synced, false, "the snapshot found on joining teaches nothing");
   // host A: trips of 60-140 ms; the fastest defines the clock
+  const guest = stampedStream();
   for (let i = 0; i < 90; i += 1) {
     const sent = 1_000_000 + i * 33;
-    clock.arrived(sent, sent - 1_000_000 + 60 + noise(i) * 80);
+    guest.arrive(sent, sent - 1_000_000 + 60 + noise(i) * 80);
   }
   const atA = 90 * 33 + 200;
-  assert.ok(Math.abs(server.now(atA) - clock.now(atA) - clock.trip) < 1e-9);
-  assert.ok(clock.trip >= 60 && clock.trip < 65, `fastest trip (${clock.trip.toFixed(1)} ms)`);
+  guest.draw(atA);
+  const tripA = tripAt(guest.mirror, atA);
+  assert.equal(guest.mirror.trip(server), Math.round(tripA), "the trip reported is the one drawn");
+  assert.ok(tripA >= 60 && tripA < 65, `fastest trip (${tripA.toFixed(1)} ms)`);
   // host B takes over 400 ms later on the same server clock, 40 ms further
   // away: the clock carries on, and only the route is learned afresh — the
   // window alone would hold on to A's faster trips for seconds
-  const stale = new ArrivalClock(server);
+  const stale = stampedStream();
   for (let i = 0; i < 90; i += 1) {
     const sent = 1_000_000 + i * 33;
-    stale.arrived(sent, sent - 1_000_000 + 60 + noise(i) * 80);
+    stale.arrive(sent, sent - 1_000_000 + 60 + noise(i) * 80);
   }
+  const { clock } = guest.mirror;
   const before = clock.now(atA + 1);
   clock.relearn();
   assert.equal(clock.now(atA + 1), before, "re-learning moves nothing drawn");
   for (let i = 0; i < 20; i += 1) {
     const { at, sent } = routeB(i);
-    for (const c of [clock, stale]) {
-      c.arrived(sent, at);
-      c.now(at);
+    for (const stream of [guest, stale]) {
+      stream.arrive(sent, at);
+      stream.draw(at);
     }
   }
-  assert.ok(clock.trip >= 100, `new route learned within a second (${clock.trip.toFixed(1)} ms)`);
-  assert.ok(
-    stale.trip < 70,
-    `the window alone still trusts the old one (${stale.trip.toFixed(1)})`,
-  );
+  const atB = routeB(19).at;
+  const learned = tripAt(guest.mirror, atB);
+  assert.ok(learned >= 100, `new route learned within a second (${learned.toFixed(1)} ms)`);
+  const trusted = tripAt(stale.mirror, atB);
+  assert.ok(trusted < 70, `the window alone still trusts the old one (${trusted.toFixed(1)})`);
   for (let i = 20; i < 200; i += 1) {
     const { at, sent } = routeB(i);
-    clock.arrived(sent, at);
-    clock.now(at);
+    guest.arrive(sent, at);
+    guest.draw(at);
   }
-  assert.ok(clock.trip >= 100 && clock.trip < 105, `and kept (${clock.trip.toFixed(1)} ms)`);
-  // a stamp from a host whose own clock is not yet synced is not a trip
-  clock.arrived(5, 90 * 33 + 400 + 200 * 33 + 120);
-  assert.ok(clock.trip >= 100, "a wild stamp is ignored");
+  const kept = tripAt(guest.mirror, routeB(199).at);
+  assert.ok(kept >= 100 && kept < 105, `and kept (${kept.toFixed(1)} ms)`);
+  // a host whose own clock is not yet synced stamps its local time, ages
+  // before any real stamp: it never undercuts a real one in the window
+  const wildAt = 90 * 33 + 400 + 200 * 33 + 120;
+  guest.arrive(5, wildAt);
+  guest.draw(wildAt);
+  const wild = tripAt(guest.mirror, wildAt);
+  assert.ok(wild >= 100 && wild < 105, `a wild stamp is ignored (${wild.toFixed(1)} ms)`);
 });

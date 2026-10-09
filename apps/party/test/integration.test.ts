@@ -3,13 +3,21 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { after, before, test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
+import { isDeepStrictEqual } from "node:util";
 
 import { Miniflare } from "miniflare";
 import type { MiniflareOptions } from "miniflare";
 import { z } from "zod";
 
 import type { MultiplayerClientOptions } from "@vibedgames/multiplayer";
-import { MAX_TICK_HISTORY, MAX_TICK_RATE, MultiplayerClient } from "@vibedgames/multiplayer";
+import {
+  listRooms,
+  MAX_ROOM_META_CHARS,
+  MAX_TICK_HISTORY,
+  MAX_TICK_RATE,
+  MultiplayerClient,
+  quickMatch,
+} from "@vibedgames/multiplayer";
 
 /**
  * Integration tests that drive the real VgServer — Durable Object, partyserver
@@ -48,7 +56,7 @@ before(async () => {
     compatibilityDate: built.compatibilityDate,
     compatibilityFlags: built.compatibilityFlags,
     d1Databases: { DB: "vibedgames" },
-    durableObjects: { VgServer: "VgServer" },
+    durableObjects: { VgLobby: "VgLobby", VgServer: "VgServer" },
     modules: true,
     scriptPath: path.join(OUTPUT, "bundle", built.manifest.mainModule),
   };
@@ -88,7 +96,7 @@ const connect = (
   room: string,
   options?: Pick<
     MultiplayerClientOptions,
-    "interest" | "limits" | "onClaim" | "onEvent" | "onTick" | "tickRate"
+    "interest" | "limits" | "lobby" | "maxPlayers" | "onClaim" | "onEvent" | "onTick" | "tickRate"
   >,
 ): MultiplayerClient =>
   new MultiplayerClient({
@@ -97,6 +105,21 @@ const connect = (
     room,
     ...options,
   });
+
+/** Poll an async check until it holds: a lobby hears from its rooms a moment after they change. */
+const eventually = async (
+  check: () => Promise<boolean>,
+  label: string,
+  timeoutMs = 10_000,
+): Promise<void> => {
+  const deadline = Date.now() + timeoutMs;
+  while (!(await check())) {
+    if (Date.now() > deadline) {
+      throw new Error(`timed out after ${timeoutMs}ms waiting for: ${label}`);
+    }
+    await delay(50);
+  }
+};
 
 /** The room's public HTTP stats. */
 const roomInfo = async (room: string): Promise<{ playerCount: number }> => {
@@ -177,6 +200,8 @@ test("host state_patch propagates to guests; non-host writes are dropped", async
     guest.sendEvent("fence", null);
     await waitFor(() => hostEvents.includes("fence"), "fence event reached host");
     assert.equal(host.sharedState.cheat, undefined, "host never saw the non-host patch");
+    await waitFor(() => guest.sharedState.cheat === undefined, "the guest's refused write rewound");
+    assert.deepEqual(guest.sharedState, host.sharedState, "the guest holds the room's state again");
   } finally {
     clientA.destroy();
     clientB.destroy();
@@ -303,6 +328,13 @@ class RawClient {
       .filter((message) => message.type === type)
       .map((message) => toRecord(message.data));
   }
+
+  /** The data of every received message of one type, as it came. */
+  dataOf(type: string): JsonValue[] {
+    return this.messages
+      .filter((message) => message.type === type)
+      .map((message) => message.data ?? null);
+  }
 }
 
 test("the host's own state_patch is relayed to guests but never echoed back to it", async () => {
@@ -314,8 +346,8 @@ test("the host's own state_patch is relayed to guests but never echoed back to i
     await waitFor(() => admitted(guest), "guest admitted");
     assert.equal(guest.hostId, rawHost.id, "the raw client is host");
 
-    rawHost.send({ data: { tick: 1 }, type: "state_patch" });
-    rawHost.send({ data: { tick: 2 }, type: "state_patch" });
+    rawHost.send({ data: [[["tick"], 1]], type: "state_patch" });
+    rawHost.send({ data: [[["tick"], 2]], type: "state_patch" });
     await waitFor(() => guest.sharedState.tick === 2, "guest got both host patches");
 
     // Anything the server sent the host after its patches would have landed
@@ -329,6 +361,202 @@ test("the host's own state_patch is relayed to guests but never echoed back to i
   } finally {
     rawHost.close(1000);
     guest.destroy();
+  }
+});
+
+/** A unit in the delta tests' made-up world. */
+const grunt = (x: number): JsonRecord => ({ hp: 9, name: "grunt", x });
+
+test("a write sends only the leaves that changed, and one task's writes leave as one message", async () => {
+  const room = uniqueRoom("shared-deltas");
+  const host = connect(room);
+  let observer: RawClient | null = null;
+  let guest: MultiplayerClient | null = null;
+  try {
+    await waitFor(() => admitted(host), "host admitted");
+    const watching = new RawClient(room, { _pk: `delta-obs-${process.pid}` });
+    observer = watching;
+    const reader = connect(room);
+    guest = reader;
+    await waitFor(() => watching.synced() && admitted(reader), "observer and guest admitted");
+
+    host.updateSharedState({
+      grid: [0, 0, 0, 0],
+      units: { a: grunt(1), b: grunt(2), c: grunt(3), d: grunt(4) },
+    });
+    await waitFor(() => watching.dataOf("state_patch").length === 1, "the first write");
+
+    // One task: a unit moves, a cell changes, a unit dies.
+    host.updateSharedState({ units: { a: grunt(5), b: grunt(2), c: grunt(3), d: grunt(4) } });
+    host.updateSharedState({ grid: [0, 0, 1, 0] });
+    host.updateSharedState(({ units, ...rest }) => {
+      const { b: _dead, ...alive } = toRecord(units);
+      return { ...rest, units: alive };
+    });
+    await waitFor(() => watching.dataOf("state_patch").length === 2, "the batched write");
+    await waitFor(
+      () => isDeepStrictEqual(reader.sharedState, host.sharedState),
+      "the guest agrees",
+    );
+    // Let anything still queued land before counting.
+    await delay(200);
+    assert.deepEqual(watching.dataOf("state_patch"), [
+      [
+        [["grid"], [0, 0, 0, 0]],
+        [["units"], { a: grunt(1), b: grunt(2), c: grunt(3), d: grunt(4) }],
+      ],
+      [[["grid", 2], 1], [["units", "a", "x"], 5], [["units", "b"]]],
+    ]);
+    assert.deepEqual(reader.sharedState, {
+      grid: [0, 0, 1, 0],
+      units: { a: grunt(5), c: grunt(3), d: grunt(4) },
+    });
+  } finally {
+    observer?.close(1000);
+    guest?.destroy();
+    host.destroy();
+  }
+});
+
+/** One message as a line: its type and what a test compares of it. */
+const summary = (message: WireMessage): string => {
+  if (message.type === "event") {
+    const { event, payload } = toRecord(message.data);
+    return `event ${String(event)} ${JSON.stringify(payload)}`;
+  }
+  if (message.type === "player_state") {
+    return `player_state ${JSON.stringify(toRecord(message.data).state)}`;
+  }
+  return `${message.type} ${JSON.stringify(message.data)}`;
+};
+
+test("batched writes never overtake an event, nor a coalesced event a state write", async () => {
+  const room = uniqueRoom("batch-order");
+  const host = connect(room);
+  let observer: RawClient | null = null;
+  try {
+    await waitFor(() => admitted(host), "host admitted");
+    const watching = new RawClient(room, { _pk: `order-obs-${process.pid}` });
+    observer = watching;
+    await waitFor(() => watching.synced(), "observer synced");
+    const from = watching.messages.length;
+
+    host.updateMyState({ x: 1 });
+    host.updateSharedState({ phase: "aim" });
+    host.updateMyState({ y: 2 });
+    host.sendEvent("cursor", 1, { coalesce: true });
+    host.sendEvent("cursor", 2, { coalesce: true });
+    host.updateSharedState({ phase: "fire" });
+    host.sendEvent("shot", null);
+
+    const order = (): string[] =>
+      watching.messages
+        .slice(from)
+        .filter((message) => ["event", "player_state", "state_patch"].includes(message.type))
+        .map(summary);
+    await waitFor(() => order().includes("event shot null"), "the last message");
+    await delay(200);
+    assert.deepEqual(order(), [
+      'player_state {"x":1,"y":2}',
+      'state_patch [[["phase"],"aim"]]',
+      "event cursor 2",
+      'state_patch [[["phase"],"fire"]]',
+      "event shot null",
+    ]);
+  } finally {
+    observer?.close(1000);
+    host.destroy();
+  }
+});
+
+/**
+ * One round of a made-up game's world: units move, spawn and die, a log grows
+ * and is trimmed, a banner comes and goes.
+ */
+const worldStep = (prev: JsonRecord, roll: () => number, round: number): JsonRecord => {
+  const units: JsonRecord = {};
+  const previous = prev.units === undefined ? {} : toRecord(prev.units);
+  for (const [id, unit] of Object.entries(previous)) {
+    if (roll() < 0.15) {
+      continue;
+    }
+    const body = toRecord(unit);
+    units[id] = roll() < 0.6 ? { ...body, x: Math.round(roll() * 100) } : body;
+  }
+  if (roll() < 0.5) {
+    units[`u${round}`] = { hp: 10, tags: roll() < 0.5 ? ["fresh"] : [], x: 0 };
+  }
+  const log = Array.isArray(prev.log) ? prev.log : [];
+  const { banner: _banner, ...rest } = prev;
+  const next: JsonRecord = {
+    ...rest,
+    log: roll() < 0.3 ? [...log, round].slice(-5) : log,
+    round,
+    units,
+  };
+  if (roll() < 0.5) {
+    next.banner = { text: `round ${round}` };
+  }
+  return next;
+};
+
+test("over a run of writes, a guest and a late joiner hold exactly the host's state", async () => {
+  const room = uniqueRoom("delta-run");
+  const clientA = connect(room);
+  const clientB = connect(room);
+  let late: MultiplayerClient | null = null;
+  try {
+    await waitFor(() => admitted(clientA) && admitted(clientB), "both admitted");
+    await waitFor(() => clientA.isHost || clientB.isHost, "a host is elected");
+    const [writer, reader] = clientA.isHost ? [clientA, clientB] : [clientB, clientA];
+    let seed = 11;
+    const roll = (): number => {
+      seed = (seed * 1_103_515_245 + 12_345) % 2_147_483_648;
+      return seed / 2_147_483_648;
+    };
+    for (let round = 1; round <= 60; round += 1) {
+      writer.updateSharedState((prev) => worldStep(prev, roll, round));
+      if (roll() < 0.4) {
+        // A key that changes shape: an object, then an array, then back.
+        writer.updateSharedState({ [`k${round % 3}`]: roll() < 0.5 ? { at: round } : [round] });
+      }
+      if (round % 4 === 0) {
+        await delay(5);
+      }
+    }
+    await waitFor(
+      () => isDeepStrictEqual(reader.sharedState, writer.sharedState),
+      "the guest caught up",
+    );
+    const joiner = connect(room);
+    late = joiner;
+    await waitFor(() => admitted(joiner), "late joiner admitted");
+    assert.deepEqual(joiner.sharedState, writer.sharedState, "the server's copy is the host's");
+  } finally {
+    late?.destroy();
+    clientA.destroy();
+    clientB.destroy();
+  }
+});
+
+test("a shared write made before admission reaches the room once it is in", async () => {
+  const room = uniqueRoom("early-write");
+  const host = connect(room);
+  let guest: MultiplayerClient | null = null;
+  try {
+    host.updateSharedState({ early: { ready: true } });
+    await waitFor(() => admitted(host), "host admitted");
+    const reader = connect(room);
+    guest = reader;
+    await waitFor(() => admitted(reader), "guest admitted");
+    await waitFor(
+      () => isDeepStrictEqual(reader.sharedState, host.sharedState),
+      "the guest agrees",
+    );
+    assert.deepEqual(reader.sharedState, { early: { ready: true } });
+  } finally {
+    guest?.destroy();
+    host.destroy();
   }
 });
 
@@ -376,6 +604,37 @@ test("targeted events reach exactly their audience", async () => {
     assert.ok(eventsA.includes("boom"), "sender receives its own except-broadcast");
     assert.ok(eventsB.includes("boom"), "unexcluded peer receives it");
     assert.ok(!eventsC.includes("boom"), "excepted peer is excluded");
+  } finally {
+    clientA.destroy();
+    clientB.destroy();
+    clientC.destroy();
+  }
+});
+
+test("sendToHost reaches the host alone, and the host handles its own at once", async () => {
+  const room = uniqueRoom("to-host");
+  const heardA: [string, string][] = [];
+  const heardB: [string, string][] = [];
+  const heardC: [string, string][] = [];
+  const clientA = connect(room, { onEvent: (event, _payload, from) => heardA.push([event, from]) });
+  await waitFor(() => admitted(clientA), "A admitted first, so A hosts");
+  const clientB = connect(room, { onEvent: (event, _payload, from) => heardB.push([event, from]) });
+  const clientC = connect(room, { onEvent: (event, _payload, from) => heardC.push([event, from]) });
+  try {
+    await waitFor(() => admitted(clientB) && admitted(clientC), "guests admitted");
+    const hostId = clientA.playerId;
+    const guestId = clientB.playerId;
+    assert.ok(hostId !== null && guestId !== null);
+    assert.equal(clientB.hostId, hostId);
+
+    clientA.sendToHost("host-intent", 1);
+    assert.deepEqual(heardA, [["host-intent", hostId]], "handled before sendToHost returns");
+    clientB.sendToHost("guest-intent", 2);
+    await waitFor(() => heardA.length === 2, "the host hears the guest's intent");
+    assert.deepEqual(heardA[1], ["guest-intent", guestId]);
+    await delay(200);
+    assert.deepEqual(heardB, [], "the sending guest doesn't hear its own intent");
+    assert.deepEqual(heardC, [], "another guest hears neither");
   } finally {
     clientA.destroy();
     clientB.destroy();
@@ -472,6 +731,31 @@ test("a dropped player is held in grace, reclaimed by token, and a 1000-close le
   }
 });
 
+test("a page that unloads (1001) leaves at once: nothing can reclaim its seat", async () => {
+  const room = uniqueRoom("going-away");
+  const observer = connect(room);
+  const rawId = `raw-away-${process.pid}`;
+  try {
+    await waitFor(() => admitted(observer), "observer admitted");
+    // A browser closes an unloading page's sockets with 1001, which a WHATWG
+    // WebSocket can't send; Miniflare's can.
+    const query = new URLSearchParams({ _pk: rawId, _reconnectToken: `tok-away-${process.pid}` });
+    const response = await miniflare.dispatchFetch(
+      `http://localhost/parties/vg-server/${room}?${query}`,
+      { headers: { Upgrade: "websocket" } },
+    );
+    const socket = response.webSocket;
+    assert.ok(socket, "upgraded");
+    socket.accept();
+    await waitFor(() => rawId in observer.players, "observer sees the page's player");
+    socket.close(1001, "going away");
+    // waitFor's 10 s timeout, inside the 30 s grace window, is the proof.
+    await waitFor(() => !(rawId in observer.players), "the seat frees at once, no grace");
+  } finally {
+    observer.destroy();
+  }
+});
+
 test("player state fans out as keyed deltas; a client with no reconnect token is refused", async () => {
   const room = uniqueRoom("deltas");
   const observer = new RawClient(room, { _pk: `obs-${process.pid}` });
@@ -481,13 +765,15 @@ test("player state fans out as keyed deltas; a client with no reconnect token is
     const sdkId = sdk.playerId;
     assert.ok(sdkId !== null);
 
-    sdk.updateMyState({ x: 1, y: 2 });
-    sdk.updateMyState({ y: 3 });
     const states = (): JsonRecord[] =>
       observer
         .received("player_state")
         .filter((data) => data.id === sdkId)
         .map((data) => toRecord(data.state));
+    // Two frames: writes in one task would leave as one message.
+    sdk.updateMyState({ x: 1, y: 2 });
+    await waitFor(() => states().length === 1, "observer saw the first player_state");
+    sdk.updateMyState({ y: 3 });
     await waitFor(() => states().length === 2, "observer saw two player_state messages");
     assert.deepEqual(states()[1], { y: 3 }, "the second message carried only the changed key");
 
@@ -679,7 +965,7 @@ test("a client back from a transport blip replays the ticks it missed, and its i
       "socket",
     );
     socket.close(4000);
-    await waitFor(() => client.connectionStatus === "disconnected", "transport down");
+    await waitFor(() => client.connectionStatus === "reconnecting", "transport down");
     const away = seen.length;
     await delay(400);
     assert.equal(seen.length, away, "no ticks while away");
@@ -692,6 +978,74 @@ test("a client back from a transport blip replays the ticks it missed, and its i
     await waitFor(() => client.tickInputs()?.[me] === "left", "the held input was re-sent");
   } finally {
     client.destroy();
+  }
+});
+
+test("a client back from a drop sends the latest of each stream once, not every frame it made away", async () => {
+  const room = uniqueRoom("drop-streams");
+  const host = connect(room, { tickRate: 30 });
+  let observer: RawClient | null = null;
+  try {
+    // The SDK client joins first, so it hosts.
+    await waitFor(() => admitted(host), "host admitted");
+    const hostId = host.playerId;
+    assert.ok(hostId !== null);
+    assert.equal(host.hostId, hostId, "the SDK client hosts");
+    const watching = new RawClient(room, { _pk: `drop-obs-${process.pid}` });
+    observer = watching;
+    await waitFor(() => watching.synced(), "observer synced");
+
+    // oxlint-disable-next-line anti-slop/no-reflect-get -- a test simulating a network blip on the SDK's private socket
+    const socket: { close: (code: number) => void; reconnect: () => void } = Reflect.get(
+      host,
+      "socket",
+    );
+    socket.close(4000);
+    await waitFor(() => host.connectionStatus === "reconnecting", "transport down");
+    // Two seconds of a 30 Hz game loop, all while away.
+    for (let frame = 1; frame <= 60; frame += 1) {
+      host.updateMyState({ frame });
+      host.updateSharedState({ frame });
+      host.sendInput(frame);
+    }
+    const from = watching.messages.length;
+    socket.reconnect();
+
+    const since = (type: string): JsonRecord[] =>
+      watching.messages
+        .slice(from)
+        .filter((message) => message.type === type)
+        .map((message) => toRecord(message.data));
+    // The host's inputs on the observer's ticks, less the server's own null
+    // clearing them when the transport dropped.
+    const hostInputs = (): JsonValue[] =>
+      since("tick").flatMap((data) => {
+        const input = toRecord(data.i)[hostId];
+        return input === undefined || input === null ? [] : [input];
+      });
+    await waitFor(
+      () =>
+        since("player_state").length > 0 &&
+        watching.dataOf("state_patch").length > 0 &&
+        hostInputs().length > 0,
+      "the observer hears the host's state, world and input again",
+    );
+    // Let anything still queued land before counting.
+    await delay(300);
+    assert.deepEqual(
+      since("player_state").map((data) => data.state),
+      [{ frame: 60 }],
+      "the player's state arrives once, as it stands",
+    );
+    assert.deepEqual(
+      watching.dataOf("state_patch"),
+      [[[["frame"], 60]]],
+      "the world arrives once, as it stands",
+    );
+    assert.deepEqual(hostInputs(), [60], "the held input arrives, and no stale one");
+  } finally {
+    observer?.close(1000);
+    host.destroy();
   }
 });
 
@@ -733,7 +1087,7 @@ test("a room's world and claims survive a server restart, and its host re-sends 
   const guest = connect(room);
   let drops = 0;
   const unsubscribe = guest.subscribe(() => {
-    if (guest.connectionStatus === "disconnected") {
+    if (guest.connectionStatus === "reconnecting") {
       drops += 1;
     }
   });
@@ -917,6 +1271,39 @@ test("an emptied room forgets its rules, claims and world", async () => {
   }
 });
 
+test("a shared write the server would refuse is undone on the writer too", async (t) => {
+  const warn = t.mock.method(console, "warn", () => {});
+  const room = uniqueRoom("refused-local");
+  const host = connect(room);
+  try {
+    await waitFor(() => admitted(host), "host admitted");
+    const guest = connect(room);
+    try {
+      await waitFor(() => admitted(guest), "guest admitted");
+      host.updateSharedState({ keep: 1 });
+      await waitFor(() => guest.sharedState.keep === 1, "a valid write lands");
+
+      // Past the message cap: the client refuses it before it leaves.
+      host.updateSharedState({ big: "x".repeat(1_100_000), keep: 2 });
+      await waitFor(() => host.sharedState.keep === 1, "the host's copy went back to the room's");
+      assert.equal(host.sharedState.big, undefined, "a key the room never had is gone again");
+      assert.equal(warn.mock.callCount(), 1, "the refusal warned once");
+
+      host.updateSharedState({ after: true });
+      await waitFor(
+        () => guest.sharedState.after === true,
+        "a write after the refusal still lands",
+      );
+      assert.equal(guest.sharedState.keep, 1, "the guest never saw the refused write");
+      assert.equal(guest.sharedState.big, undefined);
+    } finally {
+      guest.destroy();
+    }
+  } finally {
+    host.destroy();
+  }
+});
+
 test("malformed and oversized state patches are dropped without harming the room", async () => {
   const room = uniqueRoom("validation");
   // Raw host joins first: only the host may write shared state, and only a raw
@@ -929,12 +1316,18 @@ test("malformed and oversized state patches are dropped without harming the room
       await waitFor(() => admitted(guest), "guest admitted");
       assert.equal(guest.hostId, rawHost.id, "raw sender owns shared state");
 
-      rawHost.send({ data: { ["__proto__"]: { polluted: true } }, type: "state_patch" });
-      rawHost.send({ data: "not-an-object", type: "state_patch" });
-      rawHost.send({ data: { blob: "x".repeat(1_100_000) }, type: "state_patch" });
-      // Fence: same sender, so the server processed (and dropped) all three
-      // rejects before this valid patch.
-      rawHost.send({ data: { ok: 1 }, type: "state_patch" });
+      rawHost.send({ data: [[["__proto__", "polluted"], true]], type: "state_patch" });
+      rawHost.send({
+        data: [[["safe"], { ["__proto__"]: { polluted: true } }]],
+        type: "state_patch",
+      });
+      rawHost.send({ data: "not-ops", type: "state_patch" });
+      rawHost.send({ data: { record: "not ops" }, type: "state_patch" });
+      rawHost.send({ data: [[[], ["a", "b"]]], type: "state_patch" });
+      rawHost.send({ data: [[["blob"], "x".repeat(1_100_000)]], type: "state_patch" });
+      // Fence: same sender, so the server processed (and dropped) every
+      // reject before this valid patch.
+      rawHost.send({ data: [[["ok"], 1]], type: "state_patch" });
 
       await waitFor(() => guest.sharedState.ok === 1, "valid patch after rejects still lands");
       assert.equal(
@@ -942,6 +1335,8 @@ test("malformed and oversized state patches are dropped without harming the room
         false,
         "prototype-polluting key never reached the guest",
       );
+      assert.equal(guest.sharedState.safe, undefined, "a prototype key inside a value was refused");
+      assert.equal(guest.sharedState.record, undefined, "a record is not a patch");
       assert.equal(guest.sharedState.blob, undefined, "oversized frame was refused");
       assert.equal(
         Object.keys(guest.sharedState).some((key) => /^\d+$/u.test(key)),
@@ -954,6 +1349,38 @@ test("malformed and oversized state patches are dropped without harming the room
     }
   } finally {
     rawHost.close(1000);
+  }
+});
+
+test("goOffline leaves the room at once and plays on alone from the room's world", async () => {
+  const room = uniqueRoom("go-offline");
+  const host = connect(room);
+  await waitFor(() => admitted(host), "host admitted first");
+  const heard: string[] = [];
+  const guest = connect(room, { onEvent: (event) => heard.push(event) });
+  try {
+    assert.equal(guest.connectionStatus, "connecting", "not admitted yet");
+    await waitFor(() => admitted(guest), "guest admitted");
+    const guestId = guest.playerId;
+    assert.ok(guestId !== null);
+    host.updateSharedState({ level: 2 });
+    await waitFor(() => guest.sharedState.level === 2, "guest sees the world");
+
+    guest.goOffline();
+    assert.equal(guest.connectionStatus, "offline");
+    assert.ok(guest.isHost, "alone, it hosts");
+    assert.equal(guest.sharedState.level, 2, "the room's world carries over");
+    // Well inside the 30 s grace window: waitFor's 10 s timeout is the proof.
+    await waitFor(() => !(guestId in host.players), "the room frees the seat at once");
+
+    guest.updateSharedState({ level: 3 });
+    guest.sendEvent("ping", 1);
+    assert.deepEqual(heard, ["ping"], "its own events loop back");
+    await delay(200);
+    assert.equal(host.sharedState.level, 2, "nothing it writes offline reaches the room");
+  } finally {
+    host.destroy();
+    guest.destroy();
   }
 });
 
@@ -979,5 +1406,151 @@ test("when the host leaves, a remaining guest is promoted", async () => {
   } finally {
     clientA.destroy();
     clientB.destroy();
+  }
+});
+
+test("a locked room sends newcomers on to an overflow room, and its meta reaches everyone", async () => {
+  const room = uniqueRoom("lock");
+  const host = connect(room);
+  const clients: MultiplayerClient[] = [host];
+  try {
+    await waitFor(() => admitted(host), "host admitted");
+    const guest = connect(room);
+    clients.push(guest);
+    await waitFor(() => admitted(guest), "guest admitted");
+
+    host.setRoomInfo({ locked: true, meta: { mode: "duel" } });
+    await waitFor(() => guest.roomInfo.locked && host.roomInfo.locked, "both hear the lock");
+    assert.deepEqual(guest.roomInfo, { locked: true, meta: { mode: "duel" } });
+
+    // Neither a guest nor oversized meta moves the room.
+    guest.setRoomInfo({ locked: false });
+    host.setRoomInfo({ meta: { blob: "x".repeat(MAX_ROOM_META_CHARS) } });
+    host.sendEvent("fence", null);
+    await delay(200);
+    assert.deepEqual(host.roomInfo, { locked: true, meta: { mode: "duel" } });
+
+    const late = connect(room);
+    clients.push(late);
+    await waitFor(() => admitted(late), "the newcomer is admitted somewhere");
+    assert.equal(late.room, `${room}~2`, "a locked room sends a newcomer on");
+    assert.equal(Object.keys(host.players).length, 2, "the locked room kept its two");
+
+    host.setRoomInfo({ locked: false });
+    await waitFor(() => !guest.roomInfo.locked, "the unlock reaches the guest");
+    const later = connect(room);
+    clients.push(later);
+    await waitFor(() => admitted(later), "the next newcomer is admitted");
+    assert.equal(later.room, room, "an unlocked room takes newcomers again");
+    assert.deepEqual(later.roomInfo, { locked: false, meta: { mode: "duel" } }, "sync carries it");
+  } finally {
+    for (const client of clients) {
+      client.destroy();
+    }
+  }
+});
+
+test("a dropped player reclaims its seat in a locked room", async () => {
+  const room = uniqueRoom("lock-reclaim");
+  const host = connect(room);
+  let back: RawClient | null = null;
+  try {
+    await waitFor(() => admitted(host), "host admitted");
+    const guest = new RawClient(room, { _pk: `lock-guest-${process.pid}` });
+    await waitFor(() => guest.synced(), "guest admitted");
+    host.setRoomInfo({ locked: true });
+    await waitFor(() => host.roomInfo.locked, "locked");
+
+    guest.close(4000);
+    await waitFor(() => host.players[guest.id]?.connected === false, "the seat is held");
+    const returning = new RawClient(room, { _pk: guest.id });
+    back = returning;
+    await waitFor(() => returning.synced() || returning.closed, "the guest is answered");
+    assert.equal(returning.synced(), true, "a reclaim is not turned away");
+    assert.deepEqual(returning.received("room_full"), []);
+  } finally {
+    back?.close(1000);
+    host.destroy();
+  }
+});
+
+/** Each test gets its own lobby, as it gets its own rooms. */
+const uniqueLobby = (label: string): string => uniqueRoom(`lobby-${label}`).replaceAll("~", "-");
+
+test("a lobby lists its rooms with players, lock and meta; a private room stays off it", async () => {
+  const lobby = uniqueLobby("list");
+  const roomA = uniqueRoom("listed-a");
+  const roomB = uniqueRoom("listed-b");
+  const roomP = uniqueRoom("private");
+  const hostA = connect(roomA, { lobby });
+  const guestA = connect(roomA, { lobby });
+  const hostB = connect(roomB, { lobby, maxPlayers: 4 });
+  const hostP = connect(roomP);
+  const clients = [hostA, guestA, hostB, hostP];
+  const host = { host: worker.origin, lobby };
+  try {
+    await waitFor(() => clients.every(admitted), "everyone admitted");
+    const leaderA = hostA.isHost ? hostA : guestA;
+    leaderA.setRoomInfo({ meta: { mode: "ffa" } });
+    await eventually(async () => {
+      const rooms = await listRooms(host);
+      return rooms.length === 2 && rooms.some((entry) => entry.meta.mode === "ffa");
+    }, "both rooms listed, the meta with them");
+    assert.deepEqual(await listRooms(host), [
+      { capacity: null, locked: false, meta: { mode: "ffa" }, players: 2, room: roomA },
+      { capacity: 4, locked: false, meta: {}, players: 1, room: roomB },
+    ]);
+
+    hostB.destroy();
+    await eventually(async () => {
+      const rooms = await listRooms(host);
+      return rooms.every((entry) => entry.room !== roomB);
+    }, "an emptied room leaves the lobby");
+  } finally {
+    for (const client of clients) {
+      client.destroy();
+    }
+  }
+});
+
+test("quick match fills one room before opening another, and skips a locked one", async () => {
+  const lobby = uniqueLobby("match");
+  const options = { host: worker.origin, lobby, maxPlayers: 2 };
+  const clients: MultiplayerClient[] = [];
+  try {
+    const first = await quickMatch(options);
+    const second = await quickMatch(options);
+    const third = await quickMatch(options);
+    assert.equal(second, first, "a seat is held for each match, so two fill one room");
+    assert.notEqual(third, first, "a full room sends the third to a new one");
+    assert.ok(first.startsWith(`${lobby}-`), "a new room is named after its lobby");
+
+    for (const room of [first, first, third]) {
+      const client = connect(room, { lobby, maxPlayers: 2 });
+      clients.push(client);
+      await waitFor(() => admitted(client), `admitted to ${room}`);
+    }
+    await eventually(async () => {
+      const rooms = await listRooms(options);
+      return (
+        rooms.length === 2 &&
+        rooms.every((entry) => entry.players === (entry.room === first ? 2 : 1))
+      );
+    }, "both rooms listed with their players");
+
+    const lone = clients.at(-1);
+    lone?.setRoomInfo({ locked: true });
+    await eventually(async () => {
+      const rooms = await listRooms(options);
+      return rooms.some((entry) => entry.room === third && entry.locked);
+    }, "the lock is listed");
+    const fourth = await quickMatch(options);
+    assert.ok(fourth !== first && fourth !== third, "neither a full nor a locked room is matched");
+
+    await assert.rejects(quickMatch({ ...options, lobby: "no spaces" }), /not a lobby name/u);
+  } finally {
+    for (const client of clients) {
+      client.destroy();
+    }
   }
 });

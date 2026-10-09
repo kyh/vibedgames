@@ -58,7 +58,7 @@ const room = () => {
     patches,
     shared: () => shared,
     writer: {
-      patchShared: (patch: JsonObject) => {
+      updateSharedState: (patch: JsonObject) => {
         patches.push(patch);
         shared = { ...shared, ...patch };
       },
@@ -251,7 +251,7 @@ test("a guest's own change outranks older host values until echoed or expired", 
   // The host's farm: a ripe parsnip on watered soil.
   const ripe = packTile({ crop: "parsnip", daysGrown: 4, gen: 1, tilled: true, watered: true });
   const net = room();
-  net.writer.patchShared({ w: 1, [tileKey(idx)]: ripe });
+  net.writer.updateSharedState({ w: 1, [tileKey(idx)]: ripe });
   const { redrawn, sync } = syncOver(world);
   sync.adopt(net.shared(), 0);
   assert.equal(tileValue(world, idx), ripe);
@@ -263,16 +263,16 @@ test("a guest's own change outranks older host values until echoed or expired", 
   sync.protectTile(idx, 1000);
   // ...whose overnight update, sent before the harvest reached it, arrives:
   // the crop must not come back to be harvested twice.
-  net.writer.patchShared({ [tileKey(idx)]: ripe + 128 });
+  net.writer.updateSharedState({ [tileKey(idx)]: ripe + 128 });
   sync.adopt(net.shared(), 1100);
   sync.expire(net.shared(), 1100);
   assert.equal(tileValue(world, idx), harvested, "the older value is ignored");
   // The host applies the harvest: its echo matches and releases the tile.
-  net.writer.patchShared({ [tileKey(idx)]: harvested });
+  net.writer.updateSharedState({ [tileKey(idx)]: harvested });
   sync.adopt(net.shared(), 1200);
   assert.equal(tileValue(world, idx), harvested);
   // From here on host values apply at once.
-  net.writer.patchShared({ [tileKey(idx)]: harvested + 2 });
+  net.writer.updateSharedState({ [tileKey(idx)]: harvested + 2 });
   sync.adopt(net.shared(), 1300);
   assert.equal(world.watered[idx], 1);
 
@@ -291,7 +291,7 @@ test("a guest's own change outranks older host values until echoed or expired", 
 
 test("a guest's clear stands until the host confirms it, or lapses back", () => {
   const net = room();
-  net.writer.patchShared({ w: 1 });
+  net.writer.updateSharedState({ w: 1 });
   const world = freshFarm();
   const { sync } = syncOver(world);
   sync.adopt(net.shared(), 0);
@@ -299,13 +299,13 @@ test("a guest's clear stands until the host confirms it, or lapses back", () => 
   world.removeObject(felled);
   sync.protectClear(felled.id, 100);
   // A new host epoch arrives before the clear reaches anyone: no resurrection.
-  net.writer.patchShared({ w: 2 });
+  net.writer.updateSharedState({ w: 2 });
   sync.adopt(net.shared(), 200);
   assert.equal(
     world.objects.some((o) => o.id === felled.id),
     false,
   );
-  net.writer.patchShared({ [objectKey(felled.id)]: 1 });
+  net.writer.updateSharedState({ [objectKey(felled.id)]: 1 });
   sync.adopt(net.shared(), 300);
   sync.expire(net.shared(), 100 + PENDING_EDIT_MS);
   assert.equal(

@@ -265,6 +265,17 @@ const sampleAt = (engine: Rollback, at: number, rival: Slot): Sample | undefined
   };
 };
 
+/**
+ * The tick the ball is drawn at. Our paddle answers our input at once, so it
+ * lives at the horizon; the rival's is drawn from confirmed ticks, a little
+ * behind (`rival`). A ball drawn on either timeline alone meets the other
+ * paddle where that paddle is not, so it travels between them: at the
+ * horizon on our paddle's line, at the rival's tick on theirs (`progress`
+ * 0 → 1 across the court).
+ */
+const ballTick = (horizon: number, rival: number, progress: number): number =>
+  horizon - progress * Math.max(0, horizon - rival);
+
 /** A point waits for confirmation when a rival human defended it: their
  *  paddle is predicted, so the miss may be a misprediction. */
 const awaitsConfirmation = (event: SimEvent, state: SimState, mine: Slot): boolean => {
@@ -285,12 +296,16 @@ export class GameScene {
   // with a rival, this client's own clock without one. Slot B renders the
   // world flipped 180° (`flip`) so its own paddle sits at the bottom.
   private readonly control: MatchControl;
-  /** The state on screen, and the one the HUD reads — the same, unless a
-   *  point still waits on confirmation (then the tick before it). */
+  /** The state the ball is drawn at, and the one the HUD reads — the same,
+   *  unless a point still waits on confirmation (then the tick before it). */
   private shown: SimState;
   private settled: SimState;
-  /** The fractional tick drawn last, the engine it came from, and the slot played. */
+  /** The fractional ticks drawn last: the ball's (see ballTick), the horizon
+   *  our input lands at, and the rival's paddle's. Then the engine they came
+   *  from, and the slot played. */
   private shownAt = 0;
+  private horizonAt = 0;
+  private rivalAt = 0;
   private shownEngine: Rollback | null = null;
   private slot: Slot = 0;
   // Effects already played, by key, within one match's scope; and the first
@@ -298,14 +313,14 @@ export class GameScene {
   private readonly fired = new Map<string, number>();
   private firedScope = "";
   private scanFrom = 0;
-  // The ball and the rival's paddle as the timeline has them, and as drawn:
-  // a rollback moves the timeline at once, the ease takes the jump out of
-  // the picture instead.
+  // The ball as the timeline has it, and as drawn: a rollback moves the
+  // timeline at once, the ease takes the jump out of the picture instead.
   private readonly simBall = new THREE.Vector2();
   private readonly ballEase = new THREE.Vector2();
   private readonly drawnBall = new THREE.Vector2();
-  private simRival = 0;
-  private rivalEase = 0;
+  /** The rival's paddle as drawn: in a tick match from confirmed ticks only
+   *  (TickDriver.rival), so never a guess the next tick takes back. */
+  private rivalX = 0;
   /** Balls this client's paddle has returned, for the playtest's score. */
   private returns = 0;
   private powerShots = 0;
@@ -387,7 +402,7 @@ export class GameScene {
   private readonly camDrag = new THREE.Vector3(0, CAM_START_OFFSET_Y, 0);
 
   // ---- HUD ----------------------------------------------------------------------
-  private readonly hud = new Hud(() => this.confirm());
+  private readonly hud = new Hud(() => this.bannerAction());
 
   constructor() {
     this.control = new MatchControl(ROOM, this.localInput());
@@ -674,18 +689,33 @@ export class GameScene {
     if (this.pause !== "none") {
       return;
     }
-    // Still handshaking. A tap here is intent, not noise: rather than swallow
-    // it and leave the player staring at "connecting" for the rest of the
-    // fallback window, take it as "play now" and serve solo.
-    if (!this.control.session.live) {
+    // Still handshaking: the room has not admitted this client yet. A tap
+    // here is intent, not noise: rather than swallow it and leave the player
+    // staring at "connecting" for the rest of the fallback window, take it as
+    // "play now" and serve solo. Not once a room has been joined: a tap during
+    // a reconnect would abandon the match.
+    if (this.control.session.connectionStatus === "connecting") {
       this.playSolo();
     }
     this.presses = bump(this.presses);
   }
 
+  /**
+   * The banner's button. While the link is down it reads PLAY AI, and the
+   * player asked for exactly that: a reconnecting room is left for a solo
+   * game too, which a tap on the table never does. Otherwise it is a
+   * confirm, like a tap — serve, or rematch.
+   */
+  private bannerAction(): void {
+    if (this.pause === "none" && this.control.session.connectionStatus === "reconnecting") {
+      this.playSolo();
+    }
+    this.confirm();
+  }
+
   /** Release an armed power shot (pause, blur, a lost hand). */
   private cancelMyPower(): void {
-    if (paddleOf(this.shown, this.slot).charge.kind === "armed") {
+    if (this.myCharge.kind === "armed") {
       this.cancels = bump(this.cancels);
     }
   }
@@ -788,10 +818,13 @@ export class GameScene {
   }
 
   /**
-   * Bring the picture to fractional tick `horizon`. When a rollback rewrote
-   * the ticks drawn last frame, the ball and the rival's paddle keep their
-   * drawn place and the correction eases out over BALL_EASE_S instead of
-   * jumping — the timeline itself is never smoothed.
+   * Bring the picture up to fractional tick `horizon`. Our paddle is drawn
+   * from the input itself, the rival's — in a tick match — through the
+   * driver's interpolator from confirmed ticks alone, and the ball between
+   * their timelines (see ballTick), so it meets each paddle where that
+   * paddle is drawn. When a rollback rewrote the ticks drawn last frame, the
+   * ball keeps its drawn place and the correction eases out over
+   * BALL_EASE_S instead of jumping — the timeline itself is never smoothed.
    */
   private present(horizon: number, dt: number): void {
     const { driver } = this.control;
@@ -802,20 +835,30 @@ export class GameScene {
       this.slot = driver.mySlot;
       this.localX = -this.localX;
     }
-    if (engine === this.shownEngine) {
+    const fresh = engine !== this.shownEngine;
+    if (fresh) {
+      // Another match entirely: nothing to ease.
+      this.shownEngine = engine;
+      this.ballEase.set(0, 0);
+      this.scanFrom = engine.confirmedTick;
+    } else {
       const again = sampleAt(engine, this.shownAt, rival);
       if (again !== undefined) {
         this.absorbCorrection(again);
       }
-    } else {
-      // Another match entirely: nothing to ease.
-      this.shownEngine = engine;
-      this.ballEase.set(0, 0);
-      this.rivalEase = 0;
-      this.scanFrom = engine.confirmedTick;
     }
-    const at = clamp(horizon, engine.confirmedTick - SCAN_TICKS, engine.predictedTick + 0.999);
+    this.horizonAt = horizon;
+    this.rivalAt = driver.kind === "tick" ? driver.rivalTick() : horizon;
+    const target = ballTick(horizon, this.rivalAt, this.courtProgress());
+    // The ball's timeline never runs backwards: when its target drops behind
+    // (the ball back at the centre after our point), it holds a moment.
+    const at = clamp(
+      fresh ? target : Math.max(this.shownAt, target),
+      engine.confirmedTick - SCAN_TICKS,
+      engine.predictedTick + 0.999,
+    );
     this.shownAt = at;
+    this.control.show(Math.floor(at));
     this.shown = engine.stateAt(Math.floor(at)) ?? engine.confirmed;
     const now = sampleAt(engine, at, rival) ?? {
       rival: paddleOf(this.shown, rival).x,
@@ -823,14 +866,19 @@ export class GameScene {
       y: this.shown.ball.y,
     };
     this.simBall.set(now.x, now.y);
-    this.simRival = now.rival;
-    const keep = Math.exp(-dt / BALL_EASE_S);
-    this.ballEase.multiplyScalar(keep);
-    this.rivalEase *= keep;
+    this.ballEase.multiplyScalar(Math.exp(-dt / BALL_EASE_S));
     this.drawnBall.set(now.x + this.ballEase.x, now.y + this.ballEase.y);
+    this.rivalX = (driver.kind === "tick" ? driver.rival.sample() : undefined) ?? now.rival;
   }
 
-  /** The timeline moved under the drawn picture: fold the jump into the eases. */
+  /** How far the drawn ball has come from our paddle's line toward the
+   *  rival's: 0 on ours (or behind it), 1 on theirs (or past it). */
+  private courtProgress(): number {
+    const towardRival = this.slot === 0 ? this.drawnBall.y : -this.drawnBall.y;
+    return clamp((towardRival + PADDLE_Y) / (2 * PADDLE_Y), 0, 1);
+  }
+
+  /** The timeline moved under the drawn ball: fold the jump into its ease. */
   private absorbCorrection(again: Sample): void {
     const dx = this.simBall.x - again.x;
     const dy = this.simBall.y - again.y;
@@ -840,13 +888,6 @@ export class GameScene {
     } else {
       this.ballEase.set(0, 0);
     }
-    const drx = this.simRival - again.rival;
-    this.rivalEase = Math.abs(drx) < BALL_SNAP ? this.rivalEase + drx : 0;
-  }
-
-  /** The rival's paddle as drawn. */
-  private get rivalX(): number {
-    return this.simRival + this.rivalEase;
   }
 
   /**
@@ -1242,8 +1283,15 @@ export class GameScene {
 
   // ---- playtest ----------------------------------------------------------------
 
+  /** Our power charge as of the horizon, where our presses land at once —
+   *  but still armed until the drawn ball reaches whatever disarmed it there:
+   *  a point at the horizon may yet turn out to be the rival's save. */
   private get myCharge(): ShotCharge {
-    return paddleOf(this.shown, this.slot).charge;
+    const { engine } = this.control.driver;
+    const ahead = engine.stateAt(Math.min(Math.floor(this.horizonAt), engine.predictedTick));
+    const { charge } = paddleOf(ahead ?? this.shown, this.slot);
+    const drawn = paddleOf(this.shown, this.slot).charge;
+    return charge.kind === "ready" && drawn.kind === "armed" ? drawn : charge;
   }
 
   /** Plain telemetry for the playtest contract, in this player's view frame;

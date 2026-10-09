@@ -100,7 +100,7 @@ const balanceCommand = defineCommand({
     const client = createClient();
 
     try {
-      const { balanceMicro, entries } = await client.credits.me();
+      const { balanceMicro, entries, purchasesEnabled } = await client.credits.me();
 
       const payload = {
         balance_micro: balanceMicro,
@@ -114,6 +114,8 @@ const balanceCommand = defineCommand({
           note: e.note,
           request_id: e.requestId,
         })),
+        // Whether `vg credits buy` can take a card payment; false means codes only.
+        purchases_enabled: purchasesEnabled,
       };
       if (writeStructured(payload, args)) {
         return;
@@ -247,8 +249,12 @@ const buyCommand = defineCommand({
       consola.log(`Open this link to pay $${amountUsd} by card:\n\n  ${url}\n`);
       consola.log("Credits are added once the payment clears — check with `vg credits`.");
     } catch (error) {
-      if (authErrorCode(error) === "UNAUTHORIZED") {
+      const code = authErrorCode(error);
+      if (code === "UNAUTHORIZED") {
         consola.warn("Not authenticated. Run `vg login`, or check your VG_TOKEN / API key.");
+      } else if (code === "PRECONDITION_FAILED" && error instanceof Error) {
+        // Purchases aren't open; the server's message names the way that is.
+        consola.error(error.message);
       } else {
         consola.error(
           `Could not start checkout: ${error instanceof Error ? error.message : String(error)}`,
