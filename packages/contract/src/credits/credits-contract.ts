@@ -27,7 +27,7 @@ export const creditsContract = {
     .meta(
       documented({
         description:
-          "Starts a card payment for `amountUsd` of generation credit and returns a hosted checkout URL for a person to open. The credit lands once the payment clears, usually within seconds of paying. 412 when payments are not configured on the server.",
+          "Starts a card payment for `amountUsd` of generation credit and returns a hosted checkout URL for a person to open. The credit lands once the payment clears, usually within seconds of paying. 412 while card purchases aren't open (`purchasesEnabled` is false on `credits.me`).",
         errors: [412, 502],
         summary: "Buy credits",
       }),
@@ -39,11 +39,21 @@ export const creditsContract = {
     .meta(
       documented({
         description:
-          "Returns the caller's generation credit balance in micro-USD (1,000,000 = $1) and their 100 most recent ledger entries.",
+          "Returns the caller's generation credit balance in micro-USD (1,000,000 = $1), their 100 most recent ledger entries, and whether card purchases are open.",
         summary: "Get your credit balance",
       }),
     )
-    .output(z.object({ balanceMicro: z.number().int(), entries: z.array(creditEntry) })),
+    .output(
+      z.object({
+        balanceMicro: z.number().int(),
+        entries: z.array(creditEntry),
+        purchasesEnabled: z
+          .boolean()
+          .describe(
+            "Whether `credits.checkout` takes card payments; when false, credit comes from codes.",
+          ),
+      }),
+    ),
 
   redeem: protectedBase
     .meta(

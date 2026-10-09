@@ -42,6 +42,16 @@ export class StripeError extends Error {
 
 const checkoutResponse = z.object({ url: z.url() });
 
+/**
+ * Whether card purchases are open. Checkout needs the secret key, and only the
+ * webhook (signed with its own secret) credits a payment, so either key alone
+ * would take money it can't credit.
+ */
+export const purchasesEnabled = (
+  billing: BillingConfig | undefined,
+): billing is BillingConfig & { stripeSecretKey: string; stripeWebhookSecret: string } =>
+  Boolean(billing?.stripeSecretKey) && Boolean(billing?.stripeWebhookSecret);
+
 /** Creates a Checkout Session and returns its hosted payment URL. */
 export const createCheckoutSession = async (
   billing: BillingConfig & { stripeSecretKey: string },
