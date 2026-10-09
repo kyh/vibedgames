@@ -312,9 +312,12 @@ const checkSmoothMotion = (check: Check): void => {
     `per-frame speed ${(typical.minStep * 100).toFixed(0)}–${(typical.maxStep * 100).toFixed(0)}% of true`,
   );
   check("a remote taxi cruising straight never rubber-bands backwards", typical.backwards === 0);
+  // Behind its fastest relay (40 ms) by the 100 ms render delay, or by as
+  // much as the link's lateness needs: each 50 ms interval plus the 100 ms
+  // spread, plus the frame an arrival waits to be read.
   check(
-    "a remote taxi trails its owner by the render delay plus its fastest relay",
-    typical.lagMs > 120 && typical.lagMs < 200,
+    "a remote taxi trails its owner by its fastest relay plus what its link's lateness needs",
+    typical.lagMs > 40 + 100 && typical.lagMs < 40 + 50 + 100 + FRAME_MS,
     `${typical.lagMs.toFixed(0)} ms behind`,
   );
   // 150–250 ms: the owner's relay clock learns the slower route, so the car

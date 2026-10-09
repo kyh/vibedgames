@@ -273,9 +273,10 @@ export const MP_MAX_PLAYERS = 64;
 /** Play solo when no room admits us within this long of rendered frames,
  *  counted from joining — when the city turns playable (net/session.ts). */
 export const OFFLINE_FALLBACK_MS = 8000;
-/** Car-transform broadcast rate. Remote cars are drawn 100 ms behind their
- *  owner's fastest relay through the server (net/remote-cars.ts), which covers
- *  one interval plus jitter at 20. */
+/** Car-transform broadcast rate. Remote cars are drawn at least 100 ms behind
+ *  their owner's fastest relay through the server (net/remote-cars.ts), which
+ *  covers one interval plus a calm link's jitter at 20, and further back when
+ *  a jittery link needs it. */
 export const NET_TICK_HZ = 20;
 /**
  * Interest management: the server relays a taxi's pose only to players within
