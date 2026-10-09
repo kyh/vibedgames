@@ -8,7 +8,7 @@
 // is predicted (net/own-hero.ts); the mirror only reports what the host said.
 // Every host stamps its frames with the room's server time, so the clock all
 // of this runs on outlives the host that happens to be sending.
-import { Interpolator, lerp, lerpAngle } from "@vibedgames/multiplayer";
+import { Interpolator, RemoteClock, lerp, lerpAngle } from "@vibedgames/multiplayer";
 import type { SenderClock } from "@vibedgames/multiplayer";
 import { INTERP_DELAY_MS } from "../data/config";
 import { isJsonNumber, isJsonObject, isJsonString } from "../data/json";
@@ -24,7 +24,6 @@ import type {
   Unit,
   World,
 } from "../sim/types";
-import { ArrivalClock } from "./arrival-clock";
 import { applySnapshot, blankUnit } from "./snapshot";
 import type { Frame, Snapshot } from "./snapshot";
 
@@ -47,6 +46,16 @@ const TELEPORT_DIST = 6;
 const MAX_AHEAD_MS = 150;
 /** How far a projectile flies past its newest frame (ms). */
 const MAX_SHOT_AHEAD_MS = 150;
+
+/** `clock` for a reader that must not teach it: an Interpolator learns from
+ *  every stamp pushed to it, and a body is pushed the snapshot found on
+ *  joining too, whose stamp is as old as that snapshot, not one trip. */
+const readOnly = (clock: SenderClock): SenderClock => ({
+  now: (localNow) => clock.now(localNow),
+  get synced() {
+    return clock.synced;
+  },
+});
 
 /** What the host last said about the guest's own hero. */
 export interface OwnReport {
@@ -401,25 +410,48 @@ const updatePose = (body: RemoteBody, row: JsonObject): void => {
 };
 
 export class NetMirror {
-  /** The host's time as of the newest arrival — shared by every remote body. */
-  readonly clock: ArrivalClock;
+  /**
+   * The host's time as of the newest frame's arrival: the stamp (the room's
+   * server time) a frame landing now by the fastest route of the last few
+   * seconds would carry. Latency only ever adds, so jitter shows as frames
+   * arriving late against it, never early, and the delay bodies render behind
+   * it covers that jitter alone — not the whole host → server → guest trip,
+   * which a fixed delay behind raw server time would have to cover for the
+   * slowest player. It is read off local arrival times, so this guest's own
+   * server-clock estimate plays no part. A new host keeps the timebase and
+   * changes the route: `relearn()` it then. Frames alone teach it.
+   */
+  readonly clock = new RemoteClock();
   /** Id of the guest's own hero (predicted, never interpolated). */
   ownId = "";
+  /** The clock as every remote body reads it. */
+  private readonly bodyClock = readOnly(this.clock);
   private readonly bodies = new Map<string, RemoteBody>();
   private readonly shots = new Map<string, ShotBase>();
   private latest: { t: number; n: number; gt: number } | null = null;
   private floorNow = Number.NEGATIVE_INFINITY;
+  /** Local time of the newest render that read the clock. */
+  private renderedAt: number | null = null;
   private own: OwnReport | null = null;
   /** A snapshot arrived live and every frame since: the copy is the host's world. */
   private whole = false;
 
-  /** `server` is the room's server clock (`client.serverClock`). */
-  constructor(server: SenderClock) {
-    this.clock = new ArrivalClock(server);
+  /**
+   * The host → server → guest trip the mirror renders behind (ms): `server`
+   * time (`client.serverClock`) less the mirror's clock, both read at the local
+   * time the newest render used; 0 before a frame has rendered or while
+   * `server` is unmeasured.
+   */
+  trip(server: SenderClock): number {
+    const at = this.renderedAt;
+    if (at === null || !this.clock.synced || !server.synced) {
+      return 0;
+    }
+    return Math.round(server.now(at) - this.clock.now(at));
   }
 
   /** Forget interpolation and timing: a new match or a new world (positions
-   *  restart). The clock stays: it is the server's, whoever hosts. */
+   *  restart). The clock stays: every host stamps the server's time. */
   reset(): void {
     this.bodies.clear();
     this.shots.clear();
@@ -466,7 +498,7 @@ export class NetMirror {
   /** Apply one frame. Returns the host's view of the own hero, if present.
    *  Frames are deltas, so every one is applied, whatever its stamp. */
   applyFrame(world: World, frame: Frame, receivedAt: number): OwnReport | null {
-    this.clock.arrived(frame.t, receivedAt);
+    this.clock.observe(frame.t, receivedAt);
     applyScalars(world, frame);
     this.applyUnits(world, frame);
     this.applyProjectiles(world, frame);
@@ -554,6 +586,7 @@ export class NetMirror {
     if (!latest) {
       return;
     }
+    this.renderedAt = localNow;
     const playing = world.phase === "playing";
     const ahead = Math.min(MAX_AHEAD_MS, Math.max(0, this.clock.now(localNow) - latest.t));
     world.now = Math.max(this.floorNow, latest.n + (playing ? ahead : 0));
@@ -649,7 +682,7 @@ export class NetMirror {
         aimX: u.aimX,
         aimY: u.aimY,
         interp: new Interpolator<Pose>({
-          clock: this.clock,
+          clock: this.bodyClock,
           delayMs: INTERP_DELAY_MS,
           lerp: lerpPose,
         }),

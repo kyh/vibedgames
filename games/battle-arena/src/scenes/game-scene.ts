@@ -7,7 +7,7 @@ import { AbilityGuide } from "../render/ability-guide";
 // on the same movement code, draws everyone else interpolated slightly in the
 // past (net/mirror.ts), and sends its input to the host once per tick when it
 // changes. Only the server elects a host.
-import { MultiplayerClient, ServerClock } from "@vibedgames/multiplayer";
+import { MultiplayerClient } from "@vibedgames/multiplayer";
 import {
   ARENA_BOT_FILL,
   KILL_GOAL_FFA,
@@ -192,7 +192,7 @@ export class GameScene {
   // host: the fixed-step loop, frame stream and guest input buffers
   private hostNet = new HostNet();
   // guest: the host's world as received, and the own hero's prediction
-  private readonly mirror: NetMirror;
+  private readonly mirror = new NetMirror();
   private readonly predictor = new OwnHeroPredictor();
   // guest: controls held this frame (the predictor samples them per tick)
   private held: HeldInput = { attack: false, ax: 0, ay: 1, mx: 0, my: 0 };
@@ -253,8 +253,6 @@ export class GameScene {
         this.introTime = INTRO_S;
       }
     }
-    // frames are stamped with the room's server time, whoever hosts
-    this.mirror = new NetMirror(this.net?.serverClock ?? new ServerClock());
 
     this.worldView = new WorldView(view.scene, lib);
     this.worldView.localId = this.localId;
@@ -1361,7 +1359,7 @@ export class GameScene {
             // where this client's world came from when it last took over
             takeover: this.takeover,
             // host → server → guest trip the mirror renders behind (ms)
-            trip: this.online.kind === "guest" ? Math.round(this.mirror.clock.trip) : 0,
+            trip: this.online.kind === "guest" ? this.mirror.trip(this.net.serverClock) : 0,
           }
         : null,
       phase: this.world.phase,

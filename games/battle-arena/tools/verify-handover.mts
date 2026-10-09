@@ -52,10 +52,25 @@ const unwatched = (): void => {
   /* nothing to watch */
 };
 
+/** Guest `id`, before it has heard from any host; `salt` sets its sockets' jitter. */
+const peer = (id: string, salt: number): Peer => {
+  const mirror = new NetMirror();
+  mirror.ownId = `h-${id}`;
+  return {
+    down: new Pipe(90, 40, salt),
+    held: { attack: false, ax: 1, ay: 0, mx: 0, my: 0 },
+    heroId: `h-${id}`,
+    id,
+    mirror,
+    predictor: new OwnHeroPredictor(),
+    up: new Pipe(90, 40, salt + 1),
+    world: emptyGuestWorld(),
+  };
+};
+
 /** A host and two guests, `p` and `q`, in one room. */
 const room = () => {
   let now = 5000;
-  const server = { now: (localNow?: number) => localNow ?? now, synced: true };
   const world = createWorld(7);
   for (const [owner, slot] of [
     ["host", 0],
@@ -73,20 +88,6 @@ const room = () => {
     });
   }
   ensureBots(world);
-  const peer = (id: string, salt: number): Peer => {
-    const mirror = new NetMirror(server);
-    mirror.ownId = `h-${id}`;
-    return {
-      down: new Pipe(90, 40, salt),
-      held: { attack: false, ax: 1, ay: 0, mx: 0, my: 0 },
-      heroId: `h-${id}`,
-      id,
-      mirror,
-      predictor: new OwnHeroPredictor(),
-      up: new Pipe(90, 40, salt + 1),
-      world: emptyGuestWorld(),
-    };
-  };
   const p = peer("p", 10);
   const q = peer("q", 20);
   const peers = [p, q];
@@ -400,8 +401,7 @@ test("a copy that missed frames falls back to the room's snapshot; a host back f
   const world = createWorld(3);
   ensureBots(world);
   const snap = structuredClone(encodeWorld(world));
-  const server = { now: (localNow?: number) => localNow ?? 0, synced: true };
-  const mirror = new NetMirror(server);
+  const mirror = new NetMirror();
   const copy = emptyGuestWorld();
   // the snapshot found on joining was published before frames we never got
   mirror.applySnapshot(copy, snap, 1000, 1000, false);
@@ -409,7 +409,7 @@ test("a copy that missed frames falls back to the room's snapshot; a host back f
   mirror.applySnapshot(copy, snap, 2000, 2000, true);
   assert.equal(mirror.takeOver(copy), true, "whole once one arrives live");
 
-  const late = new NetMirror(server);
+  const late = new NetMirror();
   const joined = emptyGuestWorld();
   late.applySnapshot(joined, snap, 1000, 1000, false);
   const fallback = takeOver(joined, {
@@ -426,7 +426,7 @@ test("a copy that missed frames falls back to the room's snapshot; a host back f
   const ran = structuredClone(encodeWorld(world));
   const own = takeOver(world, {
     held: { attack: false, ax: 1, ay: 0, mx: 0, my: 0 },
-    mirror: new NetMirror(server),
+    mirror: new NetMirror(),
     ours: true,
     ownId: "h-nobody",
     predictor: new OwnHeroPredictor(),
