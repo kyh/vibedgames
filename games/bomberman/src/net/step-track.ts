@@ -105,7 +105,7 @@ export const standing = (tile: GridTile, dir: Dir, arrived: number): GridSample 
  * are send times, since a sample stamped where a step ends is not one.
  */
 export const readThrough = (clock: RemoteClock): SenderClock => ({
-  hold: (localNow) => clock.hold(localNow),
+  hold: (localNow, floor) => clock.hold(localNow, floor),
   now: (localNow) => clock.now(localNow),
   get synced() {
     return clock.synced;
