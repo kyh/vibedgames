@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { netStats, RemoteClock } from "@vibedgames/multiplayer";
-import type { SenderClock } from "@vibedgames/multiplayer";
+import type { NetStats, SenderClock } from "@vibedgames/multiplayer";
 import { TURN_DELAY_MS, TurnTrack } from "../src/net/bot-track";
 import { STEP_DELAY_MS, StepTrack, WALK_GRACE_MS } from "../src/net/step-track";
 import type { GridTile, StepPose } from "../src/net/step-track";
@@ -466,11 +466,21 @@ const turns = (phases: Record<string, number>, count: number, latency: Latency):
   });
 };
 
-/** One bot as a guest drew it, and what share of every bot's frames ran past the newest turn. */
+/**
+ * One bot as a guest drew it, and what share of every bot's frames ran past
+ * the newest turn once the clocks had settled.
+ */
 interface BotRun {
   frames: { at: number; pose: StepPose }[];
   starved: number;
 }
+
+/**
+ * How long a bot's clock takes to learn a route: eight turns before it
+ * measures a hold, which then eases in from nothing at the slew. Until then
+ * the least delay alone stands in.
+ */
+const SETTLE_MS = 5000;
 
 /** Draw `bot` from its turns at 60 fps; `clockOf` gives each bot its clock. */
 const drawBots = (
@@ -479,27 +489,35 @@ const drawBots = (
   clockOf: (bot: string) => RemoteClock,
 ): BotRun => {
   const frames: BotRun["frames"] = [];
-  const starved = starvedDuring(() => {
-    const tracks = new Map<string, TurnTrack>();
-    const queue = list.toSorted((a, b) => a.at - b.at);
-    for (let now = queue[0]?.at ?? 0; now <= (queue.at(-1)?.at ?? 0) + 500; now += FRAME_MS) {
-      while ((queue[0]?.at ?? Number.POSITIVE_INFINITY) <= now) {
-        const turn = queue.shift();
-        if (turn) {
-          const track = tracks.get(turn.bot) ?? new TurnTrack(clockOf(turn.bot));
-          tracks.set(turn.bot, track);
-          track.turn(turn.tile, turn.tau, "down", turn.at);
-        }
-      }
-      for (const [id, track] of tracks) {
-        const pose = track.sample(now);
-        if (pose && id === bot) {
-          frames.push({ at: now, pose });
-        }
+  const tracks = new Map<string, TurnTrack>();
+  const queue = list.toSorted((a, b) => a.at - b.at);
+  const settled = (queue[0]?.at ?? 0) + SETTLE_MS;
+  let before: NetStats | null = null;
+  for (let now = queue[0]?.at ?? 0; now <= (queue.at(-1)?.at ?? 0) + 500; now += FRAME_MS) {
+    if (!before && now >= settled) {
+      before = netStats();
+    }
+    while ((queue[0]?.at ?? Number.POSITIVE_INFINITY) <= now) {
+      const turn = queue.shift();
+      if (turn) {
+        const track = tracks.get(turn.bot) ?? new TurnTrack(clockOf(turn.bot));
+        tracks.set(turn.bot, track);
+        track.turn(turn.tile, turn.tau, "down", turn.at);
       }
     }
-  });
-  return { frames, starved };
+    for (const [id, track] of tracks) {
+      const pose = track.sample(now);
+      if (pose && id === bot) {
+        frames.push({ at: now, pose });
+      }
+    }
+  }
+  const after = netStats();
+  const from = before ?? after;
+  return {
+    frames,
+    starved: (after.starved - from.starved) / Math.max(1, after.frames - from.frames),
+  };
 };
 
 test("a guest draws a bot's turns a stride behind: every stride even, corners in order", () => {
