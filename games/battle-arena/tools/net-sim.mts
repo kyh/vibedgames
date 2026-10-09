@@ -1,5 +1,8 @@
 // A simulated network for the headless netcode checks: deterministic noise,
-// and one direction of a WebSocket with latency and jitter.
+// one direction of a WebSocket with latency and jitter, and a copy of the
+// room's shared state kept the way the SDK keeps it.
+import { applyPatch, diffState, readPatch } from "@vibedgames/multiplayer";
+import type { JsonRecord, PatchOp } from "@vibedgames/multiplayer";
 import type { JsonValue } from "../src/data/json.ts";
 
 /** Deterministic noise in [0, 1). */
@@ -49,3 +52,31 @@ export class Pipe {
     return out;
   }
 }
+
+/** One client's copy of the room's shared state, kept as the SDK keeps it: a
+ *  write is diffed against the copy into path ops (the leaves that changed),
+ *  and ops apply copy-on-write, so whatever they leave untouched is the very
+ *  object the copy held before — `state` is what `client.sharedState` reads. */
+export const sharedCopy = () => {
+  let state: JsonRecord = {};
+  /** Ops off the wire. */
+  const apply = (data: JsonValue): void => {
+    const ops = readPatch(data);
+    if (Array.isArray(ops)) {
+      state = applyPatch(state, ops);
+    }
+  };
+  return {
+    apply,
+    get state() {
+      return state;
+    },
+    /** The host's write: the ops it puts on the wire, applied to this copy. */
+    write: (patch: JsonRecord): PatchOp[] => {
+      const ops = diffState(state, { ...state, ...patch }, Object.keys(patch));
+      // oxlint-disable-next-line unicorn/prefer-structured-clone -- the copy holds what JSON carries: structuredClone would keep keys set to undefined, which the wire and the SDK drop
+      apply(JSON.parse(JSON.stringify(ops)));
+      return ops;
+    },
+  };
+};

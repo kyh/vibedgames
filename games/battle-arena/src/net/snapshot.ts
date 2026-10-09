@@ -115,7 +115,7 @@ export const encodeUnit = (u: Unit): JsonObject => {
 };
 
 /** Rebuild a full unit from its row. Values are adopted, not copied — decode a
- *  clone of anything that stays cached elsewhere (restoreHostState does). */
+ *  clone of anything that stays cached elsewhere (applySnapshot does). */
 export const decodeUnit = (row: JsonObject): Unit => {
   const unit = blankUnit();
   const fields: JsonObject = unit;
@@ -189,8 +189,13 @@ const rebuildMap = <T, R>(
   }
 };
 
-/** Apply a snapshot onto a World in place (the Maps keep their identity). */
-export const applySnapshot = (w: World, s: Snapshot): void => {
+/** Apply a snapshot onto a World in place (the Maps keep their identity). The
+ *  World gets a copy, never the snapshot's own objects: one read off shared
+ *  state is this client's copy of the room, which the next snapshot's ops
+ *  are applied to, so a coin a frame pushed into it or a projectile moved in
+ *  it would come back as the host's word. */
+export const applySnapshot = (w: World, snapshot: Snapshot): void => {
+  const s = structuredClone(snapshot);
   w.now = s.now;
   w.gameTime = s.gameTime;
   w.phase = s.phase;

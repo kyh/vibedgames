@@ -19,7 +19,7 @@ import type { Frame } from "../src/net/snapshot.ts";
 import { applyKnockback, handleDeath } from "../src/sim/combat.ts";
 import { createWorld, ensureBots, setHeroInput, spawnHero } from "../src/sim/world.ts";
 import type { Unit, World } from "../src/sim/types.ts";
-import { Pipe, noise } from "./net-sim.mts";
+import { Pipe, noise, sharedCopy } from "./net-sim.mts";
 
 const GUEST = "guest";
 const HOST = "host";
@@ -72,6 +72,9 @@ const match = (opts: MatchOptions = {}) => {
   const predictor = new OwnHeroPredictor();
   const held: HeldInput = { attack: false, ax: 1, ay: 0, mx: 0, my: 0 };
   const frames: Frame[] = [];
+  // the room's shared state: the host's copy and the guest's, in step by ops
+  const hostRoom = sharedCopy();
+  const guestRoom = sharedCopy();
   let snapshots = 0;
   let snapshotBytes = 0;
   let fxSent = 0;
@@ -86,7 +89,7 @@ const match = (opts: MatchOptions = {}) => {
     publish: (snap, t) => {
       snapshots += 1;
       snapshotBytes = JSON.stringify(snap).length;
-      toGuest.send(now, { kind: "snap", snap, t });
+      toGuest.send(now, { kind: "state", ops: hostRoom.write({ snap, snapT: t }) });
     },
     sendFrame: (frame) => {
       frames.push(frame);
@@ -107,11 +110,13 @@ const match = (opts: MatchOptions = {}) => {
       if (!isJsonObject(message)) {
         continue;
       }
-      if (message["kind"] === "snap") {
-        const { snap, t } = message;
+      if (message["kind"] === "state") {
+        // as the scene adopts a snapshot: read straight off the room's state
+        guestRoom.apply(message["ops"] ?? null);
+        const { snap, snapT } = guestRoom.state;
         if (isSnapshot(snap)) {
           // the guest hears the stream from its first frame: every snapshot is live
-          mirror.applySnapshot(guestWorld, snap, isJsonNumber(t) ? t : null, now, true);
+          mirror.applySnapshot(guestWorld, snap, isJsonNumber(snapT) ? snapT : null, now, true);
         }
       } else {
         const frame = parseFrame(message["frame"] ?? null);
@@ -174,10 +179,17 @@ const match = (opts: MatchOptions = {}) => {
       return fxSent;
     },
     guestHero,
+    /** What `sharedState` reads on the guest, and on the host. */
+    get guestRoom() {
+      return guestRoom.state;
+    },
     guestWorld,
     held,
     hostHero,
     hostNet,
+    get hostRoom() {
+      return hostRoom.state;
+    },
     me: () => guestWorld.units.get(guestHero.id) ?? null,
     get now() {
       return now;
@@ -430,6 +442,18 @@ const sameView = (host: World, guest: World): void => {
   }
   assert.equal(guest.units.size, host.units.size);
   assert.equal(guest.phase, host.phase);
+  for (const key of ["grounds", "coins", "deliveries"] as const) {
+    assert.deepEqual(
+      guest[key].map((item) => item.id),
+      host[key].map((item) => item.id),
+      key,
+    );
+  }
+  assert.deepEqual(
+    [...guest.projectiles.keys()].toSorted(),
+    [...host.projectiles.keys()].toSorted(),
+    "projectiles",
+  );
 };
 
 test("frames keep a guest's world in step with the host's through a busy match", () => {
@@ -440,6 +464,9 @@ test("frames keep a guest's world in step with the host's through a busy match",
     // is the host's — from deltas alone between the 1 Hz snapshots
     m.run(400, false);
     sameView(m.world, m.guestWorld);
+    // nothing the guest did to its world reached its copy of the room, which
+    // the next snapshot's ops build on
+    assert.deepEqual(m.guestRoom, m.hostRoom, "the guest's copy of the room is the host's");
   }
 });
 
