@@ -445,6 +445,10 @@ test("fixed host step: an exact 50 ms grid at any frame rate, a bounded catch-up
   assert.deepEqual(step.due(3010), [], "and the grid holds");
   step.reset();
   assert.deepEqual(step.due(5000), [5000]);
+  // A frame may stop early (the host stops at a bot turn): what it left stays due.
+  assert.equal(step.next(5200), 5050);
+  assert.equal(step.next(5200), 5100);
+  assert.deepEqual(step.due(5210), [5150, 5200], "taken by the next frame");
 });
 
 // ---- bombs ------------------------------------------------------------------

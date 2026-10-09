@@ -1975,37 +1975,40 @@ export class GameScene extends Scene {
 
   /**
    * The sim on a fixed step of sim time — exact strides and fuses at any
-   * frame rate — with the frame's steps merged into one patch. Only a frame
-   * slow enough to hold two bot turns sends twice: merged, a bot's two steps
-   * would arrive as one two-tile jump.
+   * frame rate. Every write in a frame leaves as one message, so a frame
+   * stops at a step that turned the bots and leaves the rest for the next:
+   * two turns in one message would reach guests as one two-tile jump.
    */
   private hostSteps(): void {
-    const steps = this.hostStep.due(simNow());
     const shared = this.shared();
     const id = this.myId;
-    if (steps.length === 0 || !shared || !id) {
+    if (!shared || !id) {
       return;
     }
     const world = { ...shared };
     const humans = this.humans();
-    let merged: Partial<SharedState> = {};
-    for (const at of steps) {
+    const now = simNow();
+    let stepped = false;
+    for (let at = this.hostStep.next(now); at !== null; at = this.hostStep.next(now)) {
+      stepped = true;
       const { patch } = simHostTick(world, humans, at, this.random);
-      if (patch?.bots && merged.bots) {
-        this.netPatchShared(merged);
-        merged = {};
-      }
       if (patch) {
         Object.assign(world, patch);
-        Object.assign(merged, patch);
+        this.netPatchShared(patch);
       }
+      if (patch?.bots) {
+        break;
+      }
+    }
+    if (!stepped) {
+      return;
     }
     // Claims granted since the last step: this client's own (see onClaimHeard),
     // and a new host's inherited ones.
     const granted = this.pickupClaims.settle(this.client, world, id);
     if (granted) {
       Object.assign(world, granted);
-      Object.assign(merged, granted);
+      this.netPatchShared(granted);
     }
     // Bots take power-ups the way players do, through the room. The sprite goes
     // on the next sync, while the claim still names the bot that took it.
@@ -2013,9 +2016,6 @@ export class GameScene extends Scene {
       if (!world.deaths[bot.id] && this.pickupClaims.reach(this.client, world, bot.id, bot)) {
         this.netDirty = true;
       }
-    }
-    if (Object.keys(merged).length > 0) {
-      this.netPatchShared(merged);
     }
   }
 
