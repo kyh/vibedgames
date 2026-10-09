@@ -11,26 +11,24 @@
   ],
   "type": "module",
   "scripts": {
-    "build": "tsc && chmod +x dist/index.js",
-    "dev": "tsc --watch",
+    "build": "node scripts/build.mjs",
+    "dev": "node scripts/build.mjs --watch",
     "clean": "rm -rf .turbo dist node_modules",
     "test": "node --import tsx --test test/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
-  "dependencies": {
-    "@orpc/client": "catalog:",
-    "citty": "^0.2.2",
-    "consola": "^3.4.2",
-    "cross-spawn": "^7.0.6",
-    "ignore": "^7.0.12",
-    "tar": "^7.5.22",
-    "tiged": "^2.12.8"
-  },
   "devDependencies": {
     "@kyh/tsconfig": "catalog:",
+    "@orpc/client": "catalog:",
     "@repo/contract": "workspace:^",
     "@types/cross-spawn": "^6.0.6",
     "@types/node": "catalog:",
+    "citty": "^0.2.2",
+    "consola": "^3.4.2",
+    "cross-spawn": "^7.0.6",
+    "esbuild": "^0.28.2",
+    "ignore": "^7.0.12",
+    "tar": "^7.5.22",
     "typescript": "catalog:"
   }
 }

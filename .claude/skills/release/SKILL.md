@@ -16,7 +16,7 @@ Cut a new npm version of one or more publishable packages in this repo.
   - `@vibedgames/multiplayer` → `packages/multiplayer` → tag prefix `@vibedgames/multiplayer@`
   - `@vibedgames/gamepad` → `packages/gamepad` → tag prefix `@vibedgames/gamepad@`
   - `@vibedgames/playtest` → `packages/playtest` → tag prefix `@vibedgames/playtest@`
-- All ship `dist/` built by `tsc`. All four keep `tsBuildInfoFile` at `.cache/tsbuildinfo.json` — NEVER inside `dist/` (it would ship in the tarball; vibedgames ≤0.3.0 did exactly that). Consequence: `rm -rf dist` alone makes `tsc` silently emit NOTHING (cache says up-to-date). Always remove both `dist` and `.cache`.
+- `vibedgames` ships `dist/` bundled by esbuild (`apps/cli/scripts/build.mjs`): every dependency is inlined, so it publishes with no `dependencies` and a `dist/THIRD_PARTY_NOTICES.txt` carrying their licences. A runtime dependency added to the CLI goes in `devDependencies`. The other three ship `dist/` built by `tsc`. All four keep `tsBuildInfoFile` at `.cache/tsbuildinfo.json` — NEVER inside `dist/` (it would ship in the tarball; vibedgames ≤0.3.0 did exactly that). Consequence: `rm -rf dist` alone makes `tsc` silently emit NOTHING (cache says up-to-date). Always remove both `dist` and `.cache`.
 - `vibedgames` and `@vibedgames/multiplayer` have no internal workspace consumers. `@vibedgames/gamepad` and `@vibedgames/playtest` ARE consumed in-repo by the example games via `workspace:^`, but `pnpm publish` rewrites that to the published version automatically — no manual downstream sync needed.
 - Current branch: !`git -C /Users/kyh/Documents/Projects/vibedgames rev-parse --abbrev-ref HEAD`
 - Working tree: !`git -C /Users/kyh/Documents/Projects/vibedgames status --short`

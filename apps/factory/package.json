@@ -30,6 +30,7 @@
   },
   "devDependencies": {
     "@kyh/tsconfig": "catalog:",
+    "@types/bun": "^1.4.2",
     "@types/node": "catalog:",
     "@types/react": "catalog:",
     "typescript": "catalog:"

@@ -1,14 +1,19 @@
 import type { ContractClient, RouterInputs } from "@repo/contract";
+import { CLI_VERSION_HEADER } from "@repo/contract/cli";
 import { createORPCClient, ORPCError } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
 
 import { getBaseUrl, getToken } from "./config.js";
+import { PACKAGE_VERSION } from "./package-root.js";
 import type { JsonValue } from "./types.js";
 
 const makeClient = (baseUrl: string, token?: string): ContractClient =>
   createORPCClient(
     new RPCLink({
-      headers: () => (token ? { Authorization: `Bearer ${token}` } : {}),
+      headers: () =>
+        token
+          ? { Authorization: `Bearer ${token}`, [CLI_VERSION_HEADER]: PACKAGE_VERSION }
+          : { [CLI_VERSION_HEADER]: PACKAGE_VERSION },
       origin: baseUrl,
       url: "/api/orpc",
     }),
