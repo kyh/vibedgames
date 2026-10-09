@@ -11,6 +11,20 @@ const RESYNC_MS = 250;
 const SLEW = 0.1;
 /** Width of one min-filter bucket, in receive time. */
 const BUCKET_MS = 1000;
+/** How long the stream's needed delay is learned over, in receive time. */
+const HOLD_WINDOW_MS = 5000;
+/** Holds kept for the estimate at most, however fast the sender. */
+const HOLD_SAMPLES = 256;
+/** Holds the estimate needs before it counts. */
+const HOLD_MIN_SAMPLES = 8;
+/** The share of holds the delay covers; a rarer late update extrapolates. */
+const HOLD_PERCENTILE = 0.95;
+/** Gaps tracked to learn the sender's interval. */
+const GAP_HISTORY = 8;
+/** A gap shorter than this is a send cadence, never an idle silence. */
+const MIN_SILENCE_MS = 300;
+/** An earlier stamp by more than this is a restarted sender clock, not reordering. */
+const CLOCK_RESTART_MS = 1000;
 
 /**
  * The clock an `Interpolator` renders against: something that learns from
@@ -26,6 +40,11 @@ export interface SenderClock {
   now: (localNow?: number) => number;
   /** Forget the estimate (the sender restarted its clock). */
   reset?: () => void;
+  /**
+   * How far behind this clock to render for the sender's stream to never run
+   * dry, as measured (ms); 0 until measured. See `RemoteClock.hold`.
+   */
+  hold?: (localNow?: number) => number;
 }
 
 export interface RemoteClockOptions {
@@ -58,6 +77,14 @@ export class RemoteClock implements SenderClock {
   private target: number | null = null;
   private applied: number | null = null;
   private lastRead = 0;
+  /** The newest stamp seen, and the sender's recent intervals. */
+  private lastStamp: number | null = null;
+  private readonly gaps: number[] = [];
+  /** How long each recent update stayed the newest, on this clock, by arrival time. */
+  private readonly holds: { at: number; ms: number }[] = [];
+  private holdTarget: number | null = null;
+  private holdApplied: number | null = null;
+  private holdRead = 0;
 
   constructor(options: RemoteClockOptions = {}) {
     this.windowMs = options.windowMs ?? 3000;
@@ -89,6 +116,77 @@ export class RemoteClock implements SenderClock {
       min = Math.min(min, bucket.min);
     }
     this.target = min;
+    this.learnHold(sentAt, receivedAt);
+  }
+
+  /**
+   * How far behind this clock to render so the sender's stream never runs
+   * dry (ms), as measured: an update stays the newest until the next one
+   * arrives, so render time must trail by each send interval plus however
+   * late the next update lands — on a jittery route, or a busy device that
+   * reads its messages a frame late. This covers 95% of the last five
+   * seconds' updates (a rarer late one extrapolates), ignores idle silences,
+   * and moves at most 10% of elapsed time per read, so a change slows or
+   * speeds playback a little instead of jumping it. 0 until enough updates
+   * have arrived. An `Interpolator` renders at the larger of this and its
+   * `delayMs`.
+   */
+  hold(localNow: number = now()): number {
+    const target = this.holdTarget;
+    if (target === null) {
+      return 0;
+    }
+    if (this.holdApplied === null) {
+      this.holdApplied = target;
+    } else {
+      const step = Math.max(0, localNow - this.holdRead) * SLEW;
+      this.holdApplied += Math.max(-step, Math.min(step, target - this.holdApplied));
+    }
+    this.holdRead = localNow;
+    return this.holdApplied;
+  }
+
+  /** Learn how long the previous update stayed the newest, now this one has arrived. */
+  private learnHold(sentAt: number, receivedAt: number): void {
+    const last = this.lastStamp;
+    if (last !== null && sentAt <= last) {
+      // Another entity's copy of a stamp already seen, or a restarted clock.
+      if (last - sentAt > CLOCK_RESTART_MS) {
+        this.lastStamp = sentAt;
+        this.gaps.length = 0;
+      }
+      return;
+    }
+    this.lastStamp = sentAt;
+    if (last === null || this.target === null) {
+      return;
+    }
+    const gap = sentAt - last;
+    let typical = Number.POSITIVE_INFINITY;
+    for (const seen of this.gaps) {
+      typical = Math.min(typical, seen);
+    }
+    this.gaps.push(gap);
+    if (this.gaps.length > GAP_HISTORY) {
+      this.gaps.shift();
+    }
+    if (Number.isFinite(typical) && gap > Math.max(typical * 3, MIN_SILENCE_MS)) {
+      // An idle sender's silence, not its cadence: the Interpolator bridges it.
+      return;
+    }
+    // This clock read `receivedAt - target` when the update landed: `last`
+    // had to stay ahead of render time until then.
+    this.holds.push({ at: receivedAt, ms: receivedAt - this.target - last });
+    while (
+      this.holds.length > HOLD_SAMPLES ||
+      (this.holds[0] !== undefined && receivedAt - this.holds[0].at > HOLD_WINDOW_MS)
+    ) {
+      this.holds.shift();
+    }
+    if (this.holds.length >= HOLD_MIN_SAMPLES) {
+      const sorted = this.holds.map((hold) => hold.ms).toSorted((a, b) => a - b);
+      this.holdTarget = sorted[Math.floor((sorted.length - 1) * HOLD_PERCENTILE)] ?? null;
+    }
   }
 
   /**
@@ -120,6 +218,9 @@ export class RemoteClock implements SenderClock {
    */
   relearn(): void {
     this.buckets.length = 0;
+    this.holds.length = 0;
+    this.gaps.length = 0;
+    this.lastStamp = null;
   }
 
   /** Forget everything — call when the sender's clock itself changes (a sender stamping its own clock reloaded). */
@@ -127,5 +228,10 @@ export class RemoteClock implements SenderClock {
     this.buckets.length = 0;
     this.target = null;
     this.applied = null;
+    this.holds.length = 0;
+    this.gaps.length = 0;
+    this.lastStamp = null;
+    this.holdTarget = null;
+    this.holdApplied = null;
   }
 }

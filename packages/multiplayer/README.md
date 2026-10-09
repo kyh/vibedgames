@@ -109,8 +109,16 @@ const pose = remote.sample();
 
 An `Interpolator` reads stamps through a `RemoteClock`, which learns from
 arrivals how long one sender's updates take to reach you — sender to server to
-you — so the delay only has to cover jitter. Entities from one sender (a host's
-world snapshot) share one: `new Interpolator({ clock: hostClock, lerp })`, and
+you — so the delay only has to cover jitter. The clock also measures that
+jitter: each update must stay the newest until the next one lands, so it tracks
+each send interval plus how late the next update arrives (`hold()`, covering 95%
+of the last five seconds). The `Interpolator` renders at the larger of that and
+`delayMs`, and the buffer grows on a jittery route, or on a device busy enough
+to read its messages a frame late, instead of running dry. Changes slew, so
+playback slows or speeds a little rather than jumping. Draw anything else from
+that sender (its shots, its effects) at `interp.renderTime()`, so it stays on
+the same timeline. Entities from one sender (a host's world snapshot) share one
+clock: `new Interpolator({ clock: hostClock, lerp })`, and
 `hostClock.relearn()` when the host changes: the new host's route differs, while
 its stamps carry straight on, so the clock eases onto the new route instead of
 jumping.

@@ -5,9 +5,12 @@
  * bunching, frame-quantized sends). Chasing the newest value — an exponential
  * lerp, or snapping — shows every gap and burst as a surge or a stall. The
  * idiomatic fix: the sender stamps each update with its own clock, the
- * receiver buffers a few, and renders each entity a fixed delay in the past,
+ * receiver buffers a few, and renders each entity a delay in the past,
  * blending the two updates that bracket that moment. Motion is then exactly
- * as smooth as the sender's, at the cost of ~one send interval of delay.
+ * as smooth as the sender's, at the cost of ~one send interval of delay. The
+ * delay is `delayMs`, or more when the stream needs it: a `RemoteClock`
+ * measures how late this sender's updates land and the buffer grows to match,
+ * on a jittery route or a device too busy to read its messages on time.
  *
  * ```ts
  * // sender, on a FixedRate tick (keep ticking while idle: an unchanged
@@ -52,9 +55,12 @@ export interface InterpolatorOptions<T> {
    */
   lerp: (a: T, b: T, alpha: number) => T;
   /**
-   * How far behind the sender's clock to render (ms). It must cover one send
-   * interval plus arrival jitter, or the buffer runs dry and motion stutters:
-   * 100 suits 20–30 Hz senders, ~150 suits 10–15 Hz. Default 100.
+   * The least time behind the sender's clock to render (ms). It should cover
+   * one send interval plus arrival jitter on a good connection: 100 suits
+   * 20–30 Hz senders, ~150 suits 10–15 Hz. Default 100. With a `RemoteClock`
+   * (the default) the delay also grows to what the stream measurably needs
+   * (`RemoteClock.hold`), so one setting holds on a slow route or a busy
+   * device without starving the buffer.
    */
   delayMs?: number;
   /**
@@ -172,7 +178,7 @@ export class Interpolator<T> {
     if (last === undefined) {
       return undefined;
     }
-    const renderAt = this.clock.now(localNow) - this.delayMs;
+    const renderAt = this.renderTime(localNow);
     countFrame(renderAt - last.t, this.maxExtrapolateMs);
     if (renderAt >= last.t) {
       const prev = samples.at(-2);
@@ -190,6 +196,16 @@ export class Interpolator<T> {
       }
     }
     return samples[0]?.value;
+  }
+
+  /**
+   * The moment on the sender's clock this entity is drawn at, local time
+   * `localNow`: `delayMs` behind it, or as far as the stream needs. Draw
+   * anything else from this sender on the same timeline (its shots, its
+   * effects) at this time too, so they line up with what it is attached to.
+   */
+  renderTime(localNow: number = now()): number {
+    return this.clock.now(localNow) - Math.max(this.delayMs, this.clock.hold?.(localNow) ?? 0);
   }
 
   /** Drop the history so the next push shows at once — a teleport, respawn or new round. */

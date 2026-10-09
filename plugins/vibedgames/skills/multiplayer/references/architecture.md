@@ -284,7 +284,15 @@ interp.push(s.t, { x: s.x, y: s.y, angle: s.angle });
 const pose = interp.sample(); // undefined until the first update
 ```
 
-- **Delay.** 100 ms suits 20–30 Hz senders; use ~150 ms for 10–15 Hz.
+- **Delay.** `delayMs` is the least delay: 100 ms suits 20–30 Hz senders, ~150
+  ms 10–15 Hz. The `RemoteClock` measures what the stream needs (each send
+  interval plus how late the next update lands) and the buffer grows past
+  `delayMs` when that is more: a jittery route, or a device too busy to read its
+  messages on time. Never hand-tune the delay up for one bad network.
+- **One timeline per sender.** Anything else you draw from a sender — its
+  shots, its effects, a hit flash — goes at `interp.renderTime()`, never at
+  `clock.now() - DELAY`: the delay grows with the stream, and a hand-computed
+  one drifts off the bodies it belongs to.
 - **Discontinuities.** Call `clear()` on a respawn or teleport, so the entity
   snaps instead of gliding through walls.
 - **Which clock.** Each `Interpolator` reads stamps through a `RemoteClock`

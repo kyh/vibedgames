@@ -96,6 +96,17 @@ Connection lifecycle:
 
 Netcode helpers:
 
+- Adaptive interpolation delay. `RemoteClock.hold()` measures how far behind a
+  sender's clock to render for its stream never to run dry: each send interval
+  plus how late the next update lands, covering 95% of the last five seconds,
+  ignoring idle silences, slewed. An `Interpolator` renders at the larger of
+  that and `delayMs`, so a jittery route or a device too busy to read its
+  messages on time no longer starves the buffer. `Interpolator.renderTime()`
+  is the moment it draws, for anything else on the same sender's timeline.
+  Measured on flappy-dragons with two clients at 28 fps under 80 ± 40 ms of
+  lag: 35–48% of remote frames drawn past the newest update before, 2–4%
+  after.
+
 - `FixedRate`: a send clock for variable frame loops that keeps its remainder
   (a reset-to-0 throttle drifts low and alternates gap lengths) and drops backlog
   after a stall instead of bursting.
