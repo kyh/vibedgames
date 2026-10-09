@@ -53,6 +53,7 @@
  * project: run from the game dir, or `npm i -D playwright` there.
  */
 
+import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { setTimeout as sleep } from "node:timers/promises";
 
@@ -361,7 +362,9 @@ const run = async (options) => {
     console.error("Playwright not found. Install it in the game project: npm i -D playwright");
     return 2;
   }
-  const room = `net-check-${Date.now().toString(36)}`;
+  // Short, lowercase and random from the first character: games that keep
+  // only a room code's first few letters and digits still get a fresh room.
+  const room = `nc${randomUUID().replaceAll("-", "").slice(0, 10)}`;
   const target = new URL(options.url);
   target.searchParams.set(options.roomParam, room);
 
