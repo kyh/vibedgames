@@ -192,10 +192,19 @@ try {
   );
   step("gameplay events cross the wire");
 
-  // 2b. pickup ownership: guest grabs a RAILGUN the host dropped on it
-  await host.evaluate(([x, y]) => __starfall.spawnItem("weapon", "RAILGUN", x, y), [g.x, g.y]);
+  // 2b. pickup ownership: guest grabs a RAILGUN the host dropped on it. The
+  // drone killed above may have dropped loot of its own, so watch this item.
+  const railgunId = await host.evaluate(
+    ([x, y]) => __starfall.spawnItem("weapon", "RAILGUN", x, y),
+    [g.x, g.y],
+  );
   await until(guest, () => __starfall.summary().weapon === "RAILGUN", "guest holds RAILGUN");
-  await until(host, () => __starfall.summary().items.length === 0, "host removed item");
+  await until(
+    host,
+    (id) => !__starfall.scene.world.items.some((it) => it.id === id),
+    "host removed item",
+    railgunId,
+  );
   const hostSummary = await summary(host);
   assert.notEqual(hostSummary.weapon, "RAILGUN", "host kept its own weapon");
   const mastery = await until(
