@@ -87,7 +87,8 @@ export class ServerClock {
     }
   }
 
-  /** Server time (ms since the epoch) at local time `localNow`; the local clock before any probe returns. */
+  /** Server time (ms since the epoch) at local time `localNow`; the local clock
+   *  (`performance.now()`) before any probe returns, or offline without one. */
   now(localNow: number = now()): number {
     const { target } = this;
     if (target === null) {

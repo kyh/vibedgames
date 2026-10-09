@@ -589,7 +589,12 @@ export class MultiplayerClient {
     return this.clock;
   }
 
-  /** Server time now (ms since the epoch); the local clock until the first probe returns. */
+  /**
+   * Server time now (ms since the epoch). Until the first probe returns, and
+   * offline if none ever did, it reads the local clock (`performance.now()`,
+   * ms since the page loaded): don't stamp shared state with it then, or mix
+   * it with `Date.now()`.
+   */
   serverNow(localNow?: number): number {
     return this.clock.now(localNow);
   }

@@ -259,8 +259,15 @@ one code path for online and solo play. `connectionStatus` is `"offline"` and
 the player id is `OFFLINE_PLAYER_ID`; this client is the host. State updates
 apply locally, events and host intents loop back to `onEvent` (honouring
 `to`/`except`), claims are granted at once and lapse on their TTL, and
-`serverNow()` reads the local clock. Tick rooms don't tick offline: run the sim
-locally.
+`serverNow()` reads the local clock (`performance.now()`, unless a time probe
+returned before the client went offline). Tick rooms don't tick offline: run
+the sim locally.
+
+Offline, `onEvent` and `onClaim` run inside the call that caused them:
+`sendEvent`, `sendToHost` and `claim` return after the handler has. A handler
+that writes the world runs in the middle of its caller, so a caller that holds
+a copy of the world to write back afterwards (a sim step) must not let the
+handler write it too; settle such grants on the next step instead.
 
 `fallbackMs` counts rendered frames from the first one after the client is
 created, each worth at most 100 ms, so loading time, a hidden tab and a stalled
