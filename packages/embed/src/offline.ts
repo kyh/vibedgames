@@ -6,13 +6,13 @@
 // opt out; and it is the switch that lets a coding agent verify a game in
 // isolation, which is what this platform sells.
 //
-// "Offline" is NOT "the connection failed". Games also carry a solo fallback
-// for an unreachable party server, but that path still constructs a client,
-// still burns its grace window before the game is playable, and still logs a
-// failed WebSocket handshake that the page cannot suppress. Offline means the
-// client is never constructed at all and the game enters its solo state on the
-// first frame. Honour it by skipping construction, never by leaning on the
-// fallback.
+// "Offline" is NOT "the connection failed". Games also fall back to solo when
+// the party server is unreachable (the client's `fallbackMs`), but that path
+// still dials, still burns its grace window before the game is playable, and
+// still logs a failed WebSocket handshake that the page cannot suppress.
+// Offline means the client never dials and the game is solo from the first
+// frame. Honour it with the client's `offline: isOfflineRequested()`, which
+// opens no socket, never by leaning on the fallback.
 
 /** True when this page was booted with `?offline` / `?offline=1`. */
 export const isOfflineRequested = (): boolean => {
