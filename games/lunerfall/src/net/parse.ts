@@ -35,7 +35,7 @@ const MAX_TICKS = 32;
 const MAX_BITS = 4095;
 
 export const readNetInputs = (v: JsonValue | undefined): NetInputs | null => {
-  if (!isJsonObject(v) || !int(v.seq) || !int(v.room) || !Array.isArray(v.ticks)) {
+  if (!isJsonObject(v) || !int(v.seq) || !int(v.room) || !num(v.t) || !Array.isArray(v.ticks)) {
     return null;
   }
   const { ticks } = v;
@@ -49,7 +49,7 @@ export const readNetInputs = (v: JsonValue | undefined): NetInputs | null => {
     }
     bits.push(t);
   }
-  return { room: v.room, seq: v.seq, ticks: bits };
+  return { room: v.room, seq: v.seq, t: v.t, ticks: bits };
 };
 
 const playerRow = (v: JsonValue): v is NetPlayerRow => numbers(v, 9);

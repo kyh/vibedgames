@@ -18,12 +18,7 @@
 
 import { isOfflineRequested } from "@repo/embed";
 import { MultiplayerClient } from "@vibedgames/multiplayer";
-import type {
-  MultiplayerConnectionStatus,
-  Player,
-  PlayerMap,
-  SenderClock,
-} from "@vibedgames/multiplayer";
+import type { MultiplayerConnectionStatus, Player, PlayerMap } from "@vibedgames/multiplayer";
 
 import type { JsonValue } from "./json";
 
@@ -141,12 +136,13 @@ export class NetSession {
   }
 
   /**
-   * The room's server clock (ms since the epoch), measured by the SDK: one
-   * timebase for every client in the room, so a stamp means the same moment
-   * to the guest that the host meant, whichever client is host.
+   * The room's server time (ms since the epoch) at `localNow` (performance.now
+   * ms; default now), measured by the SDK: one timebase for every client in
+   * the room, so a stamp means the same moment to the guest that the host
+   * meant, whichever client is host.
    */
-  get serverClock(): SenderClock {
-    return this.client.serverClock;
+  serverNow(localNow?: number): number {
+    return this.client.serverNow(localNow);
   }
 
   get playerId(): string | null {

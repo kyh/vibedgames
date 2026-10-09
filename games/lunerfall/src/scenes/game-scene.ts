@@ -634,7 +634,7 @@ export class GameScene extends Scene implements SceneHooks {
     // Guest: predict my own body locally; render everything else from the
     // host's broadcast.
     if (this.seat.role === "guest") {
-      this.guest.step(dts);
+      this.guest.step(dts, this.lastFrameAt);
       return;
     }
 
@@ -646,7 +646,8 @@ export class GameScene extends Scene implements SceneHooks {
     this.run.acc = Math.min(this.run.acc + dts, MAX_LAG);
     let steps = 0;
     while (this.run.acc >= STEP && steps < MAX_STEPS) {
-      this.fixedStep();
+      // The step ends where the frame clock stands, less the time still owed.
+      this.fixedStep(this.lastFrameAt - (this.run.acc - STEP) * 1000);
       this.run.acc -= STEP;
       steps += 1;
     }
@@ -668,14 +669,15 @@ export class GameScene extends Scene implements SceneHooks {
     }
   }
 
-  // One authority step. Hit-stop is feel for the bodies on this screen: the
-  // guest never freezes its own prediction, so its copy here keeps taking its
-  // input — and its blade keeps cutting — or the two would drift apart.
-  private fixedStep() {
+  // One authority step, ending at `now` (performance.now ms). Hit-stop is
+  // feel for the bodies on this screen: the guest never freezes its own
+  // prediction, so its copy here keeps taking its input — and its blade keeps
+  // cutting — or the two would drift apart.
+  private fixedStep(now: number) {
     // Anything done to the guest's body between steps (a rematch respawn)
     // happened before this step's input tick.
     this.hostNet.drainGuest();
-    const guestMoved = this.hostNet.stepGuest();
+    const guestMoved = this.hostNet.stepGuest(now);
     if (this.run.freeze > 0) {
       this.run.freeze -= STEP;
       if (guestMoved && this.seat.remote && !this.run.match) {

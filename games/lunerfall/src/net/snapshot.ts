@@ -12,7 +12,8 @@
 //   checkpoint  1 Hz and on phase/progress edges: everything a takeover needs,
 //               stamped like the snapshot it rides with
 // Guest → host, an event to the host alone:
-//   in          the guest's input, one entry per 60 Hz sim tick, two per send
+//   in          the guest's input, one entry per 60 Hz sim tick, two per send,
+//               stamped with the room's server time its newest tick ended at
 //
 // A guest draws everyone else from the stamps, at least 100 ms of buffer
 // behind the relay's own latency (net/interp.ts), and predicts its own body,
@@ -26,7 +27,7 @@ import type { BodyEdge } from "../entities/player-body";
 
 /** Bump on any incompatible change to this file's formats: it is part of the
  * party room id, so a tab on an older build never shares a run with a newer one. */
-export const WIRE_VERSION = 3;
+export const WIRE_VERSION = 4;
 
 /** Wire order of the enemy FSM states; rows carry the index. */
 export const ENEMY_STATES = [
@@ -346,11 +347,14 @@ export type NetCast = {
 };
 
 // Guest → host: input ticks `seq - ticks.length + 1 … seq`, each a packed
-// BodyInput (net/uplink.ts), all generated in room `room`.
+// BodyInput (net/uplink.ts), all generated in room `room`; `t` is the server
+// time (ms) tick `seq`'s step ended at, each earlier one a tick before. The
+// host's copy plays them back on that timeline (net/guest-copy.ts).
 export type NetInputs = {
   seq: number;
   ticks: number[];
   room: number;
+  t: number;
 };
 
 // Full room layout — sent once per room (not per frame).

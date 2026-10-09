@@ -105,7 +105,6 @@ const link = <T,>(oneWay: number, jitter: number, seed: number) => {
   };
   return {
     arrivals,
-    receive: (now: number): T[] => arrivals(now).map((a) => a.msg),
     send: (now: number, msg: T) => {
       last = Math.max(last, now + oneWay + (roll() * 2 - 1) * jitter);
       queue.push({ at: last, msg });
@@ -168,6 +167,9 @@ interface Scenario {
   hostHz?: number;
   // the guest's frame loop stalls over this window of its time (s)
   hitch?: [from: number, to: number];
+  // each frame of either tab runs up to this much early or late (ms), as a
+  // busy page's do
+  frameJitter?: number;
   spawnX: number;
   spawnY: number;
   // the guest player's hands, by guest time (s)
@@ -199,6 +201,12 @@ interface Outcome {
   dry: number;
   drawError: number;
   relay: number;
+  // the guest's body as the host's copy plays it, once settled: host steps,
+  // and those that applied no guest tick (it stood still on the host's
+  // screen) or several at once (it jumped)
+  copySteps: number;
+  copyIdle: number;
+  copyBunched: number;
 }
 
 // Snapshot positions cross the wire at 0.1 px (net/snapshot.ts).
@@ -220,6 +228,9 @@ const run = (sc: Scenario): Outcome => {
   const snapRate = new FixedRate(30);
   const out: Outcome = {
     claims: 0,
+    copyBunched: 0,
+    copyIdle: 0,
+    copySteps: 0,
     correctionPx: 0,
     corrections: 0,
     drawError: 0,
@@ -233,8 +244,10 @@ const run = (sc: Scenario): Outcome => {
     replays: 0,
   };
   const host = { acc: 0, freeze: 0, stamp: -1, step: 0 };
-  const guest = { acc: 0, frozen: false };
+  const guest = { acc: 0, frozen: false, tickAt: 0 };
   const hostTime = serverClock(HOST_ORIGIN, sc.oneWay, sc.jitter, 21);
+  // The guest stamps its sends with the room's server time, learnt the same way.
+  const guestTime = serverClock(GUEST_ORIGIN, sc.oneWay, sc.jitter, 31);
   // The host's own hero, and where it stood after each host frame (true time).
   const own = new PlayerBody(grid, 12 * TILE, FLOOR_Y, kit);
   const ownPath: { at: number; x: number }[] = [];
@@ -252,10 +265,17 @@ const run = (sc: Scenario): Outcome => {
   // The scene's fixed step: the guest's copy advances on its own input
   // whether or not the host is in hit-stop; combat — and every other body on
   // the host's screen — only runs outside it.
-  const hostStep = () => {
+  const hostStep = (now: number, endsAt: number) => {
     host.step += 1;
     const t = host.step / 60;
-    copy.step(hostBody, holding(t));
+    const before = copy.ack;
+    copy.step(hostBody, holding(t), endsAt);
+    if (now >= SETTLE_MS) {
+      const applied = copy.ack - before;
+      out.copySteps += 1;
+      out.copyIdle += applied === 0 ? 1 : 0;
+      out.copyBunched += applied > 1 ? 1 : 0;
+    }
     while (copy.takeStomp()) {
       out.claims += 1;
     }
@@ -273,18 +293,21 @@ const run = (sc: Scenario): Outcome => {
     copy.drain(hostBody);
   };
 
-  const hostFrame = (now: number) => {
+  const hostFrame = (now: number, frameMs: number) => {
     hostTime.poll(now);
-    for (const msg of up.receive(now)) {
-      copy.receive(msg, 1);
+    // A socket's handler runs as each message lands, between frames.
+    for (const { at, msg } of up.arrivals(now)) {
+      copy.receive(msg, 1, hostTime.local(at));
     }
-    host.acc = Math.min(host.acc + hostFrameMs, LAG_MS);
+    host.acc = Math.min(host.acc + frameMs, LAG_MS);
     for (let n = 0; host.acc >= STEP_MS && n < MAX_STEPS; n += 1) {
       host.acc -= STEP_MS;
-      hostStep();
+      // as the scene does: the step ends where the frame clock stands, less
+      // the time still owed
+      hostStep(now, hostTime.local(now) - host.acc);
     }
     ownPath.push({ at: now, x: own.x });
-    if (snapRate.due(hostFrameMs)) {
+    if (snapRate.due(frameMs)) {
       // stamped as scenes/host-net.ts stamps it
       host.stamp = Math.max(host.stamp + 1, Math.round(hostTime.clock.now(hostTime.local(now))));
       down.send(now, {
@@ -377,6 +400,7 @@ const run = (sc: Scenario): Outcome => {
   };
 
   const guestFrame = (now: number, frameMs: number) => {
+    guestTime.poll(now);
     for (const { at, msg } of down.arrivals(now)) {
       receiveSnap(msg, at);
       applySnap(msg);
@@ -386,8 +410,11 @@ const run = (sc: Scenario): Outcome => {
     for (let n = 0; guest.acc >= STEP_MS && n < MAX_STEPS; n += 1) {
       guest.acc -= STEP_MS;
       guestStep();
+      // as the scene stamps it: the step ended where the frame clock stands,
+      // less the time still owed
+      guest.tickAt = guestTime.local(now) - guest.acc;
     }
-    const msg = prediction.flush(1);
+    const msg = prediction.flush(1, Math.round(guestTime.clock.now(guest.tickAt)));
     if (msg) {
       up.send(now, msg);
     }
@@ -397,18 +424,28 @@ const run = (sc: Scenario): Outcome => {
   // Both loops run on their own frame clocks; whichever frame is due next goes.
   const guestFrameMs = 1000 / sc.guestHz;
   const hostFrameMs = 1000 / (sc.hostHz ?? 60);
+  const wobble = rng(41);
+  const late = (): number => (wobble() * 2 - 1) * (sc.frameJitter ?? 0);
   const end = sc.seconds * 1000;
   let nextHost = 0;
   let nextGuest = 0;
+  let lastHost = -hostFrameMs;
   let lastGuest = -guestFrameMs;
   while (nextHost <= end || nextGuest <= end) {
     if (nextHost <= nextGuest) {
-      hostFrame(nextHost);
-      nextHost += hostFrameMs;
+      hostFrame(nextHost, nextHost - lastHost);
+      lastHost = nextHost;
+      nextHost = Math.max(
+        lastHost + 1,
+        (Math.round(lastHost / hostFrameMs) + 1) * hostFrameMs + late(),
+      );
     } else {
       guestFrame(nextGuest, nextGuest - lastGuest);
       lastGuest = nextGuest;
-      nextGuest += guestFrameMs;
+      nextGuest = Math.max(
+        lastGuest + 1,
+        (Math.round(lastGuest / guestFrameMs) + 1) * guestFrameMs + late(),
+      );
       // A frame hitch: no frames at all, then one long one.
       if (sc.hitch && nextGuest >= sc.hitch[0] * 1000 && nextGuest < sc.hitch[1] * 1000) {
         nextGuest = sc.hitch[1] * 1000;
@@ -419,10 +456,14 @@ const run = (sc: Scenario): Outcome => {
   return out;
 };
 
+const share = (part: number, whole: number): string =>
+  `${((100 * part) / Math.max(1, whole)).toFixed(1)}%`;
+
 const fmt = (o: Outcome): string =>
   `${o.corrections} corrections, ${o.correctionPx.toFixed(1)} px (pull-back ${o.pullBack.toFixed(1)} px, max ${o.maxFix.toFixed(2)}), ` +
   `${o.replays} replays (max jump ${o.maxJump.toFixed(1)} px), end error ${o.endError.toFixed(3)} px; ` +
-  `host's hero drawn ${o.drawn} frames, ${o.dry} dry, max off ${o.drawError.toFixed(2)} px (relay ${o.relay.toFixed(0)} ms)`;
+  `host's hero drawn ${o.drawn} frames, ${o.dry} dry, max off ${o.drawError.toFixed(2)} px (relay ${o.relay.toFixed(0)} ms); ` +
+  `copy steps ${share(o.copyIdle, o.copySteps)} idle, ${share(o.copyBunched, o.copySteps)} bunched`;
 
 console.log("lunerfall netcode harness\n");
 
@@ -582,6 +623,37 @@ for (const oneWay of [60, 120]) {
   });
   console.log(`  busy hands at 144 Hz, ±25 ms jitter: ${fmt(o)}`);
   check("jitter and high refresh alone never correct the guest", o.corrections === 0);
+  check("…and the guest ends where the host's copy is", o.endError < 0.05);
+}
+
+{
+  // The multiplayer skill's net-check lag: every socket 80–120 ms late, so
+  // two hops guest → party server → host, both tabs at 30 fps, the guest
+  // running back and forth for 7 s. The copy must play the guest's ticks one
+  // a host step, as evenly as the guest stepped them: a count-based buffer
+  // two ticks deep left 8% of steps idle and 8% doubled here.
+  const o = run({
+    ...floor,
+    frameJitter: 8,
+    guestHz: 30,
+    hostHz: 30,
+    input: (t) => {
+      if (t > 7) {
+        return {};
+      }
+      return Math.floor(t / 0.7) % 2 === 0 ? { right: true } : { left: true };
+    },
+    jitter: 40,
+    name: "net-check lag",
+    oneWay: 200,
+    seconds: 8.5,
+  });
+  console.log(`  net-check lag, both tabs at 30 fps: ${fmt(o)}`);
+  check(
+    "the host's copy moves the guest a tick a step under net-check lag",
+    o.copyIdle < 0.03 * o.copySteps && o.copyBunched < 0.03 * o.copySteps,
+  );
+  check("…never corrects the guest", o.corrections === 0);
   check("…and the guest ends where the host's copy is", o.endError < 0.05);
 }
 

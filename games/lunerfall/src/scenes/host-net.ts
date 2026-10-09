@@ -125,27 +125,29 @@ export class HostNet {
     return this.copy;
   }
 
-  /** A peer's event. Only the remote player's `in` (input ticks) concerns the host. */
+  /** A peer's event, as it lands. Only the remote player's `in` (input
+   * ticks) concerns the host. */
   receive(event: string, payload: JsonValue, from: string): void {
     if (event !== "in" || from !== this.seat.remoteId) {
       return;
     }
     const msg = readNetInputs(payload);
     if (msg) {
-      this.guestCopy()?.receive(msg, this.room.seq);
+      this.guestCopy()?.receive(msg, this.room.seq, performance.now());
     }
   }
 
   /** One host sim step of the guest's body, hit-stop or not — the guest never
-   * freezes its own prediction. Runs before the step's combat. */
-  stepGuest(): boolean {
+   * freezes its own prediction. Runs before the step's combat; the step ends
+   * at `now` on this tab's clock. */
+  stepGuest(now: number): boolean {
     const copy = this.guestCopy();
     const { remote } = this.seat;
     if (!copy || !remote) {
       return false;
     }
     copy.enter(this.room.seq);
-    const moved = copy.step(remote.body, this.run.match?.frozen ?? false);
+    const moved = copy.step(remote.body, this.run.match?.frozen ?? false, now);
     while (copy.takeStomp()) {
       this.combat.claimedStomp(remote);
     }
@@ -283,7 +285,7 @@ export class HostNet {
       mark.progress !== last.progress;
     const complete = force || this.room.dirty || changed || this.sinceCheckpoint >= CHECKPOINT_MS;
     // Strictly increasing, even for two forced sends in one frame.
-    const t = Math.max(this.lastStamp + 1, Math.round(sess.serverClock.now()));
+    const t = Math.max(this.lastStamp + 1, Math.round(sess.serverNow()));
     this.lastStamp = t;
     // One message, so a guest always reads a snapshot with the cast, status,
     // room and checkpoint it was sent beside.

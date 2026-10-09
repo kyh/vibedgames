@@ -136,6 +136,9 @@ export class GuestSync {
   // sprite offset easing out a replayed edge's jump
   private driftX = 0;
   private driftY = 0;
+  // when (performance.now ms) the newest predicted tick's step ended: the
+  // frame clock less the time still owed, a tick apart from the one before
+  private tickAt = 0;
 
   constructor(deps: GuestSyncDeps) {
     this.scene = deps.scene;
@@ -184,8 +187,9 @@ export class GuestSync {
     this.prediction.dropQueued(this.seat.player.body);
   }
 
-  // Guest frame: apply what the host sent, predict my body, draw the rest.
-  step(dts: number) {
+  // Guest frame (it began at `frameAt`): apply what the host sent, predict my
+  // body, draw the rest.
+  step(dts: number, frameAt: number) {
     const sess = this.seat.session;
     if (!sess?.live) {
       return;
@@ -197,7 +201,7 @@ export class GuestSync {
       return;
     }
     this.versus.noticeOpponentGone(sess);
-    this.predict(dts, sess);
+    this.predict(dts, frameAt, sess);
     this.renderViews();
     this.lastStand.render();
   }
@@ -584,7 +588,7 @@ export class GuestSync {
 
   // Exactly one driver advances my body: the fixed-step sim on my own input.
   // Every tick also queues for the host; two at a time go up (30 Hz).
-  private predict(dts: number, sess: NetSession) {
+  private predict(dts: number, frameAt: number, sess: NetSession) {
     const frozen =
       this.seat.mode === "versus" &&
       this.run.matchNet !== null &&
@@ -597,6 +601,9 @@ export class GuestSync {
       this.prediction.step(body, this.stomps);
       this.run.acc -= STEP;
       steps += 1;
+    }
+    if (steps > 0) {
+      this.tickAt = frameAt - this.run.acc * 1000;
     }
     this.flushInput(sess);
     // Prediction is movement only: combat intents resolve on the host.
@@ -644,8 +651,15 @@ export class GuestSync {
     return false;
   };
 
+  // Stamped with the server time the newest tick's step ended at: the host's
+  // copy plays the ticks on that timeline, so they must be a tick apart and
+  // never stamped later than they were stepped.
   private flushInput(sess: NetSession, force = false) {
-    const msg = this.prediction.flush(this.room.seq, force);
+    const msg = this.prediction.flush(
+      this.room.seq,
+      Math.round(sess.serverNow(this.tickAt)),
+      force,
+    );
     if (msg) {
       sess.sendToHost("in", msg);
     }
