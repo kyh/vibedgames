@@ -1,12 +1,23 @@
 // Blends for the guest's puppets: each remote actor renders INTERP_MS behind
-// the relay clock below, between the two snapshots that bracket that moment
+// the relay clock, between the two snapshots that bracket that moment
 // (Interpolator). Positions blend; discrete state (clip-driving flags, ids,
 // the FSM state) steps over at the midpoint; an FSM state's age blends while
 // the state holds, so posed attack frames advance every rendered frame rather
 // than at the snapshot rate.
+//
+// The relay clock is the SDK's RemoteClock, fed each snapshot's stamp and the
+// local time it landed (scenes/guest-sync.ts). The host stamps each snapshot
+// with the room's server time as it sends it, and the snapshot reaches the
+// guest host → party server → guest later — two hops, 100–150 ms under the dev
+// proxy — so INTERP_MS behind server time alone would sit past the newest
+// snapshot and extrapolate every frame. The clock reads server time less the
+// fastest recent relay, measured at arrival on this tab's own clock, so this
+// guest's server-clock estimate never enters it. Hit-stop and a slow host move
+// the stamps with real time, so there is nothing to reset; a new host or a
+// reconnect carries them straight on by another route, which the clock
+// relearns (GuestSync.admit).
 
-import { lerp, RemoteClock } from "@vibedgames/multiplayer";
-import type { SenderClock } from "@vibedgames/multiplayer";
+import { lerp } from "@vibedgames/multiplayer";
 
 import type { BossPose, EnemyPose, PlayerPose } from "./snapshot";
 
@@ -16,40 +27,6 @@ export const INTERP_MS = 100;
 // px between consecutive snapshots that no movement covers in 33 ms — a
 // respawn or a blink. Hold the old pose until the new one's stamp, then step.
 const TELEPORT = 48;
-
-/**
- * What the guest renders on: the room's server time, less the fastest recent
- * relay. The host stamps each snapshot with server time as it sends it, and
- * the snapshot reaches the guest host → party server → guest later — two hops,
- * 100–150 ms under the dev proxy — so INTERP_MS behind server time alone would
- * sit past the newest snapshot and extrapolate every frame. Each age is
- * measured at arrival, server time at both ends, through the SDK's
- * windowed-minimum RemoteClock: hit-stop, a slow host or a host change move
- * the stamps with real time, so there is nothing to reset.
- */
-export class RelayClock implements SenderClock {
-  private readonly server: () => SenderClock | undefined;
-  private readonly relay = new RemoteClock();
-
-  /** `server`: the session's server clock, once there is a session. */
-  constructor(server: () => SenderClock | undefined) {
-    this.server = server;
-  }
-
-  /** True once a snapshot has been measured. */
-  get synced(): boolean {
-    return this.relay.synced;
-  }
-
-  /** A snapshot stamped `sentAt` landed at server time `arrivedAt`. */
-  learn(sentAt: number, arrivedAt: number): void {
-    this.relay.observe(sentAt, arrivedAt);
-  }
-
-  now(localNow: number = performance.now()): number {
-    return this.relay.now(this.server()?.now(localNow) ?? localNow);
-  }
-}
 
 interface Point {
   x: number;

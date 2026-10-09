@@ -1,7 +1,7 @@
 import type Phaser from "phaser";
 import type { Scene } from "phaser";
 
-import { Interpolator } from "@vibedgames/multiplayer";
+import { Interpolator, RemoteClock } from "@vibedgames/multiplayer";
 
 import { sfx } from "../audio/sfx";
 import { COLORS, MAX_LAG, MAX_STEPS, STEP } from "../config";
@@ -14,7 +14,7 @@ import type { Player } from "../entities/player";
 import { onBossHead, onEnemyHead } from "../entities/player-body";
 import type { PlayerBody } from "../entities/player-body";
 import type { ExpeditionCheckpoint } from "../net/checkpoint";
-import { INTERP_MS, lerpBoss, lerpEnemy, lerpPlayer, lerpProj, RelayClock } from "../net/interp";
+import { INTERP_MS, lerpBoss, lerpEnemy, lerpPlayer, lerpProj } from "../net/interp";
 import type { ProjPose } from "../net/interp";
 import type { JsonValue } from "../net/json";
 import { parseEnemy, parseHero, readCast, readSnapshot, readStatus } from "../net/parse";
@@ -67,9 +67,9 @@ const INBOX = 32;
 const STOMP_HUSH = 700;
 
 // One snapshot as it landed, with the cast, status and room beside it, and
-// the server time it landed at (null before this client's clock is set).
+// when it landed (performance.now ms): the relay clock learns from that.
 interface Arrival {
-  arrived: number | null;
+  receivedAt: number;
   snap: JsonValue;
   cast: JsonValue | undefined;
   status: JsonValue | undefined;
@@ -117,8 +117,9 @@ export class GuestSync {
   private readonly versus: VersusFlow;
   private readonly hooks: SceneHooks;
   private readonly prediction = new Prediction();
-  // server time less the relay: every puppet renders on it, whoever is host
-  private readonly clock = new RelayClock(() => this.seat.session?.serverClock);
+  // the relay clock (net/interp.ts): server time less the relay, learnt from
+  // each snapshot's arrival. Every puppet renders on it, whoever is host.
+  private readonly clock = new RemoteClock();
   private readonly remote = new Interpolator<PlayerPose>({
     clock: this.clock,
     delayMs: INTERP_MS,
@@ -158,18 +159,18 @@ export class GuestSync {
       return;
     }
     this.seenSnap = snap;
-    const server = this.seat.session?.serverClock;
-    const arrived = server?.synced ? server.now() : null;
-    this.inbox.push({ arrived, cast, room, snap, status });
+    this.inbox.push({ cast, receivedAt: performance.now(), room, snap, status });
     if (this.inbox.length > INBOX) {
       this.inbox.shift();
     }
   }
 
   /** A new authority adopted: everything predicted before is stale. Stamps
-   * are server time, so the render clock carries on whoever the host is. */
+   * are server time, so the relay clock carries on whoever the host is: it
+   * only relearns the route, which a new host or a reconnect changes. */
   admit(): void {
     this.prediction.admit();
+    this.clock.relearn();
     this.remote.clear();
     this.remotePrev = null;
     this.driftX = 0;
@@ -226,10 +227,10 @@ export class GuestSync {
       ) {
         continue;
       }
-      if (arrival.arrived !== null) {
-        this.clock.learn(s.t, arrival.arrived);
-      }
-      this.apply(s, cast, status);
+      // The relay clock learns from when the snapshot landed, not when this
+      // frame drains it; every push below carries that same arrival.
+      this.clock.observe(s.t, arrival.receivedAt);
+      this.apply(s, cast, status, arrival.receivedAt);
       if (this.run.state !== "active") {
         return;
       }
@@ -277,7 +278,7 @@ export class GuestSync {
     return true;
   }
 
-  private apply(s: Snapshot, cast: NetCast, status: NetStatus) {
+  private apply(s: Snapshot, cast: NetCast, status: NetStatus, receivedAt: number) {
     this.room.guest.snapT = s.t;
     this.run.hearts = status.hearts;
     this.run.maxHearts = status.maxHearts;
@@ -303,22 +304,22 @@ export class GuestSync {
         this.remotePrev = null;
       }
       this.seat.remoteId = other.id;
-      this.remote.push(s.t, other);
+      this.remote.push(s.t, other, receivedAt);
     }
     if (this.seat.mode === "versus") {
       // Versus: per-duelist hearts + round state travel on s.vs; the shared
       // hearts / last-stand / shared-death rules don't apply.
       this.versus.applyNet(s.vs);
-      this.applyProj(s);
+      this.applyProj(s, receivedAt);
       this.hooks.updateHud();
       return;
     }
     const downed = players.find((p) => p.downed)?.id ?? null;
     this.lastStand.applyNet(status.over ? null : s.lastStand, downed, status.hearts);
-    this.applyEnemies(s, cast);
-    this.applyBoss(s, status.biome);
+    this.applyEnemies(s, cast, receivedAt);
+    this.applyBoss(s, status.biome, receivedAt);
     this.applyPayoffEdges(s, status.cleared);
-    this.applyProj(s);
+    this.applyProj(s, receivedAt);
     for (const d of this.room.doors) {
       d.setActive(status.cleared);
     }
@@ -432,7 +433,7 @@ export class GuestSync {
     };
   }
 
-  private applyEnemies(s: Snapshot, cast: NetCast) {
+  private applyEnemies(s: Snapshot, cast: NetCast, receivedAt: number) {
     const puppets = this.room.guest.enemyPuppets;
     const listed = new Set<number>();
     for (const row of s.enemies) {
@@ -472,7 +473,7 @@ export class GuestSync {
       }
       p.seen = s.t;
       p.gone = null;
-      p.interp.push(s.t, pose);
+      p.interp.push(s.t, pose, receivedAt);
     }
     for (const [id, p] of puppets) {
       if (!listed.has(id) && p.gone === null) {
@@ -481,7 +482,7 @@ export class GuestSync {
     }
   }
 
-  private applyBoss(s: Snapshot, biome: number) {
+  private applyBoss(s: Snapshot, biome: number, receivedAt: number) {
     const g = this.room.guest;
     if (!s.boss) {
       if (g.bossPuppet) {
@@ -505,7 +506,7 @@ export class GuestSync {
       view: this.rooms.bossView(pose.x, pose.y, biome),
     };
     g.bossPuppet.seen = s.t;
-    g.bossPuppet.interp.push(s.t, pose);
+    g.bossPuppet.interp.push(s.t, pose, receivedAt);
     // A dead/stale first snapshot stays quiet. A later live one can
     // establish the encounter even if that earlier packet built the puppet.
     if (pose.state !== "dead") {
@@ -516,7 +517,7 @@ export class GuestSync {
   // A projectile's rows are blended like any puppet's. Flying one forward from
   // its newest row would read the gap between stamps as flight time — and the
   // host's projectiles stand still through hit-stop while the stamps go on.
-  private applyProj(s: Snapshot) {
+  private applyProj(s: Snapshot, receivedAt: number) {
     const flying = this.room.guest.proj;
     const listed = new Set<number>();
     for (const row of s.proj) {
@@ -544,7 +545,7 @@ export class GuestSync {
       }
       p.seen = s.t;
       p.gone = null;
-      p.interp.push(s.t, { vx, vy, x, y });
+      p.interp.push(s.t, { vx, vy, x, y }, receivedAt);
     }
     for (const [id, p] of flying) {
       if (!listed.has(id) && p.gone === null) {

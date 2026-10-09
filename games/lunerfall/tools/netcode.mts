@@ -5,14 +5,16 @@
 // versus countdown, bunched packets at 144 Hz. Asserts the guest's body ends
 // exactly where the host's copy is and that nothing drags it backwards.
 //
-// Both ends keep their own local clock and learn the room's server time the
-// way the SDK does, from probes to the party server and back. The host stamps
+// Both ends keep their own local clock. The host learns the room's server time
+// the way the SDK does, from probes to the party server and back, and stamps
 // each snapshot with it; the guest draws the host's own hero from those stamps
-// on the game's RelayClock, and is held to where the host had it.
+// as the scene draws a puppet — on a RemoteClock fed each snapshot's arrival on
+// the guest's own clock — and is held to where the host had it.
 // Run: `pnpm test` (after tools/sim.mts).
 import {
   FixedRate,
   Interpolator,
+  RemoteClock,
   ServerClock,
   TIME_PROBE_INTERVAL_MS,
 } from "@vibedgames/multiplayer";
@@ -23,7 +25,7 @@ import { ENEMIES } from "../src/data/enemies.ts";
 import { onEnemyHead, PlayerBody } from "../src/entities/player-body.ts";
 import type { BodyInput } from "../src/entities/player-body.ts";
 import { GuestCopy } from "../src/net/guest-copy.ts";
-import { INTERP_MS, lerpPlayer, RelayClock } from "../src/net/interp.ts";
+import { INTERP_MS, lerpPlayer } from "../src/net/interp.ts";
 import { Prediction, STEP_MS } from "../src/net/predict.ts";
 import { decodeEdge, decodePlayer, encodePlayer } from "../src/net/snapshot.ts";
 import type {
@@ -46,8 +48,8 @@ const HOST_ORIGIN = 4321.5;
 const GUEST_ORIGIN = 987.25;
 // The SDK's probes: a burst on joining, then the slow cadence.
 const PROBE_BURST = [0, 100, 250, 500];
-// Ms of each run before the host's world is held to account: both clocks and
-// the relay have to have been measured.
+// Ms of each run before the host's world is held to account: the host's
+// server clock and the relay have to have been measured.
 const SETTLE_MS = 1000;
 
 let pass = 0;
@@ -142,6 +144,9 @@ const serverClock = (origin: number, oneWay: number, jitter: number, seed: numbe
   };
 };
 
+// The guest tab's own clock (performance.now) at true time `now`.
+const guestLocal = (now: number): number => now + GUEST_ORIGIN;
+
 interface Snap {
   // server time the host sent it
   t: number;
@@ -230,12 +235,11 @@ const run = (sc: Scenario): Outcome => {
   const host = { acc: 0, freeze: 0, stamp: -1, step: 0 };
   const guest = { acc: 0, frozen: false };
   const hostTime = serverClock(HOST_ORIGIN, sc.oneWay, sc.jitter, 21);
-  const guestTime = serverClock(GUEST_ORIGIN, sc.oneWay, sc.jitter, 31);
   // The host's own hero, and where it stood after each host frame (true time).
   const own = new PlayerBody(grid, 12 * TILE, FLOOR_Y, kit);
   const ownPath: { at: number; x: number }[] = [];
   // The guest draws it as the scene draws a puppet (scenes/guest-sync.ts).
-  const relay = new RelayClock(() => guestTime.clock);
+  const relay = new RemoteClock();
   const puppet = new Interpolator<PlayerPose>({
     clock: relay,
     delayMs: INTERP_MS,
@@ -306,19 +310,18 @@ const run = (sc: Scenario): Outcome => {
     return null;
   };
 
-  // A snapshot's stamp and its arrival, both server time, measure the relay;
-  // the host's hero joins the puppet's history.
+  // A snapshot's stamp and its arrival on the guest's clock measure the relay;
+  // the host's hero joins the puppet's history, pushed at that same arrival.
   const receiveSnap = (snap: Snap, at: number) => {
-    if (guestTime.clock.synced) {
-      relay.learn(snap.t, guestTime.clock.now(guestTime.local(at)));
-    }
-    puppet.push(snap.t, decodePlayer(snap.own));
+    const receivedAt = guestLocal(at);
+    relay.observe(snap.t, receivedAt);
+    puppet.push(snap.t, decodePlayer(snap.own), receivedAt);
     newest = Math.max(newest, snap.t);
   };
 
   // The guest's frame draws the host's hero; once settled, hold it to the host.
   const drawOwn = (now: number) => {
-    const local = guestTime.local(now);
+    const local = guestLocal(now);
     const pose = puppet.sample(local);
     if (!relay.synced || !pose || now < SETTLE_MS) {
       return;
@@ -331,7 +334,8 @@ const run = (sc: Scenario): Outcome => {
     out.drawn += 1;
     out.dry += renderAt >= newest ? 1 : 0;
     out.drawError = Math.max(out.drawError, Math.abs(pose.x - truth));
-    out.relay = guestTime.clock.now(local) - relay.now(local);
+    // the party server's clock right now, less the relay clock's reading
+    out.relay = EPOCH + now - relay.now(local);
   };
 
   const applySnap = (snap: Snap) => {
@@ -372,7 +376,6 @@ const run = (sc: Scenario): Outcome => {
   };
 
   const guestFrame = (now: number, frameMs: number) => {
-    guestTime.poll(now);
     for (const { at, msg } of down.arrivals(now)) {
       receiveSnap(msg, at);
       applySnap(msg);
