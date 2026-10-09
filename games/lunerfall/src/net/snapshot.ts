@@ -1,13 +1,14 @@
 // Host ↔ guest wire format. Everything here is plain JSON.
 //
-// Host → guest, in shared state (patches shallow-merge per key):
+// Host → guest, in shared state (the SDK sends only the leaves that changed):
 //   snap        30 Hz on a steady clock, stamped with the room's server time as
 //               it goes out: the moving parts as compact rows, plus the guest
 //               body's input ack and the edges the host applied to it (hits,
 //               bounces, downs, respawns)
-//   cast        on change: who the rows are — player ids + heroes, enemy kinds
-//   status      on change: hearts, gold, score, depth — numbers that move on
-//               events, not every tick
+//   cast        with every snapshot, on the wire when it changes: who the rows
+//               are — player ids + heroes, enemy kinds
+//   status      with every snapshot, on the wire when it changes: hearts,
+//               gold, score, depth — numbers that move on events, not ticks
 //   room        on change: the layout, once per room
 //   checkpoint  1 Hz and on phase/progress edges: everything a takeover needs,
 //               stamped like the snapshot it rides with
