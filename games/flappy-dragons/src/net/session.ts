@@ -1,49 +1,36 @@
-// Thin adapter over @vibedgames/multiplayer for games that poll from their own
-// frame loop (a Phaser scene's update() or a plain RAF loop) instead of
-// subscribe(). It owns the connection, provides an offline solo fallback so the
-// game still runs single-player when the party server is unreachable or nobody
-// else is around, and exposes the host-authoritative verbs the scene uses.
-// Poll `tick()` once per frame; read the getters each frame.
+// The room as Flappy Dragons uses it: one @vibedgames/multiplayer client,
+// polled from the scene's frame loop rather than subscribed to, and the few
+// reads and writes the scene makes of it.
 //
-// Semantics mirror the package exactly: shared-state and player-state patches
-// shallow-merge (last-write-wins per field), and events are fire-and-forget.
-// Offline, everything loops back locally so the same code paths keep working.
-//
-// Started as the copy shared across games/*/src/net/session.ts; this one also
-// reads the room's server clock (`serverNow`), which every flappy-dragons
-// stamp and race is on. Per-game tuning (room, maxPlayers, fallbackMs) goes in
-// the NetSession constructor.
-//
+// Solo is the client's offline mode: a local room of one with the same API,
+// where this player is the host and writes apply locally, so the scene runs
+// one code path solo and online. `offline` never dials (`?offline=1`, a
+// playtest); `fallbackMs` goes offline when no room has admitted the client
+// within that many ms of rendered frames, so the game still plays when the
+// party server is out of reach. Once a room has admitted the client, a drop is
+// `reconnecting` (the seat is held while the socket redials), never solo.
 
 import { isOfflineRequested } from "@repo/embed";
 import { MultiplayerClient } from "@vibedgames/multiplayer";
-import type { Player, PlayerMap, SendEventOptions } from "@vibedgames/multiplayer";
+import type {
+  JsonRecord,
+  JsonValue,
+  MultiplayerConnectionStatus,
+  Player,
+  PlayerMap,
+} from "@vibedgames/multiplayer";
 
 const MULTIPLAYER_HOST = import.meta.env.DEV
   ? "http://localhost:8787"
   : "https://party.vibedgames.com";
 
-const SOLO_ID = "solo";
-
-/** JSON value as it comes off the wire — multiplayer payloads are JSON.parse output. */
-export type JsonValue =
-  | string
-  | number
-  | boolean
-  | null
-  | JsonValue[]
-  | { [key: string]: JsonValue };
-export interface JsonObject {
-  [key: string]: JsonValue;
-}
-
 /** One field of a wire JSON dictionary — unvalidated until narrowed. */
-type WireField = NonNullable<Player["state"]>[string] | undefined;
+type WireField = JsonValue | undefined;
 
 // Wire-JSON narrowing helpers. Runtime `typeof` is banned by the lint, so these
 // use typeof-free checks; JSON can only carry finite numbers, so Number.isFinite
 // is the exact number test.
-export const isJsonObject = (v: WireField): v is JsonObject =>
+export const isJsonObject = (v: WireField): v is JsonRecord =>
   Object.prototype.toString.call(v) === "[object Object]";
 export const isJsonNumber = (v: WireField): v is number => Number.isFinite(v);
 export const isJsonString = (v: WireField): v is string => String(v) === v;
@@ -51,143 +38,75 @@ export const isJsonString = (v: WireField): v is string => String(v) === v;
 export interface NetSessionOptions {
   room: string;
   maxPlayers?: number;
-  /** Give up on the party server after this long and fall back to solo. */
+  /** Go solo when no room has admitted the client within this long (ms of rendered frames). */
   fallbackMs: number;
-  /** Start (and stay) in local solo mode — no socket is ever opened. Used by
-   *  trailer mode, which must never show live players in a staged shot. */
-  forceOffline?: boolean;
-  onEvent?: (event: string, payload: JsonValue, from: string) => void;
+  /**
+   * Solo from the first frame: the client never dials. A playtest runs so,
+   * and must never join (or stage state into) the shared public room.
+   */
+  offline: boolean;
 }
 
 export class NetSession {
-  private client: MultiplayerClient | null;
-  private readonly fallbackMs: number;
-  private readonly onEvent?: (event: string, payload: JsonValue, from: string) => void;
-
-  private solo = false;
-  private everConnected = false;
-  private bootedAt = 0;
-  private offlineMyState: JsonObject = {};
-  private offlineShared: JsonObject | null = null;
+  private readonly client: MultiplayerClient;
 
   constructor(opts: NetSessionOptions) {
-    this.fallbackMs = opts.fallbackMs;
-    this.onEvent = opts.onEvent;
-    // Offline BY INTENT (`?offline=1`, trailer staging) is a different state
-    // from the fallback below, and must skip constructing the client rather
-    // than lean on a failed connection: a refused handshake logs a console
-    // error the page cannot suppress, and the game would still be unplayable
-    // until `fallbackMs` elapsed. Every `this.client` read below is null-safe.
-    this.solo = opts.forceOffline === true || isOfflineRequested();
-    this.client = this.solo
-      ? null
-      : new MultiplayerClient({
-          host: MULTIPLAYER_HOST,
-          maxPlayers: opts.maxPlayers,
-          onEvent: (event, payload, from) => {
-            // SAFETY: wire payloads are JSON.parse output (or loop back from
-            // sendEvent's JsonObject), so they are JSON values by construction.
-            this.onEvent?.(event, payload as JsonValue, from);
-          },
-          party: "vg-server",
-          room: opts.room,
-        });
+    this.client = new MultiplayerClient({
+      fallbackMs: opts.fallbackMs,
+      host: MULTIPLAYER_HOST,
+      maxPlayers: opts.maxPlayers,
+      // Offline by intent (`?offline=1`, a playtest) never dials rather than
+      // leaning on the fallback: a refused handshake logs a console error the
+      // page cannot suppress, and the game would wait out `fallbackMs` first.
+      offline: opts.offline || isOfflineRequested(),
+      party: "vg-server",
+      room: opts.room,
+    });
   }
 
-  /** Call once per frame: drives the offline fallback timer. */
-  tick(): void {
-    const { client } = this;
-    if (this.solo || !client) {
-      return;
-    }
-    // Start the grace window on the FIRST tick, not at construction: heavy games
-    // (lots of assets/wasm) can take longer than the window just to reach their
-    // first frame, and counting that load time would wrongly drop a client to
-    // solo before its socket ever got a chance to connect.
-    if (this.bootedAt === 0) {
-      this.bootedAt = performance.now();
-    }
-    const status = client.connectionStatus;
-    if (status === "connected") {
-      this.everConnected = true;
-      return;
-    }
-    // Once we've been in a room, a drop is transient — let partysocket
-    // reconnect instead of stranding the player in solo. (A reset under heavy
-    // load must not permanently drop a real player out of the game.)
-    if (this.everConnected) {
-      return;
-    }
-    // Pre-connect errors/closes are NOT instant failures: partysocket retries
-    // by itself, and a single refused handshake (cold server, wifi blip) must
-    // not strand the player in solo for the whole session. The deadline is the
-    // only fallback trigger.
-    if (performance.now() - this.bootedAt < this.fallbackMs) {
-      return;
-    }
-    // Never reached a room within the grace window: the party server is
-    // unreachable — fall back to a local solo game.
-    this.solo = true;
-    // stop reconnect attempts; refresh the page to retry
-    client.destroy();
+  /**
+   * `connecting` until a room admits the client, `connected` in it,
+   * `reconnecting` through a drop after that, `offline` solo.
+   */
+  get connectionStatus(): MultiplayerConnectionStatus {
+    return this.client.connectionStatus;
   }
 
-  get offline(): boolean {
-    return this.solo;
-  }
-
-  /** Connected to a room, or running the solo fallback. */
-  get live(): boolean {
-    return this.solo || this.client?.connectionStatus === "connected";
-  }
-
-  get connectionStatus(): string {
-    const { client } = this;
-    return this.solo || !client ? "offline" : client.connectionStatus;
-  }
-
+  /** Solo, this player is the room, so its host. */
   get isHost(): boolean {
-    return this.solo || this.client?.isHost === true;
+    return this.client.isHost;
+  }
+
+  get playerId(): string | null {
+    return this.client.playerId;
+  }
+
+  get players(): PlayerMap {
+    return this.client.players;
+  }
+
+  get sharedState(): JsonRecord {
+    return this.client.sharedState;
   }
 
   /**
    * The room's clock (ms): the party server's, measured from here, so a stamp
    * means the same moment to every player and outlives the host. Null until
    * the first time probe returns — the SDK reads the local clock until then,
-   * and a stamp from it would be garbage to everyone else. Offline, the local
-   * clock stands in. Pass the frame's timestamp, so that everything stamped
-   * or drawn in one frame shares one instant.
+   * and a stamp from it would be garbage to everyone else. Offline the room
+   * is this client alone, so its clock is ready from the start. Pass the
+   * frame's timestamp, so that everything stamped or drawn in one frame
+   * shares one instant.
    */
   serverNow(localNow?: number): number | null {
     const { client } = this;
-    if (this.solo || !client) {
-      return localNow ?? performance.now();
-    }
     return client.serverClock.synced ? client.serverNow(localNow) : null;
-  }
-
-  /** The current room host's id (for authenticating host-only events). */
-  get hostId(): string | null {
-    const { client } = this;
-    return this.solo || !client ? SOLO_ID : client.hostId;
-  }
-
-  get playerId(): string | null {
-    const { client } = this;
-    return this.solo || !client ? SOLO_ID : client.playerId;
-  }
-
-  get players(): PlayerMap {
-    const { client } = this;
-    return this.solo || !client
-      ? { [SOLO_ID]: { id: SOLO_ID, state: this.offlineMyState } }
-      : client.players;
   }
 
   /** The other player in the room, or null when alone. */
   otherPlayer(): Player | null {
-    const me = this.playerId;
-    for (const [id, p] of Object.entries(this.players)) {
+    const me = this.client.playerId;
+    for (const [id, p] of Object.entries(this.client.players)) {
       if (id !== me) {
         return p;
       }
@@ -195,78 +114,25 @@ export class NetSession {
     return null;
   }
 
-  get sharedState(): JsonObject | null {
-    if (this.solo || !this.client) {
-      return this.offlineShared;
-    }
-    // SAFETY: shared state is assembled server-side from JSON wire patches,
-    // so every field is a JSON value by construction.
-    const s = this.client.sharedState as JsonObject;
-    return s && Object.keys(s).length > 0 ? s : null;
-  }
-
-  /** Per-player state shallow-merges, mirroring the package semantics. */
-  updateMyState(patch: JsonObject): void {
-    if (this.solo || !this.client) {
-      Object.assign(this.offlineMyState, patch);
-    } else {
-      this.client.updateMyState(patch);
-    }
+  /** Per-player state shallow-merges (last write wins per field). */
+  updateMyState(patch: JsonRecord): void {
+    this.client.updateMyState(patch);
   }
 
   /** Shared-state patch shallow-merges; host-only on the server. */
-  patchShared(patch: JsonObject): void {
-    if (this.solo || !this.client) {
-      this.offlineShared = { ...this.offlineShared, ...patch };
-    } else {
-      this.client.updateSharedState(patch);
-    }
+  patchShared(patch: JsonRecord): void {
+    this.client.updateSharedState(patch);
   }
 
   /**
-   * Events loop straight back to the local handler when offline. `to` /
-   * `except` target player ids (server-enforced); offline, the local player
-   * is the only id, so the loopback honours them against it.
+   * Leave the room — the server frees the seat at once — and play on solo
+   * from the room's world. Already offline, nothing happens.
    */
-  sendEvent(event: string, payload: JsonObject, options?: SendEventOptions): void {
-    const { client } = this;
-    if (this.solo || !client) {
-      const to = options?.to;
-      const except = options?.except;
-      const listed = (ids: string | string[] | undefined): boolean =>
-        ids !== undefined && (Array.isArray(ids) ? ids.includes(SOLO_ID) : ids === SOLO_ID);
-      if ((to === undefined || listed(to)) && !listed(except)) {
-        this.onEvent?.(event, payload, SOLO_ID);
-      }
-      return;
-    }
-    client.sendEvent(event, payload, options);
-  }
-
-  /**
-   * An intent only the host acts on. The host — and an offline game — handles
-   * it locally and synchronously, like the offline loopback, instead of
-   * bouncing it off the server; a guest sends it to the host alone.
-   */
-  sendToHost(event: string, payload: JsonObject): void {
-    const { client } = this;
-    if (this.solo || !client) {
-      this.onEvent?.(event, payload, SOLO_ID);
-      return;
-    }
-    if (client.isHost) {
-      this.onEvent?.(event, payload, client.playerId ?? SOLO_ID);
-      return;
-    }
-    const host = client.hostId;
-    if (host !== null) {
-      client.sendEvent(event, payload, { to: host });
-    }
+  goOffline(): void {
+    this.client.goOffline();
   }
 
   destroy(): void {
-    if (!this.solo) {
-      this.client?.destroy();
-    }
+    this.client.destroy();
   }
 }

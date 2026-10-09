@@ -13,8 +13,7 @@ import { courseStart, courseX, followCourse } from "../net/course";
 import { RivalMotion } from "../net/rival-motion";
 import { NetSession, isJsonNumber, isJsonObject } from "../net/session";
 import { publishPlaytestSurface } from "../playtest";
-import type { JsonValue } from "../net/session";
-import type { Player, PlayerMap } from "@vibedgames/multiplayer";
+import type { JsonValue, Player, PlayerMap } from "@vibedgames/multiplayer";
 import { FlightFx, prefersReducedMotion } from "./flight-fx";
 import {
   ART_SCALE,
@@ -126,14 +125,6 @@ const TOUCH = isCoarsePointer();
 /** DEV-only room override (?room=): the two-client harness isolates each run
  *  so a stale room's course can't leak into assertions. */
 const ROOM = (import.meta.env.DEV && new URLSearchParams(location.search).get("room")) || MP_ROOM;
-
-const createSession = (forceOffline: boolean): NetSession =>
-  new NetSession({
-    fallbackMs: OFFLINE_FALLBACK_MS,
-    forceOffline,
-    maxPlayers: MP_MAX_PLAYERS,
-    room: ROOM,
-  });
 
 const HINT_FLAP = TOUCH ? "TAP TO FLAP" : "CLICK · SPACE — FLAP";
 const HINT_RESTART = TOUCH ? "TAP ANYWHERE TO RESTART" : "CLICK OR PRESS SPACE TO RESTART";
@@ -401,9 +392,15 @@ export class GameScene extends Scene {
     // Escape is keyboard-only, so a phone otherwise has no way to leave a run.
     this.touchControls = createTouchControls();
 
-    // A playtest is a solo run: it must never join (or stage state into) the
-    // shared public room.
-    this.net = createSession(isPlaytestRequested());
+    // Assets are loaded by now: the client's fallback deadline counts from
+    // the next frame. A playtest is a solo run: it must never join (or stage
+    // state into) the shared public room.
+    this.net = new NetSession({
+      fallbackMs: OFFLINE_FALLBACK_MS,
+      maxPlayers: MP_MAX_PLAYERS,
+      offline: isPlaytestRequested(),
+      room: ROOM,
+    });
 
     this.bgLayers = BG_FACTORS.map((factor, i) => ({
       factor,
@@ -545,22 +542,12 @@ export class GameScene extends Scene {
   }
 
   // ---- playtest hooks (see ../playtest.ts) -----------------------------------
-
-  /** Staged state must never reach a live room: swap to a local session first. */
-  private goSolo(): void {
-    if (this.net.offline) {
-      return;
-    }
-    this.net.destroy();
-    this.net = createSession(true);
-    if (import.meta.env.DEV) {
-      window.__fb = { net: this.net, scene: this };
-    }
-  }
+  // Staged state must never reach a live room: each hook leaves it first, and
+  // the run goes on solo.
 
   /** Reseed the course and restart the run on it, skipping the get-ready count. */
   testSeed(seed: number): void {
-    this.goSolo();
+    this.net.goOffline();
     this.cancelCountdown();
     this.resetRun(1 + (Math.abs(Math.trunc(seed)) % 0x7f_ff_ff_ff));
   }
@@ -574,7 +561,7 @@ export class GameScene extends Scene {
     if (name !== "active-play") {
       return this.phase;
     }
-    this.goSolo();
+    this.net.goOffline();
     this.dismissStartScreen();
     this.cancelCountdown();
     if (this.phase !== "ready") {
@@ -763,12 +750,12 @@ export class GameScene extends Scene {
     return this.rivalIds.length > 0;
   }
   /**
-   * True only when actually connected to a live party room (not the solo
-   * fallback) — used by the wrapper's pause handler so it never freezes a
-   * session other players are relying on.
+   * True only when actually connected to a live party room (not solo, nor
+   * still connecting or reconnecting) — used by the wrapper's pause handler
+   * so it never freezes a session other players are relying on.
    */
   isOnline(): boolean {
-    return this.net.live && !this.net.offline;
+    return this.net.connectionStatus === "connected";
   }
   /**
    * Everything local-only — the get-ready 3-2-1 (an input gate plus pose
@@ -821,7 +808,6 @@ export class GameScene extends Scene {
     if (this.padFlapPressed()) {
       this.handleInput();
     }
-    this.net.tick();
     this.rivalIds = this.presentRivals();
     // In a race the dragon steps on real time, keeping pace with a course on
     // the room's clock; a solo run pauses through a stall rather than
@@ -913,7 +899,7 @@ export class GameScene extends Scene {
 
   /** The room's course from shared state, parsed once per new object. */
   private roomCourse(): Course | null {
-    const ref = this.net.sharedState?.["course"];
+    const ref = this.net.sharedState["course"];
     if (ref !== this.courseRef) {
       this.courseRef = ref;
       this.course = readCourse(ref);
@@ -1124,7 +1110,7 @@ export class GameScene extends Scene {
     this.seed = seed;
     // Publish the reroll, or ensureSeed() re-adopts the stale shared seed
     // next frame and every solo run replays the identical course. (Offline
-    // this writes the local loopback state.) Only the course's owner may:
+    // the client applies it locally.) Only the course's owner may:
     // every caller is the host by now, but a guest's write would be refused.
     // No race runs on the new seed until someone joins.
     if (this.net.isHost) {
@@ -1527,12 +1513,12 @@ export class GameScene extends Scene {
   /**
    * Streams this dragon on a steady clock (FixedRate keeps the remainder,
    * where a reset-to-zero throttle drifted to 17–18 Hz with uneven gaps).
-   * Only while racing: alone, nobody is listening — and the first tick of a
-   * stream goes out at once, so a joiner sees this dragon immediately. The
-   * course needs no stream: it runs on the room's clock.
+   * Only while racing: alone (offline too), nobody is listening — and the
+   * first tick of a stream goes out at once, so a joiner sees this dragon
+   * immediately. The course needs no stream: it runs on the room's clock.
    */
   private broadcast(elapsedMs: number, now: number | null): void {
-    if (this.net.offline || !this.racing) {
+    if (!this.racing) {
       this.streamingState = false;
       return;
     }
@@ -1745,10 +1731,15 @@ export class GameScene extends Scene {
   }
 
   private netInfoLine(): string {
-    if (!this.net.live) {
+    const status = this.net.connectionStatus;
+    if (status === "connecting") {
       return "connecting…";
     }
-    if (this.net.offline) {
+    // Our own drop: the room holds the seat while the socket redials.
+    if (status === "reconnecting") {
+      return "reconnecting…";
+    }
+    if (status === "offline") {
       return "offline · solo";
     }
     if (this.racing) {
@@ -1780,7 +1771,7 @@ export class GameScene extends Scene {
         this.boardEl.replaceChildren();
       }
       this.boardSig = "";
-      if (this.phase === "ready" && this.net.live && !this.net.offline) {
+      if (this.phase === "ready" && this.isOnline()) {
         this.setHint(HINT_FLAP);
       }
       return;
