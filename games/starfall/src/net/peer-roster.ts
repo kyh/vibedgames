@@ -31,6 +31,9 @@ interface PeerEntry {
   net: PlayerNetState | null;
   /** The clock this peer's stream is read through, held to relearn it. */
   clock: RemoteClock;
+  /** Dropped (its seat held in the reconnect grace) when last seen: its
+   *  updates come back by a new route. */
+  away: boolean;
   interp: Interpolator<Pose>;
   /** Alive and in the arena at the last parse: a respawn or re-entry is a
    *  teleport, so the interpolator restarts instead of gliding across it. */
@@ -66,7 +69,8 @@ export class PeerRoster {
    *  clock learns its relay from it — and two patches arriving within one
    *  frame both reach the buffer. Cheap: a state object only changes when a
    *  patch lands. A peer out of interest range is skipped: what it holds is
-   *  stale. */
+   *  stale. A peer back from its own drop is relearned here too, so the
+   *  drop is seen even while this tab is hidden. */
   ingest(perfNow: number): void {
     const { peers, myId, offline } = this.link;
     if (offline) {
@@ -77,6 +81,16 @@ export class PeerRoster {
         continue;
       }
       const entry = this.entryFor(id);
+      if (player.connected === false) {
+        entry.away = true;
+      } else if (entry.away) {
+        // Its route to the server is new (another network, another colo): a
+        // clock timed by the old, quicker one would run its ship past the
+        // newest update until the window forgot it (~2 s on a route 300 ms
+        // slower after a 1.5 s blip), so it measures the route afresh.
+        entry.away = false;
+        entry.clock.relearn();
+      }
       if (player.state !== entry.raw) {
         entry.raw = player.state;
         parseInto(entry, readNetState(player), perfNow);
@@ -180,6 +194,7 @@ export class PeerRoster {
     if (!entry) {
       const clock = new RemoteClock();
       entry = {
+        away: false,
         clock,
         interp: new Interpolator<Pose>({ clock, delayMs: REMOTE_RENDER_DELAY_MS, lerp: blendPose }),
         latest: null,
