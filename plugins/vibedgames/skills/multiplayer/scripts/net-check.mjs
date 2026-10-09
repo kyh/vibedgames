@@ -17,7 +17,8 @@
  *   node net-check.mjs <url> [--latency <ms>] [--jitter <ms>] [--seconds <n>]
  *                            [--warmup <n>] [--room-param <name>] [--set-state <name>]
  *                            [--max-starved <0..1>] [--max-stalled <0..1>]
- *                            [--min-fps <n>] [--viewport <WxH>] [--json]
+ *                            [--min-fps <n>] [--viewport <WxH>] [--no-draw]
+ *                            [--load-timeout <s>] [--json]
  *
  * Examples:
  *   node net-check.mjs http://localhost:5173
@@ -25,13 +26,21 @@
  *
  * Defaults: --latency 80 --jitter 40 (one way, so round trips of 160–240 ms),
  * --seconds 20 measured after --warmup 6 (clocks settle), --room-param room,
- * --max-starved 0.1, --max-stalled 0.02, --min-fps 20, --viewport 480x270.
+ * --max-starved 0.1, --max-stalled 0.02, --min-fps 20, --viewport 480x270,
+ * --load-timeout 30 (seconds each page may take to load and join the room).
  *
  * Frame rate: two pages share one machine, and a page that can't keep up sends
  * and draws late however good its netcode is. Each page's frame rate over the
  * measured window is reported, and below --min-fps the verdict is "too slow"
  * rather than a lag figure the machine made up. The small default viewport
  * keeps software-rendered WebGL (no GPU) near real time.
+ *
+ * No GPU (a container, CI): software WebGL holds a 3D scene to a few frames a
+ * second, so the verdict would be "too slow" whatever the netcode. --no-draw
+ * turns every WebGL draw call and clear in both pages into a no-op: the
+ * game's own code, its sockets and its Interpolators run as on a real device,
+ * so the verdict reads the netcode. The pages show nothing, so take
+ * screenshots without it. A canvas-2D game doesn't need it.
  *
  * The game must join the room named by `?<room-param>=` on load (a fresh id
  * per run, so concurrent checks never meet) and render remotes through
@@ -72,6 +81,7 @@ const printHelp = () => {
 const NUMBER_FLAGS = {
   "--jitter": "jitter",
   "--latency": "latency",
+  "--load-timeout": "loadTimeout",
   "--max-stalled": "maxStalled",
   "--max-starved": "maxStarved",
   "--min-fps": "minFps",
@@ -84,9 +94,11 @@ const parseArgs = (argv) => {
     jitter: 40,
     json: false,
     latency: 80,
+    loadTimeout: 30,
     maxStalled: 0.02,
     maxStarved: 0.1,
     minFps: 20,
+    noDraw: false,
     roomParam: "room",
     seconds: 20,
     setState: null,
@@ -101,6 +113,8 @@ const parseArgs = (argv) => {
     }
     if (arg === "--json") {
       options.json = true;
+    } else if (arg === "--no-draw") {
+      options.noDraw = true;
     } else if (arg === "--room-param") {
       options.roomParam = argv[(i += 1)];
     } else if (arg === "--set-state") {
@@ -185,6 +199,18 @@ const tick = () => {
 requestAnimationFrame(tick);
 `;
 
+// --no-draw: WebGL draws and clears do nothing, so a machine with no GPU
+// spends no time rasterizing in software. Everything else in the page runs.
+const NO_DRAW = `
+for (const proto of [globalThis.WebGLRenderingContext?.prototype, globalThis.WebGL2RenderingContext?.prototype]) {
+  for (const name of ["drawArrays", "drawElements", "drawArraysInstanced", "drawElementsInstanced", "drawRangeElements", "clear", "blitFramebuffer"]) {
+    if (proto && typeof proto[name] === "function") {
+      proto[name] = () => {};
+    }
+  }
+}
+`;
+
 const readNet = (page) =>
   page.evaluate(() => {
     const probe = globalThis.__VG_NET__;
@@ -195,6 +221,9 @@ const readNet = (page) =>
 const openClient = async (browser, url, options) => {
   const context = await browser.newContext({ viewport: options.viewport });
   await context.addInitScript({ content: COUNT_FRAMES });
+  if (options.noDraw) {
+    await context.addInitScript({ content: NO_DRAW });
+  }
   await context.routeWebSocket(/\/parties\//u, (ws) => {
     const server = ws.connectToServer();
     const up = delayed((data) => server.send(data), options);
@@ -207,13 +236,13 @@ const openClient = async (browser, url, options) => {
   const page = await context.newPage();
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
-  await page.goto(url, { waitUntil: "load" });
+  await page.goto(url, { timeout: options.loadTimeout * 1000, waitUntil: "load" });
   if (options.setState) {
     await page.evaluate(async (state) => {
       await globalThis.__GAME_TEST_HOOKS__?.setState?.(state);
     }, options.setState);
   }
-  const deadline = Date.now() + 30_000;
+  const deadline = Date.now() + options.loadTimeout * 1000;
   let net = await readNet(page);
   while (
     !net?.clients.some((c) => c.status === "connected" && c.playerId) &&
@@ -345,9 +374,13 @@ const printReport = (report, options) => {
       console.log(`    page error: ${error}`);
     }
   }
+  if (options.noDraw) {
+    console.log("  WebGL drawing was off (--no-draw): the frame rates are the game's code alone.");
+  }
   if (report.clients.some((client) => client.verdict === "too slow")) {
+    const hint = options.noDraw ? "" : " With no GPU, try --no-draw.";
     console.log(
-      `  A page ran below ${options.minFps} fps: this machine is the bottleneck, not the netcode.`,
+      `  A page ran below ${options.minFps} fps: this machine is the bottleneck, not the netcode.${hint}`,
     );
   } else if (report.exitCode === 3) {
     console.log("  Nothing was drawn through Interpolator, so this check can't judge the netcode.");
@@ -385,6 +418,7 @@ const run = async (options) => {
         maxStarved: options.maxStarved,
         minFps: options.minFps,
       },
+      noDraw: options.noDraw,
       ok: exitCode === 0,
       room,
       seconds: options.seconds,
