@@ -1,6 +1,7 @@
 // Two-client online smoke: host + guest through join, a bomb across the wire,
 // pause without freezing the other side, restarts from both sides (arena
-// rotation), a power-up both claim at once, host migration and a late join. Needs the party server on
+// rotation), a power-up both claim at once, host migration and a late join,
+// then an offline client's power-up race. Needs the party server on
 // localhost:8787 and a Chrome (playwright-core: channel "chrome", or
 // CHROME_PATH). `--url http://localhost:5304` reuses a dev server; otherwise a
 // vite instance is spawned on --port (default 5384).
@@ -95,8 +96,9 @@ const snapshot = () => {
 };
 
 /** `skewMs` shifts this client's wall clock: machines disagree about Date.now(),
- * and the shared sim clock must follow the host's sim time regardless. */
-const open = async (browser, url, name, errors, skewMs = 0) => {
+ * and the shared sim clock must follow the host's sim time regardless.
+ * `offline` opens it with ?offline=1 instead of the room: it never dials. */
+const open = async (browser, url, name, errors, { offline = false, skewMs = 0 } = {}) => {
   const context = await browser.newContext({ viewport: { height: 800, width: 1100 } });
   await context.addInitScript((skew) => {
     const real = Date.now;
@@ -114,7 +116,7 @@ const open = async (browser, url, name, errors, skewMs = 0) => {
       errors.push(`${name}: ${response.status()} ${response.url()}`);
     }
   });
-  await page.goto(`${url}/?room=${room}&test=1`);
+  await page.goto(`${url}/?${offline ? "offline=1" : `room=${room}`}&test=1`);
   const client = {
     bomb: () => page.evaluate(() => window.__bb.scene.requestBomb()),
     close: () => context.close(),
@@ -137,7 +139,8 @@ const open = async (browser, url, name, errors, skewMs = 0) => {
       throw new Error(`${name}: timed out waiting for ${label}: ${JSON.stringify(last)}`);
     },
   };
-  await client.until("connected + seeded", (s) => s.status === "connected" && s.seeded);
+  const ready = offline ? "offline" : "connected";
+  await client.until(`${ready} + seeded`, (s) => s.status === ready && s.seeded);
   return client;
 };
 
@@ -197,7 +200,7 @@ try {
     assert.equal(held.simNow, s.simNow, "frozen sim time must hold");
   });
   await step("joiner wakes the frozen host; both see each other; clocks align", async () => {
-    guest = await open(browser, server.url, "guest", errors, 5000);
+    guest = await open(browser, server.url, "guest", errors, { skewMs: 5000 });
     await host.until("host resumed", (h) => !h.frozen && h.players.length === 2);
     await guest.until("guest sees both", (g) => g.players.length === 2 && g.clock === "running");
     await host.escape();
@@ -266,7 +269,7 @@ try {
       client.page.evaluate((pu) => {
         const { scene } = window.__bb;
         const state = scene.shared();
-        return scene.pickupClaims.reach(scene.claimRoom, state, scene.myId, pu) !== null;
+        return scene.pickupClaims.reach(window.__bb.client, state, scene.myId, pu) !== null;
       }, pickup);
     assert.deepEqual(await Promise.all([reach(host), reach(guest)]), [true, true]);
     const key = `pickup:${pickup.col},${pickup.row}:${before.round}`;
@@ -293,7 +296,7 @@ try {
     await guest.until("promoted host detonates", (s) => s.blasts > 0, 4000);
   });
   await step("late join into the running match", async () => {
-    late = await open(browser, server.url, "late", errors, -3000);
+    late = await open(browser, server.url, "late", errors, { skewMs: -3000 });
     const g = await guest.snap();
     const l = await late.until("late synced", (s) => s.players.length === 2 && s.round === g.round);
     assert.equal(l.arena, g.arena);
@@ -304,6 +307,64 @@ try {
     await late.bomb();
     await guest.until("host accepted late bomb", (s) => s.bombs.includes(l.id));
     await late.until("late bomb detonates", (s) => s.blasts > 0 && !s.bombs.includes(l.id), 4000);
+  });
+  await step("offline: a bot's power-up, claimed mid host step, is granted once", async () => {
+    const solo = await open(browser, server.url, "solo", errors, { offline: true });
+    await solo.play();
+    await solo.until("bots in", (s) => s.isHost && s.started && Object.keys(s.bots).length === 3);
+    // Offline the room grants a claim inside claim(), so a bot's arrives in the
+    // middle of the host step. Stage the worst case: a bot on a power-up while
+    // a bomb elsewhere, long past its fuse, goes off in that same step, so the
+    // step writes the power-ups too. Every bot is parked: a bot's stride would
+    // split the step's write and send the power-ups before the claim. The
+    // bot's grant must land once.
+    const race = await solo.page.evaluate(() => {
+      const { scene, simNow } = window.__bb;
+      const state = scene.shared();
+      const me = { col: scene.myCol, row: scene.myRow };
+      const bot = Object.values(state.bots).find(
+        (b) => !state.deaths[b.id] && (b.col !== me.col || b.row !== me.row),
+      );
+      const fighters = [me, ...Object.values(state.bots)];
+      const far = (col, row) =>
+        fighters.every((f) => Math.abs(f.col - col) + Math.abs(f.row - row) > 3);
+      const spot = state.grid
+        .flatMap((line, row) => line.map((cell, col) => ({ col, kind: cell.kind, row })))
+        .find(
+          (c) => c.kind === "empty" && far(c.col, c.row) && !state.powerups[`${c.col},${c.row}`],
+        );
+      const now = simNow();
+      const parked = Object.values(state.bots).map((b) => [
+        b.id,
+        { ...b, moving: false, nextMoveAt: now + 60_000 },
+      ]);
+      scene.netPatchShared({
+        bombs: {
+          ...state.bombs,
+          race: {
+            col: spot.col,
+            id: "race",
+            ownerId: bot.id,
+            placedAt: now - 5000,
+            range: 1,
+            row: spot.row,
+          },
+        },
+        bots: Object.fromEntries(parked),
+        powerups: {
+          ...state.powerups,
+          [`${bot.col},${bot.row}`]: { col: bot.col, kind: "fire", row: bot.row },
+          [`${spot.col},${spot.row}`]: { col: spot.col, kind: "bomb", row: spot.row },
+        },
+      });
+      return { bot: bot.id, range: state.stats[bot.id]?.range ?? 2 };
+    });
+    await solo.until("granted", (s) => s.ranges[race.bot] >= race.range + 1);
+    await wait(500);
+    const after = await solo.snap();
+    assert.equal(after.ranges[race.bot], race.range + 1, "granted once, not again a step later");
+    assert.equal(after.status, "offline");
+    await solo.close();
   });
   await step("no console errors on any client", () => {
     assert.deepEqual(errors, []);

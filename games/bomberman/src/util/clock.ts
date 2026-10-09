@@ -2,10 +2,10 @@
 //
 // Bomb fuses, blast lifetimes, the round id and bot cadence are timestamps on
 // this clock (compare a stored `placedAt`/`nextMoveAt` against `now()`).
-// Online its base is the party server's clock (`client.serverClock`), which
-// every client measures for itself, so a stamp means the same instant to every
-// player and a new host changes nothing. Offline the base is this machine's own
-// clock.
+// Its base is the room's clock (`client.serverClock`). Online that is the party
+// server's, which every client measures for itself, so a stamp means the same
+// instant to every player and a new host changes nothing. Offline it is this
+// machine's own.
 //
 // Pausing a solo arena freezes it: `now()` holds still, and on resume the
 // paused span joins the offset, so a bomb with 2 s of fuse left before a pause
@@ -19,7 +19,7 @@ import type { SenderClock } from "@vibedgames/multiplayer";
 
 export type ClockStamp = { kind: "running"; offset: number } | { kind: "paused"; now: number };
 
-/** This machine's clock, on the server's epoch: the base offline. */
+/** This machine's clock, on the server's epoch: the base until the scene sets the room's. */
 export const localClock: SenderClock = {
   now: (localNow = performance.now()) => performance.timeOrigin + localNow,
   synced: true,
@@ -28,7 +28,7 @@ export const localClock: SenderClock = {
 let base: SenderClock = localClock;
 let clock: ClockStamp = { kind: "running", offset: 0 };
 
-/** Run sim time on `source`: the room's server clock online, `localClock` offline. */
+/** Run sim time on `source`: the room's clock, `client.serverClock`. */
 export const setClockBase = (source: SenderClock): void => {
   base = source;
 };

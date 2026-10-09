@@ -14,7 +14,7 @@ import {
   publishPlaytest,
   publishTestHooks,
 } from "@vibedgames/playtest";
-import type { Player, SenderClock } from "@vibedgames/multiplayer";
+import type { JsonRecord, JsonValue, Player } from "@vibedgames/multiplayer";
 import type Phaser from "phaser";
 import { BlendModes, Input, Math as PhaserMath, Scale, Scene, Scenes } from "phaser";
 import { createArena, readArena } from "../shared/arena";
@@ -27,8 +27,7 @@ import { RoundHud } from "../render/round-hud";
 import { DirInput, stickDirs } from "../input/dir-input";
 import { BombPrediction, fuseStart } from "../net/bomb-prediction";
 import { applyOpened, encodeOpened } from "../net/grid-wire";
-import { localClaims, PICKUP_CLAIMS, PickupClaims, pickupKey } from "../net/pickup-claims";
-import type { ClaimRoom } from "../net/pickup-claims";
+import { PICKUP_CLAIMS, PickupClaims, pickupKey } from "../net/pickup-claims";
 import { StepTrack, WALK_GRACE_MS } from "../net/step-track";
 import type { StepPose } from "../net/step-track";
 import { playtestManifest } from "../playtest-manifest";
@@ -84,7 +83,6 @@ import { buildControls, ensureStyle as ensureControlsStyle } from "../pause-over
 import {
   adoptClock,
   clockStamp,
-  localClock,
   now as simNow,
   pauseClock,
   readClock,
@@ -100,7 +98,7 @@ declare global {
     /** Dev-console hook (DEV builds only). */
     __bb?: {
       scene: GameScene;
-      client: MultiplayerClient | undefined;
+      client: MultiplayerClient;
       audio: typeof audioDiagnostics;
       simNow: () => number;
     };
@@ -309,18 +307,13 @@ const emptyShared = (
   winner: null,
 });
 
-/** JSON value as it comes off the wire — multiplayer payloads are JSON.parse output. */
-type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
-interface JsonObject {
-  [key: string]: JsonValue;
-}
 /** One field of a wire JSON dictionary — unvalidated until narrowed. */
-type WireField = NonNullable<Player["state"]>[string] | undefined;
+type WireField = JsonValue | undefined;
 
 // Wire-JSON narrowing helpers. Runtime `typeof` is banned by the lint, so these
 // use typeof-free checks; JSON can only carry finite numbers, so Number.isFinite
 // is the exact number test.
-const isJsonObject = (v: WireField): v is JsonObject =>
+const isJsonObject = (v: WireField): v is JsonRecord =>
   Object.prototype.toString.call(v) === "[object Object]";
 const isJsonNumber = (v: WireField): v is number => Number.isFinite(v);
 
@@ -390,8 +383,6 @@ export class GameScene extends Scene {
   private readonly prediction = new BombPrediction();
   /** Power-ups this client claimed: for its own body, or as host for its bots. */
   private readonly pickupClaims = new PickupClaims();
-  /** The room's claims offline, where this client is the only claimant. */
-  private readonly offlineClaims = localClaims("solo");
   private readonly hostStep = new FixedStep(HOST_STEP_MS, MAX_FRAME_MS);
 
   /** Remote humans, each drawn on its own sender's clock. */
@@ -484,36 +475,22 @@ export class GameScene extends Scene {
     this.padArmed = false;
   }
 
-  // Solo fallback: if the party server can't be reached, this client becomes
-  // its own host over the same code paths — events loop back, shared state
-  // lives locally, and the bots make it a real match (you vs 3 bots).
-  private offline = false;
-  private everConnected = false;
   /** `roomReady` as of the last frame — see watchRoomClock. */
   private roomWasReady = false;
-  /** Stamped on the first update() tick (not create()) — see maybeGoOffline. */
-  private bootedAt = 0;
-  private offlineShared: SharedState | null = null;
-  private offlineMyState: JsonObject = {};
+
+  /** A room of one with no server (see create()): asked for, or no room answered in time. */
+  private get offline(): boolean {
+    return this.client.connectionStatus === "offline";
+  }
 
   /** In the room with its clock measured: until the first probe returns, server time reads the local clock. */
   private get roomReady(): boolean {
     return this.client.connectionStatus === "connected" && this.client.serverClock.synced;
   }
 
-  /** In the room, or running the solo offline fallback. */
+  /** In the room, or offline. */
   private get live(): boolean {
     return this.offline || this.roomReady;
-  }
-
-  /** Who holds each claim: the room online, this machine offline. */
-  private get claimRoom(): ClaimRoom {
-    return this.offline ? this.offlineClaims : this.client;
-  }
-
-  /** The clock steps are stamped on: the room's server clock, or this machine's offline. */
-  private get roomClock(): SenderClock {
-    return this.offline ? localClock : this.client.serverClock;
   }
 
   /**
@@ -526,8 +503,9 @@ export class GameScene extends Scene {
     return Object.keys(this.peers).length <= 1;
   }
 
+  /** Offline, this client hosts its room of one. */
   private get amHost(): boolean {
-    return this.offline || (this.roomReady && this.client.isHost);
+    return this.live && this.client.isHost;
   }
 
   /** Freeze a solo simulation. The paused stamp goes out before the loop
@@ -584,16 +562,13 @@ export class GameScene extends Scene {
   }
 
   private get myId(): string | null {
-    return this.offline ? "solo" : this.client.playerId;
+    return this.client.playerId;
   }
 
   /** Humans in the arena. A dropped peer's seat is held for the reconnect
    *  grace window, but until it returns it must not keep a corner from a bot,
    *  stand as an unkillable ghost or hold the round open. */
   private get peers(): typeof this.client.players {
-    if (this.offline) {
-      return { solo: { id: "solo", state: this.offlineMyState } };
-    }
     const present: typeof this.client.players = {};
     for (const [id, player] of Object.entries(this.client.players)) {
       if (player.connected !== false) {
@@ -603,39 +578,10 @@ export class GameScene extends Scene {
     return present;
   }
 
-  /** An intent for the host, sent to the host alone. The host — and the
-   *  offline stand-in — acts on its own intents at once, with no server hop. */
-  private netToHost(event: string, payload: JsonObject): void {
-    const id = this.myId;
-    if (this.amHost && id) {
-      this.handleEvent(event, payload, id);
-      return;
-    }
-    const host = this.offline ? null : this.client.hostId;
-    if (host) {
-      this.client.sendEvent(event, payload, { to: host });
-    }
-  }
-
-  /** Per-player state shallow-merges, mirroring the package's semantics. */
-  private netUpdateMyState(patch: JsonObject): void {
-    this.netDirty = true;
-    if (this.offline) {
-      Object.assign(this.offlineMyState, patch);
-    } else {
-      this.client.updateMyState(patch);
-    }
-  }
-
-  /** Shared-state patches shallow-merge, mirroring the package's semantics. */
+  /** The host's write to the world: the board as the crates opened, the sim clock when it changed. */
   private netPatchShared(patch: Partial<SharedState>): void {
     this.netDirty = true;
-    if (this.offline) {
-      if (this.offlineShared) {
-        this.offlineShared = { ...this.offlineShared, ...patch, clock: clockStamp() };
-        this.ingestNet();
-      }
-    } else if (this.amHost) {
+    if (this.amHost) {
       this.client.updateSharedState({ ...this.gridToWire(patch), ...this.clockToWire() });
     }
   }
@@ -656,36 +602,6 @@ export class GameScene extends Scene {
       return patch;
     }
     return { ...rest, opened: encodeOpened(wire.grid, grid) };
-  }
-
-  /** Poll once per frame: drives the solo-fallback grace window. */
-  private maybeGoOffline(): void {
-    // Start the grace window on the FIRST update() tick, not at create():
-    // counting load time against the deadline would wrongly drop a slow-booting
-    // client to solo before its socket ever got a chance to connect.
-    if (this.bootedAt === 0) {
-      this.bootedAt = Date.now();
-    }
-    if (this.client.connectionStatus === "connected") {
-      this.everConnected = true;
-      return;
-    }
-    // Once we've been in a room, a drop is transient — let the socket
-    // reconnect instead of permanently stranding the player in solo.
-    if (this.everConnected) {
-      return;
-    }
-    // Pre-connect errors/closes are NOT instant failures: the socket retries
-    // by itself, so the deadline is the only fallback trigger.
-    if (Date.now() - this.bootedAt < OFFLINE_FALLBACK_MS) {
-      return;
-    }
-    this.offline = true;
-    setClockBase(localClock);
-    // no subscribe() offline — kick the first onUpdate
-    this.netDirty = true;
-    // stop reconnect attempts; refresh to go online
-    this.client.destroy();
   }
 
   /** The room goes live once its clock is measured, and no room message says when. */
@@ -766,46 +682,40 @@ export class GameScene extends Scene {
       .reserve(192);
     this.battleFx = new BattleFx(this);
 
-    // Explicit offline boot (?offline=1): never dial the party server. A
-    // failed WebSocket handshake logs a browser console error the page cannot
-    // suppress, so an offline-by-intent run (bot playtest, deliberate solo)
-    // must skip the socket entirely rather than lean on the failure fallback
-    // (maybeGoOffline), which would also hold the round behind `live` for the
-    // whole grace window. Every `this.client` access is guarded by
-    // `this.offline`, so the client simply never exists on this path.
-    if (isOfflineRequested() || SOLO_PLAYTEST) {
-      this.offline = true;
-      setClockBase(localClock);
-      // no subscribe() offline — kick the first onUpdate
+    // Offline by intent (?offline=1, a solo playtest) the client never dials:
+    // a failed WebSocket handshake logs a console error the page cannot
+    // suppress, and waiting out the fallback would hold the round behind
+    // `live` for the whole deadline. Otherwise it goes offline by itself when
+    // no room admits it within OFFLINE_FALLBACK_MS of play. Offline it is a
+    // room of one that this client hosts over the same code paths: intents
+    // loop back, the world applies locally, claims are granted at once, and
+    // the bots make it a real match (you vs 3 bots).
+    // No `initialState`: the round is stamped on the room's clock, so the
+    // first host seeds it once that clock is in (ensureSeeded), and a promoted
+    // guest keeps the live round.
+    this.client = new MultiplayerClient({
+      fallbackMs: OFFLINE_FALLBACK_MS,
+      host: MULTIPLAYER_HOST,
+      limits: PLAYER_LIMITS,
+      offline: isOfflineRequested() || SOLO_PLAYTEST,
+      onClaim: (key, owner) => this.onClaimHeard(key, owner),
+      onEvent: (event, payload, from) => this.handleEvent(event, payload, from),
+      party: "vg-server",
+      room: ROOM,
+    });
+    // Sim time is server time: every client reads fuses and bot steps alike.
+    // Offline the server clock is this machine's.
+    setClockBase(this.client.serverClock);
+    // The SDK notifies once per room message (offline, once per write), so
+    // every step a mover reports reaches its track even when several land in
+    // one frame.
+    this.client.subscribe(() => {
+      this.syncSharedClock();
+      this.ingestNet();
       this.netDirty = true;
-      this.ensureSeeded();
-    } else {
-      // No `initialState`: the package re-applies it whenever a client becomes
-      // host, which would wipe a live round on host migration. Instead the first
-      // host seeds the world explicitly (see `ensureSeeded`) — a promoted guest
-      // already has the shared state and won't reset it.
-      this.client = new MultiplayerClient({
-        host: MULTIPLAYER_HOST,
-        limits: PLAYER_LIMITS,
-        onClaim: (key, owner) => this.onClaimHeard(key, owner),
-        onEvent: (event, payload, from) => {
-          // SAFETY: wire payloads are JSON.parse output (or loop back from
-          // netToHost's JsonObject), so they are JSON values by construction.
-          this.handleEvent(event, payload as JsonValue, from);
-        },
-        party: "vg-server",
-        room: ROOM,
-      });
-      // Sim time is server time: every client reads fuses and bot steps alike.
-      setClockBase(this.client.serverClock);
-      // The SDK notifies once per room message, so every step a mover
-      // reports reaches its track even when several land in one frame.
-      this.client.subscribe(() => {
-        this.syncSharedClock();
-        this.ingestNet();
-        this.netDirty = true;
-      });
-    }
+    });
+    // A client offline from the start already hosts: its world is seeded now.
+    this.ensureSeeded();
 
     this.bindInput();
 
@@ -813,10 +723,7 @@ export class GameScene extends Scene {
       this.scale.off(Scale.Events.RESIZE, this.applyZoom, this);
       this.gamepad.destroy();
       this.touchControls?.destroy();
-      // offline already destroyed it
-      if (!this.offline) {
-        this.client.destroy();
-      }
+      this.client.destroy();
     });
 
     if (import.meta.env.DEV) {
@@ -865,7 +772,7 @@ export class GameScene extends Scene {
     this.random = seededRandom(seed);
     this.playtestScore.reset();
     const next = emptyShared("classic", this.random);
-    next.startedAt = Math.max(next.startedAt, (this.offlineShared?.startedAt ?? 0) + 1);
+    next.startedAt = Math.max(next.startedAt, (this.shared()?.startedAt ?? 0) + 1);
     this.writeShared(next);
   }
 
@@ -888,17 +795,13 @@ export class GameScene extends Scene {
     const now = performance.now();
     const elapsed = this.frameAt === 0 ? 0 : Math.min(MAX_FRAME_MS, now - this.frameAt);
     this.frame += 1;
-    if (!this.offline) {
-      this.watchRoomClock();
-      this.maybeGoOffline();
-    }
+    this.watchRoomClock();
     if (this.prediction.settle(this.shared()?.bombs ?? {}, now)) {
       this.netDirty = true;
     }
-    // subscribe() (online) and the net* writers (offline) mark the scene
-    // dirty; run the render sync at most once per frame, and only when
-    // something actually changed. Runs even while connecting so the HUD
-    // shows the connection status.
+    // subscribe() marks the scene dirty; run the render sync at most once per
+    // frame, and only when something actually changed. Runs even while
+    // connecting so the HUD shows the connection status.
     if (this.netDirty) {
       this.netDirty = false;
       this.onUpdate();
@@ -1199,8 +1102,8 @@ export class GameScene extends Scene {
     this.stepStartedAt = start;
     this.stepEndsAt = start + stride;
     // Published on the room's clock, the one every receiver draws against.
-    const t = Math.round(this.roomClock.now(now) - (now - start));
-    this.netUpdateMyState({ col: this.myCol, row: this.myRow, s: stride, t });
+    const t = Math.round(this.client.serverNow(now) - (now - start));
+    this.client.updateMyState({ col: this.myCol, row: this.myRow, s: stride, t });
   }
 
   /** Held by a key of either set, or the pad's d-pad. */
@@ -1269,7 +1172,7 @@ export class GameScene extends Scene {
     } else {
       this.prediction.add(bomb, performance.now());
       this.netDirty = true;
-      this.netToHost("place_bomb", { at, col, localId, round: state.startedAt, row });
+      this.client.sendToHost("place_bomb", { at, col, localId, round: state.startedAt, row });
     }
     sfx.place(true);
     this.pulsePlayer(id, "place");
@@ -1290,7 +1193,8 @@ export class GameScene extends Scene {
     }
     // The accepted replacement snapshot owns respawn, including reconnects
     // that missed the request. Old requests cannot restart a newer round.
-    this.netToHost("request_restart", { round: state.startedAt });
+    // The host (and an offline client) handles its own request at once.
+    this.client.sendToHost("request_restart", { round: state.startedAt });
   }
 
   private respawnSelf(): void {
@@ -1325,12 +1229,12 @@ export class GameScene extends Scene {
 
   /** A zero-length step: everyone else places the body there instead of walking it over. */
   private publishSpawn(col: number, row: number, idx: number): void {
-    this.netUpdateMyState({
+    this.client.updateMyState({
       col,
       colorIdx: idx % COLORS.length,
       row,
       s: 0,
-      t: Math.round(this.roomClock.now()),
+      t: Math.round(this.client.serverNow()),
     });
   }
 
@@ -1370,7 +1274,7 @@ export class GameScene extends Scene {
       return;
     }
     const tile = { col: this.myCol, row: this.myRow };
-    const pickup = this.pickupClaims.reach(this.claimRoom, state, id, tile);
+    const pickup = this.pickupClaims.reach(this.client, state, id, tile);
     if (!pickup) {
       return;
     }
@@ -1391,8 +1295,11 @@ export class GameScene extends Scene {
 
   /**
    * The room named an owner for a claim. A power-up this client took that
-   * went to someone else comes back off its stats; the host hands every
-   * grant to its claimant at once, before a guest's next press can need it.
+   * went to someone else comes back off its stats. The host hands a grant to
+   * another player at once, before that guest's next press can need it. Its
+   * own grants (its body's, its bots', every one offline) settle in the host
+   * step: offline a bot's grant arrives inside claim(), mid-step, where
+   * settling would race the step's own write of the world and grant twice.
    */
   private onClaimHeard(key: string, owner: string | null): void {
     const id = this.myId;
@@ -1400,7 +1307,7 @@ export class GameScene extends Scene {
     if (lost?.fighter === id && this.statsEl?.dataset["pickup"] === lost.pickup.kind) {
       this.clearPickupNote();
     }
-    if (owner !== null && this.amHost) {
+    if (owner !== null && owner !== id && this.amHost) {
       this.settlePickups();
     }
     this.netDirty = true;
@@ -1410,7 +1317,7 @@ export class GameScene extends Scene {
   private settlePickups(): void {
     const id = this.myId;
     const state = this.shared();
-    const granted = id && state ? this.pickupClaims.settle(this.claimRoom, state, id) : null;
+    const granted = id && state ? this.pickupClaims.settle(this.client, state, id) : null;
     if (granted) {
       this.netPatchShared(granted);
     }
@@ -1501,12 +1408,8 @@ export class GameScene extends Scene {
   // ---- shared-state rendering ----------------------------------------------
 
   private shared(): SharedState | null {
-    // local state is authoritative solo
-    if (this.offline) {
-      return this.offlineShared;
-    }
-    // Online the wire carries the round's layout plus the crates opened
-    // since; decode once per change, not per read.
+    // The wire carries the round's layout plus the crates opened since;
+    // decode once per change, not per read.
     const wire = this.client.sharedState;
     if (wire !== this.sharedFrom) {
       this.sharedFrom = wire;
@@ -1607,17 +1510,12 @@ export class GameScene extends Scene {
   }
 
   /**
-   * The first host to connect seeds the world. Guests adopt the host's
-   * existing state; a guest promoted to host after a migration keeps the
-   * live round instead of resetting it.
+   * The first host to connect seeds the world — an offline client too, as it
+   * hosts its room of one. Guests adopt the host's existing state; a guest
+   * promoted to host after a migration keeps the live round instead of
+   * resetting it.
    */
   private ensureSeeded(): void {
-    if (this.offline) {
-      if (!this.offlineShared) {
-        this.offlineShared = emptyShared("classic", this.random);
-      }
-      return;
-    }
     if (this.amHost && !this.shared()) {
       this.writeShared(emptyShared("classic", this.random));
     }
@@ -1846,7 +1744,7 @@ export class GameScene extends Scene {
       return;
     }
     const seen = new Set<string>();
-    for (const [key, pu] of Object.entries(this.pickupClaims.visible(this.claimRoom, s))) {
+    for (const [key, pu] of Object.entries(this.pickupClaims.visible(this.client, s))) {
       seen.add(key);
       if (this.powerupObjs.has(key)) {
         continue;
@@ -1901,7 +1799,7 @@ export class GameScene extends Scene {
    *  client's own pickups cued on the step, and burnt ones just go. */
   private cueTaken(s: SharedState, pickup: Powerup): void {
     const key = pickupKey(s.startedAt, pickup);
-    const taker = this.pickupClaims.fighterOf(key) ?? this.claimRoom.ownerOf(key);
+    const taker = this.pickupClaims.fighterOf(key) ?? this.client.ownerOf(key);
     if (this.feedbackEnabled && taker !== null && taker !== this.myId) {
       this.burst(colX(pickup.col), rowY(pickup.row), POWERUP_GLOW[pickup.kind], 14);
     }
@@ -2140,8 +2038,9 @@ export class GameScene extends Scene {
         Object.assign(merged, patch);
       }
     }
-    // Claims settled since the last step, a new host's inherited ones included.
-    const granted = this.pickupClaims.settle(this.claimRoom, world, id);
+    // Claims granted since the last step: this client's own (see onClaimHeard),
+    // and a new host's inherited ones.
+    const granted = this.pickupClaims.settle(this.client, world, id);
     if (granted) {
       Object.assign(world, granted);
       Object.assign(merged, granted);
@@ -2149,7 +2048,7 @@ export class GameScene extends Scene {
     // Bots take power-ups the way players do, through the room. The sprite goes
     // on the next sync, while the claim still names the bot that took it.
     for (const bot of Object.values(world.bots)) {
-      if (!world.deaths[bot.id] && this.pickupClaims.reach(this.claimRoom, world, bot.id, bot)) {
+      if (!world.deaths[bot.id] && this.pickupClaims.reach(this.client, world, bot.id, bot)) {
         this.netDirty = true;
       }
     }
@@ -2347,7 +2246,7 @@ export class GameScene extends Scene {
   private playerView(state: SharedState, id: string): SharedState {
     return {
       ...state,
-      powerups: this.pickupClaims.visible(this.claimRoom, state),
+      powerups: this.pickupClaims.visible(this.client, state),
       stats: { ...state.stats, [id]: this.pickupClaims.stats(state, id) },
     };
   }
@@ -2405,12 +2304,6 @@ export class GameScene extends Scene {
    *  round's power-up claims go: their keys name the round, but a room holds only so many. */
   private writeShared(next: SharedState): void {
     this.netDirty = true;
-    if (this.offline) {
-      this.offlineShared = { ...next, clock: clockStamp() };
-      this.offlineClaims.clearClaims(PICKUP_CLAIMS);
-      this.ingestNet();
-      return;
-    }
     if (this.amHost) {
       this.client.updateSharedState({ ...next, clock: clockStamp() });
       this.client.clearClaims(PICKUP_CLAIMS);
@@ -2503,11 +2396,10 @@ export class GameScene extends Scene {
   // ---- HUD -----------------------------------------------------------------
 
   private statusText(): string {
-    if (!this.offline) {
-      const cs = this.client.connectionStatus;
-      if (cs !== "connected") {
-        return `${cs}…`;
-      }
+    if (!this.live) {
+      // Not admitted yet (or admitted, with the room's clock still coming in),
+      // or admitted before and redialling while the room holds the seat.
+      return this.client.connectionStatus === "reconnecting" ? "reconnecting…" : "connecting…";
     }
     const s = this.shared();
     const restart = TOUCH_UI ? "tap to restart" : "press R";

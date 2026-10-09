@@ -200,8 +200,8 @@ test("sim clock: the room's clock minus time paused, adopted as is", () => {
   assert.ok(sameStamp({ kind: "paused", now: 42 }, clockStamp()), "unchanged: not resent");
   assert.ok(!sameStamp({ kind: "running", offset: 42 }, clockStamp()));
   assert.ok(!sameStamp(undefined, clockStamp()));
-  // Offline the base is this machine's own clock, on the server's epoch.
+  // Until the scene sets the room's, the base is this machine's clock, on the server's epoch.
   setClockBase(localClock);
   adoptClock({ kind: "running", offset: 0 });
-  assert.ok(Math.abs(now() - Date.now()) < 50, "offline: wall time");
+  assert.ok(Math.abs(now() - Date.now()) < 50, "local: wall time");
 });
