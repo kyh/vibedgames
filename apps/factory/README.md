@@ -293,7 +293,9 @@ only) stages publish-ready packages under `dist/npm/`:
 
 - `@vibedgames/factory-<os>-<cpu>` — a bun-compiled standalone binary per
   platform (agent markdown + opentui's native lib embedded; users need
-  neither Bun nor a TS runtime)
+  neither Bun nor a TS runtime). Linux builds come in glibc and `-musl`
+  flavours; the musl one runs on Alpine with `apk add libstdc++`, as every
+  Bun binary there does
 
 The factory ships as an **optional plugin of the vg CLI**: `vg factory …`
 installs the right platform package globally on first use, then execs its

@@ -7,16 +7,14 @@ import {
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+
+import { PACKAGE_ROOT } from "./package-root.js";
 
 /**
  * The engine templates `vg new` scaffolds from. They ship inside the CLI
  * package (`apps/cli/templates/<id>`), so scaffolding needs no network.
- *
- * Two levels up from this module is the package root both from source
- * (`src/lib`) and from the build (`dist/lib`).
  */
-export const TEMPLATES_DIR = fileURLToPath(new URL("../../templates/", import.meta.url));
+export const TEMPLATES_DIR = path.join(PACKAGE_ROOT, "templates");
 
 /** Replaced with the game's slug in every text file a template carries. */
 export const SLUG_TOKEN = "__VG_SLUG__";

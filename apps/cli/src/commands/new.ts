@@ -3,9 +3,10 @@ import path from "node:path";
 
 import { defineCommand } from "citty";
 import { consola } from "consola";
-import tiged from "tiged";
 import { SLUG_RE } from "../lib/config-file.js";
 import { assertKnownFlags } from "../lib/strict-args.js";
+import { fetchTemplate, parseTemplateSpec } from "../lib/template-source.js";
+import type { TemplateSpec } from "../lib/template-source.js";
 import { copyTemplate } from "../lib/templates.js";
 import { isJsonObject, isJsonString } from "../lib/types.js";
 import type { JsonObject, JsonValue } from "../lib/types.js";
@@ -21,7 +22,7 @@ type EnginePreset =
   | {
       // `--template owner/repo`: fetched from GitHub, maintained by whoever owns it.
       kind: "remote";
-      repo: string;
+      template: TemplateSpec;
       label: string;
       skill: string;
     };
@@ -88,15 +89,11 @@ const newArgs = {
   },
   template: {
     description:
-      "Fetch a third-party template from GitHub instead of a bundled preset: any degit spec (e.g. owner/repo, owner/repo#branch). Needs network; not maintained by vibedgames.",
+      "Fetch a third-party template from GitHub instead of a bundled preset: owner/repo, owner/repo/sub/dir, either with #branch, #tag or #commit. Needs network; not maintained by vibedgames.",
     type: "string",
   },
 } as const;
 
-const fetchTemplate = async (repo: string, target: string, force: boolean): Promise<void> => {
-  const emitter = tiged(repo, { force, mode: "tar", verbose: false });
-  await emitter.clone(target);
-};
 /** Remove template-repo artifacts that never apply to a scaffolded game:
  *  the template's own lockfile (wrong for whatever package manager the user
  *  runs) and its CI workflows (reference the template repo, fail elsewhere). */
@@ -218,13 +215,15 @@ export const newCommand = defineCommand({
       process.exit(1);
     }
 
-    const preset: EnginePreset | undefined = args.template
-      ? {
-          kind: "remote",
-          label: `custom: ${args.template}`,
-          repo: args.template,
-          skill: "deploy",
-        }
+    let template: TemplateSpec | undefined;
+    try {
+      template = args.template ? parseTemplateSpec(args.template) : undefined;
+    } catch (error) {
+      consola.error(error instanceof Error ? error.message : String(error));
+      process.exit(1);
+    }
+    const preset: EnginePreset | undefined = template
+      ? { kind: "remote", label: `custom: ${args.template}`, skill: "deploy", template }
       : ENGINES.get(args.engine);
     if (!preset) {
       consola.error(`Unknown engine: ${args.engine}. Use one of: ${ENGINE_IDS.join(", ")}.`);
@@ -250,10 +249,10 @@ export const newCommand = defineCommand({
       }
     } else {
       try {
-        await fetchTemplate(preset.repo, target, args.force);
+        await fetchTemplate(preset.template, target, args.force);
       } catch (error) {
         consola.error(
-          `Failed to fetch template ${preset.repo}: ${error instanceof Error ? error.message : String(error)}\n  ` +
+          `Failed to fetch template ${args.template}: ${error instanceof Error ? error.message : String(error)}\n  ` +
             `Check your network connection, or drop --template to use a bundled engine preset.`,
         );
         process.exit(1);
