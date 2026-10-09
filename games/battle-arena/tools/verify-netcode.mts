@@ -15,7 +15,7 @@ import { NetMirror, parseFrame } from "../src/net/mirror.ts";
 import { OwnHeroPredictor } from "../src/net/own-hero.ts";
 import type { HeldInput } from "../src/net/own-hero.ts";
 import { emptyGuestWorld, encodeWorld, isSnapshot } from "../src/net/snapshot.ts";
-import type { Frame } from "../src/net/snapshot.ts";
+import type { Frame, Snapshot } from "../src/net/snapshot.ts";
 import { applyKnockback, handleDeath } from "../src/sim/combat.ts";
 import { createWorld, ensureBots, setHeroInput, spawnHero } from "../src/sim/world.ts";
 import type { Unit, World } from "../src/sim/types.ts";
@@ -77,6 +77,9 @@ const match = (opts: MatchOptions = {}) => {
   const guestRoom = sharedCopy();
   let snapshots = 0;
   let snapshotBytes = 0;
+  // every snapshot the host wrote, beside a copy taken as it wrote it: the
+  // SDK reads a write when the task ends and keeps it as the room's state
+  const written: { snap: Snapshot; copy: Snapshot }[] = [];
   let fxSent = 0;
   let fxReceived = 0;
   const link: HostLink = {
@@ -89,6 +92,7 @@ const match = (opts: MatchOptions = {}) => {
     publish: (snap, t) => {
       snapshots += 1;
       snapshotBytes = JSON.stringify(snap).length;
+      written.push({ copy: structuredClone(snap), snap });
       toGuest.send(now, { kind: "state", ops: hostRoom.write({ snap, snapT: t }) });
     },
     sendFrame: (frame) => {
@@ -208,6 +212,7 @@ const match = (opts: MatchOptions = {}) => {
     toGuest,
     toHost,
     world,
+    written,
   };
 };
 
@@ -467,6 +472,12 @@ test("frames keep a guest's world in step with the host's through a busy match",
     // nothing the guest did to its world reached its copy of the room, which
     // the next snapshot's ops build on
     assert.deepEqual(m.guestRoom, m.hostRoom, "the guest's copy of the room is the host's");
+  }
+  // nor did the host's sim reach what it wrote, which the SDK holds as the
+  // room's state (and re-sends from, back from a drop) under that write's stamp
+  assert.ok(m.written.length >= 25, `snapshots written (${m.written.length})`);
+  for (const { snap, copy } of m.written) {
+    assert.deepEqual(snap, copy, `the snapshot at ${Math.round(copy.now)} ms stays as written`);
   }
 });
 
