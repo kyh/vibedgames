@@ -55,7 +55,7 @@ const MAX_SHOT_AHEAD_MS = 150;
  *  frames teach), so a jittery route draws bodies further back rather than
  *  past the newest frame. */
 const readOnly = (clock: RemoteClock): SenderClock => ({
-  hold: (localNow) => clock.hold(localNow),
+  hold: (localNow, floor) => clock.hold(localNow, floor),
   now: (localNow) => clock.now(localNow),
   get synced() {
     return clock.synced;

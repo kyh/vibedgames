@@ -33,6 +33,6 @@ export class FrameClock extends RemoteClock {
    * too, so each lands with the body it belongs to.
    */
   renderTime(localNow: number): number {
-    return this.now(localNow) - Math.max(INTERP_DELAY_MS, this.hold(localNow));
+    return this.now(localNow) - Math.max(INTERP_DELAY_MS, this.hold(localNow, INTERP_DELAY_MS));
   }
 }

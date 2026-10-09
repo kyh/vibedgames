@@ -197,7 +197,7 @@ export class GuestMirror {
     // the delay stretches past INTERP_DELAY_MS when the stream needs it, and
     // the ticks replay on that same moment, never ahead of the bodies.
     const renderAt = clock.synced
-      ? clock.now(localNow) - Math.max(INTERP_DELAY_MS, clock.hold(localNow))
+      ? clock.now(localNow) - Math.max(INTERP_DELAY_MS, clock.hold(localNow, INTERP_DELAY_MS))
       : Number.POSITIVE_INFINITY;
     let [next] = this.pending;
     while (next && next.t <= renderAt) {
