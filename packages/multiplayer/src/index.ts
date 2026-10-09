@@ -7,6 +7,8 @@ export { Interpolator, lerp, lerpAngle } from "./interpolation.js";
 export type { InterpolatorOptions } from "./interpolation.js";
 export { RemoteClock } from "./remote-clock.js";
 export type { RemoteClockOptions, SenderClock } from "./remote-clock.js";
+export { netStats } from "./net-stats.js";
+export type { NetClientInfo, NetProbe, NetStats } from "./net-stats.js";
 export { Reconciler } from "./prediction.js";
 export type { Correction, ReconcilerOptions } from "./prediction.js";
 

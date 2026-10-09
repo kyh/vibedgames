@@ -1,5 +1,6 @@
 import { PartySocket } from "partysocket";
 
+import { trackClient } from "./net-stats.js";
 import { ServerClock } from "./server-clock.js";
 import type {
   ClaimMap,
@@ -283,6 +284,8 @@ export class MultiplayerClient {
   private _sharedState: JsonRecord;
   private _players: PlayerMap = {};
   private _room: string;
+  /** Takes this client off `__VG_NET__.clients()` (see net-stats.ts). */
+  private readonly untrack: () => void;
   private _onEvent: MultiplayerOptions["onEvent"];
   private _onClaim: MultiplayerOptions["onClaim"];
   private _onTick: MultiplayerOptions["onTick"];
@@ -323,6 +326,15 @@ export class MultiplayerClient {
     this.socket.addEventListener("error", this.handleError);
 
     this.startHeartbeat();
+    this.untrack = trackClient({
+      netInfo: () => ({
+        isHost: this._playerId !== null && this._hostId === this._playerId,
+        playerId: this._playerId,
+        room: this._room,
+        rttMs: Number.isNaN(this.clock.rtt) ? null : this.clock.rtt,
+        status: this._connectionStatus,
+      }),
+    });
   }
 
   /** Drive the heartbeat off rAF so a hidden/asleep tab stops pinging (its rAF is
@@ -698,6 +710,7 @@ export class MultiplayerClient {
 
   /** Disconnect and clean up. */
   destroy(): void {
+    this.untrack();
     this.flushCoalescedEvents();
     for (const timer of this.probeTimers) {
       clearTimeout(timer);

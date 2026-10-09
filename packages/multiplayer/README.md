@@ -144,6 +144,15 @@ Errors inside `deadZone` are ignored, mid-size ones ease out over ~100 ms, and
 ones past `snapDistance` (knockback, a missed collision) apply at once.
 Teleports are not errors: place the body, then call `clear()`.
 
+**Net stats** — how often remotes ran out of data. Every frame an
+`Interpolator` renders is counted; one drawn past the newest update (the next
+came too late, so it extrapolated or held) is _starved_, and one held still past
+`maxExtrapolateMs` is _stalled_ — a visible freeze. `netStats()` returns the
+page's totals. Tooling reads the same numbers, and each live client's room, host
+flag and round trip, from `window.__VG_NET__`: the multiplayer skill's
+`net-check` script plays two clients under injected latency and judges a game by
+them, with nothing for the game to wire up.
+
 ## Model: host-authoritative, last-write-wins
 
 The first player is the host and is the only writer of shared state. Intents go

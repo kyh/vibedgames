@@ -3,6 +3,8 @@ import { test } from "node:test";
 
 import { FixedRate } from "../src/fixed-rate.js";
 import { Interpolator, lerp, lerpAngle } from "../src/interpolation.js";
+import { netStats } from "../src/net-stats.js";
+import type { NetProbe } from "../src/net-stats.js";
 import { Reconciler } from "../src/prediction.js";
 import { RemoteClock } from "../src/remote-clock.js";
 import { ServerClock } from "../src/server-clock.js";
@@ -153,6 +155,45 @@ test("Interpolator on a shared clock renders without estimating per sender", () 
     interp.push(stamp, { x }, arrival);
   }
   assert.equal(interp.sample(175)?.x, 7.5, "server time 1 000 075, drawn 100 ms behind");
+});
+
+test("Interpolator counts the frames it draws past the newest update, for __VG_NET__", () => {
+  const clock = new ServerClock();
+  clock.sample(0, 1_000_000, 0);
+  const interp = new Interpolator<Pose>({
+    clock,
+    delayMs: 100,
+    lerp: lerpPose,
+    maxExtrapolateMs: 50,
+  });
+  const before = netStats();
+  for (const [stamp, x] of [
+    [1_000_000, 0],
+    [1_000_100, 10],
+  ] as const) {
+    interp.push(stamp, { x }, 0);
+  }
+  // Drawn at server time 1 000 050 (between the updates), then 30 ms past the
+  // newest (extrapolated: starved), then 100 ms past it, beyond the 50 ms
+  // limit (held: starved and stalled).
+  for (const localNow of [150, 230, 300]) {
+    interp.sample(localNow);
+  }
+  const after = netStats();
+  assert.deepEqual(
+    {
+      frames: after.frames - before.frames,
+      stalled: after.stalled - before.stalled,
+      starved: after.starved - before.starved,
+      updates: after.updates - before.updates,
+    },
+    { frames: 3, stalled: 1, starved: 2, updates: 2 },
+  );
+  const probe: NetProbe | undefined = Object.getOwnPropertyDescriptor(
+    globalThis,
+    "__VG_NET__",
+  )?.value;
+  assert.deepEqual(probe?.stats(), after, "the page global reads the same totals");
 });
 
 test("Interpolator renders jittery 20 Hz updates as steady motion", () => {

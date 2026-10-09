@@ -50,6 +50,10 @@ Netcode helpers:
   (from an acked input `seq` plus how long the host has applied it), or with the
   nearest point when no timing is given. Errors are eased out or snapped.
 - `lerp`, `lerpAngle`.
+- `netStats()` and `window.__VG_NET__`: every `Interpolator` frame counted, with
+  the ones drawn past the newest update (starved) or held past the
+  extrapolation limit (stalled), plus each live client's room, host flag and
+  round trip — what a lag check reads.
 
 Server: no longer echoes a host's own `state_patch` back to it; clients already
 applied it.

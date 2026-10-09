@@ -23,6 +23,7 @@
  * ```
  */
 
+import { countFrame, countUpdate } from "./net-stats.js";
 import { RemoteClock } from "./remote-clock.js";
 import type { SenderClock } from "./remote-clock.js";
 
@@ -156,6 +157,7 @@ export class Interpolator<T> {
     while (this.samples.length > this.capacity) {
       this.samples.shift();
     }
+    countUpdate();
     return true;
   }
 
@@ -171,6 +173,7 @@ export class Interpolator<T> {
       return undefined;
     }
     const renderAt = this.clock.now(localNow) - this.delayMs;
+    countFrame(renderAt - last.t, this.maxExtrapolateMs);
     if (renderAt >= last.t) {
       const prev = samples.at(-2);
       const ahead = Math.min(renderAt - last.t, this.maxExtrapolateMs);
