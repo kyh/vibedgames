@@ -3,12 +3,12 @@
 // - the replica: every tick applied the moment it arrives — the host's world
 //   as of its newest step, exact but for 0.1 px rounding. Prediction reads it
 //   (freshest statuses, targets) and a promoted guest resumes from it.
-// - the view (the scene's world): the same ticks replayed INTERP_DELAY_MS
-//   behind the newest the stream can deliver, with every remote body placed
-//   by interpolating its stamped positions. Hits, deaths, projectiles landing
-//   and the bodies they concern all play on that one timeline, so a spark
-//   never fires before the arrow arrives; the local hero alone is drawn
-//   ahead, predicted.
+// - the view (the scene's world): the same ticks replayed behind the newest
+//   the stream can deliver — INTERP_DELAY_MS, or as far as the route's
+//   jitter needs — with every remote body placed by interpolating its
+//   stamped positions. Hits, deaths, projectiles landing and the bodies they
+//   concern all play on that one timeline, so a spark never fires before the
+//   arrow arrives; the local hero alone is drawn ahead, predicted.
 //
 // Every host stamps its steps with server time, so a stamp means the same
 // moment whoever sent it. When the host changes, the old host's last ticks, the
@@ -26,9 +26,10 @@ import { applySnapshot, emptyGuestWorld } from "./snapshot";
 import type { Snapshot, Tick } from "./snapshot";
 import { applyTick } from "./stream";
 
-/** How far behind the newest tick the stream can deliver remote bodies are
- *  drawn (ms). Ticks come every 33 ms; this keeps two late ones in hand
- *  before the buffer runs dry. */
+/** The least time behind the newest tick the stream can deliver that the view
+ *  is drawn (ms). Ticks come every 33 ms; this keeps two late ones in hand
+ *  before the buffer runs dry. A route whose ticks land later still draws
+ *  further back: the clock measures what the stream needs (`hold()`). */
 export const INTERP_DELAY_MS = 100;
 
 const STEP_MS = SIM_DT * 1000;
@@ -154,8 +155,11 @@ export class GuestMirror {
    */
   frame(localNow: number, ownId: string): void {
     const { clock, view } = this;
+    // The moment the bodies are drawn at (their Interpolators' renderTime):
+    // the delay stretches past INTERP_DELAY_MS when the stream needs it, and
+    // the ticks replay on that same moment, never ahead of the bodies.
     const renderAt = clock.synced
-      ? clock.now(localNow) - INTERP_DELAY_MS
+      ? clock.now(localNow) - Math.max(INTERP_DELAY_MS, clock.hold(localNow))
       : Number.POSITIVE_INFINITY;
     let [next] = this.pending;
     while (next && next.t <= renderAt) {

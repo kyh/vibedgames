@@ -505,6 +505,42 @@ test("remote bodies move steadily however unevenly their ticks arrive", () => {
   }
 });
 
+/** A guest watching a runner cross open ground over a link with `jitterMs` of
+ *  jitter, as means over a second and a half: how far the view's clock trails
+ *  the host's, and how far the runner, drawn by interpolation, is from that
+ *  moment on its own path (ms). */
+const replayLag = (jitterMs: number) => {
+  const host = createWorld(4249);
+  const guest = spawnHero(host, "ironvow", "radiant", "guest", false, 2);
+  const runner = spawnHero(host, "duskblade", "radiant", "runner", false, 4);
+  issueOrder(host, runner, { dx: 1, dy: 0, type: "moveDir" });
+  const s = new Session(host, guest.id, 60, jitterMs);
+  // long enough for the clock to have measured the route
+  s.frames(60);
+  let behind = 0;
+  let apart = 0;
+  const FRAMES = 90;
+  for (let i = 0; i < FRAMES; i += 1) {
+    s.frame();
+    const view = (host.gameTime - s.guest.view.gameTime) * 1000;
+    const body = ((runner.x - s.drawn(runner.id).x) / runner.moveSpeedBase) * 1000;
+    behind += view;
+    apart += Math.abs(body - view);
+  }
+  return { apart: apart / FRAMES, behind: behind / FRAMES };
+};
+
+test("a jittery route draws further back, and the ticks replay where the bodies are", () => {
+  const calm = replayLag(10);
+  const rough = replayLag(160);
+  assert.ok(
+    rough.behind > calm.behind + 40,
+    `the late ticks are waited for (${rough.behind} ms behind vs ${calm.behind})`,
+  );
+  assert.ok(calm.apart < 5, `calm: the replay is ${calm.apart} ms off the bodies`);
+  assert.ok(rough.apart < 5, `rough: the replay is ${rough.apart} ms off the bodies`);
+});
+
 test("effects are never lost, however many ticks land in one frame", () => {
   const host = createWorld(4244);
   spawnHero(host, "ironvow", "radiant", "guest", false, 2);
