@@ -129,7 +129,11 @@ changes it. A write is read when the batch leaves, not at the call: never write
 an object your sim goes on mutating that frame (a live world, an encoder view
 over the sim's own objects). It would leave as it stands after the mutation,
 under the stamp written before it. Write `structuredClone(world)` or freshly
-built objects.
+built objects. The reverse holds for reading: what `client.sharedState` holds
+is the room's copy, and a patch touches only the leaves that changed, so an
+edit made there (a guest adopting the host's world and stepping it) is never
+overwritten and the copy drifts from the room's. Clone what you read before
+you edit it.
 
 What costs is the rate. Don't send state every frame. 20–30 Hz is plenty, on a
 clock that ignores the frame rate. `frame % 3` sends 48 times a second on a 144 Hz monitor. The other

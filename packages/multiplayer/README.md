@@ -205,6 +205,10 @@ you shape state:
   length holds; any other change re-sends it whole.
 - Mutating in place still syncs (the client diffs against a private copy), but
   a new object per change is what keeps identities meaningful for views.
+- What `sharedState` holds is the room's copy, never yours to edit: clone what
+  you read before changing it. A patch touches only the leaves that changed, so
+  nothing overwrites an edit made there; it outlives the next patch, and that
+  client's copy drifts from the room's.
 
 The server refuses a write that would nest deeper than `MAX_STATE_DEPTH`, holds
 a prototype key, or exceeds `MAX_MESSAGE_BYTES`. The client checks first: such

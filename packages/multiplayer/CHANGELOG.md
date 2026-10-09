@@ -45,6 +45,9 @@ Shared state:
   and relays the ops, and every untouched subtree keeps its identity on the
   receiving end. Arrays diff by index while their length holds and are
   replaced otherwise, so keep growing collections in objects keyed by id.
+  Because a patch touches only those leaves, an edit a game makes to what it
+  reads from `sharedState` is no longer overwritten by the next patch: it
+  lasts, and that client's copy drifts from the room's. Clone before editing.
 - The function form of `updateSharedState` deletes the keys it leaves out, for
   everyone: before, only the writer lost them. A key set to `undefined` is
   deleted too.

@@ -184,7 +184,7 @@ setSpawn(SPAWNS[idx]);
 
 ## Anti-patterns
 
-- ❌ **Mutating the local mirror directly.** `client.sharedState.score = 100` is silently overwritten on the next patch.
+- ❌ **Mutating the local mirror directly.** `client.sharedState.score = 100` (or pushing into an array read from it) is never sent, and nothing overwrites it: a patch touches only the leaves that changed, so the edit outlives it and this client's copy drifts from the room's. Write through `updateSharedState`; `structuredClone` anything read from shared state before editing it.
 - ❌ **Sending positions as events.** Position belongs in `updateMyState`. Events are for things that _happened_.
 - ❌ **Drawing remotes at their newest value.** Snapping, per-packet tweens and exponential "chase the latest" lerps all show network jitter as stutter. Stamp sends with `t: client.serverNow()` and render through `Interpolator` (never on `client.serverClock` with a fixed delay — a stamp arrives a whole relay late).
 - ❌ **Letting the host settle races.** A guest's pickup waits a round trip and the host wins every tie. Use `client.claim(key)`.
