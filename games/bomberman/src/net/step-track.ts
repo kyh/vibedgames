@@ -16,7 +16,9 @@
 // — how long this sender's messages take to arrive and how late they run
 // (`hold`; the heartbeat keeps it measured, and the body's newest sample
 // fresh, while the body stands still). It draws that far behind the clock,
-// never less than STEP_DELAY_MS.
+// never less than STEP_DELAY_MS. When this client's own connection comes
+// back, every player's messages reach it by a new route, and the clock
+// measures it afresh.
 
 import { Interpolator, lerp, RemoteClock } from "@vibedgames/multiplayer";
 import type { SenderClock } from "@vibedgames/multiplayer";
@@ -196,6 +198,16 @@ export class StepTrack {
   clear(): void {
     this.interp.clear();
     this.stride = null;
+  }
+
+  /**
+   * Our own connection came back: this player's messages now take another
+   * route here. The clock measures it from the next arrival and eases onto
+   * it; timed by the old route's quicker trips, a slower one would run render
+   * time past the body's newest sample for seconds.
+   */
+  relearn(): void {
+    this.clock.relearn();
   }
 
   /** Stand on `to` without walking there: first sight, spawn, teleport. */

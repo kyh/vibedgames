@@ -8,8 +8,10 @@
 // is a stride plus jitter: the body walks every stride evenly, turns on tile
 // centres and never overshoots, and the clock's measured hold grows the delay
 // on a route that needs it. Each bot keeps a clock of its own (one that joins
-// mid-round turns out of step with the rest), relearnt when the host changes.
-// The host draws its own bots from its sim instead (render/bot-stride).
+// mid-round turns out of step with the rest), relearnt when the host changes
+// and when this client's own connection comes back: either way the turns
+// take a new route here. The host draws its own bots from its sim instead
+// (render/bot-stride).
 
 import { Interpolator } from "@vibedgames/multiplayer";
 import type { RemoteClock } from "@vibedgames/multiplayer";
@@ -27,7 +29,7 @@ export class TurnTrack {
   private readonly interp: Interpolator<GridSample>;
   private last: GridSample | null = null;
 
-  /** `clock` is the bot's own, kept across rounds and relearnt when the host changes. */
+  /** `clock` is the bot's own, kept across rounds and relearnt whenever the turns' route changes. */
   constructor(clock: RemoteClock) {
     this.clock = clock;
     this.interp = new Interpolator<GridSample>({

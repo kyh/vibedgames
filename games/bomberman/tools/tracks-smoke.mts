@@ -133,16 +133,25 @@ interface Frame {
   delivered: number;
 }
 
-/** Deliver `packets` to a fresh track in arrival order and draw it at 60 fps from START on. */
-const play = (packets: readonly Packet[], until: number): Frame[] => {
+/**
+ * Deliver `packets` to a fresh track in arrival order and draw it at 60 fps
+ * from START on. The room admits us again at `backAt`, after our own drop:
+ * the track relearns its clock before the first message from then on.
+ */
+const play = (packets: readonly Packet[], until: number, backAt = Number.NaN): Frame[] => {
   const track = new StepTrack();
   const queue = packets.toSorted((a, b) => a.at - b.at);
   const frames: Frame[] = [];
   let delivered = 0;
   let progress = 0;
+  let back = false;
   for (let now = queue[0]?.at ?? 0; now <= until; now += FRAME_MS) {
     while ((queue[0]?.at ?? Number.POSITIVE_INFINITY) <= now) {
       const packet = queue.shift();
+      if (packet && !back && packet.at >= backAt) {
+        back = true;
+        track.relearn();
+      }
       if (packet?.step) {
         track.step(packet.step.to, packet.t, packet.step.stride, packet.at);
         delivered = packet.step.index + 1;
@@ -334,6 +343,67 @@ test("each player is drawn on its own clock of them, which learns their relay", 
     const off = offCadence(gains(frames, steps), FRAME_MS / STRIDE_MS);
     assert.deepEqual(off, [], "the walk keeps the sender's cadence, bent only by the slew");
   }
+});
+
+/**
+ * `packets` across our own drop: none of those sent in the `ms` from `from`
+ * reach us, and the rest come by the route we are back on, 400 ms slower.
+ */
+const acrossDrop = (packets: readonly Packet[], from: number, ms: number): Packet[] =>
+  packets
+    .filter((packet) => packet.t < from || packet.t >= from + ms)
+    .map((packet) => (packet.t < from ? packet : { ...packet, at: packet.at + 400 }));
+
+/**
+ * What share of the frames drawn in the 3 s after we are back at `backAt`
+ * run past the body's newest sample, with the track relearning its clock
+ * then, as the scene does, or not.
+ */
+const ranPastAfterDrop = (packets: readonly Packet[], backAt: number, relearn: boolean): number => {
+  const track = new StepTrack();
+  const queue = packets.toSorted((a, b) => a.at - b.at);
+  let before: NetStats | null = null;
+  for (let now = queue[0]?.at ?? 0; now < backAt + 3000; now += FRAME_MS) {
+    while ((queue[0]?.at ?? Number.POSITIVE_INFINITY) <= now) {
+      const packet = queue.shift();
+      if (packet && !before && packet.at >= backAt) {
+        before = netStats();
+        if (relearn) {
+          track.relearn();
+        }
+      }
+      if (packet?.step) {
+        track.step(packet.step.to, packet.t, packet.step.stride, packet.at);
+      } else if (packet) {
+        track.beat(packet.t, packet.at);
+      }
+    }
+    track.sample(now);
+  }
+  const after = netStats();
+  const from = before ?? after;
+  return (after.starved - from.starved) / Math.max(1, after.frames - from.frames);
+};
+
+test("back from our own drop onto a slower route, a player walks on at once", () => {
+  const steps = 40;
+  const { end, packets } = walk(steps, walkLatency, { warmup: 3000 });
+  // Away for five steps from the twelfth: the first step back is two tiles
+  // on from the last one seen, so it places the body.
+  const away = START + 12 * STRIDE_MS;
+  const list = acrossDrop(packets, away, 5 * STRIDE_MS);
+  const backAt = list.find((packet) => packet.t >= away)?.at ?? Number.NaN;
+  // Timed by the old route's quicker trips, render time runs past the newest
+  // sample until those trips age out of the clock's window.
+  const relearned = ranPastAfterDrop(list, backAt, true);
+  const stale = ranPastAfterDrop(list, backAt, false);
+  assert.ok(relearned < 0.02, `relearned, ran past the newest sample: ${relearned}`);
+  assert.ok(stale > 0.5, `not relearned, ran past the newest sample: ${stale}`);
+  const frames = play(list, SKEW_MS + end + 800, backAt);
+  assertWalk(frames);
+  const walked = frames.filter((frame) => frame.at >= backAt + 200);
+  const off = offCadence(gains(walked, steps), FRAME_MS / STRIDE_MS);
+  assert.deepEqual(off, [], "on the sender's cadence from 200 ms after the drop");
 });
 
 /** Three seconds of a body standing on one tile, drawn at 60 fps; its beats, if any, land 40–70 ms late. */

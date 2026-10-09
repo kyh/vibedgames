@@ -402,6 +402,8 @@ export class GameScene extends Scene {
   private ingestRound: number | null = null;
   /** Who sends the bots' turns: this client ("self") or the host it follows. */
   private botSender: string | null = null;
+  /** Our own connection dropped and the room has not admitted us again yet. */
+  private ownDrop = false;
   /** The heartbeat's send clock: see PlayerState's `h`. */
   private readonly beat = new FixedRate(PLAYER_BEAT_HZ);
 
@@ -699,8 +701,10 @@ export class GameScene extends Scene {
     setClockBase(this.client.serverClock);
     // The SDK notifies once per room message (offline, once per write), so
     // every step a mover reports reaches its track even when several land in
-    // one frame.
+    // one frame, and a drop and the reconnect after it are both seen even
+    // while the tab is hidden and runs no frame.
     this.client.subscribe(() => {
+      this.watchOwnConnection();
       this.syncSharedClock();
       this.ingestNet();
       this.netDirty = true;
@@ -1422,6 +1426,27 @@ export class GameScene extends Scene {
   private shared(): SharedState | null {
     const state = this.client.sharedState;
     return isShared(state) ? state : null;
+  }
+
+  /**
+   * Back in the room after our own connection dropped: every sender's route
+   * here is new, so each clock kept for one measures it afresh before the
+   * room's state is taken in. (A host change moves only the bots' route; see
+   * ingestNet.)
+   */
+  private watchOwnConnection(): void {
+    const status = this.client.connectionStatus;
+    if (status === "reconnecting") {
+      this.ownDrop = true;
+    } else if (status === "connected" && this.ownDrop) {
+      this.ownDrop = false;
+      for (const track of this.humanTracks.values()) {
+        track.relearn();
+      }
+      for (const clock of this.botClocks.values()) {
+        clock.relearn();
+      }
+    }
   }
 
   /**
