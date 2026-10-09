@@ -318,6 +318,14 @@ const pose = interp.sample(); // undefined until the first update
   (`new Interpolator({ clock: hostClock, lerp })`). `relearn()` it when `hostId`
   changes: the new host's route differs, while its stamps carry straight on, so
   the clock eases onto the new route instead of jumping.
+- **Your own reconnect.** When `connectionStatus` goes from `reconnecting` back
+  to `connected`, `relearn()` every clock you keep, per sender or per host:
+  every route to you is new. A clock timed by the old, quicker route runs
+  remotes past their newest update until its window forgets it (pacman froze
+  rivals about 2 s on a route 400 ms slower). Give each `Interpolator` an
+  explicit `RemoteClock` so you hold a reference to relearn. Watch the status in
+  a `subscribe` listener rather than the frame loop: a drop and its reconnect
+  can both land while the tab is hidden.
 - **Grid or step movers.** Stamp each step when it starts, like any other
   update. Never stamp a future arrival time: the clock reads every stamp as send
   time, so a shifted stamp skews every entity from that sender. Set `delayMs` to

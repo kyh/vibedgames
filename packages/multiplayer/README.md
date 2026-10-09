@@ -124,7 +124,11 @@ reads as one more pose and shrinks it. Entities from one sender (a host's world 
 clock: `new Interpolator({ clock: hostClock, lerp })`, and
 `hostClock.relearn()` when the host changes: the new host's route differs, while
 its stamps carry straight on, so the clock eases onto the new route instead of
-jumping.
+jumping. Relearn every clock you keep when your own connection comes back
+(`connectionStatus` from `reconnecting` to `connected`) too: every sender's
+route to you is new, and a clock timed by the old, quicker one runs remotes past
+their newest update until its window forgets it, about 2 s of freeze on a route
+400 ms slower.
 Stamps in server time stay continuous across reloads and host changes and mean
 the same instant to every client.
 
