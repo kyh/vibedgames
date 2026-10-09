@@ -11,9 +11,10 @@ import type { FarmerSample } from "./farmer-wire";
 // Renders the other players' farmers in the shared co-op world. They're the
 // same character sprite as the local player, name-tagged and depth-sorted with
 // everything else. Each sender stamps its 20 Hz updates with the room's server
-// clock, and each farmer here plays them back ~100 ms behind the moment they
-// could have arrived — every farmer on its own sender's clock (farmerTrack),
-// which learns that sender's route — blending the two updates around that
+// clock, and each farmer here plays them back 100 ms or more behind the moment
+// they could have arrived — every farmer on its own sender's clock
+// (farmerTrack), which learns that sender's route and how far behind its
+// stream must play never to run dry — blending the two updates around that
 // moment: position, facing and clip all from the same pair, so a farmer never
 // walks before the walk clip starts or slides in an idle pose.
 
@@ -84,7 +85,7 @@ export class RemoteFarmers {
     }
   }
 
-  /** Draw every farmer ~100 ms behind its updates' arrival, on its sender's clock. */
+  /** Draw every farmer at its track's render time, on its sender's clock. */
   update(now = performance.now()): void {
     for (const f of this.farmers.values()) {
       const s = f.track.sample(now);

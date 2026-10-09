@@ -71,8 +71,10 @@ export const blendFarmer = (a: FarmerSample, b: FarmerSample, k: number): Farmer
  * clock (a RemoteClock, the default), which learns from the arrivals how long
  * this sender's updates take to get here — its hop up to the server and this
  * client's hop down — so a farmer on a slow route plays as smoothly as one on
- * a fast route, and the default ~100 ms delay only has to cover the send
- * interval and the jitter.
+ * a fast route, and the delay only has to cover the send interval and the
+ * jitter. The clock measures those too (RemoteClock.hold): the delay is the
+ * default 100 ms, or more on a jittery route or a page too busy to read its
+ * messages on time, so the farmer's stream never runs dry.
  */
 export const farmerTrack = (): Interpolator<FarmerSample> =>
   new Interpolator({ lerp: blendFarmer });
