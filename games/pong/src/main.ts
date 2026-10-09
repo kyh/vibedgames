@@ -110,9 +110,12 @@ const handCamera = createHandCamera(
   (x) => game.handleHandPosition(x),
   () => game.handleGestureConfirm(),
 );
-// A playtest browser denies the camera, and the rejection is a console error
-// — which is a failed playtest for a reason that has nothing to do with pong.
-if (!COARSE_INPUT && !isPlaytestRequested()) {
+// A browser under automation has no camera to grant. A playtest's denies it,
+// and the rejection is a console error — a failed playtest for a reason that
+// has nothing to do with pong — and loading the recognizer first stalls the
+// page for seconds, which a lag check reads as netcode. The panel still
+// starts it on a tap.
+if (!COARSE_INPUT && !isPlaytestRequested() && !navigator.webdriver) {
   window.addEventListener("load", () => handCamera.enable(), { once: true });
 }
 
