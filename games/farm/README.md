@@ -12,11 +12,12 @@ pnpm --filter @repo/farm build
 
 ## Routes
 
-| URL           | What                                                                                                                   |
-| ------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `/`           | the game                                                                                                               |
-| `/?trailer=1` | scripted gameplay trailer — rolls on its own, click anywhere for audio (`&loop=1` replays, Esc exits)                  |
-| `/?gallery=1` | asset gallery — every world tile index with its gameplay classification, deco animations, character/animal/crop sheets |
+| URL                  | What                                                                                                                            |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `/`                  | the game                                                                                                                        |
+| `/?trailer=1`        | scripted gameplay trailer — rolls on its own, click anywhere for audio (`&loop=1` replays, Esc exits)                           |
+| `/?gallery=1`        | asset gallery — every world tile index with its gameplay classification, deco animations, character/animal/crop sheets          |
+| `/?online&room=<id>` | dev server only: skips the title into a fresh co-op farm in room `<id>`, saves untouched — what the multiplayer lag check opens |
 
 Multiplayer: shared farm via `@vibedgames/multiplayer` (auto-join, offline solo fallback if the party server doesn't answer).
 
