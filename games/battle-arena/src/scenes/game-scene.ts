@@ -12,6 +12,7 @@ import {
   ARENA_BOT_FILL,
   KILL_GOAL_FFA,
   MAX_CATCH_UP_TICKS,
+  ONLINE_FALLBACK_MS,
   SHOP_RADIUS,
   SIM_DT,
 } from "../data/config";
@@ -235,6 +236,8 @@ export class GameScene {
       // No unload hook: a page that closes or reloads leaves the room at once
       // (the browser closes the socket with 1001, which the server takes as a leave).
       this.net = new MultiplayerClient({
+        // no room in time: the client becomes a room of one, hosted like any
+        fallbackMs: ONLINE_FALLBACK_MS,
         host: MULTIPLAYER_HOST,
         maxPlayers: ARENA_BOT_FILL,
         onEvent: (e, p, from) => this.onNetEvent(e, p, from),
@@ -339,6 +342,12 @@ export class GameScene {
 
   get isOffline(): boolean {
     return this.net === null;
+  }
+
+  /** Whether other players can share this match: an online scene whose client
+   *  has not fallen back to the SDK's room of one. main.ts never freezes it. */
+  get isLive(): boolean {
+    return this.net !== null && this.net.connectionStatus !== "offline";
   }
 
   private get amHost(): boolean {
@@ -670,7 +679,10 @@ export class GameScene {
     if (!net) {
       return null;
     }
-    const id = net.connectionStatus === "connected" ? net.playerId : null;
+    // Offline — no room admitted us in time — the client is a room of one,
+    // seated and hosting like any other.
+    const seated = net.connectionStatus === "connected" || net.connectionStatus === "offline";
+    const id = seated ? net.playerId : null;
     if (!id) {
       // Out of the room — not yet admitted, or dropped and redialling — there
       // is no seat, so nothing predicts or sends: the SDK queues events while
@@ -745,6 +757,14 @@ export class GameScene {
       this.picks = { ...this.picks, ...roster.picks };
       this.assign = roster.seats;
       this.acc = 0;
+      if (net.connectionStatus === "offline") {
+        // no server answered: say why this match is against bots
+        this.world.fx.push({
+          kind: "notice",
+          t: "notify",
+          text: "SERVER UNREACHABLE — PLAYING VS BOTS",
+        });
+      }
       // stamps stay on server time; the world goes out whole on the first tick
       this.hostNet = new HostNet();
       this.hostNet.alreadySent(this.world.fx);
