@@ -816,3 +816,58 @@ test("a new host's slower route is eased onto: the view keeps its delay in hand"
   assert.ok(onA > INTERP_DELAY_MS / 2, `the view trails A's ticks by ${onA} ms`);
   assert.ok(Math.abs(onB - onA) < 10, `it trails B's by ${onB} ms, A's by ${onA} ms`);
 });
+
+test("a guest back from a drop by a slower route keeps its delay in hand", () => {
+  // C watches A's match, its connection drops, and it comes back half a
+  // second later by a route 80 ms slower (a phone off wifi). Timed by the old
+  // route's trips, the view ran nearly dry for three seconds, then trailed
+  // 35 ms too far for four more.
+  const world = createWorld(4253);
+  const watcher = spawnHero(world, "duskblade", "radiant", "c", false, 4);
+  const fast = link(30, 20);
+  const slow = link(110, 20);
+  let route = fast;
+  const down: Link = {
+    receive: (now) => route.receive(now),
+    send: (now, payload) => route.send(now, payload),
+  };
+  const c = streamGuest(watcher.id, down);
+  const a = streamHost(world, readServerClock(-12));
+  a.guests.push(down);
+  a.keyframe(0);
+  const DROPS = 180;
+  const BACK = DROPS + 30;
+  let now = 0;
+  /** Per frame: how far the view trails the newest tick C holds (ms). */
+  const inHand: number[] = [];
+  for (let f = 1; f <= BACK + 480; f += 1) {
+    now += FRAME_MS;
+    if (f === DROPS) {
+      // What was in flight is lost with the socket; GameScene resets the mirror.
+      a.guests.length = 0;
+      c.mirror.reset();
+      route = slow;
+    }
+    if (f === BACK) {
+      // Readmitted: C starts again from the room's keyframe.
+      a.guests.push(down);
+      a.keyframe(now);
+    }
+    a.frame(now);
+    c.frame(now);
+    const newest = c.mirror.latest;
+    inHand[f] = newest ? (newest.gameTime - c.view.gameTime) * 1000 : Number.NaN;
+  }
+  const mean = (from: number, to: number): number =>
+    inHand.slice(from, to).reduce((sum, ms) => sum + ms, 0) / (to - from);
+  const before = mean(DROPS - 90, DROPS);
+  assert.ok(before > INTERP_DELAY_MS / 2, `the view trails the fast route by ${before} ms`);
+  // From a second after the return, every half second keeps the same delay.
+  for (let f = BACK + 60; f < BACK + 480; f += 30) {
+    const after = mean(f, f + 30);
+    assert.ok(
+      Math.abs(after - before) < 15,
+      `${(f - BACK) / 60} s back: trails by ${after} ms, ${before} before the drop`,
+    );
+  }
+});

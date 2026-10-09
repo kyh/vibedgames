@@ -247,8 +247,9 @@ export class GuestMirror {
   }
 
   /** Forget the stream — the connection dropped, or this client took over as
-   *  host. Ticks are ignored until the next keyframe. The clock keeps what it
-   *  has measured of the route. */
+   *  host. Ticks are ignored until the next keyframe. The ticks after a
+   *  reconnect may come by another route (a phone off wifi), so the clock
+   *  measures it afresh, as for a new host, keeping its offset to ease from. */
   reset(): void {
     this.bodies.clear();
     this.pending.length = 0;
@@ -257,6 +258,7 @@ export class GuestMirror {
     this.replicaWhole = false;
     this.shownT = Number.NEGATIVE_INFINITY;
     this.lastTickAt = 0;
+    this.clock.relearn();
   }
 
   private show(item: Pending): void {
