@@ -25,12 +25,15 @@ const blendPose = (a: DragonPose, b: DragonPose, k: number): DragonPose => ({
 });
 
 /**
- * One rival's dragon, drawn ~100 ms behind the moment its samples land. The
- * samples are stamped with the room's server time; the Interpolator's own
- * RemoteClock learns from arrivals how long this rival's take to get here
- * (its hop up to the server and ours down), so the delay only covers jitter
- * on a slow route as on a fast one. Drawing the newest sample instead jumped
- * the dragon 20–50 px at every packet, right in your forward view.
+ * One rival's dragon, drawn 100 ms or more behind the moment its samples
+ * land. The samples are stamped with the room's server time; the
+ * Interpolator's own RemoteClock learns from arrivals how long this rival's
+ * take to get here (its hop up to the server and ours down), so the delay
+ * only covers the send interval and jitter, on a slow route as on a fast
+ * one. The clock measures those too: on a jittery route, or a page too busy
+ * to read its messages on time, the delay grows as far as the stream needs
+ * instead of running dry. Drawing the newest sample instead jumped the
+ * dragon 20–50 px at every packet, right in your forward view.
  */
 export class RivalMotion {
   /** Stamp of the newest sample pushed: state is polled every frame, but only a new stamp is news. */

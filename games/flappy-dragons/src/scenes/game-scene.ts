@@ -1442,9 +1442,9 @@ export class GameScene extends Scene {
       }
       ghost.seen = frame;
       laneX += ghost.gap;
-      // Drawn ~100 ms behind the moment the rival's samples land, blending
-      // the two around it: as smooth as its flight on its own screen, however
-      // unevenly the packets arrive.
+      // Drawn 100 ms or more behind the moment the rival's samples land, as
+      // far as its stream needs, blending the two around it: as smooth as its
+      // flight on its own screen, however unevenly the packets arrive.
       const pose = ghost.motion.sample(time);
       if (!pose) {
         continue;
@@ -1532,9 +1532,9 @@ export class GameScene extends Scene {
     }
     this.streamingState = true;
     // Stamped with the room's server time at this frame: continuous across a
-    // reload and comparable between senders. Every rival draws it ~100 ms
-    // behind the moment it lands. Unchanged keys stay off the wire, so a
-    // hovering or crashed dragon costs only `t`.
+    // reload and comparable between senders. Every rival draws it 100 ms or
+    // more behind the moment it lands (see RivalMotion). Unchanged keys stay
+    // off the wire, so a hovering or crashed dragon costs only `t`.
     this.net.updateMyState({
       life: this.life,
       live: this.alive,
