@@ -2,12 +2,13 @@
 // generated from a fixed CITY_SEED, so every client already builds an identical
 // map — remote cars just need their networked transforms placed on it. Every
 // owner stamps its pose with the room's server clock (GameScene.updateNet).
-// Each car is drawn on its own owner's relay clock — the RemoteClock its
-// Interpolator keeps, which learns how long that owner's updates take to reach
-// us and how much later than that they land — at least INTERP_DELAY_MS behind
-// it, or as far back as that lateness needs, blended between the two updates
-// around that moment, so it moves as smoothly as it was driven however
-// unevenly the updates arrive.
+// Each car is drawn on its own owner's relay clock — a RemoteClock that
+// learns how long that owner's updates take to reach us and how much later
+// than that they land — at least INTERP_DELAY_MS behind it, or as far back as
+// that lateness needs, blended between the two updates around that moment, so
+// it moves as smoothly as it was driven however unevenly the updates arrive.
+// When the owner's connection comes back, or ours does, its updates take a new
+// route, and the clock measures it afresh.
 // Read against this client's server clock the same stamp dates the pose, so a
 // taxi whose newest one is old reads as away, then gone. The server relays
 // only players within the room's interest radius (MP_INTEREST); past it a
@@ -17,7 +18,7 @@
 
 import * as THREE from "three";
 
-import { Interpolator, lerp, lerpAngle } from "@vibedgames/multiplayer";
+import { Interpolator, RemoteClock, lerp, lerpAngle } from "@vibedgames/multiplayer";
 import type { Player, PlayerMap, SenderClock } from "@vibedgames/multiplayer";
 
 import type { ModelCache } from "../assets/loader";
@@ -201,6 +202,8 @@ interface Peer {
    *  that player's state changes, so the same object means nothing new. */
   source: Player["state"];
   latest: RemoteState;
+  /** This owner's relay clock, which its interpolator draws on. */
+  readonly clock: RemoteClock;
   readonly interp: Interpolator<RemotePose>;
   connected: boolean;
   lastMsgAt: number;
@@ -322,6 +325,14 @@ export class RemoteCars {
     return this.visible;
   }
 
+  /** Back in the room after our own connection dropped: every owner's
+   *  updates now reach us by a new route, which each clock measures afresh. */
+  relearn(): void {
+    for (const peer of this.peers.values()) {
+      peer.clock.relearn();
+    }
+  }
+
   dispose(): void {
     for (const peer of this.peers.values()) {
       this.drop(peer);
@@ -380,6 +391,12 @@ export class RemoteCars {
   private adopt(id: string, player: Player, now: number): void {
     const known = this.peers.get(id);
     const connected = player.connected !== false;
+    if (known !== undefined && connected && !known.connected) {
+      // Back from its own drop: its updates may come by another route. Timed
+      // by the old route's quicker trips, a slower one runs the car past its
+      // newest update until those trips age out of the clock's window.
+      known.clock.relearn();
+    }
     if (known !== undefined && known.source === player.state) {
       known.connected = connected;
       known.generation = this.generation;
@@ -408,9 +425,10 @@ export class RemoteCars {
   private track(id: string, first: RemoteState, now: number): Peer {
     // The blend writes here every frame instead of allocating a pose.
     const out: RemotePose = { h: 0, t: 0, vx: 0, vz: 0, x: 0, y: 0, z: 0 };
-    // No `clock`: the Interpolator keeps a private RemoteClock, this owner's.
+    const clock = new RemoteClock();
     const interp = new Interpolator<RemotePose>({
       capacity: INTERP_CAPACITY,
+      clock,
       delayMs: INTERP_DELAY_MS,
       lerp: (a, b, alpha) => blendPose(out, a, b, alpha),
       maxExtrapolateMs: MAX_EXTRAPOLATE_MS,
@@ -420,6 +438,7 @@ export class RemoteCars {
     }
     const peer: Peer = {
       chat: null,
+      clock,
       connected: true,
       generation: this.generation,
       id,

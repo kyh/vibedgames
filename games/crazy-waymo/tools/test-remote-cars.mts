@@ -7,7 +7,7 @@
 import { setTimeout as settle } from "node:timers/promises";
 
 import * as THREE from "three";
-import { FixedRate } from "@vibedgames/multiplayer";
+import { FixedRate, netStats } from "@vibedgames/multiplayer";
 import type { PlayerMap } from "@vibedgames/multiplayer";
 
 import { ModelCache } from "../src/assets/loader.ts";
@@ -455,6 +455,70 @@ const checkRespawn = (check: Check): void => {
   );
 };
 
+/**
+ * A taxi cruising at 30 u/s while a link breaks for a second and comes back
+ * by a route 400 ms slower: ours (the scene relearns every taxi when the room
+ * admits us again) or its owner's (it drops out of the room and reconnects).
+ * What reached us before the break came 40–60 ms after it was sent; nothing
+ * sent during it arrives at all. Read from 250 ms after the first update over
+ * the new route.
+ */
+const acrossDrop = (whose: "ours" | "owner") => {
+  const rx = new Receiver();
+  const speed = 30;
+  const before = drive("d", 0, 4000, cruise(speed), (i) => 40 + 20 * noise(i));
+  const after = drive("d", 5000, 9000, cruise(speed), (i) => 440 + 20 * noise(i));
+  const lost = before.at(-1)?.arrive ?? 0;
+  const back = after[0]?.arrive ?? 0;
+  rx.send([...before, ...after]);
+  rx.run(lost + 100);
+  if (whose === "owner") {
+    rx.setConnected("d", false);
+  }
+  rx.run(back - 1);
+  if (whose === "ours") {
+    rx.remote.relearn();
+  } else {
+    rx.setConnected("d", true);
+  }
+  const from = back + 250;
+  const until = SKEW_MS + 8600;
+  rx.run(from);
+  const counted = netStats();
+  let prev: number | null = null;
+  let minStep = Infinity;
+  let maxStep = 0;
+  rx.run(until, () => {
+    const x = rx.car()?.position.x ?? Number.NaN;
+    if (prev !== null) {
+      const step = (x - prev) / ((speed * FRAME_MS) / 1000);
+      minStep = Math.min(minStep, step);
+      maxStep = Math.max(maxStep, step);
+    }
+    prev = x;
+  });
+  const stats = netStats();
+  return {
+    frames: stats.frames - counted.frames,
+    maxStep,
+    minStep,
+    starved: stats.starved - counted.starved,
+  };
+};
+
+const checkRouteChange = (check: Check): void => {
+  for (const whose of ["ours", "owner"] as const) {
+    const back = acrossDrop(whose);
+    check(
+      whose === "ours"
+        ? "back from our own drop onto a slower route, a taxi runs smoothly within a quarter second, never past its newest update"
+        : "an owner back from its drop by a slower route runs smoothly within a quarter second, never past its newest update",
+      back.frames > 0 && back.starved === 0 && back.minStep > 0.8 && back.maxStep < 1.2,
+      `${back.starved} of ${back.frames} frames past the newest, per-frame speed ${(back.minStep * 100).toFixed(0)}–${(back.maxStep * 100).toFixed(0)}% of true`,
+    );
+  }
+};
+
 const checkCullAndBodies = async (check: Check): Promise<void> => {
   const rx = new Receiver();
   const at = (x: number, from: number, to: number): void => {
@@ -599,6 +663,7 @@ export const checkRemoteCars = async (check: Check): Promise<void> => {
   checkSmoothMotion(check);
   checkPresence(check);
   checkRespawn(check);
+  checkRouteChange(check);
   checkInterest(check);
   await checkCullAndBodies(check);
   checkStaged(check);

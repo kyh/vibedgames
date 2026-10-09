@@ -38,7 +38,7 @@ import type { ParkedCars } from "../game/parked-cars";
 import { Traffic } from "../game/traffic";
 import type { TrafficCar } from "../game/traffic-car";
 import { InputState } from "../input/keyboard";
-import { connectRoom, showRoomStatus } from "../net/session";
+import { connectRoom, showRoomStatus, watchReadmission } from "../net/session";
 import { RemoteCars } from "../net/remote-cars";
 import type { PhysicsWorld } from "../physics/physics-world";
 import type { PlaytestView } from "../playtest/navigator";
@@ -1362,6 +1362,8 @@ vec3 ocGerstner(vec2 p, float t) {
     const remoteCars = new RemoteCars(this.cache, city, net.serverClock, (anchor, text) => {
       this.bubbles.say(anchor, text, { lift: 3 });
     });
+    // Back from our own drop, every taxi's updates come by a new route.
+    watchReadmission(net, () => remoteCars.relearn());
     this.scene.add(remoteCars.group);
     this.net = net;
     this.remoteCars = remoteCars;

@@ -40,6 +40,24 @@ export const connectRoom = ({ offline, room }: RoomOptions): MultiplayerClient =
     room,
   });
 
+/**
+ * Call `readmitted` each time the room admits this client again after its own
+ * connection dropped: whatever reaches us now comes by a new route. It watches
+ * every notification, not every frame, since a drop and the reconnect after
+ * it can both land while the tab is hidden and draws none.
+ */
+export const watchReadmission = (net: MultiplayerClient, readmitted: () => void): void => {
+  let away = false;
+  net.subscribe(() => {
+    if (net.connectionStatus === "reconnecting") {
+      away = true;
+    } else if (away && net.connectionStatus === "connected") {
+      away = false;
+      readmitted();
+    }
+  });
+};
+
 const roomStatusText = (net: MultiplayerClient): string => {
   switch (net.connectionStatus) {
     case "connecting": {
