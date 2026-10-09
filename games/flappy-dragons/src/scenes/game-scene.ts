@@ -788,12 +788,16 @@ export class GameScene extends Scene {
     return this.rivalIds.length > 0;
   }
   /**
-   * True only when actually connected to a live party room (not solo, nor
-   * still connecting or reconnecting) — used by the wrapper's pause handler
-   * so it never freezes a session other players are relying on.
+   * True while this player has a seat in a live party room: connected, or
+   * reconnecting while the room holds the seat and the others race its
+   * faded dragon (not solo, nor still connecting). The wrapper's pause
+   * handler reads it so it never freezes a session other players are
+   * relying on: frozen through a reconnect, the dragon would come back to
+   * them standing still for the rest of the pause.
    */
   isOnline(): boolean {
-    return this.net.connectionStatus === "connected";
+    const status = this.net.connectionStatus;
+    return status === "connected" || status === "reconnecting";
   }
   /**
    * Everything local-only — the get-ready 3-2-1 (an input gate plus pose
