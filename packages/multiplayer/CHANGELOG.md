@@ -76,6 +76,10 @@ Netcode helpers:
 Server: no longer echoes a host's own `state_patch` back to it; clients already
 applied it.
 
+React: `useMultiplayerRoom` rendered in a loop until React gave up, because
+`getSnapshot()` built a new object on every read. It now returns the same
+snapshot until the state in it changes.
+
 ## 0.2.0 — 2026-07-24
 
 All wire changes are additive and feature-detected — old clients and old servers

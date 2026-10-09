@@ -158,3 +158,18 @@ test("fallbackMs counts rendered frames: no room in time, and the client goes of
     delete host.cancelAnimationFrame;
   }
 });
+
+test("getSnapshot hands out the same object until the state in it changes", () => {
+  const client = offlineClient();
+  try {
+    const first = client.getSnapshot();
+    assert.equal(client.getSnapshot(), first, "unchanged: the same object, as React requires");
+    client.updateSharedState({ round: 2 });
+    const second = client.getSnapshot();
+    assert.notEqual(second, first, "a change makes a new snapshot");
+    assert.deepEqual(second.sharedState, { round: 2 });
+    assert.equal(client.getSnapshot(), second);
+  } finally {
+    client.destroy();
+  }
+});

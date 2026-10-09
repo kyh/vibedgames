@@ -289,6 +289,8 @@ export class MultiplayerClient {
   private _sharedState: JsonRecord;
   private _players: PlayerMap = {};
   private _room: string;
+  /** The last `getSnapshot()`, handed out again while nothing in it changed. */
+  private snapshot: MultiplayerSnapshot | null = null;
   /** Takes this client off `__VG_NET__.clients()` (see net-stats.ts). */
   private readonly untrack: () => void;
   private _onEvent: MultiplayerOptions["onEvent"];
@@ -529,9 +531,27 @@ export class MultiplayerClient {
     return this._room;
   }
 
-  /** Get a readonly snapshot of the current state. */
+  /**
+   * A readonly snapshot of the current state: the same object until something
+   * in it changes. `useSyncExternalStore` requires that — a fresh object on
+   * every read looks like a change on every render, and React re-renders
+   * until it gives up.
+   */
   getSnapshot(): MultiplayerSnapshot {
-    return {
+    const last = this.snapshot;
+    if (
+      last !== null &&
+      last.claims === this._claims &&
+      last.connectionStatus === this._connectionStatus &&
+      last.hostId === this._hostId &&
+      last.playerId === this._playerId &&
+      last.players === this._players &&
+      last.room === this._room &&
+      last.sharedState === this._sharedState
+    ) {
+      return last;
+    }
+    this.snapshot = {
       claims: this._claims,
       connectionStatus: this._connectionStatus,
       hostId: this._hostId,
@@ -540,6 +560,7 @@ export class MultiplayerClient {
       room: this._room,
       sharedState: this._sharedState,
     };
+    return this.snapshot;
   }
 
   // -- Server time ---------------------------------------------------------
