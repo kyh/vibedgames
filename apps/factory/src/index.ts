@@ -418,6 +418,7 @@ const approveCommand = defineCommand({
 });
 
 const main = defineCommand({
+  default: "start",
   meta: {
     description:
       "vibedgames factory — one autonomous agent per game: it builds a browser game end-to-end and evolves it like a studio (a durable, checkpointed loop of clean-context subagents). Deploys require approval.",
