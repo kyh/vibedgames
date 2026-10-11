@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 — 2026-10-10
 
 **Breaking: requires the matching party server.** The protocol drops the
 pre-0.2 fallbacks (`_delta` full-snapshot fan-out, connections without a

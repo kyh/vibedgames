@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.7.0 — 2026-10-10
+
+- `vg new`: scaffold from templates bundled with the CLI
+- `vg init` / `vg update`: install skills without the skills CLI
+- `vg config`: saved settings; Codex preference sticks
+- `vg generate`: Codex provider opt-in
+- Re-sync removes a dropped skill's fallback copies
+- Ships as one bundled package: no install warnings; musl factory builds
+- Plugins: six merged into one `vibedgames` plugin
+- Open signup; credits sold through Stripe, codes redeemed in Settings
+- Backwards-compatibility code dropped
+
 ## 0.6.3 — 2026-09-26
 
 - `vg init` installs skills from `kyh/vibedgames-plugins`, a plugins-only mirror — seconds instead of minutes, since `skills add` fetches the repo once per skill.
