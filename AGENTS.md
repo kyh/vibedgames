@@ -136,7 +136,7 @@ Six flows cover all ten `useMutation` sites in the app: `/settings` (create + re
 | Party (DO)    | `pnpm dev:party`              | `:8787` (`cf dev` default) | Partly — WebSocket protocol, no UI                   |
 | Games worker  | `pnpm dev:games`              | `:3002`                    | Partly — curl; serves R2 bundles, no local fixtures  |
 | Example games | `pnpm dev:<game>`             | per-game vite port         | **Yes** — `vg playtest`; see the `playtest` skill    |
-| Factory       | `pnpm -F @repo/factory start` | terminal                   | No — interactive Bun/OpenTUI app                     |
+| Factory       | `pnpm -F @repo/factory start` | terminal                   | No — interactive Ink app                             |
 
 For the surfaces marked No, `pnpm typecheck` and `pnpm build` are the gate; a real check needs a human. Games are agent-verifiable for _correctness_ (loop alive, input alive, objective reachable, no errors) — whether one is **fun** still needs a human, and headless frame rates are meaningless.
 
@@ -154,7 +154,7 @@ For the surfaces marked No, `pnpm typecheck` and `pnpm build` are the gate; a re
 
 ## Map
 
-- `apps/web` — the platform app (routes, auth, oRPC handler) · `apps/party` — multiplayer DO · `apps/games` — R2 game server · `apps/cli` — the published `vg` CLI · `apps/factory` — Bun/OpenTUI orchestrator
+- `apps/web` — the platform app (routes, auth, oRPC handler) · `apps/party` — multiplayer DO · `apps/games` — R2 game server · `apps/cli` — the published `vg` CLI · `apps/factory` — Node/Ink orchestrator
 - `packages/contract` — the oRPC contract: inputs, outputs, OpenAPI meta · `packages/service` — its implementation: routers, auth config, credits ledger · `packages/db` — Drizzle schema (source of truth for the data model) + `seed.sql` · `packages/ui`, `packages/multiplayer`, `packages/gamepad`, `packages/playtest`, `packages/embed`, `packages/asset-tools` (the image logic bundled into the skills' scripts)
 - `games/*` — bundled example games, not platform code
 - `plugins/*/skills/*` — the skills shipped to end users; symlinked into `.claude/skills/` by `pnpm dogfood`

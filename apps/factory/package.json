@@ -2,40 +2,31 @@
   "name": "@repo/factory",
   "version": "0.1.0",
   "private": true,
-  "bin": {
-    "vibedgames-factory": "./src/index.ts"
-  },
-  "files": [
-    "src",
-    "agents",
-    "tsconfig.json",
-    "README.md"
-  ],
   "type": "module",
   "scripts": {
-    "start": "bun src/index.ts start",
-    "stop": "bun src/index.ts stop",
-    "status": "bun src/index.ts status",
-    "approve": "bun src/index.ts approve",
+    "start": "tsx src/index.ts start",
+    "stop": "tsx src/index.ts stop",
+    "status": "tsx src/index.ts status",
+    "approve": "tsx src/index.ts approve",
     "clean": "rm -rf .turbo .cache node_modules .workspaces dist",
     "typecheck": "tsc --noEmit",
-    "build:npm": "bun scripts/build.ts"
+    "build:npm": "node scripts/build.mjs"
   },
   "dependencies": {
-    "@opentui/core": "^0.5.14",
-    "@opentui/react": "^0.5.14",
     "citty": "^0.2.2",
     "consola": "^3.4.2",
+    "ink": "^8.0.0",
     "react": "catalog:"
   },
   "devDependencies": {
     "@kyh/tsconfig": "catalog:",
-    "@types/bun": "^1.4.2",
     "@types/node": "catalog:",
     "@types/react": "catalog:",
+    "esbuild": "^0.28.2",
+    "tsx": "^4.23.15",
     "typescript": "catalog:"
   },
   "engines": {
-    "bun": ">=1.2"
+    "node": ">=22"
   }
 }

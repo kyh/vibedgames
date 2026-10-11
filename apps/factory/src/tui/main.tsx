@@ -2,10 +2,8 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 
-import { createCliRenderer } from "@opentui/core";
-import type { CliRenderer } from "@opentui/core";
-import { createRoot } from "@opentui/react";
-import type { Root } from "@opentui/react";
+import { render } from "ink";
+import type { Instance } from "ink";
 
 import {
   availableSlug,
@@ -75,17 +73,16 @@ const expandPath = (raw: string): string => {
 };
 
 /**
- * The interactive factory app. Mounts the opentui dashboard, collects a game
+ * The interactive factory app. Mounts the Ink dashboard, collects a game
  * config on the setup screen when the CLI didn't provide one, and starts /
  * stops / resumes the agent loop from the keyboard. Resolves only via
  * process.exit (quit key or force-quit).
  */
-export const runTui = async (launch: TuiLaunch): Promise<void> => {
+export const runTui = (launch: TuiLaunch): void => {
   const store = new TuiStore();
   const sink = new TuiSink(store);
 
-  let renderer: CliRenderer | null = null;
-  let root: Root | null = null;
+  let instance: Instance | null = null;
   let controls: RunControls | null = null;
   let cfg: RunConfig | null = null;
   let loopActive = false;
@@ -101,12 +98,7 @@ export const runTui = async (launch: TuiLaunch): Promise<void> => {
       clearInterval(poller);
     }
     try {
-      root?.unmount();
-    } catch {
-      /* teardown is best-effort */
-    }
-    try {
-      renderer?.destroy();
+      instance?.unmount();
     } catch {
       /* teardown is best-effort */
     }
@@ -314,11 +306,10 @@ export const runTui = async (launch: TuiLaunch): Promise<void> => {
   process.on("SIGINT", onSignal);
   process.on("SIGTERM", onSignal);
 
-  // We own Ctrl-C (graceful-then-force) and signals, so the renderer must not
-  // exit the process itself.
-  renderer = await createCliRenderer({ exitOnCtrlC: false, exitSignals: [], targetFps: 60 });
-  root = createRoot(renderer);
-  root.render(
+  // We own Ctrl-C (graceful-then-force), so Ink must not exit the process
+  // itself. Incremental rendering rewrites only changed lines, which keeps the
+  // 60fps pong on the setup screen from repainting the whole frame.
+  instance = render(
     <App
       store={store}
       controller={controller}
@@ -330,6 +321,7 @@ export const runTui = async (launch: TuiLaunch): Promise<void> => {
         slug: launch.slug ?? "",
       }}
     />,
+    { alternateScreen: true, exitOnCtrlC: false, incrementalRendering: true, maxFps: 60 },
   );
   poller = setInterval(pollBacklog, 2000);
 

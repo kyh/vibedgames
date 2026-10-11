@@ -1,18 +1,13 @@
-import artistMd from "../agents/artist/AGENT.md" with { type: "text" };
-import charterMd from "../agents/charter.md" with { type: "text" };
-import designerMd from "../agents/designer/AGENT.md" with { type: "text" };
-import directorMd from "../agents/director/AGENT.md" with { type: "text" };
-import engineerMd from "../agents/engineer/AGENT.md" with { type: "text" };
-import qaMd from "../agents/qa/AGENT.md" with { type: "text" };
-import shipperMd from "../agents/shipper/AGENT.md" with { type: "text" };
+import { readFileSync } from "node:fs";
 
 /**
  * Filesystem-first agent definitions. Each subagent is a directory under
  * `apps/factory/agents/<role>/` holding an `AGENT.md` — a file's name and place
  * in the tree IS its definition. `charter.md` is the shared system prompt
  * prepended to every subagent. Editing the markdown (prompt or emoji)
- * re-defines a subagent with no code change (restart to pick it up). The files
- * are bundled as Bun text imports so compiled binaries carry them too.
+ * re-defines a subagent with no code change (restart to pick it up). The
+ * published bundle sits one level below the package root exactly like `src/`
+ * does, and ships `agents/` beside it, so one relative URL serves both.
  */
 
 export type RoleName = "director" | "designer" | "engineer" | "artist" | "qa" | "shipper";
@@ -24,14 +19,8 @@ export interface Role {
   system: string;
 }
 
-const ROLE_SOURCES = {
-  artist: artistMd,
-  designer: designerMd,
-  director: directorMd,
-  engineer: engineerMd,
-  qa: qaMd,
-  shipper: shipperMd,
-} satisfies Record<RoleName, string>;
+const readAgentFile = (relativePath: string): string =>
+  readFileSync(new URL(`../agents/${relativePath}`, import.meta.url), "utf-8");
 
 interface FrontMatter {
   emoji?: string;
@@ -68,12 +57,12 @@ const parseAgentFile = (raw: string): ParsedAgentFile => {
 
 /**
  * Compose each subagent's system prompt as `charter + role body`, built once
- * at startup from the bundled definitions.
+ * at startup from the agent definitions.
  */
 export const loadRoles = () => {
-  const charter = charterMd.trim();
+  const charter = readAgentFile("charter.md").trim();
   const build = (name: RoleName): Role => {
-    const { meta, body } = parseAgentFile(ROLE_SOURCES[name]);
+    const { meta, body } = parseAgentFile(readAgentFile(`${name}/AGENT.md`));
     return {
       emoji: meta.emoji ?? "🤖",
       name,

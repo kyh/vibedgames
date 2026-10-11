@@ -16,18 +16,3 @@ export const color = {
   tool: "#67E8F9",
   warn: "#FBBF24",
 } as const;
-
-// Thin technical border set used for every panel — single-line, squared corners.
-export const panelBorder = {
-  bottomLeft: "└",
-  bottomRight: "┘",
-  bottomT: "┴",
-  cross: "┼",
-  horizontal: "─",
-  leftT: "├",
-  rightT: "┤",
-  topLeft: "┌",
-  topRight: "┐",
-  topT: "┬",
-  vertical: "│",
-} as const;

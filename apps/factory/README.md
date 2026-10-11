@@ -45,7 +45,7 @@ pnpm stop    neon-slasher    # graceful stop (or just Ctrl-C / the S key)
 ### Interactive dashboard (TUI)
 
 In a terminal, `pnpm start` opens the interactive dashboard
-([opentui](https://github.com/anomalyco/opentui)). Run it **with no arguments**
+([Ink](https://github.com/vadimdemedes/ink)). Run it **with no arguments**
 and it lands on the **setup screen**:
 
 - **FOLDER** — optional: where the game lives. Point it at a directory that
@@ -256,8 +256,7 @@ cat .vgfactory/trace.jsonl | jq -s 'group_by(.role) | map({role: .[0].role, cost
 
 ## Prerequisites
 
-1. **Bun ≥ 1.2** on `PATH` — the scripts run the TypeScript/TSX sources
-   directly with Bun (the TUI's renderer requires the Bun runtime).
+1. **Node ≥ 22** — the scripts run the TypeScript/TSX sources with `tsx`.
 2. **A coding-agent CLI** logged in on your machine. The default runner is
    **Claude Code** (`claude` on `PATH`, or `CLAUDE_BIN`; shells out to
    `claude -p` per phase). Pass `--runner codex` to drive the **Codex CLI**
@@ -288,26 +287,23 @@ The factory detects whether it's running inside the vibedgames monorepo:
 
 ### Building the publishable CLI
 
-`pnpm build:npm` (or `bun scripts/build.ts --host` for the current platform
-only) stages publish-ready packages under `dist/npm/`:
-
-- `@vibedgames/factory-<os>-<cpu>` — a bun-compiled standalone binary per
-  platform (agent markdown + opentui's native lib embedded; users need
-  neither Bun nor a TS runtime). Linux builds come in glibc and `-musl`
-  flavours; the musl one runs on Alpine with `apk add libstdc++`, as every
-  Bun binary there does
+`pnpm build:npm` stages the publish-ready `@vibedgames/factory` package in
+`dist/npm/factory/`: one esbuild bundle of the sources (`bin/vg-factory.js`)
+plus the agent markdown it reads at startup. It is plain JavaScript, so one
+package runs on every platform with Node ≥ 22; its dependencies (Ink, React,
+citty, consola) install with it.
 
 The factory ships as an **optional plugin of the vg CLI**: `vg factory …`
-installs the right platform package globally on first use, then execs its
-binary with the args passed through — vg itself carries none of the factory.
-(`VG_FACTORY_BIN` overrides resolution for development.) Still to do before a
-real publish: bump the version and wire the platform packages into the
-release flow.
+installs `@vibedgames/factory` globally on first use, then runs its bin with
+Node, args passed through — vg itself carries none of the factory.
+(`VG_FACTORY_BIN`, the path to a `vg-factory.js`, overrides resolution for
+development.) Still to do before a real publish: bump the version and wire the
+package into the release flow.
 
 ## Run
 
 There's no build step — the scripts run the TypeScript/TSX sources directly
-with Bun. From `apps/factory/`:
+with `tsx`. From `apps/factory/`:
 
 ```bash
 pnpm start <slug> --idea "<one-line idea>"
@@ -319,7 +315,7 @@ From the repo root, target the package with `-F`:
 pnpm -F @repo/factory start <slug> --idea "<one-line idea>"
 ```
 
-The `start`, `stop`, `status`, and `approve` scripts each run `bun
+The `start`, `stop`, `status`, and `approve` scripts each run `tsx
 src/index.ts <cmd>`; everything after the script name (the slug and any flags)
 is passed straight through. `pnpm typecheck` runs `tsc --noEmit` (the only
 TypeScript step — nothing is emitted).
