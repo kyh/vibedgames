@@ -1,14 +1,16 @@
 import { existsSync } from "node:fs";
-import { TextAttributes } from "@opentui/core";
-import type { BoxRenderable, TextareaRenderable } from "@opentui/core";
-import { useKeyboard, useTerminalDimensions } from "@opentui/react";
+
+import { Box, Text, useBoxMetrics, useInput, useWindowSize } from "ink";
+import type { BoxProps, DOMElement } from "ink";
 import { Fragment, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import type { RefObject } from "react";
+import type { ReactNode } from "react";
 
 import { hasExistingProject } from "../state.ts";
 import type { BacklogItem } from "./backlog.ts";
 import type { FeedLine, Snapshot, Tone, TuiStore } from "./store.ts";
-import { color, panelBorder } from "./theme.ts";
+import { TextInput } from "./text-input.tsx";
+import { color } from "./theme.ts";
+import { FACTORY_WORDMARK, VG_WORDMARK } from "./wordmark.ts";
 
 /** Semantic actions the keyboard dispatches; the controller owns behavior. */
 export interface AppController {
@@ -136,35 +138,78 @@ const useNow = (): number => {
   return now;
 };
 
+interface PanelProps extends Pick<BoxProps, "position" | "left" | "top" | "flexGrow"> {
+  title: string;
+  bottomTitle?: string;
+  width: number;
+  borderColor: string;
+  contentPadding?: Pick<BoxProps, "paddingLeft" | "paddingRight" | "paddingTop">;
+  children: ReactNode;
+}
+
+/** A single-line bordered panel with a title in its top edge, which Ink's borders lack. */
+const Panel = ({
+  title,
+  bottomTitle,
+  width,
+  borderColor,
+  contentPadding,
+  children,
+  ...frame
+}: PanelProps) => {
+  const fill = (used: number) => "─".repeat(Math.max(0, width - 2 - used));
+  return (
+    <Box {...frame} flexDirection="column" width={width} backgroundColor={color.bg}>
+      <Text color={borderColor}>{`┌${title}${fill(title.length)}┐`}</Text>
+      <Box
+        {...contentPadding}
+        flexDirection="column"
+        flexGrow={1}
+        borderStyle="single"
+        borderColor={borderColor}
+        borderTop={false}
+        borderBottom={bottomTitle === undefined}
+      >
+        {children}
+      </Box>
+      {bottomTitle === undefined ? null : (
+        <Text color={borderColor}>{`└${fill(bottomTitle.length)}${bottomTitle}┘`}</Text>
+      )}
+    </Box>
+  );
+};
+
 const KeyHint = ({ keys, label }: { keys: string; label: string }) => (
-  <>
-    <text fg={color.faint}>[</text>
-    <text fg={color.accent}>{keys}</text>
-    <text fg={color.faint}>]</text>
-    <text fg={color.dim}>{` ${label}`}</text>
-  </>
+  <Text>
+    <Text color={color.faint}>[</Text>
+    <Text color={color.accent}>{keys}</Text>
+    <Text color={color.faint}>]</Text>
+    <Text color={color.dim}>{` ${label}`}</Text>
+  </Text>
 );
 
 const KeyBar = ({ keys, right }: { keys: { keys: string; label: string }[]; right?: string }) => (
-  <box
+  <Box
     flexDirection="row"
+    flexShrink={0}
     alignItems="center"
-    border={["top"]}
     borderStyle="single"
-    customBorderChars={panelBorder}
     borderColor={color.border}
+    borderBottom={false}
+    borderLeft={false}
+    borderRight={false}
     paddingLeft={1}
     paddingRight={1}
   >
     {keys.map((k, i) => (
       <Fragment key={k.keys}>
-        {i > 0 && <text fg={color.ghost}>{"   "}</text>}
+        {i > 0 && <Text color={color.ghost}>{"   "}</Text>}
         <KeyHint keys={k.keys} label={k.label} />
       </Fragment>
     ))}
-    <box flexGrow={1} />
-    {right ? <text fg={color.accentDim}>{right}</text> : null}
-  </box>
+    <Box flexGrow={1} />
+    {right ? <Text color={color.accentDim}>{right}</Text> : null}
+  </Box>
 );
 
 // ─── setup screen pong ───────────────────────────────────────────────────────
@@ -173,6 +218,14 @@ const PADDLE_H = 5;
 // one cell — drawn as a small square glyph
 const BALL_W = 1;
 const clampNum = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
+
+/** A solid's cell rect on screen. */
+interface Rect {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
 
 interface PongState {
   ball: { x: number; y: number };
@@ -246,20 +299,15 @@ const bounceOffPaddles = (s: PongSim, leftX: number, rightX: number): void => {
  * inflated by the ball size so its whole body collides, and the bounce axis
  * comes from where the ball came from — never penetration.
  */
-const bounceOffSolids = (
-  s: PongSim,
-  solids: RefObject<BoxRenderable | null>[],
-  top: number,
-): void => {
-  for (const ref of solids) {
-    const r = ref.current;
-    if (!r || r.width <= 0) {
+const bounceOffSolids = (s: PongSim, solids: readonly Rect[], top: number): void => {
+  for (const r of solids) {
+    if (r.width <= 0) {
       continue;
     }
-    const L = r.x - BALL_W;
-    const R = r.x + r.width;
-    const T = r.y - 1;
-    const B = r.y + r.height;
+    const L = r.left - BALL_W;
+    const R = r.left + r.width;
+    const T = r.top - 1;
+    const B = r.top + r.height;
     if (s.x <= L || s.x >= R || s.y <= T || s.y >= B) {
       continue;
     }
@@ -288,13 +336,9 @@ const bounceOffSolids = (
 /**
  * A self-playing pong match around the setup screen: the ball bounces off the
  * field edges, the paddles, and every visible solid — the wordmark and the
- * NEW GAME card — whose rects are measured from the live layout each tick.
+ * NEW GAME card — whose rects are measured from the live layout.
  */
-const usePong = (
-  width: number,
-  height: number,
-  solids: RefObject<BoxRenderable | null>[],
-): PongState | null => {
+const usePong = (width: number, height: number, solids: readonly Rect[]): PongState | null => {
   const sim = useRef<PongSim>({
     left: {
       anticipation: 0.35,
@@ -324,6 +368,11 @@ const usePong = (
   });
   const [state, setState] = useState<PongState | null>(null);
   const playable = width >= 50 && height >= 16;
+  // The tick reads the latest layout without restarting on every re-render.
+  const solidsRef = useRef(solids);
+  useEffect(() => {
+    solidsRef.current = solids;
+  });
 
   useEffect(() => {
     if (!playable) {
@@ -389,7 +438,7 @@ const usePong = (
         s.vx = -Math.abs(s.vx);
       }
 
-      bounceOffSolids(s, solids, top);
+      bounceOffSolids(s, solidsRef.current, top);
 
       setState({
         ball: { x: Math.round(s.x), y: Math.round(s.y) },
@@ -398,7 +447,7 @@ const usePong = (
       });
     }, 16);
     return () => clearInterval(id);
-  }, [playable, width, height, solids]);
+  }, [playable, width, height]);
 
   return playable ? state : null;
 };
@@ -411,7 +460,7 @@ const PongLayer = ({
 }: {
   width: number;
   height: number;
-  solids: RefObject<BoxRenderable | null>[];
+  solids: readonly Rect[];
 }) => {
   const pong = usePong(width, height, solids);
   if (!pong) {
@@ -419,7 +468,7 @@ const PongLayer = ({
   }
   return (
     <>
-      <box
+      <Box
         position="absolute"
         left={2}
         top={pong.leftY}
@@ -427,7 +476,7 @@ const PongLayer = ({
         height={PADDLE_H}
         backgroundColor={color.accentDim}
       />
-      <box
+      <Box
         position="absolute"
         left={width - 3}
         top={pong.rightY}
@@ -435,9 +484,9 @@ const PongLayer = ({
         height={PADDLE_H}
         backgroundColor={color.accentDim}
       />
-      <text position="absolute" left={pong.ball.x} top={pong.ball.y} fg={color.accent}>
-        ■
-      </text>
+      <Box position="absolute" left={pong.ball.x} top={pong.ball.y}>
+        <Text color={color.accent}>■</Text>
+      </Box>
     </>
   );
 };
@@ -450,16 +499,16 @@ interface FieldLabelProps {
 }
 
 const FieldLabel = ({ label, focused }: FieldLabelProps) => (
-  <box flexDirection="row">
-    <text fg={focused ? color.accent : color.faint} attributes={TextAttributes.BOLD}>
+  <Box flexDirection="row">
+    <Text bold color={focused ? color.accent : color.faint}>
       {focused ? "▸ " : "  "}
-    </text>
-    <text fg={focused ? color.text : color.dim} attributes={TextAttributes.BOLD}>
+    </Text>
+    <Text bold color={focused ? color.text : color.dim}>
       {label}
-    </text>
-    <box flexGrow={1} />
-    <text fg={color.faint}>[optional]</text>
-  </box>
+    </Text>
+    <Box flexGrow={1} />
+    <Text color={color.faint}>[optional]</Text>
+  </Box>
 );
 
 interface FieldProps {
@@ -469,8 +518,11 @@ interface FieldProps {
   hint: string;
   hintTone: string;
   focused: boolean;
+  width: number;
+  /** Above 1, the field is multiline and ENTER inserts a newline. */
+  rows?: number;
   onInput: (value: string) => void;
-  onSubmit: () => void;
+  onSubmit?: () => void;
 }
 
 const Field = ({
@@ -480,76 +532,31 @@ const Field = ({
   hint,
   hintTone,
   focused,
+  width,
+  rows,
   onInput,
   onSubmit,
 }: FieldProps) => (
-  <box flexDirection="column" paddingBottom={1}>
+  <Box flexDirection="column" paddingBottom={1}>
     <FieldLabel label={label} focused={focused} />
-    <box paddingLeft={2}>
-      <input
-        focused={focused}
+    <Box paddingLeft={2}>
+      <TextInput
         value={value}
         placeholder={placeholder}
-        onInput={onInput}
+        focused={focused}
+        width={width - 2}
+        rows={rows}
+        onChange={onInput}
         onSubmit={onSubmit}
-        backgroundColor={color.ghost}
-        focusedBackgroundColor="#232333"
-        textColor={color.text}
-        focusedTextColor={color.text}
-        placeholderColor={color.faint}
-        cursorColor={color.accent}
       />
-    </box>
-    <box paddingLeft={2}>
-      <text fg={hintTone}>{hint || " "}</text>
-    </box>
-  </box>
+    </Box>
+    <Box paddingLeft={2}>
+      <Text color={hintTone} wrap="truncate-end">
+        {hint || " "}
+      </Text>
+    </Box>
+  </Box>
 );
-
-interface TextareaFieldProps {
-  label: string;
-  initialValue: string;
-  placeholder: string;
-  hint: string;
-  focused: boolean;
-  onInput: (value: string) => void;
-}
-
-/** Multiline sibling of Field — ENTER inserts a newline while it's focused. */
-const TextareaField = ({
-  label,
-  initialValue,
-  placeholder,
-  hint,
-  focused,
-  onInput,
-}: TextareaFieldProps) => {
-  const area = useRef<TextareaRenderable | null>(null);
-  return (
-    <box flexDirection="column" paddingBottom={1}>
-      <FieldLabel label={label} focused={focused} />
-      <box paddingLeft={2}>
-        <textarea
-          ref={area}
-          focused={focused}
-          initialValue={initialValue}
-          placeholder={placeholder}
-          height={3}
-          onContentChange={() => onInput(area.current?.plainText ?? "")}
-          backgroundColor={color.ghost}
-          focusedBackgroundColor="#232333"
-          textColor={color.text}
-          focusedTextColor={color.text}
-          placeholderColor={color.faint}
-          cursorColor={color.accent}
-        />
-      </box>
-      <box paddingLeft={2}>
-        <text fg={color.faint}>{hint || " "}</text>
-      </box>
-    </box>
-  );
-};
 
 // focus index of the multiline INSTRUCTIONS field
 const IDEA_FIELD = 1;
@@ -612,6 +619,17 @@ const slugHintFor = (slug: string, preview: string | null): string => {
   return preview ? `auto: ${preview}.vibedgames.com` : "derived from the folder or instructions";
 };
 
+/** A measured box's rect, offset by its parent's position on screen. */
+const rectIn = (
+  parent: { left: number; top: number },
+  box: { left: number; top: number; width: number; height: number },
+): Rect => ({
+  height: box.height,
+  left: parent.left + box.left,
+  top: parent.top + box.top,
+  width: box.width,
+});
+
 const SetupScreen = ({
   controller,
   prefill,
@@ -645,38 +663,42 @@ const SetupScreen = ({
   );
   const [modelIdx, setModelIdx] = useState(0);
   const ideaExample = useMemo(() => randomIdeaExample(), []);
-  const titleRef = useRef<BoxRenderable | null>(null);
-  const cardRef = useRef<BoxRenderable | null>(null);
-  const solids = useMemo<RefObject<BoxRenderable | null>[]>(
-    () => [titleRef, cardRef],
-    [titleRef, cardRef],
-  );
   const choice = modelChoices[modelIdx] ?? modelChoices[0];
+
+  // Ink reports each box's position relative to its parent; the title and card
+  // sit inside one centered column, itself a child of the full-screen root.
+  const columnRef = useRef<DOMElement>(null);
+  const titleRef = useRef<DOMElement>(null);
+  const cardRef = useRef<DOMElement>(null);
+  const column = useBoxMetrics(columnRef);
+  const title = useBoxMetrics(titleRef);
+  const card = useBoxMetrics(cardRef);
+  const solids = [rectIn(column, title), rectIn(column, card)];
 
   const submit = () => {
     controller.submitSetup({ dir, idea, model: choice.model, runner: choice.runner, slug });
   };
 
-  useKeyboard((key) => {
-    if (key.name === "escape" || (key.ctrl && key.name === "c")) {
+  useInput((input, key) => {
+    if (key.escape || (key.ctrl && input === "c")) {
       controller.quit();
-    } else if (key.name === "tab" && key.shift) {
+    } else if (key.tab && key.shift) {
       setFocus((f) => (f + 3) % 4);
-    } else if (key.name === "tab") {
+    } else if (key.tab) {
       setFocus((f) => (f + 1) % 4);
     }
     // On the MODEL stepper, up/down cycle the choice instead of moving fields.
-    else if (key.name === "down" && focus === MODEL_FIELD) {
+    else if (key.downArrow && focus === MODEL_FIELD) {
       setModelIdx((i) => (i + 1) % modelChoices.length);
-    } else if (key.name === "up" && focus === MODEL_FIELD) {
+    } else if (key.upArrow && focus === MODEL_FIELD) {
       setModelIdx((i) => (i + modelChoices.length - 1) % modelChoices.length);
-    } else if (key.name === "down" && focus !== IDEA_FIELD) {
+    } else if (key.downArrow && focus !== IDEA_FIELD) {
       setFocus((f) => (f + 1) % 4);
-    } else if (key.name === "up" && focus !== IDEA_FIELD) {
+    } else if (key.upArrow && focus !== IDEA_FIELD) {
       setFocus((f) => (f + 3) % 4);
     }
-    // In the textarea, ENTER makes a new line — TAB out to start.
-    else if (key.name === "return" && focus !== IDEA_FIELD) {
+    // ENTER in a text field is the field's own submit; the stepper starts here.
+    else if (key.return && focus === MODEL_FIELD) {
       submit();
     }
   });
@@ -702,105 +724,111 @@ const SetupScreen = ({
   const slugHintTone = slug.trim() && !preview ? color.warn : color.faint;
 
   const formWidth = Math.min(64, Math.max(40, width - 8));
-  const showWordmark = height >= 26 && width >= 66;
+  // Inside the card's border and its two-column padding on each side.
+  const fieldWidth = formWidth - 6;
+  // The form, subtitle, and key bar take 26 rows; the wordmark adds 7.
+  const showWordmark = height >= 33 && width >= 66;
+  const modelFocused = focus === MODEL_FIELD;
 
   return (
-    <box flexDirection="column" width={width} height={height} backgroundColor={color.bg}>
+    <Box
+      flexDirection="column"
+      width={width}
+      height={height}
+      overflow="hidden"
+      backgroundColor={color.bg}
+    >
       <PongLayer width={width} height={height} solids={solids} />
-      <box flexGrow={1} />
-      <box flexDirection="column" alignItems="center">
-        <box ref={titleRef} flexDirection="column" alignItems="flex-start">
+      <Box flexGrow={1} />
+      <Box ref={columnRef} flexDirection="column" alignItems="center">
+        <Box ref={titleRef} flexDirection="column" alignItems="flex-start">
           {showWordmark ? (
             <>
-              <ascii-font
-                text="VG"
-                font="tiny"
-                color={color.accentDim}
-                backgroundColor={color.bg}
-              />
-              <ascii-font
-                text="FACTORY"
-                font="slick"
-                color={color.accent}
-                backgroundColor={color.bg}
-              />
+              {VG_WORDMARK.map((line) => (
+                <Text key={line} color={color.accentDim}>
+                  {line}
+                </Text>
+              ))}
+              {FACTORY_WORDMARK.map((line) => (
+                <Text key={line} color={color.accent}>
+                  {line}
+                </Text>
+              ))}
             </>
           ) : (
-            <text attributes={TextAttributes.BOLD} fg={color.accent}>
+            <Text bold color={color.accent}>
               VG FACTORY
-            </text>
+            </Text>
           )}
-          <text alignSelf="center" fg={color.faint}>
-            VIBEDGAMES // autonomous game studio
-          </text>
-        </box>
-        <text> </text>
-        <box
-          ref={cardRef}
-          border
-          borderStyle="single"
-          customBorderChars={panelBorder}
-          borderColor={color.borderActive}
-          title=" NEW GAME "
-          titleAlignment="left"
-          backgroundColor={color.bg}
-          flexDirection="column"
-          width={formWidth}
-          paddingLeft={2}
-          paddingRight={2}
-          paddingTop={1}
-        >
-          <Field
-            label="FOLDER"
-            value={dir}
-            placeholder="~/games/my-prototype"
-            hint={dirHint}
-            hintTone={dirHintTone}
-            focused={focus === 0}
-            onInput={setDir}
-            onSubmit={submit}
-          />
-          <TextareaField
-            label="INSTRUCTIONS"
-            initialValue={prefill.idea}
-            placeholder={ideaExample}
-            hint={ideaHint}
-            focused={focus === IDEA_FIELD}
-            onInput={setIdea}
-          />
-          <Field
-            label="SLUG"
-            value={slug}
-            placeholder="auto"
-            hint={slugHint}
-            hintTone={slugHintTone}
-            focused={focus === 2}
-            onInput={setSlug}
-            onSubmit={submit}
-          />
-          <box flexDirection="column" paddingBottom={1}>
-            <FieldLabel label="MODEL" focused={focus === MODEL_FIELD} />
-            <box paddingLeft={2}>
-              <box
-                flexDirection="row"
-                flexGrow={1}
-                backgroundColor={focus === MODEL_FIELD ? "#232333" : color.ghost}
-                paddingLeft={1}
-                paddingRight={1}
-              >
-                <text fg={focus === MODEL_FIELD ? color.text : color.dim}>{choice.name}</text>
-                <box flexGrow={1} />
-                <text fg={focus === MODEL_FIELD ? color.accent : color.faint}>⇅</text>
-              </box>
-            </box>
-            <box paddingLeft={2}>
-              <text fg={color.faint}>{choice.description}</text>
-            </box>
-          </box>
-          {error ? <text fg={color.err}>{`✘ ${error}`}</text> : null}
-        </box>
-      </box>
-      <box flexGrow={1} />
+          <Box alignSelf="center">
+            <Text color={color.faint}>VIBEDGAMES // autonomous game studio</Text>
+          </Box>
+        </Box>
+        <Text> </Text>
+        <Box ref={cardRef}>
+          <Panel
+            title=" NEW GAME "
+            width={formWidth}
+            borderColor={color.borderActive}
+            contentPadding={{ paddingLeft: 2, paddingRight: 2, paddingTop: 1 }}
+          >
+            <Field
+              label="FOLDER"
+              value={dir}
+              placeholder="~/games/my-prototype"
+              hint={dirHint}
+              hintTone={dirHintTone}
+              focused={focus === 0}
+              width={fieldWidth}
+              onInput={setDir}
+              onSubmit={submit}
+            />
+            <Field
+              label="INSTRUCTIONS"
+              value={idea}
+              placeholder={ideaExample}
+              hint={ideaHint}
+              hintTone={color.faint}
+              focused={focus === IDEA_FIELD}
+              width={fieldWidth}
+              rows={3}
+              onInput={setIdea}
+            />
+            <Field
+              label="SLUG"
+              value={slug}
+              placeholder="auto"
+              hint={slugHint}
+              hintTone={slugHintTone}
+              focused={focus === 2}
+              width={fieldWidth}
+              onInput={setSlug}
+              onSubmit={submit}
+            />
+            <Box flexDirection="column" paddingBottom={1}>
+              <FieldLabel label="MODEL" focused={modelFocused} />
+              <Box paddingLeft={2}>
+                <Box
+                  flexDirection="row"
+                  flexGrow={1}
+                  backgroundColor={modelFocused ? "#232333" : color.ghost}
+                  paddingLeft={1}
+                  paddingRight={1}
+                >
+                  <Text color={modelFocused ? color.text : color.dim}>{choice.name}</Text>
+                  <Box flexGrow={1} />
+                  <Text color={modelFocused ? color.accent : color.faint}>⇅</Text>
+                </Box>
+              </Box>
+              <Box paddingLeft={2}>
+                <Text color={color.faint}>{choice.description}</Text>
+              </Box>
+            </Box>
+            {error ? <Text color={color.err}>{`✘ ${error}`}</Text> : null}
+          </Panel>
+        </Box>
+      </Box>
+      <Box flexGrow={1} />
       <KeyBar
         keys={
           focus === IDEA_FIELD
@@ -816,7 +844,7 @@ const SetupScreen = ({
               ]
         }
       />
-    </box>
+    </Box>
   );
 };
 
@@ -839,32 +867,34 @@ const Header = ({ snapshot, width }: { snapshot: Snapshot; width: number }) => {
   const idea = setup?.idea || "(existing project)";
   const left = 16 + (setup?.slug.length ?? 0);
   return (
-    <box
+    <Box
       flexDirection="row"
+      flexShrink={0}
       alignItems="center"
-      border={["bottom"]}
       borderStyle="single"
-      customBorderChars={panelBorder}
       borderColor={color.border}
+      borderTop={false}
+      borderLeft={false}
+      borderRight={false}
       paddingLeft={1}
       paddingRight={1}
     >
-      <text attributes={TextAttributes.BOLD} fg={color.accent}>
+      <Text bold color={color.accent}>
         VIBEDGAMES
-      </text>
-      <text fg={color.faint}>{" // "}</text>
-      <text attributes={TextAttributes.BOLD} fg={color.text}>
+      </Text>
+      <Text color={color.faint}>{" // "}</Text>
+      <Text bold color={color.text}>
         {setup?.slug ?? ""}
-      </text>
-      <text fg={color.dim}>{`  ${truncate(idea, Math.max(0, width - left - 36))}`}</text>
-      <box flexGrow={1} />
-      <text fg={status.dot}>●</text>
-      <text attributes={TextAttributes.BOLD} fg={color.dim}>{` ${status.label}`}</text>
-      <text fg={color.ghost}>{"  │  "}</text>
-      <text attributes={TextAttributes.BOLD} fg={color.text}>
+      </Text>
+      <Text color={color.dim}>{`  ${truncate(idea, Math.max(0, width - left - 36))}`}</Text>
+      <Box flexGrow={1} />
+      <Text color={status.dot}>●</Text>
+      <Text bold color={color.dim}>{` ${status.label}`}</Text>
+      <Text color={color.ghost}>{"  │  "}</Text>
+      <Text bold color={color.text}>
         {`~$${(state?.totalCostUsd ?? 0).toFixed(2)}`}
-      </text>
-    </box>
+      </Text>
+    </Box>
   );
 };
 
@@ -886,18 +916,18 @@ const StatusRow = ({ snapshot }: { snapshot: Snapshot }) => {
   const { setup, state, approvalPending } = snapshot;
   const deploy = deployStatus(setup, approvalPending);
   return (
-    <box flexDirection="row" paddingLeft={1} paddingRight={1}>
-      <text fg={color.faint}>PHASE </text>
-      <text attributes={TextAttributes.BOLD} fg={color.accent}>
+    <Box flexDirection="row" paddingLeft={1} paddingRight={1}>
+      <Text color={color.faint}>PHASE </Text>
+      <Text bold color={color.accent}>
         {(state?.phase ?? "…").toUpperCase()}
-      </text>
-      <text fg={color.faint}>{`  CYCLE ${state?.cycle ?? 0}`}</text>
-      <text fg={color.faint}>{`  ITER ${state?.iteration ?? 0}`}</text>
-      <text fg={color.ghost}>{"  │  "}</text>
-      <text fg={deploy.fg}>{deploy.text}</text>
-      <box flexGrow={1} />
-      <text fg={color.faint}>{setup ? `${setup.runner} · ${setup.model}` : ""}</text>
-    </box>
+      </Text>
+      <Text color={color.faint}>{`  CYCLE ${state?.cycle ?? 0}`}</Text>
+      <Text color={color.faint}>{`  ITER ${state?.iteration ?? 0}`}</Text>
+      <Text color={color.ghost}>{"  │  "}</Text>
+      <Text color={deploy.fg}>{deploy.text}</Text>
+      <Box flexGrow={1} />
+      <Text color={color.faint}>{setup ? `${setup.runner} · ${setup.model}` : ""}</Text>
+    </Box>
   );
 };
 
@@ -917,6 +947,10 @@ const feedRows = (feed: readonly FeedLine[], width: number) => {
   return rows;
 };
 
+/**
+ * The feed, pinned to its newest line until scrolled up with the arrows or
+ * PgUp/PgDn; scrolling back to the bottom pins it again.
+ */
 const ActivityPanel = ({
   snapshot,
   width,
@@ -927,40 +961,54 @@ const ActivityPanel = ({
   focused: boolean;
 }) => {
   const rows = feedRows(snapshot.feed, Math.max(8, width - 7));
+  const viewportRef = useRef<DOMElement>(null);
+  const contentRef = useRef<DOMElement>(null);
+  const viewport = useBoxMetrics(viewportRef);
+  const content = useBoxMetrics(contentRef);
+  const [scrolledUp, setScrolledUp] = useState(0);
+  const maxScroll = Math.max(0, content.height - viewport.clientHeight);
+  const fromBottom = Math.min(scrolledUp, maxScroll);
+  const page = Math.max(1, viewport.clientHeight - 1);
+
+  useInput(
+    (_input, key) => {
+      if (key.upArrow) {
+        setScrolledUp(Math.min(maxScroll, fromBottom + 1));
+      } else if (key.downArrow) {
+        setScrolledUp(Math.max(0, fromBottom - 1));
+      } else if (key.pageUp) {
+        setScrolledUp(Math.min(maxScroll, fromBottom + page));
+      } else if (key.pageDown) {
+        setScrolledUp(Math.max(0, fromBottom - page));
+      }
+    },
+    { isActive: focused },
+  );
+
   return (
-    <box
-      border
-      borderStyle="single"
-      customBorderChars={panelBorder}
-      borderColor={color.border}
-      title=" ACTIVITY "
-      titleAlignment="left"
-      backgroundColor={color.bg}
-      flexDirection="column"
-      flexGrow={1}
-      width={width}
-    >
-      <scrollbox
+    <Panel title=" ACTIVITY " width={width} borderColor={color.border} flexGrow={1}>
+      <Box
+        ref={viewportRef}
         flexGrow={1}
-        focused={focused}
-        stickyScroll
-        stickyStart="bottom"
-        scrollY
-        scrollX={false}
-        paddingLeft={1}
-        paddingRight={1}
+        flexDirection="column"
+        overflow="hidden"
+        contentOffsetY={maxScroll - fromBottom}
       >
-        {rows.map((row) => (
-          <text
-            key={row.key}
-            fg={toneColor[row.tone]}
-            attributes={row.bold ? TextAttributes.BOLD : undefined}
-          >
-            {row.text || " "}
-          </text>
-        ))}
-      </scrollbox>
-    </box>
+        <Box
+          ref={contentRef}
+          flexDirection="column"
+          flexShrink={0}
+          paddingLeft={1}
+          paddingRight={1}
+        >
+          {rows.map((row) => (
+            <Text key={row.key} color={toneColor[row.tone]} bold={row.bold} wrap="truncate-end">
+              {row.text || " "}
+            </Text>
+          ))}
+        </Box>
+      </Box>
+    </Panel>
   );
 };
 
@@ -977,12 +1025,12 @@ const BacklogRow = ({ item, width }: { item: BacklogItem; width: number }) => {
   const glyphFg = glyphColor(item);
   const tag = item.type ? `[${item.type}] ` : "";
   return (
-    <box flexDirection="row">
-      <text fg={glyphFg}>{`${glyph} `}</text>
-      <text fg={item.done ? color.faint : color.dim}>
+    <Box flexDirection="row">
+      <Text color={glyphFg}>{`${glyph} `}</Text>
+      <Text color={item.done ? color.faint : color.dim}>
         {truncate(`${tag}${item.title}`, Math.max(4, width - 2))}
-      </text>
-    </box>
+      </Text>
+    </Box>
   );
 };
 
@@ -999,32 +1047,24 @@ const BacklogPanel = ({
   const visible = backlog.slice(0, Math.max(1, maxRows));
   const inner = width - 4;
   return (
-    <box
-      border
-      borderStyle="single"
-      customBorderChars={panelBorder}
-      borderColor={color.border}
+    <Panel
       title=" BACKLOG "
-      titleAlignment="left"
       bottomTitle={backlog.length > 0 ? ` ${done}/${backlog.length} DONE ` : undefined}
-      bottomTitleAlignment="right"
-      backgroundColor={color.bg}
-      flexDirection="column"
       width={width}
-      paddingLeft={1}
-      paddingRight={1}
+      borderColor={color.border}
+      contentPadding={{ paddingLeft: 1, paddingRight: 1 }}
     >
       {backlog.length === 0 ? (
-        <text fg={color.faint}>
+        <Text color={color.faint}>
           {truncate("empty — the director fills this as it plans", inner)}
-        </text>
+        </Text>
       ) : (
         visible.map((item) => <BacklogRow key={item.id} item={item} width={inner} />)
       )}
       {backlog.length > visible.length ? (
-        <text fg={color.ghost}>{`  +${backlog.length - visible.length} more`}</text>
+        <Text color={color.ghost}>{`  +${backlog.length - visible.length} more`}</Text>
       ) : null}
-    </box>
+    </Panel>
   );
 };
 
@@ -1033,10 +1073,10 @@ const DirectiveRow = ({ directive }: { directive: string | null }) => {
     return null;
   }
   return (
-    <box flexDirection="row" paddingLeft={1} paddingRight={1}>
-      <text fg={color.accentDim}>◈ DIRECTIVE </text>
-      <text fg={color.dim}>{directive}</text>
-    </box>
+    <Box flexDirection="row" paddingLeft={1} paddingRight={1}>
+      <Text color={color.accentDim}>◈ DIRECTIVE </Text>
+      <Text color={color.dim}>{directive}</Text>
+    </Box>
   );
 };
 
@@ -1049,15 +1089,15 @@ const CheckpointBar = ({
 }) => {
   const left = Math.max(0, Math.ceil((checkpoint.deadline - now) / 1000));
   return (
-    <box flexDirection="row" paddingLeft={1} paddingRight={1}>
-      <text attributes={TextAttributes.BOLD} fg={color.warn}>
+    <Box flexDirection="row" paddingLeft={1} paddingRight={1}>
+      <Text bold color={color.warn}>
         {"⏸ CHECKPOINT "}
-      </text>
-      <text fg={color.text}>{checkpoint.message}</text>
-      <box flexGrow={1} />
-      <text fg={color.warn}>{` continuing in ${left}s `}</text>
-      <text fg={color.dim}>· ENTER continue · I respond · S stop</text>
-    </box>
+      </Text>
+      <Text color={color.text}>{checkpoint.message}</Text>
+      <Box flexGrow={1} />
+      <Text color={color.warn}>{` continuing in ${left}s `}</Text>
+      <Text color={color.dim}>· ENTER continue · I respond · S stop</Text>
+    </Box>
   );
 };
 
@@ -1074,24 +1114,24 @@ const TurnBar = ({ snapshot, now }: { snapshot: Snapshot; now: number }) => {
   if (!turn) {
     const msg = idleMessage(running, stopping);
     return (
-      <box paddingLeft={1}>
-        <text fg={running ? color.dim : color.faint}>{msg}</text>
-      </box>
+      <Box paddingLeft={1}>
+        <Text color={running ? color.dim : color.faint}>{msg}</Text>
+      </Box>
     );
   }
   const spinner = SPINNER[Math.floor(now / 250) % SPINNER.length];
   return (
-    <box flexDirection="row" paddingLeft={1} paddingRight={1}>
-      <text fg={color.accent}>{`${spinner} `}</text>
-      <text attributes={TextAttributes.BOLD} fg={color.text}>
+    <Box flexDirection="row" paddingLeft={1} paddingRight={1}>
+      <Text color={color.accent}>{`${spinner} `}</Text>
+      <Text bold color={color.text}>
         {`${turn.emoji} ${turn.role}`}
-      </text>
-      <text fg={color.dim}>{` — ${turn.phase} · cycle ${turn.cycle}${
+      </Text>
+      <Text color={color.dim}>{` — ${turn.phase} · cycle ${turn.cycle}${
         turn.iteration === null ? "" : ` · iteration ${turn.iteration}`
-      }`}</text>
-      <box flexGrow={1} />
-      <text fg={color.dim}>{`${fmtElapsed(now - turn.startedAt)} · ${turn.events} events`}</text>
-    </box>
+      }`}</Text>
+      <Box flexGrow={1} />
+      <Text color={color.dim}>{`${fmtElapsed(now - turn.startedAt)} · ${turn.events} events`}</Text>
+    </Box>
   );
 };
 
@@ -1143,28 +1183,28 @@ const Dashboard = ({
     setSteering(false);
   };
 
-  useKeyboard((key) => {
+  useInput((input, key) => {
     if (steering) {
-      if (key.name === "escape") {
+      if (key.escape) {
         setSteering(false);
       }
       // the overlay input owns every other key
       return;
     }
-    if ((key.ctrl && key.name === "c") || key.name === "q") {
+    if ((key.ctrl && input === "c") || input === "q") {
       controller.quit();
-    } else if (key.name === "s" && key.shift) {
+    } else if (input === "S") {
       controller.stopAtRelease();
-    } else if (key.name === "s") {
+    } else if (input === "s") {
       controller.stop();
-    } else if (key.name === "a") {
+    } else if (input === "a") {
       controller.approve();
-    } else if (key.name === "p") {
+    } else if (input === "p") {
       controller.togglePause();
-    } else if (key.name === "i") {
+    } else if (input === "i") {
       setSteerText(snapshot.directive ?? "");
       setSteering(true);
-    } else if (key.name === "return") {
+    } else if (key.return) {
       if (snapshot.checkpoint) {
         controller.continueNow();
       } else {
@@ -1179,12 +1219,19 @@ const Dashboard = ({
 
   const showBacklog = width >= 96;
   const backlogWidth = 36;
+  const overlayWidth = Math.min(70, width - 4);
 
   return (
-    <box flexDirection="column" width={width} height={height} backgroundColor={color.bg}>
+    <Box
+      flexDirection="column"
+      width={width}
+      height={height}
+      overflow="hidden"
+      backgroundColor={color.bg}
+    >
       <Header snapshot={snapshot} width={width} />
       <StatusRow snapshot={snapshot} />
-      <box flexDirection="row" flexGrow={1}>
+      <Box flexDirection="row" flexGrow={1}>
         <ActivityPanel
           snapshot={snapshot}
           width={showBacklog ? width - backlogWidth : width}
@@ -1197,7 +1244,7 @@ const Dashboard = ({
             maxRows={Math.max(1, height - 9)}
           />
         ) : null}
-      </box>
+      </Box>
       <DirectiveRow directive={snapshot.directive} />
       {snapshot.checkpoint ? (
         <CheckpointBar checkpoint={snapshot.checkpoint} now={now} />
@@ -1206,41 +1253,27 @@ const Dashboard = ({
       )}
       <KeyBar keys={keys} right={live ? truncate(`LIVE ▸ ${live}`, 40) : undefined} />
       {steering ? (
-        <box
-          position="absolute"
-          left={Math.max(1, Math.floor((width - Math.min(70, width - 4)) / 2))}
-          top={Math.max(1, Math.floor(height / 2) - 3)}
-          width={Math.min(70, width - 4)}
-          border
-          borderStyle="single"
-          customBorderChars={panelBorder}
-          borderColor={color.borderActive}
+        <Panel
           title=" STEER THE AGENT "
-          titleAlignment="left"
-          backgroundColor={color.bg}
-          flexDirection="column"
-          paddingLeft={1}
-          paddingRight={1}
-          paddingTop={1}
-          zIndex={10}
+          width={overlayWidth}
+          borderColor={color.borderActive}
+          position="absolute"
+          left={Math.max(1, Math.floor((width - overlayWidth) / 2))}
+          top={Math.max(1, Math.floor(height / 2) - 3)}
+          contentPadding={{ paddingLeft: 1, paddingRight: 1, paddingTop: 1 }}
         >
-          <input
+          <TextInput
             focused
             value={steerText}
             placeholder="e.g. focus on mobile controls; make the boss easier"
-            onInput={setSteerText}
+            width={overlayWidth - 4}
+            onChange={setSteerText}
             onSubmit={submitSteer}
-            backgroundColor={color.ghost}
-            focusedBackgroundColor="#232333"
-            textColor={color.text}
-            focusedTextColor={color.text}
-            placeholderColor={color.faint}
-            cursorColor={color.accent}
           />
-          <text fg={color.faint}>ENTER apply · ESC cancel · empty clears the directive</text>
-        </box>
+          <Text color={color.faint}>ENTER apply · ESC cancel · empty clears the directive</Text>
+        </Panel>
       ) : null}
-    </box>
+    </Box>
   );
 };
 
@@ -1256,7 +1289,7 @@ export const App = ({
   prefill: SetupForm;
 }) => {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
-  const { width, height } = useTerminalDimensions();
+  const { columns: width, rows: height } = useWindowSize();
 
   if (snapshot.screen === "setup") {
     return (

@@ -1,4 +1,4 @@
-#!/usr/bin/env bun
+#!/usr/bin/env node
 import { closeSync, existsSync, openSync, readSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
@@ -287,7 +287,7 @@ const startCommand = defineCommand({
       // Validate an explicit slug here so a typo fails fast with the usual CLI
       // error; the setup screen re-validates whatever the user types in.
       const slug = args.slug ? requireSlug(args.slug) : undefined;
-      await runTui({ ...knobs, dir: args.dir, slug });
+      runTui({ ...knobs, dir: args.dir, slug });
       return;
     }
 

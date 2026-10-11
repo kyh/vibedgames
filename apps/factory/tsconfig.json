@@ -2,10 +2,9 @@
   "extends": "@kyh/tsconfig/base.json",
   "compilerOptions": {
     "lib": ["ES2023"],
-    "types": ["node", "bun"],
+    "types": ["node"],
     "jsx": "react-jsx",
-    "jsxImportSource": "@opentui/react",
     "allowImportingTsExtensions": true
   },
-  "include": ["src", "scripts"]
+  "include": ["src"]
 }

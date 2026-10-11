@@ -41,17 +41,6 @@ linkWorkspacePackages: true
 
 publicHoistPattern:
   - "@cloudflare/workers-types"
-# Install native deps for every platform so bun can cross-compile the factory
-# CLI binaries (scripts/build.ts) from any host.
-supportedArchitectures:
-  cpu:
-    - x64
-    - arm64
-  os:
-    - darwin
-    - linux
-    - win32
-
 allowBuilds:
   "@swc/core": true
   "@tailwindcss/oxide": true
