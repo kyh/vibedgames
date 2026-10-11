@@ -5,48 +5,17 @@ import path from "node:path";
 import { defineCommand } from "citty";
 import { consola } from "consola";
 
-import { isJsonObject, isJsonString } from "../lib/types.js";
-import type { JsonValue } from "../lib/types.js";
-
 /**
  * `vg factory` — the autonomous game factory, shipped as an optional plugin.
- * The vg CLI carries none of it: the factory lives in a per-platform npm
- * package (a bun-compiled standalone binary) that gets installed globally on
- * first use, then every invocation just execs it with the args passed
+ * The vg CLI carries none of it: the factory is its own npm package (plain
+ * JavaScript, one for every platform) that gets installed globally on first
+ * use, then every invocation runs its bin with this Node, args passed
  * through. index.ts routes `vg factory …` here BEFORE citty parses anything,
- * so even `--help`/`--version` reach the binary untouched; the citty command
+ * so even `--help`/`--version` reach the factory untouched; the citty command
  * below exists only so `vg --help` lists the subcommand.
  */
 
-/**
- * The platform package carrying a machine's factory binary. Linux has one per
- * C library, and `report` (a `process.report` diagnostic report) tells them
- * apart: glibc's names its runtime version, musl's (Alpine) names none.
- */
-export const factoryPackageFor = (
-  platform: NodeJS.Platform,
-  arch: string,
-  report: JsonValue,
-): string => {
-  const name = `@vibedgames/factory-${platform}-${arch}`;
-  if (platform !== "linux") {
-    return name;
-  }
-  const header = isJsonObject(report) ? report.header : undefined;
-  return isJsonObject(header) && isJsonString(header.glibcVersionRuntime) ? name : `${name}-musl`;
-};
-
-const factoryPackage = (): string => {
-  if (process.platform !== "linux") {
-    return factoryPackageFor(process.platform, process.arch, null);
-  }
-  // A diagnostic report is plain data; read back from its text, it is typed.
-  const reportText = JSON.stringify(process.report.getReport());
-  const report: JsonValue = JSON.parse(reportText);
-  return factoryPackageFor(process.platform, process.arch, report);
-};
-
-const BIN = process.platform === "win32" ? "vg-factory.exe" : "vg-factory";
+const FACTORY_PACKAGE = "@vibedgames/factory";
 
 const npmGlobalRoot = (): string | null => {
   try {
@@ -61,8 +30,8 @@ const npmGlobalRoot = (): string | null => {
   }
 };
 
-/** The installed factory binary, or null. VG_FACTORY_BIN overrides (dev). */
-const findBinary = (pkg: string): string | null => {
+/** The installed factory entry script, or null. VG_FACTORY_BIN overrides (dev). */
+const findEntry = (): string | null => {
   const override = process.env.VG_FACTORY_BIN;
   if (override) {
     return existsSync(override) ? override : null;
@@ -71,31 +40,32 @@ const findBinary = (pkg: string): string | null => {
   if (!root) {
     return null;
   }
-  const bin = path.join(root, pkg, "bin", BIN);
-  return existsSync(bin) ? bin : null;
+  const entry = path.join(root, FACTORY_PACKAGE, "bin", "vg-factory.js");
+  return existsSync(entry) ? entry : null;
 };
 
 /** Resolve (installing on first use) and exec the factory. Never returns. */
 export const runFactory = (args: string[]): never => {
-  const pkg = factoryPackage();
-  let bin = findBinary(pkg);
-  if (!bin) {
-    consola.start(`Installing the factory (${pkg})…`);
-    const install = spawnSync("npm", ["install", "-g", pkg], { stdio: "inherit" });
+  let entry = findEntry();
+  if (!entry) {
+    consola.start(`Installing the factory (${FACTORY_PACKAGE})…`);
+    const install = spawnSync("npm", ["install", "-g", FACTORY_PACKAGE], { stdio: "inherit" });
     if (install.status !== 0 || install.error !== undefined) {
-      consola.error(`Couldn't install the factory. Try manually: npm install -g ${pkg}`);
+      consola.error(
+        `Couldn't install the factory. Try manually: npm install -g ${FACTORY_PACKAGE}`,
+      );
       process.exit(1);
     }
-    bin = findBinary(pkg);
-    if (!bin) {
+    entry = findEntry();
+    if (!entry) {
       consola.error(
-        `Installed ${pkg} but couldn't find its binary under npm's global root. Check \`npm root -g\`.`,
+        `Installed ${FACTORY_PACKAGE} but couldn't find its entry under npm's global root. Check \`npm root -g\`.`,
       );
       process.exit(1);
     }
     consola.success("Factory installed.");
   }
-  const result = spawnSync(bin, args, { stdio: "inherit" });
+  const result = spawnSync(process.execPath, [entry, ...args], { stdio: "inherit" });
   process.exit(result.status ?? 1);
 };
 
