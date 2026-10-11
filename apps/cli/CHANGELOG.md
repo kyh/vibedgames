@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.8.0 — 2026-10-10
+
+- `vg factory`: installs `@vibedgames/factory`, one pure-JS package run with Node, in place of the per-platform binaries
+
 ## 0.7.0 — 2026-10-10
 
 - `vg new`: scaffold from templates bundled with the CLI
