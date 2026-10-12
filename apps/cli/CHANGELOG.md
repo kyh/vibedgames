@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.8.1 — 2026-10-11
+
+- `vg update` (and the daily background update) keeps an installed factory current
+
 ## 0.8.0 — 2026-10-10
 
 - `vg factory`: installs `@vibedgames/factory`, one pure-JS package run with Node, in place of the per-platform binaries
