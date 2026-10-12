@@ -1,9 +1,14 @@
 import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 import { defineCommand } from "citty";
 import { consola } from "consola";
+
+import { run } from "../lib/run.js";
+import type { RunResult } from "../lib/run.js";
+import { isJsonObject, isJsonString } from "../lib/types.js";
+import type { JsonValue } from "../lib/types.js";
 
 /**
  * `vg factory` — the autonomous game factory, shipped as an optional plugin.
@@ -15,7 +20,7 @@ import { consola } from "consola";
  * below exists only so `vg --help` lists the subcommand.
  */
 
-const FACTORY_PACKAGE = "@vibedgames/factory";
+export const FACTORY_PACKAGE = "@vibedgames/factory";
 
 const npmGlobalRoot = (): string | null => {
   try {
@@ -43,6 +48,27 @@ const findEntry = (): string | null => {
   const entry = path.join(root, FACTORY_PACKAGE, "bin", "vg-factory.js");
   return existsSync(entry) ? entry : null;
 };
+
+/** The globally installed factory's version, or null when it isn't installed. */
+export const installedFactoryVersion = (): string | null => {
+  const root = npmGlobalRoot();
+  if (!root) {
+    return null;
+  }
+  try {
+    const manifest: JsonValue = JSON.parse(
+      readFileSync(path.join(root, FACTORY_PACKAGE, "package.json"), "utf-8"),
+    );
+    return isJsonObject(manifest) && isJsonString(manifest.version) ? manifest.version : null;
+  } catch {
+    return null;
+  }
+};
+
+// Always npm: `runFactory` installs with npm and finds the package under npm's
+// global root, so an update through another manager would land where it never looks.
+export const updateFactory = (): Promise<RunResult> =>
+  run("npm", ["install", "-g", `${FACTORY_PACKAGE}@latest`]);
 
 /** Resolve (installing on first use) and exec the factory. Never returns. */
 export const runFactory = (args: string[]): never => {
