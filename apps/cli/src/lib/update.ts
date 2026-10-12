@@ -62,10 +62,10 @@ export const isNewerVersion = (latest: string, current: string): boolean => {
   return false;
 };
 
-export const fetchLatestVersion = async (): Promise<string | null> => {
+export const fetchLatestVersion = async (packageName: string): Promise<string | null> => {
   const registry = process.env.VG_REGISTRY_URL ?? "https://registry.npmjs.org";
   try {
-    const res = await fetch(`${registry}/vibedgames/latest`, {
+    const res = await fetch(`${registry}/${packageName}/latest`, {
       signal: AbortSignal.timeout(5000),
     });
     if (!res.ok) {
