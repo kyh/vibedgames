@@ -15,8 +15,8 @@ marked _(1.5)_ reversed between 1.4 and 1.5, so re-verify them on any pull.
   ridge, …) — the list lives in `forge/stage2_spec/validate_sculpt_spec.py`,
   which is the source of truth for **every** enum, including the 15-value
   `primitive` enum (`box, capsule, cone, curve-sweep, cylinder, ellipsoid,
-extrude, ground-blade, instanced-cluster, lathe, plane-card, sphere,
-tapered-sweep, torus, tube`). The generator no longer keeps its own copy —
+  extrude, ground-blade, instanced-cluster, lathe, plane-card, sphere,
+  tapered-sweep, torus, tube`). The generator no longer keeps its own copy —
   an unknown primitive is now an error, not a silent `box`.
 
 ## Geometry: three mechanisms, not two
@@ -27,7 +27,7 @@ tapered-sweep, torus, tube`). The generator no longer keeps its own copy —
 2. **`attachment.localStart/localEnd`** — swept rod between two points;
    **replaces** the authored primitive with an oriented cylinder — _(1.5)_ but
    only when the primitive is in `ATTACHMENT_PRIMITIVES` (`cylinder, cone,
-capsule, tube, curve-sweep`). A box/torus/profile with an attachment keeps
+   capsule, tube, curve-sweep`). A box/torus/profile with an attachment keeps
    its geometry; the attachment is then an anchor contract for
    `attachment_anchor.py`. There is no plate mode: flat straps are a box.
 3. **`geometryDescriptor` profiles** — `latheProfile` (a barrel belly is a

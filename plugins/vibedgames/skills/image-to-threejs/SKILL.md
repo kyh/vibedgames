@@ -170,7 +170,7 @@ biggest time sink** (full contract: `references/spec-contract.md`):
   out a parent's scale — that was the pre-1.5 contract and now misplaces parts.
 - An `attachment` **replaces** the authored primitive with a swept cylinder
   only when the primitive is round (`cylinder, cone, capsule, tube,
-curve-sweep`); `baseRadius` default `0.06`, tapering to `endRadius` =
+  curve-sweep`); `baseRadius` default `0.06`, tapering to `endRadius` =
   `0.55 × baseRadius`. On a `box`/`torus`/profile primitive the geometry is
   kept and the attachment is just an anchor contract the review gates read.
   There is **no plate mode** — flat straps are a box component; untapered

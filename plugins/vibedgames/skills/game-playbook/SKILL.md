@@ -61,7 +61,7 @@ ship before the craft pass.
    a fresh critic subagent scores against the refs, fix the punch list, repeat
    until every criterion passes — `references/critic-loop.md`.
 6. **Ship.** `vg deploy ./dist` (see `deploy`); `add multiplayer` / `add touch
-controls` / `make it forkable` are one prompt each (see `multiplayer`,
+   controls` / `make it forkable` are one prompt each (see `multiplayer`,
    `gamepad`, `fork`). Link-shared games get opened on phones — if the game is
    mouse/keyboard-only, add on-screen touch controls so it's playable there.
 

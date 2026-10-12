@@ -13,7 +13,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@mediapipe/tasks-vision": "1.0.1",
+    "@mediapipe/tasks-vision": "1.1.0",
     "@repo/embed": "workspace:*",
     "@vibedgames/gamepad": "workspace:^",
     "@vibedgames/multiplayer": "workspace:^",
@@ -23,7 +23,7 @@
   "devDependencies": {
     "@kyh/tsconfig": "catalog:",
     "@types/node": "catalog:",
-    "playwright-core": "^1.63.0",
+    "playwright-core": "^1.64.0",
     "typescript": "catalog:",
     "vite": "catalog:"
   }
