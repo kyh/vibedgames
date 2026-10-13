@@ -1,7 +1,7 @@
 # @vibedgames/multiplayer
 
 Multiplayer for browser games: a framework-agnostic client plus React hooks.
-Connect to a [PartyServer](https://partykit.io)-compatible backend and sync
+Connect to a [PartyServer](https://github.com/cloudflare/partykit/tree/main/packages/partyserver)-compatible backend and sync
 state across players in a few lines.
 
 ## Install
