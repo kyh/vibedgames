@@ -48,7 +48,7 @@
     "tsx": "^4.23.15",
     "turbo": "^2.11.7",
     "typescript": "catalog:",
-    "ultracite": "^7.12.2"
+    "ultracite": "^8.0.0"
   },
   "engines": {
     "node": "24.x"
