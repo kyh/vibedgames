@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cd \"$(git rev-parse --show-toplevel)\" && pnpm exec ultracite fix --hook"
+            "command": "\"$(git rev-parse --show-toplevel)/node_modules/.bin/ultracite\" fix --hook"
           }
         ]
       }
