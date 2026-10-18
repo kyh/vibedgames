@@ -527,6 +527,8 @@ export class GameScene {
       return;
     }
     this.paused = true;
+    // The pause overlay must not open under the big map; the autopilot keeps its destination.
+    this.mapOverlay?.close();
     this.sfx.stopEngine();
     this.sfx.pause();
     // Music starts with the countdown. Remember it so resume restarts it only
@@ -1366,7 +1368,7 @@ vec3 ocGerstner(vec2 p, float t) {
         destination: this.mapNav.destination,
         heading: this.car?.heading ?? 0,
         markers: this.mmMarkers,
-        route: this.mapNav.destination ? (this.mapNav.currentRoute?.pts ?? null) : null,
+        route: this.mapNav.destination ? this.mapNav.remainingRoute : null,
       }),
     });
     this.sfx.ui("select");
@@ -1409,7 +1411,10 @@ vec3 ocGerstner(vec2 p, float t) {
         this.stopAutopilot("ARRIVED");
         return human;
       }
-      return { boost: false, brake: 1, steer: 0, throttle: 0 };
+      // The brake reverses from a stop, so a car rolling backwards is held with the gas.
+      return speed > 0
+        ? { boost: false, brake: 1, steer: 0, throttle: 0 }
+        : { boost: false, brake: 0, steer: 0, throttle: 1 };
     }
     return this.mapPilot.drive(
       {
@@ -3013,7 +3018,7 @@ vec3 ocGerstner(vec2 p, float t) {
     if (destination) {
       markers.push({ color: "#6bff8e", ring: true, x: destination.x, z: destination.z });
     }
-    const route = destination ? (this.mapNav.currentRoute?.pts ?? null) : null;
+    const route = destination ? this.mapNav.remainingRoute : null;
     minimap.update(dt, car.position.x, car.position.z, car.heading, markers, route);
   }
 

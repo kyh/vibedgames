@@ -73,6 +73,8 @@ const REPLAN_FRAMES = 120;
 const OFF_ROUTE = 22;
 const FACING_AWAY = 1.9;
 const STUCK_SPEED = 1.5;
+// Longest gap between two reads that still counts towards being stuck, seconds.
+const MAX_STUCK_STEP = 0.25;
 // Deceleration the speed plan assumes: a coast, so a corner can be met without the brake.
 const PLAN_DECEL = 22;
 const CORNER_SPEED_MIN = 9;
@@ -85,8 +87,11 @@ const PASS_CLEARANCE = 3;
 const PASS_SPEED = 14;
 const GENTLE_BEND = 0.2;
 const HARD_BEND = 1.2;
-// A destination is a stop, not a drive-through: brake to rest this far short of it.
+// A destination is a stop, not a drive-through: brake to rest this far short of it,
+// on a profile about half the brake (26 u/s², built over 0.35 s) so the ramp,
+// a downhill and the pilot's reaction all fit inside it.
 const STOP_AT = 2;
+const STOP_DECEL = 12;
 
 const wrap = (a: number): number => ((a + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
 const round1 = (v: number): number => Math.round(v * 10) / 10;
@@ -179,19 +184,36 @@ export class Navigator {
   private route: Route | null = null;
   private routeKey = "";
   private routeS = 0;
+  private trimmed: { readonly route: Route; readonly s: number; readonly pts: Float64Array } | null =
+    null;
   private plannedAt = 0;
   private memoFrame = -1;
   private memo: NavReadout | null = null;
-  private slowSince: number | null = null;
+  private lastRead = 0;
   private stuckFor = 0;
 
   constructor(view: () => PlaytestView | null) {
     this.view = view;
   }
 
-  /** The route being followed, if any (for drawing it). */
-  get currentRoute(): Route | null {
-    return this.route;
+  /** What is left of the route, from the car's spot on it: [x0,z0, x1,z1, ...] for drawing. */
+  get remainingRoute(): Float64Array | null {
+    const { route } = this;
+    if (!route) {
+      return null;
+    }
+    if (this.trimmed?.route !== route || this.trimmed.s !== this.routeS) {
+      const s = this.routeS;
+      const from = pointAt(route, s);
+      const flat = [from.x, from.z];
+      for (let k = 0; k < route.cum.length; k += 1) {
+        if ((route.cum[k] ?? 0) > s) {
+          flat.push(route.pts[k * 2] ?? 0, route.pts[k * 2 + 1] ?? 0);
+        }
+      }
+      this.trimmed = { pts: new Float64Array(flat), route, s };
+    }
+    return this.trimmed.pts;
   }
 
   /** Seconds the car has sat at ~0 speed during live play. */
@@ -244,13 +266,15 @@ export class Navigator {
 
   private trackStuck(v: PlaytestView): void {
     const now = performance.now();
+    // Counted in read-to-read steps, each capped: a pause (or a hidden tab)
+    // between two reads is not time spent wedged.
+    const step = Math.min(MAX_STUCK_STEP, (now - this.lastRead) / 1000);
+    this.lastRead = now;
     if (v.phase !== "playing" || Math.abs(v.car.forwardSpeed) > STUCK_SPEED) {
-      this.slowSince = null;
       this.stuckFor = 0;
       return;
     }
-    this.slowSince ??= now;
-    this.stuckFor = (now - this.slowSince) / 1000;
+    this.stuckFor += step;
   }
 
   private target(v: PlaytestView): Target | null {
@@ -319,7 +343,7 @@ export class Navigator {
     const remaining = route.length - fix.s;
     const cruise =
       target.kind === "destination"
-        ? Math.min(ahead.speed, Math.sqrt(2 * PLAN_DECEL * Math.max(0, remaining - STOP_AT)))
+        ? Math.min(ahead.speed, Math.sqrt(2 * STOP_DECEL * Math.max(0, remaining - STOP_AT)))
         : ahead.speed;
 
     return {

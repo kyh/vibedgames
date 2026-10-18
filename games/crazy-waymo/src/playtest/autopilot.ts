@@ -21,6 +21,10 @@ const STEER_DEADBAND_DEG = 3;
 const STEER_FULL_DEG = 14;
 // Lifting off only sheds 22 u/s²; on a descent gravity adds more than that.
 const BRAKE_MARGIN = 3;
+// Closing on a destination the pilot tracks the stop profile tightly: the
+// cruise margin carried into the last metres is the overshoot.
+const APPROACH = 60;
+const APPROACH_MARGIN = 0.5;
 const DRIFT_MIN_SPEED = 9;
 
 const IDLE: CarInput = { boost: false, brake: 0, steer: 0, throttle: 0 };
@@ -40,10 +44,10 @@ const pedals = (state: PilotState, nav: NavReadout): CarInput => {
   // Facing the wrong way: crawl round rather than power into the far kerb.
   const limit =
     Math.abs(nav.headingErrorDeg) > 60 ? Math.min(nav.targetSpeed, 10) : nav.targetSpeed;
+  const approaching = nav.objective === "destination" && nav.routeDistance < APPROACH;
   // Brake + steer is this game's drift: the tail steps out and the line is
-  // gone. The brake sheds 82 u/s², so the pilot straightens for the instant
-  // it takes, then steers again.
-  const braking = state.speed > limit + BRAKE_MARGIN;
+  // gone, so above a crawl the pilot straightens while it brakes, then steers again.
+  const braking = state.speed > limit + (approaching ? APPROACH_MARGIN : BRAKE_MARGIN);
   if (braking && state.speed > DRIFT_MIN_SPEED) {
     return { ...IDLE, brake: 1 };
   }
