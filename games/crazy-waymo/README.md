@@ -34,15 +34,16 @@ World tooling (see [CLAUDE.md](./CLAUDE.md) for when each is required): `pnpm ba
 
 ## Controls
 
-| Input                         | Action                                     |
-| ----------------------------- | ------------------------------------------ |
-| W / ↑ (pad RT, touch HOLD)    | go                                         |
-| S / ↓ (pad LT, touch BRAKE)   | stop / reverse                             |
-| ← → (pad L-stick, touch DRAG) | steer                                      |
-| Shift (pad B/RB, touch 🔥)    | boost                                      |
-| M (touch 🔊)                  | mute                                       |
-| Esc (touch ⏸)                 | pause — the overlay also holds RESTART RUN |
-| R                             | restart                                    |
+| Input                         | Action                                                   |
+| ----------------------------- | -------------------------------------------------------- |
+| W / ↑ (pad RT, touch HOLD)    | go                                                       |
+| S / ↓ (pad LT, touch BRAKE)   | stop / reverse                                           |
+| ← → (pad L-stick, touch DRAG) | steer                                                    |
+| Shift (pad B/RB, touch 🔥)    | boost                                                    |
+| M (touch 🔊)                  | mute                                                     |
+| Esc (touch: the page's Pause) | pause — the overlay also holds RESTART RUN               |
+| Tab (touch: tap the minimap)  | city map — tap a street and the taxi drives itself there |
+| R                             | restart                                                  |
 
 Multiplayer: everyone auto-joins a shared room via `@vibedgames/multiplayer` — other drivers nearby appear as remote cars with chat bubbles.
 

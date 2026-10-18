@@ -8,7 +8,7 @@ import { createMobileSession } from "./mobile-browser-session.mjs";
 
 const url = process.argv[2] ?? "http://localhost:5193/?time=night&offline=1";
 const output = path.resolve(process.argv[3] ?? "/private/tmp/waymo-mobile-review");
-const { call, evaluate, sleep, until, tap, touchPoint, screenshot, close, pageErrors } =
+const { call, evaluate, pause, sleep, until, tap, touchPoint, screenshot, close, pageErrors } =
   await createMobileSession({ output, sessionPrefix: "crazy-waymo-mobile-review" });
 const report = { checkedAt: new Date().toISOString(), checks: [], url, views: [] };
 const check = (name, passed, evidence) => {
@@ -105,7 +105,7 @@ try {
     window.__phoneWork={draws:0,updates:0};
     r.render=function(...args){if(this.getRenderTarget()===null)window.__phoneWork.draws++;return render.apply(this,args);};
     g.update=function(...args){window.__phoneWork.updates++;return update.apply(this,args);};})()`);
-  await tap('[aria-label="Pause"]');
+  await pause();
   await until("window.__taxi.game.paused === true");
   // Allow the single pause-entry redraw.
   await sleep(100);
@@ -159,7 +159,7 @@ try {
     activeBefore,
     drawHz,
   });
-  await tap('[aria-label="Pause"]');
+  await pause();
   await until("window.__taxi.game.paused === true");
   await tap("#waymo-pause .prestart");
   await until('window.__taxi.game.mode.kind === "playing" && !window.__taxi.game.paused');

@@ -116,6 +116,13 @@ export const createMobileSession = async ({ sessionPrefix, output }) => {
       await sleep(80);
       await call("Input.dispatchTouchEvent", { touchPoints: [], type: "touchEnd" });
     };
+    // The game has no on-screen pause button (the wrapper page owns pause);
+    // Escape is the same pause the embed binds for keyboards.
+    const pause = async () => {
+      const key = { code: "Escape", key: "Escape", windowsVirtualKeyCode: 27 };
+      await call("Input.dispatchKeyEvent", { ...key, type: "keyDown" });
+      await call("Input.dispatchKeyEvent", { ...key, type: "keyUp" });
+    };
     const touchPoint = (selector, id) =>
       evaluate(
         `(()=>{const e=document.querySelector(${JSON.stringify(selector)});if(!e)throw new Error('Missing touch target');const r=e.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2,id:${id}}})()`,
@@ -138,7 +145,7 @@ export const createMobileSession = async ({ sessionPrefix, output }) => {
       socket.close();
       browser("close");
     };
-    return { call, close, evaluate, pageErrors, screenshot, sleep, tap, touchPoint, until };
+    return { call, close, evaluate, pageErrors, pause, screenshot, sleep, tap, touchPoint, until };
   } catch (error) {
     socket?.close();
     if (launched) {

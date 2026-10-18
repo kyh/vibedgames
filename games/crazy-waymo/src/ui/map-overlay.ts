@@ -45,19 +45,17 @@ const CSS = `
 #map-overlay.open { display: block; }
 #map-overlay canvas { position: absolute; inset: 0; width: 100%; height: 100%; cursor: crosshair; }
 #map-overlay canvas.drag { cursor: grabbing; }
-/* The hint keeps clear of the top-right corner, where touch devices get the
-   embed's pause button above everything (--vg-touch-reserve is its width). */
 #map-overlay .mo-hint {
   position: absolute;
   top: calc(14px + env(safe-area-inset-top));
   left: calc(14px + env(safe-area-inset-left));
-  right: calc(14px + env(safe-area-inset-right) + var(--vg-touch-reserve, 0px));
+  right: calc(14px + env(safe-area-inset-right));
   font-size: clamp(12px, 1.9vmin, 18px);
   letter-spacing: 0.08em;
   pointer-events: none;
 }
-/* Close sits bottom-centre: under a thumb, and away from both pause
-   buttons (embed top-right on touch, the wrapper's bottom-left). */
+/* Close sits bottom-centre: under a thumb, and clear of the wrapper page's
+   Pause in the bottom-left. */
 #map-overlay .mo-actions {
   position: absolute;
   left: 50%;

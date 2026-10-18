@@ -1,7 +1,7 @@
 import { choosePlayerSpawn, isPlayerSpawnSafe } from "../world/player-spawn";
 import type { PlayerSpawn } from "../world/player-spawn";
 import * as THREE from "three";
-import { createTouchControls, notifyGameStarted, watchControlContext } from "@repo/embed";
+import { notifyGameStarted, watchControlContext } from "@repo/embed";
 import { isPlaytestRequested } from "@vibedgames/playtest";
 import { FixedRate } from "@vibedgames/multiplayer";
 import type { MultiplayerClient, PlayerMap } from "@vibedgames/multiplayer";
@@ -216,20 +216,6 @@ const BEST_KEY = "crazy-waymo:best";
 const SOUND_KEY = "crazy-waymo:sound";
 const HINT_DRIFT_KEY = "crazy-waymo:hint-drift";
 const HINT_BOOST_KEY = "crazy-waymo:hint-boost";
-
-/** The shared pause button in the game's own plate palette — gold on the
- *  same smoked panel as the HUD pills. Custom properties only; @repo/embed
- *  owns its layout and its safe-area insets. */
-const TOUCH_CLUSTER_CSS = `
-.waymo-touch {
-  --vg-touch-gap: 12px;
-  --vg-touch-fg: #ffe9b0;
-  --vg-touch-bg: rgba(20, 17, 26, 0.62);
-  --vg-touch-bg-active: rgba(255, 209, 71, 0.42);
-  --vg-touch-border: 2px solid rgba(255, 209, 71, 0.5);
-  --vg-touch-radius: 12px;
-}
-`;
 
 // Mobile quality knobs (tier-independent; the tiered ones live in quality.ts).
 const LAMP_GLOW_BUDGET = { cap: 150, poolScale: 0.75 } as const;
@@ -1022,13 +1008,6 @@ vec3 ocGerstner(vec2 p, float t) {
     this.hud.onCta(() => this.handleStartPress());
     // Muted by default; returning players who opted into sound stay unmuted.
     this.sfx.setMuted(storageGet(SOUND_KEY) !== "1");
-    // Escape is keyboard-only, so without this a phone cannot pause. No-op on
-    // a fine pointer.
-    createTouchControls({
-      className: "waymo-touch",
-      css: TOUCH_CLUSTER_CSS,
-      styleId: "waymo-touch-style",
-    });
   }
 
   get camera(): THREE.PerspectiveCamera {
