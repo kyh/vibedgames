@@ -184,8 +184,11 @@ export class Navigator {
   private route: Route | null = null;
   private routeKey = "";
   private routeS = 0;
-  private trimmed: { readonly route: Route; readonly s: number; readonly pts: Float64Array } | null =
-    null;
+  private trimmed: {
+    readonly route: Route;
+    readonly s: number;
+    readonly pts: Float64Array;
+  } | null = null;
   private plannedAt = 0;
   private memoFrame = -1;
   private memo: NavReadout | null = null;
