@@ -86,7 +86,9 @@ const SNAP_RADIUS = 80;
 // World units across the shorter screen side when the map opens.
 const OPEN_SPAN = 900;
 const MAX_ZOOM = 6;
-const HINT = "TAP A STREET TO DRIVE THERE · DRAG TO PAN";
+const HINT = window.matchMedia("(pointer: fine)").matches
+  ? "CLICK A STREET TO DRIVE THERE · DRAG TO PAN · TAB TO CLOSE"
+  : "TAP A STREET TO DRIVE THERE · DRAG TO PAN";
 
 interface Pointer {
   x: number;

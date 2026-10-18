@@ -1005,6 +1005,20 @@ vec3 ocGerstner(vec2 p, float t) {
       }
     });
     this.touchUi = this.touch.isTouch;
+    // Tab toggles the big map during a run. Only then: on the title and in
+    // menus Tab keeps moving focus.
+    window.addEventListener("keydown", (e) => {
+      if (e.key !== "Tab" || e.repeat || this.input.typing || this.paused) {
+        return;
+      }
+      if (this.mapOpen) {
+        e.preventDefault();
+        this.mapOverlay?.close();
+      } else if (this.mode.kind === "playing") {
+        e.preventDefault();
+        this.openMap();
+      }
+    });
     this.hud.onCta(() => this.handleStartPress());
     // Muted by default; returning players who opted into sound stay unmuted.
     this.sfx.setMuted(storageGet(SOUND_KEY) !== "1");
