@@ -1371,7 +1371,6 @@ vec3 ocGerstner(vec2 p, float t) {
       return;
     }
     this.mapOverlay ??= new MapOverlay({
-      cancel: () => this.stopAutopilot("AUTOPILOT OFF"),
       decks: city.getDecks(),
       network: city.network,
       pick: (x, z) => this.driveTo(x, z),

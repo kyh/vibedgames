@@ -26,7 +26,6 @@ export interface MapOverlayOptions {
   readonly snapshot: () => MapSnapshot;
   /** A snapped street point was clicked: start driving there. */
   readonly pick: (x: number, z: number) => void;
-  readonly cancel: () => void;
 }
 
 const STYLE_ID = "waymo-map-style";
@@ -57,7 +56,7 @@ const CSS = `
   letter-spacing: 0.08em;
   pointer-events: none;
 }
-/* Close and stop sit bottom-centre: under a thumb, and away from both pause
+/* Close sits bottom-centre: under a thumb, and away from both pause
    buttons (embed top-right on touch, the wrapper's bottom-left). */
 #map-overlay .mo-actions {
   position: absolute;
@@ -82,8 +81,6 @@ const CSS = `
   cursor: pointer;
   text-shadow: none;
 }
-#map-overlay .mo-cancel { background: #ff6b6b; display: none; }
-#map-overlay .mo-cancel.on { display: block; }
 `;
 
 const LAND_ROAD = "#fff4e2";
@@ -120,7 +117,6 @@ export class MapOverlay {
   private readonly canvas: HTMLCanvasElement;
   private readonly ctx: CanvasRenderingContext2D | null;
   private readonly hint: HTMLSpanElement;
-  private readonly cancelBtn: HTMLButtonElement;
   private readonly opts: MapOverlayOptions;
   // ground without streets; the streets are vectors drawn over it
   private readonly ground: HTMLCanvasElement;
@@ -161,15 +157,11 @@ export class MapOverlay {
     this.hint = document.createElement("span");
     this.hint.className = "mo-hint";
     this.hint.textContent = HINT;
-    this.cancelBtn = document.createElement("button");
-    this.cancelBtn.type = "button";
-    this.cancelBtn.className = "mo-cancel";
-    this.cancelBtn.textContent = "STOP AUTOPILOT";
     const close = document.createElement("button");
     close.type = "button";
     close.className = "mo-close";
     close.textContent = "✕ CLOSE MAP";
-    actions.append(this.cancelBtn, close);
+    actions.append(close);
     this.root.append(this.canvas, this.hint, actions);
     document.body.append(this.root);
     this.ctx = this.canvas.getContext("2d");
@@ -191,7 +183,6 @@ export class MapOverlay {
     }
 
     close.addEventListener("click", () => this.close());
-    this.cancelBtn.addEventListener("click", () => opts.cancel());
     this.canvas.addEventListener("pointerdown", this.onDown);
     this.canvas.addEventListener("pointermove", this.onMove);
     this.canvas.addEventListener("pointerup", this.onUp);
@@ -386,7 +377,6 @@ export class MapOverlay {
       return;
     }
     const snap = this.opts.snapshot();
-    this.cancelBtn.classList.toggle("on", snap.destination !== null);
     // Keep the view over the city.
     this.cx = Math.min(WORLD_HALF_X, Math.max(-WORLD_HALF_X, this.cx));
     this.cz = Math.min(WORLD_HALF_Z, Math.max(-WORLD_HALF_Z, this.cz));
