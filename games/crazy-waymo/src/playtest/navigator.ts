@@ -33,8 +33,9 @@ export interface FareOption {
 }
 
 export interface NavReadout {
-  readonly objective: "pickup" | "dropoff";
-  readonly tier: FareTier;
+  readonly objective: "pickup" | "dropoff" | "destination";
+  /** The fare's tier; null for a destination picked on the map. */
+  readonly tier: FareTier | null;
   /** Objective relative to the car, world units (+dx east, +dz south). */
   readonly dx: number;
   readonly dz: number;
@@ -84,6 +85,8 @@ const PASS_CLEARANCE = 3;
 const PASS_SPEED = 14;
 const GENTLE_BEND = 0.2;
 const HARD_BEND = 1.2;
+// A destination is a stop, not a drive-through: brake to rest this far short of it.
+const STOP_AT = 2;
 
 const wrap = (a: number): number => ((a + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
 const round1 = (v: number): number => Math.round(v * 10) / 10;
@@ -161,8 +164,17 @@ const planPass = (route: Route, from: number, blocker: Blocker): Pass | null => 
   };
 };
 
+interface Target {
+  readonly kind: NavReadout["objective"];
+  readonly tier: FareTier | null;
+  readonly x: number;
+  readonly z: number;
+}
+
 export class Navigator {
   pickupIntent: PickupIntent = "nearest";
+  /** A street point to drive to instead of the fares (the map's click-to-drive). */
+  destination: RoutePoint | null = null;
   private readonly view: () => PlaytestView | null;
   private route: Route | null = null;
   private routeKey = "";
@@ -175,6 +187,11 @@ export class Navigator {
 
   constructor(view: () => PlaytestView | null) {
     this.view = view;
+  }
+
+  /** The route being followed, if any (for drawing it). */
+  get currentRoute(): Route | null {
+    return this.route;
   }
 
   /** Seconds the car has sat at ~0 speed during live play. */
@@ -236,26 +253,24 @@ export class Navigator {
     this.stuckFor = (now - this.slowSince) / 1000;
   }
 
-  private target(v: PlaytestView): { kind: "pickup" | "dropoff"; fare: FareOption } | null {
+  private target(v: PlaytestView): Target | null {
+    if (this.destination) {
+      return { kind: "destination", tier: null, ...this.destination };
+    }
     const carrying = v.fares.carryingInfo();
     if (carrying) {
-      const { x, z } = carrying.pos;
-      return {
-        fare: {
-          distance: Math.hypot(x - v.car.position.x, z - v.car.position.z),
-          tier: carrying.tier,
-          x,
-          z,
-        },
-        kind: "dropoff",
-      };
+      return { kind: "dropoff", tier: carrying.tier, x: carrying.pos.x, z: carrying.pos.z };
     }
     const options = this.fareOptions();
-    return options ? { fare: options[this.pickupIntent], kind: "pickup" } : null;
+    if (!options) {
+      return null;
+    }
+    const { tier, x, z } = options[this.pickupIntent];
+    return { kind: "pickup", tier, x, z };
   }
 
   /** The route to `fare` and where the car is on it, replanned only when it must be. */
-  private follow(v: PlaytestView, key: string, fare: FareOption): RouteFix | null {
+  private follow(v: PlaytestView, key: string, fare: RoutePoint): RouteFix | null {
     const { x, z } = v.car.position;
     let fix = this.route ? locate(this.route, x, z, this.routeS) : null;
     // A route is kept while the car can still follow it. Replanning on a
@@ -283,7 +298,7 @@ export class Navigator {
       return null;
     }
     const { x, z } = v.car.position;
-    const { fare } = target;
+    const fare = target;
     const fix = this.follow(v, `${target.kind}:${Math.round(fare.x)}:${Math.round(fare.z)}`, fare);
     const { route } = this;
     if (!route || !fix) {
@@ -301,6 +316,11 @@ export class Navigator {
       Math.atan2(onLine.x + left.x * shift - x, onLine.z + left.z * shift - z) - v.car.heading,
     );
     const ahead = speedPlan(route, fix.s);
+    const remaining = route.length - fix.s;
+    const cruise =
+      target.kind === "destination"
+        ? Math.min(ahead.speed, Math.sqrt(2 * PLAN_DECEL * Math.max(0, remaining - STOP_AT)))
+        : ahead.speed;
 
     return {
       blocker:
@@ -310,11 +330,9 @@ export class Navigator {
       headingErrorDeg: Math.round((headingError * 180) / Math.PI),
       objective: target.kind,
       offRoute: round1(fix.offset),
-      routeDistance: Math.round(route.length - fix.s),
-      targetSpeed: round1(
-        blocker && blocker.ahead < 14 ? Math.min(PASS_SPEED, ahead.speed) : ahead.speed,
-      ),
-      tier: fare.tier,
+      routeDistance: Math.round(remaining),
+      targetSpeed: round1(blocker && blocker.ahead < 14 ? Math.min(PASS_SPEED, cruise) : cruise),
+      tier: target.tier,
       turnAheadDeg: Math.round((ahead.bend * 180) / Math.PI),
     };
   }

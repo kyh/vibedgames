@@ -41,6 +41,8 @@ import { InputState } from "../input/keyboard";
 import { connectRoom, showRoomStatus, watchReadmission } from "../net/session";
 import { RemoteCars } from "../net/remote-cars";
 import type { PhysicsWorld } from "../physics/physics-world";
+import { Autopilot } from "../playtest/autopilot";
+import { Navigator } from "../playtest/navigator";
 import type { PlaytestView } from "../playtest/navigator";
 import { installAerialFog } from "../render/aerial-fog";
 import { MarineSky } from "../render/marine-sky";
@@ -71,6 +73,7 @@ import type { GameMode } from "../shared/types";
 import { STAGE_MARGIN } from "../trailer/scout";
 import { GaragePreview } from "../ui/garage-preview";
 import { Hud } from "../ui/hud";
+import { MapOverlay } from "../ui/map-overlay";
 import type { Minimap, MinimapMarker } from "../ui/minimap";
 import { setTouchPlaying, setupTouch } from "../ui/touch";
 import type { TouchControls } from "../ui/touch";
@@ -230,6 +233,9 @@ const TOUCH_CLUSTER_CSS = `
 
 // Mobile quality knobs (tier-independent; the tiered ones live in quality.ts).
 const LAMP_GLOW_BUDGET = { cap: 150, poolScale: 0.75 } as const;
+// Click-to-drive arrival: within this much route, at rest.
+const ARRIVE_DISTANCE = 4;
+const ARRIVE_SPEED = 2;
 // mobile HUD/minimap redraw rate (desktop stays per-frame)
 const HUD_HZ = 30;
 // Re-bake the mobile sky when the day-night phase drifts this far past the
@@ -458,6 +464,11 @@ export class GameScene {
   private cones: SmashCones | null = null;
   private parked: ParkedCars | null = null;
   private minimap: Minimap | null = null;
+  // Click-to-drive: the big map sets mapNav's destination and mapPilot
+  // drives the route until the taxi arrives or the player touches a control.
+  private mapOverlay: MapOverlay | null = null;
+  private readonly mapNav = new Navigator(() => this.playtestView());
+  private readonly mapPilot = new Autopilot();
   private ambient: AmbientLife | null = null;
   private beacons: BeaconLights | null = null;
   private vehicleLights = new VehicleLights();
@@ -1329,6 +1340,92 @@ vec3 ocGerstner(vec2 p, float t) {
     this.trails = systems.trails;
     this.lampGlow = systems.lampGlow;
     this.minimap = systems.minimap;
+    systems.minimap.onClick(() => this.openMap());
+  }
+
+  /** True while the full-screen map is up (Escape closes it, not pause). */
+  get mapOpen(): boolean {
+    return this.mapOverlay?.isOpen ?? false;
+  }
+
+  /** The corner minimap was clicked: open the whole city full screen. */
+  openMap(): void {
+    const { city } = this;
+    if (this.mode.kind !== "playing" || !city) {
+      return;
+    }
+    this.mapOverlay ??= new MapOverlay({
+      cancel: () => this.stopAutopilot("AUTOPILOT OFF"),
+      decks: city.getDecks(),
+      network: city.network,
+      pick: (x, z) => this.driveTo(x, z),
+      plan: city.plan,
+      snapshot: () => ({
+        carX: this.car?.position.x ?? 0,
+        carZ: this.car?.position.z ?? 0,
+        destination: this.mapNav.destination,
+        heading: this.car?.heading ?? 0,
+        markers: this.mmMarkers,
+        route: this.mapNav.destination ? (this.mapNav.currentRoute?.pts ?? null) : null,
+      }),
+    });
+    this.sfx.ui("select");
+    this.mapOverlay.open();
+  }
+
+  /** Hand the wheel to the autopilot until the taxi reaches this street point. */
+  driveTo(x: number, z: number): void {
+    this.mapNav.destination = { x, z };
+    this.hud.announceMinor("AUTOPILOT ENGAGED", "#6bff8e");
+  }
+
+  private stopAutopilot(message?: string): void {
+    if (!this.mapNav.destination) {
+      return;
+    }
+    this.mapNav.destination = null;
+    if (message) {
+      this.hud.announceMinor(message, "#6bff8e");
+    }
+  }
+
+  /** The autopilot's pedals while it has a destination; any human input takes over. */
+  private autopilotInput(human: CarInput, car: Car): CarInput {
+    if (!this.mapNav.destination) {
+      return human;
+    }
+    if (human.throttle > 0 || human.brake > 0 || human.steer !== 0 || human.boost) {
+      this.stopAutopilot("MANUAL CONTROL");
+      return human;
+    }
+    const nav = this.mapNav.read();
+    if (!nav) {
+      this.stopAutopilot("NO ROUTE THERE");
+      return human;
+    }
+    const speed = car.forwardSpeed;
+    if (nav.routeDistance <= ARRIVE_DISTANCE) {
+      if (Math.abs(speed) < ARRIVE_SPEED) {
+        this.stopAutopilot("ARRIVED");
+        return human;
+      }
+      return { boost: false, brake: 1, steer: 0, throttle: 0 };
+    }
+    return this.mapPilot.drive(
+      {
+        boostReady: false,
+        nav,
+        phase: this.mode.kind,
+        speed,
+        stuckSeconds: this.mapNav.stuckSeconds,
+      },
+      false,
+    );
+  }
+
+  private closeMap(): void {
+    this.mapOverlay?.close();
+    this.stopAutopilot();
   }
 
   private markLoadDone(): void {
@@ -1384,6 +1481,7 @@ vec3 ocGerstner(vec2 p, float t) {
     this.mode = { kind: "title" };
     setTouchPlaying(false);
     this.minimap?.setVisible(false);
+    this.closeMap();
     this.hud.hideFareCard();
     this.hud.setArrow(false, 0, 0, 0);
     this.hud.setTimer(FARE.startTime, false);
@@ -1831,6 +1929,7 @@ vec3 ocGerstner(vec2 p, float t) {
       this.rig.camera.position.copy(this.camFrom);
     }
     this.minimap?.setVisible(true);
+    this.closeMap();
     setTouchPlaying(true);
     this.mode = { kind: "countdown", t: 0 };
   }
@@ -2316,7 +2415,7 @@ vec3 ocGerstner(vec2 p, float t) {
       return;
     }
 
-    const input = this.input.carInput();
+    const input = this.autopilotInput(this.input.carInput(), car);
 
     this.stepSim(dt, car, city, traffic, input, solids);
 
@@ -2910,7 +3009,12 @@ vec3 ocGerstner(vec2 p, float t) {
         markers.push({ color: tierHex(w.tier), x: w.x, z: w.z });
       }
     }
-    minimap.update(dt, car.position.x, car.position.z, car.heading, markers);
+    const { destination } = this.mapNav;
+    if (destination) {
+      markers.push({ color: "#6bff8e", ring: true, x: destination.x, z: destination.z });
+    }
+    const route = destination ? (this.mapNav.currentRoute?.pts ?? null) : null;
+    minimap.update(dt, car.position.x, car.position.z, car.heading, markers, route);
   }
 
   private updateSun(): void {
@@ -3010,6 +3114,7 @@ vec3 ocGerstner(vec2 p, float t) {
     this.hud.hideBanner();
     this.hud.setLanding(false);
     this.minimap?.setVisible(false);
+    this.closeMap();
     // No teach toasts or garage waypoints photobombing a staged shot.
     this.hintDriftShown = true;
     this.hintBoostShown = true;
