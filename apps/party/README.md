@@ -4,7 +4,7 @@ Real-time multiplayer server. Manages rooms, player state, and event broadcastin
 
 ## Stack
 
-- [PartyServer](https://partykit.io) on Cloudflare Durable Objects
+- [PartyServer](https://github.com/cloudflare/partykit/tree/main/packages/partyserver) on Cloudflare Durable Objects
 - Generic protocol — not game-specific
 
 ## Protocol
