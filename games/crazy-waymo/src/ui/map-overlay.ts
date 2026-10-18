@@ -46,20 +46,26 @@ const CSS = `
 #map-overlay.open { display: block; }
 #map-overlay canvas { position: absolute; inset: 0; width: 100%; height: 100%; cursor: crosshair; }
 #map-overlay canvas.drag { cursor: grabbing; }
-#map-overlay .mo-bar {
-  position: absolute;
-  top: calc(12px + env(safe-area-inset-top));
-  left: calc(12px + env(safe-area-inset-left));
-  right: calc(12px + env(safe-area-inset-right));
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  pointer-events: none;
-}
+/* The hint keeps clear of the top-right corner, where touch devices get the
+   embed's pause button above everything (--vg-touch-reserve is its width). */
 #map-overlay .mo-hint {
-  flex: 1;
+  position: absolute;
+  top: calc(14px + env(safe-area-inset-top));
+  left: calc(14px + env(safe-area-inset-left));
+  right: calc(14px + env(safe-area-inset-right) + var(--vg-touch-reserve, 0px));
   font-size: clamp(12px, 1.9vmin, 18px);
   letter-spacing: 0.08em;
+  pointer-events: none;
+}
+/* Close and stop sit bottom-centre: under a thumb, and away from both pause
+   buttons (embed top-right on touch, the wrapper's bottom-left). */
+#map-overlay .mo-actions {
+  position: absolute;
+  left: 50%;
+  bottom: calc(16px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  display: flex;
+  gap: 12px;
 }
 #map-overlay button {
   pointer-events: auto;
@@ -69,15 +75,15 @@ const CSS = `
   color: #1b1428;
   background: #ffd147;
   border: 2px solid #1b1428;
-  border-radius: 10px;
-  padding: 8px 14px;
-  min-height: 40px;
+  border-radius: 12px;
+  padding: 10px 18px;
+  min-height: 48px;
+  white-space: nowrap;
   cursor: pointer;
   text-shadow: none;
 }
 #map-overlay .mo-cancel { background: #ff6b6b; display: none; }
 #map-overlay .mo-cancel.on { display: block; }
-#map-overlay .mo-close { min-width: 44px; }
 `;
 
 const LAND_ROAD = "#fff4e2";
@@ -150,8 +156,8 @@ export class MapOverlay {
     // Touch: a finger here pans the map, never anchors the steering stick.
     this.root.dataset.gamepadIgnore = "";
     this.canvas = document.createElement("canvas");
-    const bar = document.createElement("div");
-    bar.className = "mo-bar";
+    const actions = document.createElement("div");
+    actions.className = "mo-actions";
     this.hint = document.createElement("span");
     this.hint.className = "mo-hint";
     this.hint.textContent = HINT;
@@ -162,10 +168,9 @@ export class MapOverlay {
     const close = document.createElement("button");
     close.type = "button";
     close.className = "mo-close";
-    close.textContent = "✕";
-    close.setAttribute("aria-label", "Close map");
-    bar.append(this.hint, this.cancelBtn, close);
-    this.root.append(this.canvas, bar);
+    close.textContent = "✕ CLOSE MAP";
+    actions.append(this.cancelBtn, close);
+    this.root.append(this.canvas, this.hint, actions);
     document.body.append(this.root);
     this.ctx = this.canvas.getContext("2d");
 
