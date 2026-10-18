@@ -31,6 +31,8 @@ const LAND = "#2c2144";
 const PARK = "#5fbf4f";
 const ROAD = "#fff4e2";
 const DECK = "#c0483c";
+// the autopilot's route
+export const ROUTE = "#6bff8e";
 
 // World units across the minimap window. The small box zooms in: it is ~2/3
 // the desktop size, so the same VIEW would shrink streets below legibility.
@@ -44,7 +46,52 @@ const blipRadius = (clamped: boolean, glyph: "player" | "square" | undefined): n
 const VIEW_DESKTOP = 560;
 const VIEW_MOBILE = 340;
 // offscreen full-map resolution (px on the long axis)
-const BASE_PX = 2048;
+export const BASE_PX = 2048;
+
+/**
+ * The whole city, north-up, at `scale` px per world unit: water, land, parks,
+ * decks and (with `roads`) the street cells. The big map draws its streets as
+ * vectors over a road-free paint.
+ */
+export const paintCity = (
+  canvas: HTMLCanvasElement,
+  plan: CityPlan,
+  decks: readonly SurfaceDeck[],
+  scale: number,
+  roads: boolean,
+): void => {
+  canvas.width = Math.ceil(WORLD_W * scale);
+  canvas.height = Math.ceil(WORLD_H * scale);
+  const b = canvas.getContext("2d");
+  if (!b) {
+    return;
+  }
+  const cellX = (WORLD_W * scale) / GRID_X;
+  const cellZ = (WORLD_H * scale) / GRID_Z;
+  for (let gx = 0; gx < GRID_X; gx += 1) {
+    for (let gz = 0; gz < GRID_Z; gz += 1) {
+      const kind = plan.cells[gx]?.[gz];
+      let fill = WATER;
+      if (kind === "road") {
+        fill = roads ? ROAD : LAND;
+      } else if (kind === "lot") {
+        fill = districtAt(gx, gz).character === "park" ? PARK : LAND;
+      }
+      b.fillStyle = fill;
+      b.fillRect(gx * cellX, gz * cellZ, cellX + 0.5, cellZ + 0.5);
+    }
+  }
+  // Drivable decks (Golden Gate + wharf piers) read as landmarks.
+  b.fillStyle = DECK;
+  for (const d of decks) {
+    b.fillRect(
+      (d.minX + WORLD_HALF_X) * scale,
+      (d.minZ + WORLD_HALF_Z) * scale,
+      Math.max(2, (d.maxX - d.minX) * scale),
+      Math.max(2, (d.maxZ - d.minZ) * scale),
+    );
+  }
+};
 
 export class Minimap {
   private canvas: HTMLCanvasElement;
@@ -79,36 +126,14 @@ export class Minimap {
     // stays crisp (VIEW window → this.size px needs ~0.6 px/u; we bake 0.65).
     this.baseScale = BASE_PX / Math.max(WORLD_W, WORLD_H);
     this.base = document.createElement("canvas");
-    this.base.width = Math.ceil(WORLD_W * this.baseScale);
-    this.base.height = Math.ceil(WORLD_H * this.baseScale);
-    const b = this.base.getContext("2d");
-    if (b) {
-      const cellX = (WORLD_W * this.baseScale) / GRID_X;
-      const cellZ = (WORLD_H * this.baseScale) / GRID_Z;
-      for (let gx = 0; gx < GRID_X; gx += 1) {
-        for (let gz = 0; gz < GRID_Z; gz += 1) {
-          const kind = plan.cells[gx]?.[gz];
-          let fill = WATER;
-          if (kind === "road") {
-            fill = ROAD;
-          } else if (kind === "lot") {
-            fill = districtAt(gx, gz).character === "park" ? PARK : LAND;
-          }
-          b.fillStyle = fill;
-          b.fillRect(gx * cellX, gz * cellZ, cellX + 0.5, cellZ + 0.5);
-        }
-      }
-      // Drivable decks (Golden Gate + wharf piers) read as landmarks.
-      b.fillStyle = DECK;
-      for (const d of decks) {
-        b.fillRect(
-          (d.minX + WORLD_HALF_X) * this.baseScale,
-          (d.minZ + WORLD_HALF_Z) * this.baseScale,
-          Math.max(2, (d.maxX - d.minX) * this.baseScale),
-          Math.max(2, (d.maxZ - d.minZ) * this.baseScale),
-        );
-      }
-    }
+    paintCity(this.base, plan, decks, this.baseScale, true);
+  }
+
+  /** Clicking the corner map (it ignores the pointer otherwise). */
+  onClick(open: () => void): void {
+    this.canvas.style.pointerEvents = "auto";
+    this.canvas.style.cursor = "pointer";
+    this.canvas.addEventListener("click", open);
   }
 
   setVisible(v: boolean): void {
@@ -121,6 +146,8 @@ export class Minimap {
     carZ: number,
     heading: number,
     markers: readonly MinimapMarker[],
+    // [x0,z0, x1,z1, ...] the autopilot is following
+    route: Float64Array | null = null,
   ): void {
     const { ctx } = this;
     if (!ctx) {
@@ -142,6 +169,19 @@ export class Minimap {
     const vScale = this.size / this.view;
     const px = (x: number): number => (x - carX + this.view / 2) * vScale;
     const pz = (z: number): number => (z - carZ + this.view / 2) * vScale;
+
+    if (route && route.length >= 4) {
+      ctx.strokeStyle = ROUTE;
+      ctx.lineWidth = 2.4;
+      ctx.lineJoin = "round";
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(px(route[0] ?? 0), pz(route[1] ?? 0));
+      for (let k = 2; k + 1 < route.length; k += 2) {
+        ctx.lineTo(px(route[k] ?? 0), pz(route[k + 1] ?? 0));
+      }
+      ctx.stroke();
+    }
 
     for (const m of markers) {
       // Clamp off-window markers to the edge (direction hint).

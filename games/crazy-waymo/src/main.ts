@@ -185,6 +185,8 @@ const governor = new PerfGovernor(renderer, game.sunLight, (features) => {
 });
 
 setPauseHandlers({
+  // Escape closes the big map instead of pausing over it.
+  escapePauses: () => !game.mapOpen,
   onPause: () => {
     pauseOverlay.show();
     game.requestPause();

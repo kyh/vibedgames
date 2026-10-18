@@ -11,6 +11,8 @@ import {
 import type { Diagnostics, ReflexInputs } from "@vibedgames/playtest";
 
 import type { GameScene } from "../scenes/game-scene";
+import type { CarInput } from "../vehicle/car";
+import { Autopilot, STUCK_AFTER } from "./autopilot";
 import { Navigator } from "./navigator";
 import type { FareOption, NavReadout, PickupIntent, PlaytestView } from "./navigator";
 
@@ -37,14 +39,7 @@ interface WaymoDiagnostics extends Diagnostics {
   pickups: { nearest: FareSummary; richest: FareSummary; sameFare: boolean } | null;
 }
 
-const STUCK_AFTER = 1;
-const REVERSE_MS = 1300;
-const STEER_DEADBAND_DEG = 3;
-const STEER_FULL_DEG = 14;
 const BOOST_MIN = 30;
-// Lifting off only sheds 22 u/s²; on a descent gravity adds more than that.
-const BRAKE_MARGIN = 3;
-const DRIFT_MIN_SPEED = 9;
 
 const summary = (fare: FareOption): FareSummary => ({
   distance: Math.round(fare.distance),
@@ -52,22 +47,29 @@ const summary = (fare: FareOption): FareSummary => ({
 });
 
 /** Digital keys as an analogue wheel: hold the steer key for a share of frames. */
-const makeSteer = (): ((errorDeg: number, reversing: boolean) => string[]) => {
+const makeKeys = (): ((input: CarInput) => string[]) => {
   let credit = 0;
-  return (errorDeg, reversing) => {
-    const size = Math.abs(errorDeg);
-    if (size < STEER_DEADBAND_DEG) {
+  return (input) => {
+    const keys: string[] = [];
+    if (input.throttle > 0) {
+      keys.push("ArrowUp");
+    }
+    if (input.brake > 0) {
+      keys.push("ArrowDown");
+    }
+    if (input.boost) {
+      keys.push("ShiftLeft");
+    }
+    if (input.steer === 0) {
       credit = 0;
-      return [];
+      return keys;
     }
-    credit += Math.min(1, size / STEER_FULL_DEG);
-    if (credit < 1) {
-      return [];
+    credit += Math.abs(input.steer);
+    if (credit >= 1) {
+      credit -= 1;
+      keys.push(input.steer < 0 ? "ArrowLeft" : "ArrowRight");
     }
-    credit -= 1;
-    // Reversing swaps which way the nose swings for a given key.
-    const left = errorDeg > 0 !== reversing;
-    return [left ? "ArrowLeft" : "ArrowRight"];
+    return keys;
   };
 };
 
@@ -143,47 +145,8 @@ export const installPlaytest = (game: GameScene): void => {
       name === "active-play" && game.playtestStart() ? { state: name } : undefined,
   });
 
-  const steer = makeSteer();
-  let reverseUntil = 0;
-  let reverseFrom = 0;
-  let lockLeft = false;
-
-  // Backing out, and when that goes nowhere (a wall ahead, a hill behind) full
-  // lock forwards instead: the nose slides along the wall until it clears.
-  // The lock swaps side each attempt — the route's side may be the wall's.
-  const reverseOut = (diag: WaymoDiagnostics): ReflexInputs => {
-    const error = diag.nav?.headingErrorDeg ?? 0;
-    const now = performance.now();
-    if (reverseFrom === 0 || now - reverseFrom > REVERSE_MS * 2) {
-      reverseFrom = now;
-      lockLeft = !lockLeft;
-    }
-    const backing = now - reverseFrom < REVERSE_MS * 0.6 || diag.speed < -1;
-    if (backing) {
-      return { keys: ["ArrowDown", ...steer(error, true)] };
-    }
-    return { keys: ["ArrowUp", lockLeft ? "ArrowLeft" : "ArrowRight"] };
-  };
-
-  const pedals = (diag: WaymoDiagnostics, nav: NavReadout): string[] => {
-    // Facing the wrong way: crawl round rather than power into the far kerb.
-    const limit =
-      Math.abs(nav.headingErrorDeg) > 60 ? Math.min(nav.targetSpeed, 10) : nav.targetSpeed;
-    // Brake + steer is this game's drift: the tail steps out and the line is
-    // gone. The brake sheds 82 u/s², so the pilot straightens for the instant
-    // it takes, then steers again.
-    const braking = diag.speed > limit + BRAKE_MARGIN;
-    if (braking && diag.speed > DRIFT_MIN_SPEED) {
-      return ["ArrowDown"];
-    }
-    const keys = steer(nav.headingErrorDeg, diag.speed < -0.5);
-    if (braking) {
-      keys.push("ArrowDown");
-    } else if (diag.speed < limit) {
-      keys.push("ArrowUp");
-    }
-    return keys;
-  };
+  const pilot = new Autopilot();
+  const toKeys = makeKeys();
 
   const drive = (
     diag: WaymoDiagnostics | null,
@@ -191,24 +154,7 @@ export const installPlaytest = (game: GameScene): void => {
     boost: boolean,
   ): ReflexInputs => {
     navigator.pickupIntent = intent;
-    const nav = diag?.nav;
-    if (!diag || !nav || diag.phase !== "playing") {
-      return { keys: [] };
-    }
-    const now = performance.now();
-    if (diag.stuckSeconds >= STUCK_AFTER && now > reverseUntil + REVERSE_MS) {
-      reverseUntil = now + REVERSE_MS;
-    }
-    if (now < reverseUntil) {
-      return reverseOut(diag);
-    }
-    const keys = pedals(diag, nav);
-    const open =
-      nav.turnAheadDeg < 12 && Math.abs(nav.headingErrorDeg) < 8 && nav.routeDistance > 120;
-    if (boost && open && diag.boostReady && nav.blocker === null) {
-      keys.push("ShiftLeft");
-    }
-    return { keys };
+    return { keys: diag ? toKeys(pilot.drive(diag, boost)) : [] };
   };
 
   publishPlaytest<WaymoDiagnostics>({
@@ -246,7 +192,7 @@ export const installPlaytest = (game: GameScene): void => {
       reverse_out: {
         description:
           "Only when game.stuck is true: back away from whatever the car is wedged against, swinging the nose towards the route",
-        reflex: (diag) => (diag && diag.phase === "playing" ? reverseOut(diag) : { keys: [] }),
+        reflex: (diag) => ({ keys: diag ? toKeys(pilot.reverseOut(diag)) : [] }),
       },
     },
   });

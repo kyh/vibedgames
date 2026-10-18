@@ -513,7 +513,7 @@ const main = async () => {
     views: [],
   };
   const session = await createMobileSession({ output, sessionPrefix: "crazy-waymo-mobile-soak" });
-  const { call, evaluate, until, tap, sleep, screenshot, close, pageErrors } = session;
+  const { call, evaluate, pause, until, tap, sleep, screenshot, close, pageErrors } = session;
   const run = (fn, ...values) => evaluate(`(${fn.toString()})(...${JSON.stringify(values)})`);
   const save = () =>
     writeFileSync(path.join(output, "report.json"), JSON.stringify(report, null, 2));
@@ -529,7 +529,7 @@ const main = async () => {
     heap: await call("Runtime.getHeapUsage"),
   });
   const pauseCheck = async (name) => {
-    await tap('[aria-label="Pause"]');
+    await pause();
     await until("window.__taxi.game.paused === true");
     await sleep(300);
     const before = await run(snapshot);

@@ -43,7 +43,7 @@ if (!Number.isInteger(durationMs) || durationMs < 1000 || durationMs > 60_000) {
 if (ab && (rates.length !== 3 || new Set(rates).size !== 1)) {
   throw new Error("A/B requires three identical CPU rates");
 }
-const { call, evaluate, sleep, until, tap, screenshot, close, pageErrors } =
+const { call, evaluate, pause, sleep, until, tap, screenshot, close, pageErrors } =
   await createMobileSession({ output, sessionPrefix: "crazy-waymo-mobile-performance" });
 const earlyMetrics = `(()=>{if(window.__mobileMetricsInstalled)return;window.__mobileMetricsInstalled=true;window.__mobileMph=0;const fillText=CanvasRenderingContext2D.prototype.fillText;CanvasRenderingContext2D.prototype.fillText=function(...args){const text=String(args[0]).trim(),value=Number(text);if(this.canvas.id==='dash-dial'&&text!==''&&Number.isFinite(value))window.__mobileMph=value;return fillText.apply(this,args);};window.__mobileCold={installedAt:performance.now(),longTasks:[]};new PerformanceObserver(list=>{for(const e of list.getEntries())window.__mobileCold.longTasks.push({start:e.startTime,duration:e.duration});}).observe({type:'longtask',buffered:true});})()`;
 let iteration = 0;
@@ -71,7 +71,7 @@ const productionSmoke = async (opened) => {
     ["landscape", 844, 390],
   ]) {
     if (name === "landscape") {
-      await tap('[aria-label="Pause"]');
+      await pause();
       await tap("#waymo-pause .prestart");
     }
     await call("Emulation.setDeviceMetricsOverride", {
