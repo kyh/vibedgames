@@ -24,7 +24,7 @@
     "@kyh/tsconfig": "catalog:",
     "@types/node": "catalog:",
     "@types/three": "^0.186.0",
-    "playwright-core": "^1.64.0",
+    "playwright-core": "^1.64.1",
     "tsx": "^4.23.15",
     "typescript": "catalog:",
     "vite": "catalog:"

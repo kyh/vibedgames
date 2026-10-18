@@ -43,10 +43,10 @@
   "devDependencies": {
     "@libsql/client": "^0.18.0",
     "dotenv-cli": "^11.0.0",
-    "oxfmt": "^0.72.0",
-    "oxlint": "^1.87.0",
+    "oxfmt": "^0.73.0",
+    "oxlint": "^1.88.0",
     "tsx": "^4.23.15",
-    "turbo": "^2.11.7",
+    "turbo": "^2.11.9",
     "typescript": "catalog:",
     "ultracite": "^8.0.0"
   },
