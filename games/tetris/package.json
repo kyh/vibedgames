@@ -12,7 +12,7 @@
     "test": "tsx scripts/smoke.ts"
   },
   "dependencies": {
-    "@mediapipe/tasks-vision": "1.0.1",
+    "@mediapipe/tasks-vision": "1.1.1",
     "@repo/embed": "workspace:*",
     "@vibedgames/gamepad": "workspace:^",
     "@vibedgames/playtest": "workspace:^",
