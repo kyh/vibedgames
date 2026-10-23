@@ -1,11 +1,15 @@
 # Image-to-Video Endpoints
 
-Curated picks across 6 use cases. **Seedance 2.0** dominates for general I2V; **Kling O3 / V3** specializes in reference-to-video and 4K; **Sora 2** is included for I2V. Avatar/lipsync has its own large bucket. Verify with `vg generate models --endpoint_id <id> --json` before running.
+Curated picks across 6 use cases. **Seedance 2.5** is the default for general I2V (native audio, first and last frame); **Kling 4.0** and **FLUX 3 Max** are the newest alternatives; **Kling O3 / V3** specializes in reference-to-video and 4K; **Sora 2** is included for I2V. Avatar/lipsync has its own large bucket. Verify with `vg generate models --endpoint_id <id> --json` before running.
 
 ## Premium realism
 
 Final-quality image-to-video.
 
+- `bytedance/seedance-2.5/us/image-to-video`: ByteDance · Seedance 2.5 (the default; native audio, optional end frame)
+- `bytedance/seedance-2.5/us/reference-to-video`: ByteDance · Seedance 2.5 Reference (up to 30 images)
+- `kling/v4/image-to-video`: Kling · 4.0
+- `blackforestlabs/flux-3-max/image-to-video`: Black Forest Labs · FLUX 3 Max
 - `bytedance/seedance-2.0/image-to-video`: ByteDance · Seedance 2.0
 - `bytedance/seedance-2.0/reference-to-video`: ByteDance · Seedance 2.0 Reference
 - `fal-ai/bytedance/seedance/v1.5/pro/image-to-video`: ByteDance · Seedance 1.5 Pro

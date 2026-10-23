@@ -1,11 +1,16 @@
 # Text-to-Image Endpoints
 
-Curated picks across 8 use cases. The four standout families dominate this modality: **OpenAI gpt-image-2**, **Google nano-banana** (Pro / 2), **ByteDance Seedream v5 lite**, and **ByteDance Dreamina v3.1**. Verify with `vg generate models --endpoint_id <id> --json` before running.
+Curated picks across 8 use cases. The standout families: **OpenAI GPT Image 2.5** (Flare for most work, Sunburst for premium detail; `background: transparent` for sprites), **Google Nano Banana** (2.1 / Pro), **Black Forest Labs FLUX.3**, **ByteDance Seedream v5**, and **ByteDance Dreamina v3.1**. Verify with `vg generate models --endpoint_id <id> --json` before running.
 
 ## Premium realism
 
 Final commercial photoreal, realistic ads, editorial, premium portraits.
 
+- `openai/gpt-image-2.5/flare/text-to-image`: OpenAI · GPT Image 2.5 Flare (the default; transparent backgrounds)
+- `openai/gpt-image-2.5/sunburst/text-to-image`: OpenAI · GPT Image 2.5 Sunburst (finest detail, slower)
+- `google/nano-banana-2.1`: Google · Nano Banana 2.1 (up to 4K)
+- `blackforestlabs/flux-3/text-to-image`: Black Forest Labs · FLUX.3
+- `bytedance/seedream/v5/pro/text-to-image`: ByteDance · Seedream 5.0 Pro
 - `openai/gpt-image-2`: OpenAI · GPT Image 2 (use `quality=high`, expensive)
 - `fal-ai/nano-banana-pro`: Google · Nano Banana Pro
 - `fal-ai/nano-banana-2`: Google · Nano Banana 2
@@ -26,6 +31,9 @@ Branded / illustrative output.
 
 Quick iteration, low-cost drafts.
 
+- `blackforestlabs/flux-3/klein/text-to-image`: Black Forest Labs · FLUX.3 Klein
+- `bytedance/seedream/v5/flash/text-to-image`: ByteDance · Seedream 5 Flash
+- `google/nano-banana-2-lite`: Google · Nano Banana 2 Lite (sub-2s)
 - `fal-ai/flux-2/klein/4b`: Black Forest Labs · FLUX.2 klein 4B
 - `fal-ai/flux-2/klein/9b`: Black Forest Labs · FLUX.2 klein 9B
 - `fal-ai/flux-2/flash`: Black Forest Labs · FLUX.2 flash

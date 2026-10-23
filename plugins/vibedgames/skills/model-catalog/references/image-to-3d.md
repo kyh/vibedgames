@@ -1,11 +1,13 @@
 # Image-to-3D Endpoints
 
-Curated picks across 3 use cases, premium quality, fast/cheap, and multi-view input. **Meshy 6** and **Hunyuan 3D Pro** lead premium; **Tripo P1/H3.1** are strong alternatives. Verify with `vg generate models --endpoint_id <id> --json` before running.
+Curated picks across 3 use cases, premium quality, fast/cheap, and multi-view input. **Meshy 7.1** is the default; **Tripo P2** and **Hunyuan 3D Pro** are strong alternatives. Verify with `vg generate models --endpoint_id <id> --json` before running.
 
 ## Premium
 
 High-quality mesh generation.
 
+- `meshy/v7.1/image-to-3d`: Meshy 7.1 (the default; standard, low-poly and smart topology)
+- `tripo3d/p2/image-to-3d`: Tripo · P2
 - `fal-ai/hunyuan-3d/v3.1/pro/image-to-3d`: Tencent · Hunyuan 3D v3.1 Pro
 - `fal-ai/meshy/v6/image-to-3d`: Meshy 6
 - `fal-ai/meshy/v6-preview/image-to-3d`: Meshy 6 Preview
@@ -20,6 +22,8 @@ Fast / draft 3D.
 - `fal-ai/triposr`: TripoSR
 
 ## Multi-view to 3D
+
+- `meshy/v7.1/multi-image-to-3d`: Meshy 7.1 (one to four views)
 
 Multiple view angles → 3D (front / side / three-quarter).
 

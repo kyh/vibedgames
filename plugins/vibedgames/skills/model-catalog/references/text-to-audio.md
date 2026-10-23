@@ -6,6 +6,8 @@ Curated picks across 6 use cases. TTS Premium / Fast / Multilingual / Voice clon
 
 High-quality, expressive TTS.
 
+- `elevenlabs/tts/eleven-v4`: ElevenLabs · Eleven v4 (the default; audio tags for delivery)
+- `elevenlabs/tts/eleven-v4-turbo`: ElevenLabs · Eleven v4 Turbo (faster)
 - `fal-ai/elevenlabs/tts/eleven-v3`: ElevenLabs · Eleven v3
 - `fal-ai/elevenlabs/text-to-dialogue/eleven-v3`: ElevenLabs · Text-to-Dialogue (multi-speaker scene)
 - `fal-ai/minimax/speech-2.8-hd`: Minimax · Speech 2.8 HD
@@ -51,6 +53,7 @@ Voice cloning and custom voice design.
 
 Vocal music generation with lyrics.
 
+- `elevenlabs/music/v2.5`: ElevenLabs · Music v2.5 (the default; vocals or `force_instrumental`)
 - `fal-ai/elevenlabs/music`: ElevenLabs · Music
 - `fal-ai/minimax-music/v2.6`: Minimax · Music 2.6
 - `fal-ai/lyria2`: Lyria 2
@@ -59,7 +62,8 @@ Vocal music generation with lyrics.
 
 Instrumental music and sound effects.
 
-- `fal-ai/elevenlabs/sound-effects/v2`: ElevenLabs · Sound Effects v2
+- `fal-ai/elevenlabs/sound-effects/v2`: ElevenLabs · Sound Effects v2 (the default; up to 22s, seamless loops)
+- `mirelo-ai/sfx2.0/text-to-audio`: Mirelo · SFX 2.0 (newer; negative prompts)
 - `cassetteai/music-generator`: Cassette AI · Music Generator
 - `fal-ai/stable-audio-25/text-to-audio`: Stability AI · Stable Audio 2.5
 

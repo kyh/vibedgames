@@ -1,6 +1,6 @@
 # Image-to-Image Endpoints
 
-Curated picks across 12 use cases (10 editing + 2 quality). The dominant pattern: **instruction-based edit endpoints** (`fal-ai/nano-banana-pro/edit`, `fal-ai/nano-banana-2/edit`, `openai/gpt-image-2/edit`, `seedream/v5/lite/edit`) handle most needs. Specialist endpoints come in for outpainting, background removal, product shots, and high-quality upscaling.
+Curated picks across 12 use cases (10 editing + 2 quality). The dominant pattern: **instruction-based edit endpoints** (`openai/gpt-image-2.5/flare/edit`, `google/nano-banana-2.1/edit`, `blackforestlabs/flux-3/edit-image`, `fal-ai/nano-banana-pro/edit`) handle most needs. Specialist endpoints come in for outpainting, background removal, product shots, and high-quality upscaling.
 
 Verify with `vg generate models --endpoint_id <id> --json` before running.
 
@@ -8,6 +8,10 @@ Verify with `vg generate models --endpoint_id <id> --json` before running.
 
 Instruction-based edits that preserve character / face / product identity.
 
+- `openai/gpt-image-2.5/flare/edit`: OpenAI · GPT Image 2.5 Flare Edit (the default; up to 16 references)
+- `openai/gpt-image-2.5/sunburst/edit`: OpenAI · GPT Image 2.5 Sunburst Edit (tightest scoped edits)
+- `google/nano-banana-2.1/edit`: Google · Nano Banana 2.1 Edit
+- `blackforestlabs/flux-3/edit-image`: Black Forest Labs · FLUX.3 Edit
 - `fal-ai/nano-banana-pro/edit`: Google · Nano Banana Pro Edit
 - `fal-ai/nano-banana-2/edit`: Google · Nano Banana 2 Edit
 - `openai/gpt-image-2/edit`: OpenAI · GPT Image 2 Edit
@@ -17,6 +21,7 @@ Instruction-based edits that preserve character / face / product identity.
 
 Combine multiple references, product+scene, person+garment.
 
+- `openai/gpt-image-2.5/flare/edit`: OpenAI (up to 16 input images)
 - `openai/gpt-image-2/edit`: OpenAI (up to 16 input images)
 - `fal-ai/nano-banana-pro/edit`: Google
 - `fal-ai/nano-banana-2/edit`: Google
@@ -47,6 +52,7 @@ Extend the image beyond its borders.
 
 Remove or replace the background.
 
+- `bria/guided-remove-background`: Bria AI · Guided Remove Background (the default; RMBG's cut, steered by an optional `prompt` naming what to keep)
 - `fal-ai/bria/background/remove`: Bria AI · RMBG 2.0
 - `fal-ai/bria/background/replace`: Bria AI · Background Replace
 - `fal-ai/birefnet`: BiRefNet
