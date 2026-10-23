@@ -46,7 +46,7 @@ const registrar = new McpRegistrar(tools, {
 
 const instructions = [
   "vibedgames hosts browser games at {slug}.vibedgames.com and gives coding agents the abilities of a game studio.",
-  "Start with `skills` for how to build, art-direct and ship a game; `generate` makes its art, audio and 3D; `deployments_upload` puts it live.",
+  "Start with `skills` for how to build, art-direct and ship a game; `generate_image`, `generate_video`, `generate_speech`, `generate_music`, `generate_sound`, `generate_3d` and `remove_background` make its assets on default models, `generate` runs any other model; `deployments_upload` puts it live.",
   "A game larger than one request deploys over several deployments_upload calls with the same deploymentId, the last with `publish: true`.",
   API_KEY_HINT,
 ].join(" ");

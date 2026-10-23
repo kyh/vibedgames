@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readdir, readFile } from "node:fs/promises";
 import { describe, test } from "node:test";
 import type { JsonValue } from "@repo/contract/json";
 import type { ORPCContext } from "@repo/service/orpc";
@@ -8,6 +9,7 @@ import { MAX_RPC_BODY_BYTES } from "@repo/service/generate/limits";
 import { z } from "zod";
 
 import { handleMcpRequest } from "./mcp";
+import { MEDIA_MODELS } from "./mcp-tools";
 
 /**
  * Drives the real `/mcp` handler over Streamable HTTP. The context is built by
@@ -167,13 +169,20 @@ describe("mcp endpoint", () => {
       "deployments_upload",
       "fork",
       "generate",
+      "generate_3d",
       "generate_docs",
+      "generate_image",
       "generate_models",
+      "generate_music",
       "generate_pricing",
       "generate_schema",
+      "generate_sound",
+      "generate_speech",
       "generate_status",
       "generate_upload",
+      "generate_video",
       "me",
+      "remove_background",
       "skills",
     ]);
   });
@@ -185,7 +194,7 @@ describe("mcp endpoint", () => {
       assert.strictEqual(byName.get(name)?.annotations?.readOnlyHint, true, name);
     }
     assert.strictEqual(byName.get("deployments_delete")?.annotations?.destructiveHint, true);
-    for (const name of ["generate", "deployments_upload", "credits_redeem"]) {
+    for (const name of ["generate", "generate_image", "deployments_upload", "credits_redeem"]) {
       assert.strictEqual(byName.get(name)?.annotations?.readOnlyHint, false, name);
     }
   });
@@ -218,6 +227,42 @@ describe("mcp endpoint", () => {
     const { result } = callResult.parse(body);
     assert.strictEqual(result.isError, true);
     assert.match(result.content[0]?.text ?? "", /UNAUTHORIZED/u);
+  });
+
+  test("refuses an anonymous media tool before anything is submitted", async () => {
+    const { body } = await rpc("tools/call", {
+      arguments: { prompt: "a cat" },
+      name: "generate_image",
+    });
+    const { result } = callResult.parse(body);
+    assert.strictEqual(result.isError, true);
+    assert.match(result.content[0]?.text ?? "", /UNAUTHORIZED/u);
+  });
+
+  test("asks generate_3d for a prompt or an image", async () => {
+    const { body } = await rpc("tools/call", { arguments: {}, name: "generate_3d" });
+    const { result } = callResult.parse(body);
+    assert.strictEqual(result.isError, true);
+    assert.match(result.content[0]?.text ?? "", /prompt or an image_url/u);
+  });
+
+  // The media tools run the defaults the model-catalog skill names, so an
+  // agent reading the skill and one calling the tool get the same model.
+  test("runs only models the model-catalog skill names", async () => {
+    const catalog = new URL(
+      "../../../../plugins/vibedgames/skills/model-catalog/",
+      import.meta.url,
+    );
+    const files = await readdir(catalog, { recursive: true });
+    const pages = await Promise.all(
+      files
+        .filter((file) => file.endsWith(".md"))
+        .map((file) => readFile(new URL(file, catalog), "utf-8")),
+    );
+    const text = pages.join("\n");
+    for (const endpoint of Object.values(MEDIA_MODELS).flat()) {
+      assert.ok(text.includes(`\`${endpoint}\``), endpoint);
+    }
   });
 
   // CLAUDE.md: end-user-facing surfaces keep the provider's brand out of

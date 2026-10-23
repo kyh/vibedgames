@@ -53,7 +53,7 @@ URL_CLEAN=$(vg generate run fal-ai/bria/background/remove --image_url "$URL_RAW"
 
 # Step 2: image-to-3D
 REQ=$(vg generate run fal-ai/hunyuan-3d/v3.1/pro/image-to-3d \
- --image_url "$URL_CLEAN" \
+ --input_image_url "$URL_CLEAN" \
  --async \
  --field request_id)
 

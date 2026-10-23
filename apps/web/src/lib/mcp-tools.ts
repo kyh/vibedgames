@@ -91,6 +91,51 @@ const queueResult = (context: McpContext, endpoint: string, requestId: string) =
     target: "queue",
   });
 
+/** What a model's queue takes as its input. */
+type ModelInput = Record<string, JsonValue>;
+
+/**
+ * Submits one job to a model's queue and waits up to `waitSeconds` for it,
+ * returning its output once COMPLETED, else its request id and status to
+ * follow with generate_status.
+ */
+const runModel = async (
+  context: McpContext,
+  endpoint: string,
+  body: ModelInput,
+  waitSeconds: number,
+) => {
+  const submission = await forward(context, {
+    body,
+    method: "POST",
+    path: `/${endpointPath(endpoint)}`,
+    target: "queue",
+  });
+  const requestId = stringField(submission, "request_id");
+  if (!requestId) {
+    throw new ORPCError("BAD_GATEWAY", { message: "The model's queue returned no request_id." });
+  }
+  const deadline = Date.now() + waitSeconds * 1000;
+  let status = stringField(submission, "status")?.toUpperCase() ?? "IN_QUEUE";
+  while (!TERMINAL.has(status) && Date.now() + POLL_MS <= deadline) {
+    await sleep(POLL_MS);
+    status = await queueStatus(context, endpoint, requestId);
+  }
+  if (status !== "COMPLETED") {
+    return { endpoint_id: endpoint, request_id: requestId, result: null, status };
+  }
+  const result = await queueResult(context, endpoint, requestId);
+  return { endpoint_id: endpoint, request_id: requestId, result, status };
+};
+
+const waitSeconds = z
+  .number()
+  .int()
+  .min(0)
+  .max(MAX_WAIT_SECONDS)
+  .default(20)
+  .describe("How long to wait for the result before returning the request id");
+
 const generateTools = {
   generate: tool
     .meta(
@@ -106,40 +151,12 @@ const generateTools = {
       z.object({
         endpoint_id: endpointId,
         input: z.record(z.string(), z.json()).describe("The model's input, per generate_schema"),
-        wait_seconds: z
-          .number()
-          .int()
-          .min(0)
-          .max(MAX_WAIT_SECONDS)
-          .default(20)
-          .describe("How long to wait for the result before returning the request id"),
+        wait_seconds: waitSeconds,
       }),
     )
-    .handler(async ({ context, input }) => {
-      const submission = await forward(context, {
-        body: input.input,
-        method: "POST",
-        path: `/${endpointPath(input.endpoint_id)}`,
-        target: "queue",
-      });
-      const requestId = stringField(submission, "request_id");
-      if (!requestId) {
-        throw new ORPCError("BAD_GATEWAY", {
-          message: "The model's queue returned no request_id.",
-        });
-      }
-      const deadline = Date.now() + input.wait_seconds * 1000;
-      let status = stringField(submission, "status")?.toUpperCase() ?? "IN_QUEUE";
-      while (!TERMINAL.has(status) && Date.now() + POLL_MS <= deadline) {
-        await sleep(POLL_MS);
-        status = await queueStatus(context, input.endpoint_id, requestId);
-      }
-      if (status !== "COMPLETED") {
-        return { endpoint_id: input.endpoint_id, request_id: requestId, result: null, status };
-      }
-      const result = await queueResult(context, input.endpoint_id, requestId);
-      return { endpoint_id: input.endpoint_id, request_id: requestId, result, status };
-    }),
+    .handler(({ context, input }) =>
+      runModel(context, input.endpoint_id, input.input, input.wait_seconds),
+    ),
 
   generate_docs: tool
     .meta(
@@ -325,6 +342,280 @@ const generateTools = {
     }),
 };
 
+const options = z
+  .record(z.string(), z.json())
+  .default({})
+  .describe(
+    "Any other input the model takes, per generate_schema of its endpoint; the fields above win",
+  );
+
+/** The model's body: `options`, then every field given. */
+const bodyOf = (extra: ModelInput, fields: Record<string, JsonValue | undefined>) => {
+  const given = Object.entries(fields).filter(
+    (entry): entry is [string, JsonValue] => entry[1] !== undefined,
+  );
+  return { ...extra, ...Object.fromEntries(given) };
+};
+
+const prompt = z.string().min(1).max(5000);
+const imageUrl = z.url().describe("An image's URL, e.g. from generate_upload");
+
+/**
+ * One tool per kind of asset, each on the default model the model-catalog
+ * skill names for it, with that model's main inputs typed. `generate` runs
+ * any other.
+ */
+export const MEDIA_MODELS = {
+  generate_3d: ["fal-ai/meshy/v6/text-to-3d", "fal-ai/meshy/v6/image-to-3d"],
+  generate_image: ["fal-ai/nano-banana-pro", "fal-ai/nano-banana-pro/edit"],
+  generate_music: ["fal-ai/elevenlabs/music"],
+  generate_sound: ["fal-ai/elevenlabs/sound-effects/v2"],
+  generate_speech: ["fal-ai/elevenlabs/tts/eleven-v3"],
+  generate_video: ["bytedance/seedance-2.0/text-to-video", "bytedance/seedance-2.0/image-to-video"],
+  remove_background: ["fal-ai/bria/background/remove"],
+} as const;
+
+const billed =
+  "Billed against your credits; waits up to `wait_seconds`, then returns the `request_id` to follow with generate_status.";
+
+const mediaTools = {
+  generate_3d: tool
+    .meta(
+      mcp.tool({
+        annotations: external,
+        description: `Generates a textured 3D model (GLB) from a prompt, or from an image when \`image_url\` is given (Meshy 6: \`${MEDIA_MODELS.generate_3d.join("`, `")}\`). ${billed}`,
+        name: "generate_3d",
+        title: "Generate a 3D model",
+      }),
+    )
+    .input(
+      z.object({
+        image_url: imageUrl.optional(),
+        options,
+        prompt: prompt.max(600).optional().describe("What to model; needed without image_url"),
+        target_polycount: z.number().int().min(100).max(300_000).optional(),
+        topology: z.enum(["quad", "triangle"]).optional(),
+        wait_seconds: waitSeconds,
+      }),
+    )
+    .handler(({ context, input }) => {
+      const [fromText, fromImage] = MEDIA_MODELS.generate_3d;
+      if (input.image_url === undefined && input.prompt === undefined) {
+        throw new ORPCError("BAD_REQUEST", { message: "Give a prompt or an image_url." });
+      }
+      const fields = {
+        image_url: input.image_url,
+        prompt: input.image_url === undefined ? input.prompt : undefined,
+        target_polycount: input.target_polycount,
+        topology: input.topology,
+      };
+      return runModel(
+        context,
+        input.image_url === undefined ? fromText : fromImage,
+        bodyOf(input.options, fields),
+        input.wait_seconds,
+      );
+    }),
+
+  generate_image: tool
+    .meta(
+      mcp.tool({
+        annotations: external,
+        description: `Generates images from a prompt, or edits and combines reference images when \`image_urls\` is given (Nano Banana Pro: \`${MEDIA_MODELS.generate_image.join("`, `")}\`). ${billed}`,
+        name: "generate_image",
+        title: "Generate an image",
+      }),
+    )
+    .input(
+      z.object({
+        aspect_ratio: z
+          .enum(["auto", "21:9", "16:9", "3:2", "4:3", "5:4", "1:1", "4:5", "3:4", "2:3", "9:16"])
+          .optional(),
+        image_urls: z
+          .array(imageUrl)
+          .min(1)
+          .max(14)
+          .optional()
+          .describe("Images to edit or combine"),
+        num_images: z.number().int().min(1).max(4).optional(),
+        options,
+        prompt,
+        resolution: z.enum(["1K", "2K", "4K"]).optional(),
+        wait_seconds: waitSeconds,
+      }),
+    )
+    .handler(({ context, input }) => {
+      const [fromText, edit] = MEDIA_MODELS.generate_image;
+      const fields = {
+        aspect_ratio: input.aspect_ratio,
+        image_urls: input.image_urls,
+        num_images: input.num_images,
+        prompt: input.prompt,
+        resolution: input.resolution,
+      };
+      return runModel(
+        context,
+        input.image_urls === undefined ? fromText : edit,
+        bodyOf(input.options, fields),
+        input.wait_seconds,
+      );
+    }),
+
+  generate_music: tool
+    .meta(
+      mcp.tool({
+        annotations: external,
+        description: `Composes music from a prompt: genre, mood, instruments, structure (ElevenLabs Music: \`${MEDIA_MODELS.generate_music[0]}\`). ${billed}`,
+        name: "generate_music",
+        title: "Generate music",
+      }),
+    )
+    .input(
+      z.object({
+        force_instrumental: z.boolean().optional(),
+        music_length_ms: z.number().int().min(3000).max(600_000).optional(),
+        options,
+        prompt,
+        wait_seconds: waitSeconds,
+      }),
+    )
+    .handler(({ context, input }) =>
+      runModel(
+        context,
+        MEDIA_MODELS.generate_music[0],
+        bodyOf(input.options, {
+          force_instrumental: input.force_instrumental,
+          music_length_ms: input.music_length_ms,
+          prompt: input.prompt,
+        }),
+        input.wait_seconds,
+      ),
+    ),
+
+  generate_sound: tool
+    .meta(
+      mcp.tool({
+        annotations: external,
+        description: `Generates a sound effect from a description: a jump, a hit, an explosion, ambience (ElevenLabs Sound Effects: \`${MEDIA_MODELS.generate_sound[0]}\`). ${billed}`,
+        name: "generate_sound",
+        title: "Generate a sound effect",
+      }),
+    )
+    .input(
+      z.object({
+        duration_seconds: z.number().min(0.5).max(22).optional(),
+        loop: z.boolean().optional().describe("Make it loop seamlessly"),
+        options,
+        text: prompt.describe("The sound to make"),
+        wait_seconds: waitSeconds,
+      }),
+    )
+    .handler(({ context, input }) =>
+      runModel(
+        context,
+        MEDIA_MODELS.generate_sound[0],
+        bodyOf(input.options, {
+          duration_seconds: input.duration_seconds,
+          loop: input.loop,
+          text: input.text,
+        }),
+        input.wait_seconds,
+      ),
+    ),
+
+  generate_speech: tool
+    .meta(
+      mcp.tool({
+        annotations: external,
+        description: `Speaks a line of text: dialogue, narration, an announcer (ElevenLabs v3: \`${MEDIA_MODELS.generate_speech[0]}\`). ${billed}`,
+        name: "generate_speech",
+        title: "Generate speech",
+      }),
+    )
+    .input(
+      z.object({
+        options,
+        text: prompt.describe("What to say"),
+        voice: z.string().min(1).optional().describe("A voice name, e.g. Rachel, Aria, Roger"),
+        wait_seconds: waitSeconds,
+      }),
+    )
+    .handler(({ context, input }) =>
+      runModel(
+        context,
+        MEDIA_MODELS.generate_speech[0],
+        bodyOf(input.options, { text: input.text, voice: input.voice }),
+        input.wait_seconds,
+      ),
+    ),
+
+  generate_video: tool
+    .meta(
+      mcp.tool({
+        annotations: external,
+        description: `Generates a video clip with sound from a prompt, or animates an image when \`image_url\` is given (Seedance 2.0: \`${MEDIA_MODELS.generate_video.join("`, `")}\`). Video takes minutes: expect a \`request_id\` to follow with generate_status. ${billed}`,
+        name: "generate_video",
+        title: "Generate a video",
+      }),
+    )
+    .input(
+      z.object({
+        aspect_ratio: z.enum(["auto", "21:9", "16:9", "4:3", "1:1", "3:4", "9:16"]).optional(),
+        duration: z
+          .enum(["auto", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15"])
+          .optional()
+          .describe("Seconds"),
+        end_image_url: imageUrl.optional().describe("The last frame, with image_url"),
+        generate_audio: z.boolean().optional(),
+        image_url: imageUrl.optional().describe("The first frame"),
+        options,
+        prompt,
+        resolution: z.enum(["480p", "720p", "1080p", "4k"]).optional(),
+        wait_seconds: waitSeconds,
+      }),
+    )
+    .handler(({ context, input }) => {
+      const [fromText, fromImage] = MEDIA_MODELS.generate_video;
+      if (input.end_image_url !== undefined && input.image_url === undefined) {
+        throw new ORPCError("BAD_REQUEST", { message: "end_image_url needs an image_url." });
+      }
+      const fields = {
+        aspect_ratio: input.aspect_ratio,
+        duration: input.duration,
+        end_image_url: input.end_image_url,
+        generate_audio: input.generate_audio,
+        image_url: input.image_url,
+        prompt: input.prompt,
+        resolution: input.resolution,
+      };
+      return runModel(
+        context,
+        input.image_url === undefined ? fromText : fromImage,
+        bodyOf(input.options, fields),
+        input.wait_seconds,
+      );
+    }),
+
+  remove_background: tool
+    .meta(
+      mcp.tool({
+        annotations: external,
+        description: `Cuts the subject out of an image onto a transparent background, for sprites and props (BRIA: \`${MEDIA_MODELS.remove_background[0]}\`). ${billed}`,
+        name: "remove_background",
+        title: "Remove an image's background",
+      }),
+    )
+    .input(z.object({ image_url: imageUrl, options, wait_seconds: waitSeconds }))
+    .handler(({ context, input }) =>
+      runModel(
+        context,
+        MEDIA_MODELS.remove_background[0],
+        bodyOf(input.options, { image_url: input.image_url }),
+        input.wait_seconds,
+      ),
+    ),
+};
+
 export const tools = {
   credits: asTool(appRouter.credits.me, {
     annotations: readOnly,
@@ -367,6 +658,7 @@ export const tools = {
     title: "Fork a game's source",
   }),
   ...generateTools,
+  ...mediaTools,
   me: asTool(appRouter.auth.me, { annotations: readOnly, name: "me", title: "Who am I" }),
   skills: tool
     .meta(
