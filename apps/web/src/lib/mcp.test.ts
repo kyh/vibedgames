@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
+import type { JsonValue } from "@repo/contract/json";
 import type { ORPCContext } from "@repo/service/orpc";
 import { createAuth } from "@repo/service/auth/auth";
 import { createDb } from "@repo/db/drizzle-client";
@@ -74,6 +75,11 @@ const contextWith =
     });
   };
 
+const skills = [
+  { content: "---\nname: phaser\n---\nBuild 2D games.", description: "2D games", name: "phaser" },
+  { content: "---\nname: deploy\n---\nShip it.", description: "Ship a game", name: "deploy" },
+];
+
 let nextId = 1;
 
 interface RpcOptions {
@@ -84,7 +90,7 @@ interface RpcOptions {
 
 const rpc = async (
   method: string,
-  params: Record<string, string | Record<string, string>>,
+  params: { [key: string]: JsonValue },
   { headers = {}, session = null, seen = [] }: RpcOptions = {},
 ) => {
   const request = new Request("https://vibedgames.com/mcp", {
@@ -97,7 +103,7 @@ const rpc = async (
     },
     method: "POST",
   });
-  const response = await handleMcpRequest(request, contextWith(session, seen));
+  const response = await handleMcpRequest(request, contextWith(session, seen), skills);
   const text = await response.text();
   const json = text.startsWith("{")
     ? text
@@ -149,32 +155,74 @@ describe("mcp endpoint", () => {
     assert.match(result.instructions, /Authorization: Bearer vg_/u);
   });
 
-  test("lists exactly the procedures an API key can drive without a shell", async () => {
+  test("lists one tool per vg command that reaches the server", async () => {
     const tools = await listTools();
     const names = tools.map((tool) => tool.name).toSorted();
     assert.deepStrictEqual(names, [
-      "auth_me",
-      "credits_checkout",
-      "credits_me",
+      "credits",
+      "credits_buy",
       "credits_redeem",
-      "deploy_delete",
-      "deploy_getSource",
-      "deploy_list",
-      "generate_forward",
+      "deployments",
+      "deployments_delete",
+      "deployments_upload",
+      "fork",
+      "generate",
+      "generate_docs",
+      "generate_models",
+      "generate_pricing",
+      "generate_schema",
+      "generate_status",
+      "generate_upload",
+      "me",
+      "skills",
     ]);
   });
 
   test("marks reads read-only and the delete destructive", async () => {
     const tools = await listTools();
     const byName = new Map(tools.map((tool) => [tool.name, tool]));
-    for (const name of ["auth_me", "credits_me", "deploy_list", "deploy_getSource"]) {
+    for (const name of ["me", "credits", "deployments", "fork", "skills", "generate_models"]) {
       assert.strictEqual(byName.get(name)?.annotations?.readOnlyHint, true, name);
     }
-    assert.strictEqual(byName.get("deploy_delete")?.annotations?.destructiveHint, true);
-    assert.strictEqual(byName.get("generate_forward")?.annotations?.readOnlyHint, false);
+    assert.strictEqual(byName.get("deployments_delete")?.annotations?.destructiveHint, true);
+    for (const name of ["generate", "deployments_upload", "credits_redeem"]) {
+      assert.strictEqual(byName.get(name)?.annotations?.readOnlyHint, false, name);
+    }
   });
 
-  // CLAUDE.md: end-user-facing surfaces keep the provider's brand out of prose.
+  test("lists the skills, and serves one by name", async () => {
+    const all = await rpc("tools/call", { arguments: {}, name: "skills" });
+    const listed = callResult.parse(all.body);
+    assert.deepStrictEqual(listed.result.structuredContent, {
+      skills: [
+        { description: "2D games", name: "phaser" },
+        { description: "Ship a game", name: "deploy" },
+      ],
+    });
+    const named = await rpc("tools/call", { arguments: { name: "deploy" }, name: "skills" });
+    const one = callResult.parse(named.body);
+    assert.deepStrictEqual(one.result.structuredContent, skills[1]);
+    const unknown = await rpc("tools/call", { arguments: { name: "nope" }, name: "skills" });
+    const missing = callResult.parse(unknown.body);
+    assert.strictEqual(missing.result.isError, true);
+    assert.match(missing.result.content[0]?.text ?? "", /NOT_FOUND/u);
+  });
+
+  // The generate family reaches the API through `call()`, so it must still
+  // meet the procedure's own session check rather than skip it.
+  test("refuses an anonymous generate before anything is submitted", async () => {
+    const { body } = await rpc("tools/call", {
+      arguments: { endpoint_id: "fal-ai/flux/dev", input: { prompt: "a cat" } },
+      name: "generate",
+    });
+    const { result } = callResult.parse(body);
+    assert.strictEqual(result.isError, true);
+    assert.match(result.content[0]?.text ?? "", /UNAUTHORIZED/u);
+  });
+
+  // CLAUDE.md: end-user-facing surfaces keep the provider's brand out of
+  // prose. Endpoint ids pass through verbatim (`fal-ai/flux/dev`), so a
+  // match followed by `-` is an id, not the brand.
   test("never names the media provider in what an agent reads", async () => {
     const { body } = await rpc("initialize", {
       capabilities: {},
@@ -182,11 +230,11 @@ describe("mcp endpoint", () => {
       protocolVersion: "2025-06-18",
     });
     const text = JSON.stringify([body, await listTools()]);
-    assert.doesNotMatch(text, /\bfal\b/iu);
+    assert.doesNotMatch(text, /\bfal\b(?!-)/iu);
   });
 
   test("refuses an anonymous tool call as a tool error the model can read", async () => {
-    const { body } = await rpc("tools/call", { arguments: {}, name: "deploy_list" });
+    const { body } = await rpc("tools/call", { arguments: {}, name: "deployments" });
     const { result } = callResult.parse(body);
     assert.strictEqual(result.isError, true);
     const text = result.content[0]?.text ?? "";
@@ -195,11 +243,7 @@ describe("mcp endpoint", () => {
   });
 
   test("runs a signed-in call through the procedure", async () => {
-    const { body } = await rpc(
-      "tools/call",
-      { arguments: {}, name: "auth_me" },
-      { session: signedIn },
-    );
+    const { body } = await rpc("tools/call", { arguments: {}, name: "me" }, { session: signedIn });
     const { result } = callResult.parse(body);
     assert.notStrictEqual(result.isError, true);
     assert.deepStrictEqual(result.structuredContent, {
@@ -254,7 +298,7 @@ describe("mcp endpoint", () => {
       headers: { "content-type": "application/json" },
       method: "POST",
     });
-    const response = await handleMcpRequest(request, contextWith(null));
+    const response = await handleMcpRequest(request, contextWith(null), skills);
     assert.strictEqual(response.status, 413);
     assert.ok(pulled <= MAX_RPC_BODY_BYTES / chunk.byteLength + 2, `pulled ${pulled} MiB`);
   });
@@ -265,7 +309,7 @@ describe("mcp endpoint", () => {
       headers: { "content-type": "application/json" },
       method: "POST",
     });
-    const response = await handleMcpRequest(request, contextWith(null));
+    const response = await handleMcpRequest(request, contextWith(null), skills);
     assert.strictEqual(response.status, 413);
   });
 });

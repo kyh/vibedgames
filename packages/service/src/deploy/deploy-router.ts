@@ -1,12 +1,15 @@
-import { eq, inArray } from "@repo/db";
+import { and, count, eq, inArray, ne, sql, sum } from "@repo/db";
 import { deployment, deploymentFile, game } from "@repo/db/drizzle-schema";
-import type { fileSchema } from "@repo/contract/deploy/deploy-schema";
-import { MAX_TOTAL_SIZE } from "@repo/contract/deploy/deploy-schema";
+import type { fileSchema, uploadInput } from "@repo/contract/deploy/deploy-schema";
+import type { Db } from "@repo/db/drizzle-client";
+import { MAX_FILE_COUNT, MAX_TOTAL_SIZE } from "@repo/contract/deploy/deploy-schema";
 import { ORPCError } from "@orpc/server";
 import type { z } from "zod";
 
 import type { R2Config } from "../orpc";
 import { os, requireSession } from "../orpc";
+import type { DecodedFile } from "./inline-files";
+import { decodeInlineFiles, sha256Hex } from "./inline-files";
 import { deletePrefix, presignGet, presignPut } from "./r2-presign";
 import { isSlugReserved } from "./reserved-slugs";
 
@@ -52,6 +55,158 @@ const validateManifest = (files: z.infer<typeof fileSchema>[]): number => {
     paths.add(f.path);
   }
   return totalBytes;
+};
+
+// D1 has a max SQL statement size — batch inserts in chunks
+const INSERT_BATCH_SIZE = 10;
+
+const productionHost = (productionURL: string | undefined) =>
+  new URL(productionURL ?? "https://vibedgames.com");
+
+// ---- deploy.upload's steps ---------------------------------------------------
+
+type UploadInput = z.infer<typeof uploadInput>;
+
+/** The caller's game for this slug, made if it is new; refuses one owned by someone else. */
+const resolveUploadGame = async (db: Db, userId: string, input: UploadInput): Promise<string> => {
+  const existing = await db.query.game.findFirst({ where: { slug: input.slug } });
+  if (existing && existing.userId !== userId) {
+    throw new ORPCError("FORBIDDEN", { message: `Slug "${input.slug}" is already taken.` });
+  }
+  if (!existing && input.deploymentId) {
+    throw new ORPCError("NOT_FOUND", { message: "Deployment not found." });
+  }
+  if (!existing) {
+    const id = crypto.randomUUID();
+    await db.insert(game).values({ id, name: input.name ?? null, slug: input.slug, userId });
+    return id;
+  }
+  if (input.name && input.name !== existing.name) {
+    await db.update(game).set({ name: input.name }).where(eq(game.id, existing.id));
+  }
+  return existing.id;
+};
+
+/** The pending deployment a call adds to: the one named, or a new one. */
+const stageDeployment = async (
+  db: Db,
+  gameId: string,
+  deploymentId: string | undefined,
+): Promise<string> => {
+  if (deploymentId === undefined) {
+    const id = crypto.randomUUID();
+    await db
+      .insert(deployment)
+      .values({ fileCount: 0, gameId, id, status: "pending", totalBytes: 0 });
+    return id;
+  }
+  const staged = await db.query.deployment.findFirst({ where: { gameId, id: deploymentId } });
+  if (!staged) {
+    throw new ORPCError("NOT_FOUND", {
+      message: "Deployment not found: start a new upload without a deploymentId.",
+    });
+  }
+  if (staged.status !== "pending") {
+    throw new ORPCError("BAD_REQUEST", { message: `Deployment already ${staged.status}.` });
+  }
+  return staged.id;
+};
+
+const deploymentTotals = async (db: Db, deploymentId: string) => {
+  const [row] = await db
+    .select({ bytes: sum(deploymentFile.size), files: count() })
+    .from(deploymentFile)
+    .where(eq(deploymentFile.deploymentId, deploymentId));
+  return { bytes: Number(row?.bytes ?? 0), files: row?.files ?? 0 };
+};
+
+/** Counted before anything is written. A replaced path counts twice, which only errs towards refusing. */
+const assertUploadBudget = (staged: { bytes: number; files: number }, files: DecodedFile[]) => {
+  const incoming = files.reduce((acc, f) => acc + f.bytes.byteLength, 0);
+  if (staged.bytes + incoming > MAX_TOTAL_SIZE) {
+    throw new ORPCError("BAD_REQUEST", {
+      message: `Deployment would exceed the ${MAX_TOTAL_SIZE}-byte limit.`,
+    });
+  }
+  if (staged.files + files.length > MAX_FILE_COUNT) {
+    throw new ORPCError("BAD_REQUEST", {
+      message: `Deployment would exceed ${MAX_FILE_COUNT} files.`,
+    });
+  }
+};
+
+/** Bytes to R2 first, then their rows; a path uploaded again replaces both. */
+const writeUploadedFiles = async (
+  db: Db,
+  r2: R2Config,
+  { deploymentId, files, gameId }: { deploymentId: string; files: DecodedFile[]; gameId: string },
+) => {
+  const rows = await Promise.all(
+    files.map(async (f) => {
+      const r2Key = `games/${gameId}/${deploymentId}/${f.path}`;
+      await r2.bucket.put(r2Key, f.bytes, { httpMetadata: { contentType: f.contentType } });
+      return {
+        contentType: f.contentType,
+        deploymentId,
+        path: f.path,
+        r2Key,
+        sha256: await sha256Hex(f.bytes),
+        size: f.bytes.byteLength,
+      };
+    }),
+  );
+  for (let i = 0; i < rows.length; i += INSERT_BATCH_SIZE) {
+    await db
+      .insert(deploymentFile)
+      .values(rows.slice(i, i + INSERT_BATCH_SIZE))
+      .onConflictDoUpdate({
+        set: {
+          contentType: sql`excluded.content_type`,
+          sha256: sql`excluded.sha256`,
+          size: sql`excluded.size`,
+        },
+        target: [deploymentFile.deploymentId, deploymentFile.path],
+      });
+  }
+};
+
+/**
+ * Points the game at the staged deployment, then removes every other one of
+ * its deployments — the old live one, and any staging an abandoned upload
+ * left — so nothing goes dark in between.
+ */
+const publishDeployment = async (
+  db: Db,
+  r2: R2Config,
+  { deploymentId, gameId }: { deploymentId: string; gameId: string },
+) => {
+  const index = await db.query.deploymentFile.findFirst({
+    where: { deploymentId, path: "index.html" },
+  });
+  if (!index) {
+    throw new ORPCError("BAD_REQUEST", {
+      message: "Deployment must contain index.html at the root before it can publish.",
+    });
+  }
+  await db.update(deployment).set({ status: "ready" }).where(eq(deployment.id, deploymentId));
+  await db.update(game).set({ currentDeploymentId: deploymentId }).where(eq(game.id, gameId));
+
+  const stale = await db
+    .select({ id: deployment.id })
+    .from(deployment)
+    .where(and(eq(deployment.gameId, gameId), ne(deployment.id, deploymentId)));
+  for (const { id } of stale) {
+    await deletePrefix({ prefix: `games/${gameId}/${id}/`, r2 });
+    await deletePrefix({ prefix: `sources/${gameId}/${id}/`, r2 });
+  }
+  if (stale.length > 0) {
+    await db.delete(deployment).where(
+      inArray(
+        deployment.id,
+        stale.map(({ id }) => id),
+      ),
+    );
+  }
 };
 
 const authed = os.deploy.use(requireSession);
@@ -298,5 +453,36 @@ export const deployRouter = {
         }),
       ),
     };
+  }),
+
+  /**
+   * Deploy from files carried in the request. Unlike `create`, the live
+   * deployment stays up while a new one is staged beside it (call after call),
+   * and is removed only once `publish` has pointed the game at the new one.
+   */
+  upload: authed.upload.handler(async ({ context, input }) => {
+    const r2 = requireR2(context.r2);
+    if (isSlugReserved(input.slug)) {
+      throw new ORPCError("BAD_REQUEST", { message: `Slug "${input.slug}" is reserved.` });
+    }
+    const files = decodeInlineFiles(input.files);
+    const gameId = await resolveUploadGame(context.db, context.session.user.id, input);
+    const deploymentId = await stageDeployment(context.db, gameId, input.deploymentId);
+    assertUploadBudget(await deploymentTotals(context.db, deploymentId), files);
+    await writeUploadedFiles(context.db, r2, { deploymentId, files, gameId });
+
+    const totals = await deploymentTotals(context.db, deploymentId);
+    await context.db
+      .update(deployment)
+      .set({ fileCount: totals.files, totalBytes: totals.bytes })
+      .where(eq(deployment.id, deploymentId));
+    const summary = { deploymentId, fileCount: totals.files, gameId, totalBytes: totals.bytes };
+    if (!input.publish) {
+      return { ...summary, published: false, url: null };
+    }
+
+    await publishDeployment(context.db, r2, { deploymentId, gameId });
+    const base = productionHost(context.productionURL);
+    return { ...summary, published: true, url: `${base.protocol}//${input.slug}.${base.host}` };
   }),
 };

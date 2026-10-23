@@ -91,7 +91,7 @@ export const docsDoc: Doc = {
         },
         {
           kind: "p",
-          text: "Agents that speak MCP can reach the same API as tools at `https://vibedgames.com/mcp` (Streamable HTTP, stateless): read your account, credits and games, redeem a code, delete or fork a game, and generate media. Each tool runs the API procedure it is named after (`deploy_list`, `generate_forward`, …), so it takes the same input and returns the same JSON. Send an API key (`vg_…`, from [Settings](/settings)) as `Authorization: Bearer`; browser cookies are ignored. Deploying a build still goes through `vg deploy`, which uploads the files.",
+          text: "Agents that speak MCP get the same platform as tools at `https://vibedgames.com/mcp` (Streamable HTTP, stateless), one per `vg` command that reaches the server: `me`, `credits` (`credits_redeem`, `credits_buy`), `deployments` (`deployments_upload`, `deployments_delete`), `fork`, `generate` (`generate_status`, `generate_models`, `generate_schema`, `generate_pricing`, `generate_docs`, `generate_upload`) and `skills`, which serves the bundled game-studio skills. `deployments_upload` deploys from files carried in the call (text or base64), staged over as many calls as the game needs and live on `publish: true`, so an agent with no shell can still ship. Send an API key (`vg_…`, from [Settings](/settings)) as `Authorization: Bearer`; browser cookies are ignored.",
         },
         {
           code: [
