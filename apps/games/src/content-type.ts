@@ -1,6 +1,6 @@
 // Extension → MIME map for served game files.
 //
-// This mirrors CONTENT_TYPES in apps/cli/src/lib/manifest.ts — the CLI stamps
+// This mirrors CONTENT_TYPES in packages/contract/src/deploy/content-types.ts — the CLI stamps
 // deploymentFile.contentType from that map at upload time, so deriving the
 // type from the path here reproduces the stored value without a D1 lookup
 // (which used to run once per asset request — ~180 queries for a cold load of

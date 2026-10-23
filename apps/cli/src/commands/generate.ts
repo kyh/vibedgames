@@ -1,6 +1,7 @@
 import { setTimeout as sleep } from "node:timers/promises";
 import { defineCommand } from "citty";
 import { consola } from "consola";
+import { endpointPath, queueAppId } from "@repo/contract/generate/queue-path";
 
 import { createClient, forwardJson } from "../lib/api.js";
 import {
@@ -12,7 +13,7 @@ import {
 import { parseDownloadFlag, parseRunInput, readExplicitLocalFile } from "../lib/media-args.js";
 import type { DownloadFlag } from "../lib/media-args.js";
 import { downloadMedia, extractMediaRefs } from "../lib/media-download.js";
-import { endpointPath, queueAppId, waitForCompletion } from "../lib/media-poll.js";
+import { waitForCompletion } from "../lib/media-poll.js";
 import { uploadFile } from "../lib/media-upload.js";
 import { isJsonOutput, outputArgs, writeJson, writeStructured } from "../lib/output.js";
 import { isJsonNumber, isJsonObject, isJsonString } from "../lib/types.js";

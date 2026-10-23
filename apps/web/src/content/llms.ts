@@ -43,6 +43,7 @@ Then work from the skills. Common entry points: \`vg new <slug>\` to scaffold, \
 - [Install guide](${url}/install): the one command that installs the skills and the CLI, and what to do when a global npm install is not permitted.
 - [Developer docs](${url}/docs): the full \`vg\` command surface, the HTTP API, authentication, and the npm packages a game imports.
 - [OpenAPI document](${url}/openapi.json): every API operation at \`${url}/api/v1\`, with input, response and error schemas and the credentials each one needs.
+- [MCP server](${url}/mcp): the platform as MCP tools (Streamable HTTP) — account, credits, games, deploying from inline files, media generation and the game-studio skills — authenticated with an API key sent as \`Authorization: Bearer vg_…\`.
 - [Agent skills index](${url}/.well-known/agent-skills/index.json): every bundled skill, with a description and a SHA-256 digest, per the Agent Skills discovery convention.
 - [Source repository](${siteConfig.repository}): the whole platform — web app, CLI, packages, skills, example games — MIT licensed.
 

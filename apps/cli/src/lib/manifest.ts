@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
+import { contentTypeForPath } from "@repo/contract/deploy/content-types";
 
 export interface ManifestFile {
   /** forward-slash relative path, e.g. "assets/sprite.png" */
@@ -20,47 +21,6 @@ const IGNORED_TOP_LEVEL = new Set([
   ".DS_Store",
   "vibedgames.json",
 ]);
-
-const CONTENT_TYPES = new Map(
-  Object.entries({
-    avif: "image/avif",
-    cjs: "application/javascript; charset=utf-8",
-    css: "text/css; charset=utf-8",
-    gif: "image/gif",
-    glb: "model/gltf-binary",
-    gltf: "model/gltf+json",
-    htm: "text/html; charset=utf-8",
-    html: "text/html; charset=utf-8",
-    ico: "image/x-icon",
-    jpeg: "image/jpeg",
-    jpg: "image/jpeg",
-    js: "application/javascript; charset=utf-8",
-    json: "application/json; charset=utf-8",
-    m4a: "audio/mp4",
-    map: "application/json; charset=utf-8",
-    mjs: "application/javascript; charset=utf-8",
-    mp3: "audio/mpeg",
-    mp4: "video/mp4",
-    ogg: "audio/ogg",
-    otf: "font/otf",
-    png: "image/png",
-    svg: "image/svg+xml",
-    ttf: "font/ttf",
-    txt: "text/plain; charset=utf-8",
-    wasm: "application/wasm",
-    wav: "audio/wav",
-    webm: "video/webm",
-    webp: "image/webp",
-    woff: "font/woff",
-    woff2: "font/woff2",
-    xml: "application/xml",
-  }),
-);
-
-const contentTypeForPath = (file: string): string => {
-  const ext = file.split(".").pop()?.toLowerCase() ?? "";
-  return CONTENT_TYPES.get(ext) ?? "application/octet-stream";
-};
 
 const shouldIgnore = (relPath: string): boolean => {
   const top = relPath.split(path.sep)[0] ?? "";

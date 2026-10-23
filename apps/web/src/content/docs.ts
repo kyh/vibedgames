@@ -89,6 +89,18 @@ export const docsDoc: Doc = {
           kind: "p",
           text: "Auth endpoints live under `/api/auth/*` and are rate limited. Deploys and hosting are free; only `vg generate` is metered, against a per-account credit balance readable with `vg credits`.",
         },
+        {
+          kind: "p",
+          text: "Agents that speak MCP get the same platform as tools at `https://vibedgames.com/mcp` (Streamable HTTP, stateless), one per `vg` command that reaches the server: `me`, `credits` (`credits_redeem`, `credits_buy`), `deployments` (`deployments_upload`, `deployments_delete`), `fork`, `generate` (`generate_status`, `generate_models`, `generate_schema`, `generate_pricing`, `generate_docs`, `generate_upload`), the dedicated asset tools `generate_image`, `generate_video`, `generate_speech`, `generate_music`, `generate_sound`, `generate_3d` and `remove_background` (each on the default model the model-catalog skill names, with that model's main inputs typed) and `skills`, which serves the bundled game-studio skills. `deployments_upload` deploys from files carried in the call (text or base64), staged over as many calls as the game needs and live on `publish: true`, so an agent with no shell can still ship. Send an API key (`vg_…`, from [Settings](/settings)) as `Authorization: Bearer`; browser cookies are ignored.",
+        },
+        {
+          code: [
+            "claude mcp add --transport http vibedgames https://vibedgames.com/mcp \\",
+            '  --header "Authorization: Bearer $VG_API_KEY"',
+          ].join("\n"),
+          kind: "code",
+          lang: "sh",
+        },
       ],
       heading: "API and authentication",
     },
@@ -131,6 +143,7 @@ export const docsDoc: Doc = {
           items: [
             "[/llms.txt](/llms.txt) — what Vibedgames is for, when an agent should use it, and the entry command.",
             "[/openapi.json](/openapi.json) — the OpenAPI 3.1 description of the HTTP API.",
+            "[/mcp](/mcp) — the API as MCP tools, for agents that speak MCP; authenticated by API key.",
             "[/.well-known/api-catalog](/.well-known/api-catalog) — the API catalog (RFC 9727) pointing at the OpenAPI document and these docs.",
             "[/install](/install) — the install instructions, served as markdown.",
             "[/docs](/docs) — this page; also available as markdown via `Accept: text/markdown`.",

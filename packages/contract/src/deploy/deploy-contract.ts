@@ -2,7 +2,13 @@ import { z } from "zod";
 
 import { protectedBase } from "../base";
 import { documented } from "../openapi";
-import { createInput, deleteInput, finalizeInput, getSourceInput } from "./deploy-schema";
+import {
+  createInput,
+  deleteInput,
+  finalizeInput,
+  getSourceInput,
+  uploadInput,
+} from "./deploy-schema";
 
 const presignedUpload = z.object({
   headers: z.object({ "content-type": z.string() }),
@@ -99,4 +105,25 @@ export const deployContract = {
       }),
     )
     .output(z.object({ games: z.array(gameSummary) })),
+
+  upload: protectedBase
+    .meta(
+      documented({
+        description:
+          "Deploys a game from files carried in the request, for a caller with no local build to upload: each file is `utf-8` text or `base64`, and its type is its path's unless given. The first call stages a new deployment beside the live one and returns its `deploymentId`; later calls pass it back to add or replace files, so a game larger than one request goes up in several. `publish: true` (on the last call, or alone) requires `index.html`, makes the deployment live at `{slug}.vibedgames.com` and only then removes the previous one, so the game never goes dark mid-upload. 403 when the slug belongs to someone else.",
+        errors: [403, 404],
+        summary: "Upload files inline and deploy",
+      }),
+    )
+    .input(uploadInput)
+    .output(
+      z.object({
+        deploymentId: z.string(),
+        fileCount: z.number().int(),
+        gameId: z.string(),
+        published: z.boolean(),
+        totalBytes: z.number().int(),
+        url: z.string().nullable(),
+      }),
+    ),
 };

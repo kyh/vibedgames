@@ -10,7 +10,7 @@ import { z } from "zod";
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 // 200 MB per deploy
 export const MAX_TOTAL_SIZE = 200 * 1024 * 1024;
-const MAX_FILE_COUNT = 500;
+export const MAX_FILE_COUNT = 500;
 // 100 MB for the forkable source archive
 const MAX_SOURCE_SIZE = 100 * 1024 * 1024;
 
@@ -59,3 +59,26 @@ export const deleteInput = z.object({
 });
 
 export const getSourceInput = z.object({ slug: slugSchema });
+
+/**
+ * One file of a `deploy.upload` call, carried in the request itself: `utf-8`
+ * for text, `base64` for anything binary. The type is the path's unless given.
+ */
+const inlineFileSchema = z.object({
+  content: z.string(),
+  contentType: z.string().min(1).max(127).optional(),
+  encoding: z.enum(["utf-8", "base64"]).default("utf-8"),
+  path: fileSchema.shape.path,
+});
+
+export type InlineFile = z.infer<typeof inlineFileSchema>;
+
+export const uploadInput = z.object({
+  /** Continue a staged deployment this call's earlier upload returned; omit to start one. */
+  deploymentId: z.string().optional(),
+  files: z.array(inlineFileSchema).max(MAX_FILE_COUNT).default([]),
+  name: z.string().max(120).optional(),
+  /** Make the staged deployment live once these files are in. */
+  publish: z.boolean().default(false),
+  slug: slugSchema,
+});
