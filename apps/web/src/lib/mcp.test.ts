@@ -237,6 +237,28 @@ describe("mcp endpoint", () => {
     assert.strictEqual(response.status, 403);
   });
 
+  // A chunked body carries no Content-Length, so only counting the stream catches it.
+  test("refuses an oversized body that declares no length, without reading all of it", async () => {
+    let pulled = 0;
+    const chunk = new Uint8Array(1024 * 1024);
+    const body = new ReadableStream<Uint8Array>({
+      pull: (controller) => {
+        pulled += 1;
+        controller.enqueue(chunk);
+      },
+    });
+    const request = new Request("https://vibedgames.com/mcp", {
+      body,
+      // @ts-expect-error -- undici needs `duplex` for a stream body; the DOM types lack it
+      duplex: "half",
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    const response = await handleMcpRequest(request, contextWith(null));
+    assert.strictEqual(response.status, 413);
+    assert.ok(pulled <= MAX_RPC_BODY_BYTES / chunk.byteLength + 2, `pulled ${pulled} MiB`);
+  });
+
   test("refuses a body over the RPC cap before parsing it", async () => {
     const request = new Request("https://vibedgames.com/mcp", {
       body: "x".repeat(MAX_RPC_BODY_BYTES + 1),

@@ -132,6 +132,41 @@ export const withoutCookies = (headers: Headers): Headers => {
   return bearerOnly;
 };
 
+/**
+ * The body, read no further than `limit` bytes; `null` once it would pass it.
+ * `Content-Length` is the client's claim, and a chunked body has none, so the
+ * stream itself is counted and cancelled at the cap.
+ */
+const readCapped = async (
+  stream: ReadableStream<Uint8Array>,
+  limit: number,
+): Promise<Uint8Array<ArrayBuffer> | null> => {
+  const reader = stream.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+    size += value.byteLength;
+    if (size > limit) {
+      await reader.cancel();
+      return null;
+    }
+    chunks.push(value);
+  }
+  const body = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return body;
+};
+
+const tooLarge = () => jsonError(413, "PAYLOAD_TOO_LARGE", "Request body is too large.");
+
 export const handleMcpRequest = async (
   request: Request,
   createContext: (headers: Headers) => Promise<ORPCContext>,
@@ -139,13 +174,12 @@ export const handleMcpRequest = async (
   if (isCrossOrigin(request)) {
     return jsonError(403, "FORBIDDEN", "Cross-origin request blocked.");
   }
-  const declared = Number(request.headers.get("content-length") ?? 0);
-  if (declared > MAX_RPC_BODY_BYTES) {
-    return jsonError(413, "PAYLOAD_TOO_LARGE", "Request body is too large.");
+  if (Number(request.headers.get("content-length") ?? 0) > MAX_RPC_BODY_BYTES) {
+    return tooLarge();
   }
-  const body = request.body ? await request.arrayBuffer() : null;
-  if (body && body.byteLength > MAX_RPC_BODY_BYTES) {
-    return jsonError(413, "PAYLOAD_TOO_LARGE", "Request body is too large.");
+  const body = request.body ? await readCapped(request.body, MAX_RPC_BODY_BYTES) : undefined;
+  if (body === null) {
+    return tooLarge();
   }
   const headers = withoutCookies(request.headers);
   const handler = createVibedgamesMcpHandler(await createContext(headers));
