@@ -115,17 +115,45 @@ const runModel = async (
   if (!requestId) {
     throw new ORPCError("BAD_GATEWAY", { message: "The model's queue returned no request_id." });
   }
-  const deadline = Date.now() + waitSeconds * 1000;
-  let status = stringField(submission, "status")?.toUpperCase() ?? "IN_QUEUE";
-  while (!TERMINAL.has(status) && Date.now() + POLL_MS <= deadline) {
-    await sleep(POLL_MS);
-    status = await queueStatus(context, endpoint, requestId);
+  // The job is submitted and its credit held: a poll that fails from here
+  // must still hand back the request id, or a retry submits a second job.
+  try {
+    const deadline = Date.now() + waitSeconds * 1000;
+    let status = stringField(submission, "status")?.toUpperCase() ?? "IN_QUEUE";
+    while (!TERMINAL.has(status) && Date.now() + POLL_MS <= deadline) {
+      await sleep(POLL_MS);
+      status = await queueStatus(context, endpoint, requestId);
+    }
+    if (status !== "COMPLETED") {
+      return { endpoint_id: endpoint, request_id: requestId, result: null, status };
+    }
+    const result = await queueResult(context, endpoint, requestId);
+    return { endpoint_id: endpoint, request_id: requestId, result, status };
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : "no reason given";
+    throw new ORPCError(error instanceof ORPCError ? error.code : "BAD_GATEWAY", {
+      cause: error,
+      message: `Submitted as request ${requestId} on ${endpoint}, then the poll failed (${reason}). Follow it with generate_status rather than generating again.`,
+    });
   }
-  if (status !== "COMPLETED") {
-    return { endpoint_id: endpoint, request_id: requestId, result: null, status };
+};
+
+/**
+ * A cancel is confirmed asynchronously, and the hold is refunded when a status
+ * poll sees CANCELLED, so poll a few times as `vg generate status --cancel`
+ * does. Best-effort: a miss leaves the refund to the next status call.
+ */
+const confirmCancelled = async (context: McpContext, endpoint: string, requestId: string) => {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await sleep(1000);
+    try {
+      if (TERMINAL.has(await queueStatus(context, endpoint, requestId))) {
+        return;
+      }
+    } catch {
+      return;
+    }
   }
-  const result = await queueResult(context, endpoint, requestId);
-  return { endpoint_id: endpoint, request_id: requestId, result, status };
 };
 
 const waitSeconds = z
@@ -280,15 +308,24 @@ const generateTools = {
         request_id: z.string().min(1),
       }),
     )
-    .handler(({ context, input }) => {
+    .handler(async ({ context, input }) => {
       const base = `/${queueAppId(input.endpoint_id)}/requests/${input.request_id}`;
       if (input.action === "result") {
         return queueResult(context, input.endpoint_id, input.request_id);
       }
+      if (input.action === "cancel") {
+        const answer = await forward(context, {
+          method: "PUT",
+          path: `${base}/cancel`,
+          target: "queue",
+        });
+        await confirmCancelled(context, input.endpoint_id, input.request_id);
+        return answer;
+      }
       return forward(context, {
-        method: input.action === "cancel" ? "PUT" : "GET",
-        path: input.action === "cancel" ? `${base}/cancel` : `${base}/status`,
-        query: input.action === "status" && input.logs ? { logs: "1" } : undefined,
+        method: "GET",
+        path: `${base}/status`,
+        query: input.logs ? { logs: "1" } : undefined,
         target: "queue",
       });
     }),

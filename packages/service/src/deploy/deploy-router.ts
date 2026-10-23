@@ -1,4 +1,4 @@
-import { and, count, eq, inArray, ne, sql, sum } from "@repo/db";
+import { and, count, eq, inArray, sql, sum } from "@repo/db";
 import { deployment, deploymentFile, game } from "@repo/db/drizzle-schema";
 import type { fileSchema, uploadInput } from "@repo/contract/deploy/deploy-schema";
 import type { Db } from "@repo/db/drizzle-client";
@@ -77,9 +77,16 @@ const resolveUploadGame = async (db: Db, userId: string, input: UploadInput): Pr
     throw new ORPCError("NOT_FOUND", { message: "Deployment not found." });
   }
   if (!existing) {
-    const id = crypto.randomUUID();
-    await db.insert(game).values({ id, name: input.name ?? null, slug: input.slug, userId });
-    return id;
+    // Two first calls for one slug race here; the loser reads the winner's row.
+    await db
+      .insert(game)
+      .values({ id: crypto.randomUUID(), name: input.name ?? null, slug: input.slug, userId })
+      .onConflictDoNothing({ target: game.slug });
+    const made = await db.query.game.findFirst({ where: { slug: input.slug } });
+    if (made?.userId !== userId) {
+      throw new ORPCError("FORBIDDEN", { message: `Slug "${input.slug}" is already taken.` });
+    }
+    return made.id;
   }
   if (input.name && input.name !== existing.name) {
     await db.update(game).set({ name: input.name }).where(eq(game.id, existing.id));
@@ -191,21 +198,21 @@ const publishDeployment = async (
   await db.update(deployment).set({ status: "ready" }).where(eq(deployment.id, deploymentId));
   await db.update(game).set({ currentDeploymentId: deploymentId }).where(eq(game.id, gameId));
 
+  // One statement, keyed on whatever the game points at when it runs rather
+  // than on this deployment: two overlapping publishes then never delete the
+  // one the other just made live.
   const stale = await db
-    .select({ id: deployment.id })
-    .from(deployment)
-    .where(and(eq(deployment.gameId, gameId), ne(deployment.id, deploymentId)));
+    .delete(deployment)
+    .where(
+      and(
+        eq(deployment.gameId, gameId),
+        sql`${deployment.id} <> (select ${game.currentDeploymentId} from ${game} where ${game.id} = ${gameId})`,
+      ),
+    )
+    .returning({ id: deployment.id });
   for (const { id } of stale) {
     await deletePrefix({ prefix: `games/${gameId}/${id}/`, r2 });
     await deletePrefix({ prefix: `sources/${gameId}/${id}/`, r2 });
-  }
-  if (stale.length > 0) {
-    await db.delete(deployment).where(
-      inArray(
-        deployment.id,
-        stale.map(({ id }) => id),
-      ),
-    );
   }
 };
 
