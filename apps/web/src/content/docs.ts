@@ -89,6 +89,18 @@ export const docsDoc: Doc = {
           kind: "p",
           text: "Auth endpoints live under `/api/auth/*` and are rate limited. Deploys and hosting are free; only `vg generate` is metered, against a per-account credit balance readable with `vg credits`.",
         },
+        {
+          kind: "p",
+          text: "Agents that speak MCP can reach the same API as tools at `https://vibedgames.com/mcp` (Streamable HTTP, stateless): read your account, credits and games, redeem a code, delete or fork a game, and generate media. Each tool runs the API procedure it is named after (`deploy_list`, `generate_forward`, …), so it takes the same input and returns the same JSON. Send an API key (`vg_…`, from [Settings](/settings)) as `Authorization: Bearer`; browser cookies are ignored. Deploying a build still goes through `vg deploy`, which uploads the files.",
+        },
+        {
+          code: [
+            "claude mcp add --transport http vibedgames https://vibedgames.com/mcp \\",
+            '  --header "Authorization: Bearer $VG_API_KEY"',
+          ].join("\n"),
+          kind: "code",
+          lang: "sh",
+        },
       ],
       heading: "API and authentication",
     },
@@ -131,6 +143,7 @@ export const docsDoc: Doc = {
           items: [
             "[/llms.txt](/llms.txt) — what Vibedgames is for, when an agent should use it, and the entry command.",
             "[/openapi.json](/openapi.json) — the OpenAPI 3.1 description of the HTTP API.",
+            "[/mcp](/mcp) — the API as MCP tools, for agents that speak MCP; authenticated by API key.",
             "[/.well-known/api-catalog](/.well-known/api-catalog) — the API catalog (RFC 9727) pointing at the OpenAPI document and these docs.",
             "[/install](/install) — the install instructions, served as markdown.",
             "[/docs](/docs) — this page; also available as markdown via `Accept: text/markdown`.",

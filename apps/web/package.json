@@ -17,8 +17,10 @@
   },
   "dependencies": {
     "@hookform/resolvers": "^5.9.2",
+    "@modelcontextprotocol/server": "^2.3.1",
     "@orpc/client": "catalog:",
     "@orpc/json-schema": "catalog:",
+    "@orpc/mcp": "catalog:",
     "@orpc/openapi": "catalog:",
     "@orpc/server": "catalog:",
     "@orpc/tanstack-query": "catalog:",

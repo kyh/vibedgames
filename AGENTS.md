@@ -62,6 +62,12 @@ curl -s -X POST 'http://localhost:5173/api/orpc/deploy/list' \
 curl -s -X POST 'http://localhost:5173/api/v1/deploy/list' \
   -H 'Authorization: Bearer dev-local-session-token-0000000000'
 
+# the same procedure as an MCP tool (Streamable HTTP; tools/list needs no credential)
+curl -s http://localhost:5173/mcp \
+  -H 'Authorization: Bearer dev-local-session-token-0000000000' \
+  -H 'content-type: application/json' -H 'accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"deploy_list","arguments":{}}}'
+
 # a real session cookie, for handing to a browser context
 curl -s -i -X POST http://localhost:5173/api/auth/sign-in/email \
   -H 'content-type: application/json' -H 'Origin: http://localhost:5173' \

@@ -35,7 +35,7 @@ const FAULTS_BELOW_500 = new Set(["PRECONDITION_FAILED"]);
 
 // `undefined` because oRPC types an interceptor's error over a generic error
 // map, whose optional keys add it to the union.
-const reportFaults = (error: Error | undefined) => {
+export const reportFaults = (error: Error | undefined) => {
   if (error instanceof ORPCError) {
     // Observability is billable on this Worker. A procedure answering
     // deliberately — an expired session, a zod rejection, `auth.cliPoll`
@@ -92,7 +92,7 @@ const restHandler = new OpenAPIHandler(appRouter, {
  * request, before `BatchHandlerPlugin` fans a batch out into sub-requests
  * whose headers the client authored.
  */
-const isCrossOrigin = (request: Request): boolean => {
+export const isCrossOrigin = (request: Request): boolean => {
   const origin = request.headers.get("origin");
   return origin !== null && origin !== new URL(request.url).origin;
 };
