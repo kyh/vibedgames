@@ -110,7 +110,7 @@ export const deployContract = {
     .meta(
       documented({
         description:
-          "Deploys a game from files carried in the request, for a caller with no local build to upload: each file is `utf-8` text or `base64`, and its type is its path's unless given. The first call stages a new deployment beside the live one and returns its `deploymentId`; later calls pass it back to add or replace files, so a game larger than one request goes up in several. `publish: true` (on the last call, or alone) requires `index.html`, makes the deployment live at `{slug}.vibedgames.com` and only then removes the previous one, so the game never goes dark mid-upload. 403 when the slug belongs to someone else.",
+          "Deploys a game from files carried in the request, for a caller with no local build to upload: each file is `utf-8` text, `base64`, or `url`: the URL of an asset generate made, which the server fetches itself (up to 32 MB a call), so nothing generated has to pass through the caller. Its type is its path's unless given. The first call stages a new deployment beside the live one and returns its `deploymentId`; later calls pass it back to add or replace files, so a game larger than one request goes up in several. `publish: true` (on the last call, or alone) requires `index.html`, makes the deployment live at `{slug}.vibedgames.com` and only then removes the previous one, so the game never goes dark mid-upload; with `source: true` it also keeps the deployment's files as the game's forkable source (up to 64 MB). 403 when the slug belongs to someone else.",
         errors: [403, 404],
         summary: "Upload files inline and deploy",
       }),

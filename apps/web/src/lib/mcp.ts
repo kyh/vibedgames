@@ -48,6 +48,7 @@ const instructions = [
   "vibedgames hosts browser games at {slug}.vibedgames.com and gives coding agents the abilities of a game studio.",
   "Start with `skills` for how to build, art-direct and ship a game; `generate_image`, `generate_video`, `generate_speech`, `generate_music`, `generate_sound`, `generate_3d` and `remove_background` make its assets on default models, `generate` runs any other model; `deployments_upload` puts it live.",
   "A game larger than one request deploys over several deployments_upload calls with the same deploymentId, the last with `publish: true`.",
+  "Generated assets come back as URLs, never as files: deploy one by passing its URL to deployments_upload with `encoding: url`, rather than downloading it.",
   API_KEY_HINT,
 ].join(" ");
 

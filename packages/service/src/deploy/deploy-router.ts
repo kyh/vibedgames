@@ -1,8 +1,12 @@
 import { and, count, eq, inArray, sql, sum } from "@repo/db";
 import { deployment, deploymentFile, game } from "@repo/db/drizzle-schema";
-import type { fileSchema, uploadInput } from "@repo/contract/deploy/deploy-schema";
+import type { fileSchema } from "@repo/contract/deploy/deploy-schema";
 import type { Db } from "@repo/db/drizzle-client";
-import { MAX_FILE_COUNT, MAX_TOTAL_SIZE } from "@repo/contract/deploy/deploy-schema";
+import {
+  MAX_FILE_COUNT,
+  MAX_SOURCE_SIZE,
+  MAX_TOTAL_SIZE,
+} from "@repo/contract/deploy/deploy-schema";
 import { ORPCError } from "@orpc/server";
 import type { z } from "zod";
 
@@ -10,6 +14,7 @@ import type { R2Config } from "../orpc";
 import { os, requireSession } from "../orpc";
 import type { DecodedFile } from "./inline-files";
 import { decodeInlineFiles, sha256Hex } from "./inline-files";
+import { sourceArchive } from "./source-archive";
 import { deletePrefix, presignGet, presignPut } from "./r2-presign";
 import { isSlugReserved } from "./reserved-slugs";
 
@@ -65,33 +70,35 @@ const productionHost = (productionURL: string | undefined) =>
 
 // ---- deploy.upload's steps ---------------------------------------------------
 
-type UploadInput = z.infer<typeof uploadInput>;
-
-/** The caller's game for this slug, made if it is new; refuses one owned by someone else. */
-const resolveUploadGame = async (db: Db, userId: string, input: UploadInput): Promise<string> => {
-  const existing = await db.query.game.findFirst({ where: { slug: input.slug } });
-  if (existing && existing.userId !== userId) {
-    throw new ORPCError("FORBIDDEN", { message: `Slug "${input.slug}" is already taken.` });
-  }
-  if (!existing && input.deploymentId) {
+/**
+ * The caller's game for `slug`, made when nobody holds it yet unless `create`
+ * is off; refuses one owned by someone else. Two first deploys of one slug race
+ * on the insert, so it never fails on the unique index: the loser reads the
+ * winner's row, and is refused only if that row is someone else's.
+ */
+const claimGame = async (
+  db: Db,
+  userId: string,
+  { create = true, name, slug }: { create?: boolean; name?: string; slug: string },
+) => {
+  let row = await db.query.game.findFirst({ where: { slug } });
+  if (!row && !create) {
     throw new ORPCError("NOT_FOUND", { message: "Deployment not found." });
   }
-  if (!existing) {
-    // Two first calls for one slug race here; the loser reads the winner's row.
+  if (!row) {
     await db
       .insert(game)
-      .values({ id: crypto.randomUUID(), name: input.name ?? null, slug: input.slug, userId })
+      .values({ id: crypto.randomUUID(), name: name ?? null, slug, userId })
       .onConflictDoNothing({ target: game.slug });
-    const made = await db.query.game.findFirst({ where: { slug: input.slug } });
-    if (made?.userId !== userId) {
-      throw new ORPCError("FORBIDDEN", { message: `Slug "${input.slug}" is already taken.` });
-    }
-    return made.id;
+    row = await db.query.game.findFirst({ where: { slug } });
   }
-  if (input.name && input.name !== existing.name) {
-    await db.update(game).set({ name: input.name }).where(eq(game.id, existing.id));
+  if (row?.userId !== userId) {
+    throw new ORPCError("FORBIDDEN", { message: `Slug "${slug}" is already taken.` });
   }
-  return existing.id;
+  if (name && name !== row.name) {
+    await db.update(game).set({ name }).where(eq(game.id, row.id));
+  }
+  return row;
 };
 
 /** The pending deployment a call adds to: the one named, or a new one. */
@@ -177,6 +184,51 @@ const writeUploadedFiles = async (
   }
 };
 
+// What `source: true` reads back into memory to archive.
+const MAX_SOURCE_INPUT_BYTES = 64 * 1024 * 1024;
+
+/**
+ * Archives the staged deployment's files as its forkable source, the archive
+ * `vg deploy --source` would have uploaded: an agent with no disk has no
+ * project to pack, so what it deployed is what a fork starts from.
+ */
+const writeSourceArchive = async (
+  db: Db,
+  r2: R2Config,
+  { deploymentId, gameId }: { deploymentId: string; gameId: string },
+) => {
+  const rows = await db.query.deploymentFile.findMany({ where: { deploymentId } });
+  const total = rows.reduce((acc, row) => acc + row.size, 0);
+  if (total > MAX_SOURCE_INPUT_BYTES) {
+    throw new ORPCError("BAD_REQUEST", {
+      message: `A deployment over ${MAX_SOURCE_INPUT_BYTES} bytes can't be kept as source; publish without \`source\`.`,
+    });
+  }
+  const entries = await Promise.all(
+    rows.map(async (row) => {
+      const object = await r2.bucket.get(row.r2Key);
+      if (!object) {
+        throw new ORPCError("INTERNAL_SERVER_ERROR", {
+          message: `"${row.path}" is missing from storage.`,
+        });
+      }
+      return { bytes: new Uint8Array(await object.arrayBuffer()), path: row.path };
+    }),
+  );
+  const archive = await sourceArchive(entries);
+  if (archive.byteLength > MAX_SOURCE_SIZE) {
+    throw new ORPCError("BAD_REQUEST", {
+      message: `The source archive would exceed ${MAX_SOURCE_SIZE} bytes; publish without \`source\`.`,
+    });
+  }
+  const sourceKey = sourceKeyFor(gameId, deploymentId);
+  await r2.bucket.put(sourceKey, archive, { httpMetadata: { contentType: "application/gzip" } });
+  await db
+    .update(deployment)
+    .set({ sourceBytes: archive.byteLength, sourceKey })
+    .where(eq(deployment.id, deploymentId));
+};
+
 /**
  * Points the game at the staged deployment, then removes every other one of
  * its deployments — the old live one, and any staging an abandoned upload
@@ -185,7 +237,7 @@ const writeUploadedFiles = async (
 const publishDeployment = async (
   db: Db,
   r2: R2Config,
-  { deploymentId, gameId }: { deploymentId: string; gameId: string },
+  { deploymentId, gameId, source }: { deploymentId: string; gameId: string; source: boolean },
 ) => {
   const index = await db.query.deploymentFile.findFirst({
     where: { deploymentId, path: "index.html" },
@@ -194,6 +246,9 @@ const publishDeployment = async (
     throw new ORPCError("BAD_REQUEST", {
       message: "Deployment must contain index.html at the root before it can publish.",
     });
+  }
+  if (source) {
+    await writeSourceArchive(db, r2, { deploymentId, gameId });
   }
   await db.update(deployment).set({ status: "ready" }).where(eq(deployment.id, deploymentId));
   await db.update(game).set({ currentDeploymentId: deploymentId }).where(eq(game.id, gameId));
@@ -238,33 +293,14 @@ export const deployRouter = {
     const totalBytes = validateManifest(input.files);
 
     // ---- Resolve or create game row ----------------------------------------
-    const existing = await context.db.query.game.findFirst({
-      where: { slug: input.slug },
-    });
-
-    if (existing && existing.userId !== userId) {
-      throw new ORPCError("FORBIDDEN", {
-        message: `Slug "${input.slug}" is already taken.`,
-      });
-    }
-
-    const gameId = existing?.id ?? crypto.randomUUID();
-    if (!existing) {
-      await context.db.insert(game).values({
-        id: gameId,
-        name: input.name ?? null,
-        slug: input.slug,
-        userId,
-      });
-    } else if (input.name && input.name !== existing.name) {
-      await context.db.update(game).set({ name: input.name }).where(eq(game.id, gameId));
-    }
+    const existing = await claimGame(context.db, userId, { name: input.name, slug: input.slug });
+    const gameId = existing.id;
 
     // ---- Wipe previous deployment (single-deploy MVP) ----------------------
     // Clear R2 first, then DB rows. Cascade on deployment → deploymentFile
     // takes care of the file metadata. We null out currentDeploymentId so
     // the FK to a row we're about to delete is valid.
-    if (existing?.currentDeploymentId) {
+    if (existing.currentDeploymentId) {
       await deletePrefix({ prefix: `games/${gameId}/`, r2 });
       await deletePrefix({ prefix: `sources/${gameId}/`, r2 });
       await context.db.update(game).set({ currentDeploymentId: null }).where(eq(game.id, gameId));
@@ -472,8 +508,12 @@ export const deployRouter = {
     if (isSlugReserved(input.slug)) {
       throw new ORPCError("BAD_REQUEST", { message: `Slug "${input.slug}" is reserved.` });
     }
-    const files = decodeInlineFiles(input.files);
-    const gameId = await resolveUploadGame(context.db, context.session.user.id, input);
+    const files = await decodeInlineFiles(input.files);
+    const { id: gameId } = await claimGame(context.db, context.session.user.id, {
+      create: input.deploymentId === undefined,
+      name: input.name,
+      slug: input.slug,
+    });
     const deploymentId = await stageDeployment(context.db, gameId, input.deploymentId);
     assertUploadBudget(await deploymentTotals(context.db, deploymentId), files);
     await writeUploadedFiles(context.db, r2, { deploymentId, files, gameId });
@@ -488,7 +528,7 @@ export const deployRouter = {
       return { ...summary, published: false, url: null };
     }
 
-    await publishDeployment(context.db, r2, { deploymentId, gameId });
+    await publishDeployment(context.db, r2, { deploymentId, gameId, source: input.source });
     const base = productionHost(context.productionURL);
     return { ...summary, published: true, url: `${base.protocol}//${input.slug}.${base.host}` };
   }),

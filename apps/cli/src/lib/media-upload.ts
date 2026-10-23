@@ -11,7 +11,7 @@ type Client = ReturnType<typeof createClient>;
 const pickUrl = (slot: JsonValue, key: "upload_url" | "file_url"): string => {
   const value = isJsonObject(slot) ? slot[key] : undefined;
   if (!isJsonString(value) || value.length === 0) {
-    throw new Error(`fal storage initiate response missing ${key}.`);
+    throw new Error(`Storage initiate response missing ${key}.`);
   }
   // Refuse any non-HTTPS URL even if it comes from a trusted server
   // response — a misconfigured response (or a downgrade attack on the
@@ -21,10 +21,10 @@ const pickUrl = (slot: JsonValue, key: "upload_url" | "file_url"): string => {
   try {
     parsed = new URL(value);
   } catch {
-    throw new Error(`fal storage initiate response ${key} is not a valid URL.`);
+    throw new Error(`Storage initiate response ${key} is not a valid URL.`);
   }
   if (parsed.protocol !== "https:") {
-    throw new Error(`fal storage initiate response ${key} must be HTTPS, got ${parsed.protocol}.`);
+    throw new Error(`Storage initiate response ${key} must be HTTPS, got ${parsed.protocol}.`);
   }
   return value;
 };

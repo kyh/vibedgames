@@ -12,6 +12,7 @@
     "./deploy/content-types": "./src/deploy/content-types.ts",
     "./deploy/deploy-schema": "./src/deploy/deploy-schema.ts",
     "./generate/generate-schema": "./src/generate/generate-schema.ts",
+    "./generate/media-hosts": "./src/generate/media-hosts.ts",
     "./generate/queue-path": "./src/generate/queue-path.ts",
     "./json": "./src/json.ts",
     "./openapi": "./src/openapi.ts",
