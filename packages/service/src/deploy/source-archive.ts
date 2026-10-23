@@ -17,7 +17,7 @@ const encoder = new TextEncoder();
 export interface ArchiveEntry {
   path: string;
   /** The file's bytes, read when the archive reaches it. */
-  read: () => Promise<Uint8Array>;
+  read: () => Promise<Uint8Array<ArrayBuffer>>;
 }
 
 /** ustar keeps a path in `name` (100 bytes), or split at a `/` into `prefix` (155) and `name`. */
@@ -41,7 +41,7 @@ const splitPath = (path: string) => {
 /** An octal number in `width` bytes: digits, then a NUL. */
 const octal = (value: number, width: number) => `${value.toString(8).padStart(width - 1, "0")}\0`;
 
-const header = (path: string, size: number, mtime: number): Uint8Array => {
+const header = (path: string, size: number, mtime: number): Uint8Array<ArrayBuffer> => {
   const block = new Uint8Array(BLOCK);
   const put = (offset: number, value: string) => block.set(encoder.encode(value), offset);
   const { name, prefix } = splitPath(path);
@@ -71,7 +71,7 @@ export const sourceArchive = async (
   mtime = Math.floor(Date.now() / 1000),
 ): Promise<Uint8Array<ArrayBuffer>> => {
   let next = 0;
-  const tar = new ReadableStream<Uint8Array>({
+  const tar = new ReadableStream<Uint8Array<ArrayBuffer>>({
     pull: async (controller) => {
       const entry = entries[next];
       next += 1;

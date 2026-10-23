@@ -7,9 +7,9 @@ import { describe, test } from "node:test";
 
 import { sourceArchive } from "./source-archive";
 
-const bytes = (text: string) => new TextEncoder().encode(text);
+const bytes = (text: string) => new Uint8Array(new TextEncoder().encode(text));
 
-const file = (name: string, content: Uint8Array) => ({
+const file = (name: string, content: Uint8Array<ArrayBuffer>) => ({
   path: name,
   read: () => Promise.resolve(content),
 });
