@@ -204,17 +204,19 @@ const writeSourceArchive = async (
       message: `A deployment over ${MAX_SOURCE_INPUT_BYTES} bytes can't be kept as source; publish without \`source\`.`,
     });
   }
-  const entries = await Promise.all(
-    rows.map(async (row) => {
+  // One file in memory at a time: the archive pulls each as it reaches it.
+  const entries = rows.map((row) => ({
+    path: row.path,
+    read: async () => {
       const object = await r2.bucket.get(row.r2Key);
       if (!object) {
         throw new ORPCError("INTERNAL_SERVER_ERROR", {
           message: `"${row.path}" is missing from storage.`,
         });
       }
-      return { bytes: new Uint8Array(await object.arrayBuffer()), path: row.path };
-    }),
-  );
+      return new Uint8Array(await object.arrayBuffer());
+    },
+  }));
   const archive = await sourceArchive(entries);
   if (archive.byteLength > MAX_SOURCE_SIZE) {
     throw new ORPCError("BAD_REQUEST", {

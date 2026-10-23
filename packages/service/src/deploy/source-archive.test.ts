@@ -9,6 +9,11 @@ import { sourceArchive } from "./source-archive";
 
 const bytes = (text: string) => new TextEncoder().encode(text);
 
+const file = (name: string, content: Uint8Array) => ({
+  path: name,
+  read: () => Promise.resolve(content),
+});
+
 // Extracted by the system tar, as `vg fork`'s tar would: the archive must be
 // one a real reader accepts, not one only this module can read back.
 const extract = (archive: Uint8Array): string => {
@@ -23,10 +28,10 @@ describe("sourceArchive", () => {
     const long = `${"assets/".repeat(15)}sprite-sheet.png`;
     const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0, 255]);
     const archive = await sourceArchive([
-      { bytes: bytes("<p>hi</p>"), path: "index.html" },
-      { bytes: bytes(""), path: "empty.txt" },
-      { bytes: png, path: long },
-      { bytes: bytes("x".repeat(1000)), path: "js/main.js" },
+      file("index.html", bytes("<p>hi</p>")),
+      file("empty.txt", bytes("")),
+      file(long, png),
+      file("js/main.js", bytes("x".repeat(1000))),
     ]);
     const dir = extract(archive);
     try {
@@ -39,8 +44,32 @@ describe("sourceArchive", () => {
     }
   });
 
+  test("reads files one at a time, in order", async () => {
+    const order: string[] = [];
+    let reading = 0;
+    const tracked = (name: string) => ({
+      path: name,
+      read: async () => {
+        reading += 1;
+        assert.equal(reading, 1, `${name} read while another file was held`);
+        order.push(name);
+        await Promise.resolve();
+        reading -= 1;
+        return bytes(name);
+      },
+    });
+    const archive = await sourceArchive([tracked("a.txt"), tracked("b.txt"), tracked("c.txt")]);
+    assert.deepEqual(order, ["a.txt", "b.txt", "c.txt"]);
+    const dir = extract(archive);
+    try {
+      assert.equal(readFileSync(path.join(dir, "c.txt"), "utf-8"), "c.txt");
+    } finally {
+      rmSync(dir, { force: true, recursive: true });
+    }
+  });
+
   test("refuses a path no ustar header can hold", async () => {
-    await assert.rejects(sourceArchive([{ bytes: bytes("x"), path: "a".repeat(120) }]), {
+    await assert.rejects(sourceArchive([file("a".repeat(120), bytes("x"))]), {
       code: "BAD_REQUEST",
     });
   });
