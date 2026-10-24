@@ -45,6 +45,7 @@ export const docsDoc: Doc = {
             "vg config                # saved settings (generate.provider, update.auto, …)",
             "vg login | logout | whoami",
             "vg deploy [dir]          # ship a built game to {slug}.vibedgames.com",
+            "vg deployments           # your games; `delete <slug> --yes` removes one",
             "vg fork <slug> [target]  # fork another project's shipped source",
             "vg credits               # generation credit balance and recent usage",
             "vg playtest <url>        # drive a real browser against a game",

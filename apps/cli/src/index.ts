@@ -25,6 +25,7 @@ const main = defineCommand({
     config: lazy(() => import("./commands/config.js"), "configCommand"),
     credits: lazy(() => import("./commands/credits.js"), "creditsCommand"),
     deploy: lazy(() => import("./commands/deploy.js"), "deployCommand"),
+    deployments: lazy(() => import("./commands/deployments.js"), "deploymentsCommand"),
     factory: lazy(() => import("./commands/factory.js"), "factoryCommand"),
     fork: lazy(() => import("./commands/fork.js"), "forkCommand"),
     generate: lazy(() => import("./commands/generate.js"), "generateCommand"),

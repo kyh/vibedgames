@@ -138,6 +138,7 @@ own `og:` tags — the platform then serves the page untouched.
 - **Guard `localStorage`.** Games run inside the web app's iframe; an unguarded access throws on boot and the game is dead. Wrap reads and writes in `try`/`catch` and treat storage as best-effort
 - If the user doesn't specify a slug, ask them for one or derive it from the project name
 - If `vibedgames.json` exists in the deploy directory, the slug is read from there automatically
+- `vg deployments --json` lists your games (slug, size, deploy time); `vg deployments delete <slug> --yes` removes one and all its files, permanently
 
 ## Config file (optional)
 
