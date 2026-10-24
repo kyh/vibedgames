@@ -152,6 +152,7 @@ const contextAs = (role: string): ORPCContext => ({
       updatedAt: now,
     },
   },
+  signing: undefined,
 });
 
 const realFetch = globalThis.fetch;
@@ -438,6 +439,51 @@ describe("generate.forward errors", () => {
         assert.doesNotMatch(error.message, BRAND);
         return true;
       },
+    );
+  });
+});
+
+describe("generate.upload", () => {
+  const signing = { baseUrl: "https://vibedgames.com", secret: "test-secret" };
+
+  test("opens a storage slot and hands back our signed URL for it", async () => {
+    const asked: Request[] = [];
+    globalThis.fetch = (input, init) => {
+      asked.push(new Request(String(input), init));
+      return json(200, {
+        file_url: "https://media.example/file.png",
+        upload_url: "https://storage.example/slot?token=1",
+      })();
+    };
+    const slot = await call(
+      generateRouter.upload,
+      { contentType: "image/png", fileName: "ref.png" },
+      { context: { ...contextAs("user"), signing } },
+    );
+    assert.strictEqual(slot.fileUrl, "https://media.example/file.png");
+    assert.deepStrictEqual(slot.headers, { "content-type": "image/png" });
+    const upload = new URL(slot.uploadUrl);
+    assert.strictEqual(upload.origin + upload.pathname, "https://vibedgames.com/api/upload");
+    assert.strictEqual(upload.searchParams.get("to"), "https://storage.example/slot?token=1");
+    assert.strictEqual(new URL(asked[0]?.url ?? "").pathname, "/storage/upload/initiate");
+    assert.deepStrictEqual(await asked[0]?.json(), {
+      content_type: "image/png",
+      file_name: "ref.png",
+    });
+  });
+
+  test("refuses a slot that is not HTTPS", async () => {
+    globalThis.fetch = json(200, {
+      file_url: "http://media.example/file.png",
+      upload_url: "https://storage.example/slot",
+    });
+    await assert.rejects(
+      call(
+        generateRouter.upload,
+        { contentType: "image/png", fileName: "ref.png" },
+        { context: { ...contextAs("user"), signing } },
+      ),
+      { code: "BAD_GATEWAY" },
     );
   });
 });

@@ -3,6 +3,7 @@ import type {
   DecisionProviderConfig,
   MediaProviderConfig,
   R2Config,
+  UrlSigning,
 } from "@repo/service/orpc";
 import { createAuth as initAuth } from "@repo/service/auth/auth";
 import { createORPCContext } from "@repo/service/orpc";
@@ -42,29 +43,14 @@ export const getServerContext = () => {
     secret: env.BETTER_AUTH_SECRET,
   });
 
-  // R2 config is optional at build time — a missing value here means the
-  // deploy router will throw INTERNAL_SERVER_ERROR rather than the whole
-  // request blowing up at handler construction.
-  //
-  // In local dev we route uploads through `/api/r2-upload` so they land in
-  // the Miniflare-simulated bucket instead of leaking into prod R2. The
-  // proxy URL is HMAC-signed with BETTER_AUTH_SECRET; the S3 keys are still kept
-  // for the `deletePrefix` and read paths (those go through the binding,
-  // which is local-safe).
-  let r2: R2Config | undefined;
-  if (env.GAMES_BUCKET && env.R2_ACCOUNT_ID && env.R2_ACCESS_KEY_ID && env.R2_SECRET_ACCESS_KEY) {
-    r2 = {
-      accessKeyId: env.R2_ACCESS_KEY_ID,
-      accountId: env.R2_ACCOUNT_ID,
-      bucket: env.GAMES_BUCKET,
-      bucketName: env.R2_BUCKET_NAME,
-      secretAccessKey: env.R2_SECRET_ACCESS_KEY,
-    };
-    if (isLocalhost) {
-      r2.proxyUploadBaseUrl = baseUrl;
-      r2.proxyUploadSecret = env.BETTER_AUTH_SECRET;
-    }
-  }
+  // Bytes reach R2 only through the binding: `/api/upload` and `/api/download`
+  // URLs, signed with the auth secret, point back at this same host, so dev
+  // lands in Miniflare, a Preview in its own bucket, and production in prod.
+  const r2: R2Config | undefined = env.GAMES_BUCKET ? { bucket: env.GAMES_BUCKET } : undefined;
+  // No secret, no URLs: an empty HMAC key is refused, and a guessable one would let anyone write.
+  const signing: UrlSigning | undefined = env.BETTER_AUTH_SECRET
+    ? { baseUrl, secret: env.BETTER_AUTH_SECRET }
+    : undefined;
 
   const media: MediaProviderConfig = {
     fal: env.FAL_API_KEY,
@@ -86,7 +72,7 @@ export const getServerContext = () => {
     stripeWebhookSecret: env.STRIPE_WEBHOOK_SECRET,
   };
 
-  return { auth, baseUrl, billing, db, decision, media, productionUrl, r2 };
+  return { auth, baseUrl, billing, db, decision, media, productionUrl, r2, signing };
 };
 
 /**
@@ -97,7 +83,16 @@ export const getServerContext = () => {
  * silently miss the other.
  */
 export const createRpcContext = (headers: Headers) => {
-  const { db, auth: betterAuth, billing, productionUrl, r2, media, decision } = getServerContext();
+  const {
+    db,
+    auth: betterAuth,
+    billing,
+    productionUrl,
+    r2,
+    media,
+    decision,
+    signing,
+  } = getServerContext();
   return createORPCContext({
     auth: betterAuth,
     billing,
@@ -107,6 +102,7 @@ export const createRpcContext = (headers: Headers) => {
     media,
     productionURL: productionUrl,
     r2,
+    signing,
   });
 };
 

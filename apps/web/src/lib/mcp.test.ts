@@ -9,6 +9,7 @@ import { MAX_RPC_BODY_BYTES } from "@repo/service/generate/limits";
 import { z } from "zod";
 
 import { handleMcpRequest } from "./mcp";
+import type { Skill } from "./mcp-tools";
 import { MEDIA_MODELS } from "./mcp-tools";
 
 /**
@@ -74,12 +75,25 @@ const contextWith =
       productionURL: undefined,
       r2: undefined,
       session,
+      signing: undefined,
     });
   };
 
-const skills = [
-  { content: "---\nname: phaser\n---\nBuild 2D games.", description: "2D games", name: "phaser" },
-  { content: "---\nname: deploy\n---\nShip it.", description: "Ship a game", name: "deploy" },
+const skills: Skill[] = [
+  {
+    content: "---\nname: phaser\n---\nBuild 2D games.",
+    description: "2D games",
+    files: [{ content: "# Scenes", path: "references/scenes.md" }],
+    frontmatter: { description: "2D games", metadata: { version: "1" }, name: "phaser" },
+    name: "phaser",
+  },
+  {
+    content: "---\nname: deploy\n---\nShip it.",
+    description: "Ship a game",
+    files: [],
+    frontmatter: { description: "Ship a game", name: "deploy" },
+    name: "deploy",
+  },
 ];
 
 let nextId = 1;
@@ -210,11 +224,80 @@ describe("mcp endpoint", () => {
     });
     const named = await rpc("tools/call", { arguments: { name: "deploy" }, name: "skills" });
     const one = callResult.parse(named.body);
-    assert.deepStrictEqual(one.result.structuredContent, skills[1]);
+    assert.deepStrictEqual(one.result.structuredContent, {
+      content: "---\nname: deploy\n---\nShip it.",
+      description: "Ship a game",
+      name: "deploy",
+    });
     const unknown = await rpc("tools/call", { arguments: { name: "nope" }, name: "skills" });
     const missing = callResult.parse(unknown.body);
     assert.strictEqual(missing.result.isError, true);
     assert.match(missing.result.content[0]?.text ?? "", /NOT_FOUND/u);
+  });
+
+  test("declares the skills extension", async () => {
+    const { body } = await rpc("initialize", {
+      capabilities: {},
+      clientInfo: { name: "test", version: "1.0.0" },
+      protocolVersion: "2025-06-18",
+    });
+    const { result } = z
+      .object({ result: z.object({ capabilities: z.looseObject({}) }).loose() })
+      .parse(body);
+    assert.deepStrictEqual(result.capabilities.extensions, {
+      "io.modelcontextprotocol/skills": {},
+    });
+    assert.ok(result.capabilities.resources);
+  });
+
+  test("lists every skill with each of its files' digest and size", async () => {
+    const { body } = await rpc("skills/list", {});
+    const { result } = z
+      .object({ result: z.object({ skills: z.array(z.looseObject({})) }).loose() })
+      .parse(body);
+    const [phaser] = result.skills;
+    assert.strictEqual(phaser?.uri, "skill://phaser/SKILL.md");
+    assert.deepStrictEqual(phaser?.frontmatter, skills[0]?.frontmatter);
+    const files = z
+      .array(z.object({ digest: z.string(), size: z.number(), uri: z.string() }))
+      .parse(phaser?.resources);
+    assert.deepStrictEqual(
+      files.map((file) => file.uri),
+      ["skill://phaser/SKILL.md", "skill://phaser/references/scenes.md"],
+    );
+    assert.strictEqual(files[1]?.size, "# Scenes".length);
+    assert.match(files[1]?.digest ?? "", /^sha256:[0-9a-f]{64}$/u);
+  });
+
+  test("gets one skill by its SKILL.md URI, and refuses another", async () => {
+    const { body } = await rpc("skills/get", { uri: "skill://deploy/SKILL.md" });
+    const { result } = z
+      .object({ result: z.object({ skill: z.looseObject({}) }).loose() })
+      .parse(body);
+    assert.strictEqual(result.skill.uri, "skill://deploy/SKILL.md");
+    const missing = await rpc("skills/get", { uri: "skill://nope/SKILL.md" });
+    const { error } = z
+      .object({ error: z.object({ code: z.number() }).loose() })
+      .parse(missing.body);
+    assert.strictEqual(error.code, -32_602);
+  });
+
+  test("serves each skill file as a resource", async () => {
+    const listed = await rpc("resources/list", {});
+    const { result } = z
+      .object({ result: z.object({ resources: z.array(z.looseObject({ uri: z.string() })) }) })
+      .parse(listed.body);
+    assert.deepStrictEqual(
+      result.resources.map((resource) => resource.uri),
+      ["skill://phaser/SKILL.md", "skill://phaser/references/scenes.md", "skill://deploy/SKILL.md"],
+    );
+    const read = await rpc("resources/read", { uri: "skill://phaser/references/scenes.md" });
+    const { contents } = z
+      .object({ result: z.object({ contents: z.array(z.looseObject({})) }) })
+      .parse(read.body).result;
+    assert.deepStrictEqual(contents, [
+      { mimeType: "text/markdown", text: "# Scenes", uri: "skill://phaser/references/scenes.md" },
+    ]);
   });
 
   // The generate family reaches the API through `call()`, so it must still

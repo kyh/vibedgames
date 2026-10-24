@@ -22,10 +22,12 @@ import { z } from "zod";
  * `playtest run`, which drives a local browser.
  */
 
-/** A skill as `/.well-known/agent-skills` serves it. */
+/** A skill as `agent-skills.ts` bundles it: its SKILL.md, frontmatter and other files. */
 export interface Skill {
   content: string;
   description: string;
+  files: readonly { content: string; path: string }[];
+  frontmatter: { readonly [key: string]: string | { readonly [key: string]: string } };
   name: string;
 }
 
@@ -330,53 +332,13 @@ const generateTools = {
       });
     }),
 
-  generate_upload: tool
-    .meta(
-      mcp.tool({
-        annotations: external,
-        description:
-          "Uploads a file (base64) to generate's storage and returns a stable URL, for a model input that takes one (a reference image, an audio clip to transform).",
-        name: "generate_upload",
-        title: "Upload a model input",
-      }),
-    )
-    .input(
-      z.object({
-        content: z.base64().describe("The file, base64-encoded"),
-        content_type: z.string().min(1).max(127).describe("e.g. image/png"),
-        file_name: z.string().min(1).max(255),
-      }),
-    )
-    .handler(async ({ context, input }) => {
-      const slot = await forward(context, {
-        body: { content_type: input.content_type, file_name: input.file_name },
-        method: "POST",
-        path: "/storage/upload/initiate",
-        target: "storage",
-      });
-      const uploadUrl = stringField(slot, "upload_url");
-      const fileUrl = stringField(slot, "file_url");
-      if (!uploadUrl?.startsWith("https://") || !fileUrl?.startsWith("https://")) {
-        throw new ORPCError("BAD_GATEWAY", { message: "Storage returned no upload slot." });
-      }
-      let response: Response;
-      try {
-        response = await fetch(uploadUrl, {
-          body: Uint8Array.from(atob(input.content), (char) => char.codePointAt(0) ?? 0),
-          headers: { "Content-Type": input.content_type },
-          method: "PUT",
-        });
-      } catch (error) {
-        throw new ORPCError("BAD_GATEWAY", {
-          cause: error,
-          message: "Storage could not be reached.",
-        });
-      }
-      if (!response.ok) {
-        throw new ORPCError("BAD_GATEWAY", { message: `Upload failed: ${response.status}.` });
-      }
-      return { url: fileUrl };
-    }),
+  generate_upload: asTool(appRouter.generate.upload, {
+    annotations: external,
+    description:
+      "Opens an upload slot for a model input that takes a file's URL (a reference image, an audio clip to transform). PUT the file's bytes to `uploadUrl` (on this server, valid 15 minutes) with the `headers` given, e.g. `curl -T file.png -H 'Content-Type: image/png' \"$uploadUrl\"`, then pass `fileUrl` to the model.",
+    name: "generate_upload",
+    title: "Upload a model input",
+  }),
 };
 
 const options = z
@@ -775,6 +737,6 @@ export const tools = {
           message: `No skill "${input.name}". Call skills without a name to list them.`,
         });
       }
-      return skill;
+      return { content: skill.content, description: skill.description, name: skill.name };
     }),
 };

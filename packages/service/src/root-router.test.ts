@@ -77,6 +77,7 @@ const contextAs = (session: ORPCContext["session"]): ORPCContext => ({
   productionURL: undefined,
   r2: undefined,
   session,
+  signing: undefined,
 });
 
 type Caller = "anonymous" | "apiKey" | "member" | "admin";

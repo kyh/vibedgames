@@ -1,6 +1,7 @@
 import { and, count, eq, inArray, sql, sum } from "@repo/db";
 import { deployment, deploymentFile, game } from "@repo/db/drizzle-schema";
-import type { fileSchema } from "@repo/contract/deploy/deploy-schema";
+import type { fileSchema, PresignedFile } from "@repo/contract/deploy/deploy-schema";
+import { contentTypeForPath } from "@repo/contract/deploy/content-types";
 import type { Db } from "@repo/db/drizzle-client";
 import {
   MAX_FILE_COUNT,
@@ -10,12 +11,12 @@ import {
 import { ORPCError } from "@orpc/server";
 import type { z } from "zod";
 
-import type { R2Config } from "../orpc";
+import type { R2Config, UrlSigning } from "../orpc";
 import { os, requireSession } from "../orpc";
 import type { DecodedFile } from "./inline-files";
 import { decodeInlineFiles, sha256Hex } from "./inline-files";
+import { deletePrefix, signDownloadUrl, signUploadUrl } from "../storage/signed-urls";
 import { sourceArchive } from "./source-archive";
-import { deletePrefix, presignGet, presignPut } from "./r2-presign";
 import { isSlugReserved } from "./reserved-slugs";
 
 /** R2 key for a deployment's forkable source archive. Lives OUTSIDE the
@@ -32,6 +33,15 @@ const requireR2 = (r2: R2Config | undefined): R2Config => {
     });
   }
   return r2;
+};
+
+const requireSigning = (signing: UrlSigning | undefined): UrlSigning => {
+  if (!signing) {
+    throw new ORPCError("INTERNAL_SERVER_ERROR", {
+      message: "Upload URLs are not configured on this worker.",
+    });
+  }
+  return signing;
 };
 
 /** Rejects a manifest with no root index.html, over budget, or duplicate paths; returns its total byte size. */
@@ -134,18 +144,57 @@ const deploymentTotals = async (db: Db, deploymentId: string) => {
   return { bytes: Number(row?.bytes ?? 0), files: row?.files ?? 0 };
 };
 
-/** Counted before anything is written. A replaced path counts twice, which only errs towards refusing. */
-const assertUploadBudget = (staged: { bytes: number; files: number }, files: DecodedFile[]) => {
-  const incoming = files.reduce((acc, f) => acc + f.bytes.byteLength, 0);
+/** One call's paths, inline and presigned together: within a call there is no telling which copy was meant. */
+const assertDistinctPaths = (files: DecodedFile[], presign: PresignedFile[]) => {
+  const seen = new Set(files.map((f) => f.path));
+  for (const f of presign) {
+    if (seen.has(f.path)) {
+      throw new ORPCError("BAD_REQUEST", { message: `Duplicate path "${f.path}" in upload.` });
+    }
+    seen.add(f.path);
+  }
+};
+
+/**
+ * Counted before anything is written, presigned files at their declared size.
+ * A replaced path counts twice, which only errs towards refusing.
+ */
+const assertUploadBudget = (
+  staged: { bytes: number; files: number },
+  files: DecodedFile[],
+  presign: PresignedFile[],
+) => {
+  const incoming =
+    files.reduce((acc, f) => acc + f.bytes.byteLength, 0) +
+    presign.reduce((acc, f) => acc + f.size, 0);
   if (staged.bytes + incoming > MAX_TOTAL_SIZE) {
     throw new ORPCError("BAD_REQUEST", {
       message: `Deployment would exceed the ${MAX_TOTAL_SIZE}-byte limit.`,
     });
   }
-  if (staged.files + files.length > MAX_FILE_COUNT) {
+  if (staged.files + files.length + presign.length > MAX_FILE_COUNT) {
     throw new ORPCError("BAD_REQUEST", {
       message: `Deployment would exceed ${MAX_FILE_COUNT} files.`,
     });
+  }
+};
+
+type FileRow = typeof deploymentFile.$inferInsert;
+
+/** Inserts a call's file rows; a path uploaded again replaces its row. */
+const upsertFileRows = async (db: Db, rows: FileRow[]) => {
+  for (let i = 0; i < rows.length; i += INSERT_BATCH_SIZE) {
+    await db
+      .insert(deploymentFile)
+      .values(rows.slice(i, i + INSERT_BATCH_SIZE))
+      .onConflictDoUpdate({
+        set: {
+          contentType: sql`excluded.content_type`,
+          sha256: sql`excluded.sha256`,
+          size: sql`excluded.size`,
+        },
+        target: [deploymentFile.deploymentId, deploymentFile.path],
+      });
   }
 };
 
@@ -169,18 +218,104 @@ const writeUploadedFiles = async (
       };
     }),
   );
-  for (let i = 0; i < rows.length; i += INSERT_BATCH_SIZE) {
-    await db
-      .insert(deploymentFile)
-      .values(rows.slice(i, i + INSERT_BATCH_SIZE))
-      .onConflictDoUpdate({
-        set: {
-          contentType: sql`excluded.content_type`,
-          sha256: sql`excluded.sha256`,
-          size: sql`excluded.size`,
-        },
-        target: [deploymentFile.deploymentId, deploymentFile.path],
-      });
+  await upsertFileRows(db, rows);
+};
+
+/**
+ * Records the files the caller sends itself at their declared size, and mints
+ * a signed PUT for each; publish checks the bytes arrived.
+ */
+const presignUploads = async (
+  db: Db,
+  signing: UrlSigning,
+  { deploymentId, files, gameId }: { deploymentId: string; files: PresignedFile[]; gameId: string },
+) => {
+  const rows = files.map((f) => ({
+    contentType: f.contentType ?? contentTypeForPath(f.path),
+    deploymentId,
+    path: f.path,
+    r2Key: `games/${gameId}/${deploymentId}/${f.path}`,
+    sha256: f.sha256,
+    size: f.size,
+  }));
+  await upsertFileRows(db, rows);
+  return Promise.all(
+    rows.map(async (row) => ({
+      headers: { "content-type": row.contentType },
+      path: row.path,
+      url: await signUploadUrl({
+        contentType: row.contentType,
+        signing,
+        target: { key: row.r2Key },
+      }),
+    })),
+  );
+};
+
+/** Records the caller's own source archive on the staged deployment and mints its signed PUT. */
+const presignSourceArchive = async (
+  db: Db,
+  signing: UrlSigning,
+  { bytes, deploymentId, gameId }: { bytes: number; deploymentId: string; gameId: string },
+) => {
+  const sourceKey = sourceKeyFor(gameId, deploymentId);
+  await db
+    .update(deployment)
+    .set({ sourceBytes: bytes, sourceKey })
+    .where(eq(deployment.id, deploymentId));
+  return {
+    headers: { "content-type": "application/gzip" },
+    url: await signUploadUrl({
+      contentType: "application/gzip",
+      signing,
+      target: { key: sourceKey },
+    }),
+  };
+};
+
+/** Refuses to publish while a recorded file is missing from R2 or not the size it was declared at. */
+const assertFilesStored = async (
+  db: Db,
+  r2: R2Config,
+  { deploymentId, gameId }: { deploymentId: string; gameId: string },
+) => {
+  const stored = new Map<string, number>();
+  let cursor: string | undefined;
+  do {
+    const listed = await r2.bucket.list({
+      cursor,
+      limit: 1000,
+      prefix: `games/${gameId}/${deploymentId}/`,
+    });
+    for (const object of listed.objects) {
+      stored.set(object.key, object.size);
+    }
+    cursor = listed.truncated ? listed.cursor : undefined;
+  } while (cursor !== undefined);
+
+  const rows = await db.query.deploymentFile.findMany({ where: { deploymentId } });
+  const missing = rows.filter((row) => stored.get(row.r2Key) !== row.size).map((row) => row.path);
+  if (missing.length > 0) {
+    const shown = missing.slice(0, 10).map((path) => `"${path}"`);
+    const more = missing.length > shown.length ? ` and ${missing.length - shown.length} more` : "";
+    throw new ORPCError("BAD_REQUEST", {
+      message: `Not uploaded at its declared size: ${shown.join(", ")}${more}. PUT each to its URL from \`uploads\`; an expired URL is renewed by calling again with the file in \`presign\`.`,
+    });
+  }
+};
+
+/** Refuses to publish while a source archive the caller declared is missing or not its declared size. */
+const assertSourceStored = async (db: Db, r2: R2Config, deploymentId: string) => {
+  const staged = await db.query.deployment.findFirst({ where: { id: deploymentId } });
+  if (!staged?.sourceKey) {
+    return;
+  }
+  const object = await r2.bucket.head(staged.sourceKey);
+  if (object?.size !== staged.sourceBytes) {
+    throw new ORPCError("BAD_REQUEST", {
+      message:
+        "The source archive is not uploaded at its declared size. PUT it to `sourceUpload`; an expired URL is renewed by calling again with `sourceArchive`.",
+    });
   }
 };
 
@@ -249,9 +384,10 @@ const publishDeployment = async (
       message: "Deployment must contain index.html at the root before it can publish.",
     });
   }
-  if (source) {
-    await writeSourceArchive(db, r2, { deploymentId, gameId });
-  }
+  await assertFilesStored(db, r2, { deploymentId, gameId });
+  await (source
+    ? writeSourceArchive(db, r2, { deploymentId, gameId })
+    : assertSourceStored(db, r2, deploymentId));
   await db.update(deployment).set({ status: "ready" }).where(eq(deployment.id, deploymentId));
   await db.update(game).set({ currentDeploymentId: deploymentId }).where(eq(game.id, gameId));
 
@@ -283,6 +419,7 @@ export const deployRouter = {
    */
   create: authed.create.handler(async ({ context, input }) => {
     const r2 = requireR2(context.r2);
+    const signing = requireSigning(context.signing);
     const userId = context.session.user.id;
 
     // ---- Validate slug ------------------------------------------------------
@@ -341,10 +478,10 @@ export const deployRouter = {
       fileRows.map(async (row) => ({
         headers: { "content-type": row.contentType },
         path: row.path,
-        url: await presignPut({
+        url: await signUploadUrl({
           contentType: row.contentType,
-          key: row.r2Key,
-          r2,
+          signing,
+          target: { key: row.r2Key },
         }),
       })),
     );
@@ -353,7 +490,11 @@ export const deployRouter = {
     const sourceUpload = sourceKey
       ? {
           headers: { "content-type": "application/gzip" },
-          url: await presignPut({ contentType: "application/gzip", key: sourceKey, r2 }),
+          url: await signUploadUrl({
+            contentType: "application/gzip",
+            signing,
+            target: { key: sourceKey },
+          }),
         }
       : null;
 
@@ -432,7 +573,7 @@ export const deployRouter = {
    * NOT_FOUND if the slug has no deployment or that deployment shipped none.
    */
   getSource: authed.getSource.handler(async ({ context, input }) => {
-    const r2 = requireR2(context.r2);
+    const signing = requireSigning(context.signing);
 
     const g = await context.db.query.game.findFirst({
       where: { slug: input.slug },
@@ -456,7 +597,7 @@ export const deployRouter = {
       bytes: dep.sourceBytes ?? null,
       name: g.name,
       slug: g.slug,
-      url: await presignGet({ expiresInSeconds: 3600, key: dep.sourceKey, r2 }),
+      url: await signDownloadUrl({ key: dep.sourceKey, signing }),
     };
   }),
 
@@ -507,25 +648,51 @@ export const deployRouter = {
    */
   upload: authed.upload.handler(async ({ context, input }) => {
     const r2 = requireR2(context.r2);
+    const signing = requireSigning(context.signing);
     if (isSlugReserved(input.slug)) {
       throw new ORPCError("BAD_REQUEST", { message: `Slug "${input.slug}" is reserved.` });
     }
+    if (input.source && input.sourceArchive) {
+      throw new ORPCError("BAD_REQUEST", {
+        message: "Give `source: true` or a `sourceArchive`, not both.",
+      });
+    }
     const files = await decodeInlineFiles(input.files);
+    assertDistinctPaths(files, input.presign);
     const { id: gameId } = await claimGame(context.db, context.session.user.id, {
       create: input.deploymentId === undefined,
       name: input.name,
       slug: input.slug,
     });
     const deploymentId = await stageDeployment(context.db, gameId, input.deploymentId);
-    assertUploadBudget(await deploymentTotals(context.db, deploymentId), files);
+    assertUploadBudget(await deploymentTotals(context.db, deploymentId), files, input.presign);
     await writeUploadedFiles(context.db, r2, { deploymentId, files, gameId });
+    const uploads = await presignUploads(context.db, signing, {
+      deploymentId,
+      files: input.presign,
+      gameId,
+    });
+    const sourceUpload = input.sourceArchive
+      ? await presignSourceArchive(context.db, signing, {
+          bytes: input.sourceArchive.bytes,
+          deploymentId,
+          gameId,
+        })
+      : null;
 
     const totals = await deploymentTotals(context.db, deploymentId);
     await context.db
       .update(deployment)
       .set({ fileCount: totals.files, totalBytes: totals.bytes })
       .where(eq(deployment.id, deploymentId));
-    const summary = { deploymentId, fileCount: totals.files, gameId, totalBytes: totals.bytes };
+    const summary = {
+      deploymentId,
+      fileCount: totals.files,
+      gameId,
+      sourceUpload,
+      totalBytes: totals.bytes,
+      uploads,
+    };
     if (!input.publish) {
       return { ...summary, published: false, url: null };
     }

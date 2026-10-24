@@ -5,9 +5,6 @@ import { bindings, defineConfig, triggers } from "cf/config";
 const secrets = {
   BETTER_AUTH_SECRET: bindings.secret(),
   FAL_API_KEY: bindings.secret(),
-  R2_ACCESS_KEY_ID: bindings.secret(),
-  R2_ACCOUNT_ID: bindings.secret(),
-  R2_SECRET_ACCESS_KEY: bindings.secret(),
   TYPESAFE_API_KEY: bindings.secret(),
 };
 
@@ -28,7 +25,6 @@ const previewEnv = {
   GAMES_BUCKET: bindings.r2({ name: "vibedgames-games-preview" }),
   // empty so auth takes its base URL from the Preview's own host
   PRODUCTION_URL: bindings.text(""),
-  R2_BUCKET_NAME: bindings.text("vibedgames-games-preview"),
 };
 
 const productionEnv = {
@@ -36,7 +32,6 @@ const productionEnv = {
   DB: bindings.d1({ id: "8aba7674-bee1-4532-b5f0-36243172cf81", name: "vibedgames" }),
   GAMES_BUCKET: bindings.r2({ name: "vibedgames-games" }),
   PRODUCTION_URL: bindings.text("https://vibedgames.com"),
-  R2_BUCKET_NAME: bindings.text("vibedgames-games"),
 };
 
 export default defineConfig(({ isPreview, mode }) => {

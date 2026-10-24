@@ -29,6 +29,7 @@ vg login              # authenticate via browser
 vg logout             # clear credentials
 vg whoami             # show current user
 vg deploy [dir]       # deploy a game directory (reads vibedgames.json or --slug)
+vg deployments [delete <slug> --yes]  # list your games, or delete one
 vg fork <slug> [target]  # fork a project's shipped source under a new slug
 vg credits            # credit balance + recent usage
 vg factory [args…]    # autonomous game agent (optional plugin, installs on first use)
@@ -82,9 +83,11 @@ Run `vg init` in your project to install the full set of game-building skills
 
 1. Picks the build output (`dist`/`build`/`out`) when the directory is a project root
 2. Walks the directory, hashes files, validates `index.html` exists
-3. Calls `deploy.create` API — gets presigned R2 upload URLs
-4. Uploads files to R2 with bounded concurrency
-5. Calls `deploy.finalize` — game goes live at `{slug}.vibedgames.com`
+3. Calls `deploy.upload` with every file (and the `--source` archive) in `presign` — stages a
+   deployment beside the live one and gets a signed `/api/upload` URL per file
+4. PUTs the files to those URLs with bounded concurrency
+5. Calls `deploy.upload` again with `publish: true` — the game switches to the new deployment
+   at `{slug}.vibedgames.com`; until then the old one keeps serving
 
 Passing `--source` also uploads a forkable source archive, which is what
 `vg fork <slug>` downloads. It is off by default: the archive is readable by
