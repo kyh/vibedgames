@@ -61,17 +61,15 @@ export const deleteInput = z.object({
 export const getSourceInput = z.object({ slug: slugSchema });
 
 /**
- * One file of a `deploy.upload` call: carried in the request as `utf-8` text
- * or `base64` bytes, or, as `url`, a generated asset's URL the server fetches
- * itself, so an agent with no disk can deploy what generate made. The type is
- * the path's unless given.
+ * One file of a `deploy.upload` call: carried in the request as `utf-8` text,
+ * or, as `url`, a generated asset's URL the server fetches itself. Binary
+ * bytes never ride the call: they go in `presign`. The type is the path's
+ * unless given.
  */
 const inlineFileSchema = z.object({
-  content: z
-    .string()
-    .describe("The file: text, base64, or with `encoding: url` a generated asset's URL"),
+  content: z.string().describe("The file's text, or with `encoding: url` a generated asset's URL"),
   contentType: z.string().min(1).max(127).optional(),
-  encoding: z.enum(["utf-8", "base64", "url"]).default("utf-8"),
+  encoding: z.enum(["utf-8", "url"]).default("utf-8"),
   path: fileSchema.shape.path,
 });
 
