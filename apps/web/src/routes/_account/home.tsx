@@ -196,7 +196,7 @@ const GamesPage = () => {
                         ) : (
                           <span className="truncate font-medium">{name}</span>
                         )}
-                        <span className="text-muted-foreground truncate font-mono text-xs">
+                        <span className="text-muted-foreground truncate font-mono text-xs select-text">
                           {g.slug}.vibedgames.com
                         </span>
                       </div>

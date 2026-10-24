@@ -5,3 +5,21 @@
 @theme {
   --spacing-nav: 4.75rem;
 }
+
+/* An app, not a document: chrome (nav, buttons, cards, canvases) doesn't
+   select on a drag or long-press. Text people type or copy opts back in:
+   fields and code here, prose pages and copyable values with `select-text`. */
+@layer base {
+  body {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  input,
+  textarea,
+  [contenteditable]:not([contenteditable="false"]),
+  pre,
+  code {
+    -webkit-user-select: text;
+    user-select: text;
+  }
+}

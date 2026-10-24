@@ -197,7 +197,7 @@ export const SiteLinks = ({ current, tabIndex }: Focus & { current: string }) =>
  * never disagree about what the page says.
  */
 export const Prose = ({ doc }: { doc: Doc }) => (
-  <main className="mx-auto flex min-h-dvh w-full max-w-2xl flex-col gap-10 px-4 py-16 text-sm sm:py-24">
+  <main className="mx-auto flex min-h-dvh select-text w-full max-w-2xl flex-col gap-10 px-4 py-16 text-sm sm:py-24">
     <header className="space-y-4">
       <Link to="/" className="text-muted-foreground hover:text-foreground font-mono text-xs">
         ← {siteConfig.name}

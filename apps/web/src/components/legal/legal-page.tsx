@@ -13,7 +13,7 @@ import { siteConfig } from "@/lib/site-config";
  */
 export const LegalPage = ({ doc }: { doc: Doc }) => (
   <>
-    <main className="mx-auto w-full max-w-2xl px-4 py-16 sm:py-24">
+    <main className="mx-auto w-full max-w-2xl select-text px-4 py-16 sm:py-24">
       <Link to="/" className="text-muted-foreground font-mono text-xs hover:text-foreground">
         ← {siteConfig.name.toLowerCase()}
       </Link>

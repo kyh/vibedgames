@@ -201,7 +201,7 @@ export const UserAdmin = () => {
             <ul className="divide-y divide-white/10 border-t border-white/10">
               {list.data.users.map((u) => (
                 <li key={u.id} className="flex items-center gap-3 py-3 text-sm">
-                  <span className="min-w-0 truncate font-mono">{u.email}</span>
+                  <span className="min-w-0 truncate font-mono select-text">{u.email}</span>
                   <span className="text-muted-foreground min-w-16 flex-1 truncate">{u.name}</span>
                   {u.role === "admin" && (
                     <span className="shrink-0 rounded bg-amber-900/40 px-2 py-0.5 text-xs text-amber-200">
@@ -245,8 +245,9 @@ export const UserAdmin = () => {
           <DialogHeader>
             <DialogTitle>Grant credits</DialogTitle>
             <DialogDescription>
-              Adjust generation credits for <span className="font-mono">{grantTarget?.email}</span>.
-              Use a negative amount to claw back.
+              Adjust generation credits for{" "}
+              <span className="font-mono select-text">{grantTarget?.email}</span>. Use a negative
+              amount to claw back.
             </DialogDescription>
           </DialogHeader>
           <form
