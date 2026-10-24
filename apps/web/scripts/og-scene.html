@@ -1,0 +1,548 @@
+<!doctype html>
+<!--
+  The og:video trailer scene: six game genres as hairline wireframes, each one
+  briefly playing, then the wordmark. Never served: `scripts/og-video.ts`
+  opens it from disk in Playwright, calls `window.__render(ms)` once per 30fps
+  frame and screenshots each one, so the cut is identical every run however
+  slowly the page draws.
+
+  The genres are the bundled example games' (games/*), drawn abstractly so the
+  clip stays evergreen: a platformer (Lunerfall), a bomberman arena
+  (Bomberman), a space shooter (Starfall), a paddle rally (Pong), a 3D arena
+  (Battle Arena, Ancients of Eldermoor) and a falling-block well (Tetris).
+  Colours are the web app's @repo/ui dark tokens, the backdrop its
+  public/bg.webp, the mark its public/favicon/favicon.svg.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Vibedgames trailer scene</title>
+    <style>
+      * {
+        margin: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        width: 1200px;
+        height: 630px;
+        overflow: hidden;
+      }
+      body {
+        /* --background, with the site's own dot texture over it. */
+        background: oklch(0.141 0.005 285.823) url(../public/bg.webp);
+        background-size: 10px;
+      }
+      canvas {
+        display: block;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="c" width="1200" height="630"></canvas>
+    <script>
+      const W = 1200;
+      const H = 630;
+      const ctx = document.getElementById("c").getContext("2d");
+      // --foreground, --muted-foreground, --success (the one accent).
+      const INK = "oklch(0.985 0 0)";
+      const DIM = "oklch(0.705 0.015 286.067)";
+      const ACCENT = "oklch(0.792 0.209 151.711)";
+      const LINE = 3;
+      const SANS = 'ui-sans-serif, system-ui, "Helvetica Neue", Arial, sans-serif';
+
+      // ---- easing -----------------------------------------------------------
+      const clamp = (v, lo = 0, hi = 1) => Math.min(hi, Math.max(lo, v));
+      const prog = (t, a, d) => clamp((t - a) / d);
+      const spring = (p) => (p <= 0 ? 0 : p >= 1 ? 1 : 1 - Math.exp(-6 * p) * Math.cos(9 * p));
+      const easeOut = (p) => 1 - (1 - p) ** 3;
+      const easeIn = (p) => p ** 3;
+      const easeInOut = (p) => (p < 0.5 ? 4 * p ** 3 : 1 - (-2 * p + 2) ** 3 / 2);
+      const lerp = (a, b, p) => a + (b - a) * p;
+
+      const stroke = (color = INK, width = LINE) => {
+        ctx.strokeStyle = color;
+        ctx.lineWidth = width;
+        ctx.lineJoin = "round";
+        ctx.lineCap = "round";
+      };
+      const rect = (x, y, w, h, r = 6) => {
+        ctx.beginPath();
+        ctx.roundRect(x, y, w, h, r);
+        ctx.stroke();
+      };
+      const circle = (x, y, r, fill) => {
+        ctx.beginPath();
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+        if (fill) {
+          ctx.fillStyle = fill;
+          ctx.fill();
+        } else {
+          ctx.stroke();
+        }
+      };
+      const line = (x1, y1, x2, y2) => {
+        ctx.beginPath();
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x2, y2);
+        ctx.stroke();
+      };
+      /** A little figure: head and body, feet apart while it moves. */
+      const figure = (x, y, s, step = 0) => {
+        circle(x, y - 52 * s, 13 * s);
+        rect(x - 13 * s, y - 36 * s, 26 * s, 26 * s, 7 * s);
+        line(x - 6 * s, y - 10 * s, x - 6 * s - step * 6 * s, y);
+        line(x + 6 * s, y - 10 * s, x + 6 * s + step * 6 * s, y);
+      };
+
+      // ---- the genres ---------------------------------------------------------
+      // Each draws its own frame at `t` ms into the scene, at full opacity; the
+      // timeline fades and scales it in and out.
+
+      const platformer = (t) => {
+        const plats = [
+          [140, 470, 260],
+          [520, 380, 200],
+          [830, 290, 230],
+        ];
+        stroke(DIM);
+        for (const [x, y, w] of plats) rect(x, y, w, 22, 8);
+        // Two jumps: platform 1 → 2 → 3.
+        const jumps = [
+          [300, 470, 600, 380, 120, 420],
+          [600, 380, 930, 290, 680, 460],
+        ];
+        let fx = 230;
+        let fy = 470;
+        let step = Math.sin(t / 70);
+        for (const [x1, y1, x2, y2, start, dur] of jumps) {
+          const p = prog(t, start, dur);
+          if (t >= start) {
+            fx = lerp(x1, x2, p);
+            fy = lerp(y1, y2, p) - Math.sin(Math.PI * p) * 170;
+            step = p > 0 && p < 1 ? 0.6 : step;
+          }
+        }
+        if (t < 120) fx = lerp(230, 300, t / 120);
+        if (t > 1100) fx = Math.min(1010, 930 + (t - 1100) * 0.25);
+        // Coins on the arcs, collected as the figure passes.
+        for (const [x1, y1, x2, y2, start, dur] of jumps) {
+          for (let i = 1; i <= 3; i += 1) {
+            const p = i / 4;
+            const cx = lerp(x1, x2, p);
+            const cy = lerp(y1, y2, p) - Math.sin(Math.PI * p) * 170 - 40;
+            const got = prog(t, start + dur * p, 160);
+            if (got >= 1) continue;
+            stroke(ACCENT);
+            ctx.globalAlpha *= 1 - got;
+            circle(cx, cy - got * 30, 12 + got * 8);
+            ctx.globalAlpha /= Math.max(0.001, 1 - got);
+          }
+        }
+        stroke(INK);
+        figure(fx, fy, 1.15, step);
+      };
+
+      const bomberman = (t) => {
+        const cols = 13;
+        const rows = 7;
+        const s = 60;
+        const ox = (W - cols * s) / 2;
+        const oy = 105;
+        const bomb = [6, 3];
+        const blast = prog(t, 620, 160);
+        const fade = prog(t, 950, 300);
+        const reach = 3;
+        const inBlast = (c, r) =>
+          (r === bomb[1] && Math.abs(c - bomb[0]) <= reach) ||
+          (c === bomb[0] && Math.abs(r - bomb[1]) <= reach);
+        for (let r = 0; r < rows; r += 1) {
+          for (let c = 0; c < cols; c += 1) {
+            const x = ox + c * s;
+            const y = oy + r * s;
+            const wall =
+              r === 0 ||
+              c === 0 ||
+              r === rows - 1 ||
+              c === cols - 1 ||
+              (r % 2 === 0 && c % 2 === 0);
+            const crate = !wall && (r * 5 + c * 3) % 4 === 0 && !(c === 2 && r === 3);
+            if (wall) {
+              stroke(DIM, 2);
+              rect(x + 6, y + 6, s - 12, s - 12, 8);
+            } else if (crate) {
+              const gone = inBlast(c, r) ? blast : 0;
+              if (gone < 1) {
+                stroke(INK, 2);
+                ctx.globalAlpha *= 1 - gone;
+                rect(x + 12, y + 12, s - 24, s - 24, 5);
+                line(x + 12, y + 12, x + s - 12, y + s - 12);
+                ctx.globalAlpha /= Math.max(0.001, 1 - gone);
+              }
+            }
+          }
+        }
+        // The player walks away from the bomb before it goes off.
+        const walk = easeInOut(prog(t, 120, 380));
+        const px = ox + lerp(bomb[0], 2, walk) * s + s / 2;
+        const py = oy + bomb[1] * s + s - 10;
+        stroke(INK);
+        figure(px, py, 0.82, walk > 0 && walk < 1 ? Math.sin(t / 60) : 0);
+        const bx = ox + bomb[0] * s + s / 2;
+        const by = oy + bomb[1] * s + s / 2;
+        if (t > 60 && blast < 1) {
+          const pulse = 1 + Math.sin(t / 45) * 0.08 * prog(t, 300, 300);
+          stroke(ACCENT);
+          circle(bx, by + 4, 17 * pulse * spring(prog(t, 60, 260)));
+          line(bx + 10, by - 10, bx + 18, by - 20);
+        }
+        if (blast > 0 && fade < 1) {
+          const len = easeOut(blast) * reach * s + s / 2 - 8;
+          ctx.globalAlpha *= 1 - fade;
+          ctx.fillStyle = ACCENT;
+          ctx.beginPath();
+          ctx.roundRect(bx - len, by - 16, len * 2, 32, 16);
+          ctx.roundRect(bx - 16, by - len, 32, len * 2, 16);
+          ctx.fill();
+          ctx.globalAlpha /= Math.max(0.001, 1 - fade);
+        }
+      };
+
+      // Ship, bullets and rocks share one deterministic sim, so a rock bursts
+      // exactly when a bullet reaches it.
+      const SHIP_Y = 545;
+      const shipXAt = (t) => W / 2 + Math.sin(t / 300) * 260;
+      const FIRE_MS = 70;
+      const BULLET_SPEED = 1.1;
+      const ROCKS = [
+        [330, 120, 64, 0.0],
+        [870, 60, 78, 0.6],
+        [620, -120, 54, 1.2],
+        [200, -200, 48, 2.1],
+        [980, -300, 60, 0.3],
+        [480, -420, 50, 1.7],
+      ].map(([x, y0, r, rot]) => {
+        let hitAt = Infinity;
+        for (let t = 0; t < 1300 && hitAt === Infinity; t += 10) {
+          const y = y0 + t * 0.32;
+          for (let f = 0; f <= t; f += FIRE_MS) {
+            const by = SHIP_Y - 40 - (t - f) * BULLET_SPEED;
+            const bx = shipXAt(f);
+            if (
+              Math.abs(by - y) < r * 0.8 &&
+              Math.min(Math.abs(bx - 14 - x), Math.abs(bx + 14 - x)) < r * 0.8
+            ) {
+              hitAt = t;
+              break;
+            }
+          }
+        }
+        return { hitAt, r, rot, x, y0 };
+      });
+
+      const shooter = (t) => {
+        const shipX = shipXAt(t);
+        const shipY = SHIP_Y;
+        // Bullet streams: twin lines of accent dashes from wherever the ship was.
+        stroke(ACCENT, 4);
+        for (let f = 0; f <= t; f += FIRE_MS) {
+          const y = shipY - 40 - (t - f) * BULLET_SPEED;
+          if (y < -30) continue;
+          const sx = shipXAt(f);
+          line(sx - 14, y, sx - 14, y - 22);
+          line(sx + 14, y, sx + 14, y - 22);
+        }
+        // Asteroids drift down and turn; the hit ones burst.
+        for (const { x, y0, r, rot, hitAt } of ROCKS) {
+          const y = y0 + Math.min(t, hitAt) * 0.32;
+          const burst = prog(t, hitAt, 300);
+          const a = rot + t / 900;
+          stroke(INK);
+          if (burst <= 0) {
+            ctx.beginPath();
+            for (let i = 0; i < 9; i += 1) {
+              const ang = a + (i / 9) * Math.PI * 2;
+              const rr = r * (0.78 + 0.22 * Math.sin(i * 2.7 + r));
+              const px = x + Math.cos(ang) * rr;
+              const py = y + Math.sin(ang) * rr;
+              if (i === 0) ctx.moveTo(px, py);
+              else ctx.lineTo(px, py);
+            }
+            ctx.closePath();
+            ctx.stroke();
+          } else if (burst < 1) {
+            stroke(ACCENT);
+            ctx.globalAlpha *= 1 - burst;
+            for (let i = 0; i < 8; i += 1) {
+              const ang = (i / 8) * Math.PI * 2;
+              const d1 = r * 0.4 + burst * r;
+              const d2 = d1 + 22;
+              line(
+                x + Math.cos(ang) * d1,
+                y + Math.sin(ang) * d1,
+                x + Math.cos(ang) * d2,
+                y + Math.sin(ang) * d2,
+              );
+            }
+            ctx.globalAlpha /= Math.max(0.001, 1 - burst);
+          }
+        }
+        // The ship.
+        stroke(INK);
+        ctx.beginPath();
+        ctx.moveTo(shipX, shipY - 46);
+        ctx.lineTo(shipX + 34, shipY + 22);
+        ctx.lineTo(shipX, shipY + 8);
+        ctx.lineTo(shipX - 34, shipY + 22);
+        ctx.closePath();
+        ctx.stroke();
+      };
+
+      const pong = (t) => {
+        const top = 90;
+        const bottom = 540;
+        stroke(DIM, 2);
+        line(140, top, W - 140, top);
+        line(140, bottom, W - 140, bottom);
+        ctx.setLineDash([14, 16]);
+        line(W / 2, top + 12, W / 2, bottom - 12);
+        ctx.setLineDash([]);
+        // The ball crosses twice: right paddle, then left, bouncing off a wall.
+        const leftX = 190;
+        const rightX = W - 190;
+        const period = 560;
+        const k = t / period;
+        const leg = Math.floor(k);
+        const p = k - leg;
+        const goingRight = leg % 2 === 0;
+        const bx = goingRight ? lerp(leftX + 24, rightX - 24, p) : lerp(rightX - 24, leftX + 24, p);
+        const span = bottom - top - 40;
+        const raw = (t / 4.2 + 120) % (span * 2);
+        const by = top + 20 + (raw < span ? raw : span * 2 - raw);
+        const trackL = by + Math.sin(t / 200) * 20;
+        const trackR = by - Math.sin(t / 230) * 20;
+        stroke(INK);
+        rect(leftX - 10, trackL - 60, 20, 120, 10);
+        rect(rightX - 10, trackR - 60, 20, 120, 10);
+        // A short trail, then the ball.
+        for (let i = 4; i >= 1; i -= 1) {
+          ctx.globalAlpha *= 0.18;
+          circle(bx - (goingRight ? 1 : -1) * i * 22, by, 14, ACCENT);
+          ctx.globalAlpha /= 0.18;
+        }
+        circle(bx, by, 16, ACCENT);
+      };
+
+      const arena = (t) => {
+        const horizon = 200;
+        const f = 520;
+        const camX = Math.sin(t / 900) * 120;
+        const camZ = t * 0.35;
+        const project = (x, y, z) => {
+          const dz = z - camZ;
+          return [W / 2 + ((x - camX) * f) / dz, horizon + ((180 - y) * f) / dz];
+        };
+        stroke(DIM, 1.6);
+        for (let x = -900; x <= 900; x += 150) {
+          const [x1, y1] = project(x, 0, camZ + 60);
+          const [x2, y2] = project(x, 0, camZ + 3000);
+          line(x1, y1, x2, y2);
+        }
+        const start = Math.ceil((camZ + 60) / 150) * 150;
+        for (let z = start; z < camZ + 3000; z += 150) {
+          const [x1, y1] = project(-900, 0, z);
+          const [x2, y2] = project(900, 0, z);
+          ctx.globalAlpha *= clamp(1.3 - (z - camZ) / 2600);
+          line(x1, y1, x2, y2);
+          ctx.globalAlpha /= Math.max(0.001, clamp(1.3 - (z - camZ) / 2600));
+        }
+        // Low-poly figures: square pyramids, one of them the player.
+        const units = [
+          [-260, 520, 1.0, false],
+          [230, 620, 1.1, true],
+          [520, 900, 0.9, false],
+          [-520, 1000, 0.9, false],
+          [40, 1250, 1.0, false],
+        ];
+        for (const [ux, uz0, scale, hero] of units) {
+          const ux2 = ux + Math.sin(t / 300 + uz0) * 40;
+          const uz = uz0 + (hero ? t * 0.35 : 0);
+          const s = 70 * scale;
+          const h = 150 * scale + (hero ? Math.abs(Math.sin(t / 180)) * 30 : 0);
+          const base = [
+            [ux2 - s, 0, uz - s],
+            [ux2 + s, 0, uz - s],
+            [ux2 + s, 0, uz + s],
+            [ux2 - s, 0, uz + s],
+          ].map(([x, y, z]) => project(x, y, z));
+          const apex = project(ux2, h, uz);
+          stroke(hero ? ACCENT : INK, hero ? 3.5 : 2.5);
+          ctx.beginPath();
+          base.forEach(([x, y], i) => (i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y)));
+          ctx.closePath();
+          ctx.stroke();
+          for (const [x, y] of base) line(x, y, apex[0], apex[1]);
+        }
+      };
+
+      const tetris = (t) => {
+        const cell = 40;
+        const cols = 10;
+        const rows = 13;
+        const ox = (W - cols * cell) / 2;
+        const oy = 50;
+        stroke(DIM, 2);
+        rect(ox - 10, oy - 10, cols * cell + 20, rows * cell + 20, 12);
+        const block = (c, r, color = INK) => {
+          stroke(color, 2.5);
+          rect(ox + c * cell + 4, oy + r * cell + 4, cell - 8, cell - 8, 6);
+        };
+        // Settled stack: the bottom row is full but for the T's notch.
+        const settled = [];
+        for (let c = 0; c < cols; c += 1) if (c < 4 || c > 6) settled.push([c, 12]);
+        settled.push([5, 12]);
+        for (const c of [0, 1, 2, 7, 8, 9]) settled.push([c, 11]);
+        for (const c of [0, 1, 8]) settled.push([c, 10]);
+        const land = 760;
+        const clear = prog(t, land + 60, 260);
+        for (const [c, r] of settled) {
+          if (r === 12 && clear > 0) {
+            if (clear >= 1) continue;
+            ctx.globalAlpha *= 1 - clear;
+            block(c, r, ACCENT);
+            ctx.globalAlpha /= Math.max(0.001, 1 - clear);
+            continue;
+          }
+          const drop = r < 12 ? easeOut(clear) * cell : 0;
+          ctx.save();
+          ctx.translate(0, drop);
+          block(c, r);
+          ctx.restore();
+        }
+        // The falling T: drops, rotates once, slides, lands in the notch.
+        const fall = easeIn(prog(t, 0, land));
+        const rot = spring(prog(t, 260, 220));
+        const slide = easeInOut(prog(t, 380, 260));
+        const pc = lerp(2, 5, slide);
+        const pr = lerp(-1, 11, fall);
+        const shapeUp = [
+          [-1, 0],
+          [0, 0],
+          [1, 0],
+          [0, -1],
+        ];
+        const shapeDown = [
+          [-1, 0],
+          [0, 0],
+          [1, 0],
+          [0, 1],
+        ];
+        const shape = rot > 0.5 ? shapeDown : shapeUp;
+        if (clear < 1) {
+          for (const [dc, dr] of shape) {
+            const r = pr + dr;
+            if (clear > 0 && r >= 11.5) {
+              ctx.globalAlpha *= 1 - clear;
+              block(pc + dc, r, ACCENT);
+              ctx.globalAlpha /= Math.max(0.001, 1 - clear);
+            } else {
+              ctx.save();
+              ctx.translate(0, easeOut(clear) * cell);
+              block(pc + dc, r, ACCENT);
+              ctx.restore();
+            }
+          }
+        } else {
+          ctx.save();
+          ctx.translate(0, cell);
+          for (const [dc, dr] of shape) if (pr + dr < 11.5) block(pc + dc, pr + dr, ACCENT);
+          ctx.restore();
+        }
+      };
+
+      // ---- type -----------------------------------------------------------------
+      const text = (s, x, y, size, weight = 700, color = INK) => {
+        ctx.fillStyle = color;
+        ctx.font = `${weight} ${size}px ${SANS}`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(s, x, y);
+      };
+      const MARK = new Path2D(
+        "M193.5 284.962 L463.722 282 L419.278 348.635 L328.611 348.635 L513.5 610.731 L694.833 350.115 L602.389 350.115 L513.5 477.462 L467.278 413.788 L556.167 282 L833.5 282 L511.722 744 Z",
+      );
+      const brand = (p) => {
+        ctx.save();
+        ctx.font = `700 96px ${SANS}`;
+        const word = ctx.measureText("Vibedgames").width;
+        const markW = 150;
+        const gap = 34;
+        const left = W / 2 - (markW + gap + word) / 2;
+        ctx.translate(left, 282 - 55);
+        ctx.scale(markW / 670, markW / 670);
+        ctx.translate(-180, -270);
+        ctx.fillStyle = INK;
+        ctx.fill(MARK);
+        ctx.restore();
+        ctx.fillStyle = INK;
+        ctx.font = `700 96px ${SANS}`;
+        ctx.textAlign = "left";
+        ctx.textBaseline = "middle";
+        ctx.fillText("Vibedgames", left + markW + gap, 278);
+        ctx.globalAlpha *= easeOut(clamp(p * 1.5 - 0.3));
+        text("Shipped by your agent.", W / 2, 400, 42, 500, DIM);
+      };
+
+      // ---- the timeline (ms) --------------------------------------------------
+      const SCENES = [
+        { at: 200, dur: 1300, draw: platformer },
+        { at: 1500, dur: 1250, draw: bomberman },
+        { at: 2750, dur: 1250, draw: shooter },
+        { at: 4000, dur: 1150, draw: pong },
+        { at: 5150, dur: 1250, draw: arena },
+        { at: 6400, dur: 1150, draw: tetris },
+      ];
+      const IN = 260;
+      const OUT = 180;
+      const DURATION = 10000;
+
+      const withLayer = (alpha, scale, fn) => {
+        if (alpha <= 0.001) return;
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        ctx.translate(W / 2, H / 2);
+        ctx.scale(scale, scale);
+        ctx.translate(-W / 2, -H / 2);
+        fn();
+        ctx.restore();
+      };
+
+      window.__duration = DURATION;
+      window.__render = (t) => {
+        ctx.clearRect(0, 0, W, H);
+        for (const scene of SCENES) {
+          const local = t - scene.at;
+          if (local < 0 || local > scene.dur) continue;
+          const pin = spring(clamp(local / IN));
+          const pout = easeIn(clamp((local - (scene.dur - OUT)) / OUT));
+          withLayer(clamp(pin * 1.4) * (1 - pout), 0.94 + 0.06 * pin + 0.03 * pout, () =>
+            scene.draw(local),
+          );
+        }
+        // "Any game." — 7550 → 8250.
+        const kin = spring(prog(t, 7550, 380));
+        const kout = easeIn(prog(t, 8100, 150));
+        withLayer(clamp(kin * 1.4) * (1 - kout), 0.9 + 0.1 * kin, () =>
+          text("Any game.", W / 2, H / 2, 120),
+        );
+        // The wordmark, held ~1.5s, then back to the empty start: 8250 → 10000.
+        const bin = spring(prog(t, 8250, 500));
+        const bout = easeIn(prog(t, 9500, 400));
+        withLayer(clamp(bin * 1.4) * (1 - bout), 0.92 + 0.08 * bin, () =>
+          brand(prog(t, 8350, 500)),
+        );
+      };
+      window.__render(0);
+    </script>
+  </body>
+</html>

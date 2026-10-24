@@ -233,7 +233,7 @@ const softwareApplicationSchema = (): SoftwareApplicationNode => ({
   video: { "@id": VIDEO_ID },
 });
 
-/** The gameplay montage `og:video` points at, as the entity it is. */
+/** The trailer `og:video` points at, as the entity it is. */
 const videoObjectSchema = (): VideoObjectNode => ({
   "@id": VIDEO_ID,
   "@type": "VideoObject",

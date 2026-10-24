@@ -58,7 +58,7 @@ export const Route = createRootRouteWithContext<RouterContext>()({
       { content: "1200", property: "og:image:width" },
       { content: "630", property: "og:image:height" },
       { content: siteConfig.name, property: "og:image:alt" },
-      // The gameplay montage, on every page: the image above stays the card,
+      // The trailer, on every page: the image above stays the card,
       // and players that show video loop this instead. See `lib/og-media.ts`.
       { content: `${siteConfig.url}${siteVideo.path}`, property: "og:video" },
       { content: `${siteConfig.url}${siteVideo.path}`, property: "og:video:url" },

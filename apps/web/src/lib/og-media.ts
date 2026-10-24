@@ -1,27 +1,28 @@
 /**
- * The social-preview media committed under `public/`: the site-wide gameplay
- * montage behind `og:video`, and one Open Graph card per prose page.
+ * The social-preview media committed under `public/`: the site-wide trailer
+ * behind `og:video`, and one Open Graph card per prose page.
  *
- * Every file named here is captured, not drawn by hand or generated: the
- * montage is the bundled example games' own `?trailer=1` runs, recorded and
- * cut by `apps/web/scripts/og-video.mjs` (`pnpm og:video`), and the cards are
- * rendered from the pages' own titles by the same script. Re-run it after a
- * page title or a game's trailer changes; `test/og-media.test.ts` holds every
+ * Every file named here is recorded, not drawn by hand or generated: the
+ * trailer is `apps/web/scripts/og-scene.html` (the bundled games' genres as
+ * wireframes, then the wordmark) stepped frame by frame and encoded by
+ * `apps/web/scripts/og-video.ts` (`pnpm -F @repo/web og:video`), and the
+ * cards are rendered from the pages' own titles by the same script. Re-run it after a
+ * page title or the scene changes; `test/og-media.test.ts` holds every
  * path here to a file that exists.
  */
 
 export const siteVideo = {
   description:
-    "Gameplay from three of the example games that ship with Vibedgames — Starfall, Battle Arena and Lunerfall — recorded from their own scripted trailer runs.",
-  /** ISO 8601, and what the montage really runs: the script cuts it to this. */
-  duration: "PT8S",
+    "Six kinds of game — a platformer, a bomberman arena, a space shooter, a paddle rally, a 3D arena and a falling-block puzzle — drawn as wireframes and playing in turn, then the Vibedgames wordmark.",
+  /** ISO 8601, and what the scene really runs: the script checks it against this. */
+  duration: "PT10S",
   height: 630,
-  name: "Vibedgames gameplay montage",
+  name: "Vibedgames trailer",
   path: "/og/og.mp4",
-  /** The montage's first frame, for `VideoObject.thumbnailUrl`. */
+  /** The wordmark frame, for `VideoObject.thumbnailUrl`. */
   poster: "/og/og-poster.jpg",
   type: "video/mp4",
-  /** The day the committed montage was captured. */
+  /** The day the committed trailer was recorded. */
   uploadDate: "2026-10-24",
   width: 1200,
 } as const;

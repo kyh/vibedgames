@@ -56,7 +56,7 @@ export const canonicalUrl = (pathname: string) => {
  * `<head>` tags for a prose page: title, description, Open Graph and Twitter
  * (the page's own card where it has one, see `lib/og-media.ts`), and the
  * page's JSON-LD node (`pageGraph`). They override the root route's site-wide
- * defaults by name; the montage `og:video` stays the root's. The
+ * defaults by name; the trailer `og:video` stays the root's. The
  * `<link rel="canonical">` itself comes from the root route, which covers
  * every page — emitting one here too would give Doc pages two.
  */

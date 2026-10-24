@@ -23,11 +23,11 @@ const publicFile = (sitePath: string) => path.join(PUBLIC, sitePath);
 const docs = [homeDoc, discoverDoc, buildDoc, docsDoc, aboutDoc, contactDoc, privacyDoc, termsDoc];
 
 describe("committed og media", () => {
-  test("the montage and its poster exist, and the montage stays under the 4 MB cap", () => {
+  test("the trailer and its poster exist, and the trailer stays under 2.5 MB", () => {
     for (const file of [siteVideo.path, siteVideo.poster, SITE_IMAGE]) {
       assert.ok(existsSync(publicFile(file)), `public${file} is missing`);
     }
-    assert.ok(statSync(publicFile(siteVideo.path)).size < 4 * 1024 * 1024);
+    assert.ok(statSync(publicFile(siteVideo.path)).size < 2.5 * 1024 * 1024);
   });
 
   test("every prose page with a card has its card on disk", () => {
