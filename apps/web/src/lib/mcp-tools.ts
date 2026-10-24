@@ -403,13 +403,16 @@ const imageUrl = z.url().describe("An image's URL, e.g. from generate_upload");
  * any other.
  */
 export const MEDIA_MODELS = {
-  generate_3d: ["fal-ai/meshy/v6/text-to-3d", "fal-ai/meshy/v6/image-to-3d"],
-  generate_image: ["fal-ai/nano-banana-pro", "fal-ai/nano-banana-pro/edit"],
-  generate_music: ["fal-ai/elevenlabs/music"],
+  generate_3d: ["meshy/v7.1/text-to-3d", "meshy/v7.1/image-to-3d"],
+  generate_image: ["openai/gpt-image-2.5/flare/text-to-image", "openai/gpt-image-2.5/flare/edit"],
+  generate_music: ["elevenlabs/music/v2.5"],
   generate_sound: ["fal-ai/elevenlabs/sound-effects/v2"],
-  generate_speech: ["fal-ai/elevenlabs/tts/eleven-v3"],
-  generate_video: ["bytedance/seedance-2.0/text-to-video", "bytedance/seedance-2.0/image-to-video"],
-  remove_background: ["fal-ai/bria/background/remove"],
+  generate_speech: ["elevenlabs/tts/eleven-v4"],
+  generate_video: [
+    "bytedance/seedance-2.5/us/text-to-video",
+    "bytedance/seedance-2.5/us/image-to-video",
+  ],
+  remove_background: ["bria/guided-remove-background"],
 } as const;
 
 const billed =
@@ -420,7 +423,7 @@ const mediaTools = {
     .meta(
       mcp.tool({
         annotations: external,
-        description: `Generates a textured 3D model (GLB) from a prompt, or from an image when \`image_url\` is given (Meshy 6: \`${MEDIA_MODELS.generate_3d.join("`, `")}\`). ${billed}`,
+        description: `Generates a textured 3D model (GLB) from a prompt, or from an image when \`image_url\` is given (Meshy 7.1: \`${MEDIA_MODELS.generate_3d.join("`, `")}\`); \`model_type: lowpoly\` suits games. ${billed}`,
         name: "generate_3d",
         title: "Generate a 3D model",
       }),
@@ -428,6 +431,7 @@ const mediaTools = {
     .input(
       z.object({
         image_url: imageUrl.optional(),
+        model_type: z.enum(["standard", "lowpoly", "smart-topology"]).optional(),
         options,
         prompt: prompt.max(600).optional().describe("What to model; needed without image_url"),
         target_polycount: z.number().int().min(100).max(300_000).optional(),
@@ -442,6 +446,7 @@ const mediaTools = {
       }
       const fields = {
         image_url: input.image_url,
+        model_type: input.model_type,
         prompt: input.image_url === undefined ? input.prompt : undefined,
         target_polycount: input.target_polycount,
         topology: input.topology,
@@ -458,37 +463,48 @@ const mediaTools = {
     .meta(
       mcp.tool({
         annotations: external,
-        description: `Generates images from a prompt, or edits and combines reference images when \`image_urls\` is given (Nano Banana Pro: \`${MEDIA_MODELS.generate_image.join("`, `")}\`). ${billed}`,
+        description: `Generates images from a prompt, or edits and combines reference images when \`image_urls\` is given (GPT Image 2.5: \`${MEDIA_MODELS.generate_image.join("`, `")}\`). \`background: transparent\` makes sprites and props with no background to remove. ${billed}`,
         name: "generate_image",
         title: "Generate an image",
       }),
     )
     .input(
       z.object({
-        aspect_ratio: z
-          .enum(["auto", "21:9", "16:9", "3:2", "4:3", "5:4", "1:1", "4:5", "3:4", "2:3", "9:16"])
-          .optional(),
+        background: z.enum(["auto", "transparent", "opaque"]).optional(),
+        image_size: z
+          .enum([
+            "auto",
+            "square_hd",
+            "square",
+            "portrait_4_3",
+            "portrait_16_9",
+            "landscape_4_3",
+            "landscape_16_9",
+          ])
+          .optional()
+          .describe("A preset; pass `{width, height}` through options for an exact size"),
         image_urls: z
           .array(imageUrl)
           .min(1)
-          .max(14)
+          .max(16)
           .optional()
           .describe("Images to edit or combine"),
         num_images: z.number().int().min(1).max(4).optional(),
         options,
         prompt,
-        resolution: z.enum(["1K", "2K", "4K"]).optional(),
+        quality: z.enum(["auto", "low", "medium", "high", "xhigh", "max"]).optional(),
         wait_seconds: waitSeconds,
       }),
     )
     .handler(({ context, input }) => {
       const [fromText, edit] = MEDIA_MODELS.generate_image;
       const fields = {
-        aspect_ratio: input.aspect_ratio,
+        background: input.background,
+        image_size: input.image_size,
         image_urls: input.image_urls,
         num_images: input.num_images,
         prompt: input.prompt,
-        resolution: input.resolution,
+        quality: input.quality,
       };
       return runModel(
         context,
@@ -502,7 +518,7 @@ const mediaTools = {
     .meta(
       mcp.tool({
         annotations: external,
-        description: `Composes music from a prompt: genre, mood, instruments, structure (ElevenLabs Music: \`${MEDIA_MODELS.generate_music[0]}\`). ${billed}`,
+        description: `Composes music from a prompt: genre, mood, instruments, structure (ElevenLabs Music v2.5: \`${MEDIA_MODELS.generate_music[0]}\`). ${billed}`,
         name: "generate_music",
         title: "Generate music",
       }),
@@ -564,7 +580,7 @@ const mediaTools = {
     .meta(
       mcp.tool({
         annotations: external,
-        description: `Speaks a line of text: dialogue, narration, an announcer (ElevenLabs v3: \`${MEDIA_MODELS.generate_speech[0]}\`). ${billed}`,
+        description: `Speaks a line of text: dialogue, narration, an announcer (ElevenLabs v4, which takes audio tags for delivery: \`${MEDIA_MODELS.generate_speech[0]}\`). ${billed}`,
         name: "generate_speech",
         title: "Generate speech",
       }),
@@ -590,7 +606,7 @@ const mediaTools = {
     .meta(
       mcp.tool({
         annotations: external,
-        description: `Generates a video clip with sound from a prompt, or animates an image when \`image_url\` is given (Seedance 2.0: \`${MEDIA_MODELS.generate_video.join("`, `")}\`). Video takes minutes: expect a \`request_id\` to follow with generate_status. ${billed}`,
+        description: `Generates a video clip with sound from a prompt, or animates an image when \`image_url\` is given (Seedance 2.5: \`${MEDIA_MODELS.generate_video.join("`, `")}\`). Video takes minutes: expect a \`request_id\` to follow with generate_status. ${billed}`,
         name: "generate_video",
         title: "Generate a video",
       }),
@@ -599,15 +615,44 @@ const mediaTools = {
       z.object({
         aspect_ratio: z.enum(["auto", "21:9", "16:9", "4:3", "1:1", "3:4", "9:16"]).optional(),
         duration: z
-          .enum(["auto", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15"])
+          .enum([
+            "auto",
+            "4",
+            "5",
+            "6",
+            "7",
+            "8",
+            "9",
+            "10",
+            "11",
+            "12",
+            "13",
+            "14",
+            "15",
+            "16",
+            "17",
+            "18",
+            "19",
+            "20",
+            "21",
+            "22",
+            "23",
+            "24",
+            "25",
+            "26",
+            "27",
+            "28",
+            "29",
+            "30",
+          ])
           .optional()
-          .describe("Seconds"),
+          .describe("Seconds, 4 to 30"),
         end_image_url: imageUrl.optional().describe("The last frame, with image_url"),
         generate_audio: z.boolean().optional(),
         image_url: imageUrl.optional().describe("The first frame"),
         options,
-        prompt,
-        resolution: z.enum(["480p", "720p", "1080p", "4k"]).optional(),
+        prompt: prompt.optional().describe("What happens; needed without image_url"),
+        resolution: z.enum(["480p", "720p", "1080p"]).optional(),
         wait_seconds: waitSeconds,
       }),
     )
@@ -615,6 +660,9 @@ const mediaTools = {
       const [fromText, fromImage] = MEDIA_MODELS.generate_video;
       if (input.end_image_url !== undefined && input.image_url === undefined) {
         throw new ORPCError("BAD_REQUEST", { message: "end_image_url needs an image_url." });
+      }
+      if (input.image_url === undefined && input.prompt === undefined) {
+        throw new ORPCError("BAD_REQUEST", { message: "Give a prompt or an image_url." });
       }
       const fields = {
         aspect_ratio: input.aspect_ratio,
@@ -637,17 +685,24 @@ const mediaTools = {
     .meta(
       mcp.tool({
         annotations: external,
-        description: `Cuts the subject out of an image onto a transparent background, for sprites and props (BRIA: \`${MEDIA_MODELS.remove_background[0]}\`). ${billed}`,
+        description: `Cuts the subject out of an image onto a transparent background, for sprites and props; \`prompt\` names what to keep when the cut is ambiguous (Bria Guided Remove Background: \`${MEDIA_MODELS.remove_background[0]}\`). ${billed}`,
         name: "remove_background",
         title: "Remove an image's background",
       }),
     )
-    .input(z.object({ image_url: imageUrl, options, wait_seconds: waitSeconds }))
+    .input(
+      z.object({
+        image_url: imageUrl,
+        options,
+        prompt: z.string().min(1).max(500).optional().describe("What to keep, e.g. the knight"),
+        wait_seconds: waitSeconds,
+      }),
+    )
     .handler(({ context, input }) =>
       runModel(
         context,
         MEDIA_MODELS.remove_background[0],
-        bodyOf(input.options, { image_url: input.image_url }),
+        bodyOf(input.options, { image_url: input.image_url, prompt: input.prompt }),
         input.wait_seconds,
       ),
     ),

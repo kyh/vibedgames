@@ -18,7 +18,7 @@ const rejectOversize = (label: string, maxBytes: number): never => {
   });
 };
 
-const readBytesBounded = async (
+export const readBytesBounded = async (
   response: Response,
   maxBytes: number,
   label: string,

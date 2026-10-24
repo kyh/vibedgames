@@ -7,12 +7,12 @@ import { z } from "zod";
 // pre-generated city) blow past web-app-scale caps. R2 storage is cheap and
 // single-active-deployment means old blobs are replaced, not accumulated.
 // 10 MB per file (big data ships as parts)
-const MAX_FILE_SIZE = 10 * 1024 * 1024;
+export const MAX_FILE_SIZE = 10 * 1024 * 1024;
 // 200 MB per deploy
 export const MAX_TOTAL_SIZE = 200 * 1024 * 1024;
 export const MAX_FILE_COUNT = 500;
 // 100 MB for the forkable source archive
-const MAX_SOURCE_SIZE = 100 * 1024 * 1024;
+export const MAX_SOURCE_SIZE = 100 * 1024 * 1024;
 
 // ---- Schemas -----------------------------------------------------------------
 
@@ -61,13 +61,17 @@ export const deleteInput = z.object({
 export const getSourceInput = z.object({ slug: slugSchema });
 
 /**
- * One file of a `deploy.upload` call, carried in the request itself: `utf-8`
- * for text, `base64` for anything binary. The type is the path's unless given.
+ * One file of a `deploy.upload` call: carried in the request as `utf-8` text
+ * or `base64` bytes, or, as `url`, a generated asset's URL the server fetches
+ * itself, so an agent with no disk can deploy what generate made. The type is
+ * the path's unless given.
  */
 const inlineFileSchema = z.object({
-  content: z.string(),
+  content: z
+    .string()
+    .describe("The file: text, base64, or with `encoding: url` a generated asset's URL"),
   contentType: z.string().min(1).max(127).optional(),
-  encoding: z.enum(["utf-8", "base64"]).default("utf-8"),
+  encoding: z.enum(["utf-8", "base64", "url"]).default("utf-8"),
   path: fileSchema.shape.path,
 });
 
@@ -81,4 +85,6 @@ export const uploadInput = z.object({
   /** Make the staged deployment live once these files are in. */
   publish: z.boolean().default(false),
   slug: slugSchema,
+  /** On publish, also keep the deployment's files as its forkable source. */
+  source: z.boolean().default(false),
 });

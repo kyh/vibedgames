@@ -24,6 +24,25 @@ vg generate docs "<topic>" --json
 
 Do not invent endpoint IDs.
 
+## Defaults
+
+The endpoint each task uses when the user names none. The vibedgames MCP server's dedicated tools (`generate_image`, `generate_video`, …) run exactly these.
+
+| Task                         | Default endpoint                           |
+| ---------------------------- | ------------------------------------------ |
+| Image from a prompt          | `openai/gpt-image-2.5/flare/text-to-image` |
+| Image edit / from references | `openai/gpt-image-2.5/flare/edit`          |
+| Video from a prompt          | `bytedance/seedance-2.5/us/text-to-video`  |
+| Video from an image          | `bytedance/seedance-2.5/us/image-to-video` |
+| Speech                       | `elevenlabs/tts/eleven-v4`                 |
+| Music                        | `elevenlabs/music/v2.5`                    |
+| Sound effect                 | `fal-ai/elevenlabs/sound-effects/v2`       |
+| 3D from a prompt             | `meshy/v7.1/text-to-3d`                    |
+| 3D from an image             | `meshy/v7.1/image-to-3d`                   |
+| Background removal           | `bria/guided-remove-background`            |
+
+Sprites and props: GPT Image 2.5 takes `background: transparent`, which saves a background-removal pass.
+
 ## Modality references
 
 Load the reference matching the user's task:

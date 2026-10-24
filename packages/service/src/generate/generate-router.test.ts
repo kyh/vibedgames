@@ -404,3 +404,40 @@ describe("generate.forward submit", () => {
     });
   });
 });
+
+// CLAUDE.md: what the caller reads never names the media provider. Its
+// endpoint ids pass through verbatim, so a match followed by `-` is an id.
+describe("generate.forward errors", () => {
+  const BRAND = /\bfal\b(?!-)/iu;
+
+  test("names no provider when an upstream call fails", async () => {
+    stubFal();
+    globalThis.fetch = () => Promise.resolve(Response.json({ detail: "boom" }, { status: 500 }));
+    await assert.rejects(
+      call(
+        generateRouter.forward,
+        { method: "GET", path: "/fal-ai/flux/requests/request-1/status", target: "queue" },
+        { context: contextAs("user") },
+      ),
+      (error: Error) => {
+        assert.match(error.message, /failed \(500\)/u);
+        assert.doesNotMatch(error.message, BRAND);
+        return true;
+      },
+    );
+  });
+
+  test("names no provider when media is not configured", async () => {
+    await assert.rejects(
+      call(
+        generateRouter.forward,
+        { method: "GET", path: "/v1/models", target: "platform" },
+        { context: { ...contextAs("user"), media: undefined } },
+      ),
+      (error: Error) => {
+        assert.doesNotMatch(error.message, BRAND);
+        return true;
+      },
+    );
+  });
+});

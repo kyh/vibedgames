@@ -1,11 +1,15 @@
 # Text-to-Video Endpoints
 
-Curated picks across 4 use cases. **ByteDance Seedance 2.0** is the dominant premium choice; **Kling V3/O3** specializes in multi-shot and 4K; **Hailuo 2.3** is a strong newcomer for both premium and fast. Verify with `vg generate models --endpoint_id <id> --json` before running.
+Curated picks across 4 use cases. **ByteDance Seedance 2.5** is the default premium choice (native audio, up to 30s); **Kling 4.0** and **FLUX 3 Max** are the newest premium alternatives; **Kling V3/O3** specializes in multi-shot and 4K. Verify with `vg generate models --endpoint_id <id> --json` before running.
 
 ## Premium realism
 
 Final-quality video.
 
+- `bytedance/seedance-2.5/us/text-to-video`: ByteDance · Seedance 2.5 (the default; native audio, 4-30s)
+- `kling/v4/text-to-video`: Kling · 4.0 (3-30s, 1080p)
+- `blackforestlabs/flux-3-max/text-to-video`: Black Forest Labs · FLUX 3 Max
+- `minimax/h3-max/text-to-video`: MiniMax · H3 Max
 - `bytedance/seedance-2.0/text-to-video`: ByteDance · Seedance 2.0
 - `fal-ai/bytedance/seedance/v1.5/pro/text-to-video`: ByteDance · Seedance 1.5 Pro
 - `fal-ai/veo3.1`: Google · Veo 3.1

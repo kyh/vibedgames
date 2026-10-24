@@ -127,7 +127,7 @@ type ForwardInput = z.infer<typeof forwardInput>;
 const pickFalKey = (media: MediaProviderConfig | undefined) => {
   if (!media?.fal) {
     throw new ORPCError("PRECONDITION_FAILED", {
-      message: "fal is not configured on the server (FAL_API_KEY missing).",
+      message: "Media generation is not configured on the server (its API key is missing).",
     });
   }
   return { apiKey: media.fal, config: media };
@@ -185,7 +185,7 @@ const readBody = async (res: Response, target: Target): Promise<JsonValue | null
   if (res.status === 204 || res.headers.get("content-length") === "0") {
     return null;
   }
-  const label = `fal ${target} response`;
+  const label = `media ${target} response`;
   if (target === "docs") {
     return await readSseJson(res, label);
   }
@@ -221,7 +221,7 @@ const platformFetchJson =
     const res = await fetchProviderResponse({
       credentialed: true,
       init: { body, headers, method: req.method },
-      label: `fal platform ${req.method} ${req.path}`,
+      label: `media platform ${req.method} ${req.path}`,
       tolerateHttpError: true,
       url,
     });
@@ -229,7 +229,7 @@ const platformFetchJson =
       await res.body?.cancel();
       return { ok: false, status: res.status };
     }
-    return { body: await readJsonBounded(res, "fal platform response"), ok: true };
+    return { body: await readJsonBounded(res, "media platform response"), ok: true };
   };
 
 /**
@@ -332,7 +332,7 @@ export const generateRouter = {
     const url = buildUrl(base, input.path, input.query);
     const headers = buildHeaders(apiKey, input.target, serialized);
 
-    const fetchLabel = `fal ${input.target} ${input.method} ${input.path}`;
+    const fetchLabel = `media ${input.target} ${input.method} ${input.path}`;
     const res = await fetchProviderResponse({
       credentialed: true,
       init: { body: serialized, headers, method: input.method },

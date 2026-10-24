@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readdir, readFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { describe, test } from "node:test";
 import type { JsonValue } from "@repo/contract/json";
 import type { ORPCContext } from "@repo/service/orpc";
@@ -246,23 +246,18 @@ describe("mcp endpoint", () => {
     assert.match(result.content[0]?.text ?? "", /prompt or an image_url/u);
   });
 
-  // The media tools run the defaults the model-catalog skill names, so an
-  // agent reading the skill and one calling the tool get the same model.
-  test("runs only models the model-catalog skill names", async () => {
-    const catalog = new URL(
-      "../../../../plugins/vibedgames/skills/model-catalog/",
-      import.meta.url,
+  // The media tools run exactly the defaults the model-catalog skill names,
+  // so an agent reading the skill and one calling the tool get the same model.
+  test("runs the defaults the model-catalog skill names", async () => {
+    const skill = await readFile(
+      new URL("../../../../plugins/vibedgames/skills/model-catalog/SKILL.md", import.meta.url),
+      "utf-8",
     );
-    const files = await readdir(catalog, { recursive: true });
-    const pages = await Promise.all(
-      files
-        .filter((file) => file.endsWith(".md"))
-        .map((file) => readFile(new URL(file, catalog), "utf-8")),
+    const table = skill.split("## Defaults")[1]?.split("\n## ")[0] ?? "";
+    const named = [...table.matchAll(/^\|[^|]+\|\s*`(?<id>[^`]+)`\s*\|$/gmu)].map(
+      (match) => match.groups?.id,
     );
-    const text = pages.join("\n");
-    for (const endpoint of Object.values(MEDIA_MODELS).flat()) {
-      assert.ok(text.includes(`\`${endpoint}\``), endpoint);
-    }
+    assert.deepStrictEqual(named.toSorted(), Object.values(MEDIA_MODELS).flat().toSorted());
   });
 
   // CLAUDE.md: end-user-facing surfaces keep the provider's brand out of

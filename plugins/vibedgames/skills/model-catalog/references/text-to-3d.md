@@ -1,9 +1,12 @@
 # Text-to-3D Endpoints
 
-Curated picks. Output is typically GLB / OBJ / PLY. **Meshy 6** and **Hunyuan 3D Pro** are the premium picks; **Tripo P1 / H3.1** offer alternatives. Verify with `vg generate models --endpoint_id <id> --json` before running.
+Curated picks. Output is typically GLB / OBJ / PLY. **Meshy 7.1** is the default (game-ready topology, low-poly mode, optional rigging); **Tripo P2** and **Hunyuan 3D Pro** are the alternatives. Verify with `vg generate models --endpoint_id <id> --json` before running.
 
 ## Premium
 
+- `meshy/v7.1/text-to-3d`: Meshy 7.1 (the default; `model_type: lowpoly` for games)
+- `tripo3d/p2/text-to-3d`: Tripo · P2
+- `meshy/v7/text-to-3d`: Meshy 7
 - `fal-ai/meshy/v6/text-to-3d`: Meshy 6
 - `fal-ai/meshy/v6-preview/text-to-3d`: Meshy 6 Preview
 - `fal-ai/hunyuan-3d/v3.1/pro/text-to-3d`: Tencent · Hunyuan 3D v3.1 Pro

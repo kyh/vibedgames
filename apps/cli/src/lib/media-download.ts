@@ -1,5 +1,6 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { isMediaUrl } from "@repo/contract/generate/media-hosts";
 
 import { isJsonObject, isJsonString } from "./types.js";
 import type { JsonValue } from "./types.js";
@@ -33,25 +34,6 @@ interface MediaRef {
   contentType: string | null;
 }
 
-const TRUSTED_HOST_SUFFIXES = [".fal.media", ".fal.run", ".fal.ai"] as const;
-const TRUSTED_HOSTS = new Set(["fal.media", "fal.run", "fal.ai"]);
-
-const isTrustedFalContentHost = (url: string): boolean => {
-  let parsed: URL;
-  try {
-    parsed = new URL(url);
-  } catch {
-    return false;
-  }
-  if (parsed.protocol !== "https:") {
-    return false;
-  }
-  const host = parsed.hostname.toLowerCase();
-  if (TRUSTED_HOSTS.has(host)) {
-    return true;
-  }
-  return TRUSTED_HOST_SUFFIXES.some((suffix) => host.endsWith(suffix));
-};
 const extFromUrl = (url: string): string => {
   try {
     const { pathname } = new URL(url);
@@ -87,7 +69,7 @@ const visit = (value: JsonValue, refs: MediaRef[], seen: Set<string>): void => {
     return;
   }
   const { url } = value;
-  if (isJsonString(url) && isTrustedFalContentHost(url) && !seen.has(url)) {
+  if (isJsonString(url) && isMediaUrl(url) && !seen.has(url)) {
     const contentType = isJsonString(value.content_type) ? value.content_type.toLowerCase() : null;
     const filenameField = isJsonString(value.file_name) ? sanitizeFilename(value.file_name) : null;
     const ext = filenameField
