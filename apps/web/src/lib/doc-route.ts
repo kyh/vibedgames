@@ -7,7 +7,9 @@ import {
   VARY,
 } from "@/lib/content-negotiation";
 import { docToMarkdown } from "@/lib/doc";
+import { pageImage } from "@/lib/og-media";
 import { siteConfig } from "@/lib/site-config";
+import { pageGraph } from "@/lib/structured-data";
 
 /**
  * Server GET handler for a page with a markdown representation.
@@ -51,7 +53,10 @@ export const canonicalUrl = (pathname: string) => {
 };
 
 /**
- * `<head>` tags for a prose page: title, description, Open Graph. The
+ * `<head>` tags for a prose page: title, description, Open Graph and Twitter
+ * (the page's own card where it has one, see `lib/og-media.ts`), and the
+ * page's JSON-LD node (`pageGraph`). They override the root route's site-wide
+ * defaults by name; the montage `og:video` stays the root's. The
  * `<link rel="canonical">` itself comes from the root route, which covers
  * every page — emitting one here too would give Doc pages two.
  */
@@ -60,6 +65,7 @@ export const docHead = (doc: Doc) => {
     ? doc.title
     : `${doc.title} — ${siteConfig.name}`;
   const canonical = canonicalUrl(doc.path);
+  const image = `${siteConfig.url}${pageImage(doc.path)}`;
   return {
     meta: [
       { title },
@@ -68,6 +74,13 @@ export const docHead = (doc: Doc) => {
       { content: doc.description, property: "og:description" },
       { content: canonical, property: "og:url" },
       { content: "website", property: "og:type" },
+      { content: image, property: "og:image" },
+      { content: title, property: "og:image:alt" },
+      { content: title, name: "twitter:title" },
+      { content: doc.description, name: "twitter:description" },
+      { content: image, name: "twitter:image" },
+      { content: title, name: "twitter:image:alt" },
+      { "script:ld+json": pageGraph(doc) },
     ],
   };
 };

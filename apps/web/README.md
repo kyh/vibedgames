@@ -84,6 +84,14 @@ Liveness check: `/auth/login` returns 200 — `/` answers 307 (it redirects to a
 featured game). Seeded logins and headless auth recipes:
 [AGENTS.md](../../AGENTS.md).
 
+Social previews (`public/og/`): `pnpm -F @repo/web og:video` re-captures the
+`og:video` montage — Starfall, Battle Arena and Lunerfall's own `?trailer=1`
+runs, frame-stepped on a virtual clock under each game's Vite dev server — and
+re-renders the per-page Open Graph cards from the pages' titles
+(`--only video|cards`, `--clips game:scene:fromMs,...`). It needs Chromium
+(Playwright) and ffmpeg, and is never part of `pnpm verify` or the build;
+`src/lib/og-media.ts` names every file it writes.
+
 ## Environment
 
 Worker secrets (`BETTER_AUTH_SECRET`, `R2_*`, `FAL_API_KEY`,

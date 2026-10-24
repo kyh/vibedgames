@@ -13,6 +13,7 @@ import {
 
 import { NotFoundPage } from "@/components/site/not-found";
 import { canonicalUrl, varyHeaders } from "@/lib/doc-route";
+import { SITE_IMAGE, siteVideo } from "@/lib/og-media";
 import { siteConfig } from "@/lib/site-config";
 import { serializeJsonLd, siteGraph } from "@/lib/structured-data";
 
@@ -45,18 +46,33 @@ export const Route = createRootRouteWithContext<RouterContext>()({
     meta: [
       { charSet: "utf-8" },
       { content: "width=device-width, initial-scale=1", name: "viewport" },
+      { content: "#000000", name: "theme-color" },
       { title: siteConfig.name },
       { content: siteConfig.description, name: "description" },
       { content: siteConfig.name, property: "og:site_name" },
+      { content: "en_US", property: "og:locale" },
       { content: siteConfig.name, property: "og:title" },
       { content: siteConfig.description, property: "og:description" },
-      { content: `${siteConfig.url}/og.jpg`, property: "og:image" },
+      { content: `${siteConfig.url}${SITE_IMAGE}`, property: "og:image" },
+      { content: "image/jpeg", property: "og:image:type" },
       { content: "1200", property: "og:image:width" },
       { content: "630", property: "og:image:height" },
       { content: siteConfig.name, property: "og:image:alt" },
+      // The gameplay montage, on every page: the image above stays the card,
+      // and players that show video loop this instead. See `lib/og-media.ts`.
+      { content: `${siteConfig.url}${siteVideo.path}`, property: "og:video" },
+      { content: `${siteConfig.url}${siteVideo.path}`, property: "og:video:url" },
+      { content: `${siteConfig.url}${siteVideo.path}`, property: "og:video:secure_url" },
+      { content: siteVideo.type, property: "og:video:type" },
+      { content: String(siteVideo.width), property: "og:video:width" },
+      { content: String(siteVideo.height), property: "og:video:height" },
       { content: "website", property: "og:type" },
       { content: "summary_large_image", name: "twitter:card" },
-      { content: `${siteConfig.url}/og.jpg`, name: "twitter:image" },
+      { content: siteConfig.name, name: "twitter:title" },
+      { content: siteConfig.description, name: "twitter:description" },
+      { content: `${siteConfig.url}${SITE_IMAGE}`, name: "twitter:image" },
+      { content: siteConfig.name, name: "twitter:image:alt" },
+      { content: siteConfig.twitter, name: "twitter:site" },
       { content: siteConfig.twitter, name: "twitter:creator" },
       { content: siteConfig.shortName, name: "apple-mobile-web-app-title" },
     ],

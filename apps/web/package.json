@@ -10,6 +10,7 @@
     "start": "vite preview",
     "clean": "rm -rf .cache .cloudflare .turbo .tanstack .wrangler dist node_modules",
     "deploy": "cf deploy",
+    "og:video": "tsx scripts/og-video.ts",
     "preview": "vite preview",
     "test": "node --import tsx --test \"src/**/*.test.ts\" \"test/*.test.ts\"",
     "typecheck": "cf workers types --include-runtime=false && tsc --noEmit",
