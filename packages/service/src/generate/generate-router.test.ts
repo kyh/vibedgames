@@ -152,6 +152,7 @@ const contextAs = (role: string): ORPCContext => ({
       updatedAt: now,
     },
   },
+  signing: undefined,
 });
 
 const realFetch = globalThis.fetch;

@@ -7,7 +7,7 @@
     ".": "./src/index.ts",
     "./auth/auth": "./src/auth/auth.ts",
     "./credits/stripe": "./src/credits/stripe.ts",
-    "./deploy/r2-presign": "./src/deploy/r2-presign.ts",
+    "./storage/signed-urls": "./src/storage/signed-urls.ts",
     "./generate/limits": "./src/generate/limits.ts",
     "./orpc": "./src/orpc.ts",
     "./playtest/decide-handler": "./src/playtest/decide-handler.ts"
@@ -24,7 +24,6 @@
     "@orpc/server": "catalog:",
     "@repo/contract": "workspace:^",
     "@repo/db": "workspace:^",
-    "aws4fetch": "^1.0.20",
     "better-auth": "1.7.2",
     "zod": "catalog:"
   },

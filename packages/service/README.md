@@ -11,7 +11,7 @@ The server half of the oRPC API: implements [`@repo/contract`](../contract) — 
 - [oRPC](https://orpc.unnoq.com) with [Zod](https://zod.dev)
 - [better-auth](https://better-auth.com) — config lives in `src/auth/auth.ts`
 - `@repo/db` for data access (Drizzle + D1)
-- `aws4fetch` for presigning R2 upload URLs (`src/deploy/r2-presign.ts`)
+- HMAC-signed `/api/upload` / `/api/download` URLs for R2 bytes (`src/storage/signed-urls.ts`)
 
 ## Credits
 

@@ -75,6 +75,7 @@ const contextWith =
       productionURL: undefined,
       r2: undefined,
       session,
+      signing: undefined,
     });
   };
 

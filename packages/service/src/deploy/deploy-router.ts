@@ -11,12 +11,12 @@ import {
 import { ORPCError } from "@orpc/server";
 import type { z } from "zod";
 
-import type { R2Config } from "../orpc";
+import type { R2Config, UrlSigning } from "../orpc";
 import { os, requireSession } from "../orpc";
 import type { DecodedFile } from "./inline-files";
 import { decodeInlineFiles, sha256Hex } from "./inline-files";
+import { deletePrefix, signDownloadUrl, signUploadUrl } from "../storage/signed-urls";
 import { sourceArchive } from "./source-archive";
-import { deletePrefix, presignGet, presignPut } from "./r2-presign";
 import { isSlugReserved } from "./reserved-slugs";
 
 /** R2 key for a deployment's forkable source archive. Lives OUTSIDE the
@@ -33,6 +33,15 @@ const requireR2 = (r2: R2Config | undefined): R2Config => {
     });
   }
   return r2;
+};
+
+const requireSigning = (signing: UrlSigning | undefined): UrlSigning => {
+  if (!signing) {
+    throw new ORPCError("INTERNAL_SERVER_ERROR", {
+      message: "Upload URLs are not configured on this worker.",
+    });
+  }
+  return signing;
 };
 
 /** Rejects a manifest with no root index.html, over budget, or duplicate paths; returns its total byte size. */
@@ -214,11 +223,11 @@ const writeUploadedFiles = async (
 
 /**
  * Records the files the caller sends itself at their declared size, and mints
- * a presigned PUT for each; publish checks the bytes arrived.
+ * a signed PUT for each; publish checks the bytes arrived.
  */
 const presignUploads = async (
   db: Db,
-  r2: R2Config,
+  signing: UrlSigning,
   { deploymentId, files, gameId }: { deploymentId: string; files: PresignedFile[]; gameId: string },
 ) => {
   const rows = files.map((f) => ({
@@ -234,7 +243,11 @@ const presignUploads = async (
     rows.map(async (row) => ({
       headers: { "content-type": row.contentType },
       path: row.path,
-      url: await presignPut({ contentType: row.contentType, key: row.r2Key, r2 }),
+      url: await signUploadUrl({
+        contentType: row.contentType,
+        signing,
+        target: { key: row.r2Key },
+      }),
     })),
   );
 };
@@ -370,6 +383,7 @@ export const deployRouter = {
    */
   create: authed.create.handler(async ({ context, input }) => {
     const r2 = requireR2(context.r2);
+    const signing = requireSigning(context.signing);
     const userId = context.session.user.id;
 
     // ---- Validate slug ------------------------------------------------------
@@ -428,10 +442,10 @@ export const deployRouter = {
       fileRows.map(async (row) => ({
         headers: { "content-type": row.contentType },
         path: row.path,
-        url: await presignPut({
+        url: await signUploadUrl({
           contentType: row.contentType,
-          key: row.r2Key,
-          r2,
+          signing,
+          target: { key: row.r2Key },
         }),
       })),
     );
@@ -440,7 +454,11 @@ export const deployRouter = {
     const sourceUpload = sourceKey
       ? {
           headers: { "content-type": "application/gzip" },
-          url: await presignPut({ contentType: "application/gzip", key: sourceKey, r2 }),
+          url: await signUploadUrl({
+            contentType: "application/gzip",
+            signing,
+            target: { key: sourceKey },
+          }),
         }
       : null;
 
@@ -519,7 +537,7 @@ export const deployRouter = {
    * NOT_FOUND if the slug has no deployment or that deployment shipped none.
    */
   getSource: authed.getSource.handler(async ({ context, input }) => {
-    const r2 = requireR2(context.r2);
+    const signing = requireSigning(context.signing);
 
     const g = await context.db.query.game.findFirst({
       where: { slug: input.slug },
@@ -543,7 +561,7 @@ export const deployRouter = {
       bytes: dep.sourceBytes ?? null,
       name: g.name,
       slug: g.slug,
-      url: await presignGet({ expiresInSeconds: 3600, key: dep.sourceKey, r2 }),
+      url: await signDownloadUrl({ key: dep.sourceKey, signing }),
     };
   }),
 
@@ -594,6 +612,7 @@ export const deployRouter = {
    */
   upload: authed.upload.handler(async ({ context, input }) => {
     const r2 = requireR2(context.r2);
+    const signing = requireSigning(context.signing);
     if (isSlugReserved(input.slug)) {
       throw new ORPCError("BAD_REQUEST", { message: `Slug "${input.slug}" is reserved.` });
     }
@@ -607,7 +626,7 @@ export const deployRouter = {
     const deploymentId = await stageDeployment(context.db, gameId, input.deploymentId);
     assertUploadBudget(await deploymentTotals(context.db, deploymentId), files, input.presign);
     await writeUploadedFiles(context.db, r2, { deploymentId, files, gameId });
-    const uploads = await presignUploads(context.db, r2, {
+    const uploads = await presignUploads(context.db, signing, {
       deploymentId,
       files: input.presign,
       gameId,

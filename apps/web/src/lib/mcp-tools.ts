@@ -3,6 +3,7 @@ import type { JsonValue } from "@repo/contract/json";
 import type { ORPCContext } from "@repo/service/orpc";
 import { endpointPath, queueAppId } from "@repo/contract/generate/queue-path";
 import { appRouter } from "@repo/service";
+import { signUploadUrl } from "@repo/service/storage/signed-urls";
 import type { McpToolMeta } from "@orpc/mcp";
 import { mcp } from "@orpc/mcp";
 import type { AnyProcedure } from "@orpc/server";
@@ -337,7 +338,7 @@ const generateTools = {
       mcp.tool({
         annotations: external,
         description:
-          "Opens an upload slot in generate's storage for a model input that takes a file's URL (a reference image, an audio clip to transform). PUT the file's bytes to `upload_url` with the `headers` given (e.g. `curl -T file.png -H 'Content-Type: image/png' \"$upload_url\"`), then pass `file_url` to the model. Nothing passes through this call, so any size works.",
+          "Opens an upload slot in generate's storage for a model input that takes a file's URL (a reference image, an audio clip to transform). PUT the file's bytes to `upload_url` (on this server, valid 15 minutes) with the `headers` given, e.g. `curl -T file.png -H 'Content-Type: image/png' \"$upload_url\"`, then pass `file_url` to the model.",
         name: "generate_upload",
         title: "Upload a model input",
       }),
@@ -360,11 +361,21 @@ const generateTools = {
       if (!uploadUrl?.startsWith("https://") || !fileUrl?.startsWith("https://")) {
         throw new ORPCError("BAD_GATEWAY", { message: "Storage returned no upload slot." });
       }
+      if (!context.signing) {
+        throw new ORPCError("INTERNAL_SERVER_ERROR", { message: "Uploads are not configured." });
+      }
+      // The agent PUTs to us and we forward to the slot, so its shell only
+      // ever needs to reach this host.
+      const upload = await signUploadUrl({
+        contentType: input.content_type,
+        signing: context.signing,
+        target: { url: uploadUrl },
+      });
       return {
         file_url: fileUrl,
         headers: { "Content-Type": input.content_type },
         method: "PUT",
-        upload_url: uploadUrl,
+        upload_url: upload,
       };
     }),
 };

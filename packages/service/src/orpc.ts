@@ -40,25 +40,19 @@ export interface R2BucketLike {
   ) => Promise<{ key: string } | null>;
 }
 
-/**
- * R2 credentials needed for minting S3 presigned URLs. The R2 *binding* can
- * read/write objects but cannot mint presigns; that requires an S3 API key.
- *
- * When `proxyUploadBaseUrl` is set (typically only in local dev), `presignPut`
- * returns an HMAC-signed URL that points back at the worker's own
- * `/api/r2-upload` endpoint instead of direct-to-R2. The worker then writes
- * via the `bucket` binding, so uploads land in whatever bucket the binding
- * resolves to (Miniflare-simulated locally, real R2 in prod). Keeps dev fully
- * isolated from prod R2.
- */
+/** The bucket that games and source archives live in, as the Worker binds it. */
 export interface R2Config {
   bucket: R2BucketLike;
-  bucketName: string;
-  accountId: string;
-  accessKeyId: string;
-  secretAccessKey: string;
-  proxyUploadBaseUrl?: string;
-  proxyUploadSecret?: string;
+}
+
+/**
+ * Mints the short-lived `/api/upload` and `/api/download` URLs that carry
+ * bytes through the web Worker (see storage/signed-urls.ts): the host they
+ * point at, and the secret they are signed with.
+ */
+export interface UrlSigning {
+  baseUrl: string;
+  secret: string;
 }
 
 /**
@@ -112,6 +106,7 @@ export interface CreateORPCContextOptions {
   auth: Auth;
   productionURL?: string;
   r2?: R2Config;
+  signing?: UrlSigning;
   media?: MediaProviderConfig;
   decision?: DecisionProviderConfig;
   billing?: BillingConfig;
@@ -135,6 +130,7 @@ export const createORPCContext = async (opts: CreateORPCContextOptions) => {
     productionURL: opts.productionURL,
     r2: opts.r2,
     session,
+    signing: opts.signing,
   };
 };
 
