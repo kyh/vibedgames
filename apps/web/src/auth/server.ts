@@ -47,7 +47,10 @@ export const getServerContext = () => {
   // URLs, signed with the auth secret, point back at this same host, so dev
   // lands in Miniflare, a Preview in its own bucket, and production in prod.
   const r2: R2Config | undefined = env.GAMES_BUCKET ? { bucket: env.GAMES_BUCKET } : undefined;
-  const signing: UrlSigning = { baseUrl, secret: env.BETTER_AUTH_SECRET };
+  // No secret, no URLs: an empty HMAC key is refused, and a guessable one would let anyone write.
+  const signing: UrlSigning | undefined = env.BETTER_AUTH_SECRET
+    ? { baseUrl, secret: env.BETTER_AUTH_SECRET }
+    : undefined;
 
   const media: MediaProviderConfig = {
     fal: env.FAL_API_KEY,

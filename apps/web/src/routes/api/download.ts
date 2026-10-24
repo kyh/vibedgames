@@ -11,6 +11,9 @@ import { jsonError } from "@/lib/json-error";
  */
 const handler = async (request: Request): Promise<Response> => {
   const { signing } = getServerContext();
+  if (!signing) {
+    return jsonError(503, "SERVICE_UNAVAILABLE", "downloads are not configured on this worker");
+  }
   const allowed = await verifyDownloadUrl(new URL(request.url).searchParams, signing.secret);
   if ("error" in allowed) {
     return jsonError(400, "BAD_REQUEST", allowed.error);

@@ -23,6 +23,9 @@ const badRequest = (message: string): Response => jsonError(400, "BAD_REQUEST", 
  */
 const handler = async (request: Request): Promise<Response> => {
   const { signing } = getServerContext();
+  if (!signing) {
+    return jsonError(503, "SERVICE_UNAVAILABLE", "uploads are not configured on this worker");
+  }
   const allowed = await verifyUploadUrl(new URL(request.url).searchParams, signing.secret);
   if ("error" in allowed) {
     return badRequest(allowed.error);
