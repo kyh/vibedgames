@@ -169,12 +169,17 @@ const uploadSourceArchive = async (
   }
 };
 
-const finalizeDeployment = async (
+/** Makes the staged deployment live; until now the previous one kept serving. */
+const publishDeployment = async (
   client: ReturnType<typeof createClient>,
-  deploymentId: string,
+  { deploymentId, slug }: { deploymentId: string; slug: string },
 ): Promise<{ url: string }> => {
   try {
-    return await client.deploy.finalize({ deploymentId });
+    const published = await client.deploy.upload({ deploymentId, publish: true, slug });
+    if (published.url === null) {
+      throw new Error("The deployment did not publish.");
+    }
+    return { url: published.url };
   } catch (error) {
     consola.error(error instanceof Error ? error.message : String(error));
     process.exit(1);
@@ -229,22 +234,22 @@ export const deployCommand = defineCommand({
     // ---- Pack forkable source (opt-in: source is a publish, --source) -------
     const sourceArchive = args.source ? await packForkableSource(dir, config.slug, say) : null;
 
-    // ---- Create deployment --------------------------------------------------
+    // ---- Stage a deployment beside the live one ------------------------------
     const client = createClient();
     const started = Date.now();
 
     let created;
     try {
-      created = await client.deploy.create({
-        files: manifest.map((f) => ({
+      created = await client.deploy.upload({
+        name: config.name,
+        presign: manifest.map((f) => ({
           contentType: f.contentType,
           path: f.path,
           sha256: f.sha256,
           size: f.size,
         })),
-        name: config.name,
         slug: config.slug,
-        source: sourceArchive
+        sourceArchive: sourceArchive
           ? { bytes: sourceArchive.bytes, sha256: sourceArchive.sha256 }
           : undefined,
       });
@@ -256,7 +261,7 @@ export const deployCommand = defineCommand({
       process.exit(1);
     }
 
-    // ---- Upload to R2 -------------------------------------------------------
+    // ---- Upload the files ---------------------------------------------------
     if (!structured) {
       consola.start(`Uploading ${created.uploads.length} files`);
     }
@@ -286,8 +291,11 @@ export const deployCommand = defineCommand({
       rmSync(sourceArchive.path, { force: true });
     }
 
-    // ---- Finalize -----------------------------------------------------------
-    const finalized = await finalizeDeployment(client, created.deploymentId);
+    // ---- Publish ------------------------------------------------------------
+    const published = await publishDeployment(client, {
+      deploymentId: created.deploymentId,
+      slug: config.slug,
+    });
 
     const elapsedMs = Date.now() - started;
     if (
@@ -301,7 +309,7 @@ export const deployCommand = defineCommand({
           source: sourceArchive
             ? { bytes: sourceArchive.bytes, files: sourceArchive.files.length }
             : null,
-          url: finalized.url,
+          url: published.url,
         },
         args,
       )
@@ -310,6 +318,6 @@ export const deployCommand = defineCommand({
     }
 
     consola.success(`Deployed ${config.slug} in ${(elapsedMs / 1000).toFixed(1)}s`);
-    consola.log(`  ${finalized.url}`);
+    consola.log(`  ${published.url}`);
   },
 });

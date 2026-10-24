@@ -252,6 +252,27 @@ const presignUploads = async (
   );
 };
 
+/** Records the caller's own source archive on the staged deployment and mints its signed PUT. */
+const presignSourceArchive = async (
+  db: Db,
+  signing: UrlSigning,
+  { bytes, deploymentId, gameId }: { bytes: number; deploymentId: string; gameId: string },
+) => {
+  const sourceKey = sourceKeyFor(gameId, deploymentId);
+  await db
+    .update(deployment)
+    .set({ sourceBytes: bytes, sourceKey })
+    .where(eq(deployment.id, deploymentId));
+  return {
+    headers: { "content-type": "application/gzip" },
+    url: await signUploadUrl({
+      contentType: "application/gzip",
+      signing,
+      target: { key: sourceKey },
+    }),
+  };
+};
+
 /** Refuses to publish while a recorded file is missing from R2 or not the size it was declared at. */
 const assertFilesStored = async (
   db: Db,
@@ -279,6 +300,21 @@ const assertFilesStored = async (
     const more = missing.length > shown.length ? ` and ${missing.length - shown.length} more` : "";
     throw new ORPCError("BAD_REQUEST", {
       message: `Not uploaded at its declared size: ${shown.join(", ")}${more}. PUT each to its URL from \`uploads\`; an expired URL is renewed by calling again with the file in \`presign\`.`,
+    });
+  }
+};
+
+/** Refuses to publish while a source archive the caller declared is missing or not its declared size. */
+const assertSourceStored = async (db: Db, r2: R2Config, deploymentId: string) => {
+  const staged = await db.query.deployment.findFirst({ where: { id: deploymentId } });
+  if (!staged?.sourceKey) {
+    return;
+  }
+  const object = await r2.bucket.head(staged.sourceKey);
+  if (object?.size !== staged.sourceBytes) {
+    throw new ORPCError("BAD_REQUEST", {
+      message:
+        "The source archive is not uploaded at its declared size. PUT it to `sourceUpload`; an expired URL is renewed by calling again with `sourceArchive`.",
     });
   }
 };
@@ -349,9 +385,9 @@ const publishDeployment = async (
     });
   }
   await assertFilesStored(db, r2, { deploymentId, gameId });
-  if (source) {
-    await writeSourceArchive(db, r2, { deploymentId, gameId });
-  }
+  await (source
+    ? writeSourceArchive(db, r2, { deploymentId, gameId })
+    : assertSourceStored(db, r2, deploymentId));
   await db.update(deployment).set({ status: "ready" }).where(eq(deployment.id, deploymentId));
   await db.update(game).set({ currentDeploymentId: deploymentId }).where(eq(game.id, gameId));
 
@@ -616,6 +652,11 @@ export const deployRouter = {
     if (isSlugReserved(input.slug)) {
       throw new ORPCError("BAD_REQUEST", { message: `Slug "${input.slug}" is reserved.` });
     }
+    if (input.source && input.sourceArchive) {
+      throw new ORPCError("BAD_REQUEST", {
+        message: "Give `source: true` or a `sourceArchive`, not both.",
+      });
+    }
     const files = await decodeInlineFiles(input.files);
     assertDistinctPaths(files, input.presign);
     const { id: gameId } = await claimGame(context.db, context.session.user.id, {
@@ -631,6 +672,13 @@ export const deployRouter = {
       files: input.presign,
       gameId,
     });
+    const sourceUpload = input.sourceArchive
+      ? await presignSourceArchive(context.db, signing, {
+          bytes: input.sourceArchive.bytes,
+          deploymentId,
+          gameId,
+        })
+      : null;
 
     const totals = await deploymentTotals(context.db, deploymentId);
     await context.db
@@ -641,6 +689,7 @@ export const deployRouter = {
       deploymentId,
       fileCount: totals.files,
       gameId,
+      sourceUpload,
       totalBytes: totals.bytes,
       uploads,
     };

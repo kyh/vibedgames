@@ -98,4 +98,15 @@ export const uploadInput = z.object({
   slug: slugSchema,
   /** On publish, also keep the deployment's files as its forkable source. */
   source: z.boolean().default(false),
+  /**
+   * A forkable source archive (tar.gz) the caller PUTs itself, to the
+   * `sourceUpload` URL this call returns: what `vg deploy --source` packs from
+   * the project rather than the built files `source` keeps.
+   */
+  sourceArchive: z
+    .object({
+      bytes: z.number().int().positive().max(MAX_SOURCE_SIZE),
+      sha256: z.string().length(64),
+    })
+    .optional(),
 });
