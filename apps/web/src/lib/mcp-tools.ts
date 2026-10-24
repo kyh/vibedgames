@@ -22,10 +22,12 @@ import { z } from "zod";
  * `playtest run`, which drives a local browser.
  */
 
-/** A skill as `/.well-known/agent-skills` serves it. */
+/** A skill as `agent-skills.ts` bundles it: its SKILL.md, frontmatter and other files. */
 export interface Skill {
   content: string;
   description: string;
+  files: readonly { content: string; path: string }[];
+  frontmatter: { readonly [key: string]: string | { readonly [key: string]: string } };
   name: string;
 }
 
@@ -335,14 +337,13 @@ const generateTools = {
       mcp.tool({
         annotations: external,
         description:
-          "Uploads a file (base64) to generate's storage and returns a stable URL, for a model input that takes one (a reference image, an audio clip to transform).",
+          "Opens an upload slot in generate's storage for a model input that takes a file's URL (a reference image, an audio clip to transform). PUT the file's bytes to `upload_url` with the `headers` given (e.g. `curl -T file.png -H 'Content-Type: image/png' \"$upload_url\"`), then pass `file_url` to the model. Nothing passes through this call, so any size works.",
         name: "generate_upload",
         title: "Upload a model input",
       }),
     )
     .input(
       z.object({
-        content: z.base64().describe("The file, base64-encoded"),
         content_type: z.string().min(1).max(127).describe("e.g. image/png"),
         file_name: z.string().min(1).max(255),
       }),
@@ -359,23 +360,12 @@ const generateTools = {
       if (!uploadUrl?.startsWith("https://") || !fileUrl?.startsWith("https://")) {
         throw new ORPCError("BAD_GATEWAY", { message: "Storage returned no upload slot." });
       }
-      let response: Response;
-      try {
-        response = await fetch(uploadUrl, {
-          body: Uint8Array.from(atob(input.content), (char) => char.codePointAt(0) ?? 0),
-          headers: { "Content-Type": input.content_type },
-          method: "PUT",
-        });
-      } catch (error) {
-        throw new ORPCError("BAD_GATEWAY", {
-          cause: error,
-          message: "Storage could not be reached.",
-        });
-      }
-      if (!response.ok) {
-        throw new ORPCError("BAD_GATEWAY", { message: `Upload failed: ${response.status}.` });
-      }
-      return { url: fileUrl };
+      return {
+        file_url: fileUrl,
+        headers: { "Content-Type": input.content_type },
+        method: "PUT",
+        upload_url: uploadUrl,
+      };
     }),
 };
 
@@ -775,6 +765,6 @@ export const tools = {
           message: `No skill "${input.name}". Call skills without a name to list them.`,
         });
       }
-      return skill;
+      return { content: skill.content, description: skill.description, name: skill.name };
     }),
 };

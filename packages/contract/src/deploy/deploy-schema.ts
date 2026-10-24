@@ -77,11 +77,24 @@ const inlineFileSchema = z.object({
 
 export type InlineFile = z.infer<typeof inlineFileSchema>;
 
+/**
+ * A file of a `deploy.upload` call too large to carry in it: the call answers
+ * with a presigned PUT URL for it, and publish refuses until its bytes are
+ * there at the declared size.
+ */
+const presignedFileSchema = fileSchema.extend({
+  contentType: fileSchema.shape.contentType.optional(),
+});
+
+export type PresignedFile = z.infer<typeof presignedFileSchema>;
+
 export const uploadInput = z.object({
   /** Continue a staged deployment this call's earlier upload returned; omit to start one. */
   deploymentId: z.string().optional(),
   files: z.array(inlineFileSchema).max(MAX_FILE_COUNT).default([]),
   name: z.string().max(120).optional(),
+  /** Files the caller PUTs itself, to the URLs this call returns. */
+  presign: z.array(presignedFileSchema).max(MAX_FILE_COUNT).default([]),
   /** Make the staged deployment live once these files are in. */
   publish: z.boolean().default(false),
   slug: slugSchema,

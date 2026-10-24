@@ -1,6 +1,7 @@
 import { and, count, eq, inArray, sql, sum } from "@repo/db";
 import { deployment, deploymentFile, game } from "@repo/db/drizzle-schema";
-import type { fileSchema } from "@repo/contract/deploy/deploy-schema";
+import type { fileSchema, PresignedFile } from "@repo/contract/deploy/deploy-schema";
+import { contentTypeForPath } from "@repo/contract/deploy/content-types";
 import type { Db } from "@repo/db/drizzle-client";
 import {
   MAX_FILE_COUNT,
@@ -134,18 +135,57 @@ const deploymentTotals = async (db: Db, deploymentId: string) => {
   return { bytes: Number(row?.bytes ?? 0), files: row?.files ?? 0 };
 };
 
-/** Counted before anything is written. A replaced path counts twice, which only errs towards refusing. */
-const assertUploadBudget = (staged: { bytes: number; files: number }, files: DecodedFile[]) => {
-  const incoming = files.reduce((acc, f) => acc + f.bytes.byteLength, 0);
+/** One call's paths, inline and presigned together: within a call there is no telling which copy was meant. */
+const assertDistinctPaths = (files: DecodedFile[], presign: PresignedFile[]) => {
+  const seen = new Set(files.map((f) => f.path));
+  for (const f of presign) {
+    if (seen.has(f.path)) {
+      throw new ORPCError("BAD_REQUEST", { message: `Duplicate path "${f.path}" in upload.` });
+    }
+    seen.add(f.path);
+  }
+};
+
+/**
+ * Counted before anything is written, presigned files at their declared size.
+ * A replaced path counts twice, which only errs towards refusing.
+ */
+const assertUploadBudget = (
+  staged: { bytes: number; files: number },
+  files: DecodedFile[],
+  presign: PresignedFile[],
+) => {
+  const incoming =
+    files.reduce((acc, f) => acc + f.bytes.byteLength, 0) +
+    presign.reduce((acc, f) => acc + f.size, 0);
   if (staged.bytes + incoming > MAX_TOTAL_SIZE) {
     throw new ORPCError("BAD_REQUEST", {
       message: `Deployment would exceed the ${MAX_TOTAL_SIZE}-byte limit.`,
     });
   }
-  if (staged.files + files.length > MAX_FILE_COUNT) {
+  if (staged.files + files.length + presign.length > MAX_FILE_COUNT) {
     throw new ORPCError("BAD_REQUEST", {
       message: `Deployment would exceed ${MAX_FILE_COUNT} files.`,
     });
+  }
+};
+
+type FileRow = typeof deploymentFile.$inferInsert;
+
+/** Inserts a call's file rows; a path uploaded again replaces its row. */
+const upsertFileRows = async (db: Db, rows: FileRow[]) => {
+  for (let i = 0; i < rows.length; i += INSERT_BATCH_SIZE) {
+    await db
+      .insert(deploymentFile)
+      .values(rows.slice(i, i + INSERT_BATCH_SIZE))
+      .onConflictDoUpdate({
+        set: {
+          contentType: sql`excluded.content_type`,
+          sha256: sql`excluded.sha256`,
+          size: sql`excluded.size`,
+        },
+        target: [deploymentFile.deploymentId, deploymentFile.path],
+      });
   }
 };
 
@@ -169,18 +209,64 @@ const writeUploadedFiles = async (
       };
     }),
   );
-  for (let i = 0; i < rows.length; i += INSERT_BATCH_SIZE) {
-    await db
-      .insert(deploymentFile)
-      .values(rows.slice(i, i + INSERT_BATCH_SIZE))
-      .onConflictDoUpdate({
-        set: {
-          contentType: sql`excluded.content_type`,
-          sha256: sql`excluded.sha256`,
-          size: sql`excluded.size`,
-        },
-        target: [deploymentFile.deploymentId, deploymentFile.path],
-      });
+  await upsertFileRows(db, rows);
+};
+
+/**
+ * Records the files the caller sends itself at their declared size, and mints
+ * a presigned PUT for each; publish checks the bytes arrived.
+ */
+const presignUploads = async (
+  db: Db,
+  r2: R2Config,
+  { deploymentId, files, gameId }: { deploymentId: string; files: PresignedFile[]; gameId: string },
+) => {
+  const rows = files.map((f) => ({
+    contentType: f.contentType ?? contentTypeForPath(f.path),
+    deploymentId,
+    path: f.path,
+    r2Key: `games/${gameId}/${deploymentId}/${f.path}`,
+    sha256: f.sha256,
+    size: f.size,
+  }));
+  await upsertFileRows(db, rows);
+  return Promise.all(
+    rows.map(async (row) => ({
+      headers: { "content-type": row.contentType },
+      path: row.path,
+      url: await presignPut({ contentType: row.contentType, key: row.r2Key, r2 }),
+    })),
+  );
+};
+
+/** Refuses to publish while a recorded file is missing from R2 or not the size it was declared at. */
+const assertFilesStored = async (
+  db: Db,
+  r2: R2Config,
+  { deploymentId, gameId }: { deploymentId: string; gameId: string },
+) => {
+  const stored = new Map<string, number>();
+  let cursor: string | undefined;
+  do {
+    const listed = await r2.bucket.list({
+      cursor,
+      limit: 1000,
+      prefix: `games/${gameId}/${deploymentId}/`,
+    });
+    for (const object of listed.objects) {
+      stored.set(object.key, object.size);
+    }
+    cursor = listed.truncated ? listed.cursor : undefined;
+  } while (cursor !== undefined);
+
+  const rows = await db.query.deploymentFile.findMany({ where: { deploymentId } });
+  const missing = rows.filter((row) => stored.get(row.r2Key) !== row.size).map((row) => row.path);
+  if (missing.length > 0) {
+    const shown = missing.slice(0, 10).map((path) => `"${path}"`);
+    const more = missing.length > shown.length ? ` and ${missing.length - shown.length} more` : "";
+    throw new ORPCError("BAD_REQUEST", {
+      message: `Not uploaded at its declared size: ${shown.join(", ")}${more}. PUT each to its URL from \`uploads\`; an expired URL is renewed by calling again with the file in \`presign\`.`,
+    });
   }
 };
 
@@ -249,6 +335,7 @@ const publishDeployment = async (
       message: "Deployment must contain index.html at the root before it can publish.",
     });
   }
+  await assertFilesStored(db, r2, { deploymentId, gameId });
   if (source) {
     await writeSourceArchive(db, r2, { deploymentId, gameId });
   }
@@ -511,21 +598,33 @@ export const deployRouter = {
       throw new ORPCError("BAD_REQUEST", { message: `Slug "${input.slug}" is reserved.` });
     }
     const files = await decodeInlineFiles(input.files);
+    assertDistinctPaths(files, input.presign);
     const { id: gameId } = await claimGame(context.db, context.session.user.id, {
       create: input.deploymentId === undefined,
       name: input.name,
       slug: input.slug,
     });
     const deploymentId = await stageDeployment(context.db, gameId, input.deploymentId);
-    assertUploadBudget(await deploymentTotals(context.db, deploymentId), files);
+    assertUploadBudget(await deploymentTotals(context.db, deploymentId), files, input.presign);
     await writeUploadedFiles(context.db, r2, { deploymentId, files, gameId });
+    const uploads = await presignUploads(context.db, r2, {
+      deploymentId,
+      files: input.presign,
+      gameId,
+    });
 
     const totals = await deploymentTotals(context.db, deploymentId);
     await context.db
       .update(deployment)
       .set({ fileCount: totals.files, totalBytes: totals.bytes })
       .where(eq(deployment.id, deploymentId));
-    const summary = { deploymentId, fileCount: totals.files, gameId, totalBytes: totals.bytes };
+    const summary = {
+      deploymentId,
+      fileCount: totals.files,
+      gameId,
+      totalBytes: totals.bytes,
+      uploads,
+    };
     if (!input.publish) {
       return { ...summary, published: false, url: null };
     }

@@ -26,7 +26,7 @@ export interface R2BucketLike {
     httpMetadata?: { contentType?: string };
   } | null>;
   list: (options: { prefix?: string; cursor?: string; limit?: number }) => Promise<{
-    objects: { key: string }[];
+    objects: { key: string; size: number }[];
     truncated: boolean;
     cursor?: string;
   }>;
