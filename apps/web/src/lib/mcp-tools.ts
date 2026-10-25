@@ -14,8 +14,8 @@ import { z } from "zod";
  * named for its command: the command path with `_` for spaces (`vg deploy` is
  * `deploy`, `vg deployments delete` is `deployments_delete`; `vg generate run`
  * is plain `generate`), so an agent that knows one
- * knows the other. The asset tools (`generate_image`, …) and `skills` have no
- * command of their own. Most are the API's
+ * knows the other. Only the asset tools (`generate_image`, …) have no command
+ * of their own. Most are the API's
  * own procedures; the `generate_*` family is `vg generate`'s subcommands over
  * `generate.forward`, called through `call()` so its session check, input
  * rules and credit ledger run exactly as for the CLI; `skills` reads the

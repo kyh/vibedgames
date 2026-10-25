@@ -48,6 +48,7 @@ const main = defineCommand({
         },
       });
     },
+    skills: lazy(() => import("./commands/skills.js"), "skillsCommand"),
     update: lazy(() => import("./commands/update.js"), "updateCommand"),
     whoami: lazy(() => import("./commands/whoami.js"), "whoamiCommand"),
   },

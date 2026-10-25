@@ -47,6 +47,7 @@ export const docsDoc: Doc = {
             "vg deploy [dir]          # ship a built game to {slug}.vibedgames.com",
             "vg deployments           # your games; `delete <slug> --yes` removes one",
             "vg fork <slug> [target]  # fork another project's shipped source",
+            "vg skills [name]         # list the game-studio skills, or print one",
             "vg credits               # generation credit balance and recent usage",
             "vg playtest <url>        # drive a real browser against a game",
             "",

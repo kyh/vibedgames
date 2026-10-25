@@ -31,6 +31,7 @@ vg whoami             # show current user
 vg deploy [dir]       # deploy a game directory (reads vibedgames.json or --slug)
 vg deployments [delete <slug> --yes]  # list your games, or delete one
 vg fork <slug> [target]  # fork a project's shipped source under a new slug
+vg skills [name]      # list the game-studio skills, or print one's SKILL.md
 vg credits            # credit balance + recent usage
 vg factory [args…]    # autonomous game agent (optional plugin, installs on first use)
 vg completions <bash|zsh|fish>   # print shell completions

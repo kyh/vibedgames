@@ -192,6 +192,7 @@ describe("mcp endpoint", () => {
         "generate_schema",
         "generate_status",
         "generate_upload",
+        "skills",
         "whoami",
         // no command of their own
         "generate_3d",
@@ -201,7 +202,6 @@ describe("mcp endpoint", () => {
         "generate_speech",
         "generate_video",
         "remove_background",
-        "skills",
       ].toSorted(),
     );
   });
