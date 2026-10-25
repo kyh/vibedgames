@@ -171,44 +171,49 @@ describe("mcp endpoint", () => {
     assert.match(result.instructions, /Authorization: Bearer vg_/u);
   });
 
-  test("lists one tool per vg command that reaches the server", async () => {
+  test("names each tool for its vg command, spaces as underscores", async () => {
     const tools = await listTools();
     const names = tools.map((tool) => tool.name).toSorted();
-    assert.deepStrictEqual(names, [
-      "credits",
-      "credits_buy",
-      "credits_redeem",
-      "deployments",
-      "deployments_delete",
-      "deployments_upload",
-      "fork",
-      "generate",
-      "generate_3d",
-      "generate_docs",
-      "generate_image",
-      "generate_models",
-      "generate_music",
-      "generate_pricing",
-      "generate_schema",
-      "generate_sound",
-      "generate_speech",
-      "generate_status",
-      "generate_upload",
-      "generate_video",
-      "me",
-      "remove_background",
-      "skills",
-    ]);
+    assert.deepStrictEqual(
+      names,
+      [
+        // `vg <command>`, spaces as `_`
+        "credits",
+        "credits_buy",
+        "credits_redeem",
+        "deploy",
+        "deployments",
+        "deployments_delete",
+        "fork",
+        "generate_docs",
+        "generate_models",
+        "generate_pricing",
+        "generate_run",
+        "generate_schema",
+        "generate_status",
+        "generate_upload",
+        "whoami",
+        // no command of their own
+        "generate_3d",
+        "generate_image",
+        "generate_music",
+        "generate_sound",
+        "generate_speech",
+        "generate_video",
+        "remove_background",
+        "skills",
+      ].toSorted(),
+    );
   });
 
   test("marks reads read-only and the delete destructive", async () => {
     const tools = await listTools();
     const byName = new Map(tools.map((tool) => [tool.name, tool]));
-    for (const name of ["me", "credits", "deployments", "fork", "skills", "generate_models"]) {
+    for (const name of ["whoami", "credits", "deployments", "fork", "skills", "generate_models"]) {
       assert.strictEqual(byName.get(name)?.annotations?.readOnlyHint, true, name);
     }
     assert.strictEqual(byName.get("deployments_delete")?.annotations?.destructiveHint, true);
-    for (const name of ["generate", "generate_image", "deployments_upload", "credits_redeem"]) {
+    for (const name of ["generate_run", "generate_image", "deploy", "credits_redeem"]) {
       assert.strictEqual(byName.get(name)?.annotations?.readOnlyHint, false, name);
     }
   });
@@ -305,7 +310,7 @@ describe("mcp endpoint", () => {
   test("refuses an anonymous generate before anything is submitted", async () => {
     const { body } = await rpc("tools/call", {
       arguments: { endpoint_id: "fal-ai/flux/dev", input: { prompt: "a cat" } },
-      name: "generate",
+      name: "generate_run",
     });
     const { result } = callResult.parse(body);
     assert.strictEqual(result.isError, true);
@@ -366,7 +371,11 @@ describe("mcp endpoint", () => {
   });
 
   test("runs a signed-in call through the procedure", async () => {
-    const { body } = await rpc("tools/call", { arguments: {}, name: "me" }, { session: signedIn });
+    const { body } = await rpc(
+      "tools/call",
+      { arguments: {}, name: "whoami" },
+      { session: signedIn },
+    );
     const { result } = callResult.parse(body);
     assert.notStrictEqual(result.isError, true);
     assert.deepStrictEqual(result.structuredContent, {
