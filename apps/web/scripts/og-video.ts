@@ -4,15 +4,18 @@
 //   pnpm -F @repo/web og:video --only video
 //   pnpm -F @repo/web og:video --only cards
 //
-// The trailer is a built scene, not gameplay: scripts/og-scene.html is a
-// dimensional drawing of the mark and its tagline, with six game genres
-// measured as wireframes around it. It is opened from disk, never routed or
-// shipped. This script hands it the mark's polygon from
-// public/favicon/favicon.svg (`window.__setMark`), then steps
-// `window.__render(ms)` one 30fps frame at a time at device pixel ratio 2 and
-// screenshots each, so the cut is identical every run however slowly the
-// machine draws. ffmpeg scales the frames down into a 1200x630 H.264 loop at
-// apps/web/public/og/og.mp4 and writes the poster from the full-sheet frame.
+// The trailer is a built scene, not gameplay: scripts/og-scene.html is one
+// continuous wireframe shot in which a single hero travels through five kinds
+// of game — platformer, bomberman grid, paddle court, 3D arena, falling-block
+// well — each re-forming into the next, then folds back into the icon over its
+// tagline. It is opened from disk, never routed or shipped. This script hands
+// it the icon's polygon from public/favicon/favicon.svg (`window.__setMark`),
+// then steps `window.__render(ms)` one 30fps frame at a time at device pixel
+// ratio 2 and screenshots each, so the cut is identical every run however
+// slowly the machine draws. ffmpeg scales the frames down into a 1200x630
+// H.264 loop at apps/web/public/og/og.mp4. The scene's `window.__still()`
+// draws the site's og:image (public/og.jpg, the icon and tagline over the
+// clip's arena), which is also the trailer's poster.
 //
 // The cards are one 1200x630 JPEG per prose page (lib/og-media.ts), drawn from
 // the page's own title and description over the site's logo, background and
@@ -36,7 +39,7 @@ import { discoverDoc } from "@/content/discover";
 import { docsDoc } from "@/content/docs";
 import { privacyDoc } from "@/content/privacy";
 import { termsDoc } from "@/content/terms";
-import { PAGE_CARD_PATHS, pageImage, siteVideo } from "@/lib/og-media";
+import { PAGE_CARD_PATHS, SITE_IMAGE, pageImage, siteVideo } from "@/lib/og-media";
 import { siteConfig } from "@/lib/site-config";
 
 const exec = promisify(execFile);
@@ -48,8 +51,6 @@ const FPS = 30;
 const WIDTH = siteVideo.width;
 const HEIGHT = siteVideo.height;
 const SCENE = path.join(WEB, "scripts/og-scene.html");
-/** The poster frame: the full sheet, every drawing in, held before it clears. */
-const POSTER_MS = 8300;
 /** Frames are drawn at twice the size and scaled down, so hairlines stay crisp. */
 const SCALE = 2;
 
@@ -137,7 +138,7 @@ const ffprobe = async (file: string) => {
   return stdout.trim().replaceAll("\n", " ");
 };
 
-/** The mark's polygon, read from the favicon so the drawing never drifts from the logo. */
+/** The icon's polygon, read from the favicon so the clip never drifts from the logo. */
 const markPoints = (): [number, number][] => {
   const svg = readFileSync(path.join(PUBLIC, "favicon/favicon.svg"), "utf-8");
   const points = /<polygon[^>]*points="(?<points>[^"]+)"/u.exec(svg)?.groups?.points;
@@ -216,18 +217,24 @@ const captureVideo = async (browser: Browser) => {
       "+faststart",
       out,
     ]);
-    await exec("ffmpeg", [
-      "-y",
-      "-loglevel",
-      "error",
-      "-i",
-      path.join(scratch, frameName(Math.round((POSTER_MS / 1000) * FPS))),
-      "-vf",
-      `scale=${WIDTH}:${HEIGHT}:flags=lanczos`,
-      "-q:v",
-      "3",
-      path.join(PUBLIC, siteVideo.poster),
-    ]);
+    // The og:image and poster: one still, drawn by the scene at full size.
+    const still = path.join(scratch, "still.png");
+    await page.evaluate("window.__still()");
+    await page.screenshot({ path: still, type: "png" });
+    for (const image of [SITE_IMAGE, siteVideo.poster]) {
+      await exec("ffmpeg", [
+        "-y",
+        "-loglevel",
+        "error",
+        "-i",
+        still,
+        "-vf",
+        `scale=${WIDTH}:${HEIGHT}:flags=lanczos`,
+        "-q:v",
+        "3",
+        path.join(PUBLIC, image),
+      ]);
+    }
     const { size } = await stat(out);
     console.log(`og-video: ${path.relative(ROOT, out)} — ${await ffprobe(out)}`);
     if (size > 2.5 * 1024 * 1024) {

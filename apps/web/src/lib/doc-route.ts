@@ -7,7 +7,7 @@ import {
   VARY,
 } from "@/lib/content-negotiation";
 import { docToMarkdown } from "@/lib/doc";
-import { pageImage } from "@/lib/og-media";
+import { pageImage, pageImageAlt } from "@/lib/og-media";
 import { siteConfig } from "@/lib/site-config";
 import { pageGraph } from "@/lib/structured-data";
 
@@ -66,6 +66,7 @@ export const docHead = (doc: Doc) => {
     : `${doc.title} — ${siteConfig.name}`;
   const canonical = canonicalUrl(doc.path);
   const image = `${siteConfig.url}${pageImage(doc.path)}`;
+  const imageAlt = pageImageAlt(doc.path, title);
   return {
     meta: [
       { title },
@@ -75,11 +76,11 @@ export const docHead = (doc: Doc) => {
       { content: canonical, property: "og:url" },
       { content: "website", property: "og:type" },
       { content: image, property: "og:image" },
-      { content: title, property: "og:image:alt" },
+      { content: imageAlt, property: "og:image:alt" },
       { content: title, name: "twitter:title" },
       { content: doc.description, name: "twitter:description" },
       { content: image, name: "twitter:image" },
-      { content: title, name: "twitter:image:alt" },
+      { content: imageAlt, name: "twitter:image:alt" },
       { "script:ld+json": pageGraph(doc) },
     ],
   };

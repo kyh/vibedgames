@@ -1,1081 +1,787 @@
 <!doctype html>
 <!--
-  The og:video scene: the Vibedgames mark drawn as the subject of a
-  dimensional drawing, its tagline under it, with six kinds of game measured
-  the same way around it: a platformer, a bomberman grid, a paddle court, a
-  top-down shooter, a 3D arena in isometric and a falling-block well. Many
-  genres, one platform.
+  The og:video scene: one continuous wireframe shot. A single hero (a little
+  square with eyes, the one accent colour) travels through five kinds of game,
+  and each game re-forms into the next instead of cutting:
 
-  Ten seconds, looping: on a sheet that holds only the mark and its tagline,
-  the pen draws the mark's construction and dimensions while the camera pushes
-  in, pulls back as the games draw around it, visits the platformer while its
-  layers (background, tiles, sprites, HUD) lift into an exploded view and
-  settle, holds on the full sheet, then clears back to the mark alone, so the
-  last frame is the first.
+    the Vibedgames icon folds into the hero, who lands on a platformer floor
+    and hops up three ledges · the tiles slide into a bomberman grid as the
+    hero drops in top-down, sets a bomb and runs · the grid's walls stretch
+    into a paddle court and the hero shrinks into the ball · the court tilts
+    back into a 3D arena and the hero becomes a cube running through it · the
+    camera pitches back to top-down, the floor narrows into a falling-block
+    well and the hero drops in as the last block · everything collapses into
+    the icon, with its tagline under it, held, and the first frame is the last.
 
-  The games are wireframes of architecture (tiles, spawns, sprites, a fixed
-  HUD), not screenshots, so the clip stays evergreen as the catalogue changes.
-  Never served: scripts/og-video.ts opens it from disk, hands it the mark's
+  Every game is one list of boxes in a shared plane (x across, z down the
+  screen when seen from above), so a transition is geometry, not a crossfade:
+  each box is paired with its nearest box in the next game and its position,
+  size and corner radius are interpolated; boxes with nowhere to go merge, and
+  new ones split off their nearest neighbour. The 3D arena is the same plane
+  seen through a perspective camera, and `k` eases the projection between the
+  two, so the court really tilts.
+
+  Never served: scripts/og-video.ts opens it from disk, hands it the icon's
   polygon from public/favicon/favicon.svg (`__setMark`), then calls
   `__render(ms)` once per frame; every value below is a pure function of `t`.
-
-  Style, drawing kit and motion grammar (draw-on strokes, ticking labels,
-  exploded-layer matrix morph) follow enesozturk/dimensional-drawing
-  (https://github.com/enesozturk/dimensional-drawing, MIT, (c) 2026 Enes
-  Ozturk): monochrome grays told apart by line weight, dashes and hatches;
-  slots instead of content; variables instead of numbers. Lettering is the web
-  app's VG5000 (src/styles/vg5000.woff2).
+  Colours are the web app's @repo/ui dark tokens, the backdrop its
+  public/bg.webp, the lettering its VG5000 (src/styles/vg5000.woff2).
 -->
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>Vibedgames dimensional drawing</title>
+    <title>Vibedgames trailer scene</title>
     <style>
       @font-face {
         font-family: "VG5000";
         src: url("../src/styles/vg5000.woff2") format("woff2");
       }
-      :root {
-        color-scheme: light;
-        --paper: #f5f4f0;
-        --ink: #1c1c1c;
-        --gray: #6e6e6b;
-        --line: #8a8a86;
-        --fill: #e6e5e0;
-        --well: #ecebe6;
+      * {
+        margin: 0;
+        box-sizing: border-box;
       }
       html,
       body {
-        margin: 0;
         width: 1200px;
         height: 630px;
         overflow: hidden;
-        background: var(--paper);
       }
-      svg {
-        position: absolute;
-        inset: 0;
-        font-family: "VG5000", ui-monospace, monospace;
-        --u: 1;
+      body {
+        /* --background, with the site's own dot texture over it. */
+        background: #09090b url(../public/bg.webp);
+        background-size: 10px;
       }
-      text {
-        text-transform: uppercase;
-      }
-      .border {
-        fill: none;
-        stroke: var(--ink);
-        stroke-width: 1.6;
-      }
-      .obj {
-        fill: var(--paper);
-        stroke: var(--ink);
-        stroke-width: calc(2.4px * var(--u));
-        stroke-linejoin: round;
-      }
-      .wall {
-        fill: none;
-        stroke: var(--ink);
-        stroke-width: calc(2.4px * var(--u));
-        stroke-linejoin: round;
-      }
-      .well {
-        fill: var(--well);
-        stroke: var(--ink);
-        stroke-width: calc(1.3px * var(--u));
-      }
-      .hug {
-        fill: var(--fill);
-        stroke: var(--ink);
-        stroke-width: calc(1.3px * var(--u));
-      }
-      .solid {
-        fill: var(--ink);
-        stroke: var(--ink);
-        stroke-width: calc(1px * var(--u));
-      }
-      .slot {
-        fill: none;
-        stroke: var(--line);
-        stroke-width: calc(1.1px * var(--u));
-        stroke-dasharray: calc(5px * var(--u)) calc(3.5px * var(--u));
-      }
-      .grid {
-        fill: none;
-        stroke: var(--line);
-        stroke-width: calc(0.7px * var(--u));
-      }
-      .bgl {
-        fill: none;
-        stroke: var(--gray);
-        stroke-width: calc(1.2px * var(--u));
-      }
-      .thin {
-        fill: none;
-        stroke: var(--ink);
-        stroke-width: calc(1.3px * var(--u));
-      }
-      .ph {
-        fill: none;
-        stroke: var(--line);
-        stroke-width: calc(1px * var(--u));
-        stroke-dasharray: calc(14px * var(--u)) calc(3px * var(--u)) calc(3px * var(--u))
-          calc(3px * var(--u));
-      }
-      .cl {
-        fill: none;
-        stroke: var(--line);
-        stroke-width: 1;
-        stroke-dasharray: 18 4 3 4;
-      }
-      .con {
-        fill: none;
-        stroke: var(--ink);
-        stroke-width: 1.1;
-      }
-      .dl,
-      .lead {
-        fill: none;
-        stroke: var(--ink);
-        stroke-width: 1.2;
-      }
-      .ext {
-        fill: none;
-        stroke: var(--ink);
-        stroke-width: 0.95;
-      }
-      .arrow,
-      .dot {
-        fill: var(--ink);
-      }
-      .hl {
-        stroke: var(--line);
-        stroke-width: 1;
-      }
-      .hs {
-        stroke: var(--ink);
-        stroke-width: calc(1.1px * var(--u));
-      }
-      .rule {
-        stroke: var(--ink);
-        stroke-width: 1;
-      }
-      .mark {
-        fill: var(--ink);
-      }
-      .tag {
-        font-size: 25px;
-        fill: var(--ink);
-        text-transform: none;
-        letter-spacing: 0.01em;
-      }
-      .dt {
-        font-size: 13.5px;
-        fill: var(--ink);
-        paint-order: stroke;
-        stroke: var(--paper);
-        stroke-width: 4px;
-        stroke-linejoin: round;
-      }
-      .sl {
-        font-size: 9.5px;
-        fill: var(--gray);
-        letter-spacing: 0.06em;
-      }
-      .vt {
-        font-size: 12px;
-        fill: var(--ink);
-        letter-spacing: 0.1em;
-      }
-      .dts {
-        font-size: 10px;
-        fill: var(--gray);
-        letter-spacing: 0.06em;
-        paint-order: stroke;
-        stroke: var(--paper);
-        stroke-width: 3px;
-      }
-      .fl {
-        font-size: 7.5px;
-        fill: var(--gray);
-        letter-spacing: 0.1em;
-      }
-      .fv {
-        font-size: 11px;
-        fill: var(--ink);
-        letter-spacing: 0.08em;
+      canvas {
+        display: block;
       }
     </style>
   </head>
   <body>
-    <svg id="sheet" viewBox="0 0 1200 630" width="1200" height="630"></svg>
+    <canvas id="c"></canvas>
     <script>
-      const DURATION = 10;
-      const NS = "http://www.w3.org/2000/svg";
+      const W = 1200;
+      const H = 630;
+      const canvas = document.getElementById("c");
+      const DPR = window.devicePixelRatio || 1;
+      canvas.width = W * DPR;
+      canvas.height = H * DPR;
+      canvas.style.width = `${W}px`;
+      canvas.style.height = `${H}px`;
+      const ctx = canvas.getContext("2d");
+
+      // --foreground, --muted-foreground, --success (the one accent: the hero).
+      const INK = [250, 250, 250];
+      const DIM = [113, 113, 122];
+      const ACCENT = [5, 223, 114];
+      const LINE = 3;
       const TAGLINE = "A game studio for your agent.";
+      const DURATION = 10000;
 
-      /* ---------- time kit: pure functions of t ---------- */
+      // ---- maths ------------------------------------------------------------
       const clamp = (v, lo = 0, hi = 1) => Math.min(hi, Math.max(lo, v));
-      const lerp = (a, b, k) => a + (b - a) * k;
-      const seg = (t, a, b) => clamp((t - a) / (b - a));
-      const eio = (p) => (p < 0.5 ? 4 * p * p * p : 1 - (-2 * p + 2) ** 3 / 2);
-      const eo = (p) => 1 - (1 - p) ** 3;
-      /** A critically damped spring's settle, 0 → 1 with no overshoot. */
-      const spring = (p) => (p >= 1 ? 1 : 1 - Math.exp(-7 * clamp(p)) * (1 + 7 * clamp(p)));
+      const prog = (t, a, d) => clamp((t - a) / d);
+      const lerp = (a, b, p) => a + (b - a) * p;
+      const spring = (p) => (p <= 0 ? 0 : p >= 1 ? 1 : 1 - Math.exp(-6 * p) * Math.cos(9 * p));
+      const soft = (p) => (p <= 0 ? 0 : p >= 1 ? 1 : 1 - Math.exp(-7 * p) * Math.cos(5 * p));
+      const easeOut = (p) => 1 - (1 - p) ** 3;
+      const easeIn = (p) => p ** 3;
+      const easeInOut = (p) => (p < 0.5 ? 4 * p ** 3 : 1 - (-2 * p + 2) ** 3 / 2);
+      const rgb = (c, a = 1) => `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${a})`;
+      const mixColor = (a, b, p) => [lerp(a[0], b[0], p), lerp(a[1], b[1], p), lerp(a[2], b[2], p)];
 
-      /* ---------- camera keys: the frame centre is (600, 297) at z 1 ---------- */
-      const CAM = [
-        { t: 0, cx: 600, cy: 297, z: 1 },
-        { t: 0.55, cx: 600, cy: 297, z: 1 },
-        { t: 2.45, cx: 600, cy: 258, z: 1.36 },
-        { t: 2.75, cx: 600, cy: 258, z: 1.37 },
-        { t: 4.05, cx: 600, cy: 297, z: 1 },
-        { t: 4.6, cx: 600, cy: 297, z: 1 },
-        { t: 5.45, cx: 985, cy: 132, z: 1.7 },
-        { t: 7.05, cx: 987, cy: 132, z: 1.72 },
-        { t: 7.95, cx: 600, cy: 297, z: 1 },
-        { t: 10, cx: 600, cy: 297, z: 1 },
-      ];
-      const camAt = (t) => {
-        let i = 0;
-        while (i < CAM.length - 2 && t >= CAM[i + 1].t) i += 1;
-        const a = CAM[i];
-        const b = CAM[i + 1];
-        const p = eio(seg(t, a.t, b.t));
-        return {
-          cx: lerp(a.cx, b.cx, p),
-          cy: lerp(a.cy, b.cy, p),
-          z: Math.exp(lerp(Math.log(a.z), Math.log(b.z), p)),
-        };
+      // ---- the camera -------------------------------------------------------
+      // k = 0: the plane seen from straight above (screen = 600 + x, 315 + z).
+      // k = 1: a perspective camera behind and above it, looking down -z.
+      const F = 620;
+      const CAM_Z = 820;
+      const CAM_Y = 360;
+      const HORIZON = 150;
+      const depth = (z) => Math.max(60, CAM_Z - z);
+      const proj = (x, y, z, k) => {
+        const d = depth(z);
+        return [
+          lerp(600 + x, 600 + (x * F) / d, k),
+          lerp(315 + z, HORIZON + ((CAM_Y - y) * F) / d, k),
+        ];
+      };
+      const scaleAt = (z, k) => lerp(1, F / depth(z), k);
+
+      // ---- drawing kit ------------------------------------------------------
+      const roundedPoly = (pts, r) => {
+        const n = pts.length;
+        ctx.beginPath();
+        const mid = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+        const start = mid(pts[n - 1], pts[0]);
+        ctx.moveTo(start[0], start[1]);
+        for (let i = 0; i < n; i += 1) {
+          const p = pts[i];
+          const q = pts[(i + 1) % n];
+          const prev = pts[(i + n - 1) % n];
+          const edge = Math.min(
+            Math.hypot(q[0] - p[0], q[1] - p[1]),
+            Math.hypot(p[0] - prev[0], p[1] - prev[1]),
+          );
+          ctx.arcTo(p[0], p[1], q[0], q[1], Math.max(0, Math.min(r, edge / 2 - 0.01)));
+        }
+        ctx.closePath();
       };
 
-      /* ---------- the exploded lift of the platformer ---------- */
-      const LIFT = { up: 5.45, upEnd: 6.25, down: 6.75, downEnd: 7.3, step: 0.1 };
-      const liftAt = (t, i) =>
-        eio(seg(t, LIFT.up + i * LIFT.step, LIFT.upEnd + i * LIFT.step)) *
-        (1 - eio(seg(t, LIFT.down - i * 0.06, LIFT.downEnd - i * 0.06)));
-
-      /* ---------- the sheet clears, edges first, back to the mark alone ---------- */
-      const EXIT = { at: 8.6, spread: 0.55, dur: 0.5 };
-      /** The mark's centre on the sheet and its height; the polygon's own centre is (513.5, 513). */
-      const MARK = { x: 600, y: 238, h: 198 };
-
-      const REG = [];
-      const MORPH = [];
-      const PANES = [];
-      let state = null;
-
-      const build = (markPoints) => {
-        const svg = document.getElementById("sheet");
-        svg.replaceChildren();
-        REG.length = 0;
-        MORPH.length = 0;
-        PANES.length = 0;
-        let cur = { a: 0, s: 0, d: 0.6, i: 0 };
-        let parent = svg;
-        let noreg = 0;
-        let keep = 0;
-
-        const at = (a, s = 0, d = 0.6) => {
-          cur = { a, s, d, i: 0 };
-        };
-        const kindOf = (e, tag) => {
-          if (tag === "text") return "t";
-          const c = ` ${e.getAttribute("class") || ""} `;
-          if (
-            / (slot|ph|cl|hs|grid) /u.test(c) ||
-            (e.getAttribute("fill") || "").startsWith("url")
-          ) {
-            return "f";
-          }
-          return "d";
-        };
-        const mk = (tag, attrs, p) => {
-          const e = document.createElementNS(NS, tag);
-          for (const [k, v] of Object.entries(attrs)) if (v != null) e.setAttribute(k, String(v));
-          (p || parent).append(e);
-          if (!noreg && tag !== "g") {
-            const a = cur.a + cur.i * cur.s;
-            cur.i += 1;
-            const k = kindOf(e, tag);
-            if (k === "d") e.setAttribute("pathLength", "1");
-            const arrows = ["marker-start", "marker-end"].filter((m) => e.hasAttribute(m));
-            for (const m of arrows) e.removeAttribute(m);
-            e.style.opacity = "0";
-            REG.push({ e, a, b: a + cur.d, k, keep, arrows, shown: false, last: "" });
-          }
-          return e;
-        };
-        const tx = (x, y, s, c = "dt", a = {}, p) => {
-          const t = mk("text", { x, y, class: c, ...a }, p);
-          t.textContent = s;
-          return t;
-        };
-
-        noreg = 1;
-        const defs = mk("defs", {});
-        const marker = mk(
-          "marker",
-          {
-            id: "ar",
-            viewBox: "0 0 10 10",
-            refX: 10,
-            refY: 5,
-            markerWidth: 8,
-            markerHeight: 8,
-            orient: "auto-start-reverse",
-            markerUnits: "userSpaceOnUse",
-          },
-          defs,
-        );
-        mk("path", { d: "M0,1.6 L10,5 L0,8.4 z", class: "arrow" }, marker);
-        const hatch = mk(
-          "pattern",
-          {
-            id: "hat",
-            width: 5,
-            height: 5,
-            patternUnits: "userSpaceOnUse",
-            patternTransform: "rotate(45)",
-          },
-          defs,
-        );
-        mk("line", { x1: 0, y1: 0, x2: 0, y2: 5, class: "hl" }, hatch);
-        const clip = mk("clipPath", { id: "area" }, defs);
-        mk("rect", { x: 15, y: 15, width: 1170, height: 563, rx: 13 }, clip);
-
-        // The fixed sheet: border and title strip never move or clear.
-        mk("rect", { x: 14, y: 14, width: 1172, height: 602, rx: 14, class: "border" });
-        mk("line", { x1: 14, y1: 578, x2: 1186, y2: 578, class: "rule" });
-        const cells = [
-          [14, "vibedgames.com", "Any game · shipped by your agent"],
-          [470, "Dwg no.", "VG-LOGO-001"],
-          [640, "Scale", "1 tile = T1"],
-          [840, "Units", "Tiles · variables"],
-          [1010, "Rev · sheet", "A · 1 / 1"],
+      /**
+       * One box: a footprint on the plane (x, z, w, d), lifted `y` and `h` tall.
+       * From above it is a rounded rectangle; in perspective, a wireframe block.
+       */
+      const drawBox = (b, k, color, fillAlpha = 0) => {
+        if (b.a <= 0.002 || b.w <= 0.5 || b.d <= 0.5) return;
+        const y0 = b.y || 0;
+        const y1 = y0 + (b.h || 0);
+        const x0 = b.x - b.w / 2;
+        const x1 = b.x + b.w / 2;
+        const z0 = b.z - b.d / 2;
+        const z1 = b.z + b.d / 2;
+        if (k > 0 && depth(z1) < 140) return;
+        const sc = scaleAt(b.z, k);
+        const fade = lerp(1, clamp(1.5 - depth(b.z) / 2200), k);
+        const alpha = b.a * fade;
+        if (alpha <= 0.002) return;
+        const top = [
+          proj(x0, y1, z0, k),
+          proj(x1, y1, z0, k),
+          proj(x1, y1, z1, k),
+          proj(x0, y1, z1, k),
         ];
-        cells.forEach(([x, label, value], i) => {
-          if (i) mk("line", { x1: x, y1: 578, x2: x, y2: 616, class: "rule" });
-          tx(x + 14, 592, label, "fl");
-          tx(x + 14, 607, value, "fv");
-        });
-
-        const camClip = mk("g", { "clip-path": "url(#area)" });
-        const cam = mk("g", { id: "camera" }, camClip);
-        noreg = 0;
-        parent = cam;
-
-        const A = "url(#ar)";
-
-        /* ---------- drawing kit (after the reference's helpers) ---------- */
-        const dimH = (x1, x2, y, e1, e2, l, o = {}) => {
-          for (const [x, e] of [
-            [x1, e1],
-            [x2, e2],
-          ]) {
-            if (e == null) continue;
-            const s = Math.sign(y - e) || 1;
-            mk("line", { x1: x, y1: e + s * 3, x2: x, y2: y + s * 6, class: "ext" });
-          }
-          if (x2 - x1 >= 30) {
-            mk("line", { x1, y1: y, x2, y2: y, class: "dl", "marker-start": A, "marker-end": A });
-          } else {
-            mk("line", { x1: x1 - 14, y1: y, x2: x1, y2: y, class: "dl", "marker-end": A });
-            mk("line", { x1: x2 + 14, y1: y, x2, y2: y, class: "dl", "marker-end": A });
-          }
-          tx(
-            (x1 + x2) / 2 + (o.dx || 0),
-            (o.below ? y + 15 : y - 5) + (o.dy || 0),
-            l,
-            o.c || "dt",
-            { "text-anchor": "middle" },
-          );
-        };
-        const dimV = (y1, y2, x, e1, e2, l, o = {}) => {
-          for (const [y, e] of [
-            [y1, e1],
-            [y2, e2],
-          ]) {
-            if (e == null) continue;
-            const s = Math.sign(x - e) || 1;
-            mk("line", { x1: e + s * 3, y1: y, x2: x + s * 6, y2: y, class: "ext" });
-          }
-          if (y2 - y1 >= 30) {
-            mk("line", { x1: x, y1, x2: x, y2, class: "dl", "marker-start": A, "marker-end": A });
-          } else {
-            mk("line", { x1: x, y1: y1 - 14, x2: x, y2: y1, class: "dl", "marker-end": A });
-            mk("line", { x1: x, y1: y2 + 14, x2: x, y2, class: "dl", "marker-end": A });
-          }
-          const r = o.side !== "l";
-          tx(r ? x + 7 : x - 7, (y1 + y2) / 2 + 4.5 + (o.dy || 0), l, o.c || "dt", {
-            "text-anchor": r ? "start" : "end",
-          });
-        };
-        const callout = (px, py, ex, ey, l, dir, c) => {
-          const s = dir || (ex >= px ? 1 : -1);
-          mk("circle", { cx: px, cy: py, r: 2.2, class: "dot" });
-          mk("polyline", { points: `${px},${py} ${ex},${ey} ${ex + s * 12},${ey}`, class: "lead" });
-          tx(ex + s * 16, ey + 4.5, l, c || "dt", { "text-anchor": s > 0 ? "start" : "end" });
-        };
-        const rr = (x, y, w, h, r, c, p) =>
-          mk("rect", { x, y, width: w, height: h, rx: r, class: c }, p);
-        const slot = (x, y, w, h, l, al, p) => {
-          rr(x, y, w, h, 2, "slot", p);
-          if (l) {
-            tx(
-              al === "l" ? x + 6 : x + w / 2,
-              y + h / 2 + 3.4,
-              l,
-              "sl",
-              {
-                "text-anchor": al === "l" ? "start" : "middle",
-              },
-              p,
-            );
-          }
-        };
-        const title = (x, y, t, s) => {
-          tx(x, y, t, "vt", { "text-anchor": "middle" });
-          if (s) tx(x, y + 15, s, "dts", { "text-anchor": "middle" });
-        };
-        const xbox = (x, y, w, h, p) => {
-          mk("rect", { x, y, width: w, height: h, class: "thin" }, p);
-          mk("path", { d: `M${x},${y} l${w},${h} M${x + w},${y} l${-w},${h}`, class: "thin" }, p);
-        };
-        const hatched = (x, y, w, h, p) => {
-          const e = rr(x, y, w, h, 0, "hs", p);
-          e.setAttribute("fill", "url(#hat)");
-          return e;
-        };
-        const detailRef = (cx, cy, r, lbl, lx, ly, anchor) => {
-          mk("circle", { cx, cy, r, class: "ph" });
-          const a = Math.atan2(ly - cy, lx - cx);
-          mk("line", {
-            x1: cx + r * Math.cos(a),
-            y1: cy + r * Math.sin(a),
-            x2: lx,
-            y2: ly,
-            class: "lead",
-          });
-          const an = anchor || (lx < cx ? "end" : "start");
-          const off = an === "middle" ? 0 : an === "end" ? -5 : 5;
-          tx(lx + off, ly + (an === "middle" ? 13 : 4), lbl, "dts", { "text-anchor": an });
-        };
-
-        /* ================= THE MARK AND ITS TAGLINE ================= */
-        const s = MARK.h / 462;
-        const MX = (x) => MARK.x + (x - 513.5) * s;
-        const MY = (y) => MARK.y + (y - 513) * s;
-        keep = 1;
-        noreg = 1;
-        mk("polygon", {
-          points: markPoints.map(([x, y]) => `${MX(x).toFixed(2)},${MY(y).toFixed(2)}`).join(" "),
-          class: "mark",
-        });
-        const tagY = MY(744) + 50;
-        tx(MARK.x, tagY, TAGLINE, "tag", { "text-anchor": "middle" });
-        noreg = 0;
-        keep = 0;
-
-        // Construction: the V's outer triangle run past its vertices, its incircle, centrelines.
-        const TL = [193.5, 283];
-        const TR = [833.5, 282];
-        const AP = [511.7, 744];
-        const run = (p, q, k) => [
-          [MX(p[0] - (q[0] - p[0]) * k), MY(p[1] - (q[1] - p[1]) * k)],
-          [MX(q[0] + (q[0] - p[0]) * k), MY(q[1] + (q[1] - p[1]) * k)],
-        ];
-        at(0.5, 0.14, 1.1);
-        for (const [p, q] of [
-          [TL, TR],
-          [TR, AP],
-          [AP, TL],
-        ]) {
-          const [[x1, y1], [x2, y2]] = run(p, q, 0.13);
-          mk("line", { x1, y1, x2, y2, class: "con" });
+        ctx.lineWidth = (b.lw || LINE) * clamp(sc, 0.45, 1.6);
+        ctx.strokeStyle = rgb(color, alpha);
+        // Corners round from above and square up in perspective, where a
+        // rounded quad would no longer meet the block's vertical edges.
+        const radius = (b.r || 0) * sc * (1 - k);
+        roundedPoly(top, radius);
+        if (fillAlpha > 0) {
+          ctx.fillStyle = rgb(color, alpha * fillAlpha);
+          ctx.fill();
         }
-        at(0.85, 0.12, 0.55);
-        mk("line", { x1: MARK.x, y1: MY(282) - 74, x2: MARK.x, y2: MY(744) + 18, class: "cl" });
-        const IC = { x: MX(512.3), y: MY(450), r: 167.5 * s };
-        mk("line", { x1: MX(193.5) - 50, y1: IC.y, x2: MX(833.5) + 50, y2: IC.y, class: "cl" });
-        at(1.05, 0, 0.6);
-        mk("circle", { cx: IC.x, cy: IC.y, r: IC.r, class: "ph" });
-
-        // Top chain: the two arms C1 and C2 either side of the notch G1, then overall W.
-        const topY = MY(282) - 26;
-        at(1.35, 0.05, 0.45);
-        dimH(MX(193.5), MX(463.7), topY, MY(283), MY(282), "C1");
-        dimH(MX(463.7), MX(556.2), topY, null, MY(282), "G1");
-        dimH(MX(556.2), MX(833.5), topY, null, MY(282), "C2");
-        at(1.75, 0.05, 0.45);
-        dimH(MX(193.5), MX(833.5), topY - 32, topY - 6, topY - 6, "W = C1 + G1 + C2");
-
-        // Left: the whole height H1. Right: the band T1 and the inner apex H2.
-        at(1.9, 0.06, 0.45);
-        dimV(MY(282), MY(744), MX(193.5) - 30, MX(193.5), MX(511.7) - 12, "H1", { side: "l" });
-        dimV(MY(282), MY(348.6), MX(833.5) + 20, MX(833.5), MX(694.8), "T1");
-        dimV(MY(282), MY(610.7), MX(833.5) + 54, MX(833.5) + 26, MX(513.5) + 8, "H2");
-
-        // The outer facet angle A1, off the top-left vertex.
-        {
-          const vx = MX(TL[0]);
-          const vy = MY(TL[1]);
-          const len = Math.hypot(AP[0] - TL[0], AP[1] - TL[1]);
-          const ux = (AP[0] - TL[0]) / len;
-          const uy = (AP[1] - TL[1]) / len;
-          at(2.2, 0.06, 0.45);
-          // The opposite angle, outside the mark: the top edge run left, the facet run up.
-          const r = 26;
-          mk("path", {
-            d: `M${vx - r},${vy} A${r},${r} 0 0 1 ${vx - r * ux},${vy - r * uy}`,
-            class: "dl",
-            "marker-start": A,
-            "marker-end": A,
-          });
-          tx(vx - 44, vy - 12, "A1", "dt", { "text-anchor": "end" });
+        ctx.stroke();
+        if (b.cross > 0.01) {
+          ctx.strokeStyle = rgb(color, alpha * b.cross);
+          const inset = (b.r || 0) * 0.45 * sc;
+          ctx.beginPath();
+          ctx.moveTo(top[0][0] + inset, top[0][1] + inset);
+          ctx.lineTo(top[2][0] - inset, top[2][1] - inset);
+          ctx.stroke();
         }
-
-        // The incircle's radius and the apex detail.
-        at(2.35, 0.06, 0.45);
-        {
-          const a = (Math.PI * 5) / 4;
-          callout(
-            IC.x + IC.r * Math.cos(a),
-            IC.y + IC.r * Math.sin(a),
-            MX(193.5) - 46,
-            MY(650),
-            "R0",
-            -1,
-          );
-        }
-        at(2.45, 0.06, 0.45);
-        detailRef(
-          MX(511.7),
-          MY(744) - 8,
-          13,
-          "Detail A · apex",
-          MX(511.7) + 64,
-          MY(744) - 2,
-          "start",
-        );
-        at(2.65, 0.08, 0.5);
-        title(MARK.x, tagY + 36, "VG-LOGO-001 · plan view", "W = C1 + G1 + C2 · H2 = H1 − 2·T1");
-
-        /* ================= LEFT: BOMBERMAN GRID ================= */
-        {
-          const x = 96;
-          const y = 62;
-          const T = 12;
-          const w = 13 * T;
-          const h = 11 * T;
-          const cell = (c, r) => [x + c * T, y + r * T];
-          at(2.95, 0, 0.9);
-          rr(x, y, w, h, 3, "obj");
-          at(3.15, 0.012, 0.35);
-          for (let c = 1; c < 13; c += 1) {
-            mk("line", { x1: x + c * T, y1: y, x2: x + c * T, y2: y + h, class: "grid" });
-          }
-          for (let r = 1; r < 11; r += 1) {
-            mk("line", { x1: x, y1: y + r * T, x2: x + w, y2: y + r * T, class: "grid" });
-          }
-          at(3.3, 0.01, 0.35);
-          for (let c = 1; c < 13; c += 2) {
-            for (let r = 1; r < 11; r += 2) {
-              const [px, py] = cell(c, r);
-              hatched(px, py, T, T);
-            }
-          }
-          at(3.45, 0.03, 0.4);
-          for (const [c, r] of [
-            [3, 0],
-            [5, 2],
-            [2, 4],
-            [6, 6],
-            [11, 6],
-            [4, 8],
-            [8, 10],
-            [7, 4],
-          ]) {
-            const [px, py] = cell(c, r);
-            rr(px + 1.5, py + 1.5, T - 3, T - 3, 1.5, "hug");
-          }
-          const [p1x, p1y] = cell(0, 0);
-          const [p2x, p2y] = cell(12, 10);
-          mk("circle", { cx: p1x + T / 2, cy: p1y + T / 2, r: 4, class: "obj" });
-          mk("circle", { cx: p2x + T / 2, cy: p2y + T / 2, r: 4, class: "obj" });
-          const [bx, by] = cell(10, 2);
-          mk("line", {
-            x1: bx - 2 * T + 2,
-            y1: by + T / 2,
-            x2: bx + 3 * T - 2,
-            y2: by + T / 2,
-            class: "slot",
-          });
-          mk("line", {
-            x1: bx + T / 2,
-            y1: by - 2 * T + 2,
-            x2: bx + T / 2,
-            y2: by + 3 * T - 2,
-            class: "slot",
-          });
-          mk("circle", { cx: bx + T / 2, cy: by + T / 2, r: 4, class: "solid" });
-          at(3.55, 0.04, 0.4);
-          dimH(x, x + w, y - 18, y, y, "13·T1");
-          dimV(y, y + h, x - 16, x, x, "11·T1", { side: "l" });
-          dimH(x, x + T, y + h + 16, y + h, y + h, "T1", { below: true });
-          callout(bx + T / 2, by + T / 2, x + w + 22, by + 4, "Bomb · R = 2·T1", 1, "dts");
-          callout(p2x + T / 2, p2y + T / 2, x + w + 22, p2y + 2, "Spawn · P2", 1, "dts");
-          {
-            const [sx, sy] = cell(11, 6);
-            callout(sx + T - 2, sy + T / 2, x + w + 22, sy + 4, "Tile · soft", 1, "dts");
-          }
-          at(3.7, 0.08, 0.4);
-          title(x + w / 2, y + h + 46, "VG-BOMBER-002 · plan", "Grid = 13 × 11");
-        }
-
-        /* ================= LEFT: PADDLE COURT ================= */
-        {
-          const x = 96;
-          const y = 300;
-          const w = 196;
-          const h = 90;
-          at(3.2, 0, 0.8);
-          rr(x, y, w, h, 3, "obj");
-          at(3.4, 0.05, 0.45);
-          mk("line", { x1: x + w / 2, y1: y + 4, x2: x + w / 2, y2: y + h - 4, class: "slot" });
-          mk("circle", { cx: x + w / 2, cy: y + h / 2, r: 15, class: "ph" });
-          rr(x + 10, y + 24, 6, 30, 2, "hug");
-          rr(x + w - 16, y + 40, 6, 30, 2, "hug");
-          mk("polyline", {
-            points: `${x + 17},${y + 39} ${x + 76},${y + 4} ${x + 132},${y + 38}`,
-            class: "slot",
-          });
-          mk("circle", { cx: x + 132, cy: y + 38, r: 4, class: "solid" });
-          at(3.6, 0.04, 0.4);
-          mk("line", {
-            x1: x + 136,
-            y1: y + 41,
-            x2: x + 158,
-            y2: y + 54,
-            class: "dl",
-            "marker-end": A,
-          });
-          dimH(x, x + w, y - 16, y, y, "W2");
-          dimV(y, y + h, x - 16, x, x, "H2", { side: "l" });
-          dimV(y + 40, y + 70, x + w + 14, x + w - 10, x + w - 10, "L1");
-          callout(x + 158, y + 54, x + w + 22, y + h + 8, "Ball · V1", 1, "dts");
-          at(3.8, 0.08, 0.4);
-          title(x + w / 2, y + h + 32, "VG-PONG-003 · court", "V1 = 2·T1/s · L1 = 3·T1");
-        }
-
-        /* ================= LEFT: TOP-DOWN SHOOTER ================= */
-        {
-          const x = 96;
-          const y = 462;
-          const w = 196;
-          const h = 74;
-          at(3.4, 0, 0.8);
-          rr(x, y, w, h, 3, "obj");
-          at(3.6, 0.04, 0.45);
-          slot(x + 6, y + 5, w - 12, 13, "HUD · fixed", "l");
-          const sx = x + w / 2;
-          const sy = y + 60;
-          mk("line", { x1: sx, y1: sy - 8, x2: sx - 26, y2: sy - 50, class: "ph" });
-          mk("line", { x1: sx, y1: sy - 8, x2: sx + 26, y2: sy - 50, class: "ph" });
-          mk("path", {
-            d: `M${sx},${sy - 10} L${sx - 8},${sy + 7} L${sx + 8},${sy + 7} Z`,
-            class: "obj",
-          });
-          mk("circle", { cx: sx, cy: sy - 22, r: 1.8, class: "dot" });
-          mk("circle", { cx: sx, cy: sy - 32, r: 1.8, class: "dot" });
-          xbox(x + 30, y + 30, 10, 10);
-          xbox(x + 150, y + 26, 10, 10);
-          xbox(x + 168, y + 46, 10, 10);
-          at(3.8, 0.05, 0.4);
-          dimV(y, y + h, x - 16, x, x, "H3", { side: "l" });
-          callout(x + 178, y + 51, x + w + 22, y + 26, "Enemy · spawn", 1, "dts");
-          callout(sx + 8, sy + 5, x + w + 22, y + h - 4, "Player · sprite", 1, "dts");
-          at(3.95, 0.08, 0.4);
-          title(x + w / 2, y + h + 22, "VG-SHOOTER-004 · top-down");
-        }
-
-        /* ================= RIGHT: PLATFORMER (lifts into an exploded view) ================= */
-        const D = { x: 872, y: 62, w: 228, h: 150 };
-        {
-          const { x, y, w, h } = D;
-          const T = 16;
-          const mg = (z, i) => {
-            const g = mk("g", {});
-            MORPH.push({ g, z, i });
-            return g;
-          };
-          // A layer's own pane: a dashed outline that only shows while it is lifted.
-          const plane = (g) => {
-            noreg = 1;
-            const e = rr(x, y, w, h, 10, "ph", g);
-            PANES.push({ e, g });
-            noreg = 0;
-          };
-          // The shadow footprint only shows while the layers are apart.
-          noreg = 1;
-          const shadow = mg(0, -1);
-          hatched(x + 10, y + 14, w - 20, h - 10, shadow);
-          noreg = 0;
-
-          // L0 · background: the frame, parallax hills and the sun.
-          const L0 = mg(24, 0);
-          at(3.3, 0, 0.9);
-          rr(x, y, w, h, 10, "obj", L0);
-          at(3.55, 0.05, 0.45);
-          mk(
-            "path",
-            {
-              d: `M${x + 3},${y + 112} Q${x + 44},${y + 66} ${x + 86},${y + 104} Q${x + 132},${y + 60} ${x + 176},${y + 98} Q${x + 204},${y + 78} ${x + w - 3},${y + 92}`,
-              class: "bgl",
-            },
-            L0,
-          );
-          mk("circle", { cx: x + 196, cy: y + 46, r: 10, class: "ph" }, L0);
-          tx(x + 10, y + 60, "BG · parallax", "sl", {}, L0);
-
-          // L1 · tiles: the ground with its gap, two floating platforms.
-          const L1 = mg(70, 1);
-          plane(L1);
-          at(3.65, 0.03, 0.45);
-          const gy = y + h - 4 - T;
-          const ground = (x0, x1) => {
-            rr(x0, gy, x1 - x0, T, 1, "well", L1);
-            for (let k = x0 + T; k < x1 - 1; k += T) {
-              mk("line", { x1: k, y1: gy, x2: k, y2: gy + T, class: "grid" }, L1);
-            }
-          };
-          ground(x + 4, x + 148);
-          ground(x + 180, x + w - 4);
-          const plat = (px, py, n) => {
-            rr(px, py, n * T, 12, 1, "well", L1);
-            for (let k = 1; k < n; k += 1) {
-              mk(
-                "line",
-                { x1: px + k * T, y1: py, x2: px + k * T, y2: py + 12, class: "grid" },
-                L1,
-              );
-            }
-          };
-          plat(x + 60, y + 92, 3);
-          plat(x + 148, y + 70, 3);
-
-          // L2 · sprites: the player, its jump, coins and an enemy.
-          const L2 = mg(116, 2);
-          plane(L2);
-          at(3.8, 0.04, 0.45);
-          rr(x + 26, gy - 24, 14, 24, 2, "obj", L2);
-          xbox(x + 28, gy - 22, 10, 10, L2);
-          mk(
-            "path",
-            { d: `M${x + 40},${gy - 24} Q${x + 62},${y + 18} ${x + 84},${y + 90}`, class: "slot" },
-            L2,
-          );
-          for (const [cx, cy] of [
-            [x + 74, y + 80],
-            [x + 90, y + 80],
-            [x + 164, y + 58],
-            [x + 180, y + 58],
-          ]) {
-            mk("circle", { cx, cy, r: 4, class: "hug" }, L2);
-          }
-          mk("circle", { cx: x + 204, cy: gy - 8, r: 8, class: "obj" }, L2);
-
-          // L3 · HUD: fixed to the viewport, not the level.
-          const L3 = mg(162, 3);
-          plane(L3);
-          at(3.95, 0.04, 0.45);
-          slot(x + 8, y + 8, 90, 16, "HUD · fixed", "l", L3);
-          slot(x + 104, y + 8, 56, 16, "Score", null, L3);
-          for (let k = 0; k < 3; k += 1) rr(x + 168 + k * 16, y + 11, 10, 10, 2, "hug", L3);
-
-          // Plan dims: they step back while the layers are apart.
-          noreg = 1;
-          const dims = mk("g", { id: "platformer-dims" });
-          noreg = 0;
-          parent = dims;
-          at(4.05, 0.035, 0.4);
-          dimH(x, x + w, y - 18, y, y, "W · viewport");
-          dimV(y + 58, gy - 24, x - 16, x + 56, x + 26, "J = 3·T1", { side: "l" });
-          dimV(gy, gy + T, x - 16, null, x, "T1", { side: "l" });
-          dimH(x + 148, x + 180, y + h + 16, gy + T, gy + T, "G = 2·T1", { below: true });
-          callout(x + 204, gy - 8, x + w + 18, gy - 30, "Spawn", 1, "dts");
-          parent = cam;
-          at(4.25, 0, 0.4);
-          title(x + w / 2, y + h + 56, "VG-PLATFORMER-001 · plan");
-
-          noreg = 1;
-          const lift = mk("g", { id: "lift-labels" });
-          state = { lift, dims, D };
-          noreg = 0;
-        }
-
-        /* ================= RIGHT: 3D ARENA, ISOMETRIC ================= */
-        {
-          const cx = 940;
-          const cy = 410;
-          const hw = 64;
-          const hh = 37;
-          const P = (u, v) => [cx + (u - v) * hw, cy + (u + v - 1) * hh];
-          const pts = [P(0, 0), P(1, 0), P(1, 1), P(0, 1)];
-          at(3.5, 0, 0.8);
-          mk("path", { d: `M${pts.map((p) => p.join(",")).join(" L")} Z`, class: "obj" });
-          at(3.7, 0.02, 0.4);
-          for (let k = 1; k < 4; k += 1) {
-            const [a1, b1] = P(k / 4, 0);
-            const [a2, b2] = P(k / 4, 1);
-            mk("line", { x1: a1, y1: b1, x2: a2, y2: b2, class: "grid" });
-            const [c1, d1] = P(0, k / 4);
-            const [c2, d2] = P(1, k / 4);
-            mk("line", { x1: c1, y1: d1, x2: c2, y2: d2, class: "grid" });
-          }
-          at(3.85, 0.05, 0.45);
-          {
-            // A box collider standing on the floor.
-            const z = 26;
-            const q = [P(0.5, 0.25), P(0.75, 0.25), P(0.75, 0.5), P(0.5, 0.5)];
-            const top = q.map(([a, b]) => [a, b - z]);
-            mk("path", {
-              d: `M${q[1].join(",")} L${q[2].join(",")} L${q[3].join(",")} L${top[3].join(",")} L${top[0].join(",")} L${top[1].join(",")} Z`,
-              class: "hug",
-            });
-            mk("path", { d: `M${top.map((p) => p.join(",")).join(" L")} Z`, class: "obj" });
-            mk("line", { x1: q[2][0], y1: q[2][1], x2: top[2][0], y2: top[2][1], class: "thin" });
-            // The player, a capsule.
-            const [px, py] = P(0.3, 0.72);
-            mk("path", {
-              d: `M${px - 6},${py} L${px - 6},${py - 18} A6,3 0 0 1 ${px + 6},${py - 18} L${px + 6},${py} A6,3 0 0 1 ${px - 6},${py} Z`,
-              class: "obj",
-            });
-            mk("ellipse", { cx: px, cy: py - 18, rx: 6, ry: 3, class: "thin" });
-            mk("ellipse", { cx: px, cy: py, rx: 13, ry: 6.5, class: "slot" });
-            at(4.0, 0.05, 0.4);
-            callout(
-              top[0][0],
-              top[0][1] + 2,
-              cx - hw - 4,
-              cy - hh - 20,
-              "Collider · box",
-              -1,
-              "dts",
-            );
-            callout(px - 6, py - 8, cx - hw - 4, cy + hh + 4, "Player · capsule", -1, "dts");
-          }
-          {
-            // The camera's angle: each floor edge rises A2 off the horizontal.
-            const [vx, vy] = P(1, 1);
-            const r = 24;
-            const ang = Math.atan2(hh, hw);
-            at(4.05, 0.05, 0.4);
-            mk("line", { x1: vx + 3, y1: vy, x2: vx + 40, y2: vy, class: "ext" });
-            mk("path", {
-              d: `M${vx + r},${vy} A${r},${r} 0 0 0 ${vx + r * Math.cos(ang)},${vy - r * Math.sin(ang)}`,
-              class: "dl",
-            });
-            tx(vx + r + 6, vy - 3, "A2", "dt");
-          }
-          at(4.15, 0.08, 0.4);
-          title(cx, cy + hh + 50, "VG-ARENA-005 · iso", "Camera · A2 = 30°");
-        }
-
-        /* ================= RIGHT: FALLING-BLOCK WELL ================= */
-        {
-          const x = 1082;
-          const y = 352;
-          const T = 6;
-          const w = 10 * T;
-          const h = 20 * T;
-          at(3.6, 0, 0.8);
-          mk("polyline", {
-            points: `${x},${y} ${x},${y + h} ${x + w},${y + h} ${x + w},${y}`,
-            class: "wall",
-          });
-          at(3.8, 0.02, 0.4);
-          const stack = [
-            [0, 19],
-            [1, 19],
-            [2, 19],
-            [3, 19],
-            [5, 19],
-            [6, 19],
-            [7, 19],
-            [8, 19],
-            [9, 19],
-            [0, 18],
-            [1, 18],
-            [2, 18],
-            [6, 18],
-            [7, 18],
-            [8, 18],
-            [9, 18],
-            [0, 17],
-            [1, 17],
-            [7, 17],
-            [8, 17],
-            [9, 17],
-            [8, 16],
-            [9, 16],
+        if (b.h > 0 && k > 0.01) {
+          const bottom = [
+            proj(x0, y0, z0, k),
+            proj(x1, y0, z0, k),
+            proj(x1, y0, z1, k),
+            proj(x0, y0, z1, k),
           ];
-          for (const [c, r] of stack)
-            rr(x + c * T + 0.6, y + r * T + 0.6, T - 1.2, T - 1.2, 0.5, "hug");
-          at(3.95, 0.03, 0.4);
-          for (const [c, r] of [
-            [3, 4],
-            [4, 4],
-            [5, 4],
-            [4, 5],
-          ]) {
-            rr(x + c * T + 0.6, y + r * T + 0.6, T - 1.2, T - 1.2, 0.5, "solid");
+          ctx.strokeStyle = rgb(color, alpha * clamp(k * 1.6));
+          roundedPoly(bottom, radius);
+          ctx.stroke();
+          ctx.beginPath();
+          for (let i = 0; i < 4; i += 1) {
+            ctx.moveTo(bottom[i][0], bottom[i][1]);
+            ctx.lineTo(top[i][0], top[i][1]);
           }
-          for (const [c, r] of [
-            [3, 17],
-            [4, 17],
-            [5, 17],
-            [4, 18],
-          ]) {
-            rr(x + c * T + 0.6, y + r * T + 0.6, T - 1.2, T - 1.2, 0.5, "slot");
+          ctx.stroke();
+        }
+      };
+
+      const box = (x, z, w, d, extra = {}) => ({
+        a: 1,
+        c: 0,
+        cross: 0,
+        d,
+        h: 0,
+        r: 8,
+        w,
+        x,
+        y: 0,
+        z,
+        ...extra,
+      });
+      const FIELDS = ["x", "z", "w", "d", "h", "y", "r", "a", "c", "cross", "lw"];
+      const mixBox = (a, b, p) => {
+        const out = {};
+        for (const f of FIELDS)
+          out[f] = lerp(a[f] ?? (f === "lw" ? LINE : 0), b[f] ?? (f === "lw" ? LINE : 0), p);
+        return out;
+      };
+
+      // ---- the games ----------------------------------------------------------
+      // Each takes ms into its own beat and returns its boxes, the hero, the
+      // camera `k`, and an optional overlay drawn above the boxes.
+
+      const HERO = 52;
+      const heroBox = (x, z, s, extra = {}) => ({
+        a: 1,
+        d: s,
+        h: 0,
+        look: 0,
+        morph: 0,
+        r: s * 0.2,
+        w: s,
+        x,
+        y: 0,
+        z,
+        ...extra,
+      });
+
+      // The icon, end card and loop point: the hero folded into the logo.
+      const ICON_W = 236;
+      const ICON_X = 0;
+      const ICON_Z = -62;
+      const logo = () => ({ hero: heroBox(ICON_X, ICON_Z, HERO, { morph: 1 }), items: [], k: 0 });
+
+      // Platformer, seen from the side: floor, three ledges, coins on the arcs.
+      const FLOOR_Z = 246;
+      const PLAT_LEDGES = [
+        [-240, 120],
+        [60, 0],
+        [330, -120],
+      ];
+      const PLAT_JUMPS = [
+        // from x, from z, to x, to z, start, duration
+        [-430, FLOOR_Z - 54, -180, 120 - 54, 120, 420],
+        [-180, 120 - 54, 120, -54, 640, 420],
+        [120, -54, 390, -120 - 54, 1160, 420],
+      ];
+      const ARC = 112;
+      const arcAt = (j, p) => [
+        lerp(j[0], j[2], p),
+        lerp(j[1], j[3], p) - Math.sin(Math.PI * p) * ARC,
+      ];
+      const platformer = (t) => {
+        const items = [];
+        for (let i = 0; i < 18; i += 1) items.push(box(-510 + i * 60, FLOOR_Z, 48, 48, { c: 1 }));
+        for (const [lx, lz] of PLAT_LEDGES) {
+          for (let i = -1; i <= 1; i += 1) items.push(box(lx + i * 60, lz, 48, 48));
+        }
+        for (const j of PLAT_JUMPS) {
+          for (const p of [0.33, 0.66]) {
+            const [cx, cz] = arcAt(j, p);
+            const got = prog(t, j[4] + j[5] * p, 180);
+            const s = 24 * (1 - easeIn(got));
+            items.push(box(cx, cz - 40 - got * 30, s, s, { a: 1 - got, r: s / 2 }));
           }
-          mk("line", {
-            x1: x + 4.5 * T,
-            y1: y + 6 * T + 4,
-            x2: x + 4.5 * T,
-            y2: y + 16 * T,
-            class: "dl",
-            "marker-end": A,
-          });
-          at(4.1, 0.05, 0.4);
-          dimH(x, x + w, y - 16, y, y, "10·T2");
-          dimV(y, y + h, x - 16, x, x, "20·T2", { side: "l" });
-          at(4.2, 0.08, 0.4);
-          title(x + w / 2, y + h + 32, "VG-TETRIS-006", "Drop · V3");
         }
-
-        /* ================= THE LIFT'S FURNITURE ================= */
-
-        // Exploded-view furniture, drawn in sheet space from the iso projection.
-        const iso = isoOf(D);
-        const P = (x, y, z) => [
-          iso[0] * x + iso[2] * y + iso[4],
-          iso[1] * x + iso[3] * y + iso[5] - z,
-        ];
-        const lift = state.lift;
-        const LX = D.x + D.w + 2;
-        const corners = [
-          [D.x, D.y],
-          [D.x + D.w, D.y],
-          [D.x + D.w, D.y + D.h],
-          [D.x, D.y + D.h],
-        ];
-        noreg = 1;
-        for (const [cx, cy] of corners) {
-          const [ax, ay] = P(cx, cy, 0);
-          const [bx, by] = P(cx, cy, 162);
-          mk("line", { x1: ax, y1: ay, x2: bx, y2: by, class: "ph" }, lift);
+        let [x, z] = [PLAT_JUMPS[0][0], PLAT_JUMPS[0][1]];
+        let squash = 0;
+        let look = 1;
+        for (const j of PLAT_JUMPS) {
+          if (t >= j[4]) {
+            const p = prog(t, j[4], j[5]);
+            [x, z] = arcAt(j, easeInOut(p) * 0.15 + p * 0.85);
+            const landed = t - (j[4] + j[5]);
+            squash =
+              landed > 0
+                ? Math.exp(-landed / 70) * Math.sin(landed / 30) * 0.9
+                : -0.25 * Math.sin(Math.PI * p);
+          }
         }
-        [
-          [24, [D.x + D.w - 2, D.y + D.h - 50], "L0 · background"],
-          [70, [D.x + D.w - 10, D.y + D.h - 12], "L1 · tiles"],
-          [116, [D.x + 204, D.y + D.h - 28], "L2 · sprites"],
-          [162, [D.x + D.w - 14, D.y + 16], "L3 · HUD"],
-        ].forEach(([z, [x, y], label]) => {
-          const [px, py] = P(x, y, z);
-          mk("circle", { cx: px, cy: py, r: 2.2, class: "dot" }, lift);
-          mk("polyline", { points: `${px},${py} ${LX + 30},${py}`, class: "lead" }, lift);
-          tx(LX + 34, py + 4, label, "dts", {}, lift);
+        const s = HERO;
+        const hero = heroBox(x, z + (squash * s) / 6, s, {
+          d: s * (1 - squash / 3),
+          look,
+          w: s * (1 + squash / 4),
         });
-        noreg = 0;
+        return { hero, items, k: 0 };
+      };
 
-        // Exit order: farther from the mark clears first.
-        for (const r of REG) {
-          let cx = MARK.x;
-          let cy = MARK.y;
-          try {
-            const b = r.e.getBBox();
-            cx = b.x + b.width / 2;
-            cy = b.y + b.height / 2;
-          } catch {
-            /* not rendered yet: treat as centred */
+      // Bomberman, from above: walls, pillars, crates, a bomb and its blast.
+      const COLS = 13;
+      const ROWS = 7;
+      const CELL = 60;
+      const cellX = (c) => -360 + c * CELL;
+      const cellZ = (r) => -180 + r * CELL;
+      const CRATES = [
+        [3, 1],
+        [5, 1],
+        [1, 3],
+        [3, 3],
+        [7, 3],
+        [2, 5],
+        [5, 5],
+        [8, 5],
+        [11, 3],
+        [11, 5],
+        [7, 1],
+      ];
+      const BOMB = [11, 1];
+      const REACH = 2;
+      const BLAST_AT = 760;
+      const inBlast = (c, r) =>
+        (r === BOMB[1] && Math.abs(c - BOMB[0]) <= REACH) ||
+        (c === BOMB[0] && Math.abs(r - BOMB[1]) <= REACH);
+      const BOMBER_PATH = [
+        [11, 1, 0],
+        [11, 1, 140],
+        [9, 1, 440],
+        [9, 3, 700],
+      ];
+      const pathAt = (path, t) => {
+        for (let i = 1; i < path.length; i += 1) {
+          const [c0, r0, t0] = path[i - 1];
+          const [c1, r1, t1] = path[i];
+          if (t <= t1) {
+            const p = easeInOut(prog(t, t0, t1 - t0));
+            return [lerp(c0, c1, p), lerp(r0, r1, p), c1 - c0];
           }
-          const d = Math.min(1, Math.hypot(cx - MARK.x, (cy - MARK.y) * 1.6) / 620);
-          r.x0 = EXIT.at + EXIT.spread * (1 - d);
         }
+        const last = path[path.length - 1];
+        return [last[0], last[1], 0];
+      };
+      const bomberman = (t) => {
+        const items = [];
+        const blast = prog(t, BLAST_AT, 160);
+        for (let r = 0; r < ROWS; r += 1) {
+          for (let c = 0; c < COLS; c += 1) {
+            const edge = r === 0 || c === 0 || r === ROWS - 1 || c === COLS - 1;
+            if (edge || (r % 2 === 0 && c % 2 === 0))
+              items.push(box(cellX(c), cellZ(r), 48, 48, { c: 1 }));
+          }
+        }
+        for (const [c, r] of CRATES) {
+          const gone = inBlast(c, r) ? easeIn(blast) : 0;
+          const s = 36 * (1 - gone);
+          items.push(box(cellX(c), cellZ(r), s, s, { a: 1 - gone, cross: 1, r: 5 }));
+        }
+        const [hc, hr, dir] = pathAt(BOMBER_PATH, t);
+        const walking = t > 140 && t < 700;
+        const bob = walking ? Math.abs(Math.sin(t / 55)) * 0.06 : 0;
+        const hero = heroBox(cellX(hc), cellZ(hr), 40 * (1 + bob), { look: Math.sign(dir) || -1 });
+        const overlay = () => {
+          const bx = 600 + cellX(BOMB[0]);
+          const by = 315 + cellZ(BOMB[1]);
+          if (t > 80 && blast < 1) {
+            const pulse = 1 + Math.sin(t / 40) * 0.1 * prog(t, 300, 300);
+            const s = spring(prog(t, 80, 260)) * pulse;
+            ctx.strokeStyle = rgb(INK);
+            ctx.lineWidth = LINE;
+            ctx.beginPath();
+            ctx.arc(bx, by + 3, 15 * s, 0, Math.PI * 2);
+            ctx.moveTo(bx + 9 * s, by - 8 * s);
+            ctx.lineTo(bx + 16 * s, by - 17 * s);
+            ctx.stroke();
+          }
+          const fade = prog(t, BLAST_AT + 200, 260);
+          if (blast > 0 && fade < 1) {
+            const len = easeOut(blast) * REACH * CELL + 22;
+            ctx.fillStyle = rgb(INK, 0.92 * (1 - fade));
+            ctx.beginPath();
+            ctx.roundRect(bx - len, by - 15, len * 2, 30, 15);
+            ctx.roundRect(bx - 15, by - 15, 30, len + 15, 15);
+            ctx.fill();
+          }
+        };
+        return { hero, items, k: 0, overlay };
       };
 
-      /** The axonometric matrix the platformer's layers lift into (after the reference's .94 .17 −.34 .47, flattened so four layers read apart). */
-      const isoOf = (D) => {
-        const k = 0.78;
-        const a = 0.94 * k;
-        const b = 0.17 * k;
-        const c = -0.34 * k;
-        const d = 0.36 * k;
-        const TX = 912;
-        const TY = 178;
-        return [a, b, c, d, TX - a * D.x - c * D.y, TY - b * D.x - d * D.y];
+      // Pong, from above: two court lines, a dashed net, two paddles; the hero
+      // is the ball.
+      const COURT = 205;
+      const PADDLE_X = 410;
+      const BALL = 30;
+      const LEG = 470;
+      const ballAt = (t) => {
+        const leg = Math.floor(t / LEG);
+        const p = t / LEG - leg;
+        const left = -PADDLE_X + 9 + BALL / 2;
+        const right = PADDLE_X - 9 - BALL / 2;
+        const x = leg % 2 === 0 ? lerp(left, right, p) : lerp(right, left, p);
+        const span = 2 * (COURT - BALL / 2 - 4);
+        const raw = (((t * 0.62 + span * 0.62) % (span * 2)) + span * 2) % (span * 2);
+        const z = -span / 2 + (raw < span ? raw : span * 2 - raw);
+        return [x, z, leg % 2 === 0 ? 1 : -1];
+      };
+      const pong = (t) => {
+        const items = [
+          box(0, -COURT, 900, 4, { c: 1, r: 2 }),
+          box(0, COURT, 900, 4, { c: 1, r: 2 }),
+        ];
+        for (let i = -3; i <= 3; i += 1) items.push(box(0, i * 56, 4, 28, { c: 1, r: 2 }));
+        const [bx, bz, dir] = ballAt(t);
+        const track = (side) =>
+          clamp(bz * 0.85 + Math.sin(t / 210 + side) * 18, -COURT + 64, COURT - 64);
+        items.push(box(-PADDLE_X, track(0), 18, 110, { r: 9 }));
+        items.push(box(PADDLE_X, track(2), 18, 110, { r: 9 }));
+        const hero = heroBox(bx, bz, BALL, { look: dir });
+        const overlay = () => {
+          for (let i = 1; i <= 4; i += 1) {
+            const [tx, tz] = ballAt(Math.max(0, t - i * 28));
+            ctx.fillStyle = rgb(ACCENT, 0.16 - i * 0.03);
+            ctx.beginPath();
+            ctx.roundRect(600 + tx - BALL / 2, 315 + tz - BALL / 2, BALL, BALL, 6);
+            ctx.fill();
+          }
+        };
+        return { hero, items, k: 0, overlay };
       };
 
-      const renderAt = (t) => {
-        const cam = camAt(t);
-        const camG = document.getElementById("camera");
-        camG.setAttribute(
-          "transform",
-          `translate(${600 - cam.cx * cam.z} ${297 - cam.cy * cam.z}) scale(${cam.z})`,
+      // The 3D arena: the plane in perspective, a floor grid streaming past,
+      // towers to run between, the hero a cube hopping forward.
+      const GRID = 150;
+      const SPEED = 0.55;
+      const TOWERS = [
+        [-330, -260, 150],
+        [330, -470, 110],
+        [-560, -780, 190],
+        [120, -1080, 130],
+        [520, -1300, 170],
+      ];
+      const ARENA_HERO_Z = 150;
+      const arena = (t) => {
+        const items = [];
+        for (let i = -6; i <= 6; i += 1)
+          items.push(box(i * GRID, -1000, 3, 2700, { c: 1, r: 0, lw: 2 }));
+        const scroll = (t * SPEED) % GRID;
+        for (let j = 0; j < 18; j += 1)
+          items.push(box(0, 330 - j * GRID + scroll, 1800, 3, { c: 1, r: 0, lw: 2 }));
+        for (const [x, z, h] of TOWERS) items.push(box(x, z + t * SPEED, 90, 90, { h, r: 6 }));
+        const hop = Math.abs(Math.sin((t / 300) * Math.PI));
+        const sway = Math.sin(t / 420) * 70;
+        const hero = heroBox(sway, ARENA_HERO_Z, 70, {
+          h: 70,
+          look: Math.cos(t / 420),
+          y: hop * 46,
+        });
+        return { hero, items, k: 1 };
+      };
+
+      // The falling-block well, from above: walls, a stack with one gap, and
+      // the hero dropping in as the last block.
+      const BLOCK = 40;
+      const WELL_COLS = 10;
+      const WELL_ROWS = 13;
+      const blockX = (c) => -180 + c * BLOCK;
+      const blockZ = (r) => -240 + r * BLOCK;
+      const STACK = [];
+      for (let c = 0; c < WELL_COLS; c += 1) if (c !== 4) STACK.push([c, 12]);
+      for (const c of [0, 1, 2, 6, 7, 8, 9]) STACK.push([c, 11]);
+      for (const c of [0, 1, 7, 8, 9]) STACK.push([c, 10]);
+      for (const c of [0, 9]) STACK.push([c, 9]);
+      const WELL_FALL = 360;
+      const tetris = (t) => {
+        const items = [
+          box(-205, 22, 4, 532, { c: 1, r: 2 }),
+          box(205, 22, 4, 532, { c: 1, r: 2 }),
+          box(0, 288, 414, 4, { c: 1, r: 2 }),
+        ];
+        const landed = prog(t, WELL_FALL, 1);
+        const flash = landed > 0 ? Math.exp(-(t - WELL_FALL) / 160) : 0;
+        for (const [c, r] of STACK) {
+          const lit = r === 12 ? flash : 0;
+          items.push(box(blockX(c), blockZ(r), 32, 32, { c: 0, lw: LINE + lit * 2, r: 6 }));
+        }
+        const fall = easeIn(prog(t, 0, WELL_FALL));
+        const z = lerp(blockZ(1), blockZ(12), fall);
+        const settle =
+          t > WELL_FALL
+            ? Math.exp(-(t - WELL_FALL) / 60) * Math.sin((t - WELL_FALL) / 25) * 0.25
+            : 0;
+        const hero = heroBox(blockX(4), z, 32 * (1 + settle), { h: 32, look: 0 });
+        return { hero, items, k: 0 };
+      };
+
+      // ---- matching: which box becomes which ----------------------------------
+      const cost = (a, b) =>
+        Math.hypot(a.x - b.x, a.z - b.z) + 0.35 * (Math.abs(a.w - b.w) + Math.abs(a.d - b.d));
+      /**
+       * Pairs every box of `from` with one of `to`: nearest first, then merges
+       * and splits. A box with nothing within `reach` shrinks away, or grows,
+       * where it stands instead of flying across the frame.
+       */
+      const pairUp = (from, to, point, reach = Infinity) => {
+        const inPlace = (b) => ({ ...b, a: 0, d: 0, h: 0, w: 0 });
+        const dot = (b) => ({ ...b, a: 0, d: 0, h: 0, w: 0, x: point[0], z: point[1] });
+        // A game drawn from nothing grows each box where it stands.
+        if (from.length === 0) return to.map((b) => [inPlace(b), b]);
+        if (to.length === 0) return from.map((b) => [b, dot(b)]);
+        const all = [];
+        for (let i = 0; i < from.length; i += 1) {
+          for (let j = 0; j < to.length; j += 1) all.push([cost(from[i], to[j]), i, j]);
+        }
+        all.sort((p, q) => p[0] - q[0]);
+        const usedFrom = new Set();
+        const usedTo = new Set();
+        const pairs = [];
+        for (const [c, i, j] of all) {
+          if (c > reach) break;
+          if (usedFrom.has(i) || usedTo.has(j)) continue;
+          usedFrom.add(i);
+          usedTo.add(j);
+          pairs.push([from[i], to[j]]);
+        }
+        const nearest = (b, list) =>
+          list.reduce((best, c) => (cost(b, c) < cost(b, best) ? c : best));
+        const near = (b, list) => {
+          const c = nearest(b, list);
+          return cost(b, c) <= reach ? c : null;
+        };
+        from.forEach((b, i) => usedFrom.has(i) || pairs.push([b, near(b, to) ?? inPlace(b)]));
+        to.forEach((b, j) => usedTo.has(j) || pairs.push([near(b, from) ?? inPlace(b), b]));
+        return pairs;
+      };
+
+      // ---- the timeline (ms) --------------------------------------------------
+      // Steady beats play a game; morphs carry the last frame of one into the
+      // first frame of the next. `kCurve` shapes the camera's tilt in a morph.
+      const BEATS = [
+        { at: 0, dur: 300, game: logo },
+        { at: 300, dur: 700, morph: true, sweep: 0.45 },
+        { at: 1000, dur: 1640, game: platformer },
+        { at: 2640, dur: 620, morph: true, sweep: 0.35 },
+        { at: 3260, dur: 1100, game: bomberman },
+        { at: 4360, dur: 560, morph: true, sweep: 0.25 },
+        { at: 4920, dur: 940, game: pong },
+        { at: 5860, dur: 700, geo: [0.3, 1], morph: true, reach: 360, sweep: 0.3, tilt: [0, 0.55] },
+        { at: 6560, dur: 820, game: arena },
+        {
+          at: 7380,
+          dur: 640,
+          geo: [0, 0.6],
+          hop: 90,
+          morph: true,
+          reach: 360,
+          sweep: 0.3,
+          tilt: [0.35, 1],
+        },
+        { at: 8020, dur: 420, game: tetris },
+        { at: 8440, dur: 460, morph: true, sweep: 0, collapse: true },
+        { at: 8900, dur: 1100, game: logo },
+      ];
+      for (let i = 0; i < BEATS.length; i += 1) {
+        const beat = BEATS[i];
+        if (!beat.morph) continue;
+        const before = BEATS[i - 1];
+        const after = BEATS[i + 1];
+        beat.from = before.game(before.dur);
+        beat.to = after.game(0);
+        const target = beat.collapse ? [ICON_X, ICON_Z] : [beat.to.hero.x, beat.to.hero.z];
+        beat.pairs = pairUp(
+          beat.from.items,
+          beat.to.items,
+          beat.from.items.length ? target : [beat.from.hero.x, beat.from.hero.z],
+          beat.reach,
+        );
+        const xs = beat.pairs.map(([, b]) => b.x);
+        const lo = Math.min(...xs);
+        const hi = Math.max(...xs);
+        beat.ranks = beat.pairs.map(([, b]) => (hi > lo ? (b.x - lo) / (hi - lo) : 0));
+      }
+
+      const morphFrame = (beat, t) => {
+        const p = clamp(t / beat.dur);
+        const [k0, k1] = beat.tilt || [0, 1];
+        const kp = easeInOut(prog(p, k0, k1 - k0));
+        const k = lerp(beat.from.k, beat.to.k, kp);
+        const [g0, g1] = beat.geo || [0, 1];
+        const gp = prog(p, g0, g1 - g0);
+        const items = beat.pairs.map(([a, b], i) => {
+          if (beat.collapse) return mixBox(a, b, easeInOut(clamp(p / 0.7)));
+          const local = clamp((gp - beat.sweep * beat.ranks[i]) / (1 - beat.sweep));
+          return mixBox(a, b, spring(local));
+        });
+        const ha = beat.from.hero;
+        const hb = beat.to.hero;
+        // Into and out of the icon, one motion at a time: the icon folds into the
+        // hero where it stands, then the hero hops away (and the reverse).
+        const intro = !beat.from.items.length;
+        const hp = beat.collapse
+          ? soft(prog(p, 0, 0.55))
+          : intro
+            ? soft(prog(p, 0.38, 0.62))
+            : spring(prog(p, 0.05, 0.8));
+        const hero = {};
+        for (const f of ["x", "z", "w", "d", "h", "y", "r", "look", "morph"])
+          hero[f] = lerp(ha[f] || 0, hb[f] || 0, hp);
+        const mp = beat.collapse ? prog(p, 0.38, 0.62) : intro ? prog(p, 0, 0.5) : 0;
+        hero.morph = lerp(ha.morph, hb.morph, easeInOut(mp));
+        hero.a = 1;
+        // A hop between games: up and toward the camera, then down into the next.
+        const arc = intro ? Math.sin(Math.PI * clamp(hp)) : Math.sin(Math.PI * clamp(p / 0.85));
+        hero.y += (beat.hop || 0) * arc;
+        if (intro) hero.z -= 90 * arc;
+        if (!beat.from.items.length || beat.collapse || beat.from.k !== beat.to.k)
+          return { hero, items, k };
+        const grow = 1 + 0.28 * arc;
+        hero.w *= grow;
+        hero.d *= grow;
+        return { hero, items, k };
+      };
+
+      // ---- the hero -----------------------------------------------------------
+      let MARK = null;
+      const resample = (pts, n) => {
+        const segs = pts.map((p, i) => {
+          const q = pts[(i + 1) % pts.length];
+          return [p, q, Math.hypot(q[0] - p[0], q[1] - p[1])];
+        });
+        const total = segs.reduce((s, [, , l]) => s + l, 0);
+        const out = [];
+        let seg = 0;
+        let walked = 0;
+        for (let i = 0; i < n; i += 1) {
+          const target = (i / n) * total;
+          while (walked + segs[seg][2] < target) {
+            walked += segs[seg][2];
+            seg += 1;
+          }
+          const [p, q, l] = segs[seg];
+          const u = l > 0 ? (target - walked) / l : 0;
+          out.push([lerp(p[0], q[0], u), lerp(p[1], q[1], u)]);
+        }
+        return out;
+      };
+      const SAMPLES = 120;
+      let markUnit = null;
+      window.__setMark = (points) => {
+        const xs = points.map(([x]) => x);
+        const ys = points.map(([, y]) => y);
+        const minX = Math.min(...xs);
+        const maxX = Math.max(...xs);
+        const minY = Math.min(...ys);
+        const maxY = Math.max(...ys);
+        const cx = (minX + maxX) / 2;
+        const cy = (minY + maxY) / 2;
+        MARK = points;
+        // Unit-width icon around its centre, resampled to match the hero's outline.
+        markUnit = resample(
+          points.map(([x, y]) => [(x - cx) / (maxX - minX), (y - cy) / (maxX - minX)]),
+          SAMPLES,
+        );
+      };
+      const squareOutline = (cx, cy, w, d) =>
+        resample(
+          [
+            [cx - w / 2, cy - d / 2],
+            [cx + w / 2, cy - d / 2],
+            [cx + w / 2, cy + d / 2],
+            [cx - w / 2, cy + d / 2],
+          ],
+          SAMPLES,
         );
 
-        for (const r of REG) {
-          const out = r.keep ? 0 : eio(seg(t, r.x0, r.x0 + EXIT.dur));
-          const p = seg(t, r.a, r.b);
-          let style = "";
-          if (r.k === "d") {
-            const e = eio(p);
-            const vis = clamp(p * 6) * (1 - out);
-            style = `opacity:${vis.toFixed(3)};stroke-dasharray:1 2;stroke-dashoffset:${(1 - e).toFixed(4)};fill-opacity:${clamp((p - 0.55) / 0.45).toFixed(3)}`;
-          } else if (r.k === "t") {
-            const e = spring(p);
-            style = `opacity:${(clamp(p * 1.6) * (1 - out)).toFixed(3)};transform:translateY(${((1 - e) * 5).toFixed(2)}px)`;
-          } else {
-            style = `opacity:${(eo(p) * (1 - out)).toFixed(3)}`;
-          }
-          const shown = p > 0.8 && out < 1;
-          if (r.arrows.length && shown !== r.shown) {
-            for (const m of r.arrows) {
-              if (shown) r.e.setAttribute(m, "url(#ar)");
-              else r.e.removeAttribute(m);
-            }
-            r.shown = shown;
-          }
-          if (style !== r.last) {
-            r.e.setAttribute("style", style);
-            r.last = style;
-          }
+      const drawHero = (hero, k) => {
+        const color = mixColor(ACCENT, INK, hero.morph);
+        if (hero.morph > 0.002 && markUnit) {
+          const [cx, cy] = proj(hero.x, 0, hero.z, k);
+          const square = squareOutline(cx, cy, hero.w, hero.d);
+          const m = hero.morph;
+          const pts = square.map(([x, y], i) => [
+            lerp(x, cx + markUnit[i][0] * ICON_W, m),
+            lerp(y, cy + markUnit[i][1] * ICON_W, m),
+          ]);
+          ctx.beginPath();
+          pts.forEach(([x, y], i) => (i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y)));
+          ctx.closePath();
+          ctx.fillStyle = rgb(color, lerp(0.16, 1, easeIn(m)));
+          ctx.fill();
+          ctx.strokeStyle = rgb(color);
+          ctx.lineWidth = LINE;
+          ctx.lineJoin = "round";
+          ctx.stroke();
+        } else {
+          drawBox(hero, k, color, 0.16);
         }
-
-        // The lift: each layer's matrix morphs from the plan to the axonometric.
-        const { D, dims, lift } = state;
-        const iso = isoOf(D);
-        for (const m of MORPH) {
-          const p = liftAt(t, Math.max(0, m.i));
-          const M = [1, 0, 0, 1, 0, 0].map((v, j) => lerp(v, iso[j], p));
-          M[5] -= m.z * p;
-          m.g.setAttribute("transform", `matrix(${M.map((v) => v.toFixed(4)).join(",")})`);
-          m.g.style.setProperty("--u", String(1 / Math.sqrt(Math.abs(M[0] * M[3] - M[1] * M[2]))));
-          if (m.i < 0) m.g.style.opacity = String(clamp((p - 0.35) / 0.4));
-          for (const pane of PANES) {
-            if (pane.g === m.g) pane.e.style.opacity = String(clamp((p - 0.2) / 0.5));
-          }
+        // Eyes: on top from above, on the front face in perspective.
+        const eyes = clamp(1 - hero.morph * 3);
+        if (eyes <= 0) return;
+        const size = Math.min(hero.w, hero.d);
+        const [fx, fy] = proj(hero.x, 0, hero.z, k);
+        const front = proj(hero.x, (hero.y || 0) + (hero.h || 0) * 0.62, hero.z + hero.d / 2, k);
+        const ex = lerp(fx, front[0], k);
+        const ey = lerp(fy - size * 0.08, front[1], k);
+        const sc = scaleAt(hero.z + hero.d / 2, k);
+        const gap = size * 0.2 * sc;
+        const look = (hero.look || 0) * size * 0.1 * sc;
+        ctx.fillStyle = rgb(color, eyes);
+        for (const side of [-1, 1]) {
+          ctx.beginPath();
+          ctx.ellipse(
+            ex + side * gap + look,
+            ey,
+            size * 0.065 * sc,
+            size * 0.1 * sc,
+            0,
+            0,
+            Math.PI * 2,
+          );
+          ctx.fill();
         }
-        dims.style.opacity = String(1 - 0.9 * liftAt(t, 0));
-        lift.style.opacity = String(clamp((liftAt(t, 3) - 0.7) / 0.3));
       };
 
-      window.__setMark = (points) => {
-        build(points);
-        renderAt(0);
+      // ---- frame --------------------------------------------------------------
+      const frameAt = (t) => {
+        for (const beat of BEATS) {
+          if (t < beat.at + beat.dur || beat === BEATS[BEATS.length - 1]) {
+            const local = t - beat.at;
+            return beat.morph ? morphFrame(beat, local) : beat.game(local);
+          }
+        }
+        return logo();
       };
-      window.__render = (ms) => renderAt(ms / 1000);
-      window.__duration = DURATION * 1000;
+
+      const tagline = (t) => {
+        const out = easeOut(prog(t, 300, 200));
+        const back = easeOut(prog(t, 8640, 420));
+        const alpha = t < 4000 ? 1 - out : back;
+        if (alpha <= 0.002) return;
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = rgb(INK, 0.72);
+        ctx.font = '34px "VG5000"';
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(TAGLINE, 600, 426 + (t < 4000 ? out * 14 : (1 - back) * 14));
+        ctx.restore();
+      };
+
+      const begin = () => {
+        ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+        ctx.clearRect(0, 0, W, H);
+        ctx.lineJoin = "round";
+        ctx.lineCap = "round";
+      };
+      const drawFrame = (frame) => {
+        for (const item of frame.items) drawBox(item, frame.k, mixColor(INK, DIM, item.c));
+        if (frame.overlay) frame.overlay();
+        drawHero(frame.hero, frame.k);
+      };
+
+      window.__duration = DURATION;
+      window.__render = (ms) => {
+        const t = ((ms % DURATION) + DURATION) % DURATION;
+        begin();
+        drawFrame(frameAt(t));
+        tagline(t);
+      };
+
+      /**
+       * The site's og:image: the end card's icon and tagline over the clip's
+       * 3D arena, drawn smaller from the bottom edge so the hero runs under the
+       * logo.
+       */
+      window.__still = () => {
+        begin();
+        ctx.save();
+        ctx.translate(600, H);
+        ctx.scale(0.72, 0.72);
+        ctx.translate(-600, -H);
+        drawFrame(arena(330));
+        ctx.restore();
+        const icon = markUnit.map(([x, y]) => [600 + x * 176, 108 + y * 176]);
+        ctx.beginPath();
+        icon.forEach(([x, y], i) => (i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y)));
+        ctx.closePath();
+        ctx.fillStyle = rgb(INK);
+        ctx.fill();
+        ctx.fillStyle = rgb(INK, 0.72);
+        ctx.font = '32px "VG5000"';
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(TAGLINE, 600, 222);
+      };
     </script>
   </body>
 </html>

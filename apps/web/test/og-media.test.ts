@@ -13,7 +13,14 @@ import { privacyDoc } from "@/content/privacy";
 import { SITEMAP_PAGES, SITEMAP_PATHS, pageLastModified } from "@/content/site-map";
 import { termsDoc } from "@/content/terms";
 import { docHead } from "@/lib/doc-route";
-import { PAGE_CARD_PATHS, SITE_IMAGE, pageImage, siteVideo } from "@/lib/og-media";
+import {
+  PAGE_CARD_PATHS,
+  SITE_IMAGE,
+  SITE_IMAGE_ALT,
+  pageImage,
+  pageImageAlt,
+  siteVideo,
+} from "@/lib/og-media";
 import { siteConfig } from "@/lib/site-config";
 import { pageGraph, siteGraph } from "@/lib/structured-data";
 
@@ -39,6 +46,22 @@ describe("committed og media", () => {
   test("a page without a card falls back to the site image", () => {
     assert.equal(pageImage("/"), SITE_IMAGE);
     assert.equal(pageImage("/does-not-exist"), SITE_IMAGE);
+  });
+
+  test("the site image's alt is its own, and a card's is its page's title", () => {
+    assert.equal(pageImageAlt("/", "Home"), SITE_IMAGE_ALT);
+    assert.equal(pageImageAlt("/about", "About"), "About");
+    const alt = docHead(homeDoc).meta.find(
+      (entry) => "property" in entry && entry.property === "og:image:alt",
+    );
+    assert.ok(alt && "content" in alt && alt.content === SITE_IMAGE_ALT);
+  });
+
+  test("the clip's description names no upstream brand", () => {
+    assert.doesNotMatch(
+      `${siteVideo.name} ${siteVideo.description} ${SITE_IMAGE_ALT}`,
+      /\bfal\b/iu,
+    );
   });
 
   test("the duration is ISO 8601 and the upload date is an ISO date", () => {

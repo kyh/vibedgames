@@ -13,7 +13,7 @@ import {
 
 import { NotFoundPage } from "@/components/site/not-found";
 import { canonicalUrl, varyHeaders } from "@/lib/doc-route";
-import { SITE_IMAGE, siteVideo } from "@/lib/og-media";
+import { SITE_IMAGE, SITE_IMAGE_ALT, siteVideo } from "@/lib/og-media";
 import { siteConfig } from "@/lib/site-config";
 import { serializeJsonLd, siteGraph } from "@/lib/structured-data";
 
@@ -57,7 +57,7 @@ export const Route = createRootRouteWithContext<RouterContext>()({
       { content: "image/jpeg", property: "og:image:type" },
       { content: "1200", property: "og:image:width" },
       { content: "630", property: "og:image:height" },
-      { content: siteConfig.name, property: "og:image:alt" },
+      { content: SITE_IMAGE_ALT, property: "og:image:alt" },
       // The trailer, on every page: the image above stays the card,
       // and players that show video loop this instead. See `lib/og-media.ts`.
       { content: `${siteConfig.url}${siteVideo.path}`, property: "og:video" },
@@ -71,7 +71,7 @@ export const Route = createRootRouteWithContext<RouterContext>()({
       { content: siteConfig.name, name: "twitter:title" },
       { content: siteConfig.description, name: "twitter:description" },
       { content: `${siteConfig.url}${SITE_IMAGE}`, name: "twitter:image" },
-      { content: siteConfig.name, name: "twitter:image:alt" },
+      { content: SITE_IMAGE_ALT, name: "twitter:image:alt" },
       { content: siteConfig.twitter, name: "twitter:site" },
       { content: siteConfig.twitter, name: "twitter:creator" },
       { content: siteConfig.shortName, name: "apple-mobile-web-app-title" },
