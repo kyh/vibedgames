@@ -5,6 +5,8 @@ import path from "node:path";
 import { defineCommand } from "citty";
 import { consola } from "consola";
 
+import { MAX_UPLOAD_BODY } from "@repo/contract/deploy/deploy-schema";
+
 import { createClient } from "../lib/api.js";
 import { packBuild, packSource } from "../lib/archive.js";
 import type { SourceArchive } from "../lib/archive.js";
@@ -20,6 +22,7 @@ import { buildManifest } from "../lib/manifest.js";
 import { isJsonOutput, outputArgs, writeStructured } from "../lib/output.js";
 import { assertKnownFlags } from "../lib/strict-args.js";
 import { isJsonString } from "../lib/types.js";
+import { uploadAll } from "../lib/upload.js";
 
 const deployArgs = {
   dir: {
@@ -247,23 +250,49 @@ export const deployCommand = defineCommand({
     const client = createClient();
     const started = Date.now();
 
+    // One PUT may carry MAX_UPLOAD_BODY: a bigger game goes up file by file.
+    const asBundle = bundle.bytes <= MAX_UPLOAD_BODY;
     let created;
     try {
       created = await client.deploy.upload({
-        bundle: true,
+        bundle: asBundle,
         name: config.name,
+        presign: asBundle
+          ? []
+          : manifest.map((f) => ({
+              contentType: f.contentType,
+              path: f.path,
+              sha256: f.sha256,
+              size: f.size,
+            })),
         slug: config.slug,
         sourceArchive: sourceArchive
           ? { bytes: sourceArchive.bytes, sha256: sourceArchive.sha256 }
           : undefined,
       });
       if (!structured) {
-        consola.start(`Uploading ${formatBytes(bundle.bytes)}`);
+        consola.start(
+          asBundle
+            ? `Uploading ${formatBytes(bundle.bytes)}`
+            : `Uploading ${manifest.length} files (too large for one bundle)`,
+        );
       }
-      if (!created.bundleUpload) {
-        throw new Error("The server returned no bundle upload URL.");
+      if (asBundle) {
+        if (!created.bundleUpload) {
+          throw new Error("The server returned no bundle upload URL.");
+        }
+        await putArchive(bundle.path, created.bundleUpload, "bundle");
+      } else {
+        await uploadAll({
+          files: manifest,
+          onProgress: (done, total) => {
+            if (done === total || done % 10 === 0) {
+              say(`Uploaded ${done}/${total}`);
+            }
+          },
+          uploads: created.uploads,
+        });
       }
-      await putArchive(bundle.path, created.bundleUpload, "bundle");
       if (sourceArchive && created.sourceUpload) {
         await putArchive(sourceArchive.path, created.sourceUpload, "source");
       }

@@ -74,6 +74,17 @@ describe("forEachBundleFile", () => {
     ]);
   });
 
+  test("passes over a non-file entry's claimed size without holding it", async () => {
+    // A directory header claiming 8 GiB, on a stream that ends long before.
+    const [header] = entry("huge/", "5");
+    header?.set(
+      new TextEncoder().encode(`${(8 * 1024 ** 3).toString(8).padStart(11, "0")}\0`),
+      124,
+    );
+    const bundle = await gzip(header ? [header] : []);
+    await assert.rejects(read(bundle), { code: "BAD_REQUEST" });
+  });
+
   test("refuses a file over the size cap", async () => {
     const bundle = await gzip(entry("big.bin", "0", new Uint8Array(2048)));
     await assert.rejects(read(bundle, 1024), { code: "BAD_REQUEST" });

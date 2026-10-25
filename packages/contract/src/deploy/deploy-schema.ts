@@ -13,6 +13,9 @@ export const MAX_TOTAL_SIZE = 200 * 1024 * 1024;
 export const MAX_FILE_COUNT = 500;
 // 100 MB for the forkable source archive
 export const MAX_SOURCE_SIZE = 100 * 1024 * 1024;
+// What one PUT to `/api/upload` may carry (the Worker's own request limit), so
+// the most a deploy bundle can be. A game over it goes up file by file.
+export const MAX_UPLOAD_BODY = 100 * 1024 * 1024;
 
 // ---- Schemas -----------------------------------------------------------------
 

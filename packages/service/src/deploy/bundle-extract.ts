@@ -49,8 +49,32 @@ const paxPath = (data: Uint8Array): string | null => {
 /** Hands out exactly `size` bytes at a time from a byte stream, or null at its end. */
 const byteReader = (stream: ReadableStream<Uint8Array>) => {
   const reader = stream.getReader();
-  let buffer = new Uint8Array(0);
+  let buffer: Uint8Array = new Uint8Array(0);
   let done = false;
+  /**
+   * Passes over `size` bytes without holding them, so a header claiming more
+   * than a deploy could be is drained, never buffered. False if the stream ends first.
+   */
+  const skip = async (size: number): Promise<boolean> => {
+    let left = size;
+    while (left > 0) {
+      if (buffer.byteLength === 0) {
+        if (done) {
+          return false;
+        }
+        const next = await reader.read();
+        if (next.done) {
+          done = true;
+          return false;
+        }
+        buffer = next.value;
+      }
+      const used = Math.min(left, buffer.byteLength);
+      buffer = buffer.subarray(used);
+      left -= used;
+    }
+    return true;
+  };
   const take = async (size: number): Promise<Uint8Array<ArrayBuffer> | null> => {
     while (buffer.byteLength < size && !done) {
       const next = await reader.read();
@@ -70,7 +94,7 @@ const byteReader = (stream: ReadableStream<Uint8Array>) => {
     buffer = buffer.subarray(size);
     return out;
   };
-  return { take };
+  return { skip, take };
 };
 
 interface Header {
@@ -136,8 +160,10 @@ export const forEachBundleFile = async (
       const data = padded.subarray(0, header.size);
       longName = header.type === "L" ? field(data, 0, header.size) : paxPath(data);
     } else if (!isRegularFile(header.type)) {
-      // Directories, links and global headers carry no file: skip their data.
-      await body(header.size);
+      // Directories, links and global headers carry no file: pass over their data.
+      if (!(await reader.skip(Math.ceil(header.size / BLOCK) * BLOCK))) {
+        bad("the archive is truncated.");
+      }
     } else if (header.size > maxFileBytes) {
       bad(`"${header.path}" is over ${maxFileBytes} bytes; split it into parts.`);
     } else {

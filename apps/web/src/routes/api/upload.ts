@@ -1,3 +1,4 @@
+import { MAX_UPLOAD_BODY } from "@repo/contract/deploy/deploy-schema";
 import { verifyUploadUrl } from "@repo/service/storage/signed-urls";
 import { createFileRoute } from "@tanstack/react-router";
 
@@ -5,9 +6,9 @@ import { getServerContext } from "@/auth/server";
 import { getCloudflareEnv } from "@/lib/cloudflare";
 import { jsonError } from "@/lib/json-error";
 
-// Bundle files cap at 10 MB each (enforced in the deploy router); the source
-// archive rides the same URL up to the 100 MB source cap.
-const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
+// Bundle files cap at 10 MB each (enforced in the deploy router); a deploy
+// bundle and the source archive ride the same URL up to the Worker's limit.
+const MAX_UPLOAD_BYTES = MAX_UPLOAD_BODY;
 // A forwarded model input is held in memory: a signed storage URL wants a
 // length, which a streamed outbound body does not reliably carry.
 const MAX_FORWARD_BYTES = 50 * 1024 * 1024;
