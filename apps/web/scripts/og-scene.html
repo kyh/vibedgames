@@ -1,548 +1,1081 @@
 <!doctype html>
 <!--
-  The og:video trailer scene: six game genres as hairline wireframes, each one
-  briefly playing, then the wordmark. Never served: `scripts/og-video.ts`
-  opens it from disk in Playwright, calls `window.__render(ms)` once per 30fps
-  frame and screenshots each one, so the cut is identical every run however
-  slowly the page draws.
+  The og:video scene: the Vibedgames mark drawn as the subject of a
+  dimensional drawing, its tagline under it, with six kinds of game measured
+  the same way around it: a platformer, a bomberman grid, a paddle court, a
+  top-down shooter, a 3D arena in isometric and a falling-block well. Many
+  genres, one platform.
 
-  The genres are the bundled example games' (games/*), drawn abstractly so the
-  clip stays evergreen: a platformer (Lunerfall), a bomberman arena
-  (Bomberman), a space shooter (Starfall), a paddle rally (Pong), a 3D arena
-  (Battle Arena, Ancients of Eldermoor) and a falling-block well (Tetris).
-  Colours are the web app's @repo/ui dark tokens, the backdrop its
-  public/bg.webp, the mark its public/favicon/favicon.svg.
+  Ten seconds, looping: on a sheet that holds only the mark and its tagline,
+  the pen draws the mark's construction and dimensions while the camera pushes
+  in, pulls back as the games draw around it, visits the platformer while its
+  layers (background, tiles, sprites, HUD) lift into an exploded view and
+  settle, holds on the full sheet, then clears back to the mark alone, so the
+  last frame is the first.
+
+  The games are wireframes of architecture (tiles, spawns, sprites, a fixed
+  HUD), not screenshots, so the clip stays evergreen as the catalogue changes.
+  Never served: scripts/og-video.ts opens it from disk, hands it the mark's
+  polygon from public/favicon/favicon.svg (`__setMark`), then calls
+  `__render(ms)` once per frame; every value below is a pure function of `t`.
+
+  Style, drawing kit and motion grammar (draw-on strokes, ticking labels,
+  exploded-layer matrix morph) follow enesozturk/dimensional-drawing
+  (https://github.com/enesozturk/dimensional-drawing, MIT, (c) 2026 Enes
+  Ozturk): monochrome grays told apart by line weight, dashes and hatches;
+  slots instead of content; variables instead of numbers. Lettering is the web
+  app's VG5000 (src/styles/vg5000.woff2).
 -->
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>Vibedgames trailer scene</title>
+    <title>Vibedgames dimensional drawing</title>
     <style>
-      * {
-        margin: 0;
-        box-sizing: border-box;
+      @font-face {
+        font-family: "VG5000";
+        src: url("../src/styles/vg5000.woff2") format("woff2");
+      }
+      :root {
+        color-scheme: light;
+        --paper: #f5f4f0;
+        --ink: #1c1c1c;
+        --gray: #6e6e6b;
+        --line: #8a8a86;
+        --fill: #e6e5e0;
+        --well: #ecebe6;
       }
       html,
       body {
+        margin: 0;
         width: 1200px;
         height: 630px;
         overflow: hidden;
+        background: var(--paper);
       }
-      body {
-        /* --background, with the site's own dot texture over it. */
-        background: oklch(0.141 0.005 285.823) url(../public/bg.webp);
-        background-size: 10px;
+      svg {
+        position: absolute;
+        inset: 0;
+        font-family: "VG5000", ui-monospace, monospace;
+        --u: 1;
       }
-      canvas {
-        display: block;
+      text {
+        text-transform: uppercase;
+      }
+      .border {
+        fill: none;
+        stroke: var(--ink);
+        stroke-width: 1.6;
+      }
+      .obj {
+        fill: var(--paper);
+        stroke: var(--ink);
+        stroke-width: calc(2.4px * var(--u));
+        stroke-linejoin: round;
+      }
+      .wall {
+        fill: none;
+        stroke: var(--ink);
+        stroke-width: calc(2.4px * var(--u));
+        stroke-linejoin: round;
+      }
+      .well {
+        fill: var(--well);
+        stroke: var(--ink);
+        stroke-width: calc(1.3px * var(--u));
+      }
+      .hug {
+        fill: var(--fill);
+        stroke: var(--ink);
+        stroke-width: calc(1.3px * var(--u));
+      }
+      .solid {
+        fill: var(--ink);
+        stroke: var(--ink);
+        stroke-width: calc(1px * var(--u));
+      }
+      .slot {
+        fill: none;
+        stroke: var(--line);
+        stroke-width: calc(1.1px * var(--u));
+        stroke-dasharray: calc(5px * var(--u)) calc(3.5px * var(--u));
+      }
+      .grid {
+        fill: none;
+        stroke: var(--line);
+        stroke-width: calc(0.7px * var(--u));
+      }
+      .bgl {
+        fill: none;
+        stroke: var(--gray);
+        stroke-width: calc(1.2px * var(--u));
+      }
+      .thin {
+        fill: none;
+        stroke: var(--ink);
+        stroke-width: calc(1.3px * var(--u));
+      }
+      .ph {
+        fill: none;
+        stroke: var(--line);
+        stroke-width: calc(1px * var(--u));
+        stroke-dasharray: calc(14px * var(--u)) calc(3px * var(--u)) calc(3px * var(--u))
+          calc(3px * var(--u));
+      }
+      .cl {
+        fill: none;
+        stroke: var(--line);
+        stroke-width: 1;
+        stroke-dasharray: 18 4 3 4;
+      }
+      .con {
+        fill: none;
+        stroke: var(--ink);
+        stroke-width: 1.1;
+      }
+      .dl,
+      .lead {
+        fill: none;
+        stroke: var(--ink);
+        stroke-width: 1.2;
+      }
+      .ext {
+        fill: none;
+        stroke: var(--ink);
+        stroke-width: 0.95;
+      }
+      .arrow,
+      .dot {
+        fill: var(--ink);
+      }
+      .hl {
+        stroke: var(--line);
+        stroke-width: 1;
+      }
+      .hs {
+        stroke: var(--ink);
+        stroke-width: calc(1.1px * var(--u));
+      }
+      .rule {
+        stroke: var(--ink);
+        stroke-width: 1;
+      }
+      .mark {
+        fill: var(--ink);
+      }
+      .tag {
+        font-size: 25px;
+        fill: var(--ink);
+        text-transform: none;
+        letter-spacing: 0.01em;
+      }
+      .dt {
+        font-size: 13.5px;
+        fill: var(--ink);
+        paint-order: stroke;
+        stroke: var(--paper);
+        stroke-width: 4px;
+        stroke-linejoin: round;
+      }
+      .sl {
+        font-size: 9.5px;
+        fill: var(--gray);
+        letter-spacing: 0.06em;
+      }
+      .vt {
+        font-size: 12px;
+        fill: var(--ink);
+        letter-spacing: 0.1em;
+      }
+      .dts {
+        font-size: 10px;
+        fill: var(--gray);
+        letter-spacing: 0.06em;
+        paint-order: stroke;
+        stroke: var(--paper);
+        stroke-width: 3px;
+      }
+      .fl {
+        font-size: 7.5px;
+        fill: var(--gray);
+        letter-spacing: 0.1em;
+      }
+      .fv {
+        font-size: 11px;
+        fill: var(--ink);
+        letter-spacing: 0.08em;
       }
     </style>
   </head>
   <body>
-    <canvas id="c" width="1200" height="630"></canvas>
+    <svg id="sheet" viewBox="0 0 1200 630" width="1200" height="630"></svg>
     <script>
-      const W = 1200;
-      const H = 630;
-      const ctx = document.getElementById("c").getContext("2d");
-      // --foreground, --muted-foreground, --success (the one accent).
-      const INK = "oklch(0.985 0 0)";
-      const DIM = "oklch(0.705 0.015 286.067)";
-      const ACCENT = "oklch(0.792 0.209 151.711)";
-      const LINE = 3;
-      const SANS = 'ui-sans-serif, system-ui, "Helvetica Neue", Arial, sans-serif';
+      const DURATION = 10;
+      const NS = "http://www.w3.org/2000/svg";
+      const TAGLINE = "A game studio for your agent.";
 
-      // ---- easing -----------------------------------------------------------
+      /* ---------- time kit: pure functions of t ---------- */
       const clamp = (v, lo = 0, hi = 1) => Math.min(hi, Math.max(lo, v));
-      const prog = (t, a, d) => clamp((t - a) / d);
-      const spring = (p) => (p <= 0 ? 0 : p >= 1 ? 1 : 1 - Math.exp(-6 * p) * Math.cos(9 * p));
-      const easeOut = (p) => 1 - (1 - p) ** 3;
-      const easeIn = (p) => p ** 3;
-      const easeInOut = (p) => (p < 0.5 ? 4 * p ** 3 : 1 - (-2 * p + 2) ** 3 / 2);
-      const lerp = (a, b, p) => a + (b - a) * p;
+      const lerp = (a, b, k) => a + (b - a) * k;
+      const seg = (t, a, b) => clamp((t - a) / (b - a));
+      const eio = (p) => (p < 0.5 ? 4 * p * p * p : 1 - (-2 * p + 2) ** 3 / 2);
+      const eo = (p) => 1 - (1 - p) ** 3;
+      /** A critically damped spring's settle, 0 → 1 with no overshoot. */
+      const spring = (p) => (p >= 1 ? 1 : 1 - Math.exp(-7 * clamp(p)) * (1 + 7 * clamp(p)));
 
-      const stroke = (color = INK, width = LINE) => {
-        ctx.strokeStyle = color;
-        ctx.lineWidth = width;
-        ctx.lineJoin = "round";
-        ctx.lineCap = "round";
-      };
-      const rect = (x, y, w, h, r = 6) => {
-        ctx.beginPath();
-        ctx.roundRect(x, y, w, h, r);
-        ctx.stroke();
-      };
-      const circle = (x, y, r, fill) => {
-        ctx.beginPath();
-        ctx.arc(x, y, r, 0, Math.PI * 2);
-        if (fill) {
-          ctx.fillStyle = fill;
-          ctx.fill();
-        } else {
-          ctx.stroke();
-        }
-      };
-      const line = (x1, y1, x2, y2) => {
-        ctx.beginPath();
-        ctx.moveTo(x1, y1);
-        ctx.lineTo(x2, y2);
-        ctx.stroke();
-      };
-      /** A little figure: head and body, feet apart while it moves. */
-      const figure = (x, y, s, step = 0) => {
-        circle(x, y - 52 * s, 13 * s);
-        rect(x - 13 * s, y - 36 * s, 26 * s, 26 * s, 7 * s);
-        line(x - 6 * s, y - 10 * s, x - 6 * s - step * 6 * s, y);
-        line(x + 6 * s, y - 10 * s, x + 6 * s + step * 6 * s, y);
-      };
-
-      // ---- the genres ---------------------------------------------------------
-      // Each draws its own frame at `t` ms into the scene, at full opacity; the
-      // timeline fades and scales it in and out.
-
-      const platformer = (t) => {
-        const plats = [
-          [140, 470, 260],
-          [520, 380, 200],
-          [830, 290, 230],
-        ];
-        stroke(DIM);
-        for (const [x, y, w] of plats) rect(x, y, w, 22, 8);
-        // Two jumps: platform 1 → 2 → 3.
-        const jumps = [
-          [300, 470, 600, 380, 120, 420],
-          [600, 380, 930, 290, 680, 460],
-        ];
-        let fx = 230;
-        let fy = 470;
-        let step = Math.sin(t / 70);
-        for (const [x1, y1, x2, y2, start, dur] of jumps) {
-          const p = prog(t, start, dur);
-          if (t >= start) {
-            fx = lerp(x1, x2, p);
-            fy = lerp(y1, y2, p) - Math.sin(Math.PI * p) * 170;
-            step = p > 0 && p < 1 ? 0.6 : step;
-          }
-        }
-        if (t < 120) fx = lerp(230, 300, t / 120);
-        if (t > 1100) fx = Math.min(1010, 930 + (t - 1100) * 0.25);
-        // Coins on the arcs, collected as the figure passes.
-        for (const [x1, y1, x2, y2, start, dur] of jumps) {
-          for (let i = 1; i <= 3; i += 1) {
-            const p = i / 4;
-            const cx = lerp(x1, x2, p);
-            const cy = lerp(y1, y2, p) - Math.sin(Math.PI * p) * 170 - 40;
-            const got = prog(t, start + dur * p, 160);
-            if (got >= 1) continue;
-            stroke(ACCENT);
-            ctx.globalAlpha *= 1 - got;
-            circle(cx, cy - got * 30, 12 + got * 8);
-            ctx.globalAlpha /= Math.max(0.001, 1 - got);
-          }
-        }
-        stroke(INK);
-        figure(fx, fy, 1.15, step);
-      };
-
-      const bomberman = (t) => {
-        const cols = 13;
-        const rows = 7;
-        const s = 60;
-        const ox = (W - cols * s) / 2;
-        const oy = 105;
-        const bomb = [6, 3];
-        const blast = prog(t, 620, 160);
-        const fade = prog(t, 950, 300);
-        const reach = 3;
-        const inBlast = (c, r) =>
-          (r === bomb[1] && Math.abs(c - bomb[0]) <= reach) ||
-          (c === bomb[0] && Math.abs(r - bomb[1]) <= reach);
-        for (let r = 0; r < rows; r += 1) {
-          for (let c = 0; c < cols; c += 1) {
-            const x = ox + c * s;
-            const y = oy + r * s;
-            const wall =
-              r === 0 ||
-              c === 0 ||
-              r === rows - 1 ||
-              c === cols - 1 ||
-              (r % 2 === 0 && c % 2 === 0);
-            const crate = !wall && (r * 5 + c * 3) % 4 === 0 && !(c === 2 && r === 3);
-            if (wall) {
-              stroke(DIM, 2);
-              rect(x + 6, y + 6, s - 12, s - 12, 8);
-            } else if (crate) {
-              const gone = inBlast(c, r) ? blast : 0;
-              if (gone < 1) {
-                stroke(INK, 2);
-                ctx.globalAlpha *= 1 - gone;
-                rect(x + 12, y + 12, s - 24, s - 24, 5);
-                line(x + 12, y + 12, x + s - 12, y + s - 12);
-                ctx.globalAlpha /= Math.max(0.001, 1 - gone);
-              }
-            }
-          }
-        }
-        // The player walks away from the bomb before it goes off.
-        const walk = easeInOut(prog(t, 120, 380));
-        const px = ox + lerp(bomb[0], 2, walk) * s + s / 2;
-        const py = oy + bomb[1] * s + s - 10;
-        stroke(INK);
-        figure(px, py, 0.82, walk > 0 && walk < 1 ? Math.sin(t / 60) : 0);
-        const bx = ox + bomb[0] * s + s / 2;
-        const by = oy + bomb[1] * s + s / 2;
-        if (t > 60 && blast < 1) {
-          const pulse = 1 + Math.sin(t / 45) * 0.08 * prog(t, 300, 300);
-          stroke(ACCENT);
-          circle(bx, by + 4, 17 * pulse * spring(prog(t, 60, 260)));
-          line(bx + 10, by - 10, bx + 18, by - 20);
-        }
-        if (blast > 0 && fade < 1) {
-          const len = easeOut(blast) * reach * s + s / 2 - 8;
-          ctx.globalAlpha *= 1 - fade;
-          ctx.fillStyle = ACCENT;
-          ctx.beginPath();
-          ctx.roundRect(bx - len, by - 16, len * 2, 32, 16);
-          ctx.roundRect(bx - 16, by - len, 32, len * 2, 16);
-          ctx.fill();
-          ctx.globalAlpha /= Math.max(0.001, 1 - fade);
-        }
-      };
-
-      // Ship, bullets and rocks share one deterministic sim, so a rock bursts
-      // exactly when a bullet reaches it.
-      const SHIP_Y = 545;
-      const shipXAt = (t) => W / 2 + Math.sin(t / 300) * 260;
-      const FIRE_MS = 70;
-      const BULLET_SPEED = 1.1;
-      const ROCKS = [
-        [330, 120, 64, 0.0],
-        [870, 60, 78, 0.6],
-        [620, -120, 54, 1.2],
-        [200, -200, 48, 2.1],
-        [980, -300, 60, 0.3],
-        [480, -420, 50, 1.7],
-      ].map(([x, y0, r, rot]) => {
-        let hitAt = Infinity;
-        for (let t = 0; t < 1300 && hitAt === Infinity; t += 10) {
-          const y = y0 + t * 0.32;
-          for (let f = 0; f <= t; f += FIRE_MS) {
-            const by = SHIP_Y - 40 - (t - f) * BULLET_SPEED;
-            const bx = shipXAt(f);
-            if (
-              Math.abs(by - y) < r * 0.8 &&
-              Math.min(Math.abs(bx - 14 - x), Math.abs(bx + 14 - x)) < r * 0.8
-            ) {
-              hitAt = t;
-              break;
-            }
-          }
-        }
-        return { hitAt, r, rot, x, y0 };
-      });
-
-      const shooter = (t) => {
-        const shipX = shipXAt(t);
-        const shipY = SHIP_Y;
-        // Bullet streams: twin lines of accent dashes from wherever the ship was.
-        stroke(ACCENT, 4);
-        for (let f = 0; f <= t; f += FIRE_MS) {
-          const y = shipY - 40 - (t - f) * BULLET_SPEED;
-          if (y < -30) continue;
-          const sx = shipXAt(f);
-          line(sx - 14, y, sx - 14, y - 22);
-          line(sx + 14, y, sx + 14, y - 22);
-        }
-        // Asteroids drift down and turn; the hit ones burst.
-        for (const { x, y0, r, rot, hitAt } of ROCKS) {
-          const y = y0 + Math.min(t, hitAt) * 0.32;
-          const burst = prog(t, hitAt, 300);
-          const a = rot + t / 900;
-          stroke(INK);
-          if (burst <= 0) {
-            ctx.beginPath();
-            for (let i = 0; i < 9; i += 1) {
-              const ang = a + (i / 9) * Math.PI * 2;
-              const rr = r * (0.78 + 0.22 * Math.sin(i * 2.7 + r));
-              const px = x + Math.cos(ang) * rr;
-              const py = y + Math.sin(ang) * rr;
-              if (i === 0) ctx.moveTo(px, py);
-              else ctx.lineTo(px, py);
-            }
-            ctx.closePath();
-            ctx.stroke();
-          } else if (burst < 1) {
-            stroke(ACCENT);
-            ctx.globalAlpha *= 1 - burst;
-            for (let i = 0; i < 8; i += 1) {
-              const ang = (i / 8) * Math.PI * 2;
-              const d1 = r * 0.4 + burst * r;
-              const d2 = d1 + 22;
-              line(
-                x + Math.cos(ang) * d1,
-                y + Math.sin(ang) * d1,
-                x + Math.cos(ang) * d2,
-                y + Math.sin(ang) * d2,
-              );
-            }
-            ctx.globalAlpha /= Math.max(0.001, 1 - burst);
-          }
-        }
-        // The ship.
-        stroke(INK);
-        ctx.beginPath();
-        ctx.moveTo(shipX, shipY - 46);
-        ctx.lineTo(shipX + 34, shipY + 22);
-        ctx.lineTo(shipX, shipY + 8);
-        ctx.lineTo(shipX - 34, shipY + 22);
-        ctx.closePath();
-        ctx.stroke();
-      };
-
-      const pong = (t) => {
-        const top = 90;
-        const bottom = 540;
-        stroke(DIM, 2);
-        line(140, top, W - 140, top);
-        line(140, bottom, W - 140, bottom);
-        ctx.setLineDash([14, 16]);
-        line(W / 2, top + 12, W / 2, bottom - 12);
-        ctx.setLineDash([]);
-        // The ball crosses twice: right paddle, then left, bouncing off a wall.
-        const leftX = 190;
-        const rightX = W - 190;
-        const period = 560;
-        const k = t / period;
-        const leg = Math.floor(k);
-        const p = k - leg;
-        const goingRight = leg % 2 === 0;
-        const bx = goingRight ? lerp(leftX + 24, rightX - 24, p) : lerp(rightX - 24, leftX + 24, p);
-        const span = bottom - top - 40;
-        const raw = (t / 4.2 + 120) % (span * 2);
-        const by = top + 20 + (raw < span ? raw : span * 2 - raw);
-        const trackL = by + Math.sin(t / 200) * 20;
-        const trackR = by - Math.sin(t / 230) * 20;
-        stroke(INK);
-        rect(leftX - 10, trackL - 60, 20, 120, 10);
-        rect(rightX - 10, trackR - 60, 20, 120, 10);
-        // A short trail, then the ball.
-        for (let i = 4; i >= 1; i -= 1) {
-          ctx.globalAlpha *= 0.18;
-          circle(bx - (goingRight ? 1 : -1) * i * 22, by, 14, ACCENT);
-          ctx.globalAlpha /= 0.18;
-        }
-        circle(bx, by, 16, ACCENT);
-      };
-
-      const arena = (t) => {
-        const horizon = 200;
-        const f = 520;
-        const camX = Math.sin(t / 900) * 120;
-        const camZ = t * 0.35;
-        const project = (x, y, z) => {
-          const dz = z - camZ;
-          return [W / 2 + ((x - camX) * f) / dz, horizon + ((180 - y) * f) / dz];
-        };
-        stroke(DIM, 1.6);
-        for (let x = -900; x <= 900; x += 150) {
-          const [x1, y1] = project(x, 0, camZ + 60);
-          const [x2, y2] = project(x, 0, camZ + 3000);
-          line(x1, y1, x2, y2);
-        }
-        const start = Math.ceil((camZ + 60) / 150) * 150;
-        for (let z = start; z < camZ + 3000; z += 150) {
-          const [x1, y1] = project(-900, 0, z);
-          const [x2, y2] = project(900, 0, z);
-          ctx.globalAlpha *= clamp(1.3 - (z - camZ) / 2600);
-          line(x1, y1, x2, y2);
-          ctx.globalAlpha /= Math.max(0.001, clamp(1.3 - (z - camZ) / 2600));
-        }
-        // Low-poly figures: square pyramids, one of them the player.
-        const units = [
-          [-260, 520, 1.0, false],
-          [230, 620, 1.1, true],
-          [520, 900, 0.9, false],
-          [-520, 1000, 0.9, false],
-          [40, 1250, 1.0, false],
-        ];
-        for (const [ux, uz0, scale, hero] of units) {
-          const ux2 = ux + Math.sin(t / 300 + uz0) * 40;
-          const uz = uz0 + (hero ? t * 0.35 : 0);
-          const s = 70 * scale;
-          const h = 150 * scale + (hero ? Math.abs(Math.sin(t / 180)) * 30 : 0);
-          const base = [
-            [ux2 - s, 0, uz - s],
-            [ux2 + s, 0, uz - s],
-            [ux2 + s, 0, uz + s],
-            [ux2 - s, 0, uz + s],
-          ].map(([x, y, z]) => project(x, y, z));
-          const apex = project(ux2, h, uz);
-          stroke(hero ? ACCENT : INK, hero ? 3.5 : 2.5);
-          ctx.beginPath();
-          base.forEach(([x, y], i) => (i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y)));
-          ctx.closePath();
-          ctx.stroke();
-          for (const [x, y] of base) line(x, y, apex[0], apex[1]);
-        }
-      };
-
-      const tetris = (t) => {
-        const cell = 40;
-        const cols = 10;
-        const rows = 13;
-        const ox = (W - cols * cell) / 2;
-        const oy = 50;
-        stroke(DIM, 2);
-        rect(ox - 10, oy - 10, cols * cell + 20, rows * cell + 20, 12);
-        const block = (c, r, color = INK) => {
-          stroke(color, 2.5);
-          rect(ox + c * cell + 4, oy + r * cell + 4, cell - 8, cell - 8, 6);
-        };
-        // Settled stack: the bottom row is full but for the T's notch.
-        const settled = [];
-        for (let c = 0; c < cols; c += 1) if (c < 4 || c > 6) settled.push([c, 12]);
-        settled.push([5, 12]);
-        for (const c of [0, 1, 2, 7, 8, 9]) settled.push([c, 11]);
-        for (const c of [0, 1, 8]) settled.push([c, 10]);
-        const land = 760;
-        const clear = prog(t, land + 60, 260);
-        for (const [c, r] of settled) {
-          if (r === 12 && clear > 0) {
-            if (clear >= 1) continue;
-            ctx.globalAlpha *= 1 - clear;
-            block(c, r, ACCENT);
-            ctx.globalAlpha /= Math.max(0.001, 1 - clear);
-            continue;
-          }
-          const drop = r < 12 ? easeOut(clear) * cell : 0;
-          ctx.save();
-          ctx.translate(0, drop);
-          block(c, r);
-          ctx.restore();
-        }
-        // The falling T: drops, rotates once, slides, lands in the notch.
-        const fall = easeIn(prog(t, 0, land));
-        const rot = spring(prog(t, 260, 220));
-        const slide = easeInOut(prog(t, 380, 260));
-        const pc = lerp(2, 5, slide);
-        const pr = lerp(-1, 11, fall);
-        const shapeUp = [
-          [-1, 0],
-          [0, 0],
-          [1, 0],
-          [0, -1],
-        ];
-        const shapeDown = [
-          [-1, 0],
-          [0, 0],
-          [1, 0],
-          [0, 1],
-        ];
-        const shape = rot > 0.5 ? shapeDown : shapeUp;
-        if (clear < 1) {
-          for (const [dc, dr] of shape) {
-            const r = pr + dr;
-            if (clear > 0 && r >= 11.5) {
-              ctx.globalAlpha *= 1 - clear;
-              block(pc + dc, r, ACCENT);
-              ctx.globalAlpha /= Math.max(0.001, 1 - clear);
-            } else {
-              ctx.save();
-              ctx.translate(0, easeOut(clear) * cell);
-              block(pc + dc, r, ACCENT);
-              ctx.restore();
-            }
-          }
-        } else {
-          ctx.save();
-          ctx.translate(0, cell);
-          for (const [dc, dr] of shape) if (pr + dr < 11.5) block(pc + dc, pr + dr, ACCENT);
-          ctx.restore();
-        }
-      };
-
-      // ---- type -----------------------------------------------------------------
-      const text = (s, x, y, size, weight = 700, color = INK) => {
-        ctx.fillStyle = color;
-        ctx.font = `${weight} ${size}px ${SANS}`;
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillText(s, x, y);
-      };
-      const MARK = new Path2D(
-        "M193.5 284.962 L463.722 282 L419.278 348.635 L328.611 348.635 L513.5 610.731 L694.833 350.115 L602.389 350.115 L513.5 477.462 L467.278 413.788 L556.167 282 L833.5 282 L511.722 744 Z",
-      );
-      const brand = (p) => {
-        ctx.save();
-        ctx.font = `700 96px ${SANS}`;
-        const word = ctx.measureText("Vibedgames").width;
-        const markW = 150;
-        const gap = 34;
-        const left = W / 2 - (markW + gap + word) / 2;
-        ctx.translate(left, 282 - 55);
-        ctx.scale(markW / 670, markW / 670);
-        ctx.translate(-180, -270);
-        ctx.fillStyle = INK;
-        ctx.fill(MARK);
-        ctx.restore();
-        ctx.fillStyle = INK;
-        ctx.font = `700 96px ${SANS}`;
-        ctx.textAlign = "left";
-        ctx.textBaseline = "middle";
-        ctx.fillText("Vibedgames", left + markW + gap, 278);
-        ctx.globalAlpha *= easeOut(clamp(p * 1.5 - 0.3));
-        text("Shipped by your agent.", W / 2, 400, 42, 500, DIM);
-      };
-
-      // ---- the timeline (ms) --------------------------------------------------
-      const SCENES = [
-        { at: 200, dur: 1300, draw: platformer },
-        { at: 1500, dur: 1250, draw: bomberman },
-        { at: 2750, dur: 1250, draw: shooter },
-        { at: 4000, dur: 1150, draw: pong },
-        { at: 5150, dur: 1250, draw: arena },
-        { at: 6400, dur: 1150, draw: tetris },
+      /* ---------- camera keys: the frame centre is (600, 297) at z 1 ---------- */
+      const CAM = [
+        { t: 0, cx: 600, cy: 297, z: 1 },
+        { t: 0.55, cx: 600, cy: 297, z: 1 },
+        { t: 2.45, cx: 600, cy: 258, z: 1.36 },
+        { t: 2.75, cx: 600, cy: 258, z: 1.37 },
+        { t: 4.05, cx: 600, cy: 297, z: 1 },
+        { t: 4.6, cx: 600, cy: 297, z: 1 },
+        { t: 5.45, cx: 985, cy: 132, z: 1.7 },
+        { t: 7.05, cx: 987, cy: 132, z: 1.72 },
+        { t: 7.95, cx: 600, cy: 297, z: 1 },
+        { t: 10, cx: 600, cy: 297, z: 1 },
       ];
-      const IN = 260;
-      const OUT = 180;
-      const DURATION = 10000;
-
-      const withLayer = (alpha, scale, fn) => {
-        if (alpha <= 0.001) return;
-        ctx.save();
-        ctx.globalAlpha = alpha;
-        ctx.translate(W / 2, H / 2);
-        ctx.scale(scale, scale);
-        ctx.translate(-W / 2, -H / 2);
-        fn();
-        ctx.restore();
+      const camAt = (t) => {
+        let i = 0;
+        while (i < CAM.length - 2 && t >= CAM[i + 1].t) i += 1;
+        const a = CAM[i];
+        const b = CAM[i + 1];
+        const p = eio(seg(t, a.t, b.t));
+        return {
+          cx: lerp(a.cx, b.cx, p),
+          cy: lerp(a.cy, b.cy, p),
+          z: Math.exp(lerp(Math.log(a.z), Math.log(b.z), p)),
+        };
       };
 
-      window.__duration = DURATION;
-      window.__render = (t) => {
-        ctx.clearRect(0, 0, W, H);
-        for (const scene of SCENES) {
-          const local = t - scene.at;
-          if (local < 0 || local > scene.dur) continue;
-          const pin = spring(clamp(local / IN));
-          const pout = easeIn(clamp((local - (scene.dur - OUT)) / OUT));
-          withLayer(clamp(pin * 1.4) * (1 - pout), 0.94 + 0.06 * pin + 0.03 * pout, () =>
-            scene.draw(local),
+      /* ---------- the exploded lift of the platformer ---------- */
+      const LIFT = { up: 5.45, upEnd: 6.25, down: 6.75, downEnd: 7.3, step: 0.1 };
+      const liftAt = (t, i) =>
+        eio(seg(t, LIFT.up + i * LIFT.step, LIFT.upEnd + i * LIFT.step)) *
+        (1 - eio(seg(t, LIFT.down - i * 0.06, LIFT.downEnd - i * 0.06)));
+
+      /* ---------- the sheet clears, edges first, back to the mark alone ---------- */
+      const EXIT = { at: 8.6, spread: 0.55, dur: 0.5 };
+      /** The mark's centre on the sheet and its height; the polygon's own centre is (513.5, 513). */
+      const MARK = { x: 600, y: 238, h: 198 };
+
+      const REG = [];
+      const MORPH = [];
+      const PANES = [];
+      let state = null;
+
+      const build = (markPoints) => {
+        const svg = document.getElementById("sheet");
+        svg.replaceChildren();
+        REG.length = 0;
+        MORPH.length = 0;
+        PANES.length = 0;
+        let cur = { a: 0, s: 0, d: 0.6, i: 0 };
+        let parent = svg;
+        let noreg = 0;
+        let keep = 0;
+
+        const at = (a, s = 0, d = 0.6) => {
+          cur = { a, s, d, i: 0 };
+        };
+        const kindOf = (e, tag) => {
+          if (tag === "text") return "t";
+          const c = ` ${e.getAttribute("class") || ""} `;
+          if (
+            / (slot|ph|cl|hs|grid) /u.test(c) ||
+            (e.getAttribute("fill") || "").startsWith("url")
+          ) {
+            return "f";
+          }
+          return "d";
+        };
+        const mk = (tag, attrs, p) => {
+          const e = document.createElementNS(NS, tag);
+          for (const [k, v] of Object.entries(attrs)) if (v != null) e.setAttribute(k, String(v));
+          (p || parent).append(e);
+          if (!noreg && tag !== "g") {
+            const a = cur.a + cur.i * cur.s;
+            cur.i += 1;
+            const k = kindOf(e, tag);
+            if (k === "d") e.setAttribute("pathLength", "1");
+            const arrows = ["marker-start", "marker-end"].filter((m) => e.hasAttribute(m));
+            for (const m of arrows) e.removeAttribute(m);
+            e.style.opacity = "0";
+            REG.push({ e, a, b: a + cur.d, k, keep, arrows, shown: false, last: "" });
+          }
+          return e;
+        };
+        const tx = (x, y, s, c = "dt", a = {}, p) => {
+          const t = mk("text", { x, y, class: c, ...a }, p);
+          t.textContent = s;
+          return t;
+        };
+
+        noreg = 1;
+        const defs = mk("defs", {});
+        const marker = mk(
+          "marker",
+          {
+            id: "ar",
+            viewBox: "0 0 10 10",
+            refX: 10,
+            refY: 5,
+            markerWidth: 8,
+            markerHeight: 8,
+            orient: "auto-start-reverse",
+            markerUnits: "userSpaceOnUse",
+          },
+          defs,
+        );
+        mk("path", { d: "M0,1.6 L10,5 L0,8.4 z", class: "arrow" }, marker);
+        const hatch = mk(
+          "pattern",
+          {
+            id: "hat",
+            width: 5,
+            height: 5,
+            patternUnits: "userSpaceOnUse",
+            patternTransform: "rotate(45)",
+          },
+          defs,
+        );
+        mk("line", { x1: 0, y1: 0, x2: 0, y2: 5, class: "hl" }, hatch);
+        const clip = mk("clipPath", { id: "area" }, defs);
+        mk("rect", { x: 15, y: 15, width: 1170, height: 563, rx: 13 }, clip);
+
+        // The fixed sheet: border and title strip never move or clear.
+        mk("rect", { x: 14, y: 14, width: 1172, height: 602, rx: 14, class: "border" });
+        mk("line", { x1: 14, y1: 578, x2: 1186, y2: 578, class: "rule" });
+        const cells = [
+          [14, "vibedgames.com", "Any game · shipped by your agent"],
+          [470, "Dwg no.", "VG-LOGO-001"],
+          [640, "Scale", "1 tile = T1"],
+          [840, "Units", "Tiles · variables"],
+          [1010, "Rev · sheet", "A · 1 / 1"],
+        ];
+        cells.forEach(([x, label, value], i) => {
+          if (i) mk("line", { x1: x, y1: 578, x2: x, y2: 616, class: "rule" });
+          tx(x + 14, 592, label, "fl");
+          tx(x + 14, 607, value, "fv");
+        });
+
+        const camClip = mk("g", { "clip-path": "url(#area)" });
+        const cam = mk("g", { id: "camera" }, camClip);
+        noreg = 0;
+        parent = cam;
+
+        const A = "url(#ar)";
+
+        /* ---------- drawing kit (after the reference's helpers) ---------- */
+        const dimH = (x1, x2, y, e1, e2, l, o = {}) => {
+          for (const [x, e] of [
+            [x1, e1],
+            [x2, e2],
+          ]) {
+            if (e == null) continue;
+            const s = Math.sign(y - e) || 1;
+            mk("line", { x1: x, y1: e + s * 3, x2: x, y2: y + s * 6, class: "ext" });
+          }
+          if (x2 - x1 >= 30) {
+            mk("line", { x1, y1: y, x2, y2: y, class: "dl", "marker-start": A, "marker-end": A });
+          } else {
+            mk("line", { x1: x1 - 14, y1: y, x2: x1, y2: y, class: "dl", "marker-end": A });
+            mk("line", { x1: x2 + 14, y1: y, x2, y2: y, class: "dl", "marker-end": A });
+          }
+          tx(
+            (x1 + x2) / 2 + (o.dx || 0),
+            (o.below ? y + 15 : y - 5) + (o.dy || 0),
+            l,
+            o.c || "dt",
+            { "text-anchor": "middle" },
+          );
+        };
+        const dimV = (y1, y2, x, e1, e2, l, o = {}) => {
+          for (const [y, e] of [
+            [y1, e1],
+            [y2, e2],
+          ]) {
+            if (e == null) continue;
+            const s = Math.sign(x - e) || 1;
+            mk("line", { x1: e + s * 3, y1: y, x2: x + s * 6, y2: y, class: "ext" });
+          }
+          if (y2 - y1 >= 30) {
+            mk("line", { x1: x, y1, x2: x, y2, class: "dl", "marker-start": A, "marker-end": A });
+          } else {
+            mk("line", { x1: x, y1: y1 - 14, x2: x, y2: y1, class: "dl", "marker-end": A });
+            mk("line", { x1: x, y1: y2 + 14, x2: x, y2, class: "dl", "marker-end": A });
+          }
+          const r = o.side !== "l";
+          tx(r ? x + 7 : x - 7, (y1 + y2) / 2 + 4.5 + (o.dy || 0), l, o.c || "dt", {
+            "text-anchor": r ? "start" : "end",
+          });
+        };
+        const callout = (px, py, ex, ey, l, dir, c) => {
+          const s = dir || (ex >= px ? 1 : -1);
+          mk("circle", { cx: px, cy: py, r: 2.2, class: "dot" });
+          mk("polyline", { points: `${px},${py} ${ex},${ey} ${ex + s * 12},${ey}`, class: "lead" });
+          tx(ex + s * 16, ey + 4.5, l, c || "dt", { "text-anchor": s > 0 ? "start" : "end" });
+        };
+        const rr = (x, y, w, h, r, c, p) =>
+          mk("rect", { x, y, width: w, height: h, rx: r, class: c }, p);
+        const slot = (x, y, w, h, l, al, p) => {
+          rr(x, y, w, h, 2, "slot", p);
+          if (l) {
+            tx(
+              al === "l" ? x + 6 : x + w / 2,
+              y + h / 2 + 3.4,
+              l,
+              "sl",
+              {
+                "text-anchor": al === "l" ? "start" : "middle",
+              },
+              p,
+            );
+          }
+        };
+        const title = (x, y, t, s) => {
+          tx(x, y, t, "vt", { "text-anchor": "middle" });
+          if (s) tx(x, y + 15, s, "dts", { "text-anchor": "middle" });
+        };
+        const xbox = (x, y, w, h, p) => {
+          mk("rect", { x, y, width: w, height: h, class: "thin" }, p);
+          mk("path", { d: `M${x},${y} l${w},${h} M${x + w},${y} l${-w},${h}`, class: "thin" }, p);
+        };
+        const hatched = (x, y, w, h, p) => {
+          const e = rr(x, y, w, h, 0, "hs", p);
+          e.setAttribute("fill", "url(#hat)");
+          return e;
+        };
+        const detailRef = (cx, cy, r, lbl, lx, ly, anchor) => {
+          mk("circle", { cx, cy, r, class: "ph" });
+          const a = Math.atan2(ly - cy, lx - cx);
+          mk("line", {
+            x1: cx + r * Math.cos(a),
+            y1: cy + r * Math.sin(a),
+            x2: lx,
+            y2: ly,
+            class: "lead",
+          });
+          const an = anchor || (lx < cx ? "end" : "start");
+          const off = an === "middle" ? 0 : an === "end" ? -5 : 5;
+          tx(lx + off, ly + (an === "middle" ? 13 : 4), lbl, "dts", { "text-anchor": an });
+        };
+
+        /* ================= THE MARK AND ITS TAGLINE ================= */
+        const s = MARK.h / 462;
+        const MX = (x) => MARK.x + (x - 513.5) * s;
+        const MY = (y) => MARK.y + (y - 513) * s;
+        keep = 1;
+        noreg = 1;
+        mk("polygon", {
+          points: markPoints.map(([x, y]) => `${MX(x).toFixed(2)},${MY(y).toFixed(2)}`).join(" "),
+          class: "mark",
+        });
+        const tagY = MY(744) + 50;
+        tx(MARK.x, tagY, TAGLINE, "tag", { "text-anchor": "middle" });
+        noreg = 0;
+        keep = 0;
+
+        // Construction: the V's outer triangle run past its vertices, its incircle, centrelines.
+        const TL = [193.5, 283];
+        const TR = [833.5, 282];
+        const AP = [511.7, 744];
+        const run = (p, q, k) => [
+          [MX(p[0] - (q[0] - p[0]) * k), MY(p[1] - (q[1] - p[1]) * k)],
+          [MX(q[0] + (q[0] - p[0]) * k), MY(q[1] + (q[1] - p[1]) * k)],
+        ];
+        at(0.5, 0.14, 1.1);
+        for (const [p, q] of [
+          [TL, TR],
+          [TR, AP],
+          [AP, TL],
+        ]) {
+          const [[x1, y1], [x2, y2]] = run(p, q, 0.13);
+          mk("line", { x1, y1, x2, y2, class: "con" });
+        }
+        at(0.85, 0.12, 0.55);
+        mk("line", { x1: MARK.x, y1: MY(282) - 74, x2: MARK.x, y2: MY(744) + 18, class: "cl" });
+        const IC = { x: MX(512.3), y: MY(450), r: 167.5 * s };
+        mk("line", { x1: MX(193.5) - 50, y1: IC.y, x2: MX(833.5) + 50, y2: IC.y, class: "cl" });
+        at(1.05, 0, 0.6);
+        mk("circle", { cx: IC.x, cy: IC.y, r: IC.r, class: "ph" });
+
+        // Top chain: the two arms C1 and C2 either side of the notch G1, then overall W.
+        const topY = MY(282) - 26;
+        at(1.35, 0.05, 0.45);
+        dimH(MX(193.5), MX(463.7), topY, MY(283), MY(282), "C1");
+        dimH(MX(463.7), MX(556.2), topY, null, MY(282), "G1");
+        dimH(MX(556.2), MX(833.5), topY, null, MY(282), "C2");
+        at(1.75, 0.05, 0.45);
+        dimH(MX(193.5), MX(833.5), topY - 32, topY - 6, topY - 6, "W = C1 + G1 + C2");
+
+        // Left: the whole height H1. Right: the band T1 and the inner apex H2.
+        at(1.9, 0.06, 0.45);
+        dimV(MY(282), MY(744), MX(193.5) - 30, MX(193.5), MX(511.7) - 12, "H1", { side: "l" });
+        dimV(MY(282), MY(348.6), MX(833.5) + 20, MX(833.5), MX(694.8), "T1");
+        dimV(MY(282), MY(610.7), MX(833.5) + 54, MX(833.5) + 26, MX(513.5) + 8, "H2");
+
+        // The outer facet angle A1, off the top-left vertex.
+        {
+          const vx = MX(TL[0]);
+          const vy = MY(TL[1]);
+          const len = Math.hypot(AP[0] - TL[0], AP[1] - TL[1]);
+          const ux = (AP[0] - TL[0]) / len;
+          const uy = (AP[1] - TL[1]) / len;
+          at(2.2, 0.06, 0.45);
+          // The opposite angle, outside the mark: the top edge run left, the facet run up.
+          const r = 26;
+          mk("path", {
+            d: `M${vx - r},${vy} A${r},${r} 0 0 1 ${vx - r * ux},${vy - r * uy}`,
+            class: "dl",
+            "marker-start": A,
+            "marker-end": A,
+          });
+          tx(vx - 44, vy - 12, "A1", "dt", { "text-anchor": "end" });
+        }
+
+        // The incircle's radius and the apex detail.
+        at(2.35, 0.06, 0.45);
+        {
+          const a = (Math.PI * 5) / 4;
+          callout(
+            IC.x + IC.r * Math.cos(a),
+            IC.y + IC.r * Math.sin(a),
+            MX(193.5) - 46,
+            MY(650),
+            "R0",
+            -1,
           );
         }
-        // "Any game." — 7550 → 8250.
-        const kin = spring(prog(t, 7550, 380));
-        const kout = easeIn(prog(t, 8100, 150));
-        withLayer(clamp(kin * 1.4) * (1 - kout), 0.9 + 0.1 * kin, () =>
-          text("Any game.", W / 2, H / 2, 120),
+        at(2.45, 0.06, 0.45);
+        detailRef(
+          MX(511.7),
+          MY(744) - 8,
+          13,
+          "Detail A · apex",
+          MX(511.7) + 64,
+          MY(744) - 2,
+          "start",
         );
-        // The wordmark, held ~1.5s, then back to the empty start: 8250 → 10000.
-        const bin = spring(prog(t, 8250, 500));
-        const bout = easeIn(prog(t, 9500, 400));
-        withLayer(clamp(bin * 1.4) * (1 - bout), 0.92 + 0.08 * bin, () =>
-          brand(prog(t, 8350, 500)),
-        );
+        at(2.65, 0.08, 0.5);
+        title(MARK.x, tagY + 36, "VG-LOGO-001 · plan view", "W = C1 + G1 + C2 · H2 = H1 − 2·T1");
+
+        /* ================= LEFT: BOMBERMAN GRID ================= */
+        {
+          const x = 96;
+          const y = 62;
+          const T = 12;
+          const w = 13 * T;
+          const h = 11 * T;
+          const cell = (c, r) => [x + c * T, y + r * T];
+          at(2.95, 0, 0.9);
+          rr(x, y, w, h, 3, "obj");
+          at(3.15, 0.012, 0.35);
+          for (let c = 1; c < 13; c += 1) {
+            mk("line", { x1: x + c * T, y1: y, x2: x + c * T, y2: y + h, class: "grid" });
+          }
+          for (let r = 1; r < 11; r += 1) {
+            mk("line", { x1: x, y1: y + r * T, x2: x + w, y2: y + r * T, class: "grid" });
+          }
+          at(3.3, 0.01, 0.35);
+          for (let c = 1; c < 13; c += 2) {
+            for (let r = 1; r < 11; r += 2) {
+              const [px, py] = cell(c, r);
+              hatched(px, py, T, T);
+            }
+          }
+          at(3.45, 0.03, 0.4);
+          for (const [c, r] of [
+            [3, 0],
+            [5, 2],
+            [2, 4],
+            [6, 6],
+            [11, 6],
+            [4, 8],
+            [8, 10],
+            [7, 4],
+          ]) {
+            const [px, py] = cell(c, r);
+            rr(px + 1.5, py + 1.5, T - 3, T - 3, 1.5, "hug");
+          }
+          const [p1x, p1y] = cell(0, 0);
+          const [p2x, p2y] = cell(12, 10);
+          mk("circle", { cx: p1x + T / 2, cy: p1y + T / 2, r: 4, class: "obj" });
+          mk("circle", { cx: p2x + T / 2, cy: p2y + T / 2, r: 4, class: "obj" });
+          const [bx, by] = cell(10, 2);
+          mk("line", {
+            x1: bx - 2 * T + 2,
+            y1: by + T / 2,
+            x2: bx + 3 * T - 2,
+            y2: by + T / 2,
+            class: "slot",
+          });
+          mk("line", {
+            x1: bx + T / 2,
+            y1: by - 2 * T + 2,
+            x2: bx + T / 2,
+            y2: by + 3 * T - 2,
+            class: "slot",
+          });
+          mk("circle", { cx: bx + T / 2, cy: by + T / 2, r: 4, class: "solid" });
+          at(3.55, 0.04, 0.4);
+          dimH(x, x + w, y - 18, y, y, "13·T1");
+          dimV(y, y + h, x - 16, x, x, "11·T1", { side: "l" });
+          dimH(x, x + T, y + h + 16, y + h, y + h, "T1", { below: true });
+          callout(bx + T / 2, by + T / 2, x + w + 22, by + 4, "Bomb · R = 2·T1", 1, "dts");
+          callout(p2x + T / 2, p2y + T / 2, x + w + 22, p2y + 2, "Spawn · P2", 1, "dts");
+          {
+            const [sx, sy] = cell(11, 6);
+            callout(sx + T - 2, sy + T / 2, x + w + 22, sy + 4, "Tile · soft", 1, "dts");
+          }
+          at(3.7, 0.08, 0.4);
+          title(x + w / 2, y + h + 46, "VG-BOMBER-002 · plan", "Grid = 13 × 11");
+        }
+
+        /* ================= LEFT: PADDLE COURT ================= */
+        {
+          const x = 96;
+          const y = 300;
+          const w = 196;
+          const h = 90;
+          at(3.2, 0, 0.8);
+          rr(x, y, w, h, 3, "obj");
+          at(3.4, 0.05, 0.45);
+          mk("line", { x1: x + w / 2, y1: y + 4, x2: x + w / 2, y2: y + h - 4, class: "slot" });
+          mk("circle", { cx: x + w / 2, cy: y + h / 2, r: 15, class: "ph" });
+          rr(x + 10, y + 24, 6, 30, 2, "hug");
+          rr(x + w - 16, y + 40, 6, 30, 2, "hug");
+          mk("polyline", {
+            points: `${x + 17},${y + 39} ${x + 76},${y + 4} ${x + 132},${y + 38}`,
+            class: "slot",
+          });
+          mk("circle", { cx: x + 132, cy: y + 38, r: 4, class: "solid" });
+          at(3.6, 0.04, 0.4);
+          mk("line", {
+            x1: x + 136,
+            y1: y + 41,
+            x2: x + 158,
+            y2: y + 54,
+            class: "dl",
+            "marker-end": A,
+          });
+          dimH(x, x + w, y - 16, y, y, "W2");
+          dimV(y, y + h, x - 16, x, x, "H2", { side: "l" });
+          dimV(y + 40, y + 70, x + w + 14, x + w - 10, x + w - 10, "L1");
+          callout(x + 158, y + 54, x + w + 22, y + h + 8, "Ball · V1", 1, "dts");
+          at(3.8, 0.08, 0.4);
+          title(x + w / 2, y + h + 32, "VG-PONG-003 · court", "V1 = 2·T1/s · L1 = 3·T1");
+        }
+
+        /* ================= LEFT: TOP-DOWN SHOOTER ================= */
+        {
+          const x = 96;
+          const y = 462;
+          const w = 196;
+          const h = 74;
+          at(3.4, 0, 0.8);
+          rr(x, y, w, h, 3, "obj");
+          at(3.6, 0.04, 0.45);
+          slot(x + 6, y + 5, w - 12, 13, "HUD · fixed", "l");
+          const sx = x + w / 2;
+          const sy = y + 60;
+          mk("line", { x1: sx, y1: sy - 8, x2: sx - 26, y2: sy - 50, class: "ph" });
+          mk("line", { x1: sx, y1: sy - 8, x2: sx + 26, y2: sy - 50, class: "ph" });
+          mk("path", {
+            d: `M${sx},${sy - 10} L${sx - 8},${sy + 7} L${sx + 8},${sy + 7} Z`,
+            class: "obj",
+          });
+          mk("circle", { cx: sx, cy: sy - 22, r: 1.8, class: "dot" });
+          mk("circle", { cx: sx, cy: sy - 32, r: 1.8, class: "dot" });
+          xbox(x + 30, y + 30, 10, 10);
+          xbox(x + 150, y + 26, 10, 10);
+          xbox(x + 168, y + 46, 10, 10);
+          at(3.8, 0.05, 0.4);
+          dimV(y, y + h, x - 16, x, x, "H3", { side: "l" });
+          callout(x + 178, y + 51, x + w + 22, y + 26, "Enemy · spawn", 1, "dts");
+          callout(sx + 8, sy + 5, x + w + 22, y + h - 4, "Player · sprite", 1, "dts");
+          at(3.95, 0.08, 0.4);
+          title(x + w / 2, y + h + 22, "VG-SHOOTER-004 · top-down");
+        }
+
+        /* ================= RIGHT: PLATFORMER (lifts into an exploded view) ================= */
+        const D = { x: 872, y: 62, w: 228, h: 150 };
+        {
+          const { x, y, w, h } = D;
+          const T = 16;
+          const mg = (z, i) => {
+            const g = mk("g", {});
+            MORPH.push({ g, z, i });
+            return g;
+          };
+          // A layer's own pane: a dashed outline that only shows while it is lifted.
+          const plane = (g) => {
+            noreg = 1;
+            const e = rr(x, y, w, h, 10, "ph", g);
+            PANES.push({ e, g });
+            noreg = 0;
+          };
+          // The shadow footprint only shows while the layers are apart.
+          noreg = 1;
+          const shadow = mg(0, -1);
+          hatched(x + 10, y + 14, w - 20, h - 10, shadow);
+          noreg = 0;
+
+          // L0 · background: the frame, parallax hills and the sun.
+          const L0 = mg(24, 0);
+          at(3.3, 0, 0.9);
+          rr(x, y, w, h, 10, "obj", L0);
+          at(3.55, 0.05, 0.45);
+          mk(
+            "path",
+            {
+              d: `M${x + 3},${y + 112} Q${x + 44},${y + 66} ${x + 86},${y + 104} Q${x + 132},${y + 60} ${x + 176},${y + 98} Q${x + 204},${y + 78} ${x + w - 3},${y + 92}`,
+              class: "bgl",
+            },
+            L0,
+          );
+          mk("circle", { cx: x + 196, cy: y + 46, r: 10, class: "ph" }, L0);
+          tx(x + 10, y + 60, "BG · parallax", "sl", {}, L0);
+
+          // L1 · tiles: the ground with its gap, two floating platforms.
+          const L1 = mg(70, 1);
+          plane(L1);
+          at(3.65, 0.03, 0.45);
+          const gy = y + h - 4 - T;
+          const ground = (x0, x1) => {
+            rr(x0, gy, x1 - x0, T, 1, "well", L1);
+            for (let k = x0 + T; k < x1 - 1; k += T) {
+              mk("line", { x1: k, y1: gy, x2: k, y2: gy + T, class: "grid" }, L1);
+            }
+          };
+          ground(x + 4, x + 148);
+          ground(x + 180, x + w - 4);
+          const plat = (px, py, n) => {
+            rr(px, py, n * T, 12, 1, "well", L1);
+            for (let k = 1; k < n; k += 1) {
+              mk(
+                "line",
+                { x1: px + k * T, y1: py, x2: px + k * T, y2: py + 12, class: "grid" },
+                L1,
+              );
+            }
+          };
+          plat(x + 60, y + 92, 3);
+          plat(x + 148, y + 70, 3);
+
+          // L2 · sprites: the player, its jump, coins and an enemy.
+          const L2 = mg(116, 2);
+          plane(L2);
+          at(3.8, 0.04, 0.45);
+          rr(x + 26, gy - 24, 14, 24, 2, "obj", L2);
+          xbox(x + 28, gy - 22, 10, 10, L2);
+          mk(
+            "path",
+            { d: `M${x + 40},${gy - 24} Q${x + 62},${y + 18} ${x + 84},${y + 90}`, class: "slot" },
+            L2,
+          );
+          for (const [cx, cy] of [
+            [x + 74, y + 80],
+            [x + 90, y + 80],
+            [x + 164, y + 58],
+            [x + 180, y + 58],
+          ]) {
+            mk("circle", { cx, cy, r: 4, class: "hug" }, L2);
+          }
+          mk("circle", { cx: x + 204, cy: gy - 8, r: 8, class: "obj" }, L2);
+
+          // L3 · HUD: fixed to the viewport, not the level.
+          const L3 = mg(162, 3);
+          plane(L3);
+          at(3.95, 0.04, 0.45);
+          slot(x + 8, y + 8, 90, 16, "HUD · fixed", "l", L3);
+          slot(x + 104, y + 8, 56, 16, "Score", null, L3);
+          for (let k = 0; k < 3; k += 1) rr(x + 168 + k * 16, y + 11, 10, 10, 2, "hug", L3);
+
+          // Plan dims: they step back while the layers are apart.
+          noreg = 1;
+          const dims = mk("g", { id: "platformer-dims" });
+          noreg = 0;
+          parent = dims;
+          at(4.05, 0.035, 0.4);
+          dimH(x, x + w, y - 18, y, y, "W · viewport");
+          dimV(y + 58, gy - 24, x - 16, x + 56, x + 26, "J = 3·T1", { side: "l" });
+          dimV(gy, gy + T, x - 16, null, x, "T1", { side: "l" });
+          dimH(x + 148, x + 180, y + h + 16, gy + T, gy + T, "G = 2·T1", { below: true });
+          callout(x + 204, gy - 8, x + w + 18, gy - 30, "Spawn", 1, "dts");
+          parent = cam;
+          at(4.25, 0, 0.4);
+          title(x + w / 2, y + h + 56, "VG-PLATFORMER-001 · plan");
+
+          noreg = 1;
+          const lift = mk("g", { id: "lift-labels" });
+          state = { lift, dims, D };
+          noreg = 0;
+        }
+
+        /* ================= RIGHT: 3D ARENA, ISOMETRIC ================= */
+        {
+          const cx = 940;
+          const cy = 410;
+          const hw = 64;
+          const hh = 37;
+          const P = (u, v) => [cx + (u - v) * hw, cy + (u + v - 1) * hh];
+          const pts = [P(0, 0), P(1, 0), P(1, 1), P(0, 1)];
+          at(3.5, 0, 0.8);
+          mk("path", { d: `M${pts.map((p) => p.join(",")).join(" L")} Z`, class: "obj" });
+          at(3.7, 0.02, 0.4);
+          for (let k = 1; k < 4; k += 1) {
+            const [a1, b1] = P(k / 4, 0);
+            const [a2, b2] = P(k / 4, 1);
+            mk("line", { x1: a1, y1: b1, x2: a2, y2: b2, class: "grid" });
+            const [c1, d1] = P(0, k / 4);
+            const [c2, d2] = P(1, k / 4);
+            mk("line", { x1: c1, y1: d1, x2: c2, y2: d2, class: "grid" });
+          }
+          at(3.85, 0.05, 0.45);
+          {
+            // A box collider standing on the floor.
+            const z = 26;
+            const q = [P(0.5, 0.25), P(0.75, 0.25), P(0.75, 0.5), P(0.5, 0.5)];
+            const top = q.map(([a, b]) => [a, b - z]);
+            mk("path", {
+              d: `M${q[1].join(",")} L${q[2].join(",")} L${q[3].join(",")} L${top[3].join(",")} L${top[0].join(",")} L${top[1].join(",")} Z`,
+              class: "hug",
+            });
+            mk("path", { d: `M${top.map((p) => p.join(",")).join(" L")} Z`, class: "obj" });
+            mk("line", { x1: q[2][0], y1: q[2][1], x2: top[2][0], y2: top[2][1], class: "thin" });
+            // The player, a capsule.
+            const [px, py] = P(0.3, 0.72);
+            mk("path", {
+              d: `M${px - 6},${py} L${px - 6},${py - 18} A6,3 0 0 1 ${px + 6},${py - 18} L${px + 6},${py} A6,3 0 0 1 ${px - 6},${py} Z`,
+              class: "obj",
+            });
+            mk("ellipse", { cx: px, cy: py - 18, rx: 6, ry: 3, class: "thin" });
+            mk("ellipse", { cx: px, cy: py, rx: 13, ry: 6.5, class: "slot" });
+            at(4.0, 0.05, 0.4);
+            callout(
+              top[0][0],
+              top[0][1] + 2,
+              cx - hw - 4,
+              cy - hh - 20,
+              "Collider · box",
+              -1,
+              "dts",
+            );
+            callout(px - 6, py - 8, cx - hw - 4, cy + hh + 4, "Player · capsule", -1, "dts");
+          }
+          {
+            // The camera's angle: each floor edge rises A2 off the horizontal.
+            const [vx, vy] = P(1, 1);
+            const r = 24;
+            const ang = Math.atan2(hh, hw);
+            at(4.05, 0.05, 0.4);
+            mk("line", { x1: vx + 3, y1: vy, x2: vx + 40, y2: vy, class: "ext" });
+            mk("path", {
+              d: `M${vx + r},${vy} A${r},${r} 0 0 0 ${vx + r * Math.cos(ang)},${vy - r * Math.sin(ang)}`,
+              class: "dl",
+            });
+            tx(vx + r + 6, vy - 3, "A2", "dt");
+          }
+          at(4.15, 0.08, 0.4);
+          title(cx, cy + hh + 50, "VG-ARENA-005 · iso", "Camera · A2 = 30°");
+        }
+
+        /* ================= RIGHT: FALLING-BLOCK WELL ================= */
+        {
+          const x = 1082;
+          const y = 352;
+          const T = 6;
+          const w = 10 * T;
+          const h = 20 * T;
+          at(3.6, 0, 0.8);
+          mk("polyline", {
+            points: `${x},${y} ${x},${y + h} ${x + w},${y + h} ${x + w},${y}`,
+            class: "wall",
+          });
+          at(3.8, 0.02, 0.4);
+          const stack = [
+            [0, 19],
+            [1, 19],
+            [2, 19],
+            [3, 19],
+            [5, 19],
+            [6, 19],
+            [7, 19],
+            [8, 19],
+            [9, 19],
+            [0, 18],
+            [1, 18],
+            [2, 18],
+            [6, 18],
+            [7, 18],
+            [8, 18],
+            [9, 18],
+            [0, 17],
+            [1, 17],
+            [7, 17],
+            [8, 17],
+            [9, 17],
+            [8, 16],
+            [9, 16],
+          ];
+          for (const [c, r] of stack)
+            rr(x + c * T + 0.6, y + r * T + 0.6, T - 1.2, T - 1.2, 0.5, "hug");
+          at(3.95, 0.03, 0.4);
+          for (const [c, r] of [
+            [3, 4],
+            [4, 4],
+            [5, 4],
+            [4, 5],
+          ]) {
+            rr(x + c * T + 0.6, y + r * T + 0.6, T - 1.2, T - 1.2, 0.5, "solid");
+          }
+          for (const [c, r] of [
+            [3, 17],
+            [4, 17],
+            [5, 17],
+            [4, 18],
+          ]) {
+            rr(x + c * T + 0.6, y + r * T + 0.6, T - 1.2, T - 1.2, 0.5, "slot");
+          }
+          mk("line", {
+            x1: x + 4.5 * T,
+            y1: y + 6 * T + 4,
+            x2: x + 4.5 * T,
+            y2: y + 16 * T,
+            class: "dl",
+            "marker-end": A,
+          });
+          at(4.1, 0.05, 0.4);
+          dimH(x, x + w, y - 16, y, y, "10·T2");
+          dimV(y, y + h, x - 16, x, x, "20·T2", { side: "l" });
+          at(4.2, 0.08, 0.4);
+          title(x + w / 2, y + h + 32, "VG-TETRIS-006", "Drop · V3");
+        }
+
+        /* ================= THE LIFT'S FURNITURE ================= */
+
+        // Exploded-view furniture, drawn in sheet space from the iso projection.
+        const iso = isoOf(D);
+        const P = (x, y, z) => [
+          iso[0] * x + iso[2] * y + iso[4],
+          iso[1] * x + iso[3] * y + iso[5] - z,
+        ];
+        const lift = state.lift;
+        const LX = D.x + D.w + 2;
+        const corners = [
+          [D.x, D.y],
+          [D.x + D.w, D.y],
+          [D.x + D.w, D.y + D.h],
+          [D.x, D.y + D.h],
+        ];
+        noreg = 1;
+        for (const [cx, cy] of corners) {
+          const [ax, ay] = P(cx, cy, 0);
+          const [bx, by] = P(cx, cy, 162);
+          mk("line", { x1: ax, y1: ay, x2: bx, y2: by, class: "ph" }, lift);
+        }
+        [
+          [24, [D.x + D.w - 2, D.y + D.h - 50], "L0 · background"],
+          [70, [D.x + D.w - 10, D.y + D.h - 12], "L1 · tiles"],
+          [116, [D.x + 204, D.y + D.h - 28], "L2 · sprites"],
+          [162, [D.x + D.w - 14, D.y + 16], "L3 · HUD"],
+        ].forEach(([z, [x, y], label]) => {
+          const [px, py] = P(x, y, z);
+          mk("circle", { cx: px, cy: py, r: 2.2, class: "dot" }, lift);
+          mk("polyline", { points: `${px},${py} ${LX + 30},${py}`, class: "lead" }, lift);
+          tx(LX + 34, py + 4, label, "dts", {}, lift);
+        });
+        noreg = 0;
+
+        // Exit order: farther from the mark clears first.
+        for (const r of REG) {
+          let cx = MARK.x;
+          let cy = MARK.y;
+          try {
+            const b = r.e.getBBox();
+            cx = b.x + b.width / 2;
+            cy = b.y + b.height / 2;
+          } catch {
+            /* not rendered yet: treat as centred */
+          }
+          const d = Math.min(1, Math.hypot(cx - MARK.x, (cy - MARK.y) * 1.6) / 620);
+          r.x0 = EXIT.at + EXIT.spread * (1 - d);
+        }
       };
-      window.__render(0);
+
+      /** The axonometric matrix the platformer's layers lift into (after the reference's .94 .17 −.34 .47, flattened so four layers read apart). */
+      const isoOf = (D) => {
+        const k = 0.78;
+        const a = 0.94 * k;
+        const b = 0.17 * k;
+        const c = -0.34 * k;
+        const d = 0.36 * k;
+        const TX = 912;
+        const TY = 178;
+        return [a, b, c, d, TX - a * D.x - c * D.y, TY - b * D.x - d * D.y];
+      };
+
+      const renderAt = (t) => {
+        const cam = camAt(t);
+        const camG = document.getElementById("camera");
+        camG.setAttribute(
+          "transform",
+          `translate(${600 - cam.cx * cam.z} ${297 - cam.cy * cam.z}) scale(${cam.z})`,
+        );
+
+        for (const r of REG) {
+          const out = r.keep ? 0 : eio(seg(t, r.x0, r.x0 + EXIT.dur));
+          const p = seg(t, r.a, r.b);
+          let style = "";
+          if (r.k === "d") {
+            const e = eio(p);
+            const vis = clamp(p * 6) * (1 - out);
+            style = `opacity:${vis.toFixed(3)};stroke-dasharray:1 2;stroke-dashoffset:${(1 - e).toFixed(4)};fill-opacity:${clamp((p - 0.55) / 0.45).toFixed(3)}`;
+          } else if (r.k === "t") {
+            const e = spring(p);
+            style = `opacity:${(clamp(p * 1.6) * (1 - out)).toFixed(3)};transform:translateY(${((1 - e) * 5).toFixed(2)}px)`;
+          } else {
+            style = `opacity:${(eo(p) * (1 - out)).toFixed(3)}`;
+          }
+          const shown = p > 0.8 && out < 1;
+          if (r.arrows.length && shown !== r.shown) {
+            for (const m of r.arrows) {
+              if (shown) r.e.setAttribute(m, "url(#ar)");
+              else r.e.removeAttribute(m);
+            }
+            r.shown = shown;
+          }
+          if (style !== r.last) {
+            r.e.setAttribute("style", style);
+            r.last = style;
+          }
+        }
+
+        // The lift: each layer's matrix morphs from the plan to the axonometric.
+        const { D, dims, lift } = state;
+        const iso = isoOf(D);
+        for (const m of MORPH) {
+          const p = liftAt(t, Math.max(0, m.i));
+          const M = [1, 0, 0, 1, 0, 0].map((v, j) => lerp(v, iso[j], p));
+          M[5] -= m.z * p;
+          m.g.setAttribute("transform", `matrix(${M.map((v) => v.toFixed(4)).join(",")})`);
+          m.g.style.setProperty("--u", String(1 / Math.sqrt(Math.abs(M[0] * M[3] - M[1] * M[2]))));
+          if (m.i < 0) m.g.style.opacity = String(clamp((p - 0.35) / 0.4));
+          for (const pane of PANES) {
+            if (pane.g === m.g) pane.e.style.opacity = String(clamp((p - 0.2) / 0.5));
+          }
+        }
+        dims.style.opacity = String(1 - 0.9 * liftAt(t, 0));
+        lift.style.opacity = String(clamp((liftAt(t, 3) - 0.7) / 0.3));
+      };
+
+      window.__setMark = (points) => {
+        build(points);
+        renderAt(0);
+      };
+      window.__render = (ms) => renderAt(ms / 1000);
+      window.__duration = DURATION * 1000;
     </script>
   </body>
 </html>

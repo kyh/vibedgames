@@ -3,8 +3,8 @@
  * behind `og:video`, and one Open Graph card per prose page.
  *
  * Every file named here is recorded, not drawn by hand or generated: the
- * trailer is `apps/web/scripts/og-scene.html` (the bundled games' genres as
- * wireframes, then the wordmark) stepped frame by frame and encoded by
+ * trailer is `apps/web/scripts/og-scene.html` (a dimensional drawing of the
+ * mark and its tagline, with six game genres measured around it) stepped frame by frame and encoded by
  * `apps/web/scripts/og-video.ts` (`pnpm -F @repo/web og:video`), and the
  * cards are rendered from the pages' own titles by the same script. Re-run it after a
  * page title or the scene changes; `test/og-media.test.ts` holds every
@@ -13,17 +13,17 @@
 
 export const siteVideo = {
   description:
-    "Six kinds of game — a platformer, a bomberman arena, a space shooter, a paddle rally, a 3D arena and a falling-block puzzle — drawn as wireframes and playing in turn, then the Vibedgames wordmark.",
+    "A dimensional drawing of the Vibedgames mark over its tagline, A game studio for your agent: the pen measures the logo, then draws six kinds of game around it as dimensioned wireframes — a platformer, a bomberman grid, a paddle court, a top-down shooter, a 3D arena in isometric and a falling-block well — and lifts the platformer's background, tiles, sprites and HUD apart into an exploded view.",
   /** ISO 8601, and what the scene really runs: the script checks it against this. */
   duration: "PT10S",
   height: 630,
-  name: "Vibedgames trailer",
+  name: "Vibedgames dimensional drawing",
   path: "/og/og.mp4",
-  /** The wordmark frame, for `VideoObject.thumbnailUrl`. */
+  /** The full-sheet frame, for `VideoObject.thumbnailUrl`. */
   poster: "/og/og-poster.jpg",
   type: "video/mp4",
   /** The day the committed trailer was recorded. */
-  uploadDate: "2026-10-24",
+  uploadDate: "2026-10-25",
   width: 1200,
 } as const;
 

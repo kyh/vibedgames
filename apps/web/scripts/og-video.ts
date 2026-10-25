@@ -4,14 +4,15 @@
 //   pnpm -F @repo/web og:video --only video
 //   pnpm -F @repo/web og:video --only cards
 //
-// The trailer is a built scene, not gameplay: scripts/og-scene.html draws six
-// genres from the bundled example games as hairline wireframes, each briefly
-// playing, then the wordmark. It is opened from disk, never routed or shipped.
-// The scene exposes `window.__render(ms)`, and this script steps it one 30fps
-// frame at a time and screenshots each, so the cut is identical every run
-// however slowly the machine draws. ffmpeg joins the frames into a 1200x630
-// H.264 loop at apps/web/public/og/og.mp4 and writes the poster from the
-// wordmark frame.
+// The trailer is a built scene, not gameplay: scripts/og-scene.html is a
+// dimensional drawing of the mark and its tagline, with six game genres
+// measured as wireframes around it. It is opened from disk, never routed or
+// shipped. This script hands it the mark's polygon from
+// public/favicon/favicon.svg (`window.__setMark`), then steps
+// `window.__render(ms)` one 30fps frame at a time at device pixel ratio 2 and
+// screenshots each, so the cut is identical every run however slowly the
+// machine draws. ffmpeg scales the frames down into a 1200x630 H.264 loop at
+// apps/web/public/og/og.mp4 and writes the poster from the full-sheet frame.
 //
 // The cards are one 1200x630 JPEG per prose page (lib/og-media.ts), drawn from
 // the page's own title and description over the site's logo, background and
@@ -47,8 +48,10 @@ const FPS = 30;
 const WIDTH = siteVideo.width;
 const HEIGHT = siteVideo.height;
 const SCENE = path.join(WEB, "scripts/og-scene.html");
-/** The poster frame: the wordmark, fully in. */
-const POSTER_MS = 9000;
+/** The poster frame: the full sheet, every drawing in, held before it clears. */
+const POSTER_MS = 8300;
+/** Frames are drawn at twice the size and scaled down, so hairlines stay crisp. */
+const SCALE = 2;
 
 const CARD_DOCS: Doc[] = [
   discoverDoc,
@@ -134,22 +137,38 @@ const ffprobe = async (file: string) => {
   return stdout.trim().replaceAll("\n", " ");
 };
 
+/** The mark's polygon, read from the favicon so the drawing never drifts from the logo. */
+const markPoints = (): [number, number][] => {
+  const svg = readFileSync(path.join(PUBLIC, "favicon/favicon.svg"), "utf-8");
+  const points = /<polygon[^>]*points="(?<points>[^"]+)"/u.exec(svg)?.groups?.points;
+  if (!points) {
+    throw new Error("og-video: no polygon in public/favicon/favicon.svg");
+  }
+  const numbers = points.trim().split(/\s+/u).map(Number);
+  const pairs: [number, number][] = [];
+  for (let index = 0; index + 1 < numbers.length; index += 2) {
+    pairs.push([numbers[index] ?? 0, numbers[index + 1] ?? 0]);
+  }
+  return pairs;
+};
+
 const frameName = (index: number) => `${String(index).padStart(5, "0")}.png`;
 
 const captureVideo = async (browser: Browser) => {
   const scratch = await mkdtemp(path.join(tmpdir(), "vg-og-video-"));
   const context = await browser.newContext({
-    deviceScaleFactor: 1,
+    deviceScaleFactor: SCALE,
     viewport: { height: HEIGHT, width: WIDTH },
   });
   try {
     const page = await context.newPage();
     await page.goto(pathToFileURL(SCENE).href, { waitUntil: "load" });
     await page.waitForFunction(
-      "typeof window.__render === 'function' && document.fonts.status === 'loaded'",
+      "typeof window.__setMark === 'function' && document.fonts.status === 'loaded'",
       undefined,
       { polling: 100, timeout: 30_000 },
     );
+    await page.evaluate(`window.__setMark(${JSON.stringify(markPoints())})`);
     const duration = Number(await page.evaluate("window.__duration"));
     const frameCount = Math.round((duration / 1000) * FPS);
     const expected = Number(siteVideo.duration.replaceAll(/\D/gu, "")) * FPS;
@@ -173,6 +192,8 @@ const captureVideo = async (browser: Browser) => {
       String(FPS),
       "-i",
       path.join(scratch, "%05d.png"),
+      "-vf",
+      `scale=${WIDTH}:${HEIGHT}:flags=lanczos`,
       "-an",
       "-c:v",
       "libx264",
@@ -194,6 +215,8 @@ const captureVideo = async (browser: Browser) => {
       "error",
       "-i",
       path.join(scratch, frameName(Math.round((POSTER_MS / 1000) * FPS))),
+      "-vf",
+      `scale=${WIDTH}:${HEIGHT}:flags=lanczos`,
       "-q:v",
       "3",
       path.join(PUBLIC, siteVideo.poster),
