@@ -177,7 +177,7 @@ describe("mcp endpoint", () => {
     assert.deepStrictEqual(
       names,
       [
-        // `vg <command>`, spaces as `_`
+        // `vg <command>`, spaces as `_`; `generate` is `vg generate run`
         "credits",
         "credits_buy",
         "credits_redeem",
@@ -188,7 +188,7 @@ describe("mcp endpoint", () => {
         "generate_docs",
         "generate_models",
         "generate_pricing",
-        "generate_run",
+        "generate",
         "generate_schema",
         "generate_status",
         "generate_upload",
@@ -213,7 +213,7 @@ describe("mcp endpoint", () => {
       assert.strictEqual(byName.get(name)?.annotations?.readOnlyHint, true, name);
     }
     assert.strictEqual(byName.get("deployments_delete")?.annotations?.destructiveHint, true);
-    for (const name of ["generate_run", "generate_image", "deploy", "credits_redeem"]) {
+    for (const name of ["generate", "generate_image", "deploy", "credits_redeem"]) {
       assert.strictEqual(byName.get(name)?.annotations?.readOnlyHint, false, name);
     }
   });
@@ -310,7 +310,7 @@ describe("mcp endpoint", () => {
   test("refuses an anonymous generate before anything is submitted", async () => {
     const { body } = await rpc("tools/call", {
       arguments: { endpoint_id: "fal-ai/flux/dev", input: { prompt: "a cat" } },
-      name: "generate_run",
+      name: "generate",
     });
     const { result } = callResult.parse(body);
     assert.strictEqual(result.isError, true);

@@ -47,7 +47,7 @@ const registrar = new McpRegistrar(tools, {
 
 const instructions = [
   "vibedgames hosts browser games at {slug}.vibedgames.com and gives coding agents the abilities of a game studio.",
-  "Start with `skills` for how to build, art-direct and ship a game; `generate_image`, `generate_video`, `generate_speech`, `generate_music`, `generate_sound`, `generate_3d` and `remove_background` make its assets on default models, `generate_run` runs any other model; `deploy` puts it live. Each tool is named for its `vg` command, spaces as `_`.",
+  "Start with `skills` for how to build, art-direct and ship a game; `generate_image`, `generate_video`, `generate_speech`, `generate_music`, `generate_sound`, `generate_3d` and `remove_background` make its assets on default models, `generate` runs any other model; `deploy` puts it live. Each tool is named for its `vg` command, spaces as `_`.",
   "Big bytes never ride a tool call: list a large file in deploy's `presign` (path, size, sha256) and PUT it to the URL it returns; generate_upload likewise returns a URL to PUT a model input to; fork returns a URL to download source from.",
   "A game larger than one request deploys over several deploy calls with the same deploymentId, the last with `publish: true`.",
   "Generated assets come back as URLs, never as files: deploy one by passing its URL to deploy with `encoding: url`, rather than downloading it.",

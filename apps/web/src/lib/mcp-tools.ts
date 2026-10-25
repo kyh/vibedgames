@@ -12,7 +12,8 @@ import { z } from "zod";
 /**
  * The tools `/mcp` serves, one per `vg` command that reaches the server, each
  * named for its command: the command path with `_` for spaces (`vg deploy` is
- * `deploy`, `vg generate run` is `generate_run`), so an agent that knows one
+ * `deploy`, `vg deployments delete` is `deployments_delete`; `vg generate run`
+ * is plain `generate`), so an agent that knows one
  * knows the other. The asset tools (`generate_image`, …) and `skills` have no
  * command of their own. Most are the API's
  * own procedures; the `generate_*` family is `vg generate`'s subcommands over
@@ -170,6 +171,27 @@ const waitSeconds = z
   .describe("How long to wait for the result before returning the request id");
 
 const generateTools = {
+  generate: tool
+    .meta(
+      mcp.tool({
+        annotations: external,
+        description:
+          "Runs a model to generate an image, video, audio clip, 3D model or text, billed against your credits. Pass the endpoint id and the model's input (see generate_schema). Waits up to `wait_seconds` for the result; a job still running by then returns its `request_id` and status, to follow with generate_status. Needs a positive credit balance (403 `insufficient_credits`) and a priced model (400 `unknown_endpoint`).",
+        name: "generate",
+        title: "Generate media",
+      }),
+    )
+    .input(
+      z.object({
+        endpoint_id: endpointId,
+        input: z.record(z.string(), z.json()).describe("The model's input, per generate_schema"),
+        wait_seconds: waitSeconds,
+      }),
+    )
+    .handler(({ context, input }) =>
+      runModel(context, input.endpoint_id, input.input, input.wait_seconds),
+    ),
+
   generate_docs: tool
     .meta(
       mcp.tool({
@@ -250,33 +272,12 @@ const generateTools = {
       }),
     ),
 
-  generate_run: tool
-    .meta(
-      mcp.tool({
-        annotations: external,
-        description:
-          "Runs a model to generate an image, video, audio clip, 3D model or text, billed against your credits. Pass the endpoint id and the model's input (see generate_schema). Waits up to `wait_seconds` for the result; a job still running by then returns its `request_id` and status, to follow with generate_status. Needs a positive credit balance (403 `insufficient_credits`) and a priced model (400 `unknown_endpoint`).",
-        name: "generate_run",
-        title: "Generate media",
-      }),
-    )
-    .input(
-      z.object({
-        endpoint_id: endpointId,
-        input: z.record(z.string(), z.json()).describe("The model's input, per generate_schema"),
-        wait_seconds: waitSeconds,
-      }),
-    )
-    .handler(({ context, input }) =>
-      runModel(context, input.endpoint_id, input.input, input.wait_seconds),
-    ),
-
   generate_schema: tool
     .meta(
       mcp.tool({
         annotations: { ...readOnly, openWorldHint: true },
         description:
-          "A model's input and output schema: what generate_run's `input` takes. `openapi` gives the full OpenAPI document.",
+          "A model's input and output schema: what generate's `input` takes. `openapi` gives the full OpenAPI document.",
         name: "generate_schema",
         title: "Model schema",
       }),
@@ -364,8 +365,8 @@ const imageUrl = z.url().describe("An image's URL, e.g. from generate_upload");
 
 /**
  * One tool per kind of asset, each on the default model the model-catalog
- * skill names for it, with that model's main inputs typed. `generate_run`
- * runs any other.
+ * skill names for it, with that model's main inputs typed. `generate` runs
+ * any other.
  */
 export const MEDIA_MODELS = {
   generate_3d: ["meshy/v7.1/text-to-3d", "meshy/v7.1/image-to-3d"],
