@@ -20,6 +20,7 @@ export interface R2BucketLike {
     size: number;
     httpMetadata?: { contentType?: string };
     arrayBuffer: () => Promise<ArrayBuffer>;
+    body: ReadableStream<Uint8Array<ArrayBuffer>>;
   } | null>;
   head: (key: string) => Promise<{
     size: number;

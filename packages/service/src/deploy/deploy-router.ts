@@ -1,10 +1,12 @@
 import { and, count, eq, inArray, sql, sum } from "@repo/db";
 import { deployment, deploymentFile, game } from "@repo/db/drizzle-schema";
-import type { fileSchema, PresignedFile } from "@repo/contract/deploy/deploy-schema";
+import type { PresignedFile } from "@repo/contract/deploy/deploy-schema";
 import { contentTypeForPath } from "@repo/contract/deploy/content-types";
 import type { Db } from "@repo/db/drizzle-client";
 import {
+  fileSchema,
   MAX_FILE_COUNT,
+  MAX_FILE_SIZE,
   MAX_SOURCE_SIZE,
   MAX_TOTAL_SIZE,
 } from "@repo/contract/deploy/deploy-schema";
@@ -16,6 +18,7 @@ import { os, requireSession } from "../orpc";
 import type { DecodedFile } from "./inline-files";
 import { decodeInlineFiles, sha256Hex } from "./inline-files";
 import { deletePrefix, signDownloadUrl, signUploadUrl } from "../storage/signed-urls";
+import { forEachBundleFile } from "./bundle-extract";
 import { sourceArchive } from "./source-archive";
 import { isSlugReserved } from "./reserved-slugs";
 
@@ -23,6 +26,10 @@ import { isSlugReserved } from "./reserved-slugs";
  *  `games/` prefix so the public games worker never serves it. */
 const sourceKeyFor = (gameId: string, deploymentId: string): string =>
   `sources/${gameId}/${deploymentId}/source.tgz`;
+
+/** R2 key a deploy bundle waits at until publish unpacks it; also outside `games/`. */
+const bundleKeyFor = (gameId: string, deploymentId: string): string =>
+  `bundles/${gameId}/${deploymentId}.tgz`;
 
 // ---- Helpers -----------------------------------------------------------------
 
@@ -304,6 +311,57 @@ const assertFilesStored = async (
   }
 };
 
+/**
+ * Unpacks a bundle the caller PUT for this deployment into its files, then
+ * drops the bundle. No bundle there is not an error: the deployment may have
+ * come up file by file.
+ */
+const extractBundle = async (
+  db: Db,
+  r2: R2Config,
+  { deploymentId, gameId }: { deploymentId: string; gameId: string },
+) => {
+  const bundleKey = bundleKeyFor(gameId, deploymentId);
+  const object = await r2.bucket.get(bundleKey);
+  if (!object) {
+    return;
+  }
+  let { bytes, files: fileCount } = await deploymentTotals(db, deploymentId);
+  const rows: FileRow[] = [];
+  const seen = new Set<string>();
+  await forEachBundleFile(object.body, { maxFileBytes: MAX_FILE_SIZE }, async (file) => {
+    if (!fileSchema.shape.path.safeParse(file.path).success) {
+      throw new ORPCError("BAD_REQUEST", {
+        message: `Bundle: "${file.path}" is not a valid path.`,
+      });
+    }
+    if (seen.has(file.path)) {
+      throw new ORPCError("BAD_REQUEST", { message: `Bundle: "${file.path}" appears twice.` });
+    }
+    seen.add(file.path);
+    bytes += file.bytes.byteLength;
+    fileCount += 1;
+    if (bytes > MAX_TOTAL_SIZE || fileCount > MAX_FILE_COUNT) {
+      throw new ORPCError("BAD_REQUEST", {
+        message: `Bundle: a deployment holds at most ${MAX_FILE_COUNT} files and ${MAX_TOTAL_SIZE} bytes.`,
+      });
+    }
+    const contentType = contentTypeForPath(file.path);
+    const r2Key = `games/${gameId}/${deploymentId}/${file.path}`;
+    await r2.bucket.put(r2Key, file.bytes, { httpMetadata: { contentType } });
+    rows.push({
+      contentType,
+      deploymentId,
+      path: file.path,
+      r2Key,
+      sha256: await sha256Hex(file.bytes),
+      size: file.bytes.byteLength,
+    });
+  });
+  await upsertFileRows(db, rows);
+  await r2.bucket.delete(bundleKey);
+};
+
 /** Refuses to publish while a source archive the caller declared is missing or not its declared size. */
 const assertSourceStored = async (db: Db, r2: R2Config, deploymentId: string) => {
   const staged = await db.query.deployment.findFirst({ where: { id: deploymentId } });
@@ -381,7 +439,8 @@ const publishDeployment = async (
   });
   if (!index) {
     throw new ORPCError("BAD_REQUEST", {
-      message: "Deployment must contain index.html at the root before it can publish.",
+      message:
+        "Deployment must contain index.html at the root before it can publish. A bundle puts it there when made from inside the build folder: `tar -czf game.tgz -C dist .`.",
     });
   }
   await assertFilesStored(db, r2, { deploymentId, gameId });
@@ -406,6 +465,7 @@ const publishDeployment = async (
   for (const { id } of stale) {
     await deletePrefix({ prefix: `games/${gameId}/${id}/`, r2 });
     await deletePrefix({ prefix: `sources/${gameId}/${id}/`, r2 });
+    await r2.bucket.delete(bundleKeyFor(gameId, id));
   }
 };
 
@@ -523,6 +583,7 @@ export const deployRouter = {
 
     await deletePrefix({ prefix: `games/${g.id}/`, r2 });
     await deletePrefix({ prefix: `sources/${g.id}/`, r2 });
+    await deletePrefix({ prefix: `bundles/${g.id}/`, r2 });
     await context.db.delete(game).where(eq(game.id, g.id));
 
     return { success: true as const };
@@ -679,6 +740,19 @@ export const deployRouter = {
           gameId,
         })
       : null;
+    const bundleUpload = input.bundle
+      ? {
+          headers: { "content-type": "application/gzip" },
+          url: await signUploadUrl({
+            contentType: "application/gzip",
+            signing,
+            target: { key: bundleKeyFor(gameId, deploymentId) },
+          }),
+        }
+      : null;
+    if (input.publish) {
+      await extractBundle(context.db, r2, { deploymentId, gameId });
+    }
 
     const totals = await deploymentTotals(context.db, deploymentId);
     await context.db
@@ -686,6 +760,7 @@ export const deployRouter = {
       .set({ fileCount: totals.files, totalBytes: totals.bytes })
       .where(eq(deployment.id, deploymentId));
     const summary = {
+      bundleUpload,
       deploymentId,
       fileCount: totals.files,
       gameId,

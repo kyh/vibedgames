@@ -6,7 +6,7 @@ import { defineCommand } from "citty";
 import { consola } from "consola";
 
 import { createClient } from "../lib/api.js";
-import { packSource } from "../lib/archive.js";
+import { packBuild, packSource } from "../lib/archive.js";
 import type { SourceArchive } from "../lib/archive.js";
 import {
   findProjectRoot,
@@ -20,7 +20,6 @@ import { buildManifest } from "../lib/manifest.js";
 import { isJsonOutput, outputArgs, writeStructured } from "../lib/output.js";
 import { assertKnownFlags } from "../lib/strict-args.js";
 import { isJsonString } from "../lib/types.js";
-import { uploadAll } from "../lib/upload.js";
 
 const deployArgs = {
   dir: {
@@ -149,23 +148,19 @@ const packForkableSource = async (
   }
 };
 
-const uploadSourceArchive = async (
-  archive: SourceArchive,
+/** PUTs an archive to a signed upload URL; throws with what went wrong. */
+const putArchive = async (
+  archivePath: string,
   upload: { url: string; headers: Record<string, string> },
+  what: string,
 ): Promise<void> => {
-  try {
-    const res = await fetch(upload.url, {
-      body: readFileSync(archive.path),
-      headers: upload.headers,
-      method: "PUT",
-    });
-    if (!res.ok) {
-      throw new Error(`source upload failed: ${res.status} ${res.statusText}`);
-    }
-  } catch (error) {
-    rmSync(archive.path, { force: true });
-    consola.error(error instanceof Error ? error.message : String(error));
-    process.exit(1);
+  const res = await fetch(upload.url, {
+    body: readFileSync(archivePath),
+    headers: upload.headers,
+    method: "PUT",
+  });
+  if (!res.ok) {
+    throw new Error(`${what} upload failed: ${res.status} ${res.statusText}`);
   }
 };
 
@@ -234,62 +229,50 @@ export const deployCommand = defineCommand({
     // ---- Pack forkable source (opt-in: source is a publish, --source) -------
     const sourceArchive = args.source ? await packForkableSource(dir, config.slug, say) : null;
 
-    // ---- Stage a deployment beside the live one ------------------------------
+    // ---- Pack the build into one bundle ------------------------------------
+    const tmp = path.join(tmpdir(), "vibedgames");
+    const bundle = await packBuild(
+      deployDir,
+      manifest.map((f) => f.path),
+      tmp,
+    );
+    const cleanUp = () => {
+      rmSync(bundle.path, { force: true });
+      if (sourceArchive) {
+        rmSync(sourceArchive.path, { force: true });
+      }
+    };
+
+    // ---- Stage a deployment beside the live one, and upload into it ---------
     const client = createClient();
     const started = Date.now();
 
     let created;
     try {
       created = await client.deploy.upload({
+        bundle: true,
         name: config.name,
-        presign: manifest.map((f) => ({
-          contentType: f.contentType,
-          path: f.path,
-          sha256: f.sha256,
-          size: f.size,
-        })),
         slug: config.slug,
         sourceArchive: sourceArchive
           ? { bytes: sourceArchive.bytes, sha256: sourceArchive.sha256 }
           : undefined,
       });
-    } catch (error) {
-      if (sourceArchive) {
-        rmSync(sourceArchive.path, { force: true });
+      if (!structured) {
+        consola.start(`Uploading ${formatBytes(bundle.bytes)}`);
       }
+      if (!created.bundleUpload) {
+        throw new Error("The server returned no bundle upload URL.");
+      }
+      await putArchive(bundle.path, created.bundleUpload, "bundle");
+      if (sourceArchive && created.sourceUpload) {
+        await putArchive(sourceArchive.path, created.sourceUpload, "source");
+      }
+    } catch (error) {
+      cleanUp();
       consola.error(error instanceof Error ? error.message : String(error));
       process.exit(1);
     }
-
-    // ---- Upload the files ---------------------------------------------------
-    if (!structured) {
-      consola.start(`Uploading ${created.uploads.length} files`);
-    }
-    try {
-      await uploadAll({
-        files: manifest,
-        onProgress: (done, total) => {
-          if (done === total || done % 10 === 0) {
-            say(`Uploaded ${done}/${total}`);
-          }
-        },
-        uploads: created.uploads,
-      });
-    } catch (error) {
-      if (sourceArchive) {
-        rmSync(sourceArchive.path, { force: true });
-      }
-      consola.error(error instanceof Error ? error.message : String(error));
-      process.exit(1);
-    }
-
-    // ---- Upload source archive (best-effort companion to the bundle) -------
-    if (sourceArchive) {
-      if (created.sourceUpload) {
-        await uploadSourceArchive(sourceArchive, created.sourceUpload);
-      }
-      rmSync(sourceArchive.path, { force: true });
-    }
+    cleanUp();
 
     // ---- Publish ------------------------------------------------------------
     const published = await publishDeployment(client, {

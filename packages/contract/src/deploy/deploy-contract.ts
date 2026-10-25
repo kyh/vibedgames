@@ -110,7 +110,7 @@ export const deployContract = {
     .meta(
       documented({
         description:
-          "Deploys a game from files given in the request: each file is `utf-8` text, or `url`: the URL of an asset generate made, which the server fetches itself (up to 32 MB a call), so nothing generated has to pass through the caller. Its type is its path's unless given. Any other binary file, and any file too large to carry, goes in `presign` with its size and SHA-256 instead: the call returns a 15-minute signed PUT URL on this server for it in `uploads`, and the caller sends the bytes there itself with the header given. The first call stages a new deployment beside the live one and returns its `deploymentId`; later calls pass it back to add or replace files, so a game larger than one request goes up in several. `publish: true` (on the last call, or alone) requires `index.html` and every presigned file uploaded at its declared size, makes the deployment live at `{slug}.vibedgames.com` and only then removes the previous one, so the game never goes dark mid-upload; with `source: true` it also keeps the deployment's files as the game's forkable source (up to 64 MB). A caller with its own source archive (tar.gz) passes `sourceArchive` (size and SHA-256) instead and PUTs it to `sourceUpload`; publish then requires it uploaded. 403 when the slug belongs to someone else.",
+          "Deploys a game. The usual way: pass `bundle: true`, PUT a gzipped tar of the built game (`tar -czf game.tgz -C dist .`, `index.html` at its root) to the `bundleUpload` URL it returns, then call again with the `deploymentId` and `publish: true`; publish unpacks it. Files can also be given one by one: `files` carries `utf-8` text, or with `encoding: url` the URL of an asset generate made, which the server fetches itself (up to 32 MB a call); `presign` takes a file's path, size and SHA-256 and returns a signed PUT URL for it in `uploads`. Upload URLs are on this server and last 15 minutes. A call without `deploymentId` stages a new deployment beside the live one; later calls pass it back to add or replace files. `publish: true` requires `index.html` and every presigned file at its declared size, makes the deployment live at `{slug}.vibedgames.com` and only then removes the previous one, so the game never goes dark mid-upload. With `source: true` publish also keeps the deployment's files as the game's forkable source (up to 64 MB); a caller with its own source archive passes `sourceArchive` instead and PUTs it to `sourceUpload`. 403 when the slug belongs to someone else.",
         errors: [403, 404],
         summary: "Upload files inline and deploy",
       }),
@@ -118,6 +118,7 @@ export const deployContract = {
     .input(uploadInput)
     .output(
       z.object({
+        bundleUpload: presignedUpload.nullable(),
         deploymentId: z.string(),
         fileCount: z.number().int(),
         gameId: z.string(),

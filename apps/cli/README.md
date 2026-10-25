@@ -83,12 +83,13 @@ Run `vg init` in your project to install the full set of game-building skills
 ## How deploy works
 
 1. Picks the build output (`dist`/`build`/`out`) when the directory is a project root
-2. Walks the directory, hashes files, validates `index.html` exists
-3. Calls `deploy.upload` with every file (and the `--source` archive) in `presign` — stages a
-   deployment beside the live one and gets a signed `/api/upload` URL per file
-4. PUTs the files to those URLs with bounded concurrency
-5. Calls `deploy.upload` again with `publish: true` — the game switches to the new deployment
-   at `{slug}.vibedgames.com`; until then the old one keeps serving
+2. Walks the directory, checks the caps and that `index.html` exists, and packs it into one
+   `.tgz` bundle
+3. Calls `deploy.upload` with `bundle: true` (and the `--source` archive) — stages a deployment
+   beside the live one and gets a signed `/api/upload` URL for the bundle
+4. PUTs the bundle there
+5. Calls `deploy.upload` again with `publish: true` — the server unpacks the bundle and the game
+   switches to the new deployment at `{slug}.vibedgames.com`; until then the old one keeps serving
 
 Passing `--source` also uploads a forkable source archive, which is what
 `vg fork <slug>` downloads. It is off by default: the archive is readable by

@@ -87,6 +87,12 @@ const presignedFileSchema = fileSchema.extend({
 export type PresignedFile = z.infer<typeof presignedFileSchema>;
 
 export const uploadInput = z.object({
+  /**
+   * The game as one gzipped tar of its built files, `index.html` at the root
+   * (`tar -czf game.tgz -C dist .`): the call returns a `bundleUpload` URL to
+   * PUT it to, and publish unpacks it into the deployment. The usual way in.
+   */
+  bundle: z.boolean().default(false),
   /** Continue a staged deployment this call's earlier upload returned; omit to start one. */
   deploymentId: z.string().optional(),
   files: z.array(inlineFileSchema).max(MAX_FILE_COUNT).default([]),
