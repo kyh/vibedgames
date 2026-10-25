@@ -3,6 +3,18 @@ import { defineCommand, runMain } from "citty";
 
 import { PACKAGE_VERSION } from "./lib/package-root.js";
 
+// A reader that stops early (`vg skills | head`) closes the pipe under us:
+// that is the reader being done, not a failure, so leave quietly instead of
+// crashing on the next write with an unhandled EPIPE.
+for (const stream of [process.stdout, process.stderr]) {
+  stream.on("error", (error: NodeJS.ErrnoException) => {
+    if (error.code === "EPIPE") {
+      process.exit(0);
+    }
+    throw error;
+  });
+}
+
 /** A command imported only when it runs: `key` names its export in the module. */
 const lazy =
   <M, K extends keyof M>(load: () => Promise<M>, key: K) =>
