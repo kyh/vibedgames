@@ -111,7 +111,8 @@ const readBlock = async (reader: ReturnType<typeof byteReader>) => {
 
 /** Calls `onFile` for each regular file of a gzipped tar, in archive order. */
 export const forEachBundleFile = async (
-  gzipped: ReadableStream<Uint8Array>,
+  // ArrayBuffer-backed, as DecompressionStream takes no shared memory.
+  gzipped: ReadableStream<Uint8Array<ArrayBuffer>>,
   { maxFileBytes }: { maxFileBytes: number },
   onFile: (file: BundleFile) => Promise<void>,
 ): Promise<void> => {

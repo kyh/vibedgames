@@ -26,7 +26,13 @@ const gzip = async (parts: Uint8Array[]) => {
   return new Uint8Array(await new Response(zipped).arrayBuffer());
 };
 
-const streamOf = (bytes: Uint8Array<ArrayBuffer>) => new Blob([bytes]).stream();
+const streamOf = (bytes: Uint8Array<ArrayBuffer>) =>
+  new ReadableStream<Uint8Array<ArrayBuffer>>({
+    start: (controller) => {
+      controller.enqueue(bytes);
+      controller.close();
+    },
+  });
 
 const read = async (bytes: Uint8Array<ArrayBuffer>, maxFileBytes = 1024 * 1024) => {
   const files: BundleFile[] = [];
