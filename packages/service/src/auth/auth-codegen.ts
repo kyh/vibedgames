@@ -14,16 +14,33 @@
  */
 import { apiKey } from "@better-auth/api-key";
 import { expo } from "@better-auth/expo";
+import { mcp } from "@better-auth/mcp";
 import { betterAuth } from "better-auth";
 import { memoryAdapter } from "better-auth/adapters/memory";
-import { admin, bearer, oAuthProxy } from "better-auth/plugins";
+import { admin, bearer, jwt, oAuthProxy } from "better-auth/plugins";
 
 export const auth = betterAuth({
+  // The OAuth provider resolves its issuer and resources from it on start.
+  baseURL: "https://vibedgames.com",
   // Codegen/test only: an in-memory adapter satisfies better-auth's init
   // without opening a connection. The real Worker uses drizzleAdapter(d1).
-  database: memoryAdapter({}),
+  // `oauthResource` is there because the OAuth provider seeds its resources
+  // into it on start.
+  database: memoryAdapter({ oauthResource: [] }),
   emailAndPassword: { enabled: true },
-  plugins: [oAuthProxy(), bearer(), expo(), admin(), apiKey()],
+  plugins: [
+    oAuthProxy(),
+    bearer(),
+    expo(),
+    admin(),
+    apiKey(),
+    jwt(),
+    mcp({
+      consentPage: "/oauth/consent",
+      loginPage: "/auth/login",
+      resource: "https://vibedgames.com/mcp",
+    }),
+  ],
   rateLimit: { enabled: true, storage: "database" },
   user: {
     additionalFields: {

@@ -16,6 +16,7 @@
     "with-env": "dotenv -e ../../.env --"
   },
   "dependencies": {
+    "@better-auth/oauth-provider": "1.7.2",
     "@hookform/resolvers": "^5.9.2",
     "@modelcontextprotocol/server": "^2.3.1",
     "@orpc/client": "catalog:",

@@ -6,6 +6,7 @@ import type {
   UrlSigning,
 } from "@repo/service/orpc";
 import { createAuth as initAuth } from "@repo/service/auth/auth";
+import { oauthResources } from "@repo/service/auth/oauth-resources";
 import { createORPCContext } from "@repo/service/orpc";
 import { createDb } from "@repo/db/drizzle-client";
 import { getRequestHeaders } from "@tanstack/react-start/server";
@@ -22,6 +23,41 @@ import { getCloudflareEnv } from "@/lib/cloudflare";
  * The baseUrl is derived from the incoming request's Host header so it
  * correctly reflects localhost in dev, preview domains, and production.
  */
+type Env = ReturnType<typeof getCloudflareEnv>;
+
+/**
+ * One auth instance per isolate and origin. Building one is not free: the
+ * OAuth provider seeds its protected-resource rows at init, a D1 read per
+ * resource, which would otherwise run on every request.
+ */
+const authInstances = new WeakMap<Env, Map<string, ReturnType<typeof initAuth>>>();
+
+const authFor = (
+  env: Env,
+  db: ReturnType<typeof createDb>,
+  baseUrl: string,
+  productionUrl: string,
+) => {
+  let byOrigin = authInstances.get(env);
+  if (!byOrigin) {
+    byOrigin = new Map();
+    authInstances.set(env, byOrigin);
+  }
+  let auth = byOrigin.get(baseUrl);
+  if (!auth) {
+    auth = initAuth({
+      baseURL: baseUrl,
+      db,
+      github: { clientId: env.GITHUB_CLIENT_ID, clientSecret: env.GITHUB_CLIENT_SECRET },
+      google: { clientId: env.GOOGLE_CLIENT_ID, clientSecret: env.GOOGLE_CLIENT_SECRET },
+      productionURL: productionUrl,
+      secret: env.BETTER_AUTH_SECRET,
+    });
+    byOrigin.set(baseUrl, auth);
+  }
+  return auth;
+};
+
 export const getServerContext = () => {
   const env = getCloudflareEnv();
   const db = createDb(env.DB);
@@ -36,12 +72,7 @@ export const getServerContext = () => {
 
   const productionUrl = env.PRODUCTION_URL || baseUrl;
 
-  const auth = initAuth({
-    baseURL: baseUrl,
-    db,
-    productionURL: productionUrl,
-    secret: env.BETTER_AUTH_SECRET,
-  });
+  const auth = authFor(env, db, baseUrl, productionUrl);
 
   // Bytes reach R2 only through the binding: `/api/upload` and `/api/download`
   // URLs, signed with the auth secret, point back at this same host, so dev
@@ -75,6 +106,18 @@ export const getServerContext = () => {
   return { auth, baseUrl, billing, db, decision, media, productionUrl, r2, signing };
 };
 
+/** The social sign-in providers this deployment has credentials for, in button order. */
+export const socialSignInProviders = (): ("github" | "google")[] => {
+  const providers = getServerContext().auth.options.socialProviders ?? {};
+  return (["github", "google"] as const).filter((id) => id in providers);
+};
+
+/**
+ * Which protected resource a request is for: OAuth access tokens are
+ * audience-bound, so one granted for MCP never drives the API and back.
+ */
+export type OAuthSurface = keyof ReturnType<typeof oauthResources>;
+
 /**
  * The one place the Worker bindings are mapped onto the oRPC context.
  *
@@ -82,8 +125,9 @@ export const getServerContext = () => {
  * SSR client in `lib/orpc.tsx` — so a binding added here can't reach one and
  * silently miss the other.
  */
-export const createRpcContext = (headers: Headers) => {
+export const createRpcContext = (headers: Headers, surface: OAuthSurface = "api") => {
   const {
+    baseUrl,
     db,
     auth: betterAuth,
     billing,
@@ -100,6 +144,7 @@ export const createRpcContext = (headers: Headers) => {
     decision,
     headers,
     media,
+    oauthResource: oauthResources(baseUrl)[surface],
     productionURL: productionUrl,
     r2,
     signing,

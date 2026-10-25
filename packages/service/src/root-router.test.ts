@@ -7,6 +7,7 @@ import type { AnyProcedure } from "@orpc/server";
 import { call, getRouter, ORPCError, Procedure, walkProcedureContractsSync } from "@orpc/server";
 
 import { API_KEY_SESSION_PREFIX } from "./auth/api-key";
+import { OAUTH_SESSION_PREFIX } from "./auth/oauth-token";
 import { createAuth } from "./auth/auth";
 import type { ORPCContext } from "./orpc";
 import { appRouter } from "./root-router";
@@ -38,6 +39,8 @@ const db = createDb({
 });
 
 const auth = createAuth({ baseURL: "http://localhost:3000", db, secret: "test-secret" });
+// The OAuth plugin seeds its resource rows at init, which this database refuses.
+auth.$context.catch(() => null);
 
 const now = new Date();
 
@@ -80,13 +83,15 @@ const contextAs = (session: ORPCContext["session"]): ORPCContext => ({
   signing: undefined,
 });
 
-type Caller = "anonymous" | "apiKey" | "member" | "admin";
+type Caller = "anonymous" | "apiKey" | "oauth" | "member" | "admin";
 
 const callers: [Caller, ORPCContext][] = [
   ["anonymous", contextAs(null)],
   // An admin's key: the role check would let it through, so only the key
   // check can refuse it.
   ["apiKey", contextAs(sessionFor({ role: "admin", token: `${API_KEY_SESSION_PREFIX}key-1` }))],
+  // A connected app's access token, held to the same line as a key.
+  ["oauth", contextAs(sessionFor({ role: "admin", token: `${OAUTH_SESSION_PREFIX}token-1` }))],
   ["member", contextAs(sessionFor({ role: "user", token: "session-token" }))],
   ["admin", contextAs(sessionFor({ role: "admin", token: "session-token" }))],
 ];
@@ -98,10 +103,19 @@ const REFUSALS = new Set(["UNAUTHORIZED", "FORBIDDEN", "FORBIDDEN (API key)"]);
 
 /** Who each credential turns away, and how; everyone else gets through. */
 const refused: Record<Credential, Partial<Record<Caller, string>>> = {
-  admin: { anonymous: "UNAUTHORIZED", apiKey: "FORBIDDEN (API key)", member: "FORBIDDEN" },
+  admin: {
+    anonymous: "UNAUTHORIZED",
+    apiKey: "FORBIDDEN (API key)",
+    member: "FORBIDDEN",
+    oauth: "FORBIDDEN (API key)",
+  },
   any: { anonymous: "UNAUTHORIZED" },
   none: {},
-  session: { anonymous: "UNAUTHORIZED", apiKey: "FORBIDDEN (API key)" },
+  session: {
+    anonymous: "UNAUTHORIZED",
+    apiKey: "FORBIDDEN (API key)",
+    oauth: "FORBIDDEN (API key)",
+  },
 };
 
 // Every input schema is an object.

@@ -17,6 +17,18 @@ const stripeSecrets = {
   STRIPE_WEBHOOK_SECRET: bindings.secret(),
 };
 
+// Social sign-in (packages/service/src/auth/auth.ts) is optional the same way: a provider's button
+// appears once both its client id and secret are set. Callback URL for each provider's app:
+// https://vibedgames.com/api/auth/callback/{github,google}; Previews sign in through it via oAuthProxy.
+const socialSecrets = {
+  GITHUB_CLIENT_ID: bindings.secret(),
+  GITHUB_CLIENT_SECRET: bindings.secret(),
+  GOOGLE_CLIENT_ID: bindings.secret(),
+  GOOGLE_CLIENT_SECRET: bindings.secret(),
+};
+
+const optionalSecrets = { ...stripeSecrets, ...socialSecrets };
+
 // A Preview binds preview-only resources, so a PR can never write the prod D1 or bucket
 // (.github/workflows/preview.yml creates them). Its secrets are preview values, set once.
 const previewEnv = {
@@ -36,10 +48,10 @@ const productionEnv = {
 
 export default defineConfig(({ isPreview, mode }) => {
   const base = isPreview ? previewEnv : productionEnv;
-  // One shape in every mode keeps the generated Env stable. It types the Stripe keys as strings
-  // though a production Worker may lack them; only BillingConfig's optional fields read them.
-  const env: typeof base & Partial<typeof stripeSecrets> =
-    mode === "production" ? base : { ...base, ...stripeSecrets };
+  // One shape in every mode keeps the generated Env stable. It types the optional keys as strings
+  // though a production Worker may lack them; only optional config fields read them.
+  const env: typeof base & Partial<typeof optionalSecrets> =
+    mode === "production" ? base : { ...base, ...optionalSecrets };
   return {
     worker: {
       compatibilityDate: "2026-04-12",

@@ -7,6 +7,7 @@ import { contract } from "@repo/contract";
 import { implement, ORPCError, os as builder } from "@orpc/server";
 
 import { API_KEY_SESSION_PREFIX, resolveApiKeySession } from "./auth/api-key";
+import { OAUTH_SESSION_PREFIX, resolveOAuthSession } from "./auth/oauth-token";
 
 /**
  * Minimal structural view of the R2 binding methods this package (and, through
@@ -111,15 +112,25 @@ export interface CreateORPCContextOptions {
   media?: MediaProviderConfig;
   decision?: DecisionProviderConfig;
   billing?: BillingConfig;
+  /**
+   * The protected resource this request is for (`oauth-resources.ts`): an
+   * OAuth access token is accepted only when it was issued for it. Unset, no
+   * OAuth token is accepted at all.
+   */
+  oauthResource?: string;
 }
 
 export const createORPCContext = async (opts: CreateORPCContextOptions) => {
   // Try a normal better-auth session first (cookie or session bearer token).
   // Fall back to a long-lived API key (`vg_…`) so CLI/HTTP clients can
-  // authenticate in CI; both resolve to the same `Session` shape.
+  // authenticate in CI, then to an OAuth access token a person granted an
+  // app for this resource; all three resolve to the same `Session` shape.
   const session =
     (await opts.auth.api.getSession({ headers: opts.headers })) ??
-    (await resolveApiKeySession(opts.auth, opts.db, opts.headers));
+    (await resolveApiKeySession(opts.auth, opts.db, opts.headers)) ??
+    (opts.oauthResource
+      ? await resolveOAuthSession(opts.auth, opts.db, opts.headers, opts.oauthResource)
+      : null);
 
   return {
     auth: opts.auth,
@@ -165,16 +176,19 @@ const sessionBase = builder.$context<SessionContext>();
 
 /**
  * Pairs with `sessionOnlyBase`; apply after `requireSession`. Rejects callers
- * authenticated with an API key — for surfaces an automation/CI credential must
- * not reach (managing API keys, admin actions). Keeps API keys scoped to their
- * intended use (deploy/generate) so a leaked key can't escalate. API-key
- * sessions are synthesized with a namespaced `apikey:` token (see
- * `resolveApiKeySession`); real better-auth tokens never collide with it.
+ * authenticated with an API key or an OAuth access token — for surfaces a
+ * delegated credential must not reach (managing API keys, admin actions).
+ * Keeps both scoped to their intended use (deploy/generate) so a leaked key
+ * or a connected app can't escalate. Their sessions are synthesized with a
+ * namespaced `apikey:` / `oauth:` token (see `resolveApiKeySession`,
+ * `resolveOAuthSession`); real better-auth tokens never collide with them.
  */
 export const rejectApiKey = sessionBase.middleware(({ context, next }) => {
-  if (context.session.session.token.startsWith(API_KEY_SESSION_PREFIX)) {
+  const { token } = context.session.session;
+  if (token.startsWith(API_KEY_SESSION_PREFIX) || token.startsWith(OAUTH_SESSION_PREFIX)) {
     throw new ORPCError("FORBIDDEN", {
-      message: "This action requires an interactive login, not an API key. Use the web app.",
+      message:
+        "This action requires an interactive login, not an API key or a connected app. Use the web app.",
     });
   }
   return next();

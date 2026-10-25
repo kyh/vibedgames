@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./auth/auth": "./src/auth/auth.ts",
+    "./auth/oauth-resources": "./src/auth/oauth-resources.ts",
     "./credits/stripe": "./src/credits/stripe.ts",
     "./storage/signed-urls": "./src/storage/signed-urls.ts",
     "./generate/limits": "./src/generate/limits.ts",
@@ -21,6 +22,8 @@
     "@better-auth/api-key": "1.7.2",
     "@better-auth/drizzle-adapter": "1.7.2",
     "@better-auth/expo": "1.7.2",
+    "@better-auth/mcp": "1.7.2",
+    "@better-auth/oauth-provider": "1.7.2",
     "@orpc/server": "catalog:",
     "@repo/contract": "workspace:^",
     "@repo/db": "workspace:^",

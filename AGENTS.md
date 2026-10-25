@@ -24,10 +24,10 @@ There is no bootstrap script; the five commands above _are_ the provisioning ste
 
 One file, two consumers. Everything lives in the repo-root `.env`; template is `.env.example`.
 
-| Consumer                                         | Reaches it via                                                  | Holds                                                                 |
-| ------------------------------------------------ | --------------------------------------------------------------- | --------------------------------------------------------------------- |
-| drizzle-kit, the cf CLI                          | `process.env`, loaded by each package's `with-env` (dotenv-cli) | `CLOUDFLARE_ACCOUNT_ID` / `_DATABASE_ID` / `_D1_TOKEN` / `_API_TOKEN` |
-| the dev Worker, via the Cloudflare `env` binding | `bindings.secret()` in `apps/web/cloudflare.config.ts`          | `BETTER_AUTH_SECRET`, `FAL_API_KEY`, `TYPESAFE_API_KEY`, `STRIPE_*`   |
+| Consumer                                         | Reaches it via                                                  | Holds                                                                                       |
+| ------------------------------------------------ | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| drizzle-kit, the cf CLI                          | `process.env`, loaded by each package's `with-env` (dotenv-cli) | `CLOUDFLARE_ACCOUNT_ID` / `_DATABASE_ID` / `_D1_TOKEN` / `_API_TOKEN`                       |
+| the dev Worker, via the Cloudflare `env` binding | `bindings.secret()` in `apps/web/cloudflare.config.ts`          | `BETTER_AUTH_SECRET`, `FAL_API_KEY`, `TYPESAFE_API_KEY`, `STRIPE_*`, `GITHUB_*`, `GOOGLE_*` |
 
 **The declared secrets are the whole mechanism.** Declaring a name with `bindings.secret()` makes the dev server fold `process.env` into the Worker binding and filter it down to exactly the declared names — so a secret that is in `.env` but not declared silently never reaches the Worker. Adding one means editing two places: `.env.example` and `cloudflare.config.ts` (the `Env` type is generated from it).
 

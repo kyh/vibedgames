@@ -15,8 +15,8 @@ import { MEDIA_MODELS } from "./mcp-tools";
 /**
  * Drives the real `/mcp` handler over Streamable HTTP. The context is built by
  * hand, as in `orpc-handler.test.ts`: nothing here reaches the database, since
- * the anonymous call stops at `requireSession` and `auth.me` answers from the
- * session alone.
+ * an anonymous request stops at the 401 challenge and `auth.me` answers from
+ * the session alone.
  */
 
 const unavailable = (): never => {
@@ -32,6 +32,8 @@ const db = createDb({
 });
 
 const auth = createAuth({ baseURL: "http://localhost:3000", db, secret: "test-secret" });
+// The OAuth plugin seeds its resource rows at init, which this database refuses.
+auth.$context.catch(() => null);
 
 type Session = NonNullable<ORPCContext["session"]>;
 
@@ -107,7 +109,7 @@ interface RpcOptions {
 const rpc = async (
   method: string,
   params: { [key: string]: JsonValue },
-  { headers = {}, session = null, seen = [] }: RpcOptions = {},
+  { headers = {}, session = signedIn, seen = [] }: RpcOptions = {},
 ) => {
   const request = new Request("https://vibedgames.com/mcp", {
     body: JSON.stringify({ id: (nextId += 1), jsonrpc: "2.0", method, params }),
@@ -305,28 +307,6 @@ describe("mcp endpoint", () => {
     ]);
   });
 
-  // The generate family reaches the API through `call()`, so it must still
-  // meet the procedure's own session check rather than skip it.
-  test("refuses an anonymous generate before anything is submitted", async () => {
-    const { body } = await rpc("tools/call", {
-      arguments: { endpoint_id: "fal-ai/flux/dev", input: { prompt: "a cat" } },
-      name: "generate",
-    });
-    const { result } = callResult.parse(body);
-    assert.strictEqual(result.isError, true);
-    assert.match(result.content[0]?.text ?? "", /UNAUTHORIZED/u);
-  });
-
-  test("refuses an anonymous media tool before anything is submitted", async () => {
-    const { body } = await rpc("tools/call", {
-      arguments: { prompt: "a cat" },
-      name: "generate_image",
-    });
-    const { result } = callResult.parse(body);
-    assert.strictEqual(result.isError, true);
-    assert.match(result.content[0]?.text ?? "", /UNAUTHORIZED/u);
-  });
-
   test("asks generate_3d for a prompt or an image", async () => {
     const { body } = await rpc("tools/call", { arguments: {}, name: "generate_3d" });
     const { result } = callResult.parse(body);
@@ -361,21 +341,30 @@ describe("mcp endpoint", () => {
     assert.doesNotMatch(text, /\bfal\b(?!-)/iu);
   });
 
-  test("refuses an anonymous tool call as a tool error the model can read", async () => {
-    const { body } = await rpc("tools/call", { arguments: {}, name: "deployments" });
-    const { result } = callResult.parse(body);
-    assert.strictEqual(result.isError, true);
-    const text = result.content[0]?.text ?? "";
-    assert.match(text, /UNAUTHORIZED/u);
-    assert.match(text, /Authorization: Bearer vg_/u);
+  // MCP authorization: a client with no credential learns from the 401 where
+  // to get one (RFC 9728), which is how a connector starts the OAuth flow.
+  test("answers an anonymous request with the protected-resource challenge", async () => {
+    const { body, response } = await rpc("tools/list", {}, { session: null });
+    assert.strictEqual(response.status, 401);
+    assert.strictEqual(
+      response.headers.get("www-authenticate"),
+      'Bearer resource_metadata="https://vibedgames.com/.well-known/oauth-protected-resource/mcp"',
+    );
+    assert.match(String(body.message), /OAuth/u);
+  });
+
+  test("marks a refused credential as an invalid token", async () => {
+    const { response } = await rpc(
+      "tools/call",
+      { arguments: {}, name: "deployments" },
+      { headers: { authorization: "Bearer not-a-token" }, session: null },
+    );
+    assert.strictEqual(response.status, 401);
+    assert.match(response.headers.get("www-authenticate") ?? "", /error="invalid_token"/u);
   });
 
   test("runs a signed-in call through the procedure", async () => {
-    const { body } = await rpc(
-      "tools/call",
-      { arguments: {}, name: "whoami" },
-      { session: signedIn },
-    );
+    const { body } = await rpc("tools/call", { arguments: {}, name: "whoami" });
     const { result } = callResult.parse(body);
     assert.notStrictEqual(result.isError, true);
     assert.deepStrictEqual(result.structuredContent, {

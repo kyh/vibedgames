@@ -3,7 +3,7 @@ import { MAX_RPC_BODY_BYTES } from "@repo/service/generate/limits";
 import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
 import { SmartCoercionHandlerPlugin } from "@orpc/json-schema";
 import { McpRegistrar } from "@orpc/mcp";
-import { onError, ORPCError } from "@orpc/server";
+import { onError } from "@orpc/server";
 import { ZodToJsonSchemaConverter } from "@orpc/zod";
 
 import { jsonError } from "@/lib/json-error";
@@ -14,7 +14,11 @@ import { isCrossOrigin, reportFaults } from "@/lib/orpc-handler";
 
 /**
  * `/mcp`: the tools in `mcp-tools.ts` over stateless Streamable HTTP,
- * authenticated by the same `vg_…` API key the CLI uses. A tool call runs
+ * authenticated by an OAuth access token issued for this resource (what
+ * claude.ai and other connector clients get from the consent flow) or the
+ * same `vg_…` API key the CLI uses. Without either, every request answers
+ * 401 with the RFC 9728 challenge that points a client at the
+ * authorization server. A tool call runs
  * through the same handler stack as `/api/orpc`, so its middleware,
  * validation and credit gate are the API's. The MCP meta lives in `apps/web`,
  * not `@repo/contract`, which the CLI bundles and `@orpc/mcp` would drag the
@@ -24,23 +28,30 @@ import { isCrossOrigin, reportFaults } from "@/lib/orpc-handler";
 const converters = [new ZodToJsonSchemaConverter()];
 
 const API_KEY_HINT =
-  "Send an API key as `Authorization: Bearer vg_…`; create one at vibedgames.com/settings.";
+  "Connect with OAuth, or send an API key as `Authorization: Bearer vg_…`; create one at vibedgames.com/settings.";
+
+/** Where RFC 9728 clients find this resource's metadata, and so its authorization server. */
+const resourceMetadataUrl = (request: Request) =>
+  `${new URL(request.url).origin}/.well-known/oauth-protected-resource/mcp`;
+
+/**
+ * The 401 an OAuth client starts from (MCP authorization, RFC 9728 §5.1):
+ * `invalid_token` when a credential was sent and refused, a bare challenge
+ * when there was none.
+ */
+const unauthorized = (request: Request): Response => {
+  const sent = request.headers.has("authorization");
+  const params = [
+    `resource_metadata="${resourceMetadataUrl(request)}"`,
+    ...(sent ? ['error="invalid_token"'] : []),
+  ];
+  const response = jsonError(401, "UNAUTHORIZED", API_KEY_HINT);
+  response.headers.set("www-authenticate", `Bearer ${params.join(", ")}`);
+  return response;
+};
 
 const registrar = new McpRegistrar(tools, {
-  clientInterceptors: [
-    onError(reportFaults),
-    // A bare "Unauthorized" leaves an agent nothing to act on.
-    async ({ next }) => {
-      try {
-        return await next();
-      } catch (error) {
-        if (error instanceof ORPCError && error.code === "UNAUTHORIZED") {
-          throw new ORPCError("UNAUTHORIZED", { cause: error, message: API_KEY_HINT });
-        }
-        throw error;
-      }
-    },
-  ],
+  clientInterceptors: [onError(reportFaults)],
   converters,
   plugins: [new SmartCoercionHandlerPlugin({ converters })],
 });
@@ -127,6 +138,10 @@ export const handleMcpRequest = async (
     return tooLarge();
   }
   const headers = withoutCookies(request.headers);
-  const handler = createVibedgamesMcpHandler({ ...(await createContext(headers)), skills });
+  const context = await createContext(headers);
+  if (!context.session) {
+    return unauthorized(request);
+  }
+  const handler = createVibedgamesMcpHandler({ ...context, skills });
   return handler.fetch(new Request(request.url, { body, headers, method: request.method }));
 };

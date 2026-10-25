@@ -45,6 +45,8 @@ const auth = createAuth({
   db,
   secret: "test-secret",
 });
+// The OAuth plugin seeds its resource rows at init, which this database refuses.
+auth.$context.catch(() => null);
 
 const contextFor = (request: Request): ORPCContext => ({
   auth,
