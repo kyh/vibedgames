@@ -163,11 +163,18 @@ const captureVideo = async (browser: Browser) => {
   try {
     const page = await context.newPage();
     await page.goto(pathToFileURL(SCENE).href, { waitUntil: "load" });
-    await page.waitForFunction(
-      "typeof window.__setMark === 'function' && document.fonts.status === 'loaded'",
-      undefined,
-      { polling: 100, timeout: 30_000 },
+    await page.waitForFunction("typeof window.__setMark === 'function'", undefined, {
+      polling: 100,
+      timeout: 30_000,
+    });
+    // No text exists yet, so nothing has requested VG5000: load it by name, or the
+    // first frames bake in the fallback face.
+    const fontLoaded = await page.evaluate(
+      "document.fonts.load('16px VG5000').then((faces) => faces.length > 0)",
     );
+    if (fontLoaded !== true) {
+      throw new Error("og-video: VG5000 did not load");
+    }
     await page.evaluate(`window.__setMark(${JSON.stringify(markPoints())})`);
     const duration = Number(await page.evaluate("window.__duration"));
     const frameCount = Math.round((duration / 1000) * FPS);
