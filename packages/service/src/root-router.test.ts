@@ -39,8 +39,6 @@ const db = createDb({
 });
 
 const auth = createAuth({ baseURL: "http://localhost:3000", db, secret: "test-secret" });
-// The OAuth plugin seeds its resource rows at init, which this database refuses.
-auth.$context.catch(() => null);
 
 const now = new Date();
 

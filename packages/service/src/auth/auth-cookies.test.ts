@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { createDb } from "@repo/db/drizzle-client";
-import { getCookies } from "better-auth/cookies";
 
 import { createAuth } from "./auth";
 
@@ -18,11 +17,9 @@ import { createAuth } from "./auth";
  *     `{slug}.vibedgames.com`; a cookie scoped to the parent domain would be
  *     handed to every one of them.
  *
- * Read the *resolved* attributes rather than the config literal:
- * `crossSubDomainCookies` or a better-auth default decides these too, and
- * asserting the literal against itself would prove nothing. `getCookies` is
- * the resolver the auth context itself runs; resolving the whole context
- * would also run the OAuth plugin's resource seed against the database.
+ * Read the *resolved* attributes rather than the config literal: a plugin,
+ * `crossSubDomainCookies`, or a better-auth default decides these too, and
+ * asserting the literal against itself would prove nothing.
  */
 
 const unavailable = (): never => {
@@ -40,12 +37,10 @@ const auth = createAuth({
   }),
   secret: "test-secret",
 });
-// The OAuth plugin seeds its resource rows at init, which this database refuses.
-auth.$context.catch(() => null);
 
 describe("session cookie", () => {
-  test("is SameSite Lax or Strict, never None", () => {
-    const authCookies = getCookies(auth.options);
+  test("is SameSite Lax or Strict, never None", async () => {
+    const { authCookies } = await auth.$context;
     const sameSite = String(authCookies.sessionToken.attributes.sameSite).toLowerCase();
 
     assert.ok(
@@ -54,8 +49,8 @@ describe("session cookie", () => {
     );
   });
 
-  test("is host-only, so untrusted game subdomains never receive it", () => {
-    const authCookies = getCookies(auth.options);
+  test("is host-only, so untrusted game subdomains never receive it", async () => {
+    const { authCookies } = await auth.$context;
 
     assert.strictEqual(authCookies.sessionToken.attributes.domain, undefined);
   });

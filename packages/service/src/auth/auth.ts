@@ -114,18 +114,20 @@ export const createAuth = (opts: AuthOptions) => {
       // or the API (`oauth-resources.ts`). Clients register themselves (RFC
       // 7591), as today's MCP connectors expect; PKCE is required for them.
       nativeLoopbackClients(),
-      mcp({
-        allowDynamicClientRegistration: true,
-        allowUnauthenticatedClientRegistration: true,
-        // Both resources come from this config, so a per-request D1 read of their rows buys nothing.
-        cachedResources: new Set([resources.mcp, resources.api]),
-        clientRegistrationAllowedResources: [resources.mcp, resources.api],
-        clientRegistrationDefaultResources: [resources.mcp, resources.api],
-        consentPage: "/oauth/consent",
-        loginPage: "/auth/login",
-        resource: resources.mcp,
-        resources: [{ identifier: resources.api, name: "vibedgames API" }],
-      }),
+      seedFailureContained(
+        mcp({
+          allowDynamicClientRegistration: true,
+          allowUnauthenticatedClientRegistration: true,
+          // Both resources come from this config, so a per-request D1 read of their rows buys nothing.
+          cachedResources: new Set([resources.mcp, resources.api]),
+          clientRegistrationAllowedResources: [resources.mcp, resources.api],
+          clientRegistrationDefaultResources: [resources.mcp, resources.api],
+          consentPage: "/oauth/consent",
+          loginPage: "/auth/login",
+          resource: resources.mcp,
+          resources: [{ identifier: resources.api, name: "vibedgames API" }],
+        }),
+      ),
     ],
     // Persist rate-limit counters in D1. The default in-memory store keeps
     // per-isolate counters, so on Cloudflare Workers the effective limit
@@ -216,6 +218,35 @@ const nativeLoopbackClients = () =>
       };
     },
   }) satisfies BetterAuthPlugin;
+
+/**
+ * The OAuth provider seeds its `oauth_resource` rows when auth starts, and a
+ * failed seed fails the whole auth context: every sign-in, session read and
+ * API key with it. A database not yet carrying the OAuth tables (a deploy
+ * ahead of its `db:push-remote`, a preview pushed from another branch) must
+ * cost OAuth alone, so the failure is logged and auth starts without the
+ * provider's init. The seed runs again on the first OAuth request, which
+ * fails on its own until the tables exist.
+ */
+const seedFailureContained = <P extends BetterAuthPlugin>(plugin: P): P => {
+  const { init } = plugin;
+  if (!init) {
+    return plugin;
+  }
+  return {
+    ...plugin,
+    init: async (ctx) => {
+      try {
+        return await init(ctx);
+      } catch (error) {
+        ctx.logger.error(
+          "OAuth provider init failed; OAuth is unavailable until it succeeds",
+          error,
+        );
+      }
+    },
+  };
+};
 
 export type Auth = ReturnType<typeof createAuth>;
 export type Session = Auth["$Infer"]["Session"];
