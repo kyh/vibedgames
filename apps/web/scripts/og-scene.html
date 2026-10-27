@@ -1,0 +1,787 @@
+<!doctype html>
+<!--
+  The og:video scene: one continuous wireframe shot. A single hero (a little
+  square with eyes, the one accent colour) travels through five kinds of game,
+  and each game re-forms into the next instead of cutting:
+
+    the Vibedgames icon folds into the hero, who lands on a platformer floor
+    and hops up three ledges · the tiles slide into a bomberman grid as the
+    hero drops in top-down, sets a bomb and runs · the grid's walls stretch
+    into a paddle court and the hero shrinks into the ball · the court tilts
+    back into a 3D arena and the hero becomes a cube running through it · the
+    camera pitches back to top-down, the floor narrows into a falling-block
+    well and the hero drops in as the last block · everything collapses into
+    the icon, with its tagline under it, held, and the first frame is the last.
+
+  Every game is one list of boxes in a shared plane (x across, z down the
+  screen when seen from above), so a transition is geometry, not a crossfade:
+  each box is paired with its nearest box in the next game and its position,
+  size and corner radius are interpolated; boxes with nowhere to go merge, and
+  new ones split off their nearest neighbour. The 3D arena is the same plane
+  seen through a perspective camera, and `k` eases the projection between the
+  two, so the court really tilts.
+
+  Never served: scripts/og-video.ts opens it from disk, hands it the icon's
+  polygon from public/favicon/favicon.svg (`__setMark`), then calls
+  `__render(ms)` once per frame; every value below is a pure function of `t`.
+  Colours are the web app's @repo/ui dark tokens, the backdrop its
+  public/bg.webp, the lettering its VG5000 (src/styles/vg5000.woff2).
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Vibedgames trailer scene</title>
+    <style>
+      @font-face {
+        font-family: "VG5000";
+        src: url("../src/styles/vg5000.woff2") format("woff2");
+      }
+      * {
+        margin: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        width: 1200px;
+        height: 630px;
+        overflow: hidden;
+      }
+      body {
+        /* --background, with the site's own dot texture over it. */
+        background: #09090b url(../public/bg.webp);
+        background-size: 10px;
+      }
+      canvas {
+        display: block;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="c"></canvas>
+    <script>
+      const W = 1200;
+      const H = 630;
+      const canvas = document.getElementById("c");
+      const DPR = window.devicePixelRatio || 1;
+      canvas.width = W * DPR;
+      canvas.height = H * DPR;
+      canvas.style.width = `${W}px`;
+      canvas.style.height = `${H}px`;
+      const ctx = canvas.getContext("2d");
+
+      // --foreground, --muted-foreground, --success (the one accent: the hero).
+      const INK = [250, 250, 250];
+      const DIM = [113, 113, 122];
+      const ACCENT = [5, 223, 114];
+      const LINE = 3;
+      const TAGLINE = "A game studio for your agent.";
+      const DURATION = 10000;
+
+      // ---- maths ------------------------------------------------------------
+      const clamp = (v, lo = 0, hi = 1) => Math.min(hi, Math.max(lo, v));
+      const prog = (t, a, d) => clamp((t - a) / d);
+      const lerp = (a, b, p) => a + (b - a) * p;
+      const spring = (p) => (p <= 0 ? 0 : p >= 1 ? 1 : 1 - Math.exp(-6 * p) * Math.cos(9 * p));
+      const soft = (p) => (p <= 0 ? 0 : p >= 1 ? 1 : 1 - Math.exp(-7 * p) * Math.cos(5 * p));
+      const easeOut = (p) => 1 - (1 - p) ** 3;
+      const easeIn = (p) => p ** 3;
+      const easeInOut = (p) => (p < 0.5 ? 4 * p ** 3 : 1 - (-2 * p + 2) ** 3 / 2);
+      const rgb = (c, a = 1) => `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${a})`;
+      const mixColor = (a, b, p) => [lerp(a[0], b[0], p), lerp(a[1], b[1], p), lerp(a[2], b[2], p)];
+
+      // ---- the camera -------------------------------------------------------
+      // k = 0: the plane seen from straight above (screen = 600 + x, 315 + z).
+      // k = 1: a perspective camera behind and above it, looking down -z.
+      const F = 620;
+      const CAM_Z = 820;
+      const CAM_Y = 360;
+      const HORIZON = 150;
+      const depth = (z) => Math.max(60, CAM_Z - z);
+      const proj = (x, y, z, k) => {
+        const d = depth(z);
+        return [
+          lerp(600 + x, 600 + (x * F) / d, k),
+          lerp(315 + z, HORIZON + ((CAM_Y - y) * F) / d, k),
+        ];
+      };
+      const scaleAt = (z, k) => lerp(1, F / depth(z), k);
+
+      // ---- drawing kit ------------------------------------------------------
+      const roundedPoly = (pts, r) => {
+        const n = pts.length;
+        ctx.beginPath();
+        const mid = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+        const start = mid(pts[n - 1], pts[0]);
+        ctx.moveTo(start[0], start[1]);
+        for (let i = 0; i < n; i += 1) {
+          const p = pts[i];
+          const q = pts[(i + 1) % n];
+          const prev = pts[(i + n - 1) % n];
+          const edge = Math.min(
+            Math.hypot(q[0] - p[0], q[1] - p[1]),
+            Math.hypot(p[0] - prev[0], p[1] - prev[1]),
+          );
+          ctx.arcTo(p[0], p[1], q[0], q[1], Math.max(0, Math.min(r, edge / 2 - 0.01)));
+        }
+        ctx.closePath();
+      };
+
+      /**
+       * One box: a footprint on the plane (x, z, w, d), lifted `y` and `h` tall.
+       * From above it is a rounded rectangle; in perspective, a wireframe block.
+       */
+      const drawBox = (b, k, color, fillAlpha = 0) => {
+        if (b.a <= 0.002 || b.w <= 0.5 || b.d <= 0.5) return;
+        const y0 = b.y || 0;
+        const y1 = y0 + (b.h || 0);
+        const x0 = b.x - b.w / 2;
+        const x1 = b.x + b.w / 2;
+        const z0 = b.z - b.d / 2;
+        const z1 = b.z + b.d / 2;
+        if (k > 0 && depth(z1) < 140) return;
+        const sc = scaleAt(b.z, k);
+        const fade = lerp(1, clamp(1.5 - depth(b.z) / 2200), k);
+        const alpha = b.a * fade;
+        if (alpha <= 0.002) return;
+        const top = [
+          proj(x0, y1, z0, k),
+          proj(x1, y1, z0, k),
+          proj(x1, y1, z1, k),
+          proj(x0, y1, z1, k),
+        ];
+        ctx.lineWidth = (b.lw || LINE) * clamp(sc, 0.45, 1.6);
+        ctx.strokeStyle = rgb(color, alpha);
+        // Corners round from above and square up in perspective, where a
+        // rounded quad would no longer meet the block's vertical edges.
+        const radius = (b.r || 0) * sc * (1 - k);
+        roundedPoly(top, radius);
+        if (fillAlpha > 0) {
+          ctx.fillStyle = rgb(color, alpha * fillAlpha);
+          ctx.fill();
+        }
+        ctx.stroke();
+        if (b.cross > 0.01) {
+          ctx.strokeStyle = rgb(color, alpha * b.cross);
+          const inset = (b.r || 0) * 0.45 * sc;
+          ctx.beginPath();
+          ctx.moveTo(top[0][0] + inset, top[0][1] + inset);
+          ctx.lineTo(top[2][0] - inset, top[2][1] - inset);
+          ctx.stroke();
+        }
+        if (b.h > 0 && k > 0.01) {
+          const bottom = [
+            proj(x0, y0, z0, k),
+            proj(x1, y0, z0, k),
+            proj(x1, y0, z1, k),
+            proj(x0, y0, z1, k),
+          ];
+          ctx.strokeStyle = rgb(color, alpha * clamp(k * 1.6));
+          roundedPoly(bottom, radius);
+          ctx.stroke();
+          ctx.beginPath();
+          for (let i = 0; i < 4; i += 1) {
+            ctx.moveTo(bottom[i][0], bottom[i][1]);
+            ctx.lineTo(top[i][0], top[i][1]);
+          }
+          ctx.stroke();
+        }
+      };
+
+      const box = (x, z, w, d, extra = {}) => ({
+        a: 1,
+        c: 0,
+        cross: 0,
+        d,
+        h: 0,
+        r: 8,
+        w,
+        x,
+        y: 0,
+        z,
+        ...extra,
+      });
+      const FIELDS = ["x", "z", "w", "d", "h", "y", "r", "a", "c", "cross", "lw"];
+      const mixBox = (a, b, p) => {
+        const out = {};
+        for (const f of FIELDS)
+          out[f] = lerp(a[f] ?? (f === "lw" ? LINE : 0), b[f] ?? (f === "lw" ? LINE : 0), p);
+        return out;
+      };
+
+      // ---- the games ----------------------------------------------------------
+      // Each takes ms into its own beat and returns its boxes, the hero, the
+      // camera `k`, and an optional overlay drawn above the boxes.
+
+      const HERO = 52;
+      const heroBox = (x, z, s, extra = {}) => ({
+        a: 1,
+        d: s,
+        h: 0,
+        look: 0,
+        morph: 0,
+        r: s * 0.2,
+        w: s,
+        x,
+        y: 0,
+        z,
+        ...extra,
+      });
+
+      // The icon, end card and loop point: the hero folded into the logo.
+      const ICON_W = 236;
+      const ICON_X = 0;
+      const ICON_Z = -62;
+      const logo = () => ({ hero: heroBox(ICON_X, ICON_Z, HERO, { morph: 1 }), items: [], k: 0 });
+
+      // Platformer, seen from the side: floor, three ledges, coins on the arcs.
+      const FLOOR_Z = 246;
+      const PLAT_LEDGES = [
+        [-240, 120],
+        [60, 0],
+        [330, -120],
+      ];
+      const PLAT_JUMPS = [
+        // from x, from z, to x, to z, start, duration
+        [-430, FLOOR_Z - 54, -180, 120 - 54, 120, 420],
+        [-180, 120 - 54, 120, -54, 640, 420],
+        [120, -54, 390, -120 - 54, 1160, 420],
+      ];
+      const ARC = 112;
+      const arcAt = (j, p) => [
+        lerp(j[0], j[2], p),
+        lerp(j[1], j[3], p) - Math.sin(Math.PI * p) * ARC,
+      ];
+      const platformer = (t) => {
+        const items = [];
+        for (let i = 0; i < 18; i += 1) items.push(box(-510 + i * 60, FLOOR_Z, 48, 48, { c: 1 }));
+        for (const [lx, lz] of PLAT_LEDGES) {
+          for (let i = -1; i <= 1; i += 1) items.push(box(lx + i * 60, lz, 48, 48));
+        }
+        for (const j of PLAT_JUMPS) {
+          for (const p of [0.33, 0.66]) {
+            const [cx, cz] = arcAt(j, p);
+            const got = prog(t, j[4] + j[5] * p, 180);
+            const s = 24 * (1 - easeIn(got));
+            items.push(box(cx, cz - 40 - got * 30, s, s, { a: 1 - got, r: s / 2 }));
+          }
+        }
+        let [x, z] = [PLAT_JUMPS[0][0], PLAT_JUMPS[0][1]];
+        let squash = 0;
+        let look = 1;
+        for (const j of PLAT_JUMPS) {
+          if (t >= j[4]) {
+            const p = prog(t, j[4], j[5]);
+            [x, z] = arcAt(j, easeInOut(p) * 0.15 + p * 0.85);
+            const landed = t - (j[4] + j[5]);
+            squash =
+              landed > 0
+                ? Math.exp(-landed / 70) * Math.sin(landed / 30) * 0.9
+                : -0.25 * Math.sin(Math.PI * p);
+          }
+        }
+        const s = HERO;
+        const hero = heroBox(x, z + (squash * s) / 6, s, {
+          d: s * (1 - squash / 3),
+          look,
+          w: s * (1 + squash / 4),
+        });
+        return { hero, items, k: 0 };
+      };
+
+      // Bomberman, from above: walls, pillars, crates, a bomb and its blast.
+      const COLS = 13;
+      const ROWS = 7;
+      const CELL = 60;
+      const cellX = (c) => -360 + c * CELL;
+      const cellZ = (r) => -180 + r * CELL;
+      const CRATES = [
+        [3, 1],
+        [5, 1],
+        [1, 3],
+        [3, 3],
+        [7, 3],
+        [2, 5],
+        [5, 5],
+        [8, 5],
+        [11, 3],
+        [11, 5],
+        [7, 1],
+      ];
+      const BOMB = [11, 1];
+      const REACH = 2;
+      const BLAST_AT = 760;
+      const inBlast = (c, r) =>
+        (r === BOMB[1] && Math.abs(c - BOMB[0]) <= REACH) ||
+        (c === BOMB[0] && Math.abs(r - BOMB[1]) <= REACH);
+      const BOMBER_PATH = [
+        [11, 1, 0],
+        [11, 1, 140],
+        [9, 1, 440],
+        [9, 3, 700],
+      ];
+      const pathAt = (path, t) => {
+        for (let i = 1; i < path.length; i += 1) {
+          const [c0, r0, t0] = path[i - 1];
+          const [c1, r1, t1] = path[i];
+          if (t <= t1) {
+            const p = easeInOut(prog(t, t0, t1 - t0));
+            return [lerp(c0, c1, p), lerp(r0, r1, p), c1 - c0];
+          }
+        }
+        const last = path[path.length - 1];
+        return [last[0], last[1], 0];
+      };
+      const bomberman = (t) => {
+        const items = [];
+        const blast = prog(t, BLAST_AT, 160);
+        for (let r = 0; r < ROWS; r += 1) {
+          for (let c = 0; c < COLS; c += 1) {
+            const edge = r === 0 || c === 0 || r === ROWS - 1 || c === COLS - 1;
+            if (edge || (r % 2 === 0 && c % 2 === 0))
+              items.push(box(cellX(c), cellZ(r), 48, 48, { c: 1 }));
+          }
+        }
+        for (const [c, r] of CRATES) {
+          const gone = inBlast(c, r) ? easeIn(blast) : 0;
+          const s = 36 * (1 - gone);
+          items.push(box(cellX(c), cellZ(r), s, s, { a: 1 - gone, cross: 1, r: 5 }));
+        }
+        const [hc, hr, dir] = pathAt(BOMBER_PATH, t);
+        const walking = t > 140 && t < 700;
+        const bob = walking ? Math.abs(Math.sin(t / 55)) * 0.06 : 0;
+        const hero = heroBox(cellX(hc), cellZ(hr), 40 * (1 + bob), { look: Math.sign(dir) || -1 });
+        const overlay = () => {
+          const bx = 600 + cellX(BOMB[0]);
+          const by = 315 + cellZ(BOMB[1]);
+          if (t > 80 && blast < 1) {
+            const pulse = 1 + Math.sin(t / 40) * 0.1 * prog(t, 300, 300);
+            const s = spring(prog(t, 80, 260)) * pulse;
+            ctx.strokeStyle = rgb(INK);
+            ctx.lineWidth = LINE;
+            ctx.beginPath();
+            ctx.arc(bx, by + 3, 15 * s, 0, Math.PI * 2);
+            ctx.moveTo(bx + 9 * s, by - 8 * s);
+            ctx.lineTo(bx + 16 * s, by - 17 * s);
+            ctx.stroke();
+          }
+          const fade = prog(t, BLAST_AT + 200, 260);
+          if (blast > 0 && fade < 1) {
+            const len = easeOut(blast) * REACH * CELL + 22;
+            ctx.fillStyle = rgb(INK, 0.92 * (1 - fade));
+            ctx.beginPath();
+            ctx.roundRect(bx - len, by - 15, len * 2, 30, 15);
+            ctx.roundRect(bx - 15, by - 15, 30, len + 15, 15);
+            ctx.fill();
+          }
+        };
+        return { hero, items, k: 0, overlay };
+      };
+
+      // Pong, from above: two court lines, a dashed net, two paddles; the hero
+      // is the ball.
+      const COURT = 205;
+      const PADDLE_X = 410;
+      const BALL = 30;
+      const LEG = 470;
+      const ballAt = (t) => {
+        const leg = Math.floor(t / LEG);
+        const p = t / LEG - leg;
+        const left = -PADDLE_X + 9 + BALL / 2;
+        const right = PADDLE_X - 9 - BALL / 2;
+        const x = leg % 2 === 0 ? lerp(left, right, p) : lerp(right, left, p);
+        const span = 2 * (COURT - BALL / 2 - 4);
+        const raw = (((t * 0.62 + span * 0.62) % (span * 2)) + span * 2) % (span * 2);
+        const z = -span / 2 + (raw < span ? raw : span * 2 - raw);
+        return [x, z, leg % 2 === 0 ? 1 : -1];
+      };
+      const pong = (t) => {
+        const items = [
+          box(0, -COURT, 900, 4, { c: 1, r: 2 }),
+          box(0, COURT, 900, 4, { c: 1, r: 2 }),
+        ];
+        for (let i = -3; i <= 3; i += 1) items.push(box(0, i * 56, 4, 28, { c: 1, r: 2 }));
+        const [bx, bz, dir] = ballAt(t);
+        const track = (side) =>
+          clamp(bz * 0.85 + Math.sin(t / 210 + side) * 18, -COURT + 64, COURT - 64);
+        items.push(box(-PADDLE_X, track(0), 18, 110, { r: 9 }));
+        items.push(box(PADDLE_X, track(2), 18, 110, { r: 9 }));
+        const hero = heroBox(bx, bz, BALL, { look: dir });
+        const overlay = () => {
+          for (let i = 1; i <= 4; i += 1) {
+            const [tx, tz] = ballAt(Math.max(0, t - i * 28));
+            ctx.fillStyle = rgb(ACCENT, 0.16 - i * 0.03);
+            ctx.beginPath();
+            ctx.roundRect(600 + tx - BALL / 2, 315 + tz - BALL / 2, BALL, BALL, 6);
+            ctx.fill();
+          }
+        };
+        return { hero, items, k: 0, overlay };
+      };
+
+      // The 3D arena: the plane in perspective, a floor grid streaming past,
+      // towers to run between, the hero a cube hopping forward.
+      const GRID = 150;
+      const SPEED = 0.55;
+      const TOWERS = [
+        [-330, -260, 150],
+        [330, -470, 110],
+        [-560, -780, 190],
+        [120, -1080, 130],
+        [520, -1300, 170],
+      ];
+      const ARENA_HERO_Z = 150;
+      const arena = (t) => {
+        const items = [];
+        for (let i = -6; i <= 6; i += 1)
+          items.push(box(i * GRID, -1000, 3, 2700, { c: 1, r: 0, lw: 2 }));
+        const scroll = (t * SPEED) % GRID;
+        for (let j = 0; j < 18; j += 1)
+          items.push(box(0, 330 - j * GRID + scroll, 1800, 3, { c: 1, r: 0, lw: 2 }));
+        for (const [x, z, h] of TOWERS) items.push(box(x, z + t * SPEED, 90, 90, { h, r: 6 }));
+        const hop = Math.abs(Math.sin((t / 300) * Math.PI));
+        const sway = Math.sin(t / 420) * 70;
+        const hero = heroBox(sway, ARENA_HERO_Z, 70, {
+          h: 70,
+          look: Math.cos(t / 420),
+          y: hop * 46,
+        });
+        return { hero, items, k: 1 };
+      };
+
+      // The falling-block well, from above: walls, a stack with one gap, and
+      // the hero dropping in as the last block.
+      const BLOCK = 40;
+      const WELL_COLS = 10;
+      const WELL_ROWS = 13;
+      const blockX = (c) => -180 + c * BLOCK;
+      const blockZ = (r) => -240 + r * BLOCK;
+      const STACK = [];
+      for (let c = 0; c < WELL_COLS; c += 1) if (c !== 4) STACK.push([c, 12]);
+      for (const c of [0, 1, 2, 6, 7, 8, 9]) STACK.push([c, 11]);
+      for (const c of [0, 1, 7, 8, 9]) STACK.push([c, 10]);
+      for (const c of [0, 9]) STACK.push([c, 9]);
+      const WELL_FALL = 360;
+      const tetris = (t) => {
+        const items = [
+          box(-205, 22, 4, 532, { c: 1, r: 2 }),
+          box(205, 22, 4, 532, { c: 1, r: 2 }),
+          box(0, 288, 414, 4, { c: 1, r: 2 }),
+        ];
+        const landed = prog(t, WELL_FALL, 1);
+        const flash = landed > 0 ? Math.exp(-(t - WELL_FALL) / 160) : 0;
+        for (const [c, r] of STACK) {
+          const lit = r === 12 ? flash : 0;
+          items.push(box(blockX(c), blockZ(r), 32, 32, { c: 0, lw: LINE + lit * 2, r: 6 }));
+        }
+        const fall = easeIn(prog(t, 0, WELL_FALL));
+        const z = lerp(blockZ(1), blockZ(12), fall);
+        const settle =
+          t > WELL_FALL
+            ? Math.exp(-(t - WELL_FALL) / 60) * Math.sin((t - WELL_FALL) / 25) * 0.25
+            : 0;
+        const hero = heroBox(blockX(4), z, 32 * (1 + settle), { h: 32, look: 0 });
+        return { hero, items, k: 0 };
+      };
+
+      // ---- matching: which box becomes which ----------------------------------
+      const cost = (a, b) =>
+        Math.hypot(a.x - b.x, a.z - b.z) + 0.35 * (Math.abs(a.w - b.w) + Math.abs(a.d - b.d));
+      /**
+       * Pairs every box of `from` with one of `to`: nearest first, then merges
+       * and splits. A box with nothing within `reach` shrinks away, or grows,
+       * where it stands instead of flying across the frame.
+       */
+      const pairUp = (from, to, point, reach = Infinity) => {
+        const inPlace = (b) => ({ ...b, a: 0, d: 0, h: 0, w: 0 });
+        const dot = (b) => ({ ...b, a: 0, d: 0, h: 0, w: 0, x: point[0], z: point[1] });
+        // A game drawn from nothing grows each box where it stands.
+        if (from.length === 0) return to.map((b) => [inPlace(b), b]);
+        if (to.length === 0) return from.map((b) => [b, dot(b)]);
+        const all = [];
+        for (let i = 0; i < from.length; i += 1) {
+          for (let j = 0; j < to.length; j += 1) all.push([cost(from[i], to[j]), i, j]);
+        }
+        all.sort((p, q) => p[0] - q[0]);
+        const usedFrom = new Set();
+        const usedTo = new Set();
+        const pairs = [];
+        for (const [c, i, j] of all) {
+          if (c > reach) break;
+          if (usedFrom.has(i) || usedTo.has(j)) continue;
+          usedFrom.add(i);
+          usedTo.add(j);
+          pairs.push([from[i], to[j]]);
+        }
+        const nearest = (b, list) =>
+          list.reduce((best, c) => (cost(b, c) < cost(b, best) ? c : best));
+        const near = (b, list) => {
+          const c = nearest(b, list);
+          return cost(b, c) <= reach ? c : null;
+        };
+        from.forEach((b, i) => usedFrom.has(i) || pairs.push([b, near(b, to) ?? inPlace(b)]));
+        to.forEach((b, j) => usedTo.has(j) || pairs.push([near(b, from) ?? inPlace(b), b]));
+        return pairs;
+      };
+
+      // ---- the timeline (ms) --------------------------------------------------
+      // Steady beats play a game; morphs carry the last frame of one into the
+      // first frame of the next. `kCurve` shapes the camera's tilt in a morph.
+      const BEATS = [
+        { at: 0, dur: 300, game: logo },
+        { at: 300, dur: 700, morph: true, sweep: 0.45 },
+        { at: 1000, dur: 1640, game: platformer },
+        { at: 2640, dur: 620, morph: true, sweep: 0.35 },
+        { at: 3260, dur: 1100, game: bomberman },
+        { at: 4360, dur: 560, morph: true, sweep: 0.25 },
+        { at: 4920, dur: 940, game: pong },
+        { at: 5860, dur: 700, geo: [0.3, 1], morph: true, reach: 360, sweep: 0.3, tilt: [0, 0.55] },
+        { at: 6560, dur: 820, game: arena },
+        {
+          at: 7380,
+          dur: 640,
+          geo: [0, 0.6],
+          hop: 90,
+          morph: true,
+          reach: 360,
+          sweep: 0.3,
+          tilt: [0.35, 1],
+        },
+        { at: 8020, dur: 420, game: tetris },
+        { at: 8440, dur: 460, morph: true, sweep: 0, collapse: true },
+        { at: 8900, dur: 1100, game: logo },
+      ];
+      for (let i = 0; i < BEATS.length; i += 1) {
+        const beat = BEATS[i];
+        if (!beat.morph) continue;
+        const before = BEATS[i - 1];
+        const after = BEATS[i + 1];
+        beat.from = before.game(before.dur);
+        beat.to = after.game(0);
+        const target = beat.collapse ? [ICON_X, ICON_Z] : [beat.to.hero.x, beat.to.hero.z];
+        beat.pairs = pairUp(
+          beat.from.items,
+          beat.to.items,
+          beat.from.items.length ? target : [beat.from.hero.x, beat.from.hero.z],
+          beat.reach,
+        );
+        const xs = beat.pairs.map(([, b]) => b.x);
+        const lo = Math.min(...xs);
+        const hi = Math.max(...xs);
+        beat.ranks = beat.pairs.map(([, b]) => (hi > lo ? (b.x - lo) / (hi - lo) : 0));
+      }
+
+      const morphFrame = (beat, t) => {
+        const p = clamp(t / beat.dur);
+        const [k0, k1] = beat.tilt || [0, 1];
+        const kp = easeInOut(prog(p, k0, k1 - k0));
+        const k = lerp(beat.from.k, beat.to.k, kp);
+        const [g0, g1] = beat.geo || [0, 1];
+        const gp = prog(p, g0, g1 - g0);
+        const items = beat.pairs.map(([a, b], i) => {
+          if (beat.collapse) return mixBox(a, b, easeInOut(clamp(p / 0.7)));
+          const local = clamp((gp - beat.sweep * beat.ranks[i]) / (1 - beat.sweep));
+          return mixBox(a, b, spring(local));
+        });
+        const ha = beat.from.hero;
+        const hb = beat.to.hero;
+        // Into and out of the icon, one motion at a time: the icon folds into the
+        // hero where it stands, then the hero hops away (and the reverse).
+        const intro = !beat.from.items.length;
+        const hp = beat.collapse
+          ? soft(prog(p, 0, 0.55))
+          : intro
+            ? soft(prog(p, 0.38, 0.62))
+            : spring(prog(p, 0.05, 0.8));
+        const hero = {};
+        for (const f of ["x", "z", "w", "d", "h", "y", "r", "look", "morph"])
+          hero[f] = lerp(ha[f] || 0, hb[f] || 0, hp);
+        const mp = beat.collapse ? prog(p, 0.38, 0.62) : intro ? prog(p, 0, 0.5) : 0;
+        hero.morph = lerp(ha.morph, hb.morph, easeInOut(mp));
+        hero.a = 1;
+        // A hop between games: up and toward the camera, then down into the next.
+        const arc = intro ? Math.sin(Math.PI * clamp(hp)) : Math.sin(Math.PI * clamp(p / 0.85));
+        hero.y += (beat.hop || 0) * arc;
+        if (intro) hero.z -= 90 * arc;
+        if (!beat.from.items.length || beat.collapse || beat.from.k !== beat.to.k)
+          return { hero, items, k };
+        const grow = 1 + 0.28 * arc;
+        hero.w *= grow;
+        hero.d *= grow;
+        return { hero, items, k };
+      };
+
+      // ---- the hero -----------------------------------------------------------
+      let MARK = null;
+      const resample = (pts, n) => {
+        const segs = pts.map((p, i) => {
+          const q = pts[(i + 1) % pts.length];
+          return [p, q, Math.hypot(q[0] - p[0], q[1] - p[1])];
+        });
+        const total = segs.reduce((s, [, , l]) => s + l, 0);
+        const out = [];
+        let seg = 0;
+        let walked = 0;
+        for (let i = 0; i < n; i += 1) {
+          const target = (i / n) * total;
+          while (walked + segs[seg][2] < target) {
+            walked += segs[seg][2];
+            seg += 1;
+          }
+          const [p, q, l] = segs[seg];
+          const u = l > 0 ? (target - walked) / l : 0;
+          out.push([lerp(p[0], q[0], u), lerp(p[1], q[1], u)]);
+        }
+        return out;
+      };
+      const SAMPLES = 120;
+      let markUnit = null;
+      window.__setMark = (points) => {
+        const xs = points.map(([x]) => x);
+        const ys = points.map(([, y]) => y);
+        const minX = Math.min(...xs);
+        const maxX = Math.max(...xs);
+        const minY = Math.min(...ys);
+        const maxY = Math.max(...ys);
+        const cx = (minX + maxX) / 2;
+        const cy = (minY + maxY) / 2;
+        MARK = points;
+        // Unit-width icon around its centre, resampled to match the hero's outline.
+        markUnit = resample(
+          points.map(([x, y]) => [(x - cx) / (maxX - minX), (y - cy) / (maxX - minX)]),
+          SAMPLES,
+        );
+      };
+      const squareOutline = (cx, cy, w, d) =>
+        resample(
+          [
+            [cx - w / 2, cy - d / 2],
+            [cx + w / 2, cy - d / 2],
+            [cx + w / 2, cy + d / 2],
+            [cx - w / 2, cy + d / 2],
+          ],
+          SAMPLES,
+        );
+
+      const drawHero = (hero, k) => {
+        const color = mixColor(ACCENT, INK, hero.morph);
+        if (hero.morph > 0.002 && markUnit) {
+          const [cx, cy] = proj(hero.x, 0, hero.z, k);
+          const square = squareOutline(cx, cy, hero.w, hero.d);
+          const m = hero.morph;
+          const pts = square.map(([x, y], i) => [
+            lerp(x, cx + markUnit[i][0] * ICON_W, m),
+            lerp(y, cy + markUnit[i][1] * ICON_W, m),
+          ]);
+          ctx.beginPath();
+          pts.forEach(([x, y], i) => (i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y)));
+          ctx.closePath();
+          ctx.fillStyle = rgb(color, lerp(0.16, 1, easeIn(m)));
+          ctx.fill();
+          ctx.strokeStyle = rgb(color);
+          ctx.lineWidth = LINE;
+          ctx.lineJoin = "round";
+          ctx.stroke();
+        } else {
+          drawBox(hero, k, color, 0.16);
+        }
+        // Eyes: on top from above, on the front face in perspective.
+        const eyes = clamp(1 - hero.morph * 3);
+        if (eyes <= 0) return;
+        const size = Math.min(hero.w, hero.d);
+        const [fx, fy] = proj(hero.x, 0, hero.z, k);
+        const front = proj(hero.x, (hero.y || 0) + (hero.h || 0) * 0.62, hero.z + hero.d / 2, k);
+        const ex = lerp(fx, front[0], k);
+        const ey = lerp(fy - size * 0.08, front[1], k);
+        const sc = scaleAt(hero.z + hero.d / 2, k);
+        const gap = size * 0.2 * sc;
+        const look = (hero.look || 0) * size * 0.1 * sc;
+        ctx.fillStyle = rgb(color, eyes);
+        for (const side of [-1, 1]) {
+          ctx.beginPath();
+          ctx.ellipse(
+            ex + side * gap + look,
+            ey,
+            size * 0.065 * sc,
+            size * 0.1 * sc,
+            0,
+            0,
+            Math.PI * 2,
+          );
+          ctx.fill();
+        }
+      };
+
+      // ---- frame --------------------------------------------------------------
+      const frameAt = (t) => {
+        for (const beat of BEATS) {
+          if (t < beat.at + beat.dur || beat === BEATS[BEATS.length - 1]) {
+            const local = t - beat.at;
+            return beat.morph ? morphFrame(beat, local) : beat.game(local);
+          }
+        }
+        return logo();
+      };
+
+      const tagline = (t) => {
+        const out = easeOut(prog(t, 300, 200));
+        const back = easeOut(prog(t, 8640, 420));
+        const alpha = t < 4000 ? 1 - out : back;
+        if (alpha <= 0.002) return;
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = rgb(INK, 0.72);
+        ctx.font = '34px "VG5000"';
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(TAGLINE, 600, 426 + (t < 4000 ? out * 14 : (1 - back) * 14));
+        ctx.restore();
+      };
+
+      const begin = () => {
+        ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+        ctx.clearRect(0, 0, W, H);
+        ctx.lineJoin = "round";
+        ctx.lineCap = "round";
+      };
+      const drawFrame = (frame) => {
+        for (const item of frame.items) drawBox(item, frame.k, mixColor(INK, DIM, item.c));
+        if (frame.overlay) frame.overlay();
+        drawHero(frame.hero, frame.k);
+      };
+
+      window.__duration = DURATION;
+      window.__render = (ms) => {
+        const t = ((ms % DURATION) + DURATION) % DURATION;
+        begin();
+        drawFrame(frameAt(t));
+        tagline(t);
+      };
+
+      /**
+       * The site's og:image: the end card's icon and tagline over the clip's
+       * 3D arena, drawn smaller from the bottom edge so the hero runs under the
+       * logo.
+       */
+      window.__still = () => {
+        begin();
+        ctx.save();
+        ctx.translate(600, H);
+        ctx.scale(0.72, 0.72);
+        ctx.translate(-600, -H);
+        drawFrame(arena(330));
+        ctx.restore();
+        const icon = markUnit.map(([x, y]) => [600 + x * 176, 108 + y * 176]);
+        ctx.beginPath();
+        icon.forEach(([x, y], i) => (i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y)));
+        ctx.closePath();
+        ctx.fillStyle = rgb(INK);
+        ctx.fill();
+        ctx.fillStyle = rgb(INK, 0.72);
+        ctx.font = '32px "VG5000"';
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(TAGLINE, 600, 222);
+      };
+    </script>
+  </body>
+</html>

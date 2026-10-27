@@ -25,7 +25,10 @@ const AuthLayout = () => (
 
 export const Route = createFileRoute("/auth")({
   component: AuthLayout,
-  head: () => ({ meta: [{ title: "Authentication" }] }),
+  // Sign-in screens are app chrome, not content: keep them out of the index.
+  head: () => ({
+    meta: [{ title: "Authentication" }, { content: "noindex, nofollow", name: "robots" }],
+  }),
   loader: async () => ({ socialProviders: await fetchSocialProviders() }),
   // Which providers are configured changes only on deploy.
   staleTime: Infinity,

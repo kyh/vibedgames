@@ -85,7 +85,9 @@ const ConsentPage = () => {
 
 export const Route = createFileRoute("/oauth/consent")({
   component: ConsentPage,
-  head: () => ({ meta: [{ content: "noindex", name: "robots" }, { title: "Connect an app" }] }),
+  head: () => ({
+    meta: [{ title: "Connect an app" }, { content: "noindex, nofollow", name: "robots" }],
+  }),
   loader: ({ location }) => fetchConsent({ data: { search: location.searchStr } }),
   validateSearch: consentSearchSchema,
 });

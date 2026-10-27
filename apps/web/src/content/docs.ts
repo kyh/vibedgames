@@ -158,7 +158,7 @@ export const docsDoc: Doc = {
             "[/install](/install) — the install instructions, served as markdown.",
             "[/docs](/docs) — this page; also available as markdown via `Accept: text/markdown`.",
             "[/sitemap.xml](/sitemap.xml) — every crawlable page on the apex domain.",
-            "[/robots.txt](/robots.txt) — crawler policy. AI crawlers are explicitly allowed.",
+            "[/robots.txt](/robots.txt) — crawler policy: open to every crawler, AI included.",
             "[/.well-known/agent-skills/index.json](/.well-known/agent-skills/index.json) — the skill index.",
           ],
           kind: "ul",
