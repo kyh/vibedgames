@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import type { Credential } from "@repo/contract/base";
-import { getRequiredCredential } from "@repo/contract/base";
+import { getRequiredCredential, getRequiredScope } from "@repo/contract/base";
+import { OAUTH_SCOPES } from "@repo/contract/auth/oauth-scopes";
 import { createDb } from "@repo/db/drizzle-client";
 import type { AnyProcedure } from "@orpc/server";
 import { call, getRouter, ORPCError, Procedure, walkProcedureContractsSync } from "@orpc/server";
@@ -68,36 +69,47 @@ const sessionFor = (opts: {
   },
 });
 
-const contextAs = (session: ORPCContext["session"]): ORPCContext => ({
+const contextAs = (
+  session: ORPCContext["session"],
+  oauthScopes: readonly string[] | null = null,
+): ORPCContext => ({
   auth,
   billing: undefined,
   db,
   decision: undefined,
   headers: new Headers(),
   media: undefined,
+  oauthScopes,
   productionURL: undefined,
   r2: undefined,
   session,
   signing: undefined,
 });
 
-type Caller = "anonymous" | "apiKey" | "oauth" | "member" | "admin";
+type Caller = "anonymous" | "apiKey" | "oauth" | "oauthUnscoped" | "member" | "admin";
+
+const oauthSession = sessionFor({ role: "admin", token: `${OAUTH_SESSION_PREFIX}token-1` });
 
 const callers: [Caller, ORPCContext][] = [
   ["anonymous", contextAs(null)],
   // An admin's key: the role check would let it through, so only the key
   // check can refuse it.
   ["apiKey", contextAs(sessionFor({ role: "admin", token: `${API_KEY_SESSION_PREFIX}key-1` }))],
-  // A connected app's access token, held to the same line as a key.
-  ["oauth", contextAs(sessionFor({ role: "admin", token: `${OAUTH_SESSION_PREFIX}token-1` }))],
+  // A connected app's access token granted every scope: held to the same
+  // line as a key.
+  ["oauth", contextAs(oauthSession, ["profile", ...Object.keys(OAUTH_SCOPES)])],
+  // One granted none of them reaches nothing a scope guards.
+  ["oauthUnscoped", contextAs(oauthSession, [])],
   ["member", contextAs(sessionFor({ role: "user", token: "session-token" }))],
   ["admin", contextAs(sessionFor({ role: "admin", token: "session-token" }))],
 ];
 
 // What `rejectApiKey` says, which tells its 403 from the role check's.
 const API_KEY_REFUSAL = /interactive login, not an API key/u;
+// What `requireSession` says to an access token without the procedure's scope.
+const SCOPE_REFUSAL = /^insufficient_scope/u;
 
-const REFUSALS = new Set(["UNAUTHORIZED", "FORBIDDEN", "FORBIDDEN (API key)"]);
+const REFUSALS = new Set(["UNAUTHORIZED", "FORBIDDEN", "FORBIDDEN (API key)", "FORBIDDEN (scope)"]);
 
 /** Who each credential turns away, and how; everyone else gets through. */
 const refused: Record<Credential, Partial<Record<Caller, string>>> = {
@@ -106,13 +118,15 @@ const refused: Record<Credential, Partial<Record<Caller, string>>> = {
     apiKey: "FORBIDDEN (API key)",
     member: "FORBIDDEN",
     oauth: "FORBIDDEN (API key)",
+    oauthUnscoped: "FORBIDDEN (API key)",
   },
-  any: { anonymous: "UNAUTHORIZED" },
+  any: { anonymous: "UNAUTHORIZED", oauthUnscoped: "FORBIDDEN (scope)" },
   none: {},
   session: {
     anonymous: "UNAUTHORIZED",
     apiKey: "FORBIDDEN (API key)",
     oauth: "FORBIDDEN (API key)",
+    oauthUnscoped: "FORBIDDEN (API key)",
   },
 };
 
@@ -128,8 +142,11 @@ const outcomeOf = async (procedure: AnyProcedure, context: ORPCContext): Promise
     if (!(error instanceof ORPCError)) {
       return "failed outside oRPC";
     }
-    return error.code === "FORBIDDEN" && API_KEY_REFUSAL.test(error.message)
-      ? "FORBIDDEN (API key)"
+    if (error.code === "FORBIDDEN" && API_KEY_REFUSAL.test(error.message)) {
+      return "FORBIDDEN (API key)";
+    }
+    return error.code === "FORBIDDEN" && SCOPE_REFUSAL.test(error.message)
+      ? "FORBIDDEN (scope)"
       : error.code;
   }
 };
@@ -137,6 +154,7 @@ const outcomeOf = async (procedure: AnyProcedure, context: ORPCContext): Promise
 interface Entry {
   name: string;
   credential: Credential | undefined;
+  scope: string | undefined;
   takesInput: boolean;
   procedure: AnyProcedure | undefined;
 }
@@ -148,6 +166,7 @@ const lazyRouters = walkProcedureContractsSync(appRouter, (declared, path) => {
     credential: getRequiredCredential(declared),
     name: path.join("."),
     procedure: implemented instanceof Procedure ? implemented : undefined,
+    scope: getRequiredScope(declared),
     takesInput: (declared["~orpc"].inputSchemas ?? []).length > 0,
   });
 });
@@ -159,6 +178,18 @@ describe("procedure authorization", () => {
     for (const { name, credential, procedure } of entries) {
       assert.ok(credential, `${name} is not built on a base from @repo/contract/base`);
       assert.ok(procedure, `${name} has no implementation in appRouter`);
+    }
+  });
+
+  // An access token reaches exactly the procedures any credential may call,
+  // so each of those names what a token needs; nothing else declares one.
+  test("declares a scope on every procedure an access token can reach", () => {
+    for (const { name, credential, scope } of entries) {
+      if (credential === "any") {
+        assert.ok(scope, `${name} declares no scope; add requiresScope(...)`);
+      } else {
+        assert.equal(scope, undefined, `${name} declares a scope no access token can use`);
+      }
     }
   });
 

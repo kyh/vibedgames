@@ -4,12 +4,16 @@ import type { Db } from "@repo/db/drizzle-client";
 import { drizzleAdapter } from "@better-auth/drizzle-adapter/relations-v2";
 import { apiKey } from "@better-auth/api-key";
 import { expo } from "@better-auth/expo";
+import { cimd } from "@better-auth/cimd";
 import { mcp } from "@better-auth/mcp";
+import { DEFAULT_OAUTH_SCOPES } from "@better-auth/oauth-provider";
+import { OAUTH_SCOPES } from "@repo/contract/auth/oauth-scopes";
 import type { BetterAuthPlugin } from "better-auth";
 import { betterAuth } from "better-auth";
 import { admin, bearer, jwt, oAuthProxy } from "better-auth/plugins";
 import { z } from "zod";
 
+import { fetchClientMetadataResource } from "./cimd-fetch";
 import { oauthResources } from "./oauth-resources";
 
 /** An OAuth app a person signs in with; either is on only when both halves are set. */
@@ -126,8 +130,15 @@ export const createAuth = (opts: AuthOptions) => {
           loginPage: "/auth/login",
           resource: resources.mcp,
           resources: [{ identifier: resources.api, name: "vibedgames API" }],
+          // OpenID's, plus one per kind of action (`@repo/contract/auth/oauth-scopes`),
+          // each checked by `requireSession` against the procedure's own.
+          scopes: [...DEFAULT_OAUTH_SCOPES, ...Object.keys(OAUTH_SCOPES)],
         }),
       ),
+      // Client ID Metadata Documents, how MCP 2026-07-28 clients identify
+      // themselves: the client_id is an HTTPS URL to its metadata. Registration
+      // above stays for clients from before it.
+      cimd({ fetchClientMetadataResource, metadataProfile: "mcp-2026-07-28" }),
     ],
     // Persist rate-limit counters in D1. The default in-memory store keeps
     // per-isolate counters, so on Cloudflare Workers the effective limit

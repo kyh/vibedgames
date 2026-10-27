@@ -1,15 +1,20 @@
 import { useState } from "react";
+import { OAUTH_SCOPES } from "@repo/contract/auth/oauth-scopes";
 import { Button } from "@repo/ui/components/button";
 import { toast } from "@repo/ui/components/sonner";
 
 import { authClient } from "@/auth/client";
 
-/** What each standard scope lets the app see, in the person's terms. */
-const SCOPE_LABELS = new Map([
-  ["email", "Your email address"],
-  ["offline_access", "Stay connected while you are away"],
+/**
+ * What each scope lets the app do, in the person's terms: OpenID's, then
+ * vibedgames' own (`@repo/contract/auth/oauth-scopes`).
+ */
+const SCOPE_LABELS = new Map<string, string>([
   ["openid", "Know who you are"],
-  ["profile", "Your name and picture"],
+  ["profile", "See your name and picture"],
+  ["email", "See your email address"],
+  ...Object.entries(OAUTH_SCOPES),
+  ["offline_access", "Stay connected while you are away"],
 ]);
 
 interface OAuthConsentProps {
@@ -57,14 +62,11 @@ export const OAuthConsent = ({
         </p>
       </div>
       <div className="grid gap-3 text-sm">
-        <p>{name} will be able to act as you on vibedgames:</p>
+        <p>{name} will be able to:</p>
         <ul className="text-muted-foreground list-disc space-y-1 pl-5">
-          <li>Deploy, update and delete your games</li>
-          <li>Generate images, audio, video and 3D with your credits</li>
-          {scopes.flatMap((scope) => {
-            const label = SCOPE_LABELS.get(scope);
-            return label ? [<li key={scope}>{label}</li>] : [];
-          })}
+          {[...SCOPE_LABELS].flatMap(([scope, label]) =>
+            scopes.includes(scope) ? [<li key={scope}>{label}</li>] : [],
+          )}
         </ul>
         {(redirectHost ?? clientUri) && (
           <p className="text-muted-foreground text-xs">

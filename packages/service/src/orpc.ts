@@ -5,6 +5,7 @@ import type { Auth } from "./auth/auth";
 import type { Db } from "@repo/db/drizzle-client";
 import { contract } from "@repo/contract";
 import { implement, ORPCError, os as builder } from "@orpc/server";
+import { getRequiredScope } from "@repo/contract/base";
 
 import { API_KEY_SESSION_PREFIX, resolveApiKeySession } from "./auth/api-key";
 import { OAUTH_SESSION_PREFIX, resolveOAuthSession } from "./auth/oauth-token";
@@ -125,12 +126,14 @@ export const createORPCContext = async (opts: CreateORPCContextOptions) => {
   // Fall back to a long-lived API key (`vg_…`) so CLI/HTTP clients can
   // authenticate in CI, then to an OAuth access token a person granted an
   // app for this resource; all three resolve to the same `Session` shape.
-  const session =
+  const direct =
     (await opts.auth.api.getSession({ headers: opts.headers })) ??
-    (await resolveApiKeySession(opts.auth, opts.db, opts.headers)) ??
-    (opts.oauthResource
+    (await resolveApiKeySession(opts.auth, opts.db, opts.headers));
+  const grant =
+    !direct && opts.oauthResource
       ? await resolveOAuthSession(opts.auth, opts.db, opts.headers, opts.oauthResource)
-      : null);
+      : null;
+  const session = direct ?? grant?.session ?? null;
 
   return {
     auth: opts.auth,
@@ -139,6 +142,11 @@ export const createORPCContext = async (opts: CreateORPCContextOptions) => {
     decision: opts.decision,
     headers: opts.headers,
     media: opts.media,
+    /**
+     * The scopes an OAuth access token was granted; null for every other
+     * credential, which acts as the person in full.
+     */
+    oauthScopes: grant?.scopes ?? null,
     productionURL: opts.productionURL,
     r2: opts.r2,
     session,
@@ -158,10 +166,24 @@ export const os = implement(contract).$context<ORPCContext>();
 
 const base = builder.$context<ORPCContext>();
 
-/** Pairs with `protectedBase`. Apply as `os.<feature>.use(requireSession)`. */
-export const requireSession = base.middleware(({ context, next }) => {
+/**
+ * Pairs with `protectedBase`. Apply as `os.<feature>.use(requireSession)`.
+ * An OAuth access token must also carry the scope the procedure declares
+ * (`requiresScope`); one without it gets FORBIDDEN with `insufficient_scope`,
+ * and the scope it lacks in `data`, so the app can ask the person for it.
+ */
+export const requireSession = base.middleware(({ context, next, procedure }) => {
   if (!context.session?.user) {
     throw new ORPCError("UNAUTHORIZED");
+  }
+  // A procedure without a scope is session-only, and `rejectApiKey` turns
+  // the token away there with its own message.
+  const required = getRequiredScope(procedure);
+  if (context.oauthScopes && required && !context.oauthScopes.includes(required)) {
+    throw new ORPCError("FORBIDDEN", {
+      data: { error: "insufficient_scope", scope: required },
+      message: `insufficient_scope: this app was not granted "${required}". Reconnect it to grant it.`,
+    });
   }
   return next({
     context: {

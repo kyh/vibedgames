@@ -1,6 +1,7 @@
 import type { RouterInputs } from "@repo/contract";
 import type { JsonValue } from "@repo/contract/json";
 import type { ORPCContext } from "@repo/service/orpc";
+import { requiresScope } from "@repo/contract/base";
 import { endpointPath, queueAppId } from "@repo/contract/generate/queue-path";
 import { appRouter } from "@repo/service";
 import type { McpToolMeta } from "@orpc/mcp";
@@ -51,6 +52,13 @@ const mutates = { destructiveHint: false, readOnlyHint: false } as const;
 const external = { ...mutates, openWorldHint: true } as const;
 
 const tool = os.$context<McpContext>();
+
+/**
+ * The `generate_*` tools reach `generate.forward` through `call()`, which
+ * checks the scope again; declaring it here lets `/mcp` answer a token
+ * without it with a step-up challenge before the call.
+ */
+const generateTool = tool.meta(requiresScope("generate"));
 
 type ForwardQuery = NonNullable<RouterInputs["generate"]["forward"]["query"]>;
 
@@ -171,7 +179,7 @@ const waitSeconds = z
   .describe("How long to wait for the result before returning the request id");
 
 const generateTools = {
-  generate: tool
+  generate: generateTool
     .meta(
       mcp.tool({
         annotations: external,
@@ -192,7 +200,7 @@ const generateTools = {
       runModel(context, input.endpoint_id, input.input, input.wait_seconds),
     ),
 
-  generate_docs: tool
+  generate_docs: generateTool
     .meta(
       mcp.tool({
         annotations: { ...readOnly, openWorldHint: true },
@@ -217,7 +225,7 @@ const generateTools = {
       }),
     ),
 
-  generate_models: tool
+  generate_models: generateTool
     .meta(
       mcp.tool({
         annotations: { ...readOnly, openWorldHint: true },
@@ -253,7 +261,7 @@ const generateTools = {
       return forward(context, { method: "GET", path: "/v1/models", query, target: "platform" });
     }),
 
-  generate_pricing: tool
+  generate_pricing: generateTool
     .meta(
       mcp.tool({
         annotations: { ...readOnly, openWorldHint: true },
@@ -272,7 +280,7 @@ const generateTools = {
       }),
     ),
 
-  generate_schema: tool
+  generate_schema: generateTool
     .meta(
       mcp.tool({
         annotations: { ...readOnly, openWorldHint: true },
@@ -296,7 +304,7 @@ const generateTools = {
       return forward(context, { method: "GET", path: "/v1/models", query, target: "platform" });
     }),
 
-  generate_status: tool
+  generate_status: generateTool
     .meta(
       mcp.tool({
         annotations: { ...external, idempotentHint: true },
@@ -385,7 +393,7 @@ const billed =
   "Billed against your credits; waits up to `wait_seconds`, then returns the `request_id` to follow with generate_status.";
 
 const mediaTools = {
-  generate_3d: tool
+  generate_3d: generateTool
     .meta(
       mcp.tool({
         annotations: external,
@@ -425,7 +433,7 @@ const mediaTools = {
       );
     }),
 
-  generate_image: tool
+  generate_image: generateTool
     .meta(
       mcp.tool({
         annotations: external,
@@ -480,7 +488,7 @@ const mediaTools = {
       );
     }),
 
-  generate_music: tool
+  generate_music: generateTool
     .meta(
       mcp.tool({
         annotations: external,
@@ -511,7 +519,7 @@ const mediaTools = {
       ),
     ),
 
-  generate_sound: tool
+  generate_sound: generateTool
     .meta(
       mcp.tool({
         annotations: external,
@@ -542,7 +550,7 @@ const mediaTools = {
       ),
     ),
 
-  generate_speech: tool
+  generate_speech: generateTool
     .meta(
       mcp.tool({
         annotations: external,
@@ -568,7 +576,7 @@ const mediaTools = {
       ),
     ),
 
-  generate_video: tool
+  generate_video: generateTool
     .meta(
       mcp.tool({
         annotations: external,
@@ -647,7 +655,7 @@ const mediaTools = {
       );
     }),
 
-  remove_background: tool
+  remove_background: generateTool
     .meta(
       mcp.tool({
         annotations: external,

@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { protectedBase } from "../base";
+import { protectedBase, requiresScope } from "../base";
 import { documented } from "../openapi";
 import {
   createInput,
@@ -43,6 +43,7 @@ const gameSummary = z.object({
 
 export const deployContract = {
   create: protectedBase
+    .meta(requiresScope("games:write"))
     .meta(
       documented({
         description:
@@ -55,6 +56,7 @@ export const deployContract = {
     .output(createOutput),
 
   delete: protectedBase
+    .meta(requiresScope("games:write"))
     .meta(
       documented({
         description: "Permanently deletes one of the caller's games and all of its deployed files.",
@@ -66,6 +68,7 @@ export const deployContract = {
     .output(z.object({ success: z.literal(true) })),
 
   finalize: protectedBase
+    .meta(requiresScope("games:write"))
     .meta(
       documented({
         description:
@@ -78,6 +81,7 @@ export const deployContract = {
     .output(z.object({ slug: z.string(), url: z.string() })),
 
   getSource: protectedBase
+    .meta(requiresScope("games:read"))
     .meta(
       documented({
         description:
@@ -97,6 +101,7 @@ export const deployContract = {
     ),
 
   list: protectedBase
+    .meta(requiresScope("games:read"))
     .meta(
       documented({
         description:
@@ -107,6 +112,7 @@ export const deployContract = {
     .output(z.object({ games: z.array(gameSummary) })),
 
   upload: protectedBase
+    .meta(requiresScope("games:write"))
     .meta(
       documented({
         description:

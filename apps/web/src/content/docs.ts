@@ -97,7 +97,7 @@ export const docsDoc: Doc = {
         },
         {
           code: [
-            "# OAuth: the client registers itself and opens the consent page",
+            "# OAuth: the client identifies itself and opens the consent page",
             "claude mcp add --transport http vibedgames https://vibedgames.com/mcp",
             "",
             "# or an API key",
@@ -109,7 +109,7 @@ export const docsDoc: Doc = {
         },
         {
           kind: "p",
-          text: "vibedgames is also an OAuth 2.1 authorization server for apps acting for a person (issuer `https://vibedgames.com/api/auth`, metadata at `/.well-known/oauth-authorization-server/api/auth`). Clients register themselves (RFC 7591) and use the authorization-code flow with PKCE, naming the resource they want as `resource`: `https://vibedgames.com/mcp` or `https://vibedgames.com/api`. A token works only on the resource it was issued for, lasts an hour, and refreshes with `offline_access`. Neither a token nor an API key reaches account settings such as API keys.",
+          text: "vibedgames is also an OAuth 2.1 authorization server for apps acting for a person (issuer `https://vibedgames.com/api/auth`, metadata at `/.well-known/oauth-authorization-server/api/auth`). A client identifies itself with a Client ID Metadata Document (its `client_id` is the HTTPS URL of its metadata) or registers itself (RFC 7591), then uses the authorization-code flow with PKCE, naming the resource it wants as `resource`: `https://vibedgames.com/mcp` or `https://vibedgames.com/api`. A token works only on the resource it was issued for, lasts an hour, and refreshes with `offline_access`. What it may do is its scopes: `games:read`, `games:write`, `generate`, `credits:read`, `credits:write`, `playtest`, plus OpenID's `profile` for who it acts for. A call outside them answers 403 `insufficient_scope` naming the scope to ask for (on `/mcp`, as a `WWW-Authenticate` challenge). Neither a token nor an API key reaches account settings such as API keys. People see and disconnect the apps they approved in [Settings](/settings#connected-apps).",
         },
       ],
       heading: "API and authentication",

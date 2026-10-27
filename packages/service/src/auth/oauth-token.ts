@@ -28,6 +28,8 @@ const accessTokenClaims = z.object({
   cnf: z.never().optional(),
   exp: z.number(),
   jti: z.string().optional(),
+  // Space-separated, as RFC 9068 carries it.
+  scope: z.string().default(""),
   sub: z.string().min(1),
 });
 
@@ -83,8 +85,14 @@ export const verifyAccessToken = async (
 // The bound `getJwks` per auth instance, so its key-set cache outlives a request.
 const keySources = new WeakMap<Auth, AccessTokenCheck["getJwks"]>();
 
+/** Who an access token acts for, and the scopes the person granted it. */
+export interface OAuthGrant {
+  scopes: readonly string[];
+  session: Session;
+}
+
 /**
- * The session a valid OAuth access token for `resource` stands for, or null
+ * The grant a valid OAuth access token for `resource` stands for, or null
  * when the request carries none, or one `verifyAccessToken` refuses, or one
  * for a user who is gone or banned.
  */
@@ -93,7 +101,7 @@ export const resolveOAuthSession = async (
   db: Db,
   headers: Headers,
   resource: string,
-): Promise<Session | null> => {
+): Promise<OAuthGrant | null> => {
   const token = bearerToken(headers);
   if (!token) {
     return null;
@@ -122,7 +130,7 @@ export const resolveOAuthSession = async (
   const id = `${OAUTH_SESSION_PREFIX}${claims.jti ?? claims.sub}`;
   const expiresAt = new Date(claims.exp * 1000);
   // SAFETY: synthesized better-auth Session shape at the OAuth boundary; only `user` and the namespaced token are read downstream
-  return {
+  const session = {
     session: {
       createdAt: now,
       expiresAt,
@@ -135,4 +143,5 @@ export const resolveOAuthSession = async (
     },
     user,
   } as Session;
+  return { scopes: claims.scope.split(" ").filter(Boolean), session };
 };

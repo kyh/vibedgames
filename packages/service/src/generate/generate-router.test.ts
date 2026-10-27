@@ -128,6 +128,7 @@ const contextAs = (role: string): ORPCContext => ({
   decision: undefined,
   headers: new Headers(),
   media: { fal: "fal-test-key" },
+  oauthScopes: null,
   productionURL: undefined,
   r2: undefined,
   session: {

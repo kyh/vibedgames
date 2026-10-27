@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { adminBase, protectedBase, publicBase, sessionOnlyBase } from "../base";
+import { adminBase, protectedBase, publicBase, requiresScope, sessionOnlyBase } from "../base";
 import { documented } from "../openapi";
 import { codeInput, createInvitesInput, updateInviteInput } from "./auth-schema";
 
@@ -83,6 +83,7 @@ export const authContract = {
     ),
 
   me: protectedBase
+    .meta(requiresScope("profile"))
     .meta(
       documented({
         description:

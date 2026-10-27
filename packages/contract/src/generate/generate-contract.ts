@@ -1,4 +1,4 @@
-import { protectedBase } from "../base";
+import { protectedBase, requiresScope } from "../base";
 import { jsonValueSchema } from "../json";
 import { documented } from "../openapi";
 import { z } from "zod";
@@ -7,6 +7,7 @@ import { forwardInput, uploadInput } from "./generate-schema";
 
 export const generateContract = {
   forward: protectedBase
+    .meta(requiresScope("generate"))
     .meta(
       documented({
         description:
@@ -19,6 +20,7 @@ export const generateContract = {
     .output(jsonValueSchema.describe("The upstream response body, or null when it had none.")),
 
   upload: protectedBase
+    .meta(requiresScope("generate"))
     .meta(
       documented({
         description:

@@ -5,6 +5,12 @@ import { SmartCoercionHandlerPlugin } from "@orpc/json-schema";
 import { McpRegistrar } from "@orpc/mcp";
 import { onError } from "@orpc/server";
 import { ZodToJsonSchemaConverter } from "@orpc/zod";
+import { getRequiredScope } from "@repo/contract/base";
+import { OAUTH_SCOPES } from "@repo/contract/auth/oauth-scopes";
+import { createResourceServerChallenge } from "@better-auth/oauth-provider";
+import { APIError } from "better-auth/api";
+import { createInsufficientScopeError } from "better-auth/oauth2";
+import { z } from "zod";
 
 import { jsonError } from "@/lib/json-error";
 import { registerSkills } from "@/lib/mcp-skills";
@@ -18,7 +24,8 @@ import { isCrossOrigin, reportFaults } from "@/lib/orpc-handler";
  * claude.ai and other connector clients get from the consent flow) or the
  * same `vg_…` API key the CLI uses. Without either, every request answers
  * 401 with the RFC 9728 challenge that points a client at the
- * authorization server. A tool call runs
+ * authorization server, and a token calling a tool outside its scopes gets
+ * the 403 `insufficient_scope` challenge. A tool call runs
  * through the same handler stack as `/api/orpc`, so its middleware,
  * validation and credit gate are the API's. The MCP meta lives in `apps/web`,
  * not `@repo/contract`, which the CLI bundles and `@orpc/mcp` would drag the
@@ -30,24 +37,73 @@ const converters = [new ZodToJsonSchemaConverter()];
 const API_KEY_HINT =
   "Connect with OAuth, or send an API key as `Authorization: Bearer vg_…`; create one at vibedgames.com/settings.";
 
-/** Where RFC 9728 clients find this resource's metadata, and so its authorization server. */
-const resourceMetadataUrl = (request: Request) =>
-  `${new URL(request.url).origin}/.well-known/oauth-protected-resource/mcp`;
+/**
+ * What a connector should ask for: every action scope, the person's
+ * profile, and a refresh token so it stays connected.
+ */
+const CHALLENGE_SCOPES = ["profile", "offline_access", ...Object.keys(OAUTH_SCOPES)];
 
 /**
- * The 401 an OAuth client starts from (MCP authorization, RFC 9728 §5.1):
- * `invalid_token` when a credential was sent and refused, a bare challenge
- * when there was none.
+ * A challenge as `@better-auth/oauth-provider` builds it (RFC 6750 and the
+ * RFC 9728 `resource_metadata` pointer), with the JSON-RPC error body
+ * `@better-auth/mcp` sends alongside.
  */
-const unauthorized = (request: Request): Response => {
-  const sent = request.headers.has("authorization");
-  const params = [
-    `resource_metadata="${resourceMetadataUrl(request)}"`,
-    ...(sent ? ['error="invalid_token"'] : []),
-  ];
-  const response = jsonError(401, "UNAUTHORIZED", API_KEY_HINT);
-  response.headers.set("www-authenticate", `Bearer ${params.join(", ")}`);
-  return response;
+const challengeResponse = (
+  request: Request,
+  error: Parameters<typeof createResourceServerChallenge>[0],
+): Response => {
+  const resource = `${new URL(request.url).origin}/mcp`;
+  const challenge = createResourceServerChallenge(error, resource, {
+    challengeScopes: CHALLENGE_SCOPES,
+  });
+  if (!challenge) {
+    throw error;
+  }
+  const headers = new Headers(challenge.headers);
+  headers.set("content-type", "application/json");
+  return Response.json(
+    { error: { code: -32_000, message: challenge.message }, id: null, jsonrpc: "2.0" },
+    { headers, status: challenge.statusCode },
+  );
+};
+
+/** The 401 an OAuth client starts from (MCP authorization, RFC 9728 §5.1). */
+const unauthorized = (request: Request) =>
+  challengeResponse(request, new APIError("UNAUTHORIZED", { message: API_KEY_HINT }));
+
+const toolCall = z.object({
+  method: z.literal("tools/call"),
+  params: z.object({ name: z.string() }),
+});
+
+/** Each tool's scope, read off the procedure behind it. */
+const toolScopes = new Map(
+  Object.entries(tools).map(([name, tool]) => [name, getRequiredScope(tool)]),
+);
+
+/** The tool a JSON-RPC body calls, or null for any other message. */
+const calledTool = (body: Uint8Array | undefined): string | null => {
+  if (!body) {
+    return null;
+  }
+  try {
+    const call = toolCall.safeParse(JSON.parse(new TextDecoder().decode(body)));
+    return call.success ? call.data.params.name : null;
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * The scope a `tools/call` needs that the access token lacks, or null. The
+ * procedure behind the tool refuses it anyway; answering here, before the
+ * call, turns that into the HTTP 403 `insufficient_scope` challenge a client
+ * steps up from (RFC 6750 §3.1), rather than a tool error it cannot act on.
+ */
+const missingScope = (body: Uint8Array | undefined, granted: readonly string[]) => {
+  const name = calledTool(body);
+  const required = name ? toolScopes.get(name) : undefined;
+  return required && !granted.includes(required) ? required : null;
 };
 
 const registrar = new McpRegistrar(tools, {
@@ -127,6 +183,12 @@ export const handleMcpRequest = async (
   createContext: (headers: Headers) => Promise<ORPCContext>,
   skills: readonly Skill[],
 ): Promise<Response> => {
+  // Stateless: no server-to-client stream to open with GET and no session to
+  // end with DELETE, so POST is the only method (Streamable HTTP lets a
+  // server answer the others 405).
+  if (request.method !== "POST") {
+    return new Response(null, { headers: { allow: "POST" }, status: 405 });
+  }
   if (isCrossOrigin(request)) {
     return jsonError(403, "FORBIDDEN", "Cross-origin request blocked.");
   }
@@ -141,6 +203,15 @@ export const handleMcpRequest = async (
   const context = await createContext(headers);
   if (!context.session) {
     return unauthorized(request);
+  }
+  const lacking = context.oauthScopes ? missingScope(body, context.oauthScopes) : null;
+  if (lacking && context.oauthScopes) {
+    // The scopes it holds plus the one it lacks, so re-consenting keeps both.
+    const scopes = [...new Set([...context.oauthScopes, lacking])];
+    return challengeResponse(
+      request,
+      createInsufficientScopeError(scopes, `this app was not granted the ${lacking} scope`),
+    );
   }
   const handler = createVibedgamesMcpHandler({ ...context, skills });
   return handler.fetch(new Request(request.url, { body, headers, method: request.method }));

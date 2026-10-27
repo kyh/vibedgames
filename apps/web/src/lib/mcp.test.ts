@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { describe, test } from "node:test";
 import type { JsonValue } from "@repo/contract/json";
+import { getRequiredScope } from "@repo/contract/base";
 import type { ORPCContext } from "@repo/service/orpc";
 import { createAuth } from "@repo/service/auth/auth";
 import { createDb } from "@repo/db/drizzle-client";
@@ -10,7 +11,7 @@ import { z } from "zod";
 
 import { handleMcpRequest } from "./mcp";
 import type { Skill } from "./mcp-tools";
-import { MEDIA_MODELS } from "./mcp-tools";
+import { MEDIA_MODELS, tools as mcpTools } from "./mcp-tools";
 
 /**
  * Drives the real `/mcp` handler over Streamable HTTP. The context is built by
@@ -62,7 +63,7 @@ const signedIn: Session = {
 };
 
 const contextWith =
-  (session: Session | null, seen: Headers[] = []) =>
+  (session: Session | null, seen: Headers[] = [], oauthScopes: readonly string[] | null = null) =>
   (headers: Headers): Promise<ORPCContext> => {
     seen.push(headers);
     return Promise.resolve({
@@ -72,6 +73,7 @@ const contextWith =
       decision: undefined,
       headers,
       media: undefined,
+      oauthScopes,
       productionURL: undefined,
       r2: undefined,
       session,
@@ -96,10 +98,17 @@ const skills: Skill[] = [
   },
 ];
 
+// A connected app's session, as `resolveOAuthSession` synthesizes it.
+const oauthSession: Session = {
+  ...signedIn,
+  session: { ...signedIn.session, token: "oauth:token-1" },
+};
+
 let nextId = 1;
 
 interface RpcOptions {
   headers?: Record<string, string>;
+  oauthScopes?: readonly string[] | null;
   session?: Session | null;
   seen?: Headers[];
 }
@@ -107,7 +116,7 @@ interface RpcOptions {
 const rpc = async (
   method: string,
   params: { [key: string]: JsonValue },
-  { headers = {}, session = signedIn, seen = [] }: RpcOptions = {},
+  { headers = {}, oauthScopes = null, session = signedIn, seen = [] }: RpcOptions = {},
 ) => {
   const request = new Request("https://vibedgames.com/mcp", {
     body: JSON.stringify({ id: (nextId += 1), jsonrpc: "2.0", method, params }),
@@ -119,7 +128,7 @@ const rpc = async (
     },
     method: "POST",
   });
-  const response = await handleMcpRequest(request, contextWith(session, seen), skills);
+  const response = await handleMcpRequest(request, contextWith(session, seen, oauthScopes), skills);
   const text = await response.text();
   const json = text.startsWith("{")
     ? text
@@ -344,21 +353,47 @@ describe("mcp endpoint", () => {
   test("answers an anonymous request with the protected-resource challenge", async () => {
     const { body, response } = await rpc("tools/list", {}, { session: null });
     assert.strictEqual(response.status, 401);
-    assert.strictEqual(
-      response.headers.get("www-authenticate"),
-      'Bearer resource_metadata="https://vibedgames.com/.well-known/oauth-protected-resource/mcp"',
+    const challenge = response.headers.get("www-authenticate") ?? "";
+    assert.match(
+      challenge,
+      /^Bearer resource_metadata="https:\/\/vibedgames\.com\/\.well-known\/oauth-protected-resource\/mcp"/u,
     );
-    assert.match(String(body.message), /OAuth/u);
+    // The scopes a connector should ask for, so its first consent covers the tools.
+    assert.match(challenge, /scope="[^"]*\bgames:write\b[^"]*"/u);
+    assert.match(JSON.stringify(body), /OAuth/u);
   });
 
-  test("marks a refused credential as an invalid token", async () => {
+  // RFC 6750 §3.1 step-up: a token without the tool's scope hears which one to
+  // ask for, at HTTP level, before anything runs.
+  test("answers a tool outside the token's scopes with an insufficient_scope challenge", async () => {
     const { response } = await rpc(
       "tools/call",
-      { arguments: {}, name: "deployments" },
-      { headers: { authorization: "Bearer not-a-token" }, session: null },
+      { arguments: {}, name: "deployments_delete" },
+      { oauthScopes: ["profile", "games:read"], session: oauthSession },
     );
-    assert.strictEqual(response.status, 401);
-    assert.match(response.headers.get("www-authenticate") ?? "", /error="invalid_token"/u);
+    assert.strictEqual(response.status, 403);
+    const challenge = response.headers.get("www-authenticate") ?? "";
+    assert.match(challenge, /error="insufficient_scope"/u);
+    assert.match(challenge, /scope="profile games:read games:write"/u);
+  });
+
+  // `skills` reads only the bundled skills; every other tool reaches the API
+  // and so needs a scope for the step-up check above to cover it.
+  test("names a scope for every tool that reaches the API", () => {
+    const unscoped = Object.entries(mcpTools)
+      .filter(([, tool]) => getRequiredScope(tool) === undefined)
+      .map(([name]) => name);
+    assert.deepStrictEqual(unscoped, ["skills"]);
+  });
+
+  test("runs a tool inside the token's scopes", async () => {
+    const { body, response } = await rpc(
+      "tools/call",
+      { arguments: {}, name: "whoami" },
+      { oauthScopes: ["profile"], session: oauthSession },
+    );
+    assert.strictEqual(response.status, 200);
+    assert.notStrictEqual(callResult.parse(body).result.isError, true);
   });
 
   test("runs a signed-in call through the procedure", async () => {
@@ -387,6 +422,18 @@ describe("mcp endpoint", () => {
     );
     assert.strictEqual(seen[0]?.get("cookie"), null);
     assert.strictEqual(seen[0]?.get("authorization"), "Bearer vg_test");
+  });
+
+  test("answers every method but POST with 405", async () => {
+    for (const method of ["GET", "DELETE"]) {
+      const response = await handleMcpRequest(
+        new Request("https://vibedgames.com/mcp", { method }),
+        contextWith(signedIn),
+        skills,
+      );
+      assert.strictEqual(response.status, 405, method);
+      assert.strictEqual(response.headers.get("allow"), "POST");
+    }
   });
 
   test("refuses a request from another origin, even a same-site one", async () => {

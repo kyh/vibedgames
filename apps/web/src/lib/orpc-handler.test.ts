@@ -53,6 +53,7 @@ const contextFor = (request: Request): ORPCContext => ({
   decision: undefined,
   headers: request.headers,
   media: undefined,
+  oauthScopes: null,
   productionURL: undefined,
   r2: undefined,
   session: null,
