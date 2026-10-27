@@ -89,12 +89,14 @@ Social previews (`public/og/`): `pnpm -F @repo/web og:video` re-records the
 in which a single hero travels through a platformer, a bomberman grid, a
 paddle court, a 3D arena and a falling-block well, each game re-forming into
 the next, before folding back into the icon over its tagline — stepped one
-frame at a time in Playwright and encoded by ffmpeg, draws the site's
-`og:image` (`public/og.jpg`, also the poster) from the same scene, and
+frame at a time in Playwright and encoded by ffmpeg, draws its poster
+(`public/og/og-poster.jpg`) from the same scene, and
 re-renders the per-page Open Graph cards from the
 pages' titles (`--only video|cards`). The scene is opened from disk, never
 routed. It needs Chromium (Playwright) and ffmpeg, and is never part of
 `pnpm verify` or the build; `src/lib/og-media.ts` names every file it writes.
+The site's `og:image` (`public/og.jpg`, also the games Worker's fallback
+cover) is the painted brand illustration, kept by hand; nothing regenerates it.
 
 ## Environment
 
