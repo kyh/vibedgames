@@ -65,7 +65,9 @@ export const getServerContext = () => {
   // Derive baseUrl from the actual request so dev/preview/production all work.
   const headers = new Headers(getRequestHeaders());
   const host = headers.get("host") ?? headers.get("x-forwarded-host");
-  const isLocalhost = host === "localhost" || host?.startsWith("localhost:");
+  // Any loopback host is the dev server, served over plain HTTP.
+  const hostname = host ? new URL(`http://${host}`).hostname : null;
+  const isLocalhost = hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]";
   const forwardedProto = headers.get("x-forwarded-proto")?.split(",")[0]?.trim();
   const protocol = forwardedProto || (isLocalhost ? "http" : "https");
   const baseUrl = host ? `${protocol}://${host}` : "http://localhost:3000";
