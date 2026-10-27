@@ -42,4 +42,6 @@ const AccountLayout = () => {
 export const Route = createFileRoute("/_account")({
   beforeLoad: ({ location }) => requireAuth({ data: location.pathname }),
   component: AccountLayout,
+  // Signed-in pages are per-account; a crawler only ever sees the redirect.
+  head: () => ({ meta: [{ content: "noindex, nofollow", name: "robots" }] }),
 });
