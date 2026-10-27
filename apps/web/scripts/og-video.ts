@@ -14,8 +14,9 @@
 // ratio 2 and screenshots each, so the cut is identical every run however
 // slowly the machine draws. ffmpeg scales the frames down into a 1200x630
 // H.264 loop at apps/web/public/og/og.mp4. The scene's `window.__still()`
-// draws the site's og:image (public/og.jpg, the icon and tagline over the
-// clip's arena), which is also the trailer's poster.
+// draws the trailer's poster (the icon and tagline over the clip's arena). The
+// site's og:image (public/og.jpg) is the painted brand illustration, kept by
+// hand: nothing here writes it.
 //
 // The cards are one 1200x630 JPEG per prose page (lib/og-media.ts), drawn from
 // the page's own title and description over the site's logo, background and
@@ -39,7 +40,7 @@ import { discoverDoc } from "@/content/discover";
 import { docsDoc } from "@/content/docs";
 import { privacyDoc } from "@/content/privacy";
 import { termsDoc } from "@/content/terms";
-import { PAGE_CARD_PATHS, SITE_IMAGE, pageImage, siteVideo } from "@/lib/og-media";
+import { PAGE_CARD_PATHS, pageImage, siteVideo } from "@/lib/og-media";
 import { siteConfig } from "@/lib/site-config";
 
 const exec = promisify(execFile);
@@ -217,24 +218,22 @@ const captureVideo = async (browser: Browser) => {
       "+faststart",
       out,
     ]);
-    // The og:image and poster: one still, drawn by the scene at full size.
+    // The poster: one still, drawn by the scene at full size.
     const still = path.join(scratch, "still.png");
     await page.evaluate("window.__still()");
     await page.screenshot({ path: still, type: "png" });
-    for (const image of [SITE_IMAGE, siteVideo.poster]) {
-      await exec("ffmpeg", [
-        "-y",
-        "-loglevel",
-        "error",
-        "-i",
-        still,
-        "-vf",
-        `scale=${WIDTH}:${HEIGHT}:flags=lanczos`,
-        "-q:v",
-        "3",
-        path.join(PUBLIC, image),
-      ]);
-    }
+    await exec("ffmpeg", [
+      "-y",
+      "-loglevel",
+      "error",
+      "-i",
+      still,
+      "-vf",
+      `scale=${WIDTH}:${HEIGHT}:flags=lanczos`,
+      "-q:v",
+      "3",
+      path.join(PUBLIC, siteVideo.poster),
+    ]);
     const { size } = await stat(out);
     console.log(`og-video: ${path.relative(ROOT, out)} — ${await ffprobe(out)}`);
     if (size > 2.5 * 1024 * 1024) {

@@ -2,12 +2,12 @@
  * The social-preview media committed under `public/`: the site-wide trailer
  * behind `og:video`, and one Open Graph card per prose page.
  *
- * Every file named here is recorded, not drawn by hand or generated: the
+ * Every file named here but the site image is recorded, not drawn by hand: the
  * trailer is `apps/web/scripts/og-scene.html` (one continuous wireframe shot:
  * a hero travelling through five games that re-form into one another, ending
  * on the icon and its tagline) stepped frame by frame and encoded by
  * `apps/web/scripts/og-video.ts` (`pnpm -F @repo/web og:video`); the same
- * scene draws the site image and poster, and the same script renders the
+ * scene draws the poster, and the same script renders the
  * cards from the pages' own titles. Re-run it after a
  * page title or the scene changes; `test/og-media.test.ts` holds every
  * path here to a file that exists.
@@ -31,13 +31,13 @@ export const siteVideo = {
 
 /**
  * The site-wide Open Graph image, shared by `/` and every non-prose page: the
- * trailer's icon and tagline over its 3D arena, drawn by the same scene.
+ * painted brand illustration, kept by hand (`pnpm og:video` never writes it).
  */
 export const SITE_IMAGE = "/og.jpg";
 
 /** What the site image shows, for `og:image:alt` and `twitter:image:alt`. */
 export const SITE_IMAGE_ALT =
-  "The Vibedgames icon over its tagline, A game studio for your agent, above a wireframe 3D arena where a little hero cube runs between towers.";
+  "The Vibedgames logo, a white V mark, at the centre of a painted game world: a jungle of floating platforms on the left, neon arcade cabinets and pipes on the right, coins and gems bursting out between them.";
 
 /** Prose pages that carry a card of their own, rendered by `pnpm og:video`. */
 export const PAGE_CARD_PATHS = [
