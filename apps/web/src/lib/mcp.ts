@@ -67,9 +67,23 @@ const challengeResponse = (
   );
 };
 
-/** The 401 an OAuth client starts from (MCP authorization, RFC 9728 §5.1). */
-const unauthorized = (request: Request) =>
-  challengeResponse(request, new APIError("UNAUTHORIZED", { message: API_KEY_HINT }));
+/**
+ * The 401 an OAuth client starts from (MCP authorization, RFC 9728 §5.1).
+ * When a credential was sent and refused, RFC 6750 §3.1's `invalid_token`
+ * tells the client to refresh rather than start over; the provider's
+ * challenge leaves that to the resource server.
+ */
+const unauthorized = (request: Request) => {
+  const response = challengeResponse(
+    request,
+    new APIError("UNAUTHORIZED", { message: API_KEY_HINT }),
+  );
+  const challenge = response.headers.get("www-authenticate");
+  if (challenge && request.headers.has("authorization")) {
+    response.headers.set("www-authenticate", `${challenge}, error="invalid_token"`);
+  }
+  return response;
+};
 
 const toolCall = z.object({
   method: z.literal("tools/call"),

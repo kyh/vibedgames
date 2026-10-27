@@ -48,6 +48,8 @@ describe("fetchClientMetadataResource", () => {
     ["plain HTTP", "http://claude.ai/oauth/client.json"],
     ["an IPv4 literal", "https://169.254.169.254/latest/meta-data"],
     ["an IPv6 literal", "https://[::1]/client.json"],
+    // `URL.hostname` keeps the brackets, which is what the literal check matches.
+    ["a public IPv6 literal", "https://[2606:4700::1111]/client.json"],
     ["a loopback name", "https://localhost/client.json"],
   ]) {
     test(`refuses ${why} before fetching`, async () => {

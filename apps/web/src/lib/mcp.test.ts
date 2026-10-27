@@ -363,6 +363,24 @@ describe("mcp endpoint", () => {
     assert.match(JSON.stringify(body), /OAuth/u);
   });
 
+  // An expired or refused token should be refreshed, not re-consented.
+  test("marks a refused credential as an invalid token", async () => {
+    const { response } = await rpc(
+      "tools/call",
+      { arguments: {}, name: "deployments" },
+      { headers: { authorization: "Bearer not-a-token" }, session: null },
+    );
+    assert.strictEqual(response.status, 401);
+    const challenge = response.headers.get("www-authenticate") ?? "";
+    assert.match(challenge, /resource_metadata="[^"]+"/u);
+    assert.match(challenge, /error="invalid_token"/u);
+  });
+
+  test("sends no error to a request without a credential", async () => {
+    const { response } = await rpc("tools/list", {}, { session: null });
+    assert.doesNotMatch(response.headers.get("www-authenticate") ?? "", /error=/u);
+  });
+
   // RFC 6750 §3.1 step-up: a token without the tool's scope hears which one to
   // ask for, at HTTP level, before anything runs.
   test("answers a tool outside the token's scopes with an insufficient_scope challenge", async () => {
