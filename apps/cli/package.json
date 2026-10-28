@@ -27,7 +27,7 @@
     "consola": "^3.4.2",
     "cross-spawn": "^7.0.6",
     "esbuild": "^0.28.2",
-    "ignore": "^7.0.12",
+    "ignore": "^7.0.14",
     "tar": "^7.5.22",
     "typescript": "catalog:"
   }
