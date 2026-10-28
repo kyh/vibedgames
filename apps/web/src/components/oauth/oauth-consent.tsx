@@ -70,9 +70,15 @@ export const OAuthConsent = ({
         </ul>
         {(redirectHost ?? clientUri) && (
           <p className="text-muted-foreground text-xs">
-            You will be sent back to <span className="text-foreground">{redirectHost}</span>
-            {clientUri ? ` (${clientUri})` : null}. Only allow apps you trust; anyone can register
-            one.
+            You will be sent back to{" "}
+            <span className="text-foreground select-text">{redirectHost}</span>
+            {clientUri ? (
+              <>
+                {" "}
+                (<span className="select-text">{clientUri}</span>)
+              </>
+            ) : null}
+            . Only allow apps you trust; anyone can register one.
           </p>
         )}
       </div>

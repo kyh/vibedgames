@@ -75,7 +75,12 @@ export const ConnectedAppsSettings = () => {
                       <div className="truncate font-medium">{app.name ?? "Unnamed app"}</div>
                       <div className="text-muted-foreground text-xs">
                         {app.connectedAt ? `connected ${formatDate(app.connectedAt)}` : "connected"}
-                        {app.uri ? ` · ${app.uri}` : ""}
+                        {app.uri ? (
+                          <>
+                            {" · "}
+                            <span className="select-text">{app.uri}</span>
+                          </>
+                        ) : null}
                       </div>
                       {granted.length > 0 && (
                         <ul className="mt-2 flex flex-wrap gap-1">
