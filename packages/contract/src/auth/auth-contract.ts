@@ -87,13 +87,13 @@ export const authContract = {
     .meta(
       documented({
         description:
-          "Returns the authenticated identity, whether the caller used a session cookie, a session token or an API key. Backs `vg whoami`.",
+          "Returns the authenticated identity, whether the caller used a session cookie, a session token, an API key or an OAuth token. An OAuth token sees `email` only with the `email` scope, and `role` never. Backs `vg whoami`.",
         summary: "Get the current user",
       }),
     )
     .output(
       z.object({
-        email: z.string(),
+        email: z.string().nullable(),
         id: z.string(),
         name: z.string(),
         role: z.string().nullable(),

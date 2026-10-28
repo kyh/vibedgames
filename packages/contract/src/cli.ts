@@ -15,13 +15,14 @@ export const CLI_VERSION_HEADER = "x-vg-cli";
 export const CLI_OAUTH_CLIENT_ID = "vibedgames-cli";
 
 /**
- * What `vg login` asks for and its client may hold: who the person is, a
- * refresh token, and every action scope, so the CLI acts as fully as an API
- * key does.
+ * What `vg login` asks for and its client may hold: who the person is and
+ * their email, a refresh token, and every action scope, so the CLI acts as
+ * fully as an API key does.
  */
 export const CLI_OAUTH_SCOPES = [
   "openid",
   "profile",
+  "email",
   "offline_access",
   ...Object.keys(OAUTH_SCOPES),
 ];

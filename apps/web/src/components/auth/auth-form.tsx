@@ -190,7 +190,8 @@ const authRoute = getRouteApi("/auth");
  * in an OAuth flow the auth client carries the signed query along, and the
  * provider resumes the flow once the callback signs the person in (its
  * redirect to consent wins over `callbackURL`). A failed callback comes back
- * to this same page, signed query included, so the person can try again.
+ * to this same page with its query (an OAuth flow's signed query, a
+ * `callbackUrl`, an `invite`), so the person can try again where they were.
  */
 const SocialSignIn = ({ callbackUrl }: { callbackUrl?: string }) => {
   const { socialProviders } = authRoute.useLoaderData();
@@ -212,9 +213,7 @@ const SocialSignIn = ({ callbackUrl }: { callbackUrl?: string }) => {
             setPending(provider);
             await authClient.signIn.social({
               callbackURL: safeNextPath(callbackUrl ?? search.nextPath),
-              errorCallbackURL: inOAuthFlow()
-                ? `${window.location.pathname}${window.location.search}`
-                : "/auth/login",
+              errorCallbackURL: `${window.location.pathname}${window.location.search}`,
               fetchOptions: {
                 onError: (ctx) => {
                   toast.error(ctx.error.message);

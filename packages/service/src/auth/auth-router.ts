@@ -157,12 +157,19 @@ export const authRouter = {
   // Current authenticated identity. Works for both better-auth sessions and
   // API keys (both resolve to `context.session` in the oRPC context), so the CLI
   // can use it for `vg whoami` regardless of how it authenticated.
-  me: authed.me.handler(({ context }) => ({
-    email: context.session.user.email,
-    id: context.session.user.id,
-    name: context.session.user.name,
-    role: context.session.user.role ?? null,
-  })),
+  // An OAuth token learns the email only with OpenID's `email` scope, which
+  // the consent page lists apart from `profile`, and never the role: no scope
+  // grants it. Every other credential acts as the person in full.
+  me: authed.me.handler(({ context }) => {
+    const { user: caller } = context.session;
+    const scopes = context.oauthScopes;
+    return {
+      email: !scopes || scopes.includes("email") ? caller.email : null,
+      id: caller.id,
+      name: caller.name,
+      role: scopes ? null : (caller.role ?? null),
+    };
+  }),
 
   // Revoke, unrevoke, or change the use limit or value of an existing code. Omitted
   // fields are left untouched. Lowering `maxUses` below `usedCount` is allowed

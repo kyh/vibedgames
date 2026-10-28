@@ -210,3 +210,27 @@ describe("procedure authorization", () => {
     });
   }
 });
+
+// The consent page lists `email` apart from `profile`, and no scope grants
+// the role, so an access token sees each only as far as its grant says.
+describe("auth.me", () => {
+  test("shows an access token the email only with the email scope, and never the role", async () => {
+    const { me } = appRouter.auth;
+    assert.deepEqual(await call(me, undefined, { context: contextAs(oauthSession, ["profile"]) }), {
+      email: null,
+      id: "user-1",
+      name: "User",
+      role: null,
+    });
+    const withEmail = await call(me, undefined, {
+      context: contextAs(oauthSession, ["profile", "email"]),
+    });
+    assert.equal(withEmail.email, "user@vibedgames.com");
+    assert.equal(withEmail.role, null);
+    const admin = await call(me, undefined, {
+      context: contextAs(sessionFor({ role: "admin", token: "session-token" })),
+    });
+    assert.equal(admin.email, "user@vibedgames.com");
+    assert.equal(admin.role, "admin");
+  });
+});
