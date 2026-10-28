@@ -39,7 +39,7 @@ const securitySchemes = {
   },
   bearerAuth: {
     description:
-      "A session token from `vg login` (device-code flow), or an API key (`vg_…`). This is what `VG_TOKEN` holds.",
+      "An OAuth access token for the API (what `vg login` saves), a session token, or an API key (`vg_…`, what `VG_TOKEN` should hold).",
     scheme: "bearer",
     type: "http",
   },

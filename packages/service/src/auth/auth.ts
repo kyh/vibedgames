@@ -6,7 +6,12 @@ import { apiKey } from "@better-auth/api-key";
 import { expo } from "@better-auth/expo";
 import { cimd } from "@better-auth/cimd";
 import { mcp } from "@better-auth/mcp";
-import { DEFAULT_OAUTH_SCOPES } from "@better-auth/oauth-provider";
+import {
+  DEFAULT_OAUTH_SCOPES,
+  DEVICE_CODE_GRANT_TYPE,
+  oauthDeviceAuthorization,
+} from "@better-auth/oauth-provider";
+import { CLI_OAUTH_CLIENT_ID, CLI_OAUTH_SCOPES } from "@repo/contract/cli";
 import { OAUTH_SCOPES } from "@repo/contract/auth/oauth-scopes";
 import type { BetterAuthPlugin } from "better-auth";
 import { betterAuth } from "better-auth";
@@ -128,6 +133,11 @@ export const createAuth = (opts: AuthOptions) => {
           clientRegistrationDefaultResources: [resources.mcp, resources.api],
           consentPage: "/oauth/consent",
           loginPage: "/auth/login",
+          // A refresh token rotates on use, and reusing a rotated one revokes
+          // the whole family. Parallel `vg` commands (an agent's) can refresh
+          // with the same token at once; within this window the loser gets
+          // the winner's response replayed instead of a logout.
+          refreshTokenReuseInterval: 30,
           resource: resources.mcp,
           resources: [{ identifier: resources.api, name: "vibedgames API" }],
           // OpenID's, plus one per kind of action (`@repo/contract/auth/oauth-scopes`),
@@ -139,6 +149,11 @@ export const createAuth = (opts: AuthOptions) => {
       // themselves: the client_id is an HTTPS URL to its metadata. Registration
       // above stays for clients from before it.
       cimd({ fetchClientMetadataResource, metadataProfile: "mcp-2026-07-28" }),
+      // RFC 8628 for `vg login`: the CLI asks for a device code, the person
+      // approves its user code at `/device`, and the CLI receives OAuth
+      // tokens for the API, scoped and refreshable, as the client below.
+      oauthDeviceAuthorization({ expiresIn: "10m", verificationUri: "/device" }),
+      seedFailureContained(firstPartyCliClient(resources.api)),
     ],
     // Persist rate-limit counters in D1. The default in-memory store keeps
     // per-isolate counters, so on Cloudflare Workers the effective limit
@@ -258,6 +273,63 @@ const seedFailureContained = <P extends BetterAuthPlugin>(plugin: P): P => {
     },
   };
 };
+
+/**
+ * Seeds the OAuth client `vg login` signs in as (`CLI_OAUTH_CLIENT_ID`): a
+ * public, first-party client allowed only the device-code and refresh-token
+ * grants, every scope, and the API resource. The `/device` page is its
+ * consent, so the provider's consent screen is skipped. A row that exists
+ * only has its scopes brought up to `CLI_OAUTH_SCOPES`, so a scope added later
+ * reaches the next `vg login`.
+ */
+const firstPartyCliClient = (apiResource: string) =>
+  ({
+    id: "first-party-cli-client",
+    init: async (ctx) => {
+      const existing = await ctx.adapter.findOne<{ scopes?: string[] | null }>({
+        model: "oauthClient",
+        where: [{ field: "clientId", value: CLI_OAUTH_CLIENT_ID }],
+      });
+      const now = new Date();
+      if (existing) {
+        if (JSON.stringify(existing.scopes) !== JSON.stringify(CLI_OAUTH_SCOPES)) {
+          await ctx.adapter.update({
+            model: "oauthClient",
+            update: { scopes: CLI_OAUTH_SCOPES, updatedAt: now },
+            where: [{ field: "clientId", value: CLI_OAUTH_CLIENT_ID }],
+          });
+        }
+        return;
+      }
+      await ctx.adapter.create({
+        data: {
+          applicationType: "native",
+          clientId: CLI_OAUTH_CLIENT_ID,
+          createdAt: now,
+          disabled: false,
+          grantTypes: [DEVICE_CODE_GRANT_TYPE, "refresh_token"],
+          name: "vg CLI",
+          redirectUris: [],
+          requirePKCE: false,
+          responseTypes: [],
+          scopes: CLI_OAUTH_SCOPES,
+          skipConsent: true,
+          tokenEndpointAuthMethod: "none",
+          updatedAt: now,
+          uri: "https://www.npmjs.com/package/vibedgames",
+        },
+        model: "oauthClient",
+      });
+      await ctx.adapter.create({
+        data: {
+          clientId: CLI_OAUTH_CLIENT_ID,
+          createdAt: now,
+          resourceId: apiResource,
+        },
+        model: "oauthClientResource",
+      });
+    },
+  }) satisfies BetterAuthPlugin;
 
 export type Auth = ReturnType<typeof createAuth>;
 export type Session = Auth["$Infer"]["Session"];

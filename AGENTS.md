@@ -80,16 +80,10 @@ Note better-auth rate-limits to 10 requests / 60s per IP — a tight retry loop 
 
 The token above is the seeded local one. Against **prod** — a cloud session, or CI
 — `VG_TOKEN` has to be a real one, and `vg login` cannot produce it unattended: it
-prints a code and waits for someone to confirm it in a browser. Do that once on a
-machine that has one, then read the token back out:
-
-```sh
-vg login                                   # confirm the code in the browser
-cat ~/.config/vg/auth.json                 # { "token": "...", "baseUrl": "..." }
-node -p 'require(require("os").homedir()+"/.config/vg/auth.json").token' | pbcopy
-```
-
-Set that as the environment secret. `VG_TOKEN` alone is sufficient — it is read
+prints a code and waits for someone to approve it in a browser, and the access
+token it saves lasts an hour (the CLI refreshes it, a copied one does not). Create
+an API key instead, in Settings → API keys on vibedgames.com (a `vg_…` string),
+and set that as the environment secret. `VG_TOKEN` alone is sufficient — it is read
 before the saved config, so a session with no `~/.config/vg` authenticates from it:
 
 ```sh
@@ -131,7 +125,7 @@ vg playtest screenshot /tmp/after.png
 
 The auth form uses react-hook-form, so prefer the `data-test` attributes over positional refs for the two credential fields; everything else is reliable off `snapshot`.
 
-Six flows cover all ten `useMutation` sites in the app: `/settings` (create + revoke an API key), `/admin/invites` (create + revoke a code), `/admin/users` (create a user, grant credits, then re-check `/settings`), `/home` (delete a game), `/settings` again (click "Have a code? Redeem it" and type `DEV123` into the dialog — that is the `credits.redeem` mutation; a second redeem by the same account answers 409; the buy buttons, which fire `credits.checkout`, render only when both `STRIPE_*` keys are set — without them `credits.me` reports `purchasesEnabled: false` and the section offers a code button instead), `/auth/cli?code=<code>` (confirm a CLI device code — fires on the Approve click, never on load, and deliberately invalidates nothing).
+Six flows cover all ten `useMutation` sites in the app: `/settings` (create + revoke an API key), `/admin/invites` (create + revoke a code), `/admin/users` (create a user, grant credits, then re-check `/settings`), `/home` (delete a game), `/settings` again (click "Have a code? Redeem it" and type `DEV123` into the dialog — that is the `credits.redeem` mutation; a second redeem by the same account answers 409; the buy buttons, which fire `credits.checkout`, render only when both `STRIPE_*` keys are set — without them `credits.me` reports `purchasesEnabled: false` and the section offers a code button instead), `/auth/cli?code=<code>` (confirm a legacy CLI code, from installs before OAuth `vg login` — fires on the Approve click, never on load, and deliberately invalidates nothing). `/device` is not a `useMutation` site: `vg login` against the dev server prints a code, and its page approves or denies it through the auth client.
 
 ## Platform matrix
 

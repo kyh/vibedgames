@@ -36,7 +36,7 @@ export const authContract = {
     .meta(
       documented({
         description:
-          "Starts the CLI device-code login: returns a short code, valid for five minutes, for the person to confirm in a browser. Poll cliPoll with it.",
+          "Starts the legacy CLI login, kept for `vg` installs from before OAuth device authorization: returns a short code, valid for five minutes, for the person to confirm in a browser. Poll cliPoll with it.",
         summary: "Start a CLI login",
       }),
     )

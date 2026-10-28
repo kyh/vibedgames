@@ -97,7 +97,10 @@ any logged-in user, so shipping it is a publish and should be a deliberate act.
 
 ## Auth
 
-Uses a device-code polling flow: CLI generates a 6-char code, opens the browser,
-polls until the user confirms. Token stored at `~/.config/vg/auth.json`.
+`vg login` is OAuth device authorization (RFC 8628): the CLI prints a code,
+opens `/device` in the browser, and polls until the person approves it there.
+The access token and its refresh token are stored at `~/.config/vg/auth.json`
+and refreshed as needed; `vg logout` revokes them, as does Disconnect under
+Settings → Connected apps.
 `VG_TOKEN` overrides it (for CI and headless agents) and `VG_API_URL` points the
 CLI at a non-production API.

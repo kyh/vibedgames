@@ -373,3 +373,31 @@ export const oauthClientAssertion = sqliteTable("oauth_client_assertion", {
   expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(),
   id: text("id").primaryKey(),
 });
+
+/**
+ * A pending RFC 8628 device authorization: `vg login` holds the device code
+ * and polls; the person approves the user code at `/device`. The last two
+ * fields are the OAuth provider's, binding the code to its client and the
+ * resources the token will be for.
+ */
+export const deviceCode = sqliteTable(
+  "device_code",
+  {
+    clientId: text("client_id"),
+    deviceCode: text("device_code").notNull(),
+    expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(),
+    id: text("id").primaryKey(),
+    lastPolledAt: integer("last_polled_at", { mode: "timestamp_ms" }),
+    oauthClientId: text("oauth_client_id"),
+    pollingInterval: integer("polling_interval"),
+    resources: text("resources", { mode: "json" }).$type<string[]>(),
+    scope: text("scope"),
+    status: text("status").notNull(),
+    userCode: text("user_code").notNull(),
+    userId: text("user_id").references(() => user.id, { onDelete: "cascade" }),
+  },
+  (table) => [
+    uniqueIndex("device_code_device_code_unique").on(table.deviceCode),
+    uniqueIndex("device_code_user_code_unique").on(table.userCode),
+  ],
+);

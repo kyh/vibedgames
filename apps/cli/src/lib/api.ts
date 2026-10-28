@@ -4,30 +4,33 @@ import { createORPCClient, ORPCError } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
 
 import { getBaseUrl, getToken } from "./config.js";
+import { getAccessToken } from "./oauth.js";
 import { PACKAGE_VERSION } from "./package-root.js";
 import type { JsonValue } from "./types.js";
 
-const makeClient = (baseUrl: string, token?: string): ContractClient =>
+const makeClient = (baseUrl: string): ContractClient =>
   createORPCClient(
     new RPCLink({
-      headers: () =>
-        token
+      // Read per request, so a login's access token is refreshed before the
+      // call that would find it expired.
+      headers: async () => {
+        const token = await getAccessToken();
+        return token
           ? { Authorization: `Bearer ${token}`, [CLI_VERSION_HEADER]: PACKAGE_VERSION }
-          : { [CLI_VERSION_HEADER]: PACKAGE_VERSION },
+          : { [CLI_VERSION_HEADER]: PACKAGE_VERSION };
+      },
       origin: baseUrl,
       url: "/api/orpc",
     }),
   );
 
-/** Authenticated client — requires a saved session token. */
+/** Authenticated client — requires a saved login or `VG_TOKEN`. */
 export const createClient = (): ContractClient => {
-  const token = getToken();
-
-  if (!token) {
+  if (!getToken()) {
     throw new Error("Not logged in. Run `vg login` to authenticate.");
   }
 
-  return makeClient(getBaseUrl(), token);
+  return makeClient(getBaseUrl());
 };
 
 /** The oRPC error code on a failed call, or null for non-oRPC failures. */
@@ -46,6 +49,3 @@ export const forwardJson = async (
   client: ContractClient,
   input: ForwardInput,
 ): Promise<JsonValue> => await client.generate.forward(input);
-
-/** Unauthenticated client — for login flow. */
-export const createPublicClient = (baseUrl: string): ContractClient => makeClient(baseUrl);

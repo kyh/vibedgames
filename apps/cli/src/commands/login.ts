@@ -3,17 +3,21 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { defineCommand } from "citty";
 import { consola } from "consola";
 
-import { createPublicClient } from "../lib/api.js";
 import { getBaseUrl, saveConfig } from "../lib/config.js";
+import { OAuthError, pollDeviceToken, requestDeviceCode } from "../lib/oauth.js";
 
-const POLL_INTERVAL_MS = 2000;
-// 5 min at 2s intervals
-const MAX_POLLS = 150;
+/** RFC 8628 §3.5: each `slow_down` adds five seconds to the polling interval. */
+const SLOW_DOWN_STEP_MS = 5000;
 
 const openBrowser = (url: string): void => {
   const openers: Partial<Record<NodeJS.Platform, string>> = { darwin: "open", win32: "start" };
   const cmd = openers[process.platform] ?? "xdg-open";
   exec(`${cmd} "${url}"`);
+};
+
+const fail = (message: string): never => {
+  consola.error(message);
+  process.exit(1);
 };
 
 export const loginCommand = defineCommand({
@@ -23,36 +27,40 @@ export const loginCommand = defineCommand({
   },
   run: async () => {
     const baseUrl = getBaseUrl();
-    const client = createPublicClient(baseUrl);
+    const device = await requestDeviceCode(baseUrl);
 
-    const { code } = await client.auth.cliInit();
+    consola.box(`Code: ${device.userCode}`);
+    consola.info(
+      `Opening ${device.verificationUriComplete}: approve there if it shows this same code.`,
+    );
+    openBrowser(device.verificationUriComplete);
 
-    consola.box(`Code: ${code}`);
-    consola.info("Opening your browser: approve there if it shows this same code.");
+    consola.start("Waiting for approval...");
 
-    const authUrl = `${baseUrl}/auth/cli?code=${code}`;
-    openBrowser(authUrl);
-
-    consola.start("Waiting for confirmation...");
-
-    for (let i = 0; i < MAX_POLLS; i += 1) {
-      await sleep(POLL_INTERVAL_MS);
-
-      const result = await client.auth.cliPoll({ code });
-
-      if (result.status === "confirmed") {
-        saveConfig({ baseUrl, token: result.token });
+    let intervalMs = device.interval * 1000;
+    const deadline = Date.now() + device.expiresIn * 1000;
+    while (Date.now() < deadline) {
+      await sleep(intervalMs);
+      try {
+        saveConfig(await pollDeviceToken(baseUrl, device.deviceCode));
         consola.success("Logged in successfully");
         return;
-      }
-
-      if (result.status === "expired") {
-        consola.error("Code expired. Run `vg login` to try again.");
-        process.exit(1);
+      } catch (error) {
+        if (!(error instanceof OAuthError)) {
+          throw error;
+        }
+        if (error.code === "slow_down") {
+          intervalMs += SLOW_DOWN_STEP_MS;
+        } else if (error.code === "access_denied") {
+          fail("Login was denied in the browser.");
+        } else if (error.code === "expired_token") {
+          fail("Code expired. Run `vg login` to try again.");
+        } else if (error.code !== "authorization_pending") {
+          throw error;
+        }
       }
     }
 
-    consola.error("Timed out waiting for confirmation.");
-    process.exit(1);
+    fail("Timed out waiting for approval. Run `vg login` to try again.");
   },
 });

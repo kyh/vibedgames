@@ -2,12 +2,19 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from "
 import { homedir } from "node:os";
 import path from "node:path";
 
-import { isJsonObject, isJsonString } from "./types.js";
+import { isJsonNumber, isJsonObject, isJsonString } from "./types.js";
 import type { JsonValue } from "./types.js";
 
-interface Config {
-  token: string;
+/**
+ * A saved login. `vg login` saves an OAuth access token with its refresh
+ * token and expiry (ms since epoch); logins from before it saved a session
+ * token alone, which keeps working until its session ends.
+ */
+export interface Config {
   baseUrl: string;
+  expiresAt?: number;
+  refreshToken?: string;
+  token: string;
 }
 
 export const getConfigDir = (): string => {
@@ -34,11 +41,16 @@ export const getConfig = (): Config | null => {
   if (!isJsonObject(raw)) {
     return null;
   }
-  const { token, baseUrl } = raw;
+  const { baseUrl, expiresAt, refreshToken, token } = raw;
   if (!isJsonString(token) || !isJsonString(baseUrl)) {
     return null;
   }
-  return { baseUrl, token };
+  return {
+    baseUrl,
+    expiresAt: isJsonNumber(expiresAt) ? expiresAt : undefined,
+    refreshToken: isJsonString(refreshToken) ? refreshToken : undefined,
+    token,
+  };
 };
 
 export const saveConfig = (config: Config): void => {

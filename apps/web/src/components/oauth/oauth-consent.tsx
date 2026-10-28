@@ -1,21 +1,9 @@
 import { useState } from "react";
-import { OAUTH_SCOPES } from "@repo/contract/auth/oauth-scopes";
 import { Button } from "@repo/ui/components/button";
 import { toast } from "@repo/ui/components/sonner";
 
 import { authClient } from "@/auth/client";
-
-/**
- * What each scope lets the app do, in the person's terms: OpenID's, then
- * vibedgames' own (`@repo/contract/auth/oauth-scopes`).
- */
-const SCOPE_LABELS = new Map<string, string>([
-  ["openid", "Know who you are"],
-  ["profile", "See your name and picture"],
-  ["email", "See your email address"],
-  ...Object.entries(OAUTH_SCOPES),
-  ["offline_access", "Stay connected while you are away"],
-]);
+import { ScopeList } from "@/components/oauth/scope-list";
 
 interface OAuthConsentProps {
   clientName: string | null;
@@ -63,11 +51,7 @@ export const OAuthConsent = ({
       </div>
       <div className="grid gap-3 text-sm">
         <p>{name} will be able to:</p>
-        <ul className="text-muted-foreground list-disc space-y-1 pl-5">
-          {[...SCOPE_LABELS].flatMap(([scope, label]) =>
-            scopes.includes(scope) ? [<li key={scope}>{label}</li>] : [],
-          )}
-        </ul>
+        <ScopeList scopes={scopes} />
         {(redirectHost ?? clientUri) && (
           <p className="text-muted-foreground text-xs">
             You will be sent back to{" "}

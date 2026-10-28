@@ -13,15 +13,15 @@ const connectedApp = z.object({
 });
 
 /**
- * The apps a person has connected over OAuth (MCP connectors and anything
- * else that asked for consent), and the way to cut one off.
+ * The apps a person has connected over OAuth (MCP connectors, `vg login`,
+ * and anything else that asked for consent), and the way to cut one off.
  */
 export const connectedAppsContract = {
   list: sessionOnlyBase
     .meta(
       documented({
         description:
-          "Lists the apps the caller has approved over OAuth, with the scopes each was granted. Needs a real session.",
+          "Lists the apps the caller has approved over OAuth, consented to or still holding a refresh token (as `vg login` does), with the scopes each was granted. Needs a real session.",
         summary: "List connected apps",
       }),
     )
