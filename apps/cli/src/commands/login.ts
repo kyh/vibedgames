@@ -28,7 +28,7 @@ export const loginCommand = defineCommand({
     const { code } = await client.auth.cliInit();
 
     consola.box(`Code: ${code}`);
-    consola.info("Opening browser to complete authentication...");
+    consola.info("Opening your browser: approve there if it shows this same code.");
 
     const authUrl = `${baseUrl}/auth/cli?code=${code}`;
     openBrowser(authUrl);
