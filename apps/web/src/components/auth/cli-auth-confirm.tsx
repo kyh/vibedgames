@@ -34,7 +34,7 @@ export const CliAuthConfirm = ({ code, userName }: CliAuthConfirmProps) => {
     return (
       <div className="flex flex-col gap-4 text-center">
         <h1 className="text-lg font-light">Couldn&apos;t connect the CLI</h1>
-        <p className="text-sm text-red-500">{confirm.error.message}</p>
+        <p className="text-sm text-red-500 select-text">{confirm.error.message}</p>
         <p className="text-muted-foreground text-xs">
           Run <code>vg login</code> to try again.
         </p>
