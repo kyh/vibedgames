@@ -98,7 +98,7 @@ const CredentialsForm = ({
         return;
       }
       // `href`, not `to`: a callback carries its own query and hash
-      // (`/auth/cli?code=…`, `/settings?code=…#credits`), which `to` reads as path.
+      // (`/device?user_code=…`, `/settings?code=…#credits`), which `to` reads as path.
       router.navigate({ href: safeNextPath(callbackUrl ?? nextPath), replace: true });
       return;
     }

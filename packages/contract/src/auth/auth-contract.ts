@@ -1,10 +1,8 @@
 import { z } from "zod";
 
-import { adminBase, protectedBase, publicBase, requiresScope, sessionOnlyBase } from "../base";
+import { adminBase, protectedBase, requiresScope } from "../base";
 import { documented } from "../openapi";
-import { codeInput, createInvitesInput, updateInviteInput } from "./auth-schema";
-
-const okOutput = z.object({ ok: z.literal(true) });
+import { createInvitesInput, updateInviteInput } from "./auth-schema";
 
 const inviteCodeRow = z.object({
   code: z.string(),
@@ -20,45 +18,6 @@ const inviteCodeRow = z.object({
 });
 
 export const authContract = {
-  cliConfirm: sessionOnlyBase
-    .meta(
-      documented({
-        description:
-          "Approves a pending CLI device code from a signed-in browser, handing the CLI this session's token on its next cliPoll.",
-        errors: [404],
-        summary: "Confirm a CLI login code",
-      }),
-    )
-    .input(codeInput)
-    .output(okOutput),
-
-  cliInit: publicBase
-    .meta(
-      documented({
-        description:
-          "Starts the legacy CLI login, kept for `vg` installs from before OAuth device authorization: returns a short code, valid for five minutes, for the person to confirm in a browser. Poll cliPoll with it.",
-        summary: "Start a CLI login",
-      }),
-    )
-    .output(z.object({ code: z.string() })),
-
-  cliPoll: publicBase
-    .meta(
-      documented({
-        description:
-          "Polls a CLI login code. Returns `pending` until confirmed, then `confirmed` with a bearer token exactly once; `expired` after five minutes or once consumed.",
-        summary: "Poll a CLI login",
-      }),
-    )
-    .input(codeInput)
-    .output(
-      z.discriminatedUnion("status", [
-        z.object({ status: z.literal("expired") }),
-        z.object({ status: z.literal("pending") }),
-        z.object({ status: z.literal("confirmed"), token: z.string() }),
-      ]),
-    ),
-
   createInvites: adminBase
     .meta(
       documented({

@@ -38,8 +38,8 @@ const FAULTS_BELOW_500 = new Set(["PRECONDITION_FAILED"]);
 export const reportFaults = (error: Error | undefined) => {
   if (error instanceof ORPCError) {
     // Observability is billable on this Worker. A procedure answering
-    // deliberately — an expired session, a zod rejection, `auth.cliPoll`
-    // telling a polling CLI "not confirmed yet" — would bury the real
+    // deliberately — an expired session, a zod rejection, a missing
+    // game — would bury the real
     // errors, so only a fault gets a line.
     const status = ERROR_STATUS.get(error.code) ?? 500;
     if (status < 500 && !FAULTS_BELOW_500.has(error.code)) {

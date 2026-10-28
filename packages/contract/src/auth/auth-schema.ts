@@ -2,11 +2,6 @@ import { z } from "zod";
 
 import { INVITE_CODE_LENGTH, MAX_INVITE_BATCH } from "./auth-limits";
 
-// CLI device codes, deliberately loose: a device code is matched exactly, and
-// an unknown one is answered (`expired`, or 404 on confirm), not refused as
-// malformed.
-export const codeInput = z.object({ code: z.string() });
-
 // The ledger records whole micro-USD (`usdToMicro` in the service).
 const MICRO_PER_USD = 1_000_000;
 
