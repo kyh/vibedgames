@@ -279,8 +279,8 @@ const seedFailureContained = <P extends BetterAuthPlugin>(plugin: P): P => {
  * public, first-party client allowed only the device-code and refresh-token
  * grants, every scope, and the API resource. The `/device` page is its
  * consent, so the provider's consent screen is skipped. A row that exists
- * only has its scopes brought up to `CLI_OAUTH_SCOPES`, so a scope added later
- * reaches the next `vg login`.
+ * has its scopes brought up to `CLI_OAUTH_SCOPES`, so a scope added later
+ * reaches the next `vg login`, and is bound to this origin's API resource.
  */
 const firstPartyCliClient = (apiResource: string) =>
   ({
@@ -291,43 +291,49 @@ const firstPartyCliClient = (apiResource: string) =>
         where: [{ field: "clientId", value: CLI_OAUTH_CLIENT_ID }],
       });
       const now = new Date();
-      if (existing) {
-        if (JSON.stringify(existing.scopes) !== JSON.stringify(CLI_OAUTH_SCOPES)) {
-          await ctx.adapter.update({
-            model: "oauthClient",
-            update: { scopes: CLI_OAUTH_SCOPES, updatedAt: now },
-            where: [{ field: "clientId", value: CLI_OAUTH_CLIENT_ID }],
-          });
-        }
-        return;
+      if (!existing) {
+        await ctx.adapter.create({
+          data: {
+            applicationType: "native",
+            clientId: CLI_OAUTH_CLIENT_ID,
+            createdAt: now,
+            disabled: false,
+            grantTypes: [DEVICE_CODE_GRANT_TYPE, "refresh_token"],
+            name: "vg CLI",
+            redirectUris: [],
+            requirePKCE: false,
+            responseTypes: [],
+            scopes: CLI_OAUTH_SCOPES,
+            skipConsent: true,
+            tokenEndpointAuthMethod: "none",
+            updatedAt: now,
+            uri: "https://www.npmjs.com/package/vibedgames",
+          },
+          model: "oauthClient",
+        });
+      } else if (JSON.stringify(existing.scopes) !== JSON.stringify(CLI_OAUTH_SCOPES)) {
+        await ctx.adapter.update({
+          model: "oauthClient",
+          update: { scopes: CLI_OAUTH_SCOPES, updatedAt: now },
+          where: [{ field: "clientId", value: CLI_OAUTH_CLIENT_ID }],
+        });
       }
-      await ctx.adapter.create({
-        data: {
-          applicationType: "native",
-          clientId: CLI_OAUTH_CLIENT_ID,
-          createdAt: now,
-          disabled: false,
-          grantTypes: [DEVICE_CODE_GRANT_TYPE, "refresh_token"],
-          name: "vg CLI",
-          redirectUris: [],
-          requirePKCE: false,
-          responseTypes: [],
-          scopes: CLI_OAUTH_SCOPES,
-          skipConsent: true,
-          tokenEndpointAuthMethod: "none",
-          updatedAt: now,
-          uri: "https://www.npmjs.com/package/vibedgames",
-        },
-        model: "oauthClient",
-      });
-      await ctx.adapter.create({
-        data: {
-          clientId: CLI_OAUTH_CLIENT_ID,
-          createdAt: now,
-          resourceId: apiResource,
-        },
+      // Bound per origin: one database can serve several (localhost and
+      // 127.0.0.1 locally), each with its own `/api` resource. Checked on
+      // every init, so a binding a failed init skipped is made on the next.
+      const bound = await ctx.adapter.findOne({
         model: "oauthClientResource",
+        where: [
+          { field: "clientId", value: CLI_OAUTH_CLIENT_ID },
+          { field: "resourceId", value: apiResource },
+        ],
       });
+      if (!bound) {
+        await ctx.adapter.create({
+          data: { clientId: CLI_OAUTH_CLIENT_ID, createdAt: now, resourceId: apiResource },
+          model: "oauthClientResource",
+        });
+      }
     },
   }) satisfies BetterAuthPlugin;
 

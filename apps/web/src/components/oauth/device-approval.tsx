@@ -45,7 +45,7 @@ const EnterCode = ({ notice }: { notice?: string }) => {
         autoCapitalize="characters"
         autoComplete="off"
         className="text-center font-mono tracking-[0.3em]"
-        placeholder="ABCD-EFGH"
+        placeholder="ABCD2345"
         value={code}
         variant="frosted"
         onChange={(event) => setCode(event.target.value)}
