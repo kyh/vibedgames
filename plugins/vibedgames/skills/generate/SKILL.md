@@ -7,7 +7,7 @@ description: "Run the `vg generate` CLI: search models, inspect schemas and pric
 
 `vg generate` is the agent-first CLI for generating images, video, and audio. It works in a terminal for humans (pretty output) and equally well for agents (structured JSON when piped or with `--json`). All other skills in this repo call `vg generate` for execution; they do not wrap any model HTTP API directly. Every call is forwarded through a single vibedgames server proc that attaches the credentials and proxies the request.
 
-> **Vibedgames runtime.** Install with `npm install -g vibedgames` (or `pnpm dogfood` in this repo). The vibedgames server holds the API key, so there is no per-machine setup. The CLI exposes `run`, `status`, `models`, `schema`, `upload`, `pricing`, and `docs` — the read/write surface that maps to the queue, platform, storage, and docs APIs.
+> **Vibedgames runtime.** The vibedgames server holds the model API keys, so the only setup is a signed-in `vg`. If `vg` isn't on PATH or says you're not logged in, follow the `vg-setup` skill (no global install needed: `npx -y vibedgames@latest` stands in for `vg`). The CLI exposes `run`, `status`, `models`, `schema`, `upload`, `pricing`, and `docs` — the read/write surface that maps to the queue, platform, storage, and docs APIs.
 
 For the full command surface (every flag, every option, every example), see [references/full-reference.md](references/full-reference.md). For setup details, see the [Setup](#setup) section below.
 
@@ -30,8 +30,6 @@ For the full command surface (every flag, every option, every example), see [ref
 | `vg generate upload <path>`                       | Upload a local file (returns a URL usable as a model input)   |
 | `vg generate pricing <endpoint_id>`               | Check cost per call                                           |
 | `vg generate docs <query>`                        | Search generative-model documentation                         |
-
-> `vg generate` is a model-call surface only. Install/update the CLI with `npm install -g vibedgames`; skills live in this repo under `plugins/vibedgames/skills/` and sync via `pnpm dogfood`.
 
 > **Images can run through your own Codex plan.** Opt in once with `vg config set generate.provider codex`: OpenAI image runs (`openai/gpt-image-*`) then go to the local `codex` CLI on the user's own Codex plan, with no vibedgames auth or credits, while every other endpoint (Flux, video, audio, 3D) stays on the vibedgames catalog. A run Codex can't serve (`--async`, a URL reference) uses vibedgames and says so on stderr. `--provider codex|vibedgames` decides a single run, and the literal endpoint `codex` always uses Codex. On the codex path: images only, synchronous, local reference files only, and output is saved straight to disk — read `downloaded_files[]` from the `--json` result (there are no URLs). If `codex` is missing the run exits non-zero; rerun with `--provider vibedgames`. Full contract (recognized inputs, JSON shape, failure semantics): [full-reference.md](references/full-reference.md#provider-codex-use-your-own-codex-plan-for-images).
 
@@ -102,8 +100,8 @@ vg generate docs "webhook callbacks" --json
 ## Setup
 
 ```bash
-npm install -g vibedgames # global install
-vg --help                 # confirm the CLI is on PATH
+command -v vg || echo "use: npx -y vibedgames@latest generate ..."
+vg whoami --json   # exits 1 when signed out
 ```
 
-In this repo, run `pnpm dogfood` instead — it links the local CLI build and syncs `.claude/skills/`. The vibedgames server holds the API key, so there is no per-machine API-key step. See [full-reference.md](references/full-reference.md) for output modes and JSON conventions.
+Signing in and the no-install fallback are in the `vg-setup` skill. The vibedgames server holds the model API keys, so there is no per-machine API-key step. See [full-reference.md](references/full-reference.md) for output modes and JSON conventions.
