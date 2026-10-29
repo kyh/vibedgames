@@ -22,9 +22,11 @@ import { isCrossOrigin, reportFaults } from "@/lib/orpc-handler";
  * `/mcp`: the tools in `mcp-tools.ts` over stateless Streamable HTTP,
  * authenticated by an OAuth access token issued for this resource (what
  * claude.ai and other connector clients get from the consent flow) or the
- * same `vg_…` API key the CLI uses. Without either, every request answers
- * 401 with the RFC 9728 challenge that points a client at the
- * authorization server, and a token calling a tool outside its scopes gets
+ * same `vg_…` API key the CLI uses. Auth is optional until a tool needs it:
+ * an anonymous client can initialize, list tools and read the skills, and a
+ * call to a tool that names a scope answers 401 with the RFC 9728 challenge
+ * that points it at the authorization server. A refused credential answers
+ * 401 on any request, and a token calling a tool outside its scopes gets
  * the 403 `insufficient_scope` challenge. A tool call runs
  * through the same handler stack as `/api/orpc`, so its middleware,
  * validation and credit gate are the API's. The MCP meta lives in `apps/web`,
@@ -95,17 +97,22 @@ const toolScopes = new Map(
   Object.entries(tools).map(([name, tool]) => [name, getRequiredScope(tool)]),
 );
 
-/** The tool a JSON-RPC body calls, or null for any other message. */
-const calledTool = (body: Uint8Array | undefined): string | null => {
+/** The scopes the tools a JSON-RPC body calls need, batches included. */
+const requiredScopes = (body: Uint8Array | undefined): string[] => {
   if (!body) {
-    return null;
+    return [];
   }
+  let parsed: unknown;
   try {
-    const call = toolCall.safeParse(JSON.parse(new TextDecoder().decode(body)));
-    return call.success ? call.data.params.name : null;
+    parsed = JSON.parse(new TextDecoder().decode(body));
   } catch {
-    return null;
+    return [];
   }
+  return (Array.isArray(parsed) ? parsed : [parsed]).flatMap((message) => {
+    const call = toolCall.safeParse(message);
+    const scope = call.success ? toolScopes.get(call.data.params.name) : undefined;
+    return scope ? [scope] : [];
+  });
 };
 
 /**
@@ -114,10 +121,17 @@ const calledTool = (body: Uint8Array | undefined): string | null => {
  * call, turns that into the HTTP 403 `insufficient_scope` challenge a client
  * steps up from (RFC 6750 §3.1), rather than a tool error it cannot act on.
  */
-const missingScope = (body: Uint8Array | undefined, granted: readonly string[]) => {
-  const name = calledTool(body);
-  const required = name ? toolScopes.get(name) : undefined;
-  return required && !granted.includes(required) ? required : null;
+const missingScope = (required: readonly string[], granted: readonly string[]) =>
+  required.find((scope) => !granted.includes(scope)) ?? null;
+
+/**
+ * Each tool's auth policy as OpenAI's Apps SDK reads it (`securitySchemes`,
+ * mirrored in `_meta` for clients that read only that): a tool with a scope
+ * needs OAuth, and one without runs anonymously.
+ */
+const securitySchemes = (name: string) => {
+  const scope = toolScopes.get(name);
+  return scope ? [{ scopes: [scope], type: "oauth2" }] : [{ type: "noauth" }];
 };
 
 const registrar = new McpRegistrar(tools, {
@@ -140,7 +154,10 @@ const instructions = [
 export const createVibedgamesMcpHandler = (context: McpContext) =>
   createMcpHandler(async () => {
     const server = new McpServer({ name: "vibedgames", version: "1.0.0" }, { instructions });
-    await registrar.register(server, { context });
+    const { tools: registered } = await registrar.register(server, { context });
+    for (const [name, tool] of Object.entries(registered)) {
+      tool.update({ _meta: { ...tool._meta, securitySchemes: securitySchemes(name) } });
+    }
     registerSkills(server, context.skills);
     return server;
   });
@@ -215,10 +232,13 @@ export const handleMcpRequest = async (
   }
   const headers = withoutCookies(request.headers);
   const context = await createContext(headers);
-  if (!context.session) {
+  const required = requiredScopes(body);
+  // Anonymous is fine until a tool needs an account; a credential that was
+  // sent and refused is never treated as anonymous.
+  if (!context.session && (headers.has("authorization") || required.length > 0)) {
     return unauthorized(request);
   }
-  const lacking = context.oauthScopes ? missingScope(body, context.oauthScopes) : null;
+  const lacking = context.oauthScopes ? missingScope(required, context.oauthScopes) : null;
   if (lacking && context.oauthScopes) {
     // The scopes it holds plus the one it lacks, so re-consenting keeps both.
     const scopes = [...new Set([...context.oauthScopes, lacking])];
