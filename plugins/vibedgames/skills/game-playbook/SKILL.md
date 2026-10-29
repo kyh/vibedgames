@@ -15,6 +15,10 @@ how they fit together and how to make the result _fun_.
 Do these in order — don't write the game loop before you have art, and don't
 ship before the craft pass.
 
+0. **Setup.** Run `vg-setup` first: find `vg` (or use `npx -y vibedgames@latest`)
+   and get the user signed in now. Generation and deploy both need it, and the
+   sign-in is the one step that waits on a human.
+
 1. **Scaffold.** `vg new <slug> --engine phaser` for 2D, `--engine threejs` for
    3D. (See the `phaser` / `threejs` skills.) The template is a skeleton, not a
    game — you will replace its placeholder scene and logo.

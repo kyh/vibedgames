@@ -35,7 +35,7 @@ npm run build
 vg deploy ./dist     # ships to my-bomberman.vibedgames.com (bundle only)
 ```
 
-`vg fork` requires login (`vg login`, or `VG_TOKEN` for headless/agent use).
+`vg fork` requires login (`vg login`, or `VG_TOKEN` for headless/agent use; see the `vg-setup` skill).
 Most projects ship no source, and fork fails on those with a clear NOT_FOUND —
 there's nothing to fork.
 

@@ -5,7 +5,7 @@ description: "Prompt a specific model family well (Kling, GPT Image, Seedance…
 
 # Model Prompting
 
-> **Runtime:** All endpoint calls use the `vg generate` CLI (`npm install -g vibedgames`, or `pnpm dogfood` in this repo). The API key lives on the vibedgames server, so there is no per-machine setup. See the `generate` skill for the command reference.
+> **Runtime:** All endpoint calls use the `vg generate` CLI. The model API keys live on the vibedgames server, so the only setup is a signed-in `vg`. If `vg` isn't on PATH or says you're not logged in, follow the `vg-setup` skill (no global install needed: `npx -y vibedgames@latest` stands in for `vg`). See the `generate` skill for the command reference.
 
 Model families have meaningful prompting nuances. A prompt that works on GPT Image 2 (long, structured, exact text in quotes) will fail on Happy Horse (which wants ~20 plain-English words). This skill collects family-specific guides.
 

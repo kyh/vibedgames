@@ -5,10 +5,11 @@ Complete command surface. SKILL.md has the trigger surface and quick patterns; t
 ## Install
 
 ```bash
-npm install -g vibedgames
+npm install -g vibedgames            # optional: puts `vg` on PATH
+npx -y vibedgames@latest generate …  # same thing, no install
 ```
 
-In this repo, `pnpm dogfood` links a local build of `vg`. The vibedgames server holds the API key, so there is no per-machine API-key configuration step.
+Commands need a signed-in account (`vg login`, or an API key in `VG_TOKEN`); see the `vg-setup` skill. The vibedgames server holds the model API keys, so there is no per-machine API-key configuration step.
 
 ## models: search and inspect
 
@@ -167,14 +168,10 @@ Searches generative-model documentation, guides, and API references.
 ## Updating
 
 ```bash
-npm install -g vibedgames@latest
+vg update   # update the CLI and the vibedgames skills
 ```
 
-Inside this repo, `pnpm dogfood` rebuilds and re-links the local CLI.
-
-## Skills
-
-Skills live in this repo under `plugins/*/skills/` and are symlinked into `.claude/skills/` by `pnpm dogfood`. Add or remove a skill, re-run `pnpm dogfood`, and commit the resulting symlink change.
+`vg` also checks for a newer version once a day and installs it (`vg config set update.auto false` turns that off). `npx -y vibedgames@latest` always runs the newest release.
 
 ## Agent-first design
 

@@ -8,7 +8,7 @@ metadata:
 
 # 2D Game Assets
 
-> Requires the `vg` CLI (`npm install -g vibedgames`, or `pnpm dogfood` in this repo). The vibedgames server holds the API key; no per-machine setup.
+> Requires a signed-in `vg` CLI; the vibedgames server holds the model API keys. If `vg` isn't on PATH or says you're not logged in, follow the `vg-setup` skill (no global install needed: `npx -y vibedgames@latest` stands in for `vg`).
 
 Full pipeline for 2D pixel art game assets: character → sprite sheets → background removal → game background. Each recipe is independently invokable, run just the part you need.
 
