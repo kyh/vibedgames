@@ -16,8 +16,8 @@ import { MEDIA_MODELS, tools as mcpTools } from "./mcp-tools";
 /**
  * Drives the real `/mcp` handler over Streamable HTTP. The context is built by
  * hand, as in `orpc-handler.test.ts`: nothing here reaches the database, since
- * an anonymous request stops at the 401 challenge and `auth.me` answers from
- * the session alone.
+ * an anonymous tool call that needs an account stops at the 401 challenge,
+ * and `auth.me` answers from the session alone.
  */
 
 const unavailable = (): never => {
@@ -348,10 +348,50 @@ describe("mcp endpoint", () => {
     assert.doesNotMatch(text, /\bfal\b(?!-)/iu);
   });
 
+  // Auth is optional until a tool needs it: an anonymous client can connect,
+  // see the tools and read the skills.
+  test("lets an anonymous client initialize, list tools and read skills", async () => {
+    const init = await rpc(
+      "initialize",
+      {
+        capabilities: {},
+        clientInfo: { name: "test", version: "1.0.0" },
+        protocolVersion: "2025-06-18",
+      },
+      { session: null },
+    );
+    assert.strictEqual(init.response.status, 200);
+    const list = await rpc("tools/list", {}, { session: null });
+    assert.strictEqual(list.response.status, 200);
+    const call = await rpc("tools/call", { arguments: {}, name: "skills" }, { session: null });
+    assert.strictEqual(call.response.status, 200);
+    const { result } = callResult.parse(call.body);
+    assert.notStrictEqual(result.isError, true);
+    assert.match(JSON.stringify(result), /phaser/u);
+  });
+
+  // OpenAI's Apps SDK reads each tool's auth policy from `securitySchemes`.
+  test("declares which tools need OAuth and which run anonymously", async () => {
+    const tools = z
+      .array(
+        z.looseObject({ _meta: z.looseObject({ securitySchemes: z.unknown() }), name: z.string() }),
+      )
+      .parse(await listTools());
+    const schemes = new Map(tools.map((tool) => [tool.name, tool._meta.securitySchemes]));
+    assert.deepStrictEqual(schemes.get("skills"), [{ type: "noauth" }]);
+    assert.deepStrictEqual(schemes.get("deployments"), [
+      { scopes: ["games:read"], type: "oauth2" },
+    ]);
+  });
+
   // MCP authorization: a client with no credential learns from the 401 where
   // to get one (RFC 9728), which is how a connector starts the OAuth flow.
-  test("answers an anonymous request with the protected-resource challenge", async () => {
-    const { body, response } = await rpc("tools/list", {}, { session: null });
+  test("answers an anonymous call to a tool that needs an account with the protected-resource challenge", async () => {
+    const { body, response } = await rpc(
+      "tools/call",
+      { arguments: {}, name: "deployments" },
+      { session: null },
+    );
     assert.strictEqual(response.status, 401);
     const challenge = response.headers.get("www-authenticate") ?? "";
     assert.match(
@@ -376,8 +416,29 @@ describe("mcp endpoint", () => {
     assert.match(challenge, /error="invalid_token"/u);
   });
 
+  test("challenges a batch that calls a tool needing an account", async () => {
+    const request = new Request("https://vibedgames.com/mcp", {
+      body: JSON.stringify([
+        { id: 1, jsonrpc: "2.0", method: "tools/list", params: {} },
+        { id: 2, jsonrpc: "2.0", method: "tools/call", params: { arguments: {}, name: "deploy" } },
+      ]),
+      headers: {
+        accept: "application/json, text/event-stream",
+        "content-type": "application/json",
+        "mcp-protocol-version": "2025-06-18",
+      },
+      method: "POST",
+    });
+    const response = await handleMcpRequest(request, contextWith(null), skills);
+    assert.strictEqual(response.status, 401);
+  });
+
   test("sends no error to a request without a credential", async () => {
-    const { response } = await rpc("tools/list", {}, { session: null });
+    const { response } = await rpc(
+      "tools/call",
+      { arguments: {}, name: "deployments" },
+      { session: null },
+    );
     assert.doesNotMatch(response.headers.get("www-authenticate") ?? "", /error=/u);
   });
 
