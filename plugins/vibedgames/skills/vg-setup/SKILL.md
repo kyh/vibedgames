@@ -5,9 +5,11 @@ description: "Get the `vg` CLI running and signed in to vibedgames. Use before t
 
 # vg setup
 
-Every vibedgames skill runs the `vg` CLI. This gets it working with no global
-install, and gets the one human step (signing in) done early so it doesn't
-interrupt a build later.
+Skills that run commands use the `vg` CLI. This gets it working with no global
+install. Signing in is optional. Scaffolding, coding and local playtesting work
+without an account. Only the commands that reach vibedgames need one (step 2).
+When the user will need one, ask early, so the one human step doesn't interrupt
+a build later.
 
 ## 0. MCP tools instead of the CLI
 
@@ -47,7 +49,7 @@ Only commands that reach vibedgames need an account: `deploy`, `fork`,
 vg whoami --json   # {"email","id","name"} when signed in; exits 1 when not
 ```
 
-## 3. Sign in (needs the human, once)
+## 3. Sign in (only when needed; the human does it once)
 
 Choose one:
 
