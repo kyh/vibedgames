@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useRouter, useSearch } from "@tanstack/react-router";
+import { getRouteApi, useRouter, useSearch } from "@tanstack/react-router";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Button } from "@repo/ui/components/button";
 import { Field, FieldContent, FieldError, FieldGroup, FieldLabel } from "@repo/ui/components/field";
@@ -26,6 +26,15 @@ const PROTOCOL_RELATIVE = /^\/[/\\]/u;
 
 const safeNextPath = (path?: string): string =>
   path?.startsWith("/") && !PROTOCOL_RELATIVE.test(path) ? path : DEFAULT_NEXT_PATH;
+
+/**
+ * True while a connecting app's OAuth flow sent this person here: the page
+ * carries the provider's signed authorize query. A sign-in then answers with
+ * where the flow goes next and the auth client follows it, so the form must
+ * not navigate on its own.
+ */
+const inOAuthFlow = (): boolean =>
+  typeof window !== "undefined" && new URLSearchParams(window.location.search).has("sig");
 
 type StepFormProps = { callbackUrl?: string } & React.HTMLAttributes<HTMLDivElement>;
 
@@ -85,8 +94,11 @@ const CredentialsForm = ({
   const handleAuthWithPassword = form.handleSubmit(async (credentials) => {
     const result = await submit(credentials);
     if (result.status === "ok") {
+      if (inOAuthFlow()) {
+        return;
+      }
       // `href`, not `to`: a callback carries its own query and hash
-      // (`/auth/cli?code=…`, `/settings?code=…#credits`), which `to` reads as path.
+      // (`/device?user_code=…`, `/settings?code=…#credits`), which `to` reads as path.
       router.navigate({ href: safeNextPath(callbackUrl ?? nextPath), replace: true });
       return;
     }
@@ -168,6 +180,58 @@ const CredentialsForm = ({
   );
 };
 
+const PROVIDER_LABELS = { github: "GitHub", google: "Google" } as const;
+
+const authRoute = getRouteApi("/auth");
+
+/**
+ * One button per social provider this deployment has credentials for. The
+ * provider's callback lands on the same destination the password form would;
+ * in an OAuth flow the auth client carries the signed query along, and the
+ * provider resumes the flow once the callback signs the person in (its
+ * redirect to consent wins over `callbackURL`). A failed callback comes back
+ * to this same page with its query (an OAuth flow's signed query, a
+ * `callbackUrl`, an `invite`), so the person can try again where they were.
+ */
+const SocialSignIn = ({ callbackUrl }: { callbackUrl?: string }) => {
+  const { socialProviders } = authRoute.useLoaderData();
+  const search = authRoute.useSearch();
+  const [pending, setPending] = useState<string | null>(null);
+  if (socialProviders.length === 0) {
+    return null;
+  }
+  return (
+    <div className="grid gap-2">
+      {socialProviders.map((provider) => (
+        <Button
+          key={provider}
+          type="button"
+          variant="outline"
+          loading={pending === provider}
+          disabled={pending !== null}
+          onClick={async () => {
+            setPending(provider);
+            await authClient.signIn.social({
+              callbackURL: safeNextPath(callbackUrl ?? search.nextPath),
+              errorCallbackURL: `${window.location.pathname}${window.location.search}`,
+              fetchOptions: {
+                onError: (ctx) => {
+                  toast.error(ctx.error.message);
+                  setPending(null);
+                },
+              },
+              provider,
+            });
+          }}
+        >
+          Continue with {PROVIDER_LABELS[provider]}
+        </Button>
+      ))}
+      <p className="text-muted-foreground text-center text-xs">or</p>
+    </div>
+  );
+};
+
 /**
  * Where a person lands after signing in or up with a credit code in the link
  * (`?invite=`, the name links minted before launch carry): the settings page,
@@ -179,6 +243,7 @@ export const creditCodeCallback = (code?: string): string | undefined =>
 
 export const RegisterForm = ({ className, callbackUrl, ...props }: StepFormProps) => (
   <div className={cn("grid gap-6", className)} {...props}>
+    <SocialSignIn callbackUrl={callbackUrl} />
     <CredentialsForm
       submitLabel="Register"
       passwordAutoComplete="new-password"
@@ -207,6 +272,7 @@ export const RegisterForm = ({ className, callbackUrl, ...props }: StepFormProps
 
 export const LoginForm = ({ className, callbackUrl, ...props }: StepFormProps) => (
   <div className={cn("grid gap-6", className)} {...props}>
+    <SocialSignIn callbackUrl={callbackUrl} />
     <CredentialsForm
       submitLabel="Login"
       passwordAutoComplete="current-password"

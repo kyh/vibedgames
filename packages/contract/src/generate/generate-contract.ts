@@ -1,10 +1,13 @@
-import { protectedBase } from "../base";
+import { protectedBase, requiresScope } from "../base";
 import { jsonValueSchema } from "../json";
 import { documented } from "../openapi";
-import { forwardInput } from "./generate-schema";
+import { z } from "zod";
+
+import { forwardInput, uploadInput } from "./generate-schema";
 
 export const generateContract = {
   forward: protectedBase
+    .meta(requiresScope("generate"))
     .meta(
       documented({
         description:
@@ -15,4 +18,23 @@ export const generateContract = {
     )
     .input(forwardInput)
     .output(jsonValueSchema.describe("The upstream response body, or null when it had none.")),
+
+  upload: protectedBase
+    .meta(requiresScope("generate"))
+    .meta(
+      documented({
+        description:
+          "Opens an upload slot for a model input (a reference image, an audio clip to transform). PUT the bytes to `uploadUrl`, a 15-minute signed URL on this server, with the `headers` given; the server streams them on to generate's storage. Then pass `fileUrl` to the model. Backs `vg generate upload`.",
+        errors: [412, 502],
+        summary: "Upload a model input",
+      }),
+    )
+    .input(uploadInput)
+    .output(
+      z.object({
+        fileUrl: z.string(),
+        headers: z.object({ "content-type": z.string() }),
+        uploadUrl: z.string(),
+      }),
+    ),
 };

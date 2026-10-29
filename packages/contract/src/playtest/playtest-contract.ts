@@ -1,12 +1,13 @@
 import { z } from "zod";
 
-import { protectedBase } from "../base";
+import { protectedBase, requiresScope } from "../base";
 import { jsonValueSchema } from "../json";
 import { documented } from "../openapi";
 import { decideInput } from "./playtest-schema";
 
 export const playtestContract = {
   decide: protectedBase
+    .meta(requiresScope("playtest"))
     .meta(
       documented({
         description:
@@ -21,6 +22,7 @@ export const playtestContract = {
     ),
 
   session: protectedBase
+    .meta(requiresScope("playtest"))
     .meta(
       documented({
         description:

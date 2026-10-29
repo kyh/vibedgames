@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { protectedBase } from "../base";
+import { protectedBase, requiresScope } from "../base";
 import { documented } from "../openapi";
 import { checkoutInput, redeemInput } from "./credits-schema";
 
@@ -24,6 +24,7 @@ const creditEntry = z.object({
 
 export const creditsContract = {
   checkout: protectedBase
+    .meta(requiresScope("credits:write"))
     .meta(
       documented({
         description:
@@ -36,6 +37,7 @@ export const creditsContract = {
     .output(z.object({ url: z.url() })),
 
   me: protectedBase
+    .meta(requiresScope("credits:read"))
     .meta(
       documented({
         description:
@@ -56,6 +58,7 @@ export const creditsContract = {
     ),
 
   redeem: protectedBase
+    .meta(requiresScope("credits:write"))
     .meta(
       documented({
         description:

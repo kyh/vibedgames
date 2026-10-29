@@ -5,7 +5,7 @@ import { agentSkills } from "@/lib/agent-skills";
 import { handleMcpRequest } from "@/lib/mcp";
 
 const handler = ({ request }: { request: Request }) =>
-  handleMcpRequest(request, createRpcContext, agentSkills);
+  handleMcpRequest(request, (headers) => createRpcContext(headers, "mcp"), agentSkills);
 
 export const Route = createFileRoute("/mcp")({
   server: {

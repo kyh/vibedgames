@@ -16,26 +16,13 @@ describe("decodeInlineFiles", () => {
     assert.strictEqual(file?.contentType, "text/html; charset=utf-8");
   });
 
-  test("decodes base64, tolerating line breaks, and keeps a given type", async () => {
-    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0xff, 0x00]);
-    const wrapped = png.toString("base64").replaceAll(/(?<quad>.{4})/gu, "$<quad>\n");
-    const [file] = await decodeInlineFiles(
-      parse([{ content: wrapped, contentType: "image/x-test", encoding: "base64", path: "a.bin" }]),
-    );
-    assert.deepStrictEqual([...(file?.bytes ?? [])], [...png]);
-    assert.strictEqual(file?.contentType, "image/x-test");
-  });
-
   test("falls back to octet-stream for an unknown extension", async () => {
     const [file] = await decodeInlineFiles(parse([{ content: "x", path: "data.unknownext" }]));
     assert.strictEqual(file?.contentType, "application/octet-stream");
   });
 
-  test("refuses content that is not base64", async () => {
-    await assert.rejects(
-      decodeInlineFiles(parse([{ content: "not*base64", encoding: "base64", path: "a.png" }])),
-      isBadRequest,
-    );
+  test("refuses base64: binary bytes go in presign", () => {
+    assert.throws(() => parse([{ content: "AAAA", encoding: "base64", path: "a.png" }]));
   });
 
   test("refuses a path given twice in one call", async () => {

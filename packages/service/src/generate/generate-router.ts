@@ -21,6 +21,7 @@ import {
 } from "../credits/queue-calls";
 import { purchasesEnabled } from "../credits/stripe";
 import { os, requireSession } from "../orpc";
+import { signUploadUrl } from "../storage/signed-urls";
 import { MAX_PARAMS_BYTES } from "./limits";
 import {
   fetchProviderResponse,
@@ -100,11 +101,7 @@ const rejectTraversal = (path: string): void => {
   }
 };
 
-const buildUrl = (
-  base: string,
-  path: string,
-  query: Record<string, string | string[]> | undefined,
-): URL => {
+const buildUrl = (base: string, path: string, query?: Record<string, string | string[]>): URL => {
   rejectTraversal(path);
   // `path` is already Zod-constrained to start with `/`, and
   // rejectTraversal blocks every `..` form (literal, percent-decoded,
@@ -396,5 +393,52 @@ export const generateRouter = {
     }
 
     return body;
+  }),
+
+  /**
+   * Opens a storage slot for a model input and hands back a signed
+   * `/api/upload` URL that forwards to it, so the caller only ever PUTs to
+   * this host. Uploads aren't billed.
+   */
+  upload: authed.upload.handler(async ({ context, input }) => {
+    const { apiKey, config } = pickFalKey(context.media);
+    if (!context.signing) {
+      throw new ORPCError("PRECONDITION_FAILED", {
+        message: "Uploads are not configured on the server.",
+      });
+    }
+    const serialized = JSON.stringify({
+      content_type: input.contentType,
+      file_name: input.fileName,
+    });
+    const label = "media storage upload slot";
+    const res = await fetchProviderResponse({
+      credentialed: true,
+      init: {
+        body: serialized,
+        headers: buildHeaders(apiKey, "storage", serialized),
+        method: "POST",
+      },
+      label,
+      url: buildUrl(targetBase("storage", config), "/storage/upload/initiate"),
+    });
+    const slot = z
+      .object({
+        file_url: z.url({ protocol: /^https$/u }),
+        upload_url: z.url({ protocol: /^https$/u }),
+      })
+      .safeParse(await readJsonBounded(res, label));
+    if (!slot.success) {
+      throw new ORPCError("BAD_GATEWAY", { message: "Storage returned no upload slot." });
+    }
+    return {
+      fileUrl: slot.data.file_url,
+      headers: { "content-type": input.contentType },
+      uploadUrl: await signUploadUrl({
+        contentType: input.contentType,
+        signing: context.signing,
+        target: { url: slot.data.upload_url },
+      }),
+    };
   }),
 };

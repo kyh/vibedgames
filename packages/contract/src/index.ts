@@ -7,6 +7,7 @@ import type {
 import { adminContract } from "./admin/admin-contract";
 import { apiKeyContract } from "./auth/api-key-contract";
 import { authContract } from "./auth/auth-contract";
+import { connectedAppsContract } from "./auth/connected-apps-contract";
 import { creditsContract } from "./credits/credits-contract";
 import { deployContract } from "./deploy/deploy-contract";
 import { generateContract } from "./generate/generate-contract";
@@ -18,6 +19,7 @@ export const contract = {
   admin: adminContract,
   apiKeys: apiKeyContract,
   auth: authContract,
+  connectedApps: connectedAppsContract,
   credits: creditsContract,
   deploy: deployContract,
   generate: generateContract,

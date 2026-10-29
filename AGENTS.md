@@ -24,10 +24,10 @@ There is no bootstrap script; the five commands above _are_ the provisioning ste
 
 One file, two consumers. Everything lives in the repo-root `.env`; template is `.env.example`.
 
-| Consumer                                         | Reaches it via                                                  | Holds                                                                       |
-| ------------------------------------------------ | --------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| drizzle-kit, the cf CLI                          | `process.env`, loaded by each package's `with-env` (dotenv-cli) | `CLOUDFLARE_ACCOUNT_ID` / `_DATABASE_ID` / `_D1_TOKEN` / `_API_TOKEN`       |
-| the dev Worker, via the Cloudflare `env` binding | `bindings.secret()` in `apps/web/cloudflare.config.ts`          | `BETTER_AUTH_SECRET`, `R2_*`, `FAL_API_KEY`, `TYPESAFE_API_KEY`, `STRIPE_*` |
+| Consumer                                         | Reaches it via                                                  | Holds                                                                                       |
+| ------------------------------------------------ | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| drizzle-kit, the cf CLI                          | `process.env`, loaded by each package's `with-env` (dotenv-cli) | `CLOUDFLARE_ACCOUNT_ID` / `_DATABASE_ID` / `_D1_TOKEN` / `_API_TOKEN`                       |
+| the dev Worker, via the Cloudflare `env` binding | `bindings.secret()` in `apps/web/cloudflare.config.ts`          | `BETTER_AUTH_SECRET`, `FAL_API_KEY`, `TYPESAFE_API_KEY`, `STRIPE_*`, `GITHUB_*`, `GOOGLE_*` |
 
 **The declared secrets are the whole mechanism.** Declaring a name with `bindings.secret()` makes the dev server fold `process.env` into the Worker binding and filter it down to exactly the declared names — so a secret that is in `.env` but not declared silently never reaches the Worker. Adding one means editing two places: `.env.example` and `cloudflare.config.ts` (the `Env` type is generated from it).
 
@@ -80,16 +80,10 @@ Note better-auth rate-limits to 10 requests / 60s per IP — a tight retry loop 
 
 The token above is the seeded local one. Against **prod** — a cloud session, or CI
 — `VG_TOKEN` has to be a real one, and `vg login` cannot produce it unattended: it
-prints a code and waits for someone to confirm it in a browser. Do that once on a
-machine that has one, then read the token back out:
-
-```sh
-vg login                                   # confirm the code in the browser
-cat ~/.config/vg/auth.json                 # { "token": "...", "baseUrl": "..." }
-node -p 'require(require("os").homedir()+"/.config/vg/auth.json").token' | pbcopy
-```
-
-Set that as the environment secret. `VG_TOKEN` alone is sufficient — it is read
+prints a code and waits for someone to approve it in a browser, and the access
+token it saves lasts an hour (the CLI refreshes it, a copied one does not). Create
+an API key instead, in Settings → API keys on vibedgames.com (a `vg_…` string),
+and set that as the environment secret. `VG_TOKEN` alone is sufficient — it is read
 before the saved config, so a session with no `~/.config/vg` authenticates from it:
 
 ```sh
@@ -131,7 +125,7 @@ vg playtest screenshot /tmp/after.png
 
 The auth form uses react-hook-form, so prefer the `data-test` attributes over positional refs for the two credential fields; everything else is reliable off `snapshot`.
 
-Six flows cover all ten `useMutation` sites in the app: `/settings` (create + revoke an API key), `/admin/invites` (create + revoke a code), `/admin/users` (create a user, grant credits, then re-check `/settings`), `/home` (delete a game), `/settings` again (click "Have a code? Redeem it" and type `DEV123` into the dialog — that is the `credits.redeem` mutation; a second redeem by the same account answers 409; the buy buttons, which fire `credits.checkout`, render only when both `STRIPE_*` keys are set — without them `credits.me` reports `purchasesEnabled: false` and the section offers a code button instead), `/auth/cli?code=<code>` (confirm a CLI device code — fires on mount, and deliberately invalidates nothing).
+Six flows cover all ten `useMutation` sites in the app: `/settings` (create + revoke an API key), `/admin/invites` (create + revoke a code), `/admin/users` (create a user, grant credits, then re-check `/settings`), `/home` (delete a game), `/settings` again (click "Have a code? Redeem it" and type `DEV123` into the dialog — that is the `credits.redeem` mutation; a second redeem by the same account answers 409; the buy buttons, which fire `credits.checkout`, render only when both `STRIPE_*` keys are set — without them `credits.me` reports `purchasesEnabled: false` and the section offers a code button instead), `/settings` → Connected apps (Disconnect an app, after `vg login` against the dev server has connected the CLI). `/device` is not a `useMutation` site: `vg login` against the dev server prints a code, and its page approves or denies it through the auth client.
 
 ## Platform matrix
 
@@ -151,7 +145,7 @@ For the surfaces marked No, `pnpm typecheck` and `pnpm build` are the gate; a re
 ## Rules that matter
 
 - **Never `cf deploy` (or `wrangler deploy`) locally.** Deploys happen from GitHub Actions on push to `main`.
-- **`vg deploy` against `localhost` is safe — but only `localhost`.** When the Host header is `localhost[:port]`, `presignPut`/`presignGet` hand back HMAC-signed `/api/r2-upload` and `/api/r2-download` proxy URLs, so bytes land in the Miniflare-simulated `GAMES_BUCKET`, not prod R2 (`packages/service/src/deploy/r2-presign.ts`); `deletePrefix` always goes through the binding. The `R2_*` values in the root `.env` only need to be non-empty for the config to be constructed — dummies work. The check is on the literal host string, so pointing the CLI at `http://127.0.0.1:5173` bypasses the proxy and presigns against **production** R2.
+- **`vg deploy` against the dev Worker stays local.** Upload and download URLs are signed `/api/upload` / `/api/download` URLs on the request's own host, streamed through the `GAMES_BUCKET` binding (`packages/service/src/storage/signed-urls.ts`), so bytes land in the Miniflare bucket whether you address it as `localhost` or `127.0.0.1`.
 - **Never push schema to remote.** `pnpm db:push-remote` is the only command that touches production D1; it is the only one that reads `.env.production.local`. `pnpm db:push`, `db:studio` and `db:local` are local-only.
 - **Every mutation invalidates exactly the query keys it touches**, in its own `onSuccess`. There is no blanket invalidation in the query client; if a write should refresh a list, say so at the call site.
 - **No `any`, no non-null `!`, no `as` casts. Kebab-case filenames.** Make illegal states unrepresentable.

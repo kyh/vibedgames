@@ -49,3 +49,9 @@ export const forwardInput = z
       "a queue path may hold only lowercase letters, digits and `-._~/`: spell the endpoint id as `vg generate models` lists it and the request id as the submit returned it",
     path: ["path"],
   });
+
+/** A model input to upload: what its storage slot is opened for. */
+export const uploadInput = z.object({
+  contentType: z.string().min(1).max(127).describe("e.g. image/png"),
+  fileName: z.string().min(1).max(255),
+});

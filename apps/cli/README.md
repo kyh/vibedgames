@@ -29,7 +29,9 @@ vg login              # authenticate via browser
 vg logout             # clear credentials
 vg whoami             # show current user
 vg deploy [dir]       # deploy a game directory (reads vibedgames.json or --slug)
+vg deployments [delete <slug> --yes]  # list your games, or delete one
 vg fork <slug> [target]  # fork a project's shipped source under a new slug
+vg skills [name]      # list the game-studio skills, or print one's SKILL.md
 vg credits            # credit balance + recent usage
 vg factory [args…]    # autonomous game agent (optional plugin, installs on first use)
 vg completions <bash|zsh|fish>   # print shell completions
@@ -81,10 +83,13 @@ Run `vg init` in your project to install the full set of game-building skills
 ## How deploy works
 
 1. Picks the build output (`dist`/`build`/`out`) when the directory is a project root
-2. Walks the directory, hashes files, validates `index.html` exists
-3. Calls `deploy.create` API — gets presigned R2 upload URLs
-4. Uploads files to R2 with bounded concurrency
-5. Calls `deploy.finalize` — game goes live at `{slug}.vibedgames.com`
+2. Walks the directory, checks the caps and that `index.html` exists, and packs it into one
+   `.tgz` bundle
+3. Calls `deploy.upload` with `bundle: true` (and the `--source` archive) — stages a deployment
+   beside the live one and gets a signed `/api/upload` URL for the bundle
+4. PUTs the bundle there
+5. Calls `deploy.upload` again with `publish: true` — the server unpacks the bundle and the game
+   switches to the new deployment at `{slug}.vibedgames.com`; until then the old one keeps serving
 
 Passing `--source` also uploads a forkable source archive, which is what
 `vg fork <slug>` downloads. It is off by default: the archive is readable by
@@ -92,7 +97,10 @@ any logged-in user, so shipping it is a publish and should be a deliberate act.
 
 ## Auth
 
-Uses a device-code polling flow: CLI generates a 6-char code, opens the browser,
-polls until the user confirms. Token stored at `~/.config/vg/auth.json`.
+`vg login` is OAuth device authorization (RFC 8628): the CLI prints a code,
+opens `/device` in the browser, and polls until the person approves it there.
+The access token and its refresh token are stored at `~/.config/vg/auth.json`
+and refreshed as needed; `vg logout` revokes them, as does Disconnect under
+Settings → Connected apps.
 `VG_TOKEN` overrides it (for CI and headless agents) and `VG_API_URL` points the
 CLI at a non-production API.

@@ -1,6 +1,7 @@
 import type { RouterInputs } from "@repo/contract";
 import type { JsonValue } from "@repo/contract/json";
 import type { ORPCContext } from "@repo/service/orpc";
+import { requiresScope } from "@repo/contract/base";
 import { endpointPath, queueAppId } from "@repo/contract/generate/queue-path";
 import { appRouter } from "@repo/service";
 import type { McpToolMeta } from "@orpc/mcp";
@@ -10,8 +11,12 @@ import { call, DecoratedProcedure, ORPCError, os } from "@orpc/server";
 import { z } from "zod";
 
 /**
- * The tools `/mcp` serves, one per `vg` command that reaches the server, named
- * as the agent thinks of them rather than by router path. Most are the API's
+ * The tools `/mcp` serves, one per `vg` command that reaches the server, each
+ * named for its command: the command path with `_` for spaces (`vg deploy` is
+ * `deploy`, `vg deployments delete` is `deployments_delete`; `vg generate run`
+ * is plain `generate`), so an agent that knows one
+ * knows the other. Only the asset tools (`generate_image`, …) have no command
+ * of their own. Most are the API's
  * own procedures; the `generate_*` family is `vg generate`'s subcommands over
  * `generate.forward`, called through `call()` so its session check, input
  * rules and credit ledger run exactly as for the CLI; `skills` reads the
@@ -22,10 +27,12 @@ import { z } from "zod";
  * `playtest run`, which drives a local browser.
  */
 
-/** A skill as `/.well-known/agent-skills` serves it. */
+/** A skill as `agent-skills.ts` bundles it: its SKILL.md, frontmatter and other files. */
 export interface Skill {
   content: string;
   description: string;
+  files: readonly { content: string; path: string }[];
+  frontmatter: { readonly [key: string]: string | { readonly [key: string]: string } };
   name: string;
 }
 
@@ -45,6 +52,13 @@ const mutates = { destructiveHint: false, readOnlyHint: false } as const;
 const external = { ...mutates, openWorldHint: true } as const;
 
 const tool = os.$context<McpContext>();
+
+/**
+ * The `generate_*` tools reach `generate.forward` through `call()`, which
+ * checks the scope again; declaring it here lets `/mcp` answer a token
+ * without it with a step-up challenge before the call.
+ */
+const generateTool = tool.meta(requiresScope("generate"));
 
 type ForwardQuery = NonNullable<RouterInputs["generate"]["forward"]["query"]>;
 
@@ -165,7 +179,7 @@ const waitSeconds = z
   .describe("How long to wait for the result before returning the request id");
 
 const generateTools = {
-  generate: tool
+  generate: generateTool
     .meta(
       mcp.tool({
         annotations: external,
@@ -186,7 +200,7 @@ const generateTools = {
       runModel(context, input.endpoint_id, input.input, input.wait_seconds),
     ),
 
-  generate_docs: tool
+  generate_docs: generateTool
     .meta(
       mcp.tool({
         annotations: { ...readOnly, openWorldHint: true },
@@ -211,7 +225,7 @@ const generateTools = {
       }),
     ),
 
-  generate_models: tool
+  generate_models: generateTool
     .meta(
       mcp.tool({
         annotations: { ...readOnly, openWorldHint: true },
@@ -247,7 +261,7 @@ const generateTools = {
       return forward(context, { method: "GET", path: "/v1/models", query, target: "platform" });
     }),
 
-  generate_pricing: tool
+  generate_pricing: generateTool
     .meta(
       mcp.tool({
         annotations: { ...readOnly, openWorldHint: true },
@@ -266,7 +280,7 @@ const generateTools = {
       }),
     ),
 
-  generate_schema: tool
+  generate_schema: generateTool
     .meta(
       mcp.tool({
         annotations: { ...readOnly, openWorldHint: true },
@@ -290,7 +304,7 @@ const generateTools = {
       return forward(context, { method: "GET", path: "/v1/models", query, target: "platform" });
     }),
 
-  generate_status: tool
+  generate_status: generateTool
     .meta(
       mcp.tool({
         annotations: { ...external, idempotentHint: true },
@@ -330,53 +344,13 @@ const generateTools = {
       });
     }),
 
-  generate_upload: tool
-    .meta(
-      mcp.tool({
-        annotations: external,
-        description:
-          "Uploads a file (base64) to generate's storage and returns a stable URL, for a model input that takes one (a reference image, an audio clip to transform).",
-        name: "generate_upload",
-        title: "Upload a model input",
-      }),
-    )
-    .input(
-      z.object({
-        content: z.base64().describe("The file, base64-encoded"),
-        content_type: z.string().min(1).max(127).describe("e.g. image/png"),
-        file_name: z.string().min(1).max(255),
-      }),
-    )
-    .handler(async ({ context, input }) => {
-      const slot = await forward(context, {
-        body: { content_type: input.content_type, file_name: input.file_name },
-        method: "POST",
-        path: "/storage/upload/initiate",
-        target: "storage",
-      });
-      const uploadUrl = stringField(slot, "upload_url");
-      const fileUrl = stringField(slot, "file_url");
-      if (!uploadUrl?.startsWith("https://") || !fileUrl?.startsWith("https://")) {
-        throw new ORPCError("BAD_GATEWAY", { message: "Storage returned no upload slot." });
-      }
-      let response: Response;
-      try {
-        response = await fetch(uploadUrl, {
-          body: Uint8Array.from(atob(input.content), (char) => char.codePointAt(0) ?? 0),
-          headers: { "Content-Type": input.content_type },
-          method: "PUT",
-        });
-      } catch (error) {
-        throw new ORPCError("BAD_GATEWAY", {
-          cause: error,
-          message: "Storage could not be reached.",
-        });
-      }
-      if (!response.ok) {
-        throw new ORPCError("BAD_GATEWAY", { message: `Upload failed: ${response.status}.` });
-      }
-      return { url: fileUrl };
-    }),
+  generate_upload: asTool(appRouter.generate.upload, {
+    annotations: external,
+    description:
+      "Opens an upload slot for a model input that takes a file's URL (a reference image, an audio clip to transform). PUT the file's bytes to `uploadUrl` (on this server, valid 15 minutes) with the `headers` given, e.g. `curl -T file.png -H 'Content-Type: image/png' \"$uploadUrl\"`, then pass `fileUrl` to the model.",
+    name: "generate_upload",
+    title: "Upload a model input",
+  }),
 };
 
 const options = z
@@ -419,7 +393,7 @@ const billed =
   "Billed against your credits; waits up to `wait_seconds`, then returns the `request_id` to follow with generate_status.";
 
 const mediaTools = {
-  generate_3d: tool
+  generate_3d: generateTool
     .meta(
       mcp.tool({
         annotations: external,
@@ -459,7 +433,7 @@ const mediaTools = {
       );
     }),
 
-  generate_image: tool
+  generate_image: generateTool
     .meta(
       mcp.tool({
         annotations: external,
@@ -514,7 +488,7 @@ const mediaTools = {
       );
     }),
 
-  generate_music: tool
+  generate_music: generateTool
     .meta(
       mcp.tool({
         annotations: external,
@@ -545,7 +519,7 @@ const mediaTools = {
       ),
     ),
 
-  generate_sound: tool
+  generate_sound: generateTool
     .meta(
       mcp.tool({
         annotations: external,
@@ -576,7 +550,7 @@ const mediaTools = {
       ),
     ),
 
-  generate_speech: tool
+  generate_speech: generateTool
     .meta(
       mcp.tool({
         annotations: external,
@@ -602,7 +576,7 @@ const mediaTools = {
       ),
     ),
 
-  generate_video: tool
+  generate_video: generateTool
     .meta(
       mcp.tool({
         annotations: external,
@@ -681,7 +655,7 @@ const mediaTools = {
       );
     }),
 
-  remove_background: tool
+  remove_background: generateTool
     .meta(
       mcp.tool({
         annotations: external,
@@ -724,6 +698,11 @@ export const tools = {
     name: "credits_redeem",
     title: "Redeem a credit code",
   }),
+  deploy: asTool(appRouter.deploy.upload, {
+    annotations: { ...mutates, openWorldHint: false },
+    name: "deploy",
+    title: "Deploy a game",
+  }),
   deployments: asTool(appRouter.deploy.list, {
     annotations: readOnly,
     name: "deployments",
@@ -739,11 +718,6 @@ export const tools = {
     name: "deployments_delete",
     title: "Delete a game",
   }),
-  deployments_upload: asTool(appRouter.deploy.upload, {
-    annotations: { ...mutates, openWorldHint: false },
-    name: "deployments_upload",
-    title: "Deploy a game",
-  }),
   fork: asTool(appRouter.deploy.getSource, {
     annotations: readOnly,
     name: "fork",
@@ -751,7 +725,6 @@ export const tools = {
   }),
   ...generateTools,
   ...mediaTools,
-  me: asTool(appRouter.auth.me, { annotations: readOnly, name: "me", title: "Who am I" }),
   skills: tool
     .meta(
       mcp.tool({
@@ -775,6 +748,7 @@ export const tools = {
           message: `No skill "${input.name}". Call skills without a name to list them.`,
         });
       }
-      return skill;
+      return { content: skill.content, description: skill.description, name: skill.name };
     }),
+  whoami: asTool(appRouter.auth.me, { annotations: readOnly, name: "whoami", title: "Who am I" }),
 };

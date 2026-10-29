@@ -5,8 +5,10 @@ import type { Auth } from "./auth/auth";
 import type { Db } from "@repo/db/drizzle-client";
 import { contract } from "@repo/contract";
 import { implement, ORPCError, os as builder } from "@orpc/server";
+import { getRequiredScope } from "@repo/contract/base";
 
 import { API_KEY_SESSION_PREFIX, resolveApiKeySession } from "./auth/api-key";
+import { OAUTH_SESSION_PREFIX, resolveOAuthSession } from "./auth/oauth-token";
 
 /**
  * Minimal structural view of the R2 binding methods this package (and, through
@@ -20,13 +22,14 @@ export interface R2BucketLike {
     size: number;
     httpMetadata?: { contentType?: string };
     arrayBuffer: () => Promise<ArrayBuffer>;
+    body: ReadableStream<Uint8Array<ArrayBuffer>>;
   } | null>;
   head: (key: string) => Promise<{
     size: number;
     httpMetadata?: { contentType?: string };
   } | null>;
   list: (options: { prefix?: string; cursor?: string; limit?: number }) => Promise<{
-    objects: { key: string }[];
+    objects: { key: string; size: number }[];
     truncated: boolean;
     cursor?: string;
   }>;
@@ -40,25 +43,19 @@ export interface R2BucketLike {
   ) => Promise<{ key: string } | null>;
 }
 
-/**
- * R2 credentials needed for minting S3 presigned URLs. The R2 *binding* can
- * read/write objects but cannot mint presigns; that requires an S3 API key.
- *
- * When `proxyUploadBaseUrl` is set (typically only in local dev), `presignPut`
- * returns an HMAC-signed URL that points back at the worker's own
- * `/api/r2-upload` endpoint instead of direct-to-R2. The worker then writes
- * via the `bucket` binding, so uploads land in whatever bucket the binding
- * resolves to (Miniflare-simulated locally, real R2 in prod). Keeps dev fully
- * isolated from prod R2.
- */
+/** The bucket that games and source archives live in, as the Worker binds it. */
 export interface R2Config {
   bucket: R2BucketLike;
-  bucketName: string;
-  accountId: string;
-  accessKeyId: string;
-  secretAccessKey: string;
-  proxyUploadBaseUrl?: string;
-  proxyUploadSecret?: string;
+}
+
+/**
+ * Mints the short-lived `/api/upload` and `/api/download` URLs that carry
+ * bytes through the web Worker (see storage/signed-urls.ts): the host they
+ * point at, and the secret they are signed with.
+ */
+export interface UrlSigning {
+  baseUrl: string;
+  secret: string;
 }
 
 /**
@@ -112,18 +109,31 @@ export interface CreateORPCContextOptions {
   auth: Auth;
   productionURL?: string;
   r2?: R2Config;
+  signing?: UrlSigning;
   media?: MediaProviderConfig;
   decision?: DecisionProviderConfig;
   billing?: BillingConfig;
+  /**
+   * The protected resource this request is for (`oauth-resources.ts`): an
+   * OAuth access token is accepted only when it was issued for it. Unset, no
+   * OAuth token is accepted at all.
+   */
+  oauthResource?: string;
 }
 
 export const createORPCContext = async (opts: CreateORPCContextOptions) => {
   // Try a normal better-auth session first (cookie or session bearer token).
   // Fall back to a long-lived API key (`vg_…`) so CLI/HTTP clients can
-  // authenticate in CI; both resolve to the same `Session` shape.
-  const session =
+  // authenticate in CI, then to an OAuth access token a person granted an
+  // app for this resource; all three resolve to the same `Session` shape.
+  const direct =
     (await opts.auth.api.getSession({ headers: opts.headers })) ??
     (await resolveApiKeySession(opts.auth, opts.db, opts.headers));
+  const grant =
+    !direct && opts.oauthResource
+      ? await resolveOAuthSession(opts.auth, opts.db, opts.headers, opts.oauthResource)
+      : null;
+  const session = direct ?? grant?.session ?? null;
 
   return {
     auth: opts.auth,
@@ -132,9 +142,15 @@ export const createORPCContext = async (opts: CreateORPCContextOptions) => {
     decision: opts.decision,
     headers: opts.headers,
     media: opts.media,
+    /**
+     * The scopes an OAuth access token was granted; null for every other
+     * credential, which acts as the person in full.
+     */
+    oauthScopes: grant?.scopes ?? null,
     productionURL: opts.productionURL,
     r2: opts.r2,
     session,
+    signing: opts.signing,
   };
 };
 
@@ -150,10 +166,24 @@ export const os = implement(contract).$context<ORPCContext>();
 
 const base = builder.$context<ORPCContext>();
 
-/** Pairs with `protectedBase`. Apply as `os.<feature>.use(requireSession)`. */
-export const requireSession = base.middleware(({ context, next }) => {
+/**
+ * Pairs with `protectedBase`. Apply as `os.<feature>.use(requireSession)`.
+ * An OAuth access token must also carry the scope the procedure declares
+ * (`requiresScope`); one without it gets FORBIDDEN with `insufficient_scope`,
+ * and the scope it lacks in `data`, so the app can ask the person for it.
+ */
+export const requireSession = base.middleware(({ context, next, procedure }) => {
   if (!context.session?.user) {
     throw new ORPCError("UNAUTHORIZED");
+  }
+  // A procedure without a scope is session-only, and `rejectApiKey` turns
+  // the token away there with its own message.
+  const required = getRequiredScope(procedure);
+  if (context.oauthScopes && required && !context.oauthScopes.includes(required)) {
+    throw new ORPCError("FORBIDDEN", {
+      data: { error: "insufficient_scope", scope: required },
+      message: `insufficient_scope: this app was not granted "${required}". Reconnect it to grant it.`,
+    });
   }
   return next({
     context: {
@@ -168,16 +198,19 @@ const sessionBase = builder.$context<SessionContext>();
 
 /**
  * Pairs with `sessionOnlyBase`; apply after `requireSession`. Rejects callers
- * authenticated with an API key — for surfaces an automation/CI credential must
- * not reach (managing API keys, admin actions). Keeps API keys scoped to their
- * intended use (deploy/generate) so a leaked key can't escalate. API-key
- * sessions are synthesized with a namespaced `apikey:` token (see
- * `resolveApiKeySession`); real better-auth tokens never collide with it.
+ * authenticated with an API key or an OAuth access token — for surfaces a
+ * delegated credential must not reach (managing API keys, admin actions).
+ * Keeps both scoped to their intended use (deploy/generate) so a leaked key
+ * or a connected app can't escalate. Their sessions are synthesized with a
+ * namespaced `apikey:` / `oauth:` token (see `resolveApiKeySession`,
+ * `resolveOAuthSession`); real better-auth tokens never collide with them.
  */
 export const rejectApiKey = sessionBase.middleware(({ context, next }) => {
-  if (context.session.session.token.startsWith(API_KEY_SESSION_PREFIX)) {
+  const { token } = context.session.session;
+  if (token.startsWith(API_KEY_SESSION_PREFIX) || token.startsWith(OAUTH_SESSION_PREFIX)) {
     throw new ORPCError("FORBIDDEN", {
-      message: "This action requires an interactive login, not an API key. Use the web app.",
+      message:
+        "This action requires an interactive login, not an API key or a connected app. Use the web app.",
     });
   }
   return next();

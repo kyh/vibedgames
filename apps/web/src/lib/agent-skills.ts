@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 import { siteConfig } from "@/lib/site-config";
 
 /**
@@ -6,60 +8,125 @@ import { siteConfig } from "@/lib/site-config";
  * vibedgames bundles Claude Code skills under `plugins/vibedgames/skills/<skill>/SKILL.md`.
  * We publish them at `/.well-known/agent-skills/index.json` so an agent
  * visiting the site can discover the full game-studio toolkit, and serve each
- * `SKILL.md` verbatim at `/.well-known/agent-skills/{name}/SKILL.md`.
+ * `SKILL.md` verbatim at `/.well-known/agent-skills/{name}/SKILL.md`. `/mcp`
+ * serves the same skills, supporting files included, as `skill://` resources.
  *
- * The `SKILL.md` files are read at build time via `import.meta.glob(...?raw)`
- * and inlined — no filesystem access at request time. Each index entry's
- * `digest` is the SHA-256 of the exact bytes served at its `url`, so the index
- * stays honest by construction.
+ * Every file is read at build time via `import.meta.glob(...?raw)` and inlined
+ * — no filesystem access at request time. Each index entry's `digest` is the
+ * SHA-256 of the exact bytes served at its `url`, so the index stays honest by
+ * construction.
  */
-const modules = import.meta.glob<string>("../../../../plugins/*/skills/*/SKILL.md", {
+const modules = import.meta.glob<string>("../../../../plugins/*/skills/*/**/*", {
   eager: true,
   import: "default",
   query: "?raw",
 });
 
+/** A skill's file other than `SKILL.md`, by its path inside the skill. */
+export interface AgentSkillFile {
+  content: string;
+  path: string;
+}
+
+/** A YAML frontmatter value as the skills write them: a scalar, or one level of `key: value`. */
+export type FrontmatterValue = string | { [key: string]: string };
+
+/** A SKILL.md's frontmatter as JSON, as the Skills extension lists it. */
+export interface Frontmatter {
+  [key: string]: FrontmatterValue;
+}
+
 export interface AgentSkill {
   name: string;
   description: string;
   content: string;
+  files: AgentSkillFile[];
+  frontmatter: Frontmatter;
 }
 
-/** Pull a single-line `key: value` out of a YAML frontmatter block, unquoting. */
-const frontmatterValue = (block: string, key: string): string | null => {
-  const line = block.split(/\r?\n/u).find((l) => l.startsWith(`${key}:`));
-  if (!line) {
-    return null;
-  }
-  let value = line.slice(key.length + 1).trim();
+const unquote = (raw: string): string => {
+  const value = raw.trim();
   if (
-    (value.startsWith('"') && value.endsWith('"')) ||
-    (value.startsWith("'") && value.endsWith("'"))
+    value.length >= 2 &&
+    ((value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'")))
   ) {
-    value = value.slice(1, -1);
+    return value.slice(1, -1);
   }
-  return value.length > 0 ? value : null;
+  return value;
 };
 
-const parseSkill = (content: string): AgentSkill | null => {
+/**
+ * The frontmatter block as JSON: top-level `key: value` lines, and a key with
+ * no value takes the indented `key: value` lines under it as a map.
+ */
+const parseFrontmatter = (block: string): Frontmatter => {
+  const result: Frontmatter = {};
+  let nested: { [key: string]: string } | null = null;
+  for (const line of block.split(/\r?\n/u)) {
+    const match = /^(?<indent>\s*)(?<key>[\w-]+):(?<value>.*)$/u.exec(line);
+    if (!match?.groups) {
+      continue;
+    }
+    const { indent = "", key = "", value = "" } = match.groups;
+    if (indent.length > 0) {
+      if (nested) {
+        nested[key] = unquote(value);
+      }
+      continue;
+    }
+    if (value.trim().length === 0) {
+      nested = {};
+      result[key] = nested;
+    } else {
+      nested = null;
+      result[key] = unquote(value);
+    }
+  }
+  return result;
+};
+
+const parseSkill = (content: string): Omit<AgentSkill, "files"> | null => {
   const match = /^---\r?\n(?<frontmatter>[\s\S]*?)\r?\n---/u.exec(content);
   const block = match?.groups?.frontmatter;
   if (block === undefined) {
     return null;
   }
-  const name = frontmatterValue(block, "name");
-  const description = frontmatterValue(block, "description");
-  if (!name || !description) {
+  const frontmatter = parseFrontmatter(block);
+  const required = z
+    .looseObject({ description: z.string().min(1), name: z.string().min(1) })
+    .safeParse(frontmatter);
+  if (!required.success) {
     return null;
   }
-  return { content, description, name };
+  const { description, name } = required.data;
+  return { content, description, frontmatter, name };
 };
 
+// `.../plugins/<plugin>/skills/<dir>/<path>`
+const SKILL_FILE = /\/skills\/(?<dir>[^/]+)\/(?<path>.+)$/u;
+
+const byDir = new Map<string, { content?: string; files: AgentSkillFile[] }>();
+for (const [key, content] of Object.entries(modules)) {
+  const { dir, path } = SKILL_FILE.exec(key)?.groups ?? {};
+  if (dir === undefined || path === undefined) {
+    continue;
+  }
+  const entry = byDir.get(dir) ?? { files: [] };
+  if (path === "SKILL.md") {
+    entry.content = content;
+  } else {
+    entry.files.push({ content, path });
+  }
+  byDir.set(dir, entry);
+}
+
 const skillsByName = new Map<string, AgentSkill>();
-for (const content of Object.values(modules)) {
-  const skill = parseSkill(content);
+for (const { content, files } of byDir.values()) {
+  const skill = content === undefined ? null : parseSkill(content);
   if (skill) {
-    skillsByName.set(skill.name, skill);
+    files.sort((a, b) => a.path.localeCompare(b.path));
+    skillsByName.set(skill.name, { ...skill, files });
   }
 }
 
