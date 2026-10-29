@@ -16,8 +16,9 @@ a build later.
 The plugin also connects the vibedgames MCP server (`https://vibedgames.com/mcp`).
 Its tools match the CLI's server commands: `whoami`, `credits`, `deploy`,
 `deployments`, `fork`, `generate`, `generate_image`, `generate_video`, `skills`
-and more. The first call asks the user to sign in through the browser (OAuth),
-so it needs no token and no install.
+and more. The skills (`skills` tool) work without an account. A tool that needs
+one asks the user to sign in through the browser (OAuth) on first use, so it
+needs no token and no install.
 
 - **No shell** (ChatGPT, claude.ai): use the tools. They're the only route.
 - **With a shell:** either works. The CLI is still needed for local work:
