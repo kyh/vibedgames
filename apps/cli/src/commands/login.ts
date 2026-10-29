@@ -1,4 +1,4 @@
-import { exec } from "node:child_process";
+import { spawn } from "node:child_process";
 import { setTimeout as sleep } from "node:timers/promises";
 import { defineCommand } from "citty";
 import { consola } from "consola";
@@ -9,10 +9,32 @@ import { OAuthError, pollDeviceToken, requestDeviceCode } from "../lib/oauth.js"
 /** RFC 8628 §3.5: each `slow_down` adds five seconds to the polling interval. */
 const SLOW_DOWN_STEP_MS = 5000;
 
-const openBrowser = (url: string): void => {
-  const openers: Partial<Record<NodeJS.Platform, string>> = { darwin: "open", win32: "start" };
-  const cmd = openers[process.platform] ?? "xdg-open";
-  exec(`${cmd} "${url}"`);
+/**
+ * Opens the approval page the server named, without a shell and only on the
+ * API's own origin: the URL is the server's, so it is passed as one argument,
+ * never spliced into a command line. Anything else is left for the person to
+ * open from the printed link.
+ */
+const openBrowser = (url: string, baseUrl: string): void => {
+  let target: URL;
+  try {
+    target = new URL(url);
+  } catch {
+    return;
+  }
+  if (target.origin !== new URL(baseUrl).origin) {
+    return;
+  }
+  const openers: Partial<Record<NodeJS.Platform, [string, string[]]>> = {
+    darwin: ["open", [target.href]],
+    win32: ["rundll32", ["url.dll,FileProtocolHandler", target.href]],
+  };
+  const [cmd, args] = openers[process.platform] ?? ["xdg-open", [target.href]];
+  const child = spawn(cmd, args, { detached: true, stdio: "ignore" });
+  child.on("error", () => {
+    // No opener (a headless box): the printed link is the way in.
+  });
+  child.unref();
 };
 
 const fail = (message: string): never => {
@@ -33,7 +55,7 @@ export const loginCommand = defineCommand({
     consola.info(
       `Opening ${device.verificationUriComplete}: approve there if it shows this same code.`,
     );
-    openBrowser(device.verificationUriComplete);
+    openBrowser(device.verificationUriComplete, baseUrl);
 
     consola.start("Waiting for approval...");
 

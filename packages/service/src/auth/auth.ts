@@ -31,7 +31,10 @@ export interface AuthOptions {
   db: Db;
   baseURL: string;
   secret: string;
+  /** Where social sign-in's provider callbacks are registered; oAuthProxy sends other origins through it. */
   productionURL?: string;
+  /** Encrypts the profile oAuthProxy hands back; the same on production and every Preview. */
+  oauthProxySecret?: string;
   trustedOrigins?: string[];
   github?: SocialProviderCredentials;
   google?: SocialProviderCredentials;
@@ -99,6 +102,7 @@ export const createAuth = (opts: AuthOptions) => {
       oAuthProxy({
         currentURL: baseURL,
         productionURL,
+        secret: opts.oauthProxySecret,
       }),
       bearer(),
       expo(),

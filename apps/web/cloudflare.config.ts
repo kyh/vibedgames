@@ -19,12 +19,16 @@ const stripeSecrets = {
 
 // Social sign-in (packages/service/src/auth/auth.ts) is optional the same way: a provider's button
 // appears once both its client id and secret are set. Callback URL for each provider's app:
-// https://vibedgames.com/api/auth/callback/{github,google}; Previews sign in through it via oAuthProxy.
+// https://vibedgames.com/api/auth/callback/{github,google}. A Preview signs in through it via
+// oAuthProxy, which hands the Preview the profile encrypted with OAUTH_PROXY_SECRET: set the same
+// value on production and in the preview base config, so a Preview never holds production's
+// BETTER_AUTH_SECRET.
 const socialSecrets = {
   GITHUB_CLIENT_ID: bindings.secret(),
   GITHUB_CLIENT_SECRET: bindings.secret(),
   GOOGLE_CLIENT_ID: bindings.secret(),
   GOOGLE_CLIENT_SECRET: bindings.secret(),
+  OAUTH_PROXY_SECRET: bindings.secret(),
 };
 
 const optionalSecrets = { ...stripeSecrets, ...socialSecrets };
@@ -35,6 +39,8 @@ const previewEnv = {
   ...secrets,
   DB: bindings.d1({ name: "vibedgames-preview" }),
   GAMES_BUCKET: bindings.r2({ name: "vibedgames-games-preview" }),
+  // the provider callbacks are registered on production, so social sign-in proxies through it
+  OAUTH_PROXY_URL: bindings.text("https://vibedgames.com"),
   // empty so auth takes its base URL from the Preview's own host
   PRODUCTION_URL: bindings.text(""),
 };
@@ -43,6 +49,7 @@ const productionEnv = {
   ...secrets,
   DB: bindings.d1({ id: "8aba7674-bee1-4532-b5f0-36243172cf81", name: "vibedgames" }),
   GAMES_BUCKET: bindings.r2({ name: "vibedgames-games" }),
+  OAUTH_PROXY_URL: bindings.text("https://vibedgames.com"),
   PRODUCTION_URL: bindings.text("https://vibedgames.com"),
 };
 
