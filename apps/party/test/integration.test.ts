@@ -249,7 +249,7 @@ const isJsonString = (value: JsonValue | undefined): value is string => String(v
 /** Structural record view of a JSON value; throws when it isn't one. */
 const toRecord = (value: JsonValue | undefined): JsonRecord => {
   if (!(value instanceof Object) || Array.isArray(value)) {
-    throw new Error(`expected a plain object, got: ${JSON.stringify(value)}`);
+    throw new TypeError(`expected a plain object, got: ${JSON.stringify(value)}`);
   }
   return Object.fromEntries(Object.entries(value));
 };

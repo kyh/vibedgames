@@ -17,7 +17,7 @@
     "with-env": "dotenv -e ../../.env --"
   },
   "dependencies": {
-    "@hookform/resolvers": "^5.9.2",
+    "@hookform/resolvers": "^7.0.0",
     "@modelcontextprotocol/server": "^2.4.0",
     "@orpc/client": "catalog:",
     "@orpc/json-schema": "catalog:",
@@ -37,8 +37,8 @@
     "@tanstack/react-start": "catalog:",
     "better-auth": "1.7.2",
     "cn": "catalog:",
-    "lucide-react": "^1.61.0",
-    "motion": "^14.6.0",
+    "lucide-react": "^1.66.0",
+    "motion": "^14.9.0",
     "react": "catalog:",
     "react-dom": "catalog:",
     "react-hook-form": "^7.91.0",
