@@ -29,7 +29,7 @@
     "@vibedgames/playtest": "workspace:^",
     "n8ao": "^2.0.1",
     "polygon-clipping": "^0.15.7",
-    "three": "^0.186.1"
+    "three": "^0.187.0"
   },
   "devDependencies": {
     "@dimforge/rapier3d-compat": "^0.21.0",
@@ -37,7 +37,7 @@
     "@gltf-transform/extensions": "^4.5.1",
     "@kyh/tsconfig": "catalog:",
     "@types/node": "catalog:",
-    "@types/three": "^0.186.0",
+    "@types/three": "^0.187.0",
     "playwright-core": "^1.64.1",
     "typescript": "catalog:",
     "vite": "catalog:",

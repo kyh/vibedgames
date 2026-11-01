@@ -170,7 +170,7 @@ export class HudScene extends Scene {
   create(): void {
     const game = this.scene.get("Game");
     if (!(game instanceof GameScene)) {
-      throw new Error("Hud requires the Game scene");
+      throw new TypeError("Hud requires the Game scene");
     }
     this.g = game;
     // scene instances are reused across stop/start — reset per-create state and
