@@ -11,8 +11,10 @@ claude plugin install vibedgames@vibedgames
 The plugin bundles the skills and connects the vibedgames MCP server
 (`https://vibedgames.com/mcp`), which signs in with OAuth on first use. Skills
 that run commands use the `vg` CLI when a shell is available
-(`npx -y vibedgames@latest` when it isn't installed), and the MCP tools when
-there is no shell; the `vg-setup` skill covers all three and signing in. `plugin.json` at the plugin root is the same package's
+(`npx -y vibedgames@latest` when it isn't installed). Without a shell, the MCP
+tools cover the commands that reach vibedgames (`deploy`, `generate`, …);
+local ones like `vg new` and `vg playtest` still need a shell. The `vg-setup`
+skill covers all of this and signing in. `plugin.json` at the plugin root is the same package's
 manifest for the OpenAI (ChatGPT and Codex) plugin directory.
 
 Start with the `game-playbook` skill, which takes a one-line idea to a shipped

@@ -43,9 +43,11 @@ other agents.
 ## 2. Check sign-in
 
 Only commands that reach vibedgames need an account: `deploy`, `fork`,
-`generate` (except the `codex` provider), `credits`, `playtest run`, `whoami`.
-`vg new` and plain `vg playtest` work without an account (the first
-`vg playtest` downloads its browser tool).
+`generate` (except runs the `codex` provider handles locally; `--async` runs and
+URL references fall back to vibedgames), `credits`, `playtest run`, `whoami`.
+`vg new` and plain `vg playtest` work without an account. The first
+`vg playtest` installs `agent-browser` globally (`npm install -g`) and a
+browser for it; tell the user before running it the first time.
 
 Every `vg …` here means `npx -y vibedgames@latest …` when step 1 found no `vg`.
 
