@@ -9,7 +9,7 @@ npm install -g vibedgames            # optional: puts `vg` on PATH
 npx -y vibedgames@latest generate …  # same thing, no install
 ```
 
-Commands need a signed-in account (`vg login`, or an API key in `VG_TOKEN`); see the `vg-setup` skill. The vibedgames server holds the model API keys, so there is no per-machine API-key configuration step.
+Commands that reach vibedgames need a signed-in account (`vg login`, or an API key in `VG_TOKEN`); see the `vg-setup` skill. The `codex` provider below needs no vibedgames account. The vibedgames server holds the model API keys, so there is no per-machine API-key configuration step.
 
 ## models: search and inspect
 

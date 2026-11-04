@@ -100,8 +100,11 @@ vg generate docs "webhook callbacks" --json
 ## Setup
 
 ```bash
-command -v vg || echo "use: npx -y vibedgames@latest generate ..."
-vg whoami --json   # exits 1 when signed out
+if command -v vg >/dev/null 2>&1; then
+  vg whoami --json                         # exits 1 when signed out
+else
+  npx -y vibedgames@latest whoami --json   # no install: npx stands in for vg
+fi
 ```
 
 Signing in and the no-install fallback are in the `vg-setup` skill. The vibedgames server holds the model API keys, so there is no per-machine API-key step. See [full-reference.md](references/full-reference.md) for output modes and JSON conventions.

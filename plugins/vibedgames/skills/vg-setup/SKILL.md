@@ -43,8 +43,11 @@ other agents.
 ## 2. Check sign-in
 
 Only commands that reach vibedgames need an account: `deploy`, `fork`,
-`generate`, `credits`, `playtest run`, `whoami`. `vg new` and plain
-`vg playtest` work offline.
+`generate` (except the `codex` provider), `credits`, `playtest run`, `whoami`.
+`vg new` and plain `vg playtest` work without an account (the first
+`vg playtest` downloads its browser tool).
+
+Every `vg …` here means `npx -y vibedgames@latest …` when step 1 found no `vg`.
 
 ```sh
 vg whoami --json   # {"email","id","name"} when signed in; exits 1 when not
