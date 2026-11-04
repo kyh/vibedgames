@@ -31,7 +31,13 @@ const socialSecrets = {
   OAUTH_PROXY_SECRET: bindings.secret(),
 };
 
-const optionalSecrets = { ...stripeSecrets, ...socialSecrets };
+// OpenAI's plugin directory verifies the domain of the /mcp server by fetching this token from
+// /.well-known/openai-apps-challenge. Optional the same way: set it from the portal when submitting.
+const openaiSecrets = {
+  OPENAI_APPS_CHALLENGE: bindings.secret(),
+};
+
+const optionalSecrets = { ...stripeSecrets, ...socialSecrets, ...openaiSecrets };
 
 // A Preview binds preview-only resources, so a PR can never write the prod D1 or bucket
 // (.github/workflows/preview.yml creates them). Its secrets are preview values, set once.
