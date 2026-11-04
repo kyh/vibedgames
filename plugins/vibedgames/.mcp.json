@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "vibedgames": {
+      "type": "http",
+      "url": "https://vibedgames.com/mcp"
+    }
+  }
+}

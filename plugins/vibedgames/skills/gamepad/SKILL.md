@@ -121,7 +121,7 @@ const throttle = pad.buttonValue("rt"); // analog 0–1 for driving games
 
 ## Deploy
 
-`vg deploy ./dist --slug my-game` → live at `https://my-game.vibedgames.com`. See the `deploy` skill for the full flow (use `npx vibedgames deploy` if `vg` isn't on PATH).
+`vg deploy ./dist --slug my-game` → live at `https://my-game.vibedgames.com`. See the `deploy` skill for the full flow (use `npx -y vibedgames@latest deploy` if `vg` isn't on PATH).
 
 ## See also
 

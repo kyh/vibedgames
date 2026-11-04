@@ -1,0 +1,103 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "vibedgames",
+  "version": "2.1.0",
+  "description": "Seed your coding agent with a game studio: design, scaffold, generate art and audio, add multiplayer, tune feel, and ship browser games with the vg CLI.",
+  "author": {
+    "name": "vibedgames",
+    "url": "https://vibedgames.com"
+  },
+  "homepage": "https://vibedgames.com",
+  "repository": "https://github.com/kyh/vibedgames",
+  "license": "MIT",
+  "keywords": [
+    "game-development",
+    "browser-games",
+    "phaser",
+    "threejs",
+    "multiplayer",
+    "asset-generation",
+    "pixel-art",
+    "sprites",
+    "game-design",
+    "deploy"
+  ],
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "vibedgames",
+        "shortDescription": "Build and ship browser games",
+        "longDescription": "A game studio for your agent. Skills cover the whole build: game design, Phaser and Three.js, pixel art, sprites, 3D models, music and sound, game feel, level design, online multiplayer and playtesting. The vibedgames tools generate assets and deploy a game to its own vibedgames.com URL. Generation uses account credit; deploys and hosting are free.",
+        "developerName": "vibedgames",
+        "category": "Developer Tools",
+        "capabilities": ["Read", "Write"],
+        "websiteURL": "https://vibedgames.com",
+        "supportURL": "https://github.com/kyh/vibedgames/issues",
+        "privacyPolicyURL": "https://vibedgames.com/privacy",
+        "termsOfServiceURL": "https://vibedgames.com/terms",
+        "defaultPrompt": [
+          "Build me a bomberman game and deploy it.",
+          "Make a pixel-art knight sprite sheet with walk and attack animations.",
+          "Add online multiplayer to my game."
+        ],
+        "brandColor": "#000000",
+        "brandColorDark": "#FFFFFF",
+        "composerIcon": "./assets/icon.png",
+        "logo": "./assets/logo.png"
+      },
+      "onboardingSkill": "./skills/vg-setup/SKILL.md",
+      "review": {
+        "test_cases": {
+          "positive": [
+            {
+              "description": "Identify the signed-in account",
+              "prompt": "Which vibedgames account am I signed in as?",
+              "tools_triggered": "whoami",
+              "expected_behavior": "Return the signed-in account's name."
+            },
+            {
+              "description": "Check generation credit",
+              "prompt": "How much vibedgames credit do I have left?",
+              "tools_triggered": "credits",
+              "expected_behavior": "Return the account's credit balance."
+            },
+            {
+              "description": "List deployed games",
+              "prompt": "List the games I've deployed on vibedgames.",
+              "tools_triggered": "deployments",
+              "expected_behavior": "List each deployed game by slug, or say there are none."
+            },
+            {
+              "description": "Generate a sprite",
+              "prompt": "Generate a pixel-art knight sprite on a transparent background.",
+              "tools_triggered": "generate_image",
+              "expected_behavior": "Generate the image, return its URL, and report the credit it cost."
+            },
+            {
+              "description": "Deploy a game",
+              "prompt": "Deploy a one-page HTML game that says Hello as review-demo on vibedgames.",
+              "tools_triggered": "deploy",
+              "expected_behavior": "Publish the page and return its https://review-demo.vibedgames.com URL."
+            }
+          ],
+          "negative": [
+            {
+              "description": "Payments to other people",
+              "prompt": "Send $20 of my credit to my friend's account."
+            },
+            {
+              "description": "Server hosting",
+              "prompt": "Host my Node.js API server and database."
+            },
+            {
+              "description": "Another person's account",
+              "prompt": "Show me the private games in someone else's account."
+            }
+          ]
+        },
+        "commerce": true,
+        "commerce_description": "Generation credit is bought on vibedgames.com through Stripe Checkout. The plugin can return a checkout link, but the user pays in the browser; the plugin never takes payment details."
+      }
+    }
+  }
+}

@@ -5,7 +5,7 @@ description: "Build a 3D character-selector scene entirely from `vg generate` ou
 
 # regenerate-3d Skill
 
-> **Runtime:** Asset generation steps use the `vg generate` CLI (FLUX.2 / GPT-Image-2 / Meshy v6 / Seedance / etc.); the final deliverable is a static HTML page with Three.js and the generated assets bundled in. Install with `npm install -g vibedgames` (or `pnpm dogfood` in this repo). The generation credentials live on the vibedgames server, so there is no per-machine setup. See the `generate` skill for the command reference — including its async-job recovery rule (keep the `request_id`, resume with `status`, never re-`run` after an ambiguous failure).
+> **Runtime:** Asset generation steps use the `vg generate` CLI (FLUX.2 / GPT-Image-2 / Meshy v6 / Seedance / etc.); the final deliverable is a static HTML page with Three.js and the generated assets bundled in. The generation credentials live on the vibedgames server, so the only setup is a signed-in `vg`. If `vg` isn't on PATH or says you're not logged in, follow the `vg-setup` skill (no global install needed: `npx -y vibedgames@latest` stands in for `vg`). See the `generate` skill for the command reference — including its async-job recovery rule (keep the `request_id`, resume with `status`, never re-`run` after an ambiguous failure).
 
 End-to-end recipe to ship a polished, multi-character 3D web experience using generative models.
 This is the recipe that powers a cyberpunk character selector with 10 unique operatives, each with a matching companion creature, environment-themed floor texture, animated background and color palette.
