@@ -324,7 +324,7 @@ interface Plate {
 const byId = (id: string): HTMLElement => {
   const el = document.querySelector(`#${id}`);
   if (!(el instanceof HTMLElement)) {
-    throw new Error(`hud: missing #${id}`);
+    throw new TypeError(`hud: missing #${id}`);
   }
   return el;
 };
@@ -832,7 +832,7 @@ export class Hud {
     this.itemsEl = byId("ba-items");
     const minimap = byId("ba-minimap");
     if (!(minimap instanceof HTMLCanvasElement)) {
-      throw new Error("hud: #ba-minimap is not a canvas");
+      throw new TypeError("hud: #ba-minimap is not a canvas");
     }
     const mmCtx = minimap.getContext("2d");
     if (!mmCtx) {

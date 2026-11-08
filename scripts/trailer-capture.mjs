@@ -387,7 +387,6 @@ const main = async () => {
     // scene that is badly staged, and the report has to tell them apart.
     await page.addInitScript(() => {
       globalThis.__frames = 0;
-      // oxlint-disable-next-line unicorn/consistent-function-scoping -- serialized into the page; an outer binding would not exist there
       const tick = () => {
         globalThis.__frames += 1;
         requestAnimationFrame(tick);

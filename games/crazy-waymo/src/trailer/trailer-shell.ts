@@ -102,7 +102,7 @@ export const runTrailer = (config: TrailerConfig): void => {
     !(ready instanceof HTMLElement) ||
     !(play instanceof HTMLButtonElement)
   ) {
-    throw new Error("Trailer shell failed to mount");
+    throw new TypeError("Trailer shell failed to mount");
   }
   const context = hold.getContext("2d");
   if (!context) {

@@ -96,7 +96,7 @@ const DIAL_FONT = '"Avenir Next Condensed", "Roboto Condensed", "Arial Narrow", 
 const sub = (selector: string): HTMLElement => {
   const node = document.querySelector(selector);
   if (!(node instanceof HTMLElement)) {
-    throw new Error(`missing ${selector}`);
+    throw new TypeError(`missing ${selector}`);
   }
   return node;
 };
