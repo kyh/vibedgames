@@ -108,7 +108,7 @@ const checkBlendTexture = (check: Check): void => {
   });
   const { data } = texture.image;
   if (!(data instanceof Uint8Array)) {
-    throw new Error("Terrain classification stopped using RGBA8");
+    throw new TypeError("Terrain classification stopped using RGBA8");
   }
   const ne = (TERRAIN_BLEND_SIZE - 1) * 4;
   const sw = (TERRAIN_BLEND_SIZE - 1) * TERRAIN_BLEND_SIZE * 4;

@@ -1621,6 +1621,7 @@ export const buildFurniture = async (ctx: FurnitureCtx): Promise<FurnitureResult
     if (count === 3) {
       // tsplit closed side: the missing direction.
       const missing = ([N, E, S, W] as const).find((d) => !bit(d)) ?? N;
+      // oxlint-disable-next-line sort-keys -- computed compass keys follow clockwise order
       const q = { [N]: 0, [E]: 1, [S]: 2, [W]: 3 }[missing] ?? 0;
       return {
         name: rng.chance(0.5) ? "park-road-tsplit" : "park-road-tsplit-decorated",

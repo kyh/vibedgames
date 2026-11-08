@@ -87,7 +87,7 @@ const checkFreewayContacts = (check: Check, world: AuditWorld): void => {
   const group = buildFreeways(world.terrain, world.network);
   const deck = group.getObjectByName("freeway-deck");
   if (!(deck instanceof THREE.Mesh)) {
-    throw new Error("Freeway deck fixture missing");
+    throw new TypeError("Freeway deck fixture missing");
   }
   const positions = deck.geometry.getAttribute("position");
   const landAt = makeLandClassAt(world.plan, world.terrain);
@@ -367,7 +367,7 @@ const checkTrailsAndPlume = (check: Check): void => {
   }
   const { material } = plume.mesh;
   if (!(material instanceof THREE.ShaderMaterial)) {
-    throw new Error("Boost plume lost its shader");
+    throw new TypeError("Boost plume lost its shader");
   }
   const sustained = Number(material.uniforms.uIntensity?.value);
   plume.drive(-0.55, 0.5, -2, 0.55, 0.5, -2, 0, 0, -1, 0);

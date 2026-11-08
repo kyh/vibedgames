@@ -2467,7 +2467,7 @@ export const buildRoadParts = (network: RoadNetwork, terrain: DrapeField): RoadP
     const texcoord = uv?.array ?? null;
     const index = idx?.array ?? null;
     if (!(position instanceof Float32Array) || !(normal instanceof Float32Array)) {
-      throw new Error("Street geometry requires float positions and normals");
+      throw new TypeError("Street geometry requires float positions and normals");
     }
     if (texcoord !== null && !(texcoord instanceof Float32Array)) {
       throw new Error("Street geometry requires float texture coordinates");

@@ -103,7 +103,7 @@ export class InventoryScene extends Scene {
 
     const game = this.scene.get("Game");
     if (!(game instanceof GameScene)) {
-      throw new Error("Inventory requires the Game scene");
+      throw new TypeError("Inventory requires the Game scene");
     }
     const journal = new JournalView(
       seasonOfDay(game.day),
@@ -147,7 +147,7 @@ export class InventoryScene extends Scene {
     this.journal = null;
     const game = this.scene.get("Game");
     if (!(game instanceof GameScene)) {
-      throw new Error("Inventory requires the Game scene");
+      throw new TypeError("Inventory requires the Game scene");
     }
     game.closeUi();
     this.scene.stop();

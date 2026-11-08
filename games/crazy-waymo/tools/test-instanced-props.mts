@@ -140,7 +140,7 @@ export const checkInstancedProps = (check: Check): void => {
   check("chunk transitions preserve stable IDs through swap compaction", consistent);
   const packed = fallback.children.find((node) => node instanceof THREE.InstancedMesh);
   if (!(packed instanceof THREE.InstancedMesh)) {
-    throw new Error("Missing instanced fixture");
+    throw new TypeError("Missing instanced fixture");
   }
   const { version } = packed.instanceMatrix;
   fallback.setVisibleAt(0, true);

@@ -49,14 +49,14 @@ const uniform = (mat: THREE.ShaderMaterial, name: string): THREE.IUniform => {
 const uniformColor = (mat: THREE.ShaderMaterial, name: string): THREE.Color => {
   const v: unknown = uniform(mat, name).value;
   if (!(v instanceof THREE.Color)) {
-    throw new Error(`fx: uniform ${name} is not a Color`);
+    throw new TypeError(`fx: uniform ${name} is not a Color`);
   }
   return v;
 };
 const uniformVec2 = (mat: THREE.ShaderMaterial, name: string): THREE.Vector2 => {
   const v: unknown = uniform(mat, name).value;
   if (!(v instanceof THREE.Vector2)) {
-    throw new Error(`fx: uniform ${name} is not a Vector2`);
+    throw new TypeError(`fx: uniform ${name} is not a Vector2`);
   }
   return v;
 };

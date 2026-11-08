@@ -21,7 +21,7 @@ const base64url = (bytes: Uint8Array): string =>
   btoa(String.fromCodePoint(...bytes))
     .replaceAll("+", "-")
     .replaceAll("/", "_")
-    .replace(/=+$/u, "");
+    .replace(/[=]+$/u, "");
 
 const fromBase64url = (text: string): Uint8Array | null => {
   const padded = text
