@@ -62,9 +62,9 @@ login _before_ anything else:
 vg login
 ```
 
-This auto-opens the user's browser to a device-code confirmation page
-and prints a 6-character code in the terminal. Tell the user:
-"I opened a browser — confirm code `XXXXXX`." Wait for the CLI to
+This auto-opens the user's browser to an approval page and prints an
+8-character code in the terminal. Tell the user:
+"I opened a browser — approve code `XXXXXXXX`." Wait for the CLI to
 print `Logged in successfully` before continuing. If the browser
 didn't open (remote shell, headless env), read the URL from the CLI
 output and give it to the user to open manually.
@@ -138,6 +138,7 @@ own `og:` tags — the platform then serves the page untouched.
 - **Guard `localStorage`.** Games run inside the web app's iframe; an unguarded access throws on boot and the game is dead. Wrap reads and writes in `try`/`catch` and treat storage as best-effort
 - If the user doesn't specify a slug, ask them for one or derive it from the project name
 - If `vibedgames.json` exists in the deploy directory, the slug is read from there automatically
+- `vg deployments --json` lists your games (slug, size, deploy time); `vg deployments delete <slug> --yes` removes one and all its files, permanently
 
 ## Config file (optional)
 

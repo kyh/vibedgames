@@ -1,59 +1,26 @@
 import { openAsBlob } from "node:fs";
 
-import { forwardJson } from "./api.js";
 import type { createClient } from "./api.js";
 import type { LocalFile } from "./media-args.js";
-import { isJsonObject, isJsonString } from "./types.js";
-import type { JsonValue } from "./types.js";
 
 type Client = ReturnType<typeof createClient>;
 
-const pickUrl = (slot: JsonValue, key: "upload_url" | "file_url"): string => {
-  const value = isJsonObject(slot) ? slot[key] : undefined;
-  if (!isJsonString(value) || value.length === 0) {
-    throw new Error(`Storage initiate response missing ${key}.`);
-  }
-  // Refuse any non-HTTPS URL even if it comes from a trusted server
-  // response — a misconfigured response (or a downgrade attack on the
-  // proxy hop) must not silently send user bytes over plain HTTP, and
-  // file_url gets passed into later runs where it should stay HTTPS.
-  let parsed: URL;
-  try {
-    parsed = new URL(value);
-  } catch {
-    throw new Error(`Storage initiate response ${key} is not a valid URL.`);
-  }
-  if (parsed.protocol !== "https:") {
-    throw new Error(`Storage initiate response ${key} must be HTTPS, got ${parsed.protocol}.`);
-  }
-  return value;
-};
 /**
- * Upload one local file directly to fal's CDN. The proxy hands us a
- * presigned upload slot (upload_url + file_url) via the `generate.forward`
- * storage target; bytes go straight from the client to fal, never
- * through the worker. The returned file_url is a stable fal CDN URL
- * that can be reused across runs without re-uploading.
+ * Upload one local file as a model input. `generate.upload` opens a storage
+ * slot and answers with a signed URL on the API's own host, which streams the
+ * bytes on to it, so this only ever talks to the API. The returned file URL is
+ * stable and can be reused across runs without re-uploading.
  */
 export const uploadFile = async (client: Client, file: LocalFile): Promise<string> => {
-  const slot = await forwardJson(client, {
-    body: { content_type: file.contentType, file_name: file.filename },
-    method: "POST",
-    path: "/storage/upload/initiate",
-    target: "storage",
+  const slot = await client.generate.upload({
+    contentType: file.contentType,
+    fileName: file.filename,
   });
-  const uploadUrl = pickUrl(slot, "upload_url");
-  const fileUrl = pickUrl(slot, "file_url");
-
   const body = await openAsBlob(file.path, { type: file.contentType });
-  const res = await fetch(uploadUrl, {
-    body,
-    headers: { "Content-Type": file.contentType },
-    method: "PUT",
-  });
+  const res = await fetch(slot.uploadUrl, { body, headers: slot.headers, method: "PUT" });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(`Upload failed for ${file.filename}: ${res.status} ${res.statusText} ${text}`);
   }
-  return fileUrl;
+  return slot.fileUrl;
 };

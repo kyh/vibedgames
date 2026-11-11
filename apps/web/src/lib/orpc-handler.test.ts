@@ -53,9 +53,11 @@ const contextFor = (request: Request): ORPCContext => ({
   decision: undefined,
   headers: request.headers,
   media: undefined,
+  oauthScopes: null,
   productionURL: undefined,
   r2: undefined,
   session: null,
+  signing: undefined,
 });
 
 const assertJsonError = async (response: Response, status: number, code: string) => {

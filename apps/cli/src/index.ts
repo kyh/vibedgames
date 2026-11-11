@@ -3,6 +3,18 @@ import { defineCommand, runMain } from "citty";
 
 import { PACKAGE_VERSION } from "./lib/package-root.js";
 
+// A reader that stops early (`vg skills | head`) closes the pipe under us:
+// that is the reader being done, not a failure, so leave quietly instead of
+// crashing on the next write with an unhandled EPIPE.
+for (const stream of [process.stdout, process.stderr]) {
+  stream.on("error", (error: NodeJS.ErrnoException) => {
+    if (error.code === "EPIPE") {
+      process.exit(0);
+    }
+    throw error;
+  });
+}
+
 /** A command imported only when it runs: `key` names its export in the module. */
 const lazy =
   <M, K extends keyof M>(load: () => Promise<M>, key: K) =>
@@ -25,6 +37,7 @@ const main = defineCommand({
     config: lazy(() => import("./commands/config.js"), "configCommand"),
     credits: lazy(() => import("./commands/credits.js"), "creditsCommand"),
     deploy: lazy(() => import("./commands/deploy.js"), "deployCommand"),
+    deployments: lazy(() => import("./commands/deployments.js"), "deploymentsCommand"),
     factory: lazy(() => import("./commands/factory.js"), "factoryCommand"),
     fork: lazy(() => import("./commands/fork.js"), "forkCommand"),
     generate: lazy(() => import("./commands/generate.js"), "generateCommand"),
@@ -47,6 +60,7 @@ const main = defineCommand({
         },
       });
     },
+    skills: lazy(() => import("./commands/skills.js"), "skillsCommand"),
     update: lazy(() => import("./commands/update.js"), "updateCommand"),
     whoami: lazy(() => import("./commands/whoami.js"), "whoamiCommand"),
   },

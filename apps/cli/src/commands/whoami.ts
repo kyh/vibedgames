@@ -33,7 +33,7 @@ export const whoamiCommand = defineCommand({
       if (writeStructured({ email: user.email, id: user.id, name: user.name }, args)) {
         return;
       }
-      consola.log(`${user.name} (${user.email})`);
+      consola.log(user.email ? `${user.name} (${user.email})` : user.name);
     } catch (error) {
       // Only an auth error means "log in"; surface network/server failures as
       // themselves so they aren't mistaken for a bad credential.

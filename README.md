@@ -35,6 +35,9 @@ npx vibedgames deploy ./dist --slug my-game        # live at my-game.vibedgames.
 
 Full command list: [`apps/cli/README.md`](./apps/cli/README.md).
 
+No shell (claude.ai, ChatGPT)? Add `https://vibedgames.com/mcp` as an MCP connector: the
+same platform as tools, with OAuth sign-in on the first tool that needs an account.
+
 ## Repo layout
 
 ```

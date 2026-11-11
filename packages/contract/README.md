@@ -6,7 +6,7 @@ The oRPC API's single source of truth: every procedure's input, output and OpenA
 
 | Router     | Purpose                                                             |
 | ---------- | ------------------------------------------------------------------- |
-| `auth`     | Session info, device-code flow for CLI login, admin credit codes    |
+| `auth`     | Session info, admin credit codes                                    |
 | `apiKeys`  | Long-lived API keys for headless/CI clients                         |
 | `waitlist` | Waitlist signup                                                     |
 | `deploy`   | Game deploys: create (presigned R2 upload URLs) + finalize          |
