@@ -11,7 +11,7 @@ export const CONTROLS: ControlsManifest = [
   { action: "aim down sights", input: "RIGHT CLICK", method: "mouse" },
   { action: "reload", input: "R", method: "keys" },
   { action: "swap weapon", input: "Q / 1 2 / WHEEL", method: "keys" },
-  { action: "hold to plant or defuse", input: "E", method: "keys" },
+  { action: "hold to plant, defuse or cut a relay", input: "E", method: "keys" },
   { action: "jump", input: "SPACE", method: "keys" },
   { action: "sprint", input: "SHIFT", method: "keys" },
   { action: "crouch", input: "C / CTRL", method: "keys" },

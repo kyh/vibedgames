@@ -52,6 +52,10 @@ const escapeHtml = (text: string): string =>
 
 const inPlay = (state: GameState): boolean => state === "playing" || state === "paused";
 
+/** Deployed into the 8v8 match (not the title, not a solo PvE mode). */
+const inMatch = (game: StrikeforceGame): boolean =>
+  inPlay(game.game.state) && game.game.run.mode === "match";
+
 /** Which end of the dock a team spawns at this round: attackers take the gate. */
 const endOf = (m: MatchState, team: Team): End => (team === m.attack ? "gate" : "quay");
 
@@ -73,7 +77,13 @@ const remoteShot = (payload: JsonValue, game: StrikeforceGame): void => {
 };
 
 export class Match implements NetHooks {
-  readonly match = true;
+  /** The host publishes barrels only while it plays the match itself. */
+  private hostBarrels = false;
+
+  /** The core's mission flow stands down while the deployed mode is the match. */
+  get match(): boolean {
+    return this.game?.game.run.mode === "match";
+  }
   private client: MultiplayerClient | null = null;
   private game: StrikeforceGame | null = null;
   private players: Players | null = null;
@@ -98,8 +108,9 @@ export class Match implements NetHooks {
   private readonly a = new Vector3();
   private readonly b = new Vector3();
 
+  /** Barrels are the host's only in a match the host is playing too; solo PvE keeps its own. */
   get guest(): boolean {
-    return Boolean(this.client) && !this.isHost();
+    return Boolean(this.client) && !this.isHost() && this.hostBarrels && this.match;
   }
 
   /** For the two-client harness and playtest diagnostics. */
@@ -157,7 +168,6 @@ export class Match implements NetHooks {
     this.map = buildMap(game);
     this.charge = new ChargeProp(game);
     this.hud.mount();
-    dressRelays(game);
     game.events.on("weapon:fire", (shot) => this.sendShot(shot));
     this.seenState = game.game.state;
     this.stateListener?.(game.game.state, game);
@@ -175,6 +185,10 @@ export class Match implements NetHooks {
     const { me } = this;
     const myTeam = this.view?.roster.get(me)?.team ?? null;
     players.update(client.players, me, myTeam, (id) => this.view?.roster.get(id) ?? null, dt);
+    if (!inMatch(game)) {
+      // Solo PvE (or the title): the room's players stay out of this dock.
+      players.hide();
+    }
     if (this.isHost()) {
       this.runHost(client, game, dt);
     } else {
@@ -190,7 +204,7 @@ export class Match implements NetHooks {
       me,
       now: client.serverNow(),
       status: client.connectionStatus,
-      title: game.game.state === "title",
+      title: !inMatch(game),
     });
   }
 
@@ -198,7 +212,7 @@ export class Match implements NetHooks {
     const { view } = this;
     const roster = view?.roster;
     const mine = roster?.get(this.me);
-    if (!this.players || !this.client || !mine?.alive) {
+    if (!this.players || !this.client || !mine?.alive || !this.game || !inMatch(this.game)) {
       return null;
     }
     const hit = this.players.hitTest(origin, dir, maxDist, (id) => {
@@ -241,7 +255,7 @@ export class Match implements NetHooks {
     const ids = [...(this.players?.all.values() ?? [])]
       .filter((p) => p.deployed && p.connected)
       .map((p) => p.id);
-    if (inPlay(game.game.state)) {
+    if (inMatch(game)) {
       ids.push(this.me);
     }
     return ids;
@@ -266,7 +280,9 @@ export class Match implements NetHooks {
     this.hostEvents(client, game, events);
     if (this.matchRate.due(dt * 1000)) {
       client.updateSharedState({
-        [MATCH_KEY]: { ...encodeMatch(rules, now), bar: game.explosives.aliveMask() },
+        [MATCH_KEY]: inMatch(game)
+          ? { ...encodeMatch(rules, now), bar: game.explosives.aliveMask() }
+          : encodeMatch(rules, now),
       });
     }
   }
@@ -346,7 +362,8 @@ export class Match implements NetHooks {
     if (decoded) {
       this.view = decoded.state;
     }
-    if (isRecord(raw) && isStr(raw.bar) && this.game) {
+    this.hostBarrels = isRecord(raw) && isStr(raw.bar);
+    if (isRecord(raw) && isStr(raw.bar) && this.game && this.match) {
       this.game.explosives.syncMask(raw.bar);
     }
   }
@@ -358,8 +375,8 @@ export class Match implements NetHooks {
     }
     const was = this.seenState;
     this.seenState = state;
-    if (was === "title" && state === "playing") {
-      // Deployed: the next match read places us.
+    if (was === "title" && state === "playing" && this.match) {
+      // Deployed into the match: the next match read places us.
       this.placedRound = -1;
       dressRelays(game);
     }
@@ -371,7 +388,11 @@ export class Match implements NetHooks {
     const m = this.view;
     const me = m?.roster.get(this.me);
     const { player } = game;
-    if (!m || !me || !inPlay(game.game.state)) {
+    if (!inMatch(game)) {
+      this.charge?.hide();
+      return;
+    }
+    if (!m || !me) {
       this.charge?.update(
         m?.charge ?? { carrier: "", site: -1, state: "none", x: 0, y: 0, z: 0 },
         0,
@@ -565,7 +586,7 @@ export class Match implements NetHooks {
     client.updateMyState({
       a: p.alive ? 1 : 0,
       c: p.crouching ? 1 : 0,
-      d: inPlay(game.game.state) ? 1 : 0,
+      d: inMatch(game) ? 1 : 0,
       hp: Math.round(p.health),
       pitch: q3(p.pitch),
       r: this.placedRound,
@@ -596,15 +617,20 @@ export class Match implements NetHooks {
     if (!game || !client) {
       return;
     }
+    const playing = inMatch(game);
     if (event === EV.shot && from !== client.playerId) {
-      remoteShot(payload, game);
+      if (playing) {
+        remoteShot(payload, game);
+      }
     } else if (event === EV.hurt) {
       const v = nums(payload, 5);
-      if (v) {
+      if (v && playing) {
         this.onHurt(v);
       }
     } else if (event === EV.kill) {
-      this.onKill(Array.isArray(payload) ? payload : []);
+      if (playing) {
+        this.onKill(Array.isArray(payload) ? payload : []);
+      }
     } else if (this.isHost()) {
       this.applyIntent(event, payload, from, game);
     }

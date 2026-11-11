@@ -1,11 +1,18 @@
 # Strikeforce
 
-Round-based 8v8 first-person shooter on a rain-soaked container dock at dusk.
-Gold against Steel, no respawns inside a round: the attackers carry a charge
-to site A or B and plant it, and the defenders hold the sites or defuse it.
-First to five rounds takes the match. Every surface, weapon and sound is
-generated in the browser; nothing is downloaded. Deployed at
-`strikeforce.vibedgames.com`.
+First-person shooter on a rain-soaked container dock at dusk, in three modes
+picked on the title screen:
+
+- **8v8 Match** (online, the default) — Gold against Steel, no respawns
+  inside a round: the attackers carry a charge to site A or B and plant it,
+  the defenders hold the sites or defuse it. First to five rounds.
+- **Mission** (solo PvE) — the dock's security machines hunt you while you
+  cut three uplink relays, then reach the boat.
+- **Holdout** (solo PvE) — endless, growing waves of machines; resupply
+  between waves.
+
+Every surface, weapon, machine and sound is generated in the browser; nothing
+is downloaded. Deployed at `strikeforce.vibedgames.com`.
 
 ## Develop
 
@@ -24,16 +31,17 @@ pnpm --filter @repo/strikeforce build       # vite build
 
 ## Routes
 
-| URL             | What                                                           |
-| --------------- | -------------------------------------------------------------- |
-| `/`             | the game; quick-matches into the fullest open match            |
-| `/?room=dock7`  | a private match: everyone with the same code plays together    |
-| `/?offline=1`   | never dials the party server (warmup on your own)              |
-| `/?autostart=1` | skip the title and deploy at once                              |
-| `/?q=low`       | force a quality preset (`low` `medium` `high` `ultra`)         |
-| `/?test=1`      | publish the playtest hooks and manifest                        |
-| `/?bench=1`     | camera fly-through with a frame-time readout                   |
-| `/?norender=1`  | simulate without drawing (the two-client smoke on software GL) |
+| URL              | What                                                           |
+| ---------------- | -------------------------------------------------------------- |
+| `/`              | the game; quick-matches into the fullest open match            |
+| `/?room=dock7`   | a private match: everyone with the same code plays together    |
+| `/?offline=1`    | never dials the party server (warmup on your own)              |
+| `/?mode=mission` | start in a mode: `match` (default), `mission` or `holdout`     |
+| `/?autostart=1`  | skip the title and deploy at once                              |
+| `/?q=low`        | force a quality preset (`low` `medium` `high` `ultra`)         |
+| `/?test=1`       | publish the playtest hooks and manifest                        |
+| `/?bench=1`      | camera fly-through with a frame-time readout                   |
+| `/?norender=1`   | simulate without drawing (the two-client smoke on software GL) |
 
 ## Controls
 
@@ -45,7 +53,7 @@ pnpm --filter @repo/strikeforce build       # vite build
 | right click (LT)                         | aim down sights            |
 | R (X)                                    | reload                     |
 | Q / 1 2 / wheel (Y)                      | swap rifle / sidearm       |
-| hold E (hold X, USE)                     | plant at a site / defuse   |
+| hold E (hold X, USE)                     | plant / defuse / cut relay |
 | Space (A)                                | jump                       |
 | Shift (L-stick click)                    | sprint                     |
 | C / Ctrl (B, LB)                         | crouch                     |
@@ -78,6 +86,10 @@ Damage: the weapon's own numbers, ×4 to the head (a rifle headshot kills).
 Friendly fire is off.
 
 ## Multiplayer
+
+Only the match is online; Mission and Holdout are the original single-player
+game, and the match layer stands down while you play them (a player in a PvE
+mode stays in the room but out of the roster, and can still referee as host).
 
 Host-authoritative on `@vibedgames/multiplayer`. The first player in the room
 is the host and runs the rules; it publishes the match (phase, clock, score,
@@ -121,7 +133,8 @@ and formatted, with three.js swapped for the npm package — pinned to
 `0.180.0`, the release it was written against, because it patches three's
 shader chunks by exact text (soft shadows, the sea, the apron) and later
 releases changed them. The mangled names are the bundler's; there was no
-source to recover them from. The original's machine enemies no longer boot.
+source to recover them from. Its machine enemies spawn only in the PvE
+modes.
 
 The file is excluded from lint and typecheck. Its only hand edits are the
 match hooks, each marked `[net]` and called through `G.net` (`NetHooks` in

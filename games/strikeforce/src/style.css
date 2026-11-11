@@ -1118,7 +1118,7 @@ body {
   color: var(--bone-dim);
 }
 .m-word {
-  font: 900 clamp(52px, 15.5vw, 208px)/0.8 var(--f-display) !important;
+  font: 900 clamp(40px, 9.6vw, 148px)/0.8 var(--f-display) !important;
   letter-spacing: 0.15em !important;
   margin: clamp(10px, 2vh, 22px) -0.15em clamp(12px, 2.2vh, 24px) -0.035em !important;
   color: var(--bone);
@@ -1704,7 +1704,7 @@ kbd {
     padding-right: var(--gr);
   }
   .m-word {
-    font-size: clamp(52px, 20vw, 150px) !important;
+    font-size: clamp(34px, 12.4vw, 104px) !important;
   }
   .m-eyebrow {
     font-size: 11px;
@@ -1727,7 +1727,7 @@ kbd {
 }
 @media (max-height: 520px) {
   .m-word {
-    font-size: clamp(40px, 20vh, 120px) !important;
+    font-size: clamp(32px, 14vh, 92px) !important;
     margin-top: 8px !important;
     margin-bottom: 10px !important;
   }
@@ -1944,4 +1944,12 @@ kbd {
   .mx-board.on {
     grid-template-columns: 1fr;
   }
+}
+
+/* ---- modes: PvE-only controls hide in the match, match-only lines outside it ---- */
+.menu[data-mode="match"] [data-pve] {
+  display: none !important;
+}
+.menu:not([data-mode="match"]) [data-only-match] {
+  display: none !important;
 }

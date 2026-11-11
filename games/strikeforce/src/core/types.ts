@@ -65,7 +65,8 @@ export interface Relay {
 
 export interface GameFlow {
   state: GameState;
-  run: { relays: Relay[] };
+  /** `mode` is the deployed one: "match", "mission" or "holdout". */
+  run: { relays: Relay[]; mode: string };
   start: (options?: { skipIntro?: boolean }) => void;
   pause: () => void;
   resume: () => void;
@@ -106,6 +107,8 @@ export interface StrikeforceGame {
   camera: PerspectiveCamera;
   player: PlayerBody;
   explosives: Explosives;
+  /** The dock's machines: they only spawn in the solo PvE modes. */
+  enemies: { list: { alive: boolean; pos: Vector3 }[] };
   hud: Hud;
   fx: Fx;
   audio: Partial<GameAudio>;

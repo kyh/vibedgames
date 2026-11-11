@@ -52,6 +52,26 @@ const sideOf = (team: number | undefined, attack: number | undefined): string | 
   return team === attack ? "attack" : "defend";
 };
 
+interface Nearby {
+  nearestEnemy: Offset | null;
+  nearestRelay: Offset | null;
+  nearestSite: Offset | null;
+}
+
+/** Offsets to what the player is looking for: a site, a relay, the nearest enemy (machine or player). */
+const nearby = (game: StrikeforceGame, match: Match): Nearby => {
+  const { pos } = game.player;
+  const pve = game.game.run.mode !== "match";
+  const machines = game.enemies.list.filter((e) => e.alive).map((e) => e.pos);
+  const relays = game.game.run.relays.filter((r) => !r.cut).map((r) => r.o.pos);
+  const at = (p: Point | null): Offset | null => (p ? offset(pos, p) : null);
+  return {
+    nearestEnemy: at(nearestOf(pos, pve ? machines : match.enemies())),
+    nearestRelay: at(nearestOf(pos, relays)),
+    nearestSite: at(nearestOf(pos, match.sites())),
+  };
+};
+
 export const installPlaytest = (game: StrikeforceGame, match: Match): void => {
   let frame = 0;
   const tick = (): void => {
@@ -64,16 +84,14 @@ export const installPlaytest = (game: StrikeforceGame, match: Match): void => {
     const { player } = game;
     const m = match.state;
     const me = m?.roster.get(match.me);
-    const site = nearestOf(player.pos, match.sites());
-    const enemy = nearestOf(player.pos, match.enemies());
     return {
+      ...nearby(game, match),
       alive: player.alive,
       carrying: m?.charge.state === "carried" && m.charge.carrier === match.me,
       complete: m?.phase === "over",
       frame,
       health: Math.round(player.health),
-      nearestEnemy: enemy ? offset(player.pos, enemy) : null,
-      nearestSite: site ? offset(player.pos, site) : null,
+      mode: game.game.run.mode,
       phase: m?.phase ?? "connecting",
       player: {
         x: Math.round(player.pos.x * 100) / 100,
@@ -83,6 +101,7 @@ export const installPlaytest = (game: StrikeforceGame, match: Match): void => {
       },
       players: match.size,
       round: m?.round ?? 0,
+      score: m && me ? m.score[me.team] : 0,
       scoreGold: m?.score[0] ?? 0,
       scoreSteel: m?.score[1] ?? 0,
       side: sideOf(me?.team, m?.attack),
@@ -110,7 +129,7 @@ export const installPlaytest = (game: StrikeforceGame, match: Match): void => {
         keys: ["KeyE"],
       },
     },
-    goal: "Round-based first-person shooter on a rainy container dock. Walk the map: visit both bomb sites (nearestSite is the offset to the closer one, in metres) and check the player moves, turns and fires cleanly. Alone, the match stays in warmup.",
+    goal: 'First-person shooter on a rainy container dock. In the match (mode "match", alone it stays in warmup) visit both bomb sites (nearestSite, metres). In solo PvE (?mode=mission) cut the relays (nearestRelay; hold use on one) while machines hunt you (nearestEnemy): turn to face them and fire.',
     minDisplacement: 0.05,
     move: {
       back: { description: "Walk backward", keys: ["KeyS"] },

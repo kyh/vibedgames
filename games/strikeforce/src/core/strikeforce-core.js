@@ -41959,7 +41959,7 @@ var lT = "strikeforce.settings.v1",
     volume: 0.8,
     fov: zi.fov,
     difficulty: "hard",
-    mode: "mission",
+    mode: "match",
     view: 1,
   },
   cT = [
@@ -41968,11 +41968,15 @@ var lT = "strikeforce.settings.v1",
     [3, "Compact"],
   ],
   uT = [
+    ["match", "8v8 Match"],
     ["mission", "Mission"],
     ["holdout", "Holdout"],
   ],
   nL = {
-    mission: "Cut three relays and reach the boat. About five minutes.",
+    match:
+      "Online, Gold against Steel, no respawns. Plant the charge at A or B, or stop it. First to five rounds.",
+    mission:
+      "Solo against the dock's machines. Cut three relays and reach the boat. About five minutes.",
     holdout: "Endless waves that keep growing. Resupply between waves. How long can you hold?",
   },
   ab = [
@@ -42056,30 +42060,36 @@ function hT(n, e) {
     <div class="m-title-main">
       <div class="m-eyebrow"><span class="m-tag">8v8</span><span>Kestrel Terminal</span><span class="m-dim">Gold vs Steel · first to five</span></div>
       <h1 class="m-word">STRIKEFORCE</h1>
-      <p class="m-premise">Two squads, one dock, no respawns. Attackers plant a charge at site A or B; defenders hold, or defuse it.</p>
+      <p class="m-premise">Two squads, one dock, no respawns: plant the charge at A or B, or stop it. Or take the dock alone against its machines.</p>
       <div class="m-actions">
         <button class="btn primary" data-act="deploy">Deploy</button>
         <button class="btn" data-act="settings">Settings</button>
         <button class="btn m-only-narrow" data-act="controls">Controls</button>
       </div>
+      <div class="m-pick">
+        <label id="l-tm">Mode</label><div class="seg" role="group" aria-labelledby="l-tm">${uT.map((W) => `<button data-m="${W[0]}" aria-pressed="false">${W[1]}</button>`).join("")}</div>
+        <label id="l-td" data-pve>Difficulty</label><div class="seg" role="group" aria-labelledby="l-td" data-pve>${ab.map((W) => `<button data-d="${W[0]}" aria-pressed="false">${W[1]}</button>`).join("")}</div>
+        <div class="m-pick-note" data-f="modenote"></div>
+      </div>
       <p class="m-note">Every surface, machine and sound is generated in your browser. Nothing is downloaded.</p>
     </div>
     <aside class="m-legend" aria-label="Controls at a glance">
       <div><span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> Move</span><span><kbd>Mouse</kbd> Look</span><span><kbd>LMB</kbd> Fire</span><span><kbd>RMB</kbd> Aim</span><span><kbd>R</kbd> Reload</span></div>
-      <div><span><kbd>Q</kbd> Sidearm</span><span><kbd>E</kbd> Plant / defuse</span><span><kbd>Space</kbd> Jump</span><span><kbd>Shift</kbd> Sprint</span><span><kbd>C</kbd> Crouch</span><span><kbd>Esc</kbd> Pause</span></div>
+      <div><span><kbd>Q</kbd> Sidearm</span><span><kbd>E</kbd> Plant · defuse · cut</span><span><kbd>Space</kbd> Jump</span><span><kbd>Shift</kbd> Sprint</span><span><kbd>C</kbd> Crouch</span><span><kbd>Esc</kbd> Pause</span></div>
       <div class="lg-pad"><em>Controller</em><span>Sticks move and look</span><span><kbd>RT</kbd> Fire</span><span><kbd>LT</kbd> Aim</span><span><kbd>X</kbd> Reload / plant</span><span><kbd>Y</kbd> Sidearm</span><span><kbd>A</kbd> Deploy</span></div>
       <div class="lg-touch"><em>Touch</em><span>Left thumb moves</span><span>Right thumb looks</span><span>Fire · Aim · Reload · Jump on screen</span></div>
     </aside>
   </section>
 
   <section class="m-screen m-card" data-s="paused" aria-label="Paused">
-    <div class="m-k">The round plays on</div>
+    <div class="m-k" data-only-match>The round plays on</div><div class="m-k" data-pve>Operation on hold</div>
     <h2 class="m-h">Paused</h2>
     <p class="m-line" data-f="lookmode"></p>
     <div class="m-actions col">
       <button class="btn primary" data-act="resume">Resume</button>
       <button class="btn" data-act="settings">Settings</button>
       <button class="btn" data-act="controls">Controls</button>
+      <button class="btn" data-act="restart" data-pve>Restart mission</button>
     </div>
   </section>
 
@@ -42112,6 +42122,8 @@ function hT(n, e) {
       <button class="btn small" data-act="close-panel">Close</button>
     </header>
     <div class="panel-b" data-pane="settings">
+      <div class="row" data-pve><label id="l-d">Difficulty (solo)</label>
+        <div class="seg" role="group" aria-labelledby="l-d">${ab.map((W) => `<button data-d="${W[0]}" aria-pressed="false">${W[1]}</button>`).join("")}</div></div>
       <div class="row"><label id="l-v">Weapon position</label>
         <div class="seg" role="group" aria-labelledby="l-v">${cT.map((W) => `<button data-v="${W[0]}" aria-pressed="false">${W[1]}</button>`).join("")}</div></div>
       <div class="row"><label id="l-q">Graphics quality</label>
@@ -42191,6 +42203,7 @@ function hT(n, e) {
     for (let G of r(".seg button[data-m]"))
       G.setAttribute("aria-pressed", String(G.dataset.m === i.mode));
     ((s.dataset.mode = i.mode),
+      (c("modenote").textContent = nL[i.mode] || ""),
       (u.value = i.sens),
       (f.value = Math.round(i.volume * 100)),
       (h.value = i.fov),
@@ -42748,7 +42761,7 @@ function pT(n) {
         G({
           skipIntro: !!Y.skipIntro,
           quick: !!Y.quick,
-          mode: Y.mode || (n.params.mode === "holdout" ? "holdout" : null),
+          mode: Y.mode || (uT.some((V) => V[0] === n.params.mode) ? n.params.mode : null), // [net] ?mode=
         });
       },
       pause() {
@@ -42853,7 +42866,9 @@ function pT(n) {
       (g.score = 0),
       (g.kills = 0),
       (g.wavesCleared = 0),
-      h(C.difficulty),
+      h(
+        n.net && n.net.match ? "hard" : l.settings.difficulty || C.difficulty,
+      ), // [net]
       (g.relays = k().map((Y, he) => {
         let V = (/([a-z0-9])$/i.exec(String(Y.id || "")) || [
           0,
@@ -43396,6 +43411,7 @@ var mT = {
   fx: Wv,
   weapon: Zy,
   hands: zy,
+  enemies: ib,
   props: hv,
   render: rv,
 };
@@ -43560,8 +43576,7 @@ async function cL(net) {
     (await fa("Checking the rifle", 0.74),
       await r("weapon", "weapon", () => I5(t)),
       await fa("Waking the Harbormaster", 0.82),
-      // [net] No machines: Strikeforce is player against player.
-      (t.enemies = Sr.enemies()),
+      await r("enemies", "enemies", () => W5(t)),
       await r("hud", "hud", () => sT(t)),
       (t.game = pT(t)));
   }

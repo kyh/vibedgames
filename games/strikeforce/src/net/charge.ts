@@ -39,6 +39,10 @@ export class ChargeProp {
     game.scene.add(this.root);
   }
 
+  hide(): void {
+    this.root.visible = false;
+  }
+
   /** `left`: seconds until detonation while planted. */
   update(charge: Charge, left: number, game: StrikeforceGame): void {
     const shown = charge.state === "dropped" || charge.state === "planted";

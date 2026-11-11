@@ -178,6 +178,15 @@ export class Players {
     };
   }
 
+  /** Keep every avatar out of the scene's way (solo PvE, the title). */
+  hide(): void {
+    for (const p of this.all.values()) {
+      if (p.avatar) {
+        p.avatar.root.visible = false;
+      }
+    }
+  }
+
   clear(): void {
     for (const p of this.all.values()) {
       p.avatar?.dispose();
