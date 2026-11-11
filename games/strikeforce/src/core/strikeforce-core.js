@@ -741,7 +741,7 @@ function qM() {
   );
 }
 var H9 = `
-// SALTLINE_SKY
+// STRIKEFORCE_SKY
 precision highp float;
 varying vec3 vDir;
 uniform float uTime, uEnv, uFlash;
@@ -848,7 +848,7 @@ function V9(n) {
 }
 function XM(n) {
   let e = new vn({
-      name: "saltline-sky",
+      name: "strikeforce-sky",
       side: ts,
       depthWrite: false,
       depthTest: true,
@@ -880,7 +880,7 @@ function YM(n, e) {
   let r = t.fromScene(s, 0, 0.1, 100);
   return (i.dispose(), t.dispose(), r);
 }
-var $M = "// SALTLINE_SHADOW",
+var $M = "// STRIKEFORCE_SHADOW",
   e1 = null;
 function ZM(n, e, t, i, s) {
   let o = Z0.dir.clone().normalize(),
@@ -1000,7 +1000,7 @@ function KM() {
   e1 !== null && (Yt.shadowmap_pars_fragment = e1);
 }
 var JM = $M;
-var iv = "// SALTLINE_POST",
+var iv = "// STRIKEFORCE_POST",
   sg = "0.05",
   e_ = "0.05",
   W9 = "varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }",
@@ -2032,8 +2032,8 @@ async function ov(n) {
     } catch {}
     let j = "material";
     (le.includes(iv)
-      ? ((o.post = true), (j = "post pass " + (le.match(/SALTLINE_POST (\S+)/) || [])[1]))
-      : le.includes("SALTLINE_SKY")
+      ? ((o.post = true), (j = "post pass " + (le.match(/STRIKEFORCE_POST (\S+)/) || [])[1]))
+      : le.includes("STRIKEFORCE_SKY")
         ? ((o.sky = true), (j = "sky"))
         : le.includes(JM)
           ? ((o.shadow = true), (j = "material (soft shadow chunk active)"))
@@ -4974,7 +4974,7 @@ function _k(n) {
     }),
       (M = -v / 2 + 0.25),
       (_ = y - 0.75 - 3 * 0.78 - 0.05),
-      w(e.label("SALTLINE TERMINAL  B4-0271", { color: "white" }), 0.3),
+      w(e.label("KESTREL TERMINAL  B4-0271", { color: "white" }), 0.3),
       w(e.label("MAX GROSS 30480 KG", { color: "yellow", distress: 0.6 }), 0.22),
       w(e.label("DANGER", { color: "red", distress: 0.2 }), 0.3),
       w(e.label("KEEP CLEAR", { color: "black", font: "sans" }), 0.25),
@@ -9077,7 +9077,7 @@ function Xk(n, e) {
       );
     }
     (t.label(
-      y > 0 ? "NYY-J 4x95 mm2  500 m" : "SALTLINE TERMINAL",
+      y > 0 ? "NYY-J 4x95 mm2  500 m" : "KESTREL TERMINAL",
       { color: "white", font: "stencil", distress: 0.45 },
       0.7,
       0.085,
@@ -10238,7 +10238,7 @@ function sP(n, e) {
       { raw: true },
     ),
       t.add(u, tt(0.016, 0.066, 0.126, 4e-3), { p: [-1.684, 1.1, Q * 0.37] }, 0.4),
-      t.label("SALTLINE", { color: "black", font: "sans", distress: 0.3 }, 0.42, 0.085, {
+      t.label("KESTREL", { color: "black", font: "sans", distress: 0.3 }, 0.42, 0.085, {
         p: [-1.39, 0.99, Q * 0.5625],
         r: [0, Q > 0 ? 0 : Vt, 0],
       }),
@@ -14758,7 +14758,7 @@ varying float vBlink;
  diffuseColor.rgb *= vBlink;`,
         )));
   }),
-    (e.customProgramCacheKey = () => "saltline-blink"));
+    (e.customProgramCacheKey = () => "strikeforce-blink"));
   let t = [];
   return {
     uTime: n,
@@ -15331,7 +15331,7 @@ function Dg(n, e, t = {}) {
       ],
       { post: 1, tint: J0 },
     ));
-  let xe = n.mats.label("SALTLINE 04", { color: "white", font: "stencil", distress: 0.35 }),
+  let xe = n.mats.label("KESTREL 04", { color: "white", font: "stencil", distress: 0.35 }),
     j = Math.max(1, xe.aspect || 6);
   {
     let P = Math.min(1.15, 8.6 / j);
@@ -16745,7 +16745,7 @@ uniform float uTime;
     vec3 transformed = gc + gfw * gl.x + grt * gl.z + vec3(0.0, gl.y - 0.3 * gdir * gl.z, 0.0);`,
         )));
   }),
-    (l.customProgramCacheKey = () => "saltline-gulls"));
+    (l.customProgramCacheKey = () => "strikeforce-gulls"));
   let c = new ht(a, l);
   return (
     (c.frustumCulled = false),
@@ -16833,7 +16833,7 @@ function kw(n, { only: e = null, showcase: t = false } = {}) {
       boatBase: r,
       extractionPoint: new K(30, 0, 20),
       shipName: "KITTIWAKE",
-      craneId: "SALTLINE 04",
+      craneId: "KESTREL 04",
       stats: { tris: Math.round(m), drawCalls: x },
     }
   );
@@ -17493,7 +17493,7 @@ material.specularColor = mix(material.specularColor, vec3(0.075), max(gPuddle, g
 reflectedLight.directSpecular = min(reflectedLight.directSpecular, vec3(40.0));`,
           )));
     }),
-    (i.customProgramCacheKey = () => "saltline-apron-3"));
+    (i.customProgramCacheKey = () => "strikeforce-apron-3"));
   let s = new w0(190, 320, 1, 1).rotateX(-Math.PI / 2).translate(-65, 0, 0),
     o = new ht(s, i);
   return (
@@ -17789,7 +17789,7 @@ radiance *= gOcc; iblIrradiance *= gOcc;`,
 #include <opaque_fragment>`,
           )));
     }),
-    (b.customProgramCacheKey = () => "saltline-sea-1"));
+    (b.customProgramCacheKey = () => "strikeforce-sea-1"));
   let g = new ht(d, b);
   ((g.name = "sea"),
     (g.receiveShadow = true),
@@ -29149,9 +29149,7 @@ function ey(n) {
   let e = { shots: 0, hits: 0, kills: 0 };
   return (
     n.events.on("enemy:killed", () => {
-      // [net] In co-op a kill is only ours when our own shot made it (below, or the
-      // host's kill confirmation on a guest).
-      (n.net && n.net.coop) || e.kills++;
+      e.kills++;
     }),
     {
       stats: e,
@@ -29161,12 +29159,37 @@ function ey(n) {
       playerShot(i, s, { damage: o = 28, range: r = 300, impulse: a = 1 } = {}) {
         e.shots++;
         let l = n.physics.raycast(i, s, r),
-          c = n.enemies.raycast(i, s, l ? l.dist : r);
+          // [net] Another player in front of the wall: the match layer sends the hit.
+          pv = n.net ? n.net.shoot(i, s, l ? l.dist : r, o) : null;
+        if (pv) {
+          e.hits++;
+          let u = {
+            point: pv.point,
+            normal: pv.normal,
+            dist: pv.dist,
+            surface: "enemy",
+            enemy: pv.who,
+            part: pv.part,
+            dir: s,
+            from: "player",
+            killed: false,
+          };
+          return (
+            n.events.emit("impact", u),
+            n.events.emit("player:hitEnemy", {
+              enemy: pv.who,
+              part: pv.part,
+              killed: false,
+              weak: pv.part === "head",
+            }),
+            u
+          );
+        }
+        let c = n.enemies.raycast(i, s, l ? l.dist : r);
         if (c) {
           e.hits++;
           let u = c.part === "weak" ? 2.2 : 1,
             f = c.enemy.damage(o * u, c.point, s, c.part) === true,
-            fk = f && n.net && n.net.coop && e.kills++,
             h = {
               point: c.point,
               normal: c.normal || s.clone().negate(),
@@ -29235,8 +29258,7 @@ function ey(n) {
         );
       },
       explode(i, s = 5, o = 80, r = "player") {
-        // [net] Area damage: the host hurts the machines, every client hurts its own body.
-        for (let l of n.net && n.net.guest ? [] : n.enemies.list) {
+        for (let l of n.enemies.list) {
           if (!l.alive) continue;
           let c = l.pos.distanceTo(i);
           c < s &&
@@ -29649,7 +29671,7 @@ function Fz() {
     a = "rgba(206,198,160,0.92)",
     l = "rgba(196,52,36,0.95)";
   (t("model", "PAC-9", `700 104px ${o}`, r),
-    t("maker", "LONGSHORE ARMS WORKS  ·  SALTLINE", `600 44px ${i}`, r),
+    t("maker", "LONGSHORE ARMS WORKS  ·  KESTREL", `600 44px ${i}`, r),
     t("cal", "CAL 5.8×40   SN PA-004217", `500 38px ${s}`, r),
     t("prop", "PROPERTY OF PORT AUTHORITY — BERTH 4 ARMOURY", `600 40px ${i}`, r),
     t("sn", "PA-004217", `500 40px ${s}`, r, "center"),
@@ -29667,7 +29689,7 @@ function Fz() {
     t("p_cal", "9×19  PA-SVC", `500 38px ${s}`, r),
     t("p_sn", "SN PB-011902", `500 38px ${s}`, r),
     t("p_rack", "B4-11", `800 112px ${o}`, a, "center"),
-    t("p_maker", "LONGSHORE ARMS WORKS  ·  SALTLINE", `600 44px ${i}`, r),
+    t("p_maker", "LONGSHORE ARMS WORKS  ·  KESTREL", `600 44px ${i}`, r),
     t("p_prop", "PROPERTY OF PORT AUTHORITY — BERTH 4", `600 40px ${i}`, r));
   {
     let [h, p] = Qo.warn;
@@ -34540,7 +34562,7 @@ return normalize(abs(det) * N - g);
 function QE(n) {
   let e = new n.MeshStandardMaterial({ color: 16777215, roughness: 0.8, metalness: 0 });
   return (
-    (e.name = "saltline_arm"),
+    (e.name = "strikeforce_arm"),
     (e.onBeforeCompile = (t) => {
       ((t.uniforms.uArmWet = kh),
         (t.vertexShader = t.vertexShader
@@ -34581,7 +34603,7 @@ roughnessFactor = armRough;`,
 normal = armBump(normal, -vViewPosition, armH);`,
           )));
     }),
-    (e.customProgramCacheKey = () => "saltline-arm-1"),
+    (e.customProgramCacheKey = () => "strikeforce-arm-1"),
     e
   );
 }
@@ -39738,76 +39760,6 @@ function XS(n, e, t, i) {
     _update(y) {
       d.alive ? v(y) : x(y);
     },
-    // [net] Host: the pose a guest draws this drone from (see _puppet for the order).
-    _net() {
-      return [
-        0,
-        d.pos.x,
-        d.pos.y,
-        d.pos.z,
-        d.yaw,
-        d.pitch,
-        d.roll,
-        d.gy,
-        d.gp,
-        d.flare,
-        d.thr,
-        d.hp / gn.hp,
-        d.mode === "engage" ? 1 : 0,
-      ];
-    },
-    // [net] Guest: draw the host's pose without running the brain. The death fall
-    // (x) still runs locally once _kill hands the drone over.
-    _puppet(y, q) {
-      let g = n.t;
-      (y > 0 &&
-        d.vel
-          .set((q[1] - d.pos.x) / y, (q[2] - d.pos.y) / y, (q[3] - d.pos.z) / y)
-          .clampLength(0, 14),
-        d.pos.set(q[1], q[2], q[3]),
-        (d.yaw = q[4]),
-        (d.pitch = q[5]),
-        (d.roll = q[6]),
-        (d.gy = q[7]),
-        (d.gp = q[8]),
-        (d.flare = q[9]),
-        (d.thr = q[10]),
-        (d.hp = q[11] * gn.hp),
-        (d.mode = q[12] & 1 ? "engage" : "patrol"),
-        a.group.rotation.set(d.pitch, d.yaw, d.roll),
-        (l.body.position.y =
-          Math.sin(g * 2.1 + d.phase) * 0.045 + Math.sin(g * 3.7 + d.phase * 1.7) * 0.018));
-      let Q = 41 * d.thr * y;
-      ((l.rotor0.rotation.y += Q),
-        (l.rotor1.rotation.y -= Q * 1.03),
-        (l.rotor2.rotation.y -= Q * 0.98),
-        (l.rotor3.rotation.y += Q * 1.01));
-      let W = (g * 0.9 + d.phase * 0.1) % 1,
-        J = W < 0.05 || (W > 0.13 && W < 0.18) ? 1 : 1e-4;
-      (l.strobeR.scale.setScalar(J),
-        l.strobeG.scale.setScalar(J),
-        l.strobeW.scale.setScalar(W > 0.5 && W < 0.56 ? 1 : 1e-4),
-        (l.gimbalYaw.rotation.y = d.gy),
-        (l.ball.rotation.x = d.gp - d.pitch),
-        (l.gun.rotation.x = Ou(d.gp, -0.2, 1.3) - d.pitch));
-      let E = d.mode === "engage",
-        j = E ? XD : U5,
-        O = 1 + d.flare * 3.2 + (E ? 0 : Math.sin(g * 3 + d.phase) * 0.15);
-      for (let k = 0; k < 3; k++) d.lensC[k] += (j[k] - d.lensC[k]) * (1 - Math.exp(-8 * y));
-      (r.color.setRGB(d.lensC[0] * O, d.lensC[1] * O, d.lensC[2] * O),
-        d.fwd.set(Math.sin(d.yaw), 0, Math.cos(d.yaw)),
-        d.sensor.set(0, -0.17, 0.27).applyAxisAngle(W1, d.yaw).add(d.pos),
-        d.muzzle.set(0, -0.12, 0.17).applyAxisAngle(W1, d.yaw).add(d.pos),
-        d.hp < gn.hp * 0.5 &&
-          ((d.smokeT -= y),
-          d.smokeT <= 0 &&
-            ((d.smokeT = 0.16),
-            s.fx.smoke(d.pos, { size: 0.3, life: 1.1, color: 2500652, rise: 0.8 }))),
-        d.loop && (d.loop.setPos(d.pos), d.loop.setPitch(0.85 + d.thr * 0.2)));
-    },
-    _kill(y) {
-      d.alive && m(y);
-    },
   };
   function m(y) {
     ((d.alive = false),
@@ -40358,70 +40310,6 @@ function jS(n, e, t, i) {
       },
       _update(k) {
         g.alive ? S(k) : U(k);
-      },
-      // [net] Host: the pose a guest draws this hound from (see _puppet for the order).
-      _net() {
-        return [
-          1,
-          g.pos.x,
-          g.pos.y,
-          g.pos.z,
-          g.yaw,
-          g.speed,
-          g.yawRate,
-          g.tyaw,
-          g.tpitch,
-          g.hyaw,
-          g.hpitch,
-          g.crouch,
-          g.flare,
-          g.hp / c0.hp,
-          g.mode === "engage" ? 1 : 0,
-        ];
-      },
-      // [net] Guest: walk the host's pose through the gait (z) and IK (I) without the
-      // brain. The wreck (U) still runs locally once _kill hands the hound over.
-      _puppet(k, q) {
-        ((g.prevSpeed = g.speed),
-          g.pos.set(q[1], q[2], q[3]),
-          (g.yaw = q[4]),
-          (g.speed = q[5]),
-          (g.yawRate = q[6]),
-          (g.tyaw = q[7]),
-          (g.tpitch = q[8]),
-          (g.hyaw = q[9]),
-          (g.hpitch = q[10]),
-          (g.crouch = q[11]),
-          (g.flare = q[12]),
-          (g.hp = q[13] * c0.hp),
-          (g.mode = q[14] & 1 ? "engage" : "patrol"),
-          g.push.set(0, 0, 0),
-          g.fwd.set(Math.sin(g.yaw), 0, Math.cos(g.yaw)),
-          z(k),
-          I(k),
-          g.sensor.copy(g.headPos));
-        let te = Math.sin(g.yaw),
-          oe = Math.cos(g.yaw),
-          se = g.pos.y + Yn.stand + g.sY.x - g.crouch,
-          ge = (n.t * (g.mode === "patrol" ? 0.8 : 2.2) + g.phase) % 1;
-        l.beacon.scale.setScalar(ge < 0.12 || (ge > 0.22 && ge < 0.3) ? 1 : 1e-4);
-        let ce = g.mode === "engage" ? YD : H5,
-          P = 1 + g.flare * 3.5;
-        for (let D = 0; D < 3; D++) g.lensC[D] += (ce[D] - g.lensC[D]) * (1 - Math.exp(-8 * k));
-        (r.color.setRGB(g.lensC[0] * P, g.lensC[1] * P, g.lensC[2] * P),
-          g.hp < c0.hp * c0.smokeBelow &&
-            ((g.smokeT -= k),
-            g.smokeT <= 0 &&
-              ((g.smokeT = 0.2),
-              _s.set(g.pos.x - te * 0.3, se + 0.2, g.pos.z - oe * 0.3),
-              s.fx.smoke(_s, { size: 0.35, life: 1.3, color: 2303272, rise: 0.9 }))),
-          g.loop &&
-            (g.loop.setPos(g.pos),
-            g.loop.setGain(bo(0.12 + g.speed * 0.12 + Math.abs(g.yawRate) * 0.1, 0, 0.8)),
-            g.loop.setPitch(0.8 + g.speed * 0.08)));
-      },
-      _kill(k) {
-        g.alive && L(k);
       },
     };
   function E(k, C, A, F, H) {
@@ -41273,10 +41161,7 @@ async function W5(n) {
     from: "enemy",
   };
   function M(k) {
-    // [net] Bolts hit any squad member the host can see (none on a guest: its
-    // bolts are only pictures of the host's).
-    let tg = n.net ? n.net.targets() : [n.player],
-      C = null,
+    let C = n.player,
       A = 0;
     for (let F = 0; F < x.length; F++) {
       let H = x[F];
@@ -41286,15 +41171,15 @@ async function W5(n) {
       let Z = n.physics.raycast(H.pos, H.dir, N),
         Q = Z ? Z.dist : N,
         W = false;
-      JS.copy(H.pos).addScaledVector(H.dir, Q);
-      for (let ti = 0; ti < tg.length && !W; ti++)
-        ((C = tg[ti]),
-          C &&
-            C.alive !== false &&
-            (nT.set(C.pos.x, C.pos.y + 0.35, C.pos.z),
-            iT.set(C.pos.x, C.pos.y + (C.crouching ? 1 : 1.5), C.pos.z),
-            jD(H.pos, JS, nT, iT) < 0.36 * 0.36 && (W = true)));
-      if (W) {
+      if (
+        (C &&
+          C.alive !== false &&
+          (JS.copy(H.pos).addScaledVector(H.dir, Q),
+          nT.set(C.pos.x, C.pos.y + 0.35, C.pos.z),
+          iT.set(C.pos.x, C.pos.y + (C.crouching ? 1 : 1.5), C.pos.z),
+          jD(H.pos, JS, nT, iT) < 0.36 * 0.36 && (W = true)),
+        W)
+      ) {
         (C.damage(Bi.gull.boltDamage, H.from), (H.on = false));
         continue;
       }
@@ -41428,16 +41313,6 @@ async function W5(n) {
             A.mode === "patrol" && n.events.emit("enemy:alert", { enemy: A, noise: true }),
             (A.mode = "investigate"),
             (A.modeT = 9 + e() * 4));
-      },
-      // [net] Guest frame: step() poses every puppet from the host's snapshot; the
-      // bolts and gimbal light still run here so they look the same.
-      puppet(k, step) {
-        if (k <= 0) return;
-        (k > 0.05 && (k = 0.05), (f.t += k), step(k), M(k), z(k));
-      },
-      // [net] Guest: a picture of a host drone's bolt (hits nothing).
-      netBolt(k, C) {
-        f.fireBolt(k, C, null);
       },
       update(k) {
         if (k <= 0) return;
@@ -42076,7 +41951,7 @@ function sT(n) {
   }
   return (B(), X);
 }
-var lT = "saltline.settings.v1",
+var lT = "strikeforce.settings.v1",
   tL = {
     quality: "auto",
     sens: 1,
@@ -42136,7 +42011,7 @@ var sL = `
   <div><dt>Aim</dt><dd>Right button</dd></div>
   <div><dt>Reload</dt><dd><kbd>R</kbd></dd></div>
   <div><dt>Swap weapon</dt><dd><kbd>Q</kbd>, wheel, or <kbd>1</kbd> <kbd>2</kbd></dd></div>
-  <div><dt>Cut relay</dt><dd>Hold <kbd>E</kbd></dd></div>
+  <div><dt>Plant / defuse</dt><dd>Hold <kbd>E</kbd></dd></div>
   <div><dt>Jump</dt><dd><kbd>Space</kbd></dd></div>
   <div><dt>Sprint</dt><dd><kbd>Shift</kbd></dd></div>
   <div><dt>Crouch</dt><dd><kbd>C</kbd> or <kbd>Ctrl</kbd></dd></div>
@@ -42148,7 +42023,7 @@ var sL = `
   <div><dt>Move · Look</dt><dd>Left stick · Right stick</dd></div>
   <div><dt>Fire · Aim</dt><dd><kbd>RT</kbd> · <kbd>LT</kbd></dd></div>
   <div><dt>Reload</dt><dd><kbd>X</kbd></dd></div>
-  <div><dt>Cut relay</dt><dd>Hold <kbd>X</kbd> at a relay</dd></div>
+  <div><dt>Plant / defuse</dt><dd>Hold <kbd>X</kbd> at a site</dd></div>
   <div><dt>Swap weapon</dt><dd><kbd>Y</kbd> or D-pad</dd></div>
   <div><dt>Jump</dt><dd><kbd>A</kbd></dd></div>
   <div><dt>Crouch</dt><dd><kbd>B</kbd> or <kbd>LB</kbd></dd></div>
@@ -42164,7 +42039,7 @@ var sL = `
   <div><dt>Aim</dt><dd>AIM toggles</dd></div>
   <div><dt>Reload</dt><dd>RLD</dd></div>
   <div><dt>Jump</dt><dd>JUMP</dd></div>
-  <div><dt>Cut relay</dt><dd>Hold USE at a relay</dd></div>
+  <div><dt>Plant / defuse</dt><dd>Hold USE at a site</dd></div>
   <div><dt>Sprint</dt><dd>Push the stick fully forward</dd></div>
 </dl>`;
 function hT(n, e) {
@@ -42177,40 +42052,34 @@ function hT(n, e) {
   <div class="m-veil"></div>
   <div class="m-bars"><i></i><i></i></div>
 
-  <section class="m-screen m-title" data-s="title" aria-label="Saltline">
+  <section class="m-screen m-title" data-s="title" aria-label="Strikeforce">
     <div class="m-title-main">
-      <div class="m-eyebrow"><span class="m-tag">B4</span><span>Port Authority Breach Unit</span><span class="m-dim">Saltline Terminal · 05:42</span></div>
-      <h1 class="m-word">SALTLINE</h1>
-      <p class="m-premise">The port’s security net has gone feral. Cut its three uplinks. Reach the boat.</p>
+      <div class="m-eyebrow"><span class="m-tag">8v8</span><span>Kestrel Terminal</span><span class="m-dim">Gold vs Steel · first to five</span></div>
+      <h1 class="m-word">STRIKEFORCE</h1>
+      <p class="m-premise">Two squads, one dock, no respawns. Attackers plant a charge at site A or B; defenders hold, or defuse it.</p>
       <div class="m-actions">
         <button class="btn primary" data-act="deploy">Deploy</button>
         <button class="btn" data-act="settings">Settings</button>
         <button class="btn m-only-narrow" data-act="controls">Controls</button>
       </div>
-      <div class="m-pick">
-        <label id="l-tm">Mode</label><div class="seg" role="group" aria-labelledby="l-tm">${uT.map((W) => `<button data-m="${W[0]}" aria-pressed="false">${W[1]}</button>`).join("")}</div>
-        <label id="l-td">Difficulty</label><div class="seg" role="group" aria-labelledby="l-td">${ab.map((W) => `<button data-d="${W[0]}" aria-pressed="false">${W[1]}</button>`).join("")}</div>
-        <div class="m-pick-note" data-f="modenote"></div>
-      </div>
       <p class="m-note">Every surface, machine and sound is generated in your browser. Nothing is downloaded.</p>
     </div>
     <aside class="m-legend" aria-label="Controls at a glance">
       <div><span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> Move</span><span><kbd>Mouse</kbd> Look</span><span><kbd>LMB</kbd> Fire</span><span><kbd>RMB</kbd> Aim</span><span><kbd>R</kbd> Reload</span></div>
-      <div><span><kbd>Q</kbd> Sidearm</span><span><kbd>E</kbd> Cut relay</span><span><kbd>Space</kbd> Jump</span><span><kbd>Shift</kbd> Sprint</span><span><kbd>C</kbd> Crouch</span><span><kbd>Esc</kbd> Pause</span></div>
-      <div class="lg-pad"><em>Controller</em><span>Sticks move and look</span><span><kbd>RT</kbd> Fire</span><span><kbd>LT</kbd> Aim</span><span><kbd>X</kbd> Reload / cut</span><span><kbd>Y</kbd> Sidearm</span><span><kbd>A</kbd> Deploy</span></div>
+      <div><span><kbd>Q</kbd> Sidearm</span><span><kbd>E</kbd> Plant / defuse</span><span><kbd>Space</kbd> Jump</span><span><kbd>Shift</kbd> Sprint</span><span><kbd>C</kbd> Crouch</span><span><kbd>Esc</kbd> Pause</span></div>
+      <div class="lg-pad"><em>Controller</em><span>Sticks move and look</span><span><kbd>RT</kbd> Fire</span><span><kbd>LT</kbd> Aim</span><span><kbd>X</kbd> Reload / plant</span><span><kbd>Y</kbd> Sidearm</span><span><kbd>A</kbd> Deploy</span></div>
       <div class="lg-touch"><em>Touch</em><span>Left thumb moves</span><span>Right thumb looks</span><span>Fire · Aim · Reload · Jump on screen</span></div>
     </aside>
   </section>
 
   <section class="m-screen m-card" data-s="paused" aria-label="Paused">
-    <div class="m-k">Operation on hold</div>
+    <div class="m-k">The round plays on</div>
     <h2 class="m-h">Paused</h2>
     <p class="m-line" data-f="lookmode"></p>
     <div class="m-actions col">
       <button class="btn primary" data-act="resume">Resume</button>
       <button class="btn" data-act="settings">Settings</button>
       <button class="btn" data-act="controls">Controls</button>
-      <button class="btn" data-act="restart">Restart mission</button>
     </div>
   </section>
 
@@ -42223,7 +42092,7 @@ function hT(n, e) {
 
   <section class="m-screen m-card m-debrief" data-s="complete" aria-label="Debrief">
     <div class="m-k">Berth 4 · Debrief</div>
-    <h2 class="m-h">Saltline is dark</h2>
+    <h2 class="m-h">Kestrel is dark</h2>
     <div class="m-rating"><span>Rating</span><b data-f="rating">Clean</b></div>
     <dl class="m-stats">
       <div><dt>Time</dt><dd data-f="time">00:00</dd></div>
@@ -42243,8 +42112,6 @@ function hT(n, e) {
       <button class="btn small" data-act="close-panel">Close</button>
     </header>
     <div class="panel-b" data-pane="settings">
-      <div class="row"><label id="l-d">Difficulty</label>
-        <div class="seg" role="group" aria-labelledby="l-d">${ab.map((W) => `<button data-d="${W[0]}" aria-pressed="false">${W[1]}</button>`).join("")}</div></div>
       <div class="row"><label id="l-v">Weapon position</label>
         <div class="seg" role="group" aria-labelledby="l-v">${cT.map((W) => `<button data-v="${W[0]}" aria-pressed="false">${W[1]}</button>`).join("")}</div></div>
       <div class="row"><label id="l-q">Graphics quality</label>
@@ -42265,7 +42132,7 @@ function hT(n, e) {
     </div>
   </div>
 
-  <div class="loc-card" aria-hidden="true"><i></i><b>Saltline Terminal · Berth 4 · 05:42</b><span>Port Authority Breach Unit — one breacher, no backup</span></div>
+  <div class="loc-card" aria-hidden="true"><i></i><b>Kestrel Terminal · Berth 4</b><span>Gold against Steel</span></div>
 `),
     t.appendChild(s));
   let o = (W) => s.querySelector(W),
@@ -42324,7 +42191,6 @@ function hT(n, e) {
     for (let G of r(".seg button[data-m]"))
       G.setAttribute("aria-pressed", String(G.dataset.m === i.mode));
     ((s.dataset.mode = i.mode),
-      (c("modenote").textContent = nL[i.mode] || ""),
       (u.value = i.sens),
       (f.value = Math.round(i.volume * 100)),
       (h.value = i.fov),
@@ -42668,7 +42534,7 @@ var xi = {
     heal: 35,
     killScore: { gull: 100, hound: 250 },
     waveBonus: 500,
-    bestKey: "saltline.holdout.best",
+    bestKey: "strikeforce.holdout.best",
   },
   dT = ["NORTH", "NORTH-EAST", "EAST", "SOUTH-EAST", "SOUTH", "SOUTH-WEST", "WEST", "NORTH-WEST"],
   Vu = {
@@ -42681,7 +42547,7 @@ var xi = {
     ],
     all: "All three dark. The boat is holding at the quay ladder, south end. Run.",
     low: "You are hit hard. Get behind steel and breathe.",
-    done: "Breacher is aboard. Saltline is dark. Good work.",
+    done: "Breacher is aboard. Kestrel is dark. Good work.",
   };
 function pT(n) {
   let e = (n.render && n.render.post) || {},
@@ -42781,11 +42647,6 @@ function pT(n) {
       (g.waveHot = 30));
     let Ve = ((Math.atan2(Te, -Re) * 180) / Math.PI + 360) % 360;
     (o.warn && o.warn(`Wave ${Y} — ${dT[Math.round(Ve / 45) % 8]}`, 3.6),
-      n.net &&
-        n.net.worldEvent(
-          "warn",
-          `Wave ${Y} — ${dT[Math.round(Ve / 45) % 8]}`,
-        ), // [net]
       o.setObjective("Hold the berth"),
       m(),
       n.events.emit("holdout:wave", { wave: Y, count: V }));
@@ -42794,11 +42655,7 @@ function pT(n) {
     ((g.waveOn = false),
       (g.wavesCleared = g.wave),
       (g.breakT = cs.breather),
-      (g.score += cs.waveBonus * g.wave),
-      vb());
-  }
-  // [net] The wave-down rewards every squad member collects for themselves.
-  function vb() {
+      (g.score += cs.waveBonus * g.wave));
     try {
       let Y = n.weapon.slots && n.weapon.slots[0];
       Y &&
@@ -42813,7 +42670,6 @@ function pT(n) {
       n.events.emit("objective:done", { id: "wave", index: g.wave, total: g.wave }));
   }
   function y(Y) {
-    if (n.net && n.net.guest) return; // [net] waves are the host's
     g.waveOn
       ? !g.queue.length && se() === 0 && v()
       : ((g.breakT -= Y),
@@ -42860,8 +42716,6 @@ function pT(n) {
       extractHint: 0,
       intensity: 0.15,
       used: /* @__PURE__ */ new Map(),
-      runId: 0, // [net] bumps on every full reset; guests restart when it moves
-      runLive: false, // [net] a run has been deployed into
       mode: "mission",
       wave: 0,
       waveOn: false,
@@ -42907,73 +42761,6 @@ function pT(n) {
       debugCut() {
         let Y = g.relays.find((he) => !he.cut);
         Y && ce(Y);
-      },
-      // [net] Host, outside "playing" (paused, dead, debrief): the run keeps going for the squad.
-      worldTick(Y) {
-        g.runLive && ((g.time += Y), $(Y), p() && y(Y));
-      },
-      // [net] Host: a guest finished cutting relay Y.
-      netCut(Y) {
-        let he = g.relays.find((V) => V.id === Y && !V.cut);
-        he && C.state !== "title" && ce(he);
-      },
-      // [net] Host: what a guest needs to play this run.
-      netWorld() {
-        return {
-          run: g.runId,
-          live: g.runLive && C.state !== "title",
-          mode: g.mode,
-          diff: C.difficulty,
-          cut: g.relays.filter((Y) => Y.cut).map((Y) => Y.id),
-          wave: g.wave,
-          waveOn: g.waveOn,
-          score: Math.round(g.score),
-          kills: g.kills,
-          cleared: g.wavesCleared,
-        };
-      },
-      // [net] Guest: adopt the host's run. he (quiet) applies it without the
-      // radio and alarms, for a guest arriving mid-run.
-      netSync(Y, he) {
-        if (!Y) return;
-        Y.diff && Y.diff !== C.difficulty && h(Y.diff);
-        let V = false;
-        for (let ne of g.relays)
-          ne.cut ||
-            !Y.cut ||
-            !Y.cut.includes(ne.id) ||
-            (he
-              ? ((ne.cut = true),
-                (ne.cutting = false),
-                (ne.t = 1),
-                g.cut++,
-                W(ne.o, "cut"),
-                (V = true))
-              : ce(ne));
-        if (
-          (he &&
-            V &&
-            ((g.allCut = g.relays.length > 0 && g.cut >= g.relays.length),
-            o.setRelays && o.setRelays(g.cut, g.relays.length),
-            o.setObjective(oe()),
-            J()),
-          p())
-        ) {
-          let ne = g.waveOn,
-            ye = g.wave;
-          ((g.wave = Y.wave | 0),
-            (g.waveOn = !!Y.waveOn),
-            (g.score = +Y.score || 0),
-            (g.kills = Y.kills | 0),
-            (g.wavesCleared = Y.cleared | 0),
-            ne && !g.waveOn && !he && C.state === "playing" && vb(),
-            (ne !== g.waveOn || ye !== g.wave) && C.state !== "title" && o.setObjective(oe()),
-            m());
-        }
-      },
-      // [net] Guest: the host started a new run; start it too.
-      netRestart() {
-        C.state !== "title" && G({ quick: true, keepRetries: true });
       },
     };
   function A(Y) {
@@ -43042,20 +42829,6 @@ function pT(n) {
       (e.fade = Math.max(1 - ou(0, 1.8, F.t), ou(he - 1.6, he, F.t))));
   }
   function Q() {
-    // [net] A host whose squad is mid-run respawns into it instead of resetting it.
-    if (g.runLive && n.net && n.net.keepWorld()) {
-      (a(n.weapon, "reset"),
-        i.reset(s.playerStart),
-        o.reset && o.reset(),
-        (e.saturation = t),
-        (e.flash = 0),
-        (g.lowSaid = false),
-        o.setRelays && o.setRelays(g.cut, g.relays.length),
-        p() && m(),
-        J());
-      return;
-    }
-    ((n.net && n.net.guest) || g.runId++, (g.runLive = true), n.events.emit("run:reset", {}));
     if (
       (a(n.enemies, "clear"),
       a(n.fx, "clear"),
@@ -43103,7 +42876,7 @@ function pT(n) {
     (J(),
       o.setRelays && o.setRelays(0, g.relays.length),
       o.setTally && o.setTally(p() ? "Stand by" : null),
-      p() || (n.net && n.net.guest) || ue()); // [net] the host spawns the patrols
+      p() || (n.net && n.net.match) || ue()); // [net] no patrols
   }
   function W(Y, he) {
     try {
@@ -43136,11 +42909,7 @@ function pT(n) {
     mode: ne = null,
   } = {}) {
     if (
-      ((g.mode =
-        (n.net && n.net.guest && n.net.hostMode) || // [net] guests play the host's run
-        ne ||
-        (V || he ? g.mode : l.settings.mode) ||
-        "mission"),
+      ((g.mode = ne || (V || he ? g.mode : l.settings.mode) || "mission"),
       V || (g.retries = 0),
       l.show("none"),
       l.locationCard(false),
@@ -43148,7 +42917,7 @@ function pT(n) {
       Q(),
       a(n.weapon, "setVisible", true),
       (R = false),
-      Y)
+      Y || (n.net && n.net.match)) // [net] no intro: the round is already running
     ) {
       ((e.fade = 0), te());
       return;
@@ -43314,7 +43083,6 @@ function pT(n) {
     o.warn && o.warn("Contact — " + dT[Math.round(Te / 45) % 8], 3.4);
   }
   function $(Y) {
-    if (n.net && n.net.guest) return; // [net] the host spawns
     let he = se();
     for (let V = 0; V < g.queue.length; V++) {
       let ne = g.queue[V];
@@ -43402,7 +43170,7 @@ function pT(n) {
           ? (ne.cutting || ((ne.cutting = true), W(ne.o, "cutting")),
             (ne.t += Y / xi.cutSeconds),
             n.events.emit("objective:progress", { id: ne.id, t: Math.min(1, ne.t) }),
-            ne.t >= 1 && (n.net && n.net.guest ? ((ne.t = 1), n.net.requestCut(ne.id)) : ce(ne))) // [net]
+            ne.t >= 1 && ce(ne))
           : ne.t > 0 &&
             ((ne.t = Math.max(0, ne.t - Y * 1.6)),
             ne.cutting &&
@@ -43446,6 +43214,11 @@ function pT(n) {
       J());
   }
   n.events.on("player:dead", () => {
+    // [net] A match death spectates until the next round; there is no retry screen.
+    if (n.net && n.net.match) {
+      (o.setPrompt && o.setPrompt(null), o.clearRadio && o.clearRadio());
+      return;
+    }
     (C.state !== "playing" && C.state !== "paused") ||
       (r.setGameplay && r.setGameplay(false),
       r.exitLock(),
@@ -43550,8 +43323,9 @@ function pT(n) {
           r.pressed("pause"))
         )
           return (le(), false);
-        if ((ge(Y), C.state !== "playing")) return true;
-        ($(Y),
+        // [net] No relay cutting, boat or spawns in a match: src/net/match.ts runs it.
+        if ((n.net && n.net.match ? null : ge(Y), C.state !== "playing")) return true;
+        (n.net && n.net.match ? null : $(Y),
           p() && y(Y),
           (g.alertT = Math.max(0, g.alertT - Y)),
           (g.waveHot = Math.max(0, g.waveHot - Y)));
@@ -43622,7 +43396,6 @@ var mT = {
   fx: Wv,
   weapon: Zy,
   hands: zy,
-  enemies: ib,
   props: hv,
   render: rv,
 };
@@ -43640,7 +43413,7 @@ function yT(n) {
     ((e = document.createElement("div")),
     (e.id = "fatal"),
     document.getElementById("app").appendChild(e)),
-    (e.textContent = "Saltline could not start: " + n));
+    (e.textContent = "Strikeforce could not start: " + n));
 }
 window.addEventListener("error", (n) => {
   window.__errors.push(String(n.message));
@@ -43674,7 +43447,7 @@ async function cL(net) {
     rng: su(+(n.seed || 4207)),
     time: { t: 0, dt: 0, frame: 0, real: 0 },
     quality: UM(n.q || (n.shot ? "test" : "")),
-    // [net] co-op hooks (src/net/coop.ts); null in showcase/bench builds.
+    // [net] the match layer (src/net/match.ts); null in showcase/bench builds.
     net: null,
   };
   window.__G = t;
@@ -43787,11 +43560,12 @@ async function cL(net) {
     (await fa("Checking the rifle", 0.74),
       await r("weapon", "weapon", () => I5(t)),
       await fa("Waking the Harbormaster", 0.82),
-      await r("enemies", "enemies", () => W5(t)),
+      // [net] No machines: Strikeforce is player against player.
+      (t.enemies = Sr.enemies()),
       await r("hud", "hud", () => sT(t)),
       (t.game = pT(t)));
   }
-  // [net] Attach co-op after every module exists and before the first frame.
+  // [net] Attach the match after every module exists and before the first frame.
   if (net && !i && !e)
     try {
       ((t.net = net), net.attach(t));
@@ -43904,7 +43678,7 @@ async function cL(net) {
         t.bench && t.bench.frame(d));
       if (t.net)
         try {
-          t.net.frame(m, x);
+          t.net.frame(m);
         } catch (v) {
           h.err.net ||
             ((h.err.net = 1), console.error("[loop] net.frame threw: " + ((v && v.stack) || v)));
@@ -43976,7 +43750,7 @@ function uL(n) {
             g = v[v.length >> 1],
             E = n.render.stats ? n.render.stats() : {},
             M = n.renderer.getDrawingBufferSize(new We());
-          e.textContent = `SALTLINE BENCH  t=${o.toFixed(0)}s
+          e.textContent = `STRIKEFORCE BENCH  t=${o.toFixed(0)}s
 GPU: ${t}
 buffer ${M.x}x${M.y}  quality ${n.quality.name}  dpr ${window.devicePixelRatio}
 frame ms avg ${y.toFixed(1)}  median ${g.toFixed(1)}  p99 ${b.toFixed(1)}  => ${(1e3 / y).toFixed(0)} fps
@@ -44039,6 +43813,6 @@ function hL(n) {
   };
 }
 
-export function bootSaltline(net) {
+export function bootStrikeforce(net) {
   return cL(net).catch((n) => yT((n && n.stack) || n));
 }

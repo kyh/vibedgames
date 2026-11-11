@@ -1790,13 +1790,13 @@ kbd {
   }
 }
 
-/* ---- squad (co-op): room status + one row per squad member ---- */
-.squad {
+/* ---- match: score bar, round clock, alive pips, Tab scoreboard ---- */
+.mx {
   position: absolute;
-  top: calc(16px + var(--sat));
-  right: var(--gr);
-  min-width: 150px;
-  text-align: right;
+  top: calc(70px + var(--sat));
+  left: 50%;
+  transform: translateX(-50%);
+  text-align: center;
   opacity: 0;
   transition: opacity 0.3s;
   pointer-events: none;
@@ -1804,61 +1804,144 @@ kbd {
   text-shadow: var(--shadow);
   z-index: 3;
 }
-.squad.on {
+.mx.on {
   opacity: 1;
 }
-.squad.title {
-  top: calc(clamp(14px, 5.5vh, 52px) + var(--sat) + 14px);
-  right: max(var(--gr), 4.5vw);
-}
-.squad-k {
-  font: 600 11px/1 var(--f-label);
-  letter-spacing: 0.26em;
-  text-transform: uppercase;
-  color: var(--signal);
-  margin-bottom: 7px;
-}
-.squad-row {
+.mx-row {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: 9px;
-  padding: 3px 0;
-  font: 600 13px/1 var(--f-label);
-  letter-spacing: 0.16em;
+  justify-content: center;
+  gap: 14px;
+}
+.mx-team {
+  display: grid;
+  gap: 3px;
+  min-width: 96px;
+}
+.mx-team.t0 {
+  text-align: right;
+  justify-items: end;
+}
+.mx-team.t1 {
+  text-align: left;
+  justify-items: start;
+}
+.mx-team b {
+  font: 700 15px/1 var(--f-display);
+  letter-spacing: 0.12em;
   text-transform: uppercase;
 }
-.squad-row b {
-  font: 700 15px/1 var(--f-display);
-  letter-spacing: 0.06em;
+.mx-team.t0 b {
+  color: #ffb347;
 }
-.squad-row span {
-  font: 400 10px/1 var(--f-mono);
-  letter-spacing: 0.06em;
+.mx-team.t1 b {
+  color: #8fb8d8;
+}
+.mx-team span {
+  font: 500 10px/1 var(--f-mono);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
   color: var(--bone-dim);
 }
-.squad-row i {
-  width: 46px;
-  height: 4px;
-  background: linear-gradient(90deg, var(--bone) calc(var(--hp, 1) * 100%), var(--bone-faint) 0);
-  box-shadow: 0 0 2px rgba(0, 0, 0, 0.6);
+.mx-pips {
+  display: flex;
+  gap: 3px;
 }
-.menu.open ~ .squad:not(.title) {
-  opacity: 0;
+.mx-pips u {
+  width: 7px;
+  height: 9px;
+  text-decoration: none;
+  background: var(--bone-faint);
 }
-.is-touch .squad:not(.title) {
-  top: auto;
-  right: auto;
-  left: var(--gl);
-  bottom: calc(150px + var(--sab));
-  text-align: left;
+.t0 .mx-pips u.on {
+  background: #ffb347;
 }
-.is-touch .squad-row {
-  justify-content: flex-start;
+.t1 .mx-pips u.on {
+  background: #8fb8d8;
+}
+.mx-mid {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 12px;
+  background: var(--plate);
+}
+.mx-mid strong {
+  font: 900 30px/1 var(--f-display);
+  min-width: 1ch;
+}
+.mx-mid em {
+  font: 500 15px/1 var(--f-mono);
+  font-style: normal;
+  min-width: 5ch;
+}
+.mx-line {
+  margin-top: 6px;
+  font: 600 11px/1 var(--f-label);
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--signal);
+}
+.mx-board {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: none;
+  gap: 18px;
+  padding: 18px 20px;
+  width: min(640px, calc(100vw - var(--gl) - var(--gr)));
+  background: var(--plate-solid);
+  border: 1px solid var(--line);
+  border-top: 3px solid var(--signal);
+  z-index: 6;
+  pointer-events: none;
+}
+.mx-board.on {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+.mx-col h3 {
+  margin: 0 0 10px;
+  font: 700 18px/1 var(--f-display);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.mx-col.t0 h3 {
+  color: #ffb347;
+}
+.mx-col.t1 h3 {
+  color: #8fb8d8;
+}
+.mx-player {
+  display: grid;
+  grid-template-columns: 1fr 3ch 3ch;
+  gap: 8px;
+  padding: 5px 0;
+  border-top: 1px solid var(--line);
+  font: 500 13px/1 var(--f-mono);
+}
+.mx-player b {
+  font: 600 14px/1 var(--f-label);
+  letter-spacing: 0.12em;
+}
+.mx-player.dead {
+  opacity: 0.45;
+}
+.mx-player.me b {
+  color: var(--signal);
+}
+.is-touch .mx {
+  top: calc(12px + var(--sat));
 }
 @media (max-width: 760px) {
-  .squad.title {
-    top: auto;
-    bottom: calc(clamp(14px, 5.5vh, 52px) + var(--sab) + 8px);
+  .mx {
+    top: calc(64px + var(--sat));
+  }
+  .mx-team {
+    min-width: 64px;
+  }
+  .mx-board.on {
+    grid-template-columns: 1fr;
   }
 }

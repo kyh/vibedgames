@@ -1,6 +1,8 @@
 // The playtest contract: live diagnostics every playtest reads, plus (behind
 // dev or `?test=1`) test hooks and a control manifest for `vg playtest run`.
-// Positions are world metres, so the manifest sets `minDisplacement`.
+// Positions are world metres, so the manifest sets `minDisplacement`. A
+// playtest plays alone (main.ts keeps it out of rooms), so it sees warmup:
+// the dock, the two sites and its own body.
 import {
   isPlaytestRequested,
   publishDiagnostics,
@@ -9,7 +11,9 @@ import {
 } from "@vibedgames/playtest";
 import type { Vector3 } from "three";
 
-import type { SaltlineGame } from "./core/types";
+import type { StrikeforceGame } from "./core/types";
+import type { Match } from "./net/match";
+import type { Point } from "./net/rules";
 
 /** Horizontal offset from the player to something, in metres. */
 interface Offset {
@@ -18,8 +22,7 @@ interface Offset {
   dist: number;
 }
 
-/** Horizontal offset from the player to `to`, rounded to the decimetre. */
-const offset = (from: Vector3, to: Vector3): Offset => {
+const offset = (from: Vector3, to: Point): Offset => {
   const dx = to.x - from.x;
   const dz = to.z - from.z;
   return {
@@ -29,11 +32,11 @@ const offset = (from: Vector3, to: Vector3): Offset => {
   };
 };
 
-const nearestOf = (from: Vector3, points: readonly Vector3[]): Vector3 | null => {
-  let best: Vector3 | null = null;
+const nearestOf = (from: Vector3, points: readonly Point[]): Point | null => {
+  let best: Point | null = null;
   let bestD = Infinity;
   for (const point of points) {
-    const d = point.distanceTo(from);
+    const d = Math.hypot(point.x - from.x, point.z - from.z);
     if (d < bestD) {
       bestD = d;
       best = point;
@@ -42,7 +45,14 @@ const nearestOf = (from: Vector3, points: readonly Vector3[]): Vector3 | null =>
   return best;
 };
 
-export const installPlaytest = (game: SaltlineGame, squadSize: () => number): void => {
+const sideOf = (team: number | undefined, attack: number | undefined): string | null => {
+  if (team === undefined || attack === undefined) {
+    return null;
+  }
+  return team === attack ? "attack" : "defend";
+};
+
+export const installPlaytest = (game: StrikeforceGame, match: Match): void => {
   let frame = 0;
   const tick = (): void => {
     frame += 1;
@@ -51,35 +61,32 @@ export const installPlaytest = (game: SaltlineGame, squadSize: () => number): vo
   requestAnimationFrame(tick);
 
   publishDiagnostics(() => {
-    const { player, game: flow, enemies, level } = game;
-    const { run } = flow;
-    const liveRelays = run.relays.filter((r) => !r.cut).map((r) => r.o.pos);
-    const relay = nearestOf(player.pos, liveRelays);
-    const enemy = nearestOf(
-      player.pos,
-      enemies.list.filter((e) => e.alive).map((e) => e.pos),
-    );
-    const boat = run.allCut ? (level.extraction?.pos ?? null) : null;
+    const { player } = game;
+    const m = match.state;
+    const me = m?.roster.get(match.me);
+    const site = nearestOf(player.pos, match.sites());
+    const enemy = nearestOf(player.pos, match.enemies());
     return {
-      complete: flow.state === "complete",
-      enemiesAlive: enemies.list.filter((e) => e.alive).length,
+      alive: player.alive,
+      carrying: m?.charge.state === "carried" && m.charge.carrier === match.me,
+      complete: m?.phase === "over",
       frame,
       health: Math.round(player.health),
-      mode: run.mode,
       nearestEnemy: enemy ? offset(player.pos, enemy) : null,
-      nearestRelay: relay ? offset(player.pos, relay) : null,
+      nearestSite: site ? offset(player.pos, site) : null,
+      phase: m?.phase ?? "connecting",
       player: {
         x: Math.round(player.pos.x * 100) / 100,
         y: Math.round(player.pos.y * 100) / 100,
         yaw: Math.round(player.yaw * 100) / 100,
         z: Math.round(player.pos.z * 100) / 100,
       },
-      relaysLeft: liveRelays.length,
-      score: Math.round(run.score),
-      squad: squadSize(),
-      state: flow.state,
-      toBoat: boat ? offset(player.pos, boat) : null,
-      wave: run.wave,
+      players: match.size,
+      round: m?.round ?? 0,
+      scoreGold: m?.score[0] ?? 0,
+      scoreSteel: m?.score[1] ?? 0,
+      side: sideOf(me?.team, m?.attack),
+      state: game.game.state,
     };
   });
 
@@ -96,14 +103,14 @@ export const installPlaytest = (game: SaltlineGame, squadSize: () => number): vo
   });
   publishPlaytest({
     actions: {
-      cut: {
-        description: "Hold to cut the relay you stand at (nearestRelay.dist under 2)",
-        keys: ["KeyE"],
-      },
       fire: { description: "Fire the rifle where the camera faces", keys: ["Enter"] },
       reload: { description: "Reload the rifle", keys: ["KeyR"] },
+      use: {
+        description: "Hold to plant (carrying, on a site) or defuse (on the charge)",
+        keys: ["KeyE"],
+      },
     },
-    goal: "First-person shooter on a rainy container dock. Cut the three uplink relays (nearestRelay is the offset to the closest one, in metres), then reach the boat (toBoat). Drones and robot hounds hunt you (nearestEnemy); turn to face them and fire. Health regenerates out of fire.",
+    goal: "Round-based first-person shooter on a rainy container dock. Walk the map: visit both bomb sites (nearestSite is the offset to the closer one, in metres) and check the player moves, turns and fires cleanly. Alone, the match stays in warmup.",
     minDisplacement: 0.05,
     move: {
       back: { description: "Walk backward", keys: ["KeyS"] },

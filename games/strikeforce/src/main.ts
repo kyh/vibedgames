@@ -9,11 +9,18 @@ import {
 } from "@repo/embed";
 import { isPlaytestRequested } from "@vibedgames/playtest";
 
-import { bootSaltline } from "./core/saltline-core.js";
-import type { GameState, SaltlineGame } from "./core/types";
-import { Coop } from "./net/coop";
+import { bootStrikeforce } from "./core/strikeforce-core.js";
+import type { GameState, StrikeforceGame } from "./core/types";
+import { Match } from "./net/match";
 import { openRoom } from "./net/session";
 import { installPlaytest } from "./playtest";
+
+declare global {
+  interface Window {
+    /** Dev-only handle for tools/two-client.mjs. */
+    __strikeforce?: { match: Match };
+  }
+}
 
 const webgl = probeWebGL();
 if (!webgl.ok) {
@@ -21,31 +28,24 @@ if (!webgl.ok) {
   throw new Error(`WebGL unavailable: ${webgl.reason}`);
 }
 
-declare global {
-  interface Window {
-    /** Dev-only handle for tools/two-client.mjs. */
-    __saltline?: { coop: Coop };
-  }
-}
-
 const params = new URLSearchParams(location.search);
-const coop = new Coop();
+const match = new Match();
 if (import.meta.env.DEV) {
-  window.__saltline = { coop };
+  window.__strikeforce = { match };
 }
-let game: SaltlineGame | null = null;
+let game: StrikeforceGame | null = null;
 let prevState: GameState = "title";
 
 // The wrapper's pause opens the game's own pause menu; the game owns Escape
 // (and its own touch pause button), and its Resume hands back to the wrapper.
-// The world keeps running behind a pause whenever a squad shares it.
+// A match never freezes: the round plays on behind the menu.
 setPauseHandlers({
   escapePauses: () => false,
   onPause: () => game?.game.pause(),
   onResume: () => game?.game.resume(),
 });
 
-coop.watchState((state, g) => {
+match.watchState((state, g) => {
   game = g;
   if (state === "intro" || state === "playing") {
     notifyGameStarted();
@@ -56,16 +56,16 @@ coop.watchState((state, g) => {
   prevState = state;
 });
 
-// A playtest must own its world: it never shares a room.
+// A playtest must own its match: it never shares a room.
 const solo = isPlaytestRequested() || params.has("bench") || params.has("show");
 const connect = async (): Promise<void> => {
-  coop.connect(await openRoom(params, { solo }));
+  match.connect(await openRoom(params, { solo }));
 };
 
 const boot = async (): Promise<void> => {
-  await bootSaltline(coop);
+  await bootStrikeforce(match);
   if (game) {
-    installPlaytest(game, () => coop.squadSize);
+    installPlaytest(game, match);
   }
 };
 

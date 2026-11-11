@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { ROOM_PREFIX, q3, roomId } from "../src/net/protocol.ts";
-import { callsignOf } from "../src/net/squad.ts";
+import { callsignOf } from "../src/net/players.ts";
 import { isRecord, nums, strs, vecAt, vecWire } from "../src/net/wire.ts";
 
 test("nums accepts only arrays of finite numbers, at least min long", () => {
@@ -35,9 +35,9 @@ test("room codes normalise into one prefixed room id", () => {
   assert.equal(roomId("x".repeat(40)).length, ROOM_PREFIX.length + 16);
 });
 
-test("callsigns are stable two-digit B4 tags", () => {
+test("callsigns are stable two-digit SF tags", () => {
   assert.equal(callsignOf("abc123"), callsignOf("abc123"));
-  assert.match(callsignOf("abc123"), /^B4-\d{2}$/u);
+  assert.match(callsignOf("abc123"), /^SF-\d{2}$/u);
   const tags = new Set(["p1", "p2", "p3", "p4", "p5", "p6"].map(callsignOf));
   assert.ok(tags.size >= 5, "six ids rarely share a callsign");
 });

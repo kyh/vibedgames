@@ -1,7 +1,9 @@
-// A squad member as the others see them: a low-poly breach-unit trooper built
-// from primitives (the game itself is first person and has no body), tinted by
-// the player's room colour, with a callsign plate overhead. Faces -Z at yaw 0,
-// like the camera, so `rotation.y = yaw` turns it with the player.
+// Another player as everyone else sees them: a low-poly trooper built from
+// primitives (the game itself is first person and has no body), striped in its
+// team's colour, with a callsign plate overhead for teammates only. Two
+// invisible hitboxes — head and body — follow every pose, and are what local
+// shots are tested against (`hitboxes`). Faces -Z at yaw 0, like the camera,
+// so `rotation.y = yaw` turns it with the player.
 import {
   BoxGeometry,
   CanvasTexture,
@@ -18,6 +20,7 @@ import type { Material, Object3D } from "three";
 
 const ARMOR = new MeshStandardMaterial({ color: 0xd9_d6_cc, metalness: 0.1, roughness: 0.62 });
 const CLOTH = new MeshStandardMaterial({ color: 0x2d_33_38, metalness: 0, roughness: 0.9 });
+const HITBOX = new MeshBasicMaterial();
 const GUNMETAL = new MeshStandardMaterial({ color: 0x1d_21_24, metalness: 0.6, roughness: 0.45 });
 
 const box = (w: number, h: number, d: number, material: Material): Mesh => {
@@ -72,6 +75,8 @@ export class Avatar {
   private readonly arms = new Group();
   private readonly plate: Sprite;
   private readonly visor: MeshBasicMaterial;
+  /** Invisible boxes local shots hit; `userData.part` is "head" or "body". */
+  readonly hitboxes: Mesh[] = [];
   private stride = 0;
   private lastX = 0;
   private lastZ = 0;
@@ -125,13 +130,26 @@ export class Avatar {
     this.plate.position.y = 2.1;
     this.plate.renderOrder = 10;
 
+    // Raycasts ignore `visible`, so hidden boxes still take hits.
+    const head = new Mesh(new BoxGeometry(0.34, 0.34, 0.34), HITBOX);
+    head.position.y = 1.62;
+    head.userData.part = "head";
+    const chest = new Mesh(new BoxGeometry(0.56, 1.42, 0.44), HITBOX);
+    chest.position.y = 0.72;
+    chest.userData.part = "body";
+    for (const hitbox of [head, chest]) {
+      hitbox.visible = false;
+      this.hitboxes.push(hitbox);
+      this.body.add(hitbox);
+    }
+
     this.root.add(this.body, this.plate);
     this.root.name = `squad:${callsign}`;
   }
 
-  /** Where the rifle's muzzle is this frame, for shots that arrive without one. */
-  muzzleY(): number {
-    return this.root.position.y + 1.36 - this.crouch * 0.45;
+  /** Teammates see a plate; the other side has to find you. */
+  setFriendly(friendly: boolean): void {
+    this.plate.visible = friendly;
   }
 
   update(pose: AvatarPose, dt: number): void {

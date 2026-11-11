@@ -62,10 +62,10 @@ export default defineConfig({
     ".playwright-mcp",
     "sandbox",
     "**/scripts/_lib/**",
-    // Saltline's game core is a de-minified bundle (mangled names, comma
+    // Strikeforce's game core is a de-minified bundle (mangled names, comma
     // expressions) vendored whole; its `[net]` hooks are the only hand edits.
-    // The TypeScript around it (games/saltline/src/net, main.ts) is linted.
-    "games/saltline/src/core/saltline-core.js",
+    // The TypeScript around it (games/strikeforce/src/net, main.ts) is linted.
+    "games/strikeforce/src/core/strikeforce-core.js",
   ],
   overrides: [
     ...tanstack.overrides.map((override) => ({
