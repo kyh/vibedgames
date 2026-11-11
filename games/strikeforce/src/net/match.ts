@@ -16,6 +16,8 @@ import type { JsonValue, MultiplayerClient } from "@vibedgames/multiplayer";
 import { Vector3 } from "three";
 
 import type { GameState, NetHooks, StrikeforceGame, ShotHit, WeaponFire } from "../core/types";
+import { Radar } from "../minimap";
+import type { RadarMark } from "../minimap";
 import { arenaSpawns, darkenRelays, safestSpawn } from "./map";
 import type { Spawn } from "./map";
 import { MatchHud } from "./match-hud";
@@ -41,6 +43,12 @@ const inMatch = (game: StrikeforceGame): boolean => inPlay(game.game.state) && o
 
 /** Opens the room (session.ts), once, when the player first deploys online. */
 export type Connector = () => Promise<MultiplayerClient>;
+
+/** Solo modes: the relays still standing ("relay_a" → "A"). */
+const relayMarks = (game: StrikeforceGame): RadarMark[] =>
+  game.game.run.relays
+    .filter((r) => !r.cut)
+    .map((r) => ({ label: r.id.slice(-1).toUpperCase(), x: r.o.pos.x, z: r.o.pos.z }));
 
 const remoteShot = (payload: JsonValue, game: StrikeforceGame): void => {
   const v = nums(payload, 7);
@@ -71,6 +79,7 @@ export class Match implements NetHooks {
   private players: Players | null = null;
   private spawns: Spawn[] = [];
   private readonly hud = new MatchHud();
+  private readonly radar = new Radar();
   /** The host's own rules state; null on a guest. */
   private rules: MatchState | null = null;
   /** The match as this client last read it. */
@@ -152,6 +161,7 @@ export class Match implements NetHooks {
     });
     this.spawns = arenaSpawns(game);
     this.hud.mount();
+    this.radar.mount();
     game.events.on("weapon:fire", (shot) => this.sendShot(shot));
     this.seenState = game.game.state;
     this.stateListener?.(game.game.state, game);
@@ -163,6 +173,7 @@ export class Match implements NetHooks {
       return;
     }
     this.watchFlow(game);
+    this.radar.update(game, game.game.state === "playing", online(game) ? [] : relayMarks(game));
     if (!client) {
       return;
     }
@@ -463,8 +474,11 @@ export class Match implements NetHooks {
     }
     const playing = inMatch(game);
     if (event === EV.shot && from !== client.playerId) {
-      if (playing) {
+      const v = nums(payload, 3);
+      if (playing && v) {
         remoteShot(payload, game);
+        // Firing gives you away on everyone's radar.
+        this.radar.ping(v[0] ?? 0, v[2] ?? 0, game.time.t);
       }
     } else if (event === EV.hurt) {
       const v = nums(payload, 5);

@@ -571,7 +571,7 @@ body {
 .h-feed {
   position: absolute;
   right: var(--gr);
-  top: 31%;
+  top: max(31%, calc(196px + var(--sat)));
   text-align: right;
 }
 .h-fl {
@@ -1926,4 +1926,36 @@ kbd {
 }
 .menu:not([data-mode="deathmatch"]) [data-only-match] {
   display: none !important;
+}
+
+/* ---- radar: top-right, turns with the player (src/minimap.ts) ---- */
+.radar {
+  position: absolute;
+  right: var(--gr);
+  top: calc(18px + var(--sat));
+  width: 156px;
+  height: 156px;
+  opacity: 0;
+  transition: opacity 0.3s;
+  pointer-events: none;
+}
+.radar.on {
+  opacity: 0.92;
+}
+@media (max-height: 520px) {
+  .radar {
+    width: 108px;
+    height: 108px;
+  }
+  .h-feed {
+    top: max(31%, calc(140px + var(--sat)));
+  }
+}
+/* touch: the pause button and ammo own the top-right; the radar sits under health */
+.is-touch .radar {
+  width: 104px;
+  height: 104px;
+  left: var(--gl);
+  right: auto;
+  top: calc(188px + var(--sat));
 }

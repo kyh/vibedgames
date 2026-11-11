@@ -86,6 +86,12 @@ Damage: the weapon's own numbers, ×4 to the head (a rifle headshot kills).
 Everyone wears one colour and there are no name plates: you have to find who
 you are fighting.
 
+**Radar** (`src/minimap.ts`, every mode): a round minimap, top-right (under
+health on touch), that turns with you. The dock is baked once from the
+level's walkable grid. An enemy's shot pings where it was fired from for
+2.5 s, so firing gives you away; in Mission the relays still standing show,
+pinned to the rim when out of range.
+
 ## Multiplayer
 
 Deathmatch is online; Mission and Holdout are the original single-player
@@ -127,6 +133,7 @@ Wire format: `src/net/protocol.ts`. A wire change bumps `ROOM_PREFIX`.
 | `src/net/players.ts`, `avatar.ts` | other players: interpolation, avatars, hitboxes                |
 | `src/net/map.ts`                  | arena spawns on the dock                                       |
 | `src/net/match-hud.ts`            | kills bar, match clock, Tab scoreboard                         |
+| `src/minimap.ts`                  | the radar                                                      |
 | `src/controls.ts`                 | controls manifest for `@repo/embed`                            |
 | `src/playtest.ts`                 | `@vibedgames/playtest` diagnostics, hooks and manifest         |
 
