@@ -2,7 +2,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { RULES, applyHit, applySelfReport, newMatch, syncRoster, tick } from "../src/net/rules.ts";
+import {
+  RULES,
+  applyHit,
+  applySelfReport,
+  newMatch,
+  standings,
+  syncRoster,
+  tick,
+} from "../src/net/rules.ts";
 import type { MatchState } from "../src/net/rules.ts";
 
 /** Two players in a fresh match, live at `now`. */
@@ -111,4 +119,21 @@ test("results with nobody left wait in warmup", () => {
   syncRoster(s, ["p1"]);
   assert.deepEqual(tick(s, now + RULES.matchMs + RULES.overMs), []);
   assert.equal(s.phase, "warmup");
+});
+
+test("a kill tie goes to fewer deaths, the same on the HUD as at the whistle", () => {
+  const { s, now } = live();
+  syncRoster(s, ["p1", "p2", "p3"]);
+  applyHit(s, "p1", "p3", 120, false, now);
+  applyHit(s, "p2", "p3", 0, false, now);
+  const p1 = s.roster.get("p1");
+  const p2 = s.roster.get("p2");
+  assert.ok(p1 && p2);
+  p2.kills = 1;
+  p1.deaths = 2;
+  assert.deepEqual(
+    standings(s).map(([id]) => id),
+    ["p2", "p1", "p3"],
+  );
+  assert.deepEqual(tick(s, now + RULES.matchMs), [{ champ: "p2", kind: "end" }]);
 });

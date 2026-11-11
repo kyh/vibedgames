@@ -23,7 +23,7 @@ import type { Spawn } from "./map";
 import { MatchHud } from "./match-hud";
 import { Players, callsignOf } from "./players";
 import { BODY_HZ, EV, MATCH_HZ, MATCH_KEY, decodeMatch, encodeMatch, q3 } from "./protocol";
-import { RULES, applyHit, applySelfReport, newMatch, syncRoster, tick } from "./rules";
+import { RULES, applyHit, applySelfReport, newMatch, standings, syncRoster, tick } from "./rules";
 import type { Fighter, MatchEvent, MatchState, Point } from "./rules";
 import { isRecord, isStr, nums, vecAt, vecWire } from "./wire";
 
@@ -427,8 +427,8 @@ export class Match implements NetHooks {
   /** Kills and standing; no markers, no prompt. */
   private objective(game: StrikeforceGame, m: MatchState): void {
     const kills = m.roster.get(this.me)?.kills ?? 0;
-    const ahead = [...m.roster.values()].filter((f) => f.kills > kills).length;
-    game.hud.setTally(`${kills} kills · ${ahead === 0 ? "leading" : `#${ahead + 1}`}`);
+    const place = standings(m).findIndex(([id]) => id === this.me);
+    game.hud.setTally(`${kills} kills · ${place <= 0 ? "leading" : `#${place + 1}`}`);
     game.hud.setObjective(
       m.phase === "warmup" ? "Waiting for a rival" : `First to ${RULES.kills} kills`,
     );

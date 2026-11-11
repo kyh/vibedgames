@@ -104,15 +104,9 @@ const start = (state: MatchState, now: number): MatchEvent[] => {
   return [{ kind: "start", round: state.round }];
 };
 
-const leaderOf = (state: MatchState): [string, Fighter] | null => {
-  let best: [string, Fighter] | null = null;
-  for (const entry of state.roster) {
-    if (!best || entry[1].kills > best[1].kills) {
-      best = entry;
-    }
-  }
-  return best;
-};
+/** Everyone by kills, then fewest deaths, then who sat first: the HUD and the winner agree. */
+export const standings = (state: MatchState): [string, Fighter][] =>
+  [...state.roster].toSorted(([, a], [, b]) => b.kills - a.kills || a.deaths - b.deaths);
 
 /** Advance the clock: respawns, the kill limit, the time limit, the next match. */
 export const tick = (state: MatchState, now: number): MatchEvent[] => {
@@ -141,7 +135,7 @@ export const tick = (state: MatchState, now: number): MatchEvent[] => {
     state.ends = 0;
     return [];
   }
-  const leader = leaderOf(state);
+  const [leader] = standings(state);
   if (!leader) {
     return [];
   }
