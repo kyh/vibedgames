@@ -1,20 +1,17 @@
 // Another player as everyone else sees them: a low-poly trooper built from
-// primitives (the game itself is first person and has no body), striped in its
-// team's colour, with a callsign plate overhead for teammates only. Two
+// primitives (the game itself is first person and has no body), with a visor
+// in one colour and no name plate: you have to find who you are fighting. Two
 // invisible hitboxes — head and body — follow every pose, and are what local
 // shots are tested against (`hitboxes`). Faces -Z at yaw 0, like the camera,
 // so `rotation.y = yaw` turns it with the player.
 import {
   BoxGeometry,
-  CanvasTexture,
   CylinderGeometry,
   Group,
   Mesh,
   MeshBasicMaterial,
   MeshStandardMaterial,
   SphereGeometry,
-  Sprite,
-  SpriteMaterial,
 } from "three";
 import type { Material, Object3D } from "three";
 
@@ -38,25 +35,6 @@ const pivot = (x: number, y: number, z: number, child: Object3D, drop: number): 
   return joint;
 };
 
-const callsignTexture = (text: string, color: string): CanvasTexture => {
-  const canvas = document.createElement("canvas");
-  canvas.width = 256;
-  canvas.height = 64;
-  const ctx = canvas.getContext("2d");
-  if (ctx) {
-    ctx.fillStyle = "rgba(11,13,15,0.72)";
-    ctx.fillRect(0, 8, 256, 48);
-    ctx.fillStyle = color;
-    ctx.fillRect(0, 8, 6, 48);
-    ctx.font = '700 34px "Big Shoulders Display", Impact, sans-serif';
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillStyle = "#e8e4da";
-    ctx.fillText(text, 131, 33);
-  }
-  return new CanvasTexture(canvas);
-};
-
 export interface AvatarPose {
   x: number;
   y: number;
@@ -73,7 +51,6 @@ export class Avatar {
   private readonly head = new Group();
   private readonly legs: Group[] = [];
   private readonly arms = new Group();
-  private readonly plate: Sprite;
   private readonly visor: MeshBasicMaterial;
   /** Invisible boxes local shots hit; `userData.part` is "head" or "body". */
   readonly hitboxes: Mesh[] = [];
@@ -123,13 +100,6 @@ export class Avatar {
     this.arms.position.set(0.04, 1.36, -0.08);
     this.body.add(this.arms);
 
-    this.plate = new Sprite(
-      new SpriteMaterial({ depthWrite: false, map: callsignTexture(callsign, color) }),
-    );
-    this.plate.scale.set(0.8, 0.2, 1);
-    this.plate.position.y = 2.1;
-    this.plate.renderOrder = 10;
-
     // Raycasts ignore `visible`, so hidden boxes still take hits.
     const head = new Mesh(new BoxGeometry(0.34, 0.34, 0.34), HITBOX);
     head.position.y = 1.62;
@@ -143,13 +113,8 @@ export class Avatar {
       this.body.add(hitbox);
     }
 
-    this.root.add(this.body, this.plate);
+    this.root.add(this.body);
     this.root.name = `squad:${callsign}`;
-  }
-
-  /** Teammates see a plate; the other side has to find you. */
-  setFriendly(friendly: boolean): void {
-    this.plate.visible = friendly;
   }
 
   update(pose: AvatarPose, dt: number): void {
@@ -171,10 +136,9 @@ export class Avatar {
     this.body.position.y = -this.crouch * 0.45;
     this.arms.rotation.x = pose.pitch;
     this.head.rotation.x = pose.pitch * 0.6;
-    // Down: fall onto the back and drop the plate to the ground.
+    // Down: fall onto the back.
     this.body.rotation.x = this.down * (Math.PI / 2 - 0.1);
     this.body.position.z = this.down * 0.8;
-    this.plate.position.y = 2.1 - this.down * 1.6;
   }
 
   dispose(): void {
@@ -185,7 +149,5 @@ export class Avatar {
       }
     });
     this.visor.dispose();
-    this.plate.material.map?.dispose();
-    this.plate.material.dispose();
   }
 }

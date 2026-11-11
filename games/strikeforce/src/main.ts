@@ -31,7 +31,7 @@ if (!webgl.ok) {
 const params = new URLSearchParams(location.search);
 // A playtest must own its match: it never shares a room.
 const solo = isPlaytestRequested() || params.has("bench") || params.has("show");
-const match = new Match((mode) => openRoom(params, { mode, solo }));
+const match = new Match(() => openRoom(params, { solo }));
 if (import.meta.env.DEV) {
   window.__strikeforce = { match };
 }

@@ -1,17 +1,16 @@
-// Match protocol. The host runs the rules (rules.ts) and publishes the match
+// Deathmatch protocol. The host runs the rules (rules.ts) and publishes the match
 // under one shared-state key; every client publishes its own body in player
 // state and sends the host intents. Nothing here is backward compatible: a
 // wire change bumps ROOM_PREFIX so old tabs never share a room with new ones.
 import type { JsonRecord, JsonValue } from "@vibedgames/multiplayer";
 
-import type { Charge, ChargeState, Fighter, MatchState, Phase, RoundEnd, Team } from "./rules";
+import type { Fighter, MatchState, Phase } from "./rules";
 import { isRecord, isStr, numOr, nums } from "./wire";
 
 export const PARTY = "vg-server";
-/** One lobby per online mode, so quick match never mixes them. */
-export const lobbyFor = (mode: OnlineMode): string => `strikeforce-${mode}`;
-export const ROOM_PREFIX = "strikeforce-v2-";
-/** Eight a side. Overflow rooms take the seventeenth. */
+export const LOBBY = "strikeforce";
+export const ROOM_PREFIX = "strikeforce-v3-";
+/** A full dock. Overflow rooms take the seventeenth. */
 export const MAX_PLAYERS = 16;
 /** No room in this long (rendered frames): play alone in warmup. */
 export const FALLBACK_MS = 6000;
@@ -26,16 +25,12 @@ export const MATCH_KEY = "match";
 export const EV = {
   /** guest → host: `[barrelIndex, damage, px, py, pz, dx, dy, dz]` */
   barrel: "barrel",
-  /** defender → host: nothing */
-  defuse: "defuse",
   /** shooter → host: `[victimId, damage, head(1|0)]` */
   hit: "hit",
   /** host → victim: `[damage, fromX, fromY, fromZ, hpLeft]` */
   hurt: "hurt",
   /** host → everyone: `[killerId, victimId, head(1|0)]` */
   kill: "kill",
-  /** carrier → host: site index */
-  plant: "plant",
   /** anyone → others: `[mx, my, mz, ex, ey, ez, weapon(0 rifle | 1 pistol)]` */
   shot: "shot",
 } as const;
@@ -60,16 +55,12 @@ export interface BodyWire {
   d: number;
 }
 
-export const TEAM_NAME = ["Gold", "Steel"] as const;
-export const TEAM_COLOR = ["#ffb347", "#8fb8d8"] as const;
+/** Every avatar wears one colour: deathmatch has no sides. */
+export const AVATAR_COLOR = "#ffb347";
 
-/** The two online modes, by the title's mode setting. */
-export type OnlineMode = "deathmatch" | "match";
-
-/** Build the room id from a squad code (`?room=`) and the mode. */
-export const roomId = (code: string, mode: OnlineMode = "match"): string =>
+/** Build the room id from a squad code (`?room=`). */
+export const roomId = (code: string): string =>
   ROOM_PREFIX +
-  (mode === "deathmatch" ? "dm-" : "") +
   code
     .toLowerCase()
     .replaceAll(/[^a-z0-9]/gu, "")
@@ -78,17 +69,7 @@ export const roomId = (code: string, mode: OnlineMode = "match"): string =>
 /** Round for the wire: three decimals is a millimetre, or a milliradian. */
 export const q3 = (v: number): number => Math.round(v * 1000) / 1000;
 
-const PHASES: readonly Phase[] = ["warmup", "freeze", "live", "planted", "post", "over"];
-const CHARGES: readonly ChargeState[] = [
-  "none",
-  "carried",
-  "dropped",
-  "planted",
-  "defused",
-  "detonated",
-];
-const ENDS: readonly RoundEnd[] = ["eliminated", "time", "detonated", "defused"];
-const asTeam = (v: number | undefined): Team => (v === 1 ? 1 : 0);
+const PHASES: readonly Phase[] = ["warmup", "live", "over"];
 
 /** The match as the host publishes it. */
 export const encodeMatch = (s: MatchState, stamp: number): JsonRecord => {
@@ -96,31 +77,15 @@ export const encodeMatch = (s: MatchState, stamp: number): JsonRecord => {
   for (const [id, f] of s.roster) {
     // `back` (server ms) rides along so a promoted host keeps respawns; `life`
     // is what a client places its body by.
-    ro[id] = [
-      f.team,
-      f.alive ? 1 : 0,
-      Math.round(f.hp),
-      f.kills,
-      f.deaths,
-      f.slot,
-      Math.round(f.back),
-      f.life,
-    ];
+    ro[id] = [f.alive ? 1 : 0, Math.round(f.hp), f.kills, f.deaths, Math.round(f.back), f.life];
   }
-  const c = s.charge;
   return {
-    at: s.attack,
-    cc: c.carrier,
-    ch: [CHARGES.indexOf(c.state), q3(c.x), q3(c.y), q3(c.z), c.site],
-    dm: s.kind === "dm" ? 1 : 0,
     e: Math.round(s.ends),
     ld: s.champ,
     ph: PHASES.indexOf(s.phase),
     r: s.round,
     ro,
-    s: [s.score[0], s.score[1]],
     t: Math.round(stamp),
-    w: s.last ? [s.last.winner, ENDS.indexOf(s.last.why)] : null,
   };
 };
 
@@ -129,7 +94,7 @@ const decodeFighter = (raw: JsonValue | undefined): Fighter | null => {
   if (!v) {
     return null;
   }
-  const [team, alive, hp, kills, deaths, slot, back, life] = v;
+  const [alive, hp, kills, deaths, back, life] = v;
   return {
     alive: alive === 1,
     back: back ?? 0,
@@ -137,20 +102,6 @@ const decodeFighter = (raw: JsonValue | undefined): Fighter | null => {
     hp: hp ?? 0,
     kills: kills ?? 0,
     life: life ?? 0,
-    slot: slot ?? 0,
-    team: asTeam(team),
-  };
-};
-
-const decodeCharge = (raw: JsonValue | undefined, carrier: JsonValue | undefined): Charge => {
-  const ch = nums(raw, 5) ?? [0, 0, 0, 0, -1];
-  return {
-    carrier: isStr(carrier) ? carrier : "",
-    site: ch[4] ?? -1,
-    state: CHARGES[ch[0] ?? 0] ?? "none",
-    x: ch[1] ?? 0,
-    y: ch[2] ?? 0,
-    z: ch[3] ?? 0,
   };
 };
 
@@ -168,21 +119,14 @@ export const decodeMatch = (
       roster.set(id, fighter);
     }
   }
-  const score = nums(raw.s, 2) ?? [0, 0];
-  const w = nums(raw.w, 2);
   return {
     stamp: numOr(raw.t, 0),
     state: {
-      attack: asTeam(numOr(raw.at, 0)),
       champ: isStr(raw.ld) ? raw.ld : "",
-      charge: decodeCharge(raw.ch, raw.cc),
       ends: numOr(raw.e, 0),
-      kind: raw.dm === 1 ? "dm" : "rounds",
-      last: w ? { why: ENDS[w[1] ?? 0] ?? "eliminated", winner: asTeam(w[0]) } : null,
       phase: PHASES[numOr(raw.ph, 0)] ?? "warmup",
       roster,
       round: numOr(raw.r, 0),
-      score: [score[0] ?? 0, score[1] ?? 0],
     },
   };
 };

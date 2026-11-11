@@ -42118,15 +42118,12 @@ var lT = "strikeforce.settings.v1",
   ],
   uT = [
     ["deathmatch", "Deathmatch"],
-    ["match", "8v8 Rounds"],
     ["mission", "Mission"],
     ["holdout", "Holdout"],
   ],
   nL = {
     deathmatch:
       "Online, every player for themselves. Respawn in three seconds; first to 25 kills takes it.",
-    match:
-      "Online, Gold against Steel, no respawns. Plant the charge at A or B, or stop it. First to five rounds.",
     mission:
       "Solo against the dock's machines. Cut three relays and reach the boat. About five minutes.",
     holdout: "Endless waves that keep growing. Resupply between waves. How long can you hold?",
@@ -42167,7 +42164,7 @@ var sL = `
   <div><dt>Aim</dt><dd>Right button</dd></div>
   <div><dt>Reload</dt><dd><kbd>R</kbd></dd></div>
   <div><dt>Swap weapon</dt><dd><kbd>Q</kbd>, wheel, or <kbd>1</kbd> <kbd>2</kbd></dd></div>
-  <div><dt>Plant / defuse</dt><dd>Hold <kbd>E</kbd></dd></div>
+  <div><dt>Cut a relay (Mission)</dt><dd>Hold <kbd>E</kbd></dd></div>
   <div><dt>Jump</dt><dd><kbd>Space</kbd></dd></div>
   <div><dt>Sprint</dt><dd><kbd>Shift</kbd></dd></div>
   <div><dt>Crouch</dt><dd><kbd>C</kbd> or <kbd>Ctrl</kbd></dd></div>
@@ -42179,7 +42176,7 @@ var sL = `
   <div><dt>Move · Look</dt><dd>Left stick · Right stick</dd></div>
   <div><dt>Fire · Aim</dt><dd><kbd>RT</kbd> · <kbd>LT</kbd></dd></div>
   <div><dt>Reload</dt><dd><kbd>X</kbd></dd></div>
-  <div><dt>Plant / defuse</dt><dd>Hold <kbd>X</kbd> at a site</dd></div>
+  <div><dt>Cut a relay (Mission)</dt><dd>Hold <kbd>X</kbd> at a relay</dd></div>
   <div><dt>Swap weapon</dt><dd><kbd>Y</kbd> or D-pad</dd></div>
   <div><dt>Jump</dt><dd><kbd>A</kbd></dd></div>
   <div><dt>Crouch</dt><dd><kbd>B</kbd> or <kbd>LB</kbd></dd></div>
@@ -42195,7 +42192,7 @@ var sL = `
   <div><dt>Aim</dt><dd>AIM toggles</dd></div>
   <div><dt>Reload</dt><dd>RLD</dd></div>
   <div><dt>Jump</dt><dd>JUMP</dd></div>
-  <div><dt>Plant / defuse</dt><dd>Hold USE at a site</dd></div>
+  <div><dt>Cut a relay (Mission)</dt><dd>Hold USE at a relay</dd></div>
   <div><dt>Sprint</dt><dd>Push the stick fully forward</dd></div>
 </dl>`;
 function hT(n, e) {
@@ -42210,9 +42207,9 @@ function hT(n, e) {
 
   <section class="m-screen m-title" data-s="title" aria-label="Strikeforce">
     <div class="m-title-main">
-      <div class="m-eyebrow"><span class="m-tag">PvP</span><span>Kestrel Terminal</span><span class="m-dim">Deathmatch · 8v8 rounds · solo</span></div>
+      <div class="m-eyebrow"><span class="m-tag">PvP</span><span>Kestrel Terminal</span><span class="m-dim">Deathmatch · solo</span></div>
       <h1 class="m-word">STRIKEFORCE</h1>
-      <p class="m-premise">A container dock at dusk and a rifle. Every player for themselves, or two squads planting a charge, or the dock alone against its machines.</p>
+      <p class="m-premise">A container dock at dusk and a rifle. Every player for themselves, or the dock alone against its machines.</p>
       <div class="m-actions">
         <button class="btn primary" data-act="deploy">Deploy</button>
         <button class="btn" data-act="settings">Settings</button>
@@ -42227,8 +42224,8 @@ function hT(n, e) {
     </div>
     <aside class="m-legend" aria-label="Controls at a glance">
       <div><span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> Move</span><span><kbd>Mouse</kbd> Look</span><span><kbd>LMB</kbd> Fire</span><span><kbd>RMB</kbd> Aim</span><span><kbd>R</kbd> Reload</span></div>
-      <div><span><kbd>Q</kbd> Sidearm</span><span><kbd>E</kbd> Plant · defuse · cut</span><span><kbd>Space</kbd> Jump</span><span><kbd>Shift</kbd> Sprint</span><span><kbd>C</kbd> Crouch</span><span><kbd>Esc</kbd> Pause</span></div>
-      <div class="lg-pad"><em>Controller</em><span>Sticks move and look</span><span><kbd>RT</kbd> Fire</span><span><kbd>LT</kbd> Aim</span><span><kbd>X</kbd> Reload / plant</span><span><kbd>Y</kbd> Sidearm</span><span><kbd>A</kbd> Deploy</span></div>
+      <div><span><kbd>Q</kbd> Sidearm</span><span><kbd>E</kbd> Cut relay</span><span><kbd>Space</kbd> Jump</span><span><kbd>Shift</kbd> Sprint</span><span><kbd>C</kbd> Crouch</span><span><kbd>Esc</kbd> Pause</span></div>
+      <div class="lg-pad"><em>Controller</em><span>Sticks move and look</span><span><kbd>RT</kbd> Fire</span><span><kbd>LT</kbd> Aim</span><span><kbd>X</kbd> Reload / use</span><span><kbd>Y</kbd> Sidearm</span><span><kbd>A</kbd> Deploy</span></div>
       <div class="lg-touch"><em>Touch</em><span>Left thumb moves</span><span>Right thumb looks</span><span>Fire · Aim · Reload · Jump on screen</span></div>
     </aside>
   </section>
@@ -42296,7 +42293,7 @@ function hT(n, e) {
     </div>
   </div>
 
-  <div class="loc-card" aria-hidden="true"><i></i><b>Kestrel Terminal · Berth 4</b><span>Gold against Steel</span></div>
+  <div class="loc-card" aria-hidden="true"><i></i><b>Kestrel Terminal · Berth 4</b><span>Every player for themselves</span></div>
 `),
     t.appendChild(s));
   let o = (W) => s.querySelector(W),
@@ -43084,7 +43081,7 @@ function pT(n) {
       Q(),
       a(n.weapon, "setVisible", true),
       (R = false),
-      Y || (n.net && n.net.match)) // [net] no intro: the round is already running
+      Y || (n.net && n.net.match)) // [net] no intro: the match is already running
     ) {
       ((e.fade = 0), te());
       return;
@@ -43381,7 +43378,7 @@ function pT(n) {
       J());
   }
   n.events.on("player:dead", () => {
-    // [net] A match death spectates until the next round; there is no retry screen.
+    // [net] A deathmatch death respawns (src/net/match.ts); there is no retry screen.
     if (n.net && n.net.match) {
       (o.setPrompt && o.setPrompt(null), o.clearRadio && o.clearRadio());
       return;
