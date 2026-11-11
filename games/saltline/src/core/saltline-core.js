@@ -29149,7 +29149,9 @@ function ey(n) {
   let e = { shots: 0, hits: 0, kills: 0 };
   return (
     n.events.on("enemy:killed", () => {
-      e.kills++;
+      // [net] In co-op a kill is only ours when our own shot made it (below, or the
+      // host's kill confirmation on a guest).
+      (n.net && n.net.coop) || e.kills++;
     }),
     {
       stats: e,
@@ -29164,6 +29166,7 @@ function ey(n) {
           e.hits++;
           let u = c.part === "weak" ? 2.2 : 1,
             f = c.enemy.damage(o * u, c.point, s, c.part) === true,
+            fk = f && n.net && n.net.coop && e.kills++,
             h = {
               point: c.point,
               normal: c.normal || s.clone().negate(),
@@ -29232,7 +29235,8 @@ function ey(n) {
         );
       },
       explode(i, s = 5, o = 80, r = "player") {
-        for (let l of n.enemies.list) {
+        // [net] Area damage: the host hurts the machines, every client hurts its own body.
+        for (let l of n.net && n.net.guest ? [] : n.enemies.list) {
           if (!l.alive) continue;
           let c = l.pos.distanceTo(i);
           c < s &&
@@ -29455,6 +29459,12 @@ function yE(n) {
       (b.im.setMatrixAt(b.i, y ? b.m : h), (b.im.instanceMatrix.needsUpdate = true));
   }
   function d(v, y, b, g) {
+    // [net] Barrels belong to the host: a guest's hit is a request, and the blast
+    // comes back through syncMask.
+    if (n.net && n.net.guest) {
+      v.alive && n.net.barrelHit(t.indexOf(v), y, b, g);
+      return;
+    }
     if (v.alive) {
       if (((v.hp -= y), v.hp <= 0)) {
         v.fuse = v.fuse < 0 ? 0.06 : Math.min(v.fuse, 0.06);
@@ -29473,7 +29483,7 @@ function yE(n) {
     y && d(y, v.from === "player" ? (n.weapon && n.weapon.damage) || 26 : 9, v.point, v.dir);
   }),
     n.events.on("explosion", (v) => {
-      if (!v || !v.pos) return;
+      if (!v || !v.pos || (n.net && n.net.guest)) return;
       let y = 2.2 + (v.size || 1) * 1.6;
       for (let b of t) {
         if (!b.alive) continue;
@@ -29529,6 +29539,27 @@ function yE(n) {
     },
     reset() {
       for (let v of t) ((v.alive = true), (v.hp = v.spec.hp), (v.fuse = -1), p(v, true), f(v));
+    },
+    // [net] Host: which barrels still stand, one character each.
+    aliveMask() {
+      let v = "";
+      for (let y of t) v += y.alive ? "1" : "0";
+      return v;
+    },
+    // [net] Guest: match the host's barrels, blowing the ones it lost.
+    syncMask(v) {
+      if (typeof v != "string") return;
+      for (let y = 0; y < t.length && y < v.length; y++) {
+        let b = t[y];
+        v[y] === "1" && !b.alive
+          ? ((b.alive = true), (b.hp = b.spec.hp), (b.fuse = -1), p(b, true), f(b))
+          : v[y] === "0" && b.alive && m(b);
+      }
+    },
+    // [net] Host: a guest shot barrel v.
+    netHit(v, y, b, g) {
+      let E = t[v];
+      E && d(E, y, b ? new xh().fromArray(b) : null, g ? new xh().fromArray(g) : null);
     },
     debugBlast(v = 0, y = true) {
       let b = t.filter((E) => E.alive),
@@ -38049,7 +38080,14 @@ async function I5(n) {
       n.render &&
         n.render.lightPool &&
         n.render.lightPool.flash(A, 16756832, Y.flashLight, 9, 0.05),
-      n.events.emit("weapon:fire", { origin: Z, dir: C, muzzle: A, ads: a.adsE, weapon: re.id }),
+      n.events.emit("weapon:fire", {
+        origin: Z,
+        dir: C,
+        muzzle: A,
+        end: F, // [net] remote tracers
+        ads: a.adsE,
+        weapon: re.id,
+      }),
       re.recoil(a.burst, u0(1, 0.55, a.adsE) * (B.crouching ? 0.85 : 1), B),
       (a.bloom = Math.min(1, a.bloom + Y.spread.shot)),
       (a.flashT = a.flashDur = 0.036 + r() * 0.02));
@@ -39700,6 +39738,76 @@ function XS(n, e, t, i) {
     _update(y) {
       d.alive ? v(y) : x(y);
     },
+    // [net] Host: the pose a guest draws this drone from (see _puppet for the order).
+    _net() {
+      return [
+        0,
+        d.pos.x,
+        d.pos.y,
+        d.pos.z,
+        d.yaw,
+        d.pitch,
+        d.roll,
+        d.gy,
+        d.gp,
+        d.flare,
+        d.thr,
+        d.hp / gn.hp,
+        d.mode === "engage" ? 1 : 0,
+      ];
+    },
+    // [net] Guest: draw the host's pose without running the brain. The death fall
+    // (x) still runs locally once _kill hands the drone over.
+    _puppet(y, q) {
+      let g = n.t;
+      (y > 0 &&
+        d.vel
+          .set((q[1] - d.pos.x) / y, (q[2] - d.pos.y) / y, (q[3] - d.pos.z) / y)
+          .clampLength(0, 14),
+        d.pos.set(q[1], q[2], q[3]),
+        (d.yaw = q[4]),
+        (d.pitch = q[5]),
+        (d.roll = q[6]),
+        (d.gy = q[7]),
+        (d.gp = q[8]),
+        (d.flare = q[9]),
+        (d.thr = q[10]),
+        (d.hp = q[11] * gn.hp),
+        (d.mode = q[12] & 1 ? "engage" : "patrol"),
+        a.group.rotation.set(d.pitch, d.yaw, d.roll),
+        (l.body.position.y =
+          Math.sin(g * 2.1 + d.phase) * 0.045 + Math.sin(g * 3.7 + d.phase * 1.7) * 0.018));
+      let Q = 41 * d.thr * y;
+      ((l.rotor0.rotation.y += Q),
+        (l.rotor1.rotation.y -= Q * 1.03),
+        (l.rotor2.rotation.y -= Q * 0.98),
+        (l.rotor3.rotation.y += Q * 1.01));
+      let W = (g * 0.9 + d.phase * 0.1) % 1,
+        J = W < 0.05 || (W > 0.13 && W < 0.18) ? 1 : 1e-4;
+      (l.strobeR.scale.setScalar(J),
+        l.strobeG.scale.setScalar(J),
+        l.strobeW.scale.setScalar(W > 0.5 && W < 0.56 ? 1 : 1e-4),
+        (l.gimbalYaw.rotation.y = d.gy),
+        (l.ball.rotation.x = d.gp - d.pitch),
+        (l.gun.rotation.x = Ou(d.gp, -0.2, 1.3) - d.pitch));
+      let E = d.mode === "engage",
+        j = E ? XD : U5,
+        O = 1 + d.flare * 3.2 + (E ? 0 : Math.sin(g * 3 + d.phase) * 0.15);
+      for (let k = 0; k < 3; k++) d.lensC[k] += (j[k] - d.lensC[k]) * (1 - Math.exp(-8 * y));
+      (r.color.setRGB(d.lensC[0] * O, d.lensC[1] * O, d.lensC[2] * O),
+        d.fwd.set(Math.sin(d.yaw), 0, Math.cos(d.yaw)),
+        d.sensor.set(0, -0.17, 0.27).applyAxisAngle(W1, d.yaw).add(d.pos),
+        d.muzzle.set(0, -0.12, 0.17).applyAxisAngle(W1, d.yaw).add(d.pos),
+        d.hp < gn.hp * 0.5 &&
+          ((d.smokeT -= y),
+          d.smokeT <= 0 &&
+            ((d.smokeT = 0.16),
+            s.fx.smoke(d.pos, { size: 0.3, life: 1.1, color: 2500652, rise: 0.8 }))),
+        d.loop && (d.loop.setPos(d.pos), d.loop.setPitch(0.85 + d.thr * 0.2)));
+    },
+    _kill(y) {
+      d.alive && m(y);
+    },
   };
   function m(y) {
     ((d.alive = false),
@@ -40250,6 +40358,70 @@ function jS(n, e, t, i) {
       },
       _update(k) {
         g.alive ? S(k) : U(k);
+      },
+      // [net] Host: the pose a guest draws this hound from (see _puppet for the order).
+      _net() {
+        return [
+          1,
+          g.pos.x,
+          g.pos.y,
+          g.pos.z,
+          g.yaw,
+          g.speed,
+          g.yawRate,
+          g.tyaw,
+          g.tpitch,
+          g.hyaw,
+          g.hpitch,
+          g.crouch,
+          g.flare,
+          g.hp / c0.hp,
+          g.mode === "engage" ? 1 : 0,
+        ];
+      },
+      // [net] Guest: walk the host's pose through the gait (z) and IK (I) without the
+      // brain. The wreck (U) still runs locally once _kill hands the hound over.
+      _puppet(k, q) {
+        ((g.prevSpeed = g.speed),
+          g.pos.set(q[1], q[2], q[3]),
+          (g.yaw = q[4]),
+          (g.speed = q[5]),
+          (g.yawRate = q[6]),
+          (g.tyaw = q[7]),
+          (g.tpitch = q[8]),
+          (g.hyaw = q[9]),
+          (g.hpitch = q[10]),
+          (g.crouch = q[11]),
+          (g.flare = q[12]),
+          (g.hp = q[13] * c0.hp),
+          (g.mode = q[14] & 1 ? "engage" : "patrol"),
+          g.push.set(0, 0, 0),
+          g.fwd.set(Math.sin(g.yaw), 0, Math.cos(g.yaw)),
+          z(k),
+          I(k),
+          g.sensor.copy(g.headPos));
+        let te = Math.sin(g.yaw),
+          oe = Math.cos(g.yaw),
+          se = g.pos.y + Yn.stand + g.sY.x - g.crouch,
+          ge = (n.t * (g.mode === "patrol" ? 0.8 : 2.2) + g.phase) % 1;
+        l.beacon.scale.setScalar(ge < 0.12 || (ge > 0.22 && ge < 0.3) ? 1 : 1e-4);
+        let ce = g.mode === "engage" ? YD : H5,
+          P = 1 + g.flare * 3.5;
+        for (let D = 0; D < 3; D++) g.lensC[D] += (ce[D] - g.lensC[D]) * (1 - Math.exp(-8 * k));
+        (r.color.setRGB(g.lensC[0] * P, g.lensC[1] * P, g.lensC[2] * P),
+          g.hp < c0.hp * c0.smokeBelow &&
+            ((g.smokeT -= k),
+            g.smokeT <= 0 &&
+              ((g.smokeT = 0.2),
+              _s.set(g.pos.x - te * 0.3, se + 0.2, g.pos.z - oe * 0.3),
+              s.fx.smoke(_s, { size: 0.35, life: 1.3, color: 2303272, rise: 0.9 }))),
+          g.loop &&
+            (g.loop.setPos(g.pos),
+            g.loop.setGain(bo(0.12 + g.speed * 0.12 + Math.abs(g.yawRate) * 0.1, 0, 0.8)),
+            g.loop.setPitch(0.8 + g.speed * 0.08)));
+      },
+      _kill(k) {
+        g.alive && L(k);
       },
     };
   function E(k, C, A, F, H) {
@@ -41101,7 +41273,10 @@ async function W5(n) {
     from: "enemy",
   };
   function M(k) {
-    let C = n.player,
+    // [net] Bolts hit any squad member the host can see (none on a guest: its
+    // bolts are only pictures of the host's).
+    let tg = n.net ? n.net.targets() : [n.player],
+      C = null,
       A = 0;
     for (let F = 0; F < x.length; F++) {
       let H = x[F];
@@ -41111,15 +41286,15 @@ async function W5(n) {
       let Z = n.physics.raycast(H.pos, H.dir, N),
         Q = Z ? Z.dist : N,
         W = false;
-      if (
-        (C &&
-          C.alive !== false &&
-          (JS.copy(H.pos).addScaledVector(H.dir, Q),
-          nT.set(C.pos.x, C.pos.y + 0.35, C.pos.z),
-          iT.set(C.pos.x, C.pos.y + (C.crouching ? 1 : 1.5), C.pos.z),
-          jD(H.pos, JS, nT, iT) < 0.36 * 0.36 && (W = true)),
-        W)
-      ) {
+      JS.copy(H.pos).addScaledVector(H.dir, Q);
+      for (let ti = 0; ti < tg.length && !W; ti++)
+        ((C = tg[ti]),
+          C &&
+            C.alive !== false &&
+            (nT.set(C.pos.x, C.pos.y + 0.35, C.pos.z),
+            iT.set(C.pos.x, C.pos.y + (C.crouching ? 1 : 1.5), C.pos.z),
+            jD(H.pos, JS, nT, iT) < 0.36 * 0.36 && (W = true)));
+      if (W) {
         (C.damage(Bi.gull.boltDamage, H.from), (H.on = false));
         continue;
       }
@@ -41253,6 +41428,16 @@ async function W5(n) {
             A.mode === "patrol" && n.events.emit("enemy:alert", { enemy: A, noise: true }),
             (A.mode = "investigate"),
             (A.modeT = 9 + e() * 4));
+      },
+      // [net] Guest frame: step() poses every puppet from the host's snapshot; the
+      // bolts and gimbal light still run here so they look the same.
+      puppet(k, step) {
+        if (k <= 0) return;
+        (k > 0.05 && (k = 0.05), (f.t += k), step(k), M(k), z(k));
+      },
+      // [net] Guest: a picture of a host drone's bolt (hits nothing).
+      netBolt(k, C) {
+        f.fireBolt(k, C, null);
       },
       update(k) {
         if (k <= 0) return;
@@ -42596,6 +42781,11 @@ function pT(n) {
       (g.waveHot = 30));
     let Ve = ((Math.atan2(Te, -Re) * 180) / Math.PI + 360) % 360;
     (o.warn && o.warn(`Wave ${Y} — ${dT[Math.round(Ve / 45) % 8]}`, 3.6),
+      n.net &&
+        n.net.worldEvent(
+          "warn",
+          `Wave ${Y} — ${dT[Math.round(Ve / 45) % 8]}`,
+        ), // [net]
       o.setObjective("Hold the berth"),
       m(),
       n.events.emit("holdout:wave", { wave: Y, count: V }));
@@ -42604,7 +42794,11 @@ function pT(n) {
     ((g.waveOn = false),
       (g.wavesCleared = g.wave),
       (g.breakT = cs.breather),
-      (g.score += cs.waveBonus * g.wave));
+      (g.score += cs.waveBonus * g.wave),
+      vb());
+  }
+  // [net] The wave-down rewards every squad member collects for themselves.
+  function vb() {
     try {
       let Y = n.weapon.slots && n.weapon.slots[0];
       Y &&
@@ -42619,6 +42813,7 @@ function pT(n) {
       n.events.emit("objective:done", { id: "wave", index: g.wave, total: g.wave }));
   }
   function y(Y) {
+    if (n.net && n.net.guest) return; // [net] waves are the host's
     g.waveOn
       ? !g.queue.length && se() === 0 && v()
       : ((g.breakT -= Y),
@@ -42665,6 +42860,8 @@ function pT(n) {
       extractHint: 0,
       intensity: 0.15,
       used: /* @__PURE__ */ new Map(),
+      runId: 0, // [net] bumps on every full reset; guests restart when it moves
+      runLive: false, // [net] a run has been deployed into
       mode: "mission",
       wave: 0,
       waveOn: false,
@@ -42710,6 +42907,73 @@ function pT(n) {
       debugCut() {
         let Y = g.relays.find((he) => !he.cut);
         Y && ce(Y);
+      },
+      // [net] Host, outside "playing" (paused, dead, debrief): the run keeps going for the squad.
+      worldTick(Y) {
+        g.runLive && ((g.time += Y), $(Y), p() && y(Y));
+      },
+      // [net] Host: a guest finished cutting relay Y.
+      netCut(Y) {
+        let he = g.relays.find((V) => V.id === Y && !V.cut);
+        he && C.state !== "title" && ce(he);
+      },
+      // [net] Host: what a guest needs to play this run.
+      netWorld() {
+        return {
+          run: g.runId,
+          live: g.runLive && C.state !== "title",
+          mode: g.mode,
+          diff: C.difficulty,
+          cut: g.relays.filter((Y) => Y.cut).map((Y) => Y.id),
+          wave: g.wave,
+          waveOn: g.waveOn,
+          score: Math.round(g.score),
+          kills: g.kills,
+          cleared: g.wavesCleared,
+        };
+      },
+      // [net] Guest: adopt the host's run. he (quiet) applies it without the
+      // radio and alarms, for a guest arriving mid-run.
+      netSync(Y, he) {
+        if (!Y) return;
+        Y.diff && Y.diff !== C.difficulty && h(Y.diff);
+        let V = false;
+        for (let ne of g.relays)
+          ne.cut ||
+            !Y.cut ||
+            !Y.cut.includes(ne.id) ||
+            (he
+              ? ((ne.cut = true),
+                (ne.cutting = false),
+                (ne.t = 1),
+                g.cut++,
+                W(ne.o, "cut"),
+                (V = true))
+              : ce(ne));
+        if (
+          (he &&
+            V &&
+            ((g.allCut = g.relays.length > 0 && g.cut >= g.relays.length),
+            o.setRelays && o.setRelays(g.cut, g.relays.length),
+            o.setObjective(oe()),
+            J()),
+          p())
+        ) {
+          let ne = g.waveOn,
+            ye = g.wave;
+          ((g.wave = Y.wave | 0),
+            (g.waveOn = !!Y.waveOn),
+            (g.score = +Y.score || 0),
+            (g.kills = Y.kills | 0),
+            (g.wavesCleared = Y.cleared | 0),
+            ne && !g.waveOn && !he && C.state === "playing" && vb(),
+            (ne !== g.waveOn || ye !== g.wave) && C.state !== "title" && o.setObjective(oe()),
+            m());
+        }
+      },
+      // [net] Guest: the host started a new run; start it too.
+      netRestart() {
+        C.state !== "title" && G({ quick: true, keepRetries: true });
       },
     };
   function A(Y) {
@@ -42778,6 +43042,20 @@ function pT(n) {
       (e.fade = Math.max(1 - ou(0, 1.8, F.t), ou(he - 1.6, he, F.t))));
   }
   function Q() {
+    // [net] A host whose squad is mid-run respawns into it instead of resetting it.
+    if (g.runLive && n.net && n.net.keepWorld()) {
+      (a(n.weapon, "reset"),
+        i.reset(s.playerStart),
+        o.reset && o.reset(),
+        (e.saturation = t),
+        (e.flash = 0),
+        (g.lowSaid = false),
+        o.setRelays && o.setRelays(g.cut, g.relays.length),
+        p() && m(),
+        J());
+      return;
+    }
+    ((n.net && n.net.guest) || g.runId++, (g.runLive = true), n.events.emit("run:reset", {}));
     if (
       (a(n.enemies, "clear"),
       a(n.fx, "clear"),
@@ -42825,7 +43103,7 @@ function pT(n) {
     (J(),
       o.setRelays && o.setRelays(0, g.relays.length),
       o.setTally && o.setTally(p() ? "Stand by" : null),
-      p() || ue());
+      p() || (n.net && n.net.guest) || ue()); // [net] the host spawns the patrols
   }
   function W(Y, he) {
     try {
@@ -42858,7 +43136,11 @@ function pT(n) {
     mode: ne = null,
   } = {}) {
     if (
-      ((g.mode = ne || (V || he ? g.mode : l.settings.mode) || "mission"),
+      ((g.mode =
+        (n.net && n.net.guest && n.net.hostMode) || // [net] guests play the host's run
+        ne ||
+        (V || he ? g.mode : l.settings.mode) ||
+        "mission"),
       V || (g.retries = 0),
       l.show("none"),
       l.locationCard(false),
@@ -43032,6 +43314,7 @@ function pT(n) {
     o.warn && o.warn("Contact — " + dT[Math.round(Te / 45) % 8], 3.4);
   }
   function $(Y) {
+    if (n.net && n.net.guest) return; // [net] the host spawns
     let he = se();
     for (let V = 0; V < g.queue.length; V++) {
       let ne = g.queue[V];
@@ -43119,7 +43402,7 @@ function pT(n) {
           ? (ne.cutting || ((ne.cutting = true), W(ne.o, "cutting")),
             (ne.t += Y / xi.cutSeconds),
             n.events.emit("objective:progress", { id: ne.id, t: Math.min(1, ne.t) }),
-            ne.t >= 1 && ce(ne))
+            ne.t >= 1 && (n.net && n.net.guest ? ((ne.t = 1), n.net.requestCut(ne.id)) : ce(ne))) // [net]
           : ne.t > 0 &&
             ((ne.t = Math.max(0, ne.t - Y * 1.6)),
             ne.cutting &&
@@ -43380,7 +43663,7 @@ var lL = () => new Promise((n) => setTimeout(n, 0));
 async function fa(n, e) {
   (xT && (xT.textContent = n), vT && (vT.style.width = Math.round(e * 100) + "%"), await lL());
 }
-async function cL() {
+async function cL(net) {
   let n = Object.fromEntries(new URLSearchParams(location.search)),
     e = !!n.bench || location.hash === "#bench";
   e && ((n.noaudio = "1"), (n.autostart = "1"));
@@ -43391,6 +43674,8 @@ async function cL() {
     rng: su(+(n.seed || 4207)),
     time: { t: 0, dt: 0, frame: 0, real: 0 },
     quality: UM(n.q || (n.shot ? "test" : "")),
+    // [net] co-op hooks (src/net/coop.ts); null in showcase/bench builds.
+    net: null,
   };
   window.__G = t;
   let i = n.show && mT[n.show] ? n.show : null;
@@ -43506,6 +43791,13 @@ async function cL() {
       await r("hud", "hud", () => sT(t)),
       (t.game = pT(t)));
   }
+  // [net] Attach co-op after every module exists and before the first frame.
+  if (net && !i && !e)
+    try {
+      ((t.net = net), net.attach(t));
+    } catch (p) {
+      ((t.net = null), console.error("[boot] net.attach failed: " + ((p && p.stack) || p)));
+    }
   await fa("Waiting for first light", 0.92);
   try {
     await t.render.onLevelReady();
@@ -43610,13 +43902,22 @@ async function cL() {
         h("hud", m),
         s && (t.camera.position.copy(s.pos), t.camera.lookAt(s.look)),
         t.bench && t.bench.frame(d));
-      try {
-        t.render.frame(m);
-      } catch (v) {
-        h.err.render ||
-          ((h.err.render = 1),
-          console.error("[loop] render.frame threw: " + ((v && v.stack) || v)));
-      }
+      if (t.net)
+        try {
+          t.net.frame(m, x);
+        } catch (v) {
+          h.err.net ||
+            ((h.err.net = 1), console.error("[loop] net.frame threw: " + ((v && v.stack) || v)));
+        }
+      // [net] ?norender=1: simulate without drawing, for the two-client smoke on software GL.
+      if (!n.norender)
+        try {
+          t.render.frame(m);
+        } catch (v) {
+          h.err.render ||
+            ((h.err.render = 1),
+            console.error("[loop] render.frame threw: " + ((v && v.stack) || v)));
+        }
       (t.input.endFrame && t.input.endFrame(),
         window.__frames++,
         window.__frames === 2 && (window.__ready = true));
@@ -43738,6 +44039,6 @@ function hL(n) {
   };
 }
 
-export function bootSaltline() {
-  return cL().catch((n) => yT((n && n.stack) || n));
+export function bootSaltline(net) {
+  return cL(net).catch((n) => yT((n && n.stack) || n));
 }

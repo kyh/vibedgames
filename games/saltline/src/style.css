@@ -1789,3 +1789,76 @@ kbd {
     animation: none;
   }
 }
+
+/* ---- squad (co-op): room status + one row per squad member ---- */
+.squad {
+  position: absolute;
+  top: calc(16px + var(--sat));
+  right: var(--gr);
+  min-width: 150px;
+  text-align: right;
+  opacity: 0;
+  transition: opacity 0.3s;
+  pointer-events: none;
+  color: var(--bone);
+  text-shadow: var(--shadow);
+  z-index: 3;
+}
+.squad.on {
+  opacity: 1;
+}
+.squad.title {
+  top: calc(clamp(14px, 5.5vh, 52px) + var(--sat) + 14px);
+  right: max(var(--gr), 4.5vw);
+}
+.squad-k {
+  font: 600 11px/1 var(--f-label);
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
+  color: var(--signal);
+  margin-bottom: 7px;
+}
+.squad-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 9px;
+  padding: 3px 0;
+  font: 600 13px/1 var(--f-label);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+.squad-row b {
+  font: 700 15px/1 var(--f-display);
+  letter-spacing: 0.06em;
+}
+.squad-row span {
+  font: 400 10px/1 var(--f-mono);
+  letter-spacing: 0.06em;
+  color: var(--bone-dim);
+}
+.squad-row i {
+  width: 46px;
+  height: 4px;
+  background: linear-gradient(90deg, var(--bone) calc(var(--hp, 1) * 100%), var(--bone-faint) 0);
+  box-shadow: 0 0 2px rgba(0, 0, 0, 0.6);
+}
+.menu.open ~ .squad:not(.title) {
+  opacity: 0;
+}
+.is-touch .squad:not(.title) {
+  top: auto;
+  right: auto;
+  left: var(--gl);
+  bottom: calc(150px + var(--sab));
+  text-align: left;
+}
+.is-touch .squad-row {
+  justify-content: flex-start;
+}
+@media (max-width: 760px) {
+  .squad.title {
+    top: auto;
+    bottom: calc(clamp(14px, 5.5vh, 52px) + var(--sab) + 8px);
+  }
+}
