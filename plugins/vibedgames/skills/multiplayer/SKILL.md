@@ -199,7 +199,7 @@ setSpawn(SPAWNS[idx]);
 
 ## Deploy
 
-`vg deploy ./dist --slug my-game` → live at `https://my-game.vibedgames.com`; the party server is shared infrastructure. See the `deploy` skill for the full flow (use `npx vibedgames deploy` if `vg` isn't on PATH).
+`vg deploy ./dist --slug my-game` → live at `https://my-game.vibedgames.com`; the party server is shared infrastructure. See the `deploy` skill for the full flow (use `npx -y vibedgames@latest deploy` if `vg` isn't on PATH).
 
 ## See also
 

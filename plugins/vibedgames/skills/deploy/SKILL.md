@@ -7,9 +7,9 @@ description: "Deploy a static browser game (Vite, Phaser, Three.js, plain HTML) 
 
 Deploy static browser games to `{slug}.vibedgames.com` using the vibedgames CLI.
 
-> **`vg` not on PATH?** The global install from `vibedgames init` is
-> best-effort. If any `vg <cmd>` below fails with "command not found",
-> substitute `npx vibedgames <cmd>` — it works identically.
+> **`vg` not on PATH?** Don't stop to install it: run each `vg <cmd>` below
+> as `npx -y vibedgames@latest <cmd>` — same flags, same output. The
+> `vg-setup` skill covers this and signing in.
 
 ## Starting a new game
 
@@ -62,12 +62,15 @@ login _before_ anything else:
 vg login
 ```
 
-This auto-opens the user's browser to an approval page and prints an
-8-character code in the terminal. Tell the user:
-"I opened a browser — approve code `XXXXXXXX`." Wait for the CLI to
-print `Logged in successfully` before continuing. If the browser
-didn't open (remote shell, headless env), read the URL from the CLI
-output and give it to the user to open manually.
+Run it in the background: it waits up to 10 minutes for approval. It
+prints an 8-character code and the approval URL
+(`https://vibedgames.com/device?user_code=…`), and tries to open a
+browser. Tell the user: "Approve code `XXXXXXXX` at <the URL it
+printed>". Always pass on the URL, because the browser won't open in a
+remote or headless shell. Wait for the CLI to print `Logged in
+successfully` before continuing. With no human to approve (CI, a headless
+agent), the user sets `VG_TOKEN` to an API key from
+https://vibedgames.com/settings instead; see the `vg-setup` skill.
 
 Only skip this step if `whoami` succeeded with a `name (email)` line.
 
@@ -155,7 +158,7 @@ Then just: `vg deploy ./dist`
 
 ## Troubleshooting
 
-- **"Not logged in"** → Run `vg login` first
+- **"Not logged in"** → Sign in first (step 1, or the `vg-setup` skill)
 - **"No index.html"** → You're deploying the wrong directory. Use the build output.
 - **"Slug taken"** → Someone else owns that slug. Pick a different one.
 - **Build fails** → Fix build errors before deploying. Check for missing dependencies.
