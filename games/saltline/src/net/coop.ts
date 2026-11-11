@@ -219,13 +219,20 @@ export class Coop implements NetHooks {
     client.onEvent = (event, payload, from) => this.onEvent(event, payload, from);
   }
 
-  /** Hear the game's flow change (title → intro → playing → …), once per change. */
+  /**
+   * Hear the game's flow change (title → intro → playing → …), once per change,
+   * starting with its state when it attaches. Register before bootSaltline.
+   */
   watchState(listener: (state: GameState, game: SaltlineGame) => void): void {
     this.stateListener = listener;
   }
 
   attach(game: SaltlineGame): void {
     this.game = game;
+    // Report the game now, during boot, not on the first frame: bootSaltline
+    // resolves as soon as the loop is scheduled, before any frame runs.
+    this.seenState = game.game.state;
+    this.stateListener?.(game.game.state, game);
     this.puppets = new Puppets(game);
     this.squad = new Squad(game, {
       down: (m) => this.feed(m, "is down"),
