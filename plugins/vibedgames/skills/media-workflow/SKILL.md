@@ -5,7 +5,7 @@ description: "Chain several `vg generate` steps into one production — ads, pro
 
 # `vg generate` workflow production
 
-> **Runtime:** All endpoint calls use the `vg generate` CLI (`npm install -g vibedgames`, or `pnpm dogfood` in this repo). The API key lives on the vibedgames server, so there is no per-machine setup. See the `generate` skill for the command reference.
+> **Runtime:** All endpoint calls use the `vg generate` CLI. The model API keys live on the vibedgames server, so the only setup is a signed-in `vg`. If `vg` isn't on PATH or says you're not logged in, follow the `vg-setup` skill (no global install needed: `npx -y vibedgames@latest` stands in for `vg`). See the `generate` skill for the command reference.
 
 Use this skill when a single model call is not enough. There are two ways in:
 

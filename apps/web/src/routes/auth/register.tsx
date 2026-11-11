@@ -25,7 +25,7 @@ const RegisterPage = () => {
       </div>
       <p className="text-muted-foreground mt-6 px-8 text-center text-xs">
         Already have an account?{" "}
-        <Link to="/auth/login" search={{ callbackUrl, invite }} className="underline">
+        <Link to="/auth/login" search={(previous) => previous} className="underline">
           Login
         </Link>
       </p>

@@ -26,7 +26,7 @@ Worker for the oRPC API.
 | `/api/v1/*`, `/openapi.json`               | the same router as plain-JSON REST, and its OpenAPI 3.1 document                          |
 | `/.well-known/api-catalog`                 | RFC 9727 catalog pointing at `/openapi.json` and `/docs`                                  |
 | `/api/*` (unmatched)                       | JSON `404` (`src/routes/api/$.ts`)                                                        |
-| `/api/r2-upload`, `/api/r2-download`       | local-dev R2 proxy (HMAC-signed, `localhost` Host only)                                   |
+| `/api/upload`, `/api/download`             | every upload/download URL the API hands out (HMAC-signed, through the R2 binding)         |
 | `/api/playtest/decide`                     | the in-page playtester's decisions: cross-origin, honours only a `playtest.session` token |
 | `/api/trpc/*`                              | legacy: tells CLI copies up to 0.4.x to upgrade                                           |
 | `/.well-known/agent-skills/*`              | the vibedgames skills, served for agents to fetch                                         |

@@ -8,23 +8,35 @@ claude plugin marketplace add kyh/vibedgames-plugins
 claude plugin install vibedgames@vibedgames
 ```
 
+The plugin bundles the skills and connects the vibedgames MCP server
+(`https://vibedgames.com/mcp`), which signs in with OAuth on first use. Skills
+that run commands use the `vg` CLI when a shell is available
+(`npx -y vibedgames@latest` when it isn't installed). Without a shell, the MCP
+tools cover the commands that reach vibedgames (`deploy`, `generate`, …);
+local ones like `vg new` and `vg playtest` still need a shell. The `vg-setup`
+skill covers all of this and signing in. `plugin.json` at the plugin root is the same package's
+manifest for the OpenAI (ChatGPT and Codex) plugin directory.
+
 Start with the `game-playbook` skill, which takes a one-line idea to a shipped
-game and routes into the other 33. Skill list:
+game and routes into the other 34. Skill list:
 [`plugins/README.md`](../README.md).
 
 ## Data and network use
 
-The skills are local text and scripts. Data leaves your machine only when a
-skill runs a `vg` command that talks to the vibedgames service (vibedgames.com,
-hosted on Cloudflare):
+The skills are local text and scripts. Data reaches the vibedgames service
+(vibedgames.com, hosted on Cloudflare) only when a skill runs a `vg` command
+that talks to it, or when your agent calls a vibedgames MCP tool:
 
-| Command           | Sends                                    | Where it goes                                                                                            | Kept                                   |
-| ----------------- | ---------------------------------------- | -------------------------------------------------------------------------------------------------------- | -------------------------------------- |
-| `vg deploy`       | built game files; source with `--source` | vibedgames storage, served at `{slug}.vibedgames.com`                                                    | until the next deploy or game deletion |
-| `vg generate`     | prompt and input files                   | a third-party AI model provider: the prompt via vibedgames, input files uploaded straight to its storage | not stored by vibedgames               |
-| `vg playtest run` | game state snapshots                     | vibedgames, forwarded to a third-party AI model provider                                                 | not stored                             |
-| multiplayer       | player messages                          | vibedgames multiplayer servers, relayed to players in the same room                                      | not stored                             |
-| `vg login`        | device-code sign-in                      | vibedgames; the token is saved on your machine                                                           | until you log out or revoke it         |
+| Command           | Sends                                    | Where it goes                                                                                            | Kept                                                  |
+| ----------------- | ---------------------------------------- | -------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| `vg deploy`       | built game files; source with `--source` | vibedgames storage, served at `{slug}.vibedgames.com`                                                    | until the next deploy or game deletion                |
+| `vg generate`     | prompt and input files                   | a third-party AI model provider: the prompt via vibedgames, input files uploaded straight to its storage | not stored by vibedgames                              |
+| `vg playtest run` | game state snapshots                     | vibedgames, forwarded to a third-party AI model provider                                                 | not stored                                            |
+| multiplayer       | player messages                          | vibedgames multiplayer servers, relayed to players in the same room                                      | not stored                                            |
+| `vg login`        | OAuth sign-in                            | vibedgames; the token is saved on your machine                                                           | until you log out or revoke it                        |
+| MCP sign-in       | OAuth sign-in                            | vibedgames; the token is kept by your agent's MCP client (Claude Code, claude.ai, ChatGPT, …)            | until you disconnect the app in Settings or revoke it |
+
+Each MCP tool sends the same data to the same place as the matching `vg` command (`deploy`, `generate`, …).
 
 Some skills also document third-party tools you install yourself (npm packages,
 Playwright, uv). The skills never read credentials; `vg` uses only its own vibedgames token.

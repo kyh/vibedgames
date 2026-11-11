@@ -1,5 +1,6 @@
 import { defineMeta, oc } from "@orpc/contract";
 
+import type { RequiredScope } from "./auth/oauth-scopes";
 import { protectedProcedureSpec, publicProcedureSpec, sessionOnlyProcedureSpec } from "./openapi";
 
 /**
@@ -26,6 +27,19 @@ const [requires, getRequiredCredential] = defineMeta(
 
 /** The credential a procedure's base declares; read by nothing at runtime. */
 export { getRequiredCredential };
+
+const [requiresScope, getRequiredScope] = defineMeta(
+  "scope",
+  (incoming: RequiredScope): RequiredScope => incoming,
+);
+
+/**
+ * The scope an OAuth access token needs to call a procedure
+ * (`auth/oauth-scopes.ts`). Every procedure an access token can reach, those
+ * on `protectedBase`, declares one; @repo/service's `requireSession` refuses a
+ * token without it.
+ */
+export { getRequiredScope, requiresScope };
 
 /** No credentials. Implementations use `os.<feature>.<proc>` directly. */
 export const publicBase = oc.meta(publicProcedureSpec, requires("none"));

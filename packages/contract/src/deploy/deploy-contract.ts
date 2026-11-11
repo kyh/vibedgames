@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { protectedBase } from "../base";
+import { protectedBase, requiresScope } from "../base";
 import { documented } from "../openapi";
 import {
   createInput,
@@ -43,10 +43,11 @@ const gameSummary = z.object({
 
 export const deployContract = {
   create: protectedBase
+    .meta(requiresScope("games:write"))
     .meta(
       documented({
         description:
-          "Starts a deployment of a built game to `{slug}.vibedgames.com`, replacing the previous one. Returns a presigned PUT URL per file (and for the optional source archive); upload each, then call deploy.finalize. 403 when the slug belongs to someone else.",
+          "Legacy: what `vg` up to this release called; use deploy.upload. Starts a deployment of a built game to `{slug}.vibedgames.com`, replacing the previous one at once. Returns a signed PUT URL per file (and for the optional source archive); upload each, then call deploy.finalize. 403 when the slug belongs to someone else.",
         errors: [403],
         summary: "Create a deployment",
       }),
@@ -55,6 +56,7 @@ export const deployContract = {
     .output(createOutput),
 
   delete: protectedBase
+    .meta(requiresScope("games:write"))
     .meta(
       documented({
         description: "Permanently deletes one of the caller's games and all of its deployed files.",
@@ -66,10 +68,11 @@ export const deployContract = {
     .output(z.object({ success: z.literal(true) })),
 
   finalize: protectedBase
+    .meta(requiresScope("games:write"))
     .meta(
       documented({
         description:
-          "Marks an uploaded deployment ready and makes it the live version of its game. Returns the public URL.",
+          "Legacy, with deploy.create: marks an uploaded deployment ready and makes it the live version of its game. Returns the public URL.",
         errors: [403, 404],
         summary: "Finalize a deployment",
       }),
@@ -78,6 +81,7 @@ export const deployContract = {
     .output(z.object({ slug: z.string(), url: z.string() })),
 
   getSource: protectedBase
+    .meta(requiresScope("games:read"))
     .meta(
       documented({
         description:
@@ -97,6 +101,7 @@ export const deployContract = {
     ),
 
   list: protectedBase
+    .meta(requiresScope("games:read"))
     .meta(
       documented({
         description:
@@ -107,10 +112,11 @@ export const deployContract = {
     .output(z.object({ games: z.array(gameSummary) })),
 
   upload: protectedBase
+    .meta(requiresScope("games:write"))
     .meta(
       documented({
         description:
-          "Deploys a game from files carried in the request, for a caller with no local build to upload: each file is `utf-8` text, `base64`, or `url`: the URL of an asset generate made, which the server fetches itself (up to 32 MB a call), so nothing generated has to pass through the caller. Its type is its path's unless given. The first call stages a new deployment beside the live one and returns its `deploymentId`; later calls pass it back to add or replace files, so a game larger than one request goes up in several. `publish: true` (on the last call, or alone) requires `index.html`, makes the deployment live at `{slug}.vibedgames.com` and only then removes the previous one, so the game never goes dark mid-upload; with `source: true` it also keeps the deployment's files as the game's forkable source (up to 64 MB). 403 when the slug belongs to someone else.",
+          "Deploys a game. The usual way: pass `bundle: true`, PUT a gzipped tar of the built game (`tar -czf game.tgz -C dist .`, `index.html` at its root) to the `bundleUpload` URL it returns, then call again with the `deploymentId` and `publish: true`; publish unpacks it. Files can also be given one by one: `files` carries `utf-8` text, or with `encoding: url` the URL of an asset generate made, which the server fetches itself (up to 32 MB a call); `presign` takes a file's path, size and SHA-256 and returns a signed PUT URL for it in `uploads`. Upload URLs are on this server and last 15 minutes. A call without `deploymentId` stages a new deployment beside the live one; later calls pass it back to add or replace files. `publish: true` requires `index.html` and every presigned file at its declared size, makes the deployment live at `{slug}.vibedgames.com` and only then removes the previous one, so the game never goes dark mid-upload. With `source: true` publish also keeps the deployment's files as the game's forkable source (up to 64 MB); a caller with its own source archive passes `sourceArchive` instead and PUTs it to `sourceUpload`. 403 when the slug belongs to someone else.",
         errors: [403, 404],
         summary: "Upload files inline and deploy",
       }),
@@ -118,11 +124,14 @@ export const deployContract = {
     .input(uploadInput)
     .output(
       z.object({
+        bundleUpload: presignedUpload.nullable(),
         deploymentId: z.string(),
         fileCount: z.number().int(),
         gameId: z.string(),
         published: z.boolean(),
+        sourceUpload: presignedUpload.nullable(),
         totalBytes: z.number().int(),
+        uploads: z.array(presignedUpload.extend({ path: z.string() })),
         url: z.string().nullable(),
       }),
     ),

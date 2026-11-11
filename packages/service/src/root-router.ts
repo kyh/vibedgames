@@ -1,6 +1,7 @@
 import { adminRouter } from "./admin/admin-router";
 import { apiKeyRouter } from "./auth/api-key-router";
 import { authRouter } from "./auth/auth-router";
+import { connectedAppsRouter } from "./auth/connected-apps-router";
 import { creditsRouter } from "./credits/credits-router";
 import { deployRouter } from "./deploy/deploy-router";
 import { generateRouter } from "./generate/generate-router";
@@ -13,6 +14,7 @@ export const appRouter = os.router({
   admin: adminRouter,
   apiKeys: apiKeyRouter,
   auth: authRouter,
+  connectedApps: connectedAppsRouter,
   credits: creditsRouter,
   deploy: deployRouter,
   generate: generateRouter,

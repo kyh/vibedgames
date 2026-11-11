@@ -3,8 +3,10 @@ import type {
   DecisionProviderConfig,
   MediaProviderConfig,
   R2Config,
+  UrlSigning,
 } from "@repo/service/orpc";
 import { createAuth as initAuth } from "@repo/service/auth/auth";
+import { oauthResources } from "@repo/service/auth/oauth-resources";
 import { createORPCContext } from "@repo/service/orpc";
 import { createDb } from "@repo/db/drizzle-client";
 import { getRequestHeaders } from "@tanstack/react-start/server";
@@ -21,6 +23,42 @@ import { getCloudflareEnv } from "@/lib/cloudflare";
  * The baseUrl is derived from the incoming request's Host header so it
  * correctly reflects localhost in dev, preview domains, and production.
  */
+type Env = ReturnType<typeof getCloudflareEnv>;
+
+/**
+ * One auth instance per isolate and origin. Building one is not free: the
+ * OAuth provider seeds its protected-resource rows at init, a D1 read per
+ * resource, which would otherwise run on every request.
+ */
+const authInstances = new WeakMap<Env, Map<string, ReturnType<typeof initAuth>>>();
+
+const authFor = (
+  env: Env,
+  db: ReturnType<typeof createDb>,
+  baseUrl: string,
+  productionUrl: string,
+) => {
+  let byOrigin = authInstances.get(env);
+  if (!byOrigin) {
+    byOrigin = new Map();
+    authInstances.set(env, byOrigin);
+  }
+  let auth = byOrigin.get(baseUrl);
+  if (!auth) {
+    auth = initAuth({
+      baseURL: baseUrl,
+      db,
+      github: { clientId: env.GITHUB_CLIENT_ID, clientSecret: env.GITHUB_CLIENT_SECRET },
+      google: { clientId: env.GOOGLE_CLIENT_ID, clientSecret: env.GOOGLE_CLIENT_SECRET },
+      oauthProxySecret: env.OAUTH_PROXY_SECRET || undefined,
+      productionURL: env.OAUTH_PROXY_URL || productionUrl,
+      secret: env.BETTER_AUTH_SECRET,
+    });
+    byOrigin.set(baseUrl, auth);
+  }
+  return auth;
+};
+
 export const getServerContext = () => {
   const env = getCloudflareEnv();
   const db = createDb(env.DB);
@@ -28,43 +66,25 @@ export const getServerContext = () => {
   // Derive baseUrl from the actual request so dev/preview/production all work.
   const headers = new Headers(getRequestHeaders());
   const host = headers.get("host") ?? headers.get("x-forwarded-host");
-  const isLocalhost = host === "localhost" || host?.startsWith("localhost:");
+  // Any loopback host is the dev server, served over plain HTTP.
+  const hostname = host ? new URL(`http://${host}`).hostname : null;
+  const isLocalhost = hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]";
   const forwardedProto = headers.get("x-forwarded-proto")?.split(",")[0]?.trim();
   const protocol = forwardedProto || (isLocalhost ? "http" : "https");
   const baseUrl = host ? `${protocol}://${host}` : "http://localhost:3000";
 
   const productionUrl = env.PRODUCTION_URL || baseUrl;
 
-  const auth = initAuth({
-    baseURL: baseUrl,
-    db,
-    productionURL: productionUrl,
-    secret: env.BETTER_AUTH_SECRET,
-  });
+  const auth = authFor(env, db, baseUrl, productionUrl);
 
-  // R2 config is optional at build time — a missing value here means the
-  // deploy router will throw INTERNAL_SERVER_ERROR rather than the whole
-  // request blowing up at handler construction.
-  //
-  // In local dev we route uploads through `/api/r2-upload` so they land in
-  // the Miniflare-simulated bucket instead of leaking into prod R2. The
-  // proxy URL is HMAC-signed with BETTER_AUTH_SECRET; the S3 keys are still kept
-  // for the `deletePrefix` and read paths (those go through the binding,
-  // which is local-safe).
-  let r2: R2Config | undefined;
-  if (env.GAMES_BUCKET && env.R2_ACCOUNT_ID && env.R2_ACCESS_KEY_ID && env.R2_SECRET_ACCESS_KEY) {
-    r2 = {
-      accessKeyId: env.R2_ACCESS_KEY_ID,
-      accountId: env.R2_ACCOUNT_ID,
-      bucket: env.GAMES_BUCKET,
-      bucketName: env.R2_BUCKET_NAME,
-      secretAccessKey: env.R2_SECRET_ACCESS_KEY,
-    };
-    if (isLocalhost) {
-      r2.proxyUploadBaseUrl = baseUrl;
-      r2.proxyUploadSecret = env.BETTER_AUTH_SECRET;
-    }
-  }
+  // Bytes reach R2 only through the binding: `/api/upload` and `/api/download`
+  // URLs, signed with the auth secret, point back at this same host, so dev
+  // lands in Miniflare, a Preview in its own bucket, and production in prod.
+  const r2: R2Config | undefined = env.GAMES_BUCKET ? { bucket: env.GAMES_BUCKET } : undefined;
+  // No secret, no URLs: an empty HMAC key is refused, and a guessable one would let anyone write.
+  const signing: UrlSigning | undefined = env.BETTER_AUTH_SECRET
+    ? { baseUrl, secret: env.BETTER_AUTH_SECRET }
+    : undefined;
 
   const media: MediaProviderConfig = {
     fal: env.FAL_API_KEY,
@@ -86,8 +106,20 @@ export const getServerContext = () => {
     stripeWebhookSecret: env.STRIPE_WEBHOOK_SECRET,
   };
 
-  return { auth, baseUrl, billing, db, decision, media, productionUrl, r2 };
+  return { auth, baseUrl, billing, db, decision, media, productionUrl, r2, signing };
 };
+
+/** The social sign-in providers this deployment has credentials for, in button order. */
+export const socialSignInProviders = (): ("github" | "google")[] => {
+  const providers = getServerContext().auth.options.socialProviders ?? {};
+  return (["github", "google"] as const).filter((id) => id in providers);
+};
+
+/**
+ * Which protected resource a request is for: OAuth access tokens are
+ * audience-bound, so one granted for MCP never drives the API and back.
+ */
+export type OAuthSurface = keyof ReturnType<typeof oauthResources>;
 
 /**
  * The one place the Worker bindings are mapped onto the oRPC context.
@@ -96,8 +128,18 @@ export const getServerContext = () => {
  * SSR client in `lib/orpc.tsx` — so a binding added here can't reach one and
  * silently miss the other.
  */
-export const createRpcContext = (headers: Headers) => {
-  const { db, auth: betterAuth, billing, productionUrl, r2, media, decision } = getServerContext();
+export const createRpcContext = (headers: Headers, surface: OAuthSurface = "api") => {
+  const {
+    baseUrl,
+    db,
+    auth: betterAuth,
+    billing,
+    productionUrl,
+    r2,
+    media,
+    decision,
+    signing,
+  } = getServerContext();
   return createORPCContext({
     auth: betterAuth,
     billing,
@@ -105,8 +147,10 @@ export const createRpcContext = (headers: Headers) => {
     decision,
     headers,
     media,
+    oauthResource: oauthResources(baseUrl)[surface],
     productionURL: productionUrl,
     r2,
+    signing,
   });
 };
 

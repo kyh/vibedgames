@@ -13,23 +13,6 @@ export interface DecodedFile {
   path: string;
 }
 
-// `atob` accepts whitespace and missing padding; anything else in the
-// alphabet check below is not base64 at all.
-const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/u;
-
-const decodeBase64 = (path: string, content: string): Uint8Array<ArrayBuffer> => {
-  const compact = content.replaceAll(/\s+/gu, "");
-  if (!BASE64.test(compact)) {
-    throw new ORPCError("BAD_REQUEST", { message: `"${path}" is not valid base64.` });
-  }
-  const binary = atob(compact);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i += 1) {
-    bytes[i] = binary.codePointAt(i) ?? 0;
-  }
-  return bytes;
-};
-
 // What one call may fetch by URL: the Worker holds it all before writing.
 export const MAX_FETCHED_BYTES = 32 * 1024 * 1024;
 
@@ -89,8 +72,6 @@ export const decodeInlineFiles = async (files: InlineFile[]): Promise<DecodedFil
     if (file.encoding === "url") {
       bytes = await fetchMediaFile(file.path, file.content, budget);
       budget -= bytes.byteLength;
-    } else if (file.encoding === "base64") {
-      bytes = decodeBase64(file.path, file.content);
     } else {
       bytes = new Uint8Array(new TextEncoder().encode(file.content));
     }

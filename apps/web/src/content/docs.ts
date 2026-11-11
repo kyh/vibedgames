@@ -45,7 +45,9 @@ export const docsDoc: Doc = {
             "vg config                # saved settings (generate.provider, update.auto, …)",
             "vg login | logout | whoami",
             "vg deploy [dir]          # ship a built game to {slug}.vibedgames.com",
+            "vg deployments           # your games; `delete <slug> --yes` removes one",
             "vg fork <slug> [target]  # fork another project's shipped source",
+            "vg skills [name]         # list the game-studio skills, or print one",
             "vg credits               # generation credit balance and recent usage",
             "vg playtest <url>        # drive a real browser against a game",
             "",
@@ -91,15 +93,23 @@ export const docsDoc: Doc = {
         },
         {
           kind: "p",
-          text: "Agents that speak MCP get the same platform as tools at `https://vibedgames.com/mcp` (Streamable HTTP, stateless), one per `vg` command that reaches the server: `me`, `credits` (`credits_redeem`, `credits_buy`), `deployments` (`deployments_upload`, `deployments_delete`), `fork`, `generate` (`generate_status`, `generate_models`, `generate_schema`, `generate_pricing`, `generate_docs`, `generate_upload`), the dedicated asset tools `generate_image`, `generate_video`, `generate_speech`, `generate_music`, `generate_sound`, `generate_3d` and `remove_background` (each on the default model the model-catalog skill names, with that model's main inputs typed) and `skills`, which serves the bundled game-studio skills. `deployments_upload` deploys from files carried in the call (text, base64, or the URL of an asset `generate` made, which the server fetches), staged over as many calls as the game needs and live on `publish: true`, so an agent with no shell can still ship; `source: true` keeps those files as the game's forkable source. Send an API key (`vg_…`, from [Settings](/settings)) as `Authorization: Bearer`; browser cookies are ignored.",
+          text: "Agents that speak MCP get the same platform as tools at `https://vibedgames.com/mcp` (Streamable HTTP, stateless), one per `vg` command that reaches the server, named for it with `_` for spaces: `whoami`, `credits` (`credits_redeem`, `credits_buy`), `deploy`, `deployments` (`deployments_delete`), `fork`, `generate` (`generate_status`, `generate_models`, `generate_schema`, `generate_pricing`, `generate_docs`, `generate_upload`), the dedicated asset tools `generate_image`, `generate_video`, `generate_speech`, `generate_music`, `generate_sound`, `generate_3d` and `remove_background` (each on the default model the model-catalog skill names, with that model's main inputs typed) and `skills`, which serves the bundled game-studio skills; the same skills, supporting files included, are `skill://` resources under the MCP Skills extension (`skills/list`, `skills/get`). An agent with a shell deploys with `npx vibedgames deploy ./dist`, the same API key in `VG_TOKEN`. The `deploy` tool is the same procedure: call it with `bundle: true`, PUT the build as one `.tgz` (`tar -czf game.tgz -C dist .`) to the `bundleUpload` URL it returns, then call it with the `deploymentId` and `publish: true`, which unpacks it and goes live. With no shell, text files ride the call and URLs of assets `generate` made are fetched by the server. `source: true` keeps the deployed files as the game's forkable source. Large bytes never ride a tool call: `generate_upload` returns an `/api/upload` URL to PUT a model input to, and `fork` an `/api/download` URL for source: an agent's shell only ever needs to reach vibedgames.com. Connectors such as claude.ai and ChatGPT sign in with OAuth: add the URL, approve the app on vibedgames, and it gets a token for `/mcp` alone. Anything else sends an API key (`vg_…`, from [Settings](/settings)) as `Authorization: Bearer`; browser cookies are ignored.",
         },
         {
           code: [
+            "# OAuth: the client identifies itself and opens the consent page",
+            "claude mcp add --transport http vibedgames https://vibedgames.com/mcp",
+            "",
+            "# or an API key",
             "claude mcp add --transport http vibedgames https://vibedgames.com/mcp \\",
             '  --header "Authorization: Bearer $VG_API_KEY"',
           ].join("\n"),
           kind: "code",
           lang: "sh",
+        },
+        {
+          kind: "p",
+          text: "vibedgames is also an OAuth 2.1 authorization server for apps acting for a person (issuer `https://vibedgames.com/api/auth`, metadata at `/.well-known/oauth-authorization-server/api/auth`). A client identifies itself with a Client ID Metadata Document (its `client_id` is the HTTPS URL of its metadata) or registers itself (RFC 7591), then uses the authorization-code flow with PKCE, naming the resource it wants as `resource`: `https://vibedgames.com/mcp` or `https://vibedgames.com/api`. A token works only on the resource it was issued for, lasts an hour, and refreshes with `offline_access`. What it may do is its scopes: `games:read`, `games:write`, `generate`, `credits:read`, `credits:write`, `playtest`, plus OpenID's `profile` for who it acts for. A call outside them answers 403 `insufficient_scope` naming the scope to ask for (on `/mcp`, as a `WWW-Authenticate` challenge). Neither a token nor an API key reaches account settings such as API keys. People see and disconnect the apps they approved in [Settings](/settings#connected-apps).",
         },
       ],
       heading: "API and authentication",
@@ -143,7 +153,7 @@ export const docsDoc: Doc = {
           items: [
             "[/llms.txt](/llms.txt) — what Vibedgames is for, when an agent should use it, and the entry command.",
             "[/openapi.json](/openapi.json) — the OpenAPI 3.1 description of the HTTP API.",
-            "[/mcp](/mcp) — the API as MCP tools, for agents that speak MCP; authenticated by API key.",
+            "[/mcp](/mcp) — the API as MCP tools, for agents that speak MCP; authenticated by OAuth or an API key.",
             "[/.well-known/api-catalog](/.well-known/api-catalog) — the API catalog (RFC 9727) pointing at the OpenAPI document and these docs.",
             "[/install](/install) — the install instructions, served as markdown.",
             "[/docs](/docs) — this page; also available as markdown via `Accept: text/markdown`.",

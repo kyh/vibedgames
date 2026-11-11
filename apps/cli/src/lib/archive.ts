@@ -247,6 +247,21 @@ export const packSource = async (root: string, tmpDir: string): Promise<SourceAr
   };
 };
 
+/**
+ * A deploy bundle: the build's files as a gzipped tar at a temp path, rooted
+ * at `dir` so `index.html` sits at the top, as `deploy.upload` unpacks it.
+ */
+export const packBuild = async (
+  dir: string,
+  files: string[],
+  tmpDir: string,
+): Promise<{ bytes: number; path: string }> => {
+  mkdirSync(tmpDir, { recursive: true });
+  const tarball = path.join(tmpDir, `vg-build-${process.pid}-${files.length}.tgz`);
+  await tarCreate({ cwd: dir, file: tarball, gzip: true, portable: true }, files);
+  return { bytes: statSync(tarball).size, path: tarball };
+};
+
 /** Extract a gzipped tar into `destDir` (created if needed). tar strips
  *  leading slashes and rejects `..` paths, so extraction stays inside dest. */
 export const extractSource = async (archivePath: string, destDir: string): Promise<void> => {
