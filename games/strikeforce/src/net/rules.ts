@@ -2,15 +2,23 @@
 // it is handed: no DOM, no three.js, no network, so tools/rules.test.mts can
 // play whole matches in milliseconds. Times are server-clock milliseconds.
 //
-// Two teams, Gold (0) and Steel (1). Each round one attacks: the attackers
-// carry a charge to site A or B and plant it; the defenders hold the sites or
-// defuse it. No respawns inside a round. First to WIN_ROUNDS takes the match;
-// the sides swap after HALF rounds.
+// Two kinds of match:
+// - "rounds": Gold (0) against Steel (1). Each round one attacks: the
+//   attackers carry a charge to site A or B and plant it; the defenders hold
+//   the sites or defuse it. No respawns inside a round. First to winRounds
+//   takes the match; the sides swap after `half` rounds.
+// - "dm": deathmatch, every player for themselves. Death comes back after
+//   dmRespawnMs; first to dmKills, or the most kills when dmMs runs out.
+//
+// Every fighter has a `life` that goes up each time the host brings it back
+// (a round start, a respawn). A client places its body when the life it sees
+// moves, and its own health reports count only for the life it is playing.
 
 export type Team = 0 | 1;
 export type Phase = "warmup" | "freeze" | "live" | "planted" | "post" | "over";
 export type ChargeState = "none" | "carried" | "dropped" | "planted" | "defused" | "detonated";
 export type RoundEnd = "eliminated" | "time" | "detonated" | "defused";
+export type MatchKind = "rounds" | "dm";
 
 export const RULES = {
   /** Metres from a detonation that kill outright; damage fades to nothing at twice this. */
@@ -19,6 +27,12 @@ export const RULES = {
   defuseMs: 5000,
   /** Metres from the charge a defender can defuse. */
   defuseRadius: 1.8,
+  /** Deathmatch: kills that win it. */
+  dmKills: 25,
+  /** Deathmatch: how long one runs before the most kills wins. */
+  dmMs: 600_000,
+  /** Deathmatch: how long a death lasts. */
+  dmRespawnMs: 3000,
   freezeMs: 5000,
   /** Sides swap after this many rounds. */
   half: 4,
@@ -48,8 +62,10 @@ export interface Fighter {
   deaths: number;
   /** Spawn slot on the team's side, 0-based. */
   slot: number;
-  /** Warmup only: when a dead fighter comes back. */
+  /** When a dead fighter comes back (warmup and deathmatch; 0: not scheduled). */
   back: number;
+  /** Goes up each time the host brings this fighter back. */
+  life: number;
 }
 
 export interface Point {
@@ -66,6 +82,7 @@ export interface Charge extends Point {
 }
 
 export interface MatchState {
+  kind: MatchKind;
   phase: Phase;
   round: number;
   /** When the current phase ends (0: never). */
@@ -75,6 +92,8 @@ export interface MatchState {
   roster: Map<string, Fighter>;
   charge: Charge;
   last: { winner: Team; why: RoundEnd } | null;
+  /** Deathmatch: who took the last one ("" before any). */
+  champ: string;
 }
 
 export type MatchEvent =
@@ -83,7 +102,8 @@ export type MatchEvent =
   | { kind: "round-end"; winner: Team; why: RoundEnd }
   | { kind: "planted"; site: number; by: string }
   | { kind: "half" }
-  | { kind: "match-end"; winner: Team };
+  | { kind: "match-end"; winner: Team }
+  | { kind: "dm-end"; champ: string };
 
 /** Where every client's body is, as its own reports say. */
 export type Bodies = Record<string, Point | undefined>;
@@ -92,10 +112,12 @@ export const defender = (state: MatchState): Team => (state.attack === 0 ? 1 : 0
 
 const noCharge = (): Charge => ({ carrier: "", site: -1, state: "none", x: 0, y: 0, z: 0 });
 
-export const newMatch = (): MatchState => ({
+export const newMatch = (kind: MatchKind = "rounds"): MatchState => ({
   attack: 0,
+  champ: "",
   charge: noCharge(),
   ends: 0,
+  kind,
   last: null,
   phase: "warmup",
   roster: new Map(),
@@ -130,18 +152,27 @@ export const syncRoster = (state: MatchState, ids: readonly string[], bodies: Bo
     const gold = teamOf(state, 0).length;
     const steel = teamOf(state, 1).length;
     const team: Team = steel < gold ? 1 : 0;
-    // Mid-round joiners watch until the next round; warmup puts them straight in.
-    const live = state.phase === "warmup";
+    // Mid-round joiners watch until the next round; warmup and deathmatch put them straight in.
+    const live = state.phase === "warmup" || state.kind === "dm";
     state.roster.set(id, {
       alive: live,
       back: 0,
       deaths: 0,
       hp: live ? RULES.maxHp : 0,
       kills: 0,
+      life: live ? 1 : 0,
       slot: Math.min(gold, steel),
       team,
     });
   }
+};
+
+/** Bring a fighter back: full health, and a new life the client will place. */
+const revive = (fighter: Fighter): void => {
+  fighter.alive = true;
+  fighter.hp = RULES.maxHp;
+  fighter.back = 0;
+  fighter.life += 1;
 };
 
 const dropCharge = (state: MatchState, at: Point | undefined): void => {
@@ -164,9 +195,7 @@ const startRound = (state: MatchState, now: number, rng: () => number): MatchEve
   state.last = null;
   const slots: [number, number] = [0, 0];
   for (const fighter of state.roster.values()) {
-    fighter.alive = true;
-    fighter.hp = RULES.maxHp;
-    fighter.back = 0;
+    revive(fighter);
     fighter.slot = slots[fighter.team];
     slots[fighter.team] += 1;
   }
@@ -234,10 +263,10 @@ const checkRoundOver = (state: MatchState, now: number): MatchEvent[] => {
 const bothSidesManned = (state: MatchState): boolean =>
   teamOf(state, 0).length > 0 && teamOf(state, 1).length > 0;
 
-const warmupRespawns = (state: MatchState, now: number): void => {
+const respawns = (state: MatchState, now: number): void => {
   for (const fighter of state.roster.values()) {
     if (!fighter.alive && fighter.back > 0 && now >= fighter.back) {
-      Object.assign(fighter, { alive: true, back: 0, hp: RULES.maxHp });
+      revive(fighter);
     }
   }
 };
@@ -263,16 +292,19 @@ export const tick = (
   bodies: Bodies,
   rng: () => number,
 ): MatchEvent[] => {
+  if (state.kind === "dm") {
+    return tickDm(state, now);
+  }
   if (state.phase !== "warmup" && state.phase !== "over" && !bothSidesManned(state)) {
     // A side emptied out: back to warmup, everyone up.
     resetMatch(state);
     for (const fighter of state.roster.values()) {
-      Object.assign(fighter, { alive: true, hp: RULES.maxHp });
+      revive(fighter);
     }
     return [];
   }
   if (state.phase === "warmup") {
-    warmupRespawns(state, now);
+    respawns(state, now);
     return bothSidesManned(state) ? startRound(state, now, rng) : [];
   }
   if (state.phase === "freeze") {
@@ -296,6 +328,67 @@ export const tick = (
   return checkRoundOver(state, now);
 };
 
+/** Deathmatch: start a fresh one (kills cleared, everyone up). */
+const startDm = (state: MatchState, now: number): void => {
+  state.phase = "live";
+  state.round += 1;
+  state.ends = now + RULES.dmMs;
+  for (const fighter of state.roster.values()) {
+    fighter.kills = 0;
+    fighter.deaths = 0;
+    revive(fighter);
+  }
+};
+
+const leaderOf = (state: MatchState): [string, Fighter] | null => {
+  let best: [string, Fighter] | null = null;
+  for (const entry of state.roster) {
+    if (!best || entry[1].kills > best[1].kills) {
+      best = entry;
+    }
+  }
+  return best;
+};
+
+/** Deathmatch clock: respawns, the kill limit and the time limit. */
+const tickDm = (state: MatchState, now: number): MatchEvent[] => {
+  const crowd = state.roster.size >= 2;
+  if (state.phase === "over") {
+    if (now >= state.ends) {
+      if (crowd) {
+        startDm(state, now);
+      } else {
+        state.phase = "warmup";
+      }
+    }
+    return [];
+  }
+  respawns(state, now);
+  if (state.phase === "warmup") {
+    if (crowd) {
+      startDm(state, now);
+    }
+    return [];
+  }
+  if (!crowd) {
+    state.phase = "warmup";
+    state.ends = 0;
+    return [];
+  }
+  const leader = leaderOf(state);
+  if (!leader) {
+    return [];
+  }
+  const [champ, best] = leader;
+  if (best.kills >= RULES.dmKills || now >= state.ends) {
+    state.phase = "over";
+    state.ends = now + RULES.overMs;
+    state.champ = champ;
+    return [{ champ, kind: "dm-end" }];
+  }
+  return [];
+};
+
 const fighting = (state: MatchState): boolean =>
   state.phase === "warmup" || state.phase === "live" || state.phase === "planted";
 
@@ -314,8 +407,8 @@ const kill = (
   f.alive = false;
   f.hp = 0;
   f.deaths += 1;
-  if (state.phase === "warmup") {
-    f.back = now + RULES.warmupRespawnMs;
+  if (state.phase === "warmup" || state.kind === "dm") {
+    f.back = now + (state.kind === "dm" ? RULES.dmRespawnMs : RULES.warmupRespawnMs);
   }
   const by = state.roster.get(killer);
   if (by && killer !== victim) {
@@ -327,7 +420,7 @@ const kill = (
   return [{ head, killer, kind: "kill", victim }];
 };
 
-/** A shooter's client says it hit `victim`. Friendly fire is off. Returns the victim's hp left, or null if refused. */
+/** A shooter's client says it hit `victim`. Friendly fire is off in rounds. Returns the victim's hp left, or null if refused. */
 export const applyHit = (
   state: MatchState,
   shooter: string,
@@ -339,7 +432,8 @@ export const applyHit = (
 ): { hp: number; events: MatchEvent[] } | null => {
   const from = state.roster.get(shooter);
   const to = state.roster.get(victim);
-  if (!from || !to || !from.alive || !to.alive || from.team === to.team || !fighting(state)) {
+  const friendly = state.kind === "rounds" && from?.team === to?.team;
+  if (!from || !to || !from.alive || !to.alive || friendly || !fighting(state)) {
     return null;
   }
   const dealt = Math.max(0, Math.min(RULES.maxHit, damage));
@@ -350,18 +444,19 @@ export const applyHit = (
 
 /**
  * A client reports its own health (barrels, falls, the blast): the host trusts
- * it only downward and only for the round it belongs to.
+ * it only downward, and only for the life the client is playing — a report
+ * sent before a revive reached it says nothing about the new life.
  */
 export const applySelfReport = (
   state: MatchState,
   id: string,
   hp: number,
-  round: number,
+  life: number,
   now: number,
   bodies: Bodies,
 ): MatchEvent[] => {
   const f = state.roster.get(id);
-  if (!f || !f.alive || round !== state.round || !fighting(state) || hp >= f.hp) {
+  if (!f || !f.alive || life !== f.life || !fighting(state) || hp >= f.hp) {
     return [];
   }
   f.hp = Math.max(0, hp);

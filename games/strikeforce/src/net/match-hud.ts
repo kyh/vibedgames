@@ -2,7 +2,8 @@
 // "mx": a score bar (Gold score · round clock · Steel score, with a pip per
 // player alive), and a scoreboard while Tab is held. Redraws only on change.
 import { TEAM_NAME } from "./protocol";
-import type { MatchState, Team } from "./rules";
+import { RULES } from "./rules";
+import type { Fighter, MatchState, Team } from "./rules";
 
 export interface HudView {
   match: MatchState | null;
@@ -17,6 +18,16 @@ export interface HudView {
 const clock = (ms: number): string => {
   const s = Math.max(0, Math.ceil(ms / 1000));
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+};
+
+const dmLine = (m: MatchState, callsign: (id: string) => string): string => {
+  if (m.phase === "warmup") {
+    return "Warmup · waiting for another player";
+  }
+  if (m.phase === "over") {
+    return `${callsign(m.champ)} takes it`;
+  }
+  return `Deathmatch · first to ${RULES.dmKills}`;
 };
 
 const phaseLine = (m: MatchState): string => {
@@ -52,6 +63,46 @@ const el = (tag: string, cls: string, text = ""): HTMLElement => {
   node.className = cls;
   node.textContent = text;
   return node;
+};
+
+/** Deathmatch bar: your kills · the clock · the leader's kills. */
+const dmBar = (m: MatchState, view: HudView, left: string): HTMLElement => {
+  const fighters = [...m.roster];
+  const mine = m.roster.get(view.me)?.kills ?? 0;
+  const [leadId, lead] = fighters.toSorted(([, a], [, b]) => b.kills - a.kills)[0] ?? ["", null];
+  const box = el("div", "mx-dm");
+  const row = el("div", "mx-row");
+  const you = el("div", "mx-team t0");
+  you.append(el("b", "", "You"), el("span", "", "kills"));
+  const them = el("div", "mx-team t1");
+  them.append(el("b", "", lead ? view.callsign(leadId) : "—"), el("span", "", "leader"));
+  const mid = el("div", "mx-mid");
+  mid.append(
+    el("strong", "", `${mine}`),
+    el("em", "", left || "—"),
+    el("strong", "", `${lead?.kills ?? 0}`),
+  );
+  row.append(you, mid, them);
+  box.append(row, el("div", "mx-line", dmLine(m, view.callsign)));
+  return box;
+};
+
+/** One scoreboard column: players by kills, then fewest deaths. */
+const boardColumn = (title: string, fighters: [string, Fighter][], view: HudView): HTMLElement => {
+  const col = el("section", "mx-col");
+  col.append(el("h3", "", title));
+  for (const [id, f] of fighters.toSorted(
+    ([, a], [, b]) => b.kills - a.kills || a.deaths - b.deaths,
+  )) {
+    const row = el("div", `mx-player${f.alive ? "" : " dead"}${id === view.me ? " me" : ""}`);
+    row.append(
+      el("b", "", view.callsign(id)),
+      el("span", "", `${f.kills}`),
+      el("span", "", `${f.deaths}`),
+    );
+    col.append(row);
+  }
+  return col;
 };
 
 export class MatchHud {
@@ -103,8 +154,9 @@ export class MatchHud {
         : "";
     const left = m && m.ends > 0 && m.phase !== "warmup" ? clock(m.ends - view.now) : "";
     const status = statusLine(view.status);
+    const kills = m ? [...m.roster.values()].map((f) => f.kills).join(",") : "";
     const key = m
-      ? `${m.score.join(":")}|${left}|${phaseLine(m)}|${pips(0)}|${pips(1)}|${m.attack}|${view.title ? 1 : 0}`
+      ? `${m.kind}|${m.score.join(":")}|${left}|${phaseLine(m)}|${pips(0)}|${pips(1)}|${m.attack}|${kills}|${m.champ}|${view.title ? 1 : 0}`
       : `${status}|${view.title ? 1 : 0}`;
     if (key === this.drawnBar) {
       return;
@@ -114,6 +166,10 @@ export class MatchHud {
     bar.replaceChildren();
     if (!m) {
       bar.append(el("div", "mx-line", status));
+      return;
+    }
+    if (m.kind === "dm") {
+      bar.append(dmBar(m, view, left));
       return;
     }
     const side = (team: Team): HTMLElement => {
@@ -161,6 +217,12 @@ export class MatchHud {
     if (!m || !open) {
       return;
     }
+    if (m.kind === "dm") {
+      board.classList.add("solo");
+      board.append(boardColumn("Deathmatch", [...m.roster], view));
+      return;
+    }
+    board.classList.remove("solo");
     for (const team of [0, 1] as const) {
       const col = el("section", `mx-col t${team}`);
       col.append(el("h3", "", `${TEAM_NAME[team]} · ${m.score[team]}`));

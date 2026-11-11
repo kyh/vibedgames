@@ -48,8 +48,8 @@ export interface Opponent {
   readonly interp: Interpolator<Pose>;
   /** Latest reported (not interpolated) body, for the host's rules. */
   reported: Point | null;
-  /** The round the body says it is playing. */
-  round: number;
+  /** The life (rules.ts) the body says it is playing. */
+  life: number;
   hp: number;
   alive: boolean;
   /** Past the title screen: in the match. */
@@ -71,7 +71,7 @@ const readReport = (p: Opponent, player: Player): void => {
   p.alive = s.a === 1;
   p.deployed = s.d === 1;
   p.hp = isNum(s.hp) ? s.hp : p.hp;
-  p.round = isNum(s.r) ? s.r : p.round;
+  p.life = isNum(s.l) ? s.l : p.life;
   if (isNum(t) && isNum(x) && isNum(y) && isNum(z) && isNum(yaw) && isNum(pitch)) {
     p.interp.push(t, { crouch: s.c === 1 ? 1 : 0, pitch, x, y, yaw, z });
     p.reported = { x, y, z };
@@ -204,9 +204,9 @@ export class Players {
       hp: 100,
       id,
       interp: new Interpolator<Pose>({ lerp: lerpPose }),
+      life: -1,
       pose: null,
       reported: null,
-      round: 0,
       team: null,
     };
     this.all.set(id, p);

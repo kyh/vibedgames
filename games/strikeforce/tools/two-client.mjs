@@ -1,5 +1,7 @@
-// Two-client match smoke: two players deploy into one fresh party room and
-// play rounds against each other. Checks that roles settle and the two land on
+// Two-client match smoke. First a deathmatch: two players in one room, a real
+// headshot kills, the killer is credited and the dead player comes back on a
+// new life at an arena spawn. Then 8v8 rounds: two players deploy into one
+// fresh party room and play rounds against each other. Checks that roles settle and the two land on
 // opposite teams, the match leaves warmup, each sees the other's avatar, a
 // real shot through the other's head hitbox kills (and ends the round, scores
 // it and respawns both at their spawns), the carrier plants at a site and the
@@ -142,7 +144,8 @@ const main = async () => {
   }
   const dev = await startVite();
   const room = `t${process.pid}${Date.now().toString(36)}`;
-  const url = `${dev.base}/?room=${room}&q=low&autostart=1&noaudio=1&norender=1`;
+  const base = `${dev.base}/?q=low&autostart=1&noaudio=1&norender=1`;
+  let url = `${base}&room=dm${room}&mode=deathmatch`;
   const browsers = [];
   const results = [];
   const errors = [];
@@ -167,6 +170,39 @@ const main = async () => {
     return page;
   };
   try {
+    // ---- deathmatch ------------------------------------------------------
+    const a = await open("dm-a");
+    const b = await open("dm-b");
+    await phase(a, "live", "deathmatch live");
+    await phase(b, "live", "deathmatch live (b)");
+    await waitFor(b, () => window.__strikeforce.match.enemies().length > 0, "b sees a");
+    const lifeBefore = await a.evaluate(
+      () => window.__strikeforce.match.state.roster.get(window.__strikeforce.match.me).life,
+    );
+    const posBefore = await a.evaluate(() => window.__G.player.pos.toArray());
+    step("deathmatch: b's shot meets a's head hitbox", await headshot(b));
+    await waitFor(a, () => !window.__G.player.alive, "a down");
+    await waitFor(
+      b,
+      () => window.__strikeforce.match.state.roster.get(window.__strikeforce.match.me).kills === 1,
+      "b credited",
+    );
+    step("deathmatch: the kill is credited", true);
+    await waitFor(a, () => window.__G.player.alive, "a back", { timeoutMs: 30_000 });
+    const back = await a.evaluate(() => ({
+      life: window.__strikeforce.match.state.roster.get(window.__strikeforce.match.me).life,
+      pos: window.__G.player.pos.toArray(),
+    }));
+    const moved = Math.hypot(back.pos[0] - posBefore[0], back.pos[2] - posBefore[2]);
+    step(
+      "deathmatch: the dead come back on a new life at an arena spawn",
+      back.life === lifeBefore + 1,
+      `life ${lifeBefore}→${back.life}, moved ${moved.toFixed(1)} m`,
+    );
+    await Promise.all([a, b].map((pg) => pg.context().browser().close()));
+
+    // ---- 8v8 rounds --------------------------------------------------------
+    url = `${base}&room=${room}&mode=match`;
     const host = await open("host");
     await waitFor(host, () => window.__strikeforce.match.state?.phase === "warmup", "host warmup");
     step("host alone sits in warmup", true);

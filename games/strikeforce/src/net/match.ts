@@ -1,12 +1,14 @@
 // The match: the `G.net` hooks strikeforce-core.js calls, and everything
 // behind them.
 //
-// The room's host runs the rules (rules.ts) on its own clock and publishes the
-// match at MATCH_HZ: phase, round clock, score, who is alive, where the charge
-// is, which barrels stand. Every client — the host included — plays its own
-// body, publishes it at BODY_HZ, and follows the published match: it respawns
-// itself when a round starts, freezes in freeze time, spectates a teammate
-// when dead. Hits favour the shooter: a client tests its shots against the
+// A tab joins a room only when it deploys into an online mode (deathmatch or
+// 8v8 rounds; one lobby each), so solo PvE never shares anything. The room's
+// host runs the rules (rules.ts) on its own clock and publishes the match at
+// MATCH_HZ: phase, clock, score, who is alive, where the charge is, which
+// barrels stand. Every client — the host included — plays its own body,
+// publishes it at BODY_HZ, and follows the published match: it places itself
+// whenever the host brings its fighter back (a new `life`), freezes in freeze
+// time, and in rounds spectates a teammate when dead. Hits favour the shooter: a client tests its shots against the
 // avatars on its own screen and tells the host, which applies the damage and
 // sends the victim a `hurt`. Area damage (barrels, the charge) each client
 // applies to itself and reports through its body's health.
@@ -17,7 +19,7 @@ import { Vector3 } from "three";
 import type { GameState, NetHooks, StrikeforceGame, ShotHit, WeaponFire } from "../core/types";
 import { ChargeProp } from "./charge";
 import { buildMap, dressRelays } from "./map";
-import type { End, MatchMap } from "./map";
+import type { End, MatchMap, Spawn } from "./map";
 import { MatchHud } from "./match-hud";
 import { Players, callsignOf } from "./players";
 import type { Opponent } from "./players";
@@ -31,6 +33,7 @@ import {
   encodeMatch,
   q3,
 } from "./protocol";
+import type { OnlineMode } from "./protocol";
 import {
   RULES,
   applyDefuse,
@@ -41,7 +44,7 @@ import {
   syncRoster,
   tick,
 } from "./rules";
-import type { Bodies, Fighter, MatchEvent, MatchState, Point, Team } from "./rules";
+import type { Bodies, Fighter, MatchEvent, MatchKind, MatchState, Point, Team } from "./rules";
 import { isRecord, isStr, nums, vecAt, vecWire } from "./wire";
 
 /** A rifle headshot kills outright; anything else is the weapon's damage. */
@@ -52,9 +55,18 @@ const escapeHtml = (text: string): string =>
 
 const inPlay = (state: GameState): boolean => state === "playing" || state === "paused";
 
-/** Deployed into the 8v8 match (not the title, not a solo PvE mode). */
+/** The online mode the title is set to (or deployed in), or null for solo PvE. */
+const onlineMode = (game: StrikeforceGame | null): OnlineMode | null => {
+  const mode = game?.game.run.mode;
+  return mode === "match" || mode === "deathmatch" ? mode : null;
+};
+
+/** Deployed into an online mode (not the title, not a solo PvE mode). */
 const inMatch = (game: StrikeforceGame): boolean =>
-  inPlay(game.game.state) && game.game.run.mode === "match";
+  inPlay(game.game.state) && onlineMode(game) !== null;
+
+/** Opens the room for a mode (session.ts), once, when the player deploys. */
+export type Connector = (mode: OnlineMode) => Promise<MultiplayerClient>;
 
 /** Which end of the dock a team spawns at this round: attackers take the gate. */
 const endOf = (m: MatchState, team: Team): End => (team === m.attack ? "gate" : "quay");
@@ -77,10 +89,12 @@ const remoteShot = (payload: JsonValue, game: StrikeforceGame): void => {
 };
 
 export class Match implements NetHooks {
-  /** The core's mission flow stands down while the deployed mode is the match. */
+  /** The core's mission flow stands down while the deployed mode is online. */
   get match(): boolean {
-    return this.game?.game.run.mode === "match";
+    return onlineMode(this.game) !== null;
   }
+  private readonly connector: Connector;
+  private joining = false;
   private client: MultiplayerClient | null = null;
   private game: StrikeforceGame | null = null;
   private players: Players | null = null;
@@ -94,8 +108,8 @@ export class Match implements NetHooks {
   private lastRaw: JsonValue | undefined = undefined;
   private seenState: GameState | null = null;
   private stateListener: ((state: GameState, game: StrikeforceGame) => void) | null = null;
-  /** The round this body was last placed into. */
-  private placedRound = -1;
+  /** The life (rules.ts) this body was last placed as. */
+  private placedLife = -1;
   private holdMs = 0;
   private asked = false;
   private detonatedRound = -1;
@@ -135,7 +149,7 @@ export class Match implements NetHooks {
     const out: Point[] = [];
     for (const p of this.players?.all.values() ?? []) {
       const f = view?.roster.get(p.id);
-      if (p.pose && f?.alive && f.team !== mine?.team) {
+      if (p.pose && f?.alive && (view?.kind === "dm" || f.team !== mine?.team)) {
         out.push(p.pose);
       }
     }
@@ -147,10 +161,23 @@ export class Match implements NetHooks {
     return (this.players?.all.size ?? 0) + 1;
   }
 
-  /** The room arrived (or went offline): start speaking. */
-  connect(client: MultiplayerClient): void {
-    this.client = client;
+  constructor(connector: Connector) {
+    this.connector = connector;
+  }
+
+  /** Deployed into an online mode: open its room (once per page). */
+  private async join(mode: OnlineMode): Promise<void> {
+    if (this.client || this.joining) {
+      return;
+    }
+    this.joining = true;
+    const client = await this.connector(mode);
     client.onEvent = (event, payload, from) => this.onEvent(event, payload, from);
+    this.client = client;
+  }
+
+  private kind(): MatchKind {
+    return onlineMode(this.game) === "deathmatch" ? "dm" : "rounds";
   }
 
   /**
@@ -184,9 +211,15 @@ export class Match implements NetHooks {
     if (!client) {
       return;
     }
-    const { me } = this;
-    const myTeam = this.view?.roster.get(me)?.team ?? null;
-    players.update(client.players, me, myTeam, (id) => this.view?.roster.get(id) ?? null, dt);
+    const { me, view } = this;
+    // Deathmatch has no sides: everyone wears one colour and nobody is a teammate.
+    const dm = view?.kind === "dm";
+    const myTeam = dm ? null : (view?.roster.get(me)?.team ?? null);
+    const seat = (id: string): { team: Team; alive: boolean } | null => {
+      const f = view?.roster.get(id);
+      return f ? { alive: f.alive, team: dm ? 0 : f.team } : null;
+    };
+    players.update(client.players, me, myTeam, seat, dt);
     if (!inMatch(game)) {
       // Solo PvE (or the title): the room's players stay out of this dock.
       players.hide();
@@ -217,9 +250,10 @@ export class Match implements NetHooks {
     if (!this.players || !this.client || !mine?.alive || !this.game || !inMatch(this.game)) {
       return null;
     }
+    const dm = view?.kind === "dm";
     const hit = this.players.hitTest(origin, dir, maxDist, (id) => {
       const f = roster?.get(id);
-      return Boolean(f?.alive && f.team !== mine.team);
+      return Boolean(f?.alive && (dm || f.team !== mine.team));
     });
     if (!hit) {
       return null;
@@ -267,17 +301,17 @@ export class Match implements NetHooks {
 
   private runHost(client: MultiplayerClient, game: StrikeforceGame, dt: number): void {
     // A guest promoted to host picks the match up where the last host left it.
-    this.rules ??= this.view ?? newMatch();
+    this.rules ??= this.view ?? newMatch(this.kind());
     const { rules } = this;
     const now = client.serverNow();
     const bodies = this.bodies(game);
     syncRoster(rules, this.deployedIds(game), bodies);
     const events: MatchEvent[] = [];
     for (const p of this.players?.all.values() ?? []) {
-      events.push(...applySelfReport(rules, p.id, p.hp, p.round, now, bodies));
+      events.push(...applySelfReport(rules, p.id, p.hp, p.life, now, bodies));
     }
     events.push(
-      ...applySelfReport(rules, this.me, game.player.health, this.placedRound, now, bodies),
+      ...applySelfReport(rules, this.me, game.player.health, this.placedLife, now, bodies),
       ...tick(rules, now, bodies, Math.random),
     );
     this.view = rules;
@@ -297,8 +331,8 @@ export class Match implements NetHooks {
         const wire = [e.killer, e.victim, e.head ? 1 : 0];
         client.sendEvent(EV.kill, wire, { except: client.playerId ?? undefined });
         this.onKill(wire);
-      } else if (e.kind === "round-start" && inMatch(game)) {
-        // Every round starts on a full dock (not the host's own PvE one).
+      } else if (e.kind === "round-start" || e.kind === "dm-end") {
+        // Every round, and every deathmatch, starts on a full dock.
         game.explosives.reset();
       }
     }
@@ -379,10 +413,12 @@ export class Match implements NetHooks {
     }
     const was = this.seenState;
     this.seenState = state;
-    if (was === "title" && state === "playing" && this.match) {
-      // Deployed into the match: the next match read places us.
-      this.placedRound = -1;
-      dressRelays(game);
+    const mode = onlineMode(game);
+    if (was === "title" && inPlay(state) && mode) {
+      // Deployed online: join the mode's room; the first match read places us.
+      this.placedLife = -1;
+      dressRelays(game, mode === "match");
+      void this.join(mode);
     }
     this.stateListener?.(state, game);
   }
@@ -406,40 +442,74 @@ export class Match implements NetHooks {
     }
     this.syncBody(game, m, me);
     this.announce(game, m);
-    this.objective(game, m, me.team, dt);
+    if (m.kind === "dm") {
+      this.objectiveDm(game, m);
+    } else {
+      this.objective(game, m, me.team, dt);
+    }
     const left = (m.ends - (this.client?.serverNow() ?? 0)) / 1000;
     this.charge?.update(m.charge, left, game);
     this.detonate(game, m);
-    if (!player.alive) {
+    if (!player.alive && m.kind === "rounds") {
       this.spectate(game, m, me.team);
     }
   }
 
-  /** Respawn at a round start (or a warmup comeback), go down when the host says so, hold still in freeze time. */
+  /**
+   * Place the body whenever the host brings our fighter back (a new life: a
+   * round start, a respawn), go down when the host says so, hold still in
+   * freeze time.
+   */
   private syncBody(game: StrikeforceGame, m: MatchState, me: Fighter): void {
     const { player } = game;
-    const fresh = m.round !== this.placedRound || (m.phase === "warmup" && !player.alive);
-    if (fresh && me.alive) {
-      this.place(game, m, me.team, me.slot);
+    if (me.alive && me.life !== this.placedLife) {
+      this.place(game, m, me);
     }
-    if (!me.alive && player.alive && m.phase !== "warmup") {
+    if (!me.alive && player.alive && me.life === this.placedLife) {
       // The host says we are down (a hit we missed, or we joined mid-round).
       player.damage(9999);
     }
     player.enabled = m.phase !== "freeze";
   }
 
-  private place(game: StrikeforceGame, m: MatchState, team: Team, slot: number): void {
-    const spawns = this.map?.spawns[endOf(m, team)] ?? [];
-    const spawn = spawns[slot % Math.max(1, spawns.length)];
+  private place(game: StrikeforceGame, m: MatchState, me: Fighter): void {
+    const spawn = m.kind === "dm" ? this.safestSpawn() : this.teamSpawn(m, me);
     if (spawn) {
       game.player.reset({ pos: spawn.pos.clone(), yaw: spawn.yaw });
       game.weapon.reset();
     }
-    this.placedRound = m.round;
+    this.placedLife = me.life;
     this.spectating = null;
     this.holdMs = 0;
     this.asked = false;
+  }
+
+  private teamSpawn(m: MatchState, me: Fighter): Spawn | undefined {
+    const spawns = this.map?.spawns[endOf(m, me.team)] ?? [];
+    return spawns[me.slot % Math.max(1, spawns.length)];
+  }
+
+  /** Deathmatch: of a few random arena points, the one farthest from any enemy. */
+  private safestSpawn(): Spawn | undefined {
+    const arena = this.map?.arena ?? [];
+    const foes = this.enemies();
+    let best: Spawn | undefined;
+    let bestD = -1;
+    for (let i = 0; i < 6 && arena.length > 0; i += 1) {
+      const spot = arena[Math.floor(Math.random() * arena.length)];
+      if (!spot) {
+        continue;
+      }
+      let nearest = Infinity;
+      for (const f of foes) {
+        nearest = Math.min(nearest, Math.hypot(f.x - spot.pos.x, f.z - spot.pos.z));
+      }
+      if (nearest > bestD) {
+        bestD = nearest;
+        best = spot;
+      }
+    }
+    return best;
   }
 
   private prev: { phase: string; round: number; attack: Team } | null = null;
@@ -448,6 +518,10 @@ export class Match implements NetHooks {
     const { prev } = this;
     this.prev = { attack: m.attack, phase: m.phase, round: m.round };
     if (!prev || (prev.phase === m.phase && prev.round === m.round)) {
+      return;
+    }
+    if (m.kind === "dm") {
+      this.announceDm(game, m);
       return;
     }
     const me = m.roster.get(this.me);
@@ -464,6 +538,30 @@ export class Match implements NetHooks {
     } else if (m.phase === "warmup" && prev.phase !== "warmup") {
       game.hud.message("Warmup · waiting for both sides", 4);
     }
+  }
+
+  private announceDm(game: StrikeforceGame, m: MatchState): void {
+    if (m.phase === "live") {
+      game.hud.warn(`Deathmatch · first to ${RULES.dmKills}`, 3);
+    } else if (m.phase === "over") {
+      const who = m.champ === this.me ? "You win" : `${callsignOf(m.champ)} wins`;
+      game.hud.warn(`${who} the deathmatch`, 5);
+    } else if (m.phase === "warmup") {
+      game.hud.message("Warmup · waiting for another player", 4);
+    }
+  }
+
+  /** Deathmatch objective: kills and standing; no sites, no prompt. */
+  private objectiveDm(game: StrikeforceGame, m: MatchState): void {
+    const mine = m.roster.get(this.me);
+    const kills = mine?.kills ?? 0;
+    const ahead = [...m.roster.values()].filter((f) => f.kills > kills).length;
+    game.hud.setTally(`${kills} kills · ${ahead === 0 ? "leading" : `#${ahead + 1}`}`);
+    game.hud.setObjective(
+      m.phase === "warmup" ? "Waiting for a rival" : `First to ${RULES.dmKills} kills`,
+    );
+    game.hud.setMarkers([]);
+    game.hud.setPrompt(null);
   }
 
   /** Objective line, site markers, and the hold-to-plant / hold-to-defuse prompt. */
@@ -592,8 +690,8 @@ export class Match implements NetHooks {
       c: p.crouching ? 1 : 0,
       d: inMatch(game) ? 1 : 0,
       hp: Math.round(p.health),
+      l: this.placedLife,
       pitch: q3(p.pitch),
-      r: this.placedRound,
       t: Math.round(client.serverNow()),
       x: q3(p.pos.x),
       y: q3(p.pos.y),

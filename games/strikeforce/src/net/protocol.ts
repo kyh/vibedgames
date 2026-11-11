@@ -4,12 +4,13 @@
 // wire change bumps ROOM_PREFIX so old tabs never share a room with new ones.
 import type { JsonRecord, JsonValue } from "@vibedgames/multiplayer";
 
-import type { ChargeState, Fighter, MatchState, Phase, RoundEnd, Team } from "./rules";
+import type { Charge, ChargeState, Fighter, MatchState, Phase, RoundEnd, Team } from "./rules";
 import { isRecord, isStr, numOr, nums } from "./wire";
 
 export const PARTY = "vg-server";
-export const LOBBY = "strikeforce";
-export const ROOM_PREFIX = "strikeforce-v1-";
+/** One lobby per online mode, so quick match never mixes them. */
+export const lobbyFor = (mode: OnlineMode): string => `strikeforce-${mode}`;
+export const ROOM_PREFIX = "strikeforce-v2-";
 /** Eight a side. Overflow rooms take the seventeenth. */
 export const MAX_PLAYERS = 16;
 /** No room in this long (rendered frames): play alone in warmup. */
@@ -53,8 +54,8 @@ export interface BodyWire {
   /** alive: 1 */
   a: number;
   hp: number;
-  /** the round this body is playing */
-  r: number;
+  /** the life (see rules.ts) this body is playing */
+  l: number;
   /** deployed (past the title screen): 1 */
   d: number;
 }
@@ -62,9 +63,13 @@ export interface BodyWire {
 export const TEAM_NAME = ["Gold", "Steel"] as const;
 export const TEAM_COLOR = ["#ffb347", "#8fb8d8"] as const;
 
-/** Build the room id from a squad code (`?room=`). */
-export const roomId = (code: string): string =>
+/** The two online modes, by the title's mode setting. */
+export type OnlineMode = "deathmatch" | "match";
+
+/** Build the room id from a squad code (`?room=`) and the mode. */
+export const roomId = (code: string, mode: OnlineMode = "match"): string =>
   ROOM_PREFIX +
+  (mode === "deathmatch" ? "dm-" : "") +
   code
     .toLowerCase()
     .replaceAll(/[^a-z0-9]/gu, "")
@@ -89,7 +94,8 @@ const asTeam = (v: number | undefined): Team => (v === 1 ? 1 : 0);
 export const encodeMatch = (s: MatchState, stamp: number): JsonRecord => {
   const ro: JsonRecord = {};
   for (const [id, f] of s.roster) {
-    // `back` (server ms) rides along so a promoted host keeps warmup respawns.
+    // `back` (server ms) rides along so a promoted host keeps respawns; `life`
+    // is what a client places its body by.
     ro[id] = [
       f.team,
       f.alive ? 1 : 0,
@@ -98,6 +104,7 @@ export const encodeMatch = (s: MatchState, stamp: number): JsonRecord => {
       f.deaths,
       f.slot,
       Math.round(f.back),
+      f.life,
     ];
   }
   const c = s.charge;
@@ -105,7 +112,9 @@ export const encodeMatch = (s: MatchState, stamp: number): JsonRecord => {
     at: s.attack,
     cc: c.carrier,
     ch: [CHARGES.indexOf(c.state), q3(c.x), q3(c.y), q3(c.z), c.site],
+    dm: s.kind === "dm" ? 1 : 0,
     e: Math.round(s.ends),
+    ld: s.champ,
     ph: PHASES.indexOf(s.phase),
     r: s.round,
     ro,
@@ -120,15 +129,28 @@ const decodeFighter = (raw: JsonValue | undefined): Fighter | null => {
   if (!v) {
     return null;
   }
-  const [team, alive, hp, kills, deaths, slot, back] = v;
+  const [team, alive, hp, kills, deaths, slot, back, life] = v;
   return {
     alive: alive === 1,
     back: back ?? 0,
     deaths: deaths ?? 0,
     hp: hp ?? 0,
     kills: kills ?? 0,
+    life: life ?? 0,
     slot: slot ?? 0,
     team: asTeam(team),
+  };
+};
+
+const decodeCharge = (raw: JsonValue | undefined, carrier: JsonValue | undefined): Charge => {
+  const ch = nums(raw, 5) ?? [0, 0, 0, 0, -1];
+  return {
+    carrier: isStr(carrier) ? carrier : "",
+    site: ch[4] ?? -1,
+    state: CHARGES[ch[0] ?? 0] ?? "none",
+    x: ch[1] ?? 0,
+    y: ch[2] ?? 0,
+    z: ch[3] ?? 0,
   };
 };
 
@@ -146,22 +168,16 @@ export const decodeMatch = (
       roster.set(id, fighter);
     }
   }
-  const ch = nums(raw.ch, 5) ?? [0, 0, 0, 0, -1];
   const score = nums(raw.s, 2) ?? [0, 0];
   const w = nums(raw.w, 2);
   return {
     stamp: numOr(raw.t, 0),
     state: {
       attack: asTeam(numOr(raw.at, 0)),
-      charge: {
-        carrier: isStr(raw.cc) ? raw.cc : "",
-        site: ch[4] ?? -1,
-        state: CHARGES[ch[0] ?? 0] ?? "none",
-        x: ch[1] ?? 0,
-        y: ch[2] ?? 0,
-        z: ch[3] ?? 0,
-      },
+      champ: isStr(raw.ld) ? raw.ld : "",
+      charge: decodeCharge(raw.ch, raw.cc),
       ends: numOr(raw.e, 0),
+      kind: raw.dm === 1 ? "dm" : "rounds",
       last: w ? { why: ENDS[w[1] ?? 0] ?? "eliminated", winner: asTeam(w[0]) } : null,
       phase: PHASES[numOr(raw.ph, 0)] ?? "warmup",
       roster,

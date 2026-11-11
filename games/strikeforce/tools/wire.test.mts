@@ -43,12 +43,24 @@ test("callsigns are stable two-digit SF tags", () => {
   assert.ok(tags.size >= 5, "six ids rarely share a callsign");
 });
 
-test("the match round-trips, warmup respawn times included", () => {
-  const m = newMatch();
-  m.roster.set("p1", { alive: false, back: 123_456, deaths: 2, hp: 0, kills: 3, slot: 1, team: 1 });
+test("the match round-trips: kind, champion, respawn times and lives", () => {
+  const m = newMatch("dm");
+  m.champ = "p1";
+  m.roster.set("p1", {
+    alive: false,
+    back: 123_456,
+    deaths: 2,
+    hp: 0,
+    kills: 3,
+    life: 4,
+    slot: 1,
+    team: 1,
+  });
   m.score = [2, 1];
   const back = decodeMatch(encodeMatch(m, 99));
   assert.equal(back?.stamp, 99);
   assert.deepEqual(back?.state.roster.get("p1"), m.roster.get("p1"));
   assert.deepEqual(back?.state.score, [2, 1]);
+  assert.equal(back?.state.kind, "dm");
+  assert.equal(back?.state.champ, "p1");
 });

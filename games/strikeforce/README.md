@@ -1,9 +1,12 @@
 # Strikeforce
 
-First-person shooter on a rain-soaked container dock at dusk, in three modes
+First-person shooter on a rain-soaked container dock at dusk, in four modes
 picked on the title screen:
 
-- **8v8 Match** (online, the default) — Gold against Steel, no respawns
+- **Deathmatch** (online, the default) — every player for themselves, up to
+  sixteen. A death lasts three seconds and comes back at the spawn farthest
+  from the enemy; first to 25 kills, or the most after ten minutes.
+- **8v8 Rounds** (online) — Gold against Steel, no respawns
   inside a round: the attackers carry a charge to site A or B and plant it,
   the defenders hold the sites or defuse it. First to five rounds.
 - **Mission** (solo PvE) — the dock's security machines hunt you while you
@@ -31,17 +34,17 @@ pnpm --filter @repo/strikeforce build       # vite build
 
 ## Routes
 
-| URL              | What                                                           |
-| ---------------- | -------------------------------------------------------------- |
-| `/`              | the game; quick-matches into the fullest open match            |
-| `/?room=dock7`   | a private match: everyone with the same code plays together    |
-| `/?offline=1`    | never dials the party server (warmup on your own)              |
-| `/?mode=mission` | start in a mode: `match` (default), `mission` or `holdout`     |
-| `/?autostart=1`  | skip the title and deploy at once                              |
-| `/?q=low`        | force a quality preset (`low` `medium` `high` `ultra`)         |
-| `/?test=1`       | publish the playtest hooks and manifest                        |
-| `/?bench=1`      | camera fly-through with a frame-time readout                   |
-| `/?norender=1`   | simulate without drawing (the two-client smoke on software GL) |
+| URL              | What                                                                     |
+| ---------------- | ------------------------------------------------------------------------ |
+| `/`              | the game; quick-matches into the fullest open match                      |
+| `/?room=dock7`   | a private match: everyone with the same code plays together              |
+| `/?offline=1`    | never dials the party server (warmup on your own)                        |
+| `/?mode=mission` | start in a mode: `deathmatch` (default), `match`, `mission` or `holdout` |
+| `/?autostart=1`  | skip the title and deploy at once                                        |
+| `/?q=low`        | force a quality preset (`low` `medium` `high` `ultra`)                   |
+| `/?test=1`       | publish the playtest hooks and manifest                                  |
+| `/?bench=1`      | camera fly-through with a frame-time readout                             |
+| `/?norender=1`   | simulate without drawing (the two-client smoke on software GL)           |
 
 ## Controls
 
@@ -63,15 +66,32 @@ pnpm --filter @repo/strikeforce build       # vite build
 
 `src/controls.ts` is the same list for the web app's controls panel.
 
+## The dock
+
+About 140 × 58 m. The original yard — container rows, the shed, the quay
+and the boat — and, west of the old gate, the **West Lot**: a haul road down
+the middle with freight cover across it, container rows with cut-throughs to
+the north and south, fenced at x = -110. The old gate line keeps two runs of
+fence with three passages (south end, the open gate, north end). The skyline
+stacks and the crane that stood there moved out; everything in the lot is
+real, collidable yard built with the level's own `stack`/`place` helpers
+(`westLot` in the core).
+
 ## The match
 
-`src/net/rules.ts` is the whole rulebook, pure and unit-tested:
+`src/net/rules.ts` is the whole rulebook, pure and unit-tested.
+
+**Deathmatch** (`kind: "dm"`): anyone may shoot anyone; a death comes back
+after 3 s; first to 25 kills, or the most kills when ten minutes run out, then
+ten seconds of results and a fresh one.
+
+**Rounds** (`kind: "rounds"`):
 
 - **Teams.** Gold and Steel, up to eight each; newcomers join the smaller side.
   With one side empty the match sits in **warmup** (free play, respawn after
   3 s).
 - **A round.** 5 s freeze (no moving) → 1:55 live → 5 s result. Attackers
-  spawn at the west gate, defenders at the east quay by the boat. One attacker
+  spawn on the West Lot's haul road, defenders at the east quay by the boat. One attacker
   carries the charge; it drops where the carrier falls and any attacker can
   pick it up.
 - **Plant and defuse.** Hold use for 3 s on site A (the yard) or B (the shed)
@@ -87,16 +107,23 @@ Friendly fire is off.
 
 ## Multiplayer
 
-Only the match is online; Mission and Holdout are the original single-player
-game, and the match layer stands down while you play them (a player in a PvE
-mode stays in the room but out of the roster, and can still referee as host).
+Deathmatch and Rounds are online; Mission and Holdout are the original
+single-player game. A tab joins a room only when it deploys into an online
+mode, from that mode's lobby (`strikeforce-deathmatch` / `strikeforce-match`),
+so solo PvE never touches a room.
+
+Every fighter has a `life` that goes up whenever the host brings it back (a
+round start, a respawn). A client places its body when the life it reads
+moves, and its own health reports count only for the life it is playing, so a
+report sent before a respawn arrived can never kill the new life.
 
 Host-authoritative on `@vibedgames/multiplayer`. The first player in the room
 is the host and runs the rules; it publishes the match (phase, clock, score,
 who is alive, the charge, which barrels stand) at 10 Hz. Every client plays its
 own body, publishes it at 20 Hz, and follows the published match: it respawns
-itself at its team's spawn when a round starts, freezes during freeze time,
-and watches a living teammate when it is down.
+itself whenever its fighter gets a new life (at its team's spawn in rounds,
+at the arena spawn farthest from enemies in deathmatch), freezes during freeze
+time, and in rounds watches a living teammate when it is down.
 
 - **Hits favour the shooter.** A client tests its shots against the other
   team's hitboxes (head and body) as they stand on its own screen, then tells

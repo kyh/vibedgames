@@ -1947,9 +1947,14 @@ kbd {
 }
 
 /* ---- modes: PvE-only controls hide in the match, match-only lines outside it ---- */
-.menu[data-mode="match"] [data-pve] {
+.menu:is([data-mode="match"], [data-mode="deathmatch"]) [data-pve] {
   display: none !important;
 }
-.menu:not([data-mode="match"]) [data-only-match] {
+.menu:not([data-mode="match"], [data-mode="deathmatch"]) [data-only-match] {
   display: none !important;
+}
+/* deathmatch: one scoreboard column */
+.mx-board.solo.on {
+  grid-template-columns: 1fr;
+  width: min(380px, calc(100vw - var(--gl) - var(--gr)));
 }
