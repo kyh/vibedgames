@@ -77,9 +77,6 @@ const remoteShot = (payload: JsonValue, game: StrikeforceGame): void => {
 };
 
 export class Match implements NetHooks {
-  /** The host publishes barrels only while it plays the match itself. */
-  private hostBarrels = false;
-
   /** The core's mission flow stands down while the deployed mode is the match. */
   get match(): boolean {
     return this.game?.game.run.mode === "match";
@@ -108,9 +105,14 @@ export class Match implements NetHooks {
   private readonly a = new Vector3();
   private readonly b = new Vector3();
 
-  /** Barrels are the host's only in a match the host is playing too; solo PvE keeps its own. */
+  /**
+   * In a match every barrel is the host's: a guest's shot is only a request.
+   * When the host is not in the match itself (title, solo PvE) it applies no
+   * requests and publishes no barrels, so they stand for everyone rather than
+   * blowing differently on each guest's dock. Solo PvE keeps its own barrels.
+   */
   get guest(): boolean {
-    return Boolean(this.client) && !this.isHost() && this.hostBarrels && this.match;
+    return Boolean(this.client) && !this.isHost() && this.match;
   }
 
   /** For the two-client harness and playtest diagnostics. */
@@ -295,8 +297,8 @@ export class Match implements NetHooks {
         const wire = [e.killer, e.victim, e.head ? 1 : 0];
         client.sendEvent(EV.kill, wire, { except: client.playerId ?? undefined });
         this.onKill(wire);
-      } else if (e.kind === "round-start") {
-        // Every round starts on a full dock.
+      } else if (e.kind === "round-start" && inMatch(game)) {
+        // Every round starts on a full dock (not the host's own PvE one).
         game.explosives.reset();
       }
     }
@@ -331,7 +333,8 @@ export class Match implements NetHooks {
       applyDefuse(rules, from, bodies, now);
     } else if (event === EV.barrel) {
       const v = nums(payload, 8);
-      if (v) {
+      // Only a host on the same dock as the match owns its barrels.
+      if (v && inMatch(game)) {
         game.explosives.netHit(v[0] ?? -1, v[1] ?? 0, v.slice(2, 5), v.slice(5, 8));
       }
     }
@@ -364,7 +367,6 @@ export class Match implements NetHooks {
     if (decoded) {
       this.view = decoded.state;
     }
-    this.hostBarrels = isRecord(raw) && isStr(raw.bar);
     if (isRecord(raw) && isStr(raw.bar) && this.game && this.match) {
       this.game.explosives.syncMask(raw.bar);
     }
