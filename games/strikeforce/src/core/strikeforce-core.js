@@ -96,7 +96,8 @@ const ut = THREE;
 var ar = (n, e) => {
   for (var t in e) Object.defineProperty(n, t, { get: e[t], enumerable: true });
 };
-var Kn = { min: new K(-40, 0, -30), max: new K(40, 30, 30), groundY: 0, seaY: -1.6, quayX: 30 },
+// [map] The dock runs west past the old gate into the West Lot (x down to -110).
+var Kn = { min: new K(-112, 0, -30), max: new K(40, 30, 30), groundY: 0, seaY: -1.6, quayX: 30 },
   Z0 = { dir: new K(0.916, 0.225, 0.331).normalize(), color: new Qe(1, 0.72, 0.42), intensity: 9 },
   T0 = {
     zenith: new Qe(0.055, 0.085, 0.13),
@@ -2050,7 +2051,7 @@ async function ov(n) {
   r.add(u.mesh);
   let f = new Il(Z0.color, Z0.intensity);
   ((f.name = "sun"), (f.castShadow = true));
-  let h = ZM(f, new K(-41, -0.2, -33), new K(37, 32, 31), new K(-41, -3, -64), new K(72, 36, 34)),
+  let h = ZM(f, new K(-113, -0.2, -33), new K(37, 32, 31), new K(-113, -3, -64), new K(72, 36, 34)), // [map]
     p = () => Math.min(n.quality.shadow || 2048, i.capabilities.maxTextureSize);
   (f.shadow.mapSize.set(p(), p()),
     (f.shadow.bias = -12e-5),
@@ -4990,7 +4991,7 @@ function _k(n) {
 }
 var hg = 0.42,
   $s = 0.5,
-  Ll = -40,
+  Ll = -112, // [map] nav grid west edge
   wk = 31,
   ru = -32,
   Ek = 30,
@@ -14154,6 +14155,137 @@ function fP(n) {
     n.decal("rust_run", 1, 9, 3.2, Zs.Z1 + 0.064, "z+"),
     n.decal("grime_streak", 1.2, -14, 3.9, Zs.Z1 + 0.064, "z+"));
 }
+// [map] The West Lot: 70 x 58 m of container yard between the old gate
+// (x = -38) and the west fence (x = -110). A haul road runs down the middle
+// (z 1..9, the gate road carried on); container rows with cut-throughs fill
+// the north and south, and freight cover breaks up the road's sightline.
+function westLot(n) {
+  let e = n.place,
+    t = n.stack;
+  // North rows (z -6 .. -27; -Z is north, as the compass reads): 40 ft = 12.2 m, 20 ft = 6.1 m along x.
+  (t(-100, -6, [
+    [40, "grey"],
+    [40, "teal"],
+  ]),
+    t(-79, -6, [[20, "orange"]]),
+    t(-62, -6, [
+      [40, "red"],
+      [40, "white"],
+      [40, "blue"],
+    ]),
+    t(-47.5, -6, [[20, "green", { doors: 0.6 }]]),
+    t(-103.5, -13.5, [
+      [40, "yellow"],
+      [40, "grey"],
+    ]),
+    t(-87, -13.5, [
+      [40, "blue"],
+      [40, "orange"],
+      ["hc", "green"],
+    ]),
+    t(-70, -13.5, [[20, "red"]]),
+    t(-55, -13.5, [
+      [40, "teal"],
+      [40, "grey"],
+    ]),
+    t(-97, -21, [
+      [20, "white"],
+      [20, "red"],
+    ]),
+    t(-82, -21, [
+      [40, "green"],
+      [40, "yellow"],
+    ]),
+    t(-64, -21, [[40, "orange", { doors: 0.5 }]]),
+    t(-49, -21, [
+      [20, "blue"],
+      [20, "grey"],
+      [20, "teal"],
+    ]),
+    t(-90, -27, [[40, "red"]]),
+    t(-60, -27, [
+      [40, "grey"],
+      [40, "white"],
+    ]),
+    // South rows (z 13 .. 25.5, the quay side).
+    t(-101, 13, [
+      [20, "teal"],
+      [20, "orange"],
+    ]),
+    t(-85, 13, [[40, "white"]]),
+    t(-68, 13, [
+      [20, "green"],
+      [20, "blue"],
+    ]),
+    t(-51, 13, [
+      [40, "red"],
+      [40, "yellow"],
+    ]),
+    t(-95, 19.5, [
+      [40, "grey"],
+      [40, "red"],
+      [40, "teal"],
+    ]),
+    t(-77, 19.5, [[20, "yellow", { doors: 0.7 }]]),
+    t(-59, 19.5, [
+      [40, "orange"],
+      [40, "grey"],
+    ]),
+    t(-104, 25.5, [[20, "blue"]]),
+    t(-83, 25.5, [
+      [40, "green"],
+      [40, "white"],
+    ]),
+    t(-55, 25.5, [
+      [20, "red"],
+      [20, "teal"],
+    ]),
+    // Road cover: boxes turned across the road, freight, barriers.
+    t(-76, 2.6, [[20, "grey"]], Math.PI / 2),
+    t(
+      -58,
+      7.4,
+      [
+        [20, "blue"],
+        [20, "orange"],
+      ],
+      Math.PI / 2,
+    ),
+    t(-93, 7.6, [[20, "white"]], Math.PI / 2));
+  for (let [x, z, y] of [
+    [-84, 4.8, 0.08],
+    [-67, 3.2, -0.05],
+    [-50, 5.5, 0.04],
+    [-99, 2.2, 0],
+  ])
+    e("jersey_barrier", x, z, y, { seed: Math.round(-x * 7 + z * 3) });
+  (e("forklift", -71, 9, 0.6, { seed: 71 }),
+    e("crate_stack", -88, 0.9, 0.2, { seed: 72 }),
+    e("crate_stack", -63.5, 9.1, -0.3, { seed: 73 }),
+    e("pallet_stack", -81, 8.6, 0.1, { seed: 74 }),
+    e("sandbags", -53.5, 1.6, 0, { seed: 75 }),
+    e("sandbags", -104, 9.2, 0, { seed: 76 }),
+    e("dumpster", -73.5, -9.6, 0, { seed: 77 }),
+    e("dumpster", -91, 16.4, Math.PI, { seed: 78 }),
+    e("tire_stack", -58, -17.2, 0, { seed: 79 }),
+    e("cable_reel", -95.5, -17.4, 0, { seed: 80 }),
+    e("ibc_tote", -66, 16.2, 0.3, { seed: 81 }),
+    e("generator", -45.5, 16.6, ss, { seed: 82 }),
+    e("pipe_stack", -76, -24.6, 0, { seed: 83 }),
+    e("tarp_cargo", -102.5, -24.5, 0.1, { seed: 84 }),
+    e("light_mast", -95, 0.2, 0, { seed: 85 }),
+    e("light_mast", -64, 10.6, 0, { seed: 86 }),
+    e("light_mast", -82, -28.6, 0, { seed: 87 }),
+    e("light_mast", -70, 27.2, 0, { seed: 88 }),
+    e("floodlight_stand", -107.5, 5, ss, { seed: 89 }));
+  for (let [x, z] of [
+    [-86, 6],
+    [-61, 4.4],
+    [-97, 8.4],
+    [-45, 2.2],
+  ])
+    e("traffic_cone", x, z, 0, { seed: Math.round(-x * 5 + z * 3) });
+}
 function hP(n) {
   let e = n.place,
     t = -38,
@@ -14200,7 +14332,13 @@ function hP(n) {
         { playerOnly: true },
       ));
   }
-  (l(t, s, i, s, 100), l(t, o, i, o, 200), l(t, s, t, r, 300), l(t, a, t, o, 400));
+  // [map] Perimeter at x = -110; the old gate line keeps two runs of fence with
+  // passages at the north end (z < -20), the gate, and the south end (z > 18).
+  (l(-110, s, i, s, 100),
+    l(-110, o, i, o, 200),
+    l(-110, s, -110, o, 500),
+    l(t, -20, t, r, 300),
+    l(t, a, t, 18, 400));
   for (let c of [r - 0.1, a + 0.1])
     (n.box("steel_dark", 0.22, 3.4, 0.22, t, 1.7, c, { bevel: 0.02 }),
       n.box("hazard_stripes", 0.26, 1.2, 0.26, t, 0.6, c, { bevel: 0.02 }),
@@ -14217,9 +14355,8 @@ function hP(n) {
     for (let f of [c - 2.4, c + 2.4])
       n.cyl("rubber", 0.09, 0.05, u, 0.1, f, { axis: "x", seg: 10 });
   }
-  (n.col(t - 0.4, 0, r, t - 0.1, 7, a, "metal", { playerOnly: true }),
-    e("guard_booth", -35.2, 0.35, 0, { seed: 1 }),
-    e("gate_arm", -36.3, 5, ss, { seed: 2 }));
+  // [map] The gate stands open: no barrier arm, no wall across it.
+  e("guard_booth", -35.2, 0.35, 0, { seed: 1 });
   for (let [c, u] of [
     [-37, 1.75],
     [-34.4, 2.3],
@@ -14256,7 +14393,7 @@ async function Pg(n) {
   let e = new At();
   ((e.name = "level"), n.scene.add(e));
   let t = uw(n);
-  (fP(t), hP(t));
+  (fP(t), hP(t), westLot(t)); // [map]
   let i = dw(t),
     s = mw(t),
     o = t.place("relay_node", 1.5, 7.5, 0.35, { seed: 1 }, 0),
@@ -14404,6 +14541,7 @@ async function Pg(n) {
       v(22, 13, -14, "quay"),
     ],
     b = [
+      { name: "west lot", min: [-112, -30], max: [-40, 30] }, // [map]
       { name: "gate", min: [-40, -30], max: [-24, 30] },
       { name: "yard", min: [-24, -10], max: [16, 30] },
       { name: "shed", min: [-24, -30], max: [16, -10] },
@@ -16149,6 +16287,10 @@ var Pv = new Qe(12172214),
     return i * i * (3 - 2 * i);
   },
   Tw = (n, e) => 1 - 0.6 * Aw(38, 160, Math.hypot(n + 5, e));
+// [map] The West Lot's footprint: the skyline builds nothing inside it.
+function inWestLot(x, z, hx = 0, hz = 0) {
+  return x + hx > -113 && x - hx < -37 && z + hz > -31 && z - hz < 29;
+}
 function Rw(n, e) {
   let t = new ho(),
     i = po(n, "paint_white"),
@@ -16267,6 +16409,7 @@ function Rw(n, e) {
       ee % 8 >= 1 && ee % 8 <= 5 && J.push({ z: oe, blk: Math.floor(ee / 8), first: ee === 1 });
     let G = J.map((oe, ee) =>
         C.map((le, xe) => {
+          if (inWestLot(le, oe.z, 6.1, 1.3)) return 0; // [map]
           let j = au(le * 0.04 + 3, 0.5, oe.z * 0.05 + 7),
             O = Math.round(0.2 + j * 5.4 + (s() - 0.5) * 2.4);
           return (!oe.first && s() < 0.07 && (O = 0), Math.max(oe.first ? 2 : 0, Math.min(5, O)));
@@ -16501,7 +16644,13 @@ function Rw(n, e) {
     z = Ng(6172444, 0.7);
   (S(-61, -52.06, E, -3, 4.5),
     S(-61, 41.1, z, 5, 9),
-    S(-103, -10.14, z, 2, 3),
+    S(
+      -126,
+      -10.14,
+      z,
+      2,
+      3,
+    ), // [map] moved out of the West Lot
     S(-6, -62.6, E, -6, 7),
     S(-12, 60.1, E, 4, 5));
   for (let [C, A, F] of [
@@ -16521,7 +16670,7 @@ function Rw(n, e) {
     [-28, 90, 30],
     [-120, 60, 34],
     [10.5, 49, 26],
-  ]) {
+  ].filter(([C, A]) => !inWestLot(C, A, 1, 1))) {
     (c(Pt(0.14, 0.3, F, "y", C, F / 2, A, 6), _), c(Pt(1.5, 1.5, 0.18, "y", C, F - 0.5, A, 8), M));
     for (let [H, N] of [
       [-1.4, 0],
@@ -41959,7 +42108,7 @@ var lT = "strikeforce.settings.v1",
     volume: 0.8,
     fov: zi.fov,
     difficulty: "hard",
-    mode: "match",
+    mode: "deathmatch",
     view: 1,
   },
   cT = [
@@ -41968,13 +42117,13 @@ var lT = "strikeforce.settings.v1",
     [3, "Compact"],
   ],
   uT = [
-    ["match", "8v8 Match"],
+    ["deathmatch", "Deathmatch"],
     ["mission", "Mission"],
     ["holdout", "Holdout"],
   ],
   nL = {
-    match:
-      "Online, Gold against Steel, no respawns. Plant the charge at A or B, or stop it. First to five rounds.",
+    deathmatch:
+      "Online, every player for themselves. Respawn in three seconds; first to 25 kills takes it.",
     mission:
       "Solo against the dock's machines. Cut three relays and reach the boat. About five minutes.",
     holdout: "Endless waves that keep growing. Resupply between waves. How long can you hold?",
@@ -42015,7 +42164,7 @@ var sL = `
   <div><dt>Aim</dt><dd>Right button</dd></div>
   <div><dt>Reload</dt><dd><kbd>R</kbd></dd></div>
   <div><dt>Swap weapon</dt><dd><kbd>Q</kbd>, wheel, or <kbd>1</kbd> <kbd>2</kbd></dd></div>
-  <div><dt>Plant / defuse</dt><dd>Hold <kbd>E</kbd></dd></div>
+  <div><dt>Cut a relay (Mission)</dt><dd>Hold <kbd>E</kbd></dd></div>
   <div><dt>Jump</dt><dd><kbd>Space</kbd></dd></div>
   <div><dt>Sprint</dt><dd><kbd>Shift</kbd></dd></div>
   <div><dt>Crouch</dt><dd><kbd>C</kbd> or <kbd>Ctrl</kbd></dd></div>
@@ -42027,7 +42176,7 @@ var sL = `
   <div><dt>Move · Look</dt><dd>Left stick · Right stick</dd></div>
   <div><dt>Fire · Aim</dt><dd><kbd>RT</kbd> · <kbd>LT</kbd></dd></div>
   <div><dt>Reload</dt><dd><kbd>X</kbd></dd></div>
-  <div><dt>Plant / defuse</dt><dd>Hold <kbd>X</kbd> at a site</dd></div>
+  <div><dt>Cut a relay (Mission)</dt><dd>Hold <kbd>X</kbd> at a relay</dd></div>
   <div><dt>Swap weapon</dt><dd><kbd>Y</kbd> or D-pad</dd></div>
   <div><dt>Jump</dt><dd><kbd>A</kbd></dd></div>
   <div><dt>Crouch</dt><dd><kbd>B</kbd> or <kbd>LB</kbd></dd></div>
@@ -42043,7 +42192,7 @@ var sL = `
   <div><dt>Aim</dt><dd>AIM toggles</dd></div>
   <div><dt>Reload</dt><dd>RLD</dd></div>
   <div><dt>Jump</dt><dd>JUMP</dd></div>
-  <div><dt>Plant / defuse</dt><dd>Hold USE at a site</dd></div>
+  <div><dt>Cut a relay (Mission)</dt><dd>Hold USE at a relay</dd></div>
   <div><dt>Sprint</dt><dd>Push the stick fully forward</dd></div>
 </dl>`;
 function hT(n, e) {
@@ -42058,9 +42207,9 @@ function hT(n, e) {
 
   <section class="m-screen m-title" data-s="title" aria-label="Strikeforce">
     <div class="m-title-main">
-      <div class="m-eyebrow"><span class="m-tag">8v8</span><span>Kestrel Terminal</span><span class="m-dim">Gold vs Steel · first to five</span></div>
+      <div class="m-eyebrow"><span class="m-tag">PvP</span><span>Kestrel Terminal</span><span class="m-dim">Deathmatch · solo</span></div>
       <h1 class="m-word">STRIKEFORCE</h1>
-      <p class="m-premise">Two squads, one dock, no respawns: plant the charge at A or B, or stop it. Or take the dock alone against its machines.</p>
+      <p class="m-premise">A container dock at dusk and a rifle. Every player for themselves, or the dock alone against its machines.</p>
       <div class="m-actions">
         <button class="btn primary" data-act="deploy">Deploy</button>
         <button class="btn" data-act="settings">Settings</button>
@@ -42075,14 +42224,14 @@ function hT(n, e) {
     </div>
     <aside class="m-legend" aria-label="Controls at a glance">
       <div><span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> Move</span><span><kbd>Mouse</kbd> Look</span><span><kbd>LMB</kbd> Fire</span><span><kbd>RMB</kbd> Aim</span><span><kbd>R</kbd> Reload</span></div>
-      <div><span><kbd>Q</kbd> Sidearm</span><span><kbd>E</kbd> Plant · defuse · cut</span><span><kbd>Space</kbd> Jump</span><span><kbd>Shift</kbd> Sprint</span><span><kbd>C</kbd> Crouch</span><span><kbd>Esc</kbd> Pause</span></div>
-      <div class="lg-pad"><em>Controller</em><span>Sticks move and look</span><span><kbd>RT</kbd> Fire</span><span><kbd>LT</kbd> Aim</span><span><kbd>X</kbd> Reload / plant</span><span><kbd>Y</kbd> Sidearm</span><span><kbd>A</kbd> Deploy</span></div>
+      <div><span><kbd>Q</kbd> Sidearm</span><span><kbd>E</kbd> Cut relay</span><span><kbd>Space</kbd> Jump</span><span><kbd>Shift</kbd> Sprint</span><span><kbd>C</kbd> Crouch</span><span><kbd>Esc</kbd> Pause</span></div>
+      <div class="lg-pad"><em>Controller</em><span>Sticks move and look</span><span><kbd>RT</kbd> Fire</span><span><kbd>LT</kbd> Aim</span><span><kbd>X</kbd> Reload / use</span><span><kbd>Y</kbd> Sidearm</span><span><kbd>A</kbd> Deploy</span></div>
       <div class="lg-touch"><em>Touch</em><span>Left thumb moves</span><span>Right thumb looks</span><span>Fire · Aim · Reload · Jump on screen</span></div>
     </aside>
   </section>
 
   <section class="m-screen m-card" data-s="paused" aria-label="Paused">
-    <div class="m-k" data-only-match>The round plays on</div><div class="m-k" data-pve>Operation on hold</div>
+    <div class="m-k" data-only-match>The match plays on</div><div class="m-k" data-pve>Operation on hold</div>
     <h2 class="m-h">Paused</h2>
     <p class="m-line" data-f="lookmode"></p>
     <div class="m-actions col">
@@ -42144,7 +42293,7 @@ function hT(n, e) {
     </div>
   </div>
 
-  <div class="loc-card" aria-hidden="true"><i></i><b>Kestrel Terminal · Berth 4</b><span>Gold against Steel</span></div>
+  <div class="loc-card" aria-hidden="true"><i></i><b>Kestrel Terminal · Berth 4</b><span>Every player for themselves</span></div>
 `),
     t.appendChild(s));
   let o = (W) => s.querySelector(W),
@@ -42932,7 +43081,7 @@ function pT(n) {
       Q(),
       a(n.weapon, "setVisible", true),
       (R = false),
-      Y || (n.net && n.net.match)) // [net] no intro: the round is already running
+      Y || (n.net && n.net.match)) // [net] no intro: the match is already running
     ) {
       ((e.fade = 0), te());
       return;
@@ -43229,7 +43378,7 @@ function pT(n) {
       J());
   }
   n.events.on("player:dead", () => {
-    // [net] A match death spectates until the next round; there is no retry screen.
+    // [net] A deathmatch death respawns (src/net/match.ts); there is no retry screen.
     if (n.net && n.net.match) {
       (o.setPrompt && o.setPrompt(null), o.clearRadio && o.clearRadio());
       return;

@@ -1,6 +1,7 @@
-// Where the party server is, and which room this tab joins. A squad code
-// (`?room=dock7`) names a private room; otherwise the lobby quick-matches into
-// the fullest open public room. `?offline=1` (or a playtest) never dials, and
+// Where the party server is, and which room this tab joins once it deploys
+// into deathmatch. A squad code (`?room=dock7`) names a private room;
+// otherwise the lobby quick-matches into the fullest open public room.
+// `?offline=1` (or a playtest) never dials, and
 // `fallbackMs` drops to solo when no room answers — offline the client is a
 // local room of one with the same API, so the game runs one code path.
 import { isOfflineRequested } from "@repo/embed";
@@ -29,8 +30,9 @@ export const openRoom = async (
   params: URLSearchParams,
   options: ClientEvents & { solo: boolean },
 ): Promise<MultiplayerClient> => {
+  const { onEvent } = options;
   const host = partyHost(params);
-  const base = { ...options, fallbackMs: FALLBACK_MS, host, maxPlayers: MAX_PLAYERS, party: PARTY };
+  const base = { fallbackMs: FALLBACK_MS, host, maxPlayers: MAX_PLAYERS, onEvent, party: PARTY };
   if (options.solo || isOfflineRequested()) {
     return new MultiplayerClient({ ...base, offline: true, room: roomId("solo") });
   }

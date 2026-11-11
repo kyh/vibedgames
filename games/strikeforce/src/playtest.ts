@@ -1,8 +1,8 @@
 // The playtest contract: live diagnostics every playtest reads, plus (behind
 // dev or `?test=1`) test hooks and a control manifest for `vg playtest run`.
 // Positions are world metres, so the manifest sets `minDisplacement`. A
-// playtest plays alone (main.ts keeps it out of rooms), so it sees warmup:
-// the dock, the two sites and its own body.
+// playtest plays alone (main.ts keeps it out of rooms), so deathmatch sits in
+// warmup: the dock and its own body.
 import {
   isPlaytestRequested,
   publishDiagnostics,
@@ -45,30 +45,21 @@ const nearestOf = (from: Vector3, points: readonly Point[]): Point | null => {
   return best;
 };
 
-const sideOf = (team: number | undefined, attack: number | undefined): string | null => {
-  if (team === undefined || attack === undefined) {
-    return null;
-  }
-  return team === attack ? "attack" : "defend";
-};
-
 interface Nearby {
   nearestEnemy: Offset | null;
   nearestRelay: Offset | null;
-  nearestSite: Offset | null;
 }
 
-/** Offsets to what the player is looking for: a site, a relay, the nearest enemy (machine or player). */
+/** Offsets to what the player is looking for: a relay, the nearest enemy (machine or player). */
 const nearby = (game: StrikeforceGame, match: Match): Nearby => {
   const { pos } = game.player;
-  const pve = game.game.run.mode !== "match";
+  const pve = game.game.run.mode !== "deathmatch";
   const machines = game.enemies.list.filter((e) => e.alive).map((e) => e.pos);
   const relays = game.game.run.relays.filter((r) => !r.cut).map((r) => r.o.pos);
   const at = (p: Point | null): Offset | null => (p ? offset(pos, p) : null);
   return {
     nearestEnemy: at(nearestOf(pos, pve ? machines : match.enemies())),
     nearestRelay: at(nearestOf(pos, relays)),
-    nearestSite: at(nearestOf(pos, match.sites())),
   };
 };
 
@@ -87,10 +78,11 @@ export const installPlaytest = (game: StrikeforceGame, match: Match): void => {
     return {
       ...nearby(game, match),
       alive: player.alive,
-      carrying: m?.charge.state === "carried" && m.charge.carrier === match.me,
       complete: m?.phase === "over",
+      deaths: me?.deaths ?? 0,
       frame,
       health: Math.round(player.health),
+      kills: me?.kills ?? 0,
       mode: game.game.run.mode,
       phase: m?.phase ?? "connecting",
       player: {
@@ -100,11 +92,7 @@ export const installPlaytest = (game: StrikeforceGame, match: Match): void => {
         z: Math.round(player.pos.z * 100) / 100,
       },
       players: match.size,
-      round: m?.round ?? 0,
-      score: m && me ? m.score[me.team] : 0,
-      scoreGold: m?.score[0] ?? 0,
-      scoreSteel: m?.score[1] ?? 0,
-      side: sideOf(me?.team, m?.attack),
+      score: me?.kills ?? 0,
       state: game.game.state,
     };
   });
@@ -124,12 +112,9 @@ export const installPlaytest = (game: StrikeforceGame, match: Match): void => {
     actions: {
       fire: { description: "Fire the rifle where the camera faces", keys: ["Enter"] },
       reload: { description: "Reload the rifle", keys: ["KeyR"] },
-      use: {
-        description: "Hold to plant (carrying, on a site) or defuse (on the charge)",
-        keys: ["KeyE"],
-      },
+      use: { description: "Hold to cut a relay (solo Mission)", keys: ["KeyE"] },
     },
-    goal: 'First-person shooter on a rainy container dock. In the match (mode "match", alone it stays in warmup) visit both bomb sites (nearestSite, metres). In solo PvE (?mode=mission) cut the relays (nearestRelay; hold use on one) while machines hunt you (nearestEnemy): turn to face them and fire.',
+    goal: 'First-person shooter on a rainy container dock. In deathmatch (mode "deathmatch"; alone it stays in warmup) explore the dock: walk from the West Lot to the quay. In solo PvE (?mode=mission) cut the relays (nearestRelay; hold use on one) while machines hunt you (nearestEnemy): turn to face them and fire.',
     minDisplacement: 0.05,
     move: {
       back: { description: "Walk backward", keys: ["KeyS"] },

@@ -1,7 +1,7 @@
 // The other players, as this client sees them: an avatar each, played back
 // from their own body reports on a clock that learns each sender's route, in
-// their team's colour. `bodies()` is what the host's rules read positions
-// from; `hitTest()` is what this client's own shots are tested against.
+// one colour (deathmatch has no sides). `reported` is where the host reads a
+// body's position; `hitTest()` is what this client's own shots are tested against.
 import { Interpolator, lerp, lerpAngle } from "@vibedgames/multiplayer";
 import type { Player } from "@vibedgames/multiplayer";
 import { Raycaster, Vector3 } from "three";
@@ -9,8 +9,8 @@ import type { Mesh, Object3D } from "three";
 
 import type { StrikeforceGame, ShotHit } from "../core/types";
 import { Avatar } from "./avatar";
-import { TEAM_COLOR } from "./protocol";
-import type { Bodies, Point, Team } from "./rules";
+import { AVATAR_COLOR } from "./protocol";
+import type { Point } from "./rules";
 import { isNum } from "./wire";
 
 interface Pose {
@@ -44,15 +44,14 @@ export interface Opponent {
   readonly id: string;
   readonly callsign: string;
   avatar: Avatar | null;
-  team: Team | null;
   readonly interp: Interpolator<Pose>;
   /** Latest reported (not interpolated) body, for the host's rules. */
   reported: Point | null;
-  /** The round the body says it is playing. */
-  round: number;
+  /** The life (rules.ts) the body says it is playing. */
+  life: number;
   hp: number;
   alive: boolean;
-  /** Past the title screen: in the match. */
+  /** Past the title screen: in the deathmatch. */
   deployed: boolean;
   connected: boolean;
   /** The interpolated pose this frame, or null before the first report. */
@@ -71,7 +70,7 @@ const readReport = (p: Opponent, player: Player): void => {
   p.alive = s.a === 1;
   p.deployed = s.d === 1;
   p.hp = isNum(s.hp) ? s.hp : p.hp;
-  p.round = isNum(s.r) ? s.r : p.round;
+  p.life = isNum(s.l) ? s.l : p.life;
   if (isNum(t) && isNum(x) && isNum(y) && isNum(z) && isNum(yaw) && isNum(pitch)) {
     p.interp.push(t, { crouch: s.c === 1 ? 1 : 0, pitch, x, y, yaw, z });
     p.reported = { x, y, z };
@@ -89,12 +88,11 @@ export class Players {
     this.events = events;
   }
 
-  /** Read every other player's report and pose its avatar. `teamOf` is the host's roster. */
+  /** Read every other player's report and pose its avatar. `seat` is the host's roster. */
   update(
     players: Record<string, Player>,
     myId: string,
-    myTeam: Team | null,
-    teamOf: (id: string) => { team: Team; alive: boolean } | null,
+    seat: (id: string) => { alive: boolean } | null,
     dt: number,
   ): void {
     for (const [id, player] of Object.entries(players)) {
@@ -103,14 +101,16 @@ export class Players {
       }
       const p = this.all.get(id) ?? this.add(id);
       readReport(p, player);
-      const seat = teamOf(id);
-      this.dress(p, seat?.team ?? null, myTeam);
+      const fighter = seat(id);
+      if (fighter) {
+        this.dress(p);
+      }
       p.pose = p.interp.sample() ?? null;
-      const shown = Boolean(p.pose && p.avatar && seat);
+      const shown = Boolean(p.pose && p.avatar && fighter);
       if (p.avatar) {
         p.avatar.root.visible = shown;
         if (p.pose && shown) {
-          p.avatar.update({ ...p.pose, alive: seat?.alive ?? false }, dt);
+          p.avatar.update({ ...p.pose, alive: fighter?.alive ?? false }, dt);
         }
       }
     }
@@ -124,18 +124,9 @@ export class Players {
     }
   }
 
-  /** Everyone's latest reported position, for the host's rules. */
-  bodies(): Bodies {
-    const out: Bodies = {};
-    for (const [id, p] of this.all) {
-      out[id] = p.reported ?? undefined;
-    }
-    return out;
-  }
-
   /**
    * The nearest living enemy hitbox along a shot, closer than `maxDist`.
-   * `enemies` are the ids on the other team.
+   * `isEnemy` says which ids may be hit.
    */
   hitTest(
     origin: Vector3,
@@ -204,30 +195,23 @@ export class Players {
       hp: 100,
       id,
       interp: new Interpolator<Pose>({ lerp: lerpPose }),
+      life: -1,
       pose: null,
       reported: null,
-      round: 0,
-      team: null,
     };
     this.all.set(id, p);
     this.events.joined(p);
     return p;
   }
 
-  /** Build (or rebuild, if the team changed) the avatar in its team's colour. */
-  private dress(p: Opponent, team: Team | null, myTeam: Team | null): void {
-    if (team === null) {
+  /** Build the avatar once the host has seated the player. */
+  private dress(p: Opponent): void {
+    if (p.avatar) {
       return;
     }
-    if (p.team !== team || !p.avatar) {
-      p.avatar?.dispose();
-      p.avatar = new Avatar(p.callsign, TEAM_COLOR[team]);
-      p.avatar.root.visible = false;
-      this.game.scene.add(p.avatar.root);
-      p.team = team;
-      p.interp.clear();
-    }
-    p.avatar.setFriendly(team === myTeam);
+    p.avatar = new Avatar(p.callsign, AVATAR_COLOR);
+    p.avatar.root.visible = false;
+    this.game.scene.add(p.avatar.root);
   }
 }
 

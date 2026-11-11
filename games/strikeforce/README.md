@@ -3,9 +3,9 @@
 First-person shooter on a rain-soaked container dock at dusk, in three modes
 picked on the title screen:
 
-- **8v8 Match** (online, the default) — Gold against Steel, no respawns
-  inside a round: the attackers carry a charge to site A or B and plant it,
-  the defenders hold the sites or defuse it. First to five rounds.
+- **Deathmatch** (online, the default) — every player for themselves, up to
+  sixteen. A death lasts three seconds and comes back at the spawn farthest
+  from the enemy; first to 25 kills, or the most after ten minutes.
 - **Mission** (solo PvE) — the dock's security machines hunt you while you
   cut three uplink relays, then reach the boat.
 - **Holdout** (solo PvE) — endless, growing waves of machines; resupply
@@ -20,8 +20,8 @@ is downloaded. Deployed at `strikeforce.vibedgames.com`.
 pnpm dev:strikeforce                        # http://localhost:5196
 pnpm dev:party                              # the party server, for matches on localhost
 pnpm --filter @repo/strikeforce typecheck   # tsc --noEmit
-pnpm --filter @repo/strikeforce test        # unit tests: the round rules, wire narrowing
-pnpm --filter @repo/strikeforce test:online # two-client match smoke (needs dev:party)
+pnpm --filter @repo/strikeforce test        # unit tests: the deathmatch rules, wire narrowing
+pnpm --filter @repo/strikeforce test:online # two-client deathmatch smoke (needs dev:party)
 pnpm --filter @repo/strikeforce build       # vite build
 ```
 
@@ -31,17 +31,17 @@ pnpm --filter @repo/strikeforce build       # vite build
 
 ## Routes
 
-| URL              | What                                                           |
-| ---------------- | -------------------------------------------------------------- |
-| `/`              | the game; quick-matches into the fullest open match            |
-| `/?room=dock7`   | a private match: everyone with the same code plays together    |
-| `/?offline=1`    | never dials the party server (warmup on your own)              |
-| `/?mode=mission` | start in a mode: `match` (default), `mission` or `holdout`     |
-| `/?autostart=1`  | skip the title and deploy at once                              |
-| `/?q=low`        | force a quality preset (`low` `medium` `high` `ultra`)         |
-| `/?test=1`       | publish the playtest hooks and manifest                        |
-| `/?bench=1`      | camera fly-through with a frame-time readout                   |
-| `/?norender=1`   | simulate without drawing (the two-client smoke on software GL) |
+| URL              | What                                                            |
+| ---------------- | --------------------------------------------------------------- |
+| `/`              | the game; quick-matches into the fullest open match             |
+| `/?room=dock7`   | a private match: everyone with the same code plays together     |
+| `/?offline=1`    | never dials the party server (warmup on your own)               |
+| `/?mode=mission` | start in a mode: `deathmatch` (default), `mission` or `holdout` |
+| `/?autostart=1`  | skip the title and deploy at once                               |
+| `/?q=low`        | force a quality preset (`low` `medium` `high` `ultra`)          |
+| `/?test=1`       | publish the playtest hooks and manifest                         |
+| `/?bench=1`      | camera fly-through with a frame-time readout                    |
+| `/?norender=1`   | simulate without drawing (the two-client smoke on software GL)  |
 
 ## Controls
 
@@ -53,59 +53,70 @@ pnpm --filter @repo/strikeforce build       # vite build
 | right click (LT)                         | aim down sights            |
 | R (X)                                    | reload                     |
 | Q / 1 2 / wheel (Y)                      | swap rifle / sidearm       |
-| hold E (hold X, USE)                     | plant / defuse / cut relay |
+| hold E (hold X, USE)                     | cut a relay (Mission)      |
 | Space (A)                                | jump                       |
 | Shift (L-stick click)                    | sprint                     |
 | C / Ctrl (B, LB)                         | crouch                     |
 | F                                        | melee                      |
 | hold Tab                                 | scoreboard                 |
-| Esc / P (Start)                          | pause (the round plays on) |
+| Esc / P (Start)                          | pause (the match plays on) |
 
 `src/controls.ts` is the same list for the web app's controls panel.
 
+## The dock
+
+About 140 × 58 m. The original yard — container rows, the shed, the quay
+and the boat — and, west of the old gate, the **West Lot**: a haul road down
+the middle with freight cover across it, container rows with cut-throughs to
+the north and south, fenced at x = -110. The old gate line keeps two runs of
+fence with three passages (south end, the open gate, north end). The skyline
+stacks and the crane that stood there moved out; everything in the lot is
+real, collidable yard built with the level's own `stack`/`place` helpers
+(`westLot` in the core).
+
 ## The match
 
-`src/net/rules.ts` is the whole rulebook, pure and unit-tested:
-
-- **Teams.** Gold and Steel, up to eight each; newcomers join the smaller side.
-  With one side empty the match sits in **warmup** (free play, respawn after
-  3 s).
-- **A round.** 5 s freeze (no moving) → 1:55 live → 5 s result. Attackers
-  spawn at the west gate, defenders at the east quay by the boat. One attacker
-  carries the charge; it drops where the carrier falls and any attacker can
-  pick it up.
-- **Plant and defuse.** Hold use for 3 s on site A (the yard) or B (the shed)
-  to plant; the fuse is 40 s. A defender holds use for 5 s over the charge to
-  defuse.
-- **Winning a round.** Attackers win by eliminating the defenders or by the
-  detonation. Defenders win by eliminating the attackers before a plant, by
-  the defuse, or when time runs out.
-- **The match.** First to five; sides swap after round four.
+`src/net/rules.ts` is the whole rulebook, pure and unit-tested. Anyone may
+shoot anyone. A death comes back after 3 s, at the arena spawn (a walkable
+grid over the whole dock) farthest from every enemy. First to 25 kills, or
+the most kills when ten minutes run out, takes it; then ten seconds of
+results and a fresh match on a full dock. Alone, the room sits in warmup.
 
 Damage: the weapon's own numbers, ×4 to the head (a rifle headshot kills).
-Friendly fire is off.
+Everyone wears one colour and there are no name plates: you have to find who
+you are fighting.
+
+**Radar** (`src/minimap.ts`, every mode): a round minimap, top-right (under
+health on touch), that turns with you. The dock is baked once from the
+level's walkable grid. An enemy's shot pings where it was fired from for
+2.5 s, so firing gives you away; in Mission the relays still standing show,
+pinned to the rim when out of range.
 
 ## Multiplayer
 
-Only the match is online; Mission and Holdout are the original single-player
-game, and the match layer stands down while you play them (a player in a PvE
-mode stays in the room but out of the roster, and can still referee as host).
+Deathmatch is online; Mission and Holdout are the original single-player
+game. A tab joins a room only when it deploys into deathmatch, from the
+`strikeforce` lobby, so solo PvE never touches a room.
+
+Every fighter has a `life` that goes up whenever the host brings it back (a
+match start, a respawn). A client places its body when the life it reads
+moves, and its own health reports count only for the life it is playing, so a
+report sent before a respawn arrived can never kill the new life.
 
 Host-authoritative on `@vibedgames/multiplayer`. The first player in the room
-is the host and runs the rules; it publishes the match (phase, clock, score,
-who is alive, the charge, which barrels stand) at 10 Hz. Every client plays its
-own body, publishes it at 20 Hz, and follows the published match: it respawns
-itself at its team's spawn when a round starts, freezes during freeze time,
-and watches a living teammate when it is down.
+is the host and runs the rules; it publishes the match (phase, clock, kills,
+who is alive, which barrels stand) at 10 Hz. Every client plays its own body,
+publishes it at 20 Hz, and follows the published match: it respawns itself
+whenever its fighter gets a new life.
 
 - **Hits favour the shooter.** A client tests its shots against the other
-  team's hitboxes (head and body) as they stand on its own screen, then tells
-  the host, which applies the damage and sends the victim a `hurt`.
-- **Area damage** (barrels, the charge) each client applies to itself and
-  reports through its body's health; the host only ever lowers health from a
-  report, and only for the current round.
+  players' hitboxes (head and body) as they stand on its own screen, then
+  tells the host, which applies the damage and sends the victim a `hurt`.
+- **Area damage** (barrels) each client applies to itself and reports through
+  its body's health; the host only ever lowers health from a report, and only
+  for the current life.
 - **Barrels** belong to the host: a guest's shot is a request, the blast comes
-  back to everyone.
+  back to everyone. Every match starts with all of them standing.
 - **Host loss.** The server elects a new host, which picks the match up from
   the last state it read.
 
@@ -117,11 +128,12 @@ Wire format: `src/net/protocol.ts`. A wire change bumps `ROOM_PREFIX`.
 | --------------------------------- | -------------------------------------------------------------- |
 | `src/core/strikeforce-core.js`    | the game: renderer, dock, weapons, audio, HUD, menus           |
 | `src/core/types.ts`               | the typed slice of the game object the TypeScript layer drives |
-| `src/net/rules.ts`                | the round rules (host)                                         |
+| `src/net/rules.ts`                | the deathmatch rules (host)                                    |
 | `src/net/match.ts`                | the match controller: `G.net`, host and client                 |
 | `src/net/players.ts`, `avatar.ts` | other players: interpolation, avatars, hitboxes                |
-| `src/net/map.ts`, `charge.ts`     | sites and spawns on the dock; the charge in the world          |
-| `src/net/match-hud.ts`            | score bar, round clock, Tab scoreboard                         |
+| `src/net/map.ts`                  | arena spawns on the dock                                       |
+| `src/net/match-hud.ts`            | kills bar, match clock, Tab scoreboard                         |
+| `src/minimap.ts`                  | the radar                                                      |
 | `src/controls.ts`                 | controls manifest for `@repo/embed`                            |
 | `src/playtest.ts`                 | `@vibedgames/playtest` diagnostics, hooks and manifest         |
 

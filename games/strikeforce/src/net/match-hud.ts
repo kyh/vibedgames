@@ -1,8 +1,8 @@
-// The match readout, in the game's #ui layer and styled in style.css under
-// "mx": a score bar (Gold score · round clock · Steel score, with a pip per
-// player alive), and a scoreboard while Tab is held. Redraws only on change.
-import { TEAM_NAME } from "./protocol";
-import type { MatchState, Team } from "./rules";
+// The deathmatch readout, in the game's #ui layer and styled in style.css
+// under "mx": a bar (your kills · the clock · the leader's kills), and a
+// scoreboard while Tab is held. Redraws only on change.
+import { RULES, standings } from "./rules";
+import type { Fighter, MatchState } from "./rules";
 
 export interface HudView {
   match: MatchState | null;
@@ -19,23 +19,14 @@ const clock = (ms: number): string => {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 };
 
-const phaseLine = (m: MatchState): string => {
+const phaseLine = (m: MatchState, callsign: (id: string) => string): string => {
   if (m.phase === "warmup") {
-    return "Warmup · waiting for both sides";
-  }
-  if (m.phase === "freeze") {
-    return `Round ${m.round} · get set`;
-  }
-  if (m.phase === "planted") {
-    return "Charge planted";
-  }
-  if (m.phase === "post" && m.last) {
-    return `${TEAM_NAME[m.last.winner]} takes round ${m.round}`;
+    return "Warmup · waiting for another player";
   }
   if (m.phase === "over") {
-    return `${TEAM_NAME[m.score[0] > m.score[1] ? 0 : 1]} wins the match`;
+    return `${callsign(m.champ)} takes it`;
   }
-  return `Round ${m.round}`;
+  return `Deathmatch · first to ${RULES.kills}`;
 };
 
 const statusLine = (status: string): string => {
@@ -45,13 +36,39 @@ const statusLine = (status: string): string => {
   return status === "offline" ? "Offline · warmup" : "";
 };
 
-const roleOf = (m: MatchState, team: Team): string => (team === m.attack ? "attack" : "defend");
-
 const el = (tag: string, cls: string, text = ""): HTMLElement => {
   const node = document.createElement(tag);
   node.className = cls;
   node.textContent = text;
   return node;
+};
+
+/** Your kills · the clock · whoever you are chasing (the leader, or second place while you lead). */
+const killRow = (
+  m: MatchState,
+  view: HudView,
+  ranks: readonly [string, Fighter][],
+  left: string,
+): HTMLElement => {
+  const mine = m.roster.get(view.me)?.kills ?? 0;
+  const leading = ranks[0]?.[0] === view.me;
+  const lead = ranks.find(([id]) => id !== view.me);
+  const you = el("div", "mx-team t0");
+  you.append(el("b", "", "You"), el("span", "", leading ? "leading" : "kills"));
+  const them = el("div", "mx-team t1");
+  them.append(
+    el("b", "", lead ? view.callsign(lead[0]) : "—"),
+    el("span", "", leading ? "2nd" : "leader"),
+  );
+  const mid = el("div", "mx-mid");
+  mid.append(
+    el("strong", "", `${mine}`),
+    el("em", "", left || "—"),
+    el("strong", "", `${lead?.[1].kills ?? 0}`),
+  );
+  const row = el("div", "mx-row");
+  row.append(you, mid, them);
+  return row;
 };
 
 export class MatchHud {
@@ -94,17 +111,12 @@ export class MatchHud {
       return;
     }
     const m = view.match;
-    const pips = (team: Team): string =>
-      m
-        ? [...m.roster.values()]
-            .filter((f) => f.team === team)
-            .map((f) => (f.alive ? "1" : "0"))
-            .join("")
-        : "";
     const left = m && m.ends > 0 && m.phase !== "warmup" ? clock(m.ends - view.now) : "";
     const status = statusLine(view.status);
+    const ranks = m ? standings(m) : [];
+    const order = ranks.map(([id, f]) => `${id}:${f.kills}`).join(",");
     const key = m
-      ? `${m.score.join(":")}|${left}|${phaseLine(m)}|${pips(0)}|${pips(1)}|${m.attack}|${view.title ? 1 : 0}`
+      ? `${m.phase}|${m.round}|${left}|${order}|${m.champ}|${view.title ? 1 : 0}`
       : `${status}|${view.title ? 1 : 0}`;
     if (key === this.drawnBar) {
       return;
@@ -116,26 +128,7 @@ export class MatchHud {
       bar.append(el("div", "mx-line", status));
       return;
     }
-    const side = (team: Team): HTMLElement => {
-      const box = el("div", `mx-team t${team}`);
-      const name = el("b", "", TEAM_NAME[team]);
-      const role = el("span", "", roleOf(m, team));
-      const alive = el("i", "mx-pips");
-      for (const c of pips(team)) {
-        alive.append(el("u", c === "1" ? "on" : ""));
-      }
-      box.append(name, role, alive);
-      return box;
-    };
-    const mid = el("div", "mx-mid");
-    mid.append(
-      el("strong", "", `${m.score[0]}`),
-      el("em", "", left || "—"),
-      el("strong", "", `${m.score[1]}`),
-    );
-    const row = el("div", "mx-row");
-    row.append(side(0), mid, side(1));
-    bar.append(row, el("div", "mx-line", phaseLine(m)));
+    bar.append(killRow(m, view, ranks, left), el("div", "mx-line", phaseLine(m, view.callsign)));
   }
 
   private drawBoard(view: HudView): void {
@@ -148,7 +141,7 @@ export class MatchHud {
     const rows =
       m && open
         ? [...m.roster]
-            .map(([id, f]) => `${id}:${f.team}:${f.alive ? 1 : 0}:${f.kills}:${f.deaths}`)
+            .map(([id, f]) => `${id}:${f.alive ? 1 : 0}:${f.kills}:${f.deaths}`)
             .join(",")
         : "";
     const key = `${open ? 1 : 0}|${rows}`;
@@ -161,22 +154,17 @@ export class MatchHud {
     if (!m || !open) {
       return;
     }
-    for (const team of [0, 1] as const) {
-      const col = el("section", `mx-col t${team}`);
-      col.append(el("h3", "", `${TEAM_NAME[team]} · ${m.score[team]}`));
-      const fighters = [...m.roster]
-        .filter(([, f]) => f.team === team)
-        .toSorted(([, a], [, b]) => b.kills - a.kills || a.deaths - b.deaths);
-      for (const [id, f] of fighters) {
-        const row = el("div", `mx-player${f.alive ? "" : " dead"}${id === view.me ? " me" : ""}`);
-        row.append(
-          el("b", "", view.callsign(id)),
-          el("span", "", `${f.kills}`),
-          el("span", "", `${f.deaths}`),
-        );
-        col.append(row);
-      }
-      board.append(col);
+    const col = el("section", "mx-col");
+    col.append(el("h3", "", "Deathmatch"));
+    for (const [id, f] of standings(m)) {
+      const row = el("div", `mx-player${f.alive ? "" : " dead"}${id === view.me ? " me" : ""}`);
+      row.append(
+        el("b", "", view.callsign(id)),
+        el("span", "", `${f.kills}`),
+        el("span", "", `${f.deaths}`),
+      );
+      col.append(row);
     }
+    board.append(col);
   }
 }

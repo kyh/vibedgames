@@ -1,11 +1,10 @@
-// Two-client match smoke: two players deploy into one fresh party room and
-// play rounds against each other. Checks that roles settle and the two land on
-// opposite teams, the match leaves warmup, each sees the other's avatar, a
-// real shot through the other's head hitbox kills (and ends the round, scores
-// it and respawns both at their spawns), the carrier plants at a site and the
-// defender defuses it, a barrel shot by the guest blows on the host, and when
-// the host leaves the guest picks the match up with the score intact. Needs
-// the party server on localhost:8787 (pnpm dev:party) and a Chromium: channel
+// Two-client deathmatch smoke: two players deploy into one fresh party room.
+// Checks that the host alone sits in warmup, a second player starts the
+// match, each sees the other's avatar, a real shot through the other's head
+// hitbox kills and is credited, the dead player comes back on a new life at
+// an arena spawn, a barrel shot by the guest blows on the host, and when the
+// host leaves the guest picks the match up with the kills intact. Needs the
+// party server on localhost:8787 (pnpm dev:party) and a Chromium: channel
 // "chrome", or any binary in SMOKE_BROWSER. Not part of `pnpm test` for that
 // reason; software WebGL makes it slow, so pages run with ?norender=1.
 //
@@ -92,16 +91,11 @@ const probe = (page) =>
     const me = s?.roster.get(m.me);
     return {
       alive: G.player.alive,
-      attack: s?.attack ?? -1,
-      barrels: G.explosives.aliveMask(),
-      charge: s?.charge.state ?? "",
       host: m.guest === false,
-      me: m.me,
+      kills: me?.kills ?? -1,
+      life: me?.life ?? -1,
       phase: s?.phase ?? "",
       pos: [G.player.pos.x, G.player.pos.z],
-      round: s?.round ?? 0,
-      score: s ? [...s.score] : [],
-      team: me?.team ?? -1,
     };
   });
 
@@ -120,18 +114,6 @@ const headshot = (page) =>
     return m.shoot(eye, dir, 500, 28) !== null;
   });
 
-/** Move this page's body onto a point and let a body report carry it. */
-const standAt = (page, x, z) =>
-  page.evaluate(
-    ([px, pz]) => {
-      window.__G.player.pos.set(px, 0, pz);
-    },
-    [x, z],
-  );
-
-const intent = (page, event, payload) =>
-  page.evaluate(([e, p]) => window.__strikeforce.match.client.sendToHost(e, p), [event, payload]);
-
 const main = async () => {
   const reachable = await fetch(PARTY).then(
     () => true,
@@ -142,7 +124,8 @@ const main = async () => {
   }
   const dev = await startVite();
   const room = `t${process.pid}${Date.now().toString(36)}`;
-  const url = `${dev.base}/?room=${room}&q=low&autostart=1&noaudio=1&norender=1`;
+  const base = `${dev.base}/?q=low&autostart=1&noaudio=1&norender=1`;
+  const url = `${base}&room=${room}&mode=deathmatch`;
   const browsers = [];
   const results = [];
   const errors = [];
@@ -168,56 +151,37 @@ const main = async () => {
   };
   try {
     const host = await open("host");
-    await waitFor(host, () => window.__strikeforce.match.state?.phase === "warmup", "host warmup");
+    await phase(host, "warmup", "host warmup");
     step("host alone sits in warmup", true);
 
     const guest = await open("guest");
-    await phase(guest, "freeze", "round 1 freeze");
-    const [h1, g1] = [await probe(host), await probe(guest)];
-    step(
-      "two players split onto opposite teams",
-      h1.team !== g1.team && h1.team >= 0 && g1.team >= 0,
-      `${h1.team}/${g1.team}`,
-    );
-    await phase(guest, "live", "round 1 live");
+    await phase(host, "live", "match live");
+    await phase(guest, "live", "match live (guest)");
+    step("a second player starts the match", true);
     await waitFor(guest, () => window.__strikeforce.match.enemies().length > 0, "guest sees host");
     await waitFor(host, () => window.__strikeforce.match.enemies().length > 0, "host sees guest");
     step("each sees the other's avatar", true);
 
     // A real ray through the host's head hitbox, from the guest's eye.
+    const before = await probe(host);
     step("guest's shot meets the host's head hitbox", await headshot(guest));
     await waitFor(host, () => !window.__G.player.alive, "host down");
-    await phase(host, "post", "round 1 over");
-    const afterKill = await probe(host);
-    step(
-      "the kill ends the round and scores it",
-      afterKill.score[g1.team] === 1,
-      JSON.stringify(afterKill.score),
+    await waitFor(
+      guest,
+      () => window.__strikeforce.match.state.roster.get(window.__strikeforce.match.me).kills === 1,
+      "guest credited",
     );
-    await phase(host, "freeze", "round 2 freeze", 30_000);
-    await waitFor(host, () => window.__G.player.alive, "host respawned");
-    const r2 = await probe(host);
-    step("round 2 respawns everyone", r2.round === 2 && r2.alive, `round ${r2.round}`);
-    await phase(host, "live", "round 2 live");
-
-    // Plant: whoever attacks walks the charge onto site A and asks.
-    const [hp, gp] = [await probe(host), await probe(guest)];
-    const [atk, def] = hp.team === hp.attack ? [host, guest] : [guest, host];
-    const site = await host.evaluate(() => window.__strikeforce.match.sites()[0]);
-    await standAt(atk, site.x, site.z);
-    await wait(600);
-    await intent(atk, "plant", 0);
-    await phase(host, "planted", "charge planted");
-    step("the carrier plants on site A", true, `${gp.charge}`);
-    await standAt(def, site.x + 0.5, site.z);
-    await wait(600);
-    await intent(def, "defuse", null);
-    await phase(host, "post", "round 2 over");
-    const defused = await probe(host);
-    step("the defender defuses it", defused.charge === "defused", defused.charge);
+    step("the kill is credited", true);
+    await waitFor(host, () => window.__G.player.alive, "host back", { timeoutMs: 30_000 });
+    const back = await probe(host);
+    const moved = Math.hypot(back.pos[0] - before.pos[0], back.pos[1] - before.pos[1]);
+    step(
+      "the dead come back on a new life at an arena spawn",
+      back.life === before.life + 1,
+      `life ${before.life}→${back.life}, moved ${moved.toFixed(1)} m`,
+    );
 
     // Barrel: the guest's shot is a request; the host's blast comes back.
-    await phase(host, "live", "round 3 live", 30_000);
     const barrel = await guest.evaluate(() => window.__G.explosives.aliveMask().indexOf("1"));
     await guest.evaluate((i) => window.__strikeforce.match.barrelHit(i, 999, null, null), barrel);
     await waitFor(host, (i) => window.__G.explosives.aliveMask()[i] === "0", "host barrel blew", {
@@ -231,8 +195,7 @@ const main = async () => {
     );
     step("guest barrel shot blows the host's barrel", true);
 
-    // Host leaves: the guest picks the match up, score intact (then warmup: one side is empty).
-    const before = await probe(guest);
+    // Host leaves: the guest picks the match up, kills intact (then warmup: alone).
     await host.context().browser().close();
     await waitFor(guest, () => window.__strikeforce.match.guest === false, "guest promoted", {
       timeoutMs: 90_000,
@@ -240,8 +203,8 @@ const main = async () => {
     const after = await probe(guest);
     step(
       "guest inherits the match",
-      after.host && after.phase === "warmup",
-      `${JSON.stringify(before.score)} → ${after.phase}`,
+      after.host && after.phase === "warmup" && after.kills === 1,
+      `${after.phase}, ${after.kills} kills`,
     );
   } finally {
     console.log(results.join("\n"));

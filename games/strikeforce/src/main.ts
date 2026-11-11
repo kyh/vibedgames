@@ -29,7 +29,9 @@ if (!webgl.ok) {
 }
 
 const params = new URLSearchParams(location.search);
-const match = new Match();
+// A playtest must own its match: it never shares a room.
+const solo = isPlaytestRequested() || params.has("bench") || params.has("show");
+const match = new Match(() => openRoom(params, { solo }));
 if (import.meta.env.DEV) {
   window.__strikeforce = { match };
 }
@@ -56,12 +58,6 @@ match.watchState((state, g) => {
   prevState = state;
 });
 
-// A playtest must own its match: it never shares a room.
-const solo = isPlaytestRequested() || params.has("bench") || params.has("show");
-const connect = async (): Promise<void> => {
-  match.connect(await openRoom(params, { solo }));
-};
-
 const boot = async (): Promise<void> => {
   await bootStrikeforce(match);
   if (game) {
@@ -69,5 +65,4 @@ const boot = async (): Promise<void> => {
   }
 };
 
-void connect();
 void boot();

@@ -571,7 +571,7 @@ body {
 .h-feed {
   position: absolute;
   right: var(--gr);
-  top: 31%;
+  top: max(31%, calc(196px + var(--sat)));
   text-align: right;
 }
 .h-fl {
@@ -1843,22 +1843,6 @@ kbd {
   text-transform: uppercase;
   color: var(--bone-dim);
 }
-.mx-pips {
-  display: flex;
-  gap: 3px;
-}
-.mx-pips u {
-  width: 7px;
-  height: 9px;
-  text-decoration: none;
-  background: var(--bone-faint);
-}
-.t0 .mx-pips u.on {
-  background: #ffb347;
-}
-.t1 .mx-pips u.on {
-  background: #8fb8d8;
-}
 .mx-mid {
   display: flex;
   align-items: center;
@@ -1890,7 +1874,7 @@ kbd {
   display: none;
   gap: 18px;
   padding: 18px 20px;
-  width: min(640px, calc(100vw - var(--gl) - var(--gr)));
+  width: min(380px, calc(100vw - var(--gl) - var(--gr)));
   background: var(--plate-solid);
   border: 1px solid var(--line);
   border-top: 3px solid var(--signal);
@@ -1899,19 +1883,12 @@ kbd {
 }
 .mx-board.on {
   display: grid;
-  grid-template-columns: 1fr 1fr;
 }
 .mx-col h3 {
   margin: 0 0 10px;
   font: 700 18px/1 var(--f-display);
   letter-spacing: 0.12em;
   text-transform: uppercase;
-}
-.mx-col.t0 h3 {
-  color: #ffb347;
-}
-.mx-col.t1 h3 {
-  color: #8fb8d8;
 }
 .mx-player {
   display: grid;
@@ -1941,15 +1918,44 @@ kbd {
   .mx-team {
     min-width: 64px;
   }
-  .mx-board.on {
-    grid-template-columns: 1fr;
-  }
 }
 
-/* ---- modes: PvE-only controls hide in the match, match-only lines outside it ---- */
-.menu[data-mode="match"] [data-pve] {
+/* ---- modes: PvE-only controls hide in deathmatch, deathmatch-only lines outside it ---- */
+.menu[data-mode="deathmatch"] [data-pve] {
   display: none !important;
 }
-.menu:not([data-mode="match"]) [data-only-match] {
+.menu:not([data-mode="deathmatch"]) [data-only-match] {
   display: none !important;
+}
+
+/* ---- radar: top-right, turns with the player (src/minimap.ts) ---- */
+.radar {
+  position: absolute;
+  right: var(--gr);
+  top: calc(18px + var(--sat));
+  width: 156px;
+  height: 156px;
+  opacity: 0;
+  transition: opacity 0.3s;
+  pointer-events: none;
+}
+.radar.on {
+  opacity: 0.92;
+}
+@media (max-height: 520px) {
+  .radar {
+    width: 108px;
+    height: 108px;
+  }
+  .h-feed {
+    top: max(31%, calc(140px + var(--sat)));
+  }
+}
+/* touch: the pause button and ammo own the top-right; the radar sits under health */
+.is-touch .radar {
+  width: 104px;
+  height: 104px;
+  left: var(--gl);
+  right: auto;
+  top: calc(188px + var(--sat));
 }

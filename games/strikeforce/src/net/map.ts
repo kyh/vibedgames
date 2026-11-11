@@ -1,82 +1,76 @@
-// Where the match happens on Kestrel Terminal's dock: the two sites (the
-// level's relays A and B; relay C on the quay goes dark), and the two spawn
-// areas — the west gate and the east quay by the boat. Spawn slots are found
-// on the level's own walkable grid, so a level change moves them with it.
+// Where deathmatch happens on Kestrel Terminal's dock: spawn points on a grid
+// over the whole dock, the West Lot to the quay. Every point is found on the
+// level's own walkable grid, so a level change moves them with it.
 import { Vector3 } from "three";
 
 import type { StrikeforceGame } from "../core/types";
-import type { Point } from "./rules";
-
-/** Which end a side spawns at: the attackers always take the gate. */
-export type End = "gate" | "quay";
 
 export interface Spawn {
   pos: Vector3;
   yaw: number;
 }
 
-export interface MatchMap {
-  sites: [Point, Point];
-  siteLabels: [string, string];
-  spawns: Record<End, Spawn[]>;
-}
-
-const GATE = { x: -31, z: 6 };
-const QUAY = { x: 25, z: 17 };
-const SLOTS = 8;
-/** Metres between spawn slots. */
-const SPACING = 1.6;
+/** The dock's extent (the West Lot to the quay edge). */
+const DOCK = { x0: -106, x1: 27, z0: -26, z1: 24 };
+/** Metres between spawn grid points. */
+const STEP = 9;
+/** Where fresh spawns face: the middle of the old yard. */
+const CENTRE = { x: 0, z: -6 };
 
 /** The yaw that faces from `from` towards `to` (the camera looks down -Z at yaw 0). */
 const yawTowards = (from: { x: number; z: number }, to: { x: number; z: number }): number =>
   Math.atan2(-(to.x - from.x), -(to.z - from.z));
 
-const findSlots = (
-  game: StrikeforceGame,
-  centre: { x: number; z: number },
-  facing: Point,
-): Spawn[] => {
+/** Walkable points with a little room around them, spread over the dock. */
+export const arenaSpawns = (game: StrikeforceGame): Spawn[] => {
   const { nav } = game.physics;
-  const slots: Spawn[] = [];
-  // Walk outward in rings until eight walkable spots stand apart.
-  for (let r = 0; r <= 14 && slots.length < SLOTS; r += 0.8) {
-    const steps = Math.max(1, Math.round((2 * Math.PI * r) / SPACING));
-    for (let i = 0; i < steps && slots.length < SLOTS; i += 1) {
-      const a = (i / steps) * Math.PI * 2;
-      const x = centre.x + Math.cos(a) * r;
-      const z = centre.z + Math.sin(a) * r;
-      const clear =
-        nav.isWalkable(x, z) && slots.every((s) => Math.hypot(s.pos.x - x, s.pos.z - z) >= SPACING);
-      if (clear) {
+  const points: Spawn[] = [];
+  for (let x = DOCK.x0; x <= DOCK.x1; x += STEP) {
+    for (let z = DOCK.z0; z <= DOCK.z1; z += STEP) {
+      const roomy = [
+        [0, 0],
+        [1, 0],
+        [-1, 0],
+        [0, 1],
+        [0, -1],
+      ].every(([dx = 0, dz = 0]) => nav.isWalkable(x + dx, z + dz));
+      if (roomy) {
         const pos = new Vector3(x, 0, z);
-        slots.push({ pos, yaw: yawTowards(pos, facing) });
+        points.push({ pos, yaw: yawTowards(pos, CENTRE) });
       }
     }
   }
-  return slots.length > 0
-    ? slots
-    : [{ pos: new Vector3(centre.x, 0, centre.z), yaw: yawTowards(centre, facing) }];
+  return points;
 };
 
-export const buildMap = (game: StrikeforceGame): MatchMap => {
-  const { relays } = game.game.run;
-  const byId = (id: string) => relays.find((r) => r.id === id);
-  const a = byId("relay_a")?.o.pos ?? new Vector3(1.5, 0, 7.5);
-  const b = byId("relay_b")?.o.pos ?? new Vector3(-2, 0, -19.5);
-  const mid = { x: (a.x + b.x) / 2, y: 0, z: (a.z + b.z) / 2 };
-  return {
-    siteLabels: ["A — Yard", "B — Shed"],
-    sites: [
-      { x: a.x, y: a.y, z: a.z },
-      { x: b.x, y: b.y, z: b.z },
-    ],
-    spawns: { gate: findSlots(game, GATE, mid), quay: findSlots(game, QUAY, mid) },
-  };
+/** Of a few random spawns, the one farthest from every enemy. */
+export const safestSpawn = (
+  spawns: readonly Spawn[],
+  enemies: readonly { x: number; z: number }[],
+  rng: () => number = Math.random,
+): Spawn | undefined => {
+  let best: Spawn | undefined;
+  let bestD = -1;
+  for (let i = 0; i < 6 && spawns.length > 0; i += 1) {
+    const spot = spawns[Math.floor(rng() * spawns.length)];
+    if (!spot) {
+      continue;
+    }
+    let nearest = Infinity;
+    for (const e of enemies) {
+      nearest = Math.min(nearest, Math.hypot(e.x - spot.pos.x, e.z - spot.pos.z));
+    }
+    if (nearest > bestD) {
+      bestD = nearest;
+      best = spot;
+    }
+  }
+  return best;
 };
 
-/** Light sites A and B, darken relay C: the dock's only objectives are the two sites. */
-export const dressRelays = (game: StrikeforceGame): void => {
+/** Deathmatch has no objectives: every relay on the dock goes dark. */
+export const darkenRelays = (game: StrikeforceGame): void => {
   for (const relay of game.game.run.relays) {
-    relay.o.object?.userData.setState?.(relay.id === "relay_c" ? "cut" : "live");
+    relay.o.object?.userData.setState?.("cut");
   }
 };

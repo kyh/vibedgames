@@ -65,7 +65,7 @@ export interface Relay {
 
 export interface GameFlow {
   state: GameState;
-  /** `mode` is the deployed one: "match", "mission" or "holdout". */
+  /** `mode` is the deployed one: "deathmatch", "mission" or "holdout". */
   run: { relays: Relay[]; mode: string };
   start: (options?: { skipIntro?: boolean }) => void;
   pause: () => void;
@@ -133,7 +133,7 @@ export interface ShotHit {
 
 /** What strikeforce-core.js calls on `G.net`. */
 export interface NetHooks {
-  /** Always true: the core's mission flow stands down for the match. */
+  /** True in deathmatch: the core's mission flow stands down for it. */
   readonly match: boolean;
   /** Another client owns the barrels. */
   readonly guest: boolean;
