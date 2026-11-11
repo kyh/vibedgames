@@ -14162,7 +14162,7 @@ function fP(n) {
 function westLot(n) {
   let e = n.place,
     t = n.stack;
-  // South rows (z -6 .. -27): 40 ft = 12.2 m, 20 ft = 6.1 m along x.
+  // North rows (z -6 .. -27; -Z is north, as the compass reads): 40 ft = 12.2 m, 20 ft = 6.1 m along x.
   (t(-100, -6, [
     [40, "grey"],
     [40, "teal"],
@@ -14207,7 +14207,7 @@ function westLot(n) {
       [40, "grey"],
       [40, "white"],
     ]),
-    // North rows (z 13 .. 25.5).
+    // South rows (z 13 .. 25.5, the quay side).
     t(-101, 13, [
       [20, "teal"],
       [20, "orange"],
@@ -14333,7 +14333,7 @@ function hP(n) {
       ));
   }
   // [map] Perimeter at x = -110; the old gate line keeps two runs of fence with
-  // passages at the south end, the gate, and the north end.
+  // passages at the north end (z < -20), the gate, and the south end (z > 18).
   (l(-110, s, i, s, 100),
     l(-110, o, i, o, 200),
     l(-110, s, -110, o, 500),

@@ -1,9 +1,10 @@
 // The radar: a round minimap in the top-right corner that turns with the
 // player (forward is always up). The dock is baked once from the level's own
 // walkable grid — obstacles and the quay edge in bone, open ground dark — so a
-// level change redraws it for free. On it: you (centre), north on the rim,
-// enemy shots as fading pings (deathmatch: you are seen when you fire), and in
-// the solo modes the relays still standing, pinned to the rim when far.
+// level change redraws it for free. On it: you (centre), north on the rim
+// (-Z, where the game's compass reads 000), enemy shots as fading pings
+// (deathmatch: you are seen when you fire), and in the solo modes the relays
+// still standing, pinned to the rim when far.
 import type { StrikeforceGame } from "./core/types";
 
 /** The level's nav extent (strikeforce-core.js `Kn`), metres. */
