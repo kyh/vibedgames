@@ -196,6 +196,10 @@ const resetMatch = (state: MatchState): void => {
   state.round = 0;
   state.attack = 0;
   state.phase = "warmup";
+  state.ends = 0;
+  state.last = null;
+  // A charge from the last round (planted, dropped, detonated) does not outlive it.
+  state.charge = noCharge();
   for (const fighter of state.roster.values()) {
     fighter.kills = 0;
     fighter.deaths = 0;

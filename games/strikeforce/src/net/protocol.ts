@@ -89,7 +89,16 @@ const asTeam = (v: number | undefined): Team => (v === 1 ? 1 : 0);
 export const encodeMatch = (s: MatchState, stamp: number): JsonRecord => {
   const ro: JsonRecord = {};
   for (const [id, f] of s.roster) {
-    ro[id] = [f.team, f.alive ? 1 : 0, Math.round(f.hp), f.kills, f.deaths, f.slot];
+    // `back` (server ms) rides along so a promoted host keeps warmup respawns.
+    ro[id] = [
+      f.team,
+      f.alive ? 1 : 0,
+      Math.round(f.hp),
+      f.kills,
+      f.deaths,
+      f.slot,
+      Math.round(f.back),
+    ];
   }
   const c = s.charge;
   return {
@@ -111,10 +120,10 @@ const decodeFighter = (raw: JsonValue | undefined): Fighter | null => {
   if (!v) {
     return null;
   }
-  const [team, alive, hp, kills, deaths, slot] = v;
+  const [team, alive, hp, kills, deaths, slot, back] = v;
   return {
     alive: alive === 1,
-    back: 0,
+    back: back ?? 0,
     deaths: deaths ?? 0,
     hp: hp ?? 0,
     kills: kills ?? 0,

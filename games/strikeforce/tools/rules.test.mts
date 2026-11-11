@@ -179,10 +179,17 @@ test("sides swap at the half and the first team to five wins, then a new match s
   assert.equal(s.round, 1);
 });
 
-test("a side emptying out mid-round returns to warmup", () => {
+test("a side emptying out returns to warmup and takes the charge with it", () => {
   const { s, now, bodies } = liveMatch();
+  const c = s.charge.carrier;
+  bodies[c] = { x: 0, y: 0, z: 0 };
+  applyPlant(s, c, 0, SITES, bodies, now);
+  tick(s, now + RULES.chargeMs, bodies, first);
+  assert.equal(s.charge.state, "detonated");
   syncRoster(s, idsOn(s, 0), bodies);
-  tick(s, now + 1, bodies, first);
+  tick(s, now + RULES.chargeMs + 1, bodies, first);
   assert.equal(s.phase, "warmup");
+  assert.equal(s.charge.state, "none", "no detonation replays in warmup");
+  assert.equal(s.last, null);
   assert.ok([...s.roster.values()].every((f) => f.alive));
 });

@@ -2,7 +2,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { ROOM_PREFIX, q3, roomId } from "../src/net/protocol.ts";
+import { ROOM_PREFIX, decodeMatch, encodeMatch, q3, roomId } from "../src/net/protocol.ts";
+import { newMatch } from "../src/net/rules.ts";
 import { callsignOf } from "../src/net/players.ts";
 import { isRecord, nums, strs, vecAt, vecWire } from "../src/net/wire.ts";
 
@@ -40,4 +41,14 @@ test("callsigns are stable two-digit SF tags", () => {
   assert.match(callsignOf("abc123"), /^SF-\d{2}$/u);
   const tags = new Set(["p1", "p2", "p3", "p4", "p5", "p6"].map(callsignOf));
   assert.ok(tags.size >= 5, "six ids rarely share a callsign");
+});
+
+test("the match round-trips, warmup respawn times included", () => {
+  const m = newMatch();
+  m.roster.set("p1", { alive: false, back: 123_456, deaths: 2, hp: 0, kills: 3, slot: 1, team: 1 });
+  m.score = [2, 1];
+  const back = decodeMatch(encodeMatch(m, 99));
+  assert.equal(back?.stamp, 99);
+  assert.deepEqual(back?.state.roster.get("p1"), m.roster.get("p1"));
+  assert.deepEqual(back?.state.score, [2, 1]);
 });

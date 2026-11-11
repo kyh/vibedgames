@@ -253,7 +253,9 @@ export class Match implements NetHooks {
 
   private deployedIds(game: StrikeforceGame): string[] {
     const ids = [...(this.players?.all.values() ?? [])]
-      .filter((p) => p.deployed && p.connected)
+      // A dropped connection keeps its seat for the SDK's reconnect grace: only
+      // leaving the room (gone from client.players) gives it up.
+      .filter((p) => p.deployed)
       .map((p) => p.id);
     if (inMatch(game)) {
       ids.push(this.me);
