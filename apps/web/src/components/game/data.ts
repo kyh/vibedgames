@@ -32,6 +32,13 @@ export const featuredGames: FeaturedGame[] = [
     slug: "showdown",
   },
   {
+    colorScheme: "dark",
+    name: "Strikeforce",
+    preview: "/covers/strikeforce.webp",
+    previewPortrait: "/covers/strikeforce-portrait.webp",
+    slug: "strikeforce",
+  },
+  {
     colorScheme: "light",
     name: "Flappy Dragons",
     preview: "/covers/flappy-dragons.webp",

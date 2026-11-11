@@ -1,0 +1,73 @@
+import "./style.css";
+
+import {
+  notifyGameStarted,
+  probeWebGL,
+  resumeGame,
+  setPauseHandlers,
+  showWebGLVeil,
+} from "@repo/embed";
+import { isPlaytestRequested } from "@vibedgames/playtest";
+
+import { bootStrikeforce } from "./core/strikeforce-core.js";
+import type { GameState, StrikeforceGame } from "./core/types";
+import { Match } from "./net/match";
+import { openRoom } from "./net/session";
+import { installPlaytest } from "./playtest";
+
+declare global {
+  interface Window {
+    /** Dev-only handle for tools/two-client.mjs. */
+    __strikeforce?: { match: Match };
+  }
+}
+
+const webgl = probeWebGL();
+if (!webgl.ok) {
+  showWebGLVeil(webgl);
+  throw new Error(`WebGL unavailable: ${webgl.reason}`);
+}
+
+const params = new URLSearchParams(location.search);
+const match = new Match();
+if (import.meta.env.DEV) {
+  window.__strikeforce = { match };
+}
+let game: StrikeforceGame | null = null;
+let prevState: GameState = "title";
+
+// The wrapper's pause opens the game's own pause menu; the game owns Escape
+// (and its own touch pause button), and its Resume hands back to the wrapper.
+// A match never freezes: the round plays on behind the menu.
+setPauseHandlers({
+  escapePauses: () => false,
+  onPause: () => game?.game.pause(),
+  onResume: () => game?.game.resume(),
+});
+
+match.watchState((state, g) => {
+  game = g;
+  if (state === "intro" || state === "playing") {
+    notifyGameStarted();
+  }
+  if (prevState === "paused" && state === "playing") {
+    resumeGame();
+  }
+  prevState = state;
+});
+
+// A playtest must own its match: it never shares a room.
+const solo = isPlaytestRequested() || params.has("bench") || params.has("show");
+const connect = async (): Promise<void> => {
+  match.connect(await openRoom(params, { solo }));
+};
+
+const boot = async (): Promise<void> => {
+  await bootStrikeforce(match);
+  if (game) {
+    installPlaytest(game, match);
+  }
+};
+
+void connect();
+void boot();
