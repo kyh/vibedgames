@@ -1638,6 +1638,7 @@ kbd {
   padding-left: 16px;
   opacity: 0;
   transition: opacity 0.5s;
+  pointer-events: none;
   text-shadow: var(--shadow);
   max-width: calc(100vw - var(--gl) - var(--gr) - 16px);
 }
