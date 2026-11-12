@@ -8,8 +8,7 @@ import { Raycaster, Vector3 } from "three";
 import type { Mesh, Object3D } from "three";
 
 import type { StrikeforceGame, ShotHit } from "../core/types";
-import { Avatar } from "./avatar";
-import { AVATAR_COLOR } from "./protocol";
+import { SoldierModel } from "../soldier/soldier-model";
 import { BOTS, isBot } from "./rules";
 import type { Point } from "./rules";
 import { isNum } from "./wire";
@@ -47,7 +46,7 @@ export const callsignOf = (id: string): string => {
 export interface Opponent {
   readonly id: string;
   readonly callsign: string;
-  avatar: Avatar | null;
+  avatar: SoldierModel | null;
   readonly interp: Interpolator<Pose>;
   /** Latest reported (not interpolated) body, for the host's rules. */
   reported: Point | null;
@@ -213,7 +212,7 @@ export class Players {
     if (p.avatar) {
       return;
     }
-    p.avatar = new Avatar(p.callsign, AVATAR_COLOR);
+    p.avatar = new SoldierModel("operator", p.callsign);
     p.avatar.root.visible = false;
     this.game.scene.add(p.avatar.root);
   }

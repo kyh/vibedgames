@@ -6,12 +6,12 @@ picked on the title screen:
 - **Deathmatch** (online, the default) — every player for themselves, up to
   sixteen, topped up with bots while the room is thin. A death lasts three seconds and comes back at the spawn farthest
   from the enemy; first to 25 kills, or the most after ten minutes.
-- **Mission** (solo PvE) — the dock's security machines hunt you while you
+- **Mission** (solo PvE) — the Harbormaster's crew hunts you while you
   cut three uplink relays, then reach the boat.
-- **Holdout** (solo PvE) — endless, growing waves of machines; resupply
+- **Holdout** (solo PvE) — endless, growing waves of the crew; resupply
   between waves.
 
-Every surface, weapon, machine and sound is generated in the browser; nothing
+Every surface, weapon, soldier and sound is generated in the browser; nothing
 is downloaded. Deployed at `strikeforce.vibedgames.com`.
 
 ## Develop
@@ -95,8 +95,36 @@ hit. A promoted host inherits them where they stood. With `?bots=0`, alone
 the room sits in warmup.
 
 Damage: the weapon's own numbers, ×4 to the head (a rifle headshot kills).
-Everyone wears one colour and there are no name plates: you have to find who
-you are fighting.
+Everyone wears the same coyote kit and there are no name plates: you have to
+find who you are fighting.
+
+## Soldiers
+
+Every computer-played fighter is a soldier: deathmatch bots and the crew in
+Mission and Holdout alike.
+
+- **Model** (`src/soldier/soldier-model.ts`, kits in `soldier-kit.ts`): built
+  from primitives in code, one merged mesh per limb with baked vertex colours
+  (ten draw calls a soldier), a cut helmet with rails, ear cups and an NVG
+  mount, goggles, a balaclava, a plate carrier with pouches, a carbine. Fabric
+  carries a camo weight the material turns into blotches. Two kits:
+  `operator` (coyote; every deathmatch fighter) and `garrison` (urban grey,
+  red armband; the crew). Walk, crouch, aim pitch, a flinch on a hit, a fall.
+- **Brain** (`src/soldier/soldier-brain.ts`): sees 200° ahead to its range,
+  patrols, goes to look at what it heard, fights (strafe, close to its hold
+  distance, bursts) and goes hunting where it last saw you. Late to react —
+  later still when you catch it calm — and a worse shot with range, your
+  movement and your crouch.
+- **The crew** (`src/garrison/`): the core's enemies module, handed to it at
+  boot (`CoreModules`), so the core's director still runs patrols, waves,
+  pursuit, relays and Holdout scoring. It spawns two kinds by name, "gull"
+  and "hound", and tunes them through `TUNE` by machine numbers: the crew
+  fields a **rifleman** for a gull and a **heavy** for a hound, and reads the
+  core's numbers as ratios over the machines' baseline (`roles.ts`), so
+  difficulty and Holdout waves scale a soldier as they scaled a machine. A
+  few fire at once (attack tokens); a hit or a death brings squadmates near
+  it to look. A rifle headshot drops a rifleman on any difficulty; a heavy's
+  helmet takes two.
 
 **Radar** (`src/minimap.ts`, every mode): a round minimap, top-right (under
 health on touch), that turns with you. The dock is baked once from the
@@ -136,19 +164,21 @@ Wire format: `src/net/protocol.ts`. A wire change bumps `ROOM_PREFIX`.
 
 ## Layout
 
-| Path                              | What                                                           |
-| --------------------------------- | -------------------------------------------------------------- |
-| `src/core/strikeforce-core.js`    | the game: renderer, dock, weapons, audio, HUD, menus           |
-| `src/core/types.ts`               | the typed slice of the game object the TypeScript layer drives |
-| `src/net/rules.ts`                | the deathmatch rules (host)                                    |
-| `src/net/match.ts`                | the match controller: `G.net`, host and client                 |
-| `src/net/bots.ts`                 | bots: the host's brains, and their bodies as player reports    |
-| `src/net/players.ts`, `avatar.ts` | other players: interpolation, avatars, hitboxes                |
-| `src/net/map.ts`                  | arena spawns on the dock                                       |
-| `src/net/match-hud.ts`            | kills bar, match clock, Tab scoreboard                         |
-| `src/minimap.ts`                  | the radar                                                      |
-| `src/controls.ts`                 | controls manifest for `@repo/embed`                            |
-| `src/playtest.ts`                 | `@vibedgames/playtest` diagnostics, hooks and manifest         |
+| Path                           | What                                                           |
+| ------------------------------ | -------------------------------------------------------------- |
+| `src/core/strikeforce-core.js` | the game: renderer, dock, weapons, audio, HUD, menus           |
+| `src/core/types.ts`            | the typed slice of the game object the TypeScript layer drives |
+| `src/net/rules.ts`             | the deathmatch rules (host)                                    |
+| `src/net/match.ts`             | the match controller: `G.net`, host and client                 |
+| `src/net/bots.ts`              | bots: the host's brains, and their bodies as player reports    |
+| `src/net/players.ts`           | other players: interpolation, avatars, hitboxes                |
+| `src/soldier/`                 | the soldier model, kits, brain and tracer: bots and crew alike |
+| `src/garrison/`                | the crew in Mission and Holdout: the core's enemies module     |
+| `src/net/map.ts`               | arena spawns on the dock                                       |
+| `src/net/match-hud.ts`         | kills bar, match clock, Tab scoreboard                         |
+| `src/minimap.ts`               | the radar                                                      |
+| `src/controls.ts`              | controls manifest for `@repo/embed`                            |
+| `src/playtest.ts`              | `@vibedgames/playtest` diagnostics, hooks and manifest         |
 
 ### About the core
 
@@ -158,10 +188,12 @@ and formatted, with three.js swapped for the npm package — pinned to
 `0.180.0`, the release it was written against, because it patches three's
 shader chunks by exact text (soft shadows, the sea, the apron) and later
 releases changed them. The mangled names are the bundler's; there was no
-source to recover them from. Its machine enemies spawn only in the PvE
-modes.
+source to recover them from. Its machine enemies (`W5`) remain only for the
+`?show` gallery; the game boots the garrison in their place.
 
 The file is excluded from lint and typecheck. Its only hand edits are the
 match hooks, each marked `[net]` and called through `G.net` (`NetHooks` in
-`src/core/types.ts`), plus the title copy. Keep new behaviour in TypeScript
+`src/core/types.ts`); the soldier hooks, marked `[soldiers]` (the boot
+takes `CoreModules`; its audio and kill feed treat an enemy with `soldier`
+set as a person); and the title and mission copy. Keep new behaviour in TypeScript
 behind those hooks rather than in the core.

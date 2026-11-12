@@ -57,9 +57,6 @@ export interface BodyWire {
   d: number;
 }
 
-/** Every avatar wears one colour: deathmatch has no sides. */
-export const AVATAR_COLOR = "#ffb347";
-
 /** Build the room id from a squad code (`?room=`). */
 export const roomId = (code: string): string =>
   ROOM_PREFIX +

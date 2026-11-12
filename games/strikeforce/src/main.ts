@@ -11,6 +11,7 @@ import { isPlaytestRequested } from "@vibedgames/playtest";
 
 import { bootStrikeforce } from "./core/strikeforce-core.js";
 import type { GameState, StrikeforceGame } from "./core/types";
+import { Garrison } from "./garrison/garrison";
 import { Match } from "./net/match";
 import { BOTS } from "./net/rules";
 import { openRoom } from "./net/session";
@@ -64,7 +65,7 @@ match.watchState((state, g) => {
 });
 
 const boot = async (): Promise<void> => {
-  await bootStrikeforce(match);
+  await bootStrikeforce(match, { enemies: (g) => new Garrison(g) });
   if (game) {
     installPlaytest(game, match);
   }

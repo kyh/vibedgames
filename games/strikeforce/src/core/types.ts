@@ -90,7 +90,86 @@ export interface WeaponFire {
 
 export interface EventBus {
   on: ((name: "weapon:fire", handler: (payload: WeaponFire) => void) => () => void) &
-    ((name: "player:dead", handler: () => void) => () => void);
+    ((name: "player:dead", handler: () => void) => () => void) &
+    ((name: "explosion", handler: (payload: { pos?: Vector3 }) => void) => () => void) &
+    ((name: "game:state", handler: (payload: { state?: GameState }) => void) => () => void);
+  emit: (
+    name: "enemy:alert" | "enemy:fire" | "enemy:killed",
+    payload: { enemy: Enemy; pos: Vector3; type: string },
+  ) => void;
+}
+
+/** One of the dock's enemies, as the core's Mission/Holdout flow reads it. */
+export interface Enemy {
+  /** The director's kind: "gull" (many, light) or "hound" (fewer, tough). */
+  readonly type: string;
+  readonly pos: Vector3;
+  readonly alive: boolean;
+  /** Returns true when the hit killed it. `part` is "weak" for a headshot. */
+  damage: (amount: number, point: Vector3, dir: Vector3, part: string) => boolean;
+}
+
+/** A shot that met an enemy, as `Enemies.raycast` reports it. */
+export interface EnemyHit {
+  enemy: Enemy;
+  part: "weak" | "body";
+  point: Vector3;
+  normal: Vector3;
+  dist: number;
+}
+
+/**
+ * The tuning the core's difficulty presets and Holdout waves write into, by
+ * the director's enemy kinds. Every key a preset sets is here.
+ */
+export interface EnemyTune {
+  gull: {
+    hp: number;
+    boltDamage: number;
+    telegraph: number;
+    cooldown: number[];
+    spreadFar: number;
+    spreadNear: number;
+  };
+  hound: {
+    hp: number;
+    shotDamage: number;
+    burst: number;
+    cooldown: number[];
+    spreadFar: number;
+    spreadNear: number;
+    lungeDamage: number;
+    runSpeed: number;
+  };
+  sightRange: number;
+  hearRadius: number;
+  maxTokens: number;
+  maxTokensCrowd: number;
+  tokenGap: number;
+  exposureUp: number;
+}
+
+/** The enemies module (`G.enemies`) the core's Mission/Holdout flow drives. */
+export interface Enemies {
+  readonly TUNE: EnemyTune;
+  readonly list: Enemy[];
+  readonly stub: boolean;
+  update: (dt: number) => void;
+  spawn: (
+    type: string,
+    pos: Vector3,
+    options?: { state?: string; target?: Vector3 },
+  ) => Enemy | null;
+  raycast: (origin: Vector3, dir: Vector3, maxDist: number) => EnemyHit | null;
+  aliveCount: () => number;
+  clear: () => void;
+  /** Something loud happened at `pos`: whoever is within `radius` comes to look. */
+  alert: (pos: Vector3, radius: number) => void;
+}
+
+/** Modules the TypeScript layer hands the core at boot, in place of its own. */
+export interface CoreModules {
+  enemies: (game: StrikeforceGame) => Enemies;
 }
 
 export interface Physics {
@@ -117,7 +196,7 @@ export interface StrikeforceGame {
   camera: PerspectiveCamera;
   player: PlayerBody;
   explosives: Explosives;
-  /** The dock's machines: they only spawn in the solo PvE modes. */
+  /** The dock's crew: they only spawn in the solo PvE modes. */
   enemies: { list: { alive: boolean; pos: Vector3 }[] };
   hud: Hud;
   fx: Fx;

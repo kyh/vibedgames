@@ -50,15 +50,15 @@ interface Nearby {
   nearestRelay: Offset | null;
 }
 
-/** Offsets to what the player is looking for: a relay, the nearest enemy (machine or player). */
+/** Offsets to what the player is looking for: a relay, the nearest enemy (crew or player). */
 const nearby = (game: StrikeforceGame, match: Match): Nearby => {
   const { pos } = game.player;
   const pve = game.game.run.mode !== "deathmatch";
-  const machines = game.enemies.list.filter((e) => e.alive).map((e) => e.pos);
+  const crew = game.enemies.list.filter((e) => e.alive).map((e) => e.pos);
   const relays = game.game.run.relays.filter((r) => !r.cut).map((r) => r.o.pos);
   const at = (p: Point | null): Offset | null => (p ? offset(pos, p) : null);
   return {
-    nearestEnemy: at(nearestOf(pos, pve ? machines : match.enemies())),
+    nearestEnemy: at(nearestOf(pos, pve ? crew : match.enemies())),
     nearestRelay: at(nearestOf(pos, relays)),
   };
 };
@@ -114,7 +114,7 @@ export const installPlaytest = (game: StrikeforceGame, match: Match): void => {
       reload: { description: "Reload the rifle", keys: ["KeyR"] },
       use: { description: "Hold to cut a relay (solo Mission)", keys: ["KeyE"] },
     },
-    goal: 'First-person shooter on a rainy container dock. In deathmatch (mode "deathmatch"; alone it stays in warmup) explore the dock: walk from the West Lot to the quay. In solo PvE (?mode=mission) cut the relays (nearestRelay; hold use on one) while machines hunt you (nearestEnemy): turn to face them and fire.',
+    goal: 'First-person shooter on a rainy container dock. In deathmatch (mode "deathmatch"; alone it stays in warmup) explore the dock: walk from the West Lot to the quay. In solo PvE (?mode=mission) cut the relays (nearestRelay; hold use on one) while soldiers hunt you (nearestEnemy): turn to face them and fire; aim for the head.',
     minDisplacement: 0.05,
     move: {
       back: { description: "Walk backward", keys: ["KeyS"] },

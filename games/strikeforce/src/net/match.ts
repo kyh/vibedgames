@@ -17,10 +17,11 @@ import type { JsonValue, MultiplayerClient } from "@vibedgames/multiplayer";
 import { Vector3 } from "three";
 
 import type { GameState, NetHooks, StrikeforceGame, ShotHit, WeaponFire } from "../core/types";
+import type { Combatant, Shot } from "../soldier/soldier-brain";
+import { showShot } from "../soldier/gunfire";
 import { Radar } from "../minimap";
 import type { RadarMark } from "../minimap";
 import { Bots, botPlayers } from "./bots";
-import type { BotShot, Target } from "./bots";
 import { arenaSpawns, darkenRelays, safestSpawn } from "./map";
 import type { Spawn } from "./map";
 import { MatchHud } from "./match-hud";
@@ -83,10 +84,7 @@ const remoteShot = (payload: JsonValue, game: StrikeforceGame): void => {
     return;
   }
   const muzzle = vecAt(v, 0, new Vector3());
-  const end = vecAt(v, 3, new Vector3());
-  const dir = new Vector3().subVectors(end, muzzle).normalize();
-  game.fx.tracer(muzzle, end);
-  game.fx.muzzleFlash(muzzle, dir, { scale: 0.8 });
+  showShot(game, muzzle, vecAt(v, 3, new Vector3()));
   game.audio.play?.(v[6] === 1 ? "pistol_shot" : "rifle_shot", {
     gain: 0.55,
     jitter: 0.03,
@@ -343,21 +341,27 @@ export class Match implements NetHooks {
   }
 
   /** The people a bot may shoot: deployed, and alive in the match. */
-  private peopleStanding(game: StrikeforceGame, rules: MatchState): Target[] {
-    const out: Target[] = [];
-    if (inMatch(game) && game.player.alive && rules.roster.get(this.me)?.alive) {
-      out.push({ crouch: game.player.crouching, id: this.me, pos: game.player.pos });
+  private peopleStanding(game: StrikeforceGame, rules: MatchState): Combatant[] {
+    const out: Combatant[] = [];
+    const { player } = game;
+    if (inMatch(game) && player.alive && rules.roster.get(this.me)?.alive) {
+      out.push({
+        crouch: player.crouching,
+        id: this.me,
+        moving: Math.hypot(player.vel.x, player.vel.z) > 2,
+        pos: player.pos,
+      });
     }
     for (const p of this.players?.all.values() ?? []) {
       if (!isBot(p.id) && p.reported && rules.roster.get(p.id)?.alive) {
-        out.push({ crouch: (p.pose?.crouch ?? 0) > 0.5, id: p.id, pos: p.reported });
+        out.push({ crouch: (p.pose?.crouch ?? 0) > 0.5, id: p.id, moving: true, pos: p.reported });
       }
     }
     return out;
   }
 
   /** A bot fired: everyone sees the tracer; a hit counts like anyone's. */
-  private botShot(client: MultiplayerClient, game: StrikeforceGame, shot: BotShot): void {
+  private botShot(client: MultiplayerClient, game: StrikeforceGame, shot: Shot): void {
     const wire = [...vecWire(shot.muzzle), ...vecWire(shot.end), 0];
     client.sendEvent(EV.shot, wire, { except: client.playerId ?? undefined });
     if (inMatch(game)) {
@@ -370,7 +374,7 @@ export class Match implements NetHooks {
     }
     const result = applyHit(
       rules,
-      shot.bot,
+      shot.shooter,
       shot.victim,
       shot.damage,
       shot.head,

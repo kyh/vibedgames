@@ -27619,6 +27619,8 @@ function uE(n, e, t) {
   function oi(ie) {
     !ie ||
       mt ||
+      // [soldiers] people make no engine noise.
+      ie.soldier ||
       Sn.has(ie) ||
       ie.alive === false ||
       Sn.set(ie, {
@@ -27912,6 +27914,8 @@ function uE(n, e, t) {
       if (ae - Te < 0.12) return;
       Te = ae;
       let pe = ie.enemy || {};
+      // [soldiers] no machine chirp when a soldier spots you.
+      if (pe.soldier) return;
       ke("alert", {
         pos: Kt(pe.pos) || Kt(ie.pos),
         variant: pe.type === "hound" ? 1 : 0,
@@ -27921,7 +27925,10 @@ function uE(n, e, t) {
     Fe("enemy:fire", (ie) => {
       let ae = ie.type || (ie.enemy && ie.enemy.type),
         pe = Kt(ie.pos) || (ie.enemy && Kt(ie.enemy.pos));
-      (ke(ae === "hound" ? "hound_fire" : "gull_fire", { pos: pe, gain: 1, jitter: 0.04 }),
+      // [soldiers] a soldier's carbine sounds like any other rifle.
+      (ie.enemy && ie.enemy.soldier
+        ? ke("rifle_shot", { pos: pe, gain: 0.55, jitter: 0.03 })
+        : ke(ae === "hound" ? "hound_fire" : "gull_fire", { pos: pe, gain: 1, jitter: 0.04 }),
         (me = Math.min(1, Math.max(me, 0.6) + 0.05)));
     }),
     Fe("enemy:step", (ie) => {
@@ -27960,8 +27967,11 @@ function uE(n, e, t) {
       let ae = ie.enemy,
         pe = ie.type || (ae && ae.type),
         Ee = Kt(ie.pos) || (ae && Kt(ae.pos));
+      // [soldiers] a body falls; a machine wrecks.
       (ae && xn(ae),
-        ke(pe === "hound" ? "hound_die" : "gull_die", { pos: Ee, gain: 1, jitter: 0.05 }));
+        ae && ae.soldier
+          ? ke("land", { pos: Ee, gain: 0.8, jitter: 0.05 })
+          : ke(pe === "hound" ? "hound_die" : "gull_die", { pos: Ee, gain: 1, jitter: 0.05 }));
     }),
     Fe("explosion", (ie) => {
       let ae = ti(+ie.size || 1, 0.3, 3),
@@ -41757,11 +41767,18 @@ function sT(n) {
           P &&
           D === n.time.frame &&
           !P.weak &&
-          ((P.weak = true), (P.el.innerHTML += "<em>Weak point</em>")));
+          ((P.weak = true),
+          // [soldiers]
+          (P.el.innerHTML +=
+            he.enemy && he.enemy.soldier ? "<em>Headshot</em>" : "<em>Weak point</em>")));
     }),
     n.events.on("enemy:killed", (he) => {
-      let V = String((he && (he.type || (he.enemy && he.enemy.type))) || "machine").toUpperCase();
-      ((P = X.feed(`<b>${V}</b> destroyed`)), (D = n.time.frame));
+      // [soldiers] a soldier goes down by its role; a machine is destroyed.
+      let S = he && he.enemy && he.enemy.soldier,
+        V = String(
+          (S ? he.enemy.callsign : he && (he.type || (he.enemy && he.enemy.type))) || "machine",
+        ).toUpperCase();
+      ((P = X.feed(`<b>${V}</b> ${S ? "down" : "destroyed"}`)), (D = n.time.frame));
     }),
     n.events.on("player:hit", (he) => {
       if (!he || !he.fromPos) return;
@@ -42123,10 +42140,11 @@ var lT = "strikeforce.settings.v1",
   ],
   nL = {
     deathmatch:
-      "Online, every player for themselves. Respawn in three seconds; first to 25 kills takes it.",
+      "Online, every player for themselves; bots fill in until the dock is busy. First to 25 kills takes it.",
     mission:
-      "Solo against the dock's machines. Cut three relays and reach the boat. About five minutes.",
-    holdout: "Endless waves that keep growing. Resupply between waves. How long can you hold?",
+      "Solo against the dock's crew. Cut three relays and reach the boat. About five minutes.",
+    holdout:
+      "Endless waves of the crew that keep growing. Resupply between waves. How long can you hold?",
   },
   ab = [
     ["standard", "Standard"],
@@ -42209,7 +42227,7 @@ function hT(n, e) {
     <div class="m-title-main">
       <div class="m-eyebrow"><span class="m-tag">PvP</span><span>Kestrel Terminal</span><span class="m-dim">Deathmatch · solo</span></div>
       <h1 class="m-word">STRIKEFORCE</h1>
-      <p class="m-premise">A container dock at dusk and a rifle. Every player for themselves, or the dock alone against its machines.</p>
+      <p class="m-premise">A container dock at dusk and a rifle. Every player for themselves, or the dock alone against its crew.</p>
       <div class="m-actions">
         <button class="btn primary" data-act="deploy">Deploy</button>
         <button class="btn" data-act="settings">Settings</button>
@@ -42245,7 +42263,7 @@ function hT(n, e) {
   <section class="m-screen m-card m-dead" data-s="dead" aria-label="Signal lost">
     <div class="m-k">Breacher down</div>
     <h2 class="m-h">Signal lost</h2>
-    <dl class="m-stats"><div><dt>Time survived</dt><dd data-f="dead-time">00:00</dd></div><div data-only="mission"><dt>Relays cut</dt><dd data-f="dead-relays">0/3</dd></div><div data-only="holdout"><dt>Waves cleared</dt><dd data-f="dead-wave">0</dd></div><div data-only="holdout"><dt>Machines destroyed</dt><dd data-f="dead-kills">0</dd></div><div data-only="holdout"><dt>Score</dt><dd data-f="dead-score">0</dd></div><div data-only="holdout"><dt>Best</dt><dd data-f="dead-best">0</dd></div></dl>
+    <dl class="m-stats"><div><dt>Time survived</dt><dd data-f="dead-time">00:00</dd></div><div data-only="mission"><dt>Relays cut</dt><dd data-f="dead-relays">0/3</dd></div><div data-only="holdout"><dt>Waves cleared</dt><dd data-f="dead-wave">0</dd></div><div data-only="holdout"><dt>Crew down</dt><dd data-f="dead-kills">0</dd></div><div data-only="holdout"><dt>Score</dt><dd data-f="dead-score">0</dd></div><div data-only="holdout"><dt>Best</dt><dd data-f="dead-best">0</dd></div></dl>
     <div class="m-actions col"><button class="btn primary" data-act="retry">Retry</button></div>
   </section>
 
@@ -42256,7 +42274,7 @@ function hT(n, e) {
     <dl class="m-stats">
       <div><dt>Time</dt><dd data-f="time">00:00</dd></div>
       <div><dt>Accuracy</dt><dd data-f="acc">0%</dd></div>
-      <div><dt>Machines destroyed</dt><dd data-f="kills">0</dd></div>
+      <div><dt>Crew down</dt><dd data-f="kills">0</dd></div>
       <div><dt>Retries</dt><dd data-f="retries">0</dd></div>
     </dl>
     <div class="m-actions col"><button class="btn primary" data-act="redeploy">Redeploy</button></div>
@@ -42366,7 +42384,7 @@ function hT(n, e) {
         i.quality === "auto"
           ? `Quality was picked for this device (${W || "default"}). Lower it if the frame rate struggles.`
           : "Quality changes apply at once; shadows and reflections may take a moment to rebuild."),
-      (c("qnote").textContent += " Difficulty applies to machines that arrive from now on."));
+      (c("qnote").textContent += " Difficulty applies to crew that arrive from now on."));
   }
   (u.addEventListener("input", () => {
     ((i.sens = +u.value), m("sens"), x(), cc(i));
@@ -42701,11 +42719,11 @@ var xi = {
   dT = ["NORTH", "NORTH-EAST", "EAST", "SOUTH-EAST", "SOUTH", "SOUTH-WEST", "WEST", "NORTH-WEST"],
   Vu = {
     intro:
-      "Breacher, this is Control. The Harbormaster holds the berth. Cut its three uplinks — yard, shed, quay.",
-    contact: "It has seen you. Gulls fly, Hounds walk. Put them down.",
+      "Breacher, this is Control. The Harbormaster's crew holds the berth. Cut their three uplinks — yard, shed, quay.",
+    contact: "They've seen you. Riflemen and heavies — watch the corners. Put them down.",
     cut: [
-      "One relay dark. It felt that — machines inbound.",
-      "Two dark. It is throwing everything it has left at you.",
+      "One relay dark. They felt that — crew inbound.",
+      "Two dark. They are throwing everyone they have left at you.",
     ],
     all: "All three dark. The boat is holding at the quay ladder, south end. Run.",
     low: "You are hit hard. Get behind steel and breathe.",
@@ -43601,7 +43619,7 @@ var lL = () => new Promise((n) => setTimeout(n, 0));
 async function fa(n, e) {
   (xT && (xT.textContent = n), vT && (vT.style.width = Math.round(e * 100) + "%"), await lL());
 }
-async function cL(net) {
+async function cL(net, modules) {
   let n = Object.fromEntries(new URLSearchParams(location.search)),
     e = !!n.bench || location.hash === "#bench";
   e && ((n.noaudio = "1"), (n.autostart = "1"));
@@ -43725,7 +43743,10 @@ async function cL(net) {
     (await fa("Checking the rifle", 0.74),
       await r("weapon", "weapon", () => I5(t)),
       await fa("Waking the Harbormaster", 0.82),
-      await r("enemies", "enemies", () => W5(t)),
+      // [soldiers] the garrison (src/garrison) stands in for the machines.
+      await r("enemies", "enemies", () =>
+        modules && modules.enemies ? modules.enemies(t) : W5(t),
+      ),
       await r("hud", "hud", () => sT(t)),
       (t.game = pT(t)));
   }
@@ -43977,6 +43998,6 @@ function hL(n) {
   };
 }
 
-export function bootStrikeforce(net) {
-  return cL(net).catch((n) => yT((n && n.stack) || n));
+export function bootStrikeforce(net, modules) {
+  return cL(net, modules).catch((n) => yT((n && n.stack) || n));
 }
