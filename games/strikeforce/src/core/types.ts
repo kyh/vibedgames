@@ -95,7 +95,17 @@ export interface EventBus {
 
 export interface Physics {
   raycast: (from: Vector3, dir: Vector3, max: number) => { dist: number } | null;
-  nav: { isWalkable: (x: number, z: number) => boolean };
+  /** Nothing solid between the two points. */
+  lineOfSight: (from: Vector3, to: Vector3) => boolean;
+  /** The highest floor at (x, z) no higher than `below`. */
+  groundHeight: (x: number, z: number, below?: number) => number;
+  nav: {
+    isWalkable: (x: number, z: number) => boolean;
+    /** Waypoints (y = 0) from one point to another, or null when unreachable. */
+    findPath: (from: Vector3, to: Vector3) => Vector3[] | null;
+    /** A walkable point within `radius` of `around`. */
+    randomPoint: (around: Vector3, radius: number) => Vector3;
+  };
 }
 
 export interface GameInput {

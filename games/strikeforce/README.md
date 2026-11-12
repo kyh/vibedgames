@@ -4,7 +4,7 @@ First-person shooter on a rain-soaked container dock at dusk, in three modes
 picked on the title screen:
 
 - **Deathmatch** (online, the default) — every player for themselves, up to
-  sixteen. A death lasts three seconds and comes back at the spawn farthest
+  sixteen, topped up with bots while the room is thin. A death lasts three seconds and comes back at the spawn farthest
   from the enemy; first to 25 kills, or the most after ten minutes.
 - **Mission** (solo PvE) — the dock's security machines hunt you while you
   cut three uplink relays, then reach the boat.
@@ -35,7 +35,8 @@ pnpm --filter @repo/strikeforce build       # vite build
 | ---------------- | --------------------------------------------------------------- |
 | `/`              | the game; quick-matches into the fullest open match             |
 | `/?room=dock7`   | a private match: everyone with the same code plays together     |
-| `/?offline=1`    | never dials the party server (warmup on your own)               |
+| `/?offline=1`    | never dials the party server (you and the bots)                 |
+| `/?bots=0`       | no bots (alone, warmup); `?bots=4` tops the dock up to four     |
 | `/?mode=mission` | start in a mode: `deathmatch` (default), `mission` or `holdout` |
 | `/?autostart=1`  | skip the title and deploy at once                               |
 | `/?q=low`        | force a quality preset (`low` `medium` `high` `ultra`)          |
@@ -80,7 +81,18 @@ real, collidable yard built with the level's own `stack`/`place` helpers
 shoot anyone. A death comes back after 3 s, at the arena spawn (a walkable
 grid over the whole dock) farthest from every enemy. First to 25 kills, or
 the most kills when ten minutes run out, takes it; then ten seconds of
-results and a fresh match on a full dock. Alone, the room sits in warmup.
+results and a fresh match on a full dock.
+
+**Bots** (`src/net/bots.ts`): the host tops the dock up to six fighters, and
+each player who deploys takes a bot's seat (`botSeats` in `rules.ts`), so a
+lone player is in a live match at once and a full room has none. A bot is a
+fighter in the rules roster like anyone, named `BOT-n`. The host thinks for
+it — roam the nav grid towards somebody, engage whoever it sees, strafe,
+fire bursts — and publishes its body under `bots`; every client turns that
+into ordinary player reports, so bots are drawn and shot like people. They
+are worse shots on purpose: late to react, slower fire, range falloff, 16 a
+hit. A promoted host inherits them where they stood. With `?bots=0`, alone
+the room sits in warmup.
 
 Damage: the weapon's own numbers, ×4 to the head (a rifle headshot kills).
 Everyone wears one colour and there are no name plates: you have to find who
@@ -130,6 +142,7 @@ Wire format: `src/net/protocol.ts`. A wire change bumps `ROOM_PREFIX`.
 | `src/core/types.ts`               | the typed slice of the game object the TypeScript layer drives |
 | `src/net/rules.ts`                | the deathmatch rules (host)                                    |
 | `src/net/match.ts`                | the match controller: `G.net`, host and client                 |
+| `src/net/bots.ts`                 | bots: the host's brains, and their bodies as player reports    |
 | `src/net/players.ts`, `avatar.ts` | other players: interpolation, avatars, hitboxes                |
 | `src/net/map.ts`                  | arena spawns on the dock                                       |
 | `src/net/match-hud.ts`            | kills bar, match clock, Tab scoreboard                         |

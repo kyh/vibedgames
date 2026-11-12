@@ -9,7 +9,7 @@ import { isRecord, isStr, numOr, nums } from "./wire";
 
 export const PARTY = "vg-server";
 export const LOBBY = "strikeforce";
-export const ROOM_PREFIX = "strikeforce-v3-";
+export const ROOM_PREFIX = "strikeforce-v4-";
 /** A full dock. Overflow rooms take the seventeenth. */
 export const MAX_PLAYERS = 16;
 /** No room in this long (rendered frames): play alone in warmup. */
@@ -20,6 +20,8 @@ export const MATCH_HZ = 10;
 /** Own-body send rate. */
 export const BODY_HZ = 20;
 export const MATCH_KEY = "match";
+/** The host's bots: `{ [botId]: [t, x, y, z, yaw, pitch] }`, at BODY_HZ. */
+export const BOTS_KEY = "bots";
 
 /** Events. Payloads are positional arrays to keep the wire small. */
 export const EV = {

@@ -124,7 +124,8 @@ const main = async () => {
   }
   const dev = await startVite();
   const room = `t${process.pid}${Date.now().toString(36)}`;
-  const base = `${dev.base}/?q=low&autostart=1&noaudio=1&norender=1`;
+  // bots=0: the checks below count people, and a lone host must sit in warmup.
+  const base = `${dev.base}/?q=low&autostart=1&noaudio=1&norender=1&bots=0`;
   const url = `${base}&room=${room}&mode=deathmatch`;
   const browsers = [];
   const results = [];

@@ -10,6 +10,7 @@ import type { Mesh, Object3D } from "three";
 import type { StrikeforceGame, ShotHit } from "../core/types";
 import { Avatar } from "./avatar";
 import { AVATAR_COLOR } from "./protocol";
+import { BOTS, isBot } from "./rules";
 import type { Point } from "./rules";
 import { isNum } from "./wire";
 
@@ -31,8 +32,11 @@ const lerpPose = (a: Pose, b: Pose, k: number): Pose => ({
   z: lerp(a.z, b.z, k),
 });
 
-/** A stable two-digit callsign from a player id: "SF-17". */
+/** A stable two-digit callsign from a player id: "SF-17"; a bot says so: "BOT-2". */
 export const callsignOf = (id: string): string => {
+  if (isBot(id)) {
+    return `BOT-${id.slice(BOTS.prefix.length)}`;
+  }
   let hash = 0;
   for (const ch of id) {
     hash = (hash * 31 + (ch.codePointAt(0) ?? 0)) % 9973;

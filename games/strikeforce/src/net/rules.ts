@@ -5,13 +5,35 @@
 //
 // Every player for themselves. A death comes back after respawnMs; first to
 // `kills`, or the most kills when matchMs runs out, takes it. Then overMs of
-// results and a fresh match. Alone, the room sits in warmup (free play).
+// results and a fresh match. Bots count as fighters, so a lone player gets a
+// match; with bots off, alone the room sits in warmup (free play).
 //
 // Every fighter has a `life` that goes up each time the host brings it back.
 // A client places its body when the life it sees moves, and its own health
 // reports count only for the life it is playing.
 
 export type Phase = "warmup" | "live" | "over";
+
+/**
+ * Bots keep a thin room busy: the host tops the dock up to `fill` fighters,
+ * and each player who deploys takes a bot's seat.
+ */
+export const BOTS = {
+  fill: 6,
+  prefix: "bot:",
+} as const;
+
+export const isBot = (id: string): boolean => id.startsWith(BOTS.prefix);
+
+/**
+ * The bots seated beside `humans` deployed players. Ids are stable (`bot:1`,
+ * `bot:2`, …), so a promoted host keeps the same bots, and the newest leaves
+ * first. Nobody deployed seats nobody: bots never play to an empty dock.
+ */
+export const botSeats = (humans: number, fill: number): string[] => {
+  const count = humans > 0 ? Math.max(0, fill - humans) : 0;
+  return Array.from({ length: count }, (_, i) => `${BOTS.prefix}${i + 1}`);
+};
 
 export const RULES = {
   /** Kills that win a match. */

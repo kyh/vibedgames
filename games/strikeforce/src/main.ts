@@ -12,6 +12,7 @@ import { isPlaytestRequested } from "@vibedgames/playtest";
 import { bootStrikeforce } from "./core/strikeforce-core.js";
 import type { GameState, StrikeforceGame } from "./core/types";
 import { Match } from "./net/match";
+import { BOTS } from "./net/rules";
 import { openRoom } from "./net/session";
 import { installPlaytest } from "./playtest";
 
@@ -31,7 +32,11 @@ if (!webgl.ok) {
 const params = new URLSearchParams(location.search);
 // A playtest must own its match: it never shares a room.
 const solo = isPlaytestRequested() || params.has("bench") || params.has("show");
-const match = new Match(() => openRoom(params, { solo }));
+// A playtest keeps the dock to itself; `?bots=0` turns them off, `?bots=4` sets the fill.
+const botFill = isPlaytestRequested()
+  ? 0
+  : Math.max(0, Math.min(16, Number(params.get("bots") ?? BOTS.fill) || 0));
+const match = new Match(() => openRoom(params, { solo }), { botFill });
 if (import.meta.env.DEV) {
   window.__strikeforce = { match };
 }

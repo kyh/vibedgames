@@ -10,7 +10,8 @@
 // back (a new `life`). Hits favour the shooter: a client tests its shots
 // against the avatars on its own screen and tells the host, which applies the
 // damage and sends the victim a `hurt`. Area damage (barrels) each client
-// applies to itself and reports through its body's health.
+// applies to itself and reports through its body's health. The host also
+// plays the bots (bots.ts) that keep a thin room in a match.
 import { FixedRate } from "@vibedgames/multiplayer";
 import type { JsonValue, MultiplayerClient } from "@vibedgames/multiplayer";
 import { Vector3 } from "three";
@@ -18,12 +19,33 @@ import { Vector3 } from "three";
 import type { GameState, NetHooks, StrikeforceGame, ShotHit, WeaponFire } from "../core/types";
 import { Radar } from "../minimap";
 import type { RadarMark } from "../minimap";
+import { Bots, botPlayers } from "./bots";
+import type { BotShot, Target } from "./bots";
 import { arenaSpawns, darkenRelays, safestSpawn } from "./map";
 import type { Spawn } from "./map";
 import { MatchHud } from "./match-hud";
 import { Players, callsignOf } from "./players";
-import { BODY_HZ, EV, MATCH_HZ, MATCH_KEY, decodeMatch, encodeMatch, q3 } from "./protocol";
-import { RULES, applyHit, applySelfReport, newMatch, standings, syncRoster, tick } from "./rules";
+import {
+  BODY_HZ,
+  BOTS_KEY,
+  EV,
+  MATCH_HZ,
+  MATCH_KEY,
+  decodeMatch,
+  encodeMatch,
+  q3,
+} from "./protocol";
+import {
+  RULES,
+  applyHit,
+  applySelfReport,
+  botSeats,
+  isBot,
+  newMatch,
+  standings,
+  syncRoster,
+  tick,
+} from "./rules";
 import type { Fighter, MatchEvent, MatchState, Point } from "./rules";
 import { isRecord, isStr, nums, vecAt, vecWire } from "./wire";
 
@@ -43,6 +65,11 @@ const inMatch = (game: StrikeforceGame): boolean => inPlay(game.game.state) && o
 
 /** Opens the room (session.ts), once, when the player first deploys online. */
 export type Connector = () => Promise<MultiplayerClient>;
+
+export interface MatchOptions {
+  /** Fighters the host tops the dock up to with bots (0: no bots). */
+  botFill: number;
+}
 
 /** Solo modes: the relays still standing ("relay_a" → "A"). */
 const relayMarks = (game: StrikeforceGame): RadarMark[] =>
@@ -73,6 +100,10 @@ export class Match implements NetHooks {
     return online(this.game);
   }
   private readonly connector: Connector;
+  private readonly botFill: number;
+  private bots: Bots | null = null;
+  /** The bots' bodies: the host's own, or as a guest last read them. */
+  private botRaw: JsonValue | undefined = undefined;
   private joining = false;
   private client: MultiplayerClient | null = null;
   private game: StrikeforceGame | null = null;
@@ -93,6 +124,7 @@ export class Match implements NetHooks {
   private seenPhase = "";
   private readonly matchRate = new FixedRate(MATCH_HZ);
   private readonly bodyRate = new FixedRate(BODY_HZ);
+  private readonly botRate = new FixedRate(BODY_HZ);
   private readonly a = new Vector3();
 
   /**
@@ -130,8 +162,9 @@ export class Match implements NetHooks {
     return (this.players?.all.size ?? 0) + 1;
   }
 
-  constructor(connector: Connector) {
+  constructor(connector: Connector, options: MatchOptions) {
     this.connector = connector;
+    this.botFill = options.botFill;
   }
 
   /** Deployed online: open the room (once per page). */
@@ -160,6 +193,7 @@ export class Match implements NetHooks {
       left: (p) => this.feed(`<b>${escapeHtml(p.callsign)}</b> left`),
     });
     this.spawns = arenaSpawns(game);
+    this.bots = new Bots(game, this.spawns);
     this.hud.mount();
     this.radar.mount();
     game.events.on("weapon:fire", (shot) => this.sendShot(shot));
@@ -178,7 +212,8 @@ export class Match implements NetHooks {
       return;
     }
     const { me, view } = this;
-    players.update(client.players, me, (id) => view?.roster.get(id) ?? null, dt);
+    const everyone = { ...client.players, ...botPlayers(this.botRaw, view?.roster) };
+    players.update(everyone, me, (id) => view?.roster.get(id) ?? null, dt);
     if (!inMatch(game)) {
       // Solo PvE (or the title): the room's players stay out of this dock.
       players.hide();
@@ -187,6 +222,7 @@ export class Match implements NetHooks {
       this.runHost(client, game, dt);
     } else {
       this.readMatch(client);
+      this.botRaw = client.sharedState[BOTS_KEY];
     }
     this.followMatch(game);
     if (this.bodyRate.due(dt * 1000)) {
@@ -245,7 +281,7 @@ export class Match implements NetHooks {
     const ids = [...(this.players?.all.values() ?? [])]
       // A dropped connection keeps its seat for the SDK's reconnect grace: only
       // leaving the room (gone from client.players) gives it up.
-      .filter((p) => p.deployed)
+      .filter((p) => p.deployed && !isBot(p.id))
       .map((p) => p.id);
     if (inMatch(game)) {
       ids.push(this.me);
@@ -258,10 +294,13 @@ export class Match implements NetHooks {
     this.rules ??= this.view ?? newMatch();
     const { rules } = this;
     const now = client.serverNow();
-    syncRoster(rules, this.deployedIds(game));
+    const humans = this.deployedIds(game);
+    syncRoster(rules, [...humans, ...botSeats(humans.length, this.botFill)]);
     const events: MatchEvent[] = [];
     for (const p of this.players?.all.values() ?? []) {
-      events.push(...applySelfReport(rules, p.id, p.hp, p.life, now));
+      if (!isBot(p.id)) {
+        events.push(...applySelfReport(rules, p.id, p.hp, p.life, now));
+      }
     }
     events.push(
       ...applySelfReport(rules, this.me, game.player.health, this.placedLife, now),
@@ -269,12 +308,77 @@ export class Match implements NetHooks {
     );
     this.view = rules;
     this.hostEvents(client, game, events);
+    this.runBots(client, game, rules, dt);
     if (this.matchRate.due(dt * 1000)) {
       client.updateSharedState({
         [MATCH_KEY]: inMatch(game)
           ? { ...encodeMatch(rules, now), bar: game.explosives.aliveMask() }
           : encodeMatch(rules, now),
       });
+    }
+  }
+
+  private runBots(
+    client: MultiplayerClient,
+    game: StrikeforceGame,
+    rules: MatchState,
+    dt: number,
+  ): void {
+    if (!this.bots) {
+      return;
+    }
+    this.bots.update(
+      dt,
+      rules.roster,
+      this.peopleStanding(game, rules),
+      (id) => this.players?.all.get(id)?.reported ?? undefined,
+      rules.phase === "live",
+      (shot) => this.botShot(client, game, shot),
+    );
+    const raw = this.bots.encode(client.serverNow());
+    this.botRaw = raw;
+    if (this.botRate.due(dt * 1000)) {
+      client.updateSharedState({ [BOTS_KEY]: raw });
+    }
+  }
+
+  /** The people a bot may shoot: deployed, and alive in the match. */
+  private peopleStanding(game: StrikeforceGame, rules: MatchState): Target[] {
+    const out: Target[] = [];
+    if (inMatch(game) && game.player.alive && rules.roster.get(this.me)?.alive) {
+      out.push({ crouch: game.player.crouching, id: this.me, pos: game.player.pos });
+    }
+    for (const p of this.players?.all.values() ?? []) {
+      if (!isBot(p.id) && p.reported && rules.roster.get(p.id)?.alive) {
+        out.push({ crouch: (p.pose?.crouch ?? 0) > 0.5, id: p.id, pos: p.reported });
+      }
+    }
+    return out;
+  }
+
+  /** A bot fired: everyone sees the tracer; a hit counts like anyone's. */
+  private botShot(client: MultiplayerClient, game: StrikeforceGame, shot: BotShot): void {
+    const wire = [...vecWire(shot.muzzle), ...vecWire(shot.end), 0];
+    client.sendEvent(EV.shot, wire, { except: client.playerId ?? undefined });
+    if (inMatch(game)) {
+      remoteShot(wire, game);
+      this.radar.ping(shot.muzzle.x, shot.muzzle.z, game.time.t);
+    }
+    const { rules } = this;
+    if (!rules || !shot.victim) {
+      return;
+    }
+    const result = applyHit(
+      rules,
+      shot.bot,
+      shot.victim,
+      shot.damage,
+      shot.head,
+      client.serverNow(),
+    );
+    if (result) {
+      this.hurt(shot.victim, shot.damage, shot.muzzle, result.hp);
+      this.hostEvents(client, game, result.events);
     }
   }
 
@@ -328,6 +432,10 @@ export class Match implements NetHooks {
     from: { x: number; y: number; z: number } | undefined,
     hp: number,
   ): void {
+    if (isBot(victim)) {
+      this.bots?.alert(victim, from);
+      return;
+    }
     const wire = [dmg, ...vecWire(from ? this.a.set(from.x, from.y, from.z) : null), hp];
     if (victim === this.me) {
       this.onHurt(wire);

@@ -4,8 +4,10 @@ import { test } from "node:test";
 
 import {
   RULES,
+  BOTS,
   applyHit,
   applySelfReport,
+  botSeats,
   newMatch,
   standings,
   syncRoster,
@@ -136,4 +138,28 @@ test("a kill tie goes to fewer deaths, the same on the HUD as at the whistle", (
     ["p2", "p1", "p3"],
   );
   assert.deepEqual(tick(s, now + RULES.matchMs), [{ champ: "p2", kind: "end" }]);
+});
+
+test("bots top the dock up, and each player who deploys takes one's seat", () => {
+  assert.deepEqual(botSeats(0, 6), [], "an empty dock seats no bots");
+  assert.deepEqual(botSeats(1, 3), [`${BOTS.prefix}1`, `${BOTS.prefix}2`]);
+  assert.deepEqual(botSeats(2, 3), [`${BOTS.prefix}1`], "the newest bot leaves first");
+  assert.deepEqual(botSeats(7, 6), [], "a full dock seats none");
+  assert.deepEqual(botSeats(1, 0), [], "bots off");
+});
+
+test("a lone player with bots plays a live match; the bots leave as people arrive", () => {
+  const s = newMatch();
+  syncRoster(s, ["p1", ...botSeats(1, 3)]);
+  assert.deepEqual(tick(s, 0), [{ kind: "start", round: 1 }]);
+  const bot = `${BOTS.prefix}1`;
+  applyHit(s, "p1", bot, 120, true, 1);
+  assert.equal(s.roster.get("p1")?.kills, 1, "a bot kill counts");
+  syncRoster(s, ["p1", "p2", ...botSeats(2, 3)]);
+  assert.deepEqual([...s.roster.keys()], ["p1", bot, "p2"]);
+  assert.equal(s.roster.get("p1")?.kills, 1, "kills survive a bot leaving");
+  syncRoster(s, ["p1", "p2", "p3", ...botSeats(3, 3)]);
+  assert.ok(![...s.roster.keys()].some((id) => id.startsWith(BOTS.prefix)), "no bots left");
+  assert.deepEqual(tick(s, 2), [], "the match plays on");
+  assert.equal(s.phase, "live");
 });
