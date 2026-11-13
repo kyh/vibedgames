@@ -78,12 +78,13 @@ const relayMarks = (game: StrikeforceGame): RadarMark[] =>
     .filter((r) => !r.cut)
     .map((r) => ({ label: r.id.slice(-1).toUpperCase(), x: r.o.pos.x, z: r.o.pos.z }));
 
-const remoteShot = (payload: JsonValue, game: StrikeforceGame): void => {
+const remoteShot = (payload: JsonValue, game: StrikeforceGame, players: Players | null): void => {
   const v = nums(payload, 7);
   if (!v) {
     return;
   }
   const muzzle = vecAt(v, 0, new Vector3());
+  players?.fired(muzzle);
   showShot(game, muzzle, vecAt(v, 3, new Vector3()));
   game.audio.play?.(v[6] === 1 ? "pistol_shot" : "rifle_shot", {
     gain: 0.55,
@@ -365,7 +366,7 @@ export class Match implements NetHooks {
     const wire = [...vecWire(shot.muzzle), ...vecWire(shot.end), 0];
     client.sendEvent(EV.shot, wire, { except: client.playerId ?? undefined });
     if (inMatch(game)) {
-      remoteShot(wire, game);
+      remoteShot(wire, game, this.players);
       this.radar.ping(shot.muzzle.x, shot.muzzle.z, game.time.t);
     }
     const { rules } = this;
@@ -588,7 +589,7 @@ export class Match implements NetHooks {
     if (event === EV.shot && from !== client.playerId) {
       const v = nums(payload, 3);
       if (playing && v) {
-        remoteShot(payload, game);
+        remoteShot(payload, game, this.players);
         // Firing gives you away on everyone's radar.
         this.radar.ping(v[0] ?? 0, v[2] ?? 0, game.time.t);
       }

@@ -4,30 +4,49 @@
 // which locomotion clips play, how far through the stride they are, and which
 // way the legs face under an upper body that keeps aiming.
 //
-// The clips walk forwards or backwards, never sideways, so a sidestep turns
-// the hips towards the direction of travel (or away from it, backpedalling)
-// and the spine turns back. The stride advances by distance covered, not
-// time, so feet do not slide.
+// Two regimes. Slow — a fighter's pace while it fires — is a shuffle: real
+// sidestep and backpedal clips, hips square. The sidestep clips cover half a
+// metre a second, so faster than that the body walks, jogs or sprints with
+// its hips turned towards the direction of travel (or away from it, on the
+// backpedal) and the spine turned back. The stride advances by distance
+// covered, not time, so feet do not slide.
 
 /**
  * Locomotion clips: metres a full stride cycle covers, and where in the clip
- * the left foot leads. The backpedal was animated as a slow retreat (0.94 m a
- * cycle); it is given a longer stride than it has, trading a little foot
- * slide for not scurrying at a fighter's pace.
+ * the left foot is mid-stance. A mirrored clip's left foot is its source's
+ * right, half a cycle on.
  */
 export const STRIDES = {
-  back: { lead: 0.7, length: 1.5 },
-  "crouch-walk": { lead: 0.258, length: 1.89 },
-  jog: { lead: 0.25, length: 3.48 },
-  sprint: { lead: 0.93, length: 3.74 },
-  walk: { lead: 0.28, length: 1.64 },
+  back: { lead: 0.53, length: 1.15 },
+  "crouch-back": { lead: 0.58, length: 0.92 },
+  "crouch-left": { lead: 0.47, length: 0.9 },
+  "crouch-right": { lead: 0.97, length: 0.9 },
+  "crouch-walk": { lead: 0.45, length: 1.68 },
+  jog: { lead: 0.4, length: 2.87 },
+  sprint: { lead: 0.49, length: 2.63 },
+  "strafe-left": { lead: 0.48, length: 0.8 },
+  "strafe-right": { lead: 0.98, length: 0.8 },
+  walk: { lead: 0.51, length: 1.48 },
 } as const;
 
 export type Stride = keyof typeof STRIDES;
-export const STRIDE_NAMES: readonly Stride[] = ["walk", "jog", "sprint", "back", "crouch-walk"];
+export const STRIDE_NAMES: readonly Stride[] = [
+  "walk",
+  "jog",
+  "sprint",
+  "back",
+  "strafe-left",
+  "strafe-right",
+  "crouch-walk",
+  "crouch-back",
+  "crouch-left",
+  "crouch-right",
+];
 
-/** Metres per second each clip was animated at (stride length over its duration). */
-const PACE = { jog: 5.19, sprint: 7.96, walk: 1.53 };
+/** Metres per second each forward clip was animated at. */
+const PACE = { jog: 4.3, sprint: 5.27, walk: 1.39 };
+/** Up to the first it shuffles; from the second it strides with its hips turned. */
+const SHUFFLE: readonly [number, number] = [0.9, 1.6];
 
 /** Hips never turn further than this from the chest; past it the feet slide a little. */
 const MAX_TWIST = 1.2;
@@ -52,23 +71,48 @@ const smoothstep = (lo: number, hi: number, v: number): number => {
   return t * t * (3 - 2 * t);
 };
 
+/** How much of a body moving at `pace` m/s strides rather than shuffles. */
+export const striding = (pace: number): number => smoothstep(SHUFFLE[0], SHUFFLE[1], pace);
+
 /**
- * Which clips show a body moving at `pace` m/s, `crouch` 0–1, stepping
- * backwards or not. What they leave short of 1 is standing still: the pose
- * the body was rigged in, a ready stance. There is no crouched idle: a
- * crouched soldier standing still holds its crouched stride.
+ * Which clips show a body moving at `pace` m/s towards `heading` (radians
+ * from its facing, positive to its right), `crouch` 0–1, `back` when its
+ * stride is a backpedal. What they leave short of 1 is standing still: the
+ * rig's rest pose. There is no crouched idle: a crouched soldier standing
+ * still holds its crouched stride.
  */
-export const gaitWeights = (pace: number, crouch: number, back: boolean): GaitWeights => {
+export const gaitWeights = (
+  pace: number,
+  heading: number,
+  crouch: number,
+  back: boolean,
+): GaitWeights => {
   const moving = smoothstep(0.1, 0.8, pace);
+  const stride = striding(pace);
+  const shuffle = 1 - stride;
+  const ahead = Math.max(0, Math.cos(heading)) ** 2;
+  const behind = Math.max(0, -Math.cos(heading)) ** 2;
+  const right = Math.max(0, Math.sin(heading)) ** 2;
+  const left = Math.max(0, -Math.sin(heading)) ** 2;
   const jogging = clamp((pace - PACE.walk) / (PACE.jog - PACE.walk), 0, 1);
   const sprinting = clamp((pace - PACE.jog) / (PACE.sprint - PACE.jog), 0, 1);
   const up = moving * (1 - crouch);
+  // Striding goes wherever the hips point: forwards, or backwards on the backpedal.
+  const forth = up * (shuffle * ahead + (back ? 0 : stride));
+  // Standing still, a crouch holds the forward clip.
+  const low = crouch * (1 - moving);
+  const down = crouch * moving;
   return {
-    back: back ? up : 0,
-    "crouch-walk": crouch,
-    jog: back ? 0 : up * jogging * (1 - sprinting),
-    sprint: back ? 0 : up * sprinting,
-    walk: back ? 0 : up * (1 - jogging),
+    back: up * (shuffle * behind + (back ? stride : 0)),
+    "crouch-back": down * (shuffle * behind + (back ? stride : 0)),
+    "crouch-left": down * shuffle * left,
+    "crouch-right": down * shuffle * right,
+    "crouch-walk": low + down * (shuffle * ahead + (back ? 0 : stride)),
+    jog: forth * jogging * (1 - sprinting),
+    sprint: forth * sprinting,
+    "strafe-left": up * shuffle * left,
+    "strafe-right": up * shuffle * right,
+    walk: forth * (1 - jogging),
   };
 };
 
@@ -90,14 +134,15 @@ export class Gait {
   phase = 0;
   /** Radians the hips are turned from the chest, positive to the left. */
   twist = 0;
-  /** Stepping backwards. */
+  /** Its stride is a backpedal. */
   back = false;
-  weights: GaitWeights = gaitWeights(0, 0, false);
+  weights: GaitWeights = gaitWeights(0, 0, 0, false);
   private x = Number.NaN;
   private z = 0;
   private yaw = 0;
   private vx = 0;
   private vz = 0;
+  private heading = 0;
   private stepping = false;
 
   /** The body is at (x, z) facing `yaw`, `crouch` 0–1, `dt` seconds on. */
@@ -130,15 +175,17 @@ export class Gait {
       // Facing is (-sin yaw, -cos yaw); its right is (cos yaw, -sin yaw).
       const forward = -Math.sin(yaw) * this.vx - Math.cos(yaw) * this.vz;
       const right = Math.cos(yaw) * this.vx - Math.sin(yaw) * this.vz;
-      const heading = Math.atan2(right, forward);
+      this.heading = Math.atan2(right, forward);
       // Hysteresis, so a pure sidestep does not flap between the two.
-      this.back = this.back ? Math.abs(heading) > 1.4 : Math.abs(heading) > 1.9;
-      const want = clamp(wrap(-heading + (this.back ? Math.PI : 0)), -MAX_TWIST, MAX_TWIST);
+      this.back = this.back ? Math.abs(this.heading) > 1.4 : Math.abs(this.heading) > 1.9;
+      const toward = clamp(wrap(-this.heading + (this.back ? Math.PI : 0)), -MAX_TWIST, MAX_TWIST);
+      const want = toward * striding(this.speed);
       this.twist += (want - this.twist) * (1 - Math.exp(-9 * dt));
     } else {
       // The chest turned; the feet did not.
       this.twist = clamp(this.twist - turned, -MAX_TWIST, MAX_TWIST);
       this.back = false;
+      this.heading = 0;
       if (Math.abs(this.twist) > STEP_AT) {
         this.stepping = true;
       }
@@ -149,7 +196,7 @@ export class Gait {
         pace = Math.max(pace, STEP_PACE);
       }
     }
-    this.weights = gaitWeights(pace, crouch, this.back);
+    this.weights = gaitWeights(pace, this.heading, crouch, this.back);
     this.phase = (this.phase + (pace * dt) / strideLength(this.weights)) % 1;
   }
 }

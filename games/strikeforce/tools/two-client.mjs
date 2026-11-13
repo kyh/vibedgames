@@ -8,7 +8,7 @@
 // "chrome", or any binary in SMOKE_BROWSER. Not part of `pnpm test` for that
 // reason; software WebGL makes it slow, so pages run with ?norender=1.
 //
-// Usage: node tools/two-client.mjs [--url http://localhost:5196]
+// Usage: node tools/two-client.mjs [--url http://localhost:5196] [--party 8797]
 // Without --url it starts its own vite.
 
 import { spawn } from "node:child_process";
@@ -19,7 +19,10 @@ import { setTimeout as wait } from "node:timers/promises";
 const gameDir = path.resolve(import.meta.dirname, "..");
 const { chromium } = createRequire(path.join(gameDir, "package.json"))("playwright-core");
 
-const PARTY = "http://localhost:8787";
+/** `--party 8797` (or a URL) points both tabs at a party server other than the default. */
+const partyFlag = process.argv.indexOf("--party");
+const partyArg = partyFlag > 0 ? process.argv[partyFlag + 1] : "8787";
+const PARTY = /^\d+$/u.test(partyArg) ? `http://localhost:${partyArg}` : partyArg;
 const DEV_PORT = 5397;
 
 const waitFor = async (page, fn, label, { timeoutMs = 60_000, arg } = {}) => {
@@ -125,7 +128,7 @@ const main = async () => {
   const dev = await startVite();
   const room = `t${process.pid}${Date.now().toString(36)}`;
   // bots=0: the checks below count people, and a lone host must sit in warmup.
-  const base = `${dev.base}/?q=low&autostart=1&noaudio=1&norender=1&bots=0`;
+  const base = `${dev.base}/?q=low&autostart=1&noaudio=1&norender=1&bots=0&party=${encodeURIComponent(PARTY)}`;
   const url = `${base}&room=${room}&mode=deathmatch`;
   const browsers = [];
   const results = [];

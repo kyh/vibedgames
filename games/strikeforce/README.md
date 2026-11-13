@@ -12,7 +12,7 @@ picked on the title screen:
   between waves.
 
 Every surface, weapon and sound is generated in the browser; the one thing
-downloaded is the soldier (`public/models/soldier.glb`, 566 KB). Deployed at
+downloaded is the soldier and its carbine (`public/models/soldier.glb`, 1.8 MB). Deployed at
 `strikeforce.vibedgames.com`.
 
 ## Develop
@@ -28,7 +28,8 @@ pnpm --filter @repo/strikeforce build       # vite build
 
 `test:online` drives two headless browsers through one room, with
 `?norender=1` so software WebGL keeps up. Point it at a Chromium with
-`SMOKE_BROWSER=/path/to/chromium` and at a running dev server with `--url`.
+`SMOKE_BROWSER=/path/to/chromium`, at a running dev server with `--url`, and
+at a party server on another port with `--party 8797`.
 
 ## Routes
 
@@ -104,33 +105,46 @@ find who you are fighting.
 Every computer-played fighter is a soldier: deathmatch bots and the crew in
 Mission and Holdout alike.
 
-- **Body** (`src/soldier/soldier-rig.ts`, `public/models/soldier.glb`): one
-  skinned, textured mesh (22k triangles, a 1024² WebP atlas, 24 bones, eight
-  clips), loaded once before boot; every soldier is a `SkeletonUtils.clone`
-  sharing its geometry, materials and clips. The mesh is our own Meshy
-  generation, rigged and animated through Meshy's API; `tools/build-soldier.mjs`
-  packs what Meshy returned (clips renamed and played on the spot, the bake's
-  pink sheen graded out of the atlas, meshopt). It was generated holding its
-  carbine at the low ready and rigged in that pose, so carbine, arms and chest
-  are one piece: the arms are never animated, and the muzzle is a point on the
-  chest bone.
-- **Kits** (`soldier-kit.ts`): the mesh wears black gear; a kit dyes its
-  fatigues and helmet and paints an armband in the shader. `operator` (coyote,
-  orange band; every deathmatch fighter) and `garrison` (urban grey, red band;
-  the crew).
-- **Movement on screen** (`soldier-model.ts`, `soldier-gait.ts`): a model is
-  only ever told where it stands, so it reads its velocity off that. Walk, jog
-  and sprint blend by speed over the ready stance, and the stride advances by
-  distance covered, so feet do not slide. There are no sideways clips: a
-  sidestep turns the hips towards the direction of travel (or away from it,
-  on the backpedal clip) and the spine turns back. Standing, the feet stay
-  planted until the body has turned ~50°, then step round. On aim the chest
-  turns and lifts until the barrel — measured each frame, wherever the clips
-  left it — points where the soldier looks, and the head comes back onto the
-  target; at a run the carbine stays at the low ready. A shot kicks the
-  chest, a hit plays the flinch and twists away from it, death plays a fall.
-  Hitboxes (head, torso, legs) and the muzzle ride the bones. Animation thins
-  with range (30 Hz past 28 m, 15 Hz past 55 m) and drops to 8 Hz off screen.
+- **Body and carbine** (`src/soldier/soldier-rig.ts`,
+  `public/models/soldier.glb`): a skinned soldier (36k triangles, 24 bones,
+  13 clips) and a carbine as a mesh of its own (7k triangles), both with base
+  colour, normal and metal/rough maps as WebP (the soldier's base colour 2K,
+  the rest 1K), meshopt-compressed: 1.8 MB, loaded once before boot. Every
+  soldier is a `SkeletonUtils.clone` sharing geometry, materials and clips.
+  Both meshes are our own Meshy generations; the soldier was rigged (task
+  `01a1d292-fe27-733c-a087-60acaf77a6eb`) and animated (task
+  `01a1d295-d056-70ba-9190-660830f57119`) through Meshy's API.
+  `tools/build-soldier.mjs tools/soldier-src public/models/soldier.glb` packs
+  what Meshy returned: it decimates both, recomputes smooth normals, rolls the
+  rig's flat, fingerless hands closed, renames the clips, plays them on the
+  spot, and mirrors the left-handed sidesteps into right-handed ones. The
+  102 MB of downloads it reads (`rigged.glb`, `clips.glb`,
+  `walking-armature.glb`, `running-armature.glb`, `carbine-raw.glb`) are
+  git-ignored in `tools/soldier-src/`; fetch them again from those tasks.
+- **Kits** (`soldier-kit.ts`): the mesh is modelled in urban grey. `garrison`
+  wears it as it came, with a red armband (the crew); `operator` is recoloured
+  coyote in the shader, texel by texel, with an orange band (every deathmatch
+  fighter). The band is painted on a ring of the left upper arm.
+- **Legs** (`soldier-gait.ts`): a model is only ever told where it stands, so
+  it reads its velocity off that. The stride advances by distance covered, so
+  feet do not slide. Slow — a fighter's pace while it fires — is a shuffle on
+  real sidestep and backpedal clips with the hips square. Meshy's sidesteps
+  cover half a metre a second, so anything faster walks, jogs or sprints with
+  the hips turned towards the direction of travel (or away from it, on the
+  backpedal) and the spine turned back. Crouched has its own forward, back and
+  side clips, and holds a crouched stride when still. Standing, the feet stay
+  planted until the body has turned ~50°, then step round.
+- **Upper body** (`soldier-model.ts`, `arm-ik.ts`): no clip holds the carbine.
+  It sits in an aim frame of its own — butt in the shoulder, bore along the
+  soldier's yaw and pitch exactly — or, calm or above 4 m/s, across the body
+  at the low ready; both arms reach it by two-bone IK, the chest blades behind
+  it and the head stays on the target. A shot kicks it back, a hit plays the
+  flinch and twists away from it, death plays one of two falls with the arms
+  let go and the carbine dropped. Hitboxes (head, torso, legs) ride the
+  bones; the muzzle is the carbine's. Animation thins with range (30 Hz past
+  28 m, 15 Hz past 55 m) and drops to 8 Hz off screen. Remote players and
+  bots kick too: a shot on the wire carries no shooter, so whoever stands at
+  its muzzle fired it (`Players.fired`).
 - **Brain** (`src/soldier/soldier-brain.ts`): sees 200° ahead to its range,
   patrols (pausing at the end of each leg), goes to look at what it heard,
   fights and goes hunting where it last saw you. It moves with weight: it

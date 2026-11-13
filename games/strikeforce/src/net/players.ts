@@ -22,6 +22,9 @@ interface Pose {
   crouch: number;
 }
 
+/** Metres, on the ground, a muzzle can be from the fighter holding it. */
+const MUZZLE_REACH = 1.6;
+
 const lerpPose = (a: Pose, b: Pose, k: number): Pose => ({
   crouch: lerp(a.crouch, b.crouch, k),
   pitch: lerp(a.pitch, b.pitch, k),
@@ -170,6 +173,27 @@ export class Players {
       point: hit.point.clone(),
       who: hit.object,
     };
+  }
+
+  /**
+   * A shot was fired from `muzzle`: whoever is standing there kicks. The wire
+   * carries no shooter (a bot's shot comes from the host), but a muzzle is
+   * never more than an arm and a carbine from its owner.
+   */
+  fired(muzzle: Vector3): void {
+    let nearest: Opponent | null = null;
+    let best = MUZZLE_REACH;
+    for (const p of this.all.values()) {
+      if (!p.pose || !p.avatar?.root.visible) {
+        continue;
+      }
+      const d = Math.hypot(p.pose.x - muzzle.x, p.pose.z - muzzle.z);
+      if (d < best) {
+        best = d;
+        nearest = p;
+      }
+    }
+    nearest?.avatar?.fire();
   }
 
   /** Keep every avatar out of the scene's way (solo PvE, the title). */

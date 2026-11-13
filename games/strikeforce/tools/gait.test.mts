@@ -18,10 +18,17 @@ const total = (weights: Record<string, number>): number =>
   Object.values(weights).reduce((a, b) => a + b, 0);
 
 test("standing still plays no stride; moving plays a whole one", () => {
-  assert.equal(total(gaitWeights(0, 0, false)), 0);
+  assert.equal(total(gaitWeights(0, 0, 0, false)), 0);
   for (const pace of [1, 2.2, 4.4, 6.4, 9]) {
-    assert.ok(Math.abs(total(gaitWeights(pace, 0, false)) - 1) < 1e-9, `pace ${pace}`);
-    assert.ok(Math.abs(total(gaitWeights(pace, 0, true)) - 1) < 1e-9, `back at ${pace}`);
+    for (const heading of [0, 0.8, Math.PI / 2, -2.4, Math.PI]) {
+      const at = `pace ${pace}, heading ${heading}`;
+      assert.ok(Math.abs(total(gaitWeights(pace, heading, 0, false)) - 1) < 1e-9, at);
+      assert.ok(
+        Math.abs(total(gaitWeights(pace, heading, 1, false)) - 1) < 1e-9,
+        `${at}, crouched`,
+      );
+    }
+    assert.ok(Math.abs(total(gaitWeights(pace, Math.PI, 0, true)) - 1) < 1e-9, `back at ${pace}`);
   }
 });
 
@@ -42,7 +49,26 @@ test("walking forward leaves the hips square", () => {
   assert.equal(gait.back, false);
 });
 
-test("a sidestep turns the hips towards it, within their limit", () => {
+test("a slow sidestep is a shuffle: the sidestep clip, hips square", () => {
+  const gait = new Gait();
+  run(gait, 0.66, 0, 0, 2);
+  assert.ok(gait.weights["strafe-right"] > 0.8);
+  assert.ok(Math.abs(gait.twist) < 0.05);
+  assert.ok(gait.weights.walk + gait.weights.jog < 1e-6);
+});
+
+test("a crouched soldier standing still holds its crouched stride", () => {
+  const gait = new Gait();
+  for (let i = 0; i < 60; i += 1) {
+    gait.update(0, 0, 0, 1, DT);
+  }
+  assert.equal(gait.weights["crouch-walk"], 1);
+  const held = gait.phase;
+  gait.update(0, 0, 0, 1, DT);
+  assert.equal(gait.phase, held);
+});
+
+test("a fast sidestep turns the hips towards it, within their limit", () => {
   const right = new Gait();
   run(right, 2.2, 0, 0, 2);
   assert.ok(right.twist < -1, "moving right turns the hips right");
