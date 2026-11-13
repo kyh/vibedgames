@@ -113,7 +113,7 @@ export class Players {
       if (p.avatar) {
         p.avatar.root.visible = shown;
         if (p.pose && shown) {
-          p.avatar.update({ ...p.pose, alive: fighter?.alive ?? false }, dt);
+          p.avatar.update({ ...p.pose, aiming: true, alive: fighter?.alive ?? false }, dt);
         }
       }
     }

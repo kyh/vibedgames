@@ -33,6 +33,7 @@ const pose = (soldier: Soldier, dt: number): void => {
   const { brain } = soldier;
   soldier.model.update(
     {
+      aiming: brain.target !== null,
       alive: soldier.alive,
       crouch: 0,
       pitch: brain.pitch,
@@ -239,6 +240,7 @@ export class Garrison implements Enemies {
     if (!soldier) {
       return;
     }
+    soldier.model.fire();
     const muzzle = soldier.model.muzzle(shot.muzzle);
     showShot(this.game, muzzle, shot.end);
     this.game.events.emit("enemy:fire", { enemy: soldier, pos: muzzle, type: soldier.type });

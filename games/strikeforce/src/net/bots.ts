@@ -29,7 +29,7 @@ const PROFILE: Profile = {
     pause: [0.45, 0.9],
     reaction: [0.45, 0.8],
   },
-  gait: { hold: 22, run: 4.5, strafe: 2.4, turn: 6, walk: 4.2 },
+  gait: { accel: 12, hold: 22, pause: [0, 0.5], run: 4.5, strafe: 2.4, turn: 6, walk: 4.2 },
   senses: { cone: Math.cos((100 * Math.PI) / 180), lose: 1.5, range: 60, search: 4 },
 };
 

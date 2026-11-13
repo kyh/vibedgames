@@ -16,6 +16,7 @@ import { Match } from "./net/match";
 import { BOTS } from "./net/rules";
 import { openRoom } from "./net/session";
 import { installPlaytest } from "./playtest";
+import { loadSoldierRig } from "./soldier/soldier-rig";
 
 declare global {
   interface Window {
@@ -65,6 +66,8 @@ match.watchState((state, g) => {
 });
 
 const boot = async (): Promise<void> => {
+  // Soldiers are built the moment the dock spawns one, so their rig is in hand first.
+  await loadSoldierRig();
   await bootStrikeforce(match, { enemies: (g) => new Garrison(g) });
   if (game) {
     installPlaytest(game, match);

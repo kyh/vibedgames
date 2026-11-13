@@ -7,6 +7,12 @@
 //
 // It is a worse shot than a person on purpose: it reacts late, fires bursts
 // slower than the rifle, and misses more with range, movement and crouching.
+//
+// It moves like something with weight: it speeds up and slows down at its
+// gait's `accel`, eases into and out of a turn, slows for a corner it is not
+// yet facing, cuts corners it can see past, commits to a sidestep (or to
+// standing its ground) for a second or two, and all but plants its feet to
+// fire a burst.
 import { Vector3 } from "three";
 
 import type { Physics } from "../core/types";
@@ -50,6 +56,10 @@ export interface Gait {
   hold: number;
   /** Radians per second. */
   turn: number;
+  /** Metres per second squared: how hard it starts; it stops half as hard again. */
+  accel: number;
+  /** Seconds it stands at the end of a patrol leg before the next. */
+  pause: readonly [number, number];
 }
 
 export interface Senses {
@@ -106,6 +116,16 @@ const THINK = 0.2;
 /** Extra reaction when it was caught calm: whoever surprises it shoots first. */
 const SURPRISE = 0.35;
 
+/** How eagerly a turn closes its last few degrees, per second. */
+const TURN_EASE = 9;
+/** Seconds a fighter keeps to one sidestep, or to standing still. */
+const COMMIT: readonly [number, number] = [1.1, 2.6];
+/** How much of its pace it keeps while firing a burst. */
+const FIRING_PACE = 0.3;
+/** Path waypoints count as reached this close; the last one closer. */
+const CORNER = 0.9;
+const ARRIVE = 0.45;
+
 const between = ([lo, hi]: readonly [number, number]): number => lo + Math.random() * (hi - lo);
 
 const wrap = (a: number): number => Math.atan2(Math.sin(a), Math.cos(a));
@@ -130,9 +150,12 @@ export class SoldierBrain {
   private cooldown = 0;
   private burst = 0;
   private think = Math.random() * THINK;
-  private strafe = Math.random() < 0.5 ? -1 : 1;
+  private readonly vel = new Vector3();
+  /** -1 left, 1 right, 0 holding still. */
+  private strafe = 0;
   private strafeT = 0;
   private stuck = 0;
+  private rest = 0;
   private readonly eye = new Vector3();
   private readonly aim = new Vector3();
 
@@ -157,6 +180,7 @@ export class SoldierBrain {
     this.pos.set(at.x, at.y, at.z);
     this.yaw = yaw;
     this.pitch = 0;
+    this.vel.set(0, 0, 0);
     this.mode = { kind: "idle" };
     this.path = [];
   }
@@ -183,6 +207,7 @@ export class SoldierBrain {
     if (this.think <= 0) {
       this.think = THINK;
       this.look(people, orders);
+      this.cutCorner();
     }
     const target =
       this.mode.kind === "fight" ? (people.find((p) => p.id === this.target) ?? null) : null;
@@ -281,21 +306,30 @@ export class SoldierBrain {
     this.turn(want, dt);
     const dist = Math.hypot(t.pos.x - this.pos.x, t.pos.z - this.pos.z);
     const chest = chestOf(t, this.aim);
-    this.pitch = Math.atan2(chest.y - (this.pos.y + EYE), dist);
+    const pitch = Math.atan2(chest.y - (this.pos.y + EYE), dist);
+    this.pitch += (pitch - this.pitch) * (1 - Math.exp(-10 * dt));
 
     this.strafeT -= dt;
     if (this.strafeT <= 0) {
-      this.strafeT = between([0.6, 1.4]);
-      this.strafe = -this.strafe;
+      this.sidestep();
     }
-    const advance = dist > gait.hold ? 0.7 : 0;
+    // Close to its hold distance; give ground to someone on top of it.
+    let advance = 0;
+    if (dist > gait.hold) {
+      advance = 1;
+    } else if (dist < gait.hold * 0.35) {
+      advance = -0.6;
+    }
     const fx = -Math.sin(this.yaw);
     const fz = -Math.cos(this.yaw);
     // Right of facing is (-fz, fx).
-    const vx = (fx * advance - fz * this.strafe) * gait.strafe;
-    const vz = (fz * advance + fx * this.strafe) * gait.strafe;
-    if (!this.walk(vx * dt, vz * dt)) {
+    const wx = fx * advance - fz * this.strafe;
+    const wz = fz * advance + fx * this.strafe;
+    const pace =
+      (gait.strafe * (this.burst > 0 ? FIRING_PACE : 1)) / Math.max(1, Math.hypot(wx, wz));
+    if (!this.steer(wx * pace, wz * pace, dt) && this.strafe !== 0) {
       this.strafe = -this.strafe;
+      this.strafeT = between(COMMIT);
     }
 
     mode.react -= dt;
@@ -372,31 +406,73 @@ export class SoldierBrain {
     this.follow(this.profile.gait.walk, dt);
   }
 
+  /** Pick the next sidestep: the other way, or now and then none at all. */
+  private sidestep(): void {
+    this.strafeT = between(COMMIT);
+    if (this.strafe === 0) {
+      this.strafe = Math.random() < 0.5 ? -1 : 1;
+    } else {
+      this.strafe = Math.random() < 0.35 ? 0 : -this.strafe;
+    }
+  }
+
+  /** Drop the next waypoint when the one after it is a straight walk away. */
+  private cutCorner(): void {
+    const [, after] = this.path;
+    if (!after) {
+      return;
+    }
+    const { nav } = this.world;
+    const dx = after.x - this.pos.x;
+    const dz = after.z - this.pos.z;
+    const steps = Math.ceil(Math.hypot(dx, dz) / 0.4);
+    for (let i = 1; i <= steps; i += 1) {
+      if (!nav.isWalkable(this.pos.x + (dx * i) / steps, this.pos.z + (dz * i) / steps)) {
+        return;
+      }
+    }
+    this.path.shift();
+  }
+
   private wander(dt: number, orders: Orders): void {
     if (this.path.length === 0) {
+      this.rest -= dt;
+      if (this.rest > 0) {
+        this.steer(0, 0, dt);
+        return;
+      }
       const to = orders.wander(this);
       this.path = to ? (this.world.nav.findPath(this.pos, to) ?? []) : [];
     }
-    this.follow(this.profile.gait.walk, dt);
+    if (!this.follow(this.profile.gait.walk, dt)) {
+      this.rest = between(this.profile.gait.pause);
+    }
   }
 
   /** Walk the path at `speed`. False once there is nowhere left to go. */
   private follow(speed: number, dt: number): boolean {
     const [next] = this.path;
     if (!next) {
+      this.steer(0, 0, dt);
       return false;
     }
     const dx = next.x - this.pos.x;
     const dz = next.z - this.pos.z;
     const d = Math.hypot(dx, dz);
-    if (d < 0.6) {
+    const last = this.path.length === 1;
+    if (d < (last ? ARRIVE : CORNER)) {
       this.path.shift();
-      return this.path.length > 0;
+      return !last;
     }
-    this.turn(Math.atan2(-dx, -dz), dt);
+    const heading = Math.atan2(-dx, -dz);
+    this.turn(heading, dt);
     this.pitch *= 1 - Math.min(1, dt * 4);
-    const stride = Math.min(d, speed * dt);
-    if (this.walk((dx / d) * stride, (dz / d) * stride)) {
+    // Facing the wrong way it all but stops and turns first, rather than slide sideways.
+    const facing = Math.max(0.12, Math.min(1, (Math.cos(wrap(heading - this.yaw)) - 0.1) / 0.6));
+    // And it brakes into the end of the path.
+    const brake = last ? Math.sqrt(2 * this.profile.gait.accel * d) : speed;
+    const pace = (Math.min(speed, brake) * facing) / d;
+    if (this.steer(dx * pace, dz * pace, dt)) {
       this.stuck = 0;
     } else {
       this.stuck += dt;
@@ -409,8 +485,26 @@ export class SoldierBrain {
   }
 
   private turn(to: number, dt: number): void {
-    const step = this.profile.gait.turn * dt;
-    this.yaw = wrap(this.yaw + Math.max(-step, Math.min(step, wrap(to - this.yaw))));
+    const off = wrap(to - this.yaw);
+    const rate = Math.min(this.profile.gait.turn, Math.max(0.5, Math.abs(off) * TURN_EASE));
+    this.yaw = wrap(this.yaw + Math.sign(off) * Math.min(Math.abs(off), rate * dt));
+  }
+
+  /**
+   * Bring its velocity towards (vx, vz) at its gait's acceleration and move.
+   * False when it wanted to go somewhere and a wall said no.
+   */
+  private steer(vx: number, vz: number, dt: number): boolean {
+    const { accel } = this.profile.gait;
+    const dvx = vx - this.vel.x;
+    const dvz = vz - this.vel.z;
+    const dv = Math.hypot(dvx, dvz);
+    const slowing = Math.hypot(vx, vz) < Math.hypot(this.vel.x, this.vel.z);
+    const k = dv > 0 ? Math.min(1, ((slowing ? accel * 1.5 : accel) * dt) / dv) : 0;
+    this.vel.x += dvx * k;
+    this.vel.z += dvz * k;
+    const moved = this.walk(this.vel.x * dt, this.vel.z * dt);
+    return moved || Math.hypot(vx, vz) < 0.05;
   }
 
   /** Step on the walkable grid, sliding along an edge. False if it went nowhere. */
@@ -422,9 +516,12 @@ export class SoldierBrain {
       this.pos.z += dz;
     } else if (nav.isWalkable(x + dx, z)) {
       this.pos.x += dx;
+      this.vel.z = 0;
     } else if (nav.isWalkable(x, z + dz)) {
       this.pos.z += dz;
+      this.vel.x = 0;
     } else {
+      this.vel.set(0, 0, 0);
       return false;
     }
     return Math.abs(dx) + Math.abs(dz) > 0;

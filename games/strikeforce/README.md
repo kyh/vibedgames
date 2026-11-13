@@ -11,8 +11,9 @@ picked on the title screen:
 - **Holdout** (solo PvE) — endless, growing waves of the crew; resupply
   between waves.
 
-Every surface, weapon, soldier and sound is generated in the browser; nothing
-is downloaded. Deployed at `strikeforce.vibedgames.com`.
+Every surface, weapon and sound is generated in the browser; the one thing
+downloaded is the soldier (`public/models/soldier.glb`, 566 KB). Deployed at
+`strikeforce.vibedgames.com`.
 
 ## Develop
 
@@ -20,7 +21,7 @@ is downloaded. Deployed at `strikeforce.vibedgames.com`.
 pnpm dev:strikeforce                        # http://localhost:5196
 pnpm dev:party                              # the party server, for matches on localhost
 pnpm --filter @repo/strikeforce typecheck   # tsc --noEmit
-pnpm --filter @repo/strikeforce test        # unit tests: the deathmatch rules, wire narrowing
+pnpm --filter @repo/strikeforce test        # unit tests: the deathmatch rules, wire narrowing, crew tuning, gait
 pnpm --filter @repo/strikeforce test:online # two-client deathmatch smoke (needs dev:party)
 pnpm --filter @repo/strikeforce build       # vite build
 ```
@@ -103,18 +104,42 @@ find who you are fighting.
 Every computer-played fighter is a soldier: deathmatch bots and the crew in
 Mission and Holdout alike.
 
-- **Model** (`src/soldier/soldier-model.ts`, kits in `soldier-kit.ts`): built
-  from primitives in code, one merged mesh per limb with baked vertex colours
-  (ten draw calls a soldier), a cut helmet with rails, ear cups and an NVG
-  mount, goggles, a balaclava, a plate carrier with pouches, a carbine. Fabric
-  carries a camo weight the material turns into blotches. Two kits:
-  `operator` (coyote; every deathmatch fighter) and `garrison` (urban grey,
-  red armband; the crew). Walk, crouch, aim pitch, a flinch on a hit, a fall.
+- **Body** (`src/soldier/soldier-rig.ts`, `public/models/soldier.glb`): one
+  skinned, textured mesh (22k triangles, a 1024² WebP atlas, 24 bones, eight
+  clips), loaded once before boot; every soldier is a `SkeletonUtils.clone`
+  sharing its geometry, materials and clips. The mesh is our own Meshy
+  generation, rigged and animated through Meshy's API; `tools/build-soldier.mjs`
+  packs what Meshy returned (clips renamed and played on the spot, the bake's
+  pink sheen graded out of the atlas, meshopt). It was generated holding its
+  carbine at the low ready and rigged in that pose, so carbine, arms and chest
+  are one piece: the arms are never animated, and the muzzle is a point on the
+  chest bone.
+- **Kits** (`soldier-kit.ts`): the mesh wears black gear; a kit dyes its
+  fatigues and helmet and paints an armband in the shader. `operator` (coyote,
+  orange band; every deathmatch fighter) and `garrison` (urban grey, red band;
+  the crew).
+- **Movement on screen** (`soldier-model.ts`, `soldier-gait.ts`): a model is
+  only ever told where it stands, so it reads its velocity off that. Walk, jog
+  and sprint blend by speed over the ready stance, and the stride advances by
+  distance covered, so feet do not slide. There are no sideways clips: a
+  sidestep turns the hips towards the direction of travel (or away from it,
+  on the backpedal clip) and the spine turns back. Standing, the feet stay
+  planted until the body has turned ~50°, then step round. On aim the chest
+  turns and lifts until the barrel — measured each frame, wherever the clips
+  left it — points where the soldier looks, and the head comes back onto the
+  target; at a run the carbine stays at the low ready. A shot kicks the
+  chest, a hit plays the flinch and twists away from it, death plays a fall.
+  Hitboxes (head, torso, legs) and the muzzle ride the bones. Animation thins
+  with range (30 Hz past 28 m, 15 Hz past 55 m) and drops to 8 Hz off screen.
 - **Brain** (`src/soldier/soldier-brain.ts`): sees 200° ahead to its range,
-  patrols, goes to look at what it heard, fights (strafe, close to its hold
-  distance, bursts) and goes hunting where it last saw you. Late to react —
-  later still when you catch it calm — and a worse shot with range, your
-  movement and your crouch.
+  patrols (pausing at the end of each leg), goes to look at what it heard,
+  fights and goes hunting where it last saw you. It moves with weight: it
+  speeds up and brakes at its gait's `accel`, eases into and out of turns,
+  all but stops to turn round rather than slide sideways, cuts path corners it
+  can see past, brakes into the end of a path, commits to a sidestep — or to
+  standing still — for one to two and a half seconds, and slows to under a
+  third of its pace to fire a burst. Late to react — later still when you
+  catch it calm — and a worse shot with range, your movement and your crouch.
 - **The crew** (`src/garrison/`): the core's enemies module, handed to it at
   boot (`CoreModules`), so the core's director still runs patrols, waves,
   pursuit, relays and Holdout scoring. It spawns two kinds by name, "gull"
@@ -172,7 +197,8 @@ Wire format: `src/net/protocol.ts`. A wire change bumps `ROOM_PREFIX`.
 | `src/net/match.ts`             | the match controller: `G.net`, host and client                 |
 | `src/net/bots.ts`              | bots: the host's brains, and their bodies as player reports    |
 | `src/net/players.ts`           | other players: interpolation, avatars, hitboxes                |
-| `src/soldier/`                 | the soldier model, kits, brain and tracer: bots and crew alike |
+| `src/soldier/`                 | the soldier rig, kits, gait, model, brain and tracer           |
+| `tools/build-soldier.mjs`      | packs Meshy's rig and clips into `public/models/soldier.glb`   |
 | `src/garrison/`                | the crew in Mission and Holdout: the core's enemies module     |
 | `src/net/map.ts`               | arena spawns on the dock                                       |
 | `src/net/match-hud.ts`         | kills bar, match clock, Tab scoreboard                         |
