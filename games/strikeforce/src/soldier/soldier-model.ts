@@ -7,8 +7,8 @@
 // butt in the shoulder, bore along the soldier's yaw and pitch — or, calm or
 // at a run, across the body at the low ready; both arms reach it by IK, the
 // chest squares up behind it and the head stays on the target. A shot kicks
-// it; a hit plays the flinch; death plays a fall, arms and all, and the
-// carbine drops.
+// it; a hit plays the flinch. Killed, it goes limp where it stands: the
+// ragdoll (ragdoll.ts) takes the bones and the carbine and lets them fall.
 //
 // Hitboxes — head, torso, legs — ride the bones, so shots land where the
 // body is drawn. Faces -Z at yaw 0, like the camera.
@@ -16,10 +16,12 @@ import { AnimationMixer, Euler, Group, Quaternion, Vector3 } from "three";
 import type { AnimationAction, Bone, Mesh, SkinnedMesh } from "three";
 
 import { Arm } from "./arm-ik";
+import { Ragdoll } from "./ragdoll";
 import { Gait, STRIDES, STRIDE_NAMES } from "./soldier-gait";
 import type { Kit } from "./soldier-kit";
 import { CLIP_NAMES, soldierBody } from "./soldier-rig";
 import type { ClipName } from "./soldier-rig";
+import type { Terrain } from "./verlet";
 
 export type { Kit } from "./soldier-kit";
 
@@ -42,10 +44,12 @@ const CARRY_SPEED = 4;
 const FIRE_HOLD = 0.9;
 /** Radians the chest turns off the aim to shoulder a carbine: support side forward. */
 const BLADE = -0.45;
-/** The flinch and the falls are played faster than they were animated: a shot is abrupt. */
+/** The flinch is played faster than it was animated: a shot is abrupt. */
 const HIT_RATE = 1.6;
 const HIT_SECONDS = 0.55;
-const DEATH_RATE = 1.3;
+/** A hit this fresh when the soldier dies is the one that killed it, and throws it at this speed, m/s. */
+const BLOW_SECONDS = 0.5;
+const BLOW_SPEED = 2.2;
 /** A crouched soldier standing still holds its crouched stride here. */
 const CROUCH_HOLD = 0.2;
 
@@ -78,7 +82,6 @@ const FORE_POLE = new Vector3(-0.45, -1, 0.1);
 const SHOULDERED = new Vector3(-0.07, 0.08, -0.05);
 const CARRIED = new Vector3(-0.1, -0.06, -0.1);
 const CARRY_TURN = new Quaternion().setFromEuler(new Euler(-0.7, 0.75, 0.3, "YXZ"));
-const DROPPED_TURN = new Quaternion().setFromEuler(new Euler(0, 0.9, Math.PI / 2, "YXZ"));
 
 const SPINE = ["Hips", "Spine02", "Spine01", "Spine", "neck", "Head"] as const;
 const ARMS = [
@@ -105,6 +108,7 @@ const fingers = new Vector3();
 const worldTurn = new Quaternion();
 const rootTurn = new Quaternion();
 const aimTurn = new Quaternion();
+const velocity = new Vector3();
 
 const ease = (t: number): number => t * t * (3 - 2 * t);
 
@@ -147,22 +151,22 @@ export class SoldierModel {
   private readonly foreArm: Arm;
   private readonly gripShoulder: Bone;
   private readonly gait = new Gait();
+  private readonly ragdoll: Ragdoll;
+  /** Where the last shot struck, and which way it was going. */
+  private readonly blowAt = new Vector3();
+  private readonly blowDir = new Vector3();
   private clock = 0;
   private pending = Infinity;
   /** Frames since it was last drawn, and how far off that was. */
   private unseen = 0;
   private range = 0;
   private aim = 0;
-  private dead = 0;
-  private deathT = 0;
-  private fall: "death-back" | "death-front" = "death-back";
   private hitT = Infinity;
   private flinchSide = 1;
   private kick = 0;
   private sinceFire = Infinity;
-  private dropSpeed = 0;
 
-  constructor(kit: Kit, name: string) {
+  constructor(kit: Kit, name: string, terrain: Terrain) {
     const body = soldierBody(kit);
     this.rig = body.rig;
     this.skin = body.mesh;
@@ -195,8 +199,6 @@ export class SoldierModel {
       "crouch-left": action("crouch-left"),
       "crouch-right": action("crouch-right"),
       "crouch-walk": action("crouch-walk"),
-      "death-back": action("death-back"),
-      "death-front": action("death-front"),
       hit: action("hit"),
       jog: action("jog"),
       sprint: action("sprint"),
@@ -236,16 +238,27 @@ export class SoldierModel {
       this.root,
       -1,
     );
+    this.ragdoll = new Ragdoll(body.bone, this.root, body.carbine, terrain);
     body.mesh.onBeforeRender = (_renderer, _scene, camera) => {
       this.unseen = 0;
       this.range = camera.position.distanceTo(this.root.position);
     };
   }
 
-  /** A hit from `side` (-1 left, 1 right): the body takes it and twists away. */
-  flinch(side: number): void {
+  /**
+   * A shot along `dir` struck it at `at`. Alive, the body takes it and
+   * twists away; if it is the one that kills, the body is thrown by it.
+   */
+  hit(at: Vector3, dir: Vector3): void {
     this.hitT = 0;
-    this.flinchSide = side < 0 ? -1 : 1;
+    // Its right is (cos yaw, -sin yaw): a shot going that way came from its left.
+    const yaw = this.root.rotation.y;
+    this.flinchSide = dir.x * Math.cos(yaw) - dir.z * Math.sin(yaw) > 0 ? -1 : 1;
+    this.blowAt.copy(at);
+    this.blowDir.copy(dir).normalize();
+    if (this.ragdoll.down) {
+      this.ragdoll.shove(this.blowAt, this.blowDir, BLOW_SPEED);
+    }
   }
 
   /** It fired: the carbine kicks, and comes onto the aim if it was off it. */
@@ -261,12 +274,17 @@ export class SoldierModel {
   }
 
   update(pose: SoldierPose, dt: number): void {
-    this.root.position.set(pose.x, pose.y, pose.z);
-    this.root.rotation.y = pose.yaw;
+    const { down } = this.ragdoll;
+    // A body lies where it fell, wherever its owner has gone since.
+    if (pose.alive || !down) {
+      this.root.position.set(pose.x, pose.y, pose.z);
+      this.root.rotation.y = pose.yaw;
+    }
     this.gait.update(pose.x, pose.z, pose.yaw, pose.crouch, dt);
     this.pending += dt;
     this.unseen += 1;
-    if (this.pending < this.interval()) {
+    // Falling and getting up are never late, however rarely it is otherwise animated.
+    if (pose.alive !== down && this.pending < this.interval()) {
       return;
     }
     const step = Number.isFinite(this.pending) ? this.pending : 0;
@@ -294,23 +312,18 @@ export class SoldierModel {
     this.sinceFire += dt;
     this.hitT += dt;
     this.kick *= Math.exp(-16 * dt);
-    if (pose.alive) {
-      this.dead = 0;
-      this.deathT = 0;
-    } else {
-      if (this.deathT === 0) {
-        // Shot from in front it goes over backwards, mostly.
-        this.fall = Math.random() < 0.65 ? "death-back" : "death-front";
-      }
-      this.dead = Math.min(1, this.dead + dt * 7);
-      this.deathT += dt;
+    if (!pose.alive) {
+      this.fall(dt);
+      return;
+    }
+    if (this.ragdoll.down) {
+      this.ragdoll.rise();
     }
     const on = pose.aiming && (this.gait.speed < CARRY_SPEED || this.sinceFire < FIRE_HOLD);
-    this.aim = approach(this.aim, pose.alive && on ? 1 : 0, on ? 11 : 6, dt);
-    const alive = 1 - ease(this.dead);
-    const aim = ease(this.aim) * alive;
+    this.aim = approach(this.aim, on ? 1 : 0, on ? 11 : 6, dt);
+    const aim = ease(this.aim);
 
-    this.blend(alive, dt);
+    this.blend(dt);
     for (const { bone, clip } of this.posed) {
       bone.quaternion.copy(clip);
     }
@@ -318,14 +331,27 @@ export class SoldierModel {
     for (const { bone, clip } of this.posed) {
       clip.copy(bone.quaternion);
     }
-    this.turnSpine(pose.pitch, aim, alive);
+    this.turnSpine(pose.pitch, aim);
     this.root.updateMatrixWorld(true);
-    this.holdCarbine(pose, aim, dt);
-    this.gripCarbine(alive);
+    this.holdCarbine(pose, aim);
+    this.gripCarbine();
+  }
+
+  /** Dead: go limp as it stands, moving as it was, and keep falling. */
+  private fall(dt: number): void {
+    const { ragdoll, gait } = this;
+    if (!ragdoll.down) {
+      this.aim = 0;
+      ragdoll.drop(velocity.set(gait.vx, 0, gait.vz));
+      if (this.hitT < BLOW_SECONDS) {
+        ragdoll.shove(this.blowAt, this.blowDir, BLOW_SPEED);
+      }
+    }
+    ragdoll.update(dt);
   }
 
   /** Set every clip's weight and place in time. */
-  private blend(alive: number, dt: number): void {
+  private blend(dt: number): void {
     const { actions, gait } = this;
     const hit =
       this.hitT < HIT_SECONDS
@@ -333,7 +359,7 @@ export class SoldierModel {
         : 0;
     // Weights ease to where the gait wants them, so swapping a walk for a backpedal is a blend, not a cut.
     const k = dt > 0 ? 1 - Math.exp(-12 * dt) : 1;
-    const live = (1 - hit) * alive;
+    const live = 1 - hit;
     for (const name of STRIDE_NAMES) {
       const action = actions[name];
       action.weight += (gait.weights[name] * live - action.weight) * k;
@@ -342,12 +368,8 @@ export class SoldierModel {
     if (gait.speed < 0.3) {
       actions["crouch-walk"].time = CROUCH_HOLD * actions["crouch-walk"].getClip().duration;
     }
-    actions.hit.weight = hit * alive;
+    actions.hit.weight = hit;
     actions.hit.time = Math.min(this.hitT * HIT_RATE, actions.hit.getClip().duration);
-    for (const name of ["death-back", "death-front"] as const) {
-      actions[name].weight = name === this.fall ? 1 - alive : 0;
-      actions[name].time = Math.min(this.deathT * DEATH_RATE, actions[name].getClip().duration);
-    }
   }
 
   /**
@@ -356,7 +378,7 @@ export class SoldierModel {
    * the head on the target. The aim's pitch, breathing, the kick and the
    * flinch are laid over that.
    */
-  private turnSpine(pitch: number, aim: number, alive: number): void {
+  private turnSpine(pitch: number, aim: number): void {
     const [hips, low, mid, chest, neck, head] = this.spine;
     if (!hips || !low || !mid || !chest || !neck || !head) {
       return;
@@ -370,34 +392,27 @@ export class SoldierModel {
     probe.copy(this.headAhead).applyQuaternion(chain);
     const headYaw = Math.atan2(probe.x, probe.z);
 
-    const twist = this.gait.twist * alive;
-    const swing = (BLADE * aim - chestYaw) * alive;
+    const { twist } = this.gait;
+    const swing = BLADE * aim - chestYaw;
     const back = (swing - twist) / 3;
     // Looking up is a negative turn about the rig's X.
     const lift = -pitch * aim;
-    const breath = Math.sin(this.clock * 1.7) * 0.012 * alive;
-    const flinch = this.hitT < 0.35 ? (1 - this.hitT / 0.35) * 0.3 * this.flinchSide * alive : 0;
+    const breath = Math.sin(this.clock * 1.7) * 0.012;
+    const flinch = this.hitT < 0.35 ? (1 - this.hitT / 0.35) * 0.3 * this.flinchSide : 0;
     chain.copy(this.base);
     turnBone(hips, 0, twist, 0);
     turnBone(low, lift * 0.15 + 0.06 * aim, back, 0);
     turnBone(mid, lift * 0.2 + breath, back + flinch, flinch * 0.4);
-    turnBone(chest, lift * 0.2 - this.kick * 0.03 * alive, back, 0);
-    const look = -(headYaw + swing) * alive;
+    turnBone(chest, lift * 0.2 - this.kick * 0.03, back, 0);
+    const look = -(headYaw + swing);
     turnBone(neck, lift * 0.2 - breath, look * 0.45, 0);
     // Cheek to the stock: the head drops and tips over the carbine.
     turnBone(head, lift * 0.25 + 0.1 * aim, look * 0.55, 0.08 * aim);
   }
 
-  /** Shoulder the carbine along the aim, or carry it low; let it fall when its owner does. */
-  private holdCarbine(pose: SoldierPose, aim: number, dt: number): void {
+  /** Shoulder the carbine along the aim, or carry it low. */
+  private holdCarbine(pose: SoldierPose, aim: number): void {
     const { carbine, root } = this;
-    if (!pose.alive) {
-      this.dropSpeed += 9.8 * dt;
-      carbine.position.y = Math.max(0.03, carbine.position.y - this.dropSpeed * dt);
-      carbine.quaternion.slerp(DROPPED_TURN, 1 - Math.exp(-7 * dt));
-      return;
-    }
-    this.dropSpeed = 0;
     point.copy(this.gripShoulder.position);
     this.gripShoulder.parent?.localToWorld(point);
     root.worldToLocal(point);
@@ -413,11 +428,8 @@ export class SoldierModel {
   }
 
   /** Both hands to the carbine. */
-  private gripCarbine(alive: number): void {
+  private gripCarbine(): void {
     const { carbine, root } = this;
-    if (alive <= 0) {
-      return;
-    }
     carbine.getWorldQuaternion(worldTurn);
     root.getWorldQuaternion(rootTurn);
     this.gripArm.solve(
@@ -425,14 +437,14 @@ export class SoldierModel {
       pole.copy(GRIP_POLE).applyQuaternion(rootTurn),
       palm.copy(GRIP_PALM).applyQuaternion(worldTurn),
       fingers.copy(GRIP_FINGERS).applyQuaternion(worldTurn),
-      alive,
+      1,
     );
     this.foreArm.solve(
       carbine.localToWorld(point.copy(FORE_WRIST)),
       pole.copy(FORE_POLE).applyQuaternion(rootTurn),
       palm.copy(FORE_PALM).applyQuaternion(worldTurn),
       fingers.copy(FORE_FINGERS).applyQuaternion(worldTurn),
-      alive,
+      1,
     );
   }
 }

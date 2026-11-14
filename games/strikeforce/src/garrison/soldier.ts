@@ -62,14 +62,10 @@ export class Soldier implements Enemy {
       return false;
     }
     this.hp -= part === "weak" ? amount * HEADSHOT_BONUS : amount;
-    // A hit comes from back along the shot.
-    const from = point.clone().addScaledVector(dir, -20);
-    const side =
-      (from.x - this.pos.x) * Math.cos(this.brain.yaw) -
-      (from.z - this.pos.z) * Math.sin(this.brain.yaw);
-    this.model.flinch(side);
+    this.model.hit(point, dir);
     if (this.hp > 0) {
-      this.events.hurt(this, from);
+      // A hit comes from back along the shot.
+      this.events.hurt(this, point.clone().addScaledVector(dir, -20));
       return false;
     }
     this.alive = false;

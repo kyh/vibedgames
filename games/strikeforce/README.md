@@ -107,7 +107,7 @@ Mission and Holdout alike.
 
 - **Body and carbine** (`src/soldier/soldier-rig.ts`,
   `public/models/soldier.glb`): a skinned soldier (36k triangles, 24 bones,
-  13 clips) and a carbine as a mesh of its own (7k triangles), both with base
+  11 clips) and a carbine as a mesh of its own (7k triangles), both with base
   colour, normal and metal/rough maps as WebP (the soldier's base colour 2K,
   the rest 1K), meshopt-compressed: 1.8 MB, loaded once before boot. Every
   soldier is a `SkeletonUtils.clone` sharing geometry, materials and clips.
@@ -139,12 +139,23 @@ Mission and Holdout alike.
   soldier's yaw and pitch exactly — or, calm or above 4 m/s, across the body
   at the low ready; both arms reach it by two-bone IK, the chest blades behind
   it and the head stays on the target. A shot kicks it back, a hit plays the
-  flinch and twists away from it, death plays one of two falls with the arms
-  let go and the carbine dropped. Hitboxes (head, torso, legs) ride the
+  flinch and twists away from it. Hitboxes (head, torso, legs) ride the
   bones; the muzzle is the carbine's. Animation thins with range (30 Hz past
   28 m, 15 Hz past 55 m) and drops to 8 Hz off screen. Remote players and
   bots kick too: a shot on the wire carries no shooter, so whoever stands at
   its muzzle fired it (`Players.fired`).
+- **Death** (`ragdoll.ts`, `verlet.ts`): no clip. A killed soldier goes limp
+  as it stands: fifteen points — pelvis, chest, head, each limb's three
+  joints — take over from the pose and velocity it had, held to each other by
+  distance limits measured on the rest pose (rods for bones, ranges for how
+  far the trunk twists and the head lolls, minimums for what a body cannot
+  fold through; knees and hips bend one way). Gravity, the level's floors and
+  walls and the shot that killed it (`SoldierModel.hit`: struck part thrown
+  hardest) do the rest, and the bones are read back off the points. The
+  carbine is three points more, and lands flat. A body that stops moving stops
+  being simulated. Each client falls its own bodies: a kill on the wire says
+  who shot whom, and the body is thrown away from the killer
+  (`Players.felled`).
 - **Brain** (`src/soldier/soldier-brain.ts`): sees 200° ahead to its range,
   patrols (pausing at the end of each leg), goes to look at what it heard,
   fights and goes hunting where it last saw you. It moves with weight: it

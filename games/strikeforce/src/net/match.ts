@@ -633,6 +633,10 @@ export class Match implements NetHooks {
     this.feed(
       `${by}<em>${head === 1 ? "headshot" : "down"}</em> <b>${escapeHtml(name(victim))}</b>`,
     );
+    const from = killer ? this.bodyOf(killer, game) : undefined;
+    if (from) {
+      this.players?.felled(victim, from, head === 1);
+    }
     if (killer === this.me && victim !== this.me) {
       game.combat.stats.kills += 1;
       game.hud.hitmarker("kill");

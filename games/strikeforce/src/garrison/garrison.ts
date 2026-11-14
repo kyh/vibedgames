@@ -114,7 +114,7 @@ export class Garrison implements Enemies {
     const fielded = field(role, this.TUNE);
     this.serial += 1;
     const id = `crew:${this.serial}`;
-    const model = new SoldierModel("garrison", `${fielded.label}-${this.serial}`);
+    const model = new SoldierModel("garrison", `${fielded.label}-${this.serial}`, physics);
     const soldier = new Soldier(id, role, fielded, physics, model, this.squad);
     // The director picks some posts in the air (they were for flyers): stand
     // on the ground beneath, or the nearest walkable spot.

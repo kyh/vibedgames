@@ -35,8 +35,6 @@ export const CLIP_NAMES = [
   "crouch-left",
   "crouch-right",
   "hit",
-  "death-back",
-  "death-front",
 ] as const;
 export type ClipName = (typeof CLIP_NAMES)[number];
 
@@ -153,8 +151,6 @@ const build = (scene: Object3D, animations: readonly AnimationClip[]): Rig => {
       "crouch-left": clip("crouch-left"),
       "crouch-right": clip("crouch-right"),
       "crouch-walk": clip("crouch-walk"),
-      "death-back": clip("death-back"),
-      "death-front": clip("death-front"),
       hit: clip("hit"),
       jog: clip("jog"),
       sprint: clip("sprint"),

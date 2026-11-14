@@ -48,20 +48,14 @@ const CLIPS = {
   Crouch_Walk_Left_with_Gun_inplace: "crouch-left",
   Hit_Reaction: "hit",
   Rifle_Charge_inplace: "sprint",
-  Shot_and_Fall_Backward: "death-back",
-  Shot_and_Fall_Forward: "death-front",
   Walk_Backward_with_Gun_1_inplace: "back",
   Walk_Backward_with_Gun_inplace: "crouch-back",
   Walk_Left_with_Gun_inplace: "strafe-left",
 };
 /** Left-handed clips to mirror into right-handed ones. */
 const MIRRORED = { "crouch-left": "crouch-right", "strafe-left": "strafe-right" };
-// A living soldier's arms are placed on the carbine by IK, so only the clips
-// where it has let go keep their arm tracks.
+// The arms are placed on the carbine by IK, so no clip keeps its arm tracks.
 const ARMS = /^(?:Left|Right)(?:Shoulder|Arm|ForeArm|Hand)$/u;
-const KEEPS_ARMS = new Set(["death-back", "death-front"]);
-/** The falls travel; everything else is played on the spot. */
-const TRAVELS = new Set(["death-back", "death-front"]);
 
 /**
  * The rig has no finger bones: the hands are flat, as modelled. Roll each
@@ -163,11 +157,11 @@ for (const animation of root.listAnimations()) {
     const bone = channel.getTargetNode();
     const property = channel.getTargetPath();
     const posed = property === "rotation" || (property === "translation" && bone === hips);
-    const armless = !KEEPS_ARMS.has(name) && ARMS.test(bone?.getName() ?? "");
-    if (!name || !bone || !posed || armless) {
+    if (!name || !bone || !posed || ARMS.test(bone.getName())) {
       channel.getSampler()?.dispose();
       channel.dispose();
-    } else if (property === "translation" && !TRAVELS.has(name)) {
+    } else if (property === "translation") {
+      // Every clip is played on the spot: the hips keep only their bob.
       const output = channel.getSampler().getOutput();
       for (let i = 0; i < output.getCount(); i += 1) {
         output.setElement(i, [rest[0], output.getElement(i, [])[1], rest[2]]);

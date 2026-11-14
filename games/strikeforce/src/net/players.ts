@@ -24,6 +24,12 @@ interface Pose {
 
 /** Metres, on the ground, a muzzle can be from the fighter holding it. */
 const MUZZLE_REACH = 1.6;
+/** How high on a body a killing round is taken to strike: the chest, or the head. */
+const CHEST = 1.2;
+const HEAD = 1.6;
+
+const struck = new Vector3();
+const along = new Vector3();
 
 const lerpPose = (a: Pose, b: Pose, k: number): Pose => ({
   crouch: lerp(a.crouch, b.crouch, k),
@@ -196,6 +202,19 @@ export class Players {
     nearest?.avatar?.fire();
   }
 
+  /**
+   * `victim` was killed by a round from `from`: its body is thrown the way
+   * the round was going. The wire says who shot whom, not where it struck.
+   */
+  felled(victim: string, from: Point, head: boolean): void {
+    const p = this.all.get(victim);
+    if (!p?.pose) {
+      return;
+    }
+    struck.set(p.pose.x, p.pose.y + (head ? HEAD : CHEST), p.pose.z);
+    p.avatar?.hit(struck, along.set(struck.x - from.x, 0, struck.z - from.z));
+  }
+
   /** Keep every avatar out of the scene's way (solo PvE, the title). */
   hide(): void {
     for (const p of this.all.values()) {
@@ -236,7 +255,7 @@ export class Players {
     if (p.avatar) {
       return;
     }
-    p.avatar = new SoldierModel("operator", p.callsign);
+    p.avatar = new SoldierModel("operator", p.callsign, this.game.physics);
     p.avatar.root.visible = false;
     this.game.scene.add(p.avatar.root);
   }

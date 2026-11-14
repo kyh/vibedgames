@@ -128,7 +128,9 @@ export const strideLength = (weights: GaitWeights): number => {
 };
 
 export class Gait {
-  /** Planar speed, smoothed, m/s. */
+  /** Planar velocity, smoothed, m/s, and its size. */
+  vx = 0;
+  vz = 0;
   speed = 0;
   /** 0–1 through the stride cycle. */
   phase = 0;
@@ -140,8 +142,6 @@ export class Gait {
   private x = Number.NaN;
   private z = 0;
   private yaw = 0;
-  private vx = 0;
-  private vz = 0;
   private heading = 0;
   private stepping = false;
 
