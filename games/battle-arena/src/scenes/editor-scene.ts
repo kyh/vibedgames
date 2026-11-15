@@ -1265,7 +1265,7 @@ export class EditorScene {
     }
     const el = document.querySelector<HTMLElement>(`#${id}`);
     if (!(el instanceof HTMLInputElement)) {
-      throw new Error(`editor: missing input #${id}`);
+      throw new TypeError(`editor: missing input #${id}`);
     }
     this.inputs.set(id, el);
     return el;

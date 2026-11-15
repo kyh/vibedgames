@@ -260,7 +260,7 @@ const seededRandom = (seed: number): (() => number) => {
 const el = (id: string): HTMLElement => {
   const node = document.querySelector(`#${id}`);
   if (!(node instanceof HTMLElement)) {
-    throw new Error(`missing #${id}`);
+    throw new TypeError(`missing #${id}`);
   }
   return node;
 };
@@ -739,7 +739,7 @@ export class GameScene {
     this.pacGroup = buildPacman();
     const mouth = this.pacGroup.getObjectByName("mouth");
     if (!(mouth instanceof THREE.Mesh)) {
-      throw new Error("pacman mouth missing");
+      throw new TypeError("pacman mouth missing");
     }
     this.mouthMesh = mouth;
     this.pacRig.add(this.pacGroup);

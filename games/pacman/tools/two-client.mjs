@@ -297,10 +297,9 @@ const main = async () => {
   const urlArg = process.argv.indexOf("--url");
   const dev = urlArg === -1 ? await startVite() : { base: process.argv[urlArg + 1], child: null };
   if (
-    !(await fetch(PARTY).then(
-      () => true,
-      () => false,
-    ))
+    !(await fetch(PARTY)
+      .then(() => true)
+      .catch(() => false))
   ) {
     throw new Error(`party server not reachable at ${PARTY} (pnpm dev:party)`);
   }

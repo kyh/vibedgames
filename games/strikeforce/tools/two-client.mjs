@@ -49,10 +49,9 @@ const startVite = async () => {
   });
   const base = `http://localhost:${DEV_PORT}`;
   for (let i = 0; i < 60; i += 1) {
-    const up = await fetch(base).then(
-      (r) => r.ok,
-      () => false,
-    );
+    const up = await fetch(base)
+      .then((r) => r.ok)
+      .catch(() => false);
     if (up) {
       return { base, stop: () => vite.kill() };
     }
@@ -118,10 +117,9 @@ const headshot = (page) =>
   });
 
 const main = async () => {
-  const reachable = await fetch(PARTY).then(
-    () => true,
-    () => false,
-  );
+  const reachable = await fetch(PARTY)
+    .then(() => true)
+    .catch(() => false);
   if (!reachable) {
     throw new Error(`party server not reachable at ${PARTY} (pnpm dev:party)`);
   }

@@ -54,7 +54,7 @@ const resolveTile = (r: TileRef): Tile | null => ("tx" in r ? r : r());
 const getGame = (game: Phaser.Game): GameScene => {
   const s = game.scene.getScene("Game");
   if (!(s instanceof GameScene)) {
-    throw new Error("trailer: Game scene missing");
+    throw new TypeError("trailer: Game scene missing");
   }
   return s;
 };
@@ -62,7 +62,7 @@ const getGame = (game: Phaser.Game): GameScene => {
 const getMine = (game: Phaser.Game): MineScene => {
   const s = game.scene.getScene("Mine");
   if (!(s instanceof MineScene)) {
-    throw new Error("trailer: Mine scene missing");
+    throw new TypeError("trailer: Mine scene missing");
   }
   return s;
 };

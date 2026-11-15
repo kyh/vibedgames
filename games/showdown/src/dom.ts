@@ -5,7 +5,7 @@
 export const mustGet = (id: string): HTMLElement => {
   const el = document.querySelector(`#${id}`);
   if (!(el instanceof HTMLElement)) {
-    throw new Error(`missing HUD element #${id}`);
+    throw new TypeError(`missing HUD element #${id}`);
   }
   return el;
 };
@@ -14,7 +14,7 @@ export const mustGet = (id: string): HTMLElement => {
 export const mustGetInput = (id: string): HTMLInputElement => {
   const el = mustGet(id);
   if (!(el instanceof HTMLInputElement)) {
-    throw new Error(`#${id} is not an <input>`);
+    throw new TypeError(`#${id} is not an <input>`);
   }
   return el;
 };
