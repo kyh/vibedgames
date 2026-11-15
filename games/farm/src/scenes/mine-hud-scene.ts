@@ -64,7 +64,7 @@ export class MineHudScene extends Scene {
   create(): void {
     const mine = this.scene.get("Mine");
     if (!(mine instanceof MineScene)) {
-      throw new Error("MineHud requires the Mine scene");
+      throw new TypeError("MineHud requires the Mine scene");
     }
     this.mine = mine;
     this.icons = [];

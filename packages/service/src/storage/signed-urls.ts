@@ -152,7 +152,7 @@ export const deletePrefix = async ({
   r2: R2Config;
   prefix: string;
 }): Promise<void> => {
-  let cursor: string | undefined = undefined;
+  let cursor: string | undefined;
   while (true) {
     const listed = await r2.bucket.list({ cursor, limit: 1000, prefix });
     if (listed.objects.length === 0) {

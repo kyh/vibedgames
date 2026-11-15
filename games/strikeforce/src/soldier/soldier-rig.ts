@@ -75,7 +75,7 @@ let loaded: Rig | null = null;
 const boneIn = (root: Object3D, name: string): Bone => {
   const found = root.getObjectByName(name);
   if (!(found instanceof Bone)) {
-    throw new Error(`soldier rig: no bone "${name}"`);
+    throw new TypeError(`soldier rig: no bone "${name}"`);
   }
   return found;
 };
@@ -120,10 +120,10 @@ const build = (scene: Object3D, animations: readonly AnimationClip[]): Rig => {
   const body = scene.getObjectByName(BODY);
   const carbine = scene.getObjectByName(CARBINE);
   if (!(body instanceof SkinnedMesh) || !(carbine instanceof Mesh)) {
-    throw new Error("soldier rig: no body or no carbine");
+    throw new TypeError("soldier rig: no body or no carbine");
   }
   if (!(body.material instanceof MeshStandardMaterial)) {
-    throw new Error("soldier rig: unexpected body material");
+    throw new TypeError("soldier rig: unexpected body material");
   }
   carbine.removeFromParent();
   carbine.castShadow = true;
@@ -196,7 +196,7 @@ export const soldierBody = (kit: Kit): SoldierBody => {
   const rig = cloneSkinned(loaded.template);
   const mesh = rig.getObjectByName(BODY);
   if (!(rig instanceof Group) || !(mesh instanceof SkinnedMesh)) {
-    throw new Error("soldier rig: clone lost its body");
+    throw new TypeError("soldier rig: clone lost its body");
   }
   mesh.material = loaded.materials[kit];
   mesh.castShadow = true;

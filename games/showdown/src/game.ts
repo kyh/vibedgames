@@ -135,7 +135,7 @@ const shuffle = <T>(items: T[], rng: Rng): T[] => {
 const mustGetCanvas = (id: string): HTMLCanvasElement => {
   const el = mustGet(id);
   if (!(el instanceof HTMLCanvasElement)) {
-    throw new Error(`#${id} is not a <canvas>`);
+    throw new TypeError(`#${id} is not a <canvas>`);
   }
   return el;
 };

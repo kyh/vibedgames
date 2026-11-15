@@ -378,14 +378,14 @@ export const startEditor = async (
   const $ = (id: string): HTMLElement => {
     const el = ui.querySelector(`#${id}`);
     if (!(el instanceof HTMLElement)) {
-      throw new Error(`editor: missing #${id}`);
+      throw new TypeError(`editor: missing #${id}`);
     }
     return el;
   };
   const $input = (id: string): HTMLInputElement => {
     const el = $(id);
     if (!(el instanceof HTMLInputElement)) {
-      throw new Error(`editor: #${id} is not an input`);
+      throw new TypeError(`editor: #${id} is not an input`);
     }
     return el;
   };

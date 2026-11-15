@@ -10,7 +10,7 @@ import { clamp } from "./utils";
 const mustQuery = (root: ParentNode, selector: string): HTMLElement => {
   const el = root.querySelector(selector);
   if (!(el instanceof HTMLElement)) {
-    throw new Error(`missing HUD element "${selector}"`);
+    throw new TypeError(`missing HUD element "${selector}"`);
   }
   return el;
 };

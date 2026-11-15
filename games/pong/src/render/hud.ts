@@ -33,7 +33,7 @@ const NET_INFO = {
 const el = (id: string): HTMLElement => {
   const node = document.querySelector(`#${id}`);
   if (!(node instanceof HTMLElement)) {
-    throw new Error(`missing #${id}`);
+    throw new TypeError(`missing #${id}`);
   }
   return node;
 };
