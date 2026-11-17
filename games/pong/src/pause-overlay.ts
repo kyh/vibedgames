@@ -164,7 +164,7 @@ const SOUND_TOGGLE_CSS = `
 
 export const createPongPauseOverlay = (
   matchContinues: () => boolean,
-  mute: MuteAccessor,
+  mute: MuteAccessor | undefined,
 ): PongPauseOverlay =>
   createPauseShell({
     className: "pong-pause",

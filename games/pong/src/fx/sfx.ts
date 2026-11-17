@@ -66,6 +66,15 @@ export const setMuted = (next: boolean): void => {
   }
 };
 
+/** Follow a platform that owns the sound switch (YouTube Playables), without
+ *  persisting it: the platform's setting is the player's choice there. */
+export const followSystemAudio = (enabled: boolean): void => {
+  muted = !enabled;
+  if (!muted) {
+    resumeSound();
+  }
+};
+
 /** A live match keeps running behind the wrapper's pause overlay; it should not blip. */
 export const setSoundPaused = (next: boolean): void => {
   paused = next;

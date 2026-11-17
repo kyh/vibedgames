@@ -1,5 +1,17 @@
 import * as THREE from "three";
-import { createTouchControls, probeWebGL, setPauseHandlers, showWebGLVeil } from "@repo/embed";
+import {
+  createTouchControls,
+  isPausable,
+  isPlayables,
+  isSystemPaused,
+  markGameReady,
+  pauseGame,
+  playablesAudio,
+  probeWebGL,
+  setPauseHandlers,
+  showWebGLVeil,
+  watchSystemPause,
+} from "@repo/embed";
 import {
   isPlaytestRequested,
   pointerTracker,
@@ -8,7 +20,7 @@ import {
   publishTestHooks,
 } from "@vibedgames/playtest";
 
-import { isMuted, resumeSound, setMuted, setSoundPaused } from "./fx/sfx";
+import { followSystemAudio, isMuted, resumeSound, setMuted, setSoundPaused } from "./fx/sfx";
 import { createHandCamera } from "./input/camera";
 import type { HandCamera } from "./input/camera";
 import { createPongPauseOverlay } from "./pause-overlay";
@@ -64,17 +76,27 @@ const dither = new DitherPass(window.innerWidth, window.innerHeight);
 
 // Wrapper pause: freeze the sim unless a live human opponent is connected
 // (see GameScene.requestPause) — the wrapper's own overlay shows either way.
-const pauseOverlay = createPongPauseOverlay(() => game.hasLiveOpponent(), {
-  get: isMuted,
-  set: setMuted,
-});
+// Where the platform owns sound (YouTube Playables), it is the only switch:
+// no mute toggle, no M key.
+const systemAudio = playablesAudio();
+if (systemAudio !== null) {
+  followSystemAudio(systemAudio.enabled());
+  systemAudio.watch(followSystemAudio);
+}
+const pauseOverlay = createPongPauseOverlay(
+  () => game.hasLiveOpponent(),
+  systemAudio === null ? { get: isMuted, set: setMuted } : undefined,
+);
+let playerPaused = false;
 setPauseHandlers({
   onPause: () => {
+    playerPaused = true;
     game.requestPause();
     setSoundPaused(true);
     pauseOverlay.show();
   },
   onResume: () => {
+    playerPaused = false;
     pauseOverlay.hide();
     game.requestResume();
     setSoundPaused(false);
@@ -93,7 +115,7 @@ window.addEventListener("keydown", (e) => {
     if (!e.repeat) {
       game.handleGestureConfirm();
     }
-  } else if (e.code === "KeyM" && !e.repeat) {
+  } else if (e.code === "KeyM" && !e.repeat && systemAudio === null) {
     setMuted(!isMuted());
   }
 });
@@ -105,19 +127,32 @@ window.addEventListener("keydown", (e) => {
 // during boot: a fine pointer still gets it automatically (the hand is the
 // better paddle) but only once the court is up, while a phone — which already
 // steers well with a finger, and pays for the download in cellular data —
-// opts in by tapping the panel.
-const handCamera = createHandCamera(
-  (x) => game.handleHandPosition(x),
-  () => game.handleGestureConfirm(),
-);
+// opts in by tapping the panel. YouTube Playables gets none of it: it refuses
+// the CDN the recognizer loads from, and grants its frame no camera.
+const handCamera = isPlayables()
+  ? null
+  : createHandCamera(
+      (x) => game.handleHandPosition(x),
+      () => game.handleGestureConfirm(),
+    );
 // A browser under automation has no camera to grant. A playtest's denies it,
 // and the rejection is a console error — a failed playtest for a reason that
 // has nothing to do with pong — and loading the recognizer first stalls the
 // page for seconds, which a lag check reads as netcode. The panel still
 // starts it on a tap.
-if (!COARSE_INPUT && !isPlaytestRequested() && !navigator.webdriver) {
+if (handCamera !== null && !COARSE_INPUT && !isPlaytestRequested() && !navigator.webdriver) {
   window.addEventListener("load", () => handCamera.enable(), { once: true });
 }
+
+// YouTube's pause is not the player's: it covers or backgrounds the game, at
+// any moment, and nothing may run until it resumes. A rally it interrupts comes
+// back on the player's own pause card instead of resuming mid-flight.
+watchSystemPause((paused) => {
+  if (paused && isPausable()) {
+    pauseGame();
+  }
+  setSoundPaused(paused || playerPaused);
+});
 
 window.addEventListener("resize", () => {
   game.resize(window.innerWidth / window.innerHeight);
@@ -129,11 +164,16 @@ window.addEventListener("resize", () => {
 const timer = new THREE.Timer();
 renderer.setAnimationLoop((time) => {
   timer.update(time);
+  if (isSystemPaused()) {
+    return;
+  }
   const dt = Math.min(timer.getDelta(), MAX_FRAME_DT);
   game.update(dt);
   renderer.info.reset();
   dither.setInverted(game.isScreenInverted());
   dither.render(renderer, game.scene, game.camera);
+  // The court and its serve card are the first frame, and already playable.
+  markGameReady();
 });
 
 // See plugins/tooling/skills/playtest/references/scripted-playtest.md. State hooks

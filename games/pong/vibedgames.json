@@ -1,4 +1,13 @@
 {
   "slug": "pong",
-  "name": "Pong"
+  "name": "Pong",
+  "distribute": {
+    "appId": "com.vibedgames.pong",
+    "version": "1.0.0",
+    "build": 1,
+    "backgroundColor": "#d4d4d4",
+    "permissions": {
+      "camera": "Steer your paddle by moving your hand in front of the camera."
+    }
+  }
 }
