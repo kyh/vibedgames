@@ -1,0 +1,471 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#07060f" />
+    <title>Glowline</title>
+    <meta
+      name="description"
+      content="A night kart racer where every kart paints the road. Your colour is a fast lane, everyone else's is slick."
+    />
+    <meta property="og:title" content="Glowline" />
+    <meta
+      property="og:description"
+      content="Paint your racing line. Ride your own colour, dodge theirs."
+    />
+    <style>
+      :root {
+        --me: #2fe6ff;
+        --ink: #f4f6ff;
+        --dim: rgba(244, 246, 255, 0.62);
+        --panel: rgba(10, 9, 20, 0.72);
+        --edge: rgba(244, 246, 255, 0.16);
+        --font: "Avenir Next", "Segoe UI", system-ui, -apple-system, sans-serif;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        background: #07060f;
+        color: var(--ink);
+        font-family: var(--font);
+        -webkit-user-select: none;
+        user-select: none;
+        -webkit-tap-highlight-color: transparent;
+        overscroll-behavior: none;
+      }
+      #game {
+        position: fixed;
+        inset: 0;
+        touch-action: none;
+      }
+      #game canvas {
+        display: block;
+      }
+
+      /* ---- race HUD ---- */
+      #hud {
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        padding: calc(14px + env(safe-area-inset-top)) calc(16px + env(safe-area-inset-right))
+          calc(14px + env(safe-area-inset-bottom)) calc(16px + env(safe-area-inset-left));
+        font-variant-numeric: tabular-nums;
+        transition: opacity 0.25s ease;
+      }
+      #hud[data-on="0"] {
+        opacity: 0;
+      }
+      .skew {
+        font-style: italic;
+        font-weight: 800;
+        letter-spacing: 0.02em;
+        text-shadow: 0 2px 0 rgba(0, 0, 0, 0.55);
+      }
+      #place {
+        position: absolute;
+        top: inherit;
+        left: calc(16px + env(safe-area-inset-left));
+        top: calc(10px + env(safe-area-inset-top));
+        line-height: 1;
+        color: var(--me);
+        filter: drop-shadow(0 0 14px color-mix(in srgb, var(--me) 55%, transparent));
+      }
+      #place-num {
+        font-size: clamp(54px, 11vmin, 92px);
+      }
+      #place-suffix {
+        font-size: clamp(20px, 4vmin, 32px);
+      }
+      #place-of {
+        margin-left: 6px;
+        font-size: clamp(14px, 2.6vmin, 20px);
+        color: var(--dim);
+      }
+      #stats {
+        position: absolute;
+        left: calc(18px + env(safe-area-inset-left));
+        top: calc(clamp(64px, 12.5vmin, 104px) + 14px + env(safe-area-inset-top));
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        font-size: clamp(13px, 2.4vmin, 17px);
+        color: var(--dim);
+      }
+      #stats b {
+        color: var(--ink);
+        font-size: 1.25em;
+      }
+      #minimap {
+        position: absolute;
+        right: calc(14px + env(safe-area-inset-right));
+        top: calc(12px + env(safe-area-inset-top));
+        width: clamp(96px, 20vmin, 150px);
+        height: clamp(96px, 20vmin, 150px);
+        border-radius: 18px;
+        background: var(--panel);
+        border: 1px solid var(--edge);
+      }
+      /* The shared pause button takes the top-right corner on phones. */
+      body.touch #minimap {
+        top: calc(66px + env(safe-area-inset-top));
+      }
+      #track-name {
+        position: absolute;
+        right: calc(16px + env(safe-area-inset-right));
+        top: calc(clamp(96px, 20vmin, 150px) + 20px + env(safe-area-inset-top));
+        font-size: 11px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: var(--dim);
+      }
+      body.touch #track-name {
+        top: calc(clamp(96px, 20vmin, 150px) + 74px + env(safe-area-inset-top));
+      }
+      #dash {
+        position: absolute;
+        left: 50%;
+        bottom: calc(18px + env(safe-area-inset-bottom));
+        transform: translateX(-50%);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 8px;
+      }
+      #surface {
+        height: 22px;
+        padding: 0 12px;
+        border-radius: 999px;
+        font-size: 12px;
+        line-height: 22px;
+        letter-spacing: 0.16em;
+        opacity: 0;
+        transition: opacity 0.12s ease;
+      }
+      #surface[data-kind="own"] {
+        opacity: 1;
+        color: #06060c;
+        background: var(--me);
+        box-shadow: 0 0 22px var(--me);
+      }
+      #surface[data-kind="rival"] {
+        opacity: 1;
+        color: #fff;
+        background: rgba(255, 60, 90, 0.85);
+      }
+      #charge {
+        display: flex;
+        gap: 5px;
+      }
+      #charge i {
+        display: block;
+        width: clamp(44px, 9vmin, 64px);
+        height: 9px;
+        border-radius: 5px;
+        background: rgba(244, 246, 255, 0.14);
+        overflow: hidden;
+      }
+      #charge i::after {
+        content: "";
+        display: block;
+        height: 100%;
+        width: calc(var(--fill, 0) * 100%);
+        background: var(--tier, #fff);
+        box-shadow: 0 0 12px var(--tier, #fff);
+      }
+      #charge i:nth-child(1) {
+        --tier: #7df9ff;
+      }
+      #charge i:nth-child(2) {
+        --tier: #ffd23f;
+      }
+      #charge i:nth-child(3) {
+        --tier: #ff3d81;
+      }
+      #net {
+        position: absolute;
+        left: calc(18px + env(safe-area-inset-left));
+        bottom: calc(14px + env(safe-area-inset-bottom));
+        font-size: 11px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--dim);
+      }
+      body.touch #net {
+        bottom: auto;
+        top: calc(clamp(64px, 12.5vmin, 104px) + 62px + env(safe-area-inset-top));
+      }
+      body.touch #dash {
+        bottom: auto;
+        top: calc(16px + env(safe-area-inset-top));
+      }
+
+      #callout {
+        position: fixed;
+        left: 0;
+        right: 0;
+        top: 26%;
+        text-align: center;
+        pointer-events: none;
+        font-size: clamp(46px, 13vmin, 120px);
+        color: var(--ink);
+        opacity: 0;
+        transform: scale(0.7);
+        transition:
+          opacity 0.16s ease,
+          transform 0.22s cubic-bezier(0.2, 1.6, 0.4, 1);
+        text-shadow:
+          0 0 30px var(--me),
+          0 4px 0 rgba(0, 0, 0, 0.5);
+      }
+      #callout[data-on="1"] {
+        opacity: 1;
+        transform: scale(1);
+      }
+      #callout[data-tone="warn"] {
+        color: #ff5470;
+        text-shadow: 0 4px 0 rgba(0, 0, 0, 0.5);
+      }
+      #callout small {
+        display: block;
+        font-size: 0.24em;
+        letter-spacing: 0.2em;
+        color: var(--dim);
+        font-style: normal;
+      }
+
+      /* ---- cards ---- */
+      .card-wrap {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: calc(16px + env(safe-area-inset-top)) calc(16px + env(safe-area-inset-right))
+          calc(16px + env(safe-area-inset-bottom)) calc(16px + env(safe-area-inset-left));
+        transition: opacity 0.25s ease;
+      }
+      .card-wrap[data-on="0"] {
+        opacity: 0;
+        pointer-events: none;
+      }
+      #title {
+        background: radial-gradient(ellipse at center, rgba(7, 6, 15, 0.35), rgba(7, 6, 15, 0.82));
+      }
+      .card {
+        width: min(92vw, 460px);
+        max-height: 100%;
+        overflow-y: auto;
+        padding: 26px 26px 22px;
+        border-radius: 26px;
+        background: var(--panel);
+        border: 1px solid var(--edge);
+        backdrop-filter: blur(14px);
+        -webkit-backdrop-filter: blur(14px);
+        text-align: center;
+      }
+      h1 {
+        margin: 0;
+        font-size: clamp(44px, 12vmin, 72px);
+        line-height: 0.95;
+        background: linear-gradient(100deg, #2fe6ff, #b56bff 45%, #ff3d81 75%, #ffd23f);
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+        text-shadow: none;
+        filter: drop-shadow(0 0 18px rgba(181, 107, 255, 0.45));
+      }
+      .tag {
+        margin: 10px 0 16px;
+        color: var(--dim);
+        font-size: 15px;
+      }
+      .rules {
+        list-style: none;
+        margin: 0 0 16px;
+        padding: 0;
+        display: grid;
+        gap: 8px;
+        text-align: left;
+        font-size: 14px;
+      }
+      .rules li {
+        display: grid;
+        grid-template-columns: 34px 1fr;
+        align-items: center;
+        gap: 10px;
+        padding: 9px 12px;
+        border-radius: 14px;
+        background: rgba(244, 246, 255, 0.06);
+      }
+      .rules span {
+        width: 34px;
+        height: 12px;
+        border-radius: 6px;
+      }
+      .rules .own {
+        background: var(--me);
+        box-shadow: 0 0 14px var(--me);
+      }
+      .rules .rival {
+        background: #ff3d81;
+        box-shadow: 0 0 14px #ff3d81;
+      }
+      .rules .drift {
+        background: linear-gradient(90deg, #7df9ff, #ffd23f, #ff3d81);
+      }
+      #controls {
+        margin: 0 0 18px;
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 4px 12px;
+        font-size: 12px;
+        color: var(--dim);
+        text-align: left;
+      }
+      #controls kbd {
+        font: inherit;
+        color: var(--ink);
+        font-weight: 700;
+        white-space: nowrap;
+      }
+      button.go {
+        width: 100%;
+        padding: 15px 18px;
+        border: 0;
+        border-radius: 16px;
+        cursor: pointer;
+        font: inherit;
+        font-size: 19px;
+        color: #06060c;
+        background: var(--me);
+        box-shadow: 0 0 26px color-mix(in srgb, var(--me) 60%, transparent);
+        transition: transform 0.12s ease;
+      }
+      button.go:active {
+        transform: scale(0.97);
+      }
+      #results h2 {
+        margin: 0 0 4px;
+        font-size: 30px;
+      }
+      #results-sub {
+        margin: 0 0 14px;
+        color: var(--dim);
+        font-size: 13px;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+      }
+      #results-rows {
+        display: grid;
+        gap: 6px;
+        margin-bottom: 14px;
+        font-variant-numeric: tabular-nums;
+      }
+      .row {
+        display: grid;
+        grid-template-columns: 38px 12px 1fr auto auto;
+        align-items: center;
+        gap: 10px;
+        padding: 8px 12px;
+        border-radius: 12px;
+        background: rgba(244, 246, 255, 0.06);
+        font-size: 15px;
+        text-align: left;
+      }
+      .row[data-me="1"] {
+        background: rgba(244, 246, 255, 0.16);
+        outline: 1px solid var(--me);
+      }
+      .row i {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+      }
+      .row .paint {
+        color: var(--dim);
+        font-size: 12px;
+      }
+      #results-next {
+        color: var(--dim);
+        font-size: 13px;
+      }
+      @media (max-height: 460px) {
+        .card {
+          padding: 14px 18px;
+        }
+        .rules {
+          grid-template-columns: repeat(3, 1fr);
+          font-size: 11px;
+        }
+        .rules li {
+          grid-template-columns: 1fr;
+          gap: 4px;
+        }
+        #controls {
+          display: none;
+        }
+        .tag {
+          margin: 4px 0 10px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="game"></div>
+
+    <div id="hud" data-on="0">
+      <div id="place" class="skew">
+        <span id="place-num">1</span><span id="place-suffix">st</span><span id="place-of">/6</span>
+      </div>
+      <div id="stats" class="skew">
+        <span>LAP <b id="lap-num">1</b>/<span id="lap-total">3</span></span>
+        <span><b id="clock">0:00.0</b></span>
+      </div>
+      <canvas id="minimap" width="300" height="300" aria-hidden="true"></canvas>
+      <div id="track-name"></div>
+      <div id="dash">
+        <div id="surface" class="skew"></div>
+        <div id="charge" role="img" aria-label="Drift boost charge"><i></i><i></i><i></i></div>
+      </div>
+      <div id="net"></div>
+    </div>
+
+    <div id="callout" class="skew" role="status"></div>
+
+    <div id="results" class="card-wrap" data-on="0">
+      <div class="card">
+        <h2 id="results-title" class="skew">RESULTS</h2>
+        <p id="results-sub"></p>
+        <div id="results-rows"></div>
+        <div id="results-next"></div>
+      </div>
+    </div>
+
+    <div id="title" class="card-wrap" data-on="1">
+      <div class="card">
+        <h1 class="skew">GLOWLINE</h1>
+        <p class="tag">Every kart paints the road. Three laps to own it.</p>
+        <ul class="rules">
+          <li>
+            <span class="own"></span>Your paint is a fast lane. Lap one lays it, lap two rides it.
+          </li>
+          <li><span class="rival"></span>Anyone else's is slick. Paint over it to take it back.</li>
+          <li><span class="drift"></span>Hold drift to paint wide and charge. Let go to boost.</li>
+        </ul>
+        <div id="controls"></div>
+        <button id="start" class="go skew" type="button">RACE</button>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
