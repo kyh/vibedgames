@@ -2,6 +2,14 @@
 // Payloads carry no data beyond the type tag, so they are safe to post with a
 // "*" target origin; receivers still validate origins where it matters.
 
+/**
+ * The `name` the wrapper gives its game iframe, which the game reads back as
+ * `window.name`. Being framed is not evidence of the wrapper: a game portal
+ * frames the same build and answers none of this protocol, and a game that took
+ * it for the wrapper would wait on chrome that never comes.
+ */
+export const WRAPPER_FRAME_NAME = "vibedgames";
+
 export const GAME_STARTED_MESSAGE = "vibedgames:game-started";
 export const PAUSE_GAME_MESSAGE = "vibedgames:pause-game";
 export const GAME_PAUSED_MESSAGE = "vibedgames:game-paused";

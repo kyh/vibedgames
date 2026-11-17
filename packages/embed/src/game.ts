@@ -5,7 +5,12 @@
 // game's business: wire onPause/onResume via setPauseHandlers and render your
 // own UI there (or compose the stock overlay from ./overlay).
 
-import { GAME_PAUSED_MESSAGE, GAME_STARTED_MESSAGE, isPauseGameMessage } from "./protocol";
+import {
+  GAME_PAUSED_MESSAGE,
+  GAME_STARTED_MESSAGE,
+  WRAPPER_FRAME_NAME,
+  isPauseGameMessage,
+} from "./protocol";
 import type { MessageData } from "./protocol";
 
 export interface PauseHandlers {
@@ -32,12 +37,14 @@ let started = false;
 let paused = false;
 let listening = false;
 
-const embedded = (): boolean => typeof window !== "undefined" && window.parent !== window;
+const embedded = (): boolean =>
+  typeof window !== "undefined" && window.parent !== window && window.name === WRAPPER_FRAME_NAME;
 
 /**
- * Whether the game runs inside a wrapper page (the vibedgames play view) rather
- * than standalone at its own origin. The wrapper owns chrome the game must not
- * duplicate — its own pause button, for one.
+ * Whether the game runs inside the wrapper page (the vibedgames play view)
+ * rather than standalone: at its own origin, in a native shell, or framed by a
+ * game portal. The wrapper owns chrome the game must not duplicate — its own
+ * pause button, for one.
  */
 export const isEmbedded = (): boolean => embedded();
 

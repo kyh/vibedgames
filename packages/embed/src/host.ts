@@ -7,6 +7,7 @@ import { PAUSE_GAME_MESSAGE } from "./protocol";
 export {
   GAME_PAUSED_MESSAGE,
   GAME_STARTED_MESSAGE,
+  WRAPPER_FRAME_NAME,
   isGamePausedMessage,
   isGameStartedMessage,
 } from "./protocol";
