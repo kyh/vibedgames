@@ -73,3 +73,9 @@ local.*
 
 # throwaway test beds for skills (not repo content)
 /sandbox/
+
+# vg distribute: portal zips and native shells, regenerated from vibedgames.json
+games/*/distribute/
+games/*/ios/
+games/*/android/
+games/*/capacitor.config.json

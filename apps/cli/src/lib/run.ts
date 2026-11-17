@@ -13,11 +13,11 @@ export interface RunResult {
 export const isMissingCommand = (result: RunResult): boolean =>
   result.code !== 0 && /ENOENT|not found|not recognized/iu.test(result.output);
 
-export const run = (cmd: string, args: string[]): Promise<RunResult> =>
+export const run = (cmd: string, args: string[], cwd?: string): Promise<RunResult> =>
   // oxlint-disable-next-line promise/avoid-new -- child_process.spawn is event-based
   new Promise((resolve) => {
     const chunks: Buffer[] = [];
-    const child = spawn(cmd, args, { stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(cmd, args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
     const collect = (c: Buffer) => {
       chunks.push(c);
     };

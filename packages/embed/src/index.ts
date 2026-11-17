@@ -24,6 +24,15 @@ export {
 export type { PauseHandlers } from "./game";
 export { isOfflineRequested } from "./offline";
 export { createPauseOverlay } from "./overlay";
+export {
+  isPlayables,
+  isSystemPaused,
+  markFirstFrame,
+  markGameReady,
+  playablesAudio,
+  watchSystemPause,
+} from "./playables";
+export type { PlayablesAudio } from "./playables";
 export type { ControlHint, HelpSection, PauseOverlay, PauseOverlayOptions } from "./overlay";
 export { PAUSE_OVERLAY_Z, createPauseShell, resumeOnPadPress } from "./pause-shell";
 export type { MuteAccessor, PauseShell, PauseShellOptions } from "./pause-shell";

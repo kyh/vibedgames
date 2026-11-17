@@ -129,6 +129,9 @@ To ship a custom cover, drop **`og.jpg`** (1200×630+ landscape; `og.png` and
 Vite project). No meta tags needed. To fully own share meta instead, add your
 own `og:` tags — the platform then serves the page untouched.
 
+> **Somewhere other than vibedgames?** itch.io, Newgrounds, the App Store and
+> Google Play take the same build: see the `distribute` skill.
+
 ## Rules
 
 - **Always build before deploying** if the project uses a build tool

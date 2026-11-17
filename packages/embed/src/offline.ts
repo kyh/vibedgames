@@ -14,8 +14,16 @@
 // frame. Honour it with the client's `offline: isOfflineRequested()`, which
 // opens no socket, never by leaning on the fallback.
 
-/** True when this page was booted with `?offline` / `?offline=1`. */
+import { isPlayables } from "./playables";
+
+/**
+ * True when this page was booted with `?offline` / `?offline=1`, or runs
+ * inside YouTube Playables, which refuses every request to another host.
+ */
 export const isOfflineRequested = (): boolean => {
+  if (isPlayables()) {
+    return true;
+  }
   // Guard for the games' headless sim harnesses, which import gameplay modules
   // under Node where there is no `location`.
   if (!("location" in globalThis)) {

@@ -9,6 +9,7 @@ import { MAX_UPLOAD_BODY } from "@repo/contract/deploy/deploy-schema";
 
 import { createClient } from "../lib/api.js";
 import { packBuild, packSource } from "../lib/archive.js";
+import { resolveBuildDir } from "../lib/build-dir.js";
 import type { SourceArchive } from "../lib/archive.js";
 import {
   findProjectRoot,
@@ -56,26 +57,19 @@ const formatBytes = (n: number): string => {
 };
 type Say = (message: string) => void;
 
-/** Build-tool projects (package.json present): the root index.html is the
- *  source template, the playable game lives in the build output. Deploying the
- *  root uploads the whole source tree — wrong content and usually over the file
- *  caps — so prefer a build directory when one exists. Checked in popularity
- *  order: Vite/Rollup/Parcel → CRA/Preact → Next export/esbuild. */
+/** Deploying a build-tool project's root uploads the whole source tree — wrong
+ *  content and usually over the file caps — so its build output goes instead. */
 const resolveDeployDir = (dir: string, say: Say): string => {
-  if (!existsSync(path.join(dir, "package.json"))) {
-    return dir;
+  const build = resolveBuildDir(dir);
+  if (build.kind === "build") {
+    say(`Project root detected — deploying its build output ${build.name}/ instead.`);
+  } else if (build.kind === "unbuilt") {
+    consola.warn(
+      "This looks like an unbuilt project (package.json, no dist/build/out) — " +
+        "run the build first, or the deployed index.html will reference missing source files.",
+    );
   }
-  for (const name of ["dist", "build", "out"]) {
-    if (existsSync(path.join(dir, name, "index.html"))) {
-      say(`Project root detected — deploying its build output ${name}/ instead.`);
-      return path.join(dir, name);
-    }
-  }
-  consola.warn(
-    "This looks like an unbuilt project (package.json, no dist/build/out) — " +
-      "run the build first, or the deployed index.html will reference missing source files.",
-  );
-  return dir;
+  return build.dir;
 };
 
 const promptForConfig = async (dir: string, say: Say): Promise<ProjectConfig> => {
