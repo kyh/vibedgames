@@ -125,6 +125,9 @@ export interface GameDiagnostics {
 /** Intent to the host: a driver just left the title; restart if nobody is racing. */
 const FRESH_START = "fresh-start";
 
+/** Highest paint slot the paint texture's palette holds. */
+const MAX_SLOT = 31;
+
 const TIER_COLORS = [
   new THREE.Color("#cfefff"),
   new THREE.Color("#7df9ff"),
@@ -253,12 +256,17 @@ export class GameScene {
   }
 
   /** Room events. The host's own intents loop back here too. */
-  onRoomEvent(event: string): void {
-    const humans = [...this.racers.values()].filter((racer) => racer.kind !== "bot");
-    // The asker has not reported a pose yet, so "nobody racing" means no human on the road
-    // but, at most, the host's own kart sitting on the grid it was just given.
-    const racing = humans.some((racer) => racer.pose.prog > 0);
-    if (event === FRESH_START && this.client.isHost && !racing) {
+  onRoomEvent(event: string, from: string): void {
+    if (event !== FRESH_START || !this.client.isHost) {
+      return;
+    }
+    // Restart only when the asker is the first driver out of the title. Anyone
+    // already on the grid, even under the lights, keeps their countdown.
+    const asker = from === this.client.playerId ? "me" : from;
+    const others = [...this.racers.values()].some(
+      (racer) => racer.kind !== "bot" && racer.key !== asker,
+    );
+    if (!others) {
       this.newRound(this.state.round + 1, this.trackIndex);
     }
   }
@@ -625,8 +633,13 @@ export class GameScene {
     if (known !== undefined) {
       return known;
     }
-    // Slot 1 is the local kart; the rest are handed out as karts appear.
-    const slot = 2 + (this.slots.size % 29);
+    // Slot 1 is the local kart; the rest take the lowest id no kart on the road
+    // holds, and give it back when they leave (see gather).
+    const held = new Set(this.slots.values());
+    let slot = 2;
+    while (held.has(slot) && slot < MAX_SLOT) {
+      slot += 1;
+    }
     this.slots.set(key, slot);
     return slot;
   }
@@ -710,6 +723,7 @@ export class GameScene {
         racer.mesh.group.removeFromParent();
         racer.mesh.dispose();
         this.racers.delete(key);
+        this.slots.delete(key);
       }
     }
   }
@@ -950,7 +964,7 @@ export class GameScene {
   }
 
   private showResults(order: readonly Racer[], now: number): void {
-    const shares = this.paint.coverage(31);
+    const shares = this.paint.coverage(MAX_SLOT);
     const rows: ResultRow[] = order.map((racer, i) => ({
       color: racer.css,
       me: racer.kind === "me",

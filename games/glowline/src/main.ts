@@ -61,7 +61,7 @@ const client = joinRoom({
   maxPlayers: MAX_PLAYERS,
   // A playtest must drive its own race, never someone else's room.
   offline: playtest,
-  onEvent: (event) => game.onRoomEvent(event),
+  onEvent: (event, _payload, from) => game.onRoomEvent(event, from),
   room: ROOM_ID,
 });
 

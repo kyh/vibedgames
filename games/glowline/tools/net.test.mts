@@ -78,6 +78,9 @@ test("a new host carries the bots on from the last rows", () => {
     assert.ok(Math.hypot(mine.x - pose.x, mine.z - pose.z) < 0.02, `${key} moved on handover`);
     assert.ok(Math.abs(mine.prog - pose.prog) < 0.02);
     assert.ok(Math.abs(mine.speed - pose.speed) < 0.05);
+    assert.equal(mine.drift, pose.drift, `${key} lost its drift on handover`);
+    assert.equal(mine.boosting, pose.boosting, `${key} lost its boost on handover`);
+    assert.ok(Math.abs(mine.charge - pose.charge) < 0.01);
   }
   for (let i = 0; i < 120; i += 1) {
     next.step(frame(5, 10_000 + i * DT * 1000));

@@ -45,6 +45,9 @@ export interface BotFrame {
   slotOf: (key: string) => number;
 }
 
+/** Seconds of boost a bot keeps across a host change, when its row had one burning. */
+const HANDOVER_BOOST = 0.4;
+
 export const botKey = (index: number): string => `b${index}`;
 
 const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
@@ -93,6 +96,10 @@ export class BotField {
         const where = locate(track, report.x, report.z, -1);
         Object.assign(bot.kart, {
           a: report.a,
+          // The row says only that a boost is burning, not how much is left.
+          boost: report.boosting ? HANDOVER_BOOST : 0,
+          charge: report.charge,
+          drift: report.drift,
           finishMs: report.finishMs,
           h: where.h,
           idx: where.i,
