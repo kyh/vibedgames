@@ -1,5 +1,3 @@
-// Near-black HUD palette with a violet accent — same family as the kyh.io
-// terminal dashboards, tinted for vibedgames.
 export const color = {
   accent: "#A78BFA",
   accentDim: "#6D5BAA",

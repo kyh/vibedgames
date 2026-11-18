@@ -52,13 +52,6 @@ export const featuredGames: FeaturedGame[] = [
     previewPortrait: "/covers/pacman-portrait.webp",
     slug: "pacman",
   },
-  // {
-  //   name: "Tetris",
-  //   slug: "tetris",
-  //   preview: "/covers/tetris.webp",
-  //   previewPortrait: "/covers/tetris-portrait.webp",
-  //   colorScheme: "dark",
-  // },
   {
     colorScheme: "light",
     name: "Pong",

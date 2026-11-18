@@ -1,31 +1,27 @@
-// Netcode protocol. Host-authoritative: guests send INPUT to the host only; the
-// host simulates, broadcasts one small FRAME per sim tick (what changed) and a
-// full snapshot ~1 Hz under sharedState.snap for late joiners. A guest predicts
-// its own hero and draws everyone else slightly in the past; when the host
-// leaves, the guest the server elects carries the match on from its own copy.
 import type { AbilityKey } from "../sim/types";
 
-/**
- * Dev-only override for the party host: `?party=8788` (port) or
- * `?party=http://host:port`. Lets QA point at a party server on a
- * non-default port without rebuilding. Ignored in production builds.
- */
-const devPartyHost = (): string => {
+const devPartyHost = () => {
   const fallback = "http://localhost:8787";
+
   if (typeof window === "undefined") {
     return fallback;
   }
+
   const p = new URLSearchParams(location.search).get("party");
+
   if (!p) {
     return fallback;
   }
+
   return /^https?:\/\//u.test(p) ? p : `http://localhost:${p}`;
 };
 
 export const MULTIPLAYER_HOST = import.meta.env.DEV
   ? devPartyHost()
   : "https://party.vibedgames.com";
+
 export const PARTY = "vg-server";
+
 /** Wire-format generation, part of every room id: a tab still running an
  *  older bundle during a deploy lands in a different room, never a shared
  *  match it cannot read. Bump it with any change to frames, snapshots or input. */
@@ -35,7 +31,7 @@ export const INTENT_EVENT = "intent";
 export const FRAME_EVENT = "frame";
 
 /** Build the PartyServer room id from a short lobby code. */
-export const roomId = (code: string): string =>
+export const roomId = (code: string) =>
   ROOM_PREFIX +
   (code || "public")
     .toLowerCase()
@@ -44,6 +40,7 @@ export const roomId = (code: string): string =>
 
 /** A cast pressed during a guest tick: key, aim direction, aim point. */
 export type CastWire = [AbilityKey, number, number, number, number];
+
 /** An item-belt slot used during a guest tick, and the aim point. */
 export type ItemWire = [number, number, number];
 

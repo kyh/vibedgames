@@ -1,15 +1,10 @@
-// Headed Chrome mobile stress proxy. Not a real-phone benchmark.
-// Usage: node tools/verify-mobile-performance.mjs [url] [output] [rates=1,2,4] [ms=8000]
-// Options: --transition, --production, --ab, --profile, --no-multi-draw, --tier=0..4.
-// Repeated-route audit: --keep-quality preserves adaptation; --memory collects between samples.
-// CDP emulation stays attached for the entire run; disconnecting between
-// commands resets pointer emulation and silently tests the desktop renderer.
 import { writeFileSync } from "node:fs";
 import path from "node:path";
 import { createMobileSession } from "./mobile-browser-session.mjs";
 
 const url = process.argv[2] ?? "http://localhost:5193/?time=noon&offline=1";
 const output = path.resolve(process.argv[3] ?? "/private/tmp/waymo-mobile-performance");
+
 const report = {
   checkedAt: new Date().toISOString(),
   environment:
@@ -17,6 +12,7 @@ const report = {
   runs: [],
   url,
 };
+
 const rates = (process.argv[4] ?? "1,2,4").split(",").map(Number);
 const durationMs = Number(process.argv[5] ?? 8000);
 const ab = process.argv.includes("--ab");
@@ -28,25 +24,33 @@ const keepQuality = process.argv.includes("--keep-quality");
 const memoryAudit = process.argv.includes("--memory");
 const tierOption = process.argv.find((argument) => argument.startsWith("--tier="));
 const fixedTier = tierOption === undefined ? null : Number(tierOption.slice(7));
+
 if (fixedTier !== null && (!Number.isInteger(fixedTier) || fixedTier < 0 || fixedTier > 4)) {
   throw new Error("Fixed tier must be 0..4");
 }
+
 if (fixedTier !== null && (ab || transitionProbe || production)) {
   throw new Error("Fixed tier is only supported by the standard drive benchmark");
 }
+
 if (rates.length === 0 || rates.some((rate) => !Number.isFinite(rate) || rate < 1 || rate > 20)) {
   throw new Error("CPU rates must be numbers from 1 to 20");
 }
+
 if (!Number.isInteger(durationMs) || durationMs < 1000 || durationMs > 60_000) {
   throw new Error("Drive duration must be 1000..60000 ms");
 }
+
 if (ab && (rates.length !== 3 || new Set(rates).size !== 1)) {
   throw new Error("A/B requires three identical CPU rates");
 }
+
 const { call, evaluate, pause, sleep, until, tap, screenshot, close, pageErrors } =
   await createMobileSession({ output, sessionPrefix: "crazy-waymo-mobile-performance" });
+
 const earlyMetrics = `(()=>{if(window.__mobileMetricsInstalled)return;window.__mobileMetricsInstalled=true;window.__mobileMph=0;const fillText=CanvasRenderingContext2D.prototype.fillText;CanvasRenderingContext2D.prototype.fillText=function(...args){const text=String(args[0]).trim(),value=Number(text);if(this.canvas.id==='dash-dial'&&text!==''&&Number.isFinite(value))window.__mobileMph=value;return fillText.apply(this,args);};window.__mobileCold={installedAt:performance.now(),longTasks:[]};new PerformanceObserver(list=>{for(const e of list.getEntries())window.__mobileCold.longTasks.push({start:e.startTime,duration:e.duration});}).observe({type:'longtask',buffered:true});})()`;
 let iteration = 0;
+
 const productionSmoke = async (opened) => {
   await until(
     "(()=>{const loading=document.querySelector('#loading');return loading && getComputedStyle(loading).display === 'none';})()",
@@ -58,6 +62,7 @@ const productionSmoke = async (opened) => {
   report.device = await evaluate(
     "({coarse:matchMedia('(pointer:coarse)').matches,dpr:devicePixelRatio,touch:navigator.maxTouchPoints,debugHooks:typeof window.__taxi})",
   );
+
   if (
     !report.device.coarse ||
     report.device.dpr !== 3 ||
@@ -65,7 +70,9 @@ const productionSmoke = async (opened) => {
   ) {
     throw new Error("Expected production coarse DPR3 renderer without development hooks");
   }
+
   await tap("#banner-cta");
+
   for (const [name, width, height] of [
     ["portrait", 390, 844],
     ["landscape", 844, 390],
@@ -74,6 +81,7 @@ const productionSmoke = async (opened) => {
       await pause();
       await tap("#waymo-pause .prestart");
     }
+
     await call("Emulation.setDeviceMetricsOverride", {
       deviceScaleFactor: 3,
       height,
@@ -95,16 +103,20 @@ const productionSmoke = async (opened) => {
     await screenshot(`production-${name}-moving`);
     await sleep(6000);
     await call("Input.dispatchTouchEvent", { touchPoints: [], type: "touchEnd" });
+
     const result = await evaluate(
       `(()=>{const m=window.__productionFrames;m.active=false;const a=m.frames.sort((a,b)=>a-b);return {median:a[Math.floor(a.length*.5)],p95:a[Math.floor(a.length*.95)],max:Math.max(...a),over50:a.filter(v=>v>50).length,frames:a.length,maxMph:Math.max(0,...m.mph),movingFrames:m.mph.filter(v=>v>5).length,width:innerWidth,height:innerHeight,overflow:document.documentElement.scrollWidth>innerWidth,coarse:matchMedia('(pointer:coarse)').matches}})()`,
     );
+
     report.runs.push({ name, rate: 2, ...result });
     console.log(`PRODUCTION ${name} ${JSON.stringify(result)}`);
+
     if (result.maxMph < 10 || result.overflow || !result.coarse) {
       throw new Error(`Production ${name} touch drive failed`);
     }
   }
 };
+
 try {
   await call("Page.enable");
   await call("Runtime.enable");
@@ -116,6 +128,7 @@ try {
   });
   await call("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 5 });
   await call("Page.addScriptToEvaluateOnNewDocument", { source: earlyMetrics });
+
   if (noMultiDraw) {
     await call("Page.addScriptToEvaluateOnNewDocument", {
       source: `const originalGetExtension = WebGL2RenderingContext.prototype.getExtension;
@@ -124,8 +137,10 @@ try {
         };`,
     });
   }
+
   const opened = Date.now();
   await call("Page.navigate", { url });
+
   if (production) {
     await productionSmoke(opened);
   } else {
@@ -135,9 +150,11 @@ try {
     report.device = await evaluate(
       `(()=>{const r=window.__renderer,g=r.getContext(),d=g.getExtension('WEBGL_debug_renderer_info');return {coarse:matchMedia('(pointer:coarse)').matches,touch:navigator.maxTouchPoints,dpr:devicePixelRatio,width:innerWidth,height:innerHeight,renderer:d?g.getParameter(d.UNMASKED_RENDERER_WEBGL):g.getParameter(g.RENDERER),multiDraw:!!g.getExtension('WEBGL_multi_draw'),memory:r.info.memory,ratio:r.getPixelRatio(),post:window.__post!==null}})()`,
     );
+
     if (!report.device.coarse || report.device.dpr !== 3 || report.device.post) {
       throw new Error("Mobile render path not active");
     }
+
     await tap("#banner-cta");
     await until('window.__taxi.game.mode.kind === "playing"');
     await evaluate(`(()=>{
@@ -173,71 +190,87 @@ try {
       "({u:window.__mobileRoute.u,v:window.__mobileRoute.v,yaw:window.__mobileRoute.yaw,length:window.__mobileRoute.length})",
     );
     console.log(`DEVICE ${JSON.stringify(report.device)} READY ${report.readyMs}ms`);
+
     for (const rate of rates) {
       await call("Emulation.setCPUThrottlingRate", { rate });
       await evaluate(
         `(()=>{${keepQuality && iteration > 0 ? "" : "window.__perf.pin(3);window.__perf.pin(null);"}window.__taxi.setTime(300);window.__taxi.teleport(window.__mobileRoute.u,window.__mobileRoute.v,window.__mobileRoute.yaw);window.__mobileRoute.index=0;window.__taxi.setPhase(.25);const t=window.__taxi,p=t.probe();t.game.traffic.reset({gx:t.game.city.gridX(p.x),gz:t.game.city.gridZ(p.z)},70);t.game.traffic.setHoldRecycle(true)})()`,
       );
+
       if (ab) {
         await evaluate(
           `window.__perf.pin(4);${iteration >= 1 ? "window.__taxi.game.city.group.updateMatrixWorld(true);window.__taxi.game.city.group.traverse(o=>{o.matrixWorldAutoUpdate=false})" : ""};${iteration >= 2 ? "window.__taxi.game.city.group.traverse(o=>{if(o.isBatchedMesh&&!o.castShadow&&!Array.isArray(o.material)&&!o.material.transparent)o.perObjectFrustumCulled=false})" : ""}`,
         );
       }
+
       if (fixedTier !== null) {
         await evaluate(`window.__perf.pin(${fixedTier})`);
       }
+
       if (transitionProbe) {
         await evaluate("window.__perf.pin(3)");
       }
+
       await sleep(3500);
-      // Compare steady driving only after destination geometry has converged.
-      // Budgeted cold fill is measured independently below.
       await until("(window.__taxi.game.city.parcelStreamStats()?.pending ?? 0) === 0");
+
       const before = await evaluate(
         "({car:window.__taxi.probe(),tier:window.__perf.tier(),stream:window.__taxi.game.city.parcelStreamStats()})",
       );
+
       await evaluate(
         "(()=>{const m=window.__mobilePerf;for(const k of Object.keys(m))if(Array.isArray(m[k]))m[k]=[];m.previousRender=performance.now();m.active=true;})()",
       );
+
       if (rate === 4 && profile) {
         await call("Profiler.enable");
         await call("Profiler.setSamplingInterval", { interval: 1000 });
         await call("Profiler.start");
       }
+
       await call("Input.dispatchTouchEvent", {
         touchPoints: [{ id: 1, x: 100, y: 520 }],
         type: "touchStart",
       });
       const driveUntil = Date.now() + durationMs;
       let transitioned = false;
+
       while (Date.now() < driveUntil) {
         if (transitionProbe && !transitioned && Date.now() > driveUntil - durationMs + 2500) {
           await evaluate("window.__perf.pin(4)");
           transitioned = true;
         }
+
         const steer = await evaluate(
           `(()=>{const r=window.__mobileRoute,p=window.__taxi.probe();let index=r.index,distance=Infinity;for(let i=r.index;i<Math.min(r.index+20,r.points.length);i++){const q=r.points[i],d=Math.hypot(q.x-p.x,q.z-p.z);if(d<distance){distance=d;index=i;}}r.index=index;const q=r.points[Math.min(index+2,r.points.length-1)],want=Math.atan2(q.x-p.x,q.z-p.z),error=((want-p.heading+Math.PI*3)%(Math.PI*2))-Math.PI;return Math.max(-.8,Math.min(.8,-error*1.7));})()`,
         );
+
         await call("Input.dispatchTouchEvent", {
           touchPoints: [{ id: 1, x: 100 + steer * 62, y: 520 }],
           type: "touchMove",
         });
         await sleep(100);
       }
+
       await call("Input.dispatchTouchEvent", { touchPoints: [], type: "touchEnd" });
+
       if (rate === 4 && profile) {
         const stopped = await call("Profiler.stop");
         writeFileSync(path.join(output, "cpu-4x.json"), JSON.stringify(stopped.profile));
       }
+
       const result = await evaluate(
         `(()=>{const m=window.__mobilePerf;m.active=false;const summary=(values)=>{const a=[...values].sort((a,b)=>a-b);const p=q=>a[Math.min(a.length-1,Math.floor(a.length*q))]??0;return {count:a.length,median:p(.5),p95:p(.95),p99:p(.99),max:p(1),over33:a.filter(v=>v>33.4).length,over50:a.filter(v=>v>50).length,over100:a.filter(v=>v>100).length};};return {frames:summary(m.frames),movingFrames:summary(m.movingFrames),tiers:m.tiers,updateMs:summary(m.update),streamMs:summary(m.stream),renderMs:summary(m.render),calls:summary(m.calls),triangles:summary(m.triangles),longTasks:m.longTasks,trajectory:m.trajectory,after:{car:window.__taxi.probe(),tier:window.__perf.tier(),ratio:window.__renderer.getPixelRatio(),memory:window.__renderer.info.memory,stream:window.__taxi.game.city.parcelStreamStats()}}})()`,
       );
+
       let scenario = "adaptive";
+
       if (ab) {
         scenario = ["baseline", "static-world-matrices", "matrices-and-batch-cache"][iteration];
       } else if (transitionProbe) {
         scenario = "first-shadowless-transition";
       }
+
       const run = {
         before,
         fixedTier,
@@ -247,53 +280,65 @@ try {
         traffic: "isolated route: fleet relocated, recycler held",
         ...result,
       };
+
       iteration += 1;
       report.runs.push(run);
+
       if (result.movingFrames.count < result.frames.count * 0.8) {
         throw new Error("Route did not sustain movement for 80% of sampled frames");
       }
+
       if (transitionProbe && result.frames.max > 1000) {
         throw new Error("First shadowless transition stalled longer than one second");
       }
+
       console.log(
         `DRIVE ${rate}x ${JSON.stringify({ ...run, longTasks: run.longTasks.map((x) => Math.round(x.duration)), trajectory: undefined })}`,
       );
       await screenshot(`drive-${rate}x-${run.scenario}`);
-      // Reconciliation of a distant neighbourhood is deliberately reported
-      // separately from continuous driving; teleports are a loading event.
+
       const change = await evaluate(
         `(()=>{const m=window.__mobilePerf;m.active=true;m.frames=[];m.stream=[];m.update=[];m.render=[];m.previousRender=performance.now();const t=performance.now();window.__taxi.teleport(.738,.19);return {syncMs:performance.now()-t};})()`,
       );
+
       const fillStarted = Date.now();
       const fill = [];
+
       do {
         await sleep(100);
         const state = await evaluate("window.__taxi.game.city.parcelStreamStats()");
         fill.push({ elapsedMs: Date.now() - fillStarted, ...state });
+
         if ((state?.pending ?? 0) === 0) {
           break;
         }
       } while (Date.now() - fillStarted < 90_000);
+
       if ((fill.at(-1)?.pending ?? 0) !== 0) {
         throw new Error("Neighborhood failed to converge");
       }
+
       await sleep(500);
+
       const transition = await evaluate(
         `(()=>{const m=window.__mobilePerf;m.active=false;return {frameMax:Math.max(0,...m.frames),streamMax:Math.max(0,...m.stream),updateMax:Math.max(0,...m.update),renderMax:Math.max(0,...m.render),longFrames:m.frames.filter(v=>v>50).length,stream:window.__taxi.game.city.parcelStreamStats()}})()`,
       );
+
       run.transition = { ...change, ...transition, fill };
+
       if (memoryAudit) {
-        // Collection runs outside every timing window. This audits retained
-        // allocations between repeated routes, not natural GC frame pacing.
         await call("HeapProfiler.collectGarbage");
         run.retainedHeap = await call("Runtime.getHeapUsage");
       }
+
       console.log(
         `TRANSITION ${rate}x ${JSON.stringify({ ...run.transition, fill: { settledMs: fill.at(-1)?.elapsedMs, updates: fill.length } })}`,
       );
     }
   }
+
   report.pageErrors = pageErrors;
+
   if (pageErrors.length) {
     process.exitCode = 1;
   }
@@ -301,9 +346,7 @@ try {
   report.error = String(error);
   console.error(error);
   process.exitCode = 1;
-  await screenshot("failure").catch(() => {
-    /* empty */
-  });
+  await screenshot("failure").catch(() => {});
 } finally {
   writeFileSync(path.join(output, "report.json"), JSON.stringify(report, null, 2));
   close();

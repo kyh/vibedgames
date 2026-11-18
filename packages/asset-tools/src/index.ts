@@ -25,11 +25,17 @@ export {
   main,
   parseArgs,
 } from "./args.js";
+
 export { parseColor, toHex } from "./image/color.js";
+
 export { diffImages, type DiffResult } from "./image/diff.js";
+
 export { drawDigits, drawLine, fillRect, strokeRect } from "./image/draw.js";
+
 export { encodeGif, type GifFrame } from "./image/gif.js";
+
 export { decodePng, type DecodedPng, encodePng, readPngSize } from "./image/png.js";
+
 export {
   Bitmap,
   readImageSize,
@@ -55,7 +61,9 @@ export {
   type PropertyValue,
   type UserData,
 } from "./asset/aseprite.js";
+
 export { LuaParseError, type LuaValue, parseLua } from "./asset/lua.js";
+
 export {
   createTilemapEditor,
   DEFAULT_MAP_HEIGHT,
@@ -64,6 +72,7 @@ export {
   type EditorOptions,
   isInside,
 } from "./asset/tilemap-server.js";
+
 export {
   autoDetectManifest,
   checkManifest,
@@ -72,6 +81,7 @@ export {
   type ManifestCheck,
   MANIFEST_CANDIDATES,
 } from "./asset/manifest.js";
+
 export {
   defaultRoot,
   parseFrame,
@@ -83,6 +93,7 @@ export {
   writeJsonFile,
   writeTextFile,
 } from "./asset/paths.js";
+
 export {
   analyzeBaseline,
   type BaselineReport,
@@ -90,7 +101,9 @@ export {
   probeSheet,
   type ProbeResult,
 } from "./asset/sheet.js";
+
 export { collectSizes, type SizeRow, sizesToCsv } from "./asset/sizes.js";
+
 export {
   cropBox,
   exportMapRender,
@@ -115,6 +128,7 @@ export {
 } from "./asset/tilemap.js";
 
 export { globFrames, type LoadedFrame, loadFrames, median } from "./sprite/frames.js";
+
 export {
   chromaFringeChannels,
   cleanChroma,
@@ -132,7 +146,9 @@ export {
   type KeyRecord,
   removeChromaFringe,
 } from "./sprite/chroma.js";
+
 export { normalizeCanvas } from "./sprite/normalize.js";
+
 export {
   type ActionFacts,
   ACTIONS,
@@ -147,13 +163,16 @@ export {
   type SelectionPolicy,
   type Timing,
 } from "./sprite/presets.js";
+
 export {
   type Component,
   findComponents,
   recoverFrames,
   type RecoverResult,
 } from "./sprite/recover.js";
+
 export { buildSequenceGif } from "./sprite/sequence-gif.js";
+
 export {
   frameGeometry,
   frameMetrics,
@@ -164,6 +183,7 @@ export {
   runQc,
   verdictFor,
 } from "./sprite/qc.js";
+
 export {
   computeProfiles,
   DEFAULT_SNAP_CONFIG,
@@ -179,6 +199,7 @@ export {
   snapWarning,
   walk,
 } from "./sprite/pixel-snap.js";
+
 export {
   auditSizeContract,
   cellSizeOf,
@@ -195,6 +216,7 @@ export {
   summarizeMeasurements,
   type Tolerances,
 } from "./sprite/size-contract.js";
+
 export {
   ACTION_IDS,
   ANCHOR_GAME_VIEWS,
@@ -218,6 +240,7 @@ export {
   totalCells,
   withStyle,
 } from "./sprite/prompt.js";
+
 export { packSpritesheet, type PackResult, type SpritesheetManifest } from "./sprite/pack.js";
 
 export {

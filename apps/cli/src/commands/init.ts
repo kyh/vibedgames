@@ -39,14 +39,16 @@ const initArgs = {
 } as const;
 
 /** One summary for `vg init` and `vg update`. */
-export const reportSkills = (report: InstallReport): void => {
+export const reportSkills = (report: InstallReport) => {
   const where = path.relative(process.cwd(), report.dir) || report.dir;
   consola.success(
     `Installed ${report.installed.length} vibedgames skills into ${where} for ${report.agents.join(", ")}`,
   );
+
   if (report.removed.length > 0) {
     consola.info(`Removed skills dropped upstream: ${report.removed.join(", ")}`);
   }
+
   for (const agent of report.copiedFor) {
     consola.info(
       `Symlinks aren't available here, so ${agent} got copies of the skills; vg init and vg update refresh them.`,
@@ -62,9 +64,6 @@ export const initCommand = defineCommand({
 
     const agents = parseAgents(args.agent);
 
-    // Whatever installed this CLI is what should upgrade it. Installing with a
-    // different manager writes a second copy into a prefix the shell may not
-    // even be looking at, so `vg --version` would not move.
     const manager = detectPackageManager(import.meta.filename);
 
     consola.start("Installing/updating vibedgames skills and the vg CLI...");
@@ -84,6 +83,7 @@ export const initCommand = defineCommand({
       if (cli.output.trim() && !isMissingCommand(cli)) {
         consola.warn(cli.output.trim());
       }
+
       consola.warn(
         isMissingCommand(cli)
           ? `Couldn't find ${manager} to update the vg CLI. Update manually: ${globalInstallCommand(manager)}`

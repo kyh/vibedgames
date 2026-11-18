@@ -1,15 +1,7 @@
-// Bayer 8x8 ordered-dither post pass. The scene renders into a low-res
-// target (DITHER_PIXEL css px per texel), then a fullscreen quad quantizes
-// luminance to pure 2-tone ink-on-paper: anything darker than the paper
-// tone dissolves into the dither pattern, so every alpha fade in the scene
-// (goal flash, shadow, trail) becomes speckle for free. uInvert swaps the
-// two tones for a 1-flash on big moments.
-
 import * as THREE from "three";
 
 import { BG, DITHER_PIXEL, INK, VIGNETTE_INNER, VIGNETTE_STRENGTH } from "../shared/constants";
 
-// Classic Bayer 8x8 threshold matrix (values 0-63, row-major).
 // prettier-ignore
 const BAYER_8 = [
    0, 32,  8, 40,  2, 34, 10, 42,
@@ -22,8 +14,7 @@ const BAYER_8 = [
   63, 31, 55, 23, 61, 29, 53, 21,
 ];
 
-// oxlint-disable-next-line no-inline-comments -- /* glsl */ tags the literal for editor highlighting
-const VERTEX = /* glsl */ `
+const VERTEX = `
 varying vec2 vUv;
 void main() {
   vUv = uv;
@@ -31,8 +22,7 @@ void main() {
 }
 `;
 
-// oxlint-disable-next-line no-inline-comments -- /* glsl */ tags the literal for editor highlighting
-const FRAGMENT = /* glsl */ `
+const FRAGMENT = `
 varying vec2 vUv;
 uniform sampler2D uScene;
 uniform sampler2D uBayer;
@@ -63,30 +53,29 @@ void main() {
 }
 `;
 
-const bayerTexture = (): THREE.DataTexture => {
+const bayerTexture = () => {
   const data = new Uint8Array(64);
+
   for (let i = 0; i < 64; i += 1) {
     const v = BAYER_8[i] ?? 0;
     data[i] = Math.round(((v + 0.5) / 64) * 255);
   }
+
   const tex = new THREE.DataTexture(data, 8, 8, THREE.RedFormat, THREE.UnsignedByteType);
   tex.minFilter = THREE.NearestFilter;
   tex.magFilter = THREE.NearestFilter;
   tex.wrapS = THREE.RepeatWrapping;
   tex.wrapT = THREE.RepeatWrapping;
   tex.needsUpdate = true;
+
   return tex;
 };
 
-/** Hex color as raw sRGB components (skips the linear working-space
- *  conversion) so the shader's direct-to-canvas output matches the CSS hex. */
-const rawColor = (hex: number): THREE.Color =>
-  new THREE.Color().setHex(hex, THREE.LinearSRGBColorSpace);
+const rawColor = (hex: number) => new THREE.Color().setHex(hex, THREE.LinearSRGBColorSpace);
 
-/** Luminance of a hex color in the linear working space — the space the
- *  scene actually renders in, so it matches what the shader samples. */
-const linearLuminance = (hex: number): number => {
+const linearLuminance = (hex: number) => {
   const c = new THREE.Color(hex);
+
   return 0.299 * c.r + 0.587 * c.g + 0.114 * c.b;
 };
 
@@ -124,21 +113,22 @@ export class DitherPass {
       },
       vertexShader: VERTEX,
     });
+
     this.quadScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material));
   }
 
-  setSize(width: number, height: number): void {
+  setSize(width: number, height: number) {
     const w = Math.max(1, Math.floor(width / DITHER_PIXEL));
     const h = Math.max(1, Math.floor(height / DITHER_PIXEL));
     this.target.setSize(w, h);
     this.uSize.value.set(w, h);
   }
 
-  setInverted(on: boolean): void {
+  setInverted(on: boolean) {
     this.uInvert.value = on ? 1 : 0;
   }
 
-  render(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera): void {
+  render(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera) {
     renderer.setRenderTarget(this.target);
     renderer.render(scene, camera);
     renderer.setRenderTarget(null);

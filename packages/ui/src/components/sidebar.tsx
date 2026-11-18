@@ -43,6 +43,7 @@ const SidebarContext = React.createContext<SidebarContextProps | null>(null);
 
 const useSidebar = () => {
   const context = React.useContext(SidebarContext);
+
   if (!context) {
     throw new Error("useSidebar must be used within a SidebarProvider.");
   }
@@ -66,33 +67,30 @@ const SidebarProvider = ({
   const isMobile = useIsMobile();
   const [openMobile, setOpenMobile] = React.useState(false);
 
-  // This is the internal state of the sidebar.
-  // We use openProp and setOpenProp for control from outside the component.
   const [openState, setOpenState] = React.useState(defaultOpen);
   const open = openProp ?? openState;
+
   const setOpen = React.useCallback(
     (value: boolean | ((value: boolean) => boolean)) => {
       const next = value === true || value === false ? value : value(open);
+
       if (setOpenProp) {
         setOpenProp(next);
       } else {
         setOpenState(next);
       }
 
-      // This sets the cookie to keep the sidebar state.
       // oxlint-disable-next-line unicorn/no-document-cookie -- cookieStore is Chromium-only
       document.cookie = `${SIDEBAR_COOKIE_NAME}=${next}; path=/; max-age=${SIDEBAR_COOKIE_MAX_AGE}`;
     },
     [setOpenProp, open],
   );
 
-  // Helper to toggle the sidebar.
   const toggleSidebar = React.useCallback(
     () => (isMobile ? setOpenMobile((prev) => !prev) : setOpen((prev) => !prev)),
     [isMobile, setOpen, setOpenMobile],
   );
 
-  // Adds a keyboard shortcut to toggle the sidebar.
   React.useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === SIDEBAR_KEYBOARD_SHORTCUT && (event.metaKey || event.ctrlKey)) {
@@ -102,11 +100,10 @@ const SidebarProvider = ({
     };
 
     window.addEventListener("keydown", handleKeyDown);
+
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [toggleSidebar]);
 
-  // We add a state so that we can do data-state="expanded" or "collapsed".
-  // This makes it easier to style the sidebar with Tailwind classes.
   const state = open ? "expanded" : "collapsed";
 
   const contextValue = React.useMemo<SidebarContextProps>(
@@ -127,7 +124,6 @@ const SidebarProvider = ({
       <div
         data-slot="sidebar-wrapper"
         style={
-          // SAFETY: only `--*` custom properties, which the DOM style API accepts but the CSSProperties index type omits
           {
             "--sidebar-width": SIDEBAR_WIDTH,
             "--sidebar-width-icon": SIDEBAR_WIDTH_ICON,
@@ -186,7 +182,6 @@ const Sidebar = ({
           data-mobile="true"
           className="w-(--sidebar-width) bg-sidebar p-0 text-sidebar-foreground [&>button]:hidden"
           style={
-            // SAFETY: only `--*` custom properties, which the DOM style API accepts but the CSSProperties index type omits
             {
               "--sidebar-width": SIDEBAR_WIDTH_MOBILE,
             } as React.CSSProperties
@@ -212,7 +207,6 @@ const Sidebar = ({
       data-side={side}
       data-slot="sidebar"
     >
-      {/* This is what handles the sidebar gap on desktop */}
       <div
         data-slot="sidebar-gap"
         className={cn(
@@ -229,7 +223,6 @@ const Sidebar = ({
         data-side={side}
         className={cn(
           "fixed inset-y-0 z-10 hidden h-svh w-(--sidebar-width) transition-[left,right,width] duration-200 ease-linear data-[side=left]:left-0 data-[side=left]:group-data-[collapsible=offcanvas]:left-[calc(var(--sidebar-width)*-1)] data-[side=right]:right-0 data-[side=right]:group-data-[collapsible=offcanvas]:right-[calc(var(--sidebar-width)*-1)] md:flex",
-          // Adjust the padding for floating and inset variants.
           variant === "floating" || variant === "inset"
             ? "p-2 group-data-[collapsible=icon]:w-[calc(var(--sidebar-width-icon)+(--spacing(4))+2px)]"
             : "group-data-[collapsible=icon]:w-(--sidebar-width-icon) group-data-[side=left]:border-r group-data-[side=right]:border-l",
@@ -474,6 +467,7 @@ const SidebarMenuButton = ({
     tooltip?: string | React.ComponentProps<typeof TooltipContent>;
   } & VariantProps<typeof sidebarMenuButtonVariants>) => {
   const { isMobile, state } = useSidebar();
+
   const comp = useRender({
     defaultTagName: "button",
     props: mergeProps<"button">(
@@ -558,7 +552,6 @@ const SidebarMenuSkeleton = ({
 }: React.ComponentProps<"div"> & {
   showIcon?: boolean;
 }) => {
-  // Random width between 50 to 90%.
   // oxlint-disable-next-line react/hook-use-state -- decorative one-time random width; a setter is never needed
   const [width] = React.useState(() => `${Math.floor(Math.random() * 40) + 50}%`);
 
@@ -574,7 +567,6 @@ const SidebarMenuSkeleton = ({
         className="h-4 max-w-(--skeleton-width) flex-1"
         data-sidebar="menu-skeleton-text"
         style={
-          // SAFETY: only `--*` custom properties, which the DOM style API accepts but the CSSProperties index type omits
           {
             "--skeleton-width": width,
           } as React.CSSProperties

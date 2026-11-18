@@ -27,8 +27,6 @@ describe("siteGraph", () => {
     const [contactPoint] = organization.contactPoint;
     assert.ok(contactPoint, "Organization has no contactPoint");
     assert.ok(contactPoint.contactType.length > 0);
-    // Something has to be reachable: the support URL when no monitored mailbox
-    // is configured, the mailbox itself once one is.
     assert.ok(contactPoint.url || contactPoint.email || contactPoint.telephone);
   });
 
@@ -36,6 +34,7 @@ describe("siteGraph", () => {
     const organization = findNode("Organization");
     assert.ok(organization);
     assert.ok(organization.sameAs.length > 0);
+
     for (const profile of organization.sameAs) {
       assert.match(profile, /^https:\/\//u);
     }
@@ -47,6 +46,7 @@ describe("siteGraph", () => {
     assert.equal(organization.email !== undefined, siteConfig.contact.email !== null);
     assert.equal(organization.telephone !== undefined, siteConfig.contact.telephone !== null);
     assert.equal(organization.address !== undefined, siteConfig.contact.address !== null);
+
     if (organization.address) {
       assert.equal(organization.address["@type"], "PostalAddress");
     }
@@ -78,6 +78,7 @@ describe("siteGraph", () => {
   test("featured games are VideoGame entities on their own subdomains", () => {
     const games = nodes.filter((node) => node["@type"] === "VideoGame");
     assert.ok(games.length > 0);
+
     for (const game of games) {
       assert.match(game.url, /^https:\/\/[a-z0-9-]+\.vibedgames\.com$/u);
       assert.ok(game.name.length > 0);

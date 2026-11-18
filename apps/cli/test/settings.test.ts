@@ -13,9 +13,10 @@ import {
 import { makeCleanups, makeTmpDir, stubEnv } from "./_helpers.js";
 
 const { cleanups, drain } = makeCleanups();
+
 afterEach(drain);
 
-const isolate = (): void =>
+const isolate = () =>
   stubEnv(cleanups, {
     VG_CODEX_BIN: undefined,
     VG_GENERATE_PROVIDER: undefined,
@@ -78,7 +79,6 @@ test("validate holds enum settings to their values; bad saved values read as the
   assert.match(validate("update.auto", "yes") ?? "", /one of: true, false/u);
   assert.match(validate("generate.codex-bin", " ") ?? "", /can't be empty/u);
 
-  // A hand-edited file with a bad value, an unknown key, or broken JSON never breaks a run.
   mkdirSync(path.dirname(settingsPath()), { recursive: true });
   writeFileSync(settingsPath(), JSON.stringify({ "generate.provider": "coddex", other: 1 }));
   assert.equal(resolveSetting("generate.provider").source, "default");

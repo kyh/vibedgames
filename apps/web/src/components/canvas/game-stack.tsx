@@ -2,31 +2,22 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import type { PanInfo } from "motion/react";
 
-// Animation constants
 const ANIMATION_DURATION = 0.6;
 const FADE_OUT_DURATION = 0.25;
 const BLUR_AMOUNT = "5px";
 
-// Mobile breakpoint
 const MOBILE_BREAKPOINT = 640;
 
-// Swipe: distance (px) or flick velocity (px/s) past which a drag advances the stack.
 const SWIPE_DISTANCE = 80;
 const SWIPE_VELOCITY = 400;
-// Movement past this is a swipe, not a tap — used to suppress the click that follows a drag.
 const TAP_SLOP = 8;
 
 const past = (value: number, threshold: number) => Math.abs(value) > threshold;
 
-/**
- * The card is dragged freely on both axes. Throwing it far or fast enough in ANY direction
- * deals the next card — direction carries no meaning, so there is no way to swipe backwards.
- */
 const isSwipe = ({ offset, velocity }: PanInfo) =>
   past(Math.hypot(offset.x, offset.y), SWIPE_DISTANCE) ||
   past(Math.hypot(velocity.x, velocity.y), SWIPE_VELOCITY);
 
-// Z-depth values for card stacking
 const Z_DEPTHS = {
   desktop: {
     active: { stacked: "-70vw", unstacked: "0vw" },
@@ -42,7 +33,6 @@ const Z_DEPTHS = {
   },
 } as const;
 
-// Y positions
 const Y_POSITIONS = {
   active: 0,
   behind: "-10vh",
@@ -67,7 +57,6 @@ interface GameCardProps {
   mode: StackMode;
   currentIndex: number;
   isMobile: boolean;
-  /** Set while a drag is in flight, so the trailing click doesn't launch the game. */
   swipedRef: React.RefObject<boolean>;
   onSwipe?: () => void;
   children: React.ReactNode;
@@ -105,6 +94,7 @@ const getCardVariants = (
   }
 
   const baseZ = stacked ? depths.behind.stacked : depths.behind.unstacked;
+
   return {
     y: Y_POSITIONS.behind,
     z: `calc(${baseZ} - ${cardsBehind}px)`,
@@ -128,7 +118,6 @@ const GameCard = ({
 
   const cardsBehind = (index - currentIndex + total) % total;
 
-  // Only the zoom hand-off pulls the cards out of the deck; hidden cards fade where they stand.
   const stacked = mode !== "zoom";
 
   const variants = useMemo(
@@ -136,10 +125,11 @@ const GameCard = ({
     [isActive, isNext, isPrevious, cardsBehind, stacked, isMobile],
   );
 
-  // Re-arm the exit whenever the deck comes back on screen.
   const [armedFor, setArmedFor] = useState(mode);
+
   if (armedFor !== mode) {
     setArmedFor(mode);
+
     if (mode === "stack") {
       setHasCompletedExit(false);
     }
@@ -151,16 +141,14 @@ const GameCard = ({
     }
   };
 
-  // The zoom is a solo act: only the active card plays it, the rest leave at once.
   if (mode === "zoom" && !isActive) {
     return null;
   }
-  // Once faded/zoomed out, stop rendering.
+
   if (mode !== "stack" && hasCompletedExit) {
     return null;
   }
 
-  // Only the front card of the stack is swipeable, and only on touch-sized screens.
   const isDraggable = isMobile && mode === "stack" && isActive && !!onSwipe;
 
   const handleDragEnd = (_: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
@@ -221,11 +209,10 @@ const useIsMobile = () => {
       setIsMobile(window.innerWidth <= MOBILE_BREAKPOINT);
     };
 
-    // Set initial value
     checkMobile();
 
-    // Listen for resize events
     window.addEventListener("resize", checkMobile);
+
     return () => window.removeEventListener("resize", checkMobile);
   }, []);
 
@@ -250,6 +237,7 @@ export const GameStack = <
   const handleSwipe = onSwipe
     ? () => {
         const next = data[(currentIndex + 1) % data.length];
+
         if (next) {
           onSwipe(next);
         }
@@ -274,11 +262,12 @@ export const GameStack = <
               <motion.button
                 className="absolute inset-0 overflow-clip rounded-xl shadow-lg"
                 onClick={() => {
-                  // A drag ends with a click; only a tap should launch the game.
                   if (swipedRef.current) {
                     swipedRef.current = false;
+
                     return;
                   }
+
                   onPreviewClick?.(item);
                 }}
                 initial={{ filter: `blur(${BLUR_AMOUNT})`, opacity: 0 }}
@@ -294,7 +283,6 @@ export const GameStack = <
                     className="absolute inset-0 h-full w-full object-cover"
                     src={item.preview}
                     alt={item.name}
-                    // Native image drag cancels the pointer stream and kills the swipe gesture.
                     draggable={false}
                   />
                 </picture>

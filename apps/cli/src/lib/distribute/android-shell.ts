@@ -1,12 +1,5 @@
 import type { NativeConfig, Orientation } from "./config.js";
 
-/**
- * The edits that turn Capacitor's stock Android project into this game's, as
- * text transforms over the files that hold them. They run on every
- * `vg distribute android`, so each one replaces what it finds rather than
- * adding to it.
- */
-
 const MANAGED_START = "<!-- vg:distribute -->";
 const MANAGED_END = "<!-- /vg:distribute -->";
 
@@ -16,16 +9,16 @@ const ORIENTATION_ATTRIBUTE: Record<Orientation, string | null> = {
   portrait: "sensorPortrait",
 };
 
-const manifestPermissions = (config: NativeConfig): string[] => {
+const manifestPermissions = (config: NativeConfig) => {
   const lines: string[] = [];
-  // `required="false"` on each feature: a permission implies its hardware, and
-  // Play hides the game from every device without it unless told otherwise.
+
   if (config.permissions.camera !== undefined) {
     lines.push(
       '<uses-permission android:name="android.permission.CAMERA" />',
       '<uses-feature android:name="android.hardware.camera" android:required="false" />',
     );
   }
+
   if (config.permissions.microphone !== undefined) {
     lines.push(
       '<uses-permission android:name="android.permission.RECORD_AUDIO" />',
@@ -33,14 +26,16 @@ const manifestPermissions = (config: NativeConfig): string[] => {
       '<uses-feature android:name="android.hardware.microphone" android:required="false" />',
     );
   }
+
   return lines;
 };
 
-export const setManifest = (manifest: string, config: NativeConfig): string => {
+export const setManifest = (manifest: string, config: NativeConfig) => {
   const managed = new RegExp(`\\s*${MANAGED_START}[\\s\\S]*?${MANAGED_END}`, "u");
   let next = manifest.replace(managed, "").replace(/\s*android:screenOrientation="[^"]*"/u, "");
 
   const orientation = ORIENTATION_ATTRIBUTE[config.orientation];
+
   if (orientation !== null) {
     next = next.replace(
       'android:name=".MainActivity"',
@@ -49,22 +44,27 @@ export const setManifest = (manifest: string, config: NativeConfig): string => {
   }
 
   const permissions = manifestPermissions(config);
+
   if (permissions.length === 0) {
     return next;
   }
+
   const end = next.lastIndexOf("</manifest>");
+
   if (end === -1) {
     throw new Error("AndroidManifest.xml has no closing </manifest>.");
   }
+
   const block = [MANAGED_START, ...permissions, MANAGED_END].map((line) => `    ${line}`);
+
   return `${next.slice(0, end).trimEnd()}\n${block.join("\n")}\n${next.slice(end)}`;
 };
 
 /** The applicationId the Android project was created with. */
-export const readApplicationId = (buildGradle: string): string | null =>
+export const readApplicationId = (buildGradle: string) =>
   /applicationId\s+"(?<id>[^"]+)"/u.exec(buildGradle)?.groups?.id ?? null;
 
-export const setGradleVersion = (buildGradle: string, config: NativeConfig): string =>
+export const setGradleVersion = (buildGradle: string, config: NativeConfig) =>
   buildGradle
     .replace(/versionCode\s+\d+/u, `versionCode ${config.build}`)
     .replace(/versionName\s+"[^"]*"/u, `versionName "${config.version}"`);
@@ -73,7 +73,7 @@ export const setGradleVersion = (buildGradle: string, config: NativeConfig): str
  * The activity, with the system bars hidden: a game is drawn edge to edge, and
  * a swipe from the edge still brings the bars back for a moment.
  */
-export const mainActivitySource = (appId: string): string => `package ${appId};
+export const mainActivitySource = (appId: string) => `package ${appId};
 
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;

@@ -1,13 +1,9 @@
 import * as THREE from "three";
 import type { ModelLibrary } from "./models";
 
-// The Rig_Large library is much smaller than Rig_Medium's — map the Medium
-// clip names the game plays onto their closest Large equivalent. A fallback
-// must resolve to a LARGE clip (never cross-rig: the rest proportions differ).
 const RIG_LARGE_FALLBACK = new Map<string, string>(
   Object.entries({
     Death_B: "Death_A",
-    // Large lib pluralizes this one clip name
     Dodge_Backward: "Dodge_Backwards",
     Hit_B: "Hit_A",
     Idle_B: "Idle_A",
@@ -31,9 +27,6 @@ const RIG_LARGE_FALLBACK = new Map<string, string>(
     Ranged_Magic_Spellcasting: "Melee_2H_Attack",
     Running_B: "Running_A",
     Skeletons_Idle: "Idle_B",
-    // camp-creep spawn path: Large bodies (frostgolem elite) have no skeleton
-    // rise-from-the-ground clip — resolve to idle instead of T-posing (a play()
-    // miss no-ops and HOLDS whatever pose the rig is in)
     Skeletons_Spawn_Ground: "Idle_B",
     Skeletons_Taunt: "Flexing",
     Spawn_Air: "Idle_A",
@@ -56,8 +49,6 @@ export interface PlayOpts {
   offset?: number;
 }
 
-// The universal fallback pose — every rig (Medium + Large) resolves Idle_B, so
-// a missing clip lands here instead of the bind T-pose.
 const FALLBACK_IDLE = "Idle_B";
 
 /** Wraps one character instance + its mixer; crossfades named clips. */
@@ -73,7 +64,6 @@ export class AnimatedCharacter {
   private fading: { action: THREE.AnimationAction; left: number } | null = null;
 
   private lib: ModelLibrary;
-  /** Clip-pool key prefix for this character's rig (e.g. "Large/"). */
   private clipPrefix: string;
 
   constructor(lib: ModelLibrary, modelName: string, clipPrefix = "") {
@@ -83,13 +73,11 @@ export class AnimatedCharacter {
     this.mixer = new THREE.AnimationMixer(this.root);
   }
 
-  get playing(): string {
+  get playing() {
     return this.currentName;
   }
 
-  /** Resolve a clip name to its loaded THREE.AnimationClip (prefixed exact →
-   *  prefixed fallback → unprefixed), or null. */
-  private resolveClip(clipName: string): THREE.AnimationClip | undefined {
+  private resolveClip(clipName: string) {
     return (
       this.lib.getClip(this.clipPrefix + clipName) ??
       (this.clipPrefix
@@ -100,25 +88,28 @@ export class AnimatedCharacter {
 
   /** Duration (seconds) of a resolved clip, or 0 if it isn't loaded. Used to
    *  size one-shot windows so a swing/cast always plays through its strike. */
-  clipDuration(clipName: string): number {
+  clipDuration(clipName: string) {
     return this.resolveClip(clipName)?.duration ?? 0;
   }
 
-  private action(clipName: string): THREE.AnimationAction | null {
+  private action(clipName: string) {
     const clip = this.resolveClip(clipName);
+
     if (!clip) {
       return null;
     }
+
     let pair = this.actions.get(clip);
+
     if (!pair) {
       pair = { first: this.mixer.clipAction(clip), second: null };
       this.actions.set(clip, pair);
     }
+
     if (pair.first !== this.current) {
       return pair.first;
     }
-    // Two actions let a repeated shot blend out of its previous pose instead
-    // of resetting that same action. Tracks stay shared and immutable.
+
     if (!pair.second) {
       const alternate = new THREE.AnimationClip(
         clip.name,
@@ -126,28 +117,31 @@ export class AnimatedCharacter {
         clip.tracks,
         clip.blendMode,
       );
+
       pair.second = this.mixer.clipAction(alternate);
     }
+
     return pair.second;
   }
 
   /** Crossfade to a clip. No-op if already the current clip (unless one-shot). */
-  play(clipName: string, opts: PlayOpts = {}): void {
+  play(clipName: string, opts: PlayOpts = {}) {
     const { fade = 0.2, loop = true, clamp = false, timeScale = 1, offset = 0 } = opts;
+
     if (this.currentName === clipName && loop) {
       return;
     }
+
     const next = this.action(clipName);
+
     if (!next) {
-      // Clip missing on this rig — NEVER leave the character in its bind T-pose.
-      // Fall back to a neutral idle (if that resolves; else give up silently).
       if (clipName !== FALLBACK_IDLE && this.resolveClip(FALLBACK_IDLE)) {
         this.play(FALLBACK_IDLE, { fade, loop: true });
       }
+
       return;
     }
-    // At most the current pose and one outgoing pose are active. A third
-    // interruption retires the old fade, never a newly reused incoming action.
+
     this.fading?.action.stop();
     this.fading = null;
     next.reset();
@@ -158,6 +152,7 @@ export class AnimatedCharacter {
     next.clampWhenFinished = clamp;
     next.time = Math.max(0, Math.min(next.getClip().duration, offset));
     next.play();
+
     if (this.current && this.current !== next) {
       if (fade > 0) {
         this.current.crossFadeTo(next, fade, false);
@@ -166,25 +161,26 @@ export class AnimatedCharacter {
         this.current.stop();
       }
     }
+
     this.current = next;
     this.currentName = clipName;
   }
 
   /** Fire a one-shot (attack/cast/hit) then resolve when it finishes. */
-  playOnce(clipName: string, opts: PlayOpts = {}): void {
+  playOnce(clipName: string, opts: PlayOpts = {}) {
     this.play(clipName, { ...opts, clamp: opts.clamp ?? false, loop: false });
   }
 
   /** Live playback-rate control for the current action (viewer speed slider —
    *  play()'s timeScale only applies at clip start). */
-  setTimeScale(s: number): void {
+  setTimeScale(s: number) {
     this.current?.setEffectiveTimeScale(s);
   }
 
   /** Attach an object to a named bone (e.g. "handslot.r") so it follows the
    *  hand through animations. Matches on a normalized name because GLTFLoader
    *  strips reserved chars (handslot.r → handslotr). Returns false if not found. */
-  attach(obj: THREE.Object3D, boneName: string): boolean {
+  attach(obj: THREE.Object3D, boneName: string) {
     const key = boneName.replaceAll(/[^a-z0-9]/giu, "").toLowerCase();
     const found: THREE.Object3D[] = [];
     this.root.traverse((o) => {
@@ -193,9 +189,11 @@ export class AnimatedCharacter {
       }
     });
     const [bone] = found;
+
     if (!bone) {
       return false;
     }
+
     obj.traverse((c) => {
       if (c instanceof THREE.Mesh) {
         c.castShadow = true;
@@ -203,13 +201,16 @@ export class AnimatedCharacter {
       }
     });
     bone.add(obj);
+
     return true;
   }
 
-  update(dt: number): void {
+  update(dt: number) {
     this.mixer.update(dt);
+
     if (this.fading) {
       this.fading.left -= dt;
+
       if (this.fading.left <= 0) {
         this.fading.action.stop();
         this.fading = null;
@@ -217,7 +218,7 @@ export class AnimatedCharacter {
     }
   }
 
-  dispose(): void {
+  dispose() {
     this.mixer.stopAllAction();
     this.mixer.uncacheRoot(this.root);
     this.actions.clear();

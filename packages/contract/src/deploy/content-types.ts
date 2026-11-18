@@ -1,7 +1,3 @@
-// Extension → MIME type of a deployed game file. `vg deploy` stamps
-// `deploymentFile.contentType` from it, and so does `deploy.upload`.
-// apps/games/src/content-type.ts derives the served type from the same map
-// without a D1 read: keep it in sync.
 export const CONTENT_TYPES = new Map(
   Object.entries({
     avif: "image/avif",
@@ -38,7 +34,8 @@ export const CONTENT_TYPES = new Map(
   }),
 );
 
-export const contentTypeForPath = (file: string): string => {
+export const contentTypeForPath = (file: string) => {
   const ext = file.split(".").pop()?.toLowerCase() ?? "";
+
   return CONTENT_TYPES.get(ext) ?? "application/octet-stream";
 };

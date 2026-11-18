@@ -6,34 +6,29 @@ import { consola } from "consola";
 import { getBaseUrl, saveConfig } from "../lib/config.js";
 import { OAuthError, pollDeviceToken, requestDeviceCode } from "../lib/oauth.js";
 
-/** RFC 8628 §3.5: each `slow_down` adds five seconds to the polling interval. */
 const SLOW_DOWN_STEP_MS = 5000;
 
-/**
- * Opens the approval page the server named, without a shell and only on the
- * API's own origin: the URL is the server's, so it is passed as one argument,
- * never spliced into a command line. Anything else is left for the person to
- * open from the printed link.
- */
-const openBrowser = (url: string, baseUrl: string): void => {
+const openBrowser = (url: string, baseUrl: string) => {
   let target: URL;
+
   try {
     target = new URL(url);
   } catch {
     return;
   }
+
   if (target.origin !== new URL(baseUrl).origin) {
     return;
   }
+
   const openers: Partial<Record<NodeJS.Platform, [string, string[]]>> = {
     darwin: ["open", [target.href]],
     win32: ["rundll32", ["url.dll,FileProtocolHandler", target.href]],
   };
+
   const [cmd, args] = openers[process.platform] ?? ["xdg-open", [target.href]];
   const child = spawn(cmd, args, { detached: true, stdio: "ignore" });
-  child.on("error", () => {
-    // No opener (a headless box): the printed link is the way in.
-  });
+  child.on("error", () => {});
   child.unref();
 };
 
@@ -61,16 +56,20 @@ export const loginCommand = defineCommand({
 
     let intervalMs = device.interval * 1000;
     const deadline = Date.now() + device.expiresIn * 1000;
+
     while (Date.now() < deadline) {
       await sleep(intervalMs);
+
       try {
         saveConfig(await pollDeviceToken(baseUrl, device.deviceCode));
         consola.success("Logged in successfully");
+
         return;
       } catch (error) {
         if (!(error instanceof OAuthError)) {
           throw error;
         }
+
         if (error.code === "slow_down") {
           intervalMs += SLOW_DOWN_STEP_MS;
         } else if (error.code === "access_denied") {

@@ -1,31 +1,14 @@
-// The champion roster (build-doc §7). Pure data: stats, per-level growth, and
-// data-driven ability defs. The ability `effect` tag is dispatched by a switch
-// in sim/abilities.ts. Values are per-rank arrays read with valAt().
-//
-// Mapped to KayKit Adventurers/Skeletons models (Rig_Medium by default → one
-// shared clip library; `rig: "large"` champs bind the "Large/"-prefixed set).
 import type { AbilityKey } from "../sim/types";
 import type { DamageType } from "./config";
 
-export type Targeting =
-  // skillshot aimed by the mouse/right-stick
-  | "direction"
-  // AoE placed at a point (clamped to castRange)
-  | "ground"
-  // centered on the caster
-  | "self"
-  // movement burst along the aim direction
-  | "dash"
-  | "passive";
+export type Targeting = "direction" | "ground" | "self" | "dash" | "passive";
 
 export interface AbilityDef {
   key: AbilityKey;
   name: string;
-  // "<champId>:<key>" — the dispatch tag
   effect: string;
   targeting: Targeting;
   manaCost: number[];
-  // seconds, per rank
   cooldown: number[];
   castRange: number;
   maxRank: number;
@@ -47,16 +30,10 @@ export interface ChampStats {
   projectileSpeed: number;
 }
 
-// One beat of a champion's basic-attack rhythm. `timeMult` paces that swing
-// (bigger = it holds longer before the next basic), `dmgMult` weights its
-// damage, `aoe` (radius) turns it into a whirl that hits ALL enemies around.
-// `slow` is the RANGED kite tool: that shot's projectile carries a slow to
-// whatever flesh it hits (sim/combat.ts → Projectile.onHit).
 export interface RhythmStep {
   timeMult: number;
   dmgMult: number;
   aoe?: number;
-  // pct = % move slow, dur = seconds
   slow?: { pct: number; dur: number };
 }
 
@@ -68,36 +45,19 @@ export interface ChampDef {
   primary: "str" | "agi" | "int";
   attackType: "melee" | "ranged";
   attackDamageType: DamageType;
-  // projectile visual for ranged; "melee" for melee
   attackKind: string;
-  // GLB basename under public/models/characters
   model: string;
-  // weapon model attached to handslot.r
   weaponR?: string;
-  // weapon/shield attached to handslot.l
   weaponL?: string;
-  // max enemies a basic attack damages (default 3; rogue 1)
   cleaveTargets?: number;
-  // ranged basic-attack projectile behavior: `pierce` flies through everyone
-  // it hits (ranger); `splash` bursts on impact damaging a small area (casters)
   basic?: { pierce?: boolean; splash?: number };
-  // Per-swing basic-attack rhythm, cycled by swingCount (parallel to the
-  // clip-timing ATTACK_SETS clips) — see RhythmStep. Omit → uniform 1× swing.
-  // WHEN the blade connects is not tuned here — it's measured per clip in
-  // data/clip-timing.ts (sim strike + render swing read the same table).
   basicRhythm?: RhythmStep[];
-  // needs the Rig_Large clip library ("Large/" prefix)
   rig?: "large";
-  // wields a 2H weapon: rests/idles two-handed (Melee_2H_Idle)
   twoHanded?: boolean;
-  // render scale multiplier (default 1)
   scale?: number;
-  // sim collision radius override (default 0.62)
   radius?: number;
-  // fallback identity color (team color overrides in-match)
   tint: number;
   blurb: string;
-  // select-screen difficulty pips (render-only)
   difficulty: 1 | 2 | 3;
   base: ChampStats;
   growth: Partial<ChampStats>;
@@ -106,28 +66,30 @@ export interface ChampDef {
 }
 
 /** Per-rank value, 1-based rank, clamps to ends. */
-export const valAt = (arr: number[] | undefined, rank: number): number => {
+export const valAt = (arr: number[] | undefined, rank: number) => {
   if (!arr || arr.length === 0) {
     return 0;
   }
+
   const i = Math.max(0, Math.min(arr.length - 1, rank - 1));
+
   return arr[i] ?? 0;
 };
 
 /** Stat at a given level = base + growth × (level-1). */
-export const champStatAt = (def: ChampDef, key: keyof ChampStats, level: number): number => {
+export const champStatAt = (def: ChampDef, key: keyof ChampStats, level: number) => {
   const base = def.base[key];
   const g = def.growth[key] ?? 0;
+
   return base + g * (level - 1);
 };
 
-const ab = (d: Omit<AbilityDef, "isUltimate" | "maxRank"> & { maxRank?: number }): AbilityDef => ({
+const ab = (d: Omit<AbilityDef, "isUltimate" | "maxRank"> & { maxRank?: number }) => ({
   ...d,
   isUltimate: d.key === "R",
   maxRank: d.maxRank ?? (d.key === "R" ? 3 : 4),
 });
 
-// ──────────────────────────────────────────────────────────────────────────
 export const CHAMPIONS: ChampDef[] = [
   {
     abilities: {
@@ -230,13 +192,9 @@ export const CHAMPIONS: ChampDef[] = [
       mpRegen: 1.6,
       projectileSpeed: 0,
     },
-    // chop, slice, then a big 2H spin. The spin's 2.4s clip plays at 1.5× (the
-    // 2H speed-up) ≈ 1.6s, so its swing holds ~1.9× the base interval (clip
-    // plays in full, no idle gap) and lands ~2.5× the damage.
     basicRhythm: [
       { dmgMult: 1, timeMult: 1 },
       { dmgMult: 1, timeMult: 1 },
-      // spin: whirls, hits all around
       { aoe: 4, dmgMult: 2.5, timeMult: 1.92 },
     ],
     blurb: "A walking wall. Stun, charge in, and spin the throne to bloody mulch.",
@@ -290,10 +248,6 @@ export const CHAMPIONS: ChampDef[] = [
           root: [1.2, 1.5, 1.8, 2.1],
         },
       }),
-      // AERIAL (the `air` value is what makes it one — see sim/abilities JUMP):
-      // Sylva springs up, hangs, and spins off a full ring of arrows. She can't
-      // steer while airborne, but nothing can touch her either — the kiting
-      // carry's answer to a knight who has already closed the gap.
       JUMP: ab({
         castRange: 0,
         cooldown: [8],
@@ -305,15 +259,11 @@ export const CHAMPIONS: ChampDef[] = [
         name: "Tempest Volley",
         targeting: "self",
         values: {
-          // hang time (== JUMP_MS: the hop arc it rides)
           air: [0.88],
           damage: [58],
-          // untargetable a hair past touchdown, so the landing is safe
           iframe: [1],
           perLevel: [6],
-          // FX ring only (the arrows do the damage)
           radius: [3.2],
-          // arrows in the spin — a full 360° ring
           shots: [9],
         },
       }),
@@ -366,9 +316,6 @@ export const CHAMPIONS: ChampDef[] = [
     attr: { agi: 26, int: 14, str: 15 },
     base: {
       armor: 2,
-      // kite band: outranges melee reach (3.7) + one 7u charge; moveSpeed beats
-      // the knight's 6.0 so backing off actually gains ground; the arrow must
-      // fly fast enough to LAND on a strafing target at that range.
       attackRange: 12,
       attackSpeed: 0.9,
       damage: 48,
@@ -379,12 +326,7 @@ export const CHAMPIONS: ChampDef[] = [
       mpRegen: 2,
       projectileSpeed: 35,
     },
-    // arrows punch through the whole line
     basic: { pierce: true },
-    // Every 3rd arrow is a CRIPPLING SHOT — the kite tool. A ranged champ has
-    // no way to hold the gap open otherwise: melee reach (3.7) + a 7u charge
-    // erases the range advantage for free. The slow costs almost no cadence
-    // (1.15) — kiting is the point, not a big slow swing.
     basicRhythm: [
       { dmgMult: 1, timeMult: 1 },
       { dmgMult: 1, timeMult: 1 },
@@ -440,8 +382,6 @@ export const CHAMPIONS: ChampDef[] = [
           slow: [15, 15, 20, 20],
         },
       }),
-      // AERIAL (see ranger:JUMP). Fewer bolts than Sylva's ring, but each one
-      // bursts — V-yx rises and detonates a wheel of fire around herself.
       JUMP: ab({
         castRange: 0,
         cooldown: [9],
@@ -457,10 +397,8 @@ export const CHAMPIONS: ChampDef[] = [
           damage: [62],
           iframe: [1],
           perLevel: [7],
-          // FX ring only
           radius: [3.4],
           shots: [7],
-          // each bolt pops — the ring reads as one blast
           splash: [1.7],
         },
       }),
@@ -514,8 +452,6 @@ export const CHAMPIONS: ChampDef[] = [
     attr: { agi: 13, int: 28, str: 13 },
     base: {
       armor: 1,
-      // one reach tier inside the ranger, still outside melee+charge; 6.2 lets
-      // the glass cannon walk away from a 6.0 knight (barely — that's the trade)
       attackRange: 11,
       attackSpeed: 0.78,
       damage: 44,
@@ -526,10 +462,7 @@ export const CHAMPIONS: ChampDef[] = [
       mpRegen: 3,
       projectileSpeed: 27,
     },
-    // bolts pop in a small arcane burst
     basic: { splash: 1.6 },
-    // Every 3rd bolt CHILLS (the kite tool — see ranger). Shorter/weaker than
-    // the ranger's cripple: the mage already zones with Nova/Cinderfall.
     basicRhythm: [
       { dmgMult: 1, timeMult: 1 },
       { dmgMult: 1, timeMult: 1 },
@@ -654,9 +587,6 @@ export const CHAMPIONS: ChampDef[] = [
       projectileSpeed: 0,
     },
     blurb: "In, out, gone. Poison, vanish, and execute anyone clinging to life.",
-    // NO rhythm: a fast dagger FLURRY at the raw attack interval — the swing
-    // clips speed-fit (~2.5×), which reads as assassin, not fencer
-    // single-target assassin — daggers don't cleave the cone
     cleaveTargets: 1,
     difficulty: 3,
     growth: {
@@ -903,7 +833,6 @@ export const CHAMPIONS: ChampDef[] = [
       mpRegen: 2.2,
       projectileSpeed: 16,
     },
-    // curdled bolts burst on impact
     basic: { splash: 1.6 },
     blurb: "Curses bubble, brooms fly, and her enemies make lovely mushrooms.",
     difficulty: 3,

@@ -14,16 +14,18 @@ const PRIORITY = { hero: 2, player: 0, target: 1 };
  * Units, picking and simulation positions never enter this layout. */
 export const layoutHeroPlates = (plates: readonly HeroPlate[]) => {
   const placed: (HeroPlate & { lift: number })[] = [];
+
   // oxlint-disable-next-line unicorn/no-array-sort -- ES2022 game; only this fresh copy is mutated.
   const ordered = [...plates].sort(
     (a, b) => PRIORITY[a.priority] - PRIORITY[b.priority] || a.id.localeCompare(b.id),
   );
+
   for (const plate of ordered) {
     let { y } = plate;
-    // Moving above one label may meet another. Each pass clears at least one
-    // earlier label, so the visible hero count bounds the work.
+
     for (const _pass of placed) {
       let blocked = false;
+
       for (const other of placed) {
         if (
           Math.abs(plate.x - other.x) < (plate.width + other.width) / 2 + 6 &&
@@ -34,11 +36,14 @@ export const layoutHeroPlates = (plates: readonly HeroPlate[]) => {
           blocked = true;
         }
       }
+
       if (!blocked) {
         break;
       }
     }
+
     placed.push({ ...plate, lift: plate.y - y, y });
   }
+
   return placed;
 };

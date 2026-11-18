@@ -32,8 +32,6 @@ import type {
   ShieldModKind,
 } from "../shared/constants";
 
-/** DEV-only driving surface on `window.__starfall`: headless reviewers and the two-client harness poke the game through these. */
-
 /** Diag snapshot surfaced to headless reviewers via `__starfall.summary()`. */
 export interface StarfallSummary {
   alive: boolean;
@@ -68,8 +66,6 @@ export interface StarfallSummary {
   sector: { idx: number; rel: number; score: number; best: number; bossIdx: number };
 }
 
-/** The dev-only driving hooks installed on `window.__starfall` (DEV builds
- *  only — headless reviewers poke the game through these). */
 /** `__starfall.scene`: the live-state probes the two-client harness reads. */
 export interface StarfallSceneProbe {
   readonly world: SharedState;
@@ -114,14 +110,14 @@ declare global {
   }
 }
 
-export const installDevHooks = (scene: SceneInternals): void => {
+export const installDevHooks = (scene: SceneInternals) => {
   if (!import.meta.env.DEV) {
     return;
   }
+
   window.__starfall = {
     client: scene.link.rawClient,
-    /** Run a drain through the real applyDamage pipeline. */
-    damage: (amount: number): string =>
+    damage: (amount: number) =>
       scene.shield.applyDamage(
         amount,
         scene.pilot.shipX + 12,
@@ -130,33 +126,32 @@ export const installDevHooks = (scene: SceneInternals): void => {
         null,
         simNow(),
       ),
-    /** Host only: run damage through the real hostDamageEnemy pipeline
-     *  (warden DR, boss phase floors, kill/loot). Returns the enemy's
-     *  post-damage hp, or null if it died/never existed. */
-    damageEnemy: (id: string, amount: number): number | null => {
+    damageEnemy: (id: string, amount: number) => {
       if (!scene.link.amHost) {
         return null;
       }
+
       scene.hostCombat.hostDamageEnemy(id, amount, 0, 0);
+
       return scene.world.enemies.find((e) => e.id === id)?.hp ?? null;
     },
-    /** Host only: shed score shards near the ship. */
-    dropShards: (count: number, x?: number, y?: number): void => {
+    dropShards: (count: number, x?: number, y?: number) => {
       if (!scene.link.amHost) {
         return;
       }
+
       scene.hostCombat.hostSpawnShards(x ?? scene.pilot.shipX + 120, y ?? scene.pilot.shipY, count);
     },
-    /** Fire one volley of the current weapon, no pointer needed. */
-    fire: (): void => {
+    fire: () => {
       scene.weapons.fireWeapon(simNow());
     },
-    /** Grant a booster by kind name (repair applies instantly). */
-    grantBooster: (raw: string): void => {
+    grantBooster: (raw: string) => {
       const kind = BOOSTER_KINDS.find((k) => k === raw.toLowerCase());
+
       if (!kind) {
         return;
       }
+
       if (kind === "repair") {
         scene.shield.shieldHp = Math.max(scene.shield.shieldHp, SHIELD_MAX);
         scene.shield.lastDamageAt = 0;
@@ -164,33 +159,33 @@ export const installDevHooks = (scene: SceneInternals): void => {
         scene.pilot.boosts.set(kind, simNow() + BOOSTER_SPECS[kind].durationMs);
       }
     },
-    /** Grant a shield MOD by kind name (validated — bad kinds are ignored). */
-    grantShield: (raw: string): void => {
+    grantShield: (raw: string) => {
       const lowered = raw.toLowerCase();
       const kind = SHIELD_MOD_KINDS.find((k) => k === lowered);
+
       if (!kind) {
         return;
       }
+
       const now = simNow();
       scene.shield.shieldMod = kind;
       scene.shield.shieldModUntil = now + SHIELD_MOD_DURATION_MS;
       scene.shield.overHp = kind === "overshield" ? OVERSHIELD_BONUS : 0;
       scene.shield.phaseReadyAt = 0;
     },
-    grantWeapon: (ref: number | string): void => {
-      // One pass covers both call shapes: a number ref matches its index
-      // (never a name), a string ref matches its name (never an index).
+    grantWeapon: (ref: number | string) => {
       const weapon = WEAPONS_SPECIAL.find((w, i) => w.name === ref || i === ref);
+
       if (!weapon) {
         return;
       }
+
       scene.pilot.specialBase = weapon;
       scene.pilot.weapon = scaleWeaponForLevel(weapon, scene.progress.level);
       scene.pilot.weaponUntil = simNow() + SPECIAL_WEAPON_DURATION_MS;
       scene.weapons.windupAcc = 0;
     },
-    intensity: (): number =>
-      arenaIntensity(Math.max(0, (simNow() - scene.world.arenaEpoch) / 1000)),
+    intensity: () => arenaIntensity(Math.max(0, (simNow() - scene.world.arenaEpoch) / 1000)),
     scene: {
       get hostSnapshotReady() {
         return scene.link.hostSnapshotReady;
@@ -201,6 +196,7 @@ export const installDevHooks = (scene: SceneInternals): void => {
       },
       peerPose: (id) => {
         const st = scene.link.peerStates.get(id);
+
         return st ? { angle: st.angle, x: st.x, y: st.y } : null;
       },
       get shipX() {
@@ -216,32 +212,28 @@ export const installDevHooks = (scene: SceneInternals): void => {
         return scene.world;
       },
     },
-    /** Host only: rewind/forward the intensity director (sim clock; the
-     *  next share puts it on the wire as server time). */
-    setArenaEpoch: (epochMs: number): void => {
+    setArenaEpoch: (epochMs: number) => {
       if (!scene.link.amHost) {
         return;
       }
+
       scene.world.arenaEpoch = epochMs;
     },
-    /** Set the base shield directly; stamps the damage clock so regen
-     *  behaves as after a real drain. 0 = death (via the real pipeline). */
-    setShield: (hp: number): void => {
+    setShield: (hp: number) => {
       const now = simNow();
       scene.shield.shieldHp = Math.min(SIPHON_OVERHEAL_MAX, hp);
       scene.shield.lastDamageAt = now;
       scene.shield.regenActive = false;
+
       if (scene.shield.shieldHp <= 0 && scene.pilot.alive) {
         scene.shield.die(now, null, "DEV");
       }
     },
-    /** Host only: force-spawn a BEACON at (x,y) (defaults near the ship).
-     *  Custom charge/active seconds exist for compressed-timer e2e probes;
-     *  the real cadence gates are deliberately bypassed. */
-    spawnBeacon: (x?: number, y?: number, chargeS?: number, activeS?: number): boolean => {
+    spawnBeacon: (x?: number, y?: number, chargeS?: number, activeS?: number) => {
       if (!scene.link.amHost) {
         return false;
       }
+
       scene.host.hostSpawnBeacon(
         x ?? scene.pilot.shipX + 200,
         y ?? scene.pilot.shipY,
@@ -249,60 +241,62 @@ export const installDevHooks = (scene: SceneInternals): void => {
         chargeS,
         activeS,
       );
+
       return true;
     },
-    /** Host only: spawn an enemy near (or at) the given point. Elites get
-     *  the same qa-018 level-scaled HP stamp as the organic spawn path, so
-     *  probes measure shipping durability. */
-    spawnEnemy: (kind: EnemyKind, x?: number, y?: number): string | null => {
+    spawnEnemy: (kind: EnemyKind, x?: number, y?: number) => {
       if (!scene.link.amHost) {
         return null;
       }
+
       const e = spawnEnemyState(kind, x ?? scene.pilot.shipX + 320, y ?? scene.pilot.shipY);
+
       if (ELITE_HP_BASE.has(kind)) {
         e.hp = eliteHp(kind, scene.host.maxPresentLevel());
         e.maxHp = e.hp;
       }
+
       scene.world.enemies.push(e);
+
       return e.id;
     },
-    /** Host only: drop a live item at (x,y) (defaults to the ship, so it gets
-     *  picked up next frame, which is how stacking is exercised). Returns its
-     *  id, or null when nothing was dropped. */
-    spawnItem: (
-      cls: "weapon" | "shield" | "booster",
-      name: string,
-      x?: number,
-      y?: number,
-    ): string | null => {
+    spawnItem: (cls: "weapon" | "shield" | "booster", name: string, x?: number, y?: number) => {
       if (!scene.link.amHost) {
         return null;
       }
+
       let drop: ItemDrop | null = null;
+
       if (cls === "weapon") {
         const i = WEAPONS_SPECIAL.findIndex((w) => w.name === name.toUpperCase());
+
         if (i !== -1) {
           drop = { kind: "weapon", weaponIdx: i };
         }
       } else if (cls === "shield") {
         const i = kindIndex(SHIELD_MOD_KINDS, name.toLowerCase());
+
         if (i !== -1) {
           drop = { kind: "shield", shieldIdx: i };
         }
       } else {
         const i = kindIndex(BOOSTER_KINDS, name.toLowerCase());
+
         if (i !== -1) {
           drop = { boosterIdx: i, kind: "booster" };
         }
       }
+
       if (!drop) {
         return null;
       }
+
       const item = spawnItemState(x ?? scene.pilot.shipX, y ?? scene.pilot.shipY, drop);
       scene.world.items.push(item);
+
       return item.id;
     },
-    summary: (): StarfallSummary => ({
+    summary: () => ({
       alive: scene.pilot.alive,
       asteroids: scene.world.asteroids.length,
       beams: scene.weapons.beams.length,

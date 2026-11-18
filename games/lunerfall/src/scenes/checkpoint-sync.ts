@@ -46,11 +46,6 @@ export interface CheckpointSyncDeps {
   hooks: SceneHooks;
 }
 
-// The expedition checkpoint: the host encodes its full private state for a
-// takeover; a promoted host adopts it, and a guest replays its room features.
-// Reads of the shared checkpoint and room are cached by reference, each on its
-// own, so a frame never re-validates unchanged wire JSON — and a new checkpoint
-// never re-validates the room layout it shares with the last one.
 export class CheckpointSync {
   private readonly scene: Scene;
   private readonly run: RunState;
@@ -66,7 +61,6 @@ export class CheckpointSync {
   private ref: JsonValue | undefined;
   private roomRef: JsonValue | undefined;
   private layout: NetRoom | null = null;
-  // the layout `cache` was read against
   private cacheLayout: NetRoom | null = null;
   private cache: CheckpointRead = { kind: "absent" };
   adoptedTerminal: ExpeditionCheckpoint | null = null;
@@ -85,50 +79,55 @@ export class CheckpointSync {
     this.hooks = deps.hooks;
   }
 
-  accepted(): CheckpointRead {
+  accepted() {
     const shared = this.seat.session?.sharedState ?? null;
     const layout = this.layoutOf(shared?.room);
+
     if (shared?.checkpoint !== this.ref || layout !== this.cacheLayout) {
       this.ref = shared?.checkpoint;
       this.cacheLayout = layout;
       this.cache = readCheckpoint(shared, layout);
     }
+
     return this.cache;
   }
 
   /** A shared `room` value as a validated layout, cached by reference. */
-  layoutOf(v: JsonValue | undefined): NetRoom | null {
+  layoutOf(v: JsonValue | undefined) {
     if (v !== this.roomRef) {
       this.roomRef = v;
       this.layout = readRoom(v);
     }
+
     return this.layout;
   }
 
-  phase(): CheckpointPhase {
+  phase() {
+    let phase: CheckpointPhase = { kind: "active" };
+
     if (this.run.state === "dead") {
-      return { elapsed: this.run.deadT, kind: "dead" };
-    }
-    if (this.run.state === "transition" && this.run.pendingOffer) {
-      return {
+      phase = { elapsed: this.run.deadT, kind: "dead" };
+    } else if (this.run.state === "transition" && this.run.pendingOffer) {
+      phase = {
         built: this.run.transBuilt,
         elapsed: this.run.transT,
         kind: "transition",
         offer: this.run.pendingOffer.type,
       };
     }
-    return { kind: "active" };
+
+    return phase;
   }
 
   /** Everything a takeover needs, stamped `t`: the snapshot it rides with. */
-  encode(t: number): ExpeditionCheckpoint | null {
+  encode(t: number) {
     const auth = this.seat.authority;
     const writer = this.seat.session?.playerId;
+
     if (auth.kind !== "ready" || !writer) {
-      return null;
+      return null satisfies ExpeditionCheckpoint | null;
     }
-    // An unassigned late successor cannot replace either terminal roster body.
-    // Keep the accepted result intact until an explicit same-party restart.
+
     if (this.run.state === "dead" && this.adoptedTerminal) {
       return {
         ...structuredClone(this.adoptedTerminal),
@@ -136,8 +135,9 @@ export class CheckpointSync {
         t,
         term: auth.term,
         writer,
-      };
+      } satisfies ExpeditionCheckpoint | null;
     }
+
     const enemies = this.room.enemies.map((e) => ({
       body: e.body.checkpoint(),
       deathAge: this.room.deadTimers.get(e) ?? null,
@@ -145,18 +145,25 @@ export class CheckpointSync {
       name: e.body.kind.name,
       tint: e.baseTint,
     }));
+
     const liveEnemies = new Set(this.room.enemies);
-    const enemyIds = (set: Set<Enemy>): number[] =>
+
+    const enemyIds = (set: Set<Enemy>) =>
       [...set].flatMap((e) => {
         const id = liveEnemies.has(e) ? this.room.enemyIds.get(e) : undefined;
+
         return id === undefined ? [] : [id];
       });
+
     const players: CheckpointPlayer[] = [];
+
     for (const pl of livePlayers(this.seat)) {
       const id = ownerId(this.seat, pl);
+
       if (!id) {
         continue;
       }
+
       const c = combatState(this.seat, pl);
       players.push({
         body: pl.body.checkpoint(),
@@ -173,7 +180,9 @@ export class CheckpointSync {
         versusHits: { ...duelHits(this.seat, pl) },
       });
     }
+
     const playerIds = new Set(players.map((p) => p.id));
+
     const common = {
       accumulator: this.run.acc,
       arrows: this.room.arrows.map((a) => ({
@@ -229,12 +238,14 @@ export class CheckpointSync {
       seats: { ...this.seat.seats },
       shots: this.room.shots.map((s) => {
         const owner = s.owner ? ownerId(this.seat, s.owner) : null;
+
         return {
           dmg: s.dmg,
           hit: enemyIds(s.hit),
           hitBoss: s.hitBoss,
           hitP: [...s.hitP].flatMap((p) => {
             const id = ownerId(this.seat, p);
+
             return id && playerIds.has(id) ? [id] : [];
           }),
           life: s.life,
@@ -250,15 +261,18 @@ export class CheckpointSync {
       version: 1,
       writer,
     } satisfies Omit<ExpeditionCheckpoint, "mode" | "versus" | "lastStand">;
+
     if (this.seat.mode === "versus" && this.run.match) {
       return {
         ...common,
         lastStand: null,
         mode: "versus",
         versus: this.run.match.checkpoint(),
-      };
+      } satisfies ExpeditionCheckpoint | null;
     }
+
     const downedId = this.run.downed ? ownerId(this.seat, this.run.downed.pl) : null;
+
     return {
       ...common,
       lastStand:
@@ -271,12 +285,12 @@ export class CheckpointSync {
           : null,
       mode: "coop",
       versus: null,
-    };
+    } satisfies ExpeditionCheckpoint | null;
   }
 
   /** Restore accepted simulation data without rerolling or replaying rewards.
    * `own`: a promoted guest's predicted body, newer than any checkpoint. */
-  adopt(c: ExpeditionCheckpoint, room: NetRoom, own: PlayerBodyCheckpoint | null = null): void {
+  adopt(c: ExpeditionCheckpoint, room: NetRoom, own: PlayerBodyCheckpoint | null = null) {
     this.adoptedTerminal = c.phase.kind === "dead" ? structuredClone(c) : null;
     this.seat.mode = c.mode;
     this.expedition.biome = c.run.biome;
@@ -289,15 +303,19 @@ export class CheckpointSync {
     this.adoptPlayers(c, own);
     const byEnemyId = this.adoptEnemies(c);
     this.adoptCombat(c, byEnemyId);
+
     if (c.boss) {
       this.adoptBoss(c.boss, c.run.biome);
     }
+
     this.adoptProjectiles(c, byEnemyId);
     this.syncRoomFeatures(c, true);
     this.run.match = c.mode === "versus" ? new VersusMatch() : null;
+
     if (c.mode === "versus") {
       this.run.match?.restore(c.versus);
     }
+
     this.room.vsSpawns = [
       this.room.roomSpawn,
       { x: this.room.grid.cols * TILE - this.room.roomSpawn.x, y: this.room.roomSpawn.y },
@@ -313,7 +331,6 @@ export class CheckpointSync {
     this.rooms.setupCamera();
     this.hooks.updateHud();
     this.versus.showAdoptedResult();
-    // construction above has no gameplay draws; restore last
     restoreRng(c.rng);
   }
 
@@ -334,16 +351,17 @@ export class CheckpointSync {
     this.run.freeze = c.freeze;
     this.run.acc = c.accumulator;
     this.run.cleared = c.cleared;
+
     for (const door of this.room.doors) {
       door.setActive(c.cleared);
     }
+
     this.run.bossDeadT = c.bossDeathAge;
   }
 
-  // My body restores in place (respawned only on a hero mismatch); the peer's
-  // body is rebuilt from whichever checkpoint player is not me.
   private adoptPlayers(c: ExpeditionCheckpoint, own: PlayerBodyCheckpoint | null) {
     const me = c.players.find((p) => p.id === this.seat.session?.playerId);
+
     if (me && me.hero !== this.seat.heroName) {
       this.seat.player.destroy();
       this.seat.heroName = me.hero;
@@ -354,20 +372,25 @@ export class CheckpointSync {
         me.body.y,
       );
     }
+
     if (me) {
       this.seat.player.body.restore(own ?? me.body);
     }
+
     if (this.seat.controlsPaused || this.seat.neutralOnAdmission) {
       this.seat.player.body.clearInput();
     }
+
     this.seat.neutralOnAdmission = false;
     this.seat.remote?.destroy();
     this.seat.remote = undefined;
     this.seat.remoteId = null;
     const peerId = this.seat.session?.otherPlayer()?.id;
+
     const other =
       c.players.find((p) => p.id === peerId) ??
       c.players.find((p) => p.id !== this.seat.session?.playerId);
+
     if (other) {
       this.seat.remote = this.hooks.spawnPlayer(
         HEROES[other.hero],
@@ -380,8 +403,9 @@ export class CheckpointSync {
     }
   }
 
-  private adoptEnemies(c: ExpeditionCheckpoint): Map<number, Enemy> {
+  private adoptEnemies(c: ExpeditionCheckpoint) {
     const byEnemyId = new Map<number, Enemy>();
+
     for (const data of c.enemies) {
       const e = new Enemy(this.scene, this.room.grid, ENEMIES[data.name], data.body.x, data.body.y);
       e.body.restore(data.body);
@@ -390,27 +414,32 @@ export class CheckpointSync {
       this.room.enemies.push(e);
       this.room.enemyIds.set(e, data.id);
       byEnemyId.set(data.id, e);
+
       if (data.deathAge !== null) {
         this.room.deadTimers.set(e, data.deathAge);
       }
     }
+
     return byEnemyId;
   }
 
-  // Per-player hit dedup sets, re-pointed at the rebuilt enemy objects.
   private adoptCombat(c: ExpeditionCheckpoint, byEnemyId: Map<number, Enemy>) {
     const enemiesOf = (ids: number[]) =>
       new Set(
         ids.flatMap((id) => {
           const e = byEnemyId.get(id);
+
           return e ? [e] : [];
         }),
       );
+
     for (const p of c.players) {
       const pl = seatPlayer(this.seat, p.id);
+
       if (!pl) {
         continue;
       }
+
       this.seat.combatStates.set(pl, {
         ...p.combat,
         hitSpecial: enemiesOf(p.combat.hitSpecial),
@@ -430,10 +459,12 @@ export class CheckpointSync {
     for (const a of c.arrows) {
       this.combat.spawnArrow(a.x, a.y, a.vx, a.vy, a.dmg);
       const view = this.room.arrows.at(-1);
+
       if (view) {
         view.life = a.life;
       }
     }
+
     for (const s of c.shots) {
       this.combat.spawnShot(
         s.x,
@@ -444,26 +475,31 @@ export class CheckpointSync {
         s.owner ? (seatPlayer(this.seat, s.owner) ?? null) : null,
       );
       const view = this.room.shots.at(-1);
+
       if (view) {
         view.life = s.life;
         view.hitBoss = s.hitBoss;
         view.hit = new Set(
           s.hit.flatMap((id) => {
             const e = byEnemyId.get(id);
+
             return e ? [e] : [];
           }),
         );
         view.hitP = new Set(
           s.hitP.flatMap((id) => {
             const p = seatPlayer(this.seat, id);
+
             return p ? [p] : [];
           }),
         );
       }
     }
+
     for (const h of c.hazards) {
       this.combat.spawnHazard(h.x, h.y, h.vx, h.dmg);
       const view = this.room.hazards.at(-1);
+
       if (view) {
         view.life = h.life;
         view.hitPlayer = h.hitPlayer;
@@ -477,8 +513,7 @@ export class CheckpointSync {
       c.lastStand && downed
         ? { bleedT: c.lastStand.bleed, pl: downed, reviveT: c.lastStand.revive }
         : null;
-    // A seat the server has already dropped gets the same one-heart relief as a
-    // partner leaving mid-last-stand.
+
     if (
       c.phase.kind !== "dead" &&
       c.lastStand &&
@@ -491,21 +526,22 @@ export class CheckpointSync {
 
   private adoptPhase(c: ExpeditionCheckpoint) {
     this.run.state = c.phase.kind;
+
     if (c.phase.kind !== "dead") {
       this.run.runRecap = null;
     }
+
     this.run.deadT = c.phase.kind === "dead" ? c.phase.elapsed : 0;
     this.run.transT = c.phase.kind === "transition" ? c.phase.elapsed : 0;
     this.run.transBuilt = c.phase.kind === "transition" && c.phase.built;
     this.run.pendingOffer = c.phase.kind === "transition" ? { type: c.phase.offer } : null;
+
     if (c.phase.kind === "dead") {
       this.observeTerminal(c);
     }
   }
 
-  observeTerminal(c: ExpeditionCheckpoint): void {
-    // Receipts belong to local storage. An adopted result never banks twice or
-    // claims the former host's banked amount as this client's earnings.
+  observeTerminal(c: ExpeditionCheckpoint) {
     if (!this.run.runRecap) {
       this.run.runRecap = {
         biome: c.run.biome,
@@ -515,32 +551,41 @@ export class CheckpointSync {
         kind: "coop-guest",
       };
     }
+
     this.run.state = "dead";
     this.run.deadT = c.phase.kind === "dead" ? c.phase.elapsed : 0;
     this.seat.player.sprite.play(`${this.seat.heroName}:death`);
   }
 
-  syncRoomFeatures(c: ExpeditionCheckpoint, baseline: boolean): void {
+  syncRoomFeatures(c: ExpeditionCheckpoint, baseline: boolean) {
     for (let i = 0; i < c.merchant.length; i += 1) {
       const offer = c.merchant[i];
+
       if (!offer) {
         continue;
       }
+
       let item = this.room.merchantItems[i];
+
       if (!item) {
         const relic = RELICS.find((r) => r.id === offer.relic);
+
         if (!relic) {
           continue;
         }
+
         this.rooms.buildMerchantItem(relic, offer.x, offer.y, offer.bought);
         item = this.room.merchantItems[i];
       }
+
       if (!item) {
         continue;
       }
+
       const boughtNow = !item.bought && offer.bought;
       item.bought = offer.bought;
       item.g.setVisible(!offer.bought);
+
       if (boughtNow && !baseline) {
         impactRing(this.scene, item.x, item.y - 16, RARITY_COLOR[item.relic.rarity], 24);
         popText(this.scene, item.x, item.y - 30, item.relic.name, "#e83fa0");
@@ -548,15 +593,19 @@ export class CheckpointSync {
         sfx.pickup("local");
       }
     }
+
     if (c.feature) {
       if (!this.room.feature) {
         this.rooms.buildFeature(c.feature.x, c.feature.y);
       }
+
       const f = this.room.feature;
+
       if (f) {
         const usedNow = !f.used && c.feature.used;
         f.used = c.feature.used;
         f.g.setVisible(!f.used);
+
         if (usedNow && !baseline) {
           impactRing(this.scene, f.x, f.y - 14, COLORS.teal, 24);
           sfx.pickup("local");

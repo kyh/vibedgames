@@ -7,25 +7,26 @@ type Check = (name: string, condition: boolean, detail?: string) => void;
 type ScaffoldKit = ReturnType<typeof getScaffoldKit>;
 
 const kerbClearance = (kit: ScaffoldKit) => {
-  // Placement checks the two ends ALONG the road. Test every rendered vertex
-  // against the actual road strip: a local-Z yaw instead of local-X puts a
-  // scaffold leg into asphalt despite those endpoint checks passing.
   let clear = true;
   let worst = Infinity;
   const roadHalf = 5;
   const centerOffset = roadHalf + 1.25 + 1.5;
   const matrix = new THREE.Matrix4();
   const point = new THREE.Vector3();
+
   for (const angle of [0, 0.47, Math.PI / 4, Math.PI / 2, 2.13, Math.PI, 4.81]) {
     const tx = Math.cos(angle);
     const tz = Math.sin(angle);
     const nx = -tz;
     const nz = tx;
+
     for (const side of [-1, 1]) {
       matrix.makeRotationY(scaffoldYaw(tx, tz));
       matrix.setPosition(nx * centerOffset * side, 0, nz * centerOffset * side);
+
       for (const part of kit) {
         const positions = part.geo.getAttribute("position");
+
         for (let i = 0; i < positions.count; i += 1) {
           point.fromBufferAttribute(positions, i).applyMatrix4(matrix);
           const lateral = (point.x * nx + point.z * nz) * side - roadHalf;
@@ -36,6 +37,7 @@ const kerbClearance = (kit: ScaffoldKit) => {
       }
     }
   }
+
   return { clear, worst };
 };
 
@@ -46,28 +48,35 @@ const backingOcclusion = (kit: ScaffoldKit) => {
   const forward = new THREE.Vector3(0, 0, -1);
   let blocked = 0;
   const samples = 16 * 8;
+
   for (let x = 0; x < 16; x += 1) {
     for (let y = 0; y < 8; y += 1) {
       ray.set(point.set(-4.35 + (x + 0.5) * (8.7 / 16), 2.85 + (y + 0.5) * (3.1 / 8), 2), forward);
+
       if (ray.intersectObjects(meshes, false).length > 0) {
         blocked += 1;
       }
     }
   }
+
   return { blocked, samples };
 };
 
-export const checkScaffoldKit = (check: Check): void => {
+export const checkScaffoldKit = (check: Check) => {
   const kit = getScaffoldKit();
   const bounds = new THREE.Box3();
   let triangles = 0;
+
   for (const part of kit) {
     part.geo.computeBoundingBox();
+
     if (part.geo.boundingBox) {
       bounds.union(part.geo.boundingBox);
     }
+
     triangles += (part.geo.index?.count ?? part.geo.getAttribute("position").count) / 3;
   }
+
   check(
     "scaffold preserves its original placement and batching envelope",
     kit === getScaffoldKit() &&

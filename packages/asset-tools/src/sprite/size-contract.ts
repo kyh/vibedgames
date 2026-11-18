@@ -7,17 +7,6 @@ import { globFrames, median } from "./frames.js";
 import { isFiniteNumber, isJsonComposite, isJsonObject, isString } from "./json.js";
 import type { JsonValue } from "./json.js";
 
-/**
- * A size contract pins how big a character should appear and where it should
- * sit inside the runtime cell, so every action of one character stays the same
- * scale.
- *
- * Derive one from a reference action, then audit later actions against it. Two
- * clips generated independently will otherwise drift apart in scale and
- * baseline, and the mismatch only becomes obvious in-game when the character
- * visibly grows or sinks as it switches animations.
- */
-
 /** Runtime cell size. */
 export const FRAME_WIDTH = 256;
 export const FRAME_HEIGHT = 256;
@@ -76,7 +65,6 @@ export interface PopulatedSummary {
 
 export type Summary = EmptySummary | PopulatedSummary;
 
-/** `nonEmptyFrames === 0` and the missing measurement fields coincide by construction. */
 const isEmptySummary = (summary: Summary): summary is EmptySummary => summary.nonEmptyFrames === 0;
 
 /**
@@ -120,19 +108,21 @@ export interface SizeContractAudit {
   measurements: Measurement[];
 }
 
-/** Python's `format(x, ".1%")` / `".0f"`, which round half to even. */
-const percent = (value: number, digits = 1): string => {
+const percent = (value: number, digits = 1) => {
   const factor = 10 ** digits;
+
   return `${(roundHalfToEven(value * 100 * factor) / factor).toFixed(digits)}%`;
 };
 
-const fixed0 = (value: number): string => roundHalfToEven(value).toFixed(0);
+const fixed0 = (value: number) => roundHalfToEven(value).toFixed(0);
 
-const optionalNumber = (value: JsonValue | undefined): number | null => {
+const optionalNumber = (value: JsonValue | undefined) => {
   if (value === null || value === undefined) {
     return null;
   }
+
   const n = Number(value);
+
   return Number.isFinite(n) ? n : null;
 };
 
@@ -141,19 +131,23 @@ const measureBitmap = (
   label: string,
   source: string,
   frameSize: [number, number],
-): Measurement => {
+) => {
   const bbox = image.getBBox();
   const record: Measurement = { frame: label, frameSize, source };
+
   if (!bbox) {
     record.empty = true;
+
     return record;
   }
+
   record.empty = false;
   record.alphaBBox = [bbox.left, bbox.top, bbox.right, bbox.bottom];
   record.visibleWidth = bbox.right - bbox.left;
   record.visibleHeight = bbox.bottom - bbox.top;
   record.visibleCenterX = (bbox.left + bbox.right - 1) / 2;
   record.visibleBottomY = bbox.bottom - 1;
+
   return record;
 };
 
@@ -165,20 +159,22 @@ export const measureSource = (
   source: string,
   cellSize: [number, number],
   frameGlob = "frame-*.png",
-): Measurement[] => {
+) => {
   if (existsSync(source) && statSync(source).isDirectory()) {
-    // A directory holds one frame per file, so each frame's own size is its cell.
     return globFrames(source, frameGlob).map((file) => {
       const image = Bitmap.fromFile(file);
+
       return measureBitmap(image, path.basename(file), file, [image.width, image.height]);
     });
   }
+
   if (!existsSync(source)) {
     throw new Error(`missing size contract source: ${source}`);
   }
 
   const image = Bitmap.fromFile(source);
   const [cellW, cellH] = cellSize;
+
   if (
     image.width >= cellW &&
     image.height >= cellH &&
@@ -188,22 +184,27 @@ export const measureSource = (
     const columns = image.width / cellW;
     const rows = image.height / cellH;
     const out: Measurement[] = [];
+
     for (let row = 0; row < rows; row += 1) {
       for (let col = 0; col < columns; col += 1) {
         const index = row * columns + col + 1;
+
         const cell = image.crop({
           bottom: (row + 1) * cellH,
           left: col * cellW,
           right: (col + 1) * cellW,
           top: row * cellH,
         });
+
         out.push(
           measureBitmap(cell, `frame-${String(index).padStart(2, "0")}`, source, [cellW, cellH]),
         );
       }
     }
+
     return out;
   }
+
   return [measureBitmap(image, path.basename(source), source, [image.width, image.height])];
 };
 
@@ -214,7 +215,6 @@ type LiveMeasurement = Measurement & {
   visibleCenterX: number;
 };
 
-/** `measureBitmap` sets every visible-* field together with `empty: false`. */
 const isLiveMeasurement = (m: Measurement): m is LiveMeasurement =>
   !m.empty &&
   m.visibleWidth !== undefined &&
@@ -222,8 +222,9 @@ const isLiveMeasurement = (m: Measurement): m is LiveMeasurement =>
   m.visibleBottomY !== undefined &&
   m.visibleCenterX !== undefined;
 
-export const summarizeMeasurements = (measurements: Measurement[]): Summary => {
+export const summarizeMeasurements: (measurements: Measurement[]) => Summary = (measurements) => {
   const live = measurements.filter(isLiveMeasurement);
+
   if (live.length === 0) {
     return { frameSize: null, frames: measurements.length, nonEmptyFrames: 0 };
   }
@@ -234,8 +235,10 @@ export const summarizeMeasurements = (measurements: Measurement[]): Summary => {
   const centers = live.map((m) => m.visibleCenterX);
   const frameSizes = live.map((m) => m.frameSize).filter(Boolean);
   const [first] = frameSizes;
+
   const uniform =
     first !== undefined && frameSizes.every((size) => size[0] === first[0] && size[1] === first[1]);
+
   const medianHeight = median(heights);
 
   return {
@@ -258,32 +261,26 @@ export const summarizeMeasurements = (measurements: Measurement[]): Summary => {
   };
 };
 
-/**
- * A `[width, height]` pair, or nothing.
- *
- * A size contract is a JSON file people hand-edit, so `runtimeCell` arrives as
- * whatever they typed. Reading it as `number[]` and trusting the two slots
- * turns `"64x64"` or `[64]` into `NaN` that only surfaces later as a sprite
- * scaled to nothing.
- */
-const asCellPair = (value: JsonValue | undefined): [number, number] | null => {
+const asCellPair: (value: JsonValue | undefined) => [number, number] | null = (value) => {
   if (!Array.isArray(value) || value.length !== 2) {
     return null;
   }
+
   const [w, h] = value;
+
   if (!isFiniteNumber(w) || !isFiniteNumber(h)) {
     return null;
   }
-  // A zero cell is not a cell. It passed as a pair, then made the whole sheet
-  // one frame and audited `pass` against a grid that does not exist.
+
   if (w < 1 || h < 1) {
     return null;
   }
+
   return [Math.trunc(w), Math.trunc(h)];
 };
 
 /** Prompt text that keeps a generated clip on-scale for the runtime cell. */
-export const promptGuidanceForContract = (contract: SizeContract): string[] => {
+export const promptGuidanceForContract = (contract: SizeContract) => {
   const runtimeCell = asCellPair(contract.runtimeCell) ?? [FRAME_WIDTH, FRAME_HEIGHT];
   const targetHeight = optionalNumber(contract.targetVisibleHeight);
   const bottomY = optionalNumber(contract.targetBottomY);
@@ -296,16 +293,19 @@ export const promptGuidanceForContract = (contract: SizeContract): string[] => {
     `Keep the sprite's ${pivot} fixed; motion should come from the action, not from sliding the whole sprite around the frame.`,
     "Keep the first and final frames close to the same scale and placement so the result can be packed into a game spritesheet.",
   ];
+
   if (targetHeight) {
     guidance.push(
       `After processing, the sprite should remain about ${targetHeight}px tall inside a ${runtimeCell[0]}x${runtimeCell[1]} runtime cell; treat this as scale guidance, not visible text.`,
     );
   }
+
   if (bottomY !== null) {
     guidance.push(
       `Keep the contact/base point visually stable; the intended runtime bottom anchor is y=${bottomY}.`,
     );
   }
+
   return guidance;
 };
 
@@ -317,14 +317,14 @@ export interface Check {
   target?: unknown;
 }
 
-const check = (
+const check: (
   name: string,
   passed: boolean,
   passMessage: string,
   warnMessage: string,
   observed: number | [number, number],
   target: number | [number, number],
-): Check => ({
+) => Check = (name, passed, passMessage, warnMessage, observed, target) => ({
   message: passed ? passMessage : warnMessage,
   name,
   observed,
@@ -332,11 +332,15 @@ const check = (
   target,
 });
 
-export const contractChecks = (summary: Summary, contract: SizeContract): Check[] => {
+export const contractChecks: (summary: Summary, contract: SizeContract) => Check[] = (
+  summary,
+  contract,
+) => {
   const tolerances = {
     ...DEFAULT_TOLERANCES,
     ...contract.tolerances,
   };
+
   if (isEmptySummary(summary)) {
     return [
       { message: "No non-empty frames were found.", name: "non-empty-frames", status: "warn" },
@@ -348,10 +352,13 @@ export const contractChecks = (summary: Summary, contract: SizeContract): Check[
   const targetHeight = optionalNumber(contract.targetVisibleHeight);
   const medianHeight = optionalNumber(summary.medianVisibleHeight);
   const maxHeightDrift = optionalNumber(tolerances.maxTargetHeightDriftPct);
+
   if (targetHeight && medianHeight && maxHeightDrift !== null) {
     const range = summary.visibleHeightRange;
+
     const drift =
       Math.max(Math.abs(range[0] - targetHeight), Math.abs(range[1] - targetHeight)) / targetHeight;
+
     checks.push(
       check(
         "target-visible-height",
@@ -366,6 +373,7 @@ export const contractChecks = (summary: Summary, contract: SizeContract): Check[
 
   const intraDrift = optionalNumber(summary.intraHeightDriftPct);
   const maxIntraDrift = optionalNumber(tolerances.maxIntraHeightDriftPct);
+
   if (intraDrift !== null && maxIntraDrift !== null) {
     checks.push(
       check(
@@ -381,6 +389,7 @@ export const contractChecks = (summary: Summary, contract: SizeContract): Check[
 
   const targetBottom = optionalNumber(contract.targetBottomY);
   const maxBottomDrift = optionalNumber(tolerances.maxBottomDriftPx);
+
   if (targetBottom !== null && maxBottomDrift !== null) {
     const range = summary.visibleBottomYRange;
     const drift = Math.max(Math.abs(range[0] - targetBottom), Math.abs(range[1] - targetBottom));
@@ -398,6 +407,7 @@ export const contractChecks = (summary: Summary, contract: SizeContract): Check[
 
   const maxWidth = optionalNumber(contract.maxVisibleWidth);
   const maxWidthOverflow = optionalNumber(tolerances.maxWidthOverflowPct);
+
   if (maxWidth && maxWidthOverflow !== null) {
     const observedMax = optionalNumber(summary.maxVisibleWidth);
     const overflow = Math.max(0, ((observedMax ?? 0) - maxWidth) / maxWidth);
@@ -415,6 +425,7 @@ export const contractChecks = (summary: Summary, contract: SizeContract): Check[
 
   const targetCenter = optionalNumber(contract.targetCenterX);
   const maxCenterDrift = optionalNumber(tolerances.maxCenterDriftPx);
+
   if (targetCenter !== null && maxCenterDrift !== null) {
     const range = summary.visibleCenterXRange;
     const drift = Math.max(Math.abs(range[0] - targetCenter), Math.abs(range[1] - targetCenter));
@@ -451,48 +462,53 @@ const copyBriefKey = <K extends keyof SizeContract>(
   contract: SizeContract,
   out: SizeContract,
   key: K,
-): void => {
+) => {
   if (key in contract) {
     out[key] = contract[key];
   }
 };
 
-const contractBrief = (contract: SizeContract): SizeContract => {
+const contractBrief = (contract: SizeContract) => {
   const out: SizeContract = {};
+
   for (const key of BRIEF_KEYS) {
     copyBriefKey(contract, out, key);
   }
+
   return out;
 };
 
-export const cellSizeOf = (contract: SizeContract): [number, number] =>
+export const cellSizeOf: (contract: SizeContract) => [number, number] = (contract) =>
   asCellPair(contract.runtimeCell) ?? [FRAME_WIDTH, FRAME_HEIGHT];
 
-export const loadSizeContract = (payload: JsonValue, source: string): SizeContract => {
+export const loadSizeContract = (payload: JsonValue, source: string) => {
   if (!isJsonObject(payload)) {
     throw new Error(`size contract must be a JSON object: ${source}`);
   }
+
   const data = payload;
+
   if (data.kind !== "sprite-size-contract") {
     throw new Error(`not a sprite size contract: ${source}`);
   }
 
-  // Reject a malformed cell here, where the message can name the file, rather
-  // than letting NaN travel into the measurements and audit.
   const runtimeCell =
     data.runtimeCell === undefined ? [FRAME_WIDTH, FRAME_HEIGHT] : asCellPair(data.runtimeCell);
+
   if (runtimeCell === null) {
     throw new Error(
       `runtimeCell must be [width, height] numbers, got ${JSON.stringify(data.runtimeCell)}: ${source}`,
     );
   }
+
   const { tolerances } = data;
+
   if (tolerances !== undefined && !isJsonComposite(tolerances)) {
     throw new Error(`tolerances must be an object, got ${JSON.stringify(tolerances)}: ${source}`);
   }
-  // Defaults first, then the file's own keys — including ones this module does
-  // not know about, which round-trip into audit reports.
+
   const mergedTolerances: Tolerances = { ...DEFAULT_TOLERANCES };
+
   if (tolerances !== undefined) {
     Object.assign(mergedTolerances, tolerances);
   }
@@ -506,22 +522,13 @@ export const loadSizeContract = (payload: JsonValue, source: string): SizeContra
   };
 };
 
-/**
- * Widen a measured payload into the JSON domain.
- *
- * Every member of these payloads is JSON, but TypeScript grants an implicit
- * index signature only to a type alias, never to an interface — declaration
- * merging could add members later, so an interface's keys are never assumed
- * and it is not assignable to `JsonValue`. Mapping a type parameter over its
- * own keys checks the members instead, which keeps the exact payload typing
- * that `JsonValue`'s "any key at all" index signature would discard.
- */
-const asJson = <T extends { [K in keyof T]: JsonValue | undefined }>(value: T | T[]): JsonValue =>
-  value;
+const asJson: <T extends { [K in keyof T]: JsonValue | undefined }>(value: T | T[]) => JsonValue = (
+  value,
+) => value;
 
-export const deriveSizeContract = (
+export const deriveSizeContract: (
   source: string,
-  options: {
+  options?: {
     cellSize?: [number, number];
     frameGlob?: string;
     name?: string | null;
@@ -531,8 +538,8 @@ export const deriveSizeContract = (
     pivot?: string;
     sourceCanvas?: [number, number] | null;
     tolerances?: Partial<Tolerances>;
-  } = {},
-): SizeContract => {
+  },
+) => SizeContract = (source, options = {}) => {
   const {
     cellSize = [FRAME_WIDTH, FRAME_HEIGHT],
     frameGlob = "frame-*.png",
@@ -547,6 +554,7 @@ export const deriveSizeContract = (
 
   const measurements = measureSource(source, cellSize, frameGlob);
   const summary = summarizeMeasurements(measurements);
+
   if (isEmptySummary(summary)) {
     throw new Error(`cannot derive size contract from empty source: ${source}`);
   }
@@ -584,11 +592,11 @@ export const deriveSizeContract = (
   };
 };
 
-export const auditSizeContract = (
+export const auditSizeContract: (
   source: string,
   contract: SizeContract,
-  options: { cellSize?: [number, number] | null; frameGlob?: string; stage?: string } = {},
-): SizeContractAudit => {
+  options?: { cellSize?: [number, number] | null; frameGlob?: string; stage?: string },
+) => SizeContractAudit = (source, contract, options = {}) => {
   const { cellSize = null, frameGlob = "frame-*.png", stage = "runtime" } = options;
   const measurements = measureSource(source, cellSize ?? cellSizeOf(contract), frameGlob);
   const summary = summarizeMeasurements(measurements);

@@ -2,17 +2,6 @@ import type { Doc } from "@/lib/doc";
 import { p } from "@/lib/doc";
 import { siteConfig } from "@/lib/site-config";
 
-/**
- * The Terms of Use, on General Legal's website terms of use template with its
- * JAMS arbitration option. Sections 1–11 keep the template's numbers so its
- * cross-references hold; what is specific to Vibedgames (your games, the
- * rules for what you deploy, generation credits, the open-source code) sits in
- * Section 2 from 2.7 on, carried over from the terms these replace.
- *
- * Rendered as HTML by `components/legal/legal-page` and served verbatim as
- * markdown, so there is no second copy to keep in step.
- */
-
 const { email, name: operator } = siteConfig.operator;
 const mail = `[${email}](mailto:${email})`;
 

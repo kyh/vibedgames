@@ -6,12 +6,13 @@ import type { BiomePalette } from "../data/biomes";
 
 const KEY = "luner-pixel-sky";
 
-const channel = (color: number, shift: number): number => Math.floor(color / shift) % 256;
+const channel = (color: number, shift: number) => Math.floor(color / shift) % 256;
 
-const mix = (a: number, b: number, t: number): number => {
+const mix = (a: number, b: number, t: number) => {
   const r = Math.round(channel(a, 0x1_00_00) * (1 - t) + channel(b, 0x1_00_00) * t);
   const g = Math.round(channel(a, 0x1_00) * (1 - t) + channel(b, 0x1_00) * t);
   const blue = Math.round(channel(a, 1) * (1 - t) + channel(b, 1) * t);
+
   return r * 0x1_00_00 + g * 0x1_00 + blue;
 };
 
@@ -26,6 +27,7 @@ export class PixelSky {
 
   constructor(scene: Phaser.Scene, width: number, height: number, pal = biomePalette(1)) {
     const existing = scene.textures.exists(KEY) ? scene.textures.get(KEY) : null;
+
     const texture =
       existing instanceof Textures.CanvasTexture
         ? existing
@@ -34,9 +36,11 @@ export class PixelSky {
             Math.max(1, Math.ceil(width / 2)),
             Math.max(1, Math.ceil(height / 2)),
           );
+
     if (!texture) {
       throw new Error("Could not create Lunerfall sky texture");
     }
+
     this.texture = texture;
     texture.setFilter(Textures.FilterMode.NEAREST);
     this.image = scene.add
@@ -48,21 +52,27 @@ export class PixelSky {
     this.setPalette(pal);
   }
 
-  setPalette(pal: BiomePalette): void {
+  setPalette(pal: BiomePalette) {
     const key = pal.sky.join(":");
+
     if (key === this.paletteKey) {
       return;
     }
+
     this.paletteKey = key;
     const { width, height } = this.texture;
     const ctx = this.texture.context;
+
     for (let y = 0; y < height; y += 1) {
       const t = y / Math.max(1, height - 1);
+
       const color =
         t <= 0.5 ? mix(pal.sky[0], pal.sky[1], t * 2) : mix(pal.sky[1], pal.sky[2], (t - 0.5) * 2);
+
       ctx.fillStyle = `#${color.toString(16).padStart(6, "0")}`;
       ctx.fillRect(0, y, width, 1);
     }
+
     this.texture.refresh();
   }
 }

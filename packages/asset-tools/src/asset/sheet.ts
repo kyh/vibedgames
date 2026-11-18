@@ -16,27 +16,26 @@ export interface ProbeResult {
   empty?: [number, number][];
 }
 
-/** Split `size` into a `frame`-sized grid, or explain why it doesn't divide. */
 const gridFor = (path: string, size: Size, frame: Size) => {
   if (size.width % frame.width !== 0 || size.height % frame.height !== 0) {
     throw new Error(
       `${path} size ${size.width}x${size.height} not divisible by ${frame.width}x${frame.height}`,
     );
   }
+
   return { columns: size.width / frame.width, rows: size.height / frame.height };
 };
 
-/** Coordinate sort matching Python's tuple ordering: column first, then row. */
-const byColumnThenRow = (a: [number, number], b: [number, number]): number =>
-  a[0] - b[0] || a[1] - b[1];
+const byColumnThenRow = (a: [number, number], b: [number, number]) => a[0] - b[0] || a[1] - b[1];
 
 /** List which grid cells contain any non-transparent pixel. */
-export const probeSheet = (path: string, frame: Size, includeEmpty: boolean): ProbeResult => {
+export const probeSheet = (path: string, frame: Size, includeEmpty: boolean) => {
   const image = Bitmap.fromFile(path);
   const { columns, rows } = gridFor(path, image, frame);
 
   const nonEmpty: [number, number][] = [];
   const empty: [number, number][] = [];
+
   for (let row = 0; row < rows; row += 1) {
     for (let col = 0; col < columns; col += 1) {
       const cell = image.crop({
@@ -45,6 +44,7 @@ export const probeSheet = (path: string, frame: Size, includeEmpty: boolean): Pr
         right: (col + 1) * frame.width,
         top: row * frame.height,
       });
+
       if (cell.getBBox()) {
         nonEmpty.push([col, row]);
       } else {
@@ -60,10 +60,11 @@ export const probeSheet = (path: string, frame: Size, includeEmpty: boolean): Pr
     non_empty: [...nonEmpty].toSorted(byColumnThenRow),
     path,
   };
-  // The original emitted `empty` in row-major order rather than sorted.
+
   if (includeEmpty) {
     result.empty = empty;
   }
+
   return result;
 };
 
@@ -99,13 +100,13 @@ export interface BaselineReport {
  * the animation plays; aligning the bottom of the alpha bounding box fixes it
  * without re-authoring the art.
  */
-export const analyzeBaseline = (
+export const analyzeBaseline: (
   path: string,
   frame: Size,
   targetBottom: number,
   targetCenterX: number | null,
   outPath: string | null,
-): BaselineReport => {
+) => BaselineReport = (path, frame, targetBottom, targetCenterX, outPath) => {
   const image = Bitmap.fromFile(path);
   const { columns, rows } = gridFor(path, image, frame);
   const fixed = outPath ? Bitmap.create(image.width, image.height) : null;
@@ -115,20 +116,24 @@ export const analyzeBaseline = (
     for (let col = 0; col < columns; col += 1) {
       const left = col * frame.width;
       const top = row * frame.height;
+
       const cell = image.crop({
         bottom: top + frame.height,
         left,
         right: left + frame.width,
         top,
       });
+
       const bbox = cell.getBBox();
       const index = row * columns + col;
 
       if (!bbox) {
         frames.push({ col, empty: true, index, row });
+
         if (fixed) {
           fixed.alphaComposite(cell, left, top);
         }
+
         continue;
       }
 
@@ -161,9 +166,11 @@ export const analyzeBaseline = (
   }
 
   const visible = frames.filter((f) => !f.empty);
+
   const bottoms = visible.flatMap((f) =>
     f.visibleBottomY === undefined ? [] : [f.visibleBottomY],
   );
+
   const shifts = visible.flatMap((f) =>
     f.shiftToTarget === undefined ? [] : [f.shiftToTarget[1]],
   );

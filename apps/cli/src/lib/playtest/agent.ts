@@ -1,28 +1,3 @@
-/**
- * The in-page playtester.
- *
- * `vg playtest run` injects this function's SOURCE into the game's page and
- * calls it there, so the whole decide → apply → measure loop runs inside the
- * browser: no CLI round trip per decision, and a per-frame reflex layer that
- * a subprocess could never keep up with. The CLI's only jobs are to mint the
- * token, inject, poll `window.__PLAYTEST_AGENT__.done`, and read the
- * records back.
- *
- * Rules that follow from being stringified: `inPageAgent` and `browserEnv`
- * must be entirely self-contained — no imports, no module-scope references
- * (the `declare`d globals below are erased and resolve to the page's own) —
- * which is why every helper lives inside them. The agent talks to the page
- * only through `env`, the real browser in production and a fake in tests.
- *
- * The decision is the hold: the previous inputs stay down while the model
- * answers, so the game runs continuously and the loop decides at the
- * model's latency, with `tickMs` as a floor. A move option in the game's
- * `__GAME_PLAYTEST__` may carry a `reflex(game)` function; while that option
- * is the current intent, the reflex runs every frame and its returned inputs
- * are what is held — the model sets intent a few times a second, the reflex
- * turns it into input at 60 fps.
- */
-
 // oxlint-disable unicorn/consistent-function-scoping -- the two exported functions are stringified and injected into the page, so their helpers cannot live at module scope
 
 /** A parsed JSON document — the shape of everything that crosses the page boundary. */
@@ -243,8 +218,6 @@ interface DocumentLike {
   querySelector: (selector: string) => EventTargetLike | null;
 }
 
-// Ambient only: these exist in the page and nowhere else. Nothing here is
-// emitted, so stringifying the agent stays self-contained.
 declare const window: BrowserGlobals;
 declare const document: DocumentLike;
 declare const KeyboardEvent: new (type: string, init: AgentKeyInit) => PageEvent;
@@ -252,10 +225,11 @@ declare const PointerEvent: new (type: string, init: PointerInit) => PageEvent;
 declare const MouseEvent: new (type: string, init: PointerInit) => PageEvent;
 
 /** The real page as an AgentEnv. Only ever runs in the browser; injected beside the agent. */
-export const browserEnv = (): AgentEnv => {
-  const read = (): AgentSample => {
+export const browserEnv: () => AgentEnv = () => {
+  const read = () => {
     const d = window.__GAME_DIAGNOSTICS__;
     const p = d?.player ?? {};
+
     return {
       complete: d?.complete === true,
       frame: d?.frame ?? 0,
@@ -265,19 +239,23 @@ export const browserEnv = (): AgentEnv => {
       z: p.z ?? 0,
     };
   };
-  const pointerTarget = (cx: number, cy: number): EventTargetLike =>
+
+  const pointerTarget = (cx: number, cy: number) =>
     document.elementFromPoint(cx, cy) ?? document.querySelector("canvas") ?? window;
-  const mouseType = (type: string): string => {
+
+  const mouseType = (type: string) => {
     if (type === "pointermove") {
       return "mousemove";
     }
+
     return type === "pointerdown" ? "mousedown" : "mouseup";
   };
-  // Relative-look games steer from `movementX/Y`, which a synthetic event
-  // leaves at 0 unless told otherwise — so each move carries its real delta.
+
   let lastPointer: { x: number; y: number } | null = null;
+
   const isFunction = (value: Reflex | undefined): value is Reflex =>
     Object.prototype.toString.call(value) === "[object Function]";
+
   return {
     caf: (id) => window.cancelAnimationFrame(id),
     delay: (ms) =>
@@ -286,8 +264,6 @@ export const browserEnv = (): AgentEnv => {
         window.setTimeout(resolve, ms);
       }),
     dispatchKey: (type, init) => {
-      // At the focused element, not `window`: a real keypress starts there
-      // and bubbles up, so listeners on element, document and window all fire.
       const target = document.activeElement ?? document.body ?? window;
       target.dispatchEvent(new KeyboardEvent(type, init));
     },
@@ -298,9 +274,11 @@ export const browserEnv = (): AgentEnv => {
       const moved = type === "pointermove" && lastPointer !== null;
       const movementX = moved && lastPointer ? cx - lastPointer.x : 0;
       const movementY = moved && lastPointer ? cy - lastPointer.y : 0;
+
       if (type === "pointermove") {
         lastPointer = { x: cx, y: cy };
       }
+
       const init: PointerInit = {
         bubbles: true,
         button: 0,
@@ -317,6 +295,7 @@ export const browserEnv = (): AgentEnv => {
         screenX: cx,
         screenY: cy,
       };
+
       const target = pointerTarget(cx, cy);
       target.dispatchEvent(new PointerEvent(type, init));
       target.dispatchEvent(new MouseEvent(mouseType(type), init));
@@ -331,6 +310,7 @@ export const browserEnv = (): AgentEnv => {
     read,
     reflexFor: (label) => {
       const reflex = window.__GAME_PLAYTEST__?.move?.[label]?.reflex;
+
       return isFunction(reflex) ? reflex : null;
     },
     snapshot: () => {
@@ -349,12 +329,13 @@ export const browserEnv = (): AgentEnv => {
  * also published as `window.__PLAYTEST_AGENT__`; `done` flips when the run
  * ends, `error` says why if it ended early.
  */
-export const inPageAgent = (config: AgentConfig, env: AgentEnv): AgentResult => {
-  // Object() is the identity only on objects; arrays are split off explicitly.
+export const inPageAgent = (config: AgentConfig, env: AgentEnv) => {
   const isObject = (value: Json | undefined): value is { [key: string]: Json } =>
     Object(value) === value && !Array.isArray(value);
-  const round = (value: number): number => Number(value.toFixed(2));
+
+  const round = (value: number) => Number(value.toFixed(2));
   const started = env.now();
+
   const usage: AgentUsage = {
     calls: 0,
     inputTokens: 0,
@@ -362,80 +343,80 @@ export const inPageAgent = (config: AgentConfig, env: AgentEnv): AgentResult => 
     outputTokens: 0,
     totalDecisionMs: 0,
   };
+
   let stopped = false;
   let rafId = 0;
 
-  // ---- held input --------------------------------------------------------
   interface HeldInputs {
     keys: AgentKeyInit[];
     pointer: AgentPointer | null;
   }
+
   let heldKeys: AgentKeyInit[] = [];
   let heldPointer: AgentPointer | null = null;
 
-  const samePointer = (a: AgentPointer | null, b: AgentPointer | null): boolean =>
+  const samePointer = (a: AgentPointer | null, b: AgentPointer | null) =>
     a === b || (a !== null && b !== null && a.x === b.x && a.y === b.y && a.down === b.down);
 
-  /** Switch the held inputs, dispatching only the changes. */
-  const hold = (next: HeldInputs): void => {
+  const hold = (next: HeldInputs) => {
     if (!samePointer(heldPointer, next.pointer)) {
-      // A button that stays down while the cursor moves is a drag: one
-      // press, moves, one release. Releasing and re-pressing per move would
-      // re-fire every click-edge verb 60 times a second under a reflex.
       const wasDown = heldPointer?.down === true;
       const staysDown = wasDown && next.pointer?.down === true;
+
       if (heldPointer && wasDown && !staysDown) {
         env.dispatchPointer(heldPointer, "pointerup");
       }
+
       if (next.pointer) {
         env.dispatchPointer(next.pointer, "pointermove");
+
         if (next.pointer.down && !staysDown) {
           env.dispatchPointer(next.pointer, "pointerdown");
         }
       }
+
       heldPointer = next.pointer;
     }
+
     const wanted = new Set(next.keys.map((init) => init.code));
     const have = new Set(heldKeys.map((init) => init.code));
+
     for (const init of heldKeys) {
       if (!wanted.has(init.code)) {
         env.dispatchKey("keyup", init);
       }
     }
+
     for (const init of next.keys) {
       if (!have.has(init.code)) {
         env.dispatchKey("keydown", init);
       }
     }
+
     heldKeys = next.keys;
   };
 
-  /**
-   * Release these keys if held, so the next `hold` presses them again. An
-   * action the model picks on consecutive decisions would otherwise stay down
-   * as one long press, and a game that acts on the keydown edge — jump, fire,
-   * drop a bomb — would see the first of them and none of the rest.
-   */
-  const release = (inits: AgentKeyInit[]): void => {
+  const release = (inits: AgentKeyInit[]) => {
     const codes = new Set(inits.map((init) => init.code));
+
     for (const init of heldKeys) {
       if (codes.has(init.code)) {
         env.dispatchKey("keyup", init);
       }
     }
+
     heldKeys = heldKeys.filter((init) => !codes.has(init.code));
   };
 
-  // ---- motion tracker ----------------------------------------------------
-  const dist = (a: AgentSample, b: AgentSample): number =>
-    Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
+  const dist = (a: AgentSample, b: AgentSample) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
+
   let trackStart = env.read();
   let trackLast = trackStart;
   let trackPath = 0;
   let trackPeak = 0;
   let trackScore = trackStart.score;
 
-  const sample = (): void => {
+  const sample = () => {
     const c = env.read();
     trackPath += dist(c, trackLast);
     trackPeak = Math.max(trackPeak, dist(c, trackStart));
@@ -443,10 +424,10 @@ export const inPageAgent = (config: AgentConfig, env: AgentEnv): AgentResult => 
     trackScore = Math.max(trackScore, c.score);
   };
 
-  /** The window since the last flush; the next window starts now. */
-  const flush = (): AgentWindow => {
+  const flush = () => {
     sample();
     const c = trackLast;
+
     const measured: AgentWindow = {
       complete: c.complete,
       frame: c.frame,
@@ -459,14 +440,15 @@ export const inPageAgent = (config: AgentConfig, env: AgentEnv): AgentResult => 
       y: c.y,
       z: c.z,
     };
+
     trackStart = c;
     trackPath = 0;
     trackPeak = 0;
     trackScore = c.score;
+
     return measured;
   };
 
-  // ---- decisions ---------------------------------------------------------
   interface Decision {
     move: string;
     actions: string[];
@@ -511,11 +493,6 @@ export const inPageAgent = (config: AgentConfig, env: AgentEnv): AgentResult => 
     [action: string]: ChoiceQuestion | NoulQuestion | ScoreQuestion;
   }
 
-  // Ordered lowest to highest; the answer is a probability-weighted position
-  // along them, which the agent normalises to 0–1. The model reads the same
-  // state it moves from, so this is its judgment of the run, not a metric —
-  // useful because it is the one signal that tracks the GOAL rather than the
-  // game's score field, which a goal like "survive" never raises.
   const PROGRESS_LEVELS = [
     "No progress: the player is not moving towards the goal, or is losing (dying, falling behind)",
     "Barely started: moving, but the goal is far off or the player is in trouble",
@@ -557,25 +534,27 @@ export const inPageAgent = (config: AgentConfig, env: AgentEnv): AgentResult => 
     usage,
     wallMs: 0,
   };
+
   env.publish(result);
 
-  /** The move options on offer this tick: everything the reflex hasn't withdrawn. */
   const offeredMoves = (tick: number) => {
     const resting = rested !== null && tick < rested.untilTick ? rested.label : null;
     const criteria: Record<string, string> = {};
+
     for (const [label, option] of Object.entries(config.move)) {
       if (!blocked.includes(label) && label !== resting) {
         criteria[label] = option.description;
       }
     }
-    // A choice needs two options; the rested one comes back before that breaks.
+
     if (resting !== null && Object.keys(criteria).length < 2) {
       criteria[resting] = config.move[resting]?.description ?? resting;
     }
+
     return criteria;
   };
 
-  const questions = (criteria: Record<string, string>): Questions => {
+  const questions = (criteria: Record<string, string>) => {
     const out: Questions = {
       move: {
         criteria,
@@ -590,6 +569,7 @@ export const inPageAgent = (config: AgentConfig, env: AgentEnv): AgentResult => 
         type: "score",
       },
     };
+
     for (const [label, action] of Object.entries(config.actions)) {
       out[`act:${label}`] = {
         criteria: { false: "Not now", true: "Yes, do it now" },
@@ -597,49 +577,63 @@ export const inPageAgent = (config: AgentConfig, env: AgentEnv): AgentResult => 
         type: "noul",
       };
     }
+
     return out;
   };
 
-  const answerFor = (answers: { [key: string]: Json }, key: string): { [key: string]: Json } => {
+  const answerFor = (answers: { [key: string]: Json }, key: string) => {
     const answer = answers[key];
+
     return isObject(answer) ? answer : {};
   };
 
-  const parseDecision = (text: string, offered: Record<string, string>): Decision => {
+  const parseDecision = (text: string, offered: Record<string, string>) => {
     let body: Json;
+
     try {
       body = JSON.parse(text);
     } catch {
       throw new Error(`decision response was not JSON: ${text.slice(0, 200)}`);
     }
+
     const answers = isObject(body) ? body.answers : undefined;
+
     if (!isObject(answers)) {
       throw new Error(`decision response had no answers: ${text.slice(0, 200)}`);
     }
+
     const move = answerFor(answers, "move");
     const choice = String(move.choice ?? "");
+
     if (!Object.hasOwn(offered, choice)) {
       throw new Error(`decision model answered \`move\` outside the offered options: ${choice}`);
     }
+
     const actions: string[] = [];
     const actionProbabilities: Record<string, number> = {};
+
     for (const label of Object.keys(config.actions)) {
       const probability = Number(answerFor(answers, `act:${label}`).noul);
+
       if (!Number.isFinite(probability)) {
         throw new TypeError(`decision model answered \`${label}\` without a probability`);
       }
+
       actionProbabilities[label] = Number(probability.toFixed(3));
+
       if (probability >= config.actionThreshold) {
         actions.push(label);
       }
     }
+
     const usageBody = isObject(body) && isObject(body.usage) ? body.usage : {};
     const confidence = Number(move.confidence);
-    // Advisory, so a missing or malformed score never fails the run.
     const scored = Number(answerFor(answers, "progress").score);
+
     const progress = Number.isFinite(scored)
       ? Number(Math.min(1, Math.max(0, scored / (PROGRESS_LEVELS.length - 1))).toFixed(3))
       : null;
+
     return {
       actionProbabilities,
       actions,
@@ -651,18 +645,15 @@ export const inPageAgent = (config: AgentConfig, env: AgentEnv): AgentResult => 
     };
   };
 
-  // A hung request would otherwise hold the last inputs down until the CLI's
-  // whole-run budget expired; a timed-out attempt is retried like a dropped one.
-  const timeout = async (): Promise<never> => {
+  const timeout = async () => {
     await env.delay(config.decisionTimeoutMs);
     throw new Error(`no answer within ${config.decisionTimeoutMs} ms`);
   };
 
-  /** One decision, with a short backoff on a rate limit, an upstream fault or a dropped connection. */
-  const decide = async (state: DecisionState): Promise<Decision> => {
+  const decide = async (state: DecisionState) => {
     if (config.pinMove !== null) {
-      // One frame, so the loop still yields to the game between decisions.
       await env.delay(0);
+
       return {
         actionProbabilities: {},
         actions: [],
@@ -673,11 +664,14 @@ export const inPageAgent = (config: AgentConfig, env: AgentEnv): AgentResult => 
         progress: null,
       };
     }
+
     const offered = offeredMoves(state.tick.index);
     const body = JSON.stringify({ model: config.model, questions: questions(offered), state });
+
     for (let attempt = 0; ; attempt += 1) {
       let response: AgentResponse | null = null;
       let failure = "";
+
       try {
         response = await Promise.race([
           env.fetch(config.decideUrl, {
@@ -693,32 +687,40 @@ export const inPageAgent = (config: AgentConfig, env: AgentEnv): AgentResult => 
       } catch (error) {
         failure = error instanceof Error ? error.message : String(error);
       }
+
       if (response?.ok) {
         const text = await response.text();
+
         return parseDecision(text, offered);
       }
+
       if (response !== null && response.status !== 429 && response.status < 500) {
         const text = await response.text();
         throw new Error(`decision failed (HTTP ${response.status}): ${text.slice(0, 300)}`);
       }
+
       const reason = response === null ? failure : `HTTP ${response.status}`;
+
       if (attempt >= config.decisionRetries) {
         throw new Error(`decision failed after ${attempt + 1} attempts: ${reason}`);
       }
+
       await env.delay(500 * 2 ** attempt);
     }
   };
 
-  // ---- reflex + frame loop -----------------------------------------------
-  const pointerFrom = (input: ReflexInputs["pointer"]): AgentPointer | null => {
+  const pointerFrom = (input: ReflexInputs["pointer"]) => {
     if (!input) {
       return null;
     }
+
     const x = Number(input.x);
     const y = Number(input.y);
+
     if (!Number.isFinite(x) || !Number.isFinite(y)) {
       return null;
     }
+
     return {
       down: input.down === true,
       x: Math.min(1, Math.max(0, x)),
@@ -726,21 +728,24 @@ export const inPageAgent = (config: AgentConfig, env: AgentEnv): AgentResult => 
     };
   };
 
-  const keysFrom = (codes: string[] | undefined): AgentKeyInit[] => {
+  const keysFrom = (codes: string[] | undefined) => {
     const inits: AgentKeyInit[] = [];
+
     for (const code of codes ?? []) {
       const init = config.keyTable[code];
+
       if (init) {
         inits.push(init);
       }
     }
+
     return inits;
   };
 
-  /** The keys of the chosen actions, deduplicated against `base`. */
-  const withActions = (base: AgentKeyInit[], decision: Decision): AgentKeyInit[] => {
+  const withActions = (base: AgentKeyInit[], decision: Decision) => {
     const keys = [...base];
     const seen = new Set(keys.map((init) => init.code));
+
     for (const label of decision.actions) {
       for (const init of config.actions[label]?.inits ?? []) {
         if (!seen.has(init.code)) {
@@ -749,57 +754,57 @@ export const inPageAgent = (config: AgentConfig, env: AgentEnv): AgentResult => 
         }
       }
     }
+
     return keys;
   };
 
-  const staticInputs = (decision: Decision): HeldInputs => {
+  const staticInputs = (decision: Decision) => {
     const option = config.move[decision.move];
+
     return { keys: withActions(option?.inits ?? [], decision), pointer: option?.pointer ?? null };
   };
 
-  const runReflex = (current: Pending): void => {
+  const runReflex = (current: Pending) => {
     if (!current.reflex) {
       return;
     }
+
     let inputs: ReflexInputs | null | undefined = null;
+
     try {
       inputs = current.reflex(env.live());
     } catch {
       inputs = null;
     }
-    // Actions the model chose stay held alongside whatever the reflex wants.
-    // A reflex that returns nothing (or throws) holds nothing: leaving the
-    // last frame's keys down would turn a tap into a press that never ends.
+
     hold({
       keys: withActions(keysFrom(inputs?.keys), current.decision),
       pointer: pointerFrom(inputs?.pointer),
     });
+
     if (inputs) {
       current.reflexFrames += 1;
       current.reflexStuck ||= inputs.stuck === true;
     }
   };
 
-  const frame = (): void => {
+  const frame = () => {
     if (stopped) {
       return;
     }
+
     sample();
+
     if (pending) {
       runReflex(pending);
     }
+
     rafId = env.raf(frame);
   };
 
-  // ---- the run -----------------------------------------------------------
-  /** At least two options have to survive any withdrawal: a choice needs them. */
-  const canWithdraw = (): boolean => Object.keys(config.move).length - blocked.length - 1 >= 2;
+  const canWithdraw = () => Object.keys(config.move).length - blocked.length - 1 >= 2;
 
-  // The reflex layer for the model: a move that produced nothing for two
-  // ticks running is withdrawn from the question. Withdrawals accumulate
-  // while the player stays stuck — with a single slot the model alternates
-  // between the same two walls — and clear the moment it moves.
-  const withdrawIfStuck = (move: string, stuck: boolean, still: boolean): void => {
+  const withdrawIfStuck = (move: string, stuck: boolean, still: boolean) => {
     if (!still) {
       blocked = [];
     } else if (
@@ -813,37 +818,33 @@ export const inPageAgent = (config: AgentConfig, env: AgentEnv): AgentResult => 
     }
   };
 
-  // Given a state that points nowhere, the model's safe answer is the option
-  // that holds nothing — confidently, every tick, and a playtester standing
-  // still learns nothing about the game. A few idle decisions in a row rest
-  // that option for a while, so the model has to commit to a direction; its
-  // confidence then says honestly how little the state told it.
-  const restIfIdle = (done: Pending, still: boolean): void => {
+  const restIfIdle = (done: Pending, still: boolean) => {
     const option = config.move[done.decision.move];
+
     const idle =
       done.reflex === null &&
       option !== undefined &&
       option.inits.length === 0 &&
       option.pointer === null;
+
     idleRun = idle && still ? idleRun + 1 : 0;
+
     if (idleRun >= config.idleRun && canWithdraw()) {
       rested = { label: done.decision.move, untilTick: done.tick + 1 + config.idleRestTicks };
       idleRun = 0;
     }
   };
 
-  const settle = (done: Pending, measured: AgentWindow): void => {
+  const settle = (done: Pending, measured: AgentWindow) => {
     const option = config.move[done.decision.move];
-    // Only a held direction can be "stuck". A parked pointer that has arrived
-    // and a reflex that has converged are both still because they worked —
-    // the agent cannot tell a reflex holding position from one wedged in
-    // geometry, so a reflex says so itself (`stuck: true`), and then its
-    // still windows count like any other.
+
     const askedToMove = done.reflex
       ? done.reflexStuck
       : option !== undefined && (option.inits.length > 0 || option.pointer?.down === true);
+
     const progressed = measured.score > measured.scoreBefore;
     let stuck = false;
+
     if (askedToMove) {
       stuck =
         measured.frame > measured.frameBefore &&
@@ -851,13 +852,16 @@ export const inPageAgent = (config: AgentConfig, env: AgentEnv): AgentResult => 
         !progressed;
       stuckRun = stuck ? stuckRun + 1 : 0;
     }
+
     const still = measured.peak < config.motionEpsilon && !progressed;
     withdrawIfStuck(done.decision.move, stuck, still);
     restIfIdle(done, still);
     trail.push({ x: round(measured.x), y: round(measured.y), z: round(measured.z) });
+
     if (trail.length > config.trailLength) {
       trail.shift();
     }
+
     lastWindow = measured;
     result.records.push({
       actionProbabilities: done.decision.actionProbabilities,
@@ -875,7 +879,7 @@ export const inPageAgent = (config: AgentConfig, env: AgentEnv): AgentResult => 
     });
   };
 
-  const stateFor = (game: Json, tick: number): DecisionState => ({
+  const stateFor = (game: Json, tick: number) => ({
     game,
     goal: config.goal,
     recent: {
@@ -889,7 +893,7 @@ export const inPageAgent = (config: AgentConfig, env: AgentEnv): AgentResult => 
     tick: { index: tick, of: config.ticks },
   });
 
-  const record = (decision: Decision, decisionMs: number): void => {
+  const record = (decision: Decision, decisionMs: number) => {
     usage.calls += 1;
     usage.inputTokens += decision.inputTokens;
     usage.outputTokens += decision.outputTokens;
@@ -897,41 +901,45 @@ export const inPageAgent = (config: AgentConfig, env: AgentEnv): AgentResult => 
     usage.maxDecisionMs = Math.max(usage.maxDecisionMs, decisionMs);
   };
 
-  const run = async (): Promise<void> => {
+  const run = async () => {
     rafId = env.raf(frame);
     let game = env.snapshot();
+
     for (let tick = 0; tick < config.ticks; tick += 1) {
       if (stopped) {
         break;
       }
+
       const t0 = env.now();
       const decision = await decide(stateFor(game, tick));
       const decisionMs = env.now() - t0;
       record(decision, decisionMs);
+
       if (stopped) {
         break;
       }
 
-      // A floor on how long the previous inputs stay down, for a slower player.
       if (pending) {
         const remaining = config.tickMs - (env.now() - pending.appliedAt);
+
         if (remaining > 0) {
           await env.delay(remaining);
         }
       }
 
-      // An option with a reflex takes over on the next frame; applying its
-      // (empty) static inputs first would drop the pointer the reflex holds,
-      // and a held button would be released and re-pressed on every decision.
       const reflex = env.reflexFor(decision.move);
       release(decision.actions.flatMap((label) => config.actions[label]?.inits ?? []));
+
       if (!reflex) {
         hold(staticInputs(decision));
       }
+
       const measured = flush();
+
       if (pending) {
         settle(pending, measured);
       }
+
       pending = {
         appliedAt: env.now(),
         decision,
@@ -942,26 +950,28 @@ export const inPageAgent = (config: AgentConfig, env: AgentEnv): AgentResult => 
         tick,
       };
       game = env.snapshot();
+
       if (measured.complete) {
-        // The game ended under the previous decision's inputs; this one
-        // never got a window and is not counted.
         result.completedAtTick = Math.max(0, tick - 1);
         pending = null;
         break;
       }
     }
+
     if (pending && !stopped) {
       await env.delay(Math.max(config.tickMs, config.finalHoldMs));
       const measured = flush();
       settle(pending, measured);
+
       if (measured.complete && result.completedAtTick === null) {
         result.completedAtTick = pending.tick;
       }
+
       pending = null;
     }
   };
 
-  const finish = (error: string | null): void => {
+  const finish = (error: string | null) => {
     stopped = true;
     env.caf(rafId);
     hold({ keys: [], pointer: null });
@@ -970,7 +980,7 @@ export const inPageAgent = (config: AgentConfig, env: AgentEnv): AgentResult => 
     result.done = true;
   };
 
-  const main = async (): Promise<void> => {
+  const main = async () => {
     try {
       await run();
       finish(null);
@@ -978,6 +988,8 @@ export const inPageAgent = (config: AgentConfig, env: AgentEnv): AgentResult => 
       finish(error instanceof Error ? error.message : String(error));
     }
   };
+
   void main();
+
   return result;
 };

@@ -176,6 +176,7 @@ const alertDialogStore = {
   state: initialAlertState,
   subscribe: (listener: Listener) => {
     alertDialogStore.listeners.push(listener);
+
     return () => {
       alertDialogStore.listeners = alertDialogStore.listeners.filter((l) => l !== listener);
     };
@@ -198,6 +199,7 @@ const runAndClose = async (
   setPending: (v: boolean) => void,
 ) => {
   setPending(true);
+
   try {
     await onClick?.();
   } finally {
@@ -209,6 +211,7 @@ const runAndClose = async (
 export const GlobalAlertDialog = () => {
   const [pendingAction, setPendingAction] = React.useState(false);
   const [pendingCancel, setPendingCancel] = React.useState(false);
+
   const alertState = React.useSyncExternalStore(
     alertDialogStore.subscribe,
     alertDialogStore.getSnapshot,
@@ -219,6 +222,7 @@ export const GlobalAlertDialog = () => {
     if (pendingAction || pendingCancel) {
       return;
     }
+
     if (!open) {
       void runAndClose(alertState.cancel?.onClick, setPendingCancel);
     }

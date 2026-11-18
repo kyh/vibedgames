@@ -11,12 +11,15 @@ import type { SaveData } from "../src/systems/save";
 
 test("season pages list every eligible crop and fish; winter is fish-only", () => {
   const journal = Collections.empty();
+
   for (const season of SEASONS) {
     const page = journal.page(season);
     const crops = Object.values(CROPS).filter((c) => c.seasons.includes(season));
+
     const fish = Object.values(FISH).filter(
       (f) => f.seasons === "all" || f.seasons.includes(season),
     );
+
     assert.equal(page.total, crops.length + fish.length);
     assert.equal(page.discovered, 0);
     assert.equal(page.complete, false);
@@ -25,6 +28,7 @@ test("season pages list every eligible crop and fish; winter is fish-only", () =
       new Set([...crops, ...fish].map((d) => d.name)),
     );
   }
+
   const winter = journal.page("winter");
   assert.equal(winter.total, 5);
   assert.ok(winter.entries.every((e) => e.item.kind === "fish"));
@@ -44,9 +48,11 @@ test("only an accepted, in-season quantity records a discovery", () => {
   const leftover = inv.add({ crop: "potato", kind: "produce" }, 5);
   assert.equal(leftover, 3);
   assert.equal(journal.recordHarvest("potato", "spring", 5 - leftover)?.name, "Potato");
+
   for (const qty of [-1, 0, 0.5, Number.NaN, Infinity, Number.MAX_SAFE_INTEGER + 1]) {
     assert.equal(journal.recordCatch("carp", "spring", qty), null);
   }
+
   assert.equal(journal.recordHarvest("potato", "winter", 1), null);
   assert.equal(journal.recordCatch("trout", "winter", 1), null);
   assert.equal(journal.page("spring").discovered, 1);
@@ -55,6 +61,7 @@ test("only an accepted, in-season quantity records a discovery", () => {
 test("each entry and each season completion fires once, across years", () => {
   const journal = Collections.empty();
   let completions = 0;
+
   for (const entry of journal.page("winter").entries) {
     assert.equal(entry.item.kind, "fish");
     const discovery = journal.recordCatch(entry.item.fish, "winter", 1);
@@ -62,6 +69,7 @@ test("each entry and each season completion fires once, across years", () => {
     completions += Number(discovery.completedSeason);
     assert.equal(journal.recordCatch(entry.item.fish, "winter", 3), null);
   }
+
   assert.equal(completions, 1);
   assert.equal(journal.page("winter").complete, true);
   assert.equal(seasonOfDay(113), "spring");
@@ -74,7 +82,9 @@ test("fromJSON drops malformed, duplicate and out-of-season entries", () => {
   for (const raw of [undefined, null, [], "bad", { discoveries: [], v: 2 }, { v: 1 }]) {
     assert.equal(Collections.fromJSON(raw).toJSON().discoveries.length, 0);
   }
+
   const good = { item: { fish: "trout", kind: "fish" }, season: "summer" };
+
   const journal = Collections.fromJSON({
     discoveries: [
       good,
@@ -88,6 +98,7 @@ test("fromJSON drops malformed, duplicate and out-of-season entries", () => {
     ],
     v: 1,
   });
+
   assert.deepEqual(journal.toJSON().discoveries, [good]);
   assert.equal(journal.recordCatch("trout", "summer", 1), null);
   store.collections = journal;
@@ -106,10 +117,12 @@ test("save outcome reports storage failures; a v3 save without a journal still l
         if (failWrites) {
           throw new Error("full");
         }
+
         values.set(k, v);
       },
     },
   });
+
   const save: SaveData = {
     canCharge: 4,
     day: 28,
@@ -124,6 +137,7 @@ test("save outcome reports storage failures; a v3 save without a journal still l
     v: 3,
     world: { objects: [], tilled: [1, 2] },
   };
+
   assert.deepEqual(writeSave(save), { kind: "success" });
   const loaded = loadSave();
   assert.equal(loaded?.gold, 81);

@@ -14,26 +14,31 @@ export interface SizeRow {
  * Only the header is parsed, never the pixel data, so scanning a few hundred
  * sprite sheets stays effectively instant.
  */
-export const collectSizes = (root: string): SizeRow[] => {
+export const collectSizes = (root: string) => {
   const rows: SizeRow[] = [];
+
   for (const path of walkFiles(root, ".png")) {
     const size = readImageSize(path);
+
     if (!size) {
       throw new Error(`Could not read image dimensions: ${path}`);
     }
+
     rows.push({ height: size.height, path, width: size.width });
   }
+
   return rows;
 };
 
-/** CSV with the same column order the Python script wrote. */
 const escapeCsv = (value: string) =>
   /[",\r\n]/u.test(value) ? `"${value.replaceAll('"', '""')}"` : value;
 
-export const sizesToCsv = (rows: SizeRow[]): string => {
+export const sizesToCsv = (rows: SizeRow[]) => {
   const lines = ["width,height,path"];
+
   for (const row of rows) {
     lines.push(`${row.width},${row.height},${escapeCsv(row.path)}`);
   }
+
   return `${lines.join("\n")}\n`;
 };

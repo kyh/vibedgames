@@ -1,25 +1,4 @@
-// Playtest contract (see the playtest skill's references/scripted-playtest.md and
-// autonomous-playtest.md): __GAME_DIAGNOSTICS__ is read-only per-frame telemetry,
-// __GAME_TEST_HOOKS__ are the mutations a test may perform. Diagnostics are
-// always exposed, like the existing __game probe — JSON-serializable
-// primitives only. The hooks and the manifest (sys/playtest-manifest.ts) only
-// exist in dev or under `?test=1`.
-//
-// Starfall-specific hook shape:
-// - `seed(n)` reseeds the gameplay stream and restarts the run as a fresh
-//   OFFLINE solo arena. A `?seed=N` boot param (main.ts) seeds before the first
-//   roll too.
-// - `setPausedForScreenshot` is OFFLINE-ONLY: it rides the same real freeze as
-//   the wrapper pause (pausable sim clock in shared/clock.ts + loop sleep), so
-//   every stored deadline holds and nothing teleports on resume. Online it's a
-//   no-op — freezing the shared world would stall the other players.
-// - `setState('active-play')` forces the offline solo fallback immediately
-//   (instead of waiting out the 4s connect grace) and dismisses the start
-//   overlay. Online play is untouched: the hook only ever runs when a test
-//   calls it.
-
 import { isPlaytestRequested, publishDiagnostics, publishTestHooks } from "@vibedgames/playtest";
-import type { SetStateResult } from "@vibedgames/playtest";
 
 /** True when the playtest surface (hooks, manifest, rich senses) is live. */
 export const PLAYTEST_SURFACE = import.meta.env.DEV || isPlaytestRequested();
@@ -74,8 +53,6 @@ export interface Diagnostics {
     controllerId: string | null;
     contested: boolean;
   } | null;
-  // What a player reads off the screen. Filled only under PLAYTEST_SURFACE, so
-  // a real player's frame pays nothing for it.
   alive: boolean;
   /** ms until the ship respawns; 0 while alive. */
   respawnInMs: number;
@@ -132,21 +109,24 @@ export const installTestHooks = (hooks: {
   restart: (seed: number) => void;
   /** Offline-only real freeze (see header). No-op while online. */
   setPaused: (paused: boolean) => void;
-}): void => {
+}) => {
   publishDiagnostics(() => diag);
+
   if (!PLAYTEST_SURFACE) {
     return;
   }
+
   publishTestHooks({
-    seed(seed: number): void {
+    seed(seed: number) {
       hooks.restart(seed);
     },
-    setPausedForScreenshot(paused: boolean): void {
+    setPausedForScreenshot(paused: boolean) {
       hooks.setPaused(paused);
     },
-    setState(name: string): SetStateResult {
+    setState(name: string) {
       if (name === "active-play") {
         hooks.activePlay();
+
         return { state: name };
       }
     },

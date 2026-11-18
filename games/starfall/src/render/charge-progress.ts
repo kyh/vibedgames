@@ -22,30 +22,33 @@ const CHARGE_DURATION_MS: Record<Exclude<EnemyState["kind"], "dreadnought">, num
   wasp: WASP_TELEGRAPH_MS,
 };
 
-const bossChargeDuration = (phase: number): number => {
+const bossChargeDuration = (phase: number) => {
   if (phase === 2) {
     return BOSS_P2_AIM_MS;
   }
+
   if (phase === 3) {
     return BOSS_P3_TELEGRAPH_MS;
   }
+
   return BOSS_P1_TELEGRAPH_MS;
 };
 
 /** Read once per new warning deadline: the boss phase at warning start owns
  * the duration, even if HP crosses a phase threshold mid-charge. */
-export const enemyChargeDuration = (enemy: EnemyState): number => {
+export const enemyChargeDuration = (enemy: EnemyState) => {
   if (enemy.kind === "dreadnought") {
     return bossChargeDuration(bossPhase(enemy.hp, enemy.maxHp));
   }
+
   return CHARGE_DURATION_MS[enemy.kind];
 };
 
 /** 0→1 across the windup; rendering only, the host's deadline is never moved. */
-export const enemyChargeProgress = (deadline: number, now: number, duration: number): number =>
+export const enemyChargeProgress = (deadline: number, now: number, duration: number) =>
   duration > 0 ? Math.max(0, Math.min(1, 1 - (deadline - now) / duration)) : 0;
 
 /** Sniper and the boss's phase 2 aim locked lances at the warning start. */
-export const usesLockedAim = (enemy: EnemyState): boolean =>
+export const usesLockedAim = (enemy: EnemyState) =>
   enemy.kind === "sniper" ||
   (enemy.kind === "dreadnought" && bossPhase(enemy.hp, enemy.maxHp) === 2);

@@ -1,7 +1,3 @@
-// Pure presentation logic (render/* modules with no Phaser or DOM deps),
-// checked against the real sim so HUD copy and cues can never disagree with
-// what the simulation actually accepts. Run via `pnpm test`.
-
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
@@ -45,14 +41,13 @@ import { buyItem, createWorld, dashHero, spawnCreepAt, spawnHero, step } from ".
 
 const KEYS: AbilityKey[] = ["Q", "W", "E", "R"];
 
-// ---- action availability ---------------------------------------------------
-
 const fixture = (hero = "ironvow") => {
   const world = createWorld(303);
   world.now = 5000;
   const unit = spawnHero(world, hero, "radiant", "local", false, 0);
   assert.ok(unit.hero);
   unit.hero.abilities.W.rank = 1;
+
   return { unit, world };
 };
 
@@ -116,9 +111,11 @@ for (const scenario of cases) {
     const dash = actionAvailability(unit, world.now, { kind: "dash" });
     assert.equal(JSON.stringify(unit), before, "Reading availability cannot mutate the unit");
     assert.equal(ability.kind === "available", scenario.cast);
+
     if (scenario.reason) {
       assert.deepEqual(ability, { kind: "blocked", reason: scenario.reason });
     }
+
     assert.equal(dash.kind === "available", scenario.dash);
     assert.equal(castAbility(world, unit, { key: "W" }), scenario.cast);
     dashHero(world, unit, 1, 0);
@@ -210,12 +207,11 @@ test("an actual channel permits another spell and a dash that cancels it", () =>
   assert.ok(unit.hero.dashUntil > world.now);
 });
 
-// ---- HUD copy: upgrades, XP, kill feed --------------------------------------
-
 for (const definition of HEROES) {
   test(`${definition.name}: upgrade presentation agrees with the real spending rule`, () => {
     const unit = spawnHero(createWorld(202), definition.id, "radiant", "local", false, 0);
     assert.ok(unit.hero);
+
     for (const key of KEYS) {
       for (let level = 1; level <= MAX_LEVEL; level += 1) {
         for (let rank = 0; rank <= definition.abilities[key].maxRank; rank += 1) {
@@ -234,6 +230,7 @@ for (const definition of HEROES) {
             );
             assert.equal(unit.hero.abilityPoints, points - Number(accepted));
             assert.equal(unit.hero.abilities[key].rank, rank + Number(accepted));
+
             if (shown.kind === "level") {
               unit.hero.abilityPoints = 1;
               unit.hero.level = shown.level - 1;
@@ -256,8 +253,10 @@ test("all24 descriptions and rank previews come from the existing kit data", () 
   for (const definition of HEROES) {
     const unit = spawnHero(createWorld(202), definition.id, "radiant", "local", false, 0);
     assert.ok(unit.hero);
+
     for (const key of KEYS) {
       const def = definition.abilities[key];
+
       for (let rank = 0; rank <= def.maxRank; rank += 1) {
         unit.hero.abilities[key].rank = rank;
         const text = abilityExplanation(unit.hero, key);
@@ -265,6 +264,7 @@ test("all24 descriptions and rank previews come from the existing kit data", () 
         assert.equal(text.description, def.desc);
         assert.equal(text.name, `${key} · ${def.name}`);
         assert.ok(text.rank.includes(rank ? `Rank ${rank}/${def.maxRank}` : "Rank 1 preview"));
+
         if (def.targeting === "passive") {
           assert.equal(text.costs, "No cast or mana cost");
         } else {
@@ -279,6 +279,7 @@ test("all24 descriptions and rank previews come from the existing kit data", () 
 test("XP strip uses cumulative level thresholds and clamps only presentation", () => {
   const unit = spawnHero(createWorld(202), "ironvow", "radiant", "local", false, 0);
   assert.ok(unit.hero);
+
   for (let level = 1; level < MAX_LEVEL; level += 1) {
     const floor = XP_CURVE[level - 1];
     const next = XP_CURVE[level];
@@ -297,6 +298,7 @@ test("XP strip uses cumulative level thresholds and clamps only presentation", (
     unit.hero.xp = floor - 1;
     assert.equal(experienceProgress(unit.hero).fraction, 0);
   }
+
   unit.hero.level = MAX_LEVEL;
   assert.deepEqual(experienceProgress(unit.hero), { fraction: 1, text: "MAX LEVEL" });
 });
@@ -304,6 +306,7 @@ test("XP strip uses cumulative level thresholds and clamps only presentation", (
 test("actual mirrored-hero and environmental kill events identify the fallen side", () => {
   for (const team of ["radiant", "dire"] satisfies ("radiant" | "dire")[]) {
     const enemyTeam = team === "radiant" ? "dire" : "radiant";
+
     for (const environmental of [false, true]) {
       const world = createWorld(202);
       const killer = spawnHero(world, "ironvow", team, "killer", false, 0);
@@ -327,18 +330,18 @@ test("actual mirrored-hero and environmental kill events identify the fallen sid
   }
 });
 
-// ---- objective guidance ------------------------------------------------------
-
 const laneFixture = (team: Team = "radiant") => {
   const world = createWorld(482);
   const player = spawnHero(world, "ironvow", team, "local", false, 0);
   const prefix = enemyOf(team) === "radiant" ? "r" : "d";
+
   return { player, prefix, world };
 };
 
-const unit = (world: World, id: string): Unit => {
+const unit = (world: World, id: string) => {
   const found = world.units.get(id);
   assert.ok(found, id);
+
   return found;
 };
 
@@ -355,6 +358,7 @@ const destroy = (world: World, player: Unit, id: string) => {
   updateStructureGating(world);
   const event = world.fx.find((fx) => fx.t === "structureDown");
   assert.ok(event);
+
   return event;
 };
 
@@ -415,9 +419,11 @@ test("route selection is stable across snapshot order and ignores protected/neut
   player.y = ancient.y;
   assert.notEqual(objectiveGuidance(world, player)?.targetId, ancient.id);
   ancient.neutral = true;
+
   if (ancient.structure) {
     ancient.structure.attackable = true;
   }
+
   assert.notEqual(objectiveGuidance(world, player)?.targetId, ancient.id);
   assert.equal(objectiveGuidance(world), null);
   assert.equal(objectiveGuidance(world, ancient), null, "unassigned spectator is not a hero");
@@ -450,9 +456,11 @@ test("respawn tip uses real upgrade eligibility, and only suggests shopping afte
   player.hero.items = ITEMS.slice(0, MAX_ITEMS).map((item) => item.id);
   assert.match(objectiveGuidance(world, player)?.respawnTip ?? "", /Return with your creeps/u);
   const ownPrefix = player.team === "radiant" ? "r" : "d";
+
   for (const id of [`${ownPrefix}-base-1`, `${ownPrefix}-base-2`]) {
     unit(world, id).alive = false;
   }
+
   updateStructureGating(world);
   assert.match(objectiveGuidance(world, player)?.respawnTip ?? "", /Your Ancient is exposed/u);
   player.hero.respawnAt = 0;
@@ -461,11 +469,13 @@ test("respawn tip uses real upgrade eligibility, and only suggests shopping afte
 
 test("unknown/stale structure events never invent a lane or a currently exposed target", () => {
   const { world, player, prefix } = laneFixture();
+
   const unknown = structureAnnouncement(
     world,
     { t: "structureDown", team: "dire", tier: "t1", x: -1, y: -1 },
     null,
   );
+
   assert.deepEqual(unknown, {
     priority: "objective",
     text: "DIRE TOWER HAS FALLEN",
@@ -478,8 +488,6 @@ test("unknown/stale structure events never invent a lane or a currently exposed 
     /INNER TOWER EXPOSED/u,
   );
 });
-
-// ---- score -------------------------------------------------------------------
 
 test("soundscape follows local accepted combat, not idle proximity or distant lanes", () => {
   const world = createWorld(808);
@@ -513,14 +521,17 @@ test("soundscape follows local accepted combat, not idle proximity or distant la
 test("the score reads without changing simulation state or random state", () => {
   const world = createWorld(19);
   const me = spawnHero(world, "ironvow", "radiant", "me", false, 0);
+
   const before = JSON.stringify({
     ...world,
     projectiles: [...world.projectiles],
     units: [...world.units],
   });
+
   for (let i = 0; i < 100; i += 1) {
     readSoundscape(world, me.id);
   }
+
   assert.equal(
     JSON.stringify({ ...world, projectiles: [...world.projectiles], units: [...world.units] }),
     before,
@@ -531,19 +542,23 @@ test("fixed D-Dorian form, bounded recipes and sparse exploration", () => {
   const modes: ScoreMode[] = ["quiet", "skirmish", "battle", "fallen"];
   const pitches = new Set([0, 2, 4, 5, 7, 9, 11]);
   const totals = { battle: 0, fallen: 0, quiet: 0, skirmish: 0 };
+
   for (const mode of modes) {
     for (let beat = 0; beat < 64; beat += 1) {
       const recipe = scoreStep(beat, mode, true);
       assert.deepEqual(recipe, scoreStep(beat, mode, true));
       assert.ok(recipe.music.length <= 3 && recipe.ambience.length <= 2);
       totals[mode] += recipe.music.length;
+
       if (mode !== "quiet") {
         assert.equal(recipe.ambience.length, 0);
       }
+
       for (const note of [...recipe.music, ...recipe.ambience]) {
         assert.ok(note.gain > 0 && note.gain <= 0.032);
         assert.ok(note.attack > 0 && note.release > 0 && note.attack + note.release <= note.dur);
         assert.ok(note.at >= 0 && note.at <= 0.035);
+
         if (note.kind === "score-tone" && note.voice !== "drum") {
           const pitch = Math.round(69 + 12 * Math.log2(note.freq / 440));
           assert.ok(pitches.has(pitch % 12));
@@ -551,6 +566,7 @@ test("fixed D-Dorian form, bounded recipes and sparse exploration", () => {
       }
     }
   }
+
   assert.ok(
     totals.fallen < totals.quiet &&
       totals.quiet < totals.skirmish &&
@@ -562,17 +578,21 @@ test("repeated snapshots, locked sound and clock jumps never queue catch-up beat
   const clock = new ScoreClock();
   assert.equal(clock.observe({ kind: "quiet", time: 0, water: false }, false), null);
   assert.equal(clock.observe({ kind: "quiet", time: 0, water: false }, true), null);
+
   const next = clock.observe(
     { kind: "quiet", time: SCORE_STEP_SECONDS * 2 + 0.00001, water: false },
     true,
   );
+
   assert.equal(next?.step, 2);
+
   for (let i = 0; i < 100; i += 1) {
     assert.equal(
       clock.observe({ kind: "quiet", time: SCORE_STEP_SECONDS * 2 + 0.00001, water: false }, true),
       null,
     );
   }
+
   assert.equal(
     clock.observe({ kind: "quiet", time: SCORE_STEP_SECONDS * 320 + 0.00001, water: true }, true)
       ?.step,
@@ -602,8 +622,6 @@ test("combat hold relaxes through skirmish; death clears the old encounter", () 
   assert.equal(clock.mode, "quiet");
 });
 
-// ---- attack pose -------------------------------------------------------------
-
 test("attack pose follows the real wind-up, strike, recovery and repeated snapshots", () => {
   const world = createWorld(718);
   world.gameTime = 300;
@@ -616,11 +634,13 @@ test("attack pose follows the real wind-up, strike, recovery and repeated snapsh
   world.now = 2000;
   tryAttack(world, attacker, victim);
   assert.ok(attacker.pendingAttack);
+
   const cue = {
     facing: attacker.facing,
     resolveAt: attacker.pendingAttack.resolveAt,
     startedAt: attacker.lastAttackAt,
   };
+
   const { hp } = victim;
   const before = structuredClone(attacker);
   const anticipation = attackPose(cue, cue.resolveAt - 1);
@@ -642,6 +662,7 @@ test("attack pose follows the real wind-up, strike, recovery and repeated snapsh
     null,
     "recovery ends at the authored boundary",
   );
+
   for (const [key, count, contact] of [
     ["u-warrior-blue-attack", 6, 3],
     ["u-pawn-red-attack", 6, 3],
@@ -659,8 +680,6 @@ test("attack pose follows the real wind-up, strike, recovery and repeated snapsh
   }
 });
 
-// ---- spell pose + cast actor wire validation ---------------------------------
-
 test("spell pose starts at the accepted cast, holds a brace only during a live channel", () => {
   const profile = spellPose({ at: 1000, effect: "ironvow:Q", facing: 1 }, null, 1050, 1);
   assert.ok(profile && profile.x > 0 && profile.frame !== null);
@@ -676,6 +695,7 @@ test("spell pose starts at the accepted cast, holds a brace only during a live c
 
 test("malformed cast actors from older or hostile peers are stripped, valid ones kept", () => {
   const cast = { effect: "ironvow:Q", t: "cast", team: "radiant", x: 1, y: 2 };
+
   const batch = parseFxBatch([
     { ...cast, actor: { at: 1234, unitId: "h-a" } },
     { ...cast, actor: { at: 1, unitId: "" } },
@@ -684,14 +704,13 @@ test("malformed cast actors from older or hostile peers are stripped, valid ones
     cast,
     { t: "bogus" },
   ]);
+
   assert.equal(batch.length, 5);
   assert.deepEqual(
     batch.map((event) => (event.t === "cast" ? (event.actor ?? null) : event.t)),
     [{ at: 1234, unitId: "h-a" }, null, null, null, null],
   );
 });
-
-// ---- combat plates -----------------------------------------------------------
 
 test("hero plates keep the local anchor, separate crowds, and are order-stable", () => {
   const crowd: HeroPlate[] = [
@@ -700,23 +719,28 @@ test("hero plates keep the local anchor, separate crowds, and are order-stable",
     { height: 36, id: "local", priority: "player", width: 64, x: 100, y: 100 },
     { height: 36, id: "distant", priority: "hero", width: 76, x: 320, y: 100 },
   ];
+
   const before = structuredClone(crowd);
   const arranged = layoutHeroPlates(crowd);
   assert.deepEqual(crowd, before, "presentation must not mutate its source positions");
   assert.equal(arranged.find((p) => p.id === "local")?.lift, 0, "player keeps the primary anchor");
   assert.equal(arranged.find((p) => p.id === "distant")?.lift, 0, "unrelated labels stay put");
+
   for (const a of arranged) {
     for (const b of arranged) {
       if (a.id === b.id) {
         continue;
       }
+
       const overlap =
         Math.abs(a.x - b.x) < (a.width + b.width) / 2 &&
         a.y < b.y + b.height &&
         a.y + a.height > b.y;
+
       assert.equal(overlap, false, `${a.id} obscures ${b.id}`);
     }
   }
+
   assert.deepEqual(
     layoutHeroPlates(crowd.toReversed()),
     arranged,
@@ -725,13 +749,13 @@ test("hero plates keep the local anchor, separate crowds, and are order-stable",
   assert.deepEqual(layoutHeroPlates([]), [], "empty or ended stage leaves no stale labels");
 });
 
-// ---- presentation settings ---------------------------------------------------
-
 test("presentation settings parse strictly, survive denied storage, and unsubscribe", () => {
   const defaults = { effects: "full", motion: "system", view: "standard" };
+
   for (const raw of [null, "bad json", "null", "true", "12", "[]", '"focused"', "{}"]) {
     assert.deepEqual(parsePresentationSettings(raw), defaults, `unsafe stored value: ${raw}`);
   }
+
   assert.deepEqual(
     parsePresentationSettings('{"effects":"focused","motion":"reduced","view":"close"}'),
     { effects: "focused", motion: "reduced", view: "close" },
@@ -744,10 +768,11 @@ test("presentation settings parse strictly, survive denied storage, and unsubscr
     "invalid fields fall back independently",
   );
   let changes = 0;
+
   const unwatch = watchPresentationSettings(() => {
     changes += 1;
   });
-  // No window/storage in this Node process: memory and subscriptions still work.
+
   setPresentationSettings({ effects: "focused", motion: "system", view: "close" });
   assert.equal(presentationSettings().effects, "focused");
   assert.equal(changes, 1);

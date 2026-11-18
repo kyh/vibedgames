@@ -6,7 +6,6 @@ import type { NetSession } from "../net/session";
 import { NEUTRAL_INPUT } from "../sys/input";
 import type { InputState } from "../sys/input";
 
-// Per-player melee/special hit-dedup so one swing hits each enemy once.
 export interface CombatState {
   hitSwing: Set<Enemy>;
   lastSwing: number;
@@ -15,7 +14,8 @@ export interface CombatState {
   bossSwing: number;
   bossSpecial: number;
 }
-export const newCombatState = (): CombatState => ({
+
+export const newCombatState: () => CombatState = () => ({
   bossSpecial: -1,
   bossSwing: -1,
   hitSpecial: new Set(),
@@ -24,7 +24,6 @@ export const newCombatState = (): CombatState => ({
   lastSwing: -1,
 });
 
-// Versus: per-attacker swing/special dedup so one strike lands on the victim once.
 export interface DuelHits {
   swing: number;
   special: number;
@@ -34,11 +33,6 @@ export type Authority =
   | { kind: "waiting" }
   | { kind: "ready"; runId: string; term: number; revision: number };
 
-// Who is playing, from this client's point of view: the local body, the other
-// player when connected, and the session/role/seat bookkeeping that names them.
-// The local player is always `player`; combat runs per-player with its own
-// hit-dedup state. Networking undefined = solo. Host runs the authoritative sim
-// + broadcasts; guest renders the broadcast, predicting only its own body.
 export interface SeatState {
   session: NetSession | undefined;
   role: "solo" | "host" | "guest";
@@ -52,17 +46,16 @@ export interface SeatState {
   requestedHero: HeroName;
   combatStates: WeakMap<Player, CombatState>;
   duelHits: WeakMap<Player, DuelHits>;
-  // this frame's local sample (guest)
   guestIn: InputState;
   controlsPaused: boolean;
   neutralOnAdmission: boolean;
 }
 
-export const newSeatState = (
+export const newSeatState: (
   heroName: HeroName,
   mode: SeatState["mode"],
   player: Player,
-): SeatState => ({
+) => SeatState = (heroName, mode, player) => ({
   authority: { kind: "waiting" },
   combatStates: new WeakMap(),
   controlsPaused: false,
@@ -80,38 +73,43 @@ export const newSeatState = (
   session: undefined,
 });
 
-export const livePlayers = (seat: SeatState): Player[] =>
+export const livePlayers = (seat: SeatState) =>
   seat.remote ? [seat.player, seat.remote] : [seat.player];
 
 /** The host advances a guest's body once per input tick the guest sent
  * (scenes/host-net.ts), not once per host step — every other body steps here. */
-export const inputDriven = (seat: SeatState, pl: Player): boolean =>
+export const inputDriven = (seat: SeatState, pl: Player) =>
   seat.role === "host" && pl === seat.remote;
 
-export const ownerId = (seat: SeatState, pl: Player): string | null =>
+export const ownerId = (seat: SeatState, pl: Player) =>
   pl === seat.player ? (seat.session?.playerId ?? null) : seat.remoteId;
 
-export const seatPlayer = (seat: SeatState, id: string): Player | undefined => {
+export const seatPlayer = (seat: SeatState, id: string) => {
   if (id === seat.session?.playerId) {
     return seat.player;
   }
+
   return id === seat.remoteId ? seat.remote : undefined;
 };
 
-export const combatState = (seat: SeatState, pl: Player): CombatState => {
+export const combatState: (seat: SeatState, pl: Player) => CombatState = (seat, pl) => {
   let s = seat.combatStates.get(pl);
+
   if (!s) {
     s = newCombatState();
     seat.combatStates.set(pl, s);
   }
+
   return s;
 };
 
-export const duelHits = (seat: SeatState, pl: Player): DuelHits => {
+export const duelHits = (seat: SeatState, pl: Player) => {
   let s = seat.duelHits.get(pl);
+
   if (!s) {
     s = { special: 0, swing: 0 };
     seat.duelHits.set(pl, s);
   }
+
   return s;
 };

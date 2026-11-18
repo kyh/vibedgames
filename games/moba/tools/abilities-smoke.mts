@@ -1,9 +1,3 @@
-// Every hero kit casts end to end from the pure sim. Each non-passive ability at
-// rank 1 goes through castAbility against a live enemy (or a wounded ally for the
-// heal), must spend mana, start its cooldown, emit its cast cue, and — after the
-// world runs on for a moment — leave a footprint: damage, a status, a projectile,
-// a ground zone, a mine, or a blink. Run with `pnpm test`.
-
 import { SIM_DT } from "../src/data/config.ts";
 import { HEROES } from "../src/data/heroes.ts";
 import type { AbilityKey } from "../src/data/heroes.ts";
@@ -16,7 +10,8 @@ const SETTLE_S = 2.5;
 
 let pass = 0;
 let fail = 0;
-const check = (name: string, cond: boolean, extra = ""): void => {
+
+const check = (name: string, cond: boolean, extra = "") => {
   if (cond) {
     pass += 1;
     console.log(`  ok   ${name}`);
@@ -39,7 +34,7 @@ interface Footprint {
   casterY: number;
 }
 
-const footprint = (w: World, caster: Unit, enemy: Unit, ally: Unit): Footprint => ({
+const footprint = (w: World, caster: Unit, enemy: Unit, ally: Unit) => ({
   allyHp: ally.hp,
   allyStatuses: ally.statuses.length,
   casterStatuses: caster.statuses.length,
@@ -52,39 +47,49 @@ const footprint = (w: World, caster: Unit, enemy: Unit, ally: Unit): Footprint =
   projectiles: w.projectiles.size,
 });
 
-const changed = (before: Footprint, after: Footprint): string[] => {
+const changed = (before: Footprint, after: Footprint) => {
   const out: string[] = [];
+
   if (after.enemyHp < before.enemyHp) {
     out.push("enemy damaged");
   }
+
   if (after.allyHp > before.allyHp) {
     out.push("ally healed");
   }
+
   if (after.enemyStatuses > before.enemyStatuses) {
     out.push("enemy status");
   }
+
   if (after.allyStatuses > before.allyStatuses) {
     out.push("ally status");
   }
+
   if (after.casterStatuses > before.casterStatuses) {
     out.push("self status");
   }
+
   if (after.projectiles > before.projectiles) {
     out.push("projectile");
   }
+
   if (after.grounds > before.grounds) {
     out.push("ground zone");
   }
+
   if (after.mines > before.mines) {
     out.push("mine");
   }
+
   if (Math.hypot(after.casterX - before.casterX, after.casterY - before.casterY) > 20) {
     out.push("blink");
   }
+
   return out;
 };
 
-const runFor = (w: World, seconds: number): void => {
+const runFor = (w: World, seconds: number) => {
   for (let t = 0; t < seconds; t += SIM_DT) {
     step(w, SIM_DT);
   }
@@ -92,21 +97,24 @@ const runFor = (w: World, seconds: number): void => {
 
 for (const def of HEROES) {
   console.log(def.name);
+
   for (const key of KEYS) {
     const ability = def.abilities[key];
+
     if (ability.targeting === "passive") {
       continue;
     }
+
     const w = createWorld(41);
     const caster = spawnHero(w, def.id, "radiant", "c", false, 0);
     const enemy = spawnHero(w, "ironvow", "dire", "e", false, 0);
     const ally = spawnHero(w, "ironvow", "radiant", "a", false, 1);
     const { hero } = caster;
+
     if (!hero) {
       throw new Error(`${def.id} has no hero state`);
     }
-    // A wide-open stage: nothing else in reach, the enemy inside every cast
-    // range, the ally close and hurt enough for a heal to register.
+
     caster.x = 2600;
     caster.y = 1500;
     enemy.x = caster.x + 120;
@@ -114,12 +122,13 @@ for (const def of HEROES) {
     ally.x = caster.x - 80;
     ally.y = caster.y;
     ally.hp = Math.floor(ally.maxHp * 0.5);
-    // Only the cast may move the numbers: no natural regen, no auto-attacks.
+
     for (const u of [caster, enemy, ally]) {
       u.hpRegen = 0;
       u.attackRange = 0;
       u.baseDamage = 0;
     }
+
     hero.abilities[key].rank = 1;
     hero.abilities[key].readyAt = 0;
     caster.mp = caster.maxMp;
@@ -128,6 +137,7 @@ for (const def of HEROES) {
     const before = footprint(w, caster, enemy, ally);
     const mpBefore = caster.mp;
     let ok = false;
+
     if (ability.targeting === "unit") {
       const target = ability.effect === "brewkeeper:Q" ? ally : enemy;
       ok = castAbility(w, caster, { key, targetId: target.id });
@@ -136,6 +146,7 @@ for (const def of HEROES) {
     } else {
       ok = castAbility(w, caster, { key });
     }
+
     const label = `${def.id}:${key} ${ability.name}`;
     check(`${label} casts`, ok);
     check(`${label} spends mana`, caster.mp < mpBefore, `mp ${mpBefore}→${caster.mp}`);
@@ -153,6 +164,7 @@ for (const def of HEROES) {
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
+
 if (fail > 0) {
   process.exit(1);
 }

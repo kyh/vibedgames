@@ -6,7 +6,6 @@ import type { EnemyName } from "../data/animations";
 import { rollAffix } from "../data/affixes";
 import type { Affix } from "../data/affixes";
 import { biomePalette, enemyPool } from "../data/biomes";
-import type { BiomePalette } from "../data/biomes";
 import { ENEMIES } from "../data/enemies";
 import { pickRelics, RARITY_COLOR } from "../data/relics";
 import type { Relic } from "../data/relics";
@@ -36,8 +35,6 @@ const FEATURE_COLORS = new Map<RoomType, number>([
   ["treasure", 0xff_d1_5c],
 ]);
 
-// Themed animated prop per non-combat room type. ox/oy = frame-fractional origin
-// aligning the art's bottom-centre to the floor; scale shrinks the 144px canvases.
 export const ROOM_PROPS = new Map<RoomType, { key: string; ox: number; oy: number; scale: number }>(
   [
     ["start", { key: "blue-flag", ox: 0.5, oy: 0.66, scale: 0.7 }],
@@ -47,9 +44,6 @@ export const ROOM_PROPS = new Map<RoomType, { key: string; ox: number; oy: numbe
   ],
 );
 
-// Elite room: roll an affix onto an enemy — recolour it and bend its combat
-// multipliers (host-authoritative; guests render the puppet without the tint).
-// The affix parameter is only supplied by trailer staging; gameplay rolls.
 export const applyAffix = (e: Enemy, a: Affix = rollAffix()) => {
   e.body.hp = Math.round(e.body.hp * a.hpMult) + 1;
   e.body.speedMult = a.speedMult;
@@ -69,9 +63,6 @@ export interface RoomBuilderDeps {
   progress: RoomProgress;
 }
 
-// Builds and tears down one room's world: tiles, parallax, props, enemies,
-// boss, doors, features and merchant stock — from a RoomDef (host/solo) or
-// the host's wire broadcast (guest).
 export class RoomBuilder {
   private readonly scene: Scene;
   private readonly run: RunState;
@@ -95,9 +86,6 @@ export class RoomBuilder {
     this.progress = deps.progress;
   }
 
-  // The screen-pinned sky and the thin full-field atmosphere wash — over the
-  // world but under the HUD, the cheapest way to make a biome's light read on
-  // every tile and silhouette. Repainted per biome by applyBiome.
   mount() {
     this.room.sky = new PixelSky(this.scene, BASE_W, BASE_H);
     this.room.fogRect = this.scene.add
@@ -107,7 +95,6 @@ export class RoomBuilder {
       .setDepth(60);
   }
 
-  // Tear down every per-room object (host sim entities + guest puppets alike).
   teardown() {
     this.banners.clear();
     this.room.bossAnnounced = false;
@@ -116,32 +103,41 @@ export class RoomBuilder {
     this.room.guest.progressT = -1;
     this.room.guest.players = [];
     this.layer?.destroy();
+
     for (const o of this.parallax) {
       o.destroy();
     }
+
     this.parallax = [];
     this.prop?.destroy();
     this.prop = undefined;
     this.embers?.destroy();
     this.embers = undefined;
+
     for (const d of this.room.doors) {
       d.destroy();
     }
+
     for (const e of this.room.enemies) {
       e.destroy();
     }
+
     for (const a of this.room.arrows) {
       a.spr.destroy();
     }
+
     for (const s of this.room.shots) {
       s.spr.destroy();
     }
+
     for (const h of this.room.hazards) {
       h.spr.destroy();
     }
+
     for (const m of this.room.merchantItems) {
       m.g.destroy();
     }
+
     this.room.merchantItems = [];
     this.room.boss?.destroy();
     this.room.bossHp?.destroy();
@@ -159,20 +155,22 @@ export class RoomBuilder {
     this.room.feature = null;
     this.room.deadTimers = new WeakMap();
     this.seat.combatStates = new WeakMap();
+
     for (const p of this.room.guest.enemyPuppets.values()) {
       p.view.destroy();
     }
+
     this.room.guest.enemyPuppets.clear();
     this.room.guest.bossPuppet?.view.destroy();
     this.room.guest.bossPuppet = undefined;
+
     for (const p of this.room.guest.proj.values()) {
       p.spr.destroy();
     }
+
     this.room.guest.proj.clear();
   }
 
-  // Bind the camera to the current room's pixel extent and follow the local
-  // player, so bigger-than-screen rooms scroll. Called after every room (re)build.
   setupCamera() {
     const cam = this.scene.cameras.main;
     cam.setBounds(0, 0, this.room.grid.cols * TILE, this.room.grid.rows * TILE);
@@ -180,13 +178,11 @@ export class RoomBuilder {
     cam.setDeadzone(36, 28);
   }
 
-  // Repaint the screen-pinned sky + atmosphere wash for a biome and return its
-  // palette for the room/parallax build. Called on every room build, so
-  // descending into a new biome recolours the whole world.
-  applyBiome(biome: number): BiomePalette {
+  applyBiome(biome: number) {
     const pal = biomePalette(biome);
     this.room.sky?.setPalette(pal);
     this.room.fogRect?.setFillStyle(pal.fog, pal.fogA);
+
     return pal;
   }
 
@@ -194,8 +190,10 @@ export class RoomBuilder {
     this.teardown();
     this.room.grid = def.grid;
     const pal = this.applyBiome(this.expedition.biome);
+
     const enteredBiome =
       this.run.flashedBiome !== 0 && this.expedition.biome !== this.run.flashedBiome;
+
     this.run.flashedBiome = this.expedition.biome;
     this.parallax = buildParallax(this.scene, def.grid.cols * TILE, def.grid.rows * TILE, pal);
     this.layer = drawRoom(this.scene, def.grid, pal).setDepth(0);
@@ -220,22 +218,25 @@ export class RoomBuilder {
     }
 
     this.run.offers = this.expedition.offers();
+
     for (const [i, slot] of def.doorSlots.entries()) {
       const offer = this.run.offers[i];
+
       if (!offer) {
         continue;
       }
+
       const d = new Door(this.scene, slot.x, slot.y, offer.type, i);
       d.setActive(this.run.cleared);
       this.room.doors.push(d);
     }
 
     this.room.seq += 1;
+
     if (this.seat.role === "host") {
       this.room.dirty = true;
     }
-    // Boss rooms announce the boss by name in spawnBoss; don't overwrite it here.
-    // Descending into a new biome announces the biome instead of the room label.
+
     if (this.expedition.type !== "boss") {
       if (enteredBiome) {
         this.banners.show(`▼  ${pal.name}  ▼`, 1600, "status");
@@ -251,8 +252,6 @@ export class RoomBuilder {
     }
   }
 
-  // Versus (host): build the mirrored duel arena — no doors, enemies, features,
-  // or run progression; both spawn points are kept for the per-round resets.
   buildVersus() {
     this.teardown();
     const def = VERSUS();
@@ -275,37 +274,41 @@ export class RoomBuilder {
     this.run.mustClear = false;
     this.run.cleared = true;
     this.room.seq += 1;
+
     if (this.seat.role === "host") {
       this.room.dirty = true;
     }
+
     this.banners.show("VERSUS — WAITING FOR A CHALLENGER", 2600, "critical");
   }
 
-  // Weighted-random enemy type, rolled per spawn so encounters vary run to run
-  // (was a fixed roster → identical fights). Warriors dominate early; ranged and
-  // heavy types get commoner in deeper biomes and elite rooms. Host-authoritative:
-  // guests replicate whatever the host rolled via the enemy name on the wire.
-  private pickEnemy(): EnemyName {
+  private pickEnemy() {
     const pool = enemyPool(this.expedition.biome, this.expedition.type === "elite");
     const total = pool.reduce((s, p) => s + p[1], 0);
     let r = rand() * total;
+
     for (const [name, w] of pool) {
       r -= w;
+
       if (r <= 0) {
-        return name;
+        return name satisfies EnemyName;
       }
     }
-    return "warrior";
+
+    return "warrior" satisfies EnemyName;
   }
 
   private spawnEnemies(def: RoomDef) {
     const elite = this.expedition.type === "elite";
+
     for (const s of def.enemySpawns) {
       const e = new Enemy(this.scene, this.room.grid, ENEMIES[this.pickEnemy()], s.x, s.y);
       e.body.hp += Math.floor((this.expedition.biome - 1) / 2);
+
       if (elite) {
         applyAffix(e);
       }
+
       this.room.enemies.push(e);
     }
   }
@@ -318,9 +321,7 @@ export class RoomBuilder {
     this.progress.announceBoss(this.expedition.biome);
   }
 
-  // The boss actor plus its screen-pinned HP bar — for a fresh spawn, a guest
-  // puppet, or a checkpoint restore alike.
-  bossView(x: number, y: number, biome: number): Boss {
+  bossView(x: number, y: number, biome: number) {
     const boss = new Boss(this.scene, this.room.grid, x, y, biome);
     const barCol = biomePalette(biome).oneway;
     this.room.bossHpBg = this.scene.add
@@ -333,6 +334,7 @@ export class RoomBuilder {
       .setOrigin(0, 0.5)
       .setScrollFactor(0)
       .setDepth(86);
+
     return boss;
   }
 
@@ -343,6 +345,7 @@ export class RoomBuilder {
     const glow = this.scene.add.ellipse(0, -10, 26, 30, color, 0.2);
     const base = this.scene.add.rectangle(0, 0, 16, 6, COLORS.stoneEdge).setOrigin(0.5, 1);
     const orb = this.scene.add.circle(0, -14, 5, color, 0.95);
+
     const tag = this.scene.add
       .text(0, -26, ROOM_LABEL[type], {
         color: "#f4f7fb",
@@ -350,6 +353,7 @@ export class RoomBuilder {
         fontSize: "7px",
       })
       .setOrigin(0.5, 1);
+
     g.add([glow, base, orb, tag]);
     this.scene.tweens.add({
       duration: 900,
@@ -371,13 +375,13 @@ export class RoomBuilder {
     this.room.feature = { g, used: false, x, y };
   }
 
-  // A themed animated prop dresses each non-combat room (fountain / campfire /
-  // column fire / flag), placed to the side on the floor, behind the entities.
   private decorate(def: RoomDef) {
     const cfg = ROOM_PROPS.get(this.expedition.type);
+
     if (!cfg) {
       return;
     }
+
     this.prop = this.scene.add
       .sprite(BASE_W * 0.17, def.playerSpawn.y, `prop:${cfg.key}`)
       .setOrigin(cfg.ox, cfg.oy)
@@ -389,6 +393,7 @@ export class RoomBuilder {
   private buildMerchant() {
     const offers = pickRelics(3, this.run.ownedRelics);
     const y = (this.room.grid.rows - 3 + 1) * TILE;
+
     for (const [i, relic] of offers.entries()) {
       this.buildMerchantItem(relic, (0.3 + i * 0.2) * BASE_W, y, false);
     }
@@ -402,12 +407,15 @@ export class RoomBuilder {
     const glow = this.scene.add.ellipse(0, -12, 24, 30, col, 0.2);
     const base = this.scene.add.rectangle(0, 0, 16, 6, COLORS.stoneEdge).setOrigin(0.5, 1);
     const orb = this.scene.add.circle(0, -16, 5, col, 0.95);
+
     const name = this.scene.add
       .text(0, -40, relic.name, { color: hex, fontFamily: "monospace", fontSize: "7px" })
       .setOrigin(0.5);
+
     const desc = this.scene.add
       .text(0, -32, relic.desc, { color: "#8b95a1", fontFamily: "monospace", fontSize: "6px" })
       .setOrigin(0.5);
+
     const price = this.scene.add
       .text(0, -25, `⬡ ${relic.price}`, {
         color: "#ffd15c",
@@ -415,6 +423,7 @@ export class RoomBuilder {
         fontSize: "7px",
       })
       .setOrigin(0.5);
+
     g.add([glow, base, orb, name, desc, price]);
     this.scene.tweens.add({
       duration: 900,
@@ -428,29 +437,28 @@ export class RoomBuilder {
     this.room.merchantItems.push({ bought, g, relic, x, y });
   }
 
-  // Guest: rebuild the room view from the host's broadcast (no RunManager).
   buildFromNet(room: NetRoom, biome: number) {
     this.teardown();
     const g = new Grid(room.cols, room.rows);
     g.cells.set(room.cells);
     this.room.grid = g;
     const vs = room.mode === "vs";
-    // the host's room broadcast is authoritative
+
     if (vs) {
       this.seat.mode = "versus";
     }
+
     const pal = this.applyBiome(vs ? VS_BIOME : biome);
     this.parallax = buildParallax(this.scene, g.cols * TILE, g.rows * TILE, pal);
     this.layer = drawRoom(this.scene, g, pal).setDepth(0);
     const type = parseRoomType(room.type) ?? "combat";
+
     if (room.propKey) {
       this.placeProp(type, room.propKey, room.spawnY);
     }
+
     this.embers = ambientEmbers(this.scene, pal.oneway, g.cols * TILE, g.rows * TILE);
     this.room.roomSpawn = { x: room.spawnX, y: room.spawnY };
-    // Versus: the right-hand duelist spawns mirrored. A player the host has
-    // not seated yet takes the first free seat — the left one only if empty —
-    // exactly where the host is about to spawn its copy.
     const me = this.seat.session?.playerId;
     const { seats } = this.seat;
     const ownRight = vs && (seats.guest === me || (seats.host !== me && seats.host !== null));
@@ -465,11 +473,13 @@ export class RoomBuilder {
       room.spawnY,
     );
     this.setupCamera();
+
     for (const nd of room.doors) {
       const d = new Door(this.scene, nd.x, nd.y, parseRoomType(nd.type) ?? "combat", nd.index);
       d.setActive(false);
       this.room.doors.push(d);
     }
+
     this.run.mustClear = room.mustClear;
     this.run.cleared = !room.mustClear;
     this.room.seq = room.seq;

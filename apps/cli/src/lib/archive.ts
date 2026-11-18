@@ -18,11 +18,6 @@ import { create as tarCreate, extract as tarExtract } from "tar";
 import { isJsonObject, isJsonString } from "./types.js";
 import type { JsonValue } from "./types.js";
 
-/**
- * Patterns ALWAYS excluded from a source archive, regardless of .gitignore —
- * build output, VCS internals, and (critically) secrets. Source upload is a
- * publish: anything left in the folder becomes forkable by anyone.
- */
 const HARD_EXCLUDES = [
   "node_modules",
   ".git",
@@ -36,7 +31,7 @@ const HARD_EXCLUDES = [
   "coverage",
   ".DS_Store",
   "*.log",
-  // secrets — never ship these
+  // WARNING: secrets below must never ship in an archive.
   ".env",
   ".env.*",
   "*.pem",
@@ -49,7 +44,6 @@ const HARD_EXCLUDES = [
   "id_ed25519",
   ".npmrc",
   ".git-credentials",
-  // archives (avoid bundling our own output)
   "*.tgz",
   "*.tar.gz",
 ];
@@ -63,173 +57,190 @@ export interface SourceArchive {
   files: string[];
 }
 
-/**
- * Build the exclusion predicate. HARD_EXCLUDES live in their OWN matcher,
- * checked independently of the user's .gitignore/.vibedgamesignore — so a
- * negation like `!.env` in a user ignore file can NOT un-exclude a secret.
- * A path is excluded if EITHER matcher says so.
- */
-const buildIgnorer = (root: string): ((rel: string) => boolean) => {
+const buildIgnorer: (root: string) => (rel: string) => boolean = (root) => {
   const hard = ignore().add(HARD_EXCLUDES);
   const user = ignore();
+
   for (const name of [".gitignore", ".vibedgamesignore"]) {
     const p = path.join(root, name);
+
     if (existsSync(p)) {
       user.add(readFileSync(p, "utf-8"));
     }
   }
+
   return (rel) => hard.ignores(rel) || user.ignores(rel);
 };
 
-/** Walk `root`, returning posix relative paths of files not ignored. Ignored
- *  directories are pruned (not descended into) for speed. */
-const collectFiles = (root: string, ignored: (rel: string) => boolean): string[] => {
+const collectFiles = (root: string, ignored: (rel: string) => boolean) => {
   const out: string[] = [];
-  const walk = (dir: string): void => {
+
+  const walk = (dir: string) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       const abs = path.join(dir, entry.name);
       const rel = path.relative(root, abs).split(path.sep).join("/");
+
       if (!rel) {
         continue;
       }
-      // `ignore` matches dirs via a trailing slash; test both forms.
+
       if (entry.isDirectory()) {
         if (ignored(`${rel}/`) || ignored(rel)) {
           continue;
         }
+
         walk(abs);
       } else if (entry.isFile()) {
         if (ignored(rel)) {
           continue;
         }
+
         out.push(rel);
       }
     }
   };
+
   walk(root);
+
   return out.toSorted();
 };
 
-/** Version of an installed dependency, searching node_modules up the tree. */
-const installedVersion = (root: string, name: string): string | null => {
+const installedVersion = (root: string, name: string) => {
   let dir = root;
+
   while (true) {
     const p = path.join(dir, "node_modules", name, "package.json");
+
     if (existsSync(p)) {
       try {
         const pkg: JsonValue = JSON.parse(readFileSync(p, "utf-8"));
         const v = isJsonObject(pkg) ? pkg.version : undefined;
+
         if (isJsonString(v)) {
           return v;
         }
-      } catch {
-        /* fall through to parent */
-      }
+      } catch {}
     }
+
     const parent = path.dirname(dir);
+
     if (parent === dir) {
       return null;
     }
+
     dir = parent;
   }
 };
-const resolveSpec = (root: string, name: string, spec: string): string | null => {
+
+const resolveSpec = (root: string, name: string, spec: string) => {
   if (spec.startsWith("workspace:")) {
     const range = spec.slice("workspace:".length);
-    // Explicit range (e.g. workspace:^1.2.3) — keep the literal range.
+
     if (/\d/u.test(range)) {
       return range;
     }
+
     const v = installedVersion(root, name);
+
     if (!v) {
       return null;
     }
+
     if (range === "~") {
       return `~${v}`;
     }
+
     if (range === "*") {
       return v;
-      // exact pin
     }
-    // "" or "^"
+
     return `^${v}`;
   }
-  // catalog: / catalog:<name> — resolve to the installed version, caret-pinned.
+
   const v = installedVersion(root, name);
+
   return v ? `^${v}` : null;
 };
+
 const DEP_FIELDS = ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"];
 
-/**
- * Rewrite `workspace:` / `catalog:` dep specs in package.json to the concrete
- * versions currently installed in node_modules — mirroring what `pnpm publish`
- * does — so the forked project installs from npm. Returns the rewritten JSON
- * string, or null if there's nothing to change (the common standalone case).
- */
-const rewriteWorkspaceProtocols = (root: string): string | null => {
+const rewriteWorkspaceProtocols = (root: string) => {
   let pkg: JsonValue;
+
   try {
     pkg = JSON.parse(readFileSync(path.join(root, "package.json"), "utf-8"));
   } catch {
     return null;
   }
+
   if (!isJsonObject(pkg)) {
     return null;
   }
+
   let changed = false;
+
   for (const field of DEP_FIELDS) {
     const deps = pkg[field];
+
     if (!isJsonObject(deps)) {
       continue;
     }
+
     for (const [name, spec] of Object.entries(deps)) {
       if (!isJsonString(spec)) {
         continue;
       }
+
       if (!spec.startsWith("workspace:") && !spec.startsWith("catalog:")) {
         continue;
       }
+
       const resolved = resolveSpec(root, name, spec);
+
       if (resolved && resolved !== spec) {
         deps[name] = resolved;
         changed = true;
       }
     }
   }
+
   return changed ? `${JSON.stringify(pkg, null, 2)}\n` : null;
 };
+
 /**
  * Create a gzipped tar of `root`'s source (respecting .gitignore +
  * HARD_EXCLUDES) at a temp path. Returns the archive path, its sha256, byte
  * size, and the list of included files.
  */
-export const packSource = async (root: string, tmpDir: string): Promise<SourceArchive> => {
+export const packSource = async (root: string, tmpDir: string) => {
   const ignored = buildIgnorer(root);
   const files = collectFiles(root, ignored);
+
   if (files.length === 0) {
     throw new Error("No source files to archive (everything was ignored?).");
   }
+
   mkdirSync(tmpDir, { recursive: true });
 
-  // If package.json uses pnpm-only protocols (workspace:/catalog:), a forked
-  // copy wouldn't `npm install` standalone. Rewrite them to concrete installed
-  // versions in the ARCHIVED package.json only (disk untouched) by staging the
-  // file list into a temp dir. No protocols → no staging (fast path).
   const rewritten = files.includes("package.json") ? rewriteWorkspaceProtocols(root) : null;
   let cwd = root;
   let stage: string | null = null;
+
   if (rewritten) {
     stage = mkdtempSync(path.join(tmpDir, "stage-"));
+
     for (const f of files) {
       const dest = path.join(stage, f);
       mkdirSync(path.dirname(dest), { recursive: true });
       copyFileSync(path.join(root, f), dest);
     }
+
     writeFileSync(path.join(stage, "package.json"), rewritten);
     cwd = stage;
   }
 
   const tarball = path.join(tmpDir, `vg-source-${process.pid}-${files.length}.tgz`);
+
   try {
     await tarCreate({ cwd, file: tarball, gzip: true, portable: true }, files);
   } finally {
@@ -239,6 +250,7 @@ export const packSource = async (root: string, tmpDir: string): Promise<SourceAr
   }
 
   const buf = readFileSync(tarball);
+
   return {
     bytes: statSync(tarball).size,
     files,
@@ -251,20 +263,17 @@ export const packSource = async (root: string, tmpDir: string): Promise<SourceAr
  * A deploy bundle: the build's files as a gzipped tar at a temp path, rooted
  * at `dir` so `index.html` sits at the top, as `deploy.upload` unpacks it.
  */
-export const packBuild = async (
-  dir: string,
-  files: string[],
-  tmpDir: string,
-): Promise<{ bytes: number; path: string }> => {
+export const packBuild = async (dir: string, files: string[], tmpDir: string) => {
   mkdirSync(tmpDir, { recursive: true });
   const tarball = path.join(tmpDir, `vg-build-${process.pid}-${files.length}.tgz`);
   await tarCreate({ cwd: dir, file: tarball, gzip: true, portable: true }, files);
+
   return { bytes: statSync(tarball).size, path: tarball };
 };
 
 /** Extract a gzipped tar into `destDir` (created if needed). tar strips
  *  leading slashes and rejects `..` paths, so extraction stays inside dest. */
-export const extractSource = async (archivePath: string, destDir: string): Promise<void> => {
+export const extractSource = async (archivePath: string, destDir: string) => {
   mkdirSync(destDir, { recursive: true });
   await tarExtract({ cwd: destDir, file: archivePath });
 };

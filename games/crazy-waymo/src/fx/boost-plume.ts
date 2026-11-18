@@ -2,27 +2,14 @@ import * as THREE from "three";
 
 import { REINHARD_CLIP } from "./reinhard";
 
-// Boost flame as a MESH, not particles: two crossed ribbons per exhaust that
-// pivot about the exhaust axis in the vertex shader (billboard clouds lose the
-// axis under a chase cam; a rigid oriented tongue never does). The fragment
-// ramp is the kart-racer 3-stop flame: the hot end is a COLOR (#ff9d2e), white
-// is confined to a blue-white root kiss on <=7.5% of the tongue.
-
-// Flame ramp (kart-racer art bible). FLAME_MID deliberately equals the tier-2
-// orange so a sustained burn and the tier ladder share one orange.
 export const FLAME_EMBER = "#c4331a";
 export const FLAME_MID = "#ff9d2e";
 export const FLAME_ROOT = "#dcefff";
 export const FLAME_HOT = "#fff2d4";
 
-// Cone clamp: the AXIS (not the length) is what keeps the flame behind the
-// car — 18 degree half-angle about straight-back.
 export const PLUME_CONE_COS = Math.cos((18 * Math.PI) / 180);
 const PLUME_CONE_SIN = Math.sin((18 * Math.PI) / 180);
 
-// Size / radiance knobs (hand-tune pass: all screen reads live here).
-// Spine composites ~3.4 pre-shoulder at full burn — clears the ~1.6 day bloom
-// gate through the 0.13 max-channel shoulder with margin.
 const PLUME_LEN_BASE = 1.7;
 const PLUME_LEN_BURN = 0.8;
 const PLUME_RAD_BASE = 0.3;
@@ -32,20 +19,13 @@ const PLUME_INT_BURN = 0.8;
 const PLUME_IGNITE_LEN = 0.3;
 const PLUME_IGNITE_RAD = 0.18;
 const PLUME_IGNITE_INT = 0.55;
-// 1/s — onset spike over plateau
 const PLUME_IGNITE_DECAY = 2.9;
 const PLUME_ALPHA = 0.88;
-// Screen-space budget as fractions of frame height, evaluated per frame in
-// the VS from the true view depth — waymo's chase cam sits closer than the
-// reference rig, so the clamp self-derives instead of hardcoding a distance.
 const PLUME_W_BUDGET = 0.16;
 const PLUME_L_BUDGET = 0.36;
-// Camera-alignment response: shorten and widen as the axis turns to face the
-// eye (the head-on afterburner read).
 const PLUME_SHORTEN = 0.26;
 const PLUME_WIDEN = 0.7;
 const PLUME_SEGS = 11;
-// 1/s ease toward the drive target
 const PLUME_BURN_ATTACK = 12;
 const PLUME_BURN_RELEASE = 8;
 
@@ -58,24 +38,30 @@ export const clampAxisToCone = (
   by: number,
   bz: number,
   out: { x: number; y: number; z: number },
-): void => {
+) => {
   const d = ax * bx + ay * by + az * bz;
+
   if (d >= PLUME_CONE_COS) {
     out.x = ax;
     out.y = ay;
     out.z = az;
+
     return;
   }
+
   let px = ax - bx * d;
   let py = ay - by * d;
   let pz = az - bz * d;
   const pl = Math.hypot(px, py, pz);
+
   if (pl < 1e-6) {
     out.x = bx;
     out.y = by;
     out.z = bz;
+
     return;
   }
+
   px /= pl;
   py /= pl;
   pz /= pl;
@@ -84,8 +70,7 @@ export const clampAxisToCone = (
   out.z = bz * PLUME_CONE_COS + pz * PLUME_CONE_SIN;
 };
 
-// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-const PLUME_VERT = /* glsl */ `
+const PLUME_VERT = `
   attribute vec3 aMeta; // x: exhaust stack (0|1), y: roll (0 tongue | 1 fin), z: seed
   uniform float uTime;
   uniform vec3 uOriginL;
@@ -142,10 +127,7 @@ const PLUME_VERT = /* glsl */ `
   }
 `;
 
-// Coverage-driven knee: overlapping tongues saturate toward orange instead of
-// paper — the knee widens with alpha so dense coverage compresses harder.
-// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-const PLUME_FRAG = /* glsl */ `
+const PLUME_FRAG = `
   uniform float uIntensity;
   uniform float uGain;
   uniform vec3 uTint;
@@ -195,7 +177,6 @@ export class BoostPlume {
   private igniteT = 0;
 
   constructor(gain: THREE.IUniform<number>) {
-    // 2 exhaust stacks x (tongue + fin)
     const ribs = 4;
     const rows = PLUME_SEGS + 1;
     const verts = ribs * rows * 2;
@@ -204,12 +185,15 @@ export class BoostPlume {
     const index = new Uint16Array(ribs * PLUME_SEGS * 6);
     const seeds = [0.13, 0.61, 0.37, 0.89];
     let ii = 0;
+
     for (let r = 0; r < ribs; r += 1) {
       const stack = Math.trunc(r / 2);
       const roll = r % 2;
       const seed = seeds[r] ?? 0.5;
+
       for (let i = 0; i < rows; i += 1) {
         const u = i / PLUME_SEGS;
+
         for (let sIdx = 0; sIdx < 2; sIdx += 1) {
           const v = (r * rows + i) * 2 + sIdx;
           pos[v * 3] = u;
@@ -218,6 +202,7 @@ export class BoostPlume {
           meta[v * 3 + 1] = roll;
           meta[v * 3 + 2] = seed;
         }
+
         if (i > 0) {
           const a = (r * rows + i - 1) * 2;
           const b = (r * rows + i) * 2;
@@ -236,11 +221,13 @@ export class BoostPlume {
         }
       }
     }
+
     const geo = new THREE.BufferGeometry();
     geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
     geo.setAttribute("aMeta", new THREE.BufferAttribute(meta, 3));
     geo.setIndex(new THREE.BufferAttribute(index, 1));
     geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e6);
+
     const mat = new THREE.ShaderMaterial({
       blending: THREE.AdditiveBlending,
       depthWrite: false,
@@ -260,6 +247,7 @@ export class BoostPlume {
       },
       vertexShader: PLUME_VERT,
     });
+
     this.mesh = new THREE.Mesh(geo, mat);
     this.mesh.frustumCulled = false;
     this.mesh.renderOrder = 4;
@@ -279,24 +267,24 @@ export class BoostPlume {
     ay: number,
     az: number,
     burnTarget: number,
-  ): void {
+  ) {
     this.uOriginL.value.set(lx, ly, lz);
     this.uOriginR.value.set(rx, ry, rz);
     this.uAxis.value.set(ax, ay, az);
     this.burnTarget = burnTarget;
   }
 
-  setTint(c: THREE.Color): void {
+  setTint(c: THREE.Color) {
     this.uTint.value.copy(c);
   }
 
   /** Ignition spike: added on top of the smoothed burn so frame 1 of a boost
    *  is visibly different from frame 20 — the eye reads onsets. */
-  ignite(strength: number): void {
+  ignite(strength: number) {
     this.igniteT = Math.max(this.igniteT, strength);
   }
 
-  update(dt: number): void {
+  update(dt: number) {
     this.uTime.value += dt;
     this.igniteT *= Math.exp(-PLUME_IGNITE_DECAY * dt);
     const rate = this.burnTarget > this.burn ? PLUME_BURN_ATTACK : PLUME_BURN_RELEASE;

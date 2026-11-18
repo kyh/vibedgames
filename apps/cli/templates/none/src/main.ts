@@ -1,10 +1,14 @@
 const host = document.querySelector("#game");
 const canvas = document.createElement("canvas");
+
 canvas.width = 800;
+
 canvas.height = 600;
+
 host?.append(canvas);
 
 const ctx = canvas.getContext("2d");
+
 if (ctx) {
   ctx.fillStyle = "#fff";
   ctx.textAlign = "center";

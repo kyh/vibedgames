@@ -1,20 +1,3 @@
-// The one control a phone player has no other way to reach.
-//
-// Pause is Escape-bound (./game), so on a coarse pointer a STANDALONE session
-// cannot be paused at all. Everything else a paused player might want — sound
-// on/off, controls, help — lives on the pause overlay itself (./pause-shell),
-// so this stays a single button that only exists while a pause would actually
-// work.
-//
-// Embedded in the wrapper page, nothing mounts: the wrapper draws its own pause
-// button over the frame, and a second one in the game's top-right corner was
-// a duplicate control that also cost every game its top-right HUD corner.
-//
-// This is a shared affordance rather than eleven bespoke HUD buttons: it is the
-// same action everywhere, it has to clear the notch and the home indicator
-// everywhere, and it has to be big enough to hit everywhere. Games theme it
-// through `className`/`css` and the CSS custom properties below.
-
 import { isCoarsePointer } from "./controls";
 import { isEmbedded, isPausable, pauseGame, watchPausable } from "./game";
 import { PAUSE_OVERLAY_Z } from "./pause-shell";
@@ -35,11 +18,8 @@ export interface TouchControls {
   destroy: () => void;
 }
 
-/** Sits under the pause overlay: pausing must cover these buttons, not fight them. */
 const TOUCH_CONTROLS_Z = PAUSE_OVERLAY_Z - 10;
 
-/** 44 CSS px is the documented minimum comfortable touch target; several of
- *  these games shipped 27–43px controls that testers repeatedly missed. */
 const HIT_SIZE = 44;
 
 const BASE_CSS = `
@@ -84,42 +64,31 @@ const BASE_CSS = `
 }
 `;
 
-const injectCss = (css: string, id: string): void => {
+const injectCss = (css: string, id: string) => {
   if (document.querySelector(`#${id}`)) {
     return;
   }
+
   const style = document.createElement("style");
   style.id = id;
   style.textContent = css;
   document.head.append(style);
 };
 
-/** Nothing is mounted on a fine pointer. */
-const noop = (): void => undefined;
+const noop = () => {};
 
-/**
- * Publish the corner this cluster occupies so a game's own top bar can lay out
- * around it: `max-width: calc(100% - 2 * var(--vg-touch-reserve))` for centred
- * bars, or a matching padding for edge-anchored ones. It only exists while the
- * cluster is mounted, so `var(--vg-touch-reserve, 0px)` is the desktop value.
- *
- * Games that ignore it are fine on a 393px phone and collide on a narrow one —
- * starfall's boss bar overlapped the cluster by 7px at 360x640, which is an
- * iPhone SE.
- */
 const RESERVE_VAR = "--vg-touch-reserve";
 
-const reserveCorner = (root: HTMLElement): void => {
-  const write = (): void => {
+const reserveCorner = (root: HTMLElement) => {
+  const write = () => {
     const { width } = root.getBoundingClientRect();
+
     if (width > 0) {
       document.documentElement.style.setProperty(RESERVE_VAR, `${Math.ceil(width)}px`);
     }
   };
 
   write();
-  // The cluster's width depends on the safe-area inset, which settles after
-  // first paint and again on rotation.
   requestAnimationFrame(write);
   window.addEventListener("resize", write);
   window.addEventListener("orientationchange", write);
@@ -132,54 +101,48 @@ const reserveCorner = (root: HTMLElement): void => {
  * covers the same action; `--vg-touch-reserve` then stays unset (0px) and the
  * game keeps its whole top edge.
  */
-export const createTouchControls = (options: TouchControlsOptions = {}): TouchControls => {
+export const createTouchControls = (options: TouchControlsOptions = {}) => {
   if (typeof document === "undefined" || !isCoarsePointer()) {
     return { destroy: noop };
   }
-  // Pause is the cluster's only button, so with it gone nothing else mounts.
+
   if (options.pause === false || isEmbedded()) {
     return { destroy: noop };
   }
 
   injectCss(BASE_CSS, "vg-touch-controls-css");
+
   if (options.css) {
     injectCss(options.css, options.styleId ?? "vg-touch-controls-game-css");
   }
 
   const root = document.createElement("div");
   root.className = `vg-touch-controls${options.className ? ` ${options.className}` : ""}`;
-  // The DOM gamepad adapter treats the whole page as its input surface; without
-  // this a tap on pause would also steer.
   root.dataset.gamepadIgnore = "";
-  // The button acts on pointerup, so no child here needs a click kept.
   sealPointerEvents(root);
 
-  const button = (label: string, glyph: string, onTap: () => void): HTMLButtonElement => {
+  const button = (label: string, glyph: string, onTap: () => void) => {
     const el = document.createElement("button");
     el.type = "button";
     el.textContent = glyph;
     el.setAttribute("aria-label", label);
     el.dataset.gamepadIgnore = "";
-    // pointerup, not click: a synthesised click after touchend can land on
-    // whatever is underneath once this element hides or the overlay swaps.
-    // preventDefault() here does not stop that click being synthesised at all
-    // (measured) — ./pointer-seal on the container does.
     el.addEventListener("pointerup", (event) => {
       event.stopPropagation();
       event.preventDefault();
       onTap();
     });
     root.append(el);
+
     return el;
   };
 
-  // `pauseGame()` no-ops until the game announces it started, so a pause button
-  // rendered on the start screen is a dead control — it looks tappable and does
-  // nothing. Show it only while it would actually work.
   const pauseEl = button("Pause", "⏸", () => pauseGame());
-  const drawPause = (): void => {
+
+  const drawPause = () => {
     pauseEl.hidden = !isPausable();
   };
+
   drawPause();
   const unwatchPausable = watchPausable(drawPause);
 

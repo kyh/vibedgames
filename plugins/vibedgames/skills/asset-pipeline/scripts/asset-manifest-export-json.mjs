@@ -1,12 +1,4 @@
 #!/usr/bin/env node
-/**
- * Export a Lua asset manifest (assets_index.lua) to a portable assets_index.json.
- *
- * Example:
- *   node asset-manifest-export-json.mjs \
- *     --manifest path/to/assets_index.lua \
- *     --out path/to/assets_index.json
- */
 import { existsSync } from "node:fs";
 
 import {
@@ -25,14 +17,18 @@ main(() => {
     booleans: ["keep-paths"],
     values: ["manifest", "out"],
   });
+
   const manifest = getString(args, "manifest");
   const out = getString(args, "out");
+
   if (!manifest) {
     failUsage("--manifest is required (path to assets_index.lua or .json)");
   }
+
   if (!out) {
     failUsage("--out is required (output JSON path)");
   }
+
   if (!existsSync(manifest)) {
     fail(`Manifest not found: ${manifest}`);
   }

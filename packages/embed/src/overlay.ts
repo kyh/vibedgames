@@ -1,10 +1,3 @@
-// Stock pause overlay — an OPTIONAL component games compose into their pause
-// handlers. The core state machine (./game) never renders anything; a game
-// that wants the standard "PAUSED — resume" look calls createPauseOverlay()
-// once and show()/hide()s it from onPause/onResume. Games with their own art
-// direction build theirs on createPauseShell (./pause-shell) instead — the
-// shell owns the shared resume behavior; this file is just the stock skin.
-
 import { controlHints } from "./controls";
 import type { ControlsManifest } from "./controls";
 import { createPauseShell } from "./pause-shell";
@@ -55,15 +48,17 @@ const BUTTON_CSS =
  * pointer events (backdrop or "back" returns to the pause screen), and except
  * Escape, which the core keydown listener already toggles.
  */
-export const createPauseOverlay = (options: PauseOverlayOptions = {}): PauseOverlay => {
+export const createPauseOverlay: (options?: PauseOverlayOptions) => PauseOverlay = (
+  options = {},
+) => {
   let helpModal: HTMLElement | null = null;
 
-  const closeHelp = (): void => {
+  const closeHelp = () => {
     helpModal?.remove();
     helpModal = null;
   };
 
-  const openHelp = (host: HTMLElement, sections: readonly HelpSection[]): void => {
+  const openHelp = (host: HTMLElement, sections: readonly HelpSection[]) => {
     if (helpModal) {
       return;
     }
@@ -74,10 +69,9 @@ export const createPauseOverlay = (options: PauseOverlayOptions = {}): PauseOver
     helpModal.style.cssText =
       "position:fixed;inset:0;display:flex;align-items:center;justify-content:center;" +
       "padding:24px;background:rgba(9,11,18,0.55);cursor:default";
-    // Clicks anywhere in the modal stay in the modal: backdrop closes it, the
-    // panel does nothing — neither may fall through to the overlay's resume.
     helpModal.addEventListener("pointerup", (event) => {
       event.stopPropagation();
+
       if (event.target === helpModal) {
         closeHelp();
       }
@@ -141,11 +135,13 @@ export const createPauseOverlay = (options: PauseOverlayOptions = {}): PauseOver
       root.append(title, hint);
 
       const controls = controlHints(options.controls ?? [], { coarse });
+
       if (controls.length > 0) {
         const list = document.createElement("div");
         list.style.cssText =
           "margin-top:14px;display:grid;grid-template-columns:auto auto;gap:7px 14px;" +
           "align-items:center;font-size:12px;max-width:min(86vw,360px)";
+
         for (const [input, action] of controls) {
           const key = document.createElement("span");
           key.textContent = input;
@@ -157,17 +153,17 @@ export const createPauseOverlay = (options: PauseOverlayOptions = {}): PauseOver
           label.style.cssText = "justify-self:start;opacity:0.8;text-align:left";
           list.append(key, label);
         }
+
         root.append(list);
       }
 
       const { help } = options;
+
       if (help && help.length > 0) {
         const helpBtn = document.createElement("button");
         helpBtn.type = "button";
         helpBtn.textContent = "how to play";
         helpBtn.style.cssText = `margin-top:16px;${BUTTON_CSS}`;
-        // The shell's interactive-child check already keeps this from
-        // resuming; stopPropagation is belt-and-braces.
         helpBtn.addEventListener("pointerup", (event) => {
           event.stopPropagation();
           openHelp(root, help);

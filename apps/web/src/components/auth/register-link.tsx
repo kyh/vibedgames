@@ -7,10 +7,6 @@ import { FadeInBlur } from "@/components/ui/fade-in-blur";
 const GITHUB_URL = "https://github.com/kyh/vibedgames";
 const X_URL = "https://x.com/kaiyuhsu";
 
-// Top-right entry point, mirroring the bottom-left Nav. Signed-out visitors
-// get Register; signed-in users get their dashboard. Session resolves
-// client-side after mount — Register is the placeholder while it loads, so
-// the link never pops in from nothing.
 export const RegisterLink = () => {
   const session = authClient.useSession();
   const signedIn = session.data !== null && !session.isPending;
@@ -36,7 +32,6 @@ export const RegisterLink = () => {
   );
 };
 
-// Bottom-right, aligned right with RegisterLink and bottom with the Nav.
 export const GitHubLink = () => (
   <FadeInBlur className="fixed right-0 bottom-0 z-10 flex items-center gap-4 px-4 py-6">
     <a

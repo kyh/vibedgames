@@ -14,7 +14,7 @@ export interface DiffResult {
   channelRms: number[];
 }
 
-export const diffImages = (baseline: Bitmap, current: Bitmap): DiffResult => {
+export const diffImages = (baseline: Bitmap, current: Bitmap) => {
   if (baseline.width !== current.width || baseline.height !== current.height) {
     throw new Error(
       `Different sizes: (${baseline.width}, ${baseline.height}) vs (${current.width}, ${current.height})`,
@@ -22,9 +22,8 @@ export const diffImages = (baseline: Bitmap, current: Bitmap): DiffResult => {
   }
 
   const out = new Bitmap(baseline.width, baseline.height);
-  // Squared error per channel, accumulated over every pixel — this is what
-  // `ImageStat.Stat(diff).rms` reports for the difference image.
   const sums = [0, 0, 0, 0];
+
   for (let i = 0; i < out.data.length; i += 1) {
     const delta = Math.abs((baseline.data[i] ?? 0) - (current.data[i] ?? 0));
     out.data[i] = delta;
@@ -35,5 +34,6 @@ export const diffImages = (baseline: Bitmap, current: Bitmap): DiffResult => {
   const pixels = baseline.width * baseline.height;
   const channelRms = sums.map((sum) => Math.sqrt(sum / pixels));
   const rms = Math.sqrt(channelRms.reduce((sum, v) => sum + v * v, 0) / channelRms.length);
+
   return { channelRms, image: out, rms };
 };

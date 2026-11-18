@@ -10,47 +10,42 @@ import type { Grid } from "../sys/grid";
 import type { InputState } from "../sys/input";
 import { DASH_DUR, PlayerBody } from "./player-body";
 
-// The Aseprite sources are authored at a flat ~10fps, which is both choppy and
-// far longer than the gameplay actions (a 0.22s swing shipped a 1.0s clip, so
-// only the first frames ever showed). Action clips are re-timed to their exact
-// gameplay duration; run is nudged snappier than the authored 10fps.
 const RUN_MS = 520;
-// greyed-out crumple while in co-op last stand
 const DOWNED_TINT = 0x7a_84_94;
 
-// A clip's gameplay-matched playback duration (ms), or undefined to keep the
-// authored timing. Swings/special/dash are re-timed to their mechanic; run is
-// nudged snappier. Shared with the ?viewer page so it previews true in-game
-// playback.
-export const clipGameMs = (hero: HeroDef, clip: string): number | undefined => {
+export const clipGameMs = (hero: HeroDef, clip: string) => {
   const { kit } = hero;
   const sw = kit.swings.find((s) => s.clip === clip);
+
   if (sw) {
     return sw.dur * 1000;
   }
+
   if (clip === kit.special.clip) {
     const sp = kit.special;
+
     return ("dur" in sp ? sp.dur : 0.3) * 1000;
   }
+
   if (clip === kit.dashClip) {
     return DASH_DUR * 1000;
   }
+
   if (clip === "run") {
     return RUN_MS;
   }
-  return undefined;
+
+  return;
 };
 
-// i-frame flicker: alternate frames at 10 Hz while invulnerable.
-const iframeAlpha = (iframes: number, dead: boolean): number => {
+const iframeAlpha = (iframes: number, dead: boolean) => {
   if (iframes <= 0 || dead) {
     return 1;
   }
+
   return Math.floor(iframes * 20) % 2 === 0 ? 0.45 : 1;
 };
 
-// The subset of body/pose fields selectClip reads — both PlayerBody and a wire
-// PlayerPose expose these names, so one method drives local render and puppets.
 interface ClipState {
   dead: boolean;
   downed: boolean;
@@ -75,8 +70,6 @@ export interface PlayerHooks {
   onHurt?: () => void;
 }
 
-// Phaser view over PlayerBody: owns the sprite, plays the hero's kit animations,
-// and turns physics events into juice.
 export class Player {
   readonly body: PlayerBody;
   readonly sprite: Phaser.GameObjects.Sprite;
@@ -119,19 +112,19 @@ export class Player {
     });
   }
 
-  get x(): number {
+  get x() {
     return this.body.x;
   }
-  get y(): number {
+  get y() {
     return this.body.y;
   }
-  get color(): number {
+  get color() {
     return this.hero.color;
   }
-  get title(): string {
+  get title() {
     return this.hero.title;
   }
-  get special(): string {
+  get special() {
     return this.hero.kit.special.kind;
   }
 
@@ -172,19 +165,12 @@ export class Player {
       scaleY: this.baseScale,
       targets: this.sprite,
     });
-    // landing squash kicks up dust
+
     if (sy < 1) {
       landPuff(this.scene, this.sprite.x, this.body.y);
     }
   }
 
-  // Play a clip — the retimed @kit variant when one exists (attack clips whose
-  // contact frame is aligned to the hitbox window; see data/clip-timing.ts),
-  // else the base authored clip scaled to its gameplay ms via timeScale. NOTE:
-  // passing `duration` to play() FREEZES Phaser anims that carry per-frame
-  // durations (as ours do from Aseprite) — it renders frame 1 only; timeScale
-  // re-times without that bug. @kit variants total their gameplay dur already,
-  // so their ratio lands at ~1.
   private playClip(clip: string, loop: boolean) {
     this.sprite.play(this.clipKey(clip), loop);
     const ms = clipGameMs(this.hero, clip);
@@ -192,48 +178,54 @@ export class Player {
     this.sprite.anims.timeScale = ms !== undefined && ms > 0 && authored > 0 ? authored / ms : 1;
   }
 
-  // The anim key a clip resolves to for this hero (kit variant preferred).
-  private clipKey(clip: string): string {
+  private clipKey(clip: string) {
     return kitClipKey(this.scene, this.hero.name, clip);
   }
 
-  // Choose + play the clip for the current sim/net state. Shared by render (local
-  // body) and applyNet (remote puppet) — both expose the same field names.
   private selectClip(s: ClipState) {
     if (s.dead || s.downed) {
-      // Versus: a slain duelist crumples and holds the final death frame until
-      // the round reset clears the flag. (Co-op deaths never set body.dead.)
-      // Last stand: play the death clip once and hold its final crumpled frame.
       if (this.sprite.anims.currentAnim?.key !== `${this.name}:death`) {
         this.playClip("death", false);
       }
+
       this.swingClip = null;
+
       return;
     }
+
     if (s.specialActive || s.attackStep > 0) {
       this.selectActionClip(s);
+
       return;
     }
+
     this.lastSwing = -1;
     this.lastSpecial = -1;
+
     if (this.swingRecovering(s)) {
       return;
     }
+
     this.swingClip = null;
     this.playClip(this.locomotionClip(s), true);
   }
 
   private selectActionClip(s: ClipState) {
     const { kit } = this.hero;
+
     if (s.specialActive) {
       if (s.specialId !== this.lastSpecial) {
         this.playClip(kit.special.clip, false);
         this.lastSpecial = s.specialId;
       }
+
       this.swingClip = null;
+
       return;
     }
+
     const clip = kit.swings[s.attackStep - 1]?.clip ?? "idle";
+
     if (s.swingId !== this.lastSwing) {
       this.playClip(clip, false);
       this.lastSwing = s.swingId;
@@ -241,10 +233,7 @@ export class Player {
     }
   }
 
-  // Hitbox window (attackStep) is shorter than the swing anim; while standing
-  // still, let the swing play its recovery frames out instead of snapping to
-  // idle mid-strike. Any movement / hit / dash cancels it (reads as responsive).
-  private swingRecovering(s: ClipState): boolean {
+  private swingRecovering(s: ClipState) {
     return (
       this.swingClip !== null &&
       this.sprite.anims.isPlaying &&
@@ -257,21 +246,22 @@ export class Player {
     );
   }
 
-  private locomotionClip(s: ClipState): string {
+  private locomotionClip(s: ClipState) {
     if (s.hurting) {
       return "hurt";
     }
+
     if (s.dashing) {
       return this.hero.kit.dashClip;
     }
+
     if (s.grounded) {
       return Math.abs(s.vx) > 12 ? "run" : "idle";
     }
+
     return s.vy < -10 ? "jump" : "fall";
   }
 
-  // `dx`/`dy` offset the sprite from the sim: a predicted body easing out the
-  // jump of an edge the host applied a round trip ago (scenes/guest-sync.ts).
   render(alpha = 1, dx = 0, dy = 0) {
     const b = this.body;
     this.selectClip(b);
@@ -281,38 +271,45 @@ export class Player {
       Math.round(interp(b.prevY, b.y, alpha) + dy),
     );
     this.dashTrail(b.dashing);
+
     if (b.downed) {
       this.sprite.setTint(DOWNED_TINT);
     } else {
       this.sprite.clearTint();
     }
+
     this.sprite.setAlpha(iframeAlpha(b.iframes, b.dead));
     this.runTrail(b);
   }
 
-  // Same scene-clock cadence for local render and remote puppet frames.
   private dashTrail(dashing: boolean) {
     if (!dashing) {
       this.lastEcho = -Infinity;
+
       return;
     }
+
     const { now } = this.scene.time;
+
     if (now - this.lastEcho < 40) {
       return;
     }
+
     this.lastEcho = now;
     afterImage(this.scene, this.sprite, this.hero.color);
   }
 
-  // Kick a smoke puff off the back foot while running on the ground.
   private runTrail(b: PlayerBody) {
     if (!b.grounded || b.dashing || b.hurting || Math.abs(b.vx) < 70) {
       return;
     }
+
     const { now } = this.scene.time;
+
     if (now - this.lastRunDust < 80) {
       return;
     }
+
     this.lastRunDust = now;
     smoke(
       this.scene,
@@ -329,9 +326,6 @@ export class Player {
     this.sprite.destroy();
   }
 
-  // Guest: draw a remote player at a pose interpolated from the host's
-  // snapshots (no local sim). The body mirrors the pose for whoever reads it
-  // (the last-stand marker, the probe).
   applyPose(p: PlayerPose) {
     const b = this.body;
     b.x = p.x;
@@ -347,11 +341,13 @@ export class Player {
     this.sprite.setFlipX(p.facing < 0);
     this.sprite.setPosition(Math.round(p.x), Math.round(p.y));
     this.dashTrail(p.dashing);
+
     if (p.downed) {
       this.sprite.setTint(DOWNED_TINT);
     } else {
       this.sprite.clearTint();
     }
+
     this.sprite.setAlpha(iframeAlpha(p.iframes, p.dead));
   }
 }

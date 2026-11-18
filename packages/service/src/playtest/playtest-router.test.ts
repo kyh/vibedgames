@@ -12,13 +12,8 @@ import { ORPCError } from "@orpc/server";
 import type { DecisionProviderConfig } from "../orpc";
 import { forwardDecision } from "./playtest-router";
 
-/**
- * `playtest.decide` is the only place the TypeSafe key is used, so what leaves
- * the server matters: exactly a System One request, with the key, to the
- * configured host, and nothing else. The provider is a stubbed `fetch`.
- */
-
 const realFetch = globalThis.fetch;
+
 afterEach(() => {
   globalThis.fetch = realFetch;
 });
@@ -28,17 +23,19 @@ interface Captured {
   init: RequestInit | undefined;
 }
 
-const stubFetch = (respond: () => Response): Captured => {
+const stubFetch = (respond: () => Response) => {
   const captured: Captured = { init: undefined, url: "" };
   globalThis.fetch = (input, init) => {
     captured.url = String(input);
     captured.init = init;
+
     return Promise.resolve(respond());
   };
+
   return captured;
 };
 
-const json = (body: JsonValue, status = 200): Response => Response.json(body, { status });
+const json = (body: JsonValue, status = 200) => Response.json(body, { status });
 
 const configured: DecisionProviderConfig = { typesafe: "sk-test" };
 
@@ -60,10 +57,12 @@ const answer = {
 
 test("forwards a System One request with the server's key and returns the answers", async () => {
   const captured = stubFetch(() => json(answer));
+
   const result = await forwardDecision(
     { typesafe: "sk-test", typesafeBaseUrl: "https://stub.example/" },
     validInput,
   );
+
   assert.deepEqual(result, answer);
   assert.equal(captured.url, "https://stub.example/v1/systemone");
   const headers = new Headers(captured.init?.headers);
@@ -83,15 +82,17 @@ test("defaults to the public host and honours an explicit model", async () => {
   assert.equal(JSON.parse(String(captured.init?.body)).model, "jev-1.13.0");
 });
 
-const codeOf = async (promise: Promise<JsonValue>): Promise<string> => {
+const codeOf = async (promise: Promise<JsonValue>) => {
   try {
     await promise;
   } catch (error) {
     if (error instanceof ORPCError) {
       return error.code;
     }
+
     throw error;
   }
+
   return "no error";
 };
 
@@ -99,8 +100,10 @@ test("refuses without a configured key, before touching the network", async () =
   let fetched = false;
   globalThis.fetch = () => {
     fetched = true;
+
     return Promise.resolve(json(answer));
   };
+
   assert.equal(await codeOf(forwardDecision({}, validInput)), "PRECONDITION_FAILED");
   assert.equal(fetched, false);
 });
@@ -110,6 +113,7 @@ test("maps provider failures to codes the CLI can act on", async () => {
     stubFetch(() => new Response("nope", { status }));
     assert.equal(await codeOf(forwardDecision(configured, validInput)), code, `HTTP ${status}`);
   };
+
   await expect(422, "BAD_REQUEST");
   await expect(429, "TOO_MANY_REQUESTS");
   await expect(529, "TOO_MANY_REQUESTS");
@@ -135,17 +139,21 @@ test("caps the state size", async () => {
 
 test("the input schema admits only well-formed typed questions", () => {
   assert.equal(decideInput.safeParse(validInput).success, true);
+
   const withQuestions = (questions: JsonValue) =>
     decideInput.safeParse({ ...validInput, questions }).success;
+
   assert.equal(withQuestions({}), false, "no questions");
   assert.equal(
     withQuestions({ q: { criteria: { only: "one" }, instructions: "?", type: "choice" } }),
     false,
     "a choice needs two options",
   );
+
   const many = Object.fromEntries(
     Array.from({ length: MAX_CHOICE_OPTIONS + 1 }, (_, i) => [`o${i}`, `option ${i}`]),
   );
+
   assert.equal(withQuestions({ q: { criteria: many, instructions: "?", type: "choice" } }), false);
   assert.equal(withQuestions({ q: { instructions: "?", type: "noul" } }), true);
   assert.equal(
@@ -153,12 +161,14 @@ test("the input schema admits only well-formed typed questions", () => {
     true,
   );
   assert.equal(withQuestions({ q: { instructions: "?", type: "essay" } }), false, "no free text");
+
   const tooMany = Object.fromEntries(
     Array.from({ length: MAX_QUESTIONS + 1 }, (_, i) => [
       `q${i}`,
       { instructions: "?", type: "noul" },
     ]),
   );
+
   assert.equal(withQuestions(tooMany), false);
   assert.equal(decideInput.safeParse({ ...validInput, model: "../other" }).success, false);
 });

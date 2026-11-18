@@ -1,7 +1,3 @@
-// Tiny zero-asset sound engine. All SFX are synthesized with the Web Audio API
-// so the game ships no audio files. Context is created lazily and resumed on the
-// first user gesture (autoplay policy).
-
 const SOUND_KEY = "farm:sound";
 const MAX_VOICES = 32;
 const ROUTINE_LIMIT = 24;
@@ -9,16 +5,20 @@ const LOCAL_LIMIT = 28;
 const MUSIC_LIMIT = 6;
 
 export type SoundPriority = "routine" | "local" | "important";
+
 type VoiceKind = SoundPriority | "music";
+
 interface Phrase {
   kind: VoiceKind;
   context: AudioContext;
 }
+
 interface Voice {
   source: AudioScheduledSourceNode;
   nodes: AudioNode[];
   phrase: Phrase;
 }
+
 interface MusicSession {
   mode: "farm" | "mine";
   step: number;
@@ -31,25 +31,21 @@ declare global {
   }
 }
 
-// localStorage throws in some embeds (sandboxed iframes, blocked cookies,
-// private modes). The game must boot and run without persistence.
-const storageGet = (key: string): string | null => {
+const storageGet = (key: string) => {
   try {
     return window.localStorage.getItem(key);
   } catch {
     return null;
   }
 };
-const storageSet = (key: string, value: string): void => {
+
+const storageSet = (key: string, value: string) => {
   try {
     window.localStorage.setItem(key, value);
-  } catch {
-    // Blocked store just loses persistence — never the sound toggle.
-  }
+  } catch {}
 };
 
-/** Music never cuts a personal cue; progression can retire lower-priority phrases. */
-const outranks = (incoming: VoiceKind, playing: VoiceKind): boolean =>
+const outranks = (incoming: VoiceKind, playing: VoiceKind) =>
   (playing === "routine" && incoming !== "routine") ||
   (playing === "local" && incoming === "important");
 
@@ -59,17 +55,16 @@ class SoundEngine {
   private paused = false;
   private readonly voices = new Set<Voice>();
   private readonly noiseBuffers = new Map<number, AudioBuffer>();
-  // Muted by default; returning players who opted into sound stay unmuted.
   private mutedValue = storageGet(SOUND_KEY) !== "1";
 
-  get muted(): boolean {
+  get muted() {
     return this.mutedValue;
   }
 
-  /** Direct assignment is transient: trailer playback never writes preferences. */
   set muted(next: boolean) {
     this.mutedValue = next;
     this.syncMaster();
+
     if (next) {
       this.cancelMusicTick();
       this.stopVoices();
@@ -78,15 +73,18 @@ class SoundEngine {
     }
   }
 
-  private ensure(): AudioContext | null {
+  private ensure() {
     if (this.ctx) {
       return this.ctx;
     }
+
     try {
       const Ctx = window.AudioContext || window.webkitAudioContext;
+
       if (!Ctx) {
         return null;
       }
+
       this.ctx = new Ctx();
       this.master = this.ctx.createGain();
       this.master.gain.value = this.muted || this.paused ? 0 : 0.5;
@@ -94,17 +92,21 @@ class SoundEngine {
     } catch {
       this.ctx = null;
     }
+
     return this.ctx;
   }
 
-  resume(): void {
+  resume() {
     if (this.paused) {
       return;
     }
+
     const c = this.ensure();
+
     if (!c) {
       return;
     }
+
     if (c.state === "suspended") {
       void this.unlock(c);
     } else {
@@ -112,16 +114,17 @@ class SoundEngine {
     }
   }
 
-  private async unlock(c: AudioContext): Promise<void> {
+  private async unlock(c: AudioContext) {
     try {
       await c.resume();
     } catch {
       return;
     }
+
     if (this.ctx !== c) {
       return;
     }
-    // A pause may have arrived while the browser was unlocking audio.
+
     if (this.paused) {
       this.suspendContext(c);
     } else {
@@ -129,16 +132,18 @@ class SoundEngine {
     }
   }
 
-  /** Local presentation only; online simulation keeps its existing policy. */
-  setPaused(paused: boolean): void {
+  setPaused(paused: boolean) {
     if (this.paused === paused) {
       return;
     }
+
     this.paused = paused;
     this.syncMaster();
+
     if (paused) {
       this.cancelMusicTick();
       this.stopVoices();
+
       if (this.ctx) {
         this.suspendContext(this.ctx);
       }
@@ -147,104 +152,117 @@ class SoundEngine {
     }
   }
 
-  private suspendContext(c: AudioContext): void {
+  private suspendContext(c: AudioContext) {
     if (c.state === "closed") {
       return;
     }
+
     void this.suspend(c);
   }
 
-  private async suspend(c: AudioContext): Promise<void> {
+  private async suspend(c: AudioContext) {
     try {
       await c.suspend();
     } catch {
       return;
     }
-    // A quick resume can precede completion of the older suspend request.
+
     if (this.ctx === c && !this.paused) {
       this.resume();
     }
   }
 
-  private syncMaster(): void {
+  private syncMaster() {
     if (!this.ctx || !this.master) {
       return;
     }
+
     this.master.gain.cancelScheduledValues(this.ctx.currentTime);
     this.master.gain.setValueAtTime(this.muted || this.paused ? 0 : 0.5, this.ctx.currentTime);
   }
 
-  /** Never queue locked-context sounds to replay on a later gesture. */
-  private admit(kind: VoiceKind, count: number): Phrase | null {
+  private admit(kind: VoiceKind, count: number) {
     const c = this.ctx;
+
     if (this.muted || this.paused || !c || c.state !== "running") {
       return null;
     }
+
     if (this.overBudget(kind, count)) {
       return null;
     }
+
     const victims = this.retirable(kind, count);
+
     if (!victims) {
       return null;
     }
+
     for (const voice of this.voices) {
       if (victims.has(voice.phrase)) {
         this.releaseVoice(voice, true);
       }
     }
+
     return { context: c, kind };
   }
 
-  private overBudget(kind: VoiceKind, count: number): boolean {
+  private overBudget(kind: VoiceKind, count: number) {
     return (
       (kind === "routine" && this.voices.size + count > ROUTINE_LIMIT) ||
       (kind === "music" && this.musicVoiceCount() + count > MUSIC_LIMIT)
     );
   }
 
-  /** Reserve the entire cue before retiring anything: the lower-priority
-   *  phrases that make room for `count` voices, or null when they can't. */
-  private retirable(kind: VoiceKind, count: number): Set<Phrase> | null {
+  private retirable(kind: VoiceKind, count: number) {
     const limit = kind === "local" ? LOCAL_LIMIT : MAX_VOICES;
     const victims = new Set<Phrase>();
     let remaining = this.voices.size;
+
     for (const voice of this.voices) {
       if (remaining + count <= limit) {
         break;
       }
+
       const { phrase } = voice;
+
       if (!outranks(kind, phrase.kind) || victims.has(phrase)) {
         continue;
       }
+
       victims.add(phrase);
+
       for (const owned of this.voices) {
         if (owned.phrase === phrase) {
           remaining -= 1;
         }
       }
     }
+
     return remaining + count > limit ? null : victims;
   }
 
-  private ownVoice(source: AudioScheduledSourceNode, nodes: AudioNode[], phrase: Phrase): void {
+  private ownVoice(source: AudioScheduledSourceNode, nodes: AudioNode[], phrase: Phrase) {
     const voice = { nodes, phrase, source };
     this.voices.add(voice);
     source.addEventListener("ended", () => this.releaseVoice(voice, false), { once: true });
   }
 
-  private releaseVoice(voice: Voice, stopped: boolean): void {
+  private releaseVoice(voice: Voice, stopped: boolean) {
     if (!this.voices.delete(voice)) {
       return;
     }
+
     if (stopped) {
       voice.source.stop();
     }
+
     for (const node of voice.nodes) {
       node.disconnect();
     }
   }
 
-  private stopVoices(kind?: VoiceKind): void {
+  private stopVoices(kind?: VoiceKind) {
     for (const voice of this.voices) {
       if (kind === undefined || voice.phrase.kind === kind) {
         this.releaseVoice(voice, true);
@@ -252,13 +270,15 @@ class SoundEngine {
     }
   }
 
-  private musicVoiceCount(): number {
+  private musicVoiceCount() {
     let count = 0;
+
     for (const voice of this.voices) {
       if (voice.phrase.kind === "music") {
         count += 1;
       }
     }
+
     return count;
   }
 
@@ -273,19 +293,23 @@ class SoundEngine {
       slideTo?: number;
       delay?: number;
     },
-  ): void {
+  ) {
     const c = phrase.context;
+
     if (!this.master) {
       return;
     }
+
     const t0 = c.currentTime + (opts.delay ?? 0);
     const osc = c.createOscillator();
     const g = c.createGain();
     osc.type = opts.type ?? "sine";
     osc.frequency.setValueAtTime(opts.freq, t0);
+
     if (opts.slideTo) {
       osc.frequency.exponentialRampToValueAtTime(opts.slideTo, t0 + opts.dur);
     }
+
     const vol = opts.vol ?? 0.3;
     g.gain.setValueAtTime(0.0001, t0);
     g.gain.exponentialRampToValueAtTime(vol, t0 + 0.008);
@@ -305,26 +329,33 @@ class SoundEngine {
       lp?: number;
       delay?: number;
     },
-  ): void {
+  ) {
     const c = phrase.context;
+
     if (!this.master) {
       return;
     }
+
     const t0 = c.currentTime + (opts.delay ?? 0);
     let buf = this.noiseBuffers.get(opts.dur);
+
     if (!buf) {
       const len = Math.floor(c.sampleRate * opts.dur);
       buf = c.createBuffer(1, len, c.sampleRate);
       const data = buf.getChannelData(0);
+
       for (let i = 0; i < len; i += 1) {
         data[i] = (Math.random() * 2 - 1) * (1 - i / len);
       }
+
       this.noiseBuffers.set(opts.dur, buf);
     }
+
     const src = c.createBufferSource();
     src.buffer = buf;
     const nodes: AudioNode[] = [src];
     let node: AudioNode = src;
+
     if (opts.hp) {
       const f = c.createBiquadFilter();
       f.type = "highpass";
@@ -333,6 +364,7 @@ class SoundEngine {
       node = f;
       nodes.push(f);
     }
+
     if (opts.lp) {
       const f = c.createBiquadFilter();
       f.type = "lowpass";
@@ -341,6 +373,7 @@ class SoundEngine {
       node = f;
       nodes.push(f);
     }
+
     const g = c.createGain();
     g.gain.value = opts.vol ?? 0.3;
     node.connect(g).connect(this.master);
@@ -349,95 +382,115 @@ class SoundEngine {
     src.start(t0);
   }
 
-  // ---- named sfx ----
-  footstep(priority: SoundPriority = "routine"): void {
+  footstep(priority: SoundPriority = "routine") {
     const phrase = this.admit(priority, 1);
+
     if (!phrase) {
       return;
     }
+
     this.noise(phrase, { dur: 0.08, hp: 600, lp: 2200, vol: 0.07 });
   }
-  dig(priority: SoundPriority = "routine"): void {
+  dig(priority: SoundPriority = "routine") {
     const phrase = this.admit(priority, 2);
+
     if (!phrase) {
       return;
     }
+
     this.noise(phrase, { dur: 0.22, hp: 200, lp: 1400, vol: 0.28 });
     this.tone(phrase, { dur: 0.12, freq: 150, slideTo: 80, type: "sine", vol: 0.12 });
   }
-  water(priority: SoundPriority = "routine"): void {
+  water(priority: SoundPriority = "routine") {
     const phrase = this.admit(priority, 1);
+
     if (!phrase) {
       return;
     }
+
     this.noise(phrase, { dur: 0.35, hp: 1200, lp: 6000, vol: 0.12 });
   }
-  chop(priority: SoundPriority = "routine"): void {
+  chop(priority: SoundPriority = "routine") {
     const phrase = this.admit(priority, 2);
+
     if (!phrase) {
       return;
     }
+
     this.tone(phrase, { dur: 0.1, freq: 240, slideTo: 90, type: "square", vol: 0.18 });
     this.noise(phrase, { dur: 0.12, hp: 300, lp: 2000, vol: 0.18 });
   }
-  mine(priority: SoundPriority = "routine"): void {
+  mine(priority: SoundPriority = "routine") {
     const phrase = this.admit(priority, 2);
+
     if (!phrase) {
       return;
     }
+
     this.tone(phrase, { dur: 0.06, freq: 520, slideTo: 200, type: "square", vol: 0.16 });
     this.noise(phrase, { dur: 0.1, hp: 1500, lp: 7000, vol: 0.2 });
   }
-  plant(priority: SoundPriority = "routine"): void {
+  plant(priority: SoundPriority = "routine") {
     const phrase = this.admit(priority, 1);
+
     if (!phrase) {
       return;
     }
+
     this.tone(phrase, { dur: 0.12, freq: 380, slideTo: 560, type: "triangle", vol: 0.16 });
   }
-  harvest(priority: SoundPriority = "important"): void {
+  harvest(priority: SoundPriority = "important") {
     const phrase = this.admit(priority, 2);
+
     if (!phrase) {
       return;
     }
+
     this.tone(phrase, { dur: 0.1, freq: 523, type: "triangle", vol: 0.18 });
     this.tone(phrase, { delay: 0.08, dur: 0.14, freq: 784, type: "triangle", vol: 0.16 });
   }
-  coins(priority: SoundPriority = "important"): void {
+  coins(priority: SoundPriority = "important") {
     const phrase = this.admit(priority, 3);
+
     if (!phrase) {
       return;
     }
+
     for (const [i, f] of [880, 1175, 1568].entries()) {
       this.tone(phrase, { delay: i * 0.06, dur: 0.12, freq: f, type: "square", vol: 0.12 });
     }
   }
-  click(priority: SoundPriority = "routine"): void {
+  click(priority: SoundPriority = "routine") {
     const phrase = this.admit(priority, 1);
+
     if (!phrase) {
       return;
     }
+
     this.tone(phrase, { dur: 0.05, freq: 660, type: "square", vol: 0.12 });
   }
-  thud(priority: SoundPriority = "routine"): void {
+  thud(priority: SoundPriority = "routine") {
     const phrase = this.admit(priority, 2);
+
     if (!phrase) {
       return;
     }
+
     this.tone(phrase, { dur: 0.2, freq: 110, slideTo: 55, type: "sine", vol: 0.22 });
     this.noise(phrase, { dur: 0.18, lp: 800, vol: 0.18 });
   }
-  wake(priority: SoundPriority = "important"): void {
+  wake(priority: SoundPriority = "important") {
     const phrase = this.admit(priority, 4);
+
     if (!phrase) {
       return;
     }
+
     for (const [i, f] of [523, 659, 784, 1047].entries()) {
       this.tone(phrase, { delay: i * 0.1, dur: 0.28, freq: f, type: "triangle", vol: 0.14 });
     }
   }
 
-  // ---- ambient music (procedural, looping) ----
   private music: MusicSession | null = null;
   private musicId: ReturnType<typeof setTimeout> | null = null;
 
@@ -446,12 +499,12 @@ class SoundEngine {
   private static MINE_MELODY = [440, 523, 659, 0, 392, 440, 0, 330];
   private static MINE_BASS = [82, 0, 0, 0, 73, 0, 0, 0];
 
-  /** A late shutdown from a previous scene cannot stop a newer music owner. */
-  startMusic(mode: "farm" | "mine"): () => void {
+  startMusic(mode: "farm" | "mine") {
     this.stopMusic();
     const session = { mode, step: 0 };
     this.music = session;
     this.syncMusic();
+
     return () => {
       if (this.music === session) {
         this.stopMusic();
@@ -459,39 +512,42 @@ class SoundEngine {
     };
   }
 
-  stopMusic(): void {
+  stopMusic() {
     this.cancelMusicTick();
     this.music = null;
     this.stopVoices("music");
   }
 
-  private cancelMusicTick(): void {
+  private cancelMusicTick() {
     if (this.musicId !== null) {
       clearTimeout(this.musicId);
     }
+
     this.musicId = null;
   }
 
-  setMuted(muted: boolean): void {
+  setMuted(muted: boolean) {
     this.muted = muted;
     storageSet(SOUND_KEY, muted ? "0" : "1");
   }
 
-  toggleMute(): boolean {
+  toggleMute() {
     this.setMuted(!this.muted);
+
     return this.muted;
   }
 
-  private syncMusic(): void {
+  private syncMusic() {
     if (this.musicId === null && this.music) {
       this.musicTick(this.music);
     }
   }
 
-  private musicTick(session: MusicSession): void {
+  private musicTick(session: MusicSession) {
     if (this.music !== session || this.muted || this.paused || this.ctx?.state !== "running") {
       return;
     }
+
     const stepDur = session.mode === "mine" ? 0.62 : 0.46;
     const mel = session.mode === "mine" ? SoundEngine.MINE_MELODY : SoundEngine.FARM_MELODY;
     const bass = session.mode === "mine" ? SoundEngine.MINE_BASS : SoundEngine.FARM_BASS;
@@ -499,19 +555,23 @@ class SoundEngine {
     const note = mel[s];
     const b = bass[s];
     const phrase = this.admit("music", Number(Boolean(note)) + Number(Boolean(b)));
+
     if (phrase) {
       if (note) {
         this.musicNote(phrase, note, session.mode === "mine" ? 0.05 : 0.06, stepDur * 1.6);
       }
+
       if (b) {
         this.musicNote(phrase, b, 0.05, stepDur * 2.2, "triangle");
       }
     }
+
     session.step += 1;
     this.musicId = setTimeout(() => {
       if (this.music !== session) {
         return;
       }
+
       this.musicId = null;
       this.musicTick(session);
     }, stepDur * 1000);
@@ -523,11 +583,13 @@ class SoundEngine {
     vol: number,
     dur: number,
     type: OscillatorType = "sine",
-  ): void {
+  ) {
     const c = phrase.context;
+
     if (!this.master) {
       return;
     }
+
     const t0 = c.currentTime;
     const osc = c.createOscillator();
     const g = c.createGain();

@@ -12,39 +12,33 @@ import { isMissingCommand, run } from "../lib/run.js";
 import type { RunResult } from "../lib/run.js";
 import { FACTORY_PACKAGE, installedFactoryVersion, updateFactory } from "./factory.js";
 import { findInstall, settleSync, syncSkills } from "../lib/skills-install.js";
-import type { InstallReport } from "../lib/skills-install.js";
 import { assertKnownFlags } from "../lib/strict-args.js";
 import { fetchLatestVersion, isNewerVersion } from "../lib/update.js";
 import { reportSkills } from "./init.js";
 
-/**
- * Re-sync the skills where they are installed: the home directory with
- * `--global`, else this project, else the home directory. Null when neither
- * holds an install — `vg init` puts one there.
- */
-const updateInstalledSkills = async (global: boolean): Promise<InstallReport | null> => {
+const updateInstalledSkills = async (global: boolean) => {
   const found = findInstall(global ? ["global"] : ["project", "global"]);
+
   return found ? await syncSkills(found.target, found.agents) : null;
 };
 
-/**
- * Silent background mode: install only what the registry has newer, and leave
- * whatever fails for the next run.
- */
 const autoUpdate = async (
   manager: PackageManager,
   global: boolean,
   factoryVersion: string | null,
-): Promise<void> => {
+) => {
   const [latest, latestFactory] = await Promise.all([
     fetchLatestVersion("vibedgames"),
     factoryVersion === null ? null : fetchLatestVersion(FACTORY_PACKAGE),
   ]);
+
   const cliNewer = latest !== null && isNewerVersion(latest, PACKAGE_VERSION);
+
   const factoryNewer =
     factoryVersion !== null &&
     latestFactory !== null &&
     isNewerVersion(latestFactory, factoryVersion);
+
   await Promise.all([
     cliNewer && run(manager, globalInstallArgs(manager)),
     cliNewer && settleSync(updateInstalledSkills(global)),
@@ -52,11 +46,13 @@ const autoUpdate = async (
   ]);
 };
 
-const reportFactory = (result: RunResult): void => {
+const reportFactory = (result: RunResult) => {
   if (result.code === 0) {
     consola.success(`${FACTORY_PACKAGE} updated to latest`);
+
     return;
   }
+
   consola.warn(
     `Couldn't update the factory (npm exit ${result.code}). Update manually: npm install -g ${FACTORY_PACKAGE}@latest`,
   );
@@ -87,16 +83,13 @@ export const updateCommand = defineCommand({
   run: async ({ args, rawArgs }) => {
     assertKnownFlags(rawArgs, updateArgs);
 
-    // Upgrade with whatever installed this CLI: another manager would write a
-    // second copy into a different global prefix, leaving the one on PATH stale.
     const manager = detectPackageManager(import.meta.filename);
 
-    // The factory releases on its own schedule, so it is checked against its
-    // own latest rather than riding along with a vg update.
     const factoryVersion = installedFactoryVersion();
 
     if (args.auto) {
       await autoUpdate(manager, args.global, factoryVersion);
+
       return;
     }
 
@@ -114,6 +107,7 @@ export const updateCommand = defineCommand({
       if (cli.output.trim() && !isMissingCommand(cli)) {
         consola.warn(cli.output.trim());
       }
+
       consola.warn(
         isMissingCommand(cli)
           ? `Couldn't find ${manager} to update the vg CLI. Update manually: ${globalInstallCommand(manager)}`

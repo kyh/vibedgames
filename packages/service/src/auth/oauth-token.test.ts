@@ -1,22 +1,16 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import type { AccessTokenCheck } from "./oauth-token";
 import { verifyAccessToken } from "./oauth-token";
-
-/**
- * Access tokens are audience-bound: one granted for `/mcp` must never drive
- * the API, and the reverse. The keys here are a fresh Ed25519 pair standing in
- * for the JWT plugin's, which signs with EdDSA by default.
- */
 
 const ISSUER = "https://vibedgames.com/api/auth";
 const MCP = "https://vibedgames.com/mcp";
 const API = "https://vibedgames.com/api";
 
-const generatePair = async (): Promise<CryptoKeyPair> => {
+const generatePair = async () => {
   const pair = await crypto.subtle.generateKey("Ed25519", true, ["sign", "verify"]);
   assert.ok("privateKey" in pair);
+
   return pair;
 };
 
@@ -45,17 +39,19 @@ const encode = (value: JwsHeader | TokenClaims) =>
 
 const sign = async (claims: TokenClaims, key: CryptoKey = keyPair.privateKey) => {
   const signingInput = `${encode({ alg: "EdDSA", kid: "key-1", typ: "at+jwt" })}.${encode(claims)}`;
+
   const signature = await crypto.subtle.sign(
     "Ed25519",
     key,
     new TextEncoder().encode(signingInput),
   );
+
   return `${signingInput}.${Buffer.from(signature).toString("base64url")}`;
 };
 
 const now = Math.floor(Date.now() / 1000);
 
-const claims = (overrides: Partial<TokenClaims> = {}): TokenClaims => ({
+const claims = (overrides: Partial<TokenClaims> = {}) => ({
   aud: [MCP, `${ISSUER}/oauth2/userinfo`],
   exp: now + 3600,
   iat: now,
@@ -65,8 +61,7 @@ const claims = (overrides: Partial<TokenClaims> = {}): TokenClaims => ({
   ...overrides,
 });
 
-// Each check gets its own key source, so no test reads another's cached key set.
-const checkFor = (resource: string): AccessTokenCheck => ({
+const checkFor = (resource: string) => ({
   getJwks: () => Promise.resolve({ keys: [{ ...publicJwk, alg: "EdDSA", kid: "key-1" }] }),
   issuer: ISSUER,
   resource,
@@ -98,7 +93,6 @@ describe("verifyAccessToken", () => {
     assert.strictEqual(await verifyAccessToken(forged, checkFor(MCP)), null);
   });
 
-  // A DPoP-bound token needs a proof of possession this API does not check.
   test("refuses a sender-constrained token", async () => {
     const bound = await sign(claims({ cnf: { jkt: "thumbprint" } }));
     assert.strictEqual(await verifyAccessToken(bound, checkFor(MCP)), null);

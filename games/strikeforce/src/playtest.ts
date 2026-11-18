@@ -1,8 +1,3 @@
-// The playtest contract: live diagnostics every playtest reads, plus (behind
-// dev or `?test=1`) test hooks and a control manifest for `vg playtest run`.
-// Positions are world metres, so the manifest sets `minDisplacement`. A
-// playtest plays alone (main.ts keeps it out of rooms), so deathmatch sits in
-// warmup: the dock and its own body.
 import {
   isPlaytestRequested,
   publishDiagnostics,
@@ -15,16 +10,16 @@ import type { StrikeforceGame } from "./core/types";
 import type { Match } from "./net/match";
 import type { Point } from "./net/rules";
 
-/** Horizontal offset from the player to something, in metres. */
 interface Offset {
   dx: number;
   dz: number;
   dist: number;
 }
 
-const offset = (from: Vector3, to: Point): Offset => {
+const offset = (from: Vector3, to: Point) => {
   const dx = to.x - from.x;
   const dz = to.z - from.z;
+
   return {
     dist: Math.round(Math.hypot(dx, dz) * 10) / 10,
     dx: Math.round(dx * 10) / 10,
@@ -32,16 +27,19 @@ const offset = (from: Vector3, to: Point): Offset => {
   };
 };
 
-const nearestOf = (from: Vector3, points: readonly Point[]): Point | null => {
+const nearestOf = (from: Vector3, points: readonly Point[]) => {
   let best: Point | null = null;
   let bestD = Infinity;
+
   for (const point of points) {
     const d = Math.hypot(point.x - from.x, point.z - from.z);
+
     if (d < bestD) {
       bestD = d;
       best = point;
     }
   }
+
   return best;
 };
 
@@ -50,31 +48,34 @@ interface Nearby {
   nearestRelay: Offset | null;
 }
 
-/** Offsets to what the player is looking for: a relay, the nearest enemy (crew or player). */
-const nearby = (game: StrikeforceGame, match: Match): Nearby => {
+const nearby = (game: StrikeforceGame, match: Match) => {
   const { pos } = game.player;
   const pve = game.game.run.mode !== "deathmatch";
   const crew = game.enemies.list.filter((e) => e.alive).map((e) => e.pos);
   const relays = game.game.run.relays.filter((r) => !r.cut).map((r) => r.o.pos);
-  const at = (p: Point | null): Offset | null => (p ? offset(pos, p) : null);
+  const at = (p: Point | null) => (p ? offset(pos, p) : null);
+
   return {
     nearestEnemy: at(nearestOf(pos, pve ? crew : match.enemies())),
     nearestRelay: at(nearestOf(pos, relays)),
   };
 };
 
-export const installPlaytest = (game: StrikeforceGame, match: Match): void => {
+export const installPlaytest = (game: StrikeforceGame, match: Match) => {
   let frame = 0;
-  const tick = (): void => {
+
+  const tick = () => {
     frame += 1;
     requestAnimationFrame(tick);
   };
+
   requestAnimationFrame(tick);
 
   publishDiagnostics(() => {
     const { player } = game;
     const m = match.state;
     const me = m?.roster.get(match.me);
+
     return {
       ...nearby(game, match),
       alive: player.alive,
@@ -100,11 +101,13 @@ export const installPlaytest = (game: StrikeforceGame, match: Match): void => {
   if (!import.meta.env.DEV && !isPlaytestRequested()) {
     return;
   }
+
   publishTestHooks({
     setState: (name) => {
       if (name === "active-play" && game.game.state === "title") {
         game.game.start({ skipIntro: true });
       }
+
       return { state: game.game.state };
     },
   });

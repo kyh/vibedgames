@@ -1,5 +1,3 @@
-// Frame-rate-independent smoothing primitives (shared by render + camera).
-
 const LEGACY_FPS = 60;
 
 /**
@@ -7,8 +5,7 @@ const LEGACY_FPS = 60;
  * smoothing factor, so motion looks the same at any frame rate.
  *   next = current + (target - current) * frameLerp(perFrame, dt)
  */
-export const frameLerp = (perFrame: number, dt: number): number =>
-  1 - (1 - perFrame) ** (dt * LEGACY_FPS);
+export const frameLerp = (perFrame: number, dt: number) => 1 - (1 - perFrame) ** (dt * LEGACY_FPS);
 
 /**
  * Critically-damped spring (Game Programming Gems 4). Eases `current` toward
@@ -28,5 +25,6 @@ export const smoothDamp = (
   const temp = (vel + omega * change) * dt;
   const newVel = (vel - omega * temp) * exp;
   const newPos = target + (change + temp) * exp;
+
   return { pos: newPos, vel: newVel };
 };

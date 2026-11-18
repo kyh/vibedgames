@@ -1,11 +1,3 @@
-// The renderer-agnostic game core. Owns the board, the active slab, the
-// 7-bag, the fixed-timestep gravity tick, and lock→clear→spawn. Player verbs
-// take raw world deltas (the camera-relative remap is applied by the input
-// layer before calling in, keeping the engine ignorant of the scene camera).
-//
-// Verifiable headlessly: drive spawn/move/rotate/hardDrop/tick and inspect
-// board + state with no Three.js present.
-
 import { Board } from "./board";
 import type { Cell, ClearResult } from "./board";
 import { Piece } from "./piece";
@@ -34,28 +26,31 @@ export interface LockEvent {
   gameOver: boolean;
 }
 
-/** Deterministic PRNG (mulberry32) so a seeded run deals the same bags. */
-const seededRandom = (seed: number): (() => number) => {
+const seededRandom = (seed: number) => {
   /* oxlint-disable no-bitwise -- mulberry32 IS its xor-shifts and uint32 wraps */
   let a = seed >>> 0;
+
   return () => {
     a = (a + 0x6d_2b_79_f5) >>> 0;
     let t = a;
     t = Math.imul(t ^ (t >>> 15), t | 1);
     t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+
     return ((t ^ (t >>> 14)) >>> 0) / 4_294_967_296;
   };
   /* oxlint-enable no-bitwise */
 };
 
-const shuffledBag = (random: () => number): number[] => {
+const shuffledBag = (random: () => number) => {
   const bag = [0, 1, 2, 3, 4, 5, 6];
+
   for (let i = bag.length - 1; i > 0; i -= 1) {
     const j = Math.floor(random() * (i + 1));
     const a = bag[i] ?? 0;
     bag[i] = bag[j] ?? 0;
     bag[j] = a;
   }
+
   return bag;
 };
 
@@ -73,26 +68,26 @@ export class Engine {
   private bag: number[] = [];
   private random: () => number = Math.random;
   private fallAccumMs = 0;
-  /** One hold per piece (standard Tetris). */
   private holdUsed = false;
 
   constructor() {
     this.nextIndex = this.drawFromBag();
   }
 
-  private drawFromBag(): number {
+  private drawFromBag() {
     if (this.bag.length === 0) {
       this.bag = shuffledBag(this.random);
     }
+
     return this.bag.pop() ?? 0;
   }
 
   /** Deal from a seeded sequence from the next reset on. */
-  seed(seed: number): void {
+  seed(seed: number) {
     this.random = seededRandom(seed);
   }
 
-  reset(): void {
+  reset() {
     this.board.reset();
     this.state.reset();
     this.cycleTimeMs = CYCLE_TIME_MS;
@@ -106,115 +101,131 @@ export class Engine {
     this.nextIndex = this.drawFromBag();
   }
 
-  startGame(): void {
+  startGame() {
     this.reset();
     this.state.status = "playing";
     this.spawnNext();
   }
 
-  /** Spawn a specific piece; false = it can't fit (top-out). */
-  private spawnSpecific(index: number): boolean {
+  private spawnSpecific(index: number) {
     const piece = new Piece(index, this.board);
+
     if (this.board.collides(piece.cells())) {
       this.active = null;
+
       return false;
     }
+
     this.active = piece;
     this.fallAccumMs = 0;
+
     return true;
   }
 
-  /** Spawn the queued piece and refill the queue from the bag. */
-  private spawnNext(): boolean {
+  private spawnNext() {
     const idx = this.nextIndex;
     this.nextIndex = this.drawFromBag();
+
     return this.spawnSpecific(idx);
   }
 
   /** Cross-arms / Hold key: swap the active piece with the held one (once per
    *  piece). Aborts if the incoming piece can't spawn. Returns whether it held. */
-  hold(): boolean {
+  hold() {
     if (this.state.status !== "playing" || !this.active || this.holdUsed) {
       return false;
     }
+
     const cur = this.active.index;
     const incoming = this.holdIndex === null ? this.nextIndex : this.holdIndex;
     const piece = new Piece(incoming, this.board);
+
     if (this.board.collides(piece.cells())) {
       return false;
     }
+
     if (this.holdIndex === null) {
       this.nextIndex = this.drawFromBag();
     }
+
     this.holdIndex = cur;
     this.active = piece;
     this.fallAccumMs = 0;
     this.holdUsed = true;
+
     return true;
   }
 
-  canPower(): boolean {
+  canPower() {
     return this.state.status === "playing" && this.charge >= 1;
   }
 
   /** Spend a full charge to clear the lowest layer. Returns cubes removed. */
-  power(): number {
+  power() {
     if (!this.canPower()) {
       return 0;
     }
+
     const removed = this.board.sweepLowestLayer();
     this.charge = 0;
+
     if (removed > 0) {
       this.state.addScore(removed * POWER_SCORE_PER_CUBE);
     }
+
     return removed;
   }
 
-  // ---- player verbs (world-space; input layer applies camera correction) ----
-
-  move(dx: number, dz: number): boolean {
+  move(dx: number, dz: number) {
     if (this.state.status !== "playing" || !this.active) {
       return false;
     }
+
     return this.active.move(this.board, dx, dz);
   }
 
-  rotate(): boolean {
+  rotate() {
     if (this.state.status !== "playing" || !this.active) {
       return false;
     }
+
     return this.active.rotate(this.board);
   }
 
-  setSoftDrop(on: boolean): void {
+  setSoftDrop(on: boolean) {
     this.softDropping = on;
   }
 
-  hardDrop(): LockEvent | null {
+  hardDrop() {
     if (this.state.status !== "playing" || !this.active) {
       return null;
     }
+
     let fallen = 0;
+
     while (this.active.fall(this.board)) {
       fallen += 1;
     }
+
     this.state.addScore(fallen * HARD_DROP_POINTS);
+
     return this.lockActive(this.active);
   }
 
-  // ---- gravity ----------------------------------------------------------------
-
   /** Advance gravity. `paused` (camera mid-swing) freezes the fall but keeps
    *  the game live. Returns a LockEvent on the frame a piece locks. */
-  tick(dtMs: number, paused: boolean): LockEvent | null {
+  tick(dtMs: number, paused: boolean) {
     if (this.state.status !== "playing" || !this.active || paused) {
       return null;
     }
+
     const interval = this.cycleTimeMs * (this.softDropping ? SOFT_DROP_FACTOR : 1);
     this.fallAccumMs += dtMs;
+
     while (this.fallAccumMs >= interval) {
       this.fallAccumMs -= interval;
       const moved = this.active.fall(this.board);
+
       if (moved) {
         if (this.softDropping) {
           this.state.addScore(SOFT_DROP_POINTS);
@@ -223,16 +234,18 @@ export class Engine {
         return this.lockActive(this.active);
       }
     }
+
     return null;
   }
 
-  private lockActive(piece: Piece): LockEvent {
+  private lockActive(piece: Piece) {
     const { colorIndex } = piece;
     const lockedCells = piece.cells();
     const layer = this.board.lock(lockedCells, colorIndex);
     const clear = this.board.clearLayer(layer);
 
     let scoreGained = 0;
+
     if (clear.lines > 0) {
       scoreGained =
         clear.cubes * 10 + (clear.xColumns > 0 && clear.zRows > 0 ? DOUBLE_CLEAR_BONUS : 0);
@@ -247,55 +260,57 @@ export class Engine {
     this.active = null;
 
     let gameOver = layer >= DEATH_HEIGHT;
+
     if (!gameOver) {
       gameOver = !this.spawnNext();
+
       if (!gameOver) {
         this.holdUsed = false;
-        // a fresh piece may be held again
       }
     }
 
     if (gameOver) {
       this.active = null;
-      // scene runs the cosmetic tumble
       this.state.status = "collapsing";
     }
+
     return { clear, colorIndex, gameOver, layer, lockedCells };
   }
 
   /** Catch-the-collapse rescue: settle the rubble, resume from a shorter
    *  stack. Returns true if it's still game over (couldn't even spawn). */
-  resumeAfterCatch(): boolean {
+  resumeAfterCatch() {
     this.board.collapseDown();
     this.fallAccumMs = 0;
     this.softDropping = false;
     this.holdUsed = false;
     this.state.status = "playing";
+
     if (!this.spawnNext()) {
       this.state.status = "gameOver";
+
       return true;
     }
+
     return false;
   }
 
-  // ---- read models for rendering ----------------------------------------------
-
   /** Whether this piece has spent its one hold; a fresh spawn re-arms it. */
-  get holdSpent(): boolean {
+  get holdSpent() {
     return this.holdUsed;
   }
 
-  activeCells(): Cell[] {
+  activeCells() {
     return this.active?.cells() ?? [];
   }
 
   /** Index of the active piece (0..6), or -1 if none. */
-  activePieceIndex(): number {
+  activePieceIndex() {
     return this.active?.index ?? -1;
   }
 
   /** Where the active slab would land — drives the drop-ghost. */
-  ghostCells(): Cell[] {
+  ghostCells() {
     return this.active?.landingCells(this.board) ?? [];
   }
 }

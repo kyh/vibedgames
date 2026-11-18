@@ -24,12 +24,15 @@ export const docHandler =
   <TNext>(doc: Doc) =>
   ({ request, next }: { request: Request; next: () => TNext }) => {
     const result = negotiate(request.headers.get("accept"));
+
     if (result.kind === "not-acceptable") {
       return notAcceptableResponse(request);
     }
+
     if (result.kind === "match" && result.type === MARKDOWN) {
       return markdownResponse(docToMarkdown(doc));
     }
+
     return next();
   };
 
@@ -49,6 +52,7 @@ export const varyHeaders =
  */
 export const canonicalUrl = (pathname: string) => {
   const path = pathname.length > 1 ? pathname.replace(/\/+$/u, "") : "";
+
   return `${siteConfig.url}${path}`;
 };
 
@@ -64,9 +68,11 @@ export const docHead = (doc: Doc) => {
   const title = doc.title.includes(siteConfig.name)
     ? doc.title
     : `${doc.title} — ${siteConfig.name}`;
+
   const canonical = canonicalUrl(doc.path);
   const image = `${siteConfig.url}${pageImage(doc.path)}`;
   const imageAlt = pageImageAlt(doc.path, title);
+
   return {
     meta: [
       { title },

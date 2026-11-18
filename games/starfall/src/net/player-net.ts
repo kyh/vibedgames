@@ -30,7 +30,6 @@ export interface PlayerNetDeps {
 
 /** My ship on the wire — a fixed-rate push of flat primitives, stamped with server time for the receivers' interpolation — and the inbound event router: other players' shots, kill credit, and host intents when I am host. */
 export class PlayerNet {
-  /** Steady send cadence: keeps the remainder, so updates leave evenly. */
   private readonly sendRate = new FixedRate(PLAYER_NET_HZ);
 
   private readonly world: SharedState;
@@ -63,26 +62,30 @@ export class PlayerNet {
     this.remoteFire = deps.remoteFire;
   }
 
-  netSend(delta: number, now: number): void {
+  netSend(delta: number, now: number) {
     if (this.sendRate.due(delta)) {
       this.pushMyState(now);
     }
   }
 
   /** My live boosters and their expiries (the DEV summary). */
-  boostsNetState(): BoostNetState[] {
+  boostsNetState() {
     const out: BoostNetState[] = [];
+
     for (const [kind, until] of this.pilot.boosts) {
       out.push({ kind, until });
     }
+
     return out;
   }
 
-  pushMyState(now: number): void {
+  pushMyState(now: number) {
     if (!this.link.myId) {
       return;
     }
+
     const { boosts } = this.pilot;
+
     const state: PlayerNetState = {
       alive: this.pilot.alive,
       angle: this.pilot.shipAngle,
@@ -91,14 +94,11 @@ export class PlayerNet {
       magnet: boosts.has("magnet"),
       nitro: boosts.has("nitro"),
       overHp: Math.max(0, Math.round(this.shield.overHp)),
-      // present tracks "in the arena": spawned covers pre-spawn AND the paused
-      // despawn (which clears spawned) in one flag.
       present: this.pilot.spawned,
       sectorScore: Math.round(this.progress.sectorScore),
       shieldHp: Math.max(0, Math.round(this.shield.shieldHp)),
       shieldMod: this.shield.shieldModNetState(now),
       streak: this.progress.streak,
-      // The interpolation stamp: server time, the clock my fire events carry.
       t: this.link.serverNow(),
       tesla: this.weapons.teslaActive(now),
       twin: boosts.has("twin"),
@@ -110,37 +110,45 @@ export class PlayerNet {
       xp: this.progress.xp,
       y: this.pilot.shipY,
     };
+
     this.link.pushMyState(playerToWire(state));
   }
 
-  handleEvent(event: string, payload: WireValue, from: string): void {
+  handleEvent(event: string, payload: WireValue, from: string) {
     if (event === "fire") {
       this.remoteFire.receive(from, payload);
+
       return;
     }
+
     if (event === "player_killed") {
-      // Only the killer is sent the victim's report; it credits itself.
       if (asWireRecord(payload)?.["killerId"] === this.link.myId) {
         this.progress.registerKill(XP.PLAYER_KILL, simNow(), "player");
       }
+
       return;
     }
+
     if (event !== "intents" || !this.sync.prepareHost()) {
       return;
     }
+
     const batch = readIntents(payload);
+
     if (!batch) {
       return;
     }
+
     for (const hit of batch.hits) {
       this.hostCombat.hostHandleHit(hit);
     }
+
     for (const id of batch.shots) {
       removeById(this.world.enemyShots, id);
     }
-    // SINGULARITY collapse: one shared pull entry; hostApplyPulls drags
-    // enemies/asteroids until it expires (pruned in hostTick).
+
     const now = simNow();
+
     for (const pull of batch.pulls) {
       this.world.pulls.push({ id: entityId(), until: now + pull.ms, x: pull.x, y: pull.y });
     }

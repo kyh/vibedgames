@@ -1,12 +1,7 @@
-// A fixed-capacity ring of billboard point sprites. Every particle lives in
-// flat typed arrays that back the geometry attributes directly, so emitting is
-// a handful of array writes and the per-frame update touches no objects. The
-// cursor wraps: once the pool is full the oldest particle is overwritten.
 import * as THREE from "three";
 import { terrainHeight } from "../world/terrain";
 
-// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-const PARTICLE_VERT = /* glsl */ `
+const PARTICLE_VERT = `
   attribute vec4 aColor;
   attribute float aSize;
   uniform float uScale;
@@ -18,8 +13,7 @@ const PARTICLE_VERT = /* glsl */ `
     gl_PointSize = aSize * uScale / max( 0.1, - mv.z );
   }`;
 
-// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-const PARTICLE_FRAG = /* glsl */ `
+const PARTICLE_FRAG = `
   uniform float uDim;
   varying vec4 vColor;
   void main() {
@@ -29,8 +23,6 @@ const PARTICLE_FRAG = /* glsl */ `
     gl_FragColor = vec4( vColor.rgb * uDim, a );
   }`;
 
-// Particles that bounce never sink below this height, so they stay visible
-// above the ground plane instead of z-fighting with it.
 const FLOOR_Y = 0.03;
 
 export class ParticlePool {
@@ -51,7 +43,6 @@ export class ParticlePool {
   uniforms: { uDim: { value: number }; uScale: { value: number } };
   material: THREE.ShaderMaterial;
   points: THREE.Points;
-  /** Set by emit; the buffers upload while anything is alive and once more after. */
   private dirty = false;
   private readonly positionAttr: THREE.BufferAttribute;
   private readonly colorAttr: THREE.BufferAttribute;
@@ -90,7 +81,6 @@ export class ParticlePool {
     });
     this.points = new THREE.Points(geometry, this.material);
     this.points.frustumCulled = false;
-    // Additive glow draws after smoke so it always reads on top of it.
     this.points.renderOrder = additive ? 8 : 7;
     scene.add(this.points);
   }
@@ -111,7 +101,7 @@ export class ParticlePool {
     alpha = 1,
     drag = 1.5,
     grav = 0,
-  ): void {
+  ) {
     const i = this.cursor;
     this.cursor = (i + 1) % this.cap;
     this.dirty = true;
@@ -133,27 +123,31 @@ export class ParticlePool {
     this.grav[i] = grav;
   }
 
-  update(dt: number): void {
+  update(dt: number) {
     const { life, size } = this;
     let live = 0;
+
     for (let i = 0; i < this.cap; i += 1) {
       if ((life[i] ?? 0) <= 0) {
         size[i] = 0;
         continue;
       }
+
       live += 1;
       this.integrate(i, dt);
     }
+
     if (live === 0 && !this.dirty) {
       return;
     }
+
     this.dirty = live > 0;
     this.positionAttr.needsUpdate = true;
     this.colorAttr.needsUpdate = true;
     this.sizeAttr.needsUpdate = true;
   }
 
-  private integrate(i: number, dt: number): void {
+  private integrate(i: number, dt: number) {
     const { pos, vel, life, maxLife, size, size0, size1, col, alpha, drag, grav } = this;
     const remaining = (life[i] ?? 0) - dt;
     life[i] = remaining;
@@ -164,14 +158,15 @@ export class ParticlePool {
     let velY = (vel[i * 3 + 1] ?? 0) * decay - gravity * dt;
     const velZ = (vel[i * 3 + 2] ?? 0) * decay;
     let posY = (pos[i * 3 + 1] ?? 0) + velY * dt;
-    // Falling particles bounce off the ground, losing most of their energy.
     const posX = (pos[i * 3] ?? 0) + velX * dt;
     const posZ = (pos[i * 3 + 2] ?? 0) + velZ * dt;
     const floor = terrainHeight(posX, posZ) + FLOOR_Y;
+
     if (posY < floor && gravity > 0) {
       posY = floor;
       velY *= -0.35;
     }
+
     vel[i * 3] = velX;
     vel[i * 3 + 1] = velY;
     vel[i * 3 + 2] = velZ;

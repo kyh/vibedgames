@@ -1,7 +1,5 @@
 import type { ControlsManifest } from "@repo/embed";
 
-// Every way to drive, one list — the title card and the pause overlay both
-// render from this (filtered per device / connected pad by @repo/embed).
 export const CONTROLS: ControlsManifest = [
   { action: "accelerate", input: "W / ↑", method: "keys" },
   { action: "steer", input: "A D / ← →", method: "keys" },

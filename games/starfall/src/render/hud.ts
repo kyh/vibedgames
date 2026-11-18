@@ -65,14 +65,11 @@ export class Hud {
    *  no persistence this cycle). */
   sectorBest = 0;
 
-  /** Last sectorIdx observed; -1 until the first live tick so a mid-sector
-   *  joiner adopts the current sector without firing a recap. */
   private lastSectorIdx = -1;
 
   /** Recap banner hide deadline (sim-clock ms; 0 = hidden). */
   recapUntil = 0;
 
-  // HUD (DOM, owned by index.html)
   bossBarEl: HTMLElement | null = null;
 
   bossHpEl: HTMLElement | null = null;
@@ -123,7 +120,6 @@ export class Hud {
 
   recoveryLoadoutEl: HTMLElement | null = null;
 
-  // dir-006 sector surfaces (DOM like the bossbar; zero input capture)
   sectorEl: HTMLElement | null = null;
 
   recapEl: HTMLElement | null = null;
@@ -134,8 +130,6 @@ export class Hud {
 
   private lastPulseText = "";
 
-  /** The host's relayed standings (net/world-wire.ts `sb`), parsed once
-   *  per write: the scores of players out of interest range. */
   private relayedRaw: WireValue | undefined = undefined;
 
   private relayed: ReadonlyMap<string, number> = new Map();
@@ -168,7 +162,7 @@ export class Hud {
   }
 
   /** Resolve the HUD's DOM (owned by index.html) once, at scene create. */
-  bind(): void {
+  bind() {
     this.bossBarEl = document.querySelector("#bossbar");
     this.bossHpEl = document.querySelector("#bosshp");
     this.bossLabelEl = document.querySelector("#bosslabel");
@@ -196,19 +190,19 @@ export class Hud {
     this.pulseEl = document.querySelector("#pulse");
   }
 
-  drawMinimap(now: number): void {
+  drawMinimap(now: number) {
     const g = this.layers.minimapGfx;
     g.clear();
-    // trailer HUD policy: no minimap; nor before play begins
+
     if (this.link.trailer || !this.link.started) {
       return;
     }
-    // Safe-area insets keep the corner box off the home indicator/notch.
+
     const x0 = this.scale.width - MINIMAP_W - MINIMAP_PAD - this.layers.safeInset.right;
     const y0 = this.scale.height - MINIMAP_H - MINIMAP_PAD - this.layers.safeInset.bottom;
     g.fillStyle(0x00_00_00, 0.6).fillRoundedRect(x0, y0, MINIMAP_W, MINIMAP_H, 4);
     g.lineStyle(1, 0xff_ff_ff, 0.15).strokeRoundedRect(x0, y0, MINIMAP_W, MINIMAP_H, 4);
-    // Map the live PLAY area (not the fixed max) onto the minimap box.
+
     const map: MinimapFrame = {
       ph: this.world.playH,
       pw: this.world.playW,
@@ -217,72 +211,85 @@ export class Hud {
       x0,
       y0,
     };
+
     drawMinimapWorld(g, this.world, map, now);
+
     for (const it of this.world.items) {
       if (inWorld(it.x, it.y, 0, map.pw, map.ph)) {
         drawMinimapItem(g, it, map);
       }
     }
+
     const { myId } = this.link;
+
     for (const [id, st] of this.link.peerStates) {
       const isMe = id === myId;
       const tint = this.shipView.ships.get(id)?.tint ?? 0xff_ff_ff;
       let px: number;
       let py: number;
+
       if (isMe) {
         if (!this.pilot.spawned || !this.pilot.alive) {
           continue;
         }
+
         px = this.pilot.shipX;
         py = this.pilot.shipY;
       } else {
-        // each dot filtered by ITS player's alive state
         if (!st || !st.alive) {
           continue;
         }
+
         px = st.x;
         py = st.y;
       }
+
       g.fillStyle(tint, 1).fillCircle(map.x0 + px * map.sx, map.y0 + py * map.sy, isMe ? 3 : 2);
     }
   }
 
-  /** Sector standings this instant: self live-local, every present remote in
-   *  range from its last wire value, and every one out of interest range from
-   *  the host's relay (the host sees everyone). Best-first; id tiebreak so the
-   *  order converges identically on every client. */
-  private sectorStandings(): { id: string; pts: number }[] {
+  private sectorStandings() {
     const me = this.link.myId;
     const { peers } = this.link;
     const rows: { id: string; pts: number }[] = [];
+
     if (me !== null) {
       rows.push({ id: me, pts: Math.round(this.progress.sectorScore) });
     }
+
     for (const [id, ns] of this.link.peerStates) {
       if (id === me) {
         continue;
       }
+
       if (ns) {
         if (ns.present) {
           rows.push({ id, pts: Math.round(ns.sectorScore) });
         }
+
         continue;
       }
+
       const pts = peers[id]?.visible === false ? this.relayedStandings().get(id) : undefined;
+
       if (pts !== undefined) {
         rows.push({ id, pts });
       }
     }
+
     rows.sort((a, b) => b.pts - a.pts || (a.id < b.id ? -1 : 1));
+
     return rows;
   }
 
-  private relayedStandings(): ReadonlyMap<string, number> {
+  private relayedStandings() {
     const raw = this.link.sharedState?.[STANDINGS_KEY];
+
     if (raw !== this.relayedRaw) {
       this.relayedRaw = raw;
       this.relayed = readStandings(raw);
     }
+
     return this.relayed;
   }
 
@@ -290,57 +297,58 @@ export class Hud {
    *  the persistent HUD line, the rel-180/360 standings pulses, and recap
    *  expiry. Every write is DOM — the sim is untouched except the owner-side
    *  reset, so the room never stops for any of it. */
-  tickSector(now: number): void {
+  tickSector(now: number) {
     const tSec = Math.max(0, (now - this.world.arenaEpoch) / 1000);
     const idx = sectorIdx(tSec);
     const rel = sectorRelT(tSec);
-    // First live tick (or a mid-sector joiner): adopt the room's sector
-    // silently — no recap for sectors we weren't part of.
+
     if (this.lastSectorIdx === -1) {
       this.lastSectorIdx = idx;
     }
+
     if (idx !== this.lastSectorIdx) {
-      // Snapshot standings BEFORE the reset — the recap wants final scores.
-      // A backwards jump (dev epoch rewind) resyncs without a recap.
       if (idx > this.lastSectorIdx) {
         const rows = this.sectorStandings();
         this.sectorBest = Math.max(this.sectorBest, Math.round(this.progress.sectorScore));
         this.showRecap(this.lastSectorIdx + 1, rows, now);
       }
-      // Owner-reset: the boundary is the ONLY thing that zeroes sector pts
-      // (deaths cost 0 by construction — nothing else writes this field).
+
       this.progress.sectorScore = 0;
       this.lastSectorIdx = idx;
     }
+
     if (this.recapEl) {
       this.recapEl.style.opacity = now < this.recapUntil ? "1" : "0";
     }
 
-    // Persistent line: SECTOR 3 · 4:12 · 1,240 PTS · 2ND (solo: rank omitted).
     const rows = this.sectorStandings();
     const myRank = rows.findIndex((r) => r.id === this.link.myId) + 1;
     const remS = Math.max(0, Math.ceil(SECTOR_LENGTH_S - rel));
+
     let line =
       `SECTOR ${idx + 1} · ${Math.floor(remS / 60)}:${String(remS % 60).padStart(2, "0")}` +
       ` · ${fmtPts(Math.round(this.progress.sectorScore))} PTS`;
+
     if (rows.length > 1 && myRank > 0) {
       line += ` · ${ordinal(myRank)}`;
     }
+
     if (line !== this.lastSectorLine) {
       this.lastSectorLine = line;
       setText(this.sectorEl, line);
     }
 
-    // Standings pulse fills the two beacon-free troughs; never stacked on top
-    // of a boss fight or the recap (they own the player's attention).
     const bossLive = this.world.enemies.some((e) => e.kind === "dreadnought");
     const inPulse = SECTOR_PULSE_AT_S.some((at) => rel >= at && rel < at + SECTOR_PULSE_S);
     const showPulse = inPulse && !bossLive && now >= this.recapUntil;
+
     if (this.pulseEl) {
       this.pulseEl.style.opacity = showPulse ? "1" : "0";
     }
+
     if (showPulse) {
       const text = this.pulseText(rows, myRank);
+
       if (text !== this.lastPulseText) {
         this.lastPulseText = text;
         setText(this.pulseEl, text);
@@ -348,33 +356,35 @@ export class Hud {
     }
   }
 
-  /** Standings pulse copy: my gap to the leader in a room, else my points
-   *  (+ session best) solo. */
-  private pulseText(rows: { id: string; pts: number }[], myRank: number): string {
+  private pulseText(rows: { id: string; pts: number }[], myRank: number) {
     const [leader] = rows;
+
     if (rows.length > 1 && myRank > 0 && leader) {
       if (myRank === 1) {
         return `1ST · ${fmtPts(leader.pts - (rows[1]?.pts ?? 0))} AHEAD`;
       }
+
       const gap = leader.pts - Math.round(this.progress.sectorScore);
+
       return `${ordinal(myRank)} · ${fmtPts(gap)} BEHIND ${callsign(leader.id)}`;
     }
+
     const best = this.sectorBest > 0 ? ` · SESSION BEST ${fmtPts(this.sectorBest)}` : "";
+
     return `${fmtPts(Math.round(this.progress.sectorScore))} PTS${best}`;
   }
 
-  /** Boundary recap: standings snapshot into #recap for SECTOR_RECAP_SHOW_S.
-   *  Non-blocking DOM (pointer-events: none) — sim, input and firing continue
-   *  behind it; tickSector fades it out on schedule. */
-  private showRecap(completedNum: number, rows: { id: string; pts: number }[], now: number): void {
+  private showRecap(completedNum: number, rows: { id: string; pts: number }[], now: number) {
     this.recapUntil = now + SECTOR_RECAP_SHOW_S * 1000;
-    // One chime from the gold shared-event family (beacon vocabulary, no new synth).
     sfx.play("beacon_active", { gain: 0.6, rate: 1.3 });
     const el = this.recapEl;
+
     if (!el) {
       return;
     }
+
     let html = `<h2>SECTOR ${completedNum} COMPLETE</h2>`;
+
     if (rows.length <= 1) {
       html += `<div class="row">${fmtPts(rows[0]?.pts ?? 0)} PTS</div>`;
       html += `<div class="recap-best">SESSION BEST ${fmtPts(this.sectorBest)}</div>`;
@@ -384,32 +394,32 @@ export class Hud {
         pts: r.pts,
         rank: i + 1,
       }));
+
       const shown = entries.slice(0, 3);
       const mine = entries.find((e) => e.name === "YOU");
+
       if (mine && mine.rank > 3) {
         shown.push(mine);
       }
+
       html += shown
         .map((e) => {
           const gold = e.rank === 1 ? ` style="color:${hexCss(BEACON_TINT)}"` : "";
+
           return `<div class="row"${gold}>${ordinal(e.rank)} · ${e.name} · ${fmtPts(e.pts)}</div>`;
         })
         .join("");
     }
+
     const currentSector = sectorIdx(Math.max(0, (now - this.world.arenaEpoch) / 1000)) + 1;
     html += `<div class="recap-handoff">SECTOR ${currentSector} · FLIGHT CONTINUES</div>`;
     el.innerHTML = html;
-    // dir-009 presence pass: restart the 300ms scale-in alongside the fade,
-    // then one winner-row pop ~150ms after the banner lands. DOM-only — the
-    // banner stays non-blocking (pointer-events: none, no shake, no input).
     el.classList.remove("in");
-    // reflow so back-to-back recaps re-run the animation
     void el.offsetWidth;
     el.classList.add("in");
-    // The row accent is CSS-owned; replacing the recap cannot leave a stale timer.
   }
 
-  updateHud(now: number): void {
+  updateHud(now: number) {
     const presentation = this.link.started && !this.link.trailer;
     this.flightHud.update({
       active:
@@ -424,16 +434,20 @@ export class Hud {
       weaponUntil: this.pilot.weaponUntil,
       xp: this.progress.xp,
     });
+
     const boss = this.world.enemies.find(
       (e) => e.kind === "dreadnought" && e.hp > 0 && e.maxHp > 0,
     );
+
     this.updateBossBar(boss ?? null, presentation);
     const inFlight = presentation && this.pilot.spawned && this.pilot.alive && !this.link.paused;
+
     if (inFlight) {
       sfx.setMusicMode(boss ? "boss" : "flight");
     } else {
       sfx.setMusicMode("silent");
     }
+
     this.updateWeaponHud(now);
     this.updateShieldHud(now);
     this.updateBoostsHud(now);
@@ -443,12 +457,14 @@ export class Hud {
     this.updateRecovery(now, presentation);
   }
 
-  private updateBossBar(boss: EnemyState | null, presentation: boolean): void {
+  private updateBossBar(boss: EnemyState | null, presentation: boolean) {
     if (!this.bossBarEl || !this.bossHpEl) {
       return;
     }
+
     this.bossBarEl.hidden = !presentation || !boss;
     this.bossBarEl.style.opacity = boss ? "1" : "0";
+
     if (boss) {
       const percent = PhaserMath.Clamp((boss.hp / boss.maxHp) * 100, 0, 100);
       this.bossHpEl.style.width = `${percent.toFixed(1)}%`;
@@ -457,72 +473,83 @@ export class Hud {
     }
   }
 
-  private updateWeaponHud(now: number): void {
+  private updateWeaponHud(now: number) {
     setText(this.weaponEl, this.pilot.weapon.name);
+
     if (!this.weaponBarEl) {
       return;
     }
-    // A special is active iff weaponUntil is in the future; base weapons show
-    // no bar. Stacked pickups can push the timer past one base duration: clamp
-    // the bar full; the adjacent seconds retain the complete accepted time.
+
     const frac =
       this.pilot.weaponUntil <= now
         ? 0
         : Math.min(1, Math.max(0, (this.pilot.weaponUntil - now) / SPECIAL_WEAPON_DURATION_MS));
+
     this.weaponBarEl.style.width = `${(frac * 100).toFixed(1)}%`;
     this.weaponBarEl.style.background = hexCss(this.pilot.weapon.tint);
   }
 
-  private updateShieldHud(now: number): void {
+  private updateShieldHud(now: number) {
     if (!this.shieldEl) {
       return;
     }
+
     if (!this.pilot.alive || !this.pilot.spawned) {
       this.shieldEl.style.display = "none";
+
       return;
     }
+
     this.shieldEl.style.display = "block";
-    // SIPHON overheal: the fill runs past the base 40px track (≤1.3×,
-    // SIPHON_OVERHEAL_MAX) and tints green while banked above 100.
     const overhealCap = SIPHON_OVERHEAL_MAX / SHIELD_MAX;
     const frac = Math.max(0, Math.min(overhealCap, this.shield.shieldHp / SHIELD_MAX));
+
     if (this.shieldFillEl) {
       this.shieldFillEl.style.width = `${(frac * 40).toFixed(1)}px`;
       this.shieldFillEl.style.background =
         this.shield.shieldHp > SHIELD_MAX ? hexCss(SHIELD_MOD_SPECS.siphon.tint) : "";
     }
+
     if (this.shieldOsEl) {
       this.shieldOsEl.style.width = `${((Math.max(0, this.shield.overHp) / OVERSHIELD_BONUS) * 30).toFixed(1)}px`;
     }
+
     this.shieldEl.classList.toggle("low", this.shield.shieldHp < SHIELD_MAX * SHIELD_LOW_FRACTION);
     this.updateShieldModHud(now);
   }
 
-  private updateShieldModHud(now: number): void {
+  private updateShieldModHud(now: number) {
     const mod = this.shield.shieldMod;
+
     if (this.shieldModEl) {
       this.shieldModEl.style.display = mod ? "block" : "none";
+
       if (mod) {
         this.shieldModEl.style.color = hexCss(SHIELD_MOD_SPECS[mod].tint);
         setText(this.shieldModEl, SHIELD_MOD_SPECS[mod].name);
       }
     }
+
     if (this.shieldModBarEl) {
       const mfrac = mod
         ? Math.min(1, Math.max(0, (this.shield.shieldModUntil - now) / SHIELD_MOD_DURATION_MS))
         : 0;
+
       this.shieldModBarEl.style.width = `${(mfrac * 100).toFixed(1)}%`;
+
       if (mod) {
         this.shieldModBarEl.style.background = hexCss(SHIELD_MOD_SPECS[mod].tint);
       }
     }
   }
 
-  private updateBoostsHud(now: number): void {
+  private updateBoostsHud(now: number) {
     if (!this.boostsEl) {
       return;
     }
+
     const parts: string[] = [];
+
     if (this.pilot.alive) {
       for (const [kind, until] of this.pilot.boosts) {
         const secs = Math.max(0, Math.ceil((until - now) / 1000));
@@ -530,7 +557,9 @@ export class Hud {
         parts.push(`<span style="color:${hexCss(spec.tint)}">${spec.name} ${secs}</span>`);
       }
     }
+
     const html = parts.join(" &middot; ");
+
     if (html !== this.lastBoostsHtml) {
       this.lastBoostsHtml = html;
       this.boostsEl.innerHTML = html;
@@ -538,7 +567,7 @@ export class Hud {
   }
 
   /** Combo tier-up pill pop (restarts the CSS animation). */
-  popCombo(): void {
+  popCombo() {
     if (this.comboEl) {
       this.comboEl.classList.remove("pop");
       void this.comboEl.offsetWidth;
@@ -546,15 +575,18 @@ export class Hud {
     }
   }
 
-  private updateComboHud(now: number): void {
+  private updateComboHud(now: number) {
     if (!this.comboEl) {
       return;
     }
+
     const mult = comboMult(this.progress.streak);
     const show = mult >= 2 && this.pilot.alive;
     this.comboEl.style.opacity = show ? "1" : "0";
+
     if (show) {
       setText(this.comboValEl, `×${mult} · ${this.progress.streak}`);
+
       if (this.comboBarEl) {
         const frac = Math.max(0, (this.progress.comboExpiresAt - now) / COMBO_WINDOW_MS);
         this.comboBarEl.style.width = `${(frac * 100).toFixed(1)}%`;
@@ -562,23 +594,27 @@ export class Hud {
     }
   }
 
-  private playersLabel(n: number): string {
+  private playersLabel(n: number) {
     if (this.link.offline) {
       return "solo · offline";
     }
+
     if (this.link.connected) {
       return `${n} player${n === 1 ? "" : "s"}`;
     }
+
     return "reconnecting…";
   }
 
   /** Encounter edges are tracked even while the cues are silent (start screen,
    * trailer), so starting never replays history. */
-  observeBossEncounters(world: SharedState): void {
+  observeBossEncounters(world: SharedState) {
     const cues = this.bossEncounters.observe(world.arenaEpoch, world.enemies);
+
     if (!this.link.started || this.link.trailer) {
       return;
     }
+
     for (const cue of cues) {
       if (cue.kind === "arrival") {
         sfx.play("boss_arrival");
@@ -591,7 +627,7 @@ export class Hud {
     }
   }
 
-  updateBattlePresentation(now: number): void {
+  updateBattlePresentation(now: number) {
     const beat = this.battleBeat.update({
       bossAlive: this.world.enemies.some((enemy) => enemy.kind === "dreadnought" && enemy.hp > 0),
       epoch: this.world.arenaEpoch,
@@ -605,27 +641,32 @@ export class Hud {
         !this.link.frozen &&
         !this.link.trailer,
     });
+
     this.layers.battleBackdrop.update(beat);
     sfx.setBattleBeat(beat);
   }
 
-  private updateRecovery(now: number, presentation: boolean): void {
+  private updateRecovery(now: number, presentation: boolean) {
     const recovering =
       presentation && this.pilot.spawned && !this.pilot.alive && this.pilot.respawnAt > 0;
+
     if (this.overlayEl) {
       this.overlayEl.hidden = !recovering;
       this.overlayEl.style.opacity = recovering ? "1" : "0";
     }
-    // Hiding for recovery never changes the original recap expiry.
+
     if (this.recapEl) {
       this.recapEl.hidden = !presentation || recovering || now >= this.recapUntil;
     }
+
     if (this.pulseEl) {
       this.pulseEl.hidden = !presentation || recovering;
     }
+
     if (!recovering) {
       return;
     }
+
     const remaining = PhaserMath.Clamp(this.pilot.respawnAt - now, 0, RESPAWN_DELAY_MS);
     const progress = 1 - remaining / RESPAWN_DELAY_MS;
     setText(this.causeEl, this.shield.deathCause ? `— ${this.shield.deathCause}` : "");
@@ -635,9 +676,11 @@ export class Hud {
       this.recoveryLoadoutEl,
       `RETURN WITH LEVEL ${this.progress.level} ${baseWeaponForLevel(this.progress.level).name} + FULL SHIELD`,
     );
+
     if (this.recoveryFillEl) {
       this.recoveryFillEl.style.transform = `scaleX(${progress})`;
     }
+
     setAttribute(this.recoveryProgressEl, "aria-valuenow", String(Math.round(progress * 100)));
   }
 }

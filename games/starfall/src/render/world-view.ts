@@ -115,27 +115,30 @@ export const STROKE_BASE = 1.25;
 
 export const STROKE_MAX = 1.7;
 
-export const deathBurstSize = (boss: boolean, big: boolean): number => {
+export const deathBurstSize = (boss: boolean, big: boolean) => {
   if (boss) {
     return 270;
   }
+
   return big ? 95 : 48;
 };
 
-export const deathTrauma = (boss: boolean, big: boolean): number => {
+export const deathTrauma = (boss: boolean, big: boolean) => {
   if (boss) {
     return 0.5;
   }
+
   return big ? 0.18 : 0.1;
 };
 
 /** Enemy shot render family from the shooter's weapon look. */
-export const enemyShotBeamLook = (
+export const enemyShotBeamLook: (
   look: ReturnType<typeof hostileShotLook>,
-): "rail" | "plasma" | "rapid" => {
+) => "rail" | "plasma" | "rapid" = (look) => {
   if (look === "lance" || look === "rail") {
     return "rail";
   }
+
   return look === "plasma" ? "plasma" : "rapid";
 };
 
@@ -197,14 +200,17 @@ export class WorldView {
 
   /** Tiny wireframe crystals, one pooled Graphics pass (additive layer):
    *  4-point diamond + vertical facet, gentle pulse, fade in the last 1.5s. */
-  drawShards(now: number): void {
+  drawShards(now: number) {
     const g = this.layers.shardGfx;
     g.clear();
+
     for (const s of this.world.shards) {
       const left = s.diesAt - now;
+
       if (left <= 0) {
         continue;
       }
+
       const alpha = 0.9 * Math.min(1, left / 1500);
       const r = 2.5 + 0.7 * Math.sin(now / 180 + s.x * 0.05);
       g.lineStyle(1, SHARD_TINT, alpha);
@@ -213,27 +219,31 @@ export class WorldView {
     }
   }
 
-  onScreen(x: number, y: number): boolean {
+  onScreen(x: number, y: number) {
     const v = this.scene.cameras.main.worldView;
+
     return x >= v.x - 100 && x <= v.right + 100 && y >= v.y - 100 && y <= v.bottom + 100;
   }
 
-  syncAsteroids(now: number): void {
+  syncAsteroids(now: number) {
     const seen = new Set<string>();
+
     for (const a of this.world.asteroids) {
       seen.add(a.id);
       let rec = this.asteroidObjs.get(a.id);
+
       if (!rec) {
         rec = { drawnRadius: 0, gfx: this.scene.add.graphics().setDepth(5) };
         this.asteroidObjs.set(a.id, rec);
       }
+
       if (rec.drawnRadius !== a.radius) {
         drawPoly(
           rec.gfx,
           asteroidUnitVerts(a.id).map((v) => ({ x: v.x * a.radius, y: v.y * a.radius })),
         );
+
         if (rec.drawnRadius > a.radius) {
-          // Took a hit: brief scale pop + matter debris + energy sparks.
           rec.gfx.setScale(1.15);
           this.scene.tweens.add({ duration: 120, ease: "Quad.Out", scale: 1, targets: rec.gfx });
           this.fx.debris(a.x, a.y, 4, 0xff_ff_ff, {
@@ -244,15 +254,18 @@ export class WorldView {
           });
           this.fx.sparks(a.x, a.y, 4, 0xff_ff_ff, { lifeMax: 250, lifeMin: 150 });
         }
+
         rec.drawnRadius = a.radius;
       }
+
       rec.gfx.setPosition(a.x, a.y).setRotation(a.rot);
     }
+
     for (const [id, rec] of this.asteroidObjs) {
       if (seen.has(id)) {
         continue;
       }
-      // Destroyed (visible burst) or culled off-world (burst hidden by mask).
+
       this.fx.battle.burst(
         rec.gfx.x,
         rec.gfx.y,
@@ -262,17 +275,20 @@ export class WorldView {
       );
       this.splinterBurst(rec.gfx.x, rec.gfx.y, rec.drawnRadius, 20, now);
       this.fx.sparks(rec.gfx.x, rec.gfx.y, 6, 0xff_ff_ff, { lifeMax: 250, lifeMin: 150 });
+
       if (dist2(rec.gfx.x, rec.gfx.y, this.pilot.shipX, this.pilot.shipY) < 400 * 400) {
         this.trauma.add(0.05);
       }
+
       this.scene.tweens.killTweensOf(rec.gfx);
       rec.gfx.destroy();
       this.asteroidObjs.delete(id);
     }
   }
 
-  syncUfo(now: number): void {
+  syncUfo(now: number) {
     const u = this.world.ufo;
+
     if (!u) {
       if (this.ufoGfx) {
         this.fx.battle.burst(this.ufoGfx.x, this.ufoGfx.y, 85, 0x83_d6_f5, "death");
@@ -284,24 +300,28 @@ export class WorldView {
         this.ufoGfx.destroy();
         this.ufoGfx = null;
       }
+
       return;
     }
+
     if (!this.ufoGfx || this.ufoId !== u.id) {
       this.ufoGfx?.destroy();
       this.ufoGfx = this.makeUfoGfx();
       this.ufoId = u.id;
     }
+
     this.ufoGfx.setPosition(u.x, u.y);
-    // Damage flicker: hidden every 4th 66ms slot (legacy: every 4th tick of 40).
     const hidden = now < u.blinkUntil && Math.floor(now / 66) % 4 === 0;
     this.ufoGfx.setVisible(!hidden);
   }
 
-  syncItems(): void {
+  syncItems() {
     const seen = new Set<string>();
+
     for (const it of this.world.items) {
       seen.add(it.id);
       let rec = this.itemObjs.get(it.id);
+
       if (!rec) {
         rec = { gfx: this.makeItemGfx(it), tint: itemTint(it) };
         this.itemObjs.set(it.id, rec);
@@ -314,12 +334,15 @@ export class WorldView {
           yoyo: true,
         });
       }
+
       rec.gfx.setPosition(it.x, it.y);
     }
+
     for (const [id, rec] of this.itemObjs) {
       if (seen.has(id)) {
         continue;
       }
+
       this.fx.sparks(rec.gfx.x, rec.gfx.y, 10, rec.tint, {
         lifeMax: 420,
         lifeMin: 200,
@@ -332,13 +355,13 @@ export class WorldView {
     }
   }
 
-  syncEnemies(now: number): void {
+  syncEnemies(now: number) {
     const seen = new Set<string>();
     const reduced = REDUCED_MOTION.matches;
+
     for (const e of this.world.enemies) {
       seen.add(e.id);
       const rec = this.enemyRec(e);
-      // A hit accents the hull without hiding the threat.
       rec.gfx.setVisible(true);
       rec.gfx.setAlpha(e.graceUntil > now ? graceAlpha(reduced, now) : 1);
       this.voiceTelegraph(e, rec, now);
@@ -347,27 +370,30 @@ export class WorldView {
         .setPosition(e.x - Math.cos(e.angle) * pose.recoil, e.y - Math.sin(e.angle) * pose.recoil)
         .setRotation(e.angle)
         .setScale(pose.scaleX, pose.scaleY);
+
       if (e.kind === "lancer") {
         this.syncLancerCharge(e, rec, reduced, now);
       }
     }
-    // Ordinary enemies can also despawn far away. Only dreadnought removal
-    // warrants a victory cue; trailer cuts clear the display cache silently.
+
     for (const [id, rec] of this.enemyObjs) {
       if (seen.has(id)) {
         continue;
       }
+
       this.enemyDeathFx(rec);
       rec.gfx.destroy();
       this.enemyObjs.delete(id);
     }
   }
 
-  private enemyRec(e: EnemyState): EnemyObjs {
+  private enemyRec(e: EnemyState) {
     const existing = this.enemyObjs.get(e.id);
+
     if (existing) {
       return existing;
     }
+
     const rec: EnemyObjs = {
       chargeTraumaDone: false,
       gfx: this.makeEnemyGfx(e.kind),
@@ -376,19 +402,20 @@ export class WorldView {
       nextTrailAt: 0,
       telegraphDuration: 0,
     };
+
     this.enemyObjs.set(e.id, rec);
+
     return rec;
   }
 
-  /** Telegraph audio: LANCER windup + WASP burst, on-screen only (§6.1). */
-  private voiceTelegraph(e: EnemyState, rec: EnemyObjs, now: number): void {
-    // A guest's copy of the deadline can shift a few ms when its clock
-    // estimate is revised; that is the same warning, not a new one.
+  private voiceTelegraph(e: EnemyState, rec: EnemyObjs, now: number) {
     if (e.telegraphUntil <= now || Math.abs(rec.lastTelegraphUntil - e.telegraphUntil) < 100) {
       return;
     }
+
     rec.lastTelegraphUntil = e.telegraphUntil;
     rec.telegraphDuration = enemyChargeDuration(e);
+
     if (
       (e.kind === "lancer" ||
         e.kind === "wasp" ||
@@ -401,19 +428,21 @@ export class WorldView {
     }
   }
 
-  private syncLancerCharge(e: EnemyState, rec: EnemyObjs, reduced: boolean, now: number): void {
+  private syncLancerCharge(e: EnemyState, rec: EnemyObjs, reduced: boolean, now: number) {
     if (e.chargeUntil <= now) {
       rec.chargeTraumaDone = false;
       rec.nextTrailAt = 0;
+
       return;
     }
-    // Charge trail (ADD, hull tint) at 60/s of SIM time so density is
-    // frame-rate independent; a long gap emits at most 3, not a backlog.
+
     if (rec.nextTrailAt === 0) {
       rec.nextTrailAt = now;
     }
+
     const due = Math.max(0, Math.floor((now - rec.nextTrailAt) / LANCER_TRAIL_MS) + 1);
     rec.nextTrailAt += due * LANCER_TRAIL_MS;
+
     if (due > 0 && !reduced) {
       this.fx.sparks(e.x, e.y, Math.min(3, due), ENEMY_SPECS.lancer.tint, {
         lifeMax: 250,
@@ -423,6 +452,7 @@ export class WorldView {
         speedMin: 0,
       });
     }
+
     if (
       !rec.chargeTraumaDone &&
       this.pilot.alive &&
@@ -433,7 +463,7 @@ export class WorldView {
     }
   }
 
-  private enemyDeathFx(rec: EnemyObjs): void {
+  private enemyDeathFx(rec: EnemyObjs) {
     const spec = ENEMY_SPECS[rec.kind];
     const { x } = rec.gfx;
     const { y } = rec.gfx;
@@ -451,6 +481,7 @@ export class WorldView {
     );
     this.fx.shatter(x, y, enemyHullPoints(rec.kind), rec.gfx.rotation, spec.tint, importance);
     this.fx.sparks(x, y, 8, spec.tint, { importance, lifeMax: 350, lifeMin: 200 });
+
     if (rec.kind === "lancer" || rec.kind === "splitter" || boss) {
       this.fx.ring(
         x,
@@ -463,8 +494,8 @@ export class WorldView {
         importance,
       );
     }
+
     if (boss) {
-      // Big multi-ring death blast for the marquee kill.
       this.fx.bossDefeat(x, y, spec.tint);
       this.fx.ring(x, y, 10, 140, 500, 0xff_ff_ff, 0.65, "important");
       this.fx.sparks(x, y, 40, spec.tint, {
@@ -475,45 +506,52 @@ export class WorldView {
         speedMin: 120,
       });
     }
+
     if (this.onScreen(x, y)) {
-      // The accepted encounter edge owns the single boss resolve cue.
       if (!boss) {
         sfx.play("enemy_death", big ? { gain: 1.3, rate: 0.8 } : {});
       }
+
       this.trauma.add(deathTrauma(boss, big));
     }
   }
 
   /** Stable warnings live outside decorative budgets. Charge reads the host's
    * sim-clock deadline; no sight is re-aimed or hidden on a blink frame. */
-  drawEnemyTelegraphs(now: number): void {
+  drawEnemyTelegraphs(now: number) {
     const g = this.layers.telegraphGfx;
     const sw = this.strokeScale();
     g.clear();
+
     for (const e of this.world.enemies) {
       const spec = ENEMY_SPECS[e.kind];
+
       if (e.kind === "warden") {
         drawWardenArmor(g, e, spec.hitRadius + 6, sw);
       }
-      // Retain the existing damage response independently of anticipation.
+
       if (e.blinkUntil > now && (REDUCED_MOTION.matches || Math.floor(now / 66) % 4 === 0)) {
         g.lineStyle(2 * sw, 0xff_ff_ff, 0.9);
         strokeTransformed(g, enemyHullPoints(e.kind), e.x, e.y, e.angle);
       }
+
       if (e.telegraphUntil <= now) {
         continue;
       }
+
       const duration = this.enemyObjs.get(e.id)?.telegraphDuration ?? enemyChargeDuration(e);
       const progress = enemyChargeProgress(e.telegraphUntil, now, duration);
       const radius = spec.hitRadius + (e.kind === "warden" ? 12 : 7);
       g.lineStyle(sw, spec.tint, 0.25);
       g.strokeCircle(e.x, e.y, radius);
+
       if (progress > 0) {
         g.lineStyle(1.5 * sw, spec.tint, 0.85);
         g.beginPath();
         g.arc(e.x, e.y, radius, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * progress);
         g.strokePath();
       }
+
       drawTelegraphAccent(g, e, progress, sw);
     }
   }
@@ -521,26 +559,27 @@ export class WorldView {
   /** SINGULARITY vortices, from the shared pulls entries (every client
    *  agrees). Appends to telegraphGfx, which drawEnemyTelegraphs cleared
    *  this frame. The inward particle ring reuses the pooled converge FX. */
-  drawPulls(now: number): void {
+  drawPulls(now: number) {
     const g = this.layers.telegraphGfx;
+
     for (const p of this.world.pulls) {
       if (p.until <= now) {
         continue;
       }
-      // 1 -> 0
+
       const frac = Math.max(0, Math.min(1, (p.until - now) / SINGULARITY_PULL_MS));
-      // Event horizon shrinks as the collapse completes.
       g.lineStyle(1, SINGULARITY_TINT, 0.3);
       g.strokeCircle(p.x, p.y, 30 + (SINGULARITY_PULL_RANGE - 30) * frac);
-      // Three inward-spiraling arc shards.
       const spin = (now / 1000) * 540 * DEG;
       g.lineStyle(1, SINGULARITY_TINT, 0.85);
+
       for (let i = 0; i < 3; i += 1) {
         const a0 = spin + (Math.PI * 2 * i) / 3;
         g.beginPath();
         g.arc(p.x, p.y, 12 + 70 * frac, a0, a0 + Math.PI / 3);
         g.strokePath();
       }
+
       if (Math.random() < 0.3) {
         this.fx.converge(p.x, p.y, 2, 150, 200, SINGULARITY_TINT);
       }
@@ -551,13 +590,15 @@ export class WorldView {
    *  dashes rotating. ACTIVE: solid slow-spinning hex + a depleting countdown
    *  arc; CONTESTED strobes gold↔white at 4Hz; controlled drifts gold motes
    *  toward the controller. Gold stays off enemy and player kit. */
-  drawBeacon(now: number): void {
+  drawBeacon(now: number) {
     const g = this.layers.beaconGfx;
     g.clear();
     const b = this.world.beacon;
+
     if (!b || now >= b.diesAt) {
       return;
     }
+
     if (now < b.activeAt) {
       const p = PhaserMath.Clamp(1 - (b.activeAt - now) / (BEACON_CHARGE_S * 1000), 0, 1);
       const r = BEACON_RADIUS * (1.5 - 0.5 * p);
@@ -565,9 +606,6 @@ export class WorldView {
       strokeHexRing(g, b.x, b.y, r, (now / 1000) * 0.6, 0.55);
       g.fillStyle(0xff_ff_ff, 0.4 + 0.5 * p);
       g.fillCircle(b.x, b.y, 3 + 4 * p);
-      // qa-014: point-blank the 1.5x ring exceeds the viewport and the dashes
-      // read as stray gold segments — a pulsing gold center diamond (the
-      // beacon's minimap glyph, writ large) gives close witnesses a focus.
       const pulse = 1 + 0.2 * Math.sin((now / 1000) * Math.PI * 3);
       const dr = (10 + 8 * p) * pulse;
       g.lineStyle(2, BEACON_TINT, 0.45 + 0.45 * p);
@@ -578,14 +616,16 @@ export class WorldView {
       g.lineTo(b.x - dr * 0.7, b.y);
       g.closePath();
       g.strokePath();
+
       return;
     }
+
     const strobeWhite =
       b.contested && Math.floor((now * BEACON_CONTEST_STROBE_HZ * 2) / 1000) % 2 === 1;
+
     const tint = strobeWhite ? 0xff_ff_ff : BEACON_TINT;
     g.lineStyle(3, tint, b.contested ? 0.95 : 0.75);
     strokeHexRing(g, b.x, b.y, BEACON_RADIUS, (now / 1000) * 0.12, 1);
-    // Countdown arc depletes across ACTIVE — the "hold it to the end" read.
     const frac = PhaserMath.Clamp((b.diesAt - now) / Math.max(1, b.diesAt - b.activeAt), 0, 1);
     g.lineStyle(1, tint, 0.5);
     g.beginPath();
@@ -593,8 +633,10 @@ export class WorldView {
     g.strokePath();
     g.fillStyle(0xff_ff_ff, 0.85);
     g.fillCircle(b.x, b.y, 5);
+
     if (b.controllerId && !b.contested && Math.random() < 0.3) {
       const c = this.host.playerPos(b.controllerId);
+
       if (c) {
         this.fx.converge(c.x, c.y, 1, BEACON_RADIUS, 500, BEACON_TINT);
       }
@@ -605,49 +647,62 @@ export class WorldView {
    *  beacon gold diamond, UFO blinking circle (qa-010), and — while the arena
    *  is young and the screen shows no hostiles — red triangles at the nearest
    *  inbound enemies (qa-007: an empty screen still telegraphs the action). */
-  drawEdgePips(now: number): void {
+  drawEdgePips(now: number) {
     if (this.link.trailer) {
-      // HUD policy: no pips
       this.layers.edgePips.draw(this.scene.cameras.main, NO_PIPS, now);
+
       return;
     }
+
     const targets: PipTarget[] = [];
     const b = this.world.beacon;
+
     if (b && now < b.diesAt) {
       targets.push({ glyph: "diamond", tint: BEACON_TINT, x: b.x, y: b.y });
     }
+
     const u = this.world.ufo;
+
     if (u) {
       targets.push({ blink: true, glyph: "circle", tint: 0xff_ff_ff, x: u.x, y: u.y });
     }
+
     const tSec = Math.max(0, (now - this.world.arenaEpoch) / 1000);
+
     if (tSec < EARLY_SPAWN_WINDOW_S && this.world.enemies.length > 0) {
       const view = this.scene.cameras.main.worldView;
+
       const anyVisible = this.world.enemies.some(
         (e) => e.x >= view.x && e.x <= view.right && e.y >= view.y && e.y <= view.bottom,
       );
+
       if (!anyVisible) {
         const byDist = this.world.enemies.toSorted(
           (a, z) =>
             Math.hypot(a.x - this.pilot.shipX, a.y - this.pilot.shipY) -
             Math.hypot(z.x - this.pilot.shipX, z.y - this.pilot.shipY),
         );
+
         for (const e of byDist.slice(0, DEBUT_PIP_MAX)) {
           targets.push({ glyph: "triangle", tint: ENEMY_SHOT_TINT, x: e.x, y: e.y });
         }
       }
     }
+
     this.layers.edgePips.draw(this.scene.cameras.main, targets, now);
   }
 
   /** Enemy projectiles: red is reserved — nothing friendly is ever red. */
-  drawEnemyShots(): void {
+  drawEnemyShots() {
     const g = this.layers.enemyShotGfx;
     g.clear();
+
     if (this.world.enemyShots.length === 0) {
       return;
     }
+
     g.lineStyle(ENEMY_SHOT_WIDTH, ENEMY_SHOT_TINT, 1);
+
     for (const s of this.world.enemyShots) {
       const len = Math.hypot(s.vx, s.vy) || 1;
       const ux = s.vx / len;
@@ -663,15 +718,15 @@ export class WorldView {
         enemyShotBeamLook(look),
         this.scene.time.now,
       );
-      // Original red collision stroke stays exact. Nose marks describe speed
-      // bands; every mark travels with its accepted projectile, never an aim.
       g.lineStyle(ENEMY_SHOT_WIDTH, ENEMY_SHOT_TINT, 1);
       g.lineBetween(s.x - ux * ENEMY_SHOT_LEN, s.y - uy * ENEMY_SHOT_LEN, s.x, s.y);
+
       if (look === "plasma") {
         g.fillStyle(ENEMY_SHOT_TINT, 0.9).fillCircle(s.x, s.y, 2.6);
       } else if (look === "lance" || look === "rail") {
         g.lineStyle(1, 0xff_b4_ba, 0.9);
         g.lineBetween(s.x - ux * 8, s.y - uy * 8, s.x, s.y);
+
         if (look === "lance") {
           g.lineStyle(1, ENEMY_SHOT_TINT, 0.9);
           g.lineBetween(s.x - ux * 5 - uy * 3, s.y - uy * 5 + ux * 3, s.x, s.y);
@@ -691,23 +746,25 @@ export class WorldView {
 
   /** Every beam in flight — mine, and my copies of everyone else's shots —
    *  through one draw path. */
-  drawBeams(now: number): void {
+  drawBeams(now: number) {
     const g = this.layers.beamGfx;
     g.clear();
+
     for (const b of this.hooks.weapons().beams) {
       this.drawBeam(g, b, now, now, "important");
     }
+
     this.hooks.remoteFire().forEachVolley((beams, at) => {
       for (const b of beams) {
         this.drawBeam(g, b, at, now, "common");
       }
     }, performance.now());
-    // Transient muzzle strokes (1–2 frames, additive layer).
     const mg = this.layers.muzzleGfx;
     mg.clear();
     this.hooks.weapons().muzzleFlashes = this.hooks
       .weapons()
       .muzzleFlashes.filter((f) => now < f.diesAt);
+
     for (const f of this.hooks.weapons().muzzleFlashes) {
       if (f.kind === "ring") {
         mg.lineStyle(1, f.tint, 0.9).strokeCircle(f.x, f.y, f.size);
@@ -726,63 +783,72 @@ export class WorldView {
     }
   }
 
-  /** One beam. `at` is the beam's own clock (its shooter's: a mine's arm
-   *  time is on it); blinks and spins animate on mine, `now`. */
   private drawBeam(
     g: Phaser.GameObjects.Graphics,
     b: Beam,
     at: number,
     now: number,
     importance: FxImportance,
-  ): void {
+  ) {
     if (b.vanished) {
       return;
     }
+
     const { tint, width } = b.weapon;
     const { head, tail } = b;
+
     if (b.mine && !b.exploding) {
       this.fx.battle.orbit(head.x, head.y, 9, tint, 0, true, importance);
-      // Blink 4Hz while arming, 1Hz once armed (zero particles, §C).
       const armed = at >= b.mine.armAt;
       const on = armed ? Math.floor(now / 500) % 2 === 0 : Math.floor(now / 125) % 2 === 0;
+
       if (on) {
         g.lineStyle(1, tint, 1);
         strokeDiamond(g, head.x, head.y, 6);
       }
+
       return;
     }
+
     if (b.glaive) {
       this.fx.battle.orbit(head.x, head.y, 13, tint, b.spin, false, importance);
-      // Spinning open triangle.
       g.lineStyle(2, tint, 1);
       strokeTransformed(g, GLAIVE_TRI, head.x, head.y, b.spin);
+
       return;
     }
+
     if (b.chain && b.chain.length >= 2) {
       for (let i = 1; i < b.chain.length; i += 1) {
         const p0 = b.chain[i - 1];
         const p1 = b.chain[i];
+
         if (p0 && p1) {
           this.fx.battle.beam(p0.x, p0.y, p1.x, p1.y, 2, tint, "arc", now, importance);
         }
       }
+
       drawJitteredChain(g, b.chain, tint, REDUCED_MOTION.matches ? 0 : now);
+
       return;
     }
+
     if (b.weapon.singularity && !b.exploding) {
-      // SINGULARITY orb: pulsing filled core + ring (flight and collapse;
-      // the collapse vortex itself renders from the shared pulls entry).
       const r = 4 + Math.sin(now / 60) * 1.2;
       this.fx.battle.orbit(head.x, head.y, r + 7, tint, now * 0.006, false, importance);
       g.fillStyle(tint, 0.55).fillCircle(head.x, head.y, r * 0.6);
       g.lineStyle(1, tint, 0.95).strokeCircle(head.x, head.y, r + 2);
+
       return;
     }
+
     if (b.exploding) {
       this.fx.battle.orbit(head.x, head.y, b.explosionRadius, tint, 0, true, importance);
       g.lineStyle(1, tint, 1).strokeCircle(head.x, head.y, b.explosionRadius);
+
       return;
     }
+
     this.fx.battle.beam(
       tail.x,
       tail.y,
@@ -804,7 +870,7 @@ export class WorldView {
   }
 
   /** Classic vector death debris: white pixel squares radiating outward. */
-  splinterBurst(x: number, y: number, radius: number, count: number, now: number): void {
+  splinterBurst(x: number, y: number, radius: number, count: number, now: number) {
     for (let i = 0; i < count; i += 1) {
       this.splinters.push({
         angle: Math.random() * Math.PI * 2,
@@ -812,7 +878,6 @@ export class WorldView {
         dist: Math.random() * radius,
         originX: x,
         originY: y,
-        // legacy 0..1 px/tick
         speed: Math.random() * 60,
         x,
         y,
@@ -820,23 +885,23 @@ export class WorldView {
     }
   }
 
-  updateSplinters(dt: number, now: number): void {
+  updateSplinters(dt: number, now: number) {
     this.splinters = this.splinters.filter((s) => {
       s.dist += s.speed * dt;
       s.x = s.originX + Math.cos(s.angle) * s.dist;
       s.y = s.originY + Math.sin(s.angle) * s.dist;
+
       return now < s.diesAt && inWorld(s.x, s.y, 10);
     });
     const g = this.layers.splinterGfx;
     g.clear();
     g.fillStyle(0xff_ff_ff, 1);
+
     for (const s of this.splinters) {
       g.fillRect(s.x, s.y, SPLINTER_PX, SPLINTER_PX);
     }
   }
 
-  /** Hull grows + gains detail per level (1..3): L2 adds swept wings + a
-   *  cockpit; L3 adds an inner frame, a nose spike + wingtip nodes. */
   /**
    * TRAILER ONLY: how much of its authored size the pilot's own additive glow
    * keeps at this shot's zoom.
@@ -859,36 +924,36 @@ export class WorldView {
    * anyway. Outside trailer mode this is a constant 1 and every call site is
    * unchanged arithmetic.
    */
-  hullGlow(): number {
+  hullGlow() {
     if (!this.link.trailer) {
       return 1;
     }
-    // Quantised: three scenes lerp their zoom, and the trail's scale lives in
-    // the emitter CONFIG — re-parsing it every frame to chase a continuous
-    // ramp buys nothing the eye can see.
+
     return Math.min(1, Math.round(20 / this.scene.cameras.main.zoom) / 20);
   }
 
   /** Entity stroke width multiplier (qa-011). Zoom is static per viewport, so
    *  hulls built before a resize keep the old weight — the drift is <0.2px
    *  and enemies are short-lived; not worth a rebuild pass. */
-  strokeScale(): number {
+  strokeScale() {
     return PhaserMath.Clamp(STROKE_BASE / this.scene.cameras.main.zoom, STROKE_BASE, STROKE_MAX);
   }
 
-  private makeUfoGfx(): Phaser.GameObjects.Graphics {
+  private makeUfoGfx() {
     const g = this.scene.add.graphics().setDepth(6);
     g.lineStyle(this.strokeScale(), 0xff_ff_ff, 1);
     strokeClosed(g, UFO_OUTLINE);
     const { 2: p2, 3: p3, 6: p6, 7: p7 } = UFO_OUTLINE;
+
     if (p2 && p3 && p6 && p7) {
       g.lineBetween(p2.x, p2.y, p7.x, p7.y);
       g.lineBetween(p3.x, p3.y, p6.x, p6.y);
     }
+
     return g;
   }
 
-  makeEnemyGfx(kind: EnemyKind): Phaser.GameObjects.Graphics {
+  makeEnemyGfx(kind: EnemyKind) {
     const g = this.scene.add.graphics().setDepth(kind === "dreadnought" ? 8 : 7);
     const sw = this.strokeScale();
     g.lineStyle(enemyStrokeWeight(kind) * sw, ENEMY_SPECS[kind].tint, 1);
@@ -902,36 +967,37 @@ export class WorldView {
       true,
     );
     strokeClosed(g, pts);
+
     if (kind === "dreadnought") {
-      // Bridge dot + cross-struts so the capital ship reads as a boss.
       g.fillStyle(0xff_ff_ff, 0.9).fillCircle(10, 0, 5);
       g.lineStyle(sw, ENEMY_SPECS.dreadnought.tint, 0.7);
       g.lineBetween(-54, 0, 36, 0);
     }
+
     if (kind === "splitter") {
-      // Inner pentagram: connect every other vertex.
       for (let i = 0; i < 5; i += 1) {
         const a = pts[i];
         const b = pts[(i + 2) % 5];
+
         if (a && b) {
           g.lineBetween(a.x, a.y, b.x, b.y);
         }
       }
     }
+
     return g;
   }
 
-  /** Self-describing shells: weapon = hexagon + spokes; shield = double
-   *  hexagon + its halo glyph; booster = diamond + its effect glyph. */
-  private makeItemGfx(it: ItemState): Phaser.GameObjects.Graphics {
+  private makeItemGfx(it: ItemState) {
     const g = this.scene.add.graphics().setDepth(4);
     const tint = itemTint(it);
     g.lineStyle(1, tint, 1);
+
     if (it.kind === "booster") {
       strokeDiamond(g, 0, 0, 9);
       const kind = BOOSTER_KINDS[it.boosterIdx] ?? "repair";
+
       if (kind === "overdrive") {
-        // 3 stacked chevrons.
         for (let i = 0; i < 3; i += 1) {
           const y0 = -3 + i * 3;
           g.beginPath();
@@ -941,7 +1007,6 @@ export class WorldView {
           g.strokePath();
         }
       } else if (kind === "nitro") {
-        // Flame triangle.
         g.beginPath();
         g.moveTo(0, -4.5);
         g.lineTo(3, 3);
@@ -949,39 +1014,42 @@ export class WorldView {
         g.closePath();
         g.strokePath();
       } else if (kind === "repair") {
-        // Plus.
         g.lineBetween(-3, 0, 3, 0);
         g.lineBetween(0, -3, 0, 3);
       } else if (kind === "twin") {
-        // Two dots.
         g.fillStyle(tint, 1);
         g.fillCircle(-2.5, 0, 1.2);
         g.fillCircle(2.5, 0, 1.2);
       } else {
-        // MAGNET: a U.
         g.beginPath();
         g.arc(0, 0.5, 3, 0, Math.PI);
         g.strokePath();
         g.lineBetween(-3, 0.5, -3, -3.5);
         g.lineBetween(3, 0.5, 3, -3.5);
       }
+
       return g;
     }
+
     const outer = hexagonPoints(ITEM_DRAW_RADIUS);
     strokeClosed(g, outer);
+
     if (it.kind === "weapon") {
       for (let i = 0; i < 3; i += 1) {
         const a = outer[i];
         const b = outer[i + 3];
+
         if (a && b) {
           g.lineBetween(a.x, a.y, b.x, b.y);
         }
       }
+
       return g;
     }
+
     strokeClosed(g, hexagonPoints(6));
     const kind = SHIELD_MOD_KINDS[it.shieldIdx] ?? "overshield";
-    // Self-describing glyph: the halo shape the pickup grants.
+
     if (kind === "overshield") {
       strokeRegularPolygon(g, 0, 0, 3, 6, 0);
     } else if (kind === "reflect") {
@@ -998,18 +1066,18 @@ export class WorldView {
         g.strokePath();
       }
     } else if (kind === "siphon") {
-      // Double-ring dot.
       g.strokeCircle(0, 0, 3);
       g.fillStyle(tint, 1);
       g.fillCircle(0, 0, 1);
     } else {
-      // AEGIS: 4-dot ring.
       g.fillStyle(tint, 1);
+
       for (let i = 0; i < 4; i += 1) {
         const a0 = (Math.PI * 2 * i) / 4;
         g.fillCircle(Math.cos(a0) * 3, Math.sin(a0) * 3, 0.9);
       }
     }
+
     return g;
   }
 }

@@ -1,6 +1,5 @@
 import { WORLD_H, WORLD_W } from "../shared/constants";
 
-/** Fixed coastal weather volume, shared by surface fog and the sky bank. */
 const MARINE = {
   bayRx: 590,
   bayRz: 290,
@@ -26,25 +25,28 @@ export interface FogPoint {
   readonly z: number;
 }
 
-const smooth = (a: number, b: number, value: number): number => {
+const smooth = (a: number, b: number, value: number) => {
   const t = Math.max(0, Math.min(1, (value - a) / (b - a)));
+
   return t * t * (3 - 2 * t);
 };
 
 const ellipse = (x: number, z: number, cx: number, cz: number, rx: number, rz: number) => {
   const dx = (x - cx) / rx;
   const dz = (z - cz) / rz;
+
   return 1 - smooth(0.02, 1.1, dx * dx + dz * dz);
 };
 
 /** Density has no hard footprint edge. Gate towers emerge above the low bank. */
-export const marineDensity = (x: number, y: number, z: number): number => {
+export const marineDensity = (x: number, y: number, z: number) => {
   const gate = ellipse(x, z, MARINE.gateX, MARINE.gateZ, MARINE.gateRx, MARINE.gateRz);
   const bay = ellipse(x, z, MARINE.bayX, MARINE.bayZ, MARINE.bayRx, MARINE.bayRz);
   const west = 1 - smooth(MARINE.westFull, MARINE.westNone, x);
   const coverage = Math.max(gate * 0.92, bay * 0.48, west * 0.82);
   const westTop = 48 + 18 * west;
   const top = westTop + (36 - westTop) * gate;
+
   return coverage * (1 - smooth(MARINE.softBase, top, y));
 };
 
@@ -53,53 +55,59 @@ export const marineDensity = (x: number, y: number, z: number): number => {
  * fog this also veils a clear building seen THROUGH coastal air. The near
  * exclusion is a gameplay contract: the car and first road markings stay clear.
  */
-export const marineOpacity = (camera: FogPoint, target: FogPoint): number => {
+export const marineOpacity = (camera: FogPoint, target: FogPoint) => {
   const dx = target.x - camera.x;
   const dy = target.y - camera.y;
   const dz = target.z - camera.z;
   const distance = Math.hypot(dx, dy, dz);
+
   if (distance <= MARINE.near) {
     return 0;
   }
+
   let start = MARINE.near / distance;
   let end = 1;
+
   if (Math.abs(dy) < 0.0001) {
     if (camera.y >= MARINE.top) {
       return 0;
     }
   } else {
     const crossing = (MARINE.top - camera.y) / dy;
+
     if (dy > 0) {
       end = Math.min(end, crossing);
     } else {
       start = Math.max(start, crossing);
     }
   }
+
   const span = Math.max(0, end - start);
+
   if (span === 0) {
     return 0;
   }
-  // Keep the first interval local on long sky rays. Uniform samples across
-  // several kilometres can both skip the bank surrounding the camera.
+
   const firstSpan = Math.min(220 / distance, span * 0.5);
   const a = start + firstSpan * 0.5;
   const b = start + firstSpan + (span - firstSpan) * 0.5;
+
   const optical =
     (marineDensity(camera.x + dx * a, camera.y + dy * a, camera.z + dz * a) * firstSpan +
       marineDensity(camera.x + dx * b, camera.y + dy * b, camera.z + dz * b) * (span - firstSpan)) *
     distance *
     MARINE.extinction;
+
   return Math.min(
     MARINE.maxOpacity,
     (1 - Math.exp(-optical)) * smooth(MARINE.near, MARINE.nearFull, distance),
   );
 };
 
-const f = (n: number): string => n.toFixed(6);
+const f = (n: number) => n.toFixed(6);
 
 /** No texture reads, loops, noise or uniforms beyond built-in cameraPosition. */
-// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-export const MARINE_GLSL = /* glsl */ `
+export const MARINE_GLSL = `
 float sfMarineEllipse(vec2 p, vec2 c, vec2 radius) {
   vec2 q = (p - c) / radius;
   return 1.0 - smoothstep(0.02, 1.1, dot(q, q));
@@ -135,10 +143,7 @@ float sfMarineOpacity(vec3 camera, vec3 target) {
 }
 `;
 
-// A fog tint, never an emissive floor. This stays blue at night and warms with
-// sunset; neutral daylight lift vanishes with the source fog's luminance.
-// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-export const MARINE_COLOR_GLSL = /* glsl */ `
+export const MARINE_COLOR_GLSL = `
 vec3 sfMarineColor(vec3 color) {
   float lum = dot(color, vec3(0.2126, 0.7152, 0.0722));
   return mix(color, vec3(lum), 0.76) * (1.0 + 0.5 * lum);

@@ -7,7 +7,9 @@ import {
 } from "../../../src/world/sf-salesforce";
 
 type View = "whole" | "lobby" | "crown" | "grid";
+
 type Mode = "day" | "night" | "stripped";
+
 declare global {
   interface Window {
     __salesforceReview: {
@@ -20,47 +22,80 @@ declare global {
 }
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+
 renderer.setPixelRatio(Math.min(2, window.devicePixelRatio));
+
 renderer.setSize(window.innerWidth, window.innerHeight);
+
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
+
 renderer.toneMappingExposure = 1;
+
 renderer.shadowMap.enabled = true;
+
 renderer.shadowMap.type = THREE.PCFShadowMap;
+
 document.body.append(renderer.domElement);
+
 const scene = new THREE.Scene();
 const model = createSalesforceModel();
+
 scene.add(model);
+
 const pmrem = new THREE.PMREMGenerator(renderer);
+
 scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+
 scene.environmentIntensity = 0.4;
+
 pmrem.dispose();
+
 const key = new THREE.DirectionalLight(0xff_ff_ff, 2.2);
+
 key.position.set(15, 50, 25);
+
 key.castShadow = true;
+
 key.shadow.mapSize.set(2048, 2048);
+
 key.shadow.camera.left = -10;
+
 key.shadow.camera.right = 10;
+
 key.shadow.camera.top = 53;
+
 key.shadow.camera.bottom = -5;
+
 key.shadow.camera.far = 150;
+
 key.shadow.bias = -0.0002;
+
 key.shadow.normalBias = 0.035;
+
 scene.add(key);
+
 const fill = new THREE.HemisphereLight(0xe0_f0_fc, 0x81_87_8b, 1.5);
+
 scene.add(fill);
+
 const groundMat = new THREE.MeshStandardMaterial({ color: 0xc5_cb_cc, roughness: 1 });
 const ground = new THREE.Mesh(new THREE.PlaneGeometry(300, 300), groundMat);
+
 ground.rotation.x = -Math.PI / 2;
+
 ground.position.y = -0.015;
+
 ground.receiveShadow = true;
+
 scene.add(ground);
+
 const camera = new THREE.OrthographicCamera(-10, 10, 10, -10, 0.1, 300);
 const matte = new THREE.MeshStandardMaterial({ color: 0xb5_bc_c0, metalness: 0, roughness: 1 });
 
 const CENTER_Y: Record<View, number> = { crown: 45.2, grid: 26, lobby: 2, whole: 24.7 };
 const FRAME_HEIGHT: Record<View, number> = { crown: 12, grid: 10, lobby: 11, whole: 55 };
 
-const view = (target: View, mode: Mode = "day", angle = 28): void => {
+const view = (target: View, mode: Mode = "day", angle = 28) => {
   renderer.setSize(window.innerWidth, window.innerHeight);
   const centerY = CENTER_Y[target];
   const height = FRAME_HEIGHT[target];
@@ -80,25 +115,31 @@ const view = (target: View, mode: Mode = "day", angle = 28): void => {
   scene.environmentIntensity = night ? 0.15 : 0.4;
   groundMat.color.setHex(night ? 0x26_35_4a : 0xc5_cb_cc);
   setSalesforceNight(night ? 1 : 0);
+
   for (const [i, node] of model.children.entries()) {
     const part = getSalesforceKit()[i];
+
     if (node instanceof THREE.Mesh && part) {
       node.material = mode === "stripped" ? matte : part.mat;
     }
   }
+
   renderer.render(scene, camera);
 };
 
 window.__salesforceReview = {
   meshCount: model.children.length,
-  shadows(enabled: boolean): void {
+  shadows(enabled: boolean) {
     renderer.shadowMap.enabled = enabled;
+
     for (const part of getSalesforceKit()) {
       part.mat.needsUpdate = true;
     }
+
     matte.needsUpdate = true;
   },
   triangles: getSalesforceKit().reduce((sum, p) => sum + (p.geo.getIndex()?.count ?? 0) / 3, 0),
   view,
 };
+
 view("whole");

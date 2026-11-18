@@ -3,12 +3,6 @@ import type { Cell, Dir, PowerupKind, SharedState } from "../shared/constants";
 import { bombOn, burnWindows, computeBlastTiles, restable, search } from "./burn-map";
 import type { Burn, Reach } from "./burn-map";
 
-// What a playtester decides from. A decision model has no eyes, so this is the
-// board the way a player reads it — the four cells around them, where the
-// fire will be, what is worth walking to — plus, per intent, the next grid
-// step towards it. The steps are what the manifest's reflexes hold: a bomb and
-// the retreat out of its blast line are 175 ms apart, far inside one decision.
-
 /** The next input towards an intent. `wait` = hold still, `none` = no reachable target. */
 export type PlanStep = Dir | "bomb" | "wait" | "none";
 
@@ -49,33 +43,34 @@ export interface PlaytestViewInput {
   cooldownMs: number;
 }
 
-/** A blast line is at most this many steps from cover, well inside one fuse. */
 const ESCAPE_STEPS = 4;
 const FLEE_STEPS = 8;
 const TRAVEL_STEPS = 48;
-/** Slack around a burn window: the host resolves deaths on its 50 ms step and
- *  the step that leaves a tile lands a frame or two after it is decided. */
 const BURN_MARGIN_MS = 160;
 
 const nearest = <T extends { col: number; row: number }>(
   items: readonly T[],
   col: number,
   row: number,
-): T | null => {
+) => {
   let best: T | null = null;
   let bestDistance = Infinity;
+
   for (const item of items) {
     const distance = Math.abs(item.col - col) + Math.abs(item.row - row);
+
     if (distance < bestDistance) {
       best = item;
       bestDistance = distance;
     }
   }
+
   return best;
 };
 
-const crateTiles = (grid: Cell[][]): { col: number; row: number }[] => {
+const crateTiles = (grid: Cell[][]) => {
   const out: { col: number; row: number }[] = [];
+
   for (const [row, cells] of grid.entries()) {
     for (const [col, cell] of cells.entries()) {
       if (cell.kind === "crate") {
@@ -83,17 +78,19 @@ const crateTiles = (grid: Cell[][]): { col: number; row: number }[] => {
       }
     }
   }
+
   return out;
 };
 
-const stepOf = (reach: Reach | null, atTarget: PlanStep): PlanStep => {
+const stepOf: (reach: Reach | null, atTarget: PlanStep) => PlanStep = (reach, atTarget) => {
   if (!reach) {
     return "none";
   }
+
   return reach.first ?? atTarget;
 };
 
-export const playtestView = (input: PlaytestViewInput): PlaytestView => {
+export const playtestView: (input: PlaytestViewInput) => PlaytestView = (input) => {
   const { state, myId, col, row, now, stepMs, cooldownMs } = input;
   const stats = state.stats[myId] ?? baseStats();
   const liveBombs = Object.values(state.bombs);
@@ -105,30 +102,27 @@ export const playtestView = (input: PlaytestViewInput): PlaytestView => {
   const activeBombs = liveBombs.filter((bomb) => bomb.ownerId === myId).length;
   const bombReady = activeBombs < stats.bombs && !bombOn(state.bombs, col, row);
 
-  /** When the player would stand on a tile `steps` away, walking flat out. */
-  const arrival = (steps: number): number => now + cooldownMs + Math.max(0, steps - 1) * stepMs;
-  /** Crossing is fine while the fire is still a step away, or already out. */
-  const crossable =
-    (windows: Map<string, Burn>, start: number) =>
-    (key: string, steps: number): boolean => {
-      const burn = windows.get(key);
-      if (!burn) {
-        return true;
-      }
-      const enter = start + arrival(steps) - now;
-      return enter + stepMs + BURN_MARGIN_MS < burn.from || enter - BURN_MARGIN_MS > burn.to;
-    };
-  const clear = (key: string): boolean => !burns.has(key);
+  const arrival = (steps: number) => now + cooldownMs + Math.max(0, steps - 1) * stepMs;
 
-  /** What a bomb dropped on this tile would hit — only if its owner can still reach cover. */
-  const bombFrom = (
-    c: number,
-    r: number,
-    steps: number,
-  ): { crates: number; hitsBot: boolean } | null => {
+  const crossable = (windows: Map<string, Burn>, start: number) => (key: string, steps: number) => {
+    const burn = windows.get(key);
+
+    if (!burn) {
+      return true;
+    }
+
+    const enter = start + arrival(steps) - now;
+
+    return enter + stepMs + BURN_MARGIN_MS < burn.from || enter - BURN_MARGIN_MS > burn.to;
+  };
+
+  const clear = (key: string) => !burns.has(key);
+
+  const bombFrom = (c: number, r: number, steps: number) => {
     const placedAt = arrival(steps);
     const mine = { col: c, placedAt, range: stats.range, row: r };
     const after = burnWindows(state, [...liveBombs, mine]);
+
     const escape = search(
       state,
       { col: c, row: r },
@@ -136,10 +130,13 @@ export const playtestView = (input: PlaytestViewInput): PlaytestView => {
       restable(after),
       ESCAPE_STEPS,
     );
+
     if (!escape) {
       return null;
     }
+
     const { crates, tiles } = computeBlastTiles(state.grid, mine);
+
     return {
       crates: crates.filter((crate) => !burns.has(tileKey(crate.col, crate.row))).length,
       hitsBot: tiles.some((tile) => botTiles.has(tileKey(tile.col, tile.row))),
@@ -149,6 +146,7 @@ export const playtestView = (input: PlaytestViewInput): PlaytestView => {
   const atTarget: PlanStep = bombReady ? "bomb" : "wait";
   const from = { col, row };
   const flee = search(state, from, crossable(burns, now), restable(burns), FLEE_STEPS);
+
   const toCrate = search(
     state,
     from,
@@ -156,6 +154,7 @@ export const playtestView = (input: PlaytestViewInput): PlaytestView => {
     (c, r, _key, steps) => (bombFrom(c, r, steps)?.crates ?? 0) > 0,
     TRAVEL_STEPS,
   );
+
   const toBot = search(
     state,
     from,
@@ -163,6 +162,7 @@ export const playtestView = (input: PlaytestViewInput): PlaytestView => {
     (c, r, _key, steps) => bombFrom(c, r, steps)?.hitsBot === true,
     TRAVEL_STEPS,
   );
+
   const toPowerup = search(
     state,
     from,
@@ -170,31 +170,38 @@ export const playtestView = (input: PlaytestViewInput): PlaytestView => {
     (_c, _r, key) => state.powerups[key] !== undefined,
     TRAVEL_STEPS,
   );
+
   const bombHere = bombFrom(col, row, 0);
 
-  const cellView = (dir: Dir): CellView => {
+  const cellView: (dir: Dir) => CellView = (dir) => {
     const [dc, dr] = DIR_VECT[dir];
     const c = col + dc;
     const r = row + dr;
     const kind = state.grid[r]?.[c]?.kind ?? "wall";
+
     if (kind !== "empty") {
       return kind;
     }
+
     if (bombOn(state.bombs, c, r)) {
       return "bomb";
     }
+
     const key = tileKey(c, r);
     const burn = burns.get(key);
+
     if (!burn) {
       return "open";
     }
+
     return burn.from <= now ? "fire" : "danger";
   };
 
-  const offset = (tile: { col: number; row: number }): Offset => ({
+  const offset = (tile: { col: number; row: number }) => ({
     dx: tile.col - col,
     dy: tile.row - row,
   });
+
   const crate = nearest(crateTiles(state.grid), col, row);
   const bot = nearest(bots, col, row);
   const powerup = nearest(Object.values(state.powerups), col, row);
@@ -239,11 +246,11 @@ export class PlaytestScore {
   private blasts = new Set<string>();
   private deaths = new Set<string>();
 
-  get points(): number {
+  get points() {
     return this.crates + this.kills * 10;
   }
 
-  reset(): void {
+  reset() {
     this.crates = 0;
     this.kills = 0;
     this.grid = null;
@@ -251,31 +258,39 @@ export class PlaytestScore {
     this.deaths.clear();
   }
 
-  observe(state: SharedState, myId: string): void {
+  observe(state: SharedState, myId: string) {
     const mine = Object.values(state.blasts).filter((blast) => blast.id.startsWith(`x-b-${myId}-`));
+
     for (const blast of mine) {
       if (this.blasts.has(blast.id)) {
         continue;
       }
+
       for (const tile of blast.tiles) {
         const before = this.grid?.[tile.row]?.[tile.col]?.kind;
+
         if (before === "crate" && state.grid[tile.row]?.[tile.col]?.kind === "empty") {
           this.crates += 1;
         }
       }
     }
+
     for (const id of Object.keys(state.deaths)) {
       const rival = state.bots[id];
+
       if (this.deaths.has(id) || !rival) {
         continue;
       }
+
       const caught = mine.some((blast) =>
         blast.tiles.some((tile) => tile.col === rival.col && tile.row === rival.row),
       );
+
       if (caught) {
         this.kills += 1;
       }
     }
+
     this.grid = state.grid;
     this.blasts = new Set(Object.keys(state.blasts));
     this.deaths = new Set(Object.keys(state.deaths));

@@ -1,9 +1,3 @@
-// Pause for a phone. It is keyboard-only in the run (Escape via @repo/embed),
-// so without this a touch player can neither pause a descent nor reach the
-// pause panel's sound toggle. Reskinned in the hub's pixel language —
-// steel-blue border, night fill, teal press — over @repo/embed's shared
-// cluster, which owns the safe-area anchoring and the 44px hit targets.
-
 import { createTouchControls } from "@repo/embed";
 import type { TouchControls } from "@repo/embed";
 
@@ -26,7 +20,7 @@ const CSS = `
 let controls: TouchControls | null = null;
 
 /** Mount the cluster for a run. Idempotent while mounted. */
-export const mountTouchHud = (): void => {
+export const mountTouchHud = () => {
   controls ??= createTouchControls({
     className: "lf-touch",
     css: CSS,
@@ -35,7 +29,7 @@ export const mountTouchHud = (): void => {
 };
 
 /** The hub has nothing to freeze, so it carries no cluster at all. */
-export const unmountTouchHud = (): void => {
+export const unmountTouchHud = () => {
   controls?.destroy();
   controls = null;
 };

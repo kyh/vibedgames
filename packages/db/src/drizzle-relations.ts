@@ -1,10 +1,3 @@
-/**
- * The relational graph over the whole schema — every table, app and auth
- * alike. Drizzle 1.x builds `db.query.*` from this graph rather than from a
- * `schema` map, and the better-auth drizzle adapter resolves its tables
- * through it too, so the auth tables must be included even though none of
- * them declares a relation of its own.
- */
 import { defineRelations } from "drizzle-orm";
 
 import * as schema from "./drizzle-schema";
@@ -29,8 +22,6 @@ export const relations = defineRelations({ ...schema, ...schemaAuth }, (r) => ({
     user: r.one.user({ from: r.generation.userId, to: r.user.id }),
   },
   inviteCode: {
-    // Not `createdBy`: a relation may not share its name with a column of the
-    // same table, and `inviteCode.createdBy` is the FK column.
     creator: r.one.user({ from: r.inviteCode.createdBy, to: r.user.id }),
   },
   waitlist: {

@@ -1,19 +1,3 @@
-/**
- * Two validation layers, split by where they can actually run:
- *
- * 1. STRUCTURAL (server + client): the party server is one shared deployment
- *    serving every game's rooms, so it can never run per-game schemas — it
- *    enforces game-agnostic shape limits instead (`findStructuralIssue`,
- *    `MAX_MESSAGE_BYTES`). These constants live here so the server and SDK
- *    agree on the same limits.
- *
- * 2. GAME SCHEMAS (client only): game authors know their state's shape, so
- *    they register schemas on `MultiplayerClient` via `schemas` — validated
- *    before send (fail fast on your own bugs) and on receive (drop other
- *    clients' malformed data). Schemas use the Standard Schema interface
- *    (https://standardschema.dev), so zod v3.24+, valibot, arktype, or any
- *    compliant validator plugs in without this package depending on one.
- */
 import type { JsonRecord, JsonValue } from "./types.js";
 
 /**
@@ -71,40 +55,54 @@ export const FORBIDDEN_KEYS: ReadonlySet<string> = new Set([
  * check per element, keeping the walk proportional to container count, not
  * payload size. The 1 MiB message cap bounds total work.
  */
-export const findNestingIssue = (value: JsonValue, depth: number): string | null => {
+export const findNestingIssue: (value: JsonValue, depth: number) => string | null = (
+  value,
+  depth,
+) => {
   if (depth > MAX_STATE_DEPTH) {
     return `nesting exceeds ${MAX_STATE_DEPTH} levels`;
   }
+
   if (Array.isArray(value)) {
     for (const item of value) {
       if (!(item instanceof Object)) {
         continue;
       }
+
       const issue = findNestingIssue(item, depth + 1);
+
       if (issue) {
         return issue;
       }
     }
+
     return null;
   }
+
   if (value instanceof Object) {
     for (const key in value) {
       if (!Object.hasOwn(value, key)) {
         continue;
       }
+
       if (FORBIDDEN_KEYS.has(key)) {
         return `forbidden key "${key}"`;
       }
+
       const child = value[key];
+
       if (child === undefined || !(child instanceof Object)) {
         continue;
       }
+
       const issue = findNestingIssue(child, depth + 1);
+
       if (issue) {
         return issue;
       }
     }
   }
+
   return null;
 };
 
@@ -115,10 +113,11 @@ export const findNestingIssue = (value: JsonValue, depth: number): string | null
  * or null when the patch is acceptable. The party server runs this on every
  * `player_state_patch` before merging; a `state_patch` is ops (`readPatch`).
  */
-export const findStructuralIssue = (data: JsonValue): string | null => {
+export const findStructuralIssue: (data: JsonValue) => string | null = (data) => {
   if (data === null || Array.isArray(data) || !(data instanceof Object)) {
     return "patch must be a plain object";
   }
+
   return findNestingIssue(data, 1);
 };
 

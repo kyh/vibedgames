@@ -49,7 +49,6 @@ interface ModelChoice {
   model: string;
 }
 
-/** Curated model menu for the setup screen; --model covers anything else. */
 const MODEL_CHOICES: ModelChoice[] = [
   {
     description: "claude-fable-5 — highest craft",
@@ -85,56 +84,66 @@ const toneColor = {
   warn: color.warn,
 } satisfies Record<Tone, string>;
 
-const truncate = (s: string, width: number): string => {
+const truncate = (s: string, width: number) => {
   if (width <= 0) {
     return "";
   }
+
   return s.length > width ? `${s.slice(0, Math.max(0, width - 1))}…` : s;
 };
 
-/** Word-wrap into rows of at most `width`; continuations get a 2-col indent. */
-const wrapText = (text: string, width: number): string[] => {
+const wrapText = (text: string, width: number) => {
   if (width <= 4 || text.length <= width) {
     return [truncate(text, Math.max(1, width))];
   }
+
   const rows: string[] = [];
   let row = "";
+
   for (const word of text.split(" ")) {
     const cap = rows.length === 0 ? width : width - 2;
     const candidate = row ? `${row} ${word}` : word;
+
     if (candidate.length <= cap) {
       row = candidate;
       continue;
     }
+
     if (row) {
       rows.push(rows.length === 0 ? row : `  ${row}`);
     }
+
     let rest = word;
+
     while (rest.length > width - 2) {
       rows.push(`  ${rest.slice(0, width - 2)}`);
       rest = rest.slice(width - 2);
     }
+
     row = rest;
   }
+
   if (row) {
     rows.push(rows.length === 0 ? row : `  ${row}`);
   }
+
   return rows;
 };
 
-const fmtElapsed = (ms: number): string => {
+const fmtElapsed = (ms: number) => {
   const s = Math.max(0, Math.floor(ms / 1000));
+
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 };
 
-// Clock driver for the spinner / turn timers, ~4 fps. Handing frames the wall
-// clock they were drawn at keeps the time-derived text a pure function of props.
-const useNow = (): number => {
+const useNow = () => {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 250);
+
     return () => clearInterval(id);
   }, []);
+
   return now;
 };
 
@@ -147,7 +156,6 @@ interface PanelProps extends Pick<BoxProps, "position" | "left" | "top" | "flexG
   children: ReactNode;
 }
 
-/** A single-line bordered panel with a title in its top edge, which Ink's borders lack. */
 const Panel = ({
   title,
   bottomTitle,
@@ -158,6 +166,7 @@ const Panel = ({
   ...frame
 }: PanelProps) => {
   const fill = (used: number) => "─".repeat(Math.max(0, width - 2 - used));
+
   return (
     <Box {...frame} flexDirection="column" width={width} backgroundColor={color.bg}>
       <Text color={borderColor}>{`┌${title}${fill(title.length)}┐`}</Text>
@@ -212,14 +221,10 @@ const KeyBar = ({ keys, right }: { keys: { keys: string; label: string }[]; righ
   </Box>
 );
 
-// ─── setup screen pong ───────────────────────────────────────────────────────
-
 const PADDLE_H = 5;
-// one cell — drawn as a small square glyph
 const BALL_W = 1;
-const clampNum = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
+const clampNum = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
-/** A solid's cell rect on screen. */
 interface Rect {
   left: number;
   top: number;
@@ -233,22 +238,16 @@ interface PongState {
   rightY: number;
 }
 
-/**
- * Per-paddle character: a damped spring toward its target, each with its own
- * stiffness, anticipation, and idle drift, so the two never move in sync.
- */
 interface PaddleAi {
   y: number;
   v: number;
   stiffness: number;
   damping: number;
-  /** How far ahead of the ball (seconds of vy) this paddle aims. */
   anticipation: number;
   idleFreq: number;
   idlePhase: number;
 }
 
-/** Ball kinematics (`p*` is the previous tick's position) plus both paddles. */
 interface PongSim {
   left: PaddleAi;
   px: number;
@@ -261,16 +260,15 @@ interface PongSim {
   y: number;
 }
 
-/** Spin from where the ball met the paddle; the paddle's velocity drags it too. */
-const spinOff = (s: PongSim, p: PaddleAi): void => {
+const spinOff = (s: PongSim, p: PaddleAi) => {
   s.vy = clampNum(s.vy + (s.y - (p.y + PADDLE_H / 2)) * 3 + p.v * 0.4, -14, 14);
+
   if (Math.abs(s.vy) < 2.5) {
     s.vy = s.vy < 0 ? -2.5 : 2.5;
   }
 };
 
-/** Paddles: reflect the ball, like a real pong hit. */
-const bounceOffPaddles = (s: PongSim, leftX: number, rightX: number): void => {
+const bounceOffPaddles = (s: PongSim, leftX: number, rightX: number) => {
   if (
     s.vx < 0 &&
     s.x <= leftX + 1 &&
@@ -294,23 +292,21 @@ const bounceOffPaddles = (s: PongSim, leftX: number, rightX: number): void => {
   }
 };
 
-/**
- * Every visible solid (wordmark, setup card) reflects the ball. Bounds are
- * inflated by the ball size so its whole body collides, and the bounce axis
- * comes from where the ball came from — never penetration.
- */
-const bounceOffSolids = (s: PongSim, solids: readonly Rect[], top: number): void => {
+const bounceOffSolids = (s: PongSim, solids: readonly Rect[], top: number) => {
   for (const r of solids) {
     if (r.width <= 0) {
       continue;
     }
+
     const L = r.left - BALL_W;
     const R = r.left + r.width;
     const T = r.top - 1;
     const B = r.top + r.height;
+
     if (s.x <= L || s.x >= R || s.y <= T || s.y >= B) {
       continue;
     }
+
     if (s.px <= L) {
       s.x = L;
       s.vx = -Math.abs(s.vx);
@@ -318,6 +314,7 @@ const bounceOffSolids = (s: PongSim, solids: readonly Rect[], top: number): void
       s.x = R;
       s.vx = Math.abs(s.vx);
     }
+
     if (s.py <= T) {
       s.y = T;
       s.vy = -Math.abs(s.vy);
@@ -325,7 +322,7 @@ const bounceOffSolids = (s: PongSim, solids: readonly Rect[], top: number): void
       s.y = B;
       s.vy = Math.abs(s.vy);
     }
-    // Resized into a solid: eject above it.
+
     if (s.px > L && s.px < R && s.py > T && s.py < B) {
       s.y = Math.max(top, T);
       s.vy = -Math.abs(s.vy);
@@ -333,12 +330,7 @@ const bounceOffSolids = (s: PongSim, solids: readonly Rect[], top: number): void
   }
 };
 
-/**
- * A self-playing pong match around the setup screen: the ball bounces off the
- * field edges, the paddles, and every visible solid — the wordmark and the
- * NEW GAME card — whose rects are measured from the live layout.
- */
-const usePong = (width: number, height: number, solids: readonly Rect[]): PongState | null => {
+const usePong = (width: number, height: number, solids: readonly Rect[]) => {
   const sim = useRef<PongSim>({
     left: {
       anticipation: 0.35,
@@ -366,9 +358,9 @@ const usePong = (width: number, height: number, solids: readonly Rect[]): PongSt
     x: 8,
     y: 4,
   });
+
   const [state, setState] = useState<PongState | null>(null);
   const playable = width >= 50 && height >= 16;
-  // The tick reads the latest layout without restarting on every re-render.
   const solidsRef = useRef(solids);
   useEffect(() => {
     solidsRef.current = solids;
@@ -378,7 +370,9 @@ const usePong = (width: number, height: number, solids: readonly Rect[]): PongSt
     if (!playable) {
       return;
     }
+
     let last = Date.now();
+
     const id = setInterval(() => {
       const now = Date.now();
       const dt = Math.min(0.05, (now - last) / 1000);
@@ -386,22 +380,21 @@ const usePong = (width: number, height: number, solids: readonly Rect[]): PongSt
       const s = sim.current;
       s.t += dt;
       const top = 1;
-      // above the key bar
       const bottom = height - 3;
       const leftX = 2;
       const rightX = width - 3;
       const fieldMid = top + (bottom - top) / 2;
 
-      // Paddles: spring toward a lead on the ball when it is incoming, drift
-      // lazily around mid-field when it is not.
-      const drive = (p: PaddleAi, incoming: boolean): void => {
+      const drive = (p: PaddleAi, incoming: boolean) => {
         const target = incoming
           ? clampNum(s.y + s.vy * p.anticipation, top, bottom) - PADDLE_H / 2
           : fieldMid -
             PADDLE_H / 2 +
             Math.sin(s.t * p.idleFreq * Math.PI * 2 + p.idlePhase) * ((bottom - top) / 5);
+
         p.v += (p.stiffness * (target - p.y) - p.damping * p.v) * dt;
         p.y += p.v * dt;
+
         if (p.y < top) {
           p.y = top;
           p.v = 0;
@@ -410,6 +403,7 @@ const usePong = (width: number, height: number, solids: readonly Rect[]): PongSt
           p.v = 0;
         }
       };
+
       drive(s.left, s.vx < 0);
       drive(s.right, s.vx > 0);
 
@@ -418,7 +412,6 @@ const usePong = (width: number, height: number, solids: readonly Rect[]): PongSt
       s.x += s.vx * dt;
       s.y += s.vy * dt;
 
-      // Top/bottom walls.
       if (s.y <= top) {
         s.y = top;
         s.vy = Math.abs(s.vy);
@@ -429,7 +422,6 @@ const usePong = (width: number, height: number, solids: readonly Rect[]): PongSt
 
       bounceOffPaddles(s, leftX, rightX);
 
-      // Screen edges backstop a whiffed paddle so the rally never ends.
       if (s.x <= 0) {
         s.x = 0;
         s.vx = Math.abs(s.vx);
@@ -446,13 +438,13 @@ const usePong = (width: number, height: number, solids: readonly Rect[]): PongSt
         rightY: Math.round(s.right.y),
       });
     }, 16);
+
     return () => clearInterval(id);
   }, [playable, width, height]);
 
   return playable ? state : null;
 };
 
-/** Renders + animates the match. Isolated so the 60fps tick re-renders only this. */
 const PongLayer = ({
   width,
   height,
@@ -463,9 +455,11 @@ const PongLayer = ({
   solids: readonly Rect[];
 }) => {
   const pong = usePong(width, height, solids);
+
   if (!pong) {
     return null;
   }
+
   return (
     <>
       <Box
@@ -490,8 +484,6 @@ const PongLayer = ({
     </>
   );
 };
-
-// ─── setup screen ────────────────────────────────────────────────────────────
 
 interface FieldLabelProps {
   label: string;
@@ -519,7 +511,6 @@ interface FieldProps {
   hintTone: string;
   focused: boolean;
   width: number;
-  /** Above 1, the field is multiline and ENTER inserts a newline. */
   rows?: number;
   onInput: (value: string) => void;
   onSubmit?: () => void;
@@ -558,13 +549,9 @@ const Field = ({
   </Box>
 );
 
-// focus index of the multiline INSTRUCTIONS field
 const IDEA_FIELD = 1;
-// focus index of the model stepper
 const MODEL_FIELD = 3;
 
-// One of these seeds the INSTRUCTIONS placeholder each launch — game-level
-// one-liners (genre + subject + twist), the altitude we want ideas pitched at.
 const IDEA_EXAMPLES = [
   "a cozy roguelike about beekeeping",
   "a rhythm game where you conduct thunderstorms",
@@ -588,42 +575,42 @@ const IDEA_EXAMPLES = [
   "a dating sim for retired video game villains",
 ] as const;
 
-const randomIdeaExample = (): string =>
+const randomIdeaExample = () =>
   IDEA_EXAMPLES[Math.floor(Math.random() * IDEA_EXAMPLES.length)] ?? IDEA_EXAMPLES[0];
 
-/** Live hint under FOLDER: what pointing there would do. */
 const dirHintFor = (
   controller: AppController,
   dirValue: string,
   dirPath: string,
   adopting: boolean,
-): string => {
+) => {
   if (!dirValue) {
     return `point at a project to build on it — new games land in ${controller.defaultDirLabel()}`;
   }
+
   if (!existsSync(dirPath)) {
     return "folder will be created";
   }
+
   return adopting
     ? "✓ existing project detected — the agent builds on what's there"
     : "empty folder — the agent starts from scratch";
 };
 
-/** Live hint under SLUG: the derived deploy identity when left blank. */
-const slugHintFor = (slug: string, preview: string | null): string => {
+const slugHintFor = (slug: string, preview: string | null) => {
   if (slug.trim()) {
     return preview
       ? `deploys to ${preview}.vibedgames.com`
       : "invalid — lowercase letters, digits, hyphens";
   }
+
   return preview ? `auto: ${preview}.vibedgames.com` : "derived from the folder or instructions";
 };
 
-/** A measured box's rect, offset by its parent's position on screen. */
 const rectIn = (
   parent: { left: number; top: number },
   box: { left: number; top: number; width: number; height: number },
-): Rect => ({
+) => ({
   height: box.height,
   left: parent.left + box.left,
   top: parent.top + box.top,
@@ -647,8 +634,7 @@ const SetupScreen = ({
   const [idea, setIdea] = useState(prefill.idea);
   const [dir, setDir] = useState(prefill.dir);
   const [focus, setFocus] = useState(0);
-  // The launch flags are always choice 0, so "don't touch it" keeps them; the
-  // curated list follows (minus any duplicate of the launch combo).
+
   const modelChoices = useMemo<[ModelChoice, ...ModelChoice[]]>(
     () => [
       {
@@ -661,12 +647,11 @@ const SetupScreen = ({
     ],
     [prefill.model, prefill.runner],
   );
+
   const [modelIdx, setModelIdx] = useState(0);
   const ideaExample = useMemo(() => randomIdeaExample(), []);
   const choice = modelChoices[modelIdx] ?? modelChoices[0];
 
-  // Ink reports each box's position relative to its parent; the title and card
-  // sit inside one centered column, itself a child of the full-screen root.
   const columnRef = useRef<DOMElement>(null);
   const titleRef = useRef<DOMElement>(null);
   const cardRef = useRef<DOMElement>(null);
@@ -686,9 +671,7 @@ const SetupScreen = ({
       setFocus((f) => (f + 3) % 4);
     } else if (key.tab) {
       setFocus((f) => (f + 1) % 4);
-    }
-    // On the MODEL stepper, up/down cycle the choice instead of moving fields.
-    else if (key.downArrow && focus === MODEL_FIELD) {
+    } else if (key.downArrow && focus === MODEL_FIELD) {
       setModelIdx((i) => (i + 1) % modelChoices.length);
     } else if (key.upArrow && focus === MODEL_FIELD) {
       setModelIdx((i) => (i + modelChoices.length - 1) % modelChoices.length);
@@ -696,9 +679,7 @@ const SetupScreen = ({
       setFocus((f) => (f + 1) % 4);
     } else if (key.upArrow && focus !== IDEA_FIELD) {
       setFocus((f) => (f + 3) % 4);
-    }
-    // ENTER in a text field is the field's own submit; the stepper starts here.
-    else if (key.return && focus === MODEL_FIELD) {
+    } else if (key.return && focus === MODEL_FIELD) {
       submit();
     }
   });
@@ -720,13 +701,12 @@ const SetupScreen = ({
     runner: prefill.runner,
     slug,
   });
+
   const slugHint = slugHintFor(slug, preview);
   const slugHintTone = slug.trim() && !preview ? color.warn : color.faint;
 
   const formWidth = Math.min(64, Math.max(40, width - 8));
-  // Inside the card's border and its two-column padding on each side.
   const fieldWidth = formWidth - 6;
-  // The form, subtitle, and key bar take 26 rows; the wordmark adds 7.
   const showWordmark = height >= 33 && width >= 66;
   const modelFocused = focus === MODEL_FIELD;
 
@@ -848,16 +828,15 @@ const SetupScreen = ({
   );
 };
 
-// ─── dashboard ───────────────────────────────────────────────────────────────
-
-/** The header's run-status dot and label. */
 const runStatus = (running: boolean, stopping: boolean, paused: boolean) => {
   if (!running) {
     return { dot: color.faint, label: "STOPPED" };
   }
+
   if (stopping) {
     return { dot: color.warn, label: "STOPPING" };
   }
+
   return paused ? { dot: color.warn, label: "PAUSED" } : { dot: color.ok, label: "RUNNING" };
 };
 
@@ -866,6 +845,7 @@ const Header = ({ snapshot, width }: { snapshot: Snapshot; width: number }) => {
   const status = runStatus(running, stopping, paused);
   const idea = setup?.idea || "(existing project)";
   const left = 16 + (setup?.slug.length ?? 0);
+
   return (
     <Box
       flexDirection="row"
@@ -898,23 +878,26 @@ const Header = ({ snapshot, width }: { snapshot: Snapshot; width: number }) => {
   );
 };
 
-/** How this run publishes: off, automatic, approved-and-waiting, or gated. */
 const deployStatus = (setup: Snapshot["setup"], approvalPending: boolean) => {
   if (setup?.noShip) {
     return { fg: color.faint, text: "DEPLOY OFF (--skip-ship)" };
   }
+
   if (setup?.autoDeploy) {
     return { fg: color.warn, text: "DEPLOY AUTO" };
   }
+
   if (approvalPending) {
     return { fg: color.accent, text: "APPROVAL PENDING — ships at the next release point" };
   }
+
   return { fg: color.dim, text: "DEPLOY GATED — [A] approves one release" };
 };
 
 const StatusRow = ({ snapshot }: { snapshot: Snapshot }) => {
   const { setup, state, approvalPending } = snapshot;
   const deploy = deployStatus(setup, approvalPending);
+
   return (
     <Box flexDirection="row" paddingLeft={1} paddingRight={1}>
       <Text color={color.faint}>PHASE </Text>
@@ -931,11 +914,12 @@ const StatusRow = ({ snapshot }: { snapshot: Snapshot }) => {
   );
 };
 
-/** Feed lines expanded to display rows (wrapped or truncated), oldest first. */
 const feedRows = (feed: readonly FeedLine[], width: number) => {
   const rows: { key: string; tone: Tone; text: string; bold: boolean }[] = [];
+
   for (const line of feed) {
     const bold = line.tone === "marker";
+
     if (line.tone === "text") {
       for (const [i, text] of wrapText(line.text, width).entries()) {
         rows.push({ bold, key: `${line.id}:${i}`, text, tone: line.tone });
@@ -944,13 +928,10 @@ const feedRows = (feed: readonly FeedLine[], width: number) => {
       rows.push({ bold, key: `${line.id}`, text: truncate(line.text, width), tone: line.tone });
     }
   }
+
   return rows;
 };
 
-/**
- * The feed, pinned to its newest line until scrolled up with the arrows or
- * PgUp/PgDn; scrolling back to the bottom pins it again.
- */
 const ActivityPanel = ({
   snapshot,
   width,
@@ -1012,11 +993,11 @@ const ActivityPanel = ({
   );
 };
 
-/** Done, then ship-stopper, then everything else. */
-const glyphColor = (item: BacklogItem): string => {
+const glyphColor = (item: BacklogItem) => {
   if (item.done) {
     return color.ok;
   }
+
   return item.priority <= 1 ? color.err : color.accent;
 };
 
@@ -1024,6 +1005,7 @@ const BacklogRow = ({ item, width }: { item: BacklogItem; width: number }) => {
   const glyph = item.done ? "✓" : "▸";
   const glyphFg = glyphColor(item);
   const tag = item.type ? `[${item.type}] ` : "";
+
   return (
     <Box flexDirection="row">
       <Text color={glyphFg}>{`${glyph} `}</Text>
@@ -1046,6 +1028,7 @@ const BacklogPanel = ({
   const done = backlog.filter((b) => b.done).length;
   const visible = backlog.slice(0, Math.max(1, maxRows));
   const inner = width - 4;
+
   return (
     <Panel
       title=" BACKLOG "
@@ -1072,6 +1055,7 @@ const DirectiveRow = ({ directive }: { directive: string | null }) => {
   if (!directive) {
     return null;
   }
+
   return (
     <Box flexDirection="row" paddingLeft={1} paddingRight={1}>
       <Text color={color.accentDim}>◈ DIRECTIVE </Text>
@@ -1088,6 +1072,7 @@ const CheckpointBar = ({
   now: number;
 }) => {
   const left = Math.max(0, Math.ceil((checkpoint.deadline - now) / 1000));
+
   return (
     <Box flexDirection="row" paddingLeft={1} paddingRight={1}>
       <Text bold color={color.warn}>
@@ -1101,25 +1086,29 @@ const CheckpointBar = ({
   );
 };
 
-/** What the turn bar says when no subagent is mid-turn. */
-const idleMessage = (running: boolean, stopping: boolean): string => {
+const idleMessage = (running: boolean, stopping: boolean) => {
   if (!running) {
     return "stopped — [ENTER] resumes from the saved phase";
   }
+
   return stopping ? "stopping — waiting for the current step to wrap up" : "between steps…";
 };
 
 const TurnBar = ({ snapshot, now }: { snapshot: Snapshot; now: number }) => {
   const { turn, running, stopping } = snapshot;
+
   if (!turn) {
     const msg = idleMessage(running, stopping);
+
     return (
       <Box paddingLeft={1}>
         <Text color={running ? color.dim : color.faint}>{msg}</Text>
       </Box>
     );
   }
+
   const spinner = SPINNER[Math.floor(now / 250) % SPINNER.length];
+
   return (
     <Box flexDirection="row" paddingLeft={1} paddingRight={1}>
       <Text color={color.accent}>{`${spinner} `}</Text>
@@ -1135,12 +1124,7 @@ const TurnBar = ({ snapshot, now }: { snapshot: Snapshot; now: number }) => {
   );
 };
 
-/** The dashboard's key bar for the run's current state. */
-const keyHints = (
-  running: boolean,
-  stopping: boolean,
-  paused: boolean,
-): { keys: string; label: string }[] => {
+const keyHints = (running: boolean, stopping: boolean, paused: boolean) => {
   if (!running) {
     return [
       { keys: "ENTER", label: "RESUME" },
@@ -1149,9 +1133,11 @@ const keyHints = (
       { keys: "Q", label: "EXIT" },
     ];
   }
+
   if (stopping) {
     return [{ keys: "Q", label: "FORCE QUIT" }];
   }
+
   return [
     { keys: "A", label: "APPROVE" },
     { keys: "S", label: "STOP" },
@@ -1177,7 +1163,7 @@ const Dashboard = ({
   const [steering, setSteering] = useState(false);
   const [steerText, setSteerText] = useState("");
 
-  const submitSteer = (): void => {
+  const submitSteer = () => {
     controller.redirect(steerText);
     setSteerText("");
     setSteering(false);
@@ -1188,9 +1174,10 @@ const Dashboard = ({
       if (key.escape) {
         setSteering(false);
       }
-      // the overlay input owns every other key
+
       return;
     }
+
     if ((key.ctrl && input === "c") || input === "q") {
       controller.quit();
     } else if (input === "S") {
@@ -1277,8 +1264,6 @@ const Dashboard = ({
   );
 };
 
-// ─── root ────────────────────────────────────────────────────────────────────
-
 export const App = ({
   store,
   controller,
@@ -1302,5 +1287,6 @@ export const App = ({
       />
     );
   }
+
   return <Dashboard snapshot={snapshot} controller={controller} width={width} height={height} />;
 };

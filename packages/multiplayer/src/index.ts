@@ -1,19 +1,33 @@
 export { MultiplayerClient } from "./client.js";
+
 export type { MultiplayerClientOptions, MultiplayerSnapshot, TickClock } from "./client.js";
+
 export { ServerClock } from "./server-clock.js";
 
 export { FixedRate } from "./fixed-rate.js";
+
 export { Interpolator, lerp, lerpAngle } from "./interpolation.js";
+
 export type { InterpolatorOptions } from "./interpolation.js";
+
 export { RemoteClock } from "./remote-clock.js";
+
 export type { RemoteClockOptions, SenderClock } from "./remote-clock.js";
+
 export { netStats } from "./net-stats.js";
+
 export type { NetClientInfo, NetProbe, NetStats } from "./net-stats.js";
+
 export { Reconciler } from "./prediction.js";
+
 export type { Correction, ReconcilerOptions } from "./prediction.js";
+
 export { applyPatch, diffState, readPatch } from "./patch.js";
+
 export type { PatchOp, PatchSegment } from "./patch.js";
+
 export { isLobbyName, listRooms, quickMatch } from "./lobby.js";
+
 export type { LobbyOptions } from "./lobby.js";
 
 export type {
@@ -36,6 +50,7 @@ export type {
   TickInfo,
   TickSync,
 } from "./types.js";
+
 export {
   EVICTION_TIMEOUT_MS,
   HEARTBEAT_INTERVAL_MS,
@@ -67,4 +82,5 @@ export type {
   StandardSchemaIssue,
   StandardSchemaResult,
 } from "./validation.js";
+
 export { findStructuralIssue, MAX_MESSAGE_BYTES, MAX_STATE_DEPTH } from "./validation.js";

@@ -1,5 +1,3 @@
-// The stock pause overlay, fed the game's controls and a short how-to-play.
-
 import { createPauseOverlay } from "@repo/embed";
 
 import { isMuted, setMuted } from "./audio/sfx";

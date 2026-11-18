@@ -5,6 +5,7 @@ import type { CollectionEntry, CollectionPage } from "../systems/collections";
 import "./journal.css";
 
 export type BagPage = "inventory" | "journal";
+
 interface JournalActions {
   page: (page: BagPage) => void;
   close: () => void;
@@ -14,8 +15,10 @@ const element = <K extends keyof HTMLElementTagNameMap>(tag: K, className: strin
   const node = document.createElement(tag);
   node.className = className;
   node.textContent = text;
+
   return node;
 };
+
 const button = (text: string, action: () => void) => {
   const node = element("button", "farm-bag-button", text);
   node.type = "button";
@@ -23,15 +26,15 @@ const button = (text: string, action: () => void) => {
     event.stopPropagation();
     action();
   });
+
   return node;
 };
 
-/** Native navigation around the existing Phaser inventory. This view observes
- * personal discoveries; it never changes inventory, collection or clock state. */
-const entrySection = (title: string, entries: CollectionEntry[]): HTMLElement => {
+const entrySection = (title: string, entries: CollectionEntry[]) => {
   const section = element("section", "farm-journal-group");
   section.append(element("h3", "", title));
   const list = element("ul", "farm-journal-list");
+
   for (const entry of entries) {
     const row = element("li", "farm-journal-entry");
     row.dataset.found = String(entry.discovered);
@@ -50,7 +53,9 @@ const entrySection = (title: string, entries: CollectionEntry[]): HTMLElement =>
     );
     list.append(row);
   }
+
   section.append(list);
+
   return section;
 };
 
@@ -99,21 +104,25 @@ export class JournalView {
     head.append(this.heading, this.progress);
     const tabs = element("nav", "farm-journal-seasons");
     tabs.setAttribute("aria-label", "Journal season");
+
     for (const tabSeason of SEASONS) {
       const tab = button(seasonName(tabSeason), () => {
         this.season = tabSeason;
         this.refresh();
         this.scroll.scrollTop = 0;
       });
+
       tab.dataset.season = tabSeason;
       this.seasons.set(tabSeason, tab);
       tabs.append(tab);
     }
+
     const explanation = element(
       "p",
       "farm-journal-note",
       "Harvest or catch these in their season. Finds stay recorded across years.",
     );
+
     this.scroll.tabIndex = 0;
     this.scroll.setAttribute("role", "region");
     this.scroll.setAttribute("aria-label", "Seasonal crop and fish checklist");
@@ -148,20 +157,21 @@ export class JournalView {
     this.inventoryButton.focus({ preventScroll: true });
   }
 
-  get page(): BagPage {
+  get page() {
     return this.selectedPage;
   }
 
-  setInventoryBounds(left: number, top: number, width: number): void {
+  setInventoryBounds(left: number, top: number, width: number) {
     this.root.style.setProperty("--bag-left", `${left}px`);
     this.root.style.setProperty("--bag-top", `${top}px`);
     this.root.style.setProperty("--bag-width", `${width}px`);
   }
 
-  private selectPage(page: BagPage): void {
+  private selectPage(page: BagPage) {
     if (this.destroyed) {
       return;
     }
+
     this.selectedPage = page;
     this.root.dataset.page = page;
     this.panel.hidden = page !== "journal";
@@ -171,60 +181,74 @@ export class JournalView {
     this.refresh();
   }
 
-  refresh(): void {
+  refresh() {
     if (this.destroyed || this.page !== "journal") {
       return;
     }
+
     const page = this.readPage(this.season);
     const signature = `${page.season}:${page.entries.map((entry) => Number(entry.discovered)).join("")}`;
+
     if (signature === this.signature) {
       return;
     }
+
     this.signature = signature;
     this.heading.textContent = `${seasonName(page.season)} findings`;
     this.progress.textContent = `${page.discovered} / ${page.total} found${page.complete ? " · Collection complete" : ""}`;
     this.progress.classList.toggle("is-complete", page.complete);
+
     for (const [season, tab] of this.seasons) {
       tab.setAttribute("aria-pressed", String(season === page.season));
     }
+
     const crops = page.entries.filter((entry) => entry.item.kind === "produce");
     const fish = page.entries.filter((entry) => entry.item.kind === "fish");
     const sections: HTMLElement[] = [];
+
     if (crops.length > 0) {
       sections.push(entrySection("In the fields", crops));
     }
+
     if (fish.length > 0) {
       sections.push(entrySection("From the water", fish));
     }
+
     this.scroll.classList.toggle("is-winter", crops.length === 0);
+
     if (crops.length === 0) {
       sections.unshift(
         element("p", "farm-journal-winter", "Winter fields rest. There are still fish to find."),
       );
     }
+
     this.scroll.replaceChildren(...sections);
   }
 
-  private onKeyDown = (event: KeyboardEvent): void => {
-    // M keeps its existing sound shortcut. Other game actions stay out of the
-    // focused native controls; default Enter/Space activation is preserved.
+  private onKeyDown = (event: KeyboardEvent) => {
     if (event.key.toLowerCase() === "m") {
       return;
     }
+
     event.stopPropagation();
+
     if (event.key === "Escape" || event.key.toLowerCase() === "i") {
       event.preventDefault();
+
       if (!event.repeat) {
         this.closeKey = event.key.toLowerCase();
       }
     } else if (event.key === "Tab") {
       const targets: HTMLElement[] = [this.inventoryButton, this.journalButton, this.closeButton];
+
       if (this.page === "journal") {
         targets.push(...this.seasons.values(), this.scroll);
       }
+
       const active = document.activeElement;
       const index = active instanceof HTMLElement ? targets.indexOf(active) : -1;
       const next = event.shiftKey ? index - 1 : index + 1;
+
       if (index === -1 || next < 0 || next >= targets.length) {
         event.preventDefault();
         (event.shiftKey ? targets.at(-1) : targets[0])?.focus({ preventScroll: true });
@@ -232,14 +256,14 @@ export class JournalView {
     }
   };
 
-  private onKeyUp = (event: KeyboardEvent): void => {
+  private onKeyUp = (event: KeyboardEvent) => {
     const key = event.key.toLowerCase();
+
     if (key === "escape" || key === "i") {
-      // The opening I release is not a second close. Dismiss on a fresh pair
-      // so neither its repeat nor release can reopen the underlying scene.
       if (this.closeKey !== key) {
         return;
       }
+
       event.stopPropagation();
       event.preventDefault();
       this.closeKey = null;
@@ -247,19 +271,20 @@ export class JournalView {
     } else if (key === "enter" || key === " ") {
       event.stopPropagation();
     }
-    // Movement key releases may reach Phaser to neutralize pre-open holds.
   };
 
-  destroy(restoreFocus = true): void {
+  destroy(restoreFocus = true) {
     if (this.destroyed) {
       return;
     }
+
     this.destroyed = true;
     document.removeEventListener("keydown", this.onKeyDown, true);
     document.removeEventListener("keyup", this.onKeyUp, true);
     this.unseal();
     this.root.remove();
     document.body.classList.remove("farm-inventory-open");
+
     if (restoreFocus && this.priorFocus instanceof HTMLElement && this.priorFocus.isConnected) {
       this.priorFocus.focus({ preventScroll: true });
     }

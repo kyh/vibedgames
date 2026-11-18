@@ -13,9 +13,11 @@ const rgba = () => inspectAseprite("rgba.aseprite", sampleRgbaFile());
 
 const boundsOf = (r: ReturnType<typeof inspectAseprite>) => {
   const cel = must(r.frames[0]).chunks.find((c) => c.type === "cel");
+
   if (cel?.type !== "cel") {
     throw new Error("expected a cel chunk");
   }
+
   return cel.data.decodedBounds;
 };
 
@@ -28,7 +30,6 @@ test("reads the file header", () => {
     frames: 2,
     grid: { h: 16, w: 16, x: -2, y: -3 },
     height: 8,
-    // A stored count of zero means the full 256-entry palette.
     numColors: 256,
     pixelRatio: { h: 1, w: 1 },
     speedDeprecatedMs: 120,
@@ -40,7 +41,6 @@ test("reads the file header", () => {
 test("a zero frame duration falls back to the file-wide speed", () => {
   const report = rgba();
   assert.deepEqual(report.timeline, { frameMs: [100, 120], totalMs: 220 });
-  // The raw value is preserved; only the timeline substitutes.
   assert.equal(must(report.frames[1]).durationMs, 0);
 });
 
@@ -71,7 +71,6 @@ test("user data attaches to the object that precedes it", () => {
     visible: true,
     weight: 0.125,
   });
-  // The second layer got no user data of its own.
   assert.equal(must(report.layers[1]).userData, undefined);
 });
 
@@ -98,7 +97,6 @@ test("reads every cel type", () => {
   assert.deepEqual([compressed.x, compressed.y, compressed.w, compressed.h], [2, 1, 4, 4]);
   assert.equal(Number.isFinite(compressed.compressedBytes), true);
 
-  // Raw pixels are measured, never copied into the report.
   const raw = must(cels[3]).data;
   assert.equal(raw.rawBytes, 2 * 2 * 4);
   assert.equal(Object.hasOwn(raw, "pixels"), false);
@@ -118,16 +116,13 @@ test("decoding cels infers tight bounds and tilemap summaries", () => {
   const report = inspectAseprite("rgba.aseprite", sampleRgbaFile(), { decodeCels: true });
   const cels = report.frames.flatMap((f) => f.chunks.filter((c) => c.type === "cel"));
 
-  // A 2×2 opaque square at (1,1) inside a 4×4 cel.
   assert.deepEqual(must(cels[0]).data.decodedBounds, { h: 2, w: 2, x: 1, y: 1 });
 
-  // One of the four tiles carries the X-flip bit; tile id 0 is not a tile.
   assert.deepEqual(must(cels[1]).data.decodedTilemapSummary, {
     flippedTiles: 1,
     nonZeroUniqueTileIds: 3,
   });
 
-  // The linked cel borrows the target frame's decoded bounds and dimensions.
   const linked = must(cels[2]).data;
   assert.equal(linked.celType, 1);
   assert.deepEqual(linked.decodedBounds, { h: 2, w: 2, x: 1, y: 1 });
@@ -136,6 +131,7 @@ test("decoding cels infers tight bounds and tilemap summaries", () => {
 
 test("without --decode-cels nothing is decompressed", () => {
   const cels = rgba().frames.flatMap((f) => f.chunks.filter((c) => c.type === "cel"));
+
   for (const cel of cels) {
     assert.equal(cel.data.decodedBounds, undefined);
     assert.equal(cel.data.decodedTilemapSummary, undefined);
@@ -145,14 +141,13 @@ test("without --decode-cels nothing is decompressed", () => {
 test("indexed transparency is the declared index, not alpha", () => {
   const bytes = sampleIndexedFile();
   const plain = inspectAseprite("indexed.aseprite", bytes, { decodeCels: true });
+
   const flagged = inspectAseprite("indexed.aseprite", bytes, {
     decodeCels: true,
     treatIndex0Transparent: true,
   });
 
-  // Index 2 is transparent, so the index-0 background still counts as drawn.
   assert.deepEqual(boundsOf(plain), { h: 4, w: 4, x: 0, y: 0 });
-  // Opting index 0 in leaves only the index-3 square.
   assert.deepEqual(boundsOf(flagged), { h: 2, w: 2, x: 2, y: 2 });
 });
 
@@ -178,11 +173,14 @@ test("a fully transparent cel has no bounds", () => {
     height: 4,
     width: 4,
   });
+
   const report = inspectAseprite("blank.aseprite", empty, { decodeCels: true });
   const chunk = must(must(report.frames[0]).chunks[0]);
+
   if (chunk.type !== "cel") {
     throw new Error("expected a cel chunk");
   }
+
   assert.equal(chunk.data.decodedBounds, null);
 });
 
@@ -198,8 +196,6 @@ test("palette entries are previewed but all are consumed", () => {
     { rgba: [220, 60, 40, 255] },
   ]);
 
-  // Truncating the preview must not desynchronise the reader: named entries
-  // past the cut still have their names consumed.
   const clipped = inspectAseprite("indexed.aseprite", bytes, { paletteEntries: 1 });
   assert.equal(must(clipped.palettes[0]).entriesPreviewCount, 1);
   assert.equal(must(clipped.palettes[0]).changedCount, 4);
@@ -235,7 +231,6 @@ test("slices, tilesets and external files are read", () => {
 test("unknown chunks are skipped by their declared size", () => {
   const report = rgba();
   assert.deepEqual(report.unknownChunks, [{ size: 18, type: 0x00_04 }]);
-  // Everything after the unknown chunk still parsed, so the skip was exact.
   assert.equal(must(report.frames[1]).chunks.length, 2);
 });
 
@@ -283,7 +278,6 @@ test("bounds inference rejects a payload of the wrong size", () => {
 });
 
 test("grayscale transparency reads the alpha byte", () => {
-  // value/alpha pairs: only the second pixel is opaque.
   const pixels = Uint8Array.from([9, 0, 9, 255, 9, 0, 9, 0]);
   assert.deepEqual(inferBoundsFromPixels(pixels, 2, 2, 16, 0, false), {
     h: 1,

@@ -1,8 +1,3 @@
-// Pooled particles on a single InstancedMesh — lock dust + line-clear bursts.
-// Each burst carries a colour; particles shrink to nothing and fade toward the
-// background tone, so they dissolve cleanly on the dark backdrop. One pool,
-// preallocated, no per-event allocation (adapted from pong's pool).
-
 import {
   Color,
   DynamicDrawUsage,
@@ -58,6 +53,7 @@ export class ParticlePool {
     this.mesh.instanceMatrix.setUsage(DynamicDrawUsage);
     this.mesh.count = 0;
     this.mesh.frustumCulled = false;
+
     for (let i = 0; i < max; i += 1) {
       this.pool.push({
         age: 0,
@@ -70,15 +66,18 @@ export class ParticlePool {
       });
       this.mesh.setColorAt(i, BG_COLOR);
     }
+
     scene.add(this.mesh);
   }
 
-  burst(opts: BurstOptions): void {
+  burst(opts: BurstOptions) {
     for (let i = 0; i < opts.count; i += 1) {
       const p = this.take();
+
       if (!p) {
         return;
       }
+
       const theta = Math.random() * Math.PI * 2;
       const phi = Math.acos(2 * Math.random() - 1);
       const speed = opts.speedMin + Math.random() * (opts.speedMax - opts.speedMin);
@@ -96,27 +95,34 @@ export class ParticlePool {
     }
   }
 
-  update(dt: number): void {
-    // Idle pool: nothing live and the final zero-count flush already happened.
+  update(dt: number) {
     if (this.live === 0 && this.mesh.count === 0) {
       return;
     }
+
     let i = 0;
+
     while (i < this.live) {
       const p = this.pool[i];
+
       if (!p) {
         break;
       }
+
       p.age += dt;
+
       if (p.age >= p.life) {
         this.live -= 1;
         const last = this.pool[this.live];
+
         if (last) {
           this.pool[this.live] = p;
           this.pool[i] = last;
         }
+
         continue;
       }
+
       p.vel.y -= p.gravity * dt;
       p.pos.addScaledVector(p.vel, dt);
       i += 1;
@@ -124,25 +130,30 @@ export class ParticlePool {
 
     for (let j = 0; j < this.live; j += 1) {
       const p = this.pool[j];
+
       if (!p) {
         break;
       }
+
       const t = p.age / p.life;
       const scale = Math.max(1e-4, p.size * (1 - t));
       SCRATCH_MATRIX.compose(p.pos, SCRATCH_QUAT, SCRATCH_SCALE.setScalar(scale));
       this.mesh.setMatrixAt(j, SCRATCH_MATRIX);
       this.mesh.setColorAt(j, SCRATCH_COLOR.copy(p.color).lerp(BG_COLOR, t * t));
     }
+
     this.mesh.count = this.live;
+
     if (this.live === 0) {
       return;
     }
-    // Only the live slots reach the GPU; the dead tail is never drawn.
+
     const matrix = this.mesh.instanceMatrix;
     matrix.clearUpdateRanges();
     matrix.addUpdateRange(0, this.live * matrix.itemSize);
     matrix.needsUpdate = true;
     const color = this.mesh.instanceColor;
+
     if (color) {
       color.clearUpdateRanges();
       color.addUpdateRange(0, this.live * color.itemSize);
@@ -150,19 +161,23 @@ export class ParticlePool {
     }
   }
 
-  private take(): Particle | null {
+  private take() {
     if (this.live >= this.pool.length) {
       return null;
     }
+
     const p = this.pool[this.live];
+
     if (!p) {
       return null;
     }
+
     this.live += 1;
+
     return p;
   }
 
-  reset(): void {
+  reset() {
     this.live = 0;
     this.mesh.count = 0;
   }

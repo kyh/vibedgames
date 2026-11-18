@@ -21,22 +21,24 @@ export const Route = createFileRoute("/$")({
   component: () => null,
   headers: varyHeaders(),
   loader: () => {
-    // Renders the root `notFoundComponent` and, in SSR, sets the 404 status.
     throw notFound();
   },
   server: {
     handlers: {
       GET: ({ request, next }) => {
         const result = negotiate(request.headers.get("accept"));
+
         if (result.kind === "not-acceptable") {
           return notAcceptableResponse(request);
         }
+
         if (result.kind === "match" && result.type === MARKDOWN) {
           return markdownResponse(notFoundMarkdown(new URL(request.url).pathname), {
             headers: { "Cache-Control": "no-store" },
             status: 404,
           });
         }
+
         return next();
       },
     },

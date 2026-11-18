@@ -1,25 +1,21 @@
-// Global tuning distilled from the design doc. All distances in PIXELS, all
-// times in SECONDS unless a name says *Ms. Pure data — no Phaser.
-
 export type Team = "radiant" | "dire";
+
 export type DamageType = "physical" | "magic" | "pure";
 
 export const TEAMS: Team[] = ["radiant", "dire"];
-export const enemyOf = (t: Team): Team => (t === "radiant" ? "dire" : "radiant");
+export const enemyOf: (t: Team) => Team = (t) => (t === "radiant" ? "dire" : "radiant");
 
-// ---- match pacing ----------------------------------------------------------
 export const MAX_LEVEL = 16;
-// flat 25% magic reduction on heroes
 export const HERO_MAGIC_RESIST = 0.25;
 export const PASSIVE_GOLD_PER_SEC = 1.5;
 
-// Cumulative XP required to *reach* each level (index 0 = level 1).
 export const XP_CURVE = [
   0, 240, 600, 1080, 1680, 2400, 3240, 4200, 5280, 6480, 7800, 9240, 10_800, 12_480, 14_280, 16_200,
 ];
 
-export const levelForXp = (xp: number): number => {
+export const levelForXp = (xp: number) => {
   let lvl = 1;
+
   for (let i = 1; i < XP_CURVE.length; i += 1) {
     if (xp >= (XP_CURVE[i] ?? Infinity)) {
       lvl = i + 1;
@@ -27,38 +23,36 @@ export const levelForXp = (xp: number): number => {
       break;
     }
   }
+
   return Math.min(lvl, MAX_LEVEL);
 };
 
-export const respawnTime = (level: number): number => Math.min(6 + 4 * level, 70);
+export const respawnTime = (level: number) => Math.min(6 + 4 * level, 70);
 
-// 1 ability point per level. Q/W/E unlock ranks at hero levels 1,3,5,7.
-// Ultimate R ranks unlock at 6, 11, 16.
-export const abilityRankCap = (key: "Q" | "W" | "E" | "R", heroLevel: number): number => {
+export const abilityRankCap = (key: "Q" | "W" | "E" | "R", heroLevel: number) => {
   const unlocks = key === "R" ? [6, 11, 16] : [1, 3, 5, 7];
   let cap = 0;
+
   for (const u of unlocks) {
     if (heroLevel >= u) {
       cap += 1;
     }
   }
+
   return cap;
 };
 
-// ---- combat math -----------------------------------------------------------
-// Standard MOBA armor curve: multiplier = 1 - (0.06*armor)/(1+0.06*|armor|).
-// Well-behaved for negative armor (amplifies symmetrically).
-export const physicalMultiplier = (armor: number): number => {
+export const physicalMultiplier = (armor: number) => {
   const k = 0.06 * armor;
+
   return 1 - k / (1 + Math.abs(k));
 };
 
-export const magicMultiplier = (isHero: boolean): number => (isHero ? 1 - HERO_MAGIC_RESIST : 1);
+export const magicMultiplier = (isHero: boolean) => (isHero ? 1 - HERO_MAGIC_RESIST : 1);
 
 /** Convert attacks/sec into ms between attacks. */
-export const attackIntervalMs = (attackSpeed: number): number => 1000 / Math.max(0.1, attackSpeed);
+export const attackIntervalMs = (attackSpeed: number) => 1000 / Math.max(0.1, attackSpeed);
 
-// ---- creeps ----------------------------------------------------------------
 export type CreepKind = "melee" | "ranged" | "siege";
 
 export interface CreepDef {
@@ -69,7 +63,6 @@ export interface CreepDef {
   attackRange: number;
   moveSpeed: number;
   attackSpeed: number;
-  // 0 = melee
   projectileSpeed: number;
   goldBounty: [number, number];
   xpBounty: number;
@@ -128,7 +121,6 @@ export const CREEPS = {
   },
 } satisfies Record<CreepKind, CreepDef>;
 
-// Wave composition + cadence.
 export const WAVE = {
   dmgRampPer60s: 3.5,
   firstWaveSec: 15,
@@ -141,7 +133,6 @@ export const WAVE = {
   siegeEveryNthWave: 4,
 };
 
-// ---- towers / ancient ------------------------------------------------------
 export type StructTier = "t1" | "t2" | "base" | "ancient";
 
 export interface StructDef {
@@ -154,14 +145,11 @@ export interface StructDef {
   projectileSpeed: number;
   bountyTeam: number;
   bountyLocal: number;
-  // when no enemy creeps near (backdoor protection)
   regenPerSec: number;
   radius: number;
 }
 
 export const STRUCTS = {
-  // ancient radius is generous: the castle sits on a blocked plateau, so melee
-  // attackers must be able to reach its hitbox from the flat ground at the edge
   ancient: {
     armor: 10,
     attackRange: 0,
@@ -216,12 +204,9 @@ export const STRUCTS = {
   },
 } satisfies Record<StructTier, StructDef>;
 
-// +25% dmg per consecutive hit, resets on switch
 export const TOWER_RAMP_PER_HIT = 0.25;
-// cap stacks
 export const TOWER_RAMP_MAX = 4;
 
-// ---- economy ---------------------------------------------------------------
 export const ECON = {
   assistFraction: 0.6,
   denyXpFraction: 0.5,
@@ -234,11 +219,6 @@ export const ECON = {
   xpShareRadius: 1200,
 };
 
-// ---- sim timing ------------------------------------------------------------
-// fixed-step host simulation
 export const SIM_HZ = 30;
 export const SIM_DT = 1 / SIM_HZ;
-// Online the host streams what each sim step changed (net/stream.ts) and
-// rewrites the full world keyframe this often (ms) — what a late joiner starts
-// from, and a promoted guest falls back to when its own copy is incomplete.
 export const KEYFRAME_MS = 5000;

@@ -17,11 +17,8 @@ export interface NpcDef {
 
 export type NpcTable = { [K in NpcId]: NpcDef };
 
-// Gifts of an unlisted kind get a polite shrug.
-const taste =
-  (by: Partial<Record<Item["kind"], GiftReaction>>) =>
-  (it: Item): GiftReaction =>
-    by[it.kind] ?? "neutral";
+const taste = (by: Partial<Record<Item["kind"], GiftReaction>>) => (it: Item) =>
+  by[it.kind] ?? "neutral";
 
 const HAZEL_ORES: ReadonlySet<string> = new Set(["crystal", "copper", "coal"]);
 const hazelTaste = taste({ fish: "like", forage: "dislike" });
@@ -82,6 +79,7 @@ export const REACTION_DELTA = {
   love: 25,
   neutral: 5,
 } satisfies Record<GiftReaction, number>;
+
 export const REACTION_LINE = {
   dislike: "Hmph. Not really my thing.",
   like: "How thoughtful, thank you!",
@@ -89,12 +87,10 @@ export const REACTION_LINE = {
   neutral: "Oh… thanks, I suppose.",
 } satisfies Record<GiftReaction, string>;
 
-export const giftable = (item: Item): boolean =>
+export const giftable = (item: Item) =>
   item.kind === "produce" ||
   item.kind === "fish" ||
   item.kind === "forage" ||
   item.kind === "animal_product";
 
-export const hearts = (friendship: number): number =>
-  // 0..10 hearts, 50 pts each
-  Math.min(10, Math.floor(friendship / 50));
+export const hearts = (friendship: number) => Math.min(10, Math.floor(friendship / 50));

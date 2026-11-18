@@ -17,10 +17,7 @@ export const TEAM_RING_GEOMETRY = new THREE.RingGeometry(0.5, 0.64, 44).rotateX(
 export const PLAYER_DISC_GEOMETRY = new THREE.CircleGeometry(0.5, 36).rotateX(-Math.PI / 2);
 export const SUPER_RING_GEOMETRY = new THREE.RingGeometry(0.7, 0.8, 44).rotateX(-Math.PI / 2);
 
-const standardMaterial = (
-  color: number,
-  extra: THREE.MeshStandardMaterialParameters = {},
-): THREE.MeshStandardMaterial =>
+const standardMaterial = (color: number, extra: THREE.MeshStandardMaterialParameters = {}) =>
   new THREE.MeshStandardMaterial({ color, metalness: 0, roughness: 0.78, ...extra });
 
 interface ModelMaterials {
@@ -38,6 +35,7 @@ interface ModelMaterials {
 }
 
 export type ArmRest = [rotationX: number, rotationZ: number];
+
 export interface ArmPose {
   armBase: [ArmRest, ArmRest];
   swingLeft: boolean;
@@ -70,13 +68,14 @@ const addPart = (
   scaleX = 1,
   scaleY = 1,
   scaleZ = 1,
-): THREE.Mesh => {
+) => {
   const mesh = new THREE.Mesh(geometry, material);
   mesh.position.set(x, y, z);
   mesh.scale.set(scaleX, scaleY, scaleZ);
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   parent.add(mesh);
+
   return mesh;
 };
 
@@ -96,7 +95,11 @@ interface Kit {
   pose: ArmPose;
 }
 
-const restPose = (left: ArmRest, right: ArmRest, swingLeft = true): ArmPose => ({
+const restPose: (left: ArmRest, right: ArmRest, swingLeft?: boolean) => ArmPose = (
+  left,
+  right,
+  swingLeft = true,
+) => ({
   armBase: [left, right],
   swingLeft,
 });
@@ -118,6 +121,7 @@ const FACE = profile(
   ],
   0.93,
 );
+
 const TUNIC = profile(
   "tunic",
   [
@@ -131,6 +135,7 @@ const TUNIC = profile(
   ],
   0.9,
 );
+
 const HAND = profile(
   "glove",
   [
@@ -141,6 +146,7 @@ const HAND = profile(
   ],
   0.7,
 );
+
 const BOOT = profile(
   "boot",
   [
@@ -152,6 +158,7 @@ const BOOT = profile(
   ],
   0.75,
 );
+
 const SHIELD = plate(
   "kite-shield",
   [
@@ -165,6 +172,7 @@ const SHIELD = plate(
   ],
   0.055,
 );
+
 const LEAF = plate(
   "leaf",
   [
@@ -179,7 +187,7 @@ const LEAF = plate(
   0.015,
 );
 
-const buildLeg = (mats: ModelMaterials, side: number, armored: boolean): THREE.Group => {
+const buildLeg = (mats: ModelMaterials, side: number, armored: boolean) => {
   const leg = new THREE.Group();
   leg.position.set(side * 0.13, 0.37, 0);
   addPart(leg, cylinder(0.09, 0.073, 0.23), mats.dark, 0, -0.1, 0);
@@ -196,23 +204,21 @@ const buildLeg = (mats: ModelMaterials, side: number, armored: boolean): THREE.G
     1,
     0.9,
   );
+
   if (armored) {
     addPart(leg, sphere(0.108, 12, 8), mats.gold, 0, -0.095, 0.075, 1, 0.87, 0.55);
     addPart(leg, sphere(0.08, 12, 8), mats.metal, 0, -0.091, 0.115, 1, 0.82, 0.4);
   } else {
     addPart(leg, roundedBox(0.15, 0.045, 0.025), mats.gold, 0, -0.175, 0.087);
   }
+
   return leg;
 };
 
-const buildArm = (
-  mats: ModelMaterials,
-  side: number,
-  broad: boolean,
-  armored: boolean,
-): THREE.Group => {
+const buildArm = (mats: ModelMaterials, side: number, broad: boolean, armored: boolean) => {
   const arm = new THREE.Group();
   arm.position.set(side * (broad ? 0.38 : 0.31), 0.8, 0);
+
   const sleeve = addPart(
     arm,
     profile(
@@ -228,13 +234,16 @@ const buildArm = (
     ),
     armored ? mats.metal : mats.body,
   );
+
   sleeve.scale.setScalar(broad ? 1.12 : 1);
   addPart(arm, cylinder(0.097, 0.09, 0.06), armored ? mats.gold : mats.wood, 0, -0.22, 0);
+
   if (armored) {
     const shoulderSize = broad ? 1.2 : 1;
     addPart(arm, sphere(0.176), mats.gold, side * 0.035, 0.015, 0, shoulderSize, 0.7, 1.08);
     addPart(arm, sphere(0.156), mats.metal, side * 0.035, 0.046, 0, shoulderSize, 0.7, 1.08);
   }
+
   addPart(
     arm,
     HAND,
@@ -257,6 +266,7 @@ const buildArm = (
     1.4,
     0.95,
   );
+
   return arm;
 };
 
@@ -280,9 +290,10 @@ const FACES: Record<BrawlerId, FaceFeatures> = {
   titan: { browTilt: 0.25, eyeSize: 0.85, eyeSpacing: 0.12, smile: 0, width: 1.06 },
 };
 
-const buildFace = (head: THREE.Group, mats: ModelMaterials, id: BrawlerId): void => {
+const buildFace = (head: THREE.Group, mats: ModelMaterials, id: BrawlerId) => {
   const face = FACES[id];
   addPart(head, FACE, mats.skin, 0, 0, 0, face.width, 1, 1);
+
   for (const side of [-1, 1]) {
     addPart(
       head,
@@ -319,6 +330,7 @@ const buildFace = (head: THREE.Group, mats: ModelMaterials, id: BrawlerId): void
       0.47,
     );
     addPart(head, sphere(0.012, 10, 8), mats.white, eyeX - 0.009, 0.008, 0.268, 0.8, 1, 0.35);
+
     const brow = addPart(
       head,
       sweep(
@@ -336,9 +348,12 @@ const buildFace = (head: THREE.Group, mats: ModelMaterials, id: BrawlerId): void
       0.091,
       0.255,
     );
+
     brow.rotation.z = side * face.browTilt;
   }
+
   addPart(head, sphere(0.032, 12, 8), mats.skin, 0, -0.066, 0.258, 1, 0.8, 0.7);
+
   const mouth = addPart(
     head,
     sweep(
@@ -355,15 +370,16 @@ const buildFace = (head: THREE.Group, mats: ModelMaterials, id: BrawlerId): void
     -0.143,
     0.245,
   );
+
   mouth.rotation.z = face.smile;
 };
 
-const collar = (body: THREE.Group, mats: ModelMaterials): void => {
+const collar = (body: THREE.Group, mats: ModelMaterials) => {
   const cuff = addPart(body, torus(0.137, 0.042), mats.white, 0, 0.85, 0);
   cuff.rotation.x = Math.PI / 2;
 };
 
-const cape = (body: THREE.Group, material: THREE.Material, width = 1, length = 1): void => {
+const cape = (body: THREE.Group, material: THREE.Material, width = 1, length = 1) => {
   const cloth = addPart(
     body,
     plate(
@@ -387,7 +403,9 @@ const cape = (body: THREE.Group, material: THREE.Material, width = 1, length = 1
     length,
     1,
   );
+
   cloth.rotation.x = -0.2;
+
   for (const side of [-1, 1]) {
     addPart(
       body,
@@ -419,7 +437,7 @@ const hairLock = (
   z: number,
   rotation = 0,
   scale = 1,
-): void => {
+) => {
   const lock = addPart(
     head,
     sweep(
@@ -441,10 +459,11 @@ const hairLock = (
     scale,
     scale,
   );
+
   lock.rotation.z = rotation;
 };
 
-const fringe = (head: THREE.Group, mats: ModelMaterials): void => {
+const fringe = (head: THREE.Group, mats: ModelMaterials) => {
   addPart(head, sphere(0.29, 20, 14), mats.hair, 0, -0.015, -0.105, 0.98, 0.9, 0.68);
   addPart(head, dome(0.305, 0.48), mats.hair, 0, 0.045, -0.035, 1, 1.02, 1);
   hairLock(head, mats.hair, -0.16, 0.145, 0.16, -0.5, 0.75);
@@ -452,15 +471,16 @@ const fringe = (head: THREE.Group, mats: ModelMaterials): void => {
   hairLock(head, mats.hair, 0.15, 0.18, 0.13, -0.35, 0.68);
 };
 
-const belt = (body: THREE.Group, mats: ModelMaterials, width: number): void => {
+const belt = (body: THREE.Group, mats: ModelMaterials, width: number) => {
   addPart(body, cylinder(0.211, 0.216, 0.075), mats.wood, 0, 0.47, 0, width, 1, 0.84);
   addPart(body, roundedBox(0.1, 0.09, 0.045), mats.gold, 0, 0.47, 0.178);
   addPart(body, roundedBox(0.04, 0.039, 0.05), mats.dark, 0, 0.47, 0.19);
 };
 
-const sword = (weapon: THREE.Group, mats: ModelMaterials, short = false): void => {
+const sword = (weapon: THREE.Group, mats: ModelMaterials, short = false) => {
   addPart(weapon, cylinder(0.034, 0.04, 0.19, 8), mats.wood, 0, 0.02, 0);
   addPart(weapon, sphere(0.058, 10, 8), mats.gold, 0, -0.095, 0, 1, 0.8, 0.8);
+
   const guard = addPart(
     weapon,
     sweep(
@@ -478,6 +498,7 @@ const sword = (weapon: THREE.Group, mats: ModelMaterials, short = false): void =
     0.125,
     0,
   );
+
   guard.scale.x = short ? 0.75 : 1;
   addPart(
     weapon,
@@ -513,7 +534,7 @@ const sword = (weapon: THREE.Group, mats: ModelMaterials, short = false): void =
   );
 };
 
-const breastplate = (body: THREE.Group, mats: ModelMaterials): void => {
+const breastplate = (body: THREE.Group, mats: ModelMaterials) => {
   addPart(
     body,
     profile("knight-breastplate", [
@@ -531,13 +552,19 @@ const breastplate = (body: THREE.Group, mats: ModelMaterials): void => {
   );
   addPart(body, cylinder(0.226, 0.223, 0.045, 20), mats.gold, 0, 0.51, 0.012, 1, 1, 0.81);
   addPart(body, LEAF, mats.gold, 0, 0.66, 0.265, 0.4, 0.4, 0.65);
+
   for (const side of [-1, 1]) {
     const skirt = addPart(body, SHIELD, mats.metal, side * 0.135, 0.385, 0.105, 0.51, 0.32, 0.9);
     skirt.rotation.set(-0.22, side * 0.25, -side * 0.12);
   }
 };
 
-const buildBriarKit = ({ mats, body, head, weapon }: KitParts): Kit => {
+const buildBriarKit: ({ mats, body, head, weapon }: KitParts) => Kit = ({
+  mats,
+  body,
+  head,
+  weapon,
+}) => {
   addPart(head, sphere(0.285), mats.hair, 0, -0.075, -0.125, 0.95, 0.56, 0.62);
   addPart(head, dome(0.323, 0.49), mats.metal, 0, 0.085, -0.034, 1, 0.97, 1.01);
   addPart(
@@ -568,6 +595,7 @@ const buildBriarKit = ({ mats, body, head, weapon }: KitParts): Kit => {
     ),
     mats.body,
   );
+
   for (const side of [-1, 1]) {
     addPart(
       head,
@@ -591,6 +619,7 @@ const buildBriarKit = ({ mats, body, head, weapon }: KitParts): Kit => {
     );
     addPart(head, sphere(0.044, 10, 8), mats.gold, side * 0.298, -0.005, 0.147, 0.55, 1, 1);
   }
+
   addPart(
     head,
     sweep(
@@ -617,6 +646,7 @@ const buildBriarKit = ({ mats, body, head, weapon }: KitParts): Kit => {
   addPart(shield, LEAF, mats.gold, 0, -0.015, 0.096, 0.73, 0.75, 0.65);
   addPart(shield, roundedBox(0.024, 0.27, 0.032), mats.metal, 0, -0.015, 0.12);
   sword(weapon, mats);
+
   return {
     muzzles: [new THREE.Vector3(0.36, 0.7, 0.6)],
     pose: restPose([-0.45, -0.2], [-0.65, 0.3]),
@@ -624,7 +654,12 @@ const buildBriarKit = ({ mats, body, head, weapon }: KitParts): Kit => {
   };
 };
 
-const buildWrenKit = ({ mats, body, head, weapon }: KitParts): Kit => {
+const buildWrenKit: ({ mats, body, head, weapon }: KitParts) => Kit = ({
+  mats,
+  body,
+  head,
+  weapon,
+}) => {
   addPart(head, sphere(0.305, 20, 14), mats.body, 0, -0.005, -0.135, 1, 0.88, 0.7);
   addPart(head, dome(0.337, 0.55), mats.body, 0, 0.065, -0.07, 1.02, 1.05, 1);
   addPart(
@@ -654,6 +689,7 @@ const buildWrenKit = ({ mats, body, head, weapon }: KitParts): Kit => {
     ),
     mats.hair,
   );
+
   for (const side of [-1, 1]) {
     hairLock(head, mats.hair, side * 0.24, -0.018, 0.01, -side * 0.3, 0.82);
     addPart(
@@ -677,15 +713,19 @@ const buildWrenKit = ({ mats, body, head, weapon }: KitParts): Kit => {
       1,
     );
   }
+
   cape(body, mats.body, 1.15, 1.13);
   collar(body, mats);
+
   for (const side of [-1, 1]) {
     addPart(body, LEAF, mats.body, side * 0.145, 0.76, 0.15, 0.9, 0.64, 1).rotation.z = side * 0.72;
     addPart(body, LEAF, mats.body, side * 0.12, 0.36, 0.13, 0.85, 0.6, 1).rotation.z = side * 0.25;
   }
+
   const strap = addPart(body, roundedBox(0.07, 0.5, 0.043), mats.wood, 0, 0.66, 0.18);
   strap.rotation.z = -0.6;
   addPart(body, cylinder(0.105, 0.09, 0.44), mats.wood, -0.23, 0.69, -0.26);
+
   for (const offset of [-0.06, 0, 0.06]) {
     addPart(body, cylinder(0.01, 0.01, 0.36, 5), mats.accent, -0.23 + offset, 0.98, -0.26);
     addPart(
@@ -706,6 +746,7 @@ const buildWrenKit = ({ mats, body, head, weapon }: KitParts): Kit => {
       -0.26,
     );
   }
+
   weapon.position.set(0.1, 0.77, 0.42);
   addPart(
     weapon,
@@ -722,6 +763,7 @@ const buildWrenKit = ({ mats, body, head, weapon }: KitParts): Kit => {
   addPart(weapon, roundedBox(0.09, 0.16, 0.09), mats.gold, 0.35, 0, 0.12);
   const loadedProjectile = new THREE.Group();
   weapon.add(loadedProjectile);
+
   const arrow = addPart(
     loadedProjectile,
     cylinder(0.012, 0.012, 0.76, 5),
@@ -730,7 +772,9 @@ const buildWrenKit = ({ mats, body, head, weapon }: KitParts): Kit => {
     0,
     0.18,
   );
+
   arrow.rotation.x = Math.PI / 2;
+
   const arrowhead = addPart(
     loadedProjectile,
     cylinder(0, 0.04, 0.13, 4),
@@ -739,7 +783,9 @@ const buildWrenKit = ({ mats, body, head, weapon }: KitParts): Kit => {
     0,
     0.62,
   );
+
   arrowhead.rotation.x = Math.PI / 2;
+
   return {
     loadedProjectile,
     muzzles: [new THREE.Vector3(0.23, 0.77, 1.04)],
@@ -747,11 +793,18 @@ const buildWrenKit = ({ mats, body, head, weapon }: KitParts): Kit => {
   };
 };
 
-const buildEmberKit = ({ mats, body, head, weapon, spellGlow }: KitParts): Kit => {
+const buildEmberKit: ({ mats, body, head, weapon, spellGlow }: KitParts) => Kit = ({
+  mats,
+  body,
+  head,
+  weapon,
+  spellGlow,
+}) => {
   for (const side of [-1, 1]) {
     hairLock(head, mats.hair, side * 0.255, -0.1, -0.02, side * 0.12, 1.3);
     hairLock(head, mats.hair, side * 0.25, -0.065, -0.145, -side * 0.25, 1.45);
   }
+
   fringe(head, mats);
   addPart(
     body,
@@ -844,6 +897,7 @@ const buildEmberKit = ({ mats, body, head, weapon, spellGlow }: KitParts): Kit =
     mats.gold,
   );
   addPart(weapon, cylinder(0.055, 0.055, 0.16, 8), mats.wood, 0, -0.05, 0);
+
   for (const side of [-1, 1]) {
     addPart(
       weapon,
@@ -862,14 +916,21 @@ const buildEmberKit = ({ mats, body, head, weapon, spellGlow }: KitParts): Kit =
       1,
     );
   }
+
   addPart(weapon, sphere(0.112, 16, 12), spellGlow, 0, 0.8, 0);
+
   return {
     muzzles: [new THREE.Vector3(0.4, 1.46, 0.3)],
     pose: restPose([0, 0.15], [-0.85, -0.22]),
   };
 };
 
-const buildRookKit = ({ mats, body, head, weapon }: KitParts): Kit => {
+const buildRookKit: ({ mats, body, head, weapon }: KitParts) => Kit = ({
+  mats,
+  body,
+  head,
+  weapon,
+}) => {
   addPart(
     head,
     profile(
@@ -887,6 +948,7 @@ const buildRookKit = ({ mats, body, head, weapon }: KitParts): Kit => {
   );
   addPart(head, roundedBox(0.4, 0.068, 0.035), mats.dark, 0, 0.04, 0.315);
   addPart(head, roundedBox(0.052, 0.25, 0.055), mats.gold, 0, 0.012, 0.338);
+
   for (const side of [-1, 1]) {
     addPart(
       head,
@@ -907,6 +969,7 @@ const buildRookKit = ({ mats, body, head, weapon }: KitParts): Kit => {
     addPart(head, roundedBox(0.045, 0.065, 0.033), mats.dark, side * 0.145, -0.095, 0.313);
     addPart(body, SHIELD, mats.metal, side * 0.18, 0.41, 0.18, 0.48, 0.42, 0.8);
   }
+
   addPart(
     body,
     profile(
@@ -948,17 +1011,24 @@ const buildRookKit = ({ mats, body, head, weapon }: KitParts): Kit => {
   addPart(weapon, cylinder(0.058, 0.058, 0.2, 10), mats.dark, 0, -0.04, 0);
   addPart(weapon, roundedBox(0.64, 0.31, 0.32), mats.metal, 0, 0.71, 0);
   addPart(weapon, roundedBox(0.17, 0.345, 0.36), mats.gold, 0, 0.71, 0);
+
   for (const side of [-1, 1]) {
     addPart(weapon, roundedBox(0.085, 0.3, 0.3), mats.dark, side * 0.315, 0.71, 0);
     addPart(weapon, roundedBox(0.092, 0.21, 0.21), mats.metal, side * 0.345, 0.71, 0);
   }
+
   return {
     muzzles: [new THREE.Vector3(0.46, 1.25, 0.4)],
     pose: restPose([-0.45, -0.3], [-0.7, 0.3]),
   };
 };
 
-const buildRowanKit = ({ mats, body, head, weapon }: KitParts): Kit => {
+const buildRowanKit: ({ mats, body, head, weapon }: KitParts) => Kit = ({
+  mats,
+  body,
+  head,
+  weapon,
+}) => {
   addPart(head, sphere(0.285), mats.hair, 0, -0.075, -0.125, 0.95, 0.56, 0.62);
   addPart(head, dome(0.318, 0.47), mats.metal, 0, 0.072, -0.045);
   addPart(
@@ -975,6 +1045,7 @@ const buildRowanKit = ({ mats, body, head, weapon }: KitParts): Kit => {
     ),
     mats.hair,
   );
+
   for (const side of [-1, 1]) {
     addPart(
       head,
@@ -998,6 +1069,7 @@ const buildRowanKit = ({ mats, body, head, weapon }: KitParts): Kit => {
     );
     addPart(head, sphere(0.04, 10, 8), mats.gold, side * 0.288, 0.025, 0.1, 0.5, 1, 1);
   }
+
   addPart(
     head,
     sweep(
@@ -1024,7 +1096,6 @@ const buildRowanKit = ({ mats, body, head, weapon }: KitParts): Kit => {
       .add(new THREE.Vector3(0.31, 0.8, 0)),
   );
   weapon.rotation.set(1.25, 0, -0.12);
-  // A throwing grip balances the shaft, with the butt behind the shoulder.
   const javelin = new THREE.Group();
   javelin.position.y = -0.45;
   weapon.add(javelin);
@@ -1048,6 +1119,7 @@ const buildRowanKit = ({ mats, body, head, weapon }: KitParts): Kit => {
     mats.metal,
   );
   addPart(javelin, roundedBox(0.017, 0.31, 0.065), mats.gold, 0, 1.135, 0);
+
   const pennant = addPart(
     javelin,
     plate(
@@ -1067,14 +1139,21 @@ const buildRowanKit = ({ mats, body, head, weapon }: KitParts): Kit => {
     0.81,
     0,
   );
+
   pennant.rotation.y = -0.4;
+
   return {
     muzzles: [new THREE.Vector3(0, 0.96, 0).applyEuler(weapon.rotation).add(weapon.position)],
     pose,
   };
 };
 
-const buildNyxKit = ({ mats, body, head, weapon }: KitParts): Kit => {
+const buildNyxKit: ({ mats, body, head, weapon }: KitParts) => Kit = ({
+  mats,
+  body,
+  head,
+  weapon,
+}) => {
   fringe(head, mats);
   hairLock(head, mats.hair, -0.2, 0.01, 0.075, -0.18, 1.5);
   hairLock(head, mats.hair, 0.2, 0.15, -0.03, 0.45, 1.1);
@@ -1096,6 +1175,7 @@ const buildNyxKit = ({ mats, body, head, weapon }: KitParts): Kit => {
   addPart(head, torus(0.035, 0.009), mats.accent, 0.3, -0.1, 0.018);
   const scarf = addPart(body, torus(0.18, 0.06), mats.accent, 0, 0.86, 0);
   scarf.rotation.x = Math.PI / 2;
+
   const tail = addPart(
     body,
     plate(
@@ -1115,6 +1195,7 @@ const buildNyxKit = ({ mats, body, head, weapon }: KitParts): Kit => {
     0.7,
     -0.27,
   );
+
   tail.rotation.z = -0.42;
   addPart(
     body,
@@ -1130,14 +1211,17 @@ const buildNyxKit = ({ mats, body, head, weapon }: KitParts): Kit => {
     0.66,
     0.016,
   );
+
   for (const side of [-1, 1]) {
     const strap = addPart(body, roundedBox(0.037, 0.34, 0.06), mats.wood, side * 0.11, 0.67, 0.18);
     strap.rotation.z = side * 0.3;
     addPart(body, roundedBox(0.12, 0.19, 0.13), mats.dark, side * 0.235, 0.42, -0.035);
   }
+
   sword(weapon, mats, true);
   const offhand = new THREE.Group();
   sword(offhand, mats, true);
+
   return {
     muzzles: [new THREE.Vector3(0.35, 0.75, 0.6)],
     offhand,
@@ -1145,8 +1229,15 @@ const buildNyxKit = ({ mats, body, head, weapon }: KitParts): Kit => {
   };
 };
 
-const buildMossKit = ({ mats, body, head, weapon, spellGlow }: KitParts): Kit => {
+const buildMossKit: ({ mats, body, head, weapon, spellGlow }: KitParts) => Kit = ({
+  mats,
+  body,
+  head,
+  weapon,
+  spellGlow,
+}) => {
   fringe(head, mats);
+
   for (const side of [-1, 1]) {
     hairLock(head, mats.hair, side * 0.215, -0.05, -0.05, side * 0.15, 1.13);
     addPart(
@@ -1183,6 +1274,7 @@ const buildMossKit = ({ mats, body, head, weapon, spellGlow }: KitParts): Kit =>
     addPart(head, LEAF, mats.body, side * 0.24, 0.19, 0.08, 0.48, 0.42, 0.8).rotation.z =
       side * 0.8;
   }
+
   addPart(
     head,
     sweep(
@@ -1197,8 +1289,10 @@ const buildMossKit = ({ mats, body, head, weapon, spellGlow }: KitParts): Kit =>
     mats.hair,
   );
   cape(body, mats.body, 1.2, 1.2);
+
   for (let i = 0; i < 7; i += 1) {
     const angle = (i / 7) * Math.PI * 2;
+
     const leaf = addPart(
       body,
       LEAF,
@@ -1210,8 +1304,10 @@ const buildMossKit = ({ mats, body, head, weapon, spellGlow }: KitParts): Kit =>
       0.8,
       1,
     );
+
     leaf.rotation.set(-0.2, -angle + Math.PI / 2, Math.cos(angle) * 0.35);
   }
+
   weapon.position.set(0.4, 0.65, 0.26);
   addPart(
     weapon,
@@ -1230,15 +1326,22 @@ const buildMossKit = ({ mats, body, head, weapon, spellGlow }: KitParts): Kit =>
   spellGlow.color.setHex(0xc6_e6_85);
   spellGlow.emissive.setHex(0x50_77_22);
   addPart(weapon, sphere(0.075, 10, 8), spellGlow, 0.105, 0.66, 0);
+
   return {
     muzzles: [new THREE.Vector3(0.5, 1.31, 0.3)],
     pose: restPose([-0.3, -0.17], [-0.85, -0.22]),
   };
 };
 
-const buildFlintKit = ({ mats, body, head, weapon }: KitParts): Kit => {
+const buildFlintKit: ({ mats, body, head, weapon }: KitParts) => Kit = ({
+  mats,
+  body,
+  head,
+  weapon,
+}) => {
   addPart(head, sphere(0.31, 20, 14), mats.wood, 0, -0.005, -0.145, 1, 0.8, 0.64);
   addPart(head, dome(0.336, 0.54), mats.wood, 0, 0.06, -0.065, 1.09, 0.96, 1.02);
+
   for (const side of [-1, 1]) {
     addPart(
       head,
@@ -1263,6 +1366,7 @@ const buildFlintKit = ({ mats, body, head, weapon }: KitParts): Kit => {
     hairLock(head, mats.hair, side * 0.12, -0.15, 0.19, -side * 0.45, 0.8);
     addPart(body, roundedBox(0.19, 0.18, 0.24), mats.metal, side * 0.3, 0.8, 0);
   }
+
   addPart(
     head,
     sweep(
@@ -1294,9 +1398,11 @@ const buildFlintKit = ({ mats, body, head, weapon }: KitParts): Kit => {
   addPart(head, roundedBox(0.46, 0.055, 0.047), mats.accent, 0, 0.19, 0.218);
   addPart(body, roundedBox(0.36, 0.3, 0.07), mats.wood, 0, 0.63, 0.175);
   collar(body, mats);
+
   for (const x of [-0.1, 0, 0.1]) {
     addPart(body, roundedBox(0.062, 0.16, 0.07), mats.accent, x, 0.64, 0.23);
   }
+
   weapon.position.set(0.06, 0.69, 0.34);
   addPart(weapon, roundedBox(0.13, 0.13, 0.68), mats.wood, 0, 0, 0.17);
   addPart(weapon, roundedBox(0.17, 0.045, 0.43), mats.metal, 0, 0.084, 0.24);
@@ -1326,6 +1432,7 @@ const buildFlintKit = ({ mats, body, head, weapon }: KitParts): Kit => {
   );
   const loadedProjectile = new THREE.Group();
   weapon.add(loadedProjectile);
+
   const bolt = addPart(
     loadedProjectile,
     cylinder(0.016, 0.016, 0.63, 5),
@@ -1334,8 +1441,10 @@ const buildFlintKit = ({ mats, body, head, weapon }: KitParts): Kit => {
     0.123,
     0.21,
   );
+
   bolt.rotation.x = Math.PI / 2;
   addPart(weapon, roundedBox(0.075, 0.19, 0.085), mats.wood, 0, -0.125, -0.035).rotation.x = -0.2;
+
   return {
     loadedProjectile,
     muzzles: [new THREE.Vector3(0.06, 0.81, 0.88)],
@@ -1351,7 +1460,7 @@ const buildFlask = (
   y = 0,
   z = 0,
   size = 1,
-): void => {
+) => {
   addPart(
     parent,
     profile(
@@ -1409,9 +1518,16 @@ const buildFlask = (
   );
 };
 
-const buildPipKit = ({ mats, body, head, weapon, spellGlow }: KitParts): Kit => {
+const buildPipKit: ({ mats, body, head, weapon, spellGlow }: KitParts) => Kit = ({
+  mats,
+  body,
+  head,
+  weapon,
+  spellGlow,
+}) => {
   fringe(head, mats);
   hairLock(head, mats.hair, -0.215, 0.04, -0.08, -0.15, 1.15);
+
   for (const side of [-1, 1]) {
     addPart(head, sphere(0.144), mats.hair, side * 0.265, 0.22, -0.13, 0.98, 1.03, 1);
     hairLock(head, mats.hair, side * 0.295, 0.26, -0.1, side * 0.7, 0.7);
@@ -1429,6 +1545,7 @@ const buildPipKit = ({ mats, body, head, weapon, spellGlow }: KitParts): Kit => 
       0.2,
     );
   }
+
   addPart(head, roundedBox(0.08, 0.022, 0.024), mats.gold, 0, 0.006, 0.3);
   collar(body, mats);
   addPart(
@@ -1460,6 +1577,7 @@ const buildPipKit = ({ mats, body, head, weapon, spellGlow }: KitParts): Kit => 
   buildFlask(body, mats, spellGlow, 0.24, 0.5, 0.11, 0.48);
   weapon.position.set(0.34, 0.65, 0.28);
   buildFlask(weapon, mats, spellGlow);
+
   return {
     muzzles: [new THREE.Vector3(0.34, 0.84, 0.34)],
     pose: restPose([-0.35, -0.3], [-1, -0.1]),
@@ -1477,6 +1595,7 @@ const KIT_BUILDERS: Record<BrawlerId, (parts: KitParts) => Kit> = {
   rowan: buildRowanKit,
   titan: buildRookKit,
 };
+
 const HAIR_COLORS: Record<BrawlerId, number> = {
   ace: 0x8c_55_2c,
   dusty: 0x6e_43_2e,
@@ -1489,8 +1608,9 @@ const HAIR_COLORS: Record<BrawlerId, number> = {
   titan: 0x6a_62_51,
 };
 
-const buildMaterials = (def: BrawlerDef, hueShift: number): ModelMaterials => {
+const buildMaterials = (def: BrawlerDef, hueShift: number) => {
   const { palette } = def;
+
   const mats: ModelMaterials = {
     accent: standardMaterial(palette.accent, { roughness: 0.62 }),
     black: standardMaterial(0x13_10_17, { roughness: 0.19 }),
@@ -1504,22 +1624,27 @@ const buildMaterials = (def: BrawlerDef, hueShift: number): ModelMaterials => {
     white: standardMaterial(0xf1_e4_c7, { roughness: 0.83 }),
     wood: standardMaterial(0x76_42_29, { roughness: 0.65 }),
   };
+
   mats.body.color.offsetHSL(0, 0.08, -0.018);
   mats.skinShade.color.multiplyScalar(0.62);
+
   if (hueShift !== 0) {
     mats.body.color.offsetHSL(hueShift, 0, 0);
     mats.accent.color.offsetHSL(hueShift * 0.6, 0, 0);
   }
+
   return mats;
 };
 
-export const buildBrawlerModel = (def: BrawlerDef, hueShift: number): BrawlerModel => {
+export const buildBrawlerModel = (def: BrawlerDef, hueShift: number) => {
   const mats = buildMaterials(def, hueShift);
+
   const spellGlow = standardMaterial(0xff_b4_54, {
     emissive: 0xb8_4b_19,
     emissiveIntensity: 0.45,
     roughness: 0.3,
   });
+
   const root = new THREE.Group();
   const rig = new THREE.Group();
   root.add(rig);
@@ -1527,17 +1652,21 @@ export const buildBrawlerModel = (def: BrawlerDef, hueShift: number): BrawlerMod
   rig.add(body);
   const armored = def.id === "dusty" || def.id === "titan" || def.id === "rowan";
   const broad = def.id === "titan";
+
   const legs: [THREE.Group, THREE.Group] = [
     buildLeg(mats, -1, armored),
     buildLeg(mats, 1, armored),
   ];
+
   rig.add(legs[0], legs[1]);
   let width = 1;
+
   if (broad) {
     width = 1.27;
   } else if (def.id === "flint") {
     width = 1.1;
   }
+
   addPart(body, TUNIC, mats.body, 0, 0.59, 0, width, 1, broad ? 1.17 : 1);
   belt(body, mats, width);
   const head = new THREE.Group();
@@ -1545,13 +1674,16 @@ export const buildBrawlerModel = (def: BrawlerDef, hueShift: number): BrawlerMod
   head.scale.setScalar(broad ? 1.1 : 1.16);
   body.add(head);
   buildFace(head, mats, def.id);
+
   const arms: [THREE.Group, THREE.Group] = [
     buildArm(mats, -1, broad, armored),
     buildArm(mats, 1, broad, armored),
   ];
+
   body.add(arms[0], arms[1]);
   const weapon = new THREE.Group();
   body.add(weapon);
+
   const {
     muzzles,
     pose,
@@ -1559,10 +1691,12 @@ export const buildBrawlerModel = (def: BrawlerDef, hueShift: number): BrawlerMod
     offhand = null,
     loadedProjectile = null,
   } = KIT_BUILDERS[def.id]({ body, head, mats, spellGlow, weapon });
+
   const [leftArm, rightArm] = arms;
   const [[leftRestX, leftRestZ], [rightRestX, rightRestZ]] = pose.armBase;
   leftArm.rotation.set(leftRestX, 0, leftRestZ);
   rightArm.rotation.set(rightRestX, 0, rightRestZ);
+
   if (def.attack.kind === "melee") {
     const rest = sampleMeleePose(null, def.attack.style);
     rightArm.add(weapon);
@@ -1575,6 +1709,7 @@ export const buildBrawlerModel = (def: BrawlerDef, hueShift: number): BrawlerMod
           new THREE.Euler(rest.weaponPitch, rest.weaponYaw, rest.weaponRoll, "YXZ"),
         ),
       );
+
     if (offhand) {
       leftArm.add(offhand);
       offhand.position.set(0, -0.28, 0);
@@ -1588,15 +1723,18 @@ export const buildBrawlerModel = (def: BrawlerDef, hueShift: number): BrawlerMod
         );
     }
   }
+
   if (shield) {
     leftArm.add(shield);
     shield.position.set(0, -0.28, 0.07);
     shield.quaternion.copy(leftArm.quaternion).invert();
   }
+
   const flashMats = Object.values(mats);
   batchBrawlerParts(root, def.id);
   root.updateMatrixWorld(true);
   const overheadHeight = new THREE.Box3().setFromObject(head).max.y + 0.14;
+
   return {
     allMats: [...flashMats, spellGlow],
     arms,

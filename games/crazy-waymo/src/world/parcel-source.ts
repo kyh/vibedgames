@@ -1,18 +1,3 @@
-// The parcel SOURCE: every building footprint the fabric builds from, as one
-// flat record stream fetched next to the world bins (public/world/parcels.bin,
-// written by tools/sf-data/bake-parcels.mts — change the two together).
-//
-// Two provenances share the stream. The licensed downtown survey (`hero`)
-// carries LiDAR-true heights and exact party walls and gets the full facade
-// vocabulary; the OpenStreetMap footprints that cover the rest of the
-// peninsula carry a height only where the map has one and are built lean —
-// body, roof and a facade shader for the windows — because there are six of
-// them for every survey parcel and the vertex budget is the whole design.
-//
-// Record: u8 n · u8 hint · u8 flags(bit0 hero) · u16 height×100 (0 =
-// unknown) · u32 blind-edge mask · n × (int16 x, int16 z) at 5 cm, the first
-// absolute and the rest deltas. Header "VGPC" · u8 version · u32 count.
-
 export const PARCEL_SOURCE_MAGIC = "VGPC";
 export const PARCEL_SOURCE_VERSION = 1;
 
@@ -26,6 +11,7 @@ export const PARCEL_HINTS = [
   "industrial",
   "public",
 ] as const;
+
 export type ParcelHint = (typeof PARCEL_HINTS)[number];
 
 const Q = 20;
@@ -43,25 +29,30 @@ export interface ParcelSource {
   readonly blind: Uint32Array;
 }
 
-export const hintOf = (src: ParcelSource, i: number): ParcelHint =>
+export const hintOf: (src: ParcelSource, i: number) => ParcelHint = (src, i) =>
   PARCEL_HINTS[src.hints[i] ?? 0] ?? "generic";
 
-export const decodeParcelSource = (buf: ArrayBuffer): ParcelSource => {
+export const decodeParcelSource = (buf: ArrayBuffer) => {
   const dv = new DataView(buf);
   let off = 0;
   let magic = "";
+
   for (let i = 0; i < 4; i += 1) {
     magic += String.fromCodePoint(dv.getUint8(off));
     off += 1;
   }
+
   if (magic !== PARCEL_SOURCE_MAGIC) {
     throw new Error(`parcels.bin: bad magic ${magic}`);
   }
+
   const version = dv.getUint8(off);
   off += 1;
+
   if (version !== PARCEL_SOURCE_VERSION) {
     throw new Error(`parcels.bin: version ${version}, expected ${PARCEL_SOURCE_VERSION}`);
   }
+
   const count = dv.getUint32(off, true);
   off += 4;
   const offsets = new Uint32Array(count + 1);
@@ -69,10 +60,9 @@ export const decodeParcelSource = (buf: ArrayBuffer): ParcelSource => {
   const hints = new Uint8Array(count);
   const hero = new Uint8Array(count);
   const blind = new Uint32Array(count);
-  // Two passes would need the vertex total up front; one pass over a growable
-  // buffer is simpler and the stream is a few megabytes.
   let coords = new Float32Array(65_536);
   let nv = 0;
+
   for (let i = 0; i < count; i += 1) {
     const n = dv.getUint8(off);
     hints[i] = dv.getUint8(off + 1);
@@ -83,13 +73,16 @@ export const decodeParcelSource = (buf: ArrayBuffer): ParcelSource => {
     blind[i] = dv.getUint32(off, true);
     off += 4;
     offsets[i] = nv;
+
     if ((nv + n) * 2 > coords.length) {
       const grown = new Float32Array(Math.max(coords.length * 2, (nv + n) * 2));
       grown.set(coords);
       coords = grown;
     }
+
     let px = 0;
     let pz = 0;
+
     for (let k = 0; k < n; k += 1) {
       const dx = dv.getInt16(off, true);
       const dz = dv.getInt16(off + 2, true);
@@ -99,8 +92,11 @@ export const decodeParcelSource = (buf: ArrayBuffer): ParcelSource => {
       coords[(nv + k) * 2] = px / Q;
       coords[(nv + k) * 2 + 1] = pz / Q;
     }
+
     nv += n;
   }
+
   offsets[count] = nv;
+
   return { blind, coords: coords.slice(0, nv * 2), count, heights, hero, hints, offsets };
 };

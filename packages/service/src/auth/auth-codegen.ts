@@ -1,17 +1,3 @@
-/**
- * Static mirror of `createAuth()`'s options.
- *
- * The Worker builds its auth inside `createAuth()` because it needs runtime
- * bindings, so there is no module-level instance to introspect. This file is
- * that instance: it is read by `auth-tables.test.ts` (which asserts the Drizzle
- * schema still agrees with better-auth) and by `@better-auth/cli generate`. It
- * is NOT imported at runtime by the Worker, so cold start pays nothing for it.
- *
- * Mirror every option that changes the derived table set — the plugin list, the
- * additional fields, and `rateLimit.storage` — or the test guards the wrong
- * shape. Tuning that cannot move a column (window sizes, prefixes, cookies) is
- * deliberately left out.
- */
 import { apiKey } from "@better-auth/api-key";
 import { expo } from "@better-auth/expo";
 import { mcp } from "@better-auth/mcp";
@@ -21,12 +7,7 @@ import { memoryAdapter } from "better-auth/adapters/memory";
 import { admin, bearer, jwt, oAuthProxy } from "better-auth/plugins";
 
 export const auth = betterAuth({
-  // The OAuth provider resolves its issuer and resources from it on start.
   baseURL: "https://vibedgames.com",
-  // Codegen/test only: an in-memory adapter satisfies better-auth's init
-  // without opening a connection. The real Worker uses drizzleAdapter(d1).
-  // `oauthResource` is there because the OAuth provider seeds its resources
-  // into it on start.
   database: memoryAdapter({ oauthResource: [] }),
   emailAndPassword: { enabled: true },
   plugins: [

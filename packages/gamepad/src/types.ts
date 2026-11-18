@@ -117,5 +117,6 @@ export interface ButtonLayout {
 
 /** Four-way snapped direction (screen-space: +y is down). */
 export type Dir4 = "up" | "down" | "left" | "right";
+
 /** Eight-way snapped direction. */
 export type Dir8 = Dir4 | "up-left" | "up-right" | "down-left" | "down-right";

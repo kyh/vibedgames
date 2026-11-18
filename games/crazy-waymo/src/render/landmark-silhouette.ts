@@ -28,31 +28,35 @@ export class LandmarkSilhouettes {
 
   constructor() {
     this.object.name = "landmark-silhouettes";
-    // bars are world-space; this never moves
     this.object.matrixAutoUpdate = false;
   }
 
-  update(fogColor: THREE.Color, night: number, fog: THREE.Fog | null): void {
+  update(fogColor: THREE.Color, night: number, fog: THREE.Fog | null) {
     const plan = goldenGateSolvedPlan();
+
     if (plan !== this.goldenGatePlan) {
       this.goldenGatePlan = plan;
+
       if (this.goldenGate) {
         this.object.remove(this.goldenGate.mesh);
         this.goldenGate.dispose();
         this.goldenGate = null;
       }
+
       if (plan) {
         this.goldenGate = new SilhouetteMesh(goldenGateSilhouette(plan));
         this.object.add(this.goldenGate.mesh);
       }
     }
+
     this.goldenGate?.update(fogColor, night, fog);
   }
 
-  dispose(): void {
+  dispose() {
     if (!this.goldenGate) {
       return;
     }
+
     this.object.remove(this.goldenGate.mesh);
     this.goldenGate.dispose();
     this.goldenGate = null;

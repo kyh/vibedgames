@@ -18,74 +18,31 @@ import type { Flank, Terrain } from "./terrain";
 
 export { GGP_LAKE, inLake } from "./lake";
 
-// WHAT THE GROUND IS — the single ground-class rule for the whole game.
-//
-// This used to be four rules that disagreed. ground.ts painted a cell park at
-// greenHillWeight > 0.01, city.ts's wheel FX used 0.4 and had no shore term at
-// all (so driving Ocean Beach reported "concrete"), park-clear.ts exempted the
-// Presidio, and furniture.ts dropped the OSM landuse term entirely. Every
-// consumer re-picked its own thresholds, which is why the same cell could be
-// lawn to the eye, concrete to the tyres and park to the prop scatter.
-//
-// The rule is now ONE resolver over ONE result type, and every decision that
-// used to be a magic number at a call site is a NAMED part of that result:
-//
-//   parkland — park vs open-space-with-streets. THE Presidio exemption.
-//   flank    — the hill-forest threshold, resolved once, with its band.
-//   shore    — the natural-shore sand term, which is what the wheel FX lacked.
-//   built    — does a building pass actually place here. Ground with houses on
-//              it is not a lawn, whatever OSM says about the polygon.
-//
-// A caller therefore cannot ask a half-question: `cover` is the answer, and the
-// four fields above are the reasons, all present, all named.
-
 /**
  * The surface itself. One value per visually distinct ground treatment — the
  * paint table in ground.ts is keyed on exactly this, so adding a class forces
  * a colour decision rather than silently falling back to concrete.
  */
 export type GroundCover =
-  // --- hard ground
-  // generic city hardscape: the warm grey San Francisco is mostly made of
   | "pavement"
-  // built residential ground: driveway, garden wall, a little planting
   | "yard"
-  // block interior behind the buildings: fences, sheds, hardstand
   | "rearYard"
-  // civic paving, pale
   | "plaza"
-  // surface lot asphalt
   | "parking"
-  // asphalt schoolyard / sport court
   | "court"
-  // warm dust hardstand
   | "industrial"
-  // ballast
   | "railyard"
-  // engineered waterfront: seawall apron and the Port's quay strip
   | "quay"
-  // park promenade: compacted tan gravel
   | "path"
-  // --- vegetated
-  // irrigated, mown park turf
   | "lawn"
-  // unirrigated park grass
   | "meadow"
-  // park tree canopy
   | "grove"
-  // Presidio cypress-eucalyptus: the darkest green in the city
   | "conifer"
-  // hill forest (Sutro, Mount Davidson)
   | "woodland"
-  // straw. This is what SF's wild hills are eight months a year
   | "grassland"
-  // mown grass over stone
   | "cemetery"
-  // bare serpentine outcrop
   | "rock"
-  // --- coast
   | "sand"
-  // back-beach: sand held together by scrub
   | "dune"
   | "water";
 
@@ -96,14 +53,13 @@ export type GroundCover =
  */
 export type Fabric =
   | { readonly kind: "street" }
-  // lot with street frontage: the buildable fabric
   | { readonly kind: "frontage" }
-  // lot with no frontage: rear-of-lot / block interior
   | { readonly kind: "interior" }
   | { readonly kind: "water" };
 
 /** Vegetation a piece of parkland actually wears — not every park is a lawn. */
 export type ParkCanopy = "lawn" | "mosaic" | "grove" | "conifer" | "chaparral";
+
 /** Whether the parkland came from an OSM polygon or from a traced district. */
 export type ParkSource = "landuse" | "district";
 
@@ -139,9 +95,7 @@ export type Parkland =
  * cells full forest green. A built-over hill is `urban`, not `none`.
  */
 export type HillFlank =
-  // away from any hill
   | { readonly kind: "lowland" }
-  // on a hill, but the hill is covered in houses
   | { readonly kind: "urban" }
   | { readonly kind: "wooded"; readonly weight: number }
   | { readonly kind: "grassland"; readonly weight: number }
@@ -180,38 +134,16 @@ export interface LandClass {
   readonly built: boolean;
 }
 
-// --- Named thresholds. Each of these was a magic number at a call site. ------
-
-/** Hill-gaussian weight above which a WILD flank carries tree cover. The old
- *  paint used 0.01 (any gaussian tail at all) and the wheel FX used 0.4. */
 const FOREST_WEIGHT = 0.3;
-/** Fraction of a cell's 5×5 neighbourhood that must be free of streets and
- *  frontage lots before wildland cover paints at all. Below it the hill is a
- *  neighbourhood: Forest Hill, Golden Gate Heights, Bernal's north slope. */
 const WILD_MIN = 0.34;
 const WILD_FULL = 0.72;
-/** Bare rock wants BOTH: steep and high. SF's outcrops are the serpentine
- *  shoulders near the summits, not every steep street. */
 const ROCK_SLOPE = 0.62;
 const ROCK_HEIGHT = 52;
-/** Straw grass starts a little above the flats and saturates on the shoulders. */
 const GRASS_HEIGHT_LO = 12;
 const GRASS_HEIGHT_HI = 34;
-/** Downhill-west/north (the fog side) keeps its eucalyptus; the sun-baked
- *  south/east flanks are straw. Above this shade fraction, cover is woodland. */
 const SHADE_FOR_TREES = 0.42;
-/** Land-mask fractions bounding the coast. `landAt` is 1 well inland, 0 at sea,
- *  and the beach is everything under 0.6 — unchanged, because Ocean Beach's ~16u
- *  of dry sand is correct and must not narrow.
- *  The dune field backs it up to 0.995, which looks like a typo and is not: the
- *  west coast's mask saturates inside ONE 13u cell (land 0.6 at u 0.0448, 0.78
- *  at 0.0490), so a band expressed at 0.78 is a single cell wide. Reading it up
- *  to the very top of the mask buys the ~3 cells of back-beach that actually
- *  read as a dune field. */
 const BEACH_OUTER = 0.6;
 const DUNE_OUTER = 0.995;
-/** Where the Pacific dune field exists at all: Ocean Beach and Fort Funston,
- *  south of the Lands End cliffs. Nowhere else in SF is dune-backed. */
 const DUNE_MAX_U = 0.1;
 const DUNE_MIN_V = 0.3;
 
@@ -224,28 +156,23 @@ const FRONTAGE: Fabric = { kind: "frontage" };
 const INTERIOR: Fabric = { kind: "interior" };
 const WATER: Fabric = { kind: "water" };
 
-const clamp01 = (t: number): number => (t < 0 ? 0 : Math.min(1, t));
-const smooth01 = (t: number): number => {
+const clamp01 = (t: number) => (t < 0 ? 0 : Math.min(1, t));
+
+const smooth01 = (t: number) => {
   const c = clamp01(t);
+
   return c * c * (3 - 2 * c);
 };
-const band = (v: number, lo: number, hi: number): number => smooth01((v - lo) / (hi - lo));
 
-// Low-frequency organic noise (~40-90u), the same family as ground.ts's meadow
-// patches. Deterministic: park mosaics and band jitter must be identical in the
-// gen worker, the main thread and the bake.
-const patchNoise = (x: number, z: number, scale: number): number => {
+const band = (v: number, lo: number, hi: number) => smooth01((v - lo) / (hi - lo));
+
+const patchNoise = (x: number, z: number, scale: number) => {
   const a = Math.sin(x * 0.043 * scale + Math.sin(z * 0.051 * scale) * 1.9);
   const b = Math.sin(z * 0.037 * scale + Math.sin(x * 0.029 * scale) * 1.6);
+
   return 0.5 + 0.5 * a * b;
 };
 
-// --- Parks -------------------------------------------------------------------
-
-// Park districts, by what actually grows in them. Golden Gate Park is a mosaic
-// of meadow, grove and lawn (it read as one flat checkerboard of turf tiles);
-// the Presidio is 1,267 cells of dark cypress-eucalyptus canopy, NOT lawn;
-// Twin Peaks and McLaren are dry coastal scrub over grass.
 const PARK_CANOPY: ReadonlyMap<string, ParkCanopy> = new Map([
   ["Golden Gate Park", "mosaic"],
   ["the Presidio", "conifer"],
@@ -257,18 +184,18 @@ const PARK_CANOPY: ReadonlyMap<string, ParkCanopy> = new Map([
   ["Dolores Park", "lawn"],
 ]);
 
-// Park districts with a real street network through them — parkland, but never
-// car-free. The Presidio is the only one.
 const STREETED_PARKS: ReadonlySet<string> = new Set(["the Presidio"]);
 
-const canopyForClass = (c: LanduseClass): ParkCanopy => {
+const canopyForClass: (c: LanduseClass) => ParkCanopy = (c) => {
   switch (c) {
     case "wood": {
       return "grove";
     }
+
     case "scrub": {
       return "chaparral";
     }
+
     default: {
       return "lawn";
     }
@@ -281,20 +208,21 @@ const canopyForClass = (c: LanduseClass): ParkCanopy => {
  * (tools/sf-data/bake-network.mts, via park-clear.ts) calls this to decide what
  * to clip, long before a plan exists.
  */
-export const parklandAt = (gx: number, gz: number): Parkland => {
+export const parklandAt: (gx: number, gz: number) => Parkland = (gx, gz) => {
   if (gx < 0 || gz < 0 || gx >= GRID_X || gz >= GRID_Z) {
     return NOT_PARKLAND;
   }
+
   const d = districtAt(gx, gz);
+
   if (d.character === "park") {
     const canopy = PARK_CANOPY.get(d.name) ?? "mosaic";
+
     return STREETED_PARKS.has(d.name)
       ? { canopy, carFree: false, kind: "openSpace", name: d.name, source: "district" }
       : { canopy, carFree: true, kind: "park", source: "district" };
   }
-  // The OSM green classes (park/grass/garden/wood/scrub/cemetery/turf) — the
-  // set landuseGreenAt gates, kept as the authority so the street mask this
-  // feeds cannot drift from the shipped raster.
+
   if (landuseGreenAt(gx, gz)) {
     return {
       canopy: canopyForClass(landuseClassAt(gx, gz)),
@@ -303,27 +231,22 @@ export const parklandAt = (gx: number, gz: number): Parkland => {
       source: "landuse",
     };
   }
+
   return NOT_PARKLAND;
 };
 
 /** Park land of any kind — TILE territory (the ground terraces each of these
  *  cells flat so KayKit park tiles seat on it). Includes the Presidio. */
-export const isParkLand = (gx: number, gz: number): boolean => parklandAt(gx, gz).kind !== "none";
+export const isParkLand = (gx: number, gz: number) => parklandAt(gx, gz).kind !== "none";
 
 /** A traced park DISTRICT (Golden Gate Park, the Presidio, Dolores…) rather
  *  than a stray OSM green polygon — the scale that earns park furniture. */
-export const isParkDistrictLand = (gx: number, gz: number): boolean => {
+export const isParkDistrictLand: (gx: number, gz: number) => boolean = (gx, gz) => {
   const p = parklandAt(gx, gz);
+
   return p.kind !== "none" && p.source === "district";
 };
 
-// --- Port apron --------------------------------------------------------------
-
-// The Port of San Francisco's quay strip behind the finger piers, traced from
-// the licensed downtown model (`landuse=po`, 85,123u² over 450 points, RDP'd to
-// 214 at 5u and rounded to the unit — the raster it feeds is 13u cells). Flat
-// world x,z pairs. Without it the 55 pier decks read as slabs floating off a
-// kerb, because the ground behind them was painted as generic city concrete.
 const PORT_APRON: readonly number[] = [
   990, -572, 1003, -574, 945, -574, 950, -486, 893, -457, 904, -441, 949, -447, 959, -431, 1000,
   -436, 1002, -411, 960, -405, 962, -386, 1063, -393, 1070, -326, 1005, -362, 965, -360, 973, -314,
@@ -353,67 +276,67 @@ const PORT_APRON: readonly number[] = [
   -666, 948, -651, 991, -654, 992, -644, 947, -639, 946, -626,
 ];
 
-/** Rasterize the quay ring to grid cells once: the ring wanders the whole
- *  waterfront, so its bbox is a third of the map and a per-sample point-in-
- *  polygon would run 450 crossing tests over ~30k ground vertices. */
-const rasterizeApron = (): Uint8Array => {
+const rasterizeApron = () => {
   const mask = new Uint8Array(GRID_X * GRID_Z);
   const n = PORT_APRON.length / 2;
   let xMin = Infinity;
   let xMax = -Infinity;
   let zMin = Infinity;
   let zMax = -Infinity;
+
   for (let i = 0; i < n; i += 1) {
     const px = PORT_APRON[i * 2] ?? 0;
     const pz = PORT_APRON[i * 2 + 1] ?? 0;
+
     if (px < xMin) {
       xMin = px;
     }
+
     if (px > xMax) {
       xMax = px;
     }
+
     if (pz < zMin) {
       zMin = pz;
     }
+
     if (pz > zMax) {
       zMax = pz;
     }
   }
+
   const gx0 = Math.max(0, Math.floor((xMin + WORLD_HALF_X) / ROAD_TILE));
   const gx1 = Math.min(GRID_X - 1, Math.ceil((xMax + WORLD_HALF_X) / ROAD_TILE));
   const gz0 = Math.max(0, Math.floor((zMin + WORLD_HALF_Z) / ROAD_TILE));
   const gz1 = Math.min(GRID_Z - 1, Math.ceil((zMax + WORLD_HALF_Z) / ROAD_TILE));
+
   for (let gx = gx0; gx <= gx1; gx += 1) {
     const px = (gx + 0.5) * ROAD_TILE - WORLD_HALF_X;
+
     for (let gz = gz0; gz <= gz1; gz += 1) {
       const pz = (gz + 0.5) * ROAD_TILE - WORLD_HALF_Z;
       let inside = false;
+
       for (let i = 0, j = n - 1; i < n; j = i, i += 1) {
         const ax = PORT_APRON[i * 2] ?? 0;
         const az = PORT_APRON[i * 2 + 1] ?? 0;
         const bx = PORT_APRON[j * 2] ?? 0;
         const bz = PORT_APRON[j * 2 + 1] ?? 0;
+
         if (az > pz !== bz > pz && px < ((bx - ax) * (pz - az)) / (bz - az) + ax) {
           inside = !inside;
         }
       }
+
       if (inside) {
         mask[gx * GRID_Z + gz] = 1;
       }
     }
   }
+
   return mask;
 };
 
-// --- Cover resolution --------------------------------------------------------
-
-/** The OSM class's own surface, where it has one. The vegetated classes return
- *  null: the parkland term owns those, because it is the term that knows about
- *  districts and canopies. `built` is the licence to refuse — a cemetery
- *  polygon with houses on it is a yard. */
-// The vegetated classes (park, grass, garden, turf, wood, scrub) are null:
-// the parkland term decides. So are retail, institution and unclassified:
-// built-up or unknown, the fabric term decides.
 const LANDUSE_COVER = {
   cemetery: "cemetery",
   court: "court",
@@ -436,77 +359,79 @@ const LANDUSE_COVER = {
   wood: null,
 } satisfies Record<LanduseClass, GroundCover | null>;
 
-const landuseCover = (c: LanduseClass, built: boolean): GroundCover | null => {
+const landuseCover = (c: LanduseClass, built: boolean) => {
   if (c === "cemetery" && built) {
     return "yard";
   }
+
   return LANDUSE_COVER[c];
 };
 
-const parkCover = (canopy: ParkCanopy, x: number, z: number): GroundCover => {
+const parkCover: (canopy: ParkCanopy, x: number, z: number) => GroundCover = (canopy, x, z) => {
   switch (canopy) {
     case "lawn": {
       return "lawn";
     }
+
     case "grove": {
       return "grove";
     }
+
     case "conifer": {
       return "conifer";
     }
+
     case "chaparral": {
-      // Dry coastal scrub — McLaren's and Twin Peaks' grass knolls, with the
-      // eucalyptus stands that break them up. The mix matters because these two
-      // are traced as district RECTANGLES: one flat fill draws the box.
       return patchNoise(x, z, 1.6) < 0.24 ? "grove" : "grassland";
     }
+
     case "mosaic": {
-      // Golden Gate Park's real read: grove, meadow and mown lawn interlocking
-      // at ~60-90u, not one uniform turf field.
       const p = patchNoise(x, z, 1.35);
+
       if (p < 0.36) {
         return "grove";
       }
+
       return p < 0.74 ? "meadow" : "lawn";
     }
+
     default: {
       return canopy satisfies never;
     }
   }
 };
 
-const fabricCover = (fabric: Fabric): GroundCover => {
+const fabricCover: (fabric: Fabric) => GroundCover = (fabric) => {
   switch (fabric.kind) {
     case "water": {
       return "water";
     }
+
     case "street": {
       return "pavement";
     }
+
     case "frontage": {
-      // Built ground: a driveway, a garden wall, a paved side yard. At 58 m a
-      // cell is most of a block face, so this is mostly hardscape.
       return "yard";
     }
+
     case "interior": {
-      // Block interiors used to be lerped 30% toward park green — 12,600 cells
-      // of lawn where real SF has building rear walls and fenced private yards
-      // nobody can see from the street.
       return "rearYard";
     }
+
     default: {
       return fabric satisfies never;
     }
   }
 };
 
-// fabricMap codes: 0 water, 1 road, 2 building, 3 interior.
 const FABRIC_BY_CODE: readonly Fabric[] = [WATER, STREET, FRONTAGE, INTERIOR];
 
-const fabricCode = (kind: CityPlan["cells"][number][number] | undefined): number => {
+const fabricCode = (kind: CityPlan["cells"][number][number] | undefined) => {
   if (kind === "water") {
     return 0;
   }
+
   return kind === "road" ? 1 : 3;
 };
 
@@ -522,24 +447,25 @@ interface UnderQuery {
   readonly z: number;
 }
 
-/** The hard ground under everything. */
-const resolveUnder = (q: UnderQuery): GroundCover => {
+const resolveUnder: (q: UnderQuery) => GroundCover = (q) => {
   if (inLake(q.x, q.z)) {
     return "water";
   }
+
   if (q.apron) {
     return "quay";
   }
+
   const lu = landuseCover(q.landuse, q.built);
+
   if (lu !== null) {
     return lu;
   }
+
   if (q.parkland.kind !== "none" && !q.built) {
-    // Park paths are the OLD street lines through the parks, clipped out of
-    // the shipped mask at bake time and laid back as promenades by the
-    // furniture pass — paint the gravel under them.
     return parkPathMaskAt(q.gx, q.gz) ? "path" : parkCover(q.parkland.canopy, q.x, q.z);
   }
+
   return fabricCover(q.fabric);
 };
 
@@ -548,119 +474,127 @@ interface Overlay {
   readonly strength: number;
 }
 
-const flankOverlay = (flank: HillFlank): Overlay | null => {
+const flankOverlay: (flank: HillFlank) => Overlay | null = (flank) => {
   switch (flank.kind) {
     case "wooded": {
       return { cover: "woodland", strength: flank.weight };
     }
+
     case "grassland": {
       return { cover: "grassland", strength: flank.weight };
     }
+
     case "rock": {
       return { cover: "rock", strength: flank.weight };
     }
+
     case "urban":
     case "lowland": {
       return null;
     }
+
     default: {
       return flank satisfies never;
     }
   }
 };
 
-/** The soft overlay on the hard ground, and how strongly it carries. */
-const resolveOverlay = (under: GroundCover, shore: Shore, flank: HillFlank): Overlay => {
+const resolveOverlay = (under: GroundCover, shore: Shore, flank: HillFlank) => {
   let overlay: Overlay | null;
+
   switch (shore.kind) {
     case "beach": {
       overlay = { cover: "sand", strength: shore.dry };
       break;
     }
+
     case "dune": {
       overlay = { cover: "dune", strength: shore.amount };
       break;
     }
+
     case "seawall": {
       overlay = { cover: "quay", strength: shore.amount };
       break;
     }
+
     case "inland": {
       overlay = flankOverlay(flank);
       break;
     }
+
     default: {
       overlay = shore satisfies never;
     }
   }
+
   if (overlay === null || overlay.cover === under) {
     return { cover: under, strength: 1 };
   }
+
   return overlay;
 };
 
-const resolveShore = (u: number, v: number, landAmt: number): Shore => {
+const resolveShore: (u: number, v: number, landAmt: number) => Shore = (u, v, landAmt) => {
   if (landAmt >= BEACH_OUTER) {
-    // Past the beach the only coast term left is the back-beach, and only on
-    // the Pacific dune coast — Ocean Beach and Fort Funston. Every other point
-    // on the map (the whole interior) leaves here on the first compare.
     if (landAmt >= DUNE_OUTER || u > DUNE_MAX_U || v < DUNE_MIN_V) {
       return INLAND;
     }
+
     const a = 1 - band(landAmt, BEACH_OUTER, DUNE_OUTER);
+
     return a > 0.02 ? { amount: a * 0.7, kind: "dune" } : INLAND;
   }
-  // The Embarcadero and the whole industrial east shore are ENGINEERED — a
-  // concrete/riprap apron, not a beach. Ocean Beach keeps its sand.
+
   const amount = 1 - smooth01((landAmt - 0.3) / 0.3);
+
   if (seawallShore(u, v)) {
     return amount > 0.01 ? { amount: amount * 0.85, kind: "seawall" } : INLAND;
   }
-  // Ocean Beach reads strongest; the bay-side natural pockets (Crissy, Baker,
-  // Aquatic Park) stay a touch greyer.
+
   const dry = u < 0.12 ? amount : amount * 0.8;
   const wet = 1 - band(landAmt, 0.28, 0.4);
+
   return { dry, kind: "beach", wet };
 };
 
-/** Bands ONE unbuilt point's flank. Built ground short-circuits to `urban`
- *  before this is called — a hill covered in houses has no wildland cover. */
-const resolveFlank = (
+const resolveFlank: (
   u: number,
   v: number,
   x: number,
   z: number,
   wild: number,
   flank: Flank,
-): HillFlank => {
+) => HillFlank = (u, v, x, z, wild, flank) => {
   const canopy = greenHillWeightAt(u, v);
   const w = band(wild, WILD_MIN, WILD_FULL);
+
   if (w <= 0.01) {
     return canopy > 0.01 ? URBAN : LOWLAND;
   }
-  // Jitter the band edges with the same low-frequency noise the park mosaic
-  // uses: sharp thresholds on a gaussian hill draw contour RINGS.
+
   const jitter = (patchNoise(x, z, 0.8) - 0.5) * 2;
   const height = flank.height + jitter * 7;
   const slope = flank.slope + jitter * 0.06;
+
   if (slope > ROCK_SLOPE && height > ROCK_HEIGHT) {
     return { kind: "rock", weight: w * band(slope, ROCK_SLOPE, ROCK_SLOPE + 0.2) * 0.8 };
   }
-  // Aspect is the DOWNHILL bearing, clockwise from north: -π/2 is due west.
-  // The fog comes off the Pacific, so west-facing flanks hold the eucalyptus
-  // and cypress while the sun-baked east faces are straw.
+
   const shade = 0.5 - 0.5 * Math.sin(flank.aspect);
+
   if (canopy > FOREST_WEIGHT && shade > SHADE_FOR_TREES) {
     return { kind: "wooded", weight: w * Math.min(1, canopy) * 0.9 };
   }
+
   const dry = Math.max(band(height, GRASS_HEIGHT_LO, GRASS_HEIGHT_HI), canopy);
+
   if (dry > 0.02) {
     return { kind: "grassland", weight: w * dry * 0.88 };
   }
+
   return LOWLAND;
 };
-
-// --- The resolver ------------------------------------------------------------
 
 export type LandClassAt = (x: number, z: number) => LandClass;
 
@@ -670,54 +604,54 @@ export type LandClassAt = (x: number, z: number) => LandClass;
  * slope, aspect and the land mask. Both are needed to answer the question
  * completely, which is exactly why the four old copies each got it wrong.
  */
-export const makeLandClassAt = (plan: CityPlan, terrain: Terrain): LandClassAt => {
+export const makeLandClassAt: (plan: CityPlan, terrain: Terrain) => LandClassAt = (
+  plan,
+  terrain,
+) => {
   const cellCount = GRID_X * GRID_Z;
-  // 0 water, 1 street, 2 frontage lot, 3 interior lot.
   const fabricMap = new Uint8Array(cellCount);
   const builtMap = new Uint8Array(cellCount);
+
   for (let gx = 0; gx < GRID_X; gx += 1) {
     for (let gz = 0; gz < GRID_Z; gz += 1) {
       const kind = plan.cells[gx]?.[gz];
       fabricMap[gx * GRID_Z + gz] = fabricCode(kind);
     }
   }
+
   for (const b of plan.buildingCells) {
     const idx = b.gx * GRID_Z + b.gz;
     fabricMap[idx] = 2;
-    // The building passes reject park DISTRICTS wholesale (city.ts) and place
-    // on every other frontage lot, so park cells on a park's road edge keep
-    // their lawn while the Sunset's OSM-green frontage cells do not.
     builtMap[idx] = districtAt(b.gx, b.gz).character === "park" ? 0 : 1;
   }
-  // Wildness: how unbuilt a cell's neighbourhood is. A hill only wears
-  // wildland cover where the city has not covered it — the gaussian alone put
-  // saturated forest green across the Sunset, because Forest Hill and Mount
-  // Davidson sit inside the Sunset's district box.
+
   const wildMap = new Float32Array(cellCount);
   const R = 2;
+
   for (let gx = 0; gx < GRID_X; gx += 1) {
     for (let gz = 0; gz < GRID_Z; gz += 1) {
       let wild = 0;
       let n = 0;
+
       for (let i = Math.max(0, gx - R); i <= Math.min(GRID_X - 1, gx + R); i += 1) {
         for (let j = Math.max(0, gz - R); j <= Math.min(GRID_Z - 1, gz + R); j += 1) {
           n += 1;
           const f = fabricMap[i * GRID_Z + j] ?? 0;
+
           if (f !== 1 && f !== 2) {
             wild += 1;
           }
         }
       }
+
       wildMap[gx * GRID_Z + gz] = n === 0 ? 1 : wild / n;
     }
   }
+
   const apron = rasterizeApron();
-  // The two per-CELL answers, resolved once each instead of ~2.5× per cell: the
-  // ground painter runs over ~125k mesh vertices, and both of these cost a
-  // district-box scan or a hex parse. Parkland values are immutable, so caching
-  // the objects is safe.
   const parklandCache: Parkland[] = [];
   const landuseCache: LanduseClass[] = [];
+
   for (let gx = 0; gx < GRID_X; gx += 1) {
     for (let gz = 0; gz < GRID_Z; gz += 1) {
       const idx = gx * GRID_Z + gz;
@@ -725,9 +659,10 @@ export const makeLandClassAt = (plan: CityPlan, terrain: Terrain): LandClassAt =
       landuseCache[idx] = landuseClassAt(gx, gz);
     }
   }
+
   const flankScratch = makeFlank();
 
-  return (x: number, z: number): LandClass => {
+  return (x: number, z: number) => {
     const gx = Math.min(GRID_X - 1, Math.max(0, Math.floor((x + WORLD_HALF_X) / ROAD_TILE)));
     const gz = Math.min(GRID_Z - 1, Math.max(0, Math.floor((z + WORLD_HALF_Z) / ROAD_TILE)));
     const idx = gx * GRID_Z + gz;
@@ -750,18 +685,12 @@ export const makeLandClassAt = (plan: CityPlan, terrain: Terrain): LandClassAt =
       z,
     });
 
-    // --- soft terms. Coast first: it is the strongest read on the map.
     const landAmt = terrain.landAt(x, z);
     const shore = resolveShore(u, v, landAmt);
     let flank: HillFlank = LOWLAND;
-    // Inside the beach/seawall band the coast owns the paint outright, so the
-    // flank is not even sampled. Everywhere else it is — including under the
-    // dune band, so a wooded coastal slope (the Presidio's bluffs, the Marin
-    // headland) does not lose its canopy in a strip along the shore.
+
     if (landAmt >= BEACH_OUTER) {
       if (built) {
-        // Built ground has no wildland band at all, so it never needs the flank
-        // sample — and it is most of the map.
         flank = greenHillWeightAt(u, v) > 0.01 ? URBAN : LOWLAND;
       } else {
         flank = resolveFlank(u, v, x, z, wildMap[idx] ?? 1, terrain.flankInto(flankScratch, x, z));
@@ -769,46 +698,57 @@ export const makeLandClassAt = (plan: CityPlan, terrain: Terrain): LandClassAt =
     }
 
     const { cover, strength } = resolveOverlay(under, shore, flank);
-    return { built, cover, fabric, flank, landuse, parkland, shore, strength, under };
+
+    return {
+      built,
+      cover,
+      fabric,
+      flank,
+      landuse,
+      parkland,
+      shore,
+      strength,
+      under,
+    } satisfies LandClass;
   };
 };
-
-// --- Derived questions -------------------------------------------------------
 
 /** What the wheels are running on — the off-road kick-up FX and the tyre audio.
  *  city.ts's own copy of this rule had no shore term, so Ocean Beach reported
  *  "concrete"; reading it off the resolved cover makes that impossible. */
 export type WheelSurface = "road" | "grass" | "sand" | "dirt" | "gravel" | "rock" | "concrete";
 
-/** Where a soft overlay stops being a tint and becomes the surface. */
 const COVER_DOMINANT = 0.5;
 
 /** The cover a viewer would NAME the ground: the overlay once it carries the
  *  colour, the ground under it while it is still a tint. Exported so no caller
  *  has to re-pick that threshold — the whole point of this module. */
-export const dominantCover = (land: LandClass): GroundCover =>
+export const dominantCover = (land: LandClass) =>
   land.strength >= COVER_DOMINANT ? land.cover : land.under;
-/** Loose material is loose long before it dominates the COLOUR: the outer half
- *  of the beach apron paints mostly as the ground behind it, and a car on it is
- *  still throwing sand. */
+
 const LOOSE_UNDERFOOT = 0.22;
 
-export const wheelSurface = (land: LandClass): WheelSurface => {
+export const wheelSurface: (land: LandClass) => WheelSurface = (land) => {
   if (land.fabric.kind === "street") {
     return "road";
   }
+
   if (land.shore.kind === "beach" && land.shore.dry > LOOSE_UNDERFOOT) {
     return "sand";
   }
+
   if (land.shore.kind === "dune" && land.shore.amount > LOOSE_UNDERFOOT) {
     return "sand";
   }
+
   const c = dominantCover(land);
+
   switch (c) {
     case "sand":
     case "dune": {
       return "sand";
     }
+
     case "lawn":
     case "meadow":
     case "grove":
@@ -818,16 +758,20 @@ export const wheelSurface = (land: LandClass): WheelSurface => {
     case "cemetery": {
       return "grass";
     }
+
     case "path":
     case "railyard": {
       return "gravel";
     }
+
     case "industrial": {
       return "dirt";
     }
+
     case "rock": {
       return "rock";
     }
+
     default: {
       return "concrete";
     }

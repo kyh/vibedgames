@@ -1,8 +1,3 @@
-// What `vg playtest run` may do here, in the words its decision model picks
-// between. The model chooses the PLAN a few times a second — push, duel, hold,
-// retreat; the reflexes below do the hands at 60 fps: walking the A* route,
-// stopping at attack range, clicking the creep that is one hit from death.
-
 import type { ActionOption, PlaytestManifest, ReflexInputs } from "@vibedgames/playtest";
 
 import { HERO_BY_ID } from "../data/heroes";
@@ -17,51 +12,48 @@ interface Step {
   y: number;
 }
 
-// tan(22.5°): inside it an axis is "off", so a step snaps to the nearest of 8 headings.
 const AXIS_DEADZONE = 0.38;
 
-const walk = (step: Step | undefined): ReflexInputs => {
+const walk: (step: Step | undefined) => ReflexInputs = (step) => {
   const keys: string[] = [];
+
   if (!step) {
     return { keys, pointer: null };
   }
+
   if (step.x > AXIS_DEADZONE) {
     keys.push("ArrowRight");
   } else if (step.x < -AXIS_DEADZONE) {
     keys.push("ArrowLeft");
   }
+
   if (step.y > AXIS_DEADZONE) {
     keys.push("ArrowDown");
   } else if (step.y < -AXIS_DEADZONE) {
     keys.push("ArrowUp");
   }
+
   return { keys, pointer: null };
 };
 
-/** Left-click a unit once: a click is an attack order, and re-issuing it every
- *  frame would restart the swing it is waiting on. */
-const click = (target: TargetSense | null): ReflexInputs | null =>
+const click: (target: TargetSense | null) => ReflexInputs | null = (target) =>
   target?.screen && !target.targeted
     ? { keys: [], pointer: { down: true, x: target.screen.sx, y: target.screen.sy } }
     : null;
 
-/** Stand and fight: no keys is a HOLD, which auto-attacks the nearest enemy in
- *  range; the parked cursor is where Q/W/E/R will fly. */
-const stand = (diag: MobaDiagnostics): ReflexInputs => ({
+const stand: (diag: MobaDiagnostics) => ReflexInputs = (diag) => ({
   keys: [],
   pointer: diag.aim ? { x: diag.aim.sx, y: diag.aim.sy } : null,
 });
 
-const fight = (diag: MobaDiagnostics): ReflexInputs =>
+const fight: (diag: MobaDiagnostics) => ReflexInputs = (diag) =>
   (diag.channeling ? null : click(diag.lastHit ?? null)) ?? stand(diag);
 
-// Stop this far outside a tower's range: a decision's worth of walking, so a
-// stale "safe" reading cannot carry the hero under it.
 const TOWER_MARGIN = 120;
 
-/** Walking further would put the hero under a tower with no creeps to take its shots. */
-const towerAhead = (diag: MobaDiagnostics): boolean => {
+const towerAhead = (diag: MobaDiagnostics) => {
   const tower = diag.enemyTower;
+
   return (
     tower !== null &&
     tower !== undefined &&
@@ -70,7 +62,7 @@ const towerAhead = (diag: MobaDiagnostics): boolean => {
   );
 };
 
-const canHit = (diag: MobaDiagnostics): boolean =>
+const canHit = (diag: MobaDiagnostics) =>
   diag.enemyCreep?.inRange === true ||
   diag.enemyHero?.inRange === true ||
   (diag.enemyTower?.inRange === true && diag.enemyTower.attackable);
@@ -80,8 +72,10 @@ const ABILITY_KEYS: readonly AbilityKey[] = ["Q", "W", "E", "R"];
 const abilityActions = (heroId: string) => {
   const def = HERO_BY_ID[heroId];
   const actions = new Map<string, ActionOption>();
+
   for (const key of ABILITY_KEYS) {
     const ability = def?.abilities[key];
+
     if (ability && ability.targeting !== "passive") {
       actions.set(`cast_${key}`, {
         description: `cast ${ability.name} (${ability.desc}) — yes when game.abilities.${key}.usable is true, otherwise no`,
@@ -89,13 +83,13 @@ const abilityActions = (heroId: string) => {
       });
     }
   }
+
   return Object.fromEntries(actions);
 };
 
-export const createManifest = (heroId: string): PlaytestManifest<MobaDiagnostics> => {
-  // The H (recall) order is read on the keydown edge, so it has to be tapped,
-  // and tapped again if a same-frame key release overwrote it with a HOLD.
+export const createManifest: (heroId: string) => PlaytestManifest<MobaDiagnostics> = (heroId) => {
   let tap = 0;
+
   return {
     actions: abilityActions(heroId),
     goal: [
@@ -115,13 +109,17 @@ export const createManifest = (heroId: string): PlaytestManifest<MobaDiagnostics
           if (!diag?.player?.alive) {
             return null;
           }
+
           const foe = diag.enemyHero;
+
           if (!foe) {
             return canHit(diag) ? fight(diag) : walk(diag.advance);
           }
+
           if (foe.targeted || diag.channeling) {
             return stand(diag);
           }
+
           return click(foe) ?? walk({ x: foe.dx / foe.dist, y: foe.dy / foe.dist });
         },
       },
@@ -137,12 +135,15 @@ export const createManifest = (heroId: string): PlaytestManifest<MobaDiagnostics
           if (!diag?.player?.alive) {
             return null;
           }
+
           if (diag.channeling) {
             return stand(diag);
           }
+
           if (diag.towerDanger) {
             return walk(diag.home);
           }
+
           return canHit(diag) || towerAhead(diag) ? fight(diag) : walk(diag.advance);
         },
       },
@@ -153,7 +154,9 @@ export const createManifest = (heroId: string): PlaytestManifest<MobaDiagnostics
           if (!diag?.player?.alive || diag.order === "fountain") {
             return { keys: [], pointer: null };
           }
+
           tap += 1;
+
           return { keys: tap % 4 < 2 ? ["KeyH"] : [], pointer: null };
         },
       },

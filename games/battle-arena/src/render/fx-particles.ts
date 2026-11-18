@@ -1,13 +1,3 @@
-// Instanced particle pools — replaces Fx's per-particle Meshes (up to 320 draw
-// calls at fight peaks) with TWO InstancedMeshes = 2 draw calls total, always.
-//  - ADD pool (512): energy — sparks/flashes/embers. Additive blending fades by
-//    lerping instanceColor toward black (black is invisible under ADD, no alpha
-//    needed). HDR brights pass `bright: HDR_BRIGHT` to push past bloom's 0.82.
-//  - NORMAL pool (160): matter — smoke/dust/debris. Per-instance alpha via an
-//    `aAlpha` InstancedBufferAttribute patched into `#include <color_fragment>`.
-// Free-lists, preallocated slots, module scratch math: zero per-frame allocs in
-// update(). Spawns copy their options object immediately, so callers may reuse
-// a scratch options object.
 import * as THREE from "three";
 import { Pool } from "./fx-particle-pool";
 import type { ParticlePriority, SpawnOptions } from "./fx-particle-pool";
@@ -15,6 +5,7 @@ import type { ParticlePriority, SpawnOptions } from "./fx-particle-pool";
 export type { ParticlePriority, SpawnOptions } from "./fx-particle-pool";
 
 export type ParticleKind = "add" | "normal";
+
 /** Standard HDR multiplier for bloom-worthy cores (bloom threshold is 0.82). */
 export const HDR_BRIGHT = 2.2;
 
@@ -53,28 +44,29 @@ export class ParticlePools {
 
   constructor(scene: THREE.Scene) {
     this.scene = scene;
-    // ADD pool — energy. instanceColor drives everything; fade = color→black.
     const addGeo = new THREE.SphereGeometry(0.16, 6, 5);
+
     const addMat = new THREE.MeshBasicMaterial({
       blending: THREE.AdditiveBlending,
       depthWrite: false,
       toneMapped: true,
       transparent: true,
     });
+
     this.addMat = addMat;
     this.add = new Pool(addGeo, addMat, ADD_CAP, 96, true, 11, null);
 
-    // NORMAL pool — matter. Per-instance alpha rides an aAlpha attribute that a
-    // typed onBeforeCompile patch multiplies into diffuseColor.a.
     const normalGeo = new THREE.SphereGeometry(0.16, 6, 5);
     const alphaAttr = new THREE.InstancedBufferAttribute(new Float32Array(NORMAL_CAP), 1);
     alphaAttr.setUsage(THREE.DynamicDrawUsage);
     normalGeo.setAttribute("aAlpha", alphaAttr);
+
     const normalMat = new THREE.MeshBasicMaterial({
       blending: THREE.NormalBlending,
       depthWrite: false,
       transparent: true,
     });
+
     normalMat.onBeforeCompile = (shader) => {
       shader.vertexShader = shader.vertexShader
         .replace(
@@ -89,10 +81,10 @@ export class ParticlePools {
           "#include <color_fragment>\ndiffuseColor.a *= vPAlpha;",
         );
     };
+
     normalMat.customProgramCacheKey = () => "fx-particles-alpha";
     this.normal = new Pool(normalGeo, normalMat, NORMAL_CAP, 32, false, 10, alphaAttr);
 
-    // NORMAL under ADD (bright energy composites over smoke — value contrast).
     scene.add(this.normal.mesh);
     scene.add(this.add.mesh);
   }
@@ -105,18 +97,19 @@ export class ParticlePools {
    *
    * Written only by Fx.setFlashGain (trailer-only); see the note there.
    */
-  setAddGain(gain: number): void {
+  setAddGain(gain: number) {
     this.addMat.color.setScalar(gain);
   }
 
   /** Spawn one particle. Copies `o` immediately — callers may reuse a scratch. */
-  spawn(kind: ParticleKind, o: SpawnOptions): void {
+  spawn(kind: ParticleKind, o: SpawnOptions) {
     (kind === "add" ? this.add : this.normal).spawn(o);
   }
 
   /** Convenience: omnidirectional burst with fx.ts-style jitter (fire/magic pops). */
-  burst(kind: ParticleKind, n: number, o: BurstOptions): void {
+  burst(kind: ParticleKind, n: number, o: BurstOptions) {
     const upBias = o.upBias ?? 0.6;
+
     for (let i = 0; i < n; i += 1) {
       const a = Math.random() * Math.PI * 2;
       const up = Math.random() * 0.8 + 0.2;
@@ -144,7 +137,7 @@ export class ParticlePools {
   }
 
   /** Step both pools. Zero allocations. 2 draw calls total regardless of load. */
-  update(dt: number): void {
+  update(dt: number) {
     this.add.update(dt);
     this.normal.update(dt);
   }
@@ -154,12 +147,12 @@ export class ParticlePools {
     return { add: this.add.counts(), normal: this.normal.counts() };
   }
 
-  clear(): void {
+  clear() {
     this.add.clear();
     this.normal.clear();
   }
 
-  dispose(): void {
+  dispose() {
     this.add.dispose(this.scene);
     this.normal.dispose(this.scene);
   }

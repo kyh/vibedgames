@@ -1,6 +1,3 @@
-// The shared course's scroll as a function of the room's clock. Free of
-// Phaser so tools/net.test.mts can drive it headless.
-
 import { PIPE_SPEED } from "../shared/constants";
 
 /**
@@ -11,11 +8,10 @@ import { PIPE_SPEED } from "../shared/constants";
 export const COURSE_SNAP_PX = 400;
 
 /** The scroll at room time `now` of a race that started at room time `start`. */
-export const courseX = (start: number, now: number): number => (PIPE_SPEED * (now - start)) / 1000;
+export const courseX = (start: number, now: number) => (PIPE_SPEED * (now - start)) / 1000;
 
 /** The start that puts the scroll at `x` at room time `now`: a race that carries a course on from where it stands. */
-export const courseStart = (x: number, now: number): number =>
-  Math.round(now - (1000 * x) / PIPE_SPEED);
+export const courseStart = (x: number, now: number) => Math.round(now - (1000 * x) / PIPE_SPEED);
 
 /**
  * This frame's scroll for a client at `prev` whose room says `target`. A
@@ -23,5 +19,5 @@ export const courseStart = (x: number, now: number): number =>
  * holds still until the room's catches up, and only one a trunk spacing or
  * more behind is adopted outright. Ahead, or not flying, the room's wins at once.
  */
-export const followCourse = (prev: number, target: number, flying: boolean): number =>
+export const followCourse = (prev: number, target: number, flying: boolean) =>
   flying && target < prev && prev - target < COURSE_SNAP_PX ? prev : target;

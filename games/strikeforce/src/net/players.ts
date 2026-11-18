@@ -1,7 +1,3 @@
-// The other players, as this client sees them: an avatar each, played back
-// from their own body reports on a clock that learns each sender's route, in
-// one colour (deathmatch has no sides). `reported` is where the host reads a
-// body's position; `hitTest()` is what this client's own shots are tested against.
 import { Interpolator, lerp, lerpAngle } from "@vibedgames/multiplayer";
 import type { Player } from "@vibedgames/multiplayer";
 import { Raycaster, Vector3 } from "three";
@@ -22,16 +18,14 @@ interface Pose {
   crouch: number;
 }
 
-/** Metres, on the ground, a muzzle can be from the fighter holding it. */
 const MUZZLE_REACH = 1.6;
-/** How high on a body a killing round is taken to strike: the chest, or the head. */
 const CHEST = 1.2;
 const HEAD = 1.6;
 
 const struck = new Vector3();
 const along = new Vector3();
 
-const lerpPose = (a: Pose, b: Pose, k: number): Pose => ({
+const lerpPose = (a: Pose, b: Pose, k: number) => ({
   crouch: lerp(a.crouch, b.crouch, k),
   pitch: lerp(a.pitch, b.pitch, k),
   x: lerp(a.x, b.x, k),
@@ -41,14 +35,17 @@ const lerpPose = (a: Pose, b: Pose, k: number): Pose => ({
 });
 
 /** A stable two-digit callsign from a player id: "SF-17"; a bot says so: "BOT-2". */
-export const callsignOf = (id: string): string => {
+export const callsignOf = (id: string) => {
   if (isBot(id)) {
     return `BOT-${id.slice(BOTS.prefix.length)}`;
   }
+
   let hash = 0;
+
   for (const ch of id) {
     hash = (hash * 31 + (ch.codePointAt(0) ?? 0)) % 9973;
   }
+
   return `SF-${String(10 + (hash % 90))}`;
 };
 
@@ -75,7 +72,7 @@ export interface PlayerEvents {
   left: (p: Opponent) => void;
 }
 
-const readReport = (p: Opponent, player: Player): void => {
+const readReport = (p: Opponent, player: Player) => {
   const s = player.state ?? {};
   const { t, x, y, z, yaw, pitch } = s;
   p.connected = player.connected !== false;
@@ -83,6 +80,7 @@ const readReport = (p: Opponent, player: Player): void => {
   p.deployed = s.d === 1;
   p.hp = isNum(s.hp) ? s.hp : p.hp;
   p.life = isNum(s.l) ? s.l : p.life;
+
   if (isNum(t) && isNum(x) && isNum(y) && isNum(z) && isNum(yaw) && isNum(pitch)) {
     p.interp.push(t, { crouch: s.c === 1 ? 1 : 0, pitch, x, y, yaw, z });
     p.reported = { x, y, z };
@@ -106,30 +104,37 @@ export class Players {
     myId: string,
     seat: (id: string) => { alive: boolean } | null,
     dt: number,
-  ): void {
+  ) {
     for (const [id, player] of Object.entries(players)) {
       if (id === myId) {
         continue;
       }
+
       const p = this.all.get(id) ?? this.add(id);
       readReport(p, player);
       const fighter = seat(id);
+
       if (fighter) {
         this.dress(p);
       }
+
       p.pose = p.interp.sample() ?? null;
       const shown = Boolean(p.pose && p.avatar && fighter);
+
       if (p.avatar) {
         p.avatar.root.visible = shown;
+
         if (p.pose && shown) {
           p.avatar.update({ ...p.pose, aiming: true, alive: fighter?.alive ?? false }, dt);
         }
       }
     }
+
     for (const [id, p] of this.all) {
       if (players[id]) {
         continue;
       }
+
       this.all.delete(id);
       p.avatar?.dispose();
       this.events.left(p);
@@ -140,37 +145,40 @@ export class Players {
    * The nearest living enemy hitbox along a shot, closer than `maxDist`.
    * `isEnemy` says which ids may be hit.
    */
-  hitTest(
-    origin: Vector3,
-    dir: Vector3,
-    maxDist: number,
-    isEnemy: (id: string) => boolean,
-  ): (ShotHit & { id: string }) | null {
+  hitTest(origin: Vector3, dir: Vector3, maxDist: number, isEnemy: (id: string) => boolean) {
     const boxes: Mesh[] = [];
     const owner = new Map<Object3D, string>();
+
     for (const [id, p] of this.all) {
       if (!p.avatar || !p.avatar.root.visible || !isEnemy(id)) {
         continue;
       }
+
       p.avatar.root.updateMatrixWorld(true);
+
       for (const box of p.avatar.hitboxes) {
         boxes.push(box);
         owner.set(box, id);
       }
     }
+
     if (boxes.length === 0) {
-      return null;
+      return null satisfies (ShotHit & { id: string }) | null;
     }
+
     this.ray.set(origin, dir);
     this.ray.far = maxDist;
     const [hit] = this.ray.intersectObjects(boxes, false);
     const id = hit ? owner.get(hit.object) : undefined;
+
     if (!hit || !id) {
-      return null;
+      return null satisfies (ShotHit & { id: string }) | null;
     }
+
     const normal = hit.face
       ? hit.face.normal.clone().transformDirection(hit.object.matrixWorld)
       : dir.clone().negate();
+
     return {
       dist: hit.distance,
       id,
@@ -178,7 +186,7 @@ export class Players {
       part: hit.object.userData.part === "head" ? "head" : "body",
       point: hit.point.clone(),
       who: hit.object,
-    };
+    } satisfies (ShotHit & { id: string }) | null;
   }
 
   /**
@@ -186,19 +194,23 @@ export class Players {
    * carries no shooter (a bot's shot comes from the host), but a muzzle is
    * never more than an arm and a carbine from its owner.
    */
-  fired(muzzle: Vector3): void {
+  fired(muzzle: Vector3) {
     let nearest: Opponent | null = null;
     let best = MUZZLE_REACH;
+
     for (const p of this.all.values()) {
       if (!p.pose || !p.avatar?.root.visible) {
         continue;
       }
+
       const d = Math.hypot(p.pose.x - muzzle.x, p.pose.z - muzzle.z);
+
       if (d < best) {
         best = d;
         nearest = p;
       }
     }
+
     nearest?.avatar?.fire();
   }
 
@@ -206,17 +218,19 @@ export class Players {
    * `victim` was killed by a round from `from`: its body is thrown the way
    * the round was going. The wire says who shot whom, not where it struck.
    */
-  felled(victim: string, from: Point, head: boolean): void {
+  felled(victim: string, from: Point, head: boolean) {
     const p = this.all.get(victim);
+
     if (!p?.pose) {
       return;
     }
+
     struck.set(p.pose.x, p.pose.y + (head ? HEAD : CHEST), p.pose.z);
     p.avatar?.hit(struck, along.set(struck.x - from.x, 0, struck.z - from.z));
   }
 
   /** Keep every avatar out of the scene's way (solo PvE, the title). */
-  hide(): void {
+  hide() {
     for (const p of this.all.values()) {
       if (p.avatar) {
         p.avatar.root.visible = false;
@@ -224,14 +238,15 @@ export class Players {
     }
   }
 
-  clear(): void {
+  clear() {
     for (const p of this.all.values()) {
       p.avatar?.dispose();
     }
+
     this.all.clear();
   }
 
-  private add(id: string): Opponent {
+  private add(id: string) {
     const p: Opponent = {
       alive: false,
       avatar: null,
@@ -245,20 +260,22 @@ export class Players {
       pose: null,
       reported: null,
     };
+
     this.all.set(id, p);
     this.events.joined(p);
+
     return p;
   }
 
-  /** Build the avatar once the host has seated the player. */
-  private dress(p: Opponent): void {
+  private dress(p: Opponent) {
     if (p.avatar) {
       return;
     }
+
     p.avatar = new SoldierModel("operator", p.callsign, this.game.physics);
     p.avatar.root.visible = false;
     this.game.scene.add(p.avatar.root);
   }
 }
 
-export const toVector = (p: Point): Vector3 => new Vector3(p.x, p.y, p.z);
+export const toVector = (p: Point) => new Vector3(p.x, p.y, p.z);

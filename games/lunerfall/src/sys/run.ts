@@ -1,5 +1,5 @@
 import { BOSS, SAFE, START } from "../data/rooms";
-import type { RoomDef, RoomType } from "../data/rooms";
+import type { RoomType } from "../data/rooms";
 import { genCombatRoom } from "./gen";
 import { rand } from "./rng";
 
@@ -7,7 +7,7 @@ export interface Offer {
   type: RoomType;
 }
 
-const rollRoomType = (): RoomType => {
+const rollRoomType = () => {
   const pool: [RoomType, number][] = [
     ["combat", 50],
     ["elite", 14],
@@ -15,112 +15,117 @@ const rollRoomType = (): RoomType => {
     ["rest", 12],
     ["treasure", 12],
   ];
+
   const total = pool.reduce((s, p) => s + p[1], 0);
   let r = rand() * total;
+
   for (const [type, w] of pool) {
     r -= w;
+
     if (r <= 0) {
       return type;
     }
   }
+
   return "combat";
 };
 
-const twoDistinct = (): Offer[] => {
+const twoDistinct = () => {
   const a = rollRoomType();
   let b = rollRoomType();
   let guard = 0;
+
   while (b === a && guard < 8) {
     guard += 1;
     b = rollRoomType();
   }
+
   return [{ type: a }, { type: b }];
 };
 
-// Owns run structure: depth within a biome, which room type comes next, and the
-// branching door offers. A run is start → ~5 rooms (player picks the path) →
-// boss → descend to a harder biome.
 export class RunManager {
   biome = 1;
   depth = 0;
   type: RoomType = "start";
   readonly bossAt = 7;
 
-  begin(): RoomDef {
+  begin() {
     this.biome = 1;
     this.depth = 1;
     this.type = "start";
+
     return START();
   }
 
-  // Dev shortcut: drop straight into a given room type (?room=combat). The
-  // optional biome/depth land BEFORE generation so combat layouts use the right
-  // biome knobs (the ?biome URL param applies after, palette/roster only).
-  debugEnter(type: RoomType, biome = 1, depth = 2): RoomDef {
+  debugEnter(type: RoomType, biome = 1, depth = 2) {
     this.biome = biome;
     this.depth = depth;
     this.type = type;
+
     return this.templateFor(type);
   }
 
-  isCombat(type?: RoomType): boolean {
+  isCombat(type?: RoomType) {
     const t = type ?? this.type;
+
     return t === "combat" || t === "elite" || t === "boss";
   }
 
-  private templateFor(type: RoomType): RoomDef {
+  private templateFor(type: RoomType) {
     switch (type) {
       case "start": {
         return START();
       }
+
       case "combat":
       case "elite": {
         return this.nextCombat();
       }
+
       case "merchant":
       case "rest":
       case "treasure": {
         return SAFE();
       }
+
       case "boss": {
         return BOSS();
       }
-      // no default
     }
   }
 
-  // Draw the next combat layout: a freshly generated, reachability-verified room
-  // (see gen.ts). Every fight is a new dynamic space; the generator guarantees
-  // every door + enemy is reachable from the spawn.
-  private nextCombat(): RoomDef {
+  private nextCombat() {
     return genCombatRoom(Math.floor(rand() * 0x1_00_00_00_00), this.biome);
   }
 
-  // Door offers for the current room's exits (after clearing).
-  offers(): Offer[] {
-    // "descend" — next biome
+  offers() {
     if (this.type === "boss") {
-      return [{ type: "start" }];
+      return [{ type: "start" }] satisfies Offer[];
     }
+
     if (this.type === "start") {
-      return [{ type: "combat" }];
+      return [{ type: "combat" }] satisfies Offer[];
     }
+
     if (this.depth + 1 >= this.bossAt) {
-      return [{ type: "boss" }];
+      return [{ type: "boss" }] satisfies Offer[];
     }
-    return twoDistinct();
+
+    return twoDistinct() satisfies Offer[];
   }
 
-  // Advance into the room behind the chosen door; returns its template.
-  choose(offer: Offer): RoomDef {
+  choose(offer: Offer) {
     if (this.type === "boss") {
       this.biome += 1;
       this.depth = 1;
       this.type = "start";
+
       return this.templateFor("start");
     }
+
     this.depth += 1;
     this.type = offer.type;
+
     return this.templateFor(offer.type);
   }
 }

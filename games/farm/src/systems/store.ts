@@ -1,7 +1,3 @@
-// Shared persistent player state. Lives across scenes (farm <-> mine) so both
-// read/write the same inventory, skills, gold and vitals. The World and the
-// day/time clock stay owned by GameScene; only player-carried state is here.
-
 import { Inventory } from "./inventory";
 import { Skills } from "./skills";
 import { Collections } from "./collections";
@@ -24,7 +20,7 @@ export interface Work {
   watered: number;
 }
 
-const freshWork = (): Work => ({
+const freshWork = () => ({
   felled: 0,
   foraged: 0,
   goldEarned: 0,
@@ -35,7 +31,7 @@ const freshWork = (): Work => ({
   watered: 0,
 });
 
-export const workScore = (w: Work): number =>
+export const workScore = (w: Work) =>
   w.tilled +
   w.planted +
   w.watered +
@@ -53,16 +49,15 @@ class Store {
   hp = MAX_HP;
   work = freshWork();
 
-  // persistent across scenes (farm <-> mine)
   animals: AnimalSave[] = [];
   animalSeq = 1;
   npcFriendship: Record<string, number> = {};
 
-  maxHp(): number {
+  maxHp() {
     return MAX_HP + this.skills.bonusMaxHp();
   }
 
-  initNew(): void {
+  initNew() {
     this.inv = Inventory.fresh();
     this.skills = Skills.fresh();
     this.collections = Collections.empty();
@@ -75,27 +70,25 @@ class Store {
     this.npcFriendship = {};
   }
 
-  animalSave(): AnimalSave[] {
+  animalSave() {
     return this.animals;
   }
-  loadAnimals(a: AnimalSave[], seq: number): void {
+  loadAnimals(a: AnimalSave[], seq: number) {
     this.animals = a;
     this.animalSeq = seq;
   }
 
-  /** A night's sleep: full energy — 55% after passing out or fainting — and
-   *  some HP back, or half of it after a faint. */
-  rest(exhausted: boolean, fainted: boolean): void {
+  rest(exhausted: boolean, fainted: boolean) {
     this.energy = exhausted || fainted ? Math.floor(MAX_ENERGY * 0.55) : MAX_ENERGY;
     this.hp = fainted
       ? Math.floor(this.maxHp() * 0.5)
       : Math.min(this.maxHp(), this.hp + HP_REGEN_PER_DAY);
   }
 
-  spendEnergy(n: number): void {
+  spendEnergy(n: number) {
     this.energy = Math.max(0, this.energy - n);
   }
-  damage(n: number): void {
+  damage(n: number) {
     this.hp = Math.max(0, this.hp - n);
   }
 }

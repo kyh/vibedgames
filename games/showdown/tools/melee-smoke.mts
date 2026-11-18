@@ -24,21 +24,23 @@ test("a weapon sweep hits ahead, never behind or beyond the blade", () => {
 test("melee uses the target's body radius and the finite blade endpoint", () => {
   assert.ok(inMeleeArc(origin, north, sweep, { x: 0, z: 2.35 }, 0.4));
   assert.ok(inMeleeArc(origin, north, sweep, atAngle(1.8, Math.PI / 4 + 0.12), 0.4));
-  // Outside both the end and side: expanding radius and angle independently is wrong here.
   assert.ok(!inMeleeArc(origin, north, sweep, atAngle(2.35, Math.PI / 4 + 0.15), 0.4));
   assert.ok(inMeleeArc({ x: 4, z: 2 }, { x: 1, z: 0 }, sweep, { x: 5.8, z: 2 }, 0.4));
 });
 
 test("cover blocks melee; the crate being struck may occupy the endpoint tile", () => {
   const target = { x: 0.5, z: 2.5 };
+
   const covered = {
     raycast: () => ({ dist: 1, tx: toTile(0.5), ty: toTile(1.5), x: 0.5, z: 1.5 }),
     toTile,
   };
+
   const targetCrate = {
     raycast: () => ({ dist: 2, tx: toTile(target.x), ty: toTile(target.z), x: target.x, z: 2 }),
     toTile,
   };
+
   const clear = { raycast: () => null, toTile };
   assert.equal(meleeReaches(covered, origin, target, false), false);
   assert.equal(meleeReaches(covered, origin, target, true), false);

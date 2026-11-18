@@ -10,77 +10,31 @@ import { getBaseUrl, getConfigDir } from "../lib/config.js";
 import { isNewerVersion } from "../lib/update.js";
 import { SLUG_RE, findProjectRoot, readProjectConfig } from "../lib/config-file.js";
 
-/**
- * `vg playtest` — drive a browser to actually play the game.
- *
- * This is a thin passthrough to agent-browser (a native browser-automation CLI
- * built for agents), not a wrapper with its own vocabulary: every argument goes
- * through untouched so the skill can teach upstream's command surface and we
- * inherit its improvements for free. index.ts routes `vg playtest …` here
- * BEFORE citty parses anything, so `--help`/`--version` reach the binary; the
- * citty command below exists only so `vg --help` lists the subcommand.
- *
- * The one thing layered on top is `--game [slug]`, which resolves a deployed
- * game's URL so an agent can playtest what it just shipped with no local setup.
- *
- * A minimum version is enforced: agent-browser is pre-1.0, so a minor bump can
- * move the command surface out from under the playtest skill.
- */
-
 const PKG = "agent-browser";
 const MIN_VERSION = "0.34.0";
 const PKG_SPEC = `${PKG}@^${MIN_VERSION}`;
 
-/** Stands in for a version string we could not read. Always meets the floor. */
 const UNKNOWN_VERSION = "unknown";
 
-/** How long a failed upgrade suppresses the next attempt. */
 const UPGRADE_RETRY_MS = 24 * 60 * 60_000;
 
-/**
- * Subcommands that take a URL. Used to decide whether a bare `--game` still
- * needs an `open` in front of it, and — over `bareTokens` — to tell a misplaced
- * `--game` from a well-formed one. An unknown verb still degrades to
- * agent-browser's own error rather than to a wrong guess here.
- */
 const URL_TAKING = new Set(["open", "goto", "navigate", "url"]);
 
-/**
- * Verbs this module recognizes, used only to tell a subcommand from a flag's
- * value. `diff` is here because `diff url` is how two URLs are compared.
- */
 const KNOWN_VERBS = new Set([...URL_TAKING, "diff"]);
 
-/**
- * The installed agent-browser's version, or null if the binary can't be run.
- *
- * Doubles as the "is it installed?" probe: a version we can read is proof the
- * binary works, which a bare exit code isn't.
- */
-const installedVersion = (bin: string): string | null => {
-  // cross-spawn's sync sets `error` to null on success (node's spawnSync leaves
-  // it undefined), so test truthiness rather than comparing against undefined.
+const installedVersion = (bin: string) => {
   const res = spawn.sync(bin, ["--version"], { encoding: "utf-8", timeout: 30_000 });
+
   if (res.status !== 0 || res.error) {
     return null;
   }
+
   const match = /\d+\.\d+\.\d+/u.exec(res.stdout ?? "");
+
   return match ? match[0] : UNKNOWN_VERSION;
 };
 
-/**
- * Whether a version is new enough for the playtest skill.
- *
- * A floor, not an exact pin, so a newer agent-browser is left alone: someone
- * running 0.35 installed it for a reason, and downgrading a shared global tool
- * to match this skill would break their other work to fix a risk that may not
- * exist. PKG_SPEC still caps what a *fresh* install pulls in.
- *
- * An unparseable version passes — `isNewerVersion` returns false for anything
- * that isn't `x.y.z` — because a binary from brew or cargo may not report a
- * semver at all, and blocking it would be worse than trusting it.
- */
-const meetsMinimum = (version: string): boolean => !isNewerVersion(MIN_VERSION, version);
+const meetsMinimum = (version: string) => !isNewerVersion(MIN_VERSION, version);
 
 export interface Binary {
   bin: string;
@@ -88,36 +42,37 @@ export interface Binary {
 }
 
 /** The agent-browser binary to use. VG_AGENT_BROWSER_BIN overrides (dev). */
-export const resolveBinary = (): Binary | null => {
+export const resolveBinary = () => {
   const override = process.env.VG_AGENT_BROWSER_BIN;
-  // A dev-pointed binary is taken on trust — it is typically a local build with
-  // no npm version to read, and `meetsMinimum` waves an unparseable one through.
+
   if (override) {
     return existsSync(override) ? { bin: override, version: UNKNOWN_VERSION } : null;
   }
+
   const version = installedVersion(PKG);
+
   return version === null ? null : { bin: PKG, version };
 };
 
-/** `npm install -g` the pinned spec, then re-resolve. Null if either step fails. */
-const installGlobal = (): Binary | null => {
-  // Bounded so a wedged registry or install script can't hang `vg playtest`
-  // forever; generous enough not to cut off a slow but working download.
+const installGlobal = () => {
   const res = spawn.sync("npm", ["install", "-g", PKG_SPEC], {
     stdio: "inherit",
     timeout: 10 * 60_000,
   });
+
   return res.status === 0 && !res.error ? resolveBinary() : null;
 };
+
 /**
  * Install agent-browser globally, then provision its browser. Upstream ships
  * these as two steps (`npm i -g` puts the Rust binary in place; `install`
  * fetches Chrome for Testing and reuses an existing Chrome/Brave/Playwright
  * install when it finds one), so a first run pays for both.
  */
-export const bootstrap = (): Binary => {
+export const bootstrap = () => {
   consola.start(`Installing the playtest browser (${PKG})…`);
   const resolved = installGlobal();
+
   if (!resolved) {
     consola.error(
       `Couldn't install ${PKG}, or it isn't on PATH afterwards. Try manually: npm install -g ${PKG_SPEC} — and check that npm's global bin directory is in your PATH (\`npm bin -g\`).`,
@@ -127,6 +82,7 @@ export const bootstrap = (): Binary => {
 
   consola.start("Provisioning the browser (first run only)…");
   const provision = spawn.sync(resolved.bin, ["install"], { stdio: "inherit" });
+
   if (provision.status !== 0) {
     consola.error(
       `\`${PKG} install\` failed. On Linux you may need system libraries: ${PKG} install --with-deps`,
@@ -135,22 +91,18 @@ export const bootstrap = (): Binary => {
   }
 
   consola.success("Playtest browser ready.");
+
   return resolved;
 };
 
-/**
- * Whether an upgrade was already tried recently. Time-boxed rather than
- * permanent: the usual reason one fails is being offline, and a machine that is
- * online tomorrow should get the upgrade rather than stay pinned by a stamp it
- * wrote once.
- */
-const recentlyFailed = (stamp: string): boolean => {
+const recentlyFailed = (stamp: string) => {
   try {
     return Date.now() - statSync(stamp).mtimeMs < UPGRADE_RETRY_MS;
   } catch {
     return false;
   }
 };
+
 /**
  * Bring an agent-browser older than the minimum up to it.
  *
@@ -160,17 +112,13 @@ const recentlyFailed = (stamp: string): boolean => {
  * leave an older global install — already on PATH from some earlier project —
  * driving every run, which is how a documented contract silently stops holding.
  */
-export const ensureMinimum = (resolved: Binary): Binary => {
+export const ensureMinimum = (resolved: Binary) => {
   if (meetsMinimum(resolved.version)) {
     return resolved;
   }
 
-  // The bot script runs `vg playtest` once per step, so an upgrade that cannot
-  // stick — read-only npm prefix, offline, locked-down CI — would otherwise
-  // retry its npm round-trip on every one of them. Recorded per user rather
-  // than in a shared /tmp, where one account's stamp would silently suppress
-  // everyone else's upgrade.
   const stamp = path.join(getConfigDir(), `${PKG}-upgrade-failed-${resolved.version}`);
+
   if (recentlyFailed(stamp)) {
     return resolved;
   }
@@ -179,64 +127,65 @@ export const ensureMinimum = (resolved: Binary): Binary => {
     `Found ${PKG} ${resolved.version}, but the playtest skill needs at least ${MIN_VERSION}. Upgrading…`,
   );
   const upgraded = installGlobal();
+
   if (!upgraded || !meetsMinimum(upgraded.version)) {
-    // Continue anyway: an older binary handles most commands fine, and failing
-    // outright would strand anyone who can't write to npm's global prefix.
     try {
       mkdirSync(getConfigDir(), { mode: 0o700, recursive: true });
       writeFileSync(stamp, "");
-    } catch {
-      // A stamp we cannot write only costs a retry next time.
-    }
+    } catch {}
     consola.warn(
       `Couldn't upgrade ${PKG}. Continuing on ${resolved.version} — run \`npm install -g ${PKG_SPEC}\` if commands misbehave.`,
     );
+
     return resolved;
   }
+
   return upgraded;
 };
 
-/** The current project's slug, from the nearest vibedgames.json. */
-const projectSlug = (): string => {
+const projectSlug = () => {
   let config: { slug: string } | null = null;
+
   try {
     config = readProjectConfig(process.cwd());
   } catch (error) {
     consola.error(error instanceof Error ? error.message : String(error));
     process.exit(1);
   }
+
   if (!config) {
     consola.error(
       "`--game` with no slug reads vibedgames.json, and none was found here. Pass a slug (`vg playtest --game my-game`) or run from a deployed project.",
     );
     process.exit(1);
   }
+
   return config.slug;
 };
+
 /**
  * The URL a game is served at: a per-slug subdomain of whatever host this CLI
  * is pointed at, so `VG_API_URL=…staging vg playtest --game x` playtests
  * staging rather than silently hitting production the way a hardcoded apex
  * would. Mirrors the derivation the deploy router does server-side.
  */
-export const resolveGameUrl = (slug: string | null): string => {
+export const resolveGameUrl = (slug: string | null) => {
   const resolved = slug ?? projectSlug();
 
-  // The slug lands in the host, so anything outside the deploy grammar could
-  // steer the browser off `*.vibedgames.com` entirely — `../`, an embedded
-  // `/`, or `evil.com#` would all re-point the origin.
   if (!SLUG_RE.test(resolved)) {
     consola.error(`Invalid game slug "${resolved}". Use lowercase letters, digits, and hyphens.`);
     process.exit(1);
   }
 
   const base = new URL(getBaseUrl());
+
   if (base.hostname === "localhost" || base.hostname === "127.0.0.1") {
     consola.error(
       `\`--game\` resolves a deployed game's subdomain, which a local API URL (${base.host}) doesn't serve. Pass the game's URL directly instead.`,
     );
     process.exit(1);
   }
+
   return `${base.protocol}//${resolved}.${base.host}`;
 };
 
@@ -256,60 +205,37 @@ export const resolveGameUrl = (slug: string | null): string => {
  * a grammar that moves every release. This catches the shapes people actually
  * type; anything past it reaches agent-browser as before.
  */
-export const bareTokens = (args: string[]): string[] =>
+export const bareTokens = (args: string[]) =>
   args.filter((arg, index) => {
     if (arg.startsWith("-")) {
       return false;
     }
-    // A token that IS a known verb is one, whatever precedes it. "Preceded by a
-    // flag" can't tell a boolean flag from a valued one, so `--headed open`
-    // would otherwise read `open` as `--headed`'s value, see no verb at all,
-    // and insert a second one — agent-browser then navigates to the literal
-    // string "open" and lands on chrome-error://.
-    //
-    // The cost is a session or profile named exactly after a verb
-    // (`--session open`), which is now read as the verb. That is the rarer
-    // input by a wide margin, and it fails loudly instead of silently going
-    // somewhere wrong.
-    // `--game`'s own value is exempt: that flag is ours, so we know it takes a
-    // value, and a game may legitimately be called `open` or `diff`.
+
     const previous = args[index - 1];
+
     if (KNOWN_VERBS.has(arg) && previous !== "--game") {
       return true;
     }
+
     return !(previous !== undefined && previous.startsWith("-") && !previous.includes("="));
   });
 
-export const expandGameFlag = (args: string[], resolveUrl = resolveGameUrl): string[] => {
+export const expandGameFlag = (args: string[], resolveUrl = resolveGameUrl) => {
   if (!args.includes("--game")) {
     return args;
   }
 
-  // Catch `vg playtest snapshot --game x`, where the URL has nowhere to go —
-  // agent-browser silently runs the snapshot and ignores the stray URL, so
-  // leaving it to upstream costs a wrong answer rather than an error. Skipped
-  // when some verb here does take a URL, which is the well-formed case.
-  // Both questions — "is a URL-taking verb already here?" and "is some OTHER
-  // verb here?" — are read off the same list. Scanning the raw args for the
-  // first would also match a flag's value, so `--profile open --game x` would
-  // count the profile name as the verb and hand agent-browser a URL with no
-  // subcommand at all.
-  // Only the VERB decides whether a URL is wanted — `diff` reads its own on the
-  // next token. Asking whether ANY bare token is URL-taking lets a positional
-  // argument answer for the command: `click open --game x` would pass the guard
-  // on the selector named `open` and click the current page.
   const bare = bareTokens(args);
   const [verb] = bare;
+
   const hasUrlVerb =
     verb !== undefined &&
     (URL_TAKING.has(verb) || (verb === "diff" && bare[1] !== undefined && URL_TAKING.has(bare[1])));
 
-  // A verb that only appears AFTER the flag can't receive the URL: substituting
-  // in place would emit `<url> open`, whose first positional agent-browser
-  // reads as the subcommand. Say so rather than hand over a dead command.
   const verbLeads = bareTokens(args.slice(0, args.indexOf("--game"))).some((token) =>
     URL_TAKING.has(token),
   );
+
   if (hasUrlVerb && !verbLeads) {
     consola.error(
       "`--game` supplies the URL to a verb, so it has to come after one: `vg playtest open --game my-game`.",
@@ -318,6 +244,7 @@ export const expandGameFlag = (args: string[], resolveUrl = resolveGameUrl): str
   }
 
   const subcommand = hasUrlVerb ? null : (verb ?? null);
+
   if (subcommand !== null) {
     consola.error(
       `\`--game\` supplies a URL, so it only works with \`${[...URL_TAKING].join("`, `")}\` — not \`${subcommand}\`. Open the game first, then run \`vg playtest ${subcommand} …\` against it.`,
@@ -326,32 +253,32 @@ export const expandGameFlag = (args: string[], resolveUrl = resolveGameUrl): str
   }
 
   const out: string[] = [];
-  // `entries()` types each element as string, so no assertion is needed to
-  // index the array; `consumed` skips a slug already claimed by its flag.
   let consumed = false;
   let opened = false;
+
   for (const [index, arg] of args.entries()) {
     if (consumed) {
       consumed = false;
       continue;
     }
+
     if (arg !== "--game") {
       out.push(arg);
       continue;
     }
+
     const next = args[index + 1];
     const slug = next !== undefined && !next.startsWith("-") ? next : null;
     consumed = slug !== null;
-    // Decided from the whole array rather than from what came before the flag,
-    // so `--game x open` substitutes in place instead of emitting a second
-    // `open`. Once per expansion, so repeating `--game` yields one verb and
-    // several URLs — the shape `diff url` wants.
+
     if (!hasUrlVerb && !opened) {
       out.push("open");
       opened = true;
     }
+
     out.push(resolveUrl(slug));
   }
+
   return out;
 };
 
@@ -366,19 +293,21 @@ export const expandGameFlag = (args: string[], resolveUrl = resolveGameUrl): str
  * environment, or is asking about sessions themselves (`session list` must see
  * every session, not just this project's).
  */
-export const withScopedSession = (args: string[], sessionId: () => string): string[] => {
+export const withScopedSession = (args: string[], sessionId: () => string) => {
   if (args.includes("--session") || args.some((a) => a.startsWith("--session="))) {
     return args;
   }
+
   if (process.env.AGENT_BROWSER_SESSION) {
     return args;
   }
+
   const [verb] = bareTokens(args);
-  // No verb means `--help`/`--version`, and `install`/`session` are machine-wide
-  // — `session list` has to see every session, not just this project's.
+
   if (verb === undefined || verb === "session" || verb === "install") {
     return args;
   }
+
   return ["--session", sessionId(), ...args];
 };
 
@@ -387,9 +316,10 @@ export const withScopedSession = (args: string[], sessionId: () => string): stri
  * one so every command run from anywhere inside the project shares a browser,
  * and on the cwd otherwise. Hashed because the name lands in a socket path.
  */
-export const projectSessionId = (): string => {
+export const projectSessionId = () => {
   const root = findProjectRoot(process.cwd()) ?? process.cwd();
   const digest = createHash("sha256").update(root).digest("hex").slice(0, 12);
+
   return `vg-${digest}`;
 };
 
@@ -399,8 +329,9 @@ export const projectSessionId = (): string => {
  * most natural first command, and re-running the provision step it just did
  * is harmless.
  */
-export const ensureAgentBrowser = (): Binary => {
+export const ensureAgentBrowser = () => {
   const resolved = resolveBinary();
+
   return resolved ? ensureMinimum(resolved) : bootstrap();
 };
 
@@ -420,8 +351,6 @@ export const playtestCommand = defineCommand({
     name: "playtest",
   },
   run: ({ rawArgs }) => {
-    // Normally unreachable (index.ts routes `vg playtest` before citty), but
-    // keeps the command functional if invoked programmatically.
     runPlaytest(rawArgs);
   },
 });

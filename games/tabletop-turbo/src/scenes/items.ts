@@ -1,11 +1,3 @@
-// Orbs, item boxes and the four items, for every kart this client simulates
-// (the local kart, and the bots while it hosts).
-//
-// Who decides what: a kart's owner decides what it picked up and when it uses
-// an item, then tells the room. Everyone applies the same effect to the road
-// (paint, a blot, a bomb in the air), and each owner decides for its own karts
-// whether that effect caught them.
-
 import type { JsonValue, MultiplayerClient } from "@vibedgames/multiplayer";
 
 import { sfx } from "../audio/sfx";
@@ -55,7 +47,6 @@ export interface ItemHost {
 
 interface Held {
   kind: ItemKind;
-  /** Scene clock at which a bot plays it; the local driver presses a key. */
   useAt: number;
 }
 
@@ -80,12 +71,12 @@ export class ItemSystem {
   }
 
   /** Put the pickups on stage for this frame. */
-  draw(out: SplatSet, cx: number, cz: number, reach: number): void {
+  draw(out: SplatSet, cx: number, cz: number, reach: number) {
     this.view.draw(out, cx, cz, reach);
   }
 
   /** New round or new circuit: a fresh field, empty hands. */
-  reset(track: Track): void {
+  reset(track: Track) {
     this.track = track;
     this.field = new Field(track);
     this.wasHere = [];
@@ -93,58 +84,67 @@ export class ItemSystem {
     this.held.clear();
   }
 
-  /** A puff where any kart, anyone's, just took an orb or a crate. */
-  private popTaken(): void {
+  private popTaken() {
     const { sparks } = this.host;
     const spots = [...this.field.orbs, ...this.field.boxes];
+
     for (const [i, spot] of spots.entries()) {
       const here = this.time >= spot.until;
+
       if (this.wasHere[i] === true && !here) {
         const crate = i >= this.field.orbs.length;
         sparks.burst(spot.x, 1.4, spot.z, crate ? RAMP.white : RAMP.yellow, crate ? 16 : 7, 7);
+
         if (crate) {
           sparks.ring(spot.x, spot.z, RAMP.yellow, 8, 14);
         }
       }
+
       this.wasHere[i] = here;
     }
   }
 
-  heldBy(key: string): ItemKind | null {
+  heldBy(key: string) {
     return this.held.get(key)?.kind ?? null;
   }
 
   /** Every frame, with every kart on the road. */
-  update(time: number, karts: readonly Toucher[], racing: boolean): void {
+  update(time: number, karts: readonly Toucher[], racing: boolean) {
     this.time = time;
+
     if (racing) {
       for (const [key, gains] of this.field.touch(karts, time)) {
         this.reward(key, gains.orbs, gains.box, gains.blot);
       }
+
       for (const [key, held] of this.held) {
         if (time >= held.useAt) {
           this.use(key);
         }
       }
     }
+
     this.land(karts);
     this.popTaken();
     this.view.update(this.field, this.bombs, time);
   }
 
   /** Play the item `key` holds, if it holds one. */
-  use(key: string): void {
+  use(key: string) {
     const held = this.held.get(key);
     const kart = this.host.kartOf(key);
+
     if (!held || !kart) {
       return;
     }
+
     this.held.delete(key);
     const by = key === "me" ? (this.host.client.playerId ?? "me") : key;
     const fx = Math.cos(kart.a);
     const fz = Math.sin(kart.a);
     const target = pointAt(this.track, kart.idx + BOMB_REACH, kart.lat * 0.5);
     this.nextId += 1;
+
     const payload = {
       by,
       id: this.nextId,
@@ -154,28 +154,33 @@ export class ItemSystem {
       x: Math.round((kart.x - (held.kind === "blot" ? fx * 3.2 : 0)) * 10) / 10,
       z: Math.round((kart.z - (held.kind === "blot" ? fz * 3.2 : 0)) * 10) / 10,
     };
+
     if (held.kind === "turbo") {
       kart.boost = Math.max(kart.boost, TURBO_SECONDS);
     } else if (held.kind === "solvent") {
       kart.proof = SOLVENT_SECONDS;
     }
+
     this.apply(key, payload.k, payload.x, payload.z, payload.tx, payload.tz, payload.id);
     this.host.client.sendEvent(ITEM_EVENT, payload, { except: this.host.client.playerId ?? "" });
+
     if (key === "me") {
       this.host.notify("used", held.kind);
     }
   }
 
   /** An item someone else's kart played. */
-  onEvent(payload: JsonValue, from: string): void {
+  onEvent(payload: JsonValue, from: string) {
     if (!isJsonObject(payload)) {
       return;
     }
+
     const { by, id, k, tx, tz, x, z } = payload;
+
     if (!isItemKind(k) || !isJsonNumber(x) || !isJsonNumber(z)) {
       return;
     }
-    // A bot's key travels as it is; a human's is their player id, which is `from`.
+
     const key = by === from || !String(by).startsWith("b") ? from : String(by);
     this.apply(
       key,
@@ -188,7 +193,6 @@ export class ItemSystem {
     );
   }
 
-  /** The effect on the road, the same on every client. */
   private apply(
     key: string,
     kind: ItemKind,
@@ -197,9 +201,10 @@ export class ItemSystem {
     tx: number,
     tz: number,
     id: number,
-  ): void {
+  ) {
     const { paint, sparks } = this.host;
     const ramp = this.host.rampOf(key);
+
     if (kind === "solvent") {
       paint.wipe(x, z, SOLVENT_RADIUS, this.host.slotOf(key));
       paint.stamp(x, z, 4.5, this.host.slotOf(key));
@@ -213,9 +218,9 @@ export class ItemSystem {
     }
   }
 
-  /** Bombs that have come down: splat the road, spin whoever was under it. */
-  private land(karts: readonly Toucher[]): void {
+  private land(karts: readonly Toucher[]) {
     const flying: Bomb[] = [];
+
     for (const bomb of this.bombs) {
       if (this.time - bomb.t0 < BOMB_FLIGHT) {
         flying.push(bomb);
@@ -223,50 +228,62 @@ export class ItemSystem {
         this.host.paint.stamp(bomb.toX, bomb.toZ, BOMB_SPLAT, this.host.slotOf(bomb.by));
         this.host.sparks.burst(bomb.toX, 0.6, bomb.toZ, bomb.ramp, 60, 18);
         this.host.sparks.ring(bomb.toX, bomb.toZ, bomb.ramp, 20, 36);
+
         for (const kart of karts) {
           const hit = Math.hypot(kart.x - bomb.toX, kart.z - bomb.toZ) < BOMB_BLAST;
+
           if (hit && kart.key !== bomb.by) {
             this.spin(kart.key);
           }
         }
+
         const me = this.host.kartOf("me");
+
         if (me && Math.hypot(bomb.toX - me.x, bomb.toZ - me.z) < 70) {
           sfx.splat();
         }
       }
     }
+
     this.bombs = flying;
   }
 
-  private reward(key: string, orbs: number, box: boolean, blot: boolean): void {
+  private reward(key: string, orbs: number, box: boolean, blot: boolean) {
     const kart = this.host.kartOf(key);
+
     if (!kart) {
       return;
     }
+
     if (orbs > 0 && kart.orbs < ORB_MAX) {
       kart.orbs = Math.min(ORB_MAX, kart.orbs + orbs);
+
       if (key === "me") {
         this.host.notify("orb");
       }
     }
+
     if (box && !this.held.has(key)) {
       const kind = rollItem(this.host.shareOf(key), Math.random());
-      // A bot sits on an item for a moment, like a person would.
       const useAt = key === "me" ? Number.POSITIVE_INFINITY : this.time + 1.2 + Math.random() * 3.5;
       this.held.set(key, { kind, useAt });
+
       if (key === "me") {
         this.host.notify("box", kind);
       }
     }
+
     if (blot) {
       this.spin(key);
     }
   }
 
-  private spin(key: string): void {
+  private spin(key: string) {
     const kart = this.host.kartOf(key);
+
     if (kart && kart.spin <= 0 && kart.finishMs === 0) {
       spinOut(kart);
+
       if (key === "me") {
         this.host.notify("spin");
       }

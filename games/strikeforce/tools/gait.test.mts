@@ -1,5 +1,3 @@
-// The soldier's gait: which clips play, how fast the stride turns over, and
-// which way the legs face, read off nothing but positions.
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
@@ -7,18 +5,18 @@ import { Gait, gaitWeights, strideLength } from "../src/soldier/soldier-gait.ts"
 
 const DT = 1 / 60;
 
-/** Walk a gait along a velocity (m/s, world) while facing `yaw`, for `seconds`. */
-const run = (gait: Gait, vx: number, vz: number, yaw: number, seconds: number): void => {
+const run = (gait: Gait, vx: number, vz: number, yaw: number, seconds: number) => {
   for (let t = 0; t < seconds; t += DT) {
     gait.update(vx * t, vz * t, yaw, 0, DT);
   }
 };
 
-const total = (weights: Record<string, number>): number =>
+const total = (weights: Record<string, number>) =>
   Object.values(weights).reduce((a, b) => a + b, 0);
 
 test("standing still plays no stride; moving plays a whole one", () => {
   assert.equal(total(gaitWeights(0, 0, 0, false)), 0);
+
   for (const pace of [1, 2.2, 4.4, 6.4, 9]) {
     for (const heading of [0, 0.8, Math.PI / 2, -2.4, Math.PI]) {
       const at = `pace ${pace}, heading ${heading}`;
@@ -28,6 +26,7 @@ test("standing still plays no stride; moving plays a whole one", () => {
         `${at}, crouched`,
       );
     }
+
     assert.ok(Math.abs(total(gaitWeights(pace, Math.PI, 0, true)) - 1) < 1e-9, `back at ${pace}`);
   }
 });
@@ -59,9 +58,11 @@ test("a slow sidestep is a shuffle: the sidestep clip, hips square", () => {
 
 test("a crouched soldier standing still holds its crouched stride", () => {
   const gait = new Gait();
+
   for (let i = 0; i < 60; i += 1) {
     gait.update(0, 0, 0, 1, DT);
   }
+
   assert.equal(gait.weights["crouch-walk"], 1);
   const held = gait.phase;
   gait.update(0, 0, 0, 1, DT);
@@ -91,9 +92,11 @@ test("turning on the spot plants the feet, then steps them round", () => {
   gait.update(0, 0, 0, 0, DT);
   gait.update(0, 0, 0.5, 0, DT);
   assert.ok(Math.abs(gait.twist + 0.5) < 1e-9, "a small turn leaves the feet where they were");
+
   for (let i = 0; i < 120; i += 1) {
     gait.update(0, 0, 1.6, 0, DT);
   }
+
   assert.ok(Math.abs(gait.twist) < 0.05, "a big one brings them round");
 });
 

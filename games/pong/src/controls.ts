@@ -20,9 +20,10 @@ export const CONTROLS: ControlsManifest = [
 
 /** What this session can actually use: no hand cam until it is live, and no
  *  mute key where the platform owns sound (YouTube Playables). */
-export const visibleControls = (): ControlsManifest => {
+export const visibleControls = () => {
   const camera = handCameraState() === "live";
   const mute = !isPlayables();
+
   return CONTROLS.filter(
     (entry) => (camera || entry.method !== "camera") && (mute || entry.input !== MUTE_KEY),
   );

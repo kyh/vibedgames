@@ -8,7 +8,6 @@ import { SkeletonReveal } from "@/components/ui/skeleton-reveal";
 import { formatDate } from "@/lib/format";
 import { useORPC } from "@/lib/orpc";
 
-/** The vibedgames scopes an app holds, with the consent page's wording; OpenID's are left out. */
 const grantedScopes = (scopes: readonly string[]) =>
   Object.entries(OAUTH_SCOPES).filter(([scope]) => scopes.includes(scope));
 
@@ -33,6 +32,7 @@ export const ConnectedAppsSettings = () => {
   const orpc = useORPC();
   const qc = useQueryClient();
   const list = useQuery(orpc.connectedApps.list.queryOptions());
+
   const revoke = useMutation(
     orpc.connectedApps.revoke.mutationOptions({
       onSuccess: () => {
@@ -69,6 +69,7 @@ export const ConnectedAppsSettings = () => {
             <ul className="divide-y divide-white/10 border-t border-white/10">
               {list.data.apps.map((app) => {
                 const granted = grantedScopes(app.scopes);
+
                 return (
                   <li key={app.clientId} className="flex items-center gap-3 py-4 text-sm">
                     <div className="min-w-0">

@@ -24,15 +24,12 @@ import {
   spawnItemState,
   spawnOpeningAsteroid,
 } from "../shared/constants";
-import type { EnemyState, ItemDrop } from "../shared/constants";
+import type { ItemDrop } from "../shared/constants";
 import { newBeam } from "../sys/beam";
 import { dist2 } from "../sys/geometry";
 import type { SceneInternals } from "../scenes/game-scene";
 import type { TrailerStageApi, TrailerStaging } from "./trailer-staging";
 
-/** Trailer staging levers (?trailer=1 only): every lever routes through the same gameplay paths the live game uses, so staged shots are real gameplay. */
-
-/** A staged peer bolt's drawn length (px). */
 const STAGED_BOLT_LEN = 14;
 
 /** Install the trailer staging overrides and return the scripted-staging
@@ -41,7 +38,7 @@ const STAGED_BOLT_LEN = 14;
  *  of this runs in normal play. Every lever routes through the same code
  *  paths gameplay uses — spawn factories, hostDamageEnemy, gainXp, die —
  *  so staged shots are real gameplay. */
-export const installTrailerStage = (scene: SceneInternals): TrailerStageApi => {
+export const installTrailerStage: (scene: SceneInternals) => TrailerStageApi = (scene) => {
   const staging: TrailerStaging = {
     camPos: null,
     deathless: true,
@@ -50,19 +47,21 @@ export const installTrailerStage = (scene: SceneInternals): TrailerStageApi => {
     peers: null,
     steer: null,
   };
+
   scene.link.trailer = staging;
+
   return {
-    clearAsteroids: (): void => {
-      // Silent: the display sweep in syncAsteroids bursts any rock whose
-      // state vanished, and 14 of those would play on the next reveal.
+    clearAsteroids: () => {
       scene.world.asteroids = [];
+
       for (const [, rec] of scene.view.asteroidObjs) {
         scene.tweens.killTweensOf(rec.gfx);
         rec.gfx.destroy();
       }
+
       scene.view.asteroidObjs.clear();
     },
-    clearWorld: (): void => {
+    clearWorld: () => {
       sfx.stopAll();
       scene.hud.bossEncounters.reset();
       scene.hud.battleBeat.reset();
@@ -75,9 +74,6 @@ export const installTrailerStage = (scene: SceneInternals): TrailerStageApi => {
       w.pulls = [];
       w.beacon = null;
       w.ufo = null;
-      // Re-stage from "arena just opened": keeps the organic director (safe
-      // opening, spawn intervals, beacon cadence, boss guarantee) asleep for
-      // the whole shot — everything on screen is placed by the director.
       w.arenaEpoch = simNow();
       scene.ai.enemySim.clear();
       scene.host.lastEnemySpawnAt = simNow();
@@ -90,21 +86,22 @@ export const installTrailerStage = (scene: SceneInternals): TrailerStageApi => {
       scene.hits.predictedKills.clear();
       scene.pickups.clear();
       scene.shield.recentConsumedShots.clear();
-      // Silent display cleanup — bypass the death-FX removal sweeps so a
-      // cleared crowd doesn't explode into 40 shatters on the next cut.
       scene.view.ufoGfx?.destroy();
       scene.view.ufoGfx = null;
       scene.view.ufoId = "";
+
       for (const [, rec] of scene.view.enemyObjs) {
         rec.gfx.destroy();
       }
+
       scene.view.enemyObjs.clear();
+
       for (const [, rec] of scene.view.itemObjs) {
         scene.tweens.killTweensOf(rec.gfx);
         rec.gfx.destroy();
       }
+
       scene.view.itemObjs.clear();
-      // Pilot combat state back to a clean baseline.
       scene.progress.streak = 0;
       scene.progress.comboTier = 1;
       scene.progress.comboExpiresAt = 0;
@@ -122,10 +119,10 @@ export const installTrailerStage = (scene: SceneInternals): TrailerStageApi => {
       scene.pilot.kickX = 0;
       scene.pilot.kickY = 0;
     },
-    damageEnemy: (id, amount): void => scene.hostCombat.hostDamageEnemy(id, amount, 0, 0),
-    enemies: (): readonly Readonly<EnemyState>[] => scene.world.enemies,
-    forceStart: (): void => scene.forceOfflineSolo(),
-    grantBooster: (kind): void => {
+    damageEnemy: (id, amount) => scene.hostCombat.hostDamageEnemy(id, amount, 0, 0) satisfies void,
+    enemies: () => scene.world.enemies,
+    forceStart: () => scene.forceOfflineSolo(),
+    grantBooster: (kind) => {
       if (kind === "repair") {
         scene.shield.shieldHp = Math.max(scene.shield.shieldHp, SHIELD_MAX);
         scene.shield.lastDamageAt = 0;
@@ -133,40 +130,39 @@ export const installTrailerStage = (scene: SceneInternals): TrailerStageApi => {
         scene.pilot.boosts.set(kind, simNow() + BOOSTER_SPECS[kind].durationMs);
       }
     },
-    grantShieldMod: (kind): void => {
+    grantShieldMod: (kind) => {
       const now = simNow();
       scene.shield.shieldMod = kind;
       scene.shield.shieldModUntil = now + SHIELD_MOD_DURATION_MS;
       scene.shield.overHp = kind === "overshield" ? OVERSHIELD_BONUS : 0;
-      // blink armed from frame one
       scene.shield.phaseReadyAt = 0;
     },
-    grantWeapon: (name): void => {
+    grantWeapon: (name) => {
       const weapon = WEAPONS_SPECIAL.find((w) => w.name === name);
+
       if (!weapon) {
         return;
       }
+
       scene.pilot.specialBase = weapon;
       scene.pilot.weapon = scaleWeaponForLevel(weapon, scene.progress.level);
       scene.pilot.weaponUntil = simNow() + SPECIAL_WEAPON_DURATION_MS;
       scene.weapons.windupAcc = 0;
-      // A staged swap starts its cadence now. Left alone, the outgoing
-      // weapon's residual cooldown carries over, so a mid-shot swap to a
-      // fast weapon can sit silent for most of a second — long enough to
-      // push the beat it was granted for past the cut.
       scene.weapons.shootCooldown = 0;
     },
-    grantXp: (amount): void => scene.progress.gainXp(amount, simNow()),
-    killEnemy: (id): void => {
+    grantXp: (amount) => scene.progress.gainXp(amount, simNow()) satisfies void,
+    killEnemy: (id) => {
       const idx = scene.world.enemies.findIndex((en) => en.id === id);
+
       if (idx !== -1) {
         scene.hostCombat.hostKillEnemy(idx);
       }
     },
-    killPlayer: (cause): void => {
+    killPlayer: (cause) => {
       if (!scene.pilot.alive) {
         return;
       }
+
       scene.shield.shieldHp = 0;
       scene.shield.overHp = 0;
       scene.shield.die(simNow(), null, cause);
@@ -182,81 +178,83 @@ export const installTrailerStage = (scene: SceneInternals): TrailerStageApi => {
       x: scene.pilot.shipX,
       y: scene.pilot.shipY,
     }),
-    setEnemyHp: (id, hp): void => {
+    setEnemyHp: (id, hp) => {
       const e = scene.world.enemies.find((en) => en.id === id);
+
       if (e) {
         e.hp = Math.max(1, hp);
       }
     },
-    setLevel: (level, xpIntoLevel = 0): void => {
+    setLevel: (level, xpIntoLevel = 0) => {
       scene.progress.level = Math.max(1, Math.min(LEVEL_CAP, Math.round(level)));
       scene.progress.xp = Math.max(0, xpIntoLevel);
       scene.pilot.specialBase = null;
       scene.pilot.weaponUntil = 0;
       scene.progress.applyBaseLoadout(simNow());
     },
-    setPlayerPose: (pose): void => {
+    setPlayerPose: (pose) => {
       scene.pilot.spawned = true;
       scene.pilot.alive = true;
       scene.link.paused = false;
       scene.pilot.respawnAt = 0;
-      // no spawn blink on camera
       scene.pilot.invulnUntil = 0;
       scene.pilot.shipX = pose.x;
       scene.pilot.shipY = pose.y;
+
       if (pose.angle !== undefined) {
         scene.pilot.shipAngle = pose.angle;
       }
+
       scene.pilot.shipVX = pose.vx ?? 0;
       scene.pilot.shipVY = pose.vy ?? 0;
-      // Rocks deliberately survive clearWorld() (they are the arena's only
-      // ambience), which means one staged for an earlier shot can be sitting
-      // exactly where a later shot puts the ship — and asteroidContactDamage
-      // then opens the scene by taking most of the shield. Clear the landing
-      // zone. Silently: the display sweep bursts any asteroid whose state
-      // vanished, and that burst would play on the reveal.
+
       for (let i = scene.world.asteroids.length - 1; i >= 0; i -= 1) {
         const a = scene.world.asteroids[i];
+
         if (!a) {
           continue;
         }
+
         const clear = a.radius + 70;
+
         if (dist2(a.x, a.y, pose.x, pose.y) > clear * clear) {
           continue;
         }
+
         scene.world.asteroids.splice(i, 1);
         const rec = scene.view.asteroidObjs.get(a.id);
+
         if (rec) {
           scene.tweens.killTweensOf(rec.gfx);
           rec.gfx.destroy();
           scene.view.asteroidObjs.delete(a.id);
         }
       }
+
       scene.cameras.main.centerOn(pose.x, pose.y);
     },
-    setShieldHp: (hp): void => {
+    setShieldHp: (hp) => {
       scene.shield.shieldHp = Math.max(0, Math.min(SIPHON_OVERHEAL_MAX, hp));
     },
-    setXp: (xpIntoLevel): void => {
+    setXp: (xpIntoLevel) => {
       scene.progress.xp = Math.max(0, xpIntoLevel);
     },
-    spawnAsteroid: (x, y, radius): void => {
+    spawnAsteroid: (x, y, radius) => {
       const a = spawnOpeningAsteroid(x, y);
       a.radius = PhaserMath.Clamp(radius, ASTEROID_MIN_RADIUS, ASTEROID_MAX_RADIUS);
-      // Same reason as spawnItem, plus one more: rocks survive clearWorld(),
-      // so a drifting staged rock wanders into later shots it was never
-      // composed for.
       a.vx = 0;
       a.vy = 0;
       scene.world.asteroids.push(a);
     },
-    spawnBeacon: (x, y, chargeS, activeS): void =>
-      scene.host.hostSpawnBeacon(x, y, simNow(), chargeS, activeS),
-    spawnEnemy: (kind, x, y, aimAt): string => {
+    spawnBeacon: (x, y, chargeS, activeS) =>
+      scene.host.hostSpawnBeacon(x, y, simNow(), chargeS, activeS) satisfies void,
+    spawnEnemy: (kind, x, y, aimAt) => {
       const e = spawnEnemyState(kind, x, y);
+
       if (aimAt) {
         e.angle = Math.atan2(aimAt.y - y, aimAt.x - x);
       }
+
       if (kind === "dreadnought") {
         e.hp = bossHp(Math.max(1, Object.keys(scene.link.peers).length));
         e.maxHp = e.hp;
@@ -264,44 +262,51 @@ export const installTrailerStage = (scene: SceneInternals): TrailerStageApi => {
         e.hp = eliteHp(kind, scene.host.maxPresentLevel());
         e.maxHp = e.hp;
       }
+
       scene.world.enemies.push(e);
-      return e.id;
+
+      return e.id satisfies string;
     },
-    spawnItem: (cls, name, x, y): void => {
+    spawnItem: (cls, name, x, y) => {
       let drop: ItemDrop | null = null;
+
       if (cls === "weapon") {
         const i = WEAPONS_SPECIAL.findIndex((w) => w.name === name);
+
         if (i !== -1) {
           drop = { kind: "weapon", weaponIdx: i };
         }
       } else if (cls === "shield") {
         const i = kindIndex(SHIELD_MOD_KINDS, name);
+
         if (i !== -1) {
           drop = { kind: "shield", shieldIdx: i };
         }
       } else {
         const i = kindIndex(BOOSTER_KINDS, name);
+
         if (i !== -1) {
           drop = { boosterIdx: i, kind: "booster" };
         }
       }
+
       if (!drop) {
         return;
       }
+
       const item = spawnItemState(x, y, drop);
-      // Park it: the factory's 30 px/s scatter is drawn from the seeded
-      // gameplay RNG, and over a ~0.7s approach it walks the crystal clear
-      // of the 15px pickup radius the shot was composed around.
       item.vx = 0;
       item.vy = 0;
       scene.world.items.push(item);
     },
-    spawnShards: (count, x, y): void => scene.hostCombat.hostSpawnShards(x, y, count),
-    stagePeerBolts: (id, bolts): void => {
+    spawnShards: (count, x, y) => scene.hostCombat.hostSpawnShards(x, y, count) satisfies void,
+    stagePeerBolts: (id, bolts) => {
       if (!bolts) {
         scene.remoteFire.stage(id, null);
+
         return;
       }
+
       const now = simNow();
       scene.remoteFire.stage(
         id,
@@ -313,6 +318,7 @@ export const installTrailerStage = (scene: SceneInternals): TrailerStageApi => {
           b.released = true;
           b.tail.x = bolt.x - (bolt.vx / speed) * STAGED_BOLT_LEN;
           b.tail.y = bolt.y - (bolt.vy / speed) * STAGED_BOLT_LEN;
+
           return b;
         }),
       );

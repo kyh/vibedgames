@@ -1,8 +1,5 @@
 import { walkFor } from "./roads";
 
-// Facade to kerb: the sidewalk plus a stoop. Was a flat 2.4u regardless of
-// street class, which left ~1.1u of bare ground past a minor street's 1.3u walk
-// and pushed facade-to-facade to 11.2u (~50 m) against SF's ~25 m.
 const FACADE_MARGIN = 0.45;
 
 /**
@@ -13,7 +10,7 @@ const FACADE_MARGIN = 0.45;
  * predates per-class sidewalks and now floats those props off every minor
  * street's wall).
  */
-export const facadeOffset = (half: number): number => half + walkFor(half) + FACADE_MARGIN;
+export const facadeOffset = (half: number) => half + walkFor(half) + FACADE_MARGIN;
 
 /**
  * Per SECTION, after stepping: a genuine cliff face, left green. Shared

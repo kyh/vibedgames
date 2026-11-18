@@ -17,29 +17,25 @@ export interface JsonObject {
 }
 
 /** Parse text as JSON, or undefined when malformed (JSON never encodes undefined). */
-export const parseJson = (text: string): JsonValue | undefined => {
+export const parseJson = (text: string) => {
   try {
     const value: JsonValue = JSON.parse(text);
+
     return value;
   } catch {
-    return undefined;
+    return;
   }
 };
 
-// `String(v) === v` / `Number(v) === v` hold exactly for primitive strings /
-// numbers (strict equality never coerces), so these predicates are sound
-// without a runtime `typeof`.
 export const isJsonString = (value: JsonValue | undefined): value is string =>
   String(value) === value;
 
 export const isJsonNumber = (value: JsonValue | undefined): value is number =>
   Number(value) === value;
 
-export const asJsonObject = (value: JsonValue | undefined): JsonObject | undefined =>
+export const asJsonObject = (value: JsonValue | undefined) =>
   value instanceof Object && !Array.isArray(value) ? value : undefined;
 
-export const asString = (value: JsonValue | undefined): string | undefined =>
-  isJsonString(value) ? value : undefined;
+export const asString = (value: JsonValue | undefined) => (isJsonString(value) ? value : undefined);
 
-export const asNumber = (value: JsonValue | undefined): number | undefined =>
-  isJsonNumber(value) ? value : undefined;
+export const asNumber = (value: JsonValue | undefined) => (isJsonNumber(value) ? value : undefined);

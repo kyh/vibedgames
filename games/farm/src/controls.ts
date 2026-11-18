@@ -1,7 +1,5 @@
 import type { ControlsManifest } from "@repo/embed";
 
-// Every way to play, one list — the title card and the pause overlay both
-// render from this (filtered per device / connected pad by @repo/embed).
 export const CONTROLS: ControlsManifest = [
   { action: "move (SHIFT runs)", input: "WASD / arrows", method: "keys" },
   { action: "use tool / interact", input: "E / SPACE", method: "keys" },

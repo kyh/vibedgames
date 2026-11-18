@@ -1,14 +1,3 @@
-// Bespoke pause overlay — same design language as the start screen in
-// index.html: translucent sky wash over the live world, drifting soft clouds,
-// cream display type with the purple countdown shadow, the orange pulsing
-// call-to-action, and navy monospace copy with a cream halo. Controls render
-// grouped from the shared CONTROLS manifest (filtered per device / connected
-// pad fresh on every show()), keycaps styled like the in-game HUD pills.
-//
-// Built on the shared @repo/embed pause shell, which owns resume behavior
-// (pointerup / non-Escape keyup / fresh pad press), the full-screen root, and
-// the fade — this file owns the sky-wash look.
-
 import { controlGroups, createPauseShell } from "@repo/embed";
 import type { ControlMethod, ControlsManifest, MuteAccessor } from "@repo/embed";
 
@@ -21,7 +10,7 @@ const METHOD_LABELS = {
 } satisfies Record<ControlMethod, string>;
 
 const STYLE_ID = "fdp-style";
-// Positioning/z-index/fade live on the shell's root — visuals only here.
+
 const CSS = `
 .fdp-root{display:flex;flex-direction:column;align-items:center;
   justify-content:center;text-align:center;overflow:hidden;
@@ -82,10 +71,11 @@ const CSS = `
 }`;
 
 /** Inject the shared control-card styles (pause overlay AND start screen). */
-export const ensureStyle = (): void => {
+export const ensureStyle = () => {
   if (document.querySelector(`#${STYLE_ID}`)) {
     return;
   }
+
   const style = document.createElement("style");
   style.id = STYLE_ID;
   style.textContent = CSS;
@@ -97,23 +87,29 @@ export const ensureStyle = (): void => {
  * and the pause overlay teach controls with the SAME UI. Null when nothing is
  * visible for the current device/pad context.
  */
-export const buildControls = (controls: ControlsManifest, coarse: boolean): HTMLElement | null => {
+export const buildControls = (controls: ControlsManifest, coarse: boolean) => {
   const groups = controlGroups(controls, { coarse });
+
   if (groups.length === 0) {
     return null;
   }
+
   const wrap = document.createElement("div");
   wrap.className = "fdp-controls";
+
   for (const group of groups) {
     const section = document.createElement("div");
+
     if (groups.length > 1) {
       const label = document.createElement("div");
       label.className = "fdp-method";
       label.textContent = METHOD_LABELS[group.method];
       section.append(label);
     }
+
     const rows = document.createElement("div");
     rows.className = "fdp-rows";
+
     for (const entry of group.entries) {
       const key = document.createElement("span");
       key.className = "fdp-key";
@@ -123,9 +119,11 @@ export const buildControls = (controls: ControlsManifest, coarse: boolean): HTML
       act.textContent = entry.action;
       rows.append(key, act);
     }
+
     section.append(rows);
     wrap.append(section);
   }
+
   return wrap;
 };
 
@@ -136,15 +134,14 @@ export interface FlappyPauseOverlay {
   hide: () => void;
 }
 
-const renderCard = (overlay: HTMLElement, controls: ControlsManifest): void => {
+const renderCard = (overlay: HTMLElement, controls: ControlsManifest) => {
   ensureStyle();
-  // Fresh every show(): hint copy and control rows match the device / pad
-  // connected the moment we pause.
   const coarse = window.matchMedia("(pointer: coarse)").matches;
 
   const clouds = document.createElement("div");
   clouds.className = "fdp-clouds";
   clouds.setAttribute("aria-hidden", "true");
+
   for (const variant of ["c1", "c2", "c3"]) {
     const cloud = document.createElement("span");
     cloud.className = `fdp-cloud ${variant}`;
@@ -164,16 +161,15 @@ const renderCard = (overlay: HTMLElement, controls: ControlsManifest): void => {
 
   card.append(title, hint);
   const controlsEl = buildControls(controls, coarse);
+
   if (controlsEl) {
     card.append(controlsEl);
   }
 
   overlay.append(clouds, card);
 };
-export const createFlappyPauseOverlay = (
-  controls: ControlsManifest,
-  mute: MuteAccessor,
-): FlappyPauseOverlay =>
+
+export const createFlappyPauseOverlay = (controls: ControlsManifest, mute: MuteAccessor) =>
   createPauseShell({
     className: "fdp-root",
     mute,

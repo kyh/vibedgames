@@ -1,8 +1,6 @@
 /// <reference types="@cloudflare/workers-types" />
 /// <reference types="vite/client" />
 
-// Merged into the Env cloudflare.config.ts generates. Not secrets: to point at a fal or
-// typesafe or Stripe mock, add them as text bindings in cloudflare.config.ts; production never sets them.
 declare namespace Cloudflare {
   interface Env {
     FAL_QUEUE_BASE_URL?: string;

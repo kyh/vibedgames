@@ -30,11 +30,11 @@ import { withSdkScript } from "../src/lib/distribute/sdk-script.js";
 import { makeCleanups, makeTmpDir } from "./_helpers.js";
 
 const { cleanups, drain } = makeCleanups();
+
 afterEach(drain);
 
 const CLI = fileURLToPath(new URL("../src/index.ts", import.meta.url));
 
-// Resolved here because the command runs from a temp dir, where a bare `tsx` is not installed.
 const TSX = import.meta.resolve("tsx");
 
 const vg = (cwd: string, ...args: string[]) => {
@@ -43,6 +43,7 @@ const vg = (cwd: string, ...args: string[]) => {
     encoding: "utf-8",
     env: { ...process.env, VG_NO_AUTO_UPDATE: "1" },
   });
+
   return { code: res.status, stderr: res.stderr, stdout: res.stdout };
 };
 
@@ -65,6 +66,7 @@ const audit = (
     path: file,
     size: text.length,
   }));
+
   return auditBuild({ files, limits, readText: (file) => contents[file] ?? "", sdk });
 };
 
@@ -89,11 +91,13 @@ test("a relative build passes; a root-relative one names what will 404", () => {
     }),
     [],
   );
+
   const [finding, ...rest] = audit({
     "assets/a.js": 'fetch("/assets/ship.png")',
     "assets/ship.png": "x",
     "index.html": '<script src="/assets/a.js"></script>',
   });
+
   assert.deepEqual(rest, []);
   assert.equal(finding?.id, "root-relative-url");
   assert.equal(finding?.level, "error");
@@ -112,6 +116,7 @@ test("a portal's caps, long paths and case collisions are errors", () => {
     maxFiles: 2,
     maxPathLength: 12,
   };
+
   const findings = audit(
     {
       "Sprite.png": "12345",
@@ -121,6 +126,7 @@ test("a portal's caps, long paths and case collisions are errors", () => {
     },
     limits,
   );
+
   assert.deepEqual(ids(findings), [
     "too-many-files",
     "build-too-large",
@@ -138,6 +144,7 @@ test("source maps and, on a restricted portal, remote hosts are warnings", () =>
     "a.js.map": "{}",
     "index.html": "",
   };
+
   assert.deepEqual(ids(audit(contents)), ["source-maps"]);
   const restricted = audit(contents, { ...OPEN, network: "restricted" });
   assert.deepEqual(ids(restricted), ["source-maps", "remote-hosts"]);
@@ -168,7 +175,6 @@ test("vg distribute itch packs the build with index.html at the zip root", () =>
   const packed = readFileSync(result.zip);
   assert.deepEqual(Object.keys(unzipSync(packed)).toSorted(), ["assets/a.js", "index.html"]);
 
-  // The same build packs to the same bytes.
   vg(root, "itch", "--json");
   assert.ok(packed.equals(readFileSync(result.zip)));
 });
@@ -260,6 +266,7 @@ test("Info.plist entries replace what is there, and applying them twice changes 
 test("Xcode build settings take the id, version and build number", () => {
   const pbxproj =
     "MARKETING_VERSION = 1.0;\nCURRENT_PROJECT_VERSION = 1;\nPRODUCT_BUNDLE_IDENTIFIER = com.example.app;\n";
+
   assert.equal(
     setXcodeBuildSettings(pbxproj, NATIVE),
     "MARKETING_VERSION = 1.2.0;\nCURRENT_PROJECT_VERSION = 7;\nPRODUCT_BUNDLE_IDENTIFIER = com.studio.game;\n",
@@ -318,21 +325,27 @@ test("the SDK tag goes first in <head>, once", () => {
 test("YouTube's file-name rule and SDK calls are checked", () => {
   assert.ok(youtube);
   assert.ok(YT_SDK);
+
   const integrated =
     "y.game.firstFrameReady();y.game.gameReady();y.system.onPause(f);y.system.onResume(f);y.system.isAudioEnabled();";
+
   assert.deepEqual(audit({ "a.js": integrated, "index.html": "" }, youtube.limits, YT_SDK), []);
+
   const [missing] = audit(
     { "a.js": "y.game.gameReady();", "index.html": "" },
     youtube.limits,
     YT_SDK,
   );
+
   assert.equal(missing?.id, "sdk-not-called");
   assert.match(missing?.message ?? "", /firstFrameReady, onPause, onResume, isAudioEnabled/u);
+
   const named = audit(
     { "a.js": integrated, "index.html": "", "my sprite.png": "" },
     youtube.limits,
     YT_SDK,
   );
+
   assert.deepEqual(ids(named), ["bad-file-name"]);
 });
 
@@ -355,10 +368,12 @@ test("vg distribute youtube adds the SDK tag to the package, not the build", () 
 test("the preview serves the zip under a folder, with the portal's CSP and the SDK stand-in", async (t) => {
   assert.ok(youtube && YT_SDK);
   const { zipSync } = await import("fflate");
+
   const zip = zipSync({
     "assets/a.js": new TextEncoder().encode("1"),
     "index.html": new TextEncoder().encode(`<head><script src="${YT_SDK.script}"></script></head>`),
   });
+
   const port = 20_000 + Math.floor(Math.random() * 20_000);
   const preview = await startPreview({ port, portal: youtube, zip });
   t.after(() => preview.close());
@@ -380,20 +395,24 @@ test("--preview packs, then serves the zip until stopped", async (t) => {
   const root = makeTmpDir(cleanups, "vg-distribute-");
   writeFileSync(path.join(root, "index.html"), "<html><head></head><body>hi</body></html>");
   const port = 20_000 + Math.floor(Math.random() * 20_000);
+
   const child = spawn(
     process.execPath,
     ["--import", TSX, CLI, "distribute", "web", "--preview", "--port", String(port), "--json"],
     { cwd: root, env: { ...process.env, VG_NO_AUTO_UPDATE: "1" } },
   );
+
   t.after(() => child.kill());
   let stdout = "";
   child.stdout.on("data", (chunk: Buffer) => {
     stdout += chunk.toString();
   });
   const deadline = Date.now() + 15_000;
+
   while (!stdout.trimEnd().endsWith("}") && Date.now() < deadline) {
     await delay(50);
   }
+
   const result: { ok: boolean; preview: { url: string; game_url: string } } = JSON.parse(stdout);
   assert.equal(result.ok, true);
   const game = await fetch(result.preview.game_url);

@@ -1,10 +1,5 @@
-// The JSON wire domain. Map files, localStorage drafts, and net snapshot
-// payloads arrive as parsed JSON, so JsonValue names their entire input
-// domain — parsers take it instead of `unknown`. The guards discriminate
-// scalars without `typeof` by exploiting JSON's limits: JSON.parse never
-// yields NaN/Infinity, boxed primitives, or functions.
-
 export type JsonValue = string | number | boolean | null | JsonValue[] | JsonObject;
+
 export interface JsonObject {
   [k: string]: JsonValue;
 }

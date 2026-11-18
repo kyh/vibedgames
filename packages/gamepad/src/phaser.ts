@@ -4,7 +4,7 @@ import type Phaser from "phaser";
 import { VirtualGamepad } from "./core.js";
 import { preShow, safeAreaInset } from "./safe-area.js";
 import { screenSpacePosition, screenSpaceTransform } from "./screen-space.js";
-import type { CameraView, ScreenSpaceTransform } from "./screen-space.js";
+import type { ScreenSpaceTransform } from "./screen-space.js";
 import type { StickState, VirtualGamepadOptions, VisibilityPolicy } from "./types.js";
 
 export interface PhaserGamepadRenderOptions {
@@ -63,10 +63,11 @@ export interface PhaserGamepad {
  * `rotation`, so the roll is probed instead of assumed to be zero — games that
  * shake the camera (trauma roll) still get an overlay that stays put.
  */
-export const cameraView = (camera: Phaser.Cameras.Scene2D.Camera): CameraView => {
+export const cameraView = (camera: Phaser.Cameras.Scene2D.Camera) => {
   const probe: object = camera;
   const raw = "rotation" in probe ? Number(probe.rotation) : 0;
   const rotation = Number.isFinite(raw) ? raw : 0;
+
   return {
     height: camera.height,
     originX: camera.originX,
@@ -77,7 +78,6 @@ export const cameraView = (camera: Phaser.Cameras.Scene2D.Camera): CameraView =>
   };
 };
 
-/** Keep a Text object per labeled fixed button (Graphics can't draw text). */
 const syncLabels = (
   scene: Phaser.Scene,
   gfx: Phaser.GameObjects.Graphics,
@@ -85,12 +85,14 @@ const syncLabels = (
   labels: Map<string, Phaser.GameObjects.Text>,
   show: boolean,
   pin: ScreenSpaceTransform,
-): void => {
+) => {
   for (const b of pad.getButtonLayout()) {
     if (b.rest || !b.label) {
       continue;
     }
+
     let text = labels.get(b.id);
+
     if (!text) {
       text = scene.add
         .text(0, 0, b.label, {
@@ -103,12 +105,13 @@ const syncLabels = (
         .setDepth(gfx.depth + 1);
       labels.set(b.id, text);
     }
+
     text.setVisible(show);
+
     if (!show) {
       continue;
     }
-    // Font size stays in canvas px and the 1/zoom scale cancels the camera's,
-    // so the glyph rasterises at exactly the size it renders at.
+
     const at = screenSpacePosition(pin, b.x, b.y);
     text.setPosition(at.x, at.y).setRotation(pin.rotation).setScale(pin.scale);
     text.setFontSize(Math.round(b.radius * 0.42));
@@ -116,15 +119,14 @@ const syncLabels = (
   }
 };
 
-/** Draw the joystick + fixed buttons into a Graphics object (screen-space). */
-const drawGamepad = (g: Phaser.GameObjects.Graphics, pad: VirtualGamepad, tint: number): void => {
+const drawGamepad = (g: Phaser.GameObjects.Graphics, pad: VirtualGamepad, tint: number) => {
   const geom = pad.getStickGeometry();
   const stick = pad.getStick();
+
   if (geom && stick.active) {
     const { radius, deadZone, knobRadius } = geom;
     const ax = stick.anchorX;
     const ay = stick.anchorY;
-    // Puck clamps to the ring edge so it never escapes the base.
     const clamped = Math.min(stick.distance, radius);
     const kx = stick.distance > 0.001 ? ax + (stick.dx / stick.distance) * clamped : ax;
     const ky = stick.distance > 0.001 ? ay + (stick.dy / stick.distance) * clamped : ay;
@@ -134,11 +136,12 @@ const drawGamepad = (g: Phaser.GameObjects.Graphics, pad: VirtualGamepad, tint: 
     g.fillStyle(tint, 0.22).fillCircle(kx, ky, knobRadius);
     g.lineStyle(2, tint, 0.85).strokeCircle(kx, ky, knobRadius);
   }
+
   for (const b of pad.getButtonLayout()) {
     if (b.rest) {
       continue;
-      // rest buttons have no on-screen position
     }
+
     g.fillStyle(tint, b.pressed ? 0.34 : 0.12);
     g.fillCircle(b.x, b.y, b.radius);
     g.lineStyle(2, tint, b.pressed ? 0.95 : 0.45);
@@ -167,10 +170,10 @@ const drawGamepad = (g: Phaser.GameObjects.Graphics, pad: VirtualGamepad, tint: 
  * if (gamepad.isButtonDown("fire")) shoot();
  * ```
  */
-export const attachVirtualGamepad = (
+export const attachVirtualGamepad: (
   scene: Phaser.Scene,
-  options: PhaserGamepadOptions = {},
-): PhaserGamepad => {
+  options?: PhaserGamepadOptions,
+) => PhaserGamepad = (scene, options = {}) => {
   const pad = new VirtualGamepad(options);
   let isTouch = false;
   const policy = options.visible ?? "touch";
@@ -180,11 +183,8 @@ export const attachVirtualGamepad = (
 
   scene.input.addPointer(options.extraPointers ?? Math.max(2, (options.buttons?.length ?? 0) + 2));
 
-  const syncViewport = (): void => {
+  const syncViewport = () => {
     const { width, height } = scene.scale;
-    // Phaser's logical size can differ from CSS pixels (FIT/zoom modes) —
-    // scale the CSS-px insets into scene units so anchored buttons don't
-    // overshoot on notched phones.
     const raw = safeAreaInset();
     const sx = window.innerWidth > 0 ? width / window.innerWidth : 1;
     const sy = window.innerHeight > 0 ? height / window.innerHeight : 1;
@@ -195,26 +195,30 @@ export const attachVirtualGamepad = (
       top: raw.top * sy,
     });
   };
+
   syncViewport();
 
-  const onDown = (p: Phaser.Input.Pointer): void => {
+  const onDown = (p: Phaser.Input.Pointer) => {
     if (!p.wasTouch) {
       return;
-      // mouse stays on the game's own control model
     }
+
     if (!isTouch) {
       isTouch = true;
       options.onFirstTouch?.();
     }
+
     syncViewport();
     pad.pointerDown(p.id, p.x, p.y);
   };
-  const onMove = (p: Phaser.Input.Pointer): void => {
+
+  const onMove = (p: Phaser.Input.Pointer) => {
     if (p.wasTouch) {
       pad.pointerMove(p.id, p.x, p.y);
     }
   };
-  const onUp = (p: Phaser.Input.Pointer): void => pad.pointerUp(p.id);
+
+  const onUp = (p: Phaser.Input.Pointer) => pad.pointerUp(p.id);
 
   scene.input.on(Input.Events.POINTER_DOWN, onDown);
   scene.input.on(Input.Events.POINTER_MOVE, onMove);
@@ -222,6 +226,7 @@ export const attachVirtualGamepad = (
 
   let gfx: Phaser.GameObjects.Graphics | null = null;
   const labels = new Map<string, Phaser.GameObjects.Text>();
+
   if (renderOpts) {
     gfx = scene.add
       .graphics()
@@ -230,27 +235,24 @@ export const attachVirtualGamepad = (
       .setBlendMode(renderOpts.blendMode ?? BlendModes.ADD);
   }
 
-  const draw = (): void => {
+  const draw = () => {
     if (!gfx) {
       return;
     }
+
     const pin = screenSpaceTransform(cameraView(scene.cameras.main));
     gfx.setPosition(pin.x, pin.y).setRotation(pin.rotation).setScale(pin.scale);
     gfx.clear();
     const show = visible && (isTouch || preShow(policy));
+
     if (show) {
       drawGamepad(gfx, pad, tint);
     }
+
     syncLabels(scene, gfx, pad, labels, show, pin);
   };
-  // Drawn at render time, not from `update()`: a game reads the pad early in
-  // its frame and moves the camera later in the same frame, so a pin taken in
-  // `update()` would counter the PREVIOUS frame's zoom and roll — the overlay
-  // would lag one frame behind a shaking camera.
+
   scene.events.on(Scenes.Events.PRE_RENDER, draw);
-  // A restarted scene re-runs create() and attaches a second gamepad; Phaser's
-  // own shutdown leaves scene-event listeners in place, so drop ours or the
-  // stale draw keeps firing against a destroyed Graphics.
   scene.events.once(Scenes.Events.SHUTDOWN, () => {
     scene.events.off(Scenes.Events.PRE_RENDER, draw);
   });
@@ -262,9 +264,11 @@ export const attachVirtualGamepad = (
       scene.input.off(Input.Events.POINTER_UP, onUp);
       scene.events.off(Scenes.Events.PRE_RENDER, draw);
       gfx?.destroy();
+
       for (const t of labels.values()) {
         t.destroy();
       }
+
       labels.clear();
     },
     getStick: () => pad.getStick(),
@@ -283,11 +287,13 @@ export const attachVirtualGamepad = (
     },
     update() {
       const live: number[] = [];
+
       for (const ptr of scene.input.manager.pointers) {
         if (ptr.isDown) {
           live.push(ptr.id);
         }
       }
+
       pad.reconcile(live);
       pad.nextFrame();
       syncViewport();
@@ -296,11 +302,17 @@ export const attachVirtualGamepad = (
 };
 
 export { VirtualGamepad, stickDirection4, stickDirection8 } from "./core.js";
+
 export { PhysicalGamepad, isPadConnected } from "./physical.js";
+
 export { safeAreaInset } from "./safe-area.js";
+
 export { screenSpacePosition, screenSpaceTransform } from "./screen-space.js";
+
 export type { PadButton, PhysicalGamepadOptions } from "./physical.js";
+
 export type { CameraView, ScreenSpaceTransform } from "./screen-space.js";
+
 export type {
   ButtonLayout,
   ButtonOptions,

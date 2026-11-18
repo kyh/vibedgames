@@ -1,8 +1,5 @@
 import type { ControlMethod, ControlsManifest } from "@repo/embed";
 
-// Every way to play, one list — the web app's controls panel and the pause
-// overlay render from this (filtered per device by @repo/embed; controller
-// rows only while a pad is plugged in).
 export const CONTROLS: ControlsManifest = [
   { action: "move", input: "WASD", method: "keys" },
   { action: "evade", input: "SHIFT", method: "keys" },

@@ -4,18 +4,13 @@ import { poolGlowTexture, radialGlowTexture } from "./lamp-glow";
 
 const FADE_NEAR = 420;
 const FADE_FAR = 760;
-// HDR gain on every beacon colour. Additive layers write colour*alpha, so an
-// ordinary 0..1 colour tops out below the night bloom cut (render/post.ts) and
-// a navigation light renders as a flat dot with no bleed. See fx/lamp-glow.ts,
-// where the same change is spelled out at length.
 export const HALO_GAIN = 3;
 export const POOL_GAIN = 1.8;
 
 /** Billboard halo at the lamp, or a flat pool of light on the ground under it. */
 export type GlowKind = "halo" | "pool";
 
-// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-const COMMON_PARS = /* glsl */ `
+const COMMON_PARS = `
   attribute vec3 aCenter;
   attribute vec3 aColor;
   attribute vec2 aPulse; // size, blink rate (rad/s; 0 = steady)
@@ -35,8 +30,7 @@ const COMMON_PARS = /* glsl */ `
   }
 `;
 
-// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-const HALO_VERT = /* glsl */ `
+const HALO_VERT = `
   ${COMMON_PARS}
   void main() {
     setup(aCenter);
@@ -46,8 +40,7 @@ const HALO_VERT = /* glsl */ `
   }
 `;
 
-// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-const POOL_VERT = /* glsl */ `
+const POOL_VERT = `
   ${COMMON_PARS}
   attribute vec3 aNormal;
   void main() {
@@ -60,8 +53,7 @@ const POOL_VERT = /* glsl */ `
   }
 `;
 
-// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-const FRAG = /* glsl */ `
+const FRAG = `
   uniform sampler2D uMap;
   uniform float uIntensity;
   uniform float uAlpha;
@@ -125,6 +117,7 @@ export class GlowLayer {
       opts.kind === "pool"
         ? [centerAttr, colorAttr, pulseAttr, normalAttr]
         : [centerAttr, colorAttr, pulseAttr];
+
     for (const a of this.attrs) {
       a.setUsage(THREE.DynamicDrawUsage);
     }
@@ -137,9 +130,11 @@ export class GlowLayer {
     geo.setAttribute("aCenter", centerAttr);
     geo.setAttribute("aColor", colorAttr);
     geo.setAttribute("aPulse", pulseAttr);
+
     if (opts.kind === "pool") {
       geo.setAttribute("aNormal", normalAttr);
     }
+
     geo.instanceCount = 0;
     this.geo = geo;
 
@@ -147,9 +142,6 @@ export class GlowLayer {
       blending: THREE.AdditiveBlending,
       depthWrite: false,
       fragmentShader: FRAG,
-      // Pools are flat quads drawn on decks and roads that slope under them;
-      // a depth-space bias is what keeps the uphill half from being rejected
-      // (fx/lamp-glow.ts POOL_LIFT carries the long version).
       polygonOffset: opts.kind === "pool",
       polygonOffsetFactor: -4,
       polygonOffsetUnits: -8,
@@ -162,14 +154,13 @@ export class GlowLayer {
       },
       vertexShader: opts.kind === "halo" ? HALO_VERT : POOL_VERT,
     });
+
     this.mesh = new THREE.Mesh(geo, mat);
-    // instances move independently of the mesh
     this.mesh.frustumCulled = false;
-    // with the other glow passes
     this.mesh.renderOrder = 6;
   }
 
-  begin(): void {
+  begin() {
     this.cursor = 0;
   }
 
@@ -182,11 +173,13 @@ export class GlowLayer {
     size: number,
     blinkRate = 0,
     normal?: THREE.Vector3,
-  ): void {
+  ) {
     const i = this.cursor;
+
     if (i >= this.capacity) {
       return;
     }
+
     this.cursor = i + 1;
     this.centers[i * 3] = x;
     this.centers[i * 3 + 1] = y;
@@ -201,14 +194,14 @@ export class GlowLayer {
     this.normals[i * 3 + 2] = normal?.z ?? 0;
   }
 
-  // Uploads the pushed range only: the arrays are sized to capacity, and a
-  // dynamic caller with a handful of lights was paying for the whole pool.
-  commit(): void {
+  commit() {
     const n = this.cursor;
     this.geo.instanceCount = n;
+
     if (n === 0) {
       return;
     }
+
     for (const a of this.attrs) {
       a.clearUpdateRanges();
       a.addUpdateRange(0, n * a.itemSize);

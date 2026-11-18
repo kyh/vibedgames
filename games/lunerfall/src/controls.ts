@@ -1,9 +1,5 @@
 import type { ControlsManifest } from "@repo/embed";
 
-// Every way to play, one list — the hub blurb and the pause overlay both
-// render from this (filtered per device / connected pad by @repo/embed).
-// Arrow keys, L-dash and the d-pad are unlisted aliases; ↓ drop-through and
-// ↑ up-aim are left to be discovered.
 export const CONTROLS: ControlsManifest = [
   { action: "move", input: "WASD", method: "keys" },
   { action: "jump", input: "SPACE", method: "keys" },

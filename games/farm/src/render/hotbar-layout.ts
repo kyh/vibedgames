@@ -1,22 +1,14 @@
-// Shared geometry for the two hotbars (farm HUD and mine HUD). They differ in
-// palette and in where they sit, but they show the same twelve inventory slots
-// and must obey the same rule about how small a slot may get.
-
 import { HOTBAR } from "../systems/inventory";
 
-/** Smallest comfortable touch target, in CSS px. Twelve slots across a portrait
- *  phone leaves 31px — the bar wraps into rows rather than go under this. */
 const MIN_TAP = 44;
 const KEY_LABELS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"];
 
 /** Only the first ten slots have number-key bindings. */
-export const hotbarKey = (index: number): string => KEY_LABELS[index] ?? "";
+export const hotbarKey = (index: number) => KEY_LABELS[index] ?? "";
 
 /** Keep the original 16px UI scale while fitting larger world-object textures. */
-export const slotIconScale = (
-  image: { width: number; height: number },
-  contentSize: number,
-): number => contentSize / Math.max(16, image.width, image.height);
+export const slotIconScale = (image: { width: number; height: number }, contentSize: number) =>
+  contentSize / Math.max(16, image.width, image.height);
 
 export interface HotbarGrid {
   readonly slot: number;
@@ -30,13 +22,15 @@ export interface HotbarGrid {
  * slots per row — until each one clears MIN_TAP, or until a single column is
  * left on a viewport too narrow for even that.
  */
-export const hotbarGrid = (avail: number, maxSlot: number, pad: number): HotbarGrid => {
-  const sizeFor = (perRow: number): number => Math.floor(avail / perRow) - pad;
+export const hotbarGrid = (avail: number, maxSlot: number, pad: number) => {
+  const sizeFor = (perRow: number) => Math.floor(avail / perRow) - pad;
   const min = Math.min(maxSlot, MIN_TAP - pad);
   let perRow = HOTBAR;
+
   while (perRow > 1 && sizeFor(perRow) < min) {
     perRow = Math.ceil(perRow / 2);
   }
+
   return {
     perRow,
     rows: Math.ceil(HOTBAR / perRow),

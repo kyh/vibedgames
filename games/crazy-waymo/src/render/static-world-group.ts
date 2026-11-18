@@ -10,10 +10,11 @@ import * as THREE from "three";
 export class StaticWorldGroup extends THREE.Group {
   private sealed = false;
 
-  seal(): void {
+  seal() {
     if (this.sealed) {
       return;
     }
+
     this.updateMatrixWorld(true);
     this.traverse((object) => {
       object.matrixAutoUpdate = false;
@@ -22,9 +23,7 @@ export class StaticWorldGroup extends THREE.Group {
     this.sealed = true;
   }
 
-  override updateMatrixWorld(force?: boolean): void {
-    // Three still recurses with both matrix auto-update flags disabled.
-    // The live scene also forces children each frame; this boundary stops it.
+  override updateMatrixWorld(force?: boolean) {
     if (!this.sealed) {
       super.updateMatrixWorld(force);
     }

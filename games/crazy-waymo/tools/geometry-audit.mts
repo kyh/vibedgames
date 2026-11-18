@@ -1,20 +1,3 @@
-// Deterministic geometry audit of the SHIPPED world: does anything stand in a
-// street, interpenetrate a neighbour, float over its surface, or squat on a
-// landmark parcel? Every answer here is measured, not eyeballed.
-//
-// Two data sources, both headless:
-//   * the baked artifacts in public/world (`loadBakedRest`) — the world players
-//     actually get: every collision solid (44.8k oriented boxes) and every
-//     batched prop instance with its world matrix and source GLB;
-//   * a live regeneration of the planar world (plan + network + terrain +
-//     drape), which is what the placement passes consulted when they ran.
-//
-// tools/test-world.mts imports the report functions and asserts bounds on them,
-// so a regression fails `pnpm test` instead of waiting to be spotted in a
-// screenshot. For the full listing (histograms, every offender, per-landmark
-// parcel census) run the module with the report flag set — vite-node does not
-// pass the entry path through argv, hence an env flag rather than an argv one:
-//   AUDIT_REPORT=1 pnpm vite-node tools/geometry-audit.mts
 import { readFileSync } from "node:fs";
 import { gunzipSync } from "node:zlib";
 
@@ -43,17 +26,14 @@ import { treeRootSeatSamples } from "./test-tree-clearance.mts";
 
 export { WORLD_REV as BAKED_WORLD_REV } from "../src/world/world-bin.ts";
 
-// --- baked artifacts --------------------------------------------------------
-
-const toArrayBuffer = (bytes: Uint8Array): ArrayBuffer => {
+const toArrayBuffer = (bytes: Uint8Array) => {
   const out = new ArrayBuffer(bytes.byteLength);
   new Uint8Array(out).set(bytes);
+
   return out;
 };
 
-/** A shipped artifact, gunzipped — the bake writes them gzipped (world-fetch.ts
- *  inflates in the browser). */
-const readArtifact = (name: string): ArrayBuffer =>
+const readArtifact = (name: string) =>
   toArrayBuffer(gunzipSync(readFileSync(`public/world/${name}`)));
 
 export interface BakedRest {
@@ -65,43 +45,47 @@ export interface BakedRest {
  * The shipped city, reassembled from meta.bin + every tile: solids, batched
  * prop instances, parked cars, decks and the merged chunks of all tiles.
  */
-export const loadBakedRest = async (): Promise<BakedRest> => {
+export const loadBakedRest = async () => {
   const back = deserializeWorldBin(readArtifact("meta.bin"));
+
   if (back.meta === undefined) {
     throw new Error("meta.bin carries no meta payload");
   }
+
   const meta = await unpackMeta(back.meta);
   const mergedChunks: CityRestPayload["mergedChunks"] = [];
+
   for (const ref of meta.tiles) {
     const tile = deserializeWorldBin(readArtifact(`tiles/${ref.ix}_${ref.iz}.bin`));
+
     if (tile.tile === undefined) {
       throw new Error(`tile ${ref.ix},${ref.iz} carries no tile payload`);
     }
+
     if (tile.rev !== back.rev) {
       throw new Error(`tile ${ref.ix},${ref.iz} is rev ${tile.rev}, meta ${back.rev}`);
     }
+
     mergedChunks.push(...tile.tile.mergedChunks);
   }
+
   const { skyline: _skyline, tiles: _tiles, ...rest } = meta;
+
   return { rest: { ...rest, mergedChunks }, rev: back.rev };
 };
 
 /** The shipped parcel source (public/world/parcels.bin) — the plan's input on every load. */
-export const loadParcelSource = (): ParcelSource => decodeParcelSource(readArtifact("parcels.bin"));
-
-// --- oriented boxes ---------------------------------------------------------
+export const loadParcelSource = () => decodeParcelSource(readArtifact("parcels.bin"));
 
 export interface Obb {
   readonly cx: number;
   readonly cz: number;
-  // half extent along local X
   readonly hx: number;
-  // half extent along local Z
   readonly hz: number;
   readonly yaw: number;
 }
 
-export const solidObb = (s: Solid): Obb => ({
+export const solidObb = (s: Solid) => ({
   cx: (s.minX + s.maxX) / 2,
   cz: (s.minZ + s.maxZ) / 2,
   hx: (s.maxX - s.minX) / 2,
@@ -115,10 +99,11 @@ export const solidObb = (s: Solid): Obb => ({
  * `car.ts collideOne` inverts. Mirroring it (the easy mistake: +sin) rotates
  * every avenue-aligned box the wrong way and invents defects wholesale.
  */
-export const obbCorners = (o: Obb): readonly (readonly [number, number])[] => {
+export const obbCorners = (o: Obb) => {
   const c = Math.cos(o.yaw);
   const s = Math.sin(o.yaw);
   const out: [number, number][] = [];
+
   for (const [sx, sz] of [
     [-1, -1],
     [1, -1],
@@ -129,126 +114,152 @@ export const obbCorners = (o: Obb): readonly (readonly [number, number])[] => {
     const lz = sz * o.hz;
     out.push([o.cx + lx * c + lz * s, o.cz - lx * s + lz * c]);
   }
+
   return out;
 };
 
-export const obbArea = (o: Obb): number => 4 * o.hx * o.hz;
+export const obbArea = (o: Obb) => 4 * o.hx * o.hz;
 
-const obbContains = (o: Obb, x: number, z: number): boolean => {
+const obbContains = (o: Obb, x: number, z: number) => {
   const c = Math.cos(o.yaw);
   const s = Math.sin(o.yaw);
   const dx = x - o.cx;
   const dz = z - o.cz;
-  // world → local, exactly as car.ts collideOne inverts the rotation.
+
   return Math.abs(dx * c - dz * s) <= o.hx && Math.abs(dx * s + dz * c) <= o.hz;
 };
 
 /** Separating-axis penetration depth (0 = disjoint or touching). */
-export const obbPenetration = (a: Obb, b: Obb): number => {
+export const obbPenetration = (a: Obb, b: Obb) => {
   const axes: [number, number][] = [];
+
   for (const o of [a, b]) {
     const c = Math.cos(o.yaw);
     const s = Math.sin(o.yaw);
     axes.push([c, s], [-s, c]);
   }
+
   const ca = obbCorners(a);
   const cb = obbCorners(b);
   let depth = Infinity;
+
   for (const [ax, az] of axes) {
     let aMin = Infinity;
     let aMax = -Infinity;
+
     for (const [x, z] of ca) {
       const p = x * ax + z * az;
+
       if (p < aMin) {
         aMin = p;
       }
+
       if (p > aMax) {
         aMax = p;
       }
     }
+
     let bMin = Infinity;
     let bMax = -Infinity;
+
     for (const [x, z] of cb) {
       const p = x * ax + z * az;
+
       if (p < bMin) {
         bMin = p;
       }
+
       if (p > bMax) {
         bMax = p;
       }
     }
+
     const overlap = Math.min(aMax, bMax) - Math.max(aMin, bMin);
+
     if (overlap <= 0) {
       return 0;
     }
+
     if (overlap < depth) {
       depth = overlap;
     }
   }
+
   return depth === Infinity ? 0 : depth;
 };
 
 /** Intersection AREA of two convex boxes (Sutherland–Hodgman clip). */
-export const obbOverlapArea = (a: Obb, b: Obb): number => {
+export const obbOverlapArea = (a: Obb, b: Obb) => {
   let poly: (readonly [number, number])[] = [...obbCorners(a)];
   const clip = obbCorners(b);
+
   for (let i = 0; i < clip.length && poly.length > 0; i += 1) {
     const p0 = clip[i];
     const p1 = clip[(i + 1) % clip.length];
+
     if (!p0 || !p1) {
       continue;
     }
-    // Clip polygon is wound consistently by obbCorners; inside = left of edge.
+
     const ex = p1[0] - p0[0];
     const ez = p1[1] - p0[1];
-    const side = (p: readonly [number, number]): number =>
-      ex * (p[1] - p0[1]) - ez * (p[0] - p0[0]);
+
+    const side = (p: readonly [number, number]) => ex * (p[1] - p0[1]) - ez * (p[0] - p0[0]);
+
     const next: (readonly [number, number])[] = [];
+
     for (let k = 0; k < poly.length; k += 1) {
       const cur = poly[k];
       const prv = poly[(k + poly.length - 1) % poly.length];
+
       if (!cur || !prv) {
         continue;
       }
+
       const dCur = side(cur);
       const dPrv = side(prv);
+
       if (dCur >= 0) {
         if (dPrv < 0) {
           const t = dPrv / (dPrv - dCur);
           next.push([prv[0] + (cur[0] - prv[0]) * t, prv[1] + (cur[1] - prv[1]) * t]);
         }
+
         next.push(cur);
       } else if (dPrv >= 0) {
         const t = dPrv / (dPrv - dCur);
         next.push([prv[0] + (cur[0] - prv[0]) * t, prv[1] + (cur[1] - prv[1]) * t]);
       }
     }
+
     poly = next;
   }
+
   let area = 0;
+
   for (let i = 0; i < poly.length; i += 1) {
     const p = poly[i];
     const q = poly[(i + 1) % poly.length];
+
     if (!p || !q) {
       continue;
     }
+
     area += p[0] * q[1] - q[0] * p[1];
   }
+
   return Math.abs(area) / 2;
 };
 
-// --- u/v addressing (matches the __taxi dev hooks) --------------------------
+export const uOf = (x: number) => x / (WORLD_HALF_X * 2) + 0.5;
+export const vOf = (z: number) => z / (WORLD_HALF_Z * 2) + 0.5;
 
-export const uOf = (x: number): number => x / (WORLD_HALF_X * 2) + 0.5;
-export const vOf = (z: number): number => z / (WORLD_HALF_Z * 2) + 0.5;
 /** 4 decimals ≈ 0.3u — precise enough to park a freecam on the offender. */
-export const uv = (x: number, z: number): string => `u${uOf(x).toFixed(4)} v${vOf(z).toFixed(4)}`;
-export const gridXOf = (x: number): number => Math.floor((x + WORLD_HALF_X) / ROAD_TILE);
-export const gridZOf = (z: number): number => Math.floor((z + WORLD_HALF_Z) / ROAD_TILE);
-export const inGrid = (gx: number, gz: number): boolean =>
-  gx >= 0 && gz >= 0 && gx < GRID_X && gz < GRID_Z;
+export const uv = (x: number, z: number) => `u${uOf(x).toFixed(4)} v${vOf(z).toFixed(4)}`;
+export const gridXOf = (x: number) => Math.floor((x + WORLD_HALF_X) / ROAD_TILE);
+export const gridZOf = (z: number) => Math.floor((z + WORLD_HALF_Z) / ROAD_TILE);
 
-// --- spatial pairing --------------------------------------------------------
+export const inGrid = (gx: number, gz: number) => gx >= 0 && gz >= 0 && gx < GRID_X && gz < GRID_Z;
 
 interface Aabb {
   minX: number;
@@ -257,50 +268,55 @@ interface Aabb {
   maxZ: number;
 }
 
-const obbAabb = (o: Obb): Aabb => {
+const obbAabb = (o: Obb) => {
   let minX = Infinity;
   let maxX = -Infinity;
   let minZ = Infinity;
   let maxZ = -Infinity;
+
   for (const [x, z] of obbCorners(o)) {
     if (x < minX) {
       minX = x;
     }
+
     if (x > maxX) {
       maxX = x;
     }
+
     if (z < minZ) {
       minZ = z;
     }
+
     if (z > maxZ) {
       maxZ = z;
     }
   }
+
   return { maxX, maxZ, minX, minZ };
 };
 
-/**
- * Every AABB-overlapping pair of boxes, once each, via a uniform bucket grid.
- * 45k solids is 1e9 naive pairs and ~200k real neighbours.
- */
-const bucketKey = (bx: number, bz: number): number => bx * 100_003 + bz;
+const bucketKey = (bx: number, bz: number) => bx * 100_003 + bz;
 
 export const forEachNeighbourPair = (
   boxes: readonly Obb[],
   visit: (i: number, j: number) => void,
-): void => {
+) => {
   const CELL = 12;
   const buckets = new Map<number, number[]>();
   const aabbs = boxes.map(obbAabb);
+
   for (let i = 0; i < boxes.length; i += 1) {
     const bb = aabbs[i];
+
     if (!bb) {
       continue;
     }
+
     for (let bx = Math.floor(bb.minX / CELL); bx <= Math.floor(bb.maxX / CELL); bx += 1) {
       for (let bz = Math.floor(bb.minZ / CELL); bz <= Math.floor(bb.maxZ / CELL); bz += 1) {
         const k = bucketKey(bx, bz);
         const list = buckets.get(k);
+
         if (list) {
           list.push(i);
         } else {
@@ -309,37 +325,44 @@ export const forEachNeighbourPair = (
       }
     }
   }
+
   const seen = new Set<number>();
+
   for (const list of buckets.values()) {
     for (let a = 0; a < list.length; a += 1) {
       for (let b = a + 1; b < list.length; b += 1) {
         const i = list[a];
         const j = list[b];
+
         if (i === undefined || j === undefined) {
           continue;
         }
+
         const lo = Math.min(i, j);
         const hi = Math.max(i, j);
         const pk = lo * 65_536 + hi;
+
         if (seen.has(pk)) {
           continue;
         }
+
         seen.add(pk);
         const A = aabbs[lo];
         const B = aabbs[hi];
+
         if (!A || !B) {
           continue;
         }
+
         if (A.maxX <= B.minX || B.maxX <= A.minX || A.maxZ <= B.minZ || B.maxZ <= A.minZ) {
           continue;
         }
+
         visit(lo, hi);
       }
     }
   }
 };
-
-// --- 1. solid-vs-solid interpenetration ------------------------------------
 
 /**
  * Buildings in this city are DELIBERATELY ATTACHED (the lot-line fabric walks
@@ -354,7 +377,6 @@ export interface OverlapDefect {
   readonly j: number;
   readonly depth: number;
   readonly area: number;
-  // area / smaller box area
   readonly share: number;
   readonly centreInside: boolean;
   readonly x: number;
@@ -362,25 +384,24 @@ export interface OverlapDefect {
 }
 
 export interface OverlapReport {
-  // AABB-overlapping pairs tested
   readonly pairs: number;
-  // any positive penetration
   readonly touching: number;
   readonly depthHistogram: readonly (readonly [string, number])[];
   readonly shareHistogram: readonly (readonly [string, number])[];
   readonly defects: readonly OverlapDefect[];
 }
 
-const bandLabel = (bands: readonly number[], k: number): string => {
+const bandLabel = (bands: readonly number[], k: number) => {
   const lo = k === 0 ? 0 : (bands[k - 1] ?? 0);
   const hi = bands[k] ?? Infinity;
+
   return hi === Infinity ? `>=${lo}` : `${lo}-${hi}`;
 };
 
 export const overlapReport = (
   boxes: readonly Obb[],
   opts: { readonly areaShare: number; readonly minArea: number },
-): OverlapReport => {
+) => {
   const depthBands = [0.1, 0.25, 0.5, 1, 2, 4, 8, Infinity];
   const shareBands = [0.02, 0.05, 0.1, 0.2, 0.3, 0.5, 0.8, Infinity];
   const depthCount: number[] = Array.from({ length: depthBands.length }, () => 0);
@@ -392,36 +413,46 @@ export const overlapReport = (
     pairs += 1;
     const a = boxes[i];
     const b = boxes[j];
+
     if (!a || !b) {
       return;
     }
+
     const depth = obbPenetration(a, b);
+
     if (depth <= 0) {
       return;
     }
+
     touching += 1;
     const area = obbOverlapArea(a, b);
     const smaller = Math.min(obbArea(a), obbArea(b));
     const share = smaller > 0 ? area / smaller : 0;
+
     for (let k = 0; k < depthBands.length; k += 1) {
       if (depth < (depthBands[k] ?? Infinity)) {
         depthCount[k] = (depthCount[k] ?? 0) + 1;
         break;
       }
     }
+
     for (let k = 0; k < shareBands.length; k += 1) {
       if (share < (shareBands[k] ?? Infinity)) {
         shareCount[k] = (shareCount[k] ?? 0) + 1;
         break;
       }
     }
+
     const centreInside = obbContains(a, b.cx, b.cz) || obbContains(b, a.cx, a.cz);
+
     if (area < opts.minArea) {
       return;
     }
+
     if (share < opts.areaShare && !centreInside) {
       return;
     }
+
     defects.push({
       area,
       centreInside,
@@ -434,6 +465,7 @@ export const overlapReport = (
     });
   });
   defects.sort((p, q) => q.share * q.area - p.share * p.area);
+
   return {
     defects,
     depthHistogram: depthBands.map(
@@ -447,30 +479,28 @@ export const overlapReport = (
   };
 };
 
-// --- 2/3. anything standing in the travel surface ---------------------------
-
 export type OnAsphalt = (x: number, z: number, margin: number) => boolean;
 
 /** city.ts's own asphalt test, rebuilt against the same network. */
-export const makeOnAsphalt =
-  (network: RoadNetwork): OnAsphalt =>
-  (x: number, z: number, margin: number): boolean => {
-    const hit = network.nearest(x, z, ROAD_TILE * 1.4);
-    return hit !== null && hit.dist < hit.edge.half + margin;
-  };
+export const makeOnAsphalt = (network: RoadNetwork) => (x: number, z: number, margin: number) => {
+  const hit = network.nearest(x, z, ROAD_TILE * 1.4);
+
+  return hit !== null && hit.dist < hit.edge.half + margin;
+};
 
 /** Depth of a point INSIDE the drawn asphalt (0 outside / on the kerb). */
-export const asphaltDepth = (network: RoadNetwork, x: number, z: number): number => {
+export const asphaltDepth = (network: RoadNetwork, x: number, z: number) => {
   const hit = network.nearest(x, z, ROAD_TILE * 1.4);
+
   if (!hit) {
     return 0;
   }
+
   return Math.max(0, hit.edge.half - hit.dist);
 };
 
 export interface RoadIntrusion {
   readonly index: number;
-  // metres inside the asphalt edge
   readonly depth: number;
   readonly x: number;
   readonly z: number;
@@ -483,29 +513,32 @@ export interface RoadIntrusion {
  * `minDepth` is the "genuinely in the travel surface, not merely touching the
  * kerb" threshold — the passes themselves clear the kerb by 0.2-0.6u.
  */
-export const roadIntrusions = (
-  boxes: readonly Obb[],
-  network: RoadNetwork,
-  minDepth: number,
-): readonly RoadIntrusion[] => {
+export const roadIntrusions = (boxes: readonly Obb[], network: RoadNetwork, minDepth: number) => {
   const out: RoadIntrusion[] = [];
+
   for (let i = 0; i < boxes.length; i += 1) {
     const o = boxes[i];
+
     if (!o) {
       continue;
     }
+
     const corners = obbCorners(o);
     let worst = 0;
     let wx = o.cx;
     let wz = o.cz;
+
     for (let k = 0; k < corners.length; k += 1) {
       const p = corners[k];
       const q = corners[(k + 1) % corners.length];
+
       if (!p || !q) {
         continue;
       }
+
       for (const [x, z] of [p, [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2] as const]) {
         const d = asphaltDepth(network, x, z);
+
         if (d > worst) {
           worst = d;
           wx = x;
@@ -513,21 +546,20 @@ export const roadIntrusions = (
         }
       }
     }
+
     if (worst > minDepth) {
       out.push({ depth: worst, index: i, obb: o, x: wx, z: wz });
     }
   }
+
   out.sort((a, b) => b.depth - a.depth);
+
   return out;
 };
 
-// --- prop instances (the batched world) ------------------------------------
-
 export interface PropInstance {
-  // source GLB, or "raw:<n>" for procedural geometry
   readonly url: string;
   readonly x: number;
-  // the instance's own origin height
   readonly y: number;
   readonly z: number;
   readonly sx: number;
@@ -541,16 +573,20 @@ export interface PropInstance {
  * material colour and vertex count — enough to identify it in roads.ts /
  * furniture.ts / city.ts (e.g. `raw:0 #b3aca0 v24` is the shared PLINTH box).
  */
-export const propInstances = (rest: CityRestPayload): readonly PropInstance[] => {
+export const propInstances = (rest: CityRestPayload) => {
   const rawLabel = rest.rawGeos.map((g, i) => {
     const hex = g.mat.color.toString(16).padStart(6, "0");
+
     return `raw:${i} #${hex} v${g.position.length / 3}`;
   });
+
   const out: PropInstance[] = [];
+
   for (const it of rest.batchItems) {
     const { m } = it;
-    const col = (k: number): number =>
-      Math.hypot(m[k * 4] ?? 0, m[k * 4 + 1] ?? 0, m[k * 4 + 2] ?? 0);
+
+    const col = (k: number) => Math.hypot(m[k * 4] ?? 0, m[k * 4 + 1] ?? 0, m[k * 4 + 2] ?? 0);
+
     out.push({
       sx: col(0),
       sy: col(1),
@@ -561,36 +597,33 @@ export const propInstances = (rest: CityRestPayload): readonly PropInstance[] =>
       z: m[14] ?? 0,
     });
   }
+
   return out;
 };
 
 /** Last path segment of a model url, minus the extension ("prop-bench"). */
-export const propName = (url: string): string => {
+export const propName = (url: string) => {
   if (url.startsWith("raw:")) {
     return url;
   }
+
   const tail = url.split("/").pop() ?? url;
+
   return tail.replace(/\.(?:glb|gltf)$/u, "");
 };
-
-// --- 4. seat height: floating and buried -----------------------------------
 
 export interface SeatOutlier {
   readonly url: string;
   readonly x: number;
   readonly z: number;
-  // y − standing surface
   readonly offset: number;
-  // offset − what this url's own baseline predicts
   readonly deviation: number;
 }
 
 export interface SeatGroup {
   readonly url: string;
   readonly count: number;
-  // origin height above the standing surface, per unit of Y scale
   readonly medianOffset: number;
-  // the same against the RAW height field
   readonly medianTerrainOffset: number;
   /**
    * Median absolute deviation of the offset, in world units — how tightly this
@@ -601,9 +634,7 @@ export interface SeatGroup {
   readonly seatSpread: number;
   /** Relative spread of the Y scale: a kit prop is fitted to a fixed height. */
   readonly scaleVariation: number;
-  // a fixed-scale prop that tracks the drawn surface
   readonly seated: boolean;
-  // tracks the raw field better than the drawn one
   readonly wrongSurface: boolean;
   readonly floating: number;
   readonly buried: number;
@@ -617,15 +648,18 @@ export interface SeatReport {
   readonly wrongSurfaceInstances: number;
 }
 
-const median = (values: readonly number[]): number => {
+const median = (values: readonly number[]) => {
   const sorted = [...values].toSorted((a, b) => a - b);
   const mid = Math.floor(sorted.length / 2);
+
   if (sorted.length === 0) {
     return 0;
   }
+
   if (sorted.length % 2 === 1) {
     return sorted[mid] ?? 0;
   }
+
   return ((sorted[mid - 1] ?? 0) + (sorted[mid] ?? 0)) / 2;
 };
 
@@ -656,8 +690,9 @@ export const seatReport = (
       { readonly x: number; readonly y: number; readonly z: number }
     >;
   },
-): SeatReport => {
+) => {
   const byUrl = new Map<string, { off: number[]; terr: number[]; items: PropInstance[] }>();
+
   for (const original of props) {
     const sample = opts.seatSamples?.get(original);
     const p = sample ? { ...original, ...sample } : original;
@@ -668,39 +703,44 @@ export const seatReport = (
     bucket.items.push(p);
     byUrl.set(p.url, bucket);
   }
+
   const groups: SeatGroup[] = [];
   const outliers: SeatOutlier[] = [];
   let floating = 0;
   let buried = 0;
   let wrongSurfaceInstances = 0;
+
   for (const [url, bucket] of byUrl) {
     const med = median(bucket.off);
     const medTerr = median(bucket.terr);
     const scale = median(bucket.items.map((p) => Math.max(p.sy, 0.02)));
-    const spread = (v: readonly number[], m: number): number =>
+
+    const spread = (v: readonly number[], m: number) =>
       median(v.map((x) => Math.abs(x - m))) * scale;
+
     const seatSpread = spread(bucket.off, med);
+
     const scaleVariation =
       median(bucket.items.map((p) => Math.abs(Math.max(p.sy, 0.02) - scale))) / scale;
-    // Buildings and their foundations are exempt: the fabric pass owns its own
-    // grade rule (STEP_INTO_SLOPE cuts in, a plinth fills what is left under the
-    // low corner), so a mass legitimately sits metres above its downhill kerb.
-    // What is left is the fixed-scale kit furniture — the class CLAUDE.md's
-    // "seated on the raw field" bug actually buried and floated.
+
     const seated =
       seatSpread <= opts.groundSpread && scaleVariation <= 0.25 && !url.includes("/buildings/");
+
     let fl = 0;
     let bu = 0;
+
     if (seated) {
       for (let i = 0; i < bucket.items.length; i += 1) {
         const item = bucket.items[i];
         const ratio = bucket.off[i];
+
         if (!item || ratio === undefined) {
           continue;
         }
+
         const sy = Math.max(item.sy, 0.02);
-        // back into world units
         const dev = (ratio - med) * sy;
+
         if (dev > opts.floatGap) {
           fl += 1;
         } else if (dev < -opts.buryDepth) {
@@ -708,20 +748,20 @@ export const seatReport = (
         } else {
           continue;
         }
+
         outliers.push({ deviation: dev, offset: ratio * sy, url, x: item.x, z: item.z });
       }
     }
-    // A ground prop whose spread against the RAW field is TIGHTER than against
-    // the drawn one was seated on the raw field: the terrace/drape delta shows
-    // up as scatter on whichever surface it was not seated on. (Buildings are
-    // exempt by design — a mass cuts into its own grade, see STEP_INTO_SLOPE.)
+
     const wrongSurface =
       seated &&
       bucket.items.length >= opts.minCount &&
       spread(bucket.terr, medTerr) + 0.05 < seatSpread;
+
     if (wrongSurface) {
       wrongSurfaceInstances += bucket.items.length;
     }
+
     floating += fl;
     buried += bu;
     groups.push({
@@ -737,12 +777,12 @@ export const seatReport = (
       wrongSurface,
     });
   }
+
   outliers.sort((a, b) => Math.abs(b.deviation) - Math.abs(a.deviation));
   groups.sort((a, b) => b.floating + b.buried - (a.floating + a.buried));
+
   return { buried, floating, groups, outliers, wrongSurfaceInstances };
 };
-
-// --- 5. landmark parcels ---------------------------------------------------
 
 export interface LandmarkIntruder {
   readonly landmark: string;
@@ -757,10 +797,7 @@ export interface LandmarkReport {
   readonly intruders: readonly LandmarkIntruder[];
 }
 
-/** Match the exact Float32 collision payload, including orientation/span.
- * A nearby arbitrary box is not landmark-owned merely because it occupies
- * the same reserved cell. */
-const landmarkSolidKey = (s: Solid): string =>
+const landmarkSolidKey = (s: Solid) =>
   `${[s.minX, s.maxX, s.minZ, s.maxZ, s.yaw ?? 0]
     .map(Math.fround)
     .join(
@@ -771,9 +808,10 @@ const canonicalLandmarkReservations = (
   plan: ReturnType<typeof generateCity>,
   network: RoadNetwork,
   terrain: Terrain,
-): readonly Solid[] => {
+) => {
   const bodies: WaterBody[] = [];
   buildLandmarks(terrain, new ModelCache(), network, undefined, (body) => bodies.push(body));
+
   return carveWaterReservations(landmarkProtection(plan, network).solids, bodies);
 };
 
@@ -790,26 +828,33 @@ export const landmarkReport = (
   network: RoadNetwork,
   plan: ReturnType<typeof generateCity>,
   terrain: Terrain,
-): LandmarkReport => {
+) => {
   const prot = landmarkProtection(plan, network);
   const markers = landmarkMarkers(network);
   const own = new Set<string>();
+
   for (const s of canonicalLandmarkReservations(plan, network, terrain)) {
     own.add(landmarkSolidKey(s));
   }
-  const nearestLandmark = (x: number, z: number): string => {
+
+  const nearestLandmark = (x: number, z: number) => {
     let best = "?";
     let bestD = Infinity;
+
     for (const m of markers) {
       const d = (m.x - x) ** 2 + (m.z - z) ** 2;
+
       if (d < bestD) {
         bestD = d;
         best = m.name;
       }
     }
+
     return best;
   };
+
   const cellsPer = new Map<string, number>();
+
   for (const key of prot.reserved) {
     const [gxs, gzs] = key.split(",");
     const gx = Number(gxs);
@@ -819,15 +864,20 @@ export const landmarkReport = (
     const name = nearestLandmark(x, z);
     cellsPer.set(name, (cellsPer.get(name) ?? 0) + 1);
   }
+
   const intruders: LandmarkIntruder[] = [];
+
   for (const p of props) {
     if (!p.url.includes("/buildings/")) {
       continue;
     }
+
     const key = `${gridXOf(p.x)},${gridZOf(p.z)}`;
+
     if (!prot.reserved.has(key)) {
       continue;
     }
+
     intruders.push({
       landmark: nearestLandmark(p.x, p.z),
       what: `building instance ${propName(p.url)}`,
@@ -835,26 +885,30 @@ export const landmarkReport = (
       z: p.z,
     });
   }
+
   for (const s of solids) {
     const w = s.maxX - s.minX;
     const d = s.maxZ - s.minZ;
+
     if (w < 2 && d < 2) {
       continue;
-      // trees/furniture: not a building mass
     }
+
     if (w > 200 || d > 200) {
       continue;
-      // map-edge walls
     }
+
     const cx = (s.minX + s.maxX) / 2;
     const cz = (s.minZ + s.maxZ) / 2;
+
     if (!prot.reserved.has(`${gridXOf(cx)},${gridZOf(cz)}`)) {
       continue;
     }
+
     if (own.has(landmarkSolidKey(s))) {
-      // the landmark pass's own collision box
       continue;
     }
+
     intruders.push({
       landmark: nearestLandmark(cx, cz),
       what: `solid ${w.toFixed(1)}x${d.toFixed(1)}u`,
@@ -862,6 +916,7 @@ export const landmarkReport = (
       z: cz,
     });
   }
+
   return {
     intruders,
     landmarks: markers.map((m) => ({ cells: cellsPer.get(m.name) ?? 0, name: m.name })),
@@ -869,15 +924,12 @@ export const landmarkReport = (
   };
 };
 
-// --- 6. street grade -------------------------------------------------------
-
 export interface GradeReport {
   readonly edges: number;
   readonly worstChord: number;
   readonly worstChordAt: string;
   readonly worstLocal: number;
   readonly worstLocalAt: string;
-  // edges whose end-to-end grade exceeds the cap
   readonly overChord: number;
   readonly overLocal: number;
   readonly histogram: readonly (readonly [string, number])[];
@@ -895,7 +947,7 @@ export const gradeReport = (
   drapeHeightAt: (x: number, z: number) => number,
   cap: number,
   window = 8,
-): GradeReport => {
+) => {
   const bands = [0.1, 0.2, 0.3, 0.42, 0.6, 0.8, Infinity];
   const counts: number[] = Array.from({ length: bands.length }, () => 0);
   let worstChord = 0;
@@ -904,50 +956,62 @@ export const gradeReport = (
   let worstLocalAt = "";
   let overChord = 0;
   let overLocal = 0;
+
   for (const e of network.edges) {
     if (e.len < 1) {
       continue;
     }
+
     const a = network.sample(e, 0);
     const b = network.sample(e, e.len);
     const chord = Math.abs(drapeHeightAt(b.x, b.z) - drapeHeightAt(a.x, a.z)) / e.len;
+
     if (chord > worstChord) {
       worstChord = chord;
       worstChordAt = `edge ${e.id} ${uv(a.x, a.z)} len ${e.len.toFixed(0)}u`;
     }
+
     if (chord > cap) {
       overChord += 1;
     }
+
     for (let k = 0; k < bands.length; k += 1) {
       if (chord < (bands[k] ?? Infinity)) {
         counts[k] = (counts[k] ?? 0) + 1;
         break;
       }
     }
+
     let local = 0;
     let localAt = "";
+
     for (let s = 0; s + window <= e.len; s += window / 2) {
       const p = network.sample(e, s);
       const q = network.sample(e, s + window);
       const g = Math.abs(drapeHeightAt(q.x, q.z) - drapeHeightAt(p.x, p.z)) / window;
+
       if (g > local) {
         local = g;
         localAt = `edge ${e.id} ${uv(p.x, p.z)}`;
       }
     }
+
     if (local > cap) {
       overLocal += 1;
     }
+
     if (local > worstLocal) {
       worstLocal = local;
       worstLocalAt = localAt;
     }
   }
+
   return {
     edges: network.edges.length,
     histogram: bands.map((_, k) => {
       const lo = k === 0 ? 0 : (bands[k - 1] ?? 0);
       const hi = bands[k] ?? Infinity;
+
       return [hi === Infinity ? `>=${lo}` : `${lo}-${hi}`, counts[k] ?? 0] as const;
     }),
     overChord,
@@ -958,8 +1022,6 @@ export const gradeReport = (
     worstLocalAt,
   };
 };
-
-// --- the regenerated planar world ------------------------------------------
 
 /** Below this a solid is street furniture, not a building mass. */
 export const BUILDING_MIN_SIDE = 2.2;
@@ -974,13 +1036,14 @@ export interface AuditWorld {
 }
 
 /** Plan + network + the two surfaces that actually get drawn (~2s). */
-export const buildAuditWorld = (): AuditWorld => {
+export const buildAuditWorld = () => {
   const plan = generateCity();
   const network = new RoadNetwork();
   const terrain = makeTerrain();
   const drape = makeTerracedDrapeField(network, terrain);
   const groundOffset = makeGroundOffset(network, terrain);
   const standAt = makeStandingSurface(network, terrain, groundOffset, drape);
+
   return {
     drapeAt: (x, z) => drape.heightAt(x, z),
     network,
@@ -990,8 +1053,6 @@ export const buildAuditWorld = (): AuditWorld => {
     terrainAt: (x, z) => terrain.heightAt(x, z),
   };
 };
-
-// --- which pass placed this box --------------------------------------------
 
 /**
  * Solids carry no provenance tag, so attribution is by RECONSTRUCTION: the
@@ -1020,18 +1081,20 @@ class PointIndex {
   constructor(cell: number) {
     this.cell = cell;
   }
-  add(x: number, z: number): void {
+  add(x: number, z: number) {
     const k = Math.floor(x / this.cell) * 100_003 + Math.floor(z / this.cell);
     const list = this.cells.get(k);
+
     if (list) {
       list.push([x, z]);
     } else {
       this.cells.set(k, [[x, z]]);
     }
   }
-  has(x: number, z: number, radius: number): boolean {
+  has(x: number, z: number, radius: number) {
     const gx = Math.floor(x / this.cell);
     const gz = Math.floor(z / this.cell);
+
     for (let i = -1; i <= 1; i += 1) {
       for (let j = -1; j <= 1; j += 1) {
         for (const [px, pz] of this.cells.get((gx + i) * 100_003 + gz + j) ?? []) {
@@ -1041,6 +1104,7 @@ class PointIndex {
         }
       }
     }
+
     return false;
   }
 }
@@ -1050,34 +1114,40 @@ export const classifySolids = (
   world: AuditWorld,
   props: readonly PropInstance[],
   source: ParcelSource,
-): readonly SolidClass[] => {
+) => {
   const landmarkBoxes = new Set<string>();
+
   for (const s of canonicalLandmarkReservations(world.plan, world.network, world.terrain)) {
     landmarkBoxes.add(landmarkSolidKey(s));
   }
 
   const pillars = new PointIndex(16);
+
   for (const p of freewayPillars(world.terrain, world.network)) {
     pillars.add(p.x, p.z);
   }
 
-  // Real footprints: the rectangle case is one box on the parcel centroid, an
-  // irregular ring is one thin OBB per wall (parcel-plan.ts wallSolids).
   const parcels = new PointIndex(8);
+
   for (let i = 0; i < source.count; i += 1) {
     const v0 = source.offsets[i] ?? 0;
     const v1 = source.offsets[i + 1] ?? v0;
     const n = v1 - v0;
+
     if (n < 3) {
       continue;
     }
+
     let cx = 0;
     let cz = 0;
+
     for (let k = 0; k < n; k += 1) {
       cx += source.coords[(v0 + k) * 2] ?? 0;
       cz += source.coords[(v0 + k) * 2 + 1] ?? 0;
     }
+
     parcels.add(cx / n, cz / n);
+
     for (let k = 0; k < n; k += 1) {
       const j = (k + 1) % n;
       parcels.add(
@@ -1088,6 +1158,7 @@ export const classifySolids = (
   }
 
   const kitBuildings = new PointIndex(8);
+
   for (const p of props) {
     if (p.url.includes("/buildings/")) {
       kitBuildings.add(p.x, p.z);
@@ -1096,20 +1167,25 @@ export const classifySolids = (
 
   const SEAWALL_SIDE = ROAD_TILE * 0.92;
   const GARAGE_SIDE = ROAD_TILE * 0.84;
-  return solids.map((s): SolidClass => {
+
+  return solids.map((s) => {
     const w = s.maxX - s.minX;
     const d = s.maxZ - s.minZ;
     const cx = (s.minX + s.maxX) / 2;
     const cz = (s.minZ + s.maxZ) / 2;
+
     if (Math.max(w, d) > 200) {
       return "map-border";
     }
+
     if (landmarkBoxes.has(landmarkSolidKey(s))) {
       return "landmark";
     }
+
     if (s.noBody === true && w < 1.5 && d < 1.5) {
       return "tree";
     }
+
     if (
       s.yaw === undefined &&
       Math.abs(w - SEAWALL_SIDE) < 0.2 &&
@@ -1118,32 +1194,37 @@ export const classifySolids = (
     ) {
       return "seawall";
     }
+
     if (s.yaw === undefined && Math.abs(w - GARAGE_SIDE) < 0.2 && Math.abs(d - GARAGE_SIDE) < 0.2) {
       return "garage";
     }
+
     if (pillars.has(cx, cz, 1.2)) {
       return "freeway-pillar";
     }
+
     if (parcels.has(cx, cz, 0.6)) {
       return "real-footprint";
     }
+
     if (kitBuildings.has(cx, cz, 0.8)) {
       return "kit-building";
     }
+
     if (Math.min(w, d) < BUILDING_MIN_SIDE) {
       return "furniture";
     }
+
     return "unclassified";
   });
 };
 
-// --- standalone report ------------------------------------------------------
-
 /** Solids big enough to be a building mass (and not a map-edge wall). */
-export const buildingSolids = (solids: readonly Solid[]): readonly Solid[] =>
+export const buildingSolids = (solids: readonly Solid[]) =>
   solids.filter((s) => {
     const w = s.maxX - s.minX;
     const d = s.maxZ - s.minZ;
+
     return Math.min(w, d) >= BUILDING_MIN_SIDE && Math.max(w, d) < 200 && s.unseen === undefined;
   });
 
@@ -1174,22 +1255,29 @@ export const propsInRoadway = (
   network: RoadNetwork,
   standAt: (x: number, z: number) => number,
   minDepth: number,
-): readonly { readonly prop: PropInstance; readonly depth: number }[] => {
+) => {
   const out: { prop: PropInstance; depth: number }[] = [];
+
   for (const p of props) {
     if (ROADWORKS_PROPS.has(propName(p.url))) {
       continue;
     }
+
     const depth = asphaltDepth(network, p.x, p.z);
+
     if (depth <= minDepth) {
       continue;
     }
+
     if (p.y - standAt(p.x, p.z) > GROUND_LEVEL_MAX) {
       continue;
     }
+
     out.push({ depth, prop: p });
   }
+
   out.sort((a, b) => b.depth - a.depth);
+
   return out;
 };
 
@@ -1199,11 +1287,13 @@ const reportLoad = (
   props: readonly PropInstance[],
   cls: readonly SolidClass[],
   elapsedMs: number,
-): void => {
+) => {
   const tally = new Map<SolidClass, number>();
+
   for (const c of cls) {
     tally.set(c, (tally.get(c) ?? 0) + 1);
   }
+
   console.log(
     `rest.bin rev ${rev} (code ${WORLD_REV}): ${rest.solids.length} solids, ` +
       `${props.length} batched instances, ${rest.parkedCars.length} parked cars, ` +
@@ -1217,10 +1307,7 @@ const reportLoad = (
   );
 };
 
-const reportInterpenetration = (
-  massBoxes: readonly Obb[],
-  classOf: (k: number) => SolidClass,
-): void => {
+const reportInterpenetration = (massBoxes: readonly Obb[], classOf: (k: number) => SolidClass) => {
   const ov = overlapReport(massBoxes, { areaShare: 0.28, minArea: 2 });
   console.log(`\n--- 1. solid interpenetration (${massBoxes.length} building-scale boxes)`);
   console.log(`  ${ov.pairs} neighbour pairs, ${ov.touching} with positive penetration`);
@@ -1230,13 +1317,16 @@ const reportInterpenetration = (
     `  defects (share >= 28% of the smaller box, or a centre inside): ${ov.defects.length}`,
   );
   const pairTally = new Map<string, number>();
+
   for (const d of ov.defects) {
     const key = [classOf(d.i), classOf(d.j)].toSorted().join(" x ");
     pairTally.set(key, (pairTally.get(key) ?? 0) + 1);
   }
+
   for (const [k, v] of [...pairTally.entries()].toSorted((a, b) => b[1] - a[1])) {
     console.log(`    ${k}: ${v}`);
   }
+
   for (const d of ov.defects.slice(0, 24)) {
     console.log(
       `    ${uv(d.x, d.z)} ${classOf(d.i)} x ${classOf(d.j)} depth ${d.depth.toFixed(2)}u ` +
@@ -1250,24 +1340,30 @@ const reportMassesInRoad = (
   massBoxes: readonly Obb[],
   network: RoadNetwork,
   classOf: (k: number) => SolidClass,
-): void => {
+) => {
   console.log(`\n--- 2. masses in the roadway (>0.5u past the kerb)`);
   const inRoad = roadIntrusions(massBoxes, network, 0.5);
   const roadTally = new Map<SolidClass, { n: number; worst: number; at: string }>();
+
   for (const r of inRoad) {
     const c = classOf(r.index);
     const rec = roadTally.get(c) ?? { at: "", n: 0, worst: 0 };
     rec.n += 1;
+
     if (r.depth > rec.worst) {
       rec.worst = r.depth;
       rec.at = uv(r.x, r.z);
     }
+
     roadTally.set(c, rec);
   }
+
   console.log(`  ${inRoad.length}/${massBoxes.length} boxes reach inside the asphalt`);
+
   for (const [k, v] of [...roadTally.entries()].toSorted((a, b) => b[1].n - a[1].n)) {
     console.log(`    ${k}: ${v.n}, worst ${v.worst.toFixed(1)}u @ ${v.at}`);
   }
+
   for (const r of inRoad.slice(0, 24)) {
     console.log(
       `    ${uv(r.x, r.z)} ${classOf(r.index)} depth ${r.depth.toFixed(2)}u ` +
@@ -1280,45 +1376,56 @@ const reportFurnitureInRoad = (
   rest: CityRestPayload,
   cls: readonly SolidClass[],
   world: AuditWorld,
-): void => {
+) => {
   const furnIdx: number[] = [];
+
   for (let i = 0; i < rest.solids.length; i += 1) {
     if (cls[i] === "furniture" || cls[i] === "tree") {
       furnIdx.push(i);
     }
   }
+
   const furnBoxes = furnIdx.map((i) =>
     solidObb(rest.solids[i] ?? { maxX: 0, maxZ: 0, minX: 0, minZ: 0 }),
   );
+
   const furnIn = roadIntrusions(furnBoxes, world.network, 0.5);
   console.log(`  furniture/tree solids inside the asphalt: ${furnIn.length}/${furnBoxes.length}`);
+
   for (const r of furnIn.slice(0, 16)) {
     const c = cls[furnIdx[r.index] ?? 0] ?? "?";
     console.log(`    ${uv(r.x, r.z)} ${c} depth ${r.depth.toFixed(2)}u`);
   }
 };
 
-const reportPropsInRoad = (props: readonly PropInstance[], world: AuditWorld): void => {
+const reportPropsInRoad = (props: readonly PropInstance[], world: AuditWorld) => {
   const totals = new Map<string, number>();
+
   for (const p of props) {
     const name = propName(p.url);
     totals.set(name, (totals.get(name) ?? 0) + 1);
   }
+
   const inLane = propsInRoadway(props, world.network, world.standAt, 0.5);
   const propByName = new Map<string, { inRoad: number; worst: number; at: string }>();
+
   for (const { prop, depth } of inLane) {
     const name = propName(prop.url);
     const rec = propByName.get(name) ?? { at: "", inRoad: 0, worst: 0 };
     rec.inRoad += 1;
+
     if (depth > rec.worst) {
       rec.worst = depth;
       rec.at = uv(prop.x, prop.z);
     }
+
     propByName.set(name, rec);
   }
+
   console.log(
     `  ground-level instances past the kerb (roadworks + overhead excluded): ${inLane.length}`,
   );
+
   for (const [name, r] of [...propByName.entries()].toSorted((a, b) => b[1].worst - a[1].worst)) {
     console.log(
       `    ${name}: ${r.inRoad}/${totals.get(name) ?? 0} worst ${r.worst.toFixed(1)}u @ ${r.at}`,
@@ -1326,26 +1433,30 @@ const reportPropsInRoad = (props: readonly PropInstance[], world: AuditWorld): v
   }
 };
 
-const reportParkedCars = (rest: CityRestPayload, world: AuditWorld): void => {
+const reportParkedCars = (rest: CityRestPayload, world: AuditWorld) => {
   const carDepths = rest.parkedCars.map((c) => asphaltDepth(world.network, c.x, c.z));
   const carBands = [1.5, 2.5, 3.5, 5, Infinity];
   const carCount: number[] = Array.from({ length: carBands.length }, () => 0);
   let carWorst = 0;
   let carWorstAt = "";
+
   for (let i = 0; i < rest.parkedCars.length; i += 1) {
     const d = carDepths[i] ?? 0;
     const car = rest.parkedCars[i];
+
     for (let k = 0; k < carBands.length; k += 1) {
       if (d < (carBands[k] ?? Infinity)) {
         carCount[k] = (carCount[k] ?? 0) + 1;
         break;
       }
     }
+
     if (d > carWorst && car) {
       carWorst = d;
       carWorstAt = uv(car.x, car.z);
     }
   }
+
   console.log(
     `  parked-car depth into the asphalt: ${carBands
       .map((b, k) => `<${b}:${carCount[k] ?? 0}`)
@@ -1357,8 +1468,9 @@ const reportSeatHeights = async (
   rest: CityRestPayload,
   props: readonly PropInstance[],
   world: AuditWorld,
-): Promise<void> => {
+) => {
   console.log(`\n--- 4. seat heights`);
+
   const seat = seatReport(props, world.standAt, world.terrainAt, {
     buryDepth: 0.6,
     floatGap: 0.35,
@@ -1366,6 +1478,7 @@ const reportSeatHeights = async (
     minCount: 40,
     seatSamples: await treeRootSeatSamples(rest, props),
   });
+
   console.log(
     `  ${seat.floating} floating (>0.35u over its kind's baseline), ` +
       `${seat.buried} buried (>0.6u under), ` +
@@ -1375,6 +1488,7 @@ const reportSeatHeights = async (
     `  ${seat.groups.filter((g) => g.seated).length}/${seat.groups.length} kinds are ` +
       `fixed-scale ground props (the rest are masses, foundations or roof/wall dressing)`,
   );
+
   for (const g of seat.groups.filter((group) => group.seated).slice(0, 20)) {
     console.log(
       `    ${propName(g.url)} n=${g.count} spread ${g.seatSpread.toFixed(2)}u ` +
@@ -1382,6 +1496,7 @@ const reportSeatHeights = async (
         `float ${g.floating} bury ${g.buried}${g.wrongSurface ? " WRONG-SURFACE" : ""}`,
     );
   }
+
   for (const o of seat.outliers.slice(0, 16)) {
     console.log(`    worst ${propName(o.url)} ${uv(o.x, o.z)} dev ${o.deviation.toFixed(2)}u`);
   }
@@ -1391,20 +1506,23 @@ const reportLandmarkParcels = (
   rest: CityRestPayload,
   props: readonly PropInstance[],
   world: AuditWorld,
-): void => {
+) => {
   console.log(`\n--- 5. landmark parcels`);
   const lm = landmarkReport(props, rest.solids, world.network, world.plan, world.terrain);
   console.log(`  ${lm.reservedCells} reserved cells across ${lm.landmarks.length} landmarks`);
+
   for (const l of lm.landmarks) {
     console.log(`    ${l.name}: ${l.cells} cells`);
   }
+
   console.log(`  intruders: ${lm.intruders.length}`);
+
   for (const i of lm.intruders) {
     console.log(`    ${i.landmark}: ${i.what} @ ${uv(i.x, i.z)}`);
   }
 };
 
-const reportStreetGrade = (world: AuditWorld): void => {
+const reportStreetGrade = (world: AuditWorld) => {
   console.log(`\n--- 6. street grade`);
   const grade = gradeReport(world.network, world.drapeAt, 0.42);
   console.log(
@@ -1415,7 +1533,7 @@ const reportStreetGrade = (world: AuditWorld): void => {
   );
 };
 
-const main = async (): Promise<void> => {
+const main = async () => {
   const t0 = Date.now();
   const { rev, rest } = await loadBakedRest();
   const world = buildAuditWorld();
@@ -1423,20 +1541,23 @@ const main = async (): Promise<void> => {
   const cls = classifySolids(rest.solids, world, props);
   reportLoad(rev, rest, props, cls, Date.now() - t0);
 
-  // Masses = everything with a building-scale footprint. Trees, furniture and
-  // the map border are audited separately; the seawall ring is a mass.
   const massIdx: number[] = [];
+
   for (let i = 0; i < rest.solids.length; i += 1) {
     const c = cls[i];
+
     if (c === "map-border" || c === "tree" || c === "furniture") {
       continue;
     }
+
     massIdx.push(i);
   }
+
   const massBoxes = massIdx.map((i) =>
     solidObb(rest.solids[i] ?? { maxX: 0, maxZ: 0, minX: 0, minZ: 0 }),
   );
-  const classOf = (k: number): SolidClass => cls[massIdx[k] ?? 0] ?? "unclassified";
+
+  const classOf = (k: number) => cls[massIdx[k] ?? 0] ?? "unclassified";
 
   reportInterpenetration(massBoxes, classOf);
   reportMassesInRoad(massBoxes, world.network, classOf);
@@ -1444,8 +1565,6 @@ const main = async (): Promise<void> => {
   console.log(`\n--- 3. props, furniture and parked cars in the roadway`);
   reportFurnitureInRoad(rest, cls, world);
   reportPropsInRoad(props, world);
-  // Parked cars sit 1.05u inside the asphalt BY DESIGN (furniture.ts: off =
-  // half − 1.05). Anything much deeper has drifted into a travel lane.
   reportParkedCars(rest, world);
 
   await reportSeatHeights(rest, props, world);

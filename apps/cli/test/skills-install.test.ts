@@ -26,25 +26,27 @@ import {
   readManifest,
   SUPPORTED_AGENTS,
 } from "../src/lib/skills-install.js";
-import type { InstallTarget, SkillsSource } from "../src/lib/skills-install.js";
+import type { InstallTarget } from "../src/lib/skills-install.js";
 import { makeCleanups, makeTestServer, makeTmpDir } from "./_helpers.js";
 
 const { cleanups, drain } = makeCleanups();
+
 afterEach(drain);
 
-/** A plugins checkout holding `names`, each with an executable script. */
-const makeSource = (names: string[]): SkillsSource => {
+const makeSource = (names: string[]) => {
   const root = makeTmpDir(cleanups, "vg-skills-src-");
+
   for (const name of names) {
     const dir = path.join(root, "plugins", "vibedgames", "skills", name);
     mkdirSync(path.join(dir, "scripts"), { recursive: true });
     writeFileSync(path.join(dir, "SKILL.md"), `---\nname: ${name}\ndescription: test\n---\n`);
     writeFileSync(path.join(dir, "scripts", "run.mjs"), "#!/usr/bin/env node\n", { mode: 0o755 });
   }
+
   return { origin: root, root };
 };
 
-const projectTarget = (): InstallTarget => ({
+const projectTarget = () => ({
   cwd: makeTmpDir(cleanups, "vg-project-"),
   env: {},
   home: makeTmpDir(cleanups, "vg-home-"),
@@ -53,6 +55,7 @@ const projectTarget = (): InstallTarget => ({
 
 test("installs one copy per skill and links it for Claude Code", () => {
   const target = projectTarget();
+
   const report = installSkills(makeSource(["deploy", "phaser"]), target, [
     "claude-code",
     "cursor",
@@ -63,13 +66,11 @@ test("installs one copy per skill and links it for Claude Code", () => {
   assert.deepEqual(report.removed, []);
   const canonical = path.join(target.cwd, ".agents", "skills", "deploy");
   assert.ok(statSync(path.join(canonical, "SKILL.md")).isFile());
-  // Scripts stay executable.
   assert.doesNotThrow(() => accessSync(path.join(canonical, "scripts", "run.mjs"), constants.X_OK));
 
   const link = path.join(target.cwd, ".claude", "skills", "deploy");
   assert.ok(lstatSync(link).isSymbolicLink());
   assert.equal(readlinkSync(link), path.join("..", "..", ".agents", "skills", "deploy"));
-  // Cursor and Codex read .agents/skills themselves.
   assert.equal(existsSync(path.join(target.cwd, ".cursor")), false);
   assert.equal(existsSync(path.join(target.cwd, ".codex")), false);
 
@@ -95,12 +96,10 @@ test("a re-sync removes a dropped skill's fallback copies, and only copies of it
   installSkills(makeSource(["deploy", "image-to-threejs", "pixel-art"]), target, ["claude-code"]);
   const canonical = path.join(target.cwd, ".agents", "skills");
   const claude = path.join(target.cwd, ".claude", "skills");
-  // Where symlinks aren't available, the agent gets a copy instead of a link.
   unlinkSync(path.join(claude, "image-to-threejs"));
   cpSync(path.join(canonical, "image-to-threejs"), path.join(claude, "image-to-threejs"), {
     recursive: true,
   });
-  // A directory that isn't a copy of ours stays.
   unlinkSync(path.join(claude, "pixel-art"));
   mkdirSync(path.join(claude, "pixel-art"));
   writeFileSync(path.join(claude, "pixel-art", "SKILL.md"), "---\nname: pixel-art\n---\nMine.\n");
@@ -115,12 +114,14 @@ test("a re-sync removes a dropped skill's fallback copies, and only copies of it
 test("--global installs under the home directory and honours CLAUDE_CONFIG_DIR", () => {
   const home = makeTmpDir(cleanups, "vg-home-");
   const claudeConfig = path.join(home, "claude-config");
+
   const target: InstallTarget = {
     cwd: makeTmpDir(cleanups, "vg-project-"),
     env: { CLAUDE_CONFIG_DIR: claudeConfig },
     home,
     scope: "global",
   };
+
   installSkills(makeSource(["deploy"]), target, ["claude-code", "codex"]);
 
   assert.ok(existsSync(path.join(home, ".agents", "skills", "deploy", "SKILL.md")));
@@ -171,7 +172,6 @@ test("discoverSkills keeps only well-named skill dirs with a SKILL.md", () => {
 
 test("fetchSkillsSource downloads and unpacks a GitHub-shaped tarball", async () => {
   const source = makeSource(["deploy"]);
-  // GitHub wraps the tree in a single <repo>-<ref>/ directory.
   const wrapper = makeTmpDir(cleanups, "vg-tar-");
   cpSync(
     path.join(source.root, "plugins"),
@@ -184,6 +184,7 @@ test("fetchSkillsSource downloads and unpacks a GitHub-shaped tarball", async ()
   await tarCreate({ cwd: wrapper, file: tarball, gzip: true, portable: true }, [
     "vibedgames-plugins-main",
   ]);
+
   const port = await makeTestServer(cleanups, (_req, res) => {
     res.writeHead(200, { "content-type": "application/gzip" });
     res.end(readFileSync(tarball));
@@ -192,6 +193,7 @@ test("fetchSkillsSource downloads and unpacks a GitHub-shaped tarball", async ()
   const fetched = await fetchSkillsSource({
     VG_SKILLS_SOURCE: `http://127.0.0.1:${port}/x.tar.gz`,
   });
+
   try {
     assert.deepEqual(
       discoverSkills(fetched.root).map((skill) => skill.name),
@@ -200,12 +202,14 @@ test("fetchSkillsSource downloads and unpacks a GitHub-shaped tarball", async ()
   } finally {
     fetched.cleanup?.();
   }
+
   assert.equal(existsSync(fetched.root), false);
 
   const missing = await makeTestServer(cleanups, (_req, res) => {
     res.writeHead(404);
     res.end();
   });
+
   await assert.rejects(
     fetchSkillsSource({ VG_SKILLS_SOURCE: `http://127.0.0.1:${missing}/x.tar.gz` }),
     /HTTP 404/u,

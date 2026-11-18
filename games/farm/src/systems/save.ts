@@ -7,8 +7,6 @@ import type { CollectionsJSON } from "./collections";
 
 const KEY = "farm-rpg-save-v1";
 
-// Per-system save fragments are optional so older saves keep loading as systems
-// are added. Concrete shapes are owned by their modules.
 export interface AnimalSave {
   id: number;
   kind: string;
@@ -43,23 +41,23 @@ export interface SaveData {
 /** "failure" = storage threw (full/blocked); the caller keeps the save dirty and retries. */
 export type SaveOutcome = { kind: "success" } | { kind: "disabled" } | { kind: "failure" };
 
-// Trailer mode (src/trailer/): a staged demo run must neither read nor write
-// the player's real save. Set once by the trailer director; dead in normal play.
 let savesDisabled = false;
-export const disableSaves = (): void => {
+
+export const disableSaves = () => {
   savesDisabled = true;
 };
 
-// Structural check at the storage boundary: we only wrote v3 saves ourselves,
-// so verify the version tag plus the scalar/object skeleton (not every leaf).
 const isSaveData = (v: JsonValue): v is JsonValue & SaveData => {
   if (!isJsonObject(v) || v["v"] !== 3) {
     return false;
   }
+
   const nums = ["seed", "day", "timeMin", "gold", "energy", "hp", "canCharge"];
+
   if (!nums.every((k) => isJsonNumber(v[k]))) {
     return false;
   }
+
   return (
     isJsonObject(v["player"]) &&
     isJsonObject(v["world"]) &&
@@ -68,41 +66,46 @@ const isSaveData = (v: JsonValue): v is JsonValue & SaveData => {
   );
 };
 
-export const loadSave = (): SaveData | null => {
+export const loadSave = () => {
   if (savesDisabled) {
     return null;
   }
+
   try {
     const raw = localStorage.getItem(KEY);
+
     if (!raw) {
       return null;
     }
+
     const d: JsonValue = JSON.parse(raw);
+
     return isSaveData(d) ? d : null;
   } catch {
     return null;
   }
 };
 
-export const writeSave = (d: SaveData): SaveOutcome => {
+export const writeSave: (d: SaveData) => SaveOutcome = (d) => {
   if (savesDisabled) {
     return { kind: "disabled" };
   }
+
   try {
     localStorage.setItem(KEY, JSON.stringify(d));
+
     return { kind: "success" };
   } catch {
     return { kind: "failure" };
   }
 };
 
-export const clearSave = (): void => {
+export const clearSave = () => {
   if (savesDisabled) {
     return;
   }
+
   try {
     localStorage.removeItem(KEY);
-  } catch {
-    /* ignore */
-  }
+  } catch {}
 };

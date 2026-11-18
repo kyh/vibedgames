@@ -1,13 +1,11 @@
-// A simulated network for the headless netcode checks: deterministic noise,
-// one direction of a WebSocket with latency and jitter, and a copy of the
-// room's shared state kept the way the SDK keeps it.
 import { applyPatch, diffState, readPatch } from "@vibedgames/multiplayer";
-import type { JsonRecord, PatchOp } from "@vibedgames/multiplayer";
+import type { JsonRecord } from "@vibedgames/multiplayer";
 import type { JsonValue } from "../src/data/json.ts";
 
 /** Deterministic noise in [0, 1). */
-export const noise = (i: number): number => {
+export const noise = (i: number) => {
   const s = Math.sin(i * 12.9898 + 78.233) * 43_758.5453;
+
   return s - Math.floor(s);
 };
 
@@ -29,26 +27,31 @@ export class Pipe {
     this.salt = salt;
   }
 
-  send(now: number, message: JsonValue): void {
+  send(now: number, message: JsonValue) {
     this.count += 1;
+
     const at = Math.max(
       this.last,
       now + this.oneWayMs + noise(this.count * 7 + this.salt) * this.jitterMs,
     );
+
     this.last = at;
     const text = JSON.stringify(message);
     this.bytes += text.length;
     this.queue.push({ at, text });
   }
 
-  receive(now: number): JsonValue[] {
+  receive(now: number) {
     const out: JsonValue[] = [];
+
     while (this.queue[0] && this.queue[0].at <= now) {
       const next = this.queue.shift();
+
       if (next) {
         out.push(JSON.parse(next.text));
       }
     }
+
     return out;
   }
 }
@@ -59,23 +62,25 @@ export class Pipe {
  *  object the copy held before — `state` is what `client.sharedState` reads. */
 export const sharedCopy = () => {
   let state: JsonRecord = {};
-  /** Ops off the wire. */
-  const apply = (data: JsonValue): void => {
+
+  const apply = (data: JsonValue) => {
     const ops = readPatch(data);
+
     if (Array.isArray(ops)) {
       state = applyPatch(state, ops);
     }
   };
+
   return {
     apply,
     get state() {
       return state;
     },
-    /** The host's write: the ops it puts on the wire, applied to this copy. */
-    write: (patch: JsonRecord): PatchOp[] => {
+    write: (patch: JsonRecord) => {
       const ops = diffState(state, { ...state, ...patch }, Object.keys(patch));
       // oxlint-disable-next-line unicorn/prefer-structured-clone -- the copy holds what JSON carries: structuredClone would keep keys set to undefined, which the wire and the SDK drop
       apply(JSON.parse(JSON.stringify(ops)));
+
       return ops;
     },
   };

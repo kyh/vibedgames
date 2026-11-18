@@ -19,6 +19,7 @@ export class LuaParseError extends Error {
 export type LuaValue = string | number | boolean | null | LuaValue[] | { [key: string]: LuaValue };
 
 type TokenType = "{" | "}" | "[" | "]" | "=" | "," | ";" | "string" | "number" | "ident" | "eof";
+
 interface Token {
   type: TokenType;
   value: string;
@@ -30,7 +31,7 @@ const IDENT_BODY = /[A-Za-z0-9_]/u;
 
 type Punctuation = "{" | "}" | "[" | "]" | "=" | "," | ";";
 
-const punctuationOf = (ch: string): Punctuation | null => {
+const punctuationOf = (ch: string) => {
   switch (ch) {
     case "{":
     case "}":
@@ -41,38 +42,39 @@ const punctuationOf = (ch: string): Punctuation | null => {
     case ";": {
       return ch;
     }
+
     default: {
       return null;
     }
   }
 };
 
-const isSpace = (ch: string): boolean => ch !== "" && /\s/u.test(ch);
+const isSpace = (ch: string) => ch !== "" && /\s/u.test(ch);
 
-const isDigit = (ch: string): boolean => ch >= "0" && ch <= "9";
+const isDigit = (ch: string) => ch >= "0" && ch <= "9";
 
-/** Where the lexer is in the source; `charAt` past the end reads as "". */
 interface Cursor {
   readonly text: string;
   i: number;
 }
 
-const peek = (cur: Cursor, n = 0): string => cur.text.charAt(cur.i + n);
+const peek = (cur: Cursor, n = 0) => cur.text.charAt(cur.i + n);
 
-const skipTrivia = (cur: Cursor): void => {
+const skipTrivia = (cur: Cursor) => {
   for (;;) {
     while (isSpace(peek(cur))) {
       cur.i += 1;
     }
+
     if (peek(cur) !== "-" || peek(cur, 1) !== "-") {
       return;
     }
+
     cur.i += 2;
+
     if (peek(cur) === "[" && peek(cur, 1) === "[") {
       cur.i += 2;
       const end = cur.text.indexOf("]]", cur.i);
-      // An unterminated long comment swallows the rest of the file, which
-      // is what the Lua lexer itself does.
       cur.i = end === -1 ? cur.text.length : end + 2;
     } else {
       while (peek(cur) !== "" && peek(cur) !== "\n") {
@@ -91,54 +93,64 @@ const ESCAPES = new Map([
   ["\\", "\\"],
 ]);
 
-/** Read a quoted string; the cursor sits on the opening quote. */
-const readString = (cur: Cursor): string => {
+const readString = (cur: Cursor) => {
   const quote = peek(cur);
   cur.i += 1;
   const out: string[] = [];
+
   for (;;) {
     const c = peek(cur);
+
     if (c === "") {
       throw new LuaParseError("Unterminated string");
     }
+
     if (c === quote) {
       cur.i += 1;
+
       return out.join("");
     }
+
     if (c === "\\") {
       cur.i += 1;
       const esc = peek(cur);
-      // Unknown escapes are preserved verbatim rather than dropped, so a
-      // Windows path in a manifest survives the round trip.
       out.push(ESCAPES.get(esc) ?? `\\${esc}`);
+
       if (esc !== "") {
         cur.i += 1;
       }
+
       continue;
     }
+
     out.push(c);
     cur.i += 1;
   }
 };
 
-const readWhile = (cur: Cursor, from: number, accept: (ch: string) => boolean): string => {
+const readWhile = (cur: Cursor, from: number, accept: (ch: string) => boolean) => {
   let j = from;
+
   while (j < cur.text.length && accept(cur.text.charAt(j))) {
     j += 1;
   }
+
   const value = cur.text.slice(cur.i, j);
   cur.i = j;
+
   return value;
 };
 
-const tokenize = (text: string): Token[] => {
+const tokenize = (text: string) => {
   const tokens: Token[] = [];
   const cur: Cursor = { i: 0, text };
 
   for (;;) {
     skipTrivia(cur);
+
     if (cur.i >= text.length) {
       tokens.push({ pos: cur.i, type: "eof", value: "" });
+
       return tokens;
     }
 
@@ -146,6 +158,7 @@ const tokenize = (text: string): Token[] => {
     const pos = cur.i;
 
     const punctuation = punctuationOf(ch);
+
     if (punctuation !== null) {
       tokens.push({ pos, type: punctuation, value: punctuation });
       cur.i += 1;
@@ -176,59 +189,76 @@ const tokenize = (text: string): Token[] => {
 
 type TableKey = { kind: "index"; index: number } | { kind: "name"; name: string };
 
-const numberTokenValue = (raw: string): number =>
+const numberTokenValue = (raw: string) =>
   // oxlint-disable-next-line unicorn/prefer-number-coercion -- a token like `1.2.3` must read its leading number, not NaN
   raw.includes(".") ? Number.parseFloat(raw) : Number.parseInt(raw, 10);
 
 /** Parse a Lua table literal (optionally `return`-prefixed) into JSON data. */
-export const parseLua = (text: string): LuaValue => {
+export const parseLua = (text: string) => {
   const tokens = tokenize(text);
   let k = 0;
 
   const EOF: Token = { pos: text.length, type: "eof", value: "" };
   const cur = () => tokens[k] ?? EOF;
   const peekToken = (n = 1) => tokens[Math.min(k + n, tokens.length - 1)] ?? EOF;
+
   const eat = (type?: TokenType) => {
     const token = cur();
+
     if (type !== undefined && token.type !== type) {
       throw new LuaParseError(`Expected ${type}, got ${token.type} at ${token.pos}`);
     }
+
     k += 1;
+
     return token;
   };
 
-  const parseValue = (): LuaValue => {
+  const parseValue = () => {
     const token = cur();
+
     if (token.type === "{") {
       return parseTable();
     }
+
     if (token.type === "string") {
       eat("string");
+
       return token.value;
     }
+
     if (token.type === "number") {
       eat("number");
+
       return numberTokenValue(token.value);
     }
+
     if (token.type === "ident") {
       if (token.value === "true") {
         eat("ident");
+
         return true;
       }
+
       if (token.value === "false") {
         eat("ident");
+
         return false;
       }
+
       if (token.value === "nil") {
         eat("ident");
+
         return null;
       }
+
       throw new LuaParseError(`Unsupported identifier value at ${token.pos}: '${token.value}'`);
     }
+
     throw new LuaParseError(`Unexpected token at ${token.pos}: ${token.type}`);
   };
 
-  const parseTable = (): LuaValue => {
+  const parseTable = () => {
     eat("{");
     const items: [TableKey, LuaValue][] = [];
     let arrayIndex = 1;
@@ -241,12 +271,10 @@ export const parseLua = (text: string): LuaValue => {
       } else if (cur().type === "[") {
         eat("[");
         const keyToken = cur();
-        // The key expression is parsed (and discarded) even when its type is
-        // rejected, so malformed brackets still fail on `]`/`=` first, as the
-        // Python parser did.
         parseValue();
         eat("]");
         eat("=");
+
         if (keyToken.type === "string") {
           items.push([{ kind: "name", name: keyToken.value }, parseValue()]);
         } else if (keyToken.type === "number") {
@@ -263,43 +291,52 @@ export const parseLua = (text: string): LuaValue => {
         eat();
       }
     }
+
     eat("}");
 
-    // A table whose keys are exactly 1..n is a Lua array, and becomes a JSON
-    // array. Anything else — string keys, or gaps — stays an object.
     const numeric: number[] = [];
+
     for (const [key] of items) {
       if (key.kind === "index") {
         numeric.push(key.index);
       }
     }
+
     if (items.length > 0 && numeric.length === items.length) {
       const max = Math.max(...numeric);
       const dense = new Set(numeric).size === numeric.length && max === numeric.length;
+
       if (dense) {
         const out: LuaValue[] = Array.from({ length: max }, () => null);
+
         for (const [key, value] of items) {
           if (key.kind === "index") {
             out[key.index - 1] = value;
           }
         }
+
         return out;
       }
     }
 
     const out: Record<string, LuaValue> = {};
+
     for (const [key, value] of items) {
       out[key.kind === "index" ? String(key.index) : key.name] = value;
     }
+
     return out;
   };
 
   if (cur().type === "ident" && cur().value === "return") {
     eat("ident");
   }
+
   const value = parseValue();
+
   if (cur().type !== "eof") {
     throw new LuaParseError(`Trailing tokens at ${cur().pos}`);
   }
+
   return value;
 };

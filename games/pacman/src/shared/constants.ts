@@ -1,12 +1,3 @@
-// All tunables for the 3D first-person Pac-Man. One maze cell = 1 world unit;
-// world x = grid column, world z = grid row; speeds are cells per second.
-// Maze layout, movement rules, camera math and gesture thresholds are
-// recovered verbatim from the legacy React/r3f build (git:
-// games/pacman/src/app/app.tsx + face-detection.tsx). The look is a soft
-// "plush clinic" restyle: cream fog, marshmallow walls, Baymax-faced ghosts.
-
-// ---- maze -------------------------------------------------------------------
-
 /**
  * Maze layout — 25×31 braided maze (every corridor loops, no dead ends),
  * left-right symmetric, generated + validated for full connectivity.
@@ -53,10 +44,9 @@ export const GRID_COLS = MAP[0]?.length ?? 0;
  */
 export const FLOOR_Y = -0.5;
 
-// ---- speeds (cells per second) ------------------------------------------------
-
 /** Step animation speed — legacy `animationSpeed` ref. */
 export const PACMAN_STEP_SPEED = 5;
+
 /**
  * A chomp that lands while a step is still animating is held this long (s)
  * and fires as the step lands. The legacy build dropped it, which left a dead
@@ -65,28 +55,31 @@ export const PACMAN_STEP_SPEED = 5;
 export const CHOMP_BUFFER_S = 0.15;
 export const GHOST_SPEED = 1.5;
 export const GHOST_SCARED_SPEED = 0.75;
+
 /** Legacy clamped frame delta to 0.1s to prevent jumps on frame drops. */
 export const MAX_DT = 0.1;
-
-// ---- rules --------------------------------------------------------------------
 
 export const SCORE_PELLET = 10;
 export const SCORE_POWER = 50;
 export const SCORE_GHOST = 200;
-// legacy POWER_PELLET_DURATION
 export const SCARED_MS = 10_000;
+
 /** Last stretch of power mode: ghosts blink + a soft warning note plays. */
 export const SCARED_WARN_MS = 2000;
 export const SCARED_BLINK_INTERVAL_MS = 250;
+
 /** Odds a ghost greedily chases at a grid center (else pure random). */
 export const CHASE_CHANCE = 0.7;
+
 /** Rebuild addition kept: lives + game over (legacy had a soft reset only). */
 export const START_LIVES = 3;
 export const READY_MS = 900;
+
 /** After a respawn, ghost contact can't kill for this long (anti spawn-camp). */
 export const SPAWN_GRACE_MS = 1000;
 
 export const PACMAN_SPAWN = { col: 1, row: 1 } as const;
+
 /** Six ghosts for the bigger maze, spread across the center den. */
 export const GHOST_SPAWNS: readonly { col: number; row: number; dir: Dir }[] = [
   { col: 13, dir: "up", row: 12 },
@@ -96,6 +89,7 @@ export const GHOST_SPAWNS: readonly { col: number; row: number; dir: Dir }[] = [
   { col: 17, dir: "up", row: 12 },
   { col: 15, dir: "up", row: 11 },
 ];
+
 export const GHOST_RESPAWN = { col: 15, row: 12 } as const;
 
 /**
@@ -106,8 +100,6 @@ export const GHOST_RESPAWN = { col: 15, row: 12 } as const;
 export const CATCH_DIST = 0.55;
 export const EAT_DIST = 0.8;
 
-// ---- chase camera (legacy PacmanCamera) -----------------------------------------
-
 /**
  * Chase-cam follow rate (1/s): each frame closes 1 − e^(−rate·dt) of the gap.
  * 6.32 is the legacy 0.1-per-frame lerp at 60 fps, now the same at any frame
@@ -115,32 +107,26 @@ export const EAT_DIST = 0.8;
  * tight at 30 fps.
  */
 export const CAMERA_FOLLOW_RATE = 6.32;
-// camera sits at pos - facing*2.5 (selfie: +2.5)
 export const CAM_BACK = 2.5;
-// absolute camera y
 export const CAM_HEIGHT = 2;
-// lookAt = pos + facing*2
 export const CAM_LOOK_AHEAD = 2;
-// selfie lookAt = pos - facing*1
 export const CAM_SELFIE_LOOK_BACK = 1;
-
-// ---- pacman model ---------------------------------------------------------------
 
 export const PAC_RADIUS = 0.5;
 export const MOUTH_RADIUS = 0.51;
 export const MOUTH_PHI_START = (Math.PI * 7) / 4;
 export const MOUTH_PHI_LENGTH = Math.PI / 2;
+
 /** Mouth wedge target opening (rad) while moving; lerped at delta*10/frame. */
 export const MOUTH_OPEN_ANGLE = Math.PI / 4;
 export const MOUTH_LERP_RATE = 10;
+
 /**
  * Mouth angles quantize to this bucket size (rad) so wedge geometries can be
  * built once and cached (~16 total) instead of rebuilt every frame while
  * chomping. ~2.9° steps — invisible at this size.
  */
 export const MOUTH_ANGLE_QUANT = 0.05;
-
-// ---- ghosts ---------------------------------------------------------------------
 
 /**
  * Bob: y = sin(t * FREQ + phase) * AMP + BASE; phase staggered per ghost.
@@ -150,29 +136,31 @@ export const MOUTH_ANGLE_QUANT = 0.05;
 export const GHOST_BOB_FREQ = 0.003;
 export const GHOST_BOB_AMP = 0.08;
 export const GHOST_BOB_BASE = 0.12;
+
 /** Bob phase offset between neighboring ghosts (rad) so they don't move in lockstep. */
 export const GHOST_BOB_STAGGER = 1.7;
+
 /** Yaw lerp rate (per second factor) for the face turning toward travel dir. */
 export const GHOST_YAW_RATE = 10;
+
 /** Scared: shrink to this scale + tremble at this amplitude (world units). */
 export const GHOST_SCARED_SCALE = 0.92;
 export const GHOST_TREMBLE_AMP = 0.03;
 export const GHOST_TREMBLE_FREQ = 34;
 
-// ---- pellets ----------------------------------------------------------------------
-
 export const PELLET_RADIUS = 0.11;
 export const POWER_PELLET_RADIUS = 0.3;
+
 /** Rest height of the floating power hearts (bob centers here). */
 export const HEART_Y = 0.3;
+
 /** Idle pellet bob: y = sin(t·FREQ + cellPhase)·AMP. */
 export const PELLET_BOB_AMP = 0.035;
 export const PELLET_BOB_FREQ = 2.2;
+
 /** Power-heart breathing pulse: scale 1 ± AMP. */
 export const HEART_PULSE_AMP = 0.12;
 export const HEART_PULSE_FREQ = 3.4;
-
-// ---- palette (plush clinic: cream, butter, blush, pastel mints) -------------------
 
 export const COLORS = {
   /** Page background + fog — everything melts into warm cream. */
@@ -199,16 +187,17 @@ export const COLORS = {
   scaredBlink: 0xf8_f9_ff,
   wall: 0xf6_cd_d9,
 } as const;
+
 export const GHOST_COLORS: readonly number[] = [0xff_b3_c1, 0xff_d6_a5, 0xb8_e8_c8, 0xb5_c7_f7];
+
 /** Deterministic per-wall lightness wobble so the candy blocks aren't flat. */
 export const WALL_TINT_WOBBLE = 0.04;
+
 /**
  * Gummy translucency — the chase camera sits low (CAM_HEIGHT 2), so fully
  * opaque walls hide the corridors; this is readability, not just style.
  */
 export const WALL_OPACITY = 0.85;
-
-// ---- lighting (hemisphere sky + warm key with soft shadows, ACES) ------------------
 
 export const HEMI_SKY = 0xff_f6_ec;
 export const HEMI_GROUND = 0xf3_dc_e2;
@@ -216,45 +205,44 @@ export const HEMI_INTENSITY = 0.85;
 export const KEY_COLOR = 0xff_f2_e0;
 export const KEY_INTENSITY = 1.6;
 export const TONE_EXPOSURE = 1.1;
+
 /** Fog near/far in world units. */
 export const FOG_NEAR = 10;
 export const FOG_FAR = 36;
-
-// ---- feel / vfx -----------------------------------------------------------------
 
 /** Land squash: y scale dips to 1-SQUASH, x/z bulge, recovers at RATE/s ease-out. */
 export const STEP_SQUASH = 0.16;
 export const STEP_STRETCH = 0.12;
 export const SQUASH_RECOVER_RATE = 9;
+
 /** Trauma added per event (Eiserloh: shake = trauma²). */
 export const TRAUMA_CAUGHT = 0.5;
 export const TRAUMA_GHOST_EATEN = 0.25;
 export const TRAUMA_POWER = 0.18;
+
 /** FOV kick (deg) on power pickup, exponential decay per second. */
 export const FOV_KICK_POWER = 6;
 export const FOV_KICK_DECAY = 4;
 export const BASE_FOV = 75;
+
 /** Title screen: slow orbit around the maze center, scaled to the maze. */
 export const TITLE_ORBIT_RADIUS = Math.max(GRID_COLS, GRID_ROWS) * 0.72;
 export const TITLE_ORBIT_HEIGHT = Math.max(GRID_COLS, GRID_ROWS) * 0.42;
 export const TITLE_ORBIT_SPEED = 0.12;
 
-// ---- face gestures (legacy face-detection.tsx) -----------------------------------
-
 /** |upperLip.y - lowerLip.y| / |nose.y - chin.y| above this = mouth open. */
 export const MOUTH_OPEN_RATIO = 0.07;
+
 /** Cheek asymmetry ratio beyond ±this = head turned left/right; else center. */
 export const HEAD_TURN_THRESHOLD = 0.3;
 export const HEAD_DEBOUNCE_MS = 1000;
 
-// ---- persistence --------------------------------------------------------------
-
 export const BEST_KEY = "pacman-best";
 
-// ---- directions ---------------------------------------------------------------
-
 export type Dir = "up" | "down" | "left" | "right";
+
 export const DIRS: readonly Dir[] = ["up", "down", "left", "right"];
+
 /** [dCol, dRow] = [dWorldX, dWorldZ]; up = -z, matching legacy Vector3(0,0,-1). */
 export const DIR_VECT = {
   down: [0, 1],
@@ -262,12 +250,14 @@ export const DIR_VECT = {
   right: [1, 0],
   up: [0, -1],
 } satisfies Record<Dir, readonly [number, number]>;
+
 export const OPPOSITE = {
   down: "up",
   left: "right",
   right: "left",
   up: "down",
 } satisfies Record<Dir, Dir>;
+
 /** Relative 90° turns (legacy ArrowLeft/ArrowRight semantics). */
 export const TURN_LEFT = {
   down: "right",
@@ -275,6 +265,7 @@ export const TURN_LEFT = {
   right: "up",
   up: "left",
 } satisfies Record<Dir, Dir>;
+
 export const TURN_RIGHT = {
   down: "left",
   left: "up",
@@ -282,30 +273,20 @@ export const TURN_RIGHT = {
   up: "right",
 } satisfies Record<Dir, Dir>;
 
-// ---- grid helpers -------------------------------------------------------------
-
 /** Walkable check. Out-of-bounds is a wall — no wraparound (legacy isValidMove). */
-export const isOpen = (col: number, row: number): boolean => {
+export const isOpen = (col: number, row: number) => {
   if (col < 0 || row < 0 || col >= GRID_COLS || row >= GRID_ROWS) {
     return false;
   }
+
   return (MAP[row]?.[col] ?? 1) !== 1;
 };
 
-export const cellKey = (col: number, row: number): string => `${col},${row}`;
+export const cellKey = (col: number, row: number) => `${col},${row}`;
 
-// ---- multiplayer -------------------------------------------------------------
-// Shared-maze race: the maze + pellet layout come from the static MAP, so every
-// client already shares an identical board. The host owns the authoritative set
-// of eaten cells; players compete to grab pellets first. Each player runs their
-// OWN ghosts locally (a personal hazard), so only pellets and pac positions are
-// synced. Alone — or with everyone else idling on the title or game-over screen
-// — it's the classic single-player game.
-// Versioned with the wire format: a tab still running an older bundle speaks
-// a different board and pac-state shape, so it must land in its own room
-// rather than share a race it would misread.
 export const MP_ROOM = "pacman-v3";
 export const MP_MAX_PLAYERS = 4;
+
 /**
  * Room rule: a pac stands in the maze, so the party server drops any report
  * that places one outside the grid before a rival draws it. Score and the
@@ -315,9 +296,12 @@ export const PAC_LIMITS = {
   x: { max: GRID_COLS - 1, min: 0 },
   z: { max: GRID_ROWS - 1, min: 0 },
 };
+
 export const OFFLINE_FALLBACK_MS = 8000;
+
 /** Own pac position/score send rate. */
 export const NET_TICK_HZ = 20;
+
 /**
  * The least a rival is drawn behind its fastest recent report (ms): one 50 ms
  * send interval plus a little jitter, the usual floor for a 20 Hz sender. Each
@@ -327,12 +311,14 @@ export const NET_TICK_HZ = 20;
  * never runs past the newest report.
  */
 export const RIVAL_DELAY_MS = 100;
+
 /**
  * How far past its newest report a rival is carried on when the next one is
  * late (ms) — one whole step. Never past the next cell centre (pac-track), so
  * it cannot overshoot into a wall.
  */
 export const RIVAL_EXTRAPOLATE_MS = 200;
+
 /**
  * A pellet claim still unanswered after this long (ms) is sent again: it was
  * written into a socket that was already dying. An answer takes one round trip.

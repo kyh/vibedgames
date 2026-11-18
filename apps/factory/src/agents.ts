@@ -19,7 +19,7 @@ export interface Role {
   system: string;
 }
 
-const readAgentFile = (relativePath: string): string =>
+const readAgentFile = (relativePath: string) =>
   readFileSync(new URL(`../agents/${relativePath}`, import.meta.url), "utf-8");
 
 interface FrontMatter {
@@ -31,27 +31,27 @@ interface ParsedAgentFile {
   body: string;
 }
 
-/**
- * Split a markdown file into its leading `--- … ---` frontmatter and body.
- * Frontmatter is a few `key: value` lines. Dependency-free on purpose — the
- * only field we read is a simple scalar.
- */
-const parseAgentFile = (raw: string): ParsedAgentFile => {
+const parseAgentFile = (raw: string) => {
   const normalized = raw.replace(/^﻿/u, "");
   const match = /^---\r?\n(?<front>[\s\S]*?)\r?\n---\r?\n?(?<rest>[\s\S]*)$/u.exec(normalized);
+
   if (!match?.groups) {
     return { body: normalized.trim(), meta: {} };
   }
+
   const { front = "", rest = "" } = match.groups;
 
   const meta: FrontMatter = {};
+
   for (const line of front.split(/\r?\n/u)) {
     const kv = /^(?<key>[A-Za-z][\w-]*)\s*:\s*(?<value>.*)$/u.exec(line.trim());
     const value = kv?.groups?.value?.trim();
+
     if (kv?.groups?.key === "emoji" && value) {
       meta.emoji = value;
     }
   }
+
   return { body: rest.trim(), meta };
 };
 
@@ -61,14 +61,17 @@ const parseAgentFile = (raw: string): ParsedAgentFile => {
  */
 export const loadRoles = () => {
   const charter = readAgentFile("charter.md").trim();
-  const build = (name: RoleName): Role => {
+
+  const build = (name: RoleName) => {
     const { meta, body } = parseAgentFile(readAgentFile(`${name}/AGENT.md`));
+
     return {
       emoji: meta.emoji ?? "🤖",
       name,
       system: `${charter}\n\n${body}`,
     };
   };
+
   return {
     artist: build("artist"),
     designer: build("designer"),

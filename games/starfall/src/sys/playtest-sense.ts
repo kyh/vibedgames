@@ -1,17 +1,12 @@
 import { ENEMY_SPECS, SHIP_RADIUS, UFO_RADIUS } from "../shared/constants";
 import type { SharedState } from "../shared/constants";
-import type { Contact, Diagnostics, Target, Threat } from "../shared/diag";
+import type { Contact, Diagnostics, Target } from "../shared/diag";
 import type { Pilot } from "../state/pilot";
 
-/** What a player reads off the screen, as vectors from the ship — the part of the diagnostics a decision model steers by (shared/diag.ts). */
-
-/** An enemy this close outranks a nearer rock: it shoots back and pays more. */
 const ENEMY_PRIORITY_RANGE = 520;
-/** Past this a hazard is off-screen noise. */
 const THREAT_RANGE = 480;
 const MAX_THREATS = 4;
 const MAX_PICKUPS = 2;
-/** Enemy shots have no hull worth modelling next to the ship's own. */
 const SHOT_RADIUS = 3;
 
 interface Body {
@@ -29,36 +24,38 @@ export interface SenseInput {
   now: number;
 }
 
-const contact = (kind: string, dx: number, dy: number): Contact => ({
+const contact = (kind: string, dx: number, dy: number) => ({
   dist: Math.round(Math.hypot(dx, dy)),
   dx: Math.round(dx),
   dy: Math.round(dy),
   kind,
 });
 
-const nearest = <T extends Contact>(list: T[], count: number, key: (c: T) => number): T[] =>
+const nearest = <T extends Contact>(list: T[], count: number, key: (c: T) => number) =>
   list.toSorted((a, b) => key(a) - key(b)).slice(0, count);
 
-const shootables = (world: SharedState, now: number): Body[] => {
+const shootables = (world: SharedState, now: number) => {
   const out: Body[] = [];
+
   for (const e of world.enemies) {
-    // flashing in: can't be hurt yet
     if (e.graceUntil <= now) {
       out.push({ ...e, radius: ENEMY_SPECS[e.kind].hitRadius });
     }
   }
+
   if (world.ufo) {
     out.push({ ...world.ufo, kind: "ufo", radius: UFO_RADIUS, vx: 0, vy: 0 });
   }
+
   return out;
 };
 
-const toTarget = (b: Body, pilot: Pilot): Target => {
+const toTarget = (b: Body, pilot: Pilot) => {
   const dx = b.x - pilot.shipX;
   const dy = b.y - pilot.shipY;
   const { speed } = pilot.weapon;
-  // hitscan weapons (speed 0) need no lead
   const flight = speed > 0 ? Math.hypot(dx, dy) / speed : 0;
+
   return {
     ...contact(b.kind, dx, dy),
     aimDx: Math.round(dx + b.vx * flight),
@@ -67,12 +64,13 @@ const toTarget = (b: Body, pilot: Pilot): Target => {
   };
 };
 
-const toThreat = (b: Body, pilot: Pilot): Threat => {
+const toThreat = (b: Body, pilot: Pilot) => {
   const dx = b.x - pilot.shipX;
   const dy = b.y - pilot.shipY;
   const dist = Math.hypot(dx, dy) || 1;
   const rvx = b.vx - pilot.shipVX;
   const rvy = b.vy - pilot.shipVY;
+
   return {
     ...contact(b.kind, dx, dy),
     closing: Math.round(-(rvx * dx + rvy * dy) / dist),
@@ -80,35 +78,40 @@ const toThreat = (b: Body, pilot: Pilot): Threat => {
   };
 };
 
-const byDist = (t: Target): number => t.dist;
+const byDist = (t: Target) => t.dist;
 
-const pickTarget = (enemies: Body[], rocks: Body[], pilot: Pilot): Target | null => {
+const pickTarget = (enemies: Body[], rocks: Body[], pilot: Pilot) => {
   const [enemy] = nearest(
     enemies.map((b) => toTarget(b, pilot)),
     1,
     byDist,
   );
+
   if (enemy && enemy.dist <= ENEMY_PRIORITY_RANGE) {
     return enemy;
   }
+
   const [rock] = nearest(
     rocks.map((b) => toTarget(b, pilot)),
     1,
     byDist,
   );
+
   return rock ?? enemy ?? null;
 };
 
-const aimError = (target: Target | null, shipAngle: number): number => {
+const aimError = (target: Target | null, shipAngle: number) => {
   if (!target) {
     return 0;
   }
+
   const want = Math.atan2(target.aimDy, target.aimDx);
   const err = Math.atan2(Math.sin(want - shipAngle), Math.cos(want - shipAngle));
+
   return Math.round(Math.abs(err) * (180 / Math.PI));
 };
 
-export const senseSurroundings = (diag: Diagnostics, { world, pilot, now }: SenseInput): void => {
+export const senseSurroundings = (diag: Diagnostics, { world, pilot, now }: SenseInput) => {
   const enemies = shootables(world, now);
   const rocks: Body[] = world.asteroids.map((a) => ({ ...a, kind: "asteroid" }));
   const shots: Body[] = world.enemyShots.map((s) => ({ ...s, kind: "shot", radius: SHOT_RADIUS }));

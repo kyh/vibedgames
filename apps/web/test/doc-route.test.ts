@@ -23,7 +23,6 @@ describe("canonicalUrl", () => {
 });
 
 describe("docHead", () => {
-  // The root route emits the one `<link rel="canonical">` for every page.
   for (const doc of [
     homeDoc,
     aboutDoc,

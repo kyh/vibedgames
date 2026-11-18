@@ -11,24 +11,27 @@ export type FlightHudState = Readonly<{
   mastery: WeaponMasteryState;
 }>;
 
-const masteryText = (mastery: WeaponMasteryState): string => {
+const masteryText = (mastery: WeaponMasteryState) => {
   if (mastery.phase === "idle") {
     return "";
   }
+
   const rail = mastery.weapon === "RAILGUN";
+
   if (mastery.completions > 0) {
     return `${rail ? "Aligned shots" : "Return hits"}: ${mastery.completions}`;
   }
+
   return rail ? "Pierce two enemies with one shot." : "Hit the same enemy out and back.";
 };
 
-const setText = (node: HTMLElement | null, value: string): void => {
+const setText = (node: HTMLElement | null, value: string) => {
   if (node && node.textContent !== value) {
     node.textContent = value;
   }
 };
 
-const setAttribute = (node: HTMLElement, name: string, value: string): void => {
+const setAttribute = (node: HTMLElement, name: string, value: string) => {
   if (node.getAttribute(name) !== value) {
     node.setAttribute(name, value);
   }
@@ -43,20 +46,24 @@ export class FlightHud {
   private readonly time = document.querySelector<HTMLElement>("#weapon-time");
   private readonly mastery = document.querySelector<HTMLElement>("#weapon-mastery");
 
-  update(state: FlightHudState): void {
+  update(state: FlightHudState) {
     if (!state.active) {
       this.reset();
+
       return;
     }
+
     const capped = state.level >= LEVEL_CAP;
     const cost = xpToNext(state.level);
     const progress = Math.max(0, Math.min(cost, state.xp));
     const seconds = Math.max(0, Math.ceil((state.weaponUntil - state.now) / 1000));
+
     if (this.mastery) {
       const text = seconds > 0 ? masteryText(state.mastery) : "";
       this.mastery.hidden = text === "";
       setText(this.mastery, text);
     }
+
     if (this.progress) {
       this.progress.hidden = false;
       setAttribute(
@@ -67,14 +74,18 @@ export class FlightHud {
           : `Level ${state.level}, ${Math.floor(progress)} of ${cost} XP to next level`,
       );
     }
+
     setText(this.level, `LV ${state.level}`);
     setText(this.xp, capped ? "MAX" : `${Math.floor(progress)}/${cost} XP`);
+
     if (this.fill) {
       const width = capped ? "100%" : `${Math.round((progress / cost) * 100)}%`;
+
       if (this.fill.style.width !== width) {
         this.fill.style.width = width;
       }
     }
+
     if (this.time) {
       this.time.hidden = seconds === 0;
       setText(this.time, seconds > 0 ? `${seconds}s` : "");
@@ -86,14 +97,16 @@ export class FlightHud {
     }
   }
 
-  reset(): void {
+  reset() {
     if (this.progress) {
       this.progress.hidden = true;
     }
+
     if (this.mastery) {
       this.mastery.hidden = true;
       setText(this.mastery, "");
     }
+
     if (this.time) {
       this.time.hidden = true;
       setText(this.time, "");

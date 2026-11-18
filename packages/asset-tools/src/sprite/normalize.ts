@@ -29,7 +29,7 @@ export const normalizeCanvas = (
     targetHeight?: number | null;
     charFill?: number;
   } = {},
-): string[] => {
+) => {
   const {
     glob = "frame-*.png",
     canvas = { height: 256, width: 256 },
@@ -41,6 +41,7 @@ export const normalizeCanvas = (
 
   const frames = loadFrames(inputDir, glob);
   const boxes = frames.map((f) => f.image.getBBox()).filter((b) => b !== null);
+
   if (boxes.length === 0) {
     throw new Error(`all frames in ${inputDir} are empty`);
   }
@@ -55,35 +56,34 @@ export const normalizeCanvas = (
   const availableWidth = canvas.width - 2 * pad;
   const availableHeight = canvas.height - 2 * pad;
 
-  // Median visible height stands in for "how big is the character", ignoring
-  // the vertical travel baked into the union.
   const charHeight = median(boxes.map((b) => b.bottom - b.top)) || 1;
   const charTarget = targetHeight ?? canvas.height * charFill;
   const scaleChar = charTarget / charHeight;
-  // Never let the union overflow the cell, so nothing is ever cut off.
   const scaleFit = Math.min(availableWidth / unionWidth, availableHeight / unionHeight);
   let scale = Math.min(scaleChar, scaleFit);
+
   if (!allowUpscale) {
     scale = Math.min(scale, 1);
   }
 
   const newWidth = Math.max(1, roundHalfToEven(unionWidth * scale));
   const newHeight = Math.max(1, roundHalfToEven(unionHeight * scale));
-  // centred horizontally
   const pasteX = Math.floor((canvas.width - newWidth) / 2);
-  // union bottom on the ground line
   const pasteY = canvas.height - pad - newHeight;
 
   const written: string[] = [];
+
   for (const frame of frames) {
     const cropped = frame.image
       .crop({ bottom: unionBottom, left: unionLeft, right: unionRight, top: unionTop })
       .resize(newWidth, newHeight, "lanczos");
+
     const out = Bitmap.create(canvas.width, canvas.height);
     out.pasteMasked(cropped, pasteX, pasteY, cropped.channel(3));
     const dst = path.join(outDir, path.basename(frame.path));
     out.toFile(dst);
     written.push(dst);
   }
+
   return written;
 };

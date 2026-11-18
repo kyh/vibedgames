@@ -26,30 +26,35 @@ export type QueueCall =
   | { kind: "result"; requestId: string }
   | { kind: "other" };
 
-export const classifyQueueCall = (method: string, path: string): QueueCall => {
+export const classifyQueueCall: (method: string, path: string) => QueueCall = (method, path) => {
   const segments = path.split("/").filter((s) => s.length > 0);
+
   if (method === "POST") {
     return { endpointId: segments.join("/"), kind: "submit" };
   }
 
   const requestsIdx = segments.indexOf("requests");
   const requestId = requestsIdx > 0 ? segments[requestsIdx + 1] : undefined;
+
   if (requestId === undefined) {
     return { kind: "other" };
   }
+
   const tail = segments[requestsIdx + 2];
 
   if (method === "GET" && tail === "status") {
     return { kind: "status", requestId };
   }
+
   if (method === "GET" && tail === undefined) {
     return { kind: "result", requestId };
   }
+
   return { kind: "other" };
 };
 
 /** Terminal queue statuses that fal does not bill for. */
-export const isUnbilledTerminalStatus = (status: string | null): boolean =>
+export const isUnbilledTerminalStatus = (status: string | null) =>
   status !== null && ["FAILED", "CANCELLED"].includes(status.toUpperCase());
 
 /**
@@ -57,12 +62,12 @@ export const isUnbilledTerminalStatus = (status: string | null): boolean =>
  * principle (priced units include "megapixels" and "1m tokens"), so parse as
  * float; absent or malformed means "no usage signal".
  */
-export const parseBillableUnits = (headerValue: string | null): number | null => {
-  // Blank counts as absent — Number("") is 0, which would read as an
-  // authoritative "billed zero units" and refund the whole hold.
+export const parseBillableUnits = (headerValue: string | null) => {
   if (headerValue === null || headerValue.trim().length === 0) {
     return null;
   }
+
   const units = Number(headerValue);
+
   return Number.isFinite(units) && units >= 0 ? units : null;
 };

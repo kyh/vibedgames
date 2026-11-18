@@ -19,9 +19,6 @@ import { serializeJsonLd, siteGraph } from "@/lib/structured-data";
 
 import appCss from "../styles/globals.css?url";
 
-// No `orpc` here: the utils reach components through `ORPCProvider` (see
-// lib/orpc.tsx). Carrying them in both channels means the next field lands in
-// one and not the other.
 interface RouterContext {
   queryClient: QueryClient;
 }
@@ -58,8 +55,6 @@ export const Route = createRootRouteWithContext<RouterContext>()({
       { content: "1200", property: "og:image:width" },
       { content: "630", property: "og:image:height" },
       { content: SITE_IMAGE_ALT, property: "og:image:alt" },
-      // The trailer, on every page: the image above stays the card,
-      // and players that show video loop this instead. See `lib/og-media.ts`.
       { content: `${siteConfig.url}${siteVideo.path}`, property: "og:video" },
       { content: `${siteConfig.url}${siteVideo.path}`, property: "og:video:url" },
       { content: `${siteConfig.url}${siteVideo.path}`, property: "og:video:secure_url" },
@@ -77,9 +72,6 @@ export const Route = createRootRouteWithContext<RouterContext>()({
       { content: siteConfig.shortName, name: "apple-mobile-web-app-title" },
     ],
   }),
-  // Site-wide `Vary: Accept`. Routes that negotiate markdown need it; routes
-  // that do not are still safer with it, since a cache that keys on URL alone
-  // could otherwise reuse one of their responses for a different Accept.
   headers: varyHeaders(),
   notFoundComponent: NotFoundPage,
 });
@@ -95,8 +87,6 @@ const RootDocument = ({ children }: { children: React.ReactNode }) => {
       <head>
         <HeadContent />
         <link rel="canonical" href={canonical} />
-        {/* Server-rendered on purpose: a crawler that never runs JS still gets
-            the identity graph. See `lib/structured-data.ts`. */}
         <script
           type="application/ld+json"
           // oxlint-disable-next-line react/no-danger -- JSON-LD is only readable to a crawler when it is inline text, and `serializeJsonLd` escapes `<` so no string can close the tag

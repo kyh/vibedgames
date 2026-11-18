@@ -36,14 +36,6 @@ const railItems = [
   { adminOnly: true, icon: ShieldIcon, label: "Admin", to: "/admin" },
 ] as const;
 
-/**
- * One shared highlight disc for the whole rail: it sits on the active route
- * and springs to whatever the pointer or keyboard focus is over, returning
- * home on leave. The disc IS the highlight — hover, focus, and active get
- * the identical treatment (disc + foreground icon), never separate styles.
- * Its surface must stay in lockstep with the games-list row highlight in
- * home.tsx (same bg/shadow/blur) — one highlight recipe app-wide.
- */
 const RailLink = ({
   to,
   label,
@@ -92,12 +84,14 @@ const RailLink = ({
   );
 };
 
-const initials = (user: ShellUser): string => {
+const initials = (user: ShellUser) => {
   const source = user.name.trim() || user.email;
   const parts = source.split(/\s+/u).filter(Boolean);
+
   if (parts.length >= 2) {
     return `${parts[0]?.[0] ?? ""}${parts[1]?.[0] ?? ""}`.toUpperCase();
   }
+
   return source.slice(0, 2).toUpperCase();
 };
 

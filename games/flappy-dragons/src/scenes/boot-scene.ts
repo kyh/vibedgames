@@ -7,40 +7,40 @@ export class BootScene extends Scene {
     super("Boot");
   }
 
-  preload(): void {
+  preload() {
     this.makeUtilTextures();
 
-    // Game art, flat in public/ (loaded by relative URL).
     for (let n = 1; n <= DRAGON_SKINS; n += 1) {
       for (let f = 1; f <= 4; f += 1) {
         this.load.image(`dragon-${n}-${f}`, `dragon-${n}-${f}.png`);
       }
     }
+
     for (let i = 1; i <= 4; i += 1) {
       this.load.image(`bg-${i}`, `bg-${i}.png`);
     }
+
     this.load.image("tube-cap", "tube-cap.png");
     this.load.image("tube-body", "tube-body.png");
+
     for (let i = 1; i <= 6; i += 1) {
       this.load.image(`coin-${i}`, `coin-${i}.png`);
     }
+
     for (let i = 1; i <= 8; i += 1) {
       this.load.image(`burst-${i}`, `burst-${i}.png`);
     }
+
     this.load.spritesheet("digits", "digits.png", { frameHeight: 16, frameWidth: 16 });
     this.load.image("msg-ready", "msg-ready.png");
     this.load.image("msg-gameover", "msg-gameover.png");
 
-    // Opus first, AAC for Safari (Phaser picks the first the device reports it
-    // can play). The WAVs these replace were 296KB — 38% of the whole download
-    // — for three sub-second effects.
     for (const sfx of ["point", "hit", "flap"]) {
       this.load.audio(sfx, [`${sfx}.webm`, `${sfx}.m4a`]);
     }
   }
 
-  create(): void {
-    // One wing cycle per skin across its four single-frame textures.
+  create() {
     for (let n = 1; n <= DRAGON_SKINS; n += 1) {
       this.anims.create({
         frameRate: BIRD_FLAP_FPS,
@@ -67,10 +67,8 @@ export class BootScene extends Scene {
     this.scene.start("Game");
   }
 
-  /** Small pixel shapes layered over the retained game art. */
-  private makeUtilTextures(): void {
+  private makeUtilTextures() {
     const g = this.add.graphics();
-    // Crisp stepped silhouettes match the existing 16px-grid art.
     g.fillStyle(0xff_ff_ff).fillRect(2, 0, 4, 8).fillRect(0, 2, 8, 4);
     g.generateTexture("flight-puff", 8, 8);
     g.clear().fillStyle(0xff_ff_ff).fillRect(4, 0, 2, 10).fillRect(0, 4, 10, 2);

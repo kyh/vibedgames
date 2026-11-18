@@ -1,10 +1,8 @@
 import type Phaser from "phaser";
 
 type K = Phaser.Input.Keyboard.Key;
-type Plugin = Phaser.Input.Keyboard.KeyboardPlugin;
 
-// Typed key bundles so accessing a named key is a Key, not Key | undefined
-// (which noUncheckedIndexedAccess would give for a string-indexed Record).
+type Plugin = Phaser.Input.Keyboard.KeyboardPlugin;
 
 export interface GameKeys {
   W: K;
@@ -32,8 +30,6 @@ export interface GameKeys {
   ZERO: K;
 }
 
-// The mine has no inventory/mute bindings; a GameKeys is structurally a
-// MineKeys, so MineScene reuses makeGameKeys.
 export type MineKeys = Omit<GameKeys, "I" | "M">;
 
 const NUMS = [
@@ -48,11 +44,14 @@ const NUMS = [
   "NINE",
   "ZERO",
 ] as const;
+
 export type NumKeyName = (typeof NUMS)[number];
+
 export const NUM_KEY_NAMES: readonly NumKeyName[] = NUMS;
 
-export const makeGameKeys = (kb: Plugin): GameKeys => {
-  const a = (n: string): K => kb.addKey(n, false);
+export const makeGameKeys = (kb: Plugin) => {
+  const a = (n: string) => kb.addKey(n, false);
+
   return {
     A: a("A"),
     D: a("D"),

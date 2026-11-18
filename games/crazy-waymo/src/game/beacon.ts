@@ -3,19 +3,21 @@ import * as THREE from "three";
 import { GROUND_RING_LIFT, tierColor } from "./fare-tier";
 import type { FareTier } from "./fare-tier";
 
-// Floating $-tag above each pickup beam — the tier legend, in-world. One
-// shared canvas texture + sprite material per tier (never disposed).
 const TAG_TEXT = { long: "$$$", medium: "$$", short: "$" } satisfies Record<FareTier, string>;
 const tagMaterials = new Map<FareTier, THREE.SpriteMaterial>();
-const tagMaterial = (tier: FareTier): THREE.SpriteMaterial => {
+
+const tagMaterial = (tier: FareTier) => {
   const cached = tagMaterials.get(tier);
+
   if (cached) {
     return cached;
   }
+
   const canvas = document.createElement("canvas");
   canvas.width = 192;
   canvas.height = 96;
   const ctx = canvas.getContext("2d");
+
   if (ctx) {
     ctx.font = "900 60px ui-monospace, 'SF Mono', Menlo, monospace";
     ctx.textAlign = "center";
@@ -27,12 +29,15 @@ const tagMaterial = (tier: FareTier): THREE.SpriteMaterial => {
     ctx.fillStyle = `#${tierColor(tier).toString(16).padStart(6, "0")}`;
     ctx.fillText(TAG_TEXT[tier], 96, 52);
   }
+
   const mat = new THREE.SpriteMaterial({
     depthWrite: false,
     map: new THREE.CanvasTexture(canvas),
     transparent: true,
   });
+
   tagMaterials.set(tier, mat);
+
   return mat;
 };
 
@@ -77,30 +82,30 @@ export class Beacon {
     }
   }
 
-  setColor(color: number): void {
+  setColor(color: number) {
     this.mat.color.setHex(color);
     this.ringMat.color.setHex(color);
   }
-  setPos(x: number, y: number, z: number): void {
+  setPos(x: number, y: number, z: number) {
     this.group.position.set(x, y, z);
   }
-  setVisible(v: boolean): void {
+  setVisible(v: boolean) {
     this.group.visible = v;
   }
-  // Beacons are created per fare — free the GPU resources when one retires.
-  dispose(): void {
+  dispose() {
     this.pillar.geometry.dispose();
     this.ring.geometry.dispose();
     this.mat.dispose();
     this.ringMat.dispose();
   }
-  update(dt: number): void {
+  update(dt: number) {
     this.t += dt;
     const pulse = 0.5 + 0.5 * Math.sin(this.t * 3);
     this.mat.opacity = 0.2 + pulse * 0.25;
     this.ring.rotation.z += dt * 1.5;
     const rs = 1 + pulse * 0.12;
     this.ring.scale.set(rs, rs, rs);
+
     if (this.tag) {
       this.tag.position.y = 6.5 + Math.sin(this.t * 2) * 0.35;
     }

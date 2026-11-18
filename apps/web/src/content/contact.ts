@@ -1,21 +1,19 @@
 import type { Block, Doc } from "@/lib/doc";
 import { siteConfig } from "@/lib/site-config";
 
-/**
- * Only channels that actually exist get published here. An email address or a
- * postal address appears the moment `siteConfig.contact` is filled in and not
- * a moment sooner — a contact route nobody monitors is worse than none.
- */
 const directBlocks: Block[] = [];
+
 if (siteConfig.contact.email) {
   directBlocks.push({
     kind: "p",
     text: `Email: [${siteConfig.contact.email}](mailto:${siteConfig.contact.email})`,
   });
 }
+
 if (siteConfig.contact.telephone) {
   directBlocks.push({ kind: "p", text: `Phone: ${siteConfig.contact.telephone}` });
 }
+
 if (siteConfig.contact.address) {
   const a = siteConfig.contact.address;
   directBlocks.push({

@@ -1,7 +1,3 @@
-// The movement step every copy of a brawler runs: the host's sim, a solo
-// player, and a guest predicting its own body. Keeping it in one pure function
-// is what lets prediction agree with the host — and lets the netcode smoke test
-// drive both copies without a scene.
 import { BRAWLER_RADIUS } from "../config";
 import type { BrawlerDef } from "../config";
 import type { Position } from "../world/collision";
@@ -26,6 +22,7 @@ export interface Mover {
 
 /** Firing a ranged burst slows the shooter; melee swings keep full pace. */
 export const BURST_SLOW = 0.82;
+
 /** Knockback decay rate (per second). */
 export const KNOCK_DECAY = 7;
 
@@ -37,7 +34,7 @@ export const stepMover = (
   speed: number,
   world: MoverWorld,
   dt: number,
-): void => {
+) => {
   const { knock, position, vel } = body;
   vel.x = moveX * speed;
   vel.y = moveZ * speed;
@@ -58,12 +55,10 @@ export interface LeapArc {
   tz: number;
 }
 
-/** Peak height of a leap above the line between its two tiles. */
 const LEAP_HEIGHT = 3.4;
 
 /** A leap's flight time, for kits whose super is one. */
-export const leapFlight = (def: BrawlerDef): number =>
-  def.super.kind === "leap" ? def.super.flight : 1;
+export const leapFlight = (def: BrawlerDef) => (def.super.kind === "leap" ? def.super.flight : 1);
 
 /** Where a leap `t` seconds in puts the body: a straight ground track under a sine arc. */
 export const leapPoint = (
@@ -71,7 +66,7 @@ export const leapPoint = (
   flight: number,
   heightAt: (x: number, z: number) => number,
   out: Position & { y: number },
-): number => {
+) => {
   const progress = Math.max(0, Math.min(1, leap.t / flight));
   out.x = leap.sx + (leap.tx - leap.sx) * progress;
   out.z = leap.sz + (leap.tz - leap.sz) * progress;
@@ -80,5 +75,6 @@ export const leapPoint = (
     from +
     (heightAt(leap.tx, leap.tz) - from) * progress +
     Math.sin(progress * Math.PI) * LEAP_HEIGHT;
+
   return progress;
 };

@@ -12,11 +12,6 @@ import {
 import type { Cell, WorldMap } from "../world/worldmap";
 import { getWorldMap } from "../world/map-store";
 
-// Asset inspection page (open the game with ?gallery). Every tile index the
-// world map actually uses, with its gameplay classification; every placed
-// deco sprite with its animation; character/animal/crop sheets. Click any
-// cell to pin its details in the top bar.
-
 const CLASS_COLOR = {
   [CELL.void]: 0x16_32_4f,
   [CELL.grass]: 0x3f_ae_49,
@@ -25,6 +20,7 @@ const CLASS_COLOR = {
   [CELL.water]: 0x3f_c6_e8,
   [CELL.solid]: 0xe8_4a_4a,
 } satisfies Record<Cell, number>;
+
 const CLASS_NAME = {
   [CELL.void]: "void",
   [CELL.grass]: "grass",
@@ -33,6 +29,7 @@ const CLASS_NAME = {
   [CELL.water]: "water",
   [CELL.solid]: "solid",
 } satisfies Record<Cell, string>;
+
 const PATH_COLOR = { overlay: 0x88_88_88, solid: 0xe8_4a_4a, walk: 0xa9_74_4a } as const;
 
 export class GalleryScene extends Scene {
@@ -43,7 +40,7 @@ export class GalleryScene extends Scene {
     super("Gallery");
   }
 
-  create(): void {
+  create() {
     document.querySelector("#veil")?.classList.add("hidden");
     this.cursorY = 0;
     this.cameras.main.setBackgroundColor(0x1d_1f_27);
@@ -57,12 +54,15 @@ export class GalleryScene extends Scene {
 
     this.tileSection(map, "land", (i) => {
       const c = classifyLandIndex(i);
+
       return { color: CLASS_COLOR[c], label: CLASS_NAME[c] };
     });
     this.tileSection(map, "paths", (i) => {
       const c = classifyPathIndex(i);
+
       return { color: PATH_COLOR[c], label: `path ${c}` };
     });
+
     for (const name of ["decoration_01", "decoration_02", "decoration_03"]) {
       this.tileSection(map, name, (i) =>
         isDecoSolidIndex(i)
@@ -70,6 +70,7 @@ export class GalleryScene extends Scene {
           : { color: 0x88_88_88, label: "dressing" },
       );
     }
+
     for (const name of ["building", "walls", "forest"]) {
       this.tileSection(map, name, () => ({
         color: CLASS_COLOR[CELL.solid],
@@ -89,12 +90,12 @@ export class GalleryScene extends Scene {
       },
     );
     const kb = this.input.keyboard;
+
     if (kb) {
       kb.on("keydown-UP", () => (cam.scrollY = PhaserMath.Clamp(cam.scrollY - 60, 0, maxScroll)));
       kb.on("keydown-DOWN", () => (cam.scrollY = PhaserMath.Clamp(cam.scrollY + 60, 0, maxScroll)));
     }
 
-    // pinned info bar on top of everything
     this.add
       .rectangle(0, 0, this.scale.width, 26, 0x00_00_00, 0.85)
       .setOrigin(0, 0)
@@ -106,7 +107,7 @@ export class GalleryScene extends Scene {
       .setDepth(11);
   }
 
-  private header(text: string): void {
+  private header(text: string) {
     this.cursorY += 34;
     this.add.text(12, this.cursorY, text, {
       color: "#ccc",
@@ -117,7 +118,7 @@ export class GalleryScene extends Scene {
     this.cursorY += 44;
   }
 
-  private title(text: string): void {
+  private title(text: string) {
     this.cursorY += 14;
     this.add.text(12, this.cursorY, text, {
       color: "#fff",
@@ -128,30 +129,35 @@ export class GalleryScene extends Scene {
     this.cursorY += 24;
   }
 
-  // all indices a tile layer uses, sorted, each with art + class border
   private tileSection(
     map: WorldMap,
     layerName: string,
     classify: (idx: number) => { color: number; label: string },
-  ): void {
+  ) {
     const layer = layerByName(map, layerName);
+
     if (!layer) {
       return;
     }
+
     const counts = new Map<number, number>();
+
     for (const v of layer.grid) {
       if (v < 0) {
         continue;
       }
+
       const idx = tileIndex(v);
       counts.set(idx, (counts.get(idx) ?? 0) + 1);
     }
+
     const indices = [...counts.keys()].toSorted((a, b) => a - b);
     this.title(`${layerName} — ${indices.length} tile indices`);
 
     const cellW = 64;
     const cellH = 76;
     const cols = Math.floor((this.scale.width - 24) / cellW);
+
     for (const [n, idx] of indices.entries()) {
       const x = 12 + (n % cols) * cellW + cellW / 2;
       const y = this.cursorY + Math.floor(n / cols) * cellH + 24;
@@ -170,38 +176,47 @@ export class GalleryScene extends Scene {
         this.pin(`${layerName} idx ${idx} — ${label}, used ${counts.get(idx) ?? 0}×`),
       );
     }
+
     this.cursorY += Math.ceil(indices.length / cols) * cellH + 12;
   }
 
-  // every placed GM sprite, animating like in the world
-  private decoSpriteSection(map: WorldMap): void {
+  private decoSpriteSection(map: WorldMap) {
     const placed = new Map<string, number>();
+
     for (const s of map.sprites) {
       placed.set(s.sprite, (placed.get(s.sprite) ?? 0) + 1);
     }
+
     const names = Object.keys(map.deco).toSorted();
     this.title(`deco sprites — ${names.length} baked (label: placements × frames)`);
 
     const cellW = 130;
     const cellH = 130;
     const cols = Math.floor((this.scale.width - 24) / cellW);
+
     for (const [n, name] of names.entries()) {
       const def = map.deco[name];
+
       if (!def) {
         continue;
       }
+
       const x = 12 + (n % cols) * cellW + cellW / 2;
       const y = this.cursorY + Math.floor(n / cols) * cellH + 52;
       this.add.rectangle(x, y, cellW - 10, 104, 0x00_00_00, 0.25).setStrokeStyle(1, 0x55_55_55);
+
       if (!this.textures.get("deco-atlas").has(`${name}/0`)) {
         continue;
       }
+
       const spr = this.add.sprite(x, y, "deco-atlas", `${name}/0`);
       const scale = Math.min(2.5, 92 / Math.max(def.fw, def.fh));
       spr.setScale(scale);
+
       if (def.frames > 1 && this.anims.exists(`deco-${name}`)) {
         spr.play(`deco-${name}`);
       }
+
       const short = name.replace(/^spr_deco_/u, "");
       this.add
         .text(x, y + 56, `${short}\n${placed.get(name) ?? 0}× · ${def.frames}f`, {
@@ -219,13 +234,14 @@ export class GalleryScene extends Scene {
         ),
       );
     }
+
     this.cursorY += Math.ceil(names.length / cols) * cellH + 12;
   }
 
-  // characters, enemies, animals, crops
-  private sheetSection(): void {
+  private sheetSection() {
     this.title("characters · animals · crops");
     const y0 = this.cursorY + 60;
+
     const entries: { label: string; make: (x: number, y: number) => void }[] = [
       { label: "player idle", make: (x, y) => this.anim(x, y, "p-idle", 2) },
       { label: "player walk", make: (x, y) => this.anim(x, y, "p-walk", 2) },
@@ -238,7 +254,9 @@ export class GalleryScene extends Scene {
       { label: "duck", make: (x, y) => this.anim(x, y, "duck-walk", 3) },
       { label: "mushroom", make: (x, y) => this.anim(x, y, "mushroom-red-bob", 3) },
     ];
+
     const cellW = 110;
+
     for (const [n, e] of entries.entries()) {
       const x = 12 + n * cellW + cellW / 2;
       e.make(x, y0);
@@ -246,34 +264,39 @@ export class GalleryScene extends Scene {
         .text(x, y0 + 44, e.label, { color: "#aaa", fontFamily: "monospace", fontSize: "10px" })
         .setOrigin(0.5, 0);
     }
+
     this.cursorY = y0 + 70;
 
-    // crop growth rows
     for (const c of CROP_ORDER) {
       const y = this.cursorY + 24;
       this.add
         .text(12, y - 8, c, { color: "#aaa", fontFamily: "monospace", fontSize: "10px" })
         .setOrigin(0, 0);
+
       for (let f = 0; f < 6; f += 1) {
         this.add.image(110 + f * 56 + 24, y, `crop-${c}`, f).setScale(2.5);
       }
+
       this.cursorY += 52;
     }
+
     this.cursorY += 20;
   }
 
-  private anim(x: number, y: number, key: string, scale: number): void {
+  private anim(x: number, y: number, key: string, scale: number) {
     const s = this.add.sprite(x, y, "__MISSING");
     s.setScale(scale);
+
     if (this.anims.exists(key)) {
       s.play(key);
     }
   }
 
-  private pin(text: string): void {
+  private pin(text: string) {
     if (this.info) {
       this.info.setText(text);
     }
+
     console.log(`[gallery] ${text}`);
   }
 }

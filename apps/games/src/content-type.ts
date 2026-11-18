@@ -1,10 +1,3 @@
-// Extension → MIME map for served game files.
-//
-// This mirrors CONTENT_TYPES in packages/contract/src/deploy/content-types.ts — the CLI stamps
-// deploymentFile.contentType from that map at upload time, so deriving the
-// type from the path here reproduces the stored value without a D1 lookup
-// (which used to run once per asset request — ~180 queries for a cold load of
-// an asset-heavy game). Keep the two maps in sync.
 const CONTENT_TYPES = new Map(
   Object.entries({
     avif: "image/avif",
@@ -41,7 +34,8 @@ const CONTENT_TYPES = new Map(
   }),
 );
 
-export const contentTypeForPath = (path: string): string => {
+export const contentTypeForPath = (path: string) => {
   const ext = path.split(".").pop()?.toLowerCase() ?? "";
+
   return CONTENT_TYPES.get(ext) ?? "application/octet-stream";
 };

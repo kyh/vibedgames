@@ -1,4 +1,3 @@
-// Canvas-painted textures for the effect decals.
 import * as THREE from "three";
 import { makeCanvas } from "../utils";
 
@@ -10,12 +9,14 @@ const HALF = SIZE / 2;
  * on the ground after an explosion or slam. Painted once at boot; the speckle
  * layout is random so every build reads slightly different.
  */
-export const buildBlobShadowTexture = (): THREE.CanvasTexture => {
+export const buildBlobShadowTexture = () => {
   const canvas = makeCanvas(SIZE, SIZE);
   const ctx = canvas.getContext("2d");
+
   if (!ctx) {
     throw new Error("2d canvas context unavailable");
   }
+
   const gradient = ctx.createRadialGradient(HALF, HALF, 4, HALF, HALF, 62);
   gradient.addColorStop(0, "rgba(10,6,4,0.85)");
   gradient.addColorStop(0.45, "rgba(14,9,6,0.6)");
@@ -23,6 +24,7 @@ export const buildBlobShadowTexture = (): THREE.CanvasTexture => {
   gradient.addColorStop(1, "rgba(20,12,8,0)");
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, SIZE, SIZE);
+
   for (let i = 0; i < 26; i += 1) {
     const angle = Math.random() * 6.28;
     const radius = 20 + Math.random() * 38;
@@ -37,5 +39,6 @@ export const buildBlobShadowTexture = (): THREE.CanvasTexture => {
     );
     ctx.fill();
   }
+
   return new THREE.CanvasTexture(canvas);
 };

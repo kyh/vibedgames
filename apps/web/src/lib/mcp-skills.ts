@@ -15,7 +15,6 @@ import type { Skill } from "@/lib/mcp-tools";
 
 export const SKILLS_EXTENSION = "io.modelcontextprotocol/skills";
 
-// The skills only change with a deploy.
 const cacheHint = { cacheScope: "public", ttlMs: 60 * 60 * 1000 } as const;
 
 const MIME_TYPES = new Map(
@@ -30,7 +29,7 @@ const MIME_TYPES = new Map(
   }),
 );
 
-const mimeTypeOf = (path: string): string =>
+const mimeTypeOf = (path: string) =>
   MIME_TYPES.get(path.split(".").pop()?.toLowerCase() ?? "") ?? "text/plain";
 
 const skillUri = (skill: Skill, path = "SKILL.md") => `skill://${skill.name}/${path}`;
@@ -47,18 +46,19 @@ interface SkillEntry {
   uri: string;
 }
 
-const fileEntry = async (uri: string, content: string): Promise<SkillFileEntry> => {
+const fileEntry = async (uri: string, content: string) => {
   const bytes = new TextEncoder().encode(content);
   const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
   const hex = [...digest].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+
   return { digest: `sha256:${hex}`, size: bytes.byteLength, uri };
 };
 
 const entries = new WeakMap<readonly Skill[], Promise<SkillEntry[]>>();
 
-/** Each skill's catalog entry, hashed once per skill set. */
-const entriesOf = (skills: readonly Skill[]): Promise<SkillEntry[]> => {
+const entriesOf = (skills: readonly Skill[]) => {
   let cached = entries.get(skills);
+
   if (!cached) {
     cached = Promise.all(
       skills.map(async (skill) => ({
@@ -72,6 +72,7 @@ const entriesOf = (skills: readonly Skill[]): Promise<SkillEntry[]> => {
     );
     entries.set(skills, cached);
   }
+
   return cached;
 };
 
@@ -81,6 +82,7 @@ export const registerSkills = (server: McpServer, skills: readonly Skill[]) => {
 
   for (const skill of skills) {
     const files = [{ content: skill.content, path: "SKILL.md" }, ...skill.files];
+
     for (const file of files) {
       const uri = skillUri(skill, file.path);
       const isSkillMd = file.path === "SKILL.md";
@@ -109,9 +111,11 @@ export const registerSkills = (server: McpServer, skills: readonly Skill[]) => {
     async ({ uri }) => {
       const catalog = await entriesOf(skills);
       const skill = catalog.find((entry) => entry.uri === uri);
+
       if (!skill) {
         throw new ProtocolError(-32_602, `No skill at ${uri}. Call skills/list for the catalog.`);
       }
+
       return { skill, ...cacheHint };
     },
   );

@@ -15,15 +15,18 @@ interface SpecialBody {
 }
 
 /** The cast gates, read from either the local body or an accepted checkpoint. */
-export const specialReadiness = (body: SpecialBody): SpecialReadiness => {
+export const specialReadiness: (body: SpecialBody) => SpecialReadiness = (body) => {
   if (body.dead || body.downed) {
     return { kind: "busy" };
   }
+
   if (body.specialCd > 0) {
     return { kind: "cooldown", remaining: body.specialCd };
   }
+
   if (body.specialActive || body.attackStep > 0 || body.dashTime > 0 || body.hurtStun > 0) {
     return { kind: "busy" };
   }
+
   return { kind: "ready" };
 };

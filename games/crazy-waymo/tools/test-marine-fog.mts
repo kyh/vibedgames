@@ -3,7 +3,7 @@ import { MarineSky } from "../src/render/marine-sky";
 
 type Check = (name: string, condition: boolean, detail?: string) => void;
 
-export const checkMarineFog = (check: Check): void => {
+export const checkMarineFog = (check: Check) => {
   const sunset = { x: -1000, y: 8, z: 350 };
   const inland = { x: 400, y: 8, z: 350 };
   const sunsetBlock = marineOpacity(sunset, { ...sunset, z: sunset.z + 250 });
@@ -30,7 +30,6 @@ export const checkMarineFog = (check: Check): void => {
     through.toFixed(3),
   );
 
-  // The bridge deck is 7u above water; the chase camera sits ~5u above it.
   const gate = { x: -730, y: 12, z: -1170 };
   const gateDeck = marineOpacity(gate, { ...gate, z: gate.z + 220 });
   check(
@@ -57,9 +56,11 @@ export const checkMarineFog = (check: Check): void => {
   );
 
   const distances = [26, 50, 100, 200, 400, 800, 1600, 3600];
+
   const opacities = distances.map((distance) =>
     marineOpacity(sunset, { ...sunset, z: sunset.z + distance }),
   );
+
   check(
     "fog remains bounded and gathers smoothly along a uniform coastal street",
     opacities.every(
@@ -74,13 +75,17 @@ export const checkMarineFog = (check: Check): void => {
 
   let maximumDelta = 0;
   let previous = 0;
+
   for (let y = 0; y <= 90; y += 0.1) {
     const opacity = marineOpacity({ ...sunset, y }, { ...sunset, y, z: sunset.z + 350 });
+
     if (y > 0) {
       maximumDelta = Math.max(maximumDelta, Math.abs(opacity - previous));
     }
+
     previous = opacity;
   }
+
   check("cresting the marine lid has no visibility discontinuity", maximumDelta < 0.01);
 
   const sky = new MarineSky();
@@ -96,6 +101,7 @@ export const checkMarineFog = (check: Check): void => {
     `${indices?.count ?? 0} indices`,
   );
   sky.mesh.geometry.dispose();
+
   if (!Array.isArray(sky.mesh.material)) {
     sky.mesh.material.dispose();
   }

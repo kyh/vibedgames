@@ -10,8 +10,9 @@ import { siteConfig } from "@/lib/site-config";
  * on its own — llms.txt for orientation, the sitemap for what exists, and the
  * docs index for the developer surface.
  */
-export const notFoundDoc = (pathname?: string): Doc => {
+export const notFoundDoc: (pathname?: string) => Doc = (pathname?) => {
   const requested = pathname && pathname !== "/" ? pathname : null;
+
   return {
     description: requested
       ? `There is no page at ${requested} on ${siteConfig.url}.`

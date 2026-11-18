@@ -12,29 +12,18 @@ import { createContext, use } from "react";
 import { createRpcContext } from "@/auth/server";
 
 export const makeORPCClient = createIsomorphicFn()
-  .server((): ContractClient =>
+  .server(() =>
     createRouterClient(appRouter, {
-      // Build server context per oRPC call (not at client creation)
-      // because Cloudflare bindings are only available inside a request.
       context: () => createRpcContext(new Headers(getRequestHeaders())),
     }),
   )
-  .client((): ContractClient => {
+  .client(() => {
     const link = new RPCLink({
-      plugins: [
-        // Pages mount several queries at once (/admin alone opens three) and
-        // every unbatched call costs a fresh Worker invocation: a new Drizzle
-        // client, a new better-auth instance, and its own session read. One
-        // batched POST shares all three. Requires `BatchHandlerPlugin` on the
-        // handler; blobs and event iterators opt themselves out.
-        new BatchLinkPlugin({ groups: [{ condition: () => true, context: {} }] }),
-      ],
-      // No `origin`: this branch only runs in the browser, where the app and
-      // the RPC route are served from the same origin, so the relative URL
-      // resolves against the page.
+      plugins: [new BatchLinkPlugin({ groups: [{ condition: () => true, context: {} }] })],
       url: "/api/orpc",
     });
-    return createORPCClient(link);
+
+    return createORPCClient(link) satisfies ContractClient;
   });
 
 /**
@@ -53,10 +42,12 @@ export const ORPCProvider = (props: { orpc: ORPCUtils; children: React.ReactNode
   <ORPCContext.Provider value={props.orpc}>{props.children}</ORPCContext.Provider>
 );
 
-export const useORPC = (): ORPCUtils => {
+export const useORPC = () => {
   const orpc = use(ORPCContext);
+
   if (!orpc) {
     throw new Error("useORPC must be used within an ORPCProvider");
   }
+
   return orpc;
 };

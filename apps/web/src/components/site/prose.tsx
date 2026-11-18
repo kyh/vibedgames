@@ -5,7 +5,6 @@ import type { Block, Doc, InlineNode } from "@/lib/doc";
 import { headingId, parseInline } from "@/lib/doc";
 import { siteConfig } from "@/lib/site-config";
 
-/** A site path or a `#fragment` on this page: no `rel`, same tab. */
 const isInternal = (href: string) => href.startsWith("/") || href.startsWith("#");
 
 const LINK_CLASS = "text-foreground underline underline-offset-4";
@@ -40,6 +39,7 @@ const Inline = ({ nodes, tabIndex }: Focus & { nodes: InlineNode[] }) => (
           </strong>
         );
       }
+
       if (node.kind === "code") {
         return (
           <code key={key} className="bg-input/40 rounded px-1 py-0.5 font-mono text-[0.9em]">
@@ -47,9 +47,11 @@ const Inline = ({ nodes, tabIndex }: Focus & { nodes: InlineNode[] }) => (
           </code>
         );
       }
+
       if (node.kind === "link") {
         return <InlineLink key={key} node={node} tabIndex={tabIndex} />;
       }
+
       return <span key={key}>{node.text}</span>;
     })}
   </>
@@ -59,13 +61,9 @@ const Text = ({ text, tabIndex }: Focus & { text: string }) => (
   <Inline nodes={parseInline(text)} tabIndex={tabIndex} />
 );
 
-/**
- * Wide tables scroll inside their own box, so a narrow screen never scrolls
- * the whole page sideways to read one. The box is a named, focusable region,
- * so a keyboard can scroll it too; a row's first cell names the row.
- */
 const Table = ({ block, tabIndex }: Focus & { block: Extract<Block, { kind: "table" }> }) => {
   const captionId = useId();
+
   return (
     <section aria-labelledby={captionId} tabIndex={tabIndex ?? 0} className="overflow-x-auto">
       <table className="text-muted-foreground w-full min-w-[32rem] border-collapse text-left text-xs leading-relaxed">
@@ -124,6 +122,7 @@ export const Blocks = ({ blocks, tabIndex }: Focus & { blocks: Block[] }) => (
           </p>
         );
       }
+
       if (block.kind === "ul") {
         return (
           <ul key={key} className="text-muted-foreground list-disc space-y-2 pl-5 leading-relaxed">
@@ -135,9 +134,11 @@ export const Blocks = ({ blocks, tabIndex }: Focus & { blocks: Block[] }) => (
           </ul>
         );
       }
+
       if (block.kind === "table") {
         return <Table key={key} block={block} tabIndex={tabIndex} />;
       }
+
       return (
         <pre
           key={key}

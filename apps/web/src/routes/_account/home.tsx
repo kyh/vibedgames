@@ -25,14 +25,6 @@ import { useCopyToClipboard } from "@/lib/use-copy-to-clipboard";
 
 const gameUrl = (slug: string) => `https://${slug}.vibedgames.com`;
 
-/**
- * The game's real favicon (served from its live subdomain), falling back to
- * a monogram tile — most games ship `<link rel="icon" href="data:,">` and
- * have no favicon file. Live is the default state so it gets no marker; a
- * grey dot flags a game with no current deployment (first deploy still
- * uploading, or an abandoned one). The current deployment can only ever be
- * a finalized/ready one, so there's no in-between state to render.
- */
 const GameTile = ({ slug, name, live }: { slug: string; name: string; live: boolean }) => {
   const [faviconFailed, setFaviconFailed] = useState(false);
 
@@ -114,13 +106,10 @@ const GamesSkeleton = () => (
 const GamesPage = () => {
   const orpc = useORPC();
   const qc = useQueryClient();
-  // One shared row highlight that springs to the hovered row (motion
-  // layoutId) instead of per-row hover backgrounds. Hover and focus-within
-  // paint the SAME surface as the rail disc in account-shell — one highlight
-  // recipe app-wide; keep them in lockstep.
   const [hoveredRow, setHoveredRow] = useState<string | null>(null);
 
   const list = useQuery(orpc.deploy.list.queryOptions());
+
   const remove = useMutation(
     orpc.deploy.delete.mutationOptions({
       onSuccess: () => {
@@ -168,6 +157,7 @@ const GamesPage = () => {
                 {list.data.games.map((g) => {
                   const name = g.name ?? g.slug;
                   const deployed = g.deployment !== null;
+
                   return (
                     // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- hover-only row highlight; the keyboard path is the CSS :focus-within styling below
                     <li

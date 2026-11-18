@@ -4,7 +4,9 @@ import type { Season } from "../data/calendar";
 import type { Weather } from "../systems/weather";
 
 type Mood = "rain" | "snow" | "pollen" | "leaves" | "fireflies" | "clear";
+
 type ActiveMood = Exclude<Mood, "clear">;
+
 interface Mote {
   image: Phaser.GameObjects.Rectangle;
   age: number;
@@ -15,9 +17,7 @@ interface Mote {
 }
 
 interface MoodStyle {
-  /** Spawns per second. */
   rate: number;
-  /** Seconds a mote lives; rain overrides this from the view height. */
   life: number;
   vy: number;
   w: number;
@@ -34,27 +34,32 @@ const MOOD_STYLE: Record<ActiveMood, MoodStyle> = {
   snow: { alpha: 0.45, color: 0xf3_f9_ff, h: 1, life: 7, rate: 8, vy: 16, w: 1 },
 };
 
-const moodFor = (
+const moodFor: (
   reducedMotion: boolean,
   weather: Weather,
   season: Season,
   timeMin: number,
-): Mood => {
+) => Mood = (reducedMotion, weather, season, timeMin) => {
   if (reducedMotion) {
     return "clear";
   }
+
   if (weather === "rain" || weather === "storm") {
     return "rain";
   }
+
   if (weather === "snow") {
     return "snow";
   }
+
   if (season === "fall") {
     return "leaves";
   }
+
   if (timeMin >= 18 * 60 && (season === "spring" || season === "summer")) {
     return "fireflies";
   }
+
   return season === "spring" ? "pollen" : "clear";
 };
 
@@ -83,44 +88,53 @@ export class FarmAmbience {
     }));
   }
 
-  private random(): number {
-    // Decoration cannot consume Math.random calls used by yields and fishing.
+  private random() {
     // oxlint-disable-next-line no-bitwise -- uint32 wrap for the LCG
     this.rng = (Math.imul(this.rng, 1_664_525) + 1_013_904_223) >>> 0;
+
     return this.rng / 4_294_967_296;
   }
 
-  update(dt: number, weather: Weather, season: Season, timeMin: number): void {
+  update(dt: number, weather: Weather, season: Season, timeMin: number) {
     const mood = moodFor(this.motion.matches, weather, season, timeMin);
+
     if (mood !== this.mood) {
       this.mood = mood;
       this.acc = 0;
+
       for (const mote of this.motes) {
         mote.image.setVisible(false);
       }
     }
+
     if (mood === "clear") {
       return;
     }
+
     const view = this.scene.cameras.main.worldView;
+
     if (view.width <= 0 || view.height <= 0) {
       return;
     }
+
     this.spawn(dt, mood, view);
     this.advance(dt, mood, view);
   }
 
-  private spawn(dt: number, mood: ActiveMood, view: Phaser.Geom.Rectangle): void {
+  private spawn(dt: number, mood: ActiveMood, view: Phaser.Geom.Rectangle) {
     const style = MOOD_STYLE[mood];
     const rain = mood === "rain";
     this.acc += dt * style.rate;
+
     while (this.acc >= 1) {
       this.acc -= 1;
       const mote = this.motes[this.cursor];
       this.cursor = (this.cursor + 1) % this.motes.length;
+
       if (!mote) {
         continue;
       }
+
       mote.age = 0;
       mote.life = rain ? view.height / 190 + 0.15 : style.life;
       mote.vx = rain ? -45 : -5 - this.random() * 5;
@@ -140,22 +154,27 @@ export class FarmAmbience {
     }
   }
 
-  private advance(dt: number, mood: ActiveMood, view: Phaser.Geom.Rectangle): void {
+  private advance(dt: number, mood: ActiveMood, view: Phaser.Geom.Rectangle) {
     const style = MOOD_STYLE[mood];
     const rain = mood === "rain";
+
     for (const mote of this.motes) {
       if (!mote.image.visible) {
         continue;
       }
+
       mote.age += dt;
       mote.image.x += (mote.vx + (rain ? 0 : Math.sin(mote.age * 2 + mote.phase) * 4)) * dt;
       mote.image.y += mote.vy * dt;
+
       if (mood === "leaves") {
         mote.image.angle += dt * 30;
       }
+
       const t = mote.age / mote.life;
       const glow = mood === "fireflies" ? 0.55 + Math.sin(mote.age * 3 + mote.phase) * 0.3 : 1;
       mote.image.setAlpha(Math.min(1, mote.age * 3, (1 - t) * 3) * style.alpha * glow);
+
       if (
         t >= 1 ||
         mote.image.x < view.x - 20 ||

@@ -10,6 +10,7 @@ import path from "node:path";
  */
 export const makeCleanups = () => {
   const cleanups: (() => void)[] = [];
+
   return {
     cleanups,
     drain: () => {
@@ -24,10 +25,7 @@ export const makeCleanups = () => {
  * Set (or, with `undefined`, delete) environment variables for one test; the
  * cleanup harness puts every touched variable back as it was.
  */
-export const stubEnv = (
-  cleanups: (() => void)[],
-  vars: Record<string, string | undefined>,
-): void => {
+export const stubEnv = (cleanups: (() => void)[], vars: Record<string, string | undefined>) => {
   for (const [name, value] of Object.entries(vars)) {
     const previous = process.env[name];
     cleanups.push(() => {
@@ -37,6 +35,7 @@ export const stubEnv = (
         process.env[name] = previous;
       }
     });
+
     if (value === undefined) {
       Reflect.deleteProperty(process.env, name);
     } else {
@@ -45,12 +44,10 @@ export const stubEnv = (
   }
 };
 
-export const makeTmpDir = (cleanups: (() => void)[], prefix = "vg-test-"): string => {
-  // realpath because macOS's tmpdir is a symlink (/var -> /private/var):
-  // any test that chdirs into the dir gets the resolved path back from
-  // `process.cwd()`, so the unresolved one would never compare equal.
+export const makeTmpDir = (cleanups: (() => void)[], prefix = "vg-test-") => {
   const dir = realpathSync(mkdtempSync(path.join(tmpdir(), prefix)));
   cleanups.push(() => rmSync(dir, { force: true, recursive: true }));
+
   return dir;
 };
 
@@ -62,8 +59,9 @@ export const makeTmpDir = (cleanups: (() => void)[], prefix = "vg-test-"): strin
 export const makeTestServer = async (
   cleanups: (() => void)[],
   handler: (req: IncomingMessage, res: ServerResponse) => void,
-): Promise<number> => {
+) => {
   const server = createServer(handler);
+
   // oxlint-disable-next-line promise/avoid-new -- server.listen is callback-only
   const port: number = await new Promise((resolve) => {
     server.listen(0, () => {
@@ -71,6 +69,8 @@ export const makeTestServer = async (
       resolve(addr instanceof Object ? addr.port : 0);
     });
   });
+
   cleanups.push(() => server.close());
+
   return port;
 };

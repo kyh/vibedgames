@@ -1,5 +1,3 @@
-// Circle-versus-tile collision: pushes a brawler's centre out of any solid
-// tile it overlaps, along the shortest axis when it is fully inside one.
 import { GRID_HALF } from "./grid";
 
 export interface Position {
@@ -8,7 +6,7 @@ export interface Position {
 }
 
 /** Moves `pos` so a circle of `radius` no longer overlaps tile (tx, ty). */
-export const pushOutOfTile = (pos: Position, radius: number, tx: number, ty: number): void => {
+export const pushOutOfTile = (pos: Position, radius: number, tx: number, ty: number) => {
   const minX = tx - GRID_HALF;
   const minZ = ty - GRID_HALF;
   const nearestX = Math.max(minX, Math.min(minX + 1, pos.x));
@@ -16,21 +14,25 @@ export const pushOutOfTile = (pos: Position, radius: number, tx: number, ty: num
   const dx = pos.x - nearestX;
   const dz = pos.z - nearestZ;
   const distSq = dx * dx + dz * dz;
+
   if (distSq >= radius * radius) {
     return;
   }
+
   if (distSq > 1e-8) {
     const dist = Math.sqrt(distSq);
     pos.x = nearestX + (dx / dist) * radius;
     pos.z = nearestZ + (dz / dist) * radius;
+
     return;
   }
-  // Centre is inside the tile: leave through the closest face.
+
   const toWest = pos.x - minX;
   const toEast = minX + 1 - pos.x;
   const toNorth = pos.z - minZ;
   const toSouth = minZ + 1 - pos.z;
   const nearest = Math.min(toWest, toEast, toNorth, toSouth);
+
   if (nearest === toWest) {
     pos.x = minX - radius;
   } else if (nearest === toEast) {

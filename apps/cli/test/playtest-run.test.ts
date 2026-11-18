@@ -19,32 +19,30 @@ import {
   verdict,
 } from "../src/lib/playtest/run.js";
 
-/**
- * `vg playtest run`'s CLI-side core: how a control scheme is read, how it
- * becomes the in-page agent's config, how the agent's records become a
- * report, and how a run is judged. The loop itself is covered in
- * agent.test.ts; the browser and the API are behind interfaces.
- */
-
 const { cleanups, drain } = makeCleanups();
+
 afterEach(drain);
 
-const file = (contents: JsonValue | string): string => {
+const file = (contents: JsonValue | string) => {
   const target = path.join(makeTmpDir(cleanups, "playtest-run-"), "controls.json");
   writeFileSync(target, String(contents) === contents ? contents : JSON.stringify(contents));
+
   return target;
 };
 
-const rejects = (fn: () => void, message: RegExp): void => {
+const rejects = (fn: () => void, message: RegExp) => {
   let caught: HarnessError | null = null;
+
   try {
     fn();
   } catch (error) {
     if (!(error instanceof HarnessError)) {
       throw error;
     }
+
     caught = error;
   }
+
   assert.ok(caught, "expected a HarnessError");
   assert.match(caught.message, message);
 };
@@ -52,6 +50,7 @@ const rejects = (fn: () => void, message: RegExp): void => {
 const wasd = () => {
   const controls = PRESETS.get("wasd");
   assert.ok(controls);
+
   return controls;
 };
 
@@ -61,8 +60,7 @@ test("keyFields maps every documented key family and rejects the rest", () => {
   assert.deepEqual(keyFields("ArrowLeft"), [37, "ArrowLeft"]);
   assert.deepEqual(keyFields("Space"), [32, " "]);
   rejects(() => keyFields("F13"), /unsupported key code "F13"/u);
-  // An object lookup accepted these through the prototype and built an event
-  // with an undefined keyCode — a key that dispatches and does nothing.
+
   for (const bad of ["toString", "constructor", "__proto__", "hasOwnProperty"]) {
     rejects(() => keyFields(bad), /unsupported key code/u);
   }
@@ -104,13 +102,16 @@ test("presets resolve by name and files by path", () => {
       },
     }),
   );
+
   assert.equal(custom.goal, "Reach the flag.");
   assert.deepEqual(custom.move.aim_right?.pointer, { down: true, x: 0.8, y: 0.5 });
   assert.equal(custom.move.none, undefined, "two real options need no `none`");
+
   const single = parseControls(
     { move: { right: { description: "run right", keys: ["KeyD"] } } },
     "test",
   );
+
   assert.deepEqual(
     single.move.none?.keys,
     [],
@@ -162,13 +163,14 @@ test("rejects a scheme the playtester could not act on, naming the source", () =
       /`goal` must be a non-empty string/u,
     ],
   ];
+
   for (const [raw, message] of cases) {
     rejects(() => parseControls(raw, "window.__GAME_PLAYTEST__"), message);
     rejects(() => parseControls(raw, "window.__GAME_PLAYTEST__"), /window\.__GAME_PLAYTEST__/u);
   }
 });
 
-const options = (overrides: Partial<RunOptions> = {}): RunOptions => ({
+const options = (overrides: Partial<RunOptions> = {}) => ({
   controls: wasd(),
   expectProgress: false,
   model: "jev-latest",
@@ -179,11 +181,11 @@ const options = (overrides: Partial<RunOptions> = {}): RunOptions => ({
 });
 
 test("a move that is only a reflex counts as input, and minDisplacement is carried", () => {
-  // `reflex: true` is what the launch step leaves where the page had a function.
   const controls = parseControls(
     { minDisplacement: 0.05, move: { track: { description: "follow the ball", reflex: true } } },
     "window.__GAME_PLAYTEST__",
   );
+
   assert.equal(controls.move.track?.reflex, true);
   assert.equal(controls.minDisplacement, 0.05);
 });
@@ -202,20 +204,21 @@ test("agentConfig resolves every key to an event init and carries the session", 
   assert.equal(cfg.move.none?.inits.length, 0);
   assert.equal(cfg.actions.action?.inits[0]?.code, "Space");
   assert.equal(cfg.motionEpsilon, THRESHOLDS.displacement * THRESHOLDS.motionEpsilonRatio);
+
   const worldUnits = agentConfig(
     options({ controls: { ...options().controls, minDisplacement: 0.1 } }),
     { decideUrl: "https://x/api/playtest/decide", token: "pt.x" },
   );
+
   assert.equal(worldUnits.motionEpsilon, 0.1 * THRESHOLDS.motionEpsilonRatio);
   assert.equal(cfg.ticks, 10);
-  // The page source is one expression: the agent applied to its config and the browser env.
   const source = agentSource(cfg);
   assert.match(source, /^\(.*\)\(\{.*\}, \(.*\)\(\)\)$/su);
   // oxlint-disable-next-line no-new-func -- parse-only check of the page source
   assert.doesNotThrow(() => new Function(`return ${source}`));
 });
 
-const window = (overrides: Partial<Window> = {}): Window => ({
+const window = (overrides: Partial<Window> = {}) => ({
   complete: false,
   frame: 40,
   frameBefore: 20,
@@ -229,8 +232,7 @@ const window = (overrides: Partial<Window> = {}): Window => ({
   ...overrides,
 });
 
-/** A record whose window advances 20 frames from where the previous tick's ended. */
-const record = (tick: number, overrides: Partial<Record<string, JsonValue>> = {}): JsonValue => ({
+const record = (tick: number, overrides: Partial<Record<string, JsonValue>> = {}) => ({
   actionProbabilities: { action: 0.1 },
   actions: [],
   askedToMove: true,
@@ -246,7 +248,7 @@ const record = (tick: number, overrides: Partial<Record<string, JsonValue>> = {}
   ...overrides,
 });
 
-const published = (records: JsonValue[], extra: Record<string, JsonValue> = {}): JsonValue => ({
+const published = (records: JsonValue[], extra: Record<string, JsonValue> = {}) => ({
   completedAtTick: null,
   done: true,
   error: null,
@@ -258,6 +260,7 @@ const published = (records: JsonValue[], extra: Record<string, JsonValue> = {}):
 
 test("resultFromAgent folds records into metrics, a timeline and usage", () => {
   const stuckWindow = window({ frame: 60, frameBefore: 40, path: 0, peak: 0, x: 6 });
+
   const run = resultFromAgent(
     published([
       record(0),
@@ -267,6 +270,7 @@ test("resultFromAgent folds records into metrics, a timeline and usage", () => {
       record(4, { move: "none", window: { ...stuckWindow, score: 3 } }),
     ]),
   );
+
   assert.equal(run.timeline.length, 5);
   assert.equal(run.usage.calls, 5);
   assert.equal(run.usage.inputTokens, 500);
@@ -292,7 +296,7 @@ test("resultFromAgent surfaces the agent's own failure as a harness failure", ()
   rejects(() => resultFromAgent(published(["not a record"])), /malformed record/u);
 });
 
-const runResult = (overrides: Partial<RunResult> = {}): RunResult => ({
+const runResult = (overrides: Partial<RunResult> = {}) => ({
   ...resultFromAgent(
     published(
       Array.from({ length: 10 }, (_, tick) => record(tick)),
@@ -327,17 +331,16 @@ test("verdict passes a live, responsive run and only warns about progress by def
   assert.deepEqual(verdict(built, options({ expectProgress: true })).failures, [
     "the run never progressed the objective (and the model agreed: progress 0.25 → 0.25)",
   ]);
-  // A goal the score field can't see: the model's own read is the tie-breaker.
+
   const judged = report(
     opts,
     resultFromAgent(published([record(0, { progress: 0.2 }), record(1, { progress: 0.8 })])),
   );
+
   assert.deepEqual(judged.decisions.progress, { first: 0.2, last: 0.8, max: 0.8, mean: 0.5 });
   assert.match(verdict(judged, opts).warnings[0] ?? "", /though the model judged .* 0\.2 → 0\.8/u);
   const unscored = report(opts, resultFromAgent(published([record(0, { progress: null })])));
   assert.equal(unscored.decisions.progress, null);
-  // A short run at a healthy frame rate clears the gate the bot's absolute
-  // 100-frame threshold would have failed.
   const short = report(opts, runResult({ lastWindow: window({ frame: 60 }), wallMs: 1500 }));
   assert.deepEqual(verdict(short, opts).failures, []);
 });
@@ -345,12 +348,13 @@ test("verdict passes a live, responsive run and only warns about progress by def
 test("verdict fails a stalled loop, dead input, a wedged player and page errors", () => {
   const opts = options();
   const base = runResult();
+
   const stalled: RunResult = {
     ...base,
-    // 20 frames over 4 s: under 10 fps, so stalled.
     lastWindow: window({ frame: 40 }),
     metrics: { ...base.metrics, longestStuckRun: THRESHOLDS.wedgedRun, maxTickDisplacement: 0 },
   };
+
   const built = { ...report(opts, stalled), pageErrors: ["boom"] };
   const { failures } = verdict(built, opts);
   assert.match(failures.join("\n"), /game loop stalled/u);
@@ -361,6 +365,7 @@ test("verdict fails a stalled loop, dead input, a wedged player and page errors"
 
 test("verdict tells a model that never tried to move apart from dead input", () => {
   const opts = options();
+
   const idle = resultFromAgent({
     completedAtTick: null,
     done: true,
@@ -374,6 +379,7 @@ test("verdict tells a model that never tried to move apart from dead input", () 
     ],
     wallMs: 4000,
   });
+
   const { failures } = verdict(report(opts, idle), opts);
   assert.match(failures.join("\n"), /never chose a movement/u);
   assert.doesNotMatch(failures.join("\n"), /did not respond to input/u);
@@ -381,9 +387,11 @@ test("verdict tells a model that never tried to move apart from dead input", () 
 
 test("verdict warns when the model was rarely sure, pointing at the diagnostics", () => {
   const opts = options();
+
   const run = resultFromAgent(
     published([record(0, { confidence: 0.1 }), record(1, { confidence: 0.1 })]),
   );
+
   const built = report(opts, run);
   assert.equal(built.decisions.meanConfidence, 0.1);
   assert.equal(built.decisionsPerSecond, 1);

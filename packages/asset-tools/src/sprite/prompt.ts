@@ -71,14 +71,16 @@ export const DIRECTIONS = {
   },
 };
 
-export const getDirection = (directionId: string): Direction => {
+export const getDirection = (directionId: string) => {
   const resolved = (directionId || "").trim().toLowerCase();
   const direction = lookup(DIRECTIONS, resolved);
+
   if (!direction) {
     throw new Error(
       `unknown direction '${directionId}'; expected one of: ${Object.keys(DIRECTIONS).join(", ")}`,
     );
   }
+
   return direction;
 };
 
@@ -117,22 +119,26 @@ const VIEW_ALIASES = {
   "warcraft-rts": "rts-oblique",
 };
 
-export const resolveAnchorGameView = (gameView: string | null): string => {
+export const resolveAnchorGameView = (gameView: string | null) => {
   let resolved = (gameView || "platformer").trim().toLowerCase();
   resolved = lookup(VIEW_ALIASES, resolved) ?? resolved;
+
   if (!(resolved in ANCHOR_GAME_VIEWS)) {
     const known = Object.keys(ANCHOR_GAME_VIEWS).toSorted().join(", ");
     throw new Error(`unknown anchor game view '${gameView}'; expected one of: ${known}`);
   }
+
   return resolved;
 };
 
-export const resolveAnchorRole = (anchorRole: string | null): string => {
+export const resolveAnchorRole = (anchorRole: string | null) => {
   const resolved = (anchorRole || "character").trim().toLowerCase();
+
   if (!(resolved in ANCHOR_ROLES)) {
     const known = Object.keys(ANCHOR_ROLES).toSorted().join(", ");
     throw new Error(`unknown anchor role '${anchorRole}'; expected one of: ${known}`);
   }
+
   return resolved;
 };
 
@@ -165,11 +171,13 @@ export const ACTION_IDS = [
   "heavy_attack",
 ];
 
-export const getActionId = (actionId: string): string => {
+export const getActionId = (actionId: string) => {
   const resolved = (actionId || "").trim().toLowerCase();
+
   if (!resolved) {
     throw new Error("an action id is required (e.g. walk, run, attack)");
   }
+
   return resolved;
 };
 
@@ -177,10 +185,11 @@ export const getActionId = (actionId: string): string => {
  * Style presets. The blocks spell out the visual constraints so the project's
  * own preset name is never sent to a model.
  */
-export const styleBlock = (style: string | null): string => {
+export const styleBlock = (style: string | null) => {
   if (style === null || style === undefined) {
     return "";
   }
+
   if (style === "lobit-v1") {
     return `
 Style constraints (low-bit pixel-sprite production art):
@@ -193,6 +202,7 @@ Style constraints (low-bit pixel-sprite production art):
 - Native snapped height should feel roughly 100-130px; do not produce overly tall or dense detail.
 `;
   }
+
   if (style === "high-fidelity-v1") {
     return `
 Style constraints (high-fidelity / mixel pixel-art):
@@ -204,6 +214,7 @@ Style constraints (high-fidelity / mixel pixel-art):
 - No scenery, shadows, checkerboards, faux transparency, or cropped limbs.
 `;
   }
+
   if (style === "preserve-reference-v1") {
     return `
 Style constraints (source-faithful preservation):
@@ -215,36 +226,39 @@ Style constraints (source-faithful preservation):
 - Still keep one centered character/object on an exact flat chroma matte.
 `;
   }
+
   throw new Error(
     `unknown style '${style}'; expected one of: lobit-v1, high-fidelity-v1, preserve-reference-v1`,
   );
 };
 
-export const withStyle = (prompt: string, style: string | null): string => {
+export const withStyle = (prompt: string, style: string | null) => {
   const block = styleBlock(style);
+
   return block ? `${prompt}${block}` : prompt;
 };
 
-const chromaPhrase = (chroma: string): string => {
+const chromaPhrase = (chroma: string) => {
   const names = {
     "#0000FF": "chroma blue #0000FF",
     "#00FF00": "chroma green #00FF00",
     "#FF00FF": "chroma magenta #FF00FF",
   };
+
   return lookup(names, chroma.toUpperCase()) ?? `chroma color ${chroma}`;
 };
 
-/** The colour's name alone, for a line that states the hex separately. */
-const chromaName = (chroma: string): string => {
+const chromaName = (chroma: string) => {
   const names = {
     "#0000FF": "chroma blue",
     "#00FF00": "chroma green",
     "#FF00FF": "chroma magenta",
   };
+
   return lookup(names, chroma.toUpperCase()) ?? "chroma color";
 };
 
-const directionLine = (direction: Direction, gameView: string): string => {
+const directionLine = (direction: Direction, gameView: string) => {
   if (gameView === "adventure") {
     const lines = {
       e: "east / screen-right adventure profile",
@@ -256,8 +270,10 @@ const directionLine = (direction: Direction, gameView: string): string => {
       sw: "south-west / front-left three-quarter adventure view",
       w: "west / screen-left adventure profile",
     };
+
     return lookup(lines, direction.id) ?? direction.screenFacing;
   }
+
   if (gameView === "rts-oblique") {
     const lines = {
       e: "east / screen-right-facing from the fixed elevated RTS camera, not a pure side profile",
@@ -269,12 +285,14 @@ const directionLine = (direction: Direction, gameView: string): string => {
       sw: "south-west / front-left-facing as a compact unit rotated on an oblique RTS ground plane",
       w: "west / screen-left-facing from the fixed elevated RTS camera, not a pure side profile",
     };
+
     return lookup(lines, direction.id) ?? direction.screenFacing;
   }
+
   return direction.screenFacing;
 };
 
-const anchorCompositionGuidance = (gameView: string): string => {
+const anchorCompositionGuidance = (gameView: string) => {
   if (gameView === "adventure") {
     return `- One isolated full-height point-and-click adventure character centered on the canvas.
 - Whole body visible from head to feet with a clear grounded standing silhouette.
@@ -282,6 +300,7 @@ const anchorCompositionGuidance = (gameView: string): string => {
 - Use generous empty chroma matte around the character on all sides.
 - Feet should feel planted for click-to-walk navigation, but do not draw a floor, ellipse, or shadow.`;
   }
+
   if (gameView === "rts-oblique") {
     return `- One isolated small RTS unit sprite centered on the canvas.
 - Whole unit visible, including head, weapon, hands, body, and feet, but not drawn as a tall full-height character turnaround.
@@ -289,11 +308,12 @@ const anchorCompositionGuidance = (gameView: string): string => {
 - Generous empty chroma matte around the unit on all sides.
 - Feet planted on an implied RTS ground plane, but do not draw the ground plane.`;
   }
+
   return `- One isolated full-body sprite centered on the canvas.
 - Full body visible from head to feet.`;
 };
 
-const anchorAvoidGuidance = (gameView: string): string => {
+const anchorAvoidGuidance = (gameView: string) => {
   if (gameView === "adventure") {
     return `- not a side-view platformer profile unless direction is explicitly east or west
 - not an overhead top-down unit
@@ -301,6 +321,7 @@ const anchorAvoidGuidance = (gameView: string): string => {
 - not a fighting-game combat stance
 - not a portrait crop`;
   }
+
   if (gameView === "rts-oblique") {
     return `- not a tall full-height character turnaround
 - not a side-view platformer sprite
@@ -309,24 +330,28 @@ const anchorAvoidGuidance = (gameView: string): string => {
 - not a paper-doll front view
 - not a large character illustration`;
   }
+
   return "";
 };
 
-const directionViewGuidance = (direction: Direction, gameView: string): string => {
+const directionViewGuidance = (direction: Direction, gameView: string) => {
   if (gameView === "adventure") {
     if (direction.id === "sw" || direction.id === "se") {
       const side = direction.id === "sw" ? "screen-left" : "screen-right";
+
       return `- Use a classic point-and-click adventure character camera: orthographic or near-orthographic, slightly above eye level, full-body, grounded, and asset-focused.
 - Make this a clean front three-quarter standing view angled toward ${side}.
 - Keep enough face, chest, and body front visible for dialogue and object-interaction readability.
 - Direction must be ${directionLine(direction, gameView)}.
 - Do not make a true side-scrolling profile, overhead unit, RTS unit, fighting-game combat pose, or portrait.`;
     }
+
     return `- Use a classic point-and-click adventure character camera: orthographic or near-orthographic, slightly above eye level, full-body, grounded, and asset-focused.
 - Direction must be ${directionLine(direction, gameView)}.
 - Keep the pose neutral and suitable for click-to-walk navigation, dialogue, and object interaction.
 - Do not make an overhead unit, squat RTS unit, fighting-game combat pose, or portrait.`;
   }
+
   if (gameView === "rts-oblique") {
     return `- Use an elevated oblique RTS camera, similar to Warcraft-like unit sprites, not a platformer, fighting-game, or strict tactics-isometric camera.
 - The sprite should read as a small RTS unit standing on an implied RTS ground plane.
@@ -336,60 +361,71 @@ const directionViewGuidance = (direction: Direction, gameView: string): string =
 - Keep feet planted on the implied RTS ground plane with clear ground contact.
 - Do not make a pure side-view platformer profile, a straight-on front portrait, a paper-doll turnaround, or a large character illustration.`;
   }
+
   if (gameView === "isometric") {
     return `- Experimental true isometric / tactics-style camera. This path is less tested than platformer and rts-oblique.
 - Aim for a diamond-tile tactics view with visible top planes and compact foreshortened proportions.
 - Direction must be ${direction.screenFacing} from a consistent isometric tactics camera.
 - Do not make a pure side-view platformer profile or a straight-on front portrait.`;
   }
+
   if (gameView === "platformer") {
     if (direction.id === "w") {
       return `- Make this a true side-view profile for a side-scrolling game, facing screen-left.
 - Do not leave it front-facing or three-quarter-facing.
 - Only the side of the head, side of the torso, and one side of the body should read clearly.`;
     }
+
     if (direction.id === "e") {
       return `- Make this a true side-view profile for a side-scrolling game, facing screen-right.
 - Do not leave it front-facing or three-quarter-facing.
 - Only the side of the head, side of the torso, and one side of the body should read clearly.`;
     }
+
     if (direction.id === "s") {
       return `- Make this a front-facing orthographic sprite view for a side-scroller turnaround.
 - Do not make an overhead or top-down camera view.`;
     }
+
     if (direction.id === "n") {
       return `- Make this a back-facing orthographic sprite view for a side-scroller turnaround.
 - Do not make an overhead or top-down camera view.`;
     }
   }
+
   if (gameView === "top-down") {
     return `- Experimental top-down or three-quarter top-down camera. This path is less tested than platformer.
 - Make the facing readable for a top-down or three-quarter top-down game.
 - Preserve the gameplay direction clearly without switching to a side-scroller profile unless the requested direction calls for profile readability.`;
   }
+
   return `- Make the requested direction readable as a neutral 2D game sprite view.
 - Keep the camera orthographic and asset-focused.`;
 };
 
-const anchorRoleGuidance = (anchorRole: string): string => {
+const anchorRoleGuidance = (anchorRole: string) => {
   if (anchorRole === "enemy") {
     return `- Preserve the enemy's core body plan, threat shape, and readable attack silhouette.
 - Do not turn it into a different creature type, vehicle, turret, quadruped, or humanoid unless image 1 already establishes that shape.`;
   }
+
   if (anchorRole === "turret") {
     return `- Preserve the planted base, barrel/muzzle orientation, and mechanical silhouette.
 - Do not add legs, a humanoid body, a face, hands, or walking anatomy unless image 1 already has them.`;
   }
+
   if (anchorRole === "prop" || anchorRole === "object") {
     return `- Preserve the object's simple physical form and readable silhouette.
 - Do not anthropomorphize it, add a face, add limbs, or turn it into a character.`;
   }
+
   return `- Preserve the character's body plan, outfit blocks, readable pose language, and silhouette.
 - Do not add or remove major anatomy.`;
 };
 
-const anchorContextGuidance = (anchorContext: string | null): string => {
+const anchorContextGuidance = (anchorContext: string | null) => {
   const context = (anchorContext || "").trim();
+
   return context
     ? `Additional game context: ${context}`
     : "Additional game context: none supplied.";
@@ -404,17 +440,15 @@ export const renderAnchorPrompt = (
     chroma?: string;
     guideImage?: boolean;
   } = {},
-): string => {
+) => {
   const {
     gameView = "platformer",
     anchorRole = "character",
     anchorContext = null,
     guideImage = false,
-    // The matte the anchor is generated on has to be the one the keyer is later
-    // told to remove; `--chroma` used to be accepted here and dropped, so asking
-    // for magenta produced a green board that `chroma_clean` could not key.
     chroma = "#00FF00",
   } = options;
+
   const resolvedView = resolveAnchorGameView(gameView);
   const resolvedRole = resolveAnchorRole(anchorRole);
 
@@ -485,27 +519,26 @@ export const cellWidth = (p: PoseBoardPreset) => Math.floor(p.width / p.columns)
 export const cellHeight = (p: PoseBoardPreset) => Math.floor(p.height / p.rows);
 export const totalCells = (p: PoseBoardPreset) => p.columns * p.rows;
 
-export const resolvePoseBoardPreset = (presetId: string | null): PoseBoardPreset => {
+export const resolvePoseBoardPreset = (presetId: string | null) => {
   // oxlint-disable-next-line unicorn/prefer-default-parameters -- null and "" both mean the default; a default parameter only covers undefined
   const resolved = presetId || "standard";
   const preset = lookup(POSE_BOARD_PRESETS, resolved);
+
   if (!preset) {
     const known = Object.keys(POSE_BOARD_PRESETS).toSorted().join(", ");
     throw new Error(`unknown pose board preset '${resolved}'; expected one of: ${known}`);
   }
+
   if (preset.width % preset.columns || preset.height % preset.rows) {
     throw new Error(`pose board preset '${preset.id}' does not divide evenly into its grid`);
   }
+
   return preset;
 };
 
-/**
- * Map frame `index` onto a label list. When the requested frame count differs
- * from the list length the labels are sampled evenly, so a 6-frame attack still
- * walks the same arc as a 10-frame one rather than truncating it.
- */
-const labelForIndex = (labels: string[], index: number, frameCount: number): string => {
+const labelForIndex = (labels: string[], index: number, frameCount: number) => {
   let position: number;
+
   if (frameCount <= 1) {
     position = 0;
   } else if (frameCount === labels.length) {
@@ -513,16 +546,17 @@ const labelForIndex = (labels: string[], index: number, frameCount: number): str
   } else {
     position = roundHalfToEven(((index - 1) * (labels.length - 1)) / (frameCount - 1));
   }
+
   const label = labels[position];
+
   if (label === undefined) {
     throw new Error(`frame ${index} of ${frameCount} has no label`);
   }
+
   return label;
 };
 
 const LABELS = {
-  // Spatial-progression labels (a single arc, not abstract beats) so the model
-  // advances the weapon monotonically along one swing instead of drawing N poses.
   attack: [
     "ready stance, weapon held back",
     "anticipation, weapon drawing back and up",
@@ -671,17 +705,21 @@ const LABELS = {
   ],
 } satisfies Record<string, string[]>;
 
-export const frameLabel = (action: string, index: number, frameCount: number): string => {
+export const frameLabel = (action: string, index: number, frameCount: number) => {
   if (action === "knockdown") {
     return labelForIndex(LABELS.death, index, frameCount);
   }
+
   if (action === "light_attack" || action === "heavy_attack") {
     return labelForIndex(LABELS.attack, index, frameCount);
   }
+
   const labels = lookup(LABELS, action);
+
   if (labels) {
     return labelForIndex(labels, index, frameCount);
   }
+
   return `${action} pose ${index}`;
 };
 
@@ -699,16 +737,18 @@ export const renderFrameGuidance = (
   action: string,
   frameCount: number,
   framePromptStyle: string,
-): string => {
+) => {
   if (framePromptStyle !== "specific" && framePromptStyle !== "loose") {
     throw new Error("frame_prompt_style must be specific or loose");
   }
+
   if (framePromptStyle === "specific") {
     return Array.from(
       { length: frameCount },
       (_, i) => `- Frame ${i + 1}: ${frameLabel(action, i + 1, frameCount)}`,
     ).join("\n");
   }
+
   if (action === "attack") {
     return `Motion guidance:
 - Create ${frameCount} readable attack poses that feel like one coherent short game animation.
@@ -717,6 +757,7 @@ export const renderFrameGuidance = (
 - Keep the same attacking side, weapon hand, weapon silhouette, and facing direction across all frames.
 - The first frame should read as ready/idle and the final frame should return toward that same ready stance for looping.`;
   }
+
   if (ADVENTURE_ACTIONS.has(action)) {
     return `Motion guidance:
 - Create ${frameCount} readable point-and-click adventure ${action} poses that feel like one coherent character animation.
@@ -724,6 +765,7 @@ export const renderFrameGuidance = (
 - Keep the performance grounded and conversational, not combat-focused.
 - Let the model choose exact in-betweens while preserving identity, scale, facing direction, and foot baseline.`;
   }
+
   return `Motion guidance:
 - Create ${frameCount} readable ${action} poses that feel like one coherent short game animation.
 - Use clear beginning, middle, and end poses with smooth in-betweens.
@@ -733,15 +775,11 @@ export const renderFrameGuidance = (
 
 const LOOPING_ACTIONS = new Set(["idle", "run", "walk", "walk_forward", "walk_backward", "talk"]);
 
-/**
- * The instruction that turns N standalone poses into N frames of ONE motion.
- * Without it the model reads each grid cell as an independent dramatic pose;
- * with it, it samples a single continuous motion at evenly-spaced instants.
- */
-const motionContinuityBlock = (actionId: string, frameCount: number): string => {
+const motionContinuityBlock = (actionId: string, frameCount: number) => {
   const ending = LOOPING_ACTIONS.has(actionId)
     ? `Frame ${frameCount} returns toward frame 1 so the cycle loops seamlessly.`
     : `Frame 1 is the start of the motion and frame ${frameCount} is its end.`;
+
   return (
     `\nCritical — read the used cells in order (left to right, top to bottom) as ONE continuous ` +
     `${actionId} motion sampled as ${frameCount} consecutive film frames, not ${frameCount} ` +
@@ -755,19 +793,20 @@ const motionContinuityBlock = (actionId: string, frameCount: number): string => 
   );
 };
 
-/** Keep every cell facing the same way — the model loves to mirror frame 1. */
-const poseBoardFacingLock = (direction: Direction): string => {
+const poseBoardFacingLock = (direction: Direction) => {
   let base =
     `Facing lock: every single cell must keep the SAME facing — ${direction.screenFacing}. ` +
     `Never mirror, flip, rotate, or reverse the body to face the other way in any frame, including ` +
     `the first and last. A wind-up, recoil, reach, or step that moves backward keeps this same ` +
     `facing; do not turn the character around.`;
+
   if (direction.id === "e" || direction.id === "w") {
     const side = direction.id === "e" ? "screen-right" : "screen-left";
     base +=
       ` Hold a consistent side profile facing ${side} in every frame: do not present a mirrored ` +
       `profile, a front view, or a back view in any cell.`;
   }
+
   return base;
 };
 
@@ -781,13 +820,14 @@ export const renderPoseBoardPrompt = (
     chroma?: string;
     guideImage?: boolean;
   } = {},
-): string => {
+) => {
   const {
     poseBoard = null,
     framePromptStyle = "specific",
     chroma = "#00FF00",
     guideImage = false,
   } = options;
+
   const board = poseBoard ?? resolvePoseBoardPreset("standard");
   const phrase = chromaPhrase(chroma);
   const frameLines = renderFrameGuidance(actionId, frameCount, framePromptStyle);

@@ -6,16 +6,11 @@ export interface EnemyKind {
   name: EnemyName;
   behavior: Behavior;
   hp: number;
-  // walk px/s
   speed: number;
-  // touch damage (0 = harmless to touch)
   contactDmg: number;
-  // body half-width
   hw: number;
-  // body height
   h: number;
   stopAtLedge: boolean;
-  // melee / charger attack
   attackRange?: number;
   attackDmg?: number;
   attackKb?: number;
@@ -23,13 +18,10 @@ export interface EnemyKind {
   active?: number;
   recover?: number;
   cooldown?: number;
-  // charger
   chargeSpeed?: number;
   chargeTime?: number;
-  // archer
   shootRange?: number;
   projSpeed?: number;
-  // bomber
   fuse?: number;
   blastR?: number;
   blastDmg?: number;

@@ -5,103 +5,21 @@ import type { SilhouetteBar } from "../world/golden-gate";
 import { HAZE_AMOUNT, HAZE_BASE, HAZE_SCALE } from "./aerial-fog";
 import { liveQuality } from "./quality";
 
-// --- The Golden Gate at range ---------------------------------------------
-//
-// The bridge is the thing you orient by from across the map, and it was the one
-// structure that vanished from it. Measured on the shipped build, noon, three
-// bearings: at 300u it is the best frame in the game; at 700u it is four thin
-// orange sticks with no deck, no cables and no form; at 1200u a grey smudge; at
-// 2000u nothing at all. Three causes stack up, and only the first is obvious:
-//
-//  1. THE LOD KEEPS THE WRONG PARTS. Past the model band an instance survives
-//     only as a box imposter, and only if it stands 13u or taller. On this
-//     bridge that is the four tower legs and NOTHING else — the cables, the
-//     truss, the deck boards and the portal bracing are all under the bar and
-//     are simply culled. What is left is exactly the four sticks. (city.ts now
-//     holds the WHOLE structure to LANDMARK_HOLD_DISTANCE instead — a landmark
-//     is one object to the eye, so it is one object to the LOD — but the
-//     members are still sub-pixel long before that band ends, which is what
-//     the rest of this module is for.)
-//  2. SUB-PIXEL MEMBERS. A 3.6u leg is 3.7px at 1200u and 2px at 2000u, thin
-//     enough for MSAA and the haze to finish off.
-//  3. THE HAZE OWNS THE COLOUR. Fog far is ~950u by day, so from street level
-//     everything past it is 100% fog — International Orange included.
-//
-// The fix is a stand-in that is drawn at EVERY distance and only ever grows:
-// ~70 camera-facing ribbons (world/golden-gate.ts goldenGateSilhouette) laid
-// exactly on the towers, the bracing, the truss chords and the catenary. Each
-// ribbon is INSET inside the member it stands for, so within the detail band
-// the real bridge covers it completely and it cannot be seen; past that band it
-// holds a minimum WIDTH ON SCREEN, so the form stops thinning away; and its
-// haze is the scene's own curve with a ceiling, so the orange survives the
-// distance the rest of the world is meant to dissolve into. Nothing switches
-// on and nothing switches off — there is no LOD boundary to pop at, only a
-// width that ramps in over the band where the members go sub-pixel.
-//
-// It also has to WIN the pixels its own leg imposters still hold out there, or
-// each thickened leg would carry a washed-out fog-coloured stripe down its
-// middle. Hence the small push toward the camera, ramped on the same curve: at
-// close range it is zero (the stand-in stays hidden behind the real bridge),
-// at range it is a couple of units (the stand-in covers its own imposter).
-// last range every member is comfortably above a pixel
 const LM_HOLD = DETAIL_DISTANCE;
-// ...and where the stand-in has fully taken over
 const LM_FULL = 760;
-// ...but the real band is scaled by the perf governor's tier (city.ts, via
-// quality.detailScale), so on a phone the members cull far earlier while an
-// unscaled ramp is still holding the stand-in thin. Both ends track the tier,
-// so the hand-off stays put wherever the LOD actually is. Desktop is scale 1
-// and this is the identity.
-const growRange = (scale: number): [number, number] => [LM_HOLD * scale, LM_FULL * scale];
-// Minimum half-width a TOWER LEG holds, in NDC-Y units — a fixed fraction of
-// the screen HEIGHT rather than a pixel count, because a beacon has to hold its
-// angular size at any resolution. 0.0075 is ~2.7px of a 720p frame, so a leg
-// bottoms out at ~5px wide and the two of them still read as a portal rather
-// than fusing into a slab. Every other member holds a share of it (minScale).
+const growRange: (scale: number) => [number, number] = (scale) => [
+  LM_HOLD * scale,
+  LM_FULL * scale,
+];
 const LM_MIN_HALF_NDC = 0.0075;
-// ...but the screen floor is not allowed to run away in WORLD units. Held past
-// ~1300u it takes a 3.6u tower leg to 8u and the two legs of a tower start to
-// close the 15u portal between them: the crossing bloats into one orange lump
-// with two bumps on it. Capped, the members thin out again at extreme range,
-// which is what they should do — at 2000u a leg is still 2px.
 const LM_MAX_HALF = 6.5;
-// Ceiling on how far the landmark ages into the haze. It buys a real
-// exemption and the number is small on purpose: the sky here is a bright
-// blue-white, and sRGB is steep near black, so a mix that sounds harmless
-// wrecks the HUE — International Orange's blue channel is a sixth of the fog's,
-// so the weakest channel takes almost all of the lift and the bridge goes
-// CORAL while it is still nominally "90% itself". Measured at 1200u on the
-// shipped grade: 0.10 read (191,109,106) — green and blue level, i.e. pink,
-// against the real paint's (141,75,60) at 300u. 0.045 lands (166,86,70): still
-// visibly lighter and softer than the near bridge, so the distance reads, but
-// with the orange ratio intact. The distance is carried by size, by the
-// members simplifying, and by everything AROUND the bridge being hazier — not
-// by bleaching the one colour the landmark is famous for choosing so it would
-// survive fog.
 const LM_MAX_HAZE = 0.045;
-// Inside the 2000u far plane: past this the silhouette is rescaled along the
-// view ray onto a shell, which leaves the projection pixel-identical (the same
-// trick render/far-terrain.ts plays on its bands) and stops the far corner of
-// the map clipping it away.
 const LM_SHELL = 1700;
-// depth bias, in world units, over its own imposters
 const LM_PUSH = 2.6;
-// International Orange
 const LM_TINT = 0xd6_51_2e;
-// The stand-in is unlit, so this stands in for the sun on the real bridge's
-// paint — and it is a calibration, not a free brightness knob. At 2.2 the red
-// channel clips before the grade sees it, which costs the colour its ratio and
-// the bridge goes pale pink (measured (228,136,130) at 1200u). RE-CALIBRATED
-// against the shipped grade: the sun-blowout pass (render/post.ts, day bloom
-// cut 3.0 -> 6.5, and the bounded sun disc) landed in the same session this was
-// tuned in, and 0.9 measures (191,109,106) against it — a stand-in half a stop
-// brighter than the bridge it stands in for, which is what made it read as a
-// diagram drawn over the strait rather than as the bridge. 0.72 measures
-// (166,86,70) at 1200u against the real paint's (141,75,60) at 300u.
 const LM_GAIN = 0.72;
 
-// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-const LM_VERT = /* glsl */ `
+const LM_VERT = `
   attribute vec3 aOther;
   // x = side, y = half-thickness here, z = +1 at a / -1 at b, w = min-width share
   attribute vec4 aEdge;
@@ -148,8 +66,7 @@ const LM_VERT = /* glsl */ `
   }
 `;
 
-// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-const LM_FRAG = /* glsl */ `
+const LM_FRAG = `
   varying vec3 vColor;
   void main() {
     gl_FragColor = vec4(vColor, 1.0);
@@ -176,24 +93,28 @@ export class SilhouetteMesh {
     const others = new Float32Array(bars.length * 4 * 3);
     const edges = new Float32Array(bars.length * 4 * 4);
     const indices = new Uint16Array(bars.length * 6);
+
     for (const [i, bar] of bars.entries()) {
       const v = i * 4;
-      // 0,3 sit at a; 1,2 sit at b; 0,1 offset one way, 2,3 the other.
       const ends = [bar.a, bar.b, bar.b, bar.a];
       const opp = [bar.b, bar.a, bar.a, bar.b];
       const half = [bar.halfA, bar.halfB, bar.halfB, bar.halfA];
       const side = [-1, -1, 1, 1];
       const end = [1, -1, -1, 1];
+
       for (let k = 0; k < 4; k += 1) {
         const p = ends[k];
         const o = opp[k];
+
         if (!p || !o) {
           continue;
         }
+
         positions.set([p.x, p.y, p.z], (v + k) * 3);
         others.set([o.x, o.y, o.z], (v + k) * 3);
         edges.set([side[k] ?? 0, half[k] ?? 0, end[k] ?? 0, bar.minScale], (v + k) * 4);
       }
+
       indices.set([v, v + 1, v + 2, v, v + 2, v + 3], i * 6);
     }
 
@@ -207,7 +128,6 @@ export class SilhouetteMesh {
       depthWrite: false,
       fog: false,
       fragmentShader: LM_FRAG,
-      // the ribbon is built around the bar, not wound
       side: THREE.DoubleSide,
       uniforms: {
         uFog: this.uFog,
@@ -224,22 +144,22 @@ export class SilhouetteMesh {
     this.material = mat;
     this.mesh = new THREE.Mesh(geo, mat);
     this.mesh.name = "landmark-silhouette";
-    // the shader moves every vertex
     this.mesh.frustumCulled = false;
-    // bar positions are already world-space
     this.mesh.matrixAutoUpdate = false;
   }
 
-  update(fogColor: THREE.Color, night: number, fog: THREE.Fog | null): void {
+  update(fogColor: THREE.Color, night: number, fog: THREE.Fog | null) {
     this.uFog.value.copy(fogColor);
     this.uNight.value = night;
+
     if (fog) {
       this.uFogRange.value.set(fog.near, fog.far);
     }
+
     this.uGrow.value.set(...growRange(liveQuality().detailScale));
   }
 
-  dispose(): void {
+  dispose() {
     this.mesh.geometry.dispose();
     this.material.dispose();
   }

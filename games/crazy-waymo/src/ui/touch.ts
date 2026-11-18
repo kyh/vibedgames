@@ -5,16 +5,12 @@ import type { InputState } from "../input/keyboard";
 
 type Btn = "gas" | "brake" | "boost";
 
-// No gas pedal on touch: a finger on the screen IS the throttle (see update()).
 const MAP = {
   "t-boost": "boost",
   "t-brake": "brake",
 } satisfies Record<string, Btn>;
 
-/** Drag distance that maps to full lock. Matches the stick's own radius. */
 const STICK_RADIUS = 62;
-/** Stick pulled down past this = the pedal. Well below the steering band so a
- *  thumb sagging through a corner never drags the brake. */
 const STICK_BRAKE_PX = STICK_RADIUS * 0.55;
 
 export interface TouchControls {
@@ -28,56 +24,52 @@ export interface TouchControls {
 }
 
 /** Boot-time input mode for controls and instruction copy. */
-export const isTouchDevice = (): boolean =>
+export const isTouchDevice = () =>
   window.matchMedia("(pointer: coarse)").matches || "ontouchstart" in window;
 
-// Wire the on-screen pedals + the shared virtual stick to the input state.
-// Pedals are plain DOM (they need pedal shapes, not the pad's round buttons);
-// steering is the gamepad package's floating stick, so a thumb anywhere on the
-// open canvas anchors it. `[data-gamepad-ignore]` on #touch/#banner keeps taps
-// on the pedals and the landing CTA from anchoring a stick underneath them.
-export const setupTouch = (input: InputState, onChat?: () => void): TouchControls => {
+export const setupTouch = (input: InputState, onChat?: () => void) => {
   const isTouch = isTouchDevice();
   const container = document.querySelector("#touch");
+
   if (!container) {
     return {
       isTouch: false,
-      setReverseHint: () => {
-        // No #touch container: nothing to hint at.
-      },
-      update: () => {
-        // No #touch container: nothing to drive.
-      },
+      setReverseHint: () => {},
+      update: () => {},
     };
   }
+
   if (isTouch) {
     container.classList.add("on");
   }
 
   for (const [id, btn] of Object.entries(MAP)) {
     const node = document.querySelector(`#${id}`);
+
     if (!node) {
       continue;
     }
-    const down = (e: Event): void => {
+
+    const down = (e: Event) => {
       e.preventDefault();
       input.setTouch(btn, true);
     };
-    const up = (e: Event): void => {
+
+    const up = (e: Event) => {
       e.preventDefault();
       input.setTouch(btn, false);
     };
+
     node.addEventListener("pointerdown", down);
     node.addEventListener("pointerup", up);
     node.addEventListener("pointercancel", up);
     node.addEventListener("pointerleave", up);
   }
+
   if (onChat) {
     document.querySelector("#t-chat")?.addEventListener("click", onChat);
   }
 
-  // Steering only — no pad buttons, and only on touch devices (the adapter
-  // already ignores mouse pointers, so desktop never sees it).
   const gamepad: DomGamepad = attachDomGamepad({
     render: { tint: "#ffd147", zIndex: 6 },
     stick: { deadZone: 7, knobRadius: 26, radius: STICK_RADIUS },
@@ -88,38 +80,32 @@ export const setupTouch = (input: InputState, onChat?: () => void): TouchControl
 
   return {
     isTouch,
-    setReverseHint(canReverse: boolean): void {
+    setReverseHint(canReverse: boolean) {
       if (canReverse === reverseHint || !cap) {
         return;
       }
+
       reverseHint = canReverse;
       cap.textContent = canReverse ? "REVERSE" : "BRAKE";
     },
-    update(): void {
+    update() {
       gamepad.update();
       const stick = gamepad.getStick();
-      // Horizontal drag alone steers: this is a wheel, not a heading joystick.
       input.setTouchSteer(stick.active && !stick.inDeadZone ? stick.dx / STICK_RADIUS : 0);
-      // Stick pulled DOWN is the pedal — brake while rolling, reverse from a
-      // stop — mirroring ↓ on keyboard. It also lifts the gas so the brake
-      // bites at full ramp instead of fighting a pinned throttle.
       const stickBrake = stick.active && stick.dy > STICK_BRAKE_PX;
       input.setTouch("stickBrake", stickBrake);
-      // A finger on the screen IS the gas — held through braking, so brake +
-      // steer still power-drifts. The car resolves the conflict: the brake only
-      // outranks the gas below 0.5 u/s, which is exactly the reverse gear.
       input.setTouch("gas", stick.active && !stickBrake);
     },
   };
 };
 
-// Buttons belong over the live run only, never floating on the title/gameover
-// banner. Display needs both `.on` (touch device) and `.play` (active run).
-export const setTouchPlaying = (active: boolean): void => {
+export const setTouchPlaying = (active: boolean) => {
   const controls = document.querySelector("#touch");
+
   if (!controls) {
     return;
   }
+
   controls.classList.toggle("play", active);
   controls.setAttribute("aria-hidden", String(!active));
 };

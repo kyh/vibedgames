@@ -1,19 +1,4 @@
 #!/usr/bin/env tsx
-/**
- * Bootstrap an admin user.
- *
- * Hashes the password with better-auth's scrypt and inserts directly into the
- * `user` + `account` tables via `packages/db/d1-execute.ts`. Used to mint the first
- * admin account before the invite-gated signup flow is usable.
- *
- *   ADMIN_PASSWORD='...' pnpm admin:create -- --email me@x.com --name 'Me'
- *   pnpm admin:create -- --email me@x.com --name 'Me'   # prompts for password
- *
- * Pass --remote to target production D1 (default is local).
- *
- * After the first admin exists, additional users can be created from the
- * /admin page in the web app.
- */
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -28,12 +13,14 @@ interface Args {
   remote: boolean;
 }
 
-const parseArgs = (argv: string[]): Args => {
+const parseArgs = (argv: string[]) => {
   let email: string | undefined;
   let name: string | undefined;
   let remote = false;
+
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
+
     if (arg === "--remote") {
       remote = true;
     } else if (arg === "--email") {
@@ -48,20 +35,18 @@ const parseArgs = (argv: string[]): Args => {
       process.exit(0);
     }
   }
+
   if (!email || !name) {
     console.error("Missing required flags. Use --help for usage.");
     process.exit(1);
   }
+
   return { email, name, remote };
 };
 
-/**
- * Read a password from stdin without echoing it. Falls back to a visible
- * prompt if stdin isn't a TTY (e.g. piped input). Avoids putting the secret
- * on the argv (visible in `ps` and shell history).
- */
-const readPassword = async (): Promise<string> => {
+const readPassword = async () => {
   const fromEnv = process.env.ADMIN_PASSWORD;
+
   if (fromEnv) {
     return fromEnv;
   }
@@ -72,31 +57,36 @@ const readPassword = async (): Promise<string> => {
 
   let muted = false;
   const writeOriginal = process.stdout.write.bind(process.stdout);
+
   if (stdin.isTTY) {
     muted = true;
     process.stdout.write = (chunk: string | Uint8Array) => {
       if (muted && !(chunk instanceof Uint8Array) && chunk !== "Password: ") {
         return true;
       }
+
       return writeOriginal(chunk);
     };
   }
 
   const password = await rl.question("");
+
   if (muted) {
     process.stdout.write = writeOriginal;
   }
+
   rl.close();
   process.stdout.write("\n");
+
   return password;
 };
 
-// SQLite/D1 string literal — single quotes doubled.
 const lit = (s: string) => `'${s.replaceAll("'", "''")}'`;
 
 const main = async () => {
   const args = parseArgs(process.argv.slice(2));
   const password = await readPassword();
+
   if (password.length < 8) {
     console.error("Password must be at least 8 characters.");
     process.exit(1);
@@ -107,10 +97,6 @@ const main = async () => {
   const accountId = crypto.randomUUID();
   const now = Date.now();
 
-  // Two statements separated by `;`. D1 executes them in one batch.
-  // `email_verified` is set true so the admin doesn't get blocked by any
-  // future verification flow. For credential accounts better-auth uses the
-  // user's ID as `account_id` (see sign-up.mjs in better-auth).
   const sql = [
     `INSERT INTO user (id, email, name, role, email_verified, created_at, updated_at)`,
     `VALUES (${lit(userId)}, ${lit(args.email)}, ${lit(args.name)}, 'admin', 1, ${now}, ${now});`,

@@ -12,11 +12,6 @@ import { resolveSetting } from "./settings.js";
 import { isJsonNumber, isJsonString } from "./types.js";
 import type { JsonObject } from "./types.js";
 
-// `vg generate run` can execute against the vibedgames model runner
-// (default) or delegate image generation to a locally-installed Codex
-// CLI. The Codex path uses the user's own Codex/ChatGPT plan and never
-// touches the vibedgames backend — useful for users whose plan already
-// bundles image generation.
 export type Provider = "vibedgames" | "codex";
 
 /**
@@ -41,14 +36,20 @@ export class CodexError extends Error {
  * fails loudly instead of quietly running on the paid backend. `from` names
  * where the value came from, for that message.
  */
-export const parseProvider = (raw: string, from = "--provider"): Provider => {
+export const parseProvider: (raw: string, from?: string) => Provider = (
+  raw,
+  from = "--provider",
+) => {
   const name = raw.trim().toLowerCase();
+
   if (name === "codex") {
     return "codex";
   }
+
   if (name === "vibedgames") {
     return "vibedgames";
   }
+
   throw new Error(`Unknown provider "${name}" (${from}). Supported: vibedgames, codex.`);
 };
 
@@ -56,10 +57,10 @@ export const parseProvider = (raw: string, from = "--provider"): Provider => {
 export const CODEX_ENDPOINT = "codex";
 
 /** The OpenAI image family: what a signed-in Codex plan generates itself. */
-export const isOpenAiImageEndpoint = (endpointId: string): boolean =>
+export const isOpenAiImageEndpoint = (endpointId: string) =>
   /^openai\/gpt-image/iu.test(endpointId);
 
-const isLocalReference = (ref: string): boolean => !/^(?:https?:|data:)/iu.test(ref);
+const isLocalReference = (ref: string) => !/^(?:https?:|data:)/iu.test(ref);
 
 export interface RunRequest {
   endpointId: string;
@@ -82,40 +83,45 @@ export interface ProviderChoice {
  *   runs Codex can serve (synchronous, local references only) to the local
  *   Codex CLI, and leaves every other endpoint on vibedgames.
  */
-export const chooseProvider = (flag: string | undefined, run: RunRequest): ProviderChoice => {
+export const chooseProvider: (flag: string | undefined, run: RunRequest) => ProviderChoice = (
+  flag,
+  run,
+) => {
   if (flag !== undefined && flag.trim() !== "") {
     return { provider: parseProvider(flag) };
   }
+
   if (run.endpointId === CODEX_ENDPOINT) {
     return { provider: "codex" };
   }
+
   const preference = resolveSetting("generate.provider");
   const from = preference.source === "env" ? "VG_GENERATE_PROVIDER" : "generate.provider";
+
   if (parseProvider(preference.value, from) !== "codex" || !isOpenAiImageEndpoint(run.endpointId)) {
     return { provider: "vibedgames" };
   }
+
   if (run.async) {
     return {
       note: `${from} is codex, but codex can't run --async, so this run uses vibedgames.`,
       provider: "vibedgames",
     };
   }
+
   if (!parseCodexInput(run.input).referenceCandidates.every((ref) => isLocalReference(ref))) {
     return {
       note: `${from} is codex, but codex only attaches local reference files, so this run uses vibedgames.`,
       provider: "vibedgames",
     };
   }
+
   return { provider: "codex" };
 };
 
-// Input keys we map onto Codex's natural-language image request. Codex
-// only exposes a single built-in image model, so most fal-style params
-// don't apply — we fold the few that have a meaning (prompt, count,
-// size, reference images) into the prompt / CLI flags and ignore the
-// rest rather than erroring.
 const PROMPT_KEYS = ["prompt", "text"] as const;
 const COUNT_KEYS = ["num_images", "num_outputs", "n", "count"] as const;
+
 const REF_KEYS = [
   "image_url",
   "image_urls",
@@ -138,21 +144,27 @@ export interface CodexInput {
   referenceCandidates: string[];
 }
 
-const buildSizeHint = (input: JsonObject): string | undefined => {
+const buildSizeHint = (input: JsonObject) => {
   const parts: string[] = [];
   const size = input.image_size ?? input.size;
+
   if (isJsonString(size) && size.trim().length > 0) {
     parts.push(size.trim());
   }
+
   const aspect = input.aspect_ratio;
+
   if (isJsonString(aspect) && aspect.trim().length > 0) {
     parts.push(`aspect ratio ${aspect.trim()}`);
   }
+
   const w = input.width;
   const h = input.height;
+
   if (isJsonNumber(w) && isJsonNumber(h)) {
     parts.push(`${w}x${h}px`);
   }
+
   return parts.length > 0 ? parts.join(", ") : undefined;
 };
 
@@ -161,10 +173,12 @@ const buildSizeHint = (input: JsonObject): string | undefined => {
  * no filesystem access, so the reference values are returned verbatim and
  * resolved to local files later.
  */
-export const parseCodexInput = (input: JsonObject): CodexInput => {
+export const parseCodexInput = (input: JsonObject) => {
   let prompt = "";
+
   for (const key of PROMPT_KEYS) {
     const v = input[key];
+
     if (isJsonString(v) && v.trim().length > 0) {
       prompt = v.trim();
       break;
@@ -172,8 +186,10 @@ export const parseCodexInput = (input: JsonObject): CodexInput => {
   }
 
   let count = 1;
+
   for (const key of COUNT_KEYS) {
     const v = input[key];
+
     if (isJsonNumber(v)) {
       count = Math.max(1, Math.min(MAX_IMAGES, Math.floor(v)));
       break;
@@ -181,8 +197,10 @@ export const parseCodexInput = (input: JsonObject): CodexInput => {
   }
 
   const referenceCandidates: string[] = [];
+
   for (const key of REF_KEYS) {
     const v = input[key];
+
     if (isJsonString(v)) {
       referenceCandidates.push(v);
     } else if (Array.isArray(v)) {
@@ -206,28 +224,29 @@ export const buildCodexPrompt = (
   input: CodexInput,
   filenames: string[],
   hasReferences: boolean,
-): string => {
+) => {
   const n = filenames.length;
   const noun = n === 1 ? "image" : `${n} images`;
+
   const lines = [
     hasReferences
       ? `Edit the attached reference image to produce ${noun} using your built-in image generation.`
       : `Generate ${noun} using your built-in image generation.`,
     `Prompt: ${input.prompt}`,
   ];
+
   if (input.sizeHint) {
-    // A target, not a contract: the generator picks from a few fixed sizes, and
-    // asked for an exact one Codex stops to request permission to resize —
-    // which the no-code rule below forbids, so the run ends with no file.
     lines.push(
       `Size: aim for ${input.sizeHint}. Use the closest size the generator offers and save that as-is — never resize, crop or ask about it.`,
     );
   }
+
   lines.push(
     `Save the output as PNG into the current working directory using exactly ` +
       `these filenames: ${filenames.join(", ")}.`,
     `Do not read, create, or modify any other files, and do not write or run code. $imagegen`,
   );
+
   return lines.join("\n");
 };
 
@@ -243,26 +262,32 @@ export const renderLocalTarget = (
   ext: string,
   requestId: string,
   count: number,
-): string => {
+) => {
   if (!template) {
     return path.resolve(process.cwd(), `codex-image-${requestId}-${index}.${ext}`);
   }
+
   if (template.includes("{")) {
     const rendered = template
       .replaceAll("{index}", String(index))
       .replaceAll("{ext}", ext)
       .replaceAll("{request_id}", requestId)
       .replaceAll("{name}", "output");
+
     return path.resolve(rendered);
   }
+
   if (path.extname(template)) {
     if (count <= 1) {
       return path.resolve(template);
     }
+
     const e = path.extname(template);
     const stem = template.slice(0, template.length - e.length);
+
     return path.resolve(index === 0 ? template : `${stem}_${index}${e}`);
   }
+
   return path.resolve(template, `codex-image-${index}.${ext}`);
 };
 
@@ -280,23 +305,22 @@ interface CodexRun {
   ignoredReferences: string[];
 }
 
-const codexHome = (): string => process.env.CODEX_HOME ?? path.join(homedir(), ".codex");
+const codexHome = () => process.env.CODEX_HOME ?? path.join(homedir(), ".codex");
 
-/**
- * Image files under `dir`, one level of subdirectories included: Codex files
- * its generated images per session (`generated_images/<session>/<id>.png`),
- * so a flat listing of the store never sees them.
- */
-const listImages = (dir: string, depth = 1): string[] => {
+const listImages = (dir: string, depth = 1) => {
   let entries: Dirent[];
+
   try {
     entries = readdirSync(dir, { withFileTypes: true });
   } catch {
     return [];
   }
+
   const out: string[] = [];
+
   for (const entry of entries) {
     const full = path.join(dir, entry.name);
+
     if (entry.isDirectory()) {
       if (depth > 0) {
         out.push(...listImages(full, depth - 1));
@@ -305,24 +329,24 @@ const listImages = (dir: string, depth = 1): string[] => {
       out.push(full);
     }
   }
+
   return out.toSorted();
 };
 
-// Keep the `limit` most-recently-modified paths (by mtime), returned in
-// stable name order. Used to bound the shared-store fallback.
-const pickNewest = (paths: string[], limit: number): string[] => {
+const pickNewest = (paths: string[], limit: number) => {
   if (paths.length <= limit) {
     return paths;
   }
+
   const withTime = paths.map((p) => {
     let mtimeMs = 0;
+
     try {
       ({ mtimeMs } = statSync(p));
-    } catch {
-      // Gone between listing and stat; sort it oldest.
-    }
+    } catch {}
     return { mtimeMs, p };
   });
+
   return withTime
     .toSorted((a, b) => b.mtimeMs - a.mtimeMs)
     .slice(0, limit)
@@ -330,20 +354,15 @@ const pickNewest = (paths: string[], limit: number): string[] => {
     .toSorted();
 };
 
-const spawnCodex = (
+const spawnCodex: (
   bin: string,
   args: string[],
   cwd: string,
-): Promise<{ code: number; output: string; notFound: boolean }> =>
+) => Promise<{ code: number; output: string; notFound: boolean }> = (bin, args, cwd) =>
   // oxlint-disable-next-line promise/avoid-new -- child_process.spawn is event-based
   new Promise((resolve) => {
     const child = spawn(bin, args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
     let output = "";
-    // Forward Codex's own stdout/stderr straight to our stderr so the user
-    // sees its progress and messages directly. It goes to stderr (never
-    // stdout) so it can't corrupt our `--json` payload. We also buffer it
-    // so a failure can surface the tail even for a caller that isn't
-    // watching the live stream.
     child.stdout?.on("data", (c: Buffer) => {
       output += c.toString("utf-8");
       process.stderr.write(c);
@@ -364,15 +383,8 @@ const spawnCodex = (
     });
   });
 
-/**
- * Delegate image generation to the local `codex` CLI. Runs
- * `codex exec` in an isolated temp workspace, then collects the produced
- * images from that workspace (and, as a fallback, from Codex's default
- * `generated_images` store). Throws with actionable guidance when Codex
- * is missing, fails, or produces nothing.
- */
 /** The `codex exec` argv for one image run. */
-export const codexExecArgs = (workDir: string, references: string[], prompt: string): string[] => [
+export const codexExecArgs = (workDir: string, references: string[], prompt: string) => [
   "exec",
   "--skip-git-repo-check",
   "-s",
@@ -380,25 +392,23 @@ export const codexExecArgs = (workDir: string, references: string[], prompt: str
   "-C",
   workDir,
   ...references.flatMap((r) => ["-i", r]),
-  // `-i` is variadic (`--image <FILE>...`): without the separator it
-  // swallows the prompt as one more image and codex waits on stdin for one.
   "--",
   prompt,
 ];
 
-export const generateImagesWithCodex = async (opts: { input: JsonObject }): Promise<CodexRun> => {
+export const generateImagesWithCodex = async (opts: { input: JsonObject }) => {
   const parsed = parseCodexInput(opts.input);
+
   if (!parsed.prompt) {
     throw new CodexError("codex image generation requires a prompt (--prompt).");
   }
 
-  // Codex can only attach on-disk references. Record any non-local ones
-  // (e.g. uploaded URLs) so the caller can surface them even under --json,
-  // rather than silently generating plain text-to-image.
   const references: string[] = [];
   const ignoredReferences: string[] = [];
+
   for (const candidate of parsed.referenceCandidates) {
     const local = readExplicitLocalFile(candidate);
+
     if (local) {
       references.push(local.path);
     } else {
@@ -414,12 +424,11 @@ export const generateImagesWithCodex = async (opts: { input: JsonObject }): Prom
   const bin = resolveSetting("generate.codex-bin").value;
   const args = codexExecArgs(workDir, references, prompt);
 
-  // Snapshot Codex's default image store so we can tell which files this
-  // run produced if the model saves there instead of the workspace.
   const storeDir = path.join(codexHome(), "generated_images");
   const before = new Set(listImages(storeDir));
 
   const outcome = await spawnCodex(bin, args, workDir);
+
   if (outcome.notFound) {
     throw new CodexError(
       `The \`codex\` CLI was not found. Install it (npm install -g @openai/codex) and sign in ` +
@@ -428,37 +437,30 @@ export const generateImagesWithCodex = async (opts: { input: JsonObject }): Prom
       { notInstalled: true },
     );
   }
+
   if (outcome.code !== 0) {
     throw new CodexError(`codex exec exited with code ${outcome.code}.`, {
       output: outcome.output,
     });
   }
 
-  // Prefer the exact filenames we pinned in the prompt — those are the
-  // images Codex produced for this run. A stray/incidental PNG in the
-  // workspace must NOT count as output nor suppress the store fallback.
   const pinned = new Set(filenames);
   const fromWork = listImages(workDir);
   const pinnedWork = fromWork.filter((p) => pinned.has(path.basename(p)));
-  // Fallback for when Codex ignored the workspace and wrote to its shared
-  // store instead. That store is not scoped to this invocation, so cap to
-  // the newest `count` new files to limit picking up a concurrent run's
-  // outputs (best-effort — Codex names store files itself, so there's no
-  // requestId to match on).
+
   const fromStore = pickNewest(
     listImages(storeDir).filter((p) => !before.has(p)),
     parsed.count,
   );
-  // Pinned workspace files win; then the store; then, as a last resort,
-  // any workspace PNG (Codex saved images but chose different names) —
-  // capped to `count` like the store branch so an unexpected extra file
-  // can't inflate the output set.
+
   let rawFiles = pickNewest(fromWork, parsed.count);
+
   if (pinnedWork.length > 0) {
     rawFiles = pinnedWork;
   } else if (fromStore.length > 0) {
     rawFiles = fromStore;
   }
+
   if (rawFiles.length === 0) {
     throw new CodexError(
       `codex produced no image files. It may have declined the request or lack ` +
@@ -481,34 +483,34 @@ export const placeCodexOutputs = (
   requestId: string,
 ) => {
   const downloaded: string[] = [];
-  // Keyed `url` (holding the source path) to match the shape the
-  // vibedgames run/status paths use for `download_failures`, so agents
-  // reading `download_failures[].url` on the shared --json surface work
-  // uniformly across providers.
   const failed: { url: string; error: string }[] = [];
-  // Render every target first, then disambiguate colliding paths the same
-  // way downloadMedia does — a multi-image run with a template that lacks
-  // {index} (e.g. `{request_id}.{ext}` or a fixed filename) would
-  // otherwise overwrite earlier outputs while still reporting each path.
+
   const rendered = rawFiles.map((source, index) => {
     const ext = path.extname(source).slice(1).toLowerCase() || "png";
+
     return renderLocalTarget(template, index, ext, requestId, rawFiles.length);
   });
+
   const targets = disambiguateTargets(rendered);
+
   for (const [index, source] of rawFiles.entries()) {
     const target = targets[index];
+
     if (target === undefined) {
       continue;
     }
+
     try {
       if (path.resolve(source) !== target) {
         mkdirSync(path.dirname(target), { recursive: true });
         copyFileSync(source, target);
       }
+
       downloaded.push(target);
     } catch (error) {
       failed.push({ error: error instanceof Error ? error.message : String(error), url: source });
     }
   }
+
   return { downloaded, failed };
 };

@@ -1,10 +1,3 @@
-// Game-side half of the wrapper protocol — a pure pause state machine, no DOM.
-// Games call notifyGameStarted() when active play begins; the wrapper answers
-// with a pause request when the player asks for its chrome back, and Escape
-// toggles the same pause from inside the game. What a pause LOOKS like is the
-// game's business: wire onPause/onResume via setPauseHandlers and render your
-// own UI there (or compose the stock overlay from ./overlay).
-
 import {
   GAME_PAUSED_MESSAGE,
   GAME_STARTED_MESSAGE,
@@ -37,7 +30,7 @@ let started = false;
 let paused = false;
 let listening = false;
 
-const embedded = (): boolean =>
+const embedded = () =>
   typeof window !== "undefined" && window.parent !== window && window.name === WRAPPER_FRAME_NAME;
 
 /**
@@ -46,36 +39,25 @@ const embedded = (): boolean =>
  * game portal. The wrapper owns chrome the game must not duplicate — its own
  * pause button, for one.
  */
-export const isEmbedded = (): boolean => embedded();
+export const isEmbedded = () => embedded();
 
-/** Escape must not steal keystrokes from text entry (chat boxes, name fields). */
-const isTypingTarget = (target: EventTarget | null): boolean =>
+const isTypingTarget = (target: EventTarget | null) =>
   target instanceof HTMLElement &&
   (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
 
-/**
- * While paused, key events must not reach the game's own listeners — games
- * keep theirs live (Phaser's keyboard manager, raw window handlers), so a key
- * pressed on the pause UI would otherwise act on the frozen world (rotate a
- * piece, drop a bomb) the instant it resumes, or worse, act on a live online
- * arena behind the overlay. stopPropagation() at window CAPTURE kills the
- * event before any element/document/window-bubble listener sees it, while
- * listeners registered on window WITH capture (this module's Escape toggle,
- * the pause shell's keyup-resume) still run — same-node listeners are immune
- * to stopPropagation. Installed on pause, removed on resume.
- */
-const blockGameKeys = (event: KeyboardEvent): void => {
+const blockGameKeys = (event: KeyboardEvent) => {
   if (isTypingTarget(event.target)) {
     return;
-    // a pause UI's own text inputs keep working
   }
+
   event.stopPropagation();
 };
 
-const setKeyGate = (on: boolean): void => {
+const setKeyGate = (on: boolean) => {
   if (typeof window === "undefined") {
     return;
   }
+
   if (on) {
     window.addEventListener("keydown", blockGameKeys, true);
     window.addEventListener("keyup", blockGameKeys, true);
@@ -88,90 +70,86 @@ const setKeyGate = (on: boolean): void => {
 const pausableListeners = new Set<() => void>();
 
 /** Observe {@link isPausable}. Returns an unsubscribe. */
-export const watchPausable = (onChange: () => void): (() => void) => {
+export const watchPausable = (onChange: () => void) => {
   pausableListeners.add(onChange);
+
   return () => pausableListeners.delete(onChange);
 };
 
-const notifyPausableChanged = (): void => {
+const notifyPausableChanged = () => {
   for (const listener of pausableListeners) {
     listener();
   }
 };
 
-/**
- * Body class set on the first start and never removed: HUD, thumb pads and
- * camera panels are gameplay chrome, so a game hides them with
- * `body:not(.vg-started) …` and never has to track "has play begun" itself.
- */
 const STARTED_CLASS = "vg-started";
 
-const announceStarted = (): void => {
+const announceStarted = () => {
   if (started || paused) {
     return;
   }
+
   started = true;
   document.body.classList.add(STARTED_CLASS);
   notifyPausableChanged();
+
   if (embedded()) {
     window.parent.postMessage({ type: GAME_STARTED_MESSAGE }, "*");
   }
 };
 
 /** Pause now (same path Escape and the wrapper take). No-op unless started. */
-export const pauseGame = (): void => {
+export const pauseGame = () => {
   if (paused || !started) {
     return;
   }
+
   paused = true;
   started = false;
   notifyPausableChanged();
   setKeyGate(true);
   handlers.onPause?.();
-  // Escape-initiated pauses need to tell the wrapper to bring its chrome back;
-  // for wrapper-initiated ones this is a harmless no-op echo.
+
   if (embedded()) {
     window.parent.postMessage({ type: GAME_PAUSED_MESSAGE }, "*");
   }
 };
 
 /** Resume from a pause — the call a pause UI's "resume" affordance makes. */
-export const resumeGame = (): void => {
+export const resumeGame = () => {
   if (!paused || !(handlers.canResume?.() ?? true)) {
     return;
   }
+
   paused = false;
   notifyPausableChanged();
-  // Removing the gate here means the resuming key's own keyup was already
-  // swallowed (it fired while the gate was up) — the game never sees a
-  // phantom release for a press it never saw.
   setKeyGate(false);
   handlers.onResume?.();
   announceStarted();
 };
 
-const ensureListener = (): void => {
+const ensureListener = () => {
   if (listening || typeof window === "undefined") {
     return;
   }
+
   listening = true;
   window.addEventListener("message", (event: MessageEvent<MessageData>) => {
     if (event.source !== window.parent) {
       return;
     }
+
     if (isPauseGameMessage(event.data)) {
       pauseGame();
     }
   });
-  // Capture phase: runs before any in-game handler, so escapePauses() sees the
-  // game's PRE-event state (an open modal reads as open, not already closed by
-  // the game's own Escape binding firing first).
   window.addEventListener(
     "keydown",
     (event: KeyboardEvent) => {
       if (event.key !== "Escape" || event.repeat || isTypingTarget(event.target)) {
         return;
       }
+
       if (paused) {
         resumeGame();
       } else if (started && (handlers.escapePauses?.() ?? true)) {
@@ -188,7 +166,7 @@ const ensureListener = (): void => {
  * pause. Standalone (not embedded) it still arms the Escape pause shortcut,
  * just without messaging a wrapper.
  */
-export const notifyGameStarted = (): void => {
+export const notifyGameStarted = () => {
   ensureListener();
   announceStarted();
 };
@@ -198,10 +176,10 @@ export const notifyGameStarted = (): void => {
  * that renders before play begins is a dead control — it looks tappable and
  * silently no-ops, which testers filed as a bug in two games.
  */
-export const isPausable = (): boolean => started && !paused;
+export const isPausable = () => started && !paused;
 
 /** Wire the game's pause UI + freeze/unfreeze into the wrapper's pause request. */
-export const setPauseHandlers = (next: PauseHandlers): void => {
+export const setPauseHandlers = (next: PauseHandlers) => {
   ensureListener();
   handlers = next;
 };

@@ -34,6 +34,7 @@ describe("committed og media", () => {
     for (const file of [siteVideo.path, siteVideo.poster, SITE_IMAGE]) {
       assert.ok(existsSync(publicFile(file)), `public${file} is missing`);
     }
+
     assert.ok(statSync(publicFile(siteVideo.path)).size < 2.5 * 1024 * 1024);
   });
 
@@ -51,9 +52,11 @@ describe("committed og media", () => {
   test("the site image's alt is its own, and a card's is its page's title", () => {
     assert.equal(pageImageAlt("/", "Home"), SITE_IMAGE_ALT);
     assert.equal(pageImageAlt("/about", "About"), "About");
+
     const alt = docHead(homeDoc).meta.find(
       (entry) => "property" in entry && entry.property === "og:image:alt",
     );
+
     assert.ok(alt && "content" in alt && alt.content === SITE_IMAGE_ALT);
   });
 
@@ -93,12 +96,14 @@ describe("per-page head", () => {
 
       test("names its own og:image and twitter image", () => {
         const image = `${siteConfig.url}${pageImage(doc.path)}`;
+
         for (const key of ["og:image", "twitter:image"]) {
           const tag = head.meta.find(
             (entry) =>
               ("property" in entry && entry.property === key) ||
               ("name" in entry && entry.name === key),
           );
+
           assert.ok(tag && "content" in tag && tag.content === image, `${key} on ${doc.path}`);
         }
       });
@@ -131,6 +136,7 @@ describe("sitemap dates", () => {
     for (const page of SITEMAP_PAGES) {
       assert.match(page.lastModified, /^\d{4}-\d{2}-\d{2}$/u, page.path);
     }
+
     assert.equal(SITEMAP_PATHS.length, SITEMAP_PAGES.length);
   });
 });

@@ -1,25 +1,12 @@
-// Bespoke wrapper pause overlay — this game's HUD language (the banner's
-// display face, the hotkey bar's keycap chips, the legend's per-method rows,
-// and a faint architectural grid echoing the well) on the shared @repo/embed
-// pause shell, which owns the full-screen root and resume behavior (pointerup
-// / any-keyup-except-Escape / fresh pad press), fade, and idempotent
-// show/hide. This is the game's ONLY pause surface: Escape, P and pad START
-// all land here via the embed pause state machine.
-
 import { controlGroups, createPauseShell, PAUSE_OVERLAY_Z, sealPointerEvents } from "@repo/embed";
 import type { ControlGroup } from "@repo/embed";
 
 import { CONTROLS, METHOD_LABEL } from "./controls";
 import { isMuted, setMuted } from "./fx/sfx";
 
-// The game's palette (index.html): ink #d7dcf0 on #12131f, accent #8ea2ff,
-// pill borders rgba(120,134,200,·).
-// + alpha)
 const LINE = "rgba(120,134,200,";
-// + alpha)
 const INK = "rgba(215,220,240,";
 
-// Positioning/z-index/cursor/fade live on the shell's root — visuals only here.
 const CSS = `
 .tetris-pause {
   display: flex;
@@ -41,9 +28,8 @@ const CSS = `
 /** One legend-style row: method label + keycap-chip entries, wrap-centred.
  *  Shared with the title legend (#legend) so both instruction surfaces speak
  *  the same visual language. */
-export const groupRow = (group: ControlGroup, coarse: boolean): HTMLElement => {
+export const groupRow = (group: ControlGroup, coarse: boolean) => {
   const row = document.createElement("div");
-  // 12px → 11px on touch, the same step #legend takes on small screens.
   row.style.cssText =
     "display:flex;flex-wrap:wrap;justify-content:center;align-items:center;" +
     `gap:7px 14px;font-size:${coarse ? 11 : 12}px;letter-spacing:0.4px;color:${INK}0.72)`;
@@ -66,25 +52,23 @@ export const groupRow = (group: ControlGroup, coarse: boolean): HTMLElement => {
     item.append(key, document.createTextNode(entry.action));
     row.append(item);
   }
+
   return row;
 };
 
-/** Thin gradient rule — the well's line weight, used as a section divider. */
-const rule = (margin: string): HTMLElement => {
+const rule = (margin: string) => {
   const el = document.createElement("div");
   el.setAttribute("aria-hidden", "true");
   el.style.cssText =
     `width:min(64vw,380px);height:1px;margin:${margin};position:relative;` +
     `background:linear-gradient(90deg,transparent,${LINE}0.6),transparent)`;
+
   return el;
 };
 
-/** Overlay content, rebuilt fresh every show() so the legend rows track the
- *  live context (touch vs keys, pad only while connected). */
-const renderContent = (overlay: HTMLElement): void => {
+const renderContent = (overlay: HTMLElement) => {
   const coarse = window.matchMedia("(pointer: coarse)").matches;
 
-  // Faint square grid behind the content — the well's wireframe, flattened.
   const grid = document.createElement("div");
   grid.setAttribute("aria-hidden", "true");
   const gridMask = "radial-gradient(ellipse 62% 56% at 50% 46%,#000 30%,transparent 78%)";
@@ -95,7 +79,6 @@ const renderContent = (overlay: HTMLElement): void => {
     `background-size:44px 44px;background-position:center;` +
     `mask-image:${gridMask};-webkit-mask-image:${gridMask}`;
 
-  // Banner-title face (same font/shadow as the TETRIS title).
   const title = document.createElement("div");
   title.textContent = "PAUSED";
   title.style.cssText =
@@ -103,18 +86,17 @@ const renderContent = (overlay: HTMLElement): void => {
     "letter-spacing:0.08em;text-indent:0.08em;" +
     "text-shadow:0 4px 0 rgba(0,0,0,0.4),0 0 32px rgba(120,134,255,0.4)";
 
-  // Banner-sub face for the resume hint (15px → 13px on touch, as #banner-sub).
   const hint = document.createElement("div");
   hint.textContent = coarse ? "tap anywhere to resume" : "click or press any key to resume";
   hint.style.cssText =
     `position:relative;margin-top:12px;font-size:${coarse ? 13 : 15}px;color:${INK}0.85);` +
     "text-shadow:0 2px 0 rgba(0,0,0,0.45)";
 
-  // Controls, grouped per input method.
   const legend = document.createElement("div");
   legend.style.cssText =
     "position:relative;display:flex;flex-direction:column;align-items:center;" +
     "gap:13px;max-width:min(92vw,640px)";
+
   for (const group of controlGroups(CONTROLS)) {
     legend.append(groupRow(group, coarse));
   }
@@ -135,10 +117,11 @@ export const { show, hide } = createPauseShell({
 let recovery: { root: HTMLElement; unseal: () => void } | null = null;
 
 /** Graphics cannot resume yet. This surface owns no shell keys or pad polling. */
-export const showRecovery = (): void => {
+export const showRecovery = () => {
   if (recovery) {
     return;
   }
+
   const root = document.createElement("div");
   root.id = "tetris-graphics-recovery";
   root.setAttribute("role", "status");
@@ -157,10 +140,11 @@ export const showRecovery = (): void => {
   document.body.append(root);
 };
 
-export const hideRecovery = (): void => {
+export const hideRecovery = () => {
   if (!recovery) {
     return;
   }
+
   recovery.unseal();
   recovery.root.remove();
   recovery = null;

@@ -8,13 +8,16 @@ import { getAccessToken, needsRefresh } from "../src/lib/oauth.js";
 import { makeCleanups, makeTestServer, makeTmpDir, stubEnv } from "./_helpers.js";
 
 const { cleanups, drain } = makeCleanups();
+
 afterEach(drain);
 
 const readForm = async (req: AsyncIterable<Buffer>) => {
   let body = "";
+
   for await (const chunk of req) {
     body += chunk.toString();
   }
+
   return new URLSearchParams(body);
 };
 
@@ -34,6 +37,7 @@ test("getAccessToken refreshes an expiring login once and saves the rotated pair
     XDG_CONFIG_HOME: makeTmpDir(cleanups, "vg-oauth-"),
   });
   const seen: URLSearchParams[] = [];
+
   const port = await makeTestServer(cleanups, (req, res) => {
     readForm(req)
       .then((form) => {
@@ -45,6 +49,7 @@ test("getAccessToken refreshes an expiring login once and saves the rotated pair
       })
       .catch(() => res.end());
   });
+
   const baseUrl = `http://127.0.0.1:${port}`;
   saveConfig({ baseUrl, expiresAt: Date.now() + 1000, refreshToken: "old", token: "stale" });
 
@@ -60,7 +65,6 @@ test("getAccessToken refreshes an expiring login once and saves the rotated pair
   assert.equal(saved?.token, "fresh");
   assert.equal(saved?.refreshToken, "rotated");
   assert.ok((saved?.expiresAt ?? 0) > Date.now() + 3_000_000);
-  // Fresh now: no second refresh.
   assert.equal(await getAccessToken(), "fresh");
   assert.equal(seen.length, 1);
 });
@@ -70,11 +74,13 @@ test("a refused refresh tells the person to log in again", async () => {
     VG_TOKEN: undefined,
     XDG_CONFIG_HOME: makeTmpDir(cleanups, "vg-oauth-"),
   });
+
   const port = await makeTestServer(cleanups, (_req, res) => {
     res.statusCode = 400;
     res.setHeader("content-type", "application/json");
     res.end(JSON.stringify({ error: "invalid_grant", error_description: "invalid refresh token" }));
   });
+
   saveConfig({
     baseUrl: `http://127.0.0.1:${port}`,
     expiresAt: Date.now(),

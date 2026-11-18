@@ -27,6 +27,7 @@ export const adminRouter = {
         note: input.note ?? null,
         userId: input.userId,
       });
+
       return { balanceMicro };
     }),
   },
@@ -43,14 +44,13 @@ export const adminRouter = {
           },
           headers: context.headers,
         });
+
         return result;
       } catch (error) {
-        // better-auth refuses what the caller can fix (a taken email, a role
-        // they may not grant) with a 4xx APIError. Anything else, its own 500
-        // or the database failing, is a fault and surfaces as one.
         if (isAPIError(error) && error.statusCode < 500) {
           throw new ORPCError("BAD_REQUEST", { message: error.message });
         }
+
         throw error;
       }
     }),
@@ -60,6 +60,7 @@ export const adminRouter = {
         headers: context.headers,
         query: { limit: 100, sortBy: "createdAt", sortDirection: "desc" },
       });
+
       return result;
     }),
   },

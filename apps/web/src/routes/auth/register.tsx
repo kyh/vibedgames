@@ -2,10 +2,6 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 
 import { creditCodeCallback, RegisterForm } from "@/components/auth/auth-form";
 
-/**
- * Open signup. A link carrying a credit code (`?invite=`) still works: the
- * code rides through to /settings, which redeems it once the account exists.
- */
 const RegisterPage = () => {
   const { callbackUrl, invite } = Route.useSearch();
 

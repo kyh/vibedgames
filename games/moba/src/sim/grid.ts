@@ -1,17 +1,8 @@
-// A boolean walkability grid + A* pathfinding over it.
-//
-// The world is divided into square cells. A cell is blocked if any map blocker
-// (river without a bridge, cliff, base wall, tree cluster) overlaps it. Heroes
-// path with A*; lane creeps follow authored waypoints and only fall back to the
-// grid for local steering. Pure TS — no Phaser.
-
 import type { Vec2 } from "./math";
 
 export type Blocker =
   | { kind: "rect"; x: number; y: number; w: number; h: number }
   | { kind: "circle"; x: number; y: number; r: number }
-  // A "gap" carves walkability back IN (e.g. a bridge across a river). Applied
-  // after blockers so bridges win over the water beneath them.
   | { kind: "gap"; x: number; y: number; w: number; h: number };
 
 /** Elevation metadata so the grid can keep units off cliffs: a cell's elevation
@@ -21,10 +12,10 @@ export interface ElevMeta {
   ramp: (c: number, r: number) => boolean;
 }
 
-// Octile distance — admissible for 8-connected grids.
-const octile = (c0: number, r0: number, c1: number, r1: number): number => {
+const octile = (c0: number, r0: number, c1: number, r1: number) => {
   const dc = Math.abs(c0 - c1);
   const dr = Math.abs(r0 - r1);
+
   return dc + dr + (Math.SQRT2 - 2) * Math.min(dc, dr);
 };
 
@@ -44,24 +35,29 @@ interface MinHeap {
   pop: () => number;
 }
 
-/** Binary min-heap over `heap`, keyed on fScore. */
-const minHeap = (heap: number[], fScore: Float64Array): MinHeap => {
+const minHeap = (heap: number[], fScore: Float64Array) => {
   const less = (a: number, b: number) => (fScore[a] ?? Infinity) < (fScore[b] ?? Infinity);
+
   const swap = (i: number, j: number) => {
     const a = heap[i];
     const b = heap[j];
+
     if (a === undefined || b === undefined) {
       return;
     }
+
     heap[i] = b;
     heap[j] = a;
   };
+
   const up = (from: number) => {
     let i = from;
+
     while (i > 0) {
       const p = Math.floor((i - 1) / 2);
       const hi = heap[i];
       const hp = heap[p];
+
       if (hi !== undefined && hp !== undefined && less(hi, hp)) {
         swap(i, p);
         i = p;
@@ -70,44 +66,55 @@ const minHeap = (heap: number[], fScore: Float64Array): MinHeap => {
       }
     }
   };
+
   const down = (from: number) => {
     let i = from;
     const sz = heap.length;
+
     for (;;) {
       let m = i;
       const l = 2 * i + 1;
       const r = 2 * i + 2;
       const hl = heap[l];
       const hml = heap[m];
+
       if (l < sz && hl !== undefined && hml !== undefined && less(hl, hml)) {
         m = l;
       }
+
       const hr = heap[r];
       const hmr = heap[m];
+
       if (r < sz && hr !== undefined && hmr !== undefined && less(hr, hmr)) {
         m = r;
       }
+
       if (m === i) {
         break;
       }
+
       swap(i, m);
       i = m;
     }
   };
+
   return {
-    pop: (): number => {
+    pop: () => {
       const [top] = heap;
       const last = heap.pop();
+
       if (top === undefined || last === undefined) {
         return -1;
       }
+
       if (heap.length > 0) {
         heap[0] = last;
         down(0);
       }
+
       return top;
     },
-    push: (idx: number): void => {
+    push: (idx: number) => {
       heap.push(idx);
       up(heap.length - 1);
     },
@@ -118,12 +125,9 @@ export class NavGrid {
   readonly cols: number;
   readonly rows: number;
   readonly cell: number;
-  /** walkable[r*cols + c] — true if a unit may stand there. */
   private walkable: Uint8Array;
   private elevLvl: Int8Array;
   private rampFlag: Uint8Array;
-  // A* scratch buffers, allocated once and reset per findPath call — the grid is a
-  // lazy singleton, and re-allocating ~40KB per pathfind was pure GC churn.
   private gScore: Float64Array;
   private fScore: Float64Array;
   private came: Int32Array;
@@ -144,6 +148,7 @@ export class NavGrid {
     this.came = new Int32Array(n);
     this.closed = new Uint8Array(n);
     this.inHeap = new Uint8Array(n);
+
     if (meta) {
       for (let r = 0; r < this.rows; r += 1) {
         for (let c = 0; c < this.cols; c += 1) {
@@ -153,60 +158,68 @@ export class NavGrid {
         }
       }
     }
+
     this.applyBlockers(blockers);
   }
 
-  /** A step between two cells is legal unless it crosses an elevation change with
-   *  no ramp at either end (i.e. a cliff edge). */
-  private canStep(c0: number, r0: number, c1: number, r1: number): boolean {
+  private canStep(c0: number, r0: number, c1: number, r1: number) {
     const a = r0 * this.cols + c0;
     const b = r1 * this.cols + c1;
+
     if (this.elevLvl[a] === this.elevLvl[b]) {
       return true;
     }
+
     return this.rampFlag[a] === 1 || this.rampFlag[b] === 1;
   }
 
-  private applyBlockers(blockers: Blocker[]): void {
-    // Two passes so "gap" (bridge) re-opens cells closed by overlapping water.
+  private applyBlockers(blockers: Blocker[]) {
     for (const b of blockers) {
       if (b.kind === "gap") {
         continue;
       }
+
       this.stamp(b, 0);
     }
+
     for (const b of blockers) {
       if (b.kind !== "gap") {
         continue;
       }
+
       this.stamp(b, 1);
     }
   }
 
-  private stamp(b: Blocker, value: 0 | 1): void {
+  private stamp(b: Blocker, value: 0 | 1) {
     if (b.kind === "circle") {
       const minC = Math.max(0, Math.floor((b.x - b.r) / this.cell));
       const maxC = Math.min(this.cols - 1, Math.floor((b.x + b.r) / this.cell));
       const minR = Math.max(0, Math.floor((b.y - b.r) / this.cell));
       const maxR = Math.min(this.rows - 1, Math.floor((b.y + b.r) / this.cell));
       const r2 = b.r * b.r;
+
       for (let r = minR; r <= maxR; r += 1) {
         for (let c = minC; c <= maxC; c += 1) {
           const cx = (c + 0.5) * this.cell;
           const cy = (r + 0.5) * this.cell;
           const dx = cx - b.x;
           const dy = cy - b.y;
+
           if (dx * dx + dy * dy <= r2) {
             this.walkable[r * this.cols + c] = value;
           }
         }
       }
+
       return;
     }
+
     const minC = Math.max(0, Math.floor(b.x / this.cell));
     const maxC = Math.min(this.cols - 1, Math.floor((b.x + b.w) / this.cell));
     const minR = Math.max(0, Math.floor(b.y / this.cell));
     const maxR = Math.min(this.rows - 1, Math.floor((b.y + b.h) / this.cell));
+
     for (let r = minR; r <= maxR; r += 1) {
       for (let c = minC; c <= maxC; c += 1) {
         this.walkable[r * this.cols + c] = value;
@@ -214,19 +227,19 @@ export class NavGrid {
     }
   }
 
-  inBounds(c: number, r: number): boolean {
+  inBounds(c: number, r: number) {
     return c >= 0 && r >= 0 && c < this.cols && r < this.rows;
   }
 
-  isWalkableCell(c: number, r: number): boolean {
+  isWalkableCell(c: number, r: number) {
     return this.inBounds(c, r) && this.walkable[r * this.cols + c] === 1;
   }
 
-  isWalkableWorld(x: number, y: number): boolean {
+  isWalkableWorld(x: number, y: number) {
     return this.isWalkableCell(Math.floor(x / this.cell), Math.floor(y / this.cell));
   }
 
-  cellCenter(c: number, r: number): Vec2 {
+  cellCenter(c: number, r: number) {
     return { x: (c + 0.5) * this.cell, y: (r + 0.5) * this.cell };
   }
 
@@ -235,23 +248,27 @@ export class NavGrid {
   }
 
   /** Nearest walkable cell to a world point (spiral search), for snapping goals. */
-  nearestWalkable(x: number, y: number, maxRing = 24): { c: number; r: number } | null {
+  nearestWalkable(x: number, y: number, maxRing = 24) {
     const { c, r } = this.worldToCell(x, y);
+
     if (this.isWalkableCell(c, r)) {
       return { c, r };
     }
+
     for (let ring = 1; ring <= maxRing; ring += 1) {
       for (let dc = -ring; dc <= ring; dc += 1) {
         for (let dr = -ring; dr <= ring; dr += 1) {
           if (Math.max(Math.abs(dc), Math.abs(dr)) !== ring) {
             continue;
           }
+
           if (this.isWalkableCell(c + dc, r + dr)) {
             return { c: c + dc, r: r + dr };
           }
         }
       }
     }
+
     return null;
   }
 
@@ -260,14 +277,17 @@ export class NavGrid {
    * (cell centers), already line-of-sight smoothed, or null if unreachable.
    * Goal is snapped to the nearest walkable cell.
    */
-  findPath(start: Vec2, goal: Vec2): Vec2[] | null {
+  findPath(start: Vec2, goal: Vec2) {
     const s = this.nearestWalkable(start.x, start.y);
     const g = this.nearestWalkable(goal.x, goal.y);
+
     if (!s || !g) {
       return null;
     }
+
     const startIdx = s.r * this.cols + s.c;
     const goalIdx = g.r * this.cols + g.c;
+
     if (startIdx === goalIdx) {
       return [this.cellCenter(g.c, g.r)];
     }
@@ -282,7 +302,6 @@ export class NavGrid {
     gScore[startIdx] = 0;
     fScore[startIdx] = octile(s.c, s.r, g.c, g.r);
 
-    // Binary min-heap keyed on fScore.
     heap.length = 0;
     heap.push(startIdx);
     inHeap[startIdx] = 1;
@@ -290,37 +309,48 @@ export class NavGrid {
 
     let guard = 0;
     const maxIters = n * 2;
+
     while (heap.length > 0) {
       guard += 1;
+
       if (guard > maxIters) {
         break;
       }
+
       const cur = pop();
+
       if (cur < 0) {
         break;
       }
+
       inHeap[cur] = 0;
+
       if (cur === goalIdx) {
         return this.reconstruct(came, cur);
       }
+
       if (closed[cur]) {
         continue;
       }
+
       closed[cur] = 1;
       const cc = cur % this.cols;
       const cr = (cur - cc) / this.cols;
+
       for (let k = 0; k < 8; k += 1) {
         const nei = NEI[k];
+
         if (!nei) {
           continue;
         }
+
         this.relax(cur, cc, cr, nei, g, push);
       }
     }
+
     return null;
   }
 
-  /** Relax the edge from `cur` (at cc,cr) to its neighbour `nei`, pushing it when it improves. */
   private relax(
     cur: number,
     cc: number,
@@ -328,88 +358,104 @@ export class NavGrid {
     nei: [number, number],
     g: { c: number; r: number },
     push: (idx: number) => void,
-  ): void {
+  ) {
     const { gScore, fScore, came, closed, inHeap } = this;
     const nc = cc + nei[0];
     const nr = cr + nei[1];
+
     if (!this.isWalkableCell(nc, nr)) {
       return;
     }
-    // can't climb a cliff edge — only ramps bridge elevations
+
     if (!this.canStep(cc, cr, nc, nr)) {
       return;
     }
+
     const diag = nei[0] !== 0 && nei[1] !== 0;
-    // Disallow corner-cutting through blocked orthogonal neighbours.
+
     if (diag && (!this.isWalkableCell(cc + nei[0], cr) || !this.isWalkableCell(cc, cr + nei[1]))) {
       return;
     }
+
     const nIdx = nr * this.cols + nc;
+
     if (closed[nIdx]) {
       return;
     }
+
     const step = diag ? Math.SQRT2 : 1;
     const tentative = (gScore[cur] ?? Infinity) + step;
+
     if (tentative < (gScore[nIdx] ?? Infinity)) {
       came[nIdx] = cur;
       gScore[nIdx] = tentative;
       fScore[nIdx] = tentative + octile(nc, nr, g.c, g.r);
+
       if (inHeap[nIdx]) {
-        // decrease-key: cheap re-push, stale entries skipped via `closed`.
       } else {
         inHeap[nIdx] = 1;
       }
+
       push(nIdx);
     }
   }
 
-  private reconstruct(came: Int32Array, end: number): Vec2[] {
+  private reconstruct(came: Int32Array, end: number) {
     const cells: number[] = [end];
     let cur = end;
+
     for (;;) {
       const prev = came[cur];
+
       if (prev === undefined || prev === -1) {
         break;
       }
+
       cur = prev;
       cells.push(cur);
     }
+
     cells.reverse();
-    // String-pull: drop intermediate cells that have line of sight from the
-    // last kept waypoint, so units walk in straight diagonals not stairsteps.
     const pts: Vec2[] = [];
     let anchor = 0;
     const [first] = cells;
+
     if (first !== undefined) {
       pts.push(this.cellIdxCenter(first));
     }
+
     for (let i = 2; i < cells.length; i += 1) {
       const anchorCell = cells[anchor];
       const cell = cells[i];
       const prevCell = cells[i - 1];
+
       if (anchorCell === undefined || cell === undefined || prevCell === undefined) {
         continue;
       }
+
       if (!this.cellLineOfSight(anchorCell, cell)) {
         pts.push(this.cellIdxCenter(prevCell));
         anchor = i - 1;
       }
     }
+
     const last = cells.at(-1);
+
     if (last !== undefined) {
       pts.push(this.cellIdxCenter(last));
     }
+
     return pts;
   }
 
-  private cellIdxCenter(idx: number): Vec2 {
+  private cellIdxCenter(idx: number) {
     const c = idx % this.cols;
     const r = (idx - c) / this.cols;
+
     return this.cellCenter(c, r);
   }
 
-  /** Supercover line walk between two cells; true if every cell is walkable. */
-  private cellLineOfSight(a: number, b: number): boolean {
+  private cellLineOfSight(a: number, b: number) {
     let c0 = a % this.cols;
     let r0 = (a - c0) / this.cols;
     const c1 = b % this.cols;
@@ -419,25 +465,30 @@ export class NavGrid {
     const sc = c0 < c1 ? 1 : -1;
     const sr = r0 < r1 ? 1 : -1;
     let err = dc - dr;
+
     for (;;) {
       if (!this.isWalkableCell(c0, r0)) {
         return false;
       }
+
       if (c0 === c1 && r0 === r1) {
         return true;
       }
+
       const pc = c0;
       const pr = r0;
       const e2 = 2 * err;
+
       if (e2 > -dr) {
         err -= dr;
         c0 += sc;
       }
+
       if (e2 < dc) {
         err += dc;
         r0 += sr;
       }
-      // don't straight-line a path across a cliff edge (keeps paths on the ramp)
+
       if (!this.canStep(pc, pr, c0, r0)) {
         return false;
       }

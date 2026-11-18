@@ -1,21 +1,8 @@
-// Lunerfall's bespoke pause overlay — built on the shared @repo/embed pause
-// shell (which owns resume behavior — pointerup / keyup except Escape / fresh
-// pad press — idempotent show/hide, and the full-screen fading root), reskinned
-// in the hub's moonlit pixel language: a chunky steel-blue pixel panel (notched
-// corners, hard offset shadow) over a night scrim, a box-shadow pixel-art
-// crescent moon bobbing one moon-pixel at a time, a twinkling star field, and
-// the hub palette — teal #34e5c8 headings, shard-gold #ffd15c key caps,
-// blue-grey copy. Online co-op/versus keeps running behind it (main.ts only
-// freezes the loop offline), so the scrim stays translucent enough to read the
-// arena through. Control rows re-render from CONTROLS via controlGroups()
-// fresh each show().
-
 import { controlGroups, createPauseShell } from "@repo/embed";
-import type { ControlMethod, PauseOverlay } from "@repo/embed";
+import type { ControlMethod } from "@repo/embed";
 import { sfx } from "./audio/sfx";
 import { CONTROLS } from "./controls";
 
-/** Section headers for the grouped control rows, in hub voice. */
 const METHOD_LABELS = {
   camera: "camera",
   controller: "gamepad",
@@ -24,21 +11,19 @@ const METHOD_LABELS = {
   touch: "touch",
 } satisfies Record<ControlMethod, string>;
 
-// Pixel-art crescent (12×12 grid, 1em = one moon pixel) drawn entirely with
-// box-shadow squares — no image assets, crisp at any integer scale.
 const MOON_LIT =
   "3em 1em,4em 1em,2em 2em,3em 2em,1em 3em,2em 3em,1em 4em,2em 4em,1em 5em," +
   "2em 5em,1em 6em,2em 6em,1em 7em,2em 7em,3em 7em,1em 8em,2em 8em,3em 8em," +
   "4em 8em,2em 9em,3em 9em,4em 9em,5em 9em,6em 9em,3em 10em,4em 10em,5em 10em,6em 10em";
+
 const MOON_SHADE =
   "3em 3em,3em 4em,3em 5em,3em 6em,4em 7em,5em 8em,7em 9em,8em 9em,9em 9em,7em 10em,8em 10em";
 
-// Star field: two twinkle layers of box-shadow points scattered in viewport
-// units, so they spread with the screen. Pure decoration — pointer-events off.
 const STARS_A =
   "8vw 12vh #f4f7fb,22vw 28vh #8b95a1,31vw 8vh #d8dee6,44vw 20vh #8b95a1," +
   "58vw 9vh #f4f7fb,71vw 24vh #d8dee6,84vw 14vh #8b95a1,93vw 30vh #f4f7fb," +
   "12vw 78vh #8b95a1,88vw 72vh #d8dee6";
+
 const STARS_B =
   "15vw 18vh #d8dee6,27vw 6vh #f4f7fb,39vw 30vh #8b95a1,52vw 15vh #34e5c8," +
   "66vw 6vh #d8dee6,78vw 19vh #f4f7fb,91vw 8vh #8b95a1,6vw 34vh #d8dee6," +
@@ -46,7 +31,6 @@ const STARS_B =
 
 const STYLE_ID = "lf-pause-style";
 
-// Positioning/z-index/fade live on the shell's root — visuals only here.
 const CSS = `
 #lf-pause {
   display: flex;
@@ -252,22 +236,25 @@ const CSS = `
 }
 `;
 
-const el = (tag: string, className: string, text?: string): HTMLElement => {
+const el = (tag: string, className: string, text?: string) => {
   const node = document.createElement(tag);
   node.className = className;
+
   if (text !== undefined) {
     node.textContent = text;
   }
+
   return node;
 };
 
-const renderPanel = (overlay: HTMLElement): void => {
+const renderPanel = (overlay: HTMLElement) => {
   overlay.id = "lf-pause";
   const coarse = window.matchMedia("(pointer: coarse)").matches;
 
   overlay.append(el("span", "lf-pause-stars"));
 
   const panel = el("div", "lf-pause-panel");
+
   for (const corner of ["tl", "tr", "bl", "br"]) {
     panel.append(el("span", `lf-pause-notch lf-pause-notch-${corner}`));
   }
@@ -279,16 +266,18 @@ const renderPanel = (overlay: HTMLElement): void => {
   );
 
   const groups = controlGroups(CONTROLS, { coarse });
+
   if (groups.length > 0) {
     const controls = el("div", "lf-pause-controls");
+
     for (const group of groups) {
       controls.append(el("div", "lf-pause-method", METHOD_LABELS[group.method]));
       const rows = el("div", "lf-pause-rows");
-      // Merge same-action bindings within a group ("J / X — attack"), the
-      // same voice as the hub blurb's controls line.
       const byAction = new Map<string, string[]>();
+
       for (const entry of group.entries) {
         const inputs = byAction.get(entry.action);
+
         if (inputs) {
           if (!inputs.includes(entry.input)) {
             inputs.push(entry.input);
@@ -297,14 +286,17 @@ const renderPanel = (overlay: HTMLElement): void => {
           byAction.set(entry.action, [entry.input]);
         }
       }
+
       for (const [action, inputs] of byAction) {
         rows.append(
           el("span", "lf-pause-key", inputs.join(" / ")),
           el("span", "lf-pause-action", action),
         );
       }
+
       controls.append(rows);
     }
+
     panel.append(controls);
   }
 
@@ -323,7 +315,7 @@ const renderPanel = (overlay: HTMLElement): void => {
  * manifest fresh on every show(), so plugging a pad in mid-run adds its rows
  * on the next pause.
  */
-export const createLunerfallPauseOverlay = (): PauseOverlay =>
+export const createLunerfallPauseOverlay = () =>
   createPauseShell({
     css: CSS,
     fadeMs: 220,
@@ -333,9 +325,7 @@ export const createLunerfallPauseOverlay = (): PauseOverlay =>
         if (next !== sfx.muted) {
           sfx.toggleMute();
         }
-        // Unmuting is itself the user gesture that lets WebAudio start, and the
-        // synth builds no context at all while muted — so the bed only ever
-        // begins here (or on a canvas gesture), never on load.
+
         if (!next) {
           sfx.unlock();
         }

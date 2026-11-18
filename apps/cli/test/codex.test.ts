@@ -17,6 +17,7 @@ import { saveSetting } from "../src/lib/settings.js";
 import { makeCleanups, makeTmpDir, stubEnv } from "./_helpers.js";
 
 const { cleanups, drain } = makeCleanups();
+
 afterEach(drain);
 
 test("parseProvider: the two names, any case, and nothing else", () => {
@@ -48,8 +49,8 @@ test("parseCodexInput extracts prompt, count (clamped), size hint, and reference
     prompt: "  a fox  ",
     seed: 42,
   });
+
   assert.equal(parsed.prompt, "a fox");
-  // clamped to MAX_IMAGES
   assert.equal(parsed.count, 8);
   assert.equal(parsed.sizeHint, "aspect ratio 16:9");
   assert.deepEqual(parsed.referenceCandidates, ["c.png", "a.png", "b.png"]);
@@ -84,12 +85,10 @@ test("renderLocalTarget: default naming, placeholders, directory, and literal fi
     renderLocalTarget("out/{request_id}_{index}.{ext}", 2, "png", "abcd", 3),
     path.join(cwd, "out/abcd_2.png"),
   );
-  // Bare directory.
   assert.equal(
     renderLocalTarget("shots", 1, "png", "abcd", 2),
     path.join(cwd, "shots/codex-image-1.png"),
   );
-  // Literal file: index 0 keeps the name, later indices disambiguate.
   assert.equal(renderLocalTarget("hero.png", 0, "png", "abcd", 2), path.join(cwd, "hero.png"));
   assert.equal(renderLocalTarget("hero.png", 1, "png", "abcd", 2), path.join(cwd, "hero_1.png"));
 });
@@ -120,11 +119,9 @@ test("placeCodexOutputs disambiguates colliding targets instead of overwriting",
   writeFileSync(a, "AAA");
   writeFileSync(b, "BBB");
 
-  // Template lacks {index}, so both outputs render to the same path.
   const template = path.join(dst, "{request_id}.{ext}");
   const { downloaded, failed } = placeCodexOutputs([a, b], template, "zz99");
   assert.equal(failed.length, 0);
-  // Second file gets a `_1` suffix rather than clobbering the first.
   assert.deepEqual(downloaded, [path.join(dst, "zz99.png"), path.join(dst, "zz99_1.png")]);
   const [first, second] = downloaded;
   assert.ok(first && second);
@@ -140,8 +137,6 @@ test("placeCodexOutputs is a no-op copy when target equals source", () => {
   cleanups.push(() => process.chdir(cwd));
   const src = path.join(dir, "codex-image-abcd-0.png");
   writeFileSync(src, "X");
-  // Default template resolves to exactly this path, so no copy happens
-  // and no self-copy error is thrown.
   const { downloaded, failed } = placeCodexOutputs([src], undefined, "abcd");
   assert.equal(failed.length, 0);
   assert.deepEqual(downloaded, [src]);
@@ -161,7 +156,6 @@ test("chooseProvider: with no preference, only the codex endpoint runs on codex"
   assert.deepEqual(chooseProvider(undefined, run(OPENAI_IMAGE)), { provider: "vibedgames" });
   assert.deepEqual(chooseProvider(undefined, run("fal-ai/flux/dev")), { provider: "vibedgames" });
   assert.deepEqual(chooseProvider(undefined, run("codex")), { provider: "codex" });
-  // --provider decides outright, for any endpoint, in either direction.
   assert.equal(chooseProvider("codex", run("fal-ai/flux/dev")).provider, "codex");
   assert.equal(chooseProvider("vibedgames", run("codex")).provider, "vibedgames");
   assert.throws(() => chooseProvider("coddex", run("codex")), /Unknown provider/u);
@@ -176,22 +170,21 @@ test("chooseProvider: a saved codex preference serves only the OpenAI image runs
     chooseProvider(undefined, run("openai/gpt-image-2/edit", { image_url: "./ref.png" })).provider,
     "codex",
   );
-  // Codex can't run Flux, video or audio: those stay on vibedgames, silently.
   assert.deepEqual(chooseProvider(undefined, run("fal-ai/flux/dev")), { provider: "vibedgames" });
   assert.deepEqual(chooseProvider(undefined, run("fal-ai/kling-video/v2/text-to-video")), {
     provider: "vibedgames",
   });
-  // An OpenAI image run codex can't honour stays on vibedgames, and says why.
   const asyncRun = chooseProvider(undefined, run(OPENAI_IMAGE, {}, true));
   assert.equal(asyncRun.provider, "vibedgames");
   assert.match(asyncRun.note ?? "", /generate\.provider is codex, but codex can't run --async/u);
+
   const urlRef = chooseProvider(
     undefined,
     run(OPENAI_IMAGE, { image_url: "https://x.test/a.png" }),
   );
+
   assert.equal(urlRef.provider, "vibedgames");
   assert.match(urlRef.note ?? "", /local reference files/u);
-  // --provider still decides one run.
   assert.equal(chooseProvider("vibedgames", run(OPENAI_IMAGE)).provider, "vibedgames");
 });
 
@@ -220,6 +213,7 @@ test("buildCodexPrompt: a size is a target Codex must not stop to resize for", (
     ["output-0.png"],
     false,
   );
+
   assert.match(prompt, /aim for .*1536/u);
   assert.match(prompt, /never resize, crop or ask/u);
 });

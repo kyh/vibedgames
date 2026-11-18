@@ -1,6 +1,3 @@
-// Short-lived point lights (muzzle flashes, explosions). Each flash asks the
-// lighting pool for a light every frame while it lasts, fading quadratically,
-// so the pool decides which of them actually get a real light this frame.
 import type * as THREE from "three";
 import type { Lighting } from "../render/lighting";
 import { clamp } from "../utils";
@@ -27,13 +24,14 @@ export class FlashList {
     intensity: number,
     distance: number,
     duration: number,
-  ): void {
+  ) {
     this.flashes.push({ T: duration, color, distance, intensity, t: 0, x, y, z });
   }
 
-  update(dt: number, lighting: Lighting): void {
+  update(dt: number, lighting: Lighting) {
     const { flashes } = this;
     let kept = 0;
+
     for (const flash of flashes) {
       flash.t += dt;
       const fade = 1 - clamp(flash.t / flash.T, 0, 1);
@@ -45,11 +43,13 @@ export class FlashList {
         flash.intensity * fade * fade,
         flash.distance,
       );
+
       if (flash.t < flash.T) {
         flashes[kept] = flash;
         kept += 1;
       }
     }
+
     flashes.length = kept;
   }
 }

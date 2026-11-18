@@ -1,57 +1,3 @@
-// Extract the REAL SF TRANSIT NETWORK (cable car, streetcar, Muni Metro,
-// trolleybus wire, bus, heavy rail) from the licensed "Downtown San Francisco"
-// OBJ, as world-space CENTRELINE POLYLINES.
-//
-//   node tools/sf-data/extract-transit-obj.mjs <path-to-obj> [out.json]
-//
-// Sibling of extract-footprints.mjs and shares its verified model->world
-// calibration (see CAL below). TWO outputs: the full JSON analysis report at
-// [out.json], and the shipped game module src/world/sf-transit.ts (see EMIT at
-// the bottom) — the render-ready subset, stamped with the NETWORK_GEN_ID of the
-// sf-network.ts it was resolved against.
-//
-// RE-RUN THIS AFTER EVERY `pnpm bake:map`. The emitted coverage is a list of
-// INDICES into SF_EDGES, and a map bake renumbers them; `pnpm test` asserts the
-// stamp so stale indices fail the suite instead of painting track through
-// buildings.
-//
-// HOW THE OBJ STORES ROUTES
-// -------------------------
-// Route relations are NOT `l` polylines. Each is an extruded rectangular tube
-// swept along the OSM way: per path point 4 verts (2 at y=0.5, 2 at y=0), per
-// segment 4 quads (top / side / bottom / side, all `usemtl roads`). So the
-// centreline is exact, not approximate: take only the TOP quads, and every top
-// quad's two CROSS edges (the ribbon-width edges, shared with the neighbouring
-// quad) have a midpoint that IS a path point of the original OSM way.
-//
-//   quad [a, b, c, d] -> cross edges (a,d) and (b,c); midpoints = path points
-//
-// Choosing which of the two opposite-edge pairings is "cross" uses topology,
-// not length: cross edges are SHARED between consecutive top quads, along-edges
-// are ribbon boundary and appear once. Ties (isolated one-quad stubs) fall back
-// to the shorter pairing. Deviation of the recovered centreline from the source
-// ribbon is therefore 0 by construction; the only lossy step is the final RDP,
-// whose max deviation is measured and reported.
-//
-// Path points are then MERGED BY POSITION into one graph per kind, which
-// collapses the enormous overlap between coincident routes (57 bus relations
-// mostly redraw the same streets) into a unique corridor network, and turns
-// crossings into real degree-4 junctions. The emitted polylines are STROKES,
-// not chains: tracing runs THROUGH a junction while the street name is
-// unchanged and the turn is under STROKE_TURN, so "the cable track on Hyde
-// Street" comes out as one polyline instead of 30 block-long fragments.
-//
-// IDENTIFICATION uses two independent external sources, never vibes:
-//   - sf-streets.raw.json (the OSM extract the game's own network is baked
-//     from) gives every chain a street NAME by nearest named way.
-//   - named lines (Powell-Hyde, Powell-Mason, California St, F-line) are
-//     recovered by Dijkstra between terminals located as the geometric
-//     intersection of two named OSM streets.
-//
-// SNAPPING: each point is measured against, and optionally pulled onto, the
-// game's own baked street centrelines (src/world/sf-network.ts) so rails land
-// on our asphalt. Before/after distance distributions are printed.
-
 import { spawnSync } from "node:child_process";
 import { createReadStream, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -61,70 +7,37 @@ import { plLen, projU, projV, rdp, WORLD_H, WORLD_W } from "./lib.mjs";
 
 const [objPath, outArg] = process.argv.slice(2);
 const outPath = outArg ?? "transit.json";
+
 if (!objPath) {
   console.error("usage: node extract-transit-obj.mjs <obj> [out.json]");
   process.exit(1);
 }
 
-// --- Model -> world transform (identical to extract-footprints.mjs; do NOT
-// re-fit it — see that file's comment for how it was anchored). ---
 const CAL = { bx: 325.2, bz: -400.5, sx: 0.17829, sz: 0.17909 };
 const toWorld = (mx, mz) => [mx * CAL.sx + CAL.bx, mz * CAL.sz + CAL.bz];
+
 const ANCHORS = [
   ["Salesforce", 2458.4, -2088.9, 760, -770.1],
   ["Transamerica", 1809.9, -2842.1, 644.9, -907.7],
 ];
 
-// Merge radius for path points, in MODEL units. 1 world u ~ 5.6 model u, so
-// 1.5 model u ~ 0.27 world u: tight enough that two genuinely distinct track
-// points never merge (the tightest real spacing is a ~2.1u ribbon width),
-// loose enough to absorb the exporter's float re-rounding of shared OSM nodes.
 const MERGE_R = 1.5;
-// world units
 const RDP_EPS = 1;
-// world units; beyond this we leave the point alone
 const SNAP_MAX = 6;
-// world units; street-name lookup radius
 const NAME_MAX = 10;
-// world units; distance-to-asphalt probe radius (report only)
 const MEASURE_MAX = 150;
-// world units; "_suspended duplicates live" test radius
 const DEDUPE_D = 4;
-// >= this share inside live track => the variant is a redraw
 const DEDUPE_FRAC = 0.9;
-// world units; drop only true slivers — a stub that
 const MIN_CHAIN_U = 1.5;
-//                          crosses one junction still has to be drawn
-// world units; second merge, after snapping, that folds the
 const MERGE_W = 2.5;
-//                      two directional ribbons of one route into one track
-// stroke continuation limit
 const STROKE_TURN = Math.cos((65 * Math.PI) / 180);
-// world units; how far apart two named streets may be
 const XSEC_MAX = 40;
-//                        and still be called an intersection (Powell dies into
-//                        Market across Hallidie Plaza at 23.5u)
 
-// Alignments the model draws AT GRADE that are underground in reality. Painting
-// them puts phantom rails down the city's main street: of the light_rail
-// corridor, 2342u of 2973u runs in the Market Street subway, and railway adds
-// 2812u of the same tunnel plus 387u of the Stockton Tunnel (a ROAD tunnel the
-// OBJ tagged as railway). Surface Market IS carried — by the F-line, which
-// comes through as `tram`, so the filter is per-mode and never touches a mode
-// that is a surface mode by definition.
 const UNDERGROUND_STREETS = new Set(["Market Street", "Stockton Tunnel"]);
 const UNDERGROUND_MODES = new Set(["light_rail", "railway"]);
 
-// Modes that reach src/world/sf-transit.ts as track geometry. `bus` leaves no
-// physical trace on the roadway (71 relations mostly redraw the same streets),
-// so it ships as a service-density weight only; `monorail` is declared in the
-// OBJ with zero faces.
 const EMITTED_MODES = ["cable", "tram", "light_rail", "trolleybus", "railway"];
 
-// ---------------------------------------------------------------------------
-// Group classification
-// ---------------------------------------------------------------------------
-// `route_trollybus_suspended_1` is a real (misspelled) group in the file.
 const KIND_RE = [
   [/^route_cable(?:_|$)/u, "cable"],
   [/^route_tram(?:_|$)/u, "tram"],
@@ -137,19 +50,19 @@ const KIND_RE = [
   [/^route_train(?:_|$)/u, "train"],
   [/^route_ferry(?:_|$)/u, "ferry"],
 ];
+
 const classify = (group) => {
   const bare = group.replace(/_suspended/u, "");
+
   for (const [re, kind] of KIND_RE) {
     if (re.test(bare)) {
       return kind;
     }
   }
+
   return null;
 };
 
-// ---------------------------------------------------------------------------
-// Geometry helpers
-// ---------------------------------------------------------------------------
 const segDist = (px, pz, ax, az, bx, bz) => {
   const dx = bx - ax;
   const dz = bz - az;
@@ -158,16 +71,17 @@ const segDist = (px, pz, ax, az, bx, bz) => {
   t = t < 0 ? 0 : Math.min(1, t);
   const qx = ax + t * dx;
   const qz = az + t * dz;
+
   return [Math.hypot(px - qx, pz - qz), qx, qz];
 };
 
 const cellKey = (i, j) => `${i},${j}`;
 const edgeKey = (a, b) => (a < b ? `${a},${b}` : `${b},${a}`);
 
-/** Uniform-grid index over line segments; nearest() is the only query. */
 const makeSegIndex = (cell) => {
   const buckets = new Map();
   const segs = [];
+
   return {
     add(ax, az, bx, bz, payload) {
       const id = segs.push([ax, az, bx, bz, payload]) - 1;
@@ -175,40 +89,47 @@ const makeSegIndex = (cell) => {
       const i1 = Math.floor(Math.max(ax, bx) / cell);
       const j0 = Math.floor(Math.min(az, bz) / cell);
       const j1 = Math.floor(Math.max(az, bz) / cell);
+
       for (let i = i0; i <= i1; i += 1) {
         for (let j = j0; j <= j1; j += 1) {
           const k = cellKey(i, j);
           let b = buckets.get(k);
+
           if (!b) {
             b = [];
             buckets.set(k, b);
           }
+
           b.push(id);
         }
       }
     },
     count: () => segs.length,
-    /** @returns {{d:number,x:number,z:number,payload:unknown}|null} closest segment within maxD */
     nearest(px, pz, maxD) {
       const r = Math.ceil(maxD / cell);
       const ci = Math.floor(px / cell);
       const cj = Math.floor(pz / cell);
       let best = null;
+
       for (let i = ci - r; i <= ci + r; i += 1) {
         for (let j = cj - r; j <= cj + r; j += 1) {
           const b = buckets.get(cellKey(i, j));
+
           if (!b) {
             continue;
           }
+
           for (const id of b) {
             const s = segs[id];
             const [d, qx, qz] = segDist(px, pz, s[0], s[1], s[2], s[3]);
+
             if (d <= maxD && (!best || d < best.d)) {
               best = { d, payload: s[4], x: qx, z: qz };
             }
           }
         }
       }
+
       return best;
     },
   };
@@ -218,122 +139,123 @@ const pct = (arr, t) => {
   if (arr.length === 0) {
     return Number.NaN;
   }
+
   const s = [...arr].toSorted((a, b) => a - b);
+
   return s[Math.min(s.length - 1, Math.floor(s.length * t))];
 };
+
 const r1 = (n) => Math.round(n * 10) / 10;
 const r2 = (n) => Math.round(n * 100) / 100;
 const uOf = (x) => x / WORLD_W + 0.5;
 const vOf = (z) => z / WORLD_H + 0.5;
 
-/**
- * Format an emitted module in place, so `pnpm format` cannot go red just because
- * someone re-ran a bake. Best effort: a missing binary is a warning, not a
- * failed extract — the data is already written by then.
- */
 const oxfmt = (file) => {
   const bin = path.resolve(
     new URL("../../../../node_modules/.bin/oxfmt", import.meta.url).pathname,
   );
+
   const r = spawnSync(bin, ["--write", file], { stdio: "ignore" });
+
   if (r.status !== 0) {
     console.log(`  (could not run oxfmt on ${file} — format it before committing)`);
   }
 };
 
-// ---------------------------------------------------------------------------
-// The game's own baked street network — snap target
-// ---------------------------------------------------------------------------
 const loadGameNetwork = () => {
   const src = readFileSync(new URL("../../src/world/sf-network.ts", import.meta.url), "utf-8");
-  // The stamp travels with the coverage: edge indices only mean anything for
-  // the exact bake that produced them.
   const stamp = /NETWORK_GEN_ID = "(?<id>[^"]+)"/u.exec(src);
+
   if (!stamp) {
     console.error("sf-network.ts carries no NETWORK_GEN_ID — cannot stamp the emitted module");
     process.exit(1);
   }
+
   const idx = makeSegIndex(24);
   const edgeLen = [];
-  // `p:\s*\[` — NOT `p: [`. bake-network.mts emits sf-network.ts UNFORMATTED
-  // (oxfmt runs afterwards, by hand or by `pnpm format:fix`), and against the
-  // unformatted file the spaced pattern matched NOTHING: every corridor
-  // silently resolved to "no game edge within 150u" and this script wrote a
-  // real-looking sf-transit.ts with 0 modes and 0 corridors. The guard below
-  // is the backstop — a parse that finds no edges is a broken parse, never an
-  // empty network.
+
   for (const m of src.matchAll(/p:\s*\[(?<nums>[-\d.,\s]+)\]/gu)) {
     const nums = (m.groups?.nums ?? "").split(",").map(Number);
     const e = edgeLen.length;
     let L = 0;
+
     for (let i = 2; i + 1 < nums.length; i += 2) {
       idx.add(nums[i - 2], nums[i - 1], nums[i], nums[i + 1], e);
       L += Math.hypot(nums[i] - nums[i - 2], nums[i + 1] - nums[i - 1]);
     }
+
     edgeLen.push(L);
   }
+
   if (edgeLen.length === 0) {
     console.error("sf-network.ts parsed to 0 edges — the SF_EDGES shape changed, fix the regex");
     process.exit(1);
   }
+
   return { edgeLen, edges: edgeLen.length, genId: stamp.groups?.id ?? "", idx };
 };
 
-// ---------------------------------------------------------------------------
-// OSM street names — identification source
-// ---------------------------------------------------------------------------
 const loadNamedStreets = () => {
   const raw = JSON.parse(readFileSync(new URL("sf-streets.raw.json", import.meta.url), "utf-8"));
   const idx = makeSegIndex(24);
-  /** @type {Map<string, number[][]>} name -> list of world polylines */
   const byName = new Map();
   let ways = 0;
+
   for (const el of raw.elements) {
     const name = el?.tags?.name;
+
     if (!name || !el.geometry) {
       continue;
     }
+
     const pl = [];
+
     for (const g of el.geometry) {
       if (!g) {
         continue;
       }
+
       pl.push([(projU(g.lon) - 0.5) * WORLD_W, (projV(g.lat) - 0.5) * WORLD_H]);
     }
+
     if (pl.length < 2) {
       continue;
     }
+
     ways += 1;
+
     for (let i = 1; i < pl.length; i += 1) {
       idx.add(pl[i - 1][0], pl[i - 1][1], pl[i][0], pl[i][1], name);
     }
+
     let l = byName.get(name);
+
     if (!l) {
       byName.set(name, (l = []));
     }
+
     l.push(pl);
   }
+
   return { byName, idx, ways };
 };
 
-/**
- * Geometric intersection of two named OSM streets: the midpoint of the closest
- * approach between any segment of A and any vertex of B (vertex-to-segment is
- * enough — OSM shares a node at real intersections, so the true crossing is a
- * vertex of both).
- */
 const streetIntersection = (streets, nameA, nameB) => {
   const A = streets.byName.get(nameA);
   const B = streets.byName.get(nameB);
+
   if (!A || !B) {
     return null;
   }
+
   let best = null;
+
   for (const pb of B) {
     for (const [px, pz] of pb) {
       for (const pa of A) {
         for (let i = 1; i < pa.length; i += 1) {
           const [d, qx, qz] = segDist(px, pz, pa[i - 1][0], pa[i - 1][1], pa[i][0], pa[i][1]);
+
           if (!best || d < best.d) {
             best = { d, x: (px + qx) / 2, z: (pz + qz) / 2 };
           }
@@ -341,30 +263,30 @@ const streetIntersection = (streets, nameA, nameB) => {
       }
     }
   }
+
   return best && best.d < XSEC_MAX ? best : null;
 };
 
-// ---------------------------------------------------------------------------
-// Pass 1 — stream the OBJ, keep only transit groups' faces
-// ---------------------------------------------------------------------------
 const vx = [];
 const vy = [];
 const vz = [];
-/** @type {Map<string, {kind:string, susp:boolean, quads:number[][], tris:number}>} */
 const groups = new Map();
 let cur = null;
 let curRec = null;
 let emptyGroups = 0;
 
 const rl = createInterface({ crlfDelay: Infinity, input: createReadStream(objPath) });
+
 rl.on("line", (l) => {
   const c0 = l.codePointAt(0);
-  // 118 = "v", 102 = "f", 32 = space
+
   if (c0 === 118 && l.codePointAt(1) === 32) {
     let i = 2;
+
     while (l.codePointAt(i) === 32) {
       i += 1;
     }
+
     const j = l.indexOf(" ", i);
     const k = l.indexOf(" ", j + 1);
     vx.push(Number(l.slice(i, j)));
@@ -374,61 +296,74 @@ rl.on("line", (l) => {
     if (!curRec) {
       return;
     }
+
     const parts = l.slice(2).trim().split(/\s+/u);
+
     if (parts.length !== 4) {
       curRec.tris += 1;
+
       return;
     }
+
     const ids = [];
+
     for (const p of parts) {
       const s = p.includes("/") ? p.slice(0, p.indexOf("/")) : p;
       let id = Number(s);
+
       if (id < 0) {
         id = vx.length + 1 + id;
       }
+
       ids.push(id - 1);
     }
+
     curRec.quads.push(ids);
   } else if (l.startsWith("o ") || l.startsWith("g ")) {
     cur = l.slice(2).trim();
     const kind = classify(cur);
     curRec = null;
+
     if (kind) {
       let rec = groups.get(cur);
+
       if (!rec) {
         rec = { kind, quads: [], susp: cur.includes("suspended"), tris: 0 };
         groups.set(cur, rec);
       }
+
       curRec = rec;
     }
   }
 });
+
 rl.on("close", () => {
   for (const [, rec] of groups) {
     if (rec.quads.length === 0 && rec.tris === 0) {
       emptyGroups += 1;
     }
   }
+
   main();
 });
 
-// ---------------------------------------------------------------------------
-// Ribbon -> centreline graph
-// ---------------------------------------------------------------------------
-/** Connected-component sizes, largest first. */
 const components = (adj) => {
   const seen = new Set();
   const out = [];
+
   for (const start of adj.keys()) {
     if (seen.has(start)) {
       continue;
     }
+
     let n = 0;
     const stack = [start];
     seen.add(start);
+
     while (stack.length) {
       const u = stack.pop();
       n += 1;
+
       for (const v of adj.get(u)) {
         if (!seen.has(v)) {
           seen.add(v);
@@ -436,16 +371,18 @@ const components = (adj) => {
         }
       }
     }
+
     out.push(n);
   }
+
   return out.toSorted((a, b) => b - a);
 };
 
-/** Newell normal's unit Y for a quad: +1 facing up, -1 facing down. */
 const quadUpness = (f) => {
   let nx = 0;
   let ny = 0;
   let nz = 0;
+
   for (let i = 0; i < 4; i += 1) {
     const a = f[i];
     const b = f[(i + 1) % 4];
@@ -453,60 +390,58 @@ const quadUpness = (f) => {
     ny += (vz[a] - vz[b]) * (vx[a] + vx[b]);
     nz += (vx[a] - vx[b]) * (vy[a] + vy[b]);
   }
+
   return ny / (Math.hypot(nx, ny, nz) || 1);
 };
 
-/**
- * Pick a quad's two cross edges: by shared-edge topology when it decides, by
- * length otherwise. pairing 1: cross = (a,b) & (c,d); pairing 2: cross = (b,c) & (d,a)
- */
 const crossEdgesOf = (f, ecount) => {
   const [a, b, c, d] = f;
+
   const pair1 = [
     [a, b],
     [c, d],
   ];
+
   const pair2 = [
     [b, c],
     [d, a],
   ];
+
   const s1 = ecount.get(edgeKey(a, b)) + ecount.get(edgeKey(c, d));
   const s2 = ecount.get(edgeKey(b, c)) + ecount.get(edgeKey(d, a));
+
   if (s1 === s2) {
     const L = (p, q) => Math.hypot(vx[p] - vx[q], vz[p] - vz[q]);
+
     return { byLength: true, cross: L(a, b) + L(c, d) < L(b, c) + L(d, a) ? pair1 : pair2 };
   }
+
   return { byLength: false, cross: s1 > s2 ? pair1 : pair2 };
 };
 
 const meanY = (fs) => {
   let s = 0;
   let n = 0;
+
   for (const f of fs) {
     for (const id of f) {
       s += vy[id];
       n += 1;
     }
   }
+
   return n ? s / n : -1e9;
 };
 
-/**
- * Build one merged centreline graph from a set of OBJ groups.
- * @returns {{pos:number[][], adj:Map<number,Set<number>>, stats:object}} model-space graph and its tallies
- */
 const buildGraph = (recs) => {
-  // --- select TOP quads: horizontal, and (of the two horizontal orientations)
-  // the one whose mean Y is higher. Orientation is read off the Newell normal
-  // so the choice is self-validating rather than assumed. ---
-  // ny > 0
   const horizA = [];
-  // ny < 0
   const horizB = [];
   let nonHoriz = 0;
+
   for (const rec of recs) {
     for (const f of rec.quads) {
       const uy = quadUpness(f);
+
       if (uy > 0.9) {
         horizA.push(f);
       } else if (uy < -0.9) {
@@ -516,44 +451,44 @@ const buildGraph = (recs) => {
       }
     }
   }
+
   const top = meanY(horizA) >= meanY(horizB) ? horizA : horizB;
   const bottom = top === horizA ? horizB : horizA;
 
-  // --- cross-edge pairing by topology ---
   const ecount = new Map();
+
   for (const f of top) {
     for (let i = 0; i < 4; i += 1) {
       ecount.set(edgeKey(f[i], f[(i + 1) % 4]), 0);
     }
   }
+
   for (const f of top) {
     for (let i = 0; i < 4; i += 1) {
       const k = edgeKey(f[i], f[(i + 1) % 4]);
       ecount.set(k, ecount.get(k) + 1);
     }
   }
+
   let byTopology = 0;
   let byLength = 0;
 
-  // --- merged node graph ---
-  // Bucket-and-search, NOT bucket-as-identity: a plain quantized key splits two
-  // points 0.002 apart whenever they straddle a bucket edge, and the C4D export
-  // re-rounds shared OSM nodes just enough for that to happen. That fragmented
-  // the cable-car graph into 120 disconnected pieces. Search the 3x3
-  // neighbourhood and reuse any node within MERGE_R instead.
-  // "i,j" -> node ids
   const buckets = new Map();
   const pos = [];
   const adj = new Map();
+
   const nodeAt = (mx, mz) => {
     const bi = Math.floor(mx / MERGE_R);
     const bj = Math.floor(mz / MERGE_R);
+
     for (let i = bi - 1; i <= bi + 1; i += 1) {
       for (let j = bj - 1; j <= bj + 1; j += 1) {
         const b = buckets.get(`${i},${j}`);
+
         if (!b) {
           continue;
         }
+
         for (const id of b) {
           if (Math.hypot(pos[id][0] - mx, pos[id][1] - mz) <= MERGE_R) {
             return id;
@@ -561,40 +496,51 @@ const buildGraph = (recs) => {
         }
       }
     }
+
     const id = pos.push([mx, mz]) - 1;
     adj.set(id, new Set());
     const k = `${bi},${bj}`;
     let b = buckets.get(k);
+
     if (!b) {
       b = [];
       buckets.set(k, b);
     }
+
     b.push(id);
+
     return id;
   };
+
   const link = (a, b) => {
     if (a === b) {
       return;
     }
+
     adj.get(a).add(b);
     adj.get(b).add(a);
   };
+
   const widths = [];
+
   for (const f of top) {
     const { byLength: lengthDecided, cross } = crossEdgesOf(f, ecount);
+
     if (lengthDecided) {
       byLength += 1;
     } else {
       byTopology += 1;
     }
+
     const mids = cross.map(([p, q]) => {
       widths.push(Math.hypot(vx[p] - vx[q], vz[p] - vz[q]));
+
       return nodeAt((vx[p] + vx[q]) / 2, (vz[p] + vz[q]) / 2);
     });
+
     link(mids[0], mids[1]);
   }
-  // Connected components — the honest measure of how fragmented the recovered
-  // network is, and the reason a Dijkstra between two terminals can fail.
+
   const compSizes = components(adj);
 
   return {
@@ -616,46 +562,29 @@ const buildGraph = (recs) => {
   };
 };
 
-/**
- * Model graph -> world graph: measure, snap, then RE-MERGE.
- *
- * The model draws each direction of a route as its OWN ribbon, laterally offset
- * by ~0.5-2.5u. Left alone that doubles every corridor's length and splits the
- * cable-car network into two never-touching halves (measured: 3858u of "cable
- * track" for a system with ~1900u of it, and 2 big components where there is
- * one network). Snapping both onto the game's street centreline collapses the
- * pair, and a second merge at MERGE_W finishes the job for the stretches that
- * have no asphalt under them.
- *
- * Also tallies, per covered game edge, which named OSM street the snap points
- * landed on. That per-EDGE vote (not the per-stroke label) is what lets the
- * emitted coverage be grouped into corridors and the underground alignments be
- * filtered out — a stroke label is one vote for a whole run of edges.
- *
- * @returns {{pos:number[][], adj:Map<number,Set<number>>, preD:number[],
- *            snapped:number, points:number, merged:number,
- *            coveredEdges:Set<number>, edgeVotes:Map<number,Map<string,number>>}} world-space graph plus snap tallies
- */
 const snapNodes = (g, net, streets) => {
   const preD = [];
   const placed = [];
   const coveredEdges = new Set();
-  /** game edge index -> street name -> snap-point count ("" = unnamed) */
   const edgeVotes = new Map();
   let snapped = 0;
+
   for (const [mx, mz] of g.pos) {
     const [x, z] = toWorld(mx, mz);
     const hit = net.idx.nearest(x, z, MEASURE_MAX);
     preD.push(hit ? hit.d : MEASURE_MAX);
+
     if (hit && hit.d <= SNAP_MAX) {
       placed.push([hit.x, hit.z]);
       coveredEdges.add(hit.payload);
       const nameHit = streets.idx.nearest(hit.x, hit.z, NAME_MAX);
       let votes = edgeVotes.get(hit.payload);
+
       if (!votes) {
         votes = new Map();
         edgeVotes.set(hit.payload, votes);
       }
+
       const nm = nameHit ? nameHit.payload : "";
       votes.set(nm, (votes.get(nm) ?? 0) + 1);
       snapped += 1;
@@ -663,6 +592,7 @@ const snapNodes = (g, net, streets) => {
       placed.push([x, z]);
     }
   }
+
   return { coveredEdges, edgeVotes, placed, preD, snapped };
 };
 
@@ -671,17 +601,17 @@ const consolidate = (g, net, streets) => {
   const buckets = new Map();
   const pos = [];
   const remap = new Int32Array(placed.length);
-  // Snapped nodes are inserted FIRST so they become the cluster representative:
-  // otherwise a merge can drag a node that was sitting exactly on our asphalt
-  // back off it, and the after-snap distribution comes out worse than before.
+
   const order = [...placed.keys()].toSorted(
     (a, b) => (preD[a] <= SNAP_MAX ? 0 : 1) - (preD[b] <= SNAP_MAX ? 0 : 1) || a - b,
   );
+
   for (const i of order) {
     const [x, z] = placed[i];
     const bi = Math.floor(x / MERGE_W);
     const bj = Math.floor(z / MERGE_W);
     let found = -1;
+
     for (let a = bi - 1; a <= bi + 1 && found < 0; a += 1) {
       for (let b = bj - 1; b <= bj + 1 && found < 0; b += 1) {
         for (const id of buckets.get(`${a},${b}`) ?? []) {
@@ -692,33 +622,43 @@ const consolidate = (g, net, streets) => {
         }
       }
     }
+
     if (found < 0) {
       found = pos.push([x, z]) - 1;
       const k = `${bi},${bj}`;
       let b = buckets.get(k);
+
       if (!b) {
         b = [];
         buckets.set(k, b);
       }
+
       b.push(found);
     }
+
     remap[i] = found;
   }
+
   const adj = new Map();
+
   for (let i = 0; i < pos.length; i += 1) {
     adj.set(i, new Set());
   }
+
   for (const [a, nbrs] of g.adj) {
     for (const b of nbrs) {
       const ra = remap[a];
       const rb = remap[b];
+
       if (ra === rb) {
         continue;
       }
+
       adj.get(ra).add(rb);
       adj.get(rb).add(ra);
     }
   }
+
   return {
     adj,
     coveredEdges,
@@ -731,32 +671,31 @@ const consolidate = (g, net, streets) => {
   };
 };
 
-/**
- * Group covered game edges into named CORRIDORS. Each edge is assigned to the
- * street that won its snap-point vote (ties broken lexicographically so the
- * output is deterministic), so the corridors PARTITION the coverage — their
- * union is the flat edge list and no edge is counted twice.
- *
- * @returns {{street:string, lengthU:number, edges:number[]}[]} longest first
- */
 const buildCorridors = (edgeVotes, net) => {
   const byStreet = new Map();
+
   for (const [edge, votes] of edgeVotes) {
     let street = "";
     let best = -1;
+
     for (const [name, n] of [...votes].toSorted((a, b) => (a[0] < b[0] ? -1 : 1))) {
       if (n > best) {
         best = n;
         street = name;
       }
     }
+
     let list = byStreet.get(street);
+
     if (!list) {
       byStreet.set(street, (list = []));
     }
+
     list.push(edge);
   }
+
   const out = [];
+
   for (const [street, edges] of byStreet) {
     edges.sort((a, b) => a - b);
     out.push({
@@ -765,51 +704,48 @@ const buildCorridors = (edgeVotes, net) => {
       street,
     });
   }
+
   out.sort((a, b) => b.lengthU - a.lengthU || (a.street < b.street ? -1 : 1));
+
   return out;
 };
 
-/**
- * Per-relation service density: how many of the OBJ's route objects cover each
- * game edge. Snapped straight off the ribbon VERTICES (no centreline recovery)
- * because a relative weight does not need sub-metre alignment — and each object
- * is one route direction/variant, so the count is a density, not a route count.
- * @returns {Map<number, number>} game edge index -> covering route objects
- */
 const edgeLoad = (recs, net) => {
   const load = new Map();
+
   for (const rec of recs) {
     const ids = new Set();
+
     for (const f of rec.quads) {
       for (const id of f) {
         ids.add(id);
       }
     }
+
     const edges = new Set();
+
     for (const id of ids) {
       const [x, z] = toWorld(vx[id], vz[id]);
       const hit = net.idx.nearest(x, z, SNAP_MAX);
+
       if (hit) {
         edges.add(hit.payload);
       }
     }
+
     for (const e of edges) {
       load.set(e, (load.get(e) ?? 0) + 1);
     }
   }
+
   return load;
 };
 
-/**
- * Trace STROKES: maximal runs of graph edges that share a street label and turn
- * by less than STROKE_TURN at each node. Deterministic — edges are visited in
- * sorted (a,b) order and continuations break ties by smallest turn.
- * @returns {{ids:number[], label:string|null}[]} node-id runs with their street label
- */
 const traceStrokes = (g, labelOf) => {
   const { pos, adj } = g;
   const used = new Set();
   const edges = [];
+
   for (const [a, nbrs] of adj) {
     for (const b of nbrs) {
       if (a < b) {
@@ -817,45 +753,54 @@ const traceStrokes = (g, labelOf) => {
       }
     }
   }
+
   edges.sort((p, q) => p[0] - q[0] || p[1] - q[1]);
 
   const dirOf = (from, to) => {
     const dx = pos[to][0] - pos[from][0];
     const dz = pos[to][1] - pos[from][1];
     const l = Math.hypot(dx, dz) || 1;
+
     return [dx / l, dz / l];
   };
-  /** Walk forward from `node` (arrived from `prev`), appending node ids. */
+
   const extend = (out, from, start, label) => {
     let prev = from;
     let node = start;
+
     for (;;) {
       const [dx, dz] = dirOf(prev, node);
       let best = -1;
       let bestDot = STROKE_TURN;
       const cands = [...adj.get(node)].toSorted((a, b) => a - b);
+
       for (const n of cands) {
         if (n === prev || used.has(edgeKey(node, n))) {
           continue;
         }
+
         if (labelOf(node, n) !== label) {
           continue;
         }
+
         const [ex, ez] = dirOf(node, n);
         const dot = dx * ex + dz * ez;
+
         if (dot > bestDot) {
           bestDot = dot;
           best = n;
         }
       }
+
       if (best < 0) {
         return;
       }
+
       used.add(edgeKey(node, best));
       out.push(best);
       prev = node;
       node = best;
-      // paranoia against a pathological ring
+
       if (out.length > 100_000) {
         return;
       }
@@ -863,10 +808,12 @@ const traceStrokes = (g, labelOf) => {
   };
 
   const strokes = [];
+
   for (const [a, b] of edges) {
     if (used.has(edgeKey(a, b))) {
       continue;
     }
+
     used.add(edgeKey(a, b));
     const label = labelOf(a, b);
     const fwd = [b];
@@ -875,17 +822,14 @@ const traceStrokes = (g, labelOf) => {
     extend(back, b, a, label);
     strokes.push({ ids: [...back.toReversed(), ...fwd], label });
   }
+
   return strokes;
 };
 
-/**
- * Split a node-id run into world-space polylines that stay inside the
- * playfield. Filtering out-of-bounds points in place would weld the two sides
- * of the gap into one phantom straight segment kilometres long.
- */
 const clipToWorld = (pts) => {
   const out = [];
   let run = [];
+
   for (const p of pts) {
     if (Math.abs(p[0]) <= WORLD_W / 2 && Math.abs(p[1]) <= WORLD_H / 2) {
       run.push(p);
@@ -893,69 +837,79 @@ const clipToWorld = (pts) => {
       if (run.length >= 2) {
         out.push(run);
       }
+
       run = [];
     }
   }
+
   if (run.length >= 2) {
     out.push(run);
   }
+
   return out;
 };
 
-/**
- * RDP that survives closed rings. Plain RDP on a loop degenerates: first and
- * last point coincide, so the chord is zero-length, every interior point tests
- * as "on the line", and the whole loop collapses to a dot (this is what showed
- * up as a 282u "max deviation" before). Split near-closed runs at the point
- * farthest from the start and simplify each half.
- */
 const rdpSafe = (pts, eps) => {
   if (pts.length <= 2) {
     return pts;
   }
+
   const chord = Math.hypot(pts[0][0] - pts.at(-1)[0], pts[0][1] - pts.at(-1)[1]);
+
   if (chord > 0.05 * plLen(pts)) {
     return rdp(pts, eps);
   }
+
   let far = 0;
   let fd = -1;
+
   for (let i = 1; i < pts.length; i += 1) {
     const d = Math.hypot(pts[i][0] - pts[0][0], pts[i][1] - pts[0][1]);
+
     if (d > fd) {
       fd = d;
       far = i;
     }
   }
+
   if (far < 1 || far > pts.length - 2) {
     return rdp(pts, eps);
   }
+
   const l = rdp(pts.slice(0, far + 1), eps);
   const r = rdp(pts.slice(far), eps);
+
   return [...l.slice(0, -1), ...r];
 };
 
-/** Dijkstra over the merged graph, by euclidean edge length. */
 const shortestPath = (g, from, to) => {
   const dist = new Map([[from, 0]]);
   const prev = new Map();
   const seen = new Set();
   const queue = [[0, from]];
+
   while (queue.length) {
     queue.sort((a, b) => a[0] - b[0]);
     const [d, u] = queue.shift();
+
     if (seen.has(u)) {
       continue;
     }
+
     seen.add(u);
+
     if (u === to) {
       break;
     }
+
     for (const v of g.adj.get(u)) {
       if (seen.has(v)) {
         continue;
       }
+
       const w = Math.hypot(g.pos[u][0] - g.pos[v][0], g.pos[u][1] - g.pos[v][1]);
       const nd = d + w;
+
       if (nd < (dist.get(v) ?? Infinity)) {
         dist.set(v, nd);
         prev.set(v, u);
@@ -963,58 +917,68 @@ const shortestPath = (g, from, to) => {
       }
     }
   }
+
   if (!seen.has(to)) {
     return null;
   }
+
   const out = [];
+
   for (let c = to; c !== undefined; c = prev.get(c)) {
     out.push(g.pos[c]);
+
     if (c === from) {
       break;
     }
   }
+
   return out.toReversed();
 };
 
 const nearestNode = (g, x, z) => {
   let best = -1;
   let bd = Infinity;
+
   for (let i = 0; i < g.pos.length; i += 1) {
     const d = Math.hypot(g.pos[i][0] - x, g.pos[i][1] - z);
+
     if (d < bd) {
       bd = d;
       best = i;
     }
   }
+
   return { d: bd, id: best };
 };
 
-/** Max distance from every source point to the simplified polyline. */
 const maxDeviation = (src, simp) => {
   let worst = 0;
+
   for (const [px, pz] of src) {
     let d = Infinity;
+
     for (let i = 1; i < simp.length; i += 1) {
       const [dd] = segDist(px, pz, simp[i - 1][0], simp[i - 1][1], simp[i][0], simp[i][1]);
+
       if (dd < d) {
         d = dd;
       }
     }
+
     if (d > worst) {
       worst = d;
     }
   }
+
   return worst;
 };
 
-// ---------------------------------------------------------------------------
-// main
-// ---------------------------------------------------------------------------
 const checkAnchors = () => {
   for (const [name, mx, mz, wx, wz] of ANCHORS) {
     const [ax, az] = toWorld(mx, mz);
     const err = Math.hypot(ax - wx, az - wz);
     console.log(`anchor ${name}: (${r1(ax)}, ${r1(az)}) vs (${wx}, ${wz}) — ${r1(err)}u`);
+
     if (err > 12) {
       console.error("anchor drift — recheck CAL before emitting");
       process.exit(1);
@@ -1022,21 +986,25 @@ const checkAnchors = () => {
   }
 };
 
-/** Group the parsed OBJ objects by kind and print the inventory. */
 const inventory = () => {
   const byKind = new Map();
+
   for (const [gname, rec] of groups) {
     let k = byKind.get(rec.kind);
+
     if (!k) {
       k = { live: [], names: [], susp: [] };
       byKind.set(rec.kind, k);
     }
+
     (rec.susp ? k.susp : k.live).push(rec);
     k.names.push(gname);
   }
+
   console.log("\n--- OBJ group inventory ---");
   let totalQuads = 0;
   let totalTris = 0;
+
   for (const [kind, k] of [...byKind].toSorted()) {
     const q = [...k.live, ...k.susp].reduce((s, r) => s + r.quads.length, 0);
     const t = [...k.live, ...k.susp].reduce((s, r) => s + r.tris, 0);
@@ -1046,69 +1014,80 @@ const inventory = () => {
       `${kind.padEnd(12)} objects=${String(k.names.length).padStart(3)} (live ${k.live.length} / suspended ${k.susp.length})  quads=${String(q).padStart(7)}  non-quad faces=${t}`,
     );
   }
+
   console.log(
     `total: ${groups.size} transit objects, ${totalQuads} quads, ${totalTris} non-quad faces skipped, ${emptyGroups} empty declarations`,
   );
+
   return { byKind, totalQuads, totalTris };
 };
 
-/** Does the _suspended variant duplicate the live network? */
 const dedupeSuspended = (gLive, gSusp) => {
   const liveIdx = makeSegIndex(24);
+
   for (const [a, nbrs] of gLive.adj) {
     for (const b of nbrs) {
       if (b < a) {
         continue;
       }
+
       const [ax, az] = toWorld(...gLive.pos[a]);
       const [bx, bz] = toWorld(...gLive.pos[b]);
       liveIdx.add(ax, az, bx, bz);
     }
   }
+
   let hit = 0;
   let tot = 0;
+
   for (const p of gSusp.pos) {
     const [x, z] = toWorld(p[0], p[1]);
     tot += 1;
+
     if (liveIdx.nearest(x, z, DEDUPE_D)) {
       hit += 1;
     }
   }
+
   const frac = tot ? hit / tot : 0;
   const dedupe = { radiusU: DEDUPE_D, suspendedPoints: tot, withinLive: r2(frac) };
   console.log(
     `  suspended-vs-live overlap: ${(frac * 100).toFixed(1)}% of suspended points sit within ${DEDUPE_D}u of live track`,
   );
   dedupe.dropped = frac >= DEDUPE_FRAC;
+
   if (dedupe.dropped) {
     console.log(`  -> suspended variant DROPPED as a duplicate`);
   } else {
     console.log(`  -> suspended variant KEPT (distinct alignment)`);
   }
+
   return dedupe;
 };
 
-/**
- * Label every graph edge with the street it runs on, so strokes can be traced
- * per street. Cached: bus has ~40k edges and the lookup dominates.
- */
 const edgeLabeller = (g, streets) => {
   const labelCache = new Map();
+
   const labelOf = (a, b) => {
     const key = edgeKey(a, b);
     let l = labelCache.get(key);
+
     if (l === undefined) {
       const hit = streets.idx.nearest(
         (g.pos[a][0] + g.pos[b][0]) / 2,
         (g.pos[a][1] + g.pos[b][1]) / 2,
         NAME_MAX,
       );
+
       l = hit ? hit.payload : null;
       labelCache.set(key, l);
     }
+
     return l;
   };
+
   let unlabelled = 0;
+
   for (const [a, nbrs] of g.adj) {
     for (const b of nbrs) {
       if (a < b && labelOf(a, b) === null) {
@@ -1116,6 +1095,7 @@ const edgeLabeller = (g, streets) => {
       }
     }
   }
+
   return { labelOf, unlabelled };
 };
 
@@ -1133,7 +1113,6 @@ const distStats = (ds) => ({
   p99: r2(pct(ds, 0.99)),
 });
 
-/** Clip every stroke to the world, drop fragments, simplify what remains. */
 const emitStrokes = (kind, strokes, g, net) => {
   const emitted = [];
   const postD = [];
@@ -1141,17 +1120,21 @@ const emitStrokes = (kind, strokes, g, net) => {
   let simpPts = 0;
   let worstDev = 0;
   let dropped = 0;
+
   for (const st of strokes) {
     const world = st.ids.map((i) => g.pos[i]);
+
     for (const pts of clipToWorld(world)) {
       if (plLen(pts) < MIN_CHAIN_U) {
         dropped += 1;
         continue;
       }
+
       for (const [x, z] of pts) {
         const hit = net.idx.nearest(x, z, MEASURE_MAX);
         postD.push(hit ? hit.d : MEASURE_MAX);
       }
+
       rawPts += pts.length;
       const simp = rdpSafe(pts, RDP_EPS);
       simpPts += simp.length;
@@ -1167,90 +1150,96 @@ const emitStrokes = (kind, strokes, g, net) => {
       });
     }
   }
+
   return { dropped, emitted, postD, rawPts, simpPts, worstDev };
 };
 
 const topStreetsOf = (emitted) => {
   const topStreets = new Map();
+
   for (const e of emitted) {
     if (e.street) {
       topStreets.set(e.street, (topStreets.get(e.street) ?? 0) + e.lengthU);
     }
   }
+
   return [...topStreets].toSorted((a, b) => b[1] - a[1]).slice(0, 10);
 };
 
-/**
- * Corridors, then the underground cut for the two modes the OBJ draws at grade
- * but reality buries.
- */
 const surfaceCorridors = (kind, g, net) => {
   const all = buildCorridors(g.edgeVotes, net);
+
   const filt = UNDERGROUND_MODES.has(kind)
     ? all.filter((c) => !UNDERGROUND_STREETS.has(c.street))
     : all;
+
   if (filt.length !== all.length) {
     const cut = all.filter((c) => UNDERGROUND_STREETS.has(c.street));
     console.log(
       `  UNDERGROUND cut: ${cut.map((c) => `${c.street} ${c.edges.length}e/${c.lengthU}u`).join(" · ")} -> ${filt.reduce((s, c) => s + c.edges.length, 0)} surface edges remain`,
     );
   }
+
   return filt;
 };
 
-/**
- * Restricted to the centreline-derived coverage so "which edges have bus
- * service" has ONE definition. The ribbon-vertex pass reaches a few more edges
- * by snapping off the ribbon's shoulder; those are not corridor.
- */
 const tallyBusLoad = (k, g, net, busLoad) => {
   const raw = edgeLoad([...k.live, ...k.susp], net);
+
   for (const e of g.coveredEdges) {
     busLoad.set(e, raw.get(e) ?? 1);
   }
+
   const loads = [...busLoad.values()];
   console.log(
     `  bus service density over ${busLoad.size} edges: p50 ${pct(loads, 0.5)} · p90 ${pct(loads, 0.9)} · max ${Math.max(...loads)} route objects`,
   );
 };
 
-/** Live + kept suspended graphs, merged into one world-space graph. */
 const worldGraphOf = (kind, k) => {
   const liveHas = k.live.some((r) => r.quads.length > 0);
   const suspHas = k.susp.some((r) => r.quads.length > 0);
+
   if (!liveHas && !suspHas) {
     return null;
   }
+
   console.log(`\n### ${kind}`);
   const gLive = liveHas ? buildGraph(k.live) : null;
   const gSusp = suspHas ? buildGraph(k.susp) : null;
+
   if (gLive) {
     console.log(`  live      : ${JSON.stringify(gLive.stats)}`);
   }
+
   if (gSusp) {
     console.log(`  suspended : ${JSON.stringify(gSusp.stats)}`);
   }
+
   const dedupe = gLive && gSusp ? dedupeSuspended(gLive, gSusp) : null;
-  // Union of the graphs we keep, rebuilt from the source recs so nodes merge
-  // across live+suspended too.
   const keep = [...k.live];
+
   if (gSusp && !dedupe?.dropped) {
     keep.push(...k.susp);
   }
+
   const gm = keep.length === k.live.length && gLive ? gLive : buildGraph(keep);
+
   return { dedupe, gm };
 };
 
 const processKind = (kind, k, ctx) => {
   const { net, streets } = ctx;
   const graphs = worldGraphOf(kind, k);
+
   if (!graphs) {
     console.log(`\n### ${kind}: declared but carries no geometry — skipped`);
     ctx.kindStats[kind] = { note: "declared in OBJ but carries no faces" };
+
     return;
   }
+
   const { dedupe, gm } = graphs;
-  // Model graph -> snapped, direction-deduped WORLD graph.
   const g = consolidate(gm, net, streets);
   const { preD } = g;
   const comps = components(g.adj);
@@ -1321,12 +1310,10 @@ const processKind = (kind, k, ctx) => {
     tallyBusLoad(k, g, net, ctx.busLoad);
   }
 
-  // Bus is emitted as a corridor network only; individual relations are not
-  // separable and there are far too many to render.
   for (const e of emitted) {
     ctx.routes.push(e);
   }
-  // world-space, snapped, direction-deduped
+
   k.graph = g;
 };
 
@@ -1348,28 +1335,34 @@ const NAMED = [
   ],
 ];
 
-/** One named line by Dijkstra between its terminal intersections; null when the mode has no graph. */
 const recoverLine = ([kind, label, A, B], byKind, streets) => {
   const k = byKind.get(kind);
+
   if (!k?.graph) {
     console.log(`  ${label}: no ${kind} graph`);
+
     return null;
   }
+
   const ia = streetIntersection(streets, A[0], A[1]);
   const ib = streetIntersection(streets, B[0], B[1]);
+
   if (!ia || !ib) {
     console.log(`  ${label}: could not locate terminal (${A.join(" x ")} / ${B.join(" x ")})`);
+
     return { kind, name: label, ok: false, why: "terminal intersection not found in OSM" };
   }
-  // The kept graph is already world-space (consolidate()).
+
   const na = nearestNode(k.graph, ia.x, ia.z);
   const nb = nearestNode(k.graph, ib.x, ib.z);
   const daU = na.d;
   const dbU = nb.d;
+
   if (daU > 40 || dbU > 40) {
     console.log(
       `  ${label}: terminals located but track ends ${r1(daU)}u / ${r1(dbU)}u away — NOT this network`,
     );
+
     return {
       kind,
       name: label,
@@ -1377,27 +1370,34 @@ const recoverLine = ([kind, label, A, B], byKind, streets) => {
       why: `nearest track node ${r1(daU)}u / ${r1(dbU)}u from terminal`,
     };
   }
+
   const pathModel = shortestPath(k.graph, na.id, nb.id);
+
   if (!pathModel) {
     console.log(`  ${label}: terminals matched but no connected path in the track graph`);
+
     return { kind, name: label, ok: false, why: "terminals not connected in track graph" };
   }
+
   const simp = rdpSafe(pathModel, RDP_EPS);
   const dev = maxDeviation(pathModel, simp);
   const lenU = plLen(simp);
-  // Which streets does it use, in order?
   const seq = [];
+
   for (const [x, z] of simp) {
     const hit = streets.idx.nearest(x, z, NAME_MAX);
     const n = hit ? hit.payload : "?";
+
     if (seq.at(-1) !== n) {
       seq.push(n);
     }
   }
+
   const cond = seq.filter((n, i) => n !== "?" || i === 0);
   console.log(
     `  ${label}: ${r1(lenU)}u (${r1((lenU * 4.446) / 1000)} km), ${simp.length} pts, dev ${r2(dev)}u · via ${cond.slice(0, 14).join(" > ")}`,
   );
+
   return {
     kind,
     lengthKm: r1((lenU * 4.446) / 1000),
@@ -1413,21 +1413,17 @@ const recoverLine = ([kind, label, A, B], byKind, streets) => {
   };
 };
 
-/**
- * How much of the playfield the OBJ's transit data actually covers. The model
- * is "Downtown San Francisco": its route relations stop well short of the
- * game's full 3172x2600 map, so a renderer must not assume city-wide coverage.
- * Reported as the u/v box that holds 98% of all route points.
- */
 const dataExtent = (routes) => {
   const allU = [];
   const allV = [];
+
   for (const r of routes) {
     for (const [x, z] of r.pts) {
       allU.push(uOf(x));
       allV.push(vOf(z));
     }
   }
+
   return {
     u01: [r2(pct(allU, 0.01)), r2(pct(allU, 0.99))],
     uFull: [r2(Math.min(...allU)), r2(Math.max(...allU))],
@@ -1445,30 +1441,33 @@ const main = () => {
   );
 
   const { byKind, totalQuads, totalTris } = inventory();
+
   const ctx = {
-    /** game edge index -> number of OBJ bus route objects covering it. */
     busLoad: new Map(),
-    /** kind -> named corridors partitioning the SURFACE coverage, longest first. */
     corridors: {},
-    /** kind -> indices into SF_EDGES that carry it (raw, including underground). */
     coverage: {},
     kindStats: {},
     net,
     routes: [],
     streets,
   };
+
   for (const [kind, k] of [...byKind].toSorted()) {
     if (k.live.length === 0 && k.susp.length === 0) {
       continue;
     }
+
     processKind(kind, k, ctx);
   }
+
   const { busLoad, corridors, coverage, kindStats, routes } = ctx;
 
   console.log("\n--- named line recovery (Dijkstra between OSM street intersections) ---");
   const named = [];
+
   for (const spec of NAMED) {
     const line = recoverLine(spec, byKind, streets);
+
     if (line) {
       named.push(line);
     }
@@ -1510,6 +1509,7 @@ const main = () => {
     },
     world: { H: WORLD_H, W: WORLD_W, metresPerUnit: 4.446 },
   };
+
   mkdirSync(path.dirname(outPath), { recursive: true });
   writeFileSync(outPath, JSON.stringify(payload));
   console.log(
@@ -1519,14 +1519,6 @@ const main = () => {
   emitTransitModule(net, corridors, named, busLoad, extent);
 };
 
-// ---------------------------------------------------------------------------
-// EMIT src/world/sf-transit.ts — the shipped subset
-// ---------------------------------------------------------------------------
-// Deliberately NOT the JSON: no extracted polylines for the corridors (we draw
-// the game's own rails along the edges the coverage names, so the extracted
-// geometry is calibration input, not render input), no bus geometry, no stats.
-// What ships is per-mode edge coverage grouped into named corridors, the four
-// recovered named lines as drivable polylines, and a bus service-density table.
 const lineBlock = (n) =>
   `  {\n` +
   `    name: ${JSON.stringify(n.name)},\n` +
@@ -1537,9 +1529,6 @@ const lineBlock = (n) =>
 
 const emitTransitModule = (net, corridors, named, busLoad, extent) => {
   const modes = EMITTED_MODES.filter((m) => (corridors[m] ?? []).length > 0);
-  // Muni Metro is excluded even if a future run recovers it: its only end-to-end
-  // path is the Market subway, and a drivable route in a tunnel we do not model
-  // is worse than no route.
   const lines = named.filter((n) => n.ok && n.kind !== "light_rail");
 
   const modeBlock = (m) =>
@@ -1669,6 +1658,7 @@ export const TRANSIT_EXTENT = {
   v1: ${extent.vFull[1]},
 } as const;
 `;
+
   const out = new URL("../../src/world/sf-transit.ts", import.meta.url);
   writeFileSync(out, src);
   oxfmt(out.pathname);

@@ -34,6 +34,7 @@ import { packRest, serializeWorldBin } from "../src/world/world-bin-pack";
 import { deserializeWorldBin, unpackRest, WORLD_REV } from "../src/world/world-bin";
 
 type Check = (name: string, condition: boolean, detail?: string) => void;
+
 const shoreContext: ShorelineContext = {
   decks: [],
   driveAt: () => 0,
@@ -41,9 +42,10 @@ const shoreContext: ShorelineContext = {
   onRoad: () => false,
   standingAt: () => 0,
 };
+
 const bounds = { maxX: 30, maxZ: 80, minX: -30, minZ: -80 };
 
-const jointCount = (plans: readonly ShoreBarrier[]): number =>
+const jointCount = (plans: readonly ShoreBarrier[]) =>
   plans.reduce(
     (count, panel) =>
       count + Number(panel.joints.start === "post") + Number(panel.joints.end === "post"),
@@ -51,22 +53,30 @@ const jointCount = (plans: readonly ShoreBarrier[]): number =>
   );
 
 type ShoreMesh = ReturnType<typeof buildShoreline>[number];
+
 type ShoreGeometry = ShoreMesh["geometry"];
+
 type MatRecord = NonNullable<ReturnType<typeof matRecOf>>;
+
 type RestoreMaterial = ReturnType<typeof materialFactory>;
+
 type BakedMaterial = ReturnType<RestoreMaterial>;
+
 interface BatchItem {
   geo: ShoreGeometry;
   matrix: Matrix4;
 }
+
 interface BatchCounts {
   indexed: number;
   positions: number;
 }
+
 interface ShadowSource {
   mesh: ShoreMesh;
   style: string;
 }
+
 type UnpackedRest = Awaited<ReturnType<typeof unpackRest>>;
 
 const FLAT_TRIANGLE = [-0.5, 0, 0, 0.5, 0, 0, 0, 1, 0];
@@ -76,16 +86,18 @@ const makeBatch = (
   geometry: ShoreGeometry,
   items: readonly BatchItem[],
   counts: BatchCounts,
-): BatchedMesh => {
+) => {
   const batch = new BatchedMesh(4, counts.positions, counts.indexed, material);
   const geometryId = batch.addGeometry(geometry);
+
   for (const item of items) {
     batch.setMatrixAt(batch.addInstance(geometryId), item.matrix);
   }
+
   return batch;
 };
 
-const checkRoadCapAudit = (check: Check): void => {
+const checkRoadCapAudit = (check: Check) => {
   const bend = new RoadNetwork(
     [
       [-30, 0],
@@ -97,13 +109,16 @@ const checkRoadCapAudit = (check: Check): void => {
       { a: 1, b: 2, p: [0, 20, 30, 20], w: 2 },
     ],
   );
-  const roadSupport = (x: number, z: number): boolean =>
-    (bend.nearest(x, z, 1)?.dist ?? Infinity) < 0.1;
+
+  const roadSupport = (x: number, z: number) => (bend.nearest(x, z, 1)?.dist ?? Infinity) < 0.1;
+
   const curvedHit = bend.nearest(-6, 4, 1);
   const junctionHit = bend.nearest(0, 19, 1);
+
   if (!curvedHit || !junctionHit) {
     throw new Error("Missing curved road fixtures");
   }
+
   check(
     "road-cap audit follows supported curves rather than escaping along a tangent",
     hasSupportedRoadThrough(bend, curvedHit, roadSupport),
@@ -118,22 +133,25 @@ const checkRoadCapAudit = (check: Check): void => {
   );
 };
 
-const checkContourTopology = (check: Check): void => {
+const checkContourTopology = (check: Check) => {
   const saddle = contourSegments(
     (x, z) => x * z >= -0.1,
     { maxX: 1, maxZ: 1, minX: -1, minZ: -1 },
     2,
   );
+
   check(
     "ambiguous coast saddle preserves the supported center channel",
     saddle.length === 2 && saddle.every(({ a, b }) => ((a.x + b.x) / 2) * ((a.z + b.z) / 2) < 0),
   );
+
   const ring = contourSegments((x, z) => x * x + z * z <= 225, {
     maxX: 24,
     maxZ: 24,
     minX: -24,
     minZ: -24,
   });
+
   const ends = ring.flatMap(({ a, b }) => [a, b]);
   check(
     "shore contour has no open joints around an inland lake",
@@ -146,7 +164,7 @@ const checkBarrierMeshes = (
   walls: readonly ShoreBarrier[],
   meshes: readonly ShoreMesh[],
   styled: readonly ShoreMesh[],
-): void => {
+) => {
   check(
     "bake geometry identity preserves five distinct shoreline materials",
     new Set(styled.map((mesh) => mesh.geometry)).size === 5 &&
@@ -158,11 +176,14 @@ const checkBarrierMeshes = (
     meshes.length === visualBoxes.length &&
       meshes.every((mesh, i) => {
         const part = visualBoxes[i];
+
         if (!part) {
           return false;
         }
+
         const box = part.solid;
         const position = new Vector3().setFromMatrixPosition(mesh.matrixWorld);
+
         return (
           position.distanceTo(
             new Vector3(
@@ -180,7 +201,7 @@ const checkBarrierMeshes = (
   );
 };
 
-const checkFenceFixtures = (check: Check, fenceFixtures: readonly ShoreBarrier[]): void => {
+const checkFenceFixtures = (check: Check, fenceFixtures: readonly ShoreBarrier[]) => {
   check(
     "rotated seawalls and open railings match their collision envelopes with sub-car openings",
     fenceFixtures.every(shoreVisualEnvelopeMatches),
@@ -192,16 +213,19 @@ const checkFenceFixtures = (check: Check, fenceFixtures: readonly ShoreBarrier[]
       if (wall.treatment.kind === "seawall" || wall.solid.maxX - wall.solid.minX < 1) {
         return true;
       }
+
       const height = wall.solid.maxY - wall.groundTop - 0.12;
+
       const area = shoreBarrierVisuals(wall)
         .filter((part) => part.role === "rail" || part.role === "post")
         .reduce((sum, { solid }) => sum + (solid.maxX - solid.minX) * (solid.maxY - solid.minY), 0);
+
       return area / ((wall.solid.maxX - wall.solid.minX) * height) < 0.5;
     }),
   );
 };
 
-const checkRailJoints = (check: Check, walls: readonly ShoreBarrier[]): void => {
+const checkRailJoints = (check: Check, walls: readonly ShoreBarrier[]) => {
   const stepped = planShoreline(
     {
       ...shoreContext,
@@ -210,10 +234,12 @@ const checkRailJoints = (check: Check, walls: readonly ShoreBarrier[]): void => 
     },
     bounds,
   );
+
   const corner = planShoreline(
     { ...shoreContext, landAt: (x, z) => Number(x < 0 && z < 0) },
     bounds,
   );
+
   check(
     "straight level fences only add terminal posts, not a post at every contour subdivision",
     walls.length > 20 && jointCount(walls) === 2 && shoreRailJointsConnected(walls),
@@ -227,7 +253,7 @@ const checkRailJoints = (check: Check, walls: readonly ShoreBarrier[]): void => 
   );
 };
 
-const checkShoreAccess = (check: Check): void => {
+const checkShoreAccess = (check: Check) => {
   const launchWalls = SHORE_ACCESS_SITES.flatMap((site) =>
     planShoreline(
       { ...shoreContext, landAt: (x) => (site.id === "ocean-beach" ? Number(x > -1454) : 1) },
@@ -239,14 +265,17 @@ const checkShoreAccess = (check: Check): void => {
       },
     ),
   );
+
   check(
     "Ocean Beach and Stow launch remain open across the car footprint",
     shoreAccessClear(launchWalls),
   );
   const stow = SHORE_ACCESS_SITES.find((site) => site.id === "stow-boat-launch");
+
   if (!stow) {
     throw new Error("Missing Stow launch fixture");
   }
+
   const lakeWalls = planShoreline(
     { ...shoreContext, landAt: () => 1 },
     {
@@ -256,6 +285,7 @@ const checkShoreAccess = (check: Check): void => {
       minZ: stow.dry.z - 25,
     },
   );
+
   check(
     "Stow launch gap preserves fences around the opposite shore",
     lakeWalls.length > 20 &&
@@ -271,7 +301,7 @@ const checkShoreAccess = (check: Check): void => {
   );
 };
 
-const checkBridgeDecks = (check: Check): void => {
+const checkBridgeDecks = (check: Check) => {
   const deck: SurfaceDeck = { maxX: 5, maxZ: 30, minX: -5, minZ: -30, y: 7 };
   const bridge = { ...shoreContext, decks: [deck], landAt: () => 0 };
   check(
@@ -288,10 +318,12 @@ const checkBridgeDecks = (check: Check): void => {
       narrowIndex.hitAt(1.5, -31, 7.5) &&
       narrowIndex.hitAt(1.5, 31, 7.5),
   );
+
   const connected = planShoreline(
     { ...shoreContext, decks: [deck], landAt: (_x, z) => (z > 0 ? 1 : 0) },
     bounds,
   );
+
   const connectedIndex = new SolidIndex(connected.map(({ solid }) => solid));
   check(
     "supported bridge landfall stays open to driving",
@@ -309,7 +341,7 @@ const checkBridgeDecks = (check: Check): void => {
   );
 };
 
-const checkElevatedRail = (check: Check, bounded: Solid): void => {
+const checkElevatedRail = (check: Check, bounded: Solid) => {
   const index = new SolidIndex([bounded]);
   check(
     "elevated rail clips camera only within its visible vertical span",
@@ -317,20 +349,23 @@ const checkElevatedRail = (check: Check, bounded: Solid): void => {
   );
 };
 
-/** Captures the authored fence materials into `rest.rawGeos`, in bake order. */
 const captureShadowFixtures = (
   rest: CityRestPayload,
   fenced: readonly ShoreMesh[],
   styled: readonly ShoreMesh[],
 ) => {
   const metal = fenced.find((mesh) => mesh.name.endsWith("-metal"));
+
   if (!metal || !(metal.material instanceof MeshStandardMaterial)) {
     throw new Error("Missing fence metal");
   }
+
   const record = matRecOf(metal.material);
+
   if (!record) {
     throw new Error("Uncaptured fence metal");
   }
+
   rest.rawGeos.push({
     index: null,
     mat: record,
@@ -339,15 +374,20 @@ const captureShadowFixtures = (
     uv: null,
   });
   const shadowStyles = ["stone", "concrete", "timber", "orange"];
+
   const shadowSources = shadowStyles.map((style) => {
     const mesh = styled.find((candidate) => candidate.name.endsWith(`-${style}`));
+
     if (!mesh || !(mesh.material instanceof MeshStandardMaterial)) {
       throw new Error(`Missing authored ${style} material`);
     }
+
     const mat = matRecOf(mesh.material);
+
     if (!mat) {
       throw new Error(`Uncaptured ${style} material`);
     }
+
     rest.rawGeos.push({
       index: null,
       mat,
@@ -355,8 +395,10 @@ const captureShadowFixtures = (
       position: new Float32Array(FLAT_TRIANGLE),
       uv: null,
     });
+
     return { mesh, style };
   });
+
   return { metal, record, shadowSources };
 };
 
@@ -388,6 +430,7 @@ const checkShadowRestore = (
     compatible instanceof InstancedProps && compatible.children.every((mesh) => !mesh.castShadow),
   );
   compatible.dispose();
+
   return { automatic, restoredMetal };
 };
 
@@ -401,12 +444,14 @@ const checkStyleShadows = (
     shadowSources: readonly ShadowSource[];
     unpacked: UnpackedRest;
   },
-): void => {
+) => {
   for (const [slot, source] of fixtures.shadowSources.entries()) {
     const restored = fixtures.unpacked.rawGeos[slot + 1]?.mat;
+
     if (!restored) {
       throw new Error(`Missing restored ${source.style} material`);
     }
+
     const material = fixtures.restore(restored);
     check(
       `${source.style} shadow policy survives baking independently of driver capabilities`,
@@ -416,6 +461,7 @@ const checkStyleShadows = (
         propShadowsDisabled(material, false) &&
         !propShadowsDisabled(material, true),
     );
+
     for (const multiDraw of [false, true]) {
       const sourceBatch = makeBatch(material, fixtures.geometry, fixtures.items, fixtures.counts);
       sourceBatch.castShadow = !propShadowsDisabled(material, multiDraw);
@@ -430,6 +476,7 @@ const checkStyleShadows = (
       );
       result.dispose();
     }
+
     material.dispose();
   }
 };
@@ -442,7 +489,7 @@ const checkSolidRoundTrip = async (
     rest: CityRestPayload;
     unpacked: UnpackedRest;
   },
-): Promise<void> => {
+) => {
   const { packed, unpacked } = fixtures;
   check(
     "baked explicit wall heights survive serialization",
@@ -461,11 +508,13 @@ const checkSolidRoundTrip = async (
   );
   let rejected = false;
   delete packed.solids.minY;
+
   try {
     await unpackRest(packed);
   } catch {
     rejected = true;
   }
+
   check("malformed explicit wall bounds fail at decode", rejected);
 };
 
@@ -477,7 +526,7 @@ const checkBakeRoundTrip = async (
     legacy: Solid;
     styled: readonly ShoreMesh[];
   },
-): Promise<void> => {
+) => {
   const rest: CityRestPayload = {
     batchItems: [],
     decks: [],
@@ -487,31 +536,40 @@ const checkBakeRoundTrip = async (
     rawGeos: [],
     solids: [fixtures.bounded, fixtures.legacy],
   };
+
   const { metal, record, shadowSources } = captureShadowFixtures(
     rest,
     fixtures.fenced,
     fixtures.styled,
   );
+
   const packed = packRest(rest);
   const decoded = deserializeWorldBin(serializeWorldBin({ rest: packed, rev: WORLD_REV }).buffer);
+
   if (!decoded.rest) {
     throw new Error("Missing shoreline round trip");
   }
+
   const unpacked = await unpackRest(decoded.rest);
   const restoredRecord = unpacked.rawGeos[0]?.mat;
+
   if (!restoredRecord) {
     throw new Error("Missing round-trip metal record");
   }
+
   const restore = materialFactory();
   const { geometry } = metal;
+
   const counts: BatchCounts = {
     indexed: geometry.index?.count ?? 0,
     positions: geometry.getAttribute("position").count,
   };
+
   const items = Array.from({ length: 4 }, (_, i) => ({
     geo: geometry,
     matrix: new Matrix4().makeScale(1, 20 + i, 1),
   }));
+
   const { automatic, restoredMetal } = checkShadowRestore(check, {
     counts,
     geometry,
@@ -520,21 +578,24 @@ const checkBakeRoundTrip = async (
     restore,
     restoredRecord,
   });
+
   checkStyleShadows(check, { counts, geometry, items, restore, shadowSources, unpacked });
   restoredMetal.dispose();
   automatic.dispose();
   await checkSolidRoundTrip(check, { legacy: fixtures.legacy, packed, rest, unpacked });
 };
 
-export const checkShoreline = async (check: Check): Promise<void> => {
+export const checkShoreline = async (check: Check) => {
   checkRoadCapAudit(check);
   checkContourTopology(check);
   const walls = planShoreline(shoreContext, bounds);
   const meshes = buildShoreline(walls);
   const [first] = walls;
+
   if (!first) {
     throw new Error("Missing shoreline fixture");
   }
+
   const treatments = [
     { kind: "seawall", material: "stone" },
     { kind: "seawall", material: "concrete" },
@@ -542,9 +603,11 @@ export const checkShoreline = async (check: Check): Promise<void> => {
     { kind: "park-fence", material: "metal" },
     { kind: "deck-rail", material: "orange" },
   ] satisfies ShoreBarrier["treatment"][];
+
   const styled = buildShoreline(treatments.map((treatment) => ({ ...first, treatment })));
   checkBarrierMeshes(check, walls, meshes, styled);
   const fenceFixtures: ShoreBarrier[] = [];
+
   for (const yaw of [-1.25, -0.78, 0, 0.92]) {
     for (const width of [0.82, 1.3, 5.7]) {
       for (const treatment of treatments) {
@@ -565,6 +628,7 @@ export const checkShoreline = async (check: Check): Promise<void> => {
       }
     }
   }
+
   const fenced = buildShoreline(fenceFixtures);
   checkFenceFixtures(check, fenceFixtures);
   checkRailJoints(check, walls);
@@ -575,40 +639,50 @@ export const checkShoreline = async (check: Check): Promise<void> => {
   const legacy: Solid = { maxX: 2, maxY: 3, maxZ: 2, minX: -2, minZ: -2 };
   await checkBakeRoundTrip(check, { bounded, fenced, legacy, styled });
   const allMeshes = [...meshes, ...styled, ...fenced];
+
   for (const geo of new Set(allMeshes.map((mesh) => mesh.geometry))) {
     geo.dispose();
   }
+
   const materials = new Set(
     allMeshes.flatMap((mesh) => (Array.isArray(mesh.material) ? mesh.material : [mesh.material])),
   );
+
   for (const material of materials) {
     material.dispose();
   }
 };
 
-export const checkShorelinePhysics = async (check: Check): Promise<void> => {
+export const checkShorelinePhysics = async (check: Check) => {
   await ready();
+
   for (const diagonal of [false, true]) {
     const world = new World({ x: 0, y: -30, z: 0 });
     world.timestep = 1 / 60;
     world.createCollider(ColliderDesc.cuboid(30, 0.3, 90).setTranslation(-30, -0.3, 0));
+
     for (const { solid } of planShoreline(shoreContext, bounds)) {
       world.createCollider(staticSolidCollider(staticSolidBox(solid, () => -5)));
     }
+
     const vehicle = new RaycastVehicle({ raw: () => world }, -15, 1.1, -20, Math.PI / 2);
     vehicle.setControls({ boost: false, brake: 0, steer: 0, throttle: 0 }, false);
+
     for (let i = 0; i < 60; i += 1) {
       vehicle.fixedStep(1 / 60);
       world.step();
     }
+
     vehicle.chassis.setLinvel({ x: diagonal ? 95 : 120, y: 0, z: diagonal ? 65 : 0 }, true);
     vehicle.setControls({ boost: true, brake: 0, steer: 0, throttle: 1 }, false);
     let furthest = -Infinity;
+
     for (let i = 0; i < 180; i += 1) {
       vehicle.fixedStep(1 / 60);
       world.step();
       furthest = Math.max(furthest, vehicle.chassis.translation().x);
     }
+
     check(
       `Rapier taxi stays behind shoreline at ${diagonal ? "oblique" : "straight"} boost impact`,
       furthest < 0,
@@ -617,6 +691,7 @@ export const checkShorelinePhysics = async (check: Check): Promise<void> => {
     vehicle.dispose();
     world.free();
   }
+
   const deck: SurfaceDeck = { maxX: 5, maxZ: 40, minX: -5, minZ: -40, y: 7, y2: 11 };
   const world = new World({ x: 0, y: -30, z: 0 });
   world.timestep = 1 / 60;
@@ -628,18 +703,23 @@ export const checkShorelinePhysics = async (check: Check): Promise<void> => {
     ),
   );
   const bridge = { ...shoreContext, decks: [deck], landAt: () => 0 };
+
   for (const { solid } of planShoreline(bridge, bounds)) {
     world.createCollider(staticSolidCollider(staticSolidBox(solid, () => -5)));
   }
+
   const vehicle = new RaycastVehicle({ raw: () => world }, 0, 10.1, 0, Math.PI / 2);
   vehicle.setControls({ boost: false, brake: 0, steer: 0, throttle: 0 }, false);
+
   for (let i = 0; i < 60; i += 1) {
     vehicle.fixedStep(1 / 60);
     world.step();
   }
+
   vehicle.chassis.setLinvel({ x: 100, y: 0, z: 20 }, true);
   let clearance = Infinity;
   let furthest = 0;
+
   for (let i = 0; i < 180; i += 1) {
     vehicle.fixedStep(1 / 60);
     world.step();
@@ -647,6 +727,7 @@ export const checkShorelinePhysics = async (check: Check): Promise<void> => {
     clearance = Math.min(clearance, p.y - surfaceDeckHeight(deck, p.z));
     furthest = Math.max(furthest, Math.abs(p.x));
   }
+
   check(
     "bridge rail impact retains chassis above exact sloped deck",
     clearance > 0.2 && furthest < 5.4,
@@ -658,11 +739,7 @@ export const checkShorelinePhysics = async (check: Check): Promise<void> => {
 
 /** Uses the shipped network: an oversized decorative lagoon previously
  * crossed several streets. Fitting water and rim together must preserve it. */
-export const checkLandmarkWaterWalls = (
-  check: Check,
-  terrain: Terrain,
-  network: RoadNetwork,
-): void => {
+export const checkLandmarkWaterWalls = (check: Check, terrain: Terrain, network: RoadNetwork) => {
   const walls: Solid[] = [];
   buildLandmarks(terrain, new ModelCache(), network, (wall) => walls.push(wall));
   check("Palace lagoon and all Sutro pools retain complete visible barriers", walls.length === 64);
@@ -676,11 +753,13 @@ export const checkLandmarkWaterWalls = (
       const yaw = s.yaw ?? 0;
       const cos = Math.cos(yaw);
       const sin = Math.sin(yaw);
+
       return [-1, 0, 1].every((ix) =>
         [-1, 0, 1].every((iz) => {
           const x = cx + ix * hx * cos + iz * hz * sin;
           const z = cz - ix * hx * sin + iz * hz * cos;
           const hit = network.nearest(x, z, 30);
+
           return hit === null || hit.dist >= hit.edge.half + 0.3;
         }),
       );

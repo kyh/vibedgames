@@ -26,13 +26,14 @@ const config: Types.Core.GameConfig = {
 };
 
 const webgl = probeWebGL();
+
 if (!webgl.ok) {
   showWebGLVeil(webgl);
-  // Module-level boot has no early return: the uncaught throw logs the reason and stops.
   throw new Error(`WebGL unavailable: ${webgl.reason}`);
 }
 
 const game = new Game(config);
+
 game.canvas.addEventListener("webglcontextlost", () => {
   console.error("WebGL context lost");
   showWebGLVeil(
@@ -40,15 +41,13 @@ game.canvas.addEventListener("webglcontextlost", () => {
     "The browser stopped the graphics (usually low memory).",
   );
 });
-// Debug handle for perf/inspection probes (see globalThis.__game).
+
 Reflect.set(globalThis, "__game", game);
-// __GAME_DIAGNOSTICS__ / __GAME_TEST_HOOKS__ for bot playtests (sys/diag.ts).
+
 installTestHooks(game);
 
 const params = new URLSearchParams(window.location.search);
 
-// Trailer mode (?trailer=1): hand the boot to the trailer director. Lazy import
-// so the trailer module never loads — and trailer code stays dead — in normal play.
 if (params.has("trailer")) {
   void (async () => {
     const m = await import("./trailer/trailer-director");
@@ -56,30 +55,30 @@ if (params.has("trailer")) {
   })();
 }
 
-// Wrapper-requested pause: never freeze a live co-op/versus session another
-// player is relying on, only the local sim (controls + audio). `froze` tracks
-// whether onPause actually froze the loop, so onResume only wakes what it put
-// to sleep.
-const activeGame = (): GameScene | null => {
+const activeGame = () => {
   const scene = game.scene.getScene("game");
+
   return game.scene.isActive("game") && scene instanceof GameScene ? scene : null;
 };
+
 let froze = false;
 const pauseOverlay = createLunerfallPauseOverlay();
+
 setPauseHandlers({
-  // Versus binds Escape to "leave the duel", and the hub's dialogs own Escape
-  // themselves — only a co-op/solo run pauses on it.
   escapePauses: () => {
     const scene = activeGame();
+
     return scene !== null && !scene.isVersus();
   },
   onPause: () => {
     sfx.setPaused(true);
     activeGame()?.setControlsPaused(true);
     pauseOverlay.show();
+
     if (activeGame()?.isOnline()) {
       return;
     }
+
     froze = true;
     game.loop.sleep();
   },
@@ -87,9 +86,11 @@ setPauseHandlers({
     sfx.setPaused(false);
     activeGame()?.setControlsPaused(false);
     pauseOverlay.hide();
+
     if (!froze) {
       return;
     }
+
     froze = false;
     game.loop.wake();
   },

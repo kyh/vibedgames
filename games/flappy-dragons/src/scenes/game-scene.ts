@@ -56,7 +56,6 @@ import {
 } from "../shared/constants";
 import type { Phase } from "../shared/constants";
 
-/** A trunk built for course index `i`; sprites are positioned each frame. */
 interface Pipe {
   index: number;
   topHeight: number;
@@ -73,18 +72,13 @@ interface BgLayer {
   factor: number;
 }
 
-/** Another player's live dragon, drawn as a translucent ghost. */
 interface Ghost {
   sprite: GameObjects.Sprite;
   skin: number;
-  /** Lane spacing; with the sprite's scale, per-id flock variation seeded from the id. */
   gap: number;
   motion: RivalMotion;
-  /** Liveness last drawn, so the tint is only rewritten when it flips. */
   live: boolean | null;
-  /** Its connection dropped and the room is holding its seat (see markAway). */
   away: boolean;
-  /** Frame it was last listed as a rival; anything older has left. */
   seen: number;
 }
 
@@ -94,38 +88,16 @@ const RESTART_LOCKOUT_MS = 280;
 const RESULT_LAYOUT_MS = 250;
 const GATE_MILESTONE = 10;
 const PHRASE_NOTE_MS = 110;
-/** Longest step a solo sim takes: a stalled or hidden tab pauses a solo run rather than skipping it. */
 const MAX_DT_MS = 50;
-/**
- * Longest step a dragon takes in a race. The course runs on the room's clock
- * however long a frame is, so the dragon steps on real time to keep pace with
- * it; a host away longer than this has lost the host role.
- */
 const MAX_RACE_STEP_MS = HOST_LIVENESS_TIMEOUT_MS;
-/**
- * A course lurch this long can carry a whole trunk across the dragon in one
- * frame (a clock correction, a race resuming far ahead): such trunks were
- * never flown, so they don't score.
- */
 const COURSE_LURCH_PX = PIPE_WIDTH + BIRD_W;
-/** Rate (1/s) the ready hover glides onto the next gap when that changes. */
 const READY_EASE = 5;
-/**
- * Everyone shares the same course position (one global scroll), so all dragons
- * would stack at BIRD_X. Your own dragon stays at BIRD_X — the back of the view
- * — and rivals fan out to the right so the flock reads. Gaps and depth vary per
- * rival (seeded from their id, so they stay put) so it looks like a loose flock
- * rather than a fixed grid.
- */
 const GHOST_GAP_MIN = 30;
 const GHOST_GAP_MAX = 68;
 const GHOST_SCALE_MIN = 0.82;
 const GHOST_SCALE_MAX = 1.06;
 
-/** Decided once at boot so hint/HUD copy is input-aware from the first frame. */
 const TOUCH = isCoarsePointer();
-/** DEV-only room override (?room=): the two-client harness isolates each run
- *  so a stale room's course can't leak into assertions. */
 const ROOM = (import.meta.env.DEV && new URLSearchParams(location.search).get("room")) || MP_ROOM;
 
 const HINT_FLAP = TOUCH ? "TAP TO FLAP" : "CLICK · SPACE — FLAP";
@@ -133,23 +105,16 @@ const HINT_RESTART = TOUCH ? "TAP ANYWHERE TO RESTART" : "CLICK OR PRESS SPACE T
 const HINT_RACE = "FLAP TO JOIN THE RACE";
 const SOLO_ROW_ID = "you";
 
-/** One rival's per-tick wire sample (see GameScene.broadcast). */
 interface PeerState {
   t: number;
   y: number;
   vy: number;
   live: boolean;
-  /** Bumped on every respawn or restart — a teleport, not flight. */
   life: number;
   score: number;
   skin: number;
 }
 
-/**
- * The room's course: its seed, and the room time (ms) a race on it started
- * from — the scroll is PIPE_SPEED · (now − start) on the room's clock, for
- * every screen. Null until a race runs on this seed.
- */
 interface Course {
   seed: number;
   start: number | null;
@@ -157,20 +122,19 @@ interface Course {
 
 /* oxlint-disable no-bitwise, unicorn/prefer-code-point -- FNV-1a is defined over
    UTF-16 code units and 32-bit wraparound; every peer must derive the same value. */
-/** Stable 0..1 hash of a player id (+salt) for per-rival flock variation. */
-const hashId = (id: string, salt: number): number => {
+const hashId = (id: string, salt: number) => {
   let h = (2_166_136_261 ^ salt) >>> 0;
+
   for (let i = 0; i < id.length; i += 1) {
     h ^= id.charCodeAt(i);
     h = Math.imul(h, 16_777_619);
   }
+
   return ((h >>> 0) % 100_000) / 100_000;
 };
 /* oxlint-enable no-bitwise, unicorn/prefer-code-point */
 
-// ---- module helpers (pure) --------------------------------------------------
-
-const destroyPipe = (pipe: Pipe): void => {
+const destroyPipe = (pipe: Pipe) => {
   pipe.topCap.destroy();
   pipe.topBody.destroy();
   pipe.botCap.destroy();
@@ -179,20 +143,14 @@ const destroyPipe = (pipe: Pipe): void => {
   pipe.glint?.destroy();
 };
 
-/**
- * A rival whose connection dropped is still in the race: the room holds its
- * seat while it redials. Its stream has stopped, so its dragon waits faded
- * where it was last drawn, and the board says it is reconnecting: it neither
- * vanishes as if it had left nor hangs there like a stalled race. Back, its
- * samples may come by another route, so its clock measures that afresh.
- */
-const markAway = (ghost: Ghost, away: boolean): void => {
+const markAway = (ghost: Ghost, away: boolean) => {
   if (away === ghost.away) {
     return;
   }
+
   ghost.away = away;
-  // Back, the next pose drawn restyles it.
   ghost.live = null;
+
   if (away) {
     ghost.sprite.setAlpha(0.16).setTint(0x90_99_b0);
   } else {
@@ -200,31 +158,31 @@ const markAway = (ghost: Ghost, away: boolean): void => {
   }
 };
 
-const randomSeed = (): number =>
-  // 1..2^31 (never 0 — 0 marks "unseeded").
-  1 + Math.floor(Math.random() * 0x7f_ff_ff_ff);
+const randomSeed = () => 1 + Math.floor(Math.random() * 0x7f_ff_ff_ff);
 
-const setText = (id: string, text: string): void => {
+const setText = (id: string, text: string) => {
   const el = document.querySelector(`#${id}`);
+
   if (el) {
     el.textContent = text;
   }
 };
 
-const isSeed = (v: number): boolean => Number.isSafeInteger(v) && v > 0 && v <= 0x80_00_00_00;
+const isSeed = (v: number) => Number.isSafeInteger(v) && v > 0 && v <= 0x80_00_00_00;
 
-/** A skin outside the shipped set would draw a missing texture; show the first one instead. */
-const validSkin = (v: number): number =>
-  Number.isInteger(v) && v >= 1 && v <= DRAGON_SKINS ? v : 1;
+const validSkin = (v: number) => (Number.isInteger(v) && v >= 1 && v <= DRAGON_SKINS ? v : 1);
 
-const readPeer = (state: Player["state"]): PeerState | null => {
+const readPeer = (state: Player["state"]) => {
   if (!state) {
     return null;
   }
+
   const { life, score, skin, t, vy, y } = state;
+
   if (!isJsonNumber(t) || !isJsonNumber(y)) {
     return null;
   }
+
   return {
     life: isJsonNumber(life) ? life : 0,
     live: state["live"] === true,
@@ -236,20 +194,21 @@ const readPeer = (state: Player["state"]): PeerState | null => {
   };
 };
 
-const readCourse = (course: JsonValue | undefined): Course | null => {
+const readCourse = (course: JsonValue | undefined) => {
   if (!isJsonObject(course)) {
     return null;
   }
+
   const { seed, start } = course;
+
   if (!isJsonNumber(seed) || !isSeed(seed)) {
     return null;
   }
+
   return { seed, start: isJsonNumber(start) ? start : null };
 };
 
-// localStorage throws in some embeds (sandboxed iframes, blocked cookies,
-// private modes). The game must boot and run without persistence.
-const storageGet = (key: string): string | null => {
+const storageGet = (key: string) => {
   try {
     return window.localStorage.getItem(key);
   } catch {
@@ -257,30 +216,27 @@ const storageGet = (key: string): string | null => {
   }
 };
 
-const storageSet = (key: string, value: string): void => {
+const storageSet = (key: string, value: string) => {
   try {
     window.localStorage.setItem(key, value);
-  } catch {
-    // Blocked store just loses persistence — never the run.
-  }
+  } catch {}
 };
 
-const readBest = (): number => {
+const readBest = () => {
   try {
     const raw = localStorage.getItem(BEST_KEY);
     const parsed = raw === null ? 0 : Math.trunc(Number(raw));
+
     return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
   } catch {
     return 0;
   }
 };
 
-const writeBest = (score: number): void => {
+const writeBest = (score: number) => {
   try {
     localStorage.setItem(BEST_KEY, String(score));
-  } catch {
-    // ignore — see readBest
-  }
+  } catch {}
 };
 
 interface BoardRow {
@@ -288,21 +244,20 @@ interface BoardRow {
   score: number;
   live: boolean;
   me: boolean;
-  /** Its connection dropped; the room holds its seat while it redials. */
   away: boolean;
 }
 
-/** A row's mark: flying, crashed, or reconnecting. */
-const rowMark = (r: BoardRow): string => {
+const rowMark = (r: BoardRow) => {
   if (r.away) {
     return "📡";
   }
+
   return r.live ? "🐉" : "💀";
 };
 
-/** The top-8 leaderboard rows as one fragment. */
-const renderStandings = (rows: readonly BoardRow[]): DocumentFragment => {
+const renderStandings = (rows: readonly BoardRow[]) => {
   const frag = document.createDocumentFragment();
+
   for (const r of rows.slice(0, 8)) {
     const row = document.createElement("div");
     row.className = `row${r.me ? " me" : ""}${r.live ? "" : " dead"}${r.away ? " away" : ""}`;
@@ -314,6 +269,7 @@ const renderStandings = (rows: readonly BoardRow[]): DocumentFragment => {
     row.append(name, sc);
     frag.append(row);
   }
+
   return frag;
 };
 
@@ -327,67 +283,45 @@ export class GameScene extends Scene {
   private best = 0;
   private diedAt = 0;
   private skin = 1;
-  /** Pipes passed this life (score also counts coins). */
   private gates = 0;
 
-  /**
-   * Course scroll. A solo host's own; in a race, and on every guest, the
-   * room's start read on the room's clock (see advanceWorld).
-   */
   private worldX = 0;
-  /** Cosmetic parallax drift used only on the solo ready screen. */
   private readyDrift = 0;
-  /** Shared course seed (0 until the host seeds it). */
   private seed = 0;
 
-  /** Highest pipe index already scored in the current life. */
   private lastScoredIndex = -1;
   private collectedCoins = new Set<number>();
 
   private pipes = new Map<number, Pipe>();
   private ghosts = new Map<string, Ghost>();
-  /** Other players this frame, sorted so every client agrees on lane order.
-   *  One whose connection dropped is still racing while the server holds its
-   *  seat for the reconnect (see markAway). */
   private rivalIds: string[] = [];
-  /** The player map `rivalIds` was derived from; the SDK swaps it on every change. */
   private rivalSource: PlayerMap | null = null;
   private bgLayers: BgLayer[] = [];
   private bird!: GameObjects.Sprite;
   private readyImg!: GameObjects.Image;
   private overImg!: GameObjects.Image;
-  /** Cosmetic dragon wandering across the title screen (pre-start only). */
   private titleDragon: GameObjects.Sprite | null = null;
   private digits: GameObjects.Image[] = [];
   private flightFx!: FlightFx;
 
-  // Net bookkeeping.
-  /** Frame timestamp of the previous update: elapsed time comes from it, not Phaser's delta. */
   private lastFrameAt = -1;
   private readonly stateRate = new FixedRate(NET_TICK_HZ);
-  /** Whether the state stream ran last frame: its first tick goes out at once. */
   private streamingState = false;
-  /** Bumped on every respawn and restart, so rivals drop their history instead of gliding the teleport. */
   private life = 0;
-  /** The scroll ran on this client's own frame clock last frame (a solo host), not the room's. */
   private ownCourse = false;
-  /** The shared `course` object last parsed, and what it said. */
   private courseRef: JsonValue | undefined;
   private course: Course | null = null;
   private boardAcc = 0;
   private boardSig = "";
   private lastNetInfo = "";
-  /** Our own connection dropped and the room has not admitted us again yet. */
   private ownDrop = false;
 
   private hintEl: HTMLElement | null = null;
   private gatesEl: HTMLElement | null = null;
   private resultsEl: HTMLElement | null = null;
   private resultRetryEl: HTMLElement | null = null;
-  /** Card geometry inputs at the last placement; skips DOM writes while nothing moved. */
   private resultLayoutKey = "";
   private resultLayoutAt = 0;
-  /** Pending note of a multi-note fanfare (new best, gate milestone). */
   private phraseTimer: Time.TimerEvent | null = null;
   private presentationPaused = false;
   private boardEl: HTMLElement | null = null;
@@ -396,21 +330,17 @@ export class GameScene extends Scene {
   private netInfoEl: HTMLElement | null = null;
   private startEl: HTMLElement | null = null;
   private started = false;
-  /** Physical controller: any face button flaps (and starts/restarts). */
   private readonly pad = new PhysicalGamepad();
   private unwatchControls: (() => void) | null = null;
-  /** Input is held while the get-ready countdown runs. */
   private countingDown = false;
-  /** Pending countdown step, so the wrapper pause can freeze the 3-2-1. */
   private countdownTimer: Time.TimerEvent | null = null;
-  /** Countdown go-word, alternating FLAP!/JUMP! (starts as FLAP! after flip). */
   private goWord = "JUMP!";
 
   constructor() {
     super("Game");
   }
 
-  create(): void {
+  create() {
     this.hintEl = document.querySelector("#hint");
     this.gatesEl = document.querySelector("#flight-gates");
     this.resultsEl = document.querySelector("#flight-result");
@@ -421,23 +351,16 @@ export class GameScene extends Scene {
     this.best = readBest();
     this.skin = rollSkin();
 
-    // Muted by default; returning players who opted into sound stay unmuted.
     this.setMuted(storageGet(SOUND_KEY) !== "1");
 
-    // Escape is keyboard-only, so a phone otherwise has no way to leave a run.
     this.touchControls = createTouchControls();
 
-    // Assets are loaded by now: the client's fallback deadline counts from
-    // the next frame. A playtest is a solo run: it must never join (or stage
-    // state into) the shared public room.
     this.net = new NetSession({
       fallbackMs: OFFLINE_FALLBACK_MS,
       maxPlayers: MP_MAX_PLAYERS,
       offline: isPlaytestRequested(),
       room: ROOM,
     });
-    // Every notification, not every frame: a drop and the reconnect after it
-    // can both land while the tab is hidden and runs no frames.
     this.net.subscribe(() => this.watchOwnConnection());
 
     this.bgLayers = BG_FACTORS.map((factor, i) => ({
@@ -460,8 +383,6 @@ export class GameScene extends Scene {
 
     this.flightFx = new FlightFx(this);
 
-    // Hidden from boot: the HTML start overlay owns the pre-flap moment now,
-    // and this banner would show through its translucent wash.
     this.readyImg = this.add
       .image(0, 0, "msg-ready")
       .setScale(ART_SCALE)
@@ -485,8 +406,6 @@ export class GameScene extends Scene {
         this.handleInput();
       }
     });
-    // M is a user gesture, so unmuting here can safely resume a suspended
-    // audio context.
     this.input.keyboard?.on("keydown-M", (e: KeyboardEvent) => {
       if (!e.repeat) {
         this.setMuted(!this.muted);
@@ -510,6 +429,7 @@ export class GameScene extends Scene {
     if (import.meta.env.DEV) {
       window.__fb = { net: this.net, scene: this };
     }
+
     if (import.meta.env.DEV || isPlaytestRequested()) {
       publishPlaytestSurface(this);
     }
@@ -524,6 +444,7 @@ export class GameScene extends Scene {
     const gap = this.gapAhead(0);
     const after = this.gapAhead(1);
     const centreY = this.birdY + BIRD_H / 2;
+
     return {
       canFlap: this.started && !this.countingDown && this.phase !== "gameover",
       complete: this.phase === "gameover",
@@ -556,18 +477,14 @@ export class GameScene extends Scene {
     };
   }
 
-  /**
-   * The `n`th gap the dragon has not cleared yet, straight from the seeded
-   * course — so it is known on the runway, before any trunk is on screen.
-   */
-  private gapAhead(
-    n: number,
-  ): { centreY: number; coinY: number | null; top: number; x: number } | null {
+  private gapAhead(n: number) {
     if (this.seed === 0) {
       return null;
     }
+
     const i = Math.max(0, this.frontIndex() + 1) + n;
     const top = topHeightFor(this.seed, i);
+
     return {
       centreY: top + PIPE_GAP / 2,
       coinY:
@@ -579,12 +496,8 @@ export class GameScene extends Scene {
     };
   }
 
-  // ---- playtest hooks (see ../playtest.ts) -----------------------------------
-  // Staged state must never reach a live room: each hook leaves it first, and
-  // the run goes on solo.
-
   /** Reseed the course and restart the run on it, skipping the get-ready count. */
-  testSeed(seed: number): void {
+  testSeed(seed: number) {
     this.net.goOffline();
     this.cancelCountdown();
     this.resetRun(1 + (Math.abs(Math.trunc(seed)) % 0x7f_ff_ff_ff));
@@ -595,70 +508,69 @@ export class GameScene extends Scene {
    * where the first flap launches the run — where a player is when the count
    * ends. Returns the state actually applied.
    */
-  testState(name: string): string {
+  testState(name: string) {
     if (name !== "active-play") {
       return this.phase;
     }
+
     this.net.goOffline();
     this.dismissStartScreen();
     this.cancelCountdown();
+
     if (this.phase !== "ready") {
       this.resetRun(this.seed === 0 ? randomSeed() : this.seed);
     }
+
     return name;
   }
 
-  private buildStartScreen(): void {
+  private buildStartScreen() {
     const controls = document.querySelector("#start-controls");
     const go = document.querySelector("#start-go");
-    // Same grouped keycap card the pause overlay renders — the two teaching
-    // surfaces stay visually consistent by construction.
     ensureControlsStyle();
-    const renderControls = (): void => {
+
+    const renderControls = () => {
       if (!controls) {
         return;
       }
+
       const card = buildControls(CONTROLS, TOUCH);
       controls.replaceChildren(...(card ? [card] : []));
     };
+
     renderControls();
-    // Plugging in a pad while the start screen is up adds its rows.
     this.unwatchControls?.();
     this.unwatchControls = watchControlContext(() => {
       if (!this.started) {
         renderControls();
       }
     });
+
     if (go) {
       go.textContent = TOUCH ? "tap to start" : "press any key to start";
     }
-    // Reveals the overlay now that the card is complete — see #start in index.html.
+
     this.startEl?.classList.add("ready");
     this.input.keyboard?.once("keyup", () => this.beginPlay());
     this.startEl?.addEventListener("pointerup", () => this.beginPlay(), { once: true });
   }
 
-  /**
-   * A second dragon that wanders across the title screen behind the overlay,
-   * so the pre-start world feels alive (the parallax sky already drifts). One
-   * sprite + a few tweens, torn down the instant play starts. Skipped under
-   * reduced-motion.
-   */
-  private spawnTitleDragon(): void {
+  private spawnTitleDragon() {
     if (prefersReducedMotion()) {
       return;
     }
+
     this.titleDragon = this.add.sprite(-80, COURSE_H / 2, `dragon-${rollSkin()}-1`).setDepth(9);
     this.flyTitleDragon();
   }
 
-  /** Send the title dragon on one left-to-right pass, then loop with fresh
-   *  height + skin. Bob + tilt run for the pass; all are killed on relaunch. */
-  private flyTitleDragon(): void {
+  private flyTitleDragon() {
     const d = this.titleDragon;
+
     if (!d || this.started) {
       return;
     }
+
     this.tweens.killTweensOf(d);
     const skin = rollSkin();
     d.play(`fly-${skin}`);
@@ -692,28 +604,32 @@ export class GameScene extends Scene {
     });
   }
 
-  private removeTitleDragon(): void {
+  private removeTitleDragon() {
     const d = this.titleDragon;
+
     if (!d) {
       return;
     }
+
     this.tweens.killTweensOf(d);
     d.destroy();
     this.titleDragon = null;
   }
 
-  private beginPlay(): void {
+  private beginPlay() {
     if (this.started) {
       return;
     }
+
     this.dismissStartScreen();
     this.runCountdown();
   }
 
-  private dismissStartScreen(): void {
+  private dismissStartScreen() {
     if (this.started) {
       return;
     }
+
     this.started = true;
     this.unwatchControls?.();
     this.unwatchControls = null;
@@ -721,48 +637,42 @@ export class GameScene extends Scene {
     this.refreshScore();
     this.startEl?.classList.add("hide");
     this.time.delayedCall(320, () => this.startEl?.remove());
-    // Play begins HERE, not at the first flap — arming the wrapper pause now
-    // means Escape works during the 3-2-1 and the ready hover too.
     notifyGameStarted();
   }
 
-  private cancelCountdown(): void {
+  private cancelCountdown() {
     this.countdownTimer?.remove();
     this.countdownTimer = null;
     this.countingDown = false;
     const el = document.querySelector("#countdown");
+
     if (el) {
       el.classList.remove("show", "pop");
       el.textContent = "";
     }
   }
 
-  /**
-   * 3-2-1 between the start screen and the first flap: time to step back and
-   * get framed for the pose camera, whose baseline re-captures during the
-   * count. Input is gated until it ends; the bird then hovers in the ready
-   * phase and the first flap (tap/Space/jump/arm-flap) launches the run.
-   */
-  private runCountdown(): void {
+  private runCountdown() {
     const el = document.querySelector("#countdown");
+
     if (!(el instanceof HTMLElement)) {
       return;
     }
+
     this.countingDown = true;
     recalibratePose();
     let n = 3;
-    const tick = (): void => {
+
+    const tick = () => {
       if (n > 0) {
         el.textContent = String(n);
         el.classList.remove("pop");
-        // Reading layout restarts the pop animation.
         void el.offsetWidth;
         el.classList.add("pop");
         this.playSound("point", { rate: 1.25 - n * 0.15, volume: 0.28 });
         n -= 1;
         this.countdownTimer = this.time.delayedCall(1000, tick);
       } else {
-        // Alternate the go-word so both webcam verbs get equal billing.
         this.goWord = this.goWord === "FLAP!" ? "JUMP!" : "FLAP!";
         el.textContent = this.goWord;
         el.classList.remove("pop");
@@ -778,13 +688,12 @@ export class GameScene extends Scene {
         });
       }
     };
+
     el.classList.add("show");
     tick();
   }
 
-  // ---- role helpers --------------------------------------------------------
-
-  private get racing(): boolean {
+  private get racing() {
     return this.rivalIds.length > 0;
   }
   /**
@@ -795,8 +704,9 @@ export class GameScene extends Scene {
    * relying on: frozen through a reconnect, the dragon would come back to
    * them standing still for the rest of the pause.
    */
-  isOnline(): boolean {
+  isOnline() {
     const status = this.net.connectionStatus;
+
     return status === "connected" || status === "reconnecting";
   }
   /**
@@ -804,60 +714,47 @@ export class GameScene extends Scene {
    * re-baseline), sound and fanfares — freezes under the wrapper pause even
    * when the online sim has to keep running for the other players.
    */
-  setPresentationPaused(paused: boolean): void {
+  setPresentationPaused(paused: boolean) {
     if (paused === this.presentationPaused) {
       return;
     }
+
     this.presentationPaused = paused;
-    // The pad button that dismissed the wrapper's overlay is consumed by it:
-    // sample it now so the next gameplay poll doesn't see a fresh press.
     this.pad.update();
+
     if (this.countdownTimer) {
       this.countdownTimer.paused = paused;
     }
+
     this.sound.mute = this.muted || paused;
+
     if (paused) {
       this.cancelPhrase();
       this.sound.stopAll();
     }
   }
-  private get alive(): boolean {
+  private get alive() {
     return this.phase === "playing";
   }
-  /** The shared course is scrolling (someone started, or we're in a race). */
-  private get raceActive(): boolean {
+  private get raceActive() {
     return this.racing || this.worldX > 0;
   }
-  /**
-   * The course is not ours to restart: a race, or any guest's, alone or not
-   * (still joining, or its host just left and the room has yet to promote
-   * it). It scrolls on the room's clock, a crash respawns, and only the host
-   * writes it.
-   */
-  private get sharedCourse(): boolean {
+  private get sharedCourse() {
     return this.racing || !this.net.isHost;
   }
 
-  update(time: number): void {
-    // Elapsed time from the frame timestamps themselves. Phaser's `delta` is
-    // averaged over 10 frames and capped at 16.7 ms whenever the window or
-    // iframe loses focus: a dragon stepping on it falls behind a race that
-    // runs on the room's clock, and a solo course stepping on it lost time
-    // that a race started on it would carry on.
+  update(time: number) {
     const elapsedMs = this.lastFrameAt < 0 ? 0 : Math.max(0, time - this.lastFrameAt);
     this.lastFrameAt = time;
     const dt = Math.min(elapsedMs, MAX_DT_MS) / 1000;
     this.pad.update();
+
     if (this.padFlapPressed()) {
       this.handleInput();
     }
+
     this.rivalIds = this.presentRivals();
-    // In a race the dragon steps on real time, keeping pace with a course on
-    // the room's clock; a solo run pauses through a stall rather than
-    // skipping ahead.
     const stepMs = Math.min(elapsedMs, this.sharedCourse ? MAX_RACE_STEP_MS : MAX_DT_MS);
-    // This frame on the room's clock: what a race scrolls on and every sample
-    // is stamped with (null until the clock is measured).
     const now = this.net.serverNow(time);
     this.ensureSeed();
     this.advanceWorld(now, stepMs);
@@ -867,13 +764,13 @@ export class GameScene extends Scene {
     } else if (this.phase === "playing") {
       this.fly(stepMs / 1000);
     } else if (this.phase === "gameover" && this.sharedCourse && time - this.diedAt >= RESPAWN_MS) {
-      // Multiplayer: crash is a brief setback, then rejoin the live course.
       this.respawn();
     }
 
     if (this.phase === "gameover") {
       this.updateResults(time);
     }
+
     this.applyParallax();
     this.syncPipes();
     this.syncGhosts(time);
@@ -890,33 +787,25 @@ export class GameScene extends Scene {
     this.updateBoard(dt);
   }
 
-  /**
-   * Ready hover, invulnerable until the first flap launches the life. While
-   * the course runs (a race joiner, a respawn) it holds over the next gap,
-   * gliding across when that changes, so the first flap starts from a gap.
-   */
-  private hover(time: number, dt: number): void {
+  private hover(time: number, dt: number) {
     this.birdY += (this.readyY() - this.birdY) * (1 - Math.exp(-READY_EASE * dt));
     this.bird.y = this.birdY + DRAGON_SPRITE_OFFSET_Y + Math.sin(time / 300) * 4;
+
     if (!this.racing) {
       this.readyDrift += READY_DRIFT * dt;
     }
   }
 
-  private fly(h: number): void {
-    // Exact constant-gravity kinematics: the arc, and the 144 px a full flap
-    // rises, are the same at every frame rate. The per-frame Euler step this
-    // replaced rose 150 px at 60 Hz but 146 px at 144 Hz.
+  private fly(h: number) {
     this.birdY += this.vy * h + 0.5 * GRAVITY * h * h;
     this.vy += GRAVITY * h;
-    // Solid ceiling. Without it, steady tapping — the natural panic input on
-    // a phone — parks the dragon above the view, where it is invisible and
-    // (before the trunks were extended up there) passed through every pipe.
     const ceiling = this.viewTop();
+
     if (this.birdY < ceiling) {
       this.birdY = ceiling;
       this.vy = 0;
     }
+
     this.bird.y = this.birdY + DRAGON_SPRITE_OFFSET_Y;
     this.bird.rotation = tiltFor(this.vy);
     this.checkScore();
@@ -924,67 +813,62 @@ export class GameScene extends Scene {
     this.checkDeath();
   }
 
-  /** Other seated players, re-derived only when the SDK hands over a new player map. */
-  private presentRivals(): string[] {
+  private presentRivals() {
     const { players } = this.net;
+
     if (players === this.rivalSource) {
       return this.rivalIds;
     }
+
     this.rivalSource = players;
     const me = this.net.playerId;
+
     return Object.keys(players)
       .filter((id) => id !== me)
       .toSorted();
   }
 
-  // ---- seed + course scroll ------------------------------------------------
-
-  /** The room's course from shared state, parsed once per new object. */
-  private roomCourse(): Course | null {
+  private roomCourse() {
     const ref = this.net.sharedState["course"];
+
     if (ref !== this.courseRef) {
       this.courseRef = ref;
       this.course = readCourse(ref);
     }
+
     return this.course;
   }
 
-  /**
-   * Host only: the course's seed, and the room time a race on it started
-   * from (null: none yet). Written only when one of them changes — a new
-   * seed, a race beginning on our course — and never while a race runs.
-   */
-  private publishCourse(start: number | null): void {
+  private publishCourse(start: number | null) {
     const course = { seed: this.seed, start };
     this.net.patchShared({ course });
     this.courseRef = course;
     this.course = course;
   }
 
-  private ensureSeed(): void {
+  private ensureSeed() {
     const course = this.roomCourse();
+
     if (course) {
       this.adoptSeed(course.seed);
+
       return;
     }
-    // First host seeds the course. Guests wait for it (bird just hovers).
+
     if (this.net.isHost) {
       if (this.seed === 0) {
         this.seed = randomSeed();
       }
+
       this.publishCourse(null);
     }
   }
 
-  /**
-   * Another seed is another course, from its runway: the old one's pipes,
-   * scored gates and coins don't carry over (syncPipes rebuilds the pipes
-   * this frame).
-   */
-  private adoptSeed(seed: number): void {
+  private adoptSeed(seed: number) {
     if (seed === this.seed) {
       return;
     }
+
     this.seed = seed;
     this.worldX = 0;
     this.lastScoredIndex = this.frontIndex();
@@ -992,51 +876,46 @@ export class GameScene extends Scene {
     this.clearPipes();
   }
 
-  /**
-   * The course scroll. A solo host's course is its own: it runs on this
-   * client's frame clock while the dragon flies, and a stall pauses it with
-   * the rest of the solo sim. In a race, and on every guest, it is a function
-   * of the room's clock — PIPE_SPEED from the start the host published as
-   * the race began — so every screen agrees on it to the clock's precision,
-   * nothing streams while it runs, and a new host inherits it untouched.
-   */
-  private advanceWorld(now: number | null, stepMs: number): void {
+  private advanceWorld(now: number | null, stepMs: number) {
     const host = this.net.isHost;
+
     if (host && (!this.racing || now === null)) {
-      // Our own course: a solo host's, or a racing host's until its clock is measured.
       this.ownCourse = true;
+
       if (this.alive || this.racing) {
         this.worldX += (PIPE_SPEED * stepMs) / 1000;
       }
+
       return;
     }
+
     const wasOwn = this.ownCourse;
     this.ownCourse = false;
-    // A guest whose clock is not measured yet holds where it is.
+
     if (now === null) {
       return;
     }
+
     if (host && (wasOwn || (this.course?.start ?? null) === null)) {
-      // A race begins on our course: the room's start carries it on from here.
       this.publishCourse(courseStart(this.worldX, now));
     }
+
     const start = this.course?.start ?? null;
-    // No race on this seed yet: the host starts one as soon as it sees us.
+
     if (start === null) {
       return;
     }
+
     const x = followCourse(this.worldX, courseX(start, now), this.alive);
     const lurched = x - this.worldX > (PIPE_SPEED * stepMs) / 1000 + COURSE_LURCH_PX;
     this.worldX = x;
+
     if (lurched) {
-      // Trunks the lurch carried across the dragon were never flown.
       this.lastScoredIndex = this.frontIndex();
     }
   }
 
-  // ---- input ---------------------------------------------------------------
-
-  private padFlapPressed(): boolean {
+  private padFlapPressed() {
     return (
       this.pad.justPressed("a") ||
       this.pad.justPressed("b") ||
@@ -1045,18 +924,21 @@ export class GameScene extends Scene {
     );
   }
 
-  private handleInput(strength = 1, refire = false): void {
+  private handleInput(strength = 1, refire = false) {
     if (this.presentationPaused) {
       return;
     }
+
     if (!this.started) {
       this.beginPlay();
+
       return;
     }
-    // Holding for the get-ready count.
+
     if (this.countingDown) {
       return;
     }
+
     if (this.phase === "ready") {
       this.startLife();
       this.setPhase("playing");
@@ -1065,39 +947,45 @@ export class GameScene extends Scene {
       this.readyImg.setVisible(false);
       this.setHint("");
       this.flap(strength, refire);
+
       return;
     }
+
     if (this.phase === "playing") {
       this.flap(strength, refire);
+
       return;
     }
-    // On a shared course the respawn timer owns the comeback — a tap on the
-    // gameover screen must not restart(), which reseeds and rewinds the course
-    // to zero. A guest never may: alone, it would rewind its own scroll,
-    // which becomes the room's if it is promoted.
+
     if (this.sharedCourse) {
       return;
     }
+
     if (this.time.now - this.diedAt < RESTART_LOCKOUT_MS) {
       return;
     }
+
     this.restart();
   }
 
-  poseJump(strength: number, refire: boolean): void {
+  poseJump(strength: number, refire: boolean) {
     this.handleInput(strength, refire);
   }
 
-  private flap(strength: number, refire = false): void {
+  private flap(strength: number, refire = false) {
     this.vy = flapVelocityFor(strength);
+
     if (refire) {
       return;
     }
+
     this.flightFx.wingbeat(this.bird.x, this.bird.y);
     this.playSound("flap", { rate: 0.95 + Math.random() * 0.1 });
+
     if (prefersReducedMotion()) {
       return;
     }
+
     this.tweens.killTweensOf(this.bird);
     this.bird.setScale(ART_SCALE * 1.15, ART_SCALE * 0.8);
     this.tweens.add({
@@ -1109,55 +997,38 @@ export class GameScene extends Scene {
     });
   }
 
-  // ---- state flow ----------------------------------------------------------
-
-  /**
-   * Single funnel for phase changes. Locks the webcam pose baseline for the
-   * duration of a run (it "locks in place" the instant you start) and lets it
-   * re-track while idle on the ready / game-over screens. No-op without a cam.
-   */
-  private setPhase(phase: Phase): void {
+  private setPhase(phase: Phase) {
     this.phase = phase;
+
     if (phase === "playing") {
       notifyGameStarted();
     }
+
     setPoseLocked(phase === "playing");
     this.refreshGateHud();
   }
 
-  /**
-   * Per-life reset at the first flap. The bird launches from where the ready
-   * hover holds it — over the next gap when the course is already running.
-   */
-  private startLife(): void {
+  private startLife() {
     this.vy = 0;
     this.lastScoredIndex = this.frontIndex();
     this.gates = 0;
     this.collectedCoins.clear();
   }
 
-  /**
-   * Solo: the retry input gets the same get-ready count as a fresh boot — time
-   * to get back in frame while the pose recalibrates; then the first flap launches.
-   */
-  private restart(): void {
+  private restart() {
     this.resetRun(randomSeed());
     this.runCountdown();
   }
 
-  /** Solo: start the course over on `seed`, dragon back in the ready hover. */
-  private resetRun(seed: number): void {
+  private resetRun(seed: number) {
     this.score = 0;
     this.worldX = 0;
     this.seed = seed;
-    // Publish the reroll, or ensureSeed() re-adopts the stale shared seed
-    // next frame and every solo run replays the identical course. (Offline
-    // the client applies it locally.) Only the course's owner may:
-    // every caller is the host by now, but a guest's write would be refused.
-    // No race runs on the new seed until someone joins.
+
     if (this.net.isHost) {
       this.publishCourse(null);
     }
+
     this.clearPipes();
 
     this.skin = rollSkin();
@@ -1169,13 +1040,7 @@ export class GameScene extends Scene {
     this.setPhase("ready");
   }
 
-  /**
-   * Multiplayer: back into the ready hover over the next gap of the
-   * still-scrolling course — invulnerable, and the first flap launches the
-   * life, exactly like a solo start. Respawning straight into a falling
-   * dragon left about half a second to find the flap before it fell out.
-   */
-  private respawn(): void {
+  private respawn() {
     this.score = 0;
     this.vy = 0;
     this.birdY = this.readyY();
@@ -1184,8 +1049,7 @@ export class GameScene extends Scene {
     this.setPhase("ready");
   }
 
-  /** Reset the bird's look + game-over HUD after a death. */
-  private reviveBird(): void {
+  private reviveBird() {
     this.cancelPhrase();
     this.resultsEl?.classList.remove("show");
     this.flightFx.reset();
@@ -1202,7 +1066,7 @@ export class GameScene extends Scene {
     this.refreshScore();
   }
 
-  private die(): void {
+  private die() {
     this.setPhase("gameover");
     this.diedAt = this.time.now;
     this.cancelPhrase();
@@ -1214,18 +1078,22 @@ export class GameScene extends Scene {
         this.bird.clearTint().setTintMode(TintModes.MULTIPLY);
       }
     });
+
     if (!prefersReducedMotion()) {
       this.cameras.main.shake(120, 0.008);
     }
+
     this.flightFx.crash(this.bird.x, this.bird.y);
 
     const isNewBest = this.score > this.best;
+
     if (isNewBest) {
       this.best = this.score;
       writeBest(this.best);
       this.flightFx.celebrate("NEW BEST!", this.viewW() / 2, this.noticeY());
       this.playPhrase([1.15, 1.45, 1.8], 140);
     }
+
     this.overImg.setVisible(true);
     this.setHint("");
     this.resultsEl?.classList.remove("show");
@@ -1239,57 +1107,57 @@ export class GameScene extends Scene {
     this.updateResults(this.time.now);
   }
 
-  // ---- deterministic course ------------------------------------------------
-
-  /** Screen x of pipe `i` given the current global scroll. */
-  private screenX(i: number): number {
+  private screenX(i: number) {
     return pipeCourseX(i) - this.worldX;
   }
 
-  /** The pipe index whose trailing edge is at the bird right now. */
-  private frontIndex(): number {
+  private frontIndex() {
     return Math.floor((this.worldX + BIRD_X - PIPE_WIDTH - RUNWAY) / PIPE_SPAWN_DISTANCE);
   }
 
-  /** Where the ready hover holds the bird: the next gap while the course runs, else the fixed spawn. */
-  private readyY(): number {
+  private readyY() {
     return this.raceActive ? this.spawnY() : BIRD_SPAWN_Y;
   }
 
-  /** Where a comeback hovers the bird. The shared course kept scrolling while
-   *  we were dead, so a fixed height regularly lands inside a pipe trunk —
-   *  aim for the gap of the pipe the bird will meet first instead. */
-  private spawnY(): number {
+  private spawnY() {
     if (this.seed === 0) {
       return BIRD_SPAWN_Y;
     }
+
     const i = this.frontIndex() + 1;
-    // Still on the runway, nothing ahead.
+
     if (i < 0) {
       return BIRD_SPAWN_Y;
     }
+
     const top = topHeightFor(this.seed, i);
+
     return top + PIPE_GAP / 2;
   }
 
-  private syncPipes(): void {
+  private syncPipes() {
     if (!this.raceActive || this.seed === 0) {
       if (this.pipes.size > 0) {
         this.clearPipes();
       }
+
       return;
     }
+
     const width = this.viewW();
     const iLow = Math.max(0, Math.floor((this.worldX - PIPE_WIDTH - RUNWAY) / PIPE_SPAWN_DISTANCE));
     const iHigh = Math.floor((this.worldX + width - RUNWAY) / PIPE_SPAWN_DISTANCE);
 
     for (let i = iLow; i <= iHigh; i += 1) {
       let pipe = this.pipes.get(i);
+
       if (!pipe) {
         pipe = this.spawnPipe(i);
       }
+
       this.positionPipe(pipe);
     }
+
     for (const [i, pipe] of this.pipes) {
       if (i < iLow || i > iHigh) {
         destroyPipe(pipe);
@@ -1298,12 +1166,10 @@ export class GameScene extends Scene {
     }
   }
 
-  private spawnPipe(i: number): Pipe {
+  private spawnPipe(i: number) {
     const topHeight = topHeightFor(this.seed, i);
-    // The trunk starts at the top of the VIEW, not of the course: a viewport
-    // that shows sky above the course would otherwise show trunks ending in
-    // mid-air, and the dragon could fly over them.
     const trunkTop = this.viewTop();
+
     const topBody = this.add
       .tileSprite(
         0,
@@ -1315,18 +1181,22 @@ export class GameScene extends Scene {
       .setOrigin(0, 0)
       .setTileScale(ART_SCALE)
       .setDepth(0);
+
     const topCap = this.add
       .image(0, topHeight, "tube-cap")
       .setOrigin(0.5, 1)
       .setFlipY(true)
       .setScale(ART_SCALE)
       .setDepth(1);
+
     const botCap = this.add
       .image(0, topHeight + PIPE_GAP, "tube-cap")
       .setOrigin(0.5, 0)
       .setScale(ART_SCALE)
       .setDepth(1);
+
     const botBodyY = topHeight + PIPE_GAP + TUBE_CAP_H - 2;
+
     const botBody = this.add
       .tileSprite(0, botBodyY, PIPE_WIDTH, Math.max(1, COURSE_H - botBodyY), "tube-body")
       .setOrigin(0, 0)
@@ -1340,7 +1210,9 @@ export class GameScene extends Scene {
             .setScale(ART_SCALE)
             .setDepth(4)
         : null;
+
     coin?.play("coin-spin");
+
     const glint = coin
       ? this.add
           .image(0, coin.y - 12, "flight-glint")
@@ -1350,47 +1222,55 @@ export class GameScene extends Scene {
 
     const pipe: Pipe = { botBody, botCap, coin, glint, index: i, topBody, topCap, topHeight };
     this.pipes.set(i, pipe);
+
     return pipe;
   }
 
-  private positionPipe(pipe: Pipe): void {
+  private positionPipe(pipe: Pipe) {
     const x = this.screenX(pipe.index);
     const centerX = x + PIPE_WIDTH / 2;
     pipe.topBody.x = x;
     pipe.botBody.x = x;
     pipe.topCap.x = centerX;
     pipe.botCap.x = centerX;
+
     if (pipe.coin) {
       pipe.coin.x = centerX;
     }
+
     if (pipe.glint) {
       pipe.glint.x = centerX + 12;
-      // A small steady gleam still marks an edge-on coin under reduced motion.
+
       const pulse = prefersReducedMotion()
         ? 0.45
         : Math.max(0, Math.sin(this.time.now / 230 + pipe.index * 2.4));
+
       pipe.glint.setAlpha(0.2 + pulse * 0.8).setScale(0.7 + pulse * 0.4);
     }
   }
 
-  private clearPipes(): void {
+  private clearPipes() {
     for (const pipe of this.pipes.values()) {
       destroyPipe(pipe);
     }
+
     this.pipes.clear();
   }
 
-  private checkScore(): void {
+  private checkScore() {
     if (this.phase !== "playing") {
       return;
     }
+
     for (const pipe of this.pipes.values()) {
       if (pipe.index <= this.lastScoredIndex) {
         continue;
       }
+
       if (this.screenX(pipe.index) + PIPE_WIDTH > BIRD_X) {
         continue;
       }
+
       this.lastScoredIndex = pipe.index;
       this.score += 1;
       this.gates += 1;
@@ -1398,6 +1278,7 @@ export class GameScene extends Scene {
       this.refreshScore();
       this.scorePop();
       this.flightFx.pass(this.bird.x, this.bird.y);
+
       if (this.gates % GATE_MILESTONE === 0) {
         this.flightFx.celebrate(`${this.gates} GATES · KEEP FLYING!`, this.bird.x, this.bird.y);
         this.playPhrase([1.25, 1.6]);
@@ -1407,17 +1288,21 @@ export class GameScene extends Scene {
     }
   }
 
-  private checkCoins(): void {
+  private checkCoins() {
     const cx = BIRD_X + BIRD_W / 2;
     const cy = this.birdY + BIRD_H / 2;
+
     for (const pipe of this.pipes.values()) {
       const { coin } = pipe;
+
       if (!coin) {
         continue;
       }
+
       if (Math.abs(coin.x - cx) >= COIN_PICKUP_X || Math.abs(coin.y - cy) >= COIN_PICKUP_Y) {
         continue;
       }
+
       pipe.coin = null;
       pipe.glint?.destroy();
       pipe.glint = null;
@@ -1426,13 +1311,15 @@ export class GameScene extends Scene {
     }
   }
 
-  private collectCoin(coin: GameObjects.Sprite): void {
+  private collectCoin(coin: GameObjects.Sprite) {
     this.flightFx.pickup(coin.x, coin.y);
+
     const burst = this.add
       .sprite(coin.x, coin.y, "burst-1")
       .setScale(ART_SCALE)
       .setDepth(7)
       .play("burst");
+
     burst.once(Animations.Events.ANIMATION_COMPLETE, () => burst.destroy());
     coin.destroy();
     this.score += 1;
@@ -1441,86 +1328,87 @@ export class GameScene extends Scene {
     this.scorePop();
   }
 
-  private checkDeath(): void {
+  private checkDeath() {
     if (this.birdY > COURSE_H) {
       this.die();
+
       return;
     }
+
     for (const pipe of this.pipes.values()) {
       const x = this.screenX(pipe.index);
+
       if (BIRD_X + BIRD_W <= x || BIRD_X >= x + PIPE_WIDTH) {
         continue;
       }
-      // Overlapping the trunk column: anything outside the gap is a crash. The
-      // ceiling clamp keeps the dragon below the trunk tops, so there is no
-      // "above the pipe" case to exempt.
+
       if (this.birdY < pipe.topHeight || this.birdY + BIRD_H > pipe.topHeight + PIPE_GAP) {
         this.die();
+
         return;
       }
     }
   }
 
-  // ---- ghosts (other players) ----------------------------------------------
-
-  /**
-   * Back in the room after our own connection dropped: the socket may have
-   * redialled by another route, so every rival's clock measures it afresh,
-   * before the first sample to come by it is pushed.
-   */
-  private watchOwnConnection(): void {
+  private watchOwnConnection() {
     const status = this.net.connectionStatus;
+
     if (status === "reconnecting") {
       this.ownDrop = true;
     } else if (status === "connected" && this.ownDrop) {
       this.ownDrop = false;
+
       for (const ghost of this.ghosts.values()) {
         ghost.motion.relearn();
       }
     }
   }
 
-  private syncGhosts(time: number): void {
+  private syncGhosts(time: number) {
     if (!this.racing) {
       for (const g of this.ghosts.values()) {
         g.sprite.destroy();
       }
+
       this.ghosts.clear();
+
       return;
     }
+
     const { frame } = this.game.loop;
 
-    // Fan rivals out to the right of your own dragon (which stays at BIRD_X).
-    // Each keeps a per-id gap + depth so the flock is loose, not a fixed grid;
-    // gaps accumulate so rivals never overlap however uneven the spacing.
     let laneX = BIRD_X + DRAGON_SPRITE_OFFSET_X;
+
     for (const id of this.rivalIds) {
       const ghost = this.feedGhost(id, time);
+
       if (!ghost) {
         continue;
       }
+
       ghost.seen = frame;
       laneX += ghost.gap;
+
       if (ghost.away) {
-        // Its stream has stopped: it waits in its lane where it was last drawn.
         ghost.sprite.x = laneX;
         continue;
       }
-      // Drawn 100 ms or more behind the moment the rival's samples land, as
-      // far as its stream needs, blending the two around it: as smooth as its
-      // flight on its own screen, however unevenly the packets arrive.
+
       const pose = ghost.motion.sample(time);
+
       if (!pose) {
         continue;
       }
+
       ghost.sprite.setPosition(laneX, pose.y + DRAGON_SPRITE_OFFSET_Y);
       ghost.sprite.setRotation(tiltFor(pose.vy));
+
       if (pose.live !== ghost.live) {
         ghost.live = pose.live;
+
         if (pose.live) {
           ghost.sprite.setAlpha(0.55).clearTint();
         } else {
-          // Crashed (or still hovering) players fade to a grey silhouette.
           ghost.sprite.setAlpha(0.28).setTint(0x90_99_b0);
         }
       }
@@ -1534,34 +1422,37 @@ export class GameScene extends Scene {
     }
   }
 
-  /** A rival's ghost with its newest sample pushed, or null until it has sent one. */
-  private feedGhost(id: string, time: number): Ghost | null {
+  private feedGhost(id: string, time: number) {
     const player = this.net.players[id];
     const away = player?.connected === false;
     const known = this.ghosts.get(id);
-    // Ahead of the push, so a rival back from a drop has relearned its clock
-    // before the first sample to come by its new route.
+
     if (known) {
       markAway(known, away);
     }
+
     const state = player?.state;
-    // The state is polled every frame; only a new stamp is a new sample.
+
     if (known && state?.["t"] === known.motion.stamp) {
       return known;
     }
+
     const peer = readPeer(state);
+
     if (!peer) {
       return known ?? null;
     }
+
     let ghost = known;
+
     if (!ghost) {
-      // At its own height, for one first met mid-drop that is never sampled.
       const sprite = this.add
         .sprite(0, peer.y + DRAGON_SPRITE_OFFSET_Y, `dragon-${peer.skin}-1`)
         .setDepth(8)
         .setScale(
           ART_SCALE * (GHOST_SCALE_MIN + hashId(id, 3) * (GHOST_SCALE_MAX - GHOST_SCALE_MIN)),
         );
+
       sprite.play(`fly-${peer.skin}`);
       ghost = {
         away: false,
@@ -1578,37 +1469,30 @@ export class GameScene extends Scene {
       ghost.skin = peer.skin;
       ghost.sprite.play(`fly-${peer.skin}`);
     }
+
     ghost.motion.push(peer.t, peer.life, { live: peer.live, vy: peer.vy, y: peer.y }, time);
+
     return ghost;
   }
 
-  // ---- networking ----------------------------------------------------------
-
-  /**
-   * Streams this dragon on a steady clock (FixedRate keeps the remainder,
-   * where a reset-to-zero throttle drifted to 17–18 Hz with uneven gaps).
-   * Only while racing: alone (offline too), nobody is listening — and the
-   * first tick of a stream goes out at once, so a joiner sees this dragon
-   * immediately. The course needs no stream: it runs on the room's clock.
-   */
-  private broadcast(elapsedMs: number, now: number | null): void {
+  private broadcast(elapsedMs: number, now: number | null) {
     if (!this.racing) {
       this.streamingState = false;
+
       return;
     }
+
     const due = this.stateRate.due(elapsedMs);
-    // Nothing to stamp with until the room's clock is measured.
+
     if (now === null || (this.streamingState && !due)) {
       return;
     }
+
     if (!this.streamingState) {
       this.stateRate.reset();
     }
+
     this.streamingState = true;
-    // Stamped with the room's server time at this frame: continuous across a
-    // reload and comparable between senders. Every rival draws it 100 ms or
-    // more behind the moment it lands (see RivalMotion). Unchanged keys stay
-    // off the wire, so a hovering or crashed dragon costs only `t`.
     this.net.updateMyState({
       life: this.life,
       live: this.alive,
@@ -1620,13 +1504,13 @@ export class GameScene extends Scene {
     });
   }
 
-  // ---- visual effects ------------------------------------------------------
-
-  private scorePop(): void {
+  private scorePop() {
     if (prefersReducedMotion()) {
       return;
     }
+
     const y = this.scoreY();
+
     for (const digit of this.digits) {
       this.tweens.killTweensOf(digit);
       digit.setY(y - 6);
@@ -1634,31 +1518,34 @@ export class GameScene extends Scene {
     }
   }
 
-  // ---- HUD -----------------------------------------------------------------
-
-  private refreshGateHud(): void {
+  private refreshGateHud() {
     if (!this.gatesEl) {
       return;
     }
+
     this.gatesEl.hidden = this.phase !== "playing";
     const text = `${this.gates} ${this.gates === 1 ? "GATE" : "GATES"}`;
+
     if (this.gatesEl.textContent !== text) {
       this.gatesEl.textContent = text;
     }
   }
 
-  private refreshScore(): void {
+  private refreshScore() {
     const text = String(this.score);
     const y = this.scoreY();
+
     while (this.digits.length < text.length) {
       this.digits.push(this.add.image(0, y, "digits", 0).setOrigin(0, 0).setDepth(20));
     }
+
     while (this.digits.length > text.length) {
       const d = this.digits.pop();
       d?.destroy();
     }
 
     const startX = (this.viewW() - text.length * DIGIT_W) / 2;
+
     for (const [i, digit] of this.digits.entries()) {
       digit
         .setFrame((text.codePointAt(i) ?? 48) - 48)
@@ -1668,58 +1555,57 @@ export class GameScene extends Scene {
     }
   }
 
-  private setHint(text: string): void {
-    // The HTML start overlay owns all pre-start copy — a hint pill under it
-    // would just duplicate (and fight) the overlay's controls block.
+  private setHint(text: string) {
     if (this.hintEl) {
       this.hintEl.textContent = this.started ? text : "";
     }
   }
 
-  /** Game-over card: mirrors the respawn/restart deadlines, never gates them. */
-  private updateResults(time: number): void {
-    // The card's own height and the camera panel's rect are layout reads;
-    // 4 Hz is plenty for a panel the player may collapse mid-screen.
+  private updateResults(time: number) {
     if (time - this.resultLayoutAt >= RESULT_LAYOUT_MS) {
       this.resultLayoutAt = time;
       this.layoutResults();
     }
+
     const elapsed = Math.max(0, time - this.diedAt);
     this.resultsEl?.classList.toggle("show", elapsed >= 120);
     const remaining = Math.max(0, RESPAWN_MS - elapsed);
     const retry = this.retryLine(remaining, elapsed);
+
     if (this.resultRetryEl && this.resultRetryEl.textContent !== retry) {
       this.resultRetryEl.textContent = retry;
     }
+
     this.resultsEl?.style.setProperty(
       "--return-progress",
       String(Math.min(1, elapsed / (this.sharedCourse ? RESPAWN_MS : RESTART_LOCKOUT_MS))),
     );
   }
 
-  /** Keep the banner/card together and outside the optional live camera. */
-  private layoutResults(): void {
+  private layoutResults() {
     const card = this.resultsEl;
+
     if (!card) {
       return;
     }
+
     const camera = document.querySelector(".fd-cam")?.getBoundingClientRect();
     const width = Math.min(340, this.scale.width - 32);
     const height = card.offsetHeight;
     const key = `${this.scale.width}:${this.scale.height}:${height}:${camera?.left}:${camera?.top}`;
+
     if (key === this.resultLayoutKey) {
       return;
     }
+
     this.resultLayoutKey = key;
     let x = this.scale.width / 2;
+
     let y = Math.min(
       this.scale.height - height - 16,
       this.scale.height / 2 + (this.scale.height <= 520 ? 30 : 48),
     );
-    // Overlapping the camera: sit beside it only when the FULL card fits in
-    // the space to its left (desktop); otherwise stay centred and rise above
-    // it. Shrinking the card to fit beside a phone's thumbnail pushed the
-    // whole results screen off-centre for a few pixels of camera.
+
     if (camera && x + width / 2 > camera.left && y + height > camera.top - 12) {
       if (camera.left - 32 >= width) {
         x = camera.left / 2;
@@ -1727,6 +1613,7 @@ export class GameScene extends Scene {
         y = Math.max(90, Math.min(y, camera.top - height - 16));
       }
     }
+
     card.style.width = `${width}px`;
     card.style.left = `${x}px`;
     card.style.top = `${y}px`;
@@ -1736,27 +1623,32 @@ export class GameScene extends Scene {
       .setPosition(x / zoom, this.viewTop() + (y - 48) / zoom);
   }
 
-  private playSound(key: string, config?: Types.Sound.SoundConfig): void {
+  private playSound(key: string, config?: Types.Sound.SoundConfig) {
     if (this.muted || this.presentationPaused) {
       return;
     }
+
     this.sound.play(key, config);
   }
 
-  /** "point" pitched up a few steps; a newer fanfare replaces a pending one. */
-  private playPhrase(rates: readonly number[], delay = 0): void {
+  private playPhrase(rates: readonly number[], delay = 0) {
     this.cancelPhrase();
-    const note = (index: number): void => {
+
+    const note = (index: number) => {
       this.phraseTimer = null;
       const rate = rates[index];
+
       if (rate === undefined) {
         return;
       }
+
       this.playSound("point", { rate, volume: 0.45 });
+
       if (index + 1 < rates.length) {
         this.phraseTimer = this.time.delayedCall(PHRASE_NOTE_MS, () => note(index + 1));
       }
     };
+
     if (delay > 0) {
       this.phraseTimer = this.time.delayedCall(delay, () => note(0));
     } else {
@@ -1764,29 +1656,26 @@ export class GameScene extends Scene {
     }
   }
 
-  private cancelPhrase(): void {
+  private cancelPhrase() {
     this.phraseTimer?.remove();
     this.phraseTimer = null;
   }
 
-  isMuted(): boolean {
+  isMuted() {
     return this.muted;
   }
 
-  setMuted(muted: boolean): void {
-    // The scene owns the flag rather than reading it back off the sound
-    // manager: Phaser swaps in a no-audio manager when the device has no
-    // output, and that one silently drops writes to `mute` and always reads
-    // false — which left the toggle stuck after a single press.
+  setMuted(muted: boolean) {
     this.muted = muted;
     this.sound.mute = muted || this.presentationPaused;
+
     if (muted) {
       this.cancelPhrase();
       this.sound.stopAll();
     }
+
     storageSet(SOUND_KEY, muted ? "0" : "1");
-    // Autoplay policy may have left the context suspended (we boot muted, so
-    // nothing forced it awake). We're inside a user gesture — resume is safe.
+
     if (
       !muted &&
       !this.presentationPaused &&
@@ -1797,81 +1686,93 @@ export class GameScene extends Scene {
     }
   }
 
-  private retryLine(remaining: number, elapsed: number): string {
+  private retryLine(remaining: number, elapsed: number) {
     if (this.sharedCourse) {
       return `BACK IN ${(remaining / 1000).toFixed(1)}s · RACE CONTINUES`;
     }
+
     return elapsed < RESTART_LOCKOUT_MS ? "TAKE A BREATH…" : HINT_RESTART;
   }
 
-  private netInfoLine(): string {
+  private netInfoLine() {
     const status = this.net.connectionStatus;
+
     if (status === "connecting") {
       return "connecting…";
     }
-    // Our own drop: the room holds the seat while the socket redials.
+
     if (status === "reconnecting") {
       return "reconnecting…";
     }
+
     if (status === "offline") {
       return "offline · solo";
     }
+
     if (this.racing) {
       return `race · ${this.rivalIds.length + 1} players`;
     }
+
     return "online · waiting";
   }
 
-  /** Live race leaderboard + connection info (multiplayer only). */
-  private updateBoard(dt: number): void {
+  private updateBoard(dt: number) {
     const netInfo = this.netInfoLine();
+
     if (this.netInfoEl && netInfo !== this.lastNetInfo) {
       this.lastNetInfo = netInfo;
       this.netInfoEl.textContent = netInfo;
     }
 
-    // Standings only move at snapshot rate — no need to recompute them at 60Hz.
     this.boardAcc += dt;
+
     if (this.boardAcc < 1 / NET_TICK_HZ) {
       return;
     }
+
     this.boardAcc = 0;
 
     if (!this.boardEl) {
       return;
     }
+
     if (!this.racing) {
       if (this.boardEl.childElementCount > 0) {
         this.boardEl.replaceChildren();
       }
+
       this.boardSig = "";
+
       if (this.phase === "ready" && this.isOnline()) {
         this.setHint(HINT_FLAP);
       }
+
       return;
     }
+
     if (this.phase === "ready") {
       this.setHint(HINT_RACE);
     }
 
     const rows = this.standings();
 
-    // Standings change a few times a second at most — skip the 60 Hz DOM
-    // rebuild while nothing moved.
     const sig = rows.map((r) => `${r.id}:${r.score}:${r.live ? 1 : 0}:${r.away ? 1 : 0}`).join("|");
+
     if (sig === this.boardSig) {
       return;
     }
+
     this.boardSig = sig;
     this.boardEl.replaceChildren(renderStandings(rows));
   }
 
-  /** Best-first standings: mine live-local, every rival from its last wire state. */
-  private standings(): BoardRow[] {
+  private standings() {
     const me = this.net.playerId ?? SOLO_ROW_ID;
+
     const rows: BoardRow[] = [
       { away: false, id: me, live: this.alive, me: true, score: this.score },
     ];
+
     for (const id of this.rivalIds) {
       const player = this.net.players[id];
       const ps = readPeer(player?.state);
@@ -1883,79 +1784,64 @@ export class GameScene extends Scene {
         score: ps?.score ?? 0,
       });
     }
+
     rows.sort((a, b) => b.score - a.score);
+
     return rows;
   }
 
-  // ---- layout --------------------------------------------------------------
-
-  /**
-   * Camera zoom. Filling the viewport height is the goal; MIN_VIEW_W is the
-   * floor that stops a narrow viewport from cropping the course down to a
-   * couple of trunk widths (see the constant).
-   */
-  private viewZoom(): number {
+  private viewZoom() {
     return Math.min(this.scale.height / COURSE_H, this.scale.width / MIN_VIEW_W);
   }
 
-  /** Logical width of the visible window. */
-  private viewW(): number {
+  private viewW() {
     return this.scale.width / this.viewZoom();
   }
 
-  /**
-   * Logical y of the top of the visible window — 0 when the zoom fills the
-   * height, negative when MIN_VIEW_W pushed it out. The course FLOOR is pinned
-   * to the bottom of the screen, so the extra room is always sky above.
-   */
-  private viewTop(): number {
+  private viewTop() {
     return COURSE_H - this.scale.height / this.viewZoom();
   }
 
-  /** Top of the score digits: below the view top and below any notch. */
-  private scoreY(): number {
+  private scoreY() {
     return this.viewTop() + SCORE_Y + safeAreaInset().top / this.viewZoom();
   }
 
-  /** Milestone / new-best banner sits just under the score digits. */
-  private noticeY(): number {
+  private noticeY() {
     return this.scoreY() + 44;
   }
 
-  private layout(): void {
-    // The whole world lives in a fixed COURSE_H-tall logical space and the
-    // camera zooms it onto the real viewport. Every client therefore plays the
-    // exact same course geometry (the 8-player race stays fair) whatever its
-    // screen; only how much of it is on screen at once differs.
+  private layout() {
     const zoom = this.viewZoom();
     const width = this.viewW();
     const top = this.viewTop();
     const viewH = COURSE_H - top;
     this.cameras.main.setZoom(zoom).centerOn(width / 2, top + viewH / 2);
-    // Sized to the VIEW, not the course: tileScale × zoom is `height/native`
-    // either way, so the backdrop lands on the same screen pixels as before
-    // and never leaves a band of bare sky above the course.
     const tileScale = viewH / BG_NATIVE_H;
+
     for (const layer of this.bgLayers) {
       layer.sprite.setPosition(0, top).setSize(width, viewH).setTileScale(tileScale);
     }
+
     this.applyParallax();
-    // Narrow logical viewports (phone portrait) can't fit the banners at 2×.
+
     for (const img of [this.readyImg, this.overImg]) {
       img
         .setScale(Math.min(ART_SCALE, (width - 16) / img.width))
         .setPosition(width / 2, top + viewH / 2);
     }
+
     this.refreshScore();
+
     if (this.phase === "gameover") {
       this.layoutResults();
     }
-    // Both the visible pipe window and the trunk tops depend on the view.
+
     this.clearPipes();
   }
 
-  private applyParallax(): void {
+  private applyParallax() {
     const px = this.worldX + this.readyDrift;
+
     for (const layer of this.bgLayers) {
       layer.sprite.tilePositionX = (px * layer.factor) / layer.sprite.tileScaleX;
     }

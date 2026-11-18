@@ -8,6 +8,7 @@ import { downloadMedia, extractMediaRefs } from "../src/lib/media-download.js";
 import { makeCleanups, makeTestServer, makeTmpDir } from "./_helpers.js";
 
 const { cleanups, drain } = makeCleanups();
+
 afterEach(drain);
 
 const tmpDir = () => makeTmpDir(cleanups, "vg-dl-");
@@ -19,6 +20,7 @@ test("extractMediaRefs picks up image content_type entries", () => {
       { content_type: "image/jpeg", file_name: "b.jpg", url: "https://v3.fal.media/files/b.jpg" },
     ],
   };
+
   const refs = extractMediaRefs(result);
   assert.equal(refs.length, 2);
   assert.deepEqual(
@@ -40,14 +42,13 @@ test("extractMediaRefs ignores unrelated URLs", () => {
     image: { content_type: "image/png", url: "https://v3.fal.media/files/a.png" },
     metadata: { url: "https://api.fal.ai/v1/something" },
   };
+
   const refs = extractMediaRefs(result);
   assert.equal(refs.length, 1);
   assert.equal(refs.at(0)?.contentType, "image/png");
 });
 
 test("extractMediaRefs rejects non-fal hosts even with a media content_type", () => {
-  // Defense in depth: a malicious or compromised fal response could embed
-  // an attacker-controlled URL. --download must not fetch it.
   const result = {
     confusable_suffix: {
       content_type: "image/png",
@@ -58,9 +59,6 @@ test("extractMediaRefs rejects non-fal hosts even with a media content_type", ()
       url: "file:///etc/passwd",
     },
     http_downgrade: {
-      // fal serves all CDN URLs over HTTPS. A response that smuggles a
-      // plain-HTTP fal-domain URL would otherwise be downloaded over an
-      // insecure channel.
       content_type: "image/png",
       url: "http://v3.fal.media/files/insecure.png",
     },
@@ -79,6 +77,7 @@ test("extractMediaRefs rejects non-fal hosts even with a media content_type", ()
       url: "https://evil.example.com/payload.png",
     },
   };
+
   const refs = extractMediaRefs(result);
   const urls = refs.map((r) => r.url).toSorted();
   assert.deepEqual(urls, [
@@ -88,10 +87,6 @@ test("extractMediaRefs rejects non-fal hosts even with a media content_type", ()
 });
 
 test("extractMediaRefs sanitizes fal file_name to prevent download path traversal", () => {
-  // ref.filename feeds straight into resolve() in renderTemplate, so a
-  // hostile fal response with file_name="../../etc/crontab" would
-  // otherwise escape the download dir. basename-equivalent stripping
-  // happens at the source so every consumer sees a safe value.
   const result = {
     dot_only: {
       content_type: "image/png",
@@ -109,10 +104,10 @@ test("extractMediaRefs sanitizes fal file_name to prevent download path traversa
       url: "https://v3.fal.media/files/y.png",
     },
   };
+
   const refs = extractMediaRefs(result);
   assert.equal(refs.find((r) => r.url.endsWith("x.png"))?.filename, "crontab");
   assert.equal(refs.find((r) => r.url.endsWith("y.png"))?.filename, "evil.png");
-  // file_name=".." sanitizes to null, so we fall back to the default.
   assert.equal(refs.find((r) => r.url.endsWith("z.png"))?.filename, "output.png");
 });
 
@@ -122,6 +117,7 @@ test("extractMediaRefs deduplicates the same URL appearing twice in the tree", (
     file_name: "a.png",
     url: "https://v3.fal.media/files/a.png",
   };
+
   const result = { also: { nested: ref }, primary: ref };
   const refs = extractMediaRefs(result);
   assert.equal(refs.length, 1);
@@ -134,12 +130,11 @@ test("extractMediaRefs handles a nested array of frames", () => {
       url: `https://v3.fal.media/files/f${i}.png`,
     })),
   };
+
   const refs = extractMediaRefs(result);
   assert.equal(refs.length, 3);
 });
 
-// Tiny PNG handler that every download test reuses. Real fetch + write
-// path exercises renderTemplate / disambiguateTargets end-to-end.
 const servePng = (
   _: IncomingMessage,
   res: { setHeader: (k: string, v: string) => void; end: (b: Buffer) => void },
@@ -151,6 +146,7 @@ const servePng = (
 test("downloadMedia treats '.' / './' / 'out/' as a destination directory", async () => {
   const port = await makeTestServer(cleanups, servePng);
   const dir = tmpDir();
+
   const ref = {
     contentType: "image/png" as const,
     filename: "a.png",
@@ -169,33 +165,30 @@ test("downloadMedia treats '.' / './' / 'out/' as a destination directory", asyn
 });
 
 test("downloadMedia writes to a file template literally (not as a directory)", async () => {
-  // `--download ./walk.png` should land at ./walk.png, NOT
-  // ./walk.png/<refname>. extname-based detection separates explicit
-  // file templates from directory shorthands like "out/" or "./".
   const port = await makeTestServer(cleanups, servePng);
   const dir = tmpDir();
   const target = path.join(dir, "walk.png");
+
   const ref = {
     contentType: "image/png" as const,
     filename: "source.png",
     url: `http://127.0.0.1:${port}/source.png`,
   };
+
   const result = await downloadMedia({ refs: [ref], requestId: "rid", template: target });
   assert.equal(result.failed.length, 0);
   assert.deepEqual(result.downloaded, [path.resolve(target)]);
 });
 
 test("downloadMedia reports a download whose bytes contradict its extension", async () => {
-  // A model picks its own output format, so `--download board.png` against an
-  // endpoint that answers JPEG writes JPEG into a `.png`. The path is honoured
-  // as asked; the mismatch is reported so the "bad signature" a PNG decoder
-  // raises three steps later is traceable.
   const port = await makeTestServer(cleanups, (_, res) => {
     res.setHeader("content-type", "image/jpeg");
     res.end(Buffer.from([0xff, 0xd8, 0xff, 0xe0]));
   });
+
   const dir = tmpDir();
   const target = path.join(dir, "board.png");
+
   const ref = {
     contentType: "image/jpeg" as const,
     filename: "source.jpg",
@@ -216,7 +209,9 @@ test("downloadMedia stays quiet when the extension matches, aliases included", a
     res.setHeader("content-type", "image/jpeg");
     res.end(Buffer.from([0xff, 0xd8, 0xff, 0xe0]));
   });
+
   const dir = tmpDir();
+
   const ref = {
     contentType: "image/jpeg" as const,
     filename: "source.jpg",
@@ -229,27 +224,27 @@ test("downloadMedia stays quiet when the extension matches, aliases included", a
       requestId: "rid",
       template: path.join(dir, name),
     });
+
     assert.deepEqual(result.mislabeled, [], `${name} names the same format`);
   }
 });
 
 test("downloadMedia suffixes colliding targets so multi-output runs don't overwrite", async () => {
-  // extractMediaRefs gives every ref the default filename `output.png`
-  // when fal omits `file_name`. Without disambiguation, all N downloads
-  // collide on the same path and only the last one survives. Verify
-  // each survives as `output.png`, `output_1.png`, `output_2.png`.
   const port = await makeTestServer(cleanups, servePng);
   const dir = tmpDir();
+
   const ref = (i: number) => ({
     contentType: "image/png" as const,
     filename: "output.png",
     url: `http://127.0.0.1:${port}/output.png?i=${i}`,
   });
+
   const result = await downloadMedia({
     refs: [ref(0), ref(1), ref(2)],
     requestId: "rid",
     template: `${dir}/`,
   });
+
   assert.equal(result.failed.length, 0);
   assert.deepEqual(result.downloaded, [
     path.resolve(dir, "output.png"),
@@ -261,11 +256,13 @@ test("downloadMedia suffixes colliding targets so multi-output runs don't overwr
 test("downloadMedia renders {placeholder} templates as paths", async () => {
   const port = await makeTestServer(cleanups, servePng);
   const dir = tmpDir();
+
   const result = await downloadMedia({
     refs: [{ contentType: "image/png", filename: "a.png", url: `http://127.0.0.1:${port}/a.png` }],
     requestId: "rid42",
     template: path.join(dir, "{request_id}-{name}.{ext}"),
   });
+
   assert.equal(result.failed.length, 0);
   assert.equal(result.downloaded[0], path.resolve(path.join(dir, "rid42-a.png")));
 });

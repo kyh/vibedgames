@@ -4,15 +4,11 @@ import { BlendModes, Scenes } from "phaser";
 import { BASE_H, BASE_W, COLORS } from "../config";
 import { SpritePool } from "./sprite-pool";
 
-// Lightweight VFX drawn from scene-owned, fixed-size pools (no per-hit
-// allocations or tweens): a runtime radial-glow texture ("fx-glow") for
-// additive neon bloom, plus dot/shard/ring shapes. The pool is created lazily on
-// the first effect and ticks off the scene's UPDATE event, so it also serves
-// scenes that never call into the game loop.
 const pools = new WeakMap<Phaser.Scene, SceneFx>();
 const PARTICLES = 192;
 const ECHOES = 32;
 const LABELS = 16;
+
 const reducedMotion =
   typeof window === "undefined" ? null : window.matchMedia("(prefers-reduced-motion: reduce)");
 
@@ -20,12 +16,15 @@ export const ensureGlow = (scene: Phaser.Scene) => {
   if (scene.textures.exists("fx-glow")) {
     return;
   }
+
   const R = 24;
   const g = scene.make.graphics({ x: 0, y: 0 });
+
   for (let i = R; i > 0; i -= 1) {
     g.fillStyle(0xff_ff_ff, 0.05 * Math.min(1, (R - i) / (R * 0.34)));
     g.fillCircle(R, R, i);
   }
+
   g.generateTexture("fx-glow", R * 2, R * 2);
   g.destroy();
 };
@@ -34,6 +33,7 @@ const ensureParticleTextures = (scene: Phaser.Scene) => {
   if (scene.textures.exists("fx-dot")) {
     return;
   }
+
   const g = scene.make.graphics({ x: 0, y: 0 });
   g.fillStyle(0xff_ff_ff).fillCircle(4, 4, 4).generateTexture("fx-dot", 8, 8);
   g.clear().fillStyle(0xff_ff_ff).fillRect(0, 0, 4, 2).generateTexture("fx-shard", 4, 2);
@@ -59,6 +59,7 @@ class SceneFx {
     ensureParticleTextures(scene);
     this.particles = new SpritePool(scene, PARTICLES);
     this.echoes = new SpritePool(scene, ECHOES);
+
     for (let i = 0; i < LABELS; i += 1) {
       this.labels.push({
         age: 600,
@@ -72,8 +73,8 @@ class SceneFx {
         y: 0,
       });
     }
+
     scene.events.on(Scenes.Events.UPDATE, this.update, this);
-    // Phaser destroys the display list after SHUTDOWN; only the registry needs dropping.
     scene.events.once(Scenes.Events.SHUTDOWN, () => {
       scene.events.off(Scenes.Events.UPDATE, this.update, this);
       pools.delete(scene);
@@ -83,20 +84,25 @@ class SceneFx {
   private update(_time: number, delta: number) {
     const ms = Math.max(0, delta);
     this.particles.update(ms);
+
     if (reducedMotion?.matches) {
       this.echoes.clear();
     } else {
       this.echoes.update(ms);
     }
+
     for (const s of this.labels) {
       if (s.age >= 600) {
         continue;
       }
+
       s.age += ms;
+
       if (s.age >= 600) {
         s.text.setVisible(false).setActive(false);
         continue;
       }
+
       const eased = 1 - (1 - s.age / 600) ** 2;
       s.text.setPosition(s.x, s.y - eased * 12).setAlpha(1 - eased);
     }
@@ -104,9 +110,11 @@ class SceneFx {
 
   label(x: number, y: number, text: string, color: string) {
     const slot = this.labels.find((s) => s.age >= 600) ?? this.labels[this.nextLabel];
+
     if (!slot) {
       return;
     }
+
     this.nextLabel = (this.nextLabel + 1) % LABELS;
     slot.age = 0;
     slot.x = x;
@@ -123,6 +131,7 @@ class SceneFx {
   clear() {
     this.particles.clear();
     this.echoes.clear();
+
     for (const s of this.labels) {
       s.age = 600;
       s.text.setVisible(false).setActive(false);
@@ -130,17 +139,19 @@ class SceneFx {
   }
 }
 
-const fx = (scene: Phaser.Scene): SceneFx => {
+const fx = (scene: Phaser.Scene) => {
   let pool = pools.get(scene);
+
   if (!pool) {
     pool = new SceneFx(scene);
     pools.set(scene, pool);
   }
+
   return pool;
 };
 
 /** Room change: hide every in-flight effect so nothing lingers over the new room. */
-export const clearFx = (scene: Phaser.Scene): void => {
+export const clearFx = (scene: Phaser.Scene) => {
   pools.get(scene)?.clear();
 };
 
@@ -156,6 +167,7 @@ const glow = (
   if (reducedMotion?.matches) {
     return;
   }
+
   fx(scene).particles.spawn(x, y, ms, { add: true, color, depth, end: 1.6, sx: scale });
 };
 
@@ -167,6 +179,7 @@ export const hitSpark = (
   n = 6,
 ) => {
   glow(scene, x, y, color, 0.5, 150, 61);
+
   for (let i = 0; i < Math.min(n, 24); i += 1) {
     const a = Math.random() * Math.PI * 2;
     const sp = 12 + Math.random() * 26;
@@ -181,6 +194,7 @@ export const hitSpark = (
       sy: 1,
     });
   }
+
   fx(scene).particles.spawn(x, y, 100, {
     alpha: 0.85,
     depth: 62,
@@ -218,6 +232,7 @@ export const afterImage = (
   if (reducedMotion?.matches) {
     return;
   }
+
   fx(scene)
     .echoes.spawn(spr.x, spr.y, 240, {
       add: true,
@@ -316,21 +331,21 @@ export const explosion = (
   });
   impactRing(scene, x, y, color, r);
   hitSpark(scene, x, y, color, 14);
+
   for (let i = 0; i < 6; i += 1) {
     const a = (Math.PI * 2 * i) / 6;
     smoke(scene, x, y, Math.cos(a) * r * 0.65, Math.sin(a) * r * 0.35 - 8, r * 0.45, color);
   }
 };
 
-// Slow-drifting neon embers for room ambience. Returns the emitter to destroy on
-// room change.
 export const ambientEmbers = (
   scene: Phaser.Scene,
   color: number = COLORS.teal,
   roomW = BASE_W,
   roomH = BASE_H,
-): Phaser.GameObjects.Particles.ParticleEmitter => {
+) => {
   ensureGlow(scene);
+
   return scene.add
     .particles(0, 0, "fx-glow", {
       alpha: { end: 0, start: 0.45 },

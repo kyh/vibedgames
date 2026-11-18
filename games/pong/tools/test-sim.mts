@@ -1,6 +1,3 @@
-// The lockstep sim: a pure function of its seed and per-tick inputs, built
-// only from arithmetic every JavaScript engine rounds the same way.
-
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
@@ -20,16 +17,16 @@ import { SERVE_DELAY_TICKS, cloneSim, newMatch, simChecksum, stepSim } from "../
 import type { HitEvent, SimEvent, SimState, Slot } from "../src/shared/sim.ts";
 import { SPIN_RATE, SPIN_TICKS, curveTick } from "../src/shared/spin.ts";
 
-/** The test's own randomness: Park–Miller, so the scripts replay exactly. */
 const generator = (seed: number) => {
   let state = seed;
-  return (): number => {
+
+  return () => {
     state = (state * 48_271) % 2_147_483_647;
+
     return (state - 1) / 2_147_483_646;
   };
 };
 
-/** Every Math function ECMAScript lets an engine approximate. */
 const APPROXIMATED = [
   "acos",
   "acosh",
@@ -56,9 +53,9 @@ const APPROXIMATED = [
   "tanh",
 ] as const;
 
-/** Run `body` with Math.random and the approximated functions throwing. */
-const withoutApproximations = (body: () => void): void => {
+const withoutApproximations = (body: () => void) => {
   const saved = APPROXIMATED.map((name) => [name, Math[name]] as const);
+
   for (const name of APPROXIMATED) {
     Object.defineProperty(Math, name, {
       configurable: true,
@@ -67,6 +64,7 @@ const withoutApproximations = (body: () => void): void => {
       },
     });
   }
+
   try {
     body();
   } finally {
@@ -82,25 +80,25 @@ interface Pilot {
   aim: number;
 }
 
-/**
- * A scripted player for `slot`: follows the ball with a wandering offset (so
- * returns go off at angles and points get scored), serves and rematches,
- * arms a ready charge and now and then cancels it.
- */
-const pilotInput = (s: SimState, slot: Slot, pilot: Pilot, roll: () => number): SlotInput => {
+const pilotInput = (s: SimState, slot: Slot, pilot: Pilot, roll: () => number) => {
   const paddle = slot === 0 ? s.a : s.b;
+
   if (roll() < 0.02) {
     pilot.aim = (roll() * 2 - 1) * 0.9;
   }
+
   if (s.phase !== "rally" && roll() < 0.05) {
     pilot.c = bump(pilot.c);
   }
+
   if (s.phase === "rally" && paddle.charge.kind === "ready" && roll() < 0.1) {
     pilot.c = bump(pilot.c);
   }
+
   if (paddle.charge.kind === "armed" && roll() < 0.01) {
     pilot.k = bump(pilot.k);
   }
+
   return { c: pilot.c, k: pilot.k, x: paddleStep(s.ball.x + pilot.aim) };
 };
 
@@ -110,16 +108,18 @@ interface Script {
   final: SimState;
 }
 
-/** Play `ticks` ticks from `seed`, slot B absent (AI) for a stretch. */
-const playScript = (seed: number, ticks: number): Script => {
+const playScript = (seed: number, ticks: number) => {
   const roll = generator(seed + 7);
   const s = newMatch({ autoServe: true, scoreA: 0, scoreB: 0, seed, tick: 99 });
+
   const pilots: [Pilot, Pilot] = [
     { aim: 0.4, c: 0, k: 0 },
     { aim: -0.4, c: 3, k: 5 },
   ];
+
   const inputs: Script["inputs"] = [];
   const events: SimEvent[] = [];
+
   for (let i = 0; i < ticks; i += 1) {
     const a = pilotInput(s, 0, pilots[0], roll);
     const away = i > ticks / 3 && i < ticks / 2;
@@ -128,18 +128,19 @@ const playScript = (seed: number, ticks: number): Script => {
     stepSim(s, a, b);
     events.push(...s.events);
   }
+
   return { events, final: s, inputs };
 };
 
-/** Within a few ulps. */
-const near = (a: number, b: number): boolean => Math.abs(a - b) <= 1e-15 * Math.max(1, Math.abs(b));
+const near = (a: number, b: number) => Math.abs(a - b) <= 1e-15 * Math.max(1, Math.abs(b));
 
-/** The first serve's lateral speed from a seed. */
-const firstServe = (seed: number): number => {
+const firstServe = (seed: number) => {
   const s = newMatch({ autoServe: true, scoreA: 0, scoreB: 0, seed, tick: 0 });
+
   while (s.phase !== "rally") {
     stepSim(s, null, null);
   }
+
   return s.ball.vx;
 };
 
@@ -162,34 +163,39 @@ test("the sim never reaches for Math.random or an approximated Math function", (
 
 test("one seed and one input stream give one match, however it is cloned and replayed", () => {
   const { inputs, final } = playScript(777, 12_000);
-  // Replay the recorded inputs into a fresh match, cloning every tick the
-  // way rollback does, and restoring from a mid-match snapshot.
   const fresh = newMatch({ autoServe: true, scoreA: 0, scoreB: 0, seed: 777, tick: 99 });
   let copy = fresh;
   let snapshot: SimState | null = null;
   const half = inputs.length / 2;
+
   for (const [i, [a, b]] of inputs.entries()) {
     copy = cloneSim(copy);
     stepSim(copy, a, b);
+
     if (i === half) {
       snapshot = cloneSim(copy);
     }
   }
+
   assert.equal(JSON.stringify(copy), JSON.stringify(final));
   assert.ok(snapshot !== null);
   const resumed = snapshot;
+
   for (const [a, b] of inputs.slice(half + 1)) {
     stepSim(resumed, a, b);
   }
+
   assert.equal(simChecksum(resumed), simChecksum(final));
 });
 
 test("a long scripted match exercises every rule", () => {
   const { events, final } = playScript(2024, 60_000);
   const kinds = new Set(events.map((e) => e.kind));
+
   for (const kind of ["serve", "hit", "wall", "land", "point"] as const) {
     assert.ok(kinds.has(kind), `no ${kind} event`);
   }
+
   const hits = events.filter((e): e is HitEvent => e.kind === "hit");
   assert.ok(
     hits.some((e) => e.powered),
@@ -205,7 +211,6 @@ test("a long scripted match exercises every rule", () => {
     "no match won",
   );
   assert.ok(final.longest >= 3);
-  // Every event key is unique within the match: a key names one happening.
   const keys = events.map((e) => e.key);
   assert.equal(new Set(keys).size, keys.length);
 });
@@ -227,21 +232,26 @@ test("a slice keeps the speed and the forward floor, and turns as far as the con
           x: 0,
           y: 0,
         };
+
         const speed = Math.hypot(ball.vx, ball.vy);
+
         for (let i = 0; i < SPIN_TICKS; i += 1) {
           curveTick(ball);
           assert.ok(Math.abs(Math.hypot(ball.vx, ball.vy) - speed) < 1e-9);
           assert.ok(forward * ball.vy >= speed * MIN_VY_FRAC - 1e-9);
         }
+
         assert.equal(ball.spin, 0);
       }
     }
   }
-  // Unclamped, the per-tick turns add up to the continuous curve's integral.
+
   const ball: Ball = { spin: 0.8, spinAge: 0, vx: 0, vy: 7, x: 0, y: 0 };
+
   for (let i = 0; i < SPIN_TICKS; i += 1) {
     curveTick(ball);
   }
+
   const integral = (0.8 * SPIN_RATE * (1 - Math.exp(-3.5 * 0.5))) / 3.5;
   assert.ok(Math.abs(Math.atan2(ball.vx, ball.vy) - integral) < 1e-12);
 });
@@ -257,6 +267,7 @@ test("inputs round-trip; anything else reads as no input", () => {
   const input: SlotInput = { c: 3, k: INPUT_COUNTER - 1, x: paddleStep(-2.2) };
   assert.deepEqual(readInput(encodeInput(input)), input);
   assert.equal(paddleStep(99), paddleStep(4.5));
+
   for (const wire of [
     null,
     false,
@@ -278,11 +289,12 @@ test("inputs round-trip; anything else reads as no input", () => {
 test("a press is a change of the counter: held, first seen or returning, it is not", () => {
   const s = newMatch({ autoServe: false, scoreA: 0, scoreB: 0, seed: 1, tick: 0 });
   const held: SlotInput = { c: 5, k: 0, x: 0 };
+
   for (let i = 0; i < 10; i += 1) {
     stepSim(s, held, null);
   }
+
   assert.equal(s.phase, "serving");
-  // Gone and back with the same counter: still no press.
   stepSim(s, null, null);
   stepSim(s, held, null);
   assert.equal(s.phase, "serving");
@@ -293,8 +305,7 @@ test("a press is a change of the counter: held, first seen or returning, it is n
 
 test("a power shot arms on a press, cancels on a cancel, and fires on the next return", () => {
   const s = newMatch({ autoServe: false, scoreA: 0, scoreB: 0, seed: 1, tick: 0 });
-  // Read through functions: stepSim mutates the state behind TypeScript's narrowing.
-  const charge = (): string => s.a.charge.kind;
+  const charge = () => s.a.charge.kind;
   let input: SlotInput = { c: 0, k: 0, x: 0 };
   stepSim(s, input, null);
   input = { ...input, c: bump(input.c) };
@@ -310,12 +321,13 @@ test("a power shot arms on a press, cancels on a cancel, and fires on the next r
   input = { ...input, c: bump(input.c) };
   stepSim(s, input, null);
   assert.equal(charge(), "armed");
-  // Steer under the ball until slot A returns it.
   let hit: SimEvent | undefined;
+
   for (let i = 0; i < 400 && hit === undefined; i += 1) {
     stepSim(s, { ...input, x: paddleStep(s.ball.x) }, null);
     hit = s.events.find((e) => e.kind === "hit" && e.slot === 0);
   }
+
   assert.ok(hit?.kind === "hit" && hit.powered);
   assert.deepEqual(s.a.charge, { hits: 0, kind: "charging" });
   assert.ok(s.speed > RALLY_SPEED_BASE);
@@ -323,9 +335,11 @@ test("a power shot arms on a press, cancels on a cancel, and fires on the next r
 
 test("nobody at a paddle: the AI holds it", () => {
   const s = newMatch({ autoServe: true, scoreA: 0, scoreB: 0, seed: 9, tick: 0 });
+
   while (s.phase !== "rally") {
     stepSim(s, { c: 0, k: 0, x: 0 }, null);
   }
+
   s.ball.x = 3;
   s.ball.vx = 0;
   const before = s.b.x;
@@ -339,11 +353,12 @@ test("nobody at a paddle: the AI holds it", () => {
 
 test("a point parks the ball on its line through the goal beat, then the countdown serves the conceder", () => {
   const s = newMatch({ autoServe: true, scoreA: 0, scoreB: 0, seed: 3, tick: 0 });
-  const phase = (): string => s.phase;
+  const phase = () => s.phase;
+
   while (s.phase !== "rally") {
     stepSim(s, null, null);
   }
-  // Slot B's paddle is far away; the ball is a step from B's goal line.
+
   Object.assign(s.ball, { vx: 0, vy: 9, x: -3, y: GOAL_Y - 0.05 });
   const far = { c: 0, k: 0, x: paddleStep(4.5) };
   stepSim(s, null, far);
@@ -352,14 +367,18 @@ test("a point parks the ball on its line through the goal beat, then the countdo
   assert.equal(s.scoreA, 1);
   assert.equal(s.ball.y, GOAL_Y);
   const pointTick = s.tick;
+
   while (s.freeze > 0) {
     assert.equal(s.ball.y, GOAL_Y);
     stepSim(s, null, far);
   }
+
   assert.deepEqual([s.ball.x, s.ball.y, s.phase], [0, 0, "serving"]);
+
   while (phase() === "serving") {
     stepSim(s, null, far);
   }
+
   assert.equal(s.tick, pointTick + SERVE_DELAY_TICKS);
   const served = s.events.find((e) => e.kind === "serve");
   assert.ok(served?.kind === "serve" && served.receiver === 1);
@@ -368,9 +387,11 @@ test("a point parks the ball on its line through the goal beat, then the countdo
 
 test("the last point wins the match; either player's confirm rematches from 0–0", () => {
   const s = newMatch({ autoServe: true, scoreA: WIN_SCORE - 1, scoreB: 2, seed: 4, tick: 0 });
+
   while (s.phase !== "rally") {
     stepSim(s, null, null);
   }
+
   Object.assign(s.ball, { vx: 0, vy: 9, x: 2, y: GOAL_Y - 0.05 });
   const a: SlotInput = { c: 0, k: 0, x: 0 };
   const b: SlotInput = { c: 7, k: 0, x: paddleStep(-4.5) };
@@ -378,9 +399,11 @@ test("the last point wins the match; either player's confirm rematches from 0–
   const won = s.events.find((e) => e.kind === "point");
   assert.ok(won?.kind === "point" && won.won);
   assert.deepEqual([s.phase, s.scoreA, s.serveAt], ["won", WIN_SCORE, null]);
+
   for (let i = 0; i < 200; i += 1) {
     stepSim(s, a, b);
   }
+
   assert.equal(s.phase, "won");
   stepSim(s, a, { ...b, c: bump(b.c) });
   assert.deepEqual([s.phase, s.scoreA, s.scoreB, s.receiver], ["rally", 0, 0, 0]);

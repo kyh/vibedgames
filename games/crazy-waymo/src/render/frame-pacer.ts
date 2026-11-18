@@ -16,9 +16,6 @@ interface Clock {
 }
 
 const INTERVAL_MS = 1000 / 60;
-// Browser timestamps can be rounded to 0.1 ms and jitter slightly around
-// vsync. Missing a deadline by that much must not defer a whole refresh.
-// This bounded tolerance never shifts the absolute 60 Hz deadline grid.
 const ROUNDING_MS = 0.5;
 
 /** Cap phone rendering at 60 Hz without accumulating drift or catching up missed draws.
@@ -36,72 +33,83 @@ export class FramePacer {
     this.cadence = cadence;
   }
 
-  setPaused(paused: boolean): void {
+  setPaused(paused: boolean) {
     if (paused === this.paused) {
       return;
     }
+
     this.paused = paused;
     this.clock = null;
     this.invalidate();
   }
 
-  setHidden(hidden: boolean): void {
+  setHidden(hidden: boolean) {
     if (hidden === this.hidden) {
       return;
     }
+
     this.hidden = hidden;
     this.clock = null;
     this.invalidate();
   }
 
-  invalidate(): void {
+  invalidate() {
     this.drawPending = true;
   }
 
-  next(now: number): FrameDecision {
+  next(now: number) {
     if (this.hidden || !Number.isFinite(now) || now < 0) {
-      return { kind: "skip" };
+      return { kind: "skip" } satisfies FrameDecision;
     }
+
     if (this.paused) {
-      return this.redraw();
+      return this.redraw() satisfies FrameDecision;
     }
+
     const { clock } = this;
+
     if (!clock || now < clock.last) {
       this.clock = { due: now + INTERVAL_MS, last: now, pendingMs: null };
       this.drawPending = false;
-      return { dt: 0, kind: "advance", timing: null };
+
+      return { dt: 0, kind: "advance", timing: null } satisfies FrameDecision;
     }
+
     if (now === clock.last || (this.cadence === "60hz" && now + ROUNDING_MS < clock.due)) {
-      return this.redraw();
+      return this.redraw() satisfies FrameDecision;
     }
+
     const elapsedMs = now - clock.last;
     clock.last = now;
     this.drawPending = false;
+
     if (this.cadence === "display") {
       return {
         dt: elapsedMs / 1000,
         kind: "advance",
         timing: { dt: elapsedMs / 1000, samples: 1 },
-      };
+      } satisfies FrameDecision;
     }
-    // Advance the original deadline, not `now + interval`: 90 Hz and jitter
-    // would otherwise lose time every time a deadline falls between callbacks.
+
     const intervals = Math.floor((now + ROUNDING_MS - clock.due) / INTERVAL_MS) + 1;
     clock.due += intervals * INTERVAL_MS;
     const pending = clock.pendingMs;
     clock.pendingMs = pending === null ? elapsedMs : null;
+
     return {
       dt: elapsedMs / 1000,
       kind: "advance",
       timing: pending === null ? null : { dt: (pending + elapsedMs) / 2000, samples: 2 },
-    };
+    } satisfies FrameDecision;
   }
 
-  private redraw(): FrameDecision {
+  private redraw() {
     if (!this.drawPending) {
-      return { kind: "skip" };
+      return { kind: "skip" } satisfies FrameDecision;
     }
+
     this.drawPending = false;
-    return { kind: "draw" };
+
+    return { kind: "draw" } satisfies FrameDecision;
   }
 }

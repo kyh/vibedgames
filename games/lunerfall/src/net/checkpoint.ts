@@ -16,6 +16,7 @@ export type CheckpointSeats = {
   host: string | null;
   guest: string | null;
 };
+
 export type CheckpointCombat = {
   hitSwing: number[];
   lastSwing: number;
@@ -24,6 +25,7 @@ export type CheckpointCombat = {
   bossSwing: number;
   bossSpecial: number;
 };
+
 export type CheckpointPlayer = {
   id: string;
   hero: HeroName;
@@ -31,6 +33,7 @@ export type CheckpointPlayer = {
   combat: CheckpointCombat;
   versusHits: { swing: number; special: number };
 };
+
 export type CheckpointEnemy = {
   id: number;
   name: EnemyName;
@@ -38,6 +41,7 @@ export type CheckpointEnemy = {
   tint: number;
   deathAge: number | null;
 };
+
 export type CheckpointArrow = {
   x: number;
   y: number;
@@ -46,12 +50,14 @@ export type CheckpointArrow = {
   life: number;
   dmg: number;
 };
+
 export type CheckpointShot = CheckpointArrow & {
   owner: string | null;
   hit: number[];
   hitP: string[];
   hitBoss: boolean;
 };
+
 export type CheckpointHazard = {
   x: number;
   y: number;
@@ -60,30 +66,30 @@ export type CheckpointHazard = {
   dmg: number;
   hitPlayer: boolean;
 };
+
 export type CheckpointFeature = {
   x: number;
   y: number;
   used: boolean;
 };
+
 export type CheckpointMerchant = {
   x: number;
   y: number;
   relic: string;
   bought: boolean;
 };
+
 export type CheckpointPhase =
   | { kind: "active" }
   | { kind: "transition"; elapsed: number; built: boolean; offer: RoomType }
   | { kind: "dead"; elapsed: number };
 
-// `host`/`guest` are the ORIGINAL left/right seats, never the elected writer.
-// Body ownership remains player-ID based across authority changes.
 type CheckpointBase = {
   version: 1;
   runId: string;
   writer: string;
   term: number;
-  // server time (ms) of the snapshot it rode with
   t: number;
   room: number;
   rng: number;
@@ -112,6 +118,7 @@ type CheckpointBase = {
   cleared: boolean;
   phase: CheckpointPhase;
 };
+
 export type ExpeditionCheckpoint = CheckpointBase &
   (
     | {
@@ -121,6 +128,7 @@ export type ExpeditionCheckpoint = CheckpointBase &
       }
     | { mode: "versus"; versus: VersusCheckpoint; lastStand: null }
   );
+
 export type CheckpointRead =
   | { kind: "absent" }
   | { kind: "invalid" }
@@ -128,22 +136,25 @@ export type CheckpointRead =
 
 const bool = (v: JsonValue | undefined): v is boolean => v === true || v === false;
 const id = (v: JsonValue | undefined): v is string => isJsonString(v) && v.length > 0;
+
 const integer = (v: JsonValue | undefined): v is number =>
   isJsonNumber(v) && Number.isSafeInteger(v) && v >= 0;
+
 const face = (v: JsonValue | undefined): v is 1 | -1 => v === 1 || v === -1;
-const nums = (v: JsonObject, keys: readonly string[]): boolean =>
-  keys.every((k) => isJsonNumber(v[k]));
-const bools = (v: JsonObject, keys: readonly string[]): boolean => keys.every((k) => bool(v[k]));
+
+const nums = (v: JsonObject, keys: readonly string[]) => keys.every((k) => isJsonNumber(v[k]));
+
+const bools = (v: JsonObject, keys: readonly string[]) => keys.every((k) => bool(v[k]));
 const numbers = (v: JsonValue | undefined): v is number[] => Array.isArray(v) && v.every(integer);
 const ids = (v: JsonValue | undefined): v is string[] => Array.isArray(v) && v.every(id);
 const relic = (v: JsonValue | undefined): v is string => RELICS.some((r) => r.id === v);
 const roomType = (v: JsonValue | undefined): v is RoomType => ROOM_TYPES.some((t) => t === v);
 const nullableId = (v: JsonValue | undefined): v is string | null => v === null || id(v);
-const point = (v: JsonValue | undefined): boolean => isJsonObject(v) && nums(v, ["x", "y"]);
-const projectile = (v: JsonValue | undefined): boolean =>
-  isJsonObject(v) && nums(v, ["x", "y", "vx", "vy"]);
-const blast = (v: JsonValue | undefined): boolean =>
-  isJsonObject(v) && nums(v, ["x", "y", "r", "dmg"]);
+const point = (v: JsonValue | undefined) => isJsonObject(v) && nums(v, ["x", "y"]);
+
+const projectile = (v: JsonValue | undefined) => isJsonObject(v) && nums(v, ["x", "y", "vx", "vy"]);
+
+const blast = (v: JsonValue | undefined) => isJsonObject(v) && nums(v, ["x", "y", "r", "dmg"]);
 
 export const isPlayerCheckpoint = (v: JsonValue | undefined): v is PlayerBodyCheckpoint =>
   isJsonObject(v) &&
@@ -304,12 +315,15 @@ const phase = (v: JsonValue | undefined): v is CheckpointPhase => {
   if (!isJsonObject(v)) {
     return false;
   }
+
   if (v.kind === "active") {
     return true;
   }
+
   if (!isJsonNumber(v.elapsed) || v.elapsed < 0) {
     return false;
   }
+
   return v.kind === "dead" || (v.kind === "transition" && bool(v.built) && roomType(v.offer));
 };
 
@@ -324,7 +338,7 @@ const versus = (v: JsonValue | undefined): v is VersusCheckpoint =>
   nums(v.score, ["host", "guest"]) &&
   (v.winner === null || v.winner === "host" || v.winner === "guest");
 
-const door = (d: JsonValue | undefined): boolean =>
+const door = (d: JsonValue | undefined) =>
   isJsonObject(d) &&
   integer(d.index) &&
   point(d) &&
@@ -350,10 +364,7 @@ const room = (v: JsonValue | undefined): v is NetRoom =>
   isJsonString(v.propKey) &&
   bool(v.mustClear);
 
-// The whole-checkpoint predicate is split per section; each helper narrows one
-// field group so the final structural check is a flat conjunction.
-
-const header = (v: JsonObject): boolean =>
+const header = (v: JsonObject) =>
   v.version === 1 &&
   id(v.runId) &&
   id(v.writer) &&
@@ -369,7 +380,7 @@ const seats = (v: JsonValue | undefined): v is CheckpointSeats =>
   nullableId(v.guest) &&
   (v.host === null || v.host !== v.guest);
 
-const actors = (v: JsonObject): boolean =>
+const actors = (v: JsonObject) =>
   Array.isArray(v.players) &&
   v.players.length <= 2 &&
   v.players.every(player) &&
@@ -377,7 +388,7 @@ const actors = (v: JsonObject): boolean =>
   v.enemies.every(enemy) &&
   (v.boss === null || isBossCheckpoint(v.boss));
 
-const projectiles = (v: JsonObject): boolean =>
+const projectiles = (v: JsonObject) =>
   Array.isArray(v.arrows) &&
   v.arrows.every(arrow) &&
   Array.isArray(v.shots) &&
@@ -385,7 +396,7 @@ const projectiles = (v: JsonObject): boolean =>
   Array.isArray(v.hazards) &&
   v.hazards.every(hazard);
 
-const run = (v: JsonValue | undefined): boolean =>
+const run = (v: JsonValue | undefined) =>
   isJsonObject(v) &&
   integer(v.biome) &&
   v.biome >= 1 &&
@@ -408,14 +419,14 @@ const mods = (v: JsonValue | undefined): v is RunMods =>
     "rage",
   ]);
 
-const loot = (v: JsonObject): boolean =>
+const loot = (v: JsonObject) =>
   Array.isArray(v.relics) &&
   v.relics.every(relic) &&
   Array.isArray(v.merchant) &&
   v.merchant.every(merchant) &&
   (v.feature === null || feature(v.feature));
 
-const counters = (v: JsonObject): boolean =>
+const counters = (v: JsonObject) =>
   nums(v, [
     "bossDeathAge",
     "hearts",
@@ -431,32 +442,37 @@ const counters = (v: JsonObject): boolean =>
   bool(v.cleared) &&
   phase(v.phase);
 
-const lastStand = (v: JsonValue | undefined): boolean =>
+const lastStand = (v: JsonValue | undefined) =>
   v === null || (isJsonObject(v) && id(v.id) && nums(v, ["bleed", "revive"]));
 
-const mode = (v: JsonObject): boolean => {
+const mode = (v: JsonObject) => {
   if (v.mode === "versus") {
     return versus(v.versus) && v.lastStand === null;
   }
+
   if (v.mode === "coop") {
     return v.versus === null && lastStand(v.lastStand);
   }
+
   return false;
 };
 
-// Reference integrity prevents a partially restored graph and repeat hits.
-const references = (v: ExpeditionCheckpoint): boolean => {
+const references = (v: ExpeditionCheckpoint) => {
   const playerIds = new Set(v.players.map((p) => p.id));
   const enemyIds = new Set(v.enemies.map((e) => e.id));
+
   if (playerIds.size !== v.players.length || enemyIds.size !== v.enemies.length) {
     return false;
   }
+
   if ([v.seats.host, v.seats.guest].some((s) => s !== null && !playerIds.has(s))) {
     return false;
   }
+
   if (v.players.some((p) => p.id !== v.seats.host && p.id !== v.seats.guest)) {
     return false;
   }
+
   if (
     v.players.some((p) =>
       [...p.combat.hitSwing, ...p.combat.hitSpecial].some((e) => !enemyIds.has(e)),
@@ -464,6 +480,7 @@ const references = (v: ExpeditionCheckpoint): boolean => {
   ) {
     return false;
   }
+
   if (
     v.shots.some(
       (s) =>
@@ -474,9 +491,11 @@ const references = (v: ExpeditionCheckpoint): boolean => {
   ) {
     return false;
   }
+
   if (v.lastStand !== null && !playerIds.has(v.lastStand.id)) {
     return false;
   }
+
   return v.enemies.every((e) => e.id < v.nextEnemyId);
 };
 
@@ -496,24 +515,25 @@ const checkpoint = (v: JsonValue | undefined): v is ExpeditionCheckpoint =>
   wellFormed(v) && references(v);
 
 /** A validated room layout, detached from the wire, or null. */
-export const readRoom = (v: JsonValue | undefined): NetRoom | null =>
-  room(v) ? structuredClone(v) : null;
+export const readRoom = (v: JsonValue | undefined) => (room(v) ? structuredClone(v) : null);
 
 /** Strict whole-boundary admission. Neither invalid data nor a mismatched room
  * can fall through to initial seeding. Returned mutable state is detached.
  * Pass the room already read when only the checkpoint changed: the layout is
  * the bulk of the work and changes once per room. */
-export const readCheckpoint = (
+export const readCheckpoint: (
   shared: Record<string, JsonValue> | null,
-  layout: NetRoom | null = readRoom(shared?.room),
-): CheckpointRead => {
+  layout?: NetRoom | null,
+) => CheckpointRead = (shared, layout = readRoom(shared?.room)) => {
   if (
     !shared ||
     (shared.checkpoint === undefined && shared.room === undefined && shared.snap === undefined)
   ) {
     return { kind: "absent" };
   }
+
   const c = shared.checkpoint;
+
   if (
     !checkpoint(c) ||
     !layout ||
@@ -522,5 +542,6 @@ export const readCheckpoint = (
   ) {
     return { kind: "invalid" };
   }
+
   return { kind: "ready", room: layout, value: structuredClone(c) };
 };

@@ -22,29 +22,31 @@ export class FixedRate {
     if (!(hz > 0) || !Number.isFinite(hz)) {
       throw new RangeError(`FixedRate needs a positive finite rate, got ${hz}`);
     }
+
     this.intervalMs = 1000 / hz;
   }
 
   /** Advance the clock by `elapsedMs`; true when a tick is due this frame. */
-  due(elapsedMs: number): boolean {
+  due(elapsedMs: number) {
     if (elapsedMs > 0) {
       this.acc += elapsedMs;
     }
+
     if (this.acc < this.intervalMs) {
       return false;
     }
+
     this.acc -= this.intervalMs;
-    // Still a whole interval behind after firing: the loop stalled (hidden
-    // tab, long GC). One tick covers it — a burst of stale sends would only
-    // queue up behind each other on the socket.
+
     if (this.acc >= this.intervalMs) {
       this.acc %= this.intervalMs;
     }
+
     return true;
   }
 
   /** Restart the phase so the next tick is a full interval away. */
-  reset(): void {
+  reset() {
     this.acc = 0;
   }
 }

@@ -1,7 +1,3 @@
-// The one thing that survives a lost match: your best finish. The result
-// screen reads it back as a delta ("Best: #2") so a loss lands as an approach,
-// not a dead end, and a new record is called out the moment it happens.
-
 import { isJsonNumber, isJsonObject, parseJson } from "../json";
 import type { JsonValue } from "../json";
 
@@ -13,18 +9,21 @@ export interface RunResult {
   rank: number;
 }
 
-const readRun = (value: JsonValue): RunResult | null => {
+const readRun = (value: JsonValue) => {
   if (!isJsonObject(value)) {
     return null;
   }
+
   const { cubes, kills, rank } = value;
+
   if (!(isJsonNumber(cubes) && isJsonNumber(kills) && isJsonNumber(rank))) {
     return null;
   }
+
   return { cubes, kills, rank };
 };
 
-const loadBestRun = (): RunResult | null => {
+const loadBestRun = () => {
   try {
     return readRun(parseJson(localStorage.getItem(BEST_KEY) ?? "null"));
   } catch {
@@ -32,16 +31,13 @@ const loadBestRun = (): RunResult | null => {
   }
 };
 
-const storeBestRun = (best: RunResult): void => {
+const storeBestRun = (best: RunResult) => {
   try {
     localStorage.setItem(BEST_KEY, JSON.stringify(best));
-  } catch {
-    // Private mode or a full quota: the record simply does not persist.
-  }
+  } catch {}
 };
 
-/** A lower rank wins; kills break ties. */
-const beats = (run: RunResult, best: RunResult | null): boolean =>
+const beats = (run: RunResult, best: RunResult | null) =>
   best === null || run.rank < best.rank || (run.rank === best.rank && run.kills > best.kills);
 
 export interface RunVerdict {
@@ -51,19 +47,24 @@ export interface RunVerdict {
 }
 
 /** Record the run if it is a new best and describe how it compares. */
-export const recordRun = (run: RunResult): RunVerdict => {
+export const recordRun = (run: RunResult) => {
   const best = loadBestRun();
+
   if (beats(run, best)) {
     storeBestRun(run);
+
     return {
       line: best === null ? "First brawl on the books" : `New best - was #${best.rank}`,
       record: true,
     };
   }
+
   if (best === null) {
     return { line: "", record: false };
   }
+
   const gap = run.rank - best.rank;
+
   return {
     line: gap === 0 ? `Matches your best #${best.rank}` : `Best #${best.rank} - ${gap} away`,
     record: false,

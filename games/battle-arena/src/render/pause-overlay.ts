@@ -1,10 +1,3 @@
-// Battle Arena's bespoke pause screen — a stone war-tablet in the dungeon's
-// own look (dark stone, gold/ember, the menu's italic display face, the
-// champion-select keycap chips) on the shared @repo/embed pause shell, which
-// owns resume behavior exactly like the stock overlay this replaced:
-// pointerup or any keyup EXCEPT Escape resumes (Escape is the embed core's
-// keydown toggle — resuming on its keyup too would double-fire one press),
-// and a fresh gamepad press resumes while the match loop may be frozen.
 import { controlGroups, createPauseShell } from "@repo/embed";
 import type { ControlMethod, MuteAccessor } from "@repo/embed";
 import { CONTROLS } from "../controls";
@@ -35,10 +28,6 @@ const METHOD_LABEL = {
   touch: "TOUCH",
 } satisfies Record<ControlMethod, string>;
 
-// The control-card language shared by BOTH instruction surfaces — the pause
-// tablet and the lobby's help block: gold keycap chips, method headers, the
-// key→action grid. Injected via ensureControlCardStyle() so the menu can use
-// it without mounting the pause shell.
 const GROUP_CSS = `
 .ba-p-groups{display:flex;flex-wrap:wrap;gap:16px 30px;justify-content:center;align-items:flex-start;
   margin:20px 4px 4px;text-align:left}
@@ -64,10 +53,11 @@ const GROUP_CSS = `
 const CONTROL_STYLE_ID = "ba-controls-style";
 
 /** Inject the shared control-card styles (pause tablet AND lobby help). */
-export const ensureControlCardStyle = (): void => {
+export const ensureControlCardStyle = () => {
   if (document.querySelector(`#${CONTROL_STYLE_ID}`)) {
     return;
   }
+
   const style = document.createElement("style");
   style.id = CONTROL_STYLE_ID;
   style.textContent = GROUP_CSS;
@@ -78,13 +68,16 @@ export const ensureControlCardStyle = (): void => {
  * The grouped keycap card the pause tablet renders — method columns of
  * key→action rows. Null when nothing is visible for the current context.
  */
-export const buildControlsCard = (coarse: boolean): HTMLElement | null => {
+export const buildControlsCard = (coarse: boolean) => {
   const groups = controlGroups(CONTROLS, { coarse });
+
   if (groups.length === 0) {
     return null;
   }
+
   const wrap = document.createElement("div");
   wrap.className = "ba-p-groups";
+
   for (const group of groups) {
     const g = document.createElement("div");
     g.className = "ba-p-g";
@@ -93,6 +86,7 @@ export const buildControlsCard = (coarse: boolean): HTMLElement | null => {
     gt.textContent = METHOD_LABEL[group.method];
     const rows = document.createElement("div");
     rows.className = "ba-p-rows";
+
     for (const entry of group.entries) {
       const key = document.createElement("span");
       key.className = "ba-p-k";
@@ -102,9 +96,11 @@ export const buildControlsCard = (coarse: boolean): HTMLElement | null => {
       action.textContent = entry.action;
       rows.append(key, action);
     }
+
     g.append(gt, rows);
     wrap.append(g);
   }
+
   return wrap;
 };
 
@@ -113,18 +109,22 @@ export const buildControlsCard = (coarse: boolean): HTMLElement | null => {
  * keycap chips as the pause tablet, flowing as one wrapped strip so it never
  * crowds champion select. Null when nothing is visible.
  */
-export const buildControlsStrip = (coarse: boolean): HTMLElement | null => {
+export const buildControlsStrip = (coarse: boolean) => {
   const groups = controlGroups(CONTROLS, { coarse });
+
   if (groups.length === 0) {
     return null;
   }
+
   const strip = document.createElement("div");
   strip.className = "ba-p-strip";
+
   for (const group of groups) {
     const gt = document.createElement("span");
     gt.className = "ba-p-gt";
     gt.textContent = METHOD_LABEL[group.method];
     strip.append(gt);
+
     for (const entry of group.entries) {
       const item = document.createElement("span");
       item.className = "ba-p-e";
@@ -138,11 +138,10 @@ export const buildControlsStrip = (coarse: boolean): HTMLElement | null => {
       strip.append(item);
     }
   }
+
   return strip;
 };
 
-// Positioning/z-index/fade live on the shell's root — visuals only here.
-// (Control-card rules live in GROUP_CSS above, shared with the lobby.)
 const CSS = `
 .ba-pause{display:flex;flex-direction:column;align-items:center;justify-content:center;
   padding:calc(20px + env(safe-area-inset-top,0px)) calc(20px + env(safe-area-inset-right,0px))
@@ -175,7 +174,7 @@ const CSS = `
   .ba-p-panel{padding:20px 16px 16px}
 }`;
 
-const renderPanel = (overlay: HTMLElement, opts: PauseOverlayOpts): void => {
+const renderPanel = (overlay: HTMLElement, opts: PauseOverlayOpts) => {
   ensureControlCardStyle();
   const coarse = window.matchMedia("(pointer: coarse)").matches;
   const live = opts.isLive?.() ?? false;
@@ -198,6 +197,7 @@ const renderPanel = (overlay: HTMLElement, opts: PauseOverlayOpts): void => {
   panel.append(title, rule, sub);
 
   const card = buildControlsCard(coarse);
+
   if (card) {
     panel.append(card);
   }
@@ -216,7 +216,7 @@ const renderPanel = (overlay: HTMLElement, opts: PauseOverlayOpts): void => {
  * resume hint) re-renders fresh on every show().
  */
 
-export const createPauseOverlay = (opts: PauseOverlayOpts = {}): PauseOverlay => {
+export const createPauseOverlay = (opts: PauseOverlayOpts = {}) => {
   const shell = createPauseShell({
     className: "ba-pause",
     css: CSS,
@@ -225,15 +225,14 @@ export const createPauseOverlay = (opts: PauseOverlayOpts = {}): PauseOverlay =>
     render: (root) => renderPanel(root, opts),
     styleId: "ba-pause-style",
   });
+
   return {
     hide: shell.hide,
     show: () => {
-      // A wrapper-initiated pause can land while the FPS pointer lock is held —
-      // release it so the cursor is visible over the overlay (the next canvas
-      // click after resume relocks, the familiar FPS pattern).
       if (document.pointerLockElement) {
         document.exitPointerLock();
       }
+
       shell.show();
     },
   };

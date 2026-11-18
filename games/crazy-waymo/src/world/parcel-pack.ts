@@ -3,21 +3,6 @@ import { PARCEL_HINTS } from "./parcel-source";
 import type { FabricChar, ParcelKind } from "./parcel-style";
 import type { Solid } from "../shared/types";
 
-// The parcel plan, columnar. One ParcelPlan object per footprint was ~100 MB
-// of heap for the 130k the city holds — most of a phone's budget for a table
-// the streamer only reads one 80u cell at a time. Packed, the whole plan is
-// a few typed arrays per world tile; a cell's plans are materialized when
-// its geometry builds and are garbage as soon as it has. The same encoding
-// ships in the baked tiles (world-bin.ts), so a first visit never runs the
-// planner at all.
-//
-// Coordinates are Int16 steps of `scale` world units from `origin` — 1 cm
-// steps about a tile's centre, coarser only when a set spans further than
-// ±327 u (the skyline, packed city-wide). Origins are whole units, so a
-// party wall's shared vertex quantizes to the same point from both
-// neighbours whichever tile each is in. Heights and box extents are Int16
-// centimetres; the integers gzip to a third of the floats they replace.
-
 const PARCEL_KINDS: readonly ParcelKind[] = [
   "shed",
   "rowhouse",
@@ -26,6 +11,7 @@ const PARCEL_KINDS: readonly ParcelKind[] = [
   "tower",
   "warehouse",
 ];
+
 const FABRIC_CHARS: readonly FabricChar[] = [
   "downtown",
   "highrise",
@@ -40,15 +26,15 @@ const CM = 0.01;
 const I16_MAX = 32_767;
 const FLAG_HERO = 1;
 const FLAG_RECT = 2;
+
 /* oxlint-disable no-bitwise -- the plan flags byte is a bit set */
-const packFlags = (hero: boolean, rect: boolean): number =>
-  (hero ? FLAG_HERO : 0) | (rect ? FLAG_RECT : 0);
-const hasFlag = (flags: number, flag: number): boolean => (flags & flag) !== 0;
+const packFlags = (hero: boolean, rect: boolean) => (hero ? FLAG_HERO : 0) | (rect ? FLAG_RECT : 0);
+
+const hasFlag = (flags: number, flag: number) => (flags & flag) !== 0;
+
 /* oxlint-enable no-bitwise */
-const at0 = (values: ArrayLike<number>, i: number): number => values[i] ?? 0;
-// cx, cz, ex, ez, halfA, halfB
+const at0 = (values: ArrayLike<number>, i: number) => values[i] ?? 0;
 const OBB_STRIDE = 6;
-// x, z, half
 const PILLAR_STRIDE = 3;
 
 export type PackedPlans = {
@@ -97,86 +83,102 @@ export type PackedLots = {
   readonly pillars: Float32Array;
 };
 
-/** A coordinate frame every ring and centre of the set fits in Int16. */
 interface Frame {
   readonly origin: readonly [number, number];
   readonly scale: number;
 }
 
-const frameFor = (rings: readonly Float32Array[], centres: readonly Obb[]): Frame => {
+const frameFor: (rings: readonly Float32Array[], centres: readonly Obb[]) => Frame = (
+  rings,
+  centres,
+) => {
   let minX = Infinity;
   let minZ = Infinity;
   let maxX = -Infinity;
   let maxZ = -Infinity;
-  const take = (x: number, z: number): void => {
+
+  const take = (x: number, z: number) => {
     if (x < minX) {
       minX = x;
     }
+
     if (x > maxX) {
       maxX = x;
     }
+
     if (z < minZ) {
       minZ = z;
     }
+
     if (z > maxZ) {
       maxZ = z;
     }
   };
+
   for (const r of rings) {
     for (let v = 0; v + 1 < r.length; v += 2) {
       take(r[v] ?? 0, r[v + 1] ?? 0);
     }
   }
+
   for (const o of centres) {
     take(o.cx, o.cz);
   }
+
   if (!Number.isFinite(minX)) {
     return { origin: [0, 0], scale: CM };
   }
-  // Whole-unit origin (see the header); the coarsest extent picks the scale
-  // in whole centimetres so neighbouring sets agree on the grid.
+
   const origin: readonly [number, number] = [
     Math.round((minX + maxX) / 2),
     Math.round((minZ + maxZ) / 2),
   ];
+
   const reach = Math.max(
     Math.abs(minX - origin[0]),
     Math.abs(maxX - origin[0]),
     Math.abs(minZ - origin[1]),
     Math.abs(maxZ - origin[1]),
   );
+
   const scale = Math.max(CM, Math.ceil(reach / I16_MAX / CM) * CM);
+
   return { origin, scale };
 };
 
-const q16 = (value: number, what: string): number => {
+const q16 = (value: number, what: string) => {
   const v = Math.round(value);
+
   if (v < -I16_MAX - 1 || v > I16_MAX) {
     throw new Error(`parcel-pack: ${what} ${value} overflows`);
   }
+
   return v;
 };
 
-const qCm = (value: number, what: string): number => q16(value / CM, what);
+const qCm = (value: number, what: string) => q16(value / CM, what);
 
 const EMPTY_SOLIDS: readonly Solid[] = Object.freeze([]);
 
-const indexOf = <T>(table: readonly T[], value: T, what: string): number => {
+const indexOf = <T>(table: readonly T[], value: T, what: string) => {
   const i = table.indexOf(value);
+
   if (i === -1) {
     throw new Error(`parcel-pack: unknown ${what} ${String(value)}`);
   }
+
   return i;
 };
 
-const checkRange = (value: number, max: number, what: string): number => {
+const checkRange = (value: number, max: number, what: string) => {
   if (!Number.isInteger(value) || value < 0 || value > max) {
     throw new Error(`parcel-pack: ${what} ${value} out of range`);
   }
+
   return value;
 };
 
-const writeObb = (out: Int16Array, i: number, o: Obb, f: Frame): void => {
+const writeObb = (out: Int16Array, i: number, o: Obb, f: Frame) => {
   out[i * OBB_STRIDE] = q16((o.cx - f.origin[0]) / f.scale, "obb cx");
   out[i * OBB_STRIDE + 1] = q16((o.cz - f.origin[1]) / f.scale, "obb cz");
   out[i * OBB_STRIDE + 2] = q16(o.ex * I16_MAX, "obb ex");
@@ -185,7 +187,7 @@ const writeObb = (out: Int16Array, i: number, o: Obb, f: Frame): void => {
   out[i * OBB_STRIDE + 5] = qCm(o.halfB, "obb halfB");
 };
 
-const readObb = (p: Int16Array, i: number, f: Frame): Obb => ({
+const readObb = (p: Int16Array, i: number, f: Frame) => ({
   cx: f.origin[0] + (p[i * OBB_STRIDE] ?? 0) * f.scale,
   cz: f.origin[1] + (p[i * OBB_STRIDE + 1] ?? 0) * f.scale,
   ex: (p[i * OBB_STRIDE + 2] ?? 0) / I16_MAX,
@@ -194,34 +196,39 @@ const readObb = (p: Int16Array, i: number, f: Frame): Obb => ({
   halfB: (p[i * OBB_STRIDE + 5] ?? 0) * CM,
 });
 
-const writeRing = (out: Int16Array, at: number, ring: Float32Array, n: number, f: Frame): void => {
+const writeRing = (out: Int16Array, at: number, ring: Float32Array, n: number, f: Frame) => {
   for (let v = 0; v < n; v += 1) {
     out[(at + v) * 2] = q16(((ring[v * 2] ?? 0) - f.origin[0]) / f.scale, "ring x");
     out[(at + v) * 2 + 1] = q16(((ring[v * 2 + 1] ?? 0) - f.origin[1]) / f.scale, "ring z");
   }
 };
 
-const readRing = (p: Int16Array, at: number, n: number, f: Frame): Float32Array => {
+const readRing = (p: Int16Array, at: number, n: number, f: Frame) => {
   const ring = new Float32Array(n * 2);
+
   for (let v = 0; v < n; v += 1) {
     ring[v * 2] = f.origin[0] + (p[(at + v) * 2] ?? 0) * f.scale;
     ring[v * 2 + 1] = f.origin[1] + (p[(at + v) * 2 + 1] ?? 0) * f.scale;
   }
+
   return ring;
 };
 
-export const packPlans = (plans: readonly ParcelPlan[]): PackedPlans => {
+export const packPlans: (plans: readonly ParcelPlan[]) => PackedPlans = (plans) => {
   const count = plans.length;
   const districts: string[] = [];
   const districtId = new Map<string, number>();
   let verts = 0;
+
   for (const p of plans) {
     verts += p.n;
   }
+
   const frame = frameFor(
     plans.map((p) => p.ring),
     plans.map((p) => p.obb),
   );
+
   const out = {
     blind: new Uint8Array(verts),
     blockHash: new Uint32Array(count),
@@ -247,18 +254,24 @@ export const packPlans = (plans: readonly ParcelPlan[]): PackedPlans => {
     storeys: new Uint16Array(count),
     units: new Uint8Array(count),
   };
+
   let at = 0;
+
   for (let i = 0; i < count; i += 1) {
     const p = plans[i];
+
     if (!p) {
       continue;
     }
+
     let d = districtId.get(p.district);
+
     if (d === undefined) {
       d = districts.length;
       districts.push(p.district);
       districtId.set(p.district, d);
     }
+
     out.id[i] = checkRange(p.id, 0xff_ff_ff_ff, "id");
     out.flags[i] = packFlags(p.hero, p.rect);
     out.hint[i] = indexOf(PARCEL_HINTS, p.hint, "hint");
@@ -268,9 +281,11 @@ export const packPlans = (plans: readonly ParcelPlan[]): PackedPlans => {
     out.seed[i] = checkRange(p.seed, 0xff_ff_ff_ff, "seed");
     out.blockHash[i] = checkRange(p.blockHash, 0xff_ff_ff_ff, "blockHash");
     out.n[i] = checkRange(p.n, 0xff_ff, "n");
+
     if (!Number.isInteger(p.front) || p.front < -1 || p.front >= p.n) {
       throw new Error(`parcel-pack: front ${p.front} out of range`);
     }
+
     out.front[i] = p.front;
     out.storeys[i] = checkRange(p.storeys, 0xff_ff, "storeys");
     out.units[i] = checkRange(p.units, 0xff, "units");
@@ -280,21 +295,26 @@ export const packPlans = (plans: readonly ParcelPlan[]): PackedPlans => {
     writeObb(out.obb, i, p.obb, frame);
     out.ringStart[i] = at;
     writeRing(out.ring, at, p.ring, p.n, frame);
+
     for (let v = 0; v < p.n; v += 1) {
       out.blind[at + v] = p.blind[v] ?? 0;
     }
+
     at += p.n;
   }
+
   out.ringStart[count] = at;
+
   return out;
 };
 
 /** Plan `i` as the mesh generator reads it. Solids are not carried: the
  *  baked meta ships every collision box already (see world-loader.ts). */
-export const unpackPlan = (p: PackedPlans, i: number): ParcelPlan => {
+export const unpackPlan = (p: PackedPlans, i: number) => {
   const n = at0(p.n, i);
   const at = at0(p.ringStart, i);
   const flags = at0(p.flags, i);
+
   return {
     blind: p.blind.slice(at, at + n),
     blockHash: at0(p.blockHash, i),
@@ -319,8 +339,9 @@ export const unpackPlan = (p: PackedPlans, i: number): ParcelPlan => {
   };
 };
 
-export const unpackPlans = (p: PackedPlans, indices?: Iterable<number>): ParcelPlan[] => {
+export const unpackPlans = (p: PackedPlans, indices?: Iterable<number>) => {
   const out: ParcelPlan[] = [];
+
   if (indices) {
     for (const index of indices) {
       out.push(unpackPlan(p, index));
@@ -330,21 +351,25 @@ export const unpackPlans = (p: PackedPlans, indices?: Iterable<number>): ParcelP
       out.push(unpackPlan(p, i));
     }
   }
+
   return out;
 };
 
-export const packLots = (lots: readonly ParcelLot[]): PackedLots => {
+export const packLots: (lots: readonly ParcelLot[]) => PackedLots = (lots) => {
   const count = lots.length;
   let verts = 0;
   let pillarN = 0;
+
   for (const l of lots) {
     verts += l.n;
     pillarN += l.pillars.length;
   }
+
   const frame = frameFor(
     lots.map((l) => l.ring),
     lots.map((l) => l.obb),
   );
+
   const out = {
     count,
     id: new Uint32Array(count),
@@ -359,24 +384,31 @@ export const packLots = (lots: readonly ParcelLot[]): PackedLots => {
     seed: new Uint32Array(count),
     ys: new Int16Array(verts),
   };
+
   let at = 0;
   let pillarAt = 0;
+
   for (let i = 0; i < count; i += 1) {
     const l = lots[i];
+
     if (!l) {
       continue;
     }
+
     out.id[i] = checkRange(l.id, 0xff_ff_ff_ff, "lot id");
     out.seed[i] = checkRange(l.seed, 0xff_ff_ff_ff, "lot seed");
     out.n[i] = checkRange(l.n, 0xff_ff, "lot n");
     out.ringStart[i] = at;
     writeRing(out.ring, at, l.ring, l.n, frame);
+
     for (let v = 0; v < l.n; v += 1) {
       out.ys[at + v] = qCm(l.ys[v] ?? 0, "lot y");
     }
+
     at += l.n;
     writeObb(out.obb, i, l.obb, frame);
     out.pillarStart[i] = pillarAt;
+
     for (const pillar of l.pillars) {
       out.pillars[pillarAt * PILLAR_STRIDE] = pillar.x;
       out.pillars[pillarAt * PILLAR_STRIDE + 1] = pillar.z;
@@ -384,15 +416,18 @@ export const packLots = (lots: readonly ParcelLot[]): PackedLots => {
       pillarAt += 1;
     }
   }
+
   out.ringStart[count] = at;
   out.pillarStart[count] = pillarAt;
+
   return out;
 };
 
-export const unpackLot = (p: PackedLots, i: number): ParcelLot => {
+export const unpackLot = (p: PackedLots, i: number) => {
   const n = p.n[i] ?? 0;
   const at = p.ringStart[i] ?? 0;
   const pillars: { readonly x: number; readonly z: number; readonly half: number }[] = [];
+
   for (let k = p.pillarStart[i] ?? 0; k < (p.pillarStart[i + 1] ?? 0); k += 1) {
     pillars.push({
       half: p.pillars[k * PILLAR_STRIDE + 2] ?? 0,
@@ -400,6 +435,7 @@ export const unpackLot = (p: PackedLots, i: number): ParcelLot => {
       z: p.pillars[k * PILLAR_STRIDE + 1] ?? 0,
     });
   }
+
   return {
     id: p.id[i] ?? 0,
     n,
@@ -411,8 +447,9 @@ export const unpackLot = (p: PackedLots, i: number): ParcelLot => {
   };
 };
 
-export const unpackLots = (p: PackedLots, indices?: Iterable<number>): ParcelLot[] => {
+export const unpackLots = (p: PackedLots, indices?: Iterable<number>) => {
   const out: ParcelLot[] = [];
+
   if (indices) {
     for (const index of indices) {
       out.push(unpackLot(p, index));
@@ -422,11 +459,15 @@ export const unpackLots = (p: PackedLots, indices?: Iterable<number>): ParcelLot
       out.push(unpackLot(p, i));
     }
   }
+
   return out;
 };
 
 /** Centre of plan/lot `i` — what the streamer files it under. */
-export const packedCentre = (p: PackedPlans | PackedLots, i: number): readonly [number, number] => [
+export const packedCentre: (p: PackedPlans | PackedLots, i: number) => readonly [number, number] = (
+  p,
+  i,
+) => [
   p.origin[0] + (p.obb[i * OBB_STRIDE] ?? 0) * p.scale,
   p.origin[1] + (p.obb[i * OBB_STRIDE + 1] ?? 0) * p.scale,
 ];

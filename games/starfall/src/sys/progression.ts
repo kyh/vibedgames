@@ -67,7 +67,6 @@ export class Progression {
    *  and deaths cost exactly 0 — monotonic within a sector. Pure scoreboard. */
   sectorScore = 0;
 
-  // combo (purely local; streak mirrored for nameplates/minimap)
   streak = 0;
 
   comboExpiresAt = 0;
@@ -93,7 +92,7 @@ export class Progression {
   }
 
   /** Level 1, nothing earned: a run rebuilt from nothing (the playtest seed hook). */
-  restart(): void {
+  restart() {
     this.level = 1;
     this.xp = 0;
     this.runXp = 0;
@@ -112,7 +111,7 @@ export class Progression {
     kind: "enemy" | "asteroid" | "ufo" | "player",
     x = this.pilot.shipX,
     y = this.pilot.shipY,
-  ): void {
+  ) {
     if (this.hooks.shield().shieldMod === "siphon" && this.pilot.alive) {
       const heal = SIPHON_HEAL[kind];
       this.hooks.shield().shieldHp = Math.min(
@@ -130,8 +129,7 @@ export class Progression {
         SHIELD_MOD_SPECS.siphon.tint,
       );
     }
-    // LEECH FIELD: enemy kills within range heal you (own kills only — simple,
-    // no overheal bank, capped at base shield).
+
     if (
       this.hooks.shield().shieldMod === "leech" &&
       this.pilot.alive &&
@@ -147,12 +145,13 @@ export class Progression {
         lifeMin: 120,
       });
     }
+
     this.streak += 1;
     this.comboExpiresAt = now + COMBO_WINDOW_MS;
     const mult = comboMult(this.streak);
     this.gainXp(base * mult, now);
+
     if (mult > this.comboTier && mult >= 2) {
-      // Tier-up: the one allowed long effect (§9) + rising sfx + pill pop.
       sfx.play("combo_up", { priority: "local", rate: 2 ** ((2 * (mult - 2)) / 12) });
       this.trauma.add(0.1);
       this.fx.ring(this.pilot.shipX, this.pilot.shipY, 6, 75, 350, 0xff_ff_ff, 0.8);
@@ -169,39 +168,39 @@ export class Progression {
       });
       this.hooks.popCombo();
     }
+
     this.comboTier = mult;
   }
 
   /** The single XP sink: add XP, roll up levels, fire the level-up feedback.
    *  Kills route here combo-multiplied (via registerKill); orbs + asteroid
    *  chips call this directly (flat). */
-  gainXp(amount: number, now: number): void {
+  gainXp(amount: number, now: number) {
     if (amount <= 0 || !this.pilot.alive) {
       return;
     }
+
     this.runXp += amount;
-    // dir-006: sector pts ride the same sink BEFORE the level-cap discard —
-    // at cap the XP stream still lands on the sector scoreboard.
     this.sectorScore += amount;
     this.xp += amount;
     let leveled = false;
+
     while (this.level < LEVEL_CAP && this.xp >= xpToNext(this.level)) {
       this.xp -= xpToNext(this.level);
       this.level += 1;
       leveled = true;
     }
-    // at cap the bar empties — no hoard
+
     if (this.level >= LEVEL_CAP) {
       this.xp = 0;
     }
+
     if (leveled) {
       this.onLevelUp(now);
     }
   }
 
-  /** Apply the new base loadout + the one allowed long FX (ring + converge +
-   *  sparks, reusing the combo-tier vocabulary) + a pitched cue + HUD pop. */
-  private onLevelUp(now: number): void {
+  private onLevelUp(now: number) {
     this.applyBaseLoadout(now);
     sfx.play("combo_up", { priority: "local", rate: 1.5 });
     this.trauma.add(0.12);
@@ -227,8 +226,9 @@ export class Progression {
   /** Apply the level's regen + weapon. A held special is re-scaled for the new
    *  level (from its unscaled base, so it never compounds); otherwise the level
    *  base weapon. Called on level-up, respawn, and special expiry. */
-  applyBaseLoadout(now: number): void {
+  applyBaseLoadout(now: number) {
     this.pilot.regenMult = baseRegenMult(this.level);
+
     if (this.pilot.weaponUntil > now && this.pilot.specialBase) {
       this.pilot.weapon = scaleWeaponForLevel(this.pilot.specialBase, this.level);
     } else {
@@ -241,14 +241,16 @@ export class Progression {
    *  de-level at most XP_DEATH_MAX_DELEVELS, never below the level floor. The
    *  leader pays the most absolute XP (anti-snowball); a fresh player barely
    *  notices (cheap early levels). */
-  applyDeathXpPenalty(): void {
+  applyDeathXpPenalty() {
     this.xp -= Math.round(xpToNext(this.level) * XP_DEATH_PENALTY_FRAC);
     let delevels = 0;
+
     while (this.xp < 0 && this.level > 1 && delevels < XP_DEATH_MAX_DELEVELS) {
       this.level -= 1;
       this.xp += xpToNext(this.level);
       delevels += 1;
     }
+
     if (this.xp < 0) {
       this.xp = 0;
     }

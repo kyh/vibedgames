@@ -16,10 +16,6 @@ interface ActionSheet {
   frames: readonly [SheetFrame, SheetFrame, SheetFrame, SheetFrame];
 }
 
-// Sheets were generated as 2x2 edits of the original walk sheets and shipped
-// untouched, so cells are unequal and padding is uneven: explicit cuts plus
-// measured foot pivots keep the ground anchor, and one scale per sheet keeps
-// the authored crouch depth.
 const DOWN: ActionSheet = {
   frames: [
     { feetX: 344, feetY: 572, height: 586, width: 670, x: 0, y: 0 },
@@ -31,6 +27,7 @@ const DOWN: ActionSheet = {
   scale: 54 / 563,
   url: "assets/player-place-down-v2.png",
 };
+
 const UP: ActionSheet = {
   frames: [
     { feetX: 320, feetY: 494, height: 627, width: 627, x: 0, y: 0 },
@@ -42,6 +39,7 @@ const UP: ActionSheet = {
   scale: 54 / 408,
   url: "assets/player-place-up-v2.png",
 };
+
 const SIDE: ActionSheet = {
   frames: [
     { feetX: 300, feetY: 589, height: 627, width: 627, x: 0, y: 0 },
@@ -53,6 +51,7 @@ const SIDE: ActionSheet = {
   scale: 54 / 530,
   url: "assets/player-place-side-v2.png",
 };
+
 const VICTORY: ActionSheet = {
   frames: [
     { feetX: 350, feetY: 517, height: 560, width: 661, x: 0, y: 0 },
@@ -67,16 +66,18 @@ const VICTORY: ActionSheet = {
 
 export const ACTION_SHEETS: readonly ActionSheet[] = [DOWN, UP, SIDE, VICTORY];
 
-/** Left and right share one sheet; the render flips it. */
-const walkSheet = (dir: Dir): ActionSheet => {
+const walkSheet = (dir: Dir) => {
   if (dir === "up") {
     return UP;
   }
+
   if (dir === "down") {
     return DOWN;
   }
+
   return SIDE;
 };
+
 export const PLACE_ACTION_MS = 280;
 export const VICTORY_ACTION_MS = 720;
 
@@ -110,15 +111,17 @@ export class CharacterAction {
     simNow: number,
     sceneNow: number,
     pose: CharacterPose,
-  ): boolean {
+  ) {
     if (
       this.lastPlacement &&
       (bomb.id === this.lastPlacement.id || bomb.placedAt <= this.lastPlacement.at)
     ) {
       return false;
     }
+
     this.lastPlacement = { at: bomb.placedAt, id: bomb.id };
     const age = simNow - bomb.placedAt;
+
     if (
       !Number.isFinite(age) ||
       age < 0 ||
@@ -130,19 +133,23 @@ export class CharacterAction {
     ) {
       return false;
     }
+
     this.action = { at: sceneNow - age, kind: "place", pose: { ...pose } };
+
     return true;
   }
 
-  victory(at: number, pose: CharacterPose): void {
+  victory(at: number, pose: CharacterPose) {
     this.action = { at, kind: "victory", moving: pose.moving, pose: { ...pose } };
   }
 
-  sample(now: number, pose: CharacterPose, alive: boolean): ActionFrame | null {
+  sample(now: number, pose: CharacterPose, alive: boolean) {
     const { action } = this;
+
     if (action.kind === "idle") {
       return null;
     }
+
     if (
       !alive ||
       pose.col !== action.pose.col ||
@@ -151,18 +158,25 @@ export class CharacterAction {
       (action.kind === "place" ? pose.moving : pose.moving && !action.moving)
     ) {
       this.interrupt();
+
       return null;
     }
+
     if (action.kind === "victory") {
       action.moving = pose.moving;
     }
+
     const age = Math.max(0, now - action.at);
+
     if (action.kind === "place" && age >= PLACE_ACTION_MS) {
       this.interrupt();
+
       return null;
     }
+
     const sheet = action.kind === "victory" ? VICTORY : walkSheet(pose.dir);
     const duration = action.kind === "place" ? PLACE_ACTION_MS : VICTORY_ACTION_MS;
+
     return {
       flip: action.kind === "place" && pose.dir === "left",
       frame: Math.min(3, Math.floor((age / duration) * 4)),
@@ -171,11 +185,11 @@ export class CharacterAction {
     };
   }
 
-  interrupt(): void {
+  interrupt() {
     this.action = { kind: "idle" };
   }
 
-  reset(): void {
+  reset() {
     this.interrupt();
     this.lastPlacement = null;
   }

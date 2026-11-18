@@ -5,14 +5,8 @@ import type { JsonValue } from "@repo/contract/json";
 import { handlePlaytestDecide } from "./decide-handler";
 import { mintPlaytestToken } from "./session-token";
 
-/**
- * The one endpoint an untrusted game page may call. What must hold: any
- * origin may reach it (CORS), only a bearer playtest token opens it (never
- * a cookie), the body is bounded and schema-checked, and a good request is
- * forwarded with the SERVER's provider key.
- */
-
 const realFetch = globalThis.fetch;
+
 afterEach(() => {
   globalThis.fetch = realFetch;
 });
@@ -29,22 +23,21 @@ const body = {
   state: { player: { x: 1 } },
 };
 
-const post = (init: {
-  token?: string;
-  body?: string;
-  cookie?: string;
-  origin?: string;
-}): Request => {
+const post = (init: { token?: string; body?: string; cookie?: string; origin?: string }) => {
   const headers = new Headers({ "content-type": "application/json" });
+
   if (init.token !== undefined) {
     headers.set("authorization", `Bearer ${init.token}`);
   }
+
   if (init.cookie) {
     headers.set("cookie", init.cookie);
   }
+
   if (init.origin) {
     headers.set("origin", init.origin);
   }
+
   return new Request("https://vibedgames.com/api/playtest/decide", {
     body: init.body ?? JSON.stringify(body),
     headers,
@@ -56,8 +49,9 @@ interface ErrorBody {
   error?: { code?: string };
 }
 
-const status = async (response: Response): Promise<[number, string]> => {
+const status: (response: Response) => Promise<[number, string]> = async (response) => {
   const json: ErrorBody = await response.json();
+
   return [response.status, json.error?.code ?? "ok"];
 };
 
@@ -69,6 +63,7 @@ test("answers a preflight from any origin without credentials", async () => {
     }),
     decision,
   );
+
   assert.equal(res.status, 204);
   assert.equal(res.headers.get("access-control-allow-origin"), "*");
   assert.match(res.headers.get("access-control-allow-headers") ?? "", /authorization/u);
@@ -79,13 +74,17 @@ test("forwards a token-bearing request with the server's key and CORS headers", 
   let forwarded: { url: string; auth: string | null } | null = null;
   globalThis.fetch = (input, init) => {
     forwarded = { auth: new Headers(init?.headers).get("authorization"), url: String(input) };
+
     return Promise.resolve(Response.json(answer));
   };
+
   const { token } = await mintPlaytestToken(SECRET, "user-1");
+
   const res = await handlePlaytestDecide(
     post({ origin: "https://my-game.vibedgames.com", token }),
     decision,
   );
+
   assert.equal(res.status, 200);
   assert.equal(res.headers.get("access-control-allow-origin"), "*");
   assert.deepEqual(await res.json(), answer);
@@ -99,8 +98,10 @@ test("a session cookie opens nothing; only a valid token does", async () => {
   let fetched = false;
   globalThis.fetch = () => {
     fetched = true;
+
     return Promise.resolve(Response.json(answer));
   };
+
   assert.deepEqual(
     await status(await handlePlaytestDecide(post({ cookie: "session=abc" }), decision)),
     [401, "UNAUTHORIZED"],
@@ -121,8 +122,10 @@ test("rejects a malformed or oversized body before forwarding", async () => {
   let fetched = false;
   globalThis.fetch = () => {
     fetched = true;
+
     return Promise.resolve(Response.json(answer));
   };
+
   const { token } = await mintPlaytestToken(SECRET, "user-1");
   assert.deepEqual(
     await status(await handlePlaytestDecide(post({ body: "{nope", token }), decision)),
@@ -157,9 +160,11 @@ test("maps provider and configuration failures to JSON errors with the right sta
     412,
     "PRECONDITION_FAILED",
   ]);
+
   const get = await handlePlaytestDecide(
     new Request("https://vibedgames.com/api/playtest/decide", { method: "GET" }),
     decision,
   );
+
   assert.equal(get.status, 405);
 });

@@ -1,103 +1,45 @@
-// The column of judgment — a shaft of light standing on the mark, a
-// four-pointed star welded to its head, and two counter-tilted halo rings
-// turning about it. Aurelius' Consecrating Smite lands in this.
-//
-// Ported from the Elemental Sandbox VFX sandbox (MIT, Copyright (c) 2026
-// mohamedachrefelouafi) — https://github.com/achrefelouafi/LinearAbiltyCastingExtendedThreeJS
-// (the "Celestial Rend"), re-scaled for our arena: the sandbox's column is
-// thirty metres tall on a five-metre footprint; ours has to sit inside a
-// three-metre stun zone under a camera a fifth as far away, so every dimension
-// is a multiple of the zone radius and the flute count is roughly halved.
-//
-// Why the column is shaded on N·V and not on a fresnel: a beam of light is a
-// VOLUME, and what the eye reads as its brightness is how much of that volume
-// the ray crossed — longest through the middle of the silhouette, nothing at
-// the edges. A fresnel is bright at the rim and hollow in the middle, which is
-// what a soap bubble looks like, not a searchlight. (Our older fx-beam pillar
-// already folds the same rod-weighting in; this one adds the flutes, the skirt
-// where it meets the stone, and the star + rings on top.)
-//
-// Why the star is not a texture: authored as a polar field it is three raised
-// cosines summed into a reach, with a hard boundary and a shaded interior —
-// concave-sided points that stay sharp at any size, with bloom on top.
-//
-// All three pieces are built in WORLD space by their vertex shaders (the
-// column and the star never leave the origin), so the pool never touches a
-// vertex: strike() writes a centre and a footprint, and update() scrubs one
-// clock through every uniform.
 import * as THREE from "three";
 import { NOISE_GLSL } from "./fx-noise";
 
 const POOL = 3;
-// samples up the shaft
 const CLIMB_ROWS = 26;
-// ...and around it
 const AROUND_COLS = 48;
 
-/** Every dimension below is × the footprint radius unless it says metres. */
 const COLUMN = {
-  // how fast the top flare opens with height
   flarePower: 1.6,
-  // The star and the rings sit LOW — a unit and a half off the floor, not the
-  // sandbox's 40% of a thirty-metre shaft. Our camera looks steeply down at
-  // the arena, and anything higher than a few metres is simply above the top
-  // of the frame.
-  // how deep the rings' band is
   haloBand: 0.055,
-  // metres apart they sit, × footprint
   haloLift: 0.3,
-  // the rings' outer edge, × footprint
   haloOuter: 1.05,
-  // where the band sits inside that
   haloSeat: 0.87,
-  // the second ring, × the first
   haloSecond: 0.9,
-  // revolutions/second, opposite ways
   haloSpin: 0.11,
-  // radians each leans, opposite ways
   haloTilt: 0.34,
-  // the shaft, × footprint — it leaves the top of the frame on purpose
   height: 5.2,
-  // the shaft
   radius: 0.3,
-  // how far it flares where it meets the stone
   skirt: 1.1,
-  // ... and how fast that closes with height
   skirtPower: 4.5,
-  // revolutions/second the barrel turns
   spin: 0.05,
-  // where the star hangs, × footprint (metres up)
   starSeat: 0.95,
-  // its half-extent, × footprint
   starSize: 0.75,
-  // how much wider it is at the top
   topFlare: 1.25,
-  // noise on the barrel, × its radius
   wobble: 0.08,
   wobbleScale: 1.1,
   wobbleSpeed: 1.2,
 } as const;
 
-/** The sequence, in seconds since the strike. */
 const BEATS = {
   haloDelay: 0.14,
   haloStagger: 0.09,
   haloTime: 0.4,
-  // full brightness until here
   hold: 0.95,
-  // gone
   life: 1.6,
-  // the toll envelope
   pulseRate: 1.4,
-  // the beam's front reaching the top
   rise: 0.26,
   starDelay: 0.1,
   starTime: 0.36,
 } as const;
 
 const TAU = Math.PI * 2;
-
-// ── the column ──────────────────────────────────────────────────────────────
 
 const PILLAR_VERT = `
 #define TAU 6.283185307179586
@@ -213,8 +155,6 @@ void main() {
   gl_FragColor = vec4(color, alpha);
 }`;
 
-// ── the star at its head ────────────────────────────────────────────────────
-
 const STAR_VERT = `
 uniform vec3  uCentre;
 uniform float uSize;
@@ -299,8 +239,6 @@ void main() {
   color /= 1.0 + color * 0.22;
   gl_FragColor = vec4(color, alpha);
 }`;
-
-// ── the halo rings ──────────────────────────────────────────────────────────
 
 const HALO_VERT = `
 uniform float uOuter;
@@ -446,12 +384,10 @@ interface Pillar {
   halos: [Halo, Halo];
   uni: PillarUniforms;
   starUni: StarUniforms;
-  // seconds since the strike
   t: number;
   live: boolean;
   footprint: number;
   height: number;
-  // world height of the star (and the rings' seat)
   starY: number;
 }
 
@@ -462,13 +398,10 @@ export interface PillarOpts {
 
 const GOLD = { body: 0xff_d4_89, cool: 0xbc_d8_ff, core: 0xff_fd_f2, edge: 0xff_b2_54 } as const;
 
-/**
- * A grid of quads in parameter space: (x = along, y = around), z unused.
- * The vertex shader turns every pair into a world position.
- */
-const parameterGrid = (rows: number, columns: number): THREE.BufferGeometry => {
+const parameterGrid = (rows: number, columns: number) => {
   const positions = new Float32Array(rows * columns * 3);
   let v = 0;
+
   for (let i = 0; i < rows; i += 1) {
     for (let j = 0; j < columns; j += 1) {
       positions[v] = i / (rows - 1);
@@ -479,8 +412,10 @@ const parameterGrid = (rows: number, columns: number): THREE.BufferGeometry => {
       v += 1;
     }
   }
+
   const indices = new Uint16Array((rows - 1) * (columns - 1) * 6);
   let k = 0;
+
   for (let i = 0; i < rows - 1; i += 1) {
     for (let j = 0; j < columns - 1; j += 1) {
       const a = i * columns + j;
@@ -499,26 +434,23 @@ const parameterGrid = (rows: number, columns: number): THREE.BufferGeometry => {
       k += 1;
     }
   }
+
   const geo = new THREE.BufferGeometry();
   geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
   geo.setIndex(new THREE.BufferAttribute(indices, 1));
-  // Placed in world space by the shader — its own bounds mean nothing.
   geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e4);
+
   return geo;
 };
 
 const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
-/** Linear ramp 0→1 over [start, start + dur]. */
 const ramp = (t: number, start: number, dur: number) => clamp01((t - start) / Math.max(dur, 1e-3));
 const easeOut = (k: number) => 1 - (1 - k) * (1 - k);
 
-const syncPillar = (p: Pillar): void => {
+const syncPillar = (p: Pillar) => {
   const { t } = p;
-  // One clock, every beat a threshold on it: the column climbs, the star and
-  // the rings open behind its front, everything fades together at the end.
   const grown = easeOut(ramp(t, 0, BEATS.rise));
   const fade = 1 - ramp(t, BEATS.hold, BEATS.life - BEATS.hold);
-  // hottest at the instant it lands
   const charge = Math.max(0, 1 - t * 1.4);
   const pulse = 0.5 + 0.5 * Math.sin(t * BEATS.pulseRate * TAU);
 
@@ -540,9 +472,6 @@ const syncPillar = (p: Pillar): void => {
     h.uni.uFade.value = fade;
     h.uni.uCharge.value = charge;
     h.uni.uPulse.value = pulse;
-    // Leaned opposite ways and turning opposite ways, on the ring's own
-    // tilted axis — a spin about world-up would keep the lean fixed in
-    // screen space and the pair would stop reading as a gyroscope.
     h.mesh.rotation.z = t * COLUMN.haloSpin * TAU * h.dir;
   }
 };
@@ -558,6 +487,7 @@ export class PillarPool {
 
   constructor(scene: THREE.Scene, clock: { value: number }) {
     this.scene = scene;
+
     for (let i = 0; i < POOL; i += 1) {
       const uni: PillarUniforms = {
         uCentre: { value: new THREE.Vector3() },
@@ -575,6 +505,7 @@ export class PillarPool {
         uSeed: { value: 0 },
         uTime: clock,
       };
+
       const column = new THREE.Mesh(
         this.columnGeo,
         new THREE.ShaderMaterial({
@@ -587,6 +518,7 @@ export class PillarPool {
           vertexShader: PILLAR_VERT,
         }),
       );
+
       column.frustumCulled = false;
       column.visible = false;
       column.renderOrder = 6;
@@ -605,13 +537,11 @@ export class PillarPool {
         uSize: { value: 1 },
         uTime: clock,
       };
+
       const star = new THREE.Mesh(
         this.starGeo,
         new THREE.ShaderMaterial({
           blending: THREE.AdditiveBlending,
-          // Off on purpose: the star is the brightest thing in the ability and
-          // sits inside the column's own volume. Tested against the shaft it
-          // would be punched through by whichever wall was nearer the camera.
           depthTest: false,
           depthWrite: false,
           fragmentShader: STAR_FRAG,
@@ -621,12 +551,13 @@ export class PillarPool {
           vertexShader: STAR_VERT,
         }),
       );
+
       star.frustumCulled = false;
       star.visible = false;
       star.renderOrder = 7;
       this.scene.add(star);
 
-      const mkHalo = (dir: number): Halo => {
+      const mkHalo = (dir: number) => {
         const hu: HaloUniforms = {
           uBand: { value: 0.1 },
           uCharge: { value: 0 },
@@ -641,6 +572,7 @@ export class PillarPool {
           uSeed: { value: 0 },
           uTime: clock,
         };
+
         const mesh = new THREE.Mesh(
           this.haloGeo,
           new THREE.ShaderMaterial({
@@ -654,10 +586,12 @@ export class PillarPool {
             vertexShader: HALO_VERT,
           }),
         );
+
         mesh.frustumCulled = false;
         mesh.visible = false;
         mesh.renderOrder = 7;
         this.scene.add(mesh);
+
         return { dir, mesh, uni: hu };
       };
 
@@ -681,12 +615,13 @@ export class PillarPool {
    * Everything scales off the footprint, so a rank-4 smite is a bigger column
    * for free.
    */
-  strike(x: number, groundY: number, z: number, footprint: number, opts: PillarOpts = {}): void {
+  strike(x: number, groundY: number, z: number, footprint: number, opts: PillarOpts = {}) {
     const p = this.pillars.find((e) => !e.live);
+
     if (!p) {
       return;
-      // saturated — drop
     }
+
     const colors = opts.colors ?? GOLD;
     p.live = true;
     p.t = 0;
@@ -712,6 +647,7 @@ export class PillarPool {
     p.starUni.uColorCool.value.setHex(colors.cool);
 
     const outer = COLUMN.haloOuter * footprint;
+
     for (const [i, h] of p.halos.entries()) {
       const scale = i === 0 ? 1 : COLUMN.haloSecond;
       h.uni.uOuter.value = outer * scale;
@@ -723,57 +659,66 @@ export class PillarPool {
       h.uni.uColorBody.value.setHex(colors.body);
       h.uni.uColorCool.value.setHex(colors.cool);
       h.mesh.position.set(x, p.starY + (i === 0 ? 0.5 : -0.5) * COLUMN.haloLift * footprint, z);
-      // Lying flat, then leaned opposite ways so the pair reads as a gyroscope.
       h.mesh.rotation.set(-Math.PI / 2 + COLUMN.haloTilt * h.dir, 0, 0);
     }
+
     syncPillar(p);
     p.column.visible = true;
     p.star.visible = true;
+
     for (const h of p.halos) {
       h.mesh.visible = true;
     }
   }
 
-  update(dt: number): void {
+  update(dt: number) {
     for (const p of this.pillars) {
       if (!p.live) {
         continue;
       }
+
       p.t += dt;
+
       if (p.t >= BEATS.life) {
         p.live = false;
         p.column.visible = false;
         p.star.visible = false;
+
         for (const h of p.halos) {
           h.mesh.visible = false;
         }
+
         continue;
       }
+
       syncPillar(p);
     }
   }
 
-  clear(): void {
+  clear() {
     for (const p of this.pillars) {
       p.live = false;
       p.t = 0;
       p.column.visible = false;
       p.star.visible = false;
+
       for (const h of p.halos) {
         h.mesh.visible = false;
       }
     }
   }
 
-  dispose(): void {
+  dispose() {
     for (const p of this.pillars) {
       for (const m of [p.column, p.star, p.halos[0].mesh, p.halos[1].mesh]) {
         m.removeFromParent();
+
         if (m.material instanceof THREE.Material) {
           m.material.dispose();
         }
       }
     }
+
     this.pillars.length = 0;
     this.columnGeo.dispose();
     this.starGeo.dispose();

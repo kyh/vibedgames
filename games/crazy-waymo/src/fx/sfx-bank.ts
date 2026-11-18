@@ -41,30 +41,32 @@ export class SoundBank {
   private readonly failed = new Set<string>();
   private loading: Promise<void> | null = null;
 
-  load(ctx: AudioContext, onDecoded: () => void): Promise<void> {
+  load(ctx: AudioContext, onDecoded: () => void) {
     this.loading ??= this.decodeAll(ctx, onDecoded);
+
     return this.loading;
   }
 
-  private async decodeAll(ctx: AudioContext, onDecoded: () => void): Promise<void> {
+  private async decodeAll(ctx: AudioContext, onDecoded: () => void) {
     await Promise.all(
       Object.entries(SOUND_FILES).map(async ([name, file]) => {
         try {
           const response = await fetch(`${import.meta.env.BASE_URL}audio/cozy/${file}`);
+
           if (!response.ok) {
             throw new Error(`HTTP ${response.status}`);
           }
+
           this.buffers.set(name, await ctx.decodeAudioData(await response.arrayBuffer()));
           onDecoded();
         } catch {
-          // No deferred one-shots: a missed cue stays a soft procedural cue.
           this.failed.add(name);
         }
       }),
     );
   }
 
-  get(name: SoundName): AudioBuffer | undefined {
+  get(name: SoundName) {
     return this.buffers.get(name);
   }
 

@@ -4,8 +4,7 @@
  * on a checked domain value instead of a raw `typeof` probe.
  */
 export type JsonValue = string | number | boolean | null | JsonValue[] | JsonObject;
-// `undefined` values model keys that JSON.stringify drops, so structures with
-// optional properties still count as JSON.
+
 export interface JsonObject {
   [key: string]: JsonValue | undefined;
 }
@@ -24,4 +23,4 @@ export const isJsonComposite = (value: JsonValue | undefined): value is JsonObje
   Object(value) === value;
 
 /** String-keyed read from a closed const table without widening the table's type. */
-export const lookup = <T>(table: Record<string, T>, key: string): T | undefined => table[key];
+export const lookup = <T>(table: Record<string, T>, key: string) => table[key];

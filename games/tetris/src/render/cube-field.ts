@@ -1,12 +1,3 @@
-// Turns the logical board into meshes. Three layers:
-//  - locked cubes: one mesh per board id (Map), so a cube keeps its mesh and
-//    lerps down when a clear shifts it; new cubes pop in, cleared cubes pop out.
-//  - active slab: a fixed pool of 4 meshes (every tetromino is 4 cells),
-//    snapped on spawn, lerped on move.
-//  - ghost: 4 wireframe boxes at the landing footprint.
-// During the game-over collapse the locked layer is `frozen` so the physics
-// module can drive those meshes directly.
-
 import {
   BoxGeometry,
   EdgesGeometry,
@@ -32,7 +23,6 @@ interface LockedCube {
 }
 
 const CUBE = 0.92;
-// Per 60fps frame.
 const POS_LERP = 0.32;
 const SCALE_LERP = 0.2;
 
@@ -64,11 +54,13 @@ export class CubeField {
     const ghostSource = new BoxGeometry(0.98, 0.98, 0.98);
     const ghostGeo = new EdgesGeometry(ghostSource);
     ghostSource.dispose();
+
     for (let i = 0; i < 4; i += 1) {
       const line = new LineSegments(
         ghostGeo,
         new LineBasicMaterial({ color: GHOST_COLOR, opacity: 0.5, transparent: true }),
       );
+
       line.visible = false;
       this.group.add(line);
       this.ghostBoxes.push(line);
@@ -76,24 +68,27 @@ export class CubeField {
   }
 
   /** Diff the board's locked cubes against the mesh map. */
-  syncLocked(board: Board): void {
+  syncLocked(board: Board) {
     if (this.frozen) {
       return;
     }
+
     const seen = new Set<number>();
+
     for (const { x, y, z, colorIndex, id } of board.cubes()) {
       seen.add(id);
       const existing = this.locked.get(id);
+
       if (existing) {
         existing.target.set(x, y, z);
         existing.scaleTarget = 1;
         continue;
       }
+
       const colorHex = PIECES[colorIndex - 1]?.color ?? 0xff_ff_ff;
       const material = makeCubeMaterial(colorHex);
       const mesh = new Mesh(this.boxGeo, material);
       mesh.position.set(x, y, z);
-      // Pop in from nothing.
       mesh.scale.setScalar(0.01);
       this.group.add(mesh);
       this.locked.set(id, {
@@ -104,7 +99,7 @@ export class CubeField {
         target: new Vector3(x, y, z),
       });
     }
-    // Cubes no longer present begin shrinking out.
+
     for (const [id, cube] of this.locked) {
       if (!seen.has(id)) {
         cube.scaleTarget = 0;
@@ -113,37 +108,48 @@ export class CubeField {
   }
 
   /** Position the active slab. `snap` (on spawn) sets positions immediately. */
-  setActive(cells: Cell[], pieceIndex: number, snap: boolean): void {
+  setActive(cells: Cell[], pieceIndex: number, snap: boolean) {
     if (cells.length === 0 || pieceIndex < 0) {
       for (const m of this.activeMeshes) {
         m.visible = false;
       }
+
       this.activePieceIndex = -1;
+
       return;
     }
+
     if (pieceIndex !== this.activePieceIndex) {
       const colorHex = PIECES[pieceIndex]?.color ?? 0xff_ff_ff;
+
       for (const mat of this.activeMaterials) {
         const u = mat.uniforms.uColor;
+
         if (u) {
           u.value.set(colorHex);
         }
       }
+
       this.activePieceIndex = pieceIndex;
     }
+
     for (let i = 0; i < this.activeMeshes.length; i += 1) {
       const mesh = this.activeMeshes[i];
       const target = this.activeTargets[i];
       const cell = cells[i];
+
       if (!mesh || !target) {
         continue;
       }
+
       if (!cell) {
         mesh.visible = false;
         continue;
       }
+
       mesh.visible = true;
       target.set(cell.x, cell.y, cell.z);
+
       if (snap) {
         mesh.position.copy(target);
       }
@@ -151,30 +157,33 @@ export class CubeField {
   }
 
   /** Position the landing-ghost wireframe boxes (snapped). */
-  setGhost(cells: Cell[]): void {
+  setGhost(cells: Cell[]) {
     for (let i = 0; i < this.ghostBoxes.length; i += 1) {
       const line = this.ghostBoxes[i];
       const cell = cells[i];
+
       if (!line) {
         continue;
       }
+
       if (!cell) {
         line.visible = false;
         continue;
       }
+
       line.visible = true;
       line.position.set(cell.x, cell.y, cell.z);
     }
   }
 
-  update(dt: number): void {
+  update(dt: number) {
     const posK = frameLerp(POS_LERP, dt);
     const scaleK = frameLerp(SCALE_LERP, dt);
 
-    // Active slab slides toward its target.
     for (let i = 0; i < this.activeMeshes.length; i += 1) {
       const mesh = this.activeMeshes[i];
       const target = this.activeTargets[i];
+
       if (mesh?.visible && target) {
         mesh.position.lerp(target, posK);
       }
@@ -183,10 +192,12 @@ export class CubeField {
     if (this.frozen) {
       return;
     }
+
     for (const [id, cube] of this.locked) {
       cube.mesh.position.lerp(cube.target, posK);
       cube.scale += (cube.scaleTarget - cube.scale) * scaleK;
       cube.mesh.scale.setScalar(cube.scale);
+
       if (cube.scaleTarget === 0 && cube.scale < 0.03) {
         this.group.remove(cube.mesh);
         cube.material.dispose();
@@ -196,16 +207,17 @@ export class CubeField {
   }
 
   /** Live locked-cube meshes (for the physics collapse handoff). */
-  lockedMeshes(): Mesh[] {
+  lockedMeshes() {
     return [...this.locked.values()].map((c) => c.mesh);
   }
 
   /** Remove every locked cube immediately (reset / after collapse). */
-  clearLocked(): void {
+  clearLocked() {
     for (const cube of this.locked.values()) {
       this.group.remove(cube.mesh);
       cube.material.dispose();
     }
+
     this.locked.clear();
   }
 }

@@ -6,24 +6,21 @@ import { cn } from "cn";
 const NBSP = "\u00A0";
 const glyph = (char: string) => (char === " " ? NBSP : char);
 
-// Springy overshoot — slot-text's "back" easing, so each letter lands with a
-// little bounce instead of stopping flat.
 const EASE = [0.34, 1.56, 0.64, 1] as const;
 
-// Deterministic [-1, 1] jitter per character. Scaled by `bounce` it gives every
-// glyph its own tilt so the line doesn't land as one rigid block.
 const wobble = (i: number, salt: number) => {
   const n = Math.sin((i + 1) * 12.9898 + salt * 78.233) * 43_758.5453;
+
   return (n - Math.floor(n)) * 2 - 1;
 };
 
-// Width of the glyph `char` puts in a column, read off that column's hidden
-// candidate spans. 0 when the current word doesn't reach this column.
 const measureChar = (els: Map<string, HTMLSpanElement>, char: string) => {
   if (!char) {
     return 0;
   }
+
   const el = els.get(glyph(char));
+
   return el ? el.getBoundingClientRect().width : null;
 };
 
@@ -48,24 +45,29 @@ export const chromatic =
   ({ from = 0, spread = 320, saturation = 92, lightness = 60, palette }: ChromaticOptions = {}) =>
   (index: number, total: number) => {
     const t = total <= 1 ? 0 : index / (total - 1);
+
     if (palette && palette.length > 0) {
       if (palette.length === 1) {
         return palette[0] ?? "";
       }
-      // Interpolate between the two stops this glyph falls between.
+
       const pos = t * (palette.length - 1);
       const lower = Math.min(Math.floor(pos), palette.length - 2);
       const mix = Math.round((pos - lower) * 100);
       const a = palette[lower] ?? "";
       const b = palette[lower + 1] ?? "";
+
       if (mix <= 0) {
         return a;
       }
+
       if (mix >= 100) {
         return b;
       }
+
       return `color-mix(in oklab, ${b} ${mix}%, ${a})`;
     }
+
     return `hsl(${(from + t * spread) % 360} ${saturation}% ${lightness}%)`;
   };
 
@@ -92,11 +94,8 @@ interface RollingTextProps {
 }
 
 interface RollingColumnProps {
-  /** Every glyph this column can show, across all words. */
   candidates: string[];
-  /** The glyph the current word puts in this column ("" when it's shorter). */
   char: string;
-  /** Current word index — keys the faces so AnimatePresence swaps them. */
   wordKey: number;
   enterY: string;
   exitY: string;
@@ -123,58 +122,59 @@ const RollingColumn = ({
 }: RollingColumnProps) => {
   const sizerRef = useRef<HTMLSpanElement>(null);
   const candidateEls = useRef(new Map<string, HTMLSpanElement>());
-  // "auto" until the first measurement, so SSR/pre-hydration falls back to the
-  // widest-candidate width the sizer provides.
   const width = useMotionValue<number | "auto">("auto");
 
-  // Size the column to the glyph it's currently showing — measured off the
-  // hidden candidates — instead of the widest candidate, so narrow letters
-  // like "l" don't float in a slot sized for "o" or "u". The width rolls to
-  // the incoming glyph's in step with the letters.
   useEffect(() => {
     const target = measureChar(candidateEls.current, char);
+
     if (target === null) {
       return;
     }
+
     if (width.get() === "auto") {
       width.set(target);
+
       return;
     }
+
     const controls = animate(width, target, {
       delay: delay + exitOffset,
       duration,
       ease: "easeOut",
     });
+
     return () => controls.stop();
   }, [char, width, delay, exitOffset, duration]);
 
-  // Re-measure when the sizer's own box changes (font load, breakpoint font
-  // size) — jump straight to the new width, no roll.
   useEffect(() => {
     const sizer = sizerRef.current;
+
     if (!sizer || !("ResizeObserver" in window)) {
       return;
     }
+
     const observer = new ResizeObserver(() => {
       const target = measureChar(candidateEls.current, char);
+
       if (target !== null) {
         width.set(target);
       }
     });
+
     observer.observe(sizer);
+
     return () => observer.disconnect();
   }, [char, width]);
 
-  // The new glyph rolls in tinted (--flash: 1) and the tint mixes out to the
-  // resting color via color-mix, so it works regardless of the theme's color
-  // space (currentColor is oklch here).
   const roll = { delay: delay + exitOffset, duration, ease: EASE };
   const exitRoll = { delay, duration, ease: EASE };
+
   const initial: TargetAndTransition = {
     rotate: tilt,
     y: enterY,
     ...(tint && { "--flash": 1 }),
   };
+
   const enter: TargetAndTransition = {
     rotate: 0,
     y: "0%",
@@ -196,16 +196,8 @@ const RollingColumn = ({
     <motion.span
       aria-hidden
       style={{ width }}
-      // overflow-y clips at the padding box, so the symmetric py/-my pair
-      // extends the clip past tight line-heights (descenders like "g" were
-      // getting cut) without changing the line metrics.
       className="relative -my-[0.2em] inline-flex min-w-0 justify-center overflow-x-visible py-[0.2em] [overflow-y:clip]"
     >
-      {/* Invisible sizer renders every glyph this column can show (overlapped
-          in one grid cell) so the current one can be measured. It also keeps
-          the column at full text height while the faces are absolutely
-          positioned. Until the first measurement lands, it sizes the column
-          to its widest candidate. */}
       <span ref={sizerRef} className="invisible inline-grid">
         {(candidates.length ? candidates : [NBSP]).map((candidate) => (
           <span
@@ -217,8 +209,6 @@ const RollingColumn = ({
                 candidateEls.current.delete(candidate);
               }
             }}
-            // justifySelf keeps each candidate at its own glyph width instead
-            // of stretching to the cell, so the measurement is per-glyph.
             style={{ gridArea: "1 / 1", justifySelf: "start" }}
           >
             {candidate}
@@ -270,36 +260,38 @@ export const RollingText = ({
   className,
 }: RollingTextProps) => {
   const [index, setIndex] = useState(0);
-  // Respect prefers-reduced-motion: no cycling, no roll — just the first word.
   const reduceMotion = useReducedMotion();
 
   useEffect(() => {
     if (reduceMotion || words.length <= 1) {
       return;
     }
+
     const id = setInterval(() => setIndex((i) => (i + 1) % words.length), interval);
+
     return () => clearInterval(id);
   }, [reduceMotion, words.length, interval]);
 
-  // Every glyph that can appear in each column, across all words (padded to
-  // the longest word). The column renders them all in a hidden sizer so it can
-  // measure whichever one the current word shows.
   const columns = useMemo(() => {
     let len = 0;
+
     for (const word of words) {
       len = Math.max(len, word.length);
     }
+
     return Array.from({ length: len }, (_, i) =>
       [
         ...new Set(
           words.flatMap((word) => {
             const candidate = word[i];
+
             return candidate === undefined ? [] : [candidate];
           }),
         ),
       ].map(glyph),
     );
   }, [words]);
+
   const len = columns.length;
   const word = words[index] ?? "";
   const enterY = direction === "down" ? "-100%" : "100%";
@@ -311,9 +303,6 @@ export const RollingText = ({
 
   return (
     <span className={cn("inline-flex", className)}>
-      {/* aria-label is unreliable on generic elements, so the accessible name
-          lives in a visually-hidden span instead; the animated columns are
-          aria-hidden. */}
       <span className="sr-only">{words[0]}</span>
       {Array.from({ length: len }, (_, i) => (
         <RollingColumn
@@ -354,16 +343,23 @@ export const RollingLabel = ({ words, index, fluid = true, className }: RollingL
     if (!fluid) {
       return;
     }
+
     const el = sizerRef.current;
+
     if (!el) {
       return;
     }
+
     const target = el.getBoundingClientRect().width;
+
     if (width.get() === "auto") {
       width.set(target);
+
       return;
     }
+
     const controls = animate(width, target, { duration: 0.3, ease: "easeOut" });
+
     return () => controls.stop();
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- `label` is the trigger, not a value read: a new label is what changes the sizer's width, and the effect measures the DOM afterwards
   }, [fluid, label, width]);

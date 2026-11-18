@@ -3,7 +3,7 @@ import { COURSE_H } from "../shared/constants";
 
 const REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)");
 
-export const prefersReducedMotion = (): boolean => REDUCED_MOTION.matches;
+export const prefersReducedMotion = () => REDUCED_MOTION.matches;
 
 interface Ring {
   image: GameObjects.Image;
@@ -27,8 +27,6 @@ export class FlightFx {
   private noticeLeft = 0;
 
   constructor(scene: Scene) {
-    // Phaser 4 checks maxParticles before reusing dead slots. Reserve the pool
-    // and cap only live particles so a full burst can expire and fire again.
     this.air = scene.add
       .particles(0, 0, "flight-puff", {
         alpha: { end: 0, start: 0.7 },
@@ -70,12 +68,14 @@ export class FlightFx {
       })
       .reserve(12)
       .setDepth(-1);
+
     for (let i = 0; i < 5; i += 1) {
       this.rings.push({
         age: 1,
         image: scene.add.image(0, 0, "flight-ring").setDepth(14).setVisible(false),
       });
     }
+
     this.notice = scene.add
       .text(0, 0, "", {
         align: "center",
@@ -91,51 +91,55 @@ export class FlightFx {
       .setVisible(false);
   }
 
-  wingbeat(x: number, y: number): void {
+  wingbeat(x: number, y: number) {
     if (!prefersReducedMotion()) {
       this.air.explode(5, x - 20, y + 22);
     }
   }
 
-  pickup(x: number, y: number): void {
+  pickup(x: number, y: number) {
     this.burst(0xff_dc_70, 14, x, y);
     this.ring(x, y, 0xff_e8_99);
   }
 
-  pass(x: number, y: number): void {
+  pass(x: number, y: number) {
     this.burst(0xd8_f6_b5, 6, x, y);
   }
 
-  crash(x: number, y: number): void {
+  crash(x: number, y: number) {
     this.burst(0xe4_f5_ff, 16, x, y);
     this.ring(x, y, 0xe4_f5_ff);
   }
 
-  celebrate(text: string, x: number, y: number): void {
+  celebrate(text: string, x: number, y: number) {
     this.notice.setText(text).setVisible(true).setAlpha(1);
     this.noticeLeft = NOTICE_S;
     this.burst(0xff_dc_70, 22, x, y);
     this.ring(x, y, 0xff_e8_99);
   }
 
-  private burst(tint: number, count: number, x: number, y: number): void {
+  private burst(tint: number, count: number, x: number, y: number) {
     this.sparks.setParticleTint(tint).explode(prefersReducedMotion() ? 3 : count, x, y);
   }
 
-  private ring(x: number, y: number, color: number): void {
+  private ring(x: number, y: number, color: number) {
     if (prefersReducedMotion()) {
       return;
     }
+
     let [ring] = this.rings;
+
     for (const candidate of this.rings) {
       if (!candidate.image.visible) {
         ring = candidate;
         break;
       }
     }
+
     if (!ring) {
       return;
     }
+
     ring.age = 0;
     ring.image.setPosition(x, y).setTint(color).setScale(0.4).setAlpha(0.85).setVisible(true);
   }
@@ -149,10 +153,11 @@ export class FlightFx {
     birdX: number,
     birdY: number,
     climbing: boolean,
-  ): void {
+  ) {
     this.leafIn -= dt;
     this.trailIn -= dt;
     const reduced = prefersReducedMotion();
+
     if (reduced) {
       this.air.killAll();
       this.leaves.killAll();
@@ -165,31 +170,37 @@ export class FlightFx {
           viewTop + Math.random() * (COURSE_H - viewTop),
         );
       }
+
       if (climbing && this.trailIn <= 0) {
         this.trailIn = TRAIL_EVERY_S;
         this.air.explode(1, birdX - 28, birdY + 15);
       }
     }
+
     for (const ring of this.rings) {
       if (!ring.image.visible) {
         continue;
       }
+
       ring.age += dt / RING_LIFE_S;
       ring.image.setVisible(ring.age < 1 && !reduced);
       ring.image.setScale(0.4 + Math.min(1, ring.age) * 1.6);
       ring.image.setAlpha(Math.max(0, (1 - ring.age) * 0.85));
     }
+
     this.noticeLeft = Math.max(0, this.noticeLeft - dt);
     this.notice.setPosition(viewW / 2, noticeY);
     this.notice.setVisible(this.noticeLeft > 0).setAlpha(Math.min(1, this.noticeLeft / 0.3));
   }
 
-  reset(): void {
+  reset() {
     this.air.killAll();
     this.sparks.killAll();
+
     for (const ring of this.rings) {
       ring.image.setVisible(false);
     }
+
     this.noticeLeft = 0;
     this.notice.setVisible(false);
   }

@@ -2,8 +2,6 @@ import type { PlayerLimit } from "@vibedgames/multiplayer";
 import type { Arena } from "./arena";
 import type { ClockStamp } from "../util/clock";
 
-// ---- board geometry ---------------------------------------------------------
-
 export const TILE = 64;
 export const GRID_COLS = 19;
 export const GRID_ROWS = 15;
@@ -11,14 +9,11 @@ export const GRID_ROWS = 15;
 export const WORLD_W = GRID_COLS * TILE;
 export const WORLD_H = GRID_ROWS * TILE;
 
-// ---- timing -----------------------------------------------------------------
-
 export const FUSE_MS = 2200;
 export const EXPLOSION_MS = 480;
+
 /** The host simulation's fixed step, on the sim clock. */
 export const HOST_STEP_MS = 50;
-
-// ---- player stats (host-authoritative; powerups raise these) ----------------
 
 export const BASE_BOMBS = 1;
 export const BASE_RANGE = 2;
@@ -32,18 +27,17 @@ export const SPEED_STEP_MS = 22;
 /** Chance a destroyed crate drops a powerup. */
 export const POWERUP_DROP_CHANCE = 0.34;
 
-// ---- bots -------------------------------------------------------------------
-
 /** Fill empty spawn corners with bots up to this many total fighters. */
 export const TARGET_FIGHTERS = 4;
+
 /** Hard cap on bots regardless of human count (there are only 4 corners). */
 export const MAX_BOTS = 3;
+
 /** Bot step cadence (ms). A touch slower than a fresh human for fairness. */
 export const BOT_MOVE_MS = 200;
+
 /** When a bot is safe and next to a crate or has an enemy in line, odds it bombs. */
 export const BOT_BOMB_CHANCE = 0.3;
-
-// ---- types ------------------------------------------------------------------
 
 export type Cell = { kind: "empty" } | { kind: "wall" } | { kind: "crate" };
 
@@ -145,7 +139,6 @@ export type SharedState = {
   startedAt: number;
 };
 
-// Player identity colors (ring + label tint), distinct and readable on dark.
 export const COLORS = [0xff_5d_5d, 0x5d_9b_ff, 0x5d_ff_8b, 0xff_d9_5d, 0xc1_5d_ff, 0x5d_ff_e0];
 
 /**
@@ -161,13 +154,13 @@ export const PLAYER_LIMITS = {
   s: { max: BASE_MOVE_MS, min: 0 },
 } satisfies Partial<Record<keyof PlayerState, PlayerLimit>>;
 
-export const baseStats = (): PlayerStats => ({
+export const baseStats = () => ({
   bombs: BASE_BOMBS,
   range: BASE_RANGE,
   speed: BASE_MOVE_MS,
 });
 
-export const tileKey = (col: number, row: number): string => `${col},${row}`;
+export const tileKey = (col: number, row: number) => `${col},${row}`;
 
 interface Spawn {
   col: number;
@@ -189,37 +182,43 @@ export const SPAWN_POINTS: readonly [Spawn, Spawn, Spawn, Spawn] = [
  */
 export const MAX_PLAYERS = SPAWN_POINTS.length;
 
-/** True for the 2x2 corner pockets kept crate-free so players can break out. */
-const isSafeCorner = (c: number, r: number): boolean =>
+const isSafeCorner = (c: number, r: number) =>
   (c <= 2 && r <= 2) ||
   (c >= GRID_COLS - 3 && r <= 2) ||
   (c <= 2 && r >= GRID_ROWS - 3) ||
   (c >= GRID_COLS - 3 && r >= GRID_ROWS - 3);
 
-export const newGrid = (random: () => number = Math.random): Cell[][] => {
+export const newGrid = (random: () => number = Math.random) => {
   const grid: Cell[][] = [];
+
   for (let r = 0; r < GRID_ROWS; r += 1) {
     const row: Cell[] = [];
+
     for (let c = 0; c < GRID_COLS; c += 1) {
       const edge = r === 0 || c === 0 || r === GRID_ROWS - 1 || c === GRID_COLS - 1;
       const pillar = r % 2 === 0 && c % 2 === 0;
       row.push(edge || pillar ? { kind: "wall" } : { kind: "empty" });
     }
+
     grid.push(row);
   }
+
   for (const [r, row] of grid.entries()) {
     for (const [c, cell] of row.entries()) {
       if (cell.kind !== "empty") {
         continue;
       }
+
       if (isSafeCorner(c, r)) {
         continue;
       }
+
       if (random() < 0.72) {
         row[c] = { kind: "crate" };
       }
     }
   }
+
   return grid;
 };
 

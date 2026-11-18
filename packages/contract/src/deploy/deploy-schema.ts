@@ -1,23 +1,10 @@
 import { z } from "zod";
 
-// ---- Limits ----------------------------------------------------------------
-// (raised 2026-07-06 for baked-world games; see crazy-waymo world artifacts)
-
-// Sized for real games: baked-world data files (crazy-waymo ships a ~62MB
-// pre-generated city) blow past web-app-scale caps. R2 storage is cheap and
-// single-active-deployment means old blobs are replaced, not accumulated.
-// 10 MB per file (big data ships as parts)
 export const MAX_FILE_SIZE = 10 * 1024 * 1024;
-// 200 MB per deploy
 export const MAX_TOTAL_SIZE = 200 * 1024 * 1024;
 export const MAX_FILE_COUNT = 500;
-// 100 MB for the forkable source archive
 export const MAX_SOURCE_SIZE = 100 * 1024 * 1024;
-// What one PUT to `/api/upload` may carry (the Worker's own request limit), so
-// the most a deploy bundle can be. A game over it goes up file by file.
 export const MAX_UPLOAD_BODY = 100 * 1024 * 1024;
-
-// ---- Schemas -----------------------------------------------------------------
 
 const slugSchema = z
   .string()
@@ -43,8 +30,6 @@ export const createInput = z.object({
   files: z.array(fileSchema).min(1).max(MAX_FILE_COUNT),
   name: z.string().max(120).optional(),
   slug: slugSchema,
-  // Optional forkable source archive (tar.gz). When present we mint a second
-  // presigned PUT for it under the `sources/` prefix and record its metadata.
   source: z
     .object({
       bytes: z.number().int().positive().max(MAX_SOURCE_SIZE),
@@ -63,12 +48,6 @@ export const deleteInput = z.object({
 
 export const getSourceInput = z.object({ slug: slugSchema });
 
-/**
- * One file of a `deploy.upload` call: carried in the request as `utf-8` text,
- * or, as `url`, a generated asset's URL the server fetches itself. Binary
- * bytes never ride the call: they go in `presign`. The type is the path's
- * unless given.
- */
 const inlineFileSchema = z.object({
   content: z.string().describe("The file's text, or with `encoding: url` a generated asset's URL"),
   contentType: z.string().min(1).max(127).optional(),
@@ -78,11 +57,6 @@ const inlineFileSchema = z.object({
 
 export type InlineFile = z.infer<typeof inlineFileSchema>;
 
-/**
- * A file of a `deploy.upload` call too large to carry in it: the call answers
- * with a presigned PUT URL for it, and publish refuses until its bytes are
- * there at the declared size.
- */
 const presignedFileSchema = fileSchema.extend({
   contentType: fileSchema.shape.contentType.optional(),
 });

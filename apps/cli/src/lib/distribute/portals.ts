@@ -1,12 +1,3 @@
-/**
- * Web portals that take a game as a zip, and the rules each one publishes.
- *
- * A limit is here only when the portal's own documentation states it; `null`
- * means the portal names none, not that there is none. Every portal frames the
- * game on its own origin and unpacks it under a path of its choosing, which is
- * what `auditBuild` checks whatever the portal.
- */
-
 const MB = 1024 * 1024;
 
 export interface PortalLimits {
@@ -63,8 +54,6 @@ const UNLIMITED: PortalLimits = {
   network: "open",
 };
 
-// Verbatim from YouTube's test suite guide, which says production serves the
-// game under it.
 const YOUTUBE_CSP =
   "default-src 'none'; script-src 'report-sample' 'self' 'unsafe-eval' 'unsafe-inline' blob: " +
   "https://www.youtube.com/game_api/v0 https://www.youtube.com/game_api/v0/ " +
@@ -172,5 +161,4 @@ export const PORTALS: Portal[] = [
   },
 ];
 
-export const findPortal = (id: string): Portal | undefined =>
-  PORTALS.find((portal) => portal.id === id);
+export const findPortal = (id: string) => PORTALS.find((portal) => portal.id === id);

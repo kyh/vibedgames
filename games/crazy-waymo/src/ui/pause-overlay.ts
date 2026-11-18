@@ -1,9 +1,3 @@
-// Bespoke pause overlay — CRAZY WAYMO's own art direction on the shared
-// @repo/embed pause shell (which owns resume behavior — tap/keyup/pad press,
-// Escape stays with the core keydown toggle — idempotent show/hide, and the
-// full-screen fading root); the look extends the landing banner: chunky
-// italic gold display type, hazard-stripe bars, keycap chips.
-
 import { controlGroups, createPauseShell, resumeGame } from "@repo/embed";
 import type { MuteAccessor } from "@repo/embed";
 
@@ -18,9 +12,6 @@ export interface PauseOverlay {
 
 const STYLE_ID = "waymo-pause-style";
 
-// Same palette + recipes as index.html: banner title (900 italic gold, -3deg),
-// #banner-controls keycap chips (.hint/kbd/.lbl), #banner-cta gold pill.
-// Positioning/z-index/fade live on the shell's root — visuals only here.
 const CSS = `
 #waymo-pause {
   display: flex;
@@ -151,27 +142,28 @@ const CSS = `
 }
 `;
 
-/** One keycap chip group: "↑ / W" → [↑][W] caps + a lower-case verb label. */
-const hintChip = (input: string, action: string): HTMLElement => {
+const hintChip = (input: string, action: string) => {
   const group = document.createElement("span");
   group.className = "hint";
+
   for (const key of input.split(" / ")) {
     const cap = document.createElement("kbd");
     cap.textContent = key;
     group.append(cap);
   }
+
   const label = document.createElement("span");
   label.className = "lbl";
   label.textContent = action;
   group.append(label);
+
   return group;
 };
 
-const renderContent = (overlay: HTMLElement, onRestart: () => void): void => {
+const renderContent = (overlay: HTMLElement, onRestart: () => void) => {
   overlay.id = "waymo-pause";
   const coarse = window.matchMedia("(pointer: coarse)").matches;
 
-  // Title plate: hazard stripes framing PAUSED, all on the banner's -3° tilt.
   const plate = document.createElement("div");
   plate.className = "plate";
   const hazTop = document.createElement("div");
@@ -191,9 +183,6 @@ const renderContent = (overlay: HTMLElement, onRestart: () => void): void => {
   cta.className = "pcta";
   cta.textContent = coarse ? "TAP TO RESUME" : "CLICK OR PRESS ANY KEY";
 
-  // pointerup, not click: a synthesised click after touchend can land on the
-  // canvas once the overlay is gone. The shell keeps clicks on interactive
-  // children, so this does not also resume.
   const restart = document.createElement("button");
   restart.type = "button";
   restart.className = "prestart";
@@ -207,12 +196,12 @@ const renderContent = (overlay: HTMLElement, onRestart: () => void): void => {
 
   overlay.append(plate, sub, cta, restart);
 
-  // Controls, grouped per input method — fresh each show() so a pad plugged
-  // in mid-run gets its PAD row.
   const groups = controlGroups(CONTROLS);
+
   if (groups.length > 0) {
     const list = document.createElement("div");
     list.className = "pgroups";
+
     for (const group of groups) {
       const row = document.createElement("div");
       row.className = "pgrp";
@@ -220,11 +209,14 @@ const renderContent = (overlay: HTMLElement, onRestart: () => void): void => {
       tag.className = "tag";
       tag.textContent = METHOD_TAG[group.method];
       row.append(tag);
+
       for (const entry of group.entries) {
         row.append(hintChip(entry.input, entry.action));
       }
+
       list.append(row);
     }
+
     overlay.append(list);
   }
 };
@@ -240,7 +232,7 @@ export interface PauseOverlayOptions {
 
 /** Build CRAZY WAYMO's pause overlay. Same show/hide contract as the stock
  *  `@repo/embed` one — wire it into setPauseHandlers from main.ts. */
-export const createPauseOverlay = ({ onRestart, mute }: PauseOverlayOptions): PauseOverlay =>
+export const createPauseOverlay = ({ onRestart, mute }: PauseOverlayOptions) =>
   createPauseShell({
     css: CSS,
     mute,

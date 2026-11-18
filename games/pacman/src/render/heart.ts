@@ -1,10 +1,6 @@
 import * as THREE from "three";
 
-// Plump extruded heart, built from the classic three.js bezier heart shape,
-// centered at the origin, point-down, facing +z, ~1 world unit tall before
-// scaling. Shared by the power pellets and the heart-burst particles.
-
-export const buildHeartGeometry = (size: number): THREE.ExtrudeGeometry => {
+export const buildHeartGeometry = (size: number) => {
   const heartOutline = new THREE.Shape();
   heartOutline.moveTo(2.5, 2.5);
   heartOutline.bezierCurveTo(2.5, 2.5, 2, 0, 0, 0);
@@ -22,8 +18,7 @@ export const buildHeartGeometry = (size: number): THREE.ExtrudeGeometry => {
     curveSegments: 12,
     depth: 2.4,
   });
-  // The bezier shape is drawn point-up in a y-down frame — flip it, then
-  // normalize to `size` world units tall.
+
   geo.rotateZ(Math.PI);
   geo.center();
   geo.computeBoundingBox();
@@ -31,5 +26,6 @@ export const buildHeartGeometry = (size: number): THREE.ExtrudeGeometry => {
   const height = box === null ? 1 : box.max.y - box.min.y;
   const s = size / height;
   geo.scale(s, s, s);
+
   return geo;
 };

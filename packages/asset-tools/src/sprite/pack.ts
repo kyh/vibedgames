@@ -45,13 +45,12 @@ export const packSpritesheet = (
     fps?: number;
     action?: string;
   } = {},
-): PackedSheet => {
+) => {
   const { glob = "frame-*.png", columns = null, fps = 10, action = "anim" } = options;
   const frames = loadFrames(inputDir, glob);
 
-  // Every frame must share one size, or the grid maths silently misaligns and
-  // the animation shears at runtime rather than failing here.
   const sizes = new Set(frames.map((f) => `${f.image.width}x${f.image.height}`));
+
   if (sizes.size !== 1) {
     throw new Error(
       `frames are not a uniform size (${[...sizes].toSorted().join(", ")}); normalize them first (run \`vg sprite normalize-canvas\`).`,
@@ -59,9 +58,11 @@ export const packSpritesheet = (
   }
 
   const [firstFrame] = frames;
+
   if (firstFrame === undefined) {
     throw new Error(`no frames matching ${glob} in ${inputDir}`);
   }
+
   const frameWidth = firstFrame.image.width;
   const frameHeight = firstFrame.image.height;
   const count = frames.length;
@@ -69,10 +70,10 @@ export const packSpritesheet = (
   const rows = Math.ceil(count / cols);
 
   const sheet = Bitmap.create(cols * frameWidth, rows * frameHeight);
+
   for (const [i, frame] of frames.entries()) {
     const row = Math.floor(i / cols);
     const col = i - row * cols;
-    // Exact cell, no gap, alpha copied rather than blended.
     sheet.paste(frame.image, col * frameWidth, row * frameHeight);
   }
 

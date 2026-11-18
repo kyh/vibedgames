@@ -1,28 +1,21 @@
 import { publishPlaytest } from "@vibedgames/playtest";
-import type { ReflexInputs } from "@vibedgames/playtest";
 
 import { SHIP_DEAD_ZONE, SHIP_THRUST_RAMP } from "../shared/constants";
 import type { Diagnostics } from "../shared/diag";
 
-/** What `vg playtest run` may do to starfall, in the words the decision model chooses between. The ship flies at the cursor and the camera is centred on the ship, so a pointer position IS a heading plus a throttle; every move is a per-frame reflex that turns one intent (attack, dodge, loot) into that cursor, because tracking a drifting rock through a ~200 ms stale snapshot misses. The model picks the intent. */
-
-/** Cursor distance that saturates the throttle (shared/constants.ts ramp). */
 const FULL_THRUST_REACH = SHIP_DEAD_ZONE + SHIP_THRUST_RAMP;
-/** Inside the dead zone the ship brakes but the nose still tracks the cursor. */
 const BRAKE_REACH = SHIP_DEAD_ZONE / 2;
-/** Hold this much clear space to the target's hull while shooting it. */
 const STANDOFF_GAP = 170;
-/** Threats past this gap don't bend the escape heading. */
 const EVADE_RANGE = 320;
 const WALL_RANGE = 260;
 const PICKUP_ARRIVE = 12;
 
-const clamp = (v: number): number => Math.min(0.98, Math.max(0.02, v));
+const clamp = (v: number) => Math.min(0.98, Math.max(0.02, v));
 
-/** Hold the cursor `reach` px from the ship along (dx, dy), trigger down. */
-const steer = (game: Diagnostics, dx: number, dy: number, reach: number): ReflexInputs => {
+const steer = (game: Diagnostics, dx: number, dy: number, reach: number) => {
   const len = Math.hypot(dx, dy) || 1;
   const { w, h, zoom } = game.view;
+
   return {
     pointer: {
       down: true,
@@ -32,7 +25,7 @@ const steer = (game: Diagnostics, dx: number, dy: number, reach: number): Reflex
   };
 };
 
-const towardCentre = (game: Diagnostics): ReflexInputs =>
+const towardCentre = (game: Diagnostics) =>
   steer(
     game,
     game.walls.right - game.walls.left,
@@ -40,26 +33,32 @@ const towardCentre = (game: Diagnostics): ReflexInputs =>
     FULL_THRUST_REACH,
   );
 
-const attack = (game: Diagnostics | null): ReflexInputs | null => {
+const attack = (game: Diagnostics | null) => {
   if (!game) {
     return null;
   }
+
   const { target } = game;
+
   if (!target) {
     return towardCentre(game);
   }
+
   const closeEnough = target.dist - target.radius <= STANDOFF_GAP;
+
   return steer(game, target.aimDx, target.aimDy, closeEnough ? BRAKE_REACH : FULL_THRUST_REACH);
 };
 
-const wallPush = (d: number): number => (d < WALL_RANGE ? 1 / Math.max(20, d) : 0);
+const wallPush = (d: number) => (d < WALL_RANGE ? 1 / Math.max(20, d) : 0);
 
-const evade = (game: Diagnostics | null): ReflexInputs | null => {
+const evade = (game: Diagnostics | null) => {
   if (!game) {
     return null;
   }
+
   let ex = 0;
   let ey = 0;
+
   for (const t of game.threats) {
     if (t.gap < EVADE_RANGE) {
       const push = 1 / Math.max(20, t.gap);
@@ -67,19 +66,24 @@ const evade = (game: Diagnostics | null): ReflexInputs | null => {
       ey -= (t.dy / Math.max(1, t.dist)) * push;
     }
   }
+
   ex += wallPush(game.walls.left) - wallPush(game.walls.right);
   ey += wallPush(game.walls.up) - wallPush(game.walls.down);
+
   if (ex === 0 && ey === 0) {
     return attack(game);
   }
+
   return steer(game, ex, ey, FULL_THRUST_REACH);
 };
 
-const collect = (game: Diagnostics | null): ReflexInputs | null => {
+const collect = (game: Diagnostics | null) => {
   const pickup = game?.pickups[0];
+
   if (!game || !pickup) {
     return attack(game);
   }
+
   return steer(
     game,
     pickup.dx,
@@ -88,7 +92,7 @@ const collect = (game: Diagnostics | null): ReflexInputs | null => {
   );
 };
 
-export const publishStarfallPlaytest = (): void => {
+export const publishStarfallPlaytest = () => {
   publishPlaytest<Diagnostics>({
     goal: [
       "Top-down space shooter. Raise game.score (XP): every shot that hits an asteroid is +1, destroying it +6, enemies 5-28, an orb pickup +4. The run is endless; dying costs XP progress and ~2.5 s out of play.",

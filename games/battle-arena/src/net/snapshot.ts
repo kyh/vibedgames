@@ -1,15 +1,3 @@
-// World ↔ wire. Two shapes travel from the host:
-//  - Snapshot: the whole World, ~1 Hz in sharedState.snap (and at once on a
-//    phase or match edge) — what a late joiner starts from, and what a promoted
-//    guest falls back to when its own copy missed frames. rngState travels so
-//    the new host keeps the deterministic stream. Each unit rides as only the
-//    fields that differ from a blank combatant: a barrel is a dozen keys, not
-//    seventy.
-//  - Frame: what changed in one sim tick, broadcast as an event every tick
-//    (net/frames.ts builds it). fx ride the frames, so none are lost, and so
-//    does every field the sim reads: a guest's copy is the host's world, which
-//    a promoted guest carries on from.
-// Both are JSON payload aliases — the lint config lists this module for that.
 import { isJsonObject } from "../data/json";
 import type { JsonObject, JsonValue } from "../data/json";
 import { KILL_GOAL_FFA, MATCH_TIME } from "../data/config";
@@ -80,52 +68,60 @@ export type Frame = {
 };
 
 /** The template unit rows are diffed against (and decoded onto). */
-export const blankUnit = (): Unit => blankCombatant("", "hero", "", "", "", "");
+export const blankUnit: () => Unit = () => blankCombatant("", "hero", "", "", "", "");
 
 const BLANK_UNIT: JsonObject = blankUnit();
 
 /** Structural equality of two JSON values. */
-export const sameJson = (a: JsonValue | undefined, b: JsonValue | undefined): boolean => {
+export const sameJson: (a: JsonValue | undefined, b: JsonValue | undefined) => boolean = (a, b) => {
   if (a === b) {
     return true;
   }
+
   if (Array.isArray(a)) {
     return (
       Array.isArray(b) && a.length === b.length && a.every((value, i) => sameJson(value, b[i]))
     );
   }
+
   if (!isJsonObject(a) || !isJsonObject(b) || Array.isArray(b)) {
     return false;
   }
+
   const keys = Object.keys(a);
+
   return keys.length === Object.keys(b).length && keys.every((key) => sameJson(a[key], b[key]));
 };
 
 /** A unit as its difference from the blank template; nested values are copied
  *  so later host mutation never reaches the SDK's cached shared state. */
-export const encodeUnit = (u: Unit): JsonObject => {
+export const encodeUnit = (u: Unit) => {
   const live: JsonObject = u;
   const row: JsonObject = {};
+
   for (const [key, value] of Object.entries(live)) {
     if (!sameJson(value, BLANK_UNIT[key])) {
       row[key] = value instanceof Object ? structuredClone(value) : value;
     }
   }
+
   return row;
 };
 
 /** Rebuild a full unit from its row. Values are adopted, not copied — decode a
  *  clone of anything that stays cached elsewhere (applySnapshot does). */
-export const decodeUnit = (row: JsonObject): Unit => {
+export const decodeUnit: (row: JsonObject) => Unit = (row) => {
   const unit = blankUnit();
   const fields: JsonObject = unit;
+
   for (const [key, value] of Object.entries(row)) {
     fields[key] = value;
   }
+
   return unit;
 };
 
-export const encodeWorld = (w: World): Snapshot => ({
+export const encodeWorld = (w: World) => ({
   boss: { ...w.boss },
   campRespawnAt: { ...w.campRespawnAt },
   coins: structuredClone(w.coins),
@@ -148,7 +144,7 @@ export const encodeWorld = (w: World): Snapshot => ({
   winner: w.winner,
 });
 
-export const emptyGuestWorld = (): World => ({
+export const emptyGuestWorld: () => World = () => ({
   boss: { alive: true, hp: 4000, maxHp: 4000, x: BOSS_POS.x, y: BOSS_POS.y },
   campRespawnAt: {},
   coins: [],
@@ -172,16 +168,14 @@ export const emptyGuestWorld = (): World => ({
   winner: null,
 });
 
-const rebuildMap = <T, R>(
-  map: Map<string, T>,
-  rec: Record<string, R>,
-  decode: (value: R) => T,
-): void => {
+const rebuildMap = <T, R>(map: Map<string, T>, rec: Record<string, R>, decode: (value: R) => T) => {
   const seen = new Set<string>();
+
   for (const [k, v] of Object.entries(rec)) {
     seen.add(k);
     map.set(k, decode(v));
   }
+
   for (const k of map.keys()) {
     if (!seen.has(k)) {
       map.delete(k);
@@ -194,7 +188,7 @@ const rebuildMap = <T, R>(
  *  state is this client's copy of the room, which the next snapshot's ops
  *  are applied to, so a coin a frame pushed into it or a projectile moved in
  *  it would come back as the host's word. */
-export const applySnapshot = (w: World, snapshot: Snapshot): void => {
+export const applySnapshot = (w: World, snapshot: Snapshot) => {
   const s = structuredClone(snapshot);
   w.now = s.now;
   w.gameTime = s.gameTime;

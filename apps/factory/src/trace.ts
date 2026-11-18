@@ -27,10 +27,8 @@ export interface Span {
 }
 
 /** Append a single turn's span to the trace. Best-effort — never throws. */
-export const appendSpan = (bb: Blackboard, span: Span): void => {
+export const appendSpan = (bb: Blackboard, span: Span) => {
   try {
     appendFileSync(bb.trace, `${JSON.stringify(span)}\n`);
-  } catch {
-    /* observability is best-effort; a failed write must not stall the loop */
-  }
+  } catch {}
 };

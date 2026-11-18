@@ -1,18 +1,3 @@
-// 3D first-person Pac-Man, restored from the legacy r3f build on plain three.js.
-// Step-per-chomp movement: each mouth-open transition (or SPACE) advances one
-// grid cell; head turns / arrow keys rotate the heading relative to the current
-// facing. Chase camera trails Pacman; SHIFT flips to a selfie view.
-//
-// Look & feel: "plush clinic" — warm cream fog, marshmallow walls, Baymax-faced
-// ghost blobs, heart power pellets, squash & stretch, pooled puff/heart VFX and
-// a gentle trauma camera.
-//
-// The simulation follows the legacy build (step-per-chomp, relative steering,
-// ghost AI) with two deliberate departures: ghost contact uses radial
-// hitboxes checked every frame (legacy cell-snapping only ran on movement
-// frames, so a stationary Pacman could never be caught — played as a bug),
-// and the maze is a bigger generated braided board.
-
 import * as THREE from "three";
 import { createTouchControls, notifyGameStarted, watchControlContext } from "@repo/embed";
 import { PhysicalGamepad, stickDirection4 } from "@vibedgames/gamepad";
@@ -143,64 +128,38 @@ interface Ghost {
   x: number;
   z: number;
   dir: Dir;
-  /** Body color, resolved once at construction. */
   color: number;
   group: THREE.Group;
   bob: THREE.Group;
   bodyMat: THREE.MeshStandardMaterial;
-  /** Worried "o" mouth, shown while scared. */
   worry: THREE.Mesh;
   yaw: number;
-  /** 0→1 grow-in after a respawn teleport (nothing pops). */
   spawnScale: number;
   scale: number;
 }
 
 interface Heart {
   mesh: THREE.Mesh;
-  /** Per-cell phase so the hearts breathe out of sync. */
   phase: number;
 }
 
-/** What one of our eats hands back if its claim goes to someone else. */
 interface EatUndo {
   points: number;
-  /** A heart's: the frightened time left before it, which the ghosts go back to. */
   scaredBefore: number | null;
 }
 
-/** Pentatonic combo ladder for quick pellet streaks (semitones above root). */
 const COMBO_SCALE: readonly number[] = [0, 2, 4, 7, 9, 12, 14, 16, 19];
-/** Streak window: pellets eaten within this many seconds keep climbing. */
 const COMBO_WINDOW_S = 0.9;
 
 const SWIPE_MIN_PX = 24;
 const EPS = 1e-4;
-/** DEV-only room override (?room=): the two-client harness isolates each run
- *  so a stale room's board can't leak into assertions. */
 const ROOM = (import.meta.env.DEV && new URLSearchParams(location.search).get("room")) || MP_ROOM;
-/** Shrinking after-image left where Pacman was caught. */
 const CAPTURE_ECHO_S = 0.28;
-/** Settle-in scale after a respawn. */
 const REAPPEAR_S = 0.24;
-/** The result card unhides one frame before it fades in, so its transition runs. */
 const RESULT_REVEAL_S = 0.16;
-/** Browser/wrapper chords: never a "press any key" start, never play input. */
 const SYSTEM_KEYS = new Set(["Tab", "Control", "Alt", "Meta", "Escape"]);
-/**
- * Ceiling for the portrait FOV widening below — past this it just fisheyes.
- *
- * 110 is deliberate, not a default. A phone wants 118° vertical to hold the
- * 16:9 horizontal view; capping tighter (95 was tried) does buy back some of
- * the empty sky, but it costs corridor lookahead and blows pac up until he
- * fills the frame. The empty band above the maze comes from the chase camera's
- * pitch, not from this angle, so narrowing here pays for nothing.
- */
 const MAX_FOV = 110;
 
-/** Plush-clinic skin for the shared touch pause/mute cluster (@repo/embed):
- *  same card/edge palette as the HUD pills, docked under the BEST pill so it
- *  never lands on one. */
 const TOUCH_CONTROLS_CSS = `
 .vg-touch-controls.pac-touch {
   top: calc(env(safe-area-inset-top, 0px) + 62px);
@@ -245,52 +204,48 @@ export interface GameDiagnostics {
 }
 
 /* oxlint-disable no-bitwise -- mulberry32 is int32 hash arithmetic */
-/** Enough to make a seeded ghost run repeatable. */
-const seededRandom = (seed: number): (() => number) => {
+const seededRandom = (seed: number) => {
   let a = seed >>> 0;
+
   return () => {
     a = (a + 0x6d_2b_79_f5) >>> 0;
     let t = Math.imul(a ^ (a >>> 15), a | 1);
     t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+
     return ((t ^ (t >>> 14)) >>> 0) / 4_294_967_296;
   };
 };
 /* oxlint-enable no-bitwise */
 
-const el = (id: string): HTMLElement => {
+const el = (id: string) => {
   const node = document.querySelector(`#${id}`);
+
   if (!(node instanceof HTMLElement)) {
-    throw new Error(`missing #${id}`);
+    throw new TypeError(`missing #${id}`);
   }
+
   return node;
 };
-/**
- * Hor+ vertical FOV. `PerspectiveCamera.fov` is the VERTICAL angle, so holding
- * BASE_FOV on a portrait phone collapses the horizontal field to ~39° — ghosts
- * one corridor over are invisible until they touch you. Below square, solve the
- * vertical angle that keeps the horizontal field at its square-aspect value
- * (same construction as games/tetris/src/render/camera-rig.ts), capped so an
- * extreme ratio stops widening rather than turning into a fish-eye.
- */
-const fovForAspect = (aspect: number): number => {
+
+const fovForAspect = (aspect: number) => {
   if (aspect >= 1) {
     return BASE_FOV;
   }
+
   const vertical = (Math.atan(Math.tan((BASE_FOV * Math.PI) / 360) / aspect) * 360) / Math.PI;
+
   return Math.min(MAX_FOV, vertical);
 };
-/**
- * Butter-yellow plush ball with the animated mouth wedge, plus a face you
- * only meet in the selfie cam: lens eyes and blush cheeks. Face is on +x
- * (the mouth wedge's home), matching the "right" rest orientation.
- */
-const buildPacman = (): THREE.Group => {
+
+const buildPacman = () => {
   const group = new THREE.Group();
   group.name = "pacman";
+
   const body = new THREE.Mesh(
     new THREE.SphereGeometry(PAC_RADIUS, 32, 32),
     new THREE.MeshStandardMaterial({ color: COLORS.pacman, roughness: 0.5 }),
   );
+
   body.castShadow = true;
   group.add(body);
 
@@ -298,30 +253,31 @@ const buildPacman = (): THREE.Group => {
     new THREE.SphereGeometry(MOUTH_RADIUS, 32, 32, MOUTH_PHI_START, MOUTH_PHI_LENGTH, 0, 0.001),
     new THREE.MeshStandardMaterial({ color: COLORS.mouth, side: THREE.BackSide }),
   );
+
   mouth.name = "mouth";
   mouth.visible = false;
   group.add(mouth);
 
   const eyeMat = new THREE.MeshStandardMaterial({ color: COLORS.eye, roughness: 0.3 });
+
   for (const side of [1, -1]) {
     const eye = new THREE.Mesh(new THREE.SphereGeometry(0.05, 12, 12), eyeMat);
     eye.position.set(0.39, 0.2, 0.175 * side);
     group.add(eye);
   }
+
   const blushMat = new THREE.MeshStandardMaterial({ color: COLORS.blush, roughness: 0.8 });
+
   for (const side of [1, -1]) {
     const blush = new THREE.Mesh(new THREE.SphereGeometry(0.07, 12, 12), blushMat);
     blush.position.set(0.34, 0.02, 0.34 * side);
     blush.scale.set(0.4, 0.7, 1);
     group.add(blush);
   }
+
   return group;
 };
-/**
- * Ghost as a Baymax-style marshmallow: pastel capsule, two black lens eyes
- * joined by a thin line, blush cheeks, and a hidden worried "o" mouth that
- * appears while scared. Face is on -z; the bob group yaws toward travel.
- */
+
 const buildGhost = (color: number) => {
   const group = new THREE.Group();
   const bob = new THREE.Group();
@@ -333,17 +289,20 @@ const buildGhost = (color: number) => {
   bob.add(body);
 
   const darkMat = new THREE.MeshStandardMaterial({ color: COLORS.eye, roughness: 0.3 });
+
   for (const side of [1, -1]) {
     const eye = new THREE.Mesh(new THREE.SphereGeometry(0.06, 12, 12), darkMat);
     eye.position.set(0.13 * side, 0.1, -0.3);
     bob.add(eye);
   }
+
   const line = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.26, 8), darkMat);
   line.rotation.z = Math.PI / 2;
   line.position.set(0, 0.1, -0.345);
   bob.add(line);
 
   const blushMat = new THREE.MeshStandardMaterial({ color: COLORS.blush, roughness: 0.8 });
+
   for (const side of [1, -1]) {
     const blush = new THREE.Mesh(new THREE.SphereGeometry(0.06, 12, 12), blushMat);
     blush.position.set(0.23 * side, -0.05, -0.245);
@@ -358,43 +317,50 @@ const buildGhost = (color: number) => {
 
   return { bob, bodyMat, group, worry };
 };
-/** Yaw (rotation.y) that points the -z face along a grid direction. */
-const dirYaw = (dir: Dir): number => {
+
+const dirYaw = (dir: Dir) => {
   switch (dir) {
     case "up": {
       return 0;
     }
+
     case "down": {
       return Math.PI;
     }
+
     case "left": {
       return Math.PI / 2;
     }
+
     case "right": {
       return -Math.PI / 2;
     }
-    // no default
   }
 };
-/** Shortest-arc angle lerp. */
-const lerpAngle = (from: number, to: number, k: number): number => {
+
+const lerpAngle = (from: number, to: number, k: number) => {
   let delta = (to - from) % (Math.PI * 2);
+
   if (delta > Math.PI) {
     delta -= Math.PI * 2;
   }
+
   if (delta < -Math.PI) {
     delta += Math.PI * 2;
   }
+
   return from + delta * k;
 };
-/** Deterministic per-cell hash in [0, 1) — stable tint/height/phase wobble. */
-const hash2 = (col: number, row: number): number => {
+
+const hash2 = (col: number, row: number) => {
   const n = Math.sin(col * 127.1 + row * 311.7) * 43_758.5453;
+
   return n - Math.floor(n);
 };
-/** All MAP cells of a given type (1 wall, 2 pellet, 3 power heart). */
-const mapCells = (type: number): { col: number; row: number }[] => {
+
+const mapCells = (type: number) => {
   const cells: { col: number; row: number }[] = [];
+
   for (let row = 0; row < GRID_ROWS; row += 1) {
     for (let col = 0; col < GRID_COLS; col += 1) {
       if (MAP[row]?.[col] === type) {
@@ -402,31 +368,34 @@ const mapCells = (type: number): { col: number; row: number }[] => {
       }
     }
   }
+
   return cells;
 };
-/** Restart a CSS animation by re-applying its class. */
-const retrigger = (node: HTMLElement, cls: string): void => {
+
+const retrigger = (node: HTMLElement, cls: string) => {
   node.classList.remove(cls);
   void node.offsetWidth;
   node.classList.add(cls);
 };
-const hexCss = (hex: number): string => `#${hex.toString(16).padStart(6, "0")}`;
-/** Cream weave with soft polka dots — repeats across the plush floor. */
-const polkaDotTexture = (): THREE.CanvasTexture => {
+
+const hexCss = (hex: number) => `#${hex.toString(16).padStart(6, "0")}`;
+
+const polkaDotTexture = () => {
   const size = 128;
   const canvas = document.createElement("canvas");
   canvas.width = size;
   canvas.height = size;
   const ctx = canvas.getContext("2d");
+
   if (ctx) {
     ctx.fillStyle = hexCss(COLORS.floor);
     ctx.fillRect(0, 0, size, size);
     ctx.fillStyle = hexCss(COLORS.floorDot);
     const r = 11;
-    // Center dot + quarter dots in each corner = staggered diagonal grid.
     ctx.beginPath();
     ctx.arc(size / 2, size / 2, r, 0, Math.PI * 2);
     ctx.fill();
+
     for (const [cx, cy] of [
       [0, 0],
       [size, 0],
@@ -438,40 +407,44 @@ const polkaDotTexture = (): THREE.CanvasTexture => {
       ctx.fill();
     }
   }
+
   const tex = new THREE.CanvasTexture(canvas);
   tex.wrapS = THREE.RepeatWrapping;
   tex.wrapT = THREE.RepeatWrapping;
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = 4;
+
   return tex;
 };
-/**
- * Advance a ghost `dist` cells along its dir, re-deciding at every grid
- * center via `decide` (null = stop). Movement is broken at cell boundaries so
- * decisions land exactly on centers; no wraparound (out-of-bounds is wall).
- */
+
 const stepGhost = (
   g: { x: number; z: number; dir: Dir },
   distance: number,
   decide: (col: number, row: number) => Dir | null,
-): void => {
+) => {
   let dist = distance;
   let guard = 16;
+
   while (dist > EPS && guard > 0) {
     guard -= 1;
     const col = Math.round(g.x);
     const row = Math.round(g.z);
+
     if (Math.abs(g.x - col) < EPS && Math.abs(g.z - row) < EPS) {
       g.x = col;
       g.z = row;
       const next = decide(col, row);
+
       if (next === null) {
         break;
       }
+
       g.dir = next;
     }
+
     const [dx, dz] = DIR_VECT[g.dir];
     let step: number;
+
     if (dx === 0) {
       const target = dz > 0 ? Math.floor(g.z + EPS) + 1 : Math.ceil(g.z - EPS) - 1;
       step = Math.min(dist, Math.abs(target - g.z));
@@ -481,17 +454,13 @@ const stepGhost = (
       step = Math.min(dist, Math.abs(target - g.x));
       g.x += dx * step;
     }
+
     dist -= step;
   }
 };
-const pick = <T>(arr: readonly T[], random: () => number): T | undefined =>
-  arr[Math.floor(random() * arr.length)];
-/**
- * Ghost AI, evaluated at each grid center (legacy moveGhostsOnGrid): never
- * reverse unless dead-ended; scared = uniform random; otherwise 70% greedy
- * (random among strictly distance-reducing options, falling back to random)
- * / 30% pure random.
- */
+
+const pick = <T>(arr: readonly T[], random: () => number) => arr[Math.floor(random() * arr.length)];
+
 const chooseGhostDir = (
   col: number,
   row: number,
@@ -500,64 +469,71 @@ const chooseGhostDir = (
   pacX: number,
   pacZ: number,
   random: () => number,
-): Dir | null => {
+) => {
   const open = DIRS.filter((d) => {
     const [dx, dz] = DIR_VECT[d];
+
     return isOpen(col + dx, row + dz);
   });
+
   if (open.length === 0) {
     return null;
   }
+
   const ahead = open.filter((d) => d !== OPPOSITE[dir]);
   const options = ahead.length > 0 ? ahead : open;
+
   if (scared) {
     return pick(options, random) ?? null;
   }
+
   if (random() < CHASE_CHANCE) {
     const here = (col - pacX) ** 2 + (row - pacZ) ** 2;
+
     const closer = options.filter((d) => {
       const [dx, dz] = DIR_VECT[d];
+
       return (col + dx - pacX) ** 2 + (row + dz - pacZ) ** 2 < here;
     });
+
     if (closer.length > 0) {
       return pick(closer, random) ?? null;
     }
   }
+
   return pick(options, random) ?? null;
 };
-const loadBest = (): number => {
+
+const loadBest = () => {
   try {
     const raw = localStorage.getItem(BEST_KEY);
     const n = raw === null ? 0 : Math.trunc(Number(raw));
+
     return Number.isFinite(n) && n > 0 ? n : 0;
   } catch {
     return 0;
   }
 };
-const saveBest = (best: number): void => {
+
+const saveBest = (best: number) => {
   try {
     localStorage.setItem(BEST_KEY, String(best));
-  } catch {
-    // storage unavailable (private mode) — best just won't persist
-  }
+  } catch {}
 };
 
-/** Ghost body tint: its own color normally, the scared blue while scared, and
- *  the blink color on the warning strobe. */
-const scaredTint = (scared: boolean, blinkOut: boolean, own: number): number => {
+const scaredTint = (scared: boolean, blinkOut: boolean, own: number) => {
   if (!scared) {
     return own;
   }
+
   return blinkOut ? COLORS.scaredBlink : COLORS.scared;
 };
 
 export class GameScene {
-  /** Wrapper pause: the sim and every input path stand still. */
   private paused = false;
   readonly scene = new THREE.Scene();
   readonly camera: THREE.PerspectiveCamera;
 
-  // ---- simulation state ------------------------------------------------------
   private phase: Phase = "title";
   private pac: PacBody = {
     dir: "right",
@@ -573,50 +549,27 @@ export class GameScene {
   private hearts = new Map<string, Heart>();
   private score = 0;
   private best = 0;
-  /** Local ghost contacts, retained across lives and reset with the round score. */
   private ghostsChomped = 0;
 
-  // ---- multiplayer (shared-maze pellet race) ---------------------------------
-  // The maze + pellets come from the static MAP (identical on every client);
-  // players race to grab them. Ghosts stay LOCAL — each player dodges their
-  // own, so a heart's frightened time is the eater's alone. Offline (no room
-  // within OFFLINE_FALLBACK_MS of play, `?offline=1`, a playtest) the client
-  // is a room of one with the same API: it hosts, and its claims are granted
-  // at once, so solo runs the same code.
-  // On the wire: each player's own pac as player state (sendMyState, 20 Hz,
-  // server-time stamped), one server-arbitrated claim per pellet per round
-  // (../net/pellet-claims) — which IS the board — and the round number, the
-  // one shared primitive, written by the host.
   private readonly net = joinRoom({
     fallbackMs: OFFLINE_FALLBACK_MS,
     limits: PAC_LIMITS,
     maxPlayers: MP_MAX_PLAYERS,
-    // A playtest stages state and restarts at will; that must never land in a live room.
     offline: isPlaytestRequested(),
     onEvent: (event, payload, from) => this.handleNetEvent(event, payload, from),
     room: ROOM,
   });
   private remotePacs: RemotePacs;
-  /** Our own connection dropped and the room has not admitted us again yet. */
   private ownDrop = false;
-  /** Rivals present this frame (see presentRivals). */
   private rivalIds: string[] = [];
-  /** Own-pac send clock: keeps its remainder, so reports land every 50 ms rather than 67/83. */
   private readonly netRate = new FixedRate(NET_TICK_HZ);
-  /** Bumped on every respawn/teleport so rivals snap the pac instead of gliding it through walls. */
   private spawnCount = 0;
-  /** The round this maze shows: the room's `round`, which only the host advances. */
   private boardRound = 0;
   private boardSig = "";
-  /** Cells already removed locally. */
   private appliedEaten = new Set<string>();
-  /** Our eats claimed but not yet answered, and what each hands back if lost. */
   private pellets = new PelletClaims<EatUndo>();
-  /** The claim map this maze was last drawn from: a new object means claims changed. */
   private claimsSeen: ClaimMap | null = null;
-  /** Re-derive the maze from the claims on the next reconcile, even if they did not change. */
   private boardStale = true;
-  /** The heart whose pickup last set the frightened clock, while its claim may still be lost. */
   private scaredBy: string | null = null;
   private netInfoText = "";
   private boardEl = el("board");
@@ -626,27 +579,17 @@ export class GameScene {
   private graceMs = 0;
   private readyMs = 0;
 
-  // ---- input state -------------------------------------------------------------
-  /** Seconds a pending chomp stays queued while a step finishes (0 = none). */
   private chompQueued = 0;
   private prevMouthOpen = false;
   private shiftHeld = false;
-  /** Touch stand-in for SHIFT: the 🤳 pill latches instead of holding. */
   private selfieOn = false;
   private swipeOrigin: { x: number; y: number } | null = null;
   private swiped = false;
-  /** Physical controller — polled once per frame; steering is edge-triggered. */
   private readonly pad = new PhysicalGamepad();
-  /** Last snapped left-stick direction, so a held deflection fires once. */
   private padStickDir: Dir4 | null = null;
-  /** Live while a banner is up: re-renders it on pad connect/disconnect. */
   private unwatchControls: (() => void) | null = null;
-  // ---- display objects -----------------------------------------------------------
-  /** Outer rig: world position + axis-aligned squash/stretch. */
   private pacRig = new THREE.Group();
-  /** Inner group: facing rotation (so the rig's scale stays world-aligned). */
   private pacGroup: THREE.Group;
-  /** One render-only copy; shares immutable geometry/materials, never owns/disposes them. */
   private captureEcho: THREE.Group;
   private captureAge = CAPTURE_ECHO_S;
   private reappearAge = REAPPEAR_S;
@@ -654,7 +597,6 @@ export class GameScene {
   private mouthMesh: THREE.Mesh;
   private mouthAngle = 0;
   private mouthBuiltBucket = -1;
-  /** Quantized wedge geometries, built once each (~16 total, never disposed). */
   private mouthGeoCache = new Map<number, THREE.SphereGeometry>();
   private heartGeo = buildHeartGeometry(POWER_PELLET_RADIUS * 1.85);
   private powerMat = new THREE.MeshStandardMaterial({
@@ -664,13 +606,11 @@ export class GameScene {
     roughness: 0.5,
   });
 
-  // ---- feel / vfx state ---------------------------------------------------------
   private fx: FxPool;
   private powerHalo: PowerHalo;
   private shaker = new TraumaCamera();
   private t = 0;
   private fovKick = 0;
-  /** Vertical FOV for the live aspect — the kick rides on top of this. */
   private baseFov = BASE_FOV;
   private squashKick = 0;
   private stretchAmt = 0;
@@ -681,14 +621,12 @@ export class GameScene {
   private winConfettiIn = 0;
   private noticeTimer: ReturnType<typeof setTimeout> | null = null;
 
-  // ---- chase camera (legacy PacmanCamera lerp state) -------------------------------
   private camInit = false;
   private camCur = new THREE.Vector3();
   private camTarget = new THREE.Vector3();
   private lookCur = new THREE.Vector3();
   private lookTarget = new THREE.Vector3();
 
-  // ---- HUD ----------------------------------------------------------------------
   private scoreEl = el("score");
   private bestEl = el("best");
   private statsEl = el("stats");
@@ -709,7 +647,6 @@ export class GameScene {
   private taughtTurn = false;
   private teachingDoneAt = -1;
   private teachingBlockedUntil = -1;
-  /** Bitset of what the teaching card last showed — skips the DOM writes while unchanged. */
   private teachingShown = "";
   private resultEl = el("result");
   private resultModeEl = el("result-mode");
@@ -719,7 +656,6 @@ export class GameScene {
   private resultLeftEl = el("result-left");
 
   constructor() {
-    // Touch-only pause button — the phone stand-in for Escape.
     createTouchControls({
       className: "pac-touch",
       css: TOUCH_CONTROLS_CSS,
@@ -738,9 +674,11 @@ export class GameScene {
 
     this.pacGroup = buildPacman();
     const mouth = this.pacGroup.getObjectByName("mouth");
+
     if (!(mouth instanceof THREE.Mesh)) {
-      throw new Error("pacman mouth missing");
+      throw new TypeError("pacman mouth missing");
     }
+
     this.mouthMesh = mouth;
     this.pacRig.add(this.pacGroup);
     this.scene.add(this.pacRig);
@@ -754,6 +692,7 @@ export class GameScene {
       const { group, bob, bodyMat, worry } = buildGhost(color);
       group.position.set(spawn.col, 0, spawn.row);
       this.scene.add(group);
+
       return {
         bob,
         bodyMat,
@@ -772,8 +711,6 @@ export class GameScene {
     this.fx = new FxPool(this.scene);
     this.powerHalo = new PowerHalo(this.scene);
     this.remotePacs = new RemotePacs(this.scene);
-    // Every notification, not every frame: a drop and the reconnect after it
-    // can both land while the tab is hidden and no frame runs.
     this.net.subscribe(() => this.watchOwnConnection());
     this.best = loadBest();
     this.bindInput();
@@ -781,43 +718,31 @@ export class GameScene {
     this.updateHud();
   }
 
-  // ---- multiplayer ---------------------------------------------------------
-
-  /** A rival is sharing the maze (so the game runs in race mode). */
-  private get racing(): boolean {
+  private get racing() {
     return this.rivalIds.length > 0;
   }
 
-  /** In the shared round: about to play, playing, or through it and waiting
-   *  for the next. The title and game-over screens are out of it. */
-  private get inRound(): boolean {
+  private get inRound() {
     return this.phase === "ready" || this.phase === "playing" || this.phase === "win";
   }
 
-  /** A room answers what this client writes: the one it is in, or, offline,
-   *  itself. Not while (re)connecting, when a claim only waits in the queue. */
-  private get netLive(): boolean {
+  private get netLive() {
     const status = this.net.connectionStatus;
+
     return status === "connected" || status === "offline";
   }
 
-  /** Other players in the round right now. A seat the server holds for a
-   *  reconnect is not a rival: its last state would park a frozen pac in the
-   *  maze for the whole grace window and keep a lone player on race rules. Nor
-   *  is a player idling on the title or game-over screen, for the same reasons. */
-  private presentRivals(): string[] {
+  private presentRivals() {
     const me = this.net.playerId;
+
     return Object.entries(this.net.players)
       .filter(([id, p]) => id !== me && p.connected !== false && readPacSample(p.state) !== null)
       .map(([id]) => id);
   }
 
-  /**
-   * Back in the room after our own connection dropped: rivals' reports now
-   * reach us by another route, so every track measures it afresh.
-   */
-  private watchOwnConnection(): void {
+  private watchOwnConnection() {
     const status = this.net.connectionStatus;
+
     if (status === "reconnecting") {
       this.ownDrop = true;
     } else if (status === "connected" && this.ownDrop) {
@@ -826,109 +751,95 @@ export class GameScene {
     }
   }
 
-  private handleNetEvent(event: string, payload: JsonValue, from: string): void {
+  private handleNetEvent(event: string, payload: JsonValue, from: string) {
     const p = isJsonObject(payload) ? payload : {};
-    // A request from another round (buffered during connect, or sent before a
-    // reset) must not touch the current board.
+
     if (p["round"] !== this.boardRound) {
       return;
     }
+
     if (event === "restart" && this.net.isHost && this.onlyOneInRound(from)) {
       this.hostNewRound();
     }
   }
 
-  /** Nobody but `id` is in the round, so a fresh maze for it wipes no one else's race. */
-  private onlyOneInRound(id: string): boolean {
+  private onlyOneInRound(id: string) {
     return !this.inRound && this.rivalIds.every((rival) => rival === id);
   }
 
-  /** Parse a cell key into in-bounds integer coordinates. */
-  private static parseCellKey(key: string): { col: number; row: number } | null {
+  private static parseCellKey(key: string) {
     const parts = key.split(",");
+
     if (parts.length !== 2) {
       return null;
     }
+
     const col = Number(parts[0]);
     const row = Number(parts[1]);
+
     if (!Number.isInteger(col) || !Number.isInteger(row)) {
       return null;
     }
+
     if (col < 0 || row < 0 || col >= GRID_COLS || row >= GRID_ROWS) {
       return null;
     }
+
     return { col, row };
   }
 
-  /**
-   * Our pac ate `cell` (already gone from this maze, already scored): claim
-   * it. The server answers first come, first served — the host's pac claims
-   * like any other, so it has no edge — and whoever it names, the pellet
-   * stays gone. If it is not us, `undo` goes back (reconcileBoard settles it).
-   */
-  private claimEat(cell: string, undo: EatUndo): void {
+  private claimEat(cell: string, undo: EatUndo) {
     this.appliedEaten.add(cell);
     const key = this.pellets.eat(this.boardRound, cell, undo, performance.now());
+
     if (key !== null) {
       this.net.claim(key);
     }
   }
 
-  /**
-   * Someone else's claim on a cell we ate landed first: the pellet stays gone
-   * (it is theirs), its points go back, and a heart's frightened time with
-   * them — unless another heart has set the clock since.
-   */
-  private loseEat({ cell, undo }: LostEat<EatUndo>): void {
+  private loseEat({ cell, undo }: LostEat<EatUndo>) {
     this.addScore(-undo.points);
+
     if (undo.scaredBefore !== null && this.scaredBy === cell) {
-      // What the clock held before this heart, run down by the time since.
       this.scaredMs = Math.max(0, undo.scaredBefore - (SCARED_MS - this.scaredMs));
       this.scaredBy = null;
     }
   }
 
-  /**
-   * Keep this maze on the room's board: the round the host announced, and
-   * every pellet of it that a claim holds, plus our own eats in flight. The
-   * claim map is the whole board, so a late joiner and a promoted host read
-   * the same maze from it as everyone else, with nothing to adopt.
-   */
-  private reconcileBoard(): void {
+  private reconcileBoard() {
     const round = this.readSharedRound();
+
     if (round !== null && round !== this.boardRound) {
       this.applyNewRound(round);
     }
+
     const { claims } = this.net;
+
     if (claims !== this.claimsSeen || this.boardStale) {
       this.claimsSeen = claims;
       this.boardStale = false;
+
       for (const lost of this.pellets.settle(claims, this.net.playerId)) {
         this.loseEat(lost);
       }
-      // The pellets-left pill and the result card both read the shared maze.
+
       if (this.showEaten(this.pellets.eaten(claims, this.boardRound))) {
         this.updateHud();
       }
     }
+
     if (this.netLive) {
       for (const key of this.pellets.overdue(performance.now(), CLAIM_RETRY_MS)) {
         this.net.claim(key);
       }
     }
-    // Every frame, not only on a board change: it depends on local phase, which
-    // can flip between board updates (e.g. rivals emptied the maze during READY).
+
     this.checkRaceWin();
   }
 
-  /**
-   * Make the maze show exactly `eaten` gone; true when it changed. A pellet
-   * only comes back when its claim is released outside a new round — the
-   * host's clear landing a moment before the round it announces, or a room
-   * restored from a snapshot a moment old — and that rebuilds the maze.
-   */
-  private showEaten(eaten: ReadonlySet<string>): boolean {
+  private showEaten(eaten: ReadonlySet<string>) {
     let rebuilt = false;
+
     for (const cell of this.appliedEaten) {
       if (!eaten.has(cell)) {
         this.resetBoard();
@@ -937,12 +848,13 @@ export class GameScene {
         break;
       }
     }
+
     return this.applyEaten(eaten) || rebuilt;
   }
 
-  /** Remove every listed cell not already gone; true when one was. */
-  private applyEaten(cells: Iterable<string>): boolean {
+  private applyEaten(cells: Iterable<string>) {
     let removed = false;
+
     for (const cell of cells) {
       if (!this.appliedEaten.has(cell)) {
         this.appliedEaten.add(cell);
@@ -950,118 +862,108 @@ export class GameScene {
         removed = true;
       }
     }
+
     return removed;
   }
 
-  /** In a race, the shared maze emptying out ends the round for everyone. */
-  private checkRaceWin(): void {
+  private checkRaceWin() {
     if (this.racing && this.phase === "playing" && this.pelletsLeft() === 0) {
       this.setPhase("win");
     }
   }
 
-  /** The room's round, or null before its first host has named one. */
-  private readSharedRound(): number | null {
+  private readSharedRound() {
     const { round } = this.net.sharedState;
+
     return isJsonNumber(round) ? round : null;
   }
 
-  /** Remove a pellet/heart at a cell key that a rival ate (no score, no sfx). */
-  private removeCellVisual(key: string): void {
+  private removeCellVisual(key: string) {
     const heart = this.hearts.get(key);
+
     if (heart) {
       this.scene.remove(heart.mesh);
       this.hearts.delete(key);
+
       return;
     }
+
     const cell = GameScene.parseCellKey(key);
+
     if (cell) {
       this.pelletField.collect(cell.col, cell.row);
     }
   }
 
-  /**
-   * Host: a fresh maze for the room, returning its round. Every pellet claim
-   * is released before the new round is announced, so a claim the server
-   * takes after the clear can only be for a round already over. Everyone
-   * resets when they see the new number.
-   */
-  private hostFreshMaze(): number {
+  private hostFreshMaze() {
     const round = this.boardRound + 1;
     this.net.clearClaims(PELLET_CLAIM_PREFIX);
     this.net.updateSharedState({ round });
+
     return round;
   }
 
-  /** Host starts a fresh round for everyone in it, itself included. */
-  private hostNewRound(): void {
+  private hostNewRound() {
     this.applyNewRound(this.hostFreshMaze());
   }
 
-  /** Every pellet back and nothing in flight, as round `round`. */
-  private resetMaze(round: number): void {
+  private resetMaze(round: number) {
     this.boardRound = round;
     this.pellets.clear();
     this.appliedEaten.clear();
-    // Claims for the new round may already be here (they can land in the same
-    // turn as the round itself): draw the maze from them on the next reconcile.
     this.boardStale = true;
     this.resetBoard();
   }
 
-  private applyNewRound(round: number): void {
+  private applyNewRound(round: number) {
     this.resetMaze(round);
-    // Only players already in the race get pulled into the fresh maze — a
-    // round bump must not yank someone off the title/gameover screen into
-    // live ghosts they never asked for, nor wipe the result card they're
-    // reading. Their run resets when they join (handleStart).
+
     if (this.inRound) {
       this.resetScore();
       this.resetRound();
       this.resetPacman();
       this.graceMs = SPAWN_GRACE_MS;
-      // READY keeps its countdown; it hands over to play by itself.
+
       if (this.phase === "win") {
         this.setPhase("playing");
       }
     }
+
     this.updateHud();
   }
 
-  /** A fresh score: eats still in flight stay eaten, but can no longer take points back. */
-  private resetScore(): void {
+  private resetScore() {
     this.score = 0;
     this.pellets.forgive();
   }
 
-  /** Tap/gesture to start or restart — solo resets the board; in a race it just
-   *  drops you into the ongoing shared maze (host can start a new round). */
-  private handleStart(): void {
+  private handleStart() {
     if (this.paused) {
       return;
     }
+
     if (this.racing) {
       if (this.phase === "win") {
-        // Only the host can start the next round; a guest flipping to
-        // "playing" here would bounce straight back on the next reconcile,
-        // replaying the win fanfare every press.
         if (this.net.isHost) {
           this.hostNewRound();
         }
+
         return;
       }
+
       if (!this.inRound) {
-        // Joining from the title or game-over screen is a fresh run in the
-        // ongoing maze, not the old run's score and spent lives.
         this.resetScore();
         this.resetRound();
         this.updateHud();
       }
+
       this.resetPacman();
       this.graceMs = SPAWN_GRACE_MS;
       this.setPhase("playing");
+
       return;
     }
+
     this.resetGame();
   }
 
@@ -1071,40 +973,35 @@ export class GameScene {
    * (standing still) and a paused first host still names the round. Claims
    * need no host at all.
    */
-  updateNet(dt: number): void {
+  updateNet(dt: number) {
     this.rivalIds = this.presentRivals();
-    // An empty room has no round yet: its first host names the one this maze shows.
+
     if (this.net.isHost && this.netLive && this.readSharedRound() === null) {
       this.net.updateSharedState({ round: this.boardRound });
     }
+
     if (this.netRate.due(dt * 1000)) {
-      // Offline there is nobody to report to.
       if (this.net.connectionStatus !== "offline") {
         this.sendMyState();
       }
-      // Standings only change as fast as the scores arrive; the connection
-      // line follows the client's status on the same beat.
+
       this.updateNetHud();
     }
+
     this.remotePacs.update(this.net.players, this.rivalIds, this.t);
   }
 
-  /**
-   * Own pac, on the fixed cadence. Every report carries the send-time stamp
-   * rivals interpolate on, in the room's server time — even standing still,
-   * when the unchanged primitives stay off the wire and it costs only `t`. Out
-   * of the round there is no pac to show: one `active: false` goes out, then
-   * nothing. Until the first clock probe answers (a round trip after joining)
-   * a stamp would be in this tab's own timebase, so the pac waits for it.
-   */
-  private sendMyState(): void {
+  private sendMyState() {
     if (!this.inRound) {
       this.net.updateMyState({ active: false });
+
       return;
     }
+
     if (!this.net.serverClock.synced) {
       return;
     }
+
     this.net.updateMyState({
       active: true,
       score: this.score,
@@ -1115,59 +1012,63 @@ export class GameScene {
     });
   }
 
-  /** The line over the maze: the room while in one, and the wait for it while
-   *  (re)connecting, so rivals frozen by our own dropped connection read as
-   *  that rather than as a hang. */
-  private netLine(): string {
+  private netLine() {
     switch (this.net.connectionStatus) {
       case "connected": {
         return this.racing ? `RACE · ${this.rivalIds.length + 1} PLAYERS` : "ONLINE · WAITING";
       }
+
       case "connecting": {
         return "CONNECTING…";
       }
+
       case "reconnecting": {
         return "RECONNECTING…";
       }
+
       case "offline": {
-        // A solo game needs no line.
         return "";
       }
-      // no default
     }
   }
 
-  private updateNetHud(): void {
+  private updateNetHud() {
     const netInfo = this.netLine();
+
     if (netInfo !== this.netInfoText) {
       this.netInfoText = netInfo;
       this.netInfoEl.textContent = netInfo;
-      // index.html backs the (re)connecting line so it reads on the fog.
       this.netInfoEl.dataset["status"] = this.net.connectionStatus;
-      // A rival arriving or leaving reworded the result card.
       this.updateHud();
     }
+
     if (!this.racing) {
       if (this.boardEl.childElementCount > 0) {
         this.boardEl.replaceChildren();
       }
+
       this.boardSig = "";
+
       return;
     }
+
     const rows = [{ id: this.net.playerId ?? "solo", me: true, score: this.score }];
+
     for (const id of this.rivalIds) {
       const sc = this.net.players[id]?.state?.["score"];
       rows.push({ id, me: false, score: isJsonNumber(sc) ? sc : 0 });
     }
+
     rows.sort((a, b) => b.score - a.score);
-    // The board only changes when someone scores or joins/leaves — skip the
-    // DOM rebuild (60 Hz otherwise) while the standings are unchanged.
     const sig = rows.map((r) => `${r.id}:${r.score}`).join("|");
+
     if (sig === this.boardSig) {
       return;
     }
+
     this.boardSig = sig;
     const frag = document.createDocumentFragment();
+
     for (const r of rows.slice(0, 4)) {
       const row = document.createElement("div");
       row.className = `row${r.me ? " me" : ""}`;
@@ -1179,19 +1080,18 @@ export class GameScene {
       row.append(name, sc);
       frag.append(row);
     }
+
     this.boardEl.replaceChildren(frag);
   }
 
-  resize(aspect: number): void {
+  resize(aspect: number) {
     this.camera.aspect = aspect;
     this.baseFov = fovForAspect(aspect);
     this.camera.fov = this.baseFov + this.fovKick;
     this.camera.updateProjectionMatrix();
   }
 
-  // ---- per-frame update ---------------------------------------------------------
-
-  update(dt: number): void {
+  update(dt: number) {
     const dtMs = dt * 1000;
     this.t += dt;
     const scaredMsBefore = this.scaredMs;
@@ -1201,6 +1101,7 @@ export class GameScene {
 
     if (this.phase === "ready") {
       this.readyMs -= dtMs;
+
       if (this.readyMs <= 0) {
         this.setPhase("playing");
       }
@@ -1209,40 +1110,37 @@ export class GameScene {
         this.chompQueued = 0;
         this.takeStep();
       }
+
       if (this.movePacman(dt)) {
         this.collectPellet();
       }
-      // A chomp that arrived mid-step waits for the landing (the check above,
-      // next frame) instead of being dropped as the legacy build did — but only
-      // CHOMP_BUFFER_S of step time, so a stale press never fires.
+
       if (this.pac.isMoving) {
         this.chompQueued = Math.max(0, this.chompQueued - dt);
       }
+
       if (this.phase === "playing") {
         this.scaredMs = Math.max(0, this.scaredMs - dtMs);
         this.graceMs = Math.max(0, this.graceMs - dtMs);
         this.moveGhosts(dt);
-        // Contact every frame — standing still is not a safe spot. (The
-        // legacy build only checked on movement frames; that played as a bug.)
         this.checkGhostContact();
       }
     } else if (this.phase === "win") {
-      // Drifting celebration: another confetti wave every beat.
       this.winConfettiIn -= dt;
+
       if (this.winConfettiIn <= 0 && !REDUCED_MOTION.matches) {
         this.fx.confettiRain(26);
         this.winConfettiIn = 0.7;
       }
     }
 
-    // Power mode is a PLAYING-phase thing — leaving the round (win/gameover)
-    // must drop the sped-up music even though scaredMs froze mid-value.
     const scared = this.scaredMs > 0 && this.phase === "playing";
+
     if (scared !== this.prevScared) {
       this.prevScared = scared;
       music.setPowerMode(scared);
     }
-    // One soft cue when power mode enters its blinking last stretch.
+
     if (scared && scaredMsBefore > SCARED_WARN_MS && this.scaredMs <= SCARED_WARN_MS) {
       sfx.play("warn");
     }
@@ -1256,20 +1154,22 @@ export class GameScene {
     music.update(dt, this.phase, this.nearestDanger());
   }
 
-  /** Maze-cell distance to the closest ghost that can catch us; null while none can. */
-  private nearestDanger(): number | null {
+  private nearestDanger() {
     if (this.phase !== "playing" || this.scaredMs > 0 || this.graceMs > 0) {
       return null;
     }
+
     let nearest = Infinity;
+
     for (const g of this.ghosts) {
       nearest = Math.min(nearest, Math.hypot(g.x - this.pac.x, g.z - this.pac.z));
     }
+
     return nearest;
   }
 
   /** Read-only telemetry for bot playtests; coordinates are maze cells. */
-  writeDiagnostics(out: GameDiagnostics): void {
+  writeDiagnostics(out: GameDiagnostics) {
     out.score = this.score;
     out.complete = this.phase === "win" || this.phase === "gameover";
     out.phase = this.phase;
@@ -1285,28 +1185,35 @@ export class GameScene {
     out.nav = this.navDiagnostics ? this.readMaze() : null;
   }
 
-  private readMaze(): MazeNav {
+  private readMaze() {
     const here: Cell = { col: Math.round(this.pac.x), row: Math.round(this.pac.z) };
     const fromHere = flood([here]);
     const frightened = this.scaredMs > 0;
     const ghostCells = this.ghosts.map((g) => ({ col: Math.round(g.x), row: Math.round(g.z) }));
     const ghosts: MazeNav["ghosts"] = [];
+
     for (const cell of ghostCells) {
       const nav = navTo(here, cell, fromHere);
+
       if (nav) {
         ghosts.push({ ...nav, frightened });
       }
     }
+
     ghosts.sort((a, b) => a.steps - b.steps);
     const hearts: Cell[] = [];
+
     for (const key of this.hearts.keys()) {
       const cell = GameScene.parseCellKey(key);
+
       if (cell) {
         hearts.push(cell);
       }
     }
+
     const pellet = nearestCell(this.pelletField.cells, fromHere);
     const power = nearestCell(hearts, fromHere);
+
     return {
       fleeStep: frightened
         ? null
@@ -1318,44 +1225,45 @@ export class GameScene {
     };
   }
 
-  // ---- playtest hooks (wired by main.ts behind DEV / ?test=1) ------------------
-
-  enableNavDiagnostics(): void {
+  enableNavDiagnostics() {
     this.navDiagnostics = true;
   }
 
   /** Reseed the ghost AI and restart the round, so the whole run is seeded. */
-  seed(seed: number): void {
+  seed(seed: number) {
     this.random = seededRandom(seed);
     this.resetGame();
   }
 
   /** 'active-play' leaves any banner for a live solo round; false for unknown names. */
-  setTestState(name: string): boolean {
+  setTestState(name: string) {
     if (name !== "active-play") {
       return false;
     }
+
     if (this.onBanner) {
       this.resetGame();
     }
+
     return true;
   }
 
-  private updateChainHud(): void {
+  private updateChainHud() {
     const active =
       this.phase === "playing" && this.comboIdx > 0 && this.t - this.lastPelletAt < COMBO_WINDOW_S;
+
     const text = active ? `♪ ${this.comboIdx + 1} PEARL CHAIN` : "";
+
     if (text === this.chainText) {
       return;
     }
+
     this.chainText = text;
     this.chainEl.textContent = text;
     this.chainEl.classList.toggle("active", active);
   }
 
-  // ---- board ---------------------------------------------------------------
-
-  private buildLights(): void {
+  private buildLights() {
     this.scene.add(new THREE.HemisphereLight(HEMI_SKY, HEMI_GROUND, HEMI_INTENSITY));
 
     const cx = (GRID_COLS - 1) / 2;
@@ -1365,8 +1273,6 @@ export class GameScene {
     key.position.set(cx + 6, 16, cz - 6);
     key.target.position.set(cx, 0, cz);
     key.castShadow = true;
-    // 1024 over the maze-sized frustum — plenty for blobby plush shadows,
-    // half the depth-pass cost of 2048 on phones.
     key.shadow.mapSize.set(1024, 1024);
     key.shadow.camera.near = 1;
     key.shadow.camera.far = 60;
@@ -1378,29 +1284,24 @@ export class GameScene {
     this.scene.add(key, key.target);
   }
 
-  private buildMaze(): void {
-    // Floor: a big plush plane (extends past the maze so it melts into fog),
-    // with a subtle polka-dot weave. Legacy half-cell offset kept.
+  private buildMaze() {
     const floorSize = Math.max(GRID_COLS, GRID_ROWS) + 44;
     const floorTex = polkaDotTexture();
     floorTex.repeat.set(floorSize / 2, floorSize / 2);
+
     const floor = new THREE.Mesh(
       new THREE.PlaneGeometry(floorSize, floorSize),
       new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.95 }),
     );
+
     floor.rotation.x = -Math.PI / 2;
     floor.position.set(GRID_COLS / 2, FLOOR_Y, GRID_ROWS / 2);
     floor.receiveShadow = true;
     this.scene.add(floor);
 
-    // Walls: one InstancedMesh of rounded marshmallow blocks, gently varied
-    // in height and tint so the candy field doesn't read as flat extrusion.
     const cells = mapCells(1);
     const wallGeo = new RoundedBoxGeometry(0.97, 0.92, 0.97, 4, 0.14);
-    // depthWrite OFF: instances inside one InstancedMesh draw in buffer
-    // order, not back-to-front — with depth writes, wall-behind-wall
-    // translucency flips between "invisible" and "blended" depending on
-    // which way the chase cam faces (measured 7.5× direction asymmetry).
+
     const wallMat = new THREE.MeshStandardMaterial({
       color: 0xff_ff_ff,
       depthWrite: false,
@@ -1408,9 +1309,11 @@ export class GameScene {
       roughness: 0.85,
       transparent: true,
     });
+
     const walls = new THREE.InstancedMesh(wallGeo, wallMat, cells.length);
     const dummy = new THREE.Object3D();
     const tint = new THREE.Color();
+
     for (const [i, { col, row }] of cells.entries()) {
       const h = hash2(col, row);
       dummy.position.set(col, 0.44, row);
@@ -1420,21 +1323,25 @@ export class GameScene {
       tint.setHex(COLORS.wall).offsetHSL(0, 0, (h - 0.5) * 2 * WALL_TINT_WOBBLE);
       walls.setColorAt(i, tint);
     }
+
     walls.castShadow = true;
     walls.receiveShadow = true;
     this.scene.add(walls);
   }
 
-  private resetBoard(): void {
+  private resetBoard() {
     for (const heart of this.hearts.values()) {
       this.scene.remove(heart.mesh);
     }
+
     this.hearts.clear();
     const pearls: PelletCell[] = [];
+
     for (let row = 0; row < GRID_ROWS; row += 1) {
       for (let col = 0; col < GRID_COLS; col += 1) {
         const cell = MAP[row]?.[col];
         const phase = hash2(col, row) * Math.PI * 2;
+
         if (cell === 2) {
           pearls.push({ col, phase, row });
         } else if (cell === 3) {
@@ -1446,17 +1353,15 @@ export class GameScene {
         }
       }
     }
+
     this.pelletField.reset(pearls);
   }
 
-  /** Pellets remaining (pearls + hearts) — win when it hits zero. */
-  private pelletsLeft(): number {
+  private pelletsLeft() {
     return this.pelletField.count + this.hearts.size;
   }
 
-  // ---- input ---------------------------------------------------------------
-
-  private bindInput(): void {
+  private bindInput() {
     window.addEventListener("keydown", this.onKeyDown);
     window.addEventListener("keyup", this.onKeyUp);
     window.addEventListener("blur", this.onBlur);
@@ -1468,147 +1373,156 @@ export class GameScene {
   }
 
   /** Wrapper pause: drop anything half-entered so resume starts from neutral. */
-  setPaused(paused: boolean): void {
+  setPaused(paused: boolean) {
     if (paused === this.paused) {
       return;
     }
+
     this.paused = paused;
     this.chompQueued = 0;
     this.shiftHeld = false;
     this.swipeOrigin = null;
     this.swiped = false;
-    // Buttons pressed during the pause must not read as "just pressed" on resume.
     this.pad.update();
     this.padStickDir = stickDirection4(this.pad.getStick());
   }
 
-  /** M key — one toggle for music + sfx, persisted. */
-  private toggleSound(): void {
+  private toggleSound() {
     const on = toggleSound();
+
     if (on) {
       unlockAudio();
     }
+
     this.showNotice(on ? "♪ sound on" : "♪ sound off");
   }
 
-  /** 🤳 pill — latched selfie cam (SHIFT still works as hold on keyboards). */
-  private toggleSelfie(): void {
+  private toggleSelfie() {
     if (this.paused) {
       return;
     }
+
     this.selfieOn = !this.selfieOn;
     this.selfieBtnEl.classList.toggle("on", this.selfieOn);
     this.selfieBtnEl.setAttribute("aria-pressed", this.selfieOn ? "true" : "false");
   }
 
-  /** ↻ pill — R-equivalent (also starts from the title). */
-  private requestRestart(): void {
+  private requestRestart() {
     if (this.phase !== "ready") {
       this.handleStart();
     }
   }
 
-  private onKeyDown = (e: KeyboardEvent): void => {
+  private onKeyDown = (e: KeyboardEvent) => {
     if (this.paused || SYSTEM_KEYS.has(e.key)) {
       return;
     }
+
     if (e.key === "Shift") {
       this.shiftHeld = true;
+
       return;
     }
+
     if (e.code === "KeyM") {
       this.toggleSound();
+
       return;
     }
+
     if (this.phase === "title") {
       this.handleStart();
+
       return;
     }
+
     if (e.code === "KeyR") {
       if (this.phase === "playing" || this.phase === "win" || this.phase === "gameover") {
         this.handleStart();
       }
+
       return;
     }
+
     switch (e.code) {
-      // Legacy keyboard semantics: arrows are RELATIVE to the current heading
-      // and apply instantly without wall validation. ArrowUp re-sets the
-      // current heading (effectively a no-op).
       case "ArrowUp": {
         e.preventDefault();
         break;
       }
+
       case "ArrowDown": {
         e.preventDefault();
         this.steer("reverse");
         break;
       }
+
       case "ArrowLeft": {
         e.preventDefault();
         this.steer("left");
         break;
       }
+
       case "ArrowRight": {
         e.preventDefault();
         this.steer("right");
         break;
       }
-      // Keyboard fallback for the chomp (legacy couldn't move without a webcam).
+
       case "Space": {
         e.preventDefault();
         this.chomp();
         break;
       }
-      // no default
     }
   };
 
-  private onKeyUp = (e: KeyboardEvent): void => {
+  private onKeyUp = (e: KeyboardEvent) => {
     if (e.key === "Shift") {
       this.shiftHeld = false;
     }
   };
 
-  private onBlur = (): void => {
+  private onBlur = () => {
     this.shiftHeld = false;
   };
 
-  private onPointerDown = (e: PointerEvent): void => {
+  private onPointerDown = (e: PointerEvent) => {
     if (this.paused) {
       return;
     }
-    // Taps on the HUD pills / webcam porthole are UI, not game input — they
-    // must not swipe-steer or tap-start underneath.
+
     if (e.target instanceof Element && e.target.closest("#controls, #webcam")) {
       return;
     }
+
     this.swipeOrigin = { x: e.clientX, y: e.clientY };
     this.swiped = false;
   };
 
-  // Touch fallback: horizontal swipe = relative turn, swipe up = step forward,
-  // swipe down = reverse. Tap = start/restart.
-  private onPointerMove = (e: PointerEvent): void => {
+  private onPointerMove = (e: PointerEvent) => {
     if (this.paused) {
       return;
     }
+
     if (!this.swipeOrigin || this.swiped) {
       return;
     }
+
     const dx = e.clientX - this.swipeOrigin.x;
     const dy = e.clientY - this.swipeOrigin.y;
+
     if (dx * dx + dy * dy < SWIPE_MIN_PX * SWIPE_MIN_PX) {
       return;
     }
+
     this.swiped = true;
-    // On a banner, ANY deliberate gesture starts the round — the same as a
-    // mouth chomp, a head turn or pad A. Steering there is a no-op, and the
-    // swipe would otherwise also eat the tap-to-restart onPointerUp gates on
-    // `!swiped`, leaving touch with no way off the gameover screen.
+
     if (this.onBanner) {
       this.handleStart();
+
       return;
     }
+
     if (Math.abs(dx) > Math.abs(dy)) {
       this.steer(dx > 0 ? "right" : "left");
     } else if (dy > 0) {
@@ -1618,24 +1532,23 @@ export class GameScene {
     }
   };
 
-  private onPointerUp = (): void => {
+  private onPointerUp = () => {
     if (!this.swiped && this.swipeOrigin && this.onBanner) {
       this.handleStart();
     }
+
     this.swipeOrigin = null;
   };
 
-  /** A banner is up, so every input means "start/restart" rather than "play". */
-  private get onBanner(): boolean {
+  private get onBanner() {
     return this.phase === "title" || this.phase === "win" || this.phase === "gameover";
   }
 
-  /** One chomp: a grid step while playing, the start gesture on a banner.
-   *  Every chomp input (mouth, SPACE, swipe ↑, pad A / stick ↑) lands here. */
-  private chomp(): void {
+  private chomp() {
     if (this.paused) {
       return;
     }
+
     if (this.onBanner) {
       this.handleStart();
     } else {
@@ -1643,30 +1556,34 @@ export class GameScene {
     }
   }
 
-  /** Physical pad, polled per frame. Buttons mirror the keyboard: A = SPACE
-   *  (chomp; start/restart from a banner), d-pad = arrows, START = R, LB =
-   *  SHIFT (read directly in updateCamera). Stick steering fires on the
-   *  snapped direction CHANGING, so a held deflection is one turn, not sixty. */
-  private pollPad(): void {
+  private pollPad() {
     this.pad.update();
+
     if (this.pad.justPressed("a")) {
       this.chomp();
     }
+
     if (this.pad.justPressed("start")) {
       this.requestRestart();
     }
+
     if (this.pad.justPressed("left")) {
       this.steer("left");
     }
+
     if (this.pad.justPressed("right")) {
       this.steer("right");
     }
+
     if (this.pad.justPressed("down")) {
       this.steer("reverse");
     }
+
     const dir = stickDirection4(this.pad.getStick());
+
     if (dir !== this.padStickDir) {
       this.padStickDir = dir;
+
       if (dir === "left" || dir === "right") {
         this.steer(dir);
       } else if (dir === "down") {
@@ -1677,14 +1594,15 @@ export class GameScene {
     }
   }
 
-  /** Heading change — instant, unvalidated, relative to current facing (legacy). */
-  private steer(action: "left" | "right" | "reverse"): void {
+  private steer(action: "left" | "right" | "reverse") {
     if (this.paused) {
       return;
     }
+
     if (this.phase !== "playing" && this.phase !== "ready") {
       return;
     }
+
     if (action === "reverse") {
       this.pac.dir = OPPOSITE[this.pac.dir];
     } else if (action === "left") {
@@ -1692,10 +1610,9 @@ export class GameScene {
     } else {
       this.pac.dir = TURN_RIGHT[this.pac.dir];
     }
+
     this.taughtTurn = true;
-    // Audible "turn registered" tick — vital for face input, where the only
-    // other confirmation is the slow camera swing. Throttled against
-    // key-repeat spam from held arrows.
+
     if (this.t - this.lastTurnTickAt > 0.06) {
       this.lastTurnTickAt = this.t;
       const rates = { left: 0.94, reverse: 0.85, right: 1.06 };
@@ -1704,20 +1621,20 @@ export class GameScene {
     }
   }
 
-  // ---- face-gesture entry points (wired by main.ts to FaceCamera) -------------
-
   /** Raw per-frame mouth state; a closed→open transition = one step (legacy). */
-  onMouthChange(open: boolean): void {
+  onMouthChange(open: boolean) {
     const wasOpen = this.prevMouthOpen;
     this.prevMouthOpen = open;
+
     if (!open || wasOpen) {
       return;
     }
+
     this.chomp();
   }
 
   /** Legacy fired a synthetic ArrowLeft on head-turn-left. */
-  onHeadTurnLeft(): void {
+  onHeadTurnLeft() {
     if (this.onBanner) {
       this.handleStart();
     } else {
@@ -1725,7 +1642,7 @@ export class GameScene {
     }
   }
 
-  onHeadTurnRight(): void {
+  onHeadTurnRight() {
     if (this.onBanner) {
       this.handleStart();
     } else {
@@ -1733,19 +1650,16 @@ export class GameScene {
     }
   }
 
-  // ---- simulation ----------------------------------------------------------
-
-  /** One grid step in the current heading, if the next cell is open (legacy takeStep). */
-  private takeStep(): void {
+  private takeStep() {
     if (this.pac.isMoving) {
       return;
     }
+
     const [dx, dz] = DIR_VECT[this.pac.dir];
     const col = Math.round(this.pac.x) + dx;
     const row = Math.round(this.pac.z) + dz;
+
     if (!isOpen(col, row)) {
-      // Blocked chomp still gets feedback — with face input, a silent no-op
-      // is indistinguishable from "the camera missed my gesture".
       this.teachingBlockedUntil = this.t + 1.2;
       sfx.play("bump", { gain: 0.7 });
       this.squashKick = Math.max(this.squashKick, 0.5);
@@ -1755,50 +1669,53 @@ export class GameScene {
         COLORS.wall,
         { direction: { x: -dx, z: -dz }, sizeMax: 0.1, sizeMin: 0.05, speed: 0.8 },
       );
+
       return;
     }
+
     this.pac.target = { x: col, z: row };
     this.pac.isMoving = true;
     this.taughtStep = true;
     sfx.play("chomp", { gain: 0.55 });
   }
 
-  /** Advances the step animation; returns true if this was a movement frame. */
-  private movePacman(dt: number): boolean {
+  private movePacman(dt: number) {
     const p = this.pac;
+
     if (!p.isMoving) {
       return false;
     }
+
     const step = PACMAN_STEP_SPEED * dt;
     const dx = p.target.x - p.x;
     const dz = p.target.z - p.z;
     const dist = Math.hypot(dx, dz);
+
     if (step >= dist || dist < EPS) {
       p.x = p.target.x;
       p.z = p.target.z;
       p.isMoving = false;
-      // Landing on the cell: a little plush squash.
       this.squashKick = 1;
     } else {
       p.x += (dx / dist) * step;
       p.z += (dz / dist) * step;
     }
+
     return true;
   }
 
-  private collectPellet(): void {
+  private collectPellet() {
     const col = Math.round(this.pac.x);
     const row = Math.round(this.pac.z);
     const cell = cellKey(col, row);
     const at = new THREE.Vector3(col, 0.35, row);
     const heart = this.hearts.get(cell);
     let undo: EatUndo;
+
     if (heart) {
       this.scene.remove(heart.mesh);
       this.hearts.delete(cell);
       undo = { points: SCORE_POWER, scaredBefore: this.scaredMs };
-      // A second power pellet RESETS the clock (the legacy timer didn't —
-      // a flagged bug; kept fixed per the rebuild).
       this.scaredMs = SCARED_MS;
       this.scaredBy = cell;
       this.addScore(SCORE_POWER);
@@ -1812,7 +1729,6 @@ export class GameScene {
       undo = { points: SCORE_PELLET, scaredBefore: null };
       this.addScore(SCORE_PELLET);
       this.fx.puff(at, 6, COLORS.pellet, { sizeMax: 0.14, sizeMin: 0.06 });
-      // Quick streaks climb a pentatonic ladder — eating fast plays a melody.
       this.comboIdx = this.t - this.lastPelletAt < COMBO_WINDOW_S ? this.comboIdx + 1 : 0;
       this.lastPelletAt = this.t;
       const semis = COMBO_SCALE[Math.min(this.comboIdx, COMBO_SCALE.length - 1)] ?? 0;
@@ -1820,19 +1736,19 @@ export class GameScene {
     } else {
       return;
     }
-    // Claim the cell: rivals see it vanish when the server grants it.
+
     this.claimEat(cell, undo);
     this.updateHud();
+
     if (this.pelletsLeft() === 0) {
       this.setPhase("win");
     }
   }
 
-  private moveGhosts(dt: number): void {
+  private moveGhosts(dt: number) {
     for (const g of this.ghosts) {
       const speed = this.scaredMs > 0 ? GHOST_SCARED_SPEED : GHOST_SPEED;
       stepGhost(g, speed * dt, (col, row) =>
-        // Legacy snapped Pacman to his grid cell before the chase compare.
         chooseGhostDir(
           col,
           row,
@@ -1846,28 +1762,25 @@ export class GameScene {
     }
   }
 
-  /**
-   * Radial hitboxes on the ground plane (replaces the legacy cell-snap
-   * compare): forgiving when a ghost catches Pacman, generous when Pacman
-   * eats a scared ghost.
-   */
-  private checkGhostContact(): void {
+  private checkGhostContact() {
     const scared = this.scaredMs > 0;
+
     for (const g of this.ghosts) {
       const dist = Math.hypot(g.x - this.pac.x, g.z - this.pac.z);
+
       if (scared) {
         if (dist < EAT_DIST) {
           this.eatGhost(g);
         }
       } else if (dist < CATCH_DIST && this.graceMs <= 0) {
         this.caught();
+
         return;
       }
     }
   }
 
-  /** Eaten scared ghost: +200, respawn at center, heading kept (legacy). */
-  private eatGhost(g: Ghost): void {
+  private eatGhost(g: Ghost) {
     this.ghostsChomped += 1;
     this.addScore(SCORE_GHOST);
     const at = new THREE.Vector3(g.x, GHOST_BOB_BASE, g.z);
@@ -1887,15 +1800,11 @@ export class GameScene {
     });
   }
 
-  /**
-   * Caught by a normal ghost: Pacman resets to (1,1) facing right, score kept,
-   * ghosts keep roaming where they are (legacy). Lives + game over are the
-   * rebuild's additions, kept.
-   */
-  private caught(): void {
+  private caught() {
     this.captureAge = 0;
     this.captureEcho.position.set(this.pac.x, 0, this.pac.z);
     this.captureEcho.rotation.set(0, 0, 0);
+
     if (this.pac.dir === "up") {
       this.captureEcho.rotation.x = -Math.PI / 2;
     } else if (this.pac.dir === "down") {
@@ -1903,39 +1812,39 @@ export class GameScene {
     } else if (this.pac.dir === "left") {
       this.captureEcho.rotation.y = Math.PI;
     }
+
     this.captureEcho.visible = !REDUCED_MOTION.matches && (this.racing || this.lives > 1);
     this.shaker.add(TRAUMA_CAUGHT);
     this.fx.puff(new THREE.Vector3(this.pac.x, 0.4, this.pac.z), 12, COLORS.power, {
       speed: 1.6,
     });
-    // Deflate, Baymax-style.
     this.squashKick = 1.6;
     this.softFlash();
     sfx.play("caught");
     music.duck();
 
-    // In a race, dying is a setback, not an elimination — respawn and keep
-    // grabbing pellets (the shared board keeps going regardless).
     if (this.racing) {
       this.resetPacman();
       this.graceMs = SPAWN_GRACE_MS;
+
       return;
     }
 
     this.lives -= 1;
     this.updateHud();
+
     if (this.lives <= 0) {
       this.setPhase("gameover");
+
       return;
     }
+
     this.resetPacman();
     this.graceMs = SPAWN_GRACE_MS;
     this.beginReady();
   }
 
-  // ---- round lifecycle -------------------------------------------------------
-
-  private resetPacman(): void {
+  private resetPacman() {
     this.reappearAge = 0;
     this.pac.x = PACMAN_SPAWN.col;
     this.pac.z = PACMAN_SPAWN.row;
@@ -1948,19 +1857,13 @@ export class GameScene {
     this.stretchAmt = 0;
   }
 
-  private resetGame(): void {
+  private resetGame() {
     if (this.net.isHost) {
-      // Online-but-alone: restarting restores every pellet locally, so the
-      // room must start a fresh round too — otherwise its claims would keep
-      // the old pellets eaten for the next rival who joins.
       this.resetMaze(this.hostFreshMaze());
     } else {
-      // A guest alone in the round (the host idles on a banner) can't reset
-      // the room's maze itself: it asks, and the host's fresh round resets it
-      // here. Restoring the pellets locally first would desync it from the
-      // room's board if the host turned the request down.
       this.net.sendToHost("restart", { round: this.boardRound });
     }
+
     this.resetScore();
     this.graceMs = 0;
     this.resetPacman();
@@ -1969,8 +1872,7 @@ export class GameScene {
     this.beginReady();
   }
 
-  /** Fresh solo and shared mazes retire the same local round state. */
-  private resetRound(): void {
+  private resetRound() {
     this.ghostsChomped = 0;
     this.captureAge = CAPTURE_ECHO_S;
     this.captureEcho.visible = false;
@@ -1980,11 +1882,14 @@ export class GameScene {
     this.comboIdx = 0;
     this.lastPelletAt = -Infinity;
     this.squashKick = 0;
+
     for (const [i, g] of this.ghosts.entries()) {
       const spawn = GHOST_SPAWNS[i % GHOST_SPAWNS.length];
+
       if (!spawn) {
         continue;
       }
+
       g.x = spawn.col;
       g.z = spawn.row;
       g.dir = spawn.dir;
@@ -1992,32 +1897,35 @@ export class GameScene {
     }
   }
 
-  private beginReady(): void {
+  private beginReady() {
     notifyGameStarted();
     this.readyMs = READY_MS;
     this.setPhase("ready");
     sfx.play("ready");
   }
 
-  private setPhase(phase: Phase): void {
+  private setPhase(phase: Phase) {
     this.phase = phase;
+
     if (phase === "playing") {
       notifyGameStarted();
     }
+
     this.resultAge = 0;
     this.resultEl.classList.remove("show");
     this.updateChainHud();
     this.renderBanner();
+
     if (phase !== "playing") {
       retrigger(this.bannerEl, "pop");
     }
-    // Instruction banners keep a watcher so controller rows appear the moment
-    // a pad is plugged in (and vanish when it's pulled); other phases drop it.
+
     this.unwatchControls?.();
     this.unwatchControls =
       phase === "title" || phase === "win" || phase === "gameover"
         ? watchControlContext(() => this.renderBanner())
         : null;
+
     if (phase === "win") {
       this.fx.confettiRain(REDUCED_MOTION.matches ? 12 : 110);
       this.winConfettiIn = 0.7;
@@ -2027,12 +1935,7 @@ export class GameScene {
     }
   }
 
-  /** Banner copy. Split from setPhase so a pad connect/disconnect re-renders
-   *  the instructions without replaying the phase's pop/confetti/sfx. The
-   *  title phase teaches controls with the SAME grouped chip card the pause
-   *  overlay renders (../pause-overlay buildControls); win/gameover keep their
-   *  short prose state lines. */
-  private renderBanner(): void {
+  private renderBanner() {
     const texts = {
       gameover: ["OHH NO…", `you did your best ♥ chomp or ${restartHint()} to try again`],
       playing: ["", ""],
@@ -2045,9 +1948,11 @@ export class GameScene {
           : `every crumb tidied up ♥ chomp or ${restartHint()} for the next maze`,
       ],
     } satisfies Record<Phase, readonly [string, string]>;
+
     const [title, sub] = texts[this.phase];
     this.bannerTitleEl.textContent = title;
     this.bannerSubEl.textContent = sub;
+
     if (this.phase === "title") {
       ensureControlsStyle();
       const card = buildControls(IS_TOUCH);
@@ -2055,10 +1960,12 @@ export class GameScene {
     } else {
       this.bannerControlsEl.replaceChildren();
     }
+
     this.bannerEl.style.opacity = title === "" ? "0" : "1";
     const result = this.phase === "win" || this.phase === "gameover";
     this.bannerEl.classList.toggle("has-result", result);
     this.resultEl.hidden = !result;
+
     if (result) {
       this.resultModeEl.textContent = this.racing ? "YOUR SHARED-MAZE ROUND" : "YOUR SOLO RUN";
       this.resultScoreEl.textContent = String(this.score);
@@ -2068,37 +1975,39 @@ export class GameScene {
     }
   }
 
-  /** Soft pink full-screen blink on getting caught — feedback, not punishment. */
-  private softFlash(): void {
+  private softFlash() {
     retrigger(this.flashEl, "on");
   }
 
-  /** Borrow the stats pill for a transient message (e.g. music toggled). */
-  private showNotice(text: string): void {
+  private showNotice(text: string) {
     this.statsEl.textContent = text;
+
     if (this.noticeTimer !== null) {
       clearTimeout(this.noticeTimer);
     }
+
     this.noticeTimer = setTimeout(() => {
       this.noticeTimer = null;
       this.updateHud();
     }, 900);
   }
 
-  // ---- presentation (never drives the simulation) -----------------------------
-
-  private updatePresentation(dt: number): void {
+  private updatePresentation(dt: number) {
     this.captureAge = Math.min(CAPTURE_ECHO_S, this.captureAge + dt);
     this.reappearAge = Math.min(REAPPEAR_S, this.reappearAge + dt);
     this.resultAge += dt;
+
     if (this.captureAge >= CAPTURE_ECHO_S || REDUCED_MOTION.matches) {
       this.captureEcho.visible = false;
     }
+
     if (this.captureEcho.visible) {
       const u = this.captureAge / CAPTURE_ECHO_S;
       this.captureEcho.scale.set(1 - u * 0.55, Math.max(0.01, (1 - u) ** 2), 1 - u * 0.55);
     }
+
     this.updateTeaching();
+
     if (
       (this.phase === "win" || this.phase === "gameover") &&
       this.resultAge >= RESULT_REVEAL_S &&
@@ -2108,19 +2017,22 @@ export class GameScene {
     }
   }
 
-  /** First-round coach card: STEP then TURN, gone two seconds after both land. */
-  private updateTeaching(): void {
+  private updateTeaching() {
     if (this.taughtStep && this.taughtTurn && this.teachingDoneAt < 0) {
       this.teachingDoneAt = this.t;
     }
+
     const visible =
       (this.phase === "ready" || this.phase === "playing") &&
       (this.teachingDoneAt < 0 || this.t - this.teachingDoneAt < 2);
+
     const blocked = this.t < this.teachingBlockedUntil;
     const shown = [visible, this.taughtStep, this.taughtTurn, blocked].join(",");
+
     if (shown === this.teachingShown) {
       return;
     }
+
     this.teachingShown = shown;
     this.teachingEl.hidden = !visible;
     this.teachingStepEl.textContent = this.taughtStep ? "✓ STEP" : "1 · STEP";
@@ -2130,28 +2042,29 @@ export class GameScene {
     this.teachingNoteEl.textContent = this.teachingNote(blocked);
   }
 
-  private teachingNote(blocked: boolean): string {
+  private teachingNote(blocked: boolean) {
     if (blocked) {
       return "Wall ahead · turn, then chomp";
     }
+
     if (this.taughtStep && this.taughtTurn) {
       return "Got it! Chomp, turn, tidy the maze ♥";
     }
+
     if (this.taughtTurn) {
       return "Now chomp · one open tile per bite";
     }
+
     if (this.taughtStep) {
       return "Turn left or right · relative to your facing";
     }
+
     return "One chomp = one tile · turns follow your facing";
   }
 
-  // ---- rendering ---------------------------------------------------------------
-
-  private renderActors(dt: number): void {
+  private renderActors(dt: number) {
     const tMs = this.t * 1000;
 
-    // Pacman rig: world position + axis-aligned squash & stretch.
     this.squashKick = Math.max(0, this.squashKick - SQUASH_RECOVER_RATE * dt * this.squashKick);
     const stretchTarget = this.pac.isMoving ? 1 : 0;
     this.stretchAmt += (stretchTarget - this.stretchAmt) * Math.min(1, dt * 14);
@@ -2163,22 +2076,25 @@ export class GameScene {
     const horizontal = this.pac.dir === "left" || this.pac.dir === "right";
     this.pacRig.position.set(this.pac.x, 0, this.pac.z);
     const settle = REDUCED_MOTION.matches ? 1 : 1 - 0.18 * (1 - this.reappearAge / REAPPEAR_S) ** 2;
+
     const caughtScale =
       this.phase === "gameover" && !REDUCED_MOTION.matches
         ? 1 - 0.2 * Math.min(1, this.captureAge / CAPTURE_ECHO_S)
         : 1;
+
     this.pacRig.scale
       .set(horizontal ? forward : side, sy, horizontal ? side : forward)
       .multiplyScalar(settle * caughtScale);
+
     if (this.phase === "win" && !REDUCED_MOTION.matches) {
       this.pacRig.position.y = Math.sin(Math.min(1, this.resultAge / 0.65) * Math.PI) * 0.16;
     }
-    // Spawn-grace blink: classic readable invincibility flicker.
+
     this.pacRig.visible = this.graceMs <= 0 || Math.floor(tMs / 120) % 2 === 0;
 
-    // Facing: legacy orientation (rotation reset, then one axis).
     const g = this.pacGroup;
     g.rotation.set(0, 0, 0);
+
     if (this.pac.dir === "up") {
       g.rotation.x = -Math.PI / 2;
     } else if (this.pac.dir === "down") {
@@ -2186,10 +2102,7 @@ export class GameScene {
     } else if (this.pac.dir === "left") {
       g.rotation.y = Math.PI;
     }
-    // right is the default orientation
 
-    // Mouth wedge: lerp toward PI/4 while moving (legacy rate delta*10), and
-    // hard-shut when stopped (legacy passed thetaLength 0 while idle).
     const target = this.pac.isMoving ? MOUTH_OPEN_ANGLE : 0;
     this.mouthAngle += (target - this.mouthAngle) * Math.min(dt * MOUTH_LERP_RATE, 1);
     this.syncMouth(this.pac.isMoving ? this.mouthAngle : 0);
@@ -2199,14 +2112,14 @@ export class GameScene {
     this.pelletField.update(this.t);
   }
 
-  /** Ghosts: staggered bob, face toward travel direction, tremble + worry
-   *  while scared (blinking pale in the final stretch), grow-in after respawn. */
-  private renderGhosts(dt: number, tMs: number): void {
+  private renderGhosts(dt: number, tMs: number) {
     const scared = this.scaredMs > 0 && this.phase === "playing";
+
     const blinkOut =
       scared &&
       this.scaredMs < SCARED_WARN_MS &&
       Math.floor(this.scaredMs / SCARED_BLINK_INTERVAL_MS) % 2 === 0;
+
     for (const [i, ghost] of this.ghosts.entries()) {
       const phase = i * GHOST_BOB_STAGGER;
       const bobY = Math.sin(tMs * GHOST_BOB_FREQ + phase) * GHOST_BOB_AMP + GHOST_BOB_BASE;
@@ -2227,8 +2140,7 @@ export class GameScene {
     }
   }
 
-  /** Pearls shimmer (instanced); power hearts breathe and twirl. */
-  private renderHearts(): void {
+  private renderHearts() {
     for (const heart of this.hearts.values()) {
       const pulse = 1 + HEART_PULSE_AMP * Math.sin(this.t * HEART_PULSE_FREQ + heart.phase);
       heart.mesh.scale.setScalar(pulse);
@@ -2237,13 +2149,16 @@ export class GameScene {
     }
   }
 
-  private syncMouth(angle: number): void {
+  private syncMouth(angle: number) {
     const bucket = Math.round(angle / MOUTH_ANGLE_QUANT);
     this.mouthMesh.visible = bucket > 0;
+
     if (!this.mouthMesh.visible || bucket === this.mouthBuiltBucket) {
       return;
     }
+
     let geo = this.mouthGeoCache.get(bucket);
+
     if (!geo) {
       geo = new THREE.SphereGeometry(
         MOUTH_RADIUS,
@@ -2256,21 +2171,12 @@ export class GameScene {
       );
       this.mouthGeoCache.set(bucket, geo);
     }
+
     this.mouthMesh.geometry = geo;
     this.mouthBuiltBucket = bucket;
   }
 
-  /**
-   * Chase camera (legacy PacmanCamera): behind Pacman at -facing*2.5, y=2,
-   * looking at pos+facing*2; while SHIFT is held, flip to the front at
-   * +facing*2.5 looking back at pos-facing. Both position and look-at ease
-   * toward their targets at CAMERA_FOLLOW_RATE — the legacy 0.1 per frame at
-   * 60 fps, now the same at any frame rate — initialized to their targets on
-   * the first frame.
-   * Title screen instead orbits the maze slowly. Trauma shake + FOV kick
-   * are layered on after the lerp.
-   */
-  private updateCamera(dt: number): void {
+  private updateCamera(dt: number) {
     if (this.phase === "title") {
       const a = REDUCED_MOTION.matches ? 0 : this.t * TITLE_ORBIT_SPEED;
       const cx = (GRID_COLS - 1) / 2;
@@ -2295,6 +2201,7 @@ export class GameScene {
       this.lookCur.copy(this.lookTarget);
       this.camInit = true;
     }
+
     const follow = 1 - Math.exp(-CAMERA_FOLLOW_RATE * dt);
     this.camCur.lerp(this.camTarget, follow);
     this.lookCur.lerp(this.lookTarget, follow);
@@ -2302,6 +2209,7 @@ export class GameScene {
     this.camera.lookAt(this.lookCur);
 
     const shake = this.shaker.update(dt, this.t);
+
     if (!REDUCED_MOTION.matches && (shake.ox !== 0 || shake.oy !== 0 || shake.rot !== 0)) {
       this.camera.translateX(shake.ox);
       this.camera.translateY(shake.oy);
@@ -2310,32 +2218,32 @@ export class GameScene {
 
     this.fovKick *= Math.exp(-FOV_KICK_DECAY * dt);
     const fov = this.baseFov + (REDUCED_MOTION.matches ? 0 : this.fovKick);
+
     if (Math.abs(fov - this.camera.fov) > 0.005) {
       this.camera.fov = fov;
       this.camera.updateProjectionMatrix();
     }
   }
 
-  // ---- hud -----------------------------------------------------------------
-
-  private addScore(n: number): void {
+  private addScore(n: number) {
     this.score += n;
+
     if (this.score > this.best) {
       this.best = this.score;
       saveBest(this.best);
     }
+
     this.updateHud();
   }
 
-  private updateHud(): void {
+  private updateHud() {
     this.scoreEl.textContent = `SCORE ${this.score}`;
     this.bestEl.textContent = `BEST ${this.best}`;
     const hearts = this.lives > 0 ? "♥".repeat(this.lives) : "×";
     this.statsEl.textContent = `${hearts}  ·  ${this.pelletsLeft()} left`;
+
     if (this.phase === "win" || this.phase === "gameover") {
       this.renderBanner();
     }
   }
 }
-
-// ---- pure helpers ---------------------------------------------------------------

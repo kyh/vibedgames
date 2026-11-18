@@ -2,44 +2,21 @@ import * as THREE from "three";
 
 import { WORLD_H, WORLD_W } from "../shared/constants";
 
-// Ambient life (Mario-Kart pass): seagull flocks wheeling over the shoreline,
-// kites bobbing above the big parks, and — at eye level, where the player
-// actually is — gulls perched on the streetlights and pigeons working the
-// sidewalks, both of which flush when the car comes at them.
-//
-// Airborne life is fully GPU-animated (one time uniform, no CPU work). The
-// perched set keeps one small CPU pass: a per-bird alarm level with a fast
-// attack and a slow settle, which is what makes a flush read as a startle
-// rather than a proximity dissolve. Everything is one draw per kind, and all
-// of it fades out at night (birds roost, kites go home).
-
 const GULL_COUNT = 48;
 const KITE_COUNT = 7;
 
-// Perched set. Sized to blanket the map at roughly one bird per ~130u rather
-// than chase the camera: 4 triangles each, so the whole flock is ~3.6k tris in
-// a single draw and there is no re-anchoring bookkeeping to get wrong.
 const PERCH_COUNT = 900;
-// birds are small; past this they are pixel noise
 const PERCH_FADE_NEAR = 130;
 const PERCH_FADE_FAR = 210;
-// the car flushes birds inside this radius
 const SCATTER_R = 16;
-// alarm units/s going up — near-instant
 const SCATTER_ATTACK = 8;
-// alarm units/s coming down — ~3s to return
 const SCATTER_SETTLE = 0.32;
-// world units a fully-alarmed bird climbs
 const SCATTER_LIFT = 7;
-// ...and how far it scatters horizontally
 const SCATTER_DRIFT = 9;
-// lamps this close to a flock anchor get a gull
 const GULL_PERCH_R = 150;
 
 const PIGEON_COLORS = [0x6d_70_78, 0x8a_8d_94, 0x55_58_5f, 0x9a_a0_a8];
 
-// Flock anchors in map fractions (u west→east, v north→south) — SF's actual
-// bird territory: Ocean Beach, the Marina, the Wharf, the Embarcadero.
 const FLOCKS: readonly { u: number; v: number; y: number; r: number }[] = [
   { r: 55, u: 0.035, v: 0.32, y: 42 },
   { r: 45, u: 0.03, v: 0.58, y: 36 },
@@ -49,7 +26,6 @@ const FLOCKS: readonly { u: number; v: number; y: number; r: number }[] = [
   { r: 55, u: 0.86, v: 0.48, y: 40 },
 ];
 
-// Kite spots: Marina Green, Alamo Square, Dolores Park, GG Park meadows.
 const KITE_SPOTS: readonly { u: number; v: number }[] = [
   { u: 0.41, v: 0.09 },
   { u: 0.43, v: 0.095 },
@@ -64,8 +40,8 @@ const KITE_COLORS = [
   0xe6_42_36, 0xf2_ce_3a, 0x2f_b5_d6, 0xd1_4e_9b, 0x3f_ae_52, 0xf0_8c_2e, 0x8a_4b_c9,
 ];
 
-const toX = (u: number): number => (u - 0.5) * WORLD_W;
-const toZ = (v: number): number => (v - 0.5) * WORLD_H;
+const toX = (u: number) => (u - 0.5) * WORLD_W;
+const toZ = (v: number) => (v - 0.5) * WORLD_H;
 
 /**
  * A place a bird can sit. Structurally the streetlight record the furniture
@@ -86,20 +62,20 @@ interface PerchedFlock {
   readonly count: number;
 }
 
-/** True near one of the shoreline flock anchors — where gulls, not pigeons, go. */
-const nearFlock = (x: number, z: number): boolean => {
+const nearFlock = (x: number, z: number) => {
   for (const f of FLOCKS) {
     const dx = toX(f.u) - x;
     const dz = toZ(f.v) - z;
+
     if (dx * dx + dz * dz < GULL_PERCH_R * GULL_PERCH_R) {
       return true;
     }
   }
+
   return false;
 };
 
-// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-const GULL_VERT = /* glsl */ `
+const GULL_VERT = `
   attribute vec3 aCenter;
   attribute vec4 aOrbit; // radius, angular speed, phase, scale
   uniform float uTime;
@@ -122,8 +98,7 @@ const GULL_VERT = /* glsl */ `
   }
 `;
 
-// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-const GULL_FRAG = /* glsl */ `
+const GULL_FRAG = `
   uniform float uDay;
   varying float vShade;
   #include <fog_pars_fragment>
@@ -133,8 +108,7 @@ const GULL_FRAG = /* glsl */ `
   }
 `;
 
-// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-const KITE_VERT = /* glsl */ `
+const KITE_VERT = `
   attribute vec3 aCenter;
   attribute vec3 aColor;
   attribute float aPhase;
@@ -159,8 +133,7 @@ const KITE_VERT = /* glsl */ `
   }
 `;
 
-// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-const KITE_FRAG = /* glsl */ `
+const KITE_FRAG = `
   uniform float uDay;
   varying vec3 vColor;
   varying float vTail;
@@ -172,8 +145,7 @@ const KITE_FRAG = /* glsl */ `
   }
 `;
 
-// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-const PERCH_VERT = /* glsl */ `
+const PERCH_VERT = `
   attribute vec3 aPerch;   // anchor: where the bird sits
   attribute vec4 aBird;    // scale, heading, flee-x, flee-z
   attribute vec3 aTint;
@@ -208,8 +180,7 @@ const PERCH_VERT = /* glsl */ `
   }
 `;
 
-// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-const PERCH_FRAG = /* glsl */ `
+const PERCH_FRAG = `
   uniform float uDay;
   varying vec3 vColor;
   varying float vFade;
@@ -223,52 +194,46 @@ const PERCH_FRAG = /* glsl */ `
   }
 `;
 
-// Gull: two swept-back wing triangles. Tips at |x|=1 so the shader can flap.
-const gullGeometry = (): THREE.BufferGeometry => {
+const gullGeometry = () => {
   // prettier-ignore
   const pos = new Float32Array([
     -1, 0, -0.1,   0, 0, 0.4,   0, 0, -0.25,
      1, 0, -0.1,   0, 0, -0.25, 0, 0, 0.4,
   ]);
+
   const geo = new THREE.BufferGeometry();
   geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+
   return geo;
 };
 
-// Perched bird: unlike the wheeling flock — which is only ever seen from below
-// and far away — this one is looked at from the side, a metre off the bonnet.
-// A flat wing V would be edge-on and invisible there, so it gets a body in the
-// vertical plane crossed with the wings in the horizontal one: whichever way
-// you approach, one of the two is broad. Wing tips sit at |x| = 0.95 so the
-// shader's `abs(position.x)` flap term still only moves the wings.
-const perchedGeometry = (): THREE.BufferGeometry => {
+const perchedGeometry = () => {
   // prettier-ignore
   const pos = new Float32Array([
-    // body, side profile in the yz plane: head → back → tail, then the belly
     0, 0.02, 0.55,   0, 0.34, 0.05,   0, 0.02, -0.6,
     0, 0.02, 0.55,   0, 0.02, -0.6,   0, -0.14, -0.05,
-    // wings, a shallow dihedral V out to each side
     -0.95, 0.2, -0.1,  0, 0.1, 0.35,   0, 0.1, -0.25,
      0.95, 0.2, -0.1,  0, 0.1, -0.25,  0, 0.1, 0.35,
   ]);
+
   const geo = new THREE.BufferGeometry();
   geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+
   return geo;
 };
 
-// Kite: a diamond sail (y 0..3.4) + a ribbon tail (y 0..-3), double-faced.
-const kiteGeometry = (): THREE.BufferGeometry => {
+const kiteGeometry = () => {
   // prettier-ignore
   const pos = new Float32Array([
-    // sail (two tris of a diamond)
     0, 3.4, 0,   -1.4, 1.7, 0,   0, 0, 0,
     0, 3.4, 0,   0, 0, 0,        1.4, 1.7, 0,
-    // tail ribbon
     -0.18, 0, 0,  0.18, 0, 0,   -0.18, -3, 0,
     0.18, 0, 0,   0.18, -3, 0, -0.18, -3, 0,
   ]);
+
   const geo = new THREE.BufferGeometry();
   geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+
   return geo;
 };
 
@@ -279,18 +244,20 @@ export class AmbientLife {
   private kiteDay = { value: 1 };
 
   constructor(fog: THREE.Fog, heightAt: (x: number, z: number) => number, rng: () => number) {
-    // --- Gulls ---
     const gullGeo = new THREE.InstancedBufferGeometry();
     const base = gullGeometry();
     gullGeo.setAttribute("position", base.getAttribute("position"));
     gullGeo.instanceCount = GULL_COUNT;
     const centers = new Float32Array(GULL_COUNT * 3);
     const orbits = new Float32Array(GULL_COUNT * 4);
+
     for (let i = 0; i < GULL_COUNT; i += 1) {
       const f = FLOCKS[i % FLOCKS.length];
+
       if (!f) {
         continue;
       }
+
       centers[i * 3] = toX(f.u) + (rng() - 0.5) * 30;
       centers[i * 3 + 1] = f.y + (rng() - 0.5) * 14;
       centers[i * 3 + 2] = toZ(f.v) + (rng() - 0.5) * 30;
@@ -300,8 +267,10 @@ export class AmbientLife {
       orbits[i * 4 + 2] = rng() * Math.PI * 2;
       orbits[i * 4 + 3] = 1.6 + rng() * 1.1;
     }
+
     gullGeo.setAttribute("aCenter", new THREE.InstancedBufferAttribute(centers, 3));
     gullGeo.setAttribute("aOrbit", new THREE.InstancedBufferAttribute(orbits, 4));
+
     const gullMat = new THREE.ShaderMaterial({
       fog: true,
       fragmentShader: GULL_FRAG,
@@ -315,13 +284,12 @@ export class AmbientLife {
       },
       vertexShader: GULL_VERT,
     });
+
     const gulls = new THREE.Mesh(gullGeo, gullMat);
-    // flocks span the map
     gulls.frustumCulled = false;
     this.group.add(gulls);
     this.gullFogUniforms = gullMat.uniforms;
 
-    // --- Kites ---
     const kiteGeo = new THREE.InstancedBufferGeometry();
     const kbase = kiteGeometry();
     kiteGeo.setAttribute("position", kbase.getAttribute("position"));
@@ -330,11 +298,14 @@ export class AmbientLife {
     const kColors = new Float32Array(KITE_COUNT * 3);
     const kPhases = new Float32Array(KITE_COUNT);
     const col = new THREE.Color();
+
     for (let i = 0; i < KITE_COUNT; i += 1) {
       const s = KITE_SPOTS[i % KITE_SPOTS.length];
+
       if (!s) {
         continue;
       }
+
       const x = toX(s.u) + (rng() - 0.5) * 12;
       const z = toZ(s.v) + (rng() - 0.5) * 12;
       kCenters[i * 3] = x;
@@ -346,9 +317,11 @@ export class AmbientLife {
       kColors[i * 3 + 2] = col.b;
       kPhases[i] = rng() * Math.PI * 2;
     }
+
     kiteGeo.setAttribute("aCenter", new THREE.InstancedBufferAttribute(kCenters, 3));
     kiteGeo.setAttribute("aColor", new THREE.InstancedBufferAttribute(kColors, 3));
     kiteGeo.setAttribute("aPhase", new THREE.InstancedBufferAttribute(kPhases, 1));
+
     const kiteMat = new THREE.ShaderMaterial({
       fog: true,
       fragmentShader: KITE_FRAG,
@@ -362,6 +335,7 @@ export class AmbientLife {
       },
       vertexShader: KITE_VERT,
     });
+
     const kites = new THREE.Mesh(kiteGeo, kiteMat);
     kites.frustumCulled = false;
     this.group.add(kites);
@@ -384,10 +358,11 @@ export class AmbientLife {
    * spots, pigeons work the pavement around the rest. Safe to call once, after
    * the world has loaded; a second call is ignored.
    */
-  populatePerches(anchors: readonly PerchAnchor[]): void {
+  populatePerches(anchors: readonly PerchAnchor[]) {
     if (this.perched || anchors.length === 0) {
       return;
     }
+
     const { rng } = this;
     const geo = new THREE.InstancedBufferGeometry();
     geo.setAttribute("position", perchedGeometry().getAttribute("position"));
@@ -398,37 +373,40 @@ export class AmbientLife {
     const tints = new Float32Array(n * 3);
     const alarms = new Float32Array(n);
     const col = new THREE.Color();
-    // Even stride over the anchor list spreads the flock across the whole map
-    // instead of clumping it wherever the furniture pass happened to start.
     const stride = anchors.length / n;
+
     for (let i = 0; i < n; i += 1) {
       const a = anchors[Math.min(anchors.length - 1, Math.floor(i * stride))];
+
       if (!a) {
         continue;
       }
+
       const isGull = nearFlock(a.x, a.z);
       const ang = rng() * Math.PI * 2;
+
       if (isGull) {
-        // On the lamp head itself, facing out into the wind.
         perch.set([a.x, a.y + 0.35, a.z], i * 3);
         bird.set([0.62, ang, Math.sin(ang), Math.cos(ang)], i * 4);
         col.setHex(rng() < 0.35 ? 0xd8_dd_e4 : 0xf2_f5_f8);
       } else {
-        // On the pavement a step or two off the post.
         const r = 1.4 + rng() * 2.6;
         perch.set([a.x + Math.sin(ang) * r, a.ground + 0.18, a.z + Math.cos(ang) * r], i * 3);
         const flee = rng() * Math.PI * 2;
         bird.set([0.4, flee, Math.sin(flee), Math.cos(flee)], i * 4);
         col.setHex(PIGEON_COLORS[i % PIGEON_COLORS.length] ?? 0x6d_70_78);
       }
+
       tints.set([col.r, col.g, col.b], i * 3);
     }
+
     const alarmAttr = new THREE.InstancedBufferAttribute(alarms, 1);
     alarmAttr.setUsage(THREE.DynamicDrawUsage);
     geo.setAttribute("aPerch", new THREE.InstancedBufferAttribute(perch, 3));
     geo.setAttribute("aBird", new THREE.InstancedBufferAttribute(bird, 4));
     geo.setAttribute("aTint", new THREE.InstancedBufferAttribute(tints, 3));
     geo.setAttribute("aAlarm", alarmAttr);
+
     const mat = new THREE.ShaderMaterial({
       fog: true,
       fragmentShader: PERCH_FRAG,
@@ -442,8 +420,8 @@ export class AmbientLife {
       },
       vertexShader: PERCH_VERT,
     });
+
     const mesh = new THREE.Mesh(geo, mat);
-    // the flock spans the map
     mesh.frustumCulled = false;
     this.group.add(mesh);
     this.perched = { alarmAttr, alarms, count: n, perch };
@@ -454,51 +432,58 @@ export class AmbientLife {
    * `lamp`: day-night factor, 0 day → 1 night. `carX/carZ`: whatever the birds
    * should flee from. Fog refs track the scene.
    */
-  update(dt: number, lamp: number, fog: THREE.Fog, carX: number, carZ: number): void {
+  update(dt: number, lamp: number, fog: THREE.Fog, carX: number, carZ: number) {
     this.time.value += dt;
     const day = 1 - lamp;
     this.gullDay.value = day;
     this.kiteDay.value = day;
+
     for (const u of [this.gullFogUniforms, this.kiteFogUniforms, this.perchFogUniforms]) {
       if (!u) {
         continue;
       }
+
       const near = u.fogNear;
       const far = u.fogFar;
+
       if (near) {
         near.value = fog.near;
       }
+
       if (far) {
         far.value = fog.far;
       }
     }
+
     this.updateScatter(dt, day, carX, carZ);
   }
 
-  // One pass over the flock: alarm attacks hard inside SCATTER_R and bleeds off
-  // slowly outside it. The attribute only goes back to the GPU on frames where
-  // a bird actually moved, which is almost none of them.
-  private updateScatter(dt: number, day: number, carX: number, carZ: number): void {
+  private updateScatter(dt: number, day: number, carX: number, carZ: number) {
     const p = this.perched;
+
     if (!p || day < 0.02) {
       return;
     }
+
     const rise = SCATTER_ATTACK * dt;
     const fall = SCATTER_SETTLE * dt;
     const rSq = SCATTER_R * SCATTER_R;
     let lo = p.count;
     let hi = -1;
+
     for (let i = 0; i < p.count; i += 1) {
       const prev = p.alarms[i] ?? 0;
       const dx = (p.perch[i * 3] ?? 0) - carX;
       const dz = (p.perch[i * 3 + 2] ?? 0) - carZ;
       const next = dx * dx + dz * dz < rSq ? Math.min(1, prev + rise) : Math.max(0, prev - fall);
+
       if (next !== prev) {
         p.alarms[i] = next;
         lo = Math.min(lo, i);
         hi = i;
       }
     }
+
     if (hi >= lo) {
       p.alarmAttr.addUpdateRange(lo, hi - lo + 1);
       p.alarmAttr.needsUpdate = true;

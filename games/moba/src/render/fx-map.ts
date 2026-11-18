@@ -1,7 +1,3 @@
-// Presentation mapping for abilities: which HUD icon and which sprite effect each
-// ability's `effect` id draws. Pure data keyed by the effect id (e.g. "emberhex:Q")
-// so the sim stays art-free and the renderer/HUD share one source of truth.
-
 /** Packed effect spritesheets (authored horizontal strips, one row of `frames`). */
 export interface SpellSheet {
   key: string;
@@ -9,14 +5,12 @@ export interface SpellSheet {
   frames: number;
   fps: number;
 }
+
 export const SPELL_SHEETS: SpellSheet[] = [
-  // craftpix packs: projectile + persistent zone art
   { fps: 26, frame: 128, frames: 15, key: "sp-fireball" },
   { fps: 14, frame: 128, frames: 10, key: "sp-fire" },
   { fps: 26, frame: 256, frames: 10, key: "sp-lightning" },
   { fps: 18, frame: 128, frames: 11, key: "sp-water" },
-  // generated per-ability cast art (tools: scratch gen-fx/pack-fx, see
-  // combat-fx-sources.json) — 12-frame boards, one signature per spell
   { fps: 24, frame: 128, frames: 12, key: "sp-ironvow-q" },
   { fps: 20, frame: 128, frames: 12, key: "sp-ironvow-w" },
   { fps: 18, frame: 128, frames: 12, key: "sp-ironvow-r" },
@@ -41,8 +35,6 @@ export const SPELL_SHEETS: SpellSheet[] = [
   { fps: 16, frame: 128, frames: 12, key: "sp-brewkeeper-r" },
 ];
 
-/** Frame order inside `assets/spell/icons.webp` — one packed 6×3 sheet of 64px
- *  icons, so the index here IS the Phaser frame. Repack in this order. */
 const SPELL_ICON_FRAME: Record<string, number> = Object.fromEntries(
   [
     "ic-burst",
@@ -97,8 +89,9 @@ export const ABILITY_ICON = {
 const ABILITY_ICON_LOOKUP = new Map<string, string>(Object.entries(ABILITY_ICON));
 
 /** Frame in the packed spell-icon sheet for an ability's HUD icon. */
-export const abilityIconFrame = (effect: string): number | null => {
+export const abilityIconFrame = (effect: string) => {
   const name = ABILITY_ICON_LOOKUP.get(effect);
+
   return name === undefined ? null : (SPELL_ICON_FRAME[name] ?? null);
 };
 
@@ -140,14 +133,12 @@ export const ABILITY_CAST_FX = {
   "duskblade:W": { at: "aimed", offsetX: 44, scale: 2, sheet: "sp-duskblade-w" },
   "emberhex:E": { additive: true, at: "caster", scale: 1.5, sheet: "sp-emberhex-e" },
   "emberhex:Q": { additive: true, at: "caster", offsetY: -24, scale: 1, sheet: "sp-emberhex-q" },
-  // played by the detonation, not the cast (the fuse only warns)
   "emberhex:R": { additive: true, at: "target", offsetY: -34, scale: 2.2, sheet: "sp-emberhex-r" },
   "emberhex:W": { additive: true, at: "target", offsetY: -30, scale: 1.3, sheet: "sp-emberhex-w" },
   "ironvow:Q": { additive: true, at: "target", offsetY: -16, scale: 1, sheet: "sp-ironvow-q" },
   "ironvow:R": { at: "caster", scale: 2.4, sheet: "sp-ironvow-r" },
   "ironvow:W": { additive: true, at: "caster", offsetY: -22, scale: 1.1, sheet: "sp-ironvow-w" },
   "stormcaller:E": { additive: true, at: "caster", scale: 1.2, sheet: "sp-stormcaller-e" },
-  // the beam renderer lays several of these along the shot
   "stormcaller:Q": { additive: true, at: "aimed", scale: 2.2, sheet: "sp-stormcaller-q" },
   "stormcaller:R": {
     additive: true,
@@ -167,19 +158,21 @@ export const ABILITY_CAST_FX = {
 
 const CAST_FX_LOOKUP = new Map<string, SpellCastFx>(Object.entries(ABILITY_CAST_FX));
 
-export const abilityCastFx = (effect: string): SpellCastFx | null =>
-  CAST_FX_LOOKUP.get(effect) ?? null;
+export const abilityCastFx = (effect: string) => CAST_FX_LOOKUP.get(effect) ?? null;
 
 /** Persistent zone visuals for ground effects, keyed off the GroundEffect.effect.
  *  "fire" tiles a looping flame; "storm" rains lightning bolts; "heal" pools water. */
 export type GroundFxKind = "fire" | "storm" | "heal" | "none";
-export const groundFxKind = (effect: string, isHeal: boolean): GroundFxKind => {
+
+export const groundFxKind: (effect: string, isHeal: boolean) => GroundFxKind = (effect, isHeal) => {
   if (isHeal || effect.startsWith("brewkeeper")) {
     return "heal";
   }
+
   if (effect.includes("storm") || effect.startsWith("stormcaller")) {
     return "storm";
   }
+
   if (
     effect.includes("fire") ||
     effect.includes("flash") ||
@@ -188,11 +181,12 @@ export const groundFxKind = (effect: string, isHeal: boolean): GroundFxKind => {
   ) {
     return "fire";
   }
+
   return "none";
 };
 
 /** Colour an ability/cast effect by its element keyword (rings, beams, numbers). */
-export const effectColor = (effect: string): number => {
+export const effectColor = (effect: string) => {
   if (
     effect.startsWith("emberhex") ||
     effect.includes("fire") ||
@@ -201,26 +195,32 @@ export const effectColor = (effect: string): number => {
   ) {
     return 0xff_7a_2a;
   }
+
   if (effect.startsWith("stormcaller") || effect.includes("storm") || effect.includes("pierc")) {
     return 0x6a_b8_ff;
   }
+
   if (effect.startsWith("brewkeeper")) {
     return 0x8b_e0_7a;
   }
+
   if (effect.startsWith("boomtinker")) {
     return 0xff_d2_4d;
   }
+
   if (effect.startsWith("duskblade")) {
     return 0xb0_6b_ff;
   }
+
   if (effect.startsWith("ironvow")) {
     return 0x9c_c4_ff;
   }
+
   return 0xff_ff_ff;
 };
 
 /** Existing hero palette at contact; neutral sources retain the damage-type cue. */
-export const hitColor = (hero: string | undefined, magic: boolean): number => {
+export const hitColor = (hero: string | undefined, magic: boolean) => {
   switch (hero) {
     case "ironvow":
     case "duskblade":
@@ -230,6 +230,7 @@ export const hitColor = (hero: string | undefined, magic: boolean): number => {
     case "brewkeeper": {
       return effectColor(hero);
     }
+
     default: {
       return magic ? 0xc7_8b_ff : 0xff_ff_ff;
     }

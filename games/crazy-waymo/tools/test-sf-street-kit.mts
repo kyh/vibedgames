@@ -7,20 +7,23 @@ import type { ParcelPlan } from "../src/world/parcel-plan.ts";
 
 type Check = (name: string, condition: boolean, detail?: string) => void;
 
-export const checkSfStreetKit = (check: Check): void => {
+export const checkSfStreetKit = (check: Check) => {
   const kit = getMuniShelterKit();
   const repeated = getMuniShelterKit();
   const bounds = new THREE.Box3();
   let triangles = 0;
   let finite = true;
+
   for (const part of kit) {
     const positions = part.geo.getAttribute("position");
     const normals = part.geo.getAttribute("normal");
     triangles += (part.geo.getIndex()?.count ?? positions.count) / 3;
     part.geo.computeBoundingBox();
+
     if (part.geo.boundingBox) {
       bounds.union(part.geo.boundingBox);
     }
+
     for (const attribute of [positions, normals]) {
       for (let i = 0; i < attribute.count; i += 1) {
         finite &&=
@@ -30,6 +33,7 @@ export const checkSfStreetKit = (check: Check): void => {
       }
     }
   }
+
   const size = bounds.getSize(new THREE.Vector3());
   check(
     "shelters share six material batches",
@@ -60,6 +64,7 @@ export const checkSfStreetKit = (check: Check): void => {
     if (!(node instanceof THREE.Mesh) || !(node.material instanceof THREE.MeshStandardMaterial)) {
       return;
     }
+
     if (node.material.transparent) {
       glass += 1;
       validGlass &&= !node.castShadow && !node.material.depthWrite;
@@ -78,30 +83,37 @@ export const checkBakedShelterClearance = (
   check: Check,
   rest: CityRestPayload,
   plans: readonly ParcelPlan[],
-): void => {
+) => {
   const glazing = getMuniShelterKit().find((part) => part.mat.transparent);
+
   if (!glazing) {
     throw new Error("Shelter kit must retain its identifiable glass batch");
   }
+
   const glassGeometries = new Set<number>();
+
   for (const [index, geo] of rest.rawGeos.entries()) {
     if (geo.mat.transparent && geo.mat.color === glazing.mat.color.getHex()) {
       glassGeometries.add(index);
     }
   }
+
   const clear = buildParcelClearance(plans);
   let count = 0;
   const blocked: string[] = [];
+
   for (const item of rest.batchItems) {
     if (item.raw === null || !glassGeometries.has(item.raw)) {
       continue;
     }
+
     count += 1;
     const { m } = item;
     const x = m[12] ?? 0;
     const z = m[14] ?? 0;
     const widthScale = Math.hypot(m[0] ?? 0, m[1] ?? 0, m[2] ?? 0);
     const depthScale = Math.hypot(m[8] ?? 0, m[9] ?? 0, m[10] ?? 0);
+
     if (
       !clear(
         {
@@ -117,6 +129,7 @@ export const checkBakedShelterClearance = (
       blocked.push(`${x.toFixed(2)},${z.toFixed(2)}`);
     }
   }
+
   check("installed world retains Muni shelters", count > 0, `${count} shelters`);
   check(
     "baked shelter envelopes clear parcel walls and projecting facades",

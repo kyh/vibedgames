@@ -26,9 +26,6 @@ test("every unknown flag is named, not just the first", () => {
   assert.deepEqual(unknownFlags(["--slugg", "a", "--sauce"], DEPLOY_ARGS), ["--slugg", "--sauce"]);
 });
 
-// A value that looks like a flag reads as one. citty parses it that way too —
-// `--slug --x` leaves `slug` empty — so reporting it beats deploying to a slug
-// the user never typed.
 test("a --value that looks like a flag is treated as one", () => {
   assert.deepEqual(unknownFlags(["--slug", "--weird-looking-slug"], DEPLOY_ARGS), [
     "--weird-looking-slug",

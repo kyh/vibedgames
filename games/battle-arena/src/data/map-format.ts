@@ -1,10 +1,3 @@
-// Custom-map file format (v1) + its boundary parser. A map is two flat lists:
-// render-only prop placements (the decor vocabulary) and sim colliders.
-// Produced by the in-browser editor (?editor=1), consumed at boot (main.ts):
-// a bundled public/maps/default.json replaces the procedural arena for every
-// client; in offline modes a localStorage draft (the editor's TEST loop) takes
-// precedence. Colliders are SIM state — online play only ever loads the
-// bundled file so every client simulates the same arena.
 import { isJsonNumber, isJsonObject, isJsonString } from "./json";
 import type { JsonValue } from "./json";
 import { clampToArena } from "./map";
@@ -35,6 +28,7 @@ export interface MapCollider {
 
 /** The four floor-tile bands the arena floor is built from. */
 export const FLOOR_TYPES = ["flag", "worn", "dirt", "grate"] as const;
+
 export type FloorType = (typeof FLOOR_TYPES)[number];
 
 /** One painted floor cell: (x, y) is the cell center on the 4u tile grid
@@ -75,7 +69,6 @@ export const DUNGEON_MODELS = [
   "floor_foundation_corner",
   "stairs",
   "wall_corner",
-  // Sunken Court buildout
   "wall_broken",
   "wall_gated",
   "wall_pillar",
@@ -118,20 +111,21 @@ export const PLACEABLE_MODELS: string[] = [
 const MAX_PROPS = 2000;
 const MAX_COLLIDERS = 512;
 const MAX_FLOOR_CELLS = 4096;
-// clamp positions to the hex + a 3u apron — wall-mounted dressing (the gate
-// trophies) legitimately sits a little proud of the playable boundary
 const POS_MARGIN = -3;
 
-const clampNum = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
+const clampNum = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
-const parseProp = (v: JsonValue): MapProp | null => {
+const parseProp = (v: JsonValue) => {
   if (!isJsonObject(v)) {
     return null;
   }
+
   const { model } = v;
+
   if (!isJsonString(model) || model.length === 0 || model.length > 64) {
     return null;
   }
+
   if (
     !isJsonNumber(v["x"]) ||
     !isJsonNumber(v["y"]) ||
@@ -140,15 +134,21 @@ const parseProp = (v: JsonValue): MapProp | null => {
   ) {
     return null;
   }
+
   const { lie } = v;
+
   if (lie !== undefined && lie !== true && lie !== false) {
     return null;
   }
+
   const { h } = v;
+
   if (h !== undefined && !isJsonNumber(h)) {
     return null;
   }
+
   const pos = clampToArena(v["x"], v["y"], POS_MARGIN);
+
   const out: MapProp = {
     model,
     rot: v["rot"],
@@ -156,19 +156,23 @@ const parseProp = (v: JsonValue): MapProp | null => {
     x: pos.x,
     y: pos.y,
   };
+
   if (lie === true) {
     out.lie = true;
   }
+
   if (h !== undefined) {
     out.h = clampNum(h, -10, 20);
   }
+
   return out;
 };
 
-const parseCollider = (v: JsonValue): MapCollider | null => {
+const parseCollider = (v: JsonValue) => {
   if (!isJsonObject(v)) {
     return null;
   }
+
   if (
     !isJsonNumber(v["x"]) ||
     !isJsonNumber(v["y"]) ||
@@ -177,35 +181,42 @@ const parseCollider = (v: JsonValue): MapCollider | null => {
   ) {
     return null;
   }
+
   const { model } = v;
+
   if (model !== undefined && (!isJsonString(model) || model.length === 0 || model.length > 64)) {
     return null;
   }
+
   const pos = clampToArena(v["x"], v["y"], POS_MARGIN);
+
   const out: MapCollider = {
     height: clampNum(v["height"], 0.1, 30),
     radius: clampNum(v["radius"], 0.05, 20),
     x: pos.x,
     y: pos.y,
   };
+
   if (model !== undefined) {
     out.model = model;
   }
+
   return out;
 };
 
 const isFloorType = (v: JsonValue | undefined): v is FloorType => FLOOR_TYPES.some((t) => t === v);
 
-/** Snap to the 4u tile grid the floor builder walks. */
-const snapCell = (v: number): number => Math.round(v / 4) * 4;
+const snapCell = (v: number) => Math.round(v / 4) * 4;
 
-const parseFloorCell = (v: JsonValue): MapFloorCell | null => {
+const parseFloorCell = (v: JsonValue) => {
   if (!isJsonObject(v)) {
     return null;
   }
+
   if (!isJsonNumber(v["x"]) || !isJsonNumber(v["y"]) || !isFloorType(v["t"])) {
     return null;
   }
+
   return {
     t: v["t"],
     x: snapCell(clampNum(v["x"], -200, 200)),
@@ -217,61 +228,80 @@ const parseFloorCell = (v: JsonValue): MapFloorCell | null => {
  *  types, clamps numeric ranges, and clamps positions into the hex (+apron).
  *  Strict per-entry — one malformed prop rejects the whole map, so a bad file
  *  falls back to the procedural arena instead of half-loading. */
-export const parseMapData = (raw: JsonValue): MapData | null => {
+export const parseMapData = (raw: JsonValue) => {
   if (!isJsonObject(raw)) {
     return null;
   }
+
   if (raw["version"] !== 1) {
     return null;
   }
+
   const rawProps = raw["props"];
   const rawColliders = raw["colliders"];
+
   if (!Array.isArray(rawProps) || !Array.isArray(rawColliders)) {
     return null;
   }
+
   if (rawProps.length > MAX_PROPS || rawColliders.length > MAX_COLLIDERS) {
     return null;
   }
+
   const propList = rawProps;
   const colliderList = rawColliders;
   const props: MapProp[] = [];
+
   for (const p of propList) {
     const parsed = parseProp(p);
+
     if (!parsed) {
       return null;
     }
+
     props.push(parsed);
   }
+
   const colliders: MapCollider[] = [];
+
   for (const c of colliderList) {
     const parsed = parseCollider(c);
+
     if (!parsed) {
       return null;
     }
+
     colliders.push(parsed);
   }
+
   const out: MapData = { colliders, props, version: 1 };
-  // optional painted floor (absent in older files — procedural everywhere)
   const rawFloor = raw["floor"];
+
   if (rawFloor !== undefined) {
     if (!Array.isArray(rawFloor) || rawFloor.length > MAX_FLOOR_CELLS) {
       return null;
     }
+
     const floorList = rawFloor;
     const floor: MapFloorCell[] = [];
+
     for (const f of floorList) {
       const parsed = parseFloorCell(f);
+
       if (!parsed) {
         return null;
       }
+
       floor.push(parsed);
     }
+
     if (floor.length > 0) {
       out.floor = floor;
     }
   }
+
   return out;
 };
 
 /** Pretty JSON for download / localStorage (the editor's output). */
-export const serializeMapData = (d: MapData): string => JSON.stringify(d, null, 2);
+export const serializeMapData = (d: MapData) => JSON.stringify(d, null, 2);

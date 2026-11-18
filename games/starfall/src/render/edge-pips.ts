@@ -1,15 +1,3 @@
-/**
- * Viewport-edge pips — the ONE reusable off-screen indicator the spec mandates
- * (dir-004): a small neon-wireframe glyph clamped just inside the camera view,
- * pointing at a world-space target the player can't currently see. Shared by
- * the BEACON (gold hollow diamond), the UFO (blinking hollow circle, qa-010)
- * and the debut-wave threat pips (red triangles, qa-007).
- *
- * Drawn in WORLD space on the target scene's camera: positions clamp into the
- * camera's worldView and sizes scale by 1/zoom, so a pip reads the same
- * screen size at any zoom (phones floor at 0.75).
- */
-
 import type Phaser from "phaser";
 import { BlendModes, Math as PhaserMath } from "phaser";
 
@@ -34,20 +22,20 @@ export class EdgePips {
   }
 
   /** Redraw all pips for this frame. Targets already on-viewport are skipped. */
-  draw(cam: Phaser.Cameras.Scene2D.Camera, targets: readonly PipTarget[], now: number): void {
+  draw(cam: Phaser.Cameras.Scene2D.Camera, targets: readonly PipTarget[], now: number) {
     const g = this.gfx;
     g.clear();
+
     if (targets.length === 0) {
       return;
     }
+
     const view = cam.worldView;
-    // screen px → world px
     const s = 1 / Math.max(0.01, cam.zoom);
     const margin = PIP_EDGE_MARGIN * s;
     const size = PIP_SIZE * s;
+
     for (const t of targets) {
-      // On-viewport targets need no pip (small slack so a pip doesn't pop the
-      // exact frame the target's center crosses the edge).
       if (
         t.x >= view.x - 20 &&
         t.x <= view.right + 20 &&
@@ -56,14 +44,16 @@ export class EdgePips {
       ) {
         continue;
       }
+
       if (t.blink && Math.floor(now / 250) % 2 === 1) {
         continue;
       }
+
       const px = PhaserMath.Clamp(t.x, view.x + margin, view.right - margin);
       const py = PhaserMath.Clamp(t.y, view.y + margin, view.bottom - margin);
       const ang = Math.atan2(t.y - py, t.x - px);
+
       if (t.glyph === "triangle") {
-        // Filled arrowhead pointing at the target.
         const cos = Math.cos(ang);
         const sin = Math.sin(ang);
         g.fillStyle(t.tint, 0.9);
@@ -80,7 +70,6 @@ export class EdgePips {
         g.closePath();
         g.fillPath();
       } else if (t.glyph === "diamond") {
-        // Hollow diamond + a tick toward the target (beacon language).
         g.lineStyle(2 * s, t.tint, 0.9);
         g.beginPath();
         g.moveTo(px, py - size);
@@ -96,7 +85,6 @@ export class EdgePips {
           py + Math.sin(ang) * size * 1.6,
         );
       } else {
-        // Hollow circle + tick (UFO language).
         g.lineStyle(2 * s, t.tint, 0.9);
         g.strokeCircle(px, py, size * 0.7);
         g.lineBetween(

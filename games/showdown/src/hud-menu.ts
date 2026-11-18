@@ -1,5 +1,3 @@
-// The roster uses portraits rendered from the playable models themselves.
-
 import * as THREE from "three";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { buildBrawlerModel } from "./entities/brawler-model";
@@ -8,6 +6,7 @@ import type { AttackDef, BrawlerDef, BrawlerId } from "./config";
 import { mustGet } from "./dom";
 
 const portraits = new Map<BrawlerId, string>();
+
 const rosterKeys = new Map([
   ["ArrowDown", 3],
   ["ArrowLeft", -1],
@@ -15,7 +14,7 @@ const rosterKeys = new Map([
   ["ArrowUp", -3],
 ]);
 
-const framePortrait = (camera: THREE.PerspectiveCamera, root: THREE.Group): void => {
+const framePortrait = (camera: THREE.PerspectiveCamera, root: THREE.Group) => {
   root.updateMatrixWorld(true);
   const bounds = new THREE.Box3().setFromObject(root, true);
   const centre = bounds.getCenter(new THREE.Vector3());
@@ -25,26 +24,31 @@ const framePortrait = (camera: THREE.PerspectiveCamera, root: THREE.Group): void
   const vertical = Math.tan((camera.fov * Math.PI) / 360) * 0.86;
   const horizontal = vertical * camera.aspect;
   let distance = 0;
+
   for (const x of [bounds.min.x, bounds.max.x]) {
     for (const y of [bounds.min.y, bounds.max.y]) {
       for (const z of [bounds.min.z, bounds.max.z]) {
         const corner = new THREE.Vector3(x, y, z).sub(centre);
+
         const reach = Math.max(
           Math.abs(corner.dot(right)) / horizontal,
           Math.abs(corner.dot(up)) / vertical,
         );
+
         distance = Math.max(distance, corner.dot(direction) + reach);
       }
     }
   }
+
   camera.position.copy(centre).addScaledVector(direction, distance);
   camera.lookAt(centre);
 };
 
-const preparePortraits = (): void => {
+const preparePortraits = () => {
   if (portraits.size > 0) {
     return;
   }
+
   const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
   renderer.setSize(640, 560);
   renderer.setPixelRatio(1);
@@ -67,6 +71,7 @@ const preparePortraits = (): void => {
   rim.position.set(3, 2, -3);
   scene.add(rim);
   const camera = new THREE.PerspectiveCamera(25, 640 / 560, 0.1, 20);
+
   for (const def of Object.values(BRAWLERS)) {
     const model = buildBrawlerModel(def, 0);
     scene.add(model.root);
@@ -74,36 +79,41 @@ const preparePortraits = (): void => {
     renderer.render(scene, camera);
     portraits.set(def.id, renderer.domElement.toDataURL("image/png"));
     scene.remove(model.root);
+
     for (const material of model.allMats) {
       material.dispose();
     }
   }
+
   environment.dispose();
   renderer.dispose();
   renderer.forceContextLoss();
 };
 
-const hex = (color: number): string => `#${color.toString(16).padStart(6, "0")}`;
+const hex = (color: number) => `#${color.toString(16).padStart(6, "0")}`;
 
-const attackDamage = (attack: AttackDef): number => {
+const attackDamage = (attack: AttackDef) => {
   if (attack.kind === "burst") {
     return attack.damage * attack.count;
   }
+
   if (attack.kind === "spread") {
     return attack.damage * attack.pellets;
   }
+
   return attack.damage;
 };
 
-const cardMarkup = (def: BrawlerDef, index: number): string => {
+const cardMarkup = (def: BrawlerDef, index: number) => {
   const swatch = hex(def.palette.body);
   const portrait = portraits.get(def.id);
   const combatType = def.attack.kind === "melee" ? "Melee" : "Ranged";
+
   return `<div class="swatch" style="--kit-color:${swatch}"><span class="kit-index">${String(index + 1).padStart(2, "0")}</span><img src="${portrait ?? ""}" alt="" width="640" height="560" /><span class="combat-type">${combatType}</span></div>
         <span class="champion-name">${def.name}</span><span class="role">${def.role}</span>`;
 };
 
-const showChampion = (id: BrawlerId): void => {
+const showChampion = (id: BrawlerId) => {
   const def = BRAWLERS[id];
   const detail = mustGet("champion-detail");
   detail.style.setProperty("--kit-color", hex(def.palette.body));
@@ -119,9 +129,10 @@ export const buildBrawlerCards = (
   container: HTMLElement,
   selected: BrawlerId,
   onPick: (id: BrawlerId) => void,
-): void => {
+) => {
   preparePortraits();
   const kits = Object.values(BRAWLERS);
+
   for (const [index, def] of kits.entries()) {
     const card = document.createElement("button");
     card.type = "button";
@@ -131,15 +142,18 @@ export const buildBrawlerCards = (
     card.setAttribute("aria-pressed", String(on));
     card.setAttribute("aria-label", `${def.name}, ${def.role}`);
     card.innerHTML = cardMarkup(def, index);
-    const pick = (): void => onPick(def.id);
+    const pick = () => onPick(def.id);
     card.addEventListener("click", pick);
     card.addEventListener("keydown", (event) => {
       const direction = rosterKeys.get(event.key);
+
       if (direction === undefined) {
         return;
       }
+
       event.preventDefault();
       const next = kits[(index + direction + kits.length) % kits.length];
+
       if (next) {
         onPick(next.id);
         container.querySelector<HTMLButtonElement>(`[data-id="${next.id}"]`)?.focus();
@@ -147,15 +161,17 @@ export const buildBrawlerCards = (
     });
     container.append(card);
   }
+
   showChampion(selected);
 };
 
 /** Highlight the chosen card and demote the rest. */
-export const markSelectedCard = (selected: BrawlerId): void => {
+export const markSelectedCard = (selected: BrawlerId) => {
   for (const card of document.querySelectorAll<HTMLElement>("#cards .card")) {
     const on = card.dataset.id === selected;
     card.classList.toggle("on", on);
     card.setAttribute("aria-pressed", String(on));
   }
+
   showChampion(selected);
 };

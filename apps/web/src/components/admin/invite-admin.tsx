@@ -11,12 +11,11 @@ import { SkeletonReveal } from "@/components/ui/skeleton-reveal";
 import { formatUsd } from "@/lib/credits-format";
 import { useORPC } from "@/lib/orpc";
 
-// The register page carries the code through to /settings, which redeems it;
-// an existing account signs in from there and lands in the same place.
 const buildInviteLink = (code: string) => {
   if (typeof window === "undefined") {
     return `/auth/register?invite=${code}`;
   }
+
   return `${window.location.origin}/auth/register?invite=${code}`;
 };
 
@@ -42,12 +41,15 @@ const codeStatus = (row: {
   if (row.revokedAt) {
     return "revoked";
   }
+
   if (row.expiresAt && row.expiresAt.getTime() < Date.now()) {
     return "expired";
   }
+
   if (row.maxUses !== null && row.usedCount >= row.maxUses) {
     return "used";
   }
+
   return "available";
 };
 
@@ -62,9 +64,11 @@ const updateToast = (revoked: boolean | undefined) => {
   if (revoked === true) {
     return "Code revoked";
   }
+
   if (revoked === false) {
     return "Code restored";
   }
+
   return "Code updated";
 };
 
@@ -73,6 +77,7 @@ export const InviteAdmin = () => {
   const qc = useQueryClient();
 
   const list = useQuery(orpc.auth.listInvites.queryOptions());
+
   const create = useMutation(
     orpc.auth.createInvites.mutationOptions({
       onSuccess: () => {
@@ -81,13 +86,13 @@ export const InviteAdmin = () => {
       },
     }),
   );
+
   const [count, setCount] = useState(1);
   const [creditUsd, setCreditUsd] = useState(20);
   const [maxUses, setMaxUses] = useState<number | "">(1);
   const [note, setNote] = useState("");
   const [customCode, setCustomCode] = useState("");
   const [copied, setCopied] = useState<string | null>(null);
-  // Row currently having its max-uses edited inline; "" = unlimited.
   const [editing, setEditing] = useState<{ id: string; maxUses: number | "" } | null>(null);
 
   const update = useMutation(
@@ -107,8 +112,10 @@ export const InviteAdmin = () => {
       await navigator.clipboard.writeText(buildInviteLink(code));
     } catch {
       toast.error("Copy failed");
+
       return;
     }
+
     setCopied(code);
     setTimeout(() => setCopied((c) => (c === code ? null : c)), 1500);
   };
@@ -234,6 +241,7 @@ export const InviteAdmin = () => {
             <ul className="divide-y divide-white/10 border-t border-white/10">
               {list.data.codes.map((row) => {
                 const status = codeStatus(row);
+
                 return (
                   <li key={row.id} className="flex items-center gap-3 py-3 text-sm">
                     <code className="font-mono text-base">{row.code}</code>

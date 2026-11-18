@@ -15,10 +15,8 @@ import type { JsonObject, JsonValue } from "./types.js";
 
 export const DEVICE_CODE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:device_code";
 
-/** Refresh this long before the access token runs out, so no request races its expiry. */
 const EXPIRY_MARGIN_MS = 60_000;
 
-/** The resource the CLI's tokens are bound to: this server's API. */
 const apiResource = (baseUrl: string) => `${new URL(baseUrl).origin}/api`;
 
 const authUrl = (baseUrl: string, path: string) => `${new URL(baseUrl).origin}/api/auth${path}`;
@@ -34,23 +32,22 @@ export class OAuthError extends Error {
   }
 }
 
-const postForm = async (url: string, body: Record<string, string>): Promise<JsonObject> => {
+const postForm = async (url: string, body: Record<string, string>) => {
   const res = await fetch(url, {
     body: new URLSearchParams(body),
     headers: { accept: "application/json" },
     method: "POST",
   });
+
   let data: JsonValue = null;
+
   try {
-    // SAFETY: res.json() is JSON.parse of the response body, which is
-    // JSON by construction; its shape is checked below.
     data = (await res.json()) as JsonValue;
-  } catch {
-    // A body that is not JSON reads as the status alone, below.
-  }
+  } catch {}
   if (!isJsonObject(data)) {
     throw new OAuthError("server_error", `HTTP ${res.status}`);
   }
+
   if (!res.ok) {
     const { error, error_description: description } = data;
     throw new OAuthError(
@@ -58,6 +55,7 @@ const postForm = async (url: string, body: Record<string, string>): Promise<Json
       isJsonString(description) ? description : `HTTP ${res.status}`,
     );
   }
+
   return data;
 };
 
@@ -71,12 +69,13 @@ export interface DeviceCode {
 }
 
 /** Starts a device authorization for the CLI's client, every scope, and the API. */
-export const requestDeviceCode = async (baseUrl: string): Promise<DeviceCode> => {
+export const requestDeviceCode = async (baseUrl: string) => {
   const data = await postForm(authUrl(baseUrl, "/device/code"), {
     client_id: CLI_OAUTH_CLIENT_ID,
     resource: apiResource(baseUrl),
     scope: CLI_OAUTH_SCOPES.join(" "),
   });
+
   const {
     device_code: deviceCode,
     expires_in: expiresIn,
@@ -85,9 +84,11 @@ export const requestDeviceCode = async (baseUrl: string): Promise<DeviceCode> =>
     verification_uri: verificationUri,
     verification_uri_complete: verificationUriComplete,
   } = data;
+
   if (!isJsonString(deviceCode) || !isJsonString(userCode) || !isJsonString(verificationUri)) {
     throw new OAuthError("server_error", "malformed device authorization response");
   }
+
   return {
     deviceCode,
     expiresIn: isJsonNumber(expiresIn) ? expiresIn : 600,
@@ -100,12 +101,13 @@ export const requestDeviceCode = async (baseUrl: string): Promise<DeviceCode> =>
   };
 };
 
-/** The saved form of a token response: what `auth.json` holds after login or refresh. */
-const toConfig = (baseUrl: string, data: JsonObject, previousRefresh?: string): Config => {
+const toConfig = (baseUrl: string, data: JsonObject, previousRefresh?: string) => {
   const { access_token: token, expires_in: expiresIn, refresh_token: refreshToken } = data;
+
   if (!isJsonString(token)) {
     throw new OAuthError("server_error", "token response carries no access_token");
   }
+
   return {
     baseUrl,
     expiresAt: isJsonNumber(expiresIn) ? Date.now() + expiresIn * 1000 : undefined,
@@ -120,7 +122,7 @@ const toConfig = (baseUrl: string, data: JsonObject, previousRefresh?: string): 
  * has not answered, `access_denied` if they denied, `expired_token` once the
  * code has run out.
  */
-export const pollDeviceToken = async (baseUrl: string, deviceCode: string): Promise<Config> =>
+export const pollDeviceToken = async (baseUrl: string, deviceCode: string) =>
   toConfig(
     baseUrl,
     await postForm(authUrl(baseUrl, "/oauth2/token"), {
@@ -131,10 +133,10 @@ export const pollDeviceToken = async (baseUrl: string, deviceCode: string): Prom
   );
 
 /** Whether a saved login's access token needs refreshing before it is sent. */
-export const needsRefresh = (config: Config, now = Date.now()): boolean =>
+export const needsRefresh = (config: Config, now = Date.now()) =>
   Boolean(config.refreshToken && config.expiresAt && config.expiresAt - EXPIRY_MARGIN_MS <= now);
 
-const refresh = async (config: Config & { refreshToken: string }): Promise<Config> => {
+const refresh = async (config: Config & { refreshToken: string }) => {
   const next = toConfig(
     config.baseUrl,
     await postForm(authUrl(config.baseUrl, "/oauth2/token"), {
@@ -145,7 +147,9 @@ const refresh = async (config: Config & { refreshToken: string }): Promise<Confi
     }),
     config.refreshToken,
   );
+
   saveConfig(next);
+
   return next;
 };
 
@@ -158,20 +162,26 @@ let refreshing: Promise<Config> | null = null;
  * response for a short window. A refresh the server refuses means the login
  * is gone (disconnected in Settings, or idle too long), and says so.
  */
-export const getAccessToken = async (): Promise<string | null> => {
+export const getAccessToken = async () => {
   if (process.env.VG_TOKEN) {
     return process.env.VG_TOKEN;
   }
+
   const config = getConfig();
+
   if (!config) {
     return null;
   }
+
   if (!needsRefresh(config) || !config.refreshToken) {
     return config.token;
   }
+
   refreshing ??= refresh({ ...config, refreshToken: config.refreshToken });
+
   try {
     const next = await refreshing;
+
     return next.token;
   } catch (error) {
     if (error instanceof OAuthError && error.code === "invalid_grant") {
@@ -179,6 +189,7 @@ export const getAccessToken = async (): Promise<string | null> => {
         cause: error,
       });
     }
+
     throw error;
   } finally {
     refreshing = null;
@@ -186,17 +197,16 @@ export const getAccessToken = async (): Promise<string | null> => {
 };
 
 /** Best-effort revocation of a saved login's refresh token, for `vg logout`. */
-export const revokeLogin = async (config: Config): Promise<void> => {
+export const revokeLogin = async (config: Config) => {
   if (!config.refreshToken) {
     return;
   }
+
   try {
     await postForm(authUrl(config.baseUrl, "/oauth2/revoke"), {
       client_id: CLI_OAUTH_CLIENT_ID,
       token: config.refreshToken,
       token_type_hint: "refresh_token",
     });
-  } catch {
-    // Logging out never fails on the server: the local login goes regardless.
-  }
+  } catch {}
 };

@@ -3,7 +3,6 @@ import { getServerByName, routePartykitRequest, Server } from "partyserver";
 
 import type {
   ClaimMap,
-  InterestRule,
   Player,
   PlayerLimit,
   PlayerMap,
@@ -41,34 +40,19 @@ import type { RoomReport } from "./lobby";
 
 export { VgLobby } from "./lobby";
 
-/**
- * Boundary types for untrusted client JSON. `JSON.parse` gives back `any`;
- * everything read off the wire funnels through these so game state stays a
- * concrete JSON shape instead of `unknown`.
- */
 type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
 
-/** A state patch / snapshot: a plain JSON object keyed by game-owned fields. */
 interface StateMap {
   [key: string]: JsonValue;
 }
 
-// `String(v) === v` holds exactly for primitive strings (strict equality
-// never coerces), so this predicate is sound without a runtime `typeof`.
 const isJsonString = (value: JsonValue | undefined): value is string => String(value) === value;
 
-// JSON can only carry finite numbers, so this is the exact number test.
 const isJsonNumber = (value: JsonValue | undefined): value is number => Number.isFinite(value);
 
-const asStateMap = (value: JsonValue | undefined): StateMap | undefined =>
+const asStateMap = (value: JsonValue | undefined) =>
   value instanceof Object && !Array.isArray(value) ? value : undefined;
 
-/**
- * A client message decoded at the wire boundary. Patch payloads stay raw
- * (`JsonValue`) here — the structural guard that accepts or drops them runs in
- * the handler so its logging stays with the decision. Unrecognized frames
- * still count as liveness.
- */
 type IncomingMessage =
   | { type: "state_patch"; data: JsonValue | undefined }
   | { type: "player_state_patch"; data: JsonValue | undefined }
@@ -91,96 +75,107 @@ type IncomingMessage =
   | { type: "room_info"; locked: boolean | null; meta: StateMap | null }
   | { type: "unrecognized" };
 
-// A reserved key would vanish from the plain-object claim map a sync carries,
-// leaving late joiners disagreeing about who holds it.
 const isClaimKey = (value: JsonValue | undefined): value is string =>
   isJsonString(value) &&
   value.length > 0 &&
   value.length <= MAX_CLAIM_KEY_LENGTH &&
   !RESERVED_CLAIM_KEYS.includes(value);
 
-/** A host's room info: the lock, and meta bounded like a patch and small, as every lobby listing carries it. */
-const decodeRoomInfo = (data: StateMap): IncomingMessage => {
+const decodeRoomInfo: (data: StateMap) => IncomingMessage = (data) => {
   const meta = asStateMap(data.meta) ?? null;
+
   if (
     meta !== null &&
     (findStructuralIssue(meta) !== null || JSON.stringify(meta).length > MAX_ROOM_META_CHARS)
   ) {
     return { type: "unrecognized" };
   }
+
   const { locked } = data;
+
   return { locked: locked === true || locked === false ? locked : null, meta, type: "room_info" };
 };
 
-/** Decode the room-feature messages: server time, claims, tick inputs, room info. */
-const decodeRoomMessage = (
+const decodeRoomMessage: (
   type: JsonValue | undefined,
   data: StateMap | undefined,
-): IncomingMessage => {
+) => IncomingMessage = (type, data) => {
   if (!data) {
     return { type: "unrecognized" };
   }
+
   switch (type) {
     case "time": {
       return isJsonNumber(data.c) ? { c: data.c, type: "time" } : { type: "unrecognized" };
     }
+
     case "claim": {
       const { key, ttl } = data;
+
       if (!isClaimKey(key)) {
         return { type: "unrecognized" };
       }
-      // No ttl means no expiry. A ttl that isn't a positive number is refused:
-      // read as "none", a zero or negative one would hold the key for good.
+
       if (ttl === undefined) {
         return { key, ttl: null, type: "claim" };
       }
+
       return isJsonNumber(ttl) && ttl > 0
         ? { key, ttl: Math.min(ttl, MAX_CLAIM_TTL_MS), type: "claim" }
         : { type: "unrecognized" };
     }
+
     case "release": {
       return isClaimKey(data.key) ? { key: data.key, type: "release" } : { type: "unrecognized" };
     }
+
     case "clear_claims": {
       return isJsonString(data.prefix)
         ? { prefix: data.prefix, type: "clear_claims" }
         : { type: "unrecognized" };
     }
+
     case "input": {
       const { n } = data;
+
       return {
         n: isJsonNumber(n) && Number.isSafeInteger(n) ? n : null,
         type: "input",
         v: data.v ?? null,
       };
     }
+
     case "room_info": {
       return decodeRoomInfo(data);
     }
+
     default: {
       return { type: "unrecognized" };
     }
   }
 };
 
-const decodeIncoming = (raw: JsonValue): IncomingMessage => {
+const decodeIncoming: (raw: JsonValue) => IncomingMessage = (raw) => {
   const message = asStateMap(raw);
+
   if (!message) {
     return { type: "unrecognized" };
   }
+
   const data = asStateMap(message.data);
+
   switch (message.type) {
     case "state_patch":
     case "player_state_patch": {
       return { data: message.data, type: message.type };
     }
+
     case "emit": {
       if (!data || !isJsonString(data.event)) {
         return { type: "unrecognized" };
       }
+
       return {
-        // The wire contract types payload as required JSON; only a
-        // hand-rolled client can omit it, and that relays as null.
         data: {
           event: data.event,
           except: data.except,
@@ -190,10 +185,12 @@ const decodeIncoming = (raw: JsonValue): IncomingMessage => {
         type: "emit",
       };
     }
+
     case "heartbeat":
     case "pong": {
       return { type: message.type };
     }
+
     default: {
       return decodeRoomMessage(message.type, data);
     }
@@ -226,12 +223,6 @@ interface Presence {
   token: string;
 }
 
-/**
- * A seat held for a dropped player during the reconnection grace window:
- * identity + last per-player state, parked when the transport died and handed
- * back if the same secret token returns before `expiresAt`. Persisted under
- * `grace:{token}` so a hibernation mid-window can't silently forget the seat.
- */
 interface GraceEntry {
   token: string;
   id: string;
@@ -242,54 +233,36 @@ interface GraceEntry {
   expiresAt: number;
 }
 
-/** A claimed key: who holds it, and until when (server ms) for a claim with a TTL. */
 interface Claim {
   owner: string;
   until: number | null;
 }
 
-/** What survives a Durable Object restart mid-session (a deploy): the world and its claims. */
 interface RoomSnapshot {
   shared: StateMap;
   claims: [string, Claim][];
 }
 
-/** One tick's input changes, as logged for replay. */
 interface TickEntry {
   n: number;
   changes: Record<string, JsonValue>;
-  /** Serialized size, for the log's budget. */
   chars: number;
 }
 
-/**
- * A tick room's clock and inputs. Not persisted: a restarted room starts a new
- * tick epoch. The log keeps the recent changes so a client back from a
- * transport blip replays the ticks it missed instead of losing sync.
- */
 interface Ticker {
   epoch: number;
   ms: number;
-  /** The last tick broadcast. */
   n: number;
-  /** Every player's held input as of tick `n`. */
   held: Map<string, JsonValue>;
-  /** The tick the log starts after, and every held input as of it. */
   base: number;
   baseHeld: Map<string, JsonValue>;
-  /** Every tick after `base` whose inputs changed, oldest first. */
   log: TickEntry[];
   logChars: number;
-  /** Input changes scheduled for future ticks (null = clear the player's input). */
   pending: Map<number, Map<string, JsonValue>>;
   timer: ReturnType<typeof setInterval>;
 }
 
-/** Fold one tick's changes into held inputs (null clears a player's). */
-const applyInputChanges = (
-  held: Map<string, JsonValue>,
-  changes: Record<string, JsonValue>,
-): void => {
+const applyInputChanges = (held: Map<string, JsonValue>, changes: Record<string, JsonValue>) => {
   for (const [id, input] of Object.entries(changes)) {
     if (input === null) {
       held.delete(id);
@@ -299,7 +272,6 @@ const applyInputChanges = (
   }
 };
 
-/** Durable, low-frequency room fields, persisted so they survive hibernation. */
 const HOST_ID_KEY = "hostId";
 const CAP_KEY = "cap";
 const RULES_KEY = "rules";
@@ -307,90 +279,79 @@ const INFO_KEY = "info";
 const ROOM_KEY = "room";
 const GRACE_PREFIX = "grace:";
 
-const graceKey = (token: string): string => `${GRACE_PREFIX}${token}`;
+const graceKey = (token: string) => `${GRACE_PREFIX}${token}`;
 
 const utf8 = new TextEncoder();
 
-/** Room snapshots are written at most this often, and never on the hot path. */
 const PERSIST_DEBOUNCE_MS = 1000;
-/** A snapshot larger than this is not persisted (one storage value's limit, with margin). */
 const MAX_PERSISTED_BYTES = 120_000;
-/** The tick log's budget: past it the oldest entries fold into the base, history or not. */
 const MAX_TICK_LOG_CHARS = 64_000;
-/** Bounded room rules: at most this many limited keys, keys this long. */
 const MAX_LIMITS = 32;
 const MAX_RULE_KEY_LENGTH = 64;
-/** Joins and leaves come in bursts: a room tells its lobby at most this often. */
 const LOBBY_REPORT_DEBOUNCE_MS = 500;
-/** A room no host has published anything about. */
 const UNPUBLISHED: RoomInfo = { locked: false, meta: {} };
 
-/** Separator for overflow sibling rooms: `home` → `home~2` → `home~3`. */
 const OVERFLOW_SEP = "~";
 
-/**
- * Given a room id, return the next overflow sibling. Picks an unusual
- * separator so a normal slug like `level-1` is never mistaken for an
- * overflow room (which would alias two distinct games onto one room).
- */
-const nextOverflowRoom = (room: string): string => {
+const nextOverflowRoom = (room: string) => {
   const idx = room.lastIndexOf(OVERFLOW_SEP);
+
   if (idx !== -1) {
     const suffix = room.slice(idx + OVERFLOW_SEP.length);
+
     if (/^\d+$/u.test(suffix)) {
       return `${room.slice(0, idx)}${OVERFLOW_SEP}${Number(suffix) + 1}`;
     }
   }
+
   return `${room}${OVERFLOW_SEP}2`;
 };
 
-/**
- * Read a `to`/`except` id list off an untrusted client message: only a real
- * array counts (null = field absent or malformed), and non-string entries are
- * dropped rather than failing the whole event.
- */
-const readIdList = (value: JsonValue | undefined): string[] | null => {
+const readIdList = (value: JsonValue | undefined) => {
   if (!Array.isArray(value)) {
     return null;
   }
+
   return value.filter(isJsonString);
 };
 
-/** A single query param off the connect request (untrusted client input).
- *  Shared by every param reader so the URL parse/shape lives in one place. */
-const searchParam = (ctx: ConnectionContext, key: string): string | null =>
+const searchParam = (ctx: ConnectionContext, key: string) =>
   new URL(ctx.request.url).searchParams.get(key);
 
-/** Read the client-requested player cap, clamped to the hard ceiling. */
-const readRoomCap = (ctx: ConnectionContext): number | null => {
+const readRoomCap = (ctx: ConnectionContext) => {
   const raw = searchParam(ctx, ROOM_CAP_QUERY_PARAM);
+
   if (!raw) {
     return null;
   }
+
   // oxlint-disable-next-line unicorn/prefer-number-coercion -- query string may carry trailing garbage; parseInt reads the leading digits, Number would give NaN
   const parsed = Number.parseInt(raw, 10);
+
   if (!Number.isFinite(parsed) || parsed <= 0) {
     return null;
   }
-  // Games are untrusted code: no client sizes a room past the ceiling.
+
   return Math.min(parsed, MAX_ROOM_CAP);
 };
 
-/** Read the client's reconnection token. Every SDK client sends one. */
-const readReconnectToken = (ctx: ConnectionContext): string | null => {
+const readReconnectToken = (ctx: ConnectionContext) => {
   const raw = searchParam(ctx, RECONNECT_TOKEN_QUERY_PARAM);
+
   return raw && raw.length > 0 ? raw : null;
 };
 
 const isRuleKey = (value: JsonValue | undefined): value is string =>
   isJsonString(value) && value.length > 0 && value.length <= MAX_RULE_KEY_LENGTH;
 
-const readInterest = (raw: JsonValue | undefined): InterestRule | null => {
+const readInterest = (raw: JsonValue | undefined) => {
   const rule = asStateMap(raw);
   const radius = rule?.radius;
+
   if (!rule || !isJsonNumber(radius) || radius <= 0) {
     return null;
   }
+
   return {
     radius,
     x: isRuleKey(rule.x) ? rule.x : "x",
@@ -398,82 +359,103 @@ const readInterest = (raw: JsonValue | undefined): InterestRule | null => {
   };
 };
 
-const readLimits = (raw: JsonValue | undefined): Record<string, PlayerLimit> | null => {
+const readLimits = (raw: JsonValue | undefined) => {
   const source = asStateMap(raw);
+
   if (!source) {
     return null;
   }
+
   const limits: Record<string, PlayerLimit> = {};
+
   for (const [key, value] of Object.entries(source).slice(0, MAX_LIMITS)) {
     const limit = asStateMap(value);
+
     if (!isRuleKey(key) || !limit) {
       continue;
     }
+
     const bounds: PlayerLimit = {};
+
     if (isJsonNumber(limit.min)) {
       bounds.min = limit.min;
     }
+
     if (isJsonNumber(limit.max)) {
       bounds.max = limit.max;
     }
+
     limits[key] = bounds;
   }
+
   return Object.keys(limits).length > 0 ? limits : null;
 };
 
-/** Read the room rules a client advertises (untrusted JSON), sanitized and bounded. */
-const readRoomRules = (ctx: ConnectionContext): RoomRules | null => {
+const readRoomRules = (ctx: ConnectionContext) => {
   const raw = searchParam(ctx, ROOM_RULES_QUERY_PARAM);
+
   if (!raw || raw.length > 4096) {
     return null;
   }
+
   let parsed: JsonValue;
+
   try {
-    // SAFETY: JSON.parse output is a JSON value by construction.
     parsed = JSON.parse(raw) as JsonValue;
   } catch {
     return null;
   }
+
   const source = asStateMap(parsed);
+
   if (!source) {
     return null;
   }
+
   const rules: RoomRules = {};
   const { tickRate } = source;
+
   if (isJsonNumber(tickRate) && tickRate > 0) {
     rules.tickRate = Math.min(MAX_TICK_RATE, Math.max(1, tickRate));
   }
+
   const interest = readInterest(source.interest);
+
   if (interest) {
     rules.interest = interest;
   }
+
   const limits = readLimits(source.limits);
+
   if (limits) {
     rules.limits = limits;
   }
+
   const { lobby } = source;
+
   if (isJsonString(lobby) && isLobbyName(lobby)) {
     rules.lobby = lobby;
   }
+
   return Object.keys(rules).length > 0 ? rules : null;
 };
 
-/** Whether a patch keeps every limited key in bounds (unlimited keys always pass). */
-const withinLimits = (
-  patch: StateMap,
-  limits: Record<string, PlayerLimit> | undefined,
-): boolean => {
+const withinLimits = (patch: StateMap, limits: Record<string, PlayerLimit> | undefined) => {
   if (!limits) {
     return true;
   }
+
   for (const [key, limit] of Object.entries(limits)) {
     if (!(key in patch)) {
       continue;
     }
+
     const value = patch[key];
+
     if (!isJsonNumber(value)) {
       return false;
     }
+
     if (
       (limit.min !== undefined && value < limit.min) ||
       (limit.max !== undefined && value > limit.max)
@@ -481,65 +463,25 @@ const withinLimits = (
       return false;
     }
   }
+
   return true;
 };
 
 export class VgServer extends Server {
-  /**
-   * Room state is split by how it must behave under Cloudflare's WebSocket
-   * Hibernation API, which partyserver uses: an idle Durable Object is evicted
-   * and its instance destroyed, but the open sockets — and their attachments —
-   * survive. The split also mirrors how game netcode separates a high-frequency,
-   * drop-tolerant snapshot channel from low-frequency reliable bookkeeping.
-   *
-   * - PRESENCE (identity + liveness) lives on each connection's attachment (see
-   *   `Presence`), NOT an instance map. A parallel map was emptied on every
-   *   hibernation, after which `onMessage` dropped every surviving connection's
-   *   messages (they were no longer "admitted"), freezing those players into
-   *   ghosts. Deriving presence from the live sockets makes that unrepresentable.
-   * - SNAPSHOT (per-player game state) is the hot channel: kept in memory,
-   *   broadcast every tick, never persisted. It self-heals — clients re-send on
-   *   reconnect. Persisting it would be pure write amplification.
-   * - ROOM (shared state + claims) changes at most a few times a second, and is
-   *   persisted debounced (PERSIST_DEBOUNCE_MS) and unconfirmed — never holding
-   *   back a message — so a room survives a restart mid-session (a deploy)
-   *   with its world intact.
-   * - SESSION (`hostId`, `cap`, `rules`, `info`) changes rarely but MUST
-   *   persist: a wiped host makes the real host's `state_patch` get rejected
-   *   as non-host after a wake; a wiped cap lets a post-wake join exceed it,
-   *   and a wiped lock lets one into a locked room. Mirrored in memory,
-   *   written through to storage, rehydrated in `onStart()`.
-   * - GRACE (held seats for dropped players) also persists: entries are written
-   *   only on disconnect/reclaim/expiry (never on the hot path), are bounded by
-   *   the room cap, and must survive hibernation or a mid-window wake would
-   *   silently forget a seat the alarm was scheduled to expire. Mirrored in
-   *   memory, rehydrated in `onStart()`.
-   */
   private shared: StateMap = {};
   private snapshots = new Map<string, StateMap>();
   private hostId: string | null = null;
   private cap: number | null = null;
   private rules: RoomRules | null = null;
-  /** The lock and meta the host published. */
   private info: RoomInfo = UNPUBLISHED;
   private grace = new Map<string, GraceEntry>();
   private claims = new Map<string, Claim>();
-  /**
-   * Interest: each player's last position, and what each recipient has been
-   * told about each other player — true visible, false hidden, absent unknown.
-   * In memory, like the player snapshots: the server runs without hibernation,
-   * so the instance holding every player's socket keeps them while anyone is
-   * connected.
-   */
   private positions = new Map<string, { x: number; y: number }>();
   private views = new Map<string, Map<string, boolean>>();
   private ticker: Ticker | null = null;
   private persistTimer: ReturnType<typeof setTimeout> | null = null;
-  /** Whether storage holds a room snapshot, so an oversized world can drop a stale one. */
   private roomPersisted = false;
-  /** A report to the room's lobby, waiting out LOBBY_REPORT_DEBOUNCE_MS. */
   private lobbyTimer: ReturnType<typeof setTimeout> | null = null;
-  /** Reports to the lobby, chained so they land in the order they were sent. */
   private lobbyReports: Promise<void> = Promise.resolve();
 
   /** Rehydrate durable room fields before any handler runs (partyserver awaits this). */
@@ -549,45 +491,47 @@ export class VgServer extends Server {
     this.rules = (await this.ctx.storage.get<RoomRules | null>(RULES_KEY)) ?? null;
     this.info = (await this.ctx.storage.get<RoomInfo>(INFO_KEY)) ?? UNPUBLISHED;
     const room = await this.ctx.storage.get<RoomSnapshot>(ROOM_KEY);
+
     if (room) {
       this.shared = room.shared;
       this.claims = new Map(room.claims);
       this.roomPersisted = true;
     }
+
     this.grace = new Map<string, GraceEntry>();
     const held = await this.ctx.storage.list<GraceEntry>({ prefix: GRACE_PREFIX });
+
     for (const entry of held.values()) {
       this.grace.set(entry.token, entry);
     }
   }
 
-  private async setHostId(id: string | null): Promise<void> {
+  private async setHostId(id: string | null) {
     const previous = this.hostId;
     this.hostId = id;
     await this.ctx.storage.put(HOST_ID_KEY, id);
-    // The host sees everyone, whatever the interest rule: it may be simulating
-    // players far from its own avatar.
+
     if (id !== null && id !== previous) {
       this.revealAllTo(id);
     }
   }
 
-  private async setCap(cap: number | null): Promise<void> {
+  private async setCap(cap: number | null) {
     this.cap = cap;
     await this.ctx.storage.put(CAP_KEY, cap);
   }
 
-  private async setRules(rules: RoomRules | null): Promise<void> {
+  private async setRules(rules: RoomRules | null) {
     this.rules = rules;
     await this.ctx.storage.put(RULES_KEY, rules);
   }
 
-  private async setInfo(info: RoomInfo): Promise<void> {
+  private async setInfo(info: RoomInfo) {
     this.info = info;
     await this.ctx.storage.put(INFO_KEY, info);
   }
 
-  private toPlayer(presence: Presence): Player {
+  private toPlayer(presence: Presence) {
     return {
       color: presence.color,
       connected: true,
@@ -597,62 +541,51 @@ export class VgServer extends Server {
     };
   }
 
-  /**
-   * The presence for a connection id, or undefined if not admitted. Iterated
-   * rather than getConnection(id): partyserver's hibernating lookup THROWS
-   * when two live sockets share an id — exactly the fast-reconnect race where
-   * a client re-dials before the server sees the old transport die. Returning
-   * the first socket that still has presence attached picks the live one; a
-   * superseded socket has had its presence detached.
-   */
-  private presenceOf(id: string): Presence | undefined {
+  private presenceOf(id: string) {
     return this.connectionOf(id)?.state ?? undefined;
   }
 
-  /** The live, admitted connection for a player id (see presenceOf). */
-  private connectionOf(id: string): Connection<Presence> | undefined {
+  private connectionOf(id: string) {
     for (const connection of this.getConnections<Presence>()) {
       if (connection.id === id && connection.state) {
         return connection;
       }
     }
-    return undefined;
+
+    return;
   }
 
-  /** The grace entry holding a seat for this player id, if any. */
-  private graceById(id: string): GraceEntry | undefined {
+  private graceById(id: string) {
     for (const entry of this.grace.values()) {
       if (entry.id === id) {
         return entry;
       }
     }
-    return undefined;
+
+    return;
   }
 
-  /** Drop a held seat from the grace map and its persisted mirror. */
-  private async consumeGrace(entry: GraceEntry): Promise<void> {
+  private async consumeGrace(entry: GraceEntry) {
     this.grace.delete(entry.token);
     await this.ctx.storage.delete(graceKey(entry.token));
   }
 
-  /**
-   * Public player map: live connections (identity from the attachment, state
-   * from the snapshot) plus held seats from the grace map, so a player mid-drop
-   * is still in the room — just `connected: false` — and a late joiner's sync
-   * includes them.
-   */
-  private players(): PlayerMap {
+  private players() {
     const players: PlayerMap = {};
+
     for (const connection of this.getConnections<Presence>()) {
       const presence = connection.state;
+
       if (presence) {
         players[connection.id] = this.toPlayer(presence);
       }
     }
+
     for (const entry of this.grace.values()) {
       if (entry.id in players) {
         continue;
       }
+
       players[entry.id] = {
         color: entry.color,
         connected: false,
@@ -661,188 +594,169 @@ export class VgServer extends Server {
         state: entry.state,
       };
     }
+
     return players;
   }
 
-  /**
-   * Count of seats in use — admitted connections plus seats held in grace —
-   * optionally minus one connection id. Held seats count against the room cap;
-   * that's what "keeping the slot" means.
-   */
-  private playerCount(excludeId?: string): number {
-    // Seats are counted by player id, not per connection: during a fast
-    // reconnect the re-dial and the not-yet-closed old socket briefly coexist
-    // under one id, and counting both would spuriously bounce a joiner at
-    // cap. The set also collapses a held seat with a live connection of the
-    // same id, matching how players() presents the room.
+  private playerCount(excludeId?: string) {
     const seated = new Set<string>();
+
     for (const connection of this.getConnections<Presence>()) {
       if (connection.state) {
         seated.add(connection.id);
       }
     }
+
     for (const entry of this.grace.values()) {
       seated.add(entry.id);
     }
+
     if (excludeId !== undefined) {
       seated.delete(excludeId);
     }
+
     return seated.size;
   }
 
-  /**
-   * Per-recipient fan-out over admitted connections: `pick` returns the
-   * serialized message for a recipient, or null to skip it. Serialization
-   * stays with the caller (memoize via `??=` when variants repeat). A dead
-   * socket never aborts the fan-out — the alarm sweep reaps it later.
-   */
-  private sendToEach(pick: (connection: Connection<Presence>) => string | null): void {
+  private sendToEach(pick: (connection: Connection<Presence>) => string | null) {
     for (const connection of this.getConnections<Presence>()) {
       if (!connection.state) {
         continue;
       }
+
       const raw = pick(connection);
+
       if (raw === null) {
         continue;
       }
+
       VgServer.sendTo(connection, raw);
     }
   }
 
-  /** Send to one connection, tolerating a socket whose peer is already gone. */
-  private static sendTo(connection: Connection<Presence>, raw: string): void {
+  private static sendTo(connection: Connection<Presence>, raw: string) {
     try {
       connection.send(raw);
-    } catch {
-      /* peer already gone */
-    }
+    } catch {}
   }
 
-  /**
-   * Structural guard for an untrusted player-state patch: the typed patch
-   * when it passes, or null to drop the message.
-   */
   private static parsePatch(
     sender: Connection<Presence>,
     data: JsonValue | undefined,
     label: string,
-  ): StateMap | null {
+  ) {
     const issue = findStructuralIssue(data ?? null);
+
     if (issue !== null) {
       console.warn(`Dropping ${label} from ${sender.id}: ${issue}`);
+
       return null;
     }
-    // findStructuralIssue === null guarantees a plain object root.
+
     return asStateMap(data) ?? null;
   }
 
-  /**
-   * Mark a connection heard-from on the keepalive channel. `seen` is true for a
-   * non-pong keepalive (heartbeat) — the signal a backgrounded tab stops sending.
-   */
   private static touch(connection: Connection<Presence>, seen: boolean) {
     const presence = connection.state;
+
     if (!presence) {
       return;
     }
+
     const now = Date.now();
     connection.setState({ ...presence, aliveAt: now, seenAt: seen ? now : presence.seenAt });
   }
 
-  /** Migrate host off a connection we haven't heard from within the liveness
-   *  window (it vanished without a clean close). Picks the lowest-id live peer
-   *  for determinism. No-op while the host is responsive or no live peer exists. */
-  private async checkHostLiveness(): Promise<void> {
+  private async checkHostLiveness() {
     const host = this.hostId;
+
     if (!host) {
       return;
     }
+
     const now = Date.now();
     const hostPresence = this.presenceOf(host);
+
     if (hostPresence && now - hostPresence.seenAt <= HOST_LIVENESS_TIMEOUT_MS) {
       return;
     }
-    // A host whose seat is held in grace gets the same liveness window measured
-    // from the drop: a short blip keeps the host role (their reconnect resumes
-    // seamlessly), while a longer outage migrates it so shared state doesn't
-    // freeze for everyone until the grace window lapses.
+
     if (!hostPresence) {
       const ghost = this.graceById(host);
+
       if (ghost && now - ghost.disconnectedAt <= HOST_LIVENESS_TIMEOUT_MS) {
         return;
       }
     }
 
     let next: Connection<Presence> | null = null;
+
     for (const connection of this.getConnections<Presence>()) {
       const presence = connection.state;
+
       if (!presence || connection.id === host) {
         continue;
       }
+
       if (now - presence.seenAt > HOST_LIVENESS_TIMEOUT_MS) {
         continue;
       }
+
       if (!next || connection.id < next.id) {
         next = connection;
       }
     }
+
     if (!next) {
       return;
-      // nobody healthier to hand off to — keep the current host
     }
 
-    // Grace on the new host so we don't immediately re-migrate.
     const presence = next.state;
+
     if (presence) {
       next.setState({ ...presence, seenAt: now });
     }
+
     await this.setHostId(next.id);
     const hostMessage: ServerMessage = { data: { id: next.id }, type: "host" };
     this.broadcast(JSON.stringify(hostMessage), []);
   }
 
-  /**
-   * Refuse a newcomer if the room is full or locked: point it at the overflow
-   * sibling and close — the SDK reconnects there, and the sibling inherits
-   * the cap (0 is none). Whether it was turned away.
-   */
-  private turnAway(connection: Connection<Presence>, cap: number | null): boolean {
+  private turnAway(connection: Connection<Presence>, cap: number | null) {
     const full = cap !== null && this.playerCount(connection.id) >= cap;
+
     if (!full && !this.info.locked) {
       return false;
     }
+
     const room = nextOverflowRoom(this.name);
+
     const message: ServerMessage = {
       data: full ? { capacity: cap, room } : { capacity: cap ?? 0, locked: true, room },
       type: "room_full",
     };
+
     connection.send(JSON.stringify(message));
     connection.close(4001, full ? "room_full" : "room_locked");
+
     return true;
   }
 
   async onConnect(connection: Connection<Presence>, ctx: ConnectionContext) {
-    // Every SDK client presents a reconnection token; without one there is no
-    // seat to hold across a drop, and nothing else in the room can work.
     const token = readReconnectToken(ctx);
+
     if (!token) {
       connection.close(4002, "reconnect_token_required");
+
       return;
     }
-    // A returning token reclaims its held seat: that seat already counts
-    // against the cap, so a reclaim is never bounced to overflow — it is the
-    // same player sitting back down, not a new admission.
+
     const reclaimed = this.grace.get(token);
+
     if (reclaimed) {
       await this.consumeGrace(reclaimed);
     }
 
-    // The room's effective cap for this admission decision: the sticky cap an
-    // earlier admitted client established, or — if none yet — the cap this
-    // client advertises. We don't persist the requested cap until we've
-    // decided to admit (below), so a refused over-cap join can't retroactively
-    // cap a room that never accepted it — which would otherwise also bounce
-    // later, even uncapped, joins to overflow.
     const requestedCap = readRoomCap(ctx);
     const cap = this.cap ?? requestedCap;
 
@@ -850,23 +764,19 @@ export class VgServer extends Server {
       return;
     }
 
-    // Admitted: establish the room's cap stickily from the first admitted
-    // client that advertises one, and its rules from the first admitted client
-    // at all — no rules are rules too — so a later join that omits or differs
-    // (a rogue or stale client) can't change how the room runs.
     if (this.cap === null && requestedCap !== null) {
       await this.setCap(requestedCap);
     }
+
     if (this.rules === null) {
       await this.setRules(readRoomRules(ctx) ?? {});
     }
+
     this.ensureTicker();
 
     const now = Date.now();
-    // A reclaim keeps its old color for continuity (same value when the
-    // connection id is unchanged — getColorById is deterministic — but also
-    // when PartySocket hands the client a fresh id).
     const { color, hue } = reclaimed ?? getColorById(connection.id);
+
     const presence: Presence = {
       aliveAt: now,
       color,
@@ -875,25 +785,20 @@ export class VgServer extends Server {
       seenAt: now,
       token,
     };
+
     connection.setState(presence);
-    // Seat state: a reclaim resumes the held snapshot; a plain reconnect under
-    // the same id (blip the server never saw close) keeps what's already there;
-    // a genuinely new player starts empty.
     this.snapshots.set(
       connection.id,
       reclaimed ? reclaimed.state : (this.snapshots.get(connection.id) ?? {}),
     );
 
-    // PartySocket normally reuses its connection id across reconnects, but if
-    // the reclaim arrived under a fresh id, retire the old seat explicitly:
-    // peers key everything by player id, so the old id must leave and — if it
-    // held host — hand the role to the new id rather than to a bystander.
     if (reclaimed && reclaimed.id !== connection.id) {
       this.snapshots.delete(reclaimed.id);
       this.forgetPlayer(reclaimed.id);
       this.transferClaims(reclaimed.id, connection.id);
       const leftMessage: ServerMessage = { data: { id: reclaimed.id }, type: "player_left" };
       this.broadcast(JSON.stringify(leftMessage), [connection.id]);
+
       if (this.hostId === reclaimed.id) {
         await this.setHostId(connection.id);
         const hostMessage: ServerMessage = { data: { id: connection.id }, type: "host" };
@@ -902,11 +807,11 @@ export class VgServer extends Server {
     }
 
     void this.scheduleSweep();
+
     if (!this.hostId) {
       await this.setHostId(connection.id);
     }
-    // a fresh join is a good moment to evict a host that vanished while the room
-    // was idle — so the newcomer lands in a live game, not a frozen one
+
     await this.checkHostLiveness();
 
     const syncMessage: ServerMessage = {
@@ -921,34 +826,30 @@ export class VgServer extends Server {
       },
       type: "sync",
     };
+
     connection.send(JSON.stringify(syncMessage));
 
     const joinedMessage: ServerMessage = {
       data: this.toPlayer(presence),
       type: "player_joined",
     };
+
     this.broadcast(JSON.stringify(joinedMessage), [connection.id]);
-    // The sync and the join carried whole states both ways, so in an interest
-    // room every pair with the newcomer starts out visible.
     this.markVisibleBothWays(connection.id);
     this.listSoon();
   }
 
-  async onMessage(sender: Connection<Presence>, rawMessage: string): Promise<void> {
+  async onMessage(sender: Connection<Presence>, rawMessage: string) {
     try {
-      // Admission gate: presence lives in the attachment, so a connection that
-      // survived hibernation is still admitted even though its in-memory
-      // snapshot was wiped — the next patch just re-fills it. A capacity-refused
-      // connection carries no presence, so it cannot broadcast into the room.
       const presence = sender.state;
+
       if (!presence) {
         return;
       }
 
-      // Refuse oversized frames before parsing: the platform would drop a
-      // >1 MiB frame anyway, and parsing near-limit garbage burns DO CPU.
       if (rawMessage.length > MAX_MESSAGE_BYTES) {
         console.warn(`Dropping oversized message (${rawMessage.length} units) from ${sender.id}`);
+
         return;
       }
 
@@ -956,70 +857,76 @@ export class VgServer extends Server {
 
       switch (message.type) {
         case "player_state_patch": {
-          // Hot path: snapshot + broadcast only. Liveness rides the heartbeat/
-          // pong keepalive channel, so a per-tick stream costs no attachment write.
           const patch = VgServer.parsePatch(sender, message.data, "player_state_patch");
+
           if (patch === null) {
             break;
           }
+
           if (!withinLimits(patch, this.rules?.limits)) {
             console.warn(`Dropping out-of-bounds player_state_patch from ${sender.id}`);
             break;
           }
+
           const next = { ...this.snapshots.get(sender.id), ...patch };
           this.snapshots.set(sender.id, next);
           this.relayPlayerState(sender, patch, next);
           break;
         }
+
         case "state_patch": {
           this.handleStatePatch(sender, message.data);
           break;
         }
+
         case "heartbeat": {
-          // The keepalive that pauses when a tab is hidden — refreshes both
-          // clocks and is the cadence we re-check host liveness on.
           VgServer.touch(sender, true);
           await this.checkHostLiveness();
           break;
         }
+
         case "pong": {
-          // Answers a server ping even from a hidden tab: proves reachable
-          // (aliveAt) but not running (seenAt untouched).
           VgServer.touch(sender, false);
           break;
         }
+
         case "time": {
-          // Server-clock probe: answered at once with this instant's clock, so
-          // the client can read the offset off the round trip.
           const reply: ServerMessage = { data: { c: message.c, s: Date.now() }, type: "time" };
           sender.send(JSON.stringify(reply));
           break;
         }
+
         case "claim": {
           this.handleClaim(sender, message.key, message.ttl);
           break;
         }
+
         case "release": {
           this.handleRelease(sender, message.key);
           break;
         }
+
         case "clear_claims": {
           this.handleClearClaims(sender, message.prefix);
           break;
         }
+
         case "input": {
           this.handleInput(sender, message.v, message.n);
           break;
         }
+
         case "room_info": {
           await this.handleRoomInfo(sender, message.locked, message.meta);
           break;
         }
+
         case "emit": {
           VgServer.touch(sender, true);
           this.relayEvent(sender, message.data);
           break;
         }
+
         default: {
           VgServer.touch(sender, true);
           break;
@@ -1030,69 +937,56 @@ export class VgServer extends Server {
     }
   }
 
-  /**
-   * Shared state is host-authoritative: only the elected host can write. A
-   * non-host write gets the whole state back as one op, so the client can
-   * rewind its local mirror, and we drop the patch instead of relaying. Also
-   * a hot path (host streams ~30×/s), so no attachment write here either.
-   */
-  private handleStatePatch(sender: Connection<Presence>, data: JsonValue | undefined): void {
+  private handleStatePatch(sender: Connection<Presence>, data: JsonValue | undefined) {
     if (sender.id !== this.hostId) {
       const echo: ServerMessage = { data: [[[], this.shared]], type: "state_patch" };
       sender.send(JSON.stringify(echo));
+
       return;
     }
-    // Path ops, applied copy-on-write. Paths are keys and indices with no
-    // prototype keys, and nothing an op writes nests deeper than a whole
-    // state may, which bounds what untrusted games store.
+
     const ops = readPatch(data ?? null);
+
     if (!Array.isArray(ops)) {
       console.warn(`Dropping state_patch from ${sender.id}: ${ops}`);
+
       return;
     }
+
     if (ops.length === 0) {
       return;
     }
+
     this.shared = applyPatch(this.shared, ops);
     const relayed: ServerMessage = { data: ops, type: "state_patch" };
-    // Not echoed to the host: it applied these ops locally before sending,
-    // so the echo is pure downlink, and an echo that lands after a newer
-    // local write rolls the host's mirror back, which then also hides the
-    // next real change from the SDK's diff.
     this.broadcast(JSON.stringify(relayed), [sender.id]);
     this.markRoomDirty();
   }
 
-  /** Host only: lock or unlock the room, or replace its meta. Everyone hears. */
   private async handleRoomInfo(
     sender: Connection<Presence>,
     locked: boolean | null,
     meta: StateMap | null,
-  ): Promise<void> {
+  ) {
     if (sender.id !== this.hostId) {
       return;
     }
+
     await this.setInfo({ locked: locked ?? this.info.locked, meta: meta ?? this.info.meta });
     const message: ServerMessage = { data: this.info, type: "room_info" };
     this.broadcast(JSON.stringify(message), []);
     this.listSoon();
   }
 
-  // -- Lobby ---------------------------------------------------------------
-
-  /**
-   * Tell the room's lobby, if it has one, how the room stands: after joins,
-   * leaves and changes of lock or meta, and on every sweep so the listing
-   * stays fresh. Debounced, since joins and leaves come in bursts; the
-   * report reads the room as it is when it goes.
-   */
-  private listSoon(): void {
+  private listSoon() {
     if (this.rules?.lobby === undefined || this.lobbyTimer !== null) {
       return;
     }
+
     this.lobbyTimer = setTimeout(() => {
       this.lobbyTimer = null;
       const lobby = this.rules?.lobby;
+
       if (lobby !== undefined) {
         this.tellLobby(lobby, {
           capacity: this.cap,
@@ -1104,11 +998,11 @@ export class VgServer extends Server {
     }, LOBBY_REPORT_DEBOUNCE_MS);
   }
 
-  /** Queue one report to a lobby (null: the room emptied). A lobby out of reach costs the room nothing. */
-  private tellLobby(lobby: string, report: RoomReport | null): void {
+  private tellLobby(lobby: string, report: RoomReport | null) {
     const previous = this.lobbyReports;
     this.lobbyReports = (async () => {
       await previous;
+
       try {
         const stub = await getServerByName(this.env.VgLobby, lobby);
         await stub.report(this.name, report);
@@ -1118,26 +1012,25 @@ export class VgServer extends Server {
     })();
   }
 
-  /** Relay a game event: to everyone (sender included) or to the `to` list, minus `except`. */
   private relayEvent(
     sender: Connection<Presence>,
     data: Extract<IncomingMessage, { type: "emit" }>["data"],
-  ): void {
+  ) {
     const eventMessage: ServerMessage = {
       data: { event: data.event, from: sender.id, payload: data.payload },
       type: "event",
     };
+
     const raw = JSON.stringify(eventMessage);
-    // Ids come from an untrusted client, so re-validate the shape instead of
-    // trusting the parsed type.
     const to = readIdList(data.to);
     const except = readIdList(data.except);
+
     if (to === null) {
       this.broadcast(raw, except ?? []);
+
       return;
     }
-    // `to` wins, minus `except`; deliver only to admitted players so a
-    // capacity-refused connection can never be reached by id.
+
     const targets = new Set(to);
     const excluded = new Set(except);
     this.sendToEach((connection) =>
@@ -1145,50 +1038,56 @@ export class VgServer extends Server {
     );
   }
 
-  // -- Interest ------------------------------------------------------------
-
-  /** Record a player's position from its merged state (interest rooms only). */
-  private updatePosition(id: string, state: StateMap): void {
+  private updatePosition(id: string, state: StateMap) {
     const rule = this.rules?.interest;
+
     if (!rule) {
       return;
     }
+
     const x = state[rule.x ?? "x"];
     const y = state[rule.y ?? "y"];
+
     if (isJsonNumber(x) && isJsonNumber(y)) {
       this.positions.set(id, { x, y });
     }
   }
 
-  /** Whether `recipient` should receive `subject`'s player state. */
-  private inRange(recipient: string, subject: string): boolean {
+  private inRange(recipient: string, subject: string) {
     const rule = this.rules?.interest;
+
     if (!rule || recipient === this.hostId) {
       return true;
     }
+
     const a = this.positions.get(recipient);
     const b = this.positions.get(subject);
+
     if (!a || !b) {
       return true;
     }
+
     return (a.x - b.x) ** 2 + (a.y - b.y) ** 2 <= rule.radius ** 2;
   }
 
-  private viewOf(recipient: string): Map<string, boolean> {
+  private viewOf(recipient: string) {
     let view = this.views.get(recipient);
+
     if (!view) {
       view = new Map();
       this.views.set(recipient, view);
     }
+
     return view;
   }
 
-  /** In interest rooms, record that `id` and every admitted player see each other. */
-  private markVisibleBothWays(id: string): void {
+  private markVisibleBothWays(id: string) {
     if (!this.rules?.interest) {
       return;
     }
+
     const own = this.viewOf(id);
+
     for (const connection of this.getConnections<Presence>()) {
       if (connection.state && connection.id !== id) {
         own.set(connection.id, true);
@@ -1197,37 +1096,42 @@ export class VgServer extends Server {
     }
   }
 
-  /** Bring `subject` into `recipient`'s view: its whole state, then the flag. */
-  private reveal(recipient: Connection<Presence>, subject: string): void {
+  private reveal(recipient: Connection<Presence>, subject: string) {
     this.viewOf(recipient.id).set(subject, true);
+
     const state: ServerMessage = {
       data: { id: subject, state: this.snapshots.get(subject) ?? {} },
       type: "player_state",
     };
+
     const visible: ServerMessage = {
       data: { id: subject, visible: true },
       type: "player_visibility",
     };
+
     VgServer.sendTo(recipient, JSON.stringify(state));
     VgServer.sendTo(recipient, JSON.stringify(visible));
   }
 
-  private conceal(recipient: Connection<Presence>, subject: string): void {
+  private conceal(recipient: Connection<Presence>, subject: string) {
     this.viewOf(recipient.id).set(subject, false);
+
     const message: ServerMessage = {
       data: { id: subject, visible: false },
       type: "player_visibility",
     };
+
     VgServer.sendTo(recipient, JSON.stringify(message));
   }
 
-  /** A new host sees everyone again. */
-  private revealAllTo(id: string): void {
+  private revealAllTo(id: string) {
     const view = this.views.get(id);
     const connection = this.connectionOf(id);
+
     if (!view || !connection) {
       return;
     }
+
     for (const [subject, visible] of view) {
       if (!visible) {
         this.reveal(connection, subject);
@@ -1235,29 +1139,28 @@ export class VgServer extends Server {
     }
   }
 
-  /**
-   * Fan a player-state patch out: the keyed delta to everyone in range, and —
-   * in interest rooms — visibility changes both ways: who can now see the
-   * sender, and (the sender having moved) whom the sender can now see. A pair
-   * with no recorded visibility gets the whole state, never a delta the
-   * recipient could not merge.
-   */
-  private relayPlayerState(sender: Connection<Presence>, patch: StateMap, next: StateMap): void {
+  private relayPlayerState(sender: Connection<Presence>, patch: StateMap, next: StateMap) {
     const delta = JSON.stringify({
       data: { id: sender.id, state: patch },
       type: "player_state",
     } satisfies ServerMessage);
+
     if (!this.rules?.interest) {
       this.sendToEach((connection) => (connection.id === sender.id ? null : delta));
+
       return;
     }
+
     this.updatePosition(sender.id, next);
     const senderView = this.viewOf(sender.id);
+
     for (const connection of this.getConnections<Presence>()) {
       if (!connection.state || connection.id === sender.id) {
         continue;
       }
+
       const shown = this.viewOf(connection.id).get(sender.id);
+
       if (!this.inRange(connection.id, sender.id)) {
         if (shown !== false) {
           this.conceal(connection, sender.id);
@@ -1267,10 +1170,10 @@ export class VgServer extends Server {
       } else {
         this.reveal(connection, sender.id);
       }
-      // What the sender sees changes with its own position, even of players
-      // who are standing still and sending nothing.
+
       const sees = this.inRange(sender.id, connection.id);
       const seen = senderView.get(connection.id);
+
       if (sees && seen !== true) {
         this.reveal(sender, connection.id);
       } else if (!sees && seen !== false) {
@@ -1279,31 +1182,31 @@ export class VgServer extends Server {
     }
   }
 
-  /** Drop a departed player from every interest index. */
-  private forgetPlayer(id: string): void {
+  private forgetPlayer(id: string) {
     this.positions.delete(id);
     this.views.delete(id);
+
     for (const view of this.views.values()) {
       view.delete(id);
     }
   }
 
-  // -- Claims --------------------------------------------------------------
-
-  /** Live claims as the wire map, dropping (not announcing) any that lapsed. */
-  private claimMap(now: number): ClaimMap {
+  private claimMap(now: number) {
     const map: ClaimMap = {};
+
     for (const [key, claim] of this.claims) {
       if (claim.until !== null && claim.until <= now) {
         continue;
       }
+
       map[key] =
         claim.until === null ? { owner: claim.owner } : { owner: claim.owner, until: claim.until };
     }
+
     return map;
   }
 
-  private static claimMessage(key: string, claim: Claim | null): string {
+  private static claimMessage(key: string, claim: Claim | null) {
     const message: ServerMessage = {
       data:
         claim?.until === null || claim?.until === undefined
@@ -1311,11 +1214,11 @@ export class VgServer extends Server {
           : { key, owner: claim.owner, until: claim.until },
       type: "claim",
     };
+
     return JSON.stringify(message);
   }
 
-  /** A player reclaimed its seat under a fresh id: its claims follow it. */
-  private transferClaims(from: string, to: string): void {
+  private transferClaims(from: string, to: string) {
     for (const [key, claim] of this.claims) {
       if (claim.owner === from) {
         const moved: Claim = { owner: to, until: claim.until };
@@ -1326,59 +1229,62 @@ export class VgServer extends Server {
     }
   }
 
-  /**
-   * First come, first served: a free (or lapsed) key goes to the claimer and
-   * everyone hears it; a held key stays put and only the claimer hears who
-   * holds it. One hop, and the host has no edge over anyone.
-   */
-  private handleClaim(sender: Connection<Presence>, key: string, ttl: number | null): void {
+  private handleClaim(sender: Connection<Presence>, key: string, ttl: number | null) {
     const now = Date.now();
     const current = this.claims.get(key);
     const live = current && (current.until === null || current.until > now) ? current : null;
+
     if (live && live.owner !== sender.id) {
       VgServer.sendTo(sender, VgServer.claimMessage(key, live));
+
       return;
     }
+
     if (!current && this.claims.size >= MAX_CLAIMS) {
       VgServer.sendTo(sender, VgServer.claimMessage(key, null));
+
       return;
     }
+
     const claim: Claim = { owner: sender.id, until: ttl === null ? null : now + ttl };
     this.claims.set(key, claim);
     this.broadcast(VgServer.claimMessage(key, claim), []);
     this.markRoomDirty();
+
     if (claim.until !== null) {
-      // Wake for the expiry, so everyone hears the release on time.
       void this.scheduleSweep();
     }
   }
 
-  private handleRelease(sender: Connection<Presence>, key: string): void {
+  private handleRelease(sender: Connection<Presence>, key: string) {
     const current = this.claims.get(key);
+
     if (!current || (current.owner !== sender.id && sender.id !== this.hostId)) {
       return;
     }
+
     this.claims.delete(key);
     this.broadcast(VgServer.claimMessage(key, null), []);
     this.markRoomDirty();
   }
 
-  private handleClearClaims(sender: Connection<Presence>, prefix: string): void {
+  private handleClearClaims(sender: Connection<Presence>, prefix: string) {
     if (sender.id !== this.hostId) {
       return;
     }
+
     for (const key of this.claims.keys()) {
       if (key.startsWith(prefix)) {
         this.claims.delete(key);
       }
     }
+
     const message: ServerMessage = { data: { prefix }, type: "claims_cleared" };
     this.broadcast(JSON.stringify(message), []);
     this.markRoomDirty();
   }
 
-  /** Release lapsed claims and tell everyone (the alarm wakes for the earliest expiry). */
-  private expireClaims(now: number): void {
+  private expireClaims(now: number) {
     for (const [key, claim] of this.claims) {
       if (claim.until !== null && claim.until <= now) {
         this.claims.delete(key);
@@ -1388,15 +1294,15 @@ export class VgServer extends Server {
     }
   }
 
-  // -- Ticks ---------------------------------------------------------------
-
-  /** Start the tick loop if the room runs on ticks and it isn't running yet. */
-  private ensureTicker(): void {
+  private ensureTicker() {
     const rate = this.rules?.tickRate;
+
     if (!rate || this.ticker) {
       return;
     }
+
     const ms = 1000 / rate;
+
     const ticker: Ticker = {
       base: 0,
       baseHeld: new Map(),
@@ -1407,26 +1313,28 @@ export class VgServer extends Server {
       ms,
       n: 0,
       pending: new Map(),
-      // Checked twice per tick, so a late timer is never a whole tick late.
       timer: setInterval(() => {
         this.runTicks();
       }, ms / 2),
     };
+
     this.ticker = ticker;
   }
 
-  private stopTicker(): void {
+  private stopTicker() {
     if (this.ticker) {
       clearInterval(this.ticker.timer);
       this.ticker = null;
     }
   }
 
-  private tickSync(): TickSync | null {
+  private tickSync() {
     const { ticker } = this;
+
     if (!ticker) {
-      return null;
+      return null satisfies TickSync | null;
     }
+
     return {
       base: ticker.base,
       epoch: ticker.epoch,
@@ -1434,16 +1342,18 @@ export class VgServer extends Server {
       log: ticker.log.map((entry) => [entry.n, entry.changes]),
       ms: ticker.ms,
       n: ticker.n,
-    };
+    } satisfies TickSync | null;
   }
 
-  /** Broadcast every tick that is due, in order and without gaps. */
-  private runTicks(): void {
+  private runTicks() {
     const { ticker } = this;
+
     if (!ticker) {
       return;
     }
+
     const due = Math.floor((Date.now() - ticker.epoch) / ticker.ms);
+
     while (ticker.n < due) {
       ticker.n += 1;
       const changes = Object.fromEntries(ticker.pending.get(ticker.n) ?? []);
@@ -1451,19 +1361,21 @@ export class VgServer extends Server {
       applyInputChanges(ticker.held, changes);
       const message: ServerMessage = { data: { i: changes, n: ticker.n }, type: "tick" };
       const raw = JSON.stringify(message);
+
       if (Object.keys(changes).length > 0) {
         ticker.log.push({ changes, chars: raw.length, n: ticker.n });
         ticker.logChars += raw.length;
       }
+
       VgServer.trimTickLog(ticker);
       this.broadcast(raw, []);
     }
   }
 
-  /** Fold log entries older than the history (or over budget) into the base. */
-  private static trimTickLog(ticker: Ticker): void {
+  private static trimTickLog(ticker: Ticker) {
     const oldest = ticker.n - MAX_TICK_HISTORY;
     let [entry] = ticker.log;
+
     while (entry && (entry.n <= oldest || ticker.logChars > MAX_TICK_LOG_CHARS)) {
       ticker.log.shift();
       applyInputChanges(ticker.baseHeld, entry.changes);
@@ -1471,101 +1383,96 @@ export class VgServer extends Server {
       ticker.logChars -= entry.chars;
       [entry] = ticker.log;
     }
-    // Quiet ticks log nothing, yet the history still ends here: a client
-    // further back resyncs rather than replaying every tick since.
+
     ticker.base = Math.max(ticker.base, oldest);
   }
 
-  /** Schedule an input change: at tick `n` if that is still ahead, else the next tick. */
-  private schedule(id: string, input: JsonValue, n: number | null): void {
+  private schedule(id: string, input: JsonValue, n: number | null) {
     const { ticker } = this;
+
     if (!ticker) {
       return;
     }
+
     const next = ticker.n + 1;
     const target = n === null ? next : Math.min(Math.max(n, next), ticker.n + MAX_INPUT_LEAD_TICKS);
     let inputs = ticker.pending.get(target);
+
     if (!inputs) {
       inputs = new Map();
       ticker.pending.set(target, inputs);
     }
+
     inputs.set(id, input);
   }
 
-  /**
-   * A player who dropped or left sends nothing more: cancel every input it
-   * scheduled ahead (or one would land later and hold again), then clear its
-   * input on the next tick.
-   */
-  private clearInput(id: string): void {
+  private clearInput(id: string) {
     const { ticker } = this;
+
     if (!ticker) {
       return;
     }
+
     for (const [n, inputs] of ticker.pending) {
       inputs.delete(id);
+
       if (inputs.size === 0) {
         ticker.pending.delete(n);
       }
     }
+
     this.schedule(id, null, null);
   }
 
-  private handleInput(sender: Connection<Presence>, input: JsonValue, n: number | null): void {
-    // Inputs are re-sent in every sync, so they stay small and plain.
+  private handleInput(sender: Connection<Presence>, input: JsonValue, n: number | null) {
     if (
       findStructuralIssue({ v: input }) !== null ||
       JSON.stringify(input).length > MAX_INPUT_BYTES
     ) {
       console.warn(`Dropping malformed or oversized input from ${sender.id}`);
+
       return;
     }
-    // null on the wire means "this player is gone"; a live player's empty input is false.
+
     this.schedule(sender.id, input === null ? false : input, n);
   }
 
-  // -- Persistence ---------------------------------------------------------
-
-  /** Persist the room's world and claims soon — at most once per PERSIST_DEBOUNCE_MS. */
-  private markRoomDirty(): void {
+  private markRoomDirty() {
     if (this.persistTimer !== null) {
       return;
     }
+
     this.persistTimer = setTimeout(() => {
       this.persistTimer = null;
       void this.persistRoom();
     }, PERSIST_DEBOUNCE_MS);
   }
 
-  private async persistRoom(): Promise<void> {
+  private async persistRoom() {
     const snapshot: RoomSnapshot = { claims: [...this.claims], shared: this.shared };
-    // Storage limits a value in bytes; a JSON string's length counts UTF-16
-    // units, which undercounts non-ASCII text.
+
     if (utf8.encode(JSON.stringify(snapshot)).byteLength > MAX_PERSISTED_BYTES) {
-      // Too big for one value. A stale copy would be worse than none: a
-      // restart would hand everyone an old world. With none, the host
-      // re-sends its own on reconnect.
       await this.dropRoomSnapshot();
+
       return;
     }
+
     try {
-      // Unconfirmed: a write never holds back the messages that follow it. A
-      // crash in the gap loses at most a second of world — the host re-sends.
       this.roomPersisted = true;
       await this.ctx.storage.put(ROOM_KEY, snapshot, { allowUnconfirmed: true });
     } catch (error) {
       console.warn("Room snapshot not persisted", error);
-      // Whatever storage still holds is older than this world.
       await this.dropRoomSnapshot();
     }
   }
 
-  /** Delete a persisted snapshot that no longer matches the room's world. */
-  private async dropRoomSnapshot(): Promise<void> {
+  private async dropRoomSnapshot() {
     if (!this.roomPersisted) {
       return;
     }
+
     this.roomPersisted = false;
+
     try {
       await this.ctx.storage.delete(ROOM_KEY);
     } catch (error) {
@@ -1574,14 +1481,10 @@ export class VgServer extends Server {
   }
 
   onClose(connection: Connection<Presence>, code: number) {
-    // 1000 is the SDK's deliberate `destroy()`, and 1001 is the browser
-    // closing a page that unloads (a closed tab, a reload, a navigation). The
-    // reconnect token lives in that page's memory, so nothing can come back
-    // for the seat: both leave at once. Anything else (1006 dropped transport,
-    // 1005 no-status, …) might be a blip, so it gets the grace window.
     if (code === 1000 || code === 1001) {
       return this.removePlayer(connection);
     }
+
     return this.departPlayer(connection);
   }
 
@@ -1596,22 +1499,13 @@ export class VgServer extends Server {
     return this.departPlayer(connection);
   }
 
-  /**
-   * A connection died: park the seat in the grace map for RECONNECT_GRACE_MS
-   * instead of removing the player — a network blip becomes "reconnecting…"
-   * rather than a leave that wipes per-player state and (accidentally)
-   * reshuffles the host.
-   */
-  private async departPlayer(connection: Connection<Presence>): Promise<void> {
+  private async departPlayer(connection: Connection<Presence>) {
     const presence = connection.state;
+
     if (!presence) {
       return;
     }
 
-    // If a live reconnect under the same id already superseded this socket
-    // (the client re-dialed before the server saw the old transport die), this
-    // close is stale — the player is present, not departing. Iterated rather
-    // than getConnection(id), which throws on exactly this duplicate-id race.
     for (const other of this.getConnections<Presence>()) {
       if (other.id === connection.id && other !== connection && other.state) {
         return;
@@ -1620,6 +1514,7 @@ export class VgServer extends Server {
 
     const now = Date.now();
     const { token } = presence;
+
     const entry: GraceEntry = {
       color: presence.color,
       disconnectedAt: now,
@@ -1629,14 +1524,10 @@ export class VgServer extends Server {
       state: this.snapshots.get(connection.id) ?? {},
       token,
     };
+
     this.grace.set(token, entry);
     this.snapshots.delete(connection.id);
-    // A dropped player sends nothing; don't keep replaying its last input.
     this.clearInput(connection.id);
-    // Detach presence before the first await: the paired onError/onClose for
-    // the same failed transport would otherwise interleave at the storage
-    // suspension point, see presence still set, and park the seat twice
-    // (re-broadcasting the drop and refreshing expiresAt).
     VgServer.detachPresence(connection);
     await this.ctx.storage.put(graceKey(token), entry);
 
@@ -1644,10 +1535,9 @@ export class VgServer extends Server {
       data: { connected: false, id: connection.id },
       type: "player_connection",
     };
+
     this.broadcast(JSON.stringify(droppedMessage), [connection.id]);
 
-    // The alarm must now also cover this seat's expiry — and must run even if
-    // this drop left the room with no open connections at all.
     await this.scheduleSweep();
   }
 
@@ -1668,7 +1558,7 @@ export class VgServer extends Server {
 
     for (const connection of this.getConnections<Presence>()) {
       const presence = connection.state;
-      // Not-yet-admitted connections (room_full, closing) aren't players; leave them.
+
       if (!presence) {
         continue;
       }
@@ -1677,31 +1567,23 @@ export class VgServer extends Server {
         stale.push(connection);
         continue;
       }
+
       try {
         connection.send(pingMessage);
       } catch {
-        // A send to a socket whose peer is already gone throws — reap it, and
-        // don't let one dead connection abort the sweep (and its reschedule).
         stale.push(connection);
       }
     }
 
-    // Evict unreachable peers. Closing may not fire `onClose` for a peer that
-    // is already gone, so reap explicitly; the departure path is idempotent if
-    // it does. An evicted peer stopped answering pongs for 75s — far past the
-    // grace window — so this is a hard removal, not a held seat.
     for (const connection of stale) {
       try {
         connection.close(1001, "idle");
-      } catch {
-        /* already gone */
-      }
+      } catch {}
       await this.removePlayer(connection);
     }
 
-    // Lapse held seats whose owner never came back: only now do they actually
-    // leave the room (player_left, host handoff, empty-room reset).
     const lapsed = [...this.grace.values()].filter((entry) => entry.expiresAt <= now);
+
     for (const entry of lapsed) {
       await this.consumeGrace(entry);
       await this.announceDeparture(entry.id);
@@ -1711,19 +1593,15 @@ export class VgServer extends Server {
     await this.scheduleSweep();
   }
 
-  private async scheduleSweep(): Promise<void> {
-    // Reschedule while any connection is still open — read from the socket set
-    // (restored across hibernation) rather than an in-memory count, so the ping
-    // loop can never stall and starve live idle clients of their pings — or
-    // while any grace seat still needs an expiry wake (which must fire even in
-    // a room whose last socket just dropped).
+  private async scheduleSweep() {
     const hasConnections = !this.getConnections()[Symbol.iterator]().next().done;
 
     let target: number | null = hasConnections ? Date.now() + PING_INTERVAL_MS : null;
+
     for (const entry of this.grace.values()) {
       target = target === null ? entry.expiresAt : Math.min(target, entry.expiresAt);
     }
-    // Claim expiries only matter to a room someone is in.
+
     if (target !== null) {
       for (const claim of this.claims.values()) {
         if (claim.until !== null) {
@@ -1731,16 +1609,17 @@ export class VgServer extends Server {
         }
       }
     }
+
     if (target === null) {
       return;
     }
 
-    // Keep an earlier pending alarm; pull a later one forward so a grace expiry
-    // is never left waiting on the next ping tick.
     const pending = await this.ctx.storage.getAlarm();
+
     if (pending !== null && pending <= target) {
       return;
     }
+
     await this.ctx.storage.setAlarm(target);
   }
 
@@ -1751,10 +1630,11 @@ export class VgServer extends Server {
    * game state. Inspecting a room wakes its Durable Object; with no open
    * connections it goes right back to sleep.
    */
-  onRequest(request: Request): Response {
+  onRequest(request: Request) {
     if (request.method !== "GET") {
       return Response.json({ error: "method_not_allowed" }, { status: 405 });
     }
+
     return Response.json({
       capacity: this.cap,
       hasHost: this.hostId !== null,
@@ -1764,67 +1644,51 @@ export class VgServer extends Server {
     });
   }
 
-  /** Clear a connection's presence, tolerating an already-dead socket. */
-  private static detachPresence(connection: Connection<Presence>): void {
+  private static detachPresence(connection: Connection<Presence>) {
     try {
       connection.setState(null);
-    } catch {
-      /* socket already gone */
-    }
+    } catch {}
   }
 
-  private async removePlayer(connection: Connection<Presence>): Promise<void> {
-    // A connection refused at capacity (room_full) is closed before being
-    // admitted, so it carries no presence and no client saw it join. Skip the
-    // announce so we don't broadcast a spurious player_left. `player_left` is
-    // idempotent on the client anyway, so a trailing onClose after a sweep is
-    // harmless.
+  private async removePlayer(connection: Connection<Presence>) {
     const presence = connection.state;
+
     if (!presence) {
       return;
     }
-    // Detach presence first: the eviction sweep calls this before close(), and
-    // the close's own async onClose must find nothing left to grace — otherwise
-    // an evicted player would come straight back as a held seat.
+
     VgServer.detachPresence(connection);
-    // Forfeit a held seat only if this connection OWNS it (token match).
-    // Matching by player id would let anyone destroy a held seat: ids are
-    // public (broadcast to every peer), so a rogue client could join under the
-    // ghost's id and cleanly leave, reaping a seat it never held.
     const held = this.grace.get(presence.token);
+
     if (held) {
       await this.consumeGrace(held);
     }
+
     await this.announceDeparture(connection.id);
   }
 
-  /**
-   * A player id is actually leaving the room (immediate removal, or a grace
-   * window that lapsed): announce it, hand off host if they held it, and reset
-   * the room once truly empty.
-   */
-  private async announceDeparture(id: string): Promise<void> {
+  private async announceDeparture(id: string) {
     this.snapshots.delete(id);
     this.forgetPlayer(id);
-    // Tick rooms: the departed player's input clears on the next tick.
     this.clearInput(id);
 
     const leftMessage: ServerMessage = {
       data: { id },
       type: "player_left",
     };
+
     this.broadcast(JSON.stringify(leftMessage), [id]);
 
-    // Remaining admitted players, now that this seat is gone. Host handoff
-    // targets live connections only — a seat in grace has no transport to
-    // stream shared state, so it can hold a seat but never inherit the host.
     let firstRemaining: string | null = null;
     let remainingCount = 0;
+
     for (const other of this.getConnections<Presence>()) {
       if (other.id === id || !other.state) {
         continue;
       }
+
       remainingCount += 1;
+
       if (firstRemaining === null || other.id < firstRemaining) {
         firstRemaining = other.id;
       }
@@ -1832,31 +1696,29 @@ export class VgServer extends Server {
 
     if (this.hostId === id) {
       await this.setHostId(firstRemaining);
+
       if (firstRemaining) {
         const hostMessage: ServerMessage = {
           data: { id: firstRemaining },
           type: "host",
         };
+
         this.broadcast(JSON.stringify(hostMessage), []);
       }
     }
 
-    // Reset the room once it empties so the next session starts fresh:
-    // otherwise state set by an earlier session outlives it on the (still-warm)
-    // Durable Object — a wrong cap or rules for a session that wants other
-    // ones, ghost world state and claims (eaten pellets, scores, farm tiles)
-    // that the next session's clients adopt before their new host's first
-    // broadcast. A room with seats still held in grace is NOT empty — its
-    // dropped players may be seconds from returning.
     if (remainingCount === 0 && this.grace.size === 0) {
       const lobby = this.rules?.lobby;
+
       if (lobby !== undefined) {
         if (this.lobbyTimer !== null) {
           clearTimeout(this.lobbyTimer);
           this.lobbyTimer = null;
         }
+
         this.tellLobby(lobby, null);
       }
+
       await this.setCap(null);
       await this.setRules(null);
       await this.setInfo(UNPUBLISHED);
@@ -1865,10 +1727,12 @@ export class VgServer extends Server {
       this.positions.clear();
       this.views.clear();
       this.stopTicker();
+
       if (this.persistTimer !== null) {
         clearTimeout(this.persistTimer);
         this.persistTimer = null;
       }
+
       await this.ctx.storage.delete(ROOM_KEY);
       this.roomPersisted = false;
     } else {
@@ -1879,14 +1743,12 @@ export class VgServer extends Server {
 
 export default {
   async fetch(request: Request, env: Env) {
-    // Liveness probe. Answered at the Worker layer so it never wakes a
-    // Durable Object — cheap enough for an uptime monitor to hammer.
     const url = new URL(request.url);
+
     if (url.pathname === "/health") {
       return Response.json({ ok: true, service: "vibedgames-party" });
     }
-    // CORS for the HTTP routes: a game's page lists and matches rooms from its
-    // own origin. Lobbies and rooms answer with public counts, never a cookie.
+
     return (
       (await routePartykitRequest(request, env, { cors: true })) ||
       new Response("Not Found", { status: 404 })

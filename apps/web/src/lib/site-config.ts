@@ -21,11 +21,6 @@ export interface SiteContact {
   address: PostalAddress | null;
 }
 
-/**
- * The person who runs Vibedgames, and where privacy requests and legal notices
- * go. The Privacy Policy and Terms of Use name both, so unlike the `contact`
- * fields neither may be unset; `contact.email` is this same mailbox.
- */
 const operator = {
   email: "kai@kyh.io",
   name: "Kaiyu Hsu",

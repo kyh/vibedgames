@@ -1,31 +1,4 @@
 #!/usr/bin/env tsx
-/**
- * Mint credit codes directly in the D1 database.
- *
- * Builds the rows with the shared `buildInviteRows` helper (the same one the
- * admin `createInvites` mutation uses, so they can't drift) and inserts
- * them into the `invite_code` table via `packages/db/d1-execute.ts` — runnable from
- * the shell without an admin session, handy for seeding codes locally or in
- * production. Run it with `tsx`:
- *
- *   pnpm exec tsx packages/service/scripts/create-invite.ts                     # one random single-use code
- *   pnpm exec tsx packages/service/scripts/create-invite.ts -- --code FRIEND     # a specific custom code
- *   pnpm exec tsx packages/service/scripts/create-invite.ts -- --count 10        # ten random codes
- *   pnpm exec tsx packages/service/scripts/create-invite.ts -- --max-uses 5 --note 'launch'
- *   pnpm exec tsx packages/service/scripts/create-invite.ts -- --credit-usd 5 --count 20
- *   pnpm exec tsx packages/service/scripts/create-invite.ts -- --expires-days 30
- *   pnpm exec tsx packages/service/scripts/create-invite.ts -- --code GOLDEN --max-uses 100 --remote
- *
- * Pass --remote to target production D1 (default is local).
- *
- * Notes:
- *   --code mints exactly one code with the value you give (normalized to
- *     upper-case, like redemption does), so it can't be combined with
- *     --count > 1.
- *   --max-uses defaults to 1; pass `unlimited` (or 0) for an uncapped code.
- *   --credit-usd defaults to 20: what one redemption grants.
- *   created_by is left NULL since there's no acting admin session.
- */
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -58,29 +31,35 @@ const usage =
   "  --note <text>          Free-text note stored alongside the code(s).\n" +
   "  --remote               Target production D1 (default: local).";
 
-const validateArgs = (out: Args): void => {
+const validateArgs = (out: Args) => {
   if (!Number.isInteger(out.count) || out.count < 1 || out.count > MAX_INVITE_BATCH) {
     console.error(`--count must be an integer between 1 and ${MAX_INVITE_BATCH}.`);
     process.exit(1);
   }
+
   if (!Number.isFinite(out.creditUsd) || out.creditUsd <= 0 || out.creditUsd > 1000) {
     console.error("--credit-usd must be a positive number of dollars, at most 1000.");
     process.exit(1);
   }
+
   if (out.maxUses !== null && (!Number.isInteger(out.maxUses) || out.maxUses < 1)) {
     console.error("--max-uses must be a positive integer, or `unlimited`.");
     process.exit(1);
   }
+
   if (out.expiresDays !== null && (!Number.isFinite(out.expiresDays) || out.expiresDays <= 0)) {
     console.error("--expires-days must be a positive number.");
     process.exit(1);
   }
+
   if (out.code !== null) {
     out.code = out.code.trim().toUpperCase();
+
     if (!out.code) {
       console.error("--code cannot be empty.");
       process.exit(1);
     }
+
     if (out.count > 1) {
       console.error("--code mints a single code; drop --count (or use it without --code).");
       process.exit(1);
@@ -88,7 +67,7 @@ const validateArgs = (out: Args): void => {
   }
 };
 
-const parseArgs = (argv: string[]): Args => {
+const parseArgs = (argv: string[]) => {
   const out: Args = {
     code: null,
     count: 1,
@@ -98,22 +77,23 @@ const parseArgs = (argv: string[]): Args => {
     note: null,
     remote: false,
   };
-  // Read the value following a flag, erroring clearly if it's missing (e.g.
-  // the flag was the last token) rather than letting `undefined` slip through.
-  const nextValue = (i: number, flag: string): string => {
+
+  const nextValue = (i: number, flag: string) => {
     const v = argv[i];
+
     if (v === undefined) {
       console.error(`${flag} expects a value.\n\n${usage}`);
       process.exit(1);
     }
+
     return v;
   };
 
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
+
     if (arg === "--") {
       continue;
-      // bare separator forwarded by `pnpm run -- …`
     } else if (arg === "--remote") {
       out.remote = true;
     } else if (arg === "--code") {
@@ -139,21 +119,17 @@ const parseArgs = (argv: string[]): Args => {
   }
 
   validateArgs(out);
+
   return out;
 };
 
-// SQLite/D1 literal — string single-quoted (quotes doubled), null → NULL.
 const lit = (v: string | null) => (v === null ? "NULL" : `'${v.replaceAll("'", "''")}'`);
 
 const main = () => {
   const args = parseArgs(process.argv.slice(2));
 
-  // Domain logic (code generation, in-batch dedup, custom-code validation +
-  // normalization, column defaults) lives in the shared helper; the script only
-  // serializes the resulting rows to SQL since it can't reach a D1 binding
-  // offline. created_by is null — these codes aren't attributed to an admin
-  // session. The helper rejects unredeemable custom codes; surface that cleanly.
   let rows: ReturnType<typeof buildInviteRows>;
+
   try {
     rows = buildInviteRows({
       code: args.code,
@@ -170,12 +146,13 @@ const main = () => {
     process.exit(1);
   }
 
-  // Columns omitted (created_at, used_count, revoked_at) fall back to schema defaults.
   const values = rows
     .map((r) => {
       const maxUses = r.maxUses === null || r.maxUses === undefined ? "NULL" : String(r.maxUses);
+
       const exp =
         r.expiresAt === null || r.expiresAt === undefined ? "NULL" : String(r.expiresAt.getTime());
+
       return `(${lit(r.id ?? null)}, ${lit(r.code)}, ${lit(r.createdBy ?? null)}, ${r.creditMicro}, ${maxUses}, ${exp}, ${lit(r.note ?? null)})`;
     })
     .join(",\n  ");
@@ -209,6 +186,7 @@ const main = () => {
 
   const cap = args.maxUses === null ? "unlimited uses" : `${args.maxUses} use(s) each`;
   console.log(`\nCreated ${rows.length} credit code(s) worth $${args.creditUsd} — ${cap}:`);
+
   for (const r of rows) {
     console.log(`  ${r.code}`);
   }

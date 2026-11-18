@@ -7,7 +7,6 @@ import {
   globalInstallCommand,
 } from "../src/lib/package-manager.js";
 
-/** No inherited env, so each case tests exactly the signal it names. */
 const clean: NodeJS.ProcessEnv = {};
 
 test("a global install path names the manager that wrote it", () => {
@@ -23,13 +22,13 @@ test("a global install path names the manager that wrote it", () => {
     ["C:\\Users\\kim\\AppData\\Roaming\\npm\\node_modules\\vibedgames\\dist\\index.js", "npm"],
     ["C:\\Users\\kim\\.bun\\install\\global\\node_modules\\vibedgames\\dist\\index.js", "bun"],
   ];
+
   for (const [path, expected] of cases) {
     assert.equal(detectPackageManager(path, clean), expected, path);
   }
 });
 
 test("a project-local .pnpm directory is not a global pnpm install", () => {
-  // Running from a repo checkout — pnpm's virtual store, not its global root.
   assert.equal(
     detectPackageManager(
       "/srv/app/node_modules/.pnpm/vibedgames@0.3.1/node_modules/vibedgames/dist/index.js",
@@ -50,7 +49,6 @@ test("the invoking manager is the fallback when the path says nothing", () => {
     "yarn",
   );
   assert.equal(detectPackageManager(path, { npm_config_user_agent: "bun/1.1.0" }), "bun");
-  // An unfamiliar agent is not a guess to act on.
   assert.equal(detectPackageManager(path, { npm_config_user_agent: "deno/2.0" }), "npm");
 });
 
@@ -59,8 +57,6 @@ test("npm is the last resort", () => {
 });
 
 test("the path wins over the invoking manager", () => {
-  // `pnpm dlx vg update` on an npm-installed CLI must still use npm: the
-  // install location is what determines where an upgrade lands.
   assert.equal(
     detectPackageManager("/usr/local/lib/node_modules/vibedgames/dist/index.js", {
       npm_config_user_agent: "pnpm/9.1.0",

@@ -1,5 +1,3 @@
-// Headless physics harness: drives PlayerBody through the pure collision grid
-// and asserts the feel invariants. No Phaser, no browser. Run: `pnpm test`.
 import { TILE } from "../src/config.ts";
 import { ENEMIES } from "../src/data/enemies.ts";
 import { HEROES } from "../src/data/heroes.ts";
@@ -44,11 +42,11 @@ import { heldBits, mergePresses, pressBits, unpackInput } from "../src/net/uplin
 import { checkpointRng, rand, reseed, restoreRng } from "../src/sys/rng.ts";
 
 const STEP = 1 / 60;
-// feet rest here on the test floor
 const FLOOR_Y = (ROWS - 2) * TILE;
 
 let pass = 0;
 let fail = 0;
+
 const check = (name: string, cond: boolean, detail = "") => {
   if (cond) {
     pass += 1;
@@ -69,22 +67,23 @@ const NEUTRAL: BodyInput = {
   specialPressed: false,
   up: false,
 };
-const inp = (o: Partial<BodyInput>): BodyInput => ({ ...NEUTRAL, ...o });
-// A checkpoint crosses the wire as JSON; round-trip it the same way.
-// oxlint-disable-next-line unicorn/prefer-structured-clone -- the JSON round trip IS the thing under test; structuredClone keeps what the wire drops
-const wire = <T,>(v: T): T => JSON.parse(JSON.stringify(v));
 
-// Settle onto the floor first (a couple steps of gravity + contact).
-const spawn = (x = 240, y = FLOOR_Y, hero: keyof typeof HEROES = "axion"): PlayerBody => {
+const inp = (o: Partial<BodyInput>) => ({ ...NEUTRAL, ...o });
+
+// oxlint-disable-next-line unicorn/prefer-structured-clone -- the JSON round trip IS the thing under test; structuredClone keeps what the wire drops
+const wire = <T,>(v: T) => JSON.parse(JSON.stringify(v));
+
+const spawn = (x = 240, y = FLOOR_Y, hero: keyof typeof HEROES = "axion") => {
   const b = new PlayerBody(Grid.test(), x, y, HEROES[hero].kit);
+
   for (let i = 0; i < 5; i += 1) {
     b.buffer(NEUTRAL);
     b.step(STEP);
   }
+
   return b;
 };
 
-// Run `frames` steps holding `held`; `pressOn` fires edge inputs on given frame.
 const run = (
   b: PlayerBody,
   frames: number,
@@ -97,56 +96,57 @@ const run = (
   }
 };
 
-const embedded = (g: Grid, b: PlayerBody): boolean =>
+const embedded = (g: Grid, b: PlayerBody) =>
   g.solidInRect(b.x - PLAYER_HALF_W, b.y - PLAYER_BODY_H, b.x + PLAYER_HALF_W, b.y);
 
 console.log("lunerfall physics sim\n");
 
-// 1. Spawns and rests on the floor.
 {
   const b = spawn();
   check("rests on floor", b.grounded && Math.abs(b.y - FLOOR_Y) < 1, `y=${b.y.toFixed(1)}`);
   check("no residual velocity", Math.abs(b.vy) < 1 && Math.abs(b.vx) < 1);
 }
 
-// 2. Full jump reaches a sensible apex then returns to ground.
 {
   const b = spawn();
   let apex = b.y;
   b.buffer(inp({ jumpHeld: true, jumpPressed: true }));
   b.step(STEP);
+
   for (let f = 0; f < 120; f += 1) {
-    // hold on the way up
     b.buffer(inp({ jumpHeld: b.vy < 0 }));
     b.step(STEP);
     apex = Math.min(apex, b.y);
   }
+
   const height = FLOOR_Y - apex;
   check("jump apex height 40–72px", height > 40 && height < 72, `${height.toFixed(1)}px`);
   check("lands back on floor", b.grounded && Math.abs(b.y - FLOOR_Y) < 1);
 }
 
-// 3. Variable jump: tapping (release immediately) hops lower than holding.
 {
   const tap = spawn();
   tap.buffer(inp({ jumpHeld: true, jumpPressed: true }));
   tap.step(STEP);
   let tapApex = tap.y;
+
   for (let f = 0; f < 120; f += 1) {
-    // released
     tap.buffer(NEUTRAL);
     tap.step(STEP);
     tapApex = Math.min(tapApex, tap.y);
   }
+
   const hold = spawn();
   hold.buffer(inp({ jumpHeld: true, jumpPressed: true }));
   hold.step(STEP);
   let holdApex = hold.y;
+
   for (let f = 0; f < 120; f += 1) {
     hold.buffer(inp({ jumpHeld: hold.vy < 0 }));
     hold.step(STEP);
     holdApex = Math.min(holdApex, hold.y);
   }
+
   check(
     "tap jumps lower than hold",
     FLOOR_Y - tapApex < FLOOR_Y - holdApex - 8,
@@ -154,59 +154,60 @@ console.log("lunerfall physics sim\n");
   );
 }
 
-// 4. Coyote time: can still jump a few frames after walking off a ledge.
 {
-  // Left solid ledge = cols 6..10 at row 10 (right edge at x=176). Start near
-  // the edge so a few frames of running clears it into the air.
   const ledgeY = 10 * TILE;
   const b = spawn(172, ledgeY);
   check("on ledge grounded", b.grounded, `y=${b.y.toFixed(1)}`);
   let airborneAt = -1;
   let jumpFrame = -1;
   let jumpedUp = false;
+
   for (let f = 0; f < 30; f += 1) {
     if (b.grounded === false && airborneAt < 0) {
       airborneAt = f;
     }
-    // jump 2 frames after leaving the ledge — inside the 0.1s coyote window.
+
     const press = airborneAt >= 0 && f === airborneAt + 2;
+
     if (press) {
       jumpFrame = f;
     }
+
     b.buffer(inp({ jumpHeld: jumpFrame >= 0, jumpPressed: press, right: true }));
     b.step(STEP);
+
     if (jumpFrame >= 0 && f >= jumpFrame && b.vy < 0) {
       jumpedUp = true;
     }
   }
+
   check("coyote jump after leaving ledge", jumpedUp, `airborne@${airborneAt}`);
 }
 
-// 5. Dash: covers ground quickly and grants i-frames.
 {
   const b = spawn();
   const x0 = b.x;
   b.buffer(inp({ dashPressed: true, right: true }));
   b.step(STEP);
   check("i-frames active during dash", b.iframes > 0 && b.dashing);
-  // dash duration ~0.15s = 9 frames
   run(b, 9, { right: true });
   const dist = b.x - x0;
   check("dash covers 35–60px", dist > 35 && dist < 60, `${dist.toFixed(1)}px`);
 }
 
-// 6. Wall slide: pressing into the right wall caps fall speed.
 {
-  // Spawn airborne next to the right wall (col 29 solid), press right + fall.
   const b = new PlayerBody(Grid.test(), (Grid.test().cols - 1) * TILE - 7, 60);
   let maxFall = 0;
+
   for (let f = 0; f < 40; f += 1) {
     b.buffer(inp({ right: true }));
     b.step(STEP);
+
     if (b.wallDir === 1) {
       maxFall = Math.max(maxFall, b.vy);
     }
   }
+
   check("touches right wall", b.wallDir === 1 || b.grounded);
   check(
     "wall slide caps fall speed <90",
@@ -215,30 +216,25 @@ console.log("lunerfall physics sim\n");
   );
 }
 
-// 7. One-way platform: land from above, drop through when holding down.
 {
-  // low-left one-way at row 12, cols 3..7. Spawn just above it, falling.
   const owY = 12 * TILE;
   const b = new PlayerBody(Grid.test(), 5 * TILE, owY - 20);
-  // fall onto it
   run(b, 30, {});
   check("lands on one-way", b.grounded && Math.abs(b.y - owY) < 1, `y=${b.y.toFixed(1)}`);
-  // hold down to drop through
   run(b, 20, { down: true });
   check("drops through on down", b.y > owY + 4, `y=${b.y.toFixed(1)}`);
 }
 
-// 8. Attack combo chains 1 → 2 → 3 when spamming attack.
 {
   const b = spawn();
   let maxStep = 0;
-  // 150 frames: each swing runs for its (tempo-scaled) `dur`, and the next chains
-  // when it ends, so 3 hits span ~2.6s at SWING_TEMPO 4 — widen the window to suit.
+
   for (let f = 0; f < 150; f += 1) {
     b.buffer(inp({ attackPressed: true }));
     b.step(STEP);
     maxStep = Math.max(maxStep, b.attackStep);
   }
+
   check(
     "combo reaches step 3",
     maxStep === 3 && b.swingId >= 3,
@@ -246,28 +242,27 @@ console.log("lunerfall physics sim\n");
   );
 }
 
-// 9. Attack hitbox is live in front during the active window.
 {
   const b = spawn(100, FLOOR_Y);
-  // face right
   run(b, 3, { right: true });
   let boxSeen = false;
   b.buffer(inp({ attackPressed: true, right: true }));
   b.step(STEP);
+
   for (let f = 0; f < 12; f += 1) {
-    // Box reaches in front (right > x); it also overlaps the body a little for
-    // point-blank hits, so the near edge sits just behind center.
     const box = b.attackBox();
+
     if (box && box.right > b.x && box.left >= b.x - 10) {
       boxSeen = true;
     }
+
     b.buffer(inp({ right: true }));
     b.step(STEP);
   }
+
   check("attack hitbox live in front", boxSeen);
 }
 
-// 10. i-frames gate repeated hurt.
 {
   const b = spawn();
   const first = b.applyHurt(1);
@@ -275,14 +270,12 @@ console.log("lunerfall physics sim\n");
   check("hurt lands once, then invuln", first === true && second === false);
 }
 
-// 11. Head-stomp bounce sends the player upward.
 {
   const b = spawn();
   b.bounce();
   check("stomp bounce is upward", b.vy < -100 && !b.grounded, `vy=${b.vy.toFixed(0)}`);
 }
 
-// 11b. Co-op last stand: a downed body is frozen + invulnerable until revived.
 {
   const b = spawn();
   const x0 = b.x;
@@ -301,9 +294,11 @@ console.log("lunerfall physics sim\n");
   check("downed body is invulnerable", b.applyHurt(1) === false);
   const air = new PlayerBody(Grid.test(), 240, FLOOR_Y - 60, HEROES.axion.kit);
   air.down();
+
   for (let f = 0; f < 90; f += 1) {
     air.step(STEP);
   }
+
   check(
     "downed body still falls to the floor",
     air.grounded && Math.abs(air.y - FLOOR_Y) < 1,
@@ -315,72 +310,78 @@ console.log("lunerfall physics sim\n");
   check("revived body moves again", b.x - x0 > 10, `dx=${(b.x - x0).toFixed(1)}`);
 }
 
-// 12. Warrior chases the target and swings when in range.
 {
   const g = Grid.test();
   const w = new EnemyBody(ENEMIES.warrior, g, 300, FLOOR_Y);
   const tx = 210;
   let sawAttack = false;
   let minDist = 999;
+
   for (let f = 0; f < 180; f += 1) {
     w.step(STEP, tx, FLOOR_Y);
     minDist = Math.min(minDist, Math.abs(w.x - tx));
+
     if (w.attackBox()) {
       sawAttack = true;
     }
   }
+
   check("warrior closes on target", minDist < 30, `minDist=${minDist.toFixed(0)}`);
   check("warrior swings in range", sawAttack);
 }
 
-// 13. Warrior dies after two clean melee hits.
 {
   const g = Grid.test();
   const w = new EnemyBody(ENEMIES.warrior, g, 200, FLOOR_Y);
-  // let spawn elapse
+
   for (let f = 0; f < 30; f += 1) {
     w.step(STEP, 200, FLOOR_Y);
   }
+
   w.takeHit(1, 100, 1);
   const aliveMid = !w.dead;
-  // clear i-frames
+
   for (let f = 0; f < 12; f += 1) {
     w.step(STEP, 200, FLOOR_Y);
   }
+
   w.takeHit(1, 100, 1);
   check("warrior dies after 2 hits", aliveMid && w.dead);
 }
 
-// 14. Archer fires a projectile aimed at the target.
 {
   const g = Grid.test();
   const a = new EnemyBody(ENEMIES.archer, g, 120, FLOOR_Y);
   const tx = 260;
   let proj: Projectile | null = null;
+
   for (let f = 0; f < 120 && !proj; f += 1) {
     a.step(STEP, tx, FLOOR_Y);
+
     if (a.pendingProjectile) {
       proj = a.pendingProjectile;
     }
   }
+
   check("archer fires toward target", proj !== null && proj.vx > 0);
 }
 
-// 15. Bomber explodes near the target.
 {
   const g = Grid.test();
   const bomber = new EnemyBody(ENEMIES.bomber, g, 240, FLOOR_Y);
   let blast = false;
+
   for (let f = 0; f < 240 && !blast; f += 1) {
     bomber.step(STEP, 250, FLOOR_Y);
+
     if (bomber.pendingBlast) {
       blast = true;
     }
   }
+
   check("bomber explodes near target", blast && bomber.dead);
 }
 
-// sanity: rectsOverlap is correct
 check(
   "rectsOverlap basic",
   rectsOverlap(
@@ -392,7 +393,6 @@ check(
 const inRoom = (r: { cols: number; rows: number }, s: { x: number; y: number }) =>
   s.x > 0 && s.x < r.cols * TILE && s.y > 0 && s.y <= r.rows * TILE;
 
-// 16. Room templates are well-formed.
 {
   const start = START();
   check(
@@ -405,22 +405,26 @@ const inRoom = (r: { cols: number; rows: number }, s: { x: number; y: number }) 
   check("boss room has boss spawn + door", !!boss.bossSpawn && boss.doorSlots.length >= 1);
 }
 
-// 17. A run reaches the boss, then descends to a harder biome.
 {
   const manager = new RunManager();
   manager.begin();
   let sawBoss = false;
+
   for (let i = 0; i < 15 && manager.type !== "boss"; i += 1) {
     const offers = manager.offers();
     const [first] = offers;
+
     if (!first) {
       break;
     }
+
     if (first.type === "boss") {
       sawBoss = true;
     }
+
     manager.choose(first);
   }
+
   check(
     "run reaches the boss",
     manager.type === "boss" && sawBoss,
@@ -431,7 +435,6 @@ const inRoom = (r: { cols: number; rows: number }, s: { x: number; y: number }) 
   check("beating boss descends a biome", manager.biome === b0 + 1 && manager.depth === 1);
 }
 
-// 18. Hero specials: blink teleports, heal queues HP, flame-wave fires a shot.
 {
   const riven = spawn(120, FLOOR_Y, "riven");
   run(riven, 3, { right: true });
@@ -454,25 +457,29 @@ const inRoom = (r: { cols: number; rows: number }, s: { x: number; y: number }) 
   let shot = false;
   sal.buffer(inp({ specialPressed: true }));
   sal.step(STEP);
+
   for (let f = 0; f < 40 && !shot; f += 1) {
     if (sal.pendingShot && sal.pendingShot.vx > 0) {
       shot = true;
     }
+
     sal.buffer(NEUTRAL);
     sal.step(STEP);
   }
+
   check("salamander flame-wave fires forward", shot);
 }
 
-// 19. Boss: attacks, enters phase 2 at half HP, dies at 0, emits a flame wave.
 {
   const g = Grid.test();
   const boss = new BossBody(g, 240, FLOOR_Y, 1);
   const { maxHp } = boss;
   let sawAttack = false;
   let sawWave = false;
+
   for (let f = 0; f < 300; f += 1) {
     boss.step(STEP, 200, FLOOR_Y);
+
     if (
       boss.state === "wave" ||
       boss.state === "jump" ||
@@ -481,34 +488,38 @@ const inRoom = (r: { cols: number; rows: number }, s: { x: number; y: number }) 
     ) {
       sawAttack = true;
     }
+
     if (boss.pendingWave) {
       sawWave = true;
       boss.pendingWave = null;
     }
   }
+
   check("boss attacks the player", sawAttack);
   check(
     "boss can fire a flame wave",
     sawWave || boss.state !== "wave",
     "wave or non-wave state ok",
   );
-  // damage it to half → phase 2
+
   while (boss.hp > maxHp / 2) {
     boss.step(STEP, 200, FLOOR_Y);
     boss.takeHit(2, 0, 1);
   }
+
   boss.takeHit(2, 0, 1);
   check("boss enters phase 2 at half HP", boss.phase === 2, `hp=${boss.hp}/${maxHp}`);
   let guard = 0;
+
   while (!boss.dead && guard < 400) {
     guard += 1;
     boss.step(STEP, 200, FLOOR_Y);
     boss.takeHit(3, 0, 1);
   }
+
   check("boss dies at 0 HP", boss.dead && boss.state === "dead");
 }
 
-// 20. Relics apply mods correctly; the shop picks distinct relics.
 {
   const m = baseMods();
   const d0 = m.dmg;
@@ -517,7 +528,6 @@ const inRoom = (r: { cols: number; rows: number }, s: { x: number; y: number }) 
   edge?.apply(m);
   const vigor = RELICS.find((r) => r.id === "vigor");
   vigor?.apply(m);
-  // Both axes moved independently (value-agnostic so tuning doesn't break the test).
   check(
     "relics stack onto mods",
     m.dmg > d0 && m.maxHearts === h0 + 1,
@@ -530,12 +540,10 @@ const inRoom = (r: { cols: number; rows: number }, s: { x: number; y: number }) 
   check("shop respects owned exclusions", pickRelics(3, excl).length === 1);
 }
 
-// 21. Meta: runs bank shards, shards unlock warriors, gating holds.
 {
   const m = { bestDepth: 0, runs: 0, shards: 0, unlocked: ["axion", "reaper"], upgrades: {} };
   check("free warriors start unlocked", isUnlocked(m, "axion") && isUnlocked(m, "reaper"));
   check("paid warriors start locked", !isUnlocked(m, "riven") && !isUnlocked(m, "mooni"));
-  // 10 + 10 + 6
   const earned = bankRun(m, 40, 5, 2);
   check(
     "run banks shards + best depth",
@@ -552,7 +560,6 @@ const inRoom = (r: { cols: number; rows: number }, s: { x: number; y: number }) 
   );
 }
 
-// 21b. Meta upgrades: buying spends shards, caps at max, and feeds run bonuses.
 {
   const m = { bestDepth: 0, runs: 0, shards: 300, unlocked: ["axion"], upgrades: {} };
   check(
@@ -560,9 +567,7 @@ const inRoom = (r: { cols: number; rows: number }, s: { x: number; y: number }) 
     buyUpgrade(m, "vitality") && upgradeLevel(m, "vitality") === 1 && m.shards === 270,
   );
   check("run bonus reflects level", runBonuses(m).hearts === 1);
-  // → 2
   buyUpgrade(m, "vitality");
-  // → 3 = max (vitality total 30+56+82 = 168)
   buyUpgrade(m, "vitality");
   check("upgrade caps at max", !buyUpgrade(m, "vitality") && upgradeLevel(m, "vitality") === 3);
   const poor = { bestDepth: 0, runs: 0, shards: 0, unlocked: ["axion"], upgrades: {} };
@@ -572,7 +577,6 @@ const inRoom = (r: { cols: number; rows: number }, s: { x: number; y: number }) 
   );
 }
 
-// 22. Online versus: rounds, per-duelist hearts, KOs, first-to-3, rematch.
 {
   const m = new VersusMatch();
   check("versus starts in the lobby", m.phase === "waiting" && !m.frozen);
@@ -586,9 +590,11 @@ const inRoom = (r: { cols: number; rows: number }, s: { x: number; y: number }) 
     m.damage("guest", 2) === false && m.hp.guest === VS_HEARTS,
   );
   let t: string | null = null;
+
   for (let f = 0; f < 180 && t !== "fight"; f += 1) {
     t = m.step(STEP);
   }
+
   check("countdown releases into fighting", t === "fight" && m.phase === "fighting" && !m.frozen);
   check(
     "a hit takes the victim's OWN hearts",
@@ -599,44 +605,55 @@ const inRoom = (r: { cols: number; rows: number }, s: { x: number; y: number }) 
     m.damage("guest", 99) === false && m.hp.guest === VS_HEARTS - 1 - VS_HIT_CAP,
   );
   let ended = false;
+
   for (let i = 0; i < 9 && !ended; i += 1) {
     ended = m.damage("guest", 2);
   }
+
   check(
     "a KO ends the round for the survivor",
     ended && m.phase === "roundEnd" && m.winner === "host" && m.score.host === 1,
   );
   t = null;
+
   for (let f = 0; f < 300 && t === null; f += 1) {
     t = m.step(STEP);
   }
+
   check(
     "round end resets a fresh round",
     t === "respawn" && m.round === 2 && m.hp.guest === VS_HEARTS && m.phase === "countdown",
   );
   let sawEnd: string | null = null;
+
   for (let r = 0; r < 8 && m.phase !== "matchEnd"; r += 1) {
     while (m.phase === "countdown") {
       m.step(STEP);
     }
+
     while (m.phase === "fighting") {
       m.damage("guest", VS_HIT_CAP);
     }
+
     while (m.phase === "roundEnd") {
       const x = m.step(STEP);
+
       if (x) {
         sawEnd = x;
       }
     }
   }
+
   check(
     "first to 3 rounds takes the match",
     sawEnd === "matchEnd" && m.winner === "host" && m.score.host === VS_WIN_SCORE,
   );
   check("rematch waits out the end hold", m.canRematch === false);
+
   for (let f = 0; f < 180; f += 1) {
     m.step(STEP);
   }
+
   check("rematch arms after the hold", m.canRematch);
   m.beginMatch();
   check(
@@ -650,18 +667,20 @@ const inRoom = (r: { cols: number; rows: number }, s: { x: number; y: number }) 
   );
   const h = new VersusMatch();
   h.beginMatch();
+
   while (h.phase === "countdown") {
     h.step(STEP);
   }
+
   h.damage("host", 1);
   h.heal("host", 5);
   check("self-heal restores own hearts, capped", h.hp.host === VS_HEARTS);
 }
 
-// 23. Versus arena: compact, left-right symmetric, spawn has footing.
 {
   const a = VERSUS();
   let sym = true;
+
   for (let y = 0; y < a.rows; y += 1) {
     for (let x = 0; x < a.cols; x += 1) {
       if (a.grid.cells[y * a.cols + x] !== a.grid.cells[y * a.cols + (a.cols - 1 - x)]) {
@@ -669,6 +688,7 @@ const inRoom = (r: { cols: number; rows: number }, s: { x: number; y: number }) 
       }
     }
   }
+
   check("versus arena is mirror-symmetric", sym);
   const sp = a.playerSpawn;
   const mid = (a.cols * TILE) / 2;
@@ -681,20 +701,15 @@ const inRoom = (r: { cols: number; rows: number }, s: { x: number; y: number }) 
     "versus arena has no doors or enemies",
     a.doorSlots.length === 0 && a.enemySpawns.length === 0,
   );
-  // Regression: spawning under a side ledge buried the 22px body in its
-  // underside and neither duelist could move for the whole round.
-  const clear = (x: number): boolean =>
+
+  const clear = (x: number) =>
     !a.grid.solidInRect(x - PLAYER_HALF_W, sp.y - PLAYER_BODY_H + 2, x + PLAYER_HALF_W, sp.y - 2);
+
   check(
     "versus spawn boxes are clear of geometry",
     clear(sp.x) && clear(a.cols * TILE - sp.x),
     `spawn=(${sp.x},${sp.y})`,
   );
-  // The stronger regression: clear spawns are not enough. The side ledges and
-  // the centre riser all sit at head height over a standing body, so the arena
-  // floor is a row of pens — a duelist who only walks reaches the riser's face
-  // and stops there for the whole round. Assert the pens are connected, i.e.
-  // that jumping when the approach stalls actually reaches the mirror spawn.
   {
     const mirrorX = a.cols * TILE - sp.x;
     const host = new PlayerBody(a.grid, sp.x, sp.y, HEROES.axion.kit);
@@ -702,22 +717,28 @@ const inRoom = (r: { cols: number; rows: number }, s: { x: number; y: number }) 
     let movingSince = 0;
     let lastJump = -1e9;
     let closest = Infinity;
+
     for (let f = 0; f < 180; f += 1) {
       const t = (f / 60) * 1000;
       const dx = mirrorX - host.x;
       closest = Math.min(closest, Math.abs(dx));
       const moved = Math.abs(host.x - lastX) > 0.5;
       lastX = host.x;
+
       if (moved || Math.abs(dx) <= 30) {
         movingSince = t;
       }
+
       const stalled = t - movingSince > 120 && t - lastJump > 500;
+
       if (stalled) {
         lastJump = t;
       }
+
       host.buffer(inp({ jumpHeld: true, jumpPressed: stalled, left: dx < -30, right: dx > 30 }));
       host.step(1 / 60);
     }
+
     check(
       "a duelist can cross the arena to the opposing spawn",
       closest <= 30,
@@ -726,8 +747,7 @@ const inRoom = (r: { cols: number; rows: number }, s: { x: number; y: number }) 
   }
 }
 
-// A fixed input reel the prediction tests replay on two bodies.
-const script = (f: number): Partial<BodyInput> => ({
+const script = (f: number) => ({
   attackPressed: f === 20,
   dashPressed: f === 70,
   jumpHeld: f % 50 < 10,
@@ -736,17 +756,17 @@ const script = (f: number): Partial<BodyInput> => ({
   right: f < 40 || f > 90,
 });
 
-// 24. Guest prediction: identical bodies + identical input never diverge (the
-// property that makes client-side prediction viable at all).
 {
   const a = spawn();
   const b = spawn();
+
   for (let f = 0; f < 120; f += 1) {
     a.buffer(inp(script(f)));
     a.step(STEP);
     b.buffer(inp(script(f)));
     b.step(STEP);
   }
+
   check(
     "prediction determinism: same input → same trajectory",
     Math.abs(a.x - b.x) < 1e-9 && Math.abs(a.y - b.y) < 1e-9 && a.swingId === b.swingId,
@@ -754,8 +774,6 @@ const script = (f: number): Partial<BodyInput> => ({
   );
 }
 
-// 25. Wire codecs: a tick of input, a player row and a host edge survive the
-// trip; the boundary parsers turn away what no host or guest would send.
 {
   const hands: Partial<BodyInput>[] = [
     {},
@@ -763,6 +781,7 @@ const script = (f: number): Partial<BodyInput> => ({
     { attackPressed: true, down: true, left: true },
     { dashPressed: true, specialPressed: true, up: true },
   ];
+
   const keys = [
     "left",
     "right",
@@ -774,20 +793,24 @@ const script = (f: number): Partial<BodyInput> => ({
     "attackPressed",
     "specialPressed",
   ] as const;
+
   check(
     "a packed input tick unpacks to the same input",
     hands.every((h) => {
       const i = inp(h);
       const back = unpackInput(heldBits(i) + pressBits(i));
+
       return keys.every((k) => back[k] === (i[k] ?? false));
     }),
   );
+
   const both = unpackInput(
     mergePresses(
       pressBits(inp({ jumpPressed: true })),
       pressBits(inp({ dashPressed: true, jumpPressed: true })),
     ),
   );
+
   check(
     "presses from two frames before one step merge",
     both.jumpPressed && both.dashPressed && !both.attackPressed,
@@ -859,33 +882,34 @@ const script = (f: number): Partial<BodyInput> => ({
   );
 }
 
-// The constrained generator must ALWAYS produce a room where every door + enemy
-// is reachable from the spawn — verifyRoom independently path-maps the finished
-// grid (conservative jump envelope), whatever biome knobs were used. Sweep the
-// biome character 1–5 so the taller/denser deep-biome layouts are covered too.
 {
   const N = 800;
   let broken = 0;
   let empty = 0;
   let doorless = 0;
   let firstTry = 0;
+
   for (let seed = 1; seed <= N; seed += 1) {
     const biome = 1 + (seed % 5);
     const def = genCombatRoom(seed, biome);
+
     if (!verifyRoom(def)) {
       broken += 1;
     }
+
     if (def.enemySpawns.length === 0) {
       empty += 1;
     }
+
     if (def.doorSlots.length === 0) {
       doorless += 1;
     }
-    // did the raw attempt already pass?
+
     if (verifyRoom(genAttempt(seed, biome))) {
       firstTry += 1;
     }
   }
+
   check("every generated room is fully reachable", broken === 0, `${broken}/${N} broken`);
   check(
     "every generated room has enemies + a door",
@@ -899,9 +923,6 @@ const script = (f: number): Partial<BodyInput> => ({
   );
 }
 
-// ── Host-migration checkpoints ────────────────────────────────────────────────
-// A body restored from its checkpoint must continue exactly as the original
-// would have: the successor host resumes the sim mid-swing, mid-dash, mid-fuse.
 {
   const p = spawn(120, FLOOR_Y, "reaper");
   run(p, 30, { right: true }, { 12: { dashPressed: true }, 3: { jumpPressed: true } });
@@ -920,33 +941,43 @@ const script = (f: number): Partial<BodyInput> => ({
     JSON.stringify(twin.checkpoint()) === JSON.stringify(p.checkpoint()),
   );
   const g = Grid.test();
+
   for (const kind of [ENEMIES.warrior, ENEMIES.archer, ENEMIES.bomber, ENEMIES.spearman]) {
     const e = new EnemyBody(kind, g, 300, FLOOR_Y);
+
     for (let i = 0; i < 50; i += 1) {
       e.step(STEP, 200, FLOOR_Y);
     }
+
     const copy = new EnemyBody(kind, g, 0, 0);
     copy.restore(wire(e.checkpoint()));
+
     for (let i = 0; i < 90; i += 1) {
       e.step(STEP, 200 + i, FLOOR_Y);
       copy.step(STEP, 200 + i, FLOOR_Y);
     }
+
     check(
       `restored ${kind.name} replays identically`,
       JSON.stringify(copy.checkpoint()) === JSON.stringify(e.checkpoint()),
       `${e.state}`,
     );
   }
+
   const boss = new BossBody(g, 240, FLOOR_Y, 2);
+
   for (let i = 0; i < 200; i += 1) {
     boss.step(STEP, 120, FLOOR_Y);
   }
+
   const bossCopy = new BossBody(g, 0, 0, 2);
   bossCopy.restore(wire(boss.checkpoint()));
+
   for (let i = 0; i < 120; i += 1) {
     boss.step(STEP, 120 + i, FLOOR_Y);
     bossCopy.step(STEP, 120 + i, FLOOR_Y);
   }
+
   check(
     "restored boss replays identically",
     JSON.stringify(bossCopy.checkpoint()) === JSON.stringify(boss.checkpoint()),
@@ -1008,8 +1039,8 @@ const script = (f: number): Partial<BodyInput> => ({
     specialReadiness({ ...readiness, downed: true, specialCd: 0 }).kind === "busy",
   );
 
-  // The validator must admit exactly what the host encodes — nothing looser.
   const def = START();
+
   const room: NetRoom = {
     cells: [...def.grid.cells],
     cols: def.grid.cols,
@@ -1023,6 +1054,7 @@ const script = (f: number): Partial<BodyInput> => ({
     spawnY: def.playerSpawn.y,
     type: "start",
   };
+
   const checkpoint: ExpeditionCheckpoint = {
     accumulator: 0,
     arrows: [],
@@ -1109,24 +1141,29 @@ const script = (f: number): Partial<BodyInput> => ({
     versus: null,
     writer: "host",
   };
+
   const ok = readCheckpoint(wire({ checkpoint, room }));
   check("validator admits a host-shaped checkpoint", ok.kind === "ready");
   check(
     "absent shared state is absent, not invalid",
     readCheckpoint(null).kind === "absent" && readCheckpoint({}).kind === "absent",
   );
+
   const reject = (label: string, patch: Partial<ExpeditionCheckpoint>, r: NetRoom = room) =>
     check(
       `validator rejects ${label}`,
       readCheckpoint(wire({ checkpoint: { ...checkpoint, ...patch }, room: r })).kind === "invalid",
     );
+
   reject("a room seq mismatch", { room: 4 });
   const [first] = checkpoint.players;
+
   if (first) {
     reject("a swing hit on an unknown enemy", {
       players: [{ ...first, combat: { ...first.combat, hitSwing: [9] } }],
     });
   }
+
   reject("a last stand on a missing seat", { lastStand: { bleed: 1, id: "ghost", revive: 0 } });
   reject("an enemy id past the allocator", { nextEnemyId: 1 });
   reject("a versus checkpoint carrying last stand", {
@@ -1137,7 +1174,6 @@ const script = (f: number): Partial<BodyInput> => ({
   reject("a coop checkpoint on a versus room", {}, { ...room, mode: "vs" });
 }
 
-// ── Pure hub / presentation helpers ──────────────────────────────────────────
 {
   check("room code parses case-insensitively", parseRoomCode(" ab3z ") === "AB3Z");
   check(
@@ -1161,6 +1197,7 @@ const script = (f: number): Partial<BodyInput> => ({
     score: 90,
     shardsEarned: 12,
   };
+
   check("run recap accepts a banked receipt", readRunRecap(banked)?.kind === "banked");
   check("run recap rejects best below score", readRunRecap({ ...banked, bestScore: 10 }) === null);
   check("run recap rejects an unknown hero", readRunRecap({ ...banked, hero: "nobody" }) === null);
@@ -1189,19 +1226,18 @@ const script = (f: number): Partial<BodyInput> => ({
   );
 }
 
-// The playtest pilot (sys/pilot.ts + sys/nav.ts): the hands `vg playtest run`
-// gives the decision model. Flown here through the real body and real rooms,
-// pressing buttons the way the browser does — held state in, edges derived.
 {
-  const fly = (def: RoomDef, target: Spawn): boolean => {
+  const fly = (def: RoomDef, target: Spawn) => {
     const b = new PlayerBody(def.grid, def.playerSpawn.x, def.playerSpawn.y, HEROES.axion.kit);
     const nav = new Navigator();
     const pilot = new Pilot();
     let prev = { dash: false, jump: false, up: false };
+
     for (let f = 0; f < 60 * 25; f += 1) {
       const grounded = b.grounded && b.vy >= 0;
       const step = nav.step(def.grid, { grounded, x: b.x, y: b.y }, target);
       const door = { dx: target.x - b.x, dy: target.y - b.y, open: true, step };
+
       const it = pilot.exit(
         {
           dashReady: b.dashReady,
@@ -1215,6 +1251,7 @@ const script = (f: number): Partial<BodyInput> => ({
         },
         0,
       );
+
       b.buffer(
         inp({
           dashPressed: it.dash && !prev.dash,
@@ -1228,10 +1265,12 @@ const script = (f: number): Partial<BodyInput> => ({
       );
       prev = it;
       b.step(STEP);
+
       if (Math.abs(b.x - target.x) < 12 && Math.abs(b.y - target.y) < 20) {
         return true;
       }
     }
+
     return false;
   };
 
@@ -1247,13 +1286,16 @@ const script = (f: number): Partial<BodyInput> => ({
   );
   let reached = 0;
   let total = 0;
+
   for (let seed = 1; seed <= 60; seed += 1) {
     const def = genCombatRoom(seed, 1 + (seed % 3));
+
     for (const t of [...def.doorSlots, ...def.enemySpawns]) {
       total += 1;
       reached += fly(def, t) ? 1 : 0;
     }
   }
+
   check(
     "pilot reaches >=97% of doors and enemy spawns in generated rooms",
     reached / total >= 0.97,
@@ -1261,21 +1303,21 @@ const script = (f: number): Partial<BodyInput> => ({
   );
 }
 
-// ── Collision integrity: a body never ends a step inside a solid tile ────────
 {
   const arena = Grid.test();
-  // Shoulder 1px under the right end of the left ledge (cols 6–10, row 10).
   const lipX = 11 * TILE + PLAYER_HALF_W - 1;
   {
     const b = spawn(lipX);
     let worst = false;
     let apex = b.y;
+
     for (let f = 0; f < 70; f += 1) {
       b.buffer(inp({ jumpHeld: true, jumpPressed: f === 0, left: f > 12 }));
       b.step(STEP);
       worst ||= embedded(arena, b);
       apex = Math.min(apex, b.y);
     }
+
     check("a jump that clips a lip by 1px never embeds the shoulder", !worst);
     check(
       "…and is nudged round the lip instead of losing the jump",
@@ -1283,8 +1325,8 @@ const script = (f: number): Partial<BodyInput> => ({
       `${(FLOOR_Y - apex).toFixed(1)}px`,
     );
   }
+
   {
-    // Dead-centre under the ledge is a real ceiling: bonk, not a nudge.
     const b = spawn(8 * TILE + 8);
     const x0 = b.x;
     run(b, 40, { jumpHeld: true }, { 0: { jumpPressed: true } });
@@ -1292,7 +1334,6 @@ const script = (f: number): Partial<BodyInput> => ({
   }
 
   {
-    // Guest reconciliation can shift the body across a tile edge.
     const b = spawn(lipX + 8);
     b.shift(-10, -(FLOOR_Y - 11 * TILE) + 4);
     check("a reconcile shift into a tile is pushed back out", !embedded(arena, b));
@@ -1300,18 +1341,19 @@ const script = (f: number): Partial<BodyInput> => ({
     check("…and the body walks on from there without embedding", !embedded(arena, b));
   }
 
-  // One-way platforms: low-left one-way is cols 3–7, row 12.
   const owTop = 12 * TILE;
   {
     const b = spawn(5 * TILE);
     let groundedRising = false;
     let apex = b.y;
+
     for (let f = 0; f < 40; f += 1) {
       b.buffer(inp({ jumpHeld: true, jumpPressed: f === 0 }));
       b.step(STEP);
       groundedRising ||= b.grounded && b.vy < 0;
       apex = Math.min(apex, b.y);
     }
+
     check("rising through a one-way never reads grounded", !groundedRising);
     check(
       "jump height through a one-way matches open air",
@@ -1325,30 +1367,36 @@ const script = (f: number): Partial<BodyInput> => ({
       `y=${b.y.toFixed(2)}`,
     );
   }
+
   {
     const b = new PlayerBody(Grid.test(), 5 * TILE, owTop + 1, HEROES.axion.kit);
     run(b, 3, {});
     check("feet 1px inside a one-way do not rest there", !b.grounded && b.y > owTop + 1);
   }
 
-  // Fuzz: random jump/dash/move inputs across generated + authored rooms.
-  // Park–Miller, kept local so the fuzz never perturbs the game rng stream.
   let seed = 5_371_230;
-  const roll = (): number => {
+
+  const roll = () => {
     seed = (seed * 48_271) % 2_147_483_647;
+
     return seed / 2_147_483_647;
   };
+
   const rooms = [START(), SAFE(), BOSS(), VERSUS()];
+
   for (let s = 1; s <= 40; s += 1) {
     rooms.push(genCombatRoom(s, 1 + (s % 3)));
   }
+
   let steps = 0;
   let firstEmbed = "";
   let firstBadGround = "";
+
   for (const [ri, def] of rooms.entries()) {
     const b = new PlayerBody(def.grid, def.playerSpawn.x, def.playerSpawn.y, HEROES.axion.kit);
     let held: Partial<BodyInput> = {};
     let hold = 0;
+
     for (let f = 0; f < 1500; f += 1) {
       if (hold <= 0) {
         const dir = roll();
@@ -1361,14 +1409,18 @@ const script = (f: number): Partial<BodyInput> => ({
         };
         hold = 2 + Math.floor(roll() * 30);
       }
+
       hold -= 1;
       b.buffer(inp({ ...held, dashPressed: roll() < 0.06, jumpPressed: roll() < 0.12 }));
       b.step(STEP);
       steps += 1;
+
       if (!firstEmbed && embedded(def.grid, b)) {
         firstEmbed = `room ${ri} f${f} x=${b.x.toFixed(2)} y=${b.y.toFixed(2)}`;
       }
+
       const onSolid = def.grid.solidInRect(b.x - PLAYER_HALF_W, b.y, b.x + PLAYER_HALF_W, b.y + 2);
+
       if (
         !firstBadGround &&
         b.grounded &&
@@ -1379,9 +1431,11 @@ const script = (f: number): Partial<BodyInput> => ({
       }
     }
   }
+
   check(`fuzz: body never overlaps a solid tile (${steps} steps)`, !firstEmbed, firstEmbed);
   check("fuzz: a one-way only grounds a falling body at its top", !firstBadGround, firstBadGround);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
+
 process.exit(fail === 0 ? 0 : 1);

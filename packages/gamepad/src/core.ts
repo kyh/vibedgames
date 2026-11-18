@@ -1,10 +1,7 @@
 import type {
-  ButtonLayout,
   ButtonOptions,
-  Dir4,
   Dir8,
   Inset,
-  StickGeometry,
   StickOptions,
   StickState,
   VirtualGamepadOptions,
@@ -70,13 +67,8 @@ export class VirtualGamepad {
     curX: number;
     curY: number;
   } | null = null;
-  /** button id -> set of pointer ids currently pressing it. */
   private readonly pressed = new Map<string, Set<number>>();
-  /** pointer id -> what it's bound to. */
   private readonly binding = new Map<number, Binding>();
-  // Edge state is double-buffered: events accumulate into *Accum, and
-  // nextFrame() publishes them for justPressed/justReleased to read — so an
-  // edge is visible for exactly one frame no matter when the event landed.
   private downAccum = new Set<string>();
   private upAccum = new Set<string>();
   private frameDown = new Set<string>();
@@ -91,9 +83,11 @@ export class VirtualGamepad {
       radius: b.radius ?? DEFAULT_BUTTON_RADIUS,
       rest: !b.position,
     }));
+
     for (const b of this.buttons) {
       this.pressed.set(b.id, new Set());
     }
+
     this.onButtonDown = options.onButtonDown;
     this.onButtonUp = options.onButtonUp;
   }
@@ -101,26 +95,29 @@ export class VirtualGamepad {
   /** Update the canvas size so fixed buttons re-anchor (call on resize).
    *  Pass safe-area insets (see `safeAreaInset()`) so position resolvers can
    *  keep buttons clear of the notch / home indicator. */
-  setViewport(width: number, height: number, inset: Inset = ZERO_INSET): void {
+  setViewport(width: number, height: number, inset: Inset = ZERO_INSET) {
     this.viewport = { height, inset, width };
   }
 
-  pointerDown(id: number, x: number, y: number): void {
+  pointerDown(id: number, x: number, y: number) {
     if (this.binding.has(id)) {
       return;
     }
-    // 1. Fixed buttons claim a touch that lands inside their circle.
+
     for (const b of this.buttons) {
       if (b.rest || !b.position) {
         continue;
       }
+
       const c = b.position(this.viewport);
+
       if (Math.hypot(x - c.x, y - c.y) <= b.radius) {
         this.bindButton(b.id, id);
+
         return;
       }
     }
-    // 2. The first free touch inside the stick's region anchors the stick.
+
     if (
       this.stickOpts &&
       !this.stick &&
@@ -128,35 +125,44 @@ export class VirtualGamepad {
     ) {
       this.stick = { anchorX: x, anchorY: y, curX: x, curY: y, pointerId: id };
       this.binding.set(id, { kind: "stick" });
+
       return;
     }
-    // 3. A "rest" button (if defined) catches everything else.
+
     const rest = this.buttons.find((b) => b.rest);
+
     if (rest) {
       this.bindButton(rest.id, id);
     }
   }
 
-  pointerMove(id: number, x: number, y: number): void {
+  pointerMove(id: number, x: number, y: number) {
     if (this.stick && this.stick.pointerId === id) {
       this.stick.curX = x;
       this.stick.curY = y;
     }
   }
 
-  pointerUp(id: number): void {
+  pointerUp(id: number) {
     const b = this.binding.get(id);
+
     if (!b) {
       return;
     }
+
     this.binding.delete(id);
+
     if (b.kind === "stick") {
       this.stick = null;
+
       return;
     }
+
     const set = this.pressed.get(b.id);
+
     if (set) {
       set.delete(id);
+
       if (set.size === 0) {
         this.upAccum.add(b.id);
         this.onButtonUp?.(b.id);
@@ -169,10 +175,10 @@ export class VirtualGamepad {
    * events go missing when a finger slides off the canvas, so call this each
    * frame with the engine's live pointer ids.
    */
-  reconcile(activeIds: Iterable<number>): void {
+  reconcile(activeIds: Iterable<number>) {
     const live = activeIds instanceof Set ? activeIds : new Set(activeIds);
-    // Snapshot keys: pointerUp mutates `binding` mid-loop.
     const ids = [...this.binding.keys()];
+
     for (const id of ids) {
       if (!live.has(id)) {
         this.pointerUp(id);
@@ -181,31 +187,32 @@ export class VirtualGamepad {
   }
 
   /** Release everything (e.g. on respawn or scene reset). */
-  reset(): void {
+  reset() {
     const ids = [...this.binding.keys()];
+
     for (const id of ids) {
       this.pointerUp(id);
     }
   }
 
   /** True while any finger is touching the gamepad. */
-  get isTouching(): boolean {
+  get isTouching() {
     return this.binding.size > 0;
   }
 
-  isButtonDown(id: string): boolean {
+  isButtonDown(id: string) {
     return (this.pressed.get(id)?.size ?? 0) > 0;
   }
 
   /** Button went up→down since the previous `nextFrame()` — edge-triggered
    *  polling for fixed-timestep games (tap = one action). The callback
    *  alternative is `onButtonDown`. */
-  justPressed(id: string): boolean {
+  justPressed(id: string) {
     return this.frameDown.has(id);
   }
 
   /** Last finger left the button since the previous `nextFrame()`. */
-  justReleased(id: string): boolean {
+  justReleased(id: string) {
     return this.frameUp.has(id);
   }
 
@@ -214,7 +221,7 @@ export class VirtualGamepad {
    * accumulation window. The adapters call this from their `update()`; call it
    * once per frame yourself only when driving the core directly.
    */
-  nextFrame(): void {
+  nextFrame() {
     [this.frameDown, this.downAccum] = [this.downAccum, this.frameDown];
     this.downAccum.clear();
     [this.frameUp, this.upAccum] = [this.upAccum, this.frameUp];
@@ -222,30 +229,33 @@ export class VirtualGamepad {
   }
 
   /** Ids of all buttons with at least one finger down. */
-  buttonsDown(): string[] {
+  buttonsDown() {
     const out: string[] = [];
+
     for (const [id, set] of this.pressed) {
       if (set.size > 0) {
         out.push(id);
       }
     }
+
     return out;
   }
 
   /** A snapshot of the stick. Idle when no finger owns it. */
-  getStick(): StickState {
+  getStick() {
     const o = this.stickOpts;
     const s = this.stick;
+
     if (!o || !s) {
       return { ...IDLE_STICK };
-      // fresh copy — never hand out the shared singleton
     }
+
     const dx = s.curX - s.anchorX;
     const dy = s.curY - s.anchorY;
     const distance = Math.hypot(dx, dy);
-    // Guard against a misconfigured deadZone >= radius (span <= 0 → NaN/∞).
     const span = Math.max(1, o.radius - o.deadZone);
     const magnitude = Math.min(1, Math.max(0, (distance - o.deadZone) / span));
+
     return {
       active: true,
       anchorX: s.anchorX,
@@ -262,15 +272,17 @@ export class VirtualGamepad {
   }
 
   /** Resolved stick tuning, or null if the stick is disabled. */
-  getStickGeometry(): StickGeometry | null {
+  getStickGeometry() {
     const o = this.stickOpts;
+
     return o ? { deadZone: o.deadZone, knobRadius: o.knobRadius, radius: o.radius } : null;
   }
 
   /** Resolved button geometry + state, for renderers. */
-  getButtonLayout(): ButtonLayout[] {
+  getButtonLayout() {
     return this.buttons.map((b) => {
       const c = b.rest || !b.position ? { x: 0, y: 0 } : b.position(this.viewport);
+
       return {
         id: b.id,
         label: b.label,
@@ -283,14 +295,17 @@ export class VirtualGamepad {
     });
   }
 
-  private bindButton(buttonId: string, pointerId: number): void {
+  private bindButton(buttonId: string, pointerId: number) {
     const set = this.pressed.get(buttonId);
+
     if (!set) {
       return;
     }
+
     const wasDown = set.size > 0;
     set.add(pointerId);
     this.binding.set(pointerId, { id: buttonId, kind: "button" });
+
     if (!wasDown) {
       this.downAccum.add(buttonId);
       this.onButtonDown?.(buttonId);
@@ -299,29 +314,36 @@ export class VirtualGamepad {
 }
 
 /** Snap a stick reading to a 4-way direction, or null in the dead zone. */
-export const stickDirection4 = (stick: StickState): Dir4 | null => {
+export const stickDirection4 = (stick: StickState) => {
   if (!stick.active || stick.inDeadZone) {
     return null;
   }
+
   const deg = ((((stick.angle * 180) / Math.PI) % 360) + 360) % 360;
+
   if (deg >= 45 && deg < 135) {
     return "down";
   }
+
   if (deg >= 135 && deg < 225) {
     return "left";
   }
+
   if (deg >= 225 && deg < 315) {
     return "up";
   }
+
   return "right";
 };
 
 /** Snap a stick reading to an 8-way direction, or null in the dead zone. */
-export const stickDirection8 = (stick: StickState): Dir8 | null => {
+export const stickDirection8 = (stick: StickState) => {
   if (!stick.active || stick.inDeadZone) {
     return null;
   }
+
   const deg = ((((stick.angle * 180) / Math.PI) % 360) + 360) % 360;
+
   const sectors: readonly Dir8[] = [
     "right",
     "down-right",
@@ -332,5 +354,6 @@ export const stickDirection8 = (stick: StickState): Dir8 | null => {
     "up",
     "up-right",
   ];
+
   return sectors[Math.round(deg / 45) % 8] ?? "right";
 };

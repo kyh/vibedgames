@@ -2,8 +2,6 @@ import { createFileRoute } from "@tanstack/react-router";
 
 import { siteConfig } from "@/lib/site-config";
 
-// The same robots.txt on every site: open to every crawler, with Content
-// Signals (https://contentsignals.org/) allowing search, AI input and training.
 const body = [
   "User-agent: *",
   "Content-Signal: search=yes, ai-input=yes, ai-train=yes",

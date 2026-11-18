@@ -8,30 +8,34 @@ import { isJsonObject } from "../src/lib/types.js";
 import { makeCleanups, makeTmpDir } from "./_helpers.js";
 
 const { cleanups, drain } = makeCleanups();
+
 afterEach(drain);
 
 const CLI = fileURLToPath(new URL("../src/index.ts", import.meta.url));
 
-/** Run `vg config …` against its own config dir, the way an agent would. */
 const vg = (configHome: string, ...args: string[]) => {
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     VG_NO_AUTO_UPDATE: "1",
     XDG_CONFIG_HOME: configHome,
   };
+
   delete env.VG_GENERATE_PROVIDER;
   delete env.VG_CODEX_BIN;
+
   const res = spawnSync(process.execPath, ["--import", "tsx", CLI, "config", ...args], {
     cwd: path.dirname(path.dirname(CLI)),
     encoding: "utf-8",
     env,
   });
+
   return { code: res.status, stderr: res.stderr, stdout: res.stdout };
 };
 
 const json = (stdout: string) => {
   const data: unknown = JSON.parse(stdout);
   assert.ok(isJsonObject(data));
+
   return data;
 };
 

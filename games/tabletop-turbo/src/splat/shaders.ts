@@ -1,15 +1,3 @@
-// The three programs of the pixel-splat look.
-//
-// 1. splat: every surface is a cloud of small opaque discs. Each disc is
-//    projected as a gaussian, cut at a threshold into a hard-edged blob, and
-//    writes (ramp, step) into a G-buffer twice the art resolution. Light is one
-//    value per disc, turned into a step on its ramp with a dither fixed to the
-//    disc, so tones never swim.
-// 2. the same discs seen from the sun, depth only: chunky shadows.
-// 3. resolve: each art pixel takes a vote of its four G-buffer samples, draws
-//    an outline one step darker where the next pixel is empty or far behind,
-//    then dithers in fog. The output is always a palette tone.
-
 export const SPLAT_VERTEX = `
 precision highp float;
 precision highp int;

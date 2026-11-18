@@ -1,7 +1,3 @@
-// The playtest contract beyond diagnostics: the hooks that stage a solo brawl
-// and the manifest `vg playtest run`'s decision model chooses from. See
-// plugins/tooling/skills/playtest/references/autonomous-playtest.md.
-
 import { publishPlaytest, publishTestHooks } from "@vibedgames/playtest";
 
 import type { Game } from "./game";
@@ -18,7 +14,7 @@ const GOAL = [
  * is a solo brawl against bots — a room is shared, so nothing here may write
  * into one.
  */
-export const installPlaytest = (game: Game): void => {
+export const installPlaytest = (game: Game) => {
   const pilot = new Pilot(game);
   publishTestHooks({
     seed: (seed) => game.startSeeded(seed),
@@ -27,11 +23,15 @@ export const installPlaytest = (game: Game): void => {
       if (name !== "active-play") {
         return;
       }
+
       const live = game.state === "countdown" || game.state === "playing";
+
       if (game.mode !== "solo" || !live) {
         game.startSeeded(game.nextSeed);
       }
+
       game.skipCountdown();
+
       return { state: name };
     },
   });
@@ -44,7 +44,6 @@ export const installPlaytest = (game: Game): void => {
       },
     },
     goal: GOAL,
-    // Brawlers run ~3 units a second, so one decision's hold is about half a unit.
     minDisplacement: 0.15,
     move: {
       fight: {

@@ -2,15 +2,10 @@ import * as THREE from "three";
 
 import { REINHARD_GLSL } from "./reinhard";
 
-// Instanced ground-ring pool. Grammar: ground-plane, thin (3.5-9% of radius),
-// fast (0.20-0.42 s), and the centre inherits the car's velocity with drag —
-// a world-pinned ring is metres adrift of the car by the time it fades.
-
 const RING_COUNT = 16;
 const RING_SEGS = 48;
 
-// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-const RING_VERT = /* glsl */ `
+const RING_VERT = `
   attribute vec4 aCenter; // xyz + birth
   attribute vec4 aShape;  // r0, r1, life, thickness (fraction of radius)
   attribute vec4 aColor;  // rgb premultiplied by intensity, w = alpha
@@ -42,10 +37,7 @@ const RING_VERT = /* glsl */ `
   }
 `;
 
-// Radial profile reaches zero at BOTH rims — a plateau profile plus additive
-// color reads as an opaque matte torus, not a wave.
-// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-const RING_FRAG = /* glsl */ `
+const RING_FRAG = `
   uniform float uGain;
   varying float vR;
   varying float vA;
@@ -78,17 +70,19 @@ export class FxRings {
     const pos = new Float32Array(rows * 2 * 3);
     const index = new Uint16Array(RING_SEGS * 6);
     let ii = 0;
+
     for (let i = 0; i < rows; i += 1) {
       const ang = (i / RING_SEGS) * Math.PI * 2;
       const co = Math.cos(ang);
       const so = Math.sin(ang);
+
       for (let e = 0; e < 2; e += 1) {
         const v = i * 2 + e;
         pos[v * 3] = co;
         pos[v * 3 + 1] = so;
-        // 0 inner rim, 1 outer rim
         pos[v * 3 + 2] = e;
       }
+
       if (i > 0) {
         const a = (i - 1) * 2;
         const b = i * 2;
@@ -106,6 +100,7 @@ export class FxRings {
         ii += 1;
       }
     }
+
     const geo = new THREE.InstancedBufferGeometry();
     geo.instanceCount = RING_COUNT;
     geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
@@ -114,19 +109,21 @@ export class FxRings {
     this.profile = new Float32Array(RING_COUNT * 4);
     this.color = new Float32Array(RING_COUNT * 4);
     this.drift = new Float32Array(RING_COUNT * 4);
-    // Dead until spawned: birth 0 with life epsilon collapses in the VS.
     this.centerAttr = new THREE.InstancedBufferAttribute(this.center, 4);
     this.profileAttr = new THREE.InstancedBufferAttribute(this.profile, 4);
     this.colorAttr = new THREE.InstancedBufferAttribute(this.color, 4);
     this.driftAttr = new THREE.InstancedBufferAttribute(this.drift, 4);
+
     for (const a of [this.centerAttr, this.profileAttr, this.colorAttr, this.driftAttr]) {
       a.setUsage(THREE.DynamicDrawUsage);
     }
+
     geo.setAttribute("aCenter", this.centerAttr);
     geo.setAttribute("aShape", this.profileAttr);
     geo.setAttribute("aColor", this.colorAttr);
     geo.setAttribute("aDrift", this.driftAttr);
     geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e6);
+
     const mat = new THREE.ShaderMaterial({
       blending: THREE.AdditiveBlending,
       depthWrite: false,
@@ -136,6 +133,7 @@ export class FxRings {
       uniforms: { uGain: gain, uTime: this.uTime },
       vertexShader: RING_VERT,
     });
+
     this.mesh = new THREE.Mesh(geo, mat);
     this.mesh.frustumCulled = false;
     this.mesh.renderOrder = 3;
@@ -156,7 +154,7 @@ export class FxRings {
     velX: number,
     velZ: number,
     drag: number,
-  ): void {
+  ) {
     const i = this.cursor;
     this.cursor = (this.cursor + 1) % RING_COUNT;
     const b = i * 4;
@@ -184,8 +182,9 @@ export class FxRings {
     this.mesh.visible = true;
   }
 
-  update(dt: number): void {
+  update(dt: number) {
     this.uTime.value += dt;
+
     if (this.mesh.visible && this.uTime.value > this.lastDeath) {
       this.mesh.visible = false;
     }

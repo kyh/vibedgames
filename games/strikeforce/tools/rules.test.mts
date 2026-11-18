@@ -1,4 +1,3 @@
-// The deathmatch rules, played headless: whole matches in milliseconds.
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
@@ -15,13 +14,12 @@ import {
 } from "../src/net/rules.ts";
 import type { MatchState } from "../src/net/rules.ts";
 
-/** Two players in a fresh match, live at `now`. */
 interface Live {
   s: MatchState;
   now: number;
 }
 
-const live = (): Live => {
+const live = () => {
   const s = newMatch();
   syncRoster(s, ["p1"]);
   assert.deepEqual(tick(s, 0), []);
@@ -29,6 +27,7 @@ const live = (): Live => {
   syncRoster(s, ["p1", "p2"]);
   assert.deepEqual(tick(s, 1), [{ kind: "start", round: 1 }]);
   assert.equal(s.phase, "live");
+
   return { now: 1, s };
 };
 
@@ -85,7 +84,6 @@ test("self reports only lower health, and only for the life they belong to", () 
   const events = applySelfReport(s, "p1", 0, life, now);
   assert.deepEqual(events, [{ head: false, killer: "", kind: "kill", victim: "p1" }]);
   assert.equal(s.roster.get("p2")?.kills, 0, "a barrel death credits nobody");
-  // Back on a new life, the dead body's last report (0 hp, old life) cannot kill it.
   tick(s, now + RULES.respawnMs);
   applySelfReport(s, "p1", 0, life, now + RULES.respawnMs + 1);
   assert.equal(s.roster.get("p1")?.alive, true);
@@ -94,11 +92,13 @@ test("self reports only lower health, and only for the life they belong to", () 
 test("the kill limit ends it, then a fresh one starts on a full dock", () => {
   const { s } = live();
   let now = 10;
+
   for (let k = 0; k < RULES.kills; k += 1) {
     applyHit(s, "p1", "p2", 120, false, now);
     now += RULES.respawnMs;
     tick(s, now);
   }
+
   assert.equal(s.phase, "over");
   assert.equal(s.champ, "p1");
   assert.equal(applyHit(s, "p2", "p1", 120, false, now), null, "no fighting over the results");

@@ -1,11 +1,3 @@
-// What a toy track gets built between. Each room has its own things and its
-// own two colours, so a frame reads as one palette: the floor, the orange of
-// the track, the room's pair, and the karts.
-//
-// A toy bakes itself around the origin of a builder already placed and turned.
-// `reach` is how far it spreads and `height` how tall it stands, so the world
-// can keep it off the road and out of the camera's way.
-
 import type { Room } from "../sim/track";
 import type { SplatBuilder } from "../splat/builder";
 import { RAMP } from "../splat/palette";
@@ -17,17 +9,17 @@ export interface Toy {
   bake: (b: SplatBuilder, colours: readonly number[]) => void;
 }
 
-const pick = (b: SplatBuilder, colours: readonly number[]): number =>
+const pick = (b: SplatBuilder, colours: readonly number[]) =>
   colours[Math.floor(b.random() * colours.length)] ?? RAMP.white;
 
-/** An alphabet block: a cube with a lighter frame on every face. */
-const block = (b: SplatBuilder, size: number, ramp: number, y = 0): void => {
+const block = (b: SplatBuilder, size: number, ramp: number, y = 0) => {
   const rim = size * 0.36;
   b.box(0, y + size / 2, 0, size, size, size, {
     at: (x, py, z) => {
       const edges = [Math.abs(x), Math.abs(py - y - size / 2), Math.abs(z)].filter(
         (v) => v > rim,
       ).length;
+
       return edges >= 2 ? tone(ramp, 3) : -1;
     },
     tone: tone(ramp, 2),
@@ -37,6 +29,7 @@ const block = (b: SplatBuilder, size: number, ramp: number, y = 0): void => {
 const blocks: Toy = {
   bake: (b, colours) => {
     block(b, 2.6, pick(b, colours));
+
     if (b.random() > 0.5) {
       block(b, 2, pick(b, colours), 2.6);
     }
@@ -49,11 +42,11 @@ const books: Toy = {
   bake: (b, colours) => {
     let y = 0;
     const count = 2 + Math.floor(b.random() * 2);
+
     for (let i = 0; i < count; i += 1) {
       const ramp = pick(b, colours);
       const thick = 1.1 + b.random() * 0.6;
       const dx = (b.random() - 0.5) * 1.2;
-      // Pages between two covers.
       b.box(dx, y + thick / 2, 0, 9.4, thick - 0.4, 6.4, { tone: tone(RAMP.white, 3) });
       b.box(dx, y + thick - 0.1, 0, 9.8, 0.2, 6.8, { tone: tone(ramp, 2) });
       b.box(dx - 4.8, y + thick / 2, 0, 0.3, thick, 6.8, { tone: tone(ramp, 1) });
@@ -68,9 +61,9 @@ const ball: Toy = {
   bake: (b, colours) => {
     const r = 1.8 + b.random();
     b.sphere(0, r, 0, r, {
-      // Beach-ball panels.
       at: (x, _y, z) => {
         const panel = Math.floor(((Math.atan2(z, x) + Math.PI) / Math.PI) * 3);
+
         return panel % 2 === 0 ? tone(RAMP.white, 3) : -1;
       },
       tone: tone(pick(b, colours), 2),
@@ -114,6 +107,7 @@ const brick: Toy = {
   bake: (b, colours) => {
     const ramp = pick(b, colours);
     b.box(0, 1, 0, 6, 2, 3, { tone: tone(ramp, 2) });
+
     for (const x of [-2.2, -0.75, 0.75, 2.2]) {
       for (const z of [-0.75, 0.75]) {
         b.cylinder(x, 2.2, z, 0.5, 0.4, { tone: tone(ramp, 3) });
@@ -139,6 +133,7 @@ const duck: Toy = {
 const rings: Toy = {
   bake: (b, colours) => {
     b.cylinder(0, 0.25, 0, 2.4, 0.5, { tone: tone(RAMP.white, 2) });
+
     for (let i = 0; i < 4; i += 1) {
       const ramp = colours[i % colours.length] ?? RAMP.white;
       b.cylinder(0, 1 + i * 0.95, 0, 2.1 - i * 0.4, 0.9, { tone: tone(ramp, 2 + (i % 2)) });
@@ -161,7 +156,6 @@ const mug: Toy = {
   reach: 2.2,
 };
 
-/** Sugar cubes, spilled. */
 const sugar: Toy = {
   bake: (b) => {
     for (let i = 0; i < 6; i += 1) {
@@ -188,14 +182,10 @@ const dominoes: Toy = {
   reach: 3.8,
 };
 
-// --- set pieces: one or two to a room, at room scale --------------------------
-
-/** A bed leg and the corner of the frame it holds up. */
 const bedLeg: Toy = {
   bake: (b) => {
     b.box(0, 7, 0, 5, 14, 5, { tone: tone(RAMP.wood, 1) });
     b.box(0, 0.4, 0, 6, 0.8, 6, { tone: tone(RAMP.wood, 0) });
-    // A hem of blanket hanging over the edge.
     b.box(3, 12, -6, 13, 4, 2, {
       at: (x) => (Math.floor(x / 1.6) % 2 === 0 ? tone(RAMP.white, 3) : -1),
       tone: tone(RAMP.red, 2),
@@ -222,7 +212,7 @@ const cerealBox: Toy = {
         if (y > 9.5 && y < 12) {
           return tone(RAMP.white, 4);
         }
-        // A bowl of something on the front.
+
         return Math.hypot(x, y - 5) < 3 ? tone(RAMP.white, 3) : -1;
       },
       tone: tone(RAMP.yellow, 2),
@@ -238,7 +228,6 @@ const plate: Toy = {
       at: (x, _y, z) => (Math.hypot(x, z) > 5.6 ? tone(RAMP.blue, 2) : -1),
       tone: tone(RAMP.white, 3),
     });
-    // Toast.
     b.box(0.5, 1, -0.5, 5, 0.9, 5, {
       at: (x, _y, z) => (Math.abs(x - 0.5) > 2 || Math.abs(z + 0.5) > 2 ? tone(RAMP.wood, 2) : -1),
       tone: tone(RAMP.wood, 4),
@@ -260,7 +249,6 @@ const toyChest: Toy = {
   reach: 9.5,
 };
 
-/** A tower of blocks someone is halfway through. */
 const tower: Toy = {
   bake: (b, colours) => {
     for (let i = 0; i < 4; i += 1) {

@@ -1,60 +1,27 @@
-// Lightning — a bundle of filaments drawn from A to B.
-//
-// Ported from the Elemental Sandbox VFX sandbox (MIT, Copyright (c) 2026
-// mohamedachrefelouafi) — https://github.com/achrefelouafi/LinearAbiltyCastingThreeJS
-//
-// The whole bolt lives in the VERTEX SHADER. A vertex arrives as (t, side) —
-// how far along the bolt it is, and which edge of the ribbon it is on — and
-// leaves as a world position. There is no path on the CPU to go stale, so one
-// pre-built strip serves a bolt of any length, any width and any shape, and
-// every filament re-kinks itself for free every frame.
-//
-// Three things stack to make the shape:
-//   1. the axis  — a straight line from origin to target, bowed by sag.
-//   2. the fan   — a constant per-filament offset in the perpendicular plane,
-//                  opening with distance, so the bundle spreads as it travels.
-//   3. the kinks — octaves of LINEARLY interpolated value noise. Linear on
-//                  purpose: smoothstep would round the corners off, and the
-//                  corners are the entire reason it reads as lightning rather
-//                  than as a wobbly tube.
-//
-// The ribbon then turns to face the camera by crossing the local tangent with
-// the view vector, so it keeps its apparent thickness from any angle without
-// ever being a screen-space line.
 import * as THREE from "three";
 import { NOISE_GLSL } from "./fx-noise";
 
-// samples along the bolt — the kink-detail ceiling
 const NODES = 56;
-// filaments per bolt
 const STRANDS = 12;
 
 const BOLT = {
-  // outer filaments carry less light than the axis
   branchDim: 0.5,
   coreSharp: 2.6,
-  // the middle filament is the thinnest
   coreWidth: 0.42,
   crawl: 5,
   flicker: 0.35,
   flickerSpeed: 22,
   glowFalloff: 1.5,
-  // the halo pass, as a multiple of the core width
   glowWidth: 4.2,
   jitter: 0.42,
   jitterFalloff: 0.5,
-  // kinks per metre — stays constant however far it reaches
   jitterScale: 1.5,
   octaves: 3,
-  // how hard both ends are pinned to their anchors
   pinch: 0.12,
-  // times a second every filament snaps onto a new shape
   restrike: 14,
   sag: 0,
-  // fan radius at the far end
   spread: 0.5,
   spreadCurve: 1.5,
-  // ...and at the hand
   spreadNear: 0.04,
   strandFlash: 0.45,
   tipGlow: 1.6,
@@ -66,13 +33,9 @@ const BOLT = {
   widthTip: 0.55,
 } as const;
 
-/**
- * A strip of quads in PARAMETER space: every vertex is (t, ±1). No metres in
- * here at all — the vertex shader turns that pair into a world position. One
- * instance is one filament, and `aStrand` is simply its index.
- */
-const createBoltGeometry = (): THREE.InstancedBufferGeometry => {
+const createBoltGeometry = () => {
   const positions = new Float32Array(NODES * 2 * 3);
+
   for (let i = 0; i < NODES; i += 1) {
     const t = i / (NODES - 1);
     const o = i * 6;
@@ -81,7 +44,9 @@ const createBoltGeometry = (): THREE.InstancedBufferGeometry => {
     positions[o + 3] = t;
     positions[o + 4] = 1;
   }
+
   const indices = new Uint16Array((NODES - 1) * 6);
+
   for (let i = 0; i < NODES - 1; i += 1) {
     const a = i * 2;
     const o = i * 6;
@@ -92,7 +57,9 @@ const createBoltGeometry = (): THREE.InstancedBufferGeometry => {
     indices[o + 4] = a + 3;
     indices[o + 5] = a + 2;
   }
+
   const strand = new Float32Array(STRANDS);
+
   for (let i = 0; i < STRANDS; i += 1) {
     strand[i] = i;
   }
@@ -102,14 +69,12 @@ const createBoltGeometry = (): THREE.InstancedBufferGeometry => {
   geo.setAttribute("aStrand", new THREE.InstancedBufferAttribute(strand, 1));
   geo.setIndex(new THREE.BufferAttribute(indices, 1));
   geo.instanceCount = STRANDS;
-  // Built in world space by the vertex shader, so the geometry's own bounds are
-  // meaningless — never cull it on them.
   geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e4);
+
   return geo;
 };
 
-// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-const VERT = /* glsl */ `
+const VERT = `
 #define PI 3.141592653589793
 #define TAU 6.283185307179586
 
@@ -217,8 +182,7 @@ void main() {
   gl_Position = projectionMatrix * viewMatrix * vec4(here + binormal * vSide * halfWidth, 1.0);
 }`;
 
-// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-const FRAG = /* glsl */ `
+const FRAG = `
 uniform float uTime;
 uniform float uSeed;
 uniform float uProgress;
@@ -269,8 +233,6 @@ void main() {
   gl_FragColor = vec4(color, alpha);
 }`;
 
-/** One pass's uniform block. Named rather than an open dictionary so the
- *  colour and vector values keep their types all the way to the write site. */
 type BoltUniforms = {
   uTime: { value: number };
   uOrigin: { value: THREE.Vector3 };
@@ -295,7 +257,6 @@ interface Bolt {
   uni: { core: BoltUniforms; glow: BoltUniforms };
   life: number;
   maxLife: number;
-  // seconds the front takes to travel origin → target
   strikeTime: number;
 }
 
@@ -311,7 +272,6 @@ export interface BoltOpts {
 }
 
 const POOL = 4;
-/** Reused by the inner-colour lerp — allocating a Color per strike is churn. */
 const WHITE = new THREE.Color(0xff_ff_ff);
 
 /** Pooled lightning bolts. Two draw calls each: a hot core and a wide halo. */
@@ -337,6 +297,7 @@ export class BoltPool {
           uTime: clock,
           uWidthScale: { value: glowPass ? BOLT.glowWidth : 1 },
         };
+
         const mat = new THREE.ShaderMaterial({
           blending: THREE.AdditiveBlending,
           depthWrite: false,
@@ -346,13 +307,16 @@ export class BoltPool {
           uniforms: uni,
           vertexShader: VERT,
         });
+
         const mesh = new THREE.Mesh(this.geo, mat);
         mesh.frustumCulled = false;
         mesh.visible = false;
         mesh.renderOrder = 6;
         scene.add(mesh);
+
         return { mesh, uni };
       };
+
       const core = mk(false);
       const glow = mk(true);
       this.bolts.push({
@@ -367,18 +331,20 @@ export class BoltPool {
   }
 
   /** Strike from `from` to `to` (world space). */
-  strike(from: THREE.Vector3Like, to: THREE.Vector3Like, opts: BoltOpts = {}): void {
+  strike(from: THREE.Vector3Like, to: THREE.Vector3Like, opts: BoltOpts = {}) {
     const b = this.bolts.find((x) => x.life <= 0);
+
     if (!b) {
       return;
-      // saturated — drop
     }
+
     const { life = 0.34, scale = 1, color = 0x9f_d4_ff, haloColor = 0x2a_6c_ff } = opts;
     b.life = life;
     b.maxLife = life;
     b.core.visible = true;
     b.glow.visible = true;
     const seed = Math.random() * 100;
+
     for (const [uni, widthGain] of [
       [b.uni.core, 1],
       [b.uni.glow, BOLT.glowWidth],
@@ -392,25 +358,29 @@ export class BoltPool {
       uni.uInner.value.setHex(color).lerp(WHITE, 0.6);
       uni.uProgress.value = 0;
     }
+
     b.strikeTime = opts.strikeTime ?? Math.min(0.09, life * 0.35);
   }
 
-  update(dt: number): void {
+  update(dt: number) {
     for (const b of this.bolts) {
       if (b.life <= 0) {
         continue;
       }
+
       b.life -= dt;
+
       if (b.life <= 0) {
         b.core.visible = false;
         b.glow.visible = false;
         continue;
       }
+
       const elapsed = b.maxLife - b.life;
       const front = Math.min(1, elapsed / Math.max(1e-3, b.strikeTime));
-      // Holds at full brightness while it strikes, then guts out.
       const k = elapsed / b.maxLife;
       const fade = k < 0.45 ? 1 : 1 - (k - 0.45) / 0.55;
+
       for (const uni of [b.uni.core, b.uni.glow]) {
         uni.uProgress.value = front;
         uni.uFade.value = fade;
@@ -418,7 +388,7 @@ export class BoltPool {
     }
   }
 
-  clear(): void {
+  clear() {
     for (const bolt of this.bolts) {
       bolt.life = 0;
       bolt.core.visible = false;
@@ -426,13 +396,14 @@ export class BoltPool {
     }
   }
 
-  dispose(): void {
+  dispose() {
     for (const b of this.bolts) {
       for (const m of [b.core, b.glow]) {
         m.material.dispose();
         m.removeFromParent();
       }
     }
+
     this.geo.dispose();
     this.bolts.length = 0;
   }

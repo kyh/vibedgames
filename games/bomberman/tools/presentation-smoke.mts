@@ -12,7 +12,6 @@ import type { CharacterPose } from "../src/render/character-action";
 import { bombStock } from "../src/render/round-hud";
 import { RoundScore, scoreNotes } from "../src/fx/round-score";
 import { EXPLOSION_MS, FUSE_MS } from "../src/shared/constants";
-import type { Bomb } from "../src/shared/constants";
 import {
   adoptClock,
   clockStamp,
@@ -26,7 +25,8 @@ import {
 
 const pose: CharacterPose = { col: 1, dir: "down", moving: false, row: 1 };
 const bomb = { col: 1, id: "accepted", placedAt: 1000, row: 1 };
-const mine = (id: string, placedAt: number): Bomb => ({
+
+const mine = (id: string, placedAt: number) => ({
   col: 1,
   id,
   ownerId: "me",
@@ -42,6 +42,7 @@ test("placement plays from the accepted stamp, per direction, and interrupts on 
       const current = { ...pose, dir };
       assert.equal(action.place(bomb, 1000 + age, 500, current), age < PLACE_ACTION_MS);
       const frame = action.sample(500, current, true);
+
       if (age < PLACE_ACTION_MS) {
         assert.equal(frame?.frame, Math.floor(age / 70));
         assert.equal(frame?.flip, dir === "left");
@@ -52,15 +53,18 @@ test("placement plays from the accepted stamp, per direction, and interrupts on 
       } else {
         assert.equal(frame, null);
       }
+
       assert.equal(action.place(bomb, 1000 + age, 550, current), false, "stamp consumed");
       assert.equal(action.sample(500 + PLACE_ACTION_MS, current, true), null);
     }
   }
+
   const changes: CharacterPose[] = [
     { ...pose, moving: true },
     { ...pose, dir: "left" },
     { ...pose, col: 2 },
   ];
+
   for (const changed of changes) {
     const action = new CharacterAction();
     action.place(bomb, 1000, 0, pose);
@@ -97,18 +101,19 @@ test("action sheet cuts tile each PNG exactly and pivots lie inside their cell",
     const width = bytes.readUInt32BE(16);
     const height = bytes.readUInt32BE(20);
     let area = 0;
+
     for (const cut of sheet.frames) {
       assert.ok(cut.x + cut.width <= width && cut.y + cut.height <= height, sheet.key);
       assert.ok(cut.feetX > 0 && cut.feetX < cut.width && cut.feetY > 0 && cut.feetY < cut.height);
       area += cut.width * cut.height;
     }
+
     assert.equal(area, width * height, `${sheet.key} cuts cover the whole raster`);
   }
 });
 
 test("blast frames seek by age; overlapping blasts share the newest cell", () => {
   for (const [age, frame] of [
-    // Another client's reading of the room clock can run a moment ahead.
     [-1, 0],
     [0, 0],
     [31, 0],
@@ -118,11 +123,13 @@ test("blast frames seek by age; overlapping blasts share the newest cell", () =>
   ] as const) {
     assert.equal(blastFrame(1000, 1000 + age), frame);
   }
+
   assert.equal(freshCue(1000, 990), true, "a stamp a moment ahead is new");
   assert.equal(freshCue(1000, 1000 + CUE_WINDOW_MS), true, "a slow route's delivery still cues");
   assert.equal(freshCue(1000, 1001 + CUE_WINDOW_MS), false, "a replayed snapshot does not");
   const row = Array.from({ length: 5 }, (_, col) => ({ col: col + 2, row: 4 }));
   const column = Array.from({ length: 5 }, (_, r) => ({ col: 4, row: r + 2 }));
+
   const cells = fireCells(
     [
       { id: "a", placedAt: 800, tiles: row },
@@ -130,6 +137,7 @@ test("blast frames seek by age; overlapping blasts share the newest cell", () =>
     ],
     1000,
   );
+
   assert.equal(cells.size, 9, "the crossing tile is one visual");
   assert.equal(cells.get("4,4")?.placedAt, 1000);
   assert.equal(fireCells([{ id: "old", placedAt: 0, tiles: row }], 1000).size, 0);
@@ -141,6 +149,7 @@ test("bomb stock counts only accepted bombs and never frees a slot early", () =>
     b: { ...mine("b", 0), ownerId: "other" },
     c: mine("c", 1000),
   };
+
   const stock = bombStock(bombs, "me", 3, 2100);
   assert.deepEqual(stock, {
     available: 1,
@@ -187,8 +196,6 @@ test("sim clock: the room's clock minus time paused, adopted as is", () => {
   assert.deepEqual(clockStamp(), { kind: "running", offset: 5000 });
   server += 100;
   assert.equal(now(), frozen + 100);
-  // Every client reads the same base, so a guest's sim time is the host's
-  // the moment it adopts the stamp, however late the stamp arrived.
   adoptClock(readClock({ kind: "running", offset: 7000 }));
   assert.equal(now(), server - 7000);
   adoptClock(readClock({ kind: "paused", now: 42 }));
@@ -196,7 +203,6 @@ test("sim clock: the room's clock minus time paused, adopted as is", () => {
   adoptClock(readClock({ kind: "running", offset: Number.NaN }));
   adoptClock(readClock());
   assert.equal(now(), 42, "a stamp that is not one changes nothing");
-  // Until the scene sets the room's, the base is this machine's clock, on the server's epoch.
   setClockBase(localClock);
   adoptClock({ kind: "running", offset: 0 });
   assert.ok(Math.abs(now() - Date.now()) < 50, "local: wall time");

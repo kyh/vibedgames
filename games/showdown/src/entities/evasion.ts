@@ -16,23 +16,26 @@ export const EVADE = {
 
 type EvadeStyle = "roll" | "dash" | "blink";
 
-export const evadeStyle = (id: BrawlerId): EvadeStyle => {
+export const evadeStyle: (id: BrawlerId) => EvadeStyle = (id) => {
   switch (id) {
     case "dusty":
     case "titan": {
       return "dash";
     }
+
     case "fuse":
     case "nyx":
     case "moss": {
       return "blink";
     }
+
     case "ace":
     case "rowan":
     case "flint":
     case "pip": {
       return "roll";
     }
+
     default: {
       const unreachable: never = id;
       throw new Error(`Unknown evade style: ${unreachable}`);
@@ -40,7 +43,7 @@ export const evadeStyle = (id: BrawlerId): EvadeStyle => {
   }
 };
 
-export const createEvasion = (dx: number, dz: number, facing: number): EvasionState => ({
+export const createEvasion = (dx: number, dz: number, facing: number) => ({
   angle:
     Math.hypot(dx, dz) > 0.001
       ? Math.atan2(dx, dz)
@@ -48,7 +51,7 @@ export const createEvasion = (dx: number, dz: number, facing: number): EvasionSt
   elapsed: 0,
 });
 
-export const evasionInvulnerable = (state: EvasionState | null): boolean =>
+export const evasionInvulnerable = (state: EvasionState | null) =>
   state !== null && state.elapsed < EVADE.invulnerable;
 
 interface EvasionWorld {
@@ -62,11 +65,12 @@ export const advanceEvasion = (
   position: Position & { y: number },
   world: EvasionWorld,
   dt: number,
-): boolean => {
+) => {
   const time = Math.max(0, Math.min(dt, EVADE.duration - state.elapsed));
   let remaining = (time / EVADE.duration) * EVADE.distance;
   const dx = Math.sin(state.angle);
   const dz = Math.cos(state.angle);
+
   while (remaining > 0) {
     const step = Math.min(remaining, 0.12);
     remaining -= step;
@@ -74,7 +78,9 @@ export const advanceEvasion = (
     position.z += dz * step;
     world.resolveCircle(position, BRAWLER_RADIUS);
   }
+
   position.y = world.heightAt(position.x, position.z);
   state.elapsed = Math.min(EVADE.duration, state.elapsed + time);
+
   return state.elapsed >= EVADE.duration;
 };

@@ -18,17 +18,20 @@ export interface WaterBody {
   readonly yaw: number;
 }
 
-export const waterBodyContains = (body: WaterBody, x: number, z: number): boolean => {
+export const waterBodyContains = (body: WaterBody, x: number, z: number) => {
   const dx = x - body.x;
   const dz = z - body.z;
   const reach = body.halfX + body.halfZ;
+
   if (Math.abs(dx) > reach || Math.abs(dz) > reach) {
     return false;
   }
+
   const c = Math.cos(body.yaw);
   const s = Math.sin(body.yaw);
   const lx = (dx * c - dz * s) / body.halfX;
   const lz = (dx * s + dz * c) / body.halfZ;
+
   return body.kind === "ellipse" ? lx * lx + lz * lz <= 1 : Math.abs(lx) <= 1 && Math.abs(lz) <= 1;
 };
 
@@ -40,12 +43,14 @@ export const waterBedHeight = (
   x: number,
   z: number,
   ground: number,
-): number => {
+) => {
   let height = ground;
+
   for (const body of bodies) {
     if (waterBodyContains(body, x, z)) {
       height = Math.min(height, body.y - 1.5);
     }
   }
+
   return height;
 };

@@ -46,18 +46,11 @@ const InstallPrompt = () => {
   );
 };
 
-// The `OFFERINGS` card pastels, saturated a touch so the chromatic flash still
-// reads once the letters settle into the muted heading color.
 const ROLL_PALETTE = [
-  // #F59279
   "hsl(12 90% 66%)",
-  // #F9B060
   "hsl(31 95% 62%)",
-  // #F5D84A
   "hsl(50 94% 57%)",
-  // #80D487
   "hsl(125 55% 60%)",
-  // #73B7E5
   "hsl(204 75% 60%)",
 ];
 
@@ -120,12 +113,8 @@ const SPRING = {
 };
 
 // oxlint-disable-next-line unicorn/prefer-number-coercion -- positions are CSS percentages like "12%"; Number() gives NaN
-const pct = (length: string): number => Number.parseFloat(length);
+const pct = (length: string) => Number.parseFloat(length);
 
-// Every mobile card length is in cqw — a percentage `top` would resolve against
-// the deck's height while the cards size off its width, so the two scales drift
-// apart and the stack either collides with itself or leaves a hole. One scale
-// means the deck can reserve exactly the height the stack needs, at any size.
 const MOBILE_CARD_CQW = 55;
 const MOBILE_CARD_ASPECT = 0.8;
 const MOBILE_STEP_CQW = 23;
@@ -153,18 +142,23 @@ const OfferingsDeckDesktop = () => {
 
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
     const container = containerRef.current;
+
     if (!container) {
       return;
     }
+
     const rect = container.getBoundingClientRect();
     const ratio = (e.clientX - rect.left) / rect.width;
     const idx = Math.min(OFFERINGS.length - 1, Math.max(0, Math.floor(ratio * OFFERINGS.length)));
+
     if (idx === activeIdx) {
       return;
     }
+
     if (activeIdx !== null) {
       setOffsets((prev) => prev.map((o, i) => (i === activeIdx ? randomOffset() : o)));
     }
+
     setActiveIdx(idx);
   };
 
@@ -172,6 +166,7 @@ const OfferingsDeckDesktop = () => {
     if (activeIdx !== null) {
       setOffsets((prev) => prev.map((o, i) => (i === activeIdx ? randomOffset() : o)));
     }
+
     setActiveIdx(null);
   };
 
@@ -224,6 +219,7 @@ const mobileCardTarget = (isInView: boolean, isActive: boolean, rotate: number) 
   if (!isInView) {
     return { opacity: 0, rotate: 0, scale: 0.9, y: 20 };
   }
+
   return isActive
     ? { opacity: 1, rotate: 0, scale: 1.15, y: 0 }
     : { opacity: 1, rotate, scale: 1, y: 0 };
@@ -253,6 +249,7 @@ const OfferingsDeckMobile = () => {
 
         let innerX = "0%";
         let innerY = "0%";
+
         if (activeP && activeIdx !== null && !isActive) {
           innerX = `${Math.sign(pct(p.left) - pct(activeP.left)) * 40}%`;
           innerY = `${Math.sign(i - activeIdx) * 40}%`;

@@ -1,10 +1,3 @@
-// Bespoke pause overlay — an ornate war-table plaque in the game's own art
-// direction (carved wood, gold-on-dark fantasy type, HUD-style keycap chips)
-// on the shared @repo/embed pause shell, which owns resume behavior exactly
-// like the stock overlay this replaced: pointerup / keyup (except Escape) /
-// fresh pad press all resume; show()/hide() are idempotent; Escape itself is
-// handled on keydown by the @repo/embed core toggle.
-
 import { controlGroups, createPauseShell, resumeGame } from "@repo/embed";
 import type { ControlMethod } from "@repo/embed";
 
@@ -25,8 +18,7 @@ const GROUP_LABEL = {
 } satisfies Record<ControlMethod, string>;
 
 const STYLE_ID = "moba-pause-style";
-// Positioning/z-index/root fade live on the shell's root — visuals only here.
-// The panel keeps its own slide-up entrance, driven by the .mp-in class.
+
 const CSS = `
 .mp-root{display:flex;flex-direction:column;align-items:center;justify-content:center;
   padding:18px;text-align:center;
@@ -87,43 +79,44 @@ const CSS = `
 /** "Q W E R" / "X Y B RB" render as individual HUD-style keycaps; anything
  *  else ("←→↑↓", "L-STICK / D-PAD", "2ND FINGER") stays one chip. Shared with
  *  the menu's controls plaque so both surfaces split keycaps identically. */
-export const chipTexts = (input: string): readonly string[] =>
+export const chipTexts = (input: string) =>
   /^[A-Z0-9]{1,2}(?: [A-Z0-9]{1,2})+$/u.test(input) ? input.split(" ") : [input];
 
-const el = (tag: string, className: string, text?: string): HTMLElement => {
+const el = (tag: string, className: string, text?: string) => {
   const node = document.createElement(tag);
   node.className = className;
+
   if (text !== undefined) {
     node.textContent = text;
   }
+
   return node;
 };
 
-// Kept across show/hide so onHide can back out the panel's .mp-in slide.
 let root: HTMLElement | null = null;
 let stopSettings: (() => void) | null = null;
 
-const settingsPanel = (): HTMLElement => {
+const settingsPanel = () => {
   const section = el("div", "mp-settings");
   section.dataset.pauseKeep = "";
   section.setAttribute("role", "group");
   section.setAttribute("aria-label", "Presentation settings");
-  // Native checkbox keys stay in this panel, including online matches whose
-  // simulation continues while paused. The shell keeps focused edits open.
   section.addEventListener("keydown", (event) => {
     event.stopPropagation();
+
     if (event.key === "Escape") {
       event.preventDefault();
       resumeGame();
     }
   });
   section.addEventListener("keyup", (event) => event.stopPropagation());
+
   const option = (
     title: string,
     description: string,
     checked: boolean,
     change: (checked: boolean) => void,
-  ): void => {
+  ) => {
     const label = el("label", "mp-option");
     const input = document.createElement("input");
     input.type = "checkbox";
@@ -135,6 +128,7 @@ const settingsPanel = (): HTMLElement => {
     label.append(input, copy);
     section.append(label);
   };
+
   const settings = presentationSettings();
   option(
     "Focused effects",
@@ -160,24 +154,29 @@ const settingsPanel = (): HTMLElement => {
     (close) =>
       setPresentationSettings({ ...presentationSettings(), view: close ? "close" : "standard" }),
   );
+
   return section;
 };
 
-const renderPanel = (overlay: HTMLElement): void => {
+const renderPanel = (overlay: HTMLElement) => {
   root = overlay;
+
   const syncMotion = () =>
     overlay.classList.toggle("mp-reduced", presentationSettings().motion === "reduced");
+
   syncMotion();
   stopSettings = watchPresentationSettings(syncMotion);
   const coarse = window.matchMedia("(pointer: coarse)").matches;
 
   const panel = el("div", "mp-panel");
+
   const cornerInsets: readonly string[] = [
     "7px 7px auto auto",
     "7px auto auto 7px",
     "auto 7px 7px auto",
     "auto auto 7px 7px",
   ];
+
   for (const inset of cornerInsets) {
     const corner = el("span", "mp-corner");
     corner.style.inset = inset;
@@ -196,18 +195,21 @@ const renderPanel = (overlay: HTMLElement): void => {
   );
   panel.append(settingsPanel());
 
-  // Fresh each show(): touch vs keys/mouse, controller only while connected.
   for (const group of controlGroups(CONTROLS, { coarse })) {
     const header = el("div", "mp-gh");
     header.append(el("span", "", GROUP_LABEL[group.method]));
     const grid = el("div", "mp-grid");
+
     for (const entry of group.entries) {
       const keys = el("span", "mp-keys");
+
       for (const text of chipTexts(entry.input)) {
         keys.append(el("span", "mp-chip", text));
       }
+
       grid.append(keys, el("span", "mp-action", entry.action));
     }
+
     panel.append(header, grid);
   }
 
@@ -220,7 +222,6 @@ const renderPanel = (overlay: HTMLElement): void => {
   );
   overlay.append(panel);
 
-  // Panel slide-up rides the same first frame as the shell's root fade.
   requestAnimationFrame(() => overlay.classList.add("mp-in"));
 };
 
@@ -240,7 +241,6 @@ const shell = createPauseShell({
   onHide: () => {
     stopSettings?.();
     stopSettings = null;
-    // Slide the panel back down through the shell's fade-out.
     root?.classList.remove("mp-in");
     root = null;
   },

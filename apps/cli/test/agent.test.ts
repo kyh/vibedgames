@@ -5,7 +5,6 @@ import { setImmediate as nextTurn } from "node:timers/promises";
 import type {
   AgentConfig,
   AgentEnv,
-  AgentKeyInit,
   AgentPointer,
   AgentRequest,
   AgentResult,
@@ -14,15 +13,6 @@ import type {
 } from "../src/lib/playtest/agent.js";
 import { browserEnv, inPageAgent } from "../src/lib/playtest/agent.js";
 import { keyInitsFor, keyTable } from "../src/lib/playtest/keys.js";
-
-/**
- * The in-page agent, driven against a fake page: a scripted "model" answers
- * from the criteria it was offered, the fake records every dispatched
- * event, and time is a counter. A decision resolves on the next animation
- * frame, the way a real one takes at least a frame, so windows have frames
- * in them. What matters is the loop's contract — what it asks, what it
- * holds, what it records, when it stops — not the browser.
- */
 
 interface Dispatched {
   kind: "key" | "pointer";
@@ -46,10 +36,8 @@ interface FakeReply {
 }
 
 interface AnswerScript {
-  /** Called per request with the offered move labels; returns the move to pick. */
   pick: (offered: string[], tick: number) => string;
   actionProbability?: number;
-  /** The `progress` score answer per tick, in levels (0–4); omitted = the model gave none. */
   progress?: (tick: number) => number;
   status?: number;
   failTimes?: number;
@@ -60,51 +48,57 @@ interface FakePage {
   dispatched: Dispatched[];
   requests: AgentRequest[];
   published: AgentResult | null;
-  /** Advance the clock, run one animation frame, and deliver any decision in flight. */
   frame: (ms?: number) => void;
-  /** Let every pending microtask and due timer settle. */
   settle: () => Promise<void>;
   sample: AgentSample;
   ballX: number;
 }
 
-const makePage = (script: AnswerScript, reflexes: Record<string, Reflex> = {}): FakePage => {
+const makePage = (script: AnswerScript, reflexes: Record<string, Reflex> = {}) => {
   let now = 1000;
   let frames: (() => void)[] = [];
   const timers: { at: number; resolve: () => void }[] = [];
   const inFlight: (() => void)[] = [];
   let failuresLeft = script.failTimes ?? 0;
 
-  const fireDueTimers = (): void => {
+  const fireDueTimers = () => {
     const due = timers.filter((t) => t.at <= now);
+
     for (const timer of due) {
       timers.splice(timers.indexOf(timer), 1);
       timer.resolve();
     }
   };
 
-  const answer = (init: AgentRequest): FakeReply => {
+  const answer = (init: AgentRequest) => {
     if (failuresLeft > 0) {
       failuresLeft -= 1;
+
       return { body: "down", ok: false, status: 503 };
     }
+
     if (script.status !== undefined && script.status !== 200) {
       return { body: "nope", ok: false, status: script.status };
     }
+
     const body = JSON.parse(init.body);
     const offered = Object.keys(body.questions.move.criteria);
     const choice = script.pick(offered, body.state.tick.index);
+
     const answers = new Map<string, FakeAnswer>([
       ["move", { choice, confidence: 0.75, type: "choice" }],
     ]);
+
     if (script.progress !== undefined) {
       answers.set("progress", { score: script.progress(body.state.tick.index), type: "score" });
     }
+
     for (const key of Object.keys(body.questions)) {
       if (key.startsWith("act:")) {
         answers.set(key, { noul: script.actionProbability ?? 0.1, type: "noul" });
       }
     }
+
     return {
       body: JSON.stringify({
         answers: Object.fromEntries(answers),
@@ -136,6 +130,7 @@ const makePage = (script: AnswerScript, reflexes: Record<string, Reflex> = {}): 
       fetch: (_url, init) => {
         page.requests.push(init);
         const reply = answer(init);
+
         // oxlint-disable-next-line promise/avoid-new -- delivered by the next frame, like a real round trip
         return new Promise((resolve) => {
           inFlight.push(() => {
@@ -155,6 +150,7 @@ const makePage = (script: AnswerScript, reflexes: Record<string, Reflex> = {}): 
       },
       raf: (frame) => {
         frames.push(frame);
+
         return frames.length;
       },
       read: () => ({ ...page.sample }),
@@ -169,10 +165,13 @@ const makePage = (script: AnswerScript, reflexes: Record<string, Reflex> = {}): 
       page.sample.frame += 1;
       const due = frames;
       frames = [];
+
       for (const frame of due) {
         frame();
       }
+
       const deliveries = inFlight.splice(0);
+
       for (const deliver of deliveries) {
         deliver();
       }
@@ -187,12 +186,13 @@ const makePage = (script: AnswerScript, reflexes: Record<string, Reflex> = {}): 
       }
     },
   };
+
   return page;
 };
 
-const inits = (codes: string[]): AgentKeyInit[] => keyInitsFor(codes);
+const inits = (codes: string[]) => keyInitsFor(codes);
 
-const config = (overrides: Partial<AgentConfig> = {}): AgentConfig => ({
+const config = (overrides: Partial<AgentConfig> = {}) => ({
   actionThreshold: 0.5,
   actions: { jump: { description: "jump", inits: inits(["Space"]) } },
   decideUrl: "https://vibedgames.test/api/playtest/decide",
@@ -220,23 +220,21 @@ const config = (overrides: Partial<AgentConfig> = {}): AgentConfig => ({
   ...overrides,
 });
 
-/** Run the agent to completion, moving the player and advancing a frame each round. */
-const complete = async (
-  page: FakePage,
-  cfg: AgentConfig,
-  movePerFrame = 1,
-): Promise<AgentResult> => {
+const complete = async (page: FakePage, cfg: AgentConfig, movePerFrame = 1) => {
   const result = inPageAgent(cfg, page.env);
+
   for (let i = 0; i < 200 && !result.done; i += 1) {
     page.sample.x += movePerFrame;
     page.frame();
     await page.settle();
   }
+
   assert.ok(result.done, "the agent should finish");
+
   return result;
 };
 
-const keyEvents = (page: FakePage): string[] =>
+const keyEvents = (page: FakePage) =>
   page.dispatched.filter((d) => d.kind === "key").map((d) => `${d.type}:${d.code}`);
 
 test("asks one choice for movement, a progress score, and one yes/no per action, with the token", async () => {
@@ -252,7 +250,6 @@ test("asks one choice for movement, a progress score, and one yes/no per action,
   assert.deepEqual(Object.keys(body.questions), ["move", "progress", "act:jump"]);
   assert.equal(body.questions.progress.type, "score");
   assert.equal(body.questions.progress.criteria.length, 5);
-  // Levels 0 and 2 of 4, normalised to 0–1.
   assert.deepEqual(
     result.records.map((r) => r.progress),
     [0, 0.5],
@@ -275,12 +272,12 @@ test("holds the chosen move, and presses a repeated action again on each decisio
     actionProbability: 0.9,
     pick: (_, tick) => (tick === 0 ? "right" : "left"),
   });
+
   const result = await complete(page, config({ ticks: 2 }));
   assert.equal(result.error, null);
   assert.deepEqual(keyEvents(page), [
     "keydown:KeyD",
     "keydown:Space",
-    // Chosen again: released first, so a game acting on the keydown edge sees a second press.
     "keyup:Space",
     "keyup:KeyD",
     "keydown:KeyA",
@@ -303,6 +300,7 @@ test("records a window per decision with usage, and measures motion under it", a
     result.records.map((r) => r.tick),
     [0, 1, 2],
   );
+
   for (const record of result.records) {
     assert.equal(record.move, "right");
     assert.equal(record.askedToMove, true);
@@ -312,6 +310,7 @@ test("records a window per decision with usage, and measures motion under it", a
     assert.ok(record.window.peak > 0, "the player moved during the window");
     assert.ok(record.window.frame > record.window.frameBefore);
   }
+
   assert.equal(result.usage.calls, 3);
   assert.equal(result.usage.inputTokens, 300);
   assert.ok(result.wallMs > 0);
@@ -319,17 +318,19 @@ test("records a window per decision with usage, and measures motion under it", a
 
 test("withdraws a move that produced nothing twice, then the next one, until the player moves", async () => {
   const offeredPerTick: string[][] = [];
+
   const page = makePage({
     pick: (offered) => {
       offeredPerTick.push(offered.toSorted());
+
       if (offered.includes("right")) {
         return "right";
       }
+
       return offered.includes("left") ? "left" : "none";
     },
   });
-  // The player never moves, so `right` is stuck from the first window.
-  // Idle-resting is its own test; here it would pull `none` mid-assertion.
+
   const result = await complete(page, config({ idleRun: 99, ticks: 9 }), 0);
   assert.equal(result.error, null);
   assert.deepEqual(offeredPerTick[0], ["left", "none", "right", "track"]);
@@ -345,18 +346,20 @@ test("withdraws a move that produced nothing twice, then the next one, until the
     result.records.filter((r) => r.move === "right").length >= 2,
     "the withdrawn move was tried at least twice",
   );
-  // Still stuck on `left`: both walls are withdrawn together, not swapped.
   assert.deepEqual(offeredPerTick.at(-1), ["none", "track"]);
 });
 
 test("rests the no-input option after the model idles, then offers it again", async () => {
   const offeredPerTick: string[][] = [];
+
   const page = makePage({
     pick: (offered) => {
       offeredPerTick.push(offered.toSorted());
+
       return offered.includes("none") ? "none" : "right";
     },
   });
+
   const result = await complete(page, config({ idleRestTicks: 2, ticks: 8 }), 0);
   assert.equal(result.error, null);
   const rested = offeredPerTick.findIndex((offered) => !offered.includes("none"));
@@ -369,6 +372,7 @@ test("rests the no-input option after the model idles, then offers it again", as
 
 test("a parked pointer that has arrived is not a stuck player", async () => {
   const page = makePage({ pick: () => "park" });
+
   const result = await complete(
     page,
     config({
@@ -380,6 +384,7 @@ test("a parked pointer that has arrived is not a stuck player", async () => {
     }),
     0,
   );
+
   assert.equal(result.error, null);
   assert.ok(result.records.every((r) => !r.askedToMove));
 });
@@ -388,28 +393,31 @@ test("gives up on a decision that never answers", async () => {
   const page = makePage({ pick: () => "right" });
   page.env.fetch = () =>
     // oxlint-disable-next-line promise/avoid-new -- a request that hangs forever
-    new Promise(() => {
-      /* never settles */
-    });
+    new Promise(() => {});
   const result = inPageAgent(config({ decisionRetries: 0, ticks: 1 }), page.env);
+
   for (let i = 0; i < 10 && !result.done; i += 1) {
     page.frame(500);
     await page.settle();
   }
+
   assert.match(result.error ?? "", /no answer within 1000 ms/u);
 });
 
 test("runs an option's reflex every frame and holds what it returns", async () => {
   let calls = 0;
+
   const page = makePage(
     { pick: () => "track" },
     {
       track: () => {
         calls += 1;
+
         return { keys: ["KeyD"], pointer: { x: page.ballX, y: 0.5 } };
       },
     },
   );
+
   const result = await complete(page, config({ ticks: 2 }));
   assert.equal(result.error, null);
   assert.ok(calls > 0, "the reflex ran");
@@ -421,16 +429,17 @@ test("runs an option's reflex every frame and holds what it returns", async () =
   const firstMove = page.dispatched.find((d) => d.kind === "pointer" && d.type === "pointermove");
   assert.equal(firstMove?.pointer?.x, 0.25);
   assert.ok(keyEvents(page).includes("keydown:KeyD"));
-  // The pointer never changed, so it was dispatched once, not once per frame.
   assert.equal(page.dispatched.filter((d) => d.type === "pointermove").length, 1);
 });
 
 test("a reflex that reports itself stuck is withdrawn like any wedged move", async () => {
   const offeredPerTick: string[][] = [];
+
   const page = makePage(
     {
       pick: (offered) => {
         offeredPerTick.push(offered.toSorted());
+
         return (
           ["track", "right", "left", "none"].find((label) => offered.includes(label)) ?? "none"
         );
@@ -438,6 +447,7 @@ test("a reflex that reports itself stuck is withdrawn like any wedged move", asy
     },
     { track: () => ({ keys: ["KeyD"], stuck: true }) },
   );
+
   const result = await complete(page, config({ ticks: 6 }), 0);
   assert.equal(result.error, null);
   assert.ok(result.records.filter((r) => r.move === "track").every((r) => r.askedToMove));
@@ -457,15 +467,18 @@ test("a pinned move runs without ever calling the model", async () => {
 
 test("a held-down pointer that moves is a drag, not a click per move", async () => {
   let x = 0.2;
+
   const page = makePage(
     { pick: () => "track" },
     {
       track: () => {
         x += 0.01;
+
         return { pointer: { down: true, x, y: 0.5 } };
       },
     },
   );
+
   await complete(page, config({ ticks: 2 }));
   const types = page.dispatched.filter((d) => d.kind === "pointer").map((d) => d.type);
   assert.equal(types.filter((type) => type === "pointerdown").length, 1);
@@ -475,15 +488,18 @@ test("a held-down pointer that moves is a drag, not a click per move", async () 
 
 test("a reflex that returns null releases what it held", async () => {
   let frames = 0;
+
   const page = makePage(
     { pick: () => "track" },
     {
       track: () => {
         frames += 1;
+
         return frames === 1 ? { keys: ["KeyD"] } : null;
       },
     },
   );
+
   await complete(page, config({ ticks: 1 }));
   assert.deepEqual(keyEvents(page).slice(0, 2), ["keydown:KeyD", "keyup:KeyD"]);
 });
@@ -504,47 +520,48 @@ test("stops on a rejected token without retrying, and retries an upstream fault"
 test("stop() ends the run and releases everything held", async () => {
   const page = makePage({ pick: () => "right" });
   const result = inPageAgent(config({ ticks: 50 }), page.env);
+
   for (let i = 0; i < 3; i += 1) {
     page.frame();
     await page.settle();
   }
+
   assert.ok(keyEvents(page).includes("keydown:KeyD"), "something is held");
   result.stop();
+
   for (let i = 0; i < 10 && !result.done; i += 1) {
     page.frame();
     await page.settle();
   }
+
   assert.ok(result.done);
   assert.equal(keyEvents(page).at(-1), "keyup:KeyD", "nothing stays held");
   assert.ok(page.requests.length < 50);
 });
 
 test("both injected functions survive being stringified into a fresh scope", async () => {
-  // In the page nothing from this module exists, so a helper that leaked to
-  // module scope would be a ReferenceError there — and only there. Evaluate
-  // the same source in a scope with none of this module's bindings. (`__name`
-  // is the one thing supplied: tsx's esbuild transform annotates functions
-  // with it, where the real tsc build emits nothing of the kind.)
   const source = `(${inPageAgent.toString()})`;
   // oxlint-disable-next-line no-new-func -- the point is a scope with no module bindings, which only Function gives
   const factory = new Function("__name", "config", "env", `return ${source}(config, env);`);
-  // SAFETY: the Function was built from inPageAgent's own source, so it has inPageAgent's signature.
+
   const rebuilt = factory as (
     keep: <T>(fn: T) => T,
     cfg: AgentConfig,
     env: AgentEnv,
   ) => AgentResult;
+
   const page = makePage({ actionProbability: 0.9, pick: () => "right" });
   const result = rebuilt((fn) => fn, config({ ticks: 2 }), page.env);
+
   for (let i = 0; i < 100 && !result.done; i += 1) {
     page.sample.x += 1;
     page.frame();
     await page.settle();
   }
+
   assert.ok(result.done);
   assert.equal(result.error, null);
   assert.equal(result.records.length, 2);
-  // The browser env only references page globals, which a parse check can prove.
   // oxlint-disable-next-line no-new-func -- parse-only check of the stringified source
   assert.doesNotThrow(() => new Function(`return (${browserEnv.toString()})`));
 });

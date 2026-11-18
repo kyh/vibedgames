@@ -1,11 +1,3 @@
-// Draws the frame: sun pass, splat pass into a G-buffer at twice the art
-// resolution, resolve onto a small canvas, and the browser scales that canvas
-// up by a whole number with hard pixels.
-//
-// An orthographic camera that only slides is snapped to the art grid, and the
-// leftover fraction of a pixel is moved with CSS, so following a kart never
-// makes a pixel shimmer.
-
 import * as THREE from "three";
 
 import { PAINT_CELL, PAINT_SIZE } from "../shared/constants";
@@ -31,14 +23,10 @@ export interface StageView {
   fogEnd: number;
 }
 
-/** World units a chunk of the static world covers. */
 const CHUNK = 32;
-/** Half the side of the square the sun's depth map covers around the camera's target. */
 const SUN_REACH = 58;
 const SUN_FAR = 400;
-/** Rows of art pixels the screen aims for. */
 const ROWS = 216;
-/** Gaussian cut: a disc ends where it falls to half. */
 const CUT = Math.sqrt(-2 * Math.log(0.5));
 
 const RIGHT = new THREE.Vector3();
@@ -54,32 +42,27 @@ const quad = () => ({
   index: new THREE.BufferAttribute(new Uint16Array([0, 1, 2, 0, 2, 3]), 1),
 });
 
-/** One instanced quad per splat of `set`. A moving set starts empty and is refilled each frame. */
-const geometryFor = (
-  set: SplatSet,
-  start: number,
-  count: number,
-  moving: boolean,
-): THREE.InstancedBufferGeometry => {
+const geometryFor = (set: SplatSet, start: number, count: number, moving: boolean) => {
   const geometry = new THREE.InstancedBufferGeometry();
-  // Its own quad: disposing a geometry frees every buffer it holds, shared or not.
   const { corner, index } = quad();
   geometry.setAttribute("position", corner);
   geometry.setIndex(index);
   const centers = new THREE.InstancedBufferAttribute(set.centers, 3);
   const normals = new THREE.InstancedBufferAttribute(set.normals, 4, true);
   const data = new THREE.InstancedBufferAttribute(set.data, 4);
+
   if (moving) {
     for (const attribute of [centers, normals, data]) {
       attribute.setUsage(THREE.DynamicDrawUsage);
     }
   }
+
   geometry.setAttribute("aCenter", centers);
   geometry.setAttribute("aNormal", normals);
   geometry.setAttribute("aData", data);
-  // The quad's corners say nothing about where its splats are: bounds are set by hand.
   geometry.boundingSphere = new THREE.Sphere(new THREE.Vector3(), Number.POSITIVE_INFINITY);
   geometry.instanceCount = moving ? start : count;
+
   return geometry;
 };
 
@@ -153,6 +136,7 @@ export class SplatStage {
         : null;
 
     const common = { value: this.look };
+
     const base = {
       blending: THREE.NoBlending,
       fragmentShader: SPLAT_FRAGMENT,
@@ -160,6 +144,7 @@ export class SplatStage {
       side: THREE.DoubleSide,
       vertexShader: SPLAT_VERTEX,
     };
+
     this.splat = new THREE.RawShaderMaterial({
       ...base,
       uniforms: {
@@ -167,7 +152,6 @@ export class SplatStage {
         uLightVP: { value: this.lightVP },
         uPaint: { value: this.paint },
         uPaintSpan: { value: PAINT_SIZE * PAINT_CELL },
-        // A whole step of shade: a cast shadow is one flat tone, never a checker.
         uShade: { value: new THREE.Vector4(1, 1, 0.35, 0.8) },
         uShadow: { value: this.shadow },
         uShadowMap: { value: this.sunMap?.depthTexture ?? null },
@@ -225,31 +209,37 @@ export class SplatStage {
   }
 
   /** The static world, split into chunks the cameras can cull. */
-  setWorld(set: SplatSet): void {
+  setWorld(set: SplatSet) {
     for (const child of this.world.children) {
       if (child instanceof THREE.Mesh) {
         child.geometry.dispose();
       }
     }
+
     this.world.clear();
     const buckets = new Map<string, number[]>();
+
     for (let i = 0; i < set.count; i += 1) {
       const key = `${Math.floor((set.centers[i * 3] ?? 0) / CHUNK)}:${Math.floor((set.centers[i * 3 + 2] ?? 0) / CHUNK)}`;
       const list = buckets.get(key);
+
       if (list) {
         list.push(i);
       } else {
         buckets.set(key, [i]);
       }
     }
+
     for (const list of buckets.values()) {
       const part = new SplatSet(list.length);
+
       for (const i of list) {
         part.centers.set(set.centers.subarray(i * 3, i * 3 + 3), part.count * 3);
         part.normals.set(set.normals.subarray(i * 4, i * 4 + 4), part.count * 4);
         part.data.set(set.data.subarray(i * 4, i * 4 + 4), part.count * 4);
         part.count += 1;
       }
+
       const geometry = geometryFor(part, 0, part.count, false);
       geometry.boundingSphere = new THREE.Sphere().setFromPoints(
         list.map(
@@ -267,17 +257,20 @@ export class SplatStage {
   }
 
   /** The wall colour behind everything: the ramp the far distance and the fog are drawn in. */
-  setSky(ramp: number): void {
+  setSky(ramp: number) {
     this.sky.x = ramp;
   }
 
   /** Where a world point lands on the page, in CSS pixels; null when it is behind the camera. */
-  project(x: number, y: number, z: number): { x: number; y: number } | null {
+  project(x: number, y: number, z: number) {
     PROJECTED.set(x, y, z).project(this.active);
+
     if (PROJECTED.z > 1) {
       return null;
     }
+
     const box = this.renderer.domElement.getBoundingClientRect();
+
     return {
       x: box.left + ((PROJECTED.x + 1) / 2) * box.width,
       y: box.top + ((1 - PROJECTED.y) / 2) * box.height,
@@ -285,33 +278,34 @@ export class SplatStage {
   }
 
   /** Turn the shadow pass on or off. Without a depth map it stays off. */
-  setSun(on: boolean): void {
+  setSun(on: boolean) {
     this.sunOn = on && this.sunMap !== null;
     this.shadow.x = this.sunOn ? 1 : 0;
   }
 
   /** Which ramp paint slot `slot` shows as. */
-  setSlotRamp(slot: number, ramp: number): void {
+  setSlotRamp(slot: number, ramp: number) {
     if (slot > 0 && slot < this.slotRamp.length) {
       this.slotRamp[slot] = ramp;
     }
   }
 
   /** Copy the paint grid to the texture the track's splats read their colour from. */
-  uploadPaint(grid: PaintGrid): void {
+  uploadPaint(grid: PaintGrid) {
     const { owner, strength } = grid;
     const out = this.paintBytes;
+
     for (let cell = 0; cell < owner.length; cell += 1) {
       out[cell * 2] = owner[cell] ?? 0;
       out[cell * 2 + 1] = Math.round((strength[cell] ?? 0) * 255);
     }
+
     this.paint.needsUpdate = true;
   }
 
   /** Fit the art grid to a window `width` by `height` CSS pixels. */
-  resize(width: number, height: number): void {
+  resize(width: number, height: number) {
     this.pixel = Math.max(2, Math.round(height / ROWS));
-    // One spare art pixel a side: the snap slides the picture by up to a pixel.
     this.wide = Math.ceil(width / this.pixel) + 2;
     this.tall = Math.ceil(height / this.pixel) + 2;
     this.renderer.setPixelRatio(1);
@@ -325,13 +319,13 @@ export class SplatStage {
   }
 
   /** Start a frame: nothing that moves is on stage yet. */
-  begin(dt: number): void {
+  begin(dt: number) {
     this.time += dt;
     this.look.w = this.time;
     this.dynamic.clear();
   }
 
-  render(view: StageView): void {
+  render(view: StageView) {
     const { renderer } = this;
     const camera = view.ortho ? this.aimOrtho(view) : this.aimPersp(view);
     this.active = camera;
@@ -358,13 +352,14 @@ export class SplatStage {
     renderer.render(this.resolveScene, camera);
   }
 
-  /** Send this frame's moving splats to the GPU. */
-  private upload(): void {
+  private upload() {
     const { dynamic, moving } = this;
     const count = Math.min(dynamic.count, moving.getAttribute("aData").count);
     moving.instanceCount = count;
+
     for (const name of ["aCenter", "aNormal", "aData"]) {
       const attribute = moving.getAttribute(name);
+
       if (attribute instanceof THREE.InstancedBufferAttribute) {
         attribute.clearUpdateRanges();
         attribute.addUpdateRange(0, count * attribute.itemSize);
@@ -373,7 +368,7 @@ export class SplatStage {
     }
   }
 
-  private aimOrtho(view: StageView): THREE.OrthographicCamera {
+  private aimOrtho(view: StageView) {
     const camera = this.orthoCam;
     const rows = this.tall - 2;
     const texel = view.height / rows;
@@ -383,6 +378,7 @@ export class SplatStage {
     let dx = 0;
     let dy = 0;
     SHIFT.set(0, 0, 0);
+
     if (view.snap) {
       const a = view.target.dot(RIGHT);
       const b = view.target.dot(UP);
@@ -390,6 +386,7 @@ export class SplatStage {
       dy = b - Math.round(b / texel) * texel;
       SHIFT.addScaledVector(RIGHT, -dx).addScaledVector(UP, -dy);
     }
+
     camera.left = (-this.wide * texel) / 2;
     camera.right = (this.wide * texel) / 2;
     camera.top = (this.tall * texel) / 2;
@@ -400,13 +397,13 @@ export class SplatStage {
     camera.updateProjectionMatrix();
     camera.updateMatrixWorld();
     this.grid.set(this.wide * 2, this.tall * 2, 2 / texel, 1);
-    // The picture was drawn a fraction of a pixel off the true target: slide it back.
     const { pixel } = this;
     this.renderer.domElement.style.transform = `translate(${((-dx / texel) * pixel).toFixed(2)}px, ${((dy / texel) * pixel).toFixed(2)}px)`;
+
     return camera;
   }
 
-  private aimPersp(view: StageView): THREE.PerspectiveCamera {
+  private aimPersp(view: StageView) {
     const camera = this.perspCam;
     camera.fov = view.fov;
     camera.aspect = this.wide / this.tall;
@@ -417,11 +414,11 @@ export class SplatStage {
     const focal = this.tall / Math.tan(THREE.MathUtils.degToRad(view.fov) / 2);
     this.grid.set(this.wide * 2, this.tall * 2, focal, 0);
     this.renderer.domElement.style.transform = "none";
+
     return camera;
   }
 
-  /** Point the sun's depth camera at the target, moving it in whole texels so shadows hold still. */
-  private aimSun(target: THREE.Vector3): void {
+  private aimSun(target: THREE.Vector3) {
     const camera = this.sunCam;
     AHEAD.copy(this.sun).negate();
     RIGHT.crossVectors(AHEAD, WORLD_UP).normalize();

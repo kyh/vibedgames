@@ -1,27 +1,3 @@
-// Social-preview capture: the site's og:video trailer and the per-page cards.
-//
-//   pnpm -F @repo/web og:video                # trailer + cards
-//   pnpm -F @repo/web og:video --only video
-//   pnpm -F @repo/web og:video --only cards
-//
-// The trailer is a built scene, not gameplay: scripts/og-scene.html is one
-// continuous wireframe shot in which a single hero travels through five kinds
-// of game — platformer, bomberman grid, paddle court, 3D arena, falling-block
-// well — each re-forming into the next, then folds back into the icon over its
-// tagline. It is opened from disk, never routed or shipped. This script hands
-// it the icon's polygon from public/favicon/favicon.svg (`window.__setMark`),
-// then steps `window.__render(ms)` one 30fps frame at a time at device pixel
-// ratio 2 and screenshots each, so the cut is identical every run however
-// slowly the machine draws. ffmpeg scales the frames down into a 1200x630
-// H.264 loop at apps/web/public/og/og.mp4. The scene's `window.__still()`
-// draws the trailer's poster (the icon and tagline over the clip's arena). The
-// site's og:image (public/og.jpg) is the painted brand illustration, kept by
-// hand: nothing here writes it.
-//
-// The cards are one 1200x630 JPEG per prose page (lib/og-media.ts), drawn from
-// the page's own title and description over the site's logo, background and
-// game covers. Nothing here runs in `pnpm verify` or the build.
-
 import { execFile } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { mkdir, mkdtemp, rm, stat } from "node:fs/promises";
@@ -52,7 +28,6 @@ const FPS = 30;
 const WIDTH = siteVideo.width;
 const HEIGHT = siteVideo.height;
 const SCENE = path.join(WEB, "scripts/og-scene.html");
-/** Frames are drawn at twice the size and scaled down, so hairlines stay crisp. */
 const SCALE = 2;
 
 const CARD_DOCS: Doc[] = [
@@ -65,9 +40,6 @@ const CARD_DOCS: Doc[] = [
   termsDoc,
 ];
 
-// --- Playwright, typed to the few calls made here --------------------------
-
-/** What a page expression hands back here: a number, a string or a flag. */
 type Evaluated = boolean | number | string | null;
 
 interface Page {
@@ -86,10 +58,12 @@ interface Page {
     options?: { polling?: number; timeout?: number },
   ) => Promise<void>;
 }
+
 interface Context {
   close: () => Promise<void>;
   newPage: () => Promise<Page>;
 }
+
 interface Browser {
   close: () => Promise<void>;
   newContext: (options: {
@@ -97,32 +71,27 @@ interface Browser {
     viewport: { height: number; width: number };
   }) => Promise<Context>;
 }
+
 interface Playwright {
   chromium: { launch: () => Promise<Browser> };
 }
 
-/**
- * `playwright` where the machine has it (global installs ship a matching
- * Chromium), else the `playwright-core` the game packages already depend on —
- * tooling only, so neither becomes a dependency of the web app.
- */
-const loadPlaywright = (): Playwright => {
+const loadPlaywright = () => {
   const candidates: [string, string][] = [
     [path.join(WEB, "package.json"), "playwright"],
     [path.join(ROOT, "games/crazy-waymo/package.json"), "playwright-core"],
   ];
+
   for (const [from, name] of candidates) {
     try {
       const loaded: Playwright = createRequire(from)(name);
+
       return loaded;
-    } catch {
-      // try the next one
-    }
+    } catch {}
   }
+
   throw new Error("og-video: no playwright or playwright-core to drive Chromium with");
 };
-
-// --- capture ---------------------------------------------------------------
 
 const ffprobe = async (file: string) => {
   const { stdout } = await exec("ffprobe", [
@@ -136,21 +105,25 @@ const ffprobe = async (file: string) => {
     "default=nw=1",
     file,
   ]);
+
   return stdout.trim().replaceAll("\n", " ");
 };
 
-/** The icon's polygon, read from the favicon so the clip never drifts from the logo. */
-const markPoints = (): [number, number][] => {
+const markPoints = () => {
   const svg = readFileSync(path.join(PUBLIC, "favicon/favicon.svg"), "utf-8");
   const points = /<polygon[^>]*points="(?<points>[^"]+)"/u.exec(svg)?.groups?.points;
+
   if (!points) {
     throw new Error("og-video: no polygon in public/favicon/favicon.svg");
   }
+
   const numbers = points.trim().split(/\s+/u).map(Number);
   const pairs: [number, number][] = [];
+
   for (let index = 0; index + 1 < numbers.length; index += 2) {
     pairs.push([numbers[index] ?? 0, numbers[index + 1] ?? 0]);
   }
+
   return pairs;
 };
 
@@ -158,10 +131,12 @@ const frameName = (index: number) => `${String(index).padStart(5, "0")}.png`;
 
 const captureVideo = async (browser: Browser) => {
   const scratch = await mkdtemp(path.join(tmpdir(), "vg-og-video-"));
+
   const context = await browser.newContext({
     deviceScaleFactor: SCALE,
     viewport: { height: HEIGHT, width: WIDTH },
   });
+
   try {
     const page = await context.newPage();
     await page.goto(pathToFileURL(SCENE).href, { waitUntil: "load" });
@@ -169,23 +144,26 @@ const captureVideo = async (browser: Browser) => {
       polling: 100,
       timeout: 30_000,
     });
-    // No text exists yet, so nothing has requested VG5000: load it by name, or the
-    // first frames bake in the fallback face.
+
     const fontLoaded = await page.evaluate(
       "document.fonts.load('16px VG5000').then((faces) => faces.length > 0)",
     );
+
     if (fontLoaded !== true) {
       throw new Error("og-video: VG5000 did not load");
     }
+
     await page.evaluate(`window.__setMark(${JSON.stringify(markPoints())})`);
     const duration = Number(await page.evaluate("window.__duration"));
     const frameCount = Math.round((duration / 1000) * FPS);
     const expected = Number(siteVideo.duration.replaceAll(/\D/gu, "")) * FPS;
+
     if (frameCount !== expected) {
       throw new Error(
         `og-video: the scene runs ${duration}ms, og-media says ${siteVideo.duration}`,
       );
     }
+
     for (let frame = 0; frame < frameCount; frame += 1) {
       await page.evaluate(`window.__render(${(frame * 1000) / FPS})`);
       await page.screenshot({ path: path.join(scratch, frameName(frame)), type: "png" });
@@ -218,7 +196,6 @@ const captureVideo = async (browser: Browser) => {
       "+faststart",
       out,
     ]);
-    // The poster: one still, drawn by the scene at full size.
     const still = path.join(scratch, "still.png");
     await page.evaluate("window.__still()");
     await page.screenshot({ path: still, type: "png" });
@@ -236,6 +213,7 @@ const captureVideo = async (browser: Browser) => {
     ]);
     const { size } = await stat(out);
     console.log(`og-video: ${path.relative(ROOT, out)} — ${await ffprobe(out)}`);
+
     if (size > 2.5 * 1024 * 1024) {
       throw new Error(`og-video: ${size} bytes is over the 2.5 MB budget; raise -crf`);
     }
@@ -245,15 +223,12 @@ const captureVideo = async (browser: Browser) => {
   }
 };
 
-// --- cards -----------------------------------------------------------------
-
 const escapeHtml = (text: string) =>
   text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 
 const dataUri = (file: string, type: string) =>
   `data:${type};base64,${readFileSync(path.join(PUBLIC, file)).toString("base64")}`;
 
-/** The logo mark from public/favicon/favicon.svg, without its rounded tile. */
 const LOGO =
   '<svg viewBox="180 270 670 490" width="112" height="82"><polygon fill="#fff" points="193.5 284.962 463.722 282 419.278 348.635 328.611 348.635 513.5 610.731 694.833 350.115 602.389 350.115 513.5 477.462 467.278 413.788 556.167 282 833.5 282 511.722 744"/></svg>';
 
@@ -262,7 +237,9 @@ const cardHtml = (doc: Doc) => {
     .slice(0, 5)
     .map((game) => `<img src="${dataUri(game.preview, "image/webp")}" alt="">`)
     .join("");
+
   const title = doc.title.replace(` — ${siteConfig.name}`, "");
+
   return `<!doctype html><html><head><style>
   * { margin: 0; box-sizing: border-box; }
   body { width: ${WIDTH}px; height: ${HEIGHT}px; overflow: hidden; color: #fafafa;
@@ -291,13 +268,17 @@ const renderCards = async (browser: Browser) => {
     deviceScaleFactor: 1,
     viewport: { height: HEIGHT, width: WIDTH },
   });
+
   try {
     const page = await context.newPage();
+
     for (const cardPath of PAGE_CARD_PATHS) {
       const doc = CARD_DOCS.find((candidate) => candidate.path === cardPath);
+
       if (!doc) {
         throw new Error(`og-video: no Doc for card ${cardPath}`);
       }
+
       const out = path.join(PUBLIC, pageImage(cardPath));
       await mkdir(path.dirname(out), { recursive: true });
       await page.setContent(cardHtml(doc), { waitUntil: "load" });
@@ -309,19 +290,20 @@ const renderCards = async (browser: Browser) => {
   }
 };
 
-// --- main ------------------------------------------------------------------
-
 const only = (() => {
   const at = process.argv.indexOf("--only");
+
   return at === -1 ? null : process.argv[at + 1];
 })();
 
 const main = async () => {
   const browser = await loadPlaywright().chromium.launch();
+
   try {
     if (only !== "cards") {
       await captureVideo(browser);
     }
+
     if (only !== "video") {
       await renderCards(browser);
     }

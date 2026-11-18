@@ -11,8 +11,6 @@ import { isPick, isTouchDevice } from "../systems/touch";
 import { MineScene } from "./mine-scene";
 
 const FONT = "ui-monospace, monospace";
-// Same slot geometry as the farm hotbar (scenes/hud-scene): it is the same
-// twelve inventory slots, so a tool sits under the same thumb in both places.
 const SZ = 42;
 const PAD = 4;
 
@@ -21,22 +19,20 @@ const BAR_HP_FULL = 0xff_7b_7b;
 const BAR_LOW = 0xff_cf_4d;
 const BAR_EMPTY = 0xff_5d_5d;
 
-const barColor = (frac: number, full: number): number => {
+const barColor = (frac: number, full: number) => {
   if (frac > 0.5) {
     return full;
   }
+
   if (frac > 0.25) {
     return BAR_LOW;
   }
+
   return BAR_EMPTY;
 };
 
-const climbHint = (): string => (isTouchDevice() ? "Tap the ladder to climb" : "Space/E to climb");
+const climbHint = () => (isTouchDevice() ? "Tap the ladder to climb" : "Space/E to climb");
 
-// Unzoomed overlay scene for the mine: dark vignette + HP/energy/gold/floor +
-// hotbar. Separate scene so it isn't transformed by the mine camera's zoom.
-// Also hosts the touch gamepad (stick) so it renders above the vignette;
-// MineScene reads it via its `gamepad` field.
 export class MineHudScene extends Scene {
   /** Trailer mode: keep the cave vignette, hide every UI element. Set once by
    *  the trailer director (deliberately NOT reset in create); dead otherwise. */
@@ -61,11 +57,13 @@ export class MineHudScene extends Scene {
     super("MineHud");
   }
 
-  create(): void {
+  create() {
     const mine = this.scene.get("Mine");
+
     if (!(mine instanceof MineScene)) {
-      throw new Error("MineHud requires the Mine scene");
+      throw new TypeError("MineHud requires the Mine scene");
     }
+
     this.mine = mine;
     this.icons = [];
     this.slotLabels = [];
@@ -95,6 +93,7 @@ export class MineHudScene extends Scene {
       })
       .setOrigin(0.5, 1)
       .setDepth(13);
+
     const label = (fontSize: string) =>
       this.add
         .text(0, 0, "", {
@@ -106,7 +105,9 @@ export class MineHudScene extends Scene {
           strokeThickness: 2,
         })
         .setDepth(13);
+
     this.vitals = { energy: label("10px").setOrigin(0.5), hp: label("10px").setOrigin(0.5) };
+
     for (let i = 0; i < HOTBAR; i += 1) {
       this.icons.push(this.add.image(0, 0, "obj-stone").setVisible(false).setDepth(12));
       this.slotLabels.push({
@@ -114,19 +115,23 @@ export class MineHudScene extends Scene {
         qty: label("12px").setOrigin(1, 1),
       });
     }
+
     this.gamepad = attachVirtualGamepad(this, {
       render: { blendMode: BlendModes.NORMAL, depth: 40 },
       visible: "coarse",
     });
     this.mine.gamepad = this.gamepad;
     this.events.once(Scenes.Events.SHUTDOWN, () => this.gamepad?.destroy());
+
     if (this.onResize) {
       this.scale.off("resize", this.onResize);
     }
+
     this.onResize = () => {
       this.inset = safeAreaInset();
       this.positionVignette();
     };
+
     this.scale.on("resize", this.onResize);
     this.events.once(Scenes.Events.SHUTDOWN, () => {
       if (this.onResize) {
@@ -135,12 +140,14 @@ export class MineHudScene extends Scene {
     });
   }
 
-  private buildVignette(): void {
+  private buildVignette() {
     const key = "mine-vignette";
+
     if (!this.textures.exists(key)) {
       const h = 480;
       const w = 640;
       const tex = this.textures.createCanvas(key, w, h);
+
       if (tex) {
         const ctx = tex.getContext();
         const grd = ctx.createRadialGradient(w / 2, h / 2, 70, w / 2, h / 2, 330);
@@ -152,30 +159,32 @@ export class MineHudScene extends Scene {
         tex.refresh();
       }
     }
+
     this.vignette = this.add.image(0, 0, key).setDepth(5);
     this.positionVignette();
   }
 
-  private positionVignette(): void {
+  private positionVignette() {
     const W = this.scale.width;
     const H = this.scale.height;
     this.vignette.setPosition(W / 2, H / 2).setDisplaySize(W + 120, H + 120);
   }
 
-  /** Tap-to-select hotbar zones; rebuilt when the slot size changes. */
-  private ensureZones(slot: number): void {
+  private ensureZones(slot: number) {
     if (this.zoneSlot === slot) {
       return;
     }
+
     this.zoneSlot = slot;
+
     for (const z of this.zones) {
       z.destroy();
     }
+
     this.zones = [];
+
     for (let i = 0; i < HOTBAR; i += 1) {
       const z = this.add.zone(0, 0, slot + PAD, slot + PAD).setInteractive();
-      // Commit on release: the hotbar band is where a thumb starts a movement
-      // drag, and the floating stick claims that touch on the way down.
       z.on("pointerup", (p: Phaser.Input.Pointer) => {
         if (isPick(p)) {
           store.inv.select(i);
@@ -185,43 +194,49 @@ export class MineHudScene extends Scene {
     }
   }
 
-  private hideAll(): void {
+  private hideAll() {
     this.g.clear();
     this.text.setVisible(false);
     this.hint.setVisible(false);
     this.toolTip?.setVisible(false);
     this.vitals?.hp.setVisible(false);
     this.vitals?.energy.setVisible(false);
+
     for (const ic of this.icons) {
       ic.setVisible(false);
     }
+
     for (const labels of this.slotLabels) {
       labels.qty.setVisible(false);
       labels.key.setVisible(false);
     }
   }
 
-  override update(): void {
+  override update() {
     this.gamepad?.update();
-    // Everything drawn here is a pure function of this signature; a clear +
-    // rebuild on frames where nothing moved is wasted GPU work on phones.
     const sig = this.hudSignature();
+
     if (sig === this.hudSig) {
       return;
     }
+
     this.hudSig = sig;
+
     if (this.trailerHideUi) {
       this.hideAll();
+
       return;
     }
+
     this.g.clear();
     this.drawVitals();
     this.drawHint();
     this.drawHotbar();
   }
 
-  private hudSignature(): string {
+  private hudSignature() {
     const { top, right, bottom, left } = this.inset;
+
     const parts: (string | number | boolean)[] = [
       this.trailerHideUi,
       this.scale.width,
@@ -239,8 +254,10 @@ export class MineHudScene extends Scene {
       store.energy,
       store.inv.selected,
     ];
+
     for (let i = 0; i < HOTBAR; i += 1) {
       const slot = store.inv.slots[i];
+
       if (slot) {
         const ic = itemIcon(slot.item);
         parts.push(ic.key, ic.frame ?? -1, slot.qty);
@@ -248,18 +265,17 @@ export class MineHudScene extends Scene {
         parts.push("·");
       }
     }
+
     return parts.join("|");
   }
 
-  private drawVitals(): void {
+  private drawVitals() {
     const { top: it, left: il } = this.inset;
     const { g } = this;
-    // top-left panel
     g.fillStyle(0x00_00_00, 0.45);
     g.fillRoundedRect(10 + il, 8 + it, 250, 58, 8);
     this.text.setVisible(true).setPosition(16 + il, 12 + it);
     this.text.setText(`⛏ Mine — Floor ${this.mine.depth}    ${store.gold}g`);
-    // HP
     const hpFrac = PhaserMath.Clamp(store.hp / store.maxHp(), 0, 1);
     g.fillStyle(0x2a_1e_0e, 1);
     g.fillRoundedRect(16 + il, 34 + it, 150, 12, 4);
@@ -267,7 +283,6 @@ export class MineHudScene extends Scene {
     g.fillRoundedRect(16 + il, 34 + it, Math.max(2, 150 * hpFrac), 12, 4);
     g.lineStyle(1, 0xff_ff_ff, 0.3);
     g.strokeRoundedRect(16 + il, 34 + it, 150, 12, 4);
-    // energy
     const enFrac = PhaserMath.Clamp(store.energy / MAX_ENERGY, 0, 1);
     g.fillStyle(0x2a_1e_0e, 1);
     g.fillRoundedRect(16 + il, 49 + it, 150, 10, 3);
@@ -283,13 +298,13 @@ export class MineHudScene extends Scene {
       .setText(`Energy ${Math.floor(store.energy)}/${MAX_ENERGY}`);
   }
 
-  /** Bottom-left, contextual: only while the player is on a ladder tile. */
-  private drawHint(): void {
+  private drawHint() {
     const H = this.scale.height;
     const { left: il, bottom: ib } = this.inset;
     const onLadder = this.mine.onLadder();
     this.hint.setText(this.mine.savePending ? "Save unavailable — retrying…" : climbHint());
     this.hint.setVisible(onLadder || this.mine.savePending);
+
     if (this.hint.visible) {
       this.g.fillStyle(0x00_00_00, 0.35);
       this.g.fillRoundedRect(10 + il, H - 27 - ib, this.hint.width + 16, 18, 6);
@@ -297,8 +312,7 @@ export class MineHudScene extends Scene {
     }
   }
 
-  /** Bottom-center; wraps into rows on narrow (portrait) screens. */
-  private drawHotbar(): void {
+  private drawHotbar() {
     const W = this.scale.width;
     const H = this.scale.height;
     const { left: il, right: ir, bottom: ib } = this.inset;
@@ -314,6 +328,7 @@ export class MineHudScene extends Scene {
       ?.setVisible(item !== null)
       .setText(item ? itemName(item) : "")
       .setPosition(W / 2, H - 30 - ib - rows * pitch + PAD - 8);
+
     for (let i = 0; i < HOTBAR; i += 1) {
       const x = sx + (i % perRow) * pitch;
       const y = bottomY - (rows - 1 - Math.floor(i / perRow)) * pitch;
@@ -333,9 +348,11 @@ export class MineHudScene extends Scene {
       labels?.key
         .setVisible(slot >= 34 && hotbarKey(i) !== "")
         .setPosition(x - slot / 2 + 3, y - slot / 2 + 2);
+
       if (!ic) {
         continue;
       }
+
       if (slotItem) {
         const icon = itemIcon(slotItem.item);
         ic.setVisible(true)

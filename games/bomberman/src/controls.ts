@@ -1,7 +1,5 @@
 import type { ControlsManifest } from "@repo/embed";
 
-// Every way to play, one list — the start screen and the pause overlay both
-// render from this (filtered per device / connected pad by @repo/embed).
 export const CONTROLS: ControlsManifest = [
   { action: "move", input: "WASD / ←→↑↓", method: "keys" },
   { action: "drop a bomb", input: "SPACE", method: "keys" },

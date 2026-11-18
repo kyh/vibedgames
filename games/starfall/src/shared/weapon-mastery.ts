@@ -21,29 +21,32 @@ export interface MasteryShot {
   completed: boolean;
 }
 
-/** HUD-only technique feedback for RAILGUN (pierce two enemies with one shot)
- * and GLAIVE (hit the same enemy out and back). No gameplay effect. */
-const inWindow = (state: { startedAt: number; endsAt: number }, now: number): boolean =>
+const inWindow = (state: { startedAt: number; endsAt: number }, now: number) =>
   now >= state.startedAt && now < state.endsAt;
 
 export class WeaponMastery {
   private current: WeaponMasteryState = { phase: "idle" };
   private generation = 0;
 
-  get state(): WeaponMasteryState {
+  get state() {
     return this.current;
   }
 
-  pickup(weapon: string, now: number, weaponUntil: number): void {
+  pickup(weapon: string, now: number, weaponUntil: number) {
     if ((weapon !== "RAILGUN" && weapon !== "GLAIVE") || weaponUntil <= now) {
       this.clear();
+
       return;
     }
+
     const state = this.current;
+
     if (state.phase === "active" && state.weapon === weapon && inWindow(state, now)) {
       this.current = { ...state, endsAt: weaponUntil };
+
       return;
     }
+
     this.generation += 1;
     this.current = {
       completions: 0,
@@ -56,31 +59,39 @@ export class WeaponMastery {
     };
   }
 
-  shot(weapon: string, now: number): MasteryShot | null {
+  shot(weapon: string, now: number) {
     const state = this.current;
+
     if (state.phase !== "active" || state.weapon !== weapon || !inWindow(state, now)) {
-      return null;
+      return null satisfies MasteryShot | null;
     }
+
     return {
       completed: false,
       generation: state.generation,
       outward: new Set(),
       returning: new Set(),
-    };
+    } satisfies MasteryShot | null;
   }
 
-  contact(shot: MasteryShot, enemyId: string, returning: boolean, now: number): void {
+  contact(shot: MasteryShot, enemyId: string, returning: boolean, now: number) {
     const state = this.current;
+
     if (state.phase !== "active" || shot.generation !== state.generation || !inWindow(state, now)) {
       return;
     }
+
     const leg = returning ? shot.returning : shot.outward;
+
     if (leg.has(enemyId)) {
       return;
     }
+
     leg.add(enemyId);
+
     const complete =
       state.weapon === "RAILGUN" ? shot.outward.size >= 2 : returning && shot.outward.has(enemyId);
+
     const first = complete && !shot.completed;
     shot.completed ||= complete;
     this.current = {
@@ -91,17 +102,19 @@ export class WeaponMastery {
   }
 
   /** Once per frame: expiry, death and loadout changes end the window. */
-  advance(now: number, alive: boolean, weapon: string): void {
+  advance(now: number, alive: boolean, weapon: string) {
     const state = this.current;
+
     if (state.phase !== "active") {
       return;
     }
+
     if (!alive || weapon !== state.weapon || !inWindow(state, now)) {
       this.clear();
     }
   }
 
-  clear(): void {
+  clear() {
     this.current = { phase: "idle" };
   }
 }

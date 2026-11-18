@@ -14,11 +14,11 @@ import {
 
 const chose = (header: string | null | undefined) => {
   const result = negotiate(header);
+
   return result.kind === "not-acceptable" ? "406" : result.type;
 };
 
 describe("negotiate", () => {
-  // The published test vectors: https://acceptmarkdown.com/guides/accept-parsing
   const vectors: [string | null, string][] = [
     ["text/markdown", MARKDOWN],
     ["text/markdown, text/html;q=0.8", MARKDOWN],
@@ -61,9 +61,6 @@ describe("negotiate", () => {
   });
 
   test("q ranks above specificity: a q=1 wildcard beats a q=0.6 exact match", () => {
-    // Per the ranking rules, q is the primary key and specificity only breaks
-    // ties — so `*/*` at q=1 outranks `text/markdown;q=0.6`, and we fall back
-    // to the server default.
     assert.equal(chose("text/markdown;q=0.6, */*"), HTML);
   });
 
@@ -135,6 +132,7 @@ describe("responses", () => {
       headers: { "Cache-Control": "no-store" },
       status: 404,
     });
+
     assert.equal(response.status, 404);
     assert.equal(response.headers.get("cache-control"), "no-store");
     assert.equal(response.headers.get("vary"), VARY);

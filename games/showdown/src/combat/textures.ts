@@ -8,27 +8,30 @@ export interface LootBoxTextures {
 
 const SIZE = 128;
 
-const context2d = (canvas: HTMLCanvasElement): CanvasRenderingContext2D => {
+const context2d = (canvas: HTMLCanvasElement) => {
   const ctx = canvas.getContext("2d");
+
   if (!ctx) {
     throw new Error("2D canvas context unavailable");
   }
+
   return ctx;
 };
 
-// A warm sun medallion marks the arena's old reliquaries.
-const drawCrest = (ctx: CanvasRenderingContext2D, emissive: boolean): void => {
+const drawCrest = (ctx: CanvasRenderingContext2D, emissive: boolean) => {
   if (!emissive) {
     ctx.fillStyle = "#3c382e";
     ctx.beginPath();
     ctx.arc(64, 64, 28, 0, Math.PI * 2);
     ctx.fill();
   }
+
   ctx.strokeStyle = emissive ? "#9b7440" : "#d8b76c";
   ctx.lineWidth = 4;
   ctx.beginPath();
   ctx.arc(64, 64, 14, 0, Math.PI * 2);
   ctx.stroke();
+
   for (let ray = 0; ray < 8; ray += 1) {
     const angle = (ray / 8) * Math.PI * 2;
     ctx.beginPath();
@@ -38,9 +41,10 @@ const drawCrest = (ctx: CanvasRenderingContext2D, emissive: boolean): void => {
   }
 };
 
-const drawPlanks = (ctx: CanvasRenderingContext2D): void => {
+const drawPlanks = (ctx: CanvasRenderingContext2D) => {
   ctx.fillStyle = "#75563c";
   ctx.fillRect(0, 0, SIZE, SIZE);
+
   for (let row = 0; row < 4; row += 1) {
     ctx.fillStyle = row % 2 ? "#806246" : "#8c6a49";
     ctx.fillRect(0, row * 32, SIZE, 29);
@@ -51,6 +55,7 @@ const drawPlanks = (ctx: CanvasRenderingContext2D): void => {
     ctx.bezierCurveTo(36, row * 32 + 5, 70, row * 32 + 19, 119, row * 32 + 13);
     ctx.stroke();
   }
+
   ctx.strokeStyle = "#4f4c3c";
   ctx.lineWidth = 14;
   ctx.strokeRect(8, 8, 112, 112);
@@ -58,6 +63,7 @@ const drawPlanks = (ctx: CanvasRenderingContext2D): void => {
   ctx.lineWidth = 3;
   ctx.strokeRect(13, 13, 102, 102);
   ctx.fillStyle = "#d0b574";
+
   for (const x of [10, 118]) {
     for (const y of [10, 118]) {
       ctx.beginPath();
@@ -67,23 +73,25 @@ const drawPlanks = (ctx: CanvasRenderingContext2D): void => {
   }
 };
 
-const buildFace = (emissive: boolean): THREE.CanvasTexture => {
+const buildFace = (emissive: boolean) => {
   const canvas = makeCanvas(SIZE, SIZE);
   const ctx = context2d(canvas);
+
   if (emissive) {
     ctx.fillStyle = "#000";
     ctx.fillRect(0, 0, SIZE, SIZE);
   } else {
     drawPlanks(ctx);
   }
+
   drawCrest(ctx, emissive);
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
+
   return texture;
 };
 
-// Only the sun inlay glows; the timber and bronze stay matte.
-export const buildLootBoxTextures = (): LootBoxTextures => ({
+export const buildLootBoxTextures = () => ({
   emissiveMap: buildFace(true),
   map: buildFace(false),
 });

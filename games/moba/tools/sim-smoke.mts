@@ -1,9 +1,3 @@
-// Headless smoke test for the moba simulation. The sim (`src/sim/*`) is pure data
-// with no Phaser/DOM deps, so a full match can be driven from Node via tsx. Run
-// with `pnpm test`. Covers: a long match runs without crashing, plus the specific
-// correctness fixes (Hunter's Mark scoping, channel-breaks-on-death, self-aura
-// dedup, bot shopping through buyItem).
-
 import { SIM_DT } from "../src/data/config.ts";
 import { HEROES } from "../src/data/heroes.ts";
 import { castAbility } from "../src/sim/abilities.ts";
@@ -12,21 +6,22 @@ import { effectiveAttackSpeed } from "../src/sim/stats.ts";
 import type { Unit } from "../src/sim/types.ts";
 import { createWorld, spawnCreepAt, spawnHero, step } from "../src/sim/world.ts";
 
-// Hunter's Mark bonus for `u` vs `target` — mirrors combat.attackSpeedVsTarget's
-// exact, target-scoped id match.
-const markBonus = (u: Unit, target: Unit): number => {
+const markBonus = (u: Unit, target: Unit) => {
   let b = 0;
+
   for (const st of u.statuses) {
     if (st.kind === "attackSpeed" && st.id === `markAS:${target.id}`) {
       b += st.amount;
     }
   }
+
   return b;
 };
 
 let pass = 0;
 let fail = 0;
-const check = (name: string, cond: boolean, extra = ""): void => {
+
+const check = (name: string, cond: boolean, extra = "") => {
   if (cond) {
     pass += 1;
     console.log(`  ok   ${name}`);
@@ -36,11 +31,10 @@ const check = (name: string, cond: boolean, extra = ""): void => {
   }
 };
 
-// Cosmetic source identity survives the central damage path for every hero,
-// without changing damage. Missing sources remain safe for old/network events.
 {
   const w = createWorld(11);
   const victim = spawnHero(w, "ironvow", "dire", "victim", false, 0);
+
   for (const def of HEROES) {
     const attacker = spawnHero(w, def.id, "radiant", def.id, false, 0);
     w.fx.length = 0;
@@ -52,6 +46,7 @@ const check = (name: string, cond: boolean, extra = ""): void => {
       hit?.t === "hit" && hit.attackerHero === def.id && victim.hp === hp - 10 && hit.amount === 10,
     );
   }
+
   w.fx.length = 0;
   dealDamage(w, null, victim, 10, "pure", {});
   const hit = w.fx.find((fx) => fx.t === "hit");
@@ -61,7 +56,6 @@ const check = (name: string, cond: boolean, extra = ""): void => {
   );
 }
 
-// ---- 1. a full match runs without crashing --------------------------------
 {
   const w = createWorld(1234);
   const me = spawnHero(w, "emberhex", "radiant", "you", false, 0);
@@ -72,14 +66,15 @@ const check = (name: string, cond: boolean, extra = ""): void => {
   spawnHero(w, "boomtinker", "dire", "botD2", true, 2);
   let steps = 0;
   let crashed = "";
+
   try {
     for (; steps < 240 * 30; steps += 1) {
       step(w, SIM_DT);
-      // ~240s of game time at 30Hz
     }
   } catch (error) {
     crashed = String(error);
   }
+
   check("240s match steps without throwing", crashed === "", crashed);
   check("world advanced gameTime", w.gameTime > 100, `gameTime=${w.gameTime.toFixed(1)}`);
   check("units still present", w.units.size > 0, `units=${w.units.size}`);
@@ -87,22 +82,21 @@ const check = (name: string, cond: boolean, extra = ""): void => {
   console.log(`  (ran ${steps} steps, ${w.units.size} units, phase=${w.phase})`);
 }
 
-// ---- 2. Hunter's Mark: bonus attack speed applies ONLY vs the marked hero --
 {
   const w = createWorld(1);
   const storm = spawnHero(w, "stormcaller", "radiant", "s", false, 0);
   const marked = spawnHero(w, "ironvow", "dire", "m", false, 0);
   const other = spawnHero(w, "duskblade", "dire", "o", false, 1);
-  // put both targets next to the caster so the unit-targeted cast is in range
   marked.x = storm.x + 40;
   marked.y = storm.y;
   other.x = storm.x - 40;
   other.y = storm.y;
   const stormHero = storm.hero;
+
   if (!stormHero) {
     throw new Error("stormcaller has no hero state");
   }
-  // W = Hunter's Mark
+
   stormHero.abilities.W.rank = 1;
   storm.mp = storm.maxMp;
   const baseAS = effectiveAttackSpeed(storm);
@@ -132,8 +126,6 @@ const check = (name: string, cond: boolean, extra = ""): void => {
     Math.abs(asVsMarked - expected) < 1e-6,
     `got=${asVsMarked} expected=${expected}`,
   );
-  // heroes only: anything aiming this at a creep (bot logic, the trailer director)
-  // gets a silent no-op, not a cast
   const creep = spawnCreepAt(w, "dire", "top", "melee", storm.x + 60, storm.y);
   stormHero.abilities.W.readyAt = 0;
   storm.mp = storm.maxMp;
@@ -143,22 +135,21 @@ const check = (name: string, cond: boolean, extra = ""): void => {
   );
 }
 
-// ---- 3. a channel breaks (zone removed) when the caster dies ---------------
 {
   const w = createWorld(2);
   const brew = spawnHero(w, "brewkeeper", "radiant", "b", false, 0);
   const brewHero = brew.hero;
+
   if (!brewHero) {
     throw new Error("brewkeeper has no hero state");
   }
-  // Last Call = channel + heal zone
+
   brewHero.abilities.R.rank = 1;
   brew.mp = brew.maxMp;
   const cast = castAbility(w, brew, { key: "R", point: { x: brew.x, y: brew.y } });
   check("Last Call channel cast", cast, `channel=${!!brewHero.channel}`);
   const groundsBefore = w.groundEffects.filter((g) => g.channel && g.ownerId === brew.id).length;
   check("channel spawned a ground zone", groundsBefore >= 1);
-  // kill the channeler outright
   dealDamage(w, null, brew, 1e9, "pure", {});
   check("caster is dead", !brew.alive);
   check("channel cleared on death", brewHero.channel === null);
@@ -170,21 +161,20 @@ const check = (name: string, cond: boolean, extra = ""): void => {
   );
 }
 
-// ---- 4. a self-following aura does not stack on recast ---------------------
 {
   const w = createWorld(3);
   const ember = spawnHero(w, "emberhex", "radiant", "e", false, 0);
   const emberHero = ember.hero;
+
   if (!emberHero) {
     throw new Error("emberhex has no hero state");
   }
-  // Flashfire = followOwner burn aura
+
   emberHero.abilities.E.rank = 1;
   ember.mp = ember.maxMp;
   castAbility(w, ember, { key: "E", point: { x: ember.x, y: ember.y } });
   const after1 = w.groundEffects.filter((g) => g.ownerId === ember.id && g.followOwner).length;
   ember.mp = ember.maxMp;
-  // force off cooldown
   emberHero.abilities.E.readyAt = 0;
   castAbility(w, ember, { key: "E", point: { x: ember.x, y: ember.y } });
   const after2 = w.groundEffects.filter((g) => g.ownerId === ember.id && g.followOwner).length;
@@ -192,19 +182,22 @@ const check = (name: string, cond: boolean, extra = ""): void => {
   check("recast replaces rather than stacking the aura", after2 === 1, `after2=${after2}`);
 }
 
-// ---- 5. bots buy items over a match (tryShop -> buyItem path) --------------
 {
   const w = createWorld(7);
+
   const bots = [
     spawnHero(w, "ironvow", "radiant", "botR0", true, 0),
     spawnHero(w, "stormcaller", "dire", "botD0", true, 0),
   ];
+
   for (let i = 0; i < 300 * 30; i += 1) {
     step(w, SIM_DT);
   }
+
   const totalItems = bots.reduce((n, b) => n + (w.units.get(b.id)?.hero?.items.length ?? 0), 0);
   check("bots purchased items via buyItem", totalItems > 0, `total=${totalItems}`);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
+
 process.exit(fail === 0 ? 0 : 1);

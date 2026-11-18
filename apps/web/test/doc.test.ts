@@ -85,7 +85,6 @@ describe("docToText", () => {
   });
 });
 
-/** A doc with every block the legal pages use, to pin their markdown form. */
 const legal: Doc = {
   description: "A sample legal page.",
   endnote: [p("A credit that belongs to no section.")],

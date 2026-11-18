@@ -1,7 +1,3 @@
-// postMessage protocol between an embedded game (iframe) and its wrapper page.
-// Payloads carry no data beyond the type tag, so they are safe to post with a
-// "*" target origin; receivers still validate origins where it matters.
-
 /**
  * The `name` the wrapper gives its game iframe, which the game reads back as
  * `window.name`. Being framed is not evidence of the wrapper: a game portal
@@ -38,14 +34,10 @@ export type MessageData =
   | MessageData[]
   | { [key: string]: MessageData };
 
-/** The one field every message on this protocol carries. */
 interface TaggedMessage {
   readonly type: string;
 }
 
-// The guards take `unknown` because a message crosses an origin boundary: the
-// sender is free to post anything, so nothing about `event.data` is known until
-// this has picked the tag out of it.
 const hasType = (value: unknown, type: string): value is TaggedMessage =>
   value instanceof Object && !Array.isArray(value) && "type" in value && value.type === type;
 

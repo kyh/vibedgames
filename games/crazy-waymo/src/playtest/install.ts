@@ -1,14 +1,10 @@
-// The playtest contract for `vg playtest run`: diagnostics a model can decide
-// from, the hooks that stage a solo run, and the manifest whose moves are all
-// reflexes — steering a car is 60 fps work that a ~200 ms-stale decision
-// cannot do, so the model picks the errand and the reflex drives it.
 import {
   isPlaytestRequested,
   publishDiagnostics,
   publishPlaytest,
   publishTestHooks,
 } from "@vibedgames/playtest";
-import type { Diagnostics, ReflexInputs } from "@vibedgames/playtest";
+import type { Diagnostics } from "@vibedgames/playtest";
 
 import type { GameScene } from "../scenes/game-scene";
 import type { CarInput } from "../vehicle/car";
@@ -23,15 +19,12 @@ interface FareSummary {
 
 interface WaymoDiagnostics extends Diagnostics {
   phase: PlaytestView["phase"];
-  /** Live cash: what `score` has earned, minus traffic-hit penalties. */
   cash: number;
   faresDelivered: number;
   combo: number;
-  /** Signed forward speed, units/s (top speed 30, boost 44; negative = reversing). */
   speed: number;
   boostReady: boolean;
   hasPassenger: boolean;
-  /** 1 = fresh, 0 = the passenger bails unpaid. */
   passengerPatience: number;
   stuck: boolean;
   stuckSeconds: number;
@@ -41,43 +34,52 @@ interface WaymoDiagnostics extends Diagnostics {
 
 const BOOST_MIN = 30;
 
-const summary = (fare: FareOption): FareSummary => ({
+const summary = (fare: FareOption) => ({
   distance: Math.round(fare.distance),
   tier: fare.tier,
 });
 
-/** Digital keys as an analogue wheel: hold the steer key for a share of frames. */
-const makeKeys = (): ((input: CarInput) => string[]) => {
+const makeKeys: () => (input: CarInput) => string[] = () => {
   let credit = 0;
+
   return (input) => {
     const keys: string[] = [];
+
     if (input.throttle > 0) {
       keys.push("ArrowUp");
     }
+
     if (input.brake > 0) {
       keys.push("ArrowDown");
     }
+
     if (input.boost) {
       keys.push("ShiftLeft");
     }
+
     if (input.steer === 0) {
       credit = 0;
+
       return keys;
     }
+
     credit += Math.abs(input.steer);
+
     if (credit >= 1) {
       credit -= 1;
       keys.push(input.steer < 0 ? "ArrowLeft" : "ArrowRight");
     }
+
     return keys;
   };
 };
 
-export const installPlaytest = (game: GameScene): void => {
+export const installPlaytest = (game: GameScene) => {
   const navigator = new Navigator(() => game.playtestView());
 
-  publishDiagnostics((): WaymoDiagnostics => {
+  publishDiagnostics(() => {
     const view = game.playtestView();
+
     if (!view) {
       return {
         boostReady: false,
@@ -95,17 +97,18 @@ export const installPlaytest = (game: GameScene): void => {
         speed: 0,
         stuck: false,
         stuckSeconds: 0,
-      };
+      } satisfies WaymoDiagnostics;
     }
+
     const { car, fares, state } = view;
     const hasPassenger = fares.carryingInfo() !== null;
     const options = hasPassenger ? null : navigator.fareOptions();
     const { stuckSeconds } = navigator;
+
     return {
       boostReady: car.boostMeter >= BOOST_MIN,
       cash: state.displayScore,
       combo: state.combo,
-      // Endless: no run clock and nothing kills the car.
       complete: false,
       entities: view.traffic?.cars.length ?? 0,
       faresDelivered: state.fares,
@@ -131,7 +134,7 @@ export const installPlaytest = (game: GameScene): void => {
       speed: Math.round(car.forwardSpeed * 10) / 10,
       stuck: stuckSeconds >= STUCK_AFTER,
       stuckSeconds: Math.round(stuckSeconds * 10) / 10,
-    };
+    } satisfies WaymoDiagnostics;
   });
 
   if (!import.meta.env.DEV && !isPlaytestRequested()) {
@@ -148,12 +151,9 @@ export const installPlaytest = (game: GameScene): void => {
   const pilot = new Autopilot();
   const toKeys = makeKeys();
 
-  const drive = (
-    diag: WaymoDiagnostics | null,
-    intent: PickupIntent,
-    boost: boolean,
-  ): ReflexInputs => {
+  const drive = (diag: WaymoDiagnostics | null, intent: PickupIntent, boost: boolean) => {
     navigator.pickupIntent = intent;
+
     return { keys: diag ? toKeys(pilot.drive(diag, boost)) : [] };
   };
 
@@ -166,7 +166,6 @@ export const installPlaytest = (game: GameScene): void => {
       "game.nav: objective (pickup|dropoff), routeDistance = street distance left in world units (a block is ~100; top speed covers 30 a second), headingErrorDeg = how far the nose is off the route, turnAheadDeg = sharpest bend coming, targetSpeed = what the corners allow. game.speed is signed units/s.",
       "game.stuck true (speed ~0 for over a second — wedged on a wall, a parked car or traffic) and it stays true across decisions → `reverse_out` for one decision, then go back to the errand.",
     ].join(" "),
-    // World units: a 180 ms hold at cruise covers ~5, but a corner or a launch far less.
     minDisplacement: 0.5,
     move: {
       deliver: {

@@ -16,6 +16,7 @@ export type HubState = Readonly<{
   shop: { index: number } | null;
   coarse: boolean;
 }>;
+
 export type HubActions = Readonly<{
   hero: (index: number) => void;
   go: () => void;
@@ -30,6 +31,7 @@ const element = <K extends keyof HTMLElementTagNameMap>(tag: K, className: strin
   const node = document.createElement(tag);
   node.className = className;
   node.textContent = text;
+
   return node;
 };
 
@@ -38,10 +40,12 @@ const CONNECTION_LABEL = {
   off: "",
   vs: "FIRST TO 3 ROUNDS",
 } satisfies Record<HubState["net"], string>;
+
 const button = (text: string, action: () => void, className = "lf-hub-button") => {
   const node = element("button", className, text);
   node.type = "button";
   node.addEventListener("click", action);
+
   return node;
 };
 
@@ -103,6 +107,7 @@ export class HubView {
     roster.setAttribute("aria-label", "Choose your warrior");
     this.showcase.setAttribute("aria-hidden", "true");
     const grid = element("div", "lf-hub-heroes");
+
     for (const [index, name] of HERO_ORDER.entries()) {
       const pick = button("", () => actions.hero(index), "lf-hub-hero");
       pick.dataset.hero = name;
@@ -115,6 +120,7 @@ export class HubView {
       grid.append(pick);
       this.heroes.push(pick);
     }
+
     roster.append(this.showcase, this.title, this.blurb, grid);
 
     const tools = element("section", "lf-hub-tools");
@@ -156,6 +162,7 @@ export class HubView {
     join.append(label, this.joinInput, joinButton);
     join.addEventListener("submit", (event) => {
       event.preventDefault();
+
       if (!this.disposed) {
         actions.join(this.joinInput.value);
       }
@@ -193,13 +200,16 @@ export class HubView {
         summary,
         element("p", "", `BIOME ${recap.biome} · DEPTH ${recap.depth} · GOLD ${recap.gold}`),
       );
+
       if (recap.kind === "banked") {
         receipt.append(
           element("p", "lf-hub-reward", `SCORE ${recap.score} · BEST ${recap.bestScore}`),
         );
       }
+
       this.content.append(receipt);
     }
+
     this.root.append(this.content);
 
     const helpHead = element("header", "lf-hub-forge-head");
@@ -238,6 +248,7 @@ export class HubView {
       element("p", "lf-hub-forge-sub", "Permanent upgrades. Carry into every descent."),
       this.forgeBank,
     );
+
     for (const [index] of UPGRADES.entries()) {
       const row = button("", () => actions.offer(index), "lf-hub-upgrade");
       row.append(
@@ -249,6 +260,7 @@ export class HubView {
       this.rows.push(row);
       this.dialog.append(row);
     }
+
     this.dialog.append(
       element(
         "p",
@@ -277,32 +289,41 @@ export class HubView {
     this.observer.observe(this.showcase);
     this.observer.observe(grid);
     this.root.addEventListener("scroll", actions.layout);
-    const layoutAfterFonts = async (): Promise<void> => {
+
+    const layoutAfterFonts = async () => {
       await document.fonts.ready;
+
       if (!this.disposed) {
         actions.layout();
       }
     };
+
     void layoutAfterFonts();
   }
 
-  private readonly fenceKey = (event: KeyboardEvent): void => {
+  private readonly fenceKey = (event: KeyboardEvent) => {
     const key = event.code || event.key;
+
     const editing =
       event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement;
+
     const activation =
       (event.target instanceof HTMLButtonElement ||
         (event.target instanceof Element && event.target.closest("summary") !== null)) &&
       (event.key === "Enter" || event.key === " ");
+
     if (this.helpDialog.open || editing || activation || this.heldKeys.has(key)) {
       event.stopPropagation();
+
       if (event.type === "keydown") {
         this.heldKeys.add(key);
       } else {
         this.heldKeys.delete(key);
       }
+
       if (this.helpDialog.open && event.key === "Escape") {
         event.preventDefault();
+
         if (event.type === "keydown") {
           this.closeHelp();
         }
@@ -310,25 +331,27 @@ export class HubView {
     }
   };
 
-  private openHelp(): void {
+  private openHelp() {
     if (this.disposed || this.helpDialog.open) {
       return;
     }
+
     this.helpDialog.showModal();
     this.help.setAttribute("aria-expanded", "true");
     this.helpDialog.focus({ preventScroll: true });
   }
 
-  private closeHelp(): void {
+  private closeHelp() {
     if (!this.helpDialog.open) {
       return;
     }
+
     this.helpDialog.close();
     this.help.setAttribute("aria-expanded", "false");
     this.help.focus({ preventScroll: true });
   }
 
-  blocksGameInput(): boolean {
+  blocksGameInput() {
     return (
       this.helpDialog.open ||
       document.activeElement instanceof HTMLInputElement ||
@@ -336,22 +359,27 @@ export class HubView {
     );
   }
 
-  private async copyInvite(): Promise<void> {
+  private async copyInvite() {
     const url = this.inviteUrl;
+
     if (this.disposed || !url) {
       return;
     }
+
     try {
       await navigator.clipboard.writeText(url);
+
       if (this.disposed || this.inviteUrl !== url) {
         return;
       }
+
       this.copy.textContent = "COPIED";
       this.announce("Invite link copied.");
     } catch {
       if (this.disposed || this.inviteUrl !== url) {
         return;
       }
+
       this.linkInput.value = url;
       this.linkFallback.hidden = false;
       this.announce("Select and copy the invite link below.");
@@ -360,12 +388,14 @@ export class HubView {
     }
   }
 
-  private renderHeroes(state: HubState): void {
+  private renderHeroes(state: HubState) {
     for (const [index, node] of this.heroes.entries()) {
       const hero = HERO_ORDER[index];
+
       if (!hero) {
         continue;
       }
+
       const locked = !isUnlocked(state.meta, hero);
       node.setAttribute("aria-pressed", String(index === state.index));
       node.setAttribute(
@@ -373,9 +403,11 @@ export class HubView {
         `${HEROES[hero].title}${locked ? `, locked, ${UNLOCK_COST[hero]} shards` : ""}`,
       );
       const cost = node.querySelector(".lf-hub-cost");
+
       if (!cost) {
         continue;
       }
+
       if (locked) {
         cost.textContent = `${UNLOCK_COST[hero]} ✦`;
       } else {
@@ -384,64 +416,81 @@ export class HubView {
     }
   }
 
-  private renderControls(coarse: boolean): void {
+  private renderControls(coarse: boolean) {
     const groups = controlGroups(CONTROLS, { coarse });
     const signature = JSON.stringify(groups);
+
     if (signature === this.controlsSignature) {
       return;
     }
+
     this.controlsSignature = signature;
     this.controls.replaceChildren();
+
     for (const group of groups) {
       const line = element("p", "lf-hub-control-line");
       const actions = new Map<string, string[]>();
+
       for (const entry of group.entries) {
         const inputs = actions.get(entry.action) ?? [];
+
         if (!inputs.includes(entry.input)) {
           inputs.push(entry.input);
         }
+
         actions.set(entry.action, inputs);
       }
+
       for (const [action, inputs] of actions) {
         const pair = element("span", "");
         pair.append(element("kbd", "", inputs.join(" / ")), document.createTextNode(` ${action}`));
         line.append(pair);
       }
+
       this.controls.append(line);
     }
   }
 
-  private renderShop(state: HubState): void {
+  private renderShop(state: HubState) {
     if (!state.shop) {
       if (this.dialog.open) {
         this.dialog.close();
         this.forge.focus({ preventScroll: true });
       }
+
       return;
     }
+
     if (this.helpDialog.open) {
       this.closeHelp();
     }
+
     this.forgeBank.textContent = `✦ ${state.meta.shards} SHARDS`;
+
     for (const [index, up] of UPGRADES.entries()) {
       const row = this.rows[index];
+
       if (!row) {
         continue;
       }
+
       const level = upgradeLevel(state.meta, up.id);
       const maxed = level >= up.max;
       row.setAttribute("aria-pressed", String(index === state.shop.index));
       row.dataset.affordable = String(!maxed && state.meta.shards >= up.cost(level));
+
       const texts = [
         up.name,
         maxed ? "MAX" : `${up.cost(level)} ✦`,
         up.desc,
         `${level} / ${up.max}`,
       ];
+
       for (const [i, child] of [...row.children].entries()) {
         child.textContent = texts[i] ?? "";
       }
     }
+
     if (!this.dialog.open) {
       this.forgeStatus.textContent = "";
       this.dialog.showModal();
@@ -449,11 +498,13 @@ export class HubView {
     }
   }
 
-  update(state: HubState): void {
+  update(state: HubState) {
     const name = HERO_ORDER[state.index];
+
     if (!name) {
       return;
     }
+
     const def = HEROES[name];
     const unlocked = isUnlocked(state.meta, name);
     this.bank.textContent = `✦ ${state.meta.shards} SHARDS`;
@@ -470,19 +521,25 @@ export class HubView {
     this.solo.setAttribute("aria-pressed", String(state.net === "off"));
     this.coop.setAttribute("aria-pressed", String(state.net === "coop"));
     this.versus.setAttribute("aria-pressed", String(state.net === "vs"));
+
     if (state.net === "off" && this.room.contains(document.activeElement)) {
       this.root.focus({ preventScroll: true });
     }
+
     this.room.hidden = state.net === "off";
     this.roomCode.textContent = state.code;
+
     if (this.inviteUrl !== state.inviteUrl) {
       this.inviteUrl = state.inviteUrl;
       this.copy.textContent = "COPY LINK";
+
       if (document.activeElement === this.linkInput && state.net !== "off") {
         this.copy.focus({ preventScroll: true });
       }
+
       this.linkFallback.hidden = true;
     }
+
     this.connection.textContent = CONNECTION_LABEL[state.net];
     this.connection.hidden = state.net === "off";
     this.hint.textContent = state.coarse
@@ -492,19 +549,20 @@ export class HubView {
     this.renderShop(state);
   }
 
-  focusSelection(): void {
+  focusSelection() {
     (this.dialog.open ? this.dialog : this.root).focus({ preventScroll: true });
   }
 
-  announce(message: string): void {
+  announce(message: string) {
     this.status.textContent = message;
     this.forgeStatus.textContent = message;
   }
 
-  destroy(): void {
+  destroy() {
     if (this.disposed) {
       return;
     }
+
     this.disposed = true;
     this.observer.disconnect();
     this.root.removeEventListener("keydown", this.fenceKey);

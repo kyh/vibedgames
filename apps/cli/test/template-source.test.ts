@@ -13,6 +13,7 @@ import {
 import { makeCleanups, makeTmpDir } from "./_helpers.js";
 
 const { cleanups, drain } = makeCleanups();
+
 afterEach(drain);
 
 test("parseTemplateSpec reads every GitHub spelling of a repo, path and ref", () => {
@@ -34,6 +35,7 @@ test("parseTemplateSpec reads every GitHub spelling of a repo, path and ref", ()
     ],
     ["owner/repo/", { owner: "owner", ref: "HEAD", repo: "repo", subdir: "" }],
   ];
+
   for (const [spec, expected] of cases) {
     assert.deepEqual(parseTemplateSpec(spec), expected, spec);
   }
@@ -43,6 +45,7 @@ test("parseTemplateSpec refuses other hosts and malformed specs, naming the acce
   for (const spec of ["gitlab:owner/repo", "https://gitlab.com/owner/repo"]) {
     assert.throws(() => parseTemplateSpec(spec), /Only GitHub templates/u, spec);
   }
+
   for (const spec of ["owner", "owner/repo#", "owner/repo/../x", "-owner/repo", "owner/re po"]) {
     assert.throws(() => parseTemplateSpec(spec), /owner\/repo, owner\/repo\/sub\/dir/u, spec);
   }
@@ -59,28 +62,32 @@ test("templateTarballUrl asks codeload for the ref, keeping a branch's slashes",
   );
 });
 
-/** A tarball shaped like GitHub's: the tree under one `repo-HEAD/` directory. */
-const githubTarball = async (files: Record<string, string>): Promise<Buffer> => {
+const githubTarball = async (files: Record<string, string>) => {
   const work = makeTmpDir(cleanups, "vg-template-src-");
+
   for (const [file, content] of Object.entries(files)) {
     mkdirSync(path.dirname(path.join(work, "repo-HEAD", file)), { recursive: true });
     writeFileSync(path.join(work, "repo-HEAD", file), content);
   }
+
   const tarball = path.join(work, "repo.tgz");
   await tarCreate({ cwd: work, file: tarball, gzip: true, portable: true }, ["repo-HEAD"]);
+
   return readFileSync(tarball);
 };
 
 const serving =
-  (body: Buffer, requested: string[] = []): typeof fetch =>
+  (body: Buffer, requested: string[] = []) =>
   (input) => {
     requested.push(String(input));
+
     return Promise.resolve(new Response(body));
   };
 
-const listFiles = (dir: string, relative = ""): string[] =>
+const listFiles = (dir: string, relative = "") =>
   readdirSync(path.join(dir, relative), { withFileTypes: true }).flatMap((entry) => {
     const child = path.join(relative, entry.name);
+
     return entry.isDirectory() ? listFiles(dir, child) : [child];
   });
 

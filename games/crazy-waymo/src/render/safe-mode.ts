@@ -1,13 +1,6 @@
-// Low-graphics mode: every phone, and any device that has lost its WebGL
-// context. Chrome kills the GPU process when a page's resident set or a
-// frame's work exceeds what the device will carry, and phone drivers have
-// died under three's shadow pass alone — so a phone boots small without
-// being asked, and a desktop that failed once boots small the next time. The
-// loss flag lives in localStorage; `?safe=1` forces the mode for a visit,
-// `?safe=0` clears it.
 const KEY = "crazy-waymo:gpu-lost";
 
-const param = (): string | null => {
+const param = () => {
   try {
     return new URLSearchParams(window.location.search).get("safe");
   } catch {
@@ -15,7 +8,7 @@ const param = (): string | null => {
   }
 };
 
-const stored = (): boolean => {
+const stored = () => {
   try {
     return window.localStorage.getItem(KEY) !== null;
   } catch {
@@ -23,42 +16,41 @@ const stored = (): boolean => {
   }
 };
 
-export const clearSafeMode = (): void => {
+export const clearSafeMode = () => {
   try {
     window.localStorage.removeItem(KEY);
-  } catch {
-    // nothing stored
-  }
+  } catch {}
 };
 
 let cached: boolean | null = null;
 
-const coarsePointer = (): boolean =>
+const coarsePointer = () =>
   typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches;
 
 /** The device lost a context before (or `?safe=1` says to act as if): the
  *  world shrinks further than a phone's default reach. */
-export const contextLostBefore = (): boolean => {
+export const contextLostBefore = () => {
   if (cached !== null) {
     return cached;
   }
+
   const p = param();
+
   if (p === "0") {
     clearSafeMode();
     cached = false;
   } else {
     cached = p === "1" || stored();
   }
+
   return cached;
 };
 
-export const safeMode = (): boolean => contextLostBefore() || (coarsePointer() && param() !== "0");
+export const safeMode = () => contextLostBefore() || (coarsePointer() && param() !== "0");
 
 /** Called from the context-lost handler: the next boot runs small. */
-export const recordContextLoss = (): void => {
+export const recordContextLoss = () => {
   try {
     window.localStorage.setItem(KEY, String(Date.now()));
-  } catch {
-    // no persistence: the reload boots at the normal tier and may fail again
-  }
+  } catch {}
 };

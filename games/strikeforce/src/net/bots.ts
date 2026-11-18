@@ -1,9 +1,3 @@
-// Bots: fighters the host plays so a thin room still has a match. They sit in
-// the rules roster like anyone (rules.ts seats them), so kills, respawns and
-// the scoreboard need nothing of their own. The host thinks for them with the
-// shared soldier brain and publishes their bodies under BOTS_KEY; every
-// client — the host included — turns that record into ordinary player reports
-// (`botPlayers`), so bots are drawn, interpolated and shot exactly like people.
 import type { JsonRecord, JsonValue, PlayerMap } from "@vibedgames/multiplayer";
 import { Vector3 } from "three";
 
@@ -33,12 +27,10 @@ const PROFILE: Profile = {
   senses: { cone: Math.cos((100 * Math.PI) / 180), lose: 1.5, range: 60, search: 4 },
 };
 
-/** How far from somebody a roaming bot heads, so a big dock still finds its fights. */
 const ROAM = 30;
 
 interface Seat {
   brain: SoldierBrain;
-  /** The life (rules.ts) this bot was last placed as. */
   life: number;
 }
 
@@ -55,6 +47,7 @@ export class Bots {
     wander: (bot) => {
       const others = this.people.filter((p) => p.id !== bot.id);
       const near = others[Math.floor(Math.random() * others.length)];
+
       return this.game.physics.nav.randomPoint(
         near ? new Vector3(near.pos.x, 0, near.pos.z) : bot.pos,
         ROAM,
@@ -79,44 +72,52 @@ export class Bots {
     seed: (id: string) => Point | undefined,
     live: boolean,
     fire: (shot: Shot) => void,
-  ): void {
+  ) {
     for (const [id, bot] of this.brains) {
       if (!roster.has(id)) {
         bot.brain.stop(this.orders);
         this.brains.delete(id);
       }
     }
+
     this.live = live;
     this.fire = fire;
     this.people = [...people, ...this.standing(roster)];
+
     for (const [id, fighter] of roster) {
       if (!isBot(id)) {
         continue;
       }
+
       const bot = this.brains.get(id) ?? this.seat(id, fighter, seed(id));
+
       if (!fighter.alive) {
         bot.brain.stop(this.orders);
         continue;
       }
+
       if (bot.life !== fighter.life) {
         this.place(bot.brain);
         bot.life = fighter.life;
       }
+
       bot.brain.update(dt, this.people, this.orders);
     }
   }
 
   /** A bot was shot from `from`: it turns to deal with it. */
-  alert(id: string, from: Point | undefined): void {
+  alert(id: string, from: Point | undefined) {
     const bot = this.brains.get(id);
+
     if (bot && from) {
       bot.brain.investigate(from);
     }
   }
 
   /** Every bot's body, for BOTS_KEY: `{ [id]: [t, x, y, z, yaw, pitch] }`. */
-  encode(now: number): JsonRecord {
+  encode(now: number) {
     const out: JsonRecord = {};
+
     for (const [id, { brain }] of this.brains) {
       out[id] = [
         Math.round(now),
@@ -127,35 +128,41 @@ export class Bots {
         q3(brain.pitch),
       ];
     }
+
     return out;
   }
 
-  private seat(id: string, fighter: Fighter, from: Point | undefined): Seat {
+  private seat(id: string, fighter: Fighter, from: Point | undefined) {
     const brain = new SoldierBrain(id, this.game.physics, PROFILE);
-    // Inherited mid-life (a promoted host): carry on from where it stood.
     const bot = { brain, life: from ? fighter.life : -1 };
+
     if (from) {
       brain.place(from, 0, this.orders);
     }
+
     this.brains.set(id, bot);
+
     return bot;
   }
 
-  private standing(roster: ReadonlyMap<string, Fighter>): Combatant[] {
+  private standing(roster: ReadonlyMap<string, Fighter>) {
     const out: Combatant[] = [];
+
     for (const [id, { brain }] of this.brains) {
       if (roster.get(id)?.alive) {
         out.push({ crouch: false, id, moving: true, pos: brain.pos });
       }
     }
+
     return out;
   }
 
-  private place(brain: SoldierBrain): void {
+  private place(brain: SoldierBrain) {
     const spawn = safestSpawn(
       this.spawns,
       this.people.filter((p) => p.id !== brain.id).map((p) => p.pos),
     );
+
     if (spawn) {
       brain.place(spawn.pos, spawn.yaw, this.orders);
     }
@@ -169,17 +176,21 @@ export class Bots {
 export const botPlayers = (
   raw: JsonValue | undefined,
   roster: ReadonlyMap<string, Fighter> | undefined,
-): PlayerMap => {
+) => {
   const out: PlayerMap = {};
+
   if (!isRecord(raw) || !roster) {
     return out;
   }
+
   for (const [id, body] of Object.entries(raw)) {
     const v = nums(body, 6);
     const fighter = roster.get(id);
+
     if (!v || !fighter) {
       continue;
     }
+
     const [t = 0, x = 0, y = 0, z = 0, yaw = 0, pitch = 0] = v;
     out[id] = {
       id,
@@ -198,5 +209,6 @@ export const botPlayers = (
       },
     };
   }
+
   return out;
 };

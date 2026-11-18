@@ -10,102 +10,86 @@ import {
   OG_IMAGE_CANDIDATES,
 } from "./share-meta";
 
-/**
- * Content types R2 stores raw and Cloudflare's edge compression does not cover.
- * Rigged GLBs are the expensive case: they are plain binary buffers that gzip to
- * roughly a third, an asset-heavy game ships a dozen megabytes of them, and a
- * physics engine's wasm shrinks to 40% (streaming instantiation reads the
- * decoded bytes, so `application/wasm` survives the encoding).
- * Types that arrive already compressed (images, audio, video, and the gzipped
- * `.bin` world payloads games bake themselves) are deliberately absent — a
- * second pass costs CPU and returns nothing.
- */
 const COMPRESSIBLE_TYPES = new Set(["model/gltf-binary", "model/gltf+json", "application/wasm"]);
 
-const acceptsGzip = (request: Request): boolean =>
+const acceptsGzip = (request: Request) =>
   (request.headers.get("accept-encoding") ?? "").toLowerCase().includes("gzip");
 
-/**
- * Handing the Cache API a body we compressed ourselves, still labelled
- * `content-encoding: gzip`, gets it encoded a second time — a cache hit then
- * returns a double-gzipped asset that no loader can read. The stored copy
- * therefore carries the compressed bytes as opaque octets and remembers the
- * encoding in a private header, which `fromCache` turns back into a real
- * `content-encoding` on the way out.
- */
 const ENCODING_MARKER = "x-vg-encoded";
 
-const toCache = (response: Response, headers: Headers, compressed: boolean): Response => {
+const toCache = (response: Response, headers: Headers, compressed: boolean) => {
   const stored = new Headers(headers);
   stored.set("x-vg-cache", "hit");
+
   if (compressed) {
     stored.delete("content-encoding");
     stored.set(ENCODING_MARKER, "gzip");
   }
+
   return new Response(response.body, { headers: stored });
 };
 
-const fromCache = (hit: Response): Response => {
+const fromCache = (hit: Response) => {
   const encoding = hit.headers.get(ENCODING_MARKER);
+
   if (!encoding) {
     return hit;
   }
+
   const headers = new Headers(hit.headers);
   headers.delete(ENCODING_MARKER);
   headers.set("content-encoding", encoding);
-  // Same rule as the cold path: the cached octets are the gzip we made.
+
   return new Response(hit.body, { encodeBody: "manual", headers });
 };
 
-/**
- * Cache keys carry the deployment id because games address assets by stable
- * paths — `models/hero.glb` is not fingerprinted, so keying on the request URL
- * alone would serve the previous deployment's bytes until the entry expired.
- * The encoding is part of the key so a client that cannot take gzip is never
- * handed a compressed body.
- */
 const assetCacheKey = (
   url: URL,
   deploymentId: string,
   requestedPath: string,
   compressed: boolean,
-): Request => {
+) => {
   const key = new URL(url.toString());
   key.pathname = `/__asset/${deploymentId}/${requestedPath}`;
+
   if (compressed) {
     key.searchParams.set("__enc", "gzip");
   }
+
   return new Request(key.toString(), { method: "GET" });
 };
 
-/**
- * Extract the subdomain slug from `{slug}.vibedgames.com`. Returns null for
- * apex, www, or anything that doesn't match the expected shape.
- */
-const extractSlug = (host: string): string | null => {
+const extractSlug = (host: string) => {
   const parts = host.split(".");
+
   if (parts.length < 3) {
     return null;
   }
+
   if (parts.at(-2) !== "vibedgames") {
     return null;
   }
+
   const [slug] = parts;
+
   if (!slug || slug === "www") {
     return null;
   }
+
   return slug;
 };
 
-const normalizePath = (pathname: string): string => {
+const normalizePath = (pathname: string) => {
   let p = pathname.replace(/^\/+/u, "");
+
   if (p === "" || p.endsWith("/")) {
     p += "index.html";
   }
+
   return p;
 };
 
-const notFound = (message: string): Response =>
+const notFound = (message: string) =>
   new Response(message, {
     headers: { "content-type": "text/plain" },
     status: 404,
@@ -122,34 +106,32 @@ interface HtmlPage {
   slug: string;
 }
 
-/**
- * Games that don't manage their own Open Graph tags get a default share
- * card, so links pasted into chat/social render a preview instead of a
- * bare URL. HTML is buffered for inspection — game pages are small and
- * index.html already runs on a 60s cache. Every served page gets the
- * stale-tab freshness probe; share meta is still only injected when the game
- * doesn't manage its own.
- */
-const serveHtml = async (page: HtmlPage): Promise<Response> => {
+const serveHtml = async (page: HtmlPage) => {
   const { db, deploymentId, headers, host, name, pathname, slug } = page;
   const html = injectFreshness(page.html, deploymentId);
+
   if (hasOwnShareMeta(html)) {
     return new Response(html, { headers });
   }
+
   const title = name ?? extractTitle(html) ?? slug;
+
   const imageRows = await db.query.deploymentFile.findMany({
     columns: { path: true },
     where: { deploymentId, path: { in: OG_IMAGE_CANDIDATES } },
   });
+
   const image = OG_IMAGE_CANDIDATES.map((p) => imageRows.find((row) => row.path === p)).find(
     (row) => row !== undefined,
   );
+
   const injected = injectShareMeta(html, {
     description: extractDescription(html) ?? `Play ${title} on vibedgames.`,
     imageUrl: image ? `https://${host}/${image.path}` : "https://vibedgames.com/og.jpg",
     title,
     url: `https://${host}${pathname}`,
   });
+
   return new Response(injected, { headers });
 };
 
@@ -172,12 +154,13 @@ const serveHtml = async (page: HtmlPage): Promise<Response> => {
  *   itself can still frame them for previews.
  */
 export default {
-  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext) {
     const url = new URL(request.url);
     const hostHeader = request.headers.get("host") ?? url.host;
     const host = hostHeader.split(":")[0] ?? "";
 
     const slug = extractSlug(host);
+
     if (!slug) {
       return notFound("Invalid host");
     }
@@ -193,8 +176,6 @@ export default {
       return notFound("Game not found");
     }
 
-    // Stale-tab probe: restored tabs poll this on resume and reload when a
-    // new deployment shipped (see freshness.ts).
     if (url.pathname === VERSION_PATH) {
       return versionResponse(g.currentDeploymentId);
     }
@@ -202,26 +183,22 @@ export default {
     const requestedPath = normalizePath(url.pathname);
     const r2Key = `games/${g.id}/${g.currentDeploymentId}/${requestedPath}`;
 
-    // Derived from the extension with the same map the CLI used to stamp
-    // deploymentFile.contentType at upload — no per-asset D1 query.
     const contentType = contentTypeForPath(requestedPath);
 
-    // HTML is rewritten per request (freshness probe, share meta) and lives on a
-    // 60s TTL, so it stays off the edge cache; every other asset is immutable
-    // under its deployment and is safe to hold.
     const isHtml = contentType.startsWith("text/html");
     const compress = COMPRESSIBLE_TYPES.has(contentType) && acceptsGzip(request);
     const cacheable = !isHtml && request.method === "GET";
 
     const cacheKey = assetCacheKey(url, g.currentDeploymentId, requestedPath, compress);
+
     if (cacheable) {
       const hit = await caches.default.match(cacheKey);
+
       if (hit) {
         return fromCache(hit);
       }
     }
-    // Worker subrequests never set cf-cache-status, so without this there is no
-    // way to tell a warm colo from a cold one when something looks slow.
+
     const cacheStatus = cacheable ? "miss" : "bypass";
 
     const obj = await env.GAMES_BUCKET.get(r2Key);
@@ -232,11 +209,10 @@ export default {
 
     const headers = new Headers();
     headers.set("content-type", contentType);
-    // Hashed assets are immutable per deployment; anything addressed by a
-    // stable path (html entry points, conventional og images) changes across
-    // deploys and must stay on a short TTL.
+
     const stablePath =
       requestedPath.endsWith("index.html") || OG_IMAGE_CANDIDATES.includes(requestedPath);
+
     headers.set(
       "cache-control",
       stablePath ? "public, max-age=60" : "public, max-age=31536000, immutable",
@@ -267,12 +243,7 @@ export default {
     }
 
     const body = compress ? obj.body.pipeThrough(new CompressionStream("gzip")) : obj.body;
-    // The body is ALREADY gzip when `compress` is set. Without `encodeBody:
-    // "manual"` the runtime reads `content-encoding: gzip` as an instruction
-    // and gzips it again; the browser then strips one layer and hands the
-    // loader gzip bytes. Every GLB on every game failed to parse this way, and
-    // Miniflare hid it — it drops `content-encoding` from the response it
-    // hands a test, so the double layer never reached an assertion.
+
     const response = new Response(body, {
       encodeBody: compress ? "manual" : "automatic",
       headers,
@@ -281,6 +252,7 @@ export default {
     if (cacheable) {
       ctx.waitUntil(caches.default.put(cacheKey, toCache(response.clone(), headers, compress)));
     }
+
     return response;
   },
 };

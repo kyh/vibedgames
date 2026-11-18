@@ -1,6 +1,3 @@
-// A growable bag of splats: the one format the baker writes and the stage draws.
-// Twenty bytes a splat: a centre, a normal, and (size, ramp, step, flags).
-
 export const FLAG = {
   noShadow: 8,
   paintable: 4,
@@ -15,7 +12,6 @@ export class SplatSet {
   normals: Int8Array;
   data: Uint8Array;
   count = 0;
-  /** A fixed set drops what does not fit: its arrays are bound to the GPU and cannot be swapped. */
   private readonly fixed: boolean;
 
   constructor(capacity = 4096, fixed = false) {
@@ -25,11 +21,11 @@ export class SplatSet {
     this.data = new Uint8Array(capacity * 4);
   }
 
-  get capacity(): number {
+  get capacity() {
     return this.data.length / 4;
   }
 
-  clear(): void {
+  clear() {
     this.count = 0;
   }
 
@@ -44,13 +40,15 @@ export class SplatSet {
     sigma: number,
     tone: number,
     flags: number,
-  ): void {
+  ) {
     if (this.count >= this.capacity) {
       if (this.fixed) {
         return;
       }
+
       this.grow();
     }
+
     const i = this.count;
     this.centers[i * 3] = x;
     this.centers[i * 3 + 1] = y;
@@ -59,14 +57,13 @@ export class SplatSet {
     this.normals[i * 4 + 1] = Math.round(ny * 127);
     this.normals[i * 4 + 2] = Math.round(nz * 127);
     this.data[i * 4] = Math.min(255, Math.round(sigma * 100));
-    // A tone is ramp * 8 + step.
     this.data[i * 4 + 1] = Math.floor(tone / 8);
     this.data[i * 4 + 2] = tone % 8;
     this.data[i * 4 + 3] = flags;
     this.count += 1;
   }
 
-  private grow(): void {
+  private grow() {
     const next = this.capacity * 2;
     const centers = new Float32Array(next * 3);
     const normals = new Int8Array(next * 4);
@@ -81,4 +78,4 @@ export class SplatSet {
 }
 
 /** A tone id: a ramp and a step on it. */
-export const tone = (ramp: number, step: number): number => ramp * 8 + step;
+export const tone = (ramp: number, step: number) => ramp * 8 + step;

@@ -2,147 +2,150 @@ import { PhysicalGamepad } from "@vibedgames/gamepad";
 
 import type { CarInput } from "../vehicle/car";
 
-const THREE_clamp = (v: number): number => Math.max(-1, Math.min(1, v));
+const THREE_clamp = (v: number) => Math.max(-1, Math.min(1, v));
 
-// Keyboard + touch-button + controller input, merged into a single CarInput
-// each frame.
 export class InputState {
   private keys = new Set<string>();
   private readonly pad = new PhysicalGamepad({ stickDeadZone: 0.12 });
-  // `stickBrake` is the on-screen stick pulled DOWN — its own flag (written
-  // every frame by touch.update) so it can never clobber a held BRAKE pedal.
   private touch = { boost: false, brake: false, gas: false, stickBrake: false };
-  /** Analog steer from the on-screen stick, -1..1. Zero when no thumb is on it. */
   private touchSteer = 0;
   startPressed = false;
   restartPressed = false;
   mutePressed = false;
-  // chat input focused — game keys suspended
   typing = false;
-  // TRAILER (src/trailer/): scripted pedals/steer override every human source
-  // while set. Null in normal play — zero gameplay impact.
   private scripted: CarInput | null = null;
 
   constructor() {
     window.addEventListener("keydown", this.onKeyDown);
     window.addEventListener("keyup", this.onKeyUp);
-    // Losing focus drops all held keys so the car doesn't drive itself.
     window.addEventListener("blur", () => this.keys.clear());
   }
 
-  private onKeyDown = (e: KeyboardEvent): void => {
+  private onKeyDown = (e: KeyboardEvent) => {
     if (this.typing) {
       return;
-      // the chat input owns the keyboard
     }
+
     const k = e.key.toLowerCase();
-    // Native controls own activation: Enter must not also queue chat after
-    // their click starts the run, and Space must retain its default click.
+
     if ((k === "enter" || k === " ") && e.target instanceof Element && e.target.closest("button")) {
       return;
     }
+
     if ([" ", "arrowup", "arrowdown", "arrowleft", "arrowright"].includes(k)) {
       e.preventDefault();
     }
+
     if (k === "enter") {
       this.startPressed = true;
     }
+
     if (k === "r") {
       this.restartPressed = true;
     }
+
     if (k === "m") {
       this.mutePressed = true;
     }
+
     this.keys.add(k);
   };
-  private onKeyUp = (e: KeyboardEvent): void => {
+  private onKeyUp = (e: KeyboardEvent) => {
     this.keys.delete(e.key.toLowerCase());
   };
 
-  setTouch(btn: keyof InputState["touch"], down: boolean): void {
+  setTouch(btn: keyof InputState["touch"], down: boolean) {
     this.touch[btn] = down;
   }
 
   /** Called each frame from the on-screen stick; clamped, 0 when idle. */
-  setTouchSteer(v: number): void {
+  setTouchSteer(v: number) {
     this.touchSteer = THREE_clamp(v);
   }
 
-  private has(...ks: string[]): boolean {
+  private has(...ks: string[]) {
     return ks.some((k) => this.keys.has(k));
   }
 
   /** TRAILER: carInput() returns this verbatim until cleared with null. */
-  setScripted(input: CarInput | null): void {
+  setScripted(input: CarInput | null) {
     this.scripted = input;
   }
 
-  carInput(): CarInput {
+  carInput() {
     if (this.scripted) {
       return this.scripted;
     }
+
     const gas = this.has("arrowup", "w") || this.touch.gas;
-    // ONE brake pedal, racing-game style: ↓/S/Space (and the touch BRAKE
-    // button) all pull it. Brake to slow, brake+steer to drift, brake from a
-    // stop to reverse, gas+brake to power-drift.
     const brakeHeld = this.has("arrowdown", "s", " ") || this.touch.brake || this.touch.stickBrake;
     const left = this.has("arrowleft", "a");
     const right = this.has("arrowright", "d");
     const throttle = gas ? 1 : 0;
     const brake = brakeHeld ? 1 : 0;
-    // Keys are digital; the on-screen stick is analog and wins when engaged.
     const steer = this.touchSteer === 0 ? (right ? 1 : 0) - (left ? 1 : 0) : this.touchSteer;
     const boost = this.has("shift") || this.touch.boost;
+
     return this.padInput({ boost, brake, steer, throttle });
   }
 
-  /** Gamepad (reference parity): left stick steers, RT gas, LT brake,
-   * A/X also brake (handbrake habit), B or RB boost. */
-  private padInput(human: CarInput): CarInput {
+  private padInput(human: CarInput) {
     this.pad.update();
+
     if (!this.pad.connected) {
       return human;
     }
+
     let { boost, brake, steer, throttle } = human;
     const ax = this.pad.getStick().dx;
+
     if (Math.abs(ax) > 0.12) {
       steer = THREE_clamp(ax);
     }
+
     const rt = this.pad.buttonValue("rt");
     const lt = this.pad.buttonValue("lt");
+
     if (rt > 0.05 || this.pad.isButtonDown("up")) {
       throttle = Math.max(throttle, rt || 1);
     }
+
     if (lt > 0.05 || this.pad.isButtonDown("down")) {
       brake = Math.max(brake, lt || 1);
     }
+
     if (this.pad.isButtonDown("a") || this.pad.isButtonDown("x")) {
       brake = 1;
     }
+
     if (this.pad.isButtonDown("b") || this.pad.isButtonDown("rb")) {
       boost = true;
     }
+
     return { boost, brake, steer, throttle };
   }
 
-  // Consume one-shot edges so they fire once per press.
-  consumeStart(): boolean {
+  consumeStart() {
     const v = this.startPressed;
     this.startPressed = false;
+
     return v;
   }
-  consumeRestart(): boolean {
+  consumeRestart() {
     const v = this.restartPressed;
     this.restartPressed = false;
+
     return v;
   }
-  consumeMute(): boolean {
+  consumeMute() {
     const v = this.mutePressed;
     this.mutePressed = false;
+
     return v;
   }
-  setTyping(on: boolean): void {
+  setTyping(on: boolean) {
     this.typing = on;
+
     if (on) {
       this.keys.clear();
     }

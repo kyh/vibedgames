@@ -16,6 +16,7 @@ export const getRouter = () => {
     defaultPreload: "intent",
     routeTree,
   });
+
   setupRouterSsrQueryIntegration({ queryClient, router });
 
   return router;

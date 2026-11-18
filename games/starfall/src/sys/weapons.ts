@@ -65,26 +65,28 @@ export const SINGULARITY_TINT = WEAPONS_SPECIAL.find((w) => w.singularity)?.tint
 
 /** TWIN orbit phase — derived from the wall clock with the exact formula
  *  remotes use, so the owner's drone and every remote render agree. */
-export const twinAngle = (): number => (simNow() / 1000) * TWIN_ORBIT_DEG_PER_S * DEG;
+export const twinAngle = () => (simNow() / 1000) * TWIN_ORBIT_DEG_PER_S * DEG;
 
-/** The `w` code remotes rebuild a weapon from: a special's WEAPONS_SPECIAL
- *  index, else the base weapon (which remotes scale to the shooter's level). */
-const weaponCode = (w: Weapon): number => {
+const weaponCode = (w: Weapon) => {
   const idx = WEAPONS_SPECIAL.findIndex((special) => special.name === w.name);
+
   return idx === -1 ? FIRE_BASE : idx;
 };
 
 /** Muzzle burst radius per weapon family (§9). */
-export const muzzleBurstSize = (look: WeaponLook): number => {
+export const muzzleBurstSize = (look: WeaponLook) => {
   if (look === "rail") {
     return 36;
   }
+
   if (look === "heavy" || look === "scatter") {
     return 25;
   }
+
   if (look === "rapid" || look === "plasma") {
     return 13;
   }
+
   return 19;
 };
 
@@ -163,80 +165,87 @@ export class Weapons {
     };
   }
 
-  handleShooting(delta: number, now: number): void {
+  handleShooting(delta: number, now: number) {
     if (!this.pilot.alive || !this.pilot.spawned) {
       return;
     }
-    // The cooldown runs into (bounded) deficit and each shot pays intervalMs
-    // back, so the leftover carries between shots — true average cadence on
-    // any refresh rate instead of rounding up to whole frames. OVERDRIVE
-    // multiplies intervalMs and windupMs at fire time (+50% rate).
+
     const rateMult = this.pilot.boosts.has("overdrive") ? OVERDRIVE_RATE_MULT : 1;
     const interval = this.pilot.weapon.intervalMs * rateMult;
     this.shootCooldown = Math.max(-interval, this.shootCooldown - delta);
+
     if (!this.pilot.alive || !this.pilot.spawned || now < this.hooks.shield().phasedUntil) {
       this.windupAcc = 0;
+
       return;
     }
+
     if (!this.hooks.isFiring()) {
-      // releasing mid-windup cancels
       this.windupAcc = 0;
+
       return;
     }
+
     const windupMs = this.pilot.weapon.windupMs * rateMult;
+
     if (windupMs > 0) {
-      // Charge runs inside the interval (cycle = max(interval, windup)) and
-      // auto-repeats while held — the one-button identity holds.
       this.windupAcc = Math.min(windupMs, this.windupAcc + delta);
+
       if (this.windupAcc < windupMs || this.shootCooldown > 0) {
         return;
       }
+
       this.windupAcc = 0;
     } else {
       this.windupAcc = 0;
+
       if (this.shootCooldown > 0) {
         return;
       }
     }
+
     this.shootCooldown += interval;
     this.fireWeapon(now);
   }
 
   /** 0–1 charge fraction of a windup weapon (0 for everything else). */
-  windupFrac(): number {
+  windupFrac() {
     const rateMult = this.pilot.boosts.has("overdrive") ? OVERDRIVE_RATE_MULT : 1;
     const windupMs = this.pilot.weapon.windupMs * rateMult;
+
     return windupMs > 0 ? Math.min(1, this.windupAcc / windupMs) : 0;
   }
 
   /** One volley of the current weapon (pellets / arc cast / mine / nova). */
-  fireWeapon(now: number): void {
+  fireWeapon(now: number) {
     const nose = {
       x: this.pilot.shipX + Math.cos(this.pilot.shipAngle) * SHIP_RADIUS,
       y: this.pilot.shipY + Math.sin(this.pilot.shipAngle) * SHIP_RADIUS,
     };
+
     const w = this.pilot.weapon;
     const { arc } = w;
     let gainScale = 1;
+
     if (arc && w.aura) {
-      // TESLA AURA: nothing in range = a silent tick (no sound, no muzzle).
       if (!this.fireAuraZap(now, arc)) {
         return;
       }
     } else if (arc) {
-      // fizzle: quieter zap
       if (this.fireArc(now, nose, arc)) {
         gainScale = 0.5;
       }
     } else {
-      // SENTRY: the trigger also places/moves the turret (sound gated there).
       if (w.sentry) {
         this.placeSentry(now);
       }
+
       if (w.mine) {
         this.sim.capMines(this.beams);
       }
+
       this.fire(this.volleySpec(now, w));
+
       if (isNova(w)) {
         this.fx.battle.burst(
           this.pilot.shipX,
@@ -248,10 +257,9 @@ export class Weapons {
           "important",
         );
       }
-      // CLUSTER: the other missiles launch staggered, each re-running the
-      // nose position + HOMING lock at its own instant so the locks fan
-      // across a crowd. Each launch is its own fire event.
+
       const { cluster } = w;
+
       if (cluster) {
         for (let i = 1; i < cluster.missiles; i += 1) {
           this.clock.delayedCall(cluster.staggerMs * i, () => {
@@ -262,25 +270,25 @@ export class Weapons {
         }
       }
     }
+
     this.muzzleFx(nose, now, gainScale);
   }
 
-  /** Put a trigger pull's beams in the air here, and send the same spec to
-   *  everyone else, stamped with server time like my pose. */
-  private fire(spec: FireSpec): void {
+  private fire(spec: FireSpec) {
     for (const b of buildVolley(spec)) {
       b.mastery = this.link.trailer ? null : this.pilot.mastery.shot(b.weapon.name, spec.t);
       this.beams.push(b);
     }
+
     this.link.broadcast("fire", encodeFire({ ...spec, t: this.link.serverNow() }));
   }
 
-  /** A volley of `w` from the ship as it stands. */
-  private volleySpec(now: number, w: Weapon): FireSpec {
+  private volleySpec(now: number, w: Weapon) {
     const { shipX: x, shipY: y, shipAngle: angle } = this.pilot;
     const nose = { x: x + Math.cos(angle) * SHIP_RADIUS, y: y + Math.sin(angle) * SHIP_RADIUS };
     const twin = this.pilot.boosts.has("twin") ? twinAngle() : null;
     const { homing } = w;
+
     return {
       angle,
       chain: null,
@@ -298,17 +306,12 @@ export class Weapons {
       weapon: w,
       x,
       y,
-    };
+    } satisfies FireSpec;
   }
 
   /** A single bolt that isn't my weapon's volley: a SENTRY turret shot or a
    *  REFLECT return. */
-  fireBolt(
-    kind: Extract<FireKind, "turret" | "reflect">,
-    origin: Vec,
-    angle: number,
-    now: number,
-  ): void {
+  fireBolt(kind: Extract<FireKind, "turret" | "reflect">, origin: Vec, angle: number, now: number) {
     const turret = kind === "turret";
     this.fire({
       angle,
@@ -327,8 +330,7 @@ export class Weapons {
     });
   }
 
-  /** An ARC / TESLA bolt: hops already resolved (and damage applied) here. */
-  private fireChain(chain: Vec[], now: number): void {
+  private fireChain(chain: Vec[], now: number) {
     this.fire({
       angle: this.pilot.shipAngle,
       chain,
@@ -346,40 +348,44 @@ export class Weapons {
     });
   }
 
-  /** TESLA AURA: zap the nearest non-player target within castRange of the
-   *  SHIP (omnidirectional, no cone) — a single-hop ARC chain. Players are
-   *  excluded on purpose: PvP runs victim-side off the serialized `tesla`
-   *  flag (RAM pattern), so a chain hit-test would double-dip. Returns
-   *  false when nothing was in range (the caller stays silent). */
-  private fireAuraZap(now: number, spec: NonNullable<Weapon["arc"]>): boolean {
+  private fireAuraZap(now: number, spec: NonNullable<Weapon["arc"]>) {
     const r2 = spec.castRange * spec.castRange;
     let best: { ref: TargetRef; x: number; y: number } | null = null;
     let bestD = Infinity;
+
     for (const e of this.world.enemies) {
       const d = dist2(e.x, e.y, this.pilot.shipX, this.pilot.shipY);
+
       if (d <= r2 && d < bestD) {
         bestD = d;
         best = { ref: { id: e.id, kind: "enemy" }, x: e.x, y: e.y };
       }
     }
+
     const u = this.world.ufo;
+
     if (u) {
       const d = dist2(u.x, u.y, this.pilot.shipX, this.pilot.shipY);
+
       if (d <= r2 && d < bestD) {
         bestD = d;
         best = { ref: { kind: "ufo" }, x: u.x, y: u.y };
       }
     }
+
     for (const a of this.world.asteroids) {
       const d = dist2(a.x, a.y, this.pilot.shipX, this.pilot.shipY);
+
       if (d <= r2 && d < bestD) {
         bestD = d;
         best = { ref: { id: a.id, kind: "asteroid" }, x: a.x, y: a.y };
       }
     }
+
     if (!best) {
       return false;
     }
+
     this.applyArcDamage(best.ref, best.x, best.y, this.pilot.weapon.power * 100, now);
     this.fireChain(
       [
@@ -388,13 +394,11 @@ export class Weapons {
       ],
       now,
     );
+
     return true;
   }
 
-  /** SENTRY: place (or move) the one turret at the ship; re-placing
-   *  refreshes its 12s life. The clack only plays on a real move so
-   *  drag-firing doesn't machine-gun the sound. */
-  private placeSentry(now: number): void {
+  private placeSentry(now: number) {
     const prev = this.sentry;
     const moved = !prev || dist2(prev.x, prev.y, this.pilot.shipX, this.pilot.shipY) > 100 * 100;
     this.sentry = {
@@ -403,6 +407,7 @@ export class Weapons {
       x: this.pilot.shipX,
       y: this.pilot.shipY,
     };
+
     if (moved) {
       sfx.play("sentry_place", { priority: "local" });
       this.fx.ring(this.pilot.shipX, this.pilot.shipY, 4, 18, 200, SENTRY_WEAPON.tint, 0.6);
@@ -412,41 +417,51 @@ export class Weapons {
   /** SENTRY turret sim: every SENTRY_FIRE_MS fire a bolt (ordinary owner
    *  beam — hits, score and the fire event all ride the normal pipelines)
    *  at the nearest enemy, else the nearest asteroid, within range. */
-  tickSentry(now: number): void {
+  tickSentry(now: number) {
     const s = this.sentry;
+
     if (!s) {
       return;
     }
+
     if (!this.pilot.alive || now >= s.until) {
       this.sentry = null;
+
       return;
     }
+
     if (now < s.nextFireAt) {
       return;
     }
+
     const r2 = SENTRY_RANGE * SENTRY_RANGE;
     let best: Vec | null = null;
     let bestD = Infinity;
+
     for (const e of this.world.enemies) {
       const d = dist2(e.x, e.y, s.x, s.y);
+
       if (d <= r2 && d < bestD) {
         bestD = d;
         best = { x: e.x, y: e.y };
       }
     }
+
     if (!best) {
       for (const a of this.world.asteroids) {
         const d = dist2(a.x, a.y, s.x, s.y);
+
         if (d <= r2 && d < bestD) {
           bestD = d;
           best = { x: a.x, y: a.y };
         }
       }
     }
-    // nothing in range: rescan next frame, no cooldown
+
     if (!best) {
       return;
     }
+
     const ang = Math.atan2(best.y - s.y, best.x - s.x);
     this.fireBolt("turret", s, ang, now);
     s.nextFireAt = now + SENTRY_FIRE_MS;
@@ -456,13 +471,14 @@ export class Weapons {
       lifeMin: 80,
       scale: 0.4,
     });
+
     if (this.view.onScreen(s.x, s.y)) {
       sfx.play("fire_pulse", { gain: 0.35, rate: 1.15 });
     }
   }
 
   /** TESLA AURA live = weapon held and able to fire (mirrored to the wire). */
-  teslaActive(now: number): boolean {
+  teslaActive(now: number) {
     return (
       this.pilot.weapon.aura &&
       this.pilot.alive &&
@@ -473,28 +489,28 @@ export class Weapons {
   }
 
   /** Fly my beams one frame. */
-  updateBeams(dt: number, now: number): void {
+  updateBeams(dt: number, now: number) {
     this.beams = this.sim.step(this.beams, this.owner, dt, now);
   }
 
   /** Detonate my armed mines that something hostile wandered into. */
-  tickMines(now: number): void {
+  tickMines(now: number) {
     this.sim.tickMines(this.beams, this.owner, now);
   }
 
-  /** Muzzle flash + camera kick + fire sfx, per weapon family (§9). */
-  private muzzleFx(nose: Vec, now: number, gainScale = 1): void {
+  private muzzleFx(nose: Vec, now: number, gainScale = 1) {
     const w = this.pilot.weapon;
     const sound = weaponSound(w.sfx);
     const playOpts: PlayOpts = { gain: sound.gain * gainScale, priority: "local" };
+
     if (sound.rate !== undefined) {
       playOpts.rate = sound.rate;
     }
+
     sfx.play(sound.name, playOpts);
-    // Every burst below sits ON the pilot's nose, so all of it damps together
-    // in trailer mode (1 everywhere else — see hullGlow).
     const glow = this.view.hullGlow();
     const look = weaponLook(w);
+
     if (look !== "nova") {
       const size = muzzleBurstSize(look);
       this.fx.battle.burst(
@@ -507,7 +523,7 @@ export class Weapons {
         "important",
       );
     }
-    // OVERDRIVE: muzzle flashes gain a gold outer spark.
+
     if (this.pilot.boosts.has("overdrive")) {
       this.fx.sparks(nose.x, nose.y, 2, 0xfa_cc_15, {
         lifeMax: 180,
@@ -517,10 +533,11 @@ export class Weapons {
         speedMin: 150,
       });
     }
+
     const aimDeg = this.pilot.shipAngle / DEG;
+
     switch (w.sfx) {
       case "mine": {
-        // Drop, not a shot: tiny puff, no kick.
         this.fx.sparks(nose.x, nose.y, 2, w.tint, {
           lifeMax: 160,
           lifeMin: 100,
@@ -528,12 +545,12 @@ export class Weapons {
         });
         break;
       }
+
       case "nova": {
-        // The expanding ring IS the effect; no muzzle, no kick.
         break;
       }
+
       case "rail": {
-        // Heavy release (§C): kick 5px, trauma +0.08.
         this.fx.sparks(nose.x, nose.y, 5, w.tint, {
           angleMax: aimDeg + 12,
           angleMin: aimDeg - 12,
@@ -556,10 +573,11 @@ export class Weapons {
         this.kick(5);
         break;
       }
+
       case "tesla": {
-        // The zap chain is the whole show — no muzzle, no kick.
         break;
       }
+
       case "heavy":
       case "glaive":
       case "drill":
@@ -586,6 +604,7 @@ export class Weapons {
         this.kick(4);
         break;
       }
+
       case "zap": {
         this.muzzleFlashes.push({
           angle: this.pilot.shipAngle,
@@ -599,6 +618,7 @@ export class Weapons {
         this.kick(3);
         break;
       }
+
       case "arc":
       case "seek": {
         this.fx.sparks(nose.x, nose.y, 4, w.tint, {
@@ -620,8 +640,8 @@ export class Weapons {
         this.kick(2);
         break;
       }
+
       default: {
-        // pulse family (NORMAL, TINY, SCATTER, EXPLOSION)
         this.fx.sparks(nose.x, nose.y, 3, w.tint, {
           angleMax: aimDeg + 15,
           angleMin: aimDeg - 15,
@@ -646,92 +666,107 @@ export class Weapons {
     }
   }
 
-  /** Directional camera recoil opposite the shot. */
-  private kick(px: number): void {
+  private kick(px: number) {
     this.pilot.kickX -= Math.cos(this.pilot.shipAngle) * px;
     this.pilot.kickY -= Math.sin(this.pilot.shipAngle) * px;
   }
 
-  /** HOMING lock: nearest target in a front cone, enemies > players > UFO > asteroids. */
-  private acquireHomingTarget(nose: Vec, range: number): TargetRef | null {
+  private acquireHomingTarget(nose: Vec, range: number) {
     const half = (HOMING_LOCK_CONE_DEG / 2) * DEG;
-    const inCone = (x: number, y: number): number | null => {
+
+    const inCone = (x: number, y: number) => {
       const d = Math.hypot(x - nose.x, y - nose.y);
+
       if (d > range) {
         return null;
       }
+
       const ang = Math.atan2(y - nose.y, x - nose.x);
+
       return Math.abs(wrapAngle(ang - this.pilot.shipAngle)) <= half ? d : null;
     };
+
     let bestD = Infinity;
     let best: TargetRef | null = null;
+
     for (const e of this.world.enemies) {
       const d = inCone(e.x, e.y);
+
       if (d !== null && d < bestD) {
         bestD = d;
         best = { id: e.id, kind: "enemy" };
       }
     }
+
     if (best) {
-      return best;
+      return best satisfies TargetRef | null;
     }
+
     const { myId } = this.link;
+
     for (const [id, st] of this.link.peerStates) {
       if (id === myId) {
         continue;
       }
+
       if (!st || !st.alive || st.invuln || st.shieldMod?.phased) {
         continue;
       }
+
       const d = inCone(st.x, st.y);
+
       if (d !== null && d < bestD) {
         bestD = d;
         best = { id, kind: "player" };
       }
     }
+
     if (best) {
-      return best;
+      return best satisfies TargetRef | null;
     }
+
     const u = this.world.ufo;
+
     if (u && inCone(u.x, u.y) !== null) {
-      return { kind: "ufo" };
+      return { kind: "ufo" } satisfies TargetRef | null;
     }
+
     for (const a of this.world.asteroids) {
       const d = inCone(a.x, a.y);
+
       if (d !== null && d < bestD) {
         bestD = d;
         best = { id: a.id, kind: "asteroid" };
       }
     }
-    return best;
+
+    return best satisfies TargetRef | null;
   }
 
-  /**
-   * ARC: hitscan chain lightning. Damage applies at cast; the bolt then lives
-   * ARC_RENDER_MS as a re-jittered polyline. The hops ride the fire event so
-   * remotes render the exact geometry and PvP victims hit-test it — except
-   * fizzles, which stay local. Returns true when the cast fizzled.
-   */
-  private fireArc(now: number, nose: Vec, spec: NonNullable<Weapon["arc"]>): boolean {
+  private fireArc(now: number, nose: Vec, spec: NonNullable<Weapon["arc"]>) {
     const candidates = this.arcCandidates();
     const half = (ARC_CAST_CONE_DEG / 2) * DEG;
     let first: { ref: TargetRef; x: number; y: number } | null = null;
     let bestD = Infinity;
+
     for (const c of candidates) {
       const d = Math.hypot(c.x - nose.x, c.y - nose.y);
+
       if (d > spec.castRange || d >= bestD) {
         continue;
       }
+
       const ang = Math.atan2(c.y - nose.y, c.x - nose.x);
+
       if (Math.abs(wrapAngle(ang - this.pilot.shipAngle)) > half) {
         continue;
       }
+
       bestD = d;
       first = c;
     }
+
     if (!first) {
-      // Fizzle: 80px jittered bolt, no damage, never sent (a fizzle must not
-      // hit-test against PvP victims); fireWeapon quiets the zap.
       const jang = this.pilot.shipAngle + (Math.random() * 2 - 1) * 10 * DEG;
       const fizzle = newBeam(nose, this.pilot.shipAngle, this.pilot.weapon, now);
       fizzle.chain = [
@@ -744,67 +779,87 @@ export class Weapons {
       fizzle.diesAt = now + ARC_RENDER_MS;
       fizzle.fizzle = true;
       this.beams.push(fizzle);
+
       return true;
     }
+
     const hitRefs: { ref: TargetRef; x: number; y: number }[] = [first];
     const used = new Set<string>([targetKey(first.ref)]);
     let cur = first;
+
     for (let hop = 0; hop < spec.jumps; hop += 1) {
       let next: { ref: TargetRef; x: number; y: number } | null = null;
       let nd = Infinity;
+
       for (const c of candidates) {
         if (used.has(targetKey(c.ref))) {
           continue;
         }
+
         const d = Math.hypot(c.x - cur.x, c.y - cur.y);
+
         if (d <= spec.hopRange && d < nd) {
           nd = d;
           next = c;
         }
       }
+
       if (!next) {
         break;
       }
+
       used.add(targetKey(next.ref));
       hitRefs.push(next);
       cur = next;
     }
+
     const chain: Vec[] = [{ ...nose }];
     let dmg = this.pilot.weapon.power * 100;
+
     for (const t of hitRefs) {
       chain.push({ x: t.x, y: t.y });
       this.applyArcDamage(t.ref, t.x, t.y, dmg, now);
       dmg *= spec.falloff;
     }
+
     this.fireChain(chain, now);
+
     return false;
   }
 
-  private arcCandidates(): { ref: TargetRef; x: number; y: number }[] {
+  private arcCandidates() {
     const out: { ref: TargetRef; x: number; y: number }[] = [];
+
     for (const e of this.world.enemies) {
       out.push({ ref: { id: e.id, kind: "enemy" }, x: e.x, y: e.y });
     }
+
     const { myId } = this.link;
+
     for (const [id, st] of this.link.peerStates) {
       if (id === myId) {
         continue;
       }
+
       if (st && st.alive && !st.invuln && !st.shieldMod?.phased) {
         out.push({ ref: { id, kind: "player" }, x: st.x, y: st.y });
       }
     }
+
     const u = this.world.ufo;
+
     if (u) {
       out.push({ ref: { kind: "ufo" }, x: u.x, y: u.y });
     }
+
     for (const a of this.world.asteroids) {
       out.push({ ref: { id: a.id, kind: "asteroid" }, x: a.x, y: a.y });
     }
+
     return out;
   }
 
-  private applyArcDamage(ref: TargetRef, x: number, y: number, dmgHp: number, now: number): void {
+  private applyArcDamage(ref: TargetRef, x: number, y: number, dmgHp: number, now: number) {
     this.fx.battle.burst(
       x,
       y,
@@ -815,50 +870,67 @@ export class Weapons {
     );
     this.fx.sparks(x, y, 9, this.pilot.weapon.tint, { lifeMax: 300, lifeMin: 150 });
     sfx.play("hit_spark", { gain: 0.4 });
+
     switch (ref.kind) {
       case "enemy": {
         const e = this.world.enemies.find((en) => en.id === ref.id);
+
         if (!e) {
           return;
         }
+
         e.blinkUntil = now + 150;
+
         if (e.hp - dmgHp <= 0) {
           this.hooks.hits().predictKill(e.id, enemyKillXp(e), "enemy", e.x, e.y, now);
         }
+
         this.intents.enemyHit(e.id, dmgHp);
+
         return;
       }
+
       case "asteroid": {
         const a = this.world.asteroids.find((as) => as.id === ref.id);
+
         if (!a) {
           return;
         }
+
         const power = dmgHp / 100;
+
         const predicted =
           asteroidDestroyedBy(a.radius, power) &&
           this.hooks.hits().predictKill(a.id, XP.ASTEROID_DESTROY, "asteroid", a.x, a.y, now);
+
         if (!predicted) {
           this.progress.gainXp(XP.ASTEROID_CHIP, now);
         }
+
         this.intents.asteroidHit(a.id, power);
+
         return;
       }
+
       case "ufo": {
         const u = this.world.ufo;
+
         if (!u) {
           return;
         }
+
         if (u.hp - dmgHp <= 0) {
           this.hooks.hits().predictKill(u.id, XP.UFO_DESTROY, "ufo", u.x, u.y, now);
         }
+
         this.intents.ufoHit(dmgHp / 100);
         break;
       }
+
       case "player": {
-        // The victim hit-tests the chain from my fire event and adjudicates
-        // its own shield — nothing to send from the shooter side.
         break;
       }
+
       default: {
         ref satisfies never;
       }

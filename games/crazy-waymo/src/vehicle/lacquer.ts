@@ -2,36 +2,12 @@ import * as THREE from "three";
 
 import { rimGlsl } from "./sun-rim";
 
-// Two-lobe lacquer for the player-class clearcoat bodies: the base coat
-// carries a fine 6mm-ish "dimple" normal field, the clearcoat carries its OWN
-// longer-wave orange-peel at an incommensurate tile — two disagreeing
-// highlights is what reads as lacquer instead of clay. A coat-roughness map
-// hazes the flanks while the crown stays near-mirror, and a chroma-clamped
-// env response keeps the paint hue in charge of its own reflections across
-// the whole day-night sweep.
-//
-// All maps are canvas-baked once at boot from a deterministic LCG, in a
-// single 256px tile per map (kit UVs are palette lookups, so the shader
-// samples these by an object-space box projection instead of mesh uv).
-
-// Tile sizes in body units (~metres). 0.167 and 0.588 share no small factor,
-// so the two peel fields never phase-lock.
 export const PAINT_TILE = 0.167;
 export const COAT_TILE = 0.588;
-// Tangent-space tilt applied to each sampled peel normal (base ~2 deg,
-// coat ~7 deg — the coat lobe is the visible one, by design).
 export const PAINT_NORMAL_SCALE = 0.1;
 export const COAT_NORMAL_SCALE = 0.12;
-// Coat roughness span. The reference ran 0.026..0.086; the floor is raised to
-// 0.04 because waymo's env cube is a 64px gradient and a nearer-mirror coat
-// resolves its banding.
 export const COAT_ROUGH_MIN = 0.04;
 export const COAT_ROUGH_MAX = 0.086;
-// Env response (dimensionless ratios — exposure-independent): energy dims
-// head-on and brightens at grazing (a real Fresnel ramp), while the
-// reflection keeps LUMINANCE and gives up CHROMA so a violet sunset cannot
-// out-vote the pigment. Fresnel direction matters: brightening at grazing is
-// lacquer, the inverse is terracotta.
 export const PAINT_ENV_FACE_SCALE = 0.82;
 export const PAINT_ENV_GRAZE_SCALE = 1.3;
 export const PAINT_ENV_FACE_CHROMA = 0.45;
@@ -39,42 +15,44 @@ export const PAINT_ENV_GRAZE_CHROMA = 0.26;
 export const PAINT_ENV_POWER = 3;
 
 const TEX_SIZE = 256;
-// Slope gain applied when the height fields become normal maps — sets how
-// much of the [-1,1] tangent range each map uses before the *_NORMAL_SCALE.
 const BASE_SOBEL_GAIN = 3;
 const COAT_SOBEL_GAIN = 5;
 const SWIRL_COUNT = 46;
 const SWIRL_ALPHA = 0.13;
 
-const lcg = (seed: number): (() => number) => {
+const lcg = (seed: number) => {
   /* oxlint-disable no-bitwise -- LCG needs the uint32 wrap */
   let s = seed >>> 0;
+
   return () => {
     s = (Math.imul(s, 1_664_525) + 1_013_904_223) >>> 0;
+
     return s / 4_294_967_296;
   };
   /* oxlint-enable no-bitwise */
 };
 
-// Seamless value noise: bilinear-smoothstep interpolation of a wrapped random
-// lattice. `cells` must divide `size`.
 const addNoise = (
   field: Float32Array,
   size: number,
   cells: number,
   amp: number,
   rand: () => number,
-): void => {
+) => {
   const lattice = new Float32Array(cells * cells);
+
   for (let i = 0; i < lattice.length; i += 1) {
     lattice[i] = rand() * 2 - 1;
   }
+
   const step = size / cells;
+
   for (let y = 0; y < size; y += 1) {
     const cy = Math.floor(y / step);
     const fy = THREE.MathUtils.smoothstep((y - cy * step) / step, 0, 1);
     const y0 = cy % cells;
     const y1 = (cy + 1) % cells;
+
     for (let x = 0; x < size; x += 1) {
       const cx = Math.floor(x / step);
       const fx = THREE.MathUtils.smoothstep((x - cx * step) / step, 0, 1);
@@ -91,17 +69,18 @@ const addNoise = (
   }
 };
 
-// Faint polish-swirl arc strokes composited into a height field via canvas.
-// Returns the field unchanged when no 2d context exists (headless boots).
-const addSwirls = (field: Float32Array, size: number, rand: () => number): Float32Array => {
+const addSwirls = (field: Float32Array, size: number, rand: () => number) => {
   const canvas = document.createElement("canvas");
   canvas.width = size;
   canvas.height = size;
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
+
   if (!ctx) {
     return field;
   }
+
   const img = ctx.createImageData(size, size);
+
   for (let i = 0; i < field.length; i += 1) {
     const v = Math.round(THREE.MathUtils.clamp((field[i] ?? 0) * 0.5 + 0.5, 0, 1) * 255);
     img.data[i * 4] = v;
@@ -109,9 +88,11 @@ const addSwirls = (field: Float32Array, size: number, rand: () => number): Float
     img.data[i * 4 + 2] = v;
     img.data[i * 4 + 3] = 255;
   }
+
   ctx.putImageData(img, 0, 0);
   ctx.globalAlpha = SWIRL_ALPHA;
   ctx.strokeStyle = "#ffffff";
+
   for (let i = 0; i < SWIRL_COUNT; i += 1) {
     ctx.lineWidth = 1.8 + rand() * 1.6;
     const r = size * (0.1 + rand() * 0.45);
@@ -120,14 +101,17 @@ const addSwirls = (field: Float32Array, size: number, rand: () => number): Float
     ctx.arc(rand() * size, rand() * size, r, a0, a0 + 0.5 + rand() * 1.6);
     ctx.stroke();
   }
+
   const out = ctx.getImageData(0, 0, size, size);
+
   for (let i = 0; i < field.length; i += 1) {
     field[i] = ((out.data[i * 4] ?? 128) / 255) * 2 - 1;
   }
+
   return field;
 };
 
-const makeTexture = (data: Uint8Array, size: number): THREE.DataTexture => {
+const makeTexture = (data: Uint8Array, size: number) => {
   const tex = new THREE.DataTexture(data, size, size, THREE.RGBAFormat);
   tex.wrapS = THREE.RepeatWrapping;
   tex.wrapT = THREE.RepeatWrapping;
@@ -135,15 +119,17 @@ const makeTexture = (data: Uint8Array, size: number): THREE.DataTexture => {
   tex.minFilter = THREE.LinearMipmapLinearFilter;
   tex.generateMipmaps = true;
   tex.needsUpdate = true;
+
   return tex;
 };
 
-// Wrapped central-difference slopes -> tangent-space normal map.
-const normalMapFrom = (field: Float32Array, size: number, gain: number): THREE.DataTexture => {
+const normalMapFrom = (field: Float32Array, size: number, gain: number) => {
   const data = new Uint8Array(size * size * 4);
+
   for (let y = 0; y < size; y += 1) {
     const yn = (y + size - 1) % size;
     const yp = (y + 1) % size;
+
     for (let x = 0; x < size; x += 1) {
       const xn = (x + size - 1) % size;
       const xp = (x + 1) % size;
@@ -157,11 +143,13 @@ const normalMapFrom = (field: Float32Array, size: number, gain: number): THREE.D
       data[o + 3] = 255;
     }
   }
+
   return makeTexture(data, size);
 };
 
-const grayMapFrom = (field: Float32Array, size: number): THREE.DataTexture => {
+const grayMapFrom = (field: Float32Array, size: number) => {
   const data = new Uint8Array(size * size * 4);
+
   for (let i = 0; i < field.length; i += 1) {
     const v = Math.round(THREE.MathUtils.clamp((field[i] ?? 0) * 0.5 + 0.5, 0, 1) * 255);
     data[i * 4] = v;
@@ -169,6 +157,7 @@ const grayMapFrom = (field: Float32Array, size: number): THREE.DataTexture => {
     data[i * 4 + 2] = v;
     data[i * 4 + 3] = 255;
   }
+
   return makeTexture(data, size);
 };
 
@@ -180,24 +169,19 @@ interface LacquerMaps {
 
 let baked: LacquerMaps | null = null;
 
-const lacquerMaps = (): LacquerMaps => {
+const lacquerMaps = () => {
   if (baked) {
     return baked;
   }
-  // Base coat: ~6mm dimple (8px at the 167mm tile) + a finer half-amp octave
-  // + polish swirls.
+
   const rand = lcg(0x5e_ed_ca_11);
   const base = new Float32Array(TEX_SIZE * TEX_SIZE);
   addNoise(base, TEX_SIZE, 32, 0.6, rand);
   addNoise(base, TEX_SIZE, 64, 0.25, rand);
   addSwirls(base, TEX_SIZE, rand);
-  // Clearcoat: long-wave spray flow plus a ~19mm orange-peel octave (8px at
-  // the 588mm tile), summed into ONE height so both share a slope field.
   const coat = new Float32Array(TEX_SIZE * TEX_SIZE);
   addNoise(coat, TEX_SIZE, 4, 0.36, rand);
   addNoise(coat, TEX_SIZE, 32, 0.39, rand);
-  // Coat roughness: panel-sized sweeps, not grain — smaller cells read as a
-  // dirt map.
   const rough = new Float32Array(TEX_SIZE * TEX_SIZE);
   addNoise(rough, TEX_SIZE, 4, 0.8, rand);
   addNoise(rough, TEX_SIZE, 8, 0.3, rand);
@@ -206,6 +190,7 @@ const lacquerMaps = (): LacquerMaps => {
     coatNormal: normalMapFrom(coat, TEX_SIZE, COAT_SOBEL_GAIN),
     coatRough: grayMapFrom(rough, TEX_SIZE),
   };
+
   return baked;
 };
 
@@ -261,13 +246,6 @@ const COAT_PEEL = `
 #endif
 `;
 
-// Overrides the include's uniform clearcoatRoughness; geometryRoughness (the
-// derivative anti-alias term) is re-added because the assignment drops it.
-// Hero sticker contrast (toon pass, 2026-10): the hero bodies' palette darks
-// (glass, tyres, trim) drop toward ink and the light paint is pushed toward
-// paper white and de-tinted (near-neutral paint only), so the car reads as a clean toy decal — white
-// shell, near-black glass — against the candy city, the way the reference's
-// robotaxis do. Linear-light albedo, before toonAlbedo sees it.
 const HERO_CONTRAST = `
 {
 	float heroL = dot( diffuseColor.rgb, vec3( 0.2126, 0.7152, 0.0722 ) );
@@ -306,7 +284,7 @@ const ENV_RESPONSE = `
  * player-class clearcoat clone. The material's own clearcoatRoughness value
  * becomes dead — the baked map drives it.
  */
-export const applyLacquer = (m: THREE.MeshPhysicalMaterial, rimStrength: number): void => {
+export const applyLacquer = (m: THREE.MeshPhysicalMaterial, rimStrength: number) => {
   const maps = lacquerMaps();
   m.onBeforeCompile = (shader) => {
     shader.uniforms.uPeelBase = { value: maps.baseNormal };
@@ -330,6 +308,7 @@ export const applyLacquer = (m: THREE.MeshPhysicalMaterial, rimStrength: number)
       .replace("#include <lights_fragment_end>", ENV_RESPONSE)
       .replace("#include <opaque_fragment>", rimGlsl(rimStrength));
   };
+
   const key = `waymo-lacquer|rim:${rimStrength.toFixed(2)}|hero-contrast`;
   m.customProgramCacheKey = () => key;
 };

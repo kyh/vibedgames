@@ -1,8 +1,3 @@
-// The slice of the vendored game object (`window.__G`, built in
-// strikeforce-core.js) that the TypeScript layer reads and drives. The core is
-// plain JS, so these types are a contract kept by hand: every member here
-// exists on the object the core builds, and every `[net]` hook the core calls
-// is in `NetHooks`.
 import type { Object3D, PerspectiveCamera, Scene, Vector3 } from "three";
 
 export interface PlayerBody {

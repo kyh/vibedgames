@@ -37,7 +37,7 @@ export class InventoryScene extends Scene {
     super("Inventory");
   }
 
-  create(): void {
+  create() {
     this.journal?.destroy(false);
     this.journal = null;
     this.closing = false;
@@ -52,11 +52,12 @@ export class InventoryScene extends Scene {
     this.skillPerks = [];
     this.skillProgress = [];
     this.sz = SZ;
+
     const backdrop = this.add
       .rectangle(0, 0, this.scale.width * 3, this.scale.height * 3, 0x05_07_0d, 0.55)
       .setOrigin(0)
       .setInteractive();
-    // tap outside the panels = close (phones have no ESC key)
+
     backdrop.on("pointerdown", (p: Phaser.Input.Pointer) => {
       if (this.journal?.page !== "journal" && !this.inPanels(p.x, p.y)) {
         this.close();
@@ -102,9 +103,11 @@ export class InventoryScene extends Scene {
     }
 
     const game = this.scene.get("Game");
+
     if (!(game instanceof GameScene)) {
-      throw new Error("Inventory requires the Game scene");
+      throw new TypeError("Inventory requires the Game scene");
     }
+
     const journal = new JournalView(
       seasonOfDay(game.day),
       (season) => store.collections.page(season),
@@ -116,18 +119,23 @@ export class InventoryScene extends Scene {
         },
       },
     );
+
     this.journal = journal;
     this.layout();
+
     if (this.onResize) {
       this.scale.off("resize", this.onResize);
     }
+
     this.onResize = () => this.layout();
     this.scale.on("resize", this.onResize);
     this.events.once(Scenes.Events.SHUTDOWN, () => {
       if (this.onResize) {
         this.scale.off("resize", this.onResize);
       }
+
       journal.destroy(false);
+
       if (this.journal === journal) {
         this.journal = null;
       }
@@ -138,37 +146,38 @@ export class InventoryScene extends Scene {
     this.input.keyboard?.on("keydown-I", () => this.close());
   }
 
-  private close(): void {
+  private close() {
     if (this.closing) {
       return;
     }
+
     this.closing = true;
     this.journal?.destroy();
     this.journal = null;
     const game = this.scene.get("Game");
+
     if (!(game instanceof GameScene)) {
-      throw new Error("Inventory requires the Game scene");
+      throw new TypeError("Inventory requires the Game scene");
     }
+
     game.closeUi();
     this.scene.stop();
   }
 
-  private inPanels(x: number, y: number): boolean {
+  private inPanels(x: number, y: number) {
     const { px, py, panelW, panelH } = this.panel;
     const s = this.skillPanel;
+
     return (
       (x >= px && x <= px + panelW && y >= py && y <= py + panelH) ||
       (x >= s.x && x <= s.x + s.w && y >= s.y && y <= s.y + s.h)
     );
   }
 
-  // Wide screens: grid of 12 with the skill panel on the right. Narrow
-  // (portrait phone): grid reflows to 6 per row, skills stack below.
-  private layout(): void {
+  private layout() {
     this.cells = [];
     const W = this.scale.width;
     const H = this.scale.height;
-    // The native page navigation sits above both original panels.
     const header = 72;
     const availableH = H - header;
     const wide = W >= 700;
@@ -177,30 +186,33 @@ export class InventoryScene extends Scene {
     const hotRows = Math.ceil(HOTBAR / perRow);
     const packRows = Math.ceil((TOTAL - HOTBAR) / perRow);
     let sz = Math.min(SZ, Math.floor((W - 56 + GAP) / perRow) - GAP);
+
     if (wide) {
-      // side-by-side: grid + 32 padding + 12 gap + 200 skills + 16 margins
       sz = Math.min(sz, Math.floor((W - 260 + GAP) / perRow) - GAP);
     }
+
     if (!wide) {
-      // stacked layout must also fit the height (grid + skills + margins)
       const stackedSkillH = 56 + SKILL_IDS.length * this.skillRow + 10;
       const gridBudget = availableH - 20 - 52 - 14 - 44 - 12 - stackedSkillH;
       sz = Math.max(24, Math.min(sz, Math.floor(gridBudget / (hotRows + packRows)) - GAP));
     }
+
     this.sz = sz;
     const gridW = perRow * (sz + GAP) - GAP;
     const panelW = gridW + 32;
     const hotY0 = 52 + sz / 2;
     const packY0 = hotY0 + hotRows * (sz + GAP) + 14;
     const panelH = packY0 - sz / 2 + packRows * (sz + GAP) - GAP + 44;
+
     if (wide) {
-      // skill rows must fit beside the (possibly short) grid panel
       this.skillRow = Math.max(28, Math.min(44, Math.floor((panelH - 66) / SKILL_IDS.length)));
     }
+
     const skillW = wide ? 200 : panelW;
     const skillH = wide ? panelH : 56 + SKILL_IDS.length * this.skillRow + 10;
     let px: number;
     let py: number;
+
     if (wide) {
       const groupW = panelW + 12 + skillW;
       px = (W - groupW) / 2;
@@ -211,7 +223,9 @@ export class InventoryScene extends Scene {
       py = header + Math.max(0, (availableH - (panelH + 12 + skillH)) / 2);
       this.skillPanel = { h: skillH, w: skillW, x: px, y: py + panelH + 12 };
     }
+
     const startX = px + 16 + sz / 2;
+
     for (let i = 0; i < TOTAL; i += 1) {
       const local = i < HOTBAR ? i : i - HOTBAR;
       const y0 = i < HOTBAR ? hotY0 : packY0;
@@ -219,6 +233,7 @@ export class InventoryScene extends Scene {
       const col = local % perRow;
       this.cells.push({ idx: i, x: startX + col * (sz + GAP), y: py + y0 + r * (sz + GAP) });
     }
+
     this.info.setPosition(px + panelW / 2, py + panelH - 30);
     this.info.setWordWrapWidth(panelW - 24).setFontSize(panelW < 400 ? 11 : 14);
     this.panel = { panelH, panelW, px, py };
@@ -231,17 +246,21 @@ export class InventoryScene extends Scene {
   private skillPanel = { h: 0, w: 0, x: 0, y: 0 };
   private skillRow = 44;
 
-  private onClick(p: Phaser.Input.Pointer): void {
+  private onClick(p: Phaser.Input.Pointer) {
     if (this.journal?.page === "journal") {
       return;
     }
+
     const hit = this.cells.find(
       (c) => Math.abs(p.x - c.x) <= this.sz / 2 && Math.abs(p.y - c.y) <= this.sz / 2,
     );
+
     if (!hit) {
       return;
     }
+
     Sound.click();
+
     if (this.picked < 0) {
       if (store.inv.slotAt(hit.idx)) {
         this.picked = hit.idx;
@@ -250,28 +269,31 @@ export class InventoryScene extends Scene {
       store.inv.swap(this.picked, hit.idx);
       this.picked = -1;
     }
+
     this.draw();
   }
 
-  override update(): void {
+  override update() {
     if (this.journal?.page === "journal") {
       if (this.time.now >= this.nextJournalRefresh) {
         this.nextJournalRefresh = this.time.now + 200;
         this.journal.refresh();
       }
+
       return;
     }
-    // live-refresh in case qty changed elsewhere; the redraw is a pure function
-    // of this signature, so equal frames skip the clear + rebuild.
+
     const sig = this.drawSignature();
+
     if (sig !== this.drawSig) {
       this.draw();
     }
   }
 
-  private drawSignature(): string {
+  private drawSignature() {
     const { px, py, panelW, panelH } = this.panel;
     const { x, y, w, h } = this.skillPanel;
+
     const parts: (string | number)[] = [
       this.sz,
       this.skillRow,
@@ -286,8 +308,10 @@ export class InventoryScene extends Scene {
       this.picked,
       store.gold,
     ];
+
     for (let i = 0; i < TOTAL; i += 1) {
       const slot = store.inv.slotAt(i);
+
       if (slot) {
         const ic = itemIcon(slot.item);
         parts.push(ic.key, ic.frame ?? -1, slot.qty);
@@ -295,20 +319,21 @@ export class InventoryScene extends Scene {
         parts.push("·");
       }
     }
+
     for (const id of SKILL_IDS) {
       const s = store.skills.get(id);
       parts.push(s.level, s.xp);
     }
+
     return parts.join("|");
   }
 
-  private draw(): void {
+  private draw() {
     this.drawSig = this.drawSignature();
     const { g } = this;
     const { sz } = this;
     g.clear();
     const { px, py, panelW, panelH } = this.panel;
-    // main panel
     g.fillStyle(0x00_00_00, 0.3);
     g.fillRoundedRect(px + 4, py + 6, panelW, panelH, 14);
     g.fillStyle(0xf3_e2_bf, 1);
@@ -322,11 +347,13 @@ export class InventoryScene extends Scene {
       const sel = c.idx === this.picked;
       const isHot = c.idx < HOTBAR;
       let fill = 0xdc_c5_96;
+
       if (sel) {
         fill = 0xff_e9_a8;
       } else if (isHot) {
         fill = 0xe8_d3_a6;
       }
+
       g.fillStyle(fill, 1);
       g.fillRoundedRect(c.x - sz / 2, c.y - sz / 2, sz, sz, 6);
       g.lineStyle(2, sel ? 0xff_9d_3a : 0x8a_6a_35, 1);
@@ -334,9 +361,11 @@ export class InventoryScene extends Scene {
       const slot = store.inv.slotAt(c.idx);
       const icon = this.icons[c.idx];
       const qtyt = this.qtys[c.idx];
+
       if (!icon || !qtyt) {
         continue;
       }
+
       if (slot) {
         const ic = itemIcon(slot.item);
         icon
@@ -352,7 +381,7 @@ export class InventoryScene extends Scene {
         qtyt.setText("");
       }
     }
-    // info line: hovered/picked item
+
     const focus = this.picked >= 0 ? store.inv.slotAt(this.picked) : null;
     this.info.setText(
       focus
@@ -363,7 +392,7 @@ export class InventoryScene extends Scene {
     this.drawSkills();
   }
 
-  private drawSkills(): void {
+  private drawSkills() {
     const g = this.skillG;
     g.clear();
     const { x, y, w, h } = this.skillPanel;
@@ -381,6 +410,7 @@ export class InventoryScene extends Scene {
       .setOrigin(1, 0)
       .setText(`${store.gold}g`);
     let ry = y + 56;
+
     for (const id of SKILL_IDS) {
       const s = store.skills.get(id);
       const need = xpToNext(s.level);
@@ -391,13 +421,14 @@ export class InventoryScene extends Scene {
       g.fillRoundedRect(x + 16, ry + 30, (w - 32) * frac, 4, 2);
       ry += this.skillRow;
     }
+
     this.renderSkillLabels(x, y);
   }
 
   private skillLabels: Phaser.GameObjects.Text[] = [];
   private skillPerks: Phaser.GameObjects.Text[] = [];
   private skillProgress: Phaser.GameObjects.Text[] = [];
-  private renderSkillLabels(x: number, y: number): void {
+  private renderSkillLabels(x: number, y: number) {
     if (this.skillLabels.length === 0) {
       for (const _id of SKILL_IDS) {
         this.skillLabels.push(
@@ -413,12 +444,16 @@ export class InventoryScene extends Scene {
         );
       }
     }
+
     let ry = y + 56;
+
     for (const [i, id] of SKILL_IDS.entries()) {
       const lbl = this.skillLabels[i];
+
       if (!lbl) {
         continue;
       }
+
       const s = store.skills.get(id);
       const need = xpToNext(s.level);
       lbl.setText(`${SKILL_ICON[id]} ${SKILL_NAMES[id]} L${s.level}`).setPosition(x + 16, ry);

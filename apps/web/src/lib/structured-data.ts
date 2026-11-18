@@ -5,16 +5,6 @@ import { pageLastModified } from "@/content/site-map";
 import { pageImage, siteVideo } from "@/lib/og-media";
 import { siteConfig } from "@/lib/site-config";
 
-/**
- * schema.org JSON-LD for the apex domain.
- *
- * One `@graph` with stable `@id`s, so the Organization, the WebSite and the
- * SoftwareApplication resolve to the same three entities on every page instead
- * of minting a new anonymous node per route. Emitted server-side in the
- * document head — see `routes/__root.tsx` — because the whole point is that a
- * crawler that never runs JavaScript can still read it.
- */
-
 const ORG_ID = `${siteConfig.url}/#organization`;
 const SITE_ID = `${siteConfig.url}/#website`;
 const APP_ID = `${siteConfig.url}/#software`;
@@ -148,19 +138,20 @@ export interface SiteGraph {
   "@graph": SiteGraphNode[];
 }
 
-const organizationSchema = (): OrganizationNode => {
+const organizationSchema = () => {
   const { contact } = siteConfig;
 
-  // Only publish contact fields that are real. See `siteConfig.contact`.
   const contactPoint: ContactPointNode = {
     "@type": "ContactPoint",
     availableLanguage: ["English"],
     contactType: "technical support",
     url: siteConfig.issues,
   };
+
   if (contact.email) {
     contactPoint.email = contact.email;
   }
+
   if (contact.telephone) {
     contactPoint.telephone = contact.telephone;
   }
@@ -177,19 +168,23 @@ const organizationSchema = (): OrganizationNode => {
     sameAs: siteConfig.sameAs,
     url: siteConfig.url,
   };
+
   if (contact.email) {
     organization.email = contact.email;
   }
+
   if (contact.telephone) {
     organization.telephone = contact.telephone;
   }
+
   if (contact.address) {
     organization.address = { "@type": "PostalAddress", ...contact.address };
   }
+
   return organization;
 };
 
-const webSiteSchema = (): WebSiteNode => ({
+const webSiteSchema: () => WebSiteNode = () => ({
   "@id": SITE_ID,
   "@type": "WebSite",
   description: siteConfig.description,
@@ -199,7 +194,7 @@ const webSiteSchema = (): WebSiteNode => ({
   url: siteConfig.url,
 });
 
-const softwareApplicationSchema = (): SoftwareApplicationNode => ({
+const softwareApplicationSchema: () => SoftwareApplicationNode = () => ({
   "@id": APP_ID,
   "@type": "SoftwareApplication",
   applicationCategory: "DeveloperApplication",
@@ -233,8 +228,7 @@ const softwareApplicationSchema = (): SoftwareApplicationNode => ({
   video: { "@id": VIDEO_ID },
 });
 
-/** The trailer `og:video` points at, as the entity it is. */
-const videoObjectSchema = (): VideoObjectNode => ({
+const videoObjectSchema: () => VideoObjectNode = () => ({
   "@id": VIDEO_ID,
   "@type": "VideoObject",
   contentUrl: `${siteConfig.url}${siteVideo.path}`,
@@ -251,7 +245,7 @@ const videoObjectSchema = (): VideoObjectNode => ({
 });
 
 /** The three site-wide entities, plus the games currently featured on `/`. */
-export const siteGraph = (): SiteGraph => ({
+export const siteGraph: () => SiteGraph = () => ({
   "@context": "https://schema.org",
   "@graph": [
     organizationSchema(),
@@ -305,25 +299,27 @@ export interface PageGraph {
   "@graph": PageNode[];
 }
 
-const pageTypeOf = (path: string): PageType => {
+const pageTypeOf: (path: string) => PageType = (path) => {
   switch (path) {
     case "/about": {
       return "AboutPage";
     }
+
     case "/contact": {
       return "ContactPage";
     }
+
     case "/build":
     case "/docs": {
       return "TechArticle";
     }
+
     default: {
       return "WebPage";
     }
   }
 };
 
-/** Absolute URL of a site path; the apex is the bare origin. */
 const absolute = (path: string) => (path === "/" ? siteConfig.url : `${siteConfig.url}${path}`);
 
 /**
@@ -333,9 +329,10 @@ const absolute = (path: string) => (path === "/" ? siteConfig.url : `${siteConfi
  * Emitted by `docHead`, beside — not inside — the site graph the root route
  * carries.
  */
-export const pageGraph = (doc: Doc): PageGraph => {
+export const pageGraph: (doc: Doc) => PageGraph = (doc) => {
   const url = absolute(doc.path);
   const type = pageTypeOf(doc.path);
+
   const page: PageNode = {
     "@id": `${url}#webpage`,
     "@type": type,
@@ -349,10 +346,12 @@ export const pageGraph = (doc: Doc): PageGraph => {
     publisher: { "@id": ORG_ID },
     url,
   };
+
   if (type === "TechArticle") {
     page.about = { "@id": APP_ID };
     page.author = { "@id": ORG_ID };
   }
+
   if (doc.path !== "/") {
     page.breadcrumb = {
       "@type": "BreadcrumbList",
@@ -362,6 +361,7 @@ export const pageGraph = (doc: Doc): PageGraph => {
       ],
     };
   }
+
   return { "@context": "https://schema.org", "@graph": [page] };
 };
 
@@ -371,5 +371,5 @@ export const pageGraph = (doc: Doc): PageGraph => {
  * `<` is escaped so a `</script>` sequence inside any string can never close
  * the tag early — the standard guard for inline JSON in HTML.
  */
-export const serializeJsonLd = <T>(value: T & JsonLd<T>): string =>
+export const serializeJsonLd = <T>(value: T & JsonLd<T>) =>
   JSON.stringify(value).replaceAll("<", "\\u003c");

@@ -40,8 +40,6 @@ const BAR_HP_FULL = 0xff_7b_7b;
 const BAR_LOW = 0xff_cf_4d;
 const BAR_EMPTY = 0xff_5d_5d;
 
-/** What the HUD says while this farmer is out of the co-op room: joining it,
- *  or back from a drop while the room holds the seat. Offline play is quiet. */
 const CONNECTION_NOTICE: Partial<
   Record<MultiplayerConnectionStatus, { text: string; color: string }>
 > = {
@@ -51,51 +49,50 @@ const CONNECTION_NOTICE: Partial<
 
 export type ModalKind = "shop" | "animals" | "sleep";
 
-/** A modal button as keyboard and pad focus sees it. */
 interface ModalButton {
   node: Phaser.GameObjects.Container;
   ring: Phaser.GameObjects.Graphics;
   press: () => void;
 }
 
-const barColor = (frac: number, full: number): number => {
+const barColor = (frac: number, full: number) => {
   if (frac > 0.5) {
     return full;
   }
+
   if (frac > 0.25) {
     return BAR_LOW;
   }
+
   return BAR_EMPTY;
 };
 
-const formatClock = (min: number): string => {
+const formatClock = (min: number) => {
   const h = Math.floor(min / 60);
   const m = Math.floor(min % 60);
   const ampm = h % 24 < 12 ? "AM" : "PM";
   let hh = h % 12;
+
   if (hh === 0) {
     hh = 12;
   }
+
   return `${hh}:${m < 10 ? "0" : ""}${m} ${ampm}`;
 };
 
-const sleepDetail = (preview: ReturnType<GameScene["overnightPreview"]>): string => {
+const sleepDetail = (preview: ReturnType<GameScene["overnightPreview"]>) => {
   if (preview.withering > 0) {
     return `\n${preview.withering} out-of-season crop${preview.withering === 1 ? "" : "s"} will wither.`;
   }
+
   if (preview.changingSeason) {
     return `\n${seasonName(preview.season)} begins tomorrow.`;
   }
+
   return "";
 };
 
-const panelRect = (
-  g: Phaser.GameObjects.Graphics,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-): void => {
+const panelRect = (g: Phaser.GameObjects.Graphics, x: number, y: number, w: number, h: number) => {
   g.fillStyle(0x00_00_00, 0.4);
   g.fillRoundedRect(x, y, w, h, 8);
   g.lineStyle(2, 0xf3_e2_bf, 0.5);
@@ -107,6 +104,7 @@ interface ToastNotice {
   color: string;
   node: Phaser.GameObjects.Text;
 }
+
 interface DayCard {
   container: Phaser.GameObjects.Container;
   panel: Phaser.GameObjects.Graphics;
@@ -124,10 +122,7 @@ export class HudScene extends Scene {
     key: Phaser.GameObjects.Text;
     zone: Phaser.GameObjects.Zone;
   }[] = [];
-  /** Hotbar slot size — shrinks from SLOT on narrow (portrait phone) screens. */
   private slot = SLOT;
-  /** Slots per hotbar row — drops below HOTBAR when a single row cannot hold
-   *  MIN_SLOT-wide slots (portrait phone). */
   private perRow = HOTBAR;
   private inset: Inset = { bottom: 0, left: 0, right: 0, top: 0 };
   private touchUi: Phaser.GameObjects.Container[] = [];
@@ -142,39 +137,33 @@ export class HudScene extends Scene {
   private toolTip!: Phaser.GameObjects.Text;
   private actionTip: Phaser.GameObjects.Text | null = null;
   private notices: ToastNotice[] = [];
-  /** The co-op connection's notice (CONNECTION_NOTICE): it heads the toast
-   *  column for as long as the status lasts. */
   private netNotice!: Phaser.GameObjects.Text;
-  /** The status the notice last showed. */
   private netShown: MultiplayerConnectionStatus | null = null;
   private dayCard: DayCard | null = null;
   private modal: Phaser.GameObjects.Container | null = null;
   private modalKind: ModalKind | null = null;
   private modalButtons: ModalButton[] = [];
   private modalFocus = -1;
-  /** The press that opens a modal must not also confirm it, whichever scene
-   *  Phaser happens to hand that press to first. */
   private modalOpenedFrame = 0;
   private readonly pad = new PhysicalGamepad();
   private padStickDir: Dir4 | null = null;
   private dialogueBox: Phaser.GameObjects.Container | null = null;
   private hotbar!: Phaser.GameObjects.Container;
   private onResize?: () => void;
-  /** Last-drawn signature of the Graphics HUD (see hudSignature). */
   private hudSig = "";
 
   constructor() {
     super("Hud");
   }
 
-  create(): void {
+  create() {
     const game = this.scene.get("Game");
+
     if (!(game instanceof GameScene)) {
-      throw new Error("Hud requires the Game scene");
+      throw new TypeError("Hud requires the Game scene");
     }
+
     this.g = game;
-    // scene instances are reused across stop/start — reset per-create state and
-    // drop stale listeners on the (persistent) game-scene emitter to avoid dupes.
     this.slotNodes = [];
     this.modal = null;
     this.modalButtons = [];
@@ -188,6 +177,7 @@ export class HudScene extends Scene {
     this.slot = SLOT;
     this.perRow = HOTBAR;
     this.touchUi = [];
+
     for (const e of [
       "toast",
       "daybanner",
@@ -223,6 +213,7 @@ export class HudScene extends Scene {
       .text(0, 0, "", { color: "#ffe27a", fontFamily: FONT, fontSize: "16px", fontStyle: "bold" })
       .setOrigin(1, 0.5);
     this.bars = this.add.graphics();
+
     const vital = () =>
       this.add
         .text(0, 0, "", {
@@ -234,6 +225,7 @@ export class HudScene extends Scene {
           strokeThickness: 2,
         })
         .setOrigin(0.5);
+
     this.vitals = { energy: vital(), hp: vital() };
 
     this.toolTip = this.add
@@ -269,10 +261,6 @@ export class HudScene extends Scene {
       .setDepth(100)
       .setVisible(false);
 
-    // Touch controls live HERE (not in GameScene) so the overlay isn't
-    // transformed by the game camera's zoom. The Hud's input plugin processes
-    // pointers before GameScene's, so hotbar taps never reach the game. No
-    // action buttons: tapping a tile IS the use action (see GameScene input).
     this.g.gamepad?.destroy();
     this.g.gamepad = attachVirtualGamepad(this, {
       render: { blendMode: BlendModes.NORMAL, depth: 90 },
@@ -283,9 +271,11 @@ export class HudScene extends Scene {
     this.buildHotbar();
     this.buildTouchButtons();
     this.layout();
+
     if (this.onResize) {
       this.scale.off("resize", this.onResize);
     }
+
     this.onResize = () => this.layout();
     this.scale.on("resize", this.onResize);
     this.events.once(Scenes.Events.SHUTDOWN, () => {
@@ -319,11 +309,13 @@ export class HudScene extends Scene {
     this.pad.update();
   }
 
-  private buildHotbar(): void {
+  private buildHotbar() {
     this.hotbar = this.add.container(0, 0);
+
     for (let i = 0; i < HOTBAR; i += 1) {
       const bg = this.add.graphics();
       const icon = this.add.image(0, 0, "obj-wood").setVisible(false);
+
       const qty = this.add
         .text(0, 0, "", {
           color: "#fff",
@@ -334,6 +326,7 @@ export class HudScene extends Scene {
           strokeThickness: 3,
         })
         .setOrigin(1, 1);
+
       const key = this.add
         .text(0, 0, hotbarKey(i), {
           color: "#fff",
@@ -344,34 +337,33 @@ export class HudScene extends Scene {
         })
         .setOrigin(0, 0)
         .setAlpha(0.7);
+
       const zone = this.makeSlotZone(i, SLOT);
       this.slotNodes.push({ bg, icon, key, qty, zone });
       this.hotbar.add([bg, icon, qty, key, zone]);
     }
   }
 
-  private makeSlotZone(i: number, size: number): Phaser.GameObjects.Zone {
+  private makeSlotZone(i: number, size: number) {
     const zone = this.add.zone(0, 0, size + PAD, size + PAD).setInteractive({
       useHandCursor: true,
     });
-    // Commit on release, not on press: the hotbar band is exactly where a thumb
-    // starts a movement drag, and the floating stick claims that touch on the
-    // way down — so a drag has to stay a move and not also swap tools.
+
     zone.on("pointerup", (p: Phaser.Input.Pointer) => {
       if (!this.g.controlsPaused && !this.g.uiOpen && isPick(p)) {
         store.inv.select(i);
       }
     });
+
     return zone;
   }
 
-  /** Always-visible tap target (inventory) for touch devices, where the I key
-   *  binding is unreachable. */
-  private buildTouchButtons(): void {
+  private buildTouchButtons() {
     if (!isTouchDevice()) {
       return;
     }
-    const mk = (icon: string, onTap: () => void): Phaser.GameObjects.Text => {
+
+    const mk = (icon: string, onTap: () => void) => {
       const c = this.add.container(0, 0).setDepth(60);
       const g = this.add.graphics();
       g.fillStyle(0x00_00_00, 0.35);
@@ -386,17 +378,18 @@ export class HudScene extends Scene {
       });
       c.add([g, t, z]);
       this.touchUi.push(c);
+
       return t;
     };
+
     mk("🎒", () => this.g.toggleInventory());
   }
 
-  /** Center of hotbar slot `i`. Slots wrap into rows on narrow screens, first
-   *  row on top so number keys read left to right, top to bottom. */
   private slotPos(i: number, W: number, H: number) {
     const pitch = this.slot + PAD;
     const total = this.perRow * pitch - PAD;
     const rows = Math.ceil(HOTBAR / this.perRow);
+
     return {
       x: (W - total) / 2 + this.slot / 2 + (i % this.perRow) * pitch,
       y:
@@ -408,40 +401,45 @@ export class HudScene extends Scene {
     };
   }
 
-  /** Top edge of the whole hotbar block — what everything above it clears. */
-  private hotbarTop(H: number): number {
+  private hotbarTop(H: number) {
     const rows = Math.ceil(HOTBAR / this.perRow);
+
     return H - 14 - this.inset.bottom - rows * (this.slot + PAD) + PAD;
   }
 
-  private layout(): void {
+  private layout() {
     const W = this.scale.width;
     const H = this.scale.height;
     this.inset = safeAreaInset();
     const { top: it, right: ir, left: il } = this.inset;
     const { slot, perRow } = hotbarGrid(W - 12 - il - ir, SLOT, PAD);
+
     if (slot !== this.slot || perRow !== this.perRow) {
       this.slot = slot;
       this.perRow = perRow;
-      // force a graphics rebuild at the new slot size
       this.hudSig = "";
+
       for (const [i, n] of this.slotNodes.entries()) {
         n.zone.destroy();
         n.zone = this.makeSlotZone(i, slot);
         this.hotbar.add(n.zone);
       }
     }
+
     for (let i = 0; i < HOTBAR; i += 1) {
       const n = this.slotNodes[i];
+
       if (!n) {
         continue;
       }
+
       const { x, y } = this.slotPos(i, W, H);
       n.icon.setPosition(x, y);
       n.qty.setPosition(x + slot / 2 - 4, y + slot / 2 - 3);
       n.key.setPosition(x - slot / 2 + 3, y - slot / 2 + 2);
       n.zone.setPosition(x, y);
     }
+
     this.dayText.setPosition(24 + il, 18 + it);
     this.seasonText.setPosition(24 + il, 38 + it);
     this.clockText.setPosition(24 + il, 56 + it);
@@ -454,29 +452,30 @@ export class HudScene extends Scene {
       .setWordWrapWidth(Math.max(80, W - 40 - il - ir));
     this.layoutNotices();
     this.layoutDayBanner();
+
     for (const [i, c] of this.touchUi.entries()) {
       c.setPosition(34 + il, 108 + it + i * 56);
     }
+
     if (this.modal) {
       this.modal.setPosition(W / 2, H / 2);
     }
+
     if (this.dialogueBox) {
       this.dialogueBox.setPosition(W / 2, this.dialogueY(H));
     }
   }
 
-  /** Dialogue sits just above the hotbar, whatever height the hotbar grew to. */
-  private dialogueY(H: number): number {
+  private dialogueY(H: number) {
     return this.hotbarTop(H) - 60;
   }
 
-  override update(): void {
+  override update() {
     this.pollModalPad();
     const W = this.scale.width;
     const H = this.scale.height;
-    // Graphics rebuilds are gated on a change signature; the texts below stay
-    // per-frame (setText early-outs on an unchanged string).
     const sig = this.hudSignature(W, H);
+
     if (sig !== this.hudSig) {
       this.hudSig = sig;
       this.redrawGraphics(W, H);
@@ -492,34 +491,36 @@ export class HudScene extends Scene {
     this.vitals?.hp.setText(`HP ${Math.ceil(store.hp)}/${store.maxHp()}`);
     this.vitals?.energy.setText(`Energy ${Math.floor(store.energy)}/${MAX_ENERGY}`);
 
-    // tooltip
     const item = store.inv.selectedItem();
     let tip = item ? itemName(item) : "";
+
     if (item && item.kind === "tool" && item.tool === "can") {
       tip += `  💧${this.g.canCharge}/${CAN_MAX}`;
     }
+
     this.toolTip.setText(tip);
     const hint = this.g.uiOpen || this.dialogueBox ? null : this.g.actionHint();
     this.actionTip?.setText(hint ?? "").setVisible(hint !== null);
     this.showConnection(this.g.connectionStatus());
   }
 
-  /** Head the toast column with the connection's notice while it lasts. */
-  private showConnection(status: MultiplayerConnectionStatus | null): void {
+  private showConnection(status: MultiplayerConnectionStatus | null) {
     if (status === this.netShown) {
       return;
     }
+
     this.netShown = status;
     const notice = status === null ? undefined : CONNECTION_NOTICE[status];
+
     if (notice) {
       this.netNotice.setText(notice.text).setColor(notice.color);
     }
+
     this.netNotice.setVisible(notice !== undefined);
     this.layoutNotices();
   }
 
-  /** Everything the Graphics-drawn HUD (hotbar, panels, bars) depends on. */
-  private hudSignature(W: number, H: number): string {
+  private hudSignature(W: number, H: number) {
     const parts: (string | number)[] = [
       W,
       H,
@@ -530,8 +531,10 @@ export class HudScene extends Scene {
       store.energy,
       this.g.canCharge,
     ];
+
     for (let i = 0; i < HOTBAR; i += 1) {
       const slot = store.inv.slots[i];
+
       if (slot) {
         const ic = itemIcon(slot.item);
         parts.push(ic.key, ic.frame ?? -1, slot.qty);
@@ -539,18 +542,21 @@ export class HudScene extends Scene {
         parts.push("·");
       }
     }
+
     return parts.join("|");
   }
 
-  private redrawGraphics(W: number, H: number): void {
-    // hotbar
+  private redrawGraphics(W: number, H: number) {
     const { slot } = this;
     const { top: it, right: ir, left: il } = this.inset;
+
     for (let i = 0; i < HOTBAR; i += 1) {
       const n = this.slotNodes[i];
+
       if (!n) {
         continue;
       }
+
       const { x, y } = this.slotPos(i, W, H);
       const sel = i === store.inv.selected;
       n.bg.clear();
@@ -562,6 +568,7 @@ export class HudScene extends Scene {
       n.bg.strokeRoundedRect(x - slot / 2, y - slot / 2, slot, slot, 7);
       n.key.setVisible(slot >= 34 && hotbarKey(i) !== "");
       const invSlot = store.inv.slots[i];
+
       if (invSlot) {
         const ic = itemIcon(invSlot.item);
         n.icon
@@ -575,21 +582,18 @@ export class HudScene extends Scene {
       }
     }
 
-    // top-left panel
     this.topPanel.clear();
     panelRect(this.topPanel, 12 + il, 10 + it, 150, 64);
 
-    // right panel: gold + HP + energy
     this.rightPanel.clear();
     panelRect(this.rightPanel, W - 172 - ir, 10 + it, 160, 70);
     this.drawBars(W - 164 - ir, 44 + it);
   }
 
-  private drawBars(x: number, y: number): void {
+  private drawBars(x: number, y: number) {
     const g = this.bars;
     g.clear();
     const w = 144;
-    // HP
     const hpFrac = PhaserMath.Clamp(store.hp / store.maxHp(), 0, 1);
     g.fillStyle(0x2a_1e_0e, 1);
     g.fillRoundedRect(x, y, w, 12, 4);
@@ -597,7 +601,6 @@ export class HudScene extends Scene {
     g.fillRoundedRect(x, y, Math.max(2, w * hpFrac), 12, 4);
     g.lineStyle(1, 0xff_ff_ff, 0.25);
     g.strokeRoundedRect(x, y, w, 12, 4);
-    // energy
     const enFrac = PhaserMath.Clamp(store.energy / MAX_ENERGY, 0, 1);
     g.fillStyle(0x2a_1e_0e, 1);
     g.fillRoundedRect(x, y + 15, w, 10, 4);
@@ -607,18 +610,18 @@ export class HudScene extends Scene {
     g.strokeRoundedRect(x, y + 15, w, 10, 4);
   }
 
-  // ---------------------------------------------------------------- toasts / banner / dialogue
-
-  /** At most three owned notices; repeated warnings refresh their own slot. */
-  private toast(text: string, color = "#fff6d5"): void {
+  private toast(text: string, color = "#fff6d5") {
     let notice = this.notices.find((entry) => entry.message === text && entry.color === color);
+
     if (!notice) {
       if (this.notices.length === 3) {
         const oldest = this.notices.shift();
+
         if (oldest) {
           this.removeNotice(oldest);
         }
       }
+
       const node = this.add
         .text(0, 0, text, {
           align: "center",
@@ -631,9 +634,11 @@ export class HudScene extends Scene {
         })
         .setOrigin(0.5, 0)
         .setDepth(100);
+
       notice = { color, message: text, node };
       this.notices.push(notice);
     }
+
     const current = notice;
     this.tweens.killTweensOf(current.node);
     current.node.setAlpha(1);
@@ -651,18 +656,20 @@ export class HudScene extends Scene {
     });
   }
 
-  private removeNotice(notice: ToastNotice): void {
+  private removeNotice(notice: ToastNotice) {
     this.tweens.killTweensOf(notice.node);
     notice.node.destroy();
   }
 
-  private layoutNotices(): void {
+  private layoutNotices() {
     const W = this.scale.width;
     let y = 92 + this.inset.top;
+
     if (this.netNotice.visible) {
       this.netNotice.setPosition(W / 2, y);
       y += this.netNotice.height + 8;
     }
+
     for (const notice of this.notices) {
       notice.node.setWordWrapWidth(Math.max(80, W - 48 - this.inset.left - this.inset.right));
       notice.node.setPosition(W / 2, y);
@@ -670,20 +677,23 @@ export class HudScene extends Scene {
     }
   }
 
-  private clearDayBanner(): void {
+  private clearDayBanner() {
     if (!this.dayCard) {
       return;
     }
+
     this.tweens.killTweensOf(this.dayCard.container);
     this.dayCard.container.destroy();
     this.dayCard = null;
   }
 
-  private layoutDayBanner(): void {
+  private layoutDayBanner() {
     const card = this.dayCard;
+
     if (!card) {
       return;
     }
+
     const W = this.scale.width;
     const w = Math.min(420, W - 32 - this.inset.left - this.inset.right);
     const h = card.recap.visible ? 152 : 110;
@@ -703,10 +713,11 @@ export class HudScene extends Scene {
     card.recap.setPosition(0, -h / 2 + 94).setWordWrapWidth(w - 28);
   }
 
-  private dayBanner(day: number, season: Season, weather: Weather, recap?: DayRecap): void {
+  private dayBanner(day: number, season: Season, weather: Weather, recap?: DayRecap) {
     this.clearDayBanner();
     const container = this.add.container(0, 0).setDepth(120);
     const panel = this.add.graphics();
+
     const label = this.add
       .text(0, 0, `Day ${day}`, {
         color: "#7a4a18",
@@ -715,6 +726,7 @@ export class HudScene extends Scene {
         fontStyle: "900",
       })
       .setOrigin(0.5);
+
     const seasonText = this.add
       .text(
         0,
@@ -723,6 +735,7 @@ export class HudScene extends Scene {
         { align: "center", color: "#7a4a18", fontFamily: FONT, fontSize: "18px" },
       )
       .setOrigin(0.5);
+
     const recapText = this.add
       .text(
         0,
@@ -736,6 +749,7 @@ ${recap.shipments} ${recap.shipments === 1 ? "delivery" : "deliveries"} · +${re
       .setOrigin(0.5, 0)
       .setLineSpacing(3)
       .setVisible(recap !== undefined);
+
     container.add([panel, label, seasonText, recapText]);
     this.dayCard = { container, label, panel, recap: recapText, season: seasonText };
     this.layoutDayBanner();
@@ -755,13 +769,14 @@ ${recap.shipments} ${recap.shipments === 1 ? "delivery" : "deliveries"} · +${re
         if (this.dayCard?.container === container) {
           this.dayCard = null;
         }
+
         container.destroy();
       },
       targets: container,
     });
   }
 
-  private showDialogue(d: { name: string; role: string; text: string; hearts: number }): void {
+  private showDialogue(d: { name: string; role: string; text: string; hearts: number }) {
     this.dialogueBox?.destroy();
     const W = this.scale.width;
     const H = this.scale.height;
@@ -775,6 +790,7 @@ ${recap.shipments} ${recap.shipments === 1 ? "delivery" : "deliveries"} · +${re
     g.fillRoundedRect(-w / 2, -h / 2, w, h, 12);
     g.lineStyle(3, 0x9a_6a_35, 1);
     g.strokeRoundedRect(-w / 2, -h / 2, w, h, 12);
+
     const name = this.add
       .text(-w / 2 + 16, -h / 2 + 12, `${d.name}`, {
         color: "#7a4a18",
@@ -783,6 +799,7 @@ ${recap.shipments} ${recap.shipments === 1 ? "delivery" : "deliveries"} · +${re
         fontStyle: "bold",
       })
       .setOrigin(0, 0);
+
     const role = this.add
       .text(-w / 2 + 16 + d.name.length * 11 + 8, -h / 2 + 15, d.role, {
         color: "#a07b4c",
@@ -790,7 +807,9 @@ ${recap.shipments} ${recap.shipments === 1 ? "delivery" : "deliveries"} · +${re
         fontSize: "12px",
       })
       .setOrigin(0, 0);
+
     const heartStr = "♥".repeat(d.hearts) + "♡".repeat(Math.max(0, 10 - d.hearts));
+
     const hearts = this.add
       .text(w / 2 - 16, -h / 2 + 14, heartStr, {
         color: "#ff5d7a",
@@ -798,6 +817,7 @@ ${recap.shipments} ${recap.shipments === 1 ? "delivery" : "deliveries"} · +${re
         fontSize: "11px",
       })
       .setOrigin(1, 0);
+
     const text = this.add
       .text(-w / 2 + 16, -6, d.text, {
         color: "#3a2a14",
@@ -806,6 +826,7 @@ ${recap.shipments} ${recap.shipments === 1 ? "delivery" : "deliveries"} · +${re
         wordWrap: { width: w - 32 },
       })
       .setOrigin(0, 0);
+
     c.add([g, name, role, hearts, text]);
     this.dialogueBox = c;
     c.setAlpha(0);
@@ -818,49 +839,51 @@ ${recap.shipments} ${recap.shipments === 1 ? "delivery" : "deliveries"} · +${re
         if (this.dialogueBox === c) {
           this.dialogueBox = null;
         }
+
         c.destroy();
       },
       targets: c,
     });
   }
 
-  // ---------------------------------------------------------------- modals
-
   /** Whether a modal owns the Escape key right now (wrapper pause defers). */
-  get modalOpen(): boolean {
+  get modalOpen() {
     return this.modal !== null;
   }
 
-  get openModal(): ModalKind | null {
+  get openModal() {
     return this.modal ? this.modalKind : null;
   }
 
-  private closeModal(): void {
+  private closeModal() {
     if (!this.modal) {
       return;
     }
+
     this.dismissModal();
     this.g.closeUi();
   }
 
-  private dismissModal(): void {
+  private dismissModal() {
     this.modal?.destroy();
     this.modal = null;
     this.modalButtons = [];
     this.modalFocus = -1;
   }
 
-  private get modalArmed(): boolean {
+  private get modalArmed() {
     return (
       this.modal !== null && !this.g.controlsPaused && this.game.loop.frame > this.modalOpenedFrame
     );
   }
 
-  private onModalKey(ev: KeyboardEvent): void {
+  private onModalKey(ev: KeyboardEvent) {
     if (ev.repeat || !this.modalArmed) {
       return;
     }
+
     const intent = modalIntent(ev.code);
+
     if (intent?.kind === "confirm") {
       this.pressFocused();
     } else if (intent) {
@@ -868,89 +891,95 @@ ${recap.shipments} ${recap.shipments === 1 ? "delivery" : "deliveries"} · +${re
     }
   }
 
-  /** Physical pad: A confirms and B backs out, as E and ESC do; the d-pad or a
-   *  flick of the left stick moves the focus. */
-  private pollModalPad(): void {
+  private pollModalPad() {
     this.pad.update();
     const stickDir = stickDirection4(this.pad.getStick());
     const flicked = stickDir === this.padStickDir ? null : stickDir;
     this.padStickDir = stickDir;
+
     if (!this.modalArmed) {
       return;
     }
+
     if (this.pad.justPressed("b")) {
       this.closeModal();
+
       return;
     }
+
     if (this.pad.justPressed("a")) {
       this.pressFocused();
+
       return;
     }
+
     const dir = DPAD.find((d) => this.pad.justPressed(d)) ?? flicked;
+
     if (dir) {
       this.moveModalFocus(dir);
     }
   }
 
-  private pressFocused(): void {
+  private pressFocused() {
     this.modalButtons[this.modalFocus]?.press();
   }
 
-  private moveModalFocus(dir: Dir4): void {
+  private moveModalFocus(dir: Dir4) {
     const points = this.modalButtons.map((b) => {
       const m = b.node.getWorldTransformMatrix();
+
       return { x: m.tx, y: m.ty };
     });
+
     this.focusModalButton(nextFocus(points, this.modalFocus, dir));
   }
 
-  private focusModalButton(index: number): void {
+  private focusModalButton(index: number) {
     this.modalFocus = index;
+
     for (const [i, b] of this.modalButtons.entries()) {
       b.ring.setVisible(i === index);
     }
   }
 
-  /** The shared body of every modal button: pointer target, focus ring, and a
-   *  place in the modal's focus order (the first one made starts focused). */
   private wireModalButton(
     node: Phaser.GameObjects.Container,
     size: { w: number; h: number; radius: number },
     onClick: () => void,
-  ): Phaser.GameObjects.Zone {
+  ) {
     const { w, h, radius } = size;
     const gap = FOCUS_RING_GAP;
     const ring = this.add.graphics();
     ring.lineStyle(3, FOCUS_RING, 1);
     ring.strokeRoundedRect(-w / 2 - gap, -h / 2 - gap, w + gap * 2, h + gap * 2, radius + gap);
-    const press = (): void => {
+
+    const press = () => {
       Sound.click();
       onClick();
     };
+
     const zone = this.add.zone(0, 0, w, h).setInteractive({ useHandCursor: true });
     const index = this.modalButtons.push({ node, press, ring }) - 1;
     zone.on("pointerdown", press);
     zone.on("pointerover", () => this.focusModalButton(index));
     ring.setVisible(index === 0);
+
     if (index === 0) {
       this.modalFocus = 0;
     }
+
     node.add([ring, zone]);
+
     return zone;
   }
 
-  private modalShell(
-    kind: ModalKind,
-    w: number,
-    h: number,
-    title: string,
-  ): Phaser.GameObjects.Container {
+  private modalShell(kind: ModalKind, w: number, h: number, title: string) {
     const c = this.add.container(this.scale.width / 2, this.scale.height / 2).setDepth(200);
+
     const dim = this.add
       .rectangle(0, 0, this.scale.width * 3, this.scale.height * 3, 0x00_00_00, 0.45)
       .setInteractive();
-    // universal escape: tapping the dim backdrop closes the modal (vital on
-    // phones, where ESC doesn't exist)
+
     dim.on("pointerdown", () => this.closeModal());
     const panel = this.add.graphics();
     panel.fillStyle(0x00_00_00, 0.25);
@@ -961,6 +990,7 @@ ${recap.shipments} ${recap.shipments === 1 ? "delivery" : "deliveries"} · +${re
     panel.strokeRoundedRect(-w / 2, -h / 2, w, h, 16);
     panel.fillStyle(0x9a_6a_35, 1);
     panel.fillRoundedRect(-w / 2, -h / 2, w, MODAL_TITLE_H, { bl: 0, br: 0, tl: 16, tr: 16 });
+
     const titleT = this.add
       .text(0, -h / 2 + MODAL_TITLE_H / 2, title, {
         color: "#fff6d5",
@@ -969,6 +999,7 @@ ${recap.shipments} ${recap.shipments === 1 ? "delivery" : "deliveries"} · +${re
         fontStyle: "bold",
       })
       .setOrigin(0.5);
+
     const close = this.add
       .text(w / 2 - 22, -h / 2 + MODAL_TITLE_H / 2, "✕", {
         color: "#fff6d5",
@@ -976,9 +1007,11 @@ ${recap.shipments} ${recap.shipments === 1 ? "delivery" : "deliveries"} · +${re
         fontSize: "20px",
       })
       .setOrigin(0.5);
+
     const closeTarget = this.add
       .zone(w / 2 - 22, -h / 2 + MODAL_TITLE_H / 2, 44, 44)
       .setInteractive({ useHandCursor: true });
+
     closeTarget.on("pointerdown", () => this.closeModal());
     c.add([dim, panel, titleT, close, closeTarget]);
     this.modal = c;
@@ -986,12 +1019,11 @@ ${recap.shipments} ${recap.shipments === 1 ? "delivery" : "deliveries"} · +${re
     this.modalButtons = [];
     this.modalFocus = -1;
     this.modalOpenedFrame = this.game.loop.frame;
+
     return c;
   }
 
-  private openShop(): void {
-    // Clamp to the viewport; landscape phones (too short for one column of
-    // 11 crops) reflow into two columns instead of overflowing the screen.
+  private openShop() {
     const W = this.scale.width;
     const H = this.scale.height;
     const rowH = 33;
@@ -1003,22 +1035,27 @@ ${recap.shipments} ${recap.shipments === 1 ? "delivery" : "deliveries"} · +${re
     const c = this.modalShell("shop", w, h, "🏪  General Store");
     const season = this.g.season();
     const startY = -h / 2 + 54;
-    const columnX = (col: number): number => {
+
+    const columnX = (col: number) => {
       if (cols === 1) {
         return 0;
       }
+
       return col === 0 ? -(colW / 2 + 8) : colW / 2 + 8;
     };
+
     for (const [i, id] of CROP_ORDER.entries()) {
       const def = CROPS[id];
       const inSeason = def.seasons.includes(season);
       const cx = columnX(Math.floor(i / perCol));
       const ry = startY + (i % perCol) * rowH;
       const row = this.add.container(cx, ry);
+
       const icon = this.add
         .image(-colW / 2 + 20, 0, `crop-${id}-icon`)
         .setScale(2)
         .setAlpha(inSeason ? 1 : 0.4);
+
       const name = this.add
         .text(-colW / 2 + 40, 0, def.name, {
           color: inSeason ? "#3a2a14" : "#9a8a6a",
@@ -1026,6 +1063,7 @@ ${recap.shipments} ${recap.shipments === 1 ? "delivery" : "deliveries"} · +${re
           fontSize: "14px",
         })
         .setOrigin(0, 0.5);
+
       const seasonTag = this.add
         .text(-colW / 2 + 40, 11, def.seasons.map(seasonName).join("/"), {
           color: "#a07b4c",
@@ -1033,6 +1071,7 @@ ${recap.shipments} ${recap.shipments === 1 ? "delivery" : "deliveries"} · +${re
           fontSize: "9px",
         })
         .setOrigin(0, 0.5);
+
       const price = this.add
         .text(colW / 2 - 132, 0, `${def.seedPrice}g`, {
           color: "#7a5a1a",
@@ -1040,20 +1079,25 @@ ${recap.shipments} ${recap.shipments === 1 ? "delivery" : "deliveries"} · +${re
           fontSize: "13px",
         })
         .setOrigin(1, 0.5);
+
       const buy1 = this.shopBtn(colW / 2 - 90, "Buy", () => {
         if (this.g.buySeed(id, 1)) {
           this.flash(price);
         }
       });
+
       const buy5 = this.shopBtn(colW / 2 - 30, "x5", () => {
         if (this.g.buySeed(id, 5)) {
           this.flash(price);
         }
       });
+
       row.add([icon, name, seasonTag, price, buy1, buy5]);
       c.add(row);
     }
+
     const sellRow = this.add.container(0, h / 2 - 32);
+
     const sellBtn = this.shopBtn(0, "Sell all crops, fish & goods", () => {
       const total = this.g.sellAll();
       this.toast(
@@ -1061,20 +1105,23 @@ ${recap.shipments} ${recap.shipments === 1 ? "delivery" : "deliveries"} · +${re
         total > 0 ? "#ffe27a" : "#ffd27a",
       );
     });
+
     sellRow.add(sellBtn);
     c.add(sellRow);
   }
 
-  private openAnimalShop(building: BuildingKind): void {
+  private openAnimalShop(building: BuildingKind) {
     const list: AnimalKind[] = building === "coop" ? COOP_ANIMALS : BARN_ANIMALS;
     const w = Math.min(380, this.scale.width - 24);
     const h = Math.min(110 + list.length * 56, this.scale.height - 24);
     const c = this.modalShell("animals", w, h, building === "coop" ? "🐔  Coop" : "🐄  Barn");
+
     for (const [i, kind] of list.entries()) {
       const def = ANIMALS[kind];
       const ry = -h / 2 + 60 + i * 56;
       const row = this.add.container(0, ry);
       const spr = this.add.sprite(-w / 2 + 34, 0, def.texture, 0).setScale(1.4);
+
       const name = this.add
         .text(-w / 2 + 64, -8, def.name, {
           color: "#3a2a14",
@@ -1083,6 +1130,7 @@ ${recap.shipments} ${recap.shipments === 1 ? "delivery" : "deliveries"} · +${re
           fontStyle: "bold",
         })
         .setOrigin(0, 0);
+
       const desc = this.add
         .text(-w / 2 + 64, 10, `gives ${def.product} daily`, {
           color: "#7a5a1a",
@@ -1090,6 +1138,7 @@ ${recap.shipments} ${recap.shipments === 1 ? "delivery" : "deliveries"} · +${re
           fontSize: "11px",
         })
         .setOrigin(0, 0);
+
       const price = this.add
         .text(w / 2 - 90, 0, `${def.price}g`, {
           color: "#7a5a1a",
@@ -1097,10 +1146,12 @@ ${recap.shipments} ${recap.shipments === 1 ? "delivery" : "deliveries"} · +${re
           fontSize: "14px",
         })
         .setOrigin(1, 0.5);
+
       const buy = this.shopBtn(w / 2 - 48, "Buy", () => this.g.animals.buy(kind));
       row.add([spr, name, desc, price, buy]);
       c.add(row);
     }
+
     const tip = this.add
       .text(0, h / 2 - 22, "Pet animals daily to raise friendship ♥", {
         color: "#7a5a1a",
@@ -1108,10 +1159,11 @@ ${recap.shipments} ${recap.shipments === 1 ? "delivery" : "deliveries"} · +${re
         fontSize: "11px",
       })
       .setOrigin(0.5);
+
     c.add(tip);
   }
 
-  private shopBtn(x: number, label: string, onClick: () => void): Phaser.GameObjects.Container {
+  private shopBtn(x: number, label: string, onClick: () => void) {
     const c = this.add.container(x, 0);
     const tw = label.length * 7.2 + 20;
     const g = this.add.graphics();
@@ -1119,24 +1171,28 @@ ${recap.shipments} ${recap.shipments === 1 ? "delivery" : "deliveries"} · +${re
     g.fillRoundedRect(-tw / 2, -12, tw, 24, 8);
     g.lineStyle(2, 0xff_ff_ff, 0.4);
     g.strokeRoundedRect(-tw / 2, -12, tw, 24, 8);
+
     const t = this.add
       .text(0, 0, label, { color: "#fff", fontFamily: FONT, fontSize: "13px", fontStyle: "bold" })
       .setOrigin(0.5);
+
     c.add([g, t]);
     const z = this.wireModalButton(c, { h: 24, radius: 8, w: tw }, onClick);
     z.on("pointerover", () => c.setScale(1.06));
     z.on("pointerout", () => c.setScale(1));
+
     return c;
   }
 
-  private flash(t: Phaser.GameObjects.Text): void {
+  private flash(t: Phaser.GameObjects.Text) {
     this.tweens.add({ duration: 90, scale: 1.4, targets: t, yoyo: true });
   }
 
-  private openSleep(): void {
+  private openSleep() {
     const width = Math.min(390, this.scale.width - 24);
     const preview = this.g.overnightPreview();
     const detail = sleepDetail(preview);
+
     const body = this.add
       .text(0, 0, `Sleep until morning.\nWatered crops grow, animals produce.${detail}`, {
         align: "center",
@@ -1147,29 +1203,24 @@ ${recap.shipments} ${recap.shipments === 1 ? "delivery" : "deliveries"} · +${re
         wordWrap: { width: width - 40 },
       })
       .setOrigin(0.5);
-    // The wrapped body sizes the panel: on a narrow viewport the withering
-    // preview runs to several lines, which fixed geometry hides behind the buttons.
+
     const inset = 18;
     const bodyTop = MODAL_TITLE_H + inset;
     const h = bodyTop + body.height + inset + BIG_BTN_H + inset;
     const btnY = h / 2 - inset - BIG_BTN_H / 2;
     const c = this.modalShell("sleep", width, h, "Rest for the night?");
     body.setY(-h / 2 + bodyTop + body.height / 2);
+
     const yes = this.bigBtn(-80, btnY, "Sleep", 0x3a_86_c8, () => {
       this.dismissModal();
       this.g.doSleep();
     });
+
     const no = this.bigBtn(80, btnY, "Not yet", 0xb0_5a_3a, () => this.closeModal());
     c.add([body, yes, no]);
   }
 
-  private bigBtn(
-    x: number,
-    y: number,
-    label: string,
-    color: number,
-    onClick: () => void,
-  ): Phaser.GameObjects.Container {
+  private bigBtn(x: number, y: number, label: string, color: number, onClick: () => void) {
     const c = this.add.container(x, y);
     const w = 130;
     const h = BIG_BTN_H;
@@ -1178,11 +1229,14 @@ ${recap.shipments} ${recap.shipments === 1 ? "delivery" : "deliveries"} · +${re
     g.fillRoundedRect(-w / 2, -h / 2, w, h, 10);
     g.lineStyle(2, 0xff_ff_ff, 0.4);
     g.strokeRoundedRect(-w / 2, -h / 2, w, h, 10);
+
     const t = this.add
       .text(0, 0, label, { color: "#fff", fontFamily: FONT, fontSize: "16px", fontStyle: "bold" })
       .setOrigin(0.5);
+
     c.add([g, t]);
     this.wireModalButton(c, { h, radius: 10, w }, onClick);
+
     return c;
   }
 }

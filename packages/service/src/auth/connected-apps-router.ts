@@ -31,6 +31,7 @@ interface ConnectedApp {
 export const connectedAppsRouter = {
   list: sessionOnly.list.handler(async ({ context }) => {
     const userId = context.session.user.id;
+
     const [consented, refreshing] = await context.db.batch([
       context.db
         .select({
@@ -63,21 +64,25 @@ export const connectedAppsRouter = {
         )
         .orderBy(desc(oauthRefreshToken.createdAt)),
     ]);
-    // One row per app: its consent when there is one, else its newest token.
+
     const apps = new Map<string, ConnectedApp>();
+
     for (const app of [...consented, ...refreshing]) {
       if (!apps.has(app.clientId)) {
         apps.set(app.clientId, app);
       }
     }
+
     return { apps: [...apps.values()] };
   }),
 
   revoke: sessionOnly.revoke.handler(async ({ context, input }) => {
     const userId = context.session.user.id;
+
     const owned = (
       table: typeof oauthConsent | typeof oauthRefreshToken | typeof oauthAccessToken,
     ) => and(eq(table.clientId, input.clientId), eq(table.userId, userId));
+
     const [consents, refreshTokens] = await context.db.batch([
       context.db.delete(oauthConsent).where(owned(oauthConsent)).returning({ id: oauthConsent.id }),
       context.db
@@ -86,9 +91,11 @@ export const connectedAppsRouter = {
         .returning({ id: oauthRefreshToken.id }),
       context.db.delete(oauthAccessToken).where(owned(oauthAccessToken)),
     ]);
+
     if (consents.length === 0 && refreshTokens.length === 0) {
       throw new ORPCError("NOT_FOUND", { message: "You have not connected that app." });
     }
+
     return { clientId: input.clientId };
   }),
 };

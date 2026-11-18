@@ -1,4 +1,3 @@
-// Wire narrowing, room ids and callsigns: the pure edges of the deathmatch layer.
 import assert from "node:assert/strict";
 import { test } from "node:test";
 

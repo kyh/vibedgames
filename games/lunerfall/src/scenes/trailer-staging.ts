@@ -43,11 +43,6 @@ export interface TrailerStagingDeps {
   hooks: SceneHooks;
 }
 
-// Staging surface for src/trailer/trailer-director.ts (?trailer=1 only). All
-// methods drive the exact same code paths gameplay uses — real rooms, real
-// enemies, real combat resolution — they only skip the menu/network plumbing.
-// Nothing in normal play calls any of this: `active` and `input` stay unset,
-// so the scene's trailer checks are dead code outside the director.
 export class TrailerStaging {
   private readonly scene: Scene;
   private readonly run: RunState;
@@ -62,12 +57,7 @@ export class TrailerStaging {
   private readonly hooks: SceneHooks;
   active = false;
   input: (() => TrailerInputs) | null = null;
-  // Authored (unzoomed) position of every screen-pinned object, so zoom can
-  // re-derive the counter-transform from scratch on each shot.
   private readonly pinBase = new WeakMap<Phaser.GameObjects.GameObject, { x: number; y: number }>();
-  // Scale every pinned object currently sits at (1/zoom). Anything that animates
-  // a pinned object's scale has to multiply through this, or the tween's
-  // absolute target silently undoes the counter-transform. 1 in normal play.
   pinScale = 1;
 
   constructor(deps: TrailerStagingDeps) {
@@ -87,39 +77,42 @@ export class TrailerStaging {
   /** Fully restage the world as one trailer shot: fresh solo/duo actors, a
    * seeded room, scene-scoped mods/hearts/gold, HUD policy, and the sim frozen
    * until the shell reveals the scene (freeze(0) on first run frame). */
-  stage(o: TrailerStageOpts): void {
+  stage(o: TrailerStageOpts) {
     this.active = true;
     this.run.runRecap = null;
     this.banners.clear();
+
     if (o.seed !== undefined) {
       reseed(o.seed);
     }
+
     this.reset(o);
+
     if (o.room === "versus") {
       this.stageVersus(o);
     } else {
       this.stageRoom(o, o.room);
     }
+
     if (o.fgTrees === false) {
       this.dropForegroundTrees();
     }
+
     if (o.playerAt) {
       this.seat.player.enterRoom(this.room.grid, o.playerAt.x, o.playerAt.y);
     }
+
     if (o.player2At) {
       this.seat.remote?.enterRoom(this.room.grid, o.player2At.x, o.player2At.y);
     }
+
     this.hud(o.hud ?? {});
-    // Kill the room-build announcement; scenes trigger their own banners.
     this.banners.clear();
     this.chrome.fadeRect.setAlpha(0);
     this.hooks.updateHud();
-    // Hold the sim until the shell reveals the shot (the cut plate is still black).
     this.run.freeze = 9999;
   }
 
-  // Cross-scene reset: every shot stages from nothing, independent of what
-  // the previous shot did (deaths, versus rounds, last stands, relics).
   private reset(o: TrailerStageOpts) {
     this.run.state = "active";
     this.run.deadT = 0;
@@ -144,16 +137,12 @@ export class TrailerStaging {
     this.run.match = null;
     this.room.vsSpawns = [];
     this.seat.duelHits = new WeakMap();
-    // Fresh actors — hero kits bind at construction, so scenes swap heroes by
-    // rebuilding the Player wrappers (same spawnPlayer path as create()).
     this.seat.player.destroy();
     this.seat.remote?.destroy();
     this.seat.remote = undefined;
     this.seat.heroName = o.hero;
   }
 
-  // Offline duel: both fighters are local bodies through the real VersusMatch
-  // machine (sys/versus.ts) — no network, same rules.
   private stageVersus(o: TrailerStageOpts) {
     this.seat.mode = "versus";
     const vs = new VersusMatch();
@@ -163,9 +152,9 @@ export class TrailerStaging {
     this.seat.remote = this.hooks.spawnPlayer(HEROES[o.hero2 ?? "reaper"], g, 0, 0);
     this.rooms.buildVersus();
     vs.beginMatch();
-    // collapse the round-intro freeze: FIGHT! lands on reveal
     vs.t = 0.03;
     const st = o.vsState;
+
     if (st) {
       vs.hp.host = st.hostHp ?? vs.hp.host;
       vs.hp.guest = st.guestHp ?? vs.hp.guest;
@@ -177,15 +166,18 @@ export class TrailerStaging {
 
   private stageRoom(o: TrailerStageOpts, room: RoomType) {
     const def = this.expedition.debugEnter(room, o.biome ?? 1, o.depth ?? 2);
+
     if (o.noEnemies) {
       def.enemySpawns.length = 0;
     }
+
     this.seat.player = this.hooks.spawnPlayer(
       HEROES[o.hero],
       def.grid,
       def.playerSpawn.x,
       def.playerSpawn.y,
     );
+
     if (o.hero2) {
       this.seat.remote = this.hooks.spawnPlayer(
         HEROES[o.hero2],
@@ -194,37 +186,32 @@ export class TrailerStaging {
         def.playerSpawn.y,
       );
     }
+
     this.rooms.build(def);
+
     if (o.hideDoors) {
-      // Scenic shots (e.g. the moonrise release beat) stage the hero where an
-      // active exit gate would otherwise pulse in frame. Safe to drop them:
-      // checkDoors is trailer-gated and checkClear's setActive no-ops on an
-      // empty list, so nothing else reads the doors mid-shot.
       for (const d of this.room.doors) {
         d.destroy();
       }
+
       this.room.doors = [];
     }
   }
 
-  // The nearest parallax layer draws IN FRONT of the actors (depth 40): in a
-  // 240-px-wide framing one trunk can swallow the whole fight. Combat shots
-  // drop it; scenic ones keep it for the depth cue.
   private dropForegroundTrees() {
     this.rooms.parallax = this.rooms.parallax.filter((t) => {
       if (t.name !== FG_TREE_NAME) {
         return true;
       }
+
       t.destroy();
+
       return false;
     });
   }
 
-  // HUD policy: everything hidden unless the shot opts in; visibility (not
-  // alpha) so banners.show/updateHud can't resurrect a hidden element.
   private hud(hud: NonNullable<TrailerStageOpts["hud"]>) {
     this.chrome.heartsText.setVisible(hud.hearts ?? false);
-    // versus HUD bumps to 12
     this.chrome.infoText.setVisible(hud.info ?? false).setFontSize(9);
     this.banners.text.setVisible(hud.banner ?? false);
     this.chrome.comboText.setVisible(hud.combo ?? false);
@@ -241,11 +228,12 @@ export class TrailerStaging {
    * the sky/fog/fade plates land pixel-for-pixel where they were authored,
    * while the world gets the lens. Integer steps only: a fractional zoom
    * shimmers pixel art. */
-  zoom(z: number): void {
+  zoom(z: number) {
     this.scene.cameras.main.setZoom(z);
     this.pinScale = 1 / z;
     const cx = BASE_W / 2;
     const cy = BASE_H / 2;
+
     const pinned: (
       | Phaser.GameObjects.Rectangle
       | Phaser.GameObjects.Text
@@ -262,17 +250,20 @@ export class TrailerStaging {
       this.room.bossHpBg,
       this.room.bossHp,
     ];
+
     for (const o of pinned) {
       if (!o) {
         continue;
       }
+
       let base = this.pinBase.get(o);
+
       if (!base) {
         base = { x: o.x, y: o.y };
         this.pinBase.set(o, base);
       }
+
       o.setPosition((base.x - cx) / z + cx, (base.y - cy) / z + cy);
-      // The sky texture is half-resolution; retain its logical display size.
       o.setScale(
         (o === this.room.sky?.image ? BASE_W / o.width : 1) / z,
         (o === this.room.sky?.image ? BASE_H / o.height : 1) / z,
@@ -282,63 +273,70 @@ export class TrailerStaging {
 
   /** Spawn one enemy into the live fight (real Enemy + biome HP scaling; the
    * optional affix id recolours/buffs it exactly like an elite-room roll). */
-  spawnEnemy(name: EnemyName, x: number, y: number, affixId?: string): void {
+  spawnEnemy(name: EnemyName, x: number, y: number, affixId?: string) {
     const e = new Enemy(this.scene, this.room.grid, ENEMIES[name], x, y);
     e.body.hp += Math.floor((this.expedition.biome - 1) / 2);
     const affix = AFFIXES.find((a) => a.id === affixId);
+
     if (affix) {
       applyAffix(e, affix);
     }
+
     this.room.enemies.push(e);
   }
 
   /** Scripted input source: sampled once per frame in place of the keyboard
    * (p1 = local hero, p2 = the staged second hero). null restores normal input. */
-  setInput(provider: (() => TrailerInputs) | null): void {
+  setInput(provider: (() => TrailerInputs) | null) {
     this.input = provider;
   }
 
   /** Advance the sim by n fixed steps while the screen is black — pre-rolls
    * velocity/AI so the first visible frame is already mid-action. Bypasses the
    * freeze on purpose. */
-  tick(steps: number): void {
+  tick(steps: number) {
     for (let i = 0; i < steps; i += 1) {
       const s = this.input ? this.input() : null;
+
       if (s) {
         this.seat.player.buffer(s.p1);
+
         if (this.seat.remote && s.p2) {
           this.seat.remote.buffer(s.p2);
         }
       }
+
       this.hooks.simStep(STEP);
     }
-    // Settle the views so the camera snap targets real positions.
+
     this.seat.player.render(1);
     this.seat.remote?.render(1);
+
     for (const e of this.room.enemies) {
       e.render(1);
     }
+
     this.room.boss?.render(1);
   }
 
   /** Freeze (seconds — the existing hitstop clock) or unfreeze (0) the sim. */
-  freeze(seconds: number): void {
+  freeze(seconds: number) {
     this.run.freeze = seconds;
   }
 
   /** Mid-shot mod tweak (e.g. arm 100% ward once a last stand is staged). */
-  mods(m: Partial<RunMods>): void {
+  mods(m: Partial<RunMods>) {
     Object.assign(this.run.mods, m);
   }
 
   /** Fire the game's own centre banner (visible only if the shot's HUD opts in). */
-  banner(text: string, ms: number): void {
+  banner(text: string, ms: number) {
     this.banners.show(text, ms, "critical");
   }
 
   /** Live handles for choreography: steering reads positions, boss direction
    * calls forceState, versus scripts read the encoded match state. */
-  world(): TrailerWorld {
+  world() {
     return {
       boss: this.room.boss,
       enemies: this.room.enemies,
@@ -349,11 +347,11 @@ export class TrailerStaging {
   }
 }
 
-// ── trailer-mode types (consumed by src/trailer/trailer-director.ts) ─────────
 export interface TrailerInputs {
   p1: InputState;
   p2: InputState | null;
 }
+
 export interface TrailerHudOpts {
   hearts?: boolean;
   info?: boolean;
@@ -361,6 +359,7 @@ export interface TrailerHudOpts {
   combo?: boolean;
   bossBar?: boolean;
 }
+
 export interface TrailerStageOpts {
   hero: HeroName;
   /** Stage a second local hero (offline co-op / versus scenes). */
@@ -396,6 +395,7 @@ export interface TrailerStageOpts {
     round?: number;
   };
 }
+
 export interface TrailerWorld {
   p1: Player;
   p2: Player | null;

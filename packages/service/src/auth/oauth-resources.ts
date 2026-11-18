@@ -6,6 +6,7 @@
  */
 export const oauthResources = (baseURL: string) => {
   const { origin } = new URL(baseURL);
+
   return { api: `${origin}/api`, mcp: `${origin}/mcp` };
 };
 

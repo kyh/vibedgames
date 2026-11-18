@@ -1,31 +1,18 @@
 #!/usr/bin/env node
-/**
- * Make an img2threejs factory shippable in this repo.
- *
- * Raw generator output is not: a quarter of it is spec JSON written onto every
- * node's `userData`, which reaches the browser, and its internals assume a
- * looser tsconfig than ours. This strips the provenance and marks the file
- * generated so the typed import site stays the place safety is enforced.
- *
- * Idempotent — re-run after every regeneration.
- *
- *   node normalize-factory.mjs src/model/chest-factory.generated.ts
- *   node normalize-factory.mjs src/model/*.generated.ts --keep-action-profile
- *   node normalize-factory.mjs --selftest
- */
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 
 import { getFlag, MARKER, normalizeFactory, parseArgs } from "./_lib/asset-tools.mjs";
 
-/** Python's `f"{x:.1f}"`, which rounds half to even. */
 const oneDecimal = (value) => {
   const scaled = value * 10;
   const floor = Math.floor(scaled);
   const diff = scaled - floor;
   let rounded = floor;
+
   if (diff > 0.5 || (diff === 0.5 && floor % 2 !== 0)) {
     rounded = floor + 1;
   }
+
   return (rounded / 10).toFixed(1);
 };
 
@@ -62,11 +49,13 @@ const selftest = () => {
 const args = parseArgs(process.argv.slice(2), {
   booleans: ["keep-action-profile", "selftest"],
 });
+
 if (getFlag(args, "selftest")) {
   selftest();
 }
 
 const files = args.positionals;
+
 if (files.length === 0) {
   process.stderr.write("pass at least one generated factory, or --selftest\n");
   process.exit(2);
@@ -81,6 +70,7 @@ for (const path of files) {
     failed = true;
     continue;
   }
+
   const before = readFileSync(path, "utf-8");
   const after = normalizeFactory(before, keepActionProfile);
   writeFileSync(path, after);

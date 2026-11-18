@@ -1,25 +1,9 @@
-/**
- * The playtester's browser: agent-browser, driven directly rather than through
- * `vg playtest`. Each `vg playtest` call is a node start plus a version probe
- * (~230 ms); the binary itself answers an eval in under 10 ms, and a playtester
- * that decides several times a second can't afford the wrapper.
- *
- * The loop itself runs in the page (see agent.ts); this class boots the
- * game, injects the agent, polls it, and reads the result back — and on an
- * early exit tells the agent to stop, so a keydown it holds can't stay stuck
- * in the game and poison the next run against the same daemon.
- */
-
 import { spawnSync } from "node:child_process";
 
 import type { JsonValue } from "../types.js";
 import { isJsonObject, isJsonString } from "../types.js";
 import { HarnessError } from "./errors.js";
 
-/**
- * Read player state the same way at every sample site. All three axes,
- * defaulting to 0, so a game whose travel is on x/z isn't read as motionless.
- */
 const READ_FN = `const __botRead = () => {
   const d = window.__GAME_DIAGNOSTICS__, p = (d && d.player) || {};
   return { x: p.x ?? 0, y: p.y ?? 0, z: p.z ?? 0, frame: (d && d.frame) ?? 0, score: (d && d.score) ?? 0, complete: !!(d && d.complete) };
@@ -56,7 +40,7 @@ export interface GpuInfo {
   vendor: string | null;
 }
 
-const num = (value: JsonValue | undefined): number => (Number.isFinite(value) ? Number(value) : 0);
+const num = (value: JsonValue | undefined) => (Number.isFinite(value) ? Number(value) : 0);
 
 export interface LaunchOptions {
   url: string;
@@ -87,14 +71,16 @@ export class GameBrowser {
   }
 
   /** Run one agent-browser command in this session. */
-  run(args: string[]): CommandResult {
+  run(args: string[]) {
     const res = spawnSync(this.bin, ["--session", this.session, ...args], {
       encoding: "utf-8",
       timeout: 120_000,
     });
+
     if (res.error) {
       throw new HarnessError(`couldn't run the playtest browser (${res.error.message}).`);
     }
+
     return { status: res.status ?? 1, stderr: res.stderr ?? "", stdout: res.stdout ?? "" };
   }
 
@@ -105,72 +91,74 @@ export class GameBrowser {
    * Verified against agent-browser 0.34. A shape this doesn't recognize is a
    * harness failure, not something to guess around.
    */
-  payload(args: string[], key: string): JsonValue {
+  payload(args: string[], key: string) {
     const { status, stdout, stderr } = this.run([...args, "--json"]);
     const text = stdout.trim();
+
     if (status !== 0) {
       throw new HarnessError(`\`${args[0]}\` failed: ${stderr.trim() || text}`);
     }
+
     let parsed: JsonValue;
+
     try {
       parsed = JSON.parse(text);
     } catch {
       throw new HarnessError(`\`${args[0]} --json\` did not return JSON: ${text.slice(0, 200)}`);
     }
+
     if (!isJsonObject(parsed)) {
       throw new HarnessError(`unexpected response for \`${args[0]}\`: ${text.slice(0, 200)}`);
     }
+
     if (parsed.success === false) {
       throw new HarnessError(`\`${args[0]}\` failed: ${JSON.stringify(parsed.error)}`);
     }
+
     const { data } = parsed;
+
     if (!isJsonObject(data) || !(key in data)) {
       throw new HarnessError(
         `unexpected agent-browser response for \`${args[0]}\` (no data.${key}): ${text.slice(0, 200)}`,
       );
     }
+
     return data[key] ?? null;
   }
 
-  evaluate(expression: string): JsonValue {
+  evaluate(expression: string) {
     return this.payload(["eval", expression], "result");
   }
 
-  /**
-   * Navigate and wait for the diagnostics contract. Logs are cleared BEFORE
-   * navigating so boot errors belong to this run. Waits for the CONTRACT,
-   * not for frames: most games boot into a menu where the loop hasn't
-   * started, so frames only advance once setState('active-play') has run.
-   */
-  private boot(url: string, headed: boolean, whenAbsent: string): void {
+  private boot(url: string, headed: boolean, whenAbsent: string) {
     this.run(["console", "--clear"]);
     this.run(["errors", "--clear"]);
     const open = this.run(["open", url, ...(headed ? ["--headed"] : [])]);
+
     if (open.status !== 0) {
       throw new HarnessError(`couldn't open the game: ${open.stderr.trim() || open.stdout.trim()}`);
     }
+
     if (this.run(["wait", "--fn", CONTRACT_READY]).status !== 0) {
       throw new HarnessError(whenAbsent);
     }
   }
 
-  /**
-   * Two ways a game can honour a seed: a `seed()` hook that restarts the run,
-   * or a `?seed=` boot param for games whose scene is single-start. Calling
-   * an absent hook would leave the run unseeded while the report still
-   * claimed the seed, so detect which one this game implements.
-   */
-  private applySeed(seed: number, headed: boolean): "hook" | "boot-param" {
+  private applySeed(seed: number, headed: boolean) {
     const probe = this.evaluate(
       "({ hasSeedHook: typeof window.__GAME_TEST_HOOKS__?.seed === 'function', href: location.href })",
     );
+
     if (isJsonObject(probe) && probe.hasSeedHook === true) {
       return "hook";
     }
+
     const href = isJsonObject(probe) ? probe.href : undefined;
+
     if (!isJsonString(href)) {
       throw new HarnessError("couldn't read location.href to apply the seed.");
     }
+
     const url = new URL(href);
     url.searchParams.set("seed", String(seed));
     this.boot(
@@ -178,11 +166,12 @@ export class GameBrowser {
       headed,
       "the game stopped publishing diagnostics after the seeded reload.",
     );
+
     return "boot-param";
   }
 
   /** Open the game, seed it, start a run and wait for the loop to be live. */
-  launch({ url, seed, headed }: LaunchOptions): Launched {
+  launch({ url, seed, headed }: LaunchOptions) {
     this.boot(
       url,
       headed,
@@ -190,23 +179,22 @@ export class GameBrowser {
     );
     const seedApplied = this.applySeed(seed, headed);
 
-    // seed() must RESTART the run — frames rendered before it were unseeded.
-    // setState('active-play') is what leaves the menu. Stash the frame it
-    // left off at so the wait below proves the loop moved *after* the hooks.
     const ack = this.evaluate(
       `(async () => { const h = window.__GAME_TEST_HOOKS__; h.seed?.(${seed}); const ack = await h.setState?.('active-play'); window.__BOT_F0__ = h && window.__GAME_DIAGNOSTICS__.frame; return ack === undefined ? null : ack; })()`,
     );
-    // The ack is optional (void hooks keep working) but asserted when present.
+
     if (ack !== null && (!isJsonObject(ack) || ack.state !== "active-play")) {
       throw new HarnessError(
         `setState('active-play') acknowledged ${JSON.stringify(ack)} instead of { state: 'active-play' } — the hook applied a different state or is a no-op.`,
       );
     }
+
     const live = this.run([
       "wait",
       "--fn",
       "(window.__GAME_DIAGNOSTICS__?.frame ?? 0) > 10 && window.__GAME_DIAGNOSTICS__.frame !== window.__BOT_F0__",
     ]);
+
     if (live.status !== 0) {
       throw new HarnessError(
         "diagnostics are published but the loop never advanced after seed()/setState('active-play') — check they aren't no-ops.",
@@ -214,35 +202,38 @@ export class GameBrowser {
     }
 
     const sample = this.evaluate(`(() => { ${READ_FN} return __botRead(); })()`);
+
     const before: Sample = isJsonObject(sample)
       ? { complete: sample.complete === true, frame: num(sample.frame), score: num(sample.score) }
       : { complete: false, frame: 0, score: 0 };
-    // A reflex is a function and JSON drops it, which would make a move that
-    // is nothing BUT a reflex look like one that holds no input. Keep the fact.
+
     const manifest = this.evaluate(
       "(() => { try { return JSON.parse(JSON.stringify(window.__GAME_PLAYTEST__ ?? null, (key, value) => (key === 'reflex' && typeof value === 'function' ? true : value))); } catch { return null; } })()",
     );
-    return { before, manifest, seedApplied };
+
+    return { before, manifest, seedApplied } satisfies Launched;
   }
 
   /** Evaluate the injected agent's source in the page. */
-  inject(source: string): void {
+  inject(source: string) {
     this.evaluate(source);
   }
 
   /** Whether the agent has finished, and why if it stopped early. Null if the page lost it. */
-  agentStatus(): { done: boolean; error: string | null } | null {
+  agentStatus() {
     const status = this.evaluate(
       "(() => { const a = window.__PLAYTEST_AGENT__; return a ? { done: a.done === true, error: a.error ?? null } : null; })()",
     );
+
     if (!isJsonObject(status)) {
       return null;
     }
+
     return { done: status.done === true, error: isJsonString(status.error) ? status.error : null };
   }
 
   /** The agent's published result, as JSON. */
-  agentResult(): JsonValue {
+  agentResult() {
     return this.evaluate(
       "(() => { try { return JSON.parse(JSON.stringify(window.__PLAYTEST_AGENT__ ?? null)); } catch { return null; } })()",
     );
@@ -252,7 +243,7 @@ export class GameBrowser {
    * Best-effort stop on the failure path: raw spawn, no throw. The agent
    * releases whatever it holds and cancels its frame loop.
    */
-  stopAgent(): void {
+  stopAgent() {
     spawnSync(
       this.bin,
       [
@@ -266,11 +257,13 @@ export class GameBrowser {
   }
 
   /** Console messages at error level — `console` returns every level. */
-  consoleErrors(): string[] {
+  consoleErrors() {
     const entries = this.payload(["console"], "messages");
+
     if (!Array.isArray(entries)) {
       throw new HarnessError("`console` returned a non-array `messages`.");
     }
+
     return entries
       .filter((entry) => isJsonObject(entry) && entry.type === "error")
       .map((entry) =>
@@ -279,11 +272,13 @@ export class GameBrowser {
   }
 
   /** Uncaught page errors. */
-  pageErrors(): JsonValue[] {
+  pageErrors() {
     const errors = this.payload(["errors"], "errors");
+
     if (!Array.isArray(errors)) {
       throw new HarnessError("`errors` returned a non-array `errors`.");
     }
+
     return errors;
   }
 
@@ -291,7 +286,7 @@ export class GameBrowser {
    * Renderer string of the game's own WebGL context, so a SwiftShader run
    * can't pass as performance evidence.
    */
-  gpuInfo(): GpuInfo {
+  gpuInfo() {
     const info = this.evaluate(
       `(() => {
         const canvas = document.querySelector("canvas");
@@ -305,17 +300,19 @@ export class GameBrowser {
         };
       })()`,
     );
+
     if (!isJsonObject(info) || !isJsonString(info.renderer)) {
-      return { renderer: null, softwareRendered: null, vendor: null };
+      return { renderer: null, softwareRendered: null, vendor: null } satisfies GpuInfo;
     }
+
     return {
       renderer: info.renderer,
       softwareRendered: /swiftshader|llvmpipe|software|basic render/iu.test(info.renderer),
       vendor: isJsonString(info.vendor) ? info.vendor : null,
-    };
+    } satisfies GpuInfo;
   }
 
-  close(): void {
+  close() {
     this.run(["close"]);
   }
 }

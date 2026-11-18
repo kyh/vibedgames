@@ -4,7 +4,6 @@ import { test } from "node:test";
 import { bareTokens, expandGameFlag, withScopedSession } from "../src/commands/playtest.js";
 import { SLUG_RE } from "../src/lib/config-file.js";
 
-/** Stand-in for the real resolver so these stay pure unit tests. */
 const url = (slug: string | null) => `https://${slug ?? "from-project-config"}.vibedgames.com`;
 
 test("expandGameFlag leaves args untouched when --game is absent", () => {
@@ -37,8 +36,6 @@ test("expandGameFlag substitutes in place after an explicit verb", () => {
 });
 
 test("expandGameFlag does not mistake a valued global flag's value for the subcommand", () => {
-  // No mirror of agent-browser's flag grammar, so an unknown valued flag can
-  // never strand the URL in the wrong place.
   assert.deepEqual(expandGameFlag(["--session", "p1", "--game", "my-game"], url), [
     "--session",
     "p1",
@@ -54,10 +51,6 @@ test("expandGameFlag does not mistake a valued global flag's value for the subco
 });
 
 test("bareTokens sees past a valued global flag", () => {
-  // agent-browser answers `--session p1 snapshot open <url>` by running the
-  // snapshot and silently ignoring the URL, so missing the guard here costs a
-  // wrong answer rather than an error. `p1` is claimed by `--session`, leaving
-  // `snapshot` as the first unclaimed bare token.
   assert.equal(bareTokens(["--session", "p1", "snapshot", "--game", "x"])[0], "snapshot");
   assert.equal(bareTokens(["snapshot", "--game", "x"])[0], "snapshot");
 });
@@ -67,16 +60,11 @@ test("bareTokens sees past a --flag=value token, which claims nothing", () => {
 });
 
 test("bareTokens keeps a trailing verb visible, so a dead command can be caught", () => {
-  // `--game my-game open` can't be expanded usefully: in place gives
-  // `<url> open`, whose first positional agent-browser reads as the
-  // subcommand, and inserting a verb gives `open <url> open`. expandGameFlag
-  // exits on this; what matters here is that the verb is seen at all.
   assert.deepEqual(bareTokens(["--game", "my-game", "open"]), ["open"]);
   assert.deepEqual(bareTokens(["open", "--game", "my-game"]), ["open"]);
 });
 
 test("bareTokens finds none when every bare token is a flag's value", () => {
-  // These are the shapes that legitimately need an `open` inserted.
   assert.equal(bareTokens(["--game", "x"]).length, 0);
   assert.equal(bareTokens(["--headed", "--game", "x"]).length, 0);
   assert.equal(bareTokens(["--session", "p1", "--game", "x"]).length, 0);
@@ -103,10 +91,13 @@ test("expandGameFlag expands every --game, for multi-URL subcommands", () => {
 
 test("expandGameFlag treats a following flag as 'no slug given'", () => {
   const seen: (string | null)[] = [];
+
   const out = expandGameFlag(["--game", "--headed"], (slug) => {
     seen.push(slug);
+
     return url(slug);
   });
+
   assert.deepEqual(seen, [null]);
   assert.deepEqual(out, ["open", "https://from-project-config.vibedgames.com", "--headed"]);
 });
@@ -115,33 +106,27 @@ test("expandGameFlag passes an explicit slug through to URL resolution", () => {
   const seen: (string | null)[] = [];
   expandGameFlag(["--game", "my-game"], (slug) => {
     seen.push(slug);
+
     return url(slug);
   });
   assert.deepEqual(seen, ["my-game"]);
 });
 
 test("SLUG_RE keeps a slug inside its own subdomain", () => {
-  // `--game` puts the slug in the hostname, so anything that could re-point the
-  // origin has to be rejected before the URL is built.
   for (const bad of ["my/evil.com", "../other", "a.b", "evil.com#", "-x", "x-", "", "A"]) {
     assert.equal(SLUG_RE.test(bad), false, `${JSON.stringify(bad)} must be rejected`);
   }
 });
 
 test("SLUG_RE accepts exactly what deploy accepts", () => {
-  // Shared with deploy/fork/new — a slug that deployed must stay playtestable,
-  // including the repeated hyphens deploy allows.
   for (const good of ["my-game", "a--b", "ab", "a-b-c", "game2"]) {
     assert.equal(SLUG_RE.test(good), true, `${good} must be accepted`);
   }
+
   assert.equal(SLUG_RE.test("a"), false, "single-character slugs aren't deployable");
 });
 
 test("expandGameFlag reads a verb that follows a boolean flag as the verb", () => {
-  // "preceded by a flag" can't tell `--headed` (boolean) from `--session`
-  // (valued). Treating `open` as a value here saw no verb at all and inserted a
-  // second one, and agent-browser then navigated to the literal string "open":
-  // `✗ Navigation failed: net::ERR_TUNNEL_CONNECTION_FAILED`, chrome-error://.
   assert.deepEqual(expandGameFlag(["--headed", "open", "--game", "my-game"], url), [
     "--headed",
     "open",
@@ -158,22 +143,17 @@ test("expandGameFlag reads a verb that follows a boolean flag as the verb", () =
 test("bareTokens keeps a known verb, and still drops an ordinary flag value", () => {
   assert.deepEqual(bareTokens(["--headed", "open", "--game", "x"]), ["open"]);
   assert.deepEqual(bareTokens(["--session", "p1", "--game", "x"]), []);
-  // The accepted cost: a session named after a verb now reads as the verb.
-  // Rarer than `--headed open`, and it fails loudly rather than navigating
-  // somewhere wrong.
   assert.deepEqual(bareTokens(["--session", "open", "--game", "x"]), ["open"]);
 });
 
 test("expandGameFlag accepts a slug that happens to be a verb", () => {
-  // `--game` is our own flag, so its value is known to be a slug — without
-  // that exemption a game called `open` or `diff` was rejected as a misplaced
-  // command before its URL was ever resolved.
   for (const slug of ["open", "diff", "url", "goto", "navigate"]) {
     assert.deepEqual(
       expandGameFlag(["--game", slug], () => `https://${slug}.vibedgames.com`),
       ["open", `https://${slug}.vibedgames.com`],
     );
   }
+
   assert.deepEqual(
     expandGameFlag(["open", "--game", "open"], () => "https://open.vibedgames.com"),
     ["open", "https://open.vibedgames.com"],
@@ -205,7 +185,6 @@ test("withScopedSession never overrides an explicit session", () => {
 });
 
 test("withScopedSession leaves machine-wide commands alone", () => {
-  // `session list` has to see every session; --help/--version carry no verb.
   assert.deepEqual(withScopedSession(["session", "list"], SESSION), ["session", "list"]);
   assert.deepEqual(withScopedSession(["install"], SESSION), ["install"]);
   assert.deepEqual(withScopedSession(["--help"], SESSION), ["--help"]);

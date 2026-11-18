@@ -66,21 +66,21 @@ test("formatField falls back to JSON for structural values", () => {
   assert.equal(formatField([{ a: 1 }]), '[\n  {\n    "a": 1\n  }\n]');
 });
 
-/** Capture whatever a body writes to stdout. */
-const captureStdout = (body: () => void): string => {
+const captureStdout = (body: () => void) => {
   const original = process.stdout.write.bind(process.stdout);
   let captured = "";
-  // SAFETY: test double for the write overloads; the code under test only
-  // ever calls the single-chunk form.
   process.stdout.write = ((chunk: string | Uint8Array) => {
     captured += chunk instanceof Uint8Array ? Buffer.from(chunk).toString("utf-8") : chunk;
+
     return true;
   }) as typeof process.stdout.write;
+
   try {
     body();
   } finally {
     process.stdout.write = original;
   }
+
   return captured;
 };
 
@@ -88,6 +88,7 @@ test("writeStructured returns false when neither flag is set", () => {
   const out = captureStdout(() => {
     assert.equal(writeStructured(RESULT, {}), false);
   });
+
   assert.equal(out, "");
 });
 
@@ -95,6 +96,7 @@ test("--json prints the whole payload", () => {
   const out = captureStdout(() => {
     assert.equal(writeStructured({ a: 1 }, { json: true }), true);
   });
+
   assert.equal(out, '{\n  "a": 1\n}\n');
 });
 
@@ -102,12 +104,14 @@ test("--field wins over --json, since it is the more specific request", () => {
   const out = captureStdout(() => {
     writeStructured(RESULT, { field: "request_id", json: true });
   });
+
   assert.equal(out, "req_123\n");
 });
 
 test("VG_JSON_OUTPUT=1 turns on JSON without the flag", () => {
   const previous = process.env.VG_JSON_OUTPUT;
   process.env.VG_JSON_OUTPUT = "1";
+
   try {
     assert.equal(isJsonOutput({}), true);
     const out = captureStdout(() => writeStructured({ a: 1 }, {}));
@@ -126,24 +130,23 @@ test("a field that does not resolve exits non-zero rather than printing nothing"
   const originalErr = process.stderr.write.bind(process.stderr);
   let code: number | undefined;
   let message = "";
-  // SAFETY: test double for process.exit; the code under test only ever
-  // passes a numeric code.
   process.exit = ((c?: number) => {
     code = c;
     throw new Error("exit");
   }) as typeof process.exit;
-  // SAFETY: test double for the write overloads; the code under test only
-  // ever calls the single-chunk string form.
   process.stderr.write = ((chunk: string) => {
     message += chunk;
+
     return true;
   }) as typeof process.stderr.write;
+
   try {
     assert.throws(() => writeStructured(RESULT, { field: "typo" }), /exit/u);
   } finally {
     process.exit = originalExit;
     process.stderr.write = originalErr;
   }
+
   assert.equal(code, 1);
   assert.equal(message, "No such field: typo\n");
 });

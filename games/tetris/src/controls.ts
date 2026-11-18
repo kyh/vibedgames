@@ -1,9 +1,6 @@
 import { activeMethods } from "@repo/embed";
 import type { ControlEntry, ControlMethod, ControlsManifest } from "@repo/embed";
 
-// Every way to play, one list — the title legend and the pause overlay both
-// render from this (filtered per device / connected pad by @repo/embed).
-// Camera rows include every existing gesture; titleSubText keeps two headlines.
 export const CONTROLS: ControlsManifest = [
   { action: "move", input: "←→↑↓", method: "keys" },
   { action: "rotate", input: "R", method: "keys" },
@@ -48,15 +45,17 @@ export const METHOD_LABEL = {
   touch: "touch",
 } satisfies Record<ControlMethod, string>;
 
-const say = (entry: ControlEntry): string => `${entry.input} to ${entry.action}`;
+const say = (entry: ControlEntry) => `${entry.input} to ${entry.action}`;
 
-const startHint = (methods: ReadonlySet<ControlMethod>): string => {
+const startHint = (methods: ReadonlySet<ControlMethod>) => {
   if (methods.has("controller")) {
     return "any button to start";
   }
+
   if (methods.has("touch")) {
     return "tap to start";
   }
+
   return "Enter / Space to start";
 };
 
@@ -67,12 +66,14 @@ const startHint = (methods: ReadonlySet<ControlMethod>): string => {
  *  lead — it is the only control a phone player has no other way to discover,
  *  and on a landscape phone this line is the whole reference (the legend has no
  *  room). Everywhere else the two headline camera gestures lead. */
-export const titleSubText = (): string => {
+export const titleSubText = () => {
   const methods = activeMethods();
   const camera = CONTROLS.filter((entry) => entry.method === "camera");
   const drag = CONTROLS.find((entry) => entry.method === "touch" && entry.action === "move");
+
   const headline = (
     methods.has("touch") && drag ? [drag, ...camera.slice(1, 2)] : camera.slice(0, 2)
   ).map(say);
+
   return [...headline, startHint(methods)].join(" · ");
 };

@@ -1,12 +1,6 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 
-// Marine sheets hang low enough to reach the water, and a billboard that
-// crosses the ocean plane is depth-cut by it in a dead-straight line along the
-// horizon — the "hard-edged grey mass" read. Fade every sheet out below
-// FLOOR_TOP and to nothing by FLOOR_Y so it dissolves into the bay instead of
-// ending at a razor edge, and so grazing a hillside or a bridge tower thins the
-// sheet rather than slicing it.
 const FLOOR_Y = 4;
 const FLOOR_TOP = 30;
 
@@ -31,11 +25,8 @@ const VERT = `
     gl_Position = projectionMatrix * viewMatrix * vec4(world, 1.0);
   }
 `;
-// `discardLow` (mobile): most of each quad is fully transparent texels —
-// skipping the blend write for them saves real ROP bandwidth on tile GPUs.
-// `floorFade` gives the low marine sheets a soft world-space underside (see
-// FLOOR_Y); the high cumulus sit 190u up and skip the extra work entirely.
-const frag = (discardLow: boolean, floorFade: boolean): string =>
+
+const frag = (discardLow: boolean, floorFade: boolean) =>
   `
   uniform sampler2D uMap;
   uniform vec3 uColor;
@@ -52,7 +43,7 @@ const frag = (discardLow: boolean, floorFade: boolean): string =>
   }
 `;
 
-const cumulusGeometry = (): THREE.BufferGeometry => {
+const cumulusGeometry = () => {
   const lobes = [
     { sx: 0.28, sy: 0.4, sz: 0.27, x: 0, y: 0.12, z: 0 },
     { sx: 0.25, sy: 0.24, sz: 0.24, x: -0.28, y: -0.04, z: 0.03 },
@@ -60,24 +51,29 @@ const cumulusGeometry = (): THREE.BufferGeometry => {
     { sx: 0.38, sy: 0.2, sz: 0.23, x: -0.06, y: -0.21, z: 0.15 },
     { sx: 0.33, sy: 0.3, sz: 0.25, x: 0.1, y: -0.03, z: -0.19 },
   ];
+
   const pieces = lobes.map((lobe) => {
     const geometry = new THREE.SphereGeometry(1, 10, 6);
     geometry.scale(lobe.sx, lobe.sy, lobe.sz);
     geometry.translate(lobe.x, lobe.y, lobe.z);
+
     return geometry;
   });
+
   const geometry = mergeGeometries(pieces);
+
   for (const piece of pieces) {
     piece.dispose();
   }
+
   if (!geometry) {
     throw new Error("Cloud lobe layouts must agree");
   }
+
   return geometry;
 };
 
-// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-const CUMULUS_VERT = /* glsl */ `
+const CUMULUS_VERT = `
   attribute vec3 aCenter;
   attribute vec2 aSize;
   attribute float aSeed;
@@ -103,8 +99,7 @@ const CUMULUS_VERT = /* glsl */ `
   }
 `;
 
-// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-const CUMULUS_FRAG = /* glsl */ `
+const CUMULUS_FRAG = `
   uniform vec3 uColor;
   uniform float uDim;
   uniform vec3 uSunDir;
@@ -143,7 +138,7 @@ type LayerOpts = {
     }
 );
 
-const uploadRange = (attr: THREE.InstancedBufferAttribute, count: number): void => {
+const uploadRange = (attr: THREE.InstancedBufferAttribute, count: number) => {
   attr.clearUpdateRanges();
   attr.addUpdateRange(0, count * attr.itemSize);
   attr.needsUpdate = true;
@@ -183,13 +178,16 @@ export class CloudLayer {
     this.sizeAttr = new THREE.InstancedBufferAttribute(sizes, 2);
     geo.setAttribute("aSize", this.sizeAttr);
     geo.setAttribute("aSeed", new THREE.InstancedBufferAttribute(seeds, 1));
+
     if (sculpted) {
       geo.setAttribute("aDrift", new THREE.InstancedBufferAttribute(this.drifts, 1));
     }
+
     this.sizes = sizes;
     this.seeds = seeds;
 
     const color = new THREE.Color(opts.color);
+
     const mat = new THREE.ShaderMaterial({
       depthWrite: sculpted,
       fragmentShader:
@@ -207,13 +205,13 @@ export class CloudLayer {
       },
       vertexShader: sculpted ? CUMULUS_VERT : VERT,
     });
+
     this.dimUniform = mat.uniforms.uDim ?? { value: 1 };
     this.tint = color;
     this.dayColor = new THREE.Color(opts.color);
     this.nightColor = new THREE.Color(opts.nightColor);
     this.nightDim = opts.nightDim;
     this.mesh = new THREE.Mesh(geo, mat);
-    // instances span the map; cull is pointless
     this.mesh.frustumCulled = false;
     this.mesh.renderOrder = opts.renderOrder;
   }
@@ -226,8 +224,6 @@ export class CloudLayer {
   readonly timeU = { value: 0 };
   readonly wrapU = { value: new THREE.Vector2(0, 1) };
   dimUniform = { value: 1 };
-  // Live sun feed (SkyClouds writes the high layer's each frame; the marine
-  // layer keeps the defaults — its shader never reads them).
   readonly sunDirU = { value: new THREE.Vector3(0, 1, 0) };
   readonly sunColU = { value: new THREE.Color(0x00_00_00) };
   readonly sunWU = { value: 0 };
@@ -237,13 +233,13 @@ export class CloudLayer {
   private nightDim: number;
 
   /** `f` = 0 broad daylight .. 1 full night. */
-  setNight(f: number): void {
+  setNight(f: number) {
     this.dimUniform.value = 1 - (1 - this.nightDim) * f;
     this.tint.lerpColors(this.dayColor, this.nightColor, f);
   }
 
   /** Upload centres + alphas for the first `count` instances (default: all). */
-  markDirty(count = this.geo.instanceCount): void {
+  markDirty(count = this.geo.instanceCount) {
     uploadRange(this.centerAttr, count);
     uploadRange(this.alphaAttr, count);
   }
