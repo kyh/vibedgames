@@ -89,6 +89,8 @@ export class PaintLayer {
         cover[cell] = Math.min(255, ((strength[cell] ?? 0) / EBB) * 255);
       }
     }
+    // Twice: a five-tap falloff rounds a corner that one pass leaves stepped.
+    this.soften();
     this.soften();
     this.color.needsUpdate = true;
     this.mask.needsUpdate = true;

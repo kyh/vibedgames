@@ -16,6 +16,25 @@ export const KERB_INSET = 0.9;
 /** World units one repeat of a tiling surface covers. */
 const TILE = 9;
 
+/** Smooth value noise in world space: it never repeats, so it never stripes. */
+const NOISE = `
+  float hash21(vec2 p) {
+    p = fract(p * vec2(123.34, 456.21));
+    p += dot(p, p + 45.32);
+    return fract(p.x * p.y);
+  }
+  float vnoise(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    vec2 u = f * f * (3.0 - 2.0 * f);
+    return mix(
+      mix(hash21(i), hash21(i + vec2(1.0, 0.0)), u.x),
+      mix(hash21(i + vec2(0.0, 1.0)), hash21(i + vec2(1.0, 1.0)), u.x),
+      u.y
+    );
+  }
+`;
+
 const DECLARE_VERTEX = `
   attribute vec2 aRoad;
   varying vec2 vRoad;
@@ -39,22 +58,7 @@ const DECLARE_FRAGMENT = `
   float gWear;
   vec3 gSpill;
 
-  float hash21(vec2 p) {
-    p = fract(p * vec2(123.34, 456.21));
-    p += dot(p, p + 45.32);
-    return fract(p.x * p.y);
-  }
-  // Smooth value noise in world space: never repeats, so it never stripes.
-  float vnoise(vec2 p) {
-    vec2 i = floor(p);
-    vec2 f = fract(p);
-    vec2 u = f * f * (3.0 - 2.0 * f);
-    return mix(
-      mix(hash21(i), hash21(i + vec2(1.0, 0.0)), u.x),
-      mix(hash21(i + vec2(0.0, 1.0)), hash21(i + vec2(1.0, 1.0)), u.x),
-      u.y
-    );
-  }
+  ${NOISE}
 `;
 const SURFACE_FRAGMENT = `
   {
@@ -109,7 +113,9 @@ const SURFACE_FRAGMENT = `
     // Paint. Thresholding the blurred coverage gives round-edged strokes.
     // Colour is nearest-sampled (hard lines between drivers); coverage is
     // bilinear and thresholded, which rounds the cells into brushed edges.
-    vec2 paintUv = vWorldP.xz / uSpan + 0.5;
+    // Wobble the lookup by a fraction of a metre: edges follow the noise, not the grid.
+    vec2 wobble = vec2(vnoise(vWorldP.xz * 1.3), vnoise(vWorldP.zx * 1.3 + 7.0)) - 0.5;
+    vec2 paintUv = (vWorldP.xz + wobble * 0.55) / uSpan + 0.5;
     float cover = texture2D(uPaintMask, paintUv).r;
     // A little noise on the threshold breaks the edge up like a dry brush.
     float fray = (texture2D(map, vMapUv * 3.0).r - 0.2) * 0.5;
@@ -127,13 +133,15 @@ const SURFACE_FRAGMENT = `
     }
     // Thicker in the middle of a stroke, thin and darker towards its edge.
     float body = smoothstep(0.45, 0.95, cover);
-    diffuseColor.rgb = mix(diffuseColor.rgb, gPigment * (0.55 + 0.3 * body), gCover);
+    // A wet film has ripples of its own: break the flat colour up a little.
+    float film = 0.9 + 0.2 * vnoise(vWorldP.xz * 1.7);
+    diffuseColor.rgb = mix(diffuseColor.rgb, gPigment * (0.5 + 0.3 * body) * film, gCover);
   }
 `;
 const ROUGH_FRAGMENT = `
   // Worn stretches are a little polished; paint is wet.
   roughnessFactor *= 0.82 + 0.18 * gWear;
-  roughnessFactor = mix(roughnessFactor, 0.22, gCover);
+  roughnessFactor = mix(roughnessFactor, 0.36, gCover);
 `;
 const EMISSIVE_FRAGMENT = `
   totalEmissiveRadiance += gPigment * gPigment * gCover * 0.55 + gSpill * 0.4;
@@ -232,4 +240,88 @@ export const ribbon = (
   geometry.setAttribute("aRoad", new THREE.BufferAttribute(road, 2));
   geometry.setIndex(indices);
   return geometry;
+};
+
+/**
+ * Let a material beside the road catch the colour of paint near it. Used on
+ * the barriers: a stroke along the rail tints the blocks next to it, strongest
+ * at their base.
+ */
+export const catchPaint = (material: THREE.MeshStandardMaterial, paint: PaintLayer): void => {
+  material.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, {
+      uPaint: { value: paint.color },
+      uPaintMask: { value: paint.mask },
+      uSpan: { value: paint.span },
+    });
+    shader.vertexShader = shader.vertexShader
+      .replace("#include <common>", "#include <common>\nvarying vec3 vCatchP;")
+      .replace(
+        "#include <begin_vertex>",
+        `#include <begin_vertex>
+        #ifdef USE_INSTANCING
+          vCatchP = (modelMatrix * instanceMatrix * vec4(transformed, 1.0)).xyz;
+        #else
+          vCatchP = (modelMatrix * vec4(transformed, 1.0)).xyz;
+        #endif`,
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        "#include <common>",
+        `#include <common>
+        uniform sampler2D uPaint;
+        uniform sampler2D uPaintMask;
+        uniform float uSpan;
+        varying vec3 vCatchP;`,
+      )
+      .replace(
+        "#include <emissivemap_fragment>",
+        `#include <emissivemap_fragment>
+        {
+          vec2 uv = vCatchP.xz / uSpan + 0.5;
+          vec3 glow = vec3(0.0);
+          for (int i = 0; i < 8; i++) {
+            float a = float(i) * 0.7854;
+            vec2 at = uv + vec2(cos(a), sin(a)) * (i < 4 ? 2.0 : 3.6) / uSpan;
+            float near = smoothstep(0.3, 0.7, texture2D(uPaintMask, at).r);
+            glow = max(glow, texture2D(uPaint, at).rgb * near * (i < 4 ? 1.0 : 0.6));
+          }
+          // Strongest low down, where the block faces the road surface.
+          totalEmissiveRadiance += glow * glow * 0.55 * (1.0 - smoothstep(0.1, 1.3, vCatchP.y));
+        }`,
+      );
+  };
+};
+
+/**
+ * Mottle a ground material in world space: patches of lighter and darker tone
+ * at two scales, so no stretch of grass or paving is one flat colour. `depth`
+ * is how far the tone swings; `scale` is patches per metre.
+ */
+export const mottle = (
+  material: THREE.MeshStandardMaterial,
+  depth: number,
+  scale: number,
+): void => {
+  material.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader
+      .replace("#include <common>", "#include <common>\nvarying vec3 vMottleP;")
+      .replace(
+        "#include <begin_vertex>",
+        "#include <begin_vertex>\nvMottleP = (modelMatrix * vec4(transformed, 1.0)).xyz;",
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace("#include <common>", `#include <common>\nvarying vec3 vMottleP;\n${NOISE}`)
+      .replace(
+        "#include <map_fragment>",
+        `#include <map_fragment>
+        {
+          vec2 p = vMottleP.xz * ${scale.toFixed(4)};
+          float tone = vnoise(p) * 0.55 + vnoise(p * 3.7 + 11.0) * 0.3 + vnoise(p * 13.0 + 5.0) * 0.15;
+          diffuseColor.rgb *= 1.0 + (tone - 0.5) * ${(depth * 2).toFixed(3)};
+          // Drier, yellower where the tone runs light.
+          diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(1.12, 1.05, 0.8), smoothstep(0.55, 0.8, tone) * ${depth.toFixed(3)});
+        }`,
+      );
+  };
 };

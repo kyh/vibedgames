@@ -9,6 +9,8 @@ import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.j
 
 import { curvatureAt, pointAt, wrapIndex } from "../sim/track";
 import type { Track } from "../sim/track";
+import type { PaintLayer } from "./paint-layer";
+import { catchPaint } from "./road";
 import type { Site } from "./site";
 import {
   checker,
@@ -148,7 +150,7 @@ export const at = (
 // --- barriers ------------------------------------------------------------------
 
 /** Rounded blocks nose to tail down both rails, in runs of colour. */
-export const addBarriers = (kit: Kit, track: Track): void => {
+export const addBarriers = (kit: Kit, track: Track, paint: PaintLayer): void => {
   const { palette } = track.def;
   const colors = [palette.accent, "#f2f0ea", palette.accent2, "#ffd23f", "#f2f0ea"].map((style) =>
     new THREE.Color(style).multiplyScalar(0.9),
@@ -158,6 +160,7 @@ export const addBarriers = (kit: Kit, track: Track): void => {
   kit.own(maps.normalMap);
   kit.own(maps.roughnessMap);
   const material = kit.own(new THREE.MeshStandardMaterial({ ...maps, roughness: 0.75 }));
+  catchPaint(material, paint);
   const placements: Placement[] = [];
   const pitch = 2.5;
   const count = Math.floor(track.n / pitch);
@@ -231,6 +234,11 @@ interface Roofscape {
   beacons: Placement[];
   /** Soft ground shade around each building's foot. */
   skirts: Placement[];
+  /** Round towers and their crowns, pitched roofs, domes. */
+  rounds: Placement[];
+  crowns: Placement[];
+  gables: Placement[];
+  domes: Placement[];
 }
 
 /** Rooftops are never bare: plant, a stair hut, sometimes a tank. */
@@ -265,6 +273,56 @@ const dressRoof = (
   }
 };
 
+type AddBlock = (
+  t: number,
+  bx: number,
+  bz: number,
+  bw: number,
+  bh: number,
+  bd: number,
+  y?: number,
+) => void;
+
+/** Low plots beside the circuit: a flat-roofed block, a row of gabled houses, or a domed hall. */
+const massLow = (
+  add: AddBlock,
+  roofs: Roofscape,
+  random: () => number,
+  x: number,
+  z: number,
+  w: number,
+  h: number,
+  d: number,
+  wall: THREE.Color,
+): void => {
+  const kind = random();
+  if (kind < 0.45) {
+    add(0, x, z, w, h, d);
+    dressRoof(roofs, random, x, z, w, d, h);
+  } else if (kind < 0.8) {
+    // Three houses side by side, each with its own pitched roof.
+    const tiles = [
+      new THREE.Color("#b5533c"),
+      new THREE.Color("#5c6b7a"),
+      new THREE.Color("#7a4a3a"),
+    ];
+    for (let i = -1; i <= 1; i += 1) {
+      const hw = w * 0.3;
+      const hh = h * (0.55 + random() * 0.3);
+      add(0, x + i * hw * 1.06, z, hw, hh, d * 0.7);
+      const gable = at(x + i * hw * 1.06, hh, z, 0, hw * 1.08, hw * 0.45, d * 0.74);
+      gable.color = tiles[Math.floor(random() * tiles.length)];
+      roofs.gables.push(gable);
+    }
+  } else {
+    // A hall under a dome.
+    add(0, x, z, w, h * 0.7, d);
+    const dome = at(x, h * 0.7, z, 0, w * 0.44, w * 0.3, d * 0.44);
+    dome.color = wall.clone().multiplyScalar(0.9);
+    roofs.domes.push(dome);
+  }
+};
+
 /** One plot's massing: a single block, a podium with a tower, or two wings. */
 const massPlot = (
   plots: Placement[][],
@@ -292,27 +350,49 @@ const massPlot = (
       roofs.skirts.push(at(bx, 0.015, bz, 0, bw + 7, 1, bd + 7));
     }
   };
+  if (tier === 0) {
+    massLow(add, roofs, random, x, z, w, h, d, wall);
+    return;
+  }
   const kind = random();
   let top = h;
-  if (kind < 0.4 || tier === 0) {
+  let mastX = x;
+  if (kind < 0.26) {
     add(tier, x, z, w, h, d);
     dressRoof(roofs, random, x, z, w, d, h);
-  } else if (kind < 0.75) {
+  } else if (kind < 0.46) {
     // Podium and a set-back tower.
     const podium = 6 + random() * 6;
     top = h + podium;
     add(0, x, z, w + 4, podium, d + 4);
     add(tier, x, z, w * 0.72, h, d * 0.72, podium);
     dressRoof(roofs, random, x, z, w * 0.72, d * 0.72, top);
-  } else {
+  } else if (kind < 0.6) {
     // Two wings of different heights.
-    add(tier, x - w * 0.22, z, w * 0.56, h, d);
+    mastX = x - w * 0.22;
+    add(tier, mastX, z, w * 0.56, h, d);
     add(tier, x + w * 0.3, z + d * 0.1, w * 0.5, h * (0.5 + random() * 0.3), d * 0.8);
-    dressRoof(roofs, random, x - w * 0.22, z, w * 0.56, d, h);
+    dressRoof(roofs, random, mastX, z, w * 0.56, d, h);
+  } else if (kind < 0.74) {
+    // A stepped tower: three setbacks.
+    add(tier, x, z, w, h * 0.5, d);
+    add(tier, x, z, w * 0.74, h * 0.3, d * 0.74, h * 0.5);
+    add(tier, x, z, w * 0.48, h * 0.28, d * 0.48, h * 0.8);
+    top = h * 1.08;
+    dressRoof(roofs, random, x, z, w * 0.48, d * 0.48, top);
+  } else if (kind < 0.87) {
+    // A round glass tower with a crown.
+    roofs.rounds.push(at(x, 0, z, 0, w * 0.5, h, w * 0.5));
+    roofs.crowns.push(at(x, h, z, 0, w * 0.56, 1.4, w * 0.56));
+    roofs.skirts.push(at(x, 0.015, z, 0, w + 7, 1, w + 7));
+  } else {
+    // A glass slab.
+    add(3, x, z, w * 1.1, h, d * 0.55);
+    dressRoof(roofs, random, x, z, w * 1.1, d * 0.55, h);
   }
   if (tier === 2) {
-    roofs.masts.push(at(x - (kind >= 0.75 ? w * 0.22 : 0), top + 5, z, 0, 0.3, 10, 0.3));
-    roofs.beacons.push(at(x - (kind >= 0.75 ? w * 0.22 : 0), top + 10.2, z, 0, 0.55));
+    roofs.masts.push(at(mastX, top + 5, z, 0, 0.3, 10, 0.3));
+    roofs.beacons.push(at(mastX, top + 10.2, z, 0, 0.55));
   }
 };
 
@@ -321,8 +401,18 @@ export const addBuildings = (kit: Kit, site: Site): void => {
   const { palette } = track.def;
   const { random } = kit;
   const walls = palette.walls.map((style) => new THREE.Color(style));
-  const plots: Placement[][] = [[], [], []];
-  const roofs: Roofscape = { beacons: [], boxes: [], masts: [], skirts: [], tanks: [] };
+  const plots: Placement[][] = [[], [], [], []];
+  const roofs: Roofscape = {
+    beacons: [],
+    boxes: [],
+    crowns: [],
+    domes: [],
+    gables: [],
+    masts: [],
+    rounds: [],
+    skirts: [],
+    tanks: [],
+  };
   for (let gx = -REACH; gx <= REACH; gx += BLOCK) {
     for (let gz = -REACH; gz <= REACH; gz += BLOCK) {
       const x = gx + BLOCK / 2 + (random() - 0.5) * 5;
@@ -344,8 +434,16 @@ export const addBuildings = (kit: Kit, site: Site): void => {
   kit.own(roofMaps.roughnessMap);
   const roof = kit.own(new THREE.MeshStandardMaterial({ ...roofMaps, roughness: 0.95 }));
   const box = new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0);
+  let glass: THREE.MeshStandardMaterial | null = null;
   for (const [tier, placements] of plots.entries()) {
-    const maps = facade("#e6e0e2", palette.windows, 90 + tier, TIERS[tier]?.rows ?? 8);
+    // The fourth set is curtain wall: blue glass, glossy, a tighter grid.
+    const curtain = tier === 3;
+    const maps = facade(
+      curtain ? "#6f9cc4" : "#e6e0e2",
+      curtain ? "#e4f6ff" : palette.windows,
+      90 + tier,
+      TIERS[tier]?.rows ?? 30,
+    );
     kit.own(maps.map);
     kit.own(maps.emissiveMap);
     const side = kit.own(
@@ -354,11 +452,35 @@ export const addBuildings = (kit: Kit, site: Site): void => {
         emissiveIntensity: 0.55,
         emissiveMap: maps.emissiveMap,
         map: maps.map,
-        roughness: 0.82,
+        metalness: curtain ? 0.55 : 0,
+        roughness: curtain ? 0.18 : 0.82,
       }),
     );
+    glass = curtain ? side : glass;
     kit.instances(box.clone(), [side, side, roof, roof, side, side], placements);
   }
+  if (glass) {
+    const drum = new THREE.CylinderGeometry(1, 1, 1, 20).translate(0, 0.5, 0);
+    kit.instances(drum, [glass, roof, roof], roofs.rounds);
+  }
+  kit.instances(
+    new THREE.CylinderGeometry(1, 0.86, 1, 20).translate(0, 0.5, 0),
+    roof,
+    roofs.crowns,
+  );
+  const tile = kit.own(new THREE.MeshStandardMaterial({ roughness: 0.8 }));
+  // A pitched roof: a three-sided prism lying along the house.
+  const prism = new THREE.CylinderGeometry(0.5, 0.5, 1, 3, 1)
+    .rotateX(Math.PI / 2)
+    .rotateZ(Math.PI / 2)
+    .scale(1, 2, 1)
+    .translate(0, 0.5, 0);
+  kit.instances(prism, tile, roofs.gables);
+  kit.instances(
+    new THREE.SphereGeometry(1, 20, 10, 0, Math.PI * 2, 0, Math.PI / 2),
+    tile,
+    roofs.domes,
+  );
   kit.own(box);
   kit.instances(new THREE.BoxGeometry(1, 1, 1), roof, roofs.boxes);
   kit.instances(new THREE.CylinderGeometry(1, 1, 1, 12), roof, roofs.tanks);
@@ -653,6 +775,32 @@ export const addGrandstand = (kit: Kit, track: Track): void => {
     stand.add(slab);
   }
   const steel = kit.own(new THREE.MeshStandardMaterial({ color: "#34343f", roughness: 0.5 }));
+  // Seat rows in two colours, aisles cut through them, and a rail along the front.
+  const seatGeometry = kit.own(new THREE.BoxGeometry(length - 1, 0.34, 0.5));
+  const seatColours = [palette.accent, palette.accent2].map((style) =>
+    kit.own(new THREE.MeshStandardMaterial({ color: style, roughness: 0.6 })),
+  );
+  for (let t = 0; t < tiers; t += 1) {
+    const seats = new THREE.Mesh(seatGeometry, seatColours[t % 2]);
+    seats.position.set(0, 0.9 * (t + 1) + 0.17, -t * 1.7 - 0.5);
+    stand.add(seats);
+  }
+  const aisle = kit.own(new THREE.BoxGeometry(1.3, 0.2, tiers * 1.7));
+  for (const ax of [-length / 4, length / 4]) {
+    const stair = new THREE.Mesh(aisle, steel);
+    stair.position.set(ax, (tiers * 0.9) / 2 + 0.75, -((tiers - 1) * 1.7) / 2);
+    stair.rotation.x = Math.atan2(0.9, 1.7);
+    stand.add(stair);
+  }
+  const frontRail = new THREE.Mesh(kit.own(new THREE.BoxGeometry(length, 0.1, 0.1)), steel);
+  frontRail.position.set(0, 1.95, 0.95);
+  stand.add(frontRail);
+  const baluster = kit.own(new THREE.BoxGeometry(0.08, 1.1, 0.08));
+  for (let i = 0; i <= 26; i += 1) {
+    const post = new THREE.Mesh(baluster, steel);
+    post.position.set(-length / 2 + (i * length) / 26, 1.45, 0.95);
+    stand.add(post);
+  }
   const roof = new THREE.Mesh(
     kit.own(new THREE.BoxGeometry(length + 3, 0.35, tiers * 1.7 + 4)),
     steel,
@@ -722,8 +870,17 @@ export const addGrandstand = (kit: Kit, track: Track): void => {
     head.color = skins[Math.floor(random() * skins.length)];
     return head;
   });
+  // One in three has an arm in the air.
+  const arms = people
+    .filter((_, i) => i % 3 === 0)
+    .map((person) => {
+      const arm = at(person.x, person.y + 0.75 * person.sy, person.z, 0, 0.09, 0.5, 0.09);
+      arm.color = person.color;
+      return arm;
+    });
   const cloth = kit.own(new THREE.MeshStandardMaterial({ roughness: 1 }));
   kit.instances(new THREE.CapsuleGeometry(0.42, 0.5, 2, 8), cloth, people, false);
+  kit.instances(new THREE.CapsuleGeometry(1, 1, 2, 6).translate(2.6, 0, 0), cloth, arms, false);
   kit.instances(new THREE.SphereGeometry(1, 10, 8), cloth, heads, false);
 };
 

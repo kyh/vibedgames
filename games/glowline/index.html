@@ -765,6 +765,227 @@
         }
       }
 
+      /* ---- each panel is its own object ----
+         The item slot is an enamel badge, the orb counter a brass pill, the
+         standings are luggage tags, the timing plate is riveted, the map sits
+         in a bolted frame. Shared: the face colour and the hard drop shadow. */
+      #item {
+        clip-path: none;
+        border-radius: 22px;
+        border: 5px solid #f6f4ee;
+        box-shadow:
+          0 0 0 3px #12131c,
+          0 6px 0 3px rgba(0, 0, 0, 0.45),
+          inset 0 0 0 3px #12131c,
+          inset 0 10px 14px rgba(255, 255, 255, 0.12);
+        background:
+          radial-gradient(circle at 30% 22%, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0) 55%),
+          linear-gradient(160deg, #2c3350, #151725);
+        filter: none;
+        transform: rotate(-5deg);
+      }
+      #item::before,
+      #item::after {
+        display: none;
+      }
+      #orbs {
+        border-radius: 999px;
+        border: 3px solid #12131c;
+        background: linear-gradient(180deg, #ffe08a, #f0a31a 55%, #b86f08);
+        color: #2a1a02;
+        box-shadow:
+          inset 0 2px 0 rgba(255, 255, 255, 0.7),
+          inset 0 -3px 0 rgba(0, 0, 0, 0.25),
+          0 4px 0 rgba(0, 0, 0, 0.45);
+        margin-top: 6px;
+        text-shadow: 0 1px 0 rgba(255, 255, 255, 0.5);
+      }
+      #orbs i {
+        border-color: #fff6d8;
+        box-shadow:
+          0 0 0 2px #7a4a04,
+          inset 0 0 0 2px #7a4a04;
+      }
+      #orbs small {
+        color: rgba(42, 26, 2, 0.7);
+      }
+      #board li {
+        /* A tag: square at the string end, pointed at the other. */
+        clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 50%, calc(100% - 12px) 100%, 0 100%);
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0) 50%),
+          linear-gradient(90deg, color-mix(in srgb, var(--chip) 46%, #171925), #171925 62%);
+        grid-template-columns: 22px 1fr;
+        padding-right: 18px;
+      }
+      #board li::before {
+        border-width: 0 0 2px;
+        border-color: rgba(0, 0, 0, 0.5);
+      }
+      #board li i {
+        display: none;
+      }
+      #board li b {
+        width: 20px;
+        height: 20px;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        background: #f6f4ee;
+        color: #14151f;
+        font-size: 12px;
+        box-shadow: 0 0 0 2px var(--chip);
+      }
+      #board li:nth-child(odd) {
+        transform: rotate(-0.6deg);
+      }
+      #board li[data-me="1"] {
+        background: linear-gradient(180deg, #ffffff, #dedbd2);
+        transform: translateX(10px) rotate(-1.4deg) scale(1.06);
+        box-shadow: none;
+      }
+      #board li[data-me="1"] b {
+        background: var(--chip);
+        box-shadow: 0 0 0 2px #14151f;
+      }
+      #timing {
+        --cut: 16px;
+        border-top: 6px solid var(--me);
+        background-image:
+          radial-gradient(
+            circle at 10px 12px,
+            #cfd3e6 0 2.4px,
+            rgba(0, 0, 0, 0.5) 2.6px 3.6px,
+            transparent 4px
+          ),
+          radial-gradient(
+            circle at calc(100% - 10px) 12px,
+            #cfd3e6 0 2.4px,
+            rgba(0, 0, 0, 0.5) 2.6px 3.6px,
+            transparent 4px
+          ),
+          linear-gradient(180deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0) 42%),
+          linear-gradient(180deg, var(--plate-hi), var(--plate));
+        padding-top: 16px;
+      }
+      #timing::after {
+        display: none;
+      }
+      #clock {
+        padding: 2px 8px;
+        margin: 3px -8px 0;
+        background: #0b0c13;
+        color: #bfffe0;
+        box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.8);
+        text-shadow: 0 0 10px rgba(120, 255, 190, 0.6);
+      }
+      #map {
+        padding: 9px;
+        border-radius: 20px;
+        border: 6px solid #e9e6df;
+        background: radial-gradient(circle at 50% 40%, #2c3a33, #17201d 75%);
+        box-shadow:
+          0 0 0 3px #12131c,
+          0 6px 0 3px rgba(0, 0, 0, 0.45),
+          inset 0 0 0 2px #12131c,
+          inset 0 8px 18px rgba(0, 0, 0, 0.55);
+      }
+      #gap {
+        clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%);
+        background: #f6f4ee;
+        color: #14151f;
+      }
+      #gap::before,
+      #gap::after {
+        display: none;
+      }
+
+      /* garage */
+      #steps {
+        grid-column: 1 / 3;
+        margin: -14px 0 0;
+        padding: 0;
+        list-style: none;
+        display: flex;
+        gap: 6px;
+        font-size: 12px;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+      }
+      #steps li {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        padding: 4px 16px 4px 6px;
+        color: var(--dim);
+        background: rgba(18, 19, 28, 0.75);
+        clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 50%, calc(100% - 10px) 100%, 0 100%);
+      }
+      #steps b {
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        background: rgba(255, 255, 255, 0.2);
+        color: var(--ink);
+        font-size: 11px;
+      }
+      #steps li[data-on="1"] {
+        color: #12131c;
+        background: var(--me);
+      }
+      #steps li[data-on="1"] b {
+        background: #12131c;
+      }
+      #title {
+        grid-template-rows: auto auto 1fr auto;
+      }
+      #rules {
+        grid-row: 2 / 4;
+      }
+      #garage {
+        grid-row: 4 / 5;
+      }
+      .card {
+        clip-path: polygon(0 10px, 10px 0, 100% 0, 100% 100%, 0 100%);
+        display: grid;
+        grid-template-columns: 1fr auto;
+        column-gap: 6px;
+      }
+      .card svg {
+        grid-column: 2 / 3;
+        grid-row: 1 / 3;
+        width: 58px;
+        height: 34px;
+        align-self: center;
+        fill: var(--ink);
+        opacity: 0.85;
+      }
+      .card[aria-pressed="true"] svg {
+        fill: var(--me);
+        opacity: 1;
+        filter: drop-shadow(0 0 6px var(--me));
+      }
+      .card .stat {
+        grid-column: 1 / 3;
+      }
+      #controls {
+        --cut: 8px;
+        padding: 9px 12px 9px 16px;
+      }
+      #rules {
+        border-top: 6px solid var(--me);
+      }
+      #rules li {
+        padding-bottom: 10px;
+        border-bottom: 1px dashed rgba(255, 255, 255, 0.18);
+      }
+      #rules li:last-child {
+        border-bottom: 0;
+        padding-bottom: 0;
+      }
+
       /* ---- results ---- */
       #results {
         position: fixed;
@@ -845,9 +1066,7 @@
           <svg id="item-icon" viewBox="0 0 64 64" aria-hidden="true"></svg>
           <span id="item-key" class="skew">E</span>
         </button>
-        <div id="orbs" class="plate skew num">
-          <i></i><span id="orb-count">0</span><small>/10</small>
-        </div>
+        <div id="orbs" class="skew num"><i></i><span id="orb-count">0</span><small>/10</small></div>
       </div>
       <ol id="board" aria-label="Standings"></ol>
       <div id="timing" class="plate">
@@ -858,7 +1077,7 @@
         <span id="clock" class="skew num">0:00.0</span>
         <span id="track-name" class="label"></span>
       </div>
-      <div id="map" class="plate">
+      <div id="map">
         <canvas id="minimap" width="300" height="300" aria-hidden="true"></canvas>
       </div>
       <div id="cluster">
@@ -922,6 +1141,11 @@
     </div>
 
     <div id="title" data-on="1">
+      <ol id="steps" class="skew" aria-hidden="true">
+        <li data-on="1"><b>1</b>Kart</li>
+        <li><b>2</b>Grid</li>
+        <li><b>3</b>Race</li>
+      </ol>
       <div id="logo">
         <h1 class="skew">GLOW<em>LINE</em></h1>
         <span id="tag" class="skew">Every kart paints the road</span>
@@ -947,7 +1171,7 @@
       <div id="garage">
         <div id="chassis" role="group" aria-label="Choose a kart"></div>
         <div id="go-wrap">
-          <div id="controls"></div>
+          <div id="controls" class="plate"></div>
           <button id="start" class="skew" type="button">RACE</button>
         </div>
       </div>

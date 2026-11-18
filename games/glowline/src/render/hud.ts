@@ -94,6 +94,14 @@ const ITEM_ICONS: Record<ItemKind | "none", string> = {
   turbo: '<path d="M10 14l20 18-20 18"/><path d="M32 14l20 18-20 18"/>',
 };
 
+/** A side-on silhouette per chassis: wing, cage and crate, twin fins. */
+const WHEELS = '<circle cx="13" cy="26" r="7"/><circle cx="45" cy="26" r="6"/>';
+const CHASSIS_ICONS = [
+  `${WHEELS}<path d="M6 22h40l8 3v2H6z"/><path d="M22 22l3-8h8l3 8z"/><path d="M2 6h14v3H10v10H7V9H2z"/>`,
+  `${WHEELS}<path d="M6 22h42l6 3v2H6z"/><path d="M4 8h18v14H4z"/><path d="M22 22V8h14l4 14h-3l-3-11h-9v11z"/>`,
+  `${WHEELS}<path d="M8 22h36l12 4v1H8z"/><path d="M22 22l3-7h7l3 7z"/><path d="M4 8l12 6v8h-4z"/><path d="M44 18h10v2H44z"/>`,
+] as const;
+
 const ITEM_NAMES: Record<ItemKind, string> = {
   blot: "Blot",
   bomb: "Paint bomb",
@@ -420,8 +428,14 @@ export class Hud {
       const tag = document.createElement("span");
       tag.className = "label";
       tag.textContent = chassis.tag;
+      const icon = document.createElementNS(SVG, "svg");
+      icon.setAttribute("viewBox", "0 0 58 34");
+      icon.setAttribute("aria-hidden", "true");
+      // Static markup from the table above, never user text.
+      icon.innerHTML = CHASSIS_ICONS[index] ?? "";
       card.append(
         name,
+        icon,
         tag,
         statRow("SPEED", pips(chassis.speed, 25), "#ff4d6a"),
         statRow("ACCEL", pips(chassis.accel, 14), "#3d9bff"),

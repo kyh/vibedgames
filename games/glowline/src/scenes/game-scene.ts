@@ -91,6 +91,8 @@ interface Racer {
   lastDrift: number;
   lastSpin: number;
   steer: number;
+  /** Where this kart last laid paint, so the next stamp can sweep from it. */
+  brush: { x: number; z: number } | null;
 }
 
 interface RoundState {
@@ -916,6 +918,7 @@ export class GameScene {
     const mesh = new KartMesh(color, plateFor(key, kind), chassis);
     this.scene.add(mesh.group);
     const racer: Racer = {
+      brush: null,
       color,
       css: `#${color.getHexString()}`,
       h: 0,
@@ -1014,11 +1017,19 @@ export class GameScene {
       },
       dt,
     );
-    if (!racing) {
-      return;
-    }
     const fx = Math.cos(pose.a);
     const fz = Math.sin(pose.a);
+    // A rival right on top of the camera would fill the frame with its insides.
+    racer.mesh.group.visible =
+      racer.kind === "me" || this.camera.position.distanceToSquared(racer.mesh.group.position) > 22;
+    if (!racing) {
+      if (this.state.phase === "race") {
+        // Under the lights every grid box is painted in its driver's colour.
+        this.paint.stamp(pose.x + fx * 1.2, pose.z + fz * 1.2, 1.5, racer.slot);
+      }
+      racer.brush = null;
+      return;
+    }
     if (pose.speed > PAINT_MIN_SPEED && Math.abs(where.lat) <= track.halfWidth) {
       let radius = PAINT_RADIUS;
       if (pose.drift !== 0) {
@@ -1028,7 +1039,25 @@ export class GameScene {
       }
       // Laid a full radius behind the kart: nobody rides the stripe they are laying.
       const back = radius + 1.6;
-      this.paint.stamp(pose.x - fx * back, pose.z - fz * back, radius, racer.slot);
+      const bx = pose.x - fx * back;
+      const bz = pose.z - fz * back;
+      // Sweep from the last stamp to this one, so a stroke is unbroken however
+      // far the kart moved in a frame.
+      const from = racer.brush ?? { x: bx, z: bz };
+      const span = Math.hypot(bx - from.x, bz - from.z);
+      const steps = span > 12 ? 1 : Math.max(1, Math.ceil(span / 0.45));
+      for (let i = 1; i <= steps; i += 1) {
+        const k = i / steps;
+        this.paint.stamp(
+          from.x + (bx - from.x) * k,
+          from.z + (bz - from.z) * k,
+          radius,
+          racer.slot,
+        );
+      }
+      racer.brush = { x: bx, z: bz };
+    } else {
+      racer.brush = null;
     }
     this.checkPads(racer);
     this.trail(racer, fx, fz);

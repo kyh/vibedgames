@@ -8,7 +8,7 @@ import { curvatureAt, pointAt } from "../sim/track";
 import type { Track } from "../sim/track";
 import type { PaintLayer } from "./paint-layer";
 import { addContactStrips, addCornerBoards, addInfield, addShade, addVerge } from "./props";
-import { KERB_INSET, ribbon, roadMaterial } from "./road";
+import { KERB_INSET, mottle, ribbon, roadMaterial } from "./road";
 import {
   BLOCK,
   Kit,
@@ -288,7 +288,7 @@ export class World {
     this.addGround(track);
     this.addRoad(track, paint);
     const site = new Site(track);
-    addBarriers(kit, track);
+    addBarriers(kit, track, paint);
     addTyres(kit, track);
     addBuildings(kit, site);
     addShade(kit, addTrees(kit, site));
@@ -335,6 +335,9 @@ export class World {
     camera.right = reach;
     camera.top = reach;
     camera.bottom = -reach;
+    // The light backs off as the frustum widens, so its near plane never cuts the ground.
+    camera.near = 10;
+    camera.far = reach * 4 + 260;
     camera.updateProjectionMatrix();
     this.reach = reach;
   }
@@ -365,7 +368,7 @@ export class World {
     const x = Math.round(focus.x / snap) * snap;
     const z = Math.round(focus.z / snap) * snap;
     this.sun.target.position.set(x, 0, z);
-    this.sun.position.set(x, 0, z).addScaledVector(this.sunDir, 260);
+    this.sun.position.set(x, 0, z).addScaledVector(this.sunDir, this.reach * 2 + 80);
   }
 
   private addGround(track: Track): void {
@@ -412,6 +415,8 @@ export class World {
     kit.own(turf.normalMap);
     kit.own(turf.roughnessMap);
     const lawn = kit.own(new THREE.MeshStandardMaterial({ ...turf, ...under(2), roughness: 1 }));
+    mottle(lawn, 0.5, 0.11);
+    mottle(material, 0.3, 0.06);
     for (const side of [-1, 1]) {
       const strip = kit.mesh(
         ribbon(track, side * (track.rail + 1.6), side * (track.rail + 17), -0.14),

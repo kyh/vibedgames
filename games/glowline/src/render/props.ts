@@ -26,7 +26,7 @@ export const addContactStrips = (kit: Kit, track: Track): void => {
     new THREE.MeshBasicMaterial({
       color: "#000000",
       depthWrite: false,
-      opacity: 0.2,
+      opacity: 0.3,
       transparent: true,
     }),
   );
@@ -158,6 +158,99 @@ const dressStation = (
   }
 };
 
+const box = (): THREE.BoxGeometry => new THREE.BoxGeometry(1, 1, 1);
+
+/** A point `dx` along and `dz` across from a placement, in its own turned frame. */
+const beside = (
+  p: Placement,
+  dx: number,
+  y: number,
+  dz: number,
+  sx = 1,
+  sy = sx,
+  sz = sx,
+): Placement =>
+  at(
+    p.x + dx * Math.cos(p.turn) + dz * Math.sin(p.turn),
+    y,
+    p.z - dx * Math.sin(p.turn) + dz * Math.cos(p.turn),
+    p.turn,
+    sx,
+    sy,
+    sz,
+  );
+
+/**
+ * The second pass over the verge kit: the parts that turn a box into a thing.
+ * Huts get doors, windows and a fascia board; vans get wheels, a windscreen
+ * and a stripe; benches get backs and legs; tents get a pole and a pennant;
+ * cones get a white band and a base.
+ */
+const addDetail = (kit: Kit, verge: Verge, accent: string): void => {
+  const dark = kit.own(new THREE.MeshStandardMaterial({ color: "#20222c", roughness: 0.7 }));
+  const glass = kit.own(
+    new THREE.MeshStandardMaterial({ color: "#8fc6e8", metalness: 0.5, roughness: 0.15 }),
+  );
+  const trim = kit.own(new THREE.MeshStandardMaterial({ color: accent, roughness: 0.5 }));
+  const pale = kit.own(new THREE.MeshStandardMaterial({ color: "#f1eee6", roughness: 0.7 }));
+  const rubber = kit.own(new THREE.MeshStandardMaterial({ color: "#14141a", roughness: 0.9 }));
+  const doors: Placement[] = [];
+  const windows: Placement[] = [];
+  const fascias: Placement[] = [];
+  for (const hut of verge.huts) {
+    for (const face of [-1, 1]) {
+      doors.push(beside(hut, -0.55, 0.85, face * 1.31, 0.75, 1.7, 0.08));
+      windows.push(beside(hut, 0.6, 1.45, face * 1.31, 0.9, 0.7, 0.08));
+      fascias.push(beside(hut, 0, 2.28, face * 1.34, 2.7, 0.3, 0.08));
+    }
+  }
+  const wheels: Placement[] = [];
+  const screens: Placement[] = [];
+  const stripes: Placement[] = [];
+  for (const van of verge.vans) {
+    for (const dx of [-1.3, 1.5]) {
+      for (const dz of [-0.95, 0.95]) {
+        wheels.push(beside(van, dx, 0.42, dz, 0.42, 0.3, 0.42));
+      }
+    }
+    screens.push(beside(van, 2.62, 0.95, 0, 0.08, 0.7, 1.5));
+    for (const dz of [-0.96, 0.96]) {
+      stripes.push(beside(van, -0.2, 0.95, dz, 3.6, 0.3, 0.04));
+    }
+  }
+  const backs: Placement[] = [];
+  const legs: Placement[] = [];
+  for (const bench of verge.benches) {
+    backs.push(beside(bench, 0, 0.95, -0.3, 2.4, 0.5, 0.1));
+    for (const dx of [-0.95, 0.95]) {
+      legs.push(beside(bench, dx, 0.2, 0, 0.12, 0.4, 0.6));
+    }
+  }
+  const tips: Placement[] = [];
+  const pennants: Placement[] = [];
+  const skirts: Placement[] = [];
+  for (const tent of verge.tents) {
+    tips.push(at(tent.x, 3.2, tent.z, 0, 0.05, 1.3, 0.05));
+    pennants.push(at(tent.x, 4.2, tent.z, tent.turn, 0.9, 0.4, 1));
+    skirts.push(at(tent.x, 0.25, tent.z, tent.turn, 3.02, 0.5, 3.02));
+  }
+  const bands = verge.cones.map((cone) => at(cone.x, 0.4, cone.z, 0, 0.17, 0.14, 0.17));
+  const bases = verge.cones.map((cone) => at(cone.x, 0.03, cone.z, 0, 0.62, 0.06, 0.62));
+  kit.instances(box(), dark, doors, false);
+  kit.instances(box(), glass, windows, false);
+  kit.instances(box(), trim, fascias, false);
+  kit.instances(new THREE.CylinderGeometry(1, 1, 1, 14).rotateX(Math.PI / 2), rubber, wheels);
+  kit.instances(box(), glass, screens, false);
+  kit.instances(box(), trim, stripes, false);
+  kit.instances(box(), trim, backs);
+  kit.instances(box(), dark, legs);
+  kit.instances(new THREE.CylinderGeometry(1, 1, 1, 6).translate(0, 0.5, 0), dark, tips, false);
+  kit.instances(new THREE.PlaneGeometry(1, 1).translate(0.5, 0, 0), trim, pennants, false);
+  kit.instances(new THREE.CylinderGeometry(1, 1, 1, 6, 1, true), pale, skirts, false);
+  kit.instances(new THREE.CylinderGeometry(1, 1.08, 1, 10), pale, bands, false);
+  kit.instances(box(), dark, bases, false);
+};
+
 /** Dress both verges, a station every dozen metres, alternating sides. */
 export const addVerge = (kit: Kit, track: Track): void => {
   const { palette } = track.def;
@@ -214,6 +307,7 @@ export const addVerge = (kit: Kit, track: Track): void => {
   kit.instances(new RoundedBoxGeometry(1.5, 1.5, 1.8, 2, 0.2), wood, verge.cabs);
   kit.instances(new THREE.ConeGeometry(3, 3.2, 6).translate(0, 1.6, 0), cloth, verge.tents);
   kit.instances(new THREE.ConeGeometry(0.28, 0.75, 10).translate(0, 0.375, 0), orange, verge.cones);
+  addDetail(kit, verge, palette.accent);
   addShade(kit, verge.shade);
 };
 
@@ -305,4 +399,66 @@ export const addInfield = (kit: Kit, site: Site): void => {
     screen.add(post);
   }
   kit.group.add(screen);
+  addWheel(kit, site);
+};
+
+/** A big observation wheel on the skyline: the one silhouette nothing else shares. */
+const addWheel = (kit: Kit, site: Site): void => {
+  const { track } = site;
+  let spot: { x: number; z: number } | null = null;
+  // The first open ground outside the loop, 45 to 70 metres from the road.
+  for (let k = 0; k < 400 && !spot; k += 1) {
+    const x = (kit.random() - 0.5) * 380;
+    const z = (kit.random() - 0.5) * 380;
+    const gap = site.distance(x, z) - track.rail;
+    if (!site.inside(x, z) && gap > 45 && gap < 70) {
+      spot = { x, z };
+    }
+  }
+  if (!spot) {
+    return;
+  }
+  const radius = 26;
+  const wheel = new THREE.Group();
+  wheel.position.set(spot.x, radius + 5, spot.z);
+  wheel.rotation.y = kit.random() * Math.PI;
+  const steel = kit.own(new THREE.MeshStandardMaterial({ color: "#e9e6df", roughness: 0.5 }));
+  const lit = kit.own(
+    new THREE.MeshBasicMaterial({
+      color: new THREE.Color(track.def.palette.accent2).multiplyScalar(1.2),
+      toneMapped: false,
+    }),
+  );
+  const rim = new THREE.Mesh(kit.own(new THREE.TorusGeometry(radius, 0.55, 8, 48)), steel);
+  const inner = new THREE.Mesh(kit.own(new THREE.TorusGeometry(radius * 0.62, 0.3, 6, 40)), lit);
+  rim.castShadow = true;
+  wheel.add(rim, inner);
+  const spoke = kit.own(new THREE.BoxGeometry(radius * 2, 0.3, 0.3));
+  const cabin = kit.own(new RoundedBoxGeometry(3, 3.4, 2.6, 2, 0.5));
+  const cabins = [track.def.palette.accent, track.def.palette.accent2, "#ffd23f", "#f4f1ea"].map(
+    (style) => kit.own(new THREE.MeshStandardMaterial({ color: style, roughness: 0.5 })),
+  );
+  for (let i = 0; i < 8; i += 1) {
+    const bar = new THREE.Mesh(spoke, steel);
+    bar.rotation.z = (i / 8) * Math.PI;
+    wheel.add(bar);
+  }
+  for (let i = 0; i < 16; i += 1) {
+    const angle = (i / 16) * Math.PI * 2;
+    const car = new THREE.Mesh(cabin, cabins[i % cabins.length]);
+    car.position.set(Math.cos(angle) * radius, Math.sin(angle) * radius - 2, 0);
+    car.castShadow = true;
+    wheel.add(car);
+  }
+  const leg = kit.own(new THREE.BoxGeometry(1, radius + 7, 1));
+  for (const side of [-1, 1]) {
+    for (const lean of [-1, 1]) {
+      const strut = new THREE.Mesh(leg, steel);
+      strut.position.set(lean * 6, -(radius + 5) / 2, side * 2.5);
+      strut.rotation.z = lean * 0.36;
+      strut.castShadow = true;
+      wheel.add(strut);
+    }
+  }
+  kit.group.add(wheel);
 };
