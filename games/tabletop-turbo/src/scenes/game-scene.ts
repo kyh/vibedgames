@@ -906,7 +906,7 @@ export class GameScene {
       this.previewStyle = style;
       this.previews = CHASSIS.flatMap((_, i) => [
         new KartMesh(ramp, i),
-        new KartMesh(RAMP.wood, i),
+        new KartMesh(RAMP.wood, i, true),
       ]);
       setAccent(rampCss(ramp, 3));
     }

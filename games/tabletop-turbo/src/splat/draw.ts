@@ -19,6 +19,8 @@ export interface Placement {
   squash?: number;
   /** The ramp that replaces the template's team colour. */
   ramp?: number;
+  /** Draw every part in `ramp`, whatever it was baked in: a silhouette. */
+  mono?: boolean;
 }
 
 const M = new Float32Array(9);
@@ -66,7 +68,7 @@ export const drawSplats = (out: SplatSet, model: SplatSet, place: Placement): vo
       m(1) * nx + m(4) * ny + m(7) * nz,
       m(2) * nx + m(5) * ny + m(8) * nz,
       ((model.data[i * 4] ?? 0) / 100) * scale,
-      (ramp === TEAM_RAMP ? team : ramp) * 8 + (model.data[i * 4 + 2] ?? 0),
+      (place.mono === true || ramp === TEAM_RAMP ? team : ramp) * 8 + (model.data[i * 4 + 2] ?? 0),
       model.data[i * 4 + 3] ?? 0,
     );
   }

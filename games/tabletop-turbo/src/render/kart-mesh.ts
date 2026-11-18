@@ -106,13 +106,16 @@ export class KartMesh {
   visible = true;
   private readonly ramp: number;
   private readonly model: SplatSet;
+  /** Every part in the one ramp: the unpicked karts on the title screen. */
+  private readonly mono: boolean;
   private look: KartLook | null = null;
   private lean = 0;
   private hop = 0;
   private squash = 0;
 
-  constructor(ramp: number, chassis = 0) {
+  constructor(ramp: number, chassis = 0, mono = false) {
     this.ramp = ramp;
+    this.mono = mono;
     this.model = modelFor(chassis);
   }
 
@@ -161,6 +164,7 @@ export class KartMesh {
       }
     }
     drawSplats(out, this.model, {
+      mono: this.mono,
       pitch: look.boosting ? 0.07 : 0,
       // A hit flashes the whole kart white on alternate steps.
       ramp: this.squash > 0 && Math.floor(this.squash * 8) % 2 === 1 ? RAMP.white : this.ramp,

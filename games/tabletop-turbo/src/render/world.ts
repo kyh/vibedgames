@@ -20,7 +20,12 @@ const TRACK_SPACING = 0.34;
 const TOY_SPACING = 0.38;
 const RAIL_HEIGHT = 1.1;
 const GANTRY_HEIGHT = 7.5;
-/** The room: half its side, how coarsely the far floor and walls are dabbed, and how tall the walls stand. */
+/**
+ * The room. Walls face inwards and a splat facing away from the camera is not
+ * drawn, so the tabletop camera, which sits outside the room, sees in through
+ * the two near walls like a dolls' house. Below: half the room's side, how
+ * coarsely the far floor and walls are dabbed, and how tall the walls stand.
+ */
 const ROOM_HALF = 200;
 const ROOM_SPACING = 1.7;
 const WALL_HEIGHT = 46;
