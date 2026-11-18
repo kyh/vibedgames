@@ -9,7 +9,7 @@
 
 import { notifyGameStarted } from "@repo/embed";
 import { FixedRate } from "@vibedgames/multiplayer";
-import type { JsonRecord, MultiplayerClient } from "@vibedgames/multiplayer";
+import type { JsonRecord, JsonValue, MultiplayerClient } from "@vibedgames/multiplayer";
 import * as THREE from "three";
 
 import { driveAudio, idleAudio, sfx } from "../audio/sfx";
@@ -26,11 +26,15 @@ import { PaintLayer } from "../render/paint-layer";
 import { World } from "../render/world";
 import {
   BOTS,
+  CHASSIS,
   COUNTDOWN_MS,
   FINISH_GRACE_MS,
   GRID_SIZE,
   KART_RADIUS,
   LAPS,
+  LAUNCH_MAX,
+  LAUNCH_MIN,
+  LAUNCH_SECONDS,
   LOCAL_COLOR,
   MAX_SPEED,
   PAD_COOLDOWN,
@@ -40,9 +44,10 @@ import {
   PAINT_RADIUS_DRIFT,
   RESULTS_MS,
   SEND_HZ,
-  TRACK_STEP,
+  SPIN_SECONDS,
   TURN_RATE,
 } from "../shared/constants";
+import type { ItemKind } from "../shared/constants";
 import { CORNER_RATE, botInput, makeBrain } from "../sim/bot";
 import {
   NO_INPUT,
@@ -59,6 +64,8 @@ import { PaintGrid } from "../sim/paint";
 import { ordinal, rank } from "../sim/race";
 import { TRACKS, curvatureAt, locate, pointAt, trackFor, wrapIndex } from "../sim/track";
 import type { Track } from "../sim/track";
+import { ITEM_EVENT, ItemSystem } from "./items";
+import type { ItemHost } from "./items";
 
 type RacerKind = "me" | "human" | "bot";
 
@@ -82,6 +89,7 @@ interface Racer {
   seen: number;
   lastA: number;
   lastDrift: number;
+  lastSpin: number;
   steer: number;
 }
 
@@ -120,10 +128,16 @@ export interface GameDiagnostics {
   /** Carrying more speed than the bend ahead will take: brake. */
   tooFast: boolean;
   wrongWay: boolean;
+  /** The item in hand ("" for none) and the glow orbs carried. */
+  item: string;
+  orbs: number;
 }
 
 /** Intent to the host: a driver just left the title; restart if nobody is racing. */
 const FRESH_START = "fresh-start";
+
+/** Speedometer scale: world units per second to the km/h on the dial. */
+const KMH = 4.6;
 
 /** Highest paint slot the paint texture's palette holds. */
 const MAX_SLOT = 31;
@@ -136,6 +150,7 @@ const TIER_COLORS = [
 ] as const;
 const WHITE = new THREE.Color("#ffffff");
 const LOOK = new THREE.Vector3();
+const HAZE = new THREE.Color();
 const GOAL = new THREE.Vector3();
 
 const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
@@ -160,6 +175,17 @@ const tagFor = (id: string): string => {
 };
 /* oxlint-enable no-bitwise, unicorn/prefer-code-point */
 
+/** The kart's race number, as painted on its nose. */
+const plateFor = (key: string, kind: RacerKind): string => {
+  if (kind === "me") {
+    return "1";
+  }
+  if (kind === "bot") {
+    return String(Number(key.slice(1)) + 2);
+  }
+  return String(10 + (Number.parseInt(tagFor(key), 36) % 89));
+};
+
 const readRound = (shared: JsonRecord): RoundState | null => {
   const { nextAt, phase, round, startAt, track } = shared;
   if (!isJsonNumber(round) || !isJsonNumber(track) || !isJsonNumber(startAt)) {
@@ -176,7 +202,7 @@ const readRound = (shared: JsonRecord): RoundState | null => {
 
 export class GameScene {
   readonly scene = new THREE.Scene();
-  readonly camera = new THREE.PerspectiveCamera(62, 1, 0.3, 1400);
+  readonly camera = new THREE.PerspectiveCamera(62, 1, 0.5, 2600);
 
   private readonly paint = new PaintGrid();
   private readonly layer = new PaintLayer();
@@ -219,18 +245,47 @@ export class GameScene {
   private readonly input: Input;
   private readonly hud: Hud;
 
-  constructor(client: MultiplayerClient, input: Input, hud: Hud) {
+  private readonly renderer: THREE.WebGLRenderer;
+  private readonly shadows: number;
+  /** A fixed camera for captures: the whole circuit from above, or the grid under the lights. */
+  private shot: "overview" | "grid" | null = null;
+  private readonly items: ItemSystem;
+  /** Frames between paint texture uploads: every other frame, every third without shadows (phones). */
+  private readonly uploadEvery: number;
+  /** The chassis picked on the title screen, and the kart shown there. */
+  private chassis = 0;
+  private preview: KartMesh | null = null;
+  private previewStyle = "";
+  /** Scene clock when the gas went down under the lights; 0 while it is up. */
+  private gasAt = 0;
+  private launched = false;
+
+  constructor(
+    client: MultiplayerClient,
+    input: Input,
+    hud: Hud,
+    renderer: THREE.WebGLRenderer,
+    shadows: number,
+  ) {
     this.client = client;
     this.input = input;
     this.hud = hud;
-    this.scene.fog = new THREE.Fog(this.track.def.palette.horizon, 90, 420);
-    this.scene.add(new THREE.HemisphereLight("#b9c4ff", "#1a1024", 1.1));
-    const key = new THREE.DirectionalLight("#ffffff", 1.3);
-    key.position.set(40, 90, 20);
-    this.scene.add(key);
+    this.renderer = renderer;
+    this.shadows = shadows;
+    this.uploadEvery = shadows > 0 ? 2 : 3;
+    this.scene.fog = new THREE.Fog(this.track.def.palette.horizon, 260, 1500);
     this.world = this.buildWorld();
     this.hud.setTrack(this.track);
     this.layer.setColor(1, neon(LOCAL_COLOR));
+    this.items = new ItemSystem(this.itemHost(), this.track);
+  }
+
+  /** Title screen: pick a chassis. */
+  setChassis(index: number): void {
+    if (!this.started) {
+      this.chassis = clamp(Math.round(index), 0, CHASSIS.length - 1);
+      this.previewStyle = "";
+    }
   }
 
   resize(aspect: number): void {
@@ -248,7 +303,8 @@ export class GameScene {
     this.hud.showHud(true);
     this.input.setTouchVisible(true);
     notifyGameStarted();
-    this.me = spawnKart(this.track, this.mySlot());
+    this.dropPreview();
+    this.me = spawnKart(this.track, this.mySlot(), this.chassis);
     this.camReady = false;
     // Nobody else is mid-race: ask for a fresh green light instead of joining
     // a race the bots are already halfway through.
@@ -256,7 +312,13 @@ export class GameScene {
   }
 
   /** Room events. The host's own intents loop back here too. */
-  onRoomEvent(event: string, from: string): void {
+  onRoomEvent(event: string, payload: JsonValue, from: string): void {
+    if (event === ITEM_EVENT) {
+      if (from !== this.client.playerId) {
+        this.items.onEvent(payload, from);
+      }
+      return;
+    }
     if (event !== FRESH_START || !this.client.isHost) {
       return;
     }
@@ -303,9 +365,18 @@ export class GameScene {
 
   /** Playtest hook: `active-play` is straight onto the grid with the lights already green. */
   setTestState(name: string): boolean {
+    if (name === "garage") {
+      return !this.started;
+    }
+    if (name === "overview" || name === "grid") {
+      this.start();
+      this.shot = name;
+      return true;
+    }
     if (name !== "active-play") {
       return false;
     }
+    this.shot = null;
     this.start();
     if (this.client.isHost) {
       this.client.updateSharedState({ startAt: Math.round(this.client.serverNow()) });
@@ -332,16 +403,19 @@ export class GameScene {
     this.stepMe(dt, now);
     this.publish(dt, now);
     this.gather(dt, now);
+    this.stepItems(now);
     this.paint.decay(dt);
-    if (this.frame % 2 === 0) {
+    if (this.frame % this.uploadEvery === 0) {
       this.layer.upload(this.paint);
     }
     this.sparks.update(dt);
+    this.updateCamera(dt);
     this.world.update(
       this.time,
       this.padReadyAt.map((at) => this.time >= at),
+      LOOK,
     );
-    this.updateCamera(dt);
+    this.startLights(now);
     this.updateHud(now);
   }
 
@@ -377,6 +451,8 @@ export class GameScene {
     out.bendAhead = bend;
     out.tooFast = Math.abs(bend) > 1e-4 && speed > (CORNER_RATE / Math.abs(bend)) * 1.12;
     out.wrongWay = this.wrongWayFor > 0.8;
+    out.item = this.items.heldBy("me") ?? "";
+    out.orbs = me.orbs;
   }
 
   private phaseName(racing: boolean): GameDiagnostics["phase"] {
@@ -395,11 +471,17 @@ export class GameScene {
   // --- room -----------------------------------------------------------------
 
   private buildWorld(): World {
-    const world = new World(this.track, this.layer);
+    const world = new World(this.track, this.layer, { shadows: this.shadows });
     this.scene.add(world.group);
     if (this.scene.fog instanceof THREE.Fog) {
-      this.scene.fog.color.set(this.track.def.palette.horizon);
+      // Haze the colour of the low sky, so the far district melts into it.
+      this.scene.fog.color
+        .set(this.track.def.palette.mid)
+        .lerp(HAZE.set(this.track.def.palette.horizon), 0.6);
     }
+    this.scene.environment?.dispose();
+    this.scene.environment = world.environment(this.renderer);
+    this.scene.environmentIntensity = 0.8;
     return world;
   }
 
@@ -472,7 +554,11 @@ export class GameScene {
       this.hud.setTrack(this.track);
     }
     this.paint.clear();
-    this.me = spawnKart(this.track, this.mySlot());
+    this.items.reset(this.track);
+    this.gasAt = 0;
+    this.launched = false;
+    this.previewStyle = "";
+    this.me = spawnKart(this.track, this.mySlot(), this.chassis);
     this.padReadyAt = this.track.pads.map(() => 0);
     this.lastCount = 0;
     this.lastLap = 0;
@@ -513,6 +599,10 @@ export class GameScene {
       }
       return;
     }
+    // Nobody has left the title yet: hold the grid under the lights for them.
+    if (humans.length === 0 && state.startAt - now < COUNTDOWN_MS - 1000) {
+      this.client.updateSharedState({ startAt: Math.round(now + COUNTDOWN_MS) });
+    }
     if (!racing || everyone.length === 0) {
       return;
     }
@@ -536,9 +626,16 @@ export class GameScene {
     const { me, state, track } = this;
     const green = now >= state.startAt;
     if (state.phase === "race" && !green) {
-      // On the grid under the lights.
+      // On the grid under the lights: note when the gas goes down.
+      const gas = !this.paused && this.input.launchHeld();
+      if (!gas) {
+        this.gasAt = 0;
+      } else if (this.gasAt === 0) {
+        this.gasAt = this.time;
+      }
       return;
     }
+    this.launch();
     const done = me.finishMs > 0 || state.phase === "results";
     let input: KartInput = NO_INPUT;
     if (done) {
@@ -550,6 +647,18 @@ export class GameScene {
     const events = stepKart(me, input, track, dt, this.paint.ownerAt(me.x, me.z), 1);
     this.collide(me);
     this.react(events);
+    this.raceCallouts(done, now, dt);
+    const tier = boostTier(me.charge);
+    if (tier > this.lastTier) {
+      sfx.tier(tier);
+    }
+    this.lastTier = tier;
+    driveAudio(kartSpeed(me) / MAX_SPEED, me.drift === 0 ? 0 : 0.25 + tier * 0.25, me.boost > 0);
+  }
+
+  /** The finish, each new lap, and driving the wrong way round. */
+  private raceCallouts(done: boolean, now: number, dt: number): void {
+    const { me, track } = this;
     if (!done && me.prog >= raceLength(track)) {
       me.finishMs = Math.round(now);
       sfx.finish();
@@ -564,12 +673,6 @@ export class GameScene {
     const along =
       Math.cos(me.a) * (track.tx[me.idx] ?? 1) + Math.sin(me.a) * (track.tz[me.idx] ?? 0);
     this.wrongWayFor = along < -0.3 && kartSpeed(me) > 4 && !done ? this.wrongWayFor + dt : 0;
-    const tier = boostTier(me.charge);
-    if (tier > this.lastTier) {
-      sfx.tier(tier);
-    }
-    this.lastTier = tier;
-    driveAudio(kartSpeed(me) / MAX_SPEED, me.drift === 0 ? 0 : 0.25 + tier * 0.25, me.boost > 0);
   }
 
   /** Push the local kart out of anyone it overlaps and bounce it off them. */
@@ -620,6 +723,117 @@ export class GameScene {
     }
   }
 
+  /** Off the line: gas pressed in the last beat before the green is a rocket start. */
+  private launch(): void {
+    if (this.launched) {
+      return;
+    }
+    this.launched = true;
+    const held = this.gasAt > 0 ? this.time - this.gasAt : 0;
+    if (held >= LAUNCH_MIN && held <= LAUNCH_MAX && this.me.finishMs === 0) {
+      this.me.boost = LAUNCH_SECONDS;
+      sfx.boost(2);
+      this.hud.callout("ROCKET START", 1100);
+    }
+  }
+
+  /** Orbs, boxes and items for every kart on the road. */
+  private stepItems(now: number): void {
+    const racing = this.state.phase === "race" && now >= this.state.startAt;
+    if (this.started && !this.paused && this.input.itemPressed()) {
+      this.items.use("me");
+    }
+    const karts = [...this.racers.values()].map((racer) => ({
+      key: racer.key,
+      x: racer.pose.x,
+      z: racer.pose.z,
+    }));
+    this.items.update(this.time, karts, racing);
+  }
+
+  private itemHost(): ItemHost {
+    return {
+      client: this.client,
+      colorOf: (key) => this.racers.get(key)?.color ?? WHITE,
+      kartOf: (key) => {
+        if (key === "me") {
+          return this.started ? this.me : null;
+        }
+        return this.client.isHost ? this.bots.kart(key) : null;
+      },
+      notify: (what, kind) => this.notify(what, kind),
+      paint: this.paint,
+      scene: this.scene,
+      shareOf: (key) => {
+        const order = this.standings();
+        const index = order.findIndex((racer) => racer.key === key);
+        return order.length > 1 ? Math.max(0, index) / (order.length - 1) : 0;
+      },
+      slotOf: (key) => (key === "me" ? 1 : this.slotFor(key)),
+      sparks: this.sparks,
+    };
+  }
+
+  /** Something happened to the local kart: say so. */
+  private notify(what: "orb" | "box" | "spin" | "used", kind?: ItemKind): void {
+    if (what === "orb") {
+      sfx.orb();
+    } else if (what === "box") {
+      sfx.box();
+    } else if (what === "spin") {
+      sfx.spin();
+      this.shake = 1;
+      this.hud.callout("SPUN OUT", 900, "warn");
+    } else if (kind) {
+      sfx.use(kind);
+      this.shake = Math.min(1, this.shake + 0.2);
+    }
+  }
+
+  /** The title screen's kart: this player's colour and chassis, parked on their grid slot. */
+  private showPreview(dt: number): void {
+    const style = this.client.players[this.client.playerId ?? ""]?.color ?? LOCAL_COLOR;
+    const want = `${style}:${this.chassis}`;
+    if (want !== this.previewStyle) {
+      this.dropPreview();
+      this.previewStyle = want;
+      const color = neon(style);
+      this.preview = new KartMesh(color, "1", this.chassis);
+      this.scene.add(this.preview.group);
+      setAccent(`#${color.getHexString()}`);
+    }
+    const slot = spawnKart(this.track, this.mySlot(), this.chassis);
+    this.preview?.update(
+      {
+        boosting: false,
+        drift: 0,
+        heading: slot.a,
+        speed: 0,
+        spin: 0,
+        steer: Math.sin(this.time * 0.8) * 0.5,
+        x: slot.x,
+        y: 0,
+        z: slot.z,
+      },
+      dt,
+    );
+    // A slow orbit, close enough that the kart fills the frame.
+    const angle = slot.a + 0.62 + Math.sin(this.time * 0.25) * 0.4;
+    this.camera.fov = 40;
+    this.camera.position.set(slot.x + Math.cos(angle) * 6.4, 2.1, slot.z + Math.sin(angle) * 6.4);
+    LOOK.set(slot.x, 0.75, slot.z);
+    this.camera.lookAt(LOOK);
+    this.camera.updateProjectionMatrix();
+  }
+
+  private dropPreview(): void {
+    if (this.preview) {
+      this.preview.group.removeFromParent();
+      this.preview.dispose();
+      this.preview = null;
+    }
+  }
+
   private publish(dt: number, now: number): void {
     if (this.started && this.sendClock.due(dt * 1000)) {
       this.client.updateMyState(encodePose(this.me, now, this.state.round));
@@ -644,7 +858,7 @@ export class GameScene {
     return slot;
   }
 
-  private ensure(key: string, kind: RacerKind): Racer {
+  private ensure(key: string, kind: RacerKind, chassis: number): Racer {
     const existing = this.racers.get(key);
     if (existing) {
       existing.seen = this.pass;
@@ -663,7 +877,7 @@ export class GameScene {
     const color = neon(style);
     const slot = kind === "me" ? 1 : this.slotFor(key);
     this.layer.setColor(slot, color);
-    const mesh = new KartMesh(color);
+    const mesh = new KartMesh(color, plateFor(key, kind), chassis);
     this.scene.add(mesh.group);
     const racer: Racer = {
       color,
@@ -674,6 +888,7 @@ export class GameScene {
       kind,
       lastA: 0,
       lastDrift: 0,
+      lastSpin: 0,
       lat: 0,
       mesh,
       name,
@@ -696,13 +911,13 @@ export class GameScene {
     this.pass += 1;
     let humans = 0;
     if (this.started) {
-      this.ensure("me", "me").pose = poseOf(this.me);
+      this.ensure("me", "me", this.chassis).pose = poseOf(this.me);
       humans += 1;
     }
     for (const player of Object.values(client.players)) {
       const report = player.id === client.playerId ? null : readPose(player.state);
       if (report && report.round === state.round) {
-        const racer = this.ensure(player.id, "human");
+        const racer = this.ensure(player.id, "human", report.chassis);
         racer.track?.push(report);
         racer.pose = racer.track?.sample() ?? racer.pose;
         humans += 1;
@@ -712,7 +927,7 @@ export class GameScene {
     const rows = client.sharedState["bots"];
     for (const [key, pose] of this.bots.poses(client.isHost, rows, this.botCount, state.round)) {
       if (Number(key.slice(1)) < this.botCount) {
-        this.ensure(key, "bot").pose = pose;
+        this.ensure(key, "bot", pose.chassis).pose = pose;
       }
     }
     const racing = state.phase === "race" && now >= state.startAt;
@@ -736,12 +951,6 @@ export class GameScene {
     racer.idx = where.i;
     racer.lat = where.lat;
     racer.h = where.h;
-    const rise =
-      (track.hs[wrapIndex(where.i + 2, track.n)] ?? 0) -
-      (track.hs[wrapIndex(where.i - 2, track.n)] ?? 0);
-    const along =
-      Math.cos(pose.a) * (track.tx[where.i] ?? 1) + Math.sin(pose.a) * (track.tz[where.i] ?? 0);
-    const pitch = Math.atan2(rise, 4 * TRACK_STEP) * along;
     const turning = dt > 0 ? angleDelta(pose.a, racer.lastA) / dt / TURN_RATE : 0;
     const steer = racer.kind === "me" ? this.me.steer : clamp(turning * 1.4, -1, 1);
     racer.steer += (steer - racer.steer) * Math.min(1, dt * 12);
@@ -750,16 +959,23 @@ export class GameScene {
       racer.mesh.kick();
     }
     racer.lastDrift = pose.drift;
+    if (pose.spin > 0 && racer.lastSpin <= 0) {
+      racer.mesh.thump();
+      this.sparks.burst(pose.x, 0.8, pose.z, WHITE, 16, 9);
+    }
+    racer.lastSpin = pose.spin;
     racer.mesh.update(
-      pose.x,
-      where.h,
-      pose.z,
-      pose.a,
-      pitch,
-      racer.steer,
-      pose.drift,
-      pose.speed,
-      pose.boosting,
+      {
+        boosting: pose.boosting,
+        drift: pose.drift,
+        heading: pose.a,
+        speed: pose.speed,
+        spin: pose.spin > 0 ? 1 - pose.spin / SPIN_SECONDS : 0,
+        steer: racer.steer,
+        x: pose.x,
+        y: where.h,
+        z: pose.z,
+      },
       dt,
     );
     if (!racing) {
@@ -790,9 +1006,12 @@ export class GameScene {
       const armed = this.time >= (this.padReadyAt[i] ?? 0);
       if (armed && Math.abs(gap) <= 1.5 && Math.abs(racer.lat) < track.halfWidth * 0.75) {
         this.padReadyAt[i] = this.time + PAD_COOLDOWN;
-        for (let k = 0; k < 9; k += 1) {
-          const at = pointAt(track, pad + 3 + k * 1.5, 0);
-          this.paint.stamp(at.x, at.z, track.halfWidth * 0.98, racer.slot);
+        // Three fat stripes across the road, not a sheet: the road stays road.
+        for (let k = 0; k < 3; k += 1) {
+          for (const lane of [-0.66, -0.33, 0, 0.33, 0.66]) {
+            const at = pointAt(track, pad + 4 + k * 4.5, lane * track.halfWidth);
+            this.paint.stamp(at.x, at.z, 1.5, racer.slot);
+          }
         }
         const centre = pointAt(track, pad + 6, 0);
         this.sparks.burst(centre.x, centre.h + 0.4, centre.z, racer.color, 40, 13);
@@ -851,7 +1070,55 @@ export class GameScene {
     ).map((entry) => entry.racer);
   }
 
+  /** Five reds come on through the countdown, then green for a moment. */
+  private startLights(now: number): void {
+    const left = this.state.startAt - now;
+    let lit = 0;
+    if (left <= 1000) {
+      lit = 5;
+    } else if (left <= 2000) {
+      lit = 4;
+    } else if (left <= 3000) {
+      lit = 2;
+    }
+    const go = left <= 0 && left > -2500;
+    this.world.setStartLights(left < -2500 || this.state.phase === "results" ? 0 : lit, go);
+  }
+
+  /** Capture cameras: fixed framings the critic loop matches to its reference shots. */
+  private shotCamera(): boolean {
+    if (this.shot === "overview") {
+      this.camera.fov = 38;
+      this.camera.position.set(-40, 235, 250);
+      LOOK.set(0, 0, 8);
+      this.world.setShadowReach(330);
+    } else if (this.shot === "grid") {
+      const line = pointAt(this.track, -16, 0);
+      const fx = Math.cos(line.a);
+      const fz = Math.sin(line.a);
+      this.camera.fov = 58;
+      this.camera.position.set(line.x - fx * 15 + fz * 1.5, 3.6, line.z - fz * 15 - fx * 1.5);
+      LOOK.set(line.x + fx * 30, 2.6, line.z + fz * 30);
+      // Hold the lights on three for as long as the capture takes.
+      if (this.client.isHost) {
+        this.client.updateSharedState({ startAt: Math.round(this.client.serverNow() + 2600) });
+      }
+    } else {
+      return false;
+    }
+    this.camera.lookAt(LOOK);
+    this.camera.updateProjectionMatrix();
+    return true;
+  }
+
   private updateCamera(dt: number): void {
+    if (this.shotCamera()) {
+      return;
+    }
+    if (!this.started) {
+      this.showPreview(dt);
+      return;
+    }
     const order = this.standings();
     const subject = this.racers.get("me") ?? order[0];
     if (!subject) {
@@ -910,14 +1177,26 @@ export class GameScene {
     if (!this.started) {
       return;
     }
+    const ahead = order[this.myPlace - 2];
+    const gap = ahead ? (ahead.pose.prog - me.prog) / Math.max(12, kartSpeed(me)) : 0;
     hud.setRace({
+      boosting: me.boost > 0,
       charge: me.charge,
       clockMs: Math.max(0, (me.finishMs > 0 ? me.finishMs : now) - state.startAt),
+      gap: ahead && gap > 0 ? gap : 0,
+      item: this.items.heldBy("me"),
+      kmh: Math.round(kartSpeed(me) * KMH),
       lap: kartLap(me, this.track),
+      orbs: me.orbs,
       place: this.myPlace,
       surface: me.surface,
       total: order.length,
     });
+    if (this.frame % 6 === 0) {
+      hud.setStandings(
+        order.map((racer) => ({ color: racer.css, me: racer.kind === "me", name: racer.name })),
+      );
+    }
     if (state.phase === "results") {
       this.showResults(order, now);
       return;

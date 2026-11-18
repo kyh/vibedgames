@@ -6,17 +6,19 @@ import {
   publishTestHooks,
 } from "@vibedgames/playtest";
 import type { Reflex } from "@vibedgames/playtest";
+import "@fontsource/chakra-petch/500.css";
+import "@fontsource/chakra-petch/600.css";
+import "@fontsource/chakra-petch/700.css";
+import "@fontsource/chakra-petch/700-italic.css";
 import * as THREE from "three";
-import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
-import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
-import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
-import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
+import type { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 
 import { isMuted, setAudioPaused, setMuted, unlockAudio } from "./audio/sfx";
 import { IS_TOUCH, Input } from "./input/input";
 import { joinRoom } from "./net/session";
 import { pauseOverlay } from "./pause-overlay";
 import { Hud } from "./render/hud";
+import { buildPost } from "./render/post";
 import { GameScene } from "./scenes/game-scene";
 import type { GameDiagnostics } from "./scenes/game-scene";
 import { FALLBACK_MS, LOCAL_COLOR, MAX_DT, MAX_PLAYERS, ROOM_ID } from "./shared/constants";
@@ -44,8 +46,9 @@ const renderer = new THREE.WebGLRenderer({
 });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, IS_TOUCH ? 1.5 : 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.15;
+// Neutral keeps saturated colours saturated when they get bright: paint must not bleach.
+renderer.toneMapping = THREE.NeutralToneMapping;
+renderer.toneMappingExposure = 1.05;
 container.append(renderer.domElement);
 renderer.domElement.addEventListener("webglcontextlost", () => {
   console.error("WebGL context lost");
@@ -55,34 +58,45 @@ renderer.domElement.addEventListener("webglcontextlost", () => {
   );
 });
 
+// Signs, number plates and item boxes are drawn on canvases at boot: the
+// display face has to be there first, or they are lettered in a fallback.
+await Promise.all([
+  document.fonts.load("italic 700 32px 'Chakra Petch'"),
+  document.fonts.load("600 16px 'Chakra Petch'"),
+]).catch(() => null);
+
 const playtest = isPlaytestRequested();
 const client = joinRoom({
   fallbackMs: FALLBACK_MS,
   maxPlayers: MAX_PLAYERS,
   // A playtest must drive its own race, never someone else's room.
   offline: playtest,
-  onEvent: (event, _payload, from) => game.onRoomEvent(event, from),
+  onEvent: (event, payload, from) => game.onRoomEvent(event, payload, from),
   room: ROOM_ID,
 });
 
 const input = new Input(LOCAL_COLOR);
 input.setTouchVisible(false);
-const hud = new Hud(() => {
-  unlockAudio();
-  game.start();
+const hud = new Hud({
+  onChassis: (index) => game.setChassis(index),
+  onItem: () => input.queueItem(),
+  onStart: () => {
+    unlockAudio();
+    game.start();
+  },
 });
-const game = new GameScene(client, input, hud);
+// Soft shadows are what ground everything; a phone goes without the shadow pass.
+const SHADOW_MAP = IS_TOUCH ? 0 : 2048;
+renderer.shadowMap.enabled = SHADOW_MAP > 0;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+const game = new GameScene(client, input, hud, renderer, SHADOW_MAP);
 game.resize(window.innerWidth / window.innerHeight);
 
-// Bloom is what makes the paint glow; phones draw the scene straight.
+// Desktop post: ambient occlusion in every crease and under every object,
+// bloom keyed to the paint and the lamps, then a grade. Phones draw straight.
 let composer: EffectComposer | null = null;
 if (!IS_TOUCH) {
-  composer = new EffectComposer(renderer);
-  composer.addPass(new RenderPass(game.scene, game.camera));
-  composer.addPass(
-    new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.42, 0.45, 0.9),
-  );
-  composer.addPass(new OutputPass());
+  composer = buildPost(renderer, game.scene, game.camera);
 }
 
 window.addEventListener("resize", () => {
@@ -132,8 +146,10 @@ const diag: Diagnostics = {
   drifting: false,
   entities: 0,
   frame: 0,
+  item: "",
   lane: 0,
   lap: 1,
+  orbs: 0,
   paused: false,
   phase: "title",
   place: 1,
@@ -161,6 +177,10 @@ const driveKeys = (d: Diagnostics, lane: number, drift: boolean): string[] => {
   const intoBend = Math.sign(d.bendAhead) === Math.sign(error) && Math.abs(d.bendAhead) > 0.03;
   if (drift && intoBend && d.surface !== "shoulder" && d.driftTier < 3) {
     keys.push("Space");
+  }
+  // Play whatever is in hand; the key is edge-triggered, so tap it on alternate frames.
+  if (d.item !== "" && d.frame % 2 === 0) {
+    keys.push("KeyE");
   }
   return keys;
 };
@@ -195,9 +215,9 @@ if (import.meta.env.DEV || playtest) {
 
   publishPlaytest<Diagnostics>({
     goal: [
-      "A three-lap kart race against five rivals; finish as high as you can (game.place, 1 is first; game.complete is true once you cross the line).",
+      "A three-lap kart race against seven rivals; finish as high as you can (game.place, 1 is first; game.complete is true once you cross the line).",
       "Every kart paints the road behind it. game.surface says what you are on: 'own' (your paint: faster), 'rival' (someone else's: slippery and slower), 'road' (bare), 'shoulder' (off the road: very slow, get back on).",
-      "game.lane is where you are across the road, -1 left edge to 1 right edge. game.bendAhead is the sharpest bend coming, + for a right-hander. Every move brakes by itself when game.tooFast is true. Default to race_centre. Switch lanes when game.surface has been 'rival' for a while. Use drift_corner when |game.bendAhead| is above 0.03: it slides the bend and releases a boost.",
+      "game.lane is where you are across the road, -1 left edge to 1 right edge. game.bendAhead is the sharpest bend coming, + for a right-hander. Every move brakes by itself when game.tooFast is true. Default to race_centre. Switch lanes when game.surface has been 'rival' for a while. Use drift_corner when |game.bendAhead| is above 0.03: it slides the bend and releases a boost. game.orbs (0-10) raises your top speed: drive through the gold rings. game.item names the item in hand; every move plays it by itself.",
     ].join(" "),
     // The road is ~15 units wide and a kart covers ~8 units per decision.
     minDisplacement: 1,

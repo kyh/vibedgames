@@ -27,6 +27,9 @@ export interface KartPose {
   finishMs: number;
   /** Drift charge in seconds, for spark colour. */
   charge: number;
+  /** Seconds of spin-out left. */
+  spin: number;
+  chassis: number;
 }
 
 /** A pose plus when it was sent and which round it belongs to. */
@@ -42,10 +45,12 @@ export const poseOf = (kart: Kart): KartPose => ({
   a: kart.a,
   boosting: kart.boost > 0,
   charge: kart.charge,
+  chassis: kart.chassis,
   drift: kart.drift,
   finishMs: kart.finishMs,
   prog: kart.prog,
   speed: kartSpeed(kart),
+  spin: kart.spin,
   x: kart.x,
   z: kart.z,
 });
@@ -57,6 +62,8 @@ export const encodePose = (kart: Kart, t: number, round: number): JsonRecord => 
   c: round2(kart.charge),
   d: kart.drift,
   f: kart.finishMs,
+  k: kart.chassis,
+  n: round2(kart.spin),
   p: round2(kart.prog),
   r: round,
   s: round2(kartSpeed(kart)),
@@ -78,11 +85,13 @@ export const readPose = (row: WireField): PoseReport | null => {
     a,
     boosting: row["b"] === 1,
     charge: numberOr(row["c"], 0),
+    chassis: numberOr(row["k"], 0),
     drift: numberOr(row["d"], 0),
     finishMs: numberOr(row["f"], 0),
     prog: numberOr(row["p"], 0),
     round: numberOr(row["r"], 0),
     speed: numberOr(row["s"], 0),
+    spin: numberOr(row["n"], 0),
     t,
     x,
     z,
@@ -96,10 +105,12 @@ const lerpPose = (p: KartPose, q: KartPose, k: number): KartPose => {
     a: lerpAngle(p.a, q.a, k),
     boosting: near.boosting,
     charge: near.charge,
+    chassis: q.chassis,
     drift: near.drift,
     finishMs: q.finishMs,
     prog: lerp(p.prog, q.prog, k),
     speed: lerp(p.speed, q.speed, k),
+    spin: near.spin,
     x: lerp(p.x, q.x, k),
     z: lerp(p.z, q.z, k),
   };

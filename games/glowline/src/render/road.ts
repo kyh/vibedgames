@@ -1,0 +1,212 @@
+// The road: a lit asphalt ribbon whose shader also draws the markings, the
+// kerbs, the start grid and — sampled by world position — everyone's paint.
+// Paint is a material here, not a decal: glossy where the asphalt is rough,
+// emissive, with a darker wet rim at the edge of every stroke.
+
+import * as THREE from "three";
+
+import { TRACK_STEP } from "../shared/constants";
+import { pointAt, wrapIndex } from "../sim/track";
+import type { Track } from "../sim/track";
+import type { PaintLayer } from "./paint-layer";
+import type { SurfaceMaps } from "./textures";
+
+/** Share of the road ribbon's half width that is drivable; the rest is kerb. */
+export const KERB_INSET = 0.9;
+/** World units one repeat of a tiling surface covers. */
+const TILE = 9;
+
+const DECLARE_VERTEX = `
+  attribute vec2 aRoad;
+  varying vec2 vRoad;
+  varying vec3 vWorldP;
+`;
+const SET_VERTEX = `
+  vRoad = aRoad;
+  vWorldP = (modelMatrix * vec4(transformed, 1.0)).xyz;
+`;
+const DECLARE_FRAGMENT = `
+  uniform sampler2D uPaint;
+  uniform sampler2D uPaintMask;
+  uniform float uSpan;
+  uniform float uLap;
+  uniform vec3 uKerbA;
+  uniform vec3 uKerbB;
+  varying vec2 vRoad;
+  varying vec3 vWorldP;
+  float gCover;
+  vec3 gPigment;
+  float gWear;
+
+  float hash21(vec2 p) {
+    p = fract(p * vec2(123.34, 456.21));
+    p += dot(p, p + 45.32);
+    return fract(p.x * p.y);
+  }
+  // Smooth value noise in world space: never repeats, so it never stripes.
+  float vnoise(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    vec2 u = f * f * (3.0 - 2.0 * f);
+    return mix(
+      mix(hash21(i), hash21(i + vec2(1.0, 0.0)), u.x),
+      mix(hash21(i + vec2(0.0, 1.0)), hash21(i + vec2(1.0, 1.0)), u.x),
+      u.y
+    );
+  }
+`;
+const SURFACE_FRAGMENT = `
+  {
+    float across = abs(vRoad.x);
+    float along = vRoad.y;
+    vec3 line = vec3(0.86, 0.86, 0.82);
+
+    // Patches of newer and older tar, and the dark rubbered-in racing line.
+    float patch = vnoise(vWorldP.xz * 0.07) * 0.6 + vnoise(vWorldP.xz * 0.23) * 0.4;
+    gWear = vnoise(vWorldP.xz * 0.045 + 31.0);
+    diffuseColor.rgb *= 0.8 + 0.34 * patch;
+    float rubber = exp(-pow(vRoad.x / 0.42, 2.0)) * (0.35 + 0.65 * vnoise(vec2(along * 0.05, 3.0)));
+    diffuseColor.rgb *= 1.0 - 0.3 * rubber;
+    // Skid marks: thin dark pairs that come and go along the lap.
+    float skid = smoothstep(0.62, 0.8, vnoise(vec2(along * 0.035, 9.0)));
+    float lane = (vnoise(vec2(along * 0.012, 17.0)) - 0.5) * 1.3;
+    float tyre = exp(-pow((vRoad.x - lane - 0.09) / 0.022, 2.0)) + exp(-pow((vRoad.x - lane + 0.09) / 0.022, 2.0));
+    diffuseColor.rgb *= 1.0 - 0.55 * skid * clamp(tyre, 0.0, 1.0);
+
+    // Solid edge lines and a dashed centre line, a little worn.
+    float wear = 0.55 + 0.45 * diffuseColor.r / max(diffuseColor.r + 0.05, 0.001);
+    float edge = smoothstep(0.855, 0.862, across) * (1.0 - smoothstep(0.878, 0.885, across));
+    float dash = (1.0 - smoothstep(0.012, 0.018, across)) * step(0.45, fract(along / 9.0));
+    diffuseColor.rgb = mix(diffuseColor.rgb, line * wear, (edge + dash) * 0.82);
+
+    // Start grid: staggered slot brackets behind the line.
+    float back = uLap - along;
+    if (back > 3.0 && back < 46.0) {
+      float row = fract((back - 3.5) / 5.0);
+      float lane = step(0.12, across) * (1.0 - step(0.72, across));
+      float bar = (1.0 - step(0.05, row)) * lane;
+      float side = lane * (1.0 - step(0.3, row)) * (step(0.69, across) + (1.0 - step(0.15, across)));
+      diffuseColor.rgb = mix(diffuseColor.rgb, line * wear, clamp(bar + side, 0.0, 1.0) * 0.8);
+    }
+
+    // The line itself: three rows of checks.
+    float fromLine = min(along, uLap - along);
+    if (fromLine < 1.8 && across < 0.86) {
+      float check = mod(floor(vRoad.x * 9.0) + floor(along / 0.6), 2.0);
+      diffuseColor.rgb = vec3(check * 0.8 + 0.04);
+    }
+
+    // Kerbs: raised-looking blocks in two colours with a dark joint between.
+    float kerb = smoothstep(${KERB_INSET.toFixed(3)}, ${(KERB_INSET + 0.006).toFixed(3)}, across);
+    float block = fract(along / 3.2);
+    vec3 kerbCol = mix(uKerbA, uKerbB, step(0.5, fract(along / 6.4)));
+    kerbCol *= 0.78 + 0.22 * smoothstep(0.0, 0.08, block) * (1.0 - smoothstep(0.92, 1.0, block));
+    diffuseColor.rgb = mix(diffuseColor.rgb, kerbCol * (0.7 + 0.3 * wear), kerb);
+
+    // Paint. Thresholding the blurred coverage gives round-edged strokes.
+    // Colour is nearest-sampled (hard lines between drivers); coverage is
+    // bilinear and thresholded, which rounds the cells into brushed edges.
+    vec2 paintUv = vWorldP.xz / uSpan + 0.5;
+    float cover = texture2D(uPaintMask, paintUv).r;
+    // A little noise on the threshold breaks the edge up like a dry brush.
+    float fray = (texture2D(map, vMapUv * 3.0).r - 0.2) * 0.5;
+    gCover = smoothstep(0.42, 0.5, cover + fray * 0.18) * (1.0 - kerb);
+    gPigment = texture2D(uPaint, paintUv).rgb;
+    // Thicker in the middle of a stroke, thin and darker towards its edge.
+    float body = smoothstep(0.45, 0.95, cover);
+    diffuseColor.rgb = mix(diffuseColor.rgb, gPigment * (0.55 + 0.3 * body), gCover);
+  }
+`;
+const ROUGH_FRAGMENT = `
+  // Worn stretches are a little polished; paint is wet.
+  roughnessFactor *= 0.82 + 0.18 * gWear;
+  roughnessFactor = mix(roughnessFactor, 0.22, gCover);
+`;
+const EMISSIVE_FRAGMENT = `
+  totalEmissiveRadiance += gPigment * gPigment * gCover * 0.55;
+`;
+
+export const roadMaterial = (
+  track: Track,
+  paint: PaintLayer,
+  maps: SurfaceMaps,
+  kerbA: THREE.Color,
+  kerbB: THREE.Color,
+): THREE.MeshStandardMaterial => {
+  const material = new THREE.MeshStandardMaterial({
+    ...maps,
+    metalness: 0,
+    normalScale: new THREE.Vector2(0.9, 0.9),
+    roughness: 1,
+  });
+  material.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, {
+      uKerbA: { value: kerbA },
+      uKerbB: { value: kerbB },
+      uLap: { value: track.n * TRACK_STEP },
+      uPaint: { value: paint.color },
+      uPaintMask: { value: paint.mask },
+      uSpan: { value: paint.span },
+    });
+    shader.vertexShader = shader.vertexShader
+      .replace("#include <common>", `#include <common>\n${DECLARE_VERTEX}`)
+      .replace("#include <begin_vertex>", `#include <begin_vertex>\n${SET_VERTEX}`);
+    shader.fragmentShader = shader.fragmentShader
+      .replace("#include <common>", `#include <common>\n${DECLARE_FRAGMENT}`)
+      .replace("#include <map_fragment>", `#include <map_fragment>\n${SURFACE_FRAGMENT}`)
+      .replace(
+        "#include <roughnessmap_fragment>",
+        `#include <roughnessmap_fragment>\n${ROUGH_FRAGMENT}`,
+      )
+      .replace(
+        "#include <emissivemap_fragment>",
+        `#include <emissivemap_fragment>\n${EMISSIVE_FRAGMENT}`,
+      );
+  };
+  return material;
+};
+
+/**
+ * A flat ribbon following the track between lateral offsets `latA` and `latB`
+ * at height `y`. `uv` tiles in world units; `aRoad` is (-1 | 1, distance along
+ * the lap) for the road shader.
+ */
+export const ribbon = (
+  track: Track,
+  latA: number,
+  latB: number,
+  y: number,
+): THREE.BufferGeometry => {
+  const { n } = track;
+  const positions = new Float32Array((n + 1) * 6);
+  const uvs = new Float32Array((n + 1) * 4);
+  const road = new Float32Array((n + 1) * 4);
+  const normals = new Float32Array((n + 1) * 6);
+  const indices: number[] = [];
+  for (let k = 0; k <= n; k += 1) {
+    const i = wrapIndex(k, n);
+    const a = pointAt(track, i, latA);
+    const b = pointAt(track, i, latB);
+    positions.set([a.x, y, a.z, b.x, y, b.z], k * 6);
+    normals.set([0, 1, 0, 0, 1, 0], k * 6);
+    const v = (k * TRACK_STEP) / TILE;
+    uvs.set([latA / TILE, v, latB / TILE, v], k * 4);
+    road.set([-1, k * TRACK_STEP, 1, k * TRACK_STEP], k * 4);
+    if (k < n) {
+      // Wind so the face points up whichever way round the two edges were given.
+      const at = k * 2;
+      if (latA < latB) {
+        indices.push(at, at + 1, at + 2, at + 1, at + 3, at + 2);
+      } else {
+        indices.push(at, at + 2, at + 1, at + 1, at + 2, at + 3);
+      }
+    }
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+  geometry.setAttribute("normal", new THREE.BufferAttribute(normals, 3));
+  geometry.setAttribute("uv", new THREE.BufferAttribute(uvs, 2));
+  geometry.setAttribute("aRoad", new THREE.BufferAttribute(road, 2));
+  geometry.setIndex(indices);
+  return geometry;
+};

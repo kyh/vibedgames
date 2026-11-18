@@ -9,16 +9,29 @@
 import { SHOULDER, TRACK_STEP } from "../shared/constants";
 
 export interface TrackPalette {
-  /** Scene background + fog. */
-  sky: string;
-  horizon: string;
-  road: string;
-  shoulder: string;
-  /** Rails, gate, kerbs. */
+  /** Kerbs, barriers, gantry, signs. */
   accent: string;
   accent2: string;
-  tower: string;
+  /** Asphalt binder. */
+  road: string;
+  /** Concrete apron beside the road and the plaza beyond. */
+  apron: string;
+  plaza: string;
+  /** Building walls, lightest to darkest. */
+  walls: readonly [string, string, string];
+  /** Lit windows. */
   windows: string;
+  /** Blue-hour sky, top to bottom, the afterglow and the far skyline. */
+  zenith: string;
+  mid: string;
+  horizon: string;
+  sun: string;
+  skyline: string;
+  /** Low key light: its colour and the compass bearing it comes from, radians. */
+  key: string;
+  bearing: number;
+  /** Cool fill from the sky. */
+  fill: string;
 }
 
 /** One hill term: `amp * sin(2π * (waves * u + phase))`, u the lap fraction. */
@@ -275,22 +288,26 @@ export const curvatureAt = (track: Track, s: number): number =>
 export const TRACK_DEFS: readonly TrackDef[] = [
   {
     halfWidth: 7.5,
-    hills: [
-      { amp: 2.2, phase: 0.25, waves: 2 },
-      { amp: 0.9, phase: 0.6, waves: 5 },
-    ],
+    hills: [],
     id: "sodium-loop",
     name: "Sodium Loop",
     pads: [0.2, 0.47, 0.76],
     palette: {
-      accent: "#2fe6ff",
+      accent: "#19c8f0",
       accent2: "#ff3d81",
-      horizon: "#1b1140",
-      road: "#14131f",
-      shoulder: "#0c0b14",
-      sky: "#07060f",
-      tower: "#0e0d1c",
-      windows: "#ffb347",
+      apron: "#a7a3ac",
+      bearing: 2.3,
+      fill: "#9fc4ff",
+      horizon: "#ffd9ad",
+      key: "#ffd2a1",
+      mid: "#7fb2ea",
+      plaza: "#8f8b96",
+      road: "#4a4a55",
+      skyline: "#5b6f9e",
+      sun: "#ffe0b0",
+      walls: ["#d9cfc6", "#b9a79d", "#8e8ba0"],
+      windows: "#ffd58a",
+      zenith: "#2f5fb4",
     },
     points: [
       [-70, -78],
@@ -310,22 +327,26 @@ export const TRACK_DEFS: readonly TrackDef[] = [
   },
   {
     halfWidth: 7,
-    hills: [
-      { amp: 3, phase: 0.1, waves: 3 },
-      { amp: 1.1, phase: 0.4, waves: 7 },
-    ],
+    hills: [],
     id: "harbor-hairpins",
     name: "Harbor Hairpins",
     pads: [0.14, 0.4, 0.63, 0.88],
     palette: {
-      accent: "#7cff5b",
-      accent2: "#ffd23f",
-      horizon: "#06323a",
-      road: "#10171a",
-      shoulder: "#091012",
-      sky: "#030b0e",
-      tower: "#0a1518",
-      windows: "#7df9ff",
+      accent: "#3fd85a",
+      accent2: "#ffc21f",
+      apron: "#a3aba8",
+      bearing: 0.7,
+      fill: "#a6d6e6",
+      horizon: "#ffe6b8",
+      key: "#ffdcaa",
+      mid: "#7cc4d8",
+      plaza: "#88928f",
+      road: "#454c50",
+      skyline: "#4f7f8e",
+      sun: "#fff0c4",
+      walls: ["#d6dcd2", "#a9b9b2", "#7d949a"],
+      windows: "#fff0b8",
+      zenith: "#1f6f9c",
     },
     points: [
       [-98, -70],
@@ -350,22 +371,26 @@ export const TRACK_DEFS: readonly TrackDef[] = [
   },
   {
     halfWidth: 8,
-    hills: [
-      { amp: 3.6, phase: 0.3, waves: 2 },
-      { amp: 1.4, phase: 0.15, waves: 4 },
-    ],
+    hills: [],
     id: "ultraviolet-ridge",
     name: "Ultraviolet Ridge",
     pads: [0.25, 0.55, 0.82],
     palette: {
-      accent: "#b56bff",
-      accent2: "#ff8a3d",
-      horizon: "#3a0d3f",
-      road: "#17111d",
-      shoulder: "#0e0a12",
-      sky: "#0b0510",
-      tower: "#140d1c",
-      windows: "#ff6ad5",
+      accent: "#a55cff",
+      accent2: "#ff7a2f",
+      apron: "#aca2ad",
+      bearing: 4.1,
+      fill: "#c4a8ff",
+      horizon: "#ffc4b0",
+      key: "#ffc6a8",
+      mid: "#a888e0",
+      plaza: "#93879a",
+      road: "#4b4552",
+      skyline: "#6d5a9a",
+      sun: "#ffd0b0",
+      walls: ["#e0d2d6", "#b8a2b4", "#8a7aa0"],
+      windows: "#ffe0c0",
+      zenith: "#4a3aa6",
     },
     points: [
       [-104, -40],

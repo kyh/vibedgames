@@ -7,7 +7,7 @@
 import { FixedRate, RemoteClock } from "@vibedgames/multiplayer";
 import type { JsonRecord } from "@vibedgames/multiplayer";
 
-import { BOTS, BOT_SEND_HZ, KART_RADIUS } from "../shared/constants";
+import { BOTS, BOT_SEND_HZ, CHASSIS, KART_RADIUS, LAUNCH_SECONDS } from "../shared/constants";
 import { botInput, makeBrain } from "../sim/bot";
 import type { BotBrain } from "../sim/bot";
 import { raceLength, spawnKart, stepKart } from "../sim/kart";
@@ -79,8 +79,13 @@ export class BotField {
     for (const [index] of BOTS.entries()) {
       this.hosted.set(botKey(index), {
         brain: makeBrain(index),
-        kart: spawnKart(track, firstSlot + index),
+        kart: spawnKart(track, firstSlot + index, index % CHASSIS.length),
       });
+      // Some bots nail the lights: the boost only burns once the race is on.
+      const bot = this.hosted.get(botKey(index));
+      if (bot && (index * 7 + track.n) % 3 === 0) {
+        bot.kart.boost = LAUNCH_SECONDS;
+      }
     }
   }
 
@@ -99,6 +104,7 @@ export class BotField {
           // The row says only that a boost is burning, not how much is left.
           boost: report.boosting ? HANDOVER_BOOST : 0,
           charge: report.charge,
+          chassis: report.chassis,
           drift: report.drift,
           finishMs: report.finishMs,
           h: where.h,
@@ -106,6 +112,7 @@ export class BotField {
           lat: where.lat,
           prog: report.prog,
           s: where.s,
+          spin: report.spin,
           vx: Math.cos(report.a) * report.speed,
           vz: Math.sin(report.a) * report.speed,
           x: report.x,
@@ -137,6 +144,11 @@ export class BotField {
         }
       }
     }
+  }
+
+  /** Host: the kart behind a bot key, for whatever else acts on it (items, spins). */
+  kart(key: string): Kart | null {
+    return this.hosted.get(key)?.kart ?? null;
   }
 
   /** Host: true when it is time to publish the rows again. */

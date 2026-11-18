@@ -11,6 +11,7 @@ import {
   BOOST_SPEED,
   BOOST_TIERS,
   BRAKE,
+  CHASSIS,
   COAST_DRAG,
   DRIFT_BASE_TURN,
   DRIFT_MIN_SPEED,
@@ -22,12 +23,15 @@ import {
   GRIP_SLICK,
   LAPS,
   MAX_SPEED,
+  ORB_LOSS,
+  ORB_SPEED,
   OWN_PAINT_ACCEL,
   OWN_PAINT_SPEED,
   RAIL_SCRUB,
   REVERSE_SPEED,
   RIVAL_PAINT_SPEED,
   SHOULDER_SPEED,
+  SPIN_SECONDS,
   STEER_FULL_SPEED,
   STEER_SMOOTH,
   STEER_SPEED_FALLOFF,
@@ -75,6 +79,14 @@ export interface Kart {
   surface: Surface;
   /** Room clock (ms) when the kart crossed the line for the last time; 0 until then. */
   finishMs: number;
+  /** Glow orbs carried, 0 … ORB_MAX. */
+  orbs: number;
+  /** Seconds of spin-out left: no steering, no gas. */
+  spin: number;
+  /** Seconds of immunity to rival paint left. */
+  proof: number;
+  /** Which chassis: an index into CHASSIS. */
+  chassis: number;
 }
 
 /** What one step did, for effects and sound. */
@@ -111,7 +123,7 @@ export const boostTier = (charge: number): number => {
 };
 
 /** A kart parked on grid slot `slot` (0 = pole), two abreast behind the line. */
-export const spawnKart = (track: Track, slot: number): Kart => {
+export const spawnKart = (track: Track, slot: number, chassis = 0): Kart => {
   const row = Math.floor(slot / 2);
   const side = slot % 2 === 0 ? -1 : 1;
   const s = -6 - row * 5 - (slot % 2) * 2;
@@ -121,13 +133,17 @@ export const spawnKart = (track: Track, slot: number): Kart => {
     a: point.a,
     boost: 0,
     charge: 0,
+    chassis,
     drift: 0,
     finishMs: 0,
     h: where.h,
     idx: where.i,
     lat: where.lat,
+    orbs: 0,
     prog: s,
+    proof: 0,
     s: where.s,
+    spin: 0,
     steer: 0,
     surface: "road",
     vx: 0,
@@ -151,7 +167,11 @@ const surfaceUnder = (kart: Kart, track: Track, paintOwner: number, slot: number
   if (paintOwner === 0) {
     return "road";
   }
-  return paintOwner === slot ? "own" : "rival";
+  if (paintOwner === slot) {
+    return "own";
+  }
+  // Fresh out of a solvent wave, rival paint is just road.
+  return kart.proof > 0 ? "road" : "rival";
 };
 
 /** Start, hold or release a drift; a release cashes the charge in as boost. */
@@ -191,7 +211,8 @@ interface Limits {
   grip: number;
 }
 
-const limitsFor = (kart: Kart): Limits => {
+/** The limits a surface sets, before the kart's own chassis and orbs. */
+const surfaceLimits = (kart: Kart): Limits => {
   const drifting = kart.drift !== 0;
   switch (kart.surface) {
     case "own": {
@@ -219,6 +240,29 @@ const limitsFor = (kart: Kart): Limits => {
       return { accel: ACCEL, grip: drifting ? GRIP_DRIFT : GRIP, top: MAX_SPEED };
     }
   }
+};
+
+const limitsFor = (kart: Kart): Limits => {
+  const base = surfaceLimits(kart);
+  const chassis = CHASSIS[kart.chassis] ?? CHASSIS[0];
+  return {
+    accel: base.accel * chassis.accel,
+    // A drift is a drift on any chassis; grip only shapes ordinary cornering.
+    grip: kart.drift === 0 ? base.grip * chassis.grip : base.grip,
+    top: base.top * chassis.speed * (1 + kart.orbs * ORB_SPEED),
+  };
+};
+
+/** Knock a kart into a spin: it loses its drift, its boost and a few orbs. */
+export const spinOut = (kart: Kart): void => {
+  if (kart.spin > 0) {
+    return;
+  }
+  kart.spin = SPIN_SECONDS;
+  kart.drift = 0;
+  kart.charge = 0;
+  kart.boost = 0;
+  kart.orbs = Math.max(0, kart.orbs - ORB_LOSS);
 };
 
 /** Forward speed after throttle, brake, boost and drag. */
@@ -296,7 +340,7 @@ const stepCorridor = (kart: Kart, track: Track, events: KartEvents): void => {
  */
 export const stepKart = (
   kart: Kart,
-  input: KartInput,
+  driver: KartInput,
   track: Track,
   dt: number,
   paintOwner: number,
@@ -304,6 +348,11 @@ export const stepKart = (
 ): KartEvents => {
   const events: KartEvents = { boosted: 0, driftStarted: false, railHit: 0 };
   kart.surface = surfaceUnder(kart, track, paintOwner, slot);
+  kart.proof = Math.max(0, kart.proof - dt);
+  // Spinning: the driver is a passenger until it stops.
+  const spinning = kart.spin > 0;
+  kart.spin = Math.max(0, kart.spin - dt);
+  const input = spinning ? NO_INPUT : driver;
 
   const fx = Math.cos(kart.a);
   const fz = Math.sin(kart.a);
@@ -322,7 +371,8 @@ export const stepKart = (
   kart.a += wheel * TURN_RATE * authority * dt * (vf < 0 ? -1 : 1);
 
   const limits = limitsFor(kart);
-  const nextVf = stepForward(kart, input, vf, limits, dt);
+  const driven = stepForward(kart, input, vf, limits, dt);
+  const nextVf = spinning ? driven * Math.exp(-1.5 * dt) : driven;
   const nextVl = vl * Math.exp(-limits.grip * dt);
 
   const nfx = Math.cos(kart.a);

@@ -4,10 +4,10 @@
 /** Laps in one race. */
 export const LAPS = 3;
 /** Karts on the grid: humans first, bots fill the rest. */
-export const GRID_SIZE = 6;
+export const GRID_SIZE = 8;
 /** Humans one room holds; the SDK overflows the rest into a sibling room. */
-export const MAX_PLAYERS = 6;
-export const ROOM_ID = "glowline-v1";
+export const MAX_PLAYERS = 8;
+export const ROOM_ID = "glowline-v2";
 
 // --- Kart handling (world units, seconds) ---------------------------------
 export const MAX_SPEED = 34;
@@ -44,15 +44,15 @@ export const BOOST_ACCEL = 60;
 
 // --- Paint -------------------------------------------------------------------
 /** Paint grid: PAINT_SIZE cells a side, PAINT_CELL world units each, centred on the origin. */
-export const PAINT_SIZE = 320;
-export const PAINT_CELL = 0.8;
+export const PAINT_SIZE = 512;
+export const PAINT_CELL = 0.5;
 /** Seconds a stamp glows before it is gone. */
 export const PAINT_LIFE = 34;
 /** Below this strength paint no longer boosts or slicks anyone. */
 export const PAINT_ACTIVE = 0.12;
-export const PAINT_RADIUS = 0.95;
-export const PAINT_RADIUS_DRIFT = 1.7;
-export const PAINT_RADIUS_BOOST = 1.3;
+export const PAINT_RADIUS = 0.8;
+export const PAINT_RADIUS_DRIFT = 1.45;
+export const PAINT_RADIUS_BOOST = 1.1;
 /** Minimum speed to lay paint: a parked kart does not flood its grid slot. */
 export const PAINT_MIN_SPEED = 5;
 /** Top-speed multiplier on your own paint. */
@@ -94,6 +94,51 @@ export const BOTS = [
   { color: "#7cff5b", name: "Kiko" },
   { color: "#b56bff", name: "Onyx" },
   { color: "#ff8a3d", name: "Ember" },
+  { color: "#3d6bff", name: "Flux" },
+  { color: "#f4f1ea", name: "Chalk" },
 ] as const;
+
+// --- Chassis -----------------------------------------------------------------
+/** Three karts, three trade-offs. Multipliers on top speed, acceleration and grip. */
+export const CHASSIS = [
+  { accel: 1, grip: 1, name: "Dart", speed: 1, tag: "All-rounder" },
+  { accel: 0.86, grip: 0.93, name: "Anvil", speed: 1.045, tag: "Top speed" },
+  { accel: 1.2, grip: 1.12, name: "Wisp", speed: 0.965, tag: "Corners" },
+] as const;
+
+// --- Orbs --------------------------------------------------------------------
+/** Glow orbs a kart can carry; each adds ORB_SPEED to its top speed. */
+export const ORB_MAX = 10;
+export const ORB_SPEED = 0.011;
+/** Orbs lost on a spin-out. */
+export const ORB_LOSS = 3;
+export const ORB_RESPAWN = 14;
+export const PICKUP_RADIUS = 1.9;
+
+// --- Items -------------------------------------------------------------------
+export const ITEM_KINDS = ["turbo", "bomb", "solvent", "blot"] as const;
+export type ItemKind = (typeof ITEM_KINDS)[number];
+export const BOX_RESPAWN = 4.5;
+export const TURBO_SECONDS = 1.7;
+/** Paint bomb: how far ahead it lands (samples), flight time, splat and blast radius. */
+export const BOMB_REACH = 30;
+export const BOMB_FLIGHT = 0.8;
+export const BOMB_SPLAT = 7.5;
+export const BOMB_BLAST = 6;
+/** Solvent: radius wiped of rival paint, and seconds of immunity to slick. */
+export const SOLVENT_RADIUS = 18;
+export const SOLVENT_SECONDS = 4;
+/** Blot: a puddle dropped behind; radius, lifetime, and the grace before it arms. */
+export const BLOT_RADIUS = 2.3;
+export const BLOT_SECONDS = 16;
+export const BLOT_ARM = 0.6;
+/** Seconds a spun-out kart is out of the driver's hands. */
+export const SPIN_SECONDS = 1.15;
+
+// --- Rocket start ------------------------------------------------------------
+/** Gas pressed this long (seconds) before the green earns a launch boost. */
+export const LAUNCH_MIN = 0.08;
+export const LAUNCH_MAX = 0.75;
+export const LAUNCH_SECONDS = 1.1;
 
 export const LOCAL_COLOR = "#2fe6ff";

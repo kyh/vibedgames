@@ -15,6 +15,7 @@ const RIGHT = ["KeyD", "ArrowRight"];
 const GAS = ["KeyW", "ArrowUp"];
 const BRAKE = ["KeyS", "ArrowDown"];
 const DRIFT = ["Space", "ShiftLeft", "ShiftRight"];
+const ITEM = new Set(["KeyE", "KeyX"]);
 const DRIVING_KEYS = new Set([...LEFT, ...RIGHT, ...GAS, ...BRAKE, ...DRIFT]);
 
 const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
@@ -23,14 +24,19 @@ export class Input {
   private readonly keys = new Set<string>();
   private readonly touch: DomGamepad;
   private readonly pad = new PhysicalGamepad({
-    bindings: { brake: ["b"], drift: ["x", "rb"], gas: ["a"] },
+    bindings: { brake: ["b"], drift: ["x", "rb"], gas: ["a"], item: ["y", "lb"] },
   });
+  /** An item key went down since the last `itemPressed`. */
+  private itemQueued = false;
 
   constructor(tint: string) {
     window.addEventListener("keydown", (event) => {
       if (DRIVING_KEYS.has(event.code)) {
         // Arrows and Space would scroll a framed page.
         event.preventDefault();
+      }
+      if (ITEM.has(event.code) && !event.repeat) {
+        this.itemQueued = true;
       }
       this.keys.add(event.code);
     });
@@ -75,6 +81,30 @@ export class Input {
   /** True on the frame any "go" input is down — starts the race from the title. */
   anyStart(): boolean {
     return this.pad.justPressed("gas") || this.pad.justPressed("start");
+  }
+
+  /** True once per press of an item key or button. */
+  itemPressed(): boolean {
+    const pressed = this.itemQueued || this.pad.justPressed("item");
+    this.itemQueued = false;
+    return pressed;
+  }
+
+  /** The item button on the HUD was tapped. */
+  queueItem(): void {
+    this.itemQueued = true;
+  }
+
+  /**
+   * Is the driver on the gas under the start lights? A touch kart drives
+   * itself, so there the drift button stands in for the pedal.
+   */
+  launchHeld(): boolean {
+    if (this.touch.isTouch) {
+      return this.touch.isButtonDown("drift");
+    }
+    const keyed = GAS.some((code) => this.keys.has(code));
+    return keyed || this.pad.isButtonDown("gas") || this.pad.buttonValue("rt") > 0.4;
   }
 
   read(): KartInput {

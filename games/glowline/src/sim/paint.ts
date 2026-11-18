@@ -48,6 +48,28 @@ export class PaintGrid {
     this.version += 1;
   }
 
+  /** Strip every colour but `keep` from a disc of `radius` world units at (x, z). */
+  wipe(x: number, z: number, radius: number, keep: number): void {
+    const cx = (x + HALF) / PAINT_CELL;
+    const cz = (z + HALF) / PAINT_CELL;
+    const r = radius / PAINT_CELL;
+    const x0 = Math.max(0, Math.floor(cx - r));
+    const x1 = Math.min(PAINT_SIZE - 1, Math.ceil(cx + r));
+    const z0 = Math.max(0, Math.floor(cz - r));
+    const z1 = Math.min(PAINT_SIZE - 1, Math.ceil(cz + r));
+    for (let j = z0; j <= z1; j += 1) {
+      for (let i = x0; i <= x1; i += 1) {
+        const cell = j * PAINT_SIZE + i;
+        const inside = (i + 0.5 - cx) ** 2 + (j + 0.5 - cz) ** 2 <= r * r;
+        if (inside && this.owner[cell] !== keep) {
+          this.owner[cell] = 0;
+          this.strength[cell] = 0;
+        }
+      }
+    }
+    this.version += 1;
+  }
+
   /** Age every cell by `dt` seconds. */
   decay(dt: number): void {
     const fade = dt / PAINT_LIFE;

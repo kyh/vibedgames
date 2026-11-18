@@ -6,11 +6,11 @@
       name="viewport"
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
     />
-    <meta name="theme-color" content="#07060f" />
+    <meta name="theme-color" content="#10111b" />
     <title>Glowline</title>
     <meta
       name="description"
-      content="A night kart racer where every kart paints the road. Your colour is a fast lane, everyone else's is slick."
+      content="A kart racer where every kart paints the road. Your colour is a fast lane, everyone else's is slick."
     />
     <meta property="og:title" content="Glowline" />
     <meta
@@ -20,11 +20,14 @@
     <style>
       :root {
         --me: #2fe6ff;
-        --ink: #f4f6ff;
-        --dim: rgba(244, 246, 255, 0.62);
-        --panel: rgba(10, 9, 20, 0.72);
-        --edge: rgba(244, 246, 255, 0.16);
-        --font: "Avenir Next", "Segoe UI", system-ui, -apple-system, sans-serif;
+        --ink: #f6f4ee;
+        --dim: rgba(246, 244, 238, 0.66);
+        --plate: #171925;
+        --plate-hi: #262a3d;
+        --rim: rgba(255, 255, 255, 0.2);
+        --amber: #ffb629;
+        --font: "Chakra Petch", "Avenir Next Condensed", "Arial Narrow", system-ui, sans-serif;
+        --cut: 12px;
       }
       * {
         box-sizing: border-box;
@@ -34,9 +37,10 @@
         margin: 0;
         height: 100%;
         overflow: hidden;
-        background: #07060f;
+        background: #10111b;
         color: var(--ink);
         font-family: var(--font);
+        font-weight: 600;
         -webkit-user-select: none;
         user-select: none;
         -webkit-tap-highlight-color: transparent;
@@ -50,127 +54,322 @@
       #game canvas {
         display: block;
       }
+      button {
+        font: inherit;
+        color: inherit;
+      }
+
+      /* ---- the plate: every HUD panel is one ----
+         An enamel timing board: dark face, bright bevel, a cut corner, a hard
+         drop shadow, and a stripe of the driver's colour down one edge. */
+      .plate {
+        position: relative;
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0) 42%),
+          repeating-linear-gradient(
+            115deg,
+            rgba(255, 255, 255, 0.025) 0 2px,
+            rgba(255, 255, 255, 0) 2px 7px
+          ),
+          linear-gradient(180deg, var(--plate-hi), var(--plate));
+        clip-path: polygon(
+          var(--cut) 0,
+          100% 0,
+          100% calc(100% - var(--cut)),
+          calc(100% - var(--cut)) 100%,
+          0 100%,
+          0 var(--cut)
+        );
+        filter: drop-shadow(0 4px 0 rgba(0, 0, 0, 0.45))
+          drop-shadow(0 10px 14px rgba(0, 0, 0, 0.35));
+      }
+      .plate::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border: 2px solid var(--rim);
+        clip-path: inherit;
+        pointer-events: none;
+      }
+      .plate::after {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        width: 5px;
+        background: var(--me);
+        box-shadow: 0 0 14px var(--me);
+      }
+      .label {
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+        color: var(--dim);
+      }
+      .skew {
+        font-style: italic;
+        font-weight: 700;
+      }
+      .num {
+        font-variant-numeric: tabular-nums;
+      }
 
       /* ---- race HUD ---- */
       #hud {
         position: fixed;
         inset: 0;
         pointer-events: none;
-        padding: calc(14px + env(safe-area-inset-top)) calc(16px + env(safe-area-inset-right))
-          calc(14px + env(safe-area-inset-bottom)) calc(16px + env(safe-area-inset-left));
-        font-variant-numeric: tabular-nums;
+        --pad-t: calc(14px + env(safe-area-inset-top));
+        --pad-r: calc(16px + env(safe-area-inset-right));
+        --pad-b: calc(14px + env(safe-area-inset-bottom));
+        --pad-l: calc(16px + env(safe-area-inset-left));
         transition: opacity 0.25s ease;
       }
       #hud[data-on="0"] {
         opacity: 0;
       }
-      .skew {
-        font-style: italic;
-        font-weight: 800;
-        letter-spacing: 0.02em;
-        text-shadow: 0 2px 0 rgba(0, 0, 0, 0.55);
-      }
-      #place {
+
+      /* top left: item slot + orb counter */
+      #kit {
         position: absolute;
-        top: inherit;
-        left: calc(16px + env(safe-area-inset-left));
-        top: calc(10px + env(safe-area-inset-top));
-        line-height: 1;
-        color: var(--me);
-        filter: drop-shadow(0 0 14px color-mix(in srgb, var(--me) 55%, transparent));
-      }
-      #place-num {
-        font-size: clamp(54px, 11vmin, 92px);
-      }
-      #place-suffix {
-        font-size: clamp(20px, 4vmin, 32px);
-      }
-      #place-of {
-        margin-left: 6px;
-        font-size: clamp(14px, 2.6vmin, 20px);
-        color: var(--dim);
-      }
-      #stats {
-        position: absolute;
-        left: calc(18px + env(safe-area-inset-left));
-        top: calc(clamp(64px, 12.5vmin, 104px) + 14px + env(safe-area-inset-top));
+        left: var(--pad-l);
+        top: var(--pad-t);
         display: flex;
-        flex-direction: column;
-        gap: 2px;
-        font-size: clamp(13px, 2.4vmin, 17px);
-        color: var(--dim);
+        align-items: flex-start;
+        gap: 10px;
       }
-      #stats b {
-        color: var(--ink);
-        font-size: 1.25em;
+      #item {
+        pointer-events: auto;
+        width: 78px;
+        height: 78px;
+        padding: 0;
+        border: 0;
+        cursor: pointer;
+        display: grid;
+        place-items: center;
       }
-      #minimap {
+      #item svg {
+        width: 46px;
+        height: 46px;
+        fill: none;
+        stroke: var(--ink);
+        stroke-width: 5;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        filter: drop-shadow(0 0 8px var(--me));
+      }
+      #item[data-kind=""] svg {
+        opacity: 0.18;
+        filter: none;
+      }
+      #item[data-kind]:not([data-kind=""]) {
+        animation: ready 0.9s ease-in-out infinite alternate;
+      }
+      @keyframes ready {
+        to {
+          filter: drop-shadow(0 4px 0 rgba(0, 0, 0, 0.45)) drop-shadow(0 0 18px var(--me));
+        }
+      }
+      #item-key {
         position: absolute;
-        right: calc(14px + env(safe-area-inset-right));
-        top: calc(12px + env(safe-area-inset-top));
-        width: clamp(96px, 20vmin, 150px);
-        height: clamp(96px, 20vmin, 150px);
-        border-radius: 18px;
-        background: var(--panel);
-        border: 1px solid var(--edge);
-      }
-      /* The shared pause button takes the top-right corner on phones. */
-      body.touch #minimap {
-        top: calc(66px + env(safe-area-inset-top));
-      }
-      #track-name {
-        position: absolute;
-        right: calc(16px + env(safe-area-inset-right));
-        top: calc(clamp(96px, 20vmin, 150px) + 20px + env(safe-area-inset-top));
+        right: 7px;
+        bottom: 5px;
         font-size: 11px;
-        letter-spacing: 0.18em;
-        text-transform: uppercase;
         color: var(--dim);
       }
-      body.touch #track-name {
-        top: calc(clamp(96px, 20vmin, 150px) + 74px + env(safe-area-inset-top));
+      body.touch #item-key {
+        display: none;
       }
-      #dash {
-        position: absolute;
-        left: 50%;
-        bottom: calc(18px + env(safe-area-inset-bottom));
-        transform: translateX(-50%);
+      #orbs {
+        --cut: 8px;
         display: flex;
-        flex-direction: column;
         align-items: center;
         gap: 8px;
+        height: 38px;
+        padding: 0 14px 0 16px;
+        font-size: 22px;
       }
-      #surface {
-        height: 22px;
-        padding: 0 12px;
-        border-radius: 999px;
+      #orbs i {
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        border: 5px solid var(--amber);
+        box-shadow:
+          0 0 10px var(--amber),
+          inset 0 0 4px rgba(0, 0, 0, 0.5);
+      }
+      #orbs small {
         font-size: 12px;
-        line-height: 22px;
-        letter-spacing: 0.16em;
-        opacity: 0;
-        transition: opacity 0.12s ease;
+        color: var(--dim);
       }
-      #surface[data-kind="own"] {
-        opacity: 1;
-        color: #06060c;
-        background: var(--me);
-        box-shadow: 0 0 22px var(--me);
+
+      /* left: standings */
+      #board {
+        position: absolute;
+        left: var(--pad-l);
+        top: calc(var(--pad-t) + 96px);
+        margin: 0;
+        padding: 0;
+        list-style: none;
+        display: grid;
+        gap: 4px;
+        width: 168px;
       }
-      #surface[data-kind="rival"] {
-        opacity: 1;
-        color: #fff;
-        background: rgba(255, 60, 90, 0.85);
+      #board li {
+        --cut: 6px;
+        display: grid;
+        grid-template-columns: 22px 12px 1fr;
+        align-items: center;
+        gap: 7px;
+        height: 26px;
+        padding: 0 8px 0 12px;
+        font-size: 14px;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        filter: drop-shadow(0 2px 0 rgba(0, 0, 0, 0.4));
+      }
+      #board li::after {
+        width: 3px;
+        background: var(--chip);
+        box-shadow: none;
+      }
+      #board li b {
+        font-size: 13px;
+        color: var(--dim);
+      }
+      #board li i {
+        width: 12px;
+        height: 12px;
+        border-radius: 3px;
+        background: var(--chip);
+        box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.35);
+      }
+      #board li span {
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+      }
+      #board li[data-me="1"] {
+        background: linear-gradient(180deg, #ffffff, #dedbd2);
+        color: #14151f;
+        transform: translateX(8px);
+      }
+      #board li[data-me="1"] b {
+        color: #14151f;
+      }
+
+      /* top right: lap + time */
+      #timing {
+        position: absolute;
+        right: var(--pad-r);
+        top: var(--pad-t);
+        padding: 9px 16px 10px 20px;
+        display: grid;
+        grid-template-columns: auto auto;
+        align-items: end;
+        column-gap: 18px;
+        min-width: 186px;
+      }
+      #timing .label {
+        grid-column: 1 / 2;
+      }
+      #lap {
+        grid-column: 2 / 3;
+        grid-row: 1 / 2;
+        justify-self: end;
+        font-size: 28px;
+        line-height: 0.9;
+      }
+      #lap small {
+        font-size: 15px;
+        color: var(--dim);
+      }
+      #clock {
+        grid-column: 1 / 3;
+        font-size: 30px;
+        line-height: 1.05;
+        letter-spacing: 0.02em;
+      }
+      #track-name {
+        grid-column: 1 / 3;
+        margin-top: 3px;
+      }
+      /* The shared pause button takes the top-right corner on phones. */
+      body.touch #timing {
+        right: calc(var(--pad-r) + 54px);
+      }
+
+      /* bottom left: minimap */
+      #map {
+        position: absolute;
+        left: var(--pad-l);
+        bottom: var(--pad-b);
+        width: clamp(120px, 21vmin, 176px);
+        height: clamp(120px, 21vmin, 176px);
+        padding: 8px 8px 8px 12px;
+      }
+      #minimap {
+        width: 100%;
+        height: 100%;
+        display: block;
+      }
+
+      /* bottom right: speedometer, position badge, gap */
+      #cluster {
+        position: absolute;
+        right: var(--pad-r);
+        bottom: var(--pad-b);
+        display: flex;
+        align-items: flex-end;
+        gap: 4px;
+      }
+      #speedo {
+        position: relative;
+        width: clamp(118px, 22vmin, 168px);
+        aspect-ratio: 1;
+        filter: drop-shadow(0 6px 0 rgba(0, 0, 0, 0.4)) drop-shadow(0 12px 16px rgba(0, 0, 0, 0.4));
+      }
+      #speedo svg {
+        width: 100%;
+        height: 100%;
+        display: block;
+      }
+      #needle {
+        transform-origin: 80px 80px;
+        transition: transform 0.08s linear;
+      }
+      #kmh {
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 54%;
+        text-align: center;
+        font-size: clamp(24px, 4.6vmin, 36px);
+        line-height: 1;
+      }
+      #kmh small {
+        display: block;
+        margin-top: 1px;
+        font-size: 10px;
+        letter-spacing: 0.2em;
+        color: var(--dim);
+        font-style: normal;
       }
       #charge {
+        position: absolute;
+        left: 22%;
+        right: 22%;
+        bottom: 9%;
         display: flex;
-        gap: 5px;
+        gap: 4px;
       }
       #charge i {
-        display: block;
-        width: clamp(44px, 9vmin, 64px);
-        height: 9px;
-        border-radius: 5px;
-        background: rgba(244, 246, 255, 0.14);
+        flex: 1;
+        height: 7px;
+        transform: skewX(-18deg);
+        background: rgba(255, 255, 255, 0.16);
         overflow: hidden;
       }
       #charge i::after {
@@ -179,7 +378,7 @@
         height: 100%;
         width: calc(var(--fill, 0) * 100%);
         background: var(--tier, #fff);
-        box-shadow: 0 0 12px var(--tier, #fff);
+        box-shadow: 0 0 10px var(--tier, #fff);
       }
       #charge i:nth-child(1) {
         --tier: #7df9ff;
@@ -190,232 +389,446 @@
       #charge i:nth-child(3) {
         --tier: #ff3d81;
       }
+      #rank {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 6px;
+        margin-bottom: 4px;
+      }
+      #gap {
+        --cut: 6px;
+        padding: 3px 10px 3px 14px;
+        font-size: 13px;
+        letter-spacing: 0.06em;
+        white-space: nowrap;
+      }
+      #gap[data-on="0"] {
+        visibility: hidden;
+      }
+      #place {
+        width: clamp(78px, 14vmin, 104px);
+        aspect-ratio: 1;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        color: #12131c;
+        background:
+          radial-gradient(circle at 34% 28%, rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0) 46%),
+          var(--me);
+        border: 5px solid #f6f4ee;
+        box-shadow:
+          0 5px 0 rgba(0, 0, 0, 0.45),
+          0 0 0 3px #12131c,
+          0 0 26px color-mix(in srgb, var(--me) 70%, transparent);
+        transform: rotate(-7deg);
+        line-height: 1;
+      }
+      #place-num {
+        font-size: clamp(38px, 7vmin, 54px);
+      }
+      #place-suffix {
+        font-size: clamp(15px, 2.8vmin, 21px);
+        vertical-align: 0.9em;
+        margin-left: 1px;
+      }
+
+      /* bottom centre: what you are driving on */
+      #surface {
+        position: absolute;
+        left: 50%;
+        bottom: calc(var(--pad-b) + 6px);
+        transform: translateX(-50%) skewX(-12deg);
+        padding: 4px 16px;
+        font-size: 14px;
+        letter-spacing: 0.18em;
+        opacity: 0;
+        transition: opacity 0.12s ease;
+        border: 2px solid rgba(255, 255, 255, 0.7);
+        box-shadow: 0 4px 0 rgba(0, 0, 0, 0.4);
+      }
+      #surface[data-kind="own"] {
+        opacity: 1;
+        color: #10111b;
+        background: var(--me);
+        box-shadow:
+          0 4px 0 rgba(0, 0, 0, 0.4),
+          0 0 22px var(--me);
+      }
+      #surface[data-kind="rival"] {
+        opacity: 1;
+        color: #fff;
+        background: #e8284a;
+      }
       #net {
         position: absolute;
-        left: calc(18px + env(safe-area-inset-left));
-        bottom: calc(14px + env(safe-area-inset-bottom));
-        font-size: 11px;
-        letter-spacing: 0.12em;
+        left: 50%;
+        top: var(--pad-t);
+        transform: translateX(-50%);
+        font-size: 10px;
+        letter-spacing: 0.2em;
         text-transform: uppercase;
         color: var(--dim);
+        text-shadow: 0 1px 0 rgba(0, 0, 0, 0.6);
       }
-      body.touch #net {
+
+      /* Phones: the thumbs own the bottom corners, so the dials move up top. */
+      body.touch #cluster {
         bottom: auto;
-        top: calc(clamp(64px, 12.5vmin, 104px) + 62px + env(safe-area-inset-top));
+        top: calc(var(--pad-t) + 76px);
+        transform: scale(0.72);
+        transform-origin: top right;
       }
-      body.touch #dash {
+      body.touch #map {
         bottom: auto;
-        top: calc(16px + env(safe-area-inset-top));
+        top: calc(var(--pad-t) + 96px);
+        left: calc(var(--pad-l) + 176px);
+        transform: scale(0.8);
+        transform-origin: top left;
+      }
+      body.touch #surface {
+        bottom: auto;
+        top: calc(var(--pad-t) + 22px);
+      }
+      @media (max-height: 420px) {
+        #board li:nth-child(n + 6) {
+          display: none;
+        }
+      }
+      @media (max-width: 620px) {
+        #board {
+          width: 132px;
+        }
+        body.touch #map {
+          display: none;
+        }
       }
 
       #callout {
         position: fixed;
         left: 0;
         right: 0;
-        top: 26%;
+        top: 24%;
         text-align: center;
         pointer-events: none;
-        font-size: clamp(46px, 13vmin, 120px);
+        font-size: clamp(54px, 15vmin, 136px);
+        line-height: 0.95;
         color: var(--ink);
         opacity: 0;
-        transform: scale(0.7);
+        transform: scale(0.6) rotate(-4deg);
         transition:
-          opacity 0.16s ease,
-          transform 0.22s cubic-bezier(0.2, 1.6, 0.4, 1);
+          opacity 0.14s ease,
+          transform 0.22s cubic-bezier(0.2, 1.7, 0.4, 1);
+        -webkit-text-stroke: 3px #12131c;
+        paint-order: stroke fill;
         text-shadow:
-          0 0 30px var(--me),
-          0 4px 0 rgba(0, 0, 0, 0.5);
+          0 6px 0 #12131c,
+          0 0 34px var(--me);
       }
       #callout[data-on="1"] {
         opacity: 1;
-        transform: scale(1);
+        transform: scale(1) rotate(-4deg);
       }
       #callout[data-tone="warn"] {
-        color: #ff5470;
-        text-shadow: 0 4px 0 rgba(0, 0, 0, 0.5);
+        color: #ff4d6a;
+        text-shadow: 0 6px 0 #12131c;
       }
       #callout small {
         display: block;
-        font-size: 0.24em;
-        letter-spacing: 0.2em;
-        color: var(--dim);
-        font-style: normal;
+        margin-top: 8px;
+        font-size: 0.2em;
+        letter-spacing: 0.24em;
+        color: var(--ink);
+        -webkit-text-stroke: 0;
+        text-shadow: 0 2px 0 #12131c;
       }
 
-      /* ---- cards ---- */
-      .card-wrap {
+      /* ---- garage (title) ---- */
+      #title {
         position: fixed;
         inset: 0;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: calc(16px + env(safe-area-inset-top)) calc(16px + env(safe-area-inset-right))
-          calc(16px + env(safe-area-inset-bottom)) calc(16px + env(safe-area-inset-left));
-        transition: opacity 0.25s ease;
-      }
-      .card-wrap[data-on="0"] {
-        opacity: 0;
         pointer-events: none;
+        padding: calc(30px + env(safe-area-inset-top)) calc(22px + env(safe-area-inset-right))
+          calc(18px + env(safe-area-inset-bottom)) calc(26px + env(safe-area-inset-left));
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        grid-template-rows: auto 1fr auto;
+        gap: 12px 18px;
+        transition: opacity 0.25s ease;
+        background:
+          linear-gradient(180deg, rgba(16, 17, 27, 0.5), rgba(16, 17, 27, 0) 26%),
+          linear-gradient(0deg, rgba(16, 17, 27, 0.72), rgba(16, 17, 27, 0) 42%);
       }
-      #title {
-        background: radial-gradient(ellipse at center, rgba(7, 6, 15, 0.35), rgba(7, 6, 15, 0.82));
+      #title[data-on="0"] {
+        opacity: 0;
+        visibility: hidden;
       }
-      .card {
-        width: min(92vw, 460px);
-        max-height: 100%;
-        overflow-y: auto;
-        padding: 26px 26px 22px;
-        border-radius: 26px;
-        background: var(--panel);
-        border: 1px solid var(--edge);
-        backdrop-filter: blur(14px);
-        -webkit-backdrop-filter: blur(14px);
-        text-align: center;
+      #title > * {
+        pointer-events: auto;
+      }
+      #logo {
+        grid-column: 1 / 2;
+        justify-self: start;
+        transform: rotate(-3deg);
+        transform-origin: left top;
       }
       h1 {
         margin: 0;
-        font-size: clamp(44px, 12vmin, 72px);
-        line-height: 0.95;
-        background: linear-gradient(100deg, #2fe6ff, #b56bff 45%, #ff3d81 75%, #ffd23f);
-        -webkit-background-clip: text;
-        background-clip: text;
-        color: transparent;
-        text-shadow: none;
-        filter: drop-shadow(0 0 18px rgba(181, 107, 255, 0.45));
+        font-size: clamp(52px, 12vmin, 104px);
+        line-height: 0.86;
+        letter-spacing: -0.01em;
+        color: var(--ink);
+        -webkit-text-stroke: 3px #12131c;
+        paint-order: stroke fill;
+        text-shadow:
+          0 7px 0 #12131c,
+          0 0 40px var(--me);
       }
-      .tag {
-        margin: 10px 0 16px;
-        color: var(--dim);
-        font-size: 15px;
+      h1 em {
+        font-style: inherit;
+        color: var(--me);
       }
-      .rules {
+      #tag {
+        display: inline-block;
+        margin-top: 12px;
+        padding: 4px 14px;
+        font-size: clamp(12px, 2.1vmin, 16px);
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: #12131c;
+        background: var(--ink);
+        box-shadow: 0 4px 0 rgba(0, 0, 0, 0.45);
+        transform: skewX(-12deg);
+      }
+      #rules {
+        grid-column: 2 / 3;
+        grid-row: 1 / 3;
+        align-self: start;
+        width: min(300px, 34vw);
+        margin: 0;
+        padding: 14px 16px 14px 22px;
         list-style: none;
-        margin: 0 0 16px;
-        padding: 0;
         display: grid;
-        gap: 8px;
-        text-align: left;
-        font-size: 14px;
+        gap: 12px;
+        font-size: 13px;
+        font-weight: 500;
+        line-height: 1.3;
       }
-      .rules li {
+      #rules li {
         display: grid;
-        grid-template-columns: 34px 1fr;
-        align-items: center;
+        grid-template-columns: 30px 1fr;
         gap: 10px;
-        padding: 9px 12px;
-        border-radius: 14px;
-        background: rgba(244, 246, 255, 0.06);
+        align-items: center;
       }
-      .rules span {
-        width: 34px;
+      #rules b {
+        display: block;
+        font-size: 14px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+      #rules span.swatch {
         height: 12px;
-        border-radius: 6px;
+        transform: skewX(-18deg);
       }
-      .rules .own {
+      #rules .own {
+        background: var(--me);
+        box-shadow: 0 0 12px var(--me);
+      }
+      #rules .rival {
+        background: #ff3d81;
+      }
+      #rules .drift {
+        background: linear-gradient(90deg, #7df9ff, #ffd23f, #ff3d81);
+      }
+      #rules .box {
+        background: var(--amber);
+      }
+      #garage {
+        grid-column: 1 / 3;
+        grid-row: 3 / 4;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: end;
+        gap: 16px;
+      }
+      #chassis {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+      .card {
+        width: clamp(128px, 19vw, 176px);
+        padding: 10px 12px 11px 18px;
+        border: 0;
+        text-align: left;
+        cursor: pointer;
+        transition: transform 0.12s ease;
+      }
+      .card::after {
+        background: rgba(255, 255, 255, 0.25);
+        box-shadow: none;
+      }
+      .card[aria-pressed="true"] {
+        transform: translateY(-8px);
+        --plate-hi: #3a4060;
+        --rim: var(--me);
+      }
+      .card[aria-pressed="true"]::after {
         background: var(--me);
         box-shadow: 0 0 14px var(--me);
       }
-      .rules .rival {
-        background: #ff3d81;
-        box-shadow: 0 0 14px #ff3d81;
+      .card strong {
+        display: block;
+        font-size: 22px;
+        line-height: 1;
+        text-transform: uppercase;
       }
-      .rules .drift {
-        background: linear-gradient(90deg, #7df9ff, #ffd23f, #ff3d81);
+      .card .label {
+        display: block;
+        margin: 3px 0 8px;
+      }
+      .stat {
+        display: grid;
+        grid-template-columns: 44px 1fr;
+        align-items: center;
+        gap: 6px;
+        margin-top: 4px;
+        font-size: 9px;
+        letter-spacing: 0.16em;
+        color: var(--dim);
+      }
+      .pips {
+        display: flex;
+        gap: 3px;
+      }
+      .pips i {
+        flex: 1;
+        height: 8px;
+        transform: skewX(-18deg);
+        background: rgba(255, 255, 255, 0.14);
+      }
+      .pips i[data-on="1"] {
+        background: var(--pip);
+      }
+      #go-wrap {
+        display: grid;
+        gap: 8px;
+        justify-items: end;
       }
       #controls {
-        margin: 0 0 18px;
         display: grid;
-        grid-template-columns: auto 1fr;
-        gap: 4px 12px;
-        font-size: 12px;
+        grid-template-columns: auto auto;
+        gap: 2px 10px;
+        font-size: 11px;
+        font-weight: 500;
         color: var(--dim);
-        text-align: left;
+        text-shadow: 0 1px 0 rgba(0, 0, 0, 0.7);
       }
       #controls kbd {
         font: inherit;
-        color: var(--ink);
         font-weight: 700;
+        color: var(--ink);
+        text-align: right;
         white-space: nowrap;
       }
-      button.go {
-        width: 100%;
-        padding: 15px 18px;
-        border: 0;
-        border-radius: 16px;
+      #start {
+        padding: 12px 34px 12px 30px;
+        border: 4px solid #12131c;
         cursor: pointer;
-        font: inherit;
-        font-size: 19px;
-        color: #06060c;
-        background: var(--me);
-        box-shadow: 0 0 26px color-mix(in srgb, var(--me) 60%, transparent);
-        transition: transform 0.12s ease;
+        font-size: clamp(26px, 5vmin, 40px);
+        line-height: 1;
+        color: #12131c;
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0) 55%), var(--me);
+        box-shadow:
+          0 6px 0 #12131c,
+          0 0 30px color-mix(in srgb, var(--me) 70%, transparent);
+        transform: skewX(-12deg);
+        transition: transform 0.1s ease;
       }
-      button.go:active {
-        transform: scale(0.97);
+      #start:active {
+        transform: skewX(-12deg) translateY(4px);
       }
-      #results h2 {
-        margin: 0 0 4px;
-        font-size: 30px;
-      }
-      #results-sub {
-        margin: 0 0 14px;
-        color: var(--dim);
-        font-size: 13px;
-        letter-spacing: 0.1em;
-        text-transform: uppercase;
-      }
-      #results-rows {
-        display: grid;
-        gap: 6px;
-        margin-bottom: 14px;
-        font-variant-numeric: tabular-nums;
-      }
-      .row {
-        display: grid;
-        grid-template-columns: 38px 12px 1fr auto auto;
-        align-items: center;
-        gap: 10px;
-        padding: 8px 12px;
-        border-radius: 12px;
-        background: rgba(244, 246, 255, 0.06);
-        font-size: 15px;
-        text-align: left;
-      }
-      .row[data-me="1"] {
-        background: rgba(244, 246, 255, 0.16);
-        outline: 1px solid var(--me);
-      }
-      .row i {
-        width: 12px;
-        height: 12px;
-        border-radius: 50%;
-      }
-      .row .paint {
-        color: var(--dim);
-        font-size: 12px;
-      }
-      #results-next {
-        color: var(--dim);
-        font-size: 13px;
-      }
-      @media (max-height: 460px) {
-        .card {
-          padding: 14px 18px;
-        }
-        .rules {
-          grid-template-columns: repeat(3, 1fr);
-          font-size: 11px;
-        }
-        .rules li {
-          grid-template-columns: 1fr;
-          gap: 4px;
+      @media (max-width: 760px), (max-height: 470px) {
+        #rules {
+          display: none;
         }
         #controls {
           display: none;
         }
-        .tag {
-          margin: 4px 0 10px;
+        .card {
+          width: clamp(104px, 27vw, 150px);
+          padding: 7px 8px 8px 14px;
         }
+        .card strong {
+          font-size: 17px;
+        }
+      }
+
+      /* ---- results ---- */
+      #results {
+        position: fixed;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        padding: calc(16px + env(safe-area-inset-top)) 16px calc(16px + env(safe-area-inset-bottom));
+        background: rgba(16, 17, 27, 0.5);
+        transition: opacity 0.25s ease;
+      }
+      #results[data-on="0"] {
+        opacity: 0;
+        pointer-events: none;
+      }
+      #sheet {
+        width: min(94vw, 480px);
+        max-height: 100%;
+        overflow-y: auto;
+        padding: 18px 18px 16px 24px;
+      }
+      #results-title {
+        margin: 0;
+        font-size: clamp(30px, 7vmin, 44px);
+        line-height: 1;
+      }
+      #results-sub {
+        margin: 4px 0 12px;
+      }
+      #results-rows {
+        display: grid;
+        gap: 4px;
+        margin-bottom: 12px;
+      }
+      .row {
+        display: grid;
+        grid-template-columns: 44px 12px 1fr auto 64px;
+        align-items: center;
+        gap: 10px;
+        height: 32px;
+        padding: 0 10px;
+        font-size: 16px;
+        text-transform: uppercase;
+        background: rgba(255, 255, 255, 0.07);
+        transform: skewX(-8deg);
+      }
+      .row > * {
+        transform: skewX(8deg);
+      }
+      .row[data-me="1"] {
+        background: var(--ink);
+        color: #12131c;
+      }
+      .row i {
+        width: 12px;
+        height: 12px;
+        border-radius: 3px;
+      }
+      .row .paint {
+        font-size: 11px;
+        letter-spacing: 0.1em;
+        opacity: 0.7;
+      }
+      .row .time {
+        text-align: right;
       }
     </style>
   </head>
@@ -423,46 +836,116 @@
     <div id="game"></div>
 
     <div id="hud" data-on="0">
-      <div id="place" class="skew">
-        <span id="place-num">1</span><span id="place-suffix">st</span><span id="place-of">/6</span>
+      <div id="kit">
+        <button id="item" class="plate" type="button" data-kind="" aria-label="Use item">
+          <svg id="item-icon" viewBox="0 0 64 64" aria-hidden="true"></svg>
+          <span id="item-key" class="skew">E</span>
+        </button>
+        <div id="orbs" class="plate skew num">
+          <i></i><span id="orb-count">0</span><small>/10</small>
+        </div>
       </div>
-      <div id="stats" class="skew">
-        <span>LAP <b id="lap-num">1</b>/<span id="lap-total">3</span></span>
-        <span><b id="clock">0:00.0</b></span>
+      <ol id="board" aria-label="Standings"></ol>
+      <div id="timing" class="plate">
+        <span class="label">Lap</span>
+        <span id="lap" class="skew num"
+          ><span id="lap-num">1</span><small>/<span id="lap-total">3</span></small></span
+        >
+        <span id="clock" class="skew num">0:00.0</span>
+        <span id="track-name" class="label"></span>
       </div>
-      <canvas id="minimap" width="300" height="300" aria-hidden="true"></canvas>
-      <div id="track-name"></div>
-      <div id="dash">
-        <div id="surface" class="skew"></div>
-        <div id="charge" role="img" aria-label="Drift boost charge"><i></i><i></i><i></i></div>
+      <div id="map" class="plate">
+        <canvas id="minimap" width="300" height="300" aria-hidden="true"></canvas>
       </div>
+      <div id="cluster">
+        <div id="rank">
+          <div id="gap" class="plate skew num" data-on="0"></div>
+          <div id="place" class="skew num">
+            <span><span id="place-num">1</span><span id="place-suffix">st</span></span>
+          </div>
+        </div>
+        <div id="speedo">
+          <svg viewBox="0 0 160 160" aria-hidden="true">
+            <circle cx="80" cy="80" r="76" fill="#12131c" />
+            <circle
+              cx="80"
+              cy="80"
+              r="70"
+              fill="#1d2030"
+              stroke="rgba(255,255,255,0.22)"
+              stroke-width="2"
+            />
+            <path
+              d="M 33.3 126.7 A 66 66 0 1 1 126.7 126.7"
+              fill="none"
+              stroke="rgba(255,255,255,0.14)"
+              stroke-width="9"
+              stroke-linecap="round"
+            />
+            <path
+              id="arc"
+              d="M 33.3 126.7 A 66 66 0 1 1 126.7 126.7"
+              fill="none"
+              stroke="var(--me)"
+              stroke-width="9"
+              stroke-linecap="round"
+              pathLength="100"
+              stroke-dasharray="0 100"
+            />
+            <g id="ticks" stroke="rgba(255,255,255,0.55)" stroke-width="2"></g>
+            <g id="needle">
+              <path d="M 80 84 L 78 80 L 80 24 L 82 80 Z" fill="#ff4d6a" />
+            </g>
+            <circle cx="80" cy="80" r="7" fill="#f6f4ee" />
+          </svg>
+          <div id="kmh" class="skew num"><span id="kmh-num">0</span><small>KM/H</small></div>
+          <div id="charge" role="img" aria-label="Drift boost charge"><i></i><i></i><i></i></div>
+        </div>
+      </div>
+      <div id="surface" class="skew"></div>
       <div id="net"></div>
     </div>
 
     <div id="callout" class="skew" role="status"></div>
 
-    <div id="results" class="card-wrap" data-on="0">
-      <div class="card">
+    <div id="results" data-on="0">
+      <div id="sheet" class="plate">
         <h2 id="results-title" class="skew">RESULTS</h2>
-        <p id="results-sub"></p>
-        <div id="results-rows"></div>
-        <div id="results-next"></div>
+        <p id="results-sub" class="label"></p>
+        <div id="results-rows" class="num"></div>
+        <div id="results-next" class="label"></div>
       </div>
     </div>
 
-    <div id="title" class="card-wrap" data-on="1">
-      <div class="card">
-        <h1 class="skew">GLOWLINE</h1>
-        <p class="tag">Every kart paints the road. Three laps to own it.</p>
-        <ul class="rules">
-          <li>
-            <span class="own"></span>Your paint is a fast lane. Lap one lays it, lap two rides it.
-          </li>
-          <li><span class="rival"></span>Anyone else's is slick. Paint over it to take it back.</li>
-          <li><span class="drift"></span>Hold drift to paint wide and charge. Let go to boost.</li>
-        </ul>
-        <div id="controls"></div>
-        <button id="start" class="go skew" type="button">RACE</button>
+    <div id="title" data-on="1">
+      <div id="logo">
+        <h1 class="skew">GLOW<em>LINE</em></h1>
+        <span id="tag" class="skew">Every kart paints the road</span>
+      </div>
+      <ul id="rules" class="plate">
+        <li>
+          <span class="swatch own"></span>
+          <div><b class="skew">Your paint is fast</b>Lap one lays it. Lap two rides it.</div>
+        </li>
+        <li>
+          <span class="swatch rival"></span>
+          <div><b class="skew">Theirs is slick</b>Paint over it to take the line back.</div>
+        </li>
+        <li>
+          <span class="swatch drift"></span>
+          <div><b class="skew">Drift to boost</b>Hold to slide and charge. Let go to fire.</div>
+        </li>
+        <li>
+          <span class="swatch box"></span>
+          <div><b class="skew">Boxes and orbs</b>Boxes hold items. Orbs raise your top speed.</div>
+        </li>
+      </ul>
+      <div id="garage">
+        <div id="chassis" role="group" aria-label="Choose a kart"></div>
+        <div id="go-wrap">
+          <div id="controls"></div>
+          <button id="start" class="skew" type="button">RACE</button>
+        </div>
       </div>
     </div>
 
