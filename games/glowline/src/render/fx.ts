@@ -1,13 +1,18 @@
-// One pool of additive sparks on a single InstancedMesh: drift sparks, boost
-// flames, splat bursts and rail scrapes all draw from it. Created once, reused
-// forever; a full pool overwrites its oldest spark.
+// One pool of sparks: drift sparks, boost flames, splat bursts and rail
+// scrapes. Each is a single round unlit splat in a palette tone, so an
+// explosion is pixel art like everything else.
 
-import * as THREE from "three";
+import { FLAG, tone } from "../splat/splat-set";
+import type { SplatSet } from "../splat/splat-set";
 
 interface Spark {
-  pos: THREE.Vector3;
-  vel: THREE.Vector3;
-  color: THREE.Color;
+  x: number;
+  y: number;
+  z: number;
+  vx: number;
+  vy: number;
+  vz: number;
+  ramp: number;
   age: number;
   life: number;
   size: number;
@@ -23,73 +28,51 @@ export interface SparkOptions {
   vz: number;
   life: number;
   size: number;
-  color: THREE.Color;
+  ramp: number;
   gravity?: number;
 }
 
-const MATRIX = new THREE.Matrix4();
-const QUAT = new THREE.Quaternion();
-const SCALE = new THREE.Vector3();
-const TINT = new THREE.Color();
+const FLAGS = FLAG.unlit + FLAG.round + FLAG.noShadow;
 
 export class Sparks {
-  private readonly mesh: THREE.InstancedMesh;
   private readonly pool: Spark[] = [];
   private next = 0;
 
-  constructor(scene: THREE.Scene, max = 420) {
-    this.mesh = new THREE.InstancedMesh(
-      new THREE.OctahedronGeometry(1, 0),
-      new THREE.MeshBasicMaterial({
-        blending: THREE.AdditiveBlending,
-        depthWrite: false,
-        toneMapped: false,
-        transparent: true,
-      }),
-      max,
-    );
-    this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    this.mesh.frustumCulled = false;
+  constructor(max = 420) {
     for (let i = 0; i < max; i += 1) {
       this.pool.push({
         age: 1,
-        color: new THREE.Color(),
         gravity: 0,
         life: 1,
-        pos: new THREE.Vector3(),
+        ramp: 0,
         size: 0,
-        vel: new THREE.Vector3(),
+        vx: 0,
+        vy: 0,
+        vz: 0,
+        x: 0,
+        y: 0,
+        z: 0,
       });
-      // Allocates the instanceColor buffer.
-      this.mesh.setColorAt(i, TINT.setScalar(0));
     }
-    scene.add(this.mesh);
   }
 
   emit(options: SparkOptions): void {
     const spark = this.pool[this.next];
     this.next = (this.next + 1) % this.pool.length;
-    if (!spark) {
-      return;
+    if (spark) {
+      Object.assign(spark, options, { age: 0, gravity: options.gravity ?? 0 });
     }
-    spark.pos.set(options.x, options.y, options.z);
-    spark.vel.set(options.vx, options.vy, options.vz);
-    spark.color.copy(options.color);
-    spark.age = 0;
-    spark.life = options.life;
-    spark.size = options.size;
-    spark.gravity = options.gravity ?? 0;
   }
 
   /** A burst of `count` sparks flung outwards and up from one point. */
-  burst(x: number, y: number, z: number, color: THREE.Color, count: number, speed: number): void {
+  burst(x: number, y: number, z: number, ramp: number, count: number, speed: number): void {
     for (let i = 0; i < count; i += 1) {
       const a = Math.random() * Math.PI * 2;
       const v = speed * (0.35 + Math.random() * 0.65);
       this.emit({
-        color,
         gravity: 14,
         life: 0.35 + Math.random() * 0.45,
+        ramp,
         size: 0.14 + Math.random() * 0.2,
         vx: Math.cos(a) * v,
         vy: 2 + Math.random() * speed * 0.6,
@@ -102,23 +85,35 @@ export class Sparks {
   }
 
   update(dt: number): void {
-    for (const [i, spark] of this.pool.entries()) {
+    for (const spark of this.pool) {
       if (spark.age < spark.life) {
         spark.age += dt;
-        spark.vel.y -= spark.gravity * dt;
-        spark.pos.addScaledVector(spark.vel, dt);
-        const k = Math.max(0, 1 - spark.age / spark.life);
-        SCALE.setScalar(spark.size * (0.3 + 0.7 * k));
-        MATRIX.compose(spark.pos, QUAT, SCALE);
-        this.mesh.setColorAt(i, TINT.copy(spark.color).multiplyScalar(k * 1.8));
-      } else {
-        MATRIX.makeScale(0, 0, 0);
+        spark.vy -= spark.gravity * dt;
+        spark.x += spark.vx * dt;
+        spark.y = Math.max(0.3, spark.y + spark.vy * dt);
+        spark.z += spark.vz * dt;
       }
-      this.mesh.setMatrixAt(i, MATRIX);
     }
-    this.mesh.instanceMatrix.needsUpdate = true;
-    if (this.mesh.instanceColor) {
-      this.mesh.instanceColor.needsUpdate = true;
+  }
+
+  draw(out: SplatSet): void {
+    for (const spark of this.pool) {
+      if (spark.age < spark.life) {
+        const k = 1 - spark.age / spark.life;
+        // White-hot when new, the ramp's own colour as it dies.
+        const step = k > 0.6 ? 4 : 3;
+        out.push(
+          spark.x,
+          spark.y,
+          spark.z,
+          0,
+          1,
+          0,
+          spark.size * (0.6 + k),
+          tone(spark.ramp, step),
+          FLAGS,
+        );
+      }
     }
   }
 }

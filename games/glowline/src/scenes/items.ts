@@ -7,7 +7,6 @@
 // whether that effect caught them.
 
 import type { JsonValue, MultiplayerClient } from "@vibedgames/multiplayer";
-import type * as THREE from "three";
 
 import { sfx } from "../audio/sfx";
 import { isJsonNumber, isJsonObject } from "../net/wire";
@@ -33,6 +32,7 @@ import { Field, rollItem } from "../sim/pickups";
 import type { Toucher } from "../sim/pickups";
 import { pointAt } from "../sim/track";
 import type { Track } from "../sim/track";
+import type { SplatSet } from "../splat/splat-set";
 
 export const ITEM_EVENT = "item";
 
@@ -41,11 +41,11 @@ export interface ItemHost {
   readonly client: MultiplayerClient;
   readonly paint: PaintGrid;
   readonly sparks: Sparks;
-  readonly scene: THREE.Scene;
   /** The kart behind a racer key, if this client simulates it. */
   kartOf: (key: string) => Kart | null;
   slotOf: (key: string) => number;
-  colorOf: (key: string) => THREE.Color;
+  /** The palette ramp a racer is drawn in. */
+  rampOf: (key: string) => number;
   /** 0 for the leader … 1 for last place. */
   shareOf: (key: string) => number;
   /** Something happened to the local kart worth showing. */
@@ -64,7 +64,7 @@ const isItemKind = (value: JsonValue | undefined): value is ItemKind =>
 export class ItemSystem {
   private readonly host: ItemHost;
   private field: Field;
-  private view: PickupView;
+  private readonly view = new PickupView();
   private track: Track;
   private bombs: Bomb[] = [];
   private readonly held = new Map<string, Held>();
@@ -75,17 +75,17 @@ export class ItemSystem {
     this.host = host;
     this.track = track;
     this.field = new Field(track);
-    this.view = new PickupView(this.field);
-    host.scene.add(this.view.group);
+  }
+
+  /** Put the pickups on stage for this frame. */
+  draw(out: SplatSet, cx: number, cz: number, reach: number): void {
+    this.view.draw(out, cx, cz, reach);
   }
 
   /** New round or new circuit: a fresh field, empty hands. */
   reset(track: Track): void {
-    this.view.dispose();
     this.track = track;
     this.field = new Field(track);
-    this.view = new PickupView(this.field);
-    this.host.scene.add(this.view.group);
     this.bombs = [];
     this.held.clear();
   }
@@ -167,10 +167,6 @@ export class ItemSystem {
     );
   }
 
-  dispose(): void {
-    this.view.dispose();
-  }
-
   /** The effect on the road, the same on every client. */
   private apply(
     key: string,
@@ -182,17 +178,17 @@ export class ItemSystem {
     id: number,
   ): void {
     const { paint, sparks } = this.host;
-    const color = this.host.colorOf(key);
+    const ramp = this.host.rampOf(key);
     if (kind === "solvent") {
       paint.wipe(x, z, SOLVENT_RADIUS, this.host.slotOf(key));
       paint.stamp(x, z, 4.5, this.host.slotOf(key));
-      sparks.burst(x, 0.8, z, color, 46, 20);
+      sparks.burst(x, 0.8, z, ramp, 46, 20);
     } else if (kind === "bomb") {
-      this.bombs.push({ by: key, color, fromX: x, fromZ: z, t0: this.time, toX: tx, toZ: tz });
+      this.bombs.push({ by: key, fromX: x, fromZ: z, ramp, t0: this.time, toX: tx, toZ: tz });
     } else if (kind === "blot") {
       this.field.dropBlot(id, key, x, z, this.time);
     } else {
-      sparks.burst(x, 0.6, z, color, 18, 10);
+      sparks.burst(x, 0.6, z, ramp, 18, 10);
     }
   }
 
@@ -204,7 +200,7 @@ export class ItemSystem {
         flying.push(bomb);
       } else {
         this.host.paint.stamp(bomb.toX, bomb.toZ, BOMB_SPLAT, this.host.slotOf(bomb.by));
-        this.host.sparks.burst(bomb.toX, 0.6, bomb.toZ, bomb.color, 60, 18);
+        this.host.sparks.burst(bomb.toX, 0.6, bomb.toZ, bomb.ramp, 60, 18);
         for (const kart of karts) {
           const hit = Math.hypot(kart.x - bomb.toX, kart.z - bomb.toZ) < BOMB_BLAST;
           if (hit && kart.key !== bomb.by) {

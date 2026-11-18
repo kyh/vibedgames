@@ -1,458 +1,312 @@
-// One circuit's place: sky, sun, ground, road and everything beside it. Built
-// per track and thrown away on a track change; the paint texture it is handed
-// is the only thing shared between circuits.
+// The circuit as a toy set on a floor: an orange plastic track with raised
+// rails, laid out in a bedroom, a kitchen or a playroom and lined with
+// oversized toys. Everything is baked into one bag of splats when the circuit
+// loads; only the start lamps are drawn fresh each frame.
 
-import * as THREE from "three";
+import type { Room, Track } from "../sim/track";
+import { SplatBuilder } from "../splat/builder";
+import type { Coat } from "../splat/builder";
+import { RAMP } from "../splat/palette";
+import { FLAG, SplatSet, tone } from "../splat/splat-set";
+import { FLOOR_REACH, Ground } from "./ground";
+import { TOYS } from "./toys";
 
-import { curvatureAt, pointAt } from "../sim/track";
-import type { Track } from "../sim/track";
-import type { PaintLayer } from "./paint-layer";
-import { addContactStrips, addCornerBoards, addInfield, addShade, addVerge } from "./props";
-import { KERB_INSET, mottle, ribbon, roadMaterial } from "./road";
-import {
-  BLOCK,
-  Kit,
-  REACH,
-  addBarriers,
-  addBillboards,
-  addBuildings,
-  addGantry,
-  addGrandstand,
-  addLamps,
-  addPads,
-  addPits,
-  addTrees,
-  addTyres,
-} from "./scenery";
-import type { Gantry } from "./scenery";
-import { Site } from "./site";
-import { Sky } from "./sky";
-import { asphalt, concrete, grass, seeded } from "./textures";
+/** Height of the track's surface above the floor. */
+export const TRACK_Y = 0.2;
 
-/** World units the baked ground plan covers, and its resolution. */
-const PLAN_SPAN = 880;
-const PLAN_PX = 2048;
-/** Half-extent of the square the sun's shadow map covers around the action. */
-const SHADOW_REACH = 95;
+const FLOOR_SPACING = 0.62;
+const TRACK_SPACING = 0.34;
+const TOY_SPACING = 0.38;
+const RAIL_HEIGHT = 1.1;
+const GANTRY_HEIGHT = 7.5;
 
-/**
- * The ground is layers a few centimetres apart: road on apron on lawn on plan.
- * From far away that is less than the depth buffer can tell apart, and the
- * layers fight triangle by triangle. Each lower layer is pushed back by a
- * polygon offset, so the order holds at any distance.
- */
-const under = (layer: number) => ({
-  polygonOffset: true,
-  polygonOffsetFactor: layer * 2,
-  polygonOffsetUnits: layer * 12,
-});
-
-export interface WorldOptions {
-  /** Shadow map size, or 0 for none (phones). */
-  shadows: number;
-}
-
-/** Draw every plot's ground: paving in one of a few tones, a car park with bays, or a small park. */
-const paintLots = (
-  ctx: CanvasRenderingContext2D,
-  px: (v: number) => number,
-  scale: number,
-  random: () => number,
-  tarmac: string,
-): void => {
-  // Every plot gets a ground treatment of its own: paving in one of a few
-  // tones, a car park with bays, or a small park. No two neighbours alike.
-  for (let gx = -REACH; gx < REACH; gx += BLOCK) {
-    for (let gz = -REACH; gz < REACH; gz += BLOCK) {
-      const x0 = px(gx + 4.5);
-      const y0 = px(gz + 4.5);
-      const side = (BLOCK - 9) * scale;
-      const kind = random();
-      if (kind < 0.2) {
-        ctx.fillStyle = "#3f7a44";
-        ctx.fillRect(x0, y0, side, side);
-      } else if (kind < 0.42) {
-        ctx.fillStyle = tarmac;
-        ctx.fillRect(x0, y0, side, side);
-        ctx.strokeStyle = "rgba(240,235,215,0.55)";
-        ctx.lineWidth = 0.22 * scale;
-        for (let bay = 1; bay < 9; bay += 1) {
-          const bx = x0 + (bay * side) / 9;
-          ctx.beginPath();
-          ctx.moveTo(bx, y0 + side * 0.08);
-          ctx.lineTo(bx, y0 + side * 0.38);
-          ctx.moveTo(bx, y0 + side * 0.62);
-          ctx.lineTo(bx, y0 + side * 0.92);
-          ctx.stroke();
-        }
-      } else {
-        const tone = 150 + Math.floor(random() * 70);
-        ctx.fillStyle = `rgb(${tone},${tone - 6},${tone - 14})`;
-        ctx.fillRect(x0, y0, side, side);
-        ctx.strokeStyle = "rgba(0,0,0,0.12)";
-        ctx.lineWidth = 0.12 * scale;
-        for (let t = 1; t < 6; t += 1) {
-          ctx.beginPath();
-          ctx.moveTo(x0 + (t * side) / 6, y0);
-          ctx.lineTo(x0 + (t * side) / 6, y0 + side);
-          ctx.moveTo(x0, y0 + (t * side) / 6);
-          ctx.lineTo(x0 + side, y0 + (t * side) / 6);
-          ctx.stroke();
-        }
-      }
-    }
-  }
+const hash = (a: number, b: number): number => {
+  const v = Math.sin(a * 127.1 + b * 311.7) * 43_758.5453;
+  return v - Math.floor(v);
 };
 
-/**
- * The ground plan, drawn once: plaza, the street grid between building plots,
- * the lawn inside the loop, the concrete apron under the road. One texture
- * over the whole district, so an overview reads as a place.
- */
-const groundPlan = (track: Track): THREE.CanvasTexture => {
-  const { palette } = track.def;
-  const random = seeded(track.n + 3);
-  const canvas = document.createElement("canvas");
-  canvas.width = PLAN_PX;
-  canvas.height = PLAN_PX;
-  const ctx = canvas.getContext("2d");
-  const scale = PLAN_PX / PLAN_SPAN;
-  const px = (v: number): number => (v + PLAN_SPAN / 2) * scale;
-  if (ctx) {
-    ctx.fillStyle = palette.plaza;
-    ctx.fillRect(0, 0, PLAN_PX, PLAN_PX);
-    // Streets on the plot grid, with a centre line.
-    for (let g = -REACH; g <= REACH; g += BLOCK) {
-      ctx.fillStyle = palette.road;
-      ctx.fillRect(px(g) - 4.5 * scale, 0, 9 * scale, PLAN_PX);
-      ctx.fillRect(0, px(g) - 4.5 * scale, PLAN_PX, 9 * scale);
-    }
-    ctx.strokeStyle = "rgba(235,225,190,0.5)";
-    ctx.lineWidth = 0.35 * scale;
-    ctx.setLineDash([4 * scale, 5 * scale]);
-    for (let g = -REACH; g <= REACH; g += BLOCK) {
-      ctx.beginPath();
-      ctx.moveTo(px(g), 0);
-      ctx.lineTo(px(g), PLAN_PX);
-      ctx.moveTo(0, px(g));
-      ctx.lineTo(PLAN_PX, px(g));
-      ctx.stroke();
-    }
-    ctx.setLineDash([]);
-    paintLots(ctx, px, scale, random, palette.road);
+const wrap = (v: number, period: number): number => ((v % period) + period) % period;
 
-    const loop = new Path2D();
-    for (let i = 0; i < track.n; i += 2) {
-      const x = px(track.xs[i] ?? 0);
-      const y = px(track.zs[i] ?? 0);
-      if (i === 0) {
-        loop.moveTo(x, y);
-      } else {
-        loop.lineTo(x, y);
-      }
+/** Floorboards, with a round rug in the infield. */
+const bedroomFloor = (x: number, z: number): number => {
+  const d = Math.hypot(x, z);
+  if (d < 38) {
+    if (d > 34) {
+      return tone(RAMP.carpet, 3);
     }
-    loop.closePath();
-
-    // A green verge either side of the circuit, then the lawn inside it.
-    ctx.lineJoin = "round";
-    ctx.strokeStyle = "#35683a";
-    ctx.lineWidth = (track.rail + 17) * 2 * scale;
-    ctx.stroke(loop);
-    ctx.save();
-    ctx.clip(loop);
-    ctx.fillStyle = "#35683a";
-    ctx.fillRect(0, 0, PLAN_PX, PLAN_PX);
-    ctx.restore();
-    // Mottle the grass: mown stripes of lighter and darker green, dry patches.
-    ctx.save();
-    ctx.globalCompositeOperation = "source-atop";
-    for (let i = 0; i < 900; i += 1) {
-      const x = random() * PLAN_PX;
-      const y = random() * PLAN_PX;
-      const r = (6 + random() * 26) * scale;
-      const blot = ctx.createRadialGradient(x, y, 0, x, y, r);
-      const tone = random();
-      let shade = "rgba(120,170,80,0.5)";
-      if (tone < 0.5) {
-        shade = "rgba(20,60,30,0.55)";
-      } else if (tone > 0.9) {
-        shade = "rgba(190,170,110,0.45)";
-      }
-      blot.addColorStop(0, shade);
-      blot.addColorStop(1, "rgba(0,0,0,0)");
-      ctx.fillStyle = blot;
-      ctx.fillRect(x - r, y - r, r * 2, r * 2);
-    }
-    ctx.restore();
-
-    // Gravel traps on the outside of the bends, and footpaths across the lawn.
-    ctx.fillStyle = "#d9c9a2";
-    for (let i = 0; i < track.n; i += 3) {
-      const bend = curvatureAt(track, i);
-      if (Math.abs(bend) > 0.03) {
-        const p = pointAt(track, i, -Math.sign(bend) * (track.rail + 7));
-        ctx.beginPath();
-        ctx.arc(px(p.x), px(p.z), 6.5 * scale, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    }
-    ctx.save();
-    ctx.clip(loop);
-    ctx.strokeStyle = "#cdbf9c";
-    ctx.lineWidth = 2.2 * scale;
-    for (let path = 0; path < 5; path += 1) {
-      ctx.beginPath();
-      ctx.moveTo(random() * PLAN_PX, random() * PLAN_PX);
-      ctx.bezierCurveTo(
-        random() * PLAN_PX,
-        random() * PLAN_PX,
-        random() * PLAN_PX,
-        random() * PLAN_PX,
-        random() * PLAN_PX,
-        random() * PLAN_PX,
-      );
-      ctx.stroke();
-    }
-    ctx.restore();
-
-    // The apron the road and its barriers sit on.
-    ctx.strokeStyle = palette.apron;
-    ctx.lineWidth = (track.rail + 2.6) * 2 * scale;
-    ctx.stroke(loop);
-    // Stains and wear over everything, so no region is one flat tone.
-    for (let i = 0; i < 500; i += 1) {
-      const x = random() * PLAN_PX;
-      const y = random() * PLAN_PX;
-      const r = (8 + random() * 40) * scale;
-      const blot = ctx.createRadialGradient(x, y, 0, x, y, r);
-      blot.addColorStop(0, random() < 0.6 ? "rgba(0,0,0,0.16)" : "rgba(255,245,225,0.1)");
-      blot.addColorStop(1, "rgba(0,0,0,0)");
-      ctx.fillStyle = blot;
-      ctx.fillRect(x - r, y - r, r * 2, r * 2);
-    }
+    return tone(RAMP.carpet, hash(Math.floor(x * 2), Math.floor(z * 2)) > 0.8 ? 1 : 2);
   }
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  texture.anisotropy = 8;
-  return texture;
+  const row = Math.floor(z / 3.4);
+  const along = x + row * 7.3;
+  if (wrap(z, 3.4) < 0.7 || wrap(along, 19) < 0.7) {
+    return tone(RAMP.wood, 1);
+  }
+  return tone(RAMP.wood, hash(row, Math.floor(along / 19)) > 0.5 ? 3 : 2);
 };
+
+/** Checkerboard tiles with dark grout. */
+const kitchenFloor = (x: number, z: number): number => {
+  if (wrap(x, 6) < 0.7 || wrap(z, 6) < 0.7) {
+    return tone(RAMP.tile, 0);
+  }
+  const dark = (Math.floor(x / 6) + Math.floor(z / 6)) % 2 === 0;
+  return tone(RAMP.tile, dark ? 2 : 3);
+};
+
+/** Foam play-mat squares in two blues, flecked. */
+const playroomFloor = (x: number, z: number): number => {
+  if (wrap(x, 10) < 0.7 || wrap(z, 10) < 0.7) {
+    return tone(RAMP.carpet, 0);
+  }
+  const light = (Math.floor(x / 10) + Math.floor(z / 10)) % 2 === 0;
+  const fleck = hash(Math.floor(x * 1.5), Math.floor(z * 1.5)) > 0.9;
+  if (fleck) {
+    return tone(RAMP.carpet, 4);
+  }
+  return tone(RAMP.carpet, light ? 2 : 1);
+};
+
+const FLOORS: Record<Room, (x: number, z: number) => number> = {
+  bedroom: bedroomFloor,
+  kitchen: kitchenFloor,
+  playroom: playroomFloor,
+};
+
+/** Shortest way round the lap from sample `from` to `s`, signed. */
+const lapGap = (s: number, from: number, n: number): number => wrap(s - from + n / 2, n) - n / 2;
 
 export class World {
-  readonly group = new THREE.Group();
-  /** Where the low sun sits, as a unit vector from the scene towards it. */
-  readonly sunDir: THREE.Vector3;
-  private readonly kit: Kit;
-  private readonly sky: Sky;
-  private readonly sun: THREE.DirectionalLight;
-  private readonly padMaterials: THREE.MeshBasicMaterial[];
-  private readonly padColor: THREE.Color;
-  private readonly gantry: Gantry;
+  readonly set = new SplatSet(524_288);
   private readonly track: Track;
-  private reach = SHADOW_REACH;
+  private readonly ground: Ground;
+  private readonly lamps: { x: number; z: number }[] = [];
+  private lit = 0;
+  private go = false;
 
-  constructor(track: Track, paint: PaintLayer, options: WorldOptions) {
-    const { palette } = track.def;
+  constructor(track: Track) {
     this.track = track;
-    this.kit = new Kit(track.n);
-    const { kit } = this;
-    this.sunDir = new THREE.Vector3(
-      Math.cos(palette.bearing),
-      0.5,
-      Math.sin(palette.bearing),
-    ).normalize();
-    this.sky = new Sky(palette, this.sunDir, track.n);
-    this.group.add(this.sky.group, kit.group);
-
-    // Low warm key, cool fill from the sky, a little bounce off the ground.
-    this.sun = new THREE.DirectionalLight(palette.key, 4.6);
-    this.sun.castShadow = options.shadows > 0;
-    if (options.shadows > 0) {
-      const { shadow } = this.sun;
-      shadow.mapSize.set(options.shadows, options.shadows);
-      shadow.camera.left = -SHADOW_REACH;
-      shadow.camera.right = SHADOW_REACH;
-      shadow.camera.top = SHADOW_REACH;
-      shadow.camera.bottom = -SHADOW_REACH;
-      shadow.camera.near = 20;
-      shadow.camera.far = 520;
-      shadow.bias = -0.0006;
-      shadow.normalBias = 0.06;
-      shadow.radius = 4;
-    }
-    // Apply the frustum: an orthographic shadow camera keeps its default
-    // ±5 units until its projection is rebuilt.
-    this.setShadowReach(SHADOW_REACH);
-    this.group.add(this.sun, this.sun.target);
-    this.group.add(new THREE.HemisphereLight(palette.fill, "#5a4a44", 0.62));
-
-    this.addGround(track);
-    this.addRoad(track, paint);
-    const site = new Site(track);
-    addBarriers(kit, track, paint);
-    addTyres(kit, track);
-    addBuildings(kit, site);
-    addShade(kit, addTrees(kit, site));
-    addContactStrips(kit, track);
-    addVerge(kit, track);
-    addCornerBoards(kit, track);
-    addInfield(kit, site);
-    addLamps(kit, track);
-    addBillboards(kit, track);
-    addGrandstand(kit, track);
-    addPits(kit, track);
-    this.gantry = addGantry(kit, track);
-    this.padMaterials = addPads(kit, track);
-    this.padColor = new THREE.Color(palette.accent2);
-    this.follow(new THREE.Vector3());
+    this.ground = new Ground(track);
+    this.layFloor();
+    this.layTrack();
+    this.layRails();
+    this.raiseGantry();
+    this.raisePadGates();
+    this.scatterToys();
   }
 
-  /** `padReady[i]` is whether splat pad i is armed; resting pads go dim. */
-  update(time: number, padReady: readonly boolean[], focus: THREE.Vector3): void {
-    this.sky.update(time);
-    for (const [i, material] of this.padMaterials.entries()) {
-      const armed = padReady[i] ?? true;
-      const pulse = armed ? 0.7 + Math.sin(time * 5 + i) * 0.3 : 0.1;
-      material.color.copy(this.padColor).multiplyScalar(pulse * 1.3);
-    }
-    this.follow(focus);
-  }
-
-  /** Light the start gantry: `count` red lamps on, or all green on the go. */
+  /** How many red lamps are lit, and whether the green is on instead. */
   setStartLights(count: number, go: boolean): void {
-    for (const [i, material] of this.gantry.lights.entries()) {
-      if (go) {
-        material.color.set("#35ff6b");
-      } else {
-        material.color.set(i < count ? "#ff2a1a" : "#2a0606");
+    this.lit = count;
+    this.go = go;
+  }
+
+  /** The lamps over the line: the only part of the world that changes. */
+  draw(out: SplatSet): void {
+    for (const [i, lamp] of this.lamps.entries()) {
+      let shade = tone(RAMP.black, 1);
+      if (this.go) {
+        shade = tone(RAMP.green, 3);
+      } else if (i < this.lit) {
+        shade = tone(RAMP.red, 3);
+      }
+      out.push(lamp.x, GANTRY_HEIGHT - 0.9, lamp.z, 0, 1, 0, 0.5, shade, FLAG.unlit + FLAG.round);
+    }
+  }
+
+  private layFloor(): void {
+    const floor = FLOORS[this.track.def.palette.room];
+    const b = new SplatBuilder(FLOOR_SPACING, this.set, 21);
+    const under = this.track.rail - 1.5;
+    for (let z = -170; z < 170; z += FLOOR_SPACING) {
+      for (let x = -170; x < 170; x += FLOOR_SPACING) {
+        const d = this.ground.distance(x, z);
+        if (d < FLOOR_REACH && d > under) {
+          const px = x + (b.random() - 0.5) * 0.25;
+          const pz = z + (b.random() - 0.5) * 0.25;
+          b.dab(px, 0, pz, 0, 1, 0, { tone: floor(px, pz) });
+        }
       }
     }
   }
 
-  /** Widen the shadow map to the whole district (the overview) or back to the action. */
-  setShadowReach(reach: number): void {
-    const { camera } = this.sun.shadow;
-    camera.left = -reach;
-    camera.right = reach;
-    camera.top = reach;
-    camera.bottom = -reach;
-    // The light backs off as the frustum widens, so its near plane never cuts the ground.
-    camera.near = 10;
-    camera.far = reach * 4 + 260;
-    camera.updateProjectionMatrix();
-    this.reach = reach;
+  /** The tone of the track's surface `lat` metres off the centreline at lap position `s`. */
+  private surface(s: number, lat: number): number {
+    const { track } = this;
+    const off = Math.abs(lat);
+    const half = track.halfWidth;
+    if (off > half) {
+      // The shoulder: a rumble strip, then darker plastic out to the rail.
+      const stripe = Math.floor(s / 2) % 2 === 0 ? tone(RAMP.white, 3) : tone(RAMP.red, 2);
+      return off < half + 0.9 ? stripe : tone(RAMP.track, 1);
+    }
+    const line = lapGap(s, 0, track.n);
+    if (Math.abs(line) < 1.5) {
+      const dark = (Math.floor(s) + Math.floor(lat + 100)) % 2 === 0;
+      return dark ? tone(RAMP.black, 1) : tone(RAMP.white, 4);
+    }
+    for (const pad of track.pads) {
+      const past = lapGap(s, pad, track.n);
+      if (past > -1 && past < 3 && off < half * 0.75) {
+        return wrap(past + off * 0.5, 1.5) < 0.75 ? tone(RAMP.yellow, 3) : tone(RAMP.black, 2);
+      }
+    }
+    if (off < 0.24 && Math.floor(s / 3) % 2 === 0) {
+      return tone(RAMP.track, 3);
+    }
+    if (off > half - 0.75 && off < half - 0.3) {
+      return tone(RAMP.track, 4);
+    }
+    // Where two lengths of track click together.
+    return wrap(s, 16) < 0.4 ? tone(RAMP.track, 1) : tone(RAMP.track, 2);
   }
 
-  /** A prefiltered copy of this sky, for reflections on paint and bodywork. */
-  environment(renderer: THREE.WebGLRenderer): THREE.Texture {
-    const { palette } = this.track.def;
-    const scene = new THREE.Scene();
-    const sky = new Sky(palette, this.sunDir, this.track.n);
-    scene.add(sky.group);
-    const generator = new THREE.PMREMGenerator(renderer);
-    const { texture } = generator.fromScene(scene, 0.02, 1, 1100);
-    generator.dispose();
-    sky.dispose();
-    return texture;
+  /** Centreline position and unit tangent at fractional lap position `s`. */
+  private centre(s: number) {
+    const { track } = this;
+    const i = Math.floor(s) % track.n;
+    const j = (i + 1) % track.n;
+    const k = s - Math.floor(s);
+    const tx = (track.tx[i] ?? 1) * (1 - k) + (track.tx[j] ?? 1) * k;
+    const tz = (track.tz[i] ?? 0) * (1 - k) + (track.tz[j] ?? 0) * k;
+    const length = Math.hypot(tx, tz) || 1;
+    return {
+      tx: tx / length,
+      tz: tz / length,
+      x: (track.xs[i] ?? 0) * (1 - k) + (track.xs[j] ?? 0) * k,
+      z: (track.zs[i] ?? 0) * (1 - k) + (track.zs[j] ?? 0) * k,
+    };
   }
 
-  dispose(): void {
-    this.group.removeFromParent();
-    this.sky.dispose();
-    this.kit.dispose();
-    this.sun.shadow.map?.dispose();
-  }
-
-  /** Keep the shadow map centred on the action, snapped so its texels do not swim. */
-  private follow(focus: THREE.Vector3): void {
-    const snap = (this.reach * 2) / Math.max(1, this.sun.shadow.mapSize.x);
-    const x = Math.round(focus.x / snap) * snap;
-    const z = Math.round(focus.z / snap) * snap;
-    this.sun.target.position.set(x, 0, z);
-    this.sun.position.set(x, 0, z).addScaledVector(this.sunDir, this.reach * 2 + 80);
-  }
-
-  private addGround(track: Track): void {
-    const { kit } = this;
-    const plan = kit.own(groundPlan(track));
-    const detail = concrete("#ffffff", 29);
-    kit.own(detail.map);
-    kit.own(detail.normalMap);
-    kit.own(detail.roughnessMap);
-    detail.normalMap.repeat.set(PLAN_SPAN / 10, PLAN_SPAN / 10);
-    detail.roughnessMap.repeat.set(PLAN_SPAN / 10, PLAN_SPAN / 10);
-    const material = kit.own(
-      new THREE.MeshStandardMaterial({
-        ...under(3),
-        map: plan,
-        normalMap: detail.normalMap,
-        normalScale: new THREE.Vector2(0.7, 0.7),
-        roughness: 1,
-        roughnessMap: detail.roughnessMap,
-      }),
-    );
-    const ground = kit.mesh(
-      new THREE.PlaneGeometry(PLAN_SPAN, PLAN_SPAN).rotateX(-Math.PI / 2),
-      material,
-    );
-    ground.position.y = -0.3;
-    ground.castShadow = false;
-    // Past the plan the district just goes on, in the plaza tone, into the haze.
-    const beyond = kit.mesh(
-      new THREE.PlaneGeometry(3000, 3000).rotateX(-Math.PI / 2),
-      kit.own(
-        new THREE.MeshStandardMaterial({
-          ...under(4),
-          color: track.def.palette.plaza,
-          roughness: 1,
-        }),
-      ),
-    );
-    beyond.position.y = -0.6;
-    beyond.castShadow = false;
-    // A strip of real grass texture right beside the barriers, where the camera sits.
-    const turf = grass();
-    kit.own(turf.map);
-    kit.own(turf.normalMap);
-    kit.own(turf.roughnessMap);
-    const lawn = kit.own(new THREE.MeshStandardMaterial({ ...turf, ...under(2), roughness: 1 }));
-    mottle(lawn, 0.9, 0.09);
-    mottle(material, 0.55, 0.05);
-    for (const side of [-1, 1]) {
-      const strip = kit.mesh(
-        ribbon(track, side * (track.rail + 1.6), side * (track.rail + 17), -0.14),
-        lawn,
-      );
-      strip.castShadow = false;
+  private layTrack(): void {
+    const { track } = this;
+    const b = new SplatBuilder(TRACK_SPACING, this.set, 31);
+    for (let s = 0; s < track.n; s += TRACK_SPACING) {
+      const at = this.centre(s);
+      for (let lat = -track.rail; lat <= track.rail; lat += TRACK_SPACING) {
+        const off = lat + (b.random() - 0.5) * 0.12;
+        const along = (b.random() - 0.5) * 0.12;
+        b.dab(
+          at.x - at.tz * off + at.tx * along,
+          TRACK_Y,
+          at.z + at.tx * off + at.tz * along,
+          0,
+          1,
+          0,
+          {
+            flags: Math.abs(off) <= track.halfWidth ? FLAG.paintable : 0,
+            tone: this.surface(s, off),
+          },
+        );
+      }
     }
   }
 
-  private addRoad(track: Track, paint: PaintLayer): void {
-    const { kit } = this;
-    const { palette } = track.def;
-    const tar = asphalt(palette.road);
-    kit.own(tar.map);
-    kit.own(tar.normalMap);
-    kit.own(tar.roughnessMap);
-    const road = kit.own(
-      roadMaterial(
-        track,
-        paint,
-        tar,
-        new THREE.Color(palette.accent).multiplyScalar(0.85),
-        new THREE.Color("#ecebe6"),
-      ),
-    );
-    const edge = track.halfWidth / KERB_INSET;
-    const surface = kit.mesh(ribbon(track, -edge, edge, 0), road);
-    surface.castShadow = false;
-    const slab = concrete(palette.apron, 43);
-    kit.own(slab.map);
-    kit.own(slab.normalMap);
-    kit.own(slab.roughnessMap);
-    const apron = kit.mesh(
-      ribbon(track, -track.rail - 1.7, track.rail + 1.7, -0.06),
-      kit.own(new THREE.MeshStandardMaterial({ ...slab, ...under(1), roughness: 0.95 })),
-    );
-    apron.castShadow = false;
+  /** The rail's colour at `s`: orange on the straights, red and white chevrons through a bend. */
+  private railTone(s: number, step: number): number {
+    const bend = Math.abs(this.track.curve[Math.floor(s) % this.track.n] ?? 0);
+    if (bend > 0.018) {
+      return Math.floor(s / 2.5) % 2 === 0 ? tone(RAMP.red, step) : tone(RAMP.white, step + 1);
+    }
+    return wrap(s, 16) < 0.6 ? tone(RAMP.white, step) : tone(RAMP.track, step);
+  }
+
+  private layRails(): void {
+    const { track } = this;
+    const b = new SplatBuilder(TRACK_SPACING, this.set, 41);
+    const rows = Math.ceil(RAIL_HEIGHT / TRACK_SPACING);
+    for (let s = 0; s < track.n; s += TRACK_SPACING) {
+      const at = this.centre(s);
+      for (const side of [-1, 1]) {
+        const nx = -at.tz * side;
+        const nz = at.tx * side;
+        const inner = track.rail + 0.1;
+        const outer = track.rail + 0.6;
+        for (let row = 0; row <= rows; row += 1) {
+          const y = TRACK_Y + (row / rows) * RAIL_HEIGHT;
+          b.dab(at.x + nx * inner, y, at.z + nz * inner, -nx, 0, -nz, {
+            tone: this.railTone(s, 2),
+          });
+          b.dab(at.x + nx * outer, y - TRACK_Y * 0.9, at.z + nz * outer, nx, 0, nz, {
+            tone: this.railTone(s, 1),
+          });
+        }
+        for (const across of [0.2, 0.45]) {
+          const lat = track.rail + across;
+          b.dab(at.x + nx * lat, TRACK_Y + RAIL_HEIGHT, at.z + nz * lat, 0, 1, 0, {
+            tone: this.railTone(s, 3),
+          });
+        }
+      }
+    }
+  }
+
+  /** The start gantry: two posts, a chequered beam, five lamps. */
+  private raiseGantry(): void {
+    const { track } = this;
+    const at = this.centre(2.5);
+    const yaw = Math.atan2(at.tz, at.tx);
+    const span = track.rail + 2;
+    const b = new SplatBuilder(TOY_SPACING, this.set, 51).at(at.x, 0, at.z, yaw);
+    const post: Coat = { tone: tone(RAMP.white, 2) };
+    b.cylinder(0, GANTRY_HEIGHT / 2, span, 0.6, GANTRY_HEIGHT, post);
+    b.cylinder(0, GANTRY_HEIGHT / 2, -span, 0.6, GANTRY_HEIGHT, post);
+    b.box(0, GANTRY_HEIGHT + 0.6, 0, 1, 1.6, span * 2 + 1.6, {
+      at: (_x, y, z) => {
+        const dark = (Math.floor(z / 0.8) + Math.floor(y / 0.8)) % 2 === 0;
+        return dark ? tone(RAMP.black, 1) : -1;
+      },
+      tone: tone(RAMP.white, 3),
+    });
+    b.box(-0.2, GANTRY_HEIGHT - 0.9, 0, 0.7, 1.2, 9, { tone: tone(RAMP.black, 2) });
+    for (let i = 0; i < 5; i += 1) {
+      const lat = (i - 2) * 1.7;
+      this.lamps.push({
+        x: at.x - at.tz * lat - at.tx * 0.7,
+        z: at.z + at.tx * lat - at.tz * 0.7,
+      });
+    }
+  }
+
+  /** A striped hoop over every splat pad. */
+  private raisePadGates(): void {
+    const { track } = this;
+    for (const pad of track.pads) {
+      const at = this.centre(pad);
+      const b = new SplatBuilder(TOY_SPACING, this.set, 61 + pad).at(
+        at.x,
+        0,
+        at.z,
+        Math.atan2(at.tz, at.tx),
+      );
+      b.arch(track.rail + 1.6, 0.6, {
+        at: (_x, y, z) =>
+          Math.floor((Math.atan2(y, z) / Math.PI) * 12) % 2 === 0 ? tone(RAMP.black, 2) : -1,
+        tone: tone(RAMP.yellow, 2),
+      });
+    }
+  }
+
+  /** Is a toy `reach` wide at (x, z) clear of every stretch of road? */
+  private clear(x: number, z: number, reach: number): boolean {
+    const d = this.ground.distance(x, z);
+    return d > this.track.rail + reach + 2.4 && d < FLOOR_REACH - reach - 4;
+  }
+
+  private scatterToys(): void {
+    const { track } = this;
+    const toys = TOYS[track.def.palette.room];
+    const b = new SplatBuilder(TOY_SPACING, this.set, 71);
+    for (let s = 6; s < track.n; s += 5.5) {
+      for (const side of [-1, 1]) {
+        const toy = toys[Math.floor(b.random() * toys.length)] ?? toys[0];
+        const at = this.centre(s);
+        const lat = side * (track.rail + toy.reach + 2.6 + b.random() ** 2 * 26);
+        const x = at.x - at.tz * lat;
+        const z = at.z + at.tx * lat;
+        if (b.random() < 0.8 && this.clear(x, z, toy.reach)) {
+          toy.bake(b.at(x, 0, z, b.random() * Math.PI * 2));
+        }
+      }
+    }
   }
 }

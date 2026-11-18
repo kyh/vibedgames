@@ -26,7 +26,7 @@
         --plate-hi: #262a3d;
         --rim: rgba(255, 255, 255, 0.2);
         --amber: #ffb629;
-        --font: "Chakra Petch", "Avenir Next Condensed", "Arial Narrow", system-ui, sans-serif;
+        --font: "Silkscreen", "Courier New", monospace;
         --cut: 12px;
       }
       * {
@@ -1169,6 +1169,127 @@
       }
       .row .pts {
         font-size: 13px;
+      }
+
+      /* ---- pixel pass ----
+         The world is hard pixels in a fixed palette, so the HUD is too: square
+         corners, flat fills, one-step drop shadows, no blur, no slant. Every
+         colour here is a tone from src/splat/palette.ts. */
+      :root {
+        --ink: #f1f3f9;
+        --dim: #8d93ab;
+        --plate: #1c1a26;
+        --plate-hi: #2e2b3d;
+        --rim: #4a4660;
+        --amber: #f7c820;
+        --edge: #0d0b14;
+      }
+      html {
+        -webkit-font-smoothing: none;
+        font-smooth: never;
+      }
+      *,
+      *::before,
+      *::after {
+        border-radius: 0 !important;
+        backdrop-filter: none !important;
+        text-shadow: none !important;
+        filter: none !important;
+        font-style: normal !important;
+        font-weight: 400 !important;
+        letter-spacing: 0 !important;
+      }
+      .skew {
+        transform: none !important;
+      }
+      .plate,
+      #orbs,
+      #board li,
+      #place,
+      #gap,
+      #surface,
+      #net,
+      #start,
+      #tag,
+      #steps li,
+      .card {
+        clip-path: none !important;
+        background-image: none !important;
+        border: 3px solid var(--edge) !important;
+        box-shadow: 4px 4px 0 var(--edge) !important;
+      }
+      .plate::before,
+      .plate::after,
+      .card::before,
+      .card::after,
+      #board li::before,
+      #board li::after,
+      #place::before,
+      #place::after {
+        display: none !important;
+      }
+      .plate,
+      #board li,
+      #gap,
+      #net,
+      .card {
+        background-color: var(--plate) !important;
+      }
+      #board li {
+        border-left: 8px solid var(--c, var(--rim)) !important;
+      }
+      #board li[data-me="1"],
+      .card[aria-pressed="true"] {
+        background-color: var(--ink) !important;
+        color: var(--edge) !important;
+      }
+      #orbs {
+        background-color: var(--amber) !important;
+        color: var(--edge) !important;
+      }
+      #place,
+      #start,
+      #surface,
+      #tag {
+        background-color: var(--me) !important;
+        color: var(--edge) !important;
+      }
+      #map {
+        background: var(--plate) !important;
+        border: 3px solid var(--edge) !important;
+        box-shadow: 4px 4px 0 var(--edge) !important;
+        padding: 0 !important;
+      }
+      #minimap,
+      .card canvas,
+      #item-icon {
+        image-rendering: pixelated;
+      }
+      #speedo svg {
+        shape-rendering: crispEdges;
+      }
+      #logo h1 {
+        color: var(--ink);
+        -webkit-text-stroke: 0 !important;
+        background: none !important;
+        -webkit-text-fill-color: currentColor !important;
+      }
+      #logo h1 em {
+        color: #f26a1b;
+        -webkit-text-fill-color: currentColor !important;
+      }
+      #title {
+        background: none !important;
+      }
+      #gap,
+      #rules,
+      #rules b,
+      #rules div {
+        color: var(--ink) !important;
+      }
+      #rules .swatch {
+        box-shadow: none !important;
+        transform: none !important;
       }
     </style>
   </head>

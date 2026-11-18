@@ -22,7 +22,6 @@ import { Sparks } from "../render/fx";
 import type { Hud, MapDot, ResultRow } from "../render/hud";
 import { setAccent } from "../render/hud";
 import { KartMesh } from "../render/kart-mesh";
-import { PaintLayer } from "../render/paint-layer";
 import { World } from "../render/world";
 import {
   BOTS,
@@ -64,6 +63,9 @@ import { PaintGrid } from "../sim/paint";
 import { ordinal, rank } from "../sim/race";
 import { TRACKS, curvatureAt, locate, pointAt, trackFor, wrapIndex } from "../sim/track";
 import type { Track } from "../sim/track";
+import { KART_RAMPS, RAMP, kartRampFor, rampCss } from "../splat/palette";
+import { SplatStage } from "../splat/stage";
+import type { StageView } from "../splat/stage";
 import { ITEM_EVENT, ItemSystem } from "./items";
 import type { ItemHost } from "./items";
 
@@ -73,7 +75,8 @@ interface Racer {
   key: string;
   kind: RacerKind;
   name: string;
-  color: THREE.Color;
+  /** The palette ramp this kart, its paint and its sparks are drawn in. */
+  ramp: number;
   css: string;
   /** This kart's colour id in the local paint grid. */
   slot: number;
@@ -141,9 +144,6 @@ const FRESH_START = "fresh-start";
 /** Metres from the camera within which a rival's body would swallow the lens. */
 const LENS_CLEAR = 1.9;
 
-/** The camera's near plane everywhere but the overview. */
-const NEAR = 0.8;
-
 /** Cup points by finishing place. */
 const CUP_POINTS = [10, 8, 6, 5, 4, 3, 2, 1] as const;
 
@@ -153,26 +153,20 @@ const KMH = 4.6;
 /** Highest paint slot the paint texture's palette holds. */
 const MAX_SLOT = 31;
 
-const TIER_COLORS = [
-  new THREE.Color("#cfefff"),
-  new THREE.Color("#7df9ff"),
-  new THREE.Color("#ffd23f"),
-  new THREE.Color("#ff3d81"),
-] as const;
-const WHITE = new THREE.Color("#ffffff");
-const LOOK = new THREE.Vector3();
-const HAZE = new THREE.Color();
+/** Spark ramps by drift tier. */
+const TIER_RAMPS = [RAMP.white, RAMP.cyan, RAMP.yellow, RAMP.pink] as const;
 const GOAL = new THREE.Vector3();
 
-const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
+/** The diorama camera: a fixed three-quarter view that only ever slides. */
+const ISO = new THREE.Vector3(0.612, 0.5, 0.612);
+const ISO_DISTANCE = 240;
+/** World units the diorama shows top to bottom. */
+const ISO_HEIGHT = 36;
+const CAMERA_KEY = "glowline:camera";
+/** `?cam=chase` and `?track=1` pick the camera and the opening circuit, for captures and playtests. */
+const QUERY = new URLSearchParams(globalThis.location.search);
 
-/** Any colour pushed to full neon, so every kart's paint reads against the dark. */
-const neon = (style: string): THREE.Color => {
-  const color = new THREE.Color(style);
-  const hsl = { h: 0, l: 0, s: 0 };
-  color.getHSL(hsl);
-  return color.setHSL(hsl.h, 1, 0.56);
-};
+const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
 
 /* oxlint-disable no-bitwise, unicorn/prefer-code-point -- FNV-1a is defined over
    UTF-16 code units and 32-bit wraparound; every peer must derive the same tag. */
@@ -185,17 +179,6 @@ const tagFor = (id: string): string => {
   return ((h >>> 0) % 1296).toString(36).toUpperCase().padStart(2, "0");
 };
 /* oxlint-enable no-bitwise, unicorn/prefer-code-point */
-
-/** The kart's race number, as painted on its nose. */
-const plateFor = (key: string, kind: RacerKind): string => {
-  if (kind === "me") {
-    return "1";
-  }
-  if (kind === "bot") {
-    return String(Number(key.slice(1)) + 2);
-  }
-  return String(10 + (Number.parseInt(tagFor(key), 36) % 89));
-};
 
 const readRound = (shared: JsonRecord): RoundState | null => {
   const { nextAt, phase, round, startAt, track } = shared;
@@ -212,12 +195,25 @@ const readRound = (shared: JsonRecord): RoundState | null => {
 };
 
 export class GameScene {
-  readonly scene = new THREE.Scene();
-  readonly camera = new THREE.PerspectiveCamera(62, 1, NEAR, 2600);
-
   private readonly paint = new PaintGrid();
-  private readonly layer = new PaintLayer();
-  private readonly sparks = new Sparks(this.scene);
+  private readonly sparks = new Sparks();
+  private readonly stage: SplatStage;
+  private readonly view: StageView = {
+    eye: new THREE.Vector3(),
+    fog: 0,
+    fogEnd: 170,
+    fogStart: 70,
+    fov: 62,
+    height: ISO_HEIGHT,
+    ortho: true,
+    snap: true,
+    target: new THREE.Vector3(),
+  };
+  private readonly focus = new THREE.Vector3();
+  /** How far ahead of the kart the diorama looks, eased so a turn pans rather than snaps. */
+  private readonly lead = new THREE.Vector3();
+  /** True for the chase camera, false for the diorama. */
+  private chase = false;
   private readonly bots = new BotField();
   private readonly racers = new Map<string, Racer>();
   private readonly slots = new Map<string, number>();
@@ -256,8 +252,6 @@ export class GameScene {
   private readonly input: Input;
   private readonly hud: Hud;
 
-  private readonly renderer: THREE.WebGLRenderer;
-  private readonly shadows: number;
   /** A fixed camera for captures: the whole circuit from above, or the grid under the lights. */
   private shot: "overview" | "grid" | null = null;
   private readonly items: ItemSystem;
@@ -281,13 +275,16 @@ export class GameScene {
     this.client = client;
     this.input = input;
     this.hud = hud;
-    this.renderer = renderer;
-    this.shadows = shadows;
+    this.stage = new SplatStage(renderer, shadows);
     this.uploadEvery = shadows > 0 ? 2 : 3;
-    this.scene.fog = new THREE.Fog(this.track.def.palette.horizon, 260, 1500);
     this.world = this.buildWorld();
     this.hud.setTrack(this.track);
-    this.layer.setColor(1, neon(LOCAL_COLOR));
+    this.stage.setSlotRamp(1, kartRampFor(LOCAL_COLOR, new Set()));
+    try {
+      this.chase = (QUERY.get("cam") ?? localStorage.getItem(CAMERA_KEY)) === "chase";
+    } catch {
+      this.chase = false;
+    }
     this.items = new ItemSystem(this.itemHost(), this.track);
   }
 
@@ -299,9 +296,35 @@ export class GameScene {
     }
   }
 
-  resize(aspect: number): void {
-    this.camera.aspect = aspect;
-    this.camera.updateProjectionMatrix();
+  resize(width: number, height: number): void {
+    this.stage.resize(width, height);
+  }
+
+  /** Swap between the diorama and the chase camera, and remember the choice. */
+  toggleCamera(): void {
+    this.chase = !this.chase;
+    this.camReady = false;
+    this.hud.callout(this.chase ? "CHASE CAM" : "TABLETOP CAM", 800);
+    try {
+      localStorage.setItem(CAMERA_KEY, this.chase ? "chase" : "iso");
+    } catch {
+      // Private browsing: the choice lasts the session.
+    }
+  }
+
+  /** Draw the frame: everything that moves goes on stage, then the stage renders. */
+  render(): void {
+    const out = this.stage.dynamic;
+    this.stage.begin();
+    this.world.draw(out);
+    this.preview?.draw(out);
+    for (const racer of this.racers.values()) {
+      racer.mesh.draw(out);
+    }
+    const { target } = this.view;
+    this.items.draw(out, target.x, target.z, this.view.ortho ? this.view.height * 1.6 : 150);
+    this.sparks.draw(out);
+    this.stage.render(this.view);
   }
 
   /** The RACE button, a key, or a pad: put this player on the grid. */
@@ -417,15 +440,10 @@ export class GameScene {
     this.stepItems(now);
     this.paint.decay(dt);
     if (this.frame % this.uploadEvery === 0) {
-      this.layer.upload(this.paint);
+      this.stage.uploadPaint(this.paint);
     }
     this.sparks.update(dt);
     this.updateCamera(dt);
-    this.world.update(
-      this.time,
-      this.padReadyAt.map((at) => this.time >= at),
-      LOOK,
-    );
     this.startLights(now);
     this.updateHud(now);
   }
@@ -482,18 +500,8 @@ export class GameScene {
   // --- room -----------------------------------------------------------------
 
   private buildWorld(): World {
-    const world = new World(this.track, this.layer, { shadows: this.shadows });
-    this.scene.add(world.group);
-    if (this.scene.fog instanceof THREE.Fog) {
-      // Haze the colour of the low sky, so the far district melts into it.
-      this.scene.fog.color
-        .set(this.track.def.palette.mid)
-        .lerp(HAZE.set(this.track.def.palette.horizon), 0.6);
-    }
-    this.scene.environment?.dispose();
-    this.scene.environment = world.environment(this.renderer);
-    // Low: the sky fills shadows only a little, so the sun still draws them.
-    this.scene.environmentIntensity = 0.3;
+    const world = new World(this.track);
+    this.stage.setWorld(world.set);
     return world;
   }
 
@@ -530,7 +538,7 @@ export class GameScene {
     const next = readRound(client.sharedState);
     if (!next) {
       if (client.isHost) {
-        this.newRound(1, 0);
+        this.newRound(1, Number(QUERY.get("track")) || 0);
       }
       return;
     }
@@ -566,7 +574,6 @@ export class GameScene {
     if (next.track !== this.trackIndex) {
       this.trackIndex = next.track;
       this.track = trackFor(next.track);
-      this.world.dispose();
       this.world = this.buildWorld();
       this.hud.setTrack(this.track);
     }
@@ -739,7 +746,7 @@ export class GameScene {
             if (closing < -3) {
               this.shake = Math.min(1, this.shake + 0.35);
               sfx.bump();
-              this.sparks.burst(me.x - nx, me.h + 0.6, me.z - nz, WHITE, 8, 7);
+              this.sparks.burst(me.x - nx, me.h + 0.6, me.z - nz, RAMP.white, 8, 7);
             }
           }
         }
@@ -756,7 +763,7 @@ export class GameScene {
         me.x - Math.cos(me.a) * 1.4,
         me.h + 0.5,
         me.z - Math.sin(me.a) * 1.4,
-        TIER_COLORS[events.boosted] ?? WHITE,
+        TIER_RAMPS[events.boosted] ?? RAMP.white,
         10 + events.boosted * 6,
         9,
       );
@@ -764,7 +771,7 @@ export class GameScene {
     if (events.railHit > 3) {
       this.shake = Math.min(1, this.shake + events.railHit * 0.03);
       sfx.bump();
-      this.sparks.burst(me.x, me.h + 0.5, me.z, WHITE, 6, 6);
+      this.sparks.burst(me.x, me.h + 0.5, me.z, RAMP.white, 6, 6);
     }
   }
 
@@ -805,7 +812,7 @@ export class GameScene {
   private itemHost(): ItemHost {
     return {
       client: this.client,
-      colorOf: (key) => this.racers.get(key)?.color ?? WHITE,
+
       kartOf: (key) => {
         if (key === "me") {
           return this.started ? this.me : null;
@@ -814,7 +821,7 @@ export class GameScene {
       },
       notify: (what, kind) => this.notify(what, kind),
       paint: this.paint,
-      scene: this.scene,
+      rampOf: (key) => this.racers.get(key)?.ramp ?? RAMP.white,
       shareOf: (key) => {
         const order = this.standings();
         const index = order.findIndex((racer) => racer.key === key);
@@ -841,17 +848,21 @@ export class GameScene {
     }
   }
 
+  /** The ramp a racer wears: nearest to its colour among those nobody on the road has. */
+  private rampFor(style: string): number {
+    const taken = new Set([...this.racers.values()].map((racer) => racer.ramp));
+    return kartRampFor(style, taken.size < KART_RAMPS.length ? taken : new Set());
+  }
+
   /** The title screen's kart: this player's colour and chassis, parked on their grid slot. */
   private showPreview(dt: number): void {
     const style = this.client.players[this.client.playerId ?? ""]?.color ?? LOCAL_COLOR;
     const want = `${style}:${this.chassis}`;
     if (want !== this.previewStyle) {
-      this.dropPreview();
       this.previewStyle = want;
-      const color = neon(style);
-      this.preview = new KartMesh(color, "1", this.chassis);
-      this.scene.add(this.preview.group);
-      setAccent(`#${color.getHexString()}`);
+      const ramp = kartRampFor(style, new Set());
+      this.preview = new KartMesh(ramp, this.chassis);
+      setAccent(rampCss(ramp, 3));
     }
     const slot = spawnKart(this.track, this.mySlot(), this.chassis);
     this.preview?.update(
@@ -868,21 +879,20 @@ export class GameScene {
       },
       dt,
     );
-    // A slow orbit, close enough that the kart fills the frame.
-    const angle = slot.a + 0.62 + Math.sin(this.time * 0.25) * 0.4;
-    this.camera.fov = 40;
-    this.camera.position.set(slot.x + Math.cos(angle) * 6.4, 2.1, slot.z + Math.sin(angle) * 6.4);
-    LOOK.set(slot.x, 0.75, slot.z);
-    this.camera.lookAt(LOOK);
-    this.camera.updateProjectionMatrix();
+    // From behind and to one side, turning in steps the way a sprite sheet would.
+    const turn = (Math.floor(this.time * 1.5) * Math.PI) / 12;
+    const angle = slot.a + 2.5 + Math.sin(turn) * 0.35;
+    const { view } = this;
+    view.ortho = true;
+    view.snap = false;
+    view.fog = 0;
+    view.height = 12;
+    view.target.set(slot.x, 1, slot.z);
+    view.eye.set(slot.x + Math.cos(angle) * 60, 42, slot.z + Math.sin(angle) * 60);
   }
 
   private dropPreview(): void {
-    if (this.preview) {
-      this.preview.group.removeFromParent();
-      this.preview.dispose();
-      this.preview = null;
-    }
+    this.preview = null;
   }
 
   private publish(dt: number, now: number): void {
@@ -925,15 +935,13 @@ export class GameScene {
       style = this.client.players[key]?.color ?? LOCAL_COLOR;
       name = kind === "me" ? "You" : `Racer ${tagFor(key)}`;
     }
-    const color = neon(style);
+    const ramp = this.rampFor(style);
     const slot = kind === "me" ? 1 : this.slotFor(key);
-    this.layer.setColor(slot, color);
-    const mesh = new KartMesh(color, plateFor(key, kind), chassis);
-    this.scene.add(mesh.group);
+    this.stage.setSlotRamp(slot, ramp);
+    const mesh = new KartMesh(ramp, chassis);
     const racer: Racer = {
       brush: null,
-      color,
-      css: `#${color.getHexString()}`,
+      css: rampCss(ramp, 3),
       h: 0,
       idx: -1,
       key,
@@ -945,6 +953,7 @@ export class GameScene {
       mesh,
       name,
       pose: poseOf(this.me),
+      ramp,
       seen: this.pass,
       slot,
       steer: 0,
@@ -993,8 +1002,6 @@ export class GameScene {
       if (racer.seen === this.pass) {
         this.place(racer, dt, racing);
       } else {
-        racer.mesh.group.removeFromParent();
-        racer.mesh.dispose();
         this.racers.delete(key);
         this.slots.delete(key);
       }
@@ -1019,7 +1026,7 @@ export class GameScene {
     racer.lastDrift = pose.drift;
     if (pose.spin > 0 && racer.lastSpin <= 0) {
       racer.mesh.thump();
-      this.sparks.burst(pose.x, 0.8, pose.z, WHITE, 16, 9);
+      this.sparks.burst(pose.x, 0.8, pose.z, RAMP.white, 16, 9);
     }
     racer.lastSpin = pose.spin;
     racer.mesh.update(
@@ -1039,9 +1046,10 @@ export class GameScene {
     const fx = Math.cos(pose.a);
     const fz = Math.sin(pose.a);
     // Only a kart the lens is actually inside is hidden: anything further is traffic.
-    racer.mesh.group.visible =
+    racer.mesh.visible =
       racer.kind === "me" ||
-      this.camera.position.distanceToSquared(racer.mesh.group.position) > LENS_CLEAR ** 2;
+      !this.chase ||
+      Math.hypot(this.view.eye.x - pose.x, this.view.eye.z - pose.z) > LENS_CLEAR;
     if (!racing) {
       if (this.state.phase === "race") {
         // Under the lights every grid box is painted in its driver's colour.
@@ -1099,7 +1107,7 @@ export class GameScene {
           }
         }
         const centre = pointAt(track, pad + 6, 0);
-        this.sparks.burst(centre.x, centre.h + 0.4, centre.z, racer.color, 40, 13);
+        this.sparks.burst(centre.x, centre.h + 0.4, centre.z, racer.ramp, 40, 13);
         if (racer.kind === "me") {
           sfx.splat();
           this.shake = Math.min(1, this.shake + 0.25);
@@ -1112,12 +1120,11 @@ export class GameScene {
   private trail(racer: Racer, fx: number, fz: number): void {
     const { pose } = racer;
     if (pose.drift !== 0) {
-      const color = TIER_COLORS[boostTier(pose.charge)] ?? WHITE;
       const side = pose.drift;
       this.sparks.emit({
-        color,
         gravity: 9,
         life: 0.22 + Math.random() * 0.2,
+        ramp: TIER_RAMPS[boostTier(pose.charge)] ?? RAMP.white,
         size: 0.1 + Math.random() * 0.12,
         vx: -fx * 3 + fz * side * (2 + Math.random() * 4),
         vy: 1.5 + Math.random() * 3,
@@ -1129,8 +1136,8 @@ export class GameScene {
     }
     if (pose.boosting) {
       this.sparks.emit({
-        color: racer.color,
         life: 0.25 + Math.random() * 0.15,
+        ramp: racer.ramp,
         size: 0.22 + Math.random() * 0.2,
         vx: -fx * (6 + Math.random() * 6) + (Math.random() - 0.5) * 2,
         vy: Math.random() * 1.5,
@@ -1164,23 +1171,16 @@ export class GameScene {
     this.world.setStartLights(left < -2500 || this.state.phase === "results" ? 0 : lit, go);
   }
 
-  /** Capture cameras: fixed framings the critic loop matches to its reference shots. */
+  /** Capture cameras: the whole circuit from above, or the grid under the lights. */
   private shotCamera(): boolean {
+    const { view } = this;
     if (this.shot === "overview") {
-      this.camera.fov = 38;
-      // Nothing is nearer than the rooftops from up here: spend the depth range on the ground.
-      this.camera.near = 60;
-      this.camera.position.set(-40, 235, 250);
-      LOOK.set(0, 0, 8);
-      this.world.setShadowReach(330);
+      view.height = 250;
+      view.target.set(0, 0, 0);
     } else if (this.shot === "grid") {
-      const line = pointAt(this.track, -16, 0);
-      const fx = Math.cos(line.a);
-      const fz = Math.sin(line.a);
-      this.camera.near = NEAR;
-      this.camera.fov = 58;
-      this.camera.position.set(line.x - fx * 15 + fz * 1.5, 3.6, line.z - fz * 15 - fx * 1.5);
-      LOOK.set(line.x + fx * 30, 2.6, line.z + fz * 30);
+      const line = pointAt(this.track, -12, 0);
+      view.height = 30;
+      view.target.set(line.x, 0, line.z);
       // Hold the lights on three reds for as long as the capture takes.
       if (this.client.isHost) {
         this.client.updateSharedState({ startAt: Math.round(this.client.serverNow() + 1500) });
@@ -1188,14 +1188,16 @@ export class GameScene {
     } else {
       return false;
     }
-    this.camera.lookAt(LOOK);
-    this.camera.updateProjectionMatrix();
+    view.ortho = true;
+    view.snap = false;
+    view.fog = 0;
+    view.eye.copy(view.target).addScaledVector(ISO, ISO_DISTANCE);
     return true;
   }
 
   /**
-   * Keep the camera inside the rails. On a bend the spot eight metres behind
-   * the kart is often past the barrier, looking through signs and blocks.
+   * Keep the chase camera inside the rails. On a bend the spot eight metres
+   * behind the kart is often past the rail, looking through toys.
    */
   private keepOnRoad(hint: number): void {
     const { track } = this;
@@ -1213,24 +1215,59 @@ export class GameScene {
     if (this.shotCamera()) {
       return;
     }
-    // A capture framing may have pushed the near plane out; every other camera wants it close.
-    this.camera.near = NEAR;
     if (!this.started) {
       this.showPreview(dt);
       return;
     }
-    const order = this.standings();
-    const subject = this.racers.get("me") ?? order[0];
+    const subject = this.racers.get("me") ?? this.standings()[0];
+    this.shake = Math.max(0, this.shake - dt * 2.4);
     if (!subject) {
-      // Empty road (a guest still waiting on the host's rows): look down the start straight.
+      // Empty road (a guest still waiting on the host's rows): look at the start line.
       const at = pointAt(this.track, 0, 0);
-      this.camera.position.set(at.x - Math.cos(at.a) * 30, at.h + 16, at.z - Math.sin(at.a) * 30);
-      this.camera.lookAt(at.x, at.h, at.z);
-      return;
+      this.slide(at.x, at.z, 1);
+    } else if (this.chase) {
+      this.chaseCamera(subject, dt);
+    } else {
+      // The kart stays near the middle; only the look-ahead eases, so it is never left behind.
+      const mine = subject.kind === "me";
+      const { pose } = subject;
+      const vx = mine ? this.me.vx : Math.cos(pose.a) * pose.speed;
+      const vz = mine ? this.me.vz : Math.sin(pose.a) * pose.speed;
+      const ease = this.camReady ? Math.min(1, dt * 2.5) : 1;
+      this.lead.x += (clamp(vx * 0.24, -9, 9) - this.lead.x) * ease;
+      this.lead.z += (clamp(vz * 0.24, -9, 9) - this.lead.z) * ease;
+      this.slide(pose.x + this.lead.x, pose.z + this.lead.z, 1);
     }
+    this.camReady = true;
+  }
+
+  /** The diorama camera: ease the focus towards (x, z) and look down on it from the fixed angle. */
+  private slide(x: number, z: number, ease: number): void {
+    const { focus, view } = this;
+    if (this.camReady) {
+      focus.x += (x - focus.x) * ease;
+      focus.z += (z - focus.z) * ease;
+    } else {
+      focus.set(x, 0, z);
+    }
+    const jolt = this.shake * this.shake * 0.9;
+    view.ortho = true;
+    view.snap = true;
+    view.fog = 0;
+    view.height = ISO_HEIGHT;
+    view.target.set(
+      focus.x + (Math.random() - 0.5) * jolt,
+      0,
+      focus.z + (Math.random() - 0.5) * jolt,
+    );
+    view.eye.copy(view.target).addScaledVector(ISO, ISO_DISTANCE);
+  }
+
+  /** Behind and above the kart, following where it is going rather than where it points. */
+  private chaseCamera(subject: Racer, dt: number): void {
     const { pose } = subject;
+    const { view } = this;
     const mine = subject.kind === "me";
-    // Follow where the kart is going, not where it points: a drift shows as a slide.
     const moving = mine && pose.speed > 6 ? Math.atan2(this.me.vz, this.me.vx) : pose.a;
     const blend = mine ? moving + angleDelta(pose.a, moving) * 0.35 : pose.a;
     if (!this.camReady) {
@@ -1238,28 +1275,27 @@ export class GameScene {
     }
     this.camHeading += angleDelta(blend, this.camHeading) * Math.min(1, dt * 5.5);
     const share = clamp(pose.speed / MAX_SPEED, 0, 1.4);
-    const distance = mine ? 7.6 + share * 2.2 : 13;
-    const height = mine ? 3.5 + share * 0.5 : 6.5;
+    const distance = mine ? 8.6 + share * 2.2 : 13;
+    const height = mine ? 4.4 + share * 0.5 : 6.5;
     const cx = Math.cos(this.camHeading);
     const cz = Math.sin(this.camHeading);
     GOAL.set(pose.x - cx * distance, subject.h + height, pose.z - cz * distance);
     this.keepOnRoad(subject.idx);
     if (this.camReady) {
-      this.camera.position.lerp(GOAL, Math.min(1, dt * 9));
+      view.eye.lerp(GOAL, Math.min(1, dt * 9));
     } else {
-      this.camera.position.copy(GOAL);
-      this.camReady = true;
+      view.eye.copy(GOAL);
     }
-    this.shake = Math.max(0, this.shake - dt * 2.4);
     const jolt = this.shake * this.shake * 0.5;
-    this.camera.position.x += (Math.random() - 0.5) * jolt;
-    this.camera.position.y += (Math.random() - 0.5) * jolt;
-    LOOK.set(pose.x + cx * 7, subject.h + 1.3, pose.z + cz * 7);
-    this.camera.lookAt(LOOK);
-    const fov = 60 + share * 11 + (pose.boosting ? 9 : 0);
+    view.eye.x += (Math.random() - 0.5) * jolt;
+    view.eye.y += (Math.random() - 0.5) * jolt;
+    view.target.set(pose.x + cx * 7, subject.h + 1.3, pose.z + cz * 7);
+    const fov = 58 + share * 9 + (pose.boosting ? 8 : 0);
     this.fov += (fov - this.fov) * Math.min(1, dt * 5);
-    this.camera.fov = this.fov;
-    this.camera.updateProjectionMatrix();
+    view.fov = this.fov;
+    view.ortho = false;
+    view.snap = false;
+    view.fog = 0.75;
   }
 
   private updateHud(now: number): void {

@@ -8,30 +8,13 @@
 
 import { SHOULDER, TRACK_STEP } from "../shared/constants";
 
+/** Which room the circuit is laid out in: sets the floor and the toys around it. */
+export type Room = "bedroom" | "kitchen" | "playroom";
+
 export interface TrackPalette {
-  /** Kerbs, barriers, gantry, signs. */
+  /** The minimap's line. */
   accent: string;
-  accent2: string;
-  /** Asphalt binder. */
-  road: string;
-  /** Concrete apron beside the road and the plaza beyond. */
-  apron: string;
-  plaza: string;
-  /** Building walls, lightest to darkest. */
-  walls: readonly [string, string, string];
-  /** Lit windows. */
-  windows: string;
-  /** Blue-hour sky, top to bottom, the afterglow and the far skyline. */
-  zenith: string;
-  mid: string;
-  horizon: string;
-  sun: string;
-  skyline: string;
-  /** Low key light: its colour and the compass bearing it comes from, radians. */
-  key: string;
-  bearing: number;
-  /** Cool fill from the sky. */
-  fill: string;
+  room: Room;
 }
 
 /** One hill term: `amp * sin(2π * (waves * u + phase))`, u the lap fraction. */
@@ -282,7 +265,7 @@ export const curvatureAt = (track: Track, s: number): number =>
   at(track.curve, wrapIndex(Math.round(s), track.n));
 
 // --- The circuits ------------------------------------------------------------
-// Three night circuits. Each loop stays inside ±120 so the paint grid covers it,
+// Three toy circuits, one to a room. Each loop stays inside ±120 so the paint grid covers it,
 // and no stretch passes within two rails of another.
 
 export const TRACK_DEFS: readonly TrackDef[] = [
@@ -290,25 +273,9 @@ export const TRACK_DEFS: readonly TrackDef[] = [
     halfWidth: 7.5,
     hills: [],
     id: "sodium-loop",
-    name: "Sodium Loop",
+    name: "Bedroom Loop",
     pads: [0.2, 0.47, 0.76],
-    palette: {
-      accent: "#19c8f0",
-      accent2: "#ff3d81",
-      apron: "#a7a3ac",
-      bearing: 2.3,
-      fill: "#9fc4ff",
-      horizon: "#ffd9ad",
-      key: "#ffd2a1",
-      mid: "#7fb2ea",
-      plaza: "#8f8b96",
-      road: "#4a4a55",
-      skyline: "#5b6f9e",
-      sun: "#ffe0b0",
-      walls: ["#d9cfc6", "#b9a79d", "#8e8ba0"],
-      windows: "#ffd58a",
-      zenith: "#2f5fb4",
-    },
+    palette: { accent: "#ff9a3c", room: "bedroom" },
     points: [
       [-70, -78],
       [-10, -92],
@@ -329,25 +296,9 @@ export const TRACK_DEFS: readonly TrackDef[] = [
     halfWidth: 7,
     hills: [],
     id: "harbor-hairpins",
-    name: "Harbor Hairpins",
+    name: "Kitchen Hairpins",
     pads: [0.14, 0.4, 0.63, 0.88],
-    palette: {
-      accent: "#3fd85a",
-      accent2: "#ffc21f",
-      apron: "#a3aba8",
-      bearing: 0.7,
-      fill: "#a6d6e6",
-      horizon: "#ffe6b8",
-      key: "#ffdcaa",
-      mid: "#7cc4d8",
-      plaza: "#88928f",
-      road: "#454c50",
-      skyline: "#4f7f8e",
-      sun: "#fff0c4",
-      walls: ["#d6dcd2", "#a9b9b2", "#7d949a"],
-      windows: "#fff0b8",
-      zenith: "#1f6f9c",
-    },
+    palette: { accent: "#ffe76a", room: "kitchen" },
     points: [
       [-98, -70],
       [-40, -96],
@@ -373,25 +324,9 @@ export const TRACK_DEFS: readonly TrackDef[] = [
     halfWidth: 8,
     hills: [],
     id: "ultraviolet-ridge",
-    name: "Ultraviolet Ridge",
+    name: "Playroom Ridge",
     pads: [0.25, 0.55, 0.82],
-    palette: {
-      accent: "#a55cff",
-      accent2: "#ff7a2f",
-      apron: "#aca2ad",
-      bearing: 4.1,
-      fill: "#c4a8ff",
-      horizon: "#ffc4b0",
-      key: "#ffc6a8",
-      mid: "#a888e0",
-      plaza: "#93879a",
-      road: "#4b4552",
-      skyline: "#6d5a9a",
-      sun: "#ffd0b0",
-      walls: ["#e0d2d6", "#b8a2b4", "#8a7aa0"],
-      windows: "#ffe0c0",
-      zenith: "#4a3aa6",
-    },
+    palette: { accent: "#ff84cc", room: "playroom" },
     points: [
       [-104, -40],
       [-66, -92],

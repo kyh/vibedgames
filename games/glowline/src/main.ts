@@ -6,19 +6,15 @@ import {
   publishTestHooks,
 } from "@vibedgames/playtest";
 import type { Reflex } from "@vibedgames/playtest";
-import "@fontsource/chakra-petch/500.css";
-import "@fontsource/chakra-petch/600.css";
-import "@fontsource/chakra-petch/700.css";
-import "@fontsource/chakra-petch/700-italic.css";
+import "@fontsource/silkscreen/400.css";
+import "@fontsource/silkscreen/700.css";
 import * as THREE from "three";
-import type { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 
 import { isMuted, setAudioPaused, setMuted, unlockAudio } from "./audio/sfx";
 import { IS_TOUCH, Input } from "./input/input";
 import { joinRoom } from "./net/session";
 import { pauseOverlay } from "./pause-overlay";
 import { Hud } from "./render/hud";
-import { buildPost } from "./render/post";
 import { GameScene } from "./scenes/game-scene";
 import type { GameDiagnostics } from "./scenes/game-scene";
 import { FALLBACK_MS, LOCAL_COLOR, MAX_DT, MAX_PLAYERS, ROOM_ID } from "./shared/constants";
@@ -38,17 +34,9 @@ if (!webgl.ok) {
   throw new Error(`WebGL unavailable: ${webgl.reason}`);
 }
 
-// A phone shares one GPU process across every tab: no multisampling, a capped
-// pixel ratio and no bloom chain keep the allocation small enough to survive.
-const renderer = new THREE.WebGLRenderer({
-  antialias: !IS_TOUCH,
-  powerPreference: "high-performance",
-});
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, IS_TOUCH ? 1.5 : 2));
-renderer.setSize(window.innerWidth, window.innerHeight);
-// Neutral keeps saturated colours saturated when they get bright: paint must not bleach.
-renderer.toneMapping = THREE.NeutralToneMapping;
-renderer.toneMappingExposure = 1.12;
+// The picture is a small grid of art pixels scaled up by the browser: no
+// multisampling, no tone mapping, a pixel ratio of one. Cheap enough for a phone.
+const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance" });
 container.append(renderer.domElement);
 renderer.domElement.addEventListener("webglcontextlost", () => {
   console.error("WebGL context lost");
@@ -58,12 +46,7 @@ renderer.domElement.addEventListener("webglcontextlost", () => {
   );
 });
 
-// Signs, number plates and item boxes are drawn on canvases at boot: the
-// display face has to be there first, or they are lettered in a fallback.
-await Promise.all([
-  document.fonts.load("italic 700 32px 'Chakra Petch'"),
-  document.fonts.load("600 16px 'Chakra Petch'"),
-]).catch(() => null);
+await document.fonts.load("400 16px 'Silkscreen'").catch(() => null);
 
 const playtest = isPlaytestRequested();
 const client = joinRoom({
@@ -85,24 +68,21 @@ const hud = new Hud({
     game.start();
   },
 });
-// Soft shadows are what ground everything; a phone goes without the shadow pass.
-const SHADOW_MAP = IS_TOUCH ? 0 : 2048;
-renderer.shadowMap.enabled = SHADOW_MAP > 0;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-const game = new GameScene(client, input, hud, renderer, SHADOW_MAP);
-game.resize(window.innerWidth / window.innerHeight);
-
-// Desktop post: ambient occlusion in every crease and under every object,
-// bloom keyed to the paint and the lamps, then a grade. Phones draw straight.
-let composer: EffectComposer | null = null;
-if (!IS_TOUCH) {
-  composer = buildPost(renderer, game.scene, game.camera);
-}
+// The sun's depth map: what makes shadows chunky. A phone gets a smaller one.
+// `?sun=0` turns it off: the look survives, and software renderers can keep up.
+const sunParam = new URLSearchParams(window.location.search).get("sun");
+const sunSize = sunParam === null ? 1024 : Number(sunParam) || 0;
+const game = new GameScene(
+  client,
+  input,
+  hud,
+  renderer,
+  IS_TOUCH ? Math.min(512, sunSize) : sunSize,
+);
+game.resize(window.innerWidth, window.innerHeight);
 
 window.addEventListener("resize", () => {
-  game.resize(window.innerWidth / window.innerHeight);
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  composer?.setSize(window.innerWidth, window.innerHeight);
+  game.resize(window.innerWidth, window.innerHeight);
 });
 
 window.addEventListener("pointerdown", unlockAudio);
@@ -113,6 +93,8 @@ window.addEventListener("keydown", (event) => {
   }
   if (event.code === "KeyM") {
     setMuted(!isMuted());
+  } else if (event.code === "KeyC") {
+    game.toggleCamera();
   } else if (event.code === "Enter" || event.code === "Space") {
     game.start();
   }
@@ -189,11 +171,7 @@ const timer = new THREE.Timer();
 renderer.setAnimationLoop((time) => {
   timer.update(time);
   game.update(Math.min(timer.getDelta(), MAX_DT));
-  if (composer) {
-    composer.render();
-  } else {
-    renderer.render(game.scene, game.camera);
-  }
+  game.render();
   diag.paused = paused;
   game.writeDiagnostics(diag);
 });

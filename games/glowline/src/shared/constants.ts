@@ -89,13 +89,13 @@ export const MAX_DT = 1 / 20;
 
 /** Bot identities: name + paint colour. Humans take the SDK's player colour. */
 export const BOTS = [
-  { color: "#ff3d81", name: "Mirage" },
-  { color: "#ffd23f", name: "Zest" },
-  { color: "#7cff5b", name: "Kiko" },
-  { color: "#b56bff", name: "Onyx" },
-  { color: "#ff8a3d", name: "Ember" },
-  { color: "#3d6bff", name: "Flux" },
-  { color: "#f4f1ea", name: "Chalk" },
+  { color: "#ee3fa8", name: "Mirage" },
+  { color: "#a4d81c", name: "Zest" },
+  { color: "#8f3fe0", name: "Onyx" },
+  { color: "#2a74e8", name: "Flux" },
+  { color: "#c9cede", name: "Chalk" },
+  { color: "#2fb04a", name: "Kiko" },
+  { color: "#1b2358", name: "Ember" },
 ] as const;
 
 // --- Chassis -----------------------------------------------------------------
@@ -141,4 +141,4 @@ export const LAUNCH_MIN = 0.08;
 export const LAUNCH_MAX = 0.75;
 export const LAUNCH_SECONDS = 1.1;
 
-export const LOCAL_COLOR = "#2fe6ff";
+export const LOCAL_COLOR = "#18bfb4";
