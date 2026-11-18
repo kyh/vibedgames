@@ -22,7 +22,7 @@ import { Sparks } from "../render/fx";
 import type { Hud, MapDot, ResultRow } from "../render/hud";
 import { setAccent } from "../render/hud";
 import { KartMesh } from "../render/kart-mesh";
-import { World } from "../render/world";
+import { TRACK_Y, World } from "../render/world";
 import {
   BOTS,
   CHASSIS,
@@ -64,6 +64,8 @@ import { ordinal, rank } from "../sim/race";
 import { TRACKS, curvatureAt, locate, pointAt, trackFor, wrapIndex } from "../sim/track";
 import type { Track } from "../sim/track";
 import { KART_RAMPS, RAMP, kartRampFor, rampCss } from "../splat/palette";
+import { FLAG } from "../splat/splat-set";
+import type { SplatSet } from "../splat/splat-set";
 import { SplatStage } from "../splat/stage";
 import type { StageView } from "../splat/stage";
 import { ITEM_EVENT, ItemSystem } from "./items";
@@ -141,8 +143,8 @@ export interface GameDiagnostics {
 /** Intent to the host: a driver just left the title; restart if nobody is racing. */
 const FRESH_START = "fresh-start";
 
-/** Metres from the camera within which a rival's body would swallow the lens. */
-const LENS_CLEAR = 1.9;
+/** Metres from the chase camera within which a rival is hidden: it would sit between the lens and your kart. */
+const LENS_CLEAR = 6.5;
 
 /** Cup points by finishing place. */
 const CUP_POINTS = [10, 8, 6, 5, 4, 3, 2, 1] as const;
@@ -155,13 +157,19 @@ const MAX_SLOT = 31;
 
 /** Spark ramps by drift tier. */
 const TIER_RAMPS = [RAMP.white, RAMP.cyan, RAMP.yellow, RAMP.pink] as const;
+const TIER_WORDS = ["", "MINI TURBO", "SUPER TURBO", "ULTRA TURBO"] as const;
+/** The wall colour of each room: what the far distance fades into. */
+const ROOM_SKY = { bedroom: RAMP.peach, kitchen: RAMP.mint, playroom: RAMP.lilac } as const;
+const PAINT_DELAY_MS = 2200;
+const MARKER_FLAGS = FLAG.unlit + FLAG.round + FLAG.noShadow;
+const PARTY = [RAMP.yellow, RAMP.pink, RAMP.cyan, RAMP.lime, RAMP.white] as const;
 const GOAL = new THREE.Vector3();
 
 /** The diorama camera: a fixed three-quarter view that only ever slides. */
 const ISO = new THREE.Vector3(0.612, 0.5, 0.612);
 const ISO_DISTANCE = 240;
 /** World units the diorama shows top to bottom. */
-const ISO_HEIGHT = 36;
+const ISO_HEIGHT = 32;
 const CAMERA_KEY = "tabletop-turbo:camera";
 /** `?cam=chase` and `?track=1` pick the camera and the opening circuit, for captures and playtests. */
 const QUERY = new URLSearchParams(globalThis.location.search);
@@ -214,6 +222,9 @@ export class GameScene {
   private readonly lead = new THREE.Vector3();
   /** True for the chase camera, false for the diorama. */
   private chase = false;
+  /** Seconds the last update advanced, for the stage's own clock. */
+  private frameDt = 0;
+  private painting = false;
   private readonly bots = new BotField();
   private readonly racers = new Map<string, Racer>();
   private readonly slots = new Map<string, number>();
@@ -259,7 +270,7 @@ export class GameScene {
   private readonly uploadEvery: number;
   /** The chassis picked on the title screen, and the kart shown there. */
   private chassis = 0;
-  private preview: KartMesh | null = null;
+  private previews: KartMesh[] = [];
   private previewStyle = "";
   /** Scene clock when the gas went down under the lights; 0 while it is up. */
   private gasAt = 0;
@@ -315,11 +326,18 @@ export class GameScene {
   /** Draw the frame: everything that moves goes on stage, then the stage renders. */
   render(): void {
     const out = this.stage.dynamic;
-    this.stage.begin();
+    this.stage.begin(this.frameDt);
+    this.frameDt = 0;
     this.world.draw(out);
-    this.preview?.draw(out);
-    for (const racer of this.racers.values()) {
-      racer.mesh.draw(out);
+    for (const mesh of this.previews) {
+      mesh.draw(out);
+    }
+    // The title screen shows the three chassis. The grid fills in when you join it.
+    if (this.started) {
+      for (const racer of this.racers.values()) {
+        racer.mesh.draw(out);
+      }
+      this.drawMarker(out);
     }
     const { target } = this.view;
     this.items.draw(out, target.x, target.z, this.view.ortho ? this.view.height * 1.6 : 150);
@@ -402,6 +420,10 @@ export class GameScene {
     if (name === "garage") {
       return !this.started;
     }
+    if (name === "sun" || name === "sun-off") {
+      this.stage.setSun(name === "sun");
+      return true;
+    }
     if (name === "overview" || name === "grid") {
       this.start();
       this.shot = name;
@@ -424,6 +446,7 @@ export class GameScene {
       return;
     }
     this.time += dt;
+    this.frameDt = dt;
     this.frame += 1;
     this.input.update();
     if (!this.started && this.input.anyStart()) {
@@ -502,6 +525,7 @@ export class GameScene {
   private buildWorld(): World {
     const world = new World(this.track);
     this.stage.setWorld(world.set);
+    this.stage.setSky(ROOM_SKY[this.track.def.palette.room]);
     return world;
   }
 
@@ -714,6 +738,7 @@ export class GameScene {
     if (!done && me.prog >= raceLength(track)) {
       me.finishMs = Math.round(now);
       sfx.finish();
+      this.sparks.confetti(me.x, 2, me.z, PARTY, 90);
       this.hud.callout(ordinal(this.myPlace), 2600, "go", "FINISHED");
     }
     const lap = Math.floor(me.prog / track.n);
@@ -759,6 +784,19 @@ export class GameScene {
     if (events.boosted > 0) {
       sfx.boost(events.boosted);
       this.shake = Math.min(1, this.shake + 0.12 * events.boosted);
+      this.sparks.ring(
+        me.x,
+        me.z,
+        TIER_RAMPS[events.boosted] ?? RAMP.white,
+        9 + events.boosted * 3,
+        18,
+      );
+      this.pop(
+        TIER_WORDS[events.boosted] ?? "",
+        me.x,
+        me.z,
+        rampCss(TIER_RAMPS[events.boosted] ?? RAMP.white, 3),
+      );
       this.sparks.burst(
         me.x - Math.cos(me.a) * 1.4,
         me.h + 0.5,
@@ -836,11 +874,13 @@ export class GameScene {
   private notify(what: "orb" | "box" | "spin" | "used", kind?: ItemKind): void {
     if (what === "orb") {
       sfx.orb();
+      this.pop("+1", this.me.x, this.me.z, rampCss(RAMP.yellow, 3));
     } else if (what === "box") {
       sfx.box();
     } else if (what === "spin") {
       sfx.spin();
       this.shake = 1;
+      this.sparks.ring(this.me.x, this.me.z, RAMP.white, 12);
       this.hud.callout("SPUN OUT", 900, "warn");
     } else if (kind) {
       sfx.use(kind);
@@ -854,45 +894,60 @@ export class GameScene {
     return kartRampFor(style, taken.size < KART_RAMPS.length ? taken : new Set());
   }
 
-  /** The title screen's kart: this player's colour and chassis, parked on their grid slot. */
+  /**
+   * The title screen: the three chassis side by side behind the line, facing
+   * the camera. The one picked wears your colour and bobs; the others wait in
+   * silhouette.
+   */
   private showPreview(dt: number): void {
     const style = this.client.players[this.client.playerId ?? ""]?.color ?? LOCAL_COLOR;
-    const want = `${style}:${this.chassis}`;
-    if (want !== this.previewStyle) {
-      this.previewStyle = want;
-      const ramp = kartRampFor(style, new Set());
-      this.preview = new KartMesh(ramp, this.chassis);
+    const ramp = kartRampFor(style, new Set());
+    if (style !== this.previewStyle) {
+      this.previewStyle = style;
+      this.previews = CHASSIS.flatMap((_, i) => [
+        new KartMesh(ramp, i),
+        new KartMesh(RAMP.wood, i),
+      ]);
       setAccent(rampCss(ramp, 3));
     }
-    const slot = spawnKart(this.track, this.mySlot(), this.chassis);
-    this.preview?.update(
-      {
-        boosting: false,
-        drift: 0,
-        heading: slot.a,
-        speed: 0,
-        spin: 0,
-        steer: Math.sin(this.time * 0.8) * 0.5,
-        x: slot.x,
-        y: 0,
-        z: slot.z,
-      },
-      dt,
-    );
-    // From behind and to one side, turning in steps the way a sprite sheet would.
-    const turn = (Math.floor(this.time * 1.5) * Math.PI) / 12;
-    const angle = slot.a + 2.5 + Math.sin(turn) * 0.35;
+    const centre = pointAt(this.track, -11, 0);
+    const face = Math.atan2(ISO.z, ISO.x) + 0.6;
+    const hop = Math.floor(Math.abs(Math.sin(this.time * 4)) * 3) * 0.14;
+    for (const [i, mesh] of this.previews.entries()) {
+      const chassis = Math.floor(i / 2);
+      const picked = chassis === this.chassis;
+      // Side by side across the screen, whichever way the road happens to run here.
+      const across = (1 - chassis) * 5.6;
+      const at = { x: centre.x - Math.SQRT1_2 * across, z: centre.z + Math.SQRT1_2 * across };
+      // Each chassis has a lit kart and a silhouette; only one of the pair is on stage.
+      mesh.visible = picked === (i % 2 === 0);
+      mesh.update(
+        {
+          boosting: false,
+          drift: 0,
+          heading: face,
+          size: picked ? 1.2 : 1,
+          speed: 0,
+          spin: 0,
+          steer: 0,
+          x: at.x,
+          y: picked ? hop : 0,
+          z: at.z,
+        },
+        dt,
+      );
+    }
     const { view } = this;
     view.ortho = true;
     view.snap = false;
     view.fog = 0;
-    view.height = 12;
-    view.target.set(slot.x, 1, slot.z);
-    view.eye.set(slot.x + Math.cos(angle) * 60, 42, slot.z + Math.sin(angle) * 60);
+    view.height = 19;
+    view.target.set(centre.x, 2.4, centre.z);
+    view.eye.copy(view.target).addScaledVector(ISO, ISO_DISTANCE);
   }
 
   private dropPreview(): void {
-    this.preview = null;
+    this.previews = [];
   }
 
   private publish(dt: number, now: number): void {
@@ -998,6 +1053,8 @@ export class GameScene {
       }
     }
     const racing = state.phase === "race" && now >= state.startAt;
+    // The paint taps open a moment after the green, so the grid does not flood in eight colours at once.
+    this.painting = racing && now >= state.startAt + PAINT_DELAY_MS;
     for (const [key, racer] of this.racers) {
       if (racer.seen === this.pass) {
         this.place(racer, dt, racing);
@@ -1051,14 +1108,10 @@ export class GameScene {
       !this.chase ||
       Math.hypot(this.view.eye.x - pose.x, this.view.eye.z - pose.z) > LENS_CLEAR;
     if (!racing) {
-      if (this.state.phase === "race") {
-        // Under the lights every grid box is painted in its driver's colour.
-        this.paint.stamp(pose.x + fx * 1.2, pose.z + fz * 1.2, 1.5, racer.slot);
-      }
       racer.brush = null;
       return;
     }
-    if (pose.speed > PAINT_MIN_SPEED && Math.abs(where.lat) <= track.halfWidth) {
+    if (this.painting && pose.speed > PAINT_MIN_SPEED && Math.abs(where.lat) <= track.halfWidth) {
       let radius = PAINT_RADIUS;
       if (pose.drift !== 0) {
         radius = PAINT_RADIUS_DRIFT;
@@ -1108,44 +1161,136 @@ export class GameScene {
         }
         const centre = pointAt(track, pad + 6, 0);
         this.sparks.burst(centre.x, centre.h + 0.4, centre.z, racer.ramp, 40, 13);
+        this.sparks.ring(centre.x, centre.z, racer.ramp, 16);
         if (racer.kind === "me") {
           sfx.splat();
           this.shake = Math.min(1, this.shake + 0.25);
-          this.hud.callout("SPLAT", 700);
+          this.pop("SPLAT!", centre.x, centre.z, racer.css);
         }
       }
     }
   }
 
+  /** What a kart throws up behind it: tyre smoke and sparks in a drift, flame on a boost, paint off the wheels. */
   private trail(racer: Racer, fx: number, fz: number): void {
     const { pose } = racer;
+    const { sparks } = this;
+    const y = racer.h + TRACK_Y;
     if (pose.drift !== 0) {
       const side = pose.drift;
-      this.sparks.emit({
+      const rx = pose.x - fx * 1.3 + fz * side * 0.9;
+      const rz = pose.z - fz * 1.3 - fx * side * 0.9;
+      sparks.puff(rx, y + 0.4, rz, racer.ramp, 0.34);
+      sparks.emit({
         gravity: 9,
         life: 0.22 + Math.random() * 0.2,
         ramp: TIER_RAMPS[boostTier(pose.charge)] ?? RAMP.white,
-        size: 0.1 + Math.random() * 0.12,
+        size: 0.16 + Math.random() * 0.12,
         vx: -fx * 3 + fz * side * (2 + Math.random() * 4),
         vy: 1.5 + Math.random() * 3,
         vz: -fz * 3 - fx * side * (2 + Math.random() * 4),
-        x: pose.x - fx * 1 + fz * side * 0.8,
-        y: racer.h + 0.25,
-        z: pose.z - fz * 1 - fx * side * 0.8,
+        x: rx,
+        y: y + 0.3,
+        z: rz,
       });
     }
     if (pose.boosting) {
-      this.sparks.emit({
-        life: 0.25 + Math.random() * 0.15,
+      // A yellow core inside a red tongue.
+      for (const [ramp, size, speed] of [
+        [RAMP.yellow, 0.42, 5],
+        [RAMP.red, 0.3, 9],
+      ] as const) {
+        sparks.emit({
+          grow: 0.3,
+          life: 0.2 + Math.random() * 0.12,
+          ramp,
+          size,
+          vx: -fx * speed + (Math.random() - 0.5) * 2,
+          vy: Math.random() * 1.2,
+          vz: -fz * speed + (Math.random() - 0.5) * 2,
+          x: pose.x - fx * 2,
+          y: y + 0.7,
+          z: pose.z - fz * 2,
+        });
+      }
+    }
+    if (pose.speed > MAX_SPEED * 0.88) {
+      // Speed lines: two white streaks peeling off the rear corners.
+      for (const out of [-1, 1]) {
+        sparks.emit({
+          grow: 0.2,
+          hot: 4,
+          life: 0.26,
+          ramp: RAMP.track,
+          size: 0.3,
+          vx: -fx * 14,
+          vy: 0,
+          vz: -fz * 14,
+          x: pose.x - fx * 2.2 + fz * out * 1.1,
+          y: y + 0.9,
+          z: pose.z - fz * 2.2 - fx * out * 1.1,
+        });
+      }
+    }
+    if (pose.speed > 10 && Math.random() < 0.6) {
+      // Dust off the rear wheels, in the track's own cream.
+      const out = Math.random() < 0.5 ? -1 : 1;
+      sparks.puff(
+        pose.x - fx * 1.8 + fz * out,
+        y + 0.3,
+        pose.z - fz * 1.8 - fx * out,
+        RAMP.track,
+        0.26,
+      );
+    }
+    if (!pose.boosting && pose.speed > PAINT_MIN_SPEED * 2 && Math.random() < 0.35) {
+      // Paint flicked off the rear wheels.
+      const out = Math.random() < 0.5 ? -1 : 1;
+      sparks.emit({
+        gravity: 16,
+        hot: 3,
+        life: 0.3 + Math.random() * 0.15,
         ramp: racer.ramp,
-        size: 0.22 + Math.random() * 0.2,
-        vx: -fx * (6 + Math.random() * 6) + (Math.random() - 0.5) * 2,
-        vy: Math.random() * 1.5,
-        vz: -fz * (6 + Math.random() * 6) + (Math.random() - 0.5) * 2,
-        x: pose.x - fx * 1.5,
-        y: racer.h + 0.5,
-        z: pose.z - fz * 1.5,
+        size: 0.14,
+        vx: -fx * 2 + fz * out * (1.5 + Math.random() * 2),
+        vy: 2.5 + Math.random() * 2,
+        vz: -fz * 2 - fx * out * (1.5 + Math.random() * 2),
+        x: pose.x - fx * 1.6,
+        y: y + 0.3,
+        z: pose.z - fz * 1.6,
       });
+    }
+  }
+
+  /** A bobbing arrow over the local kart, in its colour: which one is you. */
+  private drawMarker(out: SplatSet): void {
+    const mine = this.racers.get("me");
+    if (!mine) {
+      return;
+    }
+    const y = 4.3 + Math.floor(Math.sin(this.time * 6) * 2) * 0.2;
+    for (let row = 0; row < 4; row += 1) {
+      for (let col = -row; col <= row; col += 1) {
+        out.push(
+          mine.pose.x + col * 0.2,
+          y + row * 0.36,
+          mine.pose.z - col * 0.2,
+          0,
+          1,
+          0,
+          0.3,
+          mine.ramp * 8 + (row === 3 ? 4 : 3),
+          MARKER_FLAGS,
+        );
+      }
+    }
+  }
+
+  /** A word that pops up where something happened and floats away. */
+  private pop(text: string, x: number, z: number, css: string): void {
+    const at = this.stage.project(x, 2.4, z);
+    if (at) {
+      this.hud.pop(text, at.x, at.y, css);
     }
   }
 
@@ -1275,8 +1420,8 @@ export class GameScene {
     }
     this.camHeading += angleDelta(blend, this.camHeading) * Math.min(1, dt * 5.5);
     const share = clamp(pose.speed / MAX_SPEED, 0, 1.4);
-    const distance = mine ? 8.6 + share * 2.2 : 13;
-    const height = mine ? 4.4 + share * 0.5 : 6.5;
+    const distance = mine ? 11.5 + share * 2.2 : 14;
+    const height = mine ? 6.4 + share * 0.5 : 7;
     const cx = Math.cos(this.camHeading);
     const cz = Math.sin(this.camHeading);
     GOAL.set(pose.x - cx * distance, subject.h + height, pose.z - cz * distance);
@@ -1295,7 +1440,9 @@ export class GameScene {
     view.fov = this.fov;
     view.ortho = false;
     view.snap = false;
-    view.fog = 0.75;
+    view.fog = 0.6;
+    view.fogStart = 70;
+    view.fogEnd = 190;
   }
 
   private updateHud(now: number): void {

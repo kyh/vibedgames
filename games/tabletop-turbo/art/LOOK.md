@@ -12,19 +12,29 @@ Toy cars on an orange plastic track, as pixel-art gaussian splats.
 
 ## The world
 
-- Scale sells the toy: blocks, books, balls, crayons, mugs and a rubber duck are all several karts tall.
-- The track is orange with a lighter edge line, a red and white rumble strip, darker shoulders and raised rails. Bends get red and white rails.
-- Each circuit is a room: floorboards and a rug, checkerboard tiles, foam play mats.
-- Karts are drawn a third larger than they collide. Three chassis, read by silhouette: a wedge with a wing, a hot rod with an engine, an open-wheeler with a bubble.
-- Kart colours stay off the orange family, because their paint has to read on the track.
+- Scale sells the toy: a bed leg, a cereal box, a toy chest stand at room scale; blocks, balls, crayons, mugs and a rubber duck are several karts tall.
+- Each room has its own two colours for its toys (bedroom red and yellow, kitchen blue and yellow, playroom yellow and pink). Everything else is the floor, white, and the track's orange.
+- The track is one colour family: orange with a cream edge line, a cream and brown checker for the rumble strip, darker shoulders and raised rails. Pads and gates are the same cream and brown.
+- Each circuit is a room with four papered walls and a skirting board: floorboards and a rug, checkerboard tiles, foam play mats.
+- Karts are drawn larger than they collide. Three chassis, read by silhouette: a wedge with a wing, a hot rod with an engine, an open-wheeler with a bubble. A kart is one hue; its windows are that hue at its darkest.
+- Eight kart colours, apart in value as well as hue, none an orange: their paint has to read on the track and against each other.
+- Nothing tall stands between the tabletop camera and the road.
 
-## Motion
+## Motion and effects
 
 - The tabletop camera never turns. It slides in whole art pixels.
-- Item crates turn in steps, not tweens. Sparks are single round splats in a ramp tone.
+- Every effect is a round splat in a ramp tone that steps down the ramp as it ages: nothing fades.
+- Always on: dust off the rear wheels, cream speed streaks at top speed, a glint hopping round each coin, glints in wet paint, light running across pads and pickups.
+- On events: tyre smoke in the kart's colour and tier-coloured sparks in a drift, a yellow and red flame on a boost, a ring on a pad, a bomb, a spin and a boost release, a burst where anyone takes a coin or crate, confetti at the flag, a white flash on a hit.
+- Words pop where things happen: +1, SPLAT!, MINI / SUPER / ULTRA TURBO.
+
+## HUD
+
+No panels in a race: pixel text with a dark outline straight on the scene. Position, lap, time, coins, item, three rows of standings, a minimap.
 
 ## Not yet
 
-- Rooms have no walls or furniture: past the floor is the dark.
+- No authored models: everything is boxes, cylinders, balls and cones. A slipper is two squashed balls.
 - No per-kart numbers or decals; at this size they would be noise.
 - The chase camera crawls when it turns. That is the cost of a turning camera in this style.
+- No music.

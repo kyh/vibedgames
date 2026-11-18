@@ -9,7 +9,8 @@ import type { Coat } from "../splat/builder";
 import { RAMP } from "../splat/palette";
 import { FLAG, SplatSet, tone } from "../splat/splat-set";
 import { FLOOR_REACH, Ground } from "./ground";
-import { TOYS } from "./toys";
+import { KITS } from "./toys";
+import type { Toy } from "./toys";
 
 /** Height of the track's surface above the floor. */
 export const TRACK_Y = 0.2;
@@ -19,6 +20,10 @@ const TRACK_SPACING = 0.34;
 const TOY_SPACING = 0.38;
 const RAIL_HEIGHT = 1.1;
 const GANTRY_HEIGHT = 7.5;
+/** The room: half its side, how coarsely the far floor and walls are dabbed, and how tall the walls stand. */
+const ROOM_HALF = 200;
+const ROOM_SPACING = 1.7;
+const WALL_HEIGHT = 46;
 
 const hash = (a: number, b: number): number => {
   const v = Math.sin(a * 127.1 + b * 311.7) * 43_758.5453;
@@ -47,7 +52,7 @@ const bedroomFloor = (x: number, z: number): number => {
 /** Checkerboard tiles with dark grout. */
 const kitchenFloor = (x: number, z: number): number => {
   if (wrap(x, 6) < 0.7 || wrap(z, 6) < 0.7) {
-    return tone(RAMP.tile, 0);
+    return tone(RAMP.tile, 1);
   }
   const dark = (Math.floor(x / 6) + Math.floor(z / 6)) % 2 === 0;
   return tone(RAMP.tile, dark ? 2 : 3);
@@ -59,9 +64,9 @@ const playroomFloor = (x: number, z: number): number => {
     return tone(RAMP.carpet, 0);
   }
   const light = (Math.floor(x / 10) + Math.floor(z / 10)) % 2 === 0;
-  const fleck = hash(Math.floor(x * 1.5), Math.floor(z * 1.5)) > 0.9;
+  const fleck = hash(Math.floor(x * 1.5), Math.floor(z * 1.5)) > 0.96;
   if (fleck) {
-    return tone(RAMP.carpet, 4);
+    return tone(RAMP.carpet, 3);
   }
   return tone(RAMP.carpet, light ? 2 : 1);
 };
@@ -70,6 +75,12 @@ const FLOORS: Record<Room, (x: number, z: number) => number> = {
   bedroom: bedroomFloor,
   kitchen: kitchenFloor,
   playroom: playroomFloor,
+};
+
+const WALLPAPER: Record<Room, number> = {
+  bedroom: RAMP.peach,
+  kitchen: RAMP.mint,
+  playroom: RAMP.lilac,
 };
 
 /** Shortest way round the lap from sample `from` to `s`, signed. */
@@ -87,10 +98,12 @@ export class World {
     this.track = track;
     this.ground = new Ground(track);
     this.layFloor();
+    this.layRoom();
     this.layTrack();
     this.layRails();
     this.raiseGantry();
     this.raisePadGates();
+    this.placeSetPieces();
     this.scatterToys();
   }
 
@@ -116,7 +129,7 @@ export class World {
   private layFloor(): void {
     const floor = FLOORS[this.track.def.palette.room];
     const b = new SplatBuilder(FLOOR_SPACING, this.set, 21);
-    const under = this.track.rail - 1.5;
+    const under = this.track.rail + 0.3;
     for (let z = -170; z < 170; z += FLOOR_SPACING) {
       for (let x = -170; x < 170; x += FLOOR_SPACING) {
         const d = this.ground.distance(x, z);
@@ -129,6 +142,47 @@ export class World {
     }
   }
 
+  /** The rest of the room: coarse floor out to four walls with a skirting board and striped paper. */
+  private layRoom(): void {
+    const { room } = this.track.def.palette;
+    const floor = FLOORS[room];
+    const paper = WALLPAPER[room];
+    const b = new SplatBuilder(ROOM_SPACING, this.set, 23);
+    for (let z = -ROOM_HALF; z < ROOM_HALF; z += ROOM_SPACING) {
+      for (let x = -ROOM_HALF; x < ROOM_HALF; x += ROOM_SPACING) {
+        if (this.ground.distance(x, z) >= FLOOR_REACH - 1) {
+          b.dab(x, 0, z, 0, 1, 0, { tone: floor(x, z) });
+        }
+      }
+    }
+    const wall = {
+      at: (x: number, y: number, z: number): number => {
+        if (y < 5) {
+          return tone(RAMP.white, 3);
+        }
+        return Math.floor((x + z) / 9) % 2 === 0 ? tone(paper, 3) : tone(paper, 2);
+      },
+      tone: tone(paper, 2),
+    };
+    const span = ROOM_HALF * 2;
+    for (const side of [-1, 1]) {
+      b.rect(
+        [-ROOM_HALF, 0, side * ROOM_HALF],
+        [span, 0, 0],
+        [0, WALL_HEIGHT, 0],
+        [0, 0, -side],
+        wall,
+      );
+      b.rect(
+        [side * ROOM_HALF, 0, -ROOM_HALF],
+        [0, 0, span],
+        [0, WALL_HEIGHT, 0],
+        [-side, 0, 0],
+        wall,
+      );
+    }
+  }
+
   /** The tone of the track's surface `lat` metres off the centreline at lap position `s`. */
   private surface(s: number, lat: number): number {
     const { track } = this;
@@ -136,7 +190,7 @@ export class World {
     const half = track.halfWidth;
     if (off > half) {
       // The shoulder: a rumble strip, then darker plastic out to the rail.
-      const stripe = Math.floor(s / 2) % 2 === 0 ? tone(RAMP.white, 3) : tone(RAMP.red, 2);
+      const stripe = Math.floor(s / 2) % 2 === 0 ? tone(RAMP.track, 4) : tone(RAMP.track, 0);
       return off < half + 0.9 ? stripe : tone(RAMP.track, 1);
     }
     const line = lapGap(s, 0, track.n);
@@ -147,7 +201,7 @@ export class World {
     for (const pad of track.pads) {
       const past = lapGap(s, pad, track.n);
       if (past > -1 && past < 3 && off < half * 0.75) {
-        return wrap(past + off * 0.5, 1.5) < 0.75 ? tone(RAMP.yellow, 3) : tone(RAMP.black, 2);
+        return wrap(past + off * 0.5, 1.5) < 0.75 ? tone(RAMP.track, 4) : tone(RAMP.track, 0);
       }
     }
     if (off < 0.24 && Math.floor(s / 3) % 2 === 0) {
@@ -157,7 +211,26 @@ export class World {
       return tone(RAMP.track, 4);
     }
     // Where two lengths of track click together.
-    return wrap(s, 16) < 0.4 ? tone(RAMP.track, 1) : tone(RAMP.track, 2);
+    if (wrap(s, 16) < 0.4) {
+      return tone(RAMP.track, 1);
+    }
+    // Worn plastic: lighter scuffs in patches, so the surface is dabs, not a slab.
+    return hash(Math.floor(s / 0.9), Math.floor(lat / 0.7)) > 0.9
+      ? tone(RAMP.track, 3)
+      : tone(RAMP.track, 2);
+  }
+
+  /** Road takes paint; an armed pad's chevrons run with light. */
+  private flagsAt(s: number, lat: number): number {
+    const { track } = this;
+    if (Math.abs(lat) > track.halfWidth) {
+      return 0;
+    }
+    const onPad = track.pads.some((pad) => {
+      const past = lapGap(s, pad, track.n);
+      return past > -1 && past < 3 && Math.abs(lat) < track.halfWidth * 0.75;
+    });
+    return onPad ? FLAG.paintable + FLAG.pulse : FLAG.paintable;
   }
 
   /** Centreline position and unit tangent at fractional lap position `s`. */
@@ -193,7 +266,7 @@ export class World {
           1,
           0,
           {
-            flags: Math.abs(off) <= track.halfWidth ? FLAG.paintable : 0,
+            flags: this.flagsAt(s, off),
             tone: this.surface(s, off),
           },
         );
@@ -201,13 +274,15 @@ export class World {
     }
   }
 
-  /** The rail's colour at `s`: orange on the straights, red and white chevrons through a bend. */
+  /** The rail's colour at `s`: orange on the straights, light and dark chevrons through a bend. */
   private railTone(s: number, step: number): number {
     const bend = Math.abs(this.track.curve[Math.floor(s) % this.track.n] ?? 0);
     if (bend > 0.018) {
-      return Math.floor(s / 2.5) % 2 === 0 ? tone(RAMP.red, step) : tone(RAMP.white, step + 1);
+      return Math.floor(s / 2.5) % 2 === 0
+        ? tone(RAMP.track, step - 1)
+        : tone(RAMP.track, Math.min(4, step + 2));
     }
-    return wrap(s, 16) < 0.6 ? tone(RAMP.white, step) : tone(RAMP.track, step);
+    return wrap(s, 16) < 0.6 ? tone(RAMP.track, step + 1) : tone(RAMP.track, step);
   }
 
   private layRails(): void {
@@ -280,31 +355,76 @@ export class World {
       );
       b.arch(track.rail + 1.6, 0.6, {
         at: (_x, y, z) =>
-          Math.floor((Math.atan2(y, z) / Math.PI) * 12) % 2 === 0 ? tone(RAMP.black, 2) : -1,
-        tone: tone(RAMP.yellow, 2),
+          Math.floor((Math.atan2(y, z) / Math.PI) * 12) % 2 === 0 ? tone(RAMP.track, 0) : -1,
+        tone: tone(RAMP.track, 4),
       });
     }
   }
 
-  /** Is a toy `reach` wide at (x, z) clear of every stretch of road? */
-  private clear(x: number, z: number, reach: number): boolean {
+  /**
+   * Is a toy at (x, z) clear of every stretch of road, and of the camera's
+   * line to it? The tabletop camera looks down from +x +z, so anything tall
+   * hides the ground behind it for about 1.7 times its height.
+   */
+  private clear(x: number, z: number, toy: Toy): boolean {
+    const edge = this.track.rail + toy.reach + 2.4;
     const d = this.ground.distance(x, z);
-    return d > this.track.rail + reach + 2.4 && d < FLOOR_REACH - reach - 4;
+    if (d < edge || d > FLOOR_REACH - toy.reach - 4) {
+      return false;
+    }
+    // Checked down the middle and along both edges of its shadow on the screen.
+    for (const across of [-toy.reach, 0, toy.reach]) {
+      const ox = x + across * Math.SQRT1_2;
+      const oz = z - across * Math.SQRT1_2;
+      for (let back = 0; back <= toy.height * 1.7 + toy.reach; back += 3) {
+        const behind = this.ground.distance(ox - back * Math.SQRT1_2, oz - back * Math.SQRT1_2);
+        if (behind < this.track.rail + 2) {
+          return false;
+        }
+      }
+    }
+    return true;
   }
 
+  /** Small toys in loose clusters along the road, on the far side of it more often than the near. */
   private scatterToys(): void {
     const { track } = this;
-    const toys = TOYS[track.def.palette.room];
+    const kit = KITS[track.def.palette.room];
     const b = new SplatBuilder(TOY_SPACING, this.set, 71);
-    for (let s = 6; s < track.n; s += 5.5) {
+    for (let s = 9; s < track.n; s += 7) {
+      // Clusters, then bare floor: every third stretch gets nothing.
+      const busy = Math.floor(s / 42) % 4 !== 3;
       for (const side of [-1, 1]) {
-        const toy = toys[Math.floor(b.random() * toys.length)] ?? toys[0];
+        const toy = kit.toys[Math.floor(b.random() * kit.toys.length)] ?? kit.toys[0];
         const at = this.centre(s);
-        const lat = side * (track.rail + toy.reach + 2.6 + b.random() ** 2 * 26);
+        const lat = side * (track.rail + (toy?.reach ?? 2) + 2.6 + b.random() ** 2 * 18);
         const x = at.x - at.tz * lat;
         const z = at.z + at.tx * lat;
-        if (b.random() < 0.8 && this.clear(x, z, toy.reach)) {
-          toy.bake(b.at(x, 0, z, b.random() * Math.PI * 2));
+        if (toy && busy && b.random() < 0.75 && this.clear(x, z, toy)) {
+          toy.bake(b.at(x, 0, z, b.random() * Math.PI * 2), kit.colours);
+        }
+      }
+    }
+  }
+
+  /** The room's big pieces: tried at spots round the circuit until each finds floor it does not block. */
+  private placeSetPieces(): void {
+    const { track } = this;
+    const kit = KITS[track.def.palette.room];
+    const b = new SplatBuilder(TOY_SPACING, this.set, 91);
+    for (const [i, piece] of kit.setPieces.entries()) {
+      for (let attempt = 0; attempt < 40; attempt += 1) {
+        const s = ((i + 0.3) / kit.setPieces.length) * track.n + attempt * 9;
+        const at = this.centre(s % track.n);
+        const side = attempt % 2 === 0 ? 1 : -1;
+        const lat = side * (track.rail + piece.reach + 5 + (attempt % 5) * 4);
+        const x = at.x - at.tz * lat;
+        const z = at.z + at.tx * lat;
+        if (this.clear(x, z, piece)) {
+          piece.bake(b.at(x, 0, z, Math.round(b.random() * 4) * (Math.PI / 8)), kit.colours);
+          // Nothing else lands on top of it.
+          this.ground.block(x, z, piece.reach + 3);
+          break;
         }
       }
     }

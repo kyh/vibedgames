@@ -22,23 +22,25 @@ export interface Bomb {
 }
 
 const GOLDEN = Math.PI * (3 - Math.sqrt(5));
+const GLINT = tone(RAMP.white, 4);
 
 const orbModel = (): SplatSet => {
   const b = new SplatBuilder(0.3, new SplatSet(256), 3);
-  b.sphere(0, 0, 0, 0.62, { tone: tone(RAMP.yellow, 3) });
+  b.sphere(0, 0, 0, 0.62, { flags: FLAG.pulse, tone: tone(RAMP.yellow, 2) });
   return b.set;
 };
 
 const crateModel = (): SplatSet => {
   const b = new SplatBuilder(0.3, new SplatSet(512), 5);
-  const trim = tone(RAMP.yellow, 3);
+  const trim = tone(RAMP.yellow, 2);
   // A gift-wrapped cube: yellow ribbon across every face.
   b.box(0, 0, 0, 1.5, 1.5, 1.5, {
     at: (x, y, z) => {
       const bands = [Math.abs(x), Math.abs(y), Math.abs(z)].filter((v) => v < 0.2).length;
       return bands > 0 ? trim : -1;
     },
-    tone: tone(RAMP.purple, 2),
+    flags: FLAG.pulse,
+    tone: tone(RAMP.white, 3),
   });
   return b.set;
 };
@@ -90,6 +92,19 @@ export class PickupView {
       if (time >= orb.until && near(orb)) {
         const y = 1.3 + Math.sin(time * 3 + i) * 0.16;
         drawSplats(out, this.orb, { x: orb.x, y, yaw: 0, z: orb.z });
+        // A glint that hops round the coin, four places a turn.
+        const hop = (Math.floor(time * 6 + i) % 4) * (Math.PI / 2);
+        out.push(
+          orb.x + Math.cos(hop) * 0.7,
+          y + 0.5,
+          orb.z + Math.sin(hop) * 0.7,
+          0,
+          1,
+          0,
+          0.2,
+          GLINT,
+          FLAG.unlit + FLAG.round + FLAG.noShadow,
+        );
       }
     }
     for (const [i, box] of field.boxes.entries()) {

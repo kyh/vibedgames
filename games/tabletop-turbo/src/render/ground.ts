@@ -37,6 +37,22 @@ export class Ground {
     return this.cells[j * this.side + i] ?? 999;
   }
 
+  /** Mark a disc as taken, as if road ran through it. */
+  block(x: number, z: number, radius: number): void {
+    const reach = Math.ceil(radius / Ground.CELL);
+    const ci = Math.floor((x + Ground.HALF) / Ground.CELL);
+    const cj = Math.floor((z + Ground.HALF) / Ground.CELL);
+    for (let dj = -reach; dj <= reach; dj += 1) {
+      for (let di = -reach; di <= reach; di += 1) {
+        const i = ci + di;
+        const j = cj + dj;
+        if (i >= 0 && j >= 0 && i < this.side && j < this.side) {
+          this.cells[j * this.side + i] = 0;
+        }
+      }
+    }
+  }
+
   private note(i: number, j: number, x: number, z: number): void {
     if (i < 0 || j < 0 || i >= this.side || j >= this.side) {
       return;

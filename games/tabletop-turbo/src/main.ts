@@ -71,7 +71,9 @@ const hud = new Hud({
 // The sun's depth map: what makes shadows chunky. A phone gets a smaller one.
 // `?sun=0` turns it off: the look survives, and software renderers can keep up.
 const sunParam = new URLSearchParams(window.location.search).get("sun");
-const sunSize = sunParam === null ? 1024 : Number(sunParam) || 0;
+// `?sun=late`: the map exists but stays off until the `sun` test state, so a capture can drive fast and light last.
+const sunLate = sunParam === "late";
+const sunSize = sunParam === null || sunLate ? 1024 : Number(sunParam) || 0;
 const game = new GameScene(
   client,
   input,
@@ -79,6 +81,9 @@ const game = new GameScene(
   renderer,
   IS_TOUCH ? Math.min(512, sunSize) : sunSize,
 );
+if (sunLate) {
+  game.setTestState("sun-off");
+}
 game.resize(window.innerWidth, window.innerHeight);
 
 window.addEventListener("resize", () => {

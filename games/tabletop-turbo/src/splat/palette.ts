@@ -10,13 +10,13 @@ export const STEPS = 5;
 const TABLE = [
   ["track", "#7a2a12", "#bf4416", "#f26a1b", "#ff9a3c", "#ffd08a"],
   ["wood", "#3d2416", "#6b4226", "#96623a", "#b98454", "#d9ab7c"],
-  ["carpet", "#1a2150", "#27367c", "#3852a6", "#5574c8", "#86a6e6"],
+  ["carpet", "#1c2040", "#2a3360", "#3d4a80", "#5a6aa6", "#8c9acc"],
   ["tile", "#5f6078", "#9a98a8", "#cfc8c4", "#efe6d6", "#ffffff"],
   ["white", "#4a4e69", "#8d93ab", "#c9cede", "#f1f3f9", "#ffffff"],
   ["black", "#0d0b14", "#1c1a26", "#2e2b3d", "#4a4660", "#6f6a8a"],
   ["red", "#5a0f1e", "#a31825", "#e02a2f", "#ff6a55", "#ffb39a"],
   ["yellow", "#7a4a08", "#c88a10", "#f7c820", "#ffe76a", "#fff8c0"],
-  ["blue", "#0f1f5c", "#1840a8", "#2a74e8", "#5fb0ff", "#b4e0ff"],
+  ["blue", "#123a6e", "#1c62b8", "#3a9cf0", "#7cc8ff", "#c4ecff"],
   ["cyan", "#073f4a", "#0c7a80", "#18bfb4", "#6cecd8", "#c6fff0"],
   ["green", "#0c3b2a", "#14703a", "#2fb04a", "#7ddc5a", "#cdf58e"],
   ["lime", "#2f4a08", "#5f8a10", "#a4d81c", "#d4f75a", "#f2ffb0"],
@@ -24,6 +24,9 @@ const TABLE = [
   ["pink", "#5c0f48", "#a81a78", "#ee3fa8", "#ff84cc", "#ffc8ea"],
   ["navy", "#05060f", "#0e1230", "#1b2358", "#303c88", "#5562b8"],
   ["room", "#0b0a16", "#141228", "#1f1c3c", "#2c2852", "#3d3870"],
+  ["peach", "#5a3a34", "#8a5a4c", "#c98a6a", "#e8b48c", "#f8dcb4"],
+  ["mint", "#2c4a48", "#4a7a70", "#7ab09a", "#a8d4b8", "#d4f0d8"],
+  ["lilac", "#3a3260", "#5c4f94", "#8a78c4", "#b4a4e4", "#dcd0f8"],
 ] as const;
 
 export type RampName = (typeof TABLE)[number][0];
@@ -37,8 +40,11 @@ export const RAMP = {
   carpet: indexOf("carpet"),
   cyan: indexOf("cyan"),
   green: indexOf("green"),
+  lilac: indexOf("lilac"),
   lime: indexOf("lime"),
+  mint: indexOf("mint"),
   navy: indexOf("navy"),
+  peach: indexOf("peach"),
   pink: indexOf("pink"),
   purple: indexOf("purple"),
   red: indexOf("red"),
@@ -55,7 +61,7 @@ export const RAMP_COUNT = TABLE.length;
 /** A template's stand-in for "this kart's colour", swapped for a real ramp when drawn. */
 export const TEAM_RAMP = 31;
 
-/** The ramps a kart can wear: none close to the orange of the track it paints on. */
+/** The ramps a kart can wear: eight that differ in value as well as hue, none an orange. */
 export const KART_RAMPS = [
   RAMP.cyan,
   RAMP.pink,
@@ -63,8 +69,8 @@ export const KART_RAMPS = [
   RAMP.purple,
   RAMP.blue,
   RAMP.white,
-  RAMP.green,
-  RAMP.navy,
+  RAMP.yellow,
+  RAMP.black,
 ] as const;
 
 export const rampCss = (ramp: number, step: number): string => {
@@ -78,7 +84,7 @@ const HSL = { h: 0, l: 0, s: 0 };
 
 const hueOf = (css: string) => {
   SCRATCH.set(css).getHSL(HSL);
-  return { h: HSL.h, s: HSL.s };
+  return { h: HSL.h, l: HSL.l, s: HSL.s };
 };
 
 /** The kart ramp closest in hue to any colour, skipping ramps already `taken`. */
@@ -90,8 +96,11 @@ export const kartRampFor = (css: string, taken: ReadonlySet<number>): number => 
     if (!taken.has(ramp)) {
       const have = hueOf(rampCss(ramp, 2));
       const turn = Math.abs(want.h - have.h);
-      // A grey asks for a grey: hue means nothing without saturation.
-      const gap = Math.min(turn, 1 - turn) + Math.abs(want.s - have.s) * 0.4;
+      // A grey asks for a grey: hue means nothing without saturation, and then lightness decides.
+      const grey = want.s < 0.25 && have.s < 0.25;
+      const gap = grey
+        ? Math.abs(want.l - have.l)
+        : Math.min(turn, 1 - turn) + Math.abs(want.s - have.s) * 0.4;
       if (gap < bestGap) {
         bestGap = gap;
         best = ramp;

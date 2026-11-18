@@ -21,8 +21,9 @@ pnpm --filter @repo/tabletop-turbo build
 | `/?cam=chase` | start on the chase camera (C swaps in game)    |
 | `/?track=1`   | open on circuit 1 or 2 instead of 0            |
 | `/?sun=0`     | no shadow pass, for software renderers         |
+| `/?sun=late`  | shadows off until the `sun` test state         |
 
-Test states (`__GAME_TEST_HOOKS__.setState`): `active-play` (on the grid, lights green), `garage` (the title screen), `grid` (held on three reds), `overview` (the whole circuit from above). The last three are fixed framings for captures.
+Test states (`__GAME_TEST_HOOKS__.setState`): `active-play` (on the grid, lights green), `garage` (the title screen), `grid` (held on three reds), `overview` (the whole circuit from above). The last three are fixed framings for captures. `sun` and `sun-off` switch the shadow pass, so a capture can drive without it and light the last frame.
 
 ## Controls
 

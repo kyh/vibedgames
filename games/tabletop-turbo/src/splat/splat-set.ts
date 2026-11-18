@@ -4,6 +4,7 @@
 export const FLAG = {
   noShadow: 8,
   paintable: 4,
+  pulse: 32,
   round: 16,
   twoSided: 2,
   unlit: 1,

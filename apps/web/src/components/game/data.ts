@@ -103,6 +103,13 @@ export const featuredGames: FeaturedGame[] = [
   },
   {
     colorScheme: "light",
+    name: "Tabletop Turbo",
+    preview: "/covers/tabletop-turbo.webp",
+    previewPortrait: "/covers/tabletop-turbo-portrait.webp",
+    slug: "tabletop-turbo",
+  },
+  {
+    colorScheme: "light",
     name: "Farm",
     preview: "/covers/farm.webp",
     previewPortrait: "/covers/farm-portrait.webp",

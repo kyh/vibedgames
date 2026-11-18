@@ -168,6 +168,7 @@ export class Hud {
   private readonly net = el("net", HTMLElement);
   private readonly trackName = el("track-name", HTMLElement);
   private readonly calloutNode = el("callout", HTMLElement);
+  private readonly pops = el("pops", HTMLElement);
   private readonly title = el("title", HTMLElement);
   private readonly results = el("results", HTMLElement);
   private readonly resultsTitle = el("results-title", HTMLElement);
@@ -281,8 +282,15 @@ export class Hud {
       return;
     }
     this.boardKey = key;
+    // Three rows: who is ahead, you, who is behind. The rest is on the minimap.
+    const mine = Math.max(
+      0,
+      rows.findIndex((row) => row.me),
+    );
+    const first = Math.min(Math.max(0, mine - 1), Math.max(0, rows.length - 3));
     this.board.replaceChildren(
-      ...rows.map((row, i) => {
+      ...rows.slice(first, first + 3).map((row, offset) => {
+        const i = first + offset;
         const line = document.createElement("li");
         line.className = "plate skew";
         line.dataset["me"] = row.me ? "1" : "0";
@@ -301,6 +309,7 @@ export class Hud {
 
   setNet(text: string): void {
     setText(this.net, text);
+    this.net.hidden = text === "solo";
   }
 
   /** Flash the centre callout for `ms`; `detail` is the small line under it. */
@@ -314,6 +323,21 @@ export class Hud {
     this.calloutNode.dataset["tone"] = tone;
     this.calloutNode.dataset["on"] = "1";
     this.calloutUntil = performance.now() + ms;
+  }
+
+  /** A word at (x, y) on the page that rises in steps and goes. */
+  pop(text: string, x: number, y: number, css: string): void {
+    if (text === "" || this.pops.childElementCount > 12) {
+      return;
+    }
+    const node = document.createElement("span");
+    node.className = "pop";
+    node.textContent = text;
+    node.style.left = `${Math.round(x)}px`;
+    node.style.top = `${Math.round(y)}px`;
+    node.style.color = css;
+    node.addEventListener("animationend", () => node.remove());
+    this.pops.append(node);
   }
 
   /** Every frame: retire the callout when its time is up. */

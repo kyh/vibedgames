@@ -34,7 +34,7 @@ export interface StageView {
 /** World units a chunk of the static world covers. */
 const CHUNK = 32;
 /** Half the side of the square the sun's depth map covers around the camera's target. */
-const SUN_REACH = 78;
+const SUN_REACH = 58;
 const SUN_FAR = 400;
 /** Rows of art pixels the screen aims for. */
 const ROWS = 216;
@@ -47,6 +47,7 @@ const AHEAD = new THREE.Vector3();
 const SHIFT = new THREE.Vector3();
 const WORLD_UP = new THREE.Vector3(0, 1, 0);
 const LIGHT_VP = new THREE.Matrix4();
+const PROJECTED = new THREE.Vector3();
 
 const quad = () => ({
   corner: new THREE.BufferAttribute(new Float32Array([-1, -1, 1, -1, 1, 1, -1, 1]), 2),
@@ -118,6 +119,11 @@ export class SplatStage {
   private readonly depthInfo = new THREE.Vector4(1, 600, 1, 0.9);
   private readonly fog = new THREE.Vector4(0, 1, 0, 1);
   private readonly rows = { value: 1 };
+  private readonly sky = new THREE.Vector4(RAMP.room, 2, 1, 0.5);
+  private active: THREE.Camera = this.orthoCam;
+  private time = 0;
+  private sunOn = true;
+  private readonly shadow = new THREE.Vector4(1, 0.9 / SUN_FAR, 0.4, 0);
   private pixel = 3;
   private wide = 2;
   private tall = 2;
@@ -163,7 +169,7 @@ export class SplatStage {
         uPaintSpan: { value: PAINT_SIZE * PAINT_CELL },
         // A whole step of shade: a cast shadow is one flat tone, never a checker.
         uShade: { value: new THREE.Vector4(1, 1, 0.35, 0.8) },
-        uShadow: { value: new THREE.Vector4(sunSize > 0 ? 1 : 0, 0.9 / SUN_FAR, 0.4, 0) },
+        uShadow: { value: this.shadow },
         uShadowMap: { value: this.sunMap?.depthTexture ?? null },
         uSlotRamp: { value: this.slotRamp },
         uSplat: common,
@@ -191,7 +197,7 @@ export class SplatStage {
         uFog: { value: this.fog },
         uRamps: { value: rampTexture() },
         uRows: this.rows,
-        uSky: { value: new THREE.Vector4(RAMP.room, 2, 1, 0.5) },
+        uSky: { value: this.sky },
         uTones: { value: this.tones.texture },
       },
       vertexShader: RESOLVE_VERTEX,
@@ -211,6 +217,7 @@ export class SplatStage {
     const mover = new THREE.Mesh(this.moving, this.splat);
     mover.frustumCulled = false;
     this.scene.add(this.world, mover);
+    this.setSun(sunSize > 0);
 
     const { style } = renderer.domElement;
     style.position = "absolute";
@@ -259,6 +266,30 @@ export class SplatStage {
     }
   }
 
+  /** The wall colour behind everything: the ramp the far distance and the fog are drawn in. */
+  setSky(ramp: number): void {
+    this.sky.x = ramp;
+  }
+
+  /** Where a world point lands on the page, in CSS pixels; null when it is behind the camera. */
+  project(x: number, y: number, z: number): { x: number; y: number } | null {
+    PROJECTED.set(x, y, z).project(this.active);
+    if (PROJECTED.z > 1) {
+      return null;
+    }
+    const box = this.renderer.domElement.getBoundingClientRect();
+    return {
+      x: box.left + ((PROJECTED.x + 1) / 2) * box.width,
+      y: box.top + ((1 - PROJECTED.y) / 2) * box.height,
+    };
+  }
+
+  /** Turn the shadow pass on or off. Without a depth map it stays off. */
+  setSun(on: boolean): void {
+    this.sunOn = on && this.sunMap !== null;
+    this.shadow.x = this.sunOn ? 1 : 0;
+  }
+
   /** Which ramp paint slot `slot` shows as. */
   setSlotRamp(slot: number, ramp: number): void {
     if (slot > 0 && slot < this.slotRamp.length) {
@@ -294,16 +325,19 @@ export class SplatStage {
   }
 
   /** Start a frame: nothing that moves is on stage yet. */
-  begin(): void {
+  begin(dt: number): void {
+    this.time += dt;
+    this.look.w = this.time;
     this.dynamic.clear();
   }
 
   render(view: StageView): void {
     const { renderer } = this;
     const camera = view.ortho ? this.aimOrtho(view) : this.aimPersp(view);
+    this.active = camera;
     this.upload();
 
-    if (this.sunMap) {
+    if (this.sunMap && this.sunOn) {
       this.aimSun(view.target);
       this.scene.overrideMaterial = this.shade;
       renderer.setRenderTarget(this.sunMap);
@@ -318,7 +352,7 @@ export class SplatStage {
     renderer.render(this.scene, camera);
 
     this.depthInfo.set(camera.near, camera.far, view.ortho ? 1 : 0, 0.9);
-    this.fog.set(view.fogStart, view.fogEnd, view.fog, 1);
+    this.fog.set(view.fogStart, view.fogEnd, view.fog, 2);
     this.rows.value = this.tall;
     renderer.setRenderTarget(null);
     renderer.render(this.resolveScene, camera);

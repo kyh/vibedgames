@@ -1274,14 +1274,12 @@
       #logo h1 {
         display: block;
         width: fit-content;
-        padding: 10px 14px 12px;
-        font-size: clamp(30px, 7vmin, 60px);
-        line-height: 1;
+        font-size: clamp(38px, 10vmin, 88px);
+        line-height: 0.95;
         color: var(--ink);
-        background: var(--plate) !important;
-        border: 3px solid var(--edge);
-        box-shadow: 4px 4px 0 var(--edge);
-        -webkit-text-stroke: 0 !important;
+        background: none !important;
+        -webkit-text-stroke: 10px var(--edge) !important;
+        paint-order: stroke fill;
         -webkit-text-fill-color: currentColor !important;
       }
       #logo h1 em {
@@ -1303,6 +1301,159 @@
       #rules b,
       #rules div {
         color: var(--ink) !important;
+      }
+      /* The race HUD has no panels: pixel text with a dark outline, straight on the scene. */
+      #hud .plate,
+      #board li,
+      #gap,
+      #net,
+      #surface,
+      #place,
+      #orbs,
+      #map {
+        background: none !important;
+        background-color: transparent !important;
+        border: 0 !important;
+        box-shadow: none !important;
+      }
+      #hud,
+      #hud * {
+        -webkit-text-stroke: 4px var(--edge);
+        paint-order: stroke fill;
+        color: var(--ink) !important;
+      }
+      #board li {
+        border-left: 0 !important;
+        transform: none !important;
+        font-size: 16px;
+      }
+      #board li i {
+        box-shadow: none !important;
+        outline: 3px solid var(--edge);
+      }
+      #board li[data-me="0"] {
+        opacity: 0.85;
+      }
+      #board li[data-me="1"] span,
+      #place,
+      #place *,
+      #lap,
+      #lap * {
+        color: var(--me) !important;
+      }
+      #orbs,
+      #orbs * {
+        color: var(--amber) !important;
+      }
+      #item {
+        background: var(--edge) !important;
+        border: 3px solid var(--ink) !important;
+        opacity: 1 !important;
+      }
+      #item svg,
+      #item * {
+        -webkit-text-stroke: 0 !important;
+        opacity: 1 !important;
+      }
+      #clock {
+        background: none !important;
+      }
+      #speedo {
+        width: auto !important;
+        height: auto !important;
+      }
+      #speedo svg {
+        display: none !important;
+      }
+      #kmh {
+        position: static !important;
+        transform: none !important;
+        text-align: right;
+      }
+      #place {
+        width: auto !important;
+        height: auto !important;
+        font-size: clamp(40px, 9vmin, 72px);
+      }
+      #minimap {
+        width: 104px;
+        height: 104px;
+        opacity: 0.95;
+      }
+      #rules,
+      #steps,
+      #item-key,
+      #track-name,
+      #gap,
+      #kmh,
+      #net[hidden] {
+        display: none !important;
+      }
+      #clock,
+      #timing,
+      #board li[data-me="1"] {
+        background: none !important;
+        background-color: transparent !important;
+        border: 0 !important;
+        box-shadow: none !important;
+      }
+      #hud small,
+      #hud .label,
+      #surface {
+        font-size: 14px !important;
+      }
+      .pips i[data-on="1"] {
+        background: var(--me) !important;
+      }
+      .card[aria-pressed="true"] .pips i[data-on="1"] {
+        background: var(--edge) !important;
+      }
+      #charge {
+        position: static !important;
+        width: 110px;
+        margin: 4px 0 0 auto;
+      }
+      #place {
+        aspect-ratio: auto !important;
+      }
+      #callout {
+        transform: scale(0.5) !important;
+        transition: transform 0.12s steps(3) !important;
+        -webkit-text-stroke: 6px var(--edge);
+      }
+      #callout[data-on="1"] {
+        transform: scale(1) !important;
+      }
+      #pops {
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        overflow: hidden;
+      }
+      .pop {
+        position: absolute;
+        font-size: clamp(14px, 3.2vmin, 26px);
+        white-space: nowrap;
+        transform: translate(-50%, -50%);
+        -webkit-text-stroke: 4px var(--edge);
+        paint-order: stroke fill;
+        animation: pop-rise 0.7s steps(7) forwards;
+      }
+      @keyframes pop-rise {
+        0% {
+          transform: translate(-50%, -50%) scale(0.5);
+        }
+        20% {
+          transform: translate(-50%, -90%) scale(1.25);
+        }
+        80% {
+          transform: translate(-50%, -190%) scale(1);
+          opacity: 1;
+        }
+        100% {
+          transform: translate(-50%, -230%) scale(1);
+          opacity: 0;
+        }
       }
       #rules .swatch {
         box-shadow: none !important;
@@ -1382,6 +1533,7 @@
       <div id="net"></div>
     </div>
 
+    <div id="pops" aria-hidden="true"></div>
     <div id="callout" class="skew" role="status"></div>
 
     <div id="results" data-on="0">

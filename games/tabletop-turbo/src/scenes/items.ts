@@ -32,6 +32,7 @@ import { Field, rollItem } from "../sim/pickups";
 import type { Toucher } from "../sim/pickups";
 import { pointAt } from "../sim/track";
 import type { Track } from "../sim/track";
+import { RAMP } from "../splat/palette";
 import type { SplatSet } from "../splat/splat-set";
 
 export const ITEM_EVENT = "item";
@@ -69,6 +70,7 @@ export class ItemSystem {
   private bombs: Bomb[] = [];
   private readonly held = new Map<string, Held>();
   private time = 0;
+  private wasHere: boolean[] = [];
   private nextId = Math.floor(Math.random() * 1e9);
 
   constructor(host: ItemHost, track: Track) {
@@ -86,8 +88,26 @@ export class ItemSystem {
   reset(track: Track): void {
     this.track = track;
     this.field = new Field(track);
+    this.wasHere = [];
     this.bombs = [];
     this.held.clear();
+  }
+
+  /** A puff where any kart, anyone's, just took an orb or a crate. */
+  private popTaken(): void {
+    const { sparks } = this.host;
+    const spots = [...this.field.orbs, ...this.field.boxes];
+    for (const [i, spot] of spots.entries()) {
+      const here = this.time >= spot.until;
+      if (this.wasHere[i] === true && !here) {
+        const crate = i >= this.field.orbs.length;
+        sparks.burst(spot.x, 1.4, spot.z, crate ? RAMP.white : RAMP.yellow, crate ? 16 : 7, 7);
+        if (crate) {
+          sparks.ring(spot.x, spot.z, RAMP.yellow, 8, 14);
+        }
+      }
+      this.wasHere[i] = here;
+    }
   }
 
   heldBy(key: string): ItemKind | null {
@@ -108,6 +128,7 @@ export class ItemSystem {
       }
     }
     this.land(karts);
+    this.popTaken();
     this.view.update(this.field, this.bombs, time);
   }
 
@@ -201,6 +222,7 @@ export class ItemSystem {
       } else {
         this.host.paint.stamp(bomb.toX, bomb.toZ, BOMB_SPLAT, this.host.slotOf(bomb.by));
         this.host.sparks.burst(bomb.toX, 0.6, bomb.toZ, bomb.ramp, 60, 18);
+        this.host.sparks.ring(bomb.toX, bomb.toZ, bomb.ramp, 20, 36);
         for (const kart of karts) {
           const hit = Math.hypot(kart.x - bomb.toX, kart.z - bomb.toZ) < BOMB_BLAST;
           if (hit && kart.key !== bomb.by) {

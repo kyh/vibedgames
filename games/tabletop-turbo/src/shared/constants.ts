@@ -47,7 +47,7 @@ export const BOOST_ACCEL = 60;
 export const PAINT_SIZE = 512;
 export const PAINT_CELL = 0.5;
 /** Seconds a stamp glows before it is gone. */
-export const PAINT_LIFE = 34;
+export const PAINT_LIFE = 22;
 /** Below this strength paint no longer boosts or slicks anyone. */
 export const PAINT_ACTIVE = 0.12;
 export const PAINT_RADIUS = 0.8;
@@ -92,10 +92,10 @@ export const BOTS = [
   { color: "#ee3fa8", name: "Mirage" },
   { color: "#a4d81c", name: "Zest" },
   { color: "#8f3fe0", name: "Onyx" },
-  { color: "#2a74e8", name: "Flux" },
+  { color: "#3a9cf0", name: "Flux" },
   { color: "#c9cede", name: "Chalk" },
-  { color: "#2fb04a", name: "Kiko" },
-  { color: "#1b2358", name: "Ember" },
+  { color: "#f7c820", name: "Kiko" },
+  { color: "#2e2b3d", name: "Ember" },
 ] as const;
 
 // --- Chassis -----------------------------------------------------------------

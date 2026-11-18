@@ -48,6 +48,7 @@ const int TWO_SIDED = 2;
 const int PAINTABLE = 4;
 const int NO_SHADOW = 8;
 const int ROUND = 16;
+const int PULSE = 32;
 
 vec2 hash2(vec3 p) {
   float a = fract(sin(dot(p, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
@@ -109,10 +110,20 @@ void main() {
     if (slot > 0 && slot < 32 && coat.g > noise.x * 0.3) {
       ramp = uSlotRamp[slot];
       base = coat.g > 0.9 ? 3.0 : 2.0;
+      // Wet paint glints: a few dabs flash to the top of the ramp, eight times a second.
+      float glint = fract(noise.x * 7.31 + floor(uSplat.w * 8.0) * 0.137);
+      if (glint > 0.965) { base = 4.0; }
     }
   }
 
+  if ((flags & PULSE) != 0) {
+    // A band of light running across the surface, in steps.
+    float band = fract(floor(uSplat.w * 10.0) * 0.1 - dot(aCenter, vec3(0.09, 0.21, 0.06)));
+    if (band < 0.3) { base += 1.0; }
+  }
+
   float offset = 0.0;
+  bool shaded = false;
   if (!unlit) {
     float direct = max(dot(normal, uSun.xyz), 0.0);
     if (uShadow.x > 0.5 && direct > 0.0) {
@@ -120,13 +131,15 @@ void main() {
       vec3 uvw = lp.xyz * 0.5 + 0.5;
       if (uvw.x > 0.0 && uvw.x < 1.0 && uvw.y > 0.0 && uvw.y < 1.0) {
         float seen = texture(uShadowMap, uvw.xy).r;
-        if (uvw.z - uShadow.y > seen) { direct = 0.0; }
+        if (uvw.z - uShadow.y > seen) { direct = 0.0; shaded = true; }
       }
     }
     float key = uSun.w;
     offset = direct < key
       ? -uShade.x * (1.0 - direct / key)
       : uShade.y * max(direct - uShade.w, 0.0) / (1.0 - uShade.w);
+    // A cast shadow is a flat two steps down: chunky, and darker than a face turned from the sun.
+    if (shaded) { offset = -2.0; }
   }
   float lo = floor(offset);
   float t = clamp((fract(offset) - 0.5) / uShade.z + 0.5, 0.0, 1.0);
