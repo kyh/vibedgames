@@ -138,6 +138,9 @@ export interface GameDiagnostics {
 /** Intent to the host: a driver just left the title; restart if nobody is racing. */
 const FRESH_START = "fresh-start";
 
+/** Metres from the camera within which a rival's body would swallow the lens. */
+const LENS_CLEAR = 1.9;
+
 /** The camera's near plane everywhere but the overview. */
 const NEAR = 0.8;
 
@@ -1035,9 +1038,10 @@ export class GameScene {
     );
     const fx = Math.cos(pose.a);
     const fz = Math.sin(pose.a);
-    // A rival right on top of the camera would fill the frame with its insides.
+    // Only a kart the lens is actually inside is hidden: anything further is traffic.
     racer.mesh.group.visible =
-      racer.kind === "me" || this.camera.position.distanceToSquared(racer.mesh.group.position) > 22;
+      racer.kind === "me" ||
+      this.camera.position.distanceToSquared(racer.mesh.group.position) > LENS_CLEAR ** 2;
     if (!racing) {
       if (this.state.phase === "race") {
         // Under the lights every grid box is painted in its driver's colour.

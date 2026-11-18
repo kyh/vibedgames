@@ -309,8 +309,10 @@ export class KartMesh {
     part(this.body, SEAT, CARBON, -0.36, 0.78);
     part(this.body, TAIL, TAILLIGHT, -1.31, 0.56);
     // The number again on a board at the back, where the chase camera reads it.
-    part(this.body, BOARD, TRIM, -1.36, 0.92).castShadow = false;
-    const rear = part(this.body, POD_DECAL, this.plate, -1.385, 0.92);
+    // Anvil's crate fills the usual spot, so its board hangs off the back of the crate.
+    const back = this.chassis === 1 ? -1.46 : -1.36;
+    part(this.body, BOARD, TRIM, back, 0.92).castShadow = false;
+    const rear = part(this.body, POD_DECAL, this.plate, back - 0.03, 0.92);
     rear.castShadow = false;
     rear.rotation.y = -Math.PI / 2;
     rear.scale.setScalar(1.25);
