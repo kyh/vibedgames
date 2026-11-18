@@ -133,7 +133,7 @@ client.updateSharedState({
 });
 ```
 
-Keep a single `emptyState()` factory whose return type matches your `SharedState` exactly (so TS errors when you add a field). The function form replaces the whole state instead: `updateSharedState(() => emptyState())` resets cleanly, and any key it leaves out is deleted for everyone.
+Keep a single `emptyState()` factory whose result is pinned with `satisfies SharedState` (so TS errors when you add a field). The function form replaces the whole state instead: `updateSharedState(() => emptyState())` resets cleanly, and any key it leaves out is deleted for everyone.
 
 ### Don't read player order before the first sync arrives
 
