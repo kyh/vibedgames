@@ -35,6 +35,18 @@ const PLAN_PX = 2048;
 /** Half-extent of the square the sun's shadow map covers around the action. */
 const SHADOW_REACH = 95;
 
+/**
+ * The ground is layers a few centimetres apart: road on apron on lawn on plan.
+ * From far away that is less than the depth buffer can tell apart, and the
+ * layers fight triangle by triangle. Each lower layer is pushed back by a
+ * polygon offset, so the order holds at any distance.
+ */
+const under = (layer: number) => ({
+  polygonOffset: true,
+  polygonOffsetFactor: layer * 2,
+  polygonOffsetUnits: layer * 12,
+});
+
 export interface WorldOptions {
   /** Shadow map size, or 0 for none (phones). */
   shadows: number;
@@ -245,7 +257,7 @@ export class World {
     const { kit } = this;
     this.sunDir = new THREE.Vector3(
       Math.cos(palette.bearing),
-      0.42,
+      0.62,
       Math.sin(palette.bearing),
     ).normalize();
     this.sky = new Sky(palette, this.sunDir, track.n);
@@ -271,7 +283,7 @@ export class World {
     // ±5 units until its projection is rebuilt.
     this.setShadowReach(SHADOW_REACH);
     this.group.add(this.sun, this.sun.target);
-    this.group.add(new THREE.HemisphereLight(palette.fill, "#6b5a52", 1.5));
+    this.group.add(new THREE.HemisphereLight(palette.fill, "#7a685c", 1.75));
 
     this.addGround(track);
     this.addRoad(track, paint);
@@ -367,6 +379,7 @@ export class World {
     detail.roughnessMap.repeat.set(PLAN_SPAN / 10, PLAN_SPAN / 10);
     const material = kit.own(
       new THREE.MeshStandardMaterial({
+        ...under(3),
         map: plan,
         normalMap: detail.normalMap,
         normalScale: new THREE.Vector2(0.7, 0.7),
@@ -383,7 +396,13 @@ export class World {
     // Past the plan the district just goes on, in the plaza tone, into the haze.
     const beyond = kit.mesh(
       new THREE.PlaneGeometry(3000, 3000).rotateX(-Math.PI / 2),
-      kit.own(new THREE.MeshStandardMaterial({ color: track.def.palette.plaza, roughness: 1 })),
+      kit.own(
+        new THREE.MeshStandardMaterial({
+          ...under(4),
+          color: track.def.palette.plaza,
+          roughness: 1,
+        }),
+      ),
     );
     beyond.position.y = -0.6;
     beyond.castShadow = false;
@@ -392,7 +411,7 @@ export class World {
     kit.own(turf.map);
     kit.own(turf.normalMap);
     kit.own(turf.roughnessMap);
-    const lawn = kit.own(new THREE.MeshStandardMaterial({ ...turf, roughness: 1 }));
+    const lawn = kit.own(new THREE.MeshStandardMaterial({ ...turf, ...under(2), roughness: 1 }));
     for (const side of [-1, 1]) {
       const strip = kit.mesh(
         ribbon(track, side * (track.rail + 1.6), side * (track.rail + 17), -0.14),
@@ -427,7 +446,7 @@ export class World {
     kit.own(slab.roughnessMap);
     const apron = kit.mesh(
       ribbon(track, -track.rail - 1.7, track.rail + 1.7, -0.06),
-      kit.own(new THREE.MeshStandardMaterial({ ...slab, roughness: 0.95 })),
+      kit.own(new THREE.MeshStandardMaterial({ ...slab, ...under(1), roughness: 0.95 })),
     );
     apron.castShadow = false;
   }

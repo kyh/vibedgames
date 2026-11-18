@@ -88,12 +88,18 @@ const speckle = (
     ctx.arc(x, y, r, 0, Math.PI * 2);
     ctx.fill();
     // Wrap the dot across the seam so the tile repeats cleanly.
+    // Each as its own path: arcs sharing a path are joined by straight lines,
+    // which fills a triangle across half the tile.
     if (x < r || y < r) {
-      ctx.beginPath();
-      ctx.arc(x + size, y + size, r, 0, Math.PI * 2);
-      ctx.arc(x + size, y, r, 0, Math.PI * 2);
-      ctx.arc(x, y + size, r, 0, Math.PI * 2);
-      ctx.fill();
+      for (const [wx, wy] of [
+        [x + size, y + size],
+        [x + size, y],
+        [x, y + size],
+      ] as const) {
+        ctx.beginPath();
+        ctx.arc(wx, wy, r, 0, Math.PI * 2);
+        ctx.fill();
+      }
     }
   }
 };

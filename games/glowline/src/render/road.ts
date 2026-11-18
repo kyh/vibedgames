@@ -181,8 +181,12 @@ export const roadMaterial = (
 
 /**
  * A flat ribbon following the track between lateral offsets `latA` and `latB`
- * at height `y`. `uv` tiles in world units; `aRoad` is (-1 | 1, distance along
- * the lap) for the road shader.
+ * at height `y`. `uv` tiles in world units; `aRoad` is (-1 … 1 across, distance
+ * along the lap) for the road shader.
+ *
+ * The ribbon is cut into columns across its width so that no triangle is a
+ * sliver: a road-wide quad one metre long interpolates badly at a distance,
+ * and shows as a light and a dark triangle.
  */
 export const ribbon = (
   track: Track,
@@ -191,27 +195,33 @@ export const ribbon = (
   y: number,
 ): THREE.BufferGeometry => {
   const { n } = track;
-  const positions = new Float32Array((n + 1) * 6);
-  const uvs = new Float32Array((n + 1) * 4);
-  const road = new Float32Array((n + 1) * 4);
-  const normals = new Float32Array((n + 1) * 6);
+  const columns = Math.max(1, Math.round(Math.abs(latB - latA) / 2.6));
+  const across = columns + 1;
+  const count = (n + 1) * across;
+  const positions = new Float32Array(count * 3);
+  const normals = new Float32Array(count * 3);
+  const uvs = new Float32Array(count * 2);
+  const road = new Float32Array(count * 2);
   const indices: number[] = [];
   for (let k = 0; k <= n; k += 1) {
     const i = wrapIndex(k, n);
-    const a = pointAt(track, i, latA);
-    const b = pointAt(track, i, latB);
-    positions.set([a.x, y, a.z, b.x, y, b.z], k * 6);
-    normals.set([0, 1, 0, 0, 1, 0], k * 6);
-    const v = (k * TRACK_STEP) / TILE;
-    uvs.set([latA / TILE, v, latB / TILE, v], k * 4);
-    road.set([-1, k * TRACK_STEP, 1, k * TRACK_STEP], k * 4);
-    if (k < n) {
-      // Wind so the face points up whichever way round the two edges were given.
-      const at = k * 2;
-      if (latA < latB) {
-        indices.push(at, at + 1, at + 2, at + 1, at + 3, at + 2);
-      } else {
-        indices.push(at, at + 2, at + 1, at + 1, at + 2, at + 3);
+    for (let c = 0; c < across; c += 1) {
+      const share = c / columns;
+      const lat = latA + (latB - latA) * share;
+      const p = pointAt(track, i, lat);
+      const v = k * across + c;
+      positions.set([p.x, y, p.z], v * 3);
+      normals.set([0, 1, 0], v * 3);
+      uvs.set([lat / TILE, (k * TRACK_STEP) / TILE], v * 2);
+      road.set([share * 2 - 1, k * TRACK_STEP], v * 2);
+      if (k < n && c < columns) {
+        const next = v + across;
+        // Wind so the face points up whichever way round the two edges were given.
+        if (latA < latB) {
+          indices.push(v, v + 1, next, v + 1, next + 1, next);
+        } else {
+          indices.push(v, next, v + 1, v + 1, next, next + 1);
+        }
       }
     }
   }

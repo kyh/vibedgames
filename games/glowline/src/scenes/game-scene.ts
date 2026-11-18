@@ -17,7 +17,7 @@ import type { Input } from "../input/input";
 import { BotField } from "../net/bot-field";
 import { RemoteTrack, encodePose, poseOf, readPose } from "../net/pose";
 import type { KartPose } from "../net/pose";
-import { isJsonNumber } from "../net/wire";
+import { isJsonNumber, isJsonObject } from "../net/wire";
 import { Sparks } from "../render/fx";
 import type { Hud, MapDot, ResultRow } from "../render/hud";
 import { setAccent } from "../render/hud";
@@ -136,6 +136,9 @@ export interface GameDiagnostics {
 /** Intent to the host: a driver just left the title; restart if nobody is racing. */
 const FRESH_START = "fresh-start";
 
+/** Cup points by finishing place. */
+const CUP_POINTS = [10, 8, 6, 5, 4, 3, 2, 1] as const;
+
 /** Speedometer scale: world units per second to the km/h on the dial. */
 const KMH = 4.6;
 
@@ -202,7 +205,7 @@ const readRound = (shared: JsonRecord): RoundState | null => {
 
 export class GameScene {
   readonly scene = new THREE.Scene();
-  readonly camera = new THREE.PerspectiveCamera(62, 1, 0.5, 2600);
+  readonly camera = new THREE.PerspectiveCamera(62, 1, 0.8, 2600);
 
   private readonly paint = new PaintGrid();
   private readonly layer = new PaintLayer();
@@ -496,14 +499,19 @@ export class GameScene {
   private newRound(round: number, track: number): void {
     const index = wrapIndex(track, TRACKS.length);
     this.bots.reset(trackFor(index), Math.max(1, Object.keys(this.client.players).length));
-    this.client.updateSharedState({
+    const next: JsonRecord = {
       bots: {},
       nextAt: 0,
       phase: "race",
       round,
       startAt: Math.round(this.client.serverNow() + COUNTDOWN_MS),
       track: index,
-    });
+    };
+    if (index === 0) {
+      // The first circuit opens a new cup: everyone back to nought.
+      next["points"] = {};
+    }
+    this.client.updateSharedState(next);
     this.syncRoom(this.client.serverNow());
   }
 
@@ -613,8 +621,36 @@ export class GameScene {
     const first = finished.length > 0 ? Math.min(...finished.map((r) => r.pose.finishMs)) : 0;
     const allIn = deciders.every((racer) => racer.pose.finishMs > 0);
     if (allIn || (first > 0 && now > first + FINISH_GRACE_MS)) {
-      this.client.updateSharedState({ nextAt: Math.round(now + RESULTS_MS), phase: "results" });
+      this.client.updateSharedState({
+        nextAt: Math.round(now + RESULTS_MS),
+        phase: "results",
+        points: this.scoreCup(),
+      });
     }
+  }
+
+  /** The room-wide id a racer's cup points are kept under. */
+  private cupKey(racer: Racer): string {
+    return racer.kind === "me" ? (this.client.playerId ?? "me") : racer.key;
+  }
+
+  /** Host: the cup table after this race, as a fresh object for shared state. */
+  private scoreCup(): JsonRecord {
+    const table: JsonRecord = {};
+    const before = this.client.sharedState["points"];
+    if (isJsonObject(before)) {
+      for (const [key, value] of Object.entries(before)) {
+        if (isJsonNumber(value)) {
+          table[key] = value;
+        }
+      }
+    }
+    for (const [i, racer] of this.standings().entries()) {
+      const key = this.cupKey(racer);
+      const had = table[key];
+      table[key] = (isJsonNumber(had) ? had : 0) + (CUP_POINTS[i] ?? 0);
+    }
+    return table;
   }
 
   // --- the local kart -----------------------------------------------------------
@@ -1089,6 +1125,8 @@ export class GameScene {
   private shotCamera(): boolean {
     if (this.shot === "overview") {
       this.camera.fov = 38;
+      // Nothing is nearer than the rooftops from up here: spend the depth range on the ground.
+      this.camera.near = 60;
       this.camera.position.set(-40, 235, 250);
       LOOK.set(0, 0, 8);
       this.world.setShadowReach(330);
@@ -1244,18 +1282,31 @@ export class GameScene {
 
   private showResults(order: readonly Racer[], now: number): void {
     const shares = this.paint.coverage(MAX_SLOT);
+    const table = this.client.sharedState["points"];
+    const pointsOf = (racer: Racer): number => {
+      const value = isJsonObject(table) ? table[this.cupKey(racer)] : 0;
+      return isJsonNumber(value) ? value : 0;
+    };
     const rows: ResultRow[] = order.map((racer, i) => ({
       color: racer.css,
       me: racer.kind === "me",
       name: racer.name,
       paint: shares[racer.slot] ?? 0,
       place: i + 1,
+      points: pointsOf(racer),
       timeMs: racer.pose.finishMs > 0 ? racer.pose.finishMs - this.state.startAt : 0,
     }));
     const heading = this.me.finishMs > 0 ? `${ordinal(this.myPlace)} PLACE` : "TIME UP";
-    this.hud.showResults(rows, heading, this.track.def.name);
+    const race = this.state.track + 1;
+    const last = race === TRACKS.length;
+    const [champion] = order.toSorted((p, q) => pointsOf(q) - pointsOf(p));
+    const sub = last
+      ? `Cup final · ${champion?.name ?? "nobody"} takes the cup`
+      : `${this.track.def.name} · race ${race} of ${TRACKS.length}`;
+    this.hud.showResults(rows, heading, sub);
     const wait = Math.max(0, Math.ceil((this.state.nextAt - now) / 1000));
-    this.hud.setResultsNext(`Next: ${trackFor(this.state.track + 1).def.name} in ${wait}`);
+    const next = trackFor(this.state.track + 1).def.name;
+    this.hud.setResultsNext(last ? `New cup: ${next} in ${wait}` : `Next: ${next} in ${wait}`);
     // The card is the whole screen now: the race readout would only sit behind it.
     this.hud.showHud(false);
     this.input.setTouchVisible(false);

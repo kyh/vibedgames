@@ -51,6 +51,8 @@ export interface ResultRow {
   timeMs: number;
   /** Share of the painted road this kart holds, 0–1. */
   paint: number;
+  /** Cup points so far, this race included. */
+  points: number;
   me: boolean;
 }
 
@@ -355,7 +357,9 @@ export class Hud {
     this.results.dataset["on"] = "1";
     setText(this.resultsTitle, heading);
     setText(this.resultsSub, sub);
-    const key = rows.map((row) => `${row.name}:${row.timeMs}:${row.paint.toFixed(2)}`).join("|");
+    const key = rows
+      .map((row) => `${row.name}:${row.timeMs}:${row.paint.toFixed(2)}:${row.points}`)
+      .join("|");
     if (key === this.resultsKey) {
       return;
     }
@@ -377,7 +381,10 @@ export class Hud {
         const time = document.createElement("span");
         time.className = "time";
         time.textContent = row.timeMs > 0 ? formatTime(row.timeMs) : "—";
-        line.append(place, chip, name, paint, time);
+        const points = document.createElement("b");
+        points.className = "pts";
+        points.textContent = `${row.points} PTS`;
+        line.append(place, chip, name, paint, time, points);
         return line;
       }),
     );
