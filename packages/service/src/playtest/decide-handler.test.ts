@@ -1,20 +1,26 @@
 import assert from "node:assert/strict";
-import { afterEach, test } from "node:test";
+import { after, beforeEach, test } from "node:test";
 import type { JsonValue } from "@repo/contract/json";
 
+import { startUpstream } from "../upstream.test-utils";
+import type { UpstreamReply } from "../upstream.test-utils";
 import { handlePlaytestDecide } from "./decide-handler";
 import { mintPlaytestToken } from "./session-token";
 
-const realFetch = globalThis.fetch;
+const answer: JsonValue = { answers: { move: { choice: "left", type: "choice" } }, usage: {} };
 
-afterEach(() => {
-  globalThis.fetch = realFetch;
+let reply: UpstreamReply = {};
+const upstream = await startUpstream(() => reply);
+
+after(upstream.close);
+
+beforeEach(() => {
+  upstream.requests.length = 0;
+  reply = { json: answer };
 });
 
 const SECRET = "handler-secret";
-const decision = { tokenSecret: SECRET, typesafe: "sk-provider" };
-
-const answer: JsonValue = { answers: { move: { choice: "left", type: "choice" } }, usage: {} };
+const decision = { tokenSecret: SECRET, typesafe: "sk-provider", typesafeBaseUrl: upstream.origin };
 
 const body = {
   questions: {
@@ -71,13 +77,6 @@ test("answers a preflight from any origin without credentials", async () => {
 });
 
 test("forwards a token-bearing request with the server's key and CORS headers", async () => {
-  let forwarded: { url: string; auth: string | null } | null = null;
-  globalThis.fetch = (input, init) => {
-    forwarded = { auth: new Headers(init?.headers).get("authorization"), url: String(input) };
-
-    return Promise.resolve(Response.json(answer));
-  };
-
   const { token } = await mintPlaytestToken(SECRET, "user-1");
 
   const res = await handlePlaytestDecide(
@@ -88,20 +87,12 @@ test("forwards a token-bearing request with the server's key and CORS headers", 
   assert.equal(res.status, 200);
   assert.equal(res.headers.get("access-control-allow-origin"), "*");
   assert.deepEqual(await res.json(), answer);
-  assert.deepEqual(forwarded, {
-    auth: "Bearer sk-provider",
-    url: "https://api.typesafe.ai/v1/systemone",
-  });
+  assert.equal(upstream.requests.length, 1);
+  assert.equal(upstream.requests[0]?.url.pathname, "/v1/systemone");
+  assert.equal(upstream.requests[0]?.headers.authorization, "Bearer sk-provider");
 });
 
 test("a session cookie opens nothing; only a valid token does", async () => {
-  let fetched = false;
-  globalThis.fetch = () => {
-    fetched = true;
-
-    return Promise.resolve(Response.json(answer));
-  };
-
   assert.deepEqual(
     await status(await handlePlaytestDecide(post({ cookie: "session=abc" }), decision)),
     [401, "UNAUTHORIZED"],
@@ -115,17 +106,10 @@ test("a session cookie opens nothing; only a valid token does", async () => {
     await status(await handlePlaytestDecide(post({ token: expired.token }), decision)),
     [401, "UNAUTHORIZED"],
   );
-  assert.equal(fetched, false, "nothing reached the provider");
+  assert.equal(upstream.requests.length, 0, "nothing reached the provider");
 });
 
 test("rejects a malformed or oversized body before forwarding", async () => {
-  let fetched = false;
-  globalThis.fetch = () => {
-    fetched = true;
-
-    return Promise.resolve(Response.json(answer));
-  };
-
   const { token } = await mintPlaytestToken(SECRET, "user-1");
   assert.deepEqual(
     await status(await handlePlaytestDecide(post({ body: "{nope", token }), decision)),
@@ -142,12 +126,12 @@ test("rejects a malformed or oversized body before forwarding", async () => {
     await status(await handlePlaytestDecide(post({ body: huge, token }), decision)),
     [413, "PAYLOAD_TOO_LARGE"],
   );
-  assert.equal(fetched, false);
+  assert.equal(upstream.requests.length, 0);
 });
 
 test("maps provider and configuration failures to JSON errors with the right status", async () => {
   const { token } = await mintPlaytestToken(SECRET, "user-1");
-  globalThis.fetch = () => Promise.resolve(new Response("slow down", { status: 429 }));
+  reply = { status: 429, text: "slow down" };
   assert.deepEqual(await status(await handlePlaytestDecide(post({ token }), decision)), [
     429,
     "TOO_MANY_REQUESTS",

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { after, before, test } from "node:test";
-import { setTimeout as delay } from "node:timers/promises";
+import { setImmediate as nextTask, setTimeout as delay } from "node:timers/promises";
 import { isDeepStrictEqual } from "node:util";
 
 import { Miniflare } from "miniflare";
@@ -374,7 +374,11 @@ test("a write sends only the leaves that changed, and one task's writes leave as
       () => isDeepStrictEqual(reader.sharedState, host.sharedState),
       "the guest agrees",
     );
-    await delay(200);
+    host.sendEvent("fence", null);
+    await waitFor(
+      () => watching.received("event").some((data) => data.event === "fence"),
+      "the fence after the writes",
+    );
     assert.deepEqual(watching.dataOf("state_patch"), [
       [
         [["grid"], [0, 0, 0, 0]],
@@ -434,13 +438,15 @@ test("batched writes never overtake an event, nor a coalesced event a state writ
         .map(summary);
 
     await waitFor(() => order().includes("event shot null"), "the last message");
-    await delay(200);
+    host.sendEvent("fence", null);
+    await waitFor(() => order().includes("event fence null"), "the fence after it");
     assert.deepEqual(order(), [
       'player_state {"x":1,"y":2}',
       'state_patch [[["phase"],"aim"]]',
       "event cursor 2",
       'state_patch [[["phase"],"fire"]]',
       "event shot null",
+      "event fence null",
     ]);
   } finally {
     observer?.close(1000);
@@ -508,7 +514,7 @@ test("over a run of writes, a guest and a late joiner hold exactly the host's st
       }
 
       if (round % 4 === 0) {
-        await delay(5);
+        await nextTask();
       }
     }
 
@@ -599,6 +605,10 @@ test("targeted events reach exactly their audience", async () => {
   }
 });
 
+const fencesIn = (heard: [string, string][]) => heard.filter(([event]) => event === "fence");
+
+const intentsIn = (heard: [string, string][]) => heard.filter(([event]) => event !== "fence");
+
 test("sendToHost reaches the host alone, and the host handles its own at once", async () => {
   const room = uniqueRoom("to-host");
   const heardA: [string, string][] = [];
@@ -621,9 +631,14 @@ test("sendToHost reaches the host alone, and the host handles its own at once", 
     clientB.sendToHost("guest-intent", 2);
     await waitFor(() => heardA.length === 2, "the host hears the guest's intent");
     assert.deepEqual(heardA[1], ["guest-intent", guestId]);
-    await delay(200);
-    assert.deepEqual(heardB, [], "the sending guest doesn't hear its own intent");
-    assert.deepEqual(heardC, [], "another guest hears neither");
+    clientA.sendEvent("fence", null);
+    clientB.sendEvent("fence", null);
+    await waitFor(
+      () => fencesIn(heardB).length === 2 && fencesIn(heardC).length === 2,
+      "both fences reached both guests",
+    );
+    assert.deepEqual(intentsIn(heardB), [], "the sending guest doesn't hear its own intent");
+    assert.deepEqual(intentsIn(heardC), [], "another guest hears neither");
   } finally {
     clientA.destroy();
     clientB.destroy();
@@ -945,6 +960,7 @@ test("a client back from a transport blip replays the ticks it missed, and its i
   const room = uniqueRoom("tick-replay");
   const seen: number[] = [];
   const client = connect(room, { onTick: (tick) => seen.push(tick.n), tickRate: 30 });
+  let observer: RawClient | null = null;
 
   try {
     await waitFor(() => admitted(client), "client admitted");
@@ -959,10 +975,15 @@ test("a client back from a transport blip replays the ticks it missed, and its i
       "socket",
     );
 
+    const watcher = new RawClient(room, { _pk: `replay-obs-${process.pid}` });
+    observer = watcher;
+    await waitFor(() => watcher.synced(), "observer synced");
+
     socket.close(4000);
     await waitFor(() => client.connectionStatus === "reconnecting", "transport down");
     const away = seen.length;
-    await delay(400);
+    const watched = watcher.received("tick").length;
+    await waitFor(() => watcher.received("tick").length >= watched + 12, "the room ticked on");
     assert.equal(seen.length, away, "no ticks while away");
     socket.reconnect();
     await waitFor(() => admitted(client) && seen.length > away + 12, "back, and caught up");
@@ -973,6 +994,7 @@ test("a client back from a transport blip replays the ticks it missed, and its i
 
     await waitFor(() => client.tickInputs()?.[me] === "left", "the held input was re-sent");
   } finally {
+    observer?.close(1000);
     client.destroy();
   }
 });
@@ -1029,7 +1051,16 @@ test("a client back from a drop sends the latest of each stream once, not every 
         hostInputs().length > 0,
       "the observer hears the host's state, world and input again",
     );
-    await delay(300);
+    host.sendEvent("fence", null);
+    await waitFor(
+      () => watching.received("event").some((data) => data.event === "fence"),
+      "the fence after the replay",
+    );
+    const fenceAt = watching.messages.findLastIndex((message) => message.type === "event");
+    await waitFor(
+      () => watching.messages.slice(fenceAt).some((message) => message.type === "tick"),
+      "a tick after the fence",
+    );
     assert.deepEqual(
       since("player_state").map((data) => data.state),
       [{ frame: 60 }],
@@ -1262,18 +1293,11 @@ test("an emptied room forgets its rules, claims and world", async () => {
     first.destroy();
   }
 
-  const deadline = Date.now() + 10_000;
-
-  for (;;) {
+  await eventually(async () => {
     const info = await roomInfo(room);
 
-    if (info.playerCount === 0) {
-      break;
-    }
-
-    assert.ok(Date.now() < deadline, "the room never emptied");
-    await delay(25);
-  }
+    return info.playerCount === 0;
+  }, "the room emptied");
 
   const second = connect(room);
 
@@ -1427,7 +1451,16 @@ test("when the host leaves, a remaining guest is promoted", async () => {
 
 test("a locked room sends newcomers on to an overflow room, and its meta reaches everyone", async () => {
   const room = uniqueRoom("lock");
-  const host = connect(room);
+  const fences: string[] = [];
+
+  const host = connect(room, {
+    onEvent: (event, _payload, from) => {
+      if (event === "fence") {
+        fences.push(from);
+      }
+    },
+  });
+
   const clients: MultiplayerClient[] = [host];
 
   try {
@@ -1443,7 +1476,8 @@ test("a locked room sends newcomers on to an overflow room, and its meta reaches
     guest.setRoomInfo({ locked: false });
     host.setRoomInfo({ meta: { blob: "x".repeat(MAX_ROOM_META_CHARS) } });
     host.sendEvent("fence", null);
-    await delay(200);
+    guest.sendEvent("fence", null);
+    await waitFor(() => fences.length === 2, "the host heard both fences");
     assert.deepEqual(host.roomInfo, { locked: true, meta: { mode: "duel" } });
 
     const late = connect(room);

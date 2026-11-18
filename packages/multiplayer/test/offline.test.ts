@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { setTimeout as delay } from "node:timers/promises";
+import { once } from "node:events";
 
 import { MultiplayerClient } from "../src/client.js";
 import { OFFLINE_PLAYER_ID } from "../src/types.js";
@@ -11,12 +11,16 @@ const UNREACHABLE = "http://127.0.0.1:9";
 const offlineClient = (
   heard: [string, JsonValue, string][] = [],
   claims: [string, string | null][] = [],
+  claimEvents = new EventTarget(),
 ) =>
   new MultiplayerClient({
     host: UNREACHABLE,
     initialState: { round: 1 },
     offline: true,
-    onClaim: (key, owner) => claims.push([key, owner]),
+    onClaim: (key, owner) => {
+      claims.push([key, owner]);
+      claimEvents.dispatchEvent(new CustomEvent("claim", { detail: [key, owner] }));
+    },
     onEvent: (event, payload, from) => heard.push([event, payload, from]),
     party: "vg-server",
     room: "offline-test",
@@ -76,7 +80,8 @@ test("offline, events reach their own audience at once, and host intents are han
 
 test("offline claims are granted at once, lapse on their TTL, and release or clear", async () => {
   const claims: [string, string | null][] = [];
-  const client = offlineClient([], claims);
+  const claimEvents = new EventTarget();
+  const client = offlineClient([], claims, claimEvents);
 
   try {
     client.claim("pellet:1");
@@ -85,7 +90,10 @@ test("offline claims are granted at once, lapse on their TTL, and release or cle
 
     client.claim("door", { ttlMs: 30 });
     assert.equal(client.ownerOf("door"), OFFLINE_PLAYER_ID);
-    await delay(80);
+    const released = once(claimEvents, "claim");
+    const [lapse] = await released;
+    assert.ok(lapse instanceof CustomEvent);
+    assert.deepEqual(lapse.detail, ["door", null]);
     assert.equal(client.ownerOf("door"), null, "the TTL ran out");
     assert.deepEqual(claims.at(-1), ["door", null], "and onClaim heard it");
 

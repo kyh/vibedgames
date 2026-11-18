@@ -64,9 +64,21 @@ export default defineConfig({
       files: jsonPayloadModules,
       rules: { "typescript/consistent-type-definitions": "off" },
     },
+    {
+      files: [
+        "packages/service/src/auth/cimd-fetch.test.ts",
+        "packages/service/src/deploy/inline-files.test.ts",
+        "packages/multiplayer/test/offline.test.ts",
+      ],
+      rules: { "landmines-testing/no-test-doubles": "off" },
+    },
   ],
   rules: {
     "anti-slop/require-safety-comment-for-type-assertion": "off",
+    "landmines-testing/no-fixed-sleep": [
+      "error",
+      { allow: { "apps/party/test/integration.test.ts": 2 } },
+    ],
     "no-await-in-loop": "off",
     "no-use-before-define": ["error", { functions: false, variables: false }],
   },

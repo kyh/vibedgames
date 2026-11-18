@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
+import { on } from "node:events";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, test } from "node:test";
-import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 
 import { unzipSync } from "fflate";
@@ -400,13 +400,13 @@ test("--preview packs, then serves the zip until stopped", async (t) => {
 
   t.after(() => child.kill());
   let stdout = "";
-  child.stdout.on("data", (chunk: Buffer) => {
-    stdout += chunk.toString();
-  });
-  const deadline = Date.now() + 15_000;
 
-  while (!stdout.trimEnd().endsWith("}") && Date.now() < deadline) {
-    await delay(50);
+  for await (const [chunk] of on(child.stdout, "data", { signal: AbortSignal.timeout(15_000) })) {
+    stdout += String(chunk);
+
+    if (stdout.trimEnd().endsWith("}")) {
+      break;
+    }
   }
 
   const result: { ok: boolean; preview: { url: string; game_url: string } } = JSON.parse(stdout);

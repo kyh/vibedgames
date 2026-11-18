@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { test } from "node:test";
 
 import { formatField, isJsonOutput, selectField, writeStructured } from "../output.js";
@@ -126,27 +127,18 @@ test("VG_JSON_OUTPUT=1 turns on JSON without the flag", () => {
 });
 
 test("a field that does not resolve exits non-zero rather than printing nothing", () => {
-  const originalExit = process.exit;
-  const originalErr = process.stderr.write.bind(process.stderr);
-  let code: number | undefined;
-  let message = "";
-  process.exit = ((c?: number) => {
-    code = c;
-    throw new Error("exit");
-  }) as typeof process.exit;
-  process.stderr.write = ((chunk: string) => {
-    message += chunk;
+  const output = new URL("../output.ts", import.meta.url).href;
 
-    return true;
-  }) as typeof process.stderr.write;
+  const script = `const { writeStructured } = await import(${JSON.stringify(output)});
+writeStructured(${JSON.stringify(RESULT)}, { field: "typo" });`;
 
-  try {
-    assert.throws(() => writeStructured(RESULT, { field: "typo" }), /exit/u);
-  } finally {
-    process.exit = originalExit;
-    process.stderr.write = originalErr;
-  }
+  const res = spawnSync(
+    process.execPath,
+    ["--import", "tsx", "--input-type=module", "--eval", script],
+    { encoding: "utf-8" },
+  );
 
-  assert.equal(code, 1);
-  assert.equal(message, "No such field: typo\n");
+  assert.equal(res.status, 1);
+  assert.equal(res.stderr, "No such field: typo\n");
+  assert.equal(res.stdout, "");
 });

@@ -319,11 +319,11 @@ export class EditorScene {
   }
 
   private clearItems() {
-    for (const it of this.items) {
-      this.scene.remove(it.obj);
+    for (const edItem of this.items) {
+      this.scene.remove(edItem.obj);
 
-      if (it.colliderMesh) {
-        this.scene.remove(it.colliderMesh);
+      if (edItem.colliderMesh) {
+        this.scene.remove(edItem.colliderMesh);
       }
     }
 
@@ -441,36 +441,36 @@ export class EditorScene {
     const props: MapProp[] = [];
     const colliders: MapCollider[] = [];
 
-    for (const it of this.items) {
-      if (it.model !== WALL_RUN && it.model !== "") {
+    for (const edItem of this.items) {
+      if (edItem.model !== WALL_RUN && edItem.model !== "") {
         const p: MapProp = {
-          model: it.model,
-          rot: r3(it.rot),
-          scale: r3(it.scale),
-          x: r3(it.x),
-          y: r3(it.y),
+          model: edItem.model,
+          rot: r3(edItem.rot),
+          scale: r3(edItem.scale),
+          x: r3(edItem.x),
+          y: r3(edItem.y),
         };
 
-        if (it.lie) {
+        if (edItem.lie) {
           p.lie = true;
         }
 
-        if (it.h !== 0) {
-          p.h = r3(it.h);
+        if (edItem.h !== 0) {
+          p.h = r3(edItem.h);
         }
 
         props.push(p);
       }
 
-      if (it.collidable) {
+      if (edItem.collidable) {
         const c: MapCollider = {
-          height: r3(it.height),
-          radius: r3(it.radius),
-          x: r3(it.x),
-          y: r3(it.y),
+          height: r3(edItem.height),
+          radius: r3(edItem.radius),
+          x: r3(edItem.x),
+          y: r3(edItem.y),
         };
 
-        if (it.model === WALL_RUN) {
+        if (edItem.model === WALL_RUN) {
           c.model = WALL_RUN;
         }
 
@@ -573,36 +573,40 @@ export class EditorScene {
     return ringR;
   }
 
-  private plant(it: EdItem) {
-    it.ringR = this.plantTransform(it.obj, it);
+  private plant(edItem: EdItem) {
+    edItem.ringR = this.plantTransform(edItem.obj, edItem);
 
-    if (it.colliderMesh) {
-      it.colliderMesh.scale.set(it.radius, it.height, it.radius);
-      it.colliderMesh.position.set(it.x, terrainHeight(it.x, it.y) + it.height / 2, it.y);
+    if (edItem.colliderMesh) {
+      edItem.colliderMesh.scale.set(edItem.radius, edItem.height, edItem.radius);
+      edItem.colliderMesh.position.set(
+        edItem.x,
+        terrainHeight(edItem.x, edItem.y) + edItem.height / 2,
+        edItem.y,
+      );
     }
   }
 
-  private addColliderMesh(it: EdItem) {
-    if (it.colliderMesh) {
+  private addColliderMesh(edItem: EdItem) {
+    if (edItem.colliderMesh) {
       return;
     }
 
     const m = new THREE.Mesh(this.cylGeo, this.colMat);
     this.scene.add(m);
-    it.colliderMesh = m;
+    edItem.colliderMesh = m;
   }
 
-  private removeColliderMesh(it: EdItem) {
-    if (!it.colliderMesh) {
+  private removeColliderMesh(edItem: EdItem) {
+    if (!edItem.colliderMesh) {
       return;
     }
 
-    this.scene.remove(it.colliderMesh);
-    it.colliderMesh = null;
+    this.scene.remove(edItem.colliderMesh);
+    edItem.colliderMesh = null;
   }
 
-  select(it: EdItem | null) {
-    this.selected = it;
+  select(edItem: EdItem | null) {
+    this.selected = edItem;
     this.syncInspector(true);
   }
 
@@ -631,55 +635,55 @@ export class EditorScene {
   }
 
   setSelectedPos(x: number, y: number) {
-    const it = this.selected;
+    const edItem = this.selected;
 
-    if (!it) {
+    if (!edItem) {
       return;
     }
 
     const pos = clampToArena(x, y, POS_MARGIN);
-    it.x = pos.x;
-    it.y = pos.y;
-    this.plant(it);
+    edItem.x = pos.x;
+    edItem.y = pos.y;
+    this.plant(edItem);
     this.markDirty();
     this.syncInspector();
   }
 
   rotateSelected(rad: number) {
-    const it = this.selected;
+    const edItem = this.selected;
 
-    if (!it) {
+    if (!edItem) {
       return;
     }
 
-    it.rot += rad;
-    this.plant(it);
+    edItem.rot += rad;
+    this.plant(edItem);
     this.markDirty();
     this.syncInspector();
   }
 
   scaleSelected(factor: number) {
-    const it = this.selected;
+    const edItem = this.selected;
 
-    if (!it) {
+    if (!edItem) {
       return;
     }
 
-    it.scale = clamp(it.scale * factor, 0.2, 4);
-    this.plant(it);
+    edItem.scale = clamp(edItem.scale * factor, 0.2, 4);
+    this.plant(edItem);
     this.markDirty();
     this.syncInspector();
   }
 
   toggleSelectedLie() {
-    const it = this.selected;
+    const edItem = this.selected;
 
-    if (!it || it.model === WALL_RUN || it.model === "") {
+    if (!edItem || edItem.model === WALL_RUN || edItem.model === "") {
       return;
     }
 
-    it.lie = !it.lie;
-    this.plant(it);
+    edItem.lie = !edItem.lie;
+    this.plant(edItem);
     this.markDirty();
     this.syncInspector();
   }
@@ -687,39 +691,39 @@ export class EditorScene {
   /** Collidable toggle — the default radius/height come from the placed
    *  model's bounding-box footprint (editable in the inspector). */
   toggleSelectedCollidable() {
-    const it = this.selected;
+    const edItem = this.selected;
 
-    if (!it || it.model === WALL_RUN || it.model === "") {
+    if (!edItem || edItem.model === WALL_RUN || edItem.model === "") {
       return;
     }
 
-    it.collidable = !it.collidable;
+    edItem.collidable = !edItem.collidable;
 
-    if (it.collidable) {
-      BOX.setFromObject(it.obj);
-      it.radius = clamp(Math.max(BOX.max.x - BOX.min.x, BOX.max.z - BOX.min.z) / 2, 0.2, 8);
-      it.height = clamp(BOX.max.y - BOX.min.y, 0.5, 8);
-      this.addColliderMesh(it);
+    if (edItem.collidable) {
+      BOX.setFromObject(edItem.obj);
+      edItem.radius = clamp(Math.max(BOX.max.x - BOX.min.x, BOX.max.z - BOX.min.z) / 2, 0.2, 8);
+      edItem.height = clamp(BOX.max.y - BOX.min.y, 0.5, 8);
+      this.addColliderMesh(edItem);
     } else {
-      this.removeColliderMesh(it);
+      this.removeColliderMesh(edItem);
     }
 
-    this.plant(it);
+    this.plant(edItem);
     this.markDirty();
     this.syncInspector(true);
   }
 
   removeSelected() {
-    const it = this.selected;
+    const edItem = this.selected;
 
-    if (!it) {
+    if (!edItem) {
       return;
     }
 
-    this.scene.remove(it.obj);
-    this.removeColliderMesh(it);
-    this.byObj.delete(it.obj);
-    const idx = this.items.indexOf(it);
+    this.scene.remove(edItem.obj);
+    this.removeColliderMesh(edItem);
+    this.byObj.delete(edItem.obj);
+    const idx = this.items.indexOf(edItem);
 
     if (idx !== -1) {
       this.items.splice(idx, 1);
@@ -730,23 +734,23 @@ export class EditorScene {
   }
 
   duplicateSelected() {
-    const it = this.selected;
+    const edItem = this.selected;
 
-    if (!it) {
+    if (!edItem) {
       return null;
     }
 
-    const pos = clampToArena(it.x + 1, it.y, POS_MARGIN);
+    const pos = clampToArena(edItem.x + 1, edItem.y, POS_MARGIN);
 
     const copy = this.makeItem({
-      collidable: it.collidable,
-      h: it.h,
-      height: it.height,
-      lie: it.lie,
-      model: it.model,
-      radius: it.radius,
-      rot: it.rot,
-      scale: it.scale,
+      collidable: edItem.collidable,
+      h: edItem.h,
+      height: edItem.height,
+      lie: edItem.lie,
+      model: edItem.model,
+      radius: edItem.radius,
+      rot: edItem.rot,
+      scale: edItem.scale,
       x: pos.x,
       y: pos.y,
     });
@@ -758,7 +762,7 @@ export class EditorScene {
   }
 
   /** Enter place mode: `model` follows the cursor as a translucent ghost;
-   *  LMB stamps it (drag = stamp a trail). RMB/Esc exits. */
+   *  LMB stamps edItem (drag = stamp a trail). RMB/Esc exits. */
   startPlacing(model: string) {
     this.stopPlacing();
     this.select(null);
@@ -1032,10 +1036,10 @@ export class EditorScene {
     let cur: THREE.Object3D | null = o;
 
     while (cur) {
-      const it = this.byObj.get(cur);
+      const edItem = this.byObj.get(cur);
 
-      if (it) {
-        return it;
+      if (edItem) {
+        return edItem;
       }
 
       cur = cur.parent;
@@ -1047,7 +1051,7 @@ export class EditorScene {
   private pick(e: PointerEvent) {
     this.setNdc(e);
     this.ray.setFromCamera(this.ndc, this.view.camera);
-    const roots = this.items.map((it) => it.obj);
+    const roots = this.items.map((edItem) => edItem.obj);
     const hits = this.ray.intersectObjects(roots, true);
     const [first] = hits;
 
@@ -1391,8 +1395,11 @@ export class EditorScene {
       return;
     }
 
-    const nProps = this.items.filter((it) => it.model !== WALL_RUN && it.model !== "").length;
-    const nCols = this.items.filter((it) => it.collidable).length;
+    const nProps = this.items.filter(
+      (edItem) => edItem.model !== WALL_RUN && edItem.model !== "",
+    ).length;
+
+    const nCols = this.items.filter((edItem) => edItem.collidable).length;
     this.statusEl.textContent = `${nProps} props · ${nCols} colliders${this.dirty ? " · ●" : ""}`;
   }
 
@@ -1403,9 +1410,9 @@ export class EditorScene {
       return;
     }
 
-    const it = this.selected;
+    const edItem = this.selected;
 
-    if (!it) {
+    if (!edItem) {
       box.style.display = "none";
       const emptyNote = document.querySelector<HTMLElement>("#ed-note");
 
@@ -1427,7 +1434,7 @@ export class EditorScene {
       const label = document.querySelector<HTMLElement>("#ed-i-model");
 
       if (label) {
-        label.textContent = it.model === "" ? "(pure collider)" : it.model;
+        label.textContent = edItem.model === "" ? "(pure collider)" : edItem.model;
       }
     }
 
@@ -1439,14 +1446,14 @@ export class EditorScene {
       }
     };
 
-    setVal("ed-ix", it.x.toFixed(2));
-    setVal("ed-iy", it.y.toFixed(2));
-    setVal("ed-irot", (((it.rot * 180) / Math.PI) % 360).toFixed(1));
-    setVal("ed-iscale", it.scale.toFixed(2));
-    setVal("ed-ih", it.h.toFixed(2));
-    this.input("ed-ilie").checked = it.lie;
-    this.input("ed-icol").checked = it.collidable;
-    const isProp = it.model !== WALL_RUN && it.model !== "";
+    setVal("ed-ix", edItem.x.toFixed(2));
+    setVal("ed-iy", edItem.y.toFixed(2));
+    setVal("ed-irot", (((edItem.rot * 180) / Math.PI) % 360).toFixed(1));
+    setVal("ed-iscale", edItem.scale.toFixed(2));
+    setVal("ed-ih", edItem.h.toFixed(2));
+    this.input("ed-ilie").checked = edItem.lie;
+    this.input("ed-icol").checked = edItem.collidable;
+    const isProp = edItem.model !== WALL_RUN && edItem.model !== "";
     this.input("ed-ilie").disabled = !isProp;
     this.input("ed-icol").disabled = !isProp;
     this.input("ed-iscale").disabled = !isProp;
@@ -1454,12 +1461,12 @@ export class EditorScene {
     const colRow = document.querySelector<HTMLElement>("#ed-colrow");
 
     if (colRow) {
-      colRow.style.display = it.collidable ? "flex" : "none";
+      colRow.style.display = edItem.collidable ? "flex" : "none";
     }
 
-    if (it.collidable) {
-      setVal("ed-irad", it.radius.toFixed(2));
-      setVal("ed-iht", it.height.toFixed(2));
+    if (edItem.collidable) {
+      setVal("ed-irad", edItem.radius.toFixed(2));
+      setVal("ed-iht", edItem.height.toFixed(2));
     }
   }
 
@@ -1541,7 +1548,7 @@ export class EditorScene {
             </div>
             <button id="ed-idel">DELETE</button>
           </div>
-          <div class="ed-note" id="ed-note">Pick a prop on the left — it follows your cursor; click to stamp it, click-drag to stamp a trail. RMB or Esc exits place mode. Click a placed prop to select and edit it here.</div>
+          <div class="ed-note" id="ed-note">Pick a prop on the left — edItem follows your cursor; click to stamp edItem, click-drag to stamp a trail. RMB or Esc exits place mode. Click a placed prop to select and edit edItem here.</div>
         </div>
         <div class="ed-body" id="ed-floorpal" style="display:none">
           <div class="ed-roster-h">FLOOR PAINT</div>
@@ -1636,15 +1643,15 @@ export class EditorScene {
     on("ed-clear", () => {
       const kept: EdItem[] = [];
 
-      for (const it of this.items) {
-        if (it.model === WALL_RUN || it.model === "") {
-          kept.push(it);
+      for (const edItem of this.items) {
+        if (edItem.model === WALL_RUN || edItem.model === "") {
+          kept.push(edItem);
           continue;
         }
 
-        this.scene.remove(it.obj);
-        this.removeColliderMesh(it);
-        this.byObj.delete(it.obj);
+        this.scene.remove(edItem.obj);
+        this.removeColliderMesh(edItem);
+        this.byObj.delete(edItem.obj);
       }
 
       this.items.splice(0, this.items.length, ...kept);
@@ -1654,46 +1661,46 @@ export class EditorScene {
     });
     on("ed-idel", () => this.removeSelected());
 
-    const bindNum = (id: string, apply: (it: EdItem, v: number) => void) => {
+    const bindNum = (id: string, apply: (edItem: EdItem, v: number) => void) => {
       const el = this.input(id);
       el.addEventListener("input", () => {
-        const it = this.selected;
+        const edItem = this.selected;
         const v = el.valueAsNumber;
 
-        if (!it || !Number.isFinite(v)) {
+        if (!edItem || !Number.isFinite(v)) {
           return;
         }
 
-        apply(it, v);
-        this.plant(it);
+        apply(edItem, v);
+        this.plant(edItem);
         this.markDirty();
       });
     };
 
-    bindNum("ed-ix", (it, v) => {
-      const pos = clampToArena(v, it.y, POS_MARGIN);
-      it.x = pos.x;
-      it.y = pos.y;
+    bindNum("ed-ix", (edItem, v) => {
+      const pos = clampToArena(v, edItem.y, POS_MARGIN);
+      edItem.x = pos.x;
+      edItem.y = pos.y;
     });
-    bindNum("ed-iy", (it, v) => {
-      const pos = clampToArena(it.x, v, POS_MARGIN);
-      it.x = pos.x;
-      it.y = pos.y;
+    bindNum("ed-iy", (edItem, v) => {
+      const pos = clampToArena(edItem.x, v, POS_MARGIN);
+      edItem.x = pos.x;
+      edItem.y = pos.y;
     });
-    bindNum("ed-irot", (it, v) => {
-      it.rot = (v * Math.PI) / 180;
+    bindNum("ed-irot", (edItem, v) => {
+      edItem.rot = (v * Math.PI) / 180;
     });
-    bindNum("ed-iscale", (it, v) => {
-      it.scale = clamp(v, 0.2, 4);
+    bindNum("ed-iscale", (edItem, v) => {
+      edItem.scale = clamp(v, 0.2, 4);
     });
-    bindNum("ed-ih", (it, v) => {
-      it.h = clamp(v, -10, 20);
+    bindNum("ed-ih", (edItem, v) => {
+      edItem.h = clamp(v, -10, 20);
     });
-    bindNum("ed-irad", (it, v) => {
-      it.radius = clamp(v, 0.1, 20);
+    bindNum("ed-irad", (edItem, v) => {
+      edItem.radius = clamp(v, 0.1, 20);
     });
-    bindNum("ed-iht", (it, v) => {
-      it.height = clamp(v, 0.1, 30);
+    bindNum("ed-iht", (edItem, v) => {
+      edItem.height = clamp(v, 0.1, 30);
     });
     this.input("ed-ilie").addEventListener("change", () => this.toggleSelectedLie());
     this.input("ed-icol").addEventListener("change", () => this.toggleSelectedCollidable());

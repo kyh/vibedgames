@@ -13,7 +13,7 @@ import {
 import { os, requireSession } from "../orpc";
 import { mintPlaytestToken } from "./session-token";
 
-const DEFAULT_BASE_URL = "https://api.typesafe.ai";
+export const DEFAULT_BASE_URL = "https://api.typesafe.ai";
 const DEFAULT_MODEL = "jev-latest";
 
 const MAX_RESPONSE_BYTES = 256 * 1024;

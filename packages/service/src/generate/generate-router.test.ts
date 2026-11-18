@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { afterEach, describe, test } from "node:test";
+import { after, describe, test } from "node:test";
 import type { D1PreparedStatement, D1Result } from "@cloudflare/workers-types";
 import type { JsonValue } from "@repo/contract/json";
 import { createDb } from "@repo/db/drizzle-client";
@@ -8,6 +8,8 @@ import { call } from "@orpc/server";
 import { createAuth } from "../auth/auth";
 import { MICRO_PER_USD } from "../credits/credit-ledger";
 import type { ORPCContext } from "../orpc";
+import { startUpstream } from "../upstream.test-utils";
+import type { UpstreamReply } from "../upstream.test-utils";
 import { generateRouter } from "./generate-router";
 
 const unavailable = (): never => {
@@ -112,7 +114,7 @@ const contextAs: (role: string) => ORPCContext = (role) => ({
   db,
   decision: undefined,
   headers: new Headers(),
-  media: { fal: "fal-test-key" },
+  media,
   oauthScopes: null,
   productionURL: undefined,
   r2: undefined,
@@ -141,18 +143,11 @@ const contextAs: (role: string) => ORPCContext = (role) => ({
   signing: undefined,
 });
 
-const realFetch = globalThis.fetch;
+type Upstream = () => UpstreamReply;
 
-afterEach(() => {
-  globalThis.fetch = realFetch;
-});
+const json = (status: number, body: JsonValue) => () => ({ json: body, status });
 
-type Upstream = () => Promise<Response>;
-
-const json = (status: number, body: JsonValue) => () =>
-  Promise.resolve(Response.json(body, { status }));
-
-const unreachable: Upstream = () => Promise.reject(new TypeError("fetch failed"));
+const unreachable: Upstream = () => ({ drop: true });
 
 const priceList = (endpointId: string) =>
   json(200, {
@@ -161,35 +156,60 @@ const priceList = (endpointId: string) =>
     prices: [{ currency: "USD", endpoint_id: endpointId, unit: "image", unit_price: 0.025 }],
   })();
 
+interface Routes {
+  estimate: Upstream;
+  price: (endpointId: string) => UpstreamReply;
+  other: Upstream;
+}
+
+const queued: Upstream = () => ({ json: { request_id: "request-1" } });
+let routes: Routes = { estimate: unreachable, other: queued, price: priceList };
+
+const targetOf = (url: URL) => {
+  const [, target = "", ...rest] = url.pathname.split("/");
+
+  return new URL(`/${rest.join("/")}${url.search}`, `https://${target}.upstream`);
+};
+
+const upstream = await startUpstream((request) => {
+  const url = targetOf(request.url);
+
+  if (url.hostname === "platform.upstream" && url.pathname === "/v1/models/pricing") {
+    return routes.price(url.searchParams.get("endpoint_id") ?? "");
+  }
+
+  if (url.hostname === "platform.upstream" && url.pathname === "/v1/models/pricing/estimate") {
+    return routes.estimate();
+  }
+
+  return routes.other();
+});
+
+after(upstream.close);
+
+const media = {
+  fal: "fal-test-key",
+  falDocsBaseUrl: `${upstream.origin}/docs`,
+  falPlatformBaseUrl: `${upstream.origin}/platform`,
+  falQueueBaseUrl: `${upstream.origin}/queue`,
+  falStorageBaseUrl: `${upstream.origin}/storage`,
+};
+
+const fetchedUrls = () => upstream.requests.map((request) => targetOf(request.url));
+
 const stubFal = ({
   estimate = json(404, { error: { message: "Endpoint(s) not found", type: "not_found" } }),
   price = priceList,
 }: {
   estimate?: Upstream;
-  price?: (endpointId: string) => Promise<Response>;
+  price?: (endpointId: string) => UpstreamReply;
 } = {}) => {
   writes.length = 0;
-  const fetched: URL[] = [];
-  globalThis.fetch = (input) => {
-    const url = new URL(String(input));
-    fetched.push(url);
-
-    if (url.pathname === "/v1/models/pricing") {
-      return price(url.searchParams.get("endpoint_id") ?? "");
-    }
-
-    if (url.pathname === "/v1/models/pricing/estimate") {
-      return estimate();
-    }
-
-    return Promise.resolve(Response.json({ request_id: "request-1" }));
-  };
-
-  return fetched;
+  upstream.requests.length = 0;
+  routes = { estimate, other: queued, price };
 };
 
-const ranOnQueue = (fetched: URL[]) =>
-  fetched.some((url) => url.origin === "https://queue.fal.run");
+const ranOnQueue = () => fetchedUrls().some((url) => url.hostname === "queue.upstream");
 
 const submit = (path: string, role: string) =>
   call(
@@ -215,9 +235,9 @@ describe("generate.forward path", () => {
     ];
 
     for (const path of rewritten) {
-      const fetched = stubFal();
+      stubFal();
       await assert.rejects(submit(path, "user"), { code: "BAD_REQUEST" }, JSON.stringify(path));
-      assert.deepEqual(fetched, [], JSON.stringify(path));
+      assert.deepEqual(fetchedUrls(), [], JSON.stringify(path));
     }
   });
 
@@ -239,7 +259,7 @@ describe("generate.forward path", () => {
     ];
 
     for (const { method, path } of folded) {
-      const fetched = stubFal();
+      stubFal();
       await assert.rejects(
         call(
           generateRouter.forward,
@@ -249,7 +269,7 @@ describe("generate.forward path", () => {
         { code: "BAD_REQUEST" },
         path,
       );
-      assert.deepEqual(fetched, [], path);
+      assert.deepEqual(fetchedUrls(), [], path);
     }
 
     const elsewhere: { path: string; target: "platform" | "storage" | "docs" }[] = [
@@ -260,14 +280,14 @@ describe("generate.forward path", () => {
     ];
 
     for (const { path, target } of elsewhere) {
-      const fetched = stubFal();
+      stubFal();
       await call(
         generateRouter.forward,
         { method: "GET", path, target },
         { context: contextAs("user") },
       );
       assert.deepEqual(
-        fetched.map((url) => url.pathname),
+        fetchedUrls().map((url) => url.pathname),
         [path],
         target,
       );
@@ -283,10 +303,14 @@ describe("generate.forward path", () => {
     ];
 
     for (const path of accepted) {
-      const fetched = stubFal();
+      stubFal();
       await submit(path, "user");
-      const priced = fetched.find((url) => url.pathname === "/v1/models/pricing");
-      const ran = fetched.find((url) => url.origin === "https://queue.fal.run");
+
+      const priced = fetchedUrls().find(
+        (url) => url.hostname === "platform.upstream" && url.pathname === "/v1/models/pricing",
+      );
+
+      const ran = fetchedUrls().find((url) => url.hostname === "queue.upstream");
       assert.ok(priced && ran, `${path} was not priced and sent`);
       assert.equal(
         priced.searchParams.get("endpoint_id"),
@@ -308,7 +332,7 @@ describe("generate.forward submit", () => {
     };
 
     for (const [answer, price] of Object.entries(unpriced)) {
-      const fetched = stubFal({ price });
+      stubFal({ price });
       await assert.rejects(
         submit("/fal-ai/flux/dex", "user"),
         {
@@ -317,7 +341,7 @@ describe("generate.forward submit", () => {
         },
         answer,
       );
-      assert.ok(!ranOnQueue(fetched), `ran on ${answer}`);
+      assert.ok(!ranOnQueue(), `ran on ${answer}`);
       assert.deepEqual(writes, [], answer);
     }
   });
@@ -330,14 +354,18 @@ describe("generate.forward submit", () => {
     ];
 
     for (const path of posts) {
-      const fetched = stubFal();
+      stubFal();
       await submit(path, "user");
-      const priced = fetched.find((url) => url.pathname === "/v1/models/pricing");
+
+      const priced = fetchedUrls().find(
+        (url) => url.hostname === "platform.upstream" && url.pathname === "/v1/models/pricing",
+      );
+
       assert.equal(priced?.searchParams.get("endpoint_id"), path.slice(1), path);
       assert.ok(heldGeneration(), `${path} was not held`);
     }
 
-    const fetched = stubFal({
+    stubFal({
       price: json(404, { error: { message: "Endpoint(s) not found", type: "not_found" } }),
     });
 
@@ -345,7 +373,7 @@ describe("generate.forward submit", () => {
       code: "BAD_REQUEST",
       message: /^unknown_endpoint:/u,
     });
-    assert.ok(!ranOnQueue(fetched));
+    assert.ok(!ranOnQueue());
   });
 
   test("submits on the default hold when pricing cannot answer", async () => {
@@ -356,9 +384,9 @@ describe("generate.forward submit", () => {
     };
 
     for (const [answer, price] of Object.entries(down)) {
-      const fetched = stubFal({ estimate: unreachable, price });
+      stubFal({ estimate: unreachable, price });
       await submit("/fal-ai/pricing-down/model", "user");
-      assert.ok(ranOnQueue(fetched), `did not run on ${answer}`);
+      assert.ok(ranOnQueue(), `did not run on ${answer}`);
       assert.deepEqual(
         heldGeneration(),
         { holdMicro: 100_000, unit: null, unitPriceMicro: null },
@@ -368,28 +396,28 @@ describe("generate.forward submit", () => {
   });
 
   test("lets an admin submit to an endpoint no price is published for, on the default hold", async () => {
-    const fetched = stubFal({
+    stubFal({
       price: json(404, { error: { message: "Endpoint(s) not found", type: "not_found" } }),
     });
 
     await submit("/fal-ai/unpriced/for-admin", "admin");
-    assert.ok(ranOnQueue(fetched));
+    assert.ok(ranOnQueue());
     assert.deepEqual(heldGeneration(), { holdMicro: 100_000, unit: null, unitPriceMicro: null });
   });
 
   test("holds a priced endpoint at its estimate, else one unit, and keeps its unit price", async () => {
-    let fetched = stubFal({ estimate: json(200, { total_cost: 0.05 }) });
+    stubFal({ estimate: json(200, { total_cost: 0.05 }) });
     await submit("/fal-ai/priced/with-history", "user");
-    assert.ok(ranOnQueue(fetched));
+    assert.ok(ranOnQueue());
     assert.deepEqual(heldGeneration(), {
       holdMicro: 50_000,
       unit: "image",
       unitPriceMicro: 25_000,
     });
 
-    fetched = stubFal();
+    stubFal();
     await submit("/fal-ai/priced/first-run", "user");
-    assert.ok(ranOnQueue(fetched));
+    assert.ok(ranOnQueue());
     assert.deepEqual(heldGeneration(), {
       holdMicro: 25_000,
       unit: "image",
@@ -403,7 +431,7 @@ describe("generate.forward errors", () => {
 
   test("names no provider when an upstream call fails", async () => {
     stubFal();
-    globalThis.fetch = () => Promise.resolve(Response.json({ detail: "boom" }, { status: 500 }));
+    routes = { ...routes, other: json(500, { detail: "boom" }) };
     await assert.rejects(
       call(
         generateRouter.forward,
@@ -439,14 +467,13 @@ describe("generate.upload", () => {
   const signing = { baseUrl: "https://vibedgames.com", secret: "test-secret" };
 
   test("opens a storage slot and hands back our signed URL for it", async () => {
-    const asked: Request[] = [];
-    globalThis.fetch = (input, init) => {
-      asked.push(new Request(String(input), init));
-
-      return json(200, {
+    stubFal();
+    routes = {
+      ...routes,
+      other: json(200, {
         file_url: "https://media.example/file.png",
         upload_url: "https://storage.example/slot?token=1",
-      })();
+      }),
     };
 
     const slot = await call(
@@ -460,18 +487,23 @@ describe("generate.upload", () => {
     const upload = new URL(slot.uploadUrl);
     assert.strictEqual(upload.origin + upload.pathname, "https://vibedgames.com/api/upload");
     assert.strictEqual(upload.searchParams.get("to"), "https://storage.example/slot?token=1");
-    assert.strictEqual(new URL(asked[0]?.url ?? "").pathname, "/storage/upload/initiate");
-    assert.deepStrictEqual(await asked[0]?.json(), {
+    const [asked] = upstream.requests;
+    assert.strictEqual(asked && targetOf(asked.url).pathname, "/storage/upload/initiate");
+    assert.deepStrictEqual(JSON.parse(asked?.body ?? "null"), {
       content_type: "image/png",
       file_name: "ref.png",
     });
   });
 
   test("refuses a slot that is not HTTPS", async () => {
-    globalThis.fetch = json(200, {
-      file_url: "http://media.example/file.png",
-      upload_url: "https://storage.example/slot",
-    });
+    stubFal();
+    routes = {
+      ...routes,
+      other: json(200, {
+        file_url: "http://media.example/file.png",
+        upload_url: "https://storage.example/slot",
+      }),
+    };
     await assert.rejects(
       call(
         generateRouter.upload,

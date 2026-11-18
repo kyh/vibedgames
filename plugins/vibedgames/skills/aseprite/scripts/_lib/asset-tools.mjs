@@ -237,8 +237,6 @@ var decompressLimited = (data, limitBytes) => {
   try {
     out = new Uint8Array(
       inflateSync(data, {
-        // A limit of zero is legal here but not in zlib, so ask for one byte
-        // and reject it below; an empty payload still passes, as it should.
         finishFlush: zlibConstants.Z_SYNC_FLUSH,
         maxOutputLength: Math.max(limitBytes, 1)
       })
@@ -788,7 +786,6 @@ var parseChunk = (state, frameOut, frameIndex, chunkType, chunkSize, r) => {
     }
     default: {
       state.unknownChunks.push({ size: chunkSize, type: chunkType });
-      return void 0;
     }
   }
 };

@@ -106,22 +106,22 @@ test("fromJSON drops malformed, duplicate and out-of-season entries", () => {
   assert.equal(store.collections.toJSON().discoveries.length, 0);
 });
 
-test("save outcome reports storage failures; a v3 save without a journal still loads", () => {
-  const values = new Map<string, string>();
-  let failWrites = false;
-  Object.assign(globalThis, {
-    localStorage: {
-      getItem: (k: string) => values.get(k) ?? null,
-      removeItem: (k: string) => values.delete(k),
-      setItem: (k: string, v: string) => {
-        if (failWrites) {
-          throw new Error("full");
-        }
+const fillStorage = () => {
+  for (const size of [256 * 1024, 16 * 1024, 1024, 64, 1]) {
+    const chunk = "x".repeat(size);
 
-        values.set(k, v);
-      },
-    },
-  });
+    for (let i = 0; i < 1_000_000; i += 1) {
+      try {
+        localStorage.setItem(`filler-${size}-${i}`, chunk);
+      } catch {
+        break;
+      }
+    }
+  }
+};
+
+test("save outcome reports storage failures; a v3 save without a journal still loads", () => {
+  localStorage.clear();
 
   const save: SaveData = {
     canCharge: 4,
@@ -142,9 +142,18 @@ test("save outcome reports storage failures; a v3 save without a journal still l
   const loaded = loadSave();
   assert.equal(loaded?.gold, 81);
   assert.equal(Collections.fromJSON(loaded?.collections).page("spring").discovered, 0);
-  failWrites = true;
-  assert.deepEqual(writeSave({ ...save, gold: 900 }), { kind: "failure" });
+  fillStorage();
+
+  const bigger = {
+    ...save,
+    gold: 900,
+    world: { objects: [], tilled: Array.from({ length: 512 }, (_, i) => i) },
+  };
+
+  assert.deepEqual(writeSave(bigger), { kind: "failure" });
   assert.equal(loadSave()?.gold, 81);
-  values.set("farm-rpg-save-v1", JSON.stringify({ ...save, day: "invalid" }));
+  localStorage.clear();
+  localStorage.setItem("farm-rpg-save-v1", JSON.stringify({ ...save, day: "invalid" }));
   assert.equal(loadSave(), null);
+  localStorage.clear();
 });

@@ -6,10 +6,10 @@ import type { Arena } from "../src/shared/arena";
 import { GRID_COLS, GRID_ROWS, SPAWN_POINTS } from "../src/shared/constants";
 
 const seeded = (arena: Arena, seed: number) => {
-  const original = Math.random;
   let state = seed;
   const trace: number[] = [];
-  Math.random = () => {
+
+  const random = () => {
     // oxlint-disable-next-line no-bitwise -- uint32 wrap for the LCG
     state = (Math.imul(state, 1_664_525) + 1_013_904_223) >>> 0;
     const value = state / 4_294_967_296;
@@ -18,11 +18,7 @@ const seeded = (arena: Arena, seed: number) => {
     return value;
   };
 
-  try {
-    return { grid: createArena(arena), trace };
-  } finally {
-    Math.random = original;
-  }
+  return { grid: createArena(arena, random), trace };
 };
 
 test("Classic preserves pre-variation grid hashes and all 161 random draws", () => {
