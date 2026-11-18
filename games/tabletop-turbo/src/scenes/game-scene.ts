@@ -160,7 +160,7 @@ const TIER_RAMPS = [RAMP.white, RAMP.cyan, RAMP.yellow, RAMP.pink] as const;
 const TIER_WORDS = ["", "MINI TURBO", "SUPER TURBO", "ULTRA TURBO"] as const;
 /** The wall colour of each room: what the far distance fades into. */
 const ROOM_SKY = { bedroom: RAMP.peach, kitchen: RAMP.mint, playroom: RAMP.lilac } as const;
-const PAINT_DELAY_MS = 2200;
+const PAINT_DELAY_MS = 4000;
 const MARKER_FLAGS = FLAG.unlit + FLAG.round + FLAG.noShadow;
 const PARTY = [RAMP.yellow, RAMP.pink, RAMP.cyan, RAMP.lime, RAMP.white] as const;
 const GOAL = new THREE.Vector3();
@@ -1221,8 +1221,8 @@ export class GameScene {
           grow: 0.2,
           hot: 4,
           life: 0.26,
-          ramp: RAMP.track,
-          size: 0.3,
+          ramp: RAMP.white,
+          size: 0.32,
           vx: -fx * 14,
           vy: 0,
           vz: -fz * 14,
@@ -1233,14 +1233,14 @@ export class GameScene {
       }
     }
     if (pose.speed > 10 && Math.random() < 0.6) {
-      // Dust off the rear wheels, in the track's own cream.
+      // Dust off the rear wheels: white, so it reads on orange.
       const out = Math.random() < 0.5 ? -1 : 1;
       sparks.puff(
         pose.x - fx * 1.8 + fz * out,
         y + 0.3,
         pose.z - fz * 1.8 - fx * out,
-        RAMP.track,
-        0.26,
+        RAMP.white,
+        0.36,
       );
     }
     if (!pose.boosting && pose.speed > PAINT_MIN_SPEED * 2 && Math.random() < 0.35) {
@@ -1268,7 +1268,8 @@ export class GameScene {
     if (!mine) {
       return;
     }
-    const y = 4.3 + Math.floor(Math.sin(this.time * 6) * 2) * 0.2;
+    // Lower on the chase camera, where height reads as distance.
+    const y = (this.chase ? 3 : 4.3) + Math.floor(Math.sin(this.time * 6) * 2) * 0.2;
     for (let row = 0; row < 4; row += 1) {
       for (let col = -row; col <= row; col += 1) {
         out.push(
@@ -1440,9 +1441,9 @@ export class GameScene {
     view.fov = this.fov;
     view.ortho = false;
     view.snap = false;
-    view.fog = 0.6;
-    view.fogStart = 70;
-    view.fogEnd = 190;
+    view.fog = 0.3;
+    view.fogStart = 80;
+    view.fogEnd = 200;
   }
 
   private updateHud(now: number): void {
