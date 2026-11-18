@@ -53,6 +53,32 @@ const LAMP = new THREE.SphereGeometry(0.075, 10, 8);
 const TAIL = new THREE.BoxGeometry(0.05, 0.07, 0.7);
 const PLATE = new THREE.PlaneGeometry(0.34, 0.34).rotateX(-Math.PI / 2);
 const GROUND = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
+const SPINE = new THREE.BoxGeometry(0.9, 0.012, 0.16);
+const POD_DECAL = new THREE.PlaneGeometry(0.3, 0.3);
+const WING_DECAL = new THREE.PlaneGeometry(0.3, 1.3).rotateX(-Math.PI / 2);
+
+let wingMap: THREE.CanvasTexture | null = null;
+/** The team name across the rear wing, shared by every kart. */
+const wingTexture = (): THREE.CanvasTexture => {
+  if (!wingMap) {
+    const canvas = document.createElement("canvas");
+    canvas.width = 64;
+    canvas.height = 256;
+    const ctx = canvas.getContext("2d");
+    if (ctx) {
+      ctx.translate(32, 128);
+      ctx.rotate(-Math.PI / 2);
+      ctx.fillStyle = "#f4f1ea";
+      ctx.font = "italic 900 44px 'Chakra Petch', 'Arial Black', sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText("GLOWLINE", 0, 3, 236);
+    }
+    wingMap = new THREE.CanvasTexture(canvas);
+    wingMap.colorSpace = THREE.SRGBColorSpace;
+  }
+  return wingMap;
+};
 
 const CARBON = new THREE.MeshStandardMaterial({
   color: "#17171c",
@@ -135,6 +161,7 @@ export class KartMesh {
   private readonly glow: THREE.MeshBasicMaterial;
   private readonly plate: THREE.MeshBasicMaterial;
   private readonly plateMap: THREE.CanvasTexture;
+  private readonly wingLabel: THREE.MeshBasicMaterial;
   private readonly wheels: THREE.Object3D[] = [];
   private readonly steerable: THREE.Object3D[] = [];
   private readonly driver = new THREE.Group();
@@ -163,7 +190,8 @@ export class KartMesh {
       transparent: true,
     });
     this.plateMap = numberPlate(label);
-    this.plate = new THREE.MeshBasicMaterial({ map: this.plateMap });
+    this.plate = new THREE.MeshBasicMaterial({ map: this.plateMap, transparent: true });
+    this.wingLabel = new THREE.MeshBasicMaterial({ map: wingTexture(), transparent: true });
     const [sx, sy, sz] = CHASSIS_SCALE[chassis] ?? [1, 1, 1];
     this.tall = sy;
     this.body.scale.set(sx, sy, sz);
@@ -229,6 +257,7 @@ export class KartMesh {
     this.paint.dispose();
     this.glow.dispose();
     this.plate.dispose();
+    this.wingLabel.dispose();
     this.plateMap.dispose();
   }
 
@@ -248,7 +277,14 @@ export class KartMesh {
     const plate = part(this.body, PLATE, this.plate, 0.92, 0.705);
     plate.castShadow = false;
     plate.rotation.z = -0.1;
+    // Livery: a pale stripe down the spine, the number on both pods, a name on the wing.
+    part(this.body, SPINE, TRIM, 0.35, 0.756).castShadow = false;
+    const wingText = part(this.body, WING_DECAL, this.wingLabel, -1.22, 1.238);
+    wingText.castShadow = false;
     for (const side of [-1, 1]) {
+      const badge = part(this.body, POD_DECAL, this.plate, -0.12, 0.48, side * 0.775);
+      badge.castShadow = false;
+      badge.rotation.y = side > 0 ? 0 : Math.PI;
       part(this.body, POD, paint, -0.12, 0.47, side * 0.6);
       part(this.body, STRIPE, TRIM, -0.12, 0.6, side * 0.6);
       part(this.body, ENDPLATE, CARBON, -1.22, 1.08, side * 0.76);

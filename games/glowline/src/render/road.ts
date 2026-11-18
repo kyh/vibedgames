@@ -37,6 +37,7 @@ const DECLARE_FRAGMENT = `
   float gCover;
   vec3 gPigment;
   float gWear;
+  vec3 gSpill;
 
   float hash21(vec2 p) {
     p = fract(p * vec2(123.34, 456.21));
@@ -62,15 +63,17 @@ const SURFACE_FRAGMENT = `
     vec3 line = vec3(0.86, 0.86, 0.82);
 
     // Patches of newer and older tar, and the dark rubbered-in racing line.
-    float patch = vnoise(vWorldP.xz * 0.07) * 0.6 + vnoise(vWorldP.xz * 0.23) * 0.4;
+    float tar = vnoise(vWorldP.xz * 0.07) * 0.6 + vnoise(vWorldP.xz * 0.23) * 0.4;
     gWear = vnoise(vWorldP.xz * 0.045 + 31.0);
-    diffuseColor.rgb *= 0.8 + 0.34 * patch;
-    float rubber = exp(-pow(vRoad.x / 0.42, 2.0)) * (0.35 + 0.65 * vnoise(vec2(along * 0.05, 3.0)));
+    diffuseColor.rgb *= 0.8 + 0.34 * tar;
+    float rubber = exp(-(vRoad.x / 0.42) * (vRoad.x / 0.42)) * (0.35 + 0.65 * vnoise(vec2(along * 0.05, 3.0)));
     diffuseColor.rgb *= 1.0 - 0.3 * rubber;
     // Skid marks: thin dark pairs that come and go along the lap.
     float skid = smoothstep(0.62, 0.8, vnoise(vec2(along * 0.035, 9.0)));
     float lane = (vnoise(vec2(along * 0.012, 17.0)) - 0.5) * 1.3;
-    float tyre = exp(-pow((vRoad.x - lane - 0.09) / 0.022, 2.0)) + exp(-pow((vRoad.x - lane + 0.09) / 0.022, 2.0));
+    float left = (vRoad.x - lane - 0.09) / 0.022;
+    float right = (vRoad.x - lane + 0.09) / 0.022;
+    float tyre = exp(-left * left) + exp(-right * right);
     diffuseColor.rgb *= 1.0 - 0.55 * skid * clamp(tyre, 0.0, 1.0);
 
     // Solid edge lines and a dashed centre line, a little worn.
@@ -112,6 +115,16 @@ const SURFACE_FRAGMENT = `
     float fray = (texture2D(map, vMapUv * 3.0).r - 0.2) * 0.5;
     gCover = smoothstep(0.42, 0.5, cover + fray * 0.18) * (1.0 - kerb);
     gPigment = texture2D(uPaint, paintUv).rgb;
+    // Paint throws its colour onto the kerb beside it: look a metre around
+    // for the brightest stroke and let the kerb glow with it.
+    gSpill = vec3(0.0);
+    if (kerb > 0.5) {
+      for (int i = 0; i < 4; i++) {
+        vec2 off = (i == 0 ? vec2(1.3, 0.0) : i == 1 ? vec2(-1.3, 0.0) : i == 2 ? vec2(0.0, 1.3) : vec2(0.0, -1.3)) / uSpan;
+        float nearby = smoothstep(0.3, 0.7, texture2D(uPaintMask, paintUv + off).r);
+        gSpill = max(gSpill, texture2D(uPaint, paintUv + off).rgb * nearby);
+      }
+    }
     // Thicker in the middle of a stroke, thin and darker towards its edge.
     float body = smoothstep(0.45, 0.95, cover);
     diffuseColor.rgb = mix(diffuseColor.rgb, gPigment * (0.55 + 0.3 * body), gCover);
@@ -123,7 +136,7 @@ const ROUGH_FRAGMENT = `
   roughnessFactor = mix(roughnessFactor, 0.22, gCover);
 `;
 const EMISSIVE_FRAGMENT = `
-  totalEmissiveRadiance += gPigment * gPigment * gCover * 0.55;
+  totalEmissiveRadiance += gPigment * gPigment * gCover * 0.55 + gSpill * 0.4;
 `;
 
 export const roadMaterial = (
