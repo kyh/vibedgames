@@ -82,7 +82,6 @@ export class SplatStage {
   private readonly paint: THREE.DataTexture;
   private readonly slotRamp = new Float32Array(32);
   private readonly moving: THREE.InstancedBufferGeometry;
-  private readonly shared = quad();
   private readonly sunSize: number;
   private readonly grid = new THREE.Vector4();
   private readonly lightVP = new THREE.Matrix4();
@@ -303,8 +302,10 @@ export class SplatStage {
     moving: boolean,
   ): THREE.InstancedBufferGeometry {
     const geometry = new THREE.InstancedBufferGeometry();
-    geometry.setAttribute("position", this.shared.corner);
-    geometry.setIndex(this.shared.index);
+    // Its own quad: disposing a geometry frees every buffer it holds, shared or not.
+    const { corner, index } = quad();
+    geometry.setAttribute("position", corner);
+    geometry.setIndex(index);
     const centers = new THREE.InstancedBufferAttribute(set.centers, 3);
     const normals = new THREE.InstancedBufferAttribute(set.normals, 4, true);
     const data = new THREE.InstancedBufferAttribute(set.data, 4);
