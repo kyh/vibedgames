@@ -53,6 +53,35 @@ const quad = () => ({
   index: new THREE.BufferAttribute(new Uint16Array([0, 1, 2, 0, 2, 3]), 1),
 });
 
+/** One instanced quad per splat of `set`. A moving set starts empty and is refilled each frame. */
+const geometryFor = (
+  set: SplatSet,
+  start: number,
+  count: number,
+  moving: boolean,
+): THREE.InstancedBufferGeometry => {
+  const geometry = new THREE.InstancedBufferGeometry();
+  // Its own quad: disposing a geometry frees every buffer it holds, shared or not.
+  const { corner, index } = quad();
+  geometry.setAttribute("position", corner);
+  geometry.setIndex(index);
+  const centers = new THREE.InstancedBufferAttribute(set.centers, 3);
+  const normals = new THREE.InstancedBufferAttribute(set.normals, 4, true);
+  const data = new THREE.InstancedBufferAttribute(set.data, 4);
+  if (moving) {
+    for (const attribute of [centers, normals, data]) {
+      attribute.setUsage(THREE.DynamicDrawUsage);
+    }
+  }
+  geometry.setAttribute("aCenter", centers);
+  geometry.setAttribute("aNormal", normals);
+  geometry.setAttribute("aData", data);
+  // The quad's corners say nothing about where its splats are: bounds are set by hand.
+  geometry.boundingSphere = new THREE.Sphere(new THREE.Vector3(), Number.POSITIVE_INFINITY);
+  geometry.instanceCount = moving ? start : count;
+  return geometry;
+};
+
 export class SplatStage {
   /** Everything that moves: refilled every frame between `begin` and `render`. */
   readonly dynamic = new SplatSet(49_152, true);
@@ -178,7 +207,7 @@ export class SplatStage {
     cover.frustumCulled = false;
     this.resolveScene.add(cover);
 
-    this.moving = this.geometryFor(this.dynamic, 0, this.dynamic.capacity, true);
+    this.moving = geometryFor(this.dynamic, 0, this.dynamic.capacity, true);
     const mover = new THREE.Mesh(this.moving, this.splat);
     mover.frustumCulled = false;
     this.scene.add(this.world, mover);
@@ -214,7 +243,7 @@ export class SplatStage {
         part.data.set(set.data.subarray(i * 4, i * 4 + 4), part.count * 4);
         part.count += 1;
       }
-      const geometry = this.geometryFor(part, 0, part.count, false);
+      const geometry = geometryFor(part, 0, part.count, false);
       geometry.boundingSphere = new THREE.Sphere().setFromPoints(
         list.map(
           (i) =>
@@ -293,34 +322,6 @@ export class SplatStage {
     this.rows.value = this.tall;
     renderer.setRenderTarget(null);
     renderer.render(this.resolveScene, camera);
-  }
-
-  private geometryFor(
-    set: SplatSet,
-    start: number,
-    count: number,
-    moving: boolean,
-  ): THREE.InstancedBufferGeometry {
-    const geometry = new THREE.InstancedBufferGeometry();
-    // Its own quad: disposing a geometry frees every buffer it holds, shared or not.
-    const { corner, index } = quad();
-    geometry.setAttribute("position", corner);
-    geometry.setIndex(index);
-    const centers = new THREE.InstancedBufferAttribute(set.centers, 3);
-    const normals = new THREE.InstancedBufferAttribute(set.normals, 4, true);
-    const data = new THREE.InstancedBufferAttribute(set.data, 4);
-    if (moving) {
-      for (const attribute of [centers, normals, data]) {
-        attribute.setUsage(THREE.DynamicDrawUsage);
-      }
-    }
-    geometry.setAttribute("aCenter", centers);
-    geometry.setAttribute("aNormal", normals);
-    geometry.setAttribute("aData", data);
-    // The quad's corners say nothing about where its splats are: bounds are set by hand.
-    geometry.boundingSphere = new THREE.Sphere(new THREE.Vector3(), Number.POSITIVE_INFINITY);
-    geometry.instanceCount = moving ? start : count;
-    return geometry;
   }
 
   /** Send this frame's moving splats to the GPU. */
