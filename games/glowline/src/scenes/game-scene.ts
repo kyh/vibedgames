@@ -138,6 +138,9 @@ export interface GameDiagnostics {
 /** Intent to the host: a driver just left the title; restart if nobody is racing. */
 const FRESH_START = "fresh-start";
 
+/** The camera's near plane everywhere but the overview. */
+const NEAR = 0.8;
+
 /** Cup points by finishing place. */
 const CUP_POINTS = [10, 8, 6, 5, 4, 3, 2, 1] as const;
 
@@ -207,7 +210,7 @@ const readRound = (shared: JsonRecord): RoundState | null => {
 
 export class GameScene {
   readonly scene = new THREE.Scene();
-  readonly camera = new THREE.PerspectiveCamera(62, 1, 0.8, 2600);
+  readonly camera = new THREE.PerspectiveCamera(62, 1, NEAR, 2600);
 
   private readonly paint = new PaintGrid();
   private readonly layer = new PaintLayer();
@@ -600,7 +603,7 @@ export class GameScene {
     });
     if (this.bots.due(dt * 1000)) {
       this.client.updateSharedState({
-        bots: this.bots.rows(this.botCount, now, state.round),
+        bots: this.bots.rows(this.botCount, now, state.round, (key) => this.holds(key)),
       });
     }
     if (state.phase === "results") {
@@ -782,11 +785,17 @@ export class GameScene {
       this.items.use("me");
     }
     const karts = [...this.racers.values()].map((racer) => ({
+      holding: racer.pose.holding,
       key: racer.key,
       x: racer.pose.x,
       z: racer.pose.z,
     }));
     this.items.update(this.time, karts, racing);
+  }
+
+  /** Is this racer holding an item? Known first-hand for the karts simulated here. */
+  private holds(key: string): boolean {
+    return this.items.heldBy(key) !== null;
   }
 
   private itemHost(): ItemHost {
@@ -874,7 +883,7 @@ export class GameScene {
 
   private publish(dt: number, now: number): void {
     if (this.started && this.sendClock.due(dt * 1000)) {
-      this.client.updateMyState(encodePose(this.me, now, this.state.round));
+      this.client.updateMyState(encodePose(this.me, now, this.state.round, this.holds("me")));
     }
   }
 
@@ -950,7 +959,7 @@ export class GameScene {
     this.pass += 1;
     let humans = 0;
     if (this.started) {
-      this.ensure("me", "me", this.chassis).pose = poseOf(this.me);
+      this.ensure("me", "me", this.chassis).pose = poseOf(this.me, this.holds("me"));
       humans += 1;
     }
     for (const player of Object.values(client.players)) {
@@ -964,7 +973,13 @@ export class GameScene {
     }
     this.botCount = clamp(GRID_SIZE - humans, 0, BOTS.length);
     const rows = client.sharedState["bots"];
-    for (const [key, pose] of this.bots.poses(client.isHost, rows, this.botCount, state.round)) {
+    for (const [key, pose] of this.bots.poses(
+      client.isHost,
+      rows,
+      this.botCount,
+      state.round,
+      (bot) => this.holds(bot),
+    )) {
       if (Number(key.slice(1)) < this.botCount) {
         this.ensure(key, "bot", pose.chassis).pose = pose;
       }
@@ -1138,14 +1153,8 @@ export class GameScene {
   /** Five reds come on through the countdown, then green for a moment. */
   private startLights(now: number): void {
     const left = this.state.startAt - now;
-    let lit = 0;
-    if (left <= 1000) {
-      lit = 5;
-    } else if (left <= 2000) {
-      lit = 4;
-    } else if (left <= 3000) {
-      lit = 2;
-    }
+    // One more red every 600 ms through the last three seconds: all five by the green.
+    const lit = left > 3000 ? 0 : Math.min(5, 1 + Math.floor((3000 - left) / 600));
     const go = left <= 0 && left > -2500;
     this.world.setStartLights(left < -2500 || this.state.phase === "results" ? 0 : lit, go);
   }
@@ -1163,12 +1172,13 @@ export class GameScene {
       const line = pointAt(this.track, -16, 0);
       const fx = Math.cos(line.a);
       const fz = Math.sin(line.a);
+      this.camera.near = NEAR;
       this.camera.fov = 58;
       this.camera.position.set(line.x - fx * 15 + fz * 1.5, 3.6, line.z - fz * 15 - fx * 1.5);
       LOOK.set(line.x + fx * 30, 2.6, line.z + fz * 30);
-      // Hold the lights on three for as long as the capture takes.
+      // Hold the lights on three reds for as long as the capture takes.
       if (this.client.isHost) {
-        this.client.updateSharedState({ startAt: Math.round(this.client.serverNow() + 2600) });
+        this.client.updateSharedState({ startAt: Math.round(this.client.serverNow() + 1500) });
       }
     } else {
       return false;
@@ -1182,6 +1192,8 @@ export class GameScene {
     if (this.shotCamera()) {
       return;
     }
+    // A capture framing may have pushed the near plane out; every other camera wants it close.
+    this.camera.near = NEAR;
     if (!this.started) {
       this.showPreview(dt);
       return;

@@ -110,6 +110,7 @@ export class BotField {
           h: where.h,
           idx: where.i,
           lat: where.lat,
+          orbs: report.orbs,
           prog: report.prog,
           s: where.s,
           spin: report.spin,
@@ -157,25 +158,31 @@ export class BotField {
   }
 
   /** Host: the first `count` bots as fresh wire rows. */
-  rows(count: number, now: number, round: number): JsonRecord {
+  rows(count: number, now: number, round: number, holding: (key: string) => boolean): JsonRecord {
     const rows: JsonRecord = {};
     for (let index = 0; index < count; index += 1) {
       const bot = this.hosted.get(botKey(index));
       if (bot) {
-        rows[botKey(index)] = encodePose(bot.kart, now, round);
+        rows[botKey(index)] = encodePose(bot.kart, now, round, holding(botKey(index)));
       }
     }
     return rows;
   }
 
   /** Every bot on the grid and where to draw it: simulated here, or played back. */
-  poses(isHost: boolean, rows: WireField, count: number, round: number): [string, KartPose][] {
+  poses(
+    isHost: boolean,
+    rows: WireField,
+    count: number,
+    round: number,
+    holding: (key: string) => boolean,
+  ): [string, KartPose][] {
     const out: [string, KartPose][] = [];
     if (isHost) {
       for (let index = 0; index < count; index += 1) {
         const bot = this.hosted.get(botKey(index));
         if (bot) {
-          out.push([botKey(index), poseOf(bot.kart)]);
+          out.push([botKey(index), poseOf(bot.kart, holding(botKey(index)))]);
         }
       }
       return out;

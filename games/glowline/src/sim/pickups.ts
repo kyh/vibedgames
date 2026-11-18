@@ -40,6 +40,8 @@ export interface Toucher {
   key: string;
   x: number;
   z: number;
+  /** Already holding an item: boxes stay where they are for the next kart. */
+  holding?: boolean;
 }
 
 /** What one kart drove over this frame. */
@@ -104,7 +106,7 @@ export class Field {
         }
       }
       for (const box of this.boxes) {
-        if (time >= box.until && near(box, kart, PICKUP_RADIUS)) {
+        if (!kart.holding && time >= box.until && near(box, kart, PICKUP_RADIUS)) {
           box.until = time + BOX_RESPAWN;
           of(kart.key).box = true;
         }

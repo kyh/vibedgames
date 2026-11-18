@@ -11,6 +11,7 @@ import { spawnKart, stepKart } from "../src/sim/kart.ts";
 import { TRACKS } from "../src/sim/track.ts";
 
 const DT = 1 / 60;
+const NOBODY = (): boolean => false;
 const [track] = TRACKS;
 assert.ok(track);
 
@@ -50,7 +51,7 @@ test("the host's bots advance, and only the first `count` of them", () => {
   for (let i = 0; i < 300; i += 1) {
     field.step(frame(3, i * DT * 1000));
   }
-  const poses = new Map(field.poses(true, undefined, 5, 1));
+  const poses = new Map(field.poses(true, undefined, 5, 1, NOBODY));
   assert.equal(poses.size, 5);
   for (let index = 0; index < 5; index += 1) {
     const pose = poses.get(botKey(index));
@@ -66,12 +67,17 @@ test("a new host carries the bots on from the last rows", () => {
   for (let i = 0; i < 600; i += 1) {
     old.step(frame(5, i * DT * 1000));
   }
-  const rows = old.rows(5, 10_000, 1);
-  const before = new Map(old.poses(true, undefined, 5, 1));
+  for (const index of [0, 3]) {
+    const kart = old.kart(botKey(index));
+    assert.ok(kart);
+    kart.orbs = 4 + index;
+  }
+  const rows = old.rows(5, 10_000, 1, NOBODY);
+  const before = new Map(old.poses(true, undefined, 5, 1, NOBODY));
 
   const next = new BotField();
   next.adopt(track, rows, 1);
-  const adopted = new Map(next.poses(true, undefined, 5, 1));
+  const adopted = new Map(next.poses(true, undefined, 5, 1, NOBODY));
   for (const [key, pose] of before) {
     const mine = adopted.get(key);
     assert.ok(mine);
@@ -81,11 +87,12 @@ test("a new host carries the bots on from the last rows", () => {
     assert.equal(mine.drift, pose.drift, `${key} lost its drift on handover`);
     assert.equal(mine.boosting, pose.boosting, `${key} lost its boost on handover`);
     assert.ok(Math.abs(mine.charge - pose.charge) < 0.01);
+    assert.equal(mine.orbs, pose.orbs, `${key} lost its orbs on handover`);
   }
   for (let i = 0; i < 120; i += 1) {
     next.step(frame(5, 10_000 + i * DT * 1000));
   }
-  for (const [key, pose] of next.poses(true, undefined, 5, 1)) {
+  for (const [key, pose] of next.poses(true, undefined, 5, 1, NOBODY)) {
     assert.ok(pose.prog > (before.get(key)?.prog ?? 0) + 20, `${key} stalled after handover`);
   }
 });

@@ -77,6 +77,14 @@ test("an orb or box is taken once, by whoever touches it, and comes back", () =>
   );
 });
 
+test("a kart already holding an item leaves the box for the next one", () => {
+  const field = new Field(track);
+  const [box] = field.boxes;
+  assert.ok(box);
+  assert.equal(field.touch([{ holding: true, key: "a", x: box.x, z: box.z }], 5).size, 0);
+  assert.equal(field.touch([{ key: "b", x: box.x, z: box.z }], 5).get("b")?.box, true);
+});
+
 test("a blot spares its owner while it arms, then catches anyone, once", () => {
   const field = new Field(track);
   field.dropBlot(7, "a", 5, 5, 100);

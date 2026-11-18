@@ -30,6 +30,10 @@ export interface KartPose {
   /** Seconds of spin-out left. */
   spin: number;
   chassis: number;
+  /** Glow orbs carried. */
+  orbs: number;
+  /** An item is in hand: item boxes pass this kart by. */
+  holding: boolean;
 }
 
 /** A pose plus when it was sent and which round it belongs to. */
@@ -41,13 +45,15 @@ export interface PoseReport extends KartPose {
 const round2 = (v: number): number => Math.round(v * 100) / 100;
 const round3 = (v: number): number => Math.round(v * 1000) / 1000;
 
-export const poseOf = (kart: Kart): KartPose => ({
+export const poseOf = (kart: Kart, holding = false): KartPose => ({
   a: kart.a,
   boosting: kart.boost > 0,
   charge: kart.charge,
   chassis: kart.chassis,
   drift: kart.drift,
   finishMs: kart.finishMs,
+  holding,
+  orbs: kart.orbs,
   prog: kart.prog,
   speed: kartSpeed(kart),
   spin: kart.spin,
@@ -56,14 +62,16 @@ export const poseOf = (kart: Kart): KartPose => ({
 });
 
 /** Short keys: this row leaves 20 times a second per kart. */
-export const encodePose = (kart: Kart, t: number, round: number): JsonRecord => ({
+export const encodePose = (kart: Kart, t: number, round: number, holding = false): JsonRecord => ({
   a: round3(kart.a),
   b: kart.boost > 0 ? 1 : 0,
   c: round2(kart.charge),
   d: kart.drift,
   f: kart.finishMs,
+  h: holding ? 1 : 0,
   k: kart.chassis,
   n: round2(kart.spin),
+  o: kart.orbs,
   p: round2(kart.prog),
   r: round,
   s: round2(kartSpeed(kart)),
@@ -88,6 +96,8 @@ export const readPose = (row: WireField): PoseReport | null => {
     chassis: numberOr(row["k"], 0),
     drift: numberOr(row["d"], 0),
     finishMs: numberOr(row["f"], 0),
+    holding: row["h"] === 1,
+    orbs: numberOr(row["o"], 0),
     prog: numberOr(row["p"], 0),
     round: numberOr(row["r"], 0),
     speed: numberOr(row["s"], 0),
@@ -108,6 +118,8 @@ const lerpPose = (p: KartPose, q: KartPose, k: number): KartPose => {
     chassis: q.chassis,
     drift: near.drift,
     finishMs: q.finishMs,
+    holding: q.holding,
+    orbs: q.orbs,
     prog: lerp(p.prog, q.prog, k),
     speed: lerp(p.speed, q.speed, k),
     spin: near.spin,

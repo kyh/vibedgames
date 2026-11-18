@@ -216,8 +216,15 @@ export class KartMesh {
       transparent: true,
     });
     this.plateMap = numberPlate(label);
-    this.plate = new THREE.MeshBasicMaterial({ map: this.plateMap, transparent: true });
-    this.wingLabel = new THREE.MeshBasicMaterial({ map: wingTexture(), transparent: true });
+    // Decals: blended, never written to depth, so their clear texels cannot hide what is behind.
+    const decal = {
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
+      transparent: true,
+    };
+    this.plate = new THREE.MeshBasicMaterial({ ...decal, map: this.plateMap });
+    this.wingLabel = new THREE.MeshBasicMaterial({ ...decal, map: wingTexture() });
     this.chassis = chassis;
     const [sx, sy, sz] = CHASSIS_SCALE[chassis] ?? [1, 1, 1];
     this.tall = sy;
