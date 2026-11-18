@@ -78,7 +78,7 @@ const setText = (node: Element, text: string): void => {
 };
 
 const SURFACE_LABEL: Record<Surface, string> = {
-  own: "IN THE GLOW",
+  own: "YOUR PAINT",
   rival: "SLICK",
   road: "",
   shoulder: "",

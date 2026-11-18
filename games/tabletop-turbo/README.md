@@ -1,14 +1,14 @@
-# Glowline
+# Tabletop Turbo
 
-Toy-car racer in pixel-art splats, where every kart paints the track. Your own colour is a fast lane, anyone else's is slick, and the newest coat wins a cell, so a racing line is something you lay, lose and take back. Eight karts, three laps, three toy circuits (bedroom, kitchen, playroom) in rotation, three chassis, items, orbs and a rocket start. Online through `@vibedgames/multiplayer` with bots filling the grid. Deployed at `glowline.vibedgames.com`.
+Toy-car racer in pixel-art splats, where every kart paints the track. Your own colour is a fast lane, anyone else's is slick, and the newest coat wins a cell, so a racing line is something you lay, lose and take back. Eight karts, three laps, three toy circuits (bedroom, kitchen, playroom) in rotation, three chassis, items, orbs and a rocket start. Online through `@vibedgames/multiplayer` with bots filling the grid. Deployed at `tabletop-turbo.vibedgames.com`.
 
 ## Develop
 
 ```bash
-pnpm dev:glowline                        # http://localhost:5197
-pnpm --filter @repo/glowline test        # headless: circuits, bots, paint, pickups, items, wire format
-pnpm --filter @repo/glowline typecheck
-pnpm --filter @repo/glowline build
+pnpm dev:tabletop-turbo                        # http://localhost:5197
+pnpm --filter @repo/tabletop-turbo test        # headless: circuits, bots, paint, pickups, items, wire format
+pnpm --filter @repo/tabletop-turbo typecheck
+pnpm --filter @repo/tabletop-turbo build
 ```
 
 ## Routes
@@ -56,7 +56,7 @@ Touch drives itself: the left thumb steers, the right holds DRIFT.
 
 ## Multiplayer
 
-Auto-joins the shared `glowline-v2` room (8 players, overflow into sibling rooms), solo fallback when the party server is unreachable.
+Auto-joins the shared `tabletop-turbo-v1` room (8 players, overflow into sibling rooms), solo fallback when the party server is unreachable.
 
 - Every player simulates their own kart and reports it 20 times a second, stamped in server time; rivals play back through an `Interpolator` on a clock per sender.
 - The host owns the round clock (countdown, results, next circuit) and simulates the bots, both in shared state. A new host rebuilds the bots from their last rows and carries on. While everyone is still on the title screen the host holds the grid under the lights.

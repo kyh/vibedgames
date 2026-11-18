@@ -162,7 +162,7 @@ const ISO = new THREE.Vector3(0.612, 0.5, 0.612);
 const ISO_DISTANCE = 240;
 /** World units the diorama shows top to bottom. */
 const ISO_HEIGHT = 36;
-const CAMERA_KEY = "glowline:camera";
+const CAMERA_KEY = "tabletop-turbo:camera";
 /** `?cam=chase` and `?track=1` pick the camera and the opening circuit, for captures and playtests. */
 const QUERY = new URLSearchParams(globalThis.location.search);
 

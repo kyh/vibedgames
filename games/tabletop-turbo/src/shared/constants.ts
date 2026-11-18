@@ -7,7 +7,7 @@ export const LAPS = 3;
 export const GRID_SIZE = 8;
 /** Humans one room holds; the SDK overflows the rest into a sibling room. */
 export const MAX_PLAYERS = 8;
-export const ROOM_ID = "glowline-v2";
+export const ROOM_ID = "tabletop-turbo-v1";
 
 // --- Kart handling (world units, seconds) ---------------------------------
 export const MAX_SPEED = 34;

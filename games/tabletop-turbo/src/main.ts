@@ -222,5 +222,5 @@ if (import.meta.env.DEV || playtest) {
 
 // A handle for poking at the race from the console.
 if (import.meta.env.DEV) {
-  Object.assign(window, { __glowline: { client, game } });
+  Object.assign(window, { __tabletopTurbo: { client, game } });
 }

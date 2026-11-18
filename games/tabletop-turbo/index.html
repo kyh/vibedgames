@@ -7,12 +7,12 @@
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
     />
     <meta name="theme-color" content="#10111b" />
-    <title>Glowline</title>
+    <title>Tabletop Turbo</title>
     <meta
       name="description"
       content="A kart racer where every kart paints the road. Your colour is a fast lane, everyone else's is slick."
     />
-    <meta property="og:title" content="Glowline" />
+    <meta property="og:title" content="Tabletop Turbo" />
     <meta
       property="og:description"
       content="Paint your racing line. Ride your own colour, dodge theirs."
@@ -1268,15 +1268,32 @@
       #speedo svg {
         shape-rendering: crispEdges;
       }
+      #logo {
+        transform: none !important;
+      }
       #logo h1 {
+        display: block;
+        width: fit-content;
+        padding: 10px 14px 12px;
+        font-size: clamp(30px, 7vmin, 60px);
+        line-height: 1;
         color: var(--ink);
+        background: var(--plate) !important;
+        border: 3px solid var(--edge);
+        box-shadow: 4px 4px 0 var(--edge);
         -webkit-text-stroke: 0 !important;
-        background: none !important;
         -webkit-text-fill-color: currentColor !important;
       }
       #logo h1 em {
-        color: #f26a1b;
+        display: block;
+        color: #ff9a3c;
         -webkit-text-fill-color: currentColor !important;
+      }
+      #tag {
+        display: block;
+        width: fit-content;
+        transform: none !important;
+        margin-top: 10px;
       }
       #title {
         background: none !important;
@@ -1383,7 +1400,7 @@
         <li><b>3</b>Race</li>
       </ol>
       <div id="logo">
-        <h1 class="skew">GLOW<em>LINE</em></h1>
+        <h1 class="skew">TABLETOP<em>TURBO</em></h1>
         <span id="tag" class="skew">Every kart paints the road</span>
       </div>
       <ul id="rules" class="plate">

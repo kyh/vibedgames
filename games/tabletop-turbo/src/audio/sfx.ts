@@ -5,7 +5,7 @@
 
 import type { ItemKind } from "../shared/constants";
 
-const SOUND_KEY = "glowline:sound";
+const SOUND_KEY = "tabletop-turbo:sound";
 
 // localStorage throws in some embeds (sandboxed iframes, private modes). Sound
 // then just loses persistence, never the game.

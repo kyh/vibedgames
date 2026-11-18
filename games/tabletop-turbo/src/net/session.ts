@@ -1,4 +1,4 @@
-// Glowline's room: the SDK's MultiplayerClient is the whole session. Offline it
+// Tabletop Turbo's room: the SDK's MultiplayerClient is the whole session. Offline it
 // is a local room of one with the same API — it hosts, writes apply locally —
 // and `fallbackMs` takes it there by itself when no room admits it in time, so
 // the scene runs one code path for a full grid and a solo race against bots.
