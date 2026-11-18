@@ -23,6 +23,7 @@
     "dev:tetris": "turbo watch dev -F @repo/tetris...",
     "dev:starfall": "turbo watch dev -F @repo/starfall...",
     "dev:pong": "turbo watch dev -F @repo/pong...",
+    "dev:tabletop-turbo": "turbo watch dev -F @repo/tabletop-turbo...",
     "dev:bomberman": "turbo watch dev -F @repo/bomberman...",
     "dev:farm": "turbo watch dev -F @repo/farm...",
     "dev:moba": "turbo watch dev -F @repo/moba...",
