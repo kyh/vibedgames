@@ -55,7 +55,7 @@ export const buildPost = (
   const size = renderer.getSize(new THREE.Vector2());
   const composer = new EffectComposer(renderer);
   composer.addPass(new RenderPass(scene, camera));
-  composer.addPass(new UnrealBloomPass(size, 0.38, 0.55, 0.92));
+  composer.addPass(new UnrealBloomPass(size, 0.2, 0.4, 0.985));
   composer.addPass(new ShaderPass(GRADE));
   composer.addPass(new OutputPass());
   return composer;

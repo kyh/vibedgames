@@ -162,14 +162,27 @@ export const addBarriers = (kit: Kit, track: Track, paint: PaintLayer): void => 
   const material = kit.own(new THREE.MeshStandardMaterial({ ...maps, roughness: 0.75 }));
   catchPaint(material, paint);
   const placements: Placement[] = [];
-  const pitch = 2.5;
-  const count = Math.floor(track.n / pitch);
+  // Walk each rail by its own arc length: the inside of a bend is shorter than
+  // the centreline, so equal steps along the lap would ram blocks together.
+  const pitch = 2.46;
   for (const side of [-1, 1]) {
-    for (let k = 0; k < count; k += 1) {
-      const p = pointAt(track, k * pitch, side * (track.rail + 0.55));
+    const lat = side * (track.rail + 0.55);
+    let s = 0;
+    let k = 0;
+    while (s < track.n - pitch * 0.5) {
+      const p = pointAt(track, s, lat);
+      const colour = colors[Math.floor(k / 4) % colors.length];
       const block = at(p.x, 0.55, p.z, -p.a, 1, 1, 1);
-      block.color = colors[Math.floor(k / 4) % colors.length];
+      block.color = colour;
       placements.push(block);
+      // A second course on top, half a block along, makes it a wall.
+      const scale = Math.max(0.3, 1 - curvatureAt(track, s) * lat);
+      const upper = pointAt(track, s + pitch / scale / 2, lat);
+      const cap = at(upper.x, 1.58, upper.z, -upper.a, 1, 0.86, 0.9);
+      cap.color = colors[(Math.floor(k / 4) + 2) % colors.length];
+      placements.push(cap);
+      s += pitch / scale;
+      k += 1;
     }
   }
   kit.instances(new RoundedBoxGeometry(2.36, 1.1, 0.9, 3, 0.2), material, placements);

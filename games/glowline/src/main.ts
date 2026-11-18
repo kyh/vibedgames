@@ -48,7 +48,7 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, IS_TOUCH ? 1.5 : 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 // Neutral keeps saturated colours saturated when they get bright: paint must not bleach.
 renderer.toneMapping = THREE.NeutralToneMapping;
-renderer.toneMappingExposure = 1.05;
+renderer.toneMappingExposure = 1.12;
 container.append(renderer.domElement);
 renderer.domElement.addEventListener("webglcontextlost", () => {
   console.error("WebGL context lost");

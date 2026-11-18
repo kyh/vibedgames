@@ -257,14 +257,14 @@ export class World {
     const { kit } = this;
     this.sunDir = new THREE.Vector3(
       Math.cos(palette.bearing),
-      0.62,
+      0.5,
       Math.sin(palette.bearing),
     ).normalize();
     this.sky = new Sky(palette, this.sunDir, track.n);
     this.group.add(this.sky.group, kit.group);
 
     // Low warm key, cool fill from the sky, a little bounce off the ground.
-    this.sun = new THREE.DirectionalLight(palette.key, 3.6);
+    this.sun = new THREE.DirectionalLight(palette.key, 4.6);
     this.sun.castShadow = options.shadows > 0;
     if (options.shadows > 0) {
       const { shadow } = this.sun;
@@ -283,7 +283,7 @@ export class World {
     // ±5 units until its projection is rebuilt.
     this.setShadowReach(SHADOW_REACH);
     this.group.add(this.sun, this.sun.target);
-    this.group.add(new THREE.HemisphereLight(palette.fill, "#7a685c", 1.75));
+    this.group.add(new THREE.HemisphereLight(palette.fill, "#5a4a44", 0.62));
 
     this.addGround(track);
     this.addRoad(track, paint);
@@ -415,8 +415,8 @@ export class World {
     kit.own(turf.normalMap);
     kit.own(turf.roughnessMap);
     const lawn = kit.own(new THREE.MeshStandardMaterial({ ...turf, ...under(2), roughness: 1 }));
-    mottle(lawn, 0.5, 0.11);
-    mottle(material, 0.3, 0.06);
+    mottle(lawn, 0.9, 0.09);
+    mottle(material, 0.55, 0.05);
     for (const side of [-1, 1]) {
       const strip = kit.mesh(
         ribbon(track, side * (track.rail + 1.6), side * (track.rail + 17), -0.14),

@@ -161,7 +161,8 @@ export class PickupView {
       const back = Math.min(1, Math.max(0, (time - box.until) * 3));
       const scale = time >= box.until ? 0.6 + 0.4 * back + Math.sin(back * Math.PI) * 0.12 : 0;
       SCRATCH.position.set(box.x, 1.25 + Math.sin(time * 2 + i * 1.7) * 0.12, box.z);
-      SCRATCH.rotation.set(time * 0.9 + i, time * 1.3 + i * 2, 0);
+      // Spin upright, so the mark on each face reads the right way up.
+      SCRATCH.rotation.set(0, time * 1.3 + i * 2, 0);
       SCRATCH.scale.setScalar(scale);
       SCRATCH.updateMatrix();
       this.boxes.setMatrixAt(i, SCRATCH.matrix);

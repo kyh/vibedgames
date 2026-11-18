@@ -489,7 +489,8 @@ export class GameScene {
     }
     this.scene.environment?.dispose();
     this.scene.environment = world.environment(this.renderer);
-    this.scene.environmentIntensity = 0.8;
+    // Low: the sky fills shadows only a little, so the sun still draws them.
+    this.scene.environmentIntensity = 0.3;
     return world;
   }
 
@@ -1188,6 +1189,22 @@ export class GameScene {
     return true;
   }
 
+  /**
+   * Keep the camera inside the rails. On a bend the spot eight metres behind
+   * the kart is often past the barrier, looking through signs and blocks.
+   */
+  private keepOnRoad(hint: number): void {
+    const { track } = this;
+    const where = locate(track, GOAL.x, GOAL.z, hint);
+    const limit = track.halfWidth + 1.2;
+    const over = Math.abs(where.lat) - limit;
+    if (over > 0) {
+      const side = Math.sign(where.lat);
+      GOAL.x += (track.tz[where.i] ?? 0) * side * over;
+      GOAL.z -= (track.tx[where.i] ?? 1) * side * over;
+    }
+  }
+
   private updateCamera(dt: number): void {
     if (this.shotCamera()) {
       return;
@@ -1222,6 +1239,7 @@ export class GameScene {
     const cx = Math.cos(this.camHeading);
     const cz = Math.sin(this.camHeading);
     GOAL.set(pose.x - cx * distance, subject.h + height, pose.z - cz * distance);
+    this.keepOnRoad(subject.idx);
     if (this.camReady) {
       this.camera.position.lerp(GOAL, Math.min(1, dt * 9));
     } else {

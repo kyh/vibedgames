@@ -67,6 +67,7 @@ const TAIL = new THREE.BoxGeometry(0.05, 0.07, 0.7);
 const PLATE = new THREE.PlaneGeometry(0.34, 0.34).rotateX(-Math.PI / 2);
 const GROUND = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
 const SPINE = new THREE.BoxGeometry(0.9, 0.012, 0.16);
+const BOARD = new RoundedBoxGeometry(0.05, 0.44, 0.44, 1, 0.02);
 const POD_DECAL = new THREE.PlaneGeometry(0.3, 0.3);
 // Turned to read from behind, where the chase camera sits.
 const WING_DECAL = new THREE.PlaneGeometry(0.3, 1.3).rotateX(-Math.PI / 2).rotateY(Math.PI);
@@ -196,16 +197,16 @@ export class KartMesh {
   constructor(color: THREE.Color, label: string, chassis = 0) {
     this.color = color.clone();
     this.paint = new THREE.MeshPhysicalMaterial({
-      clearcoat: 1,
-      clearcoatRoughness: 0.12,
+      clearcoat: 0.45,
+      clearcoatRoughness: 0.3,
       color: color.clone().multiplyScalar(0.9),
       emissive: color,
-      emissiveIntensity: 0.14,
+      emissiveIntensity: 0.04,
       metalness: 0.25,
       // Scuffs and chips, so a body panel is not one flat value.
       normalMap: panelMaps().normalMap,
       normalScale: new THREE.Vector2(0.35, 0.35),
-      roughness: 0.5,
+      roughness: 0.62,
       roughnessMap: panelMaps().roughnessMap,
     });
     this.glow = new THREE.MeshBasicMaterial({
@@ -284,7 +285,7 @@ export class KartMesh {
     for (const wheel of this.wheels) {
       wheel.rotation.z -= look.speed * dt * 2.3;
     }
-    this.glow.color.copy(this.color).multiplyScalar(look.boosting ? 0.7 : 0.12);
+    this.glow.color.copy(this.color).multiplyScalar(look.boosting ? 0.5 : 0);
   }
 
   dispose(): void {
@@ -307,6 +308,12 @@ export class KartMesh {
     part(this.body, HOOP, STEEL, -0.47, 0.96);
     part(this.body, SEAT, CARBON, -0.36, 0.78);
     part(this.body, TAIL, TAILLIGHT, -1.31, 0.56);
+    // The number again on a board at the back, where the chase camera reads it.
+    part(this.body, BOARD, TRIM, -1.36, 0.92).castShadow = false;
+    const rear = part(this.body, POD_DECAL, this.plate, -1.385, 0.92);
+    rear.castShadow = false;
+    rear.rotation.y = -Math.PI / 2;
+    rear.scale.setScalar(1.25);
     part(this.body, AXLE, STEEL, 0.86, 0.42);
     part(this.body, AXLE, STEEL, -0.82, 0.45);
     const plate = part(this.body, PLATE, this.plate, 0.92, 0.705);

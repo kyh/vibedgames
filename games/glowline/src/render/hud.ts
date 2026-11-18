@@ -110,7 +110,7 @@ const ITEM_NAMES: Record<ItemKind, string> = {
 };
 
 const MAP_PX = 300;
-const MAP_PAD = 26;
+const MAP_PAD = 34;
 /** The speedometer's sweep, degrees either side of straight up, and its top mark. */
 const SWEEP = 135;
 const DIAL_MAX = 220;
@@ -332,10 +332,13 @@ export class Hud {
     ctx.clearRect(0, 0, MAP_PX, MAP_PX);
     ctx.lineJoin = "round";
     ctx.strokeStyle = "#0c0d14";
-    ctx.lineWidth = 24;
+    ctx.lineWidth = 30;
     ctx.stroke(this.mapPath);
-    ctx.strokeStyle = "#4a4d60";
-    ctx.lineWidth = 16;
+    ctx.strokeStyle = "#e9e6df";
+    ctx.lineWidth = 20;
+    ctx.stroke(this.mapPath);
+    ctx.strokeStyle = "#3a3d4c";
+    ctx.lineWidth = 13;
     ctx.stroke(this.mapPath);
     ctx.strokeStyle = this.mapAccent;
     ctx.lineWidth = 2.5;

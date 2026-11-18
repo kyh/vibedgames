@@ -5,7 +5,7 @@
 
 import * as THREE from "three";
 
-import { TRACK_STEP } from "../shared/constants";
+import { PAINT_SIZE, TRACK_STEP } from "../shared/constants";
 import { pointAt, wrapIndex } from "../sim/track";
 import type { Track } from "../sim/track";
 import type { PaintLayer } from "./paint-layer";
@@ -48,6 +48,7 @@ const DECLARE_FRAGMENT = `
   uniform sampler2D uPaint;
   uniform sampler2D uPaintMask;
   uniform float uSpan;
+  uniform float uPaintSize;
   uniform float uLap;
   uniform vec3 uKerbA;
   uniform vec3 uKerbB;
@@ -56,6 +57,7 @@ const DECLARE_FRAGMENT = `
   float gCover;
   vec3 gPigment;
   float gWear;
+  float gRaw;
   vec3 gSpill;
 
   ${NOISE}
@@ -120,7 +122,33 @@ const SURFACE_FRAGMENT = `
     // A little noise on the threshold breaks the edge up like a dry brush.
     float fray = (texture2D(map, vMapUv * 3.0).r - 0.2) * 0.5;
     gCover = smoothstep(0.42, 0.5, cover + fray * 0.18) * (1.0 - kerb);
-    gPigment = texture2D(uPaint, paintUv).rgb;
+    gRaw = cover;
+    // Colour: of the four cells round this point, the one whose colour holds
+    // the most bilinear weight wins. Borders between two drivers become smooth
+    // diagonals instead of following the grid.
+    vec2 tc = paintUv * uPaintSize - 0.5;
+    vec2 cell = floor(tc);
+    vec2 f = fract(tc);
+    vec3 c[4];
+    float w[4];
+    for (int i = 0; i < 4; i++) {
+      vec2 o = vec2(mod(float(i), 2.0), floor(float(i) / 2.0));
+      vec2 at = (cell + o + 0.5) / uPaintSize;
+      c[i] = texture2D(uPaint, at).rgb;
+      w[i] = mix(1.0 - f.x, f.x, o.x) * mix(1.0 - f.y, f.y, o.y) * texture2D(uPaintMask, at).r;
+    }
+    float bestW = -1.0;
+    gPigment = c[0];
+    for (int i = 0; i < 4; i++) {
+      float sum = 0.0;
+      for (int j = 0; j < 4; j++) {
+        sum += w[j] * step(distance(c[i], c[j]), 0.02);
+      }
+      if (sum > bestW) {
+        bestW = sum;
+        gPigment = c[i];
+      }
+    }
     // Paint throws its colour onto the kerb beside it: look a metre around
     // for the brightest stroke and let the kerb glow with it.
     gSpill = vec3(0.0);
@@ -141,10 +169,19 @@ const SURFACE_FRAGMENT = `
 const ROUGH_FRAGMENT = `
   // Worn stretches are a little polished; paint is wet.
   roughnessFactor *= 0.82 + 0.18 * gWear;
-  roughnessFactor = mix(roughnessFactor, 0.36, gCover);
+  roughnessFactor = mix(roughnessFactor, 0.2, gCover);
+`;
+// Paint has thickness: tilt the normal across the edge of a stroke so the rim
+// catches the light, and flatten the asphalt's grain under the film.
+const RIM_FRAGMENT = `
+  {
+    float band = smoothstep(0.3, 0.5, gRaw) * (1.0 - smoothstep(0.55, 0.95, gRaw));
+    vec3 lift = vec3(dFdx(gRaw), dFdy(gRaw), 0.0);
+    normal = normalize(mix(normal, nonPerturbedNormal, gCover * 0.8) - lift * 14.0 * band);
+  }
 `;
 const EMISSIVE_FRAGMENT = `
-  totalEmissiveRadiance += gPigment * gPigment * gCover * 0.55 + gSpill * 0.4;
+  totalEmissiveRadiance += gPigment * gPigment * gCover * 0.16 + gSpill * 0.7;
 `;
 
 export const roadMaterial = (
@@ -167,6 +204,7 @@ export const roadMaterial = (
       uLap: { value: track.n * TRACK_STEP },
       uPaint: { value: paint.color },
       uPaintMask: { value: paint.mask },
+      uPaintSize: { value: PAINT_SIZE },
       uSpan: { value: paint.span },
     });
     shader.vertexShader = shader.vertexShader
@@ -178,6 +216,10 @@ export const roadMaterial = (
       .replace(
         "#include <roughnessmap_fragment>",
         `#include <roughnessmap_fragment>\n${ROUGH_FRAGMENT}`,
+      )
+      .replace(
+        "#include <normal_fragment_maps>",
+        `#include <normal_fragment_maps>\n${RIM_FRAGMENT}`,
       )
       .replace(
         "#include <emissivemap_fragment>",
@@ -287,7 +329,10 @@ export const catchPaint = (material: THREE.MeshStandardMaterial, paint: PaintLay
             glow = max(glow, texture2D(uPaint, at).rgb * near * (i < 4 ? 1.0 : 0.6));
           }
           // Strongest low down, where the block faces the road surface.
-          totalEmissiveRadiance += glow * glow * 0.55 * (1.0 - smoothstep(0.1, 1.3, vCatchP.y));
+          float low = 1.0 - smoothstep(0.0, 1.5, vCatchP.y);
+          // Bounce light: it tints the block and adds a little of its own.
+          diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * (0.4 + glow * 1.6), low * step(0.01, glow.r + glow.g + glow.b) * 0.7);
+          totalEmissiveRadiance += glow * 0.42 * low;
         }`,
       );
   };

@@ -15,6 +15,44 @@ import type { Kit, Placement } from "./scenery";
 import type { Site } from "./site";
 import { signTexture, softDisc } from "./textures";
 
+const printedCloth = (): THREE.CanvasTexture => {
+  const canvas = document.createElement("canvas");
+  canvas.width = 256;
+  canvas.height = 128;
+  const ctx = canvas.getContext("2d");
+  if (ctx) {
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, 256, 128);
+    // Darker hems top and bottom, a pale diagonal band, a roundel with a number.
+    ctx.fillStyle = "rgba(0,0,0,0.28)";
+    ctx.fillRect(0, 0, 256, 12);
+    ctx.fillRect(0, 116, 256, 12);
+    ctx.fillStyle = "rgba(255,255,255,0.0)";
+    ctx.save();
+    ctx.globalCompositeOperation = "multiply";
+    ctx.fillStyle = "#9a9a9a";
+    ctx.beginPath();
+    ctx.moveTo(150, 12);
+    ctx.lineTo(210, 12);
+    ctx.lineTo(150, 116);
+    ctx.lineTo(90, 116);
+    ctx.fill();
+    ctx.restore();
+    ctx.fillStyle = "#101018";
+    ctx.beginPath();
+    ctx.arc(62, 64, 34, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "italic 900 46px 'Chakra Petch', 'Arial Black', sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("GL", 60, 67);
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+};
+
 const tinted = (placement: Placement, color: THREE.Color): Placement => {
   placement.color = color;
   return placement;
@@ -285,7 +323,12 @@ export const addVerge = (kit: Kit, track: Track): void => {
   const wood = kit.own(new THREE.MeshStandardMaterial({ roughness: 0.8 }));
   const steel = kit.own(new THREE.MeshStandardMaterial({ color: "#3b3d4a", roughness: 0.5 }));
   const white = kit.own(new THREE.MeshStandardMaterial({ color: "#f1eee6", roughness: 0.7 }));
-  const cloth = kit.own(new THREE.MeshStandardMaterial({ roughness: 0.9, side: THREE.DoubleSide }));
+  // Flags, banners and tents are printed: a white band, a roundel and a number
+  // over whatever colour the instance carries.
+  const print = kit.own(printedCloth());
+  const cloth = kit.own(
+    new THREE.MeshStandardMaterial({ map: print, roughness: 0.9, side: THREE.DoubleSide }),
+  );
   const orange = kit.own(new THREE.MeshStandardMaterial({ color: "#ff6a1f", roughness: 0.6 }));
   kit.instances(new RoundedBoxGeometry(2.4, 0.5, 0.7, 2, 0.08), wood, verge.benches);
   kit.instances(new THREE.CylinderGeometry(0.34, 0.28, 1, 10), steel, verge.bins);

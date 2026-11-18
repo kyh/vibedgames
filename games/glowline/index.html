@@ -986,6 +986,121 @@
         padding-bottom: 0;
       }
 
+      /* ---- materials: enamel, brushed steel, lit signage ---- */
+      #board li {
+        filter: drop-shadow(0 3px 0 rgba(0, 0, 0, 0.5)) drop-shadow(0 6px 6px rgba(0, 0, 0, 0.35));
+        background:
+          linear-gradient(
+            180deg,
+            rgba(255, 255, 255, 0.28),
+            rgba(255, 255, 255, 0) 38%,
+            rgba(0, 0, 0, 0.25)
+          ),
+          repeating-linear-gradient(
+            90deg,
+            rgba(255, 255, 255, 0.05) 0 1px,
+            rgba(0, 0, 0, 0.05) 1px 3px
+          ),
+          linear-gradient(90deg, color-mix(in srgb, var(--chip) 62%, #20222e), #262936 70%);
+        text-shadow: 0 1px 0 rgba(0, 0, 0, 0.6);
+      }
+      #board li[data-me="1"] {
+        background: linear-gradient(180deg, #ffffff, #e7e3d8 60%, #c9c4b6), #fff;
+        text-shadow: none;
+      }
+      #timing {
+        background-image:
+          radial-gradient(
+            circle at 10px 12px,
+            #cfd3e6 0 2.4px,
+            rgba(0, 0, 0, 0.5) 2.6px 3.6px,
+            transparent 4px
+          ),
+          radial-gradient(
+            circle at calc(100% - 10px) 12px,
+            #cfd3e6 0 2.4px,
+            rgba(0, 0, 0, 0.5) 2.6px 3.6px,
+            transparent 4px
+          ),
+          repeating-linear-gradient(
+            90deg,
+            rgba(255, 255, 255, 0.07) 0 1px,
+            rgba(0, 0, 0, 0.07) 1px 2px
+          ),
+          linear-gradient(180deg, #6d7284, #3b3f50 46%, #2a2d3a);
+        filter: drop-shadow(0 5px 0 rgba(0, 0, 0, 0.5)) drop-shadow(0 12px 12px rgba(0, 0, 0, 0.4));
+      }
+      #net {
+        padding: 3px 12px;
+        border-radius: 999px;
+        background: rgba(18, 19, 28, 0.78);
+        border: 2px solid rgba(255, 255, 255, 0.25);
+        box-shadow: 0 3px 0 rgba(0, 0, 0, 0.4);
+        color: var(--ink);
+      }
+      #net:empty {
+        display: none;
+      }
+      .card {
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0) 30%),
+          repeating-linear-gradient(
+            0deg,
+            rgba(255, 255, 255, 0.035) 0 2px,
+            rgba(0, 0, 0, 0.05) 2px 4px
+          ),
+          linear-gradient(180deg, #3a3f55, #1c1e2b);
+        filter: drop-shadow(0 6px 0 rgba(0, 0, 0, 0.5)) drop-shadow(0 14px 12px rgba(0, 0, 0, 0.45));
+      }
+      .card[aria-pressed="true"] {
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0) 45%),
+          linear-gradient(
+            180deg,
+            color-mix(in srgb, var(--me) 55%, #fff),
+            color-mix(in srgb, var(--me) 70%, #20222e)
+          );
+        color: #12131c;
+      }
+      .card[aria-pressed="true"] .label,
+      .card[aria-pressed="true"] .stat {
+        color: rgba(18, 19, 28, 0.75);
+      }
+      .card[aria-pressed="true"] svg {
+        fill: #12131c;
+        filter: none;
+      }
+      .card[aria-pressed="true"] .pips i {
+        background: rgba(18, 19, 28, 0.2);
+      }
+      #rules {
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0) 12%),
+          linear-gradient(180deg, #f4f1ea, #dcd7ca);
+        color: #1a1b26;
+        filter: drop-shadow(0 6px 0 rgba(0, 0, 0, 0.5)) drop-shadow(0 16px 14px rgba(0, 0, 0, 0.4));
+        transform: rotate(1.2deg);
+      }
+      #rules::before {
+        border-color: rgba(0, 0, 0, 0.2);
+      }
+      #rules li {
+        border-bottom-color: rgba(0, 0, 0, 0.25);
+      }
+      #controls {
+        background:
+          repeating-linear-gradient(
+            90deg,
+            rgba(255, 255, 255, 0.06) 0 1px,
+            rgba(0, 0, 0, 0.06) 1px 2px
+          ),
+          linear-gradient(180deg, #5f6475, #2f3240);
+        filter: drop-shadow(0 5px 0 rgba(0, 0, 0, 0.5));
+      }
+      #controls::after {
+        display: none;
+      }
+
       /* ---- results ---- */
       #results {
         position: fixed;
