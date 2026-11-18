@@ -1360,18 +1360,20 @@ export class ViewerScene {
       }
     }
 
-    const sections = CLIP_GROUPS.filter((g) => grouped.has(g))
-      .map((g) => {
-        const rows = (grouped.get(g) ?? [])
-          .map(
-            (n) =>
-              `<button class="vwc ${n === this.activeClip ? "on" : ""}" data-clip="${n}">${n}<span>${this.clipDuration(n).toFixed(2)}s</span></button>`,
-          )
-          .join("");
+    const sections = CLIP_GROUPS.flatMap((g) => {
+      if (!grouped.has(g)) {
+        return [];
+      }
 
-        return `<div class="vw-sect">${g}</div>${rows}`;
-      })
-      .join("");
+      const rows = (grouped.get(g) ?? [])
+        .map(
+          (n) =>
+            `<button class="vwc ${n === this.activeClip ? "on" : ""}" data-clip="${n}">${n}<span>${this.clipDuration(n).toFixed(2)}s</span></button>`,
+        )
+        .join("");
+
+      return [`<div class="vw-sect">${g}</div>${rows}`];
+    }).join("");
 
     box.innerHTML = `
       <input id="vw-search" placeholder="search clips…" value="${this.searchQ}">

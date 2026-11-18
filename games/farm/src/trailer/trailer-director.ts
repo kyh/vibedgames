@@ -804,6 +804,10 @@ class FarmScript {
         this.gift(at);
         break;
       }
+
+      default: {
+        break;
+      }
     }
   }
 

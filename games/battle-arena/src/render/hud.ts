@@ -211,7 +211,11 @@ const readBestKills = () => {
 const writeBestKills = (kills: number) => {
   try {
     localStorage.setItem("ba-best-kills", `${kills}`);
-  } catch {}
+
+    return true;
+  } catch {
+    return false;
+  }
 };
 
 const endTitleClass = (me: Unit | null, won: boolean) => {
@@ -1263,6 +1267,7 @@ export class Hud {
     const cx = W / 2;
     const cy = H / 2;
     const scale = (W / 2 - 5) / HEX_R;
+
     const to: (x: number, y: number) => [number, number] = (x, y) => [
       cx + x * scale,
       cy + y * scale,

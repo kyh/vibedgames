@@ -68,9 +68,7 @@ const compileQuietly = async (
   scene: THREE.Scene,
   camera: THREE.Camera,
 ) => {
-  try {
-    await renderer.compileAsync(scene, camera);
-  } catch {}
+  await renderer.compileAsync(scene, camera).catch(() => null);
 };
 
 const localHitFreezeMs = (hits: number, melee: boolean) => {

@@ -5,13 +5,6 @@ import type { Unit } from "../sim/types";
 export const teamColor: (team: Team) => "blue" | "red" = (team) =>
   team === "radiant" ? "blue" : "red";
 
-interface SpriteInfo {
-  tex: string;
-  scale: number;
-  tint: number;
-  animBase: string;
-}
-
 /** Texture key + display scale for a unit's body sprite. `animBase` is the prefix
  * animKey appends idle/walk/... to (usually == tex, but differs for enemy creatures
  * whose actions live in separate sheets). */

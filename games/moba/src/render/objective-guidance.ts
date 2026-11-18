@@ -76,11 +76,6 @@ const isAttackableStructureOf = (unit: Unit, team: Team) =>
   unit.alive &&
   Boolean(unit.structure?.attackable);
 
-interface ObjectiveTarget {
-  target: Unit;
-  baseTowers: number;
-}
-
 const findObjectiveTarget = (world: World, enemy: Team, origin: { x: number; y: number }) => {
   let target: Unit | undefined;
   let depth = -1;

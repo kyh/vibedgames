@@ -39,11 +39,8 @@ const postForm = async (url: string, body: Record<string, string>) => {
     method: "POST",
   });
 
-  let data: JsonValue = null;
+  const data = (await res.json().catch(() => null)) as JsonValue;
 
-  try {
-    data = (await res.json()) as JsonValue;
-  } catch {}
   if (!isJsonObject(data)) {
     throw new OAuthError("server_error", `HTTP ${res.status}`);
   }
@@ -202,11 +199,9 @@ export const revokeLogin = async (config: Config) => {
     return;
   }
 
-  try {
-    await postForm(authUrl(config.baseUrl, "/oauth2/revoke"), {
-      client_id: CLI_OAUTH_CLIENT_ID,
-      token: config.refreshToken,
-      token_type_hint: "refresh_token",
-    });
-  } catch {}
+  await postForm(authUrl(config.baseUrl, "/oauth2/revoke"), {
+    client_id: CLI_OAUTH_CLIENT_ID,
+    token: config.refreshToken,
+    token_type_hint: "refresh_token",
+  }).catch(() => null);
 };

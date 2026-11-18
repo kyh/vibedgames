@@ -3,13 +3,13 @@ import { writeFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, test } from "node:test";
 
-import { makeCleanups, makeTmpDir } from "./_helpers.js";
-import type { Window } from "../src/lib/playtest/browser.js";
-import type { RunOptions, RunResult } from "../src/lib/playtest/run.js";
-import type { JsonValue } from "../src/lib/types.js";
-import { PRESETS, parseControls, readControlsArg } from "../src/lib/playtest/controls.js";
-import { HarnessError } from "../src/lib/playtest/errors.js";
-import { keyFields, keyInitsFor, keyTable } from "../src/lib/playtest/keys.js";
+import { makeCleanups, makeTmpDir } from "../../../../test/_helpers.js";
+import type { Window } from "../browser.js";
+import type { RunOptions, RunResult } from "../run.js";
+import type { JsonValue } from "../../types.js";
+import { PRESETS, parseControls, readControlsArg } from "../controls.js";
+import { HarnessError } from "../errors.js";
+import { keyFields, keyInitsFor, keyTable } from "../keys.js";
 import {
   THRESHOLDS,
   agentConfig,
@@ -17,7 +17,7 @@ import {
   buildReport,
   resultFromAgent,
   verdict,
-} from "../src/lib/playtest/run.js";
+} from "../run.js";
 
 const { cleanups, drain } = makeCleanups();
 

@@ -119,7 +119,7 @@ export const installTrailerStage: (scene: SceneInternals) => TrailerStageApi = (
       scene.pilot.kickX = 0;
       scene.pilot.kickY = 0;
     },
-    damageEnemy: (id, amount) => scene.hostCombat.hostDamageEnemy(id, amount, 0, 0) satisfies void,
+    damageEnemy: (id, amount) => scene.hostCombat.hostDamageEnemy(id, amount, 0, 0),
     enemies: () => scene.world.enemies,
     forceStart: () => scene.forceOfflineSolo(),
     grantBooster: (kind) => {
@@ -150,7 +150,7 @@ export const installTrailerStage: (scene: SceneInternals) => TrailerStageApi = (
       scene.weapons.windupAcc = 0;
       scene.weapons.shootCooldown = 0;
     },
-    grantXp: (amount) => scene.progress.gainXp(amount, simNow()) satisfies void,
+    grantXp: (amount) => scene.progress.gainXp(amount, simNow()),
     killEnemy: (id) => {
       const idx = scene.world.enemies.findIndex((en) => en.id === id);
 
@@ -247,7 +247,7 @@ export const installTrailerStage: (scene: SceneInternals) => TrailerStageApi = (
       scene.world.asteroids.push(a);
     },
     spawnBeacon: (x, y, chargeS, activeS) =>
-      scene.host.hostSpawnBeacon(x, y, simNow(), chargeS, activeS) satisfies void,
+      scene.host.hostSpawnBeacon(x, y, simNow(), chargeS, activeS),
     spawnEnemy: (kind, x, y, aimAt) => {
       const e = spawnEnemyState(kind, x, y);
 
@@ -299,7 +299,7 @@ export const installTrailerStage: (scene: SceneInternals) => TrailerStageApi = (
       item.vy = 0;
       scene.world.items.push(item);
     },
-    spawnShards: (count, x, y) => scene.hostCombat.hostSpawnShards(x, y, count) satisfies void,
+    spawnShards: (count, x, y) => scene.hostCombat.hostSpawnShards(x, y, count),
     stagePeerBolts: (id, bolts) => {
       if (!bolts) {
         scene.remoteFire.stage(id, null);

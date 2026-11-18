@@ -3,9 +3,9 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import path from "node:path";
 import { afterEach, test } from "node:test";
 
-import { copyTemplate, SLUG_TOKEN, TEMPLATES_DIR } from "../src/lib/templates.js";
-import { isJsonObject, isJsonString } from "../src/lib/types.js";
-import { makeCleanups, makeTmpDir } from "./_helpers.js";
+import { copyTemplate, SLUG_TOKEN, TEMPLATES_DIR } from "../templates.js";
+import { isJsonObject, isJsonString } from "../types.js";
+import { makeCleanups, makeTmpDir } from "../../../test/_helpers.js";
 
 const { cleanups, drain } = makeCleanups();
 

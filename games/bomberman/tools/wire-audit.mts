@@ -157,11 +157,6 @@ const EPOCH = 1_760_000_000_000;
 const FRAME_MS = 1000 / 60;
 const PLAY_S = 60;
 
-interface Stream {
-  bytes: number;
-  messages: number;
-}
-
 const changed = (held: JsonRecord, write: JsonRecord) =>
   Object.fromEntries(Object.entries(write).filter(([key, value]) => held[key] !== value));
 

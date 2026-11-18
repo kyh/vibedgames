@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { unknownFlags } from "../src/lib/strict-args.js";
+import { unknownFlags } from "../strict-args.js";
 
 const DEPLOY_ARGS = {
   dir: { type: "positional" },

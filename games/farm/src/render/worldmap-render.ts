@@ -439,9 +439,11 @@ export const buildWorldMap = (
     renderSolidDeco(map, deco1, imageTile);
   }
 
-  const structureLayers = ["building", "walls", "decoration_02", "decoration_03"]
-    .map((n) => layerByName(map, n))
-    .filter((l): l is WorldMapTileLayer => l !== null);
+  const structureLayers = ["building", "walls", "decoration_02", "decoration_03"].flatMap((n) => {
+    const l = layerByName(map, n);
+
+    return l === null ? [] : [l];
+  });
 
   const structures = renderComponents(map, structureLayers, (x, y) => !inField(x, y), imageTile);
   const forest = layerByName(map, "forest");

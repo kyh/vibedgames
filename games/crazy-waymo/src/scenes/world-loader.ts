@@ -313,7 +313,8 @@ const warmupShaders = async (deps: WorldLoaderDeps) => {
       sun.castShadow = false;
       await renderer.compileAsync(deps.scene, deps.getCamera());
     }
-  } catch {
+  } catch (error) {
+    console.warn("[world] shader warmup failed; shaders compile on first use", error);
   } finally {
     if (sun) {
       sun.castShadow = originalCastShadow;
@@ -559,7 +560,7 @@ export const loadWorld = async (deps: WorldLoaderDeps) => {
     deps.setLoading(0.14 + frac * (MODELS_TO - 0.14), "Loading models…");
   });
 
-  const latePreload = deps.cache.preload(lateModelUrls(), () => {});
+  const latePreload = deps.cache.preload(lateModelUrls(), () => null);
 
   deps.glideLoading(
     WORLD_TO,

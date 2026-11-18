@@ -1429,21 +1429,26 @@ const sectionBayBridge = (blobsByGroup) => {
     },
     detachedTall: blobs
       .slice(1)
-      .filter((b) => b.maxY > deckY + TOWER_CLEAR && b.nv >= 16)
-      .map((b) => {
+      .flatMap((b) => {
+        if (b.maxY <= deckY + TOWER_CLEAR || b.nv < 16) {
+          return [];
+        }
+
         const t = tOf([b.cx, 0, b.cz]);
 
-        return {
-          d: r1(b.d),
-          nv: b.nv,
-          part: detachedPartOf(t, b.w),
-          s: r1(sOf([b.cx, 0, b.cz])),
-          t: r1(t),
-          topY: r1(b.maxY),
-          u: r4(uOf(b.cx)),
-          v: r4(vOf(b.cz)),
-          w: r1(b.w),
-        };
+        return [
+          {
+            d: r1(b.d),
+            nv: b.nv,
+            part: detachedPartOf(t, b.w),
+            s: r1(sOf([b.cx, 0, b.cz])),
+            t: r1(t),
+            topY: r1(b.maxY),
+            u: r4(uOf(b.cx)),
+            v: r4(vOf(b.cz)),
+            w: r1(b.w),
+          },
+        ];
       })
       .toSorted((a, b) => a.s - b.s),
     identity: "Bay Bridge, western crossing (SF landfall -> Yerba Buena)",
@@ -1508,19 +1513,24 @@ const sectionOraclePark = (blobsByGroup, osmNames) => {
 
   const masts = blobs
     .slice(1)
-    .filter((b) => b.h > 3 && b.w < 6 && b.d < 6)
-    .map((b) => ({
-      bearingFromCentreDeg: r1((Math.atan2(b.cz - cz, b.cx - cx) * 180) / Math.PI),
-      d: r1(b.d),
-      h: r1(b.h),
-      radius: r1(Math.hypot(b.cx - cx, b.cz - cz)),
-      topY: r1(b.maxY),
-      u: r4(uOf(b.cx)),
-      v: r4(vOf(b.cz)),
-      w: r1(b.w),
-      x: r1(b.cx),
-      z: r1(b.cz),
-    }))
+    .flatMap((b) =>
+      b.h > 3 && b.w < 6 && b.d < 6
+        ? [
+            {
+              bearingFromCentreDeg: r1((Math.atan2(b.cz - cz, b.cx - cx) * 180) / Math.PI),
+              d: r1(b.d),
+              h: r1(b.h),
+              radius: r1(Math.hypot(b.cx - cx, b.cz - cz)),
+              topY: r1(b.maxY),
+              u: r4(uOf(b.cx)),
+              v: r4(vOf(b.cz)),
+              w: r1(b.w),
+              x: r1(b.cx),
+              z: r1(b.cz),
+            },
+          ]
+        : [],
+    )
     .toSorted((a, b) => a.bearingFromCentreDeg - b.bearingFromCentreDeg);
 
   const authored = readAuthoredLandmarks().oraclepark;

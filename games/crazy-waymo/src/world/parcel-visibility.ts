@@ -213,11 +213,9 @@ export const visibleParcelPlans = (plans: readonly ParcelPlan[]) => {
     }
   }
 
-  return volumes
-    .filter((inner) => {
-      const key = `${Math.floor((inner.plan.ring[0] ?? 0) / CELL)},${Math.floor((inner.plan.ring[1] ?? 0) / CELL)}`;
+  return volumes.flatMap((inner) => {
+    const key = `${Math.floor((inner.plan.ring[0] ?? 0) / CELL)},${Math.floor((inner.plan.ring[1] ?? 0) / CELL)}`;
 
-      return !(cells.get(key) ?? []).some((outer) => contains(outer, inner));
-    })
-    .map((candidate) => candidate.plan);
+    return (cells.get(key) ?? []).some((outer) => contains(outer, inner)) ? [] : [inner.plan];
+  });
 };

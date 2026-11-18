@@ -19,7 +19,11 @@ const readPreference = (key: string) => {
 const savePreference = (key: string, value: string) => {
   try {
     localStorage.setItem(key, value);
-  } catch {}
+
+    return true;
+  } catch {
+    return false;
+  }
 };
 
 /** A display name for the wire: trimmed, capped, never empty. */

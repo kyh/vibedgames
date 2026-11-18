@@ -199,14 +199,14 @@ const check = (label: string, cond: boolean) => {
     let orbits = 0;
 
     const controls = new PoseControls({
-      catchCollapse: () => {},
-      hold: () => {},
+      catchCollapse: () => null,
+      hold: () => null,
       orbit: () => {
         orbits += 1;
       },
-      power: () => {},
+      power: () => null,
       rotate: () => false,
-      steer: () => {},
+      steer: () => null,
     });
 
     for (let i = 0; i < 24; i += 1) {
@@ -255,14 +255,14 @@ const check = (label: string, cond: boolean) => {
   let powers = 0;
 
   const controls = new PoseControls({
-    catchCollapse: () => {},
-    hold: () => {},
-    orbit: () => {},
+    catchCollapse: () => null,
+    hold: () => null,
+    orbit: () => null,
     power: () => {
       powers += 1;
     },
     rotate: () => false,
-    steer: () => {},
+    steer: () => null,
   });
 
   for (let i = 0; i < 24; i += 1) {

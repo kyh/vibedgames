@@ -29,7 +29,10 @@ const getLastCheckedAt = () => {
         return ts;
       }
     }
-  } catch {}
+  } catch {
+    return 0;
+  }
+
   return 0;
 };
 
@@ -42,7 +45,11 @@ export const markUpdateChecked = () => {
     }
 
     writeFileSync(getCachePath(), JSON.stringify({ lastCheckedAt: Date.now() }, null, 2));
-  } catch {}
+
+    return true;
+  } catch {
+    return false;
+  }
 };
 
 export const isNewerVersion = (latest: string, current: string) => {
@@ -90,7 +97,10 @@ export const fetchLatestVersion = async (packageName: string) => {
         return version;
       }
     }
-  } catch {}
+  } catch {
+    return null;
+  }
+
   return null;
 };
 
@@ -124,5 +134,9 @@ export const maybeScheduleAutoUpdate = () => {
     });
 
     child.unref();
-  } catch {}
+
+    return true;
+  } catch {
+    return false;
+  }
 };

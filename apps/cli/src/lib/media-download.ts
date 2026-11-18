@@ -112,12 +112,6 @@ export const extractMediaRefs = (result: JsonValue) => {
   return refs;
 };
 
-interface DownloadResult {
-  downloaded: string[];
-  failed: { url: string; error: string }[];
-  mislabeled: { path: string; actual: string }[];
-}
-
 const EXT_FOR_CONTENT_TYPE = new Map(
   Object.entries({
     "audio/mpeg": "mp3",

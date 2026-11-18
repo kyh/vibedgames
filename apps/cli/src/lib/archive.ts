@@ -105,21 +105,27 @@ const collectFiles = (root: string, ignored: (rel: string) => boolean) => {
   return out.toSorted();
 };
 
+const packageVersion = (manifest: string) => {
+  try {
+    const pkg: JsonValue = JSON.parse(readFileSync(manifest, "utf-8"));
+    const v = isJsonObject(pkg) ? pkg.version : undefined;
+
+    return isJsonString(v) ? v : null;
+  } catch {
+    return null;
+  }
+};
+
 const installedVersion = (root: string, name: string) => {
   let dir = root;
 
   while (true) {
     const p = path.join(dir, "node_modules", name, "package.json");
 
-    if (existsSync(p)) {
-      try {
-        const pkg: JsonValue = JSON.parse(readFileSync(p, "utf-8"));
-        const v = isJsonObject(pkg) ? pkg.version : undefined;
+    const v = existsSync(p) ? packageVersion(p) : null;
 
-        if (isJsonString(v)) {
-          return v;
-        }
-      } catch {}
+    if (v !== null) {
+      return v;
     }
 
     const parent = path.dirname(dir);

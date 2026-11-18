@@ -326,11 +326,16 @@ const isLocalExtremum = (values: number[], i: number) => {
 
 export const qc = (metrics: FrameMetrics[]) => {
   const checks: QcCheck[] = [];
-  const live = metrics.map((m, i) => ({ index: i, m })).filter((entry) => !entry.m.empty);
 
-  const empty = metrics
-    .map((m, i) => (m.empty || m.area_frac < EMPTY_AREA_FRAC ? i + 1 : 0))
-    .filter(Boolean);
+  const live = metrics.flatMap((m, i) => {
+    const entry = { index: i, m };
+
+    return entry.m.empty ? [] : [entry];
+  });
+
+  const empty = metrics.flatMap((m, i) =>
+    m.empty || m.area_frac < EMPTY_AREA_FRAC ? [i + 1] : [],
+  );
 
   if (empty.length > 0) {
     checks.push({
@@ -341,9 +346,7 @@ export const qc = (metrics: FrameMetrics[]) => {
     });
   }
 
-  const clipped = metrics
-    .map((m, i) => (m.border_frac > CLIP_BORDER_FRAC ? i + 1 : 0))
-    .filter(Boolean);
+  const clipped = metrics.flatMap((m, i) => (m.border_frac > CLIP_BORDER_FRAC ? [i + 1] : []));
 
   if (clipped.length > 0) {
     checks.push({
@@ -354,7 +357,7 @@ export const qc = (metrics: FrameMetrics[]) => {
     });
   }
 
-  const ruled = metrics.map((m, i) => (m.rule_edges > 0 ? i + 1 : 0)).filter(Boolean);
+  const ruled = metrics.flatMap((m, i) => (m.rule_edges > 0 ? [i + 1] : []));
 
   if (ruled.length > 0) {
     checks.push({
@@ -377,9 +380,11 @@ export const qc = (metrics: FrameMetrics[]) => {
     if (spread > BASELINE_TOL) {
       const medianBaseline = median(baselines);
 
-      const worst = live
-        .filter((entry) => Math.abs(entry.m.baseline_frac - medianBaseline) > BASELINE_TOL / 2)
-        .map((entry) => entry.index + 1);
+      const worst = live.flatMap((entry) =>
+        Math.abs(entry.m.baseline_frac - medianBaseline) > BASELINE_TOL / 2
+          ? [entry.index + 1]
+          : [],
+      );
 
       checks.push({
         check: "baseline",
@@ -394,12 +399,11 @@ export const qc = (metrics: FrameMetrics[]) => {
     const cov = medianHeight ? roundTo(pstdev(heights) / medianHeight, 3) : 0;
     const drift = heights.map((h) => h / medianHeight);
 
-    const sizeFrames = live
-      .filter(
-        (entry, k) =>
-          Math.abs(entry.m.height / medianHeight - 1) > SIZE_DRIFT_TOL && isLocalExtremum(drift, k),
-      )
-      .map((entry) => entry.index + 1);
+    const sizeFrames = live.flatMap((entry, k) =>
+      Math.abs(entry.m.height / medianHeight - 1) > SIZE_DRIFT_TOL && isLocalExtremum(drift, k)
+        ? [entry.index + 1]
+        : [],
+    );
 
     if (sizeFrames.length > 0) {
       checks.push({
@@ -417,9 +421,9 @@ export const qc = (metrics: FrameMetrics[]) => {
     const cxs = live.map((entry) => entry.m.cx_frac);
     const medianCx = median(cxs);
 
-    const facingFrames = live
-      .filter((entry) => Math.abs(entry.m.cx_frac - medianCx) > FACING_CX_TOL)
-      .map((entry) => entry.index + 1);
+    const facingFrames = live.flatMap((entry) =>
+      Math.abs(entry.m.cx_frac - medianCx) > FACING_CX_TOL ? [entry.index + 1] : [],
+    );
 
     if (facingFrames.length > 0) {
       const signed = `${medianCx >= 0 ? "+" : ""}${medianCx.toFixed(2)}`;

@@ -42,7 +42,11 @@ const storageGet = (key: string) => {
 const storageSet = (key: string, value: string) => {
   try {
     window.localStorage.setItem(key, value);
-  } catch {}
+
+    return true;
+  } catch {
+    return false;
+  }
 };
 
 const outranks = (incoming: VoiceKind, playing: VoiceKind) =>

@@ -29,7 +29,7 @@ interface MatchOptions {
 
 const OPEN_GROUND = { x: -6, y: 16 };
 
-const ignoreFrame = (_me: Unit | null) => {};
+const ignoreFrame = (_me: Unit | null) => null;
 
 const match = (opts: MatchOptions = {}) => {
   const world = createWorld(7);

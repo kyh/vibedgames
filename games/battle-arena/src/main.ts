@@ -500,9 +500,7 @@ const main = async () => {
     window.addEventListener("resize", onResize);
 
     const warmArena = async () => {
-      try {
-        await loadArena();
-      } catch {}
+      await loadArena().catch(() => null);
     };
 
     const onWarm = () => {

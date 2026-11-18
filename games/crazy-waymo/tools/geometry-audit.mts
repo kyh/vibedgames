@@ -261,13 +261,6 @@ export const gridZOf = (z: number) => Math.floor((z + WORLD_HALF_Z) / ROAD_TILE)
 
 export const inGrid = (gx: number, gz: number) => gx >= 0 && gz >= 0 && gx < GRID_X && gz < GRID_Z;
 
-interface Aabb {
-  minX: number;
-  maxX: number;
-  minZ: number;
-  maxZ: number;
-}
-
 const obbAabb = (o: Obb) => {
   let minX = Infinity;
   let maxX = -Infinity;

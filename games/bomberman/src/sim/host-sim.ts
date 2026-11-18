@@ -115,6 +115,10 @@ export const grantPowerup = (stats: PlayerStats, kind: PowerupKind) => {
     case "speed": {
       return { ...stats, speed: Math.max(MIN_MOVE_MS, stats.speed - SPEED_STEP_MS) };
     }
+
+    default: {
+      throw new Error(`unhandled kind: ${String(kind)}`);
+    }
   }
 };
 
@@ -217,7 +221,7 @@ const adjacentCrate = (grid: Cell[][], col: number, row: number) =>
 
 const enemyInLine = (grid: Cell[][], bot: Bot, range: number, fighters: Position[]) => {
   const enemyTiles = new Set(
-    fighters.filter(([id]) => id !== bot.id).map(([, c, r]) => tileKey(c, r)),
+    fighters.flatMap(([id, c, r]) => (id === bot.id ? [] : [tileKey(c, r)])),
   );
 
   for (const dir of DIRS) {

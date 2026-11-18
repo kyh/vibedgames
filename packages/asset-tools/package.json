@@ -4,13 +4,12 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts",
-    "./*": "./src/*.ts"
+    ".": "./src/index.ts"
   },
   "scripts": {
     "build": "tsx scripts/bundle.ts",
     "clean": "rm -rf .cache .turbo dist node_modules",
-    "test": "node --import tsx --test test/*.test.ts",
+    "test": "node --import tsx --test \"test/*.test.ts\" \"src/**/*.test.ts\"",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

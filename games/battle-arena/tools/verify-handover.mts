@@ -38,7 +38,7 @@ interface Host {
   readonly net: HostNet;
 }
 
-const unwatched = () => {};
+const unwatched = () => null;
 
 const peer = (id: string, salt: number) => {
   const mirror = new NetMirror();
@@ -357,7 +357,7 @@ test("the host leaves: the promoted guest carries the match on from its mirror",
     last = qHero ? { x: qHero.x, y: qHero.y } : null;
   });
   r.run(600);
-  r.watch(() => {});
+  r.watch(() => null);
   steer(q, Math.PI / 2);
   r.run(700);
   steer(q, Math.PI / 2, false);

@@ -128,13 +128,6 @@ const arcLengths = (line: Polyline) => {
   return cum;
 };
 
-interface Centreline {
-  n: number;
-  step: number;
-  xs: Float32Array;
-  zs: Float32Array;
-}
-
 const resample = (line: Polyline) => {
   const m = line.x.length;
   const cum = arcLengths(line);

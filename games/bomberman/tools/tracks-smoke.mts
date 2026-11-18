@@ -60,11 +60,6 @@ interface Packet {
 
 const START = 1000;
 
-interface Walk {
-  packets: Packet[];
-  end: number;
-}
-
 const walk = (
   steps: number,
   latency: Latency,
@@ -180,10 +175,11 @@ const assertWalk = (frames: readonly Frame[]) => {
 };
 
 const gains = (frames: readonly Frame[], steps: number) =>
-  frames
-    .map((frame, i) => ({ frame, gained: frame.progress - (frames[i - 1]?.progress ?? 0) }))
-    .filter(({ frame }, i) => i > 0 && frame.progress > 0 && frame.progress < steps)
-    .map(({ gained }) => gained);
+  frames.flatMap((frame, i) =>
+    i > 0 && frame.progress > 0 && frame.progress < steps
+      ? [frame.progress - (frames[i - 1]?.progress ?? 0)]
+      : [],
+  );
 
 const SLEW_BEND = 0.2;
 
@@ -330,9 +326,11 @@ test("each player is drawn on its own clock of them, which learns their relay", 
 });
 
 const acrossDrop = (packets: readonly Packet[], from: number, ms: number) =>
-  packets
-    .filter((packet) => packet.t < from || packet.t >= from + ms)
-    .map((packet) => (packet.t < from ? packet : { ...packet, at: packet.at + 400 }));
+  packets.flatMap((packet) =>
+    packet.t < from || packet.t >= from + ms
+      ? [packet.t < from ? packet : { ...packet, at: packet.at + 400 }]
+      : [],
+  );
 
 const ranPastAfterDrop = (packets: readonly Packet[], backAt: number, relearn: boolean) => {
   const track = new StepTrack();

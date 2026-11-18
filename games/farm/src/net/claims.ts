@@ -24,6 +24,10 @@ const targetKey = (target: ClaimTarget) => {
     case "clear": {
       return `x:${target.id}`;
     }
+
+    default: {
+      throw new Error("unhandled target.kind");
+    }
   }
 };
 

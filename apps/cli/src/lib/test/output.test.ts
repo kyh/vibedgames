@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { formatField, isJsonOutput, selectField, writeStructured } from "../src/lib/output.js";
+import { formatField, isJsonOutput, selectField, writeStructured } from "../output.js";
 
 const RESULT = {
   downloaded_files: ["out/a.png", "out/b.png"],

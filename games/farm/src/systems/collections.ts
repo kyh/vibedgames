@@ -128,9 +128,11 @@ export class Collections {
       ...FISH_IDS.map((fish) => ({ fish, kind: "fish" }) satisfies CollectionItem),
     ];
 
-    const entries = items
-      .filter((item) => eligible(item, season))
-      .map((item) => ({ discovered: this.has(item, season), item, name: name(item) }));
+    const entries = items.flatMap((item) =>
+      eligible(item, season)
+        ? [{ discovered: this.has(item, season), item, name: name(item) }]
+        : [],
+    );
 
     const discovered = entries.filter((entry) => entry.discovered).length;
 

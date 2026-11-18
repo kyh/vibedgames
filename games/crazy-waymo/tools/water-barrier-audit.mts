@@ -208,8 +208,7 @@ export const shoreRailJointsConnected = (barriers: readonly ShoreBarrier[]) => {
   const posts = new SolidIndex(
     barriers
       .flatMap(shoreBarrierVisuals)
-      .filter((part) => part.role === "post")
-      .map((part) => part.solid),
+      .flatMap((part) => (part.role === "post" ? [part.solid] : [])),
   );
 
   return barriers.every((barrier) => {

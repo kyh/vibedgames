@@ -91,6 +91,10 @@ export class RunManager {
       case "boss": {
         return BOSS();
       }
+
+      default: {
+        throw new Error(`unhandled type: ${String(type)}`);
+      }
     }
   }
 

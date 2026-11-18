@@ -3,9 +3,9 @@ import { afterEach, test } from "node:test";
 
 import { CLI_OAUTH_CLIENT_ID } from "@repo/contract/cli";
 
-import { getConfig, saveConfig } from "../src/lib/config.js";
-import { getAccessToken, needsRefresh } from "../src/lib/oauth.js";
-import { makeCleanups, makeTestServer, makeTmpDir, stubEnv } from "./_helpers.js";
+import { getConfig, saveConfig } from "../config.js";
+import { getAccessToken, needsRefresh } from "../oauth.js";
+import { makeCleanups, makeTestServer, makeTmpDir, stubEnv } from "../../../test/_helpers.js";
 
 const { cleanups, drain } = makeCleanups();
 
@@ -38,16 +38,18 @@ test("getAccessToken refreshes an expiring login once and saves the rotated pair
   });
   const seen: URLSearchParams[] = [];
 
-  const port = await makeTestServer(cleanups, (req, res) => {
-    readForm(req)
-      .then((form) => {
-        seen.push(form);
-        res.setHeader("content-type", "application/json");
-        res.end(
-          JSON.stringify({ access_token: "fresh", expires_in: 3600, refresh_token: "rotated" }),
-        );
-      })
-      .catch(() => res.end());
+  const port = await makeTestServer(cleanups, async (req, res) => {
+    const form = await readForm(req).catch(() => null);
+
+    if (!form) {
+      res.end();
+
+      return;
+    }
+
+    seen.push(form);
+    res.setHeader("content-type", "application/json");
+    res.end(JSON.stringify({ access_token: "fresh", expires_in: 3600, refresh_token: "rotated" }));
   });
 
   const baseUrl = `http://127.0.0.1:${port}`;

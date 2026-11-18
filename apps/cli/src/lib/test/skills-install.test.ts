@@ -25,9 +25,9 @@ import {
   parseAgents,
   readManifest,
   SUPPORTED_AGENTS,
-} from "../src/lib/skills-install.js";
-import type { InstallTarget } from "../src/lib/skills-install.js";
-import { makeCleanups, makeTestServer, makeTmpDir } from "./_helpers.js";
+} from "../skills-install.js";
+import type { InstallTarget } from "../skills-install.js";
+import { makeCleanups, makeTestServer, makeTmpDir } from "../../../test/_helpers.js";
 
 const { cleanups, drain } = makeCleanups();
 

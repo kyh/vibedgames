@@ -207,8 +207,7 @@ export class HostCombat {
     if (e.kind === "lancer") {
       e.vx += kx;
       e.vy += ky;
-    } else if (e.kind === "dreadnought") {
-    } else {
+    } else if (e.kind !== "dreadnought") {
       const sim = this.ai.simFor(e.id);
       sim.kbVx += kx;
       sim.kbVy += ky;

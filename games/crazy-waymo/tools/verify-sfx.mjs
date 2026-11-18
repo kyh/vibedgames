@@ -320,10 +320,11 @@ try {
   try {
     report.finalAudio = await diagnostics();
     report.events = await evaluate("window.__sfxEvents");
-  } catch {}
-  try {
-    await screenshot("failure");
-  } catch {}
+  } catch (readError) {
+    report.finalAudioError = String(readError);
+  }
+
+  await screenshot("failure").catch(() => null);
 } finally {
   report.passed = !report.failure && report.checks.every((entry) => entry.passed);
   writeFileSync(path.join(output, "report.json"), `${JSON.stringify(report, null, 2)}\n`);

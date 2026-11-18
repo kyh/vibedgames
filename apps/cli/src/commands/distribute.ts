@@ -12,7 +12,6 @@ import {
   readDistributeProject,
   writeDistributeFields,
 } from "../lib/distribute/config.js";
-import type { DistributeProject, NativeConfig } from "../lib/distribute/config.js";
 import { PLATFORMS, prepareShell } from "../lib/distribute/native-shell.js";
 import type { Platform } from "../lib/distribute/native-shell.js";
 import { PORTALS } from "../lib/distribute/portals.js";
@@ -35,7 +34,7 @@ const fail = (message: string): never => {
 };
 
 const narrator: (args: OutputArgs) => (message: string) => void = (args) =>
-  isJsonOutput(args) || Boolean(args.field) ? () => {} : (message) => consola.info(message);
+  isJsonOutput(args) || Boolean(args.field) ? () => null : (message) => consola.info(message);
 
 const formatBytes = (bytes: number) =>
   bytes < 1024 * 1024
@@ -238,12 +237,6 @@ const printPack = (portal: Portal, result: PackResult, previewing: boolean) => {
   }
 };
 
-interface PreviewResult {
-  url: string;
-  game_url: string;
-  sdk_stub: boolean;
-}
-
 const servePreview = async (portal: Portal, zip: string, port: number) => {
   let preview;
 
@@ -333,11 +326,6 @@ const NEXT_STEPS: Record<Platform, string[]> = {
   ],
   ios: ["npx cap run ios", "npx cap open ios"],
 };
-
-interface NativeProject {
-  project: DistributeProject;
-  native: NativeConfig;
-}
 
 const requireNative = (dir: string, appId: string | undefined) => {
   if (appId !== undefined) {

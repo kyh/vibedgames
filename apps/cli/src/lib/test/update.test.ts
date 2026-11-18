@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
 
-import { fetchLatestVersion, isNewerVersion } from "../src/lib/update.js";
-import { makeCleanups, makeTestServer } from "./_helpers.js";
+import { fetchLatestVersion, isNewerVersion } from "../update.js";
+import { makeCleanups, makeTestServer } from "../../../test/_helpers.js";
 
 const { cleanups, drain } = makeCleanups();
 

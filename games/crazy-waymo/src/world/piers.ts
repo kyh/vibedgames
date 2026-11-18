@@ -713,11 +713,6 @@ const dockFloats = (port: ChunkedPort, isWater: (x: number, z: number) => boolea
   }
 };
 
-interface PierNumbering {
-  readonly ferryPier: PierInfo | null;
-  readonly cells: readonly number[];
-}
-
 const numberPiers = (piers: readonly PierInfo[]) => {
   let ferryPier: PierInfo | null = null;
 

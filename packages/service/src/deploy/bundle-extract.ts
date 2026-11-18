@@ -101,12 +101,6 @@ const byteReader = (stream: ReadableStream<Uint8Array>) => {
   return { skip, take };
 };
 
-interface Header {
-  path: string;
-  size: number;
-  type: string;
-}
-
 const parseHeader = (block: Uint8Array, longName: string | null) => {
   const prefix = field(block, 345, 155);
   const name = field(block, 0, 100);

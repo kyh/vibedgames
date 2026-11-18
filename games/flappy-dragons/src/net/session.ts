@@ -1,6 +1,6 @@
 import { isOfflineRequested } from "@repo/embed";
 import { MultiplayerClient } from "@vibedgames/multiplayer";
-import type { JsonRecord, JsonValue, Player } from "@vibedgames/multiplayer";
+import type { JsonRecord, JsonValue } from "@vibedgames/multiplayer";
 
 const MULTIPLAYER_HOST = import.meta.env.DEV
   ? "http://localhost:8787"

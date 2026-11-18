@@ -66,8 +66,7 @@ const tryActive = (w: World, u: Unit, kind: ActiveKind, point?: { x: number; y: 
 
 const medianKills = (w: World) => {
   const ks = [...w.units.values()]
-    .filter((x) => x.kind === "hero")
-    .map((x) => x.kills)
+    .flatMap((x) => (x.kind === "hero" ? [x.kills] : []))
     .toSorted((a, b) => a - b);
 
   return ks[Math.floor(ks.length / 2)] ?? 0;

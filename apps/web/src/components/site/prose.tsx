@@ -168,16 +168,20 @@ const FOOTER_LINKS = [
  */
 export const SiteLinks = ({ current, tabIndex }: Focus & { current: string }) => (
   <>
-    {FOOTER_LINKS.filter((link) => link.to !== current).map((link) => (
-      <Link
-        key={link.to}
-        to={link.to}
-        tabIndex={tabIndex}
-        className="hover:text-foreground transition-colors"
-      >
-        {link.label}
-      </Link>
-    ))}
+    {FOOTER_LINKS.flatMap((link) =>
+      link.to === current
+        ? []
+        : [
+            <Link
+              key={link.to}
+              to={link.to}
+              tabIndex={tabIndex}
+              className="hover:text-foreground transition-colors"
+            >
+              {link.label}
+            </Link>,
+          ],
+    )}
     <a href="/llms.txt" tabIndex={tabIndex} className="hover:text-foreground transition-colors">
       llms.txt
     </a>

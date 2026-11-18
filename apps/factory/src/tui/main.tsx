@@ -105,7 +105,11 @@ export const runTui = (launch: TuiLaunch) => {
 
     try {
       instance?.unmount();
-    } catch {}
+
+      return true;
+    } catch {
+      return false;
+    }
   };
 
   const pollBacklog = () => {

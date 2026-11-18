@@ -320,8 +320,6 @@ const qualityGate = async (
   return `quality gate failed — the session claimed success but the workspace doesn't verify. ${gate.detail}`;
 };
 
-type CycleDecision = "run" | "skip" | "stop";
-
 interface TurnOutcome {
   phase: Phase;
   role: Role;

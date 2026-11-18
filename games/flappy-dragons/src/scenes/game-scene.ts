@@ -105,16 +105,6 @@ const HINT_RESTART = TOUCH ? "TAP ANYWHERE TO RESTART" : "CLICK OR PRESS SPACE T
 const HINT_RACE = "FLAP TO JOIN THE RACE";
 const SOLO_ROW_ID = "you";
 
-interface PeerState {
-  t: number;
-  y: number;
-  vy: number;
-  live: boolean;
-  life: number;
-  score: number;
-  skin: number;
-}
-
 interface Course {
   seed: number;
   start: number | null;
@@ -219,7 +209,11 @@ const storageGet = (key: string) => {
 const storageSet = (key: string, value: string) => {
   try {
     window.localStorage.setItem(key, value);
-  } catch {}
+
+    return true;
+  } catch {
+    return false;
+  }
 };
 
 const readBest = () => {
@@ -236,7 +230,11 @@ const readBest = () => {
 const writeBest = (score: number) => {
   try {
     localStorage.setItem(BEST_KEY, String(score));
-  } catch {}
+
+    return true;
+  } catch {
+    return false;
+  }
 };
 
 interface BoardRow {

@@ -30,11 +30,6 @@ const NEI: [number, number][] = [
   [-1, -1],
 ];
 
-interface MinHeap {
-  push: (idx: number) => void;
-  pop: () => number;
-}
-
 const minHeap = (heap: number[], fScore: Float64Array) => {
   const less = (a: number, b: number) => (fScore[a] ?? Infinity) < (fScore[b] ?? Infinity);
 
@@ -391,10 +386,7 @@ export class NavGrid {
       gScore[nIdx] = tentative;
       fScore[nIdx] = tentative + octile(nc, nr, g.c, g.r);
 
-      if (inHeap[nIdx]) {
-      } else {
-        inHeap[nIdx] = 1;
-      }
+      inHeap[nIdx] = 1;
 
       push(nIdx);
     }

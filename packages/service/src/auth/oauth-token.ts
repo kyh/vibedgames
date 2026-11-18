@@ -31,8 +31,6 @@ const bearerToken = (headers: Headers) => {
 
 const jwksCacheKeys = new WeakMap<object, object>();
 
-type AccessTokenClaims = z.infer<typeof accessTokenClaims>;
-
 export interface AccessTokenCheck {
   /** The provider's signing keys, as `/api/auth/jwks` serves them. */
   getJwks: () => ReturnType<Auth["api"]["getJwks"]>;

@@ -13,7 +13,11 @@ const storageGet = () => {
 const storageSet = (value: string) => {
   try {
     window.localStorage.setItem(SOUND_KEY, value);
-  } catch {}
+
+    return true;
+  } catch {
+    return false;
+  }
 };
 
 interface Rig {

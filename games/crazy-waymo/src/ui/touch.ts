@@ -34,8 +34,8 @@ export const setupTouch = (input: InputState, onChat?: () => void) => {
   if (!container) {
     return {
       isTouch: false,
-      setReverseHint: () => {},
-      update: () => {},
+      setReverseHint: () => null,
+      update: () => null,
     };
   }
 

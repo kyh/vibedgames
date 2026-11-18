@@ -120,8 +120,8 @@ export const checkManifest = (manifestPath: string, root: string) => {
   const manifestPaths = extractManifestPaths(manifestPath);
   const actualPaths = new Set(walkFiles(root, ".png").map((p) => path.resolve(p)));
 
-  const missing = [...actualPaths].filter((p) => !manifestPaths.has(p)).map(prettyPath);
-  const extra = [...manifestPaths].filter((p) => !actualPaths.has(p)).map(prettyPath);
+  const missing = [...actualPaths].flatMap((p) => (manifestPaths.has(p) ? [] : [prettyPath(p)]));
+  const extra = [...manifestPaths].flatMap((p) => (actualPaths.has(p) ? [] : [prettyPath(p)]));
 
   return {
     actual_pngs: actualPaths.size,

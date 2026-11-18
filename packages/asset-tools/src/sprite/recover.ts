@@ -214,10 +214,7 @@ export const recoverFrames = (
 
   const required = frames === null ? wanted : Math.min(frames, wanted);
 
-  const missing = assigned
-    .slice(0, required)
-    .map((item, i) => (item === null ? i + 1 : 0))
-    .filter(Boolean);
+  const missing = assigned.slice(0, required).flatMap((item, i) => (item === null ? [i + 1] : []));
 
   if (missing.length > 0) {
     throw new Error(

@@ -75,7 +75,7 @@ const injectCss = (css: string, id: string) => {
   document.head.append(style);
 };
 
-const noop = () => {};
+const noop = () => null;
 
 const RESERVE_VAR = "--vg-touch-reserve";
 

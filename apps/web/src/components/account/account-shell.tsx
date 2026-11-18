@@ -150,19 +150,21 @@ export const AccountShell = ({
               }}
               className="bg-input/40 flex items-center gap-1 rounded-full p-1.5 shadow-[0_8px_24px_rgb(0_0_0/0.4),0_2px_6px_rgb(0_0_0/0.3)] backdrop-blur-sm md:w-11 md:flex-col"
             >
-              {railItems
-                .filter((item) => !item.adminOnly || user.isAdmin)
-                .map((item) => (
-                  <RailLink
-                    key={item.to}
-                    to={item.to}
-                    label={item.label}
-                    icon={item.icon}
-                    hovered={hoveredRail}
-                    onHover={setHoveredRail}
-                    tooltipSide={isMobile ? "top" : "right"}
-                  />
-                ))}
+              {railItems.flatMap((item) =>
+                !item.adminOnly || user.isAdmin
+                  ? [
+                      <RailLink
+                        key={item.to}
+                        to={item.to}
+                        label={item.label}
+                        icon={item.icon}
+                        hovered={hoveredRail}
+                        onHover={setHoveredRail}
+                        tooltipSide={isMobile ? "top" : "right"}
+                      />,
+                    ]
+                  : [],
+              )}
             </nav>
           </div>
         </div>

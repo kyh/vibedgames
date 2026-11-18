@@ -17,14 +17,7 @@ import {
   baseWeaponForLevel,
   scaleWeaponForLevel,
 } from "../src/shared/constants";
-import type {
-  EnemyShotState,
-  EnemyState,
-  ItemState,
-  PlayerNetState,
-  ShardState,
-  SharedState,
-} from "../src/shared/constants";
+import type { EnemyState, ItemState, PlayerNetState, SharedState } from "../src/shared/constants";
 import { mulberry32 } from "../src/shared/rng";
 import { playerToWire } from "../src/shared/wire";
 import type { FireSpec } from "../src/sys/volley";

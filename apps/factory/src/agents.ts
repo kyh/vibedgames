@@ -26,11 +26,6 @@ interface FrontMatter {
   emoji?: string;
 }
 
-interface ParsedAgentFile {
-  meta: FrontMatter;
-  body: string;
-}
-
 const parseAgentFile = (raw: string) => {
   const normalized = raw.replace(/^﻿/u, "");
   const match = /^---\r?\n(?<front>[\s\S]*?)\r?\n---\r?\n?(?<rest>[\s\S]*)$/u.exec(normalized);

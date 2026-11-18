@@ -78,6 +78,16 @@ const readBestScore = () => {
   }
 };
 
+const saveBestScore = (score: number) => {
+  try {
+    localStorage.setItem(BEST_SCORE_KEY, String(score));
+
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 interface Steer {
   horiz: -1 | 0 | 1;
   depth: -1 | 0 | 1;
@@ -655,9 +665,7 @@ export class GameScene {
     this.bestScore = runBest;
 
     if (newBest) {
-      try {
-        localStorage.setItem(BEST_SCORE_KEY, String(runBest));
-      } catch {}
+      saveBestScore(runBest);
     }
 
     showResults({

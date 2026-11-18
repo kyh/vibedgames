@@ -5,6 +5,7 @@ import { asJsonObject, asString, parseJson } from "./json.ts";
 import type { JsonValue } from "./json.ts";
 import type { Activity } from "./reporter.ts";
 import type { RunOptions, RunResult } from "./runner.ts";
+import { bestEffort } from "./best-effort.ts";
 
 const STDERR_TAIL_MAX = 16_000;
 
@@ -190,14 +191,14 @@ export const runCodex: (opts: RunOptions) => Promise<RunResult> = (opts) => {
         clearTimeout(sessionTimer);
       }
 
-      try {
+      bestEffort(() => {
         rl?.close();
-      } catch {}
-      try {
+      });
+      bestEffort(() => {
         child?.stdout?.destroy();
         child?.stderr?.destroy();
         child?.unref();
-      } catch {}
+      });
       resolve(res);
     };
 
@@ -211,9 +212,9 @@ export const runCodex: (opts: RunOptions) => Promise<RunResult> = (opts) => {
       }
 
       idleTimer = setTimeout(() => {
-        try {
+        bestEffort(() => {
           child?.kill("SIGKILL");
-        } catch {}
+        });
         settle({
           error: `no output for ${fmtMs(opts.idleTimeoutMs)} — treating codex as hung`,
           ok: false,
@@ -244,9 +245,9 @@ export const runCodex: (opts: RunOptions) => Promise<RunResult> = (opts) => {
 
     if (opts.maxSessionMs > 0) {
       sessionTimer = setTimeout(() => {
-        try {
+        bestEffort(() => {
           child?.kill("SIGKILL");
-        } catch {}
+        });
         settle({
           error: `exceeded the ${fmtMs(opts.maxSessionMs)} session limit — killed`,
           ok: false,

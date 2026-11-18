@@ -1,9 +1,6 @@
 import { distToRing, pointInRing } from "./parcel-plan";
 import type { ParcelPlan } from "./parcel-plan";
 
-/** Render-only footprint. Collision plans and their exact lot lines never change. */
-type Footprint = Pick<ParcelPlan, "ring" | "n" | "front" | "blind">;
-
 const BOX_SCALES: readonly (readonly [number, number])[] = [
   [1, 1],
   [0.96, 1],

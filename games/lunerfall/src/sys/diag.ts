@@ -249,11 +249,6 @@ const STALL_FRAMES = 50;
 const SHAKE_FRAMES = 18;
 const STALL_PX = 4;
 
-interface Guarded {
-  intent: Intent;
-  stuck: boolean;
-}
-
 const stallGuard = () => {
   let anchor = { x: 0, y: 0 };
   let stalled = 0;
@@ -284,7 +279,7 @@ const stallGuard = () => {
 };
 
 const held = (intent: Intent, stuck = false) => ({
-  keys: BUTTONS.filter((name) => intent[name]).map((name) => KEYS[name]),
+  keys: BUTTONS.flatMap((name) => (intent[name] ? [KEYS[name]] : [])),
   stuck,
 });
 

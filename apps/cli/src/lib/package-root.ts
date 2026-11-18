@@ -5,11 +5,6 @@ import { PKG_NAME } from "./package-manager.js";
 import { isJsonObject, isJsonString } from "./types.js";
 import type { JsonValue } from "./types.js";
 
-interface InstalledPackage {
-  root: string;
-  version: string;
-}
-
 const findPackage = (dir: string) => {
   const manifestPath = path.join(dir, "package.json");
 

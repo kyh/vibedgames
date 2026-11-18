@@ -1822,9 +1822,11 @@ const chainFragments = (parts) => {
 
   chainFragments(fwys);
 
-  const kept = fwys
-    .map((f) => ({ half: f.half, pts: rdp(f.pts, 2) }))
-    .filter((f) => plLen(f.pts) >= 40);
+  const kept = fwys.flatMap((fwy) => {
+    const f = { half: fwy.half, pts: rdp(fwy.pts, 2) };
+
+    return plLen(f.pts) >= 40 ? [f] : [];
+  });
 
   console.log(
     `freeways: ${kept.length} polylines, ${Math.round(kept.reduce((a, f) => a + plLen(f.pts), 0) / 1000)}k units`,
@@ -1866,8 +1868,11 @@ const chainFragments = (parts) => {
   chainFragments(ramps);
 
   const rampsSimple = ramps
-    .map((r) => ({ pts: rdp(r.pts, 2) }))
-    .filter((r) => plLen(r.pts) >= 26)
+    .flatMap((ramp) => {
+      const r = { pts: rdp(ramp.pts, 2) };
+
+      return plLen(r.pts) >= 26 ? [r] : [];
+    })
     .toSorted((a, b) => plLen(b.pts) - plLen(a.pts));
 
   const keptSamples = [];

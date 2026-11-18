@@ -270,9 +270,9 @@ export class Match implements NetHooks {
   }
 
   private deployedIds(game: StrikeforceGame) {
-    const ids = [...(this.players?.all.values() ?? [])]
-      .filter((p) => p.deployed && !isBot(p.id))
-      .map((p) => p.id);
+    const ids = [...(this.players?.all.values() ?? [])].flatMap((p) =>
+      p.deployed && !isBot(p.id) ? [p.id] : [],
+    );
 
     if (inMatch(game)) {
       ids.push(this.me);

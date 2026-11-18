@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { ROLES, baseTune, field, roleOf } from "../src/garrison/roles.ts";
+import { ROLES, baseTune, field, roleOf } from "./roles.ts";
 
 test("Standard fields the roles as written", () => {
   const tune = baseTune();

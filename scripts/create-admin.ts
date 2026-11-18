@@ -7,12 +7,6 @@ import { createInterface } from "node:readline/promises";
 
 import { hashPassword } from "better-auth/crypto";
 
-interface Args {
-  email: string;
-  name: string;
-  remote: boolean;
-}
-
 const parseArgs = (argv: string[]) => {
   let email: string | undefined;
   let name: string | undefined;

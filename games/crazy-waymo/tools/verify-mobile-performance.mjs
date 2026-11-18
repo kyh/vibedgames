@@ -346,7 +346,7 @@ try {
   report.error = String(error);
   console.error(error);
   process.exitCode = 1;
-  await screenshot("failure").catch(() => {});
+  await screenshot("failure").catch(() => null);
 } finally {
   writeFileSync(path.join(output, "report.json"), JSON.stringify(report, null, 2));
   close();

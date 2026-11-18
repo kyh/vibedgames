@@ -34,8 +34,6 @@ export const clipGameMs = (hero: HeroDef, clip: string) => {
   if (clip === "run") {
     return RUN_MS;
   }
-
-  return;
 };
 
 const iframeAlpha = (iframes: number, dead: boolean) => {

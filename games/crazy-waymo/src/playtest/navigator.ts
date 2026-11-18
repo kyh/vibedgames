@@ -52,11 +52,6 @@ export interface NavReadout {
   } | null;
 }
 
-interface SpeedPlan {
-  readonly speed: number;
-  readonly bend: number;
-}
-
 interface Blocker {
   readonly ahead: number;
   readonly x: number;

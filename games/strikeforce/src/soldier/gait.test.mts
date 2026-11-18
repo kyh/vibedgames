@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { Gait, gaitWeights, strideLength } from "../src/soldier/soldier-gait.ts";
+import { Gait, gaitWeights, strideLength } from "./soldier-gait.ts";
 
 const DT = 1 / 60;
 

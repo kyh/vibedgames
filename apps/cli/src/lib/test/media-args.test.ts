@@ -3,8 +3,8 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, test } from "node:test";
 
-import { parseDownloadFlag, parseRunInput, readExplicitLocalFile } from "../src/lib/media-args.js";
-import { makeCleanups, makeTmpDir } from "./_helpers.js";
+import { parseDownloadFlag, parseRunInput, readExplicitLocalFile } from "../media-args.js";
+import { makeCleanups, makeTmpDir } from "../../../test/_helpers.js";
 
 const { cleanups, drain } = makeCleanups();
 

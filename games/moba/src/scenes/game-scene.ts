@@ -82,11 +82,6 @@ const PAD_CAST: readonly (readonly [PadButton, AbilityKey])[] = [
   ["rb", "R"],
 ];
 
-interface MoveDir {
-  dx: number;
-  dy: number;
-}
-
 const stickDir16 = (s: StickState) => {
   if (!s.active || s.inDeadZone) {
     return null;

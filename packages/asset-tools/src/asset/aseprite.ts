@@ -1085,8 +1085,6 @@ const parseChunk = (
 
     default: {
       state.unknownChunks.push({ size: chunkSize, type: chunkType });
-
-      return;
     }
   }
 };

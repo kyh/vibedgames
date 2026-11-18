@@ -30,7 +30,11 @@ const storageGet = (key: string) => {
 const storageSet = (key: string, value: string) => {
   try {
     window.localStorage.setItem(key, value);
-  } catch {}
+
+    return true;
+  } catch {
+    return false;
+  }
 };
 
 interface Bus {
@@ -111,9 +115,7 @@ const reconcileContext = () => {
   const operation = shouldRun ? ctx.resume() : ctx.suspend();
 
   const settle = async () => {
-    try {
-      await operation;
-    } catch {}
+    await operation.catch(() => null);
     contextTransition = null;
 
     if (shouldRun !== !blocked()) {
@@ -135,7 +137,9 @@ const fetchFoley = async (context: AudioContext, key: FoleyKey, file: string) =>
     const bytes = await response.arrayBuffer();
     const buffer = await context.decodeAudioData(bytes);
     foleyBufs.set(key, buffer);
-  } catch {}
+  } catch {
+    foleyBufs.delete(key);
+  }
 };
 
 const loadFoley = (context: AudioContext) => {

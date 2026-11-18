@@ -44,7 +44,11 @@ export const loadSettings = () => {
 export const storeSettings = (settings: SavedSettings) => {
   try {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
-  } catch {}
+
+    return true;
+  } catch {
+    return false;
+  }
 };
 
 export interface QualityChoice {

@@ -35,10 +35,9 @@ const startVite = async () => {
       throw new Error(`vite exited ${child.exitCode}`);
     }
 
-    const ok = await fetch(url).then(
-      (r) => r.ok,
-      () => false,
-    );
+    const ok = await fetch(url)
+      .then((r) => r.ok)
+      .catch(() => false);
 
     if (ok) {
       return { stop: () => child.kill(), url };

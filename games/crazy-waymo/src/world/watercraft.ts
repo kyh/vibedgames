@@ -741,6 +741,10 @@ export const buildVessel = (kind: VesselKind, seed: number) => {
     case "kayak": {
       return kayak(b, rng);
     }
+
+    default: {
+      throw new Error(`unhandled kind: ${String(kind)}`);
+    }
   }
 };
 

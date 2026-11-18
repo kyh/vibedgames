@@ -106,5 +106,9 @@ export const loadLocalOverrides = () => {
 export const saveLocalOverrides = (o: MapOverrides) => {
   try {
     window.localStorage.setItem(MAP_OVERRIDES_KEY, JSON.stringify(o));
-  } catch {}
+
+    return true;
+  } catch {
+    return false;
+  }
 };

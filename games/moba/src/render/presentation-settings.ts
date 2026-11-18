@@ -39,13 +39,22 @@ let settings = storedSettings();
 
 export const presentationSettings: () => Readonly<PresentationSettings> = () => settings;
 
+const persistSettings = (value: PresentationSettings) => {
+  try {
+    window.localStorage.setItem(KEY, JSON.stringify(value));
+
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 /** Blocked embed storage loses persistence, never the current preference. */
 export const setPresentationSettings = (next: PresentationSettings) => {
   settings = { ...next };
 
-  try {
-    window.localStorage.setItem(KEY, JSON.stringify(settings));
-  } catch {}
+  persistSettings(settings);
+
   for (const listener of listeners) {
     listener();
   }

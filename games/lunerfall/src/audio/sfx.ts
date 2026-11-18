@@ -222,9 +222,7 @@ class Sfx {
     };
 
     const settle = async () => {
-      try {
-        await operation;
-      } catch {}
+      await operation.catch(() => null);
       finish();
     };
 

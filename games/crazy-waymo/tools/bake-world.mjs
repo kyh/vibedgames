@@ -192,7 +192,11 @@ try {
         lastProgress = status;
         console.log(`[bake] ${status.replaceAll(/\s+/gu, " ")}`);
       }
-    } catch {}
+
+      return true;
+    } catch {
+      return false;
+    }
   }, 15_000);
   console.log("[bake] generating world (cold build — takes ~30-60s)…");
 

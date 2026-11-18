@@ -39,10 +39,9 @@ export const openRoom = async (
     return new MultiplayerClient({ ...base, room: roomId(code) });
   }
 
-  let room = roomId("public");
+  const room = await quickMatch({ host, lobby: LOBBY, maxPlayers: MAX_PLAYERS }).catch(() =>
+    roomId("public"),
+  );
 
-  try {
-    room = await quickMatch({ host, lobby: LOBBY, maxPlayers: MAX_PLAYERS });
-  } catch {}
   return new MultiplayerClient({ ...base, lobby: LOBBY, room });
 };

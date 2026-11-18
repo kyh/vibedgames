@@ -173,11 +173,6 @@ const finish = (flat: readonly number[]) => {
   return { cum, length: cum.at(-1) ?? 0, pts };
 };
 
-interface Search {
-  readonly end: number;
-  readonly cameBy: ReadonlyMap<number, NetEdge>;
-}
-
 const search = (world: RouteWorld, start: NearestHit, goal: NearestHit, facing: number) => {
   const net = world.network;
   let grades = gradeCache.get(net);

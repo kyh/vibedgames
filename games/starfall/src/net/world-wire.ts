@@ -1,11 +1,9 @@
 import { BOOSTER_KINDS, SHIELD_MOD_KINDS, UFO_SPEED, WEAPONS_SPECIAL } from "../shared/constants";
 import type {
-  BeaconState,
   EnemyKind,
   EnemyState,
   ItemDrop,
   ItemState,
-  ShardState,
   SharedState,
   UfoState,
   Vec,

@@ -517,12 +517,13 @@ const worldAt = (t: number) => ({
 });
 
 const touched = (ops: PatchOp[]) =>
-  ops
-    .map(([path]) => path.slice(0, 2).join("/"))
-    .filter(
-      (p) =>
-        !p.startsWith(HOT_KEY) && !["arenaEpoch", "playW", "playH", "sectorBossIdx"].includes(p),
-    );
+  ops.flatMap(([path]) => {
+    const p = path.slice(0, 2).join("/");
+
+    return !p.startsWith(HOT_KEY) && !["arenaEpoch", "playW", "playH", "sectorBossIdx"].includes(p)
+      ? [p]
+      : [];
+  });
 
 const rowOf = (room: WireRecord, key: string, id: string) => asWireRecord(room[key])?.[id];
 
@@ -667,7 +668,7 @@ const rowOf = (room: WireRecord, key: string, id: string) => asWireRecord(room[k
     host: "http://localhost:8787",
     maxPlayers: 1,
     offline: true,
-    onUpdate: () => {},
+    onUpdate: () => null,
     room: "smoke",
   };
 
@@ -701,7 +702,7 @@ const rowOf = (room: WireRecord, key: string, id: string) => asWireRecord(room[k
   const grants: [string, string | null][] = [];
 
   const soloLink = new Link({
-    inbox: () => {},
+    inbox: () => null,
     onClaim: (key, owner) => grants.push([key, owner]),
   });
 

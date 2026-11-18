@@ -57,7 +57,11 @@ export const runBonuses = (m: MetaState) => ({
 export const saveMeta = (m: MetaState) => {
   try {
     localStorage.setItem(KEY, JSON.stringify(m));
-  } catch {}
+
+    return true;
+  } catch {
+    return false;
+  }
 };
 
 export const buyUpgrade = (m: MetaState, id: string) => {
@@ -164,7 +168,10 @@ export const recordBestScore = (score: number) => {
 
   try {
     localStorage.setItem(SCORE_KEY, String(score));
-  } catch {}
+  } catch {
+    return score;
+  }
+
   return score;
 };
 

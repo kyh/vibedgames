@@ -137,7 +137,11 @@ const storeQuietly = async (key: string, record: CacheRecord, label: string) => 
   try {
     await writeRecord(key, record);
     console.log(`[world-cache] ${label}`);
-  } catch {}
+
+    return true;
+  } catch {
+    return false;
+  }
 };
 
 export const writeRestCache = (payload: CityRestPayload) => {

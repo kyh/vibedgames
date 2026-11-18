@@ -106,9 +106,7 @@ const createGraph = () => {
 };
 
 const resume = async (context: AudioContext) => {
-  try {
-    await context.resume();
-  } catch {}
+  await context.resume().catch(() => null);
 };
 
 const syncContext = () => {
@@ -141,12 +139,20 @@ const syncContext = () => {
 
 export const isMuted = () => muted;
 
+const persistMuted = (value: boolean) => {
+  try {
+    localStorage.setItem(STORAGE_KEY, value ? "0" : "1");
+
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 export const setMuted = (value: boolean) => {
   muted = value;
 
-  try {
-    localStorage.setItem(STORAGE_KEY, value ? "0" : "1");
-  } catch {}
+  persistMuted(value);
   syncContext();
 };
 

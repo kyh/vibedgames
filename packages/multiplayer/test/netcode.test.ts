@@ -483,11 +483,6 @@ test("lerpAngle takes the short way round", () => {
   assert.ok(Math.abs(Math.abs(mid) - Math.PI) < 1e-9, `mid ${mid}`);
 });
 
-interface RunResult {
-  x: number;
-  truth: number;
-}
-
 const run = (options: {
   reconciler: Reconciler;
   lagMs: number;

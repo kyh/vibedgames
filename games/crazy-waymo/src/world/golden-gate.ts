@@ -94,11 +94,6 @@ const rampProfile = (plan: GoldenGatePlan, t: number) => {
     : THREE.MathUtils.lerp(plan.kneeY, plan.deckY, (tc - 0.68) / 0.32);
 };
 
-interface AnchorPoint {
-  readonly z: number;
-  readonly y: number;
-}
-
 const southAnchor = (plan: GoldenGatePlan) => ({
   y: plan.deckY + 4.6,
   z: plan.shoreZ + 3,

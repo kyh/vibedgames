@@ -499,7 +499,7 @@ export const ensureBots = (w: World) => {
   }
 
   const usedSlots = new Set(
-    [...w.units.values()].filter((u) => u.kind === "hero").map((u) => slotOf(u)),
+    [...w.units.values()].flatMap((u) => (u.kind === "hero" ? [slotOf(u)] : [])),
   );
 
   let added = bots.length;

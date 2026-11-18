@@ -119,9 +119,11 @@ export const senseSurroundings = (diag: Diagnostics, { world, pilot, now }: Sens
   diag.target = pickTarget(enemies, rocks, pilot);
   diag.aimErrorDeg = aimError(diag.target, pilot.shipAngle);
   diag.threats = nearest(
-    [...enemies, ...rocks, ...shots]
-      .map((b) => toThreat(b, pilot))
-      .filter((t) => t.gap <= THREAT_RANGE),
+    [...enemies, ...rocks, ...shots].flatMap((b) => {
+      const t = toThreat(b, pilot);
+
+      return t.gap <= THREAT_RANGE ? [t] : [];
+    }),
     MAX_THREATS,
     (t) => t.gap,
   );

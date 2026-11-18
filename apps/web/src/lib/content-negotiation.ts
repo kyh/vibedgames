@@ -29,7 +29,6 @@ interface AcceptEntry {
   type: string;
   subtype: string;
   q: number;
-  /** 2 = fully specified, 1 = subtype wildcard, 0 = bare wildcard. */
   specificity: number;
 }
 

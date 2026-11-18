@@ -184,7 +184,9 @@ export const createMobileSession = async ({ sessionPrefix, output }) => {
     if (launched) {
       try {
         browser("close");
-      } catch {}
+      } catch (closeError) {
+        console.warn(`browser close failed: ${String(closeError)}`);
+      }
     }
 
     throw error;

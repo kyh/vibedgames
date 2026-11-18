@@ -1496,6 +1496,10 @@ export const activateItem = (
       u.y = safe.y;
       break;
     }
+
+    default: {
+      break;
+    }
   }
 
   u.itemReadyAt[id] = w.now + a.cooldown * 1000;

@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { bestEffort } from "./best-effort.ts";
 
 const esc = (s: string) => s.replaceAll("\\", "\\\\").replaceAll('"', '\\"');
 
@@ -16,7 +17,7 @@ const esc = (s: string) => s.replaceAll("\\", "\\\\").replaceAll('"', '\\"');
 export const notifyOperator = (title: string, message: string) => {
   const custom = process.env.FACTORY_NOTIFY;
 
-  try {
+  bestEffort(() => {
     if (custom) {
       spawn("sh", ["-c", custom], {
         detached: true,
@@ -34,5 +35,5 @@ export const notifyOperator = (title: string, message: string) => {
         { detached: true, stdio: "ignore" },
       ).unref();
     }
-  } catch {}
+  });
 };

@@ -9,13 +9,6 @@ export interface GameInset {
   left: number;
 }
 
-interface CanvasRect {
-  left: number;
-  top: number;
-  right: number;
-  k: number;
-}
-
 const canvasRect = (scene: Phaser.Scene) => {
   const { displaySize, parentSize, width } = scene.scale;
   const left = Math.max(0, (parentSize.width - displaySize.width) / 2);

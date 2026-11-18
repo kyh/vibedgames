@@ -70,7 +70,7 @@ const MINIMAP_FILL = new Map<string, string>([
   ["road", "#9aa0a8"],
 ]);
 
-const noop = () => {};
+const noop = () => null;
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
@@ -165,7 +165,7 @@ export const startEditor = async (game: GameScene, renderer: THREE.WebGLRenderer
   }
 
   const cache = game.getCache();
-  await cache.preload(editorModelUrls(), () => {});
+  await cache.preload(editorModelUrls(), () => null);
   const { camera } = game;
 
   game.freecam = true;
@@ -955,7 +955,9 @@ export const startEditor = async (game: GameScene, renderer: THREE.WebGLRenderer
       });
       saveLocalProps(parsed.props);
       window.location.reload();
-    } catch {}
+    } catch (error) {
+      console.warn("[editor] map file not loaded", error);
+    }
   });
   $("ed-clear-props").addEventListener("click", () => {
     for (const p of placed) {

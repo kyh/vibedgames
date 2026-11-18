@@ -5,7 +5,7 @@ import {
   detectPackageManager,
   globalInstallArgs,
   globalInstallCommand,
-} from "../src/lib/package-manager.js";
+} from "../package-manager.js";
 
 const clean: NodeJS.ProcessEnv = {};
 

@@ -234,8 +234,6 @@ export class Pool {
         return candidate;
       }
     }
-
-    return;
   }
 
   private link(idx: number, priority: ParticlePriority) {

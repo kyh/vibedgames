@@ -194,6 +194,10 @@ export const applyTileIntent = (world: World, intent: TileIntent) => {
 
       break;
     }
+
+    default: {
+      break;
+    }
   }
 
   return tileValue(world, idx) !== before;

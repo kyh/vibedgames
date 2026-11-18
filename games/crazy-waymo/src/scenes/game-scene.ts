@@ -215,10 +215,28 @@ const storageGet = (key: string) => {
   }
 };
 
+const storedSkinIds = (raw: string | null) => {
+  if (!raw) {
+    return [];
+  }
+
+  try {
+    const parsed = parseJsonText(raw);
+
+    return Array.isArray(parsed) ? parsed.filter(isJsonString) : [];
+  } catch {
+    return [];
+  }
+};
+
 const storageSet = (key: string, value: string) => {
   try {
     window.localStorage.setItem(key, value);
-  } catch {}
+
+    return true;
+  } catch {
+    return false;
+  }
 };
 
 const startBannerStats = (best: number) =>
@@ -1352,21 +1370,10 @@ vec3 ocGerstner(vec2 p, float t) {
   private setupGarages(city: CityModel) {
     this.hud.setOperator(skinById(this.skinId).label, skinById(this.skinId).accent);
 
-    try {
-      const raw = storageGet("crazy-waymo:skins-owned");
+    for (const id of storedSkinIds(storageGet("crazy-waymo:skins-owned"))) {
+      this.ownedSkins.add(id);
+    }
 
-      if (raw) {
-        const parsed = parseJsonText(raw);
-
-        if (Array.isArray(parsed)) {
-          for (const id of parsed) {
-            if (isJsonString(id)) {
-              this.ownedSkins.add(id);
-            }
-          }
-        }
-      }
-    } catch {}
     const rings = new THREE.Group();
     const ringGeo = new THREE.RingGeometry(4.4, 5.4, 28).rotateX(-Math.PI / 2);
 
@@ -1472,7 +1479,7 @@ vec3 ocGerstner(vec2 p, float t) {
   }
 
   private loadShowroom() {
-    this.showroomLoad ??= this.cache.preload(ROBOTAXI_SKINS.map(skinModelUrl), () => {});
+    this.showroomLoad ??= this.cache.preload(ROBOTAXI_SKINS.map(skinModelUrl), () => null);
 
     return this.showroomLoad;
   }

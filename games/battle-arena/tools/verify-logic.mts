@@ -246,7 +246,7 @@ test("observing the economy never alters coin schedules or payouts", () => {
 
   const hints = new Hints(
     () => false,
-    () => {},
+    () => null,
   );
 
   let lastCoin: string | null = null;

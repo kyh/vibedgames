@@ -5,12 +5,8 @@ import { afterEach, test } from "node:test";
 
 import { create as tarCreate } from "tar";
 
-import {
-  fetchTemplate,
-  parseTemplateSpec,
-  templateTarballUrl,
-} from "../src/lib/template-source.js";
-import { makeCleanups, makeTmpDir } from "./_helpers.js";
+import { fetchTemplate, parseTemplateSpec, templateTarballUrl } from "../template-source.js";
+import { makeCleanups, makeTmpDir } from "../../../test/_helpers.js";
 
 const { cleanups, drain } = makeCleanups();
 

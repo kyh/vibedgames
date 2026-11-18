@@ -85,9 +85,7 @@ export class Controls {
   }
 
   private async requestLock() {
-    try {
-      await this.canvas.requestPointerLock();
-    } catch {}
+    await this.canvas.requestPointerLock().catch(() => null);
   }
 
   /** Flip between MOUSE mode (free cursor for menus) and ACTION mode.

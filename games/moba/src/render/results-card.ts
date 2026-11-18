@@ -33,11 +33,6 @@ const stopPointer = (
   event.stopPropagation();
 };
 
-interface Verdict {
-  ribbon: string;
-  title: string;
-}
-
 const verdictOf = (neutral: boolean, won: boolean) => {
   if (neutral) {
     return { ribbon: "ui-ribbon-blue", title: "MATCH COMPLETE" };

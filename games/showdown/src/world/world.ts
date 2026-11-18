@@ -74,24 +74,6 @@ export interface BrokenTile {
   z: number;
 }
 
-interface GroundLayer {
-  baseCanvas: HTMLCanvasElement;
-  aoCanvas: HTMLCanvasElement;
-  groundCanvas: HTMLCanvasElement;
-  groundMap: THREE.CanvasTexture;
-  groundAO: THREE.CanvasTexture;
-}
-
-interface WaterLayer {
-  mesh: THREE.Mesh;
-  normal: THREE.CanvasTexture;
-}
-
-interface LampLayer {
-  glass: THREE.MeshStandardMaterial;
-  lanterns: Lantern[];
-}
-
 const GROUND_SALT = 20_973;
 const PROPS_SALT = 2577;
 const GRASS_SALT = 2821;

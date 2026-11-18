@@ -10,9 +10,9 @@ import type {
   AgentResult,
   AgentSample,
   Reflex,
-} from "../src/lib/playtest/agent.js";
-import { browserEnv, inPageAgent } from "../src/lib/playtest/agent.js";
-import { keyInitsFor, keyTable } from "../src/lib/playtest/keys.js";
+} from "../agent.js";
+import { browserEnv, inPageAgent } from "../agent.js";
+import { keyInitsFor, keyTable } from "../keys.js";
 
 interface Dispatched {
   kind: "key" | "pointer";
@@ -27,12 +27,6 @@ interface FakeAnswer {
   confidence?: number;
   noul?: number;
   score?: number;
-}
-
-interface FakeReply {
-  ok: boolean;
-  status: number;
-  body: string;
 }
 
 interface AnswerScript {

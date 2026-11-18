@@ -68,7 +68,7 @@ const checkWakeCadence = (check: Check) => {
 
 const checkWakeDirection = (check: Check) => {
   for (const speed of [-20, 20]) {
-    const direction = new WaterFx(() => {});
+    const direction = new WaterFx(() => null);
 
     direction.contact(0, STILL, 0, -0.7, 0, 0, 0);
     direction.update(1.4);

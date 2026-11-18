@@ -1,6 +1,6 @@
 import type { CityGenPayload } from "./gen-worker";
 import { deserializeWorldBin, unpackMeta, unpackWorld, WORLD_REV } from "./world-bin";
-import type { PackedWorldTile, WorldTileRef } from "./world-bin";
+import type { WorldTileRef } from "./world-bin";
 import { PARCEL_SOURCE_VERSION } from "./parcel-source";
 
 const gunzip = async (gz: ArrayBuffer) => {
@@ -67,9 +67,7 @@ const storeCached = async (cache: Cache | null, url: string, res: Response) => {
     return;
   }
 
-  try {
-    await cache.put(url, res);
-  } catch {}
+  await cache.put(url, res).catch(() => null);
 };
 
 const fetchGz = async (path: string) => {

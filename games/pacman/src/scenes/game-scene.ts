@@ -335,6 +335,10 @@ const dirYaw = (dir: Dir) => {
     case "right": {
       return -Math.PI / 2;
     }
+
+    default: {
+      throw new Error(`unhandled dir: ${String(dir)}`);
+    }
   }
 };
 
@@ -518,7 +522,11 @@ const loadBest = () => {
 const saveBest = (best: number) => {
   try {
     localStorage.setItem(BEST_KEY, String(best));
-  } catch {}
+
+    return true;
+  } catch {
+    return false;
+  }
 };
 
 const scaredTint = (scared: boolean, blinkOut: boolean, own: number) => {
@@ -1029,6 +1037,12 @@ export class GameScene {
       case "offline": {
         return "";
       }
+
+      default: {
+        throw new Error(
+          `unhandled this.net.connectionStatus: ${String(this.net.connectionStatus)}`,
+        );
+      }
     }
   }
 
@@ -1471,6 +1485,10 @@ export class GameScene {
       case "Space": {
         e.preventDefault();
         this.chomp();
+        break;
+      }
+
+      default: {
         break;
       }
     }

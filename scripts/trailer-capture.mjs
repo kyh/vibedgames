@@ -77,20 +77,23 @@ const acquireLock = async () => {
 const releaseLock = () => {
   try {
     rmSync(LOCK, { force: true, recursive: true });
-  } catch {}
+
+    return true;
+  } catch {
+    return false;
+  }
 };
 
 const waitForServer = async (url, timeoutMs) => {
   const deadline = Date.now() + timeoutMs;
 
   while (Date.now() < deadline) {
-    try {
-      const res = await fetch(url, { signal: AbortSignal.timeout(2000) });
+    const res = await fetch(url, { signal: AbortSignal.timeout(2000) }).catch(() => null);
 
-      if (res.ok) {
-        return;
-      }
-    } catch {}
+    if (res?.ok) {
+      return;
+    }
+
     await sleep(300);
   }
 
@@ -306,7 +309,11 @@ const main = async () => {
   const stopServer = () => {
     try {
       process.kill(-server.pid, "SIGTERM");
-    } catch {}
+
+      return true;
+    } catch {
+      return false;
+    }
   };
 
   process.on("exit", stopServer);

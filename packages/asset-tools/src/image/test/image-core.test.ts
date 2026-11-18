@@ -5,13 +5,13 @@ import path from "node:path";
 import { test } from "node:test";
 import { deflateSync } from "node:zlib";
 
-import { parseColor, toHex } from "../src/image/color.js";
-import { encodeGif } from "../src/image/gif.js";
-import { decodePng, encodePng, readPngSize } from "../src/image/png.js";
-import { Bitmap, readImageSize } from "../src/image/raster.js";
-import { must } from "./must.js";
+import { parseColor, toHex } from "../color.js";
+import { encodeGif } from "../gif.js";
+import { decodePng, encodePng, readPngSize } from "../png.js";
+import { Bitmap, readImageSize } from "../raster.js";
+import { must } from "../../../test/must.js";
 
-const FIXTURES = path.join(import.meta.dirname, "fixtures");
+const FIXTURES = path.join(import.meta.dirname, "../../../test/fixtures");
 
 const expected: Record<string, { w: number; h: number; sha: string }> = JSON.parse(
   readFileSync(path.join(FIXTURES, "expected.json"), "utf-8"),

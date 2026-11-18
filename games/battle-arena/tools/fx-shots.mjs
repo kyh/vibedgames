@@ -214,7 +214,9 @@ const main = async () => {
     if (!SHARED_SESSION) {
       try {
         ab("close");
-      } catch {}
+      } catch (closeError) {
+        console.warn(`browser close failed: ${String(closeError)}`);
+      }
     }
   }
 
@@ -222,7 +224,7 @@ const main = async () => {
   console.log(`\n${results.length - missed.length}/${results.length} frozen → ${OUT}/`);
 
   for (const reason of ["no-boot", "no-freeze"]) {
-    const hits = missed.filter((m) => m.reason === reason).map((m) => m.shot);
+    const hits = missed.flatMap((m) => (m.reason === reason ? [m.shot] : []));
 
     if (hits.length) {
       console.log(`${reason}: ${hits.join(", ")}`);

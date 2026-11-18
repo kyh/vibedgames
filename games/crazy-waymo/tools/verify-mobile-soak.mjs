@@ -867,9 +867,9 @@ const main = async () => {
     report.error = String(error);
     process.exitCode = 1;
     console.error(error);
-    await evaluate("if(window.__mobileSoak)window.__mobileSoak.active=false").catch(() => {});
-    await release().catch(() => {});
-    await screenshot("failure").catch(() => {});
+    await evaluate("if(window.__mobileSoak)window.__mobileSoak.active=false").catch(() => null);
+    await release().catch(() => null);
+    await screenshot("failure").catch(() => null);
   } finally {
     report.finalCityCapture = await run(captureDiagnostics).catch((error) => ({
       unavailable: String(error),

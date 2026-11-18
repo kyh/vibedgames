@@ -38,19 +38,24 @@ const summary = (values: readonly number[]) => {
 
 if (process.argv.includes("--cost")) {
   const cells = [...streamCells(fabric, parcels.lots)]
-    .map(([key, cell]) => {
+    .flatMap(([key, cell]) => {
       const x = (Math.floor(key / 4096) + 0.5) * STREAM_CELL - WORLD_HALF_X;
       const z = ((key % 4096) + 0.5) * STREAM_CELL - WORLD_HALF_Z;
       const distance = Math.hypot(x + 740, z - 604.5);
 
-      return {
-        detail: parcelDetailForDistance(distance, 1),
-        distance,
-        lots: cell.lots,
-        plans: cell.plans,
-      };
+      if (distance >= streamRadiusFor(1, 1)) {
+        return [];
+      }
+
+      return [
+        {
+          detail: parcelDetailForDistance(distance, 1),
+          distance,
+          lots: cell.lots,
+          plans: cell.plans,
+        },
+      ];
     })
-    .filter((cell) => cell.distance < streamRadiusFor(1, 1))
     .toSorted((a, b) => a.distance - b.distance);
 
   const modes = ["direct", "generator", "clock-per-parcel"];

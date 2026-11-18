@@ -310,8 +310,13 @@ const run = async (base) => {
     await step("host loop stall: other client takes over, stalled host follows", async () => {
       const hang = b.page.evaluate(() => {
         const end = performance.now() + 9000;
+        let spins = 0;
 
-        while (performance.now() < end) {}
+        while (performance.now() < end) {
+          spins += 1;
+        }
+
+        return spins;
       });
 
       try {

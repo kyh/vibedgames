@@ -1,13 +1,14 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import { AsepriteParseError, inferBoundsFromPixels, inspectAseprite } from "../aseprite.js";
 import {
-  AsepriteParseError,
-  inferBoundsFromPixels,
-  inspectAseprite,
-} from "../src/asset/aseprite.js";
-import { buildAseFile, chunks, sampleIndexedFile, sampleRgbaFile } from "./ase-fixture.js";
-import { must } from "./must.js";
+  buildAseFile,
+  chunks,
+  sampleIndexedFile,
+  sampleRgbaFile,
+} from "../../../test/ase.fixture.js";
+import { must } from "../../../test/must.js";
 
 const rgba = () => inspectAseprite("rgba.aseprite", sampleRgbaFile());
 

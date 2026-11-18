@@ -45,11 +45,6 @@ const readBounded = (file: string, maxBytes: number) => {
   }
 };
 
-interface ResolvedContext {
-  context?: string;
-  contextDir?: string;
-}
-
 const resolveContext = (raw: string | undefined) => {
   const value = (raw ?? "").trim();
 

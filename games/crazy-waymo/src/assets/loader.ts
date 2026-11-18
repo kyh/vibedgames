@@ -127,7 +127,9 @@ export class ModelCache {
             tex.offset.y,
           ].join("|");
         }
-      } catch {}
+      } catch {
+        fp = tex.uuid;
+      }
     }
 
     this.texFingerprints.set(tex, fp);

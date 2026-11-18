@@ -15,13 +15,6 @@ export interface Point {
   z: number;
 }
 
-interface AimSolution {
-  dx: number;
-  dz: number;
-  x: number;
-  z: number;
-}
-
 interface Decision {
   goal: Point | null;
   state: BotState;

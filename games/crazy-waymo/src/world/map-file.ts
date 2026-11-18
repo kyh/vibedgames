@@ -120,7 +120,11 @@ export const loadLocalProps = () => {
 export const saveLocalProps = (props: readonly CustomProp[]) => {
   try {
     localStorage.setItem(PROPS_KEY, JSON.stringify(props));
-  } catch {}
+
+    return true;
+  } catch {
+    return false;
+  }
 };
 
 export const activeMapProps = (editor: boolean) => {

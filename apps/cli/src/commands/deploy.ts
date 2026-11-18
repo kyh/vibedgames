@@ -197,7 +197,7 @@ export const deployCommand = defineCommand({
 
     const structured = isJsonOutput(args) || Boolean(args.field);
 
-    const say = structured ? () => {} : (message: string) => consola.info(message);
+    const say = structured ? () => null : (message: string) => consola.info(message);
 
     const dir = path.resolve(args.dir);
 

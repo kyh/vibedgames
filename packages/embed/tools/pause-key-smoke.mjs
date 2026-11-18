@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 
-const inert = () => {};
+const inert = () => null;
 
 const noMatch = () => null;
 

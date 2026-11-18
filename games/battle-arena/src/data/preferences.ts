@@ -10,5 +10,9 @@ export const readPreference = (key: string) => {
 export const savePreference = (key: string, value: string) => {
   try {
     localStorage.setItem(key, value);
-  } catch {}
+
+    return true;
+  } catch {
+    return false;
+  }
 };

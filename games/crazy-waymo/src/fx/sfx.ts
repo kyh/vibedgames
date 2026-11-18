@@ -67,9 +67,7 @@ interface Voice {
 }
 
 const settleAudio = async (transition: Promise<void>) => {
-  try {
-    await transition;
-  } catch {}
+  await transition.catch(() => null);
 };
 
 const uiSound: (kind: "open" | "move" | "select" | "back") => SoundName = (kind) => {

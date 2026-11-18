@@ -1008,11 +1008,6 @@ const emitLot = (
   return true;
 };
 
-interface Clipped {
-  readonly footprint: Footprint;
-  readonly movedAny: boolean;
-}
-
 const kerbClip = (p: Planner, footprint: Footprint, cx: number, cz: number) => {
   let movedAny = false;
 
@@ -1094,11 +1089,6 @@ const recoverFootprint = (p: Planner, footprint0: Footprint, cx0: number, cz0: n
 
   return { boxed, crossing, cx, cz, footprint, split };
 };
-
-interface FrontEdge {
-  readonly front: number;
-  readonly frontLen: number;
-}
 
 const chooseFront = (footprint: Footprint, nearest: NearestFn) => {
   const { ring, n, blind } = footprint;
@@ -1225,12 +1215,6 @@ const stretchRear = (
 
   return obbOf(ring, n, ex, ez);
 };
-
-interface Seat {
-  readonly fall: number;
-  readonly seatY: number;
-  readonly footY: number;
-}
 
 const seatOf = (terrain: Terrain, ring: Float32Array, n: number, cx: number, cz: number) => {
   let hiY = terrain.heightAt(cx, cz);

@@ -11,13 +11,7 @@ import {
   standings,
   syncRoster,
   tick,
-} from "../src/net/rules.ts";
-import type { MatchState } from "../src/net/rules.ts";
-
-interface Live {
-  s: MatchState;
-  now: number;
-}
+} from "./rules.ts";
 
 const live = () => {
   const s = newMatch();

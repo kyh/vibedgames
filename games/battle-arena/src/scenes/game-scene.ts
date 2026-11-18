@@ -137,11 +137,6 @@ export const chosenChamp = () => {
   return DEFAULT_CHAMP;
 };
 
-interface MoveInput {
-  mv: Vec2;
-  attack: boolean;
-}
-
 export class GameScene {
   world: World;
   private net: MultiplayerClient | null = null;

@@ -19,7 +19,11 @@ const stored = () => {
 export const clearSafeMode = () => {
   try {
     window.localStorage.removeItem(KEY);
-  } catch {}
+
+    return true;
+  } catch {
+    return false;
+  }
 };
 
 let cached: boolean | null = null;
@@ -52,5 +56,9 @@ export const safeMode = () => contextLostBefore() || (coarsePointer() && param()
 export const recordContextLoss = () => {
   try {
     window.localStorage.setItem(KEY, String(Date.now()));
-  } catch {}
+
+    return true;
+  } catch {
+    return false;
+  }
 };

@@ -30,5 +30,9 @@ export interface Span {
 export const appendSpan = (bb: Blackboard, span: Span) => {
   try {
     appendFileSync(bb.trace, `${JSON.stringify(span)}\n`);
-  } catch {}
+
+    return true;
+  } catch {
+    return false;
+  }
 };

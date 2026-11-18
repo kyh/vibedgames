@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 import { asJsonObject, isJsonString, parseJson } from "./json.ts";
+import { bestEffort } from "./best-effort.ts";
 
 const STEP_TIMEOUT_MS = 5 * 60_000;
 const OUTPUT_TAIL = 4000;
@@ -65,9 +66,9 @@ const runScript: (workspace: string, script: string) => Promise<{ ok: boolean; t
     };
 
     timeout.handle = setTimeout(() => {
-      try {
+      bestEffort(() => {
         child.kill("SIGKILL");
-      } catch {}
+      });
       out += `\n(timed out after ${STEP_TIMEOUT_MS / 60_000}m)`;
       finish(false);
     }, STEP_TIMEOUT_MS);

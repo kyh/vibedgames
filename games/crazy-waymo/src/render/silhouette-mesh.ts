@@ -7,10 +7,12 @@ import { liveQuality } from "./quality";
 
 const LM_HOLD = DETAIL_DISTANCE;
 const LM_FULL = 760;
+
 const growRange: (scale: number) => [number, number] = (scale) => [
   LM_HOLD * scale,
   LM_FULL * scale,
 ];
+
 const LM_MIN_HALF_NDC = 0.0075;
 const LM_MAX_HALF = 6.5;
 const LM_MAX_HAZE = 0.045;

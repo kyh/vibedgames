@@ -124,11 +124,6 @@ const PCSS_SHADOW_CHUNK = `
 
 `;
 
-interface ChunkRange {
-  end: number;
-  start: number;
-}
-
 const VSM_BRANCH = "#elif defined( SHADOWMAP_TYPE_VSM )";
 const GET_SHADOW_SIGNATURE = "float getShadow( sampler2D shadowMap";
 
@@ -169,8 +164,6 @@ const findVsmBranch = (source: string) => {
 
     match = DIRECTIVE.exec(source);
   }
-
-  return;
 };
 
 const patchSpotAttenuation = () => {

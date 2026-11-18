@@ -9,7 +9,7 @@ const release = (attr: THREE.BufferAttribute) => {
   const Ctor = attr.array.constructor as THREE.TypedArrayConstructor;
   attr.array = new Ctor(0);
   attr.updateRanges.length = 0;
-  attr.onUpload(() => {});
+  attr.onUpload(() => null);
   released += 1;
 };
 

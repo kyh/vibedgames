@@ -3,14 +3,8 @@ import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { afterEach, test } from "node:test";
 
-import {
-  removeSetting,
-  resolveSetting,
-  saveSetting,
-  settingsPath,
-  validate,
-} from "../src/lib/settings.js";
-import { makeCleanups, makeTmpDir, stubEnv } from "./_helpers.js";
+import { removeSetting, resolveSetting, saveSetting, settingsPath, validate } from "../settings.js";
+import { makeCleanups, makeTmpDir, stubEnv } from "../../../test/_helpers.js";
 
 const { cleanups, drain } = makeCleanups();
 

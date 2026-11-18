@@ -10,6 +10,11 @@ export { ROLES } from "./agents.ts";
 
 export type { Role, RoleName } from "./agents.ts";
 
+const FALLBACK_ASSIGNMENT: NextAssignment = {
+  role: "engineer",
+  task: "next.json was missing or invalid — pick the highest-priority unfinished item from .vgfactory/backlog.json and implement it.",
+};
+
 const readNext: (bb: Blackboard) => NextAssignment = (bb) => {
   try {
     const parsed = asJsonObject(parseJson(readFileSync(bb.next, "utf-8")));
@@ -21,11 +26,11 @@ const readNext: (bb: Blackboard) => NextAssignment = (bb) => {
         return { role, task: asString(parsed.task) ?? "", type: asString(parsed.type) };
       }
     }
-  } catch {}
-  return {
-    role: "engineer",
-    task: "next.json was missing or invalid — pick the highest-priority unfinished item from .vgfactory/backlog.json and implement it.",
-  };
+  } catch {
+    return FALLBACK_ASSIGNMENT;
+  }
+
+  return FALLBACK_ASSIGNMENT;
 };
 
 /** Which subagent runs a given phase. `work` is routed dynamically. */
@@ -58,6 +63,10 @@ export const roleForPhase: (phase: Phase, bb: Blackboard) => RoleName = (phase, 
 
     case "work": {
       return readNext(bb).role;
+    }
+
+    default: {
+      throw new Error(`unhandled phase: ${String(phase)}`);
     }
   }
 };
@@ -149,6 +158,10 @@ const phaseTask: (phase: Phase, state: AgentState, bb: Blackboard) => string = (
       } satisfies Record<RoleName, string>;
 
       return `Current assignment from the director (./.vgfactory/next.json)${kind}:\n\n${next.task}\n\nDo exactly this for "${slug}". ${close[next.role]}`;
+    }
+
+    default: {
+      throw new Error(`unhandled phase: ${String(phase)}`);
     }
   }
 };

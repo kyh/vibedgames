@@ -4,14 +4,14 @@ import path from "node:path";
 import { afterEach, test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { isJsonObject } from "../src/lib/types.js";
-import { makeCleanups, makeTmpDir } from "./_helpers.js";
+import { isJsonObject } from "../types.js";
+import { makeCleanups, makeTmpDir } from "../../../test/_helpers.js";
 
 const { cleanups, drain } = makeCleanups();
 
 afterEach(drain);
 
-const CLI = fileURLToPath(new URL("../src/index.ts", import.meta.url));
+const CLI = fileURLToPath(new URL("../../index.ts", import.meta.url));
 
 const vg = (configHome: string, ...args: string[]) => {
   const env: NodeJS.ProcessEnv = {

@@ -175,6 +175,11 @@ export const createConsoleReporter: () => Reporter = () => {
 
       case "tool": {
         consola.log(`${tag} ⚙ ${event.name}${event.detail ? `  (${event.detail})` : ""}`);
+        break;
+      }
+
+      default: {
+        break;
       }
     }
   };
@@ -204,7 +209,7 @@ export const createConsoleReporter: () => Reporter = () => {
     },
     runEnded: summaryBanner,
     start: banner,
-    stateChanged: () => {},
+    stateChanged: () => null,
     turnEnd,
     turnStart,
     warn: (msg) => {

@@ -13,27 +13,23 @@ import {
   readApplicationId,
   setGradleVersion,
   setManifest,
-} from "../src/lib/distribute/android-shell.js";
-import { auditBuild, remoteHosts } from "../src/lib/distribute/audit.js";
-import type { BuildFile } from "../src/lib/distribute/audit.js";
-import { readDistributeProject, writeDistributeFields } from "../src/lib/distribute/config.js";
-import type { NativeConfig } from "../src/lib/distribute/config.js";
-import {
-  iosPlistEntries,
-  setPlistEntries,
-  setXcodeBuildSettings,
-} from "../src/lib/distribute/ios-shell.js";
-import { findPortal } from "../src/lib/distribute/portals.js";
-import type { PortalLimits, PortalSdk } from "../src/lib/distribute/portals.js";
-import { startPreview } from "../src/lib/distribute/preview.js";
-import { withSdkScript } from "../src/lib/distribute/sdk-script.js";
-import { makeCleanups, makeTmpDir } from "./_helpers.js";
+} from "../android-shell.js";
+import { auditBuild, remoteHosts } from "../audit.js";
+import type { BuildFile } from "../audit.js";
+import { readDistributeProject, writeDistributeFields } from "../config.js";
+import type { NativeConfig } from "../config.js";
+import { iosPlistEntries, setPlistEntries, setXcodeBuildSettings } from "../ios-shell.js";
+import { findPortal } from "../portals.js";
+import type { PortalLimits, PortalSdk } from "../portals.js";
+import { startPreview } from "../preview.js";
+import { withSdkScript } from "../sdk-script.js";
+import { makeCleanups, makeTmpDir } from "../../../../test/_helpers.js";
 
 const { cleanups, drain } = makeCleanups();
 
 afterEach(drain);
 
-const CLI = fileURLToPath(new URL("../src/index.ts", import.meta.url));
+const CLI = fileURLToPath(new URL("../../../index.ts", import.meta.url));
 
 const TSX = import.meta.resolve("tsx");
 

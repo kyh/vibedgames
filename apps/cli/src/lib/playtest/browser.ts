@@ -55,12 +55,6 @@ export interface Launched {
   manifest: JsonValue | null;
 }
 
-interface CommandResult {
-  status: number;
-  stdout: string;
-  stderr: string;
-}
-
 export class GameBrowser {
   private readonly bin: string;
   private readonly session: string;

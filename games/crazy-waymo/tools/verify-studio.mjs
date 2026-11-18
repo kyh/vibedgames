@@ -342,7 +342,7 @@ const review = () => {
       });
       await Promise.all(
         (document.querySelector("#district")?.getAnimations() ?? []).map((animation) =>
-          animation.finished.catch(() => {}),
+          animation.finished.catch(() => null),
         ),
       );
     }, view);

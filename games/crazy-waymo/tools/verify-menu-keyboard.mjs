@@ -169,9 +169,7 @@ try {
 } catch (error) {
   report.failure = String(error);
 
-  try {
-    await screenshot("failure");
-  } catch {}
+  await screenshot("failure").catch(() => null);
 } finally {
   report.passed = !report.failure && report.checks.every((entry) => entry.passed);
   writeFileSync(path.join(output, "report.json"), `${JSON.stringify(report, null, 2)}\n`);

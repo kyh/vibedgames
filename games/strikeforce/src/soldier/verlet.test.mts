@@ -3,8 +3,8 @@ import { test } from "node:test";
 
 import { Vector3 } from "three";
 
-import { Verlet } from "../src/soldier/verlet.ts";
-import type { Terrain } from "../src/soldier/verlet.ts";
+import { Verlet } from "./verlet.ts";
+import type { Terrain } from "./verlet.ts";
 
 const DT = 1 / 60;
 const WALL = 2;

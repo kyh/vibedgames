@@ -18,13 +18,15 @@ export interface JsonObject {
 
 /** Parse text as JSON, or undefined when malformed (JSON never encodes undefined). */
 export const parseJson = (text: string) => {
-  try {
-    const value: JsonValue = JSON.parse(text);
+  let value: JsonValue | undefined;
 
-    return value;
+  try {
+    value = JSON.parse(text);
   } catch {
-    return;
+    value = undefined;
   }
+
+  return value;
 };
 
 export const isJsonString = (value: JsonValue | undefined): value is string =>

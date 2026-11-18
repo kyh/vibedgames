@@ -52,13 +52,6 @@ const scaleCurve = (t: number) => {
   return 1;
 };
 
-interface Look {
-  size: number;
-  color: string;
-  stroke: string;
-  glow: string;
-}
-
 const lookFor = (style: NumberStyle, grow: number, beat: number) => {
   let size: number;
   let color: string;
@@ -171,7 +164,7 @@ export class DamageNumbers {
     this.view = view;
     this.layer = document.createElement("div");
     this.layer.style.cssText =
-      "position:fixed;inset:0;pointer-events:none;z-index:6;overflow:hidden;" + "contain:strict;";
+      "position:fixed;inset:0;pointer-events:none;z-index:6;overflow:hidden;contain:strict;";
     document.body.append(this.layer);
 
     for (let i = 0; i < POOL; i += 1) {

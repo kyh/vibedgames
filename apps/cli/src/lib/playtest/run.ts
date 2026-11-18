@@ -134,11 +134,6 @@ interface Metrics {
   tickOfFirstScore: number | null;
 }
 
-interface Outcome {
-  progressed: boolean;
-  stuck: boolean;
-}
-
 const measure = (
   metrics: Metrics,
   window: Window,
@@ -347,7 +342,12 @@ export const runInPage = async (browser: GameBrowser, opts: RunOptions, session:
 };
 
 const summarizeProgress = (timeline: TimelineEntry[]) => {
-  const scored = timeline.map((entry) => entry.progress).filter((p) => p !== null);
+  const scored = timeline.flatMap((entry) => {
+    const p = entry.progress;
+
+    return p === null ? [] : [p];
+  });
+
   const [first] = scored;
   const last = scored.at(-1);
 

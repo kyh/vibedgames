@@ -5,6 +5,7 @@ import { asJsonObject, asString, asNumber, isJsonString, parseJson } from "./jso
 import type { JsonObject, JsonValue } from "./json.ts";
 import type { Activity } from "./reporter.ts";
 import type { RunOptions, RunResult } from "./runner.ts";
+import { bestEffort } from "./best-effort.ts";
 
 const RESULT_EXIT_GRACE_MS = 10_000;
 
@@ -224,14 +225,14 @@ export const runClaude: (opts: RunOptions) => Promise<RunResult> = (opts) => {
         clearTimeout(sessionTimer);
       }
 
-      try {
+      bestEffort(() => {
         rl?.close();
-      } catch {}
-      try {
+      });
+      bestEffort(() => {
         child?.stdout?.destroy();
         child?.stderr?.destroy();
         child?.unref();
-      } catch {}
+      });
       resolve(res);
     };
 
@@ -245,9 +246,9 @@ export const runClaude: (opts: RunOptions) => Promise<RunResult> = (opts) => {
       }
 
       idleTimer = setTimeout(() => {
-        try {
+        bestEffort(() => {
           child?.kill("SIGKILL");
-        } catch {}
+        });
         settle({
           error: `no output for ${fmtMs(opts.idleTimeoutMs)} — treating claude as hung`,
           ok: false,
@@ -286,9 +287,9 @@ export const runClaude: (opts: RunOptions) => Promise<RunResult> = (opts) => {
 
     if (opts.maxSessionMs > 0) {
       sessionTimer = setTimeout(() => {
-        try {
+        bestEffort(() => {
           child?.kill("SIGKILL");
-        } catch {}
+        });
         settle({
           error: `exceeded the ${fmtMs(opts.maxSessionMs)} session limit — killed`,
           ok: false,
@@ -324,9 +325,9 @@ export const runClaude: (opts: RunOptions) => Promise<RunResult> = (opts) => {
       }
 
       graceTimer = setTimeout(() => {
-        try {
+        bestEffort(() => {
           child?.kill("SIGKILL");
-        } catch {}
+        });
         settle(final);
       }, RESULT_EXIT_GRACE_MS);
       graceTimer.unref?.();

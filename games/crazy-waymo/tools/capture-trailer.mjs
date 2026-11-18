@@ -90,13 +90,12 @@ const waitForServer = async (url) => {
   const deadline = Date.now() + 60_000;
 
   while (Date.now() < deadline) {
-    try {
-      const response = await fetch(url, { signal: AbortSignal.timeout(1500) });
+    const response = await fetch(url, { signal: AbortSignal.timeout(1500) }).catch(() => null);
 
-      if (response.ok) {
-        return;
-      }
-    } catch {}
+    if (response?.ok) {
+      return;
+    }
+
     await wait(250);
   }
 
@@ -339,7 +338,9 @@ const capture = async (browser, baseUrl, folder, { clean, scene }) => {
         }));
 
         result = { ...result, ...snapshot.state, finishedAtMs: snapshot.now };
-      } catch {}
+      } catch (snapshotError) {
+        console.warn(`final trailer state unreadable: ${String(snapshotError)}`);
+      }
     }
 
     if (audioStartedAtMs !== null && !page.isClosed()) {
@@ -877,7 +878,9 @@ const main = async () => {
     if (server?.pid) {
       try {
         process.kill(-server.pid, "SIGTERM");
-      } catch {}
+      } catch (killError) {
+        console.warn(`dev server already gone: ${String(killError)}`);
+      }
     }
 
     await writeFile(

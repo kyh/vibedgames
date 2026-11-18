@@ -28,7 +28,7 @@ const openBrowser = (url: string, baseUrl: string) => {
 
   const [cmd, args] = openers[process.platform] ?? ["xdg-open", [target.href]];
   const child = spawn(cmd, args, { detached: true, stdio: "ignore" });
-  child.on("error", () => {});
+  child.on("error", () => null);
   child.unref();
 };
 

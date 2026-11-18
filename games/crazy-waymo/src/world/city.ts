@@ -541,11 +541,6 @@ interface BatchBuildCtx {
   readonly untagged: Map<string, number>;
 }
 
-interface ItemExtents {
-  readonly worldH: number;
-  readonly extent: number;
-}
-
 const itemExtents = (item: BatchItem | undefined) => {
   if (!item) {
     return { extent: 3, worldH: 3 };
@@ -655,7 +650,9 @@ const atlasPixels = (tex: THREE.Texture) => {
         ctx.drawImage(img, 0, 0, w, h);
         out = { data: ctx.getImageData(0, 0, w, h).data, h, w };
       }
-    } catch {}
+    } catch {
+      out = null;
+    }
   }
 
   atlasPixelCache.set(tex.uuid, out);

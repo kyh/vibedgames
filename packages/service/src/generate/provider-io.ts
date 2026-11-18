@@ -52,7 +52,7 @@ export const readBytesBounded = async (response: Response, maxBytes: number, lab
     total += next.value.byteLength;
 
     if (total > maxBytes) {
-      await reader.cancel().catch(() => {});
+      await reader.cancel().catch(() => null);
       rejectOversize(label, maxBytes);
     }
 
@@ -141,7 +141,9 @@ export const readSseJson = async (
     try {
       last = JSON.parse(event);
       parsedAny = true;
-    } catch {}
+    } catch {
+      continue;
+    }
   }
 
   if (!parsedAny) {

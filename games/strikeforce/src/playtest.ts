@@ -10,12 +10,6 @@ import type { StrikeforceGame } from "./core/types";
 import type { Match } from "./net/match";
 import type { Point } from "./net/rules";
 
-interface Offset {
-  dx: number;
-  dz: number;
-  dist: number;
-}
-
 const offset = (from: Vector3, to: Point) => {
   const dx = to.x - from.x;
   const dz = to.z - from.z;
@@ -42,11 +36,6 @@ const nearestOf = (from: Vector3, points: readonly Point[]) => {
 
   return best;
 };
-
-interface Nearby {
-  nearestEnemy: Offset | null;
-  nearestRelay: Offset | null;
-}
 
 const nearby = (game: StrikeforceGame, match: Match) => {
   const { pos } = game.player;

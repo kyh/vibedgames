@@ -13,11 +13,6 @@ type Client = ReturnType<typeof createClient>;
 const POLL_INTERVAL_MS = 2000;
 const POLL_TIMEOUT_MS = 30 * 60 * 1000;
 
-interface CompletedResult {
-  request_id: string;
-  result: JsonValue;
-}
-
 const pickErrorReason = (value: JsonValue) => {
   if (!isJsonObject(value)) {
     return null;

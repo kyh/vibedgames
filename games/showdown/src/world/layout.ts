@@ -248,11 +248,6 @@ const pickBoxSpots = (draft: Draft) => {
   return boxSpots;
 };
 
-interface Reach {
-  reached: Uint8Array;
-  count: number;
-}
-
 const floodReachable = (tiles: Uint8Array, start: number) => {
   const reached = new Uint8Array(TILE_COUNT);
   const stack = [start];

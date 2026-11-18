@@ -29,8 +29,6 @@ interface Token {
 const IDENT_START = /[A-Za-z_]/u;
 const IDENT_BODY = /[A-Za-z0-9_]/u;
 
-type Punctuation = "{" | "}" | "[" | "]" | "=" | "," | ";";
-
 const punctuationOf = (ch: string) => {
   switch (ch) {
     case "{":

@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { bestEffort } from "./best-effort.ts";
 
 const GIT_TIMEOUT_MS = 60_000;
 
@@ -50,7 +51,7 @@ const ensureRepo = (workspace: string) => {
 
   const gitignore = path.resolve(workspace, ".gitignore");
 
-  try {
+  bestEffort(() => {
     const body = existsSync(gitignore) ? readFileSync(gitignore, "utf-8") : "";
 
     if (!/^\.vgfactory\/?$/mu.test(body)) {
@@ -60,7 +61,8 @@ const ensureRepo = (workspace: string) => {
         writeFileSync(gitignore, ".vgfactory/\n");
       }
     }
-  } catch {}
+  });
+
   return true;
 };
 

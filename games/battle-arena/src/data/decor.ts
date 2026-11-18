@@ -157,7 +157,6 @@ const dressCampLairs = (add: AddDecor) => {
       add("scaffold_frame_small", c.x + ox * 3, c.y + oy * 3, ang + 0.4, 1);
       add("bucket_pickaxes", c.x + tx * 2.2, c.y + ty * 2.2, hash2(i, 23) * TAU, 0.95);
       add("rocks_small", c.x - tx * 2, c.y - ty * 2, hash2(i, 29) * TAU, 1);
-    } else if (i === 3) {
     } else if (i === 4) {
       add("trunk_large_A", c.x + tx * 2.9, c.y + ty * 2.9, ang + 0.5, 1, true);
       add("trunk_large_A", c.x - ox * 2.7, c.y - oy * 2.7, ang - 0.9, 0.85, true);

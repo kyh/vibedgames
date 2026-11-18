@@ -106,17 +106,21 @@ const proceduralMapData: () => MapData = () => {
   return { colliders, props, version: 1 };
 };
 
+const parseStoredMap = (raw: string) => {
+  try {
+    return parseMapData(JSON.parse(raw));
+  } catch {
+    return null;
+  }
+};
+
 const loadInitial: () => Promise<MapData> = async () => {
   const raw = localStorage.getItem(MAP_STORAGE_KEY);
 
-  if (raw !== null) {
-    try {
-      const parsed = parseMapData(JSON.parse(raw));
+  const stored = raw === null ? null : parseStoredMap(raw);
 
-      if (parsed) {
-        return parsed;
-      }
-    } catch {}
+  if (stored) {
+    return stored;
   }
 
   try {
@@ -129,7 +133,10 @@ const loadInitial: () => Promise<MapData> = async () => {
         return parsed;
       }
     }
-  } catch {}
+  } catch {
+    return proceduralMapData();
+  }
+
   return proceduralMapData();
 };
 

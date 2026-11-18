@@ -623,7 +623,10 @@ export class UnitView {
     }
 
     if (now < this.oneShotUntil) {
-    } else if (airborne) {
+      return;
+    }
+
+    if (airborne) {
       this.playJumpPhase(u, now);
     } else if (spinning) {
       ch.play(SPIN_LOOP_CLIP, { fade: 0.1, loop: true, timeScale: TWO_H_SPEED });

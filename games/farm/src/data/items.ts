@@ -131,6 +131,10 @@ export const itemIcon = (item: Item) => {
     case "forage": {
       return { frame: 0, key: FORAGE_ICON[item.forage] };
     }
+
+    default: {
+      throw new Error("unhandled item.kind");
+    }
   }
 };
 
@@ -162,6 +166,10 @@ export const itemName = (item: Item) => {
 
     case "forage": {
       return FORAGE_NAME[item.forage];
+    }
+
+    default: {
+      throw new Error("unhandled item.kind");
     }
   }
 };
@@ -197,6 +205,10 @@ export const sameItem = (a: Item, b: Item) => {
     case "forage": {
       return b.kind === "forage" && a.forage === b.forage;
     }
+
+    default: {
+      throw new Error("unhandled a.kind");
+    }
   }
 };
 
@@ -225,6 +237,10 @@ export const sellValue = (item: Item) => {
     case "seed":
     case "tool": {
       return 0;
+    }
+
+    default: {
+      throw new Error("unhandled item.kind");
     }
   }
 };

@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { ROOM_PREFIX, decodeMatch, encodeMatch, q3, roomId } from "../src/net/protocol.ts";
-import { newMatch } from "../src/net/rules.ts";
-import { callsignOf } from "../src/net/players.ts";
-import { isRecord, nums, strs, vecAt, vecWire } from "../src/net/wire.ts";
+import { ROOM_PREFIX, decodeMatch, encodeMatch, q3, roomId } from "./protocol.ts";
+import { newMatch } from "./rules.ts";
+import { callsignOf } from "./players.ts";
+import { isRecord, nums, strs, vecAt, vecWire } from "./wire.ts";
 
 test("nums accepts only arrays of finite numbers, at least min long", () => {
   assert.deepEqual(nums([1, 2.5, -3], 3), [1, 2.5, -3]);

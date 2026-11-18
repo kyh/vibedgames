@@ -870,12 +870,8 @@ try {
   console.error(String(error));
 
   if (sessionId) {
-    try {
-      report.failureState = await startSnapshot();
-    } catch {}
-    try {
-      await screenshot("failure");
-    } catch {}
+    report.failureState = await startSnapshot().catch(() => null);
+    await screenshot("failure").catch(() => null);
   }
 } finally {
   await cleanup();

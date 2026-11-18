@@ -57,17 +57,15 @@ const LANDMARK_NAMES = new Map<number, string>([
 ]);
 
 const landmarksToKeypoints = (landmarks: NormalizedLandmark[], width: number, height: number) =>
-  landmarks
-    .map((lm, i) => {
-      const name = LANDMARK_NAMES.get(i);
+  landmarks.flatMap((lm, i) => {
+    const name = LANDMARK_NAMES.get(i);
 
-      if (!name) {
-        return null;
-      }
+    if (!name) {
+      return [];
+    }
 
-      return { name, score: lm.visibility, x: lm.x * width, y: lm.y * height };
-    })
-    .filter((kp): kp is Keypoint => kp !== null);
+    return [{ name, score: lm.visibility, x: lm.x * width, y: lm.y * height }];
+  });
 
 type CameraState = "idle" | "starting" | "live" | "unavailable";
 

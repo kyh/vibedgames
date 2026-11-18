@@ -463,15 +463,6 @@ interface LateJoiner {
   b: Client | null;
 }
 
-interface Run {
-  a: Client;
-  b: Client;
-  server: Server;
-  last: number;
-  leadBefore: number;
-  leadSpiked: number;
-}
-
 const playMatch = (seed: number) => {
   const clock = createClock();
   const roll = generator(seed);

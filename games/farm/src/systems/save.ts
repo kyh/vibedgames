@@ -107,5 +107,9 @@ export const clearSave = () => {
 
   try {
     localStorage.removeItem(KEY);
-  } catch {}
+
+    return true;
+  } catch {
+    return false;
+  }
 };

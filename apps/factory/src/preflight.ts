@@ -5,6 +5,7 @@ import path from "node:path";
 import { claudeBin, codexBin, findRepoRoot } from "./config.ts";
 import type { Reporter } from "./reporter.ts";
 import type { Runner } from "./runner.ts";
+import { bestEffort } from "./best-effort.ts";
 
 const INIT_TIMEOUT_MS = 5 * 60_000;
 
@@ -59,9 +60,9 @@ const runInit: (cwd: string, viaNpx: boolean) => Promise<boolean> = (cwd, viaNpx
     };
 
     timeout.handle = setTimeout(() => {
-      try {
+      bestEffort(() => {
         child.kill("SIGKILL");
-      } catch {}
+      });
       settle(false);
     }, INIT_TIMEOUT_MS);
     timeout.handle.unref?.();

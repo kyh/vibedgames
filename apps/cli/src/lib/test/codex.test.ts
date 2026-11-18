@@ -12,9 +12,9 @@ import {
   renderLocalTarget,
   chooseProvider,
   parseProvider,
-} from "../src/lib/codex.js";
-import { saveSetting } from "../src/lib/settings.js";
-import { makeCleanups, makeTmpDir, stubEnv } from "./_helpers.js";
+} from "../codex.js";
+import { saveSetting } from "../settings.js";
+import { makeCleanups, makeTmpDir, stubEnv } from "../../../test/_helpers.js";
 
 const { cleanups, drain } = makeCleanups();
 

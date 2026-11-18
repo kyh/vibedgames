@@ -257,7 +257,9 @@ const launchBrowser = async (chromium) => {
   for (const channel of ["chrome", "chromium"]) {
     try {
       return await chromium.launch({ channel });
-    } catch {}
+    } catch {
+      continue;
+    }
   }
 
   console.error(

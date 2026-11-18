@@ -144,7 +144,9 @@ const ensureTypecheckScript = (target: string) => {
     scripts.typecheck = "tsc --noEmit";
     pkg.scripts = scripts;
     writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
-  } catch {}
+  } catch (error) {
+    consola.warn(`Left package.json without a typecheck script: ${String(error)}`);
+  }
 };
 
 const rewritePackageName = (target: string, slug: string) => {

@@ -12,6 +12,7 @@ import path from "node:path";
 
 import { asJsonObject, asNumber } from "./json.ts";
 import type { JsonValue } from "./json.ts";
+import { bestEffort } from "./best-effort.ts";
 
 /**
  * The agent advances a single game through a fixed phase machine — a durable,
@@ -152,7 +153,7 @@ export const hasExistingProject = (dir: string) => {
 export const migrateLegacyLayout = (workspace: string) => {
   const current = path.resolve(workspace, ".vgfactory");
 
-  try {
+  bestEffort(() => {
     if (existsSync(current)) {
       return;
     }
@@ -166,7 +167,7 @@ export const migrateLegacyLayout = (workspace: string) => {
         return;
       }
     }
-  } catch {}
+  });
 };
 
 export const loadState = (bb: Blackboard) =>
@@ -240,9 +241,10 @@ export const setDirective = (bb: Blackboard, text: string) => {
   const trimmed = text.trim();
 
   if (!trimmed) {
-    try {
+    bestEffort(() => {
       rmSync(bb.directive);
-    } catch {}
+    });
+
     return;
   }
 
@@ -259,9 +261,10 @@ export const takeCheckpoint = (bb: Blackboard) => {
     return null;
   }
 
-  try {
+  bestEffort(() => {
     rmSync(bb.checkpoint);
-  } catch {}
+  });
+
   return text || null;
 };
 
@@ -273,7 +276,11 @@ export const clearStop = (bb: Blackboard) => {
     if (existsSync(bb.stop)) {
       rmSync(bb.stop);
     }
-  } catch {}
+
+    return true;
+  } catch {
+    return false;
+  }
 };
 
 /** The current approval token (APPROVE file contents), or null if none. */
@@ -310,7 +317,11 @@ export const consumeApproval = (bb: Blackboard) => {
     if (existsSync(bb.approve)) {
       rmSync(bb.approve);
     }
-  } catch {}
+
+    return true;
+  } catch {
+    return false;
+  }
 };
 
 type LockStatus =
@@ -405,9 +416,9 @@ export const acquireLock: (bb: Blackboard) => number | null = (bb) => {
         return LOCK_BUSY_UNKNOWN;
       }
 
-      try {
+      bestEffort(() => {
         rmSync(bb.lock);
-      } catch {}
+      });
     }
   }
 
@@ -422,5 +433,9 @@ export const releaseLock = (bb: Blackboard) => {
     if (lockOwnerPid(readFileSync(bb.lock, "utf-8")) === process.pid) {
       rmSync(bb.lock);
     }
-  } catch {}
+
+    return true;
+  } catch {
+    return false;
+  }
 };

@@ -3,7 +3,6 @@ import { getServerByName, routePartykitRequest, Server } from "partyserver";
 
 import type {
   ClaimMap,
-  Player,
   PlayerLimit,
   PlayerMap,
   RoomInfo,
@@ -293,6 +292,16 @@ const UNPUBLISHED: RoomInfo = { locked: false, meta: {} };
 
 const OVERFLOW_SEP = "~";
 
+const closeIdle = (connection: Connection<Presence>) => {
+  try {
+    connection.close(1001, "idle");
+
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 const nextOverflowRoom = (room: string) => {
   const idx = room.lastIndexOf(OVERFLOW_SEP);
 
@@ -551,8 +560,6 @@ export class VgServer extends Server {
         return connection;
       }
     }
-
-    return;
   }
 
   private graceById(id: string) {
@@ -561,8 +568,6 @@ export class VgServer extends Server {
         return entry;
       }
     }
-
-    return;
   }
 
   private async consumeGrace(entry: GraceEntry) {
@@ -637,7 +642,11 @@ export class VgServer extends Server {
   private static sendTo(connection: Connection<Presence>, raw: string) {
     try {
       connection.send(raw);
-    } catch {}
+
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   private static parsePatch(
@@ -1576,9 +1585,7 @@ export class VgServer extends Server {
     }
 
     for (const connection of stale) {
-      try {
-        connection.close(1001, "idle");
-      } catch {}
+      closeIdle(connection);
       await this.removePlayer(connection);
     }
 
@@ -1647,7 +1654,11 @@ export class VgServer extends Server {
   private static detachPresence(connection: Connection<Presence>) {
     try {
       connection.setState(null);
-    } catch {}
+
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   private async removePlayer(connection: Connection<Presence>) {

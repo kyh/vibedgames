@@ -99,7 +99,7 @@ export class Enemy {
       }
 
       default: {
-        return;
+        break;
       }
     }
   }

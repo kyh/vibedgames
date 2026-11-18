@@ -84,7 +84,7 @@ const aimedRegions: (def: AbilityDef, v: (f: string) => number) => HitRegion[] |
     }
 
     default: {
-      return;
+      break;
     }
   }
 };

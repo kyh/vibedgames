@@ -4,11 +4,6 @@ import type { WaterBody } from "./water";
 
 type Box = Pick<Solid, "minX" | "maxX" | "minZ" | "maxZ">;
 
-interface Point {
-  readonly x: number;
-  readonly z: number;
-}
-
 const EDGE_RESOLUTION = 0.4;
 
 const corners = (box: Box) => [

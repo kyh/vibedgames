@@ -292,7 +292,11 @@ export class GameScene {
 
     try {
       localStorage.setItem(CAMERA_KEY, this.chase ? "chase" : "iso");
-    } catch {}
+
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   /** Draw the frame: everything that moves goes on stage, then the stage renders. */

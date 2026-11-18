@@ -291,20 +291,6 @@ export const renderLocalTarget = (
   return path.resolve(template, `codex-image-${index}.${ext}`);
 };
 
-interface CodexRun {
-  requestId: string;
-  prompt: string;
-  /** Absolute paths to the images Codex produced, in a stable order. */
-  rawFiles: string[];
-  /**
-   * Reference inputs that were dropped because they weren't local files
-   * (Codex can only attach on-disk references). Surfaced to the caller so
-   * it isn't silently lost — especially under --json, where a warning to
-   * a suppressed logger would vanish.
-   */
-  ignoredReferences: string[];
-}
-
 const codexHome = () => process.env.CODEX_HOME ?? path.join(homedir(), ".codex");
 
 const listImages = (dir: string, depth = 1) => {
@@ -343,7 +329,10 @@ const pickNewest = (paths: string[], limit: number) => {
 
     try {
       ({ mtimeMs } = statSync(p));
-    } catch {}
+    } catch {
+      mtimeMs = 0;
+    }
+
     return { mtimeMs, p };
   });
 

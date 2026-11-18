@@ -87,7 +87,9 @@ const loadPlaywright = () => {
       const loaded: Playwright = createRequire(from)(name);
 
       return loaded;
-    } catch {}
+    } catch {
+      continue;
+    }
   }
 
   throw new Error("og-video: no playwright or playwright-core to drive Chromium with");

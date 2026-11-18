@@ -103,6 +103,17 @@ const recentlyFailed = (stamp: string) => {
   }
 };
 
+const touchStamp = (stamp: string) => {
+  try {
+    mkdirSync(getConfigDir(), { mode: 0o700, recursive: true });
+    writeFileSync(stamp, "");
+
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 /**
  * Bring an agent-browser older than the minimum up to it.
  *
@@ -112,6 +123,7 @@ const recentlyFailed = (stamp: string) => {
  * leave an older global install — already on PATH from some earlier project —
  * driving every run, which is how a documented contract silently stops holding.
  */
+
 export const ensureMinimum = (resolved: Binary) => {
   if (meetsMinimum(resolved.version)) {
     return resolved;
@@ -129,10 +141,7 @@ export const ensureMinimum = (resolved: Binary) => {
   const upgraded = installGlobal();
 
   if (!upgraded || !meetsMinimum(upgraded.version)) {
-    try {
-      mkdirSync(getConfigDir(), { mode: 0o700, recursive: true });
-      writeFileSync(stamp, "");
-    } catch {}
+    touchStamp(stamp);
     consola.warn(
       `Couldn't upgrade ${PKG}. Continuing on ${resolved.version} — run \`npm install -g ${PKG_SPEC}\` if commands misbehave.`,
     );

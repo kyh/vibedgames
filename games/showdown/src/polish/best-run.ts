@@ -34,7 +34,11 @@ const loadBestRun = () => {
 const storeBestRun = (best: RunResult) => {
   try {
     localStorage.setItem(BEST_KEY, JSON.stringify(best));
-  } catch {}
+
+    return true;
+  } catch {
+    return false;
+  }
 };
 
 const beats = (run: RunResult, best: RunResult | null) =>

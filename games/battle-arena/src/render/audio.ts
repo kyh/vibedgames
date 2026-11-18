@@ -50,6 +50,16 @@ const readMuted = () => {
   }
 };
 
+const persistMuted = (on: boolean) => {
+  try {
+    localStorage.setItem("ba-muted", on ? "1" : "0");
+
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 const D3 = 146.83;
 const F3 = 174.61;
 const A3 = 220;
@@ -127,9 +137,8 @@ export class Audio {
     this.preference = on;
     this.mutedOverride = null;
 
-    try {
-      localStorage.setItem("ba-muted", on ? "1" : "0");
-    } catch {}
+    persistMuted(on);
+
     if (!on && window.navigator?.userActivation?.isActive === true) {
       this.unlocked = true;
     }

@@ -61,6 +61,11 @@ export class TuiSink implements Reporter {
           "tool",
           `⚙ ${activity.name}${activity.detail ? ` · ${activity.detail}` : ""}`,
         );
+        break;
+      }
+
+      default: {
+        break;
       }
     }
   }

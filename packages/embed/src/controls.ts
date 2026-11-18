@@ -117,7 +117,7 @@ export const controlHints: (
  */
 export const watchControlContext = (onChange: () => void) => {
   if (typeof window === "undefined") {
-    return () => {};
+    return () => null;
   }
 
   window.addEventListener("gamepadconnected", onChange);

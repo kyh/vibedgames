@@ -112,7 +112,12 @@ const inSeason = (def: FishDef, season: Season) =>
   def.seasons === "all" || def.seasons.includes(season);
 
 export const rollFish = (season: Season, fishingLevel: number, rng: () => number) => {
-  const pool = FISH_IDS.map((id) => FISH[id]).filter((f) => inSeason(f, season));
+  const pool = FISH_IDS.flatMap((id) => {
+    const f = FISH[id];
+
+    return inSeason(f, season) ? [f] : [];
+  });
+
   const rarePull = Math.min(0.9, fishingLevel * 0.09);
 
   const weighted = pool.map((f) => {

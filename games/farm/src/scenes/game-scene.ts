@@ -664,6 +664,10 @@ export class GameScene extends Scene {
       case "coop": {
         return;
       }
+
+      default: {
+        return;
+      }
     }
 
     spr.setDepth(DEPTH.entityBase + by);
@@ -933,6 +937,10 @@ export class GameScene extends Scene {
       }
 
       case "hold": {
+        break;
+      }
+
+      default: {
         break;
       }
     }
@@ -1584,6 +1592,10 @@ export class GameScene extends Scene {
       case "ore": {
         break;
       }
+
+      default: {
+        break;
+      }
     }
   }
 
@@ -1603,7 +1615,7 @@ export class GameScene extends Scene {
         this.toast("Face the water to fish.", "#9fd8ff");
       }
     } else if (tool === "sword") {
-      this.beginAction("doing", () => {});
+      this.beginAction("doing", () => null);
     }
   }
 
