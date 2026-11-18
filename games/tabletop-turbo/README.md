@@ -23,7 +23,7 @@ pnpm --filter @repo/tabletop-turbo build
 | `/?sun=0`     | no shadow pass, for software renderers         |
 | `/?sun=late`  | shadows off until the `sun` test state         |
 
-Test states (`__GAME_TEST_HOOKS__.setState`): `active-play` (on the grid, lights green), `garage` (the title screen), `grid` (held on three reds), `overview` (the whole circuit from above). The last three are fixed framings for captures. `sun` and `sun-off` switch the shadow pass, so a capture can drive without it and light the last frame.
+Test states (`__GAME_TEST_HOOKS__.setState`): `active-play` (on the grid, lights green), `garage` (the title screen), `grid` (held on three reds), `overview` (the whole circuit from above). The last three are fixed framings for captures. `hero` halves the tabletop camera's distance for cover art. `sun` and `sun-off` switch the shadow pass, so a capture can drive without it and light the last frame.
 
 ## Controls
 

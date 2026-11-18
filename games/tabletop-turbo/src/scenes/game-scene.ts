@@ -225,6 +225,8 @@ export class GameScene {
   /** Seconds the last update advanced, for the stage's own clock. */
   private frameDt = 0;
   private painting = false;
+  /** Cover-art framing: the tabletop camera at half its usual distance. */
+  private hero = false;
   private readonly bots = new BotField();
   private readonly racers = new Map<string, Racer>();
   private readonly slots = new Map<string, number>();
@@ -419,6 +421,11 @@ export class GameScene {
   setTestState(name: string): boolean {
     if (name === "garage") {
       return !this.started;
+    }
+    if (name === "hero") {
+      // A close-up of the pack, for cover art.
+      this.hero = true;
+      return true;
     }
     if (name === "sun" || name === "sun-off") {
       this.stage.setSun(name === "sun");
@@ -1265,7 +1272,7 @@ export class GameScene {
   /** A bobbing arrow over the local kart, in its colour: which one is you. */
   private drawMarker(out: SplatSet): void {
     const mine = this.racers.get("me");
-    if (!mine) {
+    if (!mine || this.hero) {
       return;
     }
     // Lower on the chase camera, where height reads as distance.
@@ -1382,7 +1389,17 @@ export class GameScene {
       const ease = this.camReady ? Math.min(1, dt * 2.5) : 1;
       this.lead.x += (clamp(vx * 0.24, -9, 9) - this.lead.x) * ease;
       this.lead.z += (clamp(vz * 0.24, -9, 9) - this.lead.z) * ease;
-      this.slide(pose.x + this.lead.x, pose.z + this.lead.z, 1);
+      if (this.hero) {
+        // Cover art frames the karts round you, not the road ahead.
+        const near = [...this.racers.values()].filter(
+          (racer) => Math.hypot(racer.pose.x - pose.x, racer.pose.z - pose.z) < 16,
+        );
+        const cx = near.reduce((sum, racer) => sum + racer.pose.x, 0) / near.length;
+        const cz = near.reduce((sum, racer) => sum + racer.pose.z, 0) / near.length;
+        this.slide(cx, cz, 1);
+      } else {
+        this.slide(pose.x + this.lead.x, pose.z + this.lead.z, 1);
+      }
     }
     this.camReady = true;
   }
@@ -1400,7 +1417,7 @@ export class GameScene {
     view.ortho = true;
     view.snap = true;
     view.fog = 0;
-    view.height = ISO_HEIGHT;
+    view.height = this.hero ? ISO_HEIGHT * 0.56 : ISO_HEIGHT;
     view.target.set(
       focus.x + (Math.random() - 0.5) * jolt,
       0,
