@@ -12,30 +12,35 @@ export interface TeachingExample {
 }
 
 /** Isolated real boards keep the examples tied to the game's spatial rules. */
-export const teachingExamples = (): TeachingExample[] => {
+export const teachingExamples: () => TeachingExample[] = () => {
   const single = new Board();
   const row = Array.from({ length: single.width }, (_, x) => ({ x, y: 2, z: 3 }));
   single.lock(row, 1);
   const singleClear = single.clearLayer(2);
 
   const crossing = new Board();
+
   const cross = [
     ...row,
     ...Array.from({ length: crossing.depth }, (_, z) => ({ x: 3, y: 2, z })).filter(
       (cell) => cell.z !== 3,
     ),
   ];
+
   crossing.lock(cross, 3);
   const crossedClear = crossing.clearLayer(2);
 
   const landingBoard = new Board();
+
   const obstacles = [
     { x: 3, y: 0, z: 3 },
     { x: 3, y: 1, z: 3 },
     { x: 5, y: 0, z: 4 },
   ];
+
   landingBoard.lock(obstacles, 6);
   const piece = new Piece(2, landingBoard);
+
   return [
     {
       body: "Fill a row at one height. Either floor direction clears.",

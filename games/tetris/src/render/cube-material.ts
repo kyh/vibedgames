@@ -1,14 +1,6 @@
-// Unlit per-face cube shading — the reference's matte look, re-typed clean
-// (no @ts-ignore, no `as ShaderMaterial`). No scene lights: depth reads from
-// shading each face by its normal (top brightest, sides mid, front/back
-// darkest) plus a thin dark edge ink. One base colour in, a readable 3D cube
-// out. ShaderMaterials sharing source share the compiled program, so a
-// material-per-cube is cheap.
-
 import { Color, ShaderMaterial } from "three";
 
-// oxlint-disable-next-line no-inline-comments -- /* glsl */ tags the literal for editor highlighting
-const VERTEX = /* glsl */ `
+const VERTEX = `
   varying vec3 vNormal;
   varying vec2 vUv;
   void main() {
@@ -18,8 +10,7 @@ const VERTEX = /* glsl */ `
   }
 `;
 
-// oxlint-disable-next-line no-inline-comments -- /* glsl */ tags the literal for editor highlighting
-const FRAGMENT = /* glsl */ `
+const FRAGMENT = `
   varying vec3 vNormal;
   varying vec2 vUv;
   uniform vec3 uColor;
@@ -45,7 +36,7 @@ const FRAGMENT = /* glsl */ `
 
 const EDGE_COLOR = new Color(0x0a_0b_12);
 
-export const makeCubeMaterial = (colorHex: number): ShaderMaterial =>
+export const makeCubeMaterial = (colorHex: number) =>
   new ShaderMaterial({
     fragmentShader: FRAGMENT,
     uniforms: {
@@ -59,11 +50,13 @@ export const makeCubeMaterial = (colorHex: number): ShaderMaterial =>
 
 /** Shaded material for the active (falling) slab — slightly brighter so it
  *  pops against the locked stack. */
-export const makeActiveMaterial = (colorHex: number): ShaderMaterial => {
+export const makeActiveMaterial = (colorHex: number) => {
   const m = makeCubeMaterial(colorHex);
   const u = m.uniforms.uBright;
+
   if (u) {
     u.value = 1.18;
   }
+
   return m;
 };

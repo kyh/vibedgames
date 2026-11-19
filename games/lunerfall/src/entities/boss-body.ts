@@ -4,11 +4,7 @@ import { bossKind } from "../data/bosses";
 import type { BossKind } from "../data/bosses";
 import type { Grid } from "../sys/grid";
 import { rand } from "../sys/rng";
-import type { AttackBox, Rect } from "./player-body";
 
-// Biome boss — pure sim. Telegraphed attack FSM with two phases, parameterised by
-// a per-biome BossKind (HP, rhythm, wave fan, charge, summons). The scene reads
-// its intents (waves / blast / adds) and renders the HP bar.
 const GRAVITY = 1400;
 const FALL_CAP = 460;
 const EPS = 0.0001;
@@ -27,31 +23,33 @@ export type BossState =
   | "hurt"
   | "phase"
   | "dead";
+
 export type Wave = {
   x: number;
   y: number;
   vx: number;
   dmg: number;
 };
+
 export type Blast = {
   x: number;
   y: number;
   r: number;
   dmg: number;
 };
+
 export type Add = {
   x: number;
   y: number;
   name: EnemyName;
 };
 
-const approach = (c: number, t: number, d: number): number =>
+const approach = (c: number, t: number, d: number) =>
   c < t ? Math.min(c + d, t) : Math.max(c - d, t);
 
 export class BossBody {
   x: number;
   y: number;
-  // sim position one step ago — for render interpolation
   prevX = 0;
   prevY = 0;
   vx = 0;
@@ -134,10 +132,10 @@ export class BossBody {
     this.hp = this.maxHp;
   }
 
-  get hpFrac(): number {
+  get hpFrac() {
     return Math.max(0, this.hp / this.maxHp);
   }
-  get telegraphing(): boolean {
+  get telegraphing() {
     return (
       (this.state === "wave" && this.stateT < 0.5) ||
       (this.state === "jump" && this.stateT < 0.34) ||
@@ -146,15 +144,15 @@ export class BossBody {
     );
   }
 
-  hurtBox(): Rect {
+  hurtBox() {
     return { bottom: this.y, left: this.x - HW, right: this.x + HW, top: this.y - H };
   }
 
-  // Melee danger (punch active window, slam landing) — else null.
-  attackBox(): AttackBox | null {
+  attackBox() {
     if (this.state === "punch" && this.stateT >= 0.26 && this.stateT < 0.4) {
       const reach = 30;
       const front = this.facing > 0 ? this.x : this.x - reach;
+
       return {
         bottom: this.y,
         dmg: 1,
@@ -164,7 +162,7 @@ export class BossBody {
         top: this.y - H,
       };
     }
-    // The whole body is dangerous mid-lunge — a heavier, knock-you-back hit.
+
     if (this.state === "charge" && this.stateT >= 0.4 && this.stateT < 0.82) {
       return {
         bottom: this.y,
@@ -175,26 +173,32 @@ export class BossBody {
         top: this.y - H,
       };
     }
+
     return null;
   }
 
-  takeHit(dmg: number, _kb: number, _dir: number): boolean {
+  takeHit(dmg: number, _kb: number, _dir: number) {
     if (this.iframes > 0 || this.dead) {
       return false;
     }
+
     this.hp -= dmg;
     this.hitFlash = 0.08;
     this.iframes = 0.03;
+
     if (this.hp <= 0) {
       this.dead = true;
       this.setState("dead");
+
       return true;
     }
+
     if (this.phase === 1 && this.hp <= this.maxHp / 2) {
       this.phase = 2;
       this.setState("phase");
       this.iframes = 0.6;
     }
+
     return true;
   }
 
@@ -219,6 +223,7 @@ export class BossBody {
     this.attackCd = Math.max(0, this.attackCd - dt);
     const dx = tx - this.x;
     const dist = Math.abs(dx);
+
     if (Math.abs(dx) > 4 && (this.state === "idle" || this.state === "intro")) {
       this.facing = dx > 0 ? 1 : -1;
     }
@@ -228,48 +233,62 @@ export class BossBody {
         this.vx = approach(this.vx, 0, 400 * dt);
         break;
       }
+
       case "intro": {
         this.vx = 0;
+
         if (this.stateT >= 1) {
           this.setState("idle");
         }
+
         break;
       }
+
       case "phase": {
         this.phaseShift(dt);
         break;
       }
+
       case "idle": {
         this.idle(dt, dx, dist, ty);
         break;
       }
+
       case "wave": {
         this.wave(dt);
         break;
       }
+
       case "jump": {
         this.jump(dt, dx);
         break;
       }
+
       case "slam": {
         this.slam();
         break;
       }
+
       case "charge": {
         this.charge(dt);
         break;
       }
+
       case "punch": {
         this.punch(dt);
         break;
       }
+
       case "hurt": {
         this.vx = approach(this.vx, 0, 500 * dt);
+
         if (this.stateT >= 0.2) {
           this.setState("idle");
         }
+
         break;
       }
+
       default: {
         break;
       }
@@ -280,6 +299,7 @@ export class BossBody {
 
   private phaseShift(dt: number) {
     this.vx = approach(this.vx, 0, 500 * dt);
+
     if (this.stateT >= 0.8) {
       const { adds } = this.kind;
       this.pendingAdds = adds.map((name, i) => ({
@@ -293,10 +313,10 @@ export class BossBody {
 
   private wave(dt: number) {
     this.vx = approach(this.vx, 0, 500 * dt);
+
     if (this.stateT >= 0.5 && this.pendingWaves.length === 0 && this.stateT < 0.56) {
-      // Fan: `kind.fan` waves at staggered heights and speeds, spreading as
-      // they travel — a single wave for the Salamander, a spread for the rest.
       const n = this.kind.fan;
+
       for (let i = 0; i < n; i += 1) {
         const s = n === 1 ? 0 : i - (n - 1) / 2;
         this.pendingWaves.push({
@@ -307,6 +327,7 @@ export class BossBody {
         });
       }
     }
+
     if (this.stateT >= 0.85) {
       this.endAttack();
     }
@@ -314,6 +335,7 @@ export class BossBody {
 
   private jump(dt: number, dx: number) {
     this.vx = approach(this.vx, 0, 400 * dt);
+
     if (this.stateT >= 0.34) {
       this.vy = -330;
       this.vx = Math.sign(dx || this.facing) * 140;
@@ -329,7 +351,6 @@ export class BossBody {
     }
   }
 
-  // Wind up in place, lunge flat across the arena, then skid to a stop.
   private charge(dt: number) {
     if (this.stateT < 0.4) {
       this.vx = approach(this.vx, 0, 600 * dt);
@@ -337,6 +358,7 @@ export class BossBody {
       this.vx = this.facing * CHARGE_SPEED;
     } else {
       this.vx = approach(this.vx, 0, 900 * dt);
+
       if (this.stateT >= 0.98) {
         this.endAttack();
       }
@@ -346,6 +368,7 @@ export class BossBody {
   private punch(dt: number) {
     this.vx =
       this.stateT >= 0.26 && this.stateT < 0.4 ? this.facing * 90 : approach(this.vx, 0, 600 * dt);
+
     if (this.stateT >= 0.6) {
       this.endAttack();
     }
@@ -353,9 +376,8 @@ export class BossBody {
 
   private idle(dt: number, dx: number, dist: number, ty: number) {
     if (this.attackCd > 0) {
-      // Ranged bosses hold a mid-range pocket (kite in when far, back off when
-      // crowded); bruisers just close the gap.
       const want = this.kind.ranged ? 130 : 60;
+
       if (dist > want + 20) {
         this.vx = approach(this.vx, Math.sign(dx) * 40, 300 * dt);
       } else if (this.kind.ranged && dist < want - 40) {
@@ -363,10 +385,13 @@ export class BossBody {
       } else {
         this.vx = approach(this.vx, 0, 300 * dt);
       }
+
       return;
     }
+
     this.vx = 0;
     const r = rand();
+
     if (this.kind.charges && dist > 70 && dist < 240 && r < 0.4) {
       this.setState("charge");
     } else if (dist < 42 && !this.kind.ranged) {
@@ -389,11 +414,13 @@ export class BossBody {
     if (!this.grounded) {
       this.vy = Math.min(this.vy + GRAVITY * dt, FALL_CAP);
     }
+
     this.moveX(this.vx * dt);
     this.moveY(this.vy * dt);
     const l = this.x - HW + 2;
     const r = this.x + HW - 2;
     this.grounded = this.grid.solidInRect(l, this.y, r, this.y + 2);
+
     if (this.grounded && this.vy > 0) {
       this.vy = 0;
     }
@@ -401,12 +428,14 @@ export class BossBody {
 
   private moveX(dx: number) {
     this.x += dx;
+
     if (this.grid.solidInRect(this.x - HW, this.y - H + 2, this.x + HW, this.y - 2)) {
       if (dx > 0) {
         this.x = Math.floor((this.x + HW) / TILE) * TILE - HW - EPS;
       } else if (dx < 0) {
         this.x = (Math.floor((this.x - HW) / TILE) + 1) * TILE + HW + EPS;
       }
+
       this.vx = 0;
     }
   }
@@ -415,6 +444,7 @@ export class BossBody {
     const l = this.x - HW + 2;
     const r = this.x + HW - 2;
     this.y += dy;
+
     if (dy > 0) {
       if (this.grid.solidInRect(l, this.y - 3, r, this.y)) {
         this.y = Math.floor((this.y - EPS) / TILE) * TILE;
@@ -422,6 +452,7 @@ export class BossBody {
       }
     } else if (dy < 0) {
       const headTop = this.y - H;
+
       if (this.grid.solidInRect(l, headTop, r, headTop + 3)) {
         this.y = (Math.floor(headTop / TILE) + 1) * TILE + H + EPS;
         this.vy = 0;

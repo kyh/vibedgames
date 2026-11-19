@@ -1,13 +1,4 @@
-// What a kart looks like on the wire, and how a remote one is played back.
-//
-// Every human simulates their own kart and reports it at SEND_HZ; the host
-// simulates the bots and reports them in shared state. Both are the same row:
-// stamped with the room's server time and drawn through an Interpolator, a
-// human's on its own clock (each sender's route to us differs), the bots' on
-// one clock they share (they all come from the host).
-
 import { Interpolator, RemoteClock, lerp, lerpAngle } from "@vibedgames/multiplayer";
-import type { JsonRecord } from "@vibedgames/multiplayer";
 
 import type { Kart } from "../sim/kart";
 import { kartSpeed } from "../sim/kart";
@@ -42,10 +33,10 @@ export interface PoseReport extends KartPose {
   round: number;
 }
 
-const round2 = (v: number): number => Math.round(v * 100) / 100;
-const round3 = (v: number): number => Math.round(v * 1000) / 1000;
+const round2 = (v: number) => Math.round(v * 100) / 100;
+const round3 = (v: number) => Math.round(v * 1000) / 1000;
 
-export const poseOf = (kart: Kart, holding = false): KartPose => ({
+export const poseOf = (kart: Kart, holding = false) => ({
   a: kart.a,
   boosting: kart.boost > 0,
   charge: kart.charge,
@@ -62,7 +53,7 @@ export const poseOf = (kart: Kart, holding = false): KartPose => ({
 });
 
 /** Short keys: this row leaves 20 times a second per kart. */
-export const encodePose = (kart: Kart, t: number, round: number, holding = false): JsonRecord => ({
+export const encodePose = (kart: Kart, t: number, round: number, holding = false) => ({
   a: round3(kart.a),
   b: kart.boost > 0 ? 1 : 0,
   c: round2(kart.charge),
@@ -81,14 +72,17 @@ export const encodePose = (kart: Kart, t: number, round: number, holding = false
 });
 
 /** A wire row as a report, or null if it is not one (a player still on the title). */
-export const readPose = (row: WireField): PoseReport | null => {
+export const readPose = (row: WireField) => {
   if (!isJsonObject(row)) {
     return null;
   }
+
   const { a, t, x, z } = row;
+
   if (!isJsonNumber(t) || !isJsonNumber(x) || !isJsonNumber(z) || !isJsonNumber(a)) {
     return null;
   }
+
   return {
     a,
     boosting: row["b"] === 1,
@@ -108,9 +102,9 @@ export const readPose = (row: WireField): PoseReport | null => {
   };
 };
 
-const lerpPose = (p: KartPose, q: KartPose, k: number): KartPose => {
-  // The discrete fields follow whichever report is nearer in time.
+const lerpPose = (p: KartPose, q: KartPose, k: number) => {
   const near = k < 0.5 ? p : q;
+
   return {
     a: lerpAngle(p.a, q.a, k),
     boosting: near.boosting,
@@ -128,7 +122,6 @@ const lerpPose = (p: KartPose, q: KartPose, k: number): KartPose => {
   };
 };
 
-/** Further than a kart can travel between two reports: a respawn, not motion. */
 const TELEPORT = 14;
 
 export class RemoteTrack {
@@ -148,26 +141,27 @@ export class RemoteTrack {
   }
 
   /** Feed the latest report. Call it every frame: a repeat is ignored. */
-  push(report: PoseReport): void {
+  push(report: PoseReport) {
     const { latest } = this.interp;
+
     if (
       latest !== undefined &&
       (report.round !== this.round ||
         Math.hypot(latest.x - report.x, latest.z - report.z) > TELEPORT)
     ) {
-      // A new round puts the kart back on the grid: never glide it there.
       this.interp.clear();
     }
+
     this.round = report.round;
     this.interp.push(report.t, report);
   }
 
-  sample(): KartPose | undefined {
+  sample() {
     return this.interp.sample();
   }
 
   /** Our own connection came back, or the host changed: the route is new. */
-  relearn(): void {
+  relearn() {
     this.clock.relearn();
   }
 }

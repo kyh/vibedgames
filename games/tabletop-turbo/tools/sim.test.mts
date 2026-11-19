@@ -1,6 +1,3 @@
-// Headless race: the sim core under Node, no browser. Every circuit must be
-// drivable by the bot, lap in a sane time, and keep its corridor honest.
-
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
@@ -23,13 +20,14 @@ const DT = 1 / 60;
 
 test("every circuit fits the paint grid and never doubles back on itself", () => {
   const half = (PAINT_SIZE * PAINT_CELL) / 2;
+
   for (const track of TRACKS) {
     for (let i = 0; i < track.n; i += 1) {
       const x = track.xs[i] ?? 0;
       const z = track.zs[i] ?? 0;
       assert.ok(Math.abs(x) + track.rail < half, `${track.def.id} x in grid at ${i}`);
       assert.ok(Math.abs(z) + track.rail < half, `${track.def.id} z in grid at ${i}`);
-      // Any sample far along the lap must be more than two rails away.
+
       for (let j = i + 60; j < track.n - 60 + i && j < track.n; j += 4) {
         const d = Math.hypot(x - (track.xs[j] ?? 0), z - (track.zs[j] ?? 0));
         assert.ok(
@@ -47,13 +45,17 @@ test("a bot finishes every circuit", () => {
     const brain = makeBrain(0);
     let t = 0;
     let railHits = 0;
+
     while (kart.prog < raceLength(track) && t < 240) {
       const events = stepKart(kart, botInput(kart, track, brain, t, 1), track, DT, 0, 1);
+
       if (events.railHit > 4) {
         railHits += 1;
       }
+
       t += DT;
     }
+
     const lap = t / LAPS;
     console.log(
       `${track.def.id}: ${track.n} samples, ${lap.toFixed(1)} s/lap, ${railHits} hard rail hits`,
@@ -67,9 +69,11 @@ test("a bot finishes every circuit", () => {
 test("grid slots are distinct, behind the line and on the road", () => {
   for (const track of TRACKS) {
     const karts = Array.from({ length: 6 }, (_, slot) => spawnKart(track, slot));
+
     for (const [i, kart] of karts.entries()) {
       assert.ok(kart.prog < 0);
       assert.ok(Math.abs(locate(track, kart.x, kart.z, -1).lat) < track.halfWidth);
+
       for (const other of karts.slice(i + 1)) {
         assert.ok(Math.hypot(kart.x - other.x, kart.z - other.z) > 3);
       }
@@ -81,11 +85,12 @@ test("own paint is faster than bare road, rival paint slower", () => {
   const [track] = TRACKS;
   assert.ok(track);
   const flatOut: KartInput = { brake: 0, drift: false, steer: 0, throttle: 1 };
-  const topSpeed = (owner: number): number => {
+
+  const topSpeed = (owner: number) => {
     const kart = spawnKart(track, 0);
     kart.lat = 0;
     let top = 0;
-    // Straight-line physics only: re-pin the kart so the corridor never interferes.
+
     for (let i = 0; i < 600; i += 1) {
       const fresh = spawnKart(track, 0);
       kart.x = fresh.x;
@@ -96,8 +101,10 @@ test("own paint is faster than bare road, rival paint slower", () => {
       stepKart(kart, flatOut, track, DT, owner, 1);
       top = Math.max(top, kartSpeed(kart));
     }
+
     return top;
   };
+
   const bare = topSpeed(0);
   assert.ok(Math.abs(bare - MAX_SPEED) < 0.5, `bare top speed ${bare}`);
   assert.ok(topSpeed(1) > bare + 3);
@@ -115,9 +122,11 @@ test("a held drift charges through the tiers and releases as boost", () => {
   kart.vz = Math.sin(kart.a) * 25;
   const drifting: KartInput = { brake: 0, drift: true, steer: 1, throttle: 1 };
   let started = false;
+
   for (let i = 0; i < 50; i += 1) {
     started ||= stepKart(kart, drifting, track, DT, 0, 1).driftStarted;
   }
+
   assert.ok(started);
   assert.equal(kart.drift, 1);
   const [, tierTwo] = BOOST_TIERS;
@@ -147,6 +156,7 @@ test("standings: finishers by time, then by distance", () => {
     { finishMs: 0, key: "c", prog: 950 },
     { finishMs: 5100, key: "d", prog: 1200 },
   ]).map((entry) => entry.key);
+
   assert.deepEqual(order, ["d", "b", "c", "a"]);
   assert.deepEqual([1, 2, 3, 4, 11, 12, 13, 21].map(ordinal), [
     "1st",

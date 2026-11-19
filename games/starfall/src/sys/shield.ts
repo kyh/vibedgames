@@ -62,7 +62,6 @@ import type {
   EnemyShotState,
   PlayerNetState,
   ShieldModKind,
-  ShieldModNetState,
   SharedState,
   Vec,
 } from "../shared/constants";
@@ -105,13 +104,15 @@ export interface Volley {
 }
 
 /** Hull-contact damage by enemy kind (a charging LANCER is handled by the caller). */
-export const hullContactDamage = (kind: EnemyKind): number => {
+export const hullContactDamage = (kind: EnemyKind) => {
   if (kind === "lancer") {
     return DMG.LANCER_HULL;
   }
+
   if (kind === "dreadnought") {
     return BOSS_CONTACT_DMG;
   }
+
   return DMG.ENEMY_HULL;
 };
 
@@ -139,7 +140,6 @@ export class Shield {
    *  (id → time) — stops stale snapshots resurrecting them into the shield. */
   recentConsumedShots = new Map<string, number>();
 
-  // base shield + mod (victim-side adjudication; mirrored into net state)
   shieldHp = SHIELD_MAX;
 
   overHp = 0;
@@ -178,7 +178,6 @@ export class Shield {
   /** 60° white impact arcs at the incoming-damage angle (150ms each). */
   impactArcs: { angle: number; diesAt: number }[] = [];
 
-  // death bookkeeping (overlay cause + adaptive hints)
   deathCause = "";
 
   deathHint = "";
@@ -233,25 +232,24 @@ export class Shield {
     this.hooks = deps.hooks;
   }
 
-  private ramArmed(): boolean {
+  private ramArmed() {
     return (
       this.shieldMod === "ram" && Math.hypot(this.pilot.shipVX, this.pilot.shipVY) > RAM_ARM_SPEED
     );
   }
 
-  /** REFLECT bounces only while the base shield is above the gate. */
-  private reflectArmed(): boolean {
+  private reflectArmed() {
     return this.shieldMod === "reflect" && this.shieldHp > REFLECT_MIN_SHIELD;
   }
 
-  /** Reflect my velocity off the obstacle at (cx,cy), scaled, plus a nudge out. */
-  private bounceOff(cx: number, cy: number, scale: number): void {
+  private bounceOff(cx: number, cy: number, scale: number) {
     let nx = this.pilot.shipX - cx;
     let ny = this.pilot.shipY - cy;
     const len = Math.hypot(nx, ny) || 1;
     nx /= len;
     ny /= len;
     const dot = this.pilot.shipVX * nx + this.pilot.shipVY * ny;
+
     if (dot < 0) {
       this.pilot.shipVX = (this.pilot.shipVX - 2 * dot * nx) * scale;
       this.pilot.shipVY = (this.pilot.shipVY - 2 * dot * ny) * scale;
@@ -259,12 +257,12 @@ export class Shield {
       this.pilot.shipVX *= scale;
       this.pilot.shipVY *= scale;
     }
+
     this.pilot.shipX += nx * 2;
     this.pilot.shipY += ny * 2;
   }
 
-  /** Ring flash + 60° impact arc + sparks + retuned trauma + pitched ping. */
-  private shieldHitFx(now: number, impactX: number, impactY: number, amount: number): void {
+  private shieldHitFx(now: number, impactX: number, impactY: number, amount: number) {
     this.haloFlashUntil = now + 80;
     const ang = Math.atan2(impactY - this.pilot.shipY, impactX - this.pilot.shipX);
     this.impactArcs.push({ angle: ang, diesAt: now + 150 });
@@ -283,18 +281,14 @@ export class Shield {
       importance: "important",
       lifeMax: 250,
       lifeMin: 150,
-      // Hull-local, and the reel's crowd shots take one of these every few
-      // frames — the single biggest contributor to the white splat.
       scale: 0.6 * this.view.hullGlow(),
     });
-    // Hits sound lower as you get closer to death (§A.5).
     const fraction = Math.max(0, Math.min(1, this.shieldHp / SHIELD_MAX));
     sfx.play("shield_hit", { rate: 0.85 + 0.3 * fraction });
     this.trauma.add(amount >= 40 ? 0.25 : 0.12);
   }
 
-  /** Halo break flash (PHASE blinks; death layers shield_break in die()). */
-  private shieldBreakFx(now: number): void {
+  private shieldBreakFx(now: number) {
     this.haloFlashUntil = now + 80;
     this.fx.ring(
       this.pilot.shipX,
@@ -322,11 +316,11 @@ export class Shield {
     cause: string,
     killerId: string | null,
     now: number,
-  ): "phased" | "dead" | "drained" {
+  ) {
     if (!this.pilot.alive) {
       return "dead";
     }
-    // PHASE auto-blink: negate haymakers (≥40) and killing blows entirely.
+
     if (
       this.shieldMod === "phase" &&
       now >= this.phaseReadyAt &&
@@ -334,93 +328,103 @@ export class Shield {
     ) {
       this.phasedUntil = now + PHASE_DURATION_MS;
       this.phaseReadyAt = now + PHASE_COOLDOWN_MS;
-      // Blink cost — phasing itself can never kill you.
       this.shieldHp -= Math.min(PHASE_COST, Math.max(0, this.shieldHp - 1));
       this.lastDamageAt = now;
       this.regenActive = false;
       this.shieldBreakFx(now);
       sfx.play("shield_break", { gain: 0.6, rate: 1.25 });
+
       return "phased";
     }
-    // BULWARK: hits landing inside the frontal cone are mitigated; the rear is
-    // exposed. fromX/fromY is the hit source, so no extra wire data is needed.
+
     let mitigated = amount;
+
     if (this.shieldMod === "bulwark" && now < this.shieldModUntil) {
       let rel =
         Math.atan2(fromY - this.pilot.shipY, fromX - this.pilot.shipX) - this.pilot.shipAngle;
-      // wrap to [-π, π]
+
       rel = Math.atan2(Math.sin(rel), Math.cos(rel));
+
       if (Math.abs(rel) <= ((BULWARK_CONE_DEG / 2) * Math.PI) / 180) {
         mitigated *= BULWARK_FRONT_MULT;
       }
     }
+
     const wasLow = this.shieldHp < SHIELD_MAX * SHIELD_LOW_FRACTION;
     let rest = mitigated;
+
     if (this.overHp > 0) {
       const fromOver = Math.min(this.overHp, rest);
       this.overHp -= fromOver;
       rest -= fromOver;
     }
+
     this.shieldHp -= rest;
     this.lastDamageAt = now;
     this.regenActive = false;
-    // Trailer: the hit is real — drain, arcs, flash, sfx — but a staged scene
-    // with no death beat cannot lose its pilot. Enemy shots skip contact
-    // i-frames and several resolve inside one sim step, so a between-frames
-    // top-up always races them; the guarantee has to live at the kill itself.
+
     if (this.shieldHp <= 0 && this.link.trailer?.deathless === true) {
       this.shieldHp = 1;
     }
+
     if (this.shieldHp <= 0) {
       this.die(now, killerId, cause);
+
       return "dead";
     }
+
     this.shieldHitFx(now, fromX, fromY, amount);
+
     if (!wasLow && this.shieldHp < SHIELD_MAX * SHIELD_LOW_FRACTION) {
       this.trauma.add(0.15);
     }
+
     return "drained";
   }
 
   /** Base regen (Halo grammar) + overheal decay + mod/booster expiry. */
-  tickShield(now: number, dt: number): void {
+  tickShield(now: number, dt: number) {
     if (this.shieldMod && now >= this.shieldModUntil) {
       this.shieldMod = null;
-      // remaining OVERSHIELD bonus vanishes with the mod
       this.overHp = 0;
     }
+
     for (const [kind, until] of this.pilot.boosts) {
       if (now >= until) {
         this.pilot.boosts.delete(kind);
       }
     }
+
     if (!this.pilot.alive) {
       return;
     }
-    // SIPHON overheal above 100 bleeds off and never regens.
+
     if (this.shieldHp > SHIELD_MAX) {
       this.shieldHp = Math.max(SHIELD_MAX, this.shieldHp - SIPHON_OVERHEAL_DECAY_PER_S * dt);
     }
+
     const delay = this.shieldMod === "aegis" ? AEGIS_REGEN_DELAY_MS : SHIELD_REGEN_DELAY_MS;
+
     if (this.shieldHp < SHIELD_MAX && now - this.lastDamageAt >= delay) {
       if (!this.regenActive) {
         this.regenActive = true;
-        // once, when regen starts after a drain
         sfx.play("shield_regen");
       }
+
       const rate =
         (SHIELD_MAX / (SHIELD_REGEN_FULL_MS / 1000)) *
-        // levelling: faster recovery, not more max HP
         this.pilot.regenMult *
         (this.shieldMod === "aegis" ? AEGIS_REGEN_MULT : 1);
+
       this.shieldHp = Math.min(SHIELD_MAX, this.shieldHp + rate * dt);
+
       if (this.shieldHp >= SHIELD_MAX) {
         this.regenActive = false;
       }
     } else if (this.shieldHp >= SHIELD_MAX) {
       this.regenActive = false;
     }
-    // Low-shield warning tone: while low and not regenerating, 1.2s gate.
+
     if (
       this.shieldHp > 0 &&
       this.shieldHp < SHIELD_MAX * SHIELD_LOW_FRACTION &&
@@ -432,29 +436,23 @@ export class Shield {
     }
   }
 
-  /** Locally remove an enemy shot + tell the host (it owns the array). */
-  private consumeShot(shot: EnemyShotState): void {
+  private consumeShot(shot: EnemyShotState) {
     const idx = this.world.enemyShots.findIndex((s) => s.id === shot.id);
+
     if (idx !== -1) {
       this.world.enemyShots.splice(idx, 1);
     }
+
     this.recentConsumedShots.set(shot.id, simNow());
     this.intents.shotConsumed(shot.id);
   }
 
-  /** REFLECT return shot: NORMAL-stat beam along the reversed incoming vector. */
-  private fireReflectBeam(angle: number, now: number): void {
+  private fireReflectBeam(angle: number, now: number) {
     this.weapons.fireBolt("reflect", { x: this.pilot.shipX, y: this.pilot.shipY }, angle, now);
   }
 
-  /**
-   * Victim-side drain detection (§A.2/§B.2): asteroids and hulls drain on
-   * contact with the ship CENTER (generous); shots/beams drain within the
-   * ship radius. Every source computes a drain and runs the one applyDamage
-   * pipeline; the victim reports its own killer and adjudicates its own mods.
-   */
   /** Full shield, no mod, no pending immunity: a run rebuilt from nothing (the playtest seed hook). */
-  restart(): void {
+  restart() {
     this.recentConsumedShots.clear();
     this.shieldHp = SHIELD_MAX;
     this.overHp = 0;
@@ -469,48 +467,53 @@ export class Shield {
     this.impactArcs = [];
   }
 
-  detectIncomingDamage(now: number, dt: number): void {
+  detectIncomingDamage(now: number, dt: number) {
     if (!this.pilot.alive || !this.pilot.spawned) {
       return;
     }
-    // intangible: no collisions either way
+
     if (now < this.phasedUntil) {
       return;
     }
-    // respawn invuln: zero shield interaction
+
     if (now < this.pilot.invulnUntil) {
       return;
     }
-    // Each source returns false once a drain ended the frame (death / phase
-    // blink); the alive re-check covers drains that killed without saying so.
+
     if (!this.asteroidContactDamage(now) || !this.pilot.alive) {
       return;
     }
+
     if (!this.enemyContactDamage(now) || !this.pilot.alive) {
       return;
     }
+
     if (!this.enemyShotDamage(now, dt) || !this.pilot.alive) {
       return;
     }
+
     if (!this.ufoContactDamage(now) || !this.pilot.alive) {
       return;
     }
+
     this.playerDamage(now);
   }
 
-  /** Asteroid contact: one drain per CONTACT_IFRAME window. */
-  private asteroidContactDamage(now: number): boolean {
+  private asteroidContactDamage(now: number) {
     for (const a of this.world.asteroids) {
       if (dist2(a.x, a.y, this.pilot.shipX, this.pilot.shipY) > a.radius * a.radius) {
         continue;
       }
+
       if (this.ramArmed()) {
-        // RAM stops matter: small rocks die free, big rocks chip + 10 drain.
         const imm = this.ramImmunity.get(a.id);
+
         if (imm !== undefined && now < imm) {
           continue;
         }
+
         this.ramImmunity.set(a.id, now + RAM_IMMUNITY_MS);
+
         if (a.radius <= RAM_ASTEROID_DESTROY_R) {
           this.hits.predictKill(a.id, XP.ASTEROID_DESTROY, "asteroid", a.x, a.y, now);
           this.intents.asteroidHit(a.id, 1);
@@ -522,17 +525,22 @@ export class Shield {
           this.trauma.add(0.1);
           continue;
         }
+
         this.progress.gainXp(XP.ASTEROID_CHIP, now);
         this.intents.asteroidHit(a.id, RAM_ASTEROID_CHIP);
         this.bounceOff(a.x, a.y, 0.6);
+
         if (this.applyDamage(RAM_SELF_DRAIN, a.x, a.y, "ASTEROID", null, now) !== "drained") {
           return false;
         }
+
         continue;
       }
+
       if (now < this.contactIframeUntil) {
         continue;
       }
+
       const res = this.applyDamage(
         asteroidContactDamage(a.radius),
         a.x,
@@ -541,83 +549,96 @@ export class Shield {
         null,
         now,
       );
+
       if (res !== "drained") {
         return false;
       }
+
       this.bounceOff(a.x, a.y, 0.5);
       this.contactIframeUntil = now + CONTACT_IFRAME_MS;
       break;
     }
+
     return true;
   }
 
-  /** Enemy hull contact + LANCER charge. */
-  private enemyContactDamage(now: number): boolean {
+  private enemyContactDamage(now: number) {
     for (const e of this.world.enemies) {
-      // flashing in: harmless
       if (e.graceUntil > now) {
         continue;
       }
+
       const charging = e.kind === "lancer" && e.chargeUntil > now;
       const r = charging ? LANCER_CHARGE_HIT_RADIUS : ENEMY_SPECS[e.kind].hitRadius;
+
       if (dist2(e.x, e.y, this.pilot.shipX, this.pilot.shipY) > r * r) {
         continue;
       }
+
       let nx = e.x - this.pilot.shipX;
       let ny = e.y - this.pilot.shipY;
       const nlen = Math.hypot(nx, ny) || 1;
       nx /= nlen;
       ny /= nlen;
+
       if (this.ramArmed()) {
-        // The shield becomes a weapon: enemy takes 60, I pay 10 (25 vs a
-        // mid-charge lancer, with the bounce + trauma).
         const imm = this.ramImmunity.get(e.id);
+
         if (imm !== undefined && now < imm) {
           continue;
         }
+
         this.ramImmunity.set(e.id, now + RAM_IMMUNITY_MS);
+
         if (e.hp - RAM_DAMAGE <= 0) {
           this.hits.predictKill(e.id, enemyKillXp(e), "enemy", e.x, e.y, now);
         }
+
         this.intents.enemyHit(e.id, RAM_DAMAGE, nx * RAM_KNOCKBACK, ny * RAM_KNOCKBACK);
         e.blinkUntil = now + 150;
+
         if (charging) {
           this.bounceOff(e.x, e.y, 0.6);
           this.trauma.add(0.3);
         }
+
         const drain = charging ? RAM_LANCER_DRAIN : RAM_SELF_DRAIN;
+
         if (this.applyDamage(drain, e.x, e.y, ENEMY_SPECS[e.kind].name, null, now) !== "drained") {
           return false;
         }
+
         continue;
       }
+
       if (now < this.contactIframeUntil) {
         continue;
       }
+
       const amount = charging ? DMG.LANCER_CHARGE : hullContactDamage(e.kind);
       const res = this.applyDamage(amount, e.x, e.y, ENEMY_SPECS[e.kind].name, null, now);
+
       if (res !== "drained") {
         return false;
       }
+
       this.bounceOff(e.x, e.y, 0.5);
-      // knock both back (kept from v1)
       this.intents.enemyHit(e.id, 0, nx * RAM_KNOCKBACK * 0.5, ny * RAM_KNOCKBACK * 0.5);
       this.contactIframeUntil = now + CONTACT_IFRAME_MS;
       break;
     }
+
     return true;
   }
 
-  /** Enemy projectiles (host-owned; I detect my own hit, mirror of PvP
-   *  beams). Shots ignore contact i-frames and are always consumed. */
-  private enemyShotDamage(now: number, dt: number): boolean {
-    // Reverse index loop: consumeShot splices mid-iteration.
+  private enemyShotDamage(now: number, dt: number) {
     for (let i = this.world.enemyShots.length - 1; i >= 0; i -= 1) {
       const s = this.world.enemyShots[i];
-      // consumed; host echo pending
+
       if (!s || this.recentConsumedShots.has(s.id)) {
         continue;
       }
+
       const hit = segHitsCircle(
         s.x - s.vx * dt,
         s.y - s.vy * dt,
@@ -627,83 +648,97 @@ export class Shield {
         this.pilot.shipY,
         SHIP_RADIUS,
       );
+
       if (!hit) {
         continue;
       }
-      // Shots aren't source-attributed on the wire; speed identifies the kind
-      // (drone/warden/boss-plasma → DRONE, wasp → WASP, sniper/boss-lance → SNIPER).
+
       const { cause, dmg } = enemyShotHit(Math.hypot(s.vx, s.vy));
-      // every shot that hits is consumed — same event
       this.consumeShot(s);
+
       if (this.reflectArmed()) {
-        // Bounce: pay 12 shield instead of the damage, return the bolt.
         this.fireReflectBeam(Math.atan2(-s.vy, -s.vx), now);
+
         if (this.applyDamage(REFLECT_BOUNCE_COST, s.x, s.y, cause, null, now) !== "drained") {
           return false;
         }
+
         continue;
       }
+
       const res = this.applyDamage(dmg, s.x, s.y, cause, null, now);
+
       if (res !== "drained") {
         return false;
       }
     }
+
     return true;
   }
 
-  /** UFO contact (treated as a hull). */
-  private ufoContactDamage(now: number): boolean {
+  private ufoContactDamage(now: number) {
     const u = this.world.ufo;
+
     if (!u || dist2(u.x, u.y, this.pilot.shipX, this.pilot.shipY) > UFO_RADIUS * UFO_RADIUS) {
       return true;
     }
+
     if (this.ramArmed()) {
       const imm = this.ramImmunity.get(u.id);
+
       if (imm === undefined || now >= imm) {
         this.ramImmunity.set(u.id, now + RAM_IMMUNITY_MS);
+
         if (u.hp - RAM_DAMAGE <= 0) {
           this.hits.predictKill(u.id, XP.UFO_DESTROY, "ufo", u.x, u.y, now);
         }
+
         this.intents.ufoHit(RAM_DAMAGE / 100);
+
         if (this.applyDamage(RAM_SELF_DRAIN, u.x, u.y, "UFO", null, now) !== "drained") {
           return false;
         }
       }
     } else if (now >= this.contactIframeUntil) {
       const res = this.applyDamage(DMG.UFO_HULL, u.x, u.y, "UFO", null, now);
+
       if (res !== "drained") {
         return false;
       }
+
       this.bounceOff(u.x, u.y, 0.5);
       this.contactIframeUntil = now + CONTACT_IFRAME_MS;
     }
+
     return true;
   }
 
-  /** Other players: armed-RAM hull contact + the beam volley rule (§A.2). */
-  private playerDamage(now: number): void {
+  private playerDamage(now: number) {
     const { myId } = this.link;
+
     for (const [id, st] of this.link.peerStates) {
       if (id === myId) {
         continue;
       }
+
       if (!st || !st.alive) {
         continue;
       }
+
       if (!this.playerRamDamage(id, st, now)) {
         return;
       }
+
       if (!this.playerVolleyDamage(id, st, now)) {
         return;
       }
     }
   }
 
-  /** Hull contact with a remote ship: their armed RAM drains me 35 (victim
-   *  adjudicates); my own armed RAM costs me 10 (they take their 35). */
-  private playerRamDamage(id: string, st: PlayerNetState, now: number): boolean {
+  private playerRamDamage(id: string, st: PlayerNetState, now: number) {
     const contact2 = SHIP_RADIUS * 2 * (SHIP_RADIUS * 2);
     const touching = dist2(st.x, st.y, this.pilot.shipX, this.pilot.shipY) <= contact2;
+
     if (
       touching &&
       st.shieldMod?.kind === "ram" &&
@@ -712,65 +747,59 @@ export class Shield {
       now >= this.contactIframeUntil
     ) {
       const res = this.applyDamage(RAM_PVP_DRAIN, st.x, st.y, "PLAYER", id, now);
+
       if (res !== "drained") {
         return false;
       }
+
       this.bounceOff(st.x, st.y, 0.5);
       this.contactIframeUntil = now + CONTACT_IFRAME_MS;
     }
+
     if (touching && this.ramArmed()) {
       const imm = this.ramImmunity.get(id);
+
       if (imm === undefined || now >= imm) {
         this.ramImmunity.set(id, now + RAM_IMMUNITY_MS);
+
         if (this.applyDamage(RAM_SELF_DRAIN, st.x, st.y, "PLAYER", id, now) !== "drained") {
           return false;
         }
       }
     }
+
     return true;
   }
 
-  /**
-   * Volley rule: test ALL of one shooter's beams this frame, sum the
-   * drains, clamp, apply once, then i-frame that shooter — this is what
-   * makes SCATTER one 48-drain volley instead of an instakill, and stops a
-   * beam lying across my hull from draining every frame. The beams are this
-   * client's copies of the shooter's shots (sys/remote-fire.ts), drawn and
-   * tested where I see them.
-   */
-  private playerVolleyDamage(id: string, st: PlayerNetState, now: number): boolean {
+  private playerVolleyDamage(id: string, st: PlayerNetState, now: number) {
     const iframeUntil = this.pvpIframeUntil.get(id) ?? 0;
+
     if (now < iframeUntil) {
       return true;
     }
+
     const volley = this.collectVolley(st, this.remoteFire.beamsOf(id));
+
     if (!volley.impact) {
       return true;
     }
-    // Heavy beams (RAILGUN, power ≥ 0.9) get the 300ms tier: a 320px lance
-    // covers the victim for many frames, so the 120ms i-frame would let one
-    // shot drain twice — 180 from full, breaking PVP_MAX_SINGLE_HIT's
-    // no-volley-kills-from-full invariant. No intended-TTK change: BLASTER
-    // (450ms) and RAILGUN (1100ms) both refire slower than 300ms. GLAIVE
-    // shares the tier: the blade stalls at its apex (GLAIVE_DECEL_PX), so a
-    // parked blade would otherwise re-drain 35 every 120ms — apex camping
-    // beats the intended ~per-pass hit.
+
     const heavy = volley.anyExploding || volley.anyGlaive || volley.maxPower >= 0.9;
     this.pvpIframeUntil.set(id, now + (heavy ? PVP_EXPLOSION_IFRAME_MS : PVP_HIT_IFRAME_MS));
     let { beamDrain } = volley;
+
     if (beamDrain > 0 && this.reflectArmed()) {
-      // One bounce covers the entire same-frame volley; AoE is never
-      // reflected and drains normally on top.
       this.fireReflectBeam(volley.reflectAngle, now);
       beamDrain = REFLECT_BOUNCE_COST;
     }
+
     const total = Math.min(PVP_MAX_SINGLE_HIT, beamDrain + volley.aoeDrain);
     const res = this.applyDamage(total, volley.impact.x, volley.impact.y, "PLAYER", id, now);
+
     return res === "drained";
   }
 
-  /** Sum one shooter's beams (and TESLA aura) that touch my hull this frame. */
-  private collectVolley(st: PlayerNetState, beams: readonly Beam[]): Volley {
+  private collectVolley(st: PlayerNetState, beams: readonly Beam[]) {
     const v: Volley = {
       anyExploding: false,
       anyGlaive: false,
@@ -780,9 +809,7 @@ export class Shield {
       maxPower: 0,
       reflectAngle: 0,
     };
-    // TESLA AURA (RAM pattern): the shooter's networked flag + MY proximity
-    // adjudicate the zap. It joins the same volley sum, so the aura and any
-    // stray beam clamp + i-frame together.
+
     if (
       st.tesla &&
       dist2(st.x, st.y, this.pilot.shipX, this.pilot.shipY) <= TESLA_RANGE * TESLA_RANGE
@@ -792,30 +819,31 @@ export class Shield {
       v.impact = { x: st.x, y: st.y };
       v.reflectAngle = Math.atan2(st.y - this.pilot.shipY, st.x - this.pilot.shipX);
     }
+
     for (const b of beams) {
-      // fizzles never leave their owner; inert mines never hit-test
       if (b.vanished || b.fizzle || (b.mine && !b.exploding)) {
         continue;
       }
-      // SINGULARITY orb: only the pop damages
+
       if (b.weapon.singularity && !b.exploding) {
         continue;
       }
-      // TESLA chains are render-only for PvP — the flag above is the drain.
+
       if (b.weapon.aura) {
         continue;
       }
+
       const chainSeg = beamHitSeg(b, this.pilot.shipX, this.pilot.shipY);
+
       if (chainSeg === null) {
         continue;
       }
+
       const { power } = b.weapon;
       v.maxPower = Math.max(v.maxPower, power);
-      // ARC hops decay like the owner-side cast: segment i ends at hop i+1,
-      // so segment 0 (muzzle→first target) is full power and each later
-      // segment falls off once per hop — matching the PvE falloff exactly.
       const hopMult = b.chain ? (b.weapon.arc?.falloff ?? 1) ** chainSeg : 1;
       const drain = power * 100 * PVP_DAMAGE_MULT * hopMult;
+
       if (b.exploding) {
         v.aoeDrain += drain;
         v.anyExploding = true;
@@ -823,15 +851,18 @@ export class Shield {
         if (b.glaive) {
           v.anyGlaive = true;
         }
+
         v.beamDrain += drain;
         v.reflectAngle = Math.atan2(b.tail.y - b.head.y, b.tail.x - b.head.x);
       }
+
       v.impact ??= { x: b.head.x, y: b.head.y };
     }
+
     return v;
   }
 
-  die(now: number, killerId: string | null, cause: string): void {
+  die(now: number, killerId: string | null, cause: string) {
     this.fx.battle.burst(
       this.pilot.shipX,
       this.pilot.shipY,
@@ -853,18 +884,13 @@ export class Shield {
     this.fx.ring(this.pilot.shipX, this.pilot.shipY, 10, 90, 400, 0xff_ff_ff, 0.7, "important");
     this.screenFlash();
     this.trauma.add(0.55);
-    // break = death, layered under the boom (§A.4)
     sfx.play("shield_break");
     sfx.play("player_death");
     this.pilot.alive = false;
     this.pilot.respawnAt = now + RESPAWN_DELAY_MS;
     this.pilot.invulnUntil = 0;
-    // mines included — they ride in beams[]
     this.weapons.beams = [];
-    // the turret dies with its owner
     this.weapons.sentry = null;
-    // Death tax: lose XP (and maybe one level), then revert to the new level's
-    // base weapon. Mod + boosters lost, combo resets.
     this.progress.applyDeathXpPenalty();
     this.pilot.specialBase = null;
     this.pilot.weapon = baseWeaponForLevel(this.progress.level);
@@ -886,16 +912,15 @@ export class Shield {
     this.deathCounts.set(cause, count);
     this.deathHint = count >= 3 ? (DEATH_HINTS.get(cause) ?? "") : "";
     const { myId } = this.link;
+
     if (killerId && myId) {
-      // The killer credits itself; nobody else needs to hear it.
       this.link.sendTo(killerId, "player_killed", { cause, killerId, victimId: myId });
     }
-    // immediate, so remote ships hide without 50ms lag
+
     this.hooks.pushMyState(now);
   }
 
-  /** 50ms full-screen white at 0.25, fading 200ms (§9 player death). */
-  private screenFlash(): void {
+  private screenFlash() {
     this.layers.flashRect.setSize(this.scale.width + 8, this.scale.height + 8);
     this.layers.flashRect.setAlpha(REDUCED_MOTION.matches ? 0 : 0.25);
     this.tweens.killTweensOf(this.layers.flashRect);
@@ -908,11 +933,13 @@ export class Shield {
   }
 
   /** Wire shape of my shield mod: `active` = ram-armed / reflect->40 / phase-ready. */
-  shieldModNetState(now: number): ShieldModNetState | null {
+  shieldModNetState(now: number) {
     const mod = this.shieldMod;
+
     if (!mod) {
       return null;
     }
+
     return {
       active: this.shieldModArmed(mod, now),
       kind: mod,
@@ -920,16 +947,19 @@ export class Shield {
     };
   }
 
-  private shieldModArmed(mod: ShieldModKind, now: number): boolean {
+  private shieldModArmed(mod: ShieldModKind, now: number) {
     if (mod === "ram") {
       return this.ramArmed();
     }
+
     if (mod === "reflect") {
       return this.reflectArmed();
     }
+
     if (mod === "phase") {
       return now >= this.phaseReadyAt;
     }
+
     return true;
   }
 }

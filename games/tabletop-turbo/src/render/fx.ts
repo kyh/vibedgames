@@ -1,8 +1,3 @@
-// One pool of particles: drift sparks, tyre smoke, boost flames, paint
-// droplets, shockwave rings and confetti. Each is a single round unlit splat in
-// a palette tone, so an explosion is pixel art like everything else. Tones step
-// down the ramp as a particle ages; nothing fades.
-
 import { FLAG, tone } from "../splat/splat-set";
 import type { SplatSet } from "../splat/splat-set";
 
@@ -18,9 +13,7 @@ interface Spark {
   life: number;
   size: number;
   gravity: number;
-  /** Size at the end of its life as a multiple of its size at birth. */
   grow: number;
-  /** The step it is born at; it drops two steps over its life. */
   hot: number;
 }
 
@@ -40,7 +33,6 @@ export interface SparkOptions {
 }
 
 const FLAGS = FLAG.unlit + FLAG.round + FLAG.noShadow;
-/** The floor: a particle never sinks through the track. */
 const FLOOR = 0.3;
 
 export class Sparks {
@@ -67,9 +59,10 @@ export class Sparks {
     }
   }
 
-  emit(options: SparkOptions): void {
+  emit(options: SparkOptions) {
     const spark = this.pool[this.next];
     this.next = (this.next + 1) % this.pool.length;
+
     if (spark) {
       Object.assign(spark, options, {
         age: 0,
@@ -81,7 +74,7 @@ export class Sparks {
   }
 
   /** A burst of `count` sparks flung outwards and up from one point. */
-  burst(x: number, y: number, z: number, ramp: number, count: number, speed: number): void {
+  burst(x: number, y: number, z: number, ramp: number, count: number, speed: number) {
     for (let i = 0; i < count; i += 1) {
       const a = Math.random() * Math.PI * 2;
       const v = speed * (0.35 + Math.random() * 0.65);
@@ -101,7 +94,7 @@ export class Sparks {
   }
 
   /** A shockwave: a ring of sparks racing outwards along the ground. */
-  ring(x: number, z: number, ramp: number, speed: number, count = 28): void {
+  ring(x: number, z: number, ramp: number, speed: number, count = 28) {
     for (let i = 0; i < count; i += 1) {
       const a = (i / count) * Math.PI * 2;
       this.emit({
@@ -120,7 +113,7 @@ export class Sparks {
   }
 
   /** A small puff that shrinks away: tyre smoke, dust. */
-  puff(x: number, y: number, z: number, ramp: number, size: number): void {
+  puff(x: number, y: number, z: number, ramp: number, size: number) {
     this.emit({
       grow: 0.2,
       hot: 4,
@@ -137,7 +130,7 @@ export class Sparks {
   }
 
   /** Paper in every colour given, thrown high and falling slowly. */
-  confetti(x: number, y: number, z: number, ramps: readonly number[], count: number): void {
+  confetti(x: number, y: number, z: number, ramps: readonly number[], count: number) {
     for (let i = 0; i < count; i += 1) {
       const a = Math.random() * Math.PI * 2;
       const v = 3 + Math.random() * 9;
@@ -158,7 +151,7 @@ export class Sparks {
     }
   }
 
-  update(dt: number): void {
+  update(dt: number) {
     for (const spark of this.pool) {
       if (spark.age < spark.life) {
         spark.age += dt;
@@ -170,11 +163,10 @@ export class Sparks {
     }
   }
 
-  draw(out: SplatSet): void {
+  draw(out: SplatSet) {
     for (const spark of this.pool) {
       if (spark.age < spark.life) {
         const k = spark.age / spark.life;
-        // Stepped, not faded: hot, then the ramp's colour, then a step darker.
         const step = Math.max(0, spark.hot - Math.floor(k * 3));
         out.push(
           spark.x,

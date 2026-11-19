@@ -29,9 +29,6 @@ const GENERATE_SUBCOMMANDS = ["run", "status", "models", "schema", "pricing", "d
 
 const COMMON_FLAGS = ["--help", "--version"];
 
-// CLI-level flags across the generate subcommands. Model parameters are
-// arbitrary per model endpoint and passed as `--<param>`, so they can't be
-// enumerated here — these are just the stable, command-defined flags.
 const GENERATE_FLAGS = [
   "--async",
   "--download",
@@ -49,7 +46,7 @@ const GENERATE_FLAGS = [
   "--quiet",
 ];
 
-const bashScript = (): string =>
+const bashScript = () =>
   `# vg completions for bash. Source this file or write it to a file in your
 # bash completion directory (e.g. /etc/bash_completion.d/vg).
 _vg_completions() {
@@ -83,7 +80,7 @@ _vg_completions() {
 complete -F _vg_completions vg
 `;
 
-const zshScript = (): string =>
+const zshScript = () =>
   `# vg completions for zsh. Source this file or place it on your fpath.
 _vg() {
   local -a subcmds generate_subs generate_flags common_flags
@@ -112,23 +109,27 @@ _vg() {
 compdef _vg vg
 `;
 
-const fishFlag = (flag: string, condition: string): string => {
+const fishFlag = (flag: string, condition: string) => {
   const isShort = flag.startsWith("-") && !flag.startsWith("--");
   const name = flag.replace(/^--?/u, "");
   const opt = isShort ? "-s" : "-l";
+
   return `complete -c vg -n '${condition}' ${opt} '${name}'`;
 };
 
-const fishScript = (): string => {
+const fishScript = () => {
   const generateFlagLines = [...GENERATE_FLAGS, ...COMMON_FLAGS].map((flag) =>
     fishFlag(flag, "__fish_seen_subcommand_from generate"),
   );
-  // For all other subcommands, only the common flags are meaningful.
+
   const otherSubcommands = SUBCOMMANDS.filter((s) => s !== "generate");
+
   const otherFlagLines = COMMON_FLAGS.flatMap((flag) =>
     otherSubcommands.map((sub) => fishFlag(flag, `__fish_seen_subcommand_from ${sub}`)),
   );
+
   const topLevelFlagLines = COMMON_FLAGS.map((flag) => fishFlag(flag, "__fish_use_subcommand"));
+
   return `# vg completions for fish.
 complete -c vg -f
 complete -c vg -n '__fish_use_subcommand' -a '${SUBCOMMANDS.join(" ")}'
@@ -155,17 +156,20 @@ export const completionsCommand = defineCommand({
   },
   run: ({ args }) => {
     const shell = String(args.shell ?? "");
+
     if (!isShell(shell)) {
       process.stderr.write(
         `Unsupported shell "${shell}". Expected: ${[...SUPPORTED].join(", ")}\n`,
       );
       process.exit(1);
     }
+
     const scripts: Record<Shell, () => string> = {
       bash: bashScript,
       fish: fishScript,
       zsh: zshScript,
     };
+
     process.stdout.write(scripts[shell]());
   },
 });

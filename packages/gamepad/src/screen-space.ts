@@ -1,5 +1,3 @@
-import type { Vec2 } from "./types.js";
-
 /**
  * The camera state that decides where a `scrollFactor(0)` object lands on the
  * canvas. Phaser draws everything through
@@ -39,14 +37,13 @@ export interface ScreenSpaceTransform {
  * bomberman's portrait zoom of 0.81875 an unpinned overlay drew local
  * (309, 768) at canvas (288.6, 706) — 65px away from a 52px hit circle.
  */
-export const screenSpaceTransform = (view: CameraView): ScreenSpaceTransform => {
+export const screenSpaceTransform = (view: CameraView) => {
   const zoom = view.zoom === 0 ? 1 : view.zoom;
   const px = view.width * view.originX;
   const py = view.height * view.originY;
   const cos = Math.cos(view.rotation);
   const sin = Math.sin(view.rotation);
-  // Anchored so local (0,0) lands on canvas (0,0): pivot + R(−rot)·(−pivot)/zoom.
-  // A uniform scale commutes with the rotation, so one matrix order covers it.
+
   return {
     rotation: -view.rotation,
     scale: 1 / zoom,
@@ -60,13 +57,10 @@ export const screenSpaceTransform = (view: CameraView): ScreenSpaceTransform => 
  * than being parented to the pinned overlay — so its origin lands on canvas
  * point (`x`, `y`).
  */
-export const screenSpacePosition = (
-  transform: ScreenSpaceTransform,
-  x: number,
-  y: number,
-): Vec2 => {
+export const screenSpacePosition = (transform: ScreenSpaceTransform, x: number, y: number) => {
   const cos = Math.cos(transform.rotation);
   const sin = Math.sin(transform.rotation);
+
   return {
     x: transform.x + (x * cos - y * sin) * transform.scale,
     y: transform.y + (x * sin + y * cos) * transform.scale,

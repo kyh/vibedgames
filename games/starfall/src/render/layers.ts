@@ -25,10 +25,8 @@ export interface Layers {
   safeInset: Inset;
 }
 
-export const createLayers = (scene: Phaser.Scene): Layers => ({
+export const createLayers = (scene: Phaser.Scene) => ({
   battleBackdrop: new BattleBackdrop(scene),
-  // Beacon ring under ships (a zone on the floor), pips above everything
-  // world-space (they're viewport furniture, still below the DOM HUD).
   beaconGfx: scene.add.graphics().setDepth(5).setBlendMode(BlendModes.ADD),
   beamGfx: scene.add.graphics().setDepth(12),
   edgePips: new EdgePips(scene, 40),
@@ -43,7 +41,6 @@ export const createLayers = (scene: Phaser.Scene): Layers => ({
   minimapGfx: scene.add.graphics().setScrollFactor(0).setDepth(100),
   muzzleGfx: scene.add.graphics().setDepth(19).setBlendMode(BlendModes.ADD),
   safeInset: { bottom: 0, left: 0, right: 0, top: 0 },
-  // Shards: one pooled Graphics redrawn per frame (zero per-shard objects).
   shardGfx: scene.add.graphics().setDepth(4).setBlendMode(BlendModes.ADD),
   splinterGfx: scene.add.graphics().setDepth(15),
   telegraphGfx: scene.add.graphics().setDepth(13).setBlendMode(BlendModes.ADD),

@@ -1,7 +1,3 @@
-// City action reel. Real roads, physics, fleet and existing NPC dialogue.
-// Gameplay cuts keep the game's chase rig/HUD; every other cut frames the car
-// through an authored lens (see Lens) with depth of field on the subject.
-// Title cards and music are added in the edit, not here.
 import * as THREE from "three";
 import type { PlayerMap } from "@vibedgames/multiplayer";
 import type { GameScene, TrailerStage } from "../scenes/game-scene";
@@ -25,32 +21,28 @@ import { runTrailer } from "./trailer-shell";
 import type { TrailerScene } from "./trailer-shell";
 
 const { clamp } = THREE.MathUtils;
-const ease = (t: number): number => {
+
+const ease = (t: number) => {
   const p = clamp(t, 0, 1);
+
   return p * p * (3 - 2 * p);
 };
-const angle = (v: number): number => Math.atan2(Math.sin(v), Math.cos(v));
+
+const angle = (v: number) => Math.atan2(Math.sin(v), Math.cos(v));
 const NEUTRAL: CarInput = { boost: false, brake: 0, steer: 0, throttle: 0 };
-const showroomCard = (skin: string): HTMLElement | null =>
+
+const showroomCard = (skin: string) =>
   document.querySelector<HTMLElement>(`#garage [data-skin="${skin}"]`);
-/** Staged rival footprint (remote cars draw at 1.12×): along-road, across-road. */
+
 const PACK_LENGTH = 4.8;
 const PACK_WIDTH = 2.9;
-/** Body centre above the car's road-level origin; every lens aims here. */
 const SUBJECT_LIFT = 0.8;
 
-/**
- * Where the camera sits. Offsets are in the car's frame (forward along its
- * smoothed heading, `side` positive to the car's left) except `tripod`, which
- * is anchored once from the car's first pose and then only pans. `blur` is the
- * depth-of-field disc at infinity in 1080p pixels; focus follows the car.
- */
 type Lens =
   | { kind: "game" }
   | { kind: "custom"; blur?: number }
   | {
       kind: "chase";
-      /** Show the gameplay HUD: a player-eye chase, closer than the game rig. */
       hud?: boolean;
       back: number;
       up: number;
@@ -90,7 +82,9 @@ type Lens =
     }
   | { kind: "tripod"; ahead: number; side: number; up: number; fov: number; blur?: number }
   | { kind: "drone"; height: number; back: number; fov: number; blur?: number };
+
 type View = Lens;
+
 interface CityShot {
   id: string;
   landmark: string;
@@ -98,46 +92,36 @@ interface CityShot {
   seconds: number;
   view: Lens;
   radius?: number;
-  /** Start beyond an obstruction, measured along the selected road. */
   start?: number;
-  /** Cruise limit for tighter streets, in world units per second. */
   speedCap?: number;
-  /** Hold boost for this many ms from the start of the take. */
   boostMs?: number;
   minHalf?: number;
-  /** Robotaxis from other companies riding alongside (visual remote cars). */
   pack?: readonly PackCar[];
-  /** Player lane change (overtake): lateral offset eased in over `ms` from `at`. */
   lane?: { at: number; ms: number; to: number };
-  /** Parked cars staged across the player's line, `ahead` units from the start;
-   * with `kerb`, a row parked along that side of the street the car swerves into. */
   plow?: { ahead: number; count: number; spacing: number; kerb?: number };
 }
+
 interface PackCar {
   skin: string;
-  /** Lateral offset from the player's line, positive = player's left. */
   lane: number;
-  /** Along-road offset from the player, positive = ahead. */
   gap: number;
-  /** Extra along-road speed relative to the player, u/s (overtakes). */
   surge?: number;
-  /** Lane-change amplitude, units; the rival swings across over ~1.8s. */
   sway?: number;
-  /** A chat line this rival sends `at` ms into the take (the game's chat bubble). */
   say?: { at: number; text: string };
 }
+
 type DriftState =
   | { kind: "approach" }
   | { kind: "arming" }
   | { kind: "sliding"; since: number }
   | { kind: "exit"; since: number };
+
 interface DriftShot {
   id: string;
   corner: number;
   view:
     | Lens
     | { kind: "roadside"; up?: number; fov?: number; blur?: number }
-    /** Low on the exit leg, `dist` past the corner: the slide comes at the lens. */
     | { kind: "exit"; dist: number; side: number; up: number; fov: number; blur?: number };
   seconds: number;
   approach: number;
@@ -161,13 +145,15 @@ class Director {
   private lensAnchor: THREE.Vector3 | null = null;
   private readonly lensEye = new THREE.Vector3();
   private readonly lensAim = new THREE.Vector3();
-  readonly clock = (): number => this.elapsed;
+  readonly clock = () => this.elapsed;
 
   constructor(game: GameScene) {
     const stage = game.beginTrailer();
+
     if (!stage) {
       throw new Error("Trailer started before the world was ready");
     }
+
     this.stage = stage;
     this.scout = {
       heightAt: (x, z) => stage.city.heightAt(x, z),
@@ -178,6 +164,7 @@ class Director {
       this.elapsed += dt * 1000;
       const frame = this.pending;
       this.pending = null;
+
       try {
         frame?.();
       } catch (error) {
@@ -185,11 +172,11 @@ class Director {
       }
     });
   }
-  unlockAudio(): void {
+  unlockAudio() {
     this.stage.unlockAudio();
   }
 
-  private reset(phase: number, view: View): void {
+  private reset(phase: number, view: View) {
     const st = this.stage;
     this.pending = null;
     this.fault = null;
@@ -212,18 +199,22 @@ class Director {
     st.state.reset();
     st.hud.resetScore(0);
     st.car.boostMeter = 100;
+
     const hud =
       (view.kind === "game" || (view.kind === "chase" && view.hud === true)) && !this.clean;
+
     for (const id of ["hud", "minimap", "area", "district", "dest-arrow", "netinfo", "touch"]) {
       const el = document.querySelector<HTMLElement>(`#${id}`);
+
       if (el) {
         el.style.display = hud && !["netinfo", "touch"].includes(id) ? "" : "none";
       }
     }
+
     st.setGameplayHud(hud);
   }
 
-  private spawn(x: number, z: number, yaw: number, speed: number, clearTiles = 10): void {
+  private spawn(x: number, z: number, yaw: number, speed: number, clearTiles = 10) {
     const st = this.stage;
     st.traffic.reset({ gx: st.city.gridX(x), gz: st.city.gridZ(z) }, clearTiles);
     st.placeCar(x, z, yaw, 0);
@@ -232,17 +223,18 @@ class Director {
     this.launchSpeed = speed;
   }
 
-  private drive(target: Point, speed: number, boost = false): void {
+  private drive(target: Point, speed: number, boost = false) {
     if (this.preparing) {
       return;
     }
+
     const { car } = this.stage;
+
     const error = angle(
       Math.atan2(target.x - car.position.x, target.z - car.position.z) - car.heading,
     );
+
     const excess = car.forwardSpeed - speed;
-    // Coast through small speed differences. The game's brake pedal engages
-    // its drift setting, so constantly tapping it creates smoke on a straight.
     const brake = boost ? 0 : clamp((excess - 1.5) * 0.18, 0, 0.8);
     this.stage.setScriptedInput({
       boost,
@@ -256,12 +248,14 @@ class Director {
     });
   }
 
-  private assertRoad(id: string): void {
+  private assertRoad(id: string) {
     if (this.preparing) {
       return;
     }
+
     const { car, city } = this.stage;
     const road = city.network.nearest(car.position.x, car.position.z, 12);
+
     if (car.wallContact || !road || road.dist > road.edge.half - 0.5) {
       throw new Error(
         `Unsafe route in ${id} at ${car.position.x.toFixed(1)}, ${car.position.z.toFixed(1)}`,
@@ -269,36 +263,38 @@ class Director {
     }
   }
 
-  private camera(eye: THREE.Vector3, target: THREE.Vector3, fov: number, blur = 0): void {
+  private camera(eye: THREE.Vector3, target: THREE.Vector3, fov: number, blur = 0) {
     const { camera } = this.stage;
     camera.position.copy(eye);
     camera.lookAt(target);
+
     if (camera.fov !== fov) {
       camera.fov = fov;
       camera.updateProjectionMatrix();
     }
+
     camera.updateMatrixWorld(true);
     const car = this.stage.car.position;
     const focus = Math.hypot(eye.x - car.x, eye.y - car.y - SUBJECT_LIFT, eye.z - car.z);
     setGradeLens(blur > 0 ? { blur, focus, streaks: 0 } : { blur: 0, focus, streaks: 0.35 });
   }
 
-  /** Place the camera for an authored lens. dt in ms. */
-  private frame(lens: Lens, t: number, dt: number): void {
+  private frame(lens: Lens, t: number, dt: number) {
     if (lens.kind === "game" || lens.kind === "custom") {
       return;
     }
+
     const { car } = this.stage;
     const p = car.position;
     const lag = "lag" in lens && lens.lag !== undefined ? lens.lag : 5;
     this.lensYaw += angle(car.heading - this.lensYaw) * (1 - Math.exp((-dt / 1000) * lag));
     const fx = Math.sin(this.lensYaw);
     const fz = Math.cos(this.lensYaw);
-    // Left of travel, matching track()'s side convention.
     const lx = fz;
     const lz = -fx;
     const eye = this.lensEye;
     const aim = this.lensAim.set(p.x, p.y + SUBJECT_LIFT, p.z);
+
     switch (lens.kind) {
       case "chase": {
         eye.set(
@@ -310,6 +306,7 @@ class Director {
         aim.set(p.x + fx * ahead, p.y + (lens.aimUp ?? SUBJECT_LIFT), p.z + fz * ahead);
         break;
       }
+
       case "lead": {
         eye.set(
           p.x + fx * lens.ahead + lx * lens.side,
@@ -319,6 +316,7 @@ class Director {
         aim.set(p.x - fx * 1.2, p.y + SUBJECT_LIFT, p.z - fz * 1.2);
         break;
       }
+
       case "parallel": {
         eye.set(
           p.x + fx * lens.lead + lx * lens.side,
@@ -328,14 +326,17 @@ class Director {
         aim.set(p.x + fx * lens.lead * 0.4, p.y + SUBJECT_LIFT, p.z + fz * lens.lead * 0.4);
         break;
       }
+
       case "orbit": {
         if (!this.lensAnchor) {
           this.lensAnchor = new THREE.Vector3(car.heading, 0, 0);
         }
+
         const a = this.lensAnchor.x + lens.from + lens.rate * (t / 1000);
         eye.set(p.x + Math.sin(a) * lens.radius, p.y + lens.up, p.z + Math.cos(a) * lens.radius);
         break;
       }
+
       case "tripod": {
         if (!this.lensAnchor) {
           const h = car.heading;
@@ -343,17 +344,21 @@ class Director {
           const z = p.z + Math.cos(h) * lens.ahead - Math.sin(h) * lens.side;
           this.lensAnchor = new THREE.Vector3(x, this.scout.heightAt(x, z) + lens.up, z);
         }
+
         eye.copy(this.lensAnchor);
         break;
       }
+
       case "drone": {
         eye.set(p.x - fx * lens.back, p.y + lens.height, p.z - fz * lens.back);
         break;
       }
+
       default: {
         break;
       }
     }
+
     eye.y = Math.max(eye.y, this.scout.heightAt(eye.x, eye.z) + 0.35);
     this.camera(eye, aim, lens.fov, lens.blur ?? 0);
   }
@@ -362,7 +367,7 @@ class Director {
     view: { back: number; up: number; side: number; fov: number },
     t: number,
     dt: number,
-  ): void {
+  ) {
     const { car } = this.stage;
     this.cameraYaw += angle(car.heading - this.cameraYaw) * (1 - Math.exp(-dt * 0.004));
     const fx = Math.sin(this.cameraYaw);
@@ -378,22 +383,23 @@ class Director {
     );
   }
 
-  /** Only setup teleports. Let suspension and the destination's streamed
-   * buildings settle before revealing the first frame. Export skips this hold. */
-  private shot(scene: TrailerScene, lens?: Lens): TrailerScene {
+  private shot(scene: TrailerScene, lens?: Lens) {
     const view = lens ?? { kind: "custom" };
     const body = scene.run;
+
     return {
       ...scene,
       run: (t, dt) => {
         if (this.fault) {
           throw this.fault;
         }
+
         this.pending = () => {
           if (this.launchSpeed !== null) {
             this.stage.setSpeed(this.launchSpeed);
             this.launchSpeed = null;
           }
+
           body?.(t, dt);
           this.frame(view, t, dt);
         };
@@ -402,9 +408,11 @@ class Director {
         this.pending = null;
         this.fault = null;
         await scene.setup();
+
         if (view.kind === "game") {
           this.stage.snapCamera();
         }
+
         this.preparing = true;
         body?.(0, 0);
         this.frame(view, 0, 1000);
@@ -412,14 +420,17 @@ class Director {
         this.stage.setScriptedInput(NEUTRAL);
         const deadline = performance.now() + 30_000;
         let stable = 0;
+
         while (stable < 8) {
           // oxlint-disable-next-line promise/avoid-new -- rAF has no promise form in the browser
           await new Promise<void>((resolve) => {
             requestAnimationFrame(() => resolve());
           });
+
           if (performance.now() > deadline) {
             throw new Error(`Scenery did not settle for ${scene.id}`);
           }
+
           stable = (this.stage.city.parcelStreamStats()?.pending ?? 0) === 0 ? stable + 1 : 0;
         }
       },
@@ -430,11 +441,9 @@ class Director {
         setGradeLens(null);
         scene.teardown?.();
       },
-    };
+    } satisfies TrailerScene;
   }
 
-  /** Every take, by id. Keys are alphabetical (lint); the playback order for
-   * the default cut lives in `SCENE_ORDER` below. `?scene=a,b` plays a subset. */
   private catalog() {
     return {
       "beach-cliff": () =>
@@ -1194,10 +1203,6 @@ class Director {
     };
   }
 
-  /** The default cut, in playback order. `catalog()`'s own key order is
-   * alphabetical (lint), so this is the only source of narrative sequence:
-   * intro (morning, close/slow) → drop one (drifts, air, speed) → fares →
-   * friends (other companies' robotaxis) → night → finale. */
   private static readonly SCENE_ORDER = [
     "lidar-close",
     "hill-lead",
@@ -1235,22 +1240,25 @@ class Director {
     "twin-peaks-vista",
   ] as const;
 
-  scenes(): TrailerScene[] {
+  scenes() {
     const catalog = this.catalog();
     const isSceneId = (id: string): id is keyof typeof catalog => id in catalog;
     const pick = new URLSearchParams(window.location.search).get("scene");
     const ids = pick ? pick.split(",") : Director.SCENE_ORDER;
+
     return ids.map((id) => {
       if (!isSceneId(id)) {
         throw new Error(`Unknown trailer scene ${id}`);
       }
+
       return catalog[id]();
     });
   }
 
-  private passengerShot(id: string, view: Lens, phase = 0.34): TrailerScene {
+  private passengerShot(id: string, view: Lens, phase = 0.34) {
     let path: StreetPath | null = null;
     let boardedAt: number | null = null;
+
     return this.shot(
       {
         duration: 10_000,
@@ -1259,35 +1267,45 @@ class Director {
           if (!path) {
             return;
           }
+
           const st = this.stage;
           this.assertRoad("passenger-run");
+
           if (st.fares.carryingInfo() && boardedAt === null) {
             boardedAt = t;
           }
+
           const s = path.project(st.car.position);
           const next = path.at(s + 8);
           const objective = st.fares.objective();
           let speed = boardedAt === null ? 10 : 24;
+
           if (boardedAt !== null && t - boardedAt < 700) {
             speed = 5;
           }
+
           if (objective) {
             const along =
               (objective.pos.x - st.car.position.x) * next.tx +
               (objective.pos.z - st.car.position.z) * next.tz;
+
             if (along < 18 && along > -5) {
               const across =
                 (objective.pos.x - next.x) * next.tz - (objective.pos.z - next.z) * next.tx;
+
               const shift = across - Math.sign(across) * 2.5;
               next.x += next.tz * shift;
               next.z -= next.tx * shift;
               speed = Math.min(speed, 6);
             }
           }
+
           if (st.state.fares > 0) {
             speed = 22;
           }
+
           this.drive(next, speed);
+
           if (t > 9850 && (boardedAt === null || st.state.fares !== 1)) {
             throw new Error("Passenger take did not complete a real fare");
           }
@@ -1295,36 +1313,47 @@ class Director {
         setup: () => {
           const st = this.stage;
           this.reset(phase, view);
+
           const mark = landmarkMarkers(st.city.network).find(
             (m) => m.name === "the Ferry Building",
           );
+
           if (!mark) {
             throw new Error("Missing Ferry Building");
           }
+
           const run = scoutRunNear(this.scout, mark.x, mark.z, {
             minHalf: 4,
             minLen: 130,
             radius: 220,
           });
+
           if (!run) {
             throw new Error("No passenger street");
           }
+
           path = new StreetPath(this.scout, run.edge, run.dir);
+
           const cellAt = (s: number) => {
             const p = path?.at(s);
+
             if (!p) {
               throw new Error("Passenger path unavailable");
             }
+
             const [cell] = st.city.roadCells.toSorted(
               (a, b) =>
                 Math.hypot(st.city.worldX(a.gx) - p.x, st.city.worldZ(a.gz) - p.z) -
                 Math.hypot(st.city.worldX(b.gx) - p.x, st.city.worldZ(b.gz) - p.z),
             );
+
             if (!cell) {
               throw new Error("No passenger curb");
             }
+
             return cell;
           };
+
           const start = path.at(12);
           this.spawn(start.x, start.z, Math.atan2(start.tx, start.tz), 10);
           st.fares.stageTrailerFare(cellAt(32), cellAt(105), "short");
@@ -1335,26 +1364,30 @@ class Director {
     );
   }
 
-  private jumpShot(id: string, view: Lens, seconds = 1.45): TrailerScene {
+  private jumpShot(id: string, view: Lens, seconds = 1.45) {
     let longestAir = 0;
     let landedAt: number | null = null;
+
     return this.shot(
       {
         duration: seconds * 1000,
         id,
         run: (t) => {
           const { car } = this.stage;
+
           if (landedAt === null) {
             this.assertRoad(id);
           }
+
           longestAir = Math.max(longestAir, car.airTime);
+
           if (car.justLanded && longestAir > 0.45 && landedAt === null) {
             landedAt = t;
           }
+
           const error = angle(-Math.PI / 2 - car.heading);
+
           if (!this.preparing) {
-            // After touchdown ease off so the roll-out stays on the street
-            // before the road bends.
             const rolling = landedAt !== null && t - landedAt > 250;
             this.stage.setScriptedInput({
               boost: t < 450,
@@ -1363,14 +1396,13 @@ class Director {
               throttle: rolling ? 0 : 1,
             });
           }
+
           if (t > 1400 && (landedAt === null || longestAir < 0.45)) {
             throw new Error(`Nob Hill take missing hangtime/landing: ${longestAir.toFixed(2)}s`);
           }
         },
         setup: () => {
           this.reset(0.34, view);
-          // Measured westbound Nob Hill brow. Its short curvature launches the
-          // normal suspension; the broad hill scout averages this crest away.
           this.spawn(448.25, -838.5, -Math.PI / 2, 38);
           longestAir = 0;
           landedAt = null;
@@ -1380,38 +1412,42 @@ class Director {
     );
   }
 
-  private cityShot(spec: CityShot): TrailerScene {
+  private cityShot(spec: CityShot) {
     let path: StreetPath | null = null;
     let speed = 12;
     let packFrom = 0;
     const startPosition = new THREE.Vector3();
-    const publishPack = (t: number): void => {
+
+    const publishPack = (t: number) => {
       if (!path || !spec.pack) {
         return;
       }
+
       const { car } = this.stage;
       const along = path.project(car.position);
       const here = path.at(along);
       const playerLane = (car.position.x - here.x) * here.tz - (car.position.z - here.z) * here.tx;
-      // Rivals are visual only, so separation is enforced here: a rival that
-      // would overlap the player or an earlier rival is pushed to the next lane.
       const placed: { s: number; lane: number }[] = [{ lane: playerLane, s: 0 }];
       const players: PlayerMap = {};
+
       for (const [i, member] of spec.pack.entries()) {
         const s = member.gap + ((member.surge ?? 0) * (t - packFrom)) / 1000;
         let lane = member.lane + (member.sway ?? 0) * Math.sin((t - packFrom) / 520 + i * 1.7);
+
         for (const other of placed) {
           if (Math.abs(s - other.s) < PACK_LENGTH && Math.abs(lane - other.lane) < PACK_WIDTH) {
             lane = other.lane + Math.sign(member.lane - other.lane || 1) * PACK_WIDTH;
           }
         }
+
         const p = path.at(along + s);
-        // Keep clear of the kerbside parked cars (parked at half − 1.05).
         const road = this.stage.city.network.nearest(p.x, p.z, 12);
+
         if (road) {
           const room = Math.max(0, road.edge.half - 3.4);
           lane = clamp(lane, -room, room);
         }
+
         placed.push({ lane, s });
         const x = p.x + p.tz * lane;
         const z = p.z - p.tx * lane;
@@ -1429,8 +1465,10 @@ class Director {
           },
         };
       }
+
       this.stage.setFakePlayers(players);
     };
+
     return this.shot(
       {
         duration: spec.seconds * 1000,
@@ -1439,30 +1477,39 @@ class Director {
           if (!path) {
             return;
           }
+
           const { car } = this.stage;
+
           if (!spec.plow) {
             this.assertRoad(spec.id);
           }
+
           const s = path.project(car.position);
           const next = path.at(s + 7 + car.speed * 0.3);
+
           if (spec.lane) {
             const shift = spec.lane.to * ease((t - spec.lane.at) / spec.lane.ms);
             next.x += next.tz * shift;
             next.z -= next.tx * shift;
           }
+
           const boost = spec.boostMs !== undefined && t < spec.boostMs;
           let targetSpeed = speed;
+
           for (const other of this.stage.traffic.cars) {
             const dx = other.position.x - car.position.x;
             const dz = other.position.z - car.position.z;
             const ahead = dx * next.tx + dz * next.tz;
             const across = Math.abs(dx * next.tz - dz * next.tx);
+
             if (ahead > 0 && ahead < 25 && across < 2.7) {
               targetSpeed = Math.min(targetSpeed, Math.max(0, (ahead - 6) * 1.8));
             }
           }
+
           this.drive(next, targetSpeed, boost && targetSpeed === speed);
           publishPack(t);
+
           if (
             t > spec.seconds * 1000 - 120 &&
             car.position.distanceTo(startPosition) < speed * spec.seconds * 0.35
@@ -1473,26 +1520,33 @@ class Director {
         setup: () => {
           const st = this.stage;
           const mark = landmarkMarkers(st.city.network).find((m) => m.name === spec.landmark);
+
           if (!mark) {
             throw new Error(`Landmark missing: ${spec.landmark}`);
           }
+
           const cruise = spec.boostMs === undefined ? (spec.speedCap ?? 0) : 44;
+
           const run = scoutRunNear(this.scout, mark.x, mark.z, {
             minHalf: spec.minHalf ?? 4,
             minLen: Math.max(65, cruise * spec.seconds + (spec.start ?? 8) + 16),
             radius: spec.radius ?? 90,
           });
+
           if (!run) {
             throw new Error(`No driveable approach to ${spec.landmark}`);
           }
+
           this.reset(spec.phase, spec.view);
           path = new StreetPath(this.scout, run.edge, run.dir);
           const startDistance = spec.start ?? 8;
           const start = path.at(startDistance);
           speed = Math.min(spec.speedCap ?? 14, (run.edge.len - startDistance - 16) / spec.seconds);
+
           if (speed <= 0) {
             throw new Error(`No road remaining for ${spec.id}`);
           }
+
           this.spawn(
             start.x,
             start.z,
@@ -1500,11 +1554,12 @@ class Director {
             speed,
             spec.pack || spec.plow ? 12 : 3,
           );
+
           if (spec.plow) {
             const row = path.at(startDistance + spec.plow.ahead);
             const { kerb } = spec.plow;
+
             if (kerb === undefined) {
-              // A wall across the road: the car cannot line up a gap.
               const half = ((spec.plow.count - 1) * spec.plow.spacing) / 2;
               st.stageParkedRow(
                 row.x + row.tz * half,
@@ -1525,6 +1580,7 @@ class Director {
               );
             }
           }
+
           startPosition.copy(st.car.position);
           packFrom = 0;
         },
@@ -1533,17 +1589,18 @@ class Director {
     );
   }
 
-  /** Roll onto a garage pad and pick a new robotaxi in the showroom. */
-  private garageShot(id: string, view: Lens): TrailerScene {
+  private garageShot(id: string, view: Lens) {
     const pad = { x: 0, z: 0 };
     let opened = false;
     const touched = new Set<number>();
+
     const beats: { at: number; skin: string; click: boolean }[] = [
       { at: 1900, click: false, skin: "zoox" },
       { at: 2400, click: false, skin: "cruise" },
       { at: 2900, click: false, skin: "cybercab" },
       { at: 3500, click: true, skin: "cybercab" },
     ];
+
     return this.shot(
       {
         duration: 5000,
@@ -1552,17 +1609,22 @@ class Director {
           const { car } = this.stage;
           const d = Math.hypot(pad.x - car.position.x, pad.z - car.position.z);
           this.drive(pad, d < 4 ? 0 : Math.min(9, d));
+
           if (!this.preparing && !opened && t > 1100) {
             opened = true;
             void this.stage.openShowroom();
           }
+
           for (const [i, beat] of beats.entries()) {
             const el = showroomCard(beat.skin);
+
             if (this.preparing || t < beat.at || touched.has(i) || !el) {
               continue;
             }
+
             touched.add(i);
             el.dispatchEvent(new PointerEvent("pointerover", { bubbles: true }));
+
             if (beat.click) {
               el.click();
             }
@@ -1571,15 +1633,19 @@ class Director {
         setup: () => {
           const st = this.stage;
           const [garage] = st.city.garages;
+
           if (!garage) {
             throw new Error("No garage for the showroom take");
           }
+
           pad.x = garage.padX;
           pad.z = garage.padZ;
           const road = st.city.network.nearest(pad.x, pad.z, 60);
+
           if (!road) {
             throw new Error("No street by the garage");
           }
+
           this.reset(0.33, view);
           const dx = pad.x - road.x;
           const dz = pad.z - road.z;
@@ -1600,47 +1666,46 @@ class Director {
     );
   }
 
-  /** Keep to the sand: the heading nearest the current one whose point 18u
-   * ahead (and 9u beyond it) is still beach. */
-  private followSand(out: Point): void {
+  private followSand(out: Point) {
     const { car, city } = this.stage;
     const p = car.position;
+
     for (let k = 0; k <= 12; k += 1) {
       for (const turn of k === 0 ? [0] : [k, -k]) {
         const h = car.heading + turn * 0.1;
         const x = p.x + Math.sin(h) * 18;
         const z = p.z + Math.cos(h) * 18;
         const beyond = city.surfaceKindAt(x + Math.sin(h) * 9, z + Math.cos(h) * 9);
+
         if (city.surfaceKindAt(x, z) === "sand" && beyond === "sand") {
           out.x = x;
           out.z = z;
+
           return;
         }
       }
     }
   }
 
-  /** Leave the street for the shore. `sand` stops short of the water and
-   * runs along the beach; otherwise the car drives on into the surf. */
   private shoreShot(
     id: string,
     landmark: string,
     phase: number,
     view: Lens,
     sand = false,
-    /** Skip the search: enter the sand at `at` from `from` on the street,
-     * then run towards `to` along the beach. */
     beach?: { from: Point; at: Point; to: Point },
-  ): TrailerScene {
+  ) {
     const target = { x: 0, z: 0 };
     const along = { x: 0, z: 0 };
     let onBeach = false;
+
     return this.shot(
       {
         duration: 4000,
         id,
         run: () => {
           const { car } = this.stage;
+
           if (
             sand &&
             !onBeach &&
@@ -1648,48 +1713,57 @@ class Director {
           ) {
             onBeach = true;
           }
+
           if (onBeach) {
             this.followSand(along);
           }
+
           this.drive(onBeach ? along : target, 22);
         },
         setup: () => {
           const mark = landmarkMarkers(this.stage.city.network).find((m) => m.name === landmark);
+
           if (!mark) {
             throw new Error(`Landmark missing: ${landmark}`);
           }
-          // Sand must sit beside a street, or the run in crosses park and cliff.
-          const wanted = (x: number, z: number): boolean =>
+
+          const wanted = (x: number, z: number) =>
             sand
               ? this.stage.city.surfaceKindAt(x, z) === "sand" &&
                 this.stage.city.network.nearest(x, z, 25) !== null
               : isWaterAt(x, z);
+
           let goal: Point | null = beach?.at ?? null;
+
           for (let r = 20; r <= 900 && !goal; r += 8) {
             for (let k = 0; k < 64; k += 1) {
               const a = (k / 64) * Math.PI * 2;
               const x = mark.x + Math.sin(a) * r;
               const z = mark.z + Math.cos(a) * r;
+
               if (wanted(x, z)) {
                 goal = { x, z };
                 break;
               }
             }
           }
+
           if (!goal) {
             throw new Error(`No ${sand ? "sand" : "water"} near ${landmark}`);
           }
+
           const from = beach?.from ?? goal;
           const road = this.stage.city.network.nearest(from.x, from.z, 260);
+
           if (!road) {
             throw new Error(`No street near ${landmark}`);
           }
+
           const sx = road.x;
           const sz = road.z;
           const dist = Math.max(1, Math.hypot(goal.x - sx, goal.z - sz));
           const dx = (goal.x - sx) / dist;
           const dz = (goal.z - sz) / dist;
-          // Sand: stop at the first beach cell and follow it; water: carry on in.
           const reach = sand ? 0 : 40;
           target.x = goal.x + dx * reach;
           target.z = goal.z + dz * reach;
@@ -1697,9 +1771,8 @@ class Director {
           along.z = beach?.to.z ?? target.z + dz * 30;
           onBeach = false;
           this.reset(phase, view);
+
           if (beach) {
-            // Already heading down the coast: merge onto the strip at a shallow
-            // angle instead of crossing it into the surf.
             onBeach = true;
             this.spawn(sx, sz, Math.atan2(beach.to.x - sx, beach.to.z - sz), 16, 8);
           } else {
@@ -1711,16 +1784,16 @@ class Director {
     );
   }
 
-  /** Use the widest flat junctions. A slide needs asphalt on both legs,
-   * including its exit; hiding a collision behind a cut is not a route. */
-  private driftCorner(index: number): CornerSpot {
-    const grade = (c: CornerSpot): number => {
+  private driftCorner(index: number) {
+    const grade = (c: CornerSpot) => {
       const h = this.scout.heightAt(c.x, c.z);
+
       return Math.max(
         Math.abs(this.scout.heightAt(c.x - c.inArm.tx * 30, c.z - c.inArm.tz * 30) - h),
         Math.abs(this.scout.heightAt(c.x + c.outArm.tx * 30, c.z + c.outArm.tz * 30) - h),
       );
     };
+
     const candidates = scoutCorners(this.scout, 12)
       .filter((c) => !nearFreeway(c.x, c.z) && grade(c) < 2.4)
       .toSorted(
@@ -1728,14 +1801,17 @@ class Director {
           Math.min(b.inArm.edge.half, b.outArm.edge.half) -
             Math.min(a.inArm.edge.half, a.outArm.edge.half) || grade(a) - grade(b),
       );
+
     const corner = candidates[index];
+
     if (!corner) {
       throw new Error(`No safe drift junction ${index}`);
     }
+
     return corner;
   }
 
-  private driftShot(spec: DriftShot): TrailerScene {
+  private driftShot(spec: DriftShot) {
     const corner = this.driftCorner(spec.corner);
     const incoming = corner.inArm;
     const outgoing = corner.outArm;
@@ -1750,14 +1826,14 @@ class Director {
     let turboSeen = false;
     let wallHit = false;
     let driftingMs = 0;
-    // Opposite the inside corner: both road legs remain visible without
-    // sightlines cutting through the building beside the approach.
     const eyeX = corner.x - outgoing.tx * 6 + incoming.tx * 6;
     const eyeZ = corner.z - outgoing.tz * 6 + incoming.tz * 6;
-    const placeWitness = (): void => {
+
+    const placeWitness = () => {
       if (!witness) {
         return;
       }
+
       const arm = outgoing;
       const distance = Math.min(arm.edge.len - 8, 40);
       this.stage.traffic.placeCar(
@@ -1767,39 +1843,45 @@ class Director {
         arm.dirToNode,
       );
     };
-    const observe = (t: number, dt: number): void => {
+
+    const observe = (t: number, dt: number) => {
       const { car } = this.stage;
       const sliding = car.physicsVehicle?.isDrifting === true;
       driftSeen ||= sliding;
       turboSeen ||= car.miniBoostFired;
       wallHit ||= car.wallContact;
+
       if (sliding) {
         driftingMs += dt;
       }
+
       const remaining =
         (corner.x - car.position.x) * incoming.tx + (corner.z - car.position.z) * incoming.tz;
+
       if (state.kind === "approach" && remaining < 16) {
         state = { kind: "arming" };
       }
+
       if (state.kind === "arming" && sliding) {
         state = { kind: "sliding", since: t };
       }
+
       if (state.kind === "sliding") {
         if (!commented && t - state.since >= 300 && witness && spec.quip) {
           this.stage.sayTraffic(witness, spec.quip);
           commented = true;
         }
+
         if (car.driftTier >= 1 && Math.abs(angle(exitHeading - car.heading)) < 0.25) {
           state = { kind: "exit", since: t };
         }
       }
     };
-    const steer = (): void => {
+
+    const steer = () => {
       if (state.kind === "approach") {
         this.drive(corner, 24);
       } else if (state.kind === "arming" || state.kind === "sliding") {
-        // Full steer arms the slide. Neutral steering then widens its arc,
-        // leaving enough time for a real tier-one charge before a 90° exit.
         this.stage.setScriptedInput({
           boost: false,
           brake: 1,
@@ -1810,7 +1892,8 @@ class Director {
         this.drive(exitPath.at(exitPath.project(this.stage.car.position) + 12), 30);
       }
     };
-    const assertComplete = (t: number): void => {
+
+    const assertComplete = (t: number) => {
       if (
         t > spec.seconds * 1000 - 120 &&
         (!driftSeen ||
@@ -1825,8 +1908,10 @@ class Director {
         );
       }
     };
+
     const lens: Lens =
       spec.view.kind === "roadside" || spec.view.kind === "exit" ? { kind: "custom" } : spec.view;
+
     return this.shot(
       {
         duration: spec.seconds * 1000,
@@ -1834,11 +1919,13 @@ class Director {
         reveal: placeWitness,
         run: (t, dt) => {
           const { car } = this.stage;
+
           if (!this.preparing) {
             observe(t, dt);
             steer();
             assertComplete(t);
           }
+
           if (spec.view.kind === "exit") {
             const v = spec.view;
             const ox = outgoing.tx * v.dist + outgoing.tz * v.side;
@@ -1852,6 +1939,7 @@ class Director {
               v.blur ?? 0,
             );
           }
+
           if (spec.view.kind === "roadside") {
             this.camera(
               new THREE.Vector3(
@@ -1888,9 +1976,10 @@ class Director {
     );
   }
 
-  private hillShot(id: string, view: Lens, phase: number): TrailerScene {
+  private hillShot(id: string, view: Lens, phase: number) {
     const descent = scoutDescent(this.scout);
     let path: StreetPath | null = null;
+
     return this.shot(
       {
         duration: 2600,
@@ -1899,6 +1988,7 @@ class Director {
           if (!path) {
             return;
           }
+
           const { car } = this.stage;
           this.drive(path.at(path.project(car.position) + 18), 45);
         },
@@ -1906,6 +1996,7 @@ class Director {
           if (!descent) {
             throw new Error("No safe downhill run");
           }
+
           this.reset(phase, view);
           path = new StreetPath(this.scout, descent.edge, descent.dir);
           const start = path.at(Math.max(6, descent.edge.len - 135));
@@ -1916,9 +2007,10 @@ class Director {
     );
   }
 
-  private bridgeShot(): TrailerScene {
+  private bridgeShot() {
     const gate = scoutGoldenGate(this.scout);
     let startZ = 0;
+
     return this.shot({
       duration: 4000,
       id: "golden-gate",
@@ -1926,6 +2018,7 @@ class Director {
         if (!gate) {
           return;
         }
+
         this.drive({ x: gate.x, z: startZ - 140 }, 6);
         this.camera(
           new THREE.Vector3(gate.x - 19, gate.deckY + 8 + ease(t / 6000) * 2, startZ - 42),
@@ -1937,6 +2030,7 @@ class Director {
         if (!gate) {
           throw new Error("Golden Gate deck unavailable");
         }
+
         this.reset(0.4, { kind: "custom" });
         startZ = gate.rampTopZ - 46;
         this.spawn(gate.x, startZ, Math.PI, 6);
@@ -1944,9 +2038,10 @@ class Director {
     });
   }
 
-  private bridgeSprintShot(id: string, lens: Lens): TrailerScene {
+  private bridgeSprintShot(id: string, lens: Lens) {
     const gate = scoutGoldenGate(this.scout);
     const startZ = gate ? gate.rampTopZ - 4 : 0;
+
     const deck = gate
       ? this.stage.city
           .getDecks()
@@ -1960,7 +2055,9 @@ class Director {
               startZ - 176 >= d.minZ + 12,
           )
       : undefined;
+
     const tracking = { back: 10, fov: 68, side: 0.7, up: 3.2 };
+
     return this.shot(
       {
         duration: 4000,
@@ -1969,9 +2066,12 @@ class Director {
           if (!gate || !deck) {
             return;
           }
+
           const { car } = this.stage;
+
           if (!this.preparing) {
             const p = car.position;
+
             if (
               car.wallContact ||
               car.airborne ||
@@ -1983,6 +2083,7 @@ class Director {
             ) {
               throw new Error("Unsafe Golden Gate sprint");
             }
+
             const error = angle(Math.atan2(gate.x - p.x, -24) - car.heading);
             this.stage.setScriptedInput({
               boost: t < 1400,
@@ -1990,10 +2091,12 @@ class Director {
               steer: clamp(-error * 2.2, -0.3, 0.3),
               throttle: 1,
             });
+
             if (t > 3900 && (startZ - p.z < 120 || car.speed < 28)) {
               throw new Error("Golden Gate sprint did not maintain speed");
             }
           }
+
           if (lens.kind === "custom") {
             this.track(tracking, t, dt);
           }
@@ -2002,6 +2105,7 @@ class Director {
           if (!gate || !deck) {
             throw new Error("No clear Golden Gate deck for a full-speed sprint");
           }
+
           this.reset(0.38, lens);
           this.spawn(gate.x, startZ, Math.PI, 30);
         },
@@ -2010,20 +2114,19 @@ class Director {
     );
   }
 
-  /** Rise above Twin Peaks, then open toward the downtown skyline. */
-  private vistaShot(): TrailerScene {
+  private vistaShot() {
     let path: StreetPath | null = null;
     let bay = 1;
     let speed = 17;
     let wallHit = false;
     const skylineEye = new THREE.Vector3();
     const skylineTarget = new THREE.Vector3();
+
     return this.shot({
       duration: 4200,
       id: "twin-peaks-vista",
       reveal: () => {
         const st = this.stage;
-        // A manual-ready hold can let distant traffic reach the summit.
         st.traffic.reset(
           { gx: st.city.gridX(st.car.position.x), gz: st.city.gridZ(st.car.position.z) },
           32,
@@ -2033,13 +2136,17 @@ class Director {
         if (!path) {
           return;
         }
+
         const { car } = this.stage;
+
         if (!this.preparing) {
           wallHit ||= car.wallContact;
+
           if (t > 4080 && wallHit) {
             throw new Error("Collision during Twin Peaks pullback");
           }
         }
+
         this.drive(path.at(path.project(car.position) + 12), speed);
         this.cameraYaw += angle(car.heading - this.cameraYaw) * Math.min(1, dt * 0.0022);
         const fx = Math.sin(this.cameraYaw);
@@ -2053,11 +2160,13 @@ class Director {
         const p = car.position;
         const x = p.x - fx * back + fz * left;
         const z = p.z - fz * back - fx * left;
+
         const eye = new THREE.Vector3(
           x,
           Math.max(p.y + 3.2 + 29.8 * lift, this.scout.heightAt(x, z) + 1.4),
           z,
         ).lerp(skylineEye, open);
+
         const streetDirection = new THREE.Vector3(
           p.x + fx * ahead + fz * aimLeft,
           p.y + 1 - 6 * open,
@@ -2065,23 +2174,30 @@ class Director {
         )
           .sub(eye)
           .normalize();
+
         const skylineDirection = skylineTarget.clone().sub(eye).normalize();
+
         const aim = eye
           .clone()
           .add(streetDirection.lerp(skylineDirection, open).multiplyScalar(150));
+
         this.camera(eye, aim, 58 - 10 * open);
       },
       setup: () => {
         const marks = landmarkMarkers(this.stage.city.network);
         const summit = marks.find((mark) => mark.name === "the Twin Peaks overlook");
+
         if (!summit) {
           throw new Error("Twin Peaks overlook unavailable");
         }
+
         const salesforce = marks.find((mark) => mark.name === "Salesforce Tower");
         const pyramid = marks.find((mark) => mark.name === "the Transamerica Pyramid");
+
         if (!salesforce || !pyramid) {
           throw new Error("Downtown skyline landmarks unavailable");
         }
+
         skylineEye.set(
           summit.x - 106,
           this.scout.heightAt(summit.x, summit.z) + 55.3,
@@ -2095,18 +2211,19 @@ class Director {
             45,
           (salesforce.z + pyramid.z) / 2,
         );
+
         const run = scoutRunNear(this.scout, summit.x, summit.z, {
           minHalf: 3,
           minLen: 45,
           radius: 70,
         });
+
         if (!run) {
           throw new Error("No driveable Twin Peaks summit road");
         }
+
         this.reset(0.43, { kind: "custom" });
         path = new StreetPath(this.scout, run.edge, run.dir);
-        // Begin on the straight summit climb, past the tight entrance bend
-        // and its parked cars. Leave room to finish on this same road.
         const startDistance = 18;
         const start = path.at(startDistance);
         const mid = path.at(run.edge.len * 0.5);
@@ -2120,7 +2237,7 @@ class Director {
   }
 }
 
-export const startTrailer = (game: GameScene, captureFrame: () => HTMLCanvasElement): void => {
+export const startTrailer = (game: GameScene, captureFrame: () => HTMLCanvasElement) => {
   const director = new Director(game);
   runTrailer({
     captureFrame,

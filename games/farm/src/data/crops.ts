@@ -1,7 +1,3 @@
-// Crop definitions. Each crop has 6 art stages (00..05). `growthDays` is the
-// number of *watered* days from planting to fully grown (stage 5). Stages are
-// distributed across that span. Seeds bought in shop; produce sold there/bin.
-
 import type { Season } from "./calendar";
 
 export type CropId =
@@ -20,14 +16,10 @@ export type CropId =
 export interface CropDef {
   id: CropId;
   name: string;
-  // watered days to reach final stage
   growthDays: number;
   seedPrice: number;
-  // per produce
   sellPrice: number;
-  // min,max produce on harvest
   yield: [number, number];
-  // seasons this crop can be planted/grow
   seasons: readonly Season[];
 }
 
@@ -149,10 +141,10 @@ export const CROP_ORDER: CropId[] = [
   "wheat",
 ];
 
-// Maps daysGrown (watered) -> art stage index 0..5.
-export const cropStage = (def: CropDef, daysGrown: number): number => {
+export const cropStage = (def: CropDef, daysGrown: number) => {
   const t = Math.min(1, daysGrown / def.growthDays);
+
   return Math.min(5, Math.floor(t * 5 + 0.0001));
 };
 
-export const isMature = (def: CropDef, daysGrown: number): boolean => daysGrown >= def.growthDays;
+export const isMature = (def: CropDef, daysGrown: number) => daysGrown >= def.growthDays;

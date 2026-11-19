@@ -10,6 +10,7 @@ const INDICES = SEGMENTS * 12;
 const WATER_LIFT = 0.06;
 
 export type WaterSprayKind = "entry" | "wake" | "exit";
+
 type Spray = (
   x: number,
   y: number,
@@ -71,6 +72,7 @@ export class WaterFx {
     geometry.setAttribute("color", this.colors);
     const indices = new Uint16Array(CAPACITY * INDICES);
     let n = 0;
+
     for (let wave = 0; wave < CAPACITY; wave += 1) {
       for (let row = 0; row < SEGMENTS; row += 1) {
         for (let strip = 0; strip < 2; strip += 1) {
@@ -90,6 +92,7 @@ export class WaterFx {
         }
       }
     }
+
     geometry.setIndex(new THREE.BufferAttribute(indices, 1));
     geometry.setDrawRange(0, 0);
     this.mesh = new THREE.Mesh(
@@ -109,7 +112,7 @@ export class WaterFx {
     this.mesh.visible = false;
   }
 
-  setDay(day: number): void {
+  setDay(day: number) {
     const light = 0.3 + Math.min(1, Math.max(0, day)) * 0.7;
     this.mesh.material.color.setRGB(light * 0.92, light * 0.97, light);
   }
@@ -124,18 +127,20 @@ export class WaterFx {
     z: number,
     velX: number,
     velZ: number,
-  ): void {
+  ) {
     const speed = Math.hypot(velX, velZ);
     const dx = speed > 0.01 ? velX / speed : 0;
     const dz = speed > 0.01 ? velZ / speed : 1;
+
     if (contact.kind === "dry") {
-      // Respawning on land does not leave a fountain at the new spawn point.
       if (this.wet && Math.hypot(x - this.lastX, z - this.lastZ) < 8 + speed * dt) {
         this.pair(x, Math.max(y, this.lastWaterY) + 0.15, z, dx, dz, 0.25, velX, velZ, "exit");
       }
+
       this.wet = false;
       this.wakeCarry = 0;
       this.rippleCarry = 0;
+
       return;
     }
 
@@ -144,20 +149,22 @@ export class WaterFx {
         1,
         0.12 + (contact.entrySpeed + contact.entryVerticalSpeed * 2) / 32,
       );
+
       this.pair(x, contact.waterY + 0.2, z, dx, dz, strength, velX, velZ, "entry");
       this.spawn("ripple", x, contact.waterY, z, dx, dz, 0.9, 1.5 + strength * 2.2, 1.3, 0.4);
       this.wet = true;
     }
+
     this.lastX = x;
     this.lastZ = z;
     this.lastWaterY = contact.waterY;
 
-    // Discard hitch backlog. Six small wake stamps/s is sufficient at the
-    // floating speed cap; idle water gets only a gentle 1.5-second ripple.
     const step = Math.min(Math.max(dt, 0), 0.1);
+
     if (speed > 1.2) {
       this.rippleCarry = 0;
       this.wakeCarry += step * Math.min(6, speed * 0.7);
+
       if (this.wakeCarry >= 1) {
         this.wakeCarry %= 1;
         const strength = Math.min(1, speed / 14);
@@ -180,6 +187,7 @@ export class WaterFx {
     } else {
       this.wakeCarry = 0;
       this.rippleCarry += step;
+
       if (this.rippleCarry >= 1.5) {
         this.rippleCarry %= 1.5;
         this.spawn("ripple", x, contact.waterY, z, dx, dz, 1, 1.3, 1.5, 0.18);
@@ -197,7 +205,7 @@ export class WaterFx {
     velX: number,
     velZ: number,
     kind: WaterSprayKind,
-  ): void {
+  ) {
     this.spray(x - dz * 0.85, y, z + dx * 0.85, strength, velX, velZ, kind);
     this.spray(x + dz * 0.85, y, z - dx * 0.85, strength, velX, velZ, kind);
   }
@@ -213,11 +221,13 @@ export class WaterFx {
     spread: number,
     life: number,
     alpha: number,
-  ): void {
+  ) {
     const wave = this.waves[this.cursor];
+
     if (!wave) {
       return;
     }
+
     this.cursor = (this.cursor + 1) % CAPACITY;
     wave.kind = kind;
     wave.x = x;
@@ -232,20 +242,25 @@ export class WaterFx {
     wave.alpha = alpha;
   }
 
-  update(dt: number): void {
+  update(dt: number) {
     let live = 0;
+
     for (const wave of this.waves) {
       if (wave.age >= wave.life) {
         continue;
       }
+
       wave.age += Math.max(0, dt);
+
       if (wave.age >= wave.life) {
         continue;
       }
+
       const age = wave.age / wave.life;
       const radius = wave.radius + wave.spread * age;
       const alpha = wave.alpha * (1 - age) ** 2 * Math.min(1, wave.age / 0.12);
       const thickness = 0.07 + age * 0.16;
+
       for (let row = 0; row < ROWS; row += 1) {
         const t = row / SEGMENTS;
         const across = t * 2 - 1;
@@ -253,6 +268,7 @@ export class WaterFx {
         const along = wave.kind === "ripple" ? Math.cos(angle) : -0.2 - 0.9 * across * across;
         const side = wave.kind === "ripple" ? Math.sin(angle) : across;
         const edgeFade = wave.kind === "ripple" ? 1 : Math.min(1, (1 - Math.abs(across)) * 4);
+
         for (let edge = 0; edge < 3; edge += 1) {
           const offset = (edge - 1) * thickness;
           const localAlong = along * radius + (wave.kind === "ripple" ? along : -1) * offset;
@@ -267,10 +283,13 @@ export class WaterFx {
           this.colors.setXYZW(vertex, 1, 1, 1, edge === 1 ? alpha * edgeFade : 0);
         }
       }
+
       live += 1;
     }
+
     this.mesh.geometry.setDrawRange(0, live * INDICES);
     this.mesh.visible = live > 0;
+
     if (live > 0) {
       this.positions.clearUpdateRanges();
       this.positions.addUpdateRange(0, live * VERTICES * 3);

@@ -36,16 +36,13 @@ const TEXT_EXTENSIONS = /\.(?:html?|css|m?js)$/iu;
 const MARKUP_EXTENSIONS = /\.(?:html?)$/iu;
 const SOURCE_MAP = /\.map$/iu;
 
-// A root-relative reference in markup: src="/x", href='/x'. Protocol-relative
-// (`//cdn`) is another origin, not this build's root.
 const ROOT_ATTRIBUTE = /\b(?:src|href|poster|data|action)\s*=\s*["']\/(?!\/)(?<target>[^"'#?]*)/giu;
-// A root-relative path written as a string in script or CSS: "/assets/a.png", url(/a.png).
+
 const ROOT_LITERAL =
   /(?:["'`]|url\()\/(?!\/)(?<target>[\w@.~-]+(?:\/[\w@.~-]+)*\.[a-z0-9]{2,5})(?=["'`)?#])/giu;
+
 const REMOTE_HOST = /\bhttps?:\/\/(?<host>[a-z0-9-]+(?:\.[a-z0-9-]+)+)(?::\d+)?(?=[/"'`\s)]|$)/giu;
 
-// Hosts that appear in every bundle as XML namespaces, licence links and
-// library error pages, and that a running game never requests.
 const INERT_HOSTS = new Set([
   "www.w3.org",
   "github.com",
@@ -65,44 +62,52 @@ const INERT_HOSTS = new Set([
   "vitejs.dev",
 ]);
 
-const formatBytes = (bytes: number): string => `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+const formatBytes = (bytes: number) => `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 
-const unique = (values: string[]): string[] => [...new Set(values)].toSorted();
+const unique = (values: string[]) => [...new Set(values)].toSorted();
 
-const captures = (text: string, pattern: RegExp, group: string): string[] => {
+const captures = (text: string, pattern: RegExp, group: string) => {
   const found: string[] = [];
+
   for (const match of text.matchAll(pattern)) {
     const value = match.groups?.[group];
+
     if (value !== undefined && value.length > 0) {
       found.push(value);
     }
   }
+
   return found;
 };
 
-const rootReferences = (input: AuditInput): Finding[] => {
+const rootReferences: (input: AuditInput) => Finding[] = (input) => {
   const shipped = new Set(input.files.map((file) => file.path));
   const offenders = new Map<string, string[]>();
+
   for (const file of input.files) {
     if (!TEXT_EXTENSIONS.test(file.path)) {
       continue;
     }
+
     const text = input.readText(file.path);
-    // Script is full of slash-led strings that are not paths (routes, regex
-    // sources), so there only one that names a shipped file counts.
+
     const targets = MARKUP_EXTENSIONS.test(file.path)
       ? captures(text, ROOT_ATTRIBUTE, "target")
       : captures(text, ROOT_LITERAL, "target").filter((target) => shipped.has(target));
+
     if (targets.length > 0) {
       offenders.set(file.path, unique(targets));
     }
   }
+
   if (offenders.size === 0) {
     return [];
   }
+
   const examples = [...offenders]
     .flatMap(([file, targets]) => targets.map((target) => `/${target} (in ${file})`))
     .slice(0, 5);
+
   return [
     {
       id: "root-relative-url",
@@ -116,9 +121,10 @@ const rootReferences = (input: AuditInput): Finding[] => {
   ];
 };
 
-const sizeFindings = ({ files, limits }: AuditInput): Finding[] => {
+const sizeFindings = ({ files, limits }: AuditInput) => {
   const findings: Finding[] = [];
   const total = files.reduce((sum, file) => sum + file.size, 0);
+
   if (limits.maxFiles !== null && files.length > limits.maxFiles) {
     findings.push({
       id: "too-many-files",
@@ -126,6 +132,7 @@ const sizeFindings = ({ files, limits }: AuditInput): Finding[] => {
       message: `${files.length} files; the portal accepts ${limits.maxFiles}. Pack small assets into atlases or a single data file.`,
     });
   }
+
   if (limits.maxExtractedBytes !== null && total > limits.maxExtractedBytes) {
     findings.push({
       id: "build-too-large",
@@ -133,9 +140,12 @@ const sizeFindings = ({ files, limits }: AuditInput): Finding[] => {
       message: `The build is ${formatBytes(total)} unpacked; the portal accepts ${formatBytes(limits.maxExtractedBytes)}.`,
     });
   }
+
   const { maxFileBytes } = limits;
+
   if (maxFileBytes !== null) {
     const oversized = files.filter((file) => file.size > maxFileBytes).map((file) => file.path);
+
     if (oversized.length > 0) {
       findings.push({
         id: "file-too-large",
@@ -145,14 +155,17 @@ const sizeFindings = ({ files, limits }: AuditInput): Finding[] => {
       });
     }
   }
+
   return findings;
 };
 
-const pathFindings = ({ files, limits }: AuditInput): Finding[] => {
+const pathFindings = ({ files, limits }: AuditInput) => {
   const findings: Finding[] = [];
   const { maxPathLength } = limits;
+
   if (maxPathLength !== null) {
     const long = files.filter((file) => file.path.length > maxPathLength).map((file) => file.path);
+
     if (long.length > 0) {
       findings.push({
         id: "path-too-long",
@@ -162,12 +175,16 @@ const pathFindings = ({ files, limits }: AuditInput): Finding[] => {
       });
     }
   }
+
   const byFolded = new Map<string, string[]>();
+
   for (const file of files) {
     const folded = file.path.toLowerCase();
     byFolded.set(folded, [...(byFolded.get(folded) ?? []), file.path]);
   }
+
   const collisions = [...byFolded.values()].filter((paths) => paths.length > 1).flat();
+
   if (collisions.length > 0) {
     findings.push({
       id: "case-collision",
@@ -177,17 +194,21 @@ const pathFindings = ({ files, limits }: AuditInput): Finding[] => {
       paths: collisions.toSorted(),
     });
   }
+
   return findings;
 };
 
-const fileNameFinding = ({ files, limits }: AuditInput): Finding[] => {
+const fileNameFinding: ({ files, limits }: AuditInput) => Finding[] = ({ files, limits }) => {
   const { fileName } = limits;
+
   if (fileName === null) {
     return [];
   }
+
   const bad = files
     .filter((file) => file.path.split("/").some((segment) => !fileName.test(segment)))
     .map((file) => file.path);
+
   return bad.length === 0
     ? []
     : [
@@ -200,17 +221,22 @@ const fileNameFinding = ({ files, limits }: AuditInput): Finding[] => {
       ];
 };
 
-const sdkFinding = ({ files, readText, sdk }: AuditInput): Finding[] => {
+const sdkFinding: ({ files, readText, sdk }: AuditInput) => Finding[] = ({
+  files,
+  readText,
+  sdk,
+}) => {
   if (sdk === null) {
     return [];
   }
+
   const scripts = files
     .filter((file) => TEXT_EXTENSIONS.test(file.path))
     .map((file) => readText(file.path))
     .join("\n");
-  // Minifiers rename locals but keep property names, so a call survives as
-  // `.gameReady(` whatever the SDK object was renamed to.
+
   const missing = sdk.calls.filter((call) => !scripts.includes(`.${call}(`));
+
   return missing.length === 0
     ? []
     : [
@@ -222,8 +248,9 @@ const sdkFinding = ({ files, readText, sdk }: AuditInput): Finding[] => {
       ];
 };
 
-const sourceMapFinding = ({ files }: AuditInput): Finding[] => {
+const sourceMapFinding: ({ files }: AuditInput) => Finding[] = ({ files }) => {
   const maps = files.filter((file) => SOURCE_MAP.test(file.path)).map((file) => file.path);
+
   return maps.length === 0
     ? []
     : [
@@ -238,7 +265,7 @@ const sourceMapFinding = ({ files }: AuditInput): Finding[] => {
 };
 
 /** Third-party hosts the build names — what it will try to reach from a portal's origin. */
-export const remoteHosts = (input: Pick<AuditInput, "files" | "readText">): string[] =>
+export const remoteHosts = (input: Pick<AuditInput, "files" | "readText">) =>
   unique(
     input.files
       .filter((file) => TEXT_EXTENSIONS.test(file.path))
@@ -247,11 +274,13 @@ export const remoteHosts = (input: Pick<AuditInput, "files" | "readText">): stri
       .filter((host) => !INERT_HOSTS.has(host)),
   );
 
-const remoteHostFinding = (input: AuditInput): Finding[] => {
+const remoteHostFinding: (input: AuditInput) => Finding[] = (input) => {
   if (input.limits.network === "open") {
     return [];
   }
+
   const hosts = remoteHosts(input);
+
   return hosts.length === 0
     ? []
     : [
@@ -265,7 +294,7 @@ const remoteHostFinding = (input: AuditInput): Finding[] => {
       ];
 };
 
-export const auditBuild = (input: AuditInput): Finding[] => {
+export const auditBuild: (input: AuditInput) => Finding[] = (input) => {
   if (!input.files.some((file) => file.path === "index.html")) {
     return [
       {
@@ -276,6 +305,7 @@ export const auditBuild = (input: AuditInput): Finding[] => {
       },
     ];
   }
+
   return [
     ...rootReferences(input),
     ...sizeFindings(input),

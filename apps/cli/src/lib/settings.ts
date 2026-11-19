@@ -58,75 +58,89 @@ export interface ResolvedSetting {
   source: SettingSource;
 }
 
-export const settingsPath = (): string => path.join(getConfigDir(), "config.json");
+export const settingsPath = () => path.join(getConfigDir(), "config.json");
 
-/** The saved file as an object; empty when missing or unreadable. */
-const readFile = (): JsonObject => {
+const readFile = () => {
   const file = settingsPath();
+
   if (!existsSync(file)) {
     return {};
   }
+
   try {
     const data: JsonValue = JSON.parse(readFileSync(file, "utf-8"));
+
     return isJsonObject(data) ? data : {};
   } catch {
     return {};
   }
 };
 
-const writeFile = (data: JsonObject): void => {
+const writeFile = (data: JsonObject) => {
   const dir = getConfigDir();
+
   if (!existsSync(dir)) {
     mkdirSync(dir, { mode: 0o700, recursive: true });
   }
+
   writeFileSync(settingsPath(), `${JSON.stringify(data, null, 2)}\n`);
 };
 
-/** A saved value, if it is one the setting accepts. */
-const savedValue = (data: JsonObject, key: SettingKey): string | null => {
+const savedValue = (data: JsonObject, key: SettingKey) => {
   const value = data[key];
+
   return isJsonString(value) && validate(key, value) === null ? value : null;
 };
 
 /** Null when `value` is acceptable for `key`, else why not. */
-export const validate = (key: SettingKey, value: string): string | null => {
+export const validate = (key: SettingKey, value: string) => {
   const { values } = SETTINGS[key];
+
   if (values && !values.includes(value)) {
     return `${key} must be one of: ${values.join(", ")}.`;
   }
+
   if (value.trim() === "") {
     return `${key} can't be empty.`;
   }
+
   return null;
 };
 
 /** The effective value of `key`: its env var, else the saved value, else the default. */
-export const resolveSetting = (
-  key: SettingKey,
-  env: NodeJS.ProcessEnv = process.env,
-): ResolvedSetting => {
+export const resolveSetting: (key: SettingKey, env?: NodeJS.ProcessEnv) => ResolvedSetting = (
+  key,
+  env = process.env,
+) => {
   const spec = SETTINGS[key];
   const raw = env[spec.env.name];
+
   if (raw !== undefined && raw !== "") {
     return { key, source: "env", value: spec.env.read(raw) };
   }
+
   const saved = savedValue(readFile(), key);
+
   if (saved !== null) {
     return { key, source: "config", value: saved };
   }
+
   return { key, source: "default", value: spec.default };
 };
 
-export const saveSetting = (key: SettingKey, value: string): void => {
+export const saveSetting = (key: SettingKey, value: string) => {
   writeFile({ ...readFile(), [key]: value });
 };
 
 /** Remove a saved value; false when there was none. */
-export const removeSetting = (key: SettingKey): boolean => {
+export const removeSetting = (key: SettingKey) => {
   const data = readFile();
+
   if (!Object.hasOwn(data, key)) {
     return false;
   }
+
   writeFile(Object.fromEntries(Object.entries(data).filter(([name]) => name !== key)));
+
   return true;
 };

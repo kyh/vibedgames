@@ -9,6 +9,7 @@ export const Route = createFileRoute("/.well-known/agent-skills/index.json")({
     handlers: {
       GET: async () => {
         const skills = await getSkillIndex();
+
         return new Response(JSON.stringify({ $schema: SCHEMA, skills }, null, 2), {
           headers: {
             "Cache-Control": "public, max-age=3600",

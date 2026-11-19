@@ -18,15 +18,15 @@ export const WEATHER_ICON = {
 } satisfies Record<Weather, string>;
 
 /* oxlint-disable no-bitwise -- mulberry32-style mixing: the uint32 wraps and xor-shifts ARE the algorithm */
-const hash = (seed: number, day: number): number => {
+const hash = (seed: number, day: number) => {
   let t = (seed ^ (day * 0x9e_37_79_b1)) >>> 0;
   t = Math.imul(t ^ (t >>> 15), 1 | t);
   t ^= t + Math.imul(t ^ (t >>> 7), 61 | t);
+
   return ((t ^ (t >>> 14)) >>> 0) / 4_294_967_296;
 };
 /* oxlint-enable no-bitwise */
 
-// Cumulative odds per season: the first band the roll falls under wins, else clear.
 const SEASON_BANDS: Record<Season, readonly (readonly [number, Weather])[]> = {
   fall: [
     [0.32, "rain"],
@@ -43,18 +43,20 @@ const SEASON_BANDS: Record<Season, readonly (readonly [number, Weather])[]> = {
   winter: [[0.5, "snow"]],
 };
 
-// Deterministic weather for a given farm seed + day. Day 1 is always clear.
-export const weatherForDay = (seed: number, day: number): Weather => {
+export const weatherForDay = (seed: number, day: number) => {
   if (day <= 1) {
     return "sunny";
   }
+
   const r = hash(seed, day);
+
   for (const [chance, weather] of SEASON_BANDS[seasonOfDay(day)]) {
     if (r < chance) {
       return weather;
     }
   }
+
   return "sunny";
 };
 
-export const isWet = (w: Weather): boolean => w === "rain" || w === "storm";
+export const isWet = (w: Weather) => w === "rain" || w === "storm";

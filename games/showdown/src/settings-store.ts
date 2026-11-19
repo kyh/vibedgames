@@ -1,9 +1,5 @@
-// Persisted player preferences (quality, effects, sound, time of day, bot
-// difficulty) in localStorage. Everything read back is parsed JSON and is
-// validated field by field before the game acts on it.
-
 import { isDifficultyName, isQualityName } from "./config";
-import type { DifficultyName, QualityName } from "./config";
+import type { QualityName } from "./config";
 import { isJsonBoolean, isJsonNumber, isJsonObject, isJsonString, parseJson } from "./json";
 import type { JsonValue } from "./json";
 
@@ -19,7 +15,7 @@ export interface SavedSettings {
   time?: number;
 }
 
-const readStored = (): JsonValue => {
+const readStored: () => JsonValue = () => {
   try {
     return parseJson(localStorage.getItem(SETTINGS_KEY) || "{}");
   } catch {
@@ -27,11 +23,13 @@ const readStored = (): JsonValue => {
   }
 };
 
-export const loadSettings = (): SavedSettings => {
+export const loadSettings = () => {
   const stored = readStored();
+
   if (!isJsonObject(stored)) {
     return {};
   }
+
   return {
     ao: isJsonBoolean(stored.ao) ? stored.ao : undefined,
     autoTime: isJsonBoolean(stored.autoTime) ? stored.autoTime : undefined,
@@ -43,11 +41,13 @@ export const loadSettings = (): SavedSettings => {
   };
 };
 
-export const storeSettings = (settings: SavedSettings): void => {
+export const storeSettings = (settings: SavedSettings) => {
   try {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+
+    return true;
   } catch {
-    // Private mode or a full quota: preferences simply do not persist.
+    return false;
   }
 };
 
@@ -62,15 +62,17 @@ export const resolveQuality = (
   param: string | null,
   saved: SavedSettings,
   coarsePointer: boolean,
-): QualityChoice => {
+) => {
   const requested = param || saved.quality || (coarsePointer ? "medium" : "high");
+
   return {
     name: isQualityName(requested) ? requested : "high",
     userPicked: Boolean(param || saved.quality),
   };
 };
 
-export const resolveDifficulty = (param: string | null, saved: SavedSettings): DifficultyName => {
+export const resolveDifficulty = (param: string | null, saved: SavedSettings) => {
   const requested = param || saved.difficulty || "";
+
   return isDifficultyName(requested) ? requested : "normal";
 };

@@ -21,7 +21,6 @@ export const SITEMAP_PAGES = [
 
 export const SITEMAP_PATHS = SITEMAP_PAGES.map((page) => page.path);
 
-/** Newest `lastModified` of any page: the fallback for a path not listed. */
 const NEWEST =
   SITEMAP_PAGES.map((page) => page.lastModified)
     .toSorted()

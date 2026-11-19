@@ -13,74 +13,55 @@ import type { Solid } from "../world/city";
 import type { SolidIndex } from "../world/solid-index";
 import { slopeQuaternion } from "../world/terrain";
 import { DRY_WATER_CONTACT } from "./water-contact";
-import type { WaterContact } from "./water-contact";
 
 export interface CarInput {
-  // 0..1 gas
   readonly throttle: number;
-  // 0..1 — the ONE brake pedal (↓/S/Space, racing-game style): slows you,
-  // drifts you (brake + steer), reverses you (brake from a stop), and
-  // power-drifts with gas held.
   readonly brake: number;
-  // -1 left .. +1 right
   readonly steer: number;
   readonly boost: boolean;
 }
 
-// What the car drives on: the terrain height field, possibly overridden by
-// flat structures (pier decks). CityModel implements this.
 export interface Surface {
   heightAt: (x: number, z: number) => number;
   normalInto: (out: THREE.Vector3, x: number, z: number) => THREE.Vector3;
   waterHeightAt?: (x: number, z: number) => number | null;
 }
 
-// The Kenney car's body faces +Z, which matches our heading-0 forward (sin,cos),
-// so no yaw offset is needed. (π here makes it drive rear-first.)
 const MODEL_YAW_OFFSET = 0;
 const COLLIDE_RADIUS = 1.05;
 const WHEEL_RADIUS = 0.35;
 const UP = new THREE.Vector3(0, 1, 0);
 const X_AXIS = new THREE.Vector3(1, 0, 0);
-// Out-of-world rescue lands this far inside the map-border walls (world/city.ts
-// builds them at WORLD_HALF) — past them the ground is drawn but not collided.
 const RESCUE_INSET = 8;
-const clampInsideMap = (v: number, half: number): number =>
+
+const clampInsideMap = (v: number, half: number) =>
   Math.min(half - RESCUE_INSET, Math.max(-(half - RESCUE_INSET), v));
 
-// The Waymo self-driving sensor suite grafted onto the white crossover: the
-// signature rooftop lidar dome, side mirror pods, and front bumper sensors.
-// Built in the body's local space (model faces +Z; roof top ≈ y 1.5).
 const LIDAR_WHITE = new THREE.MeshStandardMaterial({ color: 0xee_f0_f2, roughness: 0.7 });
+
 const LIDAR_DARK = new THREE.MeshStandardMaterial({
   color: 0x24_27_2e,
   metalness: 0.2,
   roughness: 0.5,
 });
-// Glossy accents (drum ring + door lenses) so the sensors catch the sun the
-// way the lacquered body does.
+
 const LIDAR_BLUE = new THREE.MeshStandardMaterial({
   color: 0x2f_7d_e0,
   emissive: 0x1a_5f_bf,
   emissiveIntensity: 0.4,
   roughness: 0.2,
 });
-// The sensor suite shares the hero rim so the signature rooftop silhouette
-// separates from bright sky/asphalt along with the paint.
+
 applySunRim(LIDAR_WHITE, RIM_HERO);
+
 applySunRim(LIDAR_DARK, RIM_HERO);
+
 applySunRim(LIDAR_BLUE, RIM_HERO);
 
-// Toy-car lacquer for player-class bodies: physical clearcoat over the kit
-// colormap. The loader dedups MeshStandardMaterial per kit, so this MUST
-// build a fresh material per mesh — mutating the shared one would lacquer
-// every traffic/parked car cut from the same kit.
 const BODY_ROUGHNESS = 0.32;
 const BODY_CLEARCOAT_ROUGHNESS = 0.09;
-const lacquerMaterial = (
-  src: THREE.MeshStandardMaterial,
-  tint: THREE.Color | null,
-): THREE.MeshPhysicalMaterial => {
+
+const lacquerMaterial = (src: THREE.MeshStandardMaterial, tint: THREE.Color | null) => {
   const m = new THREE.MeshPhysicalMaterial({
     alphaTest: src.alphaTest,
     clearcoat: 1,
@@ -94,46 +75,34 @@ const lacquerMaterial = (
     transparent: src.transparent,
     vertexColors: src.vertexColors,
   });
+
   if (tint) {
     m.color.multiply(tint).lerp(tint, 0.55);
   }
+
   applyLacquer(m, RIM_HERO);
+
   return m;
 };
 
-// --- Robotaxi skins: swap the Waymo for other robotaxis. The Waymo body is a
-// pre-baked recolor GLB; the others repaint a base car in-engine (cloned
-// materials, multiply tint — windows/tires stay dark). Cybercab is camera-only,
-// so it pointedly ships without the lidar dome.
 export interface RobotaxiSkin {
   id: string;
   label: string;
   model: string;
   tint?: number;
   lidar: boolean;
-  // the Lyft carstache
   mustache?: boolean;
   /** Generated (non-Kenney) models: normalize to this z-length, ground at
    *  y 0, recenter — plus an extra yaw if the mesh doesn't face +Z. */
   fit?: { length: number; yaw?: number };
-  // run earnings; 0 = always owned
   price: number;
   blurb: string;
-  // brand color: HUD operator chip + rider speech bubbles
   accent: string;
-  // rider bubble on pickup
   pickupLines: readonly string[];
-  // rider bubble on dropoff
   dropoffLines: readonly string[];
-  // operator-specific traffic heckles (mixed with the generic pool)
   heckles: readonly string[];
 }
 
-// Rider lines are REAL-quirk humor per operator: Waymo's hands-off-wheel
-// sticker + timid unprotected lefts, Zoox's no-steering-wheel bidirectional
-// carriage ("it's not a car"), Cruise's suspended license, the Cybercab's
-// two-seat camera-only bet, Uber surge/ratings, Lyft's carstache/fist-bump
-// era. Short — they render in comic bubbles over the roof.
 export const ROBOTAXI_SKINS: readonly RobotaxiSkin[] = [
   {
     accent: "#4bd1a0",
@@ -170,7 +139,6 @@ export const ROBOTAXI_SKINS: readonly RobotaxiSkin[] = [
     heckles: ["Aren't you BANNED?!", "Does the DMV know you're out?", "Cruise?! You're alive?!"],
     id: "cruise",
     label: "CRUISE",
-    // sensor pods are baked into the generated mesh
     lidar: false,
     model: "robotaxi-cruise",
     pickupLines: [
@@ -179,7 +147,6 @@ export const ROBOTAXI_SKINS: readonly RobotaxiSkin[] = [
       "ignore the recall notice",
       "the DMV can't see us here",
     ],
-    // GM wrote it off — scraps rate,
     price: 30,
   },
   {
@@ -199,7 +166,6 @@ export const ROBOTAXI_SKINS: readonly RobotaxiSkin[] = [
     ],
     id: "zoox",
     label: "ZOOX",
-    // corner pods are baked into the generated mesh
     lidar: false,
     model: "robotaxi-zoox",
     pickupLines: [
@@ -208,7 +174,6 @@ export const ROBOTAXI_SKINS: readonly RobotaxiSkin[] = [
       "this end is the front now",
       "welcome aboard the carriage",
     ],
-    // Amazon paid ~$1.3B @ $100/B,
     price: 130,
   },
   {
@@ -228,7 +193,6 @@ export const ROBOTAXI_SKINS: readonly RobotaxiSkin[] = [
     id: "lyft",
     label: "LYFT",
     lidar: false,
-    // sedan with the body cells recolored white in the colormap
     model: "lyft-sedan",
     mustache: true,
     pickupLines: [
@@ -237,7 +201,6 @@ export const ROBOTAXI_SKINS: readonly RobotaxiSkin[] = [
       "sit up front, it's the law",
       "the 'stache is load-bearing",
     ],
-    // ~$6B market cap @ $100/B,
     price: 600,
   },
   {
@@ -253,7 +216,6 @@ export const ROBOTAXI_SKINS: readonly RobotaxiSkin[] = [
     id: "uber",
     label: "UBER",
     lidar: false,
-    // body cells recolored black; the glass keeps its grey
     model: "uber-sedan",
     pickupLines: [
       "your driver has arrived",
@@ -261,7 +223,6 @@ export const ROBOTAXI_SKINS: readonly RobotaxiSkin[] = [
       "got the aux?",
       "you're not the pin, get in",
     ],
-    // ~$157B market cap @ $100/B,
     price: 15_700,
   },
   {
@@ -285,7 +246,6 @@ export const ROBOTAXI_SKINS: readonly RobotaxiSkin[] = [
       "doors go up",
       "FSD (Supervised) (by you)",
     ],
-    // Tesla's robotaxi programme is "worth" $440B @ $100/B,
     price: 44_000,
   },
 ];
@@ -294,27 +254,30 @@ export const ROBOTAXI_SKINS: readonly RobotaxiSkin[] = [
  *  in the boot preload (see manifest GEN_ROBOTAXIS) — await
  *  `cache.ensure(skinModelUrl(skin))` before buildSkinBody or the body comes
  *  back as the loader's fallback box. */
-export const skinModelUrl = (skin: RobotaxiSkin): string => modelUrl("cars", skin.model);
+export const skinModelUrl = (skin: RobotaxiSkin) => modelUrl("cars", skin.model);
 
-export const skinById = (id: string | undefined | null): RobotaxiSkin => {
+export const skinById = (id: string | undefined | null) => {
   const [first] = ROBOTAXI_SKINS;
+
   if (!first) {
     throw new Error("no skins");
   }
+
   if (!id) {
     return first;
   }
+
   return ROBOTAXI_SKINS.find((s) => s.id === id) ?? first;
 };
 
-// The Lyft carstache: four squashed pink lobes across the front bumper —
-// chunky center pair, drooping outer tips. Sedan nose sits at z ≈ 1.25,
-// grille height ≈ 0.55.
 const STACHE_PINK = new THREE.MeshStandardMaterial({ color: 0xff_2d_b8, roughness: 0.55 });
+
 applySunRim(STACHE_PINK, RIM_HERO);
-export const buildCarstache = (): THREE.Group => {
+
+export const buildCarstache = () => {
   const g = new THREE.Group();
-  const lobe = (x: number, y: number, sx: number, sy: number, roll: number): void => {
+
+  const lobe = (x: number, y: number, sx: number, sy: number, roll: number) => {
     const m = new THREE.Mesh(new THREE.SphereGeometry(0.5, 12, 8), STACHE_PINK);
     m.scale.set(sx, sy, 0.16);
     m.position.set(x, y, 1.3);
@@ -322,32 +285,27 @@ export const buildCarstache = (): THREE.Group => {
     m.castShadow = true;
     g.add(m);
   };
+
   lobe(-0.27, 0.6, 0.62, 0.3, 0.28);
   lobe(0.27, 0.6, 0.62, 0.3, -0.28);
   lobe(-0.62, 0.5, 0.4, 0.2, 0.8);
   lobe(0.62, 0.5, 0.4, 0.2, -0.8);
+
   return g;
 };
 
-export const buildWaymoSensors = (): THREE.Group => {
+export const buildWaymoSensors = () => {
   const g = new THREE.Group();
-  const add = (
-    geo: THREE.BufferGeometry,
-    mat: THREE.Material,
-    x: number,
-    y: number,
-    z: number,
-  ): THREE.Mesh => {
+
+  const add = (geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: number, z: number) => {
     const m = new THREE.Mesh(geo, mat);
     m.position.set(x, y, z);
     m.castShadow = true;
     g.add(m);
+
     return m;
   };
 
-  // Rooftop lidar (roof top ≈ y 1.3): a short white pylon flush to the roof, a
-  // dark drum (the spinning sensor), a thin blue accent ring, and a domed cap —
-  // the unmistakable Waymo silhouette, kept compact so it isn't gumball-tall.
   const roofY = 1.3;
   add(new THREE.CylinderGeometry(0.15, 0.19, 0.12, 12), LIDAR_WHITE, 0, roofY + 0.05, 0.08);
   add(new THREE.CylinderGeometry(0.24, 0.24, 0.2, 16), LIDAR_DARK, 0, roofY + 0.2, 0.08);
@@ -360,11 +318,9 @@ export const buildWaymoSensors = (): THREE.Group => {
     0.08,
   );
 
-  // Perimeter sensor pods mounted on the front-door shoulder. The body side
-  // there sits at |x| ≈ 0.65, so the pod centre straddles it (inner half sunk
-  // into the door, no floating gap) and the blue lens caps the outer face.
   const doorX = 0.63;
   const podY = 0.9;
+
   for (const sx of [-1, 1] as const) {
     add(new THREE.BoxGeometry(0.2, 0.15, 0.3), LIDAR_DARK, sx * doorX, podY, 0.42);
     add(
@@ -376,7 +332,6 @@ export const buildWaymoSensors = (): THREE.Group => {
     ).rotateZ(Math.PI / 2);
   }
 
-  // Front + rear bumper radar nubs.
   for (const z of [1.28, -1.28] as const) {
     add(new THREE.BoxGeometry(0.46, 0.11, 0.09), LIDAR_DARK, 0, 0.42, z);
   }
@@ -384,12 +339,10 @@ export const buildWaymoSensors = (): THREE.Group => {
   return g;
 };
 
-// Build a skinned robotaxi body (model + optional repaint + sensor suite).
-export const buildSkinBody = (cache: ModelCache, skin: RobotaxiSkin): THREE.Object3D => {
+export const buildSkinBody = (cache: ModelCache, skin: RobotaxiSkin) => {
   let body = cache.instance(modelUrl("cars", skin.model));
+
   if (skin.fit) {
-    // Generated GLBs arrive at arbitrary scale/origin — normalize to the
-    // Kenney car frame the game assumes (face +Z, wheels on y 0, centered).
     const inner = body;
     inner.rotation.y = skin.fit.yaw ?? 0;
     inner.updateMatrixWorld(true);
@@ -403,9 +356,9 @@ export const buildSkinBody = (cache: ModelCache, skin: RobotaxiSkin): THREE.Obje
     wrap.add(inner);
     body = wrap;
   }
-  // Kenney-frame bodies (and any in-engine repaint) get the clearcoat; fitted
-  // generated GLBs keep their authored materials unless they're being tinted.
+
   const tint = skin.tint === undefined ? null : new THREE.Color(skin.tint);
+
   if (!skin.fit || tint) {
     body.traverse((c) => {
       if (c instanceof THREE.Mesh && c.material instanceof THREE.MeshStandardMaterial) {
@@ -413,8 +366,6 @@ export const buildSkinBody = (cache: ModelCache, skin: RobotaxiSkin): THREE.Obje
       }
     });
   } else {
-    // Fitted GLBs keep their authored materials — those still get the hero
-    // rim (shared template materials; player-skin models only, idempotent).
     body.traverse((c) => {
       if (
         c instanceof THREE.Mesh &&
@@ -425,19 +376,20 @@ export const buildSkinBody = (cache: ModelCache, skin: RobotaxiSkin): THREE.Obje
       }
     });
   }
+
   if (skin.lidar) {
     body.add(buildWaymoSensors());
   }
+
   if (skin.mustache) {
     body.add(buildCarstache());
   }
+
   addInkHulls(body);
+
   return body;
 };
 
-// Night lighting rig: one forward spotlight (the actual light on the road),
-// plus head/tail glow sprites so the car reads lit from every angle. All off
-// by day; setHeadlights(f) ramps the whole rig with the day-night factor.
 interface NightRig {
   readonly group: THREE.Group;
   readonly spot: THREE.SpotLight;
@@ -445,14 +397,12 @@ interface NightRig {
   readonly tailMats: THREE.SpriteMaterial[];
 }
 
-const buildNightRig = (): NightRig => {
+const buildNightRig = () => {
   const group = new THREE.Group();
   const tex = radialGlowTexture();
   const headMats: THREE.SpriteMaterial[] = [];
   const tailMats: THREE.SpriteMaterial[] = [];
 
-  // Wide-ish beam: at night the headlights are most of what lights the road,
-  // so the cone covers the near street, not just a strip ahead of the hood.
   const spot = new THREE.SpotLight(0xff_ed_c9, 0, 70, 0.58, 0.7, 1.1);
   spot.position.set(0, 1, 0.9);
   spot.castShadow = false;
@@ -469,6 +419,7 @@ const buildNightRig = (): NightRig => {
       opacity: 0,
       transparent: true,
     });
+
     const hs = new THREE.Sprite(head);
     hs.scale.setScalar(0.85);
     hs.position.set(sx * 0.5, 0.58, 1.34);
@@ -483,27 +434,30 @@ const buildNightRig = (): NightRig => {
       opacity: 0,
       transparent: true,
     });
+
     const ts = new THREE.Sprite(tail);
     ts.scale.setScalar(0.5);
     ts.position.set(sx * 0.52, 0.6, -1.38);
     group.add(ts);
     tailMats.push(tail);
   }
+
   return { group, headMats, spot, tailMats };
 };
 
-const gripFor = (airborne: boolean, drifting: boolean): number => {
+const gripFor = (airborne: boolean, drifting: boolean) => {
   if (airborne) {
     return 0.4;
   }
+
   return drifting ? CAR.gripDrift : CAR.gripNormal;
 };
 
-// Dive under braking, squat on throttle.
-const pitchFor = (input: CarInput, vForward: number): number => {
+const pitchFor = (input: CarInput, vForward: number) => {
   if (input.brake > 0.05 && vForward > 1) {
     return 0.05;
   }
+
   return input.throttle > 0 ? -0.025 : 0;
 };
 
@@ -512,80 +466,48 @@ export class Car {
   private body: THREE.Object3D;
   private wheels: { node: THREE.Object3D; front: boolean; restY: number; phys: number }[] = [];
   readonly position = new THREE.Vector3();
-  // world XZ
   private velocity = new THREE.Vector2();
-  // yaw; forward = (sin, cos)
   heading = 0;
   boostMeter: number = CAR.boostMax;
-  // seconds the current drift has lasted
   private driftSustain = 0;
   isDrifting = false;
   isBoosting = false;
-  // impact speed of the last collision this frame (for fx)
   lastWallHit = 0;
-  // normal of the last wall contact
   lastWallNormal = new THREE.Vector2();
-  // touching a wall this frame (scrape detection)
   wallContact = false;
-  // true on the frame a charged drift is released
   miniBoostFired = false;
-  // tier of that release (physics drift; 1 in fallback)
   miniTurboTier: 0 | 1 | 2 = 0;
-  // current charge tier while drifting (FX color)
   driftTier: 0 | 1 | 2 = 0;
-  // boost pressed with an empty meter (edge, one frame)
   boostDenied = false;
-  // hysteresis: off at 0.5, re-arms at 15
   private boostArmed = true;
   private boostHeldPrev = false;
-  // --- Airtime (hill jumps) ---
   airborne = false;
-  // seconds of the current/last flight
   airTime = 0;
-  // landing impact speed (v/s), one frame only
   justLanded = 0;
   private yVel = 0;
-  // vertical rate while following the ground
   private vyGround = 0;
-  // --- Feel exposures (fx / camera / audio read these) ---
-  // signed angle between velocity and heading (radians)
   slip = 0;
-  // visual body lean
   private roll = 0;
-  // visual dive/squat
   private pitch = 0;
-  // landing suspension squash (1 = full)
   private squash = 0;
-  // ramped steering input
   private steerSmoothed = 0;
   private wheelSpin = 0;
   private surface: Surface | null = null;
   private scratchN = new THREE.Vector3();
-  // Chassis attitude is slerped toward its target: smooths terrain-normal
-  // jitter into suspension feel, and blends launches/landings.
   private targetQuat = new THREE.Quaternion();
   private pitchQuat = new THREE.Quaternion();
 
   private nightRig: NightRig;
-  // last applied value; skip redundant writes
   private nightFactor = -1;
   private contactShadow: ContactShadow;
-  // Traffic kit materials patch (sun rim): retried until the late-preload
-  // traffic GLBs exist. See sun-rim.ts applyTrafficSunRim.
   private trafficRimDone = false;
   private trafficRimTimer = 0;
-  // Physics mode: when attached, a Rapier raycast-vehicle drives the car and
-  // the kinematic sim below is bypassed entirely.
   private vehicle: RaycastVehicle | null = null;
   private prevVelP = new THREE.Vector3();
   private wasAirborne = false;
   private v3a = new THREE.Vector3();
   private v3b = new THREE.Vector3();
   private q3a = new THREE.Quaternion();
-  // The last two SIMULATED chassis poses. Rapier runs at a fixed 60Hz while the
-  // display does not, so drawing the newest pose shows each one twice on a
-  // 120Hz panel and the car visibly steps; the render sits between these two
-  // instead, at the accumulator's fraction (PhysicsWorld.alpha).
   private prevPos = new THREE.Vector3();
   private prevQuat = new THREE.Quaternion();
   private simPos = new THREE.Vector3();
@@ -597,15 +519,11 @@ export class Car {
   constructor(cache: ModelCache, skinId?: string) {
     this.cache = cache;
     this.object3D = new THREE.Group();
-    // Hero scale: the player car reads slightly larger than traffic so it owns
-    // the frame.
     this.object3D.scale.setScalar(1.12);
     this.body = buildSkinBody(cache, skinById(skinId));
     this.collectWheels();
     this.contactShadow = new ContactShadow();
     this.contactShadow.setLayout(this.wheelLayout());
-    // The quad is a child of the hero-scaled group; lift is authored in world
-    // units so the drape-clearance budget holds.
     this.contactShadow.mesh.position.y = SHADOW_LIFT / this.object3D.scale.y;
     this.object3D.add(this.contactShadow.mesh);
     this.nightRig = buildNightRig();
@@ -615,26 +533,22 @@ export class Car {
     this.trafficRimDone = applyTrafficSunRim(cache);
   }
 
-  private wheelLayout(): { x: number; z: number }[] {
+  private wheelLayout() {
     return this.wheels.map((w) => ({ x: w.node.position.x, z: w.node.position.z }));
   }
 
-  private collectWheels(): void {
+  private collectWheels() {
     this.wheels.length = 0;
     this.body.traverse((c) => {
       if (c.name.startsWith("wheel")) {
         const front = c.name.includes("front");
-        // Physics wheel order is FL, FR, RL, RR (raycast-vehicle corners);
-        // map by node position so left wheels read left suspension.
         const phys = (front ? 0 : 2) + (c.position.x < 0 ? 0 : 1);
         this.wheels.push({ front, node: c, phys, restY: c.position.y });
       }
     });
   }
 
-  // Swap the robotaxi skin in place (V key). Keeps physics/pose; rebuilds the
-  // visual body and carries the night rig over.
-  setSkin(skinId: string): void {
+  setSkin(skinId: string) {
     const skin = skinById(skinId);
     this.body.remove(this.nightRig.group);
     this.object3D.remove(this.body);
@@ -648,35 +562,30 @@ export class Car {
     this.object3D.add(this.body);
   }
 
-  // Ramp the night rig with the day-night lamp factor (0 day .. 1 night).
-  // The spotlight stays IN the scene at all times (intensity fades to 0) —
-  // toggling a light's presence churns every shader program against the
-  // manually-updated shadow map and floods GL sampler-mismatch errors,
-  // leaving the clear color where the city should be.
-  setHeadlights(f: number): void {
+  setHeadlights(f: number) {
     if (Math.abs(f - this.nightFactor) < 0.005) {
       return;
     }
+
     this.nightFactor = f;
     const rig = this.nightRig;
-    // 160 pushed lit near-white facades past the desktop bloom threshold
-    // (pre-tonemap HDR ~2+) — walls in the beam flashed pure white while
-    // steering. 70 keeps the road pool readable without igniting walls.
     rig.spot.intensity = 70 * f;
+
     for (const m of rig.headMats) {
       m.opacity = 0.75 * f;
     }
+
     for (const m of rig.tailMats) {
       m.opacity = 0.55 * f;
     }
   }
 
-  setSurface(s: Surface): void {
+  setSurface(s: Surface) {
     this.surface = s;
     this.bindWaterSampler();
   }
 
-  private bindWaterSampler(): void {
+  private bindWaterSampler() {
     const { surface } = this;
     const sample = surface?.waterHeightAt;
     this.vehicle?.setWaterSampler(
@@ -688,41 +597,37 @@ export class Car {
     );
   }
 
-  get waterContact(): WaterContact {
+  get waterContact() {
     return this.vehicle?.waterContact ?? DRY_WATER_CONTACT;
   }
 
-  get speed(): number {
+  get speed() {
     return this.velocity.length();
   }
-  // World-space planar velocity components (x = world X, z = world Z) — the
-  // collision handlers read these to project the taxi's closing speed onto a
-  // contact normal.
-  get velX(): number {
+  get velX() {
     return this.velocity.x;
   }
-  get velZ(): number {
+  get velZ() {
     return this.velocity.y;
   }
-  get forwardSpeed(): number {
+  get forwardSpeed() {
     return this.velocity.x * Math.sin(this.heading) + this.velocity.y * Math.cos(this.heading);
   }
-  // Heading of the velocity vector (for the drift-swing camera); null when slow.
-  get velAngle(): number | null {
+  get velAngle() {
     return this.speed > 0.5 ? Math.atan2(this.velocity.x, this.velocity.y) : null;
   }
-  get steer(): number {
+  get steer() {
     return this.steerSmoothed;
   }
-  // 0..1 — how close the current drift is to its first mini-turbo tier.
-  get driftCharge(): number {
+  get driftCharge() {
     if (this.vehicle) {
       return this.vehicle.driftCharge01;
     }
+
     return Math.min(1, this.driftSustain / CAR.driftSlingArm);
   }
 
-  reset(x: number, z: number, yaw: number): void {
+  reset(x: number, z: number, yaw: number) {
     this.position.set(x, ROAD_Y, z);
     this.velocity.set(0, 0);
     this.heading = yaw;
@@ -739,51 +644,55 @@ export class Car {
     this.roll = 0;
     this.pitch = 0;
     this.steerSmoothed = 0;
+
     if (this.surface) {
       this.position.y = this.surface.heightAt(x, z) + ROAD_Y;
     }
+
     if (this.vehicle) {
       this.vehicle.teleport(x, this.position.y + 1.4, z, yaw);
       this.prevVelP.set(0, 0, 0);
-      // never lerp the render across a teleport
       this.poseSeeded = false;
+
       return;
     }
+
     this.syncTransform(1, true);
   }
 
-  addBoost(amount: number): void {
+  addBoost(amount: number) {
     this.boostMeter = Math.min(CAR.boostMax, this.boostMeter + amount);
   }
 
-  attachPhysics(vehicle: RaycastVehicle): void {
+  attachPhysics(vehicle: RaycastVehicle) {
     this.vehicle = vehicle;
     this.bindWaterSampler();
-    // The game's pacing stays authoritative: physics caps mirror CAR speeds.
     vehicle.params.cruiseSpeed = CAR.maxSpeed;
     vehicle.params.maxSpeed = CAR.boostSpeed;
+
     const y = this.surface
       ? this.surface.heightAt(this.position.x, this.position.z) + 1.4
       : this.position.y + 1.4;
+
     vehicle.teleport(this.position.x, y, this.position.z, this.heading);
     this.poseSeeded = false;
   }
 
-  get physicsVehicle(): RaycastVehicle | null {
+  get physicsVehicle() {
     return this.vehicle;
   }
 
-  physicsFixedStep(fixedDt: number): void {
+  physicsFixedStep(fixedDt: number) {
     this.vehicle?.fixedStep(fixedDt);
   }
 
-  // Physics mode, phase 1 (before the world steps): translate game input into
-  // vehicle controls + keep the arcade meters (boost, drift charge) alive.
-  private updatePhysicsControls(dt: number, input: CarInput, solids: SolidIndex): void {
+  private updatePhysicsControls(dt: number, input: CarInput, solids: SolidIndex) {
     const veh = this.vehicle;
+
     if (!veh) {
       return;
     }
+
     this.miniBoostFired = false;
     this.miniTurboTier = 0;
     this.boostDenied = false;
@@ -793,8 +702,7 @@ export class Car {
     } else if (this.boostMeter >= 15) {
       this.boostArmed = true;
     }
-    // Boost stands on its own: no throttle required, so NOS from a standstill
-    // launches you (setControls pins the throttle open while boosting).
+
     const boostHeld = input.boost;
     const wantBoost = boostHeld && this.boostArmed;
     this.boostDenied = boostHeld && !this.boostArmed && !this.boostHeldPrev;
@@ -806,21 +714,20 @@ export class Car {
     veh.steerInput = input.steer;
     veh.setControls(input, wantBoost);
 
-    // Drift state lives in the vehicle (Mario Kart state machine) — we just
-    // mirror it for scoring/FX and bank the release mini-turbo.
     this.isDrifting = veh.isDrifting;
     this.driftTier = veh.driftTier;
+
     if (this.isDrifting) {
       this.addBoost(CAR.boostPerDriftSec * dt);
     }
+
     const turbo = veh.consumeMiniTurbo();
+
     if (turbo > 0) {
       this.miniBoostFired = true;
       this.miniTurboTier = turbo;
     }
 
-    // Arcade-only obstacles (tree trunks etc) have no Rapier body — bounce
-    // the chassis off them by impulse so they still stop the car.
     const r = 1.6;
     solids.forEachIn(
       this.position.x - r,
@@ -831,32 +738,39 @@ export class Car {
     );
   }
 
-  private readonly noBodyBounce = (s: Solid): void => {
+  private readonly noBodyBounce = (s: Solid) => {
     const veh = this.vehicle;
+
     if (!veh || !s.noBody) {
       return;
     }
+
     if (s.maxY !== undefined && this.position.y > s.maxY) {
       return;
     }
+
     const cx = THREE.MathUtils.clamp(this.position.x, s.minX, s.maxX);
     const cz = THREE.MathUtils.clamp(this.position.z, s.minZ, s.maxZ);
     const dx = this.position.x - cx;
     const dz = this.position.z - cz;
     const d2 = dx * dx + dz * dz;
+
     if (d2 >= 1.2 * 1.2 || d2 < 1e-6) {
       return;
     }
+
     const d = Math.sqrt(d2);
     const nx = dx / d;
     const nz = dz / d;
     const lv = veh.chassis.linvel();
     const vn = lv.x * nx + lv.z * nz;
+
     if (vn < 0) {
       const m = veh.params.mass;
       veh.chassis.applyImpulse({ x: -nx * vn * 1.4 * m, y: 0, z: -nz * vn * 1.4 * m }, true);
       this.wallContact = true;
       this.lastWallNormal.set(nx, nz);
+
       if (-vn > this.lastWallHit) {
         this.lastWallHit = -vn;
       }
@@ -867,18 +781,22 @@ export class Car {
    *  physics loop, so the pair always straddles the render clock. A teleport
    *  clears the seed (see reset) — without that the car would be lerped across
    *  the map from wherever it used to be. */
-  captureStep(): void {
+  captureStep() {
     const veh = this.vehicle;
+
     if (!veh) {
       return;
     }
+
     if (this.poseSeeded) {
       this.prevPos.copy(this.simPos);
       this.prevQuat.copy(this.simQuat);
     }
+
     const t = veh.chassis.translation();
     this.simPos.set(t.x, t.y, t.z);
     veh.quaternion(this.simQuat);
+
     if (!this.poseSeeded) {
       this.prevPos.copy(this.simPos);
       this.prevQuat.copy(this.simQuat);
@@ -886,18 +804,13 @@ export class Car {
     }
   }
 
-  // Physics mode, phase 2 (after the world steps): pull the chassis pose back
-  // into the game-facing state every other system reads.
-  //
-  // `alpha` places the RENDERED pose between the last two simulated ones. The
-  // derived signals below (velocity, wall hits, airborne) stay on the live
-  // chassis — they are logic, not picture, and lerping them would blunt the
-  // one-frame velocity loss the crash detector keys on.
-  syncFromPhysics(dt: number, alpha = 1): void {
+  syncFromPhysics(dt: number, alpha = 1) {
     const veh = this.vehicle;
+
     if (!veh) {
       return;
     }
+
     const floating = veh.waterContact.kind === "floating";
     this.lastWallHit = 0;
     this.wallContact = false;
@@ -906,11 +819,11 @@ export class Car {
     if (!this.poseSeeded) {
       this.captureStep();
     }
+
     const t = this.v3b.lerpVectors(this.prevPos, this.simPos, alpha);
     this.q3a.slerpQuaternions(this.prevQuat, this.simQuat, alpha);
     const fwd = this.v3a.set(0, 0, 1).applyQuaternion(this.q3a);
     this.heading = Math.atan2(fwd.x, fwd.z);
-    // Visual origin (wheel bottoms) hangs below the chassis centre.
     this.position.set(t.x, t.y - 0.62, t.z);
     this.object3D.position.copy(this.position);
     this.object3D.quaternion.copy(this.q3a);
@@ -918,14 +831,15 @@ export class Car {
     const lv = veh.chassis.linvel();
     const prevSpeed = Math.hypot(this.prevVelP.x, this.prevVelP.z);
     const curSpeed = Math.hypot(lv.x, lv.z);
-    // A hard horizontal velocity loss in one frame = we hit something.
     const deltaV = prevSpeed - curSpeed;
+
     if (!floating && deltaV > 7 && prevSpeed > 8) {
       this.lastWallHit = deltaV;
       this.wallContact = true;
       const inv = prevSpeed > 1e-3 ? 1 / prevSpeed : 0;
       this.lastWallNormal.set(-this.prevVelP.x * inv, -this.prevVelP.z * inv);
     }
+
     this.prevVelP.set(lv.x, lv.y, lv.z);
 
     this.velocity.set(lv.x, lv.z);
@@ -933,14 +847,18 @@ export class Car {
     this.slip = va === null ? 0 : ((va - this.heading + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
 
     const airborneNow = !floating && veh.groundedWheels() === 0 && veh.airTimeSeconds > 0.12;
+
     if (airborneNow) {
       this.airTime = veh.airTimeSeconds;
     }
+
     if (!floating && this.wasAirborne && !airborneNow) {
       this.justLanded = Math.max(0, -lv.y * 0.5 + 4);
       this.squash = Math.min(1, 0.45 + this.justLanded * 0.035);
     }
+
     this.airborne = airborneNow;
+
     if (floating) {
       this.airTime = 0;
       this.isDrifting = false;
@@ -948,6 +866,7 @@ export class Car {
       this.miniTurboTier = 0;
       this.miniBoostFired = false;
     }
+
     this.wasAirborne = airborneNow;
     this.yVel = lv.y;
 
@@ -957,11 +876,6 @@ export class Car {
     const sq = this.squash;
     this.body.scale.set(1 + 0.12 * sq, 1 - 0.26 * sq, 1 + 0.12 * sq);
 
-    // Fell through the world / off the map — drop back in over solid ground.
-    // The rescue must MOVE the car: the map is drawn wider than its collider,
-    // so re-seating at the same x/z (where the fall started) just drops it
-    // through the same hole, forever. Inside the map-border walls there is
-    // always a heightfield underneath.
     if (t.y < -20 && this.surface) {
       const x = clampInsideMap(t.x, WORLD_HALF_X);
       const z = clampInsideMap(t.z, WORLD_HALF_Z);
@@ -970,12 +884,15 @@ export class Car {
     }
   }
 
-  update(dt: number, input: CarInput, solids: SolidIndex): void {
+  update(dt: number, input: CarInput, solids: SolidIndex) {
     this.tickTrafficRim(dt);
+
     if (this.vehicle) {
       this.updatePhysicsControls(dt, input, solids);
+
       return;
     }
+
     this.lastWallHit = 0;
     this.wallContact = false;
     this.miniBoostFired = false;
@@ -988,18 +905,13 @@ export class Car {
     const vForward0 = this.velocity.dot(fwd);
     const vLateral = this.velocity.dot(perp);
 
-    // --- Longitudinal ---
     const wantBoost = this.updateBoostState(input);
     const topSpeed = wantBoost ? CAR.boostSpeed : CAR.maxSpeed;
     let vForward = this.longitudinalSpeed(dt, input, vForward0, wantBoost, topSpeed);
 
     this.drainBoost(dt, wantBoost);
 
-    // --- Steering ---
     const absF = Math.abs(vForward);
-    // Slip: how far the velocity vector points away from the nose. Drifting
-    // "counts" (score, smoke, screech, charge) only with real slip — holding
-    // the button on a straight is just a low-grip setting, not a drift.
     const va = this.velAngle;
     this.slip = va === null ? 0 : ((va - this.heading + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
     const physicsDrift = input.brake > 0.05 && absF > CAR.driftMinSpeed && !this.airborne;
@@ -1010,7 +922,6 @@ export class Car {
     this.applySteering(dt, input, vForward, absF, speedFrac, physicsDrift);
     vForward = this.driftBoost(dt, physicsDrift, vForward, topSpeed);
 
-    // --- Reassemble velocity; low grip while drifting keeps the slide ---
     const nf = new THREE.Vector2(Math.sin(this.heading), Math.cos(this.heading));
     const np = new THREE.Vector2(nf.y, -nf.x);
     const grip = gripFor(this.airborne, physicsDrift);
@@ -1024,16 +935,15 @@ export class Car {
     this.verticalStep(dt);
     this.visualLean(dt, input, speedFrac, physicsDrift, vForward);
     this.spinWheels(dt, vForward);
-    // No per-wheel suspension in the kinematic fallback — travels stay at
-    // rest, only the airborne fade animates.
     this.contactShadow.update(dt, !this.airborne);
 
     this.syncTransform(dt);
   }
 
-  private tickTrafficRim(dt: number): void {
+  private tickTrafficRim(dt: number) {
     if (!this.trafficRimDone) {
       this.trafficRimTimer -= dt;
+
       if (this.trafficRimTimer <= 0) {
         this.trafficRimTimer = 1;
         this.trafficRimDone = applyTrafficSunRim(this.cache);
@@ -1041,21 +951,19 @@ export class Car {
     }
   }
 
-  private updateBoostState(input: CarInput): boolean {
-    // Boost hysteresis: cut out when the meter empties and stay off until it
-    // rebuilds — without this the trickle refill flaps boost on/off at ~15Hz.
+  private updateBoostState(input: CarInput) {
     if (this.boostMeter <= 0.5) {
       this.boostArmed = false;
     } else if (this.boostMeter >= 15) {
       this.boostArmed = true;
     }
-    // Boost stands on its own — NOS from a standstill drives you forward.
+
     const boostHeld = input.boost;
     const wantBoost = boostHeld && this.boostArmed;
-    // Denied feedback fires once per press, not once per frame.
     this.boostDenied = boostHeld && !this.boostArmed && !this.boostHeldPrev;
     this.boostHeldPrev = boostHeld;
     this.isBoosting = wantBoost;
+
     return wantBoost;
   }
 
@@ -1065,10 +973,9 @@ export class Car {
     forward: number,
     wantBoost: boolean,
     topSpeed: number,
-  ): number {
+  ) {
     let vForward = forward;
-    // Brake wins at (near) standstill even with the gas held — a thumb resting
-    // on GAS must never block the reverse gear.
+
     if (input.brake > 0.05 && vForward <= 0.5) {
       vForward = Math.max(vForward - CAR.reverseAccel * dt, -CAR.reverseMax);
     } else if (input.throttle > 0 || wantBoost) {
@@ -1079,9 +986,9 @@ export class Car {
       const drop = CAR.coastDecel * dt;
       vForward = vForward > 0 ? Math.max(0, vForward - drop) : Math.min(0, vForward + drop);
     }
+
     vForward = THREE.MathUtils.clamp(vForward, -CAR.reverseMax, topSpeed);
 
-    // Slope gravity — crawl up SF hills, plunge down them (not while flying).
     if (this.surface && !this.airborne) {
       const n = this.surface.normalInto(this.scratchN, this.position.x, this.position.z);
       const ny = Math.max(n.y, 0.05);
@@ -1089,10 +996,11 @@ export class Car {
       vForward -= CAR.slopeGravity * slope * dt;
       vForward = THREE.MathUtils.clamp(vForward, -CAR.reverseMax * 1.5, topSpeed * 1.35);
     }
+
     return vForward;
   }
 
-  private drainBoost(dt: number, wantBoost: boolean): void {
+  private drainBoost(dt: number, wantBoost: boolean) {
     this.boostMeter = wantBoost
       ? Math.max(0, this.boostMeter - CAR.boostDrain * dt)
       : Math.min(CAR.boostMax, this.boostMeter + CAR.boostRefill * dt);
@@ -1105,45 +1013,44 @@ export class Car {
     absF: number,
     speedFrac: number,
     physicsDrift: boolean,
-  ): void {
+  ) {
     let authority = THREE.MathUtils.lerp(1, CAR.turnSpeedFalloff, speedFrac);
+
     if (this.airborne) {
       authority *= CAR.airSteerFactor;
     }
-    // no spin-in-place
+
     const startFade = THREE.MathUtils.clamp(absF / 3, 0, 1);
     const driftMul = physicsDrift ? CAR.driftTurnBoost : 1;
     const dir = vForward >= 0 ? 1 : -1;
     this.steerSmoothed += (input.steer - this.steerSmoothed) * Math.min(1, dt / CAR.steerRamp);
-    // Subtract: with the chase cam looking along +forward, increasing heading
-    // veers screen-left, so steer-right (+1) must decrease heading.
     this.heading -= this.steerSmoothed * CAR.turnRate * authority * startFade * driftMul * dir * dt;
   }
 
-  private driftBoost(dt: number, physicsDrift: boolean, forward: number, topSpeed: number): number {
+  private driftBoost(dt: number, physicsDrift: boolean, forward: number, topSpeed: number) {
     let vForward = forward;
-    // Drift boost is EASY: the meter fills continuously the whole time you're
-    // drifting (no threshold to clear first), and a brief drift also arms the
-    // slingshot pop on release.
+
     if (this.isDrifting) {
       this.driftSustain += dt;
       this.addBoost(CAR.boostPerDriftSec * dt);
     } else if (!physicsDrift) {
       if (this.driftSustain > CAR.driftSlingArm) {
-        // slingshot out of a drift
         vForward = Math.min(topSpeed, vForward + CAR.miniBoostImpulse);
         this.miniBoostFired = true;
         this.miniTurboTier = 1;
       }
+
       this.driftSustain = 0;
     }
+
     this.driftTier = this.isDrifting && this.driftCharge >= 1 ? 1 : 0;
+
     return vForward;
   }
 
-  private integrateAndCollide(dt: number, solids: SolidIndex): void {
-    // --- Integrate + collide, sub-stepped so high speed can't tunnel walls ---
+  private integrateAndCollide(dt: number, solids: SolidIndex) {
     let remaining = dt;
+
     while (remaining > 1e-5) {
       const sp = this.velocity.length();
       const stepDt = sp > 1e-4 ? Math.min(remaining, 0.5 / sp) : remaining;
@@ -1154,15 +1061,12 @@ export class Car {
     }
   }
 
-  private verticalStep(dt: number): void {
-    // --- Vertical: follow the ground until it falls away faster than gravity
-    // could pull us — then go ballistic and fly the hill crest. ---
+  private verticalStep(dt: number) {
     if (this.surface) {
-      // Sample under both axles, not just the centre — on convex crests a
-      // single centre sample buries the nose/tail in the hill.
       const s = this.surface;
       const axX = Math.sin(this.heading) * 1.2;
       const axZ = Math.cos(this.heading) * 1.2;
+
       const g =
         Math.max(
           s.heightAt(this.position.x, this.position.z),
@@ -1170,10 +1074,12 @@ export class Car {
             s.heightAt(this.position.x - axX, this.position.z - axZ)) /
             2,
         ) + ROAD_Y;
+
       if (this.airborne) {
         this.yVel -= CAR.gravity * dt;
         this.position.y += this.yVel * dt;
         this.airTime += dt;
+
         if (this.position.y <= g) {
           this.justLanded = Math.max(0, -this.yVel);
           this.squash = Math.min(1, 0.45 + this.justLanded * 0.035);
@@ -1185,16 +1091,12 @@ export class Car {
       } else {
         const prevY = this.position.y;
         const safeDt = Math.max(dt, 1e-4);
-        // rate the ground demands this frame
         const vyNeeded = (g - prevY) / safeDt;
         const groundAccel = (vyNeeded - this.vyGround) / safeDt;
-        // Launch when following the ground would need us to accelerate downward
-        // harder than gravity can pull (crest falling away under the wheels).
+
         if (groundAccel < -(CAR.gravity + 8) && this.speed > CAR.minAirSpeed) {
           this.airborne = true;
           this.airTime = 0;
-          // Cap the launch pop — a steep crest at boost speed shouldn't put
-          // the taxi into orbit.
           this.yVel = Math.min(this.vyGround, CAR.maxLaunchVy) - CAR.gravity * dt;
           this.position.y = Math.max(g, prevY + this.yVel * dt);
         } else {
@@ -1211,81 +1113,77 @@ export class Car {
     speedFrac: number,
     physicsDrift: boolean,
     vForward: number,
-  ): void {
-    // --- Visual lean (roll into turns, dive under braking, squat on throttle) ---
+  ) {
     const targetRoll = -input.steer * speedFrac * (physicsDrift ? 0.34 : 0.18);
     this.roll += (targetRoll - this.roll) * Math.min(1, dt * 10);
     const targetPitch = pitchFor(input, vForward);
     this.pitch += (targetPitch - this.pitch) * Math.min(1, dt * 8);
-    // springs back ~180ms
     this.squash = Math.max(0, this.squash - dt * 5.5);
   }
 
-  private spinWheels(dt: number, vForward: number): void {
-    // --- Wheels: spin with speed, fronts steer ---
+  private spinWheels(dt: number, vForward: number) {
     this.wheelSpin += (vForward / WHEEL_RADIUS) * dt;
+
     for (const w of this.wheels) {
       w.node.rotation.x = this.wheelSpin;
+
       if (w.front) {
         w.node.rotation.y = this.steerSmoothed * -0.42;
       }
     }
   }
 
-  private syncWheelsFromPhysics(dt: number, veh: RaycastVehicle): void {
-    // Wheels: spin with speed, fronts steer with the physics steering angle,
-    // and each rides its own suspension. Shorter-than-rest (compressed) lifts
-    // the wheel toward the arch: the body origin tracks the chassis, so when
-    // a spring compresses the body drops and the wheel must rise to stay on
-    // the ground. Suspension is world units; wheel nodes live inside the
-    // hero-scaled body.
+  private syncWheelsFromPhysics(dt: number, veh: RaycastVehicle) {
     const fwdSpeed = this.forwardSpeed;
     this.wheelSpin += (fwdSpeed / WHEEL_RADIUS) * dt;
     const steerAngle = veh.wheelVisual(0).steering;
     const rest = veh.params.suspensionRestLength;
     const invScale = 1 / this.object3D.scale.y;
+
     for (let i = 0; i < this.wheels.length; i += 1) {
       const w = this.wheels[i];
+
       if (!w) {
         continue;
       }
+
       w.node.rotation.x = this.wheelSpin;
+
       if (w.front) {
         w.node.rotation.y = steerAngle;
       }
+
       const travel = rest - veh.wheelVisual(w.phys).suspension;
       w.node.position.y = w.restY + THREE.MathUtils.clamp(travel, -0.12, 0.2) * invScale;
       this.contactShadow.setWheelTravel(i, travel);
     }
   }
 
-  // The taxi rammed something dynamic: shed some velocity along the contact
-  // normal (n points taxi→object) and separate. Returns the closing speed.
-  contactPunt(nx: number, nz: number, separation: number): number {
+  contactPunt(nx: number, nz: number, separation: number) {
     const vn = this.velocity.x * nx + this.velocity.y * nz;
+
     if (this.vehicle) {
       return Math.max(0, vn);
-      // Rapier resolves the contact
     }
+
     if (separation > 0) {
       this.position.x -= nx * separation;
       this.position.z -= nz * separation;
     }
+
     if (vn > 0) {
       this.velocity.x -= nx * vn * 0.55;
       this.velocity.y -= nz * vn * 0.55;
     }
+
     return Math.max(0, vn);
   }
 
-  // One bound callback (no per-substep closure) — hot path via SolidIndex.
-  // Resolves in the box's LOCAL frame so rotated solids (avenue-aligned
-  // buildings) collide exactly; yaw 0 reduces to the plain AABB test.
-  private readonly collideOne = (s: Solid): void => {
-    // Airborne taxis fly clean over height-capped obstacles (traffic).
+  private readonly collideOne = (s: Solid) => {
     if (s.maxY !== undefined && this.position.y > s.maxY) {
       return;
     }
+
     const bx = (s.minX + s.maxX) / 2;
     const bz = (s.minZ + s.maxZ) / 2;
     const hx = (s.maxX - s.minX) / 2;
@@ -1293,7 +1191,6 @@ export class Car {
     const yaw = s.yaw ?? 0;
     const cos = Math.cos(yaw);
     const sin = Math.sin(yaw);
-    // world → local (inverse of three's rotateY(yaw))
     const wdx = this.position.x - bx;
     const wdz = this.position.z - bz;
     const lx = wdx * cos - wdz * sin;
@@ -1303,6 +1200,7 @@ export class Car {
     const dx = lx - qx;
     const dz = lz - qz;
     const d2 = dx * dx + dz * dz;
+
     if (d2 >= COLLIDE_RADIUS * COLLIDE_RADIUS) {
       return;
     }
@@ -1310,18 +1208,19 @@ export class Car {
     let nlx: number;
     let nlz: number;
     let pen: number;
+
     if (d2 > 1e-6) {
       const d = Math.sqrt(d2);
       nlx = dx / d;
       nlz = dz / d;
       pen = COLLIDE_RADIUS - d;
     } else {
-      // Center inside the box — push out along the nearest face.
       const toLeft = lx + hx;
       const toRight = hx - lx;
       const toTop = lz + hz;
       const toBot = hz - lz;
       const m = Math.min(toLeft, toRight, toTop, toBot);
+
       if (m === toLeft) {
         nlx = -1;
         nlz = 0;
@@ -1335,10 +1234,10 @@ export class Car {
         nlx = 0;
         nlz = 1;
       }
+
       pen = COLLIDE_RADIUS + m;
     }
 
-    // local → world normal
     const nx = nlx * cos + nlz * sin;
     const nz = -nlx * sin + nlz * cos;
     this.position.x += nx * pen;
@@ -1346,17 +1245,20 @@ export class Car {
     this.wallContact = true;
     this.lastWallNormal.set(nx, nz);
     const vn = this.velocity.x * nx + this.velocity.y * nz;
+
     if (vn < 0) {
       const impact = -vn;
+
       if (impact > this.lastWallHit) {
         this.lastWallHit = impact;
       }
+
       this.velocity.x -= (1 + CAR.bounce) * vn * nx;
       this.velocity.y -= (1 + CAR.bounce) * vn * nz;
     }
   };
 
-  private resolveCollisions(solids: SolidIndex): void {
+  private resolveCollisions(solids: SolidIndex) {
     const r = COLLIDE_RADIUS + 0.1;
     solids.forEachIn(
       this.position.x - r,
@@ -1367,13 +1269,11 @@ export class Car {
     );
   }
 
-  // `snap = true` (resets) copies the target attitude instead of blending.
-  private syncTransform(dt: number, snap = false): void {
+  private syncTransform(dt: number, snap = false) {
     if (this.surface && !this.airborne) {
       const n = this.surface.normalInto(this.scratchN, this.position.x, this.position.z);
       slopeQuaternion(this.targetQuat, this.heading + MODEL_YAW_OFFSET, n);
     } else if (this.airborne) {
-      // The nose follows the flight arc: up off the crest, down as it falls.
       slopeQuaternion(this.targetQuat, this.heading + MODEL_YAW_OFFSET, UP);
       const arc = THREE.MathUtils.clamp(Math.atan2(-this.yVel, Math.max(this.speed, 8)), -0.5, 0.6);
       this.pitchQuat.setFromAxisAngle(X_AXIS, arc);
@@ -1381,18 +1281,17 @@ export class Car {
     } else {
       slopeQuaternion(this.targetQuat, this.heading + MODEL_YAW_OFFSET, UP);
     }
-    // Slerp instead of snapping — terrain-normal jitter becomes suspension
-    // travel; launches and landings blend instead of popping.
+
     if (snap) {
       this.object3D.quaternion.copy(this.targetQuat);
     } else {
       const rate = this.airborne ? 6 : 13;
       this.object3D.quaternion.slerp(this.targetQuat, Math.min(1, dt * rate));
     }
+
     this.object3D.position.copy(this.position);
     this.body.rotation.z = this.roll;
     this.body.rotation.x = this.pitch;
-    // Landing squash: volume-conserving squish that springs back.
     const sq = this.squash;
     this.body.scale.set(1 + 0.12 * sq, 1 - 0.26 * sq, 1 + 0.12 * sq);
   }

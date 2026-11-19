@@ -12,7 +12,6 @@ import {
   readDistributeProject,
   writeDistributeFields,
 } from "../lib/distribute/config.js";
-import type { DistributeProject, NativeConfig } from "../lib/distribute/config.js";
 import { PLATFORMS, prepareShell } from "../lib/distribute/native-shell.js";
 import type { Platform } from "../lib/distribute/native-shell.js";
 import { PORTALS } from "../lib/distribute/portals.js";
@@ -34,37 +33,35 @@ const fail = (message: string): never => {
   process.exit(1);
 };
 
-/** Progress goes quiet whenever stdout is the result rather than a story about it. */
-const narrator = (args: OutputArgs): ((message: string) => void) =>
-  isJsonOutput(args) || Boolean(args.field)
-    ? () => {
-        /* empty */
-      }
-    : (message) => consola.info(message);
+const narrator: (args: OutputArgs) => (message: string) => void = (args) =>
+  isJsonOutput(args) || Boolean(args.field) ? () => null : (message) => consola.info(message);
 
-const formatBytes = (bytes: number): string =>
+const formatBytes = (bytes: number) =>
   bytes < 1024 * 1024
     ? `${(bytes / 1024).toFixed(1)} KB`
     : `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 
-/** The built game under `dir`; exits when there is nothing a player could run. */
-const requireBuild = (dir: string): string => {
+const requireBuild = (dir: string) => {
   if (!existsSync(dir)) {
     return fail(`Directory does not exist: ${dir}`);
   }
+
   const build = resolveBuildDir(dir);
+
   if (build.kind === "unbuilt") {
     return fail(
       "This project has no build output (dist/, build/ or out/). Run its build first: the source index.html references files only the dev server can serve.",
     );
   }
+
   return build.dir;
 };
 
-const printFindings = (findings: Finding[]): void => {
+const printFindings = (findings: Finding[]) => {
   for (const finding of findings) {
     const detail = finding.paths ? `\n  ${finding.paths.slice(0, 10).join("\n  ")}` : "";
     const line = `[${finding.id}] ${finding.message}${detail}`;
+
     if (finding.level === "error") {
       consola.error(line);
     } else {
@@ -72,8 +69,6 @@ const printFindings = (findings: Finding[]): void => {
     }
   }
 };
-
-// ---- vg distribute <portal> ------------------------------------------------
 
 const DEFAULT_PREVIEW_PORT = 8471;
 
@@ -102,8 +97,7 @@ const portalArgs = {
   ...outputArgs,
 } as const;
 
-/** The project a zip is named after and written into; a bare folder stands in for one. */
-const webProject = (dir: string): Pick<DistributeProject, "root" | "slug"> => {
+const webProject = (dir: string) => {
   try {
     return readDistributeProject(dir);
   } catch {
@@ -111,7 +105,7 @@ const webProject = (dir: string): Pick<DistributeProject, "root" | "slug"> => {
   }
 };
 
-const sdkFinding = (portal: Portal): Finding[] =>
+const sdkFinding: (portal: Portal) => Finding[] = (portal) =>
   portal.sdk === "required" && portal.integration === null
     ? [
         {
@@ -122,9 +116,9 @@ const sdkFinding = (portal: Portal): Finding[] =>
       ]
     : [];
 
-/** The SDK tag goes into the package only: the build itself stays free of the portal's script. */
-const packagedOverrides = (portal: Portal, buildDir: string): ZipOverrides => {
+const packagedOverrides = (portal: Portal, buildDir: string) => {
   const overrides: ZipOverrides = new Map();
+
   if (portal.integration !== null) {
     const html = readFileSync(path.join(buildDir, "index.html"), "utf-8");
     overrides.set(
@@ -132,10 +126,11 @@ const packagedOverrides = (portal: Portal, buildDir: string): ZipOverrides => {
       new TextEncoder().encode(withSdkScript(html, portal.integration.script)),
     );
   }
+
   return overrides;
 };
 
-const overZipLimit = (portal: Portal, bytes: number): Finding[] =>
+const overZipLimit: (portal: Portal, bytes: number) => Finding[] = (portal, bytes) =>
   portal.limits.maxZipBytes !== null && bytes > portal.limits.maxZipBytes
     ? [
         {
@@ -146,11 +141,13 @@ const overZipLimit = (portal: Portal, bytes: number): Finding[] =>
       ]
     : [];
 
-const parsePort = (raw: string): number => {
+const parsePort = (raw: string) => {
   const port = Number(raw);
+
   if (!Number.isInteger(port) || port < 1024 || port > 65_534) {
     return fail("--port must be a whole number from 1024 to 65534.");
   }
+
   return port;
 };
 
@@ -166,30 +163,38 @@ interface PackResult {
   zip: string | null;
 }
 
-const pack = (portal: Portal, dirArg: string, outArg: string | undefined): PackResult => {
+const pack: (portal: Portal, dirArg: string, outArg: string | undefined) => PackResult = (
+  portal,
+  dirArg,
+  outArg,
+) => {
   const dir = path.resolve(dirArg);
   const buildDir = requireBuild(dir);
   const project = webProject(dir);
+
   const outFile = path.resolve(
     outArg ?? path.join(project.root, OUT_DIR, `${project.slug}-${portal.id}.zip`),
   );
 
-  // A bare folder is its own build, so earlier packages sit inside it.
   const outDir = `${path.dirname(outFile)}${path.sep}`;
   const files = buildManifest(buildDir).filter((file) => !file.absolutePath.startsWith(outDir));
+
   const input = {
     files,
     readText: (file: string) => readFileSync(path.join(buildDir, file), "utf-8"),
   };
+
   const findings = [
     ...auditBuild({ ...input, limits: portal.limits, sdk: portal.integration }),
     ...sdkFinding(portal),
   ];
 
   let bytes: number | null = null;
+
   if (!findings.some((finding) => finding.level === "error")) {
     ({ bytes } = writeZip(files, outFile, packagedOverrides(portal, buildDir)));
     const tooLarge = overZipLimit(portal, bytes);
+
     if (tooLarge.length > 0) {
       rmSync(outFile, { force: true });
       bytes = null;
@@ -210,43 +215,45 @@ const pack = (portal: Portal, dirArg: string, outArg: string | undefined): PackR
   };
 };
 
-const printPack = (portal: Portal, result: PackResult, previewing: boolean): void => {
+const printPack = (portal: Portal, result: PackResult, previewing: boolean) => {
   printFindings(result.findings);
+
   if (result.zip === null || result.bytes === null) {
     return;
   }
+
   consola.success(`${result.zip} (${result.files} files, ${formatBytes(result.bytes)})`);
+
   if (!previewing) {
     consola.info(`Try it as ${portal.name} serves it: vg distribute ${portal.id} --preview`);
   }
+
   if (portal.submitUrl !== null) {
     consola.info(`Upload it at ${portal.submitUrl}`);
   }
+
   if (result.hosts.length > 0) {
     consola.info(`The game reaches: ${result.hosts.join(", ")}`);
   }
 };
 
-interface PreviewResult {
-  url: string;
-  game_url: string;
-  sdk_stub: boolean;
-}
-
-/** Serve the zip until the process is stopped. */
-const servePreview = async (portal: Portal, zip: string, port: number): Promise<PreviewResult> => {
+const servePreview = async (portal: Portal, zip: string, port: number) => {
   let preview;
+
   try {
     preview = await startPreview({ port, portal, zip: readFileSync(zip) });
   } catch (error) {
     return fail(error instanceof Error ? error.message : String(error));
   }
+
   const stop = async () => {
     await preview.close();
     process.exit(0);
   };
+
   process.once("SIGINT", stop);
   process.once("SIGTERM", stop);
+
   return { game_url: preview.gameUrl, sdk_stub: portal.integration !== null, url: preview.url };
 };
 
@@ -264,32 +271,38 @@ const portalCommand = (portal: Portal) =>
       assertKnownFlags(rawArgs, portalArgs);
       const port = args.preview ? parsePort(args.port) : null;
       const result = pack(portal, args.dir, args.out);
+
       if (result.zip === null || port === null) {
         if (!writeStructured(result, args)) {
           printPack(portal, result, false);
         }
+
         if (!result.ok) {
           process.exit(1);
         }
+
         return;
       }
+
       const preview = await servePreview(portal, result.zip, port);
       const served = { game_url: preview.game_url, sdk_stub: preview.sdk_stub, url: preview.url };
+
       if (writeStructured({ ...result, preview: served }, args)) {
         return;
       }
+
       printPack(portal, result, true);
       consola.success(`Preview: ${preview.url}, framed from another origin`);
+
       if (preview.sdk_stub) {
         consola.info(
           "The SDK is a stand-in: window.vgPreview on that page holds its call log (log.calls, log.errors) and pause(), resume(), setAudio(bool).",
         );
       }
+
       consola.info("Stop with Ctrl-C.");
     },
   });
-
-// ---- vg distribute ios | android -------------------------------------------
 
 const nativeArgs = {
   "app-id": {
@@ -314,29 +327,28 @@ const NEXT_STEPS: Record<Platform, string[]> = {
   ios: ["npx cap run ios", "npx cap open ios"],
 };
 
-interface NativeProject {
-  project: DistributeProject;
-  native: NativeConfig;
-}
-
-const requireNative = (dir: string, appId: string | undefined): NativeProject => {
+const requireNative = (dir: string, appId: string | undefined) => {
   if (appId !== undefined) {
     if (!APP_ID_RE.test(appId)) {
       return fail(`--app-id must be a reverse-DNS id such as com.yourstudio.game, not "${appId}".`);
     }
+
     try {
       writeDistributeFields(readDistributeProject(dir).root, { appId });
     } catch (error) {
       return fail(error instanceof Error ? error.message : String(error));
     }
   }
+
   try {
     const project = readDistributeProject(dir);
+
     if (project.native === null) {
       return fail(
         `No app id yet. It is the app's permanent identity in the store, so choose it deliberately:\n  vg distribute <platform> --app-id com.yourstudio.${project.slug.replaceAll("-", "")}`,
       );
     }
+
     return { native: project.native, project };
   } catch (error) {
     return fail(error instanceof Error ? error.message : String(error));
@@ -358,12 +370,15 @@ const nativeCommand = (platform: Platform, store: string) =>
       const buildDir = requireBuild(project.root);
 
       let shell;
+
       try {
         shell = await prepareShell({ buildDir, native, platform, project, say });
       } catch (error) {
         return fail(error instanceof Error ? error.message : String(error));
       }
+
       const toolchain = await checkToolchain(platform);
+
       const result = {
         app_id: native.appId,
         build: native.build,
@@ -374,23 +389,26 @@ const nativeCommand = (platform: Platform, store: string) =>
         toolchain_missing: toolchain.ready ? [] : toolchain.missing,
         version: native.version,
       };
+
       if (writeStructured(result, args)) {
         return;
       }
+
       consola.success(`${result.project} — ${native.appId} ${native.version} (${native.build})`);
+
       if (!shell.icon) {
         consola.warn(
           "Still the placeholder icon, which no store accepts. Add a square 1024px icon.png to the project (or set distribute.icon) and run this again.",
         );
       }
+
       for (const missing of result.toolchain_missing) {
         consola.warn(missing);
       }
+
       consola.info(`Next:\n  ${result.next.join("\n  ")}`);
     },
   });
-
-// ---- vg distribute targets --------------------------------------------------
 
 const targetsArgs = { ...outputArgs } as const;
 
@@ -403,12 +421,15 @@ const targetsCommand = defineCommand({
   },
   run: async ({ args, rawArgs }) => {
     assertKnownFlags(rawArgs, targetsArgs);
+
     const stores = await Promise.all(
       PLATFORMS.map(async (platform) => {
         const toolchain = await checkToolchain(platform);
+
         return { missing: toolchain.ready ? [] : toolchain.missing, platform };
       }),
     );
+
     const portals = PORTALS.map((portal) => ({
       access: portal.access,
       id: portal.id,
@@ -425,12 +446,15 @@ const targetsCommand = defineCommand({
       sdk: portal.sdk,
       submit_url: portal.submitUrl,
     }));
+
     if (writeStructured({ portals, stores }, args)) {
       return;
     }
+
     for (const portal of portals) {
       consola.log(`${portal.id.padEnd(18)} ${portal.name} — ${portal.notes}`);
     }
+
     for (const store of stores) {
       consola.log(
         `${store.platform.padEnd(18)} ${store.missing.length === 0 ? "ready to build" : store.missing.join(" ")}`,

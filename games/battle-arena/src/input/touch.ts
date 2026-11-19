@@ -1,15 +1,5 @@
 import type { AbilityReadiness } from "../render/hud-readability";
 import { CHAMP_BY_ID } from "../data/champions";
-// Touch controls (build-doc §12). Left half = floating move stick (camera-
-// relative forward/strafe); right half = floating LOOK stick — it turns the
-// camera FPS-style (the scene folds its deflection into yaw/pitch at pad
-// rates, crosshair dead center) and auto-fires while held. Fixed bottom-right
-// button grid: Q/W/E · R/DASH/JUMP · hop/B. DASH casts the hero's dash, JUMP the
-// leaping strike (self-leaps if grounded); the hop button is the plain Space hop.
-// Ability buttons take champ icon backgrounds via bindChamp() and per-button
-// conic cooldown sweeps via setCooldown(). Pre-shows on coarse-pointer devices,
-// otherwise activates on first touch; idle on desktop. The full-screen layer is
-// pointer-events:none (sticks listen on window) so interactive HUD stays tappable.
 import { abilityIcon } from "../data/icons";
 import { ALL_ABILITY_KEYS } from "../sim/types";
 import type { AbilityKey } from "../sim/types";
@@ -26,13 +16,12 @@ const STICK_R = 60;
 const KNOB_R = 28;
 
 /** Boot-time input mode for instruction copy. */
-export const isTouchInput = (): boolean =>
+export const isTouchInput = () =>
   "ontouchstart" in window ||
   ("matchMedia" in window && window.matchMedia("(pointer:coarse)").matches);
 
-// "DASH"/"JUMP" are AbilityKeys → their buttons carry cooldown sweeps and icons
-// like Q/W/E/R. "J" is the plain hop (Space), "B" the shop toggle.
 type BtnId = AbilityKey | "B" | "J";
+
 const BTN_KEYS: { id: BtnId; label: string }[] = [
   { id: "Q", label: "1" },
   { id: "W", label: "2" },
@@ -43,10 +32,9 @@ const BTN_KEYS: { id: BtnId; label: string }[] = [
   { id: "J", label: "HOP" },
   { id: "B", label: "B" },
 ];
+
 const ABILITY_IDS = new Set<string>(["Q", "W", "E", "R", "DASH", "JUMP"]);
 
-// Touches that begin on interactive HUD (shop/end buttons, belt chips, the
-// tappable timer) belong to that UI — they must never spawn a stick.
 const INTERACTIVE_SEL = "button,input,#ba-shop,#ba-end,#ba-timer,.ba-item-chip";
 
 interface Btn {
@@ -59,10 +47,12 @@ interface Btn {
 }
 
 let touchStyleInjected = false;
-const injectTouchStyle = (): void => {
+
+const injectTouchStyle = () => {
   if (touchStyleInjected) {
     return;
   }
+
   touchStyleInjected = true;
   const s = document.createElement("style");
   s.textContent = `
@@ -77,14 +67,15 @@ const injectTouchStyle = (): void => {
   document.head.append(s);
 };
 
-const readinessLabel = (readiness: AbilityReadiness): string => {
+const readinessLabel = (readiness: AbilityReadiness) => {
   if (readiness.kind === "blocked") {
     return readiness.label;
   }
+
   return readiness.queued ? "QUEUED" : "";
 };
 
-const stickEl = (): StickHandle => {
+const stickEl = () => {
   const el = document.createElement("div");
   el.style.cssText = `position:absolute;display:none;pointer-events:none`;
   const base = document.createElement("div");
@@ -94,14 +85,17 @@ const stickEl = (): StickHandle => {
   el.append(base, knob);
   base.style.cssText = `position:absolute;width:${STICK_R * 2}px;height:${STICK_R * 2}px;border-radius:50%;background:rgba(255,255,255,.08);border:2px solid rgba(255,255,255,.2);transform:translate(-50%,-50%)`;
   knob.style.cssText = `position:absolute;width:${KNOB_R * 2}px;height:${KNOB_R * 2}px;border-radius:50%;background:rgba(255,255,255,.35);transform:translate(-50%,-50%)`;
+
   return { base, el, knob };
 };
 
-const place = ({ el, base, knob }: StickHandle, s: Stick | null): void => {
+const place = ({ el, base, knob }: StickHandle, s: Stick | null) => {
   if (!s) {
     el.style.display = "none";
+
     return;
   }
+
   el.style.display = "block";
   base.style.left = `${s.baseX}px`;
   base.style.top = `${s.baseY}px`;
@@ -115,11 +109,8 @@ export class TouchControls {
   private aim: Stick | null = null;
   private queue: AbilityKey[] = [];
   private buy = false;
-  // plain hop (Space)
   private jump = false;
-  // cast DASH
   private dash = false;
-  // cast JUMP (leaping strike)
   private jumpAttack = false;
   private layer: HTMLDivElement;
   private moveEl: StickHandle;
@@ -131,11 +122,6 @@ export class TouchControls {
     injectTouchStyle();
     this.layer = document.createElement("div");
     this.layer.id = "ba-touch";
-    // pointer-events:none — the layer must never eat HUD taps (shop, end card,
-    // belt chips); sticks work off window-level listeners, the pad re-enables auto.
-    // z-index BELOW #hud: the HUD is pointer-events:none except where it is
-    // genuinely interactive, and #ba-shop is nested inside it, so a pad drawn
-    // above the HUD both paints over the open shop card and swallows its taps.
     this.layer.style.cssText =
       "position:fixed;inset:0;z-index:4;display:none;touch-action:none;pointer-events:none";
     this.moveEl = stickEl();
@@ -145,34 +131,40 @@ export class TouchControls {
     const pad = document.createElement("div");
     pad.style.cssText =
       "position:fixed;right:calc(16px + env(safe-area-inset-right));bottom:calc(20px + env(safe-area-inset-bottom));display:grid;grid-template-columns:repeat(3,58px);grid-auto-rows:58px;gap:8px;pointer-events:auto";
+
     for (const b of BTN_KEYS) {
       const el = document.createElement("div");
       el.className = "ba-tbtn";
-      // The bottom row is the one that shares its band with the item belt pinned
-      // bottom-LEFT on phones, so it starts at column 2: HOP · B, with column 1
-      // left empty. Placing HOP in column 1 put it over the belt's last chip.
+
       if (b.id === "J") {
         el.style.gridColumn = "2";
       }
+
       if (b.id === "B") {
         el.style.gridColumn = "3";
       }
+
       const label = document.createElement("span");
       label.className = "ba-tl";
       label.textContent = b.label;
+
       if (b.label.length > 1) {
         label.classList.add("word");
       }
+
       el.append(label);
       let cd: HTMLDivElement | null = null;
+
       if (ABILITY_IDS.has(b.id)) {
         cd = document.createElement("div");
         cd.className = "ba-tcd";
         el.append(cd);
       }
+
       el.addEventListener("pointerdown", (e) => {
         e.stopPropagation();
         el.classList.add("press");
+
         if (b.id === "B") {
           this.buy = true;
         } else if (b.id === "J") {
@@ -193,6 +185,7 @@ export class TouchControls {
       this.buttons.set(b.id, { cd, el, label, lastCd: -1, lastState: "", state });
       pad.append(el);
     }
+
     this.layer.append(pad);
     document.body.append(this.layer);
 
@@ -201,8 +194,6 @@ export class TouchControls {
     window.addEventListener("pointerup", this.onUp);
     window.addEventListener("pointercancel", this.onUp);
 
-    // pre-show on touch-first devices so the pad is visible from spawn and the
-    // hint engine speaks touch from boot (not only after the first touch)
     if ("matchMedia" in window && window.matchMedia("(pointer:coarse)").matches) {
       this.activate();
     }
@@ -211,18 +202,23 @@ export class TouchControls {
   /** Paint the local champ's ability icons onto Q/W/E/R and demote the digit
    *  labels to corner keycaps. DASH/JUMP get the shared glyph icon (abilityIcon
    *  special-cases them) but keep their word label. Idempotent per champ. */
-  bindChamp(champId: string): void {
+  bindChamp(champId: string) {
     if (champId === this.champBound) {
       return;
     }
+
     this.champBound = champId;
+
     for (const key of ALL_ABILITY_KEYS) {
       const btn = this.buttons.get(key);
+
       if (!btn) {
         continue;
       }
+
       btn.el.setAttribute("aria-label", CHAMP_BY_ID[champId]?.abilities[key].name ?? key);
       btn.el.style.backgroundImage = `url("${abilityIcon(champId, key)}")`;
+
       if (key === "Q" || key === "W" || key === "E" || key === "R") {
         btn.label.classList.add("kc");
       }
@@ -231,62 +227,70 @@ export class TouchControls {
 
   /** Per-button conic cooldown sweep. `pct` = fraction of cooldown remaining
    *  (0 = ready, 1 = just cast). Change-gated to whole-percent writes. */
-  setCooldown(key: AbilityKey, pct: number): void {
+  setCooldown(key: AbilityKey, pct: number) {
     const btn = this.buttons.get(key);
+
     if (!btn || !btn.cd) {
       return;
     }
+
     const v = Math.round(Math.max(0, Math.min(1, pct)) * 100);
+
     if (v === btn.lastCd) {
       return;
     }
+
     btn.lastCd = v;
     btn.cd.style.setProperty("--cd", `${v}`);
   }
 
   /** Informative only: taps still reach the authoritative cast/buffer path. */
-  setReadiness(key: AbilityKey, readiness: AbilityReadiness): void {
+  setReadiness(key: AbilityKey, readiness: AbilityReadiness) {
     const button = this.buttons.get(key);
+
     if (!button) {
       return;
     }
+
     const text = readinessLabel(readiness);
+
     if (text !== button.lastState) {
       button.lastState = text;
       button.state.textContent = text;
     }
+
     button.el.classList.toggle("blocked", readiness.kind === "blocked");
     button.el.classList.toggle("queued", readiness.queued);
   }
 
-  private activate(): void {
+  private activate() {
     if (this.active) {
       return;
     }
+
     this.active = true;
     this.layer.style.display = "block";
     document.body.classList.add("ba-touch-on");
   }
 
-  private onDown = (e: PointerEvent): void => {
+  private onDown = (e: PointerEvent) => {
     if (e.pointerType !== "touch") {
       return;
     }
+
     this.activate();
-    // the layer is pointer-events:none, so e.target is the real element under
-    // the finger — interactive HUD wins over stick spawning
     const t = e.target;
+
     if (t instanceof Element && t.closest(INTERACTIVE_SEL)) {
       return;
     }
-    // menus own the pointer (shop / end screen — Controls.setMouseMode): taps
-    // there browse UI, they never steer or auto-fire
+
     if (document.body.classList.contains("ba-mouse-mode")) {
       return;
     }
-    // cancel compat mouse events so a stick touch never mousedown's the canvas
-    // (that path requests pointer lock + fires LMB attacks on desktop)
+
     e.preventDefault();
+
     if (e.clientX < window.innerWidth / 2) {
       if (!this.move) {
         this.move = { baseX: e.clientX, baseY: e.clientY, dx: 0, dy: 0, id: e.pointerId };
@@ -294,21 +298,25 @@ export class TouchControls {
     } else if (!this.aim) {
       this.aim = { baseX: e.clientX, baseY: e.clientY, dx: 0, dy: 0, id: e.pointerId };
     }
+
     this.render();
   };
 
-  private stickFor(pointerId: number): Stick | null {
+  private stickFor(pointerId: number) {
     if (this.move?.id === pointerId) {
       return this.move;
     }
+
     return this.aim?.id === pointerId ? this.aim : null;
   }
 
-  private onMove = (e: PointerEvent): void => {
+  private onMove = (e: PointerEvent) => {
     const s = this.stickFor(e.pointerId);
+
     if (!s) {
       return;
     }
+
     const dx = e.clientX - s.baseX;
     const dy = e.clientY - s.baseY;
     const len = Math.hypot(dx, dy) || 1;
@@ -318,34 +326,36 @@ export class TouchControls {
     this.render();
   };
 
-  private onUp = (e: PointerEvent): void => {
+  private onUp = (e: PointerEvent) => {
     if (this.move?.id === e.pointerId) {
       this.move = null;
     }
+
     if (this.aim?.id === e.pointerId) {
       this.aim = null;
     }
+
     this.render();
   };
 
-  private render(): void {
+  private render() {
     place(this.moveEl, this.move);
     place(this.aimEl, this.aim);
   }
 
-  moveVec(): { x: number; y: number } {
+  moveVec() {
     return this.move ? { x: this.move.dx, y: this.move.dy } : { x: 0, y: 0 };
   }
   /** Raw look-stick deflection (unit-clamped, y-down screen axes) or null if
    *  the right stick isn't held. The scene integrates this into yaw/pitch. */
-  lookVec(): { x: number; y: number } | null {
+  lookVec() {
     return this.aim ? { x: this.aim.dx, y: this.aim.dy } : null;
   }
-  attackDown(): boolean {
+  attackDown() {
     return this.aim !== null && Math.hypot(this.aim.dx, this.aim.dy) > 0.2;
   }
   /** An overlay can consume pointer-up; release the owned sticks and edges. */
-  resetInput(): void {
+  resetInput() {
     this.move = null;
     this.aim = null;
     this.queue = [];
@@ -353,36 +363,43 @@ export class TouchControls {
     this.jump = false;
     this.dash = false;
     this.jumpAttack = false;
+
     for (const button of this.buttons.values()) {
       button.el.classList.remove("press");
     }
+
     this.render();
   }
-  consumeAbilities(): AbilityKey[] {
+  consumeAbilities() {
     const out = this.queue;
     this.queue = [];
+
     return out;
   }
-  consumeBuy(): boolean {
+  consumeBuy() {
     const b = this.buy;
     this.buy = false;
+
     return b;
   }
-  consumeJump(): boolean {
+  consumeJump() {
     const j = this.jump;
     this.jump = false;
+
     return j;
   }
   /** Edge: DASH button pressed (cast the hero's dash). */
-  consumeDash(): boolean {
+  consumeDash() {
     const d = this.dash;
     this.dash = false;
+
     return d;
   }
   /** Edge: JUMP button pressed (cast the leaping strike; self-leaps if grounded). */
-  consumeJumpAttack(): boolean {
+  consumeJumpAttack() {
     const j = this.jumpAttack;
     this.jumpAttack = false;
+
     return j;
   }
 }

@@ -18,52 +18,66 @@ export type WeaponLook =
 
 /** Local weapon identity only. Remote snapshots use their actual shape flags,
  * never the owner's current loadout to guess an old projectile's weapon. */
-export const weaponLook = (weapon: Weapon): WeaponLook => {
+export const weaponLook = (weapon: Weapon) => {
   if (weapon.singularity) {
     return "orb";
   }
+
   if (weapon.homing) {
     return "missile";
   }
+
   switch (weapon.sfx) {
     case "rapid": {
       return "rapid";
     }
+
     case "heavy":
     case "boom": {
       return "heavy";
     }
+
     case "zap": {
       return "laser";
     }
+
     case "rail": {
       return "rail";
     }
+
     case "scatter": {
       return "scatter";
     }
+
     case "plasma": {
       return "plasma";
     }
+
     case "drill": {
       return "drill";
     }
+
     case "glaive": {
       return "glaive";
     }
+
     case "arc":
     case "tesla": {
       return "arc";
     }
+
     case "singularity": {
       return "orb";
     }
+
     case "nova": {
       return "nova";
     }
+
     case "mine": {
       return "mine";
     }
+
     default: {
       return "bolt";
     }
@@ -78,30 +92,33 @@ export const contactPoint = (
   target: Vec,
   radius: number,
   radial: boolean,
-): Vec => {
+) => {
   if (radial) {
     const dx = head.x - target.x;
     const dy = head.y - target.y;
     const distance = Math.hypot(dx, dy);
     const offset = Math.min(radius, distance);
+
     return distance > 0
       ? { x: target.x + (dx / distance) * offset, y: target.y + (dy / distance) * offset }
       : { x: target.x, y: target.y };
   }
+
   const dx = head.x - tail.x;
   const dy = head.y - tail.y;
   const length2 = dx * dx + dy * dy;
+
   if (length2 === 0) {
     return { x: head.x, y: head.y };
   }
+
   const ox = tail.x - target.x;
   const oy = tail.y - target.y;
   const b = ox * dx + oy * dy;
   const discriminant = b * b - length2 * (ox * ox + oy * oy - radius * radius);
-  // Width padding can hit beside the physical hull. Project onto the segment
-  // in that case; never move the authored beam or invent a collision.
   const along = discriminant >= 0 ? (-b - Math.sqrt(discriminant)) / length2 : -b / length2;
   const t = Math.max(0, Math.min(1, along));
+
   return { x: tail.x + dx * t, y: tail.y + dy * t };
 };
 
@@ -116,12 +133,13 @@ const BURST_LIFETIME_MS: Record<BurstKind, number> = {
   muzzle: 115,
 };
 
-export const burstLifetime = (kind: BurstKind): number => BURST_LIFETIME_MS[kind];
+export const burstLifetime = (kind: BurstKind) => BURST_LIFETIME_MS[kind];
 
 /** A stage's envelope is exactly zero before launch and after expiry. */
-export const burstStage = (age: number, delay: number, life: number): number => {
+export const burstStage = (age: number, delay: number, life: number) => {
   if (age < delay || age >= delay + life) {
     return 0;
   }
+
   return 1 - (age - delay) / life;
 };

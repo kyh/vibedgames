@@ -1,38 +1,28 @@
-// Icon URL helpers (HUD, shop, select, touch, kill feed). Pure string
-// mapping — the webp files live in public/icons/ (see scripts/import-icons.sh).
-// Helpers are total: any input yields a well-formed URL (or null for status
-// kinds that deliberately get no chip).
 import type { AbilityKey } from "../sim/types";
 
 /** Icon basename (no extension) → served path, e.g. iconUrl("item-boots"). */
-export const iconUrl = (name: string): string => `./icons/${name}.webp`;
+export const iconUrl = (name: string) => `./icons/${name}.webp`;
 
-// Champs whose icon files ship under a different prefix than their champ id
-// (identity reskins keep the id for sim/net compat but get fresh art).
-const ICON_PREFIX_ALIAS = new Map<string, string>([
-  // Aurelius the Dawnward — gold paladin icon set
-  ["blackknight", "paladin"],
-]);
+const ICON_PREFIX_ALIAS = new Map<string, string>([["blackknight", "paladin"]]);
 
 /** Ability tile icon. Q/W/E/R → per-champ `{prefix}-{q|w|e|r}.webp` (id →
  *  art-prefix aliased). DASH/JUMP are the flat util pair: they share one glyph
  *  each (`ability-dash`/`ability-jump`) across every champion. */
-export const abilityIcon = (champId: string, key: AbilityKey): string =>
+export const abilityIcon = (champId: string, key: AbilityKey) =>
   key === "DASH" || key === "JUMP"
     ? iconUrl(`ability-${key.toLowerCase()}`)
     : iconUrl(`${ICON_PREFIX_ALIAS.get(champId) ?? champId}-${key.toLowerCase()}`);
 
-/** Basic-attack icon, keyed by ChampDef.attackKind (unknown kinds → melee). */
 const ATTACK_ICON_BY_KIND = new Map([
   ["arrow", "attack-arrow"],
   ["bolt", "attack-bolt"],
 ]);
 
-export const attackIcon = (attackKind: string): string =>
+export const attackIcon = (attackKind: string) =>
   iconUrl(ATTACK_ICON_BY_KIND.get(attackKind) ?? "attack-melee");
 
 /** A champion's identity mark = their ult icon (kill feed, select cards). */
-export const champSigil = (champId: string): string => abilityIcon(champId, "R");
+export const champSigil = (champId: string) => abilityIcon(champId, "R");
 
 const STATUS_ICONS = new Map<string, string>([
   ["stun", "status-stun"],
@@ -50,7 +40,8 @@ const STATUS_ICONS = new Map<string, string>([
 ]);
 
 /** Buff-row chip icon; null = status kinds that get no chip (silence etc.). */
-export const statusIcon = (kind: string): string | null => {
+export const statusIcon = (kind: string) => {
   const name = STATUS_ICONS.get(kind);
+
   return name ? iconUrl(name) : null;
 };

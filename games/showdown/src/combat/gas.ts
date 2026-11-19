@@ -4,8 +4,7 @@ import { TUNING } from "../config";
 import type { Game } from "../game";
 import { clamp, lerp, smoothstep } from "../utils";
 
-// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-const GAS_VERT = /* glsl */ `
+const GAS_VERT = `
   varying vec3 vWorld;
   void main() {
     vec4 w = modelMatrix * vec4( position, 1.0 );
@@ -13,8 +12,7 @@ const GAS_VERT = /* glsl */ `
     gl_Position = projectionMatrix * viewMatrix * w;
   }`;
 
-// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-const GAS_FRAG = /* glsl */ `
+const GAS_FRAG = `
   uniform float uTime;
   uniform float uHalf;
   uniform float uRound;
@@ -57,11 +55,8 @@ const GAS_FRAG = /* glsl */ `
     gl_FragColor = vec4( col, clamp( dens * uAlpha + rim * 0.25, 0.0, 0.95 ) );
   }`;
 
-// Three translucent sheets at rising heights; the higher ones are fainter so
-// the stack reads as a volume rather than three hard planes.
 const LAYER_HEIGHTS = [0.3, 0.72, 1.12];
 const LAYER_ALPHAS = [0.34, 0.3, 0.26];
-// Seconds of warning before the gas starts to bite.
 const WARNING = 6;
 const START_ROUND = 5;
 const END_ROUND = 2.2;
@@ -105,11 +100,14 @@ export class Gas {
     this.ticks = 0;
     const geometry = new THREE.PlaneGeometry(104, 104, 1, 104).rotateX(-Math.PI / 2);
     const positions = geometry.getAttribute("position");
+
     for (let i = 0; i < positions.count; i += 1) {
       positions.setY(i, terrainHeight(positions.getX(i), positions.getZ(i)));
     }
+
     for (const [index, height] of LAYER_HEIGHTS.entries()) {
       const alpha = LAYER_ALPHAS[index] ?? 0;
+
       const uniforms = {
         uAlpha: { value: alpha },
         uAmbient: { value: 1 },
@@ -119,6 +117,7 @@ export class Gas {
         uRound: { value: this.round },
         uTime: { value: 0 },
       };
+
       const material = new THREE.ShaderMaterial({
         depthWrite: false,
         fragmentShader: GAS_FRAG,
@@ -126,6 +125,7 @@ export class Gas {
         uniforms,
         vertexShader: GAS_VERT,
       });
+
       const mesh = new THREE.Mesh(geometry, material);
       mesh.position.y = height;
       mesh.renderOrder = 4;
@@ -134,41 +134,46 @@ export class Gas {
       game.scene.add(mesh);
       this.sheets.push({ alpha, mesh, uniforms });
     }
+
     this.reset();
   }
 
-  reset(): void {
+  reset() {
     this.half = TUNING.gasStartHalf;
     this.tickT = 0;
     this.ticks = 0;
     this.active = false;
+
     for (const sheet of this.sheets) {
       sheet.mesh.visible = false;
     }
   }
 
   /** Signed distance into the gas: negative inside the safe zone, positive once in the poison. */
-  depthAt(x: number, z: number): number {
+  depthAt(x: number, z: number) {
     const qx = Math.abs(x) - (this.half - this.round);
     const qz = Math.abs(z) - (this.half - this.round);
+
     return (
       Math.hypot(Math.max(qx, 0), Math.max(qz, 0)) + Math.min(Math.max(qx, qz), 0) - this.round
     );
   }
 
   /** `simulate` false (a guest mirroring the host) drives the sheets without dealing damage. */
-  update(dt: number, matchTime: number, simulate = true): void {
+  update(dt: number, matchTime: number, simulate = true) {
     const progress = clamp((matchTime - TUNING.gasDelay) / TUNING.gasDuration, 0, 1);
     this.active = matchTime > TUNING.gasDelay - WARNING;
     this.half = lerp(TUNING.gasStartHalf, TUNING.gasEndHalf, progress);
     this.round = lerp(START_ROUND, END_ROUND, progress);
-    // The sheets fade in over the warning window before the first tick lands.
     const fadeIn = smoothstep(TUNING.gasDelay - WARNING, TUNING.gasDelay, matchTime);
     this.updateSheets(fadeIn);
+
     if (!simulate || matchTime < TUNING.gasDelay) {
       return;
     }
+
     this.tickT += dt;
+
     if (this.tickT >= 1) {
       this.tickT -= 1;
       this.ticks += 1;
@@ -176,15 +181,15 @@ export class Gas {
     }
   }
 
-  private updateSheets(fadeIn: number): void {
+  private updateSheets(fadeIn: number) {
     const { elapsed, lighting } = this.game;
+
     for (const sheet of this.sheets) {
       sheet.mesh.visible = this.active;
       const { uniforms } = sheet;
       uniforms.uTime.value = elapsed;
       uniforms.uHalf.value = this.half;
       uniforms.uRound.value = this.round;
-      // Dim the body with the scene so the gas does not glow like daylight at night.
       const daylight = clamp((lighting.ambientLevel - 0.36) / 0.64, 0, 1);
       uniforms.uAmbient.value = lerp(0.2, 1, daylight);
       uniforms.uGlow.value = (0.55 + lighting.night * 0.3) * fadeIn;
@@ -192,16 +197,17 @@ export class Gas {
     }
   }
 
-  // Once a second, everyone standing in the gas takes a tick that ramps up
-  // over the first minute so a late straggler cannot camp in it.
-  private tick(): void {
+  private tick() {
     const { audio, brawlers } = this.game;
     const damage = 600 + Math.min(this.ticks, 60) * 25;
+
     for (const brawler of brawlers) {
       if (!brawler.alive || brawler.airborne || this.depthAt(brawler.x, brawler.z) <= 0.35) {
         continue;
       }
+
       brawler.takeDamage(damage, null, true);
+
       if (brawler.isPlayer) {
         audio.play("gas");
       }

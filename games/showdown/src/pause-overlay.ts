@@ -1,11 +1,5 @@
-// The wrapper pause surface: the stock @repo/embed overlay (controls filtered
-// per device / connected pad, a "how to play" modal, the sound toggle) under a
-// thin banner in the game's own face that says whether the arena froze. Solo
-// play freezes; an online arena keeps running while the player is here, and
-// the copy must say so before they wander off for a coffee.
-
 import { createPauseOverlay, PAUSE_OVERLAY_Z } from "@repo/embed";
-import type { HelpSection, MuteAccessor, PauseOverlay } from "@repo/embed";
+import type { HelpSection, MuteAccessor } from "@repo/embed";
 
 import { BRAWLERS, TUNING } from "./config";
 import type { AttackDef, BrawlerDef } from "./config";
@@ -20,39 +14,42 @@ export interface ShowdownPauseOverlayOptions {
 
 const BANNER_ID = "showdown-pause-banner";
 
-/** Game tokens (src/style.css): display face, gold, ink. */
 const FONT = "'Fredoka', 'Arial Rounded MT Bold', 'Segoe UI', system-ui, sans-serif";
 const GOLD = "#e8c778";
 const INK = "#193a32";
 
-const describeAttack = (attack: AttackDef): string => {
+const describeAttack = (attack: AttackDef) => {
   switch (attack.kind) {
     case "spread": {
       return `a ${attack.pellets}-bolt volley`;
     }
+
     case "burst": {
       return `a ${attack.count}-arrow volley`;
     }
+
     case "melee": {
       return `a close-range weapon sweep`;
     }
+
     case "lob": {
       return "a fire spell that arcs over walls";
     }
+
     case "leap": {
       return "a mighty leap with a ground-shaking landing";
     }
+
     default: {
       return "an attack";
     }
   }
 };
 
-const describeBrawler = (def: BrawlerDef): string =>
+const describeBrawler = (def: BrawlerDef) =>
   `${def.name} (${def.role}, ${def.hp} HP): ${def.blurb} Attack is ${describeAttack(def.attack)}; ` +
   `the super is ${describeAttack(def.super)}${def.super.breaksWalls ? " and breaks walls" : ""}.`;
 
-/** Long-form mechanics behind the overlay's "how to play" button. */
 const HELP: readonly HelpSection[] = [
   {
     body: `${TUNING.bots + 1} champions enter the woodland tournament; be the last one standing. ${TUNING.bots} bots hunt with the same kits you can pick.`,
@@ -101,8 +98,7 @@ const HELP: readonly HelpSection[] = [
   },
 ];
 
-/** A strip above the stock overlay: paused, or a warning that play goes on. */
-const showBanner = (live: boolean): void => {
+const showBanner = (live: boolean) => {
   document.querySelector(`#${BANNER_ID}`)?.remove();
   const banner = document.createElement("div");
   banner.id = BANNER_ID;
@@ -119,13 +115,14 @@ const showBanner = (live: boolean): void => {
   document.body.append(banner);
 };
 
-const hideBanner = (): void => {
+const hideBanner = () => {
   document.querySelector(`#${BANNER_ID}`)?.remove();
 };
 
 /** show(): mount the overlay and banner; hide(): remove both. Both idempotent. */
-export const createShowdownPauseOverlay = (options: ShowdownPauseOverlayOptions): PauseOverlay => {
+export const createShowdownPauseOverlay = (options: ShowdownPauseOverlayOptions) => {
   const overlay = createPauseOverlay({ controls: CONTROLS, help: HELP, mute: options.mute });
+
   return {
     hide: () => {
       hideBanner();

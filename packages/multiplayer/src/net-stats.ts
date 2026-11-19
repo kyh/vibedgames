@@ -1,12 +1,3 @@
-/**
- * Lag, measured where a player sees it. Every remote-entity frame an
- * `Interpolator` renders is counted, and a frame drawn past the newest update
- * — the next one hadn't arrived in time — counts as starved. The totals and
- * the page's live clients sit on `globalThis.__VG_NET__`, so a playtest (the
- * multiplayer skill's `net-check` script) reads any game's netcode health
- * without the game wiring anything up.
- */
-
 import type { MultiplayerConnectionStatus } from "./types.js";
 
 export interface NetStats {
@@ -53,7 +44,7 @@ const sources = new Set<NetClientSource>();
 let published = false;
 
 /** A copy of the totals since the page loaded, or since the last reset. */
-export const netStats = (): NetStats => ({ ...totals });
+export const netStats = () => ({ ...totals });
 
 const probe: NetProbe = {
   clients: () => [...sources].map((source) => source.netInfo()),
@@ -66,36 +57,40 @@ const probe: NetProbe = {
   stats: netStats,
 };
 
-const publish = (): void => {
+const publish = () => {
   if (published) {
     return;
   }
+
   published = true;
   Object.defineProperty(globalThis, "__VG_NET__", { configurable: true, value: probe });
 };
 
 /** Count one rendered frame; `overMs` is how far render time ran past the newest update. */
-export const countFrame = (overMs: number, maxExtrapolateMs: number): void => {
+export const countFrame = (overMs: number, maxExtrapolateMs: number) => {
   publish();
   totals.frames += 1;
+
   if (overMs > 0) {
     totals.starved += 1;
   }
+
   if (overMs > maxExtrapolateMs) {
     totals.stalled += 1;
   }
 };
 
 /** Count one accepted update. */
-export const countUpdate = (): void => {
+export const countUpdate = () => {
   publish();
   totals.updates += 1;
 };
 
 /** List a live client in `clients()`; the returned function takes it off again. */
-export const trackClient = (source: NetClientSource): (() => void) => {
+export const trackClient = (source: NetClientSource) => {
   publish();
   sources.add(source);
+
   return () => {
     sources.delete(source);
   };

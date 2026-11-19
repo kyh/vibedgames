@@ -6,6 +6,7 @@ const QUERY = `(max-width: ${MOBILE_BREAKPOINT - 1}px)`;
 const subscribe = (onChange: () => void) => {
   const mql = window.matchMedia(QUERY);
   mql.addEventListener("change", onChange);
+
   return () => mql.removeEventListener("change", onChange);
 };
 

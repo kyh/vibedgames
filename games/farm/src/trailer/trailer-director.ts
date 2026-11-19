@@ -1,10 +1,3 @@
-// Trailer director for FARM (?trailer=1). Owns the whole staged run: boots a
-// deterministic offline farm (no co-op session, saves disabled), restages the
-// world per scene through the game's own staging verbs, choreographs the
-// farmer via the real movement/action code paths, and drives the camera.
-// Loaded lazily from BootScene only when the URL asks for trailer mode —
-// nothing in here executes during normal play.
-
 import type Phaser from "phaser";
 import { Math as PhaserMath, Scenes } from "phaser";
 import { runTrailer } from "./trailer-shell";
@@ -35,7 +28,6 @@ import type { PlayerMap } from "@vibedgames/multiplayer";
 
 const WORLD_W = MAP_W * TILE;
 const WORLD_H = MAP_H * TILE;
-/** Mine floor size (mirrors MW/MH in mine-scene.ts). */
 const MINE_W = 32;
 const MINE_H = 24;
 
@@ -43,124 +35,125 @@ interface Tile {
   tx: number;
   ty: number;
 }
-/** A scripted target: fixed tile, or a thunk resolving a live (wandering)
- *  entity's tile each tick — null when the entity is gone. */
+
 type TileRef = Tile | (() => Tile | null);
 
-const resolveTile = (r: TileRef): Tile | null => ("tx" in r ? r : r());
+const resolveTile = (r: TileRef) => ("tx" in r ? r : r());
 
-// ---------------------------------------------------------------- scene access
-
-const getGame = (game: Phaser.Game): GameScene => {
+const getGame = (game: Phaser.Game) => {
   const s = game.scene.getScene("Game");
+
   if (!(s instanceof GameScene)) {
-    throw new Error("trailer: Game scene missing");
+    throw new TypeError("trailer: Game scene missing");
   }
+
   return s;
 };
 
-const getMine = (game: Phaser.Game): MineScene => {
+const getMine = (game: Phaser.Game) => {
   const s = game.scene.getScene("Mine");
+
   if (!(s instanceof MineScene)) {
-    throw new Error("trailer: Mine scene missing");
+    throw new TypeError("trailer: Mine scene missing");
   }
+
   return s;
 };
 
-const sceneReady = <T extends Phaser.Scene>(scene: T): Promise<T> =>
+const sceneReady = <T extends Phaser.Scene>(scene: T) =>
   // oxlint-disable-next-line promise/avoid-new -- wraps Phaser's one-shot CREATE event callback
-  new Promise((resolve) => {
+  new Promise<T>((resolve) => {
     scene.events.once(Scenes.Events.CREATE, () => resolve(scene));
   });
 
-/** Boot (or reboot) a fresh deterministic solo farm. Runs under the shell's
- *  black, so the heavy world rebuild is never visible. */
-const freshFarm = async (game: Phaser.Game): Promise<GameScene> => {
+const freshFarm = async (game: Phaser.Game) => {
   const mgr = game.scene;
+
   if (mgr.isActive("MineHud")) {
     mgr.stop("MineHud");
   }
+
   if (mgr.isActive("Mine")) {
     mgr.stop("Mine");
   }
+
   const gs = getGame(game);
   const ready = sceneReady(gs);
+
   if (mgr.isActive("Game")) {
     gs.scene.restart({ mode: "new" });
   } else {
     mgr.start("Game", { mode: "new" });
   }
+
   await ready;
-  // Block stray real input during capture; the director speaks through
-  // trailerMove + the public action verbs instead.
   gs.input.enabled = false;
   const kb = gs.input.keyboard;
+
   if (kb) {
     kb.enabled = false;
   }
-  // Villagers are the player's own sprite with a pale tint, and Willow's home
-  // sits inside the farm plot — unstaged, she reads as a motionless duplicate
-  // of the hero in every farm shot. Scenes that want a villager opt in.
+
   gs.npcs.trailerVisible([]);
   store.energy = 100;
   store.hp = store.maxHp();
   gs.weather = "sunny";
+
   return gs;
 };
 
-const freshMine = async (game: Phaser.Game, depth: number): Promise<MineScene> => {
+const freshMine = async (game: Phaser.Game, depth: number) => {
   const mgr = game.scene;
+
   if (mgr.isActive("Game")) {
     mgr.stop("Game");
   }
+
   const hud = mgr.getScene("MineHud");
+
   if (hud instanceof MineHudScene) {
     hud.trailerHideUi = true;
   }
-  // Deterministic floor layout: mine generation draws from Phaser's global RND.
+
   PhaserMath.RND.sow(["vg-trailer-mine"]);
   const mine = getMine(game);
-  // Set before boot: create() re-applies it, so the lockout survives the
-  // scene restart descend() runs mid-shot.
   mine.trailerNoInput = true;
   const ready = sceneReady(mine);
+
   if (mgr.isActive("Mine")) {
     mine.scene.restart({ depth });
   } else {
     mgr.start("Mine", { depth });
   }
+
   await ready;
+
   return mine;
 };
 
-// ---------------------------------------------------------------- camera rig
+const zoomFor = (scene: Phaser.Scene, worldWidth: number) => scene.cameras.main.width / worldWidth;
 
-const zoomFor = (scene: Phaser.Scene, worldWidth: number): number =>
-  scene.cameras.main.width / worldWidth;
-
-/** Smallest zoom that keeps the whole viewport inside the farm map — clamped
- *  to >=1 so the screen-sized night-tint overlay always covers the frame. */
-const fitZoom = (scene: Phaser.Scene): number => {
+const fitZoom = (scene: Phaser.Scene) => {
   const cam = scene.cameras.main;
+
   return Math.max(1, cam.width / WORLD_W, cam.height / WORLD_H);
 };
 
-const clampCenter = (v: number, half: number, max: number): number => {
+const clampCenter = (v: number, half: number, max: number) => {
   if (half * 2 >= max) {
     return max / 2;
   }
+
   return Math.min(max - half, Math.max(half, v));
 };
 
-/** Scripted camera: kill follow/bounds, then hard-place per frame (clamped so
- *  no void ever shows — Phaser 4's bounds clamp misbehaves under zoom). */
-const lockCam = (scene: Phaser.Scene): void => {
+const lockCam = (scene: Phaser.Scene) => {
   const cam = scene.cameras.main;
   cam.stopFollow();
   cam.useBounds = false;
 };
 
-const camPlace = (scene: Phaser.Scene, zoom: number, cx: number, cy: number): void => {
+const camPlace = (scene: Phaser.Scene, zoom: number, cx: number, cy: number) => {
   const cam = scene.cameras.main;
   cam.setZoom(zoom);
   const vw = cam.width / zoom;
@@ -168,17 +161,7 @@ const camPlace = (scene: Phaser.Scene, zoom: number, cx: number, cy: number): vo
   cam.centerOn(clampCenter(cx, vw / 2, WORLD_W), clampCenter(cy, vh / 2, WORLD_H));
 };
 
-/** Smoothed follow with a lead offset, clamped to the map every frame — the
- *  built-in follow relies on camera bounds, which misclamp under zoom near the
- *  map's edges (the field sits by the top edge; void would show).
- *
- *  Self-driving: it installs itself as the scene's trailer frame hook rather
- *  than being ticked from the scene body. The trailer shell drives those from
- *  its own rAF, which fires AFTER Phaser's game loop, so a follow ticked there
- *  chases the farmer's PREVIOUS position and the offset it holds him at wobbles
- *  with the frame time. `startTrailer` clears the hook before every setup, so a
- *  shot that stages no trackCam is not left chasing with the last one. */
-const trackCam = (gs: GameScene, zoom: number, offX: number, offY: number): void => {
+const trackCam = (gs: GameScene, zoom: number, offX: number, offY: number) => {
   let cx = gs.player.x + offX;
   let cy = gs.player.y + offY;
   lockCam(gs);
@@ -191,42 +174,37 @@ const trackCam = (gs: GameScene, zoom: number, offX: number, offY: number): void
   };
 };
 
-/** The game's own smooth-follow — safe away from map edges. */
-const followCam = (gs: GameScene, zoom: number, offX: number, offY: number): void => {
+const followCam = (gs: GameScene, zoom: number, offX: number, offY: number) => {
   const cam = gs.cameras.main;
   cam.setBounds(0, 0, WORLD_W, WORLD_H);
   cam.setZoom(zoom);
   cam.startFollow(gs.player, true, 0.12, 0.12, offX, offY);
 };
 
-const clamp01 = (t: number): number => Math.min(1, Math.max(0, t));
-/** Smoothstep. Clamped, because a shot whose ease finishes before the shot does
- *  feeds it t>1 — and the raw cubic turns back on itself there, reversing the
- *  camera move it was easing. */
-const smooth = (t: number): number => {
+const clamp01 = (t: number) => Math.min(1, Math.max(0, t));
+
+const smooth = (t: number) => {
   const s = clamp01(t);
+
   return s * s * (3 - 2 * s);
 };
-const lerp = (a: number, b: number, t: number): number => a + (b - a) * clamp01(t);
 
-// ---------------------------------------------------------------- staging verbs
+const lerp = (a: number, b: number, t: number) => a + (b - a) * clamp01(t);
 
-const placeFeet = (gs: GameScene, tx: number, ty: number): void => {
+const placeFeet = (gs: GameScene, tx: number, ty: number) => {
   gs.player.setPosition(tx * TILE + 8, ty * TILE + 12);
 };
 
-/** A staged skill: level only, or level plus banked XP so a scripted action can
- *  cross the threshold on camera. */
 type SkillStage = number | { level: number; xp: number };
 
 const isLevelOnly = (v: SkillStage): v is number => Number.isFinite(v);
 
-const skillState = (v: SkillStage | undefined): { xp: number; level: number } =>
+const skillState = (v: SkillStage | undefined) =>
   v !== undefined && isLevelOnly(v)
     ? { level: v, xp: 0 }
     : { level: v?.level ?? 0, xp: v?.xp ?? 0 };
 
-const stageSkills = (levels: Partial<Record<SkillId, SkillStage>>): void => {
+const stageSkills = (levels: Partial<Record<SkillId, SkillStage>>) => {
   const s: SkillsJSON = {
     combat: skillState(levels.combat),
     farming: skillState(levels.farming),
@@ -234,32 +212,32 @@ const stageSkills = (levels: Partial<Record<SkillId, SkillStage>>): void => {
     foraging: skillState(levels.foraging),
     mining: skillState(levels.mining),
   };
+
   store.skills = Skills.fromJSON(s);
 };
 
-/** True while the Legend is in the pack. land() puts it there and the gift
- *  takes it out, so the fishing and villager beats can key their choreography
- *  off the real state change instead of the wall clock. */
-const holdsLegend = (): boolean =>
+const holdsLegend = () =>
   store.inv.slots.some((s) => s?.item.kind === "fish" && s.item.fish === "legend");
 
-const selectTool = (match: (item: Item) => boolean): void => {
+const selectTool = (match: (item: Item) => boolean) => {
   for (let i = 0; i < store.inv.slots.length; i += 1) {
     const s = store.inv.slots[i];
+
     if (s && match(s.item)) {
       store.inv.select(i);
+
       return;
     }
   }
 };
 
-/** Remove trees/rocks/forage from the field plateau so plots stage clean. */
-const clearFieldObjects = (gs: GameScene): void => {
+const clearFieldObjects = (gs: GameScene) => {
   // oxlint-disable-next-line unicorn/no-useless-spread -- removeObject splices gs.world.objects, so the walk needs its own snapshot
   for (const o of [...gs.world.objects]) {
     if (o.type !== "tree" && o.type !== "rock" && o.type !== "forage") {
       continue;
     }
+
     if (
       o.tx < FIELD_RECT.x0 - 1 ||
       o.tx > FIELD_RECT.x1 + 1 ||
@@ -268,14 +246,16 @@ const clearFieldObjects = (gs: GameScene): void => {
     ) {
       continue;
     }
+
     gs.objSprites.get(o.id)?.destroy();
     gs.objSprites.delete(o.id);
     gs.world.removeObject(o);
   }
 };
 
-const clearField = (gs: GameScene): void => {
+const clearField = (gs: GameScene) => {
   clearFieldObjects(gs);
+
   for (let ty = FIELD_RECT.y0; ty <= FIELD_RECT.y1; ty += 1) {
     for (let tx = FIELD_RECT.x0; tx <= FIELD_RECT.x1; tx += 1) {
       gs.stageTile(tx, ty, { crop: null, daysGrown: 0, tilled: false, watered: false });
@@ -283,16 +263,11 @@ const clearField = (gs: GameScene): void => {
   }
 };
 
-/** Days-grown pickers for stageField: growth is expressed against each crop's
- *  own growthDays so a mixed-species field reads at one uniform stage. */
-const RIPE = (growthDays: number): number => growthDays;
-const ONE_NIGHT_SHORT = (growthDays: number): number => Math.max(0, growthDays - 1);
-const partGrown =
-  (frac: number) =>
-  (growthDays: number): number =>
-    Math.round(growthDays * frac);
+const RIPE = (growthDays: number) => growthDays;
+const ONE_NIGHT_SHORT = (growthDays: number) => Math.max(0, growthDays - 1);
 
-/** Plant rows of the field, one crop per row (null = bare tilled walking row). */
+const partGrown = (frac: number) => (growthDays: number) => Math.round(growthDays * frac);
+
 const stageField = (
   gs: GameScene,
   rowCrops: (CropId | null)[],
@@ -300,10 +275,12 @@ const stageField = (
   watered: boolean,
   y0: number = FIELD_RECT.y0,
   y1: number = FIELD_RECT.y1,
-): void => {
+) => {
   clearFieldObjects(gs);
+
   for (let ty = y0; ty <= y1; ty += 1) {
     const crop = rowCrops[(ty - FIELD_RECT.y0) % rowCrops.length] ?? null;
+
     for (let tx = FIELD_RECT.x0; tx <= FIELD_RECT.x1; tx += 1) {
       gs.stageTile(tx, ty, {
         crop,
@@ -315,9 +292,7 @@ const stageField = (
   }
 };
 
-/** A walkable tile touching `t` — animals and hotspots sit on ledges the player
- *  cannot share, so every scripted approach resolves a reachable neighbour. */
-const standBeside = (gs: GameScene, t: Tile): Tile => {
+const standBeside = (gs: GameScene, t: Tile) => {
   const ring = [
     { dx: 0, dy: 1 },
     { dx: -1, dy: 0 },
@@ -328,16 +303,18 @@ const standBeside = (gs: GameScene, t: Tile): Tile => {
     { dx: -1, dy: -1 },
     { dx: 1, dy: -1 },
   ];
+
   for (const d of ring) {
     const c = { tx: t.tx + d.dx, ty: t.ty + d.dy };
+
     if (inBounds(c.tx, c.ty) && !gs.world.isSolidTile(c.tx, c.ty)) {
       return c;
     }
   }
+
   return t;
 };
 
-/** Top-left of the nearest all-walkable w×h rect around (cx,cy). */
 const findOpenPatch = (
   gs: GameScene,
   cx: number,
@@ -345,8 +322,8 @@ const findOpenPatch = (
   w: number,
   h: number,
   maxR: number,
-): Tile | null => {
-  const ok = (x0: number, y0: number): boolean => {
+) => {
+  const ok = (x0: number, y0: number) => {
     for (let y = y0; y < y0 + h; y += 1) {
       for (let x = x0; x < x0 + w; x += 1) {
         if (!inBounds(x, y) || gs.world.isSolidTile(x, y)) {
@@ -354,91 +331,99 @@ const findOpenPatch = (
         }
       }
     }
+
     return true;
   };
+
   for (let r = 0; r <= maxR; r += 1) {
     for (let dy = -r; dy <= r; dy += 1) {
       for (let dx = -r; dx <= r; dx += 1) {
         if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) {
           continue;
         }
+
         const x0 = cx + dx - Math.trunc(w / 2);
         const y0 = cy + dy - Math.trunc(h / 2);
+
         if (ok(x0, y0)) {
           return { tx: x0, ty: y0 };
         }
       }
     }
   }
+
   return null;
 };
 
-/** Walk distance (in steps) from `origin` to every tile within `maxSteps`, over
- *  the same 8-dir, no-corner-cutting walkability the player moves on. */
-const walkRegion = (gs: GameScene, origin: Tile, maxSteps: number): Map<number, number> => {
-  const open = (x: number, y: number): boolean => inBounds(x, y) && !gs.world.isSolidTile(x, y);
+const walkRegion = (gs: GameScene, origin: Tile, maxSteps: number) => {
+  const open = (x: number, y: number) => inBounds(x, y) && !gs.world.isSolidTile(x, y);
   const dist = new Map<number, number>();
+
   if (!open(origin.tx, origin.ty)) {
     return dist;
   }
+
   const queue: Tile[] = [origin];
   dist.set(origin.ty * MAP_W + origin.tx, 0);
+
   for (const c of queue) {
     const d = dist.get(c.ty * MAP_W + c.tx) ?? 0;
+
     if (d >= maxSteps) {
       continue;
     }
+
     for (let oy = -1; oy <= 1; oy += 1) {
       for (let ox = -1; ox <= 1; ox += 1) {
         if (ox === 0 && oy === 0) {
           continue;
         }
+
         const nx = c.tx + ox;
         const ny = c.ty + oy;
+
         if (!open(nx, ny)) {
           continue;
         }
+
         if (ox !== 0 && oy !== 0 && (!open(nx, c.ty) || !open(c.tx, ny))) {
           continue;
         }
+
         const k = ny * MAP_W + nx;
+
         if (dist.has(k)) {
           continue;
         }
+
         dist.set(k, d + 1);
         queue.push({ tx: nx, ty: ny });
       }
     }
   }
+
   return dist;
 };
 
-/** `n` tiles around a centre, each at least `gap` tiles from the rest, all
- *  within `maxSteps` of walking from it — a herd staged from one anchor
- *  otherwise piles into one silhouette, and one picked on raw walkability
- *  strands animals across the yard's fence columns, where the scripted walk to
- *  the next one burns the shot pushing into a wall. Nearest-first, so the pen
- *  stays compact and every leg of a petting chain is a couple of steps. */
-const spreadTiles = (
-  gs: GameScene,
-  centre: Tile,
-  n: number,
-  gap: number,
-  maxSteps: number,
-): Tile[] => {
+const spreadTiles = (gs: GameScene, centre: Tile, n: number, gap: number, maxSteps: number) => {
   const reachable = [...walkRegion(gs, centre, maxSteps).entries()]
     .map(([k, d]) => ({ d, tx: k % MAP_W, ty: Math.trunc(k / MAP_W) }))
     .toSorted((a, b) => a.d - b.d);
+
   const out: Tile[] = [];
+
   for (const t of reachable) {
     if (out.length >= n) {
       break;
     }
+
     const clash = out.some((p) => Math.max(Math.abs(p.tx - t.tx), Math.abs(p.ty - t.ty)) < gap);
+
     if (!clash) {
       out.push({ tx: t.tx, ty: t.ty });
     }
   }
+
   return out;
 };
 
@@ -450,26 +435,23 @@ interface Herd {
   duck: number;
 }
 
-/** Populate the barn and coop yards with a small herd (real spawn path, wander
- *  anchors on the yard the player can actually reach — the building's own
- *  anchor row lands them on a ledge behind the fence). Returns the ids of the
- *  pettable stars so scripts can track them as they wander. */
-const stageHerd = (gs: GameScene): Herd => {
-  const yard = (type: BuildingKind): Tile => {
+const stageHerd = (gs: GameScene) => {
+  const yard = (type: BuildingKind) => {
     const o = gs.world.objects.find((b) => b.type === type);
     const base = o ? { tx: o.tx, ty: o.ty + 2 } : { tx: 12, ty: 12 };
+
     return findOpenPatch(gs, base.tx, base.ty, 1, 1, 6) ?? base;
   };
+
   const barnYard = yard("barn");
   const coopYard = yard("coop");
-  // A tight pocket can return fewer tiles than asked for; the yard anchor they
-  // were searched from is the only sane fallback (a magic tile teleports the
-  // animal into the crop field, which the finale then holds in frame).
   const barn = spreadTiles(gs, barnYard, 3, 2, 6);
   const coop = spreadTiles(gs, coopYard, 4, 2, 6);
-  const add = (kind: AnimalKind, building: BuildingKind, t: Tile): number => {
+
+  const add = (kind: AnimalKind, building: BuildingKind, t: Tile) => {
     const id = store.animalSeq;
     store.animalSeq += 1;
+
     const d: AnimalSave = {
       building,
       fed: true,
@@ -481,9 +463,12 @@ const stageHerd = (gs: GameScene): Herd => {
       x: t.tx * TILE + 8,
       y: t.ty * TILE + 12,
     };
+
     gs.animals.stageSpawn(d);
+
     return id;
   };
+
   const herd: Herd = {
     cow: add("cow", "barn", barn[0] ?? barnYard),
     duck: add("duck", "coop", coop[1] ?? coopYard),
@@ -491,32 +476,30 @@ const stageHerd = (gs: GameScene): Herd => {
     pig: add("pig", "barn", barn[2] ?? barnYard),
     sheep: add("sheep", "barn", barn[1] ?? barnYard),
   };
-  // pen dressing — never scripted, just there so the coop reads as a flock
+
   add("chicken", "coop", coop[2] ?? coopYard);
   add("chicken", "coop", coop[3] ?? coopYard);
+
   return herd;
 };
 
-// ---------------------------------------------------------------- tile scans
-
-/** Nearest live world object of a type, for scripted gathering beats. */
-const nearestObject = (
-  gs: GameScene,
-  type: "tree" | "rock" | "forage",
-  near: Tile,
-): Tile | null => {
+const nearestObject = (gs: GameScene, type: "tree" | "rock" | "forage", near: Tile) => {
   let best: Tile | null = null;
   let bd = Infinity;
+
   for (const o of gs.world.objects) {
     if (o.type !== type) {
       continue;
     }
+
     const d = Math.abs(o.tx - near.tx) + Math.abs(o.ty - near.ty);
+
     if (d < bd) {
       bd = d;
       best = { tx: o.tx, ty: o.ty };
     }
   }
+
   return best;
 };
 
@@ -525,39 +508,45 @@ interface FishSpot {
   target: Tile;
 }
 
-/** Best casting spot: walkable bank with 3 straight tiles of open water,
- *  preferring the open pond bend mid-valley and casting toward the camera —
- *  water below the angler, grass and a tree line behind him. */
-const findFishingSpot = (gs: GameScene): FishSpot => {
+const findFishingSpot = (gs: GameScene) => {
   const dirs = [
     { bias: 0, x: 0, y: 1 },
     { bias: 6, x: 1, y: 0 },
     { bias: 6, x: -1, y: 0 },
     { bias: 10, x: 0, y: -1 },
   ];
+
   let best: FishSpot | null = null;
   let bd = Infinity;
+
   for (let ty = 1; ty < MAP_H - 1; ty += 1) {
     for (let tx = 1; tx < MAP_W - 1; tx += 1) {
       if (gs.world.isSolidTile(tx, ty)) {
         continue;
       }
+
       for (const d of dirs) {
         const x3 = tx + d.x * 3;
         const y3 = ty + d.y * 3;
+
         if (!inBounds(x3, y3)) {
           continue;
         }
+
         let water = true;
+
         for (let k = 1; k <= 3 && water; k += 1) {
           if (gs.world.cellKind(tx + d.x * k, ty + d.y * k) !== CELL.water) {
             water = false;
           }
         }
+
         if (!water) {
           continue;
         }
+
         const dist = Math.abs(tx - 38) + Math.abs(ty - 27) + d.bias;
+
         if (dist < bd) {
           bd = dist;
           best = { stand: { tx, ty }, target: { tx: tx + d.x * 2, ty: ty + d.y * 2 } };
@@ -565,42 +554,43 @@ const findFishingSpot = (gs: GameScene): FishSpot => {
       }
     }
   }
+
   return best ?? { stand: { tx: 31, ty: 18 }, target: { tx: 31, ty: 20 } };
 };
 
-/** Nearest open mine tile to (tx,ty), optionally constrained — the pickaxe beat
- *  needs floor UNDER its stand tile to put the ore node on. */
 const findOpenNearMine = (
   mine: MineScene,
   tx: number,
   ty: number,
   ok: (t: Tile) => boolean = () => true,
-): Tile => {
+) => {
   for (let r = 0; r <= 5; r += 1) {
     for (let dy = -r; dy <= r; dy += 1) {
       for (let dx = -r; dx <= r; dx += 1) {
         if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) {
           continue;
         }
+
         const x = Math.min(MINE_W - 2, Math.max(1, tx + dx));
         const y = Math.min(MINE_H - 2, Math.max(1, ty + dy));
+
         if (mine.isOpenTile(x, y) && ok({ tx: x, ty: y })) {
           return { tx: x, ty: y };
         }
       }
     }
   }
-  // cleared area under the entry ladder
+
   return { tx: Math.trunc(MINE_W / 2), ty: 3 };
 };
 
-/** Every tile from `x0` to `x1` inclusive on row `ty` is walkable. */
-const rowOpen = (mine: MineScene, x0: number, x1: number, ty: number): boolean => {
+const rowOpen = (mine: MineScene, x0: number, x1: number, ty: number) => {
   for (let x = Math.min(x0, x1); x <= Math.max(x0, x1); x += 1) {
     if (!mine.isOpenTile(x, ty)) {
       return false;
     }
   }
+
   return true;
 };
 
@@ -610,41 +600,27 @@ interface OreSpot {
   kind: OreId;
 }
 
-/**
- * Put real ore nodes around a staged spot, through the mine's own node path.
- *
- * Both mine beats need this for the same reason: generation avoids exactly the
- * tiles a staged shot uses. `findArena` demands a clear 5×5, and the generator
- * holds every node three tiles clear of the entry ladder — so the arena a fight
- * is staged in, and the tile a descent lands on, are bare floor by
- * construction. Under the cave vignette bare floor is a black rectangle.
- *
- * Nodes are solid, so they are kept ≥3 tiles off the staged spot and ≥2 tiles
- * apart: an isolated node is something the axis-separated walk slides around,
- * a cluster is a pocket a chase can snag in.
- */
-const stageOreAround = (mine: MineScene, at: Tile, spots: OreSpot[], hp = 4): void => {
+const stageOreAround = (mine: MineScene, at: Tile, spots: OreSpot[], hp = 4) => {
   const placed: Tile[] = [];
+
   for (const s of spots) {
-    const ok = (c: Tile): boolean =>
+    const ok = (c: Tile) =>
       Math.abs(c.tx - at.tx) + Math.abs(c.ty - at.ty) >= 3 &&
       placed.every((p) => Math.max(Math.abs(p.tx - c.tx), Math.abs(p.ty - c.ty)) >= 2);
+
     const t = findOpenNearMine(mine, at.tx + s.dx, at.ty + s.dy, ok);
-    // findOpenNearMine returns its own fallback tile when the ring search comes
-    // up empty; that tile sits under the entry ladder, which is the one place
-    // ore must never block.
+
     if (!ok(t) || !mine.isOpenTile(t.tx, t.ty)) {
       continue;
     }
+
     if (mine.trailerStageNode(t.tx, t.ty, s.kind, hp)) {
       placed.push(t);
     }
   }
 };
 
-/** A heading out of `from` with `n` open tiles in a row, so a scripted walk onto
- *  a freshly generated floor heads into the room instead of into a wall. */
-const openHeading = (mine: MineScene, from: Tile, n: number): { x: number; y: number } | null => {
+const openHeading = (mine: MineScene, from: Tile, n: number) => {
   const dirs = [
     { x: 0, y: 1 },
     { x: 1, y: 0 },
@@ -652,31 +628,33 @@ const openHeading = (mine: MineScene, from: Tile, n: number): { x: number; y: nu
     { x: 1, y: 1 },
     { x: -1, y: 1 },
   ];
+
   for (const d of dirs) {
     let open = true;
+
     for (let k = 1; k <= n && open; k += 1) {
       if (!mine.isOpenTile(from.tx + d.x * k, from.ty + d.y * k)) {
         open = false;
       }
     }
+
     if (open) {
       return d;
     }
   }
+
   return null;
 };
 
-/** Centre of an open 5×5 arena nearest the floor's middle. Searched inside a
- *  safe band first: the mine keeps its own bounded follow camera, and an arena
- *  near a wall makes that camera clamp and shove the whole fight into a frame
- *  corner. */
-const findArena = (mine: MineScene): Tile => {
-  const scan = (x0: number, x1: number, y0: number, y1: number): Tile | null => {
+const findArena = (mine: MineScene) => {
+  const scan = (x0: number, x1: number, y0: number, y1: number) => {
     let best: Tile | null = null;
     let bd = Infinity;
+
     for (let ty = y0; ty <= y1; ty += 1) {
       for (let tx = x0; tx <= x1; tx += 1) {
         let ok = true;
+
         for (let y = ty; y < ty + 5 && ok; y += 1) {
           for (let x = tx; x < tx + 5 && ok; x += 1) {
             if (!mine.isOpenTile(x, y)) {
@@ -684,43 +662,49 @@ const findArena = (mine: MineScene): Tile => {
             }
           }
         }
+
         if (!ok) {
           continue;
         }
+
         const d = Math.abs(tx + 2 - MINE_W / 2) + Math.abs(ty + 2 - MINE_H / 2);
+
         if (d < bd) {
           bd = d;
           best = { tx: tx + 2, ty: ty + 2 };
         }
       }
     }
+
     return best;
   };
+
   return (
     scan(7, MINE_W - 12, 3, MINE_H - 8) ??
     scan(2, MINE_W - 7, 2, MINE_H - 7) ?? { tx: Math.trunc(MINE_W / 2), ty: Math.trunc(MINE_H / 2) }
   );
 };
 
-// ---------------------------------------------------------------- actor script
-
 interface Steerable {
   player: Phaser.GameObjects.Sprite;
   trailerMove: { x: number; y: number; run: boolean } | null;
 }
 
-/** Steer feet toward a tile through the real movement code; true = arrived. */
-const moveToward = (s: Steerable, tx: number, ty: number, run = false): boolean => {
+const moveToward = (s: Steerable, tx: number, ty: number, run = false) => {
   const gx = tx * TILE + 8;
   const gy = ty * TILE + 12;
   const dx = gx - s.player.x;
   const dy = gy - s.player.y;
   const d = Math.hypot(dx, dy);
+
   if (d < 3) {
     s.trailerMove = null;
+
     return true;
   }
+
   s.trailerMove = { run, x: dx / d, y: dy / d };
+
   return false;
 };
 
@@ -733,15 +717,10 @@ type Step =
   | { kind: "face"; at: TileRef }
   | { kind: "pause"; ms: number };
 
-/** Ticks a declarative step list through the farm's real verbs. Every step is
- *  time-boxed so a blocked walk or missed target degrades to the next beat
- *  instead of stalling the shot. */
 class FarmScript {
   private i = 0;
   private phase = 0;
   private t = 0;
-  /** Live BFS route for the current walk step, refreshed on `repath` (targets
-   *  wander) and consumed waypoint by waypoint. */
   private route: { x: number; y: number }[] = [];
   private repath = 0;
 
@@ -753,158 +732,185 @@ class FarmScript {
     this.steps = steps;
   }
 
-  tick(dt: number): void {
+  tick(dt: number) {
     const { gs } = this;
     const step = this.steps[this.i];
+
     if (!step) {
       gs.trailerMove = null;
+
       return;
     }
+
     this.t += dt;
+
     if (step.kind === "select") {
       selectTool(step.match);
       this.next();
+
       return;
     }
+
     if (step.kind === "pause") {
       gs.trailerMove = null;
+
       if (this.t * 1000 >= step.ms) {
         this.next();
       }
+
       return;
     }
+
     const at = resolveTile(step.at);
+
     if (!at) {
-      // target vanished — fail soft to the next beat
       this.next();
+
       return;
     }
+
     switch (step.kind) {
       case "walk": {
         if (this.walk(at, step.run ?? false, dt) || this.t > 2.5) {
           this.next();
         }
+
         break;
       }
+
       case "face": {
         gs.faceTowards(at.tx, at.ty);
         this.next();
         break;
       }
+
       case "act": {
         this.act(at);
         break;
       }
+
       case "pet": {
         gs.trailerMove = null;
         gs.faceTowards(at.tx, at.ty);
+
         if (gs.animals.tryPet(at.tx, at.ty) || this.t > 1.2) {
           this.next();
         }
+
         break;
       }
+
       case "gift": {
         this.gift(at);
         break;
       }
-      // no default
+
+      default: {
+        break;
+      }
     }
   }
 
-  /** Swing at the tile through the game's own action verb, then wait the swing
-   *  out — with fail-soft timeouts either side so a refused action still cuts. */
-  private act(at: Tile): void {
+  private act(at: Tile) {
     const { gs } = this;
     gs.trailerMove = null;
+
     if (this.phase === 0) {
       if (gs.acting) {
         if (this.t > 2) {
           this.next();
         }
+
         return;
       }
+
       gs.faceTowards(at.tx, at.ty);
       gs.tryAction({ tx: at.tx, ty: at.ty });
       this.phase = 1;
       this.t = 0;
+
       return;
     }
+
     if (this.phase === 1) {
       if (gs.acting) {
         this.phase = 2;
       } else if (this.t > 0.3) {
         this.next();
-        // action refused — fail soft
       }
+
       return;
     }
+
     if (!gs.acting) {
       this.next();
     }
   }
 
-  private gift(at: Tile): void {
+  private gift(at: Tile) {
     const { gs } = this;
     gs.trailerMove = null;
+
     if (this.phase !== 0) {
       if (!gs.acting || this.t > 2) {
         this.next();
       }
+
       return;
     }
+
     gs.faceTowards(at.tx, at.ty);
-    // Hand it over through the game's own use-item action, landing the
-    // gift on the animation's impact frame: two idle sprites swapping an
-    // invisible item is not an exchange a viewer can see.
     this.phase = 1;
     this.t = 0;
     gs.beginAction("doing", () => {
       if (!gs.npcs.tryTalk(at.tx, at.ty, store.inv.selectedItem())) {
         return;
       }
-      // The reaction line and heart meter are HudScene-only and suppressed
-      // in trailer mode, so the in-world ♥ carries the beat: big, in the
-      // gap between the two of them, started at their feet so its whole
-      // 22px rise happens inside the pair's silhouette (pinned higher it
-      // floats off alone), and beaten twice so the reaction spans the shot
-      // instead of flashing past in a third of a second.
+
       const mid = (at.tx * TILE + 8 + gs.player.x) / 2;
-      const heart = (dx: number): void =>
+
+      const heart = (dx: number) =>
         floatText(gs, mid + dx, at.ty * TILE + 14, "♥", "#ff3d6e", 20, 1200);
+
       heart(0);
       gs.time.delayedCall(500, () => heart(7));
     });
   }
 
-  /** Steer along the game's own click-to-move BFS, so an approach that has to
-   *  go around a fence does instead of pushing into it. True = arrived. */
-  private walk(at: Tile, run: boolean, dt: number): boolean {
+  private walk(at: Tile, run: boolean, dt: number) {
     const { gs } = this;
     this.repath -= dt;
+
     if (this.repath <= 0) {
       this.repath = 0.3;
       this.route = gs.pathTo(at.tx, at.ty);
     }
+
     while (this.route.length > 0) {
       const [wp] = this.route;
+
       if (!wp) {
         break;
       }
+
       const dx = wp.x - gs.player.x;
       const dy = wp.y - gs.player.y;
       const d = Math.hypot(dx, dy);
+
       if (d < 4) {
         this.route.shift();
         continue;
       }
+
       gs.trailerMove = { run, x: dx / d, y: dy / d };
+
       return false;
     }
-    // on the goal tile (or nothing connects) — straight-line the last few px
+
     return moveToward(gs, at.tx, at.ty, run);
   }
 
-  private next(): void {
+  private next() {
     this.i += 1;
     this.phase = 0;
     this.t = 0;
@@ -914,39 +920,37 @@ class FarmScript {
   }
 }
 
-// ---------------------------------------------------------------- scenes
-
 const MATURE_ROWS: (CropId | null)[] = [
   "wheat",
   "sunflower",
   "cauliflower",
   "pumpkin",
   "beetroot",
-  // bare southern row doubles as the farmer's walking path
   null,
 ];
 
-/** Fall-legal rows — nothing withers when the day-rollover beat steps a season
- *  boundary-free night. */
 const FALL_ROWS: (CropId | null)[] = ["pumpkin", "wheat", "beetroot", "carrot", "sunflower", null];
 
-/** COLD OPEN — scything down a ripe pumpkin row, pops trailing behind, and the
- *  second cut crossing a Farming level threshold on camera. */
-const sceneColdOpen = (game: Phaser.Game): TrailerScene => {
+const sceneColdOpen = (game: Phaser.Game) => {
   let gs: GameScene | null = null;
+
   return {
     duration: 3200,
     id: "cold-open-harvest",
     run: () => {
       const g = gs;
+
       if (!g) {
         return;
       }
+
       if (g.acting) {
         return;
       }
+
       const feet = g.feetTile();
       const cs = g.world.crops.get(tileIdx(feet.tx + 1, feet.ty));
+
       if (cs && isMature(CROPS[cs.crop], cs.daysGrown)) {
         g.trailerMove = null;
         g.faceTowards(feet.tx + 1, feet.ty);
@@ -957,21 +961,16 @@ const sceneColdOpen = (game: Phaser.Game): TrailerScene => {
     },
     setup: async () => {
       gs = await freshFarm(game);
-      // banked one harvest short of Lv.5: harvest awards 12 farming XP, so the
-      // second cut of the sweep fires the level float + chime mid-stride
       stageSkills({ farming: { level: 4, xp: xpToNext(4) - 18 } });
       gs.timeMin = 720;
       stageField(gs, MATURE_ROWS, RIPE, true);
-      // the strip behind the farmer reads already-harvested
+
       for (let tx = FIELD_RECT.x0; tx <= 10; tx += 1) {
         gs.stageTile(tx, 9, { crop: null, daysGrown: 0, tilled: true, watered: false });
       }
+
       placeFeet(gs, 11, 9);
       gs.faceTowards(12, 9);
-      // manual clamped follow: the field hugs the map's top edge, where the
-      // built-in bounds clamp shows void under zoom. 250px across is ~2x
-      // tighter than normal play, and the six crop rows then fill two thirds of
-      // the frame height instead of floating over empty plateau.
       trackCam(gs, zoomFor(gs, 250), 52, -6);
     },
     teardown: () => {
@@ -982,27 +981,23 @@ const sceneColdOpen = (game: Phaser.Game): TrailerScene => {
   };
 };
 
-/** SHIPPING DAY — a season's haul cashed at the bin in one action: gold burst
- *  off the crate, the payout floating over it, coin arpeggio. */
-const sceneShipping = (game: Phaser.Game): TrailerScene => {
+const sceneShipping: (game: Phaser.Game) => TrailerScene = (game) => {
   let gs: GameScene | null = null;
   let script: FarmScript | null = null;
   let bin: Tile = { tx: 6, ty: 10 };
   let stand: Tile = { tx: 8, ty: 10 };
+
   return {
-    // measured: he reaches the crate at ~1.2s and the payout float lives 900ms,
-    // so the cut lands on the number rather than on a held pose after it
     duration: 2300,
     id: "shipping-bin",
     run: (t, dt) => {
       const g = gs;
+
       if (!g) {
         return;
       }
+
       script?.tick(dt / 1000);
-      // Settle west with him, ending framed on the crate. The bin sits on the
-      // island's west edge, so the centre is held east of it — far enough that
-      // the open sea is a margin, not a third of the frame.
       const cx = lerp((stand.tx + 5) * TILE, (stand.tx + 4) * TILE, smooth(t / 1400));
       camPlace(g, zoomFor(g, 260), cx, stand.ty * TILE - 4);
     },
@@ -1012,12 +1007,12 @@ const sceneShipping = (game: Phaser.Game): TrailerScene => {
       gs.timeMin = 660;
       stageField(gs, MATURE_ROWS, RIPE, true);
       const o = gs.world.objects.find((b) => b.type === "bin");
+
       if (o) {
         bin = { tx: o.tx + 1, ty: o.ty };
       }
+
       stand = standBeside(gs, bin);
-      // the backpack a real day ends with: crops, animal produce, a big fish
-      // and mine crystal — the payout number has to be earned by the reel
       store.inv.add({ crop: "pumpkin", kind: "produce" }, 18);
       store.inv.add({ crop: "cauliflower", kind: "produce" }, 9);
       store.inv.add({ kind: "animal_product", product: "truffle" }, 3);
@@ -1042,21 +1037,21 @@ const sceneShipping = (game: Phaser.Game): TrailerScene => {
   };
 };
 
-/** SOW — the whole tending loop on one tile: hoe bites, seed goes in, the can
- *  darkens the soil; then the next tile opens up as the shot ends. */
-const sceneSow = (game: Phaser.Game): TrailerScene => {
+const sceneSow: (game: Phaser.Game) => TrailerScene = (game) => {
   let gs: GameScene | null = null;
   let script: FarmScript | null = null;
+
   return {
     duration: 3600,
     id: "verb-sow",
     run: (t, dt) => {
       const g = gs;
+
       if (!g) {
         return;
       }
+
       script?.tick(dt / 1000);
-      // a slow lateral push so the plot block never reads as a locked-off take
       camPlace(g, zoomFor(g, 260), lerp(246, 266, t / 3600), 158);
     },
     setup: async () => {
@@ -1065,7 +1060,6 @@ const sceneSow = (game: Phaser.Game): TrailerScene => {
       gs.day = 1;
       gs.timeMin = 520;
       clearField(gs);
-      // mature rows behind back the empty row so the frame is never bare dirt
       stageField(gs, MATURE_ROWS, RIPE, true, FIELD_RECT.y0, 8);
       placeFeet(gs, 14, 9);
       gs.faceTowards(15, 9);
@@ -1073,13 +1067,10 @@ const sceneSow = (game: Phaser.Game): TrailerScene => {
       script = new FarmScript(gs, [
         { at: { tx: 15, ty: 9 }, kind: "walk" },
         { kind: "select", match: (it) => it.kind === "tool" && it.tool === "hoe" },
-        // till — dirt burst
         { at: { tx: 15, ty: 10 }, kind: "act" },
         { kind: "select", match: (it) => it.kind === "seed" },
-        // plant — pop + seed burst
         { at: { tx: 15, ty: 10 }, kind: "act" },
         { kind: "select", match: (it) => it.kind === "tool" && it.tool === "can" },
-        // water — droplets, soil darkens
         { at: { tx: 15, ty: 10 }, kind: "act" },
         { at: { tx: 16, ty: 9 }, kind: "walk" },
         { kind: "select", match: (it) => it.kind === "tool" && it.tool === "hoe" },
@@ -1104,11 +1095,10 @@ interface Worker {
   lastTx: number;
 }
 
-/** One crew member's pass over a tile — a real world edit through the same
- *  staging path the host's tile sync drives, with the matching burst. */
-const applyWorkerEdit = (g: GameScene, w: Worker, tx: number): void => {
+const applyWorkerEdit = (g: GameScene, w: Worker, tx: number) => {
   const cx = tx * TILE + 8;
   const cy = w.ty * TILE + 8;
+
   if (w.job === "till") {
     g.stageTile(tx, w.ty, { crop: null, daysGrown: 0, tilled: true, watered: false });
     burst(g, cx, cy + 4, {
@@ -1138,56 +1128,60 @@ const applyWorkerEdit = (g: GameScene, w: Worker, tx: number): void => {
   }
 };
 
-/** THE SHARED PLOT — co-op: three name-tagged farmers working the same field in
- *  real time while the local farmer sows the near row. The renderer, the name
- *  tags, the 20 Hz stamped updates and their interpolation, and every tile edit
- *  are the shipping co-op code paths; only the wire payload is scripted, since
- *  one page cannot host four clients. */
-const sceneCoop = (game: Phaser.Game): TrailerScene => {
+const sceneCoop: (game: Phaser.Game) => TrailerScene = (game) => {
   let gs: GameScene | null = null;
   let script: FarmScript | null = null;
   let remote: RemoteFarmers | null = null;
   let workers: Worker[] = [];
   const net = new FixedRate(NET_TICK_HZ);
+
   return {
     duration: 3800,
     id: "coop-farm",
     run: (t, dt) => {
       const g = gs;
       const r = remote;
+
       if (!g || !r) {
         return;
       }
+
       const s = dt / 1000;
       script?.tick(s);
+
       for (const w of workers) {
         w.x += w.dir * 46 * s;
         const tx = Math.floor(w.x / TILE);
+
         if (tx !== w.lastTx && tx >= FIELD_RECT.x0 && tx <= FIELD_RECT.x1) {
           w.lastTx = tx;
           applyWorkerEdit(g, w, tx);
         }
-        // turn back at the plot edges so the crew stays in frame
+
         if (w.x < (FIELD_RECT.x0 + 1) * TILE) {
           w.dir = 1;
         }
+
         if (w.x > FIELD_RECT.x1 * TILE) {
           w.dir = -1;
         }
       }
+
       if (net.due(dt)) {
         const stamp = Math.round(performance.now());
         const players: PlayerMap = {};
+
         for (const w of workers) {
           players[w.id] = {
             id: w.id,
             state: { f: w.dir < 0, m: true, t: stamp, x: w.x, y: w.y },
           };
         }
+
         r.sync(players, "you");
       }
+
       r.update();
-      // slow push-in so the crew tightens up as the beat lands
       camPlace(g, zoomFor(g, lerp(250, 232, smooth(t / 3800))), 248, 146);
     },
     setup: async () => {
@@ -1196,7 +1190,6 @@ const sceneCoop = (game: Phaser.Game): TrailerScene => {
       stageSkills({ farming: 3 });
       g.timeMin = 640;
       clearField(g);
-      // the far rows are already half worked — the crew has been at it a while
       stageField(g, ["parsnip", "carrot", null, null, null, null], partGrown(0.5), true, 6, 7);
       placeFeet(g, 15, 10);
       g.faceTowards(15, 11);
@@ -1219,30 +1212,24 @@ const sceneCoop = (game: Phaser.Game): TrailerScene => {
         { at: { tx: 16, ty: 11 }, kind: "act" },
       ]);
       lockCam(g);
-      // the plot is 208x96 world px — a 250px frame on its centre fits it at
-      // 83% of frame width, so four farmers read at full size with no ocean
       camPlace(g, zoomFor(g, 250), 248, 146);
     },
     teardown: () => {
       if (gs) {
         gs.trailerMove = null;
       }
+
       remote?.sync({}, "you");
       remote = null;
     },
   };
 };
 
-/** Barn morning: pet the cow, the truffle pig, then dash to a hen — heart chain
- *  on the yard the player can actually walk. */
-const sceneAnimals = (game: Phaser.Game): TrailerScene => {
+const sceneAnimals: (game: Phaser.Game) => TrailerScene = (game) => {
   let gs: GameScene | null = null;
   let script: FarmScript | null = null;
+
   return {
-    // Three pets across two pens. Measured: cow ~0.4s, truffle pig ~1.7s, then
-    // the run to the coop lands the hen at 2.7-3.9s (the stars wander) — a
-    // chain cut short is the defect this beat exists to fix, so the shot is
-    // sized to the slowest leg and no longer.
     duration: 4400,
     id: "animals",
     run: (_t, dt) => script?.tick(dt / 1000),
@@ -1252,20 +1239,18 @@ const sceneAnimals = (game: Phaser.Game): TrailerScene => {
       gs.timeMin = 780;
       const g = gs;
       const herd = stageHerd(g);
-      // the stars wander — every approach/pet resolves their live tile
+
       const beside = (id: number) =>
-        function besideAnimal(): Tile | null {
+        function besideAnimal() {
           const t = g.animals.trailerTileOf(id);
+
           return t ? standBeside(g, t) : null;
         };
-      const at = (id: number) => (): Tile | null => g.animals.trailerTileOf(id);
+
+      const at = (id: number) => () => g.animals.trailerTileOf(id);
       const cow0 = g.animals.trailerTileOf(herd.cow) ?? { tx: 61, ty: 11 };
-      // a few tiles down the yard from the cow, so the shot opens on him
-      // walking in past the sheep rather than standing on top of one
       const start = findOpenPatch(g, cow0.tx + 3, cow0.ty, 1, 1, 3) ?? standBeside(g, cow0);
       placeFeet(g, start.tx, start.ty);
-      // lead west and up: the yards sit on the map's east shoulder, so a
-      // centred follow gives half the frame to the river behind them
       followCam(g, zoomFor(g, 280), -34, -16);
       script = new FarmScript(g, [
         { at: beside(herd.cow), kind: "walk" },
@@ -1274,17 +1259,13 @@ const sceneAnimals = (game: Phaser.Game): TrailerScene => {
         { at: beside(herd.pig), kind: "walk" },
         { at: at(herd.pig), kind: "pet" },
         { kind: "pause", ms: 340 },
-        // dash to the coop pen
         { at: beside(herd.hen), kind: "walk", run: true },
         { at: at(herd.hen), kind: "pet" },
         { kind: "pause", ms: 400 },
-        // The pets land anywhere from 2.7s to 3.9s (the stars wander), so the
-        // beat ends on him heading back up the yard rather than on a held pose.
-        // Deliberately a walk he cannot finish: the cut catches him mid-stride
-        // with the pens still in frame, however the chain timed out.
         { at: beside(herd.cow), kind: "walk", run: true },
       ]);
       const first = beside(herd.cow)();
+
       if (first) {
         moveToward(g, first.tx, first.ty);
       }
@@ -1297,9 +1278,6 @@ const sceneAnimals = (game: Phaser.Game): TrailerScene => {
   };
 };
 
-/** Ore ringing the fight. Held to the rows above and below the pack (whose
- *  spawns all sit within ±2 rows) so nothing lands between the farmer and a
- *  skeleton, and spread wide enough to reach both edges of the 260px frame. */
 const ARENA_ORE: OreSpot[] = [
   { dx: -6, dy: -3, kind: "copper" },
   { dx: -2, dy: -4, kind: "coal" },
@@ -1311,22 +1289,22 @@ const ARENA_ORE: OreSpot[] = [
   { dx: 7, dy: 4, kind: "crystal" },
 ];
 
-/** BENEATH THE VALLEY — torch-dark floor 6, a skeleton pack already on him:
- *  he eats the first hit, then cuts back through them. */
-const sceneMine = (game: Phaser.Game): TrailerScene => {
+const sceneMine: (game: Phaser.Game) => TrailerScene = (game) => {
   let mine: MineScene | null = null;
   let emberAcc = 0;
+
   return {
     duration: 3600,
     id: "mine-combat",
     run: (_t, dt) => {
       const m = mine;
+
       if (!m) {
         return;
       }
-      // a lantern's worth of embers: the cave grades to near-black and the
-      // hero's sprite has no light on him otherwise
+
       emberAcc += dt;
+
       if (emberAcc > 90) {
         emberAcc = 0;
         burst(m, m.player.x + (Math.random() - 0.5) * 12, m.player.y - 10, {
@@ -1338,19 +1316,23 @@ const sceneMine = (game: Phaser.Game): TrailerScene => {
           speed: 8,
         });
       }
+
       const e = m.trailerNearestEnemy();
+
       if (!e) {
         m.trailerMove = null;
+
         return;
       }
+
       const dx = e.x - m.player.x;
       const dy = e.y - m.player.y;
       const d = Math.hypot(dx, dy);
+
       if (d > 18) {
         m.trailerMove = { run: false, x: dx / d, y: dy / d };
       } else {
         m.trailerMove = null;
-        // internally debounced while a swing is playing
         m.tryAction();
       }
     },
@@ -1362,21 +1344,11 @@ const sceneMine = (game: Phaser.Game): TrailerScene => {
       selectTool((it) => it.kind === "tool" && it.tool === "sword");
       const c = findArena(mine);
       mine.player.setPosition(c.tx * TILE + 8, c.ty * TILE + 8);
-      // 260px across (vs 492 in normal play) so the pack fills the frame; the
-      // hit-punch reads this same base, so a landed swing no longer resets it.
       mine.trailerZoom = zoomFor(mine, 260);
       mine.cameras.main.setZoom(mine.trailerZoom);
       emberAcc = 0;
-      // Ore first: enemy spawns snap to open tiles, and a node already on a
-      // tile makes that tile unopen, so staging in this order keeps a skeleton
-      // from landing inside a rock.
       stageOreAround(mine, c, ARENA_ORE);
-      // Staggered in distance AND health so the pack dies in a rolling order.
-      // A tight equal-hp ring is worse than useless: one swing hits everything
-      // inside an 18px box, so they all drop on the same frame and the rest of
-      // the shot is an empty room. The first is one tile out — inside the
-      // contact ring within a frame, so the reveal opens on the farmer TAKING a
-      // hit; the far three walk in from the dark (110px aggro radius).
+
       const spawns = [
         { dx: 1, dy: 0, hp: 28 },
         { dx: -2, dy: 1, hp: 28 },
@@ -1385,10 +1357,12 @@ const sceneMine = (game: Phaser.Game): TrailerScene => {
         { dx: 5, dy: 1, hp: 56 },
         { dx: -6, dy: 2, hp: 70 },
       ];
+
       const m = mine;
       m.trailerStageEnemies(
         spawns.map((o) => {
           const s = findOpenNearMine(m, c.tx + o.dx, c.ty + o.dy);
+
           return { hp: o.hp, tx: s.tx, ty: s.ty };
         }),
       );
@@ -1401,14 +1375,6 @@ const sceneMine = (game: Phaser.Game): TrailerScene => {
   };
 };
 
-/**
- * Ore for the tile a descent lands on. The generator holds every node three
- * tiles clear of the entry ladder, so the landing is guaranteed-bare floor;
- * this puts the floor's own ore back where the camera is. Offsets stay at or
- * below the landing row because the entry ladder sits two tiles from the top
- * wall, and the mine camera's bounds clamp means there is nothing above it to
- * fill.
- */
 const LANDING_ORE: OreSpot[] = [
   { dx: -5, dy: 1, kind: "coal" },
   { dx: -3, dy: 4, kind: "copper" },
@@ -1418,21 +1384,9 @@ const LANDING_ORE: OreSpot[] = [
   { dx: -6, dy: 4, kind: "crystal" },
 ];
 
-/**
- * Fixed moment the descent starts. The transition is a real 350ms fade-out plus
- * a 400ms fade-in — measured end to end off the capture, 760ms of unusable
- * frame — and review samples the shot at 12/37/63/88%, so the blackout has to
- * fall inside one 25% gap with room either side. At this duration that gap is
- * 2100→3500ms, and firing on arrival instead put the blackout straight over the
- * 63% sample: the reviewed still was a black frame whose only legible content
- * was the floor banner. Held rather than triggered so the walk's own variance
- * cannot drift it back over a sample.
- */
 const DESCEND_AT_MS = 2400;
 
-/** DEEPER — pickaxe through a crystal node, then onto the down ladder and a
- *  floor further into a mine that has no bottom. */
-const sceneMineDeeper = (game: Phaser.Game): TrailerScene => {
+const sceneMineDeeper: (game: Phaser.Game) => TrailerScene = (game) => {
   let mine: MineScene | null = null;
   let ladder: Tile = { tx: 0, ty: 0 };
   let descended = false;
@@ -1440,20 +1394,19 @@ const sceneMineDeeper = (game: Phaser.Game): TrailerScene => {
   let heading: { x: number; y: number } | null = null;
   let landingOre: Tile | null = null;
   let emberAcc = 0;
+
   return {
-    // 5600, not 3600: see DESCEND_AT_MS. The beat also now has two halves to
-    // pay for — the crystal and the walk on floor 8, then a real arrival on
-    // floor 9 rather than a cut two frames after the fade-in.
     duration: 5600,
     id: "mine-deeper",
     run: (t, dt) => {
       const m = mine;
+
       if (!m) {
         return;
       }
-      // a lantern's worth of embers, as in the fight above: the cave grades to
-      // near-black and the hero's sprite has no light on him otherwise
+
       emberAcc += dt;
+
       if (emberAcc > 90) {
         emberAcc = 0;
         burst(m, m.player.x + (Math.random() - 0.5) * 12, m.player.y - 10, {
@@ -1465,53 +1418,50 @@ const sceneMineDeeper = (game: Phaser.Game): TrailerScene => {
           speed: 8,
         });
       }
+
       if (descended) {
-        // walking into the room, so the new floor reveals under motion instead
-        // of a held pose (heading resolves once the restart has built it)
         m.trailerMove = heading ? { run: false, x: heading.x, y: heading.y } : null;
-        // The node dead ahead is solid, so the walk stalls against it with
-        // facing already pointing at the ore and tryAction's ordinary "node in
-        // front of me" branch takes over — the arrival ends on a landed pickaxe
-        // rather than on a farmer walking into the dark.
+
         if (landingOre && !m.isOpenTile(landingOre.tx, landingOre.ty)) {
           const d = Math.hypot(
             landingOre.tx * TILE + 8 - m.player.x,
             landingOre.ty * TILE + 8 - m.player.y,
           );
+
           if (d < 20) {
             m.tryAction();
           }
         }
+
         return;
       }
-      // two 625ms pickaxe swings shatter the 2hp crystal; the window closes
-      // before a third could start and swing at nothing
+
       if (staged && t < 1200) {
         m.trailerMove = null;
         m.tryAction();
+
         return;
       }
-      // Arrives around 2.2s and holds the last beat on the ladder itself; the
-      // descent is on the clock, not on arrival (see DESCEND_AT_MS).
+
       if (t < DESCEND_AT_MS) {
         moveToward(m, ladder.tx, ladder.ty);
+
         return;
       }
+
       m.trailerMove = null;
       descended = true;
-      // the floor he walks out onto only exists after the restart
       m.events.once(Scenes.Events.CREATE, () => {
         const feet = {
           tx: Math.floor(m.player.x / TILE),
           ty: Math.floor((m.player.y - 1) / TILE),
         };
+
         heading = openHeading(m, feet, 3);
-        // One node four tiles dead ahead — one past the run of open floor the
-        // heading was picked for. Cardinal headings only: facing snaps to a
-        // single axis, so on a diagonal approach tryAction would look past the
-        // node and swing at nothing.
+
         if (heading && (heading.x === 0 || heading.y === 0)) {
           const ahead = { tx: feet.tx + heading.x * 4, ty: feet.ty + heading.y * 4 };
+
           if (
             m.isOpenTile(ahead.tx, ahead.ty) &&
             m.trailerStageNode(ahead.tx, ahead.ty, "crystal", 2)
@@ -1519,9 +1469,9 @@ const sceneMineDeeper = (game: Phaser.Game): TrailerScene => {
             landingOre = ahead;
           }
         }
+
         stageOreAround(m, feet, LANDING_ORE);
       });
-      // real fade → brand-new procedural floor 9 → "Floor 9"
       m.descend();
     },
     setup: async () => {
@@ -1536,30 +1486,23 @@ const sceneMineDeeper = (game: Phaser.Game): TrailerScene => {
       landingOre = null;
       emberAcc = 0;
       ladder = m.trailerLadderDown();
-      // Floor UNDER him is the requirement, not just a free tile: the node goes
-      // there, and the mine's default facing is down, so the first tryAction
-      // swings straight into it. Staging a node on a wall tile would draw a
-      // crystal over a cave block.
-      const floorBelow = (t: Tile): boolean => t.ty <= MINE_H - 3 && m.isOpenTile(t.tx, t.ty + 1);
-      // Preferred stand: same row as the ladder with an unobstructed row
-      // between, so the cross to the ladder is a straight line that always
-      // arrives — the descent now fires on a clock, and a farmer stalled
-      // against a wall blob when it does reads as a bug. Falls back to the
-      // looser "any tile with floor under it" when the floor has no such row.
-      const straightToLadder = (t: Tile): boolean =>
-        t.ty === ladder.ty && rowOpen(m, t.tx, ladder.tx, t.ty);
+      const floorBelow = (t: Tile) => t.ty <= MINE_H - 3 && m.isOpenTile(t.tx, t.ty + 1);
+
+      const straightToLadder = (t: Tile) => t.ty === ladder.ty && rowOpen(m, t.tx, ladder.tx, t.ty);
+
       let stand = findOpenNearMine(
         m,
         ladder.tx - 4,
         ladder.ty,
         (t) => straightToLadder(t) && floorBelow(t),
       );
+
       if (!straightToLadder(stand) || !floorBelow(stand)) {
         stand = findOpenNearMine(m, ladder.tx - 3, ladder.ty, floorBelow);
       }
+
       m.player.setPosition(stand.tx * TILE + 8, stand.ty * TILE + 8);
       staged = m.trailerStageNode(stand.tx, stand.ty + 1, "crystal", 2);
-      // this beat is about the ore and the descent, not another fight
       m.trailerStageEnemies([]);
       m.trailerZoom = zoomFor(m, 250);
       m.cameras.main.setZoom(m.trailerZoom);
@@ -1572,14 +1515,11 @@ const sceneMineDeeper = (game: Phaser.Game): TrailerScene => {
   };
 };
 
-/** OUT ACROSS THE VALLEY — a run down the southern flats, mushrooms popping
- *  underfoot, then the axe puts a tree on the ground. */
-const sceneGather = (game: Phaser.Game): TrailerScene => {
+const sceneGather: (game: Phaser.Game) => TrailerScene = (game) => {
   let gs: GameScene | null = null;
   let script: FarmScript | null = null;
+
   return {
-    // measured: two pickups + three axe swings land the fell at ~3.2s, so the
-    // shrink-fade and the "+3 Wood" float still get a beat on camera
     duration: 3600,
     id: "gather-run",
     run: (_t, dt) => {
@@ -1592,30 +1532,36 @@ const sceneGather = (game: Phaser.Game): TrailerScene => {
       const g = gs;
       const tree = nearestObject(g, "tree", { tx: 5, ty: 40 }) ?? { tx: 5, ty: 40 };
       const shrooms: Tile[] = [];
+
       for (const o of g.world.objects) {
         if (o.type !== "forage") {
           continue;
         }
+
         if (Math.abs(o.tx - tree.tx) + Math.abs(o.ty - tree.ty) <= 5) {
           shrooms.push({ tx: o.tx, ty: o.ty });
         }
       }
-      // run east → west, picking as he goes
+
       shrooms.sort((a, b) => b.tx - a.tx);
       const chopFrom = standBeside(g, tree);
       const start = findOpenPatch(g, tree.tx + 5, tree.ty + 3, 1, 1, 4) ?? chopFrom;
       placeFeet(g, start.tx, start.ty);
       g.faceTowards(start.tx - 1, start.ty);
+
       const steps: Step[] = shrooms
         .slice(0, 2)
-        .map((s): Step => ({ at: s, kind: "walk", run: true }));
+        .map((s) => ({ at: s, kind: "walk", run: true }) satisfies Step);
+
       steps.push(
         { at: chopFrom, kind: "walk" },
         { kind: "select", match: (it) => it.kind === "tool" && it.tool === "axe" },
       );
+
       for (let i = 0; i < 3; i += 1) {
         steps.push({ at: tree, kind: "act" });
       }
+
       script = new FarmScript(g, steps);
       trackCam(g, zoomFor(g, 300), -26, 4);
       moveToward(g, start.tx - 1, start.ty, true);
@@ -1628,74 +1574,54 @@ const sceneGather = (game: Phaser.Game): TrailerScene => {
   };
 };
 
-/** Golden-hour cast → bite → the reel duel → the rarest fish in the valley,
- *  played perfectly by the machine through the real state machine. */
-const sceneFishing = (game: Phaser.Game): TrailerScene => {
+const sceneFishing: (game: Phaser.Game) => TrailerScene = (game) => {
   let gs: GameScene | null = null;
   let cx = 0;
   let cy = 0;
   let caught = -1;
+
   return {
-    // The reel is a live duel against a wandering fish, so the catch is not
-    // frame-exact: sown, it lands at ~3.0s and the caught pose holds 650ms
-    // after it, but an unlucky roll ran to 4.1s before the sow. Sized for the
-    // slow case; the tail is driven off the catch itself, not the clock, so a
-    // fast one just walks the bank for longer.
     duration: 4800,
     id: "fishing",
     run: (t, dt) => {
       const g = gs;
+
       if (!g) {
         return;
       }
+
       if (caught < 0) {
         if (t > 1200 && holdsLegend()) {
           caught = t;
-          // land() puts it in the pack
         }
+
         return;
       }
-      // The meter dies with the catch, so the space it was holding dies with
-      // it: push in on the payoff, drop the lead that kept him clear of it, and
-      // trail him as he pockets the fish and walks the bank toward the angler
-      // who wants it. Driven off the catch, not the clock — however much tail
-      // the reel leaves, the shot uses all of it.
-      // 600ms, not a leisurely one: the "The Legend!" float lives 900ms, and it
-      // is the payoff that has to be readable when the frame arrives
+
       const k = smooth((t - caught) / 600);
       const follow = 1 - Math.exp(-(dt / 1000) * 4);
       cx += (g.player.x + lerp(34, -14, k) - cx) * follow;
       cy += (g.player.y + lerp(16, 4, k) - cy) * follow;
       camPlace(g, zoomFor(g, lerp(340, 250, k)), cx, cy);
-      // the caught pose owns the first 650ms; walking would cut it short
+
       if (!g.fishing.active) {
         g.trailerMove = { run: false, x: -1, y: 0 };
       }
     },
     setup: async () => {
       gs = await freshFarm(game);
-      // widest catch zone
       stageSkills({ fishing: 10 });
-      // 19:45 — the strongest amber the pre-dusk grade offers
       gs.timeMin = 1185;
-      // the fish's wander draws from Phaser's global RND: sow it so the reel is
-      // the same duel every capture
       PhaserMath.RND.sow(["vg-trailer-fish"]);
       const spot = findFishingSpot(gs);
       placeFeet(gs, spot.stand.tx, spot.stand.ty);
       selectTool((it) => it.kind === "tool" && it.tool === "rod");
       lockCam(gs);
-      // Fishing.unzoom parks the reel meter in a fixed screen box in trailer
-      // mode, so this beat is no longer stuck at the play-parity framing that
-      // made it the widest shot in the reel: 340px puts the angler, the rod
-      // line, the bobber and the meter in one readable frame. The lead holds
-      // him left of centre, clear of the meter.
       caught = -1;
       cx = spot.stand.tx * TILE + 8 + 34;
       cy = spot.stand.ty * TILE + 12 + 16;
       camPlace(gs, zoomFor(gs, 340), cx, cy);
       gs.fishing.trailerAuto = true;
-      // the rarest thing in the valley
       gs.fishing.trailerFish = FISH.legend;
       gs.fishing.startCast(spot.target.tx, spot.target.ty);
     },
@@ -1707,32 +1633,29 @@ const sceneFishing = (game: Phaser.Game): TrailerScene => {
   };
 };
 
-/** THE ANGLER — hand Finn the fish he has been talking about all game: a real
- *  gift reaction, his friendship jumping 25, framed as an exchange. */
-const sceneVillager = (game: Phaser.Game): TrailerScene => {
+const sceneVillager: (game: Phaser.Game) => TrailerScene = (game) => {
   let gs: GameScene | null = null;
   let script: FarmScript | null = null;
   let away: Tile = { tx: 0, ty: 0 };
-  /** When the fish left the pack (ms into the shot); 0 = still holding it. */
   let handedAt = 0;
   let sent = false;
+
   return {
-    // the handover lands at ~0.9s and holds a beat; the rest is Finn walking
-    // off with it, so the shot is never two idle sprites waiting for the cut
     duration: 2800,
     id: "villager-gift",
     run: (t, dt) => {
       const g = gs;
+
       if (!g) {
         return;
       }
+
       script?.tick(dt / 1000);
-      // driven off the fish actually changing hands, not off the clock
+
       if (handedAt === 0 && !holdsLegend()) {
         handedAt = t;
       }
-      // ...but hold the pair facing each other while the ♥ is still up, so the
-      // reaction reads before he turns his back and walks it home
+
       if (!sent && handedAt > 0 && t - handedAt > 400) {
         sent = true;
         g.npcs.trailerWalkTo("finn", away.tx, away.ty);
@@ -1743,43 +1666,33 @@ const sceneVillager = (game: Phaser.Game): TrailerScene => {
       stageSkills({ fishing: 10 });
       gs.timeMin = 1185;
       const g = gs;
-      // the same bank the catch just happened on
       const spot = findFishingSpot(g);
-      // 5 tiles out, not 1: the farmer needs a walk-in to read as the one who
-      // came bearing something, and the exchange should land mid-shot rather
-      // than 0.3s in with two seconds of aftermath behind it.
       const finn = { tx: spot.stand.tx - 5, ty: spot.stand.ty };
       g.npcs.trailerVisible(["finn"]);
       g.npcs.placeNpc("finn", finn.tx, finn.ty);
-      // Pin him on his anchor (a walk order to the tile he is already on parks
-      // his wander for 6s): left to drift he closes the tile the farmer walks
-      // in to, and the two sprites end the shot standing inside each other.
       g.npcs.trailerWalkTo("finn", finn.tx, finn.ty);
       store.inv.add({ fish: "legend", kind: "fish" }, 1);
       selectTool((it) => it.kind === "fish");
       placeFeet(g, spot.stand.tx, spot.stand.ty);
-      const finnAt = (): Tile | null => g.npcs.trailerTileOf("finn");
-      const beside = (): Tile | null => {
+      const finnAt = () => g.npcs.trailerTileOf("finn");
+
+      const beside = () => {
         const t = finnAt();
+
         return t ? { tx: t.tx + 1, ty: t.ty } : null;
       };
+
       script = new FarmScript(g, [
         { at: beside, kind: "walk" },
-        // Finn loves fish
         { at: finnAt, kind: "gift" },
         { kind: "pause", ms: 1600 },
       ]);
-      // where he takes it: further down the bank, away from the farmer
-      // 3 tiles: far enough to read as leaving, close enough to stay in a
-      // 280px frame that is still centred on the farmer
       away = findOpenPatch(g, finn.tx - 3, finn.ty, 1, 1, 3) ?? { tx: finn.tx - 3, ty: finn.ty };
       handedAt = 0;
       sent = false;
-      // 215 world px: at the old 280 the two of them were 7% of frame height
-      // and the reaction read as a speck. The lead splits the difference
-      // between the pair so both stay centred through the handover.
       trackCam(g, zoomFor(g, 215), -20, -6);
       const first = beside();
+
       if (first) {
         moveToward(g, first.tx, first.ty);
       }
@@ -1792,14 +1705,10 @@ const sceneVillager = (game: Phaser.Game): TrailerScene => {
   };
 };
 
-// Only two levers actually repaint this world — the crops and the time/weather
-// grade — because the terrain art is season-invariant. Winter sits third so
-// the shot lands on the fullest frame, not the emptiest.
-const stageSeason = (g: GameScene, idx: number): void => {
+const stageSeason = (g: GameScene, idx: number) => {
   if (idx === 0) {
     g.day = 1;
     g.weather = "sunny";
-    // spring dawn wash
     g.timeMin = 430;
     stageField(
       g,
@@ -1810,48 +1719,47 @@ const stageSeason = (g: GameScene, idx: number): void => {
   } else if (idx === 1) {
     g.day = 30;
     g.weather = "sunny";
-    // flat high-summer noon
     g.timeMin = 760;
     stageField(g, ["radish", "kale", "sunflower", "cabbage", "radish", null], RIPE, true);
   } else if (idx === 2) {
     g.day = 90;
     g.weather = "snow";
-    // Snow's own wash is only alpha 0.08, so at noon winter reads as summer
-    // with white flecks. A blue dusk is the coldest grade the game owns.
     g.timeMin = 1220;
     stageField(g, ["kale", null, "kale", null, null, null], partGrown(0.6), false);
   } else {
     g.day = 60;
     g.weather = "rain";
-    // fall amber over the wet cast
     g.timeMin = 1150;
     stageField(g, ["pumpkin", "beetroot", "pumpkin", "wheat", "beetroot", null], RIPE, false);
   }
 };
 
-/** A YEAR IN THE VALLEY — locked-off frame, four seasons swapping behind a
- *  farmer walking the foreground row, landing on the fall bounty. */
-const sceneSeasons = (game: Phaser.Game): TrailerScene => {
+const sceneSeasons: (game: Phaser.Game) => TrailerScene = (game) => {
   let gs: GameScene | null = null;
   let script: FarmScript | null = null;
   let seg = -1;
+
   return {
     duration: 4200,
     id: "seasons-timelapse",
     run: (t, dt) => {
       const g = gs;
+
       if (!g) {
         return;
       }
+
       script?.tick(dt / 1000);
       const idx = Math.min(3, Math.floor(t / 1050));
+
       if (idx !== seg) {
         seg = idx;
         stageSeason(g, idx);
       }
+
       if (idx === 2) {
-        // winter: snowfall through the real particle system, dense enough to read
         const view = g.cameras.main.worldView;
+
         for (let i = 0; i < 2; i += 1) {
           burst(
             g,
@@ -1881,7 +1789,6 @@ const sceneSeasons = (game: Phaser.Game): TrailerScene => {
         { at: { tx: 13, ty: 11 }, kind: "walk" },
       ]);
       lockCam(gs);
-      // 300px on FIELD_RECT's centre: crop rows across ~70% of frame, no ocean
       camPlace(gs, Math.max(zoomFor(gs, 300), fitZoom(gs)), 248, 148);
     },
     teardown: () => {
@@ -1892,33 +1799,32 @@ const sceneSeasons = (game: Phaser.Game): TrailerScene => {
   };
 };
 
-/** DUSK, THEN THE MORNING — fireflies at the farmhouse door, sleep, and the
- *  overnight the whole genre turns on: crops step to ripe under rain-dark soil. */
-const sceneNight = (game: Phaser.Game): TrailerScene => {
+const sceneNight: (game: Phaser.Game) => TrailerScene = (game) => {
   let gs: GameScene | null = null;
   let script: FarmScript | null = null;
   let fireflyAcc = 0;
   let slept = false;
   let reframed = false;
   const SLEEP_AT = 2300;
+
   return {
     duration: 4800,
     id: "night-sleep",
     run: (t, dt) => {
       const g = gs;
+
       if (!g) {
         return;
       }
+
       if (!slept) {
-        // 20:45 → 22:30, still readable
         g.timeMin = lerp(1245, 1350, t / SLEEP_AT);
         camPlace(g, zoomFor(g, lerp(360, 300, smooth(t / SLEEP_AT))), 494, 246);
         script?.tick(dt / 1000);
         fireflyAcc += dt;
+
         if (fireflyAcc > 60) {
           fireflyAcc = 0;
-          // clustered on the hero: scattered across the whole view they were
-          // nine two-pixel dots in a 1600x900 frame
           burst(g, g.player.x + (Math.random() - 0.5) * 150, g.player.y - 12 - Math.random() * 70, {
             colors: [0xff_e2_7a, 0xff_f3_c4, 0xff_d3_4d],
             count: 3,
@@ -1928,15 +1834,16 @@ const sceneNight = (game: Phaser.Game): TrailerScene => {
             speed: 7,
           });
         }
+
         if (t >= SLEEP_AT) {
           slept = true;
           g.trailerMove = null;
-          // 600ms dip to indigo → overnight → 700ms fade in + chime
           g.doSleep();
         }
+
         return;
       }
-      // recomposed under the black, so the fade-in opens on what the night grew
+
       if (!reframed && t > SLEEP_AT + 400) {
         reframed = true;
         camPlace(g, zoomFor(g, 300), 248, 150);
@@ -1946,15 +1853,14 @@ const sceneNight = (game: Phaser.Game): TrailerScene => {
       gs = await freshFarm(game);
       stageSkills({ farming: 5 });
       const g = gs;
-      // A fall day whose next morning is rainy: the overnight then auto-waters
-      // every tilled tile, so the wake reveals darkened soil for free.
       let day = 57;
+
       while (day < 83 && weatherForDay(FARM_SEED, day + 1) !== "rain") {
         day += 1;
       }
+
       g.day = day;
       g.weather = weatherForDay(FARM_SEED, day);
-      // 20:45 — already blue at the reveal
       g.timeMin = 1245;
       stageField(g, FALL_ROWS, ONE_NIGHT_SHORT, true);
       fireflyAcc = 0;
@@ -1967,7 +1873,6 @@ const sceneNight = (game: Phaser.Game): TrailerScene => {
       script = new FarmScript(g, [
         { at: { tx: door.tx - 1, ty: door.ty + 1 }, kind: "walk" },
         { at: door, kind: "walk" },
-        // at the door, facing home
         { at: { tx: door.tx, ty: door.ty - 1 }, kind: "face" },
       ]);
       moveToward(g, door.tx - 1, door.ty + 1, false);
@@ -1981,42 +1886,31 @@ const sceneNight = (game: Phaser.Game): TrailerScene => {
   };
 };
 
-/** RELEASE — one last harvest held tight, then the pull back over the valley. */
-const sceneFullFarm = (game: Phaser.Game): TrailerScene => {
+const sceneFullFarm: (game: Phaser.Game) => TrailerScene = (game) => {
   let gs: GameScene | null = null;
   let script: FarmScript | null = null;
   let startCx = 0;
   let startCy = 0;
   const HOLD = 1000;
   const DUR = 3900;
-  /** The plot's south row carries a crate/barrel cluster at tx 17.8-18.9 whose
-   *  y-sort puts it in FRONT of anyone standing on the beetroot row behind it —
-   *  the old harvest tile (18,10) left the actor invisible for the whole hold.
-   *  tx 15 is the nearest column with nothing drawn over it. */
   const STAND: Tile = { tx: 14, ty: 10 };
-  // the pumpkin row he reaps
   const CROP: Tile = { tx: 14, ty: 9 };
-  /** Where the pull stops. Wide enough to be a release — plot, mill, pond and
-   *  village all in one frame — but not so wide that the farmer walking the
-   *  rows stops reading (he is ~45px tall here, ~28px at full fit). Centred
-   *  east of him so the pull opens the valley up ahead of his walk rather than
-   *  sliding him off the edge. */
   const END_W = 560;
   const END_CX = 360;
   const END_CY = 190;
+
   return {
     duration: DUR,
     id: "full-farm",
     run: (t, dt) => {
       const g = gs;
+
       if (!g) {
         return;
       }
+
       script?.tick(dt / 1000);
       const cam = g.cameras.main;
-      // hold tight through the harvest, then ease OUT (fast off the mark, slow
-      // into the wide) so the shot lingers where windmills and cloud shadows
-      // still read, and stops on a frame the farmer is still inside
       const x = clamp01((t - HOLD) / (DUR - HOLD));
       const k = 1 - (1 - x) ** 1.7;
       const w = lerp(300, END_W, k);
@@ -2025,7 +1919,6 @@ const sceneFullFarm = (game: Phaser.Game): TrailerScene => {
     setup: async () => {
       gs = await freshFarm(game);
       stageSkills({ farming: 5 });
-      // the strongest amber before the blue night branch
       gs.timeMin = 1190;
       stageField(gs, MATURE_ROWS, RIPE, true);
       stageHerd(gs);
@@ -2035,13 +1928,6 @@ const sceneFullFarm = (game: Phaser.Game): TrailerScene => {
       startCy = gs.player.y - 10;
       lockCam(gs);
       camPlace(gs, zoomFor(gs, 300), startCx, startCy);
-      // ty 9 is the pumpkin row; ty 10 (his feet) is beetroot — the old script
-      // targeted the bare walking row and the pop never fired.
-      // The two walks keep him moving under the whole pull: a wide that ends on
-      // a motionless frame is a photograph, not the last shot of a trailer.
-      // The walk climbs the rows away from the lens (and clear of the crate
-      // cluster on the south row) so the last frame has a farmer moving through
-      // his own crops instead of a still landscape.
       script = new FarmScript(gs, [
         { at: CROP, kind: "act" },
         { at: { tx: 18, ty: 9 }, kind: "walk" },
@@ -2058,25 +1944,17 @@ const sceneFullFarm = (game: Phaser.Game): TrailerScene => {
   };
 };
 
-// ---------------------------------------------------------------- entry
-
-export const startTrailer = (game: Phaser.Game): void => {
+export const startTrailer = (game: Phaser.Game) => {
   enableTrailerStaging();
   disableSaves();
-  // ignore any saved preference; onGesture owns the unmute
   Sound.muted = true;
 
   runTrailer({
     cutMs: 200,
-    // The trailer rolls with no user gesture, so the audio context would stay
-    // suspended: stay muted (Sound skips scheduling entirely) until a real
-    // click/keypress lands, then resume and unmute from that beat on.
     onGesture: () => {
       Sound.resume();
       Sound.muted = false;
     },
-    // hook → payout → craft → co-op → warmth → danger → depth → expedition →
-    // tension → exchange → the year → the night → release
     scenes: [
       sceneColdOpen(game),
       sceneShipping(game),
@@ -2093,14 +1971,12 @@ export const startTrailer = (game: Phaser.Game): void => {
       sceneFullFarm(game),
     ].map((scene) => ({
       ...scene,
-      // trackCam installs itself as the scene's frame hook; clear it here so
-      // it dies with the shot that staged it.
       setup: () => {
         getGame(game).trailerFrame = null;
+
         return scene.setup();
       },
     })),
-    // keep the pixel art clean edge-to-edge
     vignette: false,
   });
 };

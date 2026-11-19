@@ -1,21 +1,14 @@
-// Camera rig: a slow orbit over the arena on the menu, and in a match a
-// fixed-pitch chase view that leans toward the cursor, pulls back during the
-// countdown and shakes with nearby hits.
-
 import type { Brawler } from "./entities/brawler";
 import type { Game } from "./game";
 import { clamp, damp, smoothstep } from "./utils";
 
 export const CAMERA_FOV = 32;
-/** Pitch of the match camera above the ground plane. */
 const CAMERA_PITCH = (50 * Math.PI) / 180;
-/** Base distance from the focus point at zoom 1 on a wide screen. */
 const CAMERA_DISTANCE = 22;
 
-/** Portrait and square screens need the camera further out to keep the same width in view. */
-const aspectFit = (aspect: number): number => clamp(1.55 / aspect, 1, 1.75);
+const aspectFit = (aspect: number) => clamp(1.55 / aspect, 1, 1.75);
 
-const orbitMenu = (game: Game, dt: number, fit: number): void => {
+const orbitMenu = (game: Game, dt: number, fit: number) => {
   game.menuAngle += dt * 0.05;
   const radius = 27 * fit;
   game.focus.set(0, 0, -1);
@@ -27,25 +20,28 @@ const orbitMenu = (game: Game, dt: number, fit: number): void => {
   game.camera.lookAt(game.focus);
 };
 
-/** Who the camera follows: the player, then whoever took them out, then anyone alive. */
-const cameraSubject = (game: Game): Brawler | undefined => {
+const cameraSubject = (game: Game) => {
   if (game.player?.alive) {
     return game.player;
   }
+
   if (game.spectate?.alive) {
     return game.spectate;
   }
+
   return game.brawlers.find((b) => b.alive);
 };
 
-const followSubject = (game: Game, subject: Brawler, dt: number): void => {
+const followSubject = (game: Game, subject: Brawler, dt: number) => {
   let { x, z } = subject;
+
   if (subject === game.player && game.state === "playing") {
     game.leanX = damp(game.leanX, clamp(game.aimPoint.x - subject.x, -8, 8) * 0.09, 2.2, dt);
     game.leanZ = damp(game.leanZ, clamp(game.aimPoint.z - subject.z, -8, 8) * 0.09, 2.2, dt);
     x += game.leanX;
     z += game.leanZ;
   }
+
   x = clamp(x, -18, 18);
   z = clamp(z, -18.5, 18.5);
   game.focus.x = damp(game.focus.x, x, 5.5, dt);
@@ -56,21 +52,25 @@ const followSubject = (game: Game, subject: Brawler, dt: number): void => {
 const REDUCED_MOTION =
   typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-export const updateCamera = (game: Game, dt: number): void => {
+export const updateCamera = (game: Game, dt: number) => {
   const { camera } = game;
   const fit = aspectFit(camera.aspect);
+
   if (game.state === "menu") {
     orbitMenu(game, dt, fit);
+
     return;
   }
+
   const subject = cameraSubject(game);
+
   if (subject) {
     followSubject(game, subject, dt);
   }
+
   const pullBack = game.state === "countdown" ? smoothstep(0.4, 3.2, game.countdownT) : 0;
   const distance = CAMERA_DISTANCE * fit * game.camZoom * (1 + pullBack * 0.75);
   game.shakeAmp = damp(game.shakeAmp, 0, 9, dt);
-  // Sustained shake is the one motion effect that makes people queasy.
   const amp = REDUCED_MOTION ? 0 : game.shakeAmp;
   const t = game.elapsed;
   const shakeX = Math.sin(t * 43) * amp * 0.3;

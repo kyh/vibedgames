@@ -11,8 +11,6 @@ const buttonVariants = cva(
   {
     compoundVariants: [
       {
-        // Loading also sets `disabled`; keep the primary fill (not the muted
-        // disabled fill) so a loading button still reads as primary.
         className:
           "disabled:bg-primary disabled:text-primary-foreground [&>:first-child]:bg-primary",
         loading: true,
@@ -78,6 +76,7 @@ const Button = ({
   ...props
 }: ButtonProps) => {
   const { trigger } = useWebHaptics();
+
   return (
     <ButtonPrimitive
       data-slot="button"

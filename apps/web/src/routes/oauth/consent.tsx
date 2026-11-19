@@ -6,15 +6,6 @@ import { getRequestHeaders } from "@tanstack/react-start/server";
 import { getServerContext } from "@/auth/server";
 import { OAuthConsent } from "@/components/oauth/oauth-consent";
 
-/**
- * Where the OAuth provider sends a signed-in person to approve a connecting
- * app (an MCP client such as claude.ai, or anything else that registered).
- * The query is the provider's signed authorize request; the approval call
- * sends it back verbatim, so nothing here can widen what is granted. The page
- * only reads it to say who is asking and for what.
- */
-
-// Loose: every signed parameter must stay in the URL for the approval call.
 const consentSearchSchema = z.looseObject({
   client_id: z.string().optional(),
   redirect_uri: z.string().optional(),
@@ -28,26 +19,30 @@ const fetchConsent = createServerFn({ method: "GET" })
     const { auth } = getServerContext();
     const headers = new Headers(getRequestHeaders());
     const session = await auth.api.getSession({ headers });
+
     if (!session) {
-      // Signing in with the signed query resumes the flow at this page.
       throw redirect({ href: `/auth/login${search}` });
     }
+
     if (!clientId) {
       return { client: null, userName: session.user.name };
     }
+
     const client = await auth.api
       .getOAuthClientPublic({ headers, query: { client_id: clientId } })
       .catch(() => null);
+
     return {
       client: client ? { name: client.client_name ?? null, uri: client.client_uri ?? null } : null,
       userName: session.user.name,
     };
   });
 
-const redirectHost = (uri?: string): string | null => {
+const redirectHost = (uri?: string) => {
   if (!uri) {
     return null;
   }
+
   try {
     return new URL(uri).host;
   } catch {

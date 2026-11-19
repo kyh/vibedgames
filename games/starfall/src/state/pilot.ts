@@ -35,7 +35,7 @@ export interface Pilot {
   mastery: WeaponMastery;
 }
 
-export const newPilot = (): Pilot => ({
+export const newPilot: () => Pilot = () => ({
   alive: true,
   boosts: new Map(),
   invulnUntil: 0,
@@ -52,9 +52,6 @@ export const newPilot = (): Pilot => ({
   spawned: false,
   specialBase: null,
   thrust: 0,
-  // Boot at the real L1 base loadout so the HUD never shows a name the level
-  // system would immediately rewrite (WEAPON_DEFAULT is the template,
-  // baseWeaponForLevel is the loadout).
   weapon: baseWeaponForLevel(1),
   weaponUntil: 0,
 });

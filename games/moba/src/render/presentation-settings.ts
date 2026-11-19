@@ -7,14 +7,16 @@ export interface PresentationSettings {
 const KEY = "moba:presentation";
 const listeners = new Set<() => void>();
 
-export const parsePresentationSettings = (raw: string | null): PresentationSettings => {
+export const parsePresentationSettings: (raw: string | null) => PresentationSettings = (raw) => {
   const defaults: PresentationSettings = { effects: "full", motion: "system", view: "standard" };
+
   try {
     const value: unknown = JSON.parse(raw ?? "null");
-    // JSON objects have ordinary prototypes; accept only the three enum fields.
+
     if (!(value instanceof Object) || Array.isArray(value)) {
       return defaults;
     }
+
     return {
       effects: "effects" in value && value.effects === "focused" ? "focused" : "full",
       motion: "motion" in value && value.motion === "reduced" ? "reduced" : "system",
@@ -25,7 +27,7 @@ export const parsePresentationSettings = (raw: string | null): PresentationSetti
   }
 };
 
-const storedSettings = (): PresentationSettings => {
+const storedSettings: () => PresentationSettings = () => {
   try {
     return parsePresentationSettings(window.localStorage.getItem(KEY));
   } catch {
@@ -35,30 +37,40 @@ const storedSettings = (): PresentationSettings => {
 
 let settings = storedSettings();
 
-export const presentationSettings = (): Readonly<PresentationSettings> => settings;
+export const presentationSettings: () => Readonly<PresentationSettings> = () => settings;
+
+const persistSettings = (value: PresentationSettings) => {
+  try {
+    window.localStorage.setItem(KEY, JSON.stringify(value));
+
+    return true;
+  } catch {
+    return false;
+  }
+};
 
 /** Blocked embed storage loses persistence, never the current preference. */
-export const setPresentationSettings = (next: PresentationSettings): void => {
+export const setPresentationSettings = (next: PresentationSettings) => {
   settings = { ...next };
-  try {
-    window.localStorage.setItem(KEY, JSON.stringify(settings));
-  } catch {
-    // Keep the in-memory setting usable in restricted embeds.
-  }
+
+  persistSettings(settings);
+
   for (const listener of listeners) {
     listener();
   }
 };
 
-export const watchPresentationSettings = (listener: () => void): (() => void) => {
+export const watchPresentationSettings = (listener: () => void) => {
   listeners.add(listener);
+
   return () => listeners.delete(listener);
 };
 
 let reducedMotionQuery: MediaQueryList | null = null;
 
 /** The OS preference or the in-game motion setting: skip entrance/pulse motion. */
-export const reducedMotion = (): boolean => {
+export const reducedMotion = () => {
   reducedMotionQuery ??= window.matchMedia("(prefers-reduced-motion: reduce)");
+
   return reducedMotionQuery.matches || settings.motion === "reduced";
 };

@@ -1,77 +1,34 @@
-// The singularity — the black hole Grimelda's Grand Hex tears open over the
-// sealing circle: a shadow, the photon ring piled up on its edge, and the
-// lensed light wound around it.
-//
-// Ported from the Elemental Sandbox VFX sandbox (MIT, Copyright (c) 2026
-// mohamedachrefelouafi) — https://github.com/achrefelouafi/LinearAbiltyCastingExtendedThreeJS
-// (the "Astral Void Blast" horizon). The sandbox also bends the finished frame
-// around the hole through a screen-space distortion pass; we have no such
-// pass, so the lens is dropped and the halo carries the read on its own. The
-// palette is re-graded from the sandbox's gold-on-violet to Grimelda's bog
-// green ring on a violet halo, so it stays hers and not a generic void.
-//
-// Why a camera-facing quad rather than a sphere: a Schwarzschild shadow is
-// CIRCULAR from every direction — it is not the silhouette of a sphere but the
-// set of impact parameters below which a photon cannot escape, rotationally
-// symmetric about the line of sight whatever the observer does. So a billboard
-// is the correct primitive: exactly round at every camera angle, antialiased
-// against one analytic radius instead of a tessellated limb.
-//
-// The disc is PREMULTIPLIED. Inside the shadow the colour is zero and the
-// alpha is one, so the frame behind it is replaced by nothing. Straight alpha
-// with a near-black colour leaves a dark grey disc, and a grey black hole is
-// not a black hole.
 import * as THREE from "three";
 import { NOISE_GLSL } from "./fx-noise";
 
 const POOL = 2;
 
-/** Every dimension below is × the zone's footprint radius. */
 const HOLE = {
-  // how hard one side of the ring is beamed, 0 = evenly lit
   beam: 0.75,
-  // revolutions/second the beamed side travels
   beamSpin: 0.22,
-  // how far the halo is torn into strands
   filament: 0.7,
   filamentScale: 2.2,
   halo: 0.9,
-  // how fast the halo dies outward
   haloFalloff: 2.4,
-  // how far off the floor it hangs — a body has to be LIFTED in
   height: 0.52,
-  // the settled shadow
   horizon: 0.22,
-  // how far the halo is drawn, × the horizon
   reach: 4.5,
-  // The sandbox runs the ring at 9 under a gentle bloom. Under ours that
-  // blooms into a white blob that buries the shadow — the one thing the
-  // effect is for — so it sits just over the bloom threshold instead.
   ringGlow: 1.4,
-  // thickness of the photon ring, in horizon radii
   ringWidth: 0.05,
-  // revolutions/second the whole halo turns
   spin: 0.3,
-  // differential winding — inner strands lap outer ones
   wind: 2.4,
 } as const;
 
-/** The sequence, in seconds since it opened. */
 const BEATS = {
-  // × the settled horizon at the top of that
   bloom: 1.35,
-  // the collapse, at the end
   pinch: 0.22,
-  // back at its settled size
   settle: 0.55,
-  // inflating to its overshoot
   swell: 0.3,
 } as const;
 
 const TAU = Math.PI * 2;
 
-// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-const VERT = /* glsl */ `
+const VERT = `
 uniform float uSize;     // half-width of the quad, metres
 uniform float uHorizon;  // radius of the shadow, metres
 varying vec2 vLocal;     // -1..1 across the quad
@@ -90,8 +47,7 @@ void main() {
   gl_Position = projectionMatrix * mv;
 }`;
 
-// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-const FRAG = /* glsl */ `
+const FRAG = `
 #define TAU 6.283185307179586
 uniform float uTime;
 uniform float uSize;
@@ -195,7 +151,6 @@ interface Hole {
   t: number;
   life: number;
   live: boolean;
-  // the settled shadow radius, metres
   horizon: number;
 }
 
@@ -205,17 +160,14 @@ export interface VoidOpts {
   colors?: { photon: number; halo: number; cool: number };
 }
 
-/** Grimelda's grade: a bog-green photon ring on a violet halo. */
 const HEX = { cool: 0x2a_14_50, halo: 0xb9_8a_e0, photon: 0xb4_ff_a8 } as const;
 
 const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
 
-/** Drive one hole's uniforms from its elapsed time. */
-const syncHole = (h: Hole): void => {
+const syncHole = (h: Hole) => {
   const { t } = h;
-  // Inflates past its size and settles back, then at the very end pinches
-  // to nothing — the collapse is faster than the opening, on purpose.
   let size: number;
+
   if (t < BEATS.swell) {
     const k = t / BEATS.swell;
     size = BEATS.bloom * (1 - (1 - k) * (1 - k));
@@ -225,10 +177,10 @@ const syncHole = (h: Hole): void => {
   } else {
     size = 1;
   }
+
   const pinchStart = h.life - BEATS.pinch;
   const pinch = clamp01((t - pinchStart) / BEATS.pinch);
   size *= 1 - pinch * pinch;
-  // The halo flares as it opens and again as it goes.
   const churn = Math.max(1 - t / BEATS.settle, pinch);
 
   const horizon = Math.max(0.01, h.horizon * size);
@@ -247,6 +199,7 @@ export class VoidPool {
 
   constructor(scene: THREE.Scene, clock: { value: number }) {
     this.scene = scene;
+
     for (let i = 0; i < POOL; i += 1) {
       const uni: VoidUniforms = {
         uBeamPhase: { value: 0 },
@@ -260,6 +213,7 @@ export class VoidPool {
         uSize: { value: 1 },
         uTime: clock,
       };
+
       const mesh = new THREE.Mesh(
         this.geo,
         new THREE.ShaderMaterial({
@@ -273,6 +227,7 @@ export class VoidPool {
           vertexShader: VERT,
         }),
       );
+
       mesh.frustumCulled = false;
       mesh.visible = false;
       mesh.renderOrder = 5;
@@ -282,12 +237,13 @@ export class VoidPool {
   }
 
   /** Tear one open over (x, groundY, z), sized to a zone of radius `footprint`. */
-  open(x: number, groundY: number, z: number, footprint: number, opts: VoidOpts = {}): void {
+  open(x: number, groundY: number, z: number, footprint: number, opts: VoidOpts = {}) {
     const h = this.holes.find((e) => !e.live);
+
     if (!h) {
       return;
-      // saturated — drop
     }
+
     const colors = opts.colors ?? HEX;
     h.live = true;
     h.t = 0;
@@ -302,22 +258,25 @@ export class VoidPool {
     h.mesh.visible = true;
   }
 
-  update(dt: number): void {
+  update(dt: number) {
     for (const h of this.holes) {
       if (!h.live) {
         continue;
       }
+
       h.t += dt;
+
       if (h.t >= h.life) {
         h.live = false;
         h.mesh.visible = false;
         continue;
       }
+
       syncHole(h);
     }
   }
 
-  clear(): void {
+  clear() {
     for (const h of this.holes) {
       h.live = false;
       h.life = 0;
@@ -326,13 +285,15 @@ export class VoidPool {
     }
   }
 
-  dispose(): void {
+  dispose() {
     for (const h of this.holes) {
       h.mesh.removeFromParent();
+
       if (h.mesh.material instanceof THREE.Material) {
         h.mesh.material.dispose();
       }
     }
+
     this.holes.length = 0;
     this.geo.dispose();
   }

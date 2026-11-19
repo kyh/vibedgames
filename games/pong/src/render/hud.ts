@@ -1,8 +1,3 @@
-// The DOM HUD above the canvas: score, banner card, net status, match point,
-// power-charge meter, rally/shot callouts and the serve countdown. Un-dithered
-// crisp ink. The scene resyncs it every frame, so each write is change-checked
-// to keep the DOM idle between real changes.
-
 import { AUTO_SERVE_S, COMBO_MIN, COMBO_PEAK_HITS, WIN_SCORE } from "../shared/constants";
 import type { Phase } from "../shared/constants";
 import { CHARGE_HITS, chargeHits } from "../shared/contact-shot";
@@ -30,41 +25,47 @@ const NET_INFO = {
   solo: "VS AI · FIRST TO 7",
 } satisfies Record<Link, string>;
 
-const el = (id: string): HTMLElement => {
+const el = (id: string) => {
   const node = document.querySelector(`#${id}`);
+
   if (!(node instanceof HTMLElement)) {
-    throw new Error(`missing #${id}`);
+    throw new TypeError(`missing #${id}`);
   }
+
   return node;
 };
 
-const setText = (node: HTMLElement, text: string): void => {
+const setText = (node: HTMLElement, text: string) => {
   if (node.textContent !== text) {
     node.textContent = text;
   }
 };
 
-const matchPointLabel = (scoreYou: number, scoreAi: number): string => {
+const matchPointLabel = (scoreYou: number, scoreAi: number) => {
   if (scoreYou === scoreAi) {
     return "DECIDING POINT";
   }
+
   return scoreYou > scoreAi ? "YOUR MATCH POINT" : "DEFEND MATCH POINT";
 };
 
-const winnerTitle = (scoreYou: number, scoreAi: number, human: boolean): string => {
+const winnerTitle = (scoreYou: number, scoreAi: number, human: boolean) => {
   if (scoreYou > scoreAi) {
     return "YOU WIN";
   }
+
   return human ? "RIVAL WINS" : "AI WINS";
 };
 
-const chargeLabel = (charge: ShotCharge, hits: number): string => {
+const chargeLabel = (charge: ShotCharge, hits: number) => {
   if (charge.kind === "armed") {
     return "POWER ARMED";
   }
+
   if (charge.kind === "ready") {
     return "POWER READY";
   }
+
   return `POWER ${hits}/${CHARGE_HITS}`;
 };
 
@@ -85,18 +86,17 @@ export class Hud {
   private readonly chargeEl = el("shot-charge");
   private readonly chargeFillEl = el("shot-charge-fill");
   private readonly chargeLabelEl = el("shot-charge-label");
-  // Cached so we only touch classList on transitions.
   private serveMeterShown = false;
 
   constructor(onAction: () => void) {
-    // A tap on the banner card must not double as a canvas serve.
     for (const eventName of ["pointerdown", "pointermove", "pointerup", "pointercancel"]) {
       this.bannerEl.addEventListener(eventName, (e) => e.stopPropagation());
     }
+
     this.actionEl.addEventListener("click", onAction);
   }
 
-  sync(view: MatchView): void {
+  sync(view: MatchView) {
     const { phase, scoreYou, scoreAi, link } = view;
     setText(this.scoreYouEl, String(scoreYou));
     setText(this.scoreAiEl, String(scoreAi));
@@ -106,8 +106,8 @@ export class Hud {
     const matchPointText = matchPoint ? matchPointLabel(scoreYou, scoreAi) : "";
     setText(this.matchPointEl, matchPointText);
 
-    // The action button stays mounted across states so a snapshot never steals its focus.
     let show = true;
+
     if (link === "connecting" || link === "reconnecting") {
       this.showBanner(link === "reconnecting" ? "RECONNECTING" : "PONG", "FIRST TO 7", "PLAY AI");
     } else if (phase === "serving" && view.awaitingServe) {
@@ -121,78 +121,84 @@ export class Hud {
     } else {
       show = false;
     }
+
     this.bannerEl.hidden = !show;
     setText(this.netInfoEl, NET_INFO[link]);
     this.syncCharge(view.charge, phase === "won");
   }
 
-  private showBanner(title: string, detail: string, action: string): void {
+  private showBanner(title: string, detail: string, action: string) {
     setText(this.bannerTitleEl, title);
     setText(this.bannerDetailEl, detail);
     setText(this.actionEl, action);
   }
 
-  syncCharge(charge: ShotCharge, hidden: boolean): void {
+  syncCharge(charge: ShotCharge, hidden: boolean) {
     const hits = chargeHits(charge);
     this.chargeEl.hidden = hidden;
     const fill = `scaleX(${hits / CHARGE_HITS})`;
+
     if (this.chargeFillEl.style.transform !== fill) {
       this.chargeFillEl.style.transform = fill;
     }
+
     const value = String(hits);
+
     if (this.chargeEl.getAttribute("aria-valuenow") !== value) {
       this.chargeEl.setAttribute("aria-valuenow", value);
     }
+
     setText(this.chargeLabelEl, chargeLabel(charge, hits));
   }
 
-  popScore(side: "you" | "ai"): void {
+  popScore(side: "you" | "ai") {
     const node = side === "you" ? this.scoreYouEl : this.scoreAiEl;
     node.classList.remove("pop");
-    // Reading layout restarts the CSS animation.
     void node.offsetWidth;
     node.classList.add("pop");
   }
 
   /** "YOU SCORE" / "RIVAL SCORES" between points; "" clears it. */
-  setPoint(text: string): void {
+  setPoint(text: string) {
     this.pointEl.textContent = text;
   }
 
   /** Surface the running rally length as an escalating "×N" once past MIN. */
-  showCombo(hits: number): void {
+  showCombo(hits: number) {
     if (hits < COMBO_MIN) {
       return;
     }
+
     const tier = Math.min(1, Math.max(0, hits / COMBO_PEAK_HITS));
     this.comboEl.textContent = `RALLY ×${hits}`;
     this.comboEl.style.setProperty("--combo-tier", tier.toFixed(3));
     this.comboEl.style.opacity = "1";
     this.comboEl.classList.remove("pop");
-    // Reading layout restarts the CSS pop.
     void this.comboEl.offsetWidth;
     this.comboEl.classList.add("pop");
   }
 
-  hideCombo(): void {
+  hideCombo() {
     this.comboEl.style.opacity = "0";
   }
 
-  showShot(kind: ContactKind, mine: boolean, powered: boolean): void {
+  showShot(kind: ContactKind, mine: boolean, powered: boolean) {
     this.shotEl.textContent = `${mine ? "" : "RIVAL "}${powered ? "POWER " : ""}${kind.toUpperCase()}`;
     this.shotEl.classList.add("on");
   }
 
-  hideShot(): void {
+  hideShot() {
     this.shotEl.classList.remove("on");
   }
 
   /** Deplete the serve-countdown bar over the auto-serve dead air between points. */
-  serveMeter(left: number | null): void {
+  serveMeter(left: number | null) {
     const active = left !== null;
+
     if (left !== null) {
       this.serveMeterEl.style.setProperty("--fill", `${(left / AUTO_SERVE_S) * 100}%`);
     }
+
     if (active !== this.serveMeterShown) {
       this.serveMeterEl.classList.toggle("on", active);
       this.serveMeterShown = active;

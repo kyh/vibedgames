@@ -2,21 +2,9 @@ import type { Doc, Section } from "@/lib/doc";
 import { headingId, p, table, ul } from "@/lib/doc";
 import { siteConfig } from "@/lib/site-config";
 
-/**
- * The Privacy Policy, on General Legal's GDPR-enhanced privacy policy
- * template: its sections, its defined terms and its wording, kept only where
- * true of Vibedgames. Every fact here is checked against the code that does
- * it — the auth config, the schema, the routers, the CLI — so a change to what
- * the platform collects, keeps or sends changes this file in the same commit.
- *
- * Rendered as HTML by `components/legal/legal-page` and served verbatim as
- * markdown, so there is no second copy to keep in step.
- */
-
 const { email, name: operator } = siteConfig.operator;
 const mail = `[${email}](mailto:${email})`;
 
-/** Top-level headings, named once so the Index and every cross-reference land on them. */
 const H = {
   changes: "Changes to this Privacy Policy",
   children: "Children",
@@ -36,9 +24,9 @@ const H = {
 
 const link = (heading: string, label: string = heading) => `[${label}](#${headingId(heading)})`;
 
-/** Who we may disclose a category to, for the CCPA table. */
 const DISCLOSED_TO =
   "Service providers; Professional advisors; Authorities and others; Business transferees";
+
 const OPERATIONS = "Service delivery and operations; Compliance and protection";
 
 const sections: Section[] = [

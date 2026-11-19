@@ -15,7 +15,6 @@ import type {
   NetDoor,
   NetProjRow,
   NetRoom,
-  NetStatus,
   NetVersus,
   ProjKind,
   Snapshot,
@@ -35,24 +34,20 @@ import { ROOM_PROPS } from "./room-builder";
 import type { SceneHooks } from "./scene-hooks";
 import type { VersusFlow } from "./versus-flow";
 
-// snapshot rate: 30 Hz on a steady clock, under the guests' 100 ms render delay
 const NET_HZ = 30;
-// full private state for a takeover — about once a second, plus at every
-// phase, progress or room edge so a promoted guest never adopts a stale one
 const CHECKPOINT_MS = 1000;
+
 interface CheckpointMark {
   phase: CheckpointPhase["kind"] | "transition-built";
   versus: NetVersus["phase"] | null;
-  // relics, merchant stock, the room feature and the last stand: what a
-  // guest's HUD and room dressing read from the checkpoint
   progress: string;
 }
 
-const projRow = (
+const projRow: (
   id: number,
   kind: ProjKind,
   p: { x: number; y: number; vx: number; vy: number },
-): NetProjRow => [
+) => NetProjRow = (id, kind, p) => [
   id,
   PROJ_KINDS.indexOf(kind),
   Math.round(p.x),
@@ -74,10 +69,6 @@ export interface HostNetDeps {
   hooks: SceneHooks;
 }
 
-// Host side of the wire: drives the guest's body from its input ticks,
-// broadcasts snapshots (and the cast, status, checkpoint and room when they
-// change),
-// and spawns/despawns the remote player as the peer comes and goes.
 export class HostNet {
   private readonly run: RunState;
   private readonly expedition: RunManager;
@@ -93,7 +84,6 @@ export class HostNet {
   private sinceCheckpoint = 0;
   private checkpointMark: CheckpointMark | null = null;
   private lastStamp = -1;
-  // the guest body's input stream, for the remote player it was opened for
   private copy: GuestCopy | null = null;
   private copyOf: string | null = null;
 
@@ -110,32 +100,36 @@ export class HostNet {
     this.hooks = deps.hooks;
   }
 
-  // The remote player's input stream; a different player gets a fresh one.
-  private guestCopy(): GuestCopy | null {
+  private guestCopy() {
     const id = this.seat.remoteId;
+
     if (this.seat.role !== "host" || !this.seat.remote || id === null) {
       return null;
     }
+
     if (this.copyOf !== id || !this.copy) {
       this.copy = new GuestCopy();
       this.copyOf = id;
     }
+
     return this.copy;
   }
 
   /** This tab took the authority, or got it back after its own connection
    * dropped: the guest's input reaches it by a new route. */
-  admit(): void {
+  admit() {
     this.copy?.relearn();
   }
 
   /** A peer's event, as it lands. Only the remote player's `in` (input
    * ticks) concerns the host. */
-  receive(event: string, payload: JsonValue, from: string): void {
+  receive(event: string, payload: JsonValue, from: string) {
     if (event !== "in" || from !== this.seat.remoteId) {
       return;
     }
+
     const msg = readNetInputs(payload);
+
     if (msg) {
       this.guestCopy()?.receive(msg, this.room.seq, performance.now());
     }
@@ -144,23 +138,28 @@ export class HostNet {
   /** One host sim step of the guest's body, hit-stop or not — the guest never
    * freezes its own prediction. Runs before the step's combat; the step ends
    * at `now` on this tab's clock. */
-  stepGuest(now: number): boolean {
+  stepGuest(now: number) {
     const copy = this.guestCopy();
     const { remote } = this.seat;
+
     if (!copy || !remote) {
       return false;
     }
+
     copy.enter(this.room.seq);
     const moved = copy.step(remote.body, this.run.match?.frozen ?? false, now);
+
     while (copy.takeStomp()) {
       this.combat.claimedStomp(remote);
     }
+
     return moved;
   }
 
   /** After the host's sim step: log what combat did to the guest's body. */
-  drainGuest(): void {
+  drainGuest() {
     const { remote } = this.seat;
+
     if (remote) {
       this.guestCopy()?.drain(remote.body);
     }
@@ -168,16 +167,15 @@ export class HostNet {
 
   /** The guest pressed attack since the last frame (versus rematch). Ask every
    * frame so a press from mid-fight never lingers into the match end. */
-  takeRematch(): boolean {
+  takeRematch() {
     return this.guestCopy()?.takeRematch() ?? false;
   }
 
-  // Seats are the ORIGINAL left/right slots and survive authority changes; a
-  // newcomer takes the first free one.
   private claimSeat(id: string) {
     if (this.seat.seats.host === id || this.seat.seats.guest === id) {
       return;
     }
+
     if (this.seat.seats.host === null) {
       this.seat.seats.host = id;
     } else {
@@ -185,39 +183,43 @@ export class HostNet {
     }
   }
 
-  // Host: spawn / despawn the remote player as the other client joins or leaves.
   syncRemotePresence() {
     const sess = this.seat.session;
     const myId = sess?.playerId;
+
     if (!sess?.isHost || !myId || this.run.state === "dead") {
       return;
     }
-    // A peer parked in the reconnect grace window is listed but not playing:
-    // treated as present it would hold a seat and freeze a duel against a
-    // ghost until the server reaps it. One who left (a closed tab leaves at
-    // once) is not listed at all, and its seat is free too: a checkpoint
-    // seating a player it does not carry is refused by every reader.
-    const live = (id: string | null): boolean => {
+
+    const live = (id: string | null) => {
       const p = id === null ? undefined : sess.players[id];
+
       return p !== undefined && p.connected !== false;
     };
+
     const other = sess.otherPlayer();
+
     if (this.seat.seats.host && !live(this.seat.seats.host)) {
       this.seat.seats.host = null;
     }
+
     if (this.seat.seats.guest && !live(this.seat.seats.guest)) {
       this.seat.seats.guest = null;
     }
+
     this.claimSeat(myId);
+
     if (this.seat.remote && (!other || other.id !== this.seat.remoteId || !live(other.id))) {
       this.despawnRemote();
     }
+
     if (other && live(other.id) && !this.seat.remote) {
-      // Presence can arrive before the peer publishes its hub selection.
       const hero = parseHero(other.state?.hero);
+
       if (!hero) {
         return;
       }
+
       this.claimSeat(other.id);
       this.spawnRemote(other.id, hero);
     }
@@ -229,17 +231,22 @@ export class HostNet {
     } else if (this.run.downed) {
       this.run.downed = null;
       this.lastStand.destroyUi();
+
       if (this.seat.player.body.downed) {
         this.seat.player.body.revive();
       }
+
       this.run.hearts = Math.max(this.run.hearts, 1);
     }
+
     this.seat.remote?.destroy();
     this.seat.remote = undefined;
     this.seat.remoteId = null;
+
     if (this.run.match) {
       this.versus.respawn();
     }
+
     this.banners.show(this.run.match ? "CHALLENGER LEFT" : "PLAYER 2 LEFT", 1600, "critical");
     this.hooks.updateHud();
   }
@@ -249,8 +256,8 @@ export class HostNet {
     const spawn = (this.run.match ? this.room.vsSpawns[index] : undefined) ?? this.room.roomSpawn;
     this.seat.remote = this.hooks.spawnPlayer(HEROES[hero], this.room.grid, spawn.x, spawn.y);
     this.seat.remoteId = id;
-    // A guest back from a drop keeps its input stream, by a new route.
     this.guestCopy()?.relearn();
+
     if (this.run.match) {
       this.run.match.beginMatch();
       this.versus.respawn();
@@ -261,15 +268,9 @@ export class HostNet {
     }
   }
 
-  // Host: a snapshot each 1/30 s of the frame clock (FixedRate keeps the
-  // remainder, so the cadence holds at any refresh rate), with the cast and
-  // status beside it, and the room and checkpoint when they changed or fell
-  // due. Each is stamped with the room's server time as it goes out — not sim
-  // time, which hit-stop and a throttled tab bend — so a frozen host stamps a
-  // world standing still, and a new host's stamps carry straight on from the
-  // old one's.
   broadcast(dts: number, force = false) {
     const sess = this.seat.session;
+
     if (
       !sess?.isHost ||
       sess.offline ||
@@ -278,69 +279,79 @@ export class HostNet {
     ) {
       return;
     }
+
     const due = this.rate.due(dts * 1000);
     this.sinceCheckpoint += dts * 1000;
+
     if (!force && !due) {
       return;
     }
+
     const mark = this.currentCheckpointMark();
     const last = this.checkpointMark;
+
     const changed =
       !last ||
       mark.phase !== last.phase ||
       mark.versus !== last.versus ||
       mark.progress !== last.progress;
+
     const complete = force || this.room.dirty || changed || this.sinceCheckpoint >= CHECKPOINT_MS;
-    // Strictly increasing, even for two forced sends in one frame.
     const t = Math.max(this.lastStamp + 1, Math.round(sess.serverNow()));
     this.lastStamp = t;
-    // One message, so a guest always reads a snapshot with the cast, status,
-    // room and checkpoint it was sent beside. The SDK sends only the leaves
-    // that changed, so a cast or status written unchanged costs nothing.
     const patch: Record<string, JsonValue> = {};
     patch.snap = this.encodeSnapshot(t);
     patch.cast = this.encodeCast();
     patch.status = this.encodeStatus();
+
     if (complete) {
       const checkpoint = this.checkpoint.encode(t);
+
       if (!checkpoint) {
         return;
       }
+
       patch.checkpoint = checkpoint;
+
       if (this.room.dirty) {
         patch.room = this.encodeRoom();
       }
+
       this.sinceCheckpoint = 0;
       this.checkpointMark = mark;
     }
+
     sess.patchShared(patch);
     this.room.dirty = false;
   }
 
-  // Phase edges force a full checkpoint so a takeover never lands mid-transition.
-  private currentCheckpointMark(): CheckpointMark {
+  private currentCheckpointMark() {
     const phase = this.checkpoint.phase();
     const bought = this.room.merchantItems.filter((m) => m.bought).length;
+
     return {
       phase: phase.kind === "transition" && phase.built ? "transition-built" : phase.kind,
       progress: `${this.run.ownedRelics.size}:${bought}:${this.room.feature?.used ?? "-"}:${this.run.downed !== null}`,
       versus: this.run.match?.phase ?? null,
-    };
+    } satisfies CheckpointMark;
   }
 
-  private encodeSnapshot(t: number): Snapshot {
+  private encodeSnapshot(t: number) {
     const auth = this.seat.authority;
     const players = [encodePlayer(this.seat.player.body)];
     const acks: NetAck[] = [];
     const { remote } = this.seat;
     const copy = this.guestCopy();
+
     if (remote && this.seat.remoteId) {
       players.push(encodePlayer(remote.body));
+
       if (copy) {
         copy.enter(this.room.seq);
         acks.push(copy.report(1));
       }
     }
+
     const enemies = this.room.enemies.map((e) =>
       encodeEnemy(enemyId(this.room, e), {
         elapsed: e.body.stateT,
@@ -352,12 +363,15 @@ export class HostNet {
         y: e.body.y,
       }),
     );
+
     const b = this.room.boss?.body;
+
     const proj: NetProjRow[] = [
       ...this.room.arrows.map((a) => projRow(a.id, "arrow", a)),
       ...this.room.shots.map((s) => projRow(s.id, "shot", s)),
       ...this.room.hazards.map((h) => projRow(h.id, "hazard", { ...h, vy: 0 })),
     ];
+
     return {
       acks,
       boss: b
@@ -387,11 +401,10 @@ export class HostNet {
       t,
       term: auth.kind === "ready" ? auth.term : 0,
       vs: this.run.match ? this.run.match.encode() : null,
-    };
+    } satisfies Snapshot;
   }
 
-  // The HUD numbers: they move on kills, pickups and room changes, not ticks.
-  private encodeStatus(): NetStatus {
+  private encodeStatus() {
     return {
       biome: this.run.match ? VS_BIOME : this.expedition.biome,
       cleared: this.run.cleared,
@@ -404,21 +417,22 @@ export class HostNet {
     };
   }
 
-  // Who the snapshot rows are: changes only on a join, a hero pick or a spawn.
-  private encodeCast(): NetCast {
+  private encodeCast() {
     const players: NetCast["players"] = [
       [this.seat.session?.playerId ?? "host", this.seat.player.name],
     ];
+
     if (this.seat.remote && this.seat.remoteId) {
       players.push([this.seat.remoteId, this.seat.remote.name]);
     }
+
     return {
       enemies: this.room.enemies.map((e) => [enemyId(this.room, e), e.body.kind.name, e.baseTint]),
       players,
-    };
+    } satisfies NetCast;
   }
 
-  private encodeRoom(): NetRoom {
+  private encodeRoom() {
     const doors: NetDoor[] = this.room.doors.map((d) => ({
       danger: false,
       index: d.index,
@@ -427,6 +441,7 @@ export class HostNet {
       x: d.x,
       y: d.y,
     }));
+
     const room: NetRoom = {
       cells: [...this.room.grid.cells],
       cols: this.room.grid.cols,
@@ -440,6 +455,7 @@ export class HostNet {
       spawnY: this.room.roomSpawn.y,
       type: this.seat.mode === "versus" ? "combat" : this.expedition.type,
     };
+
     return room;
   }
 }

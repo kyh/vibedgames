@@ -1,16 +1,3 @@
-// Farm's own pause overlay — a carved wooden sign hung over the frozen valley,
-// in the same cozy pixel-farm look as the title screen (index.html / title-scene):
-// warm plank browns, cream lettering with the title's chunky brown underside,
-// parchment key chips, and the sprout-green "New Farm" button treatment for the
-// resume hint. Wheat sprigs flank the heading; the sign sways gently on its ropes.
-//
-// Built on the shared @repo/embed pause shell, which owns the resume behavior
-// (pointerup anywhere, keyup except Escape, fresh gamepad press) plus the
-// full-screen root, fade, and idempotent show/hide. This file owns the look
-// and the "how to play" parchment modal: while it is open the shell's
-// `modalOpen` gate keeps keys and clicks from resuming (backdrop or "back"
-// closes it), and `onHide` sweeps it when the overlay goes away.
-
 import { controlGroups, createPauseShell } from "@repo/embed";
 import type { ControlMethod } from "@repo/embed";
 
@@ -25,14 +12,11 @@ const METHOD_LABELS = {
   touch: "touch",
 } satisfies Record<ControlMethod, string>;
 
-/** One section of the "how to play" modal. */
 interface HelpSection {
   readonly title: string;
   readonly body: string;
 }
 
-// The gameplay depth that used to live in the in-game How-to-Play modal —
-// controls stay in CONTROLS, this is the systems knowledge.
 const HELP: readonly HelpSection[] = [
   {
     body: "Till soil with the 🪏 hoe, plant 🌱 seeds in their season, water with the 💧 can (refill at the pond — rain waters for you).",
@@ -66,11 +50,6 @@ const HELP: readonly HelpSection[] = [
 
 const STYLE_ID = "farm-pause-style";
 
-// Palette lifted from the title screen: cream #fff6d5 lettering over
-// #7a4a18/#b5762e wood, #5fae3a sprout green, parchment #f4ecd6.
-// Pixel-chunky borders come from offset box-shadows (edges without corners),
-// so every panel gets notched "carved" corners with zero images.
-// Positioning/z-index/fade live on the shell's root — visuals only here.
 const CSS = `
 #farm-pause {
   display: flex;
@@ -357,19 +336,20 @@ const CSS = `
 
 let helpModal: HTMLDivElement | null = null;
 
-const div = (className: string, parent: HTMLElement): HTMLDivElement => {
+const div = (className: string, parent: HTMLElement) => {
   const node = document.createElement("div");
   node.className = className;
   parent.append(node);
+
   return node;
 };
 
-const closeHelp = (): void => {
+const closeHelp = () => {
   helpModal?.remove();
   helpModal = null;
 };
 
-const openHelp = (host: HTMLElement): void => {
+const openHelp = (host: HTMLElement) => {
   if (helpModal) {
     return;
   }
@@ -378,10 +358,9 @@ const openHelp = (host: HTMLElement): void => {
   helpModal.className = "fp-modal";
   helpModal.setAttribute("role", "dialog");
   helpModal.setAttribute("aria-label", "How to play");
-  // Clicks anywhere in the modal stay in the modal: backdrop closes it, the
-  // page does nothing — neither may fall through to the overlay's resume.
   helpModal.addEventListener("pointerup", (event) => {
     event.stopPropagation();
+
     if (event.target === helpModal) {
       closeHelp();
     }
@@ -411,11 +390,8 @@ const openHelp = (host: HTMLElement): void => {
   host.append(helpModal);
 };
 
-const renderSign = (root: HTMLElement): void => {
-  // the CSS hook (kept from the pre-shell overlay)
+const renderSign = (root: HTMLElement) => {
   root.id = "farm-pause";
-  // Same boot check as @repo/embed, re-evaluated fresh so the hint copy and
-  // control rows match the device the moment we pause.
   const coarse = window.matchMedia("(pointer: coarse)").matches || "ontouchstart" in window;
 
   const hang = div("fp-hang", root);
@@ -441,13 +417,16 @@ const renderSign = (root: HTMLElement): void => {
   sub.textContent = "the farm waits for you ☀️";
 
   const groups = controlGroups(CONTROLS, { coarse });
+
   if (groups.length > 0) {
     const list = div("fp-groups", sign);
+
     for (const group of groups) {
       const section = document.createElement("div");
       const label = div("fp-group-label", section);
       label.textContent = METHOD_LABELS[group.method];
       const grid = div("fp-grid", section);
+
       for (const entry of group.entries) {
         const chip = document.createElement("span");
         chip.className = "fp-chip";
@@ -457,6 +436,7 @@ const renderSign = (root: HTMLElement): void => {
         action.textContent = entry.action;
         grid.append(chip, action);
       }
+
       list.append(section);
     }
   }
@@ -470,8 +450,6 @@ const renderSign = (root: HTMLElement): void => {
   helpBtn.type = "button";
   helpBtn.className = "fp-help-btn";
   helpBtn.textContent = "📖 how to play";
-  // The shell's interactive-child check already keeps this from resuming;
-  // stopPropagation is belt-and-braces.
   helpBtn.addEventListener("pointerup", (event) => {
     event.stopPropagation();
     openHelp(root);

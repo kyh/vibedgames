@@ -1,8 +1,5 @@
 import type { Player } from "@vibedgames/multiplayer";
 import { SHIELD_MAX, SHIELD_MOD_KINDS } from "../shared/constants";
-import type { PlayerNetState, ShieldModNetState } from "../shared/constants";
-
-/** Decoders for peer wire state: JSON records off the multiplayer socket → typed domain values. */
 
 /** One entry of a peer's wire-state record — the multiplayer owner contract
  *  leaves entries undecoded; the wire* helpers below parse them into domain
@@ -15,41 +12,48 @@ export type WireRecord = Record<string, WireValue>;
 
 export const isWireRecord = (v: WireValue | undefined): v is WireRecord => v instanceof Object;
 
-export const asWireRecord = (v: WireValue | undefined): WireRecord | null =>
-  isWireRecord(v) ? v : null;
+export const asWireRecord = (v: WireValue | undefined) => (isWireRecord(v) ? v : null);
 
 /** Decode a wire number. NaN never appears in legal traffic, and `n === v`
  *  rejects it along with every non-number, so the copy-compare is exact. */
-export const wireNum = (v: WireValue | undefined): number | null => {
+export const wireNum = (v: WireValue | undefined) => {
   const n = Number(v);
+
   return n === v ? n : null;
 };
 
-export const wireStr = (v: WireValue | undefined): string | null => {
+export const wireStr = (v: WireValue | undefined) => {
   const s = String(v);
+
   return s === v ? s : null;
 };
 
-const readShieldMod = (s: WireRecord): ShieldModNetState | null => {
+const readShieldMod = (s: WireRecord) => {
   const kind = SHIELD_MOD_KINDS.find((k) => k === s["mod"]);
+
   if (!kind) {
     return null;
   }
+
   return { active: s["modOn"] === true, kind, phased: s["phased"] === true };
 };
 
 /** A peer's flat wire state (shared/wire.ts playerToWire), decoded. */
-export const readNetState = (player: Player | undefined): PlayerNetState | null => {
+export const readNetState = (player: Player | undefined) => {
   const s = player?.state;
+
   if (!s) {
     return null;
   }
+
   const x = wireNum(s["x"]);
   const y = wireNum(s["y"]);
   const angle = wireNum(s["angle"]);
+
   if (x === null || y === null || angle === null) {
     return null;
   }
+
   return {
     alive: s["alive"] !== false,
     angle,
@@ -77,4 +81,4 @@ export const readNetState = (player: Player | undefined): PlayerNetState | null 
 };
 
 /** Position of a raw string in a kind table (-1 when it names no kind). */
-export const kindIndex = (kinds: readonly string[], name: string): number => kinds.indexOf(name);
+export const kindIndex = (kinds: readonly string[], name: string) => kinds.indexOf(name);

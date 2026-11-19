@@ -11,29 +11,36 @@ const sample = (cadence: "display" | "60hz", times: readonly number[]) => {
   let sampled = 0;
   const intervalsMs: number[] = [];
   const medians: { ms: number; at: number }[] = [];
+
   for (const time of times) {
     const frame = pacer.next(time);
+
     if (frame.kind !== "advance" || frame.dt === 0) {
       continue;
     }
+
     updates += 1;
     intervalsMs.push(frame.dt * 1000);
     elapsed += frame.dt;
+
     if (!frame.timing) {
       continue;
     }
+
     for (let i = 0; i < frame.timing.samples; i += 1) {
       sampled += frame.timing.dt;
       const median = timing.sample(frame.timing.dt);
+
       if (median !== null) {
         medians.push({ at: time / 1000, ms: median });
       }
     }
   }
+
   return { elapsed, intervalsMs, medians, sampled, updates };
 };
 
-const checkPhoneCadence = (check: Check): void => {
+const checkPhoneCadence = (check: Check) => {
   for (const hz of [60, 90, 120]) {
     const times = Array.from({ length: hz * 60 + 1 }, (_, i) => (i * 1000) / hz);
     const run = sample("60hz", times);
@@ -59,10 +66,12 @@ const checkPhoneCadence = (check: Check): void => {
 
   const variableTimes = [0];
   let time = 0;
+
   for (let i = 0; i < 7200; i += 1) {
     time += 1000 / ([90, 120, 144, 60][Math.floor(i / 180) % 4] ?? 60);
     variableTimes.push(time);
   }
+
   const variable = sample("60hz", variableTimes);
   check(
     "variable refresh stays on the 60 Hz deadline grid without simulation drift",
@@ -75,22 +84,22 @@ const checkPhoneCadence = (check: Check): void => {
     "60hz",
     Array.from({ length: 121 }, (_, i) => (i * 1000) / 30),
   );
+
   check(
     "sustained 30 FPS remains slow within the governor's two-second window",
     (slow.medians[0]?.ms ?? 0) > 32 && (slow.medians[0]?.at ?? Infinity) < 2.1,
   );
 };
 
-const checkCadence = (check: Check): void => {
-  // Browser timestamps may be rounded to tenths of a millisecond. Check the
-  // interval distribution too: a 120 Hz source can average 60 draws while
-  // alternating 8/25 ms, and a rounded 60 Hz source can lose entire frames.
+const checkCadence = (check: Check) => {
   for (const hz of [60, 90, 120]) {
     for (const jitter of [false, true]) {
       const times = Array.from({ length: hz * 10 + 1 }, (_, i) => {
         const offset = jitter ? ([0, 0.15, -0.15, 0.08, -0.08][i % 5] ?? 0) : 0;
+
         return Math.round((1234.567 + (i * 1000) / hz + offset) * 10) / 10;
       });
+
       const run = sample("60hz", times);
       const min = Math.min(...run.intervalsMs);
       const max = Math.max(...run.intervalsMs);
@@ -104,13 +113,13 @@ const checkCadence = (check: Check): void => {
       );
     }
   }
+
   checkPhoneCadence(check);
 };
 
-const checkPauseAndVisibility = (check: Check): void => {
+const checkPauseAndVisibility = (check: Check) => {
   const pacer = new FramePacer("60hz");
   pacer.next(0);
-  // half of an unfinished governor pair
   pacer.next(1000 / 60);
   pacer.setPaused(true);
   check(
@@ -151,7 +160,7 @@ const checkPauseAndVisibility = (check: Check): void => {
   );
 };
 
-const checkStalls = (check: Check): void => {
+const checkStalls = (check: Check) => {
   const stall = new FramePacer("60hz");
   stall.next(0);
   const afterStall = stall.next(500);
@@ -169,7 +178,7 @@ const checkStalls = (check: Check): void => {
   );
 };
 
-export const checkFramePacer = (check: Check): void => {
+export const checkFramePacer = (check: Check) => {
   checkCadence(check);
   checkPauseAndVisibility(check);
   checkStalls(check);

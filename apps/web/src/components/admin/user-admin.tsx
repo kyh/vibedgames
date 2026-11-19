@@ -36,7 +36,7 @@ const initialForm: UserForm = {
   role: "user",
 };
 
-const parseRole = (value: string): Role => (value === "admin" ? "admin" : "user");
+const parseRole: (value: string) => Role = (value) => (value === "admin" ? "admin" : "user");
 
 const UsersSkeleton = () => (
   <ul className="divide-y divide-white/10 border-t border-white/10">
@@ -62,9 +62,6 @@ export const UserAdmin = () => {
   const [grantTarget, setGrantTarget] = useState<{ id: string; email: string } | null>(null);
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
-  // Idempotency key for the pending grant: minted per dialog-open, so a
-  // retried submit of the same dialog can't grant twice, while reopening
-  // starts a fresh grant.
   const [grantKey, setGrantKey] = useState("");
 
   const create = useMutation(
@@ -76,6 +73,7 @@ export const UserAdmin = () => {
       },
     }),
   );
+
   const grant = useMutation(
     orpc.admin.credits.grant.mutationOptions({
       onSuccess: ({ balanceMicro }) => {
@@ -86,13 +84,13 @@ export const UserAdmin = () => {
     }),
   );
 
-  const balanceByUser = new Map(
-    balances.data?.balances.map((b): [string, number] => [b.userId, b.balanceMicro]),
-  );
+  const balanceByUser = new Map(balances.data?.balances.map((b) => [b.userId, b.balanceMicro]));
+
   const balanceLabel = (userId: string) => {
     if (!balances.data) {
       return "—";
     }
+
     return formatUsd(balanceByUser.get(userId) ?? 0);
   };
 
@@ -253,10 +251,13 @@ export const UserAdmin = () => {
           <form
             onSubmit={(e) => {
               e.preventDefault();
+
               if (!grantTarget) {
                 return;
               }
+
               const amountUsd = Number(amount);
+
               if (
                 !Number.isFinite(amountUsd) ||
                 amountUsd === 0 ||
@@ -264,8 +265,10 @@ export const UserAdmin = () => {
                 amountUsd > 1000
               ) {
                 toast.error("Amount must be non-zero, between -$1,000 and $1,000");
+
                 return;
               }
+
               const trimmedNote = note.trim();
               grant.mutate({
                 amountUsd,

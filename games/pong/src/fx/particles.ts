@@ -1,8 +1,3 @@
-// Pooled ink particles on a single InstancedMesh. Particles shrink and
-// fade from ink toward the paper tone, which the dither pass renders as a
-// dissolve into speckle. One pool serves contact bursts and the ball's
-// trail ghosts — created once, reused forever (no per-hit allocation).
-
 import * as THREE from "three";
 
 import { BG, INK } from "../shared/constants";
@@ -40,7 +35,6 @@ interface Particle {
 const INK_COLOR = new THREE.Color(INK);
 const PAPER_COLOR = new THREE.Color(BG);
 
-// Per-frame scratch — never escapes this module.
 const SCRATCH_MATRIX = new THREE.Matrix4();
 const SCRATCH_QUAT = new THREE.Quaternion();
 const SCRATCH_SCALE = new THREE.Vector3();
@@ -60,6 +54,7 @@ export class ParticlePool {
     this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.mesh.count = 0;
     this.mesh.frustumCulled = false;
+
     for (let i = 0; i < max; i += 1) {
       this.pool.push({
         age: 0,
@@ -69,21 +64,24 @@ export class ParticlePool {
         size: 1,
         vel: new THREE.Vector3(),
       });
-      // allocates the instanceColor buffer
       this.mesh.setColorAt(i, PAPER_COLOR);
     }
+
     scene.add(this.mesh);
   }
 
-  burst(opts: BurstOptions): void {
+  burst(opts: BurstOptions) {
     const hasDir = opts.dirX !== undefined || opts.dirY !== undefined;
     const dir = Math.atan2(opts.dirY ?? 0, opts.dirX ?? 0);
     const spread = opts.spread ?? Math.PI * 2;
+
     for (let i = 0; i < opts.count; i += 1) {
       const p = this.take();
+
       if (!p) {
         return;
       }
+
       const angle = hasDir ? dir + (Math.random() - 0.5) * spread : Math.random() * Math.PI * 2;
       const speed = opts.speedMin + Math.random() * (opts.speedMax - opts.speedMin);
       p.pos.set(opts.x, opts.y, opts.z);
@@ -100,11 +98,13 @@ export class ParticlePool {
   }
 
   /** Stationary fading ghost — spawned per frame these draw a motion trail. */
-  ghost(x: number, y: number, z: number, size: number, life: number): void {
+  ghost(x: number, y: number, z: number, size: number, life: number) {
     const p = this.take();
+
     if (!p) {
       return;
     }
+
     p.pos.set(x, y, z);
     p.vel.set(0, 0, 0);
     p.age = 0;
@@ -113,28 +113,34 @@ export class ParticlePool {
     p.gravity = 0;
   }
 
-  update(dt: number): void {
-    // Idle pool: nothing live and the final zero-count flush already happened.
+  update(dt: number) {
     if (this.live === 0 && this.mesh.count === 0) {
       return;
     }
-    // Integrate and retire (swap-remove keeps the live range contiguous).
+
     let i = 0;
+
     while (i < this.live) {
       const p = this.pool[i];
+
       if (!p) {
         break;
       }
+
       p.age += dt;
+
       if (p.age >= p.life) {
         this.live -= 1;
         const last = this.pool[this.live];
+
         if (last) {
           this.pool[this.live] = p;
           this.pool[i] = last;
         }
+
         continue;
       }
+
       p.vel.z -= p.gravity * dt;
       p.pos.addScaledVector(p.vel, dt);
       i += 1;
@@ -142,26 +148,30 @@ export class ParticlePool {
 
     for (let j = 0; j < this.live; j += 1) {
       const p = this.pool[j];
+
       if (!p) {
         break;
       }
+
       const t = p.age / p.life;
       const scale = Math.max(1e-4, p.size * (1 - t));
       SCRATCH_MATRIX.compose(p.pos, SCRATCH_QUAT, SCRATCH_SCALE.setScalar(scale));
       this.mesh.setMatrixAt(j, SCRATCH_MATRIX);
-      // Ease-in fade: stay ink early, dissolve into paper speckle late.
       this.mesh.setColorAt(j, SCRATCH_COLOR.copy(INK_COLOR).lerp(PAPER_COLOR, t * t));
     }
+
     this.mesh.count = this.live;
+
     if (this.live === 0) {
       return;
     }
-    // Only the live slots reach the GPU; the dead tail is never drawn.
+
     const matrix = this.mesh.instanceMatrix;
     matrix.clearUpdateRanges();
     matrix.addUpdateRange(0, this.live * matrix.itemSize);
     matrix.needsUpdate = true;
     const color = this.mesh.instanceColor;
+
     if (color) {
       color.clearUpdateRanges();
       color.addUpdateRange(0, this.live * color.itemSize);
@@ -169,15 +179,19 @@ export class ParticlePool {
     }
   }
 
-  private take(): Particle | null {
+  private take() {
     if (this.live >= this.pool.length) {
       return null;
     }
+
     const p = this.pool[this.live];
+
     if (!p) {
       return null;
     }
+
     this.live += 1;
+
     return p;
   }
 }

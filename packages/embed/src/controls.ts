@@ -1,11 +1,3 @@
-// Controls manifest — a game's single source of truth for instruction copy.
-// Each game declares every way it can be played (one entry per binding), and
-// every instruction surface (start screen, pause overlay, future HUD) renders
-// from the same list, filtered to the input methods that matter right now:
-// touch copy on coarse pointers, keys/mouse copy on fine ones, camera copy
-// always (gimmick inputs are core, not fallbacks), controller copy only while
-// a pad is actually connected.
-
 /** How the player physically produces the input. */
 export type ControlMethod = "keys" | "mouse" | "touch" | "camera" | "controller";
 
@@ -34,16 +26,15 @@ export interface ControlContext {
   padConnected?: boolean;
 }
 
-// Same boot-time check every game uses (e.g. crazy-waymo touch.ts) — but
-// evaluated lazily so overlays pick up the truth at render time.
-export const isCoarsePointer = (): boolean =>
+export const isCoarsePointer = () =>
   (typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches) ||
   (typeof window !== "undefined" && "ontouchstart" in window);
 
-const padConnectedNow = (): boolean => {
+const padConnectedNow = () => {
   if (typeof navigator === "undefined" || !navigator.getGamepads) {
     return false;
   }
+
   return navigator.getGamepads().some((pad) => pad?.connected ?? false);
 };
 
@@ -51,15 +42,18 @@ const padConnectedNow = (): boolean => {
  * The methods worth showing right now. Camera entries always show (the webcam
  * works on both platforms); controller entries only while a pad is connected.
  */
-export const activeMethods = (context: ControlContext = {}): ReadonlySet<ControlMethod> => {
+export const activeMethods = (context: ControlContext = {}) => {
   const coarse = context.coarse ?? isCoarsePointer();
   const pad = context.padConnected ?? padConnectedNow();
+
   const methods = new Set<ControlMethod>(
     coarse ? ["touch", "camera"] : ["keys", "mouse", "camera"],
   );
+
   if (pad) {
     methods.add("controller");
   }
+
   return methods;
 };
 
@@ -69,21 +63,22 @@ const METHOD_ORDER: readonly ControlMethod[] = ["keys", "mouse", "touch", "camer
  * Manifest → visible groups, in a stable method order (entries keep manifest
  * order within a group). The shape start screens and HUDs render from.
  */
-export const controlGroups = (
-  manifest: ControlsManifest,
-  context: ControlContext = {},
-): readonly ControlGroup[] => {
+export const controlGroups = (manifest: ControlsManifest, context: ControlContext = {}) => {
   const visible = activeMethods(context);
   const groups: ControlGroup[] = [];
+
   for (const method of METHOD_ORDER) {
     if (!visible.has(method)) {
       continue;
     }
+
     const entries = manifest.filter((entry) => entry.method === method);
+
     if (entries.length > 0) {
       groups.push({ entries, method });
     }
   }
+
   return groups;
 };
 
@@ -92,14 +87,16 @@ export const controlGroups = (
  * repeated actions across methods (e.g. keys "SPACE — flap" and mouse
  * "CLICK — flap" merge to "SPACE / CLICK — flap") so the overlay stays short.
  */
-export const controlHints = (
+export const controlHints: (
   manifest: ControlsManifest,
-  context: ControlContext = {},
-): readonly (readonly [input: string, action: string])[] => {
+  context?: ControlContext,
+) => readonly (readonly [input: string, action: string])[] = (manifest, context = {}) => {
   const byAction = new Map<string, string[]>();
+
   for (const group of controlGroups(manifest, context)) {
     for (const entry of group.entries) {
       const inputs = byAction.get(entry.action);
+
       if (inputs) {
         if (!inputs.includes(entry.input)) {
           inputs.push(entry.input);
@@ -109,6 +106,7 @@ export const controlHints = (
       }
     }
   }
+
   return Array.from(byAction, ([action, inputs]) => [inputs.join(" / "), action]);
 };
 
@@ -117,14 +115,14 @@ export const controlHints = (
  * screen waiting while the player plugs in a pad): fires on pad
  * connect/disconnect. Returns an unsubscribe.
  */
-export const watchControlContext = (onChange: () => void): (() => void) => {
+export const watchControlContext = (onChange: () => void) => {
   if (typeof window === "undefined") {
-    return () => {
-      // nothing was subscribed without a window
-    };
+    return () => null;
   }
+
   window.addEventListener("gamepadconnected", onChange);
   window.addEventListener("gamepaddisconnected", onChange);
+
   return () => {
     window.removeEventListener("gamepadconnected", onChange);
     window.removeEventListener("gamepaddisconnected", onChange);

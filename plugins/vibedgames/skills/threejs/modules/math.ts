@@ -1,16 +1,13 @@
-// Small numeric helpers for game loops. Zero dependencies.
-// Approach inspired by GameBlocks (https://github.com/xt4d/GameBlocks).
-
-export const clamp = (value: number, min: number, max: number): number =>
+export const clamp = (value: number, min: number, max: number) =>
   Math.max(min, Math.min(max, value));
 
-export const clamp01 = (value: number): number => clamp(value, 0, 1);
+export const clamp01 = (value: number) => clamp(value, 0, 1);
 
-export const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
+export const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 
-export const toRadians = (degrees: number): number => (degrees * Math.PI) / 180;
+export const toRadians = (degrees: number) => (degrees * Math.PI) / 180;
 
-export const toDegrees = (radians: number): number => (radians * 180) / Math.PI;
+export const toDegrees = (radians: number) => (radians * 180) / Math.PI;
 
 /**
  * Framerate-independent smoothing factor. `lag` is roughly the time in seconds to
@@ -21,20 +18,17 @@ export const toDegrees = (radians: number): number => (radians * 180) / Math.PI;
  * the smoothing speed depend on framerate (twice the FPS = twice as fast), which is
  * the usual cause of "camera/movement feels different on my machine".
  */
-export const smoothingAlpha = (lag: number, deltaSeconds: number): number => {
+export const smoothingAlpha = (lag: number, deltaSeconds: number) => {
   if (lag <= 0) {
     return 1;
   }
+
   return 1 - Math.exp(-Math.max(0, deltaSeconds) / lag);
 };
 
 /** Move `current` toward `target` with framerate-independent smoothing. */
-export const smoothToward = (
-  current: number,
-  target: number,
-  lag: number,
-  deltaSeconds: number,
-): number => current + (target - current) * smoothingAlpha(lag, deltaSeconds);
+export const smoothToward = (current: number, target: number, lag: number, deltaSeconds: number) =>
+  current + (target - current) * smoothingAlpha(lag, deltaSeconds);
 
 /**
  * Deterministic, seedable PRNG (mulberry32). The same seed produces the same
@@ -51,27 +45,28 @@ export class Random {
   }
 
   /** Next float in [0, 1). */
-  next(): number {
+  next() {
     // oxlint-disable no-bitwise -- mulberry32 is defined on int32 mixing
     this.state = (this.state + 0x6d_2b_79_f5) >>> 0;
     let t = Math.imul(this.state ^ (this.state >>> 15), 1 | this.state);
     t ^= t + Math.imul(t ^ (t >>> 7), 61 | t);
+
     return ((t ^ (t >>> 14)) >>> 0) / 4_294_967_296;
     // oxlint-enable no-bitwise
   }
 
   /** Float in [min, max). */
-  range(min: number, max: number): number {
+  range(min: number, max: number) {
     return min + (max - min) * this.next();
   }
 
   /** Integer in [min, max] inclusive. */
-  int(min: number, max: number): number {
+  int(min: number, max: number) {
     return Math.floor(this.range(min, max + 1));
   }
 
   /** Uniformly pick one element. */
-  pick<T>(items: readonly T[]): T {
+  pick<T>(items: readonly T[]) {
     return items[Math.floor(this.next() * items.length)];
   }
 }

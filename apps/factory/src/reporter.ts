@@ -76,24 +76,21 @@ export interface Reporter {
   runEnded: (summary: RunSummary) => void;
 }
 
-const costNote = (c?: number): string => (c === undefined ? "" : ` ($${c.toFixed(2)})`);
+const costNote = (c?: number) => (c === undefined ? "" : ` ($${c.toFixed(2)})`);
 
-/**
- * The deploy line of the run banner: disabled, automatic, or gated on a
- * per-release approval.
- */
-const deployNote = (setup: RunSetup): string => {
+const deployNote = (setup: RunSetup) => {
   if (setup.noShip) {
     return `Deploy:    disabled (--skip-ship)`;
   }
+
   if (setup.autoDeploy) {
     return `Deploy:    AUTOMATIC → ${setup.slug}.vibedgames.com`;
   }
+
   return `Deploy:    on approval only — \`pnpm approve ${setup.slug}\` → ${setup.slug}.vibedgames.com`;
 };
 
-/** The run banner, printed once at start. */
-const banner = (setup: RunSetup): void => {
+const banner = (setup: RunSetup) => {
   consola.box(
     [
       `🎮 vibedgames factory — autonomous game agent`,
@@ -118,7 +115,7 @@ const banner = (setup: RunSetup): void => {
   );
 };
 
-const checkpointBanner = (message: string, waitMs: number): void => {
+const checkpointBanner = (message: string, waitMs: number) => {
   consola.box(
     [
       `⏸ CHECKPOINT — the agent thinks this is a good stopping point:`,
@@ -130,7 +127,7 @@ const checkpointBanner = (message: string, waitMs: number): void => {
   );
 };
 
-const summaryBanner = (summary: RunSummary): void => {
+const summaryBanner = (summary: RunSummary) => {
   consola.box(
     [
       `Agent stopped for "${summary.slug}".`,
@@ -143,10 +140,10 @@ const summaryBanner = (summary: RunSummary): void => {
 };
 
 /** Plain streamed logs — the original output, kept for non-TTY runs and --no-tui. */
-export const createConsoleReporter = (): Reporter => {
+export const createConsoleReporter: () => Reporter = () => {
   let current: TurnInfo | null = null;
 
-  const turnStart = (turn: TurnInfo): void => {
+  const turnStart = (turn: TurnInfo) => {
     current = turn;
     consola.log("");
     consola.start(
@@ -156,31 +153,41 @@ export const createConsoleReporter = (): Reporter => {
     );
   };
 
-  const activity = (event: Activity): void => {
+  const activity = (event: Activity) => {
     const tag = `  ${current?.role ?? "agent"} ·`;
+
     switch (event.kind) {
       case "init": {
         consola.log(
           `${tag} session started (${event.model ?? "model"}, ${event.tools ?? 0} tools)`,
         );
+
         return;
       }
+
       case "text": {
         for (const ln of event.text.split("\n")) {
           consola.log(`${tag} ${ln}`);
         }
+
         return;
       }
+
       case "tool": {
         consola.log(`${tag} ⚙ ${event.name}${event.detail ? `  (${event.detail})` : ""}`);
+        break;
       }
-      // no default
+
+      default: {
+        break;
+      }
     }
   };
 
-  const turnEnd = (result: TurnResult): void => {
+  const turnEnd = (result: TurnResult) => {
     const role = current?.role ?? "agent";
     current = null;
+
     if (result.ok) {
       consola.success(`${role} done${costNote(result.costUsd)} · ${result.numTurns ?? "?"} turns`);
     } else {
@@ -202,9 +209,7 @@ export const createConsoleReporter = (): Reporter => {
     },
     runEnded: summaryBanner,
     start: banner,
-    stateChanged: () => {
-      /* the header lives in the TUI; streamed logs already narrate state */
-    },
+    stateChanged: () => null,
     turnEnd,
     turnStart,
     warn: (msg) => {

@@ -5,6 +5,7 @@ export {
   isCoarsePointer,
   watchControlContext,
 } from "./controls";
+
 export type {
   ControlContext,
   ControlEntry,
@@ -12,6 +13,7 @@ export type {
   ControlMethod,
   ControlsManifest,
 } from "./controls";
+
 export {
   isEmbedded,
   isPausable,
@@ -21,9 +23,13 @@ export {
   setPauseHandlers,
   watchPausable,
 } from "./game";
+
 export type { PauseHandlers } from "./game";
+
 export { isOfflineRequested } from "./offline";
+
 export { createPauseOverlay } from "./overlay";
+
 export {
   isPlayables,
   isSystemPaused,
@@ -32,13 +38,23 @@ export {
   playablesAudio,
   watchSystemPause,
 } from "./playables";
+
 export type { PlayablesAudio } from "./playables";
+
 export type { ControlHint, HelpSection, PauseOverlay, PauseOverlayOptions } from "./overlay";
+
 export { PAUSE_OVERLAY_Z, createPauseShell, resumeOnPadPress } from "./pause-shell";
+
 export type { MuteAccessor, PauseShell, PauseShellOptions } from "./pause-shell";
+
 export { sealPointerEvents } from "./pointer-seal";
+
 export type { PointerSealOptions } from "./pointer-seal";
+
 export { createTouchControls } from "./touch-controls";
+
 export type { TouchControls, TouchControlsOptions } from "./touch-controls";
+
 export { describeGpu, probeWebGL, showWebGLVeil, webglFailureMessage } from "./webgl";
+
 export type { WebGLProbe } from "./webgl";

@@ -1,21 +1,3 @@
-// Character & animation viewer (?viewer=1). Pick any champion, creep, or the
-// boss; browse every clip of its rig, or fire its REAL abilities at a training
-// dummy through the actual sim (createWorld/step + WorldView + Fx — the same
-// pipeline the game renders through, so cast anims, telegraphs, hit-stop and
-// damage numbers are all authentic).
-//
-// Two subject modes, swapped by the right-panel tab:
-//  · ABILITIES — the subject is a real sim hero (max level, cooldowns zeroed
-//    every frame). The action buttons are radio-style: the selected ability
-//    re-casts on a loop (walking into range each time), BASIC ATTACK keeps
-//    auto-attacking, clicking the selected button again deselects → idle.
-//    WorldView owns the animations.
-//  · ANIMATIONS — the sim hero is removed and a standalone AnimatedCharacter
-//    (with the champ's weapons) stands on the stage; any clip plays on click,
-//    with loop toggle + live speed, one-shots chaining back into idle.
-//
-// Loaded via dynamic import (own vite chunk) like the editor; owns its input
-// (orbit/zoom/pan camera written directly every frame — View.follow unused).
 import * as THREE from "three";
 import { CHAMPIONS } from "../data/champions";
 import type { ChampDef } from "../data/champions";
@@ -38,41 +20,32 @@ import type { ModelLibrary } from "../render/models";
 import type { View } from "../render/view";
 import { WorldView } from "../render/world-view";
 
-/** Key label for the ability row (⇧ dash / ␣ jump; number keys otherwise). */
 type ViewerKeycaps = { [K in AbilityKey]?: string };
+
 const VIEWER_KEYCAP: ViewerKeycaps = { DASH: "⇧", JUMP: "␣" };
 
-// ── stage layout (flat ground, clear of obstacles/camps/spawn guards) ────────
 const SUBJECT = { x: 0, y: 16 };
 const DUMMY = { x: 7, y: 16 };
 const DUMMY_ID = "h-dummy";
 const OWNER = "viewer";
 
-// selected-action loop
-// recast cadence — cast anim (~520ms) + a natural idle beat
 const CAST_LOOP_MS = 1600;
-// standalone (creep/boss) swing loop: pause between swings
 const SWING_GAP_S = 0.5;
-// standalone swing playback rate
 const SWING_TS = 1.2;
 
-// camera
 const MIN_DIST = 3;
 const MAX_DIST = 18;
 const MIN_PITCH = 0.06;
 const MAX_PITCH = 1.35;
 const LOOK_H = 1.2;
 
-const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
+const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
-// hit-surface overlay geometry, positioned in the hero's local frame (forward =
-// +Z) ready to draw — derived from the sim's abilityRegions() by placeRegion().
 type DrawRegion =
   | { kind: "cone"; radius: number; half: number }
   | { kind: "corridor"; length: number; halfWidth: number }
   | { kind: "circle"; radius: number; forward: number };
 
-// ── roster ───────────────────────────────────────────────────────────────────
 interface RosterEntry {
   id: string;
   label: string;
@@ -83,12 +56,11 @@ interface RosterEntry {
   weaponL?: string;
   rig?: "large";
   scale?: number;
-  /** basic-attack clip rotation for creeps/boss (played standalone) */
   attackClips: string[];
   champ?: ChampDef;
 }
 
-const champEntry = (def: ChampDef): RosterEntry => {
+const champEntry = (def: ChampDef) => {
   const e: RosterEntry = {
     attackClips: [],
     champ: def,
@@ -98,24 +70,26 @@ const champEntry = (def: ChampDef): RosterEntry => {
     model: def.model,
     sub: def.title,
   };
+
   if (def.weaponR !== undefined) {
     e.weaponR = def.weaponR;
   }
+
   if (def.weaponL !== undefined) {
     e.weaponL = def.weaponL;
   }
+
   if (def.rig !== undefined) {
     e.rig = def.rig;
   }
+
   if (def.scale !== undefined) {
     e.scale = def.scale;
   }
+
   return e;
 };
 
-// Creep/boss looks mirror world-view's CREEP_VIEW; attack clip rotations come
-// straight from the shared data/clip-timing table (the boss has no sim entry —
-// its swing list is viewer-only).
 const CREEPS: RosterEntry[] = [
   {
     attackClips: ATTACK_SETS.get("skwarrior") ?? [],
@@ -167,9 +141,8 @@ const CREEPS: RosterEntry[] = [
 
 const ROSTER: RosterEntry[] = [...CHAMPIONS.map(champEntry), ...CREEPS];
 
-const entryById = (id: string): RosterEntry | null => ROSTER.find((e) => e.id === id) ?? null;
+const entryById = (id: string) => ROSTER.find((e) => e.id === id) ?? null;
 
-// ── clip catalog grouping ────────────────────────────────────────────────────
 const CLIP_GROUPS = [
   "LOCOMOTION",
   "MELEE",
@@ -180,75 +153,87 @@ const CLIP_GROUPS = [
   "MISC",
 ] as const;
 
-const clipGroup = (n: string): (typeof CLIP_GROUPS)[number] => {
+const clipGroup: (n: string) => (typeof CLIP_GROUPS)[number] = (n) => {
   if (/^(?:Idle|Walking|Running|Sprint|Crouch|Sit|Lie)/u.test(n)) {
     return "LOCOMOTION";
   }
+
   if (n.startsWith("Melee_")) {
     return "MELEE";
   }
+
   if (n.startsWith("Ranged_")) {
     return "RANGED";
   }
+
   if (/^(?:Dodge|Jump|Roll)/u.test(n)) {
     return "EVADE";
   }
+
   if (/^(?:Hit|Death|Spawn)/u.test(n)) {
     return "REACT";
   }
+
   if (n.startsWith("Skeletons_")) {
     return "SKELETON";
   }
+
   return "MISC";
 };
 
-// soft radial blob shadow for the standalone subject (mirrors world-view's)
-const makeBlobTexture = (): THREE.Texture => {
+const makeBlobTexture = () => {
   const c = document.createElement("canvas");
   c.width = 64;
   c.height = 64;
   const g = c.getContext("2d");
+
   if (!g) {
     return new THREE.Texture();
   }
+
   const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
   grad.addColorStop(0, "rgba(0,0,0,0.85)");
   grad.addColorStop(0.6, "rgba(0,0,0,0.4)");
   grad.addColorStop(1, "rgba(0,0,0,0)");
   g.fillStyle = grad;
   g.fillRect(0, 0, 64, 64);
+
   return new THREE.CanvasTexture(c);
 };
 
-const regionKey = (s: DrawRegion): string => {
+const regionKey = (s: DrawRegion) => {
   if (s.kind === "cone") {
     return `co${s.radius.toFixed(1)},${s.half.toFixed(2)}`;
   }
+
   if (s.kind === "corridor") {
     return `cr${s.length.toFixed(1)},${s.halfWidth.toFixed(1)}`;
   }
+
   return `ci${s.radius.toFixed(1)},${s.forward.toFixed(1)}`;
 };
 
-// colour by kind so different attacks read distinctly: cone=red,
-// corridor=orange, self-whirl=gold, ground/splash circle=cyan
-const regionColor = (s: DrawRegion): number => {
+const regionColor = (s: DrawRegion) => {
   if (s.kind === "cone") {
     return 0xff_5a_3c;
   }
+
   if (s.kind === "corridor") {
     return 0xff_9a_3c;
   }
+
   return s.forward === 0 ? 0xff_c8_3c : 0x3c_c8_ff;
 };
 
 const HOTKEY_ABILITY = { e: "E", q: "Q", r: "R", w: "W" } as const;
 
 let styled = false;
-const injectStyle = (): void => {
+
+const injectStyle = () => {
   if (styled) {
     return;
   }
+
   styled = true;
   const s = document.createElement("style");
   s.textContent = `
@@ -311,30 +296,22 @@ export class ViewerScene {
   private selected: RosterEntry;
   private tab: "abilities" | "animations" = "abilities";
 
-  // sim subject + the selected-action loop (radio: one action repeats forever)
   private heroId = "";
   private heroSeq = 0;
   private action: AbilityKey | "attack" | null = "attack";
-  // world.now (ms) gate for the ability recast loop
   private nextCastAt = 0;
-  // this.t (s) gate for the standalone swing loop
   private nextSwingT = 0;
-  // total casts fired (dev-handle: proves the loop re-fires)
   private castCount = 0;
 
-  // standalone subject
   private solo: AnimatedCharacter | null = null;
   private soloEntry: RosterEntry | null = null;
   private soloBlob: THREE.Mesh | null = null;
-  // this.t (s) when a one-shot chains back to idle
   private soloChainAt = -1;
   private activeClip = "";
   private loop = true;
   private speed = 1;
   private attackIdx = 0;
 
-  // camera (spherical orbit) — boot pose: side-on stage view, subject left,
-  // dummy right (sim mode weights the focus a third of the way to the dummy)
   private yaw = 0;
   private pitch = 0.3;
   private dist = 10;
@@ -346,13 +323,10 @@ export class ViewerScene {
   private lastPX = 0;
   private lastPY = 0;
 
-  // UI refs
   private searchQ = "";
   private panelEl: HTMLElement | null = null;
   private nameEl: HTMLElement | null = null;
   private dummyHudEl: HTMLElement | null = null;
-  // hit-surface overlay: the damage geometry (cone/corridor/circle) of the
-  // selected action, drawn flat on the ground and oriented to the hero's aim.
   private showHitViz = false;
   private hitVizGroup: THREE.Group | null = null;
   private hitVizKey = "";
@@ -364,61 +338,56 @@ export class ViewerScene {
     this.view = view;
     this.lib = lib;
     this.scene = view.scene;
+
     if (this.scene.fog instanceof THREE.FogExp2) {
       this.scene.fog.density = 0.008;
     }
+
     const [first] = ROSTER;
+
     if (!first) {
       throw new Error("viewer: empty roster");
     }
+
     this.selected = first;
 
-    // ── the sim under the hood: a real world, muted of everything ambient ──
     this.world = createWorld(0x5e_ed);
-    // no timer end
     this.world.matchTime = Number.MAX_SAFE_INTEGER;
-    // no kill end
     this.world.killGoal = Number.MAX_SAFE_INTEGER;
-    // no boss coins
     this.world.nextCoinAt = Number.MAX_SAFE_INTEGER;
-    // no drops
     this.world.nextDeliveryAt = Number.MAX_SAFE_INTEGER;
+
     for (const c of CAMPS) {
       this.world.campRespawnAt[c.id] = Number.MAX_SAFE_INTEGER;
-      // no camps
     }
+
     this.spawnDummy();
 
     this.worldView = new WorldView(this.scene, lib);
     this.fx = new Fx(this.scene, view);
     this.fx.warm(view.renderer, view.camera);
-    // damage numbers for the subject's hits
     this.fx.localOwnerId = OWNER;
     this.worldView.fx = this.fx;
   }
 
-  init(): void {
+  init() {
     this.buildUI();
     this.bindInput();
     this.applyMode();
     this.view.refreshShadows();
   }
 
-  // ── sim units ────────────────────────────────────────────────────────────
-
-  /** The training dummy: a real (enemy-team) hero so abilities/statuses land —
-   *  sim ability targeting only hits kind "hero". Neutralized every frame. */
-  private spawnDummy(): void {
+  private spawnDummy() {
     const d = spawnHero(this.world, {
       champId: "knight",
       id: DUMMY_ID,
-      // tickBots ignores it — it never acts
       isBot: false,
       name: "Dummy",
       ownerId: "dummy",
       slot: 3,
       team: "dummy",
     });
+
     d.x = DUMMY.x;
     d.y = DUMMY.y;
     d.level = LEVEL_CAP;
@@ -430,19 +399,19 @@ export class ViewerScene {
     d.facing = Math.PI;
   }
 
-  private hero(): Unit | null {
+  private hero() {
     return this.heroId ? (this.world.units.get(this.heroId) ?? null) : null;
   }
 
-  private dummy(): Unit | null {
+  private dummy() {
     return this.world.units.get(DUMMY_ID) ?? null;
   }
 
-  private spawnSubjectHero(champId: string): void {
+  private spawnSubjectHero(champId: string) {
     this.removeHero();
     this.heroSeq += 1;
-    // fresh id → WorldView rebuilds the view
     this.heroId = `h-view-${this.heroSeq}`;
+
     const u = spawnHero(this.world, {
       champId,
       id: this.heroId,
@@ -452,11 +421,11 @@ export class ViewerScene {
       slot: 0,
       team: OWNER,
     });
+
     u.x = SUBJECT.x;
     u.y = SUBJECT.y;
     u.level = LEVEL_CAP;
     u.xp = XP_CURVE[LEVEL_CAP - 1] ?? 0;
-    // level 12 → Q/W/E rank 4, R rank 3
     syncAbilityRanks(u);
     recomputeStats(u);
     u.hp = u.maxHp;
@@ -465,40 +434,41 @@ export class ViewerScene {
     u.facing = 0;
     this.worldView.localId = this.heroId;
     this.fx.localId = this.heroId;
-    // default action on character switch
     this.action = "attack";
     this.nextCastAt = 0;
   }
 
-  private removeHero(): void {
+  private removeHero() {
     if (this.heroId) {
       this.world.units.delete(this.heroId);
-      // view disposes on next sync
     }
+
     this.heroId = "";
   }
 
-  // ── standalone subject ───────────────────────────────────────────────────
-
-  private ensureSolo(entry: RosterEntry): void {
+  private ensureSolo(entry: RosterEntry) {
     if (this.solo && this.soloEntry === entry) {
       return;
     }
+
     this.disposeSolo();
     const prefix = entry.rig === "large" ? "Large/" : "";
     const char = new AnimatedCharacter(this.lib, entry.model, prefix);
     const s = entry.scale ?? 1;
     char.root.scale.setScalar(s);
     char.root.position.set(SUBJECT.x, terrainHeight(SUBJECT.x, SUBJECT.y), SUBJECT.y);
-    // three-quarter pose toward the camera
     char.root.rotation.y = this.yaw + 0.65;
+
     if (entry.weaponR) {
       char.attach(this.weapon(entry.weaponR), "handslot.r");
     }
+
     if (entry.weaponL) {
       char.attach(this.weapon(entry.weaponL), "handslot.l");
     }
+
     this.scene.add(char.root);
+
     const blob = new THREE.Mesh(
       new THREE.CircleGeometry(0.85, 20),
       new THREE.MeshBasicMaterial({
@@ -509,9 +479,9 @@ export class ViewerScene {
         transparent: true,
       }),
     );
+
     blob.rotation.x = -Math.PI / 2;
     blob.scale.setScalar(s);
-    // clear the 0.05 tile tops
     blob.position.set(SUBJECT.x, terrainHeight(SUBJECT.x, SUBJECT.y) + 0.08, SUBJECT.y);
     this.scene.add(blob);
     this.solo = char;
@@ -522,28 +492,31 @@ export class ViewerScene {
     this.activeClip = "Idle_B";
   }
 
-  /** Weapon instance with its mount correction (mirrors world-view's
-   *  WEAPON_MOUNT — the KayKit bow is authored pointing backwards). */
-  private weapon(name: string): THREE.Object3D {
+  private weapon(name: string) {
     const obj = this.lib.instance(name);
+
     if (name === "bow") {
       obj.rotation.set(0, Math.PI, 0);
     }
+
     return obj;
   }
 
-  private disposeSolo(): void {
+  private disposeSolo() {
     if (this.solo) {
       this.scene.remove(this.solo.root);
       this.solo.dispose();
     }
+
     if (this.soloBlob) {
       this.scene.remove(this.soloBlob);
       this.soloBlob.geometry.dispose();
+
       if (this.soloBlob.material instanceof THREE.Material) {
         this.soloBlob.material.dispose();
       }
     }
+
     this.solo = null;
     this.soloEntry = null;
     this.soloBlob = null;
@@ -551,37 +524,37 @@ export class ViewerScene {
     this.activeClip = "";
   }
 
-  // ── mode / selection (also the dev handle window.__vw) ──────────────────
-
-  /** Sim mode = a champion on the ABILITIES tab; everything else is standalone. */
-  private get simMode(): boolean {
+  private get simMode() {
     return this.selected.kind === "champ" && this.tab === "abilities";
   }
 
-  select(id: string): void {
+  select(id: string) {
     const entry = entryById(id);
+
     if (!entry || entry === this.selected) {
       return;
     }
+
     this.selected = entry;
-    // default selection on character switch
     this.action = "attack";
     this.nextSwingT = 0;
     this.applyMode();
   }
 
-  setTab(tab: "abilities" | "animations"): void {
+  setTab(tab: "abilities" | "animations") {
     if (this.tab === tab) {
       return;
     }
+
     this.tab = tab;
     this.applyMode();
   }
 
-  private applyMode(): void {
+  private applyMode() {
     if (this.simMode) {
       this.disposeSolo();
       const h = this.hero();
+
       if (!h || h.champId !== this.selected.id) {
         this.spawnSubjectHero(this.selected.id);
       }
@@ -589,8 +562,10 @@ export class ViewerScene {
       this.removeHero();
       this.ensureSolo(this.selected);
     }
+
     this.renderRosterActive();
     this.renderPanel();
+
     if (this.nameEl) {
       this.nameEl.textContent = `${this.selected.label} · ${this.selected.sub}`;
     }
@@ -598,75 +573,87 @@ export class ViewerScene {
 
   /** Select an ability as the looping action (radio). Clicking the selected
    *  ability again deselects → idle. The loop walks into range and re-casts. */
-  cast(key: AbilityKey): void {
+  cast(key: AbilityKey) {
     if (this.selected.kind !== "champ") {
       return;
     }
+
     if (this.tab !== "abilities") {
       this.setTab("abilities");
     }
+
     this.action = this.action === key ? null : key;
-    // fire immediately
     this.nextCastAt = 0;
     this.renderPanel();
   }
 
   /** Select BASIC ATTACK as the looping action (radio; re-click deselects).
    *  Champ: continuous sim auto-attack. Creep/boss: standalone swing loop. */
-  attack(): void {
+  attack() {
     if (this.selected.kind === "champ" && this.tab !== "abilities") {
       this.setTab("abilities");
     }
+
     this.action = this.action === "attack" ? null : "attack";
     this.nextSwingT = 0;
     this.renderPanel();
   }
 
   /** Play a raw clip on the standalone subject (Animations tab). */
-  playClip(name: string): void {
+  playClip(name: string) {
     if (this.simMode) {
       this.setTab("animations");
     }
+
     const char = this.solo;
+
     if (!char) {
       return;
     }
+
     const { loop } = this;
     char.play(name, { fade: 0.12, loop, timeScale: this.speed });
     this.activeClip = name;
+
     if (loop) {
       this.soloChainAt = -1;
     } else {
       const d = this.clipDuration(name);
       this.soloChainAt = d > 0 ? this.t + d / Math.max(0.1, this.speed) + 0.05 : -1;
     }
+
     this.refreshClipHighlight();
   }
 
-  setLoop(v: boolean): void {
+  setLoop(v: boolean) {
     this.loop = v;
     const el = document.querySelector("#vw-loop");
+
     if (el instanceof HTMLInputElement) {
       el.checked = v;
     }
   }
 
-  setSpeed(v: number): void {
+  setSpeed(v: number) {
     this.speed = clamp(v, 0.1, 2);
     this.solo?.setTimeScale(this.speed);
     const el = document.querySelector("#vw-speed");
+
     if (el instanceof HTMLInputElement) {
       el.value = String(this.speed);
     }
+
     const lab = document.querySelector("#vw-speed-val");
+
     if (lab) {
       lab.textContent = `${this.speed.toFixed(2)}×`;
     }
   }
 
   /** Re-place subject + dummy at their posts. */
-  reset(): void {
+  reset() {
     const h = this.hero();
+
     if (h) {
       h.x = SUBJECT.x;
       h.y = SUBJECT.y;
@@ -677,13 +664,16 @@ export class ViewerScene {
       h.dashUntil = 0;
       h.statuses = [];
     }
+
     const d = this.dummy();
+
     if (d) {
       d.x = DUMMY.x;
       d.y = DUMMY.y;
       d.statuses = [];
       d.hp = d.maxHp;
     }
+
     this.panX = 0;
     this.panZ = 0;
   }
@@ -692,6 +682,7 @@ export class ViewerScene {
   state() {
     const h = this.hero();
     const d = this.dummy();
+
     return {
       action: this.action ?? "",
       activeClip: this.activeClip,
@@ -705,54 +696,55 @@ export class ViewerScene {
     };
   }
 
-  // ── clip catalog ─────────────────────────────────────────────────────────
-
-  /** Display names of every clip the selected character's rig can play. */
-  private clipList(): string[] {
+  private clipList() {
     const large = this.selected.rig === "large";
     const out: string[] = [];
+
     for (const n of this.lib.clipNames()) {
       const isLarge = n.startsWith("Large/");
+
       if (isLarge !== large) {
         continue;
       }
+
       out.push(isLarge ? n.slice("Large/".length) : n);
     }
+
     return out;
   }
 
-  private clipDuration(name: string): number {
+  private clipDuration(name: string) {
     const prefix = this.selected.rig === "large" ? "Large/" : "";
+
     return this.lib.getClip(prefix + name)?.duration ?? 0;
   }
 
-  // ── frame ────────────────────────────────────────────────────────────────
-
-  update(dt: number): void {
+  update(dt: number) {
     this.t += dt;
 
-    // subject intent (pre-step, once per frame — persists across sub-steps)
     if (this.simMode) {
       this.driveSubject();
     } else {
       this.driveSoloSwing();
     }
 
-    // fixed-step the sim (dummy idles even in animations mode)
     this.acc += dt;
     let n = 0;
+
     while (this.acc >= SIM_DT && n < 5) {
       step(this.world);
       this.acc -= SIM_DT;
       n += 1;
     }
+
     this.neutralizeDummy(dt);
     this.updateHitViz();
 
-    // standalone subject: advance + chain one-shots back into idle
     const { solo } = this;
+
     if (solo) {
       solo.update(dt);
+
       if (this.soloChainAt > 0 && this.t >= this.soloChainAt) {
         this.soloChainAt = -1;
         solo.play("Idle_B", { fade: 0.25, loop: true, timeScale: this.speed });
@@ -761,7 +753,6 @@ export class ViewerScene {
       }
     }
 
-    // render pipeline (mirror game-scene: fx first — it may arm a hit-stop)
     this.fx.update(this.world, dt);
     const rdt = dt * this.fx.scaleNow();
     this.worldView.sync(this.world, rdt);
@@ -769,34 +760,36 @@ export class ViewerScene {
     this.view.render();
   }
 
-  /** Per-frame hero intent: face the dummy, keep every cooldown at zero, and
-   *  run the selected-action loop — walk into range and re-cast/attack forever
-   *  (idling naturally between recasts). */
-  private driveSubject(): void {
+  private driveSubject() {
     const h = this.hero();
     const d = this.dummy();
+
     if (!h || !d) {
       return;
     }
+
     for (const key of ALL_ABILITY_KEYS) {
       h.abilities[key].readyAt = 0;
-      // always ready
     }
+
     h.hp = h.maxHp;
     const to = norm(d.x - h.x, d.y - h.y);
     const dd = dist(h, d);
+
     if (this.world.now >= h.dashUntil && (to.x !== 0 || to.y !== 0)) {
       h.aimX = to.x;
       h.aimY = to.y;
     }
+
     h.moveX = 0;
     h.moveY = 0;
     h.attackHeld = false;
 
     const act = this.action;
+
     if (act === "attack") {
-      // continuous auto-attack: close in, then hold the trigger
       const reach = h.attackRange + d.radius - 0.2;
+
       if (dd > reach) {
         h.moveX = to.x;
         h.moveY = to.y;
@@ -805,40 +798,44 @@ export class ViewerScene {
       }
     } else if (act) {
       const def = this.selected.champ?.abilities[act];
+
       if (def && this.world.now >= this.nextCastAt) {
-        // walk into range first: self-casts need the dummy inside their radius,
-        // targeted casts their castRange (with a safety margin)
         const needed = def.targeting === "self" ? 3 : Math.max(1.4, def.castRange - 0.8);
+
         if (dd > needed) {
           h.moveX = to.x;
           h.moveY = to.y;
         } else if (castAbility(this.world, h, act, { dir: to, point: { x: d.x, y: d.y } })) {
           this.castCount += 1;
-          // re-cast after the beat
           this.nextCastAt = this.world.now + CAST_LOOP_MS;
         }
       }
     }
   }
 
-  /** Standalone (creep/boss) BASIC ATTACK loop: swing → idle beat → swing. */
-  private driveSoloSwing(): void {
+  private driveSoloSwing() {
     const { solo } = this;
+
     if (!solo || this.selected.kind !== "creep") {
       return;
     }
+
     if (this.tab !== "abilities" || this.action !== "attack") {
       return;
     }
+
     if (this.t < this.nextSwingT) {
       return;
     }
+
     const clips = this.selected.attackClips;
     const clip = clips[this.attackIdx % Math.max(1, clips.length)];
     this.attackIdx += 1;
+
     if (!clip) {
       return;
     }
+
     solo.play(clip, { fade: 0.1, loop: false, timeScale: SWING_TS });
     this.activeClip = clip;
     const dur = this.clipDuration(clip) / SWING_TS;
@@ -851,20 +848,19 @@ export class ViewerScene {
   private dummyLastDmg = 0;
   private dummyKills = 0;
 
-  /** The dummy takes real damage (so you can read hits/DPS for balance) but
-   *  revives at full when it dies, and never acts or wanders off. */
-  private neutralizeDummy(dt: number): void {
+  private neutralizeDummy(dt: number) {
     const d = this.dummy();
+
     if (!d) {
       return;
     }
-    // measure damage taken since last frame (drives the HP bar / DPS readout)
+
     if (this.dummyPrevHp >= 0 && d.hp < this.dummyPrevHp) {
       const dmg = this.dummyPrevHp - d.hp;
       this.dummyLastDmg = Math.round(dmg);
       this.dummyDmgWindow.push({ d: dmg, t: this.t });
     }
-    // revive at full on death so the training loop continues (count the kill)
+
     if (!d.alive || d.hp <= 0) {
       this.dummyKills += 1;
       d.alive = true;
@@ -872,152 +868,177 @@ export class ViewerScene {
       d.statuses = [];
       d.hp = d.maxHp;
     }
+
     d.attackHeld = false;
     d.moveX = 0;
     d.moveY = 0;
-    // spring back to the post after knockbacks/pulls (gentle, so hits still read)
     const k = Math.min(1, 1.6 * dt);
     d.x += (DUMMY.x - d.x) * k;
     d.y += (DUMMY.y - d.y) * k;
     const h = this.hero();
+
     if (h) {
       const to = norm(h.x - d.x, h.y - d.y);
+
       if (to.x !== 0 || to.y !== 0) {
         d.aimX = to.x;
         d.aimY = to.y;
       }
     }
+
     this.dummyPrevHp = d.hp;
-    // 3s rolling DPS window
     const cut = this.t - 3;
+
     while (this.dummyDmgWindow.length && (this.dummyDmgWindow[0]?.t ?? 0) < cut) {
       this.dummyDmgWindow.shift();
     }
+
     this.updateDummyHud(d);
   }
 
-  // representative target radius: the sim's cone/corridor tests add each target's
-  // own radius, so the drawn hit area widens the raw geometry by this to match.
   private static readonly HIT_TARGET_R = 0.6;
 
-  /** Damage shapes of the action the character is CURRENTLY doing, ready to draw.
-   *  Geometry comes straight from the sim's abilityRegions()/basicAttackRegion() —
-   *  the same definition the hit test uses — so the overlay can't drift. */
-  private hitRegionsFor(): DrawRegion[] {
+  private hitRegionsFor() {
     const { champ } = this.selected;
     const me = this.hero();
+
     if (!champ || !me) {
-      return [];
+      return [] satisfies DrawRegion[];
     }
+
     const act = this.action;
+
     if (act === "attack") {
-      // the rhythm cycles chop/slice → spin, so the shape switches live with the
-      // sim's swingCount — show only the swing happening right now.
       const rhythm = champ.basicRhythm;
+
       const swing =
         rhythm && rhythm.length
           ? rhythm[Math.max(0, me.swingCount - 1) % rhythm.length]
           : undefined;
+
       if (swing?.aoe) {
-        return [{ forward: 0, kind: "circle", radius: swing.aoe }];
-        // spin whirl
+        return [{ forward: 0, kind: "circle", radius: swing.aoe }] satisfies DrawRegion[];
       }
+
       return this.placeRegion(
         basicAttackRegion(champ.attackType, me.attackRange, champ.basic),
         me.attackRange + 5,
-      );
+      ) satisfies DrawRegion[];
     }
+
     if (!act) {
-      return [];
+      return [] satisfies DrawRegion[];
     }
+
     const def = champ.abilities[act];
+
     if (!def) {
-      return [];
+      return [] satisfies DrawRegion[];
     }
+
     const rank = Math.max(1, me.abilities[act]?.rank ?? def.maxRank);
-    return abilityRegions(def, rank).flatMap((s) => this.placeRegion(s, def.castRange));
+
+    return abilityRegions(def, rank).flatMap((s) =>
+      this.placeRegion(s, def.castRange),
+    ) satisfies DrawRegion[];
   }
 
-  /** Position a sim HitRegion in the hero's local frame for drawing: cone/corridor
-   *  widen by the target-radius margin; circleAt/projectile land ahead at the
-   *  cast point (toward the dummy); a projectile also draws its splash. */
-  private placeRegion(s: HitRegion, range: number): DrawRegion[] {
+  private placeRegion(s: HitRegion, range: number) {
     const TR = ViewerScene.HIT_TARGET_R;
+
     switch (s.kind) {
       case "cone": {
-        return [{ half: s.half, kind: "cone", radius: s.radius + TR }];
+        return [{ half: s.half, kind: "cone", radius: s.radius + TR }] satisfies DrawRegion[];
       }
+
       case "corridor": {
-        return [{ halfWidth: s.halfWidth + TR, kind: "corridor", length: s.length }];
+        return [
+          { halfWidth: s.halfWidth + TR, kind: "corridor", length: s.length },
+        ] satisfies DrawRegion[];
       }
+
       case "circleSelf": {
-        return [{ forward: 0, kind: "circle", radius: s.radius }];
+        return [{ forward: 0, kind: "circle", radius: s.radius }] satisfies DrawRegion[];
       }
+
       case "circleAt": {
-        return [{ forward: this.castForward(range), kind: "circle", radius: s.radius }];
+        return [
+          { forward: this.castForward(range), kind: "circle", radius: s.radius },
+        ] satisfies DrawRegion[];
       }
+
       case "projectile": {
         const out: DrawRegion[] = [{ halfWidth: 0.5, kind: "corridor", length: s.length }];
+
         if (s.splash > 0) {
           out.push({ forward: this.castForward(range), kind: "circle", radius: s.splash });
         }
-        return out;
+
+        return out satisfies DrawRegion[];
       }
+
       default: {
-        return [];
+        return [] satisfies DrawRegion[];
       }
     }
   }
 
-  /** How far ahead a ground/projectile hit lands — at the dummy if in range. */
-  private castForward(range: number): number {
+  private castForward(range: number) {
     const me = this.hero();
     const d = this.dummy();
+
     return me && d ? Math.min(range, Math.hypot(d.x - me.x, d.y - me.y)) : range;
   }
 
-  /** Draw/position the hit-surface overlay flat under the hero, oriented to aim. */
-  private updateHitViz(): void {
+  private updateHitViz() {
     const me = this.hero();
     const regions = this.showHitViz && me ? this.hitRegionsFor() : [];
+
     if (regions.length === 0) {
       if (this.hitVizGroup) {
         this.hitVizGroup.visible = false;
       }
+
       return;
     }
+
     const key = regions.map(regionKey).join("|");
+
     if (key !== this.hitVizKey || !this.hitVizGroup) {
       this.hitVizKey = key;
+
       if (!this.hitVizGroup) {
         this.hitVizGroup = new THREE.Group();
         this.hitVizGroup.renderOrder = 3;
         this.scene.add(this.hitVizGroup);
       }
+
       const g = this.hitVizGroup;
+
       for (const c of g.children) {
         if (c instanceof THREE.Mesh) {
           c.geometry.dispose();
         }
       }
+
       g.clear();
+
       for (const s of regions) {
         let geo: THREE.BufferGeometry;
+
         if (s.kind === "cone") {
-          // sector centered on +Y
           geo = new THREE.CircleGeometry(s.radius, 40, Math.PI / 2 - s.half, 2 * s.half);
         } else if (s.kind === "corridor") {
           geo = new THREE.PlaneGeometry(2 * s.halfWidth, s.length);
-          // start at the hero, extend forward
           geo.translate(0, s.length / 2, 0);
         } else {
           geo = new THREE.CircleGeometry(s.radius, 40);
-          // circle placed `forward` ahead
           geo.translate(0, s.forward, 0);
         }
-        // lay the XY shape flat: +Y (forward) → +Z
+
         geo.rotateX(Math.PI / 2);
         const color = regionColor(s);
+
         const mat = new THREE.MeshBasicMaterial({
           color,
           depthWrite: false,
@@ -1025,26 +1046,29 @@ export class ViewerScene {
           side: THREE.DoubleSide,
           transparent: true,
         });
+
         g.add(new THREE.Mesh(geo, mat));
       }
     }
+
     const grp = this.hitVizGroup;
+
     if (!grp || !me) {
       return;
     }
+
     grp.visible = true;
-    // above the 0.05 tile tops + dirt bumps
     grp.position.set(me.x, terrainHeight(me.x, me.y) + 0.12, me.y);
-    // orient +Z to the hero's aim
     grp.rotation.y = Math.atan2(me.aimX, me.aimY);
   }
 
-  /** Live HP bar + last-hit + DPS readout for the dummy (balance tuning). */
-  private updateDummyHud(d: Unit): void {
+  private updateDummyHud(d: Unit) {
     const el = this.dummyHudEl;
+
     if (!el) {
       return;
     }
+
     const dps = Math.round(this.dummyDmgWindow.reduce((s, x) => s + x.d, 0) / 3);
     const pct = Math.max(0, Math.min(100, (d.hp / d.maxHp) * 100));
     el.innerHTML =
@@ -1052,22 +1076,22 @@ export class ViewerScene {
       `<span class="vw-dh-txt">DUMMY ${Math.round(d.hp)}/${d.maxHp} · hit ${this.dummyLastDmg} · ${dps} DPS · deaths ${this.dummyKills}</span>`;
   }
 
-  // ── camera ───────────────────────────────────────────────────────────────
-
-  private updateCamera(dt: number): void {
+  private updateCamera(dt: number) {
     const h = this.hero();
     let sx = SUBJECT.x;
     let sy = SUBJECT.y;
+
     if (this.simMode && h) {
-      // keep both actors framed: focus midway between subject and dummy
       const d = this.dummy();
       sx = h.x;
       sy = h.y;
+
       if (d) {
         sx += (d.x - h.x) * 0.5;
         sy += (d.y - h.y) * 0.5;
       }
     }
+
     const gx = sx + this.panX;
     const gz = sy + this.panZ;
     const goal = new THREE.Vector3(gx, terrainHeight(gx, gz), gz);
@@ -1083,9 +1107,7 @@ export class ViewerScene {
     cam.lookAt(this.target.x, this.target.y + LOOK_H, this.target.z);
   }
 
-  // ── input ────────────────────────────────────────────────────────────────
-
-  private bindInput(): void {
+  private bindInput() {
     const el = this.view.renderer.domElement;
     el.addEventListener("contextmenu", (e) => e.preventDefault());
     el.addEventListener("pointerdown", (e) => {
@@ -1096,6 +1118,7 @@ export class ViewerScene {
       } else {
         return;
       }
+
       this.lastPX = e.clientX;
       this.lastPY = e.clientY;
       el.setPointerCapture(e.pointerId);
@@ -1105,6 +1128,7 @@ export class ViewerScene {
       const dy = e.clientY - this.lastPY;
       this.lastPX = e.clientX;
       this.lastPY = e.clientY;
+
       if (this.orbiting) {
         this.yaw -= dx * 0.006;
         this.pitch = clamp(this.pitch + dy * 0.005, MIN_PITCH, MAX_PITCH);
@@ -1119,6 +1143,7 @@ export class ViewerScene {
     el.addEventListener("pointerup", (e) => {
       this.orbiting = false;
       this.panning = false;
+
       if (el.hasPointerCapture(e.pointerId)) {
         el.releasePointerCapture(e.pointerId);
       }
@@ -1135,7 +1160,9 @@ export class ViewerScene {
       if (document.activeElement instanceof HTMLInputElement) {
         return;
       }
+
       const k = e.key.toLowerCase();
+
       if (k === "q" || k === "w" || k === "e" || k === "r") {
         if (this.selected.kind === "champ") {
           this.cast(HOTKEY_ABILITY[k]);
@@ -1146,19 +1173,20 @@ export class ViewerScene {
     });
   }
 
-  // ── DOM UI ───────────────────────────────────────────────────────────────
-
-  private buildUI(): void {
+  private buildUI() {
     injectStyle();
     const ui = document.createElement("div");
     ui.id = "ba-viewer";
+
     const rosterButtons = ROSTER.map((e) => {
       const icon =
         e.kind === "champ"
           ? `<img src="${champSigil(e.id)}" alt="">`
           : `<span class="vwr-dot"></span>`;
+
       return `<button class="vwr" data-id="${e.id}">${icon}<span class="vwr-txt"><b>${e.label}</b><i>${e.sub}</i></span></button>`;
     }).join("");
+
     ui.innerHTML = `
       <div class="vw-top">
         <span class="vw-logo">CHARACTER VIEWER</span>
@@ -1187,8 +1215,8 @@ export class ViewerScene {
     this.dummyHudEl = document.querySelector("#vw-dummyhp");
     this.rosterEl = document.querySelector("#vw-roster");
 
-    // creep divider — insert before the first creep button
     const firstCreep = ui.querySelector(`.vwr[data-id="${CREEPS[0]?.id ?? ""}"]`);
+
     if (firstCreep) {
       const h = document.createElement("div");
       h.className = "vw-roster-h";
@@ -1199,23 +1227,28 @@ export class ViewerScene {
     for (const btn of ui.querySelectorAll<HTMLButtonElement>(".vwr")) {
       btn.addEventListener("click", () => {
         const { id } = btn.dataset;
+
         if (id) {
           this.select(id);
         }
       });
     }
+
     for (const btn of ui.querySelectorAll<HTMLButtonElement>(".vwt")) {
       btn.addEventListener("click", () => {
         const { tab } = btn.dataset;
+
         if (tab === "abilities" || tab === "animations") {
           this.setTab(tab);
         }
       });
     }
+
     const hv = document.querySelector("#vw-hitviz");
     hv?.addEventListener("click", () => {
       this.showHitViz = !this.showHitViz;
       hv.classList.toggle("on", this.showHitViz);
+
       if (!this.showHitViz && this.hitVizGroup) {
         this.hitVizGroup.visible = false;
       }
@@ -1229,20 +1262,24 @@ export class ViewerScene {
     });
   }
 
-  private renderRosterActive(): void {
+  private renderRosterActive() {
     for (const btn of this.rosterEl?.querySelectorAll<HTMLButtonElement>(".vwr") ?? []) {
       btn.classList.toggle("on", btn.dataset["id"] === this.selected.id);
     }
+
     document.querySelector("#vw-tab-abilities")?.classList.toggle("on", this.tab === "abilities");
     document.querySelector("#vw-tab-animations")?.classList.toggle("on", this.tab === "animations");
   }
 
-  private renderPanel(): void {
+  private renderPanel() {
     const box = this.panelEl;
+
     if (!box) {
       return;
     }
+
     this.renderRosterActive();
+
     if (this.tab === "abilities") {
       this.renderAbilities(box);
     } else {
@@ -1250,9 +1287,10 @@ export class ViewerScene {
     }
   }
 
-  private renderAbilities(box: HTMLElement): void {
+  private renderAbilities(box: HTMLElement) {
     const def = this.selected.champ;
     const atkOn = this.action === "attack";
+
     if (!def) {
       box.innerHTML = `
         <div class="vw-sect">BASIC ATTACK</div>
@@ -1263,11 +1301,14 @@ export class ViewerScene {
         </button>
         <div class="vw-note">Enemies have no abilities — browse their full rig on the ANIMATIONS tab.</div>`;
       document.querySelector("#vw-atk")?.addEventListener("click", () => this.attack());
+
       return;
     }
+
     const abilityRows = ALL_ABILITY_KEYS.map((key) => {
       const a = def.abilities[key];
       const on = this.action === key;
+
       return `
         <button class="vwa ${on ? "on" : ""}" data-key="${key}" title="${a.desc}">
           <img src="${abilityIcon(def.id, key)}" alt="">
@@ -1275,6 +1316,7 @@ export class ViewerScene {
           <span class="vwa-txt"><b>${a.name}${a.isUltimate ? " ★" : ""}${on ? " · LOOPING" : ""}</b><i>${a.desc}</i></span>
         </button>`;
     }).join("");
+
     box.innerHTML = `
       <div class="vw-sect">BASIC ATTACK</div>
       <button class="vwa ${atkOn ? "on" : ""}" id="vw-atk">
@@ -1286,10 +1328,12 @@ export class ViewerScene {
       ${abilityRows}
       <div class="vw-note">Pick an action — it repeats through the real sim (walk into range, face the dummy, fire). Click the selected action again to idle.</div>`;
     document.querySelector("#vw-atk")?.addEventListener("click", () => this.attack());
+
     for (const btn of box.querySelectorAll<HTMLButtonElement>(".vwa[data-key]")) {
       btn.addEventListener("click", () => {
         const { key } = btn.dataset;
         const match = ALL_ABILITY_KEYS.find((k) => k === key);
+
         if (match) {
           this.cast(match);
         }
@@ -1297,32 +1341,40 @@ export class ViewerScene {
     }
   }
 
-  private renderClips(box: HTMLElement): void {
+  private renderClips(box: HTMLElement) {
     const q = this.searchQ.trim().toLowerCase();
     const grouped = new Map<string, string[]>();
+
     for (const name of this.clipList()) {
       if (q && !name.toLowerCase().includes(q)) {
         continue;
       }
+
       const g = clipGroup(name);
       const arr = grouped.get(g);
+
       if (arr) {
         arr.push(name);
       } else {
         grouped.set(g, [name]);
       }
     }
-    const sections = CLIP_GROUPS.filter((g) => grouped.has(g))
-      .map((g) => {
-        const rows = (grouped.get(g) ?? [])
-          .map(
-            (n) =>
-              `<button class="vwc ${n === this.activeClip ? "on" : ""}" data-clip="${n}">${n}<span>${this.clipDuration(n).toFixed(2)}s</span></button>`,
-          )
-          .join("");
-        return `<div class="vw-sect">${g}</div>${rows}`;
-      })
-      .join("");
+
+    const sections = CLIP_GROUPS.flatMap((g) => {
+      if (!grouped.has(g)) {
+        return [];
+      }
+
+      const rows = (grouped.get(g) ?? [])
+        .map(
+          (n) =>
+            `<button class="vwc ${n === this.activeClip ? "on" : ""}" data-clip="${n}">${n}<span>${this.clipDuration(n).toFixed(2)}s</span></button>`,
+        )
+        .join("");
+
+      return [`<div class="vw-sect">${g}</div>${rows}`];
+    }).join("");
+
     box.innerHTML = `
       <input id="vw-search" placeholder="search clips…" value="${this.searchQ}">
       <div class="vw-ctl">
@@ -1332,31 +1384,40 @@ export class ViewerScene {
       </div>
       <div class="vw-clips" id="vw-clips">${sections}</div>`;
     const search = document.querySelector("#vw-search");
+
     if (search instanceof HTMLInputElement) {
       search.addEventListener("input", () => {
         this.searchQ = search.value;
         const at = search.selectionStart;
         this.renderClips(box);
         const again = document.querySelector("#vw-search");
+
         if (again instanceof HTMLInputElement) {
           again.focus();
+
           if (at !== null) {
             again.setSelectionRange(at, at);
           }
         }
       });
     }
+
     const loopEl = document.querySelector("#vw-loop");
+
     if (loopEl instanceof HTMLInputElement) {
       loopEl.addEventListener("change", () => this.setLoop(loopEl.checked));
     }
+
     const speedEl = document.querySelector("#vw-speed");
+
     if (speedEl instanceof HTMLInputElement) {
       speedEl.addEventListener("input", () => this.setSpeed(Number(speedEl.value)));
     }
+
     for (const btn of box.querySelectorAll<HTMLButtonElement>(".vwc")) {
       btn.addEventListener("click", () => {
         const { clip } = btn.dataset;
+
         if (clip) {
           this.playClip(clip);
         }
@@ -1364,7 +1425,7 @@ export class ViewerScene {
     }
   }
 
-  private refreshClipHighlight(): void {
+  private refreshClipHighlight() {
     for (const btn of document.querySelectorAll<HTMLButtonElement>(".vwc")) {
       btn.classList.toggle("on", btn.dataset["clip"] === this.activeClip);
     }

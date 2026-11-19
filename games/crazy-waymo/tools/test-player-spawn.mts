@@ -6,6 +6,7 @@ import { choosePlayerSpawn, isPlayerSpawnSafe, spawnOnEdge } from "../src/world/
 import type { PlayerSpawn, SpawnWorld } from "../src/world/player-spawn.ts";
 
 type Check = (name: string, passed: boolean, detail?: string) => void;
+
 const FAILED_SAFARI_SPAWN: PlayerSpawn = {
   gx: 170,
   gz: 123,
@@ -14,7 +15,7 @@ const FAILED_SAFARI_SPAWN: PlayerSpawn = {
   z: 309.164,
 };
 
-export const checkPlayerSpawnFixtures = (check: Check): void => {
+export const checkPlayerSpawnFixtures = (check: Check) => {
   const network = new RoadNetwork(
     [
       [-1000, -200],
@@ -27,16 +28,21 @@ export const checkPlayerSpawnFixtures = (check: Check): void => {
       { a: 2, b: 3, p: [-1100, -200, -1100, 200], w: 6 },
     ],
   );
+
   const [edge] = network.edges;
+
   if (!edge) {
     throw new Error("Missing spawn fixture edge");
   }
+
   const spawn = spawnOnEdge(network, edge, 0.5, 1);
   const flat: SpawnWorld = { decks: [], heightAt: () => 1, network, solids: new SolidIndex([]) };
-  const withSolids = (solids: readonly Solid[]): SpawnWorld => ({
+
+  const withSolids = (solids: readonly Solid[]) => ({
     ...flat,
     solids: new SolidIndex(solids),
   });
+
   check("clear street permits a player start", isPlayerSpawnSafe(flat, spawn));
   check(
     "initial loading pose is revalidated against complete static solids",
@@ -72,10 +78,12 @@ export const checkPlayerSpawnFixtures = (check: Check): void => {
   const fz = Math.cos(underpass.yaw);
   const behind: [number, number] = [underpass.x - fx * 150, underpass.z - fz * 150];
   const ahead: [number, number] = [underpass.x + fx * 150, underpass.z + fz * 150];
+
   const underpassRoad = new RoadNetwork(
     [behind, ahead],
     [{ a: 0, b: 1, p: [...behind, ...ahead], w: 6 }],
   );
+
   check(
     "freeway structure rejects a flat, straight route with no indexed obstacles",
     !isPlayerSpawnSafe({ ...flat, network: underpassRoad }, underpass),
@@ -89,6 +97,7 @@ export const checkPlayerSpawnFixtures = (check: Check): void => {
     "spawn center itself has valid surface support",
     !isPlayerSpawnSafe({ ...flat, heightAt: (_x, z) => (Math.abs(z) < 0.25 ? -1 : 1) }, spawn),
   );
+
   const deadEnd = new RoadNetwork(
     [
       [-1000, -100],
@@ -96,6 +105,7 @@ export const checkPlayerSpawnFixtures = (check: Check): void => {
     ],
     [{ a: 0, b: 1, p: [-1000, -100, -1000, 40], w: 6 }],
   );
+
   check(
     "short roads do not promise an unsupported straight opening route",
     !isPlayerSpawnSafe({ ...flat, network: deadEnd }, spawn),
@@ -113,7 +123,7 @@ export const checkPlayerSpawnFixtures = (check: Check): void => {
   );
 };
 
-export const checkInstalledPlayerSpawns = (check: Check, world: SpawnWorld): void => {
+export const checkInstalledPlayerSpawns = (check: Check, world: SpawnWorld) => {
   check(
     "installed Silver Terrace trapped start is rejected",
     !isPlayerSpawnSafe(world, FAILED_SAFARI_SPAWN),
@@ -122,26 +132,33 @@ export const checkInstalledPlayerSpawns = (check: Check, world: SpawnWorld): voi
   const origins = new Set<string>();
   let viable = 0;
   let seed = 0x5f_50_41_57;
-  const random = (): number => {
+
+  const random = () => {
     // oxlint-disable-next-line no-bitwise -- LCG needs the uint32 wrap
     seed = (Math.imul(seed, 1_664_525) + 1_013_904_223) >>> 0;
+
     return seed / 4_294_967_296;
   };
+
   let worstMs = 0;
   const timings: number[] = [];
+
   for (let i = 0; i < 64; i += 1) {
     const start = performance.now();
     const spawn = choosePlayerSpawn(world, random);
     const elapsed = performance.now() - start;
     timings.push(elapsed);
     worstMs = Math.max(worstMs, elapsed);
+
     if (!spawn || !isPlayerSpawnSafe(world, spawn)) {
       continue;
     }
+
     viable += 1;
     origins.add(`${spawn.x.toFixed(1)},${spawn.z.toFixed(1)}`);
     districts.add(districtAt(spawn.gx, spawn.gz).name);
   }
+
   timings.sort((a, b) => a - b);
   check(
     "installed world supports repeated safe starts",
@@ -155,19 +172,24 @@ export const checkInstalledPlayerSpawns = (check: Check, world: SpawnWorld): voi
   );
   let safeMidpoints = 0;
   const midpointDistricts = new Set<string>();
+
   for (const edge of world.network.edges) {
     if (edge.len < 30) {
       continue;
     }
+
     for (const direction of [-1, 1] satisfies readonly (1 | -1)[]) {
       const candidate = spawnOnEdge(world.network, edge, 0.5, direction);
+
       if (!isPlayerSpawnSafe(world, candidate)) {
         continue;
       }
+
       safeMidpoints += 1;
       midpointDistricts.add(districtAt(candidate.gx, candidate.gz).name);
     }
   }
+
   check(
     "validated deterministic search has broad installed-world coverage",
     safeMidpoints >= 100 && midpointDistricts.size >= 12,

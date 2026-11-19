@@ -1,15 +1,3 @@
-// The match as a deterministic fixed-step simulation: both paddles, the ball,
-// serves, power charges, scoring, and the AI that holds a paddle nobody is
-// steering. Every client of a tick room steps it from the same seed, with the
-// same inputs on the same ticks, and lands on bit-identical states — which is
-// all lockstep rollback asks. So one step is one tick (TICK_S), never a
-// frame's dt; the only randomness is the seeded generator inside the state;
-// and the only arithmetic is +, −, ×, ÷ and sqrt (see exact-math): no
-// Math.random, no Math.sin, nothing two engines could round apart.
-//
-// Canonical frame: slot A (0) defends −y, slot B (1) defends +y. Stepping
-// mutates the state in place; the rollback layer clones before it steps.
-
 import { flyTick, hitsPaddle, reflectOffPaddle } from "./ball";
 import type { Ball } from "./ball";
 import {
@@ -43,13 +31,13 @@ import type { SlotInput } from "./input";
 /** 0 = slot A (defends −y), 1 = slot B (defends +y). */
 export type Slot = 0 | 1;
 
-const ticksOf = (seconds: number): number => Math.round(seconds * TICK_RATE);
+const ticksOf = (seconds: number) => Math.round(seconds * TICK_RATE);
+
 /** Dead air between a point and the auto-serve. */
 export const SERVE_DELAY_TICKS = ticksOf(AUTO_SERVE_S);
 const STOP_PADDLE = ticksOf(HIT_STOP_PADDLE);
 const STOP_GOAL = ticksOf(HIT_STOP_GOAL);
 const STOP_WIN = ticksOf(HIT_STOP_WIN);
-/** A serve leaves at most this far (sin of SERVE_SPREAD) off straight. */
 const SERVE_LATERAL = exactSin(SERVE_SPREAD);
 
 const RNG_MOD = 2_147_483_647;
@@ -78,12 +66,14 @@ export interface ServeEvent {
   kind: "serve";
   receiver: Slot;
 }
+
 export interface WallEvent {
   key: string;
   kind: "wall";
   x: number;
   y: number;
 }
+
 export interface HitEvent {
   hits: number;
   key: string;
@@ -97,10 +87,12 @@ export interface HitEvent {
   x: number;
   y: number;
 }
+
 export interface LandEvent {
   key: string;
   kind: "land";
 }
+
 export interface PointEvent {
   key: string;
   kind: "point";
@@ -109,6 +101,7 @@ export interface PointEvent {
   x: number;
   y: number;
 }
+
 /** Something that happened on a tick, for sound and effects. `key` names it
  *  across re-simulation: the same hit keeps its key when a rollback replays
  *  it, so it plays once. */
@@ -159,19 +152,18 @@ export interface MatchSetup {
   scoreB: number;
 }
 
-const clamp = (v: number, min: number, max: number): number => Math.min(max, Math.max(min, v));
+const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
 
-/** A generator state for any seed — exact in doubles, no bit operations. */
-const seedRng = (seed: number): number =>
+const seedRng = (seed: number) =>
   Number.isFinite(seed) ? 1 + (Math.floor(Math.abs(seed)) % (RNG_MOD - 1)) : 1;
 
-/** Uniform in [0, 1) from the state's generator. */
-const random = (s: SimState): number => {
+const random = (s: SimState) => {
   s.rng = (s.rng * RNG_MUL) % RNG_MOD;
+
   return (s.rng - 1) / (RNG_MOD - 1);
 };
 
-const newPaddle = (): Paddle => ({
+const newPaddle: () => Paddle = () => ({
   c: null,
   charge: { hits: 0, kind: "charging" },
   human: false,
@@ -179,10 +171,11 @@ const newPaddle = (): Paddle => ({
   x: 0,
 });
 
-const restingBall = (): Ball => ({ spin: 0, spinAge: 0, vx: 0, vy: 0, x: 0, y: 0 });
+const restingBall = () => ({ spin: 0, spinAge: 0, vx: 0, vy: 0, x: 0, y: 0 });
 
-export const newMatch = (setup: MatchSetup): SimState => {
+export const newMatch: (setup: MatchSetup) => SimState = (setup) => {
   const over = Math.max(setup.scoreA, setup.scoreB) >= WIN_SCORE;
+
   return {
     a: newPaddle(),
     arc: null,
@@ -209,61 +202,63 @@ export const newMatch = (setup: MatchSetup): SimState => {
 
 /** A detached copy to step forward. Charges, the arc and the event list are
  *  never mutated once made, so they are shared. */
-export const cloneSim = (s: SimState): SimState => ({
+export const cloneSim = (s: SimState) => ({
   ...s,
   a: { ...s.a },
   b: { ...s.b },
   ball: { ...s.ball },
 });
 
-export const paddleOf = (s: SimState, slot: Slot): Paddle => (slot === 0 ? s.a : s.b);
+export const paddleOf = (s: SimState, slot: Slot) => (slot === 0 ? s.a : s.b);
 
 /** A cheap fingerprint of the whole state, to compare two clients' copies. */
-export const simChecksum = (s: SimState): number => {
+export const simChecksum = (s: SimState) => {
   const text = JSON.stringify(s);
   let hash = 0;
+
   for (let i = 0; i < text.length; i += 1) {
     hash = (hash * 31 + (text.codePointAt(i) ?? 0)) % 4_294_967_296;
   }
+
   return hash;
 };
 
-/** Seat this tick's input: a player's paddle sits on its target; without an
- *  input the AI holds it. */
-const seat = (p: Paddle, input: SlotInput | null): void => {
+const seat = (p: Paddle, input: SlotInput | null) => {
   p.human = input !== null;
+
   if (input !== null) {
     p.x = input.x / PADDLE_STEPS;
   }
 };
 
-/** A confirm press on this tick: the counter moved since the last input. */
-const pressed = (p: Paddle, input: SlotInput | null): boolean => {
+const pressed = (p: Paddle, input: SlotInput | null) => {
   if (input === null) {
     return false;
   }
+
   const edge = p.c !== null && p.c !== input.c;
   p.c = input.c;
+
   return edge;
 };
 
-/** A power-shot cancel on this tick. */
-const cancelled = (p: Paddle, input: SlotInput | null): boolean => {
+const cancelled = (p: Paddle, input: SlotInput | null) => {
   if (input === null) {
     return false;
   }
+
   const edge = p.k !== null && p.k !== input.k;
   p.k = input.k;
+
   return edge;
 };
 
-const settleCharges = (s: SimState): void => {
+const settleCharges = (s: SimState) => {
   s.a.charge = cancelCharge(s.a.charge);
   s.b.charge = cancelCharge(s.b.charge);
 };
 
-/** Serve toward the receiver, a seeded touch off straight. */
-const serve = (s: SimState): void => {
+const serve = (s: SimState) => {
   const { ball } = s;
   const towardY = s.receiver === 0 ? -1 : 1;
   const lateral = (random(s) * 2 - 1) * SERVE_LATERAL;
@@ -286,8 +281,7 @@ const serve = (s: SimState): void => {
   s.events.push({ key: `serve:${s.serves}`, kind: "serve", receiver: s.receiver });
 };
 
-/** A finished match starts over: 0–0, no charge, the first serve to slot A. */
-const rematch = (s: SimState): void => {
+const rematch = (s: SimState) => {
   s.scoreA = 0;
   s.scoreB = 0;
   s.longest = 0;
@@ -296,15 +290,13 @@ const rematch = (s: SimState): void => {
   s.b.charge = { hits: 0, kind: "charging" };
 };
 
-/** The AI: chase the ball's x at a fixed fraction of the rally pace, never past it. */
-const chase = (s: SimState, p: Paddle): void => {
+const chase = (s: SimState, p: Paddle) => {
   const reach = s.speed * AI_SPEED_FRAC * TICK_S;
   const step = clamp(s.ball.x - p.x, -reach, reach);
   p.x = clamp(p.x + step, -PADDLE_X_MAX, PADDLE_X_MAX);
 };
 
-/** A paddle returns the ball: the pace ramp, the charge, the shot and its hop. */
-const contact = (s: SimState, slot: Slot): void => {
+const contact = (s: SimState, slot: Slot) => {
   const p = paddleOf(s, slot);
   const towardY = slot === 0 ? 1 : -1;
   const { ball } = s;
@@ -339,15 +331,15 @@ const contact = (s: SimState, slot: Slot): void => {
   });
 };
 
-/** The ball crossed a goal line: score, park it there through the goal beat,
- *  and set the next serve's clock. */
-const point = (s: SimState, scorer: Slot): void => {
+const point = (s: SimState, scorer: Slot) => {
   const { ball } = s;
+
   if (scorer === 0) {
     s.scoreA += 1;
   } else {
     s.scoreB += 1;
   }
+
   const won = s.scoreA >= WIN_SCORE || s.scoreB >= WIN_SCORE;
   ball.x = clamp(ball.x, -WALL_X, WALL_X);
   ball.y = scorer === 0 ? GOAL_Y : -GOAL_Y;
@@ -365,24 +357,26 @@ const point = (s: SimState, scorer: Slot): void => {
   s.events.push({ key: `point:${s.serves}`, kind: "point", scorer, won, x: ball.x, y: ball.y });
 };
 
-/** The cosmetic hop touches down. */
-const landArc = (s: SimState): void => {
+const landArc = (s: SimState) => {
   const { arc } = s;
+
   if (arc !== null && (s.ball.y - arc.fromY) / (arc.toY - arc.fromY) >= 1) {
     s.arc = null;
     s.events.push({ key: `land:${s.serves}:${s.hits}`, kind: "land" });
   }
 };
 
-/** One tick of a live rally: AI paddles, flight, rails, contacts, goals. */
-const rally = (s: SimState): void => {
+const rally = (s: SimState) => {
   if (!s.a.human) {
     chase(s, s.a);
   }
+
   if (!s.b.human) {
     chase(s, s.b);
   }
+
   const { ball } = s;
+
   if (flyTick(ball)) {
     s.bounces += 1;
     s.events.push({
@@ -392,13 +386,15 @@ const rally = (s: SimState): void => {
       y: ball.y,
     });
   }
-  // A paddle only meets a ball moving toward it.
+
   if (ball.vy < 0 && hitsPaddle(ball, s.a.x, -PADDLE_Y)) {
     contact(s, 0);
   } else if (ball.vy > 0 && hitsPaddle(ball, s.b.x, PADDLE_Y)) {
     contact(s, 1);
   }
+
   landArc(s);
+
   if (ball.y > GOAL_Y) {
     point(s, 0);
   } else if (ball.y < -GOAL_Y) {
@@ -406,11 +402,11 @@ const rally = (s: SimState): void => {
   }
 };
 
-/** Power arms and cancels, mid-rally. */
-const chargeIntents = (p: Paddle, press: boolean, cancel: boolean): void => {
+const chargeIntents = (p: Paddle, press: boolean, cancel: boolean) => {
   if (press) {
     p.charge = armCharge(p.charge);
   }
+
   if (cancel) {
     p.charge = cancelCharge(p.charge);
   }
@@ -422,7 +418,7 @@ const chargeIntents = (p: Paddle, press: boolean, cancel: boolean): void => {
  * either player's confirm serves or rematches, mid-rally it arms that
  * player's charged return.
  */
-export const stepSim = (s: SimState, inA: SlotInput | null, inB: SlotInput | null): void => {
+export const stepSim = (s: SimState, inA: SlotInput | null, inB: SlotInput | null) => {
   s.tick += 1;
   s.events = [];
   seat(s.a, inA);
@@ -431,6 +427,7 @@ export const stepSim = (s: SimState, inA: SlotInput | null, inB: SlotInput | nul
   const pressB = pressed(s.b, inB);
   const cancelA = cancelled(s.a, inA);
   const cancelB = cancelled(s.b, inB);
+
   if (s.phase === "rally") {
     chargeIntents(s.a, pressA, cancelA);
     chargeIntents(s.b, pressB, cancelB);
@@ -438,27 +435,33 @@ export const stepSim = (s: SimState, inA: SlotInput | null, inB: SlotInput | nul
     if (s.phase === "won") {
       rematch(s);
     }
+
     serve(s);
   }
+
   if (s.freeze > 0) {
     s.freeze -= 1;
+
     if (s.freeze === 0 && s.parked) {
       s.parked = false;
       s.ball.x = 0;
       s.ball.y = 0;
     }
+
     return;
   }
+
   if (s.phase === "serving" && s.serveAt !== null && s.tick >= s.serveAt) {
     serve(s);
   }
+
   if (s.phase === "rally") {
     rally(s);
   }
 };
 
 /** Start the rally now (playtest states and the solo serve). */
-export const serveNow = (s: SimState): void => {
+export const serveNow = (s: SimState) => {
   s.events = [];
   serve(s);
 };

@@ -11,9 +11,11 @@ export const logoutCommand = defineCommand({
   },
   run: async () => {
     const config = getConfig();
+
     if (config) {
       await revokeLogin(config);
     }
+
     clearConfig();
     consola.success("Logged out");
   },

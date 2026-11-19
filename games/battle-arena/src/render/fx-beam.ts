@@ -1,28 +1,7 @@
-// The column of light a smite, an ultimate or a respawn stands up in.
-//
-// Approach ported from the Elemental Sandbox VFX sandbox (MIT, Copyright (c)
-// 2026 mohamedachrefelouafi) —
-// https://github.com/achrefelouafi/LinearAbiltyCastingThreeJS
-//
-// The trick is the weighting, and it is worth being explicit about why:
-//
-//   SHELL — rim-weighted, so the sheath reads as HOLLOW and its silhouette
-//           edges are the brightest part of it.
-//   CORE  — the opposite weighting: brightest where the view ray runs down the
-//           barrel and the path through the tube is longest. That is what makes
-//           the middle read as a solid rod rather than as a cylinder with a lit
-//           outline.
-//
-// Rim-weighted outside, axis-weighted inside, both faces of the tube adding:
-// that is a volume integral, cheaply. The sandbox spends six meshes on this;
-// we fold it into one double-sided additive tube, because at our camera
-// distance the passes it separates land inside a couple of pixels of each other
-// and the draw calls buy nothing.
 import * as THREE from "three";
 import { NOISE_GLSL } from "./fx-noise";
 
-// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-const VERT = /* glsl */ `
+const VERT = `
 varying vec2 vUv;
 varying vec3 vN;
 varying vec3 vV;
@@ -34,8 +13,7 @@ void main() {
   gl_Position = projectionMatrix * mv;
 }`;
 
-// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-const FRAG = /* glsl */ `
+const FRAG = `
 uniform float uTime;
 uniform vec3  uCore;
 uniform vec3  uShell;
@@ -85,7 +63,7 @@ export type BeamMaterial = THREE.ShaderMaterial & {
   reseed: () => void;
 };
 
-export const createBeamMaterial = (clock: { value: number }): BeamMaterial => {
+export const createBeamMaterial = (clock: { value: number }) => {
   const uniforms = {
     uCore: { value: new THREE.Color(0xff_ff_ff) },
     uOpacity: { value: 0.8 },
@@ -93,6 +71,7 @@ export const createBeamMaterial = (clock: { value: number }): BeamMaterial => {
     uShell: { value: new THREE.Color(0xff_80_40) },
     uTime: clock,
   };
+
   const mat = new THREE.ShaderMaterial({
     blending: THREE.AdditiveBlending,
     depthWrite: false,

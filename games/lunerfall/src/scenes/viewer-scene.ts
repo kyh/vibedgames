@@ -9,16 +9,11 @@ import { HEROES } from "../data/heroes";
 import { clipGameMs } from "../entities/player";
 import { HIT_BACK, HIT_DOWN, HIT_UP } from "../entities/player-body";
 
-// ?viewer=1 — an animation viewer / debug page, styled after the Battle Arena
-// editor: a DOM chrome (top bar + character roster + clip list) over a big stage
-// that plays ONE clip large enough to actually read the frames + the attack's
-// hitbox reach. LEFT/RIGHT (or click) switch character; UP/DOWN (or click) switch
-// clip. ?char=riven deep-links a character.
-
 type Char = { key: HeroName; hero: true } | { key: EnemyName; hero: false };
+
 const CHARS: Char[] = [
-  ...HERO_NAMES.map((key): Char => ({ hero: true, key })),
-  ...ENEMY_NAMES.map((key): Char => ({ hero: false, key })),
+  ...HERO_NAMES.map((key) => ({ hero: true, key }) satisfies Char),
+  ...ENEMY_NAMES.map((key) => ({ hero: false, key }) satisfies Char),
 ];
 
 const STAGE_X = BASE_W / 2;
@@ -26,42 +21,49 @@ const GROUND_Y = 214;
 const HERO_SCALE_ED = 3.9;
 const ENEMY_SCALE_ED = 5.8;
 
-// The in-game control that triggers each clip (heroes only — enemies are AI).
-// Swing clips fire on Attack (J), the special on K; the rest map to movement.
-const hotkeyFor = (char: Char, clip: string): string => {
+const hotkeyFor = (char: Char, clip: string) => {
   if (!char.hero) {
     return "";
   }
+
   const { kit } = HEROES[char.key];
+
   if (kit.swings.some((s) => s.clip === clip)) {
     return "J";
   }
+
   const sp = kit.special;
+
   if (sp.clip === clip || ("outClip" in sp && sp.outClip === clip)) {
     return "K";
   }
+
   switch (clip) {
     case "run": {
       return "← →";
     }
+
     case "jump": {
       return "↑ / Spc";
     }
+
     case "dash": {
       return "⇧ / L";
     }
+
     default: {
       return "";
-      // idle / fall / hurt / death / idle-break — contextual, no key
     }
   }
 };
 
 let styled = false;
+
 const injectStyle = () => {
   if (styled) {
     return;
   }
+
   styled = true;
   const s = document.createElement("style");
   s.textContent = `
@@ -107,7 +109,6 @@ export class ViewerScene extends Scene {
   }
 
   create() {
-    // Stage: blue-grey backdrop + a ground line the character stands on.
     this.add.rectangle(0, 0, BASE_W, BASE_H, 0x47_50_66).setOrigin(0);
     this.add.rectangle(0, BASE_H * 0.5, BASE_W, BASE_H * 0.5, 0x2b_32_42).setOrigin(0);
     this.add.rectangle(0, GROUND_Y, BASE_W, 2, COLORS.teal, 0.35).setOrigin(0, 0.5).setDepth(1);
@@ -121,14 +122,13 @@ export class ViewerScene extends Scene {
     kb?.on("keydown-D", () => this.cycleChar(1));
     kb?.on("keydown-UP", () => this.selectClip(this.clipI - 1));
     kb?.on("keydown-DOWN", () => this.selectClip(this.clipI + 1));
-    // The actual game action keys jump to + play the matching clip, so you can
-    // press J / K / L and watch what they fire (movement keys stay viewer-nav).
     kb?.on("keydown-J", () => this.playHotkey("J"));
     kb?.on("keydown-K", () => this.playHotkey("K"));
     kb?.on("keydown-L", () => this.playHotkey("⇧ / L"));
 
     const want = new URLSearchParams(location.search).get("char");
     const at = want ? CHARS.findIndex((c) => c.key === want) : -1;
+
     if (at >= 0) {
       this.ci = at;
     }
@@ -145,26 +145,28 @@ export class ViewerScene extends Scene {
     this.selectChar((this.ci + d + CHARS.length) % CHARS.length);
   }
 
-  // Play the first clip triggered by the given in-game key (J / K / dash).
   private playHotkey(key: string) {
     const char = CHARS[this.ci];
+
     if (!char) {
       return;
     }
+
     const idx = this.clips.findIndex((c) => hotkeyFor(char, c.clip) === key);
+
     if (idx !== -1) {
       this.selectClip(idx);
     }
   }
 
-  // Switch character: rebuild the big sprite (new texture/origin/scale), refill
-  // the clip list, and play the first clip.
   private selectChar(i: number) {
     this.ci = i;
     const char = CHARS[i];
+
     if (!char) {
       return;
     }
+
     this.clips = clipsFor(this, char.key);
     this.sprite?.destroy();
     const originY = char.hero ? HERO_ORIGIN_Y : ENEMY_ORIGIN_Y;
@@ -182,18 +184,18 @@ export class ViewerScene extends Scene {
     if (this.clips.length === 0) {
       return;
     }
+
     this.clipI = (i + this.clips.length) % this.clips.length;
     const info = this.clips[this.clipI];
     const char = CHARS[this.ci];
+
     if (!info || !char || !this.sprite) {
       return;
     }
+
     const hero = char.hero ? HEROES[char.key] : undefined;
-    // Preview the retimed @kit variant when the game would play one, so the
-    // viewer shows true in-game attack timing (contact frame on the hitbox).
     const key = hero ? kitClipKey(this, hero.name, info.clip) : `${char.key}:${info.clip}`;
     this.sprite.play({ key, repeat: -1 });
-    // timeScale (not duration) re-times without freezing per-frame-duration anims.
     const gm = hero ? clipGameMs(hero, info.clip) : undefined;
     const authored = this.sprite.anims.currentAnim?.duration ?? 0;
     this.sprite.anims.timeScale = gm !== undefined && gm > 0 && authored > 0 ? authored / gm : 1;
@@ -202,23 +204,22 @@ export class ViewerScene extends Scene {
     this.highlightClip();
   }
 
-  // Overlay the attack's live hitbox: swings draw their forward reach box, an AOE
-  // special draws its radius. This is what "the effects" refers to — where a move
-  // actually connects — now legible at stage scale.
   private drawFx(char: Char, clip: string) {
     const g = this.fxLayer;
+
     if (!g) {
       return;
     }
+
     g.clear();
+
     if (!char.hero) {
       return;
     }
+
     const { kit } = HEROES[char.key];
-    // Draw the ACTUAL melee hitbox (player-body's attackBox, facing right),
-    // scaled by the stage zoom and anchored at the character's feet — so what's
-    // shown is exactly what connects in-game.
     const sw = kit.swings.find((s) => s.clip === clip);
+
     if (sw) {
       const S = HERO_SCALE_ED;
       const x0 = STAGE_X - HIT_BACK * S;
@@ -228,7 +229,9 @@ export class ViewerScene extends Scene {
       g.fillStyle(COLORS.teal, 0.12).fillRect(x0, y0, w, h);
       g.lineStyle(1, COLORS.teal, 0.6).strokeRect(x0, y0, w, h);
     }
+
     const sp = kit.special;
+
     if (sp.clip === clip && sp.kind === "aoe") {
       const r = sp.radius * HERO_SCALE_ED;
       g.fillStyle(COLORS.magenta, 0.1).fillCircle(STAGE_X, GROUND_Y - 60, r);
@@ -236,17 +239,18 @@ export class ViewerScene extends Scene {
     }
   }
 
-  // ── DOM chrome ───────────────────────────────────────────────────────────────
-
   private buildUI() {
     injectStyle();
     const ui = document.createElement("div");
     ui.id = "lf-viewer";
+
     const roster = CHARS.map((c, i) => {
       const dot = c.hero ? `#${HEROES[c.key].color.toString(16).padStart(6, "0")}` : "#8b95a1";
       const tag = c.hero ? "" : `<em>foe</em>`;
+
       return `<button class="lf-char" data-i="${i}"><i style="background:${dot}"></i><span>${c.key}</span>${tag}</button>`;
     }).join("");
+
     ui.innerHTML = `
       <div class="lf-top">
         <span class="lf-logo">LUNERFALL</span>
@@ -264,9 +268,11 @@ export class ViewerScene extends Scene {
       <div class="lf-help">← → character&nbsp;&nbsp;·&nbsp;&nbsp;↑ ↓ clip&nbsp;&nbsp;·&nbsp;&nbsp;badge = in-game key&nbsp;&nbsp;·&nbsp;&nbsp;J / K / L fire attack / special / dash</div>`;
     document.body.append(ui);
     this.ui = ui;
+
     for (const btn of ui.querySelectorAll<HTMLButtonElement>(".lf-char")) {
       btn.addEventListener("click", () => {
         const i = Number(btn.dataset["i"]);
+
         if (Number.isFinite(i)) {
           this.selectChar(i);
         }
@@ -276,21 +282,26 @@ export class ViewerScene extends Scene {
 
   private fillClipList() {
     const list = document.querySelector("#lf-cliplist");
+
     if (!list) {
       return;
     }
+
     const char = CHARS[this.ci];
     list.innerHTML = this.clips
       .map((info, i) => {
         const warn = info.frames <= 1 ? ' <b class="lf-warn">⚠1f</b>' : "";
         const key = char ? hotkeyFor(char, info.clip) : "";
         const badge = key ? `<kbd>${key}</kbd>` : "";
+
         return `<button class="lf-clip" data-i="${i}"><div class="lf-clip-row"><span>${info.clip}</span>${badge}</div><em>${info.frames}f · ${info.ms}ms${warn}</em></button>`;
       })
       .join("");
+
     for (const btn of list.querySelectorAll<HTMLButtonElement>(".lf-clip")) {
       btn.addEventListener("click", () => {
         const i = Number(btn.dataset["i"]);
+
         if (Number.isFinite(i)) {
           this.selectClip(i);
         }
@@ -306,9 +317,11 @@ export class ViewerScene extends Scene {
 
   private highlightClip() {
     const active = this.ui?.querySelector(`.lf-clip[data-i="${this.clipI}"]`);
+
     for (const btn of this.ui?.querySelectorAll<HTMLButtonElement>(".lf-clip") ?? []) {
       btn.classList.toggle("on", btn === active);
     }
+
     if (active instanceof HTMLElement) {
       active.scrollIntoView({ block: "nearest" });
     }
@@ -316,12 +329,16 @@ export class ViewerScene extends Scene {
 
   private updateStatus(info: ClipInfo, gameMs: number | undefined) {
     const el = document.querySelector("#lf-status");
+
     if (!el) {
       return;
     }
+
     const char = CHARS[this.ci];
+
     const timing =
       gameMs !== undefined && gameMs !== info.ms ? `${info.ms}→${gameMs}ms` : `${info.ms}ms`;
+
     el.textContent = `${char?.key ?? ""}  ·  ${info.clip}  ·  ${info.frames}f  ·  ${timing}`;
   }
 }

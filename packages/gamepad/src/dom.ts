@@ -53,7 +53,7 @@ export interface DomGamepad {
   destroy: () => void;
 }
 
-const defaultIgnore = (target: EventTarget | null): boolean =>
+const defaultIgnore = (target: EventTarget | null) =>
   target instanceof Element &&
   target.closest("button, a, input, select, textarea, [data-gamepad-ignore]") !== null;
 
@@ -68,9 +68,10 @@ interface Overlay {
   draw: (pad: VirtualGamepad, tint: string, show: boolean) => void;
 }
 
-// All chrome is drawn with white at fixed alphas; only the accent (knob fill,
-// button border) takes the tint — mirrors the Phaser renderer's look.
-const createOverlay = (parent: HTMLElement, opts: DomGamepadRenderOptions): Overlay => {
+const createOverlay: (parent: HTMLElement, opts: DomGamepadRenderOptions) => Overlay = (
+  parent,
+  opts,
+) => {
   const root = document.createElement("div");
   root.className = "vg-gamepad";
   root.style.cssText =
@@ -78,21 +79,23 @@ const createOverlay = (parent: HTMLElement, opts: DomGamepadRenderOptions): Over
     "font-family:system-ui,sans-serif;user-select:none;-webkit-user-select:none;";
   parent.append(root);
 
-  // Nodes are positioned with transform (top-left stays 0,0) and every style
-  // write is diffed through this cache, so an idle overlay costs zero style
-  // recalcs and a moving knob is compositor-only.
   const applied = new Map<HTMLElement, Record<string, string>>();
-  const set = (node: HTMLElement, styles: Record<string, string>): void => {
+
+  const set = (node: HTMLElement, styles: Record<string, string>) => {
     let prev = applied.get(node);
+
     if (!prev) {
       prev = {};
       applied.set(node, prev);
     }
+
     for (const [key, value] of Object.entries(styles)) {
       if (prev[key] === value) {
         continue;
       }
+
       prev[key] = value;
+
       if (key === "text") {
         node.textContent = value;
       } else {
@@ -100,19 +103,24 @@ const createOverlay = (parent: HTMLElement, opts: DomGamepadRenderOptions): Over
       }
     }
   };
-  const el = (cls: string, css: string): HTMLElement => {
+
+  const el = (cls: string, css: string) => {
     const d = document.createElement("div");
     d.className = cls;
     d.style.cssText = css;
     root.append(d);
+
     return d;
   };
+
   const circle =
     "position:absolute;left:0;top:0;border-radius:50%;box-sizing:border-box;display:none;will-change:transform;";
+
   const base = el(
     "vg-stick-base",
     `${circle}background:rgba(255,255,255,.05);border:2px solid rgba(255,255,255,.2);`,
   );
+
   const knob = el("vg-stick-knob", `${circle}border:2px solid;`);
   const buttons = new Map<string, HTMLElement>();
 
@@ -123,17 +131,20 @@ const createOverlay = (parent: HTMLElement, opts: DomGamepadRenderOptions): Over
       const stickOn = show && stick.active && geom !== null;
       set(base, { display: stickOn ? "block" : "none" });
       set(knob, { display: stickOn ? "block" : "none" });
+
       if (stickOn && geom) {
-        // Puck clamps to the ring edge so it never escapes the base.
         const clamped = Math.min(stick.distance, geom.radius);
+
         const kx =
           stick.distance > 0.001
             ? stick.anchorX + (stick.dx / stick.distance) * clamped
             : stick.anchorX;
+
         const ky =
           stick.distance > 0.001
             ? stick.anchorY + (stick.dy / stick.distance) * clamped
             : stick.anchorY;
+
         set(base, placement(stick.anchorX, stick.anchorY, geom.radius));
         set(knob, {
           ...placement(kx, ky, geom.knobRadius),
@@ -141,12 +152,14 @@ const createOverlay = (parent: HTMLElement, opts: DomGamepadRenderOptions): Over
           "border-color": tint,
         });
       }
+
       for (const b of pad.getButtonLayout()) {
         if (b.rest) {
           continue;
-          // rest buttons have no on-screen position
         }
+
         let node = buttons.get(b.id);
+
         if (!node) {
           node = el(
             "vg-btn",
@@ -156,10 +169,12 @@ const createOverlay = (parent: HTMLElement, opts: DomGamepadRenderOptions): Over
           node.dataset["id"] = b.id;
           buttons.set(b.id, node);
         }
+
         if (!show) {
           set(node, { display: "none" });
           continue;
         }
+
         set(node, {
           ...placement(b.x, b.y, b.radius),
           background: b.pressed
@@ -200,7 +215,7 @@ const createOverlay = (parent: HTMLElement, opts: DomGamepadRenderOptions): Over
  * if (gamepad.justPressed("jump")) jump();
  * ```
  */
-export const attachDomGamepad = (options: DomGamepadOptions = {}): DomGamepad => {
+export const attachDomGamepad: (options?: DomGamepadOptions) => DomGamepad = (options = {}) => {
   const pad = new VirtualGamepad(options);
   const ignore = options.ignore ?? defaultIgnore;
   const policy = options.visible ?? "touch";
@@ -212,35 +227,41 @@ export const attachDomGamepad = (options: DomGamepadOptions = {}): DomGamepad =>
 
   const live = new Set<number>();
 
-  const syncViewport = (): void =>
+  const syncViewport = () =>
     pad.setViewport(window.innerWidth, window.innerHeight, safeAreaInset());
+
   syncViewport();
 
-  const onDown = (e: PointerEvent): void => {
+  const onDown = (e: PointerEvent) => {
     if (e.pointerType !== "touch") {
       return;
-      // mouse stays on the game's own controls
     }
+
     if (!isTouch) {
       isTouch = true;
       options.onFirstTouch?.();
     }
+
     if (ignore(e.target)) {
       return;
     }
+
     live.add(e.pointerId);
     pad.pointerDown(e.pointerId, e.clientX, e.clientY);
   };
-  const onMove = (e: PointerEvent): void => {
+
+  const onMove = (e: PointerEvent) => {
     if (e.pointerType === "touch") {
       pad.pointerMove(e.pointerId, e.clientX, e.clientY);
     }
   };
-  const onUp = (e: PointerEvent): void => {
+
+  const onUp = (e: PointerEvent) => {
     live.delete(e.pointerId);
     pad.pointerUp(e.pointerId);
   };
-  const onGone = (): void => {
+
+  const onGone = () => {
     live.clear();
     pad.reset();
   };
@@ -259,6 +280,7 @@ export const attachDomGamepad = (options: DomGamepadOptions = {}): DomGamepad =>
       if (destroyed) {
         return;
       }
+
       destroyed = true;
       window.removeEventListener("pointerdown", onDown);
       window.removeEventListener("pointermove", onMove);
@@ -291,9 +313,13 @@ export const attachDomGamepad = (options: DomGamepadOptions = {}): DomGamepad =>
 };
 
 export { VirtualGamepad, stickDirection4, stickDirection8 } from "./core.js";
+
 export { PhysicalGamepad, isPadConnected } from "./physical.js";
+
 export { safeAreaInset } from "./safe-area.js";
+
 export type { PadButton, PhysicalGamepadOptions } from "./physical.js";
+
 export type {
   ButtonLayout,
   ButtonOptions,

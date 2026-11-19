@@ -19,19 +19,22 @@ export const ProfileSettings = ({ user }: { user: ShellUser }) => {
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
+
     if (!dirty) {
       return;
     }
+
     setSaving(true);
     const { error } = await authClient.updateUser({ name: trimmed });
     setSaving(false);
+
     if (error) {
       toast.error(error.message ?? "Couldn't update name");
+
       return;
     }
+
     toast.success("Name updated");
-    // Re-runs the _account beforeLoad so route context (and the shell's
-    // avatar initials) pick up the new name.
     await router.invalidate();
   };
 

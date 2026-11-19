@@ -11,7 +11,6 @@ const config: Types.Core.GameConfig = {
   backgroundColor: "#0e1020",
   parent: "game",
   pixelArt: true,
-  // Fill the window; GameScene owns the follow-camera + zoom.
   scale: {
     height: "100%",
     mode: Scale.RESIZE,
@@ -22,13 +21,14 @@ const config: Types.Core.GameConfig = {
 };
 
 const webgl = probeWebGL();
+
 if (!webgl.ok) {
   showWebGLVeil(webgl);
-  // Module-level boot has no early return: the uncaught throw logs the reason and stops.
   throw new Error(`WebGL unavailable: ${webgl.reason}`);
 }
 
 const game = new Game(config);
+
 game.canvas.addEventListener("webglcontextlost", () => {
   console.error("WebGL context lost");
   showWebGLVeil(
@@ -37,42 +37,38 @@ game.canvas.addEventListener("webglcontextlost", () => {
   );
 });
 
-// Scale.RESIZE can read stale parent bounds when a resize lands while the tab
-// is hidden or the browser throttles events (tab switch, phone rotation): the
-// canvas lags one size behind. Re-check once layout settles and on tab return.
 let settle: ReturnType<typeof setTimeout> | undefined;
-const refreshScale = (): void => {
+
+const refreshScale = () => {
   clearTimeout(settle);
   settle = setTimeout(() => game.scale.refresh(), 150);
 };
+
 window.addEventListener("resize", refreshScale);
+
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden) {
     refreshScale();
   }
 });
 
-// Wrapper pause. The overlay always shows and local input + audio always stop;
-// the sim only FREEZES when no other human is in the arena — freezing a shared
-// online round would stall the other players (their sim is wall-clock driven
-// too). GameScene.pauseSimulation stops the sim clock so fuses/round/AI
-// deadlines hold: a bomb with 2s of fuse left before the pause still has ~2s
-// after resume, instead of every stored deadline firing at once when the loop
-// wakes. The embed package re-announces the game as started after onResume.
 let froze = false;
 const pauseOverlay = createBombermanPauseOverlay({ get: isMuted, set: setMuted });
-const gameScene = (): GameScene | null =>
+
+const gameScene = () =>
   game.scene.isActive("Game") ? game.scene.getScene<GameScene>("Game") : null;
+
 setPauseHandlers({
   onPause: () => {
     pauseOverlay.show();
     pauseAudio(true);
     const scene = gameScene();
     scene?.setPresentationPaused(true);
-    // Other humans present (live online round) — leave the sim running.
+
     if (!scene || !scene.freezable) {
       return;
     }
+
     froze = true;
     scene.pauseSimulation();
     game.sound.pauseAll();
@@ -82,9 +78,11 @@ setPauseHandlers({
     pauseAudio(false);
     const scene = gameScene();
     scene?.setPresentationPaused(false);
+
     if (!froze) {
       return;
     }
+
     froze = false;
     scene?.resumeSimulation();
     game.sound.resumeAll();

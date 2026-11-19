@@ -1,62 +1,9 @@
 import * as THREE from "three";
 
-// VENDORED from three r0.185.1 — `examples/jsm/objects/Sky.js` (the Preetham
-// analytic daylight model). Everything outside the marked patch blocks is
-// the addon verbatim, ported to TypeScript: same uniform names, same defaults,
-// same vertex/fragment source, same cloud layer. Re-applying this on a three
-// upgrade is a matter of diffing the new addon against this file and moving the
-// five `>>> patch` blocks across; nothing else here is ours.
-//
-// WHY WE OWN A COPY. Preetham's model saturates at grazing angles. The optical
-// path (`inverse` in the fragment shader) grows to ~36x the zenith's at the
-// horizon, which drives `1 - Fex` to 1 in EVERY channel — the in-scattered term
-// stops being blue and stops growing, it just clips. Measured pre-tonemap on
-// the shipped grade, noon: the bottom ~8 degrees of the dome sits at luminance
-// 5.4 at every azimuth against a zenith of 0.19, and lands on screen at
-// sRGB 96-99 out of 100 all the way round. That is the flat pale band across
-// the horizon of every elevated and every into-sun frame, and after the sun
-// disc was bounded (render/day-night.ts SUN_DISC_RADIANCE) it was ~90% of the
-// residual blown area in the game.
-//
-// NO UNIFORM CAN REACH IT, which is why the file had to be vendored. Both
-// obvious knobs were measured and rejected first:
-//   - lowering `rayleigh` scales TOTAL scattering, so it dims the whole dome
-//     (zenith 0.38 -> 0.19) and collapses the three-band value separation;
-//   - loosening the mie lobe (`mieCoefficient` 0.0018 -> 0.0013, `mieG`
-//     0.8 -> 0.7) measured slightly WORSE on three of four noon frames. The
-//     residual is the horizon RING, not the sun's halo.
-// The ring is a property of the model's own airmass term, so the fix has to be
-// in the model.
-
-// Optical depth of the rolloff at the horizon, in nepers, at full strength.
-// Driven per-hour by render/day-night.ts (the day-night rig owns how much air
-// the light is coming through — see the SKY_* presets there); this is only the
-// value a bare `new Sky()` starts at.
 const HORIZON_ROLLOFF_DEFAULT = 1.7;
-// ...and the angular scale it falls off over, in units of sin(elevation).
-// 0.09 puts the half-depth at ~3.6 degrees and leaves everything above ~12
-// degrees untouched to within a part in a hundred: measured over the whole
-// hemisphere, the mid-sky band (15-60 degrees) moves 56.5 -> 56.1 sRGB grey
-// while the bottom 8 degrees moves 93.2 -> 84.2. That asymmetry is the whole
-// point — the dome above the haze layer is not the defect and must not move,
-// or the "sky is the brightest band" read goes with it.
 const HORIZON_SCALE = 0.09;
 
-// Horizon weld band, in sin(elevation) (~3.2 degrees). Fogged geometry
-// converges on the scene fog color as it recedes; below this band the dome
-// converges onto the SAME color from its side, so at the horizon line the
-// sea/sky and hills/sky boundaries meet on one number and the seam has
-// nothing left to be. The band is narrow enough to read as the compressed
-// haze layer of a real horizon, and because the weld target is the LIVE fog
-// color (fed per render, see onBeforeRender) it lands at every hour of the
-// cycle without per-stop tuning.
 const HORIZON_WELD_BAND = 0.055;
-// Triangular-PDF dither on the dome's slow gradients — two uniform hashes
-// summed give the triangular distribution, applied once RELATIVE (the bright
-// end, where ACES compression narrows the display steps) and once ABSOLUTE
-// (the dark end: the dusk gradient is where the banding lives). The absolute
-// term is re-derived for this game's exposure (0.62) from the reference
-// grade's 0.002 at exposure 1.05.
 const DITHER_RELATIVE = 0.005;
 const DITHER_ABSOLUTE = 0.0034;
 
@@ -74,16 +21,11 @@ type SkyUniforms = {
   readonly cloudElevation: THREE.IUniform<number>;
   readonly showSunDisc: THREE.IUniform<number>;
   readonly time: THREE.IUniform<number>;
-  // >>> vibedgames patch 1/5: the rolloff's strength, so the day-night rig can
-  // hold the sunset's low-sun glow while the noon dome gets the full cut; and
-  // the live scene fog color the horizon weld converges onto.
   readonly horizonRolloff: THREE.IUniform<number>;
   readonly fogColor: THREE.IUniform<THREE.Color>;
-  // <<< end patch 1/5
 };
 
-// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-const VERTEX = /* glsl */ `
+const VERTEX = `
   uniform vec3 sunPosition;
   uniform float rayleigh;
   uniform float turbidity;
@@ -155,8 +97,7 @@ const VERTEX = /* glsl */ `
 
   }`;
 
-// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-const FRAGMENT = /* glsl */ `
+const FRAGMENT = `
   varying vec3 vWorldPosition;
   varying vec3 vSunDirection;
   varying vec3 vBetaR;
@@ -370,14 +311,8 @@ const FRAGMENT = /* glsl */ `
 export class Sky extends THREE.Mesh<THREE.BoxGeometry, THREE.ShaderMaterial> {
   readonly isSky = true;
 
-  // >>> vibedgames patch 5/5: the horizon weld's fog source. The dome renders
-  // in the live scene (which carries scene.fog, mutated in place by the
-  // day-night cycle) and in game-scene's sky-bake cube pass (a bare temp
-  // scene with none) — caching the Fog INSTANCE from the last fogged render
-  // keeps the bake welded to the cycle's current color too.
   private sceneFog: THREE.Fog | THREE.FogExp2 | null = null;
   private readonly fogColorUniform: THREE.IUniform<THREE.Color>;
-  // <<< end patch 5/5
 
   constructor() {
     const uniforms: SkyUniforms = {
@@ -397,6 +332,7 @@ export class Sky extends THREE.Mesh<THREE.BoxGeometry, THREE.ShaderMaterial> {
       turbidity: { value: 2 },
       up: { value: new THREE.Vector3(0, 1, 0) },
     };
+
     super(
       new THREE.BoxGeometry(1, 1, 1),
       new THREE.ShaderMaterial({
@@ -411,10 +347,11 @@ export class Sky extends THREE.Mesh<THREE.BoxGeometry, THREE.ShaderMaterial> {
     this.fogColorUniform = uniforms.fogColor;
   }
 
-  override onBeforeRender(_renderer: THREE.WebGLRenderer, scene: THREE.Scene): void {
+  override onBeforeRender(_renderer: THREE.WebGLRenderer, scene: THREE.Scene) {
     if (scene.fog) {
       this.sceneFog = scene.fog;
     }
+
     if (this.sceneFog) {
       this.fogColorUniform.value.copy(this.sceneFog.color);
     }

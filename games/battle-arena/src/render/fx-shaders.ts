@@ -1,12 +1,7 @@
-// Shared combat-FX shader materials. All animation reads ONE global clock
-// uniform (tickFxShaders advances it on the hit-stop-scaled dt, so shader fx
-// hang in the freeze like everything else). Materials are shared per kind —
-// adding a projectile never compiles a new program.
 import * as THREE from "three";
 import { fxTex } from "./fx-textures";
 import { NOISE_GLSL } from "./fx-noise";
 
-// one clock object referenced by every material — mutate, never reassign
 const CLOCK = { value: 0 };
 
 /** The shared clock, for materials built outside this module (crystals, bolts,
@@ -14,13 +9,11 @@ const CLOCK = { value: 0 };
 export const fxClock = CLOCK;
 
 /** Advance the global shader clock (call once per frame with the fx dt). */
-export const tickFxShaders = (dt: number): void => {
+export const tickFxShaders = (dt: number) => {
   CLOCK.value += dt;
 };
 
-// cheap value-ish noise, good enough for fire/energy wobble at game speed
-// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-const CHEAP_NOISE_GLSL = /* glsl */ `
+const CHEAP_NOISE_GLSL = `
 float hash21(vec2 p){ p = fract(p*vec2(234.34,435.345)); p += dot(p,p+34.23); return fract(p.x*p.y); }
 float vnoise(vec2 p){
   vec2 i = floor(p); vec2 f = fract(p); f = f*f*(3.0-2.0*f);
@@ -29,22 +22,20 @@ float vnoise(vec2 p){
 }
 float fbm(vec2 p){ return 0.6*vnoise(p) + 0.4*vnoise(p*2.3 + 7.7); }`;
 
-// ── Energy ball (fireball / hexbolt / bolt cores) ────────────────────────────
-// A sphere whose surface boils (scrolling fbm emission) with a hot fresnel rim.
-// HDR-bright (>1) so the bloom pass catches the core.
 const ballCache = new Map<number, THREE.ShaderMaterial>();
 
 /** Shared boiling-energy material for projectile cores, keyed by color. */
-export const energyBallMaterial = (color: number): THREE.ShaderMaterial => {
+export const energyBallMaterial = (color: number) => {
   let mat = ballCache.get(color);
+
   if (mat) {
     return mat;
   }
+
   mat = new THREE.ShaderMaterial({
     blending: THREE.AdditiveBlending,
     depthWrite: false,
-    // oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-    fragmentShader: /* glsl */ `
+    fragmentShader: `
       uniform float uTime; uniform vec3 uColor;
       varying vec3 vN; varying vec3 vV; varying vec2 vUv;
       ${CHEAP_NOISE_GLSL}
@@ -63,8 +54,7 @@ export const energyBallMaterial = (color: number): THREE.ShaderMaterial => {
       uColor: { value: new THREE.Color(color) },
       uTime: CLOCK,
     },
-    // oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-    vertexShader: /* glsl */ `
+    vertexShader: `
       varying vec3 vN; varying vec3 vV; varying vec2 vUv;
       void main(){
         vUv = uv;
@@ -75,19 +65,15 @@ export const energyBallMaterial = (color: number): THREE.ShaderMaterial => {
       }`,
   });
   ballCache.set(color, mat);
+
   return mat;
 };
 
-// ── Shockwave ring ───────────────────────────────────────────────────────────
-// An AUTHORED ragged shock ring (fx/shockwave.png — spiky torn rim) tinted per
-// effect. The pool animates uT 0→1; expansion is mesh scale; uSeed spins the
-// sprite so back-to-back rings never read as the same stamp.
-export const makeRingMaterial = (): THREE.ShaderMaterial =>
+export const makeRingMaterial = () =>
   new THREE.ShaderMaterial({
     blending: THREE.AdditiveBlending,
     depthWrite: false,
-    // oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-    fragmentShader: /* glsl */ `
+    fragmentShader: `
       uniform sampler2D uMap; uniform vec3 uColor; uniform float uT; uniform float uAlpha; uniform float uSeed;
       varying vec2 vUv;
       void main(){
@@ -109,27 +95,18 @@ export const makeRingMaterial = (): THREE.ShaderMaterial =>
       uColor: { value: new THREE.Color(0xff_ff_ff) },
       uMap: { value: fxTex("shockwave") },
       uSeed: { value: 0 },
-      // life progress 0→1,
       uT: { value: 0 },
     },
-    // oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-    vertexShader: /* glsl */ `
+    vertexShader: `
       varying vec2 vUv;
       void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
   });
 
-// ── Crescent slash (anime sword arc) ─────────────────────────────────────────
-// AUTHORED slash sprites (fx/slash-*.png) tinted per champ, with the angular
-// sweep-reveal + a caustic-texture dissolve on top — the Unity-pack crescents
-// driven by our own timing. Unit quad; set uUVOff/uUVScale to address a
-// sub-sprite on a sheet, uRot to register the art's opening toward local +X.
-// Animate uT 0→1 over the slash's life.
-export const makeSlashMaterial = (): THREE.ShaderMaterial =>
+export const makeSlashMaterial = () =>
   new THREE.ShaderMaterial({
     blending: THREE.AdditiveBlending,
     depthWrite: false,
-    // oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-    fragmentShader: /* glsl */ `
+    fragmentShader: `
       uniform sampler2D uMap; uniform sampler2D uNoise;
       uniform vec3 uColor; uniform float uT; uniform float uSpan; uniform float uSeed; uniform float uDir;
       uniform vec2 uUVOff; uniform vec2 uUVScale; uniform float uRot;
@@ -161,36 +138,21 @@ export const makeSlashMaterial = (): THREE.ShaderMaterial =>
     transparent: true,
     uniforms: {
       uColor: { value: new THREE.Color(0xff_ff_ff) },
-      // sweep direction: 1 = CCW, -1 = CW (mirrored dual-wield)
       uDir: { value: 1 },
       uMap: { value: fxTex("slash-white") },
       uNoise: { value: fxTex("noise-caustic", { wrap: true }) },
-      // sprite registration spin (radians)
       uRot: { value: 0 },
       uSeed: { value: 0 },
-      // angular half-width of the sweep reveal (radians)
       uSpan: { value: 1.1 },
       uT: { value: 0 },
       uUVOff: { value: new THREE.Vector2(0, 0) },
       uUVScale: { value: new THREE.Vector2(1, 1) },
     },
-    // oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-    vertexShader: /* glsl */ `
+    vertexShader: `
       varying vec2 vUv;
       void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
   });
 
-// ── Ground cracks ────────────────────────────────────────────────────────────
-// The earth torn open: a branching fissure network with a hot seam that cools
-// over the decal's life (the Diablo "the earth remembers the hit" language).
-// Unit quad, scale the pivot (uniform = radial star; stretched = directional
-// gash). uPulse > 0 re-heats the seam at ~2Hz (Vesper's bleed).
-//
-// Cracks are the ZERO CROSSING of an fbm field, not cell borders. A cell
-// pattern gives closed polygons — dried mud, not fracture. Where noise changes
-// sign you get a thin, meandering, forked sheet, which is what a real crack is.
-// Sampling that field in polar coordinates with the angle stretched makes the
-// arms run OUTWARD from the impact instead of wandering across it.
 export type CrackMaterial = THREE.ShaderMaterial & {
   /** Arm a fresh decal: colour, noise offset, and whether the seam re-heats. */
   arm: (color: number, pulse: number) => void;
@@ -198,23 +160,20 @@ export type CrackMaterial = THREE.ShaderMaterial & {
   step: (t: number, grow: number) => void;
 };
 
-export const makeCrackMaterial = (): CrackMaterial => {
+export const makeCrackMaterial = () => {
   const uniforms = {
-    // hot seam
     uColor: { value: new THREE.Color(0xff_80_40) },
-    // 0→1 as the network tears open (real seconds)
     uGrow: { value: 0 },
     uPulse: { value: 0 },
     uSeed: { value: 0 },
-    // life progress 0→1
     uT: { value: 0 },
     uTime: CLOCK,
   };
+
   const mat = new THREE.ShaderMaterial({
     blending: THREE.NormalBlending,
     depthWrite: false,
-    // oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-    fragmentShader: /* glsl */ `
+    fragmentShader: `
       uniform float uTime; uniform vec3 uColor; uniform float uT; uniform float uSeed; uniform float uPulse; uniform float uGrow;
       varying vec2 vUv;
       ${NOISE_GLSL}
@@ -267,8 +226,7 @@ export const makeCrackMaterial = (): CrackMaterial => {
     side: THREE.DoubleSide,
     transparent: true,
     uniforms,
-    // oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-    vertexShader: /* glsl */ `
+    vertexShader: `
       varying vec2 vUv;
       void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
   });
@@ -288,16 +246,11 @@ export const makeCrackMaterial = (): CrackMaterial => {
   });
 };
 
-// ── Rune circle ──────────────────────────────────────────────────────────────
-// A rotating arcane ring: outer band, dashed inner band, tick glyphs. Used as
-// an arming telegraph (smite / grand hex / trap) and as the persistent
-// underfoot ring for buffs (Iron Stance / Bastion / Hunter's Focus).
-export const makeRuneMaterial = (color: number): THREE.ShaderMaterial =>
+export const makeRuneMaterial = (color: number) =>
   new THREE.ShaderMaterial({
     blending: THREE.AdditiveBlending,
     depthWrite: false,
-    // oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-    fragmentShader: /* glsl */ `
+    fragmentShader: `
       uniform float uTime; uniform vec3 uColor; uniform float uAlpha;
       varying vec2 vUv;
       void main(){
@@ -322,21 +275,16 @@ export const makeRuneMaterial = (color: number): THREE.ShaderMaterial =>
       uColor: { value: new THREE.Color(color) },
       uTime: CLOCK,
     },
-    // oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-    vertexShader: /* glsl */ `
+    vertexShader: `
       varying vec2 vUv;
       void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
   });
 
-// ── Vortex drum (whirlwind ult) / light pillar shell ─────────────────────────
-// Open-ended cylinder with diagonal energy stripes racing around it, fading
-// toward the top (uUp 0) or blooming upward from the ground (uUp 1).
-export const makeVortexMaterial = (color: number, upward = false): THREE.ShaderMaterial =>
+export const makeVortexMaterial = (color: number, upward = false) =>
   new THREE.ShaderMaterial({
     blending: THREE.AdditiveBlending,
     depthWrite: false,
-    // oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-    fragmentShader: /* glsl */ `
+    fragmentShader: `
       uniform float uTime; uniform vec3 uColor; uniform float uAlpha; uniform float uUp;
       varying vec2 vUv;
       ${CHEAP_NOISE_GLSL}
@@ -359,8 +307,7 @@ export const makeVortexMaterial = (color: number, upward = false): THREE.ShaderM
       uTime: CLOCK,
       uUp: { value: upward ? 1 : 0 },
     },
-    // oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-    vertexShader: /* glsl */ `
+    vertexShader: `
       varying vec2 vUv;
       void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
   });

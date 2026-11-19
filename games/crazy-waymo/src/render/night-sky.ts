@@ -1,46 +1,21 @@
 import * as THREE from "three";
 
-// The night dome. Below the horizon the physical Sky shader returns black, so
-// the night used to swap `scene.background` for ONE flat colour (the fog color
-// dimmed). That blends into the fog line perfectly and is otherwise dead: half
-// of every night frame was a single value with nothing in it — no gradient, no
-// stars, no moon. This paints that half instead.
-//
-// It is an equirectangular CANVAS, not a shader dome, for one reason: the dome
-// would have to be added to the scene by the scene owner, while `background`
-// is already DayNight's to set. The cost is a re-bake whenever the night fog
-// color drifts far enough to matter (REBAKE_EPS), which over a real SF night is
-// a handful of times an hour.
-//
-// The horizon row is painted with the CALLER's fog color, so the fog line still
-// meets the dome seamlessly — the gradient only darkens going up, which is the
-// direction nothing else in the frame occupies.
-
 const W = 512;
 const H = 256;
-// Below this the dome is flat horizon colour: the ground covers it, and a
-// gradient running past the horizon shows as a band under distant terrain.
 const HORIZON_V = 0.5;
-// how much of the horizon value survives at the zenith
 const ZENITH_MUL = 0.6;
-// matches the flat background this replaced (fog * 0.72-ish)
 const HORIZON_MUL = 0.78;
 const STARS = 700;
-// per-channel fog drift that forces a re-bake
 const REBAKE_EPS = 0.012;
-// Triangular-PDF dither amplitude for the gradient, in 8-bit steps. The dome
-// ramp spans only a few dozen values over 128 rows, so an undithered 8-bit
-// paint shows fat horizontal bands on the one half of the night frame that is
-// otherwise a clean gradient; under one step of triangular noise they read as
-// grain that hides beneath the star field.
 const DITHER_AMPLITUDE = 0.75;
 
-// Deterministic star field: a re-bake must not re-roll the sky.
 /* oxlint-disable no-bitwise -- LCG: the uint32 wrap IS the algorithm */
-const starRng = (seed: number): (() => number) => {
+const starRng = (seed: number) => {
   let s = seed >>> 0;
+
   return () => {
     s = (s * 1_664_525 + 1_013_904_223) >>> 0;
+
     return s / 4_294_967_296;
   };
 };
@@ -50,37 +25,28 @@ const scratch = new THREE.Color();
 const hRGB = { b: 0, g: 0, r: 0 };
 const zRGB = { b: 0, g: 0, r: 0 };
 
-const paint = (ctx: CanvasRenderingContext2D, fog: THREE.Color): void => {
-  // getStyle()/getRGB(SRGBColorSpace), never `r * 255`: with three's colour
-  // management on, a Color's channels are LINEAR, and the canvas this paints
-  // into is read back as sRGB. Writing linear bytes straight to it costs
-  // roughly a factor of three in value — the whole dome came out near-black
-  // on the first pass.
+const paint = (ctx: CanvasRenderingContext2D, fog: THREE.Color) => {
   scratch.copy(fog).multiplyScalar(HORIZON_MUL);
   const hStyle = scratch.getStyle();
   scratch.getRGB(hRGB, THREE.SRGBColorSpace);
-  // Zenith drifts BLUER as well as darker — a straight multiply keeps the fog's
-  // hue and reads as "the same colour, dimmer", which is the flat look again.
   scratch.copy(fog).multiplyScalar(HORIZON_MUL * ZENITH_MUL);
   scratch.b = Math.min(1, scratch.b * 1.5 + 0.004);
   scratch.r *= 0.72;
   scratch.g *= 0.86;
   scratch.getRGB(zRGB, THREE.SRGBColorSpace);
 
-  // The gradient half is painted per-pixel with a triangular dither (see
-  // DITHER_AMPLITUDE) — createLinearGradient quantises straight to bands.
-  // Uint8ClampedArray assignment rounds and clamps, so the noisy float can be
-  // written as-is. The sRGB lerp per row matches what the canvas gradient did.
   const rows = Math.round(H * HORIZON_V);
   const img = ctx.createImageData(W, rows);
   const px = img.data;
   const ditherRnd = starRng(0x2b_9d_43);
   let i = 0;
+
   for (let y = 0; y < rows; y += 1) {
     const t = y / (rows - 1);
     const r = (zRGB.r + (hRGB.r - zRGB.r) * t) * 255;
     const g = (zRGB.g + (hRGB.g - zRGB.g) * t) * 255;
     const b = (zRGB.b + (hRGB.b - zRGB.b) * t) * 255;
+
     for (let x = 0; x < W; x += 1) {
       const n = (ditherRnd() + ditherRnd() - 1) * DITHER_AMPLITUDE;
       px[i] = r + n;
@@ -93,32 +59,33 @@ const paint = (ctx: CanvasRenderingContext2D, fog: THREE.Color): void => {
       i += 1;
     }
   }
+
   ctx.putImageData(img, 0, 0);
   ctx.fillStyle = hStyle;
   ctx.fillRect(0, rows, W, H - rows);
 
-  // Stars thin out toward the horizon (haze) and never sit below it.
   const rnd = starRng(0x5f_3a_11);
+
   for (let star = 0; star < STARS; star += 1) {
     const x = rnd() * W;
-    // 0 horizon .. 1 zenith
     const t = rnd();
     const y = H * HORIZON_V * (1 - t);
     const bright = rnd();
     const a = (0.18 + 0.72 * bright * bright) * (0.25 + 0.75 * t);
     let r = 0.7;
+
     if (bright > 0.94) {
       r = 1.5;
     } else if (bright > 0.75) {
       r = 1;
     }
-    // A touch of colour on the brightest ones; the rest stay neutral so the
-    // field reads as stars and not as noise. Only the brightest draw from the
-    // stream, or every star below the cut would shift.
+
     let tint = "255,255,255";
+
     if (bright > 0.9) {
       tint = rnd() > 0.5 ? "255,228,205" : "205,224,255";
     }
+
     ctx.fillStyle = `rgba(${tint},${a.toFixed(3)})`;
     ctx.beginPath();
     ctx.arc(x, y, r, 0, Math.PI * 2);
@@ -137,27 +104,33 @@ export class NightSky {
   private tex: THREE.CanvasTexture | null = null;
   private bakedFor = new THREE.Color(-1, -1, -1);
 
-  texture(fog: THREE.Color): THREE.Texture | null {
+  texture(fog: THREE.Color) {
     if (!this.canvas) {
       if (typeof document === "undefined") {
         return null;
       }
+
       this.canvas = document.createElement("canvas");
       this.canvas.width = W;
       this.canvas.height = H;
       this.ctx = this.canvas.getContext("2d");
+
       if (!this.ctx) {
         return null;
       }
+
       this.tex = new THREE.CanvasTexture(this.canvas);
       this.tex.mapping = THREE.EquirectangularReflectionMapping;
       this.tex.colorSpace = THREE.SRGBColorSpace;
     }
+
     const { ctx } = this;
     const { tex } = this;
+
     if (!ctx || !tex) {
       return null;
     }
+
     if (
       Math.abs(fog.r - this.bakedFor.r) > REBAKE_EPS ||
       Math.abs(fog.g - this.bakedFor.g) > REBAKE_EPS ||
@@ -167,6 +140,7 @@ export class NightSky {
       paint(ctx, fog);
       tex.needsUpdate = true;
     }
+
     return tex;
   }
 }

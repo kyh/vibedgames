@@ -1,14 +1,10 @@
-// Fireflies drift around the bushes after dark. They are a single Points draw:
-// the vertex shader wanders each one on its own phase and blinks it, and the
-// fragment shader fades the whole swarm in with the night level.
 import * as THREE from "three";
 import { rand } from "../utils";
 import type { World } from "../world/world";
 
 const COUNT = 90;
 
-// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-const FIREFLY_VERT = /* glsl */ `
+const FIREFLY_VERT = `
         attribute float aPhase;
         uniform float uTime; uniform float uScale;
         varying float vBlink;
@@ -23,8 +19,7 @@ const FIREFLY_VERT = /* glsl */ `
           gl_PointSize = ( 0.1 + vBlink * 0.12 ) * uScale / max( 0.1, - mv.z );
         }`;
 
-// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-const FIREFLY_FRAG = /* glsl */ `
+const FIREFLY_FRAG = `
         uniform float uNight;
         varying float vBlink;
         void main() {
@@ -52,10 +47,11 @@ export interface FireflySwarm {
  * Scatter fireflies near random bush instances (or anywhere on the map when
  * the world has no bushes) and build the Points that draws them.
  */
-export const createFireflies = (world: World): FireflySwarm => {
+export const createFireflies = (world: World) => {
   const bushes = world.meshes.bush;
   const positions = new Float32Array(COUNT * 3);
   const phases = new Float32Array(COUNT);
+
   for (let i = 0; i < COUNT; i += 1) {
     if (bushes && bushes.count > 0) {
       bushes.getMatrixAt(Math.floor(Math.random() * bushes.count), scratchMatrix);
@@ -63,21 +59,23 @@ export const createFireflies = (world: World): FireflySwarm => {
     } else {
       scratchPos.set(rand(-18, 18), 0, rand(-18, 18));
     }
+
     positions[i * 3] = scratchPos.x + rand(-1.4, 1.4);
     positions[i * 3 + 1] = world.heightAt(scratchPos.x, scratchPos.z) + rand(0.5, 1.9);
     positions[i * 3 + 2] = scratchPos.z + rand(-1.4, 1.4);
     phases[i] = Math.random() * 100;
   }
+
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
   geometry.setAttribute("aPhase", new THREE.BufferAttribute(phases, 1));
-  // Left un-annotated: an inferred literal satisfies the material's uniform map,
-  // and it still matches FireflyUniforms structurally for the swarm.
+
   const uniforms = {
     uNight: { value: 0 },
     uScale: { value: 600 },
     uTime: { value: 0 },
   };
+
   const material = new THREE.ShaderMaterial({
     blending: THREE.AdditiveBlending,
     depthWrite: false,
@@ -86,8 +84,10 @@ export const createFireflies = (world: World): FireflySwarm => {
     uniforms,
     vertexShader: FIREFLY_VERT,
   });
+
   const points = new THREE.Points(geometry, material);
   points.frustumCulled = false;
   points.renderOrder = 9;
+
   return { material, points, uniforms };
 };

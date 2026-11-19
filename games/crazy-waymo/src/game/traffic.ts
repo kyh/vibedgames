@@ -15,26 +15,10 @@ import { createHullBatch, placeHulls } from "../vehicle/ink-hull";
 import { BODY_LIFT, TrafficCar } from "./traffic-car";
 import type { FleetPart, VehicleKind } from "./traffic-car";
 
-// Traffic drives the vector road NETWORK directly: each car is (edge,
-// arclength, direction, lane offset). At a junction it hands off through a
-// short quadratic bezier around the node — real cornering — onto the next
-// edge, chosen with a keep-straight bias. There is no grid in this file.
-
-// beyond this, teleport ahead of the player
 const RECYCLE_DIST = ROAD_TILE * 20;
 const RESPAWN_MIN = ROAD_TILE * 6;
 const RESPAWN_MAX = ROAD_TILE * 10;
-// last resort: never this close
 const RESPAWN_GUARD = ROAD_TILE * 4;
-// A recycle is a teleport, so both ends of it must be off camera: fog starts
-// ~360u out and the draw distance is 760, so a car that lands anywhere inside
-// the recycle radius and inside the view cone is watched blinking into
-// existence (or out of it). The cone is measured at the camera's own spot —
-// CAMERA.distance behind the car — and 60 degrees is the horizontal half-FOV
-// at CAMERA.fovBoost out to a 21:9 window. The rig's drift swing can push the
-// real cone another ~34 degrees to one side mid-slide; padding for that would
-// swallow the side wedge entirely and leave respawns nowhere but straight
-// behind the player, which drains the streets ahead of traffic.
 const VIEW_HALF_ANGLE = Math.PI / 3;
 const VIEW_COS = Math.cos(VIEW_HALF_ANGLE);
 const POLICE_SHARE = 0.08;
@@ -43,8 +27,6 @@ const POLICE_SPEED_MULT = 1.25;
 
 const WRECK_RESPAWN_S = 7;
 
-// On screen for the chase camera (see VIEW_HALF_ANGLE). (hx, hz) is the
-// player's heading; the cone apex sits CAMERA.distance behind them.
 const inPlayerView = (
   x: number,
   z: number,
@@ -52,13 +34,15 @@ const inPlayerView = (
   playerZ: number,
   hx: number,
   hz: number,
-): boolean => {
+) => {
   const dx = x - (playerX - hx * CAMERA.distance);
   const dz = z - (playerZ - hz * CAMERA.distance);
   const d = Math.hypot(dx, dz);
+
   if (d < 1e-3) {
     return true;
   }
+
   return (dx * hx + dz * hz) / d > VIEW_COS;
 };
 
@@ -68,10 +52,8 @@ interface TemplatePart {
   local: THREE.Matrix4;
 }
 
-const bucketKey = (p: TemplatePart): string => `${p.mat.uuid}|${geoLayoutKey(p.geo)}`;
+const bucketKey = (p: TemplatePart) => `${p.mat.uuid}|${geoLayoutKey(p.geo)}`;
 
-// A table rather than a switch: the `satisfies` keeps it exhaustive over
-// DistrictChar, where a switch would need an unreachable default.
 const DISTRICT_SPAWN_WEIGHT = {
   commercial: 6,
   downtown: 6,
@@ -83,11 +65,8 @@ const DISTRICT_SPAWN_WEIGHT = {
   wharf: 4,
 } satisfies Record<DistrictChar, number>;
 
-const districtSpawnWeight = (c: DistrictChar): number => DISTRICT_SPAWN_WEIGHT[c];
+const districtSpawnWeight = (c: DistrictChar) => DISTRICT_SPAWN_WEIGHT[c];
 
-// Share of the fleet on the road by San Francisco clock hour: two rush
-// peaks, a lighter midday and evening, a thin small-hours trickle. Linear
-// between anchors; the last anchor wraps to the first.
 const DENSITY_BY_HOUR: readonly (readonly [number, number])[] = [
   [0, 0.45],
   [5, 0.45],
@@ -103,30 +82,32 @@ const DENSITY_BY_HOUR: readonly (readonly [number, number])[] = [
   [24, 0.45],
 ];
 
-export const trafficDensity = (hour: number): number => {
+export const trafficDensity = (hour: number) => {
   const h = ((hour % 24) + 24) % 24;
+
   for (let i = 0; i + 1 < DENSITY_BY_HOUR.length; i += 1) {
     const a = DENSITY_BY_HOUR[i];
     const b = DENSITY_BY_HOUR[i + 1];
+
     if (!a || !b || h > b[0]) {
       continue;
     }
+
     return a[1] + ((b[1] - a[1]) * (h - a[0])) / (b[0] - a[0]);
   }
+
   return 1;
 };
 
-// Asphalt half-widths come in four classes (3.2 local, 4.6 collector, 5.4
-// arterial, 7 freeway). Local streets are six tenths of all road length, so
-// a district-only weight parks most of the fleet on quiet blocks; the wide
-// roads are where traffic reads as traffic.
-const roadSpawnWeight = (half: number): number => {
+const roadSpawnWeight = (half: number) => {
   if (half >= 6.5) {
     return 4;
   }
+
   if (half > 4.7) {
     return 3;
   }
+
   return half > 4 ? 2 : 1;
 };
 
@@ -140,22 +121,16 @@ export class Traffic {
   readonly group = new THREE.Group();
   readonly cars: TrafficCar[] = [];
   private rng: Rng;
-  // signal-cycle clock (accumulated dt)
   private simTime = 0;
-  // Junction claims: node -> the car currently crossing it (+ claim time).
   private readonly nodeClaims = new Map<number, { car: TrafficCar; t: number }>();
   /** Traffic sim clock — feeds the signal-lamp FX so lights match behavior. */
-  get time(): number {
+  get time() {
     return this.simTime;
   }
   private city: CityModel;
   private network: RoadNetwork;
   private physics: PhysicsWorld | null;
-  // Fleet batches: the whole 52-car fleet renders as one BatchedMesh per
-  // (material, attribute layout) — same pattern as ParkedCars — instead of
-  // 52 GLB clone subtrees (~6 meshes each ≈ 300+ draws).
   private readonly fleetBatches: THREE.BatchedMesh[] = [];
-  // Edges repeated by district weight — random index = district-weighted pick.
   private readonly weightedEdges: NetEdge[] = [];
   private activeCount = -1;
 
@@ -174,10 +149,13 @@ export class Traffic {
       if (e.len < ROAD_TILE) {
         continue;
       }
+
       const mid = this.network.sample(e, e.len / 2);
+
       const w =
         districtSpawnWeight(districtAt(city.gridX(mid.x), city.gridZ(mid.z)).character) *
         roadSpawnWeight(e.half);
+
       for (let i = 0; i < w; i += 1) {
         this.weightedEdges.push(e);
       }
@@ -189,9 +167,11 @@ export class Traffic {
     const az = avoid ? city.worldZ(avoid.gz) : 0;
     const { count } = TRAFFIC;
     const fleet: { car: TrafficCar; model: string }[] = [];
+
     for (let i = 0; i < count && this.weightedEdges.length > 0; i += 1) {
       let kind: VehicleKind;
       let model: string;
+
       if (i < count * POLICE_SHARE) {
         kind = "police";
         model = POLICE_CAR;
@@ -202,22 +182,26 @@ export class Traffic {
         kind = "civilian";
         model = this.rng.pick(TRAFFIC_CARS);
       }
+
       const spot = this.pickSpot((x, z) => {
         if (avoid && Math.hypot(x - ax, z - az) < avoidR) {
           return false;
         }
+
         return this.clearOfCars(x, z, null);
       });
+
       if (!spot) {
         break;
       }
-      // Bare anchor: pose target for the sim, world anchor for speech bubbles.
-      // The visible car lives in the fleet batches built below.
+
       const obj = new THREE.Object3D();
       this.group.add(obj);
+
       const speed =
         this.rng.range(TRAFFIC.minSpeed, TRAFFIC.maxSpeed) *
         (kind === "police" ? POLICE_SPEED_MULT : 1);
+
       const car = new TrafficCar(
         obj,
         kind,
@@ -229,7 +213,9 @@ export class Traffic {
         this.rng,
         this.nodeClaims,
       );
+
       car.update(0, city, 0, 0);
+
       if (this.physics) {
         car.body = this.physics.createCarBody(
           car.position.x,
@@ -237,24 +223,27 @@ export class Traffic {
           car.position.z,
         );
       }
+
       this.cars.push(car);
       fleet.push({ car, model });
     }
+
     this.buildFleetBatches(cache, fleet);
   }
 
-  // Batch the fleet's meshes per (material, attribute layout), one instance
-  // slot per (car, model part); cars re-stamp their slots each update.
   private buildFleetBatches(
     cache: ModelCache,
     fleet: readonly { car: TrafficCar; model: string }[],
-  ): void {
+  ) {
     const templates = new Map<string, TemplatePart[]>();
-    const partsOf = (model: string): TemplatePart[] => {
+
+    const partsOf = (model: string) => {
       let parts = templates.get(model);
+
       if (parts) {
         return parts;
       }
+
       parts = [];
       const node = cache.instance(modelUrl("cars", model));
       node.updateMatrixWorld(true);
@@ -268,6 +257,7 @@ export class Traffic {
         }
       });
       templates.set(model, parts);
+
       return parts;
     };
 
@@ -280,29 +270,34 @@ export class Traffic {
       batch?: THREE.BatchedMesh;
       geoIds?: Map<THREE.BufferGeometry, number>;
     }
+
     const buckets = new Map<string, Bucket>();
+
     for (const f of fleet) {
       for (const p of partsOf(f.model)) {
         const k = bucketKey(p);
         let b = buckets.get(k);
+
         if (!b) {
           b = { count: 0, geos: new Set(), indices: 0, mat: p.mat, verts: 0 };
           buckets.set(k, b);
         }
+
         if (!b.geos.has(p.geo)) {
           b.geos.add(p.geo);
           const v = p.geo.attributes.position?.count ?? 0;
           b.verts += v;
           b.indices += p.geo.index ? p.geo.index.count : v;
         }
+
         b.count += 1;
       }
     }
+
     for (const b of buckets.values()) {
       const batch = new THREE.BatchedMesh(b.count, b.verts, Math.max(b.indices, 3), b.mat);
       batch.castShadow = true;
       batch.receiveShadow = true;
-      // per-instance culling stays on inside
       batch.frustumCulled = false;
       b.batch = batch;
       b.geoIds = new Map();
@@ -310,12 +305,10 @@ export class Traffic {
       this.fleetBatches.push(batch);
     }
 
-    // Ink hulls for the whole fleet in one extra batch (vehicle/ink-hull.ts).
-    // Multi-draw only: without it every batch instance is its own draw call,
-    // and the hulls would double the fleet's.
     const hulls = renderCapabilities().multiDraw
       ? createHullBatch(fleet.flatMap((f) => partsOf(f.model)))
       : null;
+
     if (hulls) {
       this.group.add(hulls.batch);
       this.fleetBatches.push(hulls.batch);
@@ -324,79 +317,97 @@ export class Traffic {
     for (const f of fleet) {
       const parts: FleetPart[] = [];
       parts.push(...placeHulls(hulls, partsOf(f.model)));
+
       for (const p of partsOf(f.model)) {
         const b = buckets.get(bucketKey(p));
+
         if (!b || !b.batch || !b.geoIds) {
           continue;
         }
+
         let gid = b.geoIds.get(p.geo);
+
         if (gid === undefined) {
           gid = b.batch.addGeometry(p.geo);
           b.geoIds.set(p.geo, gid);
         }
+
         parts.push({ batch: b.batch, instanceId: b.batch.addInstance(gid), local: p.local });
       }
+
       f.car.attachParts(parts);
     }
   }
 
-  // Free the fleet's GPU buffers (editor street rebuilds replace Traffic).
-  dispose(): void {
+  dispose() {
     for (const b of this.fleetBatches) {
       b.dispose();
     }
   }
 
-  // Random district-weighted edge spot passing `ok` (bounded retries).
-  private pickSpot(
-    ok: (x: number, z: number) => boolean,
-  ): { edge: NetEdge; s: number; dir: 1 | -1; x: number; z: number } | null {
+  private pickSpot(ok: (x: number, z: number) => boolean) {
     for (let attempt = 0; attempt < 24; attempt += 1) {
       const edge = this.weightedEdges[this.rng.int(this.weightedEdges.length)];
+
       if (!edge) {
         continue;
       }
+
       const s = this.rng.range(edge.len * 0.2, edge.len * 0.8);
       const smp = this.network.sample(edge, s);
+
       if (!ok(smp.x, smp.z)) {
         continue;
       }
-      return { dir: this.rng.chance(0.5) ? 1 : -1, edge, s, x: smp.x, z: smp.z };
+
+      return { dir: this.rng.chance(0.5) ? 1 : -1, edge, s, x: smp.x, z: smp.z } satisfies {
+        edge: NetEdge;
+        s: number;
+        dir: 1 | -1;
+        x: number;
+        z: number;
+      } | null;
     }
-    return null;
+
+    return null satisfies { edge: NetEdge; s: number; dir: 1 | -1; x: number; z: number } | null;
   }
 
-  private clearOfCars(x: number, z: number, self: TrafficCar | null): boolean {
+  private clearOfCars(x: number, z: number, self: TrafficCar | null) {
     for (const c of this.cars) {
       if (c === self) {
         continue;
       }
+
       if (Math.hypot(c.position.x - x, c.position.z - z) < ROAD_TILE * 1.5) {
         return false;
       }
     }
+
     return true;
   }
 
-  reseed(seed: number): void {
+  reseed(seed: number) {
     this.rng.reseed(seed);
   }
 
-  // Scatter traffic back across the map, clear of the player's spawn.
-  reset(avoid?: RoadCell, avoidR = 4): void {
+  reset(avoid?: RoadCell, avoidR = 4) {
     const ax = avoid ? this.city.worldX(avoid.gx) : 0;
     const az = avoid ? this.city.worldZ(avoid.gz) : 0;
     const r = avoidR * ROAD_TILE;
+
     for (const c of this.cars) {
       const spot = this.pickSpot((x, z) => {
         if (avoid && Math.hypot(x - ax, z - az) < r) {
           return false;
         }
+
         return this.clearOfCars(x, z, c);
       });
+
       if (!spot) {
         continue;
       }
+
       c.respawn(spot.edge, spot.s, spot.dir);
       c.update(0, this.city, 0, 0);
       this.restoreBody(c);
@@ -407,7 +418,7 @@ export class Traffic {
    *  the fleet by hand; the recycler otherwise teleports every far car into a
    *  ring 78-156u AHEAD of the player — a random punt in the framed lane
    *  mid-shot. Normal play never sets this. */
-  setHoldRecycle(on: boolean): void {
+  setHoldRecycle(on: boolean) {
     this.holdRecycle = on;
   }
 
@@ -416,16 +427,17 @@ export class Traffic {
   /** TRAILER (src/trailer/): deterministically place one fleet car on an edge
    *  — respawn + pose + kinematic body restored under it (the same pieces the
    *  recycler composes). Normal play never calls this. */
-  placeCar(car: TrafficCar, edge: NetEdge, s: number, dir: 1 | -1): void {
+  placeCar(car: TrafficCar, edge: NetEdge, s: number, dir: 1 | -1) {
     car.respawn(edge, s, dir);
     car.update(0, this.city, 0, 0);
     this.restoreBody(car);
   }
 
-  private restoreBody(c: TrafficCar): void {
+  private restoreBody(c: TrafficCar) {
     if (!c.body || !this.physics) {
       return;
     }
+
     this.physics.makeKinematic(c.body);
     this.physics.teleport(
       c.body,
@@ -434,29 +446,25 @@ export class Traffic {
       c.position.z,
       c.object3D.quaternion,
     );
-    // the teleport just put the body back under the car
     c.bodyParked = false;
   }
 
   /** Park or wake cars so the active fleet matches the hour's density. */
-  setHour(hour: number): void {
+  setHour(hour: number) {
     const active = Math.round(this.cars.length * trafficDensity(hour));
+
     if (active === this.activeCount) {
       return;
     }
+
     this.activeCount = active;
+
     for (const [i, c] of this.cars.entries()) {
       c.setDormant(i >= active, this.physics);
     }
   }
 
-  update(
-    dt: number,
-    city: CityModel,
-    playerX: number,
-    playerZ: number,
-    playerHeading: number,
-  ): void {
+  update(dt: number, city: CityModel, playerX: number, playerZ: number, playerHeading: number) {
     const hx = Math.sin(playerHeading);
     const hz = Math.cos(playerHeading);
     this.simTime += dt;
@@ -466,41 +474,51 @@ export class Traffic {
     this.recycleAndStep(dt, city, playerX, playerZ, hx, hz);
   }
 
-  // Car-following separation: hold behind a same-direction car (or a wreck)
-  // ahead in the same lane. Coincident pairs brake exactly one by index.
-  private applyCarFollowing(): void {
+  private applyCarFollowing() {
     for (const c of this.cars) {
       c.followFactor = 1;
     }
+
     for (let i = 0; i < this.cars.length; i += 1) {
       const a = this.cars[i];
+
       if (!a || a.wrecked || a.dormant) {
         continue;
       }
+
       for (let j = 0; j < this.cars.length; j += 1) {
         const b = this.cars[j];
+
         if (!b || a === b || b.dormant) {
           continue;
         }
+
         const dx = b.position.x - a.position.x;
         const dz = b.position.z - a.position.z;
         const ahead = dx * a.tanX + dz * a.tanZ;
+
         if (ahead > 7) {
           continue;
         }
+
         if (ahead < 0.5) {
           if (Math.hypot(dx, dz) < 2 && i > j) {
             a.followFactor = 0;
           }
+
           continue;
         }
+
         const lat = Math.abs(-dx * a.tanZ + dz * a.tanX);
+
         if (lat > 2.2) {
           continue;
         }
+
         if (!b.wrecked && b.tanX * a.tanX + b.tanZ * a.tanZ < 0.3) {
           continue;
         }
+
         a.followFactor = Math.min(a.followFactor, ahead < 3.5 ? 0 : 0.45);
       }
     }
@@ -513,59 +531,65 @@ export class Traffic {
     playerZ: number,
     hx: number,
     hz: number,
-  ): void {
+  ) {
     for (const c of this.cars) {
       if (c.dormant) {
         continue;
       }
+
       const d = Math.hypot(c.position.x - playerX, c.position.z - playerZ);
       const recycleWreck = c.wrecked && c.wreckTime > WRECK_RESPAWN_S;
       const onCamera = inPlayerView(c.position.x, c.position.z, playerX, playerZ, hx, hz);
       const recycle = !this.holdRecycle && !onCamera && (d > RECYCLE_DIST || recycleWreck);
+
       if (c.awaitingPlacement || recycle) {
-        // Respawn in a ring ahead of the player but out of shot — the wedge
-        // down a side street or around the corner. Fallback: anywhere off
-        // camera inside the recycle radius, so a car can never land beyond
-        // the distance that would recycle it straight back.
         const spot =
           this.pickSpot((x, z) => {
             const dist = Math.hypot(x - playerX, z - playerZ);
+
             if (dist < RESPAWN_MIN || dist > RESPAWN_MAX) {
               return false;
             }
+
             if ((x - playerX) * hx + (z - playerZ) * hz < 0) {
               return false;
             }
+
             if (inPlayerView(x, z, playerX, playerZ, hx, hz)) {
               return false;
             }
+
             return this.clearOfCars(x, z, c);
           }) ??
           this.pickSpot((x, z) => {
             const dist = Math.hypot(x - playerX, z - playerZ);
+
             if (dist <= RESPAWN_GUARD || dist >= RECYCLE_DIST) {
               return false;
             }
+
             if (inPlayerView(x, z, playerX, playerZ, hx, hz)) {
               return false;
             }
+
             return this.clearOfCars(x, z, c);
           });
+
         if (spot) {
           c.awaitingPlacement = false;
           c.respawn(spot.edge, spot.s, spot.dir);
           c.update(0, city, 0, 0);
           this.restoreBody(c);
         } else if (c.awaitingPlacement) {
-          // No room this frame: stay at the depot rather than drive from it.
           continue;
         }
       }
+
       c.update(dt, city, playerX, playerZ, this.physics, this.simTime);
     }
   }
 
-  syncWrecked(): void {
+  syncWrecked() {
     for (const c of this.cars) {
       c.syncFromBody();
     }

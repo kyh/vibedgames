@@ -1,9 +1,3 @@
-// The bots, on both sides of the wire. The host simulates them with the same
-// kart physics a player gets and publishes their rows in shared state; a guest
-// plays those rows back on one clock (they all come from the host). The rows
-// are the whole truth: a client promoted to host rebuilds its karts from them
-// and carries on, so a host leaving mid-race costs the bots nothing.
-
 import { FixedRate, RemoteClock } from "@vibedgames/multiplayer";
 import type { JsonRecord } from "@vibedgames/multiplayer";
 
@@ -45,20 +39,18 @@ export interface BotFrame {
   slotOf: (key: string) => number;
 }
 
-/** Seconds of boost a bot keeps across a host change, when its row had one burning. */
 const HANDOVER_BOOST = 0.4;
 
-export const botKey = (index: number): string => `b${index}`;
+export const botKey = (index: number) => `b${index}`;
 
-const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
+const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
-/** Nudge the kart `key` out of anyone else it overlaps. */
-const separate = (kart: Kart, key: string, others: ReadonlyMap<string, KartPose>): void => {
+const separate = (kart: Kart, key: string, others: ReadonlyMap<string, KartPose>) => {
   for (const [otherKey, other] of others) {
     const dx = kart.x - other.x;
     const dz = kart.z - other.z;
     const d = Math.hypot(dx, dz);
-    // Its own entry is last frame's pose: skipping by key, not by position.
+
     if (otherKey !== key && d > 0.01 && d < KART_RADIUS * 2) {
       const push = (KART_RADIUS * 2 - d) * 0.5;
       kart.x += (dx / d) * push;
@@ -74,15 +66,16 @@ export class BotField {
   private readonly send = new FixedRate(BOT_SEND_HZ);
 
   /** Host, new round: every bot back on the grid behind the humans. */
-  reset(track: Track, firstSlot: number): void {
+  reset(track: Track, firstSlot: number) {
     this.hosted.clear();
+
     for (const [index] of BOTS.entries()) {
       this.hosted.set(botKey(index), {
         brain: makeBrain(index),
         kart: spawnKart(track, firstSlot + index, index % CHASSIS.length),
       });
-      // Some bots nail the lights: the boost only burns once the race is on.
       const bot = this.hosted.get(botKey(index));
+
       if (bot && (index * 7 + track.n) % 3 === 0) {
         bot.kart.boost = LAUNCH_SECONDS;
       }
@@ -90,18 +83,20 @@ export class BotField {
   }
 
   /** Just became host: pick every bot up where the last host's rows left it. */
-  adopt(track: Track, rows: WireField, firstSlot: number): void {
+  adopt(track: Track, rows: WireField, firstSlot: number) {
     this.reset(track, firstSlot);
+
     if (!isJsonObject(rows)) {
       return;
     }
+
     for (const [key, bot] of this.hosted) {
       const report = readPose(rows[key]);
+
       if (report) {
         const where = locate(track, report.x, report.z, -1);
         Object.assign(bot.kart, {
           a: report.a,
-          // The row says only that a boost is burning, not how much is left.
           boost: report.boosting ? HANDOVER_BOOST : 0,
           charge: report.charge,
           chassis: report.chassis,
@@ -124,22 +119,25 @@ export class BotField {
   }
 
   /** Host: advance the first `count` bots one frame. */
-  step(frame: BotFrame): void {
+  step(frame: BotFrame) {
     if (!frame.racing) {
       return;
     }
+
     const { track } = frame;
+
     for (let index = 0; index < frame.count; index += 1) {
       const key = botKey(index);
       const bot = this.hosted.get(key);
+
       if (bot) {
         const { kart } = bot;
-        // Rubber band on the leading human: push when behind, ease off when clear ahead.
         const gap = frame.leaderProg === null ? 0 : (frame.leaderProg - kart.prog) / track.n;
         const pace = kart.finishMs > 0 ? 0.55 : clamp(1 + gap * 0.9, 0.88, 1.06);
         const input = botInput(kart, track, bot.brain, frame.time, pace);
         stepKart(kart, input, track, frame.dt, frame.ownerAt(kart.x, kart.z), frame.slotOf(key));
         separate(kart, key, frame.others);
+
         if (kart.finishMs === 0 && kart.prog >= raceLength(track)) {
           kart.finishMs = Math.round(frame.now);
         }
@@ -148,24 +146,27 @@ export class BotField {
   }
 
   /** Host: the kart behind a bot key, for whatever else acts on it (items, spins). */
-  kart(key: string): Kart | null {
+  kart(key: string) {
     return this.hosted.get(key)?.kart ?? null;
   }
 
   /** Host: true when it is time to publish the rows again. */
-  due(deltaMs: number): boolean {
+  due(deltaMs: number) {
     return this.send.due(deltaMs);
   }
 
   /** Host: the first `count` bots as fresh wire rows. */
-  rows(count: number, now: number, round: number, holding: (key: string) => boolean): JsonRecord {
+  rows(count: number, now: number, round: number, holding: (key: string) => boolean) {
     const rows: JsonRecord = {};
+
     for (let index = 0; index < count; index += 1) {
       const bot = this.hosted.get(botKey(index));
+
       if (bot) {
         rows[botKey(index)] = encodePose(bot.kart, now, round, holding(botKey(index)));
       }
     }
+
     return rows;
   }
 
@@ -176,40 +177,50 @@ export class BotField {
     count: number,
     round: number,
     holding: (key: string) => boolean,
-  ): [string, KartPose][] {
+  ) {
     const out: [string, KartPose][] = [];
+
     if (isHost) {
       for (let index = 0; index < count; index += 1) {
         const bot = this.hosted.get(botKey(index));
+
         if (bot) {
           out.push([botKey(index), poseOf(bot.kart, holding(botKey(index)))]);
         }
       }
+
       return out;
     }
+
     if (!isJsonObject(rows)) {
       return out;
     }
+
     for (const [key, row] of Object.entries(rows)) {
       const report = readPose(row);
+
       if (report && report.round === round) {
         let track = this.remote.get(key);
+
         if (!track) {
           track = new RemoteTrack(this.clock);
           this.remote.set(key, track);
         }
+
         track.push(report);
         const pose = track.sample();
+
         if (pose) {
           out.push([key, pose]);
         }
       }
     }
+
     return out;
   }
 
   /** The host changed, or our connection came back: the rows take a new route. */
-  relearn(): void {
+  relearn() {
     this.clock.relearn();
   }
 }

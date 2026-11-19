@@ -5,11 +5,12 @@ import { waterBodyContains, waterBedHeight } from "../src/world/water";
 import type { WaterBody, WaterSampler } from "../src/world/water";
 
 type Check = (name: string, passed: boolean, detail?: string) => void;
+
 const DT = 1 / 60;
 const STILL = { boost: false, brake: 0, steer: 0, throttle: 0 };
 const SEA: WaterSampler = { waterHeightAt: () => 0 };
 
-const step = (world: RAPIER.World, taxi: RaycastVehicle, count: number): void => {
+const step = (world: RAPIER.World, taxi: RaycastVehicle, count: number) => {
   for (let i = 0; i < count; i += 1) {
     taxi.fixedStep(DT);
     world.step();
@@ -23,20 +24,23 @@ const fixture = (y = 1, sampler = SEA) => {
   const taxi = new RaycastVehicle({ raw: () => world }, 0, y, 0, 0);
   taxi.setWaterSampler(sampler);
   taxi.setControls(STILL, false);
+
   return { taxi, world };
 };
 
-/** @returns how far a forward water entry coasts, the baseline the brake test needs. */
-const checkWaterEntry = (check: Check): number => {
+const checkWaterEntry = (check: Check) => {
   let forwardCoastTravel = 0;
+
   for (const direction of [-1, 1]) {
     const { world, taxi } = fixture();
     step(world, taxi, 180);
     taxi.chassis.setLinvel({ x: 0, y: 0, z: direction * 27 }, true);
     step(world, taxi, 120);
+
     if (direction > 0) {
       forwardCoastTravel = taxi.position.z;
     }
+
     check(
       `${direction < 0 ? "reverse" : "forward"} water entry sheds road speed within a small basin`,
       taxi.waterContact.kind === "floating" && Math.abs(taxi.position.z) < 20 && taxi.speed < 2,
@@ -45,19 +49,22 @@ const checkWaterEntry = (check: Check): number => {
     taxi.dispose();
     world.free();
   }
+
   return forwardCoastTravel;
 };
 
-const checkWaterBrake = (check: Check, forwardCoastTravel: number): void => {
+const checkWaterBrake = (check: Check, forwardCoastTravel: number) => {
   const { world, taxi } = fixture();
   step(world, taxi, 180);
   taxi.chassis.setLinvel({ x: 0, y: 0, z: 27 }, true);
   taxi.setControls({ ...STILL, brake: 1 }, false);
   let furthest = 0;
+
   for (let i = 0; i < 120; i += 1) {
     step(world, taxi, 1);
     furthest = Math.max(furthest, taxi.position.z);
   }
+
   check(
     "water brake retains passive drag and stops before coasting, then reverses",
     furthest > 5 && furthest < forwardCoastTravel - 1 && taxi.chassis.linvel().z < -1,
@@ -67,7 +74,7 @@ const checkWaterBrake = (check: Check, forwardCoastTravel: number): void => {
   world.free();
 };
 
-const checkAuthoredWaterBodies = (check: Check): void => {
+const checkAuthoredWaterBodies = (check: Check) => {
   const rectangle: WaterBody = {
     halfX: 4,
     halfZ: 1,
@@ -77,6 +84,7 @@ const checkAuthoredWaterBodies = (check: Check): void => {
     yaw: Math.PI / 2,
     z: -4,
   };
+
   const ellipse: WaterBody = { ...rectangle, kind: "ellipse" };
   check(
     "authored water footprints retain rotation and shape",
@@ -90,7 +98,7 @@ const checkAuthoredWaterBodies = (check: Check): void => {
   );
 };
 
-const checkFloatingControls = (check: Check): void => {
+const checkFloatingControls = (check: Check) => {
   const { world, taxi } = fixture();
   step(world, taxi, 360);
   const firstY = taxi.position.y;
@@ -140,21 +148,24 @@ const checkFloatingControls = (check: Check): void => {
   world.free();
 };
 
-const checkHighFall = (check: Check): void => {
+const checkHighFall = (check: Check) => {
   const { world, taxi } = fixture(32);
   taxi.chassis.setLinvel({ x: 12, y: -24, z: 0 }, true);
   let low = Infinity;
   let finite = true;
   let impact = 0;
+
   for (let i = 0; i < 420; i += 1) {
     step(world, taxi, 1);
     const p = taxi.position;
     low = Math.min(low, p.y);
     finite &&= [p.x, p.y, p.z, taxi.speed].every(Number.isFinite);
+
     if (taxi.waterContact.kind === "floating") {
       impact = taxi.waterContact.entryVerticalSpeed;
     }
   }
+
   check(
     "high falls shed impact energy and settle without a rescue teleport",
     finite && low > -0.8 && Math.abs(taxi.position.y - 0.42) < 0.05 && impact > 20,
@@ -164,7 +175,7 @@ const checkHighFall = (check: Check): void => {
   world.free();
 };
 
-const checkDeckOverWater = (check: Check): void => {
+const checkDeckOverWater = (check: Check) => {
   const { world, taxi } = fixture(8.2);
   world.createCollider(ColliderDesc.cuboid(10, 0.3, 80).setTranslation(0, 6.7, 0));
   step(world, taxi, 180);
@@ -176,35 +187,41 @@ const checkDeckOverWater = (check: Check): void => {
   world.free();
 };
 
-const checkShoreCrossing = (check: Check): void => {
+const checkShoreCrossing = (check: Check) => {
   const { world, taxi } = fixture(2, { waterHeightAt: (_x, z) => (z > 0 ? 0 : null) });
+
   const floor = new Float32Array([
     -40, 4, -30, -40, -4, 30, 40, 4, -30, 40, 4, -30, -40, -4, 30, 40, -4, 30,
   ]);
+
   world.createCollider(ColliderDesc.trimesh(floor, new Uint32Array([0, 1, 2, 3, 4, 5])));
   taxi.teleport(0, 2, -9, 0);
   step(world, taxi, 90);
   taxi.setControls({ ...STILL, throttle: 1 }, false);
   let entered = false;
+
   for (let i = 0; i < 240; i += 1) {
     step(world, taxi, 1);
     entered ||= taxi.waterContact.kind === "floating";
+
     if (entered && taxi.position.z > 8) {
       break;
     }
   }
+
   check("continuous driving enters water through a shallow shore", entered && taxi.position.z > 6);
   taxi.setControls({ ...STILL, brake: 1 }, false);
   let returned = false;
-  // The downhill approach retains >20u/s of entry momentum. Allow its
-  // braking distance plus the slower 5u/s reverse trip back to the bank.
+
   for (let i = 0; i < 720; i += 1) {
     step(world, taxi, 1);
+
     if (taxi.position.z < -6 && taxi.waterContact.kind === "dry" && taxi.groundedWheels() >= 2) {
       returned = true;
       break;
     }
   }
+
   check(
     "reverse exits the water and restores wheel driving",
     returned,
@@ -214,7 +231,7 @@ const checkShoreCrossing = (check: Check): void => {
   world.free();
 };
 
-export const checkFlotation = async (check: Check): Promise<void> => {
+export const checkFlotation = async (check: Check) => {
   await ready();
   const forwardCoastTravel = checkWaterEntry(check);
   checkWaterBrake(check, forwardCoastTravel);

@@ -1,11 +1,9 @@
-// Static game data: the tile and prop vocabularies, match tuning, the nine
-// champion kits, bot names, and the difficulty / quality tables the settings
-// panel exposes. Everything here is read-only at runtime.
-
 export const TILE = { BUSH: 2, EMPTY: 0, WALL: 1, WATER: 3 } as const;
+
 export type TileId = (typeof TILE)[keyof typeof TILE];
 
 export const PROP = { BARREL: 2, CACTUS: 3, CRATE: 1, LAMP: 5, ROCK: 4, STONE: 0 } as const;
+
 export type PropId = (typeof PROP)[keyof typeof PROP];
 
 export const BRAWLER_RADIUS = 0.4;
@@ -27,15 +25,12 @@ export const TUNING = {
   startHour: 15.4,
 } as const;
 
-// Street lamp geometry and spot-light frustum, shared by the world builder,
-// the lighting rig and the shadow shader patch.
 export const LAMP = {
   angle: 1,
   arm: 0.62,
   far: 10.5,
   height: 3.05,
   near: 0.4,
-  // spot attenuation is clamped to this distance so the bulb never blows out the post
   nearClamp: 2.3,
   size: 0.55,
 } as const;
@@ -50,8 +45,11 @@ export type BrawlerId =
   | "moss"
   | "flint"
   | "pip";
+
 export type MeleeStyle = "cleave" | "smash" | "thrust" | "flurry";
+
 export type ProjectileStyle = "arrow" | "spear" | "thorn" | "bolt";
+
 export type LobStyle = "fire" | "seed" | "potion";
 
 export interface Palette {
@@ -61,10 +59,6 @@ export interface Palette {
   skin: number;
 }
 
-// Fields every attack carries. The kind-specific extras that only some kinds
-// use are optional here so callers that branch on a subset of kinds (a bullet
-// checking `pierce`, an explosion checking `big`) can read them without a
-// second narrowing step; each concrete kind tightens the ones it requires.
 interface AttackBase {
   big?: boolean;
   breaksWalls?: boolean;
@@ -121,11 +115,11 @@ export interface LeapAttack extends AttackBase {
 }
 
 export type AttackDef = SpreadAttack | BurstAttack | MeleeAttack | LobAttack | LeapAttack;
-// Attacks that spawn bullets.
+
 export type ProjectileAttack = SpreadAttack | BurstAttack;
-// Attacks fired as a timed sequence of shots.
+
 export type VolleyAttack = BurstAttack;
-// Attacks that resolve as an area blast on arrival.
+
 export type BlastAttack = LobAttack | LeapAttack;
 
 export interface BrawlerDef {
@@ -135,20 +129,16 @@ export interface BrawlerDef {
   id: BrawlerId;
   name: string;
   palette: Palette;
-  // bots try to hold this distance from their target
   preferred: number;
-  // seconds to recover one ammo
   reload: number;
   role: string;
   speed: number;
   super: AttackDef;
   superName: string;
   superBlurb: string;
-  // damage dealt to fully charge the super
   superCharge: number;
 }
 
-// oxlint-disable-next-line sort-keys -- the roster cards are laid out in this order
 export const BRAWLERS: Record<BrawlerId, BrawlerDef> = {
   dusty: {
     attack: {
@@ -511,22 +501,15 @@ export const BOT_NAMES: readonly string[] = [
 export type DifficultyName = "easy" | "normal" | "hard";
 
 export interface Difficulty {
-  // multiplier on the pause between a bot's shots at a human (lower = faster fire)
   cadence: number;
-  // bot damage multiplier against the player
   damage: number;
-  // distance inside which a bot picks a fight with the player unprovoked
   engage: number;
-  // how many bots may hunt the player at once; a provoked or point-blank bot ignores the cap
   hunters: number;
   label: string;
-  // multiplier on the delay before a bot acts on a new target
   react: number;
-  // [min, max] bot aim skill
   skill: readonly [number, number];
 }
 
-// oxlint-disable-next-line sort-keys -- the settings buttons are laid out in this order
 export const DIFFICULTIES: Record<DifficultyName, Difficulty> = {
   easy: {
     cadence: 1.6,
@@ -565,23 +548,17 @@ export type QualityName = "low" | "medium" | "high" | "ultra";
 export interface Quality {
   ao: boolean;
   bloom: boolean;
-  // device pixel ratio cap
   dpr: number;
   label: string;
-  // shadow map size of each lamp spot light
   lampMap: number;
   lampShadows: boolean;
   msaa: number;
   pcss: boolean;
-  // transient point lights (shots, bombs, flashes) alive at once; lamps are lit separately
   poolLights: number;
-  // sun shadow map size
   shadowMap: number;
-  // soft-shadow sample tier, 0-3
   tier: number;
 }
 
-// oxlint-disable-next-line sort-keys -- the settings buttons are laid out in this order
 export const QUALITIES: Record<QualityName, Quality> = {
   low: {
     ao: false,

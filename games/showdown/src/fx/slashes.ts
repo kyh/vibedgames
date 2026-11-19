@@ -27,11 +27,14 @@ export class SlashPool {
         new THREE.BufferAttribute(new Float32Array((SEGMENTS + 1) * 6), 3),
       );
       const indices: number[] = [];
+
       for (let i = 0; i < SEGMENTS; i += 1) {
         const a = i * 2;
         indices.push(a, a + 1, a + 3, a, a + 3, a + 2);
       }
+
       geometry.setIndex(indices);
+
       const mesh = new THREE.Mesh(
         geometry,
         new THREE.MeshBasicMaterial({
@@ -41,6 +44,7 @@ export class SlashPool {
           transparent: true,
         }),
       );
+
       mesh.visible = false;
       mesh.frustumCulled = false;
       mesh.userData.noAO = true;
@@ -59,12 +63,14 @@ export class SlashPool {
     color: THREE.Color,
     big: boolean,
     followTime: number,
-  ): void {
+  ) {
     const slash = this.slashes[this.cursor];
     this.cursor = (this.cursor + 1) % CAPACITY;
+
     if (!slash) {
       return;
     }
+
     slash.radius = radius;
     slash.arc = arc;
     slash.width = big ? 0.25 : 0.17;
@@ -80,11 +86,12 @@ export class SlashPool {
     SlashPool.updateRibbon(slash);
   }
 
-  update(dt: number): void {
+  update(dt: number) {
     for (const slash of this.slashes) {
       if (!slash.mesh.visible) {
         continue;
       }
+
       slash.age += dt;
       const t = clamp(slash.age / slash.life, 0, 1);
       SlashPool.updateRibbon(slash);
@@ -94,14 +101,14 @@ export class SlashPool {
     }
   }
 
-  private static updateRibbon(slash: Slash): void {
+  private static updateRibbon(slash: Slash) {
     const positions = slash.mesh.geometry.getAttribute("position");
     const travelTime = slash.followTime;
     const progress = clamp(slash.age / travelTime, 0, 1);
     const dissolve = clamp((slash.age - travelTime) / (slash.life - travelTime), 0, 1);
-    // The sword arrives at the centre on contact, then cleaves right to left.
     const head = -(slash.arc / 2) * (1 - (1 - progress) ** 2);
     const tail = slash.arc / 2 - dissolve * slash.arc * 0.8;
+
     for (let i = 0; i <= SEGMENTS; i += 1) {
       const t = i / SEGMENTS;
       const theta = tail + (head - tail) * t;
@@ -120,6 +127,7 @@ export class SlashPool {
         Math.cos(theta) * slash.radius,
       );
     }
+
     positions.needsUpdate = true;
   }
 }

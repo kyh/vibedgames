@@ -24,16 +24,15 @@ test("publishDiagnostics installs a live getter, not a copy", () => {
   assert.equal(target.__GAME_DIAGNOSTICS__?.frame, 0);
   state.frame = 7;
   assert.equal(target.__GAME_DIAGNOSTICS__?.frame, 7);
-  // Re-publishing (HMR, a scene change) replaces rather than throws.
   publishDiagnostics(() => ({ ...state, frame: 99 }), target);
   assert.equal(target.__GAME_DIAGNOSTICS__?.frame, 99);
-  // The CLI reads the getter through JSON, the way agent-browser's eval returns it.
   // oxlint-disable-next-line unicorn/prefer-structured-clone -- the JSON round trip is the thing under test
   assert.equal(JSON.parse(JSON.stringify(target)).__GAME_DIAGNOSTICS__.frame, 99);
 });
 
 test("publishTestHooks sets the global and hands the hooks back typed", () => {
   const target: PlaytestTarget = {};
+
   const hooks = publishTestHooks(
     {
       forceWave: (n: number) => n,
@@ -42,12 +41,14 @@ test("publishTestHooks sets the global and hands the hooks back typed", () => {
     },
     target,
   );
+
   assert.equal(hooks.forceWave(3), 3);
   assert.deepEqual(target.__GAME_TEST_HOOKS__?.setState("active-play"), { state: "active-play" });
 });
 
 test("publishPlaytest accepts a manifest with a typed reflex and publishes it", () => {
   const target: PlaytestTarget = {};
+
   const manifest = definePlaytest<PongDiagnostics>({
     actions: { serve: { description: "serve the ball", keys: ["Space"] } },
     goal: "Return every ball.",
@@ -59,9 +60,9 @@ test("publishPlaytest accepts a manifest with a typed reflex and publishes it", 
       },
     },
   });
+
   assert.equal(publishPlaytest(manifest, target), manifest);
   assert.equal(target.__GAME_PLAYTEST__?.goal, "Return every ball.");
-  // A function survives on the live object and is dropped from the JSON the CLI reads at launch.
   // oxlint-disable-next-line unicorn/prefer-structured-clone -- structuredClone throws on the reflex; JSON dropping it is the point
   const wire = JSON.parse(JSON.stringify(target.__GAME_PLAYTEST__));
   assert.deepEqual(Object.keys(wire.move.track_ball), ["description"]);
@@ -69,10 +70,12 @@ test("publishPlaytest accepts a manifest with a typed reflex and publishes it", 
 
 test("publishPlaytest rejects what `vg playtest run` would reject, naming the option", () => {
   const target: PlaytestTarget = {};
-  const rejects = (manifest: Parameters<typeof publishPlaytest>[0], pattern: RegExp): void => {
+
+  const rejects = (manifest: Parameters<typeof publishPlaytest>[0], pattern: RegExp) => {
     assert.throws(() => publishPlaytest(manifest, target), pattern);
     assert.equal(target.__GAME_PLAYTEST__, undefined, "nothing is published on a bad manifest");
   };
+
   rejects({ goal: " ", move: { right: { description: "Run right", keys: ["KeyD"] } } }, /goal/u);
   rejects({ goal: "Go", move: {} }, /at least one option/u);
   rejects(
@@ -107,24 +110,25 @@ test("isPlaytestRequested reads ?test=1 and nothing else", () => {
   assert.equal(isPlaytestRequested("?seed=5&test=1"), true);
   assert.equal(isPlaytestRequested("?test=0"), false);
   assert.equal(isPlaytestRequested(""), false);
-  // Under Node there is no location, so the default is "not requested".
   assert.equal(isPlaytestRequested(), false);
 });
 
 test("pointerTracker walks towards the error, capped per frame and clamped to the court", () => {
   const track = pointerTracker({ gain: 0.5, max: 0.9, maxStep: 0.1, min: 0.1 });
   assert.deepEqual(track(0.05), { pointer: { down: false, x: 0.525, y: 0.5 } });
-  // A large error is capped to one maxStep per frame.
   assert.equal(track(10).pointer?.x, 0.625);
+
   for (let i = 0; i < 10; i += 1) {
     track(10);
   }
+
   assert.equal(track(10).pointer?.x, 0.9, "clamped at max");
+
   for (let i = 0; i < 20; i += 1) {
     track(-10);
   }
+
   assert.equal(track(-10).pointer?.x, 0.1, "clamped at min");
-  // A NaN error holds position rather than poisoning it.
   assert.equal(track(Number.NaN).pointer?.x, 0.1);
   const pressed = pointerTracker({ down: true, start: 0.2, y: 0.8 });
   assert.deepEqual(pressed(0), { pointer: { down: true, x: 0.2, y: 0.8 } });

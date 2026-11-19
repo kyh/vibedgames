@@ -8,57 +8,8 @@ import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js"
 import { CAMERA } from "../shared/constants";
 import { gradeLens, gradeMotion, gradeNight, gradeWarmth } from "./grade";
 
-// Desktop-only post chain (kart-racer pass): contact AO so nothing floats,
-// threshold bloom so the additive FX (drift trails, boost, lamp glow, lit
-// windows) actually GLOW, a linear-HDR vibrance/night grade, SMAA, and a
-// final display transform that owns tone mapping (highlight shoulder + ACES)
-// plus the film look — S-curve, teal/warm split tone, saturation with
-// highlight rolloff, speed-scaled chromatic aberration, vignette, grain.
-// Mobile stays on the single forward pass — the tile-GPU bandwidth cost isn't
-// worth it (and the governor already fights for frame time there).
-//
-// Chain: N8AOPass (renders the scene + multiplies AO) → UnrealBloom →
-// WaymoGradeShader (pre-tonemap linear ops) → SMAA (three's pass wants
-// linear input, pre tone map) → FinalGradeShader (tone map + look, writes
-// sRGB to screen).
-//
-// TONE MAPPING NOW LIVES IN FinalGradeShader, not an OutputPass: it reads the
-// renderer's toneMappingExposure every frame, so the day-night exposure ramp
-// keeps working unchanged, and the mobile no-composer path (renderer ACES)
-// stays the fallback reference look.
-//
-// N8AO TRADES MSAA FOR SMAA. N8AOPass renders the scene into its own
-// non-multisampled HalfFloat target (it needs a sampleable depth texture), so
-// the composer's MSAA buffer would never see geometry. SMAA takes over edge
-// AA; thin-geometry crawl (wires, masts) is the thing to watch in pairs.
-
-// The grade runs BEFORE the display transform, i.e. on pre-tone-map linear
-// HDR. Every operation below is therefore a linear-light one (mixes toward
-// luminance, channel gains) — an sRGB-shaped curve here would fight the tone
-// mapper. Display-referred ops (S-curve, split tone, vignette) live in
-// FinalGradeShader instead.
-//
-// NIGHT IS A DIFFERENT PAINTING, NOT A DIMMED DAY. Lights can only ever
-// MULTIPLY an albedo, so no amount of moonlight tinting can take the chroma out
-// of a fully saturated day albedo: at midnight the Mission's red transit lanes
-// still read as full-strength red and the park trees stay day-green, because
-// their albedo is red and green and the fill just scales it. Only a grade can
-// remove chroma. So the night pass here does the two things the lighting rig
-// structurally cannot: it pulls global saturation down, then splits the
-// remaining tone — shadows cool, highlights sodium-warm — so the lamps and lit
-// windows read as the WARM pools the brief asks for against a cool city.
-//
-// THE SOURCE MASK is what makes it a painting rather than a filter. This pass
-// sees PRE-TONEMAP LINEAR HDR, where a night frame separates cleanly by value:
-// halved moon/ambient fills leave lit surfaces under ~0.3, while the additive
-// emissives (windows, lamp pools, headlights, beacons) are authored to land
-// over 1. `src` reads that split, and every night operation below is weighted
-// by it — the city desaturates and cools, the sources keep their sodium and
-// their chroma. Grading them together is what made the old night one flat
-// blue-grey wash with no lights in it.
 const GradeShader = {
-  // oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-  fragmentShader: /* glsl */ `
+  fragmentShader: `
     uniform sampler2D tDiffuse;
     uniform float uVibrance;
     uniform float uNight;
@@ -110,8 +61,7 @@ const GradeShader = {
     uNight: { value: 0 },
     uVibrance: { value: 0.14 },
   },
-  // oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-  vertexShader: /* glsl */ `
+  vertexShader: `
     varying vec2 vUv;
     void main() {
       vUv = uv;
@@ -120,45 +70,8 @@ const GradeShader = {
   `,
 };
 
-// The display transform + film look, in one pass (ported from a kart-racer
-// reference grade, adapted to this game's radiances). Order inside:
-//   1. chromatic aberration gather (on linear — the offsets are sub-texel and
-//      capped, so the HDR fringe risk the sun disc poses is bounded by the cap)
-//   2. radial rush zoom smear (linear side, so streaks carry radiance into the
-//      tone map): velocity = fromCentre * rush, quadratically edge-weighted so
-//      the vanishing point stays sharp, travel-capped, and multiplied by a
-//      WORLD-SPACE hold-out sphere around the player car (depth-reconstructed
-//      — a depth band would cut the car in half viewed end-on). High tier
-//      only; the whole gather is branch-skipped at rest.
-//   3. exposure (renderer.toneMappingExposure, via the day-night ramp)
-//   4. highlight shoulder — a power-law rolloff gated on max(rgb) BEFORE ACES
-//      so a 4x sky and a 20x glint still separate instead of both slamming
-//      into the ACES ceiling; includes highlight desaturation toward luma.
-//      Faded out at night: the night painting's emissive values are measured
-//      against plain ACES and must not soften.
-//   5. ACES fit (bit-for-bit three.js ACESFilmicToneMapping)
-//   6. midtone S-curve — smoothstep-toward-self keeps 0 and 1 pinned so it
-//      adds snap without crushing the shadow detail the AO pass paid for.
-//      Day-only: the night mid-tone dip already owns that range.
-//   7. violet-shadow / warm-highlight split tone. Toon pass (2026-10): the
-//      cool axis moved from teal to VIOLET (R and B over G) — against a warm
-//      key that is the storybook shade the cel ramp wants; teal read filmic.
-//      Day-weighted, and the warm side leans harder with uWarmth so golden
-//      hour reads gilded rather than merely bright.
-//   8. saturation lift with a highlight rolloff so bloomed glints go white,
-//      not neon.
-//   9. speed-line combs — two angular value-noise combs (base + boost) in the
-//      outer radial band, composited display-referred with two safety terms:
-//      sceneLit (lines streak the light that is there — no tunnel/night
-//      starburst, which is also why they need no uNight weighting) and a
-//      headroom shoulder (bright frames take fewer lines, stacks asymptote).
-//  10. vignette — post-tonemap print-down; amount and inner edge close in
-//      with speed.
-//  11. monochrome grain, midtone-weighted, rolled off in shadows.
-//  12. sRGB encode (this pass writes the canvas — no OutputPass follows).
 const FinalGradeShader = {
-  // oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-  fragmentShader: /* glsl */ `
+  fragmentShader: `
     uniform sampler2D tDiffuse;
     uniform float uExposure;
     uniform float uNight;
@@ -364,21 +277,16 @@ const FinalGradeShader = {
     uInvViewProj: { value: new THREE.Matrix4() },
     uKick: { value: 0 },
     uNight: { value: 0 },
-    // Speed subject. uRush: x smear amount (0 = branch closed), y uv travel
-    // cap, z boost-comb strength. uStreak is the comb master gain, uKick the
-    // eased boost signal, uSubject the hero hold-out centre (world space).
     uRush: { value: new THREE.Vector3() },
     uSaturation: { value: 1.16 },
     uStreak: { value: 0 },
     uSubject: { value: new THREE.Vector3() },
     uTexel: { value: new THREE.Vector2(1 / 1920, 1 / 1080) },
     uTime: { value: 0 },
-    // x amount, y inner-edge radius
     uVignette: { value: new THREE.Vector2(0.18, 0.3) },
     uWarmth: { value: 0 },
   },
-  // oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-  vertexShader: /* glsl */ `
+  vertexShader: `
     varying vec2 vUv;
     void main() {
       vUv = uv;
@@ -387,194 +295,77 @@ const FinalGradeShader = {
   `,
 };
 
-// Bloom is a DAY setting and a NIGHT setting, not one setting. The two ends of
-// the ramp anchor to different budgets: the day gate to the sunlit-diffuse
-// ceiling (below), the night gate to the authored emissive budget — a lit
-// window peaks near 1.1 pre-tonemap, a lamp pool near 0.9, a headlight near
-// 1.6. Both fields ramp with the cycle. `UnrealBloomPass.render` copies
-// strength/threshold into its uniforms every frame, so writing the fields is
-// the supported way to animate them; the knee is a uniform the pass never
-// touches, written alongside them in render().
 const BLOOM_DAY_STRENGTH = 0.26;
-// THE DAY CUT SITS JUST ABOVE SUNLIT DIFFUSE WHITE. Pre-tonemap at this
-// game's exposure (0.62), the brightest lit-diffuse surfaces — a white kit
-// facade square to the noon key (1.85), sunlit kerb concrete, crosswalk
-// paint — land at ~1.5-1.9. The cut sits at the bottom of that band with the
-// knee reaching across it, so lit diffuse at most KISSES the pyramid while
-// everything authored as a SOURCE clears it outright: spark cores under their
-// per-emit gain, drift ribbons and boost flame near 2-3, the sun disc at 400
-// (day-night.ts SUN_DISC_RADIANCE). That is the glow identity: by day the FX
-// bloom, not the city.
-//
-// The Preetham horizon band (~5.4 pre-tonemap at noon) also crosses this cut,
-// and harvesting it is measured-cheap at this strength: forcing the cut from
-// 6.5 down to 2.5 across four cameras moved the >=88%-luminance share by at
-// most +0.8pp (Ocean Beach golden — the sun's own glitter path) and under
-// 0.05pp everywhere else, with same-camera pairs indistinguishable. The
-// milky-veil failure mode lives in the DISC, not the cut: an unbounded disc
-// hands the pyramid ~85,000 of headroom energy, and the disc is bounded at
-// the source.
 const BLOOM_DAY_THRESHOLD = 2.1;
-// Gate softness (the high-pass material's smoothWidth), in the same radiance
-// units as the cut. Day is a wide shoulder — the reference kart grade's shape
-// — so sunlit white fades INTO the pyramid instead of popping across a hard
-// edge as the camera swings. Night must stay near-hard: the lamp pools are
-// authored to ~0.9 against the 0.85 cut, and a day-width knee would
-// smoothstep them down to a few percent of their bloom, unlighting the night
-// the budget below exists to keep.
 const BLOOM_DAY_KNEE = 0.33;
 const BLOOM_NIGHT_KNEE = 0.02;
-// The night cut sits just under the dimmest thing that should glow — the lamp
-// pools, authored to ~0.9 at their core (fx/lamp-glow.ts POOL_GAIN) — and no
-// lower. Below ~0.7 it starts catching LIT SURFACES too, and the one surface
-// that is genuinely blown after dark (a wall 5 metres in front of the player's
-// 70-candela spot) turns into a frame-filling white blob.
 const BLOOM_NIGHT_STRENGTH = 0.5;
 const BLOOM_NIGHT_THRESHOLD = 0.85;
-// Mip-composite spread. The night halo shape is insensitive to it (see the
-// spill experiments below: radius 0.3 -> 0 moved the facade mean not at all),
-// so one value serves both paintings; 0.55 widens the day glow toward the
-// reference look's soft halation.
 const BLOOM_RADIUS = 0.55;
 const BLOOM_NIGHT_RADIUS = 0.3;
-// THE NIGHT SPILL HAS NO SHAPE KNOB — four experiments, all measured on a FiDi
-// and a Market chase frame at midnight, kit-facade mean through a per-camera
-// stencil. Bloom does lift the facades it is supposed to be lighting: turning
-// it off takes that mean 4.91 -> 3.80, a 29% wash. But
-//   - `radius` 0.3 -> 0 moves it 4.91 -> 4.91 (the composite's mip weights),
-//   - hand-zeroing the two widest mips (bloomFactors [1,.7,.3,.05,0]) 4.91 ->
-//     4.76 — the wash is in mip1/mip2, not in the frame-scale blurs,
-//   - `strength` 0.5 -> 0.4 takes facade AND sky down together (ratio 0.89 ->
-//     0.86), i.e. it dims the lamps rather than tightening them,
-//   - running the grade BEFORE the bloom (so the pass harvests dipped facades
-//     and the grade's own source mask) makes it WORSE, 4.91 -> 5.62: the
-//     vibrance and split tone land on the source first and the bloom then adds
-//     on top of a lifted frame.
-// So the residual halo is the SOURCE's own billboard skirt, not the pyramid:
-// it is authored in fx/lamp-glow.ts and fx/street-luminaires.ts, and downtown it
-// is the beacon layer's house gain (fx/beacon-lights.ts). Shrinking the two
-// constants this side owns (MAST_HALO 1.5 -> 1.0, HALO_GAIN 3.4 -> 2.6) moved
-// the facade mean 1.4% and the blown share 0.07pp and is invisible in a
-// same-camera pair — do not spend those constants on it.
 
-// Speed-reactive bloom: the lens brightens with pace, never with the clock.
-// Additive on top of the day/night ramp; the transient ignite term buys the
-// boost-release frame a halo without building a sustained veil.
-// Half the pre-port lifts: at the 1.6-2.1 day gate the golden-hour mie veil
-// already rides the bloom pyramid, and the old lift values pushed an into-sun
-// boost frame to a full milky white-out (measured, SUPER MINI-TURBO at 17:00).
 const BLOOM_FAST_LIFT = 0.03;
 const BLOOM_KICK_LIFT = 0.06;
 const BLOOM_IGNITE_LIFT = 0.09;
 
-// Chromatic aberration bounds (per-channel uv offset at |fromCentre| = 1).
 const CA_REST = 0;
 const CA_BOOST = 0.0019;
-// Vignette speed language: amount rises, inner edge walks in.
 const VIGNETTE_BASE = 0.12;
 const VIGNETTE_SPEED = 0.12;
 const VIGNETTE_INNER_REST = 0.3;
 const VIGNETTE_INNER_FAST = 0.18;
 
-// Radial rush drive (uv-space smear amount). Geometric, display-side numbers
-// — ported verbatim from the reference grade; no exposure re-derivation
-// applies. The two families combine with max, not +: the fast term owns
-// full-throttle cruising, the speed²/kick pair owns boost, and ignite buys
-// the onset frame an overshoot.
 const RUSH_FAST = 0.0165;
 const RUSH_SPEED_SQ = 0.0125;
 const RUSH_KICK_SPEED = 0.015;
 const RUSH_IGNITE = 0.0085;
-// uv travel cap: base at gate-open, extra headroom under boost.
 const RUSH_CAP_BASE = 0.0125;
 const RUSH_CAP_BOOST = 0.0105;
-// Boost-comb strength: kick plus a slug of ignite, capped ABOVE 1 so the
-// ignition frame overshoots the sustained ceiling.
 const BOOST_COMB_MAX = 1.25;
 const BOOST_COMB_IGNITE = 0.55;
-// Speed-line master gain. REST MUST STAY 0 — the combs are a switch, not a
-// fade: a resting frame skips the branch and stays bit-identical to the
-// pre-port grade.
 const STREAK_REST = 0;
 const STREAK_BOOST = 0.46;
-// The comb gate opens across the first 42% of the eased fast signal.
 const STREAK_GATE_FAST = 0.42;
 
-// The ≥11-tap smear runs on the High tier only. The desktop governor encodes
-// its tier as the pixel ratio it hands setSize, so "High" = still at ≥75% of
-// native DPR; a machine stepped below that is already struggling and the rush
-// zeroes out (the combs stay — four noise evals, no extra taps).
 const SMEAR_TIER_RATIO = 0.75;
 
-// Hero hold-out subject. Until the scene pins the car via setSpeedSubject the
-// pipeline estimates it from the chase rig's FAST-end pose (rush only opens
-// near top speed, so the estimate is calibrated there: camera-rig.ts lerps
-// distance +1.5 and height -1.1 at speed). SUBJECT_LIFT raises the road-level
-// car origin to the body centre the sphere is measured from.
 const SUBJECT_EST_ARM = CAMERA.distance + 1.5;
 const SUBJECT_EST_DROP = CAMERA.height - 1.1;
 const SUBJECT_LIFT = 0.9;
 
-// N8AO: tight contact AO, plum-tinted (toon pass: matches the ink),
-// half-res. The radius stays SHORT — large radii produce the flat grey haze
-// that gives cheap AO away; the point is the last metre where a wheel meets
-// asphalt and a plinth meets pavement.
-// The reference kart recipe: shorter radius + harder intensity + a NARROW
-// denoise — at radius*falloff the depth-rejection band sits under the car's
-// ride height, intensity is an exponent on visibility (5.0 is where the
-// under-chassis core reads), and a wide denoise blurs the contact band away,
-// which is what a soft 6-radius blur was doing to the wheel patches.
-// Toon pass: intensity eased 4.2 -> 3. The ink line now carries contact, and
-// at 4.2 the plum AO pooled into every shade band and greyed the candy out.
 const AO_RADIUS = 1.2;
 const AO_INTENSITY = 3;
 const AO_COLOR = 0x2a_18_40;
-// 2 left the paint drape's z-offset seams as black speckle dashes along every
-// painted line at speed (review pass); 4 + two iterations blurs the seam away
-// while the wheel-contact core survives.
 const AO_DENOISE_RADIUS = 4;
 
-// The speed/boost signal easing (CPU side). `fast` is the eased top-speed
-// ramp; `kick` eases the boost flag with a fast attack and slow release (the
-// lens should not snap back when the boost expires); `ignite` is a
-// leading-edge pulse that exists only while kick RISES — the eye reads
-// onsets, not states, so every lens term may overshoot for a fraction of a
-// second on ignition.
 const FAST_TAU = 0.11;
 const KICK_ATTACK = 0.05;
 const KICK_RELEASE = 0.28;
 const IGNITE_TAU = 0.42;
 const IGNITE_GAIN = 2.1;
 
-// n8ao's beauty target carries the frame's only sampleable depth, which the
-// hold-out sphere needs for world reconstruction. It is not part of the
-// pass's typed surface (render/n8ao.d.ts), so probe structurally: a package
-// bump that moves the internal degrades to "no rush smear", never a crash.
-// Caching the texture once is safe — three resizes an attached depth texture
-// in place, the object identity survives setSize.
-const sceneDepthOf = (pass: N8AOPass): THREE.DepthTexture | null => {
+const sceneDepthOf = (pass: N8AOPass) => {
   const holder: object = pass;
+
   if (!("beautyRenderTarget" in holder)) {
     return null;
   }
+
   const target: unknown = holder.beautyRenderTarget;
+
   if (!(target instanceof THREE.WebGLRenderTarget)) {
     return null;
   }
+
   const depth = target.depthTexture;
+
   return depth instanceof THREE.DepthTexture ? depth : null;
 };
 
-// Trailer-only depth of field (gradeLens). Runs on linear HDR straight after
-// the beauty pass so out-of-focus highlights bloom into discs downstream.
-// Single-pass gather over a golden-angle disc: each tap contributes only when
-// its OWN circle of confusion reaches the centre, so a sharp car never smears
-// onto the blurred street behind it, while a blurred foreground still spills
-// over the subject.
 const DOF_TAPS = 48;
+
 const DofShader = {
-  // oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-  fragmentShader: /* glsl */ `
+  fragmentShader: `
     uniform sampler2D tDiffuse;
     uniform sampler2D tDepth;
     uniform vec2 uTexel;
@@ -621,8 +412,7 @@ const DofShader = {
     uNear: { value: 0.1 },
     uTexel: { value: new THREE.Vector2() },
   },
-  // oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-  vertexShader: /* glsl */ `
+  vertexShader: `
     varying vec2 vUv;
     void main() {
       vUv = uv;
@@ -631,19 +421,8 @@ const DofShader = {
   `,
 };
 
-// INK (toon pass, 2026-10): comic outlines from the depth buffer the AO pass
-// already owns — no second scene render, no per-object hulls. The edge test is
-// the Laplacian of 1/viewZ: reciprocal depth is AFFINE across any plane in
-// screen space, so flat walls, roofs and road read zero no matter how grazing
-// the view, and only creases and silhouettes ring. The sign splits the cases:
-// positive = a ridge or the NEAR side of a silhouette (inked full), negative =
-// an inside corner (inked lighter), and the far side of a silhouette — huge
-// relative jump, negative — is skipped so every line stays one stroke wide.
-// Lines thin out with distance and are gone before the fog takes over, so the
-// skyline stays a soft painted backdrop behind an inked foreground.
 const InkShader = {
-  // oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-  fragmentShader: /* glsl */ `
+  fragmentShader: `
     uniform sampler2D tDiffuse;
     uniform sampler2D tDepth;
     uniform vec2 uTexel;
@@ -680,20 +459,16 @@ const InkShader = {
   uniforms: {
     tDepth: { value: null },
     tDiffuse: { value: null },
-    // x full-strength distance, y gone (world units)
     uDistSoft: { value: 0.012 },
     uFade: { value: new THREE.Vector2(200, 450) },
     uFar: { value: 1000 },
-    // #1b1428-ish plum ink in linear light: dark enough to read on white
-    // stucco, warm enough not to look like a CAD wireframe.
     uInk: { value: new THREE.Color(0x1b_14_28).convertSRGBToLinear() },
     uNear: { value: 0.1 },
     uStep: { value: 1 },
     uStrength: { value: 0.9 },
     uTexel: { value: new THREE.Vector2(1 / 1920, 1 / 1080) },
   },
-  // oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-  vertexShader: /* glsl */ `
+  vertexShader: `
     varying vec2 vUv;
     void main() {
       vUv = uv;
@@ -701,19 +476,13 @@ const InkShader = {
     }
   `,
 };
-// Ink weight at night: the night painting is mostly dark already, and a full
-// plum line around every lit window frame reads as noise.
+
 const INK_DAY = 0.9;
 const INK_NIGHT = 0.45;
-// Line width: one WHOLE-texel sample step per this many drawing-buffer rows,
-// so a 4K canvas draws the same chunky line 1080p does. Whole texels because
-// the depth target is nearest-filtered: a fractional step lands between
-// texels and breaks the stroke into 1-2 px jaggies.
 const INK_ROWS_PER_TEXEL = 540;
 
 export class PostPipeline {
   private composer: EffectComposer;
-  // DEV probes reach in to A/B the AO contribution (debug/dev-hooks.ts).
   readonly ao: N8AOPass;
   private bloom: UnrealBloomPass;
   private bloomKnee: THREE.IUniform | undefined;
@@ -737,13 +506,12 @@ export class PostPipeline {
   constructor(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera) {
     this.renderer = renderer;
     this.camera = camera;
-    // HDR target: bloom needs >8bit to find highlights. MSAA is intentionally
-    // absent — N8AOPass renders the scene into its own half-float target with
-    // a sampleable depth texture; SMAA at the end of the chain is the AA.
     const size = renderer.getDrawingBufferSize(new THREE.Vector2());
+
     const target = new THREE.WebGLRenderTarget(size.x, size.y, {
       type: THREE.HalfFloatType,
     });
+
     this.composer = new EffectComposer(renderer, target);
     const ao = new N8AOPass(scene, camera, size.x, size.y);
     ao.configuration.aoRadius = AO_RADIUS;
@@ -757,48 +525,42 @@ export class PostPipeline {
     ao.configuration.halfRes = true;
     ao.configuration.depthAwareUpsampling = true;
     ao.configuration.screenSpaceRadius = false;
-    // Output must stay linear HDR for the bloom threshold to mean anything.
     ao.configuration.gammaCorrection = false;
     ao.configuration.autoDetectTransparency = false;
     this.ao = ao;
     this.composer.addPass(ao);
-    // Ink straight after the scene: before DOF (a defocused background must
-    // blur its strokes with it) and before bloom (glows wash over the lines
-    // instead of being cut by them).
     this.ink = new ShaderPass(InkShader);
     this.composer.addPass(this.ink);
     this.dof = new ShaderPass(DofShader);
     this.dof.enabled = false;
     this.composer.addPass(this.dof);
-    // Threshold sits in PRE-tonemap linear HDR, so every number here is a
-    // radiance, not a pixel value: the gate is authored against what the scene
-    // draws (BLOOM_DAY_THRESHOLD / BLOOM_NIGHT_THRESHOLD above) and the sun
-    // disc is bounded at the source (day-night.ts SUN_DISC_RADIANCE) — an
-    // unbounded disc makes any cut unwinnable. The knee lives on the
-    // high-pass material; the pass re-copies only `threshold` per frame, so
-    // smoothWidth is safe to own from here.
     this.bloom = new UnrealBloomPass(size, BLOOM_DAY_STRENGTH, BLOOM_RADIUS, BLOOM_DAY_THRESHOLD);
     this.bloomKnee = this.bloom.materialHighPassFilter.uniforms.smoothWidth;
+
     if (this.bloomKnee) {
       this.bloomKnee.value = BLOOM_DAY_KNEE;
     }
+
     this.composer.addPass(this.bloom);
     this.grade = new ShaderPass(GradeShader);
     this.composer.addPass(this.grade);
-    // SMAA runs on linear values by three's own contract (before tone map).
     this.composer.addPass(new SMAAPass());
     this.finalGrade = new ShaderPass(FinalGradeShader);
     this.composer.addPass(this.finalGrade);
     const depth = sceneDepthOf(ao);
+
     if (depth) {
       for (const pass of [this.finalGrade, this.dof, this.ink]) {
         const d = pass.uniforms.tDepth;
+
         if (d) {
           d.value = depth;
         }
       }
+
       this.smearDepthOk = true;
     }
+
     this.ink.enabled = depth !== null;
     this.syncViewportUniforms(size.x, size.y);
   }
@@ -809,48 +571,55 @@ export class PostPipeline {
    * the scene; until wired, render() estimates the subject from the chase
    * rig's fast-end pose.
    */
-  setSpeedSubject(world: THREE.Vector3): void {
+  setSpeedSubject(world: THREE.Vector3) {
     this.subject.copy(world);
     this.subject.y += SUBJECT_LIFT;
     this.subjectPinned = true;
   }
 
-  private syncViewportUniforms(width: number, height: number): void {
+  private syncViewportUniforms(width: number, height: number) {
     const dofTexel = this.dof.uniforms.uTexel;
+
     if (dofTexel && dofTexel.value instanceof THREE.Vector2) {
       dofTexel.value.set(1 / Math.max(1, width), 1 / Math.max(1, height));
     }
+
     const iu = this.ink.uniforms;
     const inkTexel = iu.uTexel;
+
     if (inkTexel && inkTexel.value instanceof THREE.Vector2) {
       inkTexel.value.set(1 / Math.max(1, width), 1 / Math.max(1, height));
     }
+
     const inkStep = iu.uStep;
+
     if (inkStep) {
       inkStep.value = Math.max(1, Math.round(height / INK_ROWS_PER_TEXEL));
     }
+
     const u = this.finalGrade.uniforms;
     const aspect = u.uAspect;
+
     if (aspect) {
       aspect.value = width / Math.max(1, height);
     }
+
     const texel = u.uTexel;
+
     if (texel && texel.value instanceof THREE.Vector2) {
       texel.value.set(1 / Math.max(1, width), 1 / Math.max(1, height));
     }
   }
 
-  setSize(width: number, height: number, pixelRatio: number): void {
+  setSize(width: number, height: number, pixelRatio: number) {
     this.composer.setPixelRatio(pixelRatio);
     this.composer.setSize(width, height);
     this.syncViewportUniforms(width * pixelRatio, height * pixelRatio);
-    // The governor's tier reaches this pass only as the pixel ratio it picked
-    // (desktop tiers ARE resolution steps) — read the tier back from it.
     const native = Math.min(window.devicePixelRatio || 1, 2);
     this.smearTier = pixelRatio >= native * SMEAR_TIER_RATIO;
   }
 
-  render(): void {
+  render() {
     const now = performance.now() / 1000;
     const dt = this.lastTime > 0 ? Math.min(0.1, now - this.lastTime) : 1 / 60;
     this.lastTime = now;
@@ -859,7 +628,6 @@ export class PostPipeline {
     const warmth = gradeWarmth();
     const motion = gradeMotion();
 
-    // Signal easing. `fast` opens above ~62% of boost top speed.
     const fastTarget = THREE.MathUtils.clamp((motion.speed - 0.45) / 0.55, 0, 1);
     this.fast += (fastTarget - this.fast) * Math.min(1, dt / FAST_TAU);
     const kickTarget = motion.boost ? 1 : 0;
@@ -871,28 +639,38 @@ export class PostPipeline {
 
     const gu = this.grade.uniforms;
     const un = gu.uNight;
+
     if (un) {
       un.value = night;
     }
 
     const fu = this.finalGrade.uniforms;
     const exp = fu.uExposure;
+
     if (exp) {
       exp.value = this.renderer.toneMappingExposure;
     }
+
     const fn = fu.uNight;
+
     if (fn) {
       fn.value = night;
     }
+
     const fw = fu.uWarmth;
+
     if (fw) {
       fw.value = warmth;
     }
+
     const ca = fu.uCA;
+
     if (ca) {
       ca.value = CA_REST + (CA_BOOST - CA_REST) * Math.min(1.35, drive + ignite * 0.55);
     }
+
     const vig = fu.uVignette;
+
     if (vig && vig.value instanceof THREE.Vector2) {
       vig.value.set(
         VIGNETTE_BASE + VIGNETTE_SPEED * drive + 0.07 * ignite,
@@ -900,7 +678,9 @@ export class PostPipeline {
           (VIGNETTE_INNER_FAST - VIGNETTE_INNER_REST) * Math.min(1, drive + ignite * 0.6),
       );
     }
+
     const time = fu.uTime;
+
     if (time) {
       time.value = now % 600;
     }
@@ -911,40 +691,36 @@ export class PostPipeline {
     this.updateSpeedUniforms(motion.speed, ignite, lens?.streaks ?? 1);
     this.updateDof(lens);
 
-    // The cut falls on sqrt(night), not on night. `night` IS the lamp factor,
-    // so at dusk it is still only ~0.6 when every streetlight in the city is
-    // already burning. Square-rooting drops the gate toward the lamp budget
-    // early, in step with the lamps — at dusk the cut is ~1.0, under the lamp
-    // halos and the 1.6 headlights — and both ends of the ramp are unchanged.
-    // The knee rides the same ramp so the gate hardens as the emissive budget
-    // takes over from the sunlit-diffuse shoulder.
     const gateRamp = Math.sqrt(night);
     this.bloom.threshold =
       BLOOM_DAY_THRESHOLD + (BLOOM_NIGHT_THRESHOLD - BLOOM_DAY_THRESHOLD) * gateRamp;
+
     if (this.bloomKnee) {
       this.bloomKnee.value = BLOOM_DAY_KNEE + (BLOOM_NIGHT_KNEE - BLOOM_DAY_KNEE) * gateRamp;
     }
+
     this.bloom.strength =
       BLOOM_DAY_STRENGTH +
       (BLOOM_NIGHT_STRENGTH - BLOOM_DAY_STRENGTH) * night +
       BLOOM_FAST_LIFT * this.fast +
       BLOOM_KICK_LIFT * this.kick +
       BLOOM_IGNITE_LIFT * ignite;
-    // The wide day radius smears the authored point emissives (stars, lamp
-    // pools) into cotton after dark — night keeps the pre-port tight kernel.
     this.bloom.radius = BLOOM_RADIUS + (BLOOM_NIGHT_RADIUS - BLOOM_RADIUS) * night;
     this.composer.render();
   }
 
-  private updateInk(night: number): void {
+  private updateInk(night: number) {
     const { camera } = this;
+
     if (!(camera instanceof THREE.PerspectiveCamera)) {
       return;
     }
+
     const u = this.ink.uniforms;
     const near = u.uNear;
     const far = u.uFar;
     const strength = u.uStrength;
+
     if (near && far && strength) {
       near.value = camera.near;
       far.value = camera.far;
@@ -952,50 +728,60 @@ export class PostPipeline {
     }
   }
 
-  private updateDof(lens: ReturnType<typeof gradeLens>): void {
+  private updateDof(lens: ReturnType<typeof gradeLens>) {
     const { camera } = this;
     this.dof.enabled =
       lens !== null &&
       lens.blur > 0 &&
       this.smearDepthOk &&
       camera instanceof THREE.PerspectiveCamera;
+
     if (!lens || !(camera instanceof THREE.PerspectiveCamera)) {
       return;
     }
+
     const u = this.dof.uniforms;
     const texel = u.uTexel?.value;
-    // Authored in 1080p pixels; the drawing buffer may be supersampled.
     const scale = texel instanceof THREE.Vector2 && texel.y > 0 ? 1 / texel.y / 1080 : 1;
-    const set = (name: string, value: number): void => {
+
+    const set = (name: string, value: number) => {
       const uniform = u[name];
+
       if (uniform) {
         uniform.value = value;
       }
     };
+
     set("uNear", camera.near);
     set("uFar", camera.far);
     set("uFocus", lens.focus);
     set("uBlur", lens.blur * scale);
   }
 
-  /** Comb master + boost comb + radial rush + hero hold-out. */
-  private updateSpeedUniforms(motionSpeed: number, ignite: number, streaks: number): void {
+  private updateSpeedUniforms(motionSpeed: number, ignite: number, streaks: number) {
     const fu = this.finalGrade.uniforms;
+
     const gate = Math.max(
       THREE.MathUtils.smoothstep(this.fast, 0, STREAK_GATE_FAST),
       this.kick,
       ignite,
     );
+
     const streak = fu.uStreak;
+
     if (streak) {
       streak.value = (STREAK_REST + (STREAK_BOOST - STREAK_REST) * gate) * streaks;
     }
+
     const kickU = fu.uKick;
+
     if (kickU) {
       kickU.value = this.kick;
     }
+
     const boostComb = Math.min(BOOST_COMB_MAX, this.kick + BOOST_COMB_IGNITE * ignite) * streaks;
     const speed = THREE.MathUtils.clamp(motionSpeed, 0, 1);
+
     const rushAmt =
       streaks *
       (Math.max(
@@ -1003,26 +789,29 @@ export class PostPipeline {
         RUSH_SPEED_SQ * speed * speed + RUSH_KICK_SPEED * this.kick * speed,
       ) +
         RUSH_IGNITE * ignite);
+
     const smearOn = this.smearTier && this.smearDepthOk;
     const rush = fu.uRush;
+
     if (rush && rush.value instanceof THREE.Vector3) {
       rush.value.set(smearOn ? rushAmt : 0, RUSH_CAP_BASE + RUSH_CAP_BOOST * boostComb, boostComb);
     }
+
     if (smearOn && rushAmt > 0.0002) {
-      // The smear reconstructs world positions, so the matrices must be
-      // current NOW — the composer's own render is too late. Camera's
-      // updateMatrixWorld also refreshes matrixWorldInverse.
       this.camera.updateMatrixWorld();
       const ivp = fu.uInvViewProj;
+
       if (ivp && ivp.value instanceof THREE.Matrix4) {
         ivp.value
           .multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse)
           .invert();
       }
+
       if (!this.subjectPinned) {
         this.camera.getWorldPosition(this.camPos);
         this.camera.getWorldDirection(this.camDir);
         const planar = Math.hypot(this.camDir.x, this.camDir.z);
+
         if (planar > 1e-4) {
           const arm = SUBJECT_EST_ARM / planar;
           this.subject.set(
@@ -1032,7 +821,9 @@ export class PostPipeline {
           );
         }
       }
+
       const subj = fu.uSubject;
+
       if (subj && subj.value instanceof THREE.Vector3) {
         subj.value.copy(this.subject);
       }

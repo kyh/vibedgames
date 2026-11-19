@@ -1,19 +1,6 @@
-/**
- * Shared harness for the playtest skill's bot scripts: the `vg playtest`
- * subprocess plumbing, properly-formed held-key and pointer dispatch, the
- * in-page motion tracker, and the boot/seed sequence that gets a game to a
- * live, seeded run. `scripted-playtest.mjs` (a scripted sweep) and
- * the CLI's `vg playtest run` (model-driven) carries a TypeScript port of it.
- *
- * Zero dependencies. Shells out to `vg playtest` (agent-browser). The game
- * must expose the diagnostics contract — see references/scripted-playtest.md.
- */
-
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 
-// The lint bans runtime `typeof`; these checks are typeof-free equivalents for
-// values decoded from JSON (plain objects and primitive strings only).
 export const isPlainObject = (v) => Object.prototype.toString.call(v) === "[object Object]";
 export const isString = (v) => String(v) === v;
 
@@ -23,15 +10,16 @@ export const HARNESS_FAILURE = 2;
 export const printHelp = (file) => {
   const source = readFileSync(file, "utf-8");
   const match = /^(?:#![^\n]*\n)?\/\*\*(?<body>[\s\S]*?)\*\//u.exec(source);
+
   const text = (match?.groups?.body ?? "")
     .split("\n")
     .map((line) => line.replace(/^\s*\* ?/u, ""))
     .join("\n")
     .trim();
+
   process.stdout.write(`${text || "No help available."}\n`);
 };
 
-/** Prefix on every failure message, so a reader knows which script spoke. */
 let programName = "playtest";
 
 export const setProgramName = (name) => {
@@ -57,12 +45,6 @@ export const MOVEMENT_CODES = new Set([
   "ArrowRight",
 ]);
 
-/**
- * The inputs currently down — `{ keys, pointer }`. A keydown — or a mouse
- * button — left dangling by an early exit stays stuck in the game and poisons
- * the next run against the same daemon, so anything that ends the process
- * releases it.
- */
 let held = null;
 
 /**
@@ -81,38 +63,24 @@ export const disownHeld = () => {
 
 export const releaseHeldInputs = () => {
   const inputs = held;
-  // Disown before dispatching, so a release that itself fails can't recurse
-  // back through `fail` forever when the CLI is what's broken.
   held = null;
-  // Only a hold puts an input down or starts the sampler, and one can only
-  // start once the page is open — so nothing held means nothing to undo.
-  // Reaching for the browser anyway would have `--seed nonsense` bootstrap
-  // agent-browser and download Chrome just to report a typo.
+
   if (!inputs) {
     return;
   }
 
-  // One eval for all of it: this runs when the run is already failing, and each
-  // extra subprocess is another chance to die before the release lands. The
-  // sampler goes too — an interval left running in the daemon's page outlives
-  // this process for the same reason a held key would.
   const parts = [
     "clearInterval(window.__BOT_TICK__);",
     ...keyParts("keyup", inputs.keys ?? []),
     ...pointerParts(inputs.pointer, "up"),
   ];
-  // Raw spawn rather than `playtest`, which calls `fail` when the CLI can't be
-  // run — and `fail` calls this. Best-effort by design: the run is already over,
-  // and there is nothing useful to do if the release itself can't be delivered.
+
   spawnSync("vg", ["playtest", "eval", `(() => { ${parts.join("\n")}\nreturn true; })()`], {
     encoding: "utf-8",
     timeout: 30_000,
   });
 };
 
-// Ctrl-C mid-hold leaves the key down and the sampler running in a daemon page
-// that outlives this process, which is the same poison an early exit causes.
-// `sleep` blocks the thread, so the handler lands once the current hold ends.
 for (const signal of ["SIGINT", "SIGTERM"]) {
   process.on(signal, () => {
     releaseHeldInputs();
@@ -157,7 +125,6 @@ export const NAMED_KEYS = {
   Tab: 9,
 };
 
-/** The `key` value a browser reports for a given `code`. */
 const NAMED_VALUES = {
   AltLeft: "Alt",
   AltRight: "Alt",
@@ -179,10 +146,6 @@ const NAMED_VALUES = {
   Space: " ",
 };
 
-/**
- * What a US keyboard reports as `key` while Shift is held. The keyCodes above
- * already assume that layout, so this stays consistent with them.
- */
 const SHIFTED = {
   Backquote: "~",
   Backslash: "|",
@@ -207,51 +170,48 @@ const SHIFTED = {
   Slash: "?",
 };
 
-/**
- * The `key` a browser reports for `code` with Shift down. Without this a step
- * holding Shift sets `shiftKey: true` but still reports the unshifted value, so
- * a binding written against `event.key === "A"` never fires — the same class of
- * miss the modifier flags were added to fix.
- */
 const shiftedKey = (code, key) => {
   if (/^Key[A-Z]$/u.test(code)) {
     return key.toUpperCase();
   }
+
   return SHIFTED[code] ?? key;
 };
 
 /** `keyCode` and `key` for a KeyboardEvent `code`. Fails naming an unsupported code. */
 export const keyFields = (code) => {
   const letter = /^Key(?<letter>[A-Z])$/u.exec(code)?.groups?.letter;
+
   if (letter) {
     return [letter.codePointAt(0), letter.toLowerCase()];
   }
+
   const digit = /^Digit(?<digit>[0-9])$/u.exec(code)?.groups?.digit;
+
   if (digit) {
     return [48 + Number(digit), digit];
   }
-  // `in` would accept inherited names, so `toString` became a key with an
-  // undefined keyCode instead of an unsupported-code failure.
+
   if (Object.hasOwn(NAMED_KEYS, code)) {
     return [NAMED_KEYS[code], Object.hasOwn(NAMED_VALUES, code) ? NAMED_VALUES[code] : code];
   }
+
   fail(
     `unsupported key code "${code}". Supported: Key<A-Z>, Digit<0-9>, and ${Object.keys(NAMED_KEYS).join(", ")}.`,
   );
 };
 
 const keyInits = (codes) => {
-  // Modifiers held in the same step have to show up as flags on their
-  // companions too, or `Shift+W` arrives as a plain `w` and the binding a
-  // script was written to exercise never fires.
   const modifiers = {
     altKey: codes.some((c) => c === "AltLeft" || c === "AltRight"),
     ctrlKey: codes.some((c) => c === "ControlLeft" || c === "ControlRight"),
     shiftKey: codes.some((c) => c === "ShiftLeft" || c === "ShiftRight"),
   };
+
   return codes.map((code) => {
     const [keyCode, key] = keyFields(code);
     const reported = modifiers.shiftKey ? shiftedKey(code, key) : key;
+
     return JSON.stringify({
       code,
       key: reported,
@@ -278,24 +238,13 @@ export const keyParts = (type, codes) => {
   if (codes.length === 0) {
     return [];
   }
-  // Dispatched at the focused element, not at `window`. A real keypress starts
-  // there and bubbles up through document to window, so listeners on all three
-  // fire once; dispatching on `window` fires only window's, and a game using
-  // `document.addEventListener("keydown", …)` is reported as dead input.
+
   return [
     `{ const t = document.activeElement ?? document.body ?? window;
       for (const init of [${keyInits(codes).join(",")}]) t.dispatchEvent(new KeyboardEvent(${JSON.stringify(type)}, init)); }`,
   ];
 };
 
-/**
- * Pointer dispatch, for games that steer from the cursor rather than the
- * keyboard (aim-and-thrust shooters, twin-stick, point-to-move). Coordinates
- * arrive as viewport fractions so a script survives a window resize. Both the
- * PointerEvent and its MouseEvent twin go out: engines listen for one or the
- * other, and a game that ignores the pointer entirely is exactly the finding
- * a run should surface rather than crash on.
- */
 const POINTER_FN = `window.__botPointer = (frac, type, buttons) => {
   const cx = Math.round(window.innerWidth * frac.x);
   const cy = Math.round(window.innerHeight * frac.y);
@@ -313,10 +262,13 @@ export const pointerParts = (pointer, phase) => {
   if (!pointer) {
     return [];
   }
+
   const down = pointer.down === true;
+
   if (phase === "up") {
     return down ? [POINTER_FN, pointerCall(pointer, "pointerup", 0)] : [];
   }
+
   return [
     POINTER_FN,
     pointerCall(pointer, "pointermove", down ? 1 : 0),
@@ -331,6 +283,7 @@ export const pointerParts = (pointer, phase) => {
  */
 export const validatePointer = (pointer, where) => {
   const { x, y } = pointer;
+
   for (const [name, value] of [
     ["x", x],
     ["y", y],
@@ -339,6 +292,7 @@ export const validatePointer = (pointer, where) => {
       fail(`${where}: \`pointer.${name}\` must be a viewport fraction between 0 and 1.`);
     }
   }
+
   if (pointer.down !== undefined && pointer.down !== true && pointer.down !== false) {
     fail(`${where}: \`pointer.down\` must be a boolean.`);
   }
@@ -412,9 +366,11 @@ export const sleep = (ms) => {
 /** Run one `vg playtest` command. */
 export const playtest = (args) => {
   const res = spawnSync("vg", ["playtest", ...args], { encoding: "utf-8", timeout: 120_000 });
+
   if (res.error) {
     fail(`couldn't run \`vg playtest\` — is the vg CLI installed? (${res.error.message})`);
   }
+
   return { status: res.status ?? 1, stderr: res.stderr ?? "", stdout: res.stdout ?? "" };
 };
 
@@ -432,35 +388,41 @@ export const playtest = (args) => {
 export const payload = (args, key) => {
   const { status, stdout, stderr } = playtest([...args, "--json"]);
   const text = stdout.trim();
+
   if (status !== 0) {
     fail(`\`${args[0]}\` failed: ${stderr.trim() || text}`);
   }
 
   let parsed;
+
   try {
     parsed = JSON.parse(text);
   } catch {
     fail(`\`${args[0]} --json\` did not return JSON: ${text.slice(0, 200)}`);
   }
+
   if (parsed?.success === false) {
     fail(`\`${args[0]}\` failed: ${JSON.stringify(parsed.error)}`);
   }
+
   if (!parsed?.data || !(key in parsed.data)) {
     fail(
       `unexpected agent-browser response for \`${args[0]}\` (no data.${key}): ${text.slice(0, 200)}`,
     );
   }
+
   return parsed.data[key];
 };
 
 export const evaluate = (expression) => payload(["eval", expression], "result");
 
-/** Console messages at error level — `console` returns every level. */
 const readConsoleErrors = () => {
   const entries = payload(["console"], "messages");
+
   if (!Array.isArray(entries)) {
     fail("`console` returned a non-array `messages`.");
   }
+
   return entries
     .filter((entry) => entry?.type === "error")
     .map((entry) => entry?.text ?? JSON.stringify(entry));
@@ -475,9 +437,11 @@ const readConsoleErrors = () => {
 export const collectErrors = () => {
   const consoleErrors = readConsoleErrors();
   const pageErrors = payload(["errors"], "errors");
+
   if (!Array.isArray(pageErrors)) {
     fail("`errors` returned a non-array `errors`.");
   }
+
   return { consoleErrors, pageErrors };
 };
 
@@ -499,9 +463,11 @@ export const readGpuInfo = () => {
       };
     })()`,
   );
+
   if (!isPlainObject(info) || !isString(info.renderer)) {
     return { renderer: null, softwareRendered: null, vendor: null };
   }
+
   return {
     renderer: info.renderer,
     softwareRendered: /swiftshader|llvmpipe|software|basic render/iu.test(info.renderer),
@@ -512,24 +478,12 @@ export const readGpuInfo = () => {
 const CONTRACT_READY =
   "window.__GAME_DIAGNOSTICS__ !== undefined && window.__GAME_TEST_HOOKS__ !== undefined";
 
-/**
- * Navigate and wait for the diagnostics contract.
- *
- * Logs are cleared BEFORE navigating, never after: anything the game logs while
- * booting belongs to this run, and clearing afterwards would erase exactly the
- * boot errors the report exists to catch. That holds for the seeded reload too,
- * where the logs worth keeping are the *second* boot's.
- *
- * Waits for the CONTRACT, not for frames. Most games boot into a menu where the
- * loop hasn't started, so frames only advance once setState('active-play') has
- * skipped it — waiting on frames first would deadlock on exactly the games that
- * implement the contract correctly.
- */
 const boot = (target, headed, whenAbsent) => {
   playtest(["console", "--clear"]);
   playtest(["errors", "--clear"]);
 
   const open = playtest(["open", ...target, ...(headed ? ["--headed"] : [])]);
+
   if (open.status !== 0) {
     fail(`couldn't open the game: ${open.stderr.trim() || open.stdout.trim()}`);
   }
@@ -539,24 +493,19 @@ const boot = (target, headed, whenAbsent) => {
   }
 };
 
-/**
- * Two ways a game can honour a seed, and `seed?.()` alone silently skips the
- * second: games whose scene is single-start (games/starfall) deliberately
- * omit the hook and read `?seed=` at boot instead. Calling an absent hook
- * would leave the run unseeded while the report still claimed the seed — the
- * exact "silent no-op hook" the contract warns about. So detect which one
- * this game implements, and for boot-only games reload with the param.
- */
 const applySeed = (seed, headed) => {
   const boot0 = evaluate(
     "({ hasSeedHook: typeof window.__GAME_TEST_HOOKS__?.seed === 'function', href: location.href })",
   );
+
   if (boot0?.hasSeedHook) {
     return "hook";
   }
+
   if (!isString(boot0?.href)) {
     fail("couldn't read location.href to apply the seed.");
   }
+
   const url = new URL(boot0.href);
   url.searchParams.set("seed", String(seed));
   boot(
@@ -564,6 +513,7 @@ const applySeed = (seed, headed) => {
     headed,
     "the game stopped publishing diagnostics after the seeded reload.",
   );
+
   return "boot-param";
 };
 
@@ -582,16 +532,10 @@ export const launch = ({ headed, seed, target }) => {
 
   const seedApplied = applySeed(seed, headed);
 
-  // seed() must RESTART the run, not just reseed — frames rendered before this
-  // call were unseeded and must not be measured. setState('active-play') is
-  // what leaves the menu. Stash the frame it left off at so the wait below
-  // proves the loop moved *after* the hooks, rather than passing instantly on
-  // a game that was already past frame 10.
   const ack = evaluate(
     `(async () => { const h = window.__GAME_TEST_HOOKS__; h.seed?.(${seed}); const ack = await h.setState?.('active-play'); window.__BOT_F0__ = h && window.__GAME_DIAGNOSTICS__.frame; return ack === undefined ? null : ack; })()`,
   );
-  // The ack is optional (void hooks keep working) but asserted when present:
-  // a hook that answers with a different state applied a different state.
+
   if (ack !== null && (!isPlainObject(ack) || ack.state !== "active-play")) {
     fail(
       `setState('active-play') acknowledged ${JSON.stringify(ack)} instead of { state: 'active-play' } — the hook applied a different state or is a no-op (see references/scripted-playtest.md).`,
@@ -601,10 +545,9 @@ export const launch = ({ headed, seed, target }) => {
   const live = playtest([
     "wait",
     "--fn",
-    // `!== __BOT_F0__` covers both shapes of a correct seed(): one that resets
-    // the counter, and one that just keeps counting up.
     "(window.__GAME_DIAGNOSTICS__?.frame ?? 0) > 10 && window.__GAME_DIAGNOSTICS__.frame !== window.__BOT_F0__",
   ]);
+
   if (live.status !== 0) {
     fail(
       "diagnostics are published but the loop never advanced after seed()/setState('active-play') — check they aren't no-ops (see references/scripted-playtest.md).",

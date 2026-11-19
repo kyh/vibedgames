@@ -5,7 +5,6 @@ import {
   publishPlaytest,
   publishTestHooks,
 } from "@vibedgames/playtest";
-import type { ReflexInputs } from "@vibedgames/playtest";
 
 import type { RoomState } from "../state/room-state";
 import type { RunState } from "../state/run-state";
@@ -15,12 +14,6 @@ import type { NavPoint, NavStep } from "./nav";
 import { Pilot } from "./pilot";
 import type { Intent, PilotTarget, PilotView } from "./pilot";
 import type { RunManager } from "./run";
-
-// The playtest contract (see the playtest skill's references/autonomous-playtest.md):
-// __GAME_DIAGNOSTICS__ is read-only telemetry, __GAME_TEST_HOOKS__ the mutations
-// a test may perform, __GAME_PLAYTEST__ the controls a decision model chooses
-// between. Diagnostics are a live getter, so a build nobody is playtesting
-// never pays for the route-finding behind them.
 
 type Phase = "menu" | "fight" | "loot" | "exit" | "transition" | "dead";
 
@@ -59,7 +52,6 @@ export interface DiagWorld {
   expedition: RunManager;
 }
 
-// Swing reach past the enemy's near edge, and the band of the swing's tall hitbox (player-body.ts attackBox).
 const REACH = 28;
 const REACH_UP = -30;
 const REACH_DOWN = 28;
@@ -71,9 +63,9 @@ const foeNav = new Navigator();
 const pickupNav = new Navigator();
 const exitNavs = [new Navigator(), new Navigator()];
 
-const roundStep = (s: NavStep): NavStep => ({ ...s, dx: Math.round(s.dx), dy: Math.round(s.dy) });
+const roundStep = (s: NavStep) => ({ ...s, dx: Math.round(s.dx), dy: Math.round(s.dy) });
 
-const idle = (): Diagnostics => ({
+const idle: () => Diagnostics = () => ({
   ...beat,
   canJump: false,
   dashReady: false,
@@ -101,39 +93,45 @@ interface LiveFoe extends NavPoint {
   hw: number;
 }
 
-const liveFoes = (room: RoomState): LiveFoe[] => {
+const liveFoes = (room: RoomState) => {
   const foes: LiveFoe[] = [];
+
   for (const e of room.enemies) {
     if (!e.body.dead) {
       const { x, y, hp, state, kind } = e.body;
       foes.push({ hp, hw: kind.hw, kind: kind.name, state, x, y });
     }
   }
+
   const boss = room.boss?.body;
+
   if (boss && !boss.dead) {
     const box = boss.hurtBox();
     const hw = (box.right - box.left) / 2;
     foes.push({ hp: boss.hp, hw, kind: "boss", state: boss.state, x: boss.x, y: boss.y });
   }
+
   return foes;
 };
 
-const observe = (w: DiagWorld): Diagnostics => {
+const observe = (w: DiagWorld) => {
   const { body } = w.seat.player;
-  // A body rising through a jump-through reads as grounded for the frames its feet are inside the tile.
   const grounded = body.grounded && body.vy >= 0;
   const me = { grounded, x: body.x, y: body.y };
   const rel = (p: NavPoint) => ({ dx: Math.round(p.x - body.x), dy: Math.round(p.y - body.y) });
-  const target = (nav: Navigator, p: NavPoint): PilotTarget => ({
+
+  const target = (nav: Navigator, p: NavPoint) => ({
     ...rel(p),
     step: roundStep(nav.step(w.room.grid, me, p)),
   });
-  const near = (p: NavPoint): number => Math.abs(p.x - body.x) + 2 * Math.abs(p.y - body.y);
+
+  const near = (p: NavPoint) => Math.abs(p.x - body.x) + 2 * Math.abs(p.y - body.y);
 
   const foes = liveFoes(w.room).toSorted((a, b) => near(a) - near(b));
-  const brief = (f: LiveFoe): Foe => ({ hp: f.hp, kind: f.kind, state: f.state, ...rel(f) });
+  const brief = (f: LiveFoe) => ({ hp: f.hp, kind: f.kind, state: f.state, ...rel(f) });
   const [first] = foes;
   let nearestEnemy: Diagnostics["nearestEnemy"] = null;
+
   if (first) {
     const { dx, dy } = rel(first);
     const inReach = Math.abs(dx) < REACH + first.hw && dy > REACH_UP && dy < REACH_DOWN;
@@ -144,17 +142,21 @@ const observe = (w: DiagWorld): Diagnostics => {
   const [shot] = shots;
 
   const loot: (NavPoint & { kind: string })[] = [];
+
   if (w.room.feature && !w.room.feature.used) {
     loot.push({ kind: w.expedition.type, x: w.room.feature.x, y: w.room.feature.y });
   }
+
   for (const item of w.room.merchantItems) {
     if (!item.bought && w.run.gold >= item.relic.price) {
       loot.push({ kind: "relic", x: item.x, y: item.y });
     }
   }
+
   const [grab] = loot.toSorted((a, b) => near(a) - near(b));
 
   let phase: Phase = "exit";
+
   if (w.run.state === "dead") {
     phase = "dead";
   } else if (w.run.state !== "active") {
@@ -203,29 +205,30 @@ const observe = (w: DiagWorld): Diagnostics => {
 };
 
 /** The running GameScene hands over its state in create() and takes it back on shutdown. */
-export const attachDiag = (w: DiagWorld | null): void => {
+export const attachDiag = (w: DiagWorld | null) => {
   world = w;
 };
 
 /** Once per rendered frame: the heartbeat, and the two fields that outlive the scene (a death is read from the hub). */
-export const tickDiag = (): void => {
+export const tickDiag = () => {
   beat.frame += 1;
+
   if (world) {
     beat.score = world.run.score;
     beat.complete = world.run.state === "dead";
   }
 };
 
-const restartSolo = (game: Phaser.Game, seed?: number): void => {
+const restartSolo = (game: Phaser.Game, seed?: number) => {
   for (const key of ["select", "game", "viewer"]) {
     if (game.scene.isActive(key)) {
       game.scene.stop(key);
     }
   }
+
   beat.frame = 0;
   beat.score = 0;
   beat.complete = false;
-  // Staged state never lands in a live room: a party the hub remembered would reconnect.
   game.registry.set("party", "");
   game.scene.start("game", { hero: "axion", seed });
 };
@@ -237,44 +240,37 @@ const KEYS = {
   jump: "Space",
   left: "KeyA",
   right: "KeyD",
-  // Aim only. W would do, but the arrow keeps the apex dash's up-aim apart from the WASD run keys in a key log.
   up: "ArrowUp",
 } satisfies Record<keyof Intent, string>;
 
 const BUTTONS: (keyof Intent)[] = ["attack", "dash", "down", "jump", "left", "right", "up"];
 
-/** Frames of trying to travel with nothing to show for it before the pilot counts as wedged. */
 const STALL_FRAMES = 50;
-/** How long the shake-loose lasts: back off the way it came and hop. */
 const SHAKE_FRAMES = 18;
 const STALL_PX = 4;
-
-/**
- * A body can wedge under a ledge or against a lip the route did not expect,
- * and the pilot would push into it forever. Two answers, in order: shake
- * loose (reverse and hop), and tell the playtest (`stuck`), which withdraws
- * the move so the model has to pick another.
- */
-interface Guarded {
-  intent: Intent;
-  stuck: boolean;
-}
 
 const stallGuard = () => {
   let anchor = { x: 0, y: 0 };
   let stalled = 0;
-  return (intent: Intent, at: NavPoint): Guarded => {
+
+  return (intent: Intent, at: NavPoint) => {
     const travelling = intent.left || intent.right;
+
     if (!travelling || Math.hypot(at.x - anchor.x, at.y - anchor.y) > STALL_PX) {
       anchor = { x: at.x, y: at.y };
       stalled = 0;
+
       return { intent, stuck: false };
     }
+
     stalled += 1;
+
     if (stalled < STALL_FRAMES) {
       return { intent, stuck: false };
     }
+
     const shaking = (stalled - STALL_FRAMES) % (STALL_FRAMES + SHAKE_FRAMES) < SHAKE_FRAMES;
+
     return {
       intent: shaking ? { ...intent, jump: true, left: intent.right, right: intent.left } : intent,
       stuck: true,
@@ -282,8 +278,8 @@ const stallGuard = () => {
   };
 };
 
-const held = (intent: Intent, stuck = false): ReflexInputs => ({
-  keys: BUTTONS.filter((name) => intent[name]).map((name) => KEYS[name]),
+const held = (intent: Intent, stuck = false) => ({
+  keys: BUTTONS.flatMap((name) => (intent[name] ? [KEYS[name]] : [])),
   stuck,
 });
 
@@ -296,13 +292,16 @@ const GOAL = [
   "`special` is a ground-smash that hits everything within ~34 px; use it when `specialReady` and an enemy is within 40 px.",
 ].join(" ");
 
-const publishManifest = (): void => {
+const publishManifest = () => {
   const pilot = new Pilot();
   const guard = stallGuard();
-  const drive = (diag: Diagnostics, intent: Intent): ReflexInputs => {
+
+  const drive = (diag: Diagnostics, intent: Intent) => {
     const guarded = guard(intent, diag.player);
+
     return held(guarded.intent, guarded.stuck);
   };
+
   publishPlaytest<Diagnostics>({
     actions: {
       special: {
@@ -342,15 +341,14 @@ const publishManifest = (): void => {
   });
 };
 
-export const installTestHooks = (game: Phaser.Game): void => {
-  publishDiagnostics((): Diagnostics => (world ? observe(world) : idle()));
+export const installTestHooks = (game: Phaser.Game) => {
+  publishDiagnostics(() => (world ? observe(world) : idle()) satisfies Diagnostics);
+
   if (!import.meta.env.DEV && !isPlaytestRequested()) {
     return;
   }
+
   publishTestHooks({
-    // Contract: seed() reseeds the gameplay RNG AND restarts the run, so
-    // everything a bot measures is deterministic from this seed (frames
-    // rendered before the call were unseeded).
     seed: (n) => restartSolo(game, n),
     setPausedForScreenshot: (paused) => {
       if (paused) {
@@ -359,12 +357,13 @@ export const installTestHooks = (game: Phaser.Game): void => {
         game.loop.wake();
       }
     },
-    // 'active-play' = a fresh solo run, skipping the hub. Always offline: it starts the scene with no party.
     setState: (name) => {
       if (name !== "active-play") {
         return;
       }
+
       restartSolo(game);
+
       return { state: name };
     },
   });

@@ -25,7 +25,9 @@ const CHORES = [
   "refill",
   "sleep",
 ] as const;
+
 type ChoreId = (typeof CHORES)[number];
+
 type Step = -1 | 0 | 1;
 
 /** One chore's nearest target, as the farmer would size it up from where they stand. */
@@ -77,10 +79,8 @@ export type FarmDiagnostics = Diagnostics & { phase: "farm" | "mine" | "menu" } 
 interface Plan {
   tx: number;
   ty: number;
-  /** Already standing where the chore is done from. */
   there: boolean;
   steps: number;
-  /** The next cell along the route (the standing cell once there). */
   nx: number;
   ny: number;
   standOn: boolean;
@@ -93,49 +93,57 @@ const NEIGHBOURS = [
   { x: 1, y: 0 },
 ] as const;
 
-const sign = (n: number): Step => {
+const sign: (n: number) => Step = (n) => {
   if (n > 0) {
     return 1;
   }
+
   return n < 0 ? -1 : 0;
 };
 
-/** Hotbar keys reach slots 1–9 and 0; the last two slots are wheel-only. */
 const KEYED_SLOTS = 10;
-const slotOf = (wants: (item: Item) => boolean): number | undefined => {
+
+const slotOf = (wants: (item: Item) => boolean) => {
   const i = store.inv.slots.findIndex((s, n) => n < KEYED_SLOTS && s !== null && wants(s.item));
+
   return i === -1 ? undefined : i + 1;
 };
-const toolSlot = (tool: ToolId): number | undefined =>
-  slotOf((it) => it.kind === "tool" && it.tool === tool);
 
-const heldName = (item: Item | null): string | null => {
+const toolSlot = (tool: ToolId) => slotOf((it) => it.kind === "tool" && it.tool === tool);
+
+const heldName = (item: Item | null) => {
   if (!item) {
     return null;
   }
+
   return item.kind === "tool" ? item.tool : item.kind;
 };
 
-const clockText = (timeMin: number): string => {
+const clockText = (timeMin: number) => {
   const h = Math.floor(timeMin / 60) % 24;
   const m = Math.floor(timeMin % 60);
+
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 };
 
-const facingName = (f: { x: number; y: number }): FarmView["facing"] => {
+const facingName: (f: { x: number; y: number }) => FarmView["facing"] = (f) => {
   if (f.x !== 0) {
     return f.x < 0 ? "left" : "right";
   }
+
   return f.y < 0 ? "up" : "down";
 };
 
-const countPlots = (world: World): FarmView["plots"] => {
+const countPlots = (world: World) => {
   const plots = { dry: 0, empty: 0, growing: 0, ripe: 0 };
+
   for (let i = 0; i < MAP_W * MAP_H; i += 1) {
     if (!world.tilled[i]) {
       continue;
     }
+
     const cs = world.crops.get(i);
+
     if (!cs) {
       plots.empty += 1;
     } else if (isMature(CROPS[cs.crop], cs.daysGrown)) {
@@ -146,50 +154,54 @@ const countPlots = (world: World): FarmView["plots"] => {
       plots.dry += 1;
     }
   }
+
   return plots;
 };
 
-/**
- * The nearest tile `wants` accepts, by walking distance to a cell the chore
- * can be done from: an orthogonal neighbour (the farmer acts on the tile they
- * face), or the tile itself for walk-over pickups.
- */
 const planFor = (
   scene: GameScene,
   route: ReturnType<typeof flood>,
   start: number,
   wants: (tx: number, ty: number) => boolean,
   standOn: boolean,
-): Plan | null => {
+) => {
   let best: { cost: number; stand: number; tx: number; ty: number } | null = null;
+
   for (let ty = 0; ty < MAP_H; ty += 1) {
     for (let tx = 0; tx < MAP_W; tx += 1) {
       if (!wants(tx, ty)) {
         continue;
       }
+
       for (const n of standOn ? [{ x: 0, y: 0 }] : NEIGHBOURS) {
         const sx = tx + n.x;
         const sy = ty + n.y;
         const d = inBounds(sx, sy) ? (route.dist[tileIdx(sx, sy)] ?? -1) : -1;
+
         if (d < 0) {
           continue;
         }
-        // Among equals, the target already faced costs no turn.
+
         const faced = d === 0 && scene.facing.x === -n.x && scene.facing.y === -n.y;
         const cost = d * 2 + (faced ? 0 : 1);
+
         if (!best || cost < best.cost) {
           best = { cost, stand: tileIdx(sx, sy), tx, ty };
         }
       }
     }
   }
+
   if (!best) {
     return null;
   }
+
   let next = best.stand;
+
   for (let p = route.parent[next] ?? -1; p !== -1 && p !== start; p = route.parent[next] ?? -1) {
     next = p;
   }
+
   return {
     nx: next % MAP_W,
     ny: Math.trunc(next / MAP_W),
@@ -201,12 +213,11 @@ const planFor = (
   };
 };
 
-/** Evening: from here the farmhouse is worth the walk whatever is left undone. */
 const BEDTIME_MIN = 20 * 60;
 const SWING_ENERGY = 2;
-const isLate = (scene: GameScene): boolean => scene.timeMin >= BEDTIME_MIN;
+const isLate = (scene: GameScene) => scene.timeMin >= BEDTIME_MIN;
 
-const planChores = (scene: GameScene, plots: FarmView["plots"]): Record<ChoreId, Plan | null> => {
+const planChores = (scene: GameScene, plots: FarmView["plots"]) => {
   const { world } = scene;
   const feet = scene.feetTile();
   const start = tileIdx(feet.tx, feet.ty);
@@ -215,14 +226,17 @@ const planChores = (scene: GameScene, plots: FarmView["plots"]): Record<ChoreId,
   const hasEnergy = store.energy > 0;
   const seeds = slotOf((it) => it.kind === "seed" && CROPS[it.crop].seasons.includes(season));
   const goods = store.inv.count((it) => it.kind !== "tool" && it.kind !== "seed");
-  // Crops only grow overnight: once today's are in and watered, bed is the next chore.
+
   const farmed =
     plots.ripe === 0 &&
     plots.dry === 0 &&
     (seeds === undefined || (plots.empty === 0 && !hasEnergy));
+
   const crop = (tx: number, ty: number) => world.crops.get(tileIdx(tx, ty));
+
   const plan = (able: boolean, wants: (tx: number, ty: number) => boolean, standOn = false) =>
     able ? planFor(scene, route, start, wants, standOn) : null;
+
   return {
     chop: plan(
       hasEnergy && toolSlot("axe") !== undefined,
@@ -231,6 +245,7 @@ const planChores = (scene: GameScene, plots: FarmView["plots"]): Record<ChoreId,
     forage: plan(true, (tx, ty) => world.objectAt(tx, ty)?.type === "forage", true),
     harvest: plan(true, (tx, ty) => {
       const cs = crop(tx, ty);
+
       return cs !== undefined && isMature(CROPS[cs.crop], cs.daysGrown);
     }),
     plant: plan(
@@ -250,6 +265,7 @@ const planChores = (scene: GameScene, plots: FarmView["plots"]): Record<ChoreId,
     till: plan(hasEnergy && toolSlot("hoe") !== undefined, (tx, ty) => world.canTill(tx, ty)),
     water: plan(hasEnergy && scene.canCharge > 0 && toolSlot("can") !== undefined, (tx, ty) => {
       const cs = crop(tx, ty);
+
       return (
         cs !== undefined &&
         world.watered[tileIdx(tx, ty)] !== 1 &&
@@ -259,12 +275,13 @@ const planChores = (scene: GameScene, plots: FarmView["plots"]): Record<ChoreId,
   };
 };
 
-/** The route changes only when the farmer changes tile or the farm changes under them. */
 let planned: { key: string; plans: Record<ChoreId, Plan | null>; plots: FarmView["plots"] } | null =
   null;
-const plansFor = (scene: GameScene): NonNullable<typeof planned> => {
+
+const plansFor = (scene: GameScene) => {
   const feet = scene.feetTile();
   const { facing } = scene;
+
   const key = [
     tileIdx(feet.tx, feet.ty),
     facing.x,
@@ -278,35 +295,37 @@ const plansFor = (scene: GameScene): NonNullable<typeof planned> => {
     store.inv.count((it) => it.kind !== "tool"),
     workScore(store.work),
   ].join(":");
+
   if (planned?.key !== key) {
     const plots = countPlots(scene.world);
     planned = { key, plans: planChores(scene, plots), plots };
   }
+
   return planned;
 };
 
-/** Steering deadzone: a walking frame covers ~1–2 px, so closer than this is "on the waypoint". */
 const ARRIVED_PX = 1.5;
-/** How far past mid-cell, towards the target, a turn may still start from. */
 const TURN_ROOM_PX = 2;
 
-const liveChore = (scene: GameScene, plan: Plan | null): Chore | null => {
+const liveChore: (scene: GameScene, plan: Plan | null) => Chore | null = (scene, plan) => {
   if (!plan) {
     return null;
   }
+
   const feet = scene.feetTile();
   const base = { dx: plan.tx - feet.tx, dy: plan.ty - feet.ty, steps: plan.steps };
+
   if (plan.there && !plan.standOn) {
     if (scene.facing.x === base.dx && scene.facing.y === base.dy) {
       return { ...base, facing: true, stepX: 0, stepY: 0 };
     }
-    // Turning means walking a frame or two towards the target, and farmland
-    // is walkable: from the near edge that crosses onto it and the target
-    // becomes the tile behind. Back off to mid-cell first, then turn.
+
     const lean =
       (scene.player.x - (feet.tx * TILE + TILE / 2)) * base.dx +
       (scene.player.y - (feet.ty * TILE + TILE / 2 + 1)) * base.dy;
+
     const turn = lean > TURN_ROOM_PX ? -1 : 1;
+
     return {
       ...base,
       facing: false,
@@ -314,19 +333,24 @@ const liveChore = (scene: GameScene, plan: Plan | null): Chore | null => {
       stepY: sign(base.dy * turn),
     };
   }
-  // Waypoints sit where click-to-move puts them: the cell's centre, a pixel low.
+
   const vx = plan.nx * TILE + TILE / 2 - scene.player.x;
   const vy = plan.ny * TILE + TILE / 2 + 1 - scene.player.y;
   const stepX = Math.abs(vx) > ARRIVED_PX ? sign(vx) : 0;
   const stepY = Math.abs(vy) > ARRIVED_PX ? sign(vy) : 0;
-  // A pickup only fires while walking; dead-centre on it still needs a nudge.
+
   return { ...base, facing: false, stepX: stepX === 0 && stepY === 0 ? 1 : stepX, stepY };
 };
 
-const farmView = (scene: GameScene, modal: boolean, sleepPrompt: boolean): FarmView => {
+const farmView: (scene: GameScene, modal: boolean, sleepPrompt: boolean) => FarmView = (
+  scene,
+  modal,
+  sleepPrompt,
+) => {
   const feet = scene.feetTile();
   const { plans, plots } = plansFor(scene);
   const season = scene.season();
+
   return {
     busy: scene.acting || scene.uiOpen || scene.transitioning || scene.controlsPaused,
     chores: {
@@ -366,15 +390,18 @@ const farmView = (scene: GameScene, modal: boolean, sleepPrompt: boolean): FarmV
   };
 };
 
-export const readDiagnostics = (game: Game): FarmDiagnostics => {
+export const readDiagnostics: (game: Game) => FarmDiagnostics = (game) => {
   const scene = game.scene
     .getScenes(true)
     .find((s) => s instanceof GameScene || s instanceof MineScene);
+
   const base = { complete: false, frame: game.loop.frame, score: workScore(store.work) };
+
   if (scene instanceof GameScene) {
     const hud = game.scene.getScene("Hud");
     const prompt = hud instanceof HudScene ? hud.openModal : null;
     const modal = prompt !== null || game.scene.isActive("Inventory");
+
     return {
       ...base,
       entities: scene.world.objects.length,
@@ -383,59 +410,64 @@ export const readDiagnostics = (game: Game): FarmDiagnostics => {
       ...farmView(scene, modal, prompt === "sleep"),
     };
   }
+
   if (scene instanceof MineScene) {
     return { ...base, phase: "mine", player: { x: scene.player.x, y: scene.player.y } };
   }
+
   return { ...base, phase: "menu" };
 };
 
 const NO_INPUT = { keys: [] };
-/** Walk-only below this many tiles: a sprint overshoots the cell it has to stop in. */
 const RUN_BEYOND_STEPS = 3;
 
-/**
- * A chore as one held intent: pick the tool, walk the route, turn to the tile,
- * use the tool — then on to the next nearest, for as long as the model keeps
- * choosing it. Facing is tile-exact and the action key is edge-triggered, so
- * none of it survives a decision's latency; which chore is worth doing next is
- * the judgment left to the model. A modal in the way is backed out of, bar
- * the one this chore came for: `confirms` answers the bed's prompt with the
- * same action key that raised it.
- */
-const choreReflex = (
+const choreReflex: (
   id: ChoreId,
   needs: HeldSlot | null,
-  confirms: "sleepPrompt" | null = null,
-): Reflex<FarmDiagnostics> => {
+  confirms?: "sleepPrompt" | null,
+) => Reflex<FarmDiagnostics> = (id, needs, confirms = null) => {
   const tap = keyTapper({ downFrames: 3, upFrames: 6 });
+
   return (diag) => {
     if (diag?.modal) {
       return { keys: tap([confirms && diag[confirms] ? "Space" : "Escape"]) };
     }
+
     const chore = diag?.chores?.[id];
+
     if (!diag || !chore || diag.busy) {
       tap([]);
+
       return NO_INPUT;
     }
+
     const slot = needs ? diag.slots?.[needs] : undefined;
+
     if (slot !== undefined && slot !== diag.slot) {
       tap([]);
+
       return { keys: [`Digit${slot % 10}`] };
     }
+
     if (chore.facing) {
       return { keys: tap(["Space"]) };
     }
+
     tap([]);
     const keys: string[] = [];
+
     if (chore.stepX !== 0) {
       keys.push(chore.stepX < 0 ? "ArrowLeft" : "ArrowRight");
     }
+
     if (chore.stepY !== 0) {
       keys.push(chore.stepY < 0 ? "ArrowUp" : "ArrowDown");
     }
+
     if (chore.steps > RUN_BEYOND_STEPS) {
       keys.push("ShiftLeft");
     }
+
     return { keys };
   };
 };

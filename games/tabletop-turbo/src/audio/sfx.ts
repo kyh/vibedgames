@@ -1,26 +1,22 @@
-// Procedural WebAudio — no assets. An engine drone that climbs with speed, a
-// tyre hiss under a drift that sharpens as the boost charges, and one-shots for
-// the boost, the countdown, bumps and splat pads. The context is created
-// lazily from a user gesture; nothing is scheduled while it is suspended.
-
 import type { ItemKind } from "../shared/constants";
 
 const SOUND_KEY = "tabletop-turbo:sound";
 
-// localStorage throws in some embeds (sandboxed iframes, private modes). Sound
-// then just loses persistence, never the game.
-const storageGet = (): string | null => {
+const storageGet = () => {
   try {
     return window.localStorage.getItem(SOUND_KEY);
   } catch {
     return null;
   }
 };
-const storageSet = (value: string): void => {
+
+const storageSet = (value: string) => {
   try {
     window.localStorage.setItem(SOUND_KEY, value);
+
+    return true;
   } catch {
-    // Blocked store: the choice lasts this session only.
+    return false;
   }
 };
 
@@ -40,21 +36,24 @@ let muted = storageGet() === "0";
 let paused = false;
 let rig: Rig | null = null;
 
-export const isMuted = (): boolean => muted;
+export const isMuted = () => muted;
 
-const noiseBuffer = (ctx: AudioContext): AudioBuffer => {
+const noiseBuffer = (ctx: AudioContext) => {
   const buffer = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
   const data = buffer.getChannelData(0);
+
   for (let i = 0; i < data.length; i += 1) {
     data[i] = Math.random() * 2 - 1;
   }
+
   return buffer;
 };
 
-const build = (): Rig | null => {
+const build = () => {
   if (!("AudioContext" in window)) {
     return null;
   }
+
   const ctx = new AudioContext();
   const master = ctx.createGain();
   master.gain.value = 0.5;
@@ -91,51 +90,57 @@ const build = (): Rig | null => {
   return { ctx, engineA, engineB, engineFilter, engineGain, hissFilter, hissGain, master, noise };
 };
 
-/** The running rig, or null while muted, paused or not yet unlocked. */
-const live = (): Rig | null => {
+const live = () => {
   if (muted || paused || rig === null) {
     return null;
   }
+
   return rig.ctx.state === "running" ? rig : null;
 };
 
-const applyMaster = (): void => {
+const applyMaster = () => {
   if (rig) {
     rig.master.gain.value = muted || paused ? 0 : 0.5;
   }
 };
 
 /** Call from any user gesture: creates or resumes the context. */
-export const unlockAudio = (): void => {
+export const unlockAudio = () => {
   if (muted) {
     return;
   }
+
   rig ??= build();
+
   if (rig && rig.ctx.state === "suspended") {
     void rig.ctx.resume();
   }
 };
 
-export const setMuted = (next: boolean): void => {
+export const setMuted = (next: boolean) => {
   muted = next;
   storageSet(next ? "0" : "1");
+
   if (!next) {
     unlockAudio();
   }
+
   applyMaster();
 };
 
-export const setAudioPaused = (next: boolean): void => {
+export const setAudioPaused = (next: boolean) => {
   paused = next;
   applyMaster();
 };
 
 /** Every frame: `speed` 0–1 of top speed, `drift` 0 (none) … 1 (fully charged). */
-export const driveAudio = (speed: number, drift: number, boosting: boolean): void => {
+export const driveAudio = (speed: number, drift: number, boosting: boolean) => {
   const r = live();
+
   if (!r) {
     return;
   }
+
   const now = r.ctx.currentTime;
   const hz = 52 + speed * 120 + (boosting ? 30 : 0);
   r.engineA.frequency.setTargetAtTime(hz, now, 0.05);
@@ -147,8 +152,9 @@ export const driveAudio = (speed: number, drift: number, boosting: boolean): voi
 };
 
 /** Silence the continuous voices (title screen, results). */
-export const idleAudio = (): void => {
+export const idleAudio = () => {
   const r = live();
+
   if (r) {
     r.engineGain.gain.setTargetAtTime(0, r.ctx.currentTime, 0.1);
     r.hissGain.gain.setTargetAtTime(0, r.ctx.currentTime, 0.05);
@@ -161,11 +167,13 @@ const tone = (
   volume: number,
   type: OscillatorType = "square",
   slideTo = hz,
-): void => {
+) => {
   const r = live();
+
   if (!r) {
     return;
   }
+
   const now = r.ctx.currentTime;
   const osc = r.ctx.createOscillator();
   osc.type = type;
@@ -179,11 +187,13 @@ const tone = (
   osc.stop(now + seconds + 0.02);
 };
 
-const burst = (seconds: number, volume: number, from: number, to: number): void => {
+const burst = (seconds: number, volume: number, from: number, to: number) => {
   const r = live();
+
   if (!r) {
     return;
   }
+
   const now = r.ctx.currentTime;
   const source = r.ctx.createBufferSource();
   source.buffer = r.noise;
@@ -218,44 +228,44 @@ const USE_NOTES = {
 } satisfies Record<ItemKind, () => void>;
 
 export const sfx = {
-  boost: (tier: number): void => {
+  boost: (tier: number) => {
     burst(0.45 + tier * 0.12, 0.35, 500, 5200);
     tone(220 * tier, 0.3, 0.12, "sawtooth", 660 * tier);
   },
-  box: (): void => {
+  box: () => {
     for (const [i, hz] of [660, 880, 1175].entries()) {
       window.setTimeout(() => tone(hz, 0.1, 0.1, "square"), i * 70);
     }
   },
-  bump: (): void => {
+  bump: () => {
     burst(0.12, 0.3, 900, 200);
   },
-  countdown: (go: boolean): void => {
+  countdown: (go: boolean) => {
     tone(go ? 880 : 440, go ? 0.5 : 0.16, 0.16, "square");
   },
-  finish: (): void => {
+  finish: () => {
     for (const [i, hz] of [523, 659, 784, 1047].entries()) {
       window.setTimeout(() => tone(hz, 0.22, 0.14, "triangle"), i * 110);
     }
   },
-  lap: (): void => {
+  lap: () => {
     tone(660, 0.12, 0.12, "triangle", 990);
   },
-  orb: (): void => {
+  orb: () => {
     tone(1320, 0.09, 0.07, "triangle", 1980);
   },
-  spin: (): void => {
+  spin: () => {
     tone(700, 0.6, 0.16, "sawtooth", 90);
     burst(0.4, 0.25, 1800, 300);
   },
-  splat: (): void => {
+  splat: () => {
     burst(0.3, 0.3, 2400, 300);
     tone(180, 0.25, 0.14, "sine", 60);
   },
-  tier: (tier: number): void => {
+  tier: (tier: number) => {
     tone(500 + tier * 220, 0.09, 0.08, "triangle");
   },
-  use: (kind: ItemKind): void => {
+  use: (kind: ItemKind) => {
     USE_NOTES[kind]();
   },
 };

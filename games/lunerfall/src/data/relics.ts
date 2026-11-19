@@ -1,31 +1,18 @@
 import { rand } from "../sys/rng";
 
-// In-run relics: passive run modifiers bought at shrines or found in caches.
-// Effects fold into RunMods, consumed at a few choke points: dmgOut (dmg, rage,
-// crit), the kill handler (lifesteal), the hit handler (armor), room-clear
-// (regen) and gainGold (goldMult). Relics are grouped by rarity, which sets how
-// often they're offered and roughly what they cost. Synergy relics deliberately
-// key off other stats (missing hearts, crit) so builds compound.
 export type RunMods = {
-  // flat damage multiplier
   dmg: number;
   maxHearts: number;
-  // chance to heal 1 on kill
   lifesteal: number;
   goldMult: number;
-  // chance to fully block a hit
   armor: number;
-  // chance to land a critical hit
   crit: number;
-  // critical-hit damage multiplier
   critMult: number;
-  // hearts healed when a room is cleared
   regen: number;
-  // extra damage multiplier per missing heart
   rage: number;
 };
 
-export const baseMods = (): RunMods => ({
+export const baseMods = () => ({
   armor: 0,
   crit: 0,
   critMult: 1.5,
@@ -38,6 +25,7 @@ export const baseMods = (): RunMods => ({
 });
 
 export type Rarity = "common" | "rare" | "legendary";
+
 export interface Relic {
   id: string;
   name: string;
@@ -47,10 +35,8 @@ export interface Relic {
   apply: (m: RunMods) => void;
 }
 
-// How often each rarity surfaces in an offer (relative weights).
 const RARITY_WEIGHT = { common: 60, legendary: 10, rare: 28 } satisfies Record<Rarity, number>;
 
-// Shop colour per rarity, so value reads at a glance (grey / blue / gold).
 export const RARITY_COLOR = {
   common: 0x9f_b0_c4,
   legendary: 0xff_b4_3c,
@@ -58,7 +44,6 @@ export const RARITY_COLOR = {
 } satisfies Record<Rarity, number>;
 
 export const RELICS: Relic[] = [
-  // ── common ──────────────────────────────────────────────────────────────
   {
     apply: (m) => (m.dmg += 0.3),
     desc: "+30% damage",
@@ -115,7 +100,6 @@ export const RELICS: Relic[] = [
     price: 28,
     rarity: "common",
   },
-  // ── rare ────────────────────────────────────────────────────────────────
   {
     apply: (m) => (m.dmg += 0.6),
     desc: "+60% damage",
@@ -197,7 +181,6 @@ export const RELICS: Relic[] = [
     price: 44,
     rarity: "rare",
   },
-  // ── legendary ───────────────────────────────────────────────────────────
   {
     apply: (m) => {
       m.dmg += 1.2;
@@ -275,32 +258,41 @@ export const RELICS: Relic[] = [
   },
 ];
 
-// Pick n distinct relics, weighted by rarity so legendaries stay rare.
-export const pickRelics = (n: number, exclude: Set<string>): Relic[] => {
+export const pickRelics = (n: number, exclude: Set<string>) => {
   const pool = RELICS.filter((r) => !exclude.has(r.id));
   const out: Relic[] = [];
+
   while (out.length < n && pool.length > 0) {
     let total = 0;
+
     for (const r of pool) {
       total += RARITY_WEIGHT[r.rarity];
     }
+
     let roll = rand() * total;
     let idx = 0;
+
     for (let i = 0; i < pool.length; i += 1) {
       const r = pool[i];
+
       if (!r) {
         continue;
       }
+
       roll -= RARITY_WEIGHT[r.rarity];
+
       if (roll <= 0) {
         idx = i;
         break;
       }
     }
+
     const [r] = pool.splice(idx, 1);
+
     if (r) {
       out.push(r);
     }
   }
+
   return out;
 };

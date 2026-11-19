@@ -17,32 +17,21 @@ export type PackageManager = "npm" | "pnpm" | "yarn" | "bun";
 
 export const PKG_NAME = "vibedgames";
 
-/**
- * Global install directory fingerprints, most specific first.
- *
- * The npm entries come last because they are the loosest: `lib/node_modules`
- * is npm's global prefix on unix and `npm\node_modules` is its Windows one,
- * but neither is distinctive enough to check before the managers that have a
- * directory named after them.
- */
 const SIGNATURES: [PackageManager, RegExp][] = [
   ["bun", /[/\\]\.bun[/\\]/u],
-  // pnpm's global store, not a project-local `node_modules/.pnpm`.
   ["pnpm", /[/\\](?:pnpm[/\\]global|\.pnpm-global|Library[/\\]pnpm)[/\\]/u],
   ["yarn", /[/\\](?:\.yarn|yarn[/\\]global|\.config[/\\]yarn)[/\\]/u],
   ["npm", /[/\\]lib[/\\]node_modules[/\\]/u],
   ["npm", /[/\\]npm[/\\]node_modules[/\\]/u],
 ];
 
-/**
- * `npm_config_user_agent` is set by whichever manager is running us — reliable
- * when `vg` was invoked through a script (`pnpm vg …`), absent otherwise.
- */
-const fromUserAgent = (userAgent: string | undefined): PackageManager | null => {
+const fromUserAgent = (userAgent: string | undefined) => {
   if (!userAgent) {
     return null;
   }
+
   const [name] = userAgent.split("/");
+
   return name === "npm" || name === "pnpm" || name === "yarn" || name === "bun" ? name : null;
 };
 
@@ -50,34 +39,35 @@ const fromUserAgent = (userAgent: string | undefined): PackageManager | null => 
  * `installPath` is where the CLI is installed — normally the directory this
  * module resolves from. Bun's own runtime is a signal in its own right.
  */
-export const detectPackageManager = (
-  installPath: string,
-  env: NodeJS.ProcessEnv = process.env,
-): PackageManager => {
+export const detectPackageManager = (installPath: string, env: NodeJS.ProcessEnv = process.env) => {
   for (const [manager, signature] of SIGNATURES) {
     if (signature.test(installPath)) {
       return manager;
     }
   }
-  // Bun reports itself in versions; running under it means `bun add` works.
+
   if ("Bun" in globalThis) {
     return "bun";
   }
+
   return fromUserAgent(env.npm_config_user_agent) ?? "npm";
 };
 
 /** The argv that installs or upgrades a package globally, per manager. */
-export const globalInstallArgs = (manager: PackageManager, pkg = PKG_NAME): string[] => {
+export const globalInstallArgs = (manager: PackageManager, pkg = PKG_NAME) => {
   switch (manager) {
     case "pnpm": {
       return ["add", "-g", pkg];
     }
+
     case "yarn": {
       return ["global", "add", pkg];
     }
+
     case "bun": {
       return ["add", "-g", pkg];
     }
+
     default: {
       return ["install", "-g", pkg];
     }
@@ -85,5 +75,5 @@ export const globalInstallArgs = (manager: PackageManager, pkg = PKG_NAME): stri
 };
 
 /** The command a user can copy-paste when the automatic update can't run. */
-export const globalInstallCommand = (manager: PackageManager, pkg = PKG_NAME): string =>
+export const globalInstallCommand = (manager: PackageManager, pkg = PKG_NAME) =>
   `${manager} ${globalInstallArgs(manager, pkg).join(" ")}`;

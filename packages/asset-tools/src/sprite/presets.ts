@@ -1,24 +1,7 @@
-/**
- * Action timing semantics and genre profiles for sprite animation — the single
- * source of truth for *how* each animation should be generated and curated.
- *
- * The core idea is that an animation's type drives both how many frames it
- * needs and which frames carry the action:
- *
- * - `timing` — loop | one_shot | transition | hold: the animation's shape.
- * - `selectionPolicy` — which frames carry the meaningful action, used to
- *   budget frames:
- *     `cycle`                     compact loop window (idle/walk/run)
- *     `action_window`             the meaningful action span (attack)
- *     `full_duration_include_end` use the whole span and KEEP the final frame
- *                                 (jump/death/get_up land on an end pose)
- *     `hold_pose`                 a stable held pose, little motion
- *                                 (crouch/block)
- */
-
 import { lookup } from "./json.js";
 
 export type Timing = "loop" | "one_shot" | "transition" | "hold";
+
 export type SelectionPolicy = "cycle" | "action_window" | "full_duration_include_end" | "hold_pose";
 
 export interface ActionPreset {
@@ -47,7 +30,7 @@ const action = (
   timing: Timing,
   loopable: boolean,
   selectionPolicy: SelectionPolicy,
-): ActionPreset => ({
+) => ({
   action: name,
   defaultFrames,
   fps,
@@ -137,7 +120,6 @@ const FIGHTING: Profile = {
   ],
   description: "Side-view brawler/fighter: longer loops, blocks, knockdown/get-up transitions.",
   direction: "w",
-  // Core loops widen to 12; hurt/jump/crouch widen to 8.
   frameOverrides: {
     attack: 12,
     crouch: 8,
@@ -159,57 +141,59 @@ const POINT_AND_CLICK: Profile = {
   profile: "point-and-click",
 };
 
-// oxlint-disable-next-line sort-keys -- key order is the listing order `canonicalProfiles` exposes
 export const PROFILES = {
   platformer: PLATFORMER,
   "fighting-game": FIGHTING,
   "point-and-click": POINT_AND_CLICK,
-  // `adventure` is an alias and is hidden from listings.
   adventure: POINT_AND_CLICK,
 } satisfies Record<string, Profile>;
 
 const PROFILE_ALIASES = new Set(["adventure"]);
 
-const presetOf = (actionId: string): ActionPreset => {
+const presetOf = (actionId: string) => {
   const preset = lookup(ACTIONS, actionId);
+
   if (!preset) {
     const known = Object.keys(ACTIONS).toSorted().join(", ");
     throw new Error(`unknown action '${actionId}'; expected one of: ${known}`);
   }
+
   return preset;
 };
 
 /** Canonical profile ids, excluding aliases. */
-export const canonicalProfiles = (): string[] =>
+export const canonicalProfiles = () =>
   Object.keys(PROFILES).filter((key) => !PROFILE_ALIASES.has(key));
 
-export const resolveProfile = (profileId: string | null): Profile => {
+export const resolveProfile = (profileId: string | null) => {
   // oxlint-disable-next-line unicorn/prefer-default-parameters -- null is a legal argument; a default parameter only covers undefined
   const key = profileId ?? "platformer";
   const profile = lookup(PROFILES, key);
+
   if (!profile) {
     const known = canonicalProfiles().toSorted().join(", ");
     throw new Error(`unknown profile '${key}'; expected one of: ${known}`);
   }
+
   return profile;
 };
 
-export const actionFacts = (actionId: string, profile: Profile | null = null): ActionFacts => {
+export const actionFacts = (actionId: string, profile: Profile | null = null) => {
   const preset = presetOf(actionId);
 
   const facts: ActionFacts = {
     ...preset,
-    // Transitions (jump/death/get_up) keep their vertical travel; everything
-    // else lands feet on a shared baseline.
     anchorPolicy: preset.timing === "transition" ? "preserve-motion" : "grounded",
     recommendedFrames: [...preset.recommendedFrames],
   };
 
   const override = profile?.frameOverrides[actionId];
+
   if (override !== undefined) {
     facts.defaultFrames = override;
     facts.profileOverride = true;
   }
+
   return facts;
 };
 
@@ -223,31 +207,38 @@ export interface CoercedFrameCount {
  * equidistant request the LARGER value wins — asking for 9 frames of walk
  * gives 10, not 8, because dropping motion is worse than paying for a frame.
  */
-export const coerceFrameCount = (actionId: string, requested: number): CoercedFrameCount => {
+export const coerceFrameCount: (actionId: string, requested: number) => CoercedFrameCount = (
+  actionId,
+  requested,
+) => {
   const recommended = presetOf(actionId).recommendedFrames;
+
   if (recommended.includes(requested)) {
     return { frames: requested, warning: null };
   }
 
   const [firstRecommended] = recommended;
+
   if (firstRecommended === undefined) {
     throw new Error(`action '${actionId}' has no recommended frame counts`);
   }
+
   let nearest = firstRecommended;
+
   for (const value of recommended) {
     const better =
       Math.abs(value - requested) < Math.abs(nearest - requested) ||
       (Math.abs(value - requested) === Math.abs(nearest - requested) && value > nearest);
+
     if (better) {
       nearest = value;
     }
   }
+
   return {
     frames: nearest,
     warning:
       `frame count ${requested} not recommended for ${actionId}; coerced to ${nearest} ` +
-      // The source holds these as a tuple, so the message renders them with
-      // parentheses even though the facts payload lists them with brackets.
       `(recommended: (${recommended.join(", ")}))`,
   };
 };
@@ -260,18 +251,22 @@ export type PresetFieldValue = string | number | boolean | null | undefined | Pr
  * (non-`--json`) output of these scripts is unchanged: `True`/`False` rather
  * than `true`/`false`, and lists as `[8, 10, 12]`.
  */
-export const formatPythonValue = (value: PresetFieldValue): string => {
+export const formatPythonValue: (value: PresetFieldValue) => string = (value) => {
   if (value === true) {
     return "True";
   }
+
   if (value === false) {
     return "False";
   }
+
   if (value === null || value === undefined) {
     return "None";
   }
+
   if (Array.isArray(value)) {
     return `[${value.map(formatPythonValue).join(", ")}]`;
   }
+
   return String(value);
 };

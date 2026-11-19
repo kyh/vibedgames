@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { afterEach, describe, test } from "node:test";
+import { after, describe, test } from "node:test";
 import type { D1PreparedStatement, D1Result } from "@cloudflare/workers-types";
 import type { JsonValue } from "@repo/contract/json";
 import { createDb } from "@repo/db/drizzle-client";
@@ -8,52 +8,32 @@ import { call } from "@orpc/server";
 import { createAuth } from "../auth/auth";
 import { MICRO_PER_USD } from "../credits/credit-ledger";
 import type { ORPCContext } from "../orpc";
+import { startUpstream } from "../upstream.test-utils";
+import type { UpstreamReply } from "../upstream.test-utils";
 import { generateRouter } from "./generate-router";
-
-/**
- * The credit ledger reads a queue hop off `path` as sent, while fal gets
- * `new URL(base + path)`, percent-decodes it and finds the application
- * whatever its case. Wherever the two disagree a hop dodges its bill:
- * `/owner\model` reaches fal as a submit to `owner/model` but reads as no
- * submit at all, skipping the balance gate and the hold; a `.` segment, a tab,
- * a `%` or a capital has the ledger price an endpoint fal never runs; and
- * `%72equests` fetches a result the ledger never settles. So the input schema
- * refuses every such spelling, and for what it accepts the endpoint priced is
- * the endpoint fal is asked to run. fal reads `requests` as its keyword only
- * right after the application id, so a POST with that segment anywhere else
- * still runs a job: every queue POST is billed as a submit. A submit is then
- * only as good as its
- * price: one the price list doesn't name is refused, and only pricing that
- * cannot answer falls back to the flat hold.
- *
- * fal is a stubbed `fetch`. The database answers its one read, the balance,
- * with $20, and keeps every write batch so a test can read back
- * the hold. Priced endpoints are cached for the life of the process, so every
- * test names endpoints of its own.
- */
 
 const unavailable = (): never => {
   throw new Error("this test's database only reads the balance and batches writes");
 };
 
-const d1Result = <T>(): D1Result<T> => ({
-  meta: {
-    changed_db: false,
-    changes: 0,
-    duration: 0,
-    last_row_id: 0,
-    rows_read: 0,
-    rows_written: 0,
-    size_after: 0,
-  },
-  results: [],
-  success: true,
-});
+const d1Result = <T>() =>
+  ({
+    meta: {
+      changed_db: false,
+      changes: 0,
+      duration: 0,
+      last_row_id: 0,
+      rows_read: 0,
+      rows_written: 0,
+      size_after: 0,
+    },
+    results: [],
+    success: true,
+  }) satisfies D1Result<T>;
 
-// The balance read, the handler's only one: every caller here holds $20.
 function raw<T = unknown[]>(options: { columnNames: true }): Promise<[string[], ...T[]]>;
 function raw<T = unknown[]>(options?: { columnNames?: false }): Promise<T[]>;
-function raw(): Promise<unknown[]> {
+function raw() {
   return Promise.resolve([[20 * MICRO_PER_USD]]);
 }
 
@@ -62,11 +42,10 @@ interface Write {
   params: unknown[];
 }
 
-/** Every statement the handler batched since the last `stubFal()`. */
 const writes: Write[] = [];
 const bound = new WeakMap<D1PreparedStatement, Write>();
 
-const prepare = (query: string, params: unknown[] = []): D1PreparedStatement => {
+const prepare = (query: string, params: unknown[] = []) => {
   const statement: D1PreparedStatement = {
     all: <T>() => Promise.resolve(d1Result<T>()),
     bind: (...values) => prepare(query, values),
@@ -74,7 +53,9 @@ const prepare = (query: string, params: unknown[] = []): D1PreparedStatement => 
     raw,
     run: <T>() => Promise.resolve(d1Result<T>()),
   };
+
   bound.set(statement, { params, query });
+
   return statement;
 };
 
@@ -82,10 +63,12 @@ const db = createDb({
   batch: <T>(statements: D1PreparedStatement[]) => {
     for (const statement of statements) {
       const write = bound.get(statement);
+
       if (write) {
         writes.push(write);
       }
     }
+
     return Promise.resolve(statements.map(() => d1Result<T>()));
   },
   dump: unavailable,
@@ -94,22 +77,26 @@ const db = createDb({
   withSession: unavailable,
 });
 
-/** The generation row a hold inserted, read back by column; null if none was. */
 const heldGeneration = () => {
   const insert = writes.find(({ query }) => query.startsWith('insert into "generation"'));
+
   const groups = /\((?<columns>[^)]*)\) values \((?<values>.*)\) on conflict/u.exec(
     insert?.query ?? "",
   )?.groups;
+
   if (!insert || !groups?.columns || !groups.values) {
     return null;
   }
+
   const params = [...insert.params];
   const values = groups.values.split(", ");
+
   const row = new Map(
     groups.columns
       .split(", ")
       .map((column, i) => [column.slice(1, -1), values[i] === "?" ? params.shift() : null]),
   );
+
   return {
     holdMicro: row.get("hold_micro"),
     unit: row.get("unit"),
@@ -121,13 +108,13 @@ const auth = createAuth({ baseURL: "http://localhost:3000", db, secret: "test-se
 
 const now = new Date();
 
-const contextAs = (role: string): ORPCContext => ({
+const contextAs: (role: string) => ORPCContext = (role) => ({
   auth,
   billing: undefined,
   db,
   decision: undefined,
   headers: new Headers(),
-  media: { fal: "fal-test-key" },
+  media,
   oauthScopes: null,
   productionURL: undefined,
   r2: undefined,
@@ -156,19 +143,11 @@ const contextAs = (role: string): ORPCContext => ({
   signing: undefined,
 });
 
-const realFetch = globalThis.fetch;
-afterEach(() => {
-  globalThis.fetch = realFetch;
-});
+type Upstream = () => UpstreamReply;
 
-type Upstream = () => Promise<Response>;
+const json = (status: number, body: JsonValue) => () => ({ json: body, status });
 
-const json =
-  (status: number, body: JsonValue): Upstream =>
-  () =>
-    Promise.resolve(Response.json(body, { status }));
-
-const unreachable: Upstream = () => Promise.reject(new TypeError("fetch failed"));
+const unreachable: Upstream = () => ({ drop: true });
 
 const priceList = (endpointId: string) =>
   json(200, {
@@ -177,37 +156,60 @@ const priceList = (endpointId: string) =>
     prices: [{ currency: "USD", endpoint_id: endpointId, unit: "image", unit_price: 0.025 }],
   })();
 
-/**
- * fal as `fetch`, recording every URL the handler asks for, with the ledger's
- * writes cleared. By default the price list names whatever endpoint it is
- * asked about at $0.025 an image and the estimate has no history; a queue call
- * answers as a submit does.
- */
+interface Routes {
+  estimate: Upstream;
+  price: (endpointId: string) => UpstreamReply;
+  other: Upstream;
+}
+
+const queued: Upstream = () => ({ json: { request_id: "request-1" } });
+let routes: Routes = { estimate: unreachable, other: queued, price: priceList };
+
+const targetOf = (url: URL) => {
+  const [, target = "", ...rest] = url.pathname.split("/");
+
+  return new URL(`/${rest.join("/")}${url.search}`, `https://${target}.upstream`);
+};
+
+const upstream = await startUpstream((request) => {
+  const url = targetOf(request.url);
+
+  if (url.hostname === "platform.upstream" && url.pathname === "/v1/models/pricing") {
+    return routes.price(url.searchParams.get("endpoint_id") ?? "");
+  }
+
+  if (url.hostname === "platform.upstream" && url.pathname === "/v1/models/pricing/estimate") {
+    return routes.estimate();
+  }
+
+  return routes.other();
+});
+
+after(upstream.close);
+
+const media = {
+  fal: "fal-test-key",
+  falDocsBaseUrl: `${upstream.origin}/docs`,
+  falPlatformBaseUrl: `${upstream.origin}/platform`,
+  falQueueBaseUrl: `${upstream.origin}/queue`,
+  falStorageBaseUrl: `${upstream.origin}/storage`,
+};
+
+const fetchedUrls = () => upstream.requests.map((request) => targetOf(request.url));
+
 const stubFal = ({
   estimate = json(404, { error: { message: "Endpoint(s) not found", type: "not_found" } }),
   price = priceList,
 }: {
   estimate?: Upstream;
-  price?: (endpointId: string) => Promise<Response>;
-} = {}): URL[] => {
+  price?: (endpointId: string) => UpstreamReply;
+} = {}) => {
   writes.length = 0;
-  const fetched: URL[] = [];
-  globalThis.fetch = (input) => {
-    const url = new URL(String(input));
-    fetched.push(url);
-    if (url.pathname === "/v1/models/pricing") {
-      return price(url.searchParams.get("endpoint_id") ?? "");
-    }
-    if (url.pathname === "/v1/models/pricing/estimate") {
-      return estimate();
-    }
-    return Promise.resolve(Response.json({ request_id: "request-1" }));
-  };
-  return fetched;
+  upstream.requests.length = 0;
+  routes = { estimate, other: queued, price };
 };
 
-const ranOnQueue = (fetched: URL[]): boolean =>
-  fetched.some((url) => url.origin === "https://queue.fal.run");
+const ranOnQueue = () => fetchedUrls().some((url) => url.hostname === "queue.upstream");
 
 const submit = (path: string, role: string) =>
   call(
@@ -231,10 +233,11 @@ describe("generate.forward path", () => {
       "/fal-ai/flux dev",
       "/fal-ai/flüx/dev",
     ];
+
     for (const path of rewritten) {
-      const fetched = stubFal();
+      stubFal();
       await assert.rejects(submit(path, "user"), { code: "BAD_REQUEST" }, JSON.stringify(path));
-      assert.deepEqual(fetched, [], JSON.stringify(path));
+      assert.deepEqual(fetchedUrls(), [], JSON.stringify(path));
     }
   });
 
@@ -254,8 +257,9 @@ describe("generate.forward path", () => {
       { method: "POST", path: "/fal-ai/flux@1/dev" },
       { method: "POST", path: "/fal-ai/flux/dev+" },
     ];
+
     for (const { method, path } of folded) {
-      const fetched = stubFal();
+      stubFal();
       await assert.rejects(
         call(
           generateRouter.forward,
@@ -265,7 +269,7 @@ describe("generate.forward path", () => {
         { code: "BAD_REQUEST" },
         path,
       );
-      assert.deepEqual(fetched, [], path);
+      assert.deepEqual(fetchedUrls(), [], path);
     }
 
     const elsewhere: { path: string; target: "platform" | "storage" | "docs" }[] = [
@@ -274,15 +278,16 @@ describe("generate.forward path", () => {
       { path: "/storage/upload/Initiate%20Now", target: "storage" },
       { path: "/docs/MCP", target: "docs" },
     ];
+
     for (const { path, target } of elsewhere) {
-      const fetched = stubFal();
+      stubFal();
       await call(
         generateRouter.forward,
         { method: "GET", path, target },
         { context: contextAs("user") },
       );
       assert.deepEqual(
-        fetched.map((url) => url.pathname),
+        fetchedUrls().map((url) => url.pathname),
         [path],
         target,
       );
@@ -296,11 +301,16 @@ describe("generate.forward path", () => {
       "/fal-ai/kling-video/v2.1/master/text-to-video",
       "/fal-ai/flux/schnell/",
     ];
+
     for (const path of accepted) {
-      const fetched = stubFal();
+      stubFal();
       await submit(path, "user");
-      const priced = fetched.find((url) => url.pathname === "/v1/models/pricing");
-      const ran = fetched.find((url) => url.origin === "https://queue.fal.run");
+
+      const priced = fetchedUrls().find(
+        (url) => url.hostname === "platform.upstream" && url.pathname === "/v1/models/pricing",
+      );
+
+      const ran = fetchedUrls().find((url) => url.hostname === "queue.upstream");
       assert.ok(priced && ran, `${path} was not priced and sent`);
       assert.equal(
         priced.searchParams.get("endpoint_id"),
@@ -320,8 +330,9 @@ describe("generate.forward submit", () => {
       "a 404": json(404, { error: { message: "Endpoint(s) not found", type: "not_found" } }),
       "an empty price list": json(200, { has_more: false, next_cursor: null, prices: [] }),
     };
+
     for (const [answer, price] of Object.entries(unpriced)) {
-      const fetched = stubFal({ price });
+      stubFal({ price });
       await assert.rejects(
         submit("/fal-ai/flux/dex", "user"),
         {
@@ -330,7 +341,7 @@ describe("generate.forward submit", () => {
         },
         answer,
       );
-      assert.ok(!ranOnQueue(fetched), `ran on ${answer}`);
+      assert.ok(!ranOnQueue(), `ran on ${answer}`);
       assert.deepEqual(writes, [], answer);
     }
   });
@@ -341,22 +352,28 @@ describe("generate.forward submit", () => {
       "/fal-ai/flux/requests",
       "/fal-ai/flux/requests/request-1/status",
     ];
+
     for (const path of posts) {
-      const fetched = stubFal();
+      stubFal();
       await submit(path, "user");
-      const priced = fetched.find((url) => url.pathname === "/v1/models/pricing");
+
+      const priced = fetchedUrls().find(
+        (url) => url.hostname === "platform.upstream" && url.pathname === "/v1/models/pricing",
+      );
+
       assert.equal(priced?.searchParams.get("endpoint_id"), path.slice(1), path);
       assert.ok(heldGeneration(), `${path} was not held`);
     }
 
-    const fetched = stubFal({
+    stubFal({
       price: json(404, { error: { message: "Endpoint(s) not found", type: "not_found" } }),
     });
+
     await assert.rejects(submit("/owner/unpriced/sub/requests", "user"), {
       code: "BAD_REQUEST",
       message: /^unknown_endpoint:/u,
     });
-    assert.ok(!ranOnQueue(fetched));
+    assert.ok(!ranOnQueue());
   });
 
   test("submits on the default hold when pricing cannot answer", async () => {
@@ -365,10 +382,11 @@ describe("generate.forward submit", () => {
       "a 503": json(503, { error: { message: "Service unavailable", type: "server_error" } }),
       "no answer": unreachable,
     };
+
     for (const [answer, price] of Object.entries(down)) {
-      const fetched = stubFal({ estimate: unreachable, price });
+      stubFal({ estimate: unreachable, price });
       await submit("/fal-ai/pricing-down/model", "user");
-      assert.ok(ranOnQueue(fetched), `did not run on ${answer}`);
+      assert.ok(ranOnQueue(), `did not run on ${answer}`);
       assert.deepEqual(
         heldGeneration(),
         { holdMicro: 100_000, unit: null, unitPriceMicro: null },
@@ -378,27 +396,28 @@ describe("generate.forward submit", () => {
   });
 
   test("lets an admin submit to an endpoint no price is published for, on the default hold", async () => {
-    const fetched = stubFal({
+    stubFal({
       price: json(404, { error: { message: "Endpoint(s) not found", type: "not_found" } }),
     });
+
     await submit("/fal-ai/unpriced/for-admin", "admin");
-    assert.ok(ranOnQueue(fetched));
+    assert.ok(ranOnQueue());
     assert.deepEqual(heldGeneration(), { holdMicro: 100_000, unit: null, unitPriceMicro: null });
   });
 
   test("holds a priced endpoint at its estimate, else one unit, and keeps its unit price", async () => {
-    let fetched = stubFal({ estimate: json(200, { total_cost: 0.05 }) });
+    stubFal({ estimate: json(200, { total_cost: 0.05 }) });
     await submit("/fal-ai/priced/with-history", "user");
-    assert.ok(ranOnQueue(fetched));
+    assert.ok(ranOnQueue());
     assert.deepEqual(heldGeneration(), {
       holdMicro: 50_000,
       unit: "image",
       unitPriceMicro: 25_000,
     });
 
-    fetched = stubFal();
+    stubFal();
     await submit("/fal-ai/priced/first-run", "user");
-    assert.ok(ranOnQueue(fetched));
+    assert.ok(ranOnQueue());
     assert.deepEqual(heldGeneration(), {
       holdMicro: 25_000,
       unit: "image",
@@ -407,14 +426,12 @@ describe("generate.forward submit", () => {
   });
 });
 
-// CLAUDE.md: what the caller reads never names the media provider. Its
-// endpoint ids pass through verbatim, so a match followed by `-` is an id.
 describe("generate.forward errors", () => {
   const BRAND = /\bfal\b(?!-)/iu;
 
   test("names no provider when an upstream call fails", async () => {
     stubFal();
-    globalThis.fetch = () => Promise.resolve(Response.json({ detail: "boom" }, { status: 500 }));
+    routes = { ...routes, other: json(500, { detail: "boom" }) };
     await assert.rejects(
       call(
         generateRouter.forward,
@@ -424,6 +441,7 @@ describe("generate.forward errors", () => {
       (error: Error) => {
         assert.match(error.message, /failed \(500\)/u);
         assert.doesNotMatch(error.message, BRAND);
+
         return true;
       },
     );
@@ -438,6 +456,7 @@ describe("generate.forward errors", () => {
       ),
       (error: Error) => {
         assert.doesNotMatch(error.message, BRAND);
+
         return true;
       },
     );
@@ -448,36 +467,43 @@ describe("generate.upload", () => {
   const signing = { baseUrl: "https://vibedgames.com", secret: "test-secret" };
 
   test("opens a storage slot and hands back our signed URL for it", async () => {
-    const asked: Request[] = [];
-    globalThis.fetch = (input, init) => {
-      asked.push(new Request(String(input), init));
-      return json(200, {
+    stubFal();
+    routes = {
+      ...routes,
+      other: json(200, {
         file_url: "https://media.example/file.png",
         upload_url: "https://storage.example/slot?token=1",
-      })();
+      }),
     };
+
     const slot = await call(
       generateRouter.upload,
       { contentType: "image/png", fileName: "ref.png" },
       { context: { ...contextAs("user"), signing } },
     );
+
     assert.strictEqual(slot.fileUrl, "https://media.example/file.png");
     assert.deepStrictEqual(slot.headers, { "content-type": "image/png" });
     const upload = new URL(slot.uploadUrl);
     assert.strictEqual(upload.origin + upload.pathname, "https://vibedgames.com/api/upload");
     assert.strictEqual(upload.searchParams.get("to"), "https://storage.example/slot?token=1");
-    assert.strictEqual(new URL(asked[0]?.url ?? "").pathname, "/storage/upload/initiate");
-    assert.deepStrictEqual(await asked[0]?.json(), {
+    const [asked] = upstream.requests;
+    assert.strictEqual(asked && targetOf(asked.url).pathname, "/storage/upload/initiate");
+    assert.deepStrictEqual(JSON.parse(asked?.body ?? "null"), {
       content_type: "image/png",
       file_name: "ref.png",
     });
   });
 
   test("refuses a slot that is not HTTPS", async () => {
-    globalThis.fetch = json(200, {
-      file_url: "http://media.example/file.png",
-      upload_url: "https://storage.example/slot",
-    });
+    stubFal();
+    routes = {
+      ...routes,
+      other: json(200, {
+        file_url: "http://media.example/file.png",
+        upload_url: "https://storage.example/slot",
+      }),
+    };
     await assert.rejects(
       call(
         generateRouter.upload,

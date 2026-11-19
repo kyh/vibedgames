@@ -3,23 +3,19 @@ import { test } from "node:test";
 
 import { VirtualGamepad } from "../src/core.js";
 
-/**
- * lunerfall's real geometry: a 586x270 canvas with the action cluster in the
- * bottom-right corner. (500, 200) is the dead gap between DASH and JUMP — a
- * thumb that reached for a button and missed.
- */
 const CLUSTER_LEFT = 480;
 const CLUSTER_TOP = 170;
 
-const outsideCluster = (p: { x: number; y: number }): boolean =>
-  p.x < CLUSTER_LEFT || p.y < CLUSTER_TOP;
+const outsideCluster = (p: { x: number; y: number }) => p.x < CLUSTER_LEFT || p.y < CLUSTER_TOP;
 
-const pad = (region?: (p: { x: number; y: number }) => boolean): VirtualGamepad => {
+const pad = (region?: (p: { x: number; y: number }) => boolean) => {
   const gamepad = new VirtualGamepad({
     buttons: [{ id: "jump", position: () => ({ x: 556, y: 236 }), radius: 21 }],
     stick: { deadZone: 8, knobRadius: 14, radius: 40, region },
   });
+
   gamepad.setViewport(586, 270);
+
   return gamepad;
 };
 

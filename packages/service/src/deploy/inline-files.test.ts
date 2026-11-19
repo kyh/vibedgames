@@ -6,7 +6,6 @@ import { decodeInlineFiles, MAX_FETCHED_BYTES, sha256Hex } from "./inline-files"
 
 const parse = (files: unknown[]) => uploadInput.parse({ files, slug: "my-game" }).files;
 
-// `assert.throws` matches an object pattern against the thrown ORPCError.
 const isBadRequest = { code: "BAD_REQUEST" };
 
 describe("decodeInlineFiles", () => {
@@ -43,15 +42,16 @@ describe("decodeInlineFiles", () => {
   });
 });
 
-/** The media CDN as `fetch`: answers with `body`, as if served from `finalUrl`. */
 const serve = (body: Uint8Array, finalUrl?: string) => {
   const asked: string[] = [];
   globalThis.fetch = (input) => {
     asked.push(String(input));
     const response = new Response(body);
     Object.defineProperty(response, "url", { value: finalUrl ?? String(input) });
+
     return Promise.resolve(response);
   };
+
   return asked;
 };
 

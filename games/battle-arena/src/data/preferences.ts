@@ -1,5 +1,5 @@
 /** Preferences are optional; storage denial must never prevent a match. */
-export const readPreference = (key: string): string | null => {
+export const readPreference = (key: string) => {
   try {
     return localStorage.getItem(key);
   } catch {
@@ -7,10 +7,12 @@ export const readPreference = (key: string): string | null => {
   }
 };
 
-export const savePreference = (key: string, value: string): void => {
+export const savePreference = (key: string, value: string) => {
   try {
     localStorage.setItem(key, value);
+
+    return true;
   } catch {
-    // The current selection remains usable for this visit.
+    return false;
   }
 };

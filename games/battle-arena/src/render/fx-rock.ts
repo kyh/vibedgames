@@ -1,24 +1,3 @@
-// Burning rock — the meteor V-yx calls down, and anything else that should
-// read as a lump of stone with something molten inside it.
-//
-// Shading model ported from the Elemental Sandbox VFX sandbox (MIT, Copyright
-// (c) 2026 mohamedachrefelouafi) —
-// https://github.com/achrefelouafi/LinearAbiltyCastingThreeJS — re-graded for
-// our look: two noise octaves instead of three, harder facet contrast, and a
-// finer, tighter crack network. Our rock is a fifth of the screen the sandbox's
-// is, and at the sandbox's seam width it reads as a crust on a ball of lava
-// rather than as stone with something molten inside it.
-//
-// The signature is the LAVA SEAM: a crack is the zero crossing of a noise
-// field, cut into three bands — the open gap (no rock, kill the albedo), a much
-// wider charred lip either side of it, and a white-hot core down the middle. A
-// crack is a shadow first and a light second; without the lip the glow reads as
-// painted onto the surface rather than coming out of a split in it.
-//
-// The field is sampled in LOCAL space, so the seams are welded to the rock and
-// tumble with it. World space (as the crystals deliberately use, so a whole
-// field looks quarried from one block) would make them swim across a spinning
-// meteor and read as fake immediately.
 import * as THREE from "three";
 import { NOISE_GLSL } from "./fx-noise";
 
@@ -27,7 +6,6 @@ const ROCK = {
   crackBranches: 0.65,
   crackGlow: 2.6,
   crackScale: 2.7,
-  // dark stone stays the dominant read even at full charge
   crackWidth: 0.075,
   facetTint: 0.42,
   flow: 0.7,
@@ -50,11 +28,9 @@ export type RockMaterial = THREE.MeshStandardMaterial & {
   setHeading: (x: number, y: number, z: number) => void;
 };
 
-export const createBurningRockMaterial = (clock: { value: number }): RockMaterial => {
+export const createBurningRockMaterial = (clock: { value: number }) => {
   const material = new THREE.MeshStandardMaterial({
     color: 0xff_ff_ff,
-    // Faceted, like the crystals: it is what makes a low-poly rock read as rock
-    // rather than as a smooth ball with a texture on it.
     flatShading: true,
     metalness: 0,
     roughness: 0.94,
@@ -94,9 +70,6 @@ export const createBurningRockMaterial = (clock: { value: number }): RockMateria
         varying vec3  vRockLocal;
         varying vec3  vRockNormalW;`,
       )
-      // objectNormal is declared by <beginnormal_vertex>, which runs before
-      // this chunk; three only ever takes it into VIEW space, and the
-      // leading-face term needs it in world space.
       .replace(
         "#include <begin_vertex>",
         `#include <begin_vertex>

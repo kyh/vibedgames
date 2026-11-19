@@ -28,22 +28,26 @@ export class PropView {
     scene.add(this.group);
   }
 
-  update(u: Unit, now: number, dt: number, fx: Fx | null): void {
+  update(u: Unit, now: number, dt: number, fx: Fx | null) {
     if (!this.wasAlive && u.alive) {
-      // respawn pop
       fx?.dust(u.x, u.y, 4);
     }
+
     this.wasAlive = u.alive;
     this.group.visible = u.alive;
+
     if (!u.alive) {
       return;
     }
+
     if (u.lastHitAt !== this.lastHitShown) {
       this.lastHitShown = u.lastHitAt;
+
       if (now - u.lastHitAt < 150) {
         this.squash = 1;
       }
     }
+
     this.squash *= Math.max(0, 1 - 8 * dt);
     const bs = this.baseScale;
     this.group.scale.set(
@@ -52,13 +56,15 @@ export class PropView {
       bs * (1 + 0.1 * this.squash),
     );
     const flash = Math.max(0, 1 - (now - u.lastHitAt) / 110);
+
     for (const m of this.mats) {
       m.emissive.setRGB(flash, flash * 0.85, flash * 0.6);
     }
   }
 
-  dispose(scene: THREE.Scene): void {
+  dispose(scene: THREE.Scene) {
     scene.remove(this.group);
+
     for (const m of this.mats) {
       m.dispose();
     }

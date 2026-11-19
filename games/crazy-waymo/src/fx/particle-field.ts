@@ -4,32 +4,19 @@ export interface EmitOpts {
   count: number;
   color: THREE.Color;
   speed: number;
-  // lateral velocity spread
   spread: number;
-  // upward bias
   up: number;
   size: number;
   life: number;
   gravity: number;
   drag: number;
-  // Optional directional term: final velocity = radial term + dir * dirSpeed.
   dir?: { x: number; y: number; z: number };
   dirSpeed?: number;
-  // HDR multiplier on color before additive blending. Hot FX author 2.2-3.4
-  // so a lone grain clears the ~1.6 day bloom gate through the max-channel
-  // Reinhard shoulder; inert debris (sand, grass flecks) stays at 1 and never
-  // blooms — no separate opt-out needed.
   intensity?: number;
-  // Tier channel: the grain's color is uTierCol * intensity, re-read every
-  // frame — a tier promotion repaints grains already in the air (sparks only).
   channel?: boolean;
-  // Inert chips share the lit, normal-blend pool but keep a sharp silhouette.
   grain?: boolean;
 }
 
-// vAlpha = remaining life fraction (1 at birth -> 0 at death).
-// uGrow selects the size ramp: 0 = shrink over life (sparks: 1.4 -> 0.6),
-// 1 = grow over life (smoke: 0.7 -> 1.5).
 const VERT = `
   attribute float aLife;
   attribute float aMax;
@@ -56,8 +43,7 @@ const VERT = `
   }
 `;
 
-/** Queue `count` items from `first` for the next upload (ranges accumulate). */
-const mark = (attr: THREE.BufferAttribute, first: number, count: number): void => {
+const mark = (attr: THREE.BufferAttribute, first: number, count: number) => {
   attr.addUpdateRange(first * attr.itemSize, count * attr.itemSize);
   attr.needsUpdate = true;
 };
@@ -79,7 +65,6 @@ export class ParticleField {
   private mat: THREE.ShaderMaterial;
   private readonly posAttr: THREE.BufferAttribute;
   private readonly lifeAttr: THREE.BufferAttribute;
-  // aColor, aSize, aMax, aChannel, aGrain only change in emit()
   private readonly emitAttrs: readonly THREE.BufferAttribute[];
   private scaleUniform = { value: typeof window === "undefined" ? 1 : window.innerHeight };
 
@@ -111,9 +96,11 @@ export class ParticleField {
     const chanAttr = new THREE.BufferAttribute(this.chan, 1);
     const grainAttr = new THREE.BufferAttribute(this.grain, 1);
     this.emitAttrs = [colAttr, sizeAttr, maxAttr, chanAttr, grainAttr];
+
     for (const a of [this.posAttr, this.lifeAttr, ...this.emitAttrs]) {
       a.setUsage(THREE.DynamicDrawUsage);
     }
+
     geo.setAttribute("position", this.posAttr);
     geo.setAttribute("aColor", colAttr);
     geo.setAttribute("aSize", sizeAttr);
@@ -135,11 +122,11 @@ export class ParticleField {
     this.points.frustumCulled = false;
   }
 
-  setScale(px: number): void {
+  setScale(px: number) {
     this.scaleUniform.value = px;
   }
 
-  emit(x: number, y: number, z: number, o: EmitOpts): void {
+  emit(x: number, y: number, z: number, o: EmitOpts) {
     const { dir } = o;
     const ds = o.dirSpeed ?? 0;
     const dx = dir ? dir.x * ds : 0;
@@ -147,6 +134,7 @@ export class ParticleField {
     const dz = dir ? dir.z * ds : 0;
     const intensity = o.intensity ?? 1;
     const first = this.cursor;
+
     for (let k = 0; k < o.count; k += 1) {
       const i = this.cursor;
       this.cursor = (this.cursor + 1) % this.n;
@@ -169,32 +157,34 @@ export class ParticleField {
       this.grav[i] = o.gravity;
       this.drag[i] = o.drag;
     }
-    // Upload from here, not from update(): the game emits after the fields
-    // tick, and a burst has to show on the frame it fires. A ring wrap just
-    // sends the whole pool once.
+
     const wrapped = first + o.count > this.n;
     const start = wrapped ? 0 : first;
     const count = wrapped ? this.n : o.count;
+
     if (count === 0) {
       return;
     }
+
     mark(this.posAttr, start, count);
     mark(this.lifeAttr, start, count);
+
     for (const a of this.emitAttrs) {
       mark(a, start, count);
     }
   }
 
-  update(dt: number): void {
-    // Touched span: every particle that was alive going in, including the
-    // ones that die this step — their aLife <= 0 is what hides them.
+  update(dt: number) {
     let lo = this.n;
     let hi = -1;
+
     for (let i = 0; i < this.n; i += 1) {
       const life = this.life[i] ?? 0;
+
       if (life <= 0) {
         continue;
       }
+
       lo = Math.min(lo, i);
       hi = i;
       this.life[i] = life - dt;
@@ -210,9 +200,11 @@ export class ParticleField {
       this.pos[b + 1] = (this.pos[b + 1] ?? 0) + vy * dt;
       this.pos[b + 2] = (this.pos[b + 2] ?? 0) + vz * dt;
     }
+
     if (hi < lo) {
       return;
     }
+
     mark(this.posAttr, lo, hi - lo + 1);
     mark(this.lifeAttr, lo, hi - lo + 1);
   }

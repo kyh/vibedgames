@@ -23,10 +23,10 @@ const NOTICES = {
   used: "That code has already been answered.",
 } as const;
 
-/** Asks for the code the CLI printed, when the page was opened without one. */
 const EnterCode = ({ notice }: { notice?: string }) => {
   const router = useRouter();
   const [code, setCode] = useState("");
+
   return (
     <form
       className="flex flex-col gap-4"
@@ -88,18 +88,24 @@ export const DeviceApproval = ({ request }: { request: DeviceRequest }) => {
 
   const respond = async (approve: boolean) => {
     setPending(approve ? "approve" : "deny");
+
     const result = approve
       ? await authClient.device.approve({ userCode: request.userCode })
       : await authClient.device.deny({ userCode: request.userCode });
+
     setPending(null);
+
     if (result.error) {
       toast.error(result.error.error_description ?? "Something went wrong. Please try again.");
+
       return;
     }
+
     setAnswer(approve ? "approved" : "denied");
   };
 
   const name = request.clientName ?? "A device";
+
   return (
     <div className="flex flex-col gap-6">
       <div className="grid gap-1 text-center">

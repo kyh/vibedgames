@@ -8,7 +8,7 @@
     "build": "cf build",
     "deploy": "cf deploy",
     "typecheck": "cf workers types && tsc --noEmit",
-    "test": "pnpm build && node tests/worker.mjs",
+    "test": "pnpm build && node test/worker.mjs",
     "clean": "rm -rf .cloudflare .turbo .wrangler dist node_modules"
   },
   "dependencies": {

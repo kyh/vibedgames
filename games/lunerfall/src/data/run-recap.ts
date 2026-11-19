@@ -20,7 +20,6 @@ export type RunRecap =
 const whole = (value: unknown, minimum: number): value is number =>
   typeof value === "number" && Number.isSafeInteger(value) && value >= minimum;
 
-/** Untyped scene data: every recap field may be absent or of the wrong type. */
 type RecapCandidate = Partial<{
   kind: unknown;
   hero: unknown;
@@ -37,18 +36,23 @@ const isCandidate = (value: unknown): value is RecapCandidate =>
 
 /** Scene data is untyped and may survive an earlier Scene.start. Validate the
  * explicit recap value and copy primitives; never retain the caller's object. */
-export const readRunRecap = (value: unknown): RunRecap | null => {
+export const readRunRecap: (value: unknown) => RunRecap | null = (value) => {
   if (!isCandidate(value)) {
     return null;
   }
+
   const hero = HERO_NAMES.find((name) => name === value.hero);
+
   if (!hero || !whole(value.biome, 1) || !whole(value.depth, 1) || !whole(value.gold, 0)) {
     return null;
   }
+
   const reached = { biome: value.biome, depth: value.depth, gold: value.gold, hero };
+
   if (value.kind === "coop-guest") {
     return { kind: "coop-guest", ...reached };
   }
+
   if (
     value.kind !== "banked" ||
     !whole(value.score, 0) ||
@@ -57,6 +61,7 @@ export const readRunRecap = (value: unknown): RunRecap | null => {
   ) {
     return null;
   }
+
   return {
     kind: "banked",
     ...reached,

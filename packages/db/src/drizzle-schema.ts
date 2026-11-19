@@ -1,6 +1,3 @@
-/**
- * Application schema
- */
 import { sql } from "drizzle-orm";
 import {
   index,
@@ -56,8 +53,6 @@ export const waitlist = sqliteTable(
     source: text("source"),
     userId: text("user_id").references(() => user.id, { onDelete: "set null" }),
   },
-  // SQLite doesn't auto-index FK columns; user deletions would otherwise
-  // seq-scan to satisfy ON DELETE SET NULL.
   (table) => [index("waitlist_user_id_idx").on(table.userId)],
 );
 
@@ -108,9 +103,6 @@ export const deployment = sqliteTable(
       .references(() => game.id, { onDelete: "cascade" }),
     id: text("id").primaryKey().notNull(),
     sourceBytes: integer("source_bytes"),
-    // Optional source archive (tar.gz) for forking, stored OUTSIDE the served
-    // bundle prefix at `sources/{gameId}/{deploymentId}/source.tgz`. Null
-    // unless the deploy opted in (`vg deploy --source`), which is the norm.
     sourceKey: text("source_key"),
     status: text("status", { enum: ["pending", "ready", "failed"] }).notNull(),
     totalBytes: integer("total_bytes").notNull(),

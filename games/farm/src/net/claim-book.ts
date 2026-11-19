@@ -1,8 +1,5 @@
 import { ClaimTicket } from "./claims";
 
-// The claims this farmer is still waiting on the server's word for, and how
-// each settles. See ./claims for what is claimed and why.
-
 /** Where claims go: the room's client, or a test double. */
 export interface ClaimNet {
   readonly playerId: string | null;
@@ -15,15 +12,18 @@ export class ClaimBook {
   private readonly waiting = new Map<string, ClaimTicket[]>();
 
   /** Claim `key` now. A re-claim of a key this farmer holds renews it. */
-  ask(net: ClaimNet, key: string, ttlMs?: number): ClaimTicket {
+  ask(net: ClaimNet, key: string, ttlMs?: number) {
     const ticket = new ClaimTicket();
     const queue = this.waiting.get(key);
+
     if (queue) {
       queue.push(ticket);
     } else {
       this.waiting.set(key, [ticket]);
     }
+
     net.claim(key, ttlMs === undefined ? undefined : { ttlMs });
+
     return ticket;
   }
 
@@ -34,15 +34,19 @@ export class ClaimBook {
    * Hear only while connected: a reconnect hands this farmer's claims over to
    * its new id before the sync that tells it that id.
    */
-  hear(net: ClaimNet, key: string, owner: string | null): void {
+  hear(net: ClaimNet, key: string, owner: string | null) {
     if (owner === null) {
       return;
     }
+
     const queue = this.waiting.get(key);
+
     if (!queue) {
       return;
     }
+
     this.waiting.delete(key);
+
     for (const ticket of queue) {
       ticket.settle(owner === net.playerId, owner);
     }
@@ -51,14 +55,14 @@ export class ClaimBook {
   /** Settle whatever the room's claims now answer: a reconnect announces the
    *  hand-over of this farmer's claims before the sync that names its new id,
    *  so they settle here once connected. Call each frame while connected. */
-  poll(net: ClaimNet): void {
+  poll(net: ClaimNet) {
     for (const key of this.waiting.keys()) {
       this.hear(net, key, net.ownerOf(key));
     }
   }
 
   /** Forget every wait — a new farm, whose claims will never be answered. */
-  clear(): void {
+  clear() {
     this.waiting.clear();
   }
 }

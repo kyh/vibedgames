@@ -47,10 +47,6 @@ export const session = sqliteTable(
   (table) => [uniqueIndex("session_token_unique").on(table.token)],
 );
 
-// better-auth 1.7 scopes account identity by `(issuer, accountId)` rather than
-// `(providerId, accountId)`: `issuer` is required and the pair must be unique.
-// Credential accounts use `local:credential`; an OAuth provider without a real
-// issuer uses `local:oauth:<providerId>`.
 export const account = sqliteTable(
   "account",
   {
@@ -96,10 +92,6 @@ export const verification = sqliteTable("verification", {
   value: text("value").notNull(),
 });
 
-// Managed by the @better-auth/api-key plugin. Property names MUST match the
-// plugin's logical field names (the drizzle adapter looks tables up by field
-// name); SQL column names are spelled explicitly, in snake_case.
-// `referenceId` is the owning user id (the plugin's default `references: user`).
 export const apikey = sqliteTable(
   "apikey",
   {
@@ -140,11 +132,6 @@ export const apikey = sqliteTable(
   ],
 );
 
-// better-auth's database rate-limit store (rateLimit.storage = "database" in
-// auth.ts). Keyed by IP+path; `key` is unique so the counter upsert is a single
-// indexed lookup. `lastRequest` is the raw epoch-ms number the store writes
-// (not a Date), so it stays a plain integer column. Hand-added — the @better-auth
-// CLI regen emits this table too, so keep it if you regenerate the schema.
 export const rateLimit = sqliteTable(
   "rate_limit",
   {
@@ -155,13 +142,6 @@ export const rateLimit = sqliteTable(
   },
   (table) => [uniqueIndex("rate_limit_key_unique").on(table.key)],
 );
-
-// ---- OAuth 2.1 provider (`mcp()` from @better-auth/mcp, built on
-// @better-auth/oauth-provider) and its signing keys (better-auth's `jwt()`).
-// Hand-written from the plugins' 1.7.2 schemas: property names are the
-// plugins' logical field names, SQL columns snake_case. `string[]` and `json`
-// fields are JSON-mode text: the relations-v2 drizzle adapter hands arrays and
-// objects to drizzle as they are, so the column must serialise them.
 
 const createdAt = () =>
   integer("created_at", { mode: "timestamp_ms" }).default(

@@ -1,13 +1,10 @@
 import type { HeroName } from "./animations";
 
-// One combo strike. `clip` is the hero's animation for this step; timings are in
-// seconds; the hitbox is live during [a0, a1] and reaches `reach` px forward.
 export interface Swing {
   clip: string;
   dur: number;
   a0: number;
   a1: number;
-  // earliest time the next combo input chains
   combo: number;
   reach: number;
   dmg: number;
@@ -15,7 +12,6 @@ export interface Swing {
   lunge: number;
 }
 
-// Per-hero signature ability on the special key.
 export type Special =
   | {
       kind: "aoe";
@@ -43,7 +39,6 @@ export type Special =
 export interface HeroKit {
   swings: Swing[];
   special: Special;
-  // some heroes lack a dash sheet — fall back to another clip
   dashClip: string;
 }
 
@@ -55,25 +50,11 @@ export interface HeroDef {
   kit: HeroKit;
 }
 
-// Global swing tempo. Stretches only `dur` — the swing's total commitment +
-// combo cadence — never the hitbox (`a0`/`a1`) or `combo`: the hit still lands
-// EARLY (~50–140ms, snappy + responsive). How the ART fills that window is
-// data/clip-timing.ts's job: it retimes each clip unevenly so the measured
-// contact frame displays exactly during [a0, a1] and the follow-through holds
-// through the rest of `dur` (uniform stretching left the visual hit ~300-700ms
-// after the damage). Tune tempo for pacing; tune STRIKE_FRAME for alignment.
 const SWING_TEMPO = 4;
-// Extra forward reach on every swing so hits land more generously in front.
 const REACH_BONUS = 12;
-// Damage is earned by commitment: a swing's dmg derives from its final (tempo-
-// scaled) duration — the time you're locked in and vulnerable — so slower
-// swings/kits hit harder and DPS stays roughly level across heroes while the
-// texture differs (riven: fast safe jabs; reaper: slow heavy sweeps). Damage
-// is deliberately NOT hand-authored per swing: retune SWING_TEMPO or a dur and
-// its damage follows. One knob.
 const DMG_PER_SEC = 1.75;
 
-const swing = (clip: string, o: Partial<Omit<Swing, "dmg">>): Swing => {
+const swing = (clip: string, o: Partial<Omit<Swing, "dmg">>) => {
   const s = {
     a0: 0.05,
     a1: 0.14,
@@ -85,7 +66,9 @@ const swing = (clip: string, o: Partial<Omit<Swing, "dmg">>): Swing => {
     reach: 20,
     ...o,
   };
+
   const dur = s.dur * SWING_TEMPO;
+
   return {
     ...s,
     dmg: Math.max(1, Math.round(dur * DMG_PER_SEC)),
@@ -111,8 +94,6 @@ export const HEROES = {
         kind: "aoe",
         radius: 34,
       },
-      // Combo = the three slashes of "Attack 3", one per press (see SPLITS in
-      // animations.ts) — a clean 3-hit chain instead of separate 1-/2-/3-slash clips.
       swings: [
         swing("attack-3a", { a0: 0.03, a1: 0.13, dur: 0.2, kb: 90, lunge: 48, reach: 20 }),
         swing("attack-3b", { a0: 0.03, a1: 0.13, dur: 0.2, kb: 115, lunge: 55, reach: 20 }),
@@ -134,7 +115,6 @@ export const HEROES = {
     blurb: "Moon staff. Spin sweep, lunging thrust. Self-heal.",
     color: 0xff_9e_cb,
     kit: {
-      // no dash sheet — reuse jump pose
       dashClip: "jump",
       special: { amount: 2, cd: 9, clip: "heal", dur: 0.7, kind: "heal" },
       swings: [
@@ -195,8 +175,6 @@ export const HEROES = {
           lunge: 60,
           reach: 18,
         }),
-        // Same drawing as swing 1 but its own clip name: the finisher's timing
-        // differs, and retimed @kit variants are built per (clip, swing spec).
         swing("slash-heavy", {
           a0: 0.04,
           a1: 0.16,

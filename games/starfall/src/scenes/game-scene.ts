@@ -84,47 +84,28 @@ import { Shield } from "../sys/shield";
 import { ShooterHits } from "../sys/shooter-hits";
 import { Weapons } from "../sys/weapons";
 import { installTrailerStage } from "../trailer/trailer-stage";
-import type { TrailerStageApi } from "../trailer/trailer-staging";
 
 const MULTIPLAYER_HOST = import.meta.env.DEV
   ? "http://localhost:8787"
   : "https://party.vibedgames.com";
 
-// Fresh room name per wire-format change (v9: the world travels as rows keyed
-// by id, every time in it as ms since the arena epoch): old deployed clients
-// can't pollute this build's world.
 const ROOM_DEFAULT = "starfall-arena-v9";
-/** DEV-only room override (?room=): the multiplayer e2e harness isolates each
- *  run in a fresh arena so a stale room's world can't leak into assertions. */
+
 const ROOM =
   (import.meta.env.DEV && new URLSearchParams(location.search).get("room")) || ROOM_DEFAULT;
-/** Per-arena cap. The party server clamps to its own hard ceiling and overflows
- *  player #33+ into a sibling arena (starfall-arena-v9~2, …) automatically. */
+
 const STARFALL_MAX_PLAYERS = 32;
 
-/** Black mask thickness past the world edge (covers any screen half-width). */
-// Masks start OUTSIDE the bleed ring so they hide truly-off-world entities but
-// not the fading bleed stars; still wide enough to cover any screen half-width.
 const MASK_PAD = WORLD_BLEED_PX + 4000;
-/** Coarse-pointer boot check: phones/tablets get the touch copy immediately
- *  instead of waiting for the first tap to flip `gamepad.isTouch`. */
+
 const IS_COARSE_POINTER =
   window.matchMedia("(pointer: coarse)").matches || "ontouchstart" in window;
-/** Physical-stick deflection (0–1) treated as noise; past it the pad owns the
- *  steer vector for the frame (mirrors the touch-joystick dead zone). */
+
 const PAD_STICK_DEAD_ZONE = 0.15;
-/** Narrow-viewport zoom-out (PvP reaction fairness): viewports narrower than
- *  REF render at width/REF zoom, floored at MIN — phones land at the floor and
- *  see more world. The off-world mask (MASK_PAD) covers any zoomed half-view.
- *  qa-011: floor raised 0.75 → 0.9 — at 0.75 a 390px phone rendered the ship
- *  ~12px and drones as 1-3px flecks; the extra world view was worthless when
- *  the threats it showed were invisible. Readability beats reaction range. */
 const CAMERA_REF_WIDTH = 1100;
 const CAMERA_MIN_ZOOM = 0.9;
 
-/** Initial-spawn clearance from the world edge along one axis: at least the
- *  central region, inset further when the viewport would reach the border. */
-const initialSpawnInset = (dim: number, halfView: number): number =>
+const initialSpawnInset = (dim: number, halfView: number) =>
   Math.min(Math.max(dim * INITIAL_SPAWN_CENTER_FRAC, halfView + RESPAWN_EDGE_MARGIN), dim / 2);
 
 /** Everything the DEV harness (dev/dev-hooks.ts) and the trailer stage
@@ -157,30 +138,15 @@ export interface SceneInternals {
 }
 
 export class GameScene extends Scene {
-  /**
-   * Local working copy of the shared world. The host owns it (intents mutate
-   * it, hostTick shares what changed); guests dead-reckon it every frame and
-   * fold in each changed row of the room's world, aged to now, with the residual
-   * error bled in over ~0.1 s — that's what keeps motion smooth at 60fps
-   * despite the 20Hz wire rate. One record for the whole session: adoption
-   * replaces its fields in place (adoptShared).
-   */
   private readonly world = emptyShared();
-  /** My ship: pose, life cycle and loadout (state/pilot.ts). */
   private readonly pilot = newPilot();
-  /** Session identity + socket (state/link.ts). Inbound events (and offline
-   *  loopback) route to PlayerNet. */
   private readonly link = new Link({
     inbox: (event, payload, from) => this.net.handleEvent(event, payload, from),
     onClaim: (key, owner) => this.pickups.onClaim(key, owner),
   });
-  /** Every peer's state, parsed once per patch; remote ships interpolated. */
   private readonly roster = new PeerRoster(this.link);
-  /** This frame's asks of the host, sent as one event (or applied here). */
   private readonly intents = new HostIntents();
   private readonly trauma = new TraumaCamera();
-  // Collaborators are built in create(): the render ones need the Phaser
-  // display list, and the rest are wired in dependency order there.
   private hud!: Hud;
   private view!: WorldView;
   private shipView!: ShipView;
@@ -200,48 +166,26 @@ export class GameScene extends Scene {
   private starfield!: Starfield;
   private barrier!: EnergyBarrier;
   private fx!: FxPool;
-  /** Shared draw surfaces (render/layers.ts), created in create(). */
   private layers!: Layers;
-  /** Phaser's activePointer sits at (0,0) until the first real pointer event —
-   *  steering before then would yank the ship to the screen corner. */
   private pointerSeen = false;
-  /** Held SPACE = held mouse button (qa-005). */
   private fireKey: Phaser.Input.Keyboard.Key | null = null;
-  /** qa-013 one-shot: opening rocks placed after the first ship spawn. */
   private openingRocksSeeded = false;
-  /** The mobile controller: a floating move-joystick that also fires while
-   *  it's held (see isFiring), plus a "rest" button so a second finger fires
-   *  too. Desktop keeps the mouse model (aim+thrust at the cursor); the
-   *  gamepad only activates on first touch. */
   private gamepad!: PhaserGamepad;
-  /** Physical controller: left stick = aim + thrust (same heading+magnitude
-   *  model as the touch joystick), RT or A held = fire. */
   private readonly pad = new PhysicalGamepad({ stickDeadZone: PAD_STICK_DEAD_ZONE });
-  /** Re-renders the start-screen copy on pad connect/disconnect while the
-   *  overlay is up; unsubscribed the moment play begins. */
   private unwatchControls: (() => void) | null = null;
-  /** Touch-only pause button (Escape is keyboard-only). */
   private touchControls!: TouchControls;
 
-  /** Current trauma roll in degrees (what setAngle was last given) — Phaser 4
-   *  types expose no camera `rotation` getter, so syncScreenUi reads this. */
   private camRollDeg = 0;
-  /** Where the camera looks before trauma shake and roll: the cursor's
-   *  world point is read off this, so a shake never yanks the aim. */
   private readonly camBase = { x: 0, y: 0 };
 
   private startEl: HTMLElement | null = null;
-  /** Cosmetic start-screen dogfight backdrop. Non-null only until play begins. */
   private attract: AttractBattle | null = null;
 
   constructor() {
     super("Game");
   }
 
-  create(): void {
-    // Playtest contract (shared/diag.ts): telemetry, plus the hooks and the
-    // control manifest in dev or under ?test=1. setPaused rides the same
-    // offline-only freeze as the wrapper pause.
+  create() {
     installTestHooks({
       activePlay: () => this.forceOfflineSolo(),
       restart: (seed) => this.restartSolo(seed),
@@ -250,13 +194,9 @@ export class GameScene extends Scene {
     this.starfield = new Starfield(this);
     this.fx = new FxPool(this);
 
-    // scene-reuse safety: drop a prior instance's Graphics
     this.barrier?.destroy();
     this.barrier = new EnergyBarrier(this);
 
-    // Black mask past the bleed ring: entities legitimately exist beyond the
-    // edge (spawning asteroids, escaping beams) but must not be visible there.
-    // Inset by WORLD_BLEED_PX so the fading bleed starfield stays visible.
     const edges: readonly (readonly [number, number, number, number])[] = [
       [-MASK_PAD, -MASK_PAD, WORLD_W + MASK_PAD * 2, MASK_PAD - WORLD_BLEED_PX],
       [-MASK_PAD, WORLD_H + WORLD_BLEED_PX, WORLD_W + MASK_PAD * 2, MASK_PAD - WORLD_BLEED_PX],
@@ -268,6 +208,7 @@ export class GameScene extends Scene {
         WORLD_H + WORLD_BLEED_PX * 2,
       ],
     ];
+
     for (const [x, y, w, h] of edges) {
       this.add.rectangle(x, y, w, h, 0x02_06_17).setOrigin(0).setDepth(50);
     }
@@ -275,15 +216,6 @@ export class GameScene extends Scene {
     this.layers = createLayers(this);
     this.wireCollaborators();
     this.hud.bind();
-    // Explicit offline boot (?offline=1): never dial the party server. A
-    // failed WebSocket handshake logs a browser console error the page cannot
-    // suppress, so an offline-by-intent run (bot playtest, deliberate solo)
-    // must skip the socket entirely rather than lean on the connect fallback:
-    // the client starts as a room of one and never opens one.
-    // Trailer mode (?trailer=1) is always a fully offline session: the
-    // director stages "multiplayer" with local fake peers, never the network.
-    // A playtest (?test=1) is offline by intent as well: a model's staged run
-    // must never land in a live room.
     this.link.connect({
       host: MULTIPLAYER_HOST,
       maxPlayers: STARFALL_MAX_PLAYERS,
@@ -291,20 +223,12 @@ export class GameScene extends Scene {
         isOfflineRequested() ||
         isPlaytestRequested() ||
         new URLSearchParams(location.search).has("trailer"),
-      // Back from my own drop: every peer reaches me by a new route.
       onReadmitted: () => this.roster.relearn(),
       onUpdate: () => this.roster.ingest(performance.now()),
       room: ROOM,
     });
-    // Offline, this client already hosts its room of one: the solo world is
-    // there before the first frame. Online, update() waits for the room.
     this.sync.ensureSeeded();
 
-    // Desktop steers from the cursor (activePointer); the gamepad below owns
-    // the touch path. These two listeners only track that a pointer exists and
-    // unlock audio on the first gesture. A touch must NOT arm cursor-steer:
-    // it has no resting position, so the ship would fly at wherever the finger
-    // last was for the rest of the session.
     this.input.on(Input.Events.POINTER_MOVE, (p: Phaser.Input.Pointer) => {
       if (!p.wasTouch) {
         this.pointerSeen = true;
@@ -314,24 +238,15 @@ export class GameScene extends Scene {
       if (!p.wasTouch) {
         this.pointerSeen = true;
       }
-      // WebAudio needs a user gesture
+
       sfx.unlock();
     });
 
-    // Sound is opt-in: muted by default, M toggles, choice persists (see
-    // sfx). The gesture itself unlocks audio. Escape is keyboard-only, so
-    // without this button a phone player gets a run they cannot pause.
     this.touchControls = createTouchControls();
     this.input.keyboard?.on("keydown-M", () => sfx.toggleMute());
 
-    // qa-005: held SPACE autofires exactly like a held mouse button (spec
-    // Controls: "hold mouse/space to fire"). addKey captures the keystroke so
-    // the page never scrolls.
     this.fireKey = this.input.keyboard?.addKey(Input.Keyboard.KeyCodes.SPACE) ?? null;
 
-    // Mobile controller: a floating move-joystick (first finger) plus a "rest"
-    // fire button — any finger that isn't the stick fires.
-    // (Firing itself is one-thumbed, see isFiring.)
     this.gamepad = attachVirtualGamepad(this, {
       buttons: [{ id: "fire" }],
       onFirstTouch: () => this.enterTouchMode(),
@@ -341,15 +256,13 @@ export class GameScene extends Scene {
         radius: JOYSTICK_RADIUS,
       },
     });
-    // touch copy from boot, not first tap
+
     if (IS_COARSE_POINTER) {
       this.enterTouchMode();
     }
-    // After the gamepad exists: writeStartCopy() reads its touch flag.
+
     this.buildStartScreen();
 
-    // Cosmetic hero-vs-swarm backdrop behind the start overlay, mimicking real
-    // play. Purely visual — never written to the net session (see module).
     this.attract = new AttractBattle(this, {
       enemyHull: (kind) => enemyHullPoints(kind),
       fx: this.fx,
@@ -358,19 +271,15 @@ export class GameScene extends Scene {
       makeShip: (tint, level) => this.shipView.makeShipGfx(tint, level),
     });
 
-    // Pause = the wrapper wants its chrome back. Online, freezing the shared
-    // world would stall the other players, so we pause AS A SPECTATOR: dock my
-    // ship out of the arena, then re-enter through the respawn flow. Offline
-    // (solo world, no one else to stall) we truly FREEZE: the pausable sim
-    // clock (shared/clock.ts) holds every stored deadline, so a boost with 3s
-    // left before the pause still has 3s after resume.
     const pauseOverlay = createStarfallPauseOverlay({
       get: () => sfx.muted,
       set: (next) => sfx.setMuted(next),
     });
+
     setPauseHandlers({
       onPause: () => {
         pauseOverlay.show();
+
         if (this.link.offline) {
           this.freezeSim();
         } else {
@@ -379,6 +288,7 @@ export class GameScene extends Scene {
       },
       onResume: () => {
         pauseOverlay.hide();
+
         if (this.link.frozen) {
           this.unfreezeSim();
         } else {
@@ -389,18 +299,8 @@ export class GameScene extends Scene {
 
     this.scale.on(Scale.Events.RESIZE, this.onViewportChange, this);
     this.onViewportChange();
-    // Start-screen framing: pre-spawn the camera sits at scroll (0,0) — the
-    // world's top-left corner. At zoom 1 (desktop) the world border lands
-    // exactly on the screen edge and reads as a clean frame, but phone zoom
-    // (< 1) widens the worldView AROUND the viewport centre, pushing it past
-    // the border into the void. Park on the world centre instead — the map
-    // dwarfs every viewport, so no edge can show at any zoom. ensureSpawned
-    // re-centres on the ship the moment the run starts.
     this.centerCamera(this.world.playW / 2, this.world.playH / 2);
 
-    // Single-start assumption: this scene is started once per page load and
-    // never restarted, so create()-initialized fields are never stale. `once`
-    // keeps the shutdown hook from stacking if that ever changes.
     this.events.once(Scenes.Events.SHUTDOWN, () => {
       this.scale.off(Scale.Events.RESIZE, this.onViewportChange, this);
       this.gamepad.destroy();
@@ -409,15 +309,13 @@ export class GameScene extends Scene {
     });
 
     installDevHooks(this.internals());
+
     if (PLAYTEST_SURFACE) {
       publishStarfallPlaytest();
     }
   }
 
-  /** Constructor injection in dependency order. The cycles (progress ↔
-   *  shield, view ↔ weapons, sim ↔ shield, shield → net, director ↔ sync)
-   *  are closed by hooks that resolve the later collaborator at call time. */
-  private wireCollaborators(): void {
+  private wireCollaborators() {
     const { world, pilot, link, roster, intents, fx, layers, trauma } = this;
     this.progress = new Progression({
       clock: this.time,
@@ -581,7 +479,7 @@ export class GameScene extends Scene {
     });
   }
 
-  private internals(): SceneInternals {
+  private internals() {
     return {
       ai: this.ai,
       beacon: this.beacon,
@@ -606,56 +504,46 @@ export class GameScene extends Scene {
       view: this.view,
       weapons: this.weapons,
       world: this.world,
-    };
+    } satisfies SceneInternals;
   }
 
   /** Trailer director entry (?trailer=1): see trailer/trailer-stage.ts. */
-  trailerStage(): TrailerStageApi {
+  trailerStage() {
     return installTrailerStage(this.internals());
   }
 
-  override update(time: number, delta: number): void {
-    // clamp tab-switch spikes
+  override update(time: number, delta: number) {
     const dt = Math.min(delta, 100) / 1000;
-    // poll the physical controller once per frame
     this.pad.update();
-    // Any pad face button doubles as "press any key" on the start screen.
+
     if (!this.link.started && ["a", "b", "x", "y", "start"].some((b) => this.pad.justPressed(b))) {
       this.beginPlay();
     }
+
     this.starfield.update(dt, time);
     this.barrier.update(time, this.world.playW, this.world.playH);
-    // A first host seeds once the room clock is measured, and the SDK's
-    // offline fallback (no room inside OFFLINE_FALLBACK_MS) gets its solo
-    // world the frame it is noticed here: no message announces either.
     this.sync.ensureSeeded();
-    // Start screen up: run the cosmetic dogfight backdrop behind the overlay.
-    // It's purely additive — the live path below still runs (so the host keeps
-    // the shared world ticking and real remote players still render/mix in).
+
     if (!this.link.started) {
       this.attract?.update(dt, this.time.now);
     }
+
     if (!this.link.live) {
       this.hud.updateBattlePresentation(simNow());
-      // Connecting (pre-live): no world to tick, but still flush attract's fx.
       this.fx.update(dt, this.time.now);
-      // camera is static here; keep the vignette pinned
       this.syncScreenUi();
-      // after this frame's work, so bots never read stale state
       this.publishDiag();
+
       return;
     }
+
     const now = simNow();
     const perfNow = performance.now();
-    // Every peer's state for this frame, remote poses interpolated; readers
-    // below (aim, mines, PvP, host sim, render, minimap) all pull from it.
     this.roster.refresh(perfNow);
 
     this.ensureSpawned();
     this.seedOpeningRocks();
     this.tickRespawn(now);
-    // The knob wears the local player's colour, which is only known once the
-    // ship exists — so it is pushed per frame rather than fixed at attach.
     this.gamepad.setTint(this.myTint());
     this.gamepad.update();
     this.steerShip(dt);
@@ -664,40 +552,38 @@ export class GameScene extends Scene {
     this.weapons.tickMines(now);
     this.weapons.tickSentry(now);
     this.sync.advanceWorld(dt, now);
-    // Guests: fold in what the host sent since last frame (after the world
-    // advanced, so a snapshot aged to now meets a copy that is also at now).
     this.sync.reconcile(now);
-    // Everyone else's shots, flown on their senders' drawn timelines.
     this.remoteFire.update(perfNow);
+
     if (this.link.amHost) {
       this.host.hostTick(now, dt, delta);
-      // Never baseline the constructor's empty pre-connection world. Guests
-      // instead observe accepted shared snapshots, not predicted removals.
+
       if (this.sync.roomHasWorld()) {
         this.hud.observeBossEncounters(this.world);
       }
     }
+
     this.hits.detectMyHits(now);
     this.shield.detectIncomingDamage(now, dt);
     this.pickups.pickupItems(now);
     this.pickups.collectShards(now);
     this.beacon.tickBeaconClient(now);
     this.shield.tickShield(now, dt);
-    // Special expired → revert to the CURRENT level's base weapon, not L1.
+
     if (this.pilot.weaponUntil !== 0 && now >= this.pilot.weaponUntil) {
       this.pilot.specialBase = null;
       this.pilot.weapon = baseWeaponForLevel(this.progress.level);
       this.pilot.weaponUntil = 0;
     }
+
     this.pilot.mastery.advance(now, this.pilot.alive, this.pilot.weapon.name);
+
     if (this.progress.streak > 0 && now >= this.progress.comboExpiresAt) {
       this.progress.streak = 0;
       this.progress.comboTier = 1;
     }
-    // Before netSend, so a boundary's score reset reaches the wire same tick.
+
     this.hud.tickSector(now);
-    // This frame's hits, claims and pulls: one event to the host, or applied
-    // right here when I am the host.
     this.intents.flush(this.link);
     this.net.netSend(delta, now);
 
@@ -717,38 +603,28 @@ export class GameScene extends Scene {
     this.view.updateSplinters(dt, now);
     this.fx.update(dt, this.time.now);
     this.hud.drawMinimap(now);
-    // Scene choreography in phase with the pose about to be drawn, so a
-    // camPos override centres on where the ship IS (see TrailerStaging.frame).
     this.link.trailer?.frame?.();
     this.updateCamera(dt, time);
     this.syncScreenUi();
     this.hud.updateBattlePresentation(now);
     this.hud.updateHud(now);
-    // after this frame's work, so bots never read stale state
     this.publishDiag();
   }
 
-  /** Resize/rotation: re-read the safe-area insets and re-derive camera zoom. */
-  private onViewportChange(): void {
+  private onViewportChange() {
     this.layers.safeInset = safeAreaInset();
-    // trailer scenes own zoom (per-shot framing)
+
     if (this.link.trailer) {
       return;
     }
+
     const zoom = PhaserMath.Clamp(this.scale.width / CAMERA_REF_WIDTH, CAMERA_MIN_ZOOM, 1);
     this.cameras.main.setZoom(zoom);
   }
 
-  // ---- input + my ship -------------------------------------------------------
-
-  /** First connect: drop the ship at a clear spot and snap the camera. */
-  /** The one place controls are taught. Dismissed on the first key/pointer
-   *  RELEASE, not press: the fire handlers stay live behind the overlay, so
-   *  starting on a press would let the same click also shoot. */
-  private buildStartScreen(): void {
+  private buildStartScreen() {
     this.startEl = document.querySelector("#start");
     this.writeStartCopy();
-    // Plugging in a pad while the start screen is up adds its rows.
     this.unwatchControls?.();
     this.unwatchControls = watchControlContext(() => {
       if (!this.link.started) {
@@ -756,76 +632,59 @@ export class GameScene extends Scene {
       }
     });
     this.input.keyboard?.once("keyup", () => this.beginPlay());
-    // The overlay covers the canvas, so listen on the element itself — and seal
-    // it, because covering the canvas is NOT enough on touch: the tap's own
-    // events bubble to Phaser's window listeners, and its compatibility mouse
-    // burst re-targets to the canvas the instant the overlay stops hit-testing.
+
     if (this.startEl) {
       sealPointerEvents(this.startEl);
       this.startEl.addEventListener("pointerup", () => this.beginPlay(), { once: true });
     }
   }
 
-  /** Start-screen copy, re-run when the touch scheme is detected or a pad
-   *  connects. Renders the same grouped keycap card the pause overlay shows
-   *  (../pause-overlay buildControls); `coarse` is forced from live touch
-   *  detection so a finger on a fine-pointer device still flips the copy
-   *  (enterTouchMode), and pad rows appear from live detection. */
-  private writeStartCopy(): void {
+  private writeStartCopy() {
     const touch = IS_COARSE_POINTER || this.gamepad.isTouch;
     const controls = document.querySelector("#start-controls");
     const go = document.querySelector("#start-go");
+
     if (controls) {
       ensureControlsStyle();
       const card = buildControls(touch);
       controls.replaceChildren(...(card ? [card] : []));
     }
+
     if (go) {
       go.textContent = touch ? "tap to start" : "press any key to start";
     }
-    // Reveals the overlay on the first write — see #start in index.html.
+
     this.startEl?.classList.add("ready");
   }
 
-  private beginPlay(): void {
+  private beginPlay() {
     if (this.link.started) {
       return;
     }
+
     this.link.started = true;
-    // The sealed start overlay keeps its tap off the canvas, so this gesture is
-    // the one that has to unlock WebAudio.
     sfx.unlock();
-    // qa-020, offline solo ONLY: the sector clock (and the intensity curve)
-    // starts at first input, not at boot — overlay-idle time was pure sector
-    // loss, and a long idle met the rel-405 forced dreadnought at Lv1. Online
-    // rooms keep the shared epoch untouched: the room clock predates you.
+
     if (this.link.offline) {
       this.world.arenaEpoch = simNow();
     }
+
     this.unwatchControls?.();
     this.unwatchControls = null;
     notifyGameStarted();
-    // Tear the cosmetic battle down the instant real play begins.
     this.attract?.destroy();
     this.attract = null;
     this.startEl?.classList.add("hide");
-    // Drop it only after the fade, so it can't swallow taps on the way out.
     this.time.delayedCall(320, () => this.startEl?.remove());
   }
 
-  /** Test hook (shared/diag.ts): jump straight into an offline solo run —
-   *  what the SDK's connect fallback reaches after OFFLINE_FALLBACK_MS with
-   *  no room — then dismiss the start overlay. Never called during real play. */
-  private forceOfflineSolo(): void {
+  private forceOfflineSolo() {
     this.link.goOffline();
     this.sync.ensureSeeded();
     this.beginPlay();
   }
 
-  /** Test hook (shared/diag.ts): reseed the gameplay stream, then rebuild the
-   *  run from nothing as an offline solo arena — fresh rock field, director
-   *  clocks, level-1 pilot — so every roll after it comes from the seed. */
-  private restartSolo(seed: number): void {
+  private restartSolo(seed: number) {
     reseed(seed);
     this.link.goOffline();
     this.sync.offlineSeeded = false;
@@ -836,14 +695,11 @@ export class GameScene extends Scene {
     this.weapons.beams = [];
     this.weapons.sentry = null;
     this.weapons.windupAcc = 0;
-    // in place: every collaborator holds this record by reference
     Object.assign(this.pilot, newPilot());
     this.openingRocksSeeded = false;
   }
 
-  /** Per-frame diagnostics for bot playtests (shared/diag.ts). One object
-   *  mutated in place; primitives only. */
-  private publishDiag(): void {
+  private publishDiag() {
     diag.frame += 1;
     diag.score = this.progress.runXp;
     diag.player.x = this.pilot.shipX;
@@ -851,9 +707,11 @@ export class GameScene extends Scene {
     diag.player.speed = Math.hypot(this.pilot.shipVX, this.pilot.shipVY);
     diag.entities = this.world.enemies.length + this.world.asteroids.length;
     diag.beams = this.weapons.beams.length;
+
     if (PLAYTEST_SURFACE) {
       this.publishSenses();
     }
+
     const b = this.world.beacon;
     const bnow = simNow();
     diag.beacon =
@@ -868,8 +726,7 @@ export class GameScene extends Scene {
         : null;
   }
 
-  /** What a player reads off the screen (sys/playtest-sense.ts). */
-  private publishSenses(): void {
+  private publishSenses() {
     const now = simNow();
     const { pilot } = this;
     const live = pilot.spawned && pilot.alive;
@@ -888,42 +745,34 @@ export class GameScene extends Scene {
     senseSurroundings(diag, { now, pilot, world: this.world });
   }
 
-  /** Offline-only REAL freeze: stop the sim clock (every stored deadline
-   *  holds), sleep the render loop, suspend audio. Never online — the shared
-   *  world would stall for the other players (they get the spectator path). */
-  private freezeSim(): void {
+  private freezeSim() {
     if (this.link.frozen || !this.link.offline) {
       return;
     }
+
     this.link.frozen = true;
     pauseClock();
     sfx.setSuspended(true);
-    // stops update() until wake()
     this.game.loop.sleep();
   }
 
-  private unfreezeSim(): void {
+  private unfreezeSim() {
     if (!this.link.frozen) {
       return;
     }
+
     this.link.frozen = false;
     resumeClock();
     sfx.setSuspended(false);
     this.game.loop.wake();
   }
 
-  /** Wrapper pause (online) → dock my ship out of the arena as a spectator. No
-   *  death penalty, no XP loss, no death explosion: my net state simply
-   *  advertises absence (present: false) so remotes drop me the way a
-   *  disconnect would. Freezing the shared online world is forbidden, so the
-   *  arena keeps running behind the wrapper overlay. */
-  private pauseToSpectator(): void {
+  private pauseToSpectator() {
     if (this.link.paused) {
       return;
     }
+
     this.link.paused = true;
-    // Clean despawn. Leaving alive=false + respawnAt=0 means tickRespawn can't
-    // fire, and spawned=false hides my ship + gates every my-ship code path.
     this.pilot.spawned = false;
     this.pilot.alive = false;
     this.pilot.respawnAt = 0;
@@ -932,47 +781,44 @@ export class GameScene extends Scene {
     this.shield.impactArcs = [];
     this.progress.streak = 0;
     this.progress.comboTier = 1;
-    // Immediate, so remotes drop my ship without a snapshot of lag.
+
     if (this.link.started && this.link.myId) {
       this.net.pushMyState(simNow());
     }
+
     sfx.setSuspended(true);
   }
 
-  /** Wrapper resume → re-enter through the normal respawn flow (invuln + full
-   *  shield + the level's base loadout via pickRespawnPoint), online or solo. */
-  private resumeFromSpectator(): void {
+  private resumeFromSpectator() {
     if (!this.link.paused) {
       return;
     }
+
     this.link.paused = false;
     sfx.setSuspended(false);
-    // paused before play began: nothing to re-enter
+
     if (!this.link.started) {
       return;
     }
-    // Route re-entry through tickRespawn: mark spawned (so ensureSpawned won't
-    // also fire) but dead with an elapsed respawn timer. Next update() re-spawns
-    // me once, with invuln — never a double ship.
+
     this.pilot.spawned = true;
     this.pilot.alive = false;
     this.pilot.respawnAt = simNow();
   }
 
-  private ensureSpawned(): void {
+  private ensureSpawned() {
     if (!this.link.started || this.link.paused || this.pilot.spawned || !this.link.myId) {
       return;
     }
-    // Same clearance as respawn, but confined to the map's central region —
-    // an edge start opens with the void past the world border on screen. At
-    // least the central third per axis, inset further when a big/zoomed-out
-    // viewport would still reach the border from there.
+
     const cam = this.cameras.main;
     const { playW, playH } = this.world;
+
     const pos = this.pickRespawnPoint(
       initialSpawnInset(playW, cam.width / 2 / cam.zoom),
       initialSpawnInset(playH, cam.height / 2 / cam.zoom),
     );
+
     this.pilot.shipX = pos.x;
     this.pilot.shipY = pos.y;
     this.pilot.spawned = true;
@@ -981,49 +827,52 @@ export class GameScene extends Scene {
     this.net.pushMyState(simNow());
   }
 
-  /** qa-013: the 6s safe opening spawns no enemies and the seed field
-   *  scatters arena-wide, so the literal first playable second was ship +
-   *  dots. Park a few one-shot rocks inside the opening viewport. Host/solo
-   *  only (a guest joins an already-populated arena), once per session, and
-   *  never before ensureSeeded ran — a fresh world object would drop them. */
-  private seedOpeningRocks(): void {
+  private seedOpeningRocks() {
     if (this.openingRocksSeeded || !this.pilot.spawned) {
       return;
     }
+
     if (!this.link.offline && !this.link.amHost) {
       this.openingRocksSeeded = true;
+
       return;
     }
-    // world not seeded yet
+
     if (this.world.asteroids.length === 0) {
       return;
     }
+
     const cam = this.cameras.main;
     const maxDist = PhaserMath.Clamp(Math.min(cam.width, cam.height) / 2 / cam.zoom - 60, 160, 320);
     const base = rand() * Math.PI * 2;
+
     for (let i = 0; i < OPENING_ROCK_COUNT; i += 1) {
-      // Evenly fanned with jitter — always spread around the ship, never a clump.
       const ang = base + (i * Math.PI * 2) / OPENING_ROCK_COUNT + (rand() - 0.5) * 0.6;
       const dist = 140 + rand() * Math.max(20, maxDist - 140);
+
       const x = PhaserMath.Clamp(
         this.pilot.shipX + Math.cos(ang) * dist,
         40,
         this.world.playW - 40,
       );
+
       const y = PhaserMath.Clamp(
         this.pilot.shipY + Math.sin(ang) * dist,
         40,
         this.world.playH - 40,
       );
+
       this.world.asteroids.push(spawnOpeningAsteroid(x, y));
     }
+
     this.openingRocksSeeded = true;
   }
 
-  private tickRespawn(now: number): void {
+  private tickRespawn(now: number) {
     if (this.pilot.alive || this.pilot.respawnAt === 0 || now < this.pilot.respawnAt) {
       return;
     }
+
     const pos = this.pickRespawnPoint();
     this.pilot.shipX = pos.x;
     this.pilot.shipY = pos.y;
@@ -1032,13 +881,11 @@ export class GameScene extends Scene {
     this.pilot.alive = true;
     this.pilot.respawnAt = 0;
     this.pilot.invulnUntil = now + INVULNERABLE_MS;
-    // respawn at full (§A.1)
     this.shield.shieldHp = SHIELD_MAX;
     this.shield.overHp = 0;
     this.shield.lastDamageAt = 0;
     this.shield.regenActive = false;
     this.pilot.weaponUntil = 0;
-    // revive at the level's base weapon + regen
     this.progress.applyBaseLoadout(now);
     this.pilot.kickX = 0;
     this.pilot.kickY = 0;
@@ -1048,118 +895,106 @@ export class GameScene extends Scene {
     this.net.pushMyState(now);
   }
 
-  /** Re-roll until clear of enemies + big asteroids; ≤8 attempts, take best. */
-  private pickRespawnPoint(marginX = RESPAWN_EDGE_MARGIN, marginY = marginX): Vec {
-    // respawn within the LIVE (scaled) play area
+  private pickRespawnPoint(marginX = RESPAWN_EDGE_MARGIN, marginY = marginX) {
     const { playW, playH } = this.world;
     let best = randomWorldPoint(marginX, marginY, playW, playH);
     let bestClearance = -1;
+
     for (let i = 0; i < RESPAWN_ATTEMPTS; i += 1) {
       const p = randomWorldPoint(marginX, marginY, playW, playH);
       let minD = Infinity;
+
       for (const e of this.world.enemies) {
         minD = Math.min(minD, Math.hypot(e.x - p.x, e.y - p.y));
       }
+
       for (const a of this.world.asteroids) {
         if (a.radius >= RESPAWN_ASTEROID_MIN_R) {
           minD = Math.min(minD, Math.hypot(a.x - p.x, a.y - p.y));
         }
       }
+
       if (minD >= RESPAWN_CLEARANCE) {
-        return p;
+        return p satisfies Vec;
       }
+
       if (minD > bestClearance) {
         bestClearance = minD;
         best = p;
       }
     }
-    return best;
+
+    return best satisfies Vec;
   }
 
-  /** Anticipation → ring → the hull pops in (alpha handled by invuln blink). */
-  private spawnInFx(x: number, y: number): void {
+  private spawnInFx(x: number, y: number) {
     const tint = this.myTint();
     this.fx.converge(x, y, 12, 60, 300, tint, "important");
     this.time.delayedCall(300, () => this.fx.ring(x, y, 6, 30, 200, tint, 0.7, "important"));
   }
 
-  /**
-   * The control identity, now with drift: the nose points along the steer
-   * direction (instant), thrust accelerates that way scaled by how far it's
-   * pushed, and exponential drag makes you glide. Stopping (dead zone) brakes
-   * harder than flying — responsive stop, drifty start.
-   *
-   * Desktop reads the steer vector from ship→cursor. Touch reads it from the
-   * floating move-joystick (drag from the anchor): same model, different
-   * source — `steerVector` unifies them.
-   */
-  private steerShip(dt: number): void {
+  private steerShip(dt: number) {
     if (!this.pilot.alive || !this.pilot.spawned) {
       return;
     }
-    // NITRO deliberately breaks the "every projectile outruns the ship" floor.
+
     const nitro = this.pilot.boosts.has("nitro");
     const accel = SHIP_ACCEL * (nitro ? NITRO_ACCEL_MULT : 1);
     const maxSpeed = SHIP_MAX_SPEED * (nitro ? NITRO_MAX_SPEED_MULT : 1);
     let drag = SHIP_BRAKE_DRAG;
     this.pilot.thrust = 0;
     const steer = this.steerVector();
+
     if (steer) {
       if (steer.aim) {
         this.pilot.shipAngle = steer.angle;
       }
+
       this.pilot.thrust = steer.thrust;
+
       if (this.pilot.thrust > 0) {
         this.pilot.shipVX += Math.cos(steer.angle) * accel * this.pilot.thrust * dt;
         this.pilot.shipVY += Math.sin(steer.angle) * accel * this.pilot.thrust * dt;
       }
+
       drag = steer.dist > steer.deadZone ? SHIP_DRAG : SHIP_BRAKE_DRAG;
     }
+
     const decay = Math.exp(-drag * dt);
     this.pilot.shipVX *= decay;
     this.pilot.shipVY *= decay;
     const speed = Math.hypot(this.pilot.shipVX, this.pilot.shipVY);
+
     if (speed > maxSpeed) {
       const k = maxSpeed / speed;
       this.pilot.shipVX *= k;
       this.pilot.shipVY *= k;
     }
+
     this.pilot.shipX += this.pilot.shipVX * dt;
     this.pilot.shipY += this.pilot.shipVY * dt;
-    // Wall clamp kills the perpendicular component: slide along edges.
+
     if (this.pilot.shipX < 0 || this.pilot.shipX > this.world.playW) {
       this.pilot.shipX = PhaserMath.Clamp(this.pilot.shipX, 0, this.world.playW);
       this.pilot.shipVX = 0;
     }
+
     if (this.pilot.shipY < 0 || this.pilot.shipY > this.world.playH) {
       this.pilot.shipY = PhaserMath.Clamp(this.pilot.shipY, 0, this.world.playH);
       this.pilot.shipVY = 0;
     }
   }
 
-  /** The unified steering input: heading, 0–1 thrust, the dead-zone test (so
-   *  steerShip can pick drift vs brake drag), and `aim` (whether to re-point
-   *  the nose this frame). Null = no live input.
-   *
-   *  `aim` differs by source on purpose: the desktop nose tracks the cursor
-   *  even inside the dead zone (the cursor-aim identity — you keep aiming while
-   *  braking), but the touch nose holds steady when the finger sits near the
-   *  joystick anchor (no jitter from a parked thumb). */
-  private steerVector(): {
-    angle: number;
-    thrust: number;
-    dist: number;
-    deadZone: number;
-    aim: boolean;
-  } | null {
-    // Trailer mode: the director owns steering outright — real input sources
-    // are never read, so a stray cursor can't steal the ship mid-take.
+  private steerVector() {
     const { trailer } = this.link;
+
     if (trailer) {
       const s = trailer.steer;
+
       if (!s) {
         return null;
       }
+
       return {
         aim: true,
         angle: s.angle,
@@ -1168,12 +1003,10 @@ export class GameScene extends Scene {
         thrust: s.thrust,
       };
     }
-    // Physical stick past its dead zone owns the frame (same heading+magnitude
-    // model as the touch joystick, and the same override rule touch applies to
-    // the mouse); inside the dead zone it yields, so an idle pad never fights
-    // the cursor and the nose holds when nothing else is steering.
+
     if (this.pad.connected) {
       const stick = this.pad.getStick();
+
       if (!stick.inDeadZone) {
         return {
           aim: true,
@@ -1184,11 +1017,14 @@ export class GameScene extends Scene {
         };
       }
     }
+
     if (this.gamepad.isTouch) {
       const stick = this.gamepad.getStick();
+
       if (!stick.active) {
         return null;
       }
+
       return {
         aim: !stick.inDeadZone,
         angle: stick.angle,
@@ -1197,71 +1033,56 @@ export class GameScene extends Scene {
         thrust: stick.magnitude,
       };
     }
+
     if (!this.pointerSeen) {
       return null;
     }
+
     const p = this.input.activePointer;
-    // Screen→world through the camera as framed BEFORE trauma (zoom
-    // included, shake offset and roll not): a hit or a nearby death shaking
-    // the view must not move the point the ship steers at.
     const cam = this.cameras.main;
     const dx = this.camBase.x + (p.x - cam.x - cam.width / 2) / cam.zoom - this.pilot.shipX;
     const dy = this.camBase.y + (p.y - cam.y - cam.height / 2) / cam.zoom - this.pilot.shipY;
     const dist = Math.hypot(dx, dy);
     const thrust = Math.min(1, Math.max(0, (dist - SHIP_DEAD_ZONE) / SHIP_THRUST_RAMP));
+
     return { aim: dist > 0.001, angle: Math.atan2(dy, dx), deadZone: SHIP_DEAD_ZONE, dist, thrust };
   }
 
-  /** Rewrite the start-screen copy for the touch control scheme. Fired at boot
-   *  on coarse-pointer devices, else the first time a finger lands. */
-  private enterTouchMode(): void {
+  private enterTouchMode() {
     this.writeStartCopy();
   }
 
-  /** Holding fire: any finger on touch, the mouse button or held SPACE on
-   *  desktop, or RT / A held on a physical controller (merged, never
-   *  exclusive).
-   *
-   *  Touch mirrors the desktop model — there the pointer that steers is the
-   *  same one that fires, so the joystick finger fires too. A second finger
-   *  (the "rest" fire button) also fires, but it is a bonus: the phone is
-   *  playable one-thumbed, exactly as the start screen's HOLD → SHOOT
-   *  promises. */
-  private isFiring(): boolean {
-    // trailer: scripted trigger only
+  private isFiring() {
     if (this.link.trailer) {
       return this.link.trailer.fire;
     }
+
     if (this.pad.connected && (this.pad.isButtonDown("rt") || this.pad.isButtonDown("a"))) {
       return true;
     }
+
     if (this.fireKey?.isDown) {
       return true;
     }
+
     return this.gamepad.isTouch
       ? this.gamepad.getStick().active || this.gamepad.isButtonDown("fire")
       : this.input.activePointer.isDown;
   }
 
-  private myTint(): number {
+  private myTint() {
     const { myId } = this.link;
+
     return (myId ? this.shipView.ships.get(myId)?.tint : undefined) ?? 0xff_ff_ff;
   }
 
-  // ---- camera ----------------------------------------------------------------------------
-
-  /**
-   * Hard-centered on the ship plus directional recoil kick plus trauma shake
-   * (offset AND a touch of roll — trauma², layered sin noise). Unzoomed, so
-   * no bounds clamping.
-   */
-  private updateCamera(dt: number, timeMs: number): void {
-    // Trailer camera override: fixed/panned shots still ride the trauma shake
-    // (real recoil/impacts keep selling), only the follow target changes.
+  private updateCamera(dt: number, timeMs: number) {
     const lock = this.link.trailer?.camPos ?? null;
+
     if (!this.pilot.spawned && !lock) {
       return;
     }
+
     if (REDUCED_MOTION.matches) {
       this.pilot.kickX = 0;
       this.pilot.kickY = 0;
@@ -1271,8 +1092,10 @@ export class GameScene extends Scene {
       this.centerCamera(lock ? lock.x : this.pilot.shipX, lock ? lock.y : this.pilot.shipY);
       this.cameras.main.setAngle(0);
       this.camRollDeg = 0;
+
       return;
     }
+
     const decay = Math.exp(-8 * dt);
     this.pilot.kickX *= decay;
     this.pilot.kickY *= decay;
@@ -1283,36 +1106,25 @@ export class GameScene extends Scene {
     this.camBase.y = cy;
     this.cameras.main.centerOn(cx + s.ox, cy + s.oy);
     this.cameras.main.setAngle(s.rot);
-    // syncScreenUi counters this roll on the HUD layer
     this.camRollDeg = s.rot;
   }
 
-  /** Frame the camera on (x,y) — the unshaken centre the cursor aims from. */
-  private centerCamera(x: number, y: number): void {
+  private centerCamera(x: number, y: number) {
     this.camBase.x = x;
     this.camBase.y = y;
     this.cameras.main.centerOn(x, y);
   }
 
-  /**
-   * Screen-fixed objects (scrollFactor 0) still inherit the main camera's zoom
-   * and trauma roll — Phaser transforms them about the viewport centre. Counter
-   * both every frame so their local coordinates read as plain CSS pixels
-   * anchored at the screen's top-left (minimap corner-pinned, flash
-   * full-screen). The gamepad overlay counters the same transform itself.
-   */
-  private syncScreenUi(): void {
+  private syncScreenUi() {
     const { zoom } = this.cameras.main;
     const rot = PhaserMath.DegToRad(this.camRollDeg);
     const cx = this.scale.width / 2;
     const cy = this.scale.height / 2;
     const cos = Math.cos(rot);
     const sin = Math.sin(rot);
-    // Anchor = centre + R(−rot)·(0 − centre)/zoom → local (0,0) lands on
-    // screen (0,0). Uniform zoom commutes with the rotation, so one matrix
-    // order covers Phaser's camera transform.
     const x = cx - (cx * cos + cy * sin) / zoom;
     const y = cy + (cx * sin - cy * cos) / zoom;
+
     for (const obj of [this.layers.minimapGfx, this.layers.flashRect, this.barrier.vignette]) {
       obj
         .setPosition(x, y)

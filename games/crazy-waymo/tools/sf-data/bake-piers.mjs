@@ -1,9 +1,3 @@
-// Bake pier/dock polygons (OSM man_made=pier, fetched to sf-piers.raw.json)
-// into src/world/sf-piers.ts. The Embarcadero finger piers + wharf docks are
-// what makes SF's NE waterfront read as SF instead of a straight seawall.
-//
-//   node tools/sf-data/bake-piers.mjs
-
 import { readFileSync, writeFileSync } from "node:fs";
 import { onLandUV, rdp, ringArea, projU, projV, WORLD_H, WORLD_W } from "./lib.mjs";
 
@@ -11,50 +5,51 @@ const waterAt = ([x, z]) => !onLandUV(x / WORLD_W + 0.5, z / WORLD_H + 0.5);
 
 const raw = JSON.parse(readFileSync(new URL("sf-piers.raw.json", import.meta.url)));
 const ways = raw.elements.filter((e) => e.type === "way" && e.geometry);
+
 console.log(`pier ways: ${ways.length}`);
 
-// { p: flat ring, area }
 const closed = [];
-// { p: flat polyline }
 const open = [];
 let landDrop = 0;
+
 for (const w of ways) {
   const g = w.geometry;
+
   if (g.length < 2) {
     continue;
   }
+
   const isClosed = g[0].lat === g.at(-1).lat && g[0].lon === g.at(-1).lon;
+
   let pts = (isClosed ? g.slice(0, -1) : g).map((q) => {
     const u = projU(q.lon);
     const v = projV(q.lat);
+
     return [(u - 0.5) * WORLD_W, (v - 0.5) * WORLD_H];
   });
-  // In-world bounds only.
+
   if (pts.some(([x, z]) => Math.abs(x) > WORLD_W / 2 || Math.abs(z) > WORLD_H / 2)) {
     continue;
   }
-  // The game's traced coast sits seaward of the real shoreline along the
-  // Embarcadero, which swallows exactly the finger piers that make the
-  // waterfront read as SF. Land-locked piers SLIDE seaward along their own
-  // long axis until they hang off the traced coast; only piers with no water
-  // within reach are dropped.
+
   const waterFrac = pts.filter(waterAt).length / pts.length;
+
   if (waterFrac < 0.35) {
-    // Only substantial closed piers earn the slide — swallowed marina slips
-    // and walkways just drop.
     if (!isClosed) {
       landDrop += 1;
       continue;
     }
-    // Principal axis from the farthest-apart vertex pair (piers are long).
+
     let ax = 1;
     let az = 0;
     let bestD = 0;
+
     for (let i = 0; i < pts.length; i += 1) {
       for (let j = i + 1; j < pts.length; j += 1) {
         const dx = (pts[j][0] ?? 0) - (pts[i][0] ?? 0);
         const dz = (pts[j][1] ?? 0) - (pts[i][1] ?? 0);
         const d2 = dx * dx + dz * dz;
+
         if (d2 > bestD) {
           bestD = d2;
           ax = dx;
@@ -62,59 +57,76 @@ for (const w of ways) {
         }
       }
     }
+
     const len = Math.sqrt(bestD) || 1;
+
     if (len < 15) {
       landDrop += 1;
       continue;
     }
+
     ax /= len;
     az /= len;
     let cx = 0;
     let cz = 0;
+
     for (const [x, z] of pts) {
       cx += x;
       cz += z;
     }
+
     cx /= pts.length;
     cz /= pts.length;
-    // March both axis directions; the seaward one reaches water first.
     let shift = null;
+
     for (let d = 4; d <= 220; d += 4) {
       if (waterAt([cx + ax * d, cz + az * d])) {
         shift = [ax * (d + len * 0.28), az * (d + len * 0.28)];
         break;
       }
+
       if (waterAt([cx - ax * d, cz - az * d])) {
         shift = [-ax * (d + len * 0.28), -az * (d + len * 0.28)];
         break;
       }
     }
+
     if (!shift) {
       landDrop += 1;
       continue;
     }
+
     pts = pts.map(([x, z]) => [x + shift[0], z + shift[1]]);
+
     if (pts.some(([x, z]) => Math.abs(x) > WORLD_W / 2 || Math.abs(z) > WORLD_H / 2)) {
       landDrop += 1;
       continue;
     }
   }
+
   pts = rdp(pts, 0.25);
+
   if (isClosed && pts.length >= 3) {
     let ring = pts;
+
     if (ringArea(ring) < 0) {
       ring = ring.toReversed();
     }
+
     const area = Math.abs(ringArea(ring));
+
     if (area < 8 || ring.length > 48) {
       continue;
     }
+
     closed.push({ area, p: ring.flat().map((n) => Math.round(n * 10) / 10) });
   } else if (!isClosed && pts.length >= 2) {
     open.push({ p: pts.flat().map((n) => Math.round(n * 10) / 10) });
   }
 }
+
 closed.sort((a, b) => b.area - a.area);
+
 console.log(
   `closed piers: ${closed.length}, open docks: ${open.length}, dropped on land: ${landDrop}`,
 );
@@ -137,4 +149,5 @@ ${open.map((o) => `  [${o.p.join(",")}],`).join("\n")}
 ];
 `,
 );
+
 console.log("Wrote src/world/sf-piers.ts");

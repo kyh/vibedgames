@@ -14,17 +14,18 @@ export type BuildDir =
   | { kind: "unbuilt"; dir: string }
   | { kind: "plain"; dir: string };
 
-// Checked in popularity order: Vite/Rollup/Parcel → CRA/Preact → Next export/esbuild.
 const BUILD_OUTPUTS = ["dist", "build", "out"];
 
-export const resolveBuildDir = (dir: string): BuildDir => {
+export const resolveBuildDir: (dir: string) => BuildDir = (dir) => {
   if (!existsSync(path.join(dir, "package.json"))) {
     return { dir, kind: "plain" };
   }
+
   for (const name of BUILD_OUTPUTS) {
     if (existsSync(path.join(dir, name, "index.html"))) {
       return { dir: path.join(dir, name), kind: "build", name };
     }
   }
+
   return { dir, kind: "unbuilt" };
 };

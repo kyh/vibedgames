@@ -1,87 +1,35 @@
-// The floor under Grimelda's Cauldron Brew: stone with acid standing in it.
-//
-// Ported from the Elemental Sandbox VFX sandbox (MIT, Copyright (c) 2026
-// mohamedachrefelouafi) — https://github.com/achrefelouafi/LinearAbiltyCastingExtendedThreeJS
-// (the "Caustic Bloom" pool), re-graded from its chartreuse to the witch's bog
-// green and run at two noise octaves instead of three.
-//
-// Three decisions carry it, and they are all about the difference between a
-// POOL and a green light on the floor:
-//
-//   It is alpha blended, not additive. The brew has to eat the floor — darken
-//   the stone, sink the crazing into it, sit WET on top of it. Additive can
-//   only ever add, so an additive pool is a decal that glows.
-//
-//   The surface is glossy. Everything else on this stage is rough, and one
-//   Blinn highlight off a fake normal (a height field differentiated in world
-//   space with screen derivatives) is the cheapest thing that says liquid.
-//
-//   The boundary is corroded, not circular. The outline is pushed around by
-//   a low-frequency noise on the bearing and bitten into by a higher one, so
-//   the pool has bays and headlands. A clean disc reads as a decal whatever is
-//   drawn inside it.
-//
-// On top of that: gas coming OUT of it. `surfaceBoil` gives every cell of a
-// jittered grid its own clock and draws the expanding rim of one bubble
-// breaking the surface — the floor pops continuously without a single
-// particle (the particle bubbles fx.ts adds on top are the ones that leave it).
-//
-// Everything is drawn in METRES from the centre, so the crazing keeps its
-// physical width whatever the zone radius is.
 import * as THREE from "three";
 import { NOISE_GLSL } from "./fx-noise";
 
 const POOL = {
-  // surface bubbles bursting, per second per cell
   boilRate: 0.5,
-  // the bleached band on the footprint, metres
   boundary: 0.16,
   boundaryGlow: 0.4,
-  // interference on the standing acid
   caustic: 0.25,
   causticScale: 2.2,
-  // the brighter pool in the middle
   core: 0.12,
-  // its radius, × footprint
   coreSize: 0.4,
-  // the finer network laid over them
   craze: 0.55,
-  // how opaque the sludge crust is
   crust: 0.95,
-  // how much the growing edge is chewed by its own noise
   etch: 0.35,
   etchScale: 1.6,
-  // how fast brightness crawls along a channel
   flow: 0.5,
-  // 0 = broad and dull, 1 = a tight highlight
   gloss: 0.42,
-  // master brightness of the live acid
   heat: 0.55,
-  // how fast it goes inert toward the boundary
   heatFalloff: 1.4,
-  // pits per metre
   pitScale: 1.6,
-  // fraction of plates eaten clean through
   pits: 0.12,
-  // plates per metre
   plates: 0.62,
-  /** Metres of quad per metre of footprint: room for the bays and the lip. */
   quad: 2.6,
-  // fake lighting across the plates
   relief: 0.8,
   ringSpeed: 0.4,
-  // pressure rings running out of the middle
   rings: 1.3,
-  // width of a channel, cell space
   seam: 0.05,
   seamGlow: 1.15,
-  // the specular lobe — what says "wet"
   sheen: 0.32,
-  // domain warp on the cell centres,
   warp: 0.45,
 } as const;
 
-/** Grimelda's grade. */
 const BOG = {
   acid: 0x86_f0_7a,
   edge: 0x9f_ef_a8,
@@ -90,8 +38,7 @@ const BOG = {
   sludge: 0x0a_11_04,
 } as const;
 
-// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-const VERT = /* glsl */ `
+const VERT = `
 varying vec2 vUv;
 varying vec3 vViewDir;
 void main() {
@@ -101,8 +48,7 @@ void main() {
   gl_Position = projectionMatrix * viewMatrix * world;
 }`;
 
-// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-const FRAG = /* glsl */ `
+const FRAG = `
 #define TAU 6.283185307179586
 uniform float uTime;
 uniform float uQuadSize;
@@ -348,17 +294,11 @@ void main() {
 
 /** What the zone tells the pool each frame. */
 export interface BrewPoolState {
-  // the footprint, metres
   radius: number;
-  // how far the corrosion has spread, metres
   grown: number;
-  // 0..1 — the leading edge, lit while it spreads
   front: number;
-  // 1 fresh → lower as the acid goes inert
   spent: number;
-  // 0..1 surge envelope
   boil: number;
-  // 0..1, the pool going at the end
   fade: number;
 }
 
@@ -368,7 +308,7 @@ export type BrewPoolMaterial = THREE.ShaderMaterial & {
   readonly quad: number;
 };
 
-export const createBrewPoolMaterial = (clock: { value: number }): BrewPoolMaterial => {
+export const createBrewPoolMaterial = (clock: { value: number }) => {
   const uniforms = {
     uBoil: { value: 0 },
     uColorAcid: { value: new THREE.Color(BOG.acid) },
@@ -385,6 +325,7 @@ export const createBrewPoolMaterial = (clock: { value: number }): BrewPoolMateri
     uSpent: { value: 1 },
     uTime: clock,
   };
+
   const mat = new THREE.ShaderMaterial({
     blending: THREE.NormalBlending,
     depthWrite: false,
@@ -394,6 +335,7 @@ export const createBrewPoolMaterial = (clock: { value: number }): BrewPoolMateri
     uniforms,
     vertexShader: VERT,
   });
+
   return Object.assign(mat, {
     quad: POOL.quad,
     sync: (s: BrewPoolState) => {

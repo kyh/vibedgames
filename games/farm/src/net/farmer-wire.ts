@@ -6,13 +6,6 @@ import type { CharAction } from "../data/character";
 import { isJsonNumber, isJsonObject, isJsonString } from "../json";
 import type { JsonObject, JsonValue } from "../json";
 
-// A farmer's player state on the wire. Primitive keys only — the SDK diffs
-// primitives against the last send and re-sends any object or array whole:
-//   t  server time (ms)         x, y  feet, to 0.1 px      f  facing left
-//   m  walking                  h     away (down the mine)
-//   a  clip   r  clip revision  p     clip playing
-//   k  clip frame, e  ms into it — sent only when `r` or `p` changes
-
 /** One remote farmer at one moment, as its sender reported it. */
 export interface FarmerSample {
   x: number;
@@ -54,8 +47,9 @@ const isAction = (value: JsonValue | undefined): value is CharAction =>
  * out of a start and into a stop instead of sliding in its idle pose — and
  * otherwise the nearer one.
  */
-export const blendFarmer = (a: FarmerSample, b: FarmerSample, k: number): FarmerSample => {
+export const blendFarmer = (a: FarmerSample, b: FarmerSample, k: number) => {
   let pose = k < 0.5 ? a : b;
+
   if (a.x !== b.x || a.y !== b.y) {
     if (b.moving) {
       pose = b;
@@ -63,6 +57,7 @@ export const blendFarmer = (a: FarmerSample, b: FarmerSample, k: number): Farmer
       pose = a;
     }
   }
+
   return { ...pose, x: lerp(a.x, b.x, k), y: lerp(a.y, b.y, k) };
 };
 
@@ -76,10 +71,9 @@ export const blendFarmer = (a: FarmerSample, b: FarmerSample, k: number): Farmer
  * default 100 ms, or more on a jittery route or a page too busy to read its
  * messages on time, so the farmer's stream never runs dry.
  */
-export const farmerTrack = (): Interpolator<FarmerSample> =>
-  new Interpolator({ lerp: blendFarmer });
+export const farmerTrack = () => new Interpolator({ lerp: blendFarmer });
 
-const round1 = (v: number): number => Math.round(v * 10) / 10;
+const round1 = (v: number) => Math.round(v * 10) / 10;
 
 /**
  * The local farmer on the wire. Primitives only: the SDK diffs primitive keys
@@ -102,9 +96,10 @@ export class FarmerSender {
    * clamps to 16.7 ms on an unfocused or stalling page, which would stretch
    * the gaps between updates past the peers' playback delay.
    */
-  tick(body: FarmerBody, moving: boolean, revision: number, now: number): JsonObject | null {
+  tick(body: FarmerBody, moving: boolean, revision: number, now: number) {
     const elapsed = this.lastTick === null ? 0 : now - this.lastTick;
     this.lastTick = now;
+
     return this.rate.due(elapsed) && !this.gone ? this.snapshot(body, moving, revision, now) : null;
   }
 
@@ -114,18 +109,20 @@ export class FarmerSender {
    * scene that sent it can still update once before it stops, and a regular
    * update would show the farmer again.
    */
-  away(now: number): JsonObject {
+  away(now: number) {
     this.gone = true;
+
     return { h: true, t: this.nextStamp(now) };
   }
 
   /** Back on the farm: updates resume, and the first shows the farmer again. */
-  arrive(): void {
+  arrive() {
     this.gone = false;
   }
 
-  private snapshot(body: FarmerBody, moving: boolean, revision: number, now: number): JsonObject {
+  private snapshot(body: FarmerBody, moving: boolean, revision: number, now: number) {
     const { anims } = body;
+
     const update: JsonObject = {
       f: body.flipX,
       h: false,
@@ -134,43 +131,47 @@ export class FarmerSender {
       x: round1(body.x),
       y: round1(body.y),
     };
+
     const clip = anims.currentAnim?.key.replace(/^p-/u, "");
+
     if (!isAction(clip)) {
       return update;
     }
+
     update["a"] = clip;
     update["r"] = revision;
     update["p"] = anims.isPlaying;
-    // Where the clip stands matters only when peers must seek: a new clip, or
-    // one that paused or resumed. In between, each peer runs it locally.
+
     if (revision !== this.seekRevision || anims.isPlaying !== this.seekPlaying) {
       this.seekRevision = revision;
       this.seekPlaying = anims.isPlaying;
       update["k"] = (anims.currentFrame?.index ?? 1) - 1;
       update["e"] = Math.round(anims.accumulator);
     }
+
     return update;
   }
 
-  /** Strictly increasing, so an update sent between ticks is never a duplicate. */
-  private nextStamp(now: number): number {
+  private nextStamp(now: number) {
     this.stamp = Math.max(this.stamp + 1, Math.round(now));
+
     return this.stamp;
   }
 }
 
 /** A sender's player state as one sample plus its server-time stamp; null
  *  without a position or a stamp. */
-export const readFarmer = (
-  state: JsonValue | undefined,
-): { t: number; sample: FarmerSample } | null => {
+export const readFarmer = (state: JsonValue | undefined) => {
   if (!isJsonObject(state)) {
     return null;
   }
+
   const { a: clip, e: elapsed, k: frame, r: revision, t, x, y } = state;
+
   if (!isJsonNumber(t) || !isJsonNumber(x) || !isJsonNumber(y)) {
     return null;
   }
+
   const sample: FarmerSample = {
     away: state["h"] === true,
     clip: null,
@@ -183,6 +184,7 @@ export const readFarmer = (
     x,
     y,
   };
+
   if (
     isAction(clip) &&
     isJsonNumber(revision) &&
@@ -201,5 +203,6 @@ export const readFarmer = (
     sample.frame = frame;
     sample.elapsed = elapsed;
   }
+
   return { sample, t };
 };

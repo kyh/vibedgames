@@ -7,6 +7,7 @@ import type { SpecialReadiness } from "./data/special-readiness";
 import { gameInset, isCoarse, touchHudBand } from "./sys/screen";
 
 export type ExpeditionRelic = Readonly<{ id: string; name: string; desc: string }>;
+
 export type ExpeditionOffer = Readonly<{
   name: string;
   desc: string;
@@ -88,9 +89,7 @@ const CSS = `
 }
 `;
 
-/** View-only expedition information. The scene still owns every action, clock,
- * purchase and relic; inspecting the safe-room build never mutates a run. */
-const setColor = (text: Phaser.GameObjects.Text, color: string): void => {
+const setColor = (text: Phaser.GameObjects.Text, color: string) => {
   if (text.style.color !== color) {
     text.setColor(color);
   }
@@ -148,7 +147,7 @@ export class ExpeditionHud {
     this.hideExtras();
   }
 
-  update(state: ExpeditionHudState): void {
+  update(state: ExpeditionHudState) {
     this.state = state;
     this.visible = state.visible;
     const h = Math.max(0, Math.floor(state.hearts));
@@ -157,13 +156,17 @@ export class ExpeditionHud {
       max > 12 ? `♥ ${h}/${max}` : "♥".repeat(h) + "♡".repeat(Math.max(0, max - h)),
     );
     setColor(this.hearts, "#ff4d6d");
+
     if (this.hearts.style.fontSize !== "12px") {
       this.hearts.setFontSize(12);
     }
+
     const relicCount = state.relics === null ? "—" : state.relics.length;
+
     if (this.info.style.fontSize !== "9px") {
       this.info.setFontSize(9);
     }
+
     setColor(this.info, "#a6b6c9");
     this.info.setText(
       `${state.biomeName} ${state.biome} · DEPTH ${state.depth}/${state.bossAt}\n` +
@@ -171,15 +174,17 @@ export class ExpeditionHud {
     );
     this.renderSpecial(state.special);
     this.boss.setText(state.bossName ?? "");
+
     if (state.safeRoom) {
       this.updateBuild(state.relics);
     }
+
     this.refreshVisibility();
     this.renderOffer();
   }
 
   /** Versus keeps its own score HUD; only the special-readiness cue is shared. */
-  updateSpecial(special: SpecialReadiness, visible = true): void {
+  updateSpecial(special: SpecialReadiness, visible = true) {
     this.state = null;
     this.visible = visible;
     this.hideExtras();
@@ -187,21 +192,22 @@ export class ExpeditionHud {
     this.special.setVisible(visible);
   }
 
-  setVisible(visible: boolean): void {
+  setVisible(visible: boolean) {
     if (this.visible === visible) {
       return;
     }
+
     this.visible = visible;
     this.refreshVisibility();
   }
 
-  get inspecting(): boolean {
+  get inspecting() {
     return this.build.open && !this.build.hidden;
   }
 
   /** Scene shutdown: the Phaser texts go with the display list, the DOM panel
    * and the scene-level listeners do not. */
-  destroy = (): void => {
+  destroy = () => {
     this.scene.input.off("pointerdown", this.onWorldPointerDown);
     this.scene.scale.off("resize", this.layout);
     this.releasePointer();
@@ -211,7 +217,7 @@ export class ExpeditionHud {
     this.style.remove();
   };
 
-  private text(color: string): Phaser.GameObjects.Text {
+  private text(color: string) {
     return this.scene.add
       .text(0, 0, "", {
         color,
@@ -225,43 +231,51 @@ export class ExpeditionHud {
       .setDepth(80);
   }
 
-  private renderSpecial(special: SpecialReadiness): void {
+  private renderSpecial(special: SpecialReadiness) {
     const key = isCoarse() ? "SP" : "K/Y";
+
     switch (special.kind) {
       case "ready": {
         this.special.setText(`${key} SPECIAL · READY`);
         setColor(this.special, "#34e5c8");
         break;
       }
+
       case "busy": {
         this.special.setText(`${key} SPECIAL · BUSY`);
         setColor(this.special, "#d8dee6");
         break;
       }
+
       case "cooldown": {
         this.special.setText(`${key} SPECIAL · ${Math.max(1, Math.ceil(special.remaining))}s`);
         setColor(this.special, "#ffd15c");
         break;
       }
+
       case "unknown": {
         this.special.setText(`${key} SPECIAL · —`);
         setColor(this.special, "#8b95a1");
         break;
       }
+
       default: {
         break;
       }
     }
   }
 
-  private updateBuild(relics: readonly ExpeditionRelic[] | null): void {
+  private updateBuild(relics: readonly ExpeditionRelic[] | null) {
     const key = relics === null ? "unknown" : relics.map((relic) => relic.id).join(",");
+
     if (key === this.relicKey) {
       return;
     }
+
     this.relicKey = key;
     this.summary.textContent = `BUILD · ${relics?.length ?? 0}`;
     const entries: HTMLParagraphElement[] = [];
+
     if (relics === null || relics.length === 0) {
       const empty = document.createElement("p");
       empty.textContent = "No relics collected yet.";
@@ -277,25 +291,28 @@ export class ExpeditionHud {
         entries.push(entry);
       }
     }
+
     this.list.replaceChildren(...entries);
   }
 
-  private refreshVisibility(): void {
+  private refreshVisibility() {
     const shown = this.visible;
     this.special.setVisible(shown);
     this.boss.setVisible(shown && Boolean(this.state?.bossName));
     const safe = shown && this.state?.safeRoom === true;
     this.build.hidden = !safe || this.state?.relics === null;
+
     if (this.build.hidden) {
       this.build.open = false;
     }
+
     const offer = safe && this.state?.offer !== null;
     this.offerTitle.setVisible(offer);
     this.offerEffect.setVisible(offer);
     this.offerHint.setVisible(offer);
   }
 
-  private hideExtras(): void {
+  private hideExtras() {
     this.boss.setVisible(false);
     this.offerTitle.setVisible(false);
     this.offerEffect.setVisible(false);
@@ -304,19 +321,23 @@ export class ExpeditionHud {
     this.build.open = false;
   }
 
-  private renderOffer(force = false): void {
+  private renderOffer(force = false) {
     const offer = this.state?.offer;
+
     if (!offer) {
-      // The next offer must lay itself out afresh even if it is the same item.
       this.offerKey = "";
+
       return;
     }
+
     const split = this.build.open && !this.build.hidden;
     const missingGold = Math.max(0, offer.price - (this.state?.gold ?? 0));
     const key = [offer.name, offer.desc, offer.price, offer.kind, missingGold, split].join("|");
+
     if (!force && key === this.offerKey) {
       return;
     }
+
     this.offerKey = key;
     const ins = this.inset;
     const width = BASE_W - 16 - ins.left - ins.right;
@@ -331,18 +352,20 @@ export class ExpeditionHud {
       .setPosition(x, y + this.offerTitle.height + 2)
       .setText(offer.desc);
     let hint = "Added to the shared build";
+
     if (offer.kind === "affordable") {
       hint = "Walk into the relic to buy";
     } else if (offer.kind === "unaffordable") {
       hint = `Need ${missingGold} more gold`;
     }
+
     this.offerHint
       .setWordWrapWidth(column)
       .setPosition(x, this.offerEffect.y + this.offerEffect.height + 3)
       .setText(hint);
   }
 
-  private layout = (): void => {
+  private layout = () => {
     const ins = gameInset(this.scene);
     this.inset = ins;
     this.hearts.setPosition(8 + ins.left, 6 + ins.top);
@@ -358,8 +381,6 @@ export class ExpeditionHud {
       `${(BASE_W - 16 - ins.left - ins.right) * 0.46 * scale}px`,
     );
     this.build.style.fontSize = `${Math.max(12, 9 * scale)}px`;
-    // Collapsed, the summary is bare text over the scene like the Phaser HUD
-    // lines beside it; this mirrors their 2px pixel stroke at the canvas scale.
     const stroke = Math.max(1, Math.round(scale));
     this.build.style.setProperty(
       "--lf-build-stroke",
@@ -372,23 +393,22 @@ export class ExpeditionHud {
     this.renderOffer(true);
   };
 
-  private onToggle = (): void => {
+  private onToggle = () => {
     this.renderOffer();
   };
 
-  private onWorldPointerDown = (): void => {
+  private onWorldPointerDown = () => {
     this.build.open = false;
     const focused = document.activeElement;
+
     if (focused instanceof HTMLElement && this.build.contains(focused)) {
       focused.blur();
     }
+
     this.renderOffer();
   };
 
-  private onKeyDown = (event: KeyboardEvent): void => {
-    // A collapsed summary can retain focus after a canvas click. Only its
-    // native activation keys belong to it; walking/attacking still reach play.
-    // Open inspection keeps native scrolling; Escape and every keyup bubble.
+  private onKeyDown = (event: KeyboardEvent) => {
     if (event.key !== "Escape" && (this.build.open || event.key === "Enter" || event.key === " ")) {
       event.stopPropagation();
     }

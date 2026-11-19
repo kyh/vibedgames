@@ -5,16 +5,9 @@ import type { Db } from "@repo/db/drizzle-client";
 import type { PurchaseInput } from "./credit-ledger";
 import { handleStripeWebhook, purchasesEnabled, verifyStripeSignature } from "./stripe";
 
-/**
- * Only a signed `checkout.session.completed` (or its async twin) for a paid
- * session this server created may credit an account, and it credits exactly
- * the session's own metadata under its own id. Everything else verified is
- * acknowledged and ignored, so Stripe stops redelivering it.
- */
-
 const SECRET = "whsec_test";
 
-const sign = async (payload: string, timestamp: number, secret = SECRET): Promise<string> => {
+const sign = async (payload: string, timestamp: number, secret = SECRET) => {
   const key = await crypto.subtle.importKey(
     "raw",
     new TextEncoder().encode(secret),
@@ -22,12 +15,15 @@ const sign = async (payload: string, timestamp: number, secret = SECRET): Promis
     false,
     ["sign"],
   );
+
   const mac = await crypto.subtle.sign(
     "HMAC",
     key,
     new TextEncoder().encode(`${timestamp}.${payload}`),
   );
+
   const hex = [...new Uint8Array(mac)].map((b) => b.toString(16).padStart(2, "0")).join("");
+
   return `t=${timestamp},v1=${hex}`;
 };
 
@@ -42,7 +38,6 @@ const paidSession = {
   payment_status: "paid",
 };
 
-// A checkout session as Stripe might send it: any field may be missing.
 type Session = Omit<Partial<typeof paidSession>, "metadata"> & {
   metadata?: Partial<(typeof paidSession)["metadata"]>;
 };
@@ -50,12 +45,11 @@ type Session = Omit<Partial<typeof paidSession>, "metadata"> & {
 const event = (type: string, object: Session = paidSession) =>
   JSON.stringify({ data: { object }, id: "evt_1", type });
 
-// SAFETY: the handler hands `db` only to the credit function, which every
-// test here replaces with a stub, so no property of it is ever read.
 const db = {} as Db;
 
 const deliver = async (payload: string, signature?: string) => {
   const credited: PurchaseInput[] = [];
+
   const res = await handleStripeWebhook(
     new Request("https://vibedgames.com/api/stripe/webhook", {
       body: payload,
@@ -65,9 +59,11 @@ const deliver = async (payload: string, signature?: string) => {
     { billing: { stripeWebhookSecret: SECRET }, db },
     (_db, input) => {
       credited.push(input);
+
       return Promise.resolve(true);
     },
   );
+
   return { credited, status: res.status };
 };
 
@@ -123,6 +119,7 @@ describe("handleStripeWebhook", () => {
       event("checkout.session.completed", { ...paidSession, client_reference_id: "user-2" }),
       event("checkout.session.completed", { ...paidSession, currency: "eur" }),
     ];
+
     for (const payload of cases) {
       const { credited, status } = await deliver(payload);
       assert.equal(status, 200);
@@ -135,6 +132,7 @@ describe("handleStripeWebhook", () => {
       new Request("https://vibedgames.com/api/stripe/webhook", { body: "{}", method: "POST" }),
       { billing: undefined, db },
     );
+
     assert.equal(res.status, 412);
   });
 });

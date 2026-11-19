@@ -86,24 +86,27 @@ export interface HostDirectorHooks {
 /** Host suppresses enemy spawns for the arena's first seconds (safe opening). */
 export const ARENA_SAFE_MS = 6000;
 
-export const weightedEnemyRoll = (
-  kinds: readonly EnemyKind[],
-  intensity: number,
-): EnemyKind | null => {
+export const weightedEnemyRoll = (kinds: readonly EnemyKind[], intensity: number) => {
   let total = 0;
+
   for (const k of kinds) {
     total += enemySpawnWeight(k, intensity);
   }
+
   if (total <= 0) {
     return null;
   }
+
   let roll = rand() * total;
+
   for (const k of kinds) {
     roll -= enemySpawnWeight(k, intensity);
+
     if (roll <= 0) {
       return k;
     }
   }
+
   return kinds.at(-1) ?? null;
 };
 
@@ -120,16 +123,12 @@ export interface HostDirectorDeps {
 
 /** Host-only world director: the authoritative tick (asteroid/UFO/enemy spawn cadence, pulls, magnets, breathers, boss guarantee, BEACON control) and the fixed-rate delta share of the world to guests. */
 export class HostDirector {
-  // boss (host-private; recomputed from the world each tick so migration adopts it)
   bossAlive = false;
 
   lastBossKilledAt = 0;
 
-  /** Steady world-share cadence (keeps the remainder between ticks). */
   private readonly shareRate = new FixedRate(WORLD_NET_HZ);
 
-  /** Standings relay cadence. An unchanged board costs nothing: the SDK
-   *  sends only what differs from the room's copy. */
   private readonly standingsRate = new FixedRate(STANDINGS_RELAY_HZ);
 
   lastAsteroidSpawnAt = 0;
@@ -145,9 +144,6 @@ export class HostDirector {
 
   private debutSuppressUntil = 0;
 
-  /** BEACON cadence clock (host-local): last beacon START. A promoted host
-   *  re-derives it from a live beacon's timestamps, or stamps `now` when none
-   *  is live (worst case one trough of extra delay after a migration). */
   private lastBeaconStartedAt = 0;
 
   private readonly world: SharedState;
@@ -179,7 +175,7 @@ export class HostDirector {
 
   /** Back to a never-hosted director, for a run rebuilt from nothing (the
    *  playtest seed hook): the next hostTick re-adopts every clock. */
-  restart(): void {
+  restart() {
     this.bossAlive = false;
     this.lastBossKilledAt = 0;
     this.shareRate.reset();
@@ -191,42 +187,40 @@ export class HostDirector {
     this.lastBeaconStartedAt = 0;
   }
 
-  hostTick(now: number, dt: number, delta: number): void {
+  hostTick(now: number, dt: number, delta: number) {
     if (!this.hooks.prepareHost()) {
       return;
     }
+
     if (!this.wasHost) {
       this.hostAdoptClocks(now);
     }
+
     const w = this.world;
     const tSec = Math.max(0, (now - w.arenaEpoch) / 1000);
     const intensity = arenaIntensity(tSec);
     const pc = Math.max(1, Object.keys(this.link.peers).length);
     const pressure = playerPressure(pc);
     const wave = wavePulse(tSec);
-    // Grow the play area with player count (grow-only within an arena, so it
-    // never yanks ships inward; resets to BASE on a fresh arena). Every share
-    // carries the bounds; the SDK only sends them when they change.
     const wantW = playWidthForPlayers(pc);
+
     if (wantW > w.playW) {
       w.playW = wantW;
       w.playH = playHeightForPlayers(pc);
     }
+
     this.hostTickAsteroids(now, intensity, pressure, wave);
     this.hostTickUfo(now, dt);
     this.hostTickPickups(now);
 
-    // One living-players snapshot for the whole tick (spawn/boss/sim/breather).
     const players = this.livingPlayers();
     this.hostTickBeacon(now, tSec, players);
     this.hostSpawnEnemies(now, tSec, intensity, pressure, wave, players);
     this.hostMaybeSpawnBoss(now, intensity, players);
     this.ai.hostSimEnemies(now, dt, players);
-    // After the sim: the pull overrides steering for dragged enemies.
     this.hostApplyPulls(now);
     w.pulls = w.pulls.filter((p) => p.until > now);
-    // Trailer: staged crowds are deliberately far over the cap and the wide
-    // zooms put the despawn line on camera — never cull them mid-shot.
+
     if (!this.link.trailer) {
       this.hostDespawnBreather(now, intensity, pressure, wave, players);
     }
@@ -234,38 +228,32 @@ export class HostDirector {
     w.enemyShots = w.enemyShots.filter(
       (s) => s.diesAt > now && inWorld(s.x, s.y, 60, w.playW, w.playH),
     );
+
     if (!this.link.offline && this.shareRate.due(delta)) {
       this.share(now);
     }
+
     if (!this.link.offline && this.standingsRate.due(delta)) {
       this.relayStandings();
     }
   }
 
   /** Share the world right now (a freshly seeded room: every row is new). */
-  shareNow(now: number): void {
+  shareNow(now: number) {
     this.share(now);
   }
 
-  /** One share: the world against the rows the room already holds, with
-   *  the server time of the instant `now` (sim clock) to put the epoch on
-   *  the wire by. */
-  private share(now: number): void {
+  private share(now: number) {
     const stamp = Math.round(this.link.serverAt(now));
     this.link.patchShared(encodeWorld(this.world, now, stamp, this.link.sharedState ?? {}));
   }
 
-  /** First tick after promotion (or first-ever host): zeroed spawn stamps
-   *  would read as long-overdue and burst-spawn. Start intervals from now. */
-  private hostAdoptClocks(now: number): void {
+  private hostAdoptClocks(now: number) {
     this.wasHost = true;
     this.lastAsteroidSpawnAt = now;
     this.lastEnemySpawnAt = now;
-    // Recover the beacon cadence clock: a live beacon carries its own start
-    // (activeAt − CHARGE); with none live, a mid-run promotion stamps `now`
-    // (worst case one trough of extra delay) while a fresh arena keeps 0 so
-    // the first beacon still lands at t≈90.
     const b = this.world.beacon;
+
     if (b) {
       this.lastBeaconStartedAt = b.activeAt - BEACON_CHARGE_S * 1000;
     } else if ((now - this.world.arenaEpoch) / 1000 >= BEACON_MIN_T_S) {
@@ -273,8 +261,9 @@ export class HostDirector {
     }
   }
 
-  private hostTickAsteroids(now: number, intensity: number, pressure: number, wave: number): void {
+  private hostTickAsteroids(now: number, intensity: number, pressure: number, wave: number) {
     const w = this.world;
+
     if (
       w.asteroids.length < asteroidCap(intensity, pressure, wave) &&
       now - this.lastAsteroidSpawnAt > asteroidSpawnIntervalMs(intensity)
@@ -282,63 +271,60 @@ export class HostDirector {
       w.asteroids.push(spawnAsteroidState(w.playW, w.playH));
       this.lastAsteroidSpawnAt = now;
     }
+
     w.asteroids = w.asteroids.filter((a) =>
       inWorld(a.x, a.y, ASTEROID_CULL_MARGIN, w.playW, w.playH),
     );
   }
 
-  /** UFO is the weapon piñata; the v2 gate relaxes to < 2 weapon items live.
-   *  Trailer mode: never — a wandering piñata (and its weapon drop landing
-   *  in the player's pickup radius) would derail a staged shot. */
-  private hostTickUfo(now: number, dt: number): void {
+  private hostTickUfo(now: number, dt: number) {
     const w = this.world;
     const weaponItemsInFlight = w.items.filter((it) => it.kind === "weapon").length;
+
     if (!w.ufo && !this.link.trailer && weaponItemsInFlight < 2 && rand() < UFO_SPAWN_RATE * dt) {
       w.ufo = spawnUfoState(w.playW, w.playH);
     }
+
     if (w.ufo && w.ufo.x === w.ufo.destX && w.ufo.y === w.ufo.destY) {
       w.ufo.destX = rand() * w.playW;
       w.ufo.destY = rand() * w.playH;
     }
   }
 
-  /** Expire items + shards, drop the claimed ones, then run the magnet
-   *  pass. A grant already took its pickup out (Pickups.onClaim); this also
-   *  catches claims that arrived in a sync, after a blip. */
-  private hostTickPickups(now: number): void {
+  private hostTickPickups(now: number) {
     const w = this.world;
     w.items = w.items.filter((it) => it.diesAt > now && !this.link.claimed(itemClaimKey(it.id)));
     w.shards = w.shards.filter((s) => s.diesAt > now && !this.link.claimed(shardClaimKey(s.id)));
     this.hostMagnetItems(now);
   }
 
-  /** Every present player's sector score, for guests to rank the players
-   *  out of their interest range by: only the host sees everyone. */
-  private relayStandings(): void {
+  private relayStandings() {
     const board: WireValue[] = [];
     const { myId } = this.link;
+
     if (myId && this.pilot.spawned) {
       board.push(myId, Math.round(this.progress.sectorScore));
     }
+
     for (const [id, st] of this.link.peerStates) {
       if (id !== myId && st?.present) {
         board.push(id, Math.round(st.sectorScore));
       }
     }
+
     this.link.patchShared({ [STANDINGS_KEY]: board });
   }
 
   /** Boss down: free the arena-wide slot and arm the spawn cooldown. */
-  noteBossKilled(now: number): void {
+  noteBossKilled(now: number) {
     this.bossAlive = false;
     this.lastBossKilledAt = now;
   }
 
-  /** Alive+present players with ids — the beacon control census. Phased ships
-   *  still count (they are IN the arena; only enemy targeting ignores them). */
-  private beaconOccupants(cx: number, cy: number): string[] {
+  private beaconOccupants(cx: number, cy: number) {
     const out: string[] = [];
     const { myId } = this.link;
+
     if (
       myId &&
       this.pilot.alive &&
@@ -347,99 +333,97 @@ export class HostDirector {
     ) {
       out.push(myId);
     }
+
     const t = performance.now();
+
     for (const [id, st] of this.link.peerStates) {
       if (id === myId || !st || !st.alive || !st.present) {
         continue;
       }
+
       const p = this.roster.lead(id, t);
+
       if (p && Math.hypot(p.x - cx, p.y - cy) <= BEACON_RADIUS) {
         out.push(id);
       }
     }
+
     return out;
   }
 
-  /** Spawn eligibility + placement + the per-tick control read + the expiry
-   *  payout. Phases themselves are DERIVED from the shared timestamps (never
-   *  stored), so a promoted host resumes mid-phase from the snapshot alone. */
-  private hostTickBeacon(now: number, tSec: number, players: Vec[]): void {
+  private hostTickBeacon(now: number, tSec: number, players: Vec[]) {
     const w = this.world;
     const b = w.beacon;
+
     if (b) {
       if (now >= b.diesAt) {
-        // Expiry. Sole controller at the moment of death → the hold payout
-        // crystal (guaranteed, pity-fed like an elite kill, cap-bypassed like
-        // a UFO drop so it can never be silently skipped). The 40 XP bonus is
-        // owner-simulated client-side off this same final snapshot; the gold
-        // shockwave fx is drawn by every client in tickBeaconClient.
         if (b.controllerId !== null && !b.contested) {
           this.hostCombat.hostRollLoot(b.x, b.y, 1, true, true);
         }
+
         w.beacon = null;
+
         return;
       }
+
       if (now >= b.activeAt) {
-        // ACTIVE: 0 inside → uncontrolled; 1 → controls; 2+ → contested.
         const occ = this.beaconOccupants(b.x, b.y);
         const controllerId = occ.length === 1 ? (occ[0] ?? null) : null;
         const contested = occ.length >= 2;
+
         if (controllerId !== b.controllerId || contested !== b.contested) {
           b.controllerId = controllerId;
           b.contested = contested;
         }
       }
+
       return;
     }
-    // No beacon live: eligible only in the trough window of the intensity
-    // director's macro wave, never in the opening 90s, and ≥180s start-to-
-    // start (the spec's twice-stated t≈90/270/450 cadence — every other
-    // trough; measured start-to-start, end-to-next-start comes to ~132s).
-    // dir-006: the old global t>=90 gate generalizes to sector-relative time —
-    // identical in sector 1; in later sectors it keeps the recap beat and the
-    // fresh-start breath beacon-free. (540 = 6x90, so the trough window below
-    // stays phase-locked to the same sector-relative times every sector.)
+
     if (sectorRelT(tSec) < BEACON_MIN_T_S) {
       return;
     }
-    // dir-006: one "be HERE now" at a time — no NEW beacon while a dreadnought
-    // is alive. A beacon already live completes normally (block above); the
-    // deferred slot is not queued — the next eligible trough after boss death
-    // picks the cadence back up through these same gates.
+
     if (w.enemies.some((e) => e.kind === "dreadnought")) {
       return;
     }
+
     if (tSec % BEACON_TROUGH_PERIOD_S > BEACON_SPAWN_WINDOW_S) {
       return;
     }
+
     if (
       this.lastBeaconStartedAt > 0 &&
       now - this.lastBeaconStartedAt < BEACON_MIN_INTERVAL_S * 1000
     ) {
       return;
     }
-    // Placement: ≥600px inside the barrier, ≥900px from every present player
-    // (fair approach run); crowded arenas take the candidate farthest from
-    // the nearest player.
+
     let best: Vec | null = null;
     let bestClearance = -1;
+
     for (let i = 0; i < 12; i += 1) {
       const c = randomWorldPoint(BEACON_EDGE_MARGIN, BEACON_EDGE_MARGIN, w.playW, w.playH);
       let nearest = Infinity;
+
       for (const p of players) {
         nearest = Math.min(nearest, Math.hypot(p.x - c.x, p.y - c.y));
       }
+
       if (nearest > bestClearance) {
         bestClearance = nearest;
         best = c;
       }
+
       if (nearest >= BEACON_PLAYER_CLEARANCE) {
         break;
       }
     }
+
     if (!best) {
       return;
     }
+
     this.hostSpawnBeacon(best.x, best.y, now);
   }
 
@@ -451,7 +435,7 @@ export class HostDirector {
     now: number,
     chargeS = BEACON_CHARGE_S,
     activeS = BEACON_ACTIVE_S,
-  ): void {
+  ) {
     this.world.beacon = {
       activeAt: now + chargeS * 1000,
       contested: false,
@@ -465,42 +449,43 @@ export class HostDirector {
 
   /** Position of a player by id: me from the live ship, a remote where it
    *  is drawn. Null when unknown/absent. */
-  playerPos(id: string): Vec | null {
+  playerPos(id: string) {
     if (id === this.link.myId) {
       return this.pilot.spawned && this.pilot.alive
         ? { x: this.pilot.shipX, y: this.pilot.shipY }
         : null;
     }
+
     const st = this.link.peerStates.get(id);
+
     return st && st.alive ? { x: st.x, y: st.y } : null;
   }
 
-  /**
-   * SINGULARITY drag (host-only): for every live pull, point asteroid and
-   * enemy velocities at the center. Speed scales down near the center
-   * (d/100 clamp) so bodies gather at the point instead of slingshotting
-   * through; the dragged velocities ride the normal snapshots, so guests
-   * dead-reckon the same motion.
-   */
-  private hostApplyPulls(now: number): void {
+  private hostApplyPulls(now: number) {
     for (const p of this.world.pulls) {
       if (p.until <= now) {
         continue;
       }
+
       for (const a of this.world.asteroids) {
         const d = Math.hypot(p.x - a.x, p.y - a.y);
+
         if (d > SINGULARITY_PULL_RANGE || d < 1) {
           continue;
         }
+
         const sp = SINGULARITY_PULL_SPEED * Math.min(1, Math.max(0.15, d / 100));
         a.vx = ((p.x - a.x) / d) * sp;
         a.vy = ((p.y - a.y) / d) * sp;
       }
+
       for (const e of this.world.enemies) {
         const d = Math.hypot(p.x - e.x, p.y - e.y);
+
         if (d > SINGULARITY_PULL_RANGE || d < 1) {
           continue;
         }
+
         const sp = SINGULARITY_PULL_SPEED * Math.min(1, Math.max(0.15, d / 100));
         e.vx = ((p.x - e.x) / d) * sp;
         e.vy = ((p.y - e.y) / d) * sp;
@@ -508,47 +493,51 @@ export class HostDirector {
     }
   }
 
-  /**
-   * MAGNET (host-side: items + shards are host-owned): steer any item within
-   * range of a magnet holder toward them at 140 px/s; shards get pulled
-   * harder (SHARD_MAGNET_PULL_SPEED); back to drift speed outside.
-   * Holders are read from per-player `boosts` state (mine locally).
-   */
-  private hostMagnetItems(now: number): void {
+  private hostMagnetItems(now: number) {
     const w = this.world;
+
     if (w.items.length === 0 && w.shards.length === 0) {
       return;
     }
+
     const holders = this.magnetHolders(now);
+
     if (holders.length === 0) {
       return;
     }
+
     for (const it of w.items) {
       magnetPull(it, holders, MAGNET_PULL_SPEED, ITEM_SPEED);
     }
+
     for (const sd of w.shards) {
       magnetPull(sd, holders, SHARD_MAGNET_PULL_SPEED, SHARD_DRIFT_SPEED);
     }
   }
 
-  /** Positions of every living ship with a live MAGNET booster. */
-  private magnetHolders(now: number): Vec[] {
+  private magnetHolders(now: number) {
     const holders: Vec[] = [];
     const mine = this.pilot.boosts.get("magnet");
+
     if (mine !== undefined && mine > now && this.pilot.alive && this.pilot.spawned) {
       holders.push({ x: this.pilot.shipX, y: this.pilot.shipY });
     }
+
     const { myId } = this.link;
     const t = performance.now();
+
     for (const [id, st] of this.link.peerStates) {
       if (id === myId || !st || !st.alive || !st.magnet) {
         continue;
       }
+
       const p = this.roster.lead(id, t);
+
       if (p) {
         holders.push(p);
       }
     }
+
     return holders;
   }
 
@@ -556,39 +545,45 @@ export class HostDirector {
    *  host sees every player. Drives elite HP stamping at spawn; kill XP reads
    *  the multiplier back off the elite (enemyKillXp), so qa-018's cost and
    *  reward move together. */
-  maxPresentLevel(): number {
+  maxPresentLevel() {
     let max = this.pilot.spawned ? this.progress.level : 1;
     const { myId } = this.link;
+
     for (const [id, st] of this.link.peerStates) {
       if (id === myId || !st || !st.present) {
         continue;
       }
+
       if (st.level > max) {
         max = st.level;
       }
     }
+
     return Math.max(1, max);
   }
 
-  /** Living player positions: mine locally, each guest's newest pose led
-   *  toward the present — enemies chase where a guest IS, not where it is
-   *  drawn 100 ms back. */
-  private livingPlayers(): Vec[] {
+  private livingPlayers() {
     const out: Vec[] = [];
+
     if (this.pilot.alive && this.pilot.spawned && simNow() >= this.hooks.phasedUntil()) {
       out.push({ x: this.pilot.shipX, y: this.pilot.shipY });
     }
+
     const { myId } = this.link;
     const t = performance.now();
+
     for (const [id, st] of this.link.peerStates) {
       if (id === myId || !st || !st.alive || st.shieldMod?.phased) {
         continue;
       }
+
       const p = this.roster.lead(id, t);
+
       if (p) {
         out.push(p);
       }
     }
+
     return out;
   }
 
@@ -599,137 +594,146 @@ export class HostDirector {
     pressure: number,
     wave: number,
     players: Vec[],
-  ): void {
-    // safe opening
+  ) {
     if (tSec * 1000 < ARENA_SAFE_MS) {
       return;
     }
+
     if (now < this.debutSuppressUntil) {
       return;
     }
+
     const w = this.world;
     const early = tSec < EARLY_SPAWN_WINDOW_S;
+
     if (early && !this.debuted.has("drone") && w.enemies.length === 0 && players.length > 0) {
       this.hostSeedDebutWave(now, players);
+
       return;
     }
+
     if (w.enemies.length >= enemyCap(intensity, pressure, wave)) {
       return;
     }
+
     const interval = early
       ? Math.min(enemySpawnIntervalMs(intensity), EARLY_SPAWN_INTERVAL_MS)
       : enemySpawnIntervalMs(intensity);
+
     if (now - this.lastEnemySpawnAt < interval) {
       return;
     }
+
     const pick = this.pickSpawnKind(intensity);
+
     if (!pick) {
       return;
     }
+
     const { kind, isDebut } = pick;
     const placed = this.placeEnemySpawn(kind, early, players);
-    // skip this tick
+
     if (!placed) {
       return;
     }
+
     const e = spawnEnemyState(kind, placed.x, placed.y);
     e.angle = placed.ang;
-    // qa-018: elites are stamped to the room's beam-DPS ceiling at spawn (the
-    // exact bossHp pattern). Stamped ONCE — leveling never retro-buffs a live
-    // elite. Fodder, sniper and the boss keep their spec hp.
+
     if (ELITE_HP_BASE.has(kind)) {
       e.hp = eliteHp(kind, this.maxPresentLevel());
       e.maxHp = e.hp;
     }
+
     w.enemies.push(e);
     this.lastEnemySpawnAt = now;
+
     if (isDebut) {
       this.debuted.add(kind);
       this.debutSuppressUntil = now + ENEMY_DEBUT_SUPPRESS_MS;
     }
   }
 
-  /** Early debut wave: the moment the safe opening ends, seed a few drones in
-   *  the convergence ring at once so the arena's first threats are already
-   *  visibly inbound. This IS the drone debut (suppression follows as usual). */
-  private hostSeedDebutWave(now: number, players: Vec[]): void {
+  private hostSeedDebutWave(now: number, players: Vec[]) {
     const w = this.world;
+
     for (let i = 0; i < EARLY_FODDER_SEED_COUNT; i += 1) {
       const placed = this.ringPlacementNear(players, EARLY_SEED_RING_MAX);
+
       if (!placed) {
         break;
       }
+
       const e = spawnEnemyState("drone", placed.x, placed.y);
       e.angle = placed.ang;
       w.enemies.push(e);
     }
+
     this.debuted.add("drone");
     this.debutSuppressUntil = now + ENEMY_DEBUT_SUPPRESS_MS;
     this.lastEnemySpawnAt = now;
   }
 
-  /** Debut rule: a type's first appearance is solo + suppresses other spawns;
-   *  otherwise a weighted roll over the kinds live at this intensity. */
-  private pickSpawnKind(intensity: number): { kind: EnemyKind; isDebut: boolean } | null {
+  private pickSpawnKind(intensity: number) {
     const avail = ENEMY_KINDS.filter((k) => enemySpawnWeight(k, intensity) > 0);
+
     if (avail.length === 0) {
       return null;
     }
+
     const debut = avail.find((k) => !this.debuted.has(k));
+
     if (debut) {
       return { isDebut: true, kind: debut };
     }
+
     const kind = weightedEnemyRoll(avail, intensity);
+
     return kind ? { isDebut: false, kind } : null;
   }
 
-  /** Where a fresh spawn lands: early-window fodder converges via the ring
-   *  outside a player's viewport; a live BEACON lures half of spawns onto a
-   *  ring around it (bias only — caps, weights and intervals are untouched);
-   *  everything else takes the far edge entrance. */
-  private placeEnemySpawn(
-    kind: EnemyKind,
-    early: boolean,
-    players: Vec[],
-  ): { x: number; y: number; ang: number } | null {
+  private placeEnemySpawn(kind: EnemyKind, early: boolean, players: Vec[]) {
     const w = this.world;
     let placed: { x: number; y: number; ang: number } | null = null;
+
     if (early && EARLY_FODDER_KINDS.includes(kind) && players.length > 0) {
       placed = this.ringPlacementNear(players);
     }
+
     const { beacon } = w;
+
     if (!placed && beacon && rand() < BEACON_LURE_FRACTION) {
       const ang = rand() * Math.PI * 2;
       const r = BEACON_LURE_RING_MIN + rand() * (BEACON_LURE_RING_MAX - BEACON_LURE_RING_MIN);
       const x = PhaserMath.Clamp(beacon.x + Math.cos(ang) * r, 30, w.playW - 30);
       const y = PhaserMath.Clamp(beacon.y + Math.sin(ang) * r, 30, w.playH - 30);
       const clear = players.every((p) => Math.hypot(p.x - x, p.y - y) >= ENEMY_SPAWN_CLEARANCE);
+
       if (clear) {
         placed = { ang: Math.atan2(beacon.y - y, beacon.x - x), x, y };
       }
     }
+
     for (let i = 0; i < 5 && !placed; i += 1) {
       const c = edgeSpawn(30, w.playW, w.playH);
       const clear = players.every((p) => Math.hypot(p.x - c.x, p.y - c.y) >= ENEMY_SPAWN_CLEARANCE);
+
       if (clear) {
         placed = c;
       }
     }
+
     return placed;
   }
 
-  /** A clear point in the early-onslaught ring [ENEMY_SPAWN_CLEARANCE ..
-   *  maxR] around a random living player, aimed at them.
-   *  Null when clamping keeps violating clearance (caller falls back / skips). */
-  private ringPlacementNear(
-    players: Vec[],
-    maxR = EARLY_SPAWN_RING_MAX,
-  ): { x: number; y: number; ang: number } | null {
+  private ringPlacementNear(players: Vec[], maxR = EARLY_SPAWN_RING_MAX) {
     for (let i = 0; i < 8; i += 1) {
       const anchor = players[Math.floor(rand() * players.length)];
+
       if (!anchor) {
         return null;
       }
+
       const c = ringSpawnPoint(
         anchor.x,
         anchor.y,
@@ -738,150 +742,158 @@ export class HostDirector {
         this.world.playW,
         this.world.playH,
       );
+
       const clear = players.every((p) => Math.hypot(p.x - c.x, p.y - c.y) >= ENEMY_SPAWN_CLEARANCE);
+
       if (clear) {
         return c;
       }
     }
+
     return null;
   }
 
-  /**
-   * Breather rule: when the live count runs past the (intensity-trough) cap by
-   * more than the slack — splitter children bypass the cap — quietly despawn
-   * the enemy farthest from all living players: no loot, no score, only if
-   * it's beyond ENEMY_DESPAWN_MIN_DIST from everyone, max one per interval.
-   */
   private hostDespawnBreather(
     now: number,
     intensity: number,
     pressure: number,
     wave: number,
     players: Vec[],
-  ): void {
+  ) {
     const w = this.world;
+
     if (w.enemies.length <= enemyCap(intensity, pressure, wave) + ENEMY_DESPAWN_SLACK) {
       return;
     }
+
     if (now - this.lastBreatherDespawnAt < ENEMY_DESPAWN_INTERVAL_MS) {
       return;
     }
+
     let farIdx = -1;
     let farDist = -1;
+
     for (let i = 0; i < w.enemies.length; i += 1) {
       const e = w.enemies[i];
+
       if (!e) {
         continue;
       }
-      // the boss is never auto-despawned
+
       if (e.kind === "dreadnought") {
         continue;
       }
+
       let minD = Infinity;
+
       for (const p of players) {
         minD = Math.min(minD, Math.hypot(e.x - p.x, e.y - p.y));
       }
+
       if (minD > farDist) {
         farDist = minD;
         farIdx = i;
       }
     }
+
     if (farIdx === -1 || farDist <= ENEMY_DESPAWN_MIN_DIST) {
       return;
     }
+
     const e = w.enemies[farIdx];
+
     if (!e) {
       return;
     }
+
     w.enemies.splice(farIdx, 1);
     this.ai.enemySim.delete(e.id);
     this.lastBreatherDespawnAt = now;
   }
 
-  /** Boss spawn trigger: near a wave peak, in a busy room (or after the cooldown
-   *  in a quiet one). One boss arena-wide. Called each host tick. */
-  private hostMaybeSpawnBoss(now: number, intensity: number, players: Vec[]): void {
+  private hostMaybeSpawnBoss(now: number, intensity: number, players: Vec[]) {
     const w = this.world;
-    // Recompute from the world so a migrated host adopts the flag.
     this.bossAlive = w.enemies.some((e) => e.kind === "dreadnought");
+
     if (this.bossAlive) {
       return;
     }
-    // dir-006 guaranteed sector boss: at sector-relative 405s a sector with no
-    // dreadnought spawn yet force-spawns one — bypassing the intensity/
-    // cooldown/busy gates but keeping edge placement + spawn clearance.
-    // ADDITIVE: the organic gates below are byte-identical to a0c0272.
-    // w.sectorBossIdx (host-written, on the wire) marks the satisfied sector,
-    // so a migrated host never double-guarantees; a boss spilling across a
-    // boundary keeps the NEW sector's guarantee waived via the bossAlive
-    // early-return above — once it dies, this rel-405 check applies normally.
+
     const tSec = Math.max(0, (now - w.arenaEpoch) / 1000);
     const sIdx = sectorIdx(tSec);
+
     if (sectorRelT(tSec) >= SECTOR_BOSS_AT_S && w.sectorBossIdx < sIdx && players.length > 0) {
       if (this.hostForceSpawnBoss(players)) {
         w.sectorBossIdx = sIdx;
       }
-      // placement failure retries next tick; organic gates don't apply
+
       return;
     }
+
     if (intensity < BOSS_SPAWN_INTENSITY) {
       return;
     }
+
     if (this.lastBossKilledAt !== 0 && now - this.lastBossKilledAt < BOSS_SPAWN_COOLDOWN_MS) {
       return;
     }
-    // never spawn a boss with nobody to fight it
+
     if (players.length === 0) {
       return;
     }
+
     const busy = Object.keys(this.link.peers).length >= BOSS_SPAWN_MIN_PLAYERS;
-    // Quiet rooms only get one once the cooldown has fully elapsed since the last.
+
     if (!busy && this.lastBossKilledAt === 0 && now < BOSS_SPAWN_COOLDOWN_MS) {
       return;
     }
+
     let placed: { x: number; y: number; ang: number } | null = null;
+
     for (let i = 0; i < 8 && !placed; i += 1) {
       const c = edgeSpawn(30, this.world.playW, this.world.playH);
+
       if (players.every((p) => Math.hypot(p.x - c.x, p.y - c.y) >= ENEMY_SPAWN_CLEARANCE)) {
         placed = c;
       }
     }
+
     if (!placed) {
       return;
     }
+
     const e = spawnEnemyState("dreadnought", placed.x, placed.y);
     e.angle = placed.ang;
     e.hp = bossHp(Math.max(1, Object.keys(this.link.peers).length));
     e.maxHp = e.hp;
     w.enemies.push(e);
     this.bossAlive = true;
-    // dir-006: ANY dreadnought spawn (organic or forced) satisfies the
-    // sector's guarantee — an organic rel-214 boss means rel-405 no-ops.
     w.sectorBossIdx = sIdx;
   }
 
-  /** dir-006: edge-place + spawn the guaranteed sector dreadnought. Same
-   *  placement + stat block as the organic path above — deliberately
-   *  duplicated (not extracted) so the organic block stays byte-identical
-   *  for diff inspection (spec criterion 6). */
-  private hostForceSpawnBoss(players: Vec[]): boolean {
+  private hostForceSpawnBoss(players: Vec[]) {
     const w = this.world;
     let placed: { x: number; y: number; ang: number } | null = null;
+
     for (let i = 0; i < 8 && !placed; i += 1) {
       const c = edgeSpawn(30, w.playW, w.playH);
+
       if (players.every((p) => Math.hypot(p.x - c.x, p.y - c.y) >= ENEMY_SPAWN_CLEARANCE)) {
         placed = c;
       }
     }
+
     if (!placed) {
       return false;
     }
+
     const e = spawnEnemyState("dreadnought", placed.x, placed.y);
     e.angle = placed.ang;
     e.hp = bossHp(Math.max(1, Object.keys(this.link.peers).length));
     e.maxHp = e.hp;
     w.enemies.push(e);
     this.bossAlive = true;
+
     return true;
   }
 }

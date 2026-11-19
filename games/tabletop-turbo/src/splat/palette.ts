@@ -1,8 +1,3 @@
-// The whole game in one palette. A material never names a colour: it names a
-// ramp (five tones of one hue, dark to light) and a step on it. Shade is a step
-// down, a highlight a step up, an outline a step down again, so every pixel on
-// screen is one of these tones.
-
 import * as THREE from "three";
 
 export const STEPS = 5;
@@ -31,7 +26,7 @@ const TABLE = [
 
 export type RampName = (typeof TABLE)[number][0];
 
-const indexOf = (name: RampName): number => TABLE.findIndex((row) => row[0] === name);
+const indexOf = (name: RampName) => TABLE.findIndex((row) => row[0] === name);
 
 /** Ramp ids by name. */
 export const RAMP = {
@@ -73,9 +68,10 @@ export const KART_RAMPS = [
   RAMP.black,
 ] as const;
 
-export const rampCss = (ramp: number, step: number): string => {
+export const rampCss = (ramp: number, step: number) => {
   const row = TABLE[ramp] ?? TABLE[0];
   const at = Math.min(STEPS - 1, Math.max(0, Math.round(step)));
+
   return row[at + 1] ?? row[1];
 };
 
@@ -84,35 +80,40 @@ const HSL = { h: 0, l: 0, s: 0 };
 
 const hueOf = (css: string) => {
   SCRATCH.set(css).getHSL(HSL);
+
   return { h: HSL.h, l: HSL.l, s: HSL.s };
 };
 
 /** The kart ramp closest in hue to any colour, skipping ramps already `taken`. */
-export const kartRampFor = (css: string, taken: ReadonlySet<number>): number => {
+export const kartRampFor = (css: string, taken: ReadonlySet<number>) => {
   const want = hueOf(css);
   let best: number = KART_RAMPS[0];
   let bestGap = Number.POSITIVE_INFINITY;
+
   for (const ramp of KART_RAMPS) {
     if (!taken.has(ramp)) {
       const have = hueOf(rampCss(ramp, 2));
       const turn = Math.abs(want.h - have.h);
-      // A grey asks for a grey: hue means nothing without saturation, and then lightness decides.
       const grey = want.s < 0.25 && have.s < 0.25;
+
       const gap = grey
         ? Math.abs(want.l - have.l)
         : Math.min(turn, 1 - turn) + Math.abs(want.s - have.s) * 0.4;
+
       if (gap < bestGap) {
         bestGap = gap;
         best = ramp;
       }
     }
   }
+
   return best;
 };
 
 /** Every tone as a texture: x is the step, y the ramp. Bytes go to the screen untouched. */
-export const rampTexture = (): THREE.DataTexture => {
+export const rampTexture = () => {
   const data = new Uint8Array(STEPS * RAMP_COUNT * 4);
+
   for (const [ramp, row] of TABLE.entries()) {
     for (let step = 0; step < STEPS; step += 1) {
       SCRATCH.set(row[step + 1] ?? "#000000");
@@ -124,10 +125,12 @@ export const rampTexture = (): THREE.DataTexture => {
       data[o + 3] = 255;
     }
   }
+
   const texture = new THREE.DataTexture(data, STEPS, RAMP_COUNT, THREE.RGBAFormat);
   texture.colorSpace = THREE.NoColorSpace;
   texture.magFilter = THREE.NearestFilter;
   texture.minFilter = THREE.NearestFilter;
   texture.needsUpdate = true;
+
   return texture;
 };

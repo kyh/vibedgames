@@ -1,8 +1,3 @@
-// The karts: die-cast toy cars, baked once per chassis into a few hundred
-// splats and stamped onto the stage every frame in their driver's colour.
-// They are drawn a third larger than they collide, the way pixel art always
-// oversizes its hero.
-
 import { SplatBuilder } from "../splat/builder";
 import type { Coat } from "../splat/builder";
 import { drawSplats } from "../splat/draw";
@@ -31,19 +26,19 @@ const SIZE = 1.45;
 const SHADE = tone(RAMP.track, 0);
 
 const STRIPE = tone(RAMP.white, 3);
-const body = (step: number): Coat => ({ tone: tone(TEAM_RAMP, step) });
-/** Body colour with a racing stripe down the middle. */
-const striped = (step: number): Coat => ({
+const body = (step: number) => ({ tone: tone(TEAM_RAMP, step) });
+
+const striped: (step: number) => Coat = (step) => ({
   at: (_x, _y, z) => (Math.abs(z) < 0.19 ? STRIPE : -1),
   tone: tone(TEAM_RAMP, step),
 });
+
 const RUBBER: Coat = { tone: tone(RAMP.black, 1) };
 const HUB: Coat = { tone: tone(RAMP.white, 3) };
-/** Windows are the kart's own colour at its darkest, so a kart is one hue. */
 const GLASS: Coat = { tone: tone(TEAM_RAMP, 0) };
 const CHROME: Coat = { tone: tone(RAMP.white, 2) };
 
-const wheels = (b: SplatBuilder, front: number, rear: number, out: number): void => {
+const wheels = (b: SplatBuilder, front: number, rear: number, out: number) => {
   for (const side of [-1, 1]) {
     b.cylinder(0.98, front, side * out, front, 0.4, RUBBER, "z");
     b.cylinder(0.98, front, side * (out + 0.19), front * 0.5, 0.08, HUB, "z");
@@ -52,8 +47,7 @@ const wheels = (b: SplatBuilder, front: number, rear: number, out: number): void
   }
 };
 
-/** Dart: a low wedge with a wing. */
-const dart = (b: SplatBuilder): void => {
+const dart = (b: SplatBuilder) => {
   wheels(b, 0.4, 0.46, 0.66);
   b.box(0, 0.52, 0, 3, 0.34, 1.2, striped(2));
   b.box(0.85, 0.76, 0, 1.1, 0.16, 1.05, striped(2));
@@ -64,8 +58,7 @@ const dart = (b: SplatBuilder): void => {
   b.box(-1.38, 0.95, -0.5, 0.12, 0.5, 0.1, body(1));
 };
 
-/** Anvil: a hot rod, all engine. */
-const anvil = (b: SplatBuilder): void => {
+const anvil = (b: SplatBuilder) => {
   wheels(b, 0.42, 0.58, 0.72);
   b.box(0, 0.6, 0, 3.1, 0.44, 1.3, body(2));
   b.box(-0.7, 1.06, 0, 1.1, 0.5, 1.1, GLASS);
@@ -77,8 +70,7 @@ const anvil = (b: SplatBuilder): void => {
   b.cylinder(-0.4, 0.5, -0.74, 0.11, 1.9, CHROME, "x");
 };
 
-/** Wisp: an open-wheeler with a bubble canopy. */
-const wisp = (b: SplatBuilder): void => {
+const wisp = (b: SplatBuilder) => {
   wheels(b, 0.38, 0.44, 0.78);
   b.box(-0.2, 0.5, 0, 2.2, 0.3, 0.86, striped(2));
   b.cone(1.25, 0.5, 0, 0.36, 0.12, 1, striped(2), "x");
@@ -91,14 +83,17 @@ const wisp = (b: SplatBuilder): void => {
 const CHASSIS_BUILDS = [dart, anvil, wisp] as const;
 const MODELS = new Map<number, SplatSet>();
 
-const modelFor = (chassis: number): SplatSet => {
+const modelFor = (chassis: number) => {
   const known = MODELS.get(chassis);
+
   if (known) {
     return known;
   }
+
   const builder = new SplatBuilder(0.15, new SplatSet(1024), 11 + chassis);
   (CHASSIS_BUILDS[chassis] ?? dart)(builder);
   MODELS.set(chassis, builder.set);
+
   return builder.set;
 };
 
@@ -106,7 +101,6 @@ export class KartMesh {
   visible = true;
   private readonly ramp: number;
   private readonly model: SplatSet;
-  /** Every part in the one ramp: the unpicked karts on the title screen. */
   private readonly mono: boolean;
   private look: KartLook | null = null;
   private lean = 0;
@@ -120,16 +114,16 @@ export class KartMesh {
   }
 
   /** A little jump: the start of a drift. */
-  kick(): void {
+  kick() {
     this.hop = 1;
   }
 
   /** A hit: squash down and spring back. */
-  thump(): void {
+  thump() {
     this.squash = 1;
   }
 
-  update(look: KartLook, dt: number): void {
+  update(look: KartLook, dt: number) {
     this.look = look;
     const lean = look.drift === 0 ? look.steer * 0.08 : look.drift * 0.2;
     this.lean += (lean - this.lean) * Math.min(1, dt * 10);
@@ -137,15 +131,17 @@ export class KartMesh {
     this.squash = Math.max(0, this.squash - dt * 5);
   }
 
-  draw(out: SplatSet): void {
+  draw(out: SplatSet) {
     const { look } = this;
+
     if (!look || !this.visible) {
       return;
     }
-    // A dark patch under the kart: what keeps it on the road, and apart from the kart beside it.
+
     const yaw = look.heading + look.drift * 0.38;
     const cos = Math.cos(yaw);
     const sin = Math.sin(yaw);
+
     for (let i = -2; i <= 2; i += 1) {
       for (let j = -1; j <= 1; j += 1) {
         const lx = i * 0.95;
@@ -163,10 +159,10 @@ export class KartMesh {
         );
       }
     }
+
     drawSplats(out, this.model, {
       mono: this.mono,
       pitch: look.boosting ? 0.07 : 0,
-      // A hit flashes the whole kart white on alternate steps.
       ramp: this.squash > 0 && Math.floor(this.squash * 8) % 2 === 1 ? RAMP.white : this.ramp,
       roll: this.lean,
       scale: SIZE * (look.size ?? 1),

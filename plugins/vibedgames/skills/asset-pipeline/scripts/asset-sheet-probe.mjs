@@ -1,11 +1,4 @@
 #!/usr/bin/env node
-/**
- * Analyze sprite-sheet grids and list non-empty frames.
- *
- * Examples:
- *   node asset-sheet-probe.mjs path/to/sheet.png --frame 32x32 --list
- *   node asset-sheet-probe.mjs path/to/folder --frame 16x16 --list --json tmp/probe.json
- */
 import {
   failUsage,
   getFlag,
@@ -25,15 +18,19 @@ main(() => {
     booleans: ["list", "show-empty"],
     values: ["frame", "json"],
   });
+
   const [target] = args.positionals;
+
   if (!target) {
     failUsage("A PNG file or folder path is required.");
   }
 
   const frameSpec = getString(args, "frame");
+
   if (!frameSpec) {
     failUsage("--frame is required, e.g. --frame 32x32");
   }
+
   const frame = parseFrame(frameSpec);
   const showEmpty = getFlag(args, "show-empty");
 
@@ -44,15 +41,18 @@ main(() => {
       `${result.path}  grid=${result.grid.columns}x${result.grid.rows}` +
         `  non_empty=${result.non_empty.length}  empty=${result.empty_count}`,
     );
+
     if (getFlag(args, "list")) {
       console.log(`  non_empty=${format(result.non_empty)}`);
     }
+
     if (showEmpty) {
       console.log(`  empty=${format(result.empty ?? [])}`);
     }
   }
 
   const json = getString(args, "json");
+
   if (json) {
     writeJsonFile(json, results);
   }

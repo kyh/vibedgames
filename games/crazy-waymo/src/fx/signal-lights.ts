@@ -4,19 +4,8 @@ import { ROAD_TILE } from "../shared/constants";
 import { controlArms, junctionControl, signalGreen } from "../world/junction-control";
 import type { RoadNetwork } from "../world/network";
 
-// Live traffic-signal lamps. The KayKit signal poles are baked static
-// geometry, so the lamp state rides on top as a runtime InstancedMesh of
-// small emissive boxes — one per signal head, snapped to where the pole's
-// arm holds the housing. Colors flip on the SAME junction-control cycle the
-// traffic AI obeys, so what the player sees is what the cars do.
-
-// Head placement relative to the pole base, derived from the kk-trafficlight
-// model (bbox x -0.135..0.04 at height 0.73, scaled to 5u tall in furniture):
-// the arm reaches ~0.9u from the base toward the junction, housing ~4.4u up.
 const ARM_REACH = 0.7;
 const HEAD_H = 4.38;
-// The lit box sits where the matching housing lamp is: top when red,
-// bottom when green (the housing's lamp pitch at furniture's 5u scale).
 const LAMP_PITCH = 0.24;
 const LAMP_SIZE = 0.42;
 const GREEN = new THREE.Color(0x2e_cc_4e);
@@ -27,14 +16,11 @@ type HeightAt = (x: number, z: number) => number;
 export class SignalLights {
   readonly mesh: THREE.InstancedMesh;
   private readonly nodes: Int32Array;
-  // approach tangent (outward) per lamp
   private readonly txs: Float32Array;
   private readonly tzs: Float32Array;
-  // head anchor (housing centre)
   private readonly xs: Float32Array;
   private readonly ys: Float32Array;
   private readonly zs: Float32Array;
-  // -1 unset, 0 red, 1 green
   private readonly states: Int8Array;
   private readonly count: number;
 
@@ -47,25 +33,29 @@ export class SignalLights {
       tx: number;
       tz: number;
     }
+
     const spots: Spot[] = [];
+
     for (let n = 0; n < network.nodes.length; n += 1) {
       if (junctionControl(network, n) !== "signal") {
         continue;
       }
+
       const node = network.nodes[n];
+
       if (!node) {
         continue;
       }
+
       for (const a of controlArms(network, n)) {
-        // Mirror furniture.ts placement exactly (pole on the right of the
-        // approach, past the crosswalk) including its skip-on-asphalt test —
-        // a lamp with no pole under it floats.
         const px = a.px + a.tx * 4.6 + a.tz * (a.half + 1.2);
         const pz = a.pz + a.tz * 4.6 - a.tx * (a.half + 1.2);
         const hit = network.nearest(px, pz, ROAD_TILE * 1.4);
+
         if (hit !== null && hit.dist < hit.edge.half + 0.3) {
           continue;
         }
+
         const dl = Math.hypot(node[0] - px, node[1] - pz) || 1;
         const dirX = (node[0] - px) / dl;
         const dirZ = (node[1] - pz) / dl;
@@ -90,17 +80,18 @@ export class SignalLights {
     this.states = new Int8Array(this.count).fill(-1);
 
     const geo = new THREE.BoxGeometry(LAMP_SIZE, LAMP_SIZE, LAMP_SIZE);
-    // Basic material: the lamp is a light source — full brightness day and
-    // night, no tone-mapped dimming.
     const mat = new THREE.MeshBasicMaterial({ color: 0xff_ff_ff, toneMapped: false });
     this.mesh = new THREE.InstancedMesh(geo, mat, this.count);
     this.mesh.frustumCulled = false;
     const m4 = new THREE.Matrix4();
+
     for (let i = 0; i < this.count; i += 1) {
       const s = spots[i];
+
       if (!s) {
         continue;
       }
+
       this.nodes[i] = s.node;
       this.txs[i] = s.tx;
       this.tzs[i] = s.tz;
@@ -111,23 +102,22 @@ export class SignalLights {
       this.mesh.setMatrixAt(i, m4);
       this.mesh.setColorAt(i, RED);
     }
+
     this.mesh.instanceMatrix.needsUpdate = true;
   }
 
-  // Flip lamps to match the signal cycle at time t (the traffic sim clock):
-  // color changes AND the box slides to the matching housing lamp (top red,
-  // bottom green). Only the lamps that flipped go back to the GPU: with ~2.6k
-  // heads on staggered cycles some lamp flips in nearly every frame, and a
-  // whole-buffer upload made that a 200 KB transfer per frame.
   private readonly m4 = new THREE.Matrix4();
-  update(t: number): void {
+  update(t: number) {
     let dirty = false;
+
     for (let i = 0; i < this.count; i += 1) {
       const green = signalGreen(this.nodes[i] ?? 0, this.txs[i] ?? 0, this.tzs[i] ?? 0, t);
       const state = green ? 1 : 0;
+
       if (this.states[i] === state) {
         continue;
       }
+
       this.states[i] = state;
       this.mesh.setColorAt(i, green ? GREEN : RED);
       this.m4.makeTranslation(
@@ -140,16 +130,19 @@ export class SignalLights {
       this.mesh.instanceColor?.addUpdateRange(i * 3, 3);
       dirty = true;
     }
+
     if (dirty) {
       if (this.mesh.instanceColor) {
         this.mesh.instanceColor.needsUpdate = true;
       }
+
       this.mesh.instanceMatrix.needsUpdate = true;
     }
   }
 
-  dispose(): void {
+  dispose() {
     this.mesh.geometry.dispose();
+
     if (Array.isArray(this.mesh.material)) {
       for (const m of this.mesh.material) {
         m.dispose();
@@ -157,6 +150,7 @@ export class SignalLights {
     } else {
       this.mesh.material.dispose();
     }
+
     this.mesh.dispose();
   }
 }

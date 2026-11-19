@@ -13,6 +13,7 @@ export const Route = createFileRoute("/api/stripe/webhook")({
     handlers: {
       POST: ({ request }) => {
         const { billing, db } = getServerContext();
+
         return handleStripeWebhook(request, { billing, db });
       },
     },

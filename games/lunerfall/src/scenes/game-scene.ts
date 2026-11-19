@@ -6,7 +6,7 @@ import type { ButtonOptions, PhaserGamepad, Viewport } from "@vibedgames/gamepad
 import { sfx } from "../audio/sfx";
 import { BASE_H, BASE_W, MAX_LAG, MAX_STEPS, STEP } from "../config";
 import { HERO_NAMES } from "../data/animations";
-import type { EnemyName, HeroName } from "../data/animations";
+import type { EnemyName } from "../data/animations";
 import { biomePalette } from "../data/biomes";
 import { bossKind } from "../data/bosses";
 import { HEROES } from "../data/heroes";
@@ -15,10 +15,9 @@ import { bankRun, loadMeta, recordBestScore } from "../data/meta";
 import { RELICS } from "../data/relics";
 import type { RunMods } from "../data/relics";
 import { parseRoomType } from "../data/rooms";
-import type { RoomDef, RoomType } from "../data/rooms";
+import type { RoomType } from "../data/rooms";
 import { Player } from "../entities/player";
 import { isJsonString } from "../net/json";
-import type { NetSession } from "../net/session";
 import type { JsonValue } from "../net/json";
 import { ExpeditionHud } from "../expedition-hud";
 import type { ExpeditionOffer } from "../expedition-hud";
@@ -34,9 +33,7 @@ import { Grid } from "../sys/grid";
 import { reseed, unseed } from "../sys/rng";
 import { RunManager } from "../sys/run";
 import { Input, NEUTRAL_INPUT } from "../sys/input";
-import type { InputState } from "../sys/input";
 import { gameInset, isCoarse, REDUCED_MOTION, touchHudBand } from "../sys/screen";
-import type { VersusMatch } from "../sys/versus";
 import { mountTouchHud, unmountTouchHud } from "../touch-hud";
 import { BannerHud } from "./banner-hud";
 import { CheckpointSync } from "./checkpoint-sync";
@@ -49,46 +46,27 @@ import { RoomBuilder } from "./room-builder";
 import { RoomProgress } from "./room-progress";
 import type { SceneChrome, SceneHooks } from "./scene-hooks";
 import { TrailerStaging } from "./trailer-staging";
-import type { TrailerInputs, TrailerStageOpts, TrailerWorld } from "./trailer-staging";
+import type { TrailerInputs, TrailerStageOpts } from "./trailer-staging";
 import { VersusFlow } from "./versus-flow";
 
-// An on-screen action button — a ButtonOptions that definitely has a place and
-// a size, so the cluster it belongs to can be measured.
 type FixedButton = ButtonOptions & {
   position: NonNullable<ButtonOptions["position"]>;
   radius: number;
 };
 
-/** Top-left corner of the action cluster's bounding box, with thumb padding. */
 const clusterBounds = (buttons: FixedButton[], v: Viewport) => {
   let left = Number.POSITIVE_INFINITY;
   let top = Number.POSITIVE_INFINITY;
+
   for (const b of buttons) {
     const c = b.position(v);
     left = Math.min(left, c.x - b.radius);
     top = Math.min(top, c.y - b.radius);
   }
+
   return { left: left - 10, top: top - 10 };
 };
 
-// Run-driven scene: RunManager stitches typed rooms; the scene owns the run,
-// room and seat state objects, the frame loop and the chrome, and hands each
-// concern to a collaborator wired in create() with the state it mutates plus
-// this scene as its SceneHooks:
-//   rooms       builds/tears down a room (room-builder.ts)
-//   combat      damage, offense, projectiles (combat.ts)
-//   progress    rewards, clear condition, doors (room-progress.ts)
-//   lastStand   co-op down/revive (last-stand.ts)
-//   versus      online duel flow (versus-flow.ts)
-//   online      connection + authority + expedition begin/restart (online-flow.ts)
-//   hostNet     host broadcast, remote presence + input (host-net.ts)
-//   guest       guest snapshot apply + prediction reconcile (guest-sync.ts)
-//   checkpoint  expedition checkpoint encode/adopt (checkpoint-sync.ts)
-//   banners     centre-screen cue line (banner-hud.ts)
-//   trailer     ?trailer=1 staging (trailer-staging.ts)
-// Phaser reuses the scene instance across start(): every state object and
-// collaborator is rebuilt in create(), so nothing from a previous run —
-// destroyed sprites, a stale session, a guest's puppets — can leak into this one.
 export class GameScene extends Scene implements SceneHooks {
   private readonly expedition = new RunManager();
   private run!: RunState;
@@ -128,22 +106,22 @@ export class GameScene extends Scene implements SceneHooks {
    * used by the wrapper's pause handler so it never freezes a co-op/versus
    * session another player is relying on.
    */
-  isOnline(): boolean {
+  isOnline() {
     return this.seat.session !== undefined && !this.seat.session.offline;
   }
 
   /** Versus binds Escape to "leave the duel" — the wrapper pause defers to it. */
-  isVersus(): boolean {
+  isVersus() {
     return this.seat.mode === "versus";
   }
 
   /** Host match state; tools/two-client.mjs ends rounds through it. */
-  get vs(): VersusMatch | null {
+  get vs() {
     return this.run.match;
   }
 
   /** The party connection; tools/two-client.mjs counts its players. */
-  get session(): NetSession | undefined {
+  get session() {
     return this.seat.session;
   }
 
@@ -161,21 +139,19 @@ export class GameScene extends Scene implements SceneHooks {
     const hudBand = this.buildChrome();
     const { party, mode } = this.partyParams(params);
     this.attachTouchControls(hudBand, mode);
-    // Touch has no Escape: @repo/embed's cluster carries pause. The trailer
-    // plays itself and owns its own chrome, so it opts out.
+
     if (!params.has("trailer")) {
       mountTouchHud();
     }
+
     this.controls = new Input(this, this.gamepad);
-    // Online: the player spawns on an empty grid so it's always defined; the
-    // real room arrives once the host begins the run (host) or the first room
-    // snapshot lands (guest).
     const def = party.length > 0 && !this.demo ? null : this.soloRoomDef(params);
     const spawn = def ? def.playerSpawn : { x: BASE_W / 2, y: BASE_H / 2 };
     const player = this.spawnPlayer(HEROES[heroName], def?.grid ?? new Grid(), spawn.x, spawn.y);
     this.seat = newSeatState(heroName, mode, player);
     this.wireCollaborators(restartRequested);
     attachDiag({ expedition: this.expedition, room: this.room, run: this.run, seat: this.seat });
+
     if (def) {
       this.rooms.build(def);
       this.updateHud();
@@ -183,11 +159,6 @@ export class GameScene extends Scene implements SceneHooks {
       this.online.beginConnecting(party);
     }
 
-    // ?trailer=1: the shell's black lead-in only exists once the lazily-imported
-    // director has landed, so the boot room above — and the room-label banner it
-    // fires — would paint for a frame or two first. Hold the scene's own fade
-    // plate (depth 100, over the HUD) until the first shot stages; trailer.stage
-    // clears it. Nothing else touches fadeRect on this path.
     if (params.has("trailer")) {
       this.chrome.fadeRect.setAlpha(1);
     }
@@ -195,18 +166,18 @@ export class GameScene extends Scene implements SceneHooks {
     this.wireSceneEvents();
   }
 
-  private heroParam(params: URLSearchParams): HeroName {
+  private heroParam(params: URLSearchParams) {
     const { data } = this.scene.settings;
     const dataHero = data instanceof Object && "hero" in data ? data.hero : undefined;
     const wanted = params.get("hero") ?? dataHero ?? this.registry.get("hero");
+
     return HERO_NAMES.find((h) => h === wanted) ?? "axion";
   }
 
-  // A run that adopted a seeded stream (online checkpoint, test seed) would
-  // otherwise replay it here.
   private seedRun() {
     const { data } = this.scene.settings;
     const dataSeed = data instanceof Object && "seed" in data ? data.seed : undefined;
+
     if (Number.isFinite(dataSeed)) {
       reseed(Number(dataSeed));
     } else {
@@ -216,18 +187,18 @@ export class GameScene extends Scene implements SceneHooks {
 
   private partyParams(params: URLSearchParams) {
     const regParty: JsonValue = this.registry.get("party");
+
     const party = (params.get("party") ?? (isJsonString(regParty) ? regParty : ""))
       .trim()
       .toUpperCase();
+
     const regMode: JsonValue = this.registry.get("mode");
     const modeStr = params.get("mode") ?? (isJsonString(regMode) ? regMode : "");
     const mode: SeatState["mode"] = party.length > 0 && modeStr === "vs" ? "versus" : "coop";
+
     return { mode, party };
   }
 
-  // Constructor injection in dependency order; anything cyclic goes through
-  // this scene's SceneHooks. Versus resolves shots via Combat's DuelTarget
-  // parameter rather than a back-reference.
   private wireCollaborators(restartRequested: boolean) {
     const { run, expedition, room, seat, chrome } = this;
     this.banners = new BannerHud({ hooks: this, run, scene: this });
@@ -355,12 +326,11 @@ export class GameScene extends Scene implements SceneHooks {
       sfx.toggleMute();
       this.banners.show(sfx.muted ? "SOUND OFF" : "SOUND ON", 700, "status");
     });
-    // Versus has no death→hub exit (rounds respawn), so ESC leaves the duel.
+
     if (this.seat.mode === "versus") {
       this.input.keyboard?.on("keydown-ESC", () => this.scene.start("select"));
     }
 
-    // Death → hub: drop the socket; the hub has nothing to pause.
     this.events.once(Scenes.Events.SHUTDOWN, () => {
       attachDiag(null);
       this.controls.destroy();
@@ -370,9 +340,7 @@ export class GameScene extends Scene implements SceneHooks {
     });
   }
 
-  // Fade plate and the text HUD. Returns the touch-HUD band height so the
-  // action cluster can clear it.
-  private buildChrome(): number {
+  private buildChrome() {
     const fadeRect = this.add
       .rectangle(0, 0, BASE_W, BASE_H, 0x05_07_0b)
       .setOrigin(0)
@@ -380,10 +348,9 @@ export class GameScene extends Scene implements SceneHooks {
       .setDepth(100)
       .setAlpha(0);
 
-    // Edge-anchored HUD clears the notch/home indicator (safe-area insets) and,
-    // top-right, the DOM pause/mute cluster.
     const ins = gameInset(this);
     const hudBand = touchHudBand(this);
+
     const heartsText = this.add
       .text(8 + ins.left, 6 + ins.top, "", {
         color: "#ff4d6d",
@@ -392,6 +359,7 @@ export class GameScene extends Scene implements SceneHooks {
       })
       .setScrollFactor(0)
       .setDepth(80);
+
     const infoText = this.add
       .text(BASE_W - 8 - ins.right, 7 + ins.top + hudBand, "", {
         color: "#8b95a1",
@@ -401,25 +369,24 @@ export class GameScene extends Scene implements SceneHooks {
       .setOrigin(1, 0)
       .setScrollFactor(0)
       .setDepth(80);
+
     this.expeditionHud = new ExpeditionHud(this, heartsText, infoText);
-    // Kill-streak multiplier, top-centre; grows and warms as the streak climbs.
+
     const comboText = this.add
       .text(BASE_W / 2, 30, "", { color: "#ffd15c", fontFamily: "monospace", fontSize: "14px" })
       .setOrigin(0.5)
       .setScrollFactor(0)
       .setDepth(81)
       .setAlpha(0);
+
     this.chrome = { comboText, fadeRect, heartsText, infoText };
+
     return hudBand;
   }
 
-  // Touch controls: floating stick (movement + down-to-drop) on any free
-  // touch, fixed action cluster bottom-right, EXIT (versus only) top-right.
-  // Mouse is ignored — desktop keeps the keyboard scheme.
-  // Positions are game-space px (the adapter's viewport is the FIT game
-  // size); insets keep the cluster clear of the home indicator.
   private attachTouchControls(hudBand: number, mode: SeatState["mode"]) {
     this.touch = isCoarse();
+
     const cluster: FixedButton[] = [
       {
         id: "jump",
@@ -446,7 +413,9 @@ export class GameScene extends Scene implements SceneHooks {
         radius: 15,
       },
     ];
+
     const buttons: ButtonOptions[] = [...cluster];
+
     if (mode === "versus") {
       buttons.push({
         id: "exit",
@@ -455,6 +424,7 @@ export class GameScene extends Scene implements SceneHooks {
         radius: 15,
       });
     }
+
     this.gamepad = attachVirtualGamepad(this, {
       buttons,
       onButtonDown: (id) => {
@@ -467,10 +437,9 @@ export class GameScene extends Scene implements SceneHooks {
         deadZone: 8,
         knobRadius: 14,
         radius: 40,
-        // Over a pit, a thumb that reaches for DASH, lands in the gap between
-        // two buttons and slides would otherwise read as a full-speed run.
         region: (p, v) => {
           const bounds = clusterBounds(cluster, v);
+
           return p.x < bounds.left || p.y < bounds.top;
         },
       },
@@ -478,36 +447,38 @@ export class GameScene extends Scene implements SceneHooks {
     });
   }
 
-  private soloRoomDef(params: URLSearchParams): RoomDef {
+  private soloRoomDef(params: URLSearchParams) {
     const roomParam = parseRoomType(params.get("room") ?? "");
     const def = roomParam ? this.expedition.debugEnter(roomParam) : this.expedition.begin();
-    // Dev: ?biome=N previews a deeper biome's palette + roster (debug rooms only).
     const biomeParam = Math.floor(Number(params.get("biome")));
+
     if (roomParam && Number.isFinite(biomeParam) && biomeParam >= 1) {
       this.expedition.biome = biomeParam;
     }
+
     return def;
   }
 
-  // Both players leave world-space cues; routine camera motion belongs to me.
   shake(duration: number, intensity: number) {
     if (!REDUCED_MOTION.matches) {
       this.cameras.main.shake(duration, intensity);
     }
   }
 
-  spawnPlayer(hero: HeroDef, grid: Grid, x: number, y: number): Player {
+  spawnPlayer(hero: HeroDef, grid: Grid, x: number, y: number) {
     const pl: Player = new Player(this, grid, x, y, hero, {
       onDash: () => {
         if (pl === this.seat.player) {
           this.shake(60, 0.0025);
         }
+
         sfx.dash(pl === this.seat.player ? "local" : "routine");
       },
       onHurt: () => {
         if (pl === this.seat.player) {
           this.shake(180, 0.012);
         }
+
         sfx.hurt(pl === this.seat.player ? "essential" : "routine");
       },
       onJump: () => sfx.jump(pl === this.seat.player ? "local" : "routine"),
@@ -515,53 +486,54 @@ export class GameScene extends Scene implements SceneHooks {
         if (pl === this.seat.player) {
           this.shake(80, Math.min(0.003 + impact * 0.00002, 0.008));
         }
+
         dust(this, pl.x, pl.y);
       },
       onSpecial: (kind) => this.combat.onSpecialFx(kind, pl),
-      // No painted attack VFX — the sprite-sheet swing carries the strike. Just
-      // feel: a small camera shake + the swing sound.
       onSwing: () => {
         if (pl === this.seat.player) {
           this.shake(50, 0.0015);
         }
+
         sfx.slash(pl === this.seat.player ? "local" : "routine");
       },
       onWallJump: (side) => {
         wallSmoke(this, pl.x + side * 7, pl.y - 12, side);
+
         if (pl === this.seat.player) {
           this.shake(40, 0.002);
         }
       },
     });
+
     return pl;
   }
 
-  // ── input ────────────────────────────────────────────────────────────────
-  // This frame's local player input: the guest's sample once online, the demo
-  // script on the title loop, else the live controls.
-  private localInput(): InputState {
+  private localInput() {
     if (this.seat.controlsPaused) {
       return NEUTRAL_INPUT;
     }
+
     if (this.seat.session) {
       return this.seat.guestIn;
     }
+
     return this.sampleInput();
   }
 
-  sampleInput(): InputState {
+  sampleInput() {
     return this.demo ? this.demoInput() : this.controls.sample();
   }
 
-  pinScale(): number {
+  pinScale() {
     return this.trailer.pinScale;
   }
 
-  trailerActive(): boolean {
+  trailerActive() {
     return this.trailer.active;
   }
 
-  private demoInput(): InputState {
+  private demoInput() {
     const cyc = this.demoT % 1.9;
     const jumpHeld = cyc < 0.24;
     const dashWin = cyc > 1.4 && cyc < 1.44;
@@ -575,6 +547,7 @@ export class GameScene extends Scene implements SceneHooks {
     this.prevDash = dashWin;
     this.prevAtk = atkWin;
     this.prevSpecial = specWin;
+
     return {
       attackPressed: ap,
       dashPressed: dp,
@@ -588,15 +561,12 @@ export class GameScene extends Scene implements SceneHooks {
     };
   }
 
-  // ── frame loop ─────────────────────────────────────────────────────────────
-  // Frame time in seconds. Online it is wall time: Phaser smooths its delta and
-  // pins it to one 60 Hz frame while the window is unfocused, so a throttled
-  // host would run the shared world in slow motion under its guest.
-  private frameSeconds(delta: number): number {
+  private frameSeconds(delta: number) {
     const now = performance.now();
     const wall = this.lastFrameAt === 0 ? delta : now - this.lastFrameAt;
     this.lastFrameAt = now;
     const online = this.seat.session !== undefined && !this.seat.session.offline;
+
     return online ? Math.min(Math.max(wall, 0) / 1000, MAX_LAG) : Math.min(delta, 100) / 1000;
   }
 
@@ -608,10 +578,7 @@ export class GameScene extends Scene implements SceneHooks {
     this.banners.update(dts * 1000);
     this.demoT += dts;
     tickDiag();
-    // Once per frame, before any sample(): reconciles lost touches, publishes
-    // the justPressed edges the Input merge reads, and redraws the overlay.
     this.gamepad.update();
-    // Same contract for the physical controller poll inside Input.
     this.controls.update();
 
     if (this.seat.session && !this.online.updateSession()) {
@@ -620,46 +587,50 @@ export class GameScene extends Scene implements SceneHooks {
 
     if (this.run.state === "connecting") {
       this.online.prepareSession();
+
       return;
     }
+
     if (this.run.state === "dead") {
       this.updateDead(dts);
+
       return;
     }
+
     if (this.run.state === "transition") {
       this.updateTransition(dts);
+
       return;
     }
 
-    // Guest: predict my own body locally; render everything else from the
-    // host's broadcast.
     if (this.seat.role === "guest") {
       this.guest.step(dts, this.lastFrameAt);
+
       return;
     }
 
-    // Host / solo: authoritative fixed-step sim.
     if (this.seat.role === "host") {
       this.hostNet.syncRemotePresence();
     }
+
     this.bufferAuthorityInputs();
     this.run.acc = Math.min(this.run.acc + dts, MAX_LAG);
     let steps = 0;
+
     while (this.run.acc >= STEP && steps < MAX_STEPS) {
-      // The step ends where the frame clock stands, less the time still owed.
       this.fixedStep(this.lastFrameAt - (this.run.acc - STEP) * 1000);
       this.run.acc -= STEP;
       steps += 1;
     }
 
-    // Interpolate the render between the last two sim steps by the leftover step
-    // fraction, so motion stays smooth when the display refreshes faster than 60Hz.
     const alpha = Math.min(this.run.acc / STEP, 1);
     this.seat.player.render(alpha);
     this.seat.remote?.render(alpha);
+
     for (const e of this.room.enemies) {
       e.render(alpha);
     }
+
     this.room.boss?.render(alpha);
     this.lastStand.render();
     this.updateHud();
@@ -669,35 +640,34 @@ export class GameScene extends Scene implements SceneHooks {
     }
   }
 
-  // One authority step, ending at `now` (performance.now ms). Hit-stop is
-  // feel for the bodies on this screen: the guest never freezes its own
-  // prediction, so its copy here keeps taking its input — and its blade keeps
-  // cutting — or the two would drift apart.
   private fixedStep(now: number) {
-    // Anything done to the guest's body between steps (a rematch respawn)
-    // happened before this step's input tick.
     this.hostNet.drainGuest();
     const guestMoved = this.hostNet.stepGuest(now);
+
     if (this.run.freeze > 0) {
       this.run.freeze -= STEP;
+
       if (guestMoved && this.seat.remote && !this.run.match) {
         this.combat.playerOffense(this.seat.remote);
       }
     } else {
       this.simStep(STEP);
     }
+
     this.hostNet.drainGuest();
   }
 
   private updateDead(dts: number) {
     this.run.deadT += dts;
+
     if (this.seat.role === "host") {
       this.hostNet.broadcast(dts);
     }
+
     for (const e of this.room.enemies) {
       e.render();
     }
-    // Trailer scenes stage their own restart — never bounce to the hub.
+
     if (this.run.deadT > 2.4 && !this.trailer.active) {
       this.scene.start("select", { recap: this.run.runRecap });
     }
@@ -711,43 +681,49 @@ export class GameScene extends Scene implements SceneHooks {
         ? this.run.transT / half
         : Math.max(0, 1 - (this.run.transT - half) / half),
     );
+
     if (!this.run.transBuilt && this.run.transT >= half && this.run.pendingOffer) {
       this.rooms.build(this.expedition.choose(this.run.pendingOffer));
       this.updateHud();
       this.run.transBuilt = true;
     }
+
     if (this.run.transT >= half * 2) {
       this.chrome.fadeRect.setAlpha(0);
       this.run.pendingOffer = null;
       this.run.state = "active";
     }
+
     this.seat.player.render();
     this.seat.remote?.render();
+
     for (const e of this.room.enemies) {
       e.render();
     }
+
     this.room.boss?.render();
+
     if (this.seat.role === "host") {
       this.hostNet.broadcast(dts);
     }
   }
 
-  // Host / solo: feed this frame's inputs into the bodies, honouring the versus
-  // freeze/rematch. A guest's body takes its own input tick by tick in
-  // fixedStep (host-net.ts); only the trailer scripts a second local body.
   private bufferAuthorityInputs() {
     const scripted = this.trailer.input ? this.trailer.input() : null;
     const snap = scripted ? scripted.p1 : this.localInput();
     const remoteIn = scripted?.p2 ?? null;
     const guestRematch = this.hostNet.takeRematch();
+
     if (!this.run.match) {
       this.seat.player.buffer(snap);
+
       if (this.seat.remote && remoteIn) {
         this.seat.remote.buffer(remoteIn);
       }
+
       return;
     }
-    // Match over + hold lapsed: either duelist's attack press restarts it.
+
     if (
       this.run.match.canRematch &&
       (snap.attackPressed || guestRematch || (remoteIn?.attackPressed ?? false))
@@ -757,58 +733,69 @@ export class GameScene extends Scene implements SceneHooks {
       this.banners.show("REMATCH — ROUND 1", 1100, "critical");
       sfx.door("local");
     }
-    // Round intro / match end: bodies hold still (gravity still applies).
+
     const { frozen } = this.run.match;
     this.seat.player.buffer(frozen ? NEUTRAL_INPUT : snap);
+
     if (this.seat.remote && remoteIn) {
       this.seat.remote.buffer(frozen ? NEUTRAL_INPUT : remoteIn);
     }
   }
 
   /** Wrapper pause gates intent, not the partner's online simulation. */
-  setControlsPaused(paused: boolean): void {
+  setControlsPaused(paused: boolean) {
     if (this.seat.controlsPaused === paused) {
       return;
     }
+
     this.seat.controlsPaused = paused;
     this.expeditionHud?.setVisible(!paused && this.run.state === "active" && !this.trailer.active);
     this.controls?.reset();
+
     if (this.seat.role === "guest") {
       this.guest.dropQueued();
     } else {
       this.seat.player.body.clearInput();
     }
+
     this.seat.guestIn = NEUTRAL_INPUT;
   }
 
-  // ── sim tick (host / solo) ─────────────────────────────────────────────────
   simStep(dt: number) {
     if (this.run.match) {
       this.versus.simStep(dt);
+
       return;
     }
+
     if (this.run.combo > 0) {
       this.run.comboT -= dt;
+
       if (this.run.comboT <= 0) {
         this.combat.breakCombo();
       }
     }
+
     for (const pl of livePlayers(this.seat)) {
       if (!inputDriven(this.seat, pl)) {
         pl.step(dt);
       }
     }
+
     for (const e of this.room.enemies) {
       const t = this.combat.nearestPlayer(e.body.x, e.body.y);
       e.body.step(dt, t.x, t.y);
     }
+
     this.combat.stepBoss(dt);
     this.combat.stepArrows(dt);
     this.combat.stepShots(dt);
     this.combat.stepHazards(dt);
+
     for (const pl of livePlayers(this.seat)) {
       this.combat.playerOffense(pl);
     }
+
     this.combat.enemyOffense();
     this.lastStand.step(dt);
     this.progress.stepFeature();
@@ -818,11 +805,11 @@ export class GameScene extends Scene implements SceneHooks {
     this.progress.checkDoors();
   }
 
-  // The shared run is over (solo, or co-op with no last stand left to give).
   playerDie() {
     if (this.run.state === "dead") {
       return;
     }
+
     this.run.downed = null;
     this.run.downedNet = null;
     this.lastStand.destroyUi();
@@ -831,18 +818,20 @@ export class GameScene extends Scene implements SceneHooks {
     this.run.deadT = 0;
     this.seat.player.sprite.play(`${this.seat.heroName}:death`);
     sfx.die();
-    // Push one final hearts=0 snapshot so the guest sees the shared death.
+
     if (this.seat.role === "host") {
       this.hostNet.broadcast(0, true);
     }
+
     if (this.trailer.active) {
-      // Trailer deaths never touch the real meta/best-score saves; show the
-      // shard yield the death WOULD bank (death-as-progress is the beat).
       const would =
         Math.floor(this.run.gold / 4) + this.expedition.depth * 2 + (this.expedition.biome - 1) * 6;
+
       this.banners.show(`YOU FELL   SCORE ${this.run.score}   +${would} ✦`, 2600, "critical");
+
       return;
     }
+
     const earned = bankRun(loadMeta(), this.run.gold, this.expedition.depth, this.expedition.biome);
     const best = recordBestScore(this.run.score);
     this.run.runRecap = {
@@ -859,35 +848,42 @@ export class GameScene extends Scene implements SceneHooks {
     this.banners.show(`YOU FELL   SCORE ${this.run.score}${pb}   +${earned} ✦`, 2600, "critical");
   }
 
-  // ── HUD ────────────────────────────────────────────────────────────────────
-  private offerKind(item: MerchantItem): ExpeditionOffer["kind"] {
+  private offerKind(item: MerchantItem) {
     if (item.bought) {
       return "sold";
     }
+
     return this.run.gold >= item.relic.price ? "affordable" : "unaffordable";
   }
 
   updateHud() {
-    // A guest's own body is predicted exactly, specials included.
     const special = this.seat.player.body.specialReadiness;
+
     const visible =
       !this.seat.controlsPaused && this.run.state === "active" && !this.trailer.active;
+
     if (this.seat.mode === "versus") {
       this.versus.updateHud();
       this.expeditionHud?.updateSpecial(this.versus.frozen() ? { kind: "busy" } : special, visible);
+
       return;
     }
+
     const guest = this.seat.role === "guest";
     const biome = guest ? this.expedition.biome : this.expedition.biome;
     const depth = guest ? this.expedition.depth : this.expedition.depth;
     const type = guest ? this.expedition.type : this.expedition.type;
+
     const bossAlive = guest
       ? (this.room.guest.bossPuppet?.interp.latest?.state ?? "dead") !== "dead"
       : this.room.boss !== null && !this.room.boss.body.dead;
+
     const bossName = bossAlive ? bossKind(biome).name : null;
+
     if (!this.trailer.active) {
       this.layoutHudText(type, bossName !== null);
     }
+
     this.expeditionHud?.update({
       biome,
       biomeName: biomePalette(biome).name,
@@ -906,7 +902,6 @@ export class GameScene extends Scene implements SceneHooks {
     });
   }
 
-  // Banner and streak counter give way to the merchant card / boss plate.
   private layoutHudText(type: RoomType, bossShown: boolean) {
     this.banners.text.setY(type === "merchant" ? 170 : BASE_H / 2 - 20);
     this.banners.text.setVisible(
@@ -915,9 +910,9 @@ export class GameScene extends Scene implements SceneHooks {
     this.chrome.comboText.setY(bossShown ? 67 + gameInset(this).top : 42 + gameInset(this).top);
   }
 
-  // The merchant item closest to me, as the HUD's offer card.
-  private nearestOffer(): ExpeditionOffer | null {
+  private nearestOffer() {
     let nearest: MerchantItem | undefined;
+
     for (const item of this.room.merchantItems) {
       if (
         !nearest ||
@@ -926,53 +921,52 @@ export class GameScene extends Scene implements SceneHooks {
         nearest = item;
       }
     }
+
     if (!nearest) {
-      return null;
+      return null satisfies ExpeditionOffer | null;
     }
+
     return {
       desc: nearest.relic.desc,
       kind: this.offerKind(nearest),
       name: nearest.relic.name,
       price: nearest.relic.price,
-    };
+    } satisfies ExpeditionOffer | null;
   }
 
-  // ── trailer entry points (src/trailer/trailer-director.ts) ─────────────────
-  // Thin delegators: the director drives the scene through these; the staging
-  // itself lives in trailer-staging.ts.
-  trailerStage(o: TrailerStageOpts): void {
+  trailerStage(o: TrailerStageOpts) {
     this.trailer.stage(o);
   }
 
-  trailerZoom(z: number): void {
+  trailerZoom(z: number) {
     this.trailer.zoom(z);
   }
 
-  trailerSpawnEnemy(name: EnemyName, x: number, y: number, affixId?: string): void {
+  trailerSpawnEnemy(name: EnemyName, x: number, y: number, affixId?: string) {
     this.trailer.spawnEnemy(name, x, y, affixId);
   }
 
-  trailerSetInput(provider: (() => TrailerInputs) | null): void {
+  trailerSetInput(provider: (() => TrailerInputs) | null) {
     this.trailer.setInput(provider);
   }
 
-  trailerTick(steps: number): void {
+  trailerTick(steps: number) {
     this.trailer.tick(steps);
   }
 
-  trailerFreeze(seconds: number): void {
+  trailerFreeze(seconds: number) {
     this.trailer.freeze(seconds);
   }
 
-  trailerMods(m: Partial<RunMods>): void {
+  trailerMods(m: Partial<RunMods>) {
     this.trailer.mods(m);
   }
 
-  trailerBanner(text: string, ms: number): void {
+  trailerBanner(text: string, ms: number) {
     this.trailer.banner(text, ms);
   }
 
-  trailerWorld(): TrailerWorld {
+  trailerWorld() {
     return this.trailer.world();
   }
 }

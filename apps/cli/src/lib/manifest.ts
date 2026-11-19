@@ -22,25 +22,28 @@ const IGNORED_TOP_LEVEL = new Set([
   "vibedgames.json",
 ]);
 
-const shouldIgnore = (relPath: string): boolean => {
+const shouldIgnore = (relPath: string) => {
   const top = relPath.split(path.sep)[0] ?? "";
+
   if (IGNORED_TOP_LEVEL.has(top)) {
     return true;
   }
-  // skip hidden files anywhere in the tree
+
   if (relPath.split(path.sep).some((seg) => seg.startsWith("."))) {
     return true;
   }
+
   return false;
 };
 
-export const buildManifest = (rootDir: string): ManifestFile[] => {
+export const buildManifest = (rootDir: string) => {
   const files: ManifestFile[] = [];
 
-  const walk = (dir: string): void => {
+  const walk = (dir: string) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       const abs = path.join(dir, entry.name);
       const rel = path.relative(rootDir, abs);
+
       if (shouldIgnore(rel)) {
         continue;
       }
@@ -49,6 +52,7 @@ export const buildManifest = (rootDir: string): ManifestFile[] => {
         walk(abs);
         continue;
       }
+
       if (!entry.isFile()) {
         continue;
       }
@@ -69,5 +73,6 @@ export const buildManifest = (rootDir: string): ManifestFile[] => {
   };
 
   walk(rootDir);
+
   return files;
 };

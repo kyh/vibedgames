@@ -8,17 +8,14 @@ export interface PropFootprint {
   readonly halfDepth: number;
   readonly yaw: number;
 }
+
 export type ParcelClearance = (footprint: PropFootprint, margin: number) => boolean;
+
 type ParcelFootprint = Pick<ParcelPlan, "ring" | "n" | "obb">;
+
 const CELL = 32;
 
-const visitCells = (
-  x: number,
-  z: number,
-  rx: number,
-  rz: number,
-  visit: (key: string) => void,
-): void => {
+const visitCells = (x: number, z: number, rx: number, rz: number, visit: (key: string) => void) => {
   for (let ix = Math.floor((x - rx) / CELL); ix <= Math.floor((x + rx) / CELL); ix += 1) {
     for (let iz = Math.floor((z - rz) / CELL); iz <= Math.floor((z + rz) / CELL); iz += 1) {
       visit(`${ix},${iz}`);
@@ -26,37 +23,36 @@ const visitCells = (
   }
 };
 
-/** Exact closed-segment intersection with an axis-aligned rectangle. */
-const crossesBox = (
-  ax: number,
-  az: number,
-  bx: number,
-  bz: number,
-  hw: number,
-  hd: number,
-): boolean => {
+const crossesBox = (ax: number, az: number, bx: number, bz: number, hw: number, hd: number) => {
   let start = 0;
   let end = 1;
+
   const axes: readonly (readonly [number, number, number])[] = [
     [ax, bx, hw],
     [az, bz, hd],
   ];
+
   for (const [a, b, half] of axes) {
     const delta = b - a;
+
     if (Math.abs(delta) < 1e-10) {
       if (Math.abs(a) > half) {
         return false;
       }
+
       continue;
     }
+
     const enter = (-half - a) / delta;
     const leave = (half - a) / delta;
     start = Math.max(start, Math.min(enter, leave));
     end = Math.min(end, Math.max(enter, leave));
+
     if (start > end) {
       return false;
     }
   }
+
   return true;
 };
 
@@ -64,14 +60,18 @@ const crossesBox = (
  * Margin reserves room for facade projections. Vertex-only probes miss narrow
  * crossing walls, and the prop-claim hash contains no building geometry.
  */
-export const buildParcelClearance = (parcels: readonly ParcelFootprint[]): ParcelClearance => {
+export const buildParcelClearance: (parcels: readonly ParcelFootprint[]) => ParcelClearance = (
+  parcels,
+) => {
   const cells = new Map<string, ParcelFootprint[]>();
+
   for (const parcel of parcels) {
     const o = parcel.obb;
     const rx = Math.abs(o.ex * o.halfA) + Math.abs(o.ez * o.halfB);
     const rz = Math.abs(o.ez * o.halfA) + Math.abs(o.ex * o.halfB);
     visitCells(o.cx, o.cz, rx, rz, (key) => {
       const bucket = cells.get(key);
+
       if (bucket) {
         bucket.push(parcel);
       } else {
@@ -79,6 +79,7 @@ export const buildParcelClearance = (parcels: readonly ParcelFootprint[]): Parce
       }
     });
   }
+
   return (footprint, margin) => {
     const { x, z, yaw } = footprint;
     const cos = Math.cos(yaw);
@@ -93,17 +94,19 @@ export const buildParcelClearance = (parcels: readonly ParcelFootprint[]): Parce
         candidates.add(parcel);
       }
     });
+
     for (const parcel of candidates) {
-      // Containment with no boundary intersection: the whole prop is indoors.
       if (pointInRing(parcel.ring, parcel.n, x, z)) {
         return false;
       }
+
       for (let i = 0; i < parcel.n; i += 1) {
         const j = (i + 1) % parcel.n;
         const ax = (parcel.ring[i * 2] ?? 0) - x;
         const az = (parcel.ring[i * 2 + 1] ?? 0) - z;
         const bx = (parcel.ring[j * 2] ?? 0) - x;
         const bz = (parcel.ring[j * 2 + 1] ?? 0) - z;
+
         if (
           crossesBox(
             ax * cos - az * sin,
@@ -118,6 +121,7 @@ export const buildParcelClearance = (parcels: readonly ParcelFootprint[]): Parce
         }
       }
     }
+
     return true;
   };
 };

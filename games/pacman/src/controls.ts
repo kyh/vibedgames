@@ -1,9 +1,6 @@
 import { controlHints } from "@repo/embed";
 import type { ControlsManifest } from "@repo/embed";
 
-// Every way to chomp, one list — the title banner and the pause overlay both
-// render from this (filtered per device / connected pad by @repo/embed).
-// Camera rows always show: face control is the game's core input, not a bonus.
 export const CONTROLS: ControlsManifest = [
   { action: "chomp", input: "SPACE", method: "keys" },
   { action: "turn", input: "← →", method: "keys" },
@@ -28,7 +25,8 @@ export const CONTROLS: ControlsManifest = [
 ];
 
 /** The merged restart inputs ("R / CLICK", "TAP / ↻") for win/gameover prose. */
-export const restartHint = (): string => {
+export const restartHint: () => string = () => {
   const row = controlHints(CONTROLS).find(([, action]) => action === "restart");
+
   return row ? row[0] : "R";
 };

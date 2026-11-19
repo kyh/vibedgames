@@ -45,13 +45,12 @@ interface OutputObject {
 type OutputPayload<T> = OutputValue | { [K in keyof T]: OutputValue };
 
 const isOutputObject = (value: OutputValue): value is OutputObject =>
-  // Object() is the identity only on objects; arrays are split off explicitly.
   Object(value) === value && !Array.isArray(value);
 
-export const isJsonOutput = (args: OutputArgs): boolean =>
+export const isJsonOutput = (args: OutputArgs) =>
   Boolean(args.json) || process.env.VG_JSON_OUTPUT === "1";
 
-export const writeJson = (value: OutputValue): void => {
+export const writeJson = (value: OutputValue) => {
   process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
 };
 
@@ -60,37 +59,41 @@ export const writeJson = (value: OutputValue): void => {
  * in both `items[0]` and `items.0` spellings, since agents write both.
  * Returns `undefined` for any path that doesn't resolve.
  */
-export const selectField = (value: OutputValue, path: string): OutputValue => {
+export const selectField = (value: OutputValue, path: string) => {
   const segments = path
     .replaceAll(/\[(?<index>-?\d+)\]/gu, ".$<index>")
     .split(".")
     .filter(Boolean);
 
   let current: OutputValue = value;
+
   for (const segment of segments) {
     if (current === null || current === undefined) {
-      return undefined;
+      return;
     }
+
     if (Array.isArray(current)) {
       const index = Number(segment);
+
       if (!Number.isInteger(index)) {
-        return undefined;
+        return;
       }
-      // Negative indices count from the end, which is handy for "the last
-      // frame" style selections.
+
       current = current.at(index);
       continue;
     }
+
     if (!isOutputObject(current)) {
-      return undefined;
+      return;
     }
+
     current = current[segment];
   }
+
   return current;
 };
 
-// A value that prints as one bare token: null or a primitive.
-const isScalarEntry = (value: OutputValue): boolean =>
+const isScalarEntry = (value: OutputValue) =>
   value === null || (value !== undefined && Object(value) !== value);
 
 /**
@@ -98,19 +101,23 @@ const isScalarEntry = (value: OutputValue): boolean =>
  * `$(vg ... --field url)` needs no unquoting; arrays of scalars print one per
  * line so they can be looped over; anything structural falls back to JSON.
  */
-export const formatField = (value: OutputValue): string => {
+export const formatField = (value: OutputValue) => {
   if (value === null || value === undefined) {
     return "";
   }
+
   if (Array.isArray(value)) {
     if (value.every(isScalarEntry)) {
       return value.map((v) => (v === null ? "" : String(v))).join("\n");
     }
+
     return JSON.stringify(value, null, 2);
   }
+
   if (isOutputObject(value)) {
     return JSON.stringify(value, null, 2);
   }
+
   return String(value);
 };
 
@@ -120,25 +127,26 @@ export const formatField = (value: OutputValue): string => {
  * value is the more specific request. Returns false when neither flag was
  * given, so the caller can fall through to its human-readable rendering.
  */
-export const writeStructured = <T extends OutputPayload<T>>(
-  value: T,
-  args: OutputArgs,
-): boolean => {
+export const writeStructured = <T extends OutputPayload<T>>(value: T, args: OutputArgs) => {
   if (args.field) {
     const selected = selectField(value, args.field);
+
     if (selected === undefined) {
-      // Silence here would look like an empty result rather than a typo, and
-      // an agent would happily carry the empty string forward.
       process.stderr.write(`No such field: ${args.field}\n`);
       process.exit(1);
     }
+
     process.stdout.write(`${formatField(selected)}\n`);
+
     return true;
   }
+
   if (isJsonOutput(args)) {
     writeJson(value);
+
     return true;
   }
+
   return false;
 };
 

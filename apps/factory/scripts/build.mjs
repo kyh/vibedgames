@@ -1,9 +1,3 @@
-// Stages the publishable factory package in dist/npm/factory/: one esbuild
-// bundle of the sources plus the agent markdown it reads at startup. It is
-// plain JavaScript on Node, so one package serves every platform.
-// Dependencies stay external and install with it; `vg factory` installs the
-// package globally on first use and runs its bin with node.
-
 import { cp, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -16,14 +10,13 @@ const readJson = async (file) => JSON.parse(await readFile(file, "utf-8"));
 
 const manifest = await readJson(path.join(packageRoot, "package.json"));
 
-// Workspace ranges (`catalog:`) mean nothing outside this repo, so each
-// dependency is published at the version installed here.
 const dependencies = Object.fromEntries(
   await Promise.all(
     Object.keys(manifest.dependencies).map(async (name) => {
       const installed = await readJson(
         path.join(packageRoot, "node_modules", name, "package.json"),
       );
+
       return [name, `^${installed.version}`];
     }),
   ),
@@ -38,8 +31,6 @@ await build({
   format: "esm",
   jsx: "automatic",
   logLevel: "info",
-  // The bundle sits in bin/, one level below the package root like src/, so
-  // src/agents.ts finds ../agents/ from either.
   outfile: path.join(outDir, "bin", "vg-factory.js"),
   packages: "external",
   platform: "node",

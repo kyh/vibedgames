@@ -1,7 +1,3 @@
-// What a player reads off the screen, as the small relative vectors a
-// vision-less playtester decides from. Pure over the sim — the camera rect is
-// the only view input, and only to say where a target sits on screen.
-
 import { enemyOf } from "../data/config";
 import { HERO_BY_ID, valAt } from "../data/heroes";
 import type { AbilityDef, AbilityKey } from "../data/heroes";
@@ -53,14 +49,14 @@ const ABILITY_KEYS: readonly AbilityKey[] = ["Q", "W", "E", "R"];
 const SIGHT = 1100;
 const FIGHT_RADIUS = 600;
 const REPATH_MS = 300;
-// A* nodes closer than this are already reached; steering at one jitters.
 const NODE_REACHED = 48;
 const POINT_CAST_SLACK = 80;
 
-const pct = (u: Unit): number => Math.round((u.hp / u.maxHp) * 100) / 100;
+const pct = (u: Unit) => Math.round((u.hp / u.maxHp) * 100) / 100;
 
-const unitStep = (from: Vec2, to: Vec2): Vec2 => {
+const unitStep = (from: Vec2, to: Vec2) => {
   const d = dist(from, to);
+
   return d < 1
     ? { x: 0, y: 0 }
     : {
@@ -69,62 +65,66 @@ const unitStep = (from: Vec2, to: Vec2): Vec2 => {
       };
 };
 
-const onScreen = (u: Unit, view: ViewRect): ScreenPoint | null => {
-  // Units on high ground render lifted; the click hit-test follows the sprite.
+const onScreen = (u: Unit, view: ViewRect) => {
   const y = u.y - elevationFrac(u.x, u.y) * ELEV_LIFT;
   const sx = (u.x - view.x) / view.width;
   const sy = (y - view.y) / view.height;
+
   if (sx < 0.02 || sx > 0.98 || sy < 0.02 || sy > 0.98) {
     return null;
   }
+
   return { sx: Math.round(sx * 1000) / 1000, sy: Math.round(sy * 1000) / 1000 };
 };
 
-const nearest = (w: World, me: Unit, want: (u: Unit) => boolean): Unit | null => {
+const nearest = (w: World, me: Unit, want: (u: Unit) => boolean) => {
   let best: Unit | null = null;
   let bestD = SIGHT;
+
   for (const u of w.units.values()) {
     if (!isEnemy(me, u) || !want(u)) {
       continue;
     }
+
     const d = dist(me, u);
+
     if (d < bestD) {
       bestD = d;
       best = u;
     }
   }
+
   return best;
 };
 
-const count = (w: World, at: Vec2, radius: number, want: (u: Unit) => boolean): number => {
+const count = (w: World, at: Vec2, radius: number, want: (u: Unit) => boolean) => {
   let n = 0;
+
   for (const u of w.units.values()) {
     if (u.alive && want(u) && dist(at, u) <= radius) {
       n += 1;
     }
   }
+
   return n;
 };
 
-const isLaneCreep = (u: Unit): boolean => u.kind === "creep" && !u.neutral && targetable(u);
-const isHero = (u: Unit): boolean => u.kind === "hero" && targetable(u);
+const isLaneCreep = (u: Unit) => u.kind === "creep" && !u.neutral && targetable(u);
+const isHero = (u: Unit) => u.kind === "hero" && targetable(u);
 
-const abilityUsable = (
-  def: AbilityDef,
-  me: Unit,
-  hero: Unit | null,
-  creep: Unit | null,
-): boolean => {
+const abilityUsable = (def: AbilityDef, me: Unit, hero: Unit | null, creep: Unit | null) => {
   const heroDist = hero ? dist(me, hero) : Infinity;
   const creepDist = creep ? dist(me, creep) : Infinity;
-  // The ultimate's cooldown is a whole fight long; creeps are not worth it.
   const reach = def.key === "R" ? heroDist : Math.min(heroDist, creepDist);
+
   if (def.targeting === "unit") {
     return reach <= def.castRange;
   }
+
   if (def.targeting === "point") {
     return reach <= Math.max(def.castRange, me.attackRange) + POINT_CAST_SLACK;
   }
+
   return reach <= FIGHT_RADIUS;
 };
 
@@ -132,12 +132,15 @@ const senseAbilities = (w: World, me: Unit, hero: Unit | null, creep: Unit | nul
   const h = me.hero;
   const def = h ? HERO_BY_ID[h.defId] : undefined;
   const abilities: Partial<Record<AbilityKey, AbilitySense>> = {};
+
   if (!h || !def) {
     return abilities;
   }
+
   for (const key of ABILITY_KEYS) {
     const ad = def.abilities[key];
     const slot = h.abilities[key];
+
     if (ad.targeting !== "passive") {
       const ready =
         me.alive &&
@@ -145,6 +148,7 @@ const senseAbilities = (w: World, me: Unit, hero: Unit | null, creep: Unit | nul
         w.now >= slot.readyAt &&
         me.mp >= valAt(ad.manaCost, slot.rank) &&
         !silenced(me);
+
       abilities[key] = {
         name: ad.name,
         ready,
@@ -152,20 +156,24 @@ const senseAbilities = (w: World, me: Unit, hero: Unit | null, creep: Unit | nul
       };
     }
   }
+
   return abilities;
 };
 
-const nearestEnemyTower = (w: World, me: Unit): Unit | null => {
+const nearestEnemyTower = (w: World, me: Unit) => {
   const enemyTeam = enemyOf(me.team);
   let tower: Unit | null = null;
   let towerD = Infinity;
+
   for (const spec of TOWERS) {
     const t = spec.team === enemyTeam ? w.units.get(spec.id) : undefined;
+
     if (t?.alive && dist(me, t) < towerD) {
       towerD = dist(me, t);
       tower = t;
     }
   }
+
   return tower;
 };
 
@@ -173,16 +181,20 @@ const nearestEnemyTower = (w: World, me: Unit): Unit | null => {
 export const createPlaytestSense = () => {
   const paths = new Map<string, { at: number; goal: Vec2; path: Vec2[] }>();
 
-  /** Unit step along the WALKABLE route — a straight line lies across water and cliffs. */
-  const routeStep = (w: World, me: Unit, key: string, goal: Vec2): Vec2 => {
+  const routeStep = (w: World, me: Unit, key: string, goal: Vec2) => {
     const cached = paths.get(key);
+
     const stale =
       !cached || w.now < cached.at || w.now - cached.at > REPATH_MS || dist(cached.goal, goal) > 96;
+
     const entry = stale ? { at: w.now, goal, path: findPath(me, goal) } : cached;
+
     if (stale) {
       paths.set(key, entry);
     }
+
     const node = entry.path.find((p) => dist(me, p) > NODE_REACHED) ?? goal;
+
     return unitStep(me, node);
   };
 
@@ -190,7 +202,8 @@ export const createPlaytestSense = () => {
     const lane: LaneId = me.y < WORLD.height / 2 ? "top" : "bottom";
     const reach = me.attackRange + me.radius - 6;
     const orderTarget = me.order.type === "attackUnit" ? me.order.targetId : null;
-    const sense = (u: Unit | null): TargetSense | null =>
+
+    const sense = (u: Unit | null) =>
       u
         ? {
             dist: Math.round(dist(me, u)),
@@ -205,9 +218,8 @@ export const createPlaytestSense = () => {
 
     const creep = nearest(w, me, isLaneCreep);
     const hero = nearest(w, me, isHero);
-    // Two swings' worth, not one: the arrow is in flight for a beat and the
-    // wave is hitting the same creep, so an order given at one swing lands late.
     const finishable = effectiveAttackDamage(me) * 2;
+
     const lastHit = nearest(
       w,
       me,
@@ -216,9 +228,11 @@ export const createPlaytestSense = () => {
 
     const tower = nearestEnemyTower(w, me);
     const towerReach = tower ? tower.attackRange + tower.radius + me.radius : 0;
+
     const alliedCreepsAtTower = tower
       ? count(w, tower, towerReach, (u) => u.kind === "creep" && u.team === me.team)
       : 0;
+
     const underEnemyTower = tower !== null && dist(me, tower) <= towerReach;
     const towerAttackable = tower?.structure?.attackable ?? false;
 
@@ -228,12 +242,9 @@ export const createPlaytestSense = () => {
 
     return {
       abilities: senseAbilities(w, me, hero, creep),
-      /** Unit step along the walkable route to the lane front (the allied wave, then the next enemy tower). */
       advance: routeStep(w, me, "advance", objective),
-      /** Where the parked cursor should sit so casts fly at the best target. */
       aim: aimAt ? onScreen(aimAt, view) : null,
       alliedCreepsNear: count(w, me, FIGHT_RADIUS, (u) => u.kind === "creep" && u.team === me.team),
-      /** Mid-channel: any new order breaks the spell, so the reflexes stand still. */
       channeling: Boolean(me.hero?.channel),
       enemyCreep: sense(creep),
       enemyCreepsNear: count(w, me, FIGHT_RADIUS, (u) => isEnemy(me, u) && isLaneCreep(u)),
@@ -244,17 +255,13 @@ export const createPlaytestSense = () => {
             ...sense(tower),
             alliedCreepsInItsRange: alliedCreepsAtTower,
             attackable: towerAttackable,
-            /** It shoots anything closer than this — creeps first, then you. */
             range: Math.round(towerReach),
           }
         : null,
-      /** Unit step along the walkable route to the healing fountain, and how far it is. */
       home: { ...routeStep(w, me, "home", home), dist: Math.round(dist(me, home)) },
       lane,
-      /** An enemy creep one hit from death, inside reach: the last hit is the gold. */
       lastHit: sense(lastHit),
       order: me.order.type,
-      /** Inside an enemy tower's range with no allied creeps for it to shoot instead. */
       towerDanger: underEnemyTower && alliedCreepsAtTower === 0,
       underEnemyTower,
     };

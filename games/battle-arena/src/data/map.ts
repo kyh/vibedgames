@@ -1,24 +1,12 @@
-// The arena as DATA (build-doc §6). Both the sim and the renderer read this —
-// nothing is hand-placed in the renderer. The arena is a regular HEXAGONAL
-// dungeon hall (KayKit Dungeon Remastered interior) centered on the origin so
-// the Throne sits at (0,0). Sim plane is (x, y); the renderer maps y → world-z.
-//
-// Hexagon convention: vertices at angles k·60° (vertex on the +x axis); edges
-// centered at 30° + k·60°; center→vertex = HEX_R; center→edge (apothem)
-// = HEX_R·cos(30°). The 6 spawn bases sit at the 6 edge midpoints.
 import { THRONE_RADIUS } from "./config";
 import type { Vec2 } from "../sim/math";
 import type { FloorType, MapData } from "./map-format";
 
-// center → vertex (units) — 62 ≈ 2× the old 44's AREA
 export const HEX_R = 62;
-// center → edge ≈ 53.7
 export const APOTHEM = HEX_R * Math.cos(Math.PI / 6);
-// compat half-extent (== HEX_R) — coarse consumers only
 export const HALF = HEX_R;
-/** Interior layout scale vs the original 44-radius hall — every hand-tuned
- *  mid-field radius below multiplies by this so the layout grows with HEX_R. */
 const S = HEX_R / 44;
+
 export const ARENA = {
   apothem: APOTHEM,
   half: HALF,
@@ -33,9 +21,7 @@ export const EDGE_ANGLES: number[] = Array.from(
 );
 
 export const BOSS_POS: Vec2 = { x: 0, y: 0 };
-// raised dais the boss stands on
 export const BOSS_PLATFORM_RADIUS = 5.5;
-// dais lift (render + the coin-throw origin)
 export const BOSS_HEIGHT = 1.6;
 
 export interface SpawnPoint {
@@ -45,18 +31,18 @@ export interface SpawnPoint {
   facing: number;
 }
 
-// ≈ 33.1 — base pad inset from its wall
 const SPAWN_R = APOTHEM - 5;
+
 /** Six bases at the six edge midpoints; each faces the center. */
 export const SPAWNS: SpawnPoint[] = EDGE_ANGLES.map((a, i) => {
   const x = Math.cos(a) * SPAWN_R;
   const y = Math.sin(a) * SPAWN_R;
+
   return { facing: Math.atan2(-y, -x), slot: i, x, y };
 });
 
-/** Catch-up delivery drop zones — on four of the six vertex axes, mid-field
- *  (between the dais ring and the vertex camps; point-symmetric pairs). */
 const PAD_ANGLES = [0, 2, 3, 5].map((k) => (k * Math.PI) / 3);
+
 export const DELIVERY_PADS: Vec2[] = PAD_ANGLES.map((a) => ({
   x: Math.cos(a) * 18 * S,
   y: Math.sin(a) * 18 * S,
@@ -66,6 +52,7 @@ export const DELIVERY_PADS: Vec2[] = PAD_ANGLES.map((a) => ({
  *  diagonals, off every base lane and vertex axis. */
 export const RUNE_SPOTS: Vec2[] = Array.from({ length: 4 }, (_, i) => {
   const a = Math.PI / 4 + (i * Math.PI) / 2;
+
   return { x: Math.cos(a) * 25 * S, y: Math.sin(a) * 25 * S };
 });
 
@@ -79,13 +66,13 @@ export interface CampSpec {
   pack?: string[];
   respawnSec?: number;
 }
+
 export const CAMPS: CampSpec[] = Array.from({ length: 6 }, (_, i) => {
-  // the vertex axes (0° = +x)
   const a = (i * Math.PI) / 3;
+
   return { id: `camp${i}`, x: Math.cos(a) * 27 * S, y: Math.sin(a) * 27 * S };
 });
-// Elite lair: the Frost Golem miniboss holds the NE vertex corner, deeper in
-// behind camp1 — clear of pads, bases, and rune spots.
+
 CAMPS.push({
   id: "golem",
   pack: ["frostgolem"],
@@ -114,14 +101,12 @@ export interface PartitionRun {
   /** collider centers along the tangent */
   offsets: number[];
 }
+
 export const PARTITION_RUNS: PartitionRun[] = Array.from({ length: 6 }, (_, k) => {
-  // one cover run per sextant at 12° past each vertex axis, radius 22 —
-  // breaks the dais↔camp sightline while keeping every base→center lane
-  // (edge angles 30°+k·60°) ≥ 4u clear on both sides.
   const a = (k * Math.PI) / 3 + (12 * Math.PI) / 180;
+
   return {
     dir: a + Math.PI / 2,
-    // longer runs — cover scaled with the hall
     offsets: [-4.5, -2.7, -0.9, 0.9, 2.7, 4.5],
     x: Math.cos(a) * 22 * S,
     y: Math.sin(a) * 22 * S,
@@ -132,16 +117,13 @@ export const PARTITION_RUNS: PartitionRun[] = Array.from({ length: 6 }, (_, k) =
  *  shrine statues watching the delivery pads. Kept off the base→center lanes
  *  so nobody spawns inside one. Exported separately from OBSTACLES so the map
  *  editor can recover the pristine default after a custom map was applied. */
-export const buildDefaultObstacles = (): Obstacle[] => {
+export const buildDefaultObstacles = () => {
   const out: Obstacle[] = [];
-  // NO pillars on the 45° diagonals: those are the STAIR spokes — the only
-  // four ways onto the plateau. A collider there jams everyone approaching
-  // the throne (the mid-ring cover job belongs to the partition runs).
-  // partition-wall colliders (rendered as continuous wall_half runs — the
-  // "wall_run" hint tells the renderer to skip per-circle models)
+
   for (const run of PARTITION_RUNS) {
     const tx = Math.cos(run.dir);
     const ty = Math.sin(run.dir);
+
     for (const t of run.offsets) {
       out.push({
         height: 2.4,
@@ -152,8 +134,7 @@ export const buildDefaultObstacles = (): Obstacle[] => {
       });
     }
   }
-  // shrine statues on the delivery-pad axes, behind each pad (r21.5 vs pad
-  // r18) — outside the coin ring and ≥11u off the nearest base lane
+
   for (const a of PAD_ANGLES) {
     out.push({
       height: 2.6,
@@ -163,33 +144,35 @@ export const buildDefaultObstacles = (): Obstacle[] => {
       y: Math.sin(a) * 21.5 * S,
     });
   }
+
   return out;
 };
 
 export const OBSTACLES: Obstacle[] = buildDefaultObstacles();
 
-// ── Custom maps (map-format.ts / the ?editor=1 editor) ──────────────────────
-
 let customMap = false;
 
 /** True once applyMapData replaced the default arena colliders. */
-export const hasCustomMap = (): boolean => customMap;
+export const hasCustomMap = () => customMap;
 
 /** Painted floor cells (render-only): "gx,gz" on the 4u tile grid → tile band.
  *  Filled by applyMapData / the editor; Environment.buildFloor consults it. */
 export const FLOOR_OVERRIDES = new Map<string, FloorType>();
-export const floorKey = (gx: number, gz: number): string => `${gx},${gz}`;
+export const floorKey = (gx: number, gz: number) => `${gx},${gz}`;
 
 /** Replace the arena colliders with a custom map's — IN PLACE, because the sim
  *  (resolveObstacles) and the renderer both hold references to OBSTACLES. Must
  *  run before world creation and before Environment.setup. */
-export const applyMapData = (data: MapData): void => {
+export const applyMapData = (data: MapData) => {
   customMap = true;
   OBSTACLES.length = 0;
+
   for (const c of data.colliders) {
     OBSTACLES.push({ height: c.height, model: c.model, radius: c.radius, x: c.x, y: c.y });
   }
+
   FLOOR_OVERRIDES.clear();
+
   for (const f of data.floor ?? []) {
     FLOOR_OVERRIDES.set(floorKey(f.x, f.y), f.t);
   }
@@ -200,33 +183,43 @@ export const applyMapData = (data: MapData): void => {
  *  from their "wall_run" colliders (greedy chain clustering — circles within
  *  2.6u link into a run, singletons become short stubs). For the default
  *  collider set the reconstruction reproduces PARTITION_RUNS exactly. */
-export const activePartitionRuns = (): PartitionRun[] => {
+export const activePartitionRuns = () => {
   if (!customMap) {
     return PARTITION_RUNS;
   }
+
   const pts = OBSTACLES.filter((o) => o.model === "wall_run");
   const used = new Set<number>();
   const runs: PartitionRun[] = [];
+
   for (let i = 0; i < pts.length; i += 1) {
     const seed = pts[i];
+
     if (!seed || used.has(i)) {
       continue;
     }
+
     used.add(i);
     const chain: Obstacle[] = [seed];
     let grew = true;
+
     while (grew) {
       grew = false;
+
       for (let j = 0; j < pts.length; j += 1) {
         const p = pts[j];
+
         if (!p || used.has(j)) {
           continue;
         }
+
         const [head] = chain;
         const tail = chain.at(-1);
+
         if (!head || !tail) {
           continue;
         }
+
         if (Math.hypot(p.x - tail.x, p.y - tail.y) <= 2.6) {
           chain.push(p);
           used.add(j);
@@ -238,74 +231,81 @@ export const activePartitionRuns = (): PartitionRun[] => {
         }
       }
     }
+
     let cx = 0;
     let cy = 0;
+
     for (const p of chain) {
       cx += p.x;
       cy += p.y;
     }
+
     cx /= chain.length;
     cy /= chain.length;
     const [head] = chain;
     const tail = chain.at(-1);
     let dir = 0;
+
     if (head && tail && chain.length > 1) {
       dir = Math.atan2(tail.y - head.y, tail.x - head.x);
+
       if (dir < 0) {
         dir += Math.PI;
-        // normalize to [0, π) — offsets are symmetric
       }
     }
+
     const offsets = chain
       .map((p) => (p.x - cx) * Math.cos(dir) + (p.y - cy) * Math.sin(dir))
       .toSorted((a, b) => a - b);
+
     runs.push({ dir, offsets, x: cx, y: cy });
   }
+
   return runs;
 };
 
-// ── Pure spatial helpers ─────────────────────────────────────────────────────
+export const isInThrone = (x: number, y: number) => x * x + y * y <= THRONE_RADIUS * THRONE_RADIUS;
 
-export const isInThrone = (x: number, y: number): boolean =>
-  x * x + y * y <= THRONE_RADIUS * THRONE_RADIUS;
-
-/** Signed distance helpers for the hex edge half-planes (edge normals at
- *  30° + k·60°). Precomputed — clampToArena runs per unit per tick. */
 const EDGE_NX = EDGE_ANGLES.map((a) => Math.cos(a));
 const EDGE_NY = EDGE_ANGLES.map((a) => Math.sin(a));
 
 /** Clamp a point inside the hexagonal arena, leaving a margin for the radius.
  *  Two passes over the 6 edge half-planes so vertex corners resolve cleanly. */
-export const clampToArena = (x: number, y: number, radius = 0): Vec2 => {
+export const clampToArena = (x: number, y: number, radius = 0) => {
   const max = APOTHEM - radius;
   let px = x;
   let py = y;
+
   for (let pass = 0; pass < 2; pass += 1) {
     for (let k = 0; k < 6; k += 1) {
       const nx = EDGE_NX[k] ?? 0;
       const ny = EDGE_NY[k] ?? 0;
       const d = px * nx + py * ny;
+
       if (d > max) {
         px -= nx * (d - max);
         py -= ny * (d - max);
       }
     }
   }
+
   return { x: px, y: py };
 };
 
 /** Push a circle (cx,cy,cr) out of any overlapping obstacle / the boss dais.
  *  Returns the corrected position. Used by the sim for collision. */
-export const resolveObstacles = (cx: number, cy: number, cr: number): Vec2 => {
+export const resolveObstacles = (cx: number, cy: number, cr: number) => {
   let x = cx;
   let y = cy;
   const solids = OBSTACLES;
+
   for (let pass = 0; pass < 2; pass += 1) {
     for (const o of solids) {
       const dx = x - o.x;
       const dy = y - o.y;
       const min = o.radius + cr;
       const d2 = dx * dx + dy * dy;
+
       if (d2 < min * min && d2 > 1e-6) {
         const d = Math.sqrt(d2);
         const push = (min - d) / d;
@@ -313,11 +313,12 @@ export const resolveObstacles = (cx: number, cy: number, cr: number): Vec2 => {
         y += dy * push;
       }
     }
-    // boss dais
+
     const bx = x - BOSS_POS.x;
     const by = y - BOSS_POS.y;
     const bmin = BOSS_PLATFORM_RADIUS + cr;
     const bd2 = bx * bx + by * by;
+
     if (bd2 < bmin * bmin && bd2 > 1e-6) {
       const d = Math.sqrt(bd2);
       const push = (bmin - d) / d;
@@ -325,5 +326,6 @@ export const resolveObstacles = (cx: number, cy: number, cr: number): Vec2 => {
       y += by * push;
     }
   }
+
   return { x, y };
 };

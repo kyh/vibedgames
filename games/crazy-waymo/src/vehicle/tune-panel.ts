@@ -1,12 +1,9 @@
 import type { RaycastVehicle, VehicleParams } from "./raycast-vehicle";
 
-// Live vehicle tuning (?tune=1) — the reference repo's lil-gui panel, as a
-// zero-dependency DOM strip. Numeric params get sliders, booleans checkboxes;
-// wheel-level params re-apply to the controller on change.
-
 type NumericVehicleParam = {
   [K in keyof VehicleParams]: VehicleParams[K] extends number ? K : never;
 }[keyof VehicleParams];
+
 type BooleanVehicleParam = {
   [K in keyof VehicleParams]: VehicleParams[K] extends boolean ? K : never;
 }[keyof VehicleParams];
@@ -52,7 +49,7 @@ const NUMS: NumSpec[] = [
 
 const BOOLS: BooleanVehicleParam[] = ["antiWheelie", "uprightAssist"];
 
-export const mountTunePanel = (vehicle: RaycastVehicle): void => {
+export const mountTunePanel = (vehicle: RaycastVehicle) => {
   const wrap = document.createElement("div");
   wrap.id = "tune";
   wrap.style.cssText =
@@ -64,7 +61,7 @@ export const mountTunePanel = (vehicle: RaycastVehicle): void => {
   title.style.cssText = "color:#ffd24a;font-size:12px;margin-bottom:8px";
   wrap.append(title);
 
-  const reapply = (): void => {
+  const reapply = () => {
     for (let i = 0; i < 4; i += 1) {
       vehicle.applyWheelParams(i);
     }
@@ -92,6 +89,7 @@ export const mountTunePanel = (vehicle: RaycastVehicle): void => {
     row.append(name, input);
     wrap.append(row);
   }
+
   for (const key of BOOLS) {
     const row = document.createElement("label");
     row.style.cssText = "display:flex;gap:6px;align-items:center;margin-bottom:4px";
@@ -104,5 +102,6 @@ export const mountTunePanel = (vehicle: RaycastVehicle): void => {
     row.append(input, document.createTextNode(String(key)));
     wrap.append(row);
   }
+
   document.body.append(wrap);
 };

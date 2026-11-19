@@ -189,7 +189,7 @@ const SEQUENCES: Record<MeleeStyle, MeleeSequence> = {
   thrust: SPEAR,
 };
 
-const mixPose = (from: MeleePose, to: MeleePose, t: number): MeleePose => ({
+const mixPose = (from: MeleePose, to: MeleePose, t: number) => ({
   advance: from.advance + (to.advance - from.advance) * t,
   armPitch: from.armPitch + (to.armPitch - from.armPitch) * t,
   armRoll: from.armRoll + (to.armRoll - from.armRoll) * t,
@@ -203,32 +203,42 @@ const mixPose = (from: MeleePose, to: MeleePose, t: number): MeleePose => ({
   weaponYaw: from.weaponYaw + (to.weaponYaw - from.weaponYaw) * t,
 });
 
-const smooth = (t: number): number => t * t * (3 - 2 * t);
+const smooth = (t: number) => t * t * (3 - 2 * t);
 
-export const meleeFollowTime = (style: MeleeStyle, recovery: number): number =>
+export const meleeFollowTime = (style: MeleeStyle, recovery: number) =>
   Math.min(SEQUENCES[style].followDuration, recovery * 0.4);
 
 /** Contact is the combat deadline. Late snapshots sample recovery directly. */
-export const sampleMeleePose = (cue: MeleeCue | null, style: MeleeStyle): MeleePose => {
+export const sampleMeleePose = (cue: MeleeCue | null, style: MeleeStyle) => {
   const sequence = SEQUENCES[style];
   const { contact, draw, follow, rest } = sequence;
+
   if (!cue || cue.elapsed <= 0 || cue.elapsed >= cue.windup + cue.recovery) {
     return rest;
   }
+
   const drawUntil = cue.windup * sequence.drawFraction;
+
   if (cue.elapsed < drawUntil) {
     return mixPose(rest, draw, smooth(cue.elapsed / drawUntil));
   }
+
   if (cue.elapsed < cue.windup) {
     const t = (cue.elapsed - drawUntil) / (cue.windup - drawUntil);
+
     return mixPose(draw, contact, t * t);
   }
+
   const afterContact = cue.elapsed - cue.windup;
   const followUntil = meleeFollowTime(style, cue.recovery);
+
   if (afterContact < followUntil) {
     const t = afterContact / followUntil;
+
     return mixPose(contact, follow, 1 - (1 - t) ** 2);
   }
+
   const t = (afterContact - followUntil) / (cue.recovery - followUntil);
+
   return mixPose(follow, rest, smooth(t));
 };

@@ -22,11 +22,14 @@ import { parseRoomCode, partyLink } from "../hub/party-link";
 import { isCoarse } from "../sys/screen";
 
 const CODE_CHARS = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
-const randomCode = (): string => {
+
+const randomCode = () => {
   let code = "";
+
   for (let i = 0; i < 4; i += 1) {
     code += CODE_CHARS.charAt(Math.floor(Math.random() * CODE_CHARS.length));
   }
+
   return code;
 };
 
@@ -56,16 +59,15 @@ export class SelectScene extends Scene {
   }
 
   // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Phaser supplies untyped scene data; parse at this boundary.
-  init(data: unknown): void {
+  init(data: unknown) {
     // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Untrusted scene-entry payload, not game-domain state.
     const payload = typeof data === "object" && data !== null ? data : null;
     this.recap = payload && "recap" in payload ? readRunRecap(payload.recap) : null;
     this.roomFull = payload !== null && "roomFull" in payload && payload.roomFull === true;
-    // Phaser retains old truthy scene data. Consume the receipt exactly once.
     this.sys.settings.data = {};
   }
 
-  create(): void {
+  create() {
     this.meta = loadMeta();
     this.sprites = [];
     this.shopOpen = false;
@@ -74,9 +76,11 @@ export class SelectScene extends Scene {
     const code = parseRoomCode(search.get("party") ?? "");
     this.code = code ?? "";
     this.net = "off";
+
     if (code) {
       this.net = search.get("mode") === "vs" ? "vs" : "coop";
     }
+
     this.recapRoom = this.recap && this.net !== "off" ? { code: this.code, mode: this.net } : null;
     this.syncRoomUrl();
     this.backdrop = this.add
@@ -85,13 +89,16 @@ export class SelectScene extends Scene {
       .setTint(0x73_85_a8)
       .setAlpha(0.85);
     this.shade = this.add.rectangle(0, 0, 1, 1, 0x05_07_0b, 0.22).setOrigin(0);
+
     for (const name of HERO_ORDER) {
       const sprite = this.add
         .sprite(0, 0, name, firstFrame(this, name))
         .setOrigin(0.5, HERO_ORIGIN_Y);
+
       sprite.play(`${name}:idle`);
       this.sprites.push(sprite);
     }
+
     this.showcase = this.add
       .sprite(0, 0, "axion", firstFrame(this, "axion"))
       .setOrigin(0.5, HERO_ORIGIN_Y);
@@ -121,43 +128,50 @@ export class SelectScene extends Scene {
       this.pad = null;
       this.view?.destroy();
       this.view = null;
-      // The expedition bakes BASE_W/H into its layout; hand it back before the descent.
       this.scale.setGameSize(BASE_W, BASE_H);
     });
     this.refresh();
+
     if (this.roomFull) {
       this.view.announce("Room full. Join another code or play Solo.");
     }
   }
 
-  /** DOM stages determine sprite positions in CSS pixels; the render size
-   * follows the window (capped at 720px tall) so sprites land on their stages. */
-  private readonly layout = (): void => {
+  private readonly layout = () => {
     const { view } = this;
+
     if (!view) {
       return;
     }
+
     const w = Math.max(1, window.innerWidth);
     const h = Math.max(1, window.innerHeight);
     this.k = Math.min(1, 720 / h);
     const rw = Math.round(w * this.k);
     const rh = Math.round(h * this.k);
+
     if (this.scale.width !== rw || this.scale.height !== rh) {
       this.scale.setGameSize(rw, rh);
     }
+
     this.backdrop?.setDisplaySize(rw, rh);
     this.shade?.setDisplaySize(rw, rh);
+
     for (const [index, sprite] of this.sprites.entries()) {
       const node = view.heroes[index];
       const name = HERO_ORDER[index];
+
       if (!node || !name) {
         continue;
       }
+
       const rect = node.getBoundingClientRect();
       const art = node.querySelector(".lf-hub-art")?.getBoundingClientRect();
+
       if (!art) {
         continue;
       }
+
       const selected = index === this.index;
       const scale = Math.min(rect.width / 32, art.height / 34, 2.4) * this.k;
       const x = (rect.left + rect.width / 2) * this.k;
@@ -168,14 +182,17 @@ export class SelectScene extends Scene {
         .setScale(scale)
         .setVisible(rect.bottom > 0 && art.top < h);
       let alpha = 0.9;
+
       if (selected) {
         alpha = 1;
       } else if (locked) {
         alpha = 0.68;
       }
+
       sprite.setAlpha(alpha);
       sprite.setTint(locked ? 0xaa_b2_c0 : 0xff_ff_ff);
     }
+
     const hero = HERO_ORDER[this.index] ?? "axion";
     const stage = view.showcase.getBoundingClientRect();
     const scale = Math.min(stage.width / 58, stage.height / 38, 8) * this.k;
@@ -188,35 +205,41 @@ export class SelectScene extends Scene {
       .play(`${hero}:idle`, true);
   };
 
-  update(): void {
+  update() {
     this.pad?.update();
+
     if (this.view?.blocksGameInput()) {
       return;
     }
+
     if (this.pad?.justPressed("left")) {
       this.move(-1);
     }
+
     if (this.pad?.justPressed("right")) {
       this.move(1);
     }
+
     if (this.shopOpen) {
       if (this.pad?.justPressed("up")) {
         this.move(-1);
       }
+
       if (this.pad?.justPressed("down")) {
         this.move(1);
       }
     }
+
     if (this.pad?.justPressed("a")) {
       this.confirm();
     }
   }
 
-  private readonly keyDown = (event: KeyboardEvent): void => {
+  private readonly keyDown = (event: KeyboardEvent) => {
     if (event.repeat || this.view?.blocksGameInput()) {
       return;
     }
-    // Native button activation owns Enter/Space; do not also descend behind it.
+
     if (
       event.target instanceof Element &&
       event.target.closest("button, summary") &&
@@ -224,14 +247,15 @@ export class SelectScene extends Scene {
     ) {
       return;
     }
+
     if (event.code.startsWith("Arrow") || event.code === "Space") {
       event.preventDefault();
     }
+
     sfx.unlock();
     this.keyActions.get(event.code)?.();
   };
 
-  /** Up/Down and Escape only act inside the forge; every other key is global. */
   private readonly keyActions = new Map<string, () => void>(
     Object.entries({
       ArrowDown: () => this.shopMove(1),
@@ -257,13 +281,13 @@ export class SelectScene extends Scene {
     }),
   );
 
-  private shopMove(delta: number): void {
+  private shopMove(delta: number) {
     if (this.shopOpen) {
       this.move(delta);
     }
   }
 
-  private refresh(): void {
+  private refresh() {
     this.view?.update({
       bestScore: loadBestScore(),
       coarse: isCoarse(),
@@ -277,22 +301,26 @@ export class SelectScene extends Scene {
     this.layout();
   }
 
-  private move(delta: number): void {
+  private move(delta: number) {
     this.view?.focusSelection();
+
     if (this.shopOpen) {
       this.shopIndex = (this.shopIndex + delta + UPGRADES.length) % UPGRADES.length;
     } else {
       this.index = (this.index + delta + HERO_ORDER.length) % HERO_ORDER.length;
     }
+
     sfx.select();
     this.refresh();
   }
 
-  private pickHero(index: number): void {
+  private pickHero(index: number) {
     if (this.shopOpen) {
       return;
     }
+
     sfx.unlock();
+
     if (index !== this.index) {
       this.index = index;
       sfx.select();
@@ -300,9 +328,10 @@ export class SelectScene extends Scene {
     }
   }
 
-  private go(): void {
+  private go() {
     sfx.unlock();
     const name = HERO_ORDER[this.index] ?? "axion";
+
     if (isUnlocked(this.meta, name)) {
       this.confirm();
     } else {
@@ -310,17 +339,18 @@ export class SelectScene extends Scene {
     }
   }
 
-  private toggleShop(): void {
+  private toggleShop() {
     sfx.unlock();
     this.shopOpen = !this.shopOpen;
     sfx.select();
     this.refresh();
   }
 
-  private pickUpgrade(index: number): void {
+  private pickUpgrade(index: number) {
     if (!this.shopOpen) {
       return;
     }
+
     if (this.shopIndex === index) {
       this.buySelected();
     } else {
@@ -330,11 +360,13 @@ export class SelectScene extends Scene {
     }
   }
 
-  private buySelected(): void {
+  private buySelected() {
     const upgrade = UPGRADES[this.shopIndex];
+
     if (!upgrade) {
       return;
     }
+
     if (buyUpgrade(this.meta, upgrade.id)) {
       sfx.pickup();
       this.view?.announce(`${upgrade.name} upgraded.`);
@@ -342,18 +374,23 @@ export class SelectScene extends Scene {
       sfx.hurt();
       this.view?.announce("Upgrade unavailable. Check shards and level.");
     }
+
     this.refresh();
   }
 
-  private buyUnlock(): void {
+  private buyUnlock() {
     if (this.shopOpen) {
       return;
     }
+
     const name = HERO_ORDER[this.index] ?? "axion";
+
     if (isUnlocked(this.meta, name)) {
       return;
     }
+
     sfx.unlock();
+
     if (unlockHero(this.meta, name)) {
       sfx.pickup();
       this.view?.announce(`${HEROES[name].title} unlocked. Ready to descend.`);
@@ -364,12 +401,14 @@ export class SelectScene extends Scene {
     }
   }
 
-  private toggleNet(mode: "off" | "coop" | "vs"): void {
+  private toggleNet(mode: "off" | "coop" | "vs") {
     if (this.shopOpen) {
       return;
     }
+
     sfx.unlock();
     sfx.select();
+
     if (mode === "off") {
       this.net = "off";
       this.code = "";
@@ -377,22 +416,28 @@ export class SelectScene extends Scene {
       if (this.net === "off") {
         this.code = randomCode();
       }
+
       this.net = mode;
     }
+
     this.syncRoomUrl();
     this.view?.announce("");
     this.refresh();
   }
 
-  private joinRoom(value: string): void {
+  private joinRoom(value: string) {
     if (this.shopOpen || this.net === "off") {
       return;
     }
+
     const code = parseRoomCode(value);
+
     if (!code) {
       this.view?.announce("Enter a 4-character room code.");
+
       return;
     }
+
     this.code = code;
     this.syncRoomUrl();
     this.refresh();
@@ -400,8 +445,9 @@ export class SelectScene extends Scene {
     this.view?.focusSelection();
   }
 
-  private syncRoomUrl(): void {
+  private syncRoomUrl() {
     const url = new URL(location.href);
+
     if (this.net === "off") {
       url.searchParams.delete("party");
       url.searchParams.delete("mode");
@@ -411,18 +457,20 @@ export class SelectScene extends Scene {
     }
   }
 
-  /** Confirm never buys: a locked hero refuses, and U / the PLAY button's
-   * UNLOCK label is the deliberate purchase path. */
-  private confirm(): void {
+  private confirm() {
     if (this.shopOpen) {
       return this.buySelected();
     }
+
     const hero = HERO_ORDER[this.index] ?? "axion";
+
     if (!isUnlocked(this.meta, hero)) {
       sfx.hurt();
       this.view?.announce("Unlock this warrior before descending.");
+
       return;
     }
+
     sfx.door();
     this.registry.set("hero", hero);
     this.registry.set("party", this.net === "off" ? "" : this.code);

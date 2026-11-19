@@ -653,8 +653,6 @@ var clamp8 = (value) => {
 };
 var FILTERS = {
   bicubic: {
-    // Catmull-Rom variant with a = -0.5, which is Pillow's BICUBIC and the
-    // default filter for `Image.resize`.
     kernel: (x) => {
       const a = -0.5;
       const t = Math.abs(x);
@@ -835,7 +833,12 @@ var Bitmap = class _Bitmap {
   }
   getPixel(x, y) {
     const i = this.index(x, y);
-    return [at(this.data, i), at(this.data, i + 1), at(this.data, i + 2), at(this.data, i + 3)];
+    return [
+      at(this.data, i),
+      at(this.data, i + 1),
+      at(this.data, i + 2),
+      at(this.data, i + 3)
+    ];
   }
   putPixel(x, y, [r, g, b, a]) {
     if (!this.contains(x, y)) {
@@ -1069,23 +1072,6 @@ var Bitmap = class _Bitmap {
     }
     return out;
   }
-  /**
-   * Separable filtered resampling, transcribed from Pillow's
-   * `ImagingResampleHorizontal` so ported scripts keep producing the images
-   * they produced before. Three details matter for that parity and are each
-   * easy to "improve" into a mismatch:
-   *
-   *  - Downscaling widens the filter support by the scale factor, so the
-   *    result is area-averaged rather than point-sampled and aliased.
-   *  - Pillow resamples RGBA through its premultiplied `RGBa` mode, so colour
-   *    does not bleed out of transparent pixels.
-   *  - That premultiplication round-trips through *8-bit* storage. At very low
-   *    alpha the premultiplied colour truncates to zero and un-premultiplying
-   *    cannot bring it back, so Pillow quietly blackens near-invisible pixels.
-   *    Keeping the intermediate in float would be more accurate and would
-   *    disagree with every sprite these skills have produced to date, so the
-   *    8-bit round trip is reproduced deliberately.
-   */
   resampleFiltered(width, height, mode) {
     const { kernel, support } = FILTERS[mode];
     const horizontal = resamplePass(
@@ -1165,7 +1151,11 @@ var quantize = (pixels, maxColors) => {
       g += p[1];
       b += p[2];
     }
-    return [Math.round(r / box.length), Math.round(g / box.length), Math.round(b / box.length)];
+    return [
+      Math.round(r / box.length),
+      Math.round(g / box.length),
+      Math.round(b / box.length)
+    ];
   });
   if (colors.length === 0) {
     colors.push([0, 0, 0]);
@@ -1346,11 +1336,7 @@ import { existsSync, mkdirSync as mkdirSync2, readdirSync, statSync, writeFileSy
 import path2 from "node:path";
 var toPythonJson = (payload) => JSON.stringify(payload, null, 2).replaceAll(
   /[\u007F-\u{10FFFF}]/gu,
-  (ch) => (
-    // Escape per UTF-16 unit: an astral character becomes its surrogate pair,
-    // as Python writes it.
-    [...ch].map((unit) => `\\u${(unit.codePointAt(0) ?? 0).toString(16).padStart(4, "0")}`).join("")
-  )
+  (ch) => [...ch].map((unit) => `\\u${(unit.codePointAt(0) ?? 0).toString(16).padStart(4, "0")}`).join("")
 );
 var writeJsonFile = (target, payload) => {
   mkdirSync2(path2.dirname(path2.resolve(target)), { recursive: true });
@@ -1913,7 +1899,6 @@ var FIGHTING = {
   ],
   description: "Side-view brawler/fighter: longer loops, blocks, knockdown/get-up transitions.",
   direction: "w",
-  // Core loops widen to 12; hurt/jump/crouch widen to 8.
   frameOverrides: {
     attack: 12,
     crouch: 8,
@@ -1937,7 +1922,6 @@ var PROFILES = {
   platformer: PLATFORMER,
   "fighting-game": FIGHTING,
   "point-and-click": POINT_AND_CLICK,
-  // `adventure` is an alias and is hidden from listings.
   adventure: POINT_AND_CLICK
 };
 var PROFILE_ALIASES = /* @__PURE__ */ new Set(["adventure"]);
@@ -1963,8 +1947,6 @@ var actionFacts = (actionId, profile = null) => {
   const preset = presetOf(actionId);
   const facts = {
     ...preset,
-    // Transitions (jump/death/get_up) keep their vertical travel; everything
-    // else lands feet on a shared baseline.
     anchorPolicy: preset.timing === "transition" ? "preserve-motion" : "grounded",
     recommendedFrames: [...preset.recommendedFrames]
   };
@@ -2136,7 +2118,7 @@ var recoverFrames = (sheetPath, options) => {
     }
   }
   const required = frames === null ? wanted : Math.min(frames, wanted);
-  const missing = assigned.slice(0, required).map((item, i) => item === null ? i + 1 : 0).filter(Boolean);
+  const missing = assigned.slice(0, required).flatMap((item, i) => item === null ? [i + 1] : []);
   if (missing.length > 0) {
     throw new Error(
       `Recovery found ${components.length} distinct pose(s) but ${required} frame(s) were requested; grid slots ${missing.join(", ")} came up empty. The model likely merged poses across cells or laid out fewer than ${required}. Re-run without --recover to slice the grid uniformly instead.`
@@ -2170,7 +2152,6 @@ var recoverFrames = (sheetPath, options) => {
       bbox: component.bbox,
       center: component.center,
       image: crop,
-      /** 1-based, zero-padded to two digits by callers for the filename. */
       index: i + 1,
       label: String(i + 1).padStart(2, "0")
     };
@@ -2377,10 +2358,8 @@ var frameMetrics = (sheet, index, geometry) => {
   const meanX = xs.reduce((sum, v) => sum + v, 0) / xs.length;
   return {
     area_frac: roundTo(opaque / (fw * fh), 4),
-    // Foot baseline: bottom of the figure as a fraction from the top.
     baseline_frac: roundTo((maxY + 1) / fh, 4),
     border_frac: roundTo(borderOpaque / borderTotal, 4),
-    // Horizontal mass offset from the cell centre, as a fraction of width.
     cx_frac: roundTo((meanX - fw / 2) / fw, 4),
     empty: false,
     height: maxY - minY + 1,
@@ -2399,8 +2378,13 @@ var isLocalExtremum = (values, i) => {
 };
 var qc = (metrics) => {
   const checks = [];
-  const live = metrics.map((m, i) => ({ index: i, m })).filter((entry) => !entry.m.empty);
-  const empty = metrics.map((m, i) => m.empty || m.area_frac < EMPTY_AREA_FRAC ? i + 1 : 0).filter(Boolean);
+  const live = metrics.flatMap((m, i) => {
+    const entry = { index: i, m };
+    return entry.m.empty ? [] : [entry];
+  });
+  const empty = metrics.flatMap(
+    (m, i) => m.empty || m.area_frac < EMPTY_AREA_FRAC ? [i + 1] : []
+  );
   if (empty.length > 0) {
     checks.push({
       check: "empty",
@@ -2409,7 +2393,7 @@ var qc = (metrics) => {
       severity: "warn"
     });
   }
-  const clipped = metrics.map((m, i) => m.border_frac > CLIP_BORDER_FRAC ? i + 1 : 0).filter(Boolean);
+  const clipped = metrics.flatMap((m, i) => m.border_frac > CLIP_BORDER_FRAC ? [i + 1] : []);
   if (clipped.length > 0) {
     checks.push({
       check: "clip",
@@ -2418,7 +2402,7 @@ var qc = (metrics) => {
       severity: "warn"
     });
   }
-  const ruled = metrics.map((m, i) => m.rule_edges > 0 ? i + 1 : 0).filter(Boolean);
+  const ruled = metrics.flatMap((m, i) => m.rule_edges > 0 ? [i + 1] : []);
   if (ruled.length > 0) {
     checks.push({
       check: "grid",
@@ -2432,7 +2416,9 @@ var qc = (metrics) => {
     const spread = Math.max(...baselines) - Math.min(...baselines);
     if (spread > BASELINE_TOL) {
       const medianBaseline = median(baselines);
-      const worst = live.filter((entry) => Math.abs(entry.m.baseline_frac - medianBaseline) > BASELINE_TOL / 2).map((entry) => entry.index + 1);
+      const worst = live.flatMap(
+        (entry) => Math.abs(entry.m.baseline_frac - medianBaseline) > BASELINE_TOL / 2 ? [entry.index + 1] : []
+      );
       checks.push({
         check: "baseline",
         detail: `foot baseline varies ${percent(spread)} of cell height (should be pinned by normalize)`,
@@ -2444,9 +2430,9 @@ var qc = (metrics) => {
     const medianHeight = median(heights);
     const cov = medianHeight ? roundTo(pstdev(heights) / medianHeight, 3) : 0;
     const drift = heights.map((h) => h / medianHeight);
-    const sizeFrames = live.filter(
-      (entry, k) => Math.abs(entry.m.height / medianHeight - 1) > SIZE_DRIFT_TOL && isLocalExtremum(drift, k)
-    ).map((entry) => entry.index + 1);
+    const sizeFrames = live.flatMap(
+      (entry, k) => Math.abs(entry.m.height / medianHeight - 1) > SIZE_DRIFT_TOL && isLocalExtremum(drift, k) ? [entry.index + 1] : []
+    );
     if (sizeFrames.length > 0) {
       checks.push({
         check: "size",
@@ -2458,7 +2444,9 @@ var qc = (metrics) => {
     }
     const cxs = live.map((entry) => entry.m.cx_frac);
     const medianCx = median(cxs);
-    const facingFrames = live.filter((entry) => Math.abs(entry.m.cx_frac - medianCx) > FACING_CX_TOL).map((entry) => entry.index + 1);
+    const facingFrames = live.flatMap(
+      (entry) => Math.abs(entry.m.cx_frac - medianCx) > FACING_CX_TOL ? [entry.index + 1] : []
+    );
     if (facingFrames.length > 0) {
       const signed = `${medianCx >= 0 ? "+" : ""}${medianCx.toFixed(2)}`;
       checks.push({
@@ -3531,9 +3519,6 @@ var renderAnchorPrompt = (direction, options = {}) => {
     anchorRole = "character",
     anchorContext = null,
     guideImage = false,
-    // The matte the anchor is generated on has to be the one the keyer is later
-    // told to remove; `--chroma` used to be accepted here and dropped, so asking
-    // for magenta produced a green board that `chroma_clean` could not key.
     chroma = "#00FF00"
   } = options;
   const resolvedView = resolveAnchorGameView(gameView);
@@ -3618,8 +3603,6 @@ var labelForIndex = (labels, index, frameCount) => {
   return label;
 };
 var LABELS = {
-  // Spatial-progression labels (a single arc, not abstract beats) so the model
-  // advances the weapon monotonically along one swing instead of drawing N poses.
   attack: [
     "ready stance, weapon held back",
     "anticipation, weapon drawing back and up",

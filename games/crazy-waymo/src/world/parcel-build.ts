@@ -18,23 +18,15 @@ import type { ParkedSpec } from "./furniture";
 import { distToRing, pointInRing } from "./parcel-plan";
 import type { ParcelLot, ParcelPlan } from "./parcel-plan";
 
-// The parcel fabric is built LIVE on both load paths, like the freeways and
-// piers — never captured into rest.bin. Three reasons, each sufficient:
-//  - Payload. ~15k buildings of merged geometry is tens of megabytes in the
-//    bins; the plan they are generated from is data the bundle already ships.
-//  - Materials. A material only survives the bin round-trip as a descriptor
-//    (colour, roughness, ...), so a shader hook on a baked material is lost —
-//    the night-lit glass here is a live uniform on a live material.
-//  - One source of truth. The harness regenerates the same plan headlessly and
-//    audits it; there is no second copy in an artifact to drift.
-
 const WALL = new THREE.MeshStandardMaterial({
   color: 0xff_ff_ff,
   metalness: 0,
   roughness: 0.92,
   vertexColors: true,
 });
+
 WALL.name = "parcel-wall";
+
 applyMaterialBreakup(WALL, CITY_BREAKUP);
 
 const GLASS_DARK = new THREE.MeshStandardMaterial({
@@ -43,11 +35,9 @@ const GLASS_DARK = new THREE.MeshStandardMaterial({
   roughness: 0.38,
   vertexColors: true,
 });
+
 GLASS_DARK.name = "parcel-glass";
 
-// The lit panes: the same glass by day; at night the emissive comes up with
-// the lamp factor (day-night.ts), warm, over a vertex colour that is a dark
-// blue-grey — so the glow is the emissive, not the albedo.
 const GLASS_LIT = new THREE.MeshStandardMaterial({
   color: 0xff_ff_ff,
   emissive: new THREE.Color(0xff_c9_78),
@@ -56,6 +46,7 @@ const GLASS_LIT = new THREE.MeshStandardMaterial({
   roughness: 0.38,
   vertexColors: true,
 });
+
 GLASS_LIT.name = "parcel-glass-lit";
 
 const SIGN = new THREE.MeshStandardMaterial({
@@ -66,25 +57,29 @@ const SIGN = new THREE.MeshStandardMaterial({
   metalness: 0,
   roughness: 0.95,
 });
+
 SIGN.name = "parcel-shop-lettering";
 
-/** One small texture for the whole city, lazy so the pure generator also runs in node. */
-const signMaterial = (): THREE.MeshStandardMaterial => {
+const signMaterial = () => {
   if (SIGN.map || typeof document === "undefined") {
     return SIGN;
   }
+
   const canvas = document.createElement("canvas");
   canvas.width = SIGN_ATLAS_WIDTH;
   canvas.height = SIGN_ATLAS_HEIGHT;
   const context = canvas.getContext("2d");
+
   if (!context) {
     return SIGN;
   }
+
   const cellWidth = SIGN_ATLAS_WIDTH / SIGN_COLUMNS;
   const cellHeight = SIGN_ATLAS_HEIGHT / SIGN_ROWS;
   context.fillStyle = "#fff0cf";
   context.textAlign = "center";
   context.textBaseline = "middle";
+
   for (const [index, name] of SHOP_SIGNS.entries()) {
     const fontSize = name.length > 14 ? 12 : 14;
     context.font = `900 ${fontSize}px Arial, sans-serif`;
@@ -95,6 +90,7 @@ const signMaterial = (): THREE.MeshStandardMaterial => {
       cellWidth - 12,
     );
   }
+
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.anisotropy = 4;
@@ -102,32 +98,27 @@ const signMaterial = (): THREE.MeshStandardMaterial => {
   SIGN.map = texture;
   SIGN.emissiveMap = texture;
   SIGN.needsUpdate = true;
+
   return SIGN;
 };
 
 const NIGHT_EMISSIVE = 1.05;
 
-// --- The facade shader ------------------------------------------------------
-// The lean fabric's walls carry their storey rhythm per vertex (parcel-mesh.ts
-// FacadeBuf) and this material draws the openings: a window grid above the
-// ground floor with a lighter frame, and on the ground floor a shopfront
-// (SHOP), a garage door and a front door (HOUSE) or one roller door (SHED).
-// Windows light at night per cell from a hash, on the buildings the seed
-// says are lit. All of it in the fragment shader over the flat vertex colour,
-// so the breakup and the specular AA from material-breakup.ts still apply.
 const FACADE_NIGHT = { value: 0 };
+
 const FACADE = new THREE.MeshStandardMaterial({
   color: 0xff_ff_ff,
   metalness: 0,
   roughness: 0.92,
   vertexColors: true,
 });
+
 FACADE.name = "parcel-facade";
+
 applyMaterialBreakup(FACADE, CITY_BREAKUP);
+
 {
   const prev = FACADE.onBeforeCompile;
-  // Lazy: the breakup's key reads the device class, which only exists in a
-  // window, and this module also loads in the harness and the workers.
   const prevKey = FACADE.customProgramCacheKey.bind(FACADE);
   FACADE.customProgramCacheKey = () => `${prevKey()}|facade-sashes-v3`;
   FACADE.onBeforeCompile = (shader, renderer) => {
@@ -306,29 +297,34 @@ totalEmissiveRadiance += fEmit;`,
 }
 
 /** Lamp factor 0 (day) .. 1 (night) — window glow tracks it. */
-export const setParcelNight = (night: number): void => {
+export const setParcelNight = (night: number) => {
   GLASS_LIT.emissiveIntensity = NIGHT_EMISSIVE * Math.max(0, Math.min(1, night));
   FACADE_NIGHT.value = Math.max(0, Math.min(1, night));
   SIGN.emissiveIntensity = FACADE_NIGHT.value * 0.38;
 };
 
-export const materialFor = (mat: ParcelMaterial): THREE.MeshStandardMaterial => {
+export const materialFor = (mat: ParcelMaterial) => {
   switch (mat) {
     case "wall": {
       return WALL;
     }
+
     case "glassLit": {
       return GLASS_LIT;
     }
+
     case "glassDark": {
       return GLASS_DARK;
     }
+
     case "facade": {
       return FACADE;
     }
+
     case "sign": {
       return signMaterial();
     }
+
     default: {
       return WALL;
     }
@@ -357,14 +353,15 @@ export interface ParcelBands {
 }
 
 /** Device-class near detail; the streamer separately selects distant shader walls. */
-export const parcelDetailLevel = (): DetailLevel => {
+export const parcelDetailLevel: () => DetailLevel = () => {
   if (typeof window === "undefined") {
     return 2;
   }
+
   return isCoarsePointer() ? 1 : 2;
 };
 
-export const parcelGeometryOf = (g: ParcelGeo): THREE.BufferGeometry => {
+export const parcelGeometryOf = (g: ParcelGeo) => {
   const geo = new THREE.BufferGeometry();
   geo.setAttribute(
     "position",
@@ -373,59 +370,55 @@ export const parcelGeometryOf = (g: ParcelGeo): THREE.BufferGeometry => {
   geo.setAttribute("normal", new THREE.BufferAttribute(g.normal, 3, true));
   geo.setAttribute("color", new THREE.BufferAttribute(g.color, 3, true));
   geo.setIndex(new THREE.BufferAttribute(g.index, 1));
+
   if (g.fuv && g.facade && g.facade2) {
     geo.setAttribute("fuv", new THREE.BufferAttribute(g.fuv, 2, true));
     geo.setAttribute("facade", new THREE.BufferAttribute(g.facade, 4, true));
     geo.setAttribute("facade2", new THREE.BufferAttribute(g.facade2, 3, false));
   }
+
   if (g.uv) {
     geo.setAttribute("uv", new THREE.BufferAttribute(g.uv, 2, true));
   }
+
   geo.computeBoundingSphere();
+
   return geo;
 };
 
 /** Both static and streamed callers restore the same quantized coordinate frame. */
-export const parcelMeshOf = (
-  g: ParcelGeo,
-): THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial> => {
+export const parcelMeshOf = (g: ParcelGeo) => {
   const mesh = new THREE.Mesh(parcelGeometryOf(g), materialFor(g.mat));
+
   if (g.encoding === "quantized") {
     mesh.position.set(...g.origin);
     mesh.scale.setScalar(g.scale);
   }
+
   mesh.updateMatrix();
   mesh.matrixAutoUpdate = false;
+
   return mesh;
 };
 
-// A car is ~2.75u long and 1.5u wide. Bays nose in toward the lot's long
-// sides at the pitch the paint uses (parcel-mesh.ts BAY_PITCH); a lot too
-// narrow for bays parks a single line along its length instead. Every spot
-// is tested against the lot's own outline and its pillars, so a car never
-// pokes into the street or stands in a footing.
 const CAR_HALF_LEN = 1.4;
 const CAR_HALF_W = 0.8;
 const BAY_PITCH = 2.2;
 
-/**
- * Buildings bucketed on the street grid, so a car can ask whether it would
- * stand inside one. A lot ring is often a GROUP outline (the extractor's
- * bbox fallback) with a real parcel's building inside it, and a car parked
- * through that building's wall is the one place the two passes meet.
- */
-const cellX = (x: number): number => Math.floor((x + WORLD_HALF_X) / ROAD_TILE);
-const cellZ = (z: number): number => Math.floor((z + WORLD_HALF_Z) / ROAD_TILE);
+const cellX = (x: number) => Math.floor((x + WORLD_HALF_X) / ROAD_TILE);
+const cellZ = (z: number) => Math.floor((z + WORLD_HALF_Z) / ROAD_TILE);
 
 class BuildingIndex {
   private readonly cells = new Map<number, ParcelPlan[]>();
   constructor(plans: readonly ParcelPlan[]) {
     for (const p of plans) {
       const r = Math.hypot(p.obb.halfA, p.obb.halfB) + 1;
+
       for (let gx = cellX(p.obb.cx - r); gx <= cellX(p.obb.cx + r); gx += 1) {
         for (let gz = cellZ(p.obb.cz - r); gz <= cellZ(p.obb.cz + r); gz += 1) {
           const k = gx * 1024 + gz;
           const arr = this.cells.get(k);
+
           if (arr) {
             arr.push(p);
           } else {
@@ -435,27 +428,26 @@ class BuildingIndex {
       }
     }
   }
-  /** Inside any building's box, dilated by `pad`. */
-  inside(x: number, z: number, pad: number): boolean {
+  inside(x: number, z: number, pad: number) {
     for (const p of this.cells.get(cellX(x) * 1024 + cellZ(z)) ?? []) {
       const dx = x - p.obb.cx;
       const dz = z - p.obb.cz;
       const a = dx * p.obb.ex + dz * p.obb.ez;
       const b = -dx * p.obb.ez + dz * p.obb.ex;
+
       if (Math.abs(a) < p.obb.halfA + pad && Math.abs(b) < p.obb.halfB + pad) {
         return true;
       }
     }
+
     return false;
   }
 }
 
-export const parkOnLots = (
-  lots: readonly ParcelLot[],
-  plans: readonly ParcelPlan[],
-): ParkedSpec[] => {
+export const parkOnLots = (lots: readonly ParcelLot[], plans: readonly ParcelPlan[]) => {
   const out: ParkedSpec[] = [];
   const buildings = new BuildingIndex(plans);
+
   for (const lot of lots) {
     // oxlint-disable-next-line no-bitwise -- decorrelates the lot's parking stream from its building seed
     const rng = new Rng(lot.seed ^ 0x51_ed);
@@ -467,27 +459,34 @@ export const parkOnLots = (
     const sz = long ? o.ex : o.ez;
     const halfL = long ? o.halfA : o.halfB;
     const halfS = long ? o.halfB : o.halfA;
-    const clear = (x: number, z: number, r: number): boolean => {
+
+    const clear = (x: number, z: number, r: number) => {
       if (!pointInRing(lot.ring, lot.n, x, z)) {
         return false;
       }
+
       if (distToRing(lot.ring, lot.n, x, z) < r) {
         return false;
       }
+
       if (buildings.inside(x, z, CAR_HALF_LEN)) {
         return false;
       }
+
       for (const p of lot.pillars) {
         if (Math.hypot(p.x - x, p.z - z) < p.half + CAR_HALF_LEN + 0.4) {
           return false;
         }
       }
+
       return true;
     };
-    const place = (x: number, z: number, nx: number, nz: number, r: number): void => {
+
+    const place = (x: number, z: number, nx: number, nz: number, r: number) => {
       if (!clear(x, z, r) || !rng.chance(0.78)) {
         return;
       }
+
       out.push({
         model: rng.pick(TRAFFIC_CARS),
         x: x + rng.range(-0.1, 0.1),
@@ -495,12 +494,14 @@ export const parkOnLots = (
         z: z + rng.range(-0.1, 0.1),
       });
     };
+
     if (halfS * 2 >= 3.4) {
       const rows: number[] = halfS * 2 >= 5.6 ? [-1, 1] : [-1];
+
       for (const side of rows) {
         const b = side * (halfS - 0.5 - CAR_HALF_LEN);
+
         for (let a = -halfL + 1.2 + BAY_PITCH / 2; a <= halfL - 1.2; a += BAY_PITCH) {
-          // Nose toward the long edge on this side.
           place(
             o.cx + lx * a + sx * b,
             o.cz + lz * a + sz * b,
@@ -516,6 +517,7 @@ export const parkOnLots = (
       }
     }
   }
+
   return out;
 };
 
@@ -529,26 +531,29 @@ export const buildParcelFabric = async (
   bands: ParcelBands,
   detail: DetailLevel,
   onBreathe?: () => Promise<void>,
-): Promise<ParcelBuild> => {
+) => {
   const { geos, stats } = await buildParcelGeometry(plans, detail, onBreathe, lots);
   const detailDist = bands.detail * liveQuality().detailScale;
   const groups = new Map<string, ParcelChunk>();
+
   for (const g of geos) {
     const dist = tierDistance(g.tier, bands.imposter, bands.midImposter, detailDist);
     const key = `${g.cx},${g.cz},${dist}`;
     let chunk = groups.get(key);
+
     if (!chunk) {
       chunk = { cx: g.cx, cz: g.cz, dist, group: new THREE.Group(), radius: g.radius };
       chunk.group.name = `parcels-${g.tier}`;
       groups.set(key, chunk);
     }
+
     const mesh = parcelMeshOf(g);
     mesh.name = `parcel-${g.tier}-${g.mat}`;
-    // Bodies throw the street shadows; the decals and ledges only catch them.
     mesh.castShadow = g.tier !== "detail" && (g.mat === "wall" || g.mat === "facade");
     mesh.receiveShadow = true;
     mesh.matrixAutoUpdate = false;
     chunk.group.add(mesh);
   }
+
   return { chunks: [...groups.values()], parkedCars: parkOnLots(lots, plans), stats };
 };

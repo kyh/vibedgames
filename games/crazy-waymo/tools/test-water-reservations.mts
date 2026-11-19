@@ -22,11 +22,10 @@ const reservationCoverage = (
 ) => {
   let checked = 0;
   let missing = 0;
+
   for (const box of reservations) {
     for (let x = box.minX + 0.2; x < box.maxX; x += 0.5) {
       for (let z = box.minZ + 0.2; z < box.maxZ; z += 0.5) {
-        // The expanded ellipse/rectangle conservatively excludes the small
-        // boundary tolerance. Architectural ground outside it must still block.
         if (
           bodies.some((b) =>
             waterBodyContains({ ...b, halfX: b.halfX + 0.8, halfZ: b.halfZ + 0.8 }, x, z),
@@ -34,13 +33,16 @@ const reservationCoverage = (
         ) {
           continue;
         }
+
         checked += 1;
+
         if (!index.hitAt(x, z)) {
           missing += 1;
         }
       }
     }
   }
+
   return { checked, missing };
 };
 
@@ -48,8 +50,9 @@ const chassisOverlaps = (
   bodies: readonly WaterBody[],
   rest: CityRestPayload,
   world: AuditWorld,
-): string[] => {
+) => {
   const overlaps: string[] = [];
+
   for (const [i, body] of bodies.entries()) {
     for (const solid of rest.solids) {
       if (
@@ -59,12 +62,13 @@ const chassisOverlaps = (
       ) {
         continue;
       }
+
       const box = staticSolidBox(solid, (x, z) => world.terrain.heightAt(x, z));
+
       if (body.y + 0.42 < box.y - box.hy || body.y + 0.42 > box.y + box.hy) {
         continue;
       }
-      // Authored rims are outside this central hull-sized water area. The
-      // historical obstruction was a full-height axis-aligned reservation.
+
       for (const [dx, dz] of [
         [0, 0],
         [-0.5, 0],
@@ -75,6 +79,7 @@ const chassisOverlaps = (
         if (dx === undefined || dz === undefined) {
           continue;
         }
+
         const c = Math.cos(body.yaw);
         const s = Math.sin(body.yaw);
         const x = body.x + dx * body.halfX * c + dz * body.halfZ * s;
@@ -83,6 +88,7 @@ const chassisOverlaps = (
         const bz = z - box.z;
         const bc = Math.cos(box.yaw);
         const bs = Math.sin(box.yaw);
+
         if (Math.abs(bx * bc - bz * bs) <= box.hx && Math.abs(bx * bs + bz * bc) <= box.hz) {
           overlaps.push(`pool${i}:${x.toFixed(2)},${z.toFixed(2)}`);
           break;
@@ -90,18 +96,16 @@ const chassisOverlaps = (
       }
     }
   }
+
   return overlaps;
 };
 
-export const checkWaterReservations = (
-  check: Check,
-  world: AuditWorld,
-  rest?: CityRestPayload,
-): void => {
+export const checkWaterReservations = (check: Check, world: AuditWorld, rest?: CityRestPayload) => {
   const bodies: WaterBody[] = [];
   buildLandmarks(world.terrain, new ModelCache(), world.network, undefined, (b) => bodies.push(b));
   const reservations = landmarkProtection(world.plan, world.network).solids;
   const carved = carveWaterReservations(reservations, bodies);
+
   const decoded = carved.map((s) => ({
     ...s,
     maxX: Math.fround(s.maxX),
@@ -109,15 +113,18 @@ export const checkWaterReservations = (
     minX: Math.fround(s.minX),
     minZ: Math.fround(s.minZ),
   }));
+
   const owned = landmarkReport([], decoded, world.network, world.plan, world.terrain);
   check(
     "landmark audit recognizes exact baked carved reservation ownership",
     owned.intruders.length === 0,
   );
   const exterior = carved.find((s) => s.maxX - s.minX > 4 && s.maxZ - s.minZ > 4);
+
   if (!exterior) {
     throw new Error("Missing architectural reservation fixture");
   }
+
   const foreign = landmarkReport(
     [],
     [...decoded, { ...exterior, minX: exterior.minX + 0.07 }],
@@ -125,6 +132,7 @@ export const checkWaterReservations = (
     world.plan,
     world.terrain,
   );
+
   check(
     "landmark audit still rejects an unowned mass inside reserved land",
     foreign.intruders.length === 1,
@@ -143,6 +151,7 @@ export const checkWaterReservations = (
     `${checked} exterior probes, ${missing} missing`,
   );
   const small: Solid = { maxX: 8, maxZ: 4, minX: -8, minZ: -4 };
+
   const ellipse: WaterBody = {
     halfX: 3,
     halfZ: 1,
@@ -152,15 +161,18 @@ export const checkWaterReservations = (
     yaw: Math.PI / 4,
     z: 0,
   };
+
   const pieces = carveWaterReservations([small], [ellipse]);
   const rotated = new SolidIndex(pieces);
   check(
     "rotated pool subtraction retains monument corners while opening water",
     !rotated.hitAt(0, 0) && !!rotated.hitAt(7, 3) && !!rotated.hitAt(-7, -3) && pieces.length < 200,
   );
+
   if (!rest) {
     return;
   }
+
   const overlaps = chassisOverlaps(bodies, rest, world);
   check(
     "installed Palace and Sutro water contain no solid chassis obstruction",

@@ -5,7 +5,9 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./*": "./src/*.ts"
+    "./drizzle-client": "./src/drizzle-client.ts",
+    "./drizzle-schema": "./src/drizzle-schema.ts",
+    "./drizzle-schema-auth": "./src/drizzle-schema-auth.ts"
   },
   "scripts": {
     "clean": "rm -rf .cache .turbo dist node_modules",

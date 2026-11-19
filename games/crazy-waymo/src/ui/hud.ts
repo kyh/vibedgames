@@ -1,36 +1,31 @@
 import { TIER_COLORS, tierColor } from "../fx/tier";
 
-const el = (id: string): HTMLElement => {
+const el = (id: string) => {
   const node = document.querySelector<HTMLElement>(`#${id}`);
+
   if (!node) {
     throw new Error(`missing #${id}`);
   }
+
   return node;
 };
 
-const damp = (current: number, target: number, lambda: number, dt: number): number =>
+const damp = (current: number, target: number, lambda: number, dt: number) =>
   current + (target - current) * (1 - Math.exp(-lambda * dt));
 
-// ---- Drift rails (tuning knobs) -------------------------------------------
-// Rail fill is LADDER position, (tier + charge) / steps — never within-tier
-// charge, which resets to 0 at the exact moment of earning. A tier boundary
-// is a step; only opacity is eased.
 const RAIL_STEPS = 3;
 const RAIL_ON_BASE = 0.44;
 const RAIL_ON_FILL = 0.16;
 const RAIL_ON_TIER = 0.13;
 const RAIL_RISE_LAMBDA = 22;
 const RAIL_FALL_LAMBDA = 8;
-/** The earning (next-tier) rail cap per held tier; index 2 is the violet
- *  release preview — never a holdable state, matching fx/tier.ts doctrine. */
+
 const RAIL_NEXT_COLOR = {
   0: TIER_COLORS[0],
   1: TIER_COLORS[1],
   2: TIER_COLORS[2],
 } satisfies Record<0 | 1 | 2, string>;
 
-// ---- Off-screen destination arrow -----------------------------------------
-/** HUD boxes the arrow must stay clear of, top band and bottom band alike. */
 const ARROW_OBSTACLES = [
   "timer",
   "score",
@@ -44,35 +39,25 @@ const ARROW_OBSTACLES = [
   "t-brake",
   "t-boost",
 ] as const;
-/** #dest-arrow is a 64px box positioned by its top-left corner. */
+
 const ARROW_HALF = 32;
 const ARROW_GUTTER = 8;
-/** Floor on the vertical band, for viewports too short to fit both HUD bands
- *  and a gap. Overlapping something beats having nowhere to draw. */
 const ARROW_MIN_BAND = 140;
-/** Layout reads are cheap at this rate and the boxes only move on resize,
- *  orientation change, or a HUD card appearing. */
 const ARROW_BOX_MS = 500;
 
-// ---- Speedometer paint (warm-ink cluster; every value is a tuning knob) ---
 const DIAL_W = 120;
 const DIAL_H = 84;
 const DIAL_CX = 60;
 const DIAL_CY = 42;
 const DIAL_R = 29;
 const DIAL_FACE_R = 38;
-// 240° sweep, symmetric about 12 o'clock, opening at the bottom (the digital
-// readout sits in the gap).
 const DIAL_A0 = Math.PI * (5 / 6);
 const DIAL_SWEEP = Math.PI * (4 / 3);
 const DIAL_MAX_MPH = 100;
 const REDLINE_FRAC = 0.85;
-// channel groove width
 const CHAN_W = 7;
-// fill/scale width inside the groove
 const CHAN_FILL_FRAC = 0.78;
 const CHAN_INK = "rgba(18, 10, 4, 0.64)";
-// ONE flat low value — a low-alpha ramp behind the fill reads as a fault.
 const CHAN_SCALE = "rgba(255, 232, 202, 0.15)";
 const DIAL_FILL_LO = "#fff4e2";
 const DIAL_FILL_MID = "#ffcf6b";
@@ -93,34 +78,36 @@ const PAPER = "#fff4e2";
 const DIAL_INK = "rgba(18, 10, 4, 0.92)";
 const DIAL_FONT = '"Avenir Next Condensed", "Roboto Condensed", "Arial Narrow", sans-serif';
 
-const sub = (selector: string): HTMLElement => {
+const sub = (selector: string) => {
   const node = document.querySelector(selector);
+
   if (!(node instanceof HTMLElement)) {
-    throw new Error(`missing ${selector}`);
+    throw new TypeError(`missing ${selector}`);
   }
+
   return node;
 };
 
-/** The pre-bundle bar creep, published by the inline script in index.html. */
 interface BootBar {
   stop: () => void;
   at: () => number;
 }
 
-const boot = (): BootBar | null => {
-  // SAFETY: __bootBar is read as Partial, so every member is checked below
-  // before use; the inline script in index.html sets it to plain closures.
+const boot = () => {
   const { at, stop } = (globalThis as { __bootBar?: Partial<BootBar> }).__bootBar ?? {};
+
   if (!(at && stop)) {
     return null;
   }
+
   return { at, stop };
 };
 
-const patienceColor = (frac: number): string => {
+const patienceColor = (frac: number) => {
   if (frac > 0.5) {
     return "#7ef0a4";
   }
+
   return frac > 0.25 ? "#ffb64d" : "#e0453f";
 };
 
@@ -159,12 +146,10 @@ export class Hud {
   private scoreVal = el("score").querySelector<HTMLElement>(".value");
   private scorePill = el("score");
   private scoreLabel = el("score").querySelector<HTMLElement>(".label");
-  // boost meter lives inside the MPH card
   private boostPill = el("speed");
   private boostFill = el("boost-fill");
   private dial = el("dash-dial");
   private dialCtx: CanvasRenderingContext2D | null = null;
-  // Dial gradients cached at first draw — they never change frame to frame.
   private dialFaceGrad: CanvasGradient | null = null;
   private dialValueGrad: CanvasGradient | null = null;
   private dialHubGrad: CanvasGradient | null = null;
@@ -173,7 +158,6 @@ export class Hud {
   private railBarL = sub("#rail-l > i");
   private railBarR = sub("#rail-r > i");
   private railOn = 0;
-  // Shown-value memos: a style write that changes nothing still dirties style.
   private railOnShown = -1;
   private railFillShown = -1;
   private railTierShown = -1;
@@ -206,26 +190,22 @@ export class Hud {
   private loadFrac = 0;
   private loadLabel = "";
   private reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  // Score rolls up toward the real value — dollars should count, not teleport.
   private scoreShown = 0;
   private scoreTarget = 0;
   private lastScorePop = 0;
   private lastMphDrawn = -1;
-  // Needle spring: the displayed mph trails the real one with a little mass.
   private mphTarget = 0;
   private mphShown = 0;
   private mphVel = 0;
   private dialLive = false;
 
-  // `coarseUi` (mobile): skip sub-mph dial redraws — the needle moves less
-  // than a pixel between same-rounded values. Desktop redraws while moving.
   private coarseUi: boolean;
 
   constructor(coarseUi = false) {
     this.coarseUi = coarseUi;
   }
 
-  update(dt: number): void {
+  update(dt: number) {
     if (this.scoreShown !== this.scoreTarget) {
       const diff = this.scoreTarget - this.scoreShown;
       const step = Math.max(1, Math.abs(diff) * Math.min(1, dt * 9));
@@ -233,36 +213,35 @@ export class Hud {
         diff > 0
           ? Math.min(this.scoreTarget, this.scoreShown + step)
           : Math.max(this.scoreTarget, this.scoreShown - step);
+
       if (this.scoreVal) {
         this.scoreVal.textContent = `$${Math.round(this.scoreShown).toLocaleString("en-US")}`;
       }
     }
+
     if (this.dialLive) {
-      // Under-damped follower (ratio ~0.58 of critical): a hard throttle or
-      // brake makes the needle overshoot slightly, like a gauge with mass.
-      // Two substeps keep it stable across a clamped 50ms frame.
       const h = Math.min(dt, 0.05) / 2;
+
       for (let i = 0; i < 2; i += 1) {
         this.mphVel += (190 * (this.mphTarget - this.mphShown) - 16 * this.mphVel) * h;
         this.mphShown += this.mphVel * h;
       }
+
       const settled =
         Math.abs(this.mphVel) < 0.05 && Math.abs(this.mphTarget - this.mphShown) < 0.05;
+
       const rounded = Math.round(Math.max(0, this.mphShown));
-      // The coarse throttle keys off the DISPLAYED value, so the spring still
-      // animates on mobile — it only skips sub-mph repaints.
+
       if (rounded !== this.lastMphDrawn || (!this.coarseUi && !settled)) {
         this.lastMphDrawn = rounded;
         this.drawDial(Math.max(0, this.mphShown));
       }
     }
+
     this.updateRails(dt);
   }
 
-  /** Screen-edge drift rails: fill = ladder position, tier triple-encoded as
-   *  height + hue + pulse-rate (pulse lives in CSS via the .tN classes). One
-   *  composited translateY per frame; only opacity is eased. */
-  private updateRails(dt: number): void {
+  private updateRails(dt: number) {
     const charge = Math.max(0, Math.min(1, this.driftCharge));
     const active = this.driftTier > 0 || charge > 0;
     const fill = Math.min(1, (this.driftTier + charge) / RAIL_STEPS);
@@ -274,24 +253,28 @@ export class Hud {
       dt,
     );
     const on = this.railOn < 0.015 ? 0 : this.railOn;
+
     if (Math.abs(on - this.railOnShown) > 0.005) {
       this.railOnShown = on;
       const o = on.toFixed(3);
       this.railL.style.opacity = o;
       this.railR.style.opacity = o;
     }
+
     if (Math.abs(fill - this.railFillShown) > 0.004) {
       this.railFillShown = fill;
       const t = `translateY(${((1 - fill) * 100).toFixed(2)}%)`;
       this.railBarL.style.transform = t;
       this.railBarR.style.transform = t;
     }
+
     const tier = this.driftTier;
+
     if (tier !== this.railTierShown) {
-      // Colors come from fx/tier.ts so rails and sparks agree.
       this.railTierShown = tier;
       const banked = tierColor(tier);
       const next = RAIL_NEXT_COLOR[tier];
+
       for (const rail of [this.railL, this.railR]) {
         rail.classList.remove("t0", "t1", "t2");
         rail.classList.add(`t${tier}`);
@@ -301,12 +284,10 @@ export class Hud {
     }
   }
 
-  setTimer(_seconds: number, _low: boolean): void {
-    // Global run clock removed — the passenger patience/delivery bar is the
-    // only timer. Keep the hook so call sites stay stable; hide the pill.
+  setTimer(_seconds: number, _low: boolean) {
     this.timer.style.display = "none";
   }
-  flashTimeBonus(amount: number): void {
+  flashTimeBonus(amount: number) {
     this.timeBonus.textContent = `+${amount}s`;
     this.timeBonus.animate(
       [
@@ -317,42 +298,44 @@ export class Hud {
       { duration: 1100, easing: "ease-out" },
     );
   }
-  setScore(n: number): void {
+  setScore(n: number) {
     if (this.scoreTarget === n) {
       return;
     }
+
     this.scoreTarget = n;
-    // Throttle the pop: drift score trickles in every frame and would restart
-    // the animation forever.
     const now = performance.now();
+
     if (now - this.lastScorePop < 300) {
       return;
     }
+
     this.lastScorePop = now;
     this.scorePill.animate(
       [{ transform: "scale(1)" }, { transform: "scale(1.1)" }, { transform: "scale(1)" }],
       { duration: 180, easing: "ease-out" },
     );
   }
-  // Instant sync (run start/reset) — no roll-up, no pop.
-  resetScore(n: number): void {
+  resetScore(n: number) {
     this.scoreTarget = n;
     this.scoreShown = n;
+
     if (this.scoreVal) {
       this.scoreVal.textContent = `$${n.toLocaleString("en-US")}`;
     }
   }
-  // Persistent top-centre area label (always current while driving).
-  setArea(name: string): void {
+  setArea(name: string) {
     if (name === "") {
       this.area.classList.remove("show");
+
       return;
     }
+
     this.area.classList.add("show");
     this.area.textContent = name.toUpperCase();
   }
 
-  showDistrict(name: string): void {
+  showDistrict(name: string) {
     this.district.textContent = `◢ ${name.toUpperCase()}`;
     this.district.animate(
       [
@@ -364,10 +347,10 @@ export class Hud {
       { duration: 2600, easing: "ease-out" },
     );
   }
-  setSpeed(mph: number): void {
+  setSpeed(mph: number) {
     this.mphTarget = Math.max(0, mph);
+
     if (!this.dialLive) {
-      // Seed the follower with the first reading — no full-sweep spawn swing.
       this.dialLive = true;
       this.mphShown = this.mphTarget;
       this.lastMphDrawn = Math.round(this.mphShown);
@@ -375,16 +358,13 @@ export class Hud {
     }
   }
 
-  // Warm-ink cluster instrument: channel groove, gradient value fill
-  // (cream → gold → kerb red), redline segment, ink-under-cream ticks, and a
-  // MOUNTED needle — counterweight + cast shadow + chrome hub are the three
-  // things that make a pointer look mounted. The digital readout sits in the
-  // sweep's bottom gap under the hub.
-  private drawDial(mph: number): void {
+  private drawDial(mph: number) {
     const canvas = this.dial;
+
     if (!(canvas instanceof HTMLCanvasElement)) {
       return;
     }
+
     if (!this.dialCtx) {
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
       canvas.width = DIAL_W * dpr;
@@ -392,13 +372,17 @@ export class Hud {
       this.dialCtx = canvas.getContext("2d");
       this.dialCtx?.scale(dpr, dpr);
     }
+
     const ctx = this.dialCtx;
+
     if (!ctx) {
       return;
     }
+
     const cx = DIAL_CX;
     const cy = DIAL_CY;
     const r = DIAL_R;
+
     if (!this.dialValueGrad) {
       const face = ctx.createLinearGradient(0, cy - DIAL_FACE_R, 0, cy + DIAL_FACE_R);
       face.addColorStop(0, "#3b2d57");
@@ -410,16 +394,15 @@ export class Hud {
       val.addColorStop(0.45, DIAL_FILL_MID);
       val.addColorStop(1, DIAL_FILL_HI);
       this.dialValueGrad = val;
-      // Chrome hub: metalness 1.0 reads as a vertical light-to-dark ramp.
       const hub = ctx.createLinearGradient(0, cy - HUB_R, 0, cy + HUB_R);
       hub.addColorStop(0, "#fff7ec");
       hub.addColorStop(0.55, "#b4a6d0");
       hub.addColorStop(1, "#3b2d57");
       this.dialHubGrad = hub;
     }
+
     const frac = Math.max(0, Math.min(1, mph / DIAL_MAX_MPH));
     ctx.clearRect(0, 0, DIAL_W, DIAL_H);
-    // Face: top-lit warm-ink gradient, warm bevel, cream hairline rim.
     ctx.beginPath();
     ctx.arc(cx, cy, DIAL_FACE_R, 0, Math.PI * 2);
     ctx.fillStyle = this.dialFaceGrad ?? "#1b1428";
@@ -434,7 +417,6 @@ export class Hud {
     ctx.beginPath();
     ctx.arc(cx, cy, DIAL_FACE_R, 0, Math.PI * 2);
     ctx.stroke();
-    // Channel groove, then the unfilled scale over it at one flat value.
     ctx.lineCap = "butt";
     ctx.lineWidth = CHAN_W;
     ctx.strokeStyle = CHAN_INK;
@@ -446,29 +428,28 @@ export class Hud {
     ctx.beginPath();
     ctx.arc(cx, cy, r, DIAL_A0, DIAL_A0 + DIAL_SWEEP);
     ctx.stroke();
-    // Redline segment, IN the channel.
     ctx.strokeStyle = REDLINE_INK;
     ctx.beginPath();
     ctx.arc(cx, cy, r, DIAL_A0 + DIAL_SWEEP * REDLINE_FRAC, DIAL_A0 + DIAL_SWEEP);
     ctx.stroke();
-    // Value fill: the cream→gold→red ramp; past the redline it re-lays hot
-    // so the needle's arc wins over the red band.
+
     if (frac > 0.005) {
       ctx.save();
       ctx.strokeStyle = this.dialValueGrad ?? DIAL_FILL_MID;
       ctx.beginPath();
       ctx.arc(cx, cy, r, DIAL_A0, DIAL_A0 + DIAL_SWEEP * frac);
       ctx.stroke();
+
       if (frac > REDLINE_FRAC) {
         ctx.strokeStyle = REDLINE_OVER;
         ctx.beginPath();
         ctx.arc(cx, cy, r, DIAL_A0 + DIAL_SWEEP * REDLINE_FRAC, DIAL_A0 + DIAL_SWEEP * frac);
         ctx.stroke();
       }
+
       ctx.restore();
     }
-    // Ticks: minors every 10 mph, majors every 20 — each drawn twice, ink
-    // under then cream over (the same recipe as the text contour ring).
+
     for (let m = 0; m <= DIAL_MAX_MPH; m += 10) {
       const major = m % 20 === 0;
       const a = DIAL_A0 + DIAL_SWEEP * (m / DIAL_MAX_MPH);
@@ -488,7 +469,7 @@ export class Hud {
       ctx.lineTo(cx + ax * rIn, cy + ay * rIn);
       ctx.stroke();
     }
-    // Needle: cream polygon with a counterweight tail, cast shadow, ink edge.
+
     const na = DIAL_A0 + DIAL_SWEEP * frac;
     const nx = Math.cos(na);
     const ny = Math.sin(na);
@@ -515,7 +496,6 @@ export class Hud {
     ctx.lineWidth = 1.4;
     ctx.strokeStyle = DIAL_INK;
     ctx.stroke();
-    // Chrome hub over the needle root.
     ctx.beginPath();
     ctx.arc(cx, cy, HUB_R, 0, Math.PI * 2);
     ctx.fillStyle = this.dialHubGrad ?? "#b4a6d0";
@@ -527,7 +507,6 @@ export class Hud {
     ctx.arc(cx, cy, HUB_R * 0.4, 0, Math.PI * 2);
     ctx.fillStyle = "rgba(18, 10, 4, 0.78)";
     ctx.fill();
-    // Digital readout under the hub: ink stroke under cream fill.
     ctx.textAlign = "center";
     ctx.font = `900 19px ${DIAL_FONT}`;
     ctx.lineWidth = 3;
@@ -539,55 +518,58 @@ export class Hud {
     ctx.fillStyle = "rgba(255, 232, 202, 0.6)";
     ctx.fillText("MPH", cx, 78);
   }
-  setBoost(frac: number): void {
+  setBoost(frac: number) {
     this.boostFill.style.width = `${Math.round(Math.max(0, Math.min(1, frac)) * 100)}%`;
   }
 
   driftTier: 0 | 1 | 2 = 0;
   driftCharge = 0;
-  setDrift(tier: 0 | 1 | 2, charge: number): void {
+  setDrift(tier: 0 | 1 | 2, charge: number) {
     this.driftTier = tier;
     this.driftCharge = charge;
   }
-  boostDenied(): void {
+  boostDenied() {
     this.boostPill.classList.remove("denied");
-    // Force a reflow so re-adding restarts the shake animation.
     void this.boostPill.offsetWidth;
     this.boostPill.classList.add("denied");
   }
 
-  setCombo(mult: number, frac: number): void {
+  setCombo(mult: number, frac: number) {
     const show = mult > 1;
     this.comboMeter.classList.toggle("show", show);
+
     if (!show) {
       return;
     }
+
     if (this.comboMult) {
       this.comboMult.textContent = `${mult}× COMBO`;
     }
+
     this.comboFill.style.width = `${Math.round(Math.max(0, Math.min(1, frac)) * 100)}%`;
     this.comboMeter.classList.toggle("urgent", frac < 0.3);
   }
 
-  // Carry-only fare card: destination, distance, passenger patience.
-  setFareCard(title: string, distance: number, patienceFrac: number): void {
+  setFareCard(title: string, distance: number, patienceFrac: number) {
     this.fareCard.classList.add("show");
+
     if (this.fareWho) {
       this.fareWho.textContent = title;
     }
+
     if (this.fareDist) {
       this.fareDist.textContent = `${Math.round(distance)} m`;
     }
+
     const f = Math.max(0, Math.min(1, patienceFrac));
     this.patienceFill.style.width = `${Math.round(f * 100)}%`;
     this.patienceFill.style.background = patienceColor(f);
   }
-  hideFareCard(): void {
+  hideFareCard() {
     this.fareCard.classList.remove("show");
   }
 
-  // Major slot: fare payoffs, combos, big moments. Gold and loud.
-  showCombo(text: string): void {
+  showCombo(text: string) {
     this.combo.textContent = text;
     this.combo.animate(
       [
@@ -600,19 +582,15 @@ export class Hud {
     );
   }
 
-  // Minor slot: near-misses, smashes, air time — never masks a fare payoff.
-  // Operator branding: the EARNED pill carries the equipped robotaxi's name
-  // and brand color — swapping cars re-skins the meter.
-  setOperator(label: string, accent: string): void {
+  setOperator(label: string, accent: string) {
     if (this.scoreLabel) {
       this.scoreLabel.textContent = label;
     }
-    // The plate's accent slot: rim-light gradient + label tint both key off
-    // --accent, so the brand color lands in one write.
+
     this.scorePill.style.setProperty("--accent", accent);
   }
 
-  announceMinor(text: string, color = "#aee3ff"): void {
+  announceMinor(text: string, color = "#aee3ff") {
     this.announceMinorEl.textContent = text;
     this.announceMinorEl.style.color = color;
     this.announceMinorEl.animate(
@@ -626,9 +604,9 @@ export class Hud {
     );
   }
 
-  // Itemized dropoff receipt, lines staggered 150ms apart.
-  showReceipt(lines: readonly ReceiptLine[]): void {
+  showReceipt(lines: readonly ReceiptLine[]) {
     this.receipt.replaceChildren();
+
     for (const [i, line] of lines.entries()) {
       const div = document.createElement("div");
       div.textContent = line.text;
@@ -647,11 +625,9 @@ export class Hud {
     }
   }
 
-  showCountdown(text: string, big: boolean): void {
+  showCountdown(text: string, big: boolean) {
     this.countdown.textContent = text;
-    // GO! flips the gold display ramp to green (CSS .go).
     this.countdown.classList.toggle("go", text.toUpperCase().startsWith("GO"));
-    // Scale-settle: land past 1, snap back — the digit reads as slammed down.
     this.countdown.animate(
       [
         { opacity: 0, transform: `translate(-50%,-50%) scale(${big ? 1.6 : 1.35})` },
@@ -664,7 +640,7 @@ export class Hud {
     );
   }
 
-  setVignette(intensity: number): void {
+  setVignette(intensity: number) {
     const v = this.reduceMotion ? 0 : Math.max(0, Math.min(1, intensity));
     this.vignette.style.opacity = v.toFixed(2);
   }
@@ -685,62 +661,74 @@ export class Hud {
   arrowBounds() {
     const now = performance.now();
     const cached = this.arrowBox;
+
     if (cached && now - this.arrowBoxAt < ARROW_BOX_MS) {
       return cached;
     }
+
     const w = window.innerWidth;
     const h = window.innerHeight;
     const mid = h / 2;
     let top = 0;
     let bottom = h;
+
     for (const id of ARROW_OBSTACLES) {
       const node = document.querySelector<HTMLElement>(`#${id}`);
+
       if (!node) {
         continue;
       }
+
       const r = node.getBoundingClientRect();
+
       if (r.width <= 0 || r.height <= 0) {
         continue;
-        // hidden — claims no space
       }
+
       if (r.top + r.height / 2 < mid) {
         top = Math.max(top, r.bottom);
       } else {
         bottom = Math.min(bottom, r.top);
       }
     }
+
     const pad = ARROW_HALF + ARROW_GUTTER;
-    // A short landscape phone can run the two bands together; keep a strip.
+
     if (bottom - top < ARROW_MIN_BAND) {
       const centre = (top + bottom) / 2;
       top = centre - ARROW_MIN_BAND / 2;
       bottom = centre + ARROW_MIN_BAND / 2;
     }
+
     const box = {
       maxX: w - pad,
       maxY: Math.min(h - pad, bottom - pad),
       minX: pad,
       minY: Math.max(pad, top + pad),
     };
+
     this.arrowBox = box;
     this.arrowBoxAt = now;
+
     return box;
   }
 
-  // Off-screen objective arrow. When visible it sits at (x,y) rotated to point.
-  setArrow(visible: boolean, x: number, y: number, rot: number, color?: string): void {
+  setArrow(visible: boolean, x: number, y: number, rot: number, color?: string) {
     if (!visible) {
       this.arrow.style.opacity = "0";
+
       return;
     }
+
     this.arrow.style.opacity = "1";
     this.arrow.style.transform = `translate(${x}px, ${y}px) rotate(${rot}rad)`;
+
     if (color && this.arrowPoly) {
       this.arrowPoly.setAttribute("fill", color);
     }
   }
 
-  showBanner(spec: BannerSpec): void {
+  showBanner(spec: BannerSpec) {
     this.bannerTitle.textContent = spec.title;
     this.bannerSub.textContent = spec.sub;
     this.bannerStats.textContent = spec.stats ?? "";
@@ -750,10 +738,7 @@ export class Hud {
     this.banner.classList.add("show");
   }
 
-  /** Build the keycap legend as nodes — one row per input method, led by the
-   *  pause overlay's method tag. The `:empty` rule hides it when there are no
-   *  hints (game-over banner), so clear it rather than leaving stale chips. */
-  private renderControls(groups: readonly ControlHintGroup[]): void {
+  private renderControls(groups: readonly ControlHintGroup[]) {
     this.bannerControls.replaceChildren(
       ...groups.map((row) => {
         const grp = document.createElement("div");
@@ -762,26 +747,29 @@ export class Hud {
         tag.className = "tag";
         tag.textContent = row.tag;
         grp.append(tag);
+
         for (const hint of row.hints) {
           const group = document.createElement("span");
           group.className = "hint";
+
           for (const key of hint.keys) {
             const cap = document.createElement("kbd");
             cap.textContent = key;
             group.append(cap);
           }
+
           const label = document.createElement("span");
           label.className = "lbl";
           label.textContent = hint.label;
           group.append(label);
           grp.append(group);
         }
+
         return grp;
       }),
     );
   }
-  hideBanner(): void {
-    // Opacity may still be fading, but gameplay owns focus and touch now.
+  hideBanner() {
     this.banner.inert = true;
     this.banner.classList.remove("show");
   }
@@ -789,30 +777,35 @@ export class Hud {
   /** Landing screen: banner owns the screen. Hides the gameplay HUD (pills,
    *  minimap, driver count, touch pad) and reveals the sound button. */
   // oxlint-disable-next-line class-methods-use-this -- part of the Hud facade; callers hold the instance, not the class
-  setLanding(on: boolean): void {
+  setLanding(on: boolean) {
     document.body.classList.toggle("landing", on);
   }
   /** Retarget the banner's call-to-action without rebuilding the banner —
    *  used while the city finishes loading behind the landing screen. */
-  setCta(text: string): void {
+  setCta(text: string) {
     this.bannerCta.textContent = text;
   }
-  onCta(fn: () => void): void {
+  onCta(fn: () => void) {
     let touch: { id: number; x: number; y: number } | null = null;
     let touchClickPending = false;
-    const cancel = (event: PointerEvent): void => {
+
+    const cancel = (event: PointerEvent) => {
       if (touch?.id === event.pointerId) {
         touch = null;
       }
     };
+
     this.bannerCta.addEventListener("pointerdown", (event) => {
       if (event.pointerType !== "touch") {
         touchClickPending = false;
+
         return;
       }
+
       if (!event.isPrimary || this.banner.inert) {
         return;
       }
+
       touch = { id: event.pointerId, x: event.clientX, y: event.clientY };
       touchClickPending = true;
     });
@@ -820,6 +813,7 @@ export class Hud {
       if (touch?.id !== event.pointerId) {
         return;
       }
+
       if (Math.hypot(event.clientX - touch.x, event.clientY - touch.y) > 12) {
         touch = null;
       }
@@ -829,10 +823,13 @@ export class Hud {
     this.bannerCta.addEventListener("pointerup", (event) => {
       const started = touch;
       cancel(event);
+
       if (!started || started.id !== event.pointerId || this.banner.inert) {
         return;
       }
+
       const rect = this.bannerCta.getBoundingClientRect();
+
       if (
         Math.hypot(event.clientX - started.x, event.clientY - started.y) > 12 ||
         event.clientX < rect.left ||
@@ -842,24 +839,23 @@ export class Hud {
       ) {
         return;
       }
-      // Safari may omit the first touch's compatibility click entirely.
-      // A completed tap is authoritative; mouse and keyboard still use click.
+
       fn();
     });
     this.bannerCta.addEventListener("click", (event) => {
-      // Some Safari clicks report pointerType="mouse" for a touch. A real
-      // mouse pointerdown clears this flag; keyboard/assistive clicks have 0 detail.
       if (event.detail > 0 && touchClickPending) {
         touchClickPending = false;
         event.preventDefault();
+
         return;
       }
+
       if (!this.banner.inert) {
         fn();
       }
     });
   }
-  flash(rgb: string, alpha: number): void {
+  flash(rgb: string, alpha: number) {
     const a = this.reduceMotion ? Math.min(alpha, 0.1) : alpha;
     this.flashEl.style.background = rgb;
     this.flashEl.animate([{ opacity: a }, { opacity: 0 }], { duration: 220, easing: "ease-out" });
@@ -869,11 +865,12 @@ export class Hud {
    *  inline boot creep in index.html owns 0-14% before the bundle even parses,
    *  and a stage that reports a lower fraction than it has already reached
    *  would read as a stall or a bug. */
-  setLoading(frac: number, label?: string): void {
+  setLoading(frac: number, label?: string) {
     boot()?.stop();
     this.loadFrac = Math.max(this.loadFrac, frac);
     this.barFill.style.transition = "transform 0.2s";
     this.barFill.style.transform = `scaleX(${this.loadFrac.toFixed(4)})`;
+
     if (label !== undefined && label !== this.loadLabel) {
       this.loadLabel = label;
       this.loadSub.textContent = label;
@@ -884,20 +881,23 @@ export class Hud {
    *  motion lives on the compositor. A timer cannot cover the world decode —
    *  it blocks the main thread, `setInterval` stops firing, and the bar sat
    *  frozen for ~5s mid-load. CSS keeps moving through the block. */
-  glideLoading(frac: number, seconds: number, label?: string): void {
+  glideLoading(frac: number, seconds: number, label?: string) {
     boot()?.stop();
+
     if (label !== undefined && label !== this.loadLabel) {
       this.loadLabel = label;
       this.loadSub.textContent = label;
     }
+
     if (frac <= this.loadFrac) {
       return;
     }
+
     this.loadFrac = frac;
     this.barFill.style.transition = `transform ${seconds}s linear`;
     this.barFill.style.transform = `scaleX(${frac.toFixed(4)})`;
   }
-  hideLoading(): void {
+  hideLoading() {
     this.loading.animate([{ opacity: 1 }, { opacity: 0 }], {
       duration: 350,
       easing: "ease",

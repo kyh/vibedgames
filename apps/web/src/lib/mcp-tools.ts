@@ -10,23 +10,6 @@ import type { AnyProcedure } from "@orpc/server";
 import { call, DecoratedProcedure, ORPCError, os } from "@orpc/server";
 import { z } from "zod";
 
-/**
- * The tools `/mcp` serves, one per `vg` command that reaches the server, each
- * named for its command: the command path with `_` for spaces (`vg deploy` is
- * `deploy`, `vg deployments delete` is `deployments_delete`; `vg generate run`
- * is plain `generate`), so an agent that knows one
- * knows the other. Only the asset tools (`generate_image`, …) have no command
- * of their own. Most are the API's
- * own procedures; the `generate_*` family is `vg generate`'s subcommands over
- * `generate.forward`, called through `call()` so its session check, input
- * rules and credit ledger run exactly as for the CLI; `skills` reads the
- * bundled skills.
- *
- * Not tools, because they only touch the caller's machine: `init`, `login`,
- * `logout`, `update`, `config`, `completions`, `new` and `factory`; and
- * `playtest run`, which drives a local browser.
- */
-
 /** A skill as `agent-skills.ts` bundles it: its SKILL.md, frontmatter and other files. */
 export interface Skill {
   content: string;
@@ -39,11 +22,6 @@ export interface Skill {
 /** What a tool call runs with: the API's context plus the bundled skills. */
 export type McpContext = ORPCContext & { skills: readonly Skill[] };
 
-/**
- * A contract-first procedure takes its meta from the contract, so the
- * implemented one has no `.meta()`; re-decorating its definition keeps the
- * handler and middleware and adds the tool's.
- */
 const asTool = <T extends AnyProcedure>(procedure: T, meta: McpToolMeta) =>
   new DecoratedProcedure(procedure["~orpc"]).meta(mcp.tool(meta));
 
@@ -53,11 +31,6 @@ const external = { ...mutates, openWorldHint: true } as const;
 
 const tool = os.$context<McpContext>();
 
-/**
- * The `generate_*` tools reach `generate.forward` through `call()`, which
- * checks the scope again; declaring it here lets `/mcp` answer a token
- * without it with a step-up challenge before the call.
- */
 const generateTool = tool.meta(requiresScope("generate"));
 
 type ForwardQuery = NonNullable<RouterInputs["generate"]["forward"]["query"]>;
@@ -65,9 +38,9 @@ type ForwardQuery = NonNullable<RouterInputs["generate"]["forward"]["query"]>;
 const forward = (context: McpContext, input: RouterInputs["generate"]["forward"]) =>
   call(appRouter.generate.forward, input, { context });
 
-/** One string field of an upstream body, or null when the body lacks it. */
-const stringField = (value: JsonValue, key: string): string | null => {
+const stringField = (value: JsonValue, key: string) => {
   const parsed = z.looseObject({ [key]: z.string() }).safeParse(value);
+
   return parsed.success ? (parsed.data[key] ?? null) : null;
 };
 
@@ -85,8 +58,6 @@ const endpointId = z
 const TERMINAL = new Set(["COMPLETED", "FAILED", "CANCELLED"]);
 const POLL_MS = 2000;
 
-// The longest a `generate` call holds the request open: a Worker answers
-// within it, and a client's tool-call timeout is usually not much longer.
 const MAX_WAIT_SECONDS = 25;
 
 const queueStatus = async (context: McpContext, endpoint: string, requestId: string) => {
@@ -95,6 +66,7 @@ const queueStatus = async (context: McpContext, endpoint: string, requestId: str
     path: `/${queueAppId(endpoint)}/requests/${requestId}/status`,
     target: "queue",
   });
+
   return stringField(status, "status")?.toUpperCase() ?? "UNKNOWN";
 };
 
@@ -105,14 +77,8 @@ const queueResult = (context: McpContext, endpoint: string, requestId: string) =
     target: "queue",
   });
 
-/** What a model's queue takes as its input. */
 type ModelInput = Record<string, JsonValue>;
 
-/**
- * Submits one job to a model's queue and waits up to `waitSeconds` for it,
- * returning its output once COMPLETED, else its request id and status to
- * follow with generate_status.
- */
 const runModel = async (
   context: McpContext,
   endpoint: string,
@@ -125,23 +91,28 @@ const runModel = async (
     path: `/${endpointPath(endpoint)}`,
     target: "queue",
   });
+
   const requestId = stringField(submission, "request_id");
+
   if (!requestId) {
     throw new ORPCError("BAD_GATEWAY", { message: "The model's queue returned no request_id." });
   }
-  // The job is submitted and its credit held: a poll that fails from here
-  // must still hand back the request id, or a retry submits a second job.
+
   try {
     const deadline = Date.now() + waitSeconds * 1000;
     let status = stringField(submission, "status")?.toUpperCase() ?? "IN_QUEUE";
+
     while (!TERMINAL.has(status) && Date.now() + POLL_MS <= deadline) {
       await sleep(POLL_MS);
       status = await queueStatus(context, endpoint, requestId);
     }
+
     if (status !== "COMPLETED") {
       return { endpoint_id: endpoint, request_id: requestId, result: null, status };
     }
+
     const result = await queueResult(context, endpoint, requestId);
+
     return { endpoint_id: endpoint, request_id: requestId, result, status };
   } catch (error) {
     const reason = error instanceof Error ? error.message : "no reason given";
@@ -152,14 +123,10 @@ const runModel = async (
   }
 };
 
-/**
- * A cancel is confirmed asynchronously, and the hold is refunded when a status
- * poll sees CANCELLED, so poll a few times as `vg generate status --cancel`
- * does. Best-effort: a miss leaves the refund to the next status call.
- */
 const confirmCancelled = async (context: McpContext, endpoint: string, requestId: string) => {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     await sleep(1000);
+
     try {
       if (TERMINAL.has(await queueStatus(context, endpoint, requestId))) {
         return;
@@ -246,18 +213,23 @@ const generateTools = {
     )
     .handler(({ context, input }) => {
       const query: ForwardQuery = { limit: String(input.limit) };
+
       if (input.query) {
         query.q = input.query;
       }
+
       if (input.category) {
         query.category = input.category;
       }
+
       if (input.cursor) {
         query.cursor = input.cursor;
       }
+
       if (input.endpoint_id?.length) {
         query.endpoint_id = input.endpoint_id;
       }
+
       return forward(context, { method: "GET", path: "/v1/models", query, target: "platform" });
     }),
 
@@ -298,9 +270,11 @@ const generateTools = {
     )
     .handler(({ context, input }) => {
       const query: ForwardQuery = { endpoint_id: input.endpoint_id, limit: "1" };
+
       if (input.format === "openapi") {
         query.expand = ["openapi-3.0"];
       }
+
       return forward(context, { method: "GET", path: "/v1/models", query, target: "platform" });
     }),
 
@@ -324,18 +298,23 @@ const generateTools = {
     )
     .handler(async ({ context, input }) => {
       const base = `/${queueAppId(input.endpoint_id)}/requests/${input.request_id}`;
+
       if (input.action === "result") {
         return queueResult(context, input.endpoint_id, input.request_id);
       }
+
       if (input.action === "cancel") {
         const answer = await forward(context, {
           method: "PUT",
           path: `${base}/cancel`,
           target: "queue",
         });
+
         await confirmCancelled(context, input.endpoint_id, input.request_id);
+
         return answer;
       }
+
       return forward(context, {
         method: "GET",
         path: `${base}/status`,
@@ -360,11 +339,11 @@ const options = z
     "Any other input the model takes, per generate_schema of its endpoint; the fields above win",
   );
 
-/** The model's body: `options`, then every field given. */
 const bodyOf = (extra: ModelInput, fields: Record<string, JsonValue | undefined>) => {
   const given = Object.entries(fields).filter(
     (entry): entry is [string, JsonValue] => entry[1] !== undefined,
   );
+
   return { ...extra, ...Object.fromEntries(given) };
 };
 
@@ -415,9 +394,11 @@ const mediaTools = {
     )
     .handler(({ context, input }) => {
       const [fromText, fromImage] = MEDIA_MODELS.generate_3d;
+
       if (input.image_url === undefined && input.prompt === undefined) {
         throw new ORPCError("BAD_REQUEST", { message: "Give a prompt or an image_url." });
       }
+
       const fields = {
         image_url: input.image_url,
         model_type: input.model_type,
@@ -425,6 +406,7 @@ const mediaTools = {
         target_polycount: input.target_polycount,
         topology: input.topology,
       };
+
       return runModel(
         context,
         input.image_url === undefined ? fromText : fromImage,
@@ -472,6 +454,7 @@ const mediaTools = {
     )
     .handler(({ context, input }) => {
       const [fromText, edit] = MEDIA_MODELS.generate_image;
+
       const fields = {
         background: input.background,
         image_size: input.image_size,
@@ -480,6 +463,7 @@ const mediaTools = {
         prompt: input.prompt,
         quality: input.quality,
       };
+
       return runModel(
         context,
         input.image_urls === undefined ? fromText : edit,
@@ -632,12 +616,15 @@ const mediaTools = {
     )
     .handler(({ context, input }) => {
       const [fromText, fromImage] = MEDIA_MODELS.generate_video;
+
       if (input.end_image_url !== undefined && input.image_url === undefined) {
         throw new ORPCError("BAD_REQUEST", { message: "end_image_url needs an image_url." });
       }
+
       if (input.image_url === undefined && input.prompt === undefined) {
         throw new ORPCError("BAD_REQUEST", { message: "Give a prompt or an image_url." });
       }
+
       const fields = {
         aspect_ratio: input.aspect_ratio,
         duration: input.duration,
@@ -647,6 +634,7 @@ const mediaTools = {
         prompt: input.prompt,
         resolution: input.resolution,
       };
+
       return runModel(
         context,
         input.image_url === undefined ? fromText : fromImage,
@@ -742,12 +730,15 @@ export const tools = {
           skills: context.skills.map(({ description, name }) => ({ description, name })),
         };
       }
+
       const skill = context.skills.find(({ name }) => name === input.name);
+
       if (!skill) {
         throw new ORPCError("NOT_FOUND", {
           message: `No skill "${input.name}". Call skills without a name to list them.`,
         });
       }
+
       return { content: skill.content, description: skill.description, name: skill.name };
     }),
   whoami: asTool(appRouter.auth.me, { annotations: readOnly, name: "whoami", title: "Who am I" }),

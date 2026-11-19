@@ -3,7 +3,9 @@ import type { DynamicRayCastVehicleController } from "#rapier";
 import type { WheelSurface } from "../world/land-class";
 
 type Tint = Readonly<{ r: number; g: number; b: number }>;
+
 export type PavedSurface = Extract<WheelSurface, "road" | "concrete">;
+
 export type MatterRecipe = Readonly<{
   color: Tint;
   count: number;
@@ -14,7 +16,9 @@ export type MatterRecipe = Readonly<{
   gravity: number;
   drag: number;
 }>;
+
 type PavedProfile = Readonly<{ kind: "paved"; color: Tint; rate: number; minSpeed: number }>;
+
 export type LooseProfile = Readonly<{
   kind: "loose";
   rate: number;
@@ -23,13 +27,13 @@ export type LooseProfile = Readonly<{
   debris: MatterRecipe;
 }>;
 
-// Shared normal-blend pool: no extra draw call. At max cadence both tires keep
-// fewer than 80 live particles; dust stays below 0.4 s and 0.75u authored size.
 export const SURFACE_FX_MAX_RATE = 18;
 export const SURFACE_FX_MAX_BURSTS = 2;
+
 type SurfaceProfiles = {
   readonly [Surface in WheelSurface]: Surface extends PavedSurface ? PavedProfile : LooseProfile;
 };
+
 export const SURFACE_FX = {
   concrete: { color: { b: 0.72, g: 0.76, r: 0.76 }, kind: "paved", minSpeed: 3, rate: 30 },
   dirt: {
@@ -168,13 +172,15 @@ export class TireEmissionClock {
   private previous: WheelSurface | null = null;
   private carry = 0;
 
-  step(dt: number, surface: WheelSurface | null, speed: number, stressed: boolean): number {
+  step(dt: number, surface: WheelSurface | null, speed: number, stressed: boolean) {
     if (surface !== this.previous) {
       this.carry = 0;
     }
+
     this.previous = surface;
     const profile = surface === null ? null : SURFACE_FX[surface];
     const moving = Math.abs(speed);
+
     if (
       !profile ||
       !Number.isFinite(dt) ||
@@ -184,8 +190,10 @@ export class TireEmissionClock {
       (profile.kind === "paved" && !stressed)
     ) {
       this.carry = 0;
+
       return 0;
     }
+
     const rate =
       profile.kind === "paved"
         ? profile.rate
@@ -193,9 +201,11 @@ export class TireEmissionClock {
             SURFACE_FX_MAX_RATE,
             profile.rate * Math.min(1.25, 0.5 + moving / 36) * (stressed ? 1.2 : 1),
           );
+
     this.carry += Math.min(dt, 0.1) * rate;
     const bursts = Math.floor(this.carry);
     this.carry -= bursts;
+
     return Math.min(SURFACE_FX_MAX_BURSTS, bursts);
   }
 }
@@ -205,6 +215,7 @@ interface ContactPoint {
   y: number;
   z: number;
 }
+
 type WheelContacts = Pick<
   DynamicRayCastVehicleController,
   "wheelIsInContact" | "wheelContactPoint"
@@ -216,23 +227,21 @@ export const readTireContact = (
   index: 2 | 3,
   fallbackGrounded: boolean,
   point: ContactPoint,
-): boolean => {
+) => {
   if (!controller) {
     return fallbackGrounded;
   }
+
   return controller.wheelIsInContact(index) && controller.wheelContactPoint(index, point) !== null;
 };
 
 /** Throw against actual travel, so reverse and sideways slides tear correctly. */
-export const tireThrow = (
-  velX: number,
-  velZ: number,
-  out: { x: number; y: number; z: number },
-): number => {
+export const tireThrow = (velX: number, velZ: number, out: { x: number; y: number; z: number }) => {
   const speed = Math.hypot(velX, velZ);
   const inv = speed > 0.001 ? 1 / speed : 0;
   out.x = -velX * inv;
   out.y = 0;
   out.z = -velZ * inv;
+
   return Math.min(3.8, 1.4 + speed * 0.055);
 };

@@ -9,6 +9,7 @@ const ranged = Object.values(BRAWLERS).filter((def) => def.attack.kind !== "mele
 for (const def of ranged) {
   test(`${def.name}: attack and super pose at release, then settle without replaying`, () => {
     const rest = sampleRangedPose(null, def.id);
+
     for (const isSuper of [false, true]) {
       const duration = rangedPoseDuration(def.id, isSuper);
       const cue = { elapsed: 0, isSuper };
@@ -30,6 +31,7 @@ for (const def of ranged) {
       assert.deepEqual(sampleRangedPose({ ...cue, elapsed: duration + 5 }, def.id), rest);
       assert.deepEqual(sampleRangedPose({ ...cue, elapsed: 0 }, def.id), release);
     }
+
     assert.notDeepEqual(
       sampleRangedPose({ elapsed: 0, isSuper: false }, def.id),
       sampleRangedPose({ elapsed: 0, isSuper: true }, def.id),
@@ -43,6 +45,7 @@ test("the six ranged champions have distinct release silhouettes", () => {
     const poses = ranged.map((def) =>
       JSON.stringify(sampleRangedPose({ elapsed: 0, isSuper }, def.id)),
     );
+
     assert.equal(new Set(poses).size, 6);
   }
 });
@@ -51,10 +54,12 @@ test("released arrows, bolts, javelins and flasks return only during recovery", 
   for (const id of ["ace", "flint", "rowan", "pip"] satisfies (keyof typeof BRAWLERS)[]) {
     for (const isSuper of [false, true]) {
       const release = sampleRangedPose({ elapsed: 0, isSuper }, id);
+
       const recovered = sampleRangedPose(
         { elapsed: rangedPoseDuration(id, isSuper) * 0.8, isSuper },
         id,
       );
+
       if (id === "ace" || id === "flint") {
         assert.equal(release.loaded, false);
         assert.equal(release.weaponVisible, true);
@@ -75,6 +80,7 @@ test("bow and crossbow ammunition retain independent groups after rigid mesh bat
     assert.ok(model.loadedProjectile.children.length > 0);
     model.loadedProjectile.visible = false;
     assert.equal(model.weapon.visible, true);
+
     for (const material of model.allMats) {
       material.dispose();
     }

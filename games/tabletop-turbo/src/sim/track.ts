@@ -1,11 +1,3 @@
-// A track is a closed centreline sampled every TRACK_STEP units, with a
-// tangent and a height per sample. Everything a kart needs — where it is along
-// the lap, how far off the centreline, how high the road is — comes from
-// `locate`, which searches a window around the kart's last sample so a kart
-// never jumps to a neighbouring stretch of road that happens to pass close by.
-//
-// No three.js here: the headless harness imports this file under Node.
-
 import { SHOULDER, TRACK_STEP } from "../shared/constants";
 
 /** Which room the circuit is laid out in: sets the floor and the toys around it. */
@@ -71,14 +63,14 @@ const TAU = Math.PI * 2;
 const SUBDIVISIONS = 48;
 const SEARCH_WINDOW = 14;
 
-export const wrapIndex = (i: number, n: number): number => ((i % n) + n) % n;
+export const wrapIndex = (i: number, n: number) => ((i % n) + n) % n;
 
-/** Read a typed array at an index known to be in range. */
-const at = (list: Float32Array, i: number): number => list[i] ?? 0;
+const at = (list: Float32Array, i: number) => list[i] ?? 0;
 
-const catmull = (p0: number, p1: number, p2: number, p3: number, t: number): number => {
+const catmull = (p0: number, p1: number, p2: number, p3: number, t: number) => {
   const t2 = t * t;
   const t3 = t2 * t;
+
   return (
     0.5 *
     (2 * p1 +
@@ -93,53 +85,50 @@ interface Polyline {
   z: number[];
 }
 
-/** The control loop as a dense polyline (uneven spacing). */
-const densify = (points: TrackDef["points"]): Polyline => {
+const densify = (points: TrackDef["points"]) => {
   const x: number[] = [];
   const z: number[] = [];
   const count = points.length;
-  const pick = (i: number): readonly [number, number] => points[wrapIndex(i, count)] ?? [0, 0];
+  const pick = (i: number) => points[wrapIndex(i, count)] ?? [0, 0];
+
   for (let i = 0; i < count; i += 1) {
     const [p0, p1, p2, p3] = [pick(i - 1), pick(i), pick(i + 1), pick(i + 2)];
+
     for (let k = 0; k < SUBDIVISIONS; k += 1) {
       const t = k / SUBDIVISIONS;
       x.push(catmull(p0[0], p1[0], p2[0], p3[0], t));
       z.push(catmull(p0[1], p1[1], p2[1], p3[1], t));
     }
   }
+
   return { x, z };
 };
 
-const heightAt = (hills: readonly Hill[], u: number): number => {
+const heightAt = (hills: readonly Hill[], u: number) => {
   let h = 0;
+
   for (const hill of hills) {
     h += hill.amp * Math.sin(TAU * (hill.waves * u + hill.phase));
   }
+
   return h;
 };
 
-/** Cumulative arc length around a closed polyline; the last entry is the lap. */
-const arcLengths = (line: Polyline): number[] => {
+const arcLengths = (line: Polyline) => {
   const m = line.x.length;
   const cum: number[] = [0];
+
   for (let i = 0; i < m; i += 1) {
     const j = (i + 1) % m;
     const dx = (line.x[j] ?? 0) - (line.x[i] ?? 0);
     const dz = (line.z[j] ?? 0) - (line.z[i] ?? 0);
     cum.push((cum[i] ?? 0) + Math.hypot(dx, dz));
   }
+
   return cum;
 };
 
-interface Centreline {
-  n: number;
-  step: number;
-  xs: Float32Array;
-  zs: Float32Array;
-}
-
-/** Walk the polyline at even spacing, as close to TRACK_STEP as divides the lap. */
-const resample = (line: Polyline): Centreline => {
+const resample = (line: Polyline) => {
   const m = line.x.length;
   const cum = arcLengths(line);
   const total = cum[m] ?? 0;
@@ -148,11 +137,14 @@ const resample = (line: Polyline): Centreline => {
   const xs = new Float32Array(n);
   const zs = new Float32Array(n);
   let seg = 0;
+
   for (let i = 0; i < n; i += 1) {
     const target = i * step;
+
     while (seg < m - 1 && (cum[seg + 1] ?? 0) < target) {
       seg += 1;
     }
+
     const a = cum[seg] ?? 0;
     const b = cum[seg + 1] ?? a;
     const k = b > a ? (target - a) / (b - a) : 0;
@@ -162,15 +154,17 @@ const resample = (line: Polyline): Centreline => {
     xs[i] = x0 + ((line.x[j] ?? 0) - x0) * k;
     zs[i] = z0 + ((line.z[j] ?? 0) - z0) * k;
   }
+
   return { n, step, xs, zs };
 };
 
-export const buildTrack = (def: TrackDef): Track => {
+export const buildTrack = (def: TrackDef) => {
   const { n, step, xs, zs } = resample(densify(def.points));
   const tx = new Float32Array(n);
   const tz = new Float32Array(n);
   const hs = new Float32Array(n);
   const curve = new Float32Array(n);
+
   for (let i = 0; i < n; i += 1) {
     const prev = wrapIndex(i - 1, n);
     const next = wrapIndex(i + 1, n);
@@ -181,13 +175,14 @@ export const buildTrack = (def: TrackDef): Track => {
     tz[i] = dz / len;
     hs[i] = heightAt(def.hills, i / n);
   }
+
   for (let i = 0; i < n; i += 1) {
     const prev = wrapIndex(i - 2, n);
     const next = wrapIndex(i + 2, n);
-    // Cross of the tangents two samples either side: sin of the turn over ~4 steps.
     const cross = at(tx, prev) * at(tz, next) - at(tz, prev) * at(tx, next);
     curve[i] = cross / (4 * step);
   }
+
   return {
     curve,
     def,
@@ -207,31 +202,34 @@ export const buildTrack = (def: TrackDef): Track => {
  * Where (x, z) is on the track. `hint` is the kart's last sample; pass a
  * negative hint to search the whole lap (a spawn, a host taking over a bot).
  */
-export const locate = (track: Track, x: number, z: number, hint: number): Located => {
+export const locate = (track: Track, x: number, z: number, hint: number) => {
   const { n } = track;
   let best = 0;
   let bestD = Number.POSITIVE_INFINITY;
   const from = hint < 0 ? 0 : hint - SEARCH_WINDOW;
   const to = hint < 0 ? n - 1 : hint + SEARCH_WINDOW;
+
   for (let k = from; k <= to; k += 1) {
     const i = wrapIndex(k, n);
     const dx = x - at(track.xs, i);
     const dz = z - at(track.zs, i);
     const d = dx * dx + dz * dz;
+
     if (d < bestD) {
       bestD = d;
       best = i;
     }
   }
+
   const dx = x - at(track.xs, best);
   const dz = z - at(track.zs, best);
   const tx = at(track.tx, best);
   const tz = at(track.tz, best);
   const along = dx * tx + dz * tz;
-  // Right-hand normal of a heading (tx, tz) is (-tz, tx).
   const lat = dx * -tz + dz * tx;
   const next = wrapIndex(best + (along >= 0 ? 1 : -1), n);
   const k = Math.min(1, Math.abs(along) / TRACK_STEP);
+
   return {
     h: at(track.hs, best) + (at(track.hs, next) - at(track.hs, best)) * k,
     i: best,
@@ -249,10 +247,11 @@ export interface TrackPoint {
 }
 
 /** A point `lat` to the right of the centreline at (fractional) sample `s`. */
-export const pointAt = (track: Track, s: number, lat: number): TrackPoint => {
+export const pointAt = (track: Track, s: number, lat: number) => {
   const i = wrapIndex(Math.round(s), track.n);
   const tx = at(track.tx, i);
   const tz = at(track.tz, i);
+
   return {
     a: Math.atan2(tz, tx),
     h: at(track.hs, i),
@@ -261,12 +260,8 @@ export const pointAt = (track: Track, s: number, lat: number): TrackPoint => {
   };
 };
 
-export const curvatureAt = (track: Track, s: number): number =>
+export const curvatureAt = (track: Track, s: number) =>
   at(track.curve, wrapIndex(Math.round(s), track.n));
-
-// --- The circuits ------------------------------------------------------------
-// Three toy circuits, one to a room. Each loop stays inside ±120 so the paint grid covers it,
-// and no stretch passes within two rails of another.
 
 export const TRACK_DEFS: readonly TrackDef[] = [
   {
@@ -347,10 +342,12 @@ export const TRACK_DEFS: readonly TrackDef[] = [
 
 export const TRACKS: readonly Track[] = TRACK_DEFS.map((def) => buildTrack(def));
 
-export const trackFor = (index: number): Track => {
+export const trackFor = (index: number) => {
   const track = TRACKS[wrapIndex(index, TRACKS.length)];
+
   if (!track) {
     throw new Error("no tracks defined");
   }
+
   return track;
 };

@@ -5,7 +5,6 @@ import { siteConfig } from "@/lib/site-config";
 
 const { url } = siteConfig;
 
-/** RFC 9727 API catalog, as an RFC 9264 linkset. */
 const linkset = {
   linkset: [
     {

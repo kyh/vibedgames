@@ -1,14 +1,3 @@
-// Keyboard + mouse and touch input. On touch the screen is split into two
-// virtual sticks (left 45% moves, the rest aims) plus the on-screen super
-// button; dragging a stick past the dead zone and releasing fires in that
-// direction, a plain tap fires with auto-aim, and pulling back inside the dead
-// zone cancels. Touch and mouse are told apart by a short grace window after
-// the last touch, so a phone with a mouse attached does not flip modes on
-// every synthetic mouse event. A physical gamepad folds into the same fields
-// the keyboard and mouse write (poll() once per frame): left stick moves,
-// right stick aims, RT/A fire like the left mouse button, LT/RB hold-and-
-// release the super like Space, START opens the shared Escape pause overlay.
-
 import { PhysicalGamepad } from "@vibedgames/gamepad";
 import type { StickState } from "@vibedgames/gamepad";
 
@@ -51,7 +40,6 @@ export interface Axis {
   z: number;
 }
 
-/** Physical key codes for browsers that only report `key`. */
 const FALLBACK_KEY_CODES = new Map<string, string>([
   [" ", "Space"],
   ["a", "KeyA"],
@@ -71,10 +59,10 @@ const FALLBACK_KEY_CODES = new Map<string, string>([
   ["w", "KeyW"],
 ]);
 
-export const keyCode = (e: KeyboardEvent): string =>
+export const keyCode = (e: KeyboardEvent) =>
   e.code || FALLBACK_KEY_CODES.get((e.key || "").toLowerCase()) || "";
 
-const makeStick = (): Stick => ({
+const makeStick: () => Stick = () => ({
   id: null,
   mag: 0,
   moved: false,
@@ -84,7 +72,7 @@ const makeStick = (): Stick => ({
   y: 0,
 });
 
-const resetStick = (stick: Stick): void => {
+const resetStick = (stick: Stick) => {
   stick.id = null;
   stick.x = 0;
   stick.y = 0;
@@ -92,18 +80,14 @@ const resetStick = (stick: Stick): void => {
   stick.moved = false;
 };
 
-/** Pixels of drag for a full deflection. */
 const STICK_RADIUS_PX = 58;
 export const STICK_DEAD_ZONE = 0.22;
-/** Touches left of this fraction of the screen grab the move stick. */
 const MOVE_ZONE_FRACTION = 0.45;
-/** Mouse events this soon after a touch are the browser's synthetic ones. */
 const TOUCH_GRACE_MS = 900;
 
 const SUPER_KEYS = new Set(["Space", "KeyE"]);
 const EVADE_KEYS = new Set(["ShiftLeft", "ShiftRight"]);
 
-/** Pad actions → buttons. Raw names stay readable through the same API. */
 const PAD_BINDINGS = {
   evade: ["b", "lb"],
   fire: ["rt", "a"],
@@ -113,21 +97,20 @@ const PAD_BINDINGS = {
 
 const PAD_ACTIONS = Object.keys(PAD_BINDINGS);
 
-/** A pad stick as a unit direction (right = +x, down = +z), or null inside the dead zone. */
-const stickDirection = (stick: StickState): Axis | null => {
+const stickDirection = (stick: StickState) => {
   if (!stick.active || stick.inDeadZone || stick.distance === 0) {
     return null;
   }
+
   return { x: stick.dx / stick.distance, z: stick.dy / stick.distance };
 };
 
-/** Any pad input a player would notice: a fresh button or a deflected stick. */
-const padTouched = (pad: PhysicalGamepad): boolean =>
+const padTouched = (pad: PhysicalGamepad) =>
   PAD_ACTIONS.some((action) => pad.justPressed(action)) ||
   !pad.getStick("left").inDeadZone ||
   !pad.getStick("right").inDeadZone;
 
-export const isFormField = (target: EventTarget | null): boolean =>
+export const isFormField = (target: EventTarget | null) =>
   target instanceof HTMLElement &&
   (target.tagName === "INPUT" ||
     target.tagName === "SELECT" ||
@@ -158,52 +141,57 @@ export class Input {
     this.bindEvadeButton(evadeButton);
   }
 
-  private clear(): void {
+  private clear() {
     this.keys.clear();
     this.fire = false;
     this.superHeld = false;
     this.superReleased = false;
     this.evadePressed = false;
     this.shots.length = 0;
+
     for (const stick of Object.values(this.sticks)) {
       resetStick(stick);
     }
   }
 
   /** Overlay events may swallow releases; neither side of a pause carries input. */
-  setEnabled(enabled: boolean): void {
+  setEnabled(enabled: boolean) {
     this.enabled = enabled;
     this.clear();
-    // Baseline held buttons so the press that resumes cannot also attack.
     this.pad.update();
     this.pad.update();
   }
 
-  private recentTouch(): boolean {
+  private recentTouch() {
     return performance.now() - this.lastTouch < TOUCH_GRACE_MS;
   }
 
-  private setPointer(e: MouseEvent): void {
+  private setPointer(e: MouseEvent) {
     this.aimMethod = "pointer";
     this.ndcX = (e.clientX / window.innerWidth) * 2 - 1;
     this.ndcY = -(e.clientY / window.innerHeight) * 2 + 1;
   }
 
-  private bindKeyboard(): void {
+  private bindKeyboard() {
     window.addEventListener("keydown", (e) => {
       if (!this.enabled || e.repeat || isFormField(e.target)) {
         return;
       }
+
       const code = keyCode(e);
+
       if (EVADE_KEYS.has(code) && !this.keys.has(code)) {
         this.evadePressed = true;
         e.preventDefault();
       }
+
       this.keys.add(code);
+
       if (SUPER_KEYS.has(code)) {
         this.superHeld = true;
         e.preventDefault();
       }
+
       if (code.startsWith("Arrow")) {
         e.preventDefault();
       }
@@ -211,6 +199,7 @@ export class Input {
     window.addEventListener("keyup", (e) => {
       const code = keyCode(e);
       this.keys.delete(code);
+
       if (SUPER_KEYS.has(code) && this.superHeld) {
         this.superHeld = false;
         this.superReleased = true;
@@ -219,11 +208,12 @@ export class Input {
     window.addEventListener("blur", () => this.clear());
   }
 
-  private bindEvadeButton(button: HTMLElement): void {
+  private bindEvadeButton(button: HTMLElement) {
     button.addEventListener("pointerdown", (e) => {
       if (!this.enabled || e.pointerType !== "touch") {
         return;
       }
+
       this.lastTouch = performance.now();
       this.setTouchMode(true);
       this.evadePressed = true;
@@ -236,7 +226,7 @@ export class Input {
     });
   }
 
-  private bindMouse(canvas: HTMLElement): void {
+  private bindMouse(canvas: HTMLElement) {
     window.addEventListener("mousemove", (e) => {
       if (this.enabled && !this.recentTouch()) {
         this.setTouchMode(false);
@@ -247,13 +237,17 @@ export class Input {
       if (!this.enabled || this.recentTouch()) {
         return;
       }
+
       if (this.touchMode) {
         this.setTouchMode(false);
       }
+
       this.setPointer(e);
+
       if (e.button === 0) {
         this.fire = true;
       }
+
       if (e.button === 2) {
         this.superHeld = true;
       }
@@ -262,6 +256,7 @@ export class Input {
       if (e.button === 0) {
         this.fire = false;
       }
+
       if (e.button === 2 && this.superHeld) {
         this.superHeld = false;
         this.superReleased = true;
@@ -270,7 +265,7 @@ export class Input {
     canvas.addEventListener("contextmenu", (e) => e.preventDefault());
   }
 
-  private bindTouch(canvas: HTMLElement, superButton: HTMLElement): void {
+  private bindTouch(canvas: HTMLElement, superButton: HTMLElement) {
     canvas.addEventListener("pointerdown", (e) => this.beginTouch(e, "field"));
     superButton.addEventListener("pointerdown", (e) => this.beginTouch(e, "super"));
     superButton.addEventListener("click", () => {
@@ -284,29 +279,37 @@ export class Input {
     window.addEventListener("pointercancel", release);
   }
 
-  private stickForTouch(e: PointerEvent, zone: "field" | "super"): Stick {
+  private stickForTouch(e: PointerEvent, zone: "field" | "super") {
     if (zone === "super") {
       return this.sticks.super;
     }
+
     return e.clientX < window.innerWidth * MOVE_ZONE_FRACTION ? this.sticks.move : this.sticks.aim;
   }
 
-  private stickHeldBy(e: PointerEvent): Stick | undefined {
-    return Object.values(this.sticks).find((stick) => stick.id === e.pointerId);
+  private stickHeldBy(e: PointerEvent) {
+    return Object.values(this.sticks).find((stick) => stick.id === e.pointerId) satisfies
+      | Stick
+      | undefined;
   }
 
-  private beginTouch(e: PointerEvent, zone: "field" | "super"): void {
+  private beginTouch(e: PointerEvent, zone: "field" | "super") {
     if (!this.enabled || e.pointerType !== "touch") {
       return;
     }
+
     this.lastTouch = performance.now();
+
     if (!this.touchMode) {
       this.setTouchMode(true);
     }
+
     const stick = this.stickForTouch(e, zone);
+
     if (stick.id !== null) {
       return;
     }
+
     stick.id = e.pointerId;
     stick.ox = e.clientX;
     stick.oy = e.clientY;
@@ -317,39 +320,48 @@ export class Input {
     e.preventDefault();
   }
 
-  private moveTouch(e: PointerEvent): void {
+  private moveTouch(e: PointerEvent) {
     if (e.pointerType !== "touch") {
       return;
     }
+
     this.lastTouch = performance.now();
     const stick = this.stickHeldBy(e);
+
     if (!stick) {
       return;
     }
+
     let dx = (e.clientX - stick.ox) / STICK_RADIUS_PX;
     let dy = (e.clientY - stick.oy) / STICK_RADIUS_PX;
     const len = Math.hypot(dx, dy);
+
     if (len > 1) {
       dx /= len;
       dy /= len;
     }
+
     stick.x = dx;
     stick.y = dy;
     stick.mag = Math.min(1, len);
+
     if (stick.mag > STICK_DEAD_ZONE) {
       stick.moved = true;
     }
   }
 
-  private endTouch(e: PointerEvent): void {
+  private endTouch(e: PointerEvent) {
     if (e.pointerType !== "touch") {
       return;
     }
+
     this.lastTouch = performance.now();
     const stick = this.stickHeldBy(e);
+
     if (!stick) {
       return;
     }
+
     if (stick !== this.sticks.move && e.type === "pointerup") {
       this.shots.push({
         cancelled: stick.moved && stick.mag <= STICK_DEAD_ZONE,
@@ -360,20 +372,24 @@ export class Input {
         y: stick.y,
       });
     }
+
     resetStick(stick);
   }
 
-  setTouchMode(on: boolean): void {
+  setTouchMode(on: boolean) {
     if (this.touchMode === on) {
       return;
     }
+
     this.touchMode = on;
     this.fire = false;
+
     if (!on) {
       for (const stick of Object.values(this.sticks)) {
         resetStick(stick);
       }
     }
+
     this.onTouchMode?.(on);
   }
 
@@ -383,35 +399,40 @@ export class Input {
    * before any input read, so a START press still toggles pause while the
    * sim is frozen.
    */
-  poll(): void {
+  poll() {
     const { pad } = this;
     pad.update();
+
     if (!pad.connected || !this.enabled) {
       return;
     }
+
     if (pad.justPressed("pause")) {
       return;
     }
-    // A pad in hand means the thumb sticks are not: same switch a mouse click makes.
+
     if (padTouched(pad)) {
       this.aimMethod = "pad";
       this.setTouchMode(false);
     }
-    // RT / A are the left mouse button.
+
     if (pad.justPressed("fire")) {
       this.fire = true;
     }
+
     if (pad.justReleased("fire")) {
       this.fire = false;
     }
-    // LT / RB are Space: hold to aim the super, release to fire it.
+
     if (pad.justPressed("super")) {
       this.superHeld = true;
     }
+
     if (pad.justReleased("super") && this.superHeld) {
       this.superHeld = false;
       this.superReleased = true;
     }
+
     if (pad.justPressed("evade")) {
       this.evadePressed = true;
     }
@@ -421,38 +442,43 @@ export class Input {
    * Right stick as a unit world direction, in the axes mouse aim uses (stick
    * right = +x, stick down = +z), or null inside the dead zone / with no pad.
    */
-  padAim(): Axis | null {
+  padAim() {
     return this.enabled ? stickDirection(this.pad.getStick("right")) : null;
   }
 
   /** Press edge of a pad button or d-pad direction by its raw name (`"a"`, `"start"`, `"left"`…). */
-  padJustPressed(button: string): boolean {
+  padJustPressed(button: string) {
     return this.enabled && this.pad.connected && this.pad.justPressed(button);
   }
 
   /** Left-stick deflection past the dead zone, for menu navigation edges. */
-  padStick(): Axis | null {
+  padStick() {
     return this.enabled ? stickDirection(this.pad.getStick("left")) : null;
   }
 
-  /** WASD / arrows as a unit direction, or null when none is held. */
-  private keyAxis(): Axis | null {
+  private keyAxis() {
     const { keys } = this;
     let x = 0;
     let z = 0;
+
     if (keys.has("KeyA") || keys.has("ArrowLeft")) {
       x -= 1;
     }
+
     if (keys.has("KeyD") || keys.has("ArrowRight")) {
       x += 1;
     }
+
     if (keys.has("KeyW") || keys.has("ArrowUp")) {
       z -= 1;
     }
+
     if (keys.has("KeyS") || keys.has("ArrowDown")) {
       z += 1;
     }
+
     const len = Math.hypot(x, z);
+
     return len > 0 ? { x: x / len, z: z / len } : null;
   }
 
@@ -460,39 +486,47 @@ export class Input {
    * Movement direction, unit length or zero: the touch move stick when held,
    * else WASD/arrows, else the pad's left stick.
    */
-  axis(): Axis {
+  axis() {
     if (!this.enabled) {
       return { x: 0, z: 0 };
     }
+
     const { move } = this.sticks;
+
     if (move.id !== null && move.mag > STICK_DEAD_ZONE) {
       const len = Math.hypot(move.x, move.y) || 1;
+
       return { x: move.x / len, z: move.y / len };
     }
+
     return this.keyAxis() ?? stickDirection(this.pad.getStick("left")) ?? { x: 0, z: 0 };
   }
 
   /** True once per release of the super key / right mouse button. */
-  consumeSuperRelease(): boolean {
+  consumeSuperRelease() {
     const released = this.superReleased;
     this.superReleased = false;
+
     return released;
   }
 
   /** A press starts one evade; holding a key never repeats it. */
-  consumeEvade(): boolean {
+  consumeEvade() {
     const pressed = this.evadePressed;
     this.evadePressed = false;
+
     return pressed;
   }
 
   /** Drains the touch shots queued since the last call. */
-  takeShots(): Shot[] {
+  takeShots() {
     if (this.shots.length === 0) {
       return this.shots;
     }
+
     const { shots } = this;
     this.shots = [];
+
     return shots;
   }
 }

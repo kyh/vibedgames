@@ -6,13 +6,12 @@ import type { ClaimRoom } from "../src/net/pickup-claims";
 import { hostTick } from "../src/sim/host-sim";
 import { createArena } from "../src/shared/arena";
 import { FUSE_MS, HOST_STEP_MS, newGrid } from "../src/shared/constants";
-import type { Bot, Cell, SharedState } from "../src/shared/constants";
+import type { Cell, SharedState } from "../src/shared/constants";
 import { seededRandom } from "../src/util/seeded-random";
 
-/** The scene's fixed host step. */
 const TICK_MS = HOST_STEP_MS;
 
-const world = (grid: Cell[][], patch: Partial<SharedState> = {}): SharedState => ({
+const world = (grid: Cell[][], patch: Partial<SharedState> = {}) => ({
   blasts: {},
   bombs: {},
   bots: {},
@@ -25,21 +24,23 @@ const world = (grid: Cell[][], patch: Partial<SharedState> = {}): SharedState =>
   ...patch,
 });
 
-/** The courtyard with every crate removed, plus the crates a case pins. */
-const openGrid = (crates: [col: number, row: number][]): Cell[][] => {
+const openGrid = (crates: [col: number, row: number][]) => {
   const grid = newGrid().map((row) =>
     row.map((cell) => (cell.kind === "crate" ? { kind: "empty" as const } : cell)),
   );
+
   for (const [col, row] of crates) {
     const line = grid[row];
+
     if (line) {
       line[col] = { kind: "crate" };
     }
   }
+
   return grid;
 };
 
-const bot = (id: string, col: number, row: number): Bot => ({
+const bot = (id: string, col: number, row: number) => ({
   col,
   colorIdx: 1,
   dir: "down",
@@ -49,37 +50,38 @@ const bot = (id: string, col: number, row: number): Bot => ({
   row,
 });
 
-/** Two humans hold corners 0 and 1, so the pinned bot must be bot-2. */
 const bystanders = [
   { id: "h", pos: null },
   { id: "g", pos: null },
 ];
 
-const merged = (s: SharedState, patch: Partial<SharedState> | null): SharedState =>
+const merged = (s: SharedState, patch: Partial<SharedState> | null) =>
   patch ? { ...s, ...patch } : s;
 
-/** The scene's host step after the tick: bots claim the power-ups they reach, and claims are granted. */
-const collect = (s: SharedState, claims: PickupClaims, room: ClaimRoom): SharedState => {
+const collect = (s: SharedState, claims: PickupClaims, room: ClaimRoom) => {
   for (const fighter of Object.values(s.bots)) {
     if (!s.deaths[fighter.id]) {
       claims.reach(room, s, fighter.id, fighter);
     }
   }
+
   return merged(s, claims.settle(room, s, OFFLINE_PLAYER_ID));
 };
 
-/** Run host ticks at the scene's cadence; every bot die rolls "bomb now". */
-const run = (start: SharedState, from: number, ms: number): SharedState => {
+const run = (start: SharedState, from: number, ms: number) => {
   let s = start;
+
   for (let now = from; now <= from + ms; now += TICK_MS) {
     const { patch } = hostTick(s, bystanders, now, () => 0);
     s = merged(s, patch);
   }
+
   return s;
 };
 
 test("a bot whose only way out is on fire neither bombs nor walks into it", () => {
   const now = 10_000;
+
   const s = world(openGrid([[15, 13]]), {
     blasts: {
       x: {
@@ -93,6 +95,7 @@ test("a bot whose only way out is on fire neither bombs nor walks into it", () =
     },
     bots: { "bot-2": bot("bot-2", 16, 13) },
   });
+
   const { patch } = hostTick(s, bystanders, now, () => 0);
   assert.deepEqual(patch?.bombs ?? {}, {}, "no bomb without a walkable escape");
   assert.equal(patch?.bots?.["bot-2"]?.col, 16, "holds rather than step into the blast");
@@ -101,12 +104,14 @@ test("a bot whose only way out is on fire neither bombs nor walks into it", () =
 
 test("a bot does not bomb when a lit fuse burns its escape route first", () => {
   const now = 10_000;
+
   const s = world(openGrid([[1, 2]]), {
     bombs: {
       a: { col: 5, id: "a", ownerId: "h", placedAt: now - (FUSE_MS - 300), range: 2, row: 1 },
     },
     bots: { "bot-2": bot("bot-2", 1, 1) },
   });
+
   const { patch } = hostTick(s, bystanders, now, () => 0);
   assert.deepEqual(Object.keys(patch?.bombs ?? s.bombs), ["a"], "the crate can wait");
   const later = run(s, now, 3000);
@@ -123,56 +128,66 @@ interface Round {
   cratesOpened: number;
 }
 
-const crateCount = (grid: Cell[][]): number =>
-  grid.flat().filter((cell) => cell.kind === "crate").length;
+const crateCount = (grid: Cell[][]) => grid.flat().filter((cell) => cell.kind === "crate").length;
 
-/** One solo round against an idle human parked on their spawn. */
-const soak = (seed: number, ms: number): Round => {
+const soak = (seed: number, ms: number) => {
   const random = seededRandom(seed);
   const human = { id: "h", pos: { col: 1, row: 1 } };
   let s = world(createArena("classic", random));
   const crates = crateCount(s.grid);
   const round: Round = { botDeaths: [], cratesOpened: 0, humanDiedAt: null, winner: null };
   const claims = new PickupClaims();
-  // A solo host's room: the client offline, where it is the only claimant.
+
   const room = new MultiplayerClient({
     host: "http://127.0.0.1:9",
     offline: true,
     party: "vg-server",
     room: "bot-soak",
   });
+
   for (let now = 1000; now <= 1000 + ms && !s.winner; now += TICK_MS) {
     const { patch } = hostTick(s, [human], now, random);
+
     if (!patch) {
       continue;
     }
+
     const before = s;
     s = collect(merged(s, patch), claims, room);
+
     for (const id of Object.keys(s.deaths)) {
       if (before.deaths[id]) {
         continue;
       }
+
       const victim = s.bots[id];
+
       if (!victim) {
         round.humanDiedAt = now - 1000;
         continue;
       }
+
       const owners = Object.values(s.blasts)
         .filter((blast) => blast.tiles.some((t) => t.col === victim.col && t.row === victim.row))
         .map((blast) => blast.id);
+
       const own = owners.some((blastId) => blastId.startsWith(`x-b-${id}-`));
+
       const boxedIn = Object.values(s.bombs).some(
         (bomb) =>
           bomb.ownerId !== id &&
           Math.abs(bomb.col - victim.col) + Math.abs(bomb.row - victim.row) <= 2,
       );
+
       const selfInflicted: Cause = boxedIn ? "trapped" : "own";
       round.botDeaths.push(own ? selfInflicted : "rival");
     }
   }
+
   room.destroy();
   round.winner = s.winner;
   round.cratesOpened = crates - crateCount(s.grid);
+
   return round;
 };
 

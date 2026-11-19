@@ -1,5 +1,3 @@
-// Derived stats + status resolvers. recomputeStats() bakes champ base+growth+
-// items onto the Unit; the effective* helpers fold transient statuses on top.
 import { CHAMP_BY_ID, champStatAt } from "../data/champions";
 import { HERO_MAGIC_RESIST } from "../data/config";
 import type { DamageType } from "../data/config";
@@ -9,11 +7,13 @@ import type { Status, Unit } from "./types";
 
 /** Recompute a hero's derived combat stats from champ + level + items.
  *  Preserves the current hp/mp *fraction* when maxima change. */
-export const recomputeStats = (u: Unit): void => {
+export const recomputeStats = (u: Unit) => {
   const def = CHAMP_BY_ID[u.champId];
+
   if (!def) {
     return;
   }
+
   const lvl = u.level;
   const items = sumItemStats(u.items);
 
@@ -34,44 +34,49 @@ export const recomputeStats = (u: Unit): void => {
   u.hp = u.alive ? Math.min(u.maxHp, hpFrac * u.maxHp) : u.hp;
 };
 
-// ── Status helpers ───────────────────────────────────────────────────────────
-
-export const addStatus = (u: Unit, st: Status): void => {
+export const addStatus = (u: Unit, st: Status) => {
   if (st.id) {
     const i = u.statuses.findIndex((s) => s.kind === st.kind && s.id === st.id);
+
     if (i !== -1) {
       u.statuses[i] = st;
+
       return;
     }
   }
+
   u.statuses.push(st);
 };
 
-export const expireStatuses = (u: Unit, now: number): void => {
+export const expireStatuses = (u: Unit, now: number) => {
   if (u.statuses.length === 0) {
     return;
   }
+
   u.statuses = u.statuses.filter((s) => s.until > now);
 };
 
-export const hasStatus = (u: Unit, kind: Status["kind"]): boolean =>
-  u.statuses.some((s) => s.kind === kind);
+export const hasStatus = (u: Unit, kind: Status["kind"]) => u.statuses.some((s) => s.kind === kind);
 
-export const isUnstoppable = (u: Unit): boolean => hasStatus(u, "unstoppable");
+export const isUnstoppable = (u: Unit) => hasStatus(u, "unstoppable");
+
 /** Can't attack or act (stun; hex polymorphs share the gate — mushrooms don't swing). */
-export const isDisabled = (u: Unit): boolean =>
+export const isDisabled = (u: Unit) =>
   !isUnstoppable(u) && (hasStatus(u, "stun") || hasStatus(u, "hex"));
-export const isRooted = (u: Unit): boolean =>
+
+export const isRooted = (u: Unit) =>
   !isUnstoppable(u) && (hasStatus(u, "stun") || hasStatus(u, "root"));
-export const isSilenced = (u: Unit): boolean =>
+
+export const isSilenced = (u: Unit) =>
   hasStatus(u, "stun") || hasStatus(u, "silence") || hasStatus(u, "hex");
-export const isStealthed = (u: Unit): boolean => hasStatus(u, "stealth");
+
+export const isStealthed = (u: Unit) => hasStatus(u, "stealth");
+
 /** Can't be auto-attacked / homed onto by enemies. */
-export const isUntargetable = (u: Unit): boolean =>
-  hasStatus(u, "untargetable") || hasStatus(u, "stealth");
+export const isUntargetable = (u: Unit) => hasStatus(u, "untargetable") || hasStatus(u, "stealth");
 
 /** Remove disables + slows (cleanse). Strips hex too — a cleanse un-mushrooms. */
-export const cleanseDisables = (u: Unit): void => {
+export const cleanseDisables = (u: Unit) => {
   u.statuses = u.statuses.filter(
     (s) =>
       s.kind !== "stun" &&
@@ -82,15 +87,14 @@ export const cleanseDisables = (u: Unit): void => {
   );
 };
 
-export const breakStealth = (u: Unit): void => {
+export const breakStealth = (u: Unit) => {
   u.statuses = u.statuses.filter((s) => s.kind !== "stealth");
 };
 
-// ── Effective (status-folded) stats ──────────────────────────────────────────
-
-export const effectiveMoveSpeed = (u: Unit): number => {
+export const effectiveMoveSpeed = (u: Unit) => {
   let speedPct = 0;
   let strongestSlow = 0;
+
   for (const s of u.statuses) {
     if (s.kind === "speed") {
       speedPct += s.pct;
@@ -98,53 +102,56 @@ export const effectiveMoveSpeed = (u: Unit): number => {
       strongestSlow = Math.max(strongestSlow, s.pct);
     }
   }
+
   if (isUnstoppable(u)) {
     strongestSlow = 0;
   }
+
   const ms = u.moveSpeed * (1 + speedPct / 100) * (1 - strongestSlow / 100);
+
   return Math.max(2, ms);
 };
 
-export const effectiveArmor = (u: Unit): number => {
+export const effectiveArmor = (u: Unit) => {
   let bonus = 0;
+
   for (const s of u.statuses) {
     if (s.kind === "armor") {
       bonus += s.amount;
     }
   }
+
   return u.armor + bonus;
 };
 
-export const effectiveAttackSpeed = (u: Unit): number => {
+export const effectiveAttackSpeed = (u: Unit) => {
   let pct = 0;
+
   for (const s of u.statuses) {
     if (s.kind === "attackSpeed") {
       pct += s.amount;
     }
   }
+
   return clamp(u.attackSpeed * (1 + pct / 100), 0.1, 5);
 };
 
-export const damageAmpOn = (u: Unit): number => {
+export const damageAmpOn = (u: Unit) => {
   let pct = 0;
+
   for (const s of u.statuses) {
     if (s.kind === "damageAmp") {
       pct += s.pct;
     }
   }
+
   return pct / 100;
 };
 
-// ── Damage + shields ─────────────────────────────────────────────────────────
-
 /** Mitigate raw damage by type. attackerAp adds % to magic damage. */
-export const computeDamage = (
-  victim: Unit,
-  raw: number,
-  dtype: DamageType,
-  attackerAp = 0,
-): number => {
+export const computeDamage = (victim: Unit, raw: number, dtype: DamageType, attackerAp = 0) => {
   let dmg = raw;
+
   if (dtype === "physical") {
     const armor = effectiveArmor(victim);
     const k = 0.06 * armor;
@@ -153,24 +160,31 @@ export const computeDamage = (
     dmg *= 1 + attackerAp;
     dmg *= 1 - clamp(victim.magicResist, -1, 0.85);
   }
+
   dmg *= 1 + damageAmpOn(victim);
+
   return Math.max(0, dmg);
 };
 
 /** Consume shield statuses; returns leftover damage to apply to hp. */
-export const absorbShield = (u: Unit, dmg: number): number => {
+export const absorbShield = (u: Unit, dmg: number) => {
   let remaining = dmg;
+
   for (const s of u.statuses) {
     if (s.kind !== "shield") {
       continue;
     }
+
     if (remaining <= 0) {
       break;
     }
+
     const used = Math.min(s.amount, remaining);
     s.amount -= used;
     remaining -= used;
   }
+
   u.statuses = u.statuses.filter((s) => s.kind !== "shield" || s.amount > 0.5);
+
   return remaining;
 };

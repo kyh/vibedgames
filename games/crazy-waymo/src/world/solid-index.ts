@@ -2,14 +2,8 @@ import type { Solid } from "./city";
 import { SolidBuckets } from "./solid-buckets";
 
 export { CeilingIndex, deckCeilings, harvestCeilingSpans } from "./ceiling-index";
-export type { CeilingSpan } from "./ceiling-index";
 
-// Uniform-grid spatial index over the static city solids. The city carries
-// ~10k collision boxes (buildings, seawalls, railings, border walls); the car
-// resolves against them every sub-step and the chase camera marches a clip
-// ray through them every frame — a linear scan made both O(n). Bucketing by
-// world cell (bucket-grid.ts, solid-buckets.ts) turns each lookup into a
-// handful of nearby boxes.
+export type { CeilingSpan } from "./ceiling-index";
 
 /**
  * The index the game queries. The base set (map borders, seawalls, landmarks,
@@ -25,30 +19,33 @@ export class SolidIndex {
     this.base = new SolidBuckets(base);
   }
 
-  addTile(key: number, solids: readonly Solid[]): void {
+  addTile(key: number, solids: readonly Solid[]) {
     this.tiles.set(key, new SolidBuckets(solids));
   }
 
-  removeTile(key: number): void {
+  removeTile(key: number) {
     this.tiles.delete(key);
   }
 
-  forEachIn(minX: number, maxX: number, minZ: number, maxZ: number, fn: (s: Solid) => void): void {
+  forEachIn(minX: number, maxX: number, minZ: number, maxZ: number, fn: (s: Solid) => void) {
     this.base.forEachIn(minX, maxX, minZ, maxZ, fn);
+
     for (const t of this.tiles.values()) {
       t.forEachIn(minX, maxX, minZ, maxZ, fn);
     }
   }
 
-  hitAt(x: number, z: number, y?: number): boolean {
+  hitAt(x: number, z: number, y?: number) {
     if (this.base.hitAt(x, z, y)) {
       return true;
     }
+
     for (const t of this.tiles.values()) {
       if (t.hitAt(x, z, y)) {
         return true;
       }
     }
+
     return false;
   }
 }

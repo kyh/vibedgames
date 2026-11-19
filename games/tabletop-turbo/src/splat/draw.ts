@@ -1,7 +1,3 @@
-// Puts a baked model on stage for one frame: every splat of the template is
-// turned, squashed and moved on the CPU into the stage's moving set. Models are
-// a few hundred splats, so a whole grid of karts costs a few thousand copies.
-
 import { TEAM_RAMP } from "./palette";
 import type { SplatSet } from "./splat-set";
 
@@ -25,15 +21,13 @@ export interface Placement {
 
 const M = new Float32Array(9);
 
-/** Rotation for a placement: heading, then pitch about the cross axis, then roll about the length. */
-const orient = (yaw: number, roll: number, pitch: number): void => {
+const orient = (yaw: number, roll: number, pitch: number) => {
   const cy = Math.cos(yaw);
   const sy = Math.sin(yaw);
   const cr = Math.cos(roll);
   const sr = Math.sin(roll);
   const cp = Math.cos(pitch);
   const sp = Math.sin(pitch);
-  // Columns of (yaw · pitch · roll), where pitch turns x towards y and roll turns y towards z.
   M[0] = cy * cp;
   M[1] = sp;
   M[2] = sy * cp;
@@ -45,13 +39,14 @@ const orient = (yaw: number, roll: number, pitch: number): void => {
   M[8] = sy * sp * sr + cy * cr;
 };
 
-const m = (i: number): number => M[i] ?? 0;
+const m = (i: number) => M[i] ?? 0;
 
-export const drawSplats = (out: SplatSet, model: SplatSet, place: Placement): void => {
+export const drawSplats = (out: SplatSet, model: SplatSet, place: Placement) => {
   orient(place.yaw, place.roll ?? 0, place.pitch ?? 0);
   const scale = place.scale ?? 1;
   const tall = scale * (place.squash ?? 1);
   const team = place.ramp ?? 0;
+
   for (let i = 0; i < model.count; i += 1) {
     const x = (model.centers[i * 3] ?? 0) * scale;
     const y = (model.centers[i * 3 + 1] ?? 0) * tall;

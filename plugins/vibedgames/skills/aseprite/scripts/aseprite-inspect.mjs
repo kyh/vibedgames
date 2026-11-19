@@ -1,18 +1,4 @@
 #!/usr/bin/env node
-/**
- * Aseprite inspector: parse .ase/.aseprite structure and (optionally) infer
- * pixel/tile-derived facts.
- *
- * Goals:
- * - Safe: chunk-driven parsing; unknown chunks are skipped by size.
- * - Useful: emits JSON describing header/frames/layers/cels/tags/slices/
- *   tilesets/palettes/userdata.
- * - Optional inference: --decode-cels to zlib-decompress cel/tilemap data and
- *   compute tight bounds.
- *
- *   node aseprite-inspect.mjs sprite.aseprite --json
- *   node aseprite-inspect.mjs sprite.aseprite --pretty --decode-cels
- */
 import { readFileSync } from "node:fs";
 
 import { getFlag, getInt, inspectAseprite, main, parseArgs } from "./_lib/asset-tools.mjs";
@@ -45,13 +31,12 @@ options:
 
 main(() => {
   const args = parseArgs(process.argv.slice(2), {
-    // `json` is accepted and ignored — JSON is the only output — but it still
-    // has to be declared, or `--json file.ase` would eat the filename.
     booleans: ["decode-cels", "json", "pretty", "treat-index0-transparent"],
     values: ["max-decompress-mib", "palette-entries"],
   });
 
   const [file] = args.positionals;
+
   if (file === undefined) {
     process.stderr.write(`${USAGE}\n\nerror: the following arguments are required: file\n`);
     process.exit(2);

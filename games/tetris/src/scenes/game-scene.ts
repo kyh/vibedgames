@@ -1,8 +1,3 @@
-// The orchestrator: owns the Three.js scene, the camera rig, the well + cube
-// renderers, the fx, the engine, and the input router that merges keyboard +
-// pose into camera-relative moves (DAS/ARR, pose-freshness ownership). main.ts
-// just boots it and renders scene + camera each frame.
-
 import {
   createTouchControls,
   notifyGameStarted,
@@ -60,8 +55,6 @@ interface Repeat {
   arr: number;
 }
 
-/** Themes the shared pause/mute cluster into the HUD's glass pills, and stacks
- *  it so it occupies one 44px column — the top-right strip the HUD reserves. */
 const TOUCH_CONTROLS_CSS = `
 .tetris-touch-controls {
   flex-direction: column;
@@ -75,12 +68,23 @@ const TOUCH_CONTROLS_CSS = `
 
 const BEST_SCORE_KEY = "tetris-best-score";
 
-const readBestScore = (): number => {
+const readBestScore = () => {
   try {
     const value = Number(localStorage.getItem(BEST_SCORE_KEY));
+
     return Number.isSafeInteger(value) && value >= 0 ? value : 0;
   } catch {
     return 0;
+  }
+};
+
+const saveBestScore = (score: number) => {
+  try {
+    localStorage.setItem(BEST_SCORE_KEY, String(score));
+
+    return true;
+  } catch {
+    return false;
   }
 };
 
@@ -130,14 +134,15 @@ export interface TetrisDiagnostics {
   catchMsLeft: number | null;
 }
 
-const bestPlan = (plans: ZonePlans): ZonePlan | null => plans[rankZones(plans)[0] ?? ""] ?? null;
+const bestPlan = (plans: ZonePlans) => plans[rankZones(plans)[0] ?? ""] ?? null;
 
-const pieceName = (index: number): string => PIECES[index]?.name ?? "?";
+const pieceName = (index: number) => PIECES[index]?.name ?? "?";
 
-const screenDirOf = (dir: -1 | 1, depthAxis: boolean): ScreenDir => {
+const screenDirOf: (dir: -1 | 1, depthAxis: boolean) => ScreenDir = (dir, depthAxis) => {
   if (depthAxis) {
     return dir < 0 ? "away" : "near";
   }
+
   return dir < 0 ? "left" : "right";
 };
 
@@ -145,14 +150,17 @@ const centroid = (cells: Cell[]) => {
   if (cells.length === 0) {
     return { x: 0, y: 0, z: 0 };
   }
+
   let x = 0;
   let y = 0;
   let z = 0;
+
   for (const c of cells) {
     x += c.x;
     y += c.y;
     z += c.z;
   }
+
   return { x: x / cells.length, y: y / cells.length, z: z / cells.length };
 };
 
@@ -171,12 +179,10 @@ export class GameScene {
   private readonly pad = new PhysicalGamepad();
   private readonly coarse = isCoarsePointer();
   private poseControls: PoseControls | null = null;
-  /** A pad stick/trigger held across a pause must be released before it acts again. */
   private padSteerBlocked = false;
   private padSoftBlocked = false;
   private unwatchControls: (() => void) | null = null;
 
-  // input state (screen-relative)
   private kbHoriz: -1 | 0 | 1 = 0;
   private kbDepth: -1 | 0 | 1 = 0;
   private poseHoriz: -1 | 0 | 1 = 0;
@@ -187,7 +193,6 @@ export class GameScene {
   private readonly dMove: Repeat = { arr: 0, das: 0, dir: 0 };
 
   private needSnap = false;
-  /** Locked-board changed since the last sync (lock / power sweep / catch / reset). */
   private boardDirty = true;
   private collapseStartedAt = 0;
   private lastPoseAt = -1e9;
@@ -211,8 +216,6 @@ export class GameScene {
     this.wellFx = new WellFx(this.scene);
     this.keyboard = new Keyboard(this.keyboardHandlers());
     this.touch = new TouchControls(this.touchHandlers());
-    // P is keyboard-only: without this a phone cannot pause. No-op on a fine
-    // pointer.
     createTouchControls({
       className: "tetris-touch-controls",
       css: TOUCH_CONTROLS_CSS,
@@ -222,11 +225,11 @@ export class GameScene {
     this.hud = new Hud(this.coarse, () => this.startIfIdle());
     renderLegend();
     this.showBanner("TETRIS", titleSubText());
-    // Plugging in a pad on the title adds its legend row + start hint.
     this.unwatchControls = watchControlContext(() => {
       if (this.engine.state.status !== "title") {
         return;
       }
+
       renderLegend();
       this.showBanner("TETRIS", titleSubText());
     });
@@ -236,19 +239,21 @@ export class GameScene {
     return this.rig.camera;
   }
 
-  attachPoseControls(controls: PoseControls): void {
+  attachPoseControls(controls: PoseControls) {
     this.poseControls = controls;
   }
 
-  resize(aspect: number): void {
+  resize(aspect: number) {
     this.rig.resize(aspect);
   }
 
-  diagnostics(): TetrisDiagnostics {
+  diagnostics() {
     let entities = 0;
+
     for (const _cube of this.engine.board.cubes()) {
       entities += 1;
     }
+
     const { board } = this.engine;
     const piece = this.engine.active;
     const active = this.engine.activeCells();
@@ -257,6 +262,7 @@ export class GameScene {
     const zones = planZones(board, heights, active);
     const ranked = rankZones(zones);
     const rotated = piece?.rotatedCells(board) ?? null;
+
     return {
       best: zones[ranked[0] ?? ""] ?? null,
       bestIfRotated: rotated ? bestPlan(planZones(board, heights, rotated)) : null,
@@ -283,27 +289,27 @@ export class GameScene {
             y: centre.y,
           }
         : null,
-      // Floor plane only: the fall is gravity's doing, and would pass the
-      // playtest's input-alive gate with no input reaching the game at all.
       player: piece ? { x: centre.x, y: 0, z: centre.z } : this.lastFloorCentre,
       powerReady: this.engine.canPower(),
       score: this.engine.state.score,
       zones,
-    };
+    } satisfies TetrisDiagnostics;
   }
 
   /** Playtest hook: deal a seeded sequence and restart on it. */
-  seed(seed: number): void {
+  seed(seed: number) {
     this.engine.seed(seed);
     this.startGame();
   }
 
   /** Playtest hook: `active-play` leaves the title or results for a live run. Returns whether the name was applied. */
-  setTestState(name: string): boolean {
+  setTestState(name: string) {
     if (name !== "active-play") {
       return false;
     }
+
     this.startIfIdle();
+
     return this.engine.state.status === "playing";
   }
 
@@ -311,14 +317,14 @@ export class GameScene {
    *  camera swing) so the paused gap doesn't count against them. Pose-freshness
    *  stamps deliberately stay unshifted — stale pose reading as old is the safe
    *  direction. */
-  shiftWallClock(pausedMs: number): void {
+  shiftWallClock(pausedMs: number) {
     this.collapseStartedAt += pausedMs;
     this.rig.shiftWallClock(pausedMs);
   }
 
   /** Pause and resume both drop every held input: a key or finger held across
    *  the pause never gets its release event, so it would otherwise stay held. */
-  releaseInputs(): void {
+  releaseInputs() {
     this.keyboard.releaseHeld();
     this.touch.release();
     this.kbHoriz = 0;
@@ -339,14 +345,11 @@ export class GameScene {
     this.padSoftBlocked = true;
   }
 
-  // ---- input wiring -----------------------------------------------------------
-
   /** Bound intent handlers handed to PoseControls (main.ts wires the camera). */
   readonly poseActions: PoseActions = {
     catchCollapse: () => {
-      // Throw-hands-up: catches the collapse mid-tumble, and starts the game
-      // from the title / game-over screen — so play begins hands-free too.
       const { status } = this.engine.state;
+
       if (status === "collapsing") {
         this.tryCatch();
       } else if (status === "title" || status === "gameOver") {
@@ -373,7 +376,7 @@ export class GameScene {
     },
   };
 
-  private keyboardHandlers(): KeyboardHandlers {
+  private keyboardHandlers() {
     return {
       hardDrop: () => this.onHardDrop(),
       hold: () => this.doHold(),
@@ -393,10 +396,10 @@ export class GameScene {
       },
       setSoftDrop: (on) => this.engine.setSoftDrop(on),
       start: () => this.startIfIdle(),
-    };
+    } satisfies KeyboardHandlers;
   }
 
-  private touchHandlers(): TouchHandlers {
+  private touchHandlers() {
     return {
       drop: () => this.onHardDrop(),
       hold: () => this.doHold(),
@@ -408,13 +411,12 @@ export class GameScene {
       setSoftDrop: (on) => this.engine.setSoftDrop(on),
       step: (dir, initial) => this.stepScreen(dir, initial),
       tap: () => this.onFreeTap(),
-    };
+    } satisfies TouchHandlers;
   }
 
-  /** A free touch (not on a button): the touch mirror of hands-up / Enter.
-   *  While paused the wrapper overlay covers the screen and owns the tap. */
-  private onFreeTap(): void {
+  private onFreeTap() {
     const s = this.engine.state.status;
+
     if (s === "title" || s === "gameOver") {
       this.startGame();
     } else if (s === "collapsing") {
@@ -422,58 +424,68 @@ export class GameScene {
     }
   }
 
-  // ---- verbs ------------------------------------------------------------------
-
-  private doRotate(): boolean {
+  private doRotate() {
     if (this.engine.state.status !== "playing") {
       return false;
     }
+
     const ok = this.engine.rotate();
+
     if (ok) {
       sfx.rotate();
     }
+
     return ok;
   }
 
-  private doOrbit(dir: -1 | 1): void {
+  private doOrbit(dir: -1 | 1) {
     if (this.engine.state.status !== "playing") {
       return;
     }
+
     const corner = this.rig.orbit(dir, performance.now());
     this.well.setCorner(corner);
+
     if (!this.orbitTaught) {
       this.orbitTaught = true;
       this.wellFx.orbitHint();
     }
+
     sfx.orbit();
   }
 
-  private doHold(): void {
+  private doHold() {
     if (this.engine.hold()) {
       this.needSnap = true;
       sfx.rotate();
     }
   }
 
-  private doPower(): void {
+  private doPower() {
     if (!this.engine.canPower()) {
       return;
     }
+
     let lowest = this.engine.board.height;
     const footprint: Cell[] = [];
+
     for (const { x, y, z } of this.engine.board.cubes()) {
       if (y < lowest) {
         lowest = y;
         footprint.length = 0;
       }
+
       if (y === lowest) {
         footprint.push({ x, y, z });
       }
     }
+
     const removed = this.engine.power();
+
     if (removed <= 0) {
       return;
     }
+
     this.wellFx.power(footprint);
     this.boardDirty = true;
     sfx.power();
@@ -493,8 +505,9 @@ export class GameScene {
     });
   }
 
-  private onHardDrop(): void {
+  private onHardDrop() {
     const { status } = this.engine.state;
+
     if (status === "playing") {
       const start = this.engine.activeCells();
       const landing = this.engine.ghostCells();
@@ -502,6 +515,7 @@ export class GameScene {
       const ev = this.engine.hardDrop();
       sfx.hardDrop();
       this.rig.addTrauma(TRAUMA_HARD_DROP);
+
       if (ev) {
         this.wellFx.hardDrop(start, landing, color);
         this.handleLock(ev);
@@ -513,25 +527,23 @@ export class GameScene {
     }
   }
 
-  /** P / pad START: route into the wrapper pause (@repo/embed) — the bespoke
-   *  overlay is the game's ONLY pause surface, and main.ts's onPause/onResume
-   *  handlers own the freeze (update-skip + shiftWallClock). While paused the
-   *  overlay's own resume paths (pointerup / keyup / fresh pad press) apply. */
-  private requestPause(): void {
+  private requestPause() {
     if (this.engine.state.status !== "playing") {
       return;
     }
+
     pauseGame();
   }
 
-  private startIfIdle(): void {
+  private startIfIdle() {
     const s = this.engine.state.status;
+
     if (s === "title" || s === "gameOver") {
       this.startGame();
     }
   }
 
-  private startGame(): void {
+  private startGame() {
     this.unwatchControls?.();
     this.unwatchControls = null;
     notifyGameStarted();
@@ -555,9 +567,7 @@ export class GameScene {
     this.hideBanner();
   }
 
-  // ---- lock / clear / collapse ------------------------------------------------
-
-  private handleLock(ev: LockEvent): void {
+  private handleLock(ev: LockEvent) {
     this.piecesPlaced += 1;
     this.largestClear = Math.max(this.largestClear, ev.clear.lines);
     this.boardDirty = true;
@@ -606,7 +616,7 @@ export class GameScene {
     }
   }
 
-  private enterCollapse(): void {
+  private enterCollapse() {
     this.cubes.frozen = true;
     this.collapse.attach(this.cubes.lockedMeshes());
     this.well.setAllWallsVisible(false);
@@ -621,10 +631,11 @@ export class GameScene {
     );
   }
 
-  private tryCatch(): void {
+  private tryCatch() {
     if (this.engine.state.status !== "collapsing") {
       return;
     }
+
     this.collapse.dispose();
     this.cubes.frozen = false;
     this.cubes.clearLocked();
@@ -633,6 +644,7 @@ export class GameScene {
     this.rig.resetTrauma();
     this.boardDirty = true;
     this.needSnap = true;
+
     if (stillDead) {
       this.finalizeGameOver();
     } else {
@@ -643,7 +655,7 @@ export class GameScene {
     }
   }
 
-  private finalizeGameOver(): void {
+  private finalizeGameOver() {
     this.engine.state.status = "gameOver";
     this.well.setAllWallsVisible(true);
     sfx.gameOver();
@@ -651,13 +663,11 @@ export class GameScene {
     const newBest = this.engine.state.score > previous;
     const runBest = Math.max(previous, this.engine.state.score);
     this.bestScore = runBest;
+
     if (newBest) {
-      try {
-        localStorage.setItem(BEST_SCORE_KEY, String(runBest));
-      } catch {
-        // A blocked store must never block the retry path; keep this visit's best.
-      }
+      saveBestScore(runBest);
     }
+
     showResults({
       best: runBest,
       largestClear: this.largestClear,
@@ -674,16 +684,14 @@ export class GameScene {
     );
   }
 
-  // ---- main update ------------------------------------------------------------
-
-  update(dt: number): void {
+  update(dt: number) {
     this.frame += 1;
     const now = performance.now();
     const dtMs = dt * 1000;
-    // Poll the gamepad before the sim tick.
     this.touch.update(dtMs);
     this.updatePad(now);
     const { status } = this.engine.state;
+
     if (this.engine.active === this.agedPiece) {
       this.activeAgeMs += dtMs;
     } else {
@@ -693,35 +701,39 @@ export class GameScene {
 
     if (status === "playing") {
       this.routeSteering(dtMs);
-      // Gravity pauses during the swing.
       const paused = this.rig.isInMotion(now);
       const ev = this.engine.tick(dtMs, paused);
+
       if (ev) {
         this.handleLock(ev);
       }
     } else if (status === "collapsing") {
       this.collapse.step(dt);
+
       if (now - this.collapseStartedAt > CATCH_WINDOW_MS) {
         this.finalizeGameOver();
       }
     }
 
-    // sync renderers from the logical state (locked layer only when it changed;
-    // syncLocked itself still no-ops while frozen, so keep the flag until thawed)
     if (this.boardDirty && !this.cubes.frozen) {
       this.cubes.syncLocked(this.engine.board);
       this.maxHeight = -1;
+
       for (const { y } of this.engine.board.cubes()) {
         this.maxHeight = Math.max(this.maxHeight, y);
       }
+
       this.boardDirty = false;
     }
+
     this.wellFx.setHeight(this.maxHeight, this.engine.state.status === "playing");
     const active = this.engine.activeCells();
+
     if (active.length > 0) {
       const { x, z } = centroid(active);
       this.lastFloorCentre = { x, y: 0, z };
     }
+
     this.cubes.setActive(active, this.engine.activePieceIndex(), this.needSnap);
     this.cubes.setGhost(this.engine.ghostCells());
     this.needSnap = false;
@@ -733,7 +745,7 @@ export class GameScene {
     this.updateHud(now);
   }
 
-  private routeSteering(dtMs: number): void {
+  private routeSteering(dtMs: number) {
     const poseFresh = performance.now() - this.poseHorizAt < POSE_TIMEOUT_MS;
     const pad = this.padSteer();
     const horiz = this.heldHoriz(pad.horiz, poseFresh);
@@ -742,37 +754,41 @@ export class GameScene {
     this.repeat(this.dMove, depth, dtMs, true);
   }
 
-  /** Keyboard wins, then the pad, then a fresh pose steer. */
-  private heldHoriz(padHoriz: -1 | 0 | 1, poseFresh: boolean): -1 | 0 | 1 {
+  private heldHoriz(padHoriz: -1 | 0 | 1, poseFresh: boolean) {
     if (this.kbHoriz !== 0) {
       return this.kbHoriz;
     }
+
     if (padHoriz !== 0) {
       return padHoriz;
     }
-    return poseFresh ? this.poseHoriz : 0;
+
+    return poseFresh ? this.poseHoriz : (0 as const);
   }
 
-  private dpadAxis(negative: string, positive: string): -1 | 0 | 1 {
+  private dpadAxis(negative: string, positive: string) {
     if (this.pad.isButtonDown(negative)) {
-      return -1;
+      return -1 as const;
     }
+
     if (this.pad.isButtonDown(positive)) {
-      return 1;
+      return 1 as const;
     }
-    return 0;
+
+    return 0 as const;
   }
 
-  /** Held pad steer (d-pad first, then left stick) on the same screen-relative
-   *  axes as the keyboard, so it feeds the shared DAS/ARR repeat state. */
-  private padSteer(): Steer {
+  private padSteer() {
     if (!this.pad.connected) {
-      return { depth: 0, horiz: 0 };
+      return { depth: 0, horiz: 0 } satisfies Steer;
     }
+
     let horiz = this.dpadAxis("left", "right");
     let depth = this.dpadAxis("up", "down");
+
     if (horiz === 0 && depth === 0) {
       const dir = stickDirection4(this.pad.getStick());
+
       if (dir === "left") {
         horiz = -1;
       } else if (dir === "right") {
@@ -783,94 +799,117 @@ export class GameScene {
         depth = 1;
       }
     }
+
     if (this.padSteerBlocked) {
       if (horiz === 0 && depth === 0) {
         this.padSteerBlocked = false;
       }
-      return { depth: 0, horiz: 0 };
+
+      return { depth: 0, horiz: 0 } satisfies Steer;
     }
+
     if (horiz !== 0 || depth !== 0) {
       this.lastPadAt = performance.now();
     }
-    return { depth, horiz };
+
+    return { depth, horiz } satisfies Steer;
   }
 
-  /** Physical controller: poll once per frame and drive the same verbs as the
-   *  keyboard (steering merges into routeSteering's DAS/ARR while playing). */
-  private updatePad(now: number): void {
+  private updatePad(now: number) {
     this.pad.update();
+
     if (!this.pad.connected) {
       return;
     }
+
     const { status } = this.engine.state;
+
     if (status === "title" || status === "gameOver") {
-      // Any face button starts, mirroring Enter / the free tap.
       if (["a", "b", "x", "y"].some((b) => this.pad.justPressed(b))) {
         this.lastPadAt = now;
         this.startGame();
       }
+
       return;
     }
+
     let acted = false;
+
     if (this.pad.justPressed("start")) {
       this.requestPause();
       acted = true;
     }
+
     if (this.pad.justPressed("a")) {
       this.doRotate();
       acted = true;
     }
+
     if (this.pad.justPressed("b")) {
-      // Space semantics: hard drop, or catch while collapsing.
       this.onHardDrop();
       acted = true;
     }
+
     if (this.pad.justPressed("x")) {
       this.doHold();
       acted = true;
     }
+
     if (this.pad.justPressed("y")) {
       this.doPower();
       acted = true;
     }
+
     if (this.pad.justPressed("lb")) {
       this.doOrbit(-1);
       acted = true;
     }
+
     if (this.pad.justPressed("rb")) {
       this.doOrbit(1);
       acted = true;
     }
+
     const heldSoft = this.pad.isButtonDown("lt") || this.pad.isButtonDown("rt");
+
     if (!heldSoft) {
       this.padSoftBlocked = false;
     }
+
     const soft = heldSoft && !this.padSoftBlocked;
+
     if (soft !== this.padSoftDrop) {
       this.padSoftDrop = soft;
       this.engine.setSoftDrop(soft);
       acted = true;
     }
+
     if (acted) {
       this.lastPadAt = now;
     }
   }
 
-  private repeat(state: Repeat, dir: -1 | 0 | 1, dtMs: number, depthAxis: boolean): void {
+  private repeat(state: Repeat, dir: -1 | 0 | 1, dtMs: number, depthAxis: boolean) {
     if (dir === 0) {
       state.dir = 0;
+
       return;
     }
+
     if (dir !== state.dir) {
       state.dir = dir;
       state.das = 0;
       state.arr = 0;
       this.applyMove(dir, depthAxis, true);
+
       return;
     }
+
     state.das += dtMs;
+
     if (state.das >= DAS_MS) {
       state.arr += dtMs;
+
       while (state.arr >= ARR_MS) {
         state.arr -= ARR_MS;
         this.applyMove(dir, depthAxis, false);
@@ -878,41 +917,41 @@ export class GameScene {
     }
   }
 
-  private applyMove(dir: -1 | 1, depthAxis: boolean, initial: boolean): void {
+  private applyMove(dir: -1 | 1, depthAxis: boolean, initial: boolean) {
     this.stepScreen(screenDirOf(dir, depthAxis), initial);
   }
 
-  /** One camera-corrected move step (shared by keyboard DAS/ARR and touch). */
-  private stepScreen(dir: ScreenDir, initial: boolean): void {
+  private stepScreen(dir: ScreenDir, initial: boolean) {
     const m = screenToWorld(this.rig.corner, dir);
     const moved = this.engine.move(m.dx, m.dz);
+
     if (moved && initial) {
       sfx.move();
     }
   }
 
-  // ---- HUD --------------------------------------------------------------------
-
-  private catchRemaining(now: number): number | null {
+  private catchRemaining(now: number) {
     if (this.engine.state.status !== "collapsing") {
       return null;
     }
+
     return Math.max(0, CATCH_WINDOW_MS - (now - this.collapseStartedAt));
   }
 
-  private updateHud(now: number): void {
+  private updateHud(now: number) {
     const s = this.engine.state;
     this.hud.setCatchMeter(this.catchRemaining(now));
     const poseFresh = now - this.lastPoseAt < POSE_TIMEOUT_MS;
     const padFresh = now - this.lastPadAt < POSE_TIMEOUT_MS;
-    // The idle owner is whatever the player falls back to: a phone has no keys.
     const idle: InputOwner = this.coarse ? "TOUCH" : "KEYS";
     let owner: InputOwner = idle;
+
     if (poseFresh && this.lastPoseAt >= this.lastPadAt) {
       owner = "POSE";
     } else if (padFresh) {
       owner = "PAD";
     }
+
     this.hud.update({
       charge: this.engine.charge,
       holdIndex: this.engine.holdIndex,
@@ -924,17 +963,14 @@ export class GameScene {
     });
   }
 
-  /** Show the centre banner. When `withLegend`, also reveal the full control
-   *  reference centred under it and hide the in-play hotkey bar. The button
-   *  cluster exists only in play; title and results own their taps. */
-  private showBanner(title: string, sub: string, withLegend = true): void {
+  private showBanner(title: string, sub: string, withLegend = true) {
     const { status } = this.engine.state;
     showBanner(status, title, sub, withLegend ? "legend" : "none");
     this.touch.setActive(status !== "title" && status !== "gameOver");
     this.hud.setCatchMeter(this.catchRemaining(performance.now()));
   }
 
-  private hideBanner(): void {
+  private hideBanner() {
     const { status } = this.engine.state;
     hideBanner(status);
     this.touch.setActive(status !== "title" && status !== "gameOver");

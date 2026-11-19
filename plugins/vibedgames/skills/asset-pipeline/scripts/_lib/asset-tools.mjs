@@ -648,8 +648,6 @@ var clamp8 = (value) => {
 };
 var FILTERS = {
   bicubic: {
-    // Catmull-Rom variant with a = -0.5, which is Pillow's BICUBIC and the
-    // default filter for `Image.resize`.
     kernel: (x) => {
       const a = -0.5;
       const t = Math.abs(x);
@@ -830,7 +828,12 @@ var Bitmap = class _Bitmap {
   }
   getPixel(x, y) {
     const i = this.index(x, y);
-    return [at(this.data, i), at(this.data, i + 1), at(this.data, i + 2), at(this.data, i + 3)];
+    return [
+      at(this.data, i),
+      at(this.data, i + 1),
+      at(this.data, i + 2),
+      at(this.data, i + 3)
+    ];
   }
   putPixel(x, y, [r, g, b, a]) {
     if (!this.contains(x, y)) {
@@ -1064,23 +1067,6 @@ var Bitmap = class _Bitmap {
     }
     return out;
   }
-  /**
-   * Separable filtered resampling, transcribed from Pillow's
-   * `ImagingResampleHorizontal` so ported scripts keep producing the images
-   * they produced before. Three details matter for that parity and are each
-   * easy to "improve" into a mismatch:
-   *
-   *  - Downscaling widens the filter support by the scale factor, so the
-   *    result is area-averaged rather than point-sampled and aliased.
-   *  - Pillow resamples RGBA through its premultiplied `RGBa` mode, so colour
-   *    does not bleed out of transparent pixels.
-   *  - That premultiplication round-trips through *8-bit* storage. At very low
-   *    alpha the premultiplied colour truncates to zero and un-premultiplying
-   *    cannot bring it back, so Pillow quietly blackens near-invisible pixels.
-   *    Keeping the intermediate in float would be more accurate and would
-   *    disagree with every sprite these skills have produced to date, so the
-   *    8-bit round trip is reproduced deliberately.
-   */
   resampleFiltered(width, height, mode) {
     const { kernel, support } = FILTERS[mode];
     const horizontal = resamplePass(
@@ -2097,11 +2083,7 @@ var prettyPath = (target) => {
 };
 var toPythonJson = (payload) => JSON.stringify(payload, null, 2).replaceAll(
   /[\u007F-\u{10FFFF}]/gu,
-  (ch) => (
-    // Escape per UTF-16 unit: an astral character becomes its surrogate pair,
-    // as Python writes it.
-    [...ch].map((unit) => `\\u${(unit.codePointAt(0) ?? 0).toString(16).padStart(4, "0")}`).join("")
-  )
+  (ch) => [...ch].map((unit) => `\\u${(unit.codePointAt(0) ?? 0).toString(16).padStart(4, "0")}`).join("")
 );
 var writeJsonFile = (target, payload) => {
   mkdirSync3(path4.dirname(path4.resolve(target)), { recursive: true });
@@ -2185,8 +2167,8 @@ var extractManifestPaths = (manifestPath) => {
 var checkManifest = (manifestPath, root) => {
   const manifestPaths = extractManifestPaths(manifestPath);
   const actualPaths = new Set(walkFiles(root, ".png").map((p) => path5.resolve(p)));
-  const missing = [...actualPaths].filter((p) => !manifestPaths.has(p)).map(prettyPath);
-  const extra = [...manifestPaths].filter((p) => !actualPaths.has(p)).map(prettyPath);
+  const missing = [...actualPaths].flatMap((p) => manifestPaths.has(p) ? [] : [prettyPath(p)]);
+  const extra = [...manifestPaths].flatMap((p) => actualPaths.has(p) ? [] : [prettyPath(p)]);
   return {
     actual_pngs: actualPaths.size,
     extra: extra.toSorted(compareStrings),

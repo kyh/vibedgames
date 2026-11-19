@@ -8,10 +8,12 @@ import { applySnapshot, encodeWorld } from "./snapshot";
 import type { Snapshot } from "./snapshot";
 
 const ONLINE_SEED = 0xba_da_55;
+
 export interface HeroPick {
   champId: string;
   name: string;
 }
+
 export interface OnlineSeat {
   slot: number;
   team: string;
@@ -20,13 +22,16 @@ export interface OnlineSeat {
 export const humanRoster = (world: World) => {
   const picks: Record<string, HeroPick> = {};
   const seats: Record<string, OnlineSeat> = {};
+
   for (const unit of world.units.values()) {
     if (unit.kind !== "hero" || unit.isBot) {
       continue;
     }
+
     picks[unit.ownerId] = { champId: unit.champId, name: unit.name };
     seats[unit.ownerId] = { slot: unit.slot, team: unit.team };
   }
+
   return { picks, seats };
 };
 
@@ -36,6 +41,7 @@ export const humanRoster = (world: World) => {
 export const restoreHostState = (world: World, snapshot: Snapshot | null) => {
   applySnapshot(world, snapshot ?? encodeWorld(createWorld(ONLINE_SEED)));
   world.fx.length = 0;
+
   return humanRoster(world);
 };
 
@@ -64,18 +70,22 @@ export interface TakeoverFrom {
  */
 export const takeOver = (world: World, from: TakeoverFrom) => {
   let source: TakeoverSource = "own";
+
   if (!from.ours) {
     if (from.mirror.takeOver(world)) {
       const me = world.units.get(from.ownId);
+
       if (me) {
         from.predictor.handover(me, world.units, from.held, world.now);
       }
+
       source = "mirror";
     } else {
       restoreHostState(world, from.snapshot);
       source = "snapshot";
     }
   }
+
   return { ...humanRoster(world), source };
 };
 
@@ -86,16 +96,19 @@ export const reconcileHostHeroes = (
   players: PlayerMap,
   picks: Record<string, HeroPick>,
   seats: Record<string, OnlineSeat>,
-): void => {
+) => {
   if (world.phase !== "playing") {
     return;
   }
+
   for (const unit of world.units.values()) {
     if (unit.kind !== "hero" || unit.isBot) {
       continue;
     }
+
     if (players[unit.ownerId]) {
       seats[unit.ownerId] = { slot: unit.slot, team: unit.team };
+
       if (players[unit.ownerId]?.connected === false) {
         setHeroInput(unit, 0, 0, unit.aimX, unit.aimY, false);
       }
@@ -103,39 +116,51 @@ export const reconcileHostHeroes = (
       world.units.delete(unit.id);
     }
   }
+
   for (const ownerId of Object.keys(seats)) {
     if (players[ownerId]) {
       continue;
     }
+
     // oxlint-disable-next-line typescript/no-dynamic-delete -- the caller keeps these records by reference; the departed owner must vanish from its own object
     delete seats[ownerId];
     // oxlint-disable-next-line typescript/no-dynamic-delete -- same shared-record contract as the seat above
     delete picks[ownerId];
   }
+
   const used = new Set(Object.values(seats).map((seat) => seat.slot));
+
   for (const ownerId of Object.keys(players)) {
     if (world.units.has(`h-${ownerId}`)) {
       continue;
     }
+
     const pick = picks[ownerId];
+
     if (!pick) {
       continue;
     }
+
     let seat = seats[ownerId];
+
     if (!seat) {
       const slot = SPAWNS.findIndex((_, index) => !used.has(index));
+
       if (slot === -1) {
         continue;
       }
+
       seat = { slot, team: ownerId };
       seats[ownerId] = seat;
       used.add(slot);
     }
+
     for (const unit of world.units.values()) {
       if (unit.kind === "hero" && unit.isBot && unit.slot === seat.slot) {
         world.units.delete(unit.id);
       }
     }
+
     spawnHero(world, {
       champId: pick.champId,
       id: `h-${ownerId}`,
@@ -146,5 +171,6 @@ export const reconcileHostHeroes = (
       team: seat.team,
     });
   }
+
   ensureBots(world);
 };

@@ -1,5 +1,3 @@
-// Lamp posts: a merged post-and-arm geometry, plus a separate glass lantern
-// instance whose emissive material the lighting rig drives at dusk.
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 
@@ -22,7 +20,7 @@ export interface Lantern {
 }
 
 /** Base plinth, post, arm and the lantern hanger, merged into one geometry. */
-export const buildLampPostGeometry = (): THREE.BufferGeometry =>
+export const buildLampPostGeometry = () =>
   mergeGeometries([
     new THREE.CylinderGeometry(0.3, 0.4, 0.5, 10).translate(0, 0.25, 0),
     new THREE.CylinderGeometry(0.05, 0.075, LAMP.height, 8).translate(0, LAMP.height / 2, 0),
@@ -31,7 +29,7 @@ export const buildLampPostGeometry = (): THREE.BufferGeometry =>
     new THREE.CylinderGeometry(0.1, 0.06, 0.05, 8).translate(LAMP.arm, LAMP.height - 0.42, 0),
   ]);
 
-export const buildLampGlassGeometry = (): THREE.BufferGeometry =>
+export const buildLampGlassGeometry = () =>
   new THREE.CylinderGeometry(0.135, 0.105, 0.34, 10).translate(0, -0.05, 0);
 
 /**
@@ -42,8 +40,9 @@ export const placeLamps = (
   posts: THREE.InstancedMesh,
   glass: THREE.InstancedMesh,
   lampTiles: TileCoord[],
-): Lantern[] => {
+) => {
   const lanterns: Lantern[] = [];
+
   for (const [i, [tx, ty]] of lampTiles.entries()) {
     const x = tileCenter(tx);
     const z = tileCenter(ty);
@@ -64,5 +63,6 @@ export const placeLamps = (
     glass.setMatrixAt(i, SCRATCH_MATRIX);
     lanterns.push({ x: lx, y: terrainHeight(x, z), z: lz });
   }
+
   return lanterns;
 };

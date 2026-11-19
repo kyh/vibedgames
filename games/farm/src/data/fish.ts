@@ -17,10 +17,8 @@ export interface FishDef {
   id: FishId;
   name: string;
   value: number;
-  // 1..5 — affects reel speed/erraticness
   difficulty: number;
   seasons: readonly Season[] | "all";
-  // relative spawn weight before season/skill modifiers
   weight: number;
 }
 
@@ -110,28 +108,35 @@ export const FISH_IDS = [
   "legend",
 ] as const satisfies readonly FishId[];
 
-const inSeason = (def: FishDef, season: Season): boolean =>
+const inSeason = (def: FishDef, season: Season) =>
   def.seasons === "all" || def.seasons.includes(season);
 
-// Pick a fish weighted by season, with higher fishing skill nudging toward
-// rarer (lower-weight, higher-value) catches. rng() -> [0,1).
-export const rollFish = (season: Season, fishingLevel: number, rng: () => number): FishDef => {
-  const pool = FISH_IDS.map((id) => FISH[id]).filter((f) => inSeason(f, season));
-  // skill shifts weight from common toward rare: rarePull in [0..~0.9]
+export const rollFish = (season: Season, fishingLevel: number, rng: () => number) => {
+  const pool = FISH_IDS.flatMap((id) => {
+    const f = FISH[id];
+
+    return inSeason(f, season) ? [f] : [];
+  });
+
   const rarePull = Math.min(0.9, fishingLevel * 0.09);
+
   const weighted = pool.map((f) => {
-    // higher for rarer fish
     const rareness = 1 / f.weight;
     const w = f.weight * (1 - rarePull) + rareness * 40 * rarePull;
+
     return { f, w };
   });
+
   const total = weighted.reduce((s, x) => s + x.w, 0);
   let r = rng() * total;
+
   for (const x of weighted) {
     r -= x.w;
+
     if (r <= 0) {
       return x.f;
     }
   }
+
   return weighted[0]?.f ?? FISH.sardine;
 };

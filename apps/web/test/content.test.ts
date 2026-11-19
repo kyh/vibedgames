@@ -39,8 +39,6 @@ describe("every prose page", () => {
       });
 
       test("gives each section heading a #fragment of its own", () => {
-        // headingId has no -1 suffix for a repeat, so two sections slugging
-        // alike would share one HTML id.
         const ids = doc.sections.map((section) => headingId(section.heading));
         assert.equal(new Set(ids).size, ids.length, `${doc.path} repeats a section heading`);
       });
@@ -49,8 +47,6 @@ describe("every prose page", () => {
 });
 
 describe("trust anchor pages", () => {
-  // AI agents check /about, /contact, /privacy and /terms to decide whether a
-  // business is real. Thin pages read as placeholders, so hold them to a floor.
   for (const doc of [aboutDoc, contactDoc, privacyDoc, termsDoc]) {
     test(`${doc.path} carries at least 500 characters of prose`, () => {
       assert.ok(
@@ -67,13 +63,13 @@ describe("trust anchor pages", () => {
 
   test("/privacy covers what is stored, who processes it and deletion", () => {
     const markdown = docToMarkdown(privacyDoc).toLowerCase();
+
     for (const topic of ["cookie", "delet", "retention", "cloudflare"]) {
       assert.match(markdown, new RegExp(topic, "u"));
     }
   });
 });
 
-/** The `#fragment` each of a doc's section headings answers to. */
 const anchorsOf = (doc: Doc) => new Set(doc.sections.map((section) => headingId(section.heading)));
 
 describe("legal pages", () => {
@@ -115,8 +111,10 @@ describe("legal pages", () => {
         const links = [...markdown.matchAll(/\]\((?<href>[^)\s]+)\)/gu)].map(
           (match) => match.groups?.href ?? "",
         );
+
         const fragments = links.filter((href) => href.includes("#"));
         assert.ok(fragments.length > 0);
+
         for (const href of fragments) {
           const [base = "", fragment = ""] = href.split("#");
           const target = base === "" ? doc : docByPath.get(new URL(base).pathname);
@@ -131,6 +129,7 @@ describe("legal pages", () => {
     const index = privacyDoc.lead.find(
       (block) => block.kind === "ul" && block.items.every((item) => item.includes("](#")),
     );
+
     assert.ok(index?.kind === "ul");
     assert.deepEqual(
       index.items,
@@ -140,6 +139,7 @@ describe("legal pages", () => {
 
   test("/privacy keeps the promises the page has always made", () => {
     const text = docToText(privacyDoc);
+
     for (const promise of [
       "We do not sell your personal information",
       "we do not show ads",
@@ -154,6 +154,7 @@ describe("legal pages", () => {
 
   test("/terms is the JAMS variant, under California law, with a 30-day opt-out", () => {
     const text = docToText(termsDoc);
+
     for (const clause of [
       "Version 2.0",
       "JAMS",
@@ -216,7 +217,9 @@ describe("llms.txt", () => {
     const links = [...llmsTxt.matchAll(/\]\((?<href>[^)]+)\)/gu)].map(
       (match) => match.groups?.href ?? "",
     );
+
     assert.ok(links.length > 0);
+
     for (const link of links) {
       assert.match(link, /^https:\/\//u);
     }

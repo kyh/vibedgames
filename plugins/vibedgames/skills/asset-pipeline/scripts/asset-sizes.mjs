@@ -1,12 +1,4 @@
 #!/usr/bin/env node
-/**
- * List image dimensions for asset PNGs.
- *
- * Usage:
- *   node asset-sizes.mjs
- *   node asset-sizes.mjs --root assets --json tmp/sizes.json
- *   node asset-sizes.mjs --root path/to/assets --csv tmp/sizes.csv
- */
 import { existsSync } from "node:fs";
 
 import {
@@ -25,21 +17,27 @@ main(() => {
   const args = parseArgs(process.argv.slice(2), {
     values: ["csv", "json", "root"],
   });
+
   const root = defaultRoot(getString(args, "root"));
+
   if (!existsSync(root)) {
     fail(`Root not found: ${root}`);
   }
 
   const rows = collectSizes(root);
+
   for (const row of rows) {
     console.log(`${row.width}x${row.height}\t${row.path}`);
   }
 
   const csv = getString(args, "csv");
+
   if (csv) {
     writeTextFile(csv, sizesToCsv(rows));
   }
+
   const json = getString(args, "json");
+
   if (json) {
     writeJsonFile(json, rows);
   }

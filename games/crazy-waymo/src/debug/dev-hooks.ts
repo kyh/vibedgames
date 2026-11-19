@@ -1,6 +1,3 @@
-// DEV-only hooks for headless inspection (freecam + teleport), driven from
-// `vg playtest` via `window.__taxi`. main.ts only imports this module when
-// import.meta.env.DEV is true, so none of it reaches production builds.
 import * as THREE from "three";
 
 import type { PerfGovernor } from "../render/perf-governor";
@@ -10,11 +7,8 @@ export interface TaxiDebugApi {
   readonly game: GameScene;
   readonly camera: THREE.PerspectiveCamera;
   setFreecam: (on: boolean) => void;
-  // Park the camera at (x,y,z) looking at (tx,ty,tz); implies freecam.
   lookFrom: (x: number, y: number, z: number, tx: number, ty: number, tz: number) => void;
-  // Drop the taxi at normalized map coords (u,v in 0..1) facing `yaw`.
   teleport: (u: number, v: number, yaw?: number) => void;
-  // Live car probe for headless verification.
   probe: () => {
     x: number;
     z: number;
@@ -29,17 +23,11 @@ export interface TaxiDebugApi {
     wreckedCount: number;
     nearestTraffic: { dist: number; wrecked: boolean; y: number } | null;
   } | null;
-  // Force the run clock (endgame testing).
   setTime: (seconds: number) => void;
-  // Current perf-governor quality tier (0 = full; mobile boots lower).
   tier: () => number;
-  // Jump the day-night cycle to a phase (0..1; ~0.25 day, 0.47 sunset, 0.7 night).
   setPhase: (p: number) => void;
-  // Nearest resting cone (verification).
   nearestCone: () => { u: number; v: number } | null;
-  // Launch the nearest resting cone through the physics path (verification).
   smashCone: () => boolean;
-  // Raycast from the camera through NDC (nx, ny in -1..1); returns what's hit.
   pick: (
     nx: number,
     ny: number,
@@ -59,11 +47,11 @@ declare global {
   }
 }
 
-export const installDevHooks = (game: GameScene, governor: PerfGovernor): void => {
+export const installDevHooks = (game: GameScene, governor: PerfGovernor) => {
   window.__taxi = {
     camera: game.camera,
     game,
-    lookFrom(x: number, y: number, z: number, tx: number, ty: number, tz: number): void {
+    lookFrom(x: number, y: number, z: number, tx: number, ty: number, tz: number) {
       game.freecam = true;
       game.camera.position.set(x, y, z);
       game.camera.lookAt(tx, ty, tz);
@@ -75,23 +63,32 @@ export const installDevHooks = (game: GameScene, governor: PerfGovernor): void =
       const ray = new THREE.Raycaster();
       ray.setFromCamera(new THREE.Vector2(nx, ny), game.camera);
       const [hit] = ray.intersectObjects(game.scene.children, true);
+
       if (!hit) {
         return null;
       }
+
       const chain: string[] = [];
       let o: THREE.Object3D | null = hit.object;
+
       while (o) {
         chain.push(`${o.name || o.type}@${o.scale.x.toFixed(2)}`);
         o = o.parent;
       }
+
       const mesh = hit.object instanceof THREE.Mesh ? hit.object : null;
+
       const mat =
         mesh && mesh.material instanceof THREE.MeshStandardMaterial ? mesh.material : null;
+
       const geo = mesh ? mesh.geometry : null;
+
       if (geo && !geo.boundingBox) {
         geo.computeBoundingBox();
       }
+
       const bb = geo?.boundingBox ?? null;
+
       return {
         bbox: bb
           ? [bb.min.x, bb.min.y, bb.min.z, bb.max.x, bb.max.y, bb.max.z].map(
@@ -108,22 +105,22 @@ export const installDevHooks = (game: GameScene, governor: PerfGovernor): void =
     probe() {
       return game.debugProbe();
     },
-    setFreecam(on: boolean): void {
+    setFreecam(on: boolean) {
       game.freecam = on;
     },
-    setPhase(p: number): void {
+    setPhase(p: number) {
       game.debugSetDayPhase(p);
     },
-    setTime(seconds: number): void {
+    setTime(seconds: number) {
       game.debugSetTime(seconds);
     },
-    smashCone(): boolean {
+    smashCone() {
       return game.debugSmashNearestCone();
     },
-    teleport(u: number, v: number, yaw = 0): void {
+    teleport(u: number, v: number, yaw = 0) {
       game.debugTeleport(u, v, yaw);
     },
-    tier(): number {
+    tier() {
       return governor.currentTier;
     },
   };

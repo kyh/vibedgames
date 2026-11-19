@@ -2,16 +2,15 @@ import * as THREE from "three";
 
 import { MARINE_COLOR_GLSL, MARINE_GLSL } from "./marine-profile";
 
-const fogColorSpace = (
-  renderer: THREE.WebGLRenderer,
-  target: THREE.WebGLRenderTarget | null,
-): string => {
+const fogColorSpace = (renderer: THREE.WebGLRenderer, target: THREE.WebGLRenderTarget | null) => {
   if (target === null) {
     return renderer.outputColorSpace;
   }
+
   if ("isXRRenderTarget" in target && target.isXRRenderTarget === true) {
     return target.texture.colorSpace;
   }
+
   return THREE.ColorManagement.workingColorSpace;
 };
 
@@ -26,7 +25,6 @@ export class MarineSky {
   private sourceFog = new THREE.Color();
 
   constructor() {
-    // Elevation -12..60 degrees. The upper edge fades before the geometry ends.
     const geometry = new THREE.SphereGeometry(
       1,
       96,
@@ -36,12 +34,12 @@ export class MarineSky {
       Math.PI / 6,
       Math.PI * 0.4,
     );
+
     const material = new THREE.ShaderMaterial({
       depthTest: true,
       depthWrite: false,
       fog: false,
-      // oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-      fragmentShader: /* glsl */ `
+      fragmentShader: `
         uniform vec3 uFog;
         varying float vBank;
         ${MARINE_COLOR_GLSL}
@@ -53,8 +51,7 @@ export class MarineSky {
       toneMapped: false,
       transparent: true,
       uniforms: { uFog: this.fog },
-      // oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-      vertexShader: /* glsl */ `
+      vertexShader: `
         varying float vBank;
         ${MARINE_GLSL}
         void main() {
@@ -67,21 +64,19 @@ export class MarineSky {
         }
       `,
     });
+
     this.mesh = new THREE.Mesh(geometry, material);
     this.mesh.name = "coastal-marine-sky";
     this.mesh.frustumCulled = false;
     this.mesh.onBeforeRender = (renderer) => {
-      // Built-in fog is applied after output conversion. Match its public
-      // Color.getRGB contract for the post target, direct phone and XR paths.
       const target = renderer.getRenderTarget();
       this.sourceFog.getRGB(this.fog.value, fogColorSpace(renderer, target));
     };
-    // Transparent objects render after opaque terrain. This draws before
-    // cloud sheets and all gameplay transparencies, and never writes depth.
+
     this.mesh.renderOrder = -1;
   }
 
-  update(fogColor: THREE.Color, enabled = true): void {
+  update(fogColor: THREE.Color, enabled = true) {
     this.sourceFog.copy(fogColor);
     this.mesh.visible = enabled;
   }

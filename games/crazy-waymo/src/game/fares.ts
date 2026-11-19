@@ -14,6 +14,7 @@ import type { FareTier } from "./fare-tier";
 import { parSeconds } from "./state";
 
 export { GROUND_RING_LIFT, tierColor, tierPayMult } from "./fare-tier";
+
 export type { FareTier } from "./fare-tier";
 
 const CARRY_COLOR = 0x49_e0_ff;
@@ -39,24 +40,22 @@ export type FareEvent =
 export interface Objective {
   readonly pos: THREE.Vector3;
   readonly kind: "seek" | "carry";
-  // trip length when carrying (0 while seeking)
   readonly tiles: number;
   readonly tier: FareTier;
-  // 1 fresh .. 0 bailing (1 while seeking)
   readonly patienceFrac: number;
 }
 
-const cellDistance = (a: RoadCell, b: RoadCell): number =>
-  Math.abs(a.gx - b.gx) + Math.abs(a.gz - b.gz);
+const cellDistance = (a: RoadCell, b: RoadCell) => Math.abs(a.gx - b.gx) + Math.abs(a.gz - b.gz);
 
-// Trip length band, in grid cells, for each tier.
-const tierRange = (t: FareTier): readonly [number, number] => {
+const tierRange: (t: FareTier) => readonly [number, number] = (t) => {
   if (t === "short") {
     return [4, FARE.tierShortMax];
   }
+
   if (t === "medium") {
     return [FARE.tierShortMax + 1, FARE.tierMediumMax];
   }
+
   return [FARE.tierMediumMax + 1, FARE.tierLongMax];
 };
 
@@ -80,16 +79,12 @@ interface Carrying {
   readonly patienceBudget: number;
 }
 
-// A passenger running to the cab (pickup) or walking off (dropoff).
 interface Extra {
   readonly node: THREE.Object3D;
   readonly kind: "board" | "leave";
   t: number;
   readonly from: THREE.Vector3;
   readonly dir: THREE.Vector3;
-  // Bounds-normalised standing scale; the animations multiply it. Hardcoding
-  // an animation scale instead popped the passenger to a different size than
-  // the one that was standing there a frame earlier.
   readonly base: number;
 }
 
@@ -100,12 +95,9 @@ export class FareManager {
   private carryBeacon: Beacon;
   private extras: Extra[] = [];
   private clock = 0;
-  // next waiting-fare top-up time
   private spawnAt = 0;
   private firstSpawn = true;
   private rng: Rng;
-  // TRAILER (src/trailer/): autonomous spawning frozen; next pickup's
-  // destination forced. Both stay inert in normal play (reset() clears them).
   private trailerHold = false;
   private trailerDest: RoadCell | null = null;
 
@@ -121,11 +113,11 @@ export class FareManager {
     this.group.add(this.carryBeacon.group);
   }
 
-  reseed(seed: number): void {
+  reseed(seed: number) {
     this.rng.reseed(seed);
   }
 
-  reset(carX: number, carZ: number): void {
+  reset(carX: number, carZ: number) {
     this.clock = 0;
     this.spawnAt = 0;
     this.firstSpawn = true;
@@ -133,47 +125,54 @@ export class FareManager {
     this.trailerDest = null;
     this.clearStreet();
     const near: RoadCell = { gx: this.city.gridX(carX), gz: this.city.gridZ(carZ) };
+
     while (this.waiting.length < FARE.waitingFares) {
       this.spawnWaiting(near);
     }
   }
 
-  private clearStreet(): void {
+  private clearStreet() {
     this.carrying = null;
     this.carryBeacon.setVisible(false);
+
     for (const w of this.waiting) {
       this.group.remove(w.passenger);
       this.group.remove(w.beacon.group);
       w.beacon.dispose();
     }
+
     for (const e of this.extras) {
       this.group.remove(e.node);
     }
+
     this.waiting = [];
     this.extras = [];
   }
 
   /** TRAILER: freeze autonomous spawn/retire and clear the street — the
    *  director stages customers explicitly with stageTrailerFare(). */
-  setTrailerHold(on: boolean): void {
+  setTrailerHold(on: boolean) {
     this.trailerHold = on;
+
     if (!on) {
       return;
     }
+
     this.trailerDest = null;
     this.clearStreet();
   }
 
   /** TRAILER: one deterministic customer — waits at `from`, rides to `dest`.
    *  Pickup/dropoff run through the normal update() event path. */
-  stageTrailerFare(from: RoadCell, dest: RoadCell, tier: FareTier): void {
+  stageTrailerFare(from: RoadCell, dest: RoadCell, tier: FareTier) {
     this.setTrailerHold(true);
     this.trailerDest = dest;
     this.spawnWaitingAt(from, tier);
   }
 
-  objective(): Objective | null {
+  objective() {
     const c = this.carrying;
+
     if (c) {
       return {
         kind: "carry",
@@ -181,153 +180,174 @@ export class FareManager {
         pos: c.pos,
         tier: c.tier,
         tiles: c.tiles,
-      };
+      } satisfies Objective | null;
     }
+
     let best: WaitingFare | null = null;
     let bd = Infinity;
+
     for (const w of this.waiting) {
-      // caller-relative distance handled by HUD; any stable pick works
       const d = w.pos.lengthSq();
+
       if (d < bd) {
         bd = d;
         best = w;
       }
     }
+
     if (!best) {
-      return null;
+      return null satisfies Objective | null;
     }
-    return { kind: "seek", patienceFrac: 1, pos: best.pos, tier: best.tier, tiles: 0 };
+
+    return {
+      kind: "seek",
+      patienceFrac: 1,
+      pos: best.pos,
+      tier: best.tier,
+      tiles: 0,
+    } satisfies Objective | null;
   }
 
-  // Nearest waiting customer to a world position (arrow + HUD target).
-  nearestWaiting(x: number, z: number): WaitingFare | null {
+  nearestWaiting(x: number, z: number) {
     let best: WaitingFare | null = null;
     let bd = Infinity;
+
     for (const w of this.waiting) {
       const d = (w.pos.x - x) * (w.pos.x - x) + (w.pos.z - z) * (w.pos.z - z);
+
       if (d < bd) {
         bd = d;
         best = w;
       }
     }
+
     return best;
   }
 
-  carryingInfo(): Carrying | null {
+  carryingInfo() {
     return this.carrying;
   }
 
-  // Waiting customers for the minimap.
-  waitingList(): readonly { x: number; z: number; tier: FareTier }[] {
+  waitingList() {
     return this.waiting.map((w) => ({ tier: w.tier, x: w.pos.x, z: w.pos.z }));
   }
 
-  patienceFrac(): number {
+  patienceFrac() {
     const c = this.carrying;
+
     if (!c) {
       return 1;
     }
+
     const elapsed = this.clock - c.rideStart;
+
     return Math.max(0, Math.min(1, 1 - elapsed / c.patienceBudget));
   }
 
-  private hasLotNeighbor(c: RoadCell): boolean {
+  private hasLotNeighbor(c: RoadCell) {
     for (const d of [N, E, S, W] as const) {
       const [dx, dz] = DIR_DELTA[d];
+
       if (this.city.plan.cells[c.gx + dx]?.[c.gz + dz] === "lot") {
         return true;
       }
     }
+
     return false;
   }
 
-  private pickCell(from: RoadCell, min: number, max: number): RoadCell {
+  private pickCell(from: RoadCell, min: number, max: number) {
     const cells = this.city.roadCells;
+
     const inRange = cells.filter((c) => {
       const d = cellDistance(from, c);
+
       return d >= min && d <= max;
     });
-    // Prefer cells with a building lot next to them so the fare stands at a real
-    // curb, not stranded in the middle of a 4-way intersection.
+
     const curbside = inRange.filter((c) => this.hasLotNeighbor(c));
+
     if (curbside.length > 0) {
       return this.rng.pick(curbside);
     }
+
     if (inRange.length > 0) {
       return this.rng.pick(inRange);
     }
+
     return this.rng.pick(cells);
   }
 
-  // A point on the sidewalk of a road cell: project onto the street EDGE and
-  // stand just past the asphalt on the lot side — correct on axis streets,
-  // diagonals and curves alike.
-  private curbPoint(cell: RoadCell): THREE.Vector3 {
+  private curbPoint(cell: RoadCell) {
     let dir: Dir = E;
+
     for (const d of [S, E, N, W] as const) {
       const [dx, dz] = DIR_DELTA[d];
       const gx = cell.gx + dx;
       const gz = cell.gz + dz;
+
       if (this.city.plan.cells[gx]?.[gz] === "lot") {
         dir = d;
         break;
       }
     }
+
     const [dx, dz] = DIR_DELTA[dir];
     const cx = this.city.worldX(cell.gx);
     const cz = this.city.worldZ(cell.gz);
     const hit = this.city.network.nearest(cx, cz, ROAD_TILE * 1.2);
+
     if (hit) {
       let nx = -hit.tz;
       let nz = hit.tx;
+
       if (nx * dx + nz * dz < 0) {
         nx = -nx;
         nz = -nz;
       }
-      // on the sidewalk, facing the kerb
+
       const off = hit.edge.half + 0.65;
       const x = hit.x + nx * off;
       const z = hit.z + nz * off;
+
       return new THREE.Vector3(x, this.city.heightAt(x, z), z);
     }
+
     const x = cx + dx * ROAD_TILE * 0.425;
     const z = cz + dz * ROAD_TILE * 0.425;
+
     return new THREE.Vector3(x, this.city.heightAt(x, z), z);
   }
 
-  private rollTier(): FareTier {
+  private rollTier() {
     const r = this.rng.range(0, 1);
+
     if (r < 0.45) {
       return "short";
     }
+
     if (r < 0.8) {
       return "medium";
     }
+
     return "long";
   }
 
-  private spawnWaiting(near: RoadCell): void {
-    // The very first customer of a run stands close — the first full loop
-    // (pickup → dropoff → $$$ → +time) must land inside ~30 seconds. After
-    // that, customers scatter across a wide ring so pickups pull the taxi
-    // all over the city instead of orbiting one block.
+  private spawnWaiting(near: RoadCell) {
     const min = this.firstSpawn ? 3 : FARE.seekMin;
     const max = this.firstSpawn ? FARE.firstSeekMax : FARE.seekMax;
     this.firstSpawn = false;
     const cell = this.pickCell(near, min, max);
-    // Don't stack two customers on the same cell.
+
     if (this.waiting.some((w) => w.cell.gx === cell.gx && w.cell.gz === cell.gz)) {
       return;
     }
+
     this.spawnWaitingAt(cell, this.rollTier());
   }
 
-  // Shared placement tail of spawnWaiting, with the cell and tier chosen by
-  // the caller (trailer staging picks both deterministically).
-  private spawnWaitingAt(cell: RoadCell, tier: FareTier): void {
+  private spawnWaitingAt(cell: RoadCell, tier: FareTier) {
     const pos = this.curbPoint(cell);
-    // Bounds come from the model actually instanced — reading CHARACTERS[0]
-    // instead made every other character render at the wrong height.
     const url = modelUrl("characters", this.rng.pick(CHARACTERS));
     const passenger = this.cache.instance(url);
     passenger.scale.setScalar(PASSENGER_HEIGHT / Math.max(this.cache.bounds(url).size.y, 0.001));
@@ -340,76 +360,84 @@ export class FareManager {
     this.waiting.push({ beacon, cell, passenger, pos, tier });
   }
 
-  update(dt: number, car: Car): FareEvent {
+  update(dt: number, car: Car) {
     this.clock += dt;
     this.carryBeacon.update(dt);
-    // Waiting beacons only matter when you can actually board — hide them
-    // while carrying so the sky isn't full of non-interactible beams.
     const seeking = this.carrying === null;
+
     for (const w of this.waiting) {
       w.beacon.setVisible(seeking);
       w.beacon.update(dt);
-      // idle bob
       w.passenger.position.y = w.pos.y + Math.sin(this.clock * 4 + w.pos.x) * 0.08;
     }
 
     this.updateExtras(dt, car);
 
-    // Customers the taxi left far behind relocate: retire the farthest (one
-    // per tick — no visible mass despawn) and let the top-up respawn it in
-    // the ring around wherever the taxi is NOW, so pickups never sit static
-    // on the other side of the map. Frozen while the trailer director stages
-    // customers by hand.
     const carCell: RoadCell = {
       gx: this.city.gridX(car.position.x),
       gz: this.city.gridZ(car.position.z),
     };
+
     if (!this.trailerHold) {
       this.relocateAndTopUp(carCell);
     }
 
     const c = this.carrying;
+
     if (c) {
-      // Patience: the passenger bails if the ride drags on far past par.
       if (this.clock - c.rideStart >= c.patienceBudget) {
         this.carrying = null;
         this.carryBeacon.setVisible(false);
+
         const leavePos = this.curbPoint({
           gx: this.city.gridX(car.position.x),
           gz: this.city.gridZ(car.position.z),
         });
+
         this.spawnLeaver(leavePos);
-        return { kind: "bail", pos: leavePos };
+
+        return { kind: "bail", pos: leavePos } satisfies FareEvent;
       }
+
       const dx = car.position.x - c.pos.x;
       const dz = car.position.z - c.pos.z;
+
       if (dx * dx + dz * dz <= FARE.dropoffRadius * FARE.dropoffRadius) {
         const rideTime = this.clock - c.rideStart;
         this.carrying = null;
         this.carryBeacon.setVisible(false);
         this.spawnLeaver(c.pos);
-        return { kind: "dropoff", pos: c.pos.clone(), rideTime, tier: c.tier, tiles: c.tiles };
+
+        return {
+          kind: "dropoff",
+          pos: c.pos.clone(),
+          rideTime,
+          tier: c.tier,
+          tiles: c.tiles,
+        } satisfies FareEvent;
       }
-      return { kind: "none" };
+
+      return { kind: "none" } satisfies FareEvent;
     }
 
-    // Seeking: board the nearest waiting customer inside the pickup radius.
     for (let i = 0; i < this.waiting.length; i += 1) {
       const w = this.waiting[i];
+
       if (!w) {
         continue;
       }
+
       const dx = car.position.x - w.pos.x;
       const dz = car.position.z - w.pos.z;
+
       if (dx * dx + dz * dz > FARE.pickupRadius * FARE.pickupRadius) {
         continue;
       }
+
       this.waiting.splice(i, 1);
       this.group.remove(w.beacon.group);
       w.beacon.dispose();
-      // The boarding run replaces the idle passenger.
       this.extras.push({
-        // already carries the standing scale
         base: w.passenger.scale.x,
         dir: new THREE.Vector3(),
         from: w.pos.clone(),
@@ -433,20 +461,24 @@ export class FareManager {
         tier: w.tier,
         tiles,
       };
-      return { dest, kind: "pickup", pos: w.pos.clone(), tier: w.tier, tiles };
+
+      return { dest, kind: "pickup", pos: w.pos.clone(), tier: w.tier, tiles } satisfies FareEvent;
     }
-    return { kind: "none" };
+
+    return { kind: "none" } satisfies FareEvent;
   }
 
-  // Passenger theater: run-to-cab boarding + walk-away leaving.
-  private updateExtras(dt: number, car: Car): void {
+  private updateExtras(dt: number, car: Car) {
     for (let i = this.extras.length - 1; i >= 0; i -= 1) {
       const e = this.extras[i];
+
       if (!e) {
         continue;
       }
+
       e.t += dt;
       let f: number;
+
       if (e.kind === "board") {
         f = Math.min(1, e.t / 0.45);
         e.node.position.lerpVectors(e.from, car.position, f);
@@ -457,6 +489,7 @@ export class FareManager {
         const pop = e.t < 0.25 ? e.t / 0.25 : 1;
         e.node.scale.setScalar(e.base * pop);
       }
+
       if (f >= 1) {
         this.group.remove(e.node);
         this.extras.splice(i, 1);
@@ -464,23 +497,26 @@ export class FareManager {
     }
   }
 
-  // Retire the farthest stranded customer (one per tick) and top the street
-  // back up around wherever the taxi is now.
-  private relocateAndTopUp(carCell: RoadCell): void {
+  private relocateAndTopUp(carCell: RoadCell) {
     if (!this.carrying) {
       let farthest = -1;
       let fd: number = FARE.seekRetire;
+
       for (let i = 0; i < this.waiting.length; i += 1) {
         const w = this.waiting[i];
+
         if (!w) {
           continue;
         }
+
         const d = cellDistance(w.cell, carCell);
+
         if (d > fd) {
           fd = d;
           farthest = i;
         }
       }
+
       if (farthest >= 0) {
         this.retireWaiting(farthest);
       }
@@ -492,24 +528,23 @@ export class FareManager {
     }
   }
 
-  // Quietly remove a waiting customer (relocation — not a pickup or bail).
-  private retireWaiting(i: number): void {
+  private retireWaiting(i: number) {
     const w = this.waiting[i];
+
     if (!w) {
       return;
     }
+
     this.waiting.splice(i, 1);
     this.group.remove(w.passenger);
     this.group.remove(w.beacon.group);
     w.beacon.dispose();
   }
 
-  private spawnLeaver(at: THREE.Vector3): void {
+  private spawnLeaver(at: THREE.Vector3) {
     const url = modelUrl("characters", this.rng.pick(CHARACTERS));
     const node = this.cache.instance(url);
     const base = PASSENGER_HEIGHT / Math.max(this.cache.bounds(url).size.y, 0.001);
-    // The pop-in starts at 0; setting it before the add keeps the first frame
-    // from flashing the raw model at full size.
     node.scale.setScalar(0);
     node.position.copy(at);
     node.rotation.y = this.rng.range(0, Math.PI * 2);

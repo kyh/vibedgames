@@ -2,63 +2,46 @@ import * as THREE from "three";
 
 import type { Terrain } from "./terrain";
 
-// Drapes world-baked static geometry (road tiles, grass patches) over the
-// terrain: triangles are adaptively subdivided where the height field curves
-// underneath them, then every vertex is displaced by the terrain height. Since
-// the ground mesh samples the same field, roads hug the hills with no seams.
-
-// Broad surfaces use a looser tolerance to bound the full city's vertex count.
-// Thin road markings request finer quality against the rendered asphalt.
-// Split a triangle when the surface bows past this. Exported as THE contract
-// for anything layered above a draped surface: an overlay's lift must exceed
-// the surface's own lift plus this bow, or the surface swallows it. Runtime
-// consumers (skid marks, trails, beacon rings, lot decals) derive their lifts
-// from this so a retune here can't silently under-lift them.
 export const DRAPE_MAX_ERROR = 0.09;
-// Never split edges shorter than this. The terrain field itself is 2u
-// resolution (terrain.ts FIELD_STEP) — subdividing much below ~2x that
-// re-samples the same bilinear patch and buys no accuracy, it just multiplies
-// verts. The deepest split level dominates the drape's vertex count, so this
-// floor is the main size knob for the baked world; MAX_DEPTH is a runaway
-// guard, and it has to clear the ~240u block-spanning triangles the planar
-// map hands over (240/2^6 = 3.75u, one step above the floor).
 const MIN_EDGE = 3.6;
 const MAX_DEPTH = 6;
 const DEFAULT_DRAPE_QUALITY: DrapeQuality = { maxDepth: MAX_DEPTH, minEdge: MIN_EDGE };
-// vertices at least this upright adopt the terrain normal
 const UP_DOT = 0.8;
 
-// Meshopt-compressed GLBs arrive with quantized (Int16/interleaved) attributes.
-// Baking world transforms writes float world coords back into those arrays —
-// which truncates them to garbage — so promote to plain Float32 first.
-export const toFloat32Attributes = (geo: THREE.BufferGeometry): void => {
+export const toFloat32Attributes = (geo: THREE.BufferGeometry) => {
   for (const name of ["position", "normal", "uv"]) {
     const a = geo.getAttribute(name);
+
     if (!a) {
       continue;
     }
+
     if (a instanceof THREE.BufferAttribute && a.array instanceof Float32Array && !a.normalized) {
       continue;
     }
+
     const size = a.itemSize;
     const arr = new Float32Array(a.count * size);
+
     for (let i = 0; i < a.count; i += 1) {
       arr[i * size] = a.getX(i);
+
       if (size > 1) {
         arr[i * size + 1] = a.getY(i);
       }
+
       if (size > 2) {
         arr[i * size + 2] = a.getZ(i);
       }
     }
+
     geo.setAttribute(name, new THREE.BufferAttribute(arr, size));
   }
 };
 
-// A vertex is [x, y, z, nx, ny, nz, u, v].
 type Vert = readonly [number, number, number, number, number, number, number, number];
 
-const mid = (a: Vert, b: Vert): Vert => [
+const mid: (a: Vert, b: Vert) => Vert = (a, b) => [
   (a[0] + b[0]) / 2,
   (a[1] + b[1]) / 2,
   (a[2] + b[2]) / 2,
@@ -69,8 +52,6 @@ const mid = (a: Vert, b: Vert): Vert => [
   (a[7] + b[7]) / 2,
 ];
 
-// What a drape target must provide — the raw Terrain qualifies, and so does
-// a wrapped field (terrain + street-terrace delta for the SF hill streets).
 export type DrapeField = Pick<Terrain, "heightAt" | "normalInto">;
 
 /** Thin decals need finer edges than the broad terrain surfaces. */
@@ -79,30 +60,25 @@ export interface DrapeQuality {
   readonly maxDepth: number;
 }
 
-// --- Layering a decal ON a draped surface ---
-// Two meshes draped over the same field still disagree: each is only within
-// its tolerance of the terrain, and the wide surface's chords cut corners the
-// narrow decal's don't. Guessing a lift big enough to cover the worst case is
-// what put road paint 0.3u — higher than the kerb — above the asphalt. Sample
-// the surface that was ALREADY draped instead, and the decal lies on it.
-
 export type SurfaceSampler = (x: number, z: number) => number | null;
 
-const surfaceCellKey = (cx: number, cz: number): number => (cx + 4096) * 16_384 + (cz + 4096);
+const surfaceCellKey = (cx: number, cz: number) => (cx + 4096) * 16_384 + (cz + 4096);
 
 /** Point-in-triangle height lookup over a draped, world-space surface. */
-export const surfaceSampler = (geo: THREE.BufferGeometry): SurfaceSampler => {
+export const surfaceSampler = (geo: THREE.BufferGeometry) => {
   const pos = geo.getAttribute("position");
   const idx = geo.index;
   const triCount = (idx ? idx.count : pos.count) / 3;
   const CELL = 12;
   const grid = new Map<number, number[]>();
-  const vi = (t: number, k: number): number => (idx ? idx.getX(t * 3 + k) : t * 3 + k);
+  const vi = (t: number, k: number) => (idx ? idx.getX(t * 3 + k) : t * 3 + k);
+
   for (let t = 0; t < triCount; t += 1) {
     let x0 = Infinity;
     let x1 = -Infinity;
     let z0 = Infinity;
     let z1 = -Infinity;
+
     for (let k = 0; k < 3; k += 1) {
       const i = vi(t, k);
       const x = pos.getX(i);
@@ -112,10 +88,12 @@ export const surfaceSampler = (geo: THREE.BufferGeometry): SurfaceSampler => {
       z0 = Math.min(z0, z);
       z1 = Math.max(z1, z);
     }
+
     for (let cx = Math.floor(x0 / CELL); cx <= Math.floor(x1 / CELL); cx += 1) {
       for (let cz = Math.floor(z0 / CELL); cz <= Math.floor(z1 / CELL); cz += 1) {
         const k = surfaceCellKey(cx, cz);
         const arr = grid.get(k);
+
         if (arr) {
           arr.push(t);
         } else {
@@ -124,12 +102,16 @@ export const surfaceSampler = (geo: THREE.BufferGeometry): SurfaceSampler => {
       }
     }
   }
-  return function sampleSurface(x: number, z: number): number | null {
+
+  return function sampleSurface(x: number, z: number) {
     const bucket = grid.get(surfaceCellKey(Math.floor(x / CELL), Math.floor(z / CELL)));
+
     if (!bucket) {
       return null;
     }
+
     let best: number | null = null;
+
     for (const t of bucket) {
       const ia = vi(t, 0);
       const ib = vi(t, 1);
@@ -141,36 +123,37 @@ export const surfaceSampler = (geo: THREE.BufferGeometry): SurfaceSampler => {
       const cx = pos.getX(ic);
       const cz = pos.getZ(ic);
       const den = (bz - cz) * (ax - cx) + (cx - bx) * (az - cz);
+
       if (Math.abs(den) < 1e-9) {
         continue;
       }
+
       const w0 = ((bz - cz) * (x - cx) + (cx - bx) * (z - cz)) / den;
       const w1 = ((cz - az) * (x - cx) + (ax - cx) * (z - cz)) / den;
       const w2 = 1 - w0 - w1;
+
       if (w0 < -1e-4 || w1 < -1e-4 || w2 < -1e-4) {
         continue;
       }
+
       const y = w0 * pos.getY(ia) + w1 * pos.getY(ib) + w2 * pos.getY(ic);
-      // Overlapping shells (a junction patch meeting its arm strips) — the
-      // decal belongs on the one the player sees, i.e. the highest.
+
       if (best === null || y > best) {
         best = y;
       }
     }
+
     return best;
   };
 };
 
-// The geometry must already be in world space (matrixWorld baked in).
-// Callers can tune both the sag tolerance and minimum edge: broad terrain
-// surfaces keep the default, paint follows small changes in the drawn road.
 export const conformToTerrain = (
   geo: THREE.BufferGeometry,
   terrain: DrapeField,
   lift: number,
   maxError: number = DRAPE_MAX_ERROR,
   quality?: DrapeQuality,
-): THREE.BufferGeometry => {
+) => {
   const { maxDepth, minEdge } = quality ?? DEFAULT_DRAPE_QUALITY;
   const src = geo.index ? geo.toNonIndexed() : geo;
   const pos = src.getAttribute("position");
@@ -181,11 +164,9 @@ export const conformToTerrain = (
   const outN: number[] = [];
   const outU: number[] = [];
   const outI: number[] = [];
-  // Weld shared vertices (subdivision midpoints repeat across neighbours):
-  // indexed output is ~3x smaller and uploads/renders proportionally faster.
   const vertId = new Map<string, number>();
 
-  const vertAt = (i: number): Vert => [
+  const vertAt: (i: number) => Vert = (i) => [
     pos.getX(i),
     pos.getY(i),
     pos.getZ(i),
@@ -196,13 +177,15 @@ export const conformToTerrain = (
     uv ? uv.getY(i) : 0,
   ];
 
-  const emit = (a: Vert, b: Vert, c: Vert): void => {
+  const emit = (a: Vert, b: Vert, c: Vert) => {
     for (const v of [a, b, c]) {
       const key =
         `${Math.round(v[0] * 1024)},${Math.round(v[1] * 1024)},${Math.round(v[2] * 1024)},` +
         `${Math.round(v[3] * 512)},${Math.round(v[4] * 512)},${Math.round(v[5] * 512)},` +
         `${Math.round(v[6] * 2048)},${Math.round(v[7] * 2048)}`;
+
       let id = vertId.get(key);
+
       if (id === undefined) {
         id = outP.length / 3;
         vertId.set(key, id);
@@ -210,57 +193,52 @@ export const conformToTerrain = (
         outN.push(v[3], v[4], v[5]);
         outU.push(v[6], v[7]);
       }
+
       outI.push(id);
     }
   };
 
-  // Does the terrain bow away from a straight line across THIS edge?
-  // Purely edge-local and symmetric in (p, q): two triangles sharing an edge
-  // always agree on whether it splits — the foundation of crack-free
-  // subdivision below.
-  const edgeNeeds = (p: Vert, q: Vert): boolean => {
+  const edgeNeeds = (p: Vert, q: Vert) => {
     const dx = p[0] - q[0];
     const dz = p[2] - q[2];
+
     if (Math.hypot(dx, dz) < minEdge) {
       return false;
     }
+
     const hA = terrain.heightAt(p[0], p[2]);
     const hB = terrain.heightAt(q[0], q[2]);
-    // Probe at 1/4, 1/2 and 3/4 — not just the midpoint. The street terrace is
-    // flat-ramp-flat and antisymmetric about a block's middle, so an edge that
-    // spans one scores exactly zero at the midpoint and never splits: the
-    // surface then cuts straight through the landing it is supposed to follow.
-    // The lerp is written symmetrically (a*(1-t) + b*t, never a + (b-a)*t) so
-    // two triangles sharing an edge evaluate it bit-for-bit alike and can't
-    // disagree about splitting it — the T-junction crack the split cases below
-    // exist to avoid.
+
     for (const t of [0.25, 0.5, 0.75]) {
       const x = p[0] * (1 - t) + q[0] * t;
       const z = p[2] * (1 - t) + q[2] * t;
+
       if (Math.abs(terrain.heightAt(x, z) - (hA * (1 - t) + hB * t)) > maxError) {
         return true;
       }
     }
+
     return false;
   };
 
-  // Split only the edges that need it (1-, 2- and 3-edge cases). The old
-  // any-edge → all-edges 1:4 split let neighbours disagree about a SHARED
-  // edge (one split it, the other didn't) — the T-junction hairline cracks
-  // visible as pale dotted lines across plazas at grazing angles.
-  const split = (a: Vert, b: Vert, c: Vert, depth: number): void => {
+  const split = (a: Vert, b: Vert, c: Vert, depth: number) => {
     if (depth >= maxDepth) {
       emit(a, b, c);
+
       return;
     }
+
     const sAB = edgeNeeds(a, b);
     const sBC = edgeNeeds(b, c);
     const sCA = edgeNeeds(c, a);
     const count = (sAB ? 1 : 0) + (sBC ? 1 : 0) + (sCA ? 1 : 0);
+
     if (count === 0) {
       emit(a, b, c);
+
       return;
     }
+
     if (count === 3) {
       const ab = mid(a, b);
       const bc = mid(b, c);
@@ -269,22 +247,24 @@ export const conformToTerrain = (
       split(ab, b, bc, depth + 1);
       split(ca, bc, c, depth + 1);
       split(ab, bc, ca, depth + 1);
+
       return;
     }
-    // Rotated helpers: `one` assumes only AB splits, `two` assumes AB + BC
-    // split (CA intact). Winding is preserved by cyclic rotation.
-    const one = (p: Vert, q: Vert, r: Vert): void => {
+
+    const one = (p: Vert, q: Vert, r: Vert) => {
       const m = mid(p, q);
       split(p, m, r, depth + 1);
       split(m, q, r, depth + 1);
     };
-    const two = (p: Vert, q: Vert, r: Vert): void => {
+
+    const two = (p: Vert, q: Vert, r: Vert) => {
       const m1 = mid(p, q);
       const m2 = mid(q, r);
       split(m1, q, m2, depth + 1);
       split(p, m1, m2, depth + 1);
       split(p, m2, r, depth + 1);
     };
+
     if (count === 1) {
       if (sAB) {
         one(a, b, c);
@@ -293,9 +273,10 @@ export const conformToTerrain = (
       } else {
         one(c, a, b);
       }
+
       return;
     }
-    // count === 2: rotate so the intact edge lands on CA.
+
     if (!sCA) {
       two(a, b, c);
     } else if (sAB) {
@@ -309,12 +290,13 @@ export const conformToTerrain = (
     split(vertAt(i), vertAt(i + 1), vertAt(i + 2), 0);
   }
 
-  // Displace through the height field; upright normals follow the slope.
   const n = new THREE.Vector3();
+
   for (let i = 0; i < outP.length; i += 3) {
     const x = outP[i] ?? 0;
     const z = outP[i + 2] ?? 0;
     outP[i + 1] = (outP[i + 1] ?? 0) + terrain.heightAt(x, z) + lift;
+
     if ((outN[i + 1] ?? 0) > UP_DOT) {
       terrain.normalInto(n, x, z);
       outN[i] = n.x;
@@ -329,5 +311,6 @@ export const conformToTerrain = (
   out.setAttribute("uv", new THREE.BufferAttribute(new Float32Array(outU), 2));
   const IndexArr = outP.length / 3 > 65_535 ? Uint32Array : Uint16Array;
   out.setIndex(new THREE.BufferAttribute(new IndexArr(outI), 1));
+
   return out;
 };

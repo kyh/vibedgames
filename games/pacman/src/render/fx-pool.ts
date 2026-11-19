@@ -3,24 +3,14 @@ import * as THREE from "three";
 import { COLORS, FLOOR_Y, GHOST_COLORS, GRID_COLS, GRID_ROWS } from "../shared/constants";
 import { buildHeartGeometry } from "./heart";
 
-// Pooled 3D VFX (vfx skill rules, adapted for a CREAM world): additive
-// sparkles white-out on light backgrounds, so every burst here is opaque
-// instanced geometry that fades by SHRINKING to zero instead of alpha.
-// Three instanced systems (puffs / hearts / confetti) = three draw calls,
-// plus a handful of pooled transparent floor rings and one ambient Points
-// cloud. Everything is allocated once; explosions just recycle slots.
-
-/** Hard caps — slots recycle oldest-first when a burst overflows the pool. */
 const MAX_PUFFS = 160;
 const MAX_HEARTS = 28;
 const MAX_CONFETTI = 140;
 const MAX_RINGS = 5;
 const MOTE_COUNT = 70;
 
-/** Puffs pop to full size in the first 18% of life, then ease-shrink to 0. */
 const POP_PORTION = 0.18;
 const PUFF_DRAG = 2.6;
-/** Gentle buoyancy — cute puffs float up, they don't fall. */
 const PUFF_LIFT = 0.55;
 
 const HEART_RISE = 1.1;
@@ -30,7 +20,6 @@ const HEART_SPIN = 3.2;
 
 const CONFETTI_GRAVITY = -3.2;
 const CONFETTI_DRAG = 0.4;
-/** Confetti dies just above the floor plane so it never z-fights it. */
 const CONFETTI_FLOOR_Y = FLOOR_Y + 0.03;
 
 const RING_DUR_MS = 420;
@@ -79,32 +68,29 @@ export interface BurstOpts {
 /** Live media query: every motion gate in the game reads this one instance. */
 export const REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)");
 
-// ---- helpers --------------------------------------------------------------------
-
-const makeInstanced = (
-  geo: THREE.BufferGeometry,
-  cap: number,
-  color = 0xff_ff_ff,
-): THREE.InstancedMesh => {
+const makeInstanced = (geo: THREE.BufferGeometry, cap: number, color = 0xff_ff_ff) => {
   const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.7 });
   const mesh = new THREE.InstancedMesh(geo, mat, cap);
   mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   mesh.count = 0;
   mesh.frustumCulled = false;
+
   return mesh;
 };
 
-/** Upload only the live slots; an idle pool touches no buffer at all. */
-const commit = (mesh: THREE.InstancedMesh, count: number): void => {
+const commit = (mesh: THREE.InstancedMesh, count: number) => {
   mesh.count = count;
+
   if (count === 0) {
     return;
   }
+
   const matrix = mesh.instanceMatrix;
   matrix.clearUpdateRanges();
   matrix.addUpdateRange(0, count * matrix.itemSize);
   matrix.needsUpdate = true;
   const color = mesh.instanceColor;
+
   if (color) {
     color.clearUpdateRanges();
     color.addUpdateRange(0, count * color.itemSize);
@@ -112,21 +98,24 @@ const commit = (mesh: THREE.InstancedMesh, count: number): void => {
   }
 };
 
-/** Pop in fast (overshoot a touch), then fast-in-slow-out shrink to zero. */
-const scaleCurve = (t: number): number => {
+const scaleCurve = (t: number) => {
   if (t < POP_PORTION) {
     const u = t / POP_PORTION;
+
     return 1.08 * (1 - (1 - u) * (1 - u));
   }
+
   const u = (t - POP_PORTION) / (1 - POP_PORTION);
+
   return 1.08 * (1 - u * u * (3 - 2 * u));
 };
 
-const softDotTexture = (): THREE.CanvasTexture => {
+const softDotTexture = () => {
   const canvas = document.createElement("canvas");
   canvas.width = 32;
   canvas.height = 32;
   const ctx = canvas.getContext("2d");
+
   if (ctx) {
     const grad = ctx.createRadialGradient(16, 16, 0, 16, 16, 16);
     grad.addColorStop(0, "rgba(255,255,255,1)");
@@ -135,22 +124,22 @@ const softDotTexture = (): THREE.CanvasTexture => {
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, 32, 32);
   }
+
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
+
   return tex;
 };
 
 const MOTE_Y_MIN = 0.15;
 const MOTE_Y_MAX = 2.8;
 
-const glslFloat = (n: number): string => (Number.isInteger(n) ? `${n}.0` : String(n));
+const glslFloat = (n: number) => (Number.isInteger(n) ? `${n}.0` : String(n));
 
-/** Ambient dust motes drifting up through the maze air — quiet, constant.
- *  The drift is a function of a per-mote velocity and a time uniform, so the
- *  position buffer is uploaded once and the GPU wraps each mote itself. */
-const makeMotes = (time: { value: number }): THREE.Points => {
+const makeMotes = (time: { value: number }) => {
   const positions = new Float32Array(MOTE_COUNT * 3);
   const velocities = new Float32Array(MOTE_COUNT * 2);
+
   for (let i = 0; i < MOTE_COUNT; i += 1) {
     positions[i * 3] = Math.random() * GRID_COLS;
     positions[i * 3 + 1] = MOTE_Y_MIN + Math.random() * 2.5;
@@ -158,10 +147,11 @@ const makeMotes = (time: { value: number }): THREE.Points => {
     velocities[i * 2] = (Math.random() - 0.5) * 0.08;
     velocities[i * 2 + 1] = 0.06 + Math.random() * 0.1;
   }
+
   const geo = new THREE.BufferGeometry();
   geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
   geo.setAttribute("aVel", new THREE.BufferAttribute(velocities, 2));
-  // Blush-tinted: white motes measure ~0 contrast against the cream fog.
+
   const mat = new THREE.PointsMaterial({
     color: 0xf2_a9_bf,
     depthWrite: false,
@@ -171,6 +161,7 @@ const makeMotes = (time: { value: number }): THREE.Points => {
     sizeAttenuation: true,
     transparent: true,
   });
+
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uTime = time;
     shader.vertexShader = shader.vertexShader
@@ -184,18 +175,21 @@ const makeMotes = (time: { value: number }): THREE.Points => {
         ].join("\n"),
       );
   };
+
   mat.customProgramCacheKey = () => "mote-drift";
   const points = new THREE.Points(geo, mat);
   points.frustumCulled = false;
+
   return points;
 };
 
-const randomUnit = (): THREE.Vector3 => {
+const randomUnit = () => {
   const v = new THREE.Vector3(Math.random() * 2 - 1, Math.random() * 2 - 1, Math.random() * 2 - 1);
+
   return v.lengthSq() < 1e-6 ? v.set(0, 1, 0) : v.normalize();
 };
 
-const rand = (min: number, max: number): number => min + Math.random() * (max - min);
+const rand = (min: number, max: number) => min + Math.random() * (max - min);
 
 export class FxPool {
   private puffMesh: THREE.InstancedMesh;
@@ -223,6 +217,7 @@ export class FxPool {
         side: THREE.DoubleSide,
         transparent: true,
       });
+
       const mesh = new THREE.Mesh(new THREE.RingGeometry(0.82, 1, 48), mat);
       mesh.rotation.x = -Math.PI / 2;
       mesh.visible = false;
@@ -234,18 +229,22 @@ export class FxPool {
   }
 
   /** Soft round burst — the workhorse (pellet pops, ghost poofs, dust). */
-  puff(at: THREE.Vector3, count: number, color: number, opts: BurstOpts = {}): void {
+  puff(at: THREE.Vector3, count: number, color: number, opts: BurstOpts = {}) {
     const speed = opts.speed ?? 1.4;
+
     for (let i = 0; i < count; i += 1) {
       if (this.puffs.length >= MAX_PUFFS) {
         this.puffs.shift();
       }
+
       const dir = randomUnit();
+
       if (opts.direction) {
         dir.x = dir.x * 0.45 + opts.direction.x;
         dir.z = dir.z * 0.45 + opts.direction.z;
         dir.normalize();
       }
+
       const v = speed * (0.5 + Math.random() * 0.5);
       this.puffs.push({
         age: 0,
@@ -263,11 +262,12 @@ export class FxPool {
   }
 
   /** Rising pink hearts — power pickups and eaten ghosts (healthcare!). */
-  heartBurst(at: THREE.Vector3, count: number): void {
+  heartBurst(at: THREE.Vector3, count: number) {
     for (let i = 0; i < count; i += 1) {
       if (this.hearts.length >= MAX_HEARTS) {
         this.hearts.shift();
       }
+
       const ang = Math.random() * Math.PI * 2;
       const v = 0.5 + Math.random() * 0.9;
       this.hearts.push({
@@ -286,12 +286,14 @@ export class FxPool {
   }
 
   /** Pastel confetti rain over the whole maze (win celebration). */
-  confettiRain(count: number): void {
+  confettiRain(count: number) {
     const palette = [COLORS.power, COLORS.pacman, ...GHOST_COLORS];
+
     for (let i = 0; i < count; i += 1) {
       if (this.confetti.length >= MAX_CONFETTI) {
         this.confetti.shift();
       }
+
       this.confetti.push({
         age: 0,
         angle: Math.random() * Math.PI * 2,
@@ -311,7 +313,7 @@ export class FxPool {
   }
 
   /** Expanding floor ring, Cubic.Out, fades over RING_DUR_MS. */
-  ring(x: number, z: number, r1: number, color: number): void {
+  ring(x: number, z: number, r1: number, color: number) {
     const slot = this.rings.find((r) => r.bornAt < 0) ?? this.oldestRing();
     slot.bornAt = this.elapsed;
     slot.r1 = r1;
@@ -320,42 +322,47 @@ export class FxPool {
     slot.mesh.visible = true;
   }
 
-  private oldestRing(): Ring {
+  private oldestRing() {
     let [oldest] = this.rings;
+
     if (!oldest) {
       throw new Error("no ring slots");
     }
+
     for (const ring of this.rings) {
       if (ring.bornAt < oldest.bornAt) {
         oldest = ring;
       }
     }
+
     return oldest;
   }
 
-  update(dt: number): void {
+  update(dt: number) {
     this.elapsed += dt;
     this.updatePuffs(dt);
     this.updateHearts(dt);
     this.updateConfetti(dt);
     this.updateRings();
+
     if (!REDUCED_MOTION.matches) {
       this.moteTime.value += dt;
     }
   }
 
-  // ---- per-system integration ------------------------------------------------
-
-  private updatePuffs(dt: number): void {
+  private updatePuffs(dt: number) {
     const drag = Math.max(0, 1 - PUFF_DRAG * dt);
     const mesh = this.puffMesh;
     const arr = this.puffs;
     let w = 0;
+
     for (const p of arr) {
       p.age += dt;
+
       if (p.age >= p.life) {
         continue;
       }
+
       p.vx *= drag;
       p.vz *= drag;
       p.vy = p.vy * drag + PUFF_LIFT * dt;
@@ -372,19 +379,23 @@ export class FxPool {
       arr[w] = p;
       w += 1;
     }
+
     arr.length = w;
     commit(mesh, w);
   }
 
-  private updateHearts(dt: number): void {
+  private updateHearts(dt: number) {
     const mesh = this.heartMesh;
     const arr = this.hearts;
     let w = 0;
+
     for (const h of arr) {
       h.age += dt;
+
       if (h.age >= h.life) {
         continue;
       }
+
       h.px += (h.vx + Math.sin(this.elapsed * HEART_WOBBLE_FREQ + h.phase) * HEART_WOBBLE_AMP) * dt;
       h.py += h.vy * dt;
       h.pz += h.vz * dt;
@@ -397,20 +408,24 @@ export class FxPool {
       arr[w] = h;
       w += 1;
     }
+
     arr.length = w;
     commit(mesh, w);
   }
 
-  private updateConfetti(dt: number): void {
+  private updateConfetti(dt: number) {
     const drag = Math.max(0, 1 - CONFETTI_DRAG * dt);
     const mesh = this.confettiMesh;
     const arr = this.confetti;
     let w = 0;
+
     for (const c of arr) {
       c.age += dt;
+
       if (c.age >= c.life || c.py <= CONFETTI_FLOOR_Y) {
         continue;
       }
+
       c.vy += CONFETTI_GRAVITY * dt;
       c.vx *= drag;
       c.vy *= drag;
@@ -419,7 +434,6 @@ export class FxPool {
       c.py += c.vy * dt;
       c.pz += c.vz * dt;
       c.angle += c.spin * dt;
-      // Shrink only in the last 25% of life so flakes don't visibly pop out.
       const t = c.age / c.life;
       const s = c.size * (t > 0.75 ? 1 - (t - 0.75) / 0.25 : 1);
       this.dummy.position.set(c.px, c.py, c.pz);
@@ -431,21 +445,25 @@ export class FxPool {
       arr[w] = c;
       w += 1;
     }
+
     arr.length = w;
     commit(mesh, w);
   }
 
-  private updateRings(): void {
+  private updateRings() {
     for (const r of this.rings) {
       if (r.bornAt < 0) {
         continue;
       }
+
       const t = ((this.elapsed - r.bornAt) * 1000) / RING_DUR_MS;
+
       if (t >= 1) {
         r.bornAt = -1;
         r.mesh.visible = false;
         continue;
       }
+
       const eased = 1 - (1 - t) ** 3;
       const radius = 0.15 + (r.r1 - 0.15) * eased;
       r.mesh.scale.setScalar(radius);

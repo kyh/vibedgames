@@ -1,7 +1,3 @@
-// Ball flight and paddle contact — pure rules the lockstep sim (./sim) steps
-// a tick at a time, on every client alike. Canonical frame: slot A defends
-// −y, slot B +y.
-
 import { HIT_HALF_X, HIT_HALF_Y, MIN_VY_FRAC, TICK_S, WALL_X } from "./constants";
 import { curveTick } from "./spin";
 import type { Sliced } from "./spin";
@@ -12,7 +8,7 @@ export interface Vec2 {
 }
 
 /** Hitbox deliberately larger than the visible ring — keep it generous. */
-export const hitsPaddle = (ball: Vec2, paddleX: number, paddleY: number): boolean =>
+export const hitsPaddle = (ball: Vec2, paddleX: number, paddleY: number) =>
   Math.abs(ball.y - paddleY) < HIT_HALF_Y && Math.abs(ball.x - paddleX) < HIT_HALF_X;
 
 /**
@@ -29,10 +25,11 @@ export const reflectOffPaddle = (
   paddleX: number,
   towardY: 1 | -1,
   speed: number,
-): Vec2 => {
+) => {
   const offset = Math.min(1, Math.max(-1, (ballX - paddleX) / HIT_HALF_X));
   const maxVxFrac = Math.sqrt(1 - MIN_VY_FRAC * MIN_VY_FRAC);
   const x = offset * maxVxFrac * speed;
+
   return { x, y: towardY * Math.sqrt(speed * speed - x * x) };
 };
 
@@ -48,18 +45,20 @@ export interface Ball extends Sliced {
  * clamped. Exact arithmetic only, so every client's ball takes the same path.
  * True when the ball banked this tick.
  */
-export const flyTick = (ball: Ball): boolean => {
+export const flyTick = (ball: Ball) => {
   curveTick(ball);
   ball.x += ball.vx * TICK_S;
   ball.y += ball.vy * TICK_S;
   const side = Math.sign(ball.x);
+
   if (Math.abs(ball.x) < WALL_X || Math.sign(ball.vx) !== side) {
     return false;
   }
+
   ball.x = side * Math.max(0, 2 * WALL_X - Math.abs(ball.x));
   ball.vx = -ball.vx;
-  // A bank ends the curve; no hidden second bend off the rail.
   ball.spin = 0;
   ball.spinAge = 0;
+
   return true;
 };

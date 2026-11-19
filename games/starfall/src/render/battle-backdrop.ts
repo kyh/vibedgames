@@ -27,13 +27,14 @@ export class BattleBackdrop {
     );
   }
 
-  update(beat: BattleBeat): void {
+  update(beat: BattleBeat) {
     const c = this.scene.cameras.main;
     const cx = c.scrollX * SCROLL + c.width / 2;
     const cy = c.scrollY * SCROLL + c.height / 2;
     const w = c.width / c.zoom;
     const h = c.height / c.zoom;
     const alpha = HAZE_ALPHA[beat];
+
     for (const [i, node] of this.haze.entries()) {
       node
         .setPosition(cx + Math.cos(i * 2.4) * w * 0.3, cy + Math.sin(i * 2.4) * h * 0.25)

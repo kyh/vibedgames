@@ -1,8 +1,3 @@
-// Two-bone IK for an arm, so a hand lands on the carbine whatever the body
-// under it is doing. How each bone's own axes lie along the limb and across
-// its hinge is read off the rest pose (a T-pose: arms out, palms down, the
-// elbow folding forwards), so the solved pose is written straight as bone
-// orientations with no dependence on the clip pose it replaces.
 import { Matrix4, Quaternion, Vector3 } from "three";
 import type { Bone, Object3D } from "three";
 
@@ -23,17 +18,13 @@ const foreWorld = new Quaternion();
 const handWorld = new Quaternion();
 const local = new Quaternion();
 
-/** The rotation whose X is `x` and whose Y is `y` (unit, perpendicular). */
-const facing = (x: Vector3, y: Vector3, out: Quaternion): Quaternion =>
+const facing = (x: Vector3, y: Vector3, out: Quaternion) =>
   out.setFromRotationMatrix(basis.makeBasis(x, y, across.crossVectors(x, y)));
 
-/**
- * What turns "X is `x`, Y is `y`" in `space` (the rest pose's frame) into
- * `bone`'s own orientation there: its rest turn, undone by that frame.
- */
-const restFrame = (bone: Bone, space: Object3D, x: Vector3, y: Vector3): Quaternion => {
+const restFrame = (bone: Bone, space: Object3D, x: Vector3, y: Vector3) => {
   const rest = bone.getWorldQuaternion(new Quaternion());
   const frame = space.getWorldQuaternion(new Quaternion()).multiply(facing(x, y, new Quaternion()));
+
   return frame.invert().multiply(rest);
 };
 
@@ -43,10 +34,8 @@ export class Arm {
   private readonly hand: Bone;
   private readonly upperLength: number;
   private readonly foreLength: number;
-  /** Each bone's orientation in the frame (hinge, along the limb), at rest. */
   private readonly upperRest: Quaternion;
   private readonly foreRest: Quaternion;
-  /** The hand's orientation in the frame (palm normal, along the fingers), at rest. */
   private readonly handRest: Quaternion;
 
   /**
@@ -61,8 +50,6 @@ export class Arm {
     const scale = fore.getWorldScale(new Vector3()).x;
     this.upperLength = fore.position.length() * scale;
     this.foreLength = hand.position.length() * scale;
-    // In the soldier's frame the arm runs out along ±X; the elbow hinges
-    // about the axis that folds the forearm forwards.
     const out = new Vector3(side, 0, 0);
     const fold = new Vector3().crossVectors(out, FORWARD);
     this.upperRest = restFrame(upper, space, fold, out);
@@ -76,11 +63,13 @@ export class Arm {
    * where directions; the upper arm's parent must have a current world
    * matrix). `weight` 0 leaves the clip's pose, 1 replaces it.
    */
-  solve(wrist: Vector3, pole: Vector3, palm: Vector3, fingers: Vector3, weight: number): void {
+  solve(wrist: Vector3, pole: Vector3, palm: Vector3, fingers: Vector3, weight: number) {
     const { parent } = this.upper;
+
     if (!parent || weight <= 0) {
       return;
     }
+
     const { upperLength: a, foreLength: b } = this;
     shoulder.copy(this.upper.position).applyMatrix4(parent.matrixWorld);
     reach.subVectors(wrist, shoulder);
@@ -96,7 +85,6 @@ export class Arm {
     facing(hinge, along.copy(elbow).normalize(), upperWorld).multiply(this.upperRest);
     along.copy(reach).multiplyScalar(distance).sub(elbow).normalize();
     facing(hinge, along, foreWorld).multiply(this.foreRest);
-    // Square the fingers to the palm before building the hand's frame.
     along.copy(fingers).addScaledVector(palm, -fingers.dot(palm)).normalize();
     facing(palm, along, handWorld).multiply(this.handRest);
 

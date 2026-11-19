@@ -6,7 +6,7 @@
     "noEmit": true
   },
   "include": [".", ".cloudflare/types/index.d.ts"],
-  // tests/ is plain JS and imports the bundled worker out of the build output, which drags it
+  // test/ is plain JS and imports the bundled worker out of the build output, which drags it
   // back into the program.
-  "exclude": ["node_modules", "dist", "tests"]
+  "exclude": ["node_modules", "dist", "test"]
 }

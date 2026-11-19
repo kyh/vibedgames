@@ -1,7 +1,3 @@
-// Hero stat assembly: turn a HeroDef + level + owned items into the live combat
-// fields on a Unit. Called at spawn, on level-up, and on item purchase. Level/
-// item changes ADD the maxHp/maxMp delta to current hp/mp (Dota-style).
-
 import { HERO_MAGIC_RESIST } from "../data/config";
 import { HERO_BY_ID, heroStatAt } from "../data/heroes";
 import type { HeroStats } from "../data/heroes";
@@ -21,11 +17,14 @@ const sumItems = (itemIds: string[]) => {
     mpRegen: 0,
     spellAmp: 0,
   };
+
   for (const id of itemIds) {
     const it = ITEM_BY_ID[id];
+
     if (!it) {
       continue;
     }
+
     const s = it.stats;
     acc.damage += s.damage ?? 0;
     acc.hp += s.hp ?? 0;
@@ -38,19 +37,24 @@ const sumItems = (itemIds: string[]) => {
     acc.spellAmp += s.spellAmpPct ?? 0;
     acc.lifesteal += s.lifestealPct ?? 0;
   }
+
   return acc;
 };
 
 /** Recompute the unit's combat fields from def+level+items. Returns max deltas. */
 export const recomputeHeroStats = (u: Unit) => {
   const h = u.hero;
+
   if (!h) {
     return { hpDelta: 0, mpDelta: 0 };
   }
+
   const def = HERO_BY_ID[h.defId];
+
   if (!def) {
     return { hpDelta: 0, mpDelta: 0 };
   }
+
   const lvl = h.level;
   const st = (s: keyof HeroStats) => heroStatAt(def, s, lvl);
   const items = sumItems(h.items);
@@ -62,7 +66,6 @@ export const recomputeHeroStats = (u: Unit) => {
   u.maxMp = st("mp") + items.mp;
   u.baseDamage = st("damage") + items.damage;
   u.armor = st("armor") + items.armor;
-  // range doesn't grow
   u.attackRange = def.base.attackRange;
   u.attackSpeedBase = st("attackSpeed") * (1 + items.attackSpeed / 100);
   u.moveSpeedBase = st("moveSpeed") + items.moveSpeed;
@@ -76,11 +79,13 @@ export const recomputeHeroStats = (u: Unit) => {
 
   const hpDelta = u.maxHp - oldMaxHp;
   const mpDelta = u.maxMp - oldMaxMp;
+
   return { hpDelta, mpDelta };
 };
 
-export const applyHeroLevel = (u: Unit): void => {
+export const applyHeroLevel = (u: Unit) => {
   const { hpDelta, mpDelta } = recomputeHeroStats(u);
+
   if (u.alive) {
     u.hp = Math.min(u.maxHp, u.hp + Math.max(0, hpDelta));
     u.mp = Math.min(u.maxMp, u.mp + Math.max(0, mpDelta));
@@ -88,10 +93,11 @@ export const applyHeroLevel = (u: Unit): void => {
 };
 
 /** Recompute stats after `h.items` changed and grant the HP/MP the new maxes add. */
-export const applyItemPurchase = (u: Unit): void => {
+export const applyItemPurchase = (u: Unit) => {
   if (!u.hero) {
     return;
   }
+
   const { hpDelta, mpDelta } = recomputeHeroStats(u);
   u.hp = Math.min(u.maxHp, u.hp + Math.max(0, hpDelta));
   u.mp = Math.min(u.maxMp, u.mp + Math.max(0, mpDelta));

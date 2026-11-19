@@ -1,13 +1,9 @@
-// Asset catalog. Files live in public/models/<category>/<name>.glb and are
-// served at <BASE_URL>models/<category>/<name>.glb.
-
 const BASE = import.meta.env.BASE_URL;
 
-export const modelUrl = (category: string, name: string): string =>
-  `${BASE}models/${category}/${name}.glb`;
+export const modelUrl = (category: string, name: string) => `${BASE}models/${category}/${name}.glb`;
 
-// --- Cars ---
 export const PLAYER_CAR = "waymo";
+
 export const TRAFFIC_CARS = [
   "sedan",
   "sedan-sports",
@@ -18,22 +14,15 @@ export const TRAFFIC_CARS = [
   "delivery",
   "delivery-flat",
   "hatchback-sports",
-  // the OTHER cab company — SF classic
   "taxi",
   "race",
   "race-future",
 ] as const;
-// Service vehicles spice the traffic mix (weighted by district in traffic.ts).
+
 export const SERVICE_CARS = ["ambulance", "firetruck", "garbage-truck"] as const;
-// Construction-site vehicles parked at the cone pockets (furniture.ts).
 export const CONSTRUCTION_VEHICLES = ["tractor", "tractor-shovel"] as const;
 export const POLICE_CAR = "police";
-// Generated robotaxi bodies (Meshy image-to-3d from GPT-Image-2 renders of
-// the real vehicles) — player skins only, never traffic. Three of them embed
-// their own textures and weigh 4 MB between them, so they are NOT in the boot
-// preload: `vehicle/car.ts skinModelUrl` + `ModelCache.ensure` pull one in
-// when a body actually needs it (saved skin at boot, garage forecourt, a
-// remote player's pick).
+
 export const GEN_ROBOTAXIS = [
   "robotaxi-cruise",
   "robotaxi-zoox",
@@ -42,36 +31,27 @@ export const GEN_ROBOTAXIS = [
   "uber-sedan",
 ] as const;
 
-// --- Roads ---
-// Street geometry is generated procedurally (world/roads.ts); road-cell shape
-// classes live in grid.ts (RoadKind). Only the bridge pieces are real models.
 export const ROAD_BRIDGE = "road-bridge";
 export const BRIDGE_PILLAR = "bridge-pillar";
 export const BRIDGE_PILLAR_WIDE = "bridge-pillar-wide";
 
-// --- Props ---
 export const TREE_LARGE = "tree-large";
 export const TREE_SMALL = "tree-small";
 export const PROP_CONE = "construction-cone";
 export const PROP_PLANTER = "planter";
 export const PROP_BARRIER = "construction-barrier";
 export const PROP_CONSTRUCTION_LIGHT = "construction-light";
-// Streetlights (by district character).
 export const LIGHT_CURVED = "light-curved";
 export const LIGHT_SQUARE = "light-square";
 export const LIGHT_SQUARE_DOUBLE = "light-square-double";
 export const LIGHT_CURVED_CROSS = "light-curved-cross";
-// Victorian gas lamps (KayKit City Builder Bits).
 export const LIGHT_OLD = "kk-lamp-old";
 export const LIGHT_OLD_DOUBLE = "kk-lamp-old-double";
-// KayKit park kit (City Builder Bits): walls, bushes, blobby trees.
 export const PARK_WALL = "kk-park-wall";
 export const PARK_WALL_CORNER = "kk-park-wall-corner";
 export const PARK_ENTRY = "kk-park-entry";
 export const BUSHES = ["kk-bush-a", "kk-bush-b", "kk-bush-c"] as const;
 export const PARK_TREES = ["kk-tree-a", "kk-tree-b", "kk-tree-c"] as const;
-// The robotaxi garage (Kenney industrial building-s: orange roller doors) —
-// the one building model left; every other building is the parcel fabric.
 export const GARAGE_MODEL = "ind-building-s";
 
 export const KK_CARS = [
@@ -81,6 +61,7 @@ export const KK_CARS = [
   "kk-car-stationwagon",
   "kk-car-taxi",
 ] as const;
+
 export const KK_PROPS_EXTRA = [
   "kk-streetlight",
   "kk-trafficlight-b",
@@ -89,12 +70,13 @@ export const KK_PROPS_EXTRA = [
   "kk-tree-e",
   "kk-bush-plain",
 ] as const;
-// KayKit prebuilt park tiles (City Builder Bits) — public/models/parks/.
+
 export const PARK_TILE_PLAZAS = [
   "park-road-junction-decorated-A",
   "park-road-junction-decorated-B",
   "park-road-junction-decorated-C",
 ] as const;
+
 export const PARK_TILES = [
   "park-base",
   "park-base-decorated-bushes",
@@ -113,7 +95,7 @@ export const PARK_TILES = [
   "park-wall-innercorner-decorated",
   "park-wall-outercorner-decorated",
 ] as const;
-// KayKit street details (City Builder Bits).
+
 export const PROP_HYDRANT = "kk-hydrant";
 export const PROP_BENCH = "kk-bench";
 export const PROP_TRASH_A = "kk-trash-a";
@@ -123,27 +105,24 @@ export const PROP_DUMPSTER = "kk-dumpster";
 export const PROP_WATERTOWER = "kk-watertower";
 export const PROP_BOX_A = "kk-box-a";
 export const PROP_BOX_B = "kk-box-b";
-// Commercial frontage details.
 export const PROP_PARASOL_A = "parasol-a";
 export const PROP_PARASOL_B = "parasol-b";
-// Suburban yards.
 export const PROP_FENCE = "fence";
 export const PROP_FENCE_LOW = "fence-low";
 export const PROP_PATH = "path-short";
 export const PROP_PATH_STONES = "path-stones-short";
-// Industrial skyline.
 export const PROP_CHIMNEY_SMALL = "chimney-small";
 export const PROP_CHIMNEY_MEDIUM = "chimney-medium";
 export const PROP_CHIMNEY_LARGE = "chimney-large";
 export const PROP_TANK = "tank";
 
-// --- Crash debris (Car Kit) ---
 export const DEBRIS_SMALL = [
   "debris-bolt",
   "debris-nut",
   "debris-plate-small-a",
   "debris-plate-small-b",
 ] as const;
+
 export const DEBRIS_BIG = [
   "debris-tire",
   "debris-bumper",
@@ -151,7 +130,6 @@ export const DEBRIS_BIG = [
   "debris-door",
 ] as const;
 
-// --- Characters (passengers) ---
 export const CHARACTERS = [
   "character-male-a",
   "character-male-b",
@@ -208,11 +186,7 @@ export const PROPS = [
 
 const ROADS = [ROAD_BRIDGE, BRIDGE_PILLAR, BRIDGE_PILLAR_WIDE] as const;
 
-// TITLE-CRITICAL set (~200KB): exactly what the player car and city phase 1
-// (terrain/streets/green cells/garage depots — city.ts buildPhase1) touch.
-// The title screen goes up after these; everything else streams behind it.
-// If buildPhase1 gains a new model, it MUST move into this list.
-export const earlyModelUrls = (): string[] => [
+export const earlyModelUrls = () => [
   modelUrl("cars", PLAYER_CAR),
   modelUrl("props", TREE_LARGE),
   modelUrl("props", TREE_SMALL),
@@ -220,50 +194,54 @@ export const earlyModelUrls = (): string[] => [
   modelUrl("buildings", GARAGE_MODEL),
 ];
 
-// Everything the game preloads to play (early + late) — excludes the lazy
-// player skins and the editor-only kits above.
-export const allModelUrls = (): string[] => {
+export const allModelUrls = () => {
   const urls: string[] = [];
   urls.push(modelUrl("cars", PLAYER_CAR), modelUrl("cars", POLICE_CAR));
+
   for (const c of TRAFFIC_CARS) {
     urls.push(modelUrl("cars", c));
   }
+
   for (const c of SERVICE_CARS) {
     urls.push(modelUrl("cars", c));
   }
+
   for (const c of CONSTRUCTION_VEHICLES) {
     urls.push(modelUrl("cars", c));
   }
+
   for (const r of ROADS) {
     urls.push(modelUrl("roads", r));
   }
+
   for (const p of PROPS) {
     urls.push(modelUrl("props", p));
   }
+
   for (const t of PARK_TILES) {
     urls.push(modelUrl("parks", t));
   }
+
   urls.push(modelUrl("buildings", GARAGE_MODEL));
+
   for (const d of [...DEBRIS_SMALL, ...DEBRIS_BIG]) {
     urls.push(modelUrl("debris", d));
   }
+
   for (const c of CHARACTERS) {
     urls.push(modelUrl("characters", c));
   }
+
   return urls;
 };
 
-// Everything else — needed by the late city build (rebuildRest resolves
-// building/prop GLB refs), traffic, fares, debris. Preloaded behind the title.
-export const lateModelUrls = (): string[] => {
+export const lateModelUrls = () => {
   const early = new Set(earlyModelUrls());
+
   return allModelUrls().filter((u) => !early.has(u));
 };
 
-// The kits only the map editor's roster can place: nothing in world gen or
-// `custom-props.ts` references them, so a player pays 11 requests for a
-// palette they will never open. `?editor=1` loads them itself.
-export const editorModelUrls = (): string[] => [
+export const editorModelUrls = () => [
   ...KK_CARS.map((c) => modelUrl("cars", c)),
   ...KK_PROPS_EXTRA.map((p) => modelUrl("props", p)),
 ];

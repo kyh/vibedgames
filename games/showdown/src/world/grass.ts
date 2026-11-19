@@ -1,8 +1,3 @@
-// Bush tiles are clumps of thirteen instanced grass blades: nine on a jittered
-// 3×3 lattice plus four loose ones. The standard material is patched so the
-// blades sway in the wind, bend away from nearby brawlers (`uPushers`) and
-// screen-door fade around the local player (`uReveal`) so hiding in a bush
-// never hides you from yourself.
 import * as THREE from "three";
 import { terrainHeight } from "./terrain";
 
@@ -31,21 +26,19 @@ export interface GrassUniforms {
   uReveal: THREE.IUniform<THREE.Vector4>;
 }
 
-export const makeGrassUniforms = (): GrassUniforms => ({
+export const makeGrassUniforms = () => ({
   uPushers: { value: Array.from({ length: 8 }, () => new THREE.Vector4(0, 0, 1, 0)) },
   uReveal: { value: new THREE.Vector4(0, 0, 0, 0) },
   uTime: { value: 0 },
 });
 
-// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-const GRASS_VERT_HEAD = /* glsl */ `#include <common>
+const GRASS_VERT_HEAD = `#include <common>
 uniform float uTime;
 uniform vec4 uPushers[ 8 ];
 varying float vBladeH;
 varying vec3 vBladeWorld;`;
 
-// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-const GRASS_VERT_PROJECT = /* glsl */ `
+const GRASS_VERT_PROJECT = `
           vec4 mvPosition = vec4( transformed, 1.0 );
           #ifdef USE_INSTANCING
             mvPosition = instanceMatrix * mvPosition;
@@ -72,14 +65,12 @@ const GRASS_VERT_PROJECT = /* glsl */ `
           mvPosition = modelViewMatrix * mvPosition;
           gl_Position = projectionMatrix * mvPosition;`;
 
-// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-const GRASS_FRAG_HEAD = /* glsl */ `#include <common>
+const GRASS_FRAG_HEAD = `#include <common>
 uniform vec4 uReveal;
 varying float vBladeH;
 varying vec3 vBladeWorld;`;
 
-// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-const GRASS_FRAG_COLOR = /* glsl */ `#include <color_fragment>
+const GRASS_FRAG_COLOR = `#include <color_fragment>
           // dark roots, bright tips: fake occlusion + translucency
           diffuseColor.rgb *= mix( 0.4, 1.3, vBladeH );
           if ( uReveal.w > 0.5 ) {
@@ -90,10 +81,11 @@ const GRASS_FRAG_COLOR = /* glsl */ `#include <color_fragment>
           }`;
 
 /** A single blade: a squashed cone whose tip curls over with height. */
-export const buildBladeGeometry = (): THREE.BufferGeometry => {
+export const buildBladeGeometry = () => {
   const geometry = new THREE.ConeGeometry(0.2, 1, 5, 3);
   geometry.translate(0, 0.5, 0);
   const { position } = geometry.attributes;
+
   if (position) {
     for (let i = 0; i < position.count; i += 1) {
       const y = position.getY(i);
@@ -101,16 +93,19 @@ export const buildBladeGeometry = (): THREE.BufferGeometry => {
       position.setZ(i, position.getZ(i) * 0.5);
     }
   }
+
   geometry.computeVertexNormals();
+
   return geometry;
 };
 
-export const makeGrassMaterial = (uniforms: GrassUniforms): THREE.MeshStandardMaterial => {
+export const makeGrassMaterial = (uniforms: GrassUniforms) => {
   const material = new THREE.MeshStandardMaterial({
     color: 0xff_ff_ff,
     metalness: 0,
     roughness: 0.78,
   });
+
   material.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
     shader.vertexShader = shader.vertexShader
@@ -120,11 +115,13 @@ export const makeGrassMaterial = (uniforms: GrassUniforms): THREE.MeshStandardMa
       .replace("#include <common>", GRASS_FRAG_HEAD)
       .replace("#include <color_fragment>", GRASS_FRAG_COLOR);
   };
+
   return material;
 };
 
-export const collectBushTiles = (tiles: Uint8Array): TileCoord[] => {
+export const collectBushTiles = (tiles: Uint8Array) => {
   const bushes: TileCoord[] = [];
+
   for (let y = 0; y < GRID; y += 1) {
     for (let x = 0; x < GRID; x += 1) {
       if (tiles[gridIndex(x, y)] === TILE.BUSH) {
@@ -132,6 +129,7 @@ export const collectBushTiles = (tiles: Uint8Array): TileCoord[] => {
       }
     }
   }
+
   return bushes;
 };
 
@@ -144,11 +142,13 @@ export const populateBushes = (
   bushes: TileCoord[],
   bushRange: Int32Array,
   rng: () => number,
-): void => {
+) => {
   let cursor = 0;
+
   for (const [tx, ty] of bushes) {
     bushRange[gridIndex(tx, ty) * 2] = cursor;
     bushRange[gridIndex(tx, ty) * 2 + 1] = BLADES_PER_BUSH;
+
     for (let blade = 0; blade < BLADES_PER_BUSH; blade += 1) {
       const u = blade < 9 ? (blade % 3) / 3 + 1 / 6 : rng();
       const v = blade < 9 ? Math.floor(blade / 3) / 3 + 1 / 6 : rng();
@@ -168,5 +168,6 @@ export const populateBushes = (
       cursor += 1;
     }
   }
+
   mesh.frustumCulled = false;
 };

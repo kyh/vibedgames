@@ -1,8 +1,3 @@
-// The host leaves mid-match. The server elects a guest, which carries the
-// match on from its own copy of the world — every frame the old host sent —
-// while the other guest plays on against it, on the same server clock.
-// Headless: the real sim, HostNet, NetMirror, OwnHeroPredictor and takeOver
-// over simulated sockets (net-sim.mts), wired the way the scene wires them.
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { PlayerMap } from "@vibedgames/multiplayer";
@@ -11,9 +6,8 @@ import { isJsonNumber, isJsonObject } from "../src/data/json.ts";
 import type { JsonObject, JsonValue } from "../src/data/json.ts";
 import { CAMPS, SPAWNS } from "../src/data/map.ts";
 import { HostNet } from "../src/net/host-net.ts";
-import type { HostLink } from "../src/net/host-net.ts";
 import { reconcileHostHeroes, takeOver } from "../src/net/host-state.ts";
-import type { HeroPick, OnlineSeat, TakeoverSource } from "../src/net/host-state.ts";
+import type { HeroPick, OnlineSeat } from "../src/net/host-state.ts";
 import { inputWire, parseInput } from "../src/net/input.ts";
 import { NetMirror, parseFrame } from "../src/net/mirror.ts";
 import { OwnHeroPredictor } from "../src/net/own-hero.ts";
@@ -25,20 +19,16 @@ import type { World } from "../src/sim/types.ts";
 import { Pipe } from "./net-sim.mts";
 
 const FRAME_MS = 1000 / 60;
-/** The old host's close reaching the server, then its `host` message reaching the new one. */
 const ELECTION_MS = 150;
 
 interface Peer {
   readonly id: string;
   readonly heroId: string;
-  /** Its copy of the host's world while a guest; its own sim once promoted. */
   readonly world: World;
   readonly mirror: NetMirror;
   readonly predictor: OwnHeroPredictor;
   readonly held: HeldInput;
-  /** From the server: whatever the current host sends. */
   readonly down: Pipe;
-  /** To the server, addressed to the current host. */
   up: Pipe;
 }
 
@@ -48,14 +38,12 @@ interface Host {
   readonly net: HostNet;
 }
 
-const unwatched = (): void => {
-  /* nothing to watch */
-};
+const unwatched = () => null;
 
-/** Guest `id`, before it has heard from any host; `salt` sets its sockets' jitter. */
-const peer = (id: string, salt: number): Peer => {
+const peer = (id: string, salt: number) => {
   const mirror = new NetMirror();
   mirror.ownId = `h-${id}`;
+
   return {
     down: new Pipe(90, 40, salt),
     held: { attack: false, ax: 1, ay: 0, mx: 0, my: 0 },
@@ -68,10 +56,10 @@ const peer = (id: string, salt: number): Peer => {
   };
 };
 
-/** A host and two guests, `p` and `q`, in one room. */
 const room = () => {
   let now = 5000;
   const world = createWorld(7);
+
   for (const [owner, slot] of [
     ["host", 0],
     ["p", 1],
@@ -87,29 +75,30 @@ const room = () => {
       team: owner,
     });
   }
+
   ensureBots(world);
   const p = peer("p", 10);
   const q = peer("q", 20);
   const peers = [p, q];
   let host: Host | null = { id: "host", net: new HostNet(), world };
-  /** What sharedState.snap holds: the newest snapshot any host published. */
   let roomSnap: Snapshot | null = null;
-  /** The roster a promoted guest keeps seated (the scene's picks and assign). */
   let picks: Record<string, HeroPick> = {};
   let seats: Record<string, OnlineSeat> = {};
   const players: PlayerMap = { p: { id: "p" }, q: { id: "q" } };
   let watch = unwatched;
 
-  const guests = (): Peer[] => peers.filter((g) => g.id !== host?.id);
+  const guests = () => peers.filter((g) => g.id !== host?.id);
 
-  const link = (h: Host): HostLink => ({
+  const link = (h: Host) => ({
     inputHero: (owner) => {
       const u = h.world.units.get(`h-${owner}`);
+
       return owner !== h.id && u?.alive && h.world.phase === "playing" ? u : null;
     },
     now: () => now,
     publish: (snap, t) => {
       roomSnap = structuredClone(snap);
+
       for (const g of guests()) {
         g.down.send(now, { kind: "snap", snap, t });
       }
@@ -121,51 +110,59 @@ const room = () => {
     },
   });
 
-  const hostFrame = (h: Host): void => {
+  const hostFrame = (h: Host) => {
     for (const g of guests()) {
       for (const message of g.up.receive(now)) {
         const packet = isJsonObject(message) ? parseInput(message) : null;
+
         if (packet) {
           h.net.receive(g.id, packet);
         }
       }
     }
-    // a promoted guest seats the room and drives its own hero from its
-    // controls, as the scene's host path does every frame
+
     const self = peers.find((g) => g.id === h.id);
+
     if (self) {
       reconcileHostHeroes(h.world, players, picks, seats);
       const me = h.world.units.get(self.heroId);
+
       if (me?.alive) {
         const { held } = self;
         setHeroInput(me, held.mx, held.my, held.ax, held.ay, held.attack);
       }
     }
+
     h.net.advance(h.world, FRAME_MS, link(h));
     h.world.fx.length = 0;
   };
 
-  const guestFrame = (g: Peer): void => {
+  const guestFrame = (g: Peer) => {
     for (const message of g.down.receive(now)) {
       if (!isJsonObject(message)) {
         continue;
       }
+
       if (message["kind"] === "snap") {
         const { snap, t } = message;
+
         if (isSnapshot(snap)) {
           g.mirror.applySnapshot(g.world, snap, isJsonNumber(t) ? t : null, now, true);
         }
       } else {
         const frame = parseFrame(message["frame"] ?? null);
         const own = frame ? g.mirror.applyFrame(g.world, frame, now) : null;
+
         if (own) {
           g.predictor.hostUpdate(own);
         }
       }
     }
+
     g.mirror.render(g.world, now);
     g.world.fx.length = 0;
     const me = g.world.units.get(g.heroId);
+
     if (me && g.world.phase === "playing") {
       g.predictor.advance(me, g.world.units, FRAME_MS, now, g.world.now, g.held, (packet) =>
         g.up.send(now, inputWire(packet)),
@@ -175,16 +172,15 @@ const room = () => {
   };
 
   return {
-    /** The host closes its tab: nothing more is sent. Returns its world as it left it. */
-    leave: (): World => {
+    leave: () => {
       assert.ok(host);
       const left = host.world;
       host = null;
+
       return left;
     },
     p,
-    /** The server elects `g`: it takes over from the freshest world on hand. */
-    promote: (g: Peer): TakeoverSource => {
+    promote: (g: Peer) => {
       const taken = takeOver(g.world, {
         held: g.held,
         mirror: g.mirror,
@@ -193,46 +189,50 @@ const room = () => {
         predictor: g.predictor,
         snapshot: roomSnap,
       });
+
       ({ picks, seats } = taken);
       const net = new HostNet();
       net.alreadySent(g.world.fx);
       g.mirror.reset();
       g.predictor.reset();
       host = { id: g.id, net, world: g.world };
+
       for (const other of guests()) {
-        // input in flight to the old host is lost; the new one hears the held
-        // input at once, and its frames come by another route
         other.up = new Pipe(90, 40, 99);
         other.mirror.clock.relearn();
         other.predictor.resend();
       }
+
       return taken.source;
     },
     q,
     get roomSnap() {
       return roomSnap;
     },
-    run: (ms: number): void => {
+    run: (ms: number) => {
       const end = now + ms;
+
       while (now < end) {
         now += FRAME_MS;
+
         if (host) {
           hostFrame(host);
         }
+
         for (const g of guests()) {
           guestFrame(g);
         }
+
         watch();
       }
     },
-    watch: (fn: () => void): void => {
+    watch: (fn: () => void) => {
       watch = fn;
     },
     world,
   };
 };
 
-/** How far a field may sit from the host's after riding the wire (net/frames.ts). */
 const TOLERANCE = new Map([
   ["hp", 1],
   ["maxHp", 1],
@@ -247,6 +247,7 @@ const near = (a: JsonValue | undefined, b: JsonValue | undefined, key: string, p
     assert.ok(Math.abs(a - b) <= (TOLERANCE.get(key) ?? 0.006), `${path}: ${a} ≠ ${b}`);
   } else if (Array.isArray(a) && Array.isArray(b)) {
     assert.equal(a.length, b.length, `${path}.length`);
+
     for (const [i, item] of a.entries()) {
       near(item, b[i], "", `${path}[${i}]`);
     }
@@ -259,8 +260,6 @@ const near = (a: JsonValue | undefined, b: JsonValue | undefined, key: string, p
   }
 };
 
-/** What prediction owns on the promoted guest's own hero — and the DASH/JUMP
- *  cooldowns a predicted move spends — which the old host's copy lags. */
 const PREDICTED = new Set([
   "abilities",
   "aimX",
@@ -284,29 +283,29 @@ const PREDICTED = new Set([
   "y",
 ]);
 
-/** A unit's fields, less the ones prediction owns when it is the promoted guest's own. */
-const fieldsOf = (unit: JsonObject | undefined, own: boolean): JsonObject =>
+const fieldsOf = (unit: JsonObject | undefined, own: boolean) =>
   Object.fromEntries(Object.entries(unit ?? {}).filter(([key]) => !own || !PREDICTED.has(key)));
 
-/** The promoted copy is the old host's world as it left it, field for field. */
-const sameWorld = (left: World, copy: World, ownId: string): void => {
+const sameWorld = (left: World, copy: World, ownId: string) => {
   const { units: _u, projectiles: _p, ...scalars } = encodeWorld(left);
   const { units: _cu, projectiles: _cp, ...copied } = encodeWorld(copy);
   const wantWorld: JsonObject = scalars;
   const gotWorld: JsonObject = copied;
   near(gotWorld, wantWorld, "", "world");
   assert.deepEqual([...copy.units.keys()].toSorted(), [...left.units.keys()].toSorted());
+
   for (const [id, unit] of left.units) {
     near(fieldsOf(copy.units.get(id), id === ownId), fieldsOf(unit, id === ownId), "", id);
   }
+
   assert.deepEqual([...copy.projectiles.keys()], [...left.projectiles.keys()]);
+
   for (const [id, shot] of left.projectiles) {
     near(fieldsOf(copy.projectiles.get(id), false), fieldsOf(shot, false), "", id);
   }
 };
 
-/** Hold a guest's controls `turn` radians off the way its spawn faces (the centre). */
-const steer = (g: Peer, turn: number, held = true): void => {
+const steer = (g: Peer, turn: number, held = true) => {
   const facing = (SPAWNS[g.id === "p" ? 1 : 2]?.facing ?? 0) + turn;
   Object.assign(g.held, {
     ax: Math.cos(facing),
@@ -323,7 +322,6 @@ test("the host leaves: the promoted guest carries the match on from its mirror",
   assert.ok(hostHero);
   setHeroInput(hostHero, 0.6, 0.8, 0.6, 0.8, true);
   r.run(3000);
-  // both guests on the move when it happens
   steer(p, 0);
   steer(q, 0);
   r.run(1000);
@@ -345,23 +343,21 @@ test("the host leaves: the promoted guest carries the match on from its mirror",
   const lead = Math.hypot(kept.x - hostCopy.x, kept.y - hostCopy.y);
   assert.ok(lead > 0.5, `kept its predicted lead on the old host's copy (${lead.toFixed(2)})`);
 
-  // the match runs on under p; q plays on against it — running, then turning,
-  // then stopping, so the new host has to act on q's fresh input
   let worstCorrection = 0;
   let worstStep = 0;
   let last: { x: number; y: number } | null = null;
   r.watch(() => {
     const qHero = q.world.units.get(q.heroId);
     worstCorrection = Math.max(worstCorrection, q.predictor.correction);
+
     if (qHero && last) {
       worstStep = Math.max(worstStep, Math.hypot(qHero.x - last.x, qHero.y - last.y));
     }
+
     last = qHero ? { x: qHero.x, y: qHero.y } : null;
   });
   r.run(600);
-  r.watch(() => {
-    /* the handover window is over */
-  });
+  r.watch(() => null);
   steer(q, Math.PI / 2);
   r.run(700);
   steer(q, Math.PI / 2, false);
@@ -383,12 +379,12 @@ test("the host leaves: the promoted guest carries the match on from its mirror",
   assert.equal(heroes.length, ARENA_BOT_FILL, "a bot takes the empty seat");
   const after = [...p.world.units.values()].reduce((sum, u) => sum + u.kills + u.deaths, 0);
   assert.ok(after >= scored, "no kill or death is undone");
+
   for (const camp of CAMPS) {
     const alive = [...p.world.units.values()].filter((u) => u.campId === camp.id && u.alive);
     assert.ok(alive.length <= (camp.pack?.length ?? 4), `${camp.id} never spawns twice`);
   }
-  // eased, never snapped: the other guest only feels what the old host never
-  // got to apply — the election's worth of its own input
+
   assert.ok(
     worstCorrection < 3,
     `the other guest's hero was eased (${worstCorrection.toFixed(2)})`,
@@ -403,7 +399,6 @@ test("a copy that missed frames falls back to the room's snapshot; a host back f
   const snap = structuredClone(encodeWorld(world));
   const mirror = new NetMirror();
   const copy = emptyGuestWorld();
-  // the snapshot found on joining was published before frames we never got
   mirror.applySnapshot(copy, snap, 1000, 1000, false);
   assert.equal(mirror.takeOver(copy), false, "not whole yet");
   mirror.applySnapshot(copy, snap, 2000, 2000, true);
@@ -412,6 +407,7 @@ test("a copy that missed frames falls back to the room's snapshot; a host back f
   const late = new NetMirror();
   const joined = emptyGuestWorld();
   late.applySnapshot(joined, snap, 1000, 1000, false);
+
   const fallback = takeOver(joined, {
     held: { attack: false, ax: 1, ay: 0, mx: 0, my: 0 },
     mirror: late,
@@ -420,10 +416,12 @@ test("a copy that missed frames falls back to the room's snapshot; a host back f
     predictor: new OwnHeroPredictor(),
     snapshot: snap,
   });
+
   assert.equal(fallback.source, "snapshot");
   assert.deepEqual(encodeWorld(joined), snap);
 
   const ran = structuredClone(encodeWorld(world));
+
   const own = takeOver(world, {
     held: { attack: false, ax: 1, ay: 0, mx: 0, my: 0 },
     mirror: new NetMirror(),
@@ -432,6 +430,7 @@ test("a copy that missed frames falls back to the room's snapshot; a host back f
     predictor: new OwnHeroPredictor(),
     snapshot: snap,
   });
+
   assert.equal(own.source, "own");
   assert.deepEqual(encodeWorld(world), ran, "its own world, untouched");
 });
