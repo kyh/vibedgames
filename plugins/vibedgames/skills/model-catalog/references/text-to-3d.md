@@ -4,7 +4,7 @@ Curated picks. Output is typically GLB / OBJ / PLY. **Meshy 7.1** is the default
 
 ## Premium
 
-- `meshy/v7.1/text-to-3d`: Meshy 7.1 (the default; `model_type: lowpoly` for games)
+- `meshy/v7.1/text-to-3d`: Meshy 7.1 (the default; a low `target_polycount` for games, `enable_rigging` for a humanoid rig)
 - `tripo3d/p2/text-to-3d`: Tripo · P2
 - `meshy/v7/text-to-3d`: Meshy 7
 - `fal-ai/meshy/v6/text-to-3d`: Meshy 6

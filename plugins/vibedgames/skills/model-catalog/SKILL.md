@@ -39,6 +39,7 @@ The endpoint each task uses when the user names none. The vibedgames MCP server'
 | Sound effect                 | `fal-ai/elevenlabs/sound-effects/v2`       |
 | 3D from a prompt             | `meshy/v7.1/text-to-3d`                    |
 | 3D from an image             | `meshy/v7.1/image-to-3d`                   |
+| Animation clip (humanoid)    | `fal-ai/hunyuan-motion`                    |
 | Background removal           | `bria/guided-remove-background`            |
 
 Sprites and props: GPT Image 2.5 takes `background: transparent`, which saves a background-removal pass.
@@ -54,6 +55,7 @@ Load the reference matching the user's task:
 - [video-to-video.md](references/video-to-video.md), video edit, restyle, upscale, background removal
 - [text-to-3d.md](references/text-to-3d.md), 3D model generation from text
 - [image-to-3d.md](references/image-to-3d.md), 3D model generation from reference images
+- [text-to-motion.md](references/text-to-motion.md), humanoid animation clips from a prompt, and retargeting them onto a rig
 - [text-to-audio.md](references/text-to-audio.md). TTS, music, SFX generation
 - [audio-to-text.md](references/audio-to-text.md), speech-to-text (Whisper, ElevenLabs Scribe with diarization)
 - [image-to-text.md](references/image-to-text.md). OCR, captioning, VQA, detection, segmentation

@@ -6,7 +6,7 @@ Curated picks across 3 use cases, premium quality, fast/cheap, and multi-view in
 
 High-quality mesh generation.
 
-- `meshy/v7.1/image-to-3d`: Meshy 7.1 (the default; standard, low-poly and smart topology)
+- `meshy/v7.1/image-to-3d`: Meshy 7.1 (the default; `enable_rigging` rigs a humanoid, `skeleton_template` picks its skeleton)
 - `tripo3d/p2/image-to-3d`: Tripo · P2
 - `fal-ai/hunyuan-3d/v3.1/pro/image-to-3d`: Tencent · Hunyuan 3D v3.1 Pro
 - `fal-ai/meshy/v6/image-to-3d`: Meshy 6

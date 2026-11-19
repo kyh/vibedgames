@@ -203,6 +203,7 @@ describe("mcp endpoint", () => {
         "whoami",
         "generate_3d",
         "generate_image",
+        "generate_motion",
         "generate_music",
         "generate_sound",
         "generate_speech",
@@ -333,6 +334,17 @@ describe("mcp endpoint", () => {
     const { result } = callResult.parse(body);
     assert.strictEqual(result.isError, true);
     assert.match(result.content[0]?.text ?? "", /prompt or an image_url/u);
+  });
+
+  test("asks generate_3d to rig before it animates", async () => {
+    const { body } = await rpc("tools/call", {
+      arguments: { animation_action_id: 0, prompt: "a knight" },
+      name: "generate_3d",
+    });
+
+    const { result } = callResult.parse(body);
+    assert.strictEqual(result.isError, true);
+    assert.match(result.content[0]?.text ?? "", /need rig: true/u);
   });
 
   test("runs the defaults the model-catalog skill names", async () => {
