@@ -121,7 +121,7 @@ Generated GLB models and sound effects only matter once they're _in the running 
 - `vg generate` → GLB → `GLTFLoader` → normalize scale → attach a collider sized to the model's bounds.
 - `vg generate` → SFX/music → Web Audio buffer pool → trigger on collision/jump/pickup (with the gesture-unlock dance mobile requires).
 
-Use the `model-catalog` skill to pick endpoints (text-to-3d / image-to-3d / text-to-audio) and `regenerate-3d` for rigged character pipelines. Keep generation and integration separate concerns: generate to disk, then load like any other asset.
+Use the `model-catalog` skill for the models: `references/3d.md` for meshes, rigs and clips, `text-to-audio` for sound. Keep generation and integration separate concerns: generate to disk, then load like any other asset.
 
 ---
 

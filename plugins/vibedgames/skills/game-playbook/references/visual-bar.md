@@ -72,7 +72,7 @@ After each step, capture and run a critic check scoped to that step's criteria.
 2. **Surfaces**: every placeholder material/tile replaced; break repetition with
    variation and decals (`pixel-art`, `threejs` textures). Gate: C1.
 3. **Density**: hero units, props, scatter, debris, silhouettes at the locked
-   camera distance (`character-design`, `regenerate-3d`, `image-to-threejs`,
+   camera distance (`character-design`, `model-catalog` 3d.md, `image-to-threejs`,
    instancing). Gate: C2.
 4. **HUD** in the refs' grammar — framed panels, a real typeface, icon set
    (`game-ui`). Skip if no HUD criterion.

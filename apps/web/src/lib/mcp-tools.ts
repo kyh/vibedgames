@@ -356,6 +356,7 @@ const imageUrl = z.url().describe("An image's URL, e.g. from generate_upload");
  * any other.
  */
 export const MEDIA_MODELS = {
+  animate_3d: ["meshy/rigging/multi-animation"],
   generate_3d: ["meshy/v7.1/text-to-3d", "meshy/v7.1/image-to-3d"],
   generate_image: ["openai/gpt-image-2.5/flare/text-to-image", "openai/gpt-image-2.5/flare/edit"],
   generate_music: ["elevenlabs/music/v2.5"],
@@ -372,11 +373,51 @@ const billed =
   "Billed against your credits; waits up to `wait_seconds`, then returns the `request_id` to follow with generate_status.";
 
 const mediaTools = {
+  animate_3d: generateTool
+    .meta(
+      mcp.tool({
+        annotations: external,
+        description: `Rigs a humanoid character GLB, e.g. one generate_3d made, and bakes animation clips onto that one skeleton: a GLB per \`animation_action_ids\` entry from Meshy's animation library, plus walking and running (Meshy rigging: \`${MEDIA_MODELS.animate_3d[0]}\`). The 3d reference of the model-catalog skill lists the clip ids games use. ${billed}`,
+        name: "animate_3d",
+        title: "Rig and animate a 3D character",
+      }),
+    )
+    .input(
+      z.object({
+        animation_action_ids: z
+          .array(z.number().int().min(0).max(696))
+          .min(1)
+          .max(10)
+          .describe("Up to 10 clips from Meshy's animation library, one GLB each, e.g. 0 for Idle"),
+        height_meters: z
+          .number()
+          .positive()
+          .max(100)
+          .optional()
+          .describe("The character's height, 1.7 by default"),
+        model_url: z.url().describe("The character's GLB, e.g. generate_3d's model_glb"),
+        options,
+        wait_seconds: waitSeconds,
+      }),
+    )
+    .handler(({ context, input }) =>
+      runModel(
+        context,
+        MEDIA_MODELS.animate_3d[0],
+        bodyOf(input.options, {
+          animation_action_ids: input.animation_action_ids,
+          height_meters: input.height_meters,
+          model_url: input.model_url,
+        }),
+        input.wait_seconds,
+      ),
+    ),
+
   generate_3d: generateTool
     .meta(
       mcp.tool({
         annotations: external,
-        description: `Generates a textured 3D model (GLB) from a prompt, or from an image when \`image_url\` is given (Meshy 7.1: \`${MEDIA_MODELS.generate_3d.join("`, `")}\`); \`model_type: lowpoly\` suits games. ${billed}`,
+        description: `Generates a textured 3D model (GLB) from a prompt, or from an image when \`image_url\` is given (Meshy 7.1: \`${MEDIA_MODELS.generate_3d.join("`, `")}\`); a low \`target_polycount\` suits games. To animate a character, model it with \`pose_mode\` and pass its \`model_glb\` to animate_3d. ${billed}`,
         name: "generate_3d",
         title: "Generate a 3D model",
       }),
@@ -384,8 +425,11 @@ const mediaTools = {
     .input(
       z.object({
         image_url: imageUrl.optional(),
-        model_type: z.enum(["standard", "lowpoly", "smart-topology"]).optional(),
         options,
+        pose_mode: z
+          .enum(["a-pose", "t-pose"])
+          .optional()
+          .describe("Model a character in this pose, which rigs cleanly in animate_3d"),
         prompt: prompt.max(600).optional().describe("What to model; needed without image_url"),
         target_polycount: z.number().int().min(100).max(300_000).optional(),
         topology: z.enum(["quad", "triangle"]).optional(),
@@ -401,7 +445,7 @@ const mediaTools = {
 
       const fields = {
         image_url: input.image_url,
-        model_type: input.model_type,
+        pose_mode: input.pose_mode,
         prompt: input.image_url === undefined ? input.prompt : undefined,
         target_polycount: input.target_polycount,
         topology: input.topology,
