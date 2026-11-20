@@ -387,8 +387,8 @@ const mediaTools = {
         animation_action_ids: z
           .array(z.number().int().min(0).max(696))
           .min(1)
-          .max(20)
-          .describe("Clips from Meshy's animation library, one GLB each, e.g. 0 for Idle"),
+          .max(10)
+          .describe("Up to 10 clips from Meshy's animation library, one GLB each, e.g. 0 for Idle"),
         height_meters: z
           .number()
           .positive()
