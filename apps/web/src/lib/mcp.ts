@@ -110,7 +110,7 @@ const registrar = new McpRegistrar(tools, {
 
 const instructions = [
   "vibedgames hosts browser games at {slug}.vibedgames.com and gives coding agents the abilities of a game studio.",
-  "Start with `skills` for how to build, art-direct and ship a game; `generate_image`, `generate_video`, `generate_speech`, `generate_music`, `generate_sound`, `generate_3d`, `generate_motion` and `remove_background` make its assets on default models, `generate` runs any other model; `deploy` puts it live.",
+  "Start with `skills` for how to build, art-direct and ship a game; `generate_image`, `generate_video`, `generate_speech`, `generate_music`, `generate_sound`, `generate_3d`, `animate_3d` and `remove_background` make its assets on default models, `generate` runs any other model; `deploy` puts it live.",
   "If you have a shell, the `vg` CLI does all of this in one step per job: `npx vibedgames deploy ./dist` with `VG_TOKEN` set to the same API key. Each tool here is named for its `vg` command, spaces as `_` (`vg generate run` is `generate`).",
   "To deploy with the tool: call `deploy` with `bundle: true`, PUT the built game as one gzipped tar (`tar -czf game.tgz -C dist .`, index.html at its root) to `bundleUpload` (`curl -T game.tgz -H 'Content-Type: application/gzip' \"$url\"`), then call `deploy` with the `deploymentId` and `publish: true`. With no shell, send text files in `files` and generated assets as `encoding: url`, which the server fetches, rather than downloading them.",
   "Big bytes never ride a tool call: uploads go to URLs on this server (generate_upload for a model input), and fork returns a URL to download source from.",

@@ -201,9 +201,9 @@ describe("mcp endpoint", () => {
         "generate_upload",
         "skills",
         "whoami",
+        "animate_3d",
         "generate_3d",
         "generate_image",
-        "generate_motion",
         "generate_music",
         "generate_sound",
         "generate_speech",
@@ -336,15 +336,14 @@ describe("mcp endpoint", () => {
     assert.match(result.content[0]?.text ?? "", /prompt or an image_url/u);
   });
 
-  test("asks generate_3d to rig before it animates", async () => {
+  test("asks animate_3d for at least one clip", async () => {
     const { body } = await rpc("tools/call", {
-      arguments: { animation_action_id: 0, prompt: "a knight" },
-      name: "generate_3d",
+      arguments: { animation_action_ids: [], model_url: "https://example.com/knight.glb" },
+      name: "animate_3d",
     });
 
     const { result } = callResult.parse(body);
     assert.strictEqual(result.isError, true);
-    assert.match(result.content[0]?.text ?? "", /need rig: true/u);
   });
 
   test("runs the defaults the model-catalog skill names", async () => {

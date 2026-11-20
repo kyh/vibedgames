@@ -23,13 +23,13 @@ This is the 3D sibling of `animated-spritesheets`: generate one clean image with
 
 ## Pick this or a mesh — they are not interchangeable
 
-| Need                                                         | Use                                                      |
-| ------------------------------------------------------------ | -------------------------------------------------------- |
-| Prop that **hinges, opens, detaches, or breaks**             | **this skill** — the rig is the point                    |
-| Prop you want to **tweak in code** (size, palette, variants) | **this skill** — it's source                             |
-| Organic/photoreal shape, character, anything sculpted        | `vg generate` → Meshy (`model-catalog`, `regenerate-3d`) |
-| Generic set dressing, many objects, ship today               | Kenney kit GLBs — free and instant                       |
-| Whole scenes, crowds, LOD-heavy fills                        | **not this** — see the token budget below                |
+| Need                                                         | Use                                               |
+| ------------------------------------------------------------ | ------------------------------------------------- |
+| Prop that **hinges, opens, detaches, or breaks**             | **this skill** — the rig is the point             |
+| Prop you want to **tweak in code** (size, palette, variants) | **this skill** — it's source                      |
+| Organic/photoreal shape, character, anything sculpted        | `vg generate` → Meshy (`model-catalog`'s `3d.md`) |
+| Generic set dressing, many objects, ship today               | Kenney kit GLBs — free and instant                |
+| Whole scenes, crowds, LOD-heavy fills                        | **not this** — see the token budget below         |
 
 **Budget before you start.** Upstream measures ~**80k–180k tokens per object**
 and **150k–350k per character**, dominated by 5–8 render-review cycles. This is
@@ -422,6 +422,6 @@ the gap is unfinished work or a deliberate stop.
 ## Related
 
 `threejs` (consuming the model, `references/generated-assets.md`) ·
-`model-catalog` / `regenerate-3d` (the mesh branch) · `model-prompting`
+`model-catalog`'s `3d.md` (the mesh branch) · `model-prompting`
 (reference-image prompt craft) · `animated-spritesheets` (the 2D sibling) ·
 `game-feel` (what the rig is for).

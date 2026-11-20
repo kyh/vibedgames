@@ -2,7 +2,7 @@
 
 Generation and integration are separate concerns. **Generate to disk, then load like any other asset.** This reference closes the loop the generate skills stop at: a GLB or a sound effect that's actually loaded, placed, collidable, and triggered by gameplay.
 
-For choosing endpoints and writing prompts, use the generate skills (`model-catalog`, `character-design`, `regenerate-3d`, `media-workflow`). For a hero prop that must **hinge, open, detach, or break** — or that you want as tweakable source code rather than a mesh file — use the `image-to-threejs` skill instead: it rebuilds a reference image as a procedural factory with a pivot/socket rig, and its decision table covers procedural vs Meshy vs kit GLBs. This file is only about getting the output _into the scene_.
+Making the model, rig and clips is the `model-catalog` skill's `references/3d.md`: one path, Meshy 7.1 for the mesh and Meshy rigging for the clips. For a hero prop that must **hinge, open, detach, or break** — or that you want as tweakable source code rather than a mesh file — use the `image-to-threejs` skill instead: it rebuilds a reference image as a procedural factory with a pivot/socket rig, and its decision table covers procedural vs Meshy vs kit GLBs. This file is only about getting the output _into the scene_.
 
 ---
 
@@ -10,15 +10,15 @@ For choosing endpoints and writing prompts, use the generate skills (`model-cata
 
 ### 1. Generate to disk
 
-3D generation is slow (1–5 min) — always async, then poll. Endpoint selection lives in the `model-catalog` skill (`text-to-3d` / `image-to-3d`); IDs are passed through verbatim.
+3D generation is slow (1–5 min): always async, then poll. The calls (and the rig-and-animate step for characters) are in the `model-catalog` skill's `references/3d.md`; this is the prop case:
 
 ```bash
-REQ=$(vg generate run fal-ai/meshy/v6/text-to-3d \
-  --prompt "a low-poly treasure chest, game asset, clean topology" \
+REQ=$(vg generate run meshy/v7.1/text-to-3d \
+  --prompt "a treasure chest, game asset" --target_polycount 8000 \
   --async --field request_id)
 
-vg generate status fal-ai/meshy/v6/text-to-3d "$REQ" \
-  --download "./public/models/chest.{ext}" --json
+vg generate status meshy/v7.1/text-to-3d "$REQ" \
+  --download "./public/models/chest/" --json
 ```
 
 ### 2. Load + normalize + collide
@@ -88,7 +88,26 @@ world.createCollider(
 );
 ```
 
-For animated characters, **don't normalize with `loadNormalized`** (its `setFromObject` bounds include the skeleton — see the note above); use the mesh-only normalization in `gltf-loading-guide.md` (Pattern 6), then keep `gltf.animations` and drive them with the mixer/crossfade patterns in `game-patterns.md`. For a full rigged-character generation pipeline, use the `regenerate-3d` skill.
+For animated characters, **don't normalize with `loadNormalized`** (its `setFromObject` bounds include the skeleton — see the note above); use the mesh-only normalization in `gltf-loading-guide.md` (Pattern 6), then drive the clips with the mixer/crossfade patterns in `game-patterns.md`.
+
+### 3b. One character, many clips
+
+Meshy's rig-and-animate step returns `rigged_character_glb` plus one `animation_glb` per clip, every one on the same skeleton. Load the character once and take only the `AnimationClip`s from the clip files: tracks bind by bone name, so they play on the one mixer.
+
+```javascript
+const character = await loader.loadAsync("/models/knight/rigged.glb");
+const mixer = new THREE.AnimationMixer(character.scene);
+
+const clipFiles = { idle: "idle.glb", attack: "attack.glb", death: "death.glb" };
+const actions = {};
+for (const [name, file] of Object.entries(clipFiles)) {
+  const { animations } = await loader.loadAsync(`/models/knight/${file}`);
+  actions[name] = mixer.clipAction(animations[0]);
+}
+actions.idle.play();
+```
+
+Ship the clip files for their animation only: `gltf-transform` can strip their meshes and textures, or bake every clip into the rigged GLB once so the page loads one file.
 
 ### 4. Validate rigged GLBs before wiring them in
 
