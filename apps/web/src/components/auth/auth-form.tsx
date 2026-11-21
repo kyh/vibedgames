@@ -284,11 +284,12 @@ export const RequestPasswordResetForm = () => {
       fetchOptions: {
         onError: (ctx) => {
           toast.error(ctx.error.message);
-        },
-        onSuccess: () => {
-          toast.success("Password reset email sent successfully!");
+          // The client resolves on an error rather than throwing, so this is what keeps the
+          // "link sent" panel from showing for a request that failed.
+          form.setError("root", { message: ctx.error.message });
         },
       },
+      redirectTo: "/auth/password-update",
     });
   });
 
@@ -297,8 +298,7 @@ export const RequestPasswordResetForm = () => {
       <div className="space-y-4 text-center">
         <div className="rounded-md bg-green-900/20 p-4">
           <p className="text-sm text-green-200">
-            Password reset email sent! Check your inbox and follow the instructions to reset your
-            password.
+            If an account uses that address, a reset link is on its way. It expires in an hour.
           </p>
         </div>
       </div>
@@ -341,7 +341,7 @@ export const RequestPasswordResetForm = () => {
   );
 };
 
-export const UpdatePasswordForm = () => {
+export const UpdatePasswordForm = ({ token }: { token: string }) => {
   const updateRouter = useRouter();
 
   const form = useForm({
@@ -369,11 +369,12 @@ export const UpdatePasswordForm = () => {
           toast.error(ctx.error.message);
         },
         onSuccess: () => {
-          toast.success("Password updated successfully!");
-          updateRouter.navigate({ to: "/" });
+          toast.success("Password updated. Sign in with the new one.");
+          updateRouter.navigate({ to: "/auth/login" });
         },
       },
       newPassword: data.password,
+      token,
     });
   });
 

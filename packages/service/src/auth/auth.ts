@@ -16,6 +16,8 @@ import { betterAuth } from "better-auth";
 import { admin, bearer, jwt, oAuthProxy } from "better-auth/plugins";
 import { z } from "zod";
 
+import type { Mailer } from "../email/mailer";
+import { passwordResetEmail } from "../email/templates";
 import { fetchClientMetadataResource } from "./cimd-fetch";
 import { oauthResources } from "./oauth-resources";
 
@@ -36,6 +38,8 @@ export interface AuthOptions {
   trustedOrigins?: string[];
   github?: SocialProviderCredentials;
   google?: SocialProviderCredentials;
+  /** Sends password-reset links; without one, a reset request is refused. */
+  mailer?: Mailer;
 }
 
 interface SocialProviderConfig {
@@ -54,7 +58,7 @@ const configured = (credentials: SocialProviderCredentials | undefined) =>
     : undefined;
 
 export const createAuth = (opts: AuthOptions) => {
-  const { db, baseURL, secret, productionURL = baseURL } = opts;
+  const { db, baseURL, mailer, secret, productionURL = baseURL } = opts;
   const resources = oauthResources(baseURL);
   const socialProviders: SocialProviders = {};
   const github = configured(opts.github);
@@ -88,6 +92,11 @@ export const createAuth = (opts: AuthOptions) => {
     disabledPaths: ["/token"],
     emailAndPassword: {
       enabled: true,
+      // A reset usually means the old password leaked, so every session that knew it ends.
+      revokeSessionsOnPasswordReset: true,
+      sendResetPassword: mailer
+        ? ({ user, url }) => mailer({ to: user.email, ...passwordResetEmail(url) })
+        : undefined,
     },
     plugins: [
       oAuthProxy({

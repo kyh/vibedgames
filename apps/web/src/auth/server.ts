@@ -5,7 +5,9 @@ import type {
   R2Config,
   UrlSigning,
 } from "@repo/service/orpc";
+import type { Mailer } from "@repo/service/email/mailer";
 import { createAuth as initAuth } from "@repo/service/auth/auth";
+import { consoleMailer, resendMailer } from "@repo/service/email/mailer";
 import { oauthResources } from "@repo/service/auth/oauth-resources";
 import { createORPCContext } from "@repo/service/orpc";
 import { createDb } from "@repo/db/drizzle-client";
@@ -22,6 +24,7 @@ const authFor = (
   db: ReturnType<typeof createDb>,
   baseUrl: string,
   productionUrl: string,
+  mailer: Mailer | undefined,
 ) => {
   let byOrigin = authInstances.get(env);
 
@@ -38,6 +41,7 @@ const authFor = (
       db,
       github: { clientId: env.GITHUB_CLIENT_ID, clientSecret: env.GITHUB_CLIENT_SECRET },
       google: { clientId: env.GOOGLE_CLIENT_ID, clientSecret: env.GOOGLE_CLIENT_SECRET },
+      mailer,
       oauthProxySecret: env.OAUTH_PROXY_SECRET || undefined,
       productionURL: env.OAUTH_PROXY_URL || productionUrl,
       secret: env.BETTER_AUTH_SECRET,
@@ -46,6 +50,14 @@ const authFor = (
   }
 
   return auth;
+};
+
+/** Without a key, only the dev server gets a mailer: there the reset link is read off its log. */
+const mailerFor = (env: Env, isLocalhost: boolean): Mailer | undefined => {
+  if (env.RESEND_API_KEY) {
+    return resendMailer({ apiKey: env.RESEND_API_KEY });
+  }
+  return isLocalhost ? consoleMailer : undefined;
 };
 
 export const getServerContext = () => {
@@ -62,7 +74,7 @@ export const getServerContext = () => {
 
   const productionUrl = env.PRODUCTION_URL || baseUrl;
 
-  const auth = authFor(env, db, baseUrl, productionUrl);
+  const auth = authFor(env, db, baseUrl, productionUrl, mailerFor(env, isLocalhost));
 
   const r2: R2Config | undefined = env.GAMES_BUCKET ? { bucket: env.GAMES_BUCKET } : undefined;
 

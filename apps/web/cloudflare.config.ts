@@ -23,7 +23,14 @@ const openaiSecrets = {
   OPENAI_APPS_CHALLENGE: bindings.secret(),
 };
 
-const optionalSecrets = { ...stripeSecrets, ...socialSecrets, ...openaiSecrets };
+// Password-reset email through Resend (packages/service/src/email/mailer.ts), sent as
+// noreply@vibedgames.com, a domain verified in Resend. Optional the same way: unset, a reset request
+// is refused, except on localhost, where the link goes to the dev server's log.
+const emailSecrets = {
+  RESEND_API_KEY: bindings.secret(),
+};
+
+const optionalSecrets = { ...stripeSecrets, ...socialSecrets, ...openaiSecrets, ...emailSecrets };
 
 // WARNING: a Preview binds only preview D1/R2; never let it reach the prod database or bucket.
 const previewEnv = {
