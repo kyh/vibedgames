@@ -284,8 +284,6 @@ export const RequestPasswordResetForm = () => {
       fetchOptions: {
         onError: (ctx) => {
           toast.error(ctx.error.message);
-          // The client resolves on an error rather than throwing, so this is what keeps the
-          // "link sent" panel from showing for a request that failed.
           form.setError("root", { message: ctx.error.message });
         },
       },

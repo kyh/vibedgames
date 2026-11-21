@@ -52,11 +52,11 @@ const authFor = (
   return auth;
 };
 
-/** Without a key, only the dev server gets a mailer: there the reset link is read off its log. */
-const mailerFor = (env: Env, isLocalhost: boolean): Mailer | undefined => {
+const mailerFor = (env: Env, isLocalhost: boolean) => {
   if (env.RESEND_API_KEY) {
     return resendMailer({ apiKey: env.RESEND_API_KEY });
   }
+
   return isLocalhost ? consoleMailer : undefined;
 };
 

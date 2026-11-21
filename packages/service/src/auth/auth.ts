@@ -92,7 +92,6 @@ export const createAuth = (opts: AuthOptions) => {
     disabledPaths: ["/token"],
     emailAndPassword: {
       enabled: true,
-      // A reset usually means the old password leaked, so every session that knew it ends.
       revokeSessionsOnPasswordReset: true,
       sendResetPassword: mailer
         ? ({ user, url }) => mailer({ to: user.email, ...passwordResetEmail(url) })
