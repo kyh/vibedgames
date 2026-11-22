@@ -9,7 +9,7 @@ import { packLots, packPlans } from "../src/world/parcel-pack.ts";
 
 type Check = (name: string, condition: boolean, detail?: string) => void;
 
-const house = (x: number, z: number, seed: number): ParcelPlan => ({
+const house = (x: number, z: number, seed: number) => ({
   blind: new Uint8Array([0, 1, 0, 1]),
   blockHash: 4,
   character: "victorian",
@@ -32,7 +32,7 @@ const house = (x: number, z: number, seed: number): ParcelPlan => ({
   units: 1,
 });
 
-const block = (x: number, z = 0): ParcelPlan[] =>
+const block = (x: number, z = 0) =>
   Array.from({ length: 16 }, (_, index) =>
     house(x + (index % 4) * 5, z + Math.floor(index / 4) * 7, index),
   );
@@ -42,18 +42,21 @@ const streamer = (
   plans: readonly ParcelPlan[],
   lots: readonly ParcelLot[],
   detail: DetailLevel,
-): ParcelStreamer => {
+) => {
   const stream = new ParcelStreamer(root, detail);
   stream.addTile(0, packPlans(plans), packLots(lots));
+
   return stream;
 };
 
-const drain = (stream: ParcelStreamer, x: number, z: number, radius: number): number => {
+const drain = (stream: ParcelStreamer, x: number, z: number, radius: number) => {
   let frames = 0;
+
   while (stream.stats().pending > 0 && frames < 2000) {
     frames += 1;
     stream.update(x, z, radius);
   }
+
   return frames;
 };
 
@@ -61,16 +64,18 @@ const checkResumableSteps = async (
   check: Check,
   variants: readonly ParcelPlan[],
   lot: ParcelLot,
-): Promise<void> => {
+) => {
   for (const detail of [0, 1, 2] satisfies DetailLevel[]) {
     const expected = await buildParcelGeometry(variants, detail, undefined, [lot]);
     const steps = buildParcelGeometrySteps(variants, detail, [lot]);
     let slices = 0;
     let result = steps.next();
+
     while (!result.done) {
       slices += 1;
       result = steps.next();
     }
+
     check(
       `resumable parcel level ${detail} preserves every geometry buffer`,
       slices === variants.length + 1 && isDeepStrictEqual(result.value, expected),
@@ -79,7 +84,7 @@ const checkResumableSteps = async (
   }
 };
 
-const checkLodReplacement = (check: Check): void => {
+const checkLodReplacement = (check: Check) => {
   const lodRoot = new Group();
   const lod = streamer(lodRoot, block(240), [], 2);
   lod.update(0, 0, 500);
@@ -96,7 +101,6 @@ const checkLodReplacement = (check: Check): void => {
     "budgeted facade promotions finish without duplicate cells",
     lod.stats().detailedCells > 0 && lodRoot.children.length === previous.length,
   );
-  // jump resets detail hysteresis, despite partial downgrade
   lod.update(-20, 0, 500);
   drain(lod, -20, 0, 500);
   check(
@@ -106,12 +110,14 @@ const checkLodReplacement = (check: Check): void => {
   lod.update(4000, 4000, 0);
 };
 
-export const checkParcelStreaming = async (check: Check): Promise<void> => {
+export const checkParcelStreaming = async (check: Check) => {
   const plans = block(0);
   const [first] = plans;
+
   if (!first) {
     throw new Error("Missing parcel stream fixture");
   }
+
   const lot: ParcelLot = {
     id: 90,
     n: 4,
@@ -121,18 +127,19 @@ export const checkParcelStreaming = async (check: Check): Promise<void> => {
     seed: 90,
     ys: new Float32Array([0, 0.2, 0.4, 0.1]),
   };
+
   const variants = [
     ...plans,
     { ...first, district: "North Beach", kind: "midrise" },
     { ...first, character: "industrial", kind: "warehouse" },
   ] satisfies ParcelPlan[];
+
   await checkResumableSteps(check, variants, lot);
 
-  // Each clock check consumes 1 ms: budget behavior is deterministic even on
-  // fast CI hosts. Geometry remains real; no mocked builder or render output.
   let clock = 0;
   let clockStep = 1;
   const timer = mock.method(performance, "now", () => (clock += clockStep));
+
   try {
     const root = new Group();
     const destination = Array.from({ length: 5 }, (_, cell) => block(960 + cell * 80)).flat();
@@ -140,14 +147,17 @@ export const checkParcelStreaming = async (check: Check): Promise<void> => {
     stream.update(0, 0, 450);
     const sourceMeshes = root.children.flatMap((group) => group.children);
     let disposed = 0;
-    const countDisposal = (): void => {
+
+    const countDisposal = () => {
       disposed += 1;
     };
+
     for (const mesh of sourceMeshes) {
       if (mesh instanceof Mesh) {
         mesh.geometry.addEventListener("dispose", countDisposal);
       }
     }
+
     stream.update(1000, 0, 450);
     check(
       "teleports release old geometry immediately and budget destination work",
@@ -156,9 +166,11 @@ export const checkParcelStreaming = async (check: Check): Promise<void> => {
         stream.stats().pending > 1,
       `${disposed} disposed meshes; ${stream.stats().pending} queued cells`,
     );
+
     for (let frame = 0; frame < 20 && stream.stats().resident === 0; frame += 1) {
       stream.update(1000, 0, 450);
     }
+
     const nearest = new Box3().setFromObject(root);
     check(
       "teleport streaming restores the nearest street first",
@@ -179,7 +191,6 @@ export const checkParcelStreaming = async (check: Check): Promise<void> => {
     );
     expected.update(4000, 4000, 0);
 
-    // begin a new cell, then abandon it mid-build
     stream.update(0, 0, 450);
     stream.update(-1000, 0, 450);
     drain(stream, -1000, 0, 450);
@@ -207,7 +218,6 @@ export const checkParcelStreaming = async (check: Check): Promise<void> => {
     );
     editor.update(4000, 4000, 0);
 
-    // scanning alone has already exceeded the soft deadline
     clockStep = 10;
     const slowRoot = new Group();
     const slow = streamer(slowRoot, [...plans, ...block(1000)], [], 1);
@@ -229,10 +239,12 @@ if (process.argv.includes("--check")) {
   let failures = 0;
   await checkParcelStreaming((name, condition, detail) => {
     console.log(`${condition ? "ok" : "FAIL"} ${name}${detail ? ` (${detail})` : ""}`);
+
     if (!condition) {
       failures += 1;
     }
   });
+
   if (failures > 0) {
     process.exitCode = 1;
   }

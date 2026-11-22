@@ -52,13 +52,6 @@ export const featuredGames: FeaturedGame[] = [
     previewPortrait: "/covers/pacman-portrait.webp",
     slug: "pacman",
   },
-  // {
-  //   name: "Tetris",
-  //   slug: "tetris",
-  //   preview: "/covers/tetris.webp",
-  //   previewPortrait: "/covers/tetris-portrait.webp",
-  //   colorScheme: "dark",
-  // },
   {
     colorScheme: "light",
     name: "Pong",
@@ -100,6 +93,13 @@ export const featuredGames: FeaturedGame[] = [
     preview: "/covers/bomberman.webp",
     previewPortrait: "/covers/bomberman-portrait.webp",
     slug: "bomberman",
+  },
+  {
+    colorScheme: "light",
+    name: "Tabletop Turbo",
+    preview: "/covers/tabletop-turbo.webp",
+    previewPortrait: "/covers/tabletop-turbo-portrait.webp",
+    slug: "tabletop-turbo",
   },
   {
     colorScheme: "light",

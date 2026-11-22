@@ -13,14 +13,18 @@ export interface OnlineSeat {
 export const seatsOf = (world: World) => {
   const picks: Record<string, string> = {};
   const seats: Record<string, OnlineSeat> = {};
+
   for (const unit of world.units.values()) {
     const { hero } = unit;
+
     if (!hero || hero.isBot) {
       continue;
     }
+
     picks[hero.ownerId] = hero.defId;
     seats[hero.ownerId] = { slot: hero.slot, team: unit.team };
   }
+
   return { picks, seats };
 };
 
@@ -31,5 +35,6 @@ export const seatsOf = (world: World) => {
 export const restoreHostState = (world: World, snapshot: Snapshot | null) => {
   applySnapshot(world, snapshot ? structuredClone(snapshot) : encodeWorld(createWorld(1234)));
   world.fx.length = 0;
+
   return seatsOf(world);
 };

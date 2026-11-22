@@ -1,9 +1,5 @@
 import { OAUTH_SCOPES } from "@repo/contract/auth/oauth-scopes";
 
-/**
- * What each scope lets an app do, in the person's terms: OpenID's, then
- * vibedgames' own (`@repo/contract/auth/oauth-scopes`), in the order shown.
- */
 const SCOPE_LABELS = new Map<string, string>([
   ["openid", "Know who you are"],
   ["profile", "See your name and picture"],

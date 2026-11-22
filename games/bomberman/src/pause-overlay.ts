@@ -1,9 +1,3 @@
-// Bespoke pause overlay — Bomberman's arcade attract-screen card on the
-// shared @repo/embed pause shell (which owns resume behavior, fade, and the
-// full-screen root): brass-edged courtyard frame, warm palette from the
-// start screen, a bomb with a live fuse spark. Renders control GROUPS from the
-// shared CONTROLS manifest, re-filtered on every show().
-
 import { controlGroups, createPauseShell } from "@repo/embed";
 import type { ControlMethod, MuteAccessor } from "@repo/embed";
 
@@ -11,8 +5,6 @@ import { CONTROLS } from "./controls";
 
 const STYLE_ID = "bm-pause-style";
 
-// Courtyard stone, cream ink and brass; shared by pause and title controls.
-// Positioning/z-index/fade live on the shell's root — visuals only here.
 const CSS = `
 .bm-pause {
   display: flex;
@@ -188,22 +180,25 @@ const METHOD_LABELS = {
 } satisfies Record<ControlMethod, string>;
 
 /** Inject the shared control-card styles (pause overlay AND start screen). */
-export const ensureStyle = (): void => {
+export const ensureStyle = () => {
   if (document.querySelector(`#${STYLE_ID}`)) {
     return;
   }
+
   const style = document.createElement("style");
   style.id = STYLE_ID;
   style.textContent = CSS;
   document.head.append(style);
 };
 
-const el = (className: string, text?: string): HTMLDivElement => {
+const el = (className: string, text?: string) => {
   const node = document.createElement("div");
   node.className = className;
+
   if (text !== undefined) {
     node.textContent = text;
   }
+
   return node;
 };
 
@@ -212,17 +207,19 @@ const el = (className: string, text?: string): HTMLDivElement => {
  * and the pause overlay teach controls with the SAME UI. Null when nothing is
  * visible for the current device/pad context.
  */
-export const buildControls = (coarse: boolean): HTMLElement | null => {
-  // Fresh groups every render: touch rows on coarse pointers, keyboard rows
-  // on fine ones, gamepad rows only while a pad is actually connected.
+export const buildControls = (coarse: boolean) => {
   const groups = controlGroups(CONTROLS, { coarse });
+
   if (groups.length === 0) {
     return null;
   }
+
   const wrap = document.createElement("div");
+
   for (const group of groups) {
     wrap.append(el("bm-pause-method", METHOD_LABELS[group.method]));
     const rows = el("bm-pause-rows");
+
     for (const entry of group.entries) {
       const key = document.createElement("span");
       key.className = "bm-pause-key";
@@ -232,8 +229,10 @@ export const buildControls = (coarse: boolean): HTMLElement | null => {
       action.textContent = entry.action;
       rows.append(key, action);
     }
+
     wrap.append(rows);
   }
+
   return wrap;
 };
 
@@ -244,13 +243,13 @@ export interface BombermanPauseOverlay {
   hide: () => void;
 }
 
-const renderCard = (overlay: HTMLElement): void => {
+const renderCard = (overlay: HTMLElement) => {
   ensureStyle();
   const coarse = window.matchMedia("(pointer: coarse)").matches;
 
-  // Same rising embers the start screen drifts up behind its copy.
   const embers = el("bm-pause-embers");
   embers.setAttribute("aria-hidden", "true");
+
   for (const [left, duration, delay] of [
     [14, 3.4, 0],
     [33, 4.2, 1.3],
@@ -264,6 +263,7 @@ const renderCard = (overlay: HTMLElement): void => {
     ember.style.animationDelay = `${delay}s`;
     embers.append(ember);
   }
+
   overlay.append(embers);
 
   const card = el("bm-pause-card");
@@ -285,18 +285,20 @@ const renderCard = (overlay: HTMLElement): void => {
   card.append(el("bm-pause-hint", coarse ? "TAP TO RESUME" : "CLICK OR PRESS ANY KEY TO RESUME"));
 
   const controlsEl = buildControls(coarse);
+
   if (controlsEl) {
     card.append(el("bm-pause-rule"), controlsEl);
   }
 
   overlay.append(card);
 };
+
 /**
  * Build Bomberman's pause overlay on the shared @repo/embed pause shell — the
  * shell owns resume behavior (pointerup / non-Escape keyup / fresh pad press),
  * this file owns the arcade attract-card look.
  */
-export const createBombermanPauseOverlay = (mute: MuteAccessor): BombermanPauseOverlay =>
+export const createBombermanPauseOverlay = (mute: MuteAccessor) =>
   createPauseShell({
     className: "bm-pause",
     mute,

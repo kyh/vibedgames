@@ -1,16 +1,4 @@
 #!/usr/bin/env node
-/**
- * Action timing semantics + genre profiles for sprite animation.
- *
- * Single source of truth for *how* each animation should be generated and
- * curated: an animation's type drives both its frame budget and which frames
- * carry the meaningful action.
- *
- * Usage:
- *   node sprite-presets.mjs --action walk [--profile platformer] [--json]
- *   node sprite-presets.mjs --profile fighting-game --list [--json]
- *   node sprite-presets.mjs --list-profiles [--json]
- */
 import {
   ACTIONS,
   actionFacts,
@@ -26,29 +14,32 @@ import {
   resolveProfile,
 } from "./_lib/asset-tools.mjs";
 
-// The lint bans runtime `typeof`; these checks are typeof-free equivalents for
-// values decoded from JSON (plain objects and primitive strings only).
 const isPlainObject = (v) => Object.prototype.toString.call(v) === "[object Object]";
 const isString = (v) => String(v) === v;
 
-/** `--json` prints structured output; otherwise dicts print as `key: value`. */
 const emit = (value, asJson) => {
   if (asJson) {
     console.log(JSON.stringify(value, null, 2));
+
     return;
   }
+
   if (Array.isArray(value)) {
     for (const row of value) {
       console.log(isString(row) ? row : JSON.stringify(row));
     }
+
     return;
   }
+
   if (isPlainObject(value)) {
     for (const [key, nested] of Object.entries(value)) {
       console.log(`${key}: ${formatPythonValue(nested)}`);
     }
+
     return;
   }
+
   console.log(String(value));
 };
 
@@ -57,6 +48,7 @@ main(() => {
     booleans: ["json", "list", "list-profiles"],
     values: ["action", "coerce-frames", "profile"],
   });
+
   const asJson = getFlag(args, "json");
 
   if (getFlag(args, "list-profiles")) {
@@ -69,6 +61,7 @@ main(() => {
       })),
       asJson,
     );
+
     return;
   }
 
@@ -76,18 +69,23 @@ main(() => {
   const profile = profileId ? resolveProfile(profileId) : null;
 
   const actionId = getString(args, "action");
+
   if (actionId) {
     const facts = actionFacts(actionId, profile);
+
     if (getString(args, "coerce-frames") !== undefined) {
       const requested = getInt(args, "coerce-frames", 0);
       const { frames, warning } = coerceFrameCount(actionId, requested);
       facts.requestedFrames = requested;
       facts.coercedFrames = frames;
+
       if (warning) {
         facts.frameWarning = warning;
       }
     }
+
     emit(facts, asJson);
+
     return;
   }
 
@@ -97,6 +95,7 @@ main(() => {
       ids.map((id) => actionFacts(id, profile)),
       asJson,
     );
+
     return;
   }
 

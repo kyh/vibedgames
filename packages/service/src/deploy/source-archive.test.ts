@@ -14,12 +14,11 @@ const file = (name: string, content: Uint8Array<ArrayBuffer>) => ({
   read: () => Promise.resolve(content),
 });
 
-// Extracted by the system tar, as `vg fork`'s tar would: the archive must be
-// one a real reader accepts, not one only this module can read back.
-const extract = (archive: Uint8Array): string => {
+const extract = (archive: Uint8Array) => {
   const dir = mkdtempSync(path.join(tmpdir(), "vg-source-"));
   writeFileSync(path.join(dir, "source.tgz"), archive);
   execFileSync("tar", ["-xzf", "source.tgz"], { cwd: dir });
+
   return dir;
 };
 
@@ -27,13 +26,16 @@ describe("sourceArchive", () => {
   test("extracts to the same files at the same paths", async () => {
     const long = `${"assets/".repeat(15)}sprite-sheet.png`;
     const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0, 255]);
+
     const archive = await sourceArchive([
       file("index.html", bytes("<p>hi</p>")),
       file("empty.txt", bytes("")),
       file(long, png),
       file("js/main.js", bytes("x".repeat(1000))),
     ]);
+
     const dir = extract(archive);
+
     try {
       assert.equal(readFileSync(path.join(dir, "index.html"), "utf-8"), "<p>hi</p>");
       assert.equal(readFileSync(path.join(dir, "empty.txt"), "utf-8"), "");
@@ -47,6 +49,7 @@ describe("sourceArchive", () => {
   test("reads files one at a time, in order", async () => {
     const order: string[] = [];
     let reading = 0;
+
     const tracked = (name: string) => ({
       path: name,
       read: async () => {
@@ -55,12 +58,15 @@ describe("sourceArchive", () => {
         order.push(name);
         await Promise.resolve();
         reading -= 1;
+
         return bytes(name);
       },
     });
+
     const archive = await sourceArchive([tracked("a.txt"), tracked("b.txt"), tracked("c.txt")]);
     assert.deepEqual(order, ["a.txt", "b.txt", "c.txt"]);
     const dir = extract(archive);
+
     try {
       assert.equal(readFileSync(path.join(dir, "c.txt"), "utf-8"), "c.txt");
     } finally {

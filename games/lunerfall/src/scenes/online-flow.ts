@@ -44,13 +44,9 @@ export interface OnlineFlowDeps {
   chrome: SceneChrome;
   controls: Input;
   hooks: SceneHooks;
-  // the hub asked to restart the terminal expedition it showed
   restartRequested: boolean;
 }
 
-// Connection lifecycle and authority: joins the party room, drains the frame's
-// input up the wire, resolves who is host or guest (initial election, takeover,
-// (re)admission), and begins or restarts the shared expedition.
 export class OnlineFlow {
   private readonly scene: Scene;
   private readonly run: RunState;
@@ -66,7 +62,6 @@ export class OnlineFlow {
   private readonly chrome: SceneChrome;
   private readonly controls: Input;
   private readonly hooks: SceneHooks;
-  // the hero last published in my player state
   private publishedHero: string | null = null;
   private wasConnected = false;
   private seenDisconnect = 0;
@@ -91,11 +86,7 @@ export class OnlineFlow {
     this.restartRequested = deps.restartRequested;
   }
 
-  // Co-op: connect, then let update() resolve host vs guest. The placeholder
-  // body stays hidden until the real room arrives — once the host begins the
-  // run (host) or the first room snapshot lands (guest).
   beginConnecting(party: string) {
-    // provisional until the connection reports host
     this.seat.role = "guest";
     this.run.state = "connecting";
     this.seat.player.sprite.setVisible(false);
@@ -106,50 +97,52 @@ export class OnlineFlow {
       maxPlayers: 2,
       onEvent: (event, payload, from) => this.hostNet.receive(event, payload, from),
       onShared: (state) => this.guest.receive(state),
-      // The wire version keeps tabs on an older build out of a newer one's run.
       room: `lunerfall-v${WIRE_VERSION}-${this.seat.mode === "versus" ? "vs" : "coop"}-${party}`,
     });
   }
 
-  // Online: drain this frame's input and resolve authority. Returns false
-  // when the frame must stop here (room full, session not ready).
-  updateSession(): boolean {
+  updateSession() {
     if (!this.seat.session) {
       return true;
     }
+
     if (this.seat.session.roomFull) {
       this.scene.scene.start("select", { roomFull: true });
+
       return false;
     }
-    // Drain input even while disconnected. A single sample serves authority
-    // and prediction (a guest's prediction ships it to the host per sim tick);
-    // old presses never queue behind reconnection.
+
     const sample = this.hooks.sampleInput();
     const priorRun = this.seat.authority.kind === "ready" ? this.seat.authority.runId : null;
     const ready = this.prepareSession();
     const sameRun = this.seat.authority.kind === "ready" && this.seat.authority.runId === priorRun;
     this.seat.guestIn = ready && sameRun && !this.seat.controlsPaused ? sample : NEUTRAL_INPUT;
+
     if (!ready) {
       return false;
     }
+
     this.publishHero(this.seat.session);
     this.handleRestart();
     this.publishProbe(this.seat.session);
+
     return true;
   }
 
-  // Headless co-op probe (no casts): read via globalThis.__lf in tests.
   private publishProbe(session: NetSession) {
     const guest = this.seat.role === "guest";
     const myId = session.playerId;
     const vsProbe = guest ? this.run.matchNet : (this.run.match?.encode() ?? null);
     let ax: number | null = null;
+
     if (guest) {
       ax = Math.round(this.room.guest.players.find((p) => p.id === myId)?.x ?? -1);
     }
+
     const rSwing = guest
       ? (this.room.guest.players.find((p) => p.id !== myId)?.swingId ?? null)
       : (this.seat.remote?.body.swingId ?? null);
+
     Reflect.set(globalThis, "__lf", {
       ax,
       conn: session.connectionStatus,
@@ -171,12 +164,11 @@ export class OnlineFlow {
     });
   }
 
-  // My hub pick, for the host to spawn my body with. Player state is kept and
-  // re-announced on reconnect by the client, so it goes up only on a change.
   private publishHero(session: NetSession) {
     if (this.publishedHero === this.seat.requestedHero) {
       return;
     }
+
     this.publishedHero = this.seat.requestedHero;
     session.updateMyState({ hero: this.seat.requestedHero });
   }
@@ -187,87 +179,101 @@ export class OnlineFlow {
     this.run.state = "active";
   }
 
-  prepareSession(): boolean {
+  prepareSession() {
     const sess = this.seat.session;
+
     if (!sess) {
       return true;
     }
+
     if (this.seenDisconnect !== sess.disconnectRevision) {
       this.seenDisconnect = sess.disconnectRevision;
       this.seat.neutralOnAdmission = true;
     }
+
     if (!sess.live) {
       if (this.wasConnected) {
         this.controls.reset();
+
         if (this.seat.role === "guest") {
           this.guest.dropQueued();
         } else {
           this.seat.player.body.clearInput();
         }
+
         this.seat.neutralOnAdmission = true;
       }
+
       this.wasConnected = false;
-      // The room holds the seat while the socket redials; the frame freezes
-      // until it is back, so say why.
+
       if (sess.connectionStatus === "reconnecting") {
         this.banners.show(RECONNECTING, 100_000, "connecting");
       }
+
       return false;
     }
+
     this.wasConnected = true;
     this.banners.dismiss(RECONNECTING);
+
     if (sess.offline) {
       if (this.run.state === "connecting") {
         this.beginExpedition();
       }
+
       return true;
     }
+
     if (this.authorityCurrent(sess)) {
       return true;
     }
+
     const read = this.checkpoint.accepted();
+
     if (read.kind === "absent" && sess.isHost) {
       this.beginExpedition();
+
       return true;
     }
+
     if (read.kind !== "ready") {
       return false;
     }
+
     if (sess.isHost) {
       this.takeOverAsHost(sess, read.value, read.room);
     } else {
       this.adoptAsGuest(sess, read.value, read.room);
     }
+
     return true;
   }
 
-  // Already following the current authority revision in the role it implies.
-  // A guest keeps following the run it adopted until a valid checkpoint names
-  // another: one the validator rejects must not stall a guest mid-run.
-  private authorityCurrent(sess: NetSession): boolean {
+  private authorityCurrent(sess: NetSession) {
     const a = this.seat.authority;
+
     if (a.kind !== "ready" || a.revision !== sess.authorityRevision) {
       return false;
     }
+
     if (sess.isHost) {
       return this.seat.role === "host";
     }
+
     const read = this.checkpoint.accepted();
+
     return (
       this.seat.role === "guest" &&
       (read.kind !== "ready" || (a.runId === read.value.runId && a.term === read.value.term))
     );
   }
 
-  // Newly elected host, or the host back from its own drop: adopt the
-  // checkpoint under a fresh term and broadcast.
   private takeOverAsHost(sess: NetSession, c: ExpeditionCheckpoint, room: NetRoom) {
-    // A promoted guest's own body was predicted exactly and is newer than any
-    // checkpoint (they go up once a second): keep it, rewind only the world.
     const own =
       this.seat.role === "guest" && this.room.seq === c.room
         ? this.seat.player.body.checkpoint()
         : null;
+
     this.seat.role = "host";
     this.seat.authority = {
       kind: "ready",
@@ -282,7 +288,6 @@ export class OnlineFlow {
     this.hostNet.broadcast(0, true);
   }
 
-  // Guest (re)admission: rebuild the room and both bodies from the checkpoint.
   private adoptAsGuest(sess: NetSession, c: ExpeditionCheckpoint, room: NetRoom) {
     this.seat.role = "guest";
     this.seat.authority = {
@@ -298,6 +303,7 @@ export class OnlineFlow {
     this.expedition.type = c.run.type;
     this.rooms.buildFromNet(room, c.run.biome);
     const me = c.players.find((p) => p.id === sess.playerId);
+
     if (me && me.hero !== this.seat.heroName) {
       this.seat.player.destroy();
       this.seat.heroName = me.hero;
@@ -309,55 +315,64 @@ export class OnlineFlow {
       );
       this.rooms.setupCamera();
     }
+
     if (me) {
       this.seat.player.body.restore(me.body);
     }
+
     if (this.seat.controlsPaused || this.seat.neutralOnAdmission) {
       this.seat.player.body.clearInput();
     }
+
     this.seat.neutralOnAdmission = false;
     this.guest.admit();
     const other = c.players.find((p) => p.id !== sess.playerId);
+
     if (other) {
       this.guest.ensureRemote(other.hero);
       this.seat.remoteId = other.id;
       this.seat.remote?.body.restore(other.body);
     }
+
     this.banners.clear();
     this.room.bossAnnounced = true;
-    // Snapshots older than the adopted checkpoint describe a world it replaced;
-    // the one it rode with is the first to apply.
     this.room.guest.snapT = c.t - 1;
     this.room.guest.payoff = { clearAt: null, cleared: c.cleared, room: c.room };
     this.run.downedNet = c.lastStand
       ? { bleed: c.lastStand.bleed, rev: c.lastStand.revive / REVIVE_HOLD }
       : null;
+
     if (c.mode === "versus") {
       const match = new VersusMatch();
       match.restore(c.versus);
       this.run.matchNet = match.encode();
     }
+
     this.run.score = c.score;
     this.guest.syncProgress(c);
     this.checkpoint.syncRoomFeatures(c, true);
     this.finishConnecting();
     this.hooks.updateHud();
+
     if (c.phase.kind === "dead") {
       this.checkpoint.observeTerminal(c);
     }
+
     this.versus.showAdoptedResult();
   }
 
-  /** Empty room or an explicit request for the exact terminal expedition. */
-  private beginExpedition(): void {
+  private beginExpedition() {
     const sess = this.seat.session;
     const myId = sess?.playerId;
+
     if (!sess?.isHost || !myId) {
       return;
     }
+
     if (!sess.offline) {
       checkpointRng();
     }
+
     this.seat.role = "host";
     this.seat.authority = {
       kind: "ready",
@@ -371,12 +386,15 @@ export class OnlineFlow {
     this.resetExpedition();
     const selfHero = parseHero(sess.players[myId]?.state?.hero) ?? this.seat.heroName;
     this.respawnBodies(selfHero, other && otherHero ? { hero: otherHero, id: other.id } : null);
+
     if (this.seat.mode === "versus") {
       this.run.match = new VersusMatch();
       this.rooms.buildVersus();
+
       if (this.seat.remote) {
         this.run.match.beginMatch();
       }
+
       this.versus.respawn();
     } else {
       this.run.match = null;
@@ -384,6 +402,7 @@ export class OnlineFlow {
       const rt = param ? parseRoomType(param) : null;
       this.rooms.build(rt ? this.expedition.debugEnter(rt) : this.expedition.begin());
     }
+
     this.finishConnecting();
     this.controls.reset();
     this.seat.guestIn = NEUTRAL_INPUT;
@@ -393,7 +412,6 @@ export class OnlineFlow {
     this.hooks.updateHud();
   }
 
-  // Both bodies are rebuilt from the hub picks at the run's spawn.
   private respawnBodies(selfHero: HeroName, other: { hero: HeroName; id: string } | null) {
     this.seat.player.destroy();
     this.seat.heroName = selfHero;
@@ -406,6 +424,7 @@ export class OnlineFlow {
     this.seat.remote?.destroy();
     this.seat.remote = undefined;
     this.seat.remoteId = null;
+
     if (other) {
       this.seat.remote = this.hooks.spawnPlayer(
         HEROES[other.hero],
@@ -417,12 +436,11 @@ export class OnlineFlow {
     }
   }
 
-  // Reuse existing side identities when their seats are still held; the other
-  // seat goes to the peer (if it has picked a hero) or is vacated.
   private assignSeats(myId: string, otherId: string | null) {
     if (this.seat.seats.host !== myId && this.seat.seats.guest !== myId) {
       this.seat.seats.host = myId;
     }
+
     if (this.seat.seats.host === myId) {
       this.seat.seats.guest = otherId;
     } else {
@@ -430,8 +448,6 @@ export class OnlineFlow {
     }
   }
 
-  // Fresh expedition state for a new online run (the scene itself persists).
-  // The phase is kept: it flips to active once the first room is built.
   private resetExpedition() {
     this.checkpoint.adoptedTerminal = null;
     Object.assign(this.run, newRunState(), { state: this.run.state });
@@ -442,26 +458,28 @@ export class OnlineFlow {
     this.banners.clear();
   }
 
-  private handleRestart(): void {
+  private handleRestart() {
     const sess = this.seat.session;
     const auth = this.seat.authority;
+
     if (!sess?.live || auth.kind !== "ready" || this.seat.mode !== "coop") {
       return;
     }
-    // The hub's restart targets the terminal run it showed; adopting a live
-    // run makes it moot, and a stale request would silently skip the next
-    // death's recap and restart the expedition under both players.
+
     if (this.restartRequested && this.run.state !== "dead") {
       this.restartRequested = false;
     }
+
     if (this.restartRequested && this.run.state === "dead" && this.restartSentFor !== auth.runId) {
       this.restartSentFor = auth.runId;
       this.restartRequested = false;
       sess.updateMyState({ restartFor: auth.runId });
     }
+
     if (!sess.isHost || this.run.state !== "dead") {
       return;
     }
+
     if (
       Object.values(sess.players).some(
         (p) => p.connected !== false && p.state?.restartFor === auth.runId,

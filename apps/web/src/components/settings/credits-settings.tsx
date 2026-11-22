@@ -19,30 +19,19 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { SkeletonReveal } from "@/components/ui/skeleton-reveal";
 import { formatUsd, kindLabel } from "@/lib/credits-format";
 import { formatDate } from "@/lib/format";
+import { authClient } from "@/auth/client";
 import { useORPC } from "@/lib/orpc";
 
-/** The success cascade's length, so the dialog closes only once it has played. */
 const REDEEMED_CLOSE_MS = 1200;
 
-/** How long to watch for a paid checkout's credit after Stripe sends the person back. */
 const PURCHASE_WATCH_MS = 60_000;
 const PURCHASE_POLL_MS = 2000;
 
-/** Whether a purchase entry from around or after the checkout has landed. */
 const landedSince = (entries: { kind: string; createdAt: Date }[] | undefined, since: number) =>
   entries?.some(
     (e) => e.kind === "purchase" && e.createdAt.getTime() > since - PURCHASE_WATCH_MS,
   ) ?? false;
 
-/**
- * A small link under the buy presets (a full button while codes are the only
- * way to add credit) that opens the code field in a dialog.
- * A `?code=` link opens it straight away with the code filled in. A full code
- * redeems itself; a refused one shakes and clears inside `OTPInput`, and its
- * message comes from the query client's default mutation `onError`
- * (lib/query-client.ts). After a success the dialog closes once the cells'
- * confirm cascade has played.
- */
 const RedeemCode = ({
   defaultValue,
   onRedeemed,
@@ -50,12 +39,12 @@ const RedeemCode = ({
 }: {
   defaultValue: string;
   onRedeemed: () => void;
-  /** A full button rather than a link under the presets: codes are the only way in. */
   primary?: boolean;
 }) => {
   const orpc = useORPC();
   const qc = useQueryClient();
   const [open, setOpen] = useState(defaultValue !== "");
+
   const redeem = useMutation(
     orpc.credits.redeem.mutationOptions({
       onSuccess: (data) => {
@@ -105,6 +94,7 @@ const RedeemCode = ({
             verify={async (code) => {
               try {
                 await redeem.mutateAsync({ code });
+
                 return true;
               } catch {
                 return false;
@@ -117,9 +107,53 @@ const RedeemCode = ({
   );
 };
 
-/** One click per preset: the server makes a Stripe Checkout and the page goes there. */
+const VerifyEmailToRedeem = ({ email }: { email: string }) => {
+  const [state, setState] = useState<"idle" | "sending" | "sent">("idle");
+
+  const send = async () => {
+    setState("sending");
+
+    const { error } = await authClient.sendVerificationEmail({
+      callbackURL: "/settings#credits",
+      email,
+    });
+
+    if (error) {
+      toast.error(error.message ?? "Couldn't send the link. Try again.");
+      setState("idle");
+
+      return;
+    }
+
+    setState("sent");
+  };
+
+  return (
+    <div className="space-y-1">
+      <p className="text-muted-foreground text-xs">
+        {state === "sent"
+          ? `Link sent to ${email}. Open it, then redeem your code here.`
+          : `Confirm ${email} to redeem a code.`}
+      </p>
+      {state !== "sent" && (
+        <Button
+          type="button"
+          variant="link"
+          size="sm"
+          className="h-auto px-0 text-xs"
+          loading={state === "sending"}
+          onClick={send}
+        >
+          Send confirmation link
+        </Button>
+      )}
+    </div>
+  );
+};
+
 const BuyCredits = ({ children }: { children: React.ReactNode }) => {
   const orpc = useORPC();
+
   const checkout = useMutation(
     orpc.credits.checkout.mutationOptions({
       onSuccess: ({ url }) => {
@@ -154,7 +188,6 @@ const BuyCredits = ({ children }: { children: React.ReactNode }) => {
   );
 };
 
-/** Card purchases stay off until the server holds both Stripe keys; codes still add credit. */
 const AddCredit = ({ children }: { children: React.ReactNode }) => (
   <div className="space-y-2">
     <div className="text-sm font-medium">Add credit</div>
@@ -189,11 +222,13 @@ const CreditsSkeleton = () => (
 
 export const CreditsSettings = ({
   code,
+  email,
   purchase,
   onCodeRedeemed,
 }: {
   /** A credit code from the link (`?code=`), prefilled into the redeem field. */
   code?: string;
+  email: string;
   /** True when Stripe has just sent the person back from a paid checkout. */
   purchase: boolean;
   /** Drops `?code=` once used, so a reload doesn't redeem it again. */
@@ -201,10 +236,8 @@ export const CreditsSettings = ({
 }) => {
   const orpc = useORPC();
   const sectionRef = useRef<HTMLElement>(null);
-  // The webhook usually lands before the redirect does, but not always: poll
-  // briefly until a purchase newer than the checkout shows up. `null` once
-  // the watch is over, or when there was no checkout to watch.
   const [watchingSince, setWatchingSince] = useState(() => (purchase ? Date.now() : null));
+
   const credits = useQuery({
     ...orpc.credits.me.queryOptions(),
     refetchInterval: (query) =>
@@ -212,8 +245,10 @@ export const CreditsSettings = ({
         ? PURCHASE_POLL_MS
         : false,
   });
+
   const purchaseLanded =
     watchingSince !== null && landedSince(credits.data?.entries, watchingSince);
+
   const watching = watchingSince !== null && !purchaseLanded;
 
   useEffect(() => {
@@ -226,11 +261,12 @@ export const CreditsSettings = ({
     if (watchingSince === null) {
       return;
     }
+
     const timer = setTimeout(() => setWatchingSince(null), PURCHASE_WATCH_MS);
+
     return () => clearTimeout(timer);
   }, [watchingSince]);
 
-  // A code link or a checkout return lands here with the section in view.
   useEffect(() => {
     if (code || purchase) {
       sectionRef.current?.scrollIntoView({ block: "start" });
@@ -280,11 +316,19 @@ export const CreditsSettings = ({
 
                 {credits.data.purchasesEnabled ? (
                   <BuyCredits>
-                    <RedeemCode defaultValue={code ?? ""} onRedeemed={onCodeRedeemed} />
+                    {credits.data.mustVerifyEmail ? (
+                      <VerifyEmailToRedeem email={email} />
+                    ) : (
+                      <RedeemCode defaultValue={code ?? ""} onRedeemed={onCodeRedeemed} />
+                    )}
                   </BuyCredits>
                 ) : (
                   <AddCredit>
-                    <RedeemCode defaultValue={code ?? ""} onRedeemed={onCodeRedeemed} primary />
+                    {credits.data.mustVerifyEmail ? (
+                      <VerifyEmailToRedeem email={email} />
+                    ) : (
+                      <RedeemCode defaultValue={code ?? ""} onRedeemed={onCodeRedeemed} primary />
+                    )}
                   </AddCredit>
                 )}
 

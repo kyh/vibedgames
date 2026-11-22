@@ -12,8 +12,6 @@ const ScrollBar = ({
   <ScrollAreaPrimitive.Scrollbar
     data-slot="scroll-area-scrollbar"
     orientation={orientation}
-    // Idle-hidden; fades in while hovering or scrolling. Base UI omits the
-    // scrollbar entirely for a non-overflowing axis, so both can be rendered.
     className={cn(
       "flex touch-none select-none opacity-0 transition-opacity delay-150 duration-300 data-hovering:opacity-100 data-hovering:delay-0 data-scrolling:opacity-100 data-scrolling:delay-0",
       orientation === "vertical" && "h-full w-1.5 p-px",
@@ -42,9 +40,6 @@ const ScrollArea = ({
   >
     <ScrollAreaPrimitive.Viewport
       data-slot="scroll-area-viewport"
-      // The viewport is the scroll container and the element Base UI writes
-      // its `--scroll-area-overflow-*` values to, so a `scroll-area-fade`
-      // mask must live here — those variables don't inherit.
       className={cn("size-full", viewportClassName)}
     >
       {children}

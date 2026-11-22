@@ -20,10 +20,8 @@ import { installResponse } from "@/lib/install-response";
 
 const AI_BOT_UA = /(?:ClaudeBot|Claude-User|Claude-SearchBot|GPTBot|ChatGPT-User|OAI-SearchBot)/iu;
 
-/** `/` also branches on User-Agent, so its cache key has to include it. */
 const HOME_VARY = `${VARY}, User-Agent`;
 
-/** RFC 8631 discovery links, on every representation of `/`. */
 const HOME_HEADERS = {
   Link: [
     '</openapi.json>; rel="service-desc"; type="application/openapi+json"',
@@ -60,14 +58,13 @@ export const Route = createFileRoute("/_site/")({
     handlers: {
       GET: ({ request, next }) => {
         const negotiation = negotiate(request.headers.get("accept"));
+
         if (negotiation.kind === "not-acceptable") {
           return notAcceptableResponse(request);
         }
 
-        // Named AI crawlers get the install instructions rather than the page
-        // text: for them the useful answer to "what is this site" is the
-        // command that installs it.
         const ua = request.headers.get("user-agent") ?? "";
+
         if (AI_BOT_UA.test(ua)) {
           return installResponse({ headers: HOME_HEADERS });
         }

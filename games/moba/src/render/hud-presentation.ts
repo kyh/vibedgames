@@ -18,6 +18,7 @@ export const heroPortrait = (defId: string, team: Team) => {
   const sheet = HERO_BY_ID[defId]?.sheet ?? "warrior";
   const color = team === "radiant" ? "blue" : "red";
   let texture = `portrait-${sheet}-${color}`;
+
   if (sheet === "tnt" || sheet === "barrel") {
     texture = `u-${sheet}-${color}`;
   } else if (sheet === "torch") {
@@ -35,23 +36,29 @@ type Upgrade =
   | { kind: "unavailable" };
 
 /** Reads the same cap as levelAbility; never spends an ability point. */
-export const abilityUpgrade = (hero: HeroState, key: AbilityKey): Upgrade => {
+export const abilityUpgrade: (hero: HeroState, key: AbilityKey) => Upgrade = (hero, key) => {
   const def = HERO_BY_ID[hero.defId]?.abilities[key];
+
   if (!def) {
     return { kind: "unavailable" };
   }
+
   const { rank } = hero.abilities[key];
+
   if (rank >= def.maxRank) {
     return { kind: "max" };
   }
+
   if (rank >= abilityRankCap(key, hero.level)) {
     for (let level = hero.level + 1; level <= MAX_LEVEL; level += 1) {
       if (abilityRankCap(key, level) > rank) {
         return { kind: "level", level };
       }
     }
+
     return { kind: "max" };
   }
+
   return hero.abilityPoints > 0 ? { kind: "available" } : { kind: "points" };
 };
 
@@ -62,17 +69,20 @@ const TARGET_COPY = {
   unit: "Target a unit",
 } satisfies Record<Targeting, string>;
 
-const unlockText = (rank: number, upgrade: Upgrade): string => {
+const unlockText = (rank: number, upgrade: Upgrade) => {
   switch (upgrade.kind) {
     case "level": {
       return `${rank ? "Next rank" : "Unlocks"} at level ${upgrade.level}`;
     }
+
     case "available": {
       return "Upgrade available · use + on the ability";
     }
+
     case "max": {
       return "Maximum rank";
     }
+
     default: {
       return "Earn an ability point to upgrade";
     }
@@ -81,19 +91,23 @@ const unlockText = (rank: number, upgrade: Upgrade): string => {
 
 export const abilityExplanation = (hero: HeroState, key: AbilityKey) => {
   const def = HERO_BY_ID[hero.defId]?.abilities[key];
+
   if (!def) {
     return null;
   }
+
   const { rank } = hero.abilities[key];
   const previewRank = Math.max(1, rank);
   const upgrade = abilityUpgrade(hero, key);
   const unlock = unlockText(rank, upgrade);
+
   const costs =
     def.targeting === "passive"
       ? "No cast or mana cost"
       : `${valAt(def.manaCost, previewRank)} mana · ${valAt(def.cooldown, previewRank)}s cooldown${
           def.castRange > 0 ? ` · ${def.castRange} range` : ""
         }`;
+
   return {
     costs,
     description: def.desc,
@@ -108,10 +122,12 @@ export const experienceProgress = (hero: HeroState) => {
   if (hero.level >= MAX_LEVEL) {
     return { fraction: 1, text: "MAX LEVEL" };
   }
+
   const start = XP_CURVE[Math.max(0, hero.level - 1)] ?? 0;
   const end = XP_CURVE[hero.level] ?? start;
   const total = Math.max(1, end - start);
   const earned = Math.max(0, Math.min(total, hero.xp - start));
+
   return { fraction: earned / total, text: `${Math.floor(earned)} / ${total} XP` };
 };
 
@@ -119,13 +135,16 @@ export const experienceProgress = (hero: HeroState) => {
 export const killFeedText = (
   event: { killer: string; victim: string; team: Team },
   localTeam: Team | null,
-): string => {
-  const side = (team: Team): string => {
+) => {
+  const side = (team: Team) => {
     if (localTeam) {
       return team === localTeam ? "Ally" : "Enemy";
     }
+
     return team === "radiant" ? "Radiant" : "Dire";
   };
+
   const victim = `${side(enemyOf(event.team))} ${event.victim}`;
+
   return event.killer ? `${side(event.team)} ${event.killer} → ${victim}` : `${victim} has fallen`;
 };

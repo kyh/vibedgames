@@ -4,24 +4,6 @@ import { createDb } from "@repo/db/drizzle-client";
 
 import { createAuth } from "./auth";
 
-/**
- * Two cookie attributes carry load no other gate can see, because typecheck,
- * lint and build accept any valid value for either:
- *
- *   sameSite — the cross-SITE half of the defense for `/api/orpc`. No CSRF
- *     token is issued and the route serves no CORS headers, so a forged
- *     cross-site POST is harmless only while the browser refuses to attach
- *     this cookie to it. The same-site cross-origin POST that `SameSite` does
- *     let through is the origin check's job (apps/web/src/lib/orpc-handler.ts).
- *   domain — unset keeps the cookie host-only. User games run untrusted code on
- *     `{slug}.vibedgames.com`; a cookie scoped to the parent domain would be
- *     handed to every one of them.
- *
- * Read the *resolved* attributes rather than the config literal: a plugin,
- * `crossSubDomainCookies`, or a better-auth default decides these too, and
- * asserting the literal against itself would prove nothing.
- */
-
 const unavailable = (): never => {
   throw new Error("the database is not reachable in this test");
 };

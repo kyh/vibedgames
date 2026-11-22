@@ -1,9 +1,5 @@
 import type { ControlsManifest } from "@repo/embed";
 
-// Every way to fight, one list — the lobby help line and the pause overlay
-// both render from this (filtered per device / connected pad by @repo/embed).
-// Item keys 5-0 and Tab-scoreboard on keyboard are deliberately absent from
-// the keys rows (today's copy leaves them to be discovered in-game).
 export const CONTROLS: ControlsManifest = [
   { action: "move", input: "WASD", method: "keys" },
   { action: "look", input: "MOUSE", method: "mouse" },

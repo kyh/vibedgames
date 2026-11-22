@@ -1,7 +1,7 @@
 import * as THREE from "three";
 
 /** Fade the existing open beam meshes at their silhouettes and height ends. */
-export const softLightMaterial = (color: number, opacity: number): THREE.MeshBasicMaterial => {
+export const softLightMaterial = (color: number, opacity: number) => {
   const material = new THREE.MeshBasicMaterial({
     blending: THREE.AdditiveBlending,
     color,
@@ -10,6 +10,7 @@ export const softLightMaterial = (color: number, opacity: number): THREE.MeshBas
     side: THREE.DoubleSide,
     transparent: true,
   });
+
   material.onBeforeCompile = (shader) => {
     const varyings = "varying vec3 beamNormal; varying vec3 beamView; varying float beamHeight;\n";
     shader.vertexShader =
@@ -28,6 +29,8 @@ export const softLightMaterial = (color: number, opacity: number): THREE.MeshBas
        #include <opaque_fragment>`,
       );
   };
+
   material.customProgramCacheKey = () => "arena-soft-light-v1";
+
   return material;
 };

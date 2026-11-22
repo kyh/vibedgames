@@ -22,5 +22,4 @@ export const appRouter = os.router({
   waitlist: waitlistRouter,
 });
 
-// export type definition of API
 export type AppRouter = typeof appRouter;

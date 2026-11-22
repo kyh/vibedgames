@@ -1,10 +1,3 @@
-// Two-client online smoke: host + guest through join, wire traffic, pause,
-// transport blips, host drop/reconnect, host stall, match end + rematch, late
-// join, host leave, and a server that never admits anyone. Needs the party
-// server on :8787 and Chrome (playwright-core, channel "chrome"), so it is
-// `pnpm test:online`, not part of `pnpm test`.
-// `node tools/two-client.mjs [--url http://localhost:PORT]` — without --url it
-// launches its own vite on :5302.
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
@@ -13,9 +6,11 @@ import path from "node:path";
 const gameDir = path.resolve(import.meta.dirname, "..");
 const { chromium } = createRequire(import.meta.url)("playwright-core");
 const { EVICTION_TIMEOUT_MS, RECONNECT_GRACE_MS } = await import("@vibedgames/multiplayer");
+
 const wait = (ms) =>
   // oxlint-disable-next-line no-promise-executor-return, promise/avoid-new -- setTimeout sleep has no promise form in the browser
   new Promise((resolve) => setTimeout(resolve, ms));
+
 const urlArg = process.argv.indexOf("--url");
 const PORT = 5302;
 const room = `tc${process.pid.toString(36)}${Date.now().toString(36).slice(-4)}`;
@@ -30,6 +25,7 @@ const startVite = async () => {
       stdio: ["ignore", "pipe", "inherit"],
     },
   );
+
   // oxlint-disable-next-line promise/avoid-new -- wraps an event callback
   await new Promise((resolve, reject) => {
     child.stdout.on("data", (chunk) => {
@@ -39,6 +35,7 @@ const startVite = async () => {
     });
     child.on("exit", (code) => reject(new Error(`vite exited ${code}`)));
   });
+
   return child;
 };
 
@@ -47,47 +44,57 @@ const openClient = async (browser, base, name, hero, prepare) => {
   const page = await context.newPage();
   page.on("pageerror", (e) => errors.push(`${name}: ${e.message}`));
   page.on("console", (m) => {
-    // The dev server has no favicon; the browser asks for one anyway.
     if (m.type() === "error" && !m.location().url.endsWith("/favicon.ico")) {
       errors.push(`${name}: ${m.text()}`);
     }
   });
   await prepare?.(page);
   await page.goto(`${base}/?auto=1&online=1&room=${room}&hero=${hero}`);
+
   return { context, name, page };
 };
 
 const until = async (page, predicate, label, { arg, timeout = 20_000 } = {}) => {
   const started = Date.now();
   let last;
+
   while (Date.now() - started < timeout) {
     last = await page.evaluate(predicate, arg);
+
     if (last) {
       return last;
     }
+
     await wait(100);
   }
+
   throw new Error(`timeout: ${label} (last=${JSON.stringify(last)})`);
 };
 
 const online = (page) => page.evaluate(() => window.__moba.online());
+
 const joined = (client) =>
   until(
     client.page,
     () => {
       const o = window.__moba?.online();
+
       return o?.status === "connected" && window.__moba.player() ? o.id : null;
     },
     `${client.name} joined`,
     { timeout: 45_000 },
   );
+
 const unitOf = (page, id) =>
   page.evaluate((heroId) => {
     const u = window.__moba.world.units.get(`h-${heroId}`);
+
     return u ? { alive: u.alive, hp: u.hp, q: u.hero.abilities.Q, x: u.x, y: u.y } : null;
   }, id);
+
 const seesUnit = (page, id, label) =>
   until(page, (heroId) => !!window.__moba.world.units.get(`h-${heroId}`), label, { arg: id });
+
 const key = (page, type, name, keyCode, extra = {}) =>
   page.evaluate(
     (ev) =>
@@ -102,9 +109,7 @@ const key = (page, type, name, keyCode, extra = {}) =>
       ),
     { extra, key: name, keyCode, type },
   );
-/** Drop a client's transport as a network blip does: the room holds its seat
- *  (a 1000 close would be a deliberate leave). It shows RECONNECTING… until
- *  `reconnect()`. */
+
 const blip = async (client) => {
   await client.page.evaluate(() => window.__moba.scene.net.socket.close(4000));
   await until(
@@ -113,6 +118,7 @@ const blip = async (client) => {
     `${client.name} shows reconnecting`,
   );
 };
+
 const reconnect = async (client) => {
   await client.page.evaluate(() => window.__moba.scene.net.socket.reconnect());
   await until(
@@ -121,14 +127,13 @@ const reconnect = async (client) => {
     `${client.name} back, notice cleared`,
   );
 };
+
 const gameTime = (page) => page.evaluate(() => window.__moba.world.gameTime);
 const phase = (page) => page.evaluate(() => window.__moba.world.phase);
 const isPaused = (page) => page.evaluate(() => window.__moba.scene.controlsPaused);
 const hasResult = (page) => page.evaluate(() => !!window.__moba.scene.matchResult);
 
 const clockAdvances = async (page, label) => {
-  // Headless frames arrive in bursts; measure long enough that a frozen sim
-  // (0 s) and a throttled one (≥ half speed) cannot be confused.
   const t0 = await gameTime(page);
   await wait(3000);
   const t1 = await gameTime(page);
@@ -155,7 +160,6 @@ const pauseDoesNotFreeze = async (pauser, other) => {
   assert.equal(await isPaused(pauser.page), false);
 };
 
-/** Wait until `client` hosts and simulates, and `follower` renders its clock. */
 const promoted = async (client, follower) => {
   await until(client.page, () => window.__moba.online().isHost, `${client.name} promoted`, {
     timeout: 30_000,
@@ -166,6 +170,7 @@ const promoted = async (client, follower) => {
     follower.page,
     (id) => {
       const o = window.__moba.online();
+
       return o.status === "connected" && o.hostId === id && !o.isHost;
     },
     `${follower.name} follows ${client.name}`,
@@ -178,33 +183,31 @@ const resultButton = (page, action) =>
   page.evaluate((wanted) => {
     const hud = window.__moba.scene.scene.get("Hud");
     const b = hud.result?.buttons.find((button) => button.action === wanted);
+
     if (!b) {
       return null;
     }
+
     const { root } = hud.result;
+
     return { x: root.x + b.bg.x * root.scaleX, y: root.y + b.bg.y * root.scaleY };
   }, action);
 
-/** Click a result-card button as a player would, re-trying while the card is
- * still up: the card lays itself out over a couple of frames after it appears. */
 const pressResult = async (page, action) => {
   for (let attempt = 0; attempt < 5; attempt += 1) {
     const at = await resultButton(page, action);
+
     if (!at) {
       return;
     }
+
     await page.mouse.click(at.x, at.y);
     await wait(400);
   }
 };
 
 const run = async (base) => {
-  // Both clients must keep simulating; Chrome otherwise throttles whichever
-  // window is not focused, which reads as a frozen peer.
   const browser = await chromium.launch({
-    // channel:"chrome" alone lands on ANGLE Metal; the flag is belt-and-braces
-    // against a GPU blocklist. Under SwiftShader two clients starve each other
-    // and the host's frames stop entirely.
     args: [
       "--use-angle=metal",
       "--ignore-gpu-blocklist",
@@ -216,12 +219,15 @@ const run = async (base) => {
     channel: "chrome",
     headless: true,
   });
+
   const results = [];
+
   const step = async (label, body) => {
     const started = Date.now();
     await body();
     results.push(`${label}: pass (${((Date.now() - started) / 1000).toFixed(1)}s)`);
   };
+
   try {
     const a = await openClient(browser, base, "A", "ironvow");
     const b = await openClient(browser, base, "B", "duskblade");
@@ -238,8 +244,6 @@ const run = async (base) => {
       await seesUnit(b.page, aId, "guest sees host");
       await seesUnit(b.page, bId, "guest sees itself");
     });
-    // Before the guest casts Q below: its blink can land the hero inside the
-    // dire ancient's keep (blocked high ground), and no arrow moves it out.
     await step("guest transport blip: input held while away, plays on after", async () => {
       await blip(b);
       const away = await unitOf(a.page, bId);
@@ -250,7 +254,6 @@ const run = async (base) => {
       assert.ok(Math.hypot(held.x - away.x, held.y - away.y) < 0.5, "no input while reconnecting");
       await reconnect(b);
       await clockAdvances(b.page, "guest renders the host's clock again");
-      // Left, toward the middle: the dire spawn sits just west of the keep.
       await movesOnArrow(b.page, bId, a.page, ["ArrowLeft", 37]);
     });
     await step("host transport blip: the host keeps its seat and its match", async () => {
@@ -307,17 +310,21 @@ const run = async (base) => {
     await step("host loop stall: other client takes over, stalled host follows", async () => {
       const hang = b.page.evaluate(() => {
         const end = performance.now() + 9000;
+        let spins = 0;
+
         while (performance.now() < end) {
-          // busy-wait on purpose: the test needs the host's main thread blocked
+          spins += 1;
         }
+
+        return spins;
       });
-      // Settle the hang whichever way promotion goes, or its rejection on
-      // browser close would mask the real failure.
+
       try {
         await promoted(a, b);
       } finally {
         await hang;
       }
+
       const [ta, tb] = await Promise.all([gameTime(a.page), gameTime(b.page)]);
       assert.ok(Math.abs(ta - tb) < 1.5, `stalled host follows the live clock (${ta} vs ${tb})`);
     });
@@ -326,6 +333,7 @@ const run = async (base) => {
       await until(a.page, () => !!window.__moba.scene.matchResult, "host sees the result");
       await until(b.page, () => !!window.__moba.scene.matchResult, "guest sees the result");
       assert.equal(await resultButton(b.page, "again"), null, "guest cannot rematch");
+
       const again = await until(
         a.page,
         () =>
@@ -334,6 +342,7 @@ const run = async (base) => {
             .result?.buttons.some((button) => button.action === "again"),
         "host may rematch",
       );
+
       assert.ok(again);
       await pressResult(a.page, "again");
       await until(
@@ -365,8 +374,6 @@ const run = async (base) => {
       const next = bOnline.id < cId ? b : c;
       const other = next === b ? c : b;
       await promoted(next, other);
-      // A closed tab is a transport drop: the seat is parked for the reconnect
-      // grace window, and one that sent no close frame waits for eviction.
       await until(
         next.page,
         (id) => !window.__moba.world.units.get(`h-${id}`),
@@ -379,17 +386,16 @@ const run = async (base) => {
       assert.equal(await hasResult(other.page), false);
     });
     await step("no room admits: PLAY ONLINE says so, then plays the bots", async () => {
-      // A party server out of reach: every dial is refused.
       const d = await openClient(browser, base, "D", "ironvow", (page) =>
         page.routeWebSocket(/\/parties\//u, (ws) => ws.close({ code: 1011 })),
       );
+
       await until(
         d.page,
         () => window.__moba?.scene.connectionNotice?.text === "CONNECTING…",
         "connecting notice",
         { timeout: 45_000 },
       );
-      // The 8 s fallback counts rendered frames, so a slow page takes longer.
       await until(
         d.page,
         () =>
@@ -407,12 +413,14 @@ const run = async (base) => {
     console.log(results.join("\n"));
     await browser.close();
   }
+
   if (errors.length) {
     throw new Error(`console errors:\n${errors.join("\n")}`);
   }
 };
 
 const vite = urlArg === -1 ? await startVite() : null;
+
 try {
   await run(urlArg === -1 ? `http://localhost:${PORT}` : process.argv[urlArg + 1]);
   console.log("two-client: ok");
@@ -421,6 +429,5 @@ try {
   process.exitCode = 1;
 } finally {
   vite?.kill();
-  // A leaked dev-server handle would otherwise keep node alive past the last check.
   process.exit(process.exitCode ?? 0);
 }

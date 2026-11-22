@@ -3,8 +3,6 @@ import type { Vec, Weapon } from "../shared/constants";
 import type { MasteryShot } from "../shared/weapon-mastery";
 import { dist2, segHitsCircle } from "./geometry";
 
-/** The simulated beam — mine, or a remote player's rebuilt from its fire event — its shape and hit tests. */
-
 /** What a HOMING beam (or ARC hop) is steering toward / hit. */
 export type TargetRef =
   | { kind: "enemy"; id: string }
@@ -57,14 +55,12 @@ export const BEAM_CULL_MARGIN = 200;
 
 /** A fresh beam leaving `origin` along `angle` — the one constructor for mine
  *  and for every remote copy, so both fly the same shot. */
-export const newBeam = (origin: Vec, angle: number, weapon: Weapon, now: number): Beam => {
+export const newBeam = (origin: Vec, angle: number, weapon: Weapon, now: number) => {
   const b: Beam = {
     angle,
     bouncesLeft: weapon.ricochet?.bounces ?? 0,
     chain: null,
     collapseUntil: 0,
-    // Range-limited beams (PLASMA stream, SINGULARITY flight) expire after
-    // range px of travel; everything else rides 0 (callers may override).
     diesAt: weapon.range > 0 && weapon.speed > 0 ? now + (weapon.range / weapon.speed) * 1000 : 0,
     exploding: false,
     explosionRadius: 0,
@@ -75,7 +71,6 @@ export const newBeam = (origin: Vec, angle: number, weapon: Weapon, now: number)
     mastery: null,
     mine: null,
     released: false,
-    // desync glaive spin phases a little
     spin: now % 1000,
     tail: { ...origin },
     target: null,
@@ -83,64 +78,74 @@ export const newBeam = (origin: Vec, angle: number, weapon: Weapon, now: number)
     vanished: false,
     weapon,
   };
+
   if (weapon.windupMs > 0 && weapon.length > 0) {
-    // RAILGUN: near-hitscan — the full lance renders (and hits) immediately.
     b.head.x += Math.cos(angle) * weapon.length;
     b.head.y += Math.sin(angle) * weapon.length;
     b.released = true;
   }
+
   return b;
 };
 
 /** Does a beam touch a circle: the blast disc while exploding, else the
  *  tail→head segment. Width is half-padded into the segment test so wide
  *  beams (DRILL 8px) hit what they visually cover, not just their axis. */
-export const beamHitsCircle = (b: Beam, cx: number, cy: number, r: number): boolean => {
+export const beamHitsCircle = (b: Beam, cx: number, cy: number, r: number) => {
   if (b.exploding) {
     return dist2(b.head.x, b.head.y, cx, cy) <= b.explosionRadius * b.explosionRadius;
   }
+
   return segHitsCircle(b.tail.x, b.tail.y, b.head.x, b.head.y, cx, cy, r + b.weapon.width / 2);
 };
 
 /** Which part of a beam touches the ship at (x,y): the index of the ARC chain
  *  segment that hit (0 for plain beams and blasts), or null for a miss. */
-export const beamHitSeg = (b: Beam, x: number, y: number): number | null => {
+export const beamHitSeg = (b: Beam, x: number, y: number) => {
   if (b.chain && b.chain.length >= 2) {
     const pad = SHIP_RADIUS + b.weapon.width / 2;
+
     for (let i = 0; i < b.chain.length - 1; i += 1) {
       const p0 = b.chain[i];
       const p1 = b.chain[i + 1];
+
       if (p0 && p1 && segHitsCircle(p0.x, p0.y, p1.x, p1.y, x, y, pad)) {
         return i;
       }
     }
+
     return null;
   }
+
   return beamHitsCircle(b, x, y, SHIP_RADIUS) ? 0 : null;
 };
 
-export const targetKey = (ref: TargetRef): string =>
-  ref.kind === "ufo" ? "ufo" : `${ref.kind}:${ref.id}`;
+export const targetKey = (ref: TargetRef) => (ref.kind === "ufo" ? "ufo" : `${ref.kind}:${ref.id}`);
 
 /** A lock as it rides a fire event: one letter, then the target's id. */
-export const encodeTarget = (ref: TargetRef): string =>
+export const encodeTarget = (ref: TargetRef) =>
   ref.kind === "ufo" ? "u" : `${ref.kind.charAt(0)}${ref.id}`;
 
-export const decodeTarget = (code: string): TargetRef | null => {
+export const decodeTarget: (code: string) => TargetRef | null = (code) => {
   const id = code.slice(1);
+
   switch (code.charAt(0)) {
     case "e": {
       return { id, kind: "enemy" };
     }
+
     case "p": {
       return { id, kind: "player" };
     }
+
     case "a": {
       return { id, kind: "asteroid" };
     }
+
     case "u": {
       return { kind: "ufo" };
     }
+
     default: {
       return null;
     }

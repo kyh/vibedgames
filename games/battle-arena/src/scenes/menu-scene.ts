@@ -1,10 +1,3 @@
-// Pre-match lobby (?menu). The champion roster stands as 3D models on an arc
-// (rendered by MenuStage); this DOM overlay sits on top with the logo, the
-// selected champion's info panel (ability-icon strip + blurb), the select
-// cards (sigil / name / role / difficulty), name/room inputs and the play
-// buttons. The overlay is click-through except on its controls, so clicks in
-// the middle reach the 3D row for selection. START persists the pick to
-// localStorage["ba-champ"] / ["ba-name"] for future quick-start boots.
 import { isOfflineRequested, watchControlContext } from "@repo/embed";
 import { PhysicalGamepad } from "@vibedgames/gamepad";
 import { readPreference, savePreference } from "../data/preferences";
@@ -18,17 +11,18 @@ import type { AbilityKey } from "../sim/types";
 import { roomId } from "../net/protocol";
 import type { SceneOpts } from "./game-scene";
 
-const hex = (n: number): string => `#${n.toString(16).padStart(6, "0")}`;
-// escape user-supplied strings dropped into attribute values (name/room prefill)
-const esc = (s: string): string =>
+const hex = (n: number) => `#${n.toString(16).padStart(6, "0")}`;
+
+const esc = (s: string) =>
   s
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;");
-const dots = (difficulty: number): string =>
+
+const dots = (difficulty: number) =>
   "●".repeat(difficulty) + "○".repeat(Math.max(0, 3 - difficulty));
-// display keycaps match the actual binds (1-4 + Shift/Space), not QWER letters
+
 const KEYCAP = {
   DASH: "⇧",
   E: "3",
@@ -45,6 +39,7 @@ export interface MenuOpts {
 }
 
 type NavDirection = "left" | "right" | "up" | "down";
+
 const ARROW_DIRECTION = new Map<string, NavDirection>([
   ["ArrowDown", "down"],
   ["ArrowLeft", "left"],
@@ -52,20 +47,25 @@ const ARROW_DIRECTION = new Map<string, NavDirection>([
   ["ArrowUp", "up"],
 ]);
 
-const nameOf = (): string => {
+const nameOf = () => {
   const el = document.querySelector("#ba-name");
+
   return (el instanceof HTMLInputElement ? el.value.trim() : "") || "Player";
 };
-const codeOf = (): string => {
+
+const codeOf = () => {
   const el = document.querySelector("#ba-room");
+
   return el instanceof HTMLInputElement ? el.value.trim() : "";
 };
 
 let styled = false;
-const injectStyle = (): void => {
+
+const injectStyle = () => {
   if (styled) {
     return;
   }
+
   styled = true;
   const s = document.createElement("style");
   s.textContent = `
@@ -160,7 +160,7 @@ export class Menu {
     this.pad.update();
   });
   private readonly motion = window.matchMedia("(prefers-reduced-motion: reduce)");
-  private readonly onMotionChange = (): void => {
+  private readonly onMotionChange = () => {
     if (this.motion.matches) {
       this.cancelSelectionAnimations();
     }
@@ -176,8 +176,6 @@ export class Menu {
     document.body.append(this.el);
     injectStyle();
     this.build();
-    // the help line lists controller rows only while a pad is connected —
-    // re-render if one appears (or vanishes) while the lobby is up
     this.unwatchControls = watchControlContext(() => this.renderHelp());
     this.motion.addEventListener("change", this.onMotionChange);
     window.addEventListener("keydown", this.onKeyDown);
@@ -185,12 +183,11 @@ export class Menu {
     this.pad.update();
   }
 
-  private build(): void {
+  private build() {
     const params = new URLSearchParams(location.search);
     const name = params.get("name") ?? readPreference("ba-name") ?? "";
-    // ?offline=1 forbids any socket, so the online affordances are dropped
-    // rather than left as controls that silently start a bot match.
     const offline = isOfflineRequested();
+
     const chips = CHAMPIONS.map(
       (c) =>
         `<button class="ba-chip" data-id="${c.id}" style="--accent:${hex(c.tint)}">
@@ -224,6 +221,7 @@ export class Menu {
     for (const btn of this.el.querySelectorAll<HTMLButtonElement>(".ba-chip")) {
       btn.addEventListener("click", () => {
         const { id } = btn.dataset;
+
         if (!this.removed && id && id !== this.selected && CHAMPIONS.some((c) => c.id === id)) {
           this.opts.onSelect(id);
         }
@@ -248,34 +246,41 @@ export class Menu {
   }
 
   /** Reflect the current selection (called by MenuStage on click / chip click). */
-  setSelected(id: string): void {
+  setSelected(id: string) {
     if (this.removed) {
       return;
     }
+
     const c = CHAMPIONS.find((x) => x.id === id);
     const info = this.el.querySelector<HTMLDivElement>(".ba-info");
+
     if (!c || !info) {
       return;
     }
+
     const changed = this.selected !== id;
-    // The first build still fills the initial choice; MenuStage's subsequent
-    // same-ID sync and repeat clicks leave that presentation undisturbed.
+
     if (!changed && info.childElementCount > 0) {
       return;
     }
+
     this.cancelSelectionAnimations();
     this.selected = id;
     const chips = [...this.el.querySelectorAll<HTMLButtonElement>(".ba-chip")];
+
     for (const b of chips) {
       const selected = b.dataset["id"] === id;
       b.classList.toggle("sel", selected);
       b.setAttribute("aria-pressed", String(selected));
     }
+
     const chip = chips.find((b) => b.dataset["id"] === id);
+
     const ab = ALL_ABILITY_KEYS.map(
       (k) =>
         `<span class="ba-i-a"><img src="${abilityIcon(c.id, k)}" alt=""><i>${KEYCAP[k]}</i><em>${c.abilities[k].name}</em></span>`,
     ).join("");
+
     info.style.setProperty("--accent", hex(c.tint));
     info.innerHTML = `<span class="ba-i-name">${c.name}</span><span class="ba-i-title">${c.title}</span>
         <span class="ba-i-role">${c.role} · ${c.primary.toUpperCase()} · <span class="ba-i-diff">${dots(c.difficulty)}</span></span>
@@ -284,11 +289,11 @@ export class Menu {
     info
       .querySelector(".ba-kit-menu")
       ?.addEventListener("click", () => this.guide.show(this.selected));
+
     if (!changed || this.motion.matches) {
       return;
     }
-    // MenuStage approaches the selected pose at 8×dt. This short entrance
-    // settles with it; selection and start remain available throughout.
+
     this.selectionAnimations.push(
       info.animate(
         [
@@ -298,6 +303,7 @@ export class Menu {
         { duration: 280, easing: "cubic-bezier(.2,.8,.2,1)" },
       ),
     );
+
     if (chip) {
       this.selectionAnimations.push(
         chip.animate(
@@ -311,43 +317,55 @@ export class Menu {
     }
   }
 
-  private focusChampion(): void {
+  private focusChampion() {
     this.el.querySelector<HTMLButtonElement>(`.ba-chip[data-id="${this.selected}"]`)?.focus();
   }
 
-  private navigate(direction: NavDirection): void {
+  private navigate(direction: NavDirection) {
     const focused = document.activeElement;
+
     if (direction === "up") {
       this.focusChampion();
+
       return;
     }
+
     if (direction === "down") {
       this.el.querySelector<HTMLButtonElement>("#ba-bots")?.focus();
+
       return;
     }
+
     const delta = direction === "left" ? -1 : 1;
+
     if (focused instanceof HTMLButtonElement && focused.classList.contains("ba-go")) {
       const actions = [...this.el.querySelectorAll<HTMLButtonElement>(".ba-go")];
       const index = actions.indexOf(focused);
       actions[(index + delta + actions.length) % actions.length]?.focus();
+
       return;
     }
+
     const index = CHAMPIONS.findIndex((champion) => champion.id === this.selected);
     const champion = CHAMPIONS[(index + delta + CHAMPIONS.length) % CHAMPIONS.length];
+
     if (champion) {
       this.opts.onSelect(champion.id);
       this.focusChampion();
     }
   }
 
-  private readonly onKeyDown = (event: KeyboardEvent): void => {
+  private readonly onKeyDown = (event: KeyboardEvent) => {
     if (this.removed || this.guide.open || event.repeat) {
       return;
     }
+
     if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {
       return;
     }
+
     const direction = ARROW_DIRECTION.get(event.code);
+
     if (direction) {
       event.preventDefault();
       this.navigate(direction);
@@ -360,39 +378,51 @@ export class Menu {
     }
   };
 
-  get active(): boolean {
+  get active() {
     return !this.removed;
   }
 
   /** Shares the lobby render loop; no timer survives a match launch. */
-  update(): void {
+  update() {
     if (this.removed) {
       return;
     }
+
     if (this.guide.open) {
       this.guide.update();
+
       return;
     }
+
     this.pad.update();
+
     if (!this.pad.connected) {
       return;
     }
+
     if (this.pad.justPressed("b")) {
       this.focusChampion();
+
       return;
     }
+
     if (this.pad.justPressed("x") || this.pad.justPressed("ls")) {
       this.guide.show(this.selected);
+
       return;
     }
+
     for (const direction of ["left", "right", "up", "down"] satisfies readonly NavDirection[]) {
       if (this.pad.justPressed(direction)) {
         this.navigate(direction);
+
         return;
       }
     }
+
     if (this.pad.justPressed("a")) {
       const focused = document.activeElement;
+
       if (focused instanceof HTMLButtonElement && focused.classList.contains("ba-go")) {
         focused.click();
       } else {
@@ -401,22 +431,21 @@ export class Menu {
     }
   }
 
-  private cancelSelectionAnimations(): void {
+  private cancelSelectionAnimations() {
     for (const animation of this.selectionAnimations) {
       animation.cancel();
     }
+
     this.selectionAnimations = [];
   }
 
-  /** The help block, straight from the controls manifest (device-filtered by
-   *  the embed package — touch copy on coarse pointers, controller rows only
-   *  while a pad is connected). Renders the pause tablet's control language —
-   *  method headers + gold keycap chips — as a compact inline strip. */
-  private renderHelp(): void {
+  private renderHelp() {
     const el = this.el.querySelector<HTMLDivElement>(".ba-help");
+
     if (!el) {
       return;
     }
+
     ensureControlCardStyle();
     el.replaceChildren();
     const lead = document.createElement("div");
@@ -427,15 +456,17 @@ export class Menu {
     el.append(lead);
     const coarse = window.matchMedia("(pointer: coarse)").matches;
     const strip = buildControlsStrip(coarse);
+
     if (strip) {
       el.append(strip);
     }
   }
 
-  remove(): void {
+  remove() {
     if (this.removed) {
       return;
     }
+
     this.removed = true;
     this.cancelSelectionAnimations();
     this.motion.removeEventListener("change", this.onMotionChange);
@@ -446,11 +477,11 @@ export class Menu {
     this.el.remove();
   }
 
-  private start(opts: SceneOpts): void {
+  private start(opts: SceneOpts) {
     if (this.removed) {
       return;
     }
-    // persist the pick — bare-URL quick-starts reuse it (chosenChamp/chosenName)
+
     savePreference("ba-champ", opts.champId);
     savePreference("ba-name", opts.name);
     this.remove();

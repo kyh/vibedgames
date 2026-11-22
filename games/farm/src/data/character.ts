@@ -1,5 +1,3 @@
-// The farmer's animation clips: action -> frame count (encoded in the source
-// strip name). Phaser-free, so the co-op wire format can validate clips too.
 export const CHAR_FRAMES = {
   attack: 10,
   axe: 10,
@@ -16,4 +14,5 @@ export const CHAR_FRAMES = {
   walk: 8,
   water: 5,
 } as const;
+
 export type CharAction = keyof typeof CHAR_FRAMES;

@@ -14,26 +14,12 @@ import { authClient } from "@/auth/client";
 
 const DEFAULT_NEXT_PATH = "/home";
 
-/**
- * Post-auth redirect targets arrive as free-form search params
- * (`?callbackUrl=`, `?nextPath=`), so constrain them to same-origin paths
- * before handing one to the router. The second character is the one that
- * matters: WHATWG URL parsing resolves both `//evil.example` and
- * `/\evil.example` to a cross-origin URL, so reject a slash *or* a backslash
- * there.
- */
 const PROTOCOL_RELATIVE = /^\/[/\\]/u;
 
-const safeNextPath = (path?: string): string =>
+const safeNextPath = (path?: string) =>
   path?.startsWith("/") && !PROTOCOL_RELATIVE.test(path) ? path : DEFAULT_NEXT_PATH;
 
-/**
- * True while a connecting app's OAuth flow sent this person here: the page
- * carries the provider's signed authorize query. A sign-in then answers with
- * where the flow goes next and the auth client follows it, so the form must
- * not navigate on its own.
- */
-const inOAuthFlow = (): boolean =>
+const inOAuthFlow = () =>
   typeof window !== "undefined" && new URLSearchParams(window.location.search).has("sig");
 
 type StepFormProps = { callbackUrl?: string } & React.HTMLAttributes<HTMLDivElement>;
@@ -43,27 +29,13 @@ interface Credentials {
   password: string;
 }
 
-/** What a submit reports back, in the form's terms rather than the caller's. */
 type SubmitResult = { status: "ok" } | { status: "failed"; message: string };
 
-/**
- * better-auth reports through `fetchOptions` callbacks rather than its return
- * value, so a submit starts out failed and is upgraded by `onSuccess`. The
- * form then navigates only on a success it actually saw — never merely on the
- * absence of an error.
- */
 const UNREPORTED: SubmitResult = {
   message: "Something went wrong. Please try again.",
   status: "failed",
 };
 
-/**
- * Email + password, shared by login and register. Identical fields, identical
- * error treatment (toast, shake, invalid until the next keystroke) and the
- * same post-auth redirect; the caller supplies only what actually differs —
- * the auth call, the button label, and which password the browser should
- * offer.
- */
 const CredentialsForm = ({
   submit,
   submitLabel,
@@ -93,15 +65,17 @@ const CredentialsForm = ({
 
   const handleAuthWithPassword = form.handleSubmit(async (credentials) => {
     const result = await submit(credentials);
+
     if (result.status === "ok") {
       if (inOAuthFlow()) {
         return;
       }
-      // `href`, not `to`: a callback carries its own query and hash
-      // (`/device?user_code=…`, `/settings?code=…#credits`), which `to` reads as path.
+
       router.navigate({ href: safeNextPath(callbackUrl ?? nextPath), replace: true });
+
       return;
     }
+
     toast.error(result.message);
     setAuthError(true);
     shake();
@@ -184,22 +158,15 @@ const PROVIDER_LABELS = { github: "GitHub", google: "Google" } as const;
 
 const authRoute = getRouteApi("/auth");
 
-/**
- * One button per social provider this deployment has credentials for. The
- * provider's callback lands on the same destination the password form would;
- * in an OAuth flow the auth client carries the signed query along, and the
- * provider resumes the flow once the callback signs the person in (its
- * redirect to consent wins over `callbackURL`). A failed callback comes back
- * to this same page with its query (an OAuth flow's signed query, a
- * `callbackUrl`, an `invite`), so the person can try again where they were.
- */
 const SocialSignIn = ({ callbackUrl }: { callbackUrl?: string }) => {
   const { socialProviders } = authRoute.useLoaderData();
   const search = authRoute.useSearch();
   const [pending, setPending] = useState<string | null>(null);
+
   if (socialProviders.length === 0) {
     return null;
   }
+
   return (
     <div className="grid gap-2">
       {socialProviders.map((provider) => (
@@ -238,7 +205,7 @@ const SocialSignIn = ({ callbackUrl }: { callbackUrl?: string }) => {
  * whose redeem field picks the code up. A sign-in with no code keeps its own
  * destination.
  */
-export const creditCodeCallback = (code?: string): string | undefined =>
+export const creditCodeCallback = (code?: string) =>
   code ? `/settings?code=${encodeURIComponent(code)}#credits` : undefined;
 
 export const RegisterForm = ({ className, callbackUrl, ...props }: StepFormProps) => (
@@ -252,6 +219,7 @@ export const RegisterForm = ({ className, callbackUrl, ...props }: StepFormProps
         const [emailPrefix] = credentials.email.split("@");
         let result: SubmitResult = UNREPORTED;
         await authClient.signUp.email({
+          callbackURL: "/settings#credits",
           email: credentials.email,
           fetchOptions: {
             onError: (ctx) => {
@@ -264,6 +232,7 @@ export const RegisterForm = ({ className, callbackUrl, ...props }: StepFormProps
           name: emailPrefix ?? "User",
           password: credentials.password,
         });
+
         return result;
       }}
     />
@@ -291,6 +260,7 @@ export const LoginForm = ({ className, callbackUrl, ...props }: StepFormProps) =
           },
           password: credentials.password,
         });
+
         return result;
       }}
     />
@@ -315,11 +285,10 @@ export const RequestPasswordResetForm = () => {
       fetchOptions: {
         onError: (ctx) => {
           toast.error(ctx.error.message);
-        },
-        onSuccess: () => {
-          toast.success("Password reset email sent successfully!");
+          form.setError("root", { message: ctx.error.message });
         },
       },
+      redirectTo: "/auth/password-update",
     });
   });
 
@@ -328,8 +297,7 @@ export const RequestPasswordResetForm = () => {
       <div className="space-y-4 text-center">
         <div className="rounded-md bg-green-900/20 p-4">
           <p className="text-sm text-green-200">
-            Password reset email sent! Check your inbox and follow the instructions to reset your
-            password.
+            If an account uses that address, a reset link is on its way. It expires in an hour.
           </p>
         </div>
       </div>
@@ -372,7 +340,7 @@ export const RequestPasswordResetForm = () => {
   );
 };
 
-export const UpdatePasswordForm = () => {
+export const UpdatePasswordForm = ({ token }: { token: string }) => {
   const updateRouter = useRouter();
 
   const form = useForm({
@@ -400,11 +368,12 @@ export const UpdatePasswordForm = () => {
           toast.error(ctx.error.message);
         },
         onSuccess: () => {
-          toast.success("Password updated successfully!");
-          updateRouter.navigate({ to: "/" });
+          toast.success("Password updated. Sign in with the new one.");
+          updateRouter.navigate({ to: "/auth/login" });
         },
       },
       newPassword: data.password,
+      token,
     });
   });
 

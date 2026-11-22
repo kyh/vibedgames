@@ -36,16 +36,20 @@ const forkArgs = {
   ...outputArgs,
 } as const;
 
-const rewritePackageName = (dir: string, slug: string): void => {
+const rewritePackageName = (dir: string, slug: string) => {
   const pkgPath = path.resolve(dir, "package.json");
+
   if (!existsSync(pkgPath)) {
     return;
   }
+
   try {
     const pkg: JsonValue = JSON.parse(readFileSync(pkgPath, "utf-8"));
+
     if (!isJsonObject(pkg)) {
       throw new Error("package.json is not a JSON object");
     }
+
     pkg.name = slug;
     delete pkg.repository;
     delete pkg.bugs;
@@ -57,6 +61,7 @@ const rewritePackageName = (dir: string, slug: string): void => {
     );
   }
 };
+
 export const forkCommand = defineCommand({
   args: forkArgs,
   meta: {
@@ -69,12 +74,14 @@ export const forkCommand = defineCommand({
 
     const source = args.slug.trim().toLowerCase();
     const target = (args.target ?? `${source}-fork`).trim().toLowerCase();
+
     if (!SLUG_RE.test(target)) {
       consola.error(`Invalid target slug "${target}". Use lowercase letters, digits, and hyphens.`);
       process.exit(1);
     }
 
     const dir = path.resolve(process.cwd(), target);
+
     if (existsSync(dir)) {
       if (!args.force) {
         consola.error(
@@ -82,18 +89,18 @@ export const forkCommand = defineCommand({
         );
         process.exit(1);
       }
-      // --force means replace, not merge — clear stale files first so the fork
-      // isn't a dirty mix of the archive and whatever was already there.
+
       rmSync(dir, { force: true, recursive: true });
     }
 
     const client = createClient();
 
-    // ---- Resolve + download source -----------------------------------------
     if (!isJsonOutput(args) && !args.field) {
       consola.start(`Forking ${source}`);
     }
+
     let src;
+
     try {
       src = await client.deploy.getSource({ slug: source });
     } catch (error) {
@@ -103,11 +110,14 @@ export const forkCommand = defineCommand({
 
     const tmp = path.join(tmpdir(), "vibedgames", `fork-${process.pid}.tgz`);
     mkdirSync(path.join(tmpdir(), "vibedgames"), { recursive: true });
+
     try {
       const res = await fetch(src.url);
+
       if (!res.ok) {
         throw new Error(`download failed: ${res.status} ${res.statusText}`);
       }
+
       writeFileSync(tmp, Buffer.from(await res.arrayBuffer()));
       await extractSource(tmp, dir);
     } catch (error) {
@@ -117,7 +127,6 @@ export const forkCommand = defineCommand({
       rmSync(tmp, { force: true });
     }
 
-    // ---- Re-slug the fork (clean slate — no provenance recorded) ------------
     const name = args.name ?? target.replaceAll("-", " ");
     writeFileSync(
       path.resolve(dir, "vibedgames.json"),

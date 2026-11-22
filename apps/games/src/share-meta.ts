@@ -25,14 +25,14 @@ export interface ShareMeta {
 /** Conventional deployment-root image paths, in preference order. */
 export const OG_IMAGE_CANDIDATES = ["og.jpg", "og.png", "og.webp"];
 
-const escapeAttr = (value: string): string =>
+const escapeAttr = (value: string) =>
   value
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;");
 
-const decodeEntities = (value: string): string =>
+const decodeEntities = (value: string) =>
   value
     .replaceAll("&lt;", "<")
     .replaceAll("&gt;", ">")
@@ -40,11 +40,12 @@ const decodeEntities = (value: string): string =>
     .replaceAll("&#39;", "'")
     .replaceAll("&amp;", "&");
 
-const renderShareMeta = (meta: ShareMeta): string => {
+const renderShareMeta = (meta: ShareMeta) => {
   const title = escapeAttr(meta.title);
   const description = escapeAttr(meta.description);
   const url = escapeAttr(meta.url);
   const imageUrl = escapeAttr(meta.imageUrl);
+
   return [
     `<meta property="og:type" content="website" />`,
     `<meta property="og:site_name" content="vibedgames" />`,
@@ -59,19 +60,22 @@ const renderShareMeta = (meta: ShareMeta): string => {
     .join("");
 };
 
-export const hasOwnShareMeta = (html: string): boolean => /<meta[^>]+property=["']og:/iu.test(html);
+export const hasOwnShareMeta = (html: string) => /<meta[^>]+property=["']og:/iu.test(html);
 
-export const extractTitle = (html: string): string | null => {
+export const extractTitle = (html: string) => {
   const m = /<title[^>]*>(?<text>[^<]*)<\/title>/iu.exec(html);
   const t = m?.groups?.text?.trim();
+
   return t ? decodeEntities(t) : null;
 };
 
-export const extractDescription = (html: string): string | null => {
+export const extractDescription = (html: string) => {
   const m =
     /<meta[^>]+name=["']description["'][^>]+content=["'](?<text>[^"']*)["']/iu.exec(html) ??
     /<meta[^>]+content=["'](?<text>[^"']*)["'][^>]+name=["']description["']/iu.exec(html);
+
   const d = m?.groups?.text?.trim();
+
   return d ? decodeEntities(d) : null;
 };
 
@@ -80,16 +84,21 @@ export const extractDescription = (html: string): string | null => {
  * HTML unchanged when no head boundary can be found (malformed documents are
  * served as-is rather than corrupted).
  */
-export const injectShareMeta = (html: string, meta: ShareMeta): string => {
+export const injectShareMeta = (html: string, meta: ShareMeta) => {
   const block = renderShareMeta(meta);
   const headClose = /<\/head\s*>/iu.exec(html);
+
   if (headClose) {
     return html.slice(0, headClose.index) + block + html.slice(headClose.index);
   }
+
   const headOpen = /<head[^>]*>/iu.exec(html);
+
   if (headOpen) {
     const at = headOpen.index + headOpen[0].length;
+
     return `${html.slice(0, at)}\n${block}${html.slice(at)}`;
   }
+
   return html;
 };

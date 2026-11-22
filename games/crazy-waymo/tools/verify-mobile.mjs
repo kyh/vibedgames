@@ -1,20 +1,20 @@
-// Real touch input and the coarse-pointer render path in a headed browser.
-// Usage: node tools/verify-mobile.mjs [dev-url] [output-directory]
-// CDP emulation stays attached for the entire run; disconnecting between
-// commands resets pointer emulation and silently tests the desktop renderer.
 import { writeFileSync } from "node:fs";
 import path from "node:path";
 import { createMobileSession } from "./mobile-browser-session.mjs";
 
 const url = process.argv[2] ?? "http://localhost:5193/?time=night&offline=1";
 const output = path.resolve(process.argv[3] ?? "/private/tmp/waymo-mobile-review");
+
 const { call, evaluate, pause, sleep, until, tap, touchPoint, screenshot, close, pageErrors } =
   await createMobileSession({ output, sessionPrefix: "crazy-waymo-mobile-review" });
+
 const report = { checkedAt: new Date().toISOString(), checks: [], url, views: [] };
+
 const check = (name, passed, evidence) => {
   report.checks.push({ evidence, name, passed });
   console.log(`${passed ? "PASS" : "FAIL"} ${name}: ${JSON.stringify(evidence)}`);
 };
+
 try {
   await call("Runtime.enable");
   await call("Emulation.setDeviceMetricsOverride", {
@@ -29,26 +29,31 @@ try {
   report.worldRevision = await evaluate(
     'import("/src/world/world-bin.ts").then(module=>module.WORLD_REV)',
   );
+
   const device = await evaluate(
     '({coarse:matchMedia("(pointer:coarse)").matches,touch:navigator.maxTouchPoints,dpr:devicePixelRatio,width:innerWidth,height:innerHeight})',
   );
+
   check(
     "actual coarse-pointer path",
     device.coarse && device.touch > 0 && device.dpr === 3,
     device,
   );
-  // Use the former button's left-hand area: it overlaps the steering zone.
+
   const formerCta = await evaluate(
     "(()=>{const r=document.querySelector('#banner-cta').getBoundingClientRect();return {x:r.left+Math.min(12,r.width/4),y:r.top+r.height/2,id:1}})()",
   );
+
   await tap("#banner-cta");
   await until('window.__taxi.game.mode.kind === "playing"');
   await evaluate(
     "(()=>{const t=window.__taxi;t.teleport(.37,.39);const p=t.probe();t.game.traffic.reset({gx:t.game.city.gridX(p.x),gz:t.game.city.gridZ(p.z)},7)})()",
   );
+
   const hiddenBanner = await evaluate(
     `(()=>{const cta=document.querySelector('#banner-cta');cta.focus();const hit=document.elementFromPoint(${formerCta.x},${formerCta.y});return {focused:document.activeElement===cta,intercepts:!!hit?.closest('#banner'),hit:hit?.id||hit?.tagName}})()`,
   );
+
   check(
     "hidden start button cannot take focus or intercept steering",
     !hiddenBanner.focused && !hiddenBanner.intercepts,
@@ -97,9 +102,11 @@ try {
   await until("window.__taxi.probe().speed > 3", 5000);
   const reversed = await evaluate("window.__taxi.probe()");
   await call("Input.dispatchTouchEvent", { touchPoints: [], type: "touchEnd" });
+
   const reverseDistance =
     (reversed.x - reverseStart.x) * Math.sin(reverseStart.heading) +
     (reversed.z - reverseStart.z) * Math.cos(reverseStart.heading);
+
   check("touch pedal reverses from stop", reverseDistance < -0.2, { reverseDistance, reversed });
   await evaluate(`(()=>{const r=window.__renderer,render=r.render,g=window.__taxi.game,update=g.update;
     window.__phoneWork={draws:0,updates:0};
@@ -107,7 +114,6 @@ try {
     g.update=function(...args){window.__phoneWork.updates++;return update.apply(this,args);};})()`);
   await pause();
   await until("window.__taxi.game.paused === true");
-  // Allow the single pause-entry redraw.
   await sleep(100);
   const idleBefore = await evaluate("({...window.__phoneWork,tier:window.__perf.tier()})");
   const parked = await evaluate("window.__taxi.probe()");
@@ -152,8 +158,10 @@ try {
   const activeBefore = await evaluate("({...window.__phoneWork,at:performance.now()})");
   await sleep(1500);
   const activeAfter = await evaluate("({...window.__phoneWork,at:performance.now()})");
+
   const drawHz =
     ((activeAfter.draws - activeBefore.draws) * 1000) / (activeAfter.at - activeBefore.at);
+
   check("resumed phone renders at most 60 Hz", drawHz > 10 && drawHz <= 61, {
     activeAfter,
     activeBefore,
@@ -170,15 +178,18 @@ try {
     `(()=>{const p=window.__taxi.probe();return p.speed>15&&Math.hypot(p.x-(${restartStart.x}),p.z-(${restartStart.z}))>30})()`,
     8000,
   );
+
   const restartDrive = await evaluate(
     "(()=>{const t=window.__taxi;return {probe:t.probe(),cameraDistance:t.camera.position.distanceTo(t.game.car.position)}})()",
   );
+
   await call("Input.dispatchTouchEvent", { touchPoints: [], type: "touchEnd" });
   check(
     "restart gives a drivable route and clear chase camera",
     restartDrive.probe.speed > 15 && restartDrive.cameraDistance > 6,
     { start: restartStart, ...restartDrive },
   );
+
   for (const [name, width, height, u, v, phase] of [
     ["portrait-night", 390, 844, 0.738, 0.19, 0.7],
     ["landscape-night", 844, 390, 0.235, 0.674, 0.7],
@@ -193,19 +204,25 @@ try {
     await evaluate(`window.__taxi.teleport(${u},${v});window.__taxi.setPhase(${phase})`);
     await sleep(2500);
     await screenshot(name);
+
     const view = await evaluate(
       '({coarse:matchMedia("(pointer:coarse)").matches,width:innerWidth,height:innerHeight,overflow:document.documentElement.scrollWidth>innerWidth,stream:window.__taxi.game.city.parcelStreamStats()})',
     );
+
     report.views.push({ name, ...view });
     check(`${name} fits viewport`, view.coarse && !view.overflow, view);
+
     if (width < 520) {
       const overlaps = await evaluate(
         '(()=>{const a=document.querySelector("#area").getBoundingClientRect();return [...document.querySelectorAll("#score,[aria-label=Pause],[aria-label^=\\\"Turn sound\\\"]")].filter(e=>{const b=e.getBoundingClientRect();return b.width>0&&b.height>0&&a.left<b.right&&a.right>b.left&&a.top<b.bottom&&a.bottom>b.top}).map(e=>e.id||e.getAttribute("aria-label"))})()',
       );
+
       check("portrait district clears HUD controls", overlaps.length === 0, overlaps);
     }
   }
+
   const tierBudget = [];
+
   for (let tier = 0; tier < 5; tier += 1) {
     await evaluate(`window.__perf.pin(${tier})`);
     await sleep(200);
@@ -215,6 +232,7 @@ try {
       ),
     );
   }
+
   check(
     "all phone tiers retain bounded shadows and baked sky",
     tierBudget.every(
@@ -228,6 +246,7 @@ try {
   );
   await evaluate("window.__perf.pin(null)");
   check("no mobile page errors", pageErrors.length === 0, pageErrors);
+
   if (report.checks.some((entry) => !entry.passed)) {
     process.exitCode = 1;
   }

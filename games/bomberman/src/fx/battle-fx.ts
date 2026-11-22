@@ -20,9 +20,6 @@ export class BattleFx {
   private nextMark = 0;
 
   constructor(scene: Phaser.Scene) {
-    // Phaser 4's maxParticles counts reserved dead particles too and blocks
-    // reuse at that limit. Preallocate the live cap instead; it bounds both
-    // allocation and simultaneous particles without disabling the emitter.
     this.embers = scene.add
       .particles(0, 0, "spark", {
         alpha: { end: 0, start: 1 },
@@ -67,6 +64,7 @@ export class BattleFx {
       })
       .setDepth(5)
       .reserve(96);
+
     for (let i = 0; i < 64; i += 1) {
       this.marks.push({
         image: scene.add.image(0, 0, "glow").setVisible(false),
@@ -77,62 +75,70 @@ export class BattleFx {
     }
   }
 
-  fuse(x: number, y: number): void {
+  fuse(x: number, y: number) {
     this.embers.explode(1, x, y);
   }
 
-  blast(tiles: readonly { col: number; row: number }[], reducedMotion: boolean): void {
+  blast(tiles: readonly { col: number; row: number }[], reducedMotion: boolean) {
     for (const [index, tile] of tiles.entries()) {
       const x = (tile.col + 0.5) * TILE;
       const y = (tile.row + 0.5) * TILE;
       this.mark(x, y, "scorch");
       this.embers.explode(reducedMotion ? 1 : 3, x, y);
+
       if (!reducedMotion) {
         this.smoke.explode(1, x, y);
       }
+
       if (index === 0 && !reducedMotion) {
         this.mark(x, y, "core");
       }
     }
   }
 
-  crate(x: number, y: number, reducedMotion: boolean): void {
+  crate(x: number, y: number, reducedMotion: boolean) {
     this.chips.explode(reducedMotion ? 3 : 7, x, y);
+
     if (!reducedMotion) {
       this.smoke.explode(2, x, y);
     }
   }
 
-  update(delta: number): void {
+  update(delta: number) {
     for (const mark of this.marks) {
       if (mark.left <= 0) {
         continue;
       }
+
       mark.left = Math.max(0, mark.left - delta);
       const progress = mark.left / mark.life;
       mark.image.setAlpha(progress * (mark.kind === "core" ? 0.7 : 0.24));
+
       if (mark.left === 0) {
         mark.image.setVisible(false);
       }
     }
   }
 
-  clear(): void {
+  clear() {
     this.embers.killAll();
     this.smoke.killAll();
     this.chips.killAll();
+
     for (const mark of this.marks) {
       mark.left = 0;
       mark.image.setVisible(false);
     }
   }
 
-  private mark(x: number, y: number, kind: Mark["kind"]): void {
+  private mark(x: number, y: number, kind: Mark["kind"]) {
     const mark = this.marks[this.nextMark];
     this.nextMark = (this.nextMark + 1) % this.marks.length;
+
     if (!mark) {
       return;
     }
+
     mark.kind = kind;
     mark.life = kind === "core" ? 95 : 1700;
     mark.left = mark.life;

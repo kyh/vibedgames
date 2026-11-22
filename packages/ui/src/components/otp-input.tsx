@@ -6,56 +6,12 @@ import { motion, MotionConfig, useReducedMotion } from "motion/react";
 import { cn } from "cn";
 import { EASE_OUT, SHAKE_KEYFRAMES, SHAKE_TRANSITION } from "@repo/ui/lib/motion";
 
-// OTP segmented input — N cells, secretly ONE real input.
-//
-// Adapted from https://lab.moumen.dev/components/otp-segmented-input.
-//
-// The usual implementation is N <input>s wired together with JS focus hops.
-// It looks right and behaves wrong: autofill can't fill it (the browser
-// offers the code to ONE field), paste needs bespoke splitting, screen
-// readers announce N unlabeled boxes, and half the keyboard is re-invented.
-//
-// This is the hard version: one real <input> stretched invisibly over the
-// whole row (color and caret transparent — NOT display:none, it must stay
-// focusable and autofillable), with the cells painted underneath from its
-// value. Everything hard becomes free:
-//
-//   · Autofill just works — autocomplete="one-time-code" on a real,
-//     visible-to-the-browser input.
-//   · Paste just works — "DEV 123" lands in the input, one normalize pass
-//     strips the junk, the cells repaint.
-//   · Backspace walks backwards and ←/→ move the caret because they are the
-//     NATIVE caret — the active cell is derived from the input's selection
-//     (via onSelect), never stored beside it. Select-all paints all cells
-//     selected, because a selection range maps to a cell range.
-//
-// Verification: pass `verify` (sync or async — hit your API). A full code
-// drives the little state machine: right → the row nods once and the cells
-// cascade green left to right, then `onSuccess` fires; wrong → the row shakes, the characters drop
-// out one by one, then the field clears and hands the caret back. `verify`
-// may resolve to a string to hand a server-canonicalized value to
-// `onSuccess` instead of the typed one.
-//
-// Label the input externally (<label htmlFor> pairing with `id`, or pass
-// `aria-label`) — the component does not name itself.
-//
-// Animation via motion/react; honours prefers-reduced-motion.
-
-// wrong code: each character's fall-out
 const DROP_S = 0.24;
-// per-character clear offset
 const STAGGER_S = 0.045;
-// per-cell success cascade offset
 const FILL_S = 0.055;
-// beat so the last character is seen landing
 const VERIFY_DELAY_MS = 320;
-// a new character rising into its cell
 const CHAR_IN_S = 0.14;
-// Where the character starts, in px below its resting place. Measured, not
-// guessed: at the cell's 3rem height and 1.125rem type, less than ~16px
-// leaves the glyph floating inside the cell and the rise reads as a twitch.
 const CHAR_IN_Y = 16;
-// success: the row's nod
 const BOUNCE_S = 0.65;
 
 const OTP_VARS: React.CSSProperties & Record<`--${string}`, string> = {
@@ -81,29 +37,18 @@ const idleTone = (selected: boolean, active: boolean) => {
   if (selected) {
     return "selected";
   }
+
   return active ? "active" : "idle";
 };
 
-// Ring + invalid values mirror `inputVariants` (input.tsx) so the cells stay
-// in step with the system focus/error treatment.
 const CELL_TONE = {
   active: "border-ring bg-input/40 text-foreground ring-3 ring-ring/50",
   error: "border-destructive/50 bg-input/40 text-destructive",
   idle: "border-input bg-input/40 text-foreground",
-  // a selection RANGE maps to a cell range — one input
   selected: "border-input bg-primary/25 text-foreground",
   success: "border-success/60 bg-success/10 text-success",
 } satisfies Record<"idle" | "active" | "selected" | VerifyState, string>;
 
-/**
- * A character enters by rising into its cell, which is why the cells clip:
- * it starts below the floor rather than fading in on the spot. Keyed on the
- * character in the render below, so every new one plays it — including a
- * retype of the same digit into the same cell.
- *
- * Only `error` diverges: the row shakes first, then the characters drop back
- * out one by one, which is also how the field clears.
- */
 const glyphMotion = (state: VerifyState, index: number) =>
   state === "error"
     ? {
@@ -120,21 +65,18 @@ const glyphMotion = (state: VerifyState, index: number) =>
         transition: { duration: CHAR_IN_S, ease: EASE_OUT },
       };
 
-/**
- * Success is one gesture for the whole row — a short vertical nod, the field
- * agreeing with you — rather than a per-cell pop, which fought the green
- * tint already cascading left to right underneath it.
- */
 const rowMotion = (state: VerifyState) => {
   if (state === "error") {
     return { animate: { ...SHAKE_KEYFRAMES, y: 0 }, transition: SHAKE_TRANSITION };
   }
+
   if (state === "success") {
     return {
       animate: { x: 0, y: [0, -10, 3, -4, 0] },
       transition: { duration: BOUNCE_S, ease: EASE_OUT, times: [0, 0.25, 0.5, 0.72, 1] },
     };
   }
+
   return { animate: { x: 0, y: 0 }, transition: SHAKE_TRANSITION };
 };
 
@@ -181,6 +123,7 @@ const OTPInput = ({
 }) => {
   const sanitize = (raw: string) => {
     const stripped = raw.replace(SANITIZE[validationType], "").slice(0, length);
+
     return normalizeValue ? normalizeValue(stripped) : stripped;
   };
 
@@ -199,23 +142,20 @@ const OTPInput = ({
 
   const syncSel = () => {
     const el = inputRef.current;
+
     if (!el) {
       return;
     }
+
     const start = el.selectionStart ?? 0;
     const end = el.selectionEnd ?? 0;
-    // Return the previous object when nothing moved so React can bail out.
     setSel((prev) => (prev.start === start && prev.end === end ? prev : { end, start }));
   };
 
   const handleChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    // One sanitize pass covers typing, paste and autofill: "DEV 123",
-    // "dev-123" and "DEV123" all become the same characters.
     setValue(sanitize(event.target.value));
   };
 
-  // Native click mapping is the one thing that's wrong for OTP (you can't
-  // edit the middle of a code) — snap pointer focus to the end instead.
   const handleMouseDown = (event: React.MouseEvent) => {
     event.preventDefault();
     const el = inputRef.current;
@@ -235,16 +175,16 @@ const OTPInput = ({
   const settle = useEffectEvent((result: boolean | string, candidate: string) => {
     if (result === false) {
       setState("error");
-      // Shake, then the characters drop out one by one, then the field
-      // clears and the caret comes back for another try. Under reduced
-      // motion neither animation plays, so don't sit through their timings.
+
       const clearDelay = reducedMotion
         ? 400
         : SHAKE_TRANSITION.duration * 1000 + length * STAGGER_S * 1000 + 260;
+
       settleTimerRef.current = window.setTimeout(() => {
         setValue("");
         setState("idle");
         const el = inputRef.current;
+
         if (el && document.activeElement === el) {
           el.setSelectionRange(0, 0);
           syncSel();
@@ -254,7 +194,6 @@ const OTPInput = ({
       }, clearDelay);
     } else {
       setState("success");
-      // Let the cascade play before the parent moves on.
       const successDelay = reducedMotion ? 0 : length * FILL_S * 1000 + 500;
       settleTimerRef.current = window.setTimeout(
         () => onSuccess?.(result === true ? candidate : result),
@@ -263,20 +202,21 @@ const OTPInput = ({
     }
   });
 
-  // A full code in → verify. A beat of delay so the last character is seen
-  // landing before the row answers; the check itself may be async. Runs on
-  // mount too, which is what auto-submits a prefilled `defaultValue`.
   useEffect(() => {
     if (state !== "idle" || value.length !== length) {
       return;
     }
+
     let cancelled = false;
+
     const timer = window.setTimeout(async () => {
       const result = await runVerify(value);
+
       if (!cancelled) {
         settle(result, value);
       }
     }, VERIFY_DELAY_MS);
+
     return () => {
       cancelled = true;
       clearTimeout(timer);
@@ -290,35 +230,29 @@ const OTPInput = ({
       <div
         data-slot="otp-input"
         data-state={state}
-        // Chrome's page translation rewrites the cells' text nodes (wrapping
-        // them in <font>), which crashes React on the next update — and a
-        // one-time code is never meaningful to translate.
         translate="no"
         className={cn("relative flex flex-col items-center", className)}
         style={OTP_VARS}
       >
-        {/* Wrong code shakes the row, a right one nods it — either way it
-            moves as one object, not as N cells. */}
         <motion.div className="relative flex gap-[var(--otp-gap)]" {...rowMotion(state)}>
           {Array.from({ length }, (_, index) => {
             const char = value[index];
             const active = focused && state === "idle" && collapsed && caretCell === index;
+
             const selected =
               focused && state === "idle" && !collapsed && index >= sel.start && index < sel.end;
+
             const tone = state === "idle" ? idleTone(selected, active) : state;
+
             return (
               <div
                 key={index}
                 className={cn(
-                  // `overflow-hidden` is what makes the character rise INTO
-                  // the cell — without it the glyph is visible below the
-                  // border on its way up, and drops out through the floor.
                   "flex h-[var(--otp-cell-h)] w-[var(--otp-cell-w)] items-center justify-center overflow-hidden rounded-lg border font-mono text-lg font-medium tabular-nums backdrop-blur-sm",
                   "transition-[border-color,background-color,color,box-shadow] duration-150",
                   group && index === groupAt && "ml-3",
                   CELL_TONE[tone],
                 )}
-                // the success cascade retimes the tint with a per-cell delay
                 style={
                   state === "success"
                     ? { transitionDelay: `${index * FILL_S * 1000}ms` }
@@ -332,17 +266,12 @@ const OTPInput = ({
                   </motion.span>
                 )}
                 {active && !char && (
-                  // The fake caret: a hard blink (a step, not a fade).
                   <span className="h-5 w-[1.5px] animate-[otp-caret-blink_1.1s_linear_infinite] rounded-[1px] bg-foreground motion-reduce:animate-none" />
                 )}
               </div>
             );
           })}
 
-          {/* THE component: one real input over the whole row. Transparent, not
-              hidden — the browser must see it to autofill and focus it. No
-              maxLength: it would truncate a formatted paste ("DEV 123" is 7
-              chars) BEFORE the sanitize pass — the slice enforces length. */}
           <input
             ref={inputRef}
             data-slot="otp-input-control"

@@ -1,20 +1,10 @@
 import { defineConfig } from "oxlint";
 import antiSlop from "ultracite/oxlint/anti-slop";
 import core from "ultracite/oxlint/core";
+import landmines from "ultracite/oxlint/landmines";
 import react from "ultracite/oxlint/react";
 import tanstack from "ultracite/oxlint/tanstack";
 
-// Game modules whose payload types must stay `type X = { ... }`. TypeScript
-// grants a type alias an implicit index signature but never an interface —
-// declaration merging can add members later, so the compiler cannot assume an
-// interface's keys. Everything declared here is handed to a JSON-shaped
-// index-signature type (`JsonValue`, `JsonRecord`, world-bin's wire trees, a
-// `ShaderMaterial` uniform map), which an interface cannot satisfy. The escape
-// the rule pushes toward — `[key: string]: unknown` on every interface — is
-// strictly worse: it admits any key at all and discards the exact payloads
-// these unions exist to enforce. Each game is independent, so each one carries
-// its own entries; the fix outside `games/` was to make the consuming boundary
-// generic over the payload type instead.
 const jsonPayloadModules = [
   "games/battle-arena/src/net/snapshot.ts",
   "games/battle-arena/src/render/fx-bolt.ts",
@@ -50,7 +40,8 @@ const jsonPayloadModules = [
 ];
 
 export default defineConfig({
-  extends: [core, react, antiSlop],
+  extends: [core, react, antiSlop, landmines],
+  jsPlugins: landmines.jsPlugins,
   ignorePatterns: [
     ...(core.ignorePatterns ?? []),
     "*.generated.ts",
@@ -62,9 +53,6 @@ export default defineConfig({
     ".playwright-mcp",
     "sandbox",
     "**/scripts/_lib/**",
-    // Strikeforce's game core is a de-minified bundle (mangled names, comma
-    // expressions) vendored whole; its `[net]` hooks are the only hand edits.
-    // The TypeScript around it (games/strikeforce/src/net, main.ts) is linted.
     "games/strikeforce/src/core/strikeforce-core.js",
   ],
   overrides: [
@@ -76,13 +64,22 @@ export default defineConfig({
       files: jsonPayloadModules,
       rules: { "typescript/consistent-type-definitions": "off" },
     },
+    {
+      files: [
+        "packages/service/src/auth/cimd-fetch.test.ts",
+        "packages/service/src/deploy/inline-files.test.ts",
+        "packages/multiplayer/test/offline.test.ts",
+      ],
+      rules: { "landmines-testing/no-test-doubles": "off" },
+    },
   ],
   rules: {
-    // Sequential awaits in loops are deliberate here (rate-limited source reads, ordered writes).
+    "anti-slop/require-safety-comment-for-type-assertion": "off",
+    "landmines-testing/no-fixed-sleep": [
+      "error",
+      { allow: { "apps/party/test/integration.test.ts": 2 } },
+    ],
     "no-await-in-loop": "off",
-    // Scripts read top-down: entry point first, helpers below. A reference from
-    // inside a function body runs after the module has evaluated, so only
-    // same-scope use (a real TDZ error) is worth failing on.
     "no-use-before-define": ["error", { functions: false, variables: false }],
   },
 });

@@ -1,18 +1,4 @@
 /**
- * The playtest contract, as types. Three window globals let a browser
- * playtest — `vg playtest`, its scripted bot and the model behind
- * `vg playtest run` — measure and drive a game instead of guessing from
- * pixels:
- *
- * - `window.__GAME_DIAGNOSTICS__` — live, read-only state ({@link Diagnostics})
- * - `window.__GAME_TEST_HOOKS__` — the mutations a playtest may perform ({@link TestHooks})
- * - `window.__GAME_PLAYTEST__` — the controls, in words a model chooses between ({@link PlaytestManifest})
- *
- * The globals ARE the contract; this package only types and publishes them,
- * so a game can also set them by hand and nothing here is required.
- */
-
-/**
  * What a playtest reads every frame. Primitives only — never engine objects:
  * the whole thing is JSON-serialised and, under `vg playtest run`, sent to
  * the decision model several times a second. Add whatever a player can see

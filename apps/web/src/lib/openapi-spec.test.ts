@@ -31,11 +31,12 @@ const specSchema = z.object({
 });
 
 describe("OpenAPI spec", async () => {
-  // Parsing is the assertion that every operation carries an id, a summary and a description.
   const spec = specSchema.parse(await generateOpenAPISpec());
+
   const operations = Object.entries(spec.paths).flatMap(([path, item]) =>
     Object.entries(item).map(([method, operation]) => ({ method, operation, path })),
   );
+
   const pathsWith = (predicate: (security: unknown[] | undefined) => boolean) =>
     operations
       .filter(({ operation }) => predicate(operation.security))
@@ -49,6 +50,7 @@ describe("OpenAPI spec", async () => {
     );
     assert.ok(operations.length >= 23, `expected >= 23 operations, got ${operations.length}`);
     assert.ok(operations.every(({ method }) => method === "post"));
+
     for (const path of ["/auth/me", "/deploy/create", "/generate/forward", "/waitlist/join"]) {
       assert.ok(spec.paths[path], `missing ${path}`);
     }
@@ -64,10 +66,12 @@ describe("OpenAPI spec", async () => {
       const success = z
         .object({ content: z.object({ "application/json": z.object({ schema: z.unknown() }) }) })
         .safeParse(operation.responses["200"]);
+
       assert.ok(success.success, `${path} has no JSON 200 response`);
       assert.ok(errorRef.safeParse(operation.responses["400"]).success, `${path} lacks 400`);
       assert.ok(errorRef.safeParse(operation.responses["500"]).success, `${path} lacks 500`);
     }
+
     assert.deepEqual(spec.components.schemas.Error.required, ["code", "message"]);
   });
 
@@ -76,6 +80,7 @@ describe("OpenAPI spec", async () => {
       pathsWith((security) => security === undefined),
       ["/waitlist/join"],
     );
+
     for (const { path, operation } of operations) {
       if (operation.security !== undefined) {
         assert.ok(errorRef.safeParse(operation.responses["401"]).success, `${path} lacks 401`);
@@ -87,6 +92,7 @@ describe("OpenAPI spec", async () => {
     const sessionOnly = pathsWith(
       (security) => security !== undefined && !JSON.stringify(security).includes("apiKeyHeader"),
     );
+
     assert.ok(sessionOnly.includes("/apiKeys/create"));
     assert.ok(sessionOnly.includes("/admin/users/list"));
     assert.ok(sessionOnly.includes("/connectedApps/list"));

@@ -6,55 +6,49 @@ import { BattleFx, REDUCED_MOTION } from "./battle-fx";
 
 export type FxImportance = "common" | "important";
 
-/** Keep a quarter of a pool free for major beats: common traffic may replace
- * an older common effect, never a shield, progression or boss response. */
 const admitFx = <T extends { importance: FxImportance }>(
   entries: T[],
   capacity: number,
   importance: FxImportance,
-): boolean => {
+) => {
   const limit = importance === "important" ? capacity : capacity - Math.ceil(capacity / 4);
+
   if (entries.length < limit) {
     return true;
   }
+
   const expendable = entries.findIndex((entry) => entry.importance === "common");
+
   if (expendable === -1) {
     return false;
   }
+
   entries.splice(expendable, 1);
+
   return true;
 };
 
-// Pooled VFX (vfx skill rules): the two particle emitters are created ONCE and
-// fired with explode(); stroke-shatter groups, shockwave rings and converge
-// motes are plain data drawn into two shared Graphics layers per frame.
-// BattleFx owns the separately bounded weapon light and staged blast layers.
-
-/** Hard cap on live particles across both emitters. */
 const PARTICLE_BUDGET = 700;
-/** Common bursts leave room for local shield damage and major rewards. */
 const COMMON_PARTICLE_BUDGET = 600;
+
 /** Trail emitters throttle ×2 above this (v2: earlier, for the bigger crowds). */
 export const PARTICLE_SOFT_BUDGET = 480;
+
 /** Skip non-kill hit-spark spawns above this (keep the white victim flash). */
 export const HITSPARK_SKIP_BUDGET = 580;
-/** Skip spawning effects further than this outside the camera rect. */
 const OFFSCREEN_PAD = 100;
 const MAX_SHATTER_GROUPS = 24;
-/** NOVA pulses + mine blasts are ring-hungry; rings are pooled Graphics. */
 const MAX_RINGS = 20;
 const MAX_CONVERGES = 12;
 const SHATTER_LIFE_MS = 500;
 
 interface ShatterSeg {
-  // segment half-vector (rotates), midpoint offset from origin (flies outward)
   hx: number;
   hy: number;
   mx: number;
   my: number;
   vx: number;
   vy: number;
-  /** rad/s */
   rotV: number;
   rot: number;
 }
@@ -111,6 +105,7 @@ interface HullCue {
   rot: number;
   bornAt: number;
 }
+
 interface BossCue {
   x: number;
   y: number;
@@ -172,7 +167,7 @@ export class FxPool {
       .setVisible(false);
   }
 
-  reset(): void {
+  reset() {
     this.battle.reset();
     this.shatters.length = 0;
     this.rings.length = 0;
@@ -187,12 +182,13 @@ export class FxPool {
     this.bossText.setVisible(false);
   }
 
-  aliveParticles(): number {
+  aliveParticles() {
     return this.sparkAdd.getAliveParticleCount() + this.debrisNormal.getAliveParticleCount();
   }
 
-  private onScreen(x: number, y: number): boolean {
+  private onScreen(x: number, y: number) {
     const v = this.scene.cameras.main.worldView;
+
     return (
       x >= v.x - OFFSCREEN_PAD &&
       x <= v.right + OFFSCREEN_PAD &&
@@ -202,19 +198,19 @@ export class FxPool {
   }
 
   /** ADD energy sparks (the one spark texture, re-tinted/re-aimed per burst). */
-  sparks(x: number, y: number, count: number, tint: number, opts: SparkOpts = {}): void {
+  sparks(x: number, y: number, count: number, tint: number, opts: SparkOpts = {}) {
     if (!this.onScreen(x, y)) {
       return;
     }
+
     const budget = opts.importance === "important" ? PARTICLE_BUDGET : COMMON_PARTICLE_BUDGET;
     const n = Math.min(count, Math.max(0, budget - this.aliveParticles()));
+
     if (n <= 0) {
       return;
     }
+
     const e = this.sparkAdd;
-    // Per-burst min/max overrides must go through updateConfig (re-runs
-    // loadConfig); the setEmitterAngle/setParticleLifespan/etc. mutators
-    // silently no-op for min/max + eased ops in Phaser 4.
     e.updateConfig({
       angle: { max: opts.angleMax ?? 360, min: opts.angleMin ?? 0 },
       lifespan: { max: opts.lifeMax ?? 250, min: opts.lifeMin ?? 150 },
@@ -226,15 +222,18 @@ export class FxPool {
   }
 
   /** NORMAL matter debris (star texture). */
-  debris(x: number, y: number, count: number, tint: number, opts: SparkOpts = {}): void {
+  debris(x: number, y: number, count: number, tint: number, opts: SparkOpts = {}) {
     if (!this.onScreen(x, y)) {
       return;
     }
+
     const budget = opts.importance === "important" ? PARTICLE_BUDGET : COMMON_PARTICLE_BUDGET;
     const n = Math.min(count, Math.max(0, budget - this.aliveParticles()));
+
     if (n <= 0) {
       return;
     }
+
     const e = this.debrisNormal;
     e.updateConfig({
       angle: { max: opts.angleMax ?? 360, min: opts.angleMin ?? 0 },
@@ -255,13 +254,15 @@ export class FxPool {
     tint: number,
     alpha0 = 0.8,
     importance: FxImportance = "common",
-  ): void {
+  ) {
     if (!this.onScreen(x, y)) {
       return;
     }
+
     if (!admitFx(this.rings, MAX_RINGS, importance)) {
       return;
     }
+
     this.rings.push({ alpha0, bornAt: this.scene.time.now, durMs, importance, r0, r1, tint, x, y });
   }
 
@@ -277,23 +278,27 @@ export class FxPool {
     rot: number,
     tint: number,
     importance: FxImportance = "common",
-  ): void {
+  ) {
     if (!this.onScreen(x, y) || points.length < 2) {
       return;
     }
+
     if (!admitFx(this.shatters, MAX_SHATTER_GROUPS, importance)) {
       return;
     }
+
     const cos = Math.cos(rot);
     const sin = Math.sin(rot);
     const segs: ShatterSeg[] = [];
+
     for (let i = 0; i < points.length; i += 1) {
       const a = points[i];
       const b = points[(i + 1) % points.length];
+
       if (!a || !b) {
         continue;
       }
-      // rotate into world orientation
+
       const ax = a.x * cos - a.y * sin;
       const ay = a.x * sin + a.y * cos;
       const bx = b.x * cos - b.y * sin;
@@ -313,6 +318,7 @@ export class FxPool {
         vy: (my / outLen) * speed,
       });
     }
+
     this.shatters.push({ bornAt: this.scene.time.now, importance, segs, tint, x, y });
   }
 
@@ -325,13 +331,15 @@ export class FxPool {
     durMs: number,
     tint: number,
     importance: FxImportance = "common",
-  ): void {
+  ) {
     if (!this.onScreen(x, y)) {
       return;
     }
+
     if (!admitFx(this.converges, MAX_CONVERGES, importance)) {
       return;
     }
+
     this.converges.push({
       bornAt: this.scene.time.now,
       count,
@@ -346,28 +354,31 @@ export class FxPool {
   }
 
   /** One intact hull echo distinguishes growth from a kill's flying fragments. */
-  hullUpgrade(x: number, y: number, points: readonly Vec[], rot: number, level: number): void {
+  hullUpgrade(x: number, y: number, points: readonly Vec[], rot: number, level: number) {
     this.hullCue = { bornAt: this.scene.time.now, points, rot, x, y };
     this.hullText.setText(`HULL ${level} · UPGRADED`);
   }
 
-  bossDefeat(x: number, y: number, tint: number): void {
+  bossDefeat(x: number, y: number, tint: number) {
     if (!this.onScreen(x, y)) {
       return;
     }
+
     this.bossCue = { bornAt: this.scene.time.now, tint, x, y };
   }
 
   /** Redraw all pooled stroke FX. Call once per frame. */
-  update(dt: number, now: number): void {
+  update(dt: number, now: number) {
     this.battle.update(now);
     const sg = this.shatterGfx;
     sg.clear();
     this.shatters = this.shatters.filter((g) => now - g.bornAt < SHATTER_LIFE_MS);
+
     for (const g of this.shatters) {
       const age = (now - g.bornAt) / SHATTER_LIFE_MS;
       const alpha = 1 - age;
       sg.lineStyle(1, g.tint, alpha);
+
       for (const s of g.segs) {
         s.mx += s.vx * dt;
         s.my += s.vy * dt;
@@ -383,30 +394,35 @@ export class FxPool {
     const rg = this.ringGfx;
     rg.clear();
     this.rings = this.rings.filter((r) => now - r.bornAt < r.durMs);
+
     for (const r of this.rings) {
       const t = (now - r.bornAt) / r.durMs;
-      // Cubic.Out
       const eased = 1 - (1 - t) ** 3;
       const radius = r.r0 + (r.r1 - r.r0) * eased;
       rg.lineStyle(1, r.tint, r.alpha0 * (1 - t));
       rg.strokeCircle(r.x, r.y, radius);
     }
+
     this.converges = this.converges.filter((c) => now - c.bornAt < c.durMs);
+
     for (const c of this.converges) {
       const t = (now - c.bornAt) / c.durMs;
       const dist = c.radius * (1 - t);
       rg.fillStyle(c.tint, 0.9 * (1 - t * 0.4));
+
       for (let i = 0; i < c.count; i += 1) {
         const ang = c.seed + (Math.PI * 2 * i) / c.count;
         rg.fillCircle(c.x + Math.cos(ang) * dist, c.y + Math.sin(ang) * dist, 1.5);
       }
     }
+
     this.drawMilestones(now);
   }
 
-  private drawMilestones(now: number): void {
+  private drawMilestones(now: number) {
     const sw = 1 / Math.max(0.35, this.scene.cameras.main.zoom);
     const hull = this.hullCue;
+
     if (hull) {
       const t = Math.min(1, (now - hull.bornAt) / 850);
       const alpha = Math.min(1, (1 - t) * 3);
@@ -415,12 +431,15 @@ export class FxPool {
       g.lineStyle(sw, 0xdc_e9_f0, alpha * 0.75);
       const cos = Math.cos(hull.rot) * scale;
       const sin = Math.sin(hull.rot) * scale;
+
       for (let i = 0; i < hull.points.length; i += 1) {
         const a = hull.points[i];
         const b = hull.points[(i + 1) % hull.points.length];
+
         if (!a || !b) {
           continue;
         }
+
         g.lineBetween(
           hull.x + a.x * cos - a.y * sin,
           hull.y + a.x * sin + a.y * cos,
@@ -428,11 +447,13 @@ export class FxPool {
           hull.y + b.x * sin + b.y * cos,
         );
       }
+
       this.hullText
         .setPosition(hull.x, hull.y + 42 * sw)
         .setScale(sw)
         .setAlpha(alpha)
         .setVisible(t < 1);
+
       if (t >= 1) {
         this.hullCue = null;
       }
@@ -441,12 +462,14 @@ export class FxPool {
     }
 
     const boss = this.bossCue;
+
     if (boss) {
       const t = Math.min(1, (now - boss.bornAt) / 1000);
       const alpha = Math.min(1, (1 - t) * 2.5);
       const radius = REDUCED_MOTION.matches ? 74 : 58 + 30 * t;
       const g = this.ringGfx;
       g.lineStyle(sw, boss.tint, alpha * 0.8);
+
       for (let i = 0; i < 4; i += 1) {
         const angle = Math.PI / 4 + (i * Math.PI) / 2;
         const x = boss.x + Math.cos(angle) * radius;
@@ -456,11 +479,13 @@ export class FxPool {
         g.lineBetween(x - dx, y, x, y);
         g.lineBetween(x, y, x, y - dy);
       }
+
       this.bossText
         .setPosition(boss.x, boss.y - 68 * sw)
         .setScale(sw)
         .setAlpha(alpha)
         .setVisible(t < 1);
+
       if (t >= 1) {
         this.bossCue = null;
       }

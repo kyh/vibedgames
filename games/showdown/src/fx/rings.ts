@@ -1,5 +1,3 @@
-// Expanding shockwave rings laid flat on the ground. Additive, so several can
-// overlap around a big blast without muddying each other.
 import * as THREE from "three";
 import { clamp } from "../utils";
 import { conformGroundGeometry, terrainHeight } from "../world/terrain";
@@ -29,6 +27,7 @@ export class RingPool {
           transparent: true,
         }),
       );
+
       mesh.visible = false;
       mesh.renderOrder = 6;
       mesh.userData.noAO = true;
@@ -37,19 +36,14 @@ export class RingPool {
     }
   }
 
-  spawn(
-    x: number,
-    z: number,
-    radius: number,
-    color: THREE.Color,
-    duration = 0.4,
-    brightness = 3,
-  ): void {
+  spawn(x: number, z: number, radius: number, color: THREE.Color, duration = 0.4, brightness = 3) {
     const ring = this.rings[this.cursor];
     this.cursor = (this.cursor + 1) % this.rings.length;
+
     if (!ring) {
       return;
     }
+
     ring.t = 0;
     ring.T = duration;
     ring.r = radius;
@@ -58,19 +52,20 @@ export class RingPool {
     ring.mesh.material.color.copy(color).multiplyScalar(brightness);
   }
 
-  update(dt: number): void {
+  update(dt: number) {
     for (const ring of this.rings) {
       if (!ring.mesh.visible) {
         continue;
       }
+
       ring.t += dt;
       const t = clamp(ring.t / ring.T, 0, 1);
-      // Ease-out: the ring races outward and then coasts.
       const eased = 1 - (1 - t) * (1 - t);
       const scale = 0.2 + eased * ring.r;
       ring.mesh.scale.set(scale, 1, scale);
       conformGroundGeometry(ring.mesh.geometry, ring.mesh.position.x, ring.mesh.position.z, scale);
       ring.mesh.material.opacity = (1 - t) * 0.9;
+
       if (t >= 1) {
         ring.mesh.visible = false;
       }

@@ -6,15 +6,13 @@ import { RPCLink } from "@orpc/client/fetch";
 import { getBaseUrl, getToken } from "./config.js";
 import { getAccessToken } from "./oauth.js";
 import { PACKAGE_VERSION } from "./package-root.js";
-import type { JsonValue } from "./types.js";
 
-const makeClient = (baseUrl: string): ContractClient =>
+const makeClient: (baseUrl: string) => ContractClient = (baseUrl) =>
   createORPCClient(
     new RPCLink({
-      // Read per request, so a login's access token is refreshed before the
-      // call that would find it expired.
       headers: async () => {
         const token = await getAccessToken();
+
         return token
           ? { Authorization: `Bearer ${token}`, [CLI_VERSION_HEADER]: PACKAGE_VERSION }
           : { [CLI_VERSION_HEADER]: PACKAGE_VERSION };
@@ -25,7 +23,7 @@ const makeClient = (baseUrl: string): ContractClient =>
   );
 
 /** Authenticated client — requires a saved login or `VG_TOKEN`. */
-export const createClient = (): ContractClient => {
+export const createClient: () => ContractClient = () => {
   if (!getToken()) {
     throw new Error("Not logged in. Run `vg login` to authenticate.");
   }
@@ -34,7 +32,7 @@ export const createClient = (): ContractClient => {
 };
 
 /** The oRPC error code on a failed call, or null for non-oRPC failures. */
-export const authErrorCode = (cause: unknown): string | null =>
+export const authErrorCode: (cause: unknown) => string | null = (cause) =>
   cause instanceof ORPCError ? cause.code : null;
 
 type ForwardInput = RouterInputs["generate"]["forward"];
@@ -45,7 +43,5 @@ type ForwardInput = RouterInputs["generate"]["forward"];
  * everything downstream narrows with the guards in `types.ts` rather than
  * asserting a shape at the call site.
  */
-export const forwardJson = async (
-  client: ContractClient,
-  input: ForwardInput,
-): Promise<JsonValue> => await client.generate.forward(input);
+export const forwardJson = async (client: ContractClient, input: ForwardInput) =>
+  await client.generate.forward(input);

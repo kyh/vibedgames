@@ -4,7 +4,7 @@ import { RaycastVehicle } from "../src/vehicle/raycast-vehicle.ts";
 type Check = (name: string, passed: boolean, detail?: string) => void;
 
 /** A parked taxi must not slide sideways into a building on SF's hills. */
-export const checkVehicleParking = async (check: Check): Promise<void> => {
+export const checkVehicleParking = async (check: Check) => {
   await ready();
   const world = new World({ x: 0, y: -30, z: 0 });
   world.timestep = 1 / 60;
@@ -16,12 +16,14 @@ export const checkVehicleParking = async (check: Check): Promise<void> => {
       .setFriction(0.9),
   );
   const vehicle = new RaycastVehicle({ raw: () => world }, 0, 1.4, 0, Math.PI / 2);
-  const advance = (frames: number): void => {
+
+  const advance = (frames: number) => {
     for (let i = 0; i < frames; i += 1) {
       vehicle.fixedStep(1 / 60);
       world.step();
     }
   };
+
   vehicle.setControls({ boost: false, brake: 0, steer: 0, throttle: 0 }, false);
   advance(180);
   const start = vehicle.chassis.translation();

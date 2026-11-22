@@ -1,22 +1,14 @@
-// Curated shop (build-doc §10e). Short on purpose — a few stat sticks plus a
-// handful of actives. Balance with the game-balance skill once playable; audit
-// for a dominant item. Shop is only usable in your own base.
-
 export interface ItemStats {
   damage?: number;
   hp?: number;
   mp?: number;
   armor?: number;
-  // additive fraction (0.2 = +20% mitigation)
   magicResist?: number;
   moveSpeed?: number;
   hpRegen?: number;
   mpRegen?: number;
-  // attacks/sec bonus points ×100 (30 = +0.30 aps via stats)
   attackSpeed?: number;
-  // additive fraction to ability damage (0.2 = +20%)
   abilityPower?: number;
-  // additive fraction
   lifesteal?: number;
 }
 
@@ -164,7 +156,7 @@ export const ITEM_BY_ID: Record<string, ItemDef> = Object.fromEntries(ITEMS.map(
 export const MAX_ITEMS = 6;
 
 /** Sum every stat across a held item list. */
-export const sumItemStats = (items: string[]): Required<ItemStats> => {
+export const sumItemStats = (items: string[]) => {
   const acc: Required<ItemStats> = {
     abilityPower: 0,
     armor: 0,
@@ -178,16 +170,18 @@ export const sumItemStats = (items: string[]): Required<ItemStats> => {
     mp: 0,
     mpRegen: 0,
   };
+
   for (const id of items) {
     const it = ITEM_BY_ID[id];
+
     if (!it) {
       continue;
     }
-    // SAFETY: acc is the literal built just above with exactly the ItemStats
-    // keys, so Object.keys over it is precisely keyof ItemStats.
+
     for (const k of Object.keys(acc) as (keyof ItemStats)[]) {
       acc[k] += it.stats[k] ?? 0;
     }
   }
+
   return acc;
 };

@@ -1,21 +1,12 @@
-// Who the garrison fields, and how the core's tuning reaches them.
-//
-// The core's Mission/Holdout director was written for machines: it spawns two
-// kinds by name — "gull" (many, light) and "hound" (fewer, tough) — and its
-// difficulty presets and Holdout waves tune them by writing machine numbers
-// into TUNE under those names. The garrison keeps the names as the contract
-// and fills the slots with soldiers: a rifleman for a gull, a heavy for a
-// hound. It reads the core's numbers as ratios over the machines' baseline,
-// so "Hard" or "wave 9" scale a soldier the way they scaled a machine.
 import type { EnemyTune } from "../core/types";
 import type { Profile } from "../soldier/soldier-brain";
 
 export type Role = "gull" | "hound";
 
-export const roleOf = (type: string): Role => (type === "hound" ? "hound" : "gull");
+export const roleOf: (type: string) => Role = (type) => (type === "hound" ? "hound" : "gull");
 
 /** The machines' Standard tuning: what every preset is measured against. */
-export const baseTune = (): EnemyTune => ({
+export const baseTune = () => ({
   exposureUp: 0.1,
   gull: {
     boltDamage: 7,
@@ -50,7 +41,6 @@ interface RoleDef {
   profile: Profile;
 }
 
-/** Seeing 200 degrees ahead, as the machines did. */
 const CONE = Math.cos((100 * Math.PI) / 180);
 
 /** Standard soldiers, before the core's tuning scales them. */
@@ -95,13 +85,13 @@ export const ROLES: Record<Role, RoleDef> = {
   },
 };
 
-const mean = (pair: readonly number[]): number =>
+const mean = (pair: readonly number[]) =>
   pair.length > 0 ? pair.reduce((a, b) => a + b, 0) / pair.length : 1;
 
-const scalePair = ([lo, hi]: readonly [number, number], k: number): [number, number] => [
-  lo * k,
-  hi * k,
-];
+const scalePair: ([lo, hi]: readonly [number, number], k: number) => [number, number] = (
+  [lo, hi],
+  k,
+) => [lo * k, hi * k];
 
 export interface Fielded {
   label: string;
@@ -110,19 +100,21 @@ export interface Fielded {
 }
 
 /** A soldier for `role`, scaled by the core's current tuning. */
-export const field = (role: Role, tune: EnemyTune): Fielded => {
+export const field: (role: Role, tune: EnemyTune) => Fielded = (role, tune) => {
   const def = ROLES[role];
   const now = tune[role];
   const base = BASE[role];
+
   const damage =
     role === "gull"
       ? tune.gull.boltDamage / BASE.gull.boltDamage
       : tune.hound.shotDamage / BASE.hound.shotDamage;
+
   const pace = mean(now.cooldown) / mean(base.cooldown);
-  // A tighter spread is a better shot; capped so a soldier never lasers.
   const accuracy = Math.min(1.35, base.spreadFar / now.spreadFar);
   const speed = role === "hound" ? tune.hound.runSpeed / BASE.hound.runSpeed : 1;
   const { aim, gait, senses } = def.profile;
+
   return {
     hp: Math.round(def.hp * (now.hp / base.hp)),
     label: def.label,

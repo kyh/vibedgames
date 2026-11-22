@@ -19,9 +19,11 @@ test("an evade travels the same distance and duration across frame rates and dir
     const state = createEvasion(30, 40, 0);
     const position = { x: 0, y: terrainHeight(0, 6), z: 6 };
     let complete = false;
+
     for (let time = 0; time < EVADE.duration + dt && !complete; time += dt) {
       complete = advanceEvasion(state, position, open, dt);
     }
+
     assert.equal(complete, true);
     assert.equal(state.elapsed, EVADE.duration);
     assert.ok(Math.abs(position.x - 1.8) < 1e-10);
@@ -53,12 +55,15 @@ test("evade substeps stop at a one-tile obstacle even when a whole evade fits in
       pushOutOfTile(position, radius, GRID_HALF + 1, GRID_HALF);
     },
   };
+
   for (const dt of [1 / 60, 1]) {
     const state = createEvasion(1, 0, 0);
     const position = { x: 0.5, y: 0, z: 0.5 };
+
     for (let time = 0; time < EVADE.duration + dt; time += dt) {
       advanceEvasion(state, position, world, dt);
     }
+
     assert.ok(Math.abs(position.x - (1 - BRAWLER_RADIUS)) < 1e-10);
     assert.equal(position.z, 0.5);
   }
@@ -73,6 +78,7 @@ test("diagonal evades slide along cover without crossing the blocked face", () =
       }
     },
   };
+
   const state = createEvasion(1, 1, 0);
   const position = { x: 0.5, y: 0, z: 0.5 };
   advanceEvasion(state, position, world, 1);

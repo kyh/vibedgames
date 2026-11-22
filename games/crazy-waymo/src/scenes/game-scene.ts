@@ -1,5 +1,4 @@
 import { choosePlayerSpawn, isPlayerSpawnSafe } from "../world/player-spawn";
-import type { PlayerSpawn } from "../world/player-spawn";
 import * as THREE from "three";
 import { notifyGameStarted, watchControlContext } from "@repo/embed";
 import { isPlaytestRequested } from "@vibedgames/playtest";
@@ -26,7 +25,6 @@ import { SignalLights } from "../fx/signal-lights";
 import type { SkidMarks } from "../fx/skids";
 import { SpeedLines } from "../fx/speedlines";
 import { VehicleFxRig } from "../fx/vehicle-fx";
-import type { WaterContact } from "../vehicle/water-contact";
 import { SEA_Y } from "../world/water";
 import { VehicleLights } from "../fx/vehicle-lights";
 import { Shockwaves } from "../fx/shockwaves";
@@ -89,205 +87,184 @@ import type { WorldCoreSystems, WorldSpawn } from "./world-loader";
 
 const HALF_PI = Math.PI / 2;
 
-/** Distance to the nearest garage that starts fetching the showroom bodies. */
 const GARAGE_PREFETCH_DIST = 140;
 
-/** One axis of the trailer staging clamp — see TrailerStage.placeCar. */
-const clampToPlayArea = (v: number, half: number): number =>
+const clampToPlayArea = (v: number, half: number) =>
   Math.min(half - STAGE_MARGIN, Math.max(-(half - STAGE_MARGIN), v));
 
-// Shore texture for the ocean shader: landFactor (the same pure mask the
-// terrain samples) baked over the map + margin. R8 bilinear — the fragment
-// shader turns it into the shallow ramp and the lapping foam band.
 const SHORE_TEX_N = 256;
-// fraction of the map span the texture covers
 const SHORE_SPAN = 1.12;
-const buildShoreTexture = (): THREE.DataTexture => {
+
+const buildShoreTexture = () => {
   const n = SHORE_TEX_N;
   const data = new Uint8Array(n * n);
+
   for (let iz = 0; iz < n; iz += 1) {
     const v = (iz / (n - 1) - 0.5) * SHORE_SPAN + 0.5;
+
     for (let ix = 0; ix < n; ix += 1) {
       const u = (ix / (n - 1) - 0.5) * SHORE_SPAN + 0.5;
       data[iz * n + ix] = Math.round(THREE.MathUtils.clamp(landFactor(u, v), 0, 1) * 255);
     }
   }
+
   const tex = new THREE.DataTexture(data, n, n, THREE.RedFormat, THREE.UnsignedByteType);
   tex.magFilter = THREE.LinearFilter;
   tex.minFilter = THREE.LinearFilter;
   tex.needsUpdate = true;
+
   return tex;
 };
 
-// --- Kart-royale ocean pass (see the ocean block in the constructor) --------
-// From a chase cam a few units up nearly ALL visible water is grazing
-// incidence, where uncapped Schlick Fresnel hands ~90% of every pixel to the
-// env reflection and the turquoise depth ramp cannot exist. Capping the
-// grazing response is what lets the body color survive at range.
 const OC_FRES_MAX = 0.6;
-/** Shallows give up a third of their reflectivity to stay turquoise. */
 const OC_SHALLOW_REFLECT = 0.62;
-// The sun path: hand-clamped lobes (a physical GGX D would detonate bloom).
-// `flatten01` ramps near -> far; the track CONE WIDENS toward the viewer —
-// narrow column at the horizon, fanning out near the camera.
 const OC_PATH_NEAR = 90;
 const OC_PATH_FAR = 1100;
 const OC_TRACK_EXP_NEAR = 3.5;
 const OC_TRACK_EXP_FAR = 15;
-// near lobe — rides the real Gerstner normals
 const OC_TIGHT_GAIN = 7;
 const OC_BROAD_EXP_NEAR = 400;
 const OC_BROAD_EXP_FAR = 30;
-// far lobe stands in for the flattened wavelets
 const OC_BROAD_GAIN_FAR = 4.2;
-// anti-solar sea dark but never black
 const OC_OFF_AXIS_FLOOR = 0.15;
-// hash-grid far glitter riding the track
 const OC_GLINT_GAIN = 3.6;
-// Path radiance vs the live sun (color x intensity). Kart-royale ran ~1.5x its
-// sun color at exposure 1.05; at waymo's 0.62 the same displayed lane needs
-// ~1.7x the radiance — peaks deliberately clear the day bloom cut.
 const OC_SUN_GAIN = 1.35;
-// Pre-saturation band: the fog drains chroma 1.85x faster than value
-// (render/aerial-fog.ts) — right for headlands, fatal for the bay, where hue
-// is the only "this is water" signal at range. Push back over exactly the
-// drained band, clamped so extrapolation never goes negative.
 const OC_SAT_NEAR = 60;
 const OC_SAT_FULL = 480;
 const OC_SAT_OUT = 900;
 const OC_SAT_GONE = 1900;
 const OC_PRESAT = 1.35;
-// Horizon dissolve: the fog caps at 0.92 (aerial-fog FOG_MAX) and 8% of a lit
-// sea is still a hard line — walk the water fully onto the haze it was
-// converging to, AFTER the fog mix so the two agree in the same color space.
 const OC_SKY_NEAR = 800;
 const OC_SKY_FAR = 2500;
-// Sun-keyed terms hold through sunset (lamp opens at 0.62 there) and die
-// across dusk, so the lane sweeps golden hour -> night without popping.
 const OC_SUN_FADE_LO = 0.62;
 const OC_SUN_FADE_HI = 1;
-// --- Ambient bed inputs (see updateAmbience) ---
 const AMBIENCE_HZ = 4;
-/** Ring of offsets the shore probe samples the land mask at, in world units. */
+
 const SHORE_PROBES: readonly { x: number; z: number }[] = Array.from({ length: 8 }, (_, i) => {
   const a = (i / 8) * Math.PI * 2;
+
   return { x: Math.sin(a) * 110, z: Math.cos(a) * 110 };
 });
-/** Middle of the strait — where the foghorn lives. */
+
 const GATE_POS = new THREE.Vector3((0.27 - 0.5) * WORLD_W, 30, (0.02 - 0.5) * WORLD_H);
 
-// Parked cars are dark at night, which is correct and also dead. Every Nth one
-// gets a dim amber marker lamp — enough to dot the kerb line without turning
-// the street into fairy lights.
 const PARKED_MARKER_STRIDE = 5;
 const PARKED_MARKER_CAP = 420;
-const parkedMarkers = (city: CityModel): readonly Beacon[] => {
+
+const parkedMarkers = (city: CityModel) => {
   const out: Beacon[] = [];
   const specs = city.parkedCarSpecs;
+
   for (let i = 0; i < specs.length && out.length < PARKED_MARKER_CAP; i += PARKED_MARKER_STRIDE) {
     const s = specs[i];
+
     if (!s) {
       continue;
     }
+
     out.push({ color: 0xff_b3_47, size: 0.85, x: s.x, y: city.heightAt(s.x, s.z) + 0.65, z: s.z });
   }
+
   return out;
 };
 
-// Initial sun direction — the DayNight cycle takes over from the first frame.
 const SUN_DIR = new THREE.Vector3().setFromSphericalCoords(
   1,
   THREE.MathUtils.degToRad(90 - 32),
   THREE.MathUtils.degToRad(150),
 );
-// Sum of the taxi and a car's collision half-extents — the centre distance at
-// which their bodies touch. The punt fires predictively at this range (plus the
-// ground the taxi covers this frame) so the car goes DYNAMIC before Rapier
-// resolves the overlap, instead of the taxi ramming a still-kinematic wall.
+
 const CONTACT_R = 2.6;
-// above the contact zone so a hit isn't also a "near miss"
 const NEAR_MISS_MIN = 2.8;
 const NEAR_MISS_MAX = 4.6;
 const NEAR_MISS_SPEED = 22;
 const CRASH_THRESHOLD = 7;
-// seconds per 3-2-1 beat
 const COUNTDOWN_STEP = 0.45;
 const BEST_KEY = "crazy-waymo:best";
 const SOUND_KEY = "crazy-waymo:sound";
 const HINT_DRIFT_KEY = "crazy-waymo:hint-drift";
 const HINT_BOOST_KEY = "crazy-waymo:hint-boost";
 
-// Mobile quality knobs (tier-independent; the tiered ones live in quality.ts).
 const LAMP_GLOW_BUDGET = { cap: 150, poolScale: 0.75 } as const;
-// Click-to-drive arrival: within this much route, at rest.
 const ARRIVE_DISTANCE = 4;
 const ARRIVE_SPEED = 2;
-// mobile HUD/minimap redraw rate (desktop stays per-frame)
 const HUD_HZ = 30;
-// Re-bake the mobile sky when the day-night phase drifts this far past the
-// baked snapshot (~40-60s of wall time; the phase moves ~1.4-2.8e-5/s).
 const SKY_REBAKE_PHASE = 8e-4;
 const SKY_BAKE_SIZE = 256;
 
-// tierColor() → CSS hex, memoized — the minimap builds these per marker per
-// frame and the strings never change.
 const TIER_HEX = new Map<string, string>();
-const tierHex = (tier: Parameters<typeof tierColor>[0]): string => {
+
+const tierHex = (tier: Parameters<typeof tierColor>[0]) => {
   const hit = TIER_HEX.get(tier);
+
   if (hit !== undefined) {
     return hit;
   }
+
   const s = `#${tierColor(tier).toString(16).padStart(6, "0")}`;
   TIER_HEX.set(tier, s);
+
   return s;
 };
 
-// localStorage throws in some embeds (sandboxed iframes, blocked cookies,
-// private modes). The game must boot and run without persistence.
-const storageGet = (key: string): string | null => {
+const storageGet = (key: string) => {
   try {
     return window.localStorage.getItem(key);
   } catch {
     return null;
   }
 };
-const storageSet = (key: string, value: string): void => {
+
+const storedSkinIds = (raw: string | null) => {
+  if (!raw) {
+    return [];
+  }
+
   try {
-    window.localStorage.setItem(key, value);
+    const parsed = parseJsonText(raw);
+
+    return Array.isArray(parsed) ? parsed.filter(isJsonString) : [];
   } catch {
-    // Blocked store just loses persistence — never the run.
+    return [];
   }
 };
 
-const startBannerStats = (best: number): string =>
+const storageSet = (key: string, value: string) => {
+  try {
+    window.localStorage.setItem(key, value);
+
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const startBannerStats = (best: number) =>
   best > 0
     ? `BEST $${best.toLocaleString("en-US")}`
     : `Chain drop-offs to run the combo up to ${FARE.comboMax}×.`;
 
 const SPAWN_KEY = "crazy-waymo:spawn";
 
-// DEV: `?room=<id>` plays in that room instead of everyone's, and `?online`
-// skips the title into a run there, from a start every such client shares and
-// none remembers: how the multiplayer lag check's two clients meet, with no
-// title in the way and no whole city between two random starts.
 const devParams = import.meta.env.DEV ? new URLSearchParams(window.location.search) : null;
 const DEV_ROOM = devParams?.get("room") ?? "";
 const DEV_ONLINE = devParams?.has("online") === true;
-/** The `?online` start: the spawn picker's first safe pick from this seed. */
 const DEV_ONLINE_START_SEED = 1;
 
-/** A stored spawn is data from an older build: every field is re-checked, and
- *  the caller still runs it through the safety test against today's world. */
-const parseSpawn = (raw: string | null): PlayerSpawn | null => {
+const parseSpawn = (raw: string | null) => {
   if (!raw) {
     return null;
   }
+
   try {
     const value = parseJsonText(raw);
+
     if (!isJsonObject(value)) {
       return null;
     }
+
     const { x, z, yaw, gx, gz } = value;
+
     return isFiniteJsonNumber(x) &&
       isFiniteJsonNumber(z) &&
       isFiniteJsonNumber(yaw) &&
@@ -300,22 +277,16 @@ const parseSpawn = (raw: string | null): PlayerSpawn | null => {
   }
 };
 
-const readBest = (): number => {
+const readBest = () => {
   const raw = storageGet(BEST_KEY);
   const n = raw === null ? 0 : Number(raw);
+
   return Number.isFinite(n) ? n : 0;
 };
 
-/** Centimeter precision is plenty for remote taxis and trims the 20 Hz
- *  payload (~64 players of full-precision float64 JSON adds up). */
-const roundNet = (v: number): number => Math.round(v * 100) / 100;
-/** Velocity only steers a late-update coast (see net/remote-cars blendPose). */
-const roundVel = (v: number): number => Math.round(v * 10) / 10;
+const roundNet = (v: number) => Math.round(v * 100) / 100;
+const roundVel = (v: number) => Math.round(v * 10) / 10;
 
-// TRAILER (src/trailer/trailer-director.ts): the staging facade beginTrailer()
-// hands the director — controlled access to the private systems it stages
-// (player pose/speed, traffic placement, fares, cones, camera, day phase,
-// scripted input, fake multiplayer). Only constructed in ?trailer=1 boots.
 export interface TrailerStage {
   readonly car: Car;
   readonly city: CityModel;
@@ -376,16 +347,11 @@ export interface TrailerStage {
   wearSkin: (skinId: string) => void;
 }
 
-// Landing dust ring gate (updateLandingFx): seconds of air, or Car.justLanded.
-// A spawn/teleport drops the car from heightAt + 1.4: ~0.18-0.26 s of air,
-// landing at 5.5-7.7 m/s (justLanded ~6.7-7.9), so both gates sit above it.
 const LANDING_RING_AIR = 0.35;
 const LANDING_RING_IMPACT = 9;
 
 export class GameScene {
   readonly scene = new THREE.Scene();
-  // Coarse primary pointer = phone/tablet: mobile-only budgets apply.
-  // (Declared first: later field initializers read it.)
   private readonly mobileUi = isCoarsePointer();
   private rig: ChaseCamera;
   private cache = new ModelCache();
@@ -395,10 +361,6 @@ export class GameScene {
   private sfx = new Sfx();
   private state = new GameState();
 
-  // Multiplayer: free-roam presence over the shared (fixed-seed) city. Joined
-  // once the city is playable (joinRoom) and played solo when no room admits
-  // us in time. Only the local car transform is broadcast — no shared scoring.
-  // Null until then, like the remote cars that render the room.
   private net: MultiplayerClient | null = null;
   private remoteCars: RemoteCars | null = null;
   private bubbles = new SpeechBubbles();
@@ -412,12 +374,9 @@ export class GameScene {
   private garageOpen = false;
   private garageEl: HTMLDivElement | null = null;
   private garagePreview: GaragePreview | null = null;
-  /** The showroom bodies (4 MB of generated meshes) are fetched on approach,
-   *  not at boot — see manifest GEN_ROBOTAXIS. Null until the first garage. */
   private showroomLoad: Promise<void> | null = null;
   private ownedSkins = new Set<string>(["waymo"]);
   private readonly netRate = new FixedRate(NET_TICK_HZ);
-  // performance.now() of the previous updateNet; 0 before the first.
   private netAt = 0;
   private netInfoEl = document.querySelector("#netinfo");
 
@@ -428,8 +387,6 @@ export class GameScene {
   private signalLights: SignalLights | null = null;
   private skids: SkidMarks | null = null;
   private debris: Debris | null = null;
-  // World-space anime streaks are the PHONE speed read; on desktop the grade
-  // shader's speed-line combs replace them (two vocabularies would double up).
   private speedLines = this.mobileUi ? new SpeedLines() : null;
   private clouds = new SkyClouds(this.mobileUi);
   private marineSky = new MarineSky();
@@ -450,8 +407,6 @@ export class GameScene {
   private cones: SmashCones | null = null;
   private parked: ParkedCars | null = null;
   private minimap: Minimap | null = null;
-  // Click-to-drive: the big map sets mapNav's destination and mapPilot
-  // drives the route until the taxi arrives or the player touches a control.
   private mapOverlay: MapOverlay | null = null;
   private readonly mapNav = new Navigator(() => this.playtestView());
   private readonly mapPilot = new Autopilot();
@@ -465,18 +420,13 @@ export class GameScene {
   private sun = new THREE.DirectionalLight(0xff_f2_d8, 2);
   private hemi = new THREE.HemisphereLight(0xbf_e0_ff, 0x4a_4a_3e, 0.35);
   private sky: Sky;
-  // Feature tier pushed by the perf governor; desktop never leaves FULL.
   private quality: QualityFeatures = FULL_QUALITY;
   private renderer: THREE.WebGLRenderer | null = null;
-  // Mobile sky bake: the Sky dome rendered once into a small cube RT.
   private skyBakeRT: THREE.WebGLCubeRenderTarget | null = null;
   private skyBakeCam: THREE.CubeCamera | null = null;
-  // <0 = no bake yet
   private skyBakedPhase = -1;
-  // accumulated dt since the last HUD/minimap redraw
   private hudAcc = 0;
   private readonly mmMarkers: MinimapMarker[] = [];
-  // Scratch for the shadow-texel snap (no per-frame allocation).
   private scrSnapDir = new THREE.Vector3();
   private scrRight = new THREE.Vector3();
   private scrToGate = new THREE.Vector3();
@@ -484,54 +434,49 @@ export class GameScene {
   private scrSnapRight = new THREE.Vector3();
   private scrSnapUp = new THREE.Vector3();
   private scrSnapAnchor = new THREE.Vector3();
-  // current shadow ortho half-extent (see updateSun)
   private shadowExtent = 58;
   private mode: GameMode = { kind: "loading", progress: 0 };
   ready: Promise<void> = Promise.resolve();
-  // What the start CTA shows while the city finishes behind the title.
   private finishStage = "DOWNLOADING THE CITY…";
-  get isReady(): boolean {
+  get isReady() {
     return this.loadDone;
   }
 
-  get modeKind(): GameMode["kind"] {
+  get modeKind() {
     return this.mode.kind;
   }
 
-  // ---- wrapper pause -----------------------------------------------------
-  // Gameplay is solo, with no wall-clock timers (fares/score/patience are all
-  // dt-driven — see GameState.update/FareManager), so freezing it is safe.
-  // Presence is not solo: the net keeps running (updatePaused).
   private paused = false;
   private frame = 0;
 
   /** Wrapper asked us to pause: freeze the sim (update() runs only the net
    *  from here) and kill the continuous engine/screech/scrape/boost loops so
    *  nothing drones on under the overlay. */
-  requestPause(): void {
+  requestPause() {
     if (this.paused) {
       return;
     }
+
     this.paused = true;
-    // The pause overlay must not open under the big map; the autopilot keeps its destination.
     this.mapOverlay?.close();
     this.sfx.stopEngine();
     this.sfx.pause();
-    // Music starts with the countdown. Remember it so resume restarts it only
-    // when we were the ones to stop it.
     this.musicPausedByWrapper = this.mode.kind === "playing" || this.mode.kind === "countdown";
+
     if (this.musicPausedByWrapper) {
       this.sfx.stopMusic();
     }
   }
 
   /** Wrapper resume: update() picks the loops back up on its own next frame. */
-  requestResume(): void {
+  requestResume() {
     if (!this.paused) {
       return;
     }
+
     this.paused = false;
     this.sfx.resume();
+
     if (this.musicPausedByWrapper) {
       this.musicPausedByWrapper = false;
       this.sfx.startMusic();
@@ -539,19 +484,21 @@ export class GameScene {
   }
   private musicPausedByWrapper = false;
 
-  // Editor: live street rebuild — regenerate roads in-place and respawn
-  // traffic on the new network. No reload.
-  rebuildStreets(): void {
+  rebuildStreets() {
     const { city } = this;
+
     if (!city) {
       return;
     }
+
     city.rebuildStreetsLive(this.scene);
+
     if (this.traffic) {
       this.scene.remove(this.traffic.group);
       this.traffic.dispose();
       this.traffic = null;
     }
+
     if (this.physics) {
       this.traffic = new Traffic(
         this.cache,
@@ -561,36 +508,34 @@ export class GameScene {
       );
       this.scene.add(this.traffic.group);
     }
+
     this.rebuildSignalLights();
   }
 
-  // Live signal lamps ride the baked poles: rebuilt whenever the network (or
-  // Traffic) changes so lamp state and traffic behavior share one cycle.
-  private rebuildSignalLights(): void {
+  private rebuildSignalLights() {
     if (this.signalLights) {
       this.scene.remove(this.signalLights.mesh);
       this.signalLights.dispose();
       this.signalLights = null;
     }
+
     const { city } = this;
+
     if (!city) {
       return;
     }
-    // Glows ride the drive surface, the same field the signal poles are seated
-    // on — the raw terrain misses the street terrace and detaches them on hills.
+
     this.signalLights = new SignalLights(city.network, (x, z) => city.heightAt(x, z));
     this.scene.add(this.signalLights.mesh);
   }
 
-  // Editor: freeze daylight and push the fog out so the whole map is visible.
   editorLighting = false;
-  enableEditorLighting(): void {
+  enableEditorLighting() {
     this.editorLighting = true;
     this.dayNight.setPhase(0.25);
   }
   private loadDone = false;
   private pendingStart = false;
-  // Touch-capable device: on-screen buttons show and CTA copy says TAP.
   private touchUi = false;
   private touch: TouchControls | null = null;
   private titleT = 0;
@@ -607,79 +552,58 @@ export class GameScene {
   private hintDriftShown = storageGet(HINT_DRIFT_KEY) !== null;
   private hintBoostShown = storageGet(HINT_BOOST_KEY) !== null;
   private turnHold = 0;
-  // Static city solids only (grid-indexed) — traffic contact is handled by the
-  // physics punt path (the taxi shoves cars instead of bouncing off them).
   private solidIndex: SolidIndex | null = null;
   private physics: PhysicsWorld | null = null;
-  // brief sim freeze for crash impact
   private hitStop = 0;
   private spawn: WorldSpawn = { gx: 0, gz: 0, x: 0, yaw: 0, z: 0 };
   private lastDistrict = "";
   private scrArrow = new THREE.Vector3();
-  // When true (set by DEV debug hooks only) the game stops driving the camera,
-  // so an external tool can park it anywhere for inspection.
   freecam = false;
-  // Trailer captures stay offline except an explicit local DEV presence take.
   private readonly trailerMode: boolean;
 
   constructor(aspect: number, trailerMode = false) {
     this.trailerMode = trailerMode;
     this.rig = new ChaseCamera(aspect);
 
-    // Plugging in / unplugging a pad changes which control hints apply — the
-    // title banner is the only live instruction surface, so redraw it.
     watchControlContext(() => {
       if (this.mode.kind === "title") {
         this.toTitle();
       }
     });
 
-    // Aerial-perspective fog. Swaps three's fog shader chunks, so it has to
-    // land before the first program compiles — and every material below, plus
-    // everything the world loader builds, picks it up for free.
     installAerialFog();
-    // Cel-shaded sun ramp + candy albedo (render/toon.ts) — same rule.
     installToonShading();
 
-    // Atmospheric sky + sun.
     const sky = new Sky();
     sky.scale.setScalar(12_000);
     const su = sky.material.uniforms;
-    const setU = (name: string, value: number): void => {
+
+    const setU = (name: string, value: number) => {
       const u = su[name];
+
       if (u) {
         u.value = value;
       }
     };
-    // Low turbidity = the deep saturated zenith blue (hazy 8 read washed-out
-    // beige at noon); mie kept small so the sun halo stays tight.
+
     setU("turbidity", 2.5);
     setU("rayleigh", 1.1);
     setU("mieCoefficient", 0.003);
     setU("mieDirectionalG", 0.85);
     const sunU = su.sunPosition;
+
     if (sunU && sunU.value instanceof THREE.Vector3) {
       sunU.value.copy(SUN_DIR);
     }
-    // The dome paints first so the far-terrain silhouette (renderOrder -1, no
-    // depth test) can sit on top of it and still be overpainted by every real
-    // mesh in the default opaque bucket.
+
     sky.renderOrder = -2;
     this.scene.add(sky);
     this.sky = sky;
     this.scene.add(this.farTerrain.mesh);
-    // Landmark stand-ins are ordinary opaque geometry (depth-TESTED, so the
-    // world in front of them occludes them) — not part of the horizon curtain,
-    // which is why they get their own scene object rather than riding along as
-    // a child of it.
     this.scene.add(this.landmarkSilhouettes.object);
     this.scene.add(this.vehicleLights.group);
-    // Chat (this driver's and the room's) and NPC heckles.
     this.scene.add(this.bubbles.group);
 
-    // Draw-distance fog: the map is far larger than the view, so haze the
-    // horizon well inside the camera far plane (2000). Doubles as the visual cue
-    // for the chunk draw-distance cull.
     const fog = new THREE.Fog(0xbc_d7_ea, 420, 960);
     this.scene.fog = fog;
     this.sceneFog = fog;
@@ -704,35 +628,18 @@ export class GameScene {
     this.scene.add(this.sun);
     this.scene.add(this.sun.target);
 
-    // Ocean surrounding the island (reflects the sky via scene.environment).
-    // A Gerstner-shaped normal field (four directional trochoidal waves, GPU
-    // Gems ch.1) perturbs the normal so the sky reflection organizes into
-    // swell with pinched crests and wide troughs — the surface itself is
-    // never displaced, so the fixed waterline the foam/pier/dock logic
-    // assumes stays put. On top of that, the Mario Kart water grammar: a
-    // shore texture (the same pure landFactor mask terrain uses) drives a
-    // turquoise shallow ramp and an animated lapping foam band along every
-    // coast, and sparse hash twinkles pop as sun glints that ride the wave
-    // crests. All fragment work — the plane stays one quad.
-    // The kart-royale pass on top (OC_* constants above the class): capped
-    // grazing Fresnel, a 3-lobe sun path driven by the live cycle, a
-    // pre-saturation band against the fog's chroma drain, and a horizon
-    // dissolve that closes the fog's 8% residual.
     const oceanMat = new THREE.MeshStandardMaterial({
       color: 0x2e_7f_c0,
       metalness: 0.3,
       roughness: 0.32,
     });
+
     const { oceanTime } = this;
     const shoreTex = buildShoreTexture();
-    // Live sun feed for the sun path (written by the mesh's onBeforeRender
-    // below — the ocean draws every frame, so the uniforms are always fresh).
     const oceanSunDir = { value: new THREE.Vector3(0, 1, 0) };
     const oceanSunCol = { value: new THREE.Color(0x00_00_00) };
     const oceanDayW = { value: 1 };
     const spanX = (WORLD_W * SHORE_SPAN).toFixed(1);
-    // Ocean Beach surf weight: full at the west shore (u 0.09), gone by the
-    // middle of the Sunset (u 0.28).
     const surfFull = ((0.09 - 0.5) * WORLD_W).toFixed(1);
     const surfNone = ((0.28 - 0.5) * WORLD_W).toFixed(1);
     const spanZ = (WORLD_H * SHORE_SPAN).toFixed(1);
@@ -948,35 +855,35 @@ vec3 ocGerstner(vec2 p, float t) {
           #endif`,
         );
     };
+
     const ocean = new THREE.Mesh(new THREE.PlaneGeometry(9000, 9000), oceanMat);
     ocean.rotation.x = -HALF_PI;
     ocean.position.y = SEA_Y;
-    // The sun path rides the LIVE cycle: direction from the day-night rig,
-    // radiance from the key's color x intensity, held through sunset and
-    // killed across dusk (the lamp ramp) so it never paints a moon lane.
     ocean.onBeforeRender = () => {
       const dayW =
         1 - THREE.MathUtils.smoothstep(this.dayNight.lamp, OC_SUN_FADE_LO, OC_SUN_FADE_HI);
+
       oceanDayW.value = dayW;
       oceanSunDir.value.copy(this.dayNight.sunOffset).normalize();
       oceanSunCol.value
         .copy(this.sun.color)
         .multiplyScalar(this.sun.intensity * OC_SUN_GAIN * dayW);
     };
+
     this.scene.add(ocean);
 
     this.fx.addTo(this.scene);
+
     if (this.speedLines) {
       this.scene.add(this.speedLines.object3D);
     }
+
     this.scene.add(this.clouds.group);
     this.scene.add(this.marineSky.mesh);
     this.scene.add(this.shocks.group);
     this.scene.add(this.impactStars.group);
-    // The bay's traffic rides the ocean plane, so it goes in with it.
     this.scene.add(this.harbor.group);
 
-    // Day-night cycle owns every light-related knob from the first frame.
     this.dayNight = new DayNight({
       ambient,
       fog,
@@ -991,12 +898,11 @@ vec3 ocGerstner(vec2 p, float t) {
       }
     });
     this.touchUi = this.touch.isTouch;
-    // Tab toggles the big map during a run. Only then: on the title and in
-    // menus Tab keeps moving focus.
     window.addEventListener("keydown", (e) => {
       if (e.key !== "Tab" || e.repeat || this.input.typing || this.paused) {
         return;
       }
+
       if (this.mapOpen) {
         e.preventDefault();
         this.mapOverlay?.close();
@@ -1006,98 +912,83 @@ vec3 ocGerstner(vec2 p, float t) {
       }
     });
     this.hud.onCta(() => this.handleStartPress());
-    // Muted by default; returning players who opted into sound stay unmuted.
     this.sfx.setMuted(storageGet(SOUND_KEY) !== "1");
   }
 
-  get camera(): THREE.PerspectiveCamera {
+  get camera() {
     return this.rig.camera;
   }
 
-  // The shadow light — the perf governor steps its map size with quality tier.
-  get sunLight(): THREE.DirectionalLight {
+  get sunLight() {
     return this.sun;
   }
 
-  // Day-night shadow ramp state — the governor's cadenced shadow pass reads it.
-  get shadowsOn(): boolean {
+  get shadowsOn() {
     return this.dayNight.shadowsActive;
   }
 
-  // Governor-pushed feature tier. Desktop always receives FULL_QUALITY, so
-  // every branch below is a no-op there; mobile tiers trade the per-fragment
-  // heavy features for frame rate.
-  applyQuality(q: QualityFeatures): void {
+  applyQuality(q: QualityFeatures) {
     const prev = this.quality;
     this.quality = q;
     const r = this.renderer;
+
     if (r) {
       if (this.sun.castShadow !== q.shadowCast) {
         this.sun.castShadow = q.shadowCast;
-        // Coming back from the shadowless floor: refresh the (stale) map.
+
         if (q.shadowCast) {
           r.shadowMap.needsUpdate = true;
         }
       }
+
       if (q.shadowCast && q.shadowEvery <= 1 && prev.shadowEvery > 1) {
-        // Leaving cadence mode: hand the pass back to the day-night
-        // controller's model (on while shadows show, off at night — but never
-        // parked before the first depth map exists).
         r.shadowMap.autoUpdate = this.dayNight.shadowsActive || !this.sun.shadow.map;
         r.shadowMap.needsUpdate = true;
       }
     }
+
     this.clouds.setQuality(q.clouds);
+
     if (!q.skyBake && prev.skyBake) {
-      // live dome returns
       this.dayNight.setBakedBackground(null);
       this.skyBakedPhase = -1;
     }
-    // (The bake itself happens lazily in update() at the re-bake cadence.)
   }
 
-  // Used by the map editor (?editor=1) and DEV hooks.
-  getCity(): CityModel | null {
+  getCity() {
     return this.city;
   }
-  getCache(): ModelCache {
+  getCache() {
     return this.cache;
   }
 
-  // Environment map for PBR fill + ocean/glass/paint sheen: a tiny BOUNDED
-  // LDR gradient cubemap, deliberately NOT a PMREM bake of the physical Sky.
-  // The Sky's sun disc emits radiance beyond float16 range, and on
-  // GLES-class drivers (Android phones, SwiftShader) the PMREM mip chain
-  // overflows to Inf/NaN — and a NaN environment poisons EVERY lit material
-  // to pure black (found by bisect: env present = black city, env removed =
-  // lit city; Metal-backed desktop GL tolerates it, which is why desktop
-  // looked fine). 8-bit source texels cannot overflow anywhere. The
-  // day-night cycle keeps modulating intensity via environmentIntensity.
-  applyEnvironment(renderer: THREE.WebGLRenderer): void {
+  applyEnvironment(renderer: THREE.WebGLRenderer) {
     const SIZE = 64;
     const SKY_TOP = "#7fb2e0";
     const HORIZON = "#dde6ea";
-    // Warm band hugging the horizon line: gives the clearcoat a sky-to-warm
-    // graduation to reflect instead of a flat two-tone split. Phase-neutral —
-    // this cube shines day and night at scene-driven intensity.
     const WARM = "#f2ddc4";
     const GROUND = "#55534a";
-    const face = (paint: (g: CanvasRenderingContext2D) => void): HTMLCanvasElement => {
+
+    const face = (paint: (g: CanvasRenderingContext2D) => void) => {
       const c = document.createElement("canvas");
       c.width = SIZE;
       c.height = SIZE;
       const g = c.getContext("2d");
+
       if (g) {
         paint(g);
       }
+
       return c;
     };
-    const flat = (color: string): HTMLCanvasElement =>
+
+    const flat = (color: string) =>
       face((g) => {
         g.fillStyle = color;
         g.fillRect(0, 0, SIZE, SIZE);
       });
-    const sideGradient = (g: CanvasRenderingContext2D): void => {
+
+    const sideGradient = (g: CanvasRenderingContext2D) => {
       const grad = g.createLinearGradient(0, 0, 0, SIZE);
       grad.addColorStop(0, SKY_TOP);
       grad.addColorStop(0.47, HORIZON);
@@ -1107,12 +998,13 @@ vec3 ocGerstner(vec2 p, float t) {
       g.fillStyle = grad;
       g.fillRect(0, 0, SIZE, SIZE);
     };
-    const side = (): HTMLCanvasElement => face(sideGradient);
-    // The +x face carries a soft brighter lobe (sun-ish side): one side of
-    // the paint reads a highlight sweep as the car turns.
-    const sunSide = (): HTMLCanvasElement =>
+
+    const side = () => face(sideGradient);
+
+    const sunSide = () =>
       face((g) => {
         sideGradient(g);
+
         const lobe = g.createRadialGradient(
           SIZE * 0.5,
           SIZE * 0.42,
@@ -1121,12 +1013,13 @@ vec3 ocGerstner(vec2 p, float t) {
           SIZE * 0.42,
           SIZE * 0.55,
         );
+
         lobe.addColorStop(0, "rgba(255, 240, 214, 0.45)");
         lobe.addColorStop(1, "rgba(255, 240, 214, 0)");
         g.fillStyle = lobe;
         g.fillRect(0, 0, SIZE, SIZE);
       });
-    // Face order: +x, -x, +y, -y, +z, -z — sides run zenith→ground.
+
     const cube = new THREE.CubeTexture([
       sunSide(),
       side(),
@@ -1135,39 +1028,40 @@ vec3 ocGerstner(vec2 p, float t) {
       side(),
       side(),
     ]);
+
     cube.colorSpace = THREE.SRGBColorSpace;
     cube.needsUpdate = true;
     this.scene.environment = cube;
-    // keep the fill subtle
     this.scene.environmentIntensity = 0.32;
     this.dayNight.attachRenderer(renderer);
     this.renderer = renderer;
   }
 
-  // Mobile tiers: the Sky addon shades Rayleigh/Mie per fragment every frame
-  // for a sun that moves ~1e-5 phase/s. Bake it into a small cube texture and
-  // re-bake only when the phase actually drifts — the PMREM environment bake
-  // above proves the pattern; full night keeps its flat-color swap.
-  private maybeBakeSky(): void {
+  private maybeBakeSky() {
     if (!this.quality.skyBake) {
       return;
     }
+
     const r = this.renderer;
+
     if (!r) {
       return;
     }
+
     const p = this.dayNight.getPhase();
+
     if (this.skyBakedPhase >= 0) {
       const d = Math.abs(p - this.skyBakedPhase);
+
       if (Math.min(d, 1 - d) < SKY_REBAKE_PHASE) {
         return;
       }
     }
+
     let rt = this.skyBakeRT;
     let cam = this.skyBakeCam;
+
     if (!rt || !cam) {
-      // HalfFloat keeps the sky HDR so the on-screen tone mapping treats the
-      // baked background exactly like it treated the live dome.
       rt = new THREE.WebGLCubeRenderTarget(SKY_BAKE_SIZE, {
         generateMipmaps: false,
         magFilter: THREE.LinearFilter,
@@ -1178,16 +1072,15 @@ vec3 ocGerstner(vec2 p, float t) {
       this.skyBakeRT = rt;
       this.skyBakeCam = cam;
     }
+
     const wasVisible = this.sky.visible;
     const tone = r.toneMapping;
-    // bake linear; tone-map on screen
     r.toneMapping = THREE.NoToneMapping;
     this.sky.visible = true;
     const tmp = new THREE.Scene();
     tmp.add(this.sky);
     cam.position.set(0, 0, 0);
     cam.update(r, tmp);
-    // move the dome back into the live scene
     this.scene.add(this.sky);
     this.sky.visible = wasVisible;
     r.toneMapping = tone;
@@ -1195,11 +1088,11 @@ vec3 ocGerstner(vec2 p, float t) {
     this.dayNight.setBakedBackground(rt.texture);
   }
 
-  async load(): Promise<void> {
+  async load() {
     if (DEV_ONLINE && !this.trailerMode) {
-      // START pressed before the city is in: the run begins the moment it is.
       this.start();
     }
+
     const loaded = await loadWorld({
       cache: this.cache,
       computeSpawn: (city) => this.computeSpawn(city),
@@ -1214,8 +1107,6 @@ vec3 ocGerstner(vec2 p, float t) {
       onAmbient: (ambient, city) => {
         this.ambient = ambient;
         this.attachNightAndLife(city);
-        // Deck guards exist before readiness; the later geometry harvest
-        // adds canopies and other overhead structures without delaying load.
         this.rig.setCeilings(new CeilingIndex(deckCeilings(city.getDecks())));
       },
       onCones: (cones) => {
@@ -1227,7 +1118,6 @@ vec3 ocGerstner(vec2 p, float t) {
       },
       onParked: (parked) => {
         this.parked = parked;
-        // The first frame must not draw every car in the city.
         parked.cullAll(this.rig.camera.position.x, this.rig.camera.position.z);
       },
       onPhysics: (physics) => {
@@ -1250,32 +1140,21 @@ vec3 ocGerstner(vec2 p, float t) {
       showTitle: () => this.toTitle(),
       snapToCar: (car) => this.rig.snapTo(car),
     });
+
     const { city } = loaded;
     this.city = city;
     this.spawn = loaded.spawn;
     this.rig.setGround((x, z, y) => city.cameraFloorAt(x, z, y));
     this.skinId = loaded.skinId;
     this.car = loaded.car;
-    // The early world lets streaming settle under the loading screen. The
-    // finished promise includes traffic, parked cars, and collision setup.
     this.ready = loaded.ready;
     void this.buildCeilingIndex(city, loaded.ready);
   }
 
-  /**
-   * Overhead structure for the chase rig (world/solid-index.ts). Two sources,
-   * because neither alone is complete: the SurfaceDecks are authoritative and
-   * present on both load paths but only cover what the car can DRIVE on, and
-   * the geometry walk catches everything else that got drawn — the Bay Bridge
-   * approach, the freeway viaducts, pier bulkheads — none of which declares
-   * anything a 2-D solids index can see.
-   *
-   * Deliberately off the load path and time-sliced. Authoritative deck guards
-   * stay active while this harvest adds the remaining overhead geometry.
-   */
-  private async buildCeilingIndex(city: CityModel, ready: Promise<void>): Promise<void> {
+  private async buildCeilingIndex(city: CityModel, ready: Promise<void>) {
     await ready;
     const t0 = performance.now();
+
     try {
       const spans = await harvestCeilingSpans(
         city.group,
@@ -1287,48 +1166,32 @@ vec3 ocGerstner(vec2 p, float t) {
             setTimeout(resolve, 0);
           }),
       );
+
       spans.push(...deckCeilings(city.getDecks()));
       const index = new CeilingIndex(spans);
       this.rig.setCeilings(index);
       console.log(`[city] ceilings ${index.size} spans in ${Math.round(performance.now() - t0)}ms`);
     } finally {
-      // The last CPU reader of the static meshes' vertex arrays is done (or
-      // gave up): phones drop the copies now (render/gpu-only-geometry.ts;
-      // no-op on desktop). Never let a failed harvest pin them.
       releaseDeferredArrays();
     }
   }
 
-  private attachNightAndLife(city: CityModel): void {
-    // Eye-level birds hang off the streetlight anchors the furniture pass
-    // produced — gulls on the heads near the water, pigeons on the pavement
-    // around the rest.
+  private attachNightAndLife(city: CityModel) {
     this.ambient?.populatePerches(city.lampHeads);
-    // Waterfront night lights: whatever the pier/bridge/landmark builders
-    // registered while the world was being built (fx/beacon-lights.ts), plus a
-    // scatter of parked cars that left a marker lamp on.
-    //
-    // THIS DRAIN IS ONE-SHOT, AND IT IS ORDERED AFTER THE STREET LUMINAIRES.
-    // The registry hands over its whole list once and clears; world-loader
-    // registers downtown's mast luminaires at its PLAYABLE gate
-    // (fx/street-luminaires.ts, source "night-street"). Move this call ahead
-    // of that registration — or move the registration into the streamed tail
-    // — and the Financial District silently ships with no street light at
-    // all, which is exactly the defect those luminaires exist to fix.
     const beacons = new BeaconLights([...collectBeacons(), ...parkedMarkers(city)]);
     this.beacons = beacons;
     this.scene.add(beacons.group);
   }
 
-  // Impatient players see live status on the CTA they already tapped.
-  private setFinishStage(label: string): void {
+  private setFinishStage(label: string) {
     this.finishStage = label;
+
     if (this.pendingStart && !this.loadDone) {
       this.hud.setCta(label);
     }
   }
 
-  private assignCoreSystems(systems: WorldCoreSystems): void {
+  private assignCoreSystems(systems: WorldCoreSystems) {
     this.solidIndex = systems.solidIndex;
     this.fares = systems.fares;
     this.skids = systems.skids;
@@ -1339,16 +1202,18 @@ vec3 ocGerstner(vec2 p, float t) {
   }
 
   /** True while the full-screen map is up (Escape closes it, not pause). */
-  get mapOpen(): boolean {
+  get mapOpen() {
     return this.mapOverlay?.isOpen ?? false;
   }
 
   /** The corner minimap was clicked: open the whole city full screen. */
-  openMap(): void {
+  openMap() {
     const { city } = this;
+
     if (this.mode.kind !== "playing" || !city) {
       return;
     }
+
     this.mapOverlay ??= new MapOverlay({
       decks: city.getDecks(),
       network: city.network,
@@ -1368,46 +1233,56 @@ vec3 ocGerstner(vec2 p, float t) {
   }
 
   /** Hand the wheel to the autopilot until the taxi reaches this street point. */
-  driveTo(x: number, z: number): void {
+  driveTo(x: number, z: number) {
     this.mapNav.destination = { x, z };
     this.hud.announceMinor("AUTOPILOT ENGAGED", "#6bff8e");
   }
 
-  private stopAutopilot(message?: string): void {
+  private stopAutopilot(message?: string) {
     if (!this.mapNav.destination) {
       return;
     }
+
     this.mapNav.destination = null;
+
     if (message) {
       this.hud.announceMinor(message, "#6bff8e");
     }
   }
 
-  /** The autopilot's pedals while it has a destination; any human input takes over. */
-  private autopilotInput(human: CarInput, car: Car): CarInput {
+  private autopilotInput(human: CarInput, car: Car) {
     if (!this.mapNav.destination) {
       return human;
     }
+
     if (human.throttle > 0 || human.brake > 0 || human.steer !== 0 || human.boost) {
       this.stopAutopilot("MANUAL CONTROL");
+
       return human;
     }
+
     const nav = this.mapNav.read();
+
     if (!nav) {
       this.stopAutopilot("NO ROUTE THERE");
+
       return human;
     }
+
     const speed = car.forwardSpeed;
+
     if (nav.routeDistance <= ARRIVE_DISTANCE) {
       if (Math.abs(speed) < ARRIVE_SPEED) {
         this.stopAutopilot("ARRIVED");
+
         return human;
       }
-      // The brake reverses from a stop, so a car rolling backwards is held with the gas.
+
       return speed > 0
         ? { boost: false, brake: 1, steer: 0, throttle: 0 }
         : { boost: false, brake: 0, steer: 0, throttle: 1 };
     }
+
     return this.mapPilot.drive(
       {
         boostReady: false,
@@ -1420,61 +1295,58 @@ vec3 ocGerstner(vec2 p, float t) {
     );
   }
 
-  private closeMap(): void {
+  private closeMap() {
     this.mapOverlay?.close();
     this.stopAutopilot();
   }
 
-  private markLoadDone(): void {
+  private markLoadDone() {
     this.loadDone = true;
     this.joinRoom();
+
     if (this.pendingStart) {
       this.pendingStart = false;
       this.start();
     }
   }
 
-  /**
-   * Join the room and draw its taxis — once, when the city turns playable
-   * (connectRoom says why not at boot). Trailer captures stay offline except
-   * an explicit local DEV presence take; a playtest stages its own run, which
-   * must never reach a live room.
-   */
-  private joinRoom(): void {
+  private joinRoom() {
     const { city } = this;
+
     if (this.net || !city) {
       return;
     }
+
     const localTrailerPeers =
       import.meta.env.DEV &&
       this.trailerMode &&
       new URLSearchParams(window.location.search).has("trailer-online");
+
     const net = connectRoom({
       offline: (this.trailerMode && !localTrailerPeers) || isPlaytestRequested(),
       room: localTrailerPeers ? "crazy-waymo-trailer-local" : DEV_ROOM || MP_ROOM,
     });
+
     const remoteCars = new RemoteCars(this.cache, city, net.serverClock, (anchor, text) => {
       this.bubbles.say(anchor, text, { lift: 3 });
     });
-    // Back from our own drop, every taxi's updates come by a new route.
+
     watchReadmission(net, () => remoteCars.relearn());
     this.scene.add(remoteCars.group);
     this.net = net;
     this.remoteCars = remoteCars;
   }
 
-  resize(aspect: number, scalePx: number): void {
+  resize(aspect: number, scalePx: number) {
     this.rig.resize(aspect);
     this.fx.setScale(scalePx);
   }
 
-  private toTitle(): void {
-    // TRAILER: the landing screen is a full-screen title page and the world is
-    // already on screen behind it. Stay in `loading` until beginTrailer() flips
-    // straight to `playing` — a trailer is gameplay, never a menu.
+  private toTitle() {
     if (this.trailerMode) {
       return;
     }
+
     this.mode = { kind: "title" };
     setTouchPlaying(false);
     this.minimap?.setVisible(false);
@@ -1487,8 +1359,6 @@ vec3 ocGerstner(vec2 p, float t) {
     const best = readBest();
     this.hud.setLanding(true);
     this.hud.showBanner({
-      // Just the verbs (the manifest drops "mute" here). Drift, restart and
-      // chat are left to be discovered.
       controls: bannerControls(),
       cta: this.touchUi ? "START DRIVING" : "START DRIVING ⏎",
       stats: startBannerStats(best),
@@ -1497,41 +1367,32 @@ vec3 ocGerstner(vec2 p, float t) {
     });
   }
 
-  // --- Garages: drive onto the pad to swap robotaxis ---
-  private setupGarages(city: CityModel): void {
+  private setupGarages(city: CityModel) {
     this.hud.setOperator(skinById(this.skinId).label, skinById(this.skinId).accent);
-    try {
-      const raw = storageGet("crazy-waymo:skins-owned");
-      if (raw) {
-        const parsed = parseJsonText(raw);
-        if (Array.isArray(parsed)) {
-          for (const id of parsed) {
-            if (isJsonString(id)) {
-              this.ownedSkins.add(id);
-            }
-          }
-        }
-      }
-    } catch {
-      // corrupt storage — start with the default fleet
+
+    for (const id of storedSkinIds(storageGet("crazy-waymo:skins-owned"))) {
+      this.ownedSkins.add(id);
     }
-    // Drive-in pads: a flat glowing ring on each garage forecourt.
+
     const rings = new THREE.Group();
     const ringGeo = new THREE.RingGeometry(4.4, 5.4, 28).rotateX(-Math.PI / 2);
+
     const ringMat = new THREE.MeshBasicMaterial({
       color: 0xff_a6_3d,
       depthWrite: false,
       opacity: 0.55,
       transparent: true,
     });
+
     for (const g of city.garages) {
       const ring = new THREE.Mesh(ringGeo, ringMat);
       ring.position.set(g.padX, city.heightAt(g.padX, g.padZ) + GROUND_RING_LIFT, g.padZ);
       rings.add(ring);
     }
+
     this.scene.add(rings);
     this.garageRings = rings;
-    // Waypoint: one light pillar that hops to whichever garage is nearest.
+
     const pillarMat = new THREE.MeshBasicMaterial({
       color: 0xff_a6_3d,
       depthWrite: false,
@@ -1539,63 +1400,77 @@ vec3 ocGerstner(vec2 p, float t) {
       side: THREE.DoubleSide,
       transparent: true,
     });
+
     const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.7, 18, 12, 1, true), pillarMat);
     pillar.position.y = 9;
     this.scene.add(pillar);
     this.garagePillar = pillar;
   }
 
-  private nearestGarage(): Garage | null {
+  private nearestGarage() {
     const { city } = this;
     const { car } = this;
+
     if (!city || !car) {
       return null;
     }
+
     let best: Garage | null = null;
     let bd = Infinity;
+
     for (const g of city.garages) {
       const d = Math.hypot(g.padX - car.position.x, g.padZ - car.position.z);
+
       if (d < bd) {
         bd = d;
         best = g;
       }
     }
+
     return best;
   }
 
-  private updateGarages(dt: number): void {
+  private updateGarages(dt: number) {
     if (this.garageOpen) {
       this.garagePreview?.update(dt);
     }
-    // A staged shot opens the showroom itself; the pads never pop one over it.
+
     if (this.trailerMode) {
       return;
     }
+
     const { city } = this;
     const { car } = this;
+
     if (!city || !car || this.mode.kind !== "playing") {
       if (this.garageOpen) {
         this.closeGarage();
       }
+
       return;
     }
+
     const g = this.nearestGarage();
+
     if (!g) {
       return;
     }
+
     if (this.garagePillar) {
       this.garagePillar.position.set(g.padX, city.heightAt(g.padX, g.padZ) + 9, g.padZ);
       const pm = this.garagePillar.material;
+
       if (pm instanceof THREE.MeshBasicMaterial) {
         pm.opacity = 0.3 + 0.15 * Math.sin(performance.now() / 300);
       }
     }
+
     const d = Math.hypot(g.padX - car.position.x, g.padZ - car.position.z);
-    // Start the showroom bodies the moment a garage is in sight — a block of
-    // driving is enough for 4 MB, so the pad still opens on a full showroom.
+
     if (d < GARAGE_PREFETCH_DIST) {
       void this.loadShowroom();
     }
+
     if (!this.garageOpen && d < 5.5 && car.speed < 4) {
       this.openGarage();
     } else if (this.garageOpen && d > 8) {
@@ -1603,19 +1478,19 @@ vec3 ocGerstner(vec2 p, float t) {
     }
   }
 
-  private loadShowroom(): Promise<void> {
-    this.showroomLoad ??= this.cache.preload(ROBOTAXI_SKINS.map(skinModelUrl), () => {
-      /* empty */
-    });
+  private loadShowroom() {
+    this.showroomLoad ??= this.cache.preload(ROBOTAXI_SKINS.map(skinModelUrl), () => null);
+
     return this.showroomLoad;
   }
 
-  private garageCardsHtml(): string {
+  private garageCardsHtml() {
     return ROBOTAXI_SKINS.map((sk) => {
       const owned = this.ownedSkins.has(sk.id) || sk.price === 0;
       const equipped = sk.id === this.skinId;
       let tag = `$${sk.price.toLocaleString("en-US")}`;
       let cls = "gcard";
+
       if (equipped) {
         tag = "EQUIPPED";
         cls = "gcard on";
@@ -1623,32 +1498,40 @@ vec3 ocGerstner(vec2 p, float t) {
         tag = "EQUIP";
         cls = "gcard owned";
       }
+
       return `<button class="${cls}" data-skin="${sk.id}"><canvas class="gprev" data-prev="${sk.id}"></canvas><b>${sk.label}</b><small>${sk.blurb}</small><span>${tag}</span></button>`;
     }).join("");
   }
 
-  private openGarage(): void {
+  private openGarage() {
     this.garageOpen = true;
     this.sfx.ui("open");
     let el = this.garageEl;
+
     if (!el) {
       el = document.createElement("div");
       el.id = "garage";
       document.body.append(el);
       this.garageEl = el;
       let browsedSkin: string | undefined;
-      const browse = (e: Event): void => {
+
+      const browse = (e: Event) => {
         const card = e.target instanceof Element ? e.target.closest("[data-skin]") : null;
+
         if (!(card instanceof HTMLElement)) {
           return;
         }
+
         const id = card.dataset["skin"];
+
         if (!id || id === browsedSkin) {
           return;
         }
+
         browsedSkin = id;
         this.sfx.ui("move");
       };
+
       el.addEventListener("pointerover", browse);
       el.addEventListener("focusin", browse);
       el.addEventListener("pointerleave", () => {
@@ -1656,96 +1539,114 @@ vec3 ocGerstner(vec2 p, float t) {
       });
       el.addEventListener("click", (e) => {
         const btn = e.target instanceof Element ? e.target.closest("[data-skin]") : null;
+
         if (!(btn instanceof HTMLElement)) {
           return;
         }
+
         const id = btn.dataset["skin"];
         const sk = ROBOTAXI_SKINS.find((k) => k.id === id);
+
         if (!sk || !this.car) {
           return;
         }
+
         const owned = this.trailerMode || this.ownedSkins.has(sk.id) || sk.price === 0;
+
         if (owned) {
           this.sfx.ui("select");
         } else {
           if (this.state.score < sk.price) {
             this.sfx.denied();
             this.hud.announceMinor(`NEED $${sk.price}`, "#ff6a5e");
+
             return;
           }
+
           this.state.score -= sk.price;
           this.ownedSkins.add(sk.id);
           storageSet("crazy-waymo:skins-owned", JSON.stringify([...this.ownedSkins]));
           this.hud.announceMinor(`${sk.label} UNLOCKED −$${sk.price}`, "#ffd24a");
           this.sfx.unlock();
         }
+
         this.skinId = sk.id;
+
         if (!this.trailerMode) {
           storageSet("crazy-waymo:skin", sk.id);
         }
+
         void this.wearSkin(sk.id);
         this.hud.setOperator(sk.label, sk.accent);
         this.renderGarage();
       });
     }
+
     this.renderGarage();
     el.style.display = "flex";
-    // Cards are text and can go up now; the turntables need the bodies.
+
     if (!this.garagePreview) {
       void this.mountShowroom(el);
     }
   }
 
-  /** Rebuild the car's body once its GLB is in. The load is already resolved
-   *  by the forecourt prefetch on any normal approach — this covers the player
-   *  who taps EQUIP inside that window, and drops a pick that was superseded
-   *  while the body was still arriving. */
-  private async wearSkin(skinId: string): Promise<void> {
+  private async wearSkin(skinId: string) {
     await this.loadShowroom();
+
     if (this.skinId === skinId) {
       this.car?.setSkin(skinId);
     }
   }
 
-  private async mountShowroom(container: HTMLDivElement): Promise<void> {
+  private async mountShowroom(container: HTMLDivElement) {
     await this.loadShowroom();
+
     if (this.garagePreview) {
       return;
     }
+
     const preview = new GaragePreview(this.cache);
     preview.bind(container);
     this.garagePreview = preview;
+
     if (this.garageOpen) {
       this.renderGarage();
     }
   }
 
-  private renderGarage(): void {
+  private renderGarage() {
     const el = this.garageEl;
+
     if (!el) {
       return;
     }
+
     el.innerHTML = `<div class="gtitle">✦ ROBOTAXI SHOWROOM ✦</div><div class="gcards">${this.garageCardsHtml()}</div><div class="ghint">drive away to close</div>`;
     this.garagePreview?.attach(el);
   }
 
-  private closeGarage(announce = true): void {
+  private closeGarage(announce = true) {
     if (announce && this.garageOpen) {
       this.sfx.ui("back");
     }
+
     this.garageOpen = false;
+
     if (this.garageEl) {
       this.garageEl.style.display = "none";
     }
   }
 
-  private openChat(): void {
+  private openChat() {
     let el = this.chatEl;
+
     if (!el) {
       const found = document.querySelector("#chat");
+
       if (!(found instanceof HTMLInputElement)) {
         return;
       }
+
       const input = found;
       el = input;
       this.chatEl = input;
@@ -1754,13 +1655,16 @@ vec3 ocGerstner(vec2 p, float t) {
         : "say something… (Enter to send, Esc to close)";
       input.addEventListener("keydown", (e) => {
         e.stopPropagation();
+
         if (e.key === "Enter") {
           const text = input.value.trim().slice(0, 90);
+
           if (text && this.car) {
             this.chatText = text;
             this.chatAt = Date.now();
             this.bubbles.say(this.car.object3D, text, { lift: 3 });
           }
+
           this.closeChat(text ? "select" : "back");
         } else if (e.key === "Escape") {
           this.closeChat();
@@ -1768,22 +1672,22 @@ vec3 ocGerstner(vec2 p, float t) {
       });
       el.addEventListener("blur", () => this.closeChat());
     }
+
     el.style.display = "block";
     this.sfx.ui("open");
     el.value = "";
     this.input.setTyping(true);
-    // The chat pill lands on the pedal on a portrait phone, and a tap aimed at
-    // the field would brake instead. Typing already suspends driving, so the
-    // pedals go away for the duration rather than fight for the same pixels.
     document.body.classList.add("chatting");
     el.focus();
   }
 
-  private closeChat(cue: "select" | "back" = "back"): void {
+  private closeChat(cue: "select" | "back" = "back") {
     const el = this.chatEl;
+
     if (!el || el.style.display === "none") {
       return;
     }
+
     el.style.display = "none";
     this.sfx.ui(cue);
     el.blur();
@@ -1791,15 +1695,16 @@ vec3 ocGerstner(vec2 p, float t) {
     this.input.setTyping(false);
   }
 
-  // Mario-Kart boost pop: one flame burst out of EACH exhaust pipe, colored
-  // by tier (0.55 cyan mini-turbo, 0.07 orange boost/super).
-  private exhaustFlash(hue: number): void {
+  private exhaustFlash(hue: number) {
     const { car } = this;
+
     if (!car) {
       return;
     }
+
     const fx = Math.sin(car.heading);
     const fz = Math.cos(car.heading);
+
     for (const s of [-1, 1] as const) {
       this.fx.boostFlash(
         car.position.x - fx * 1.9 - fz * 0.55 * s,
@@ -1812,10 +1717,11 @@ vec3 ocGerstner(vec2 p, float t) {
     }
   }
 
-  private handleStartPress(): void {
+  private handleStartPress() {
     if (this.mode.kind !== "title") {
       return;
     }
+
     this.sfx.ensure();
     this.sfx.ui("select");
     this.start();
@@ -1823,16 +1729,17 @@ vec3 ocGerstner(vec2 p, float t) {
 
   /** Restart the run — R, and the pause overlay's button for players with no
    *  keyboard. Trailer mode owns its run and must never be reset from UI. */
-  restartRun(): void {
+  restartRun() {
     if (this.trailerMode) {
       return;
     }
+
     this.sfx.ensure();
     this.sfx.reset();
     this.start();
   }
 
-  get muted(): boolean {
+  get muted() {
     return this.sfx.muted;
   }
 
@@ -1840,30 +1747,33 @@ vec3 ocGerstner(vec2 p, float t) {
    *  the trailer now solicits a keypress to unlock audio, and that key landing
    *  on M must not rewrite the player's saved sound preference for the real
    *  game. */
-  toggleMute(): void {
+  toggleMute() {
     this.sfx.setMuted(!this.sfx.muted);
+
     if (!this.sfx.muted) {
       this.sfx.ui("select");
     }
+
     if (!this.trailerMode) {
       storageSet(SOUND_KEY, this.sfx.muted ? "0" : "1");
     }
   }
 
-  private start(): void {
+  private start() {
     if (!this.loadDone) {
-      // City still building behind the title — auto-start the moment it's done.
-      // The status goes on the banner, not announceMinor: that lives inside
-      // #hud, which the landing screen hides.
       this.pendingStart = true;
       this.hud.setCta(this.finishStage);
+
       return;
     }
+
     const { car } = this;
     const { fares } = this;
+
     if (!car || !fares) {
       return;
     }
+
     this.sfx.setPaused(this.paused);
     this.sfx.stopEngine();
     this.wasBoosting = false;
@@ -1875,26 +1785,32 @@ vec3 ocGerstner(vec2 p, float t) {
     this.scrapeFrames = 0;
     this.closeGarage(false);
     notifyGameStarted();
+
     const lapS = (() => {
       let t = performance.now();
-      return (label: string): void => {
+
+      return (label: string) => {
         const now = performance.now();
+
         if (now - t > 300) {
           console.log(`[start] ${label} ${Math.round(now - t)}ms`);
         }
+
         t = now;
       };
     })();
+
     this.sfx.ensure();
     this.sfx.startMusic();
     lapS("sfx");
     this.state.reset();
     this.hud.resetScore(0);
-    // Re-roll the spawn each run — start somewhere new in the city.
     const { city } = this;
+
     if (city) {
       this.spawn = this.computeSpawn(city);
     }
+
     lapS("spawn");
     car.reset(this.spawn.x, this.spawn.z, this.spawn.yaw);
     this.traffic?.reset({ gx: this.spawn.gx, gz: this.spawn.gz }, 4);
@@ -1903,9 +1819,7 @@ vec3 ocGerstner(vec2 p, float t) {
     lapS("fares reset");
     this.cones?.reset();
     this.hud.hideBanner();
-    // HUD back, sound button + controls gone
     this.hud.setLanding(false);
-    // A fresh dashboard through the countdown — no stale timer/fares/combo.
     this.hud.setTimer(FARE.startTime, false);
     this.hud.setCombo(1, 0);
     this.hud.setArrow(false, 0, 0, 0);
@@ -1913,9 +1827,6 @@ vec3 ocGerstner(vec2 p, float t) {
     this.hitStop = 0;
     this.lastDistrict = "";
     this.countdownShown = -1;
-    // Swoop-in start pose: high above and behind the fresh spawn. Never the
-    // camera's previous position — the spawn re-rolls every run, so that
-    // could be a cross-map flight at warp speed.
     {
       const fwd = new THREE.Vector2(Math.sin(this.spawn.yaw), Math.cos(this.spawn.yaw));
       this.camFrom.set(
@@ -1925,47 +1836,50 @@ vec3 ocGerstner(vec2 p, float t) {
       );
       this.rig.camera.position.copy(this.camFrom);
     }
+
     this.minimap?.setVisible(true);
     this.closeMap();
     setTouchPlaying(true);
     this.mode = { kind: "countdown", t: 0 };
   }
 
-  // Revalidated after full readiness on every start. The early loading pose
-  // uses available solids; actual play uses the complete static collision index.
-  // The spawn sticks between visits: the title gates on the tiles around it,
-  // so a returning player reloads a neighbourhood the browser already holds
-  // instead of downloading a fresh one. Trailers keep their own start, and
-  // DEV `?online` clients all take the same one (DEV_ONLINE).
-  private computeSpawn(city: CityModel): WorldSpawn {
+  private computeSpawn(city: CityModel) {
     const world = {
       decks: city.getDecks(),
       heightAt: (x: number, z: number) => city.heightAt(x, z),
       network: city.network,
       solids: this.solidIndex ?? new SolidIndex(city.solids),
     };
+
     const remember = !this.trailerMode && !DEV_ONLINE;
     const remembered = remember ? parseSpawn(storageGet(SPAWN_KEY)) : null;
+
     if (remembered && isPlayerSpawnSafe(world, remembered)) {
       return remembered;
     }
+
     const shared = DEV_ONLINE ? new Rng(DEV_ONLINE_START_SEED) : null;
     const spawn = choosePlayerSpawn(world, shared ? () => shared.next() : Math.random);
+
     if (!spawn) {
       throw new Error("No safe player start exists in the street network");
     }
+
     if (remember) {
       storageSet(SPAWN_KEY, JSON.stringify(spawn));
     }
+
     return spawn;
   }
 
   /** What src/playtest reads; null until the world is in. */
-  playtestView(): PlaytestView | null {
+  playtestView() {
     const { car, city, fares } = this;
+
     if (!car || !city || !fares) {
-      return null;
+      return null satisfies PlaytestView | null;
     }
+
     return {
       car,
       fares,
@@ -1974,126 +1888,117 @@ vec3 ocGerstner(vec2 p, float t) {
       state: this.state,
       traffic: this.traffic,
       world: { heightAt: (x, z) => city.heightAt(x, z), network: city.network },
-    };
+    } satisfies PlaytestView | null;
   }
 
   /** Playtest hook: reseed what a run rolls, then restart it. */
-  playtestSeed(seed: number): void {
+  playtestSeed(seed: number) {
     this.fares?.reseed(seed);
     this.traffic?.reseed(seed);
     this.restartRun();
   }
 
   /** Playtest hook: a fresh run, already past the title and the countdown. */
-  playtestStart(): boolean {
+  playtestStart() {
     this.start();
+
     if (this.mode.kind !== "countdown" || !this.car) {
       return false;
     }
+
     this.rig.snapTo(this.car);
     this.mode = { kind: "playing" };
+
     return true;
   }
 
-  // DEV-only: drop the taxi on the road CENTRELINE nearest to normalized map
-  // coords (u,v), yaw aligned to the edge tangent (whichever direction is
-  // closer to the requested one) so scripted drives start in a lane. Snapping
-  // to a road *cell* centre used to land the car inside a building: a cell is
-  // up to ~18u from its centreline at wide junctions (a by-design baseline
-  // `pnpm test` asserts), which is wider than a lot.
-  debugTeleport(u: number, v: number, yaw: number): void {
+  debugTeleport(u: number, v: number, yaw: number) {
     const { car } = this;
     const { city } = this;
+
     if (!car || !city) {
       return;
     }
+
     const x = (u - 0.5) * WORLD_W;
     const z = (v - 0.5) * WORLD_H;
-    // Widening search: most calls hit on the first ring; the last ring covers
-    // the water and the park interiors, where the nearest street is far.
     let hit = null;
+
     for (const r of [60, 240, 1200, 6000]) {
       hit = city.network.nearest(x, z, r);
+
       if (hit) {
         break;
       }
     }
+
     if (!hit) {
       return;
     }
+
     const along = Math.atan2(hit.tx, hit.tz);
     const flip = Math.abs(((along - yaw + Math.PI * 3) % (Math.PI * 2)) - Math.PI) > HALF_PI;
     car.reset(hit.x, hit.z, flip ? along + Math.PI : along);
     this.rig.snapTo(car);
   }
 
-  // DEV-only: set the run clock the debug hooks expose. The drive is endless —
-  // nothing reads the clock, so this only moves the state field.
-  debugSetTime(seconds: number): void {
+  debugSetTime(seconds: number) {
     this.state.timeLeft = seconds;
   }
 
-  // DEV-only: smash the nearest resting cone in place (exercises the physics
-  // launch path without needing pixel-perfect scripted driving).
-  debugSmashNearestCone(): boolean {
+  debugSmashNearestCone() {
     const { cones } = this;
     const { car } = this;
+
     if (!cones || !car) {
       return false;
     }
+
     const [p] = cones.restingPositions();
+
     if (!p) {
       return false;
     }
+
     return cones.tryHit(p.x, p.z, 30, 12) > 0;
   }
 
-  // DEV-only: nearest resting cone to the taxi, in normalized coords.
-  debugNearestCone(): { u: number; v: number } | null {
+  debugNearestCone() {
     const { car } = this;
+
     if (!car || !this.cones) {
       return null;
     }
+
     let best: { x: number; z: number } | null = null;
     let bd = Infinity;
+
     for (const p of this.cones.restingPositions()) {
       const d = (p.x - car.position.x) ** 2 + (p.z - car.position.z) ** 2;
+
       if (d < bd) {
         bd = d;
         best = p;
       }
     }
+
     return best ? { u: best.x / WORLD_W + 0.5, v: best.z / WORLD_H + 0.5 } : null;
   }
 
-  // DEV-only: live car state for headless verification.
-  debugProbe(): {
-    x: number;
-    z: number;
-    y: number;
-    speed: number;
-    heading: number;
-    airborne: boolean;
-    airTime: number;
-    fares: number;
-    network: { status: string; players: number; visible: number };
-    waterContact: WaterContact;
-    drifting: boolean;
-    boosting: boolean;
-    carrying: boolean;
-    objective: { u: number; v: number } | null;
-    wreckedCount: number;
-    nearestTraffic: { dist: number; wrecked: boolean; y: number } | null;
-  } | null {
+  debugProbe() {
     const { car } = this;
+
     if (!car) {
       return null;
     }
+
     const obj = this.fares?.objective() ?? null;
     let nearestTraffic: { dist: number; wrecked: boolean; y: number } | null = null;
+
     if (this.traffic) {
       for (const c of this.traffic.cars) {
         const d = Math.hypot(c.position.x - car.position.x, c.position.z - car.position.z);
+
         if (!nearestTraffic || d < nearestTraffic.dist) {
           nearestTraffic = {
             dist: Math.round(d * 10) / 10,
@@ -2103,6 +2008,7 @@ vec3 ocGerstner(vec2 p, float t) {
         }
       }
     }
+
     return {
       airTime: car.airTime,
       airborne: car.airborne,
@@ -2114,7 +2020,6 @@ vec3 ocGerstner(vec2 p, float t) {
       nearestTraffic,
       network: {
         players: this.net ? Object.keys(this.net.players).length : 0,
-        // The room is joined once the city is playable (joinRoom).
         status: this.net?.connectionStatus ?? "loading",
         visible: this.remoteCars?.count() ?? 0,
       },
@@ -2131,17 +2036,19 @@ vec3 ocGerstner(vec2 p, float t) {
   /** While paused the frame pacer stops advancing the game (main.ts), but the
    *  room still sees this taxi: the pose keeps going out flagged as paused, so
    *  peers neither freeze it nor drop it. */
-  updatePaused(): void {
+  updatePaused() {
     if (this.paused) {
       this.updateNet();
     }
   }
 
-  update(dt: number): void {
+  update(dt: number) {
     if (this.paused) {
       this.updatePaused();
+
       return;
     }
+
     this.frame += 1;
     this.pollInput();
     this.updateGarages(dt);
@@ -2157,56 +2064,52 @@ vec3 ocGerstner(vec2 p, float t) {
     this.shocks.update(dt);
     this.clouds.update(dt);
     this.oceanTime.value += dt;
-    // Day rolls on in every mode (title orbit included — sunsets sell there).
     this.dayNight.update(dt);
-    // mobile tiers only; no-op at full quality
     this.maybeBakeSky();
+
     if (this.editorLighting && this.scene.fog instanceof THREE.Fog) {
       this.scene.fog.near = 4000;
       this.scene.fog.far = 12_000;
     }
+
     this.updateNightSystems(dt);
 
     switch (this.mode.kind) {
       case "loading": {
         break;
       }
+
       case "title": {
         this.updateTitle(dt);
         break;
       }
+
       case "countdown": {
         this.updateCountdown(this.mode, dt);
         break;
       }
+
       case "playing": {
         this.updatePlaying(dt);
         break;
       }
+
       default: {
         break;
       }
     }
 
-    // TRAILER: the director places its camera here, against the pose the draw
-    // is about to use (see TrailerStage.setFrameHook). Before the sun and the
-    // streaming below, which both key off where the camera ended up.
     this.trailerFrame?.(dt);
 
-    // Sun follow + shadow-frustum snap track wherever the camera ended up —
-    // unconditional at the tail so no mode path (hit-stop, freecam…)
-    // can forget it and leave shadows lagging the camera.
     this.updateSun();
-    // Stream city chunks around wherever the camera ended up this frame (works
-    // in gameplay and freecam alike) so distant tiles stop drawing.
     this.city?.updateStreaming(this.rig.camera, this.editorLighting);
 
     this.updateNet();
   }
 
-  private pollInput(): void {
-    // Publishes the on-screen stick into `input` before carInput() reads it.
+  private pollInput() {
     this.touch?.update();
+
     if (this.input.consumeStart() && !this.trailerMode) {
       if (this.mode.kind === "playing" && !this.input.typing) {
         this.openChat();
@@ -2214,23 +2117,18 @@ vec3 ocGerstner(vec2 p, float t) {
         this.handleStartPress();
       }
     }
-    // Single read — calling consumeRestart() twice would clear the one-shot flag
-    // before the second branch could see it. R restarts from any state.
-    // (Trailer mode owns the run: chat/restart would wreck a staged scene.)
+
     if (this.input.consumeRestart()) {
       this.restartRun();
     }
+
     if (this.input.consumeMute()) {
       this.toggleMute();
     }
   }
 
-  // Everything keyed off the day-night lamp: particle lighting, lamps,
-  // beacons, the far stand-ins, and the actors that ride them.
-  private updateNightSystems(dt: number): void {
+  private updateNightSystems(dt: number) {
     const night = this.dayNight.lamp;
-    // Particle lighting rides the day-night rig: smoke catches the live sun/
-    // hemisphere mix, sparks gain toward the day bloom threshold (1 - lamp).
     this.fx.setLighting(
       this.sun.color,
       this.sun.intensity,
@@ -2247,15 +2145,14 @@ vec3 ocGerstner(vec2 p, float t) {
     this.harbor.setIntensity(night);
     this.harbor.update(dt, this.rig.camera.position.x, this.rig.camera.position.z);
     this.vehicleLights.setIntensity(night);
+
     if (this.traffic) {
       const cam = this.rig.camera.position;
       this.vehicleLights.update(this.traffic.cars, cam.x, cam.z);
     }
+
     this.farTerrain.update(this.sceneFog.color, night);
     this.marineSky.update(this.sceneFog.color, !this.editorLighting);
-    // The fog is a parameter: the stand-in has to age on the same aerial
-    // perspective curve as the geometry it stands in for, and the day-night
-    // grade owns fogNear/fogFar.
     this.landmarkSilhouettes.update(this.sceneFog.color, night, this.sceneFog);
     this.clouds.setNight(night);
     this.car?.setHeadlights(night);
@@ -2264,32 +2161,20 @@ vec3 ocGerstner(vec2 p, float t) {
     this.cones?.update(dt);
   }
 
-  /** Broadcast the local taxi and render the other players' taxis. Runs in
-   *  every mode once the room is joined (joinRoom, when the city turns
-   *  playable), so you see the city populated even on the title screen. */
-  private updateNet(): void {
+  private updateNet() {
     const { car, net } = this;
     const remote = this.remoteCars;
+
     if (!car || !net || !remote) {
       return;
     }
-    // Wall time, not the clamped sim dt: below 30 fps that dt runs slow, and
-    // neither the send cadence nor the arrival times peers are drawn by may.
+
     const now = performance.now();
     const elapsed = this.netAt === 0 ? 0 : now - this.netAt;
     this.netAt = now;
 
-    // Only an active driver broadcasts: title idlers all park at the same
-    // deterministic spawn, and streaming that pose just piles identical frozen
-    // taxis onto everyone's spawn plaza. A driver sends every tick, parked or
-    // paused alike: an unchanged pose costs only the stamp (the client sends
-    // changed keys), and the stamp is how peers know the taxi is still here.
-    // It is the room's server clock, which every peer shares, so it says when
-    // the pose was true to all of them alike. Nothing goes out until that clock
-    // is measured, a round trip after joining: a stamp off the local clock
-    // would read as decades stale. (Offline the room is this client alone, and
-    // its clock is the local one — the pose is kept locally, never sent.)
     const driving = this.mode.kind === "countdown" || this.mode.kind === "playing";
+
     if (this.netRate.due(elapsed) && driving && net.serverClock.synced) {
       net.updateMyState({
         h: roundNet(car.heading),
@@ -2306,11 +2191,9 @@ vec3 ocGerstner(vec2 p, float t) {
       });
     }
 
-    // TRAILER: the director can substitute a fake player map (staged remote
-    // robotaxis); null in every normal boot.
     const staged = this.trailerFakes !== null;
     remote.sync(this.trailerFakes ?? net.players, net.playerId, { now, staged });
-    // Nothing draws under the pause overlay; placing taxis can wait for resume.
+
     if (!this.paused) {
       remote.update(car.position, now);
     }
@@ -2320,16 +2203,18 @@ vec3 ocGerstner(vec2 p, float t) {
     }
   }
 
-  private updateTitle(dt: number): void {
+  private updateTitle(dt: number) {
     this.titleT += dt;
     const { car } = this;
+
     if (!car) {
       return;
     }
+
     if (this.freecam) {
       return;
     }
-    // High, slow orbit — above the rooftops so facades can't swallow the shot.
+
     const r = 30;
     const a = this.titleT * 0.2;
     this.rig.camera.position.set(
@@ -2338,38 +2223,37 @@ vec3 ocGerstner(vec2 p, float t) {
       car.position.z + Math.sin(a) * r,
     );
     this.rig.camera.lookAt(car.position.x, car.position.y + 1, car.position.z);
-    // The orbit is the one camera that sees the whole hillside: keep the
-    // parked-car cull running here, not only once driving starts.
     this.parked?.updateCulling(this.rig.camera.position.x, this.rig.camera.position.z);
-    // fade out leftover streaks
     this.speedLines?.update(dt, this.rig.camera, 0);
-    // and drain the post lens the same way
     setGradeMotion(0, false);
   }
 
-  // 3-2-1-GO: the camera swoops from the title orbit into the chase pose while
-  // the numbers count down; holding gas through GO pays launch-control boost.
-  private updateCountdown(mode: { kind: "countdown"; t: number }, dt: number): void {
+  private updateCountdown(mode: { kind: "countdown"; t: number }, dt: number) {
     const { car } = this;
+
     if (!car) {
       return;
     }
+
     mode.t += dt;
     const total = COUNTDOWN_STEP * 3;
     const step = Math.min(2, Math.floor(mode.t / COUNTDOWN_STEP));
+
     if (step !== this.countdownShown) {
       this.countdownShown = step;
       this.hud.showCountdown(String(3 - step), false);
       this.sfx.countdown(3 - step);
     }
-    // Swoop: ease from the orbit pose into the chase pose.
+
     const f = THREE.MathUtils.smoothstep(Math.min(1, mode.t / total), 0, 1);
     const fwd = new THREE.Vector2(Math.sin(car.heading), Math.cos(car.heading));
+
     const chase = new THREE.Vector3(
       car.position.x - fwd.x * CAMERA.distance,
       car.position.y + CAMERA.height,
       car.position.z - fwd.y * CAMERA.distance,
     );
+
     this.rig.camera.position.lerpVectors(this.camFrom, chase, f);
     this.rig.camera.lookAt(car.position.x, car.position.y + 1.6, car.position.z);
 
@@ -2377,38 +2261,41 @@ vec3 ocGerstner(vec2 p, float t) {
       this.hud.showCountdown("GO!", true);
       this.sfx.go();
       this.rig.snapTo(car);
+
       if (this.input.carInput().throttle > 0) {
         car.addBoost(25);
         this.hud.announceMinor("LAUNCH BOOST!", "#ffd147");
       }
+
       this.mode = { kind: "playing" };
     }
   }
 
-  private updatePlaying(dt: number): void {
+  private updatePlaying(dt: number) {
     const { car } = this;
     const { city } = this;
     const { fares } = this;
     const { traffic } = this;
+
     if (!car || !city || !fares || !traffic) {
       return;
     }
 
-    // Hit-stop: freeze the sim for a beat after a hard crash so the blow lands.
-    // Camera/HUD keep running on real time so it reads as impact, not a stutter.
     const solids = this.solidIndex;
+
     if (!solids) {
       return;
     }
 
     if (this.hitStop > 0) {
       this.hitStop = Math.max(0, this.hitStop - dt);
-      // Freecam (DEV hooks / trailer director) owns the camera — the chase rig
-      // yanking it back for a hit-stop beat would glitch the framed shot.
+
       if (!this.freecam) {
         this.rig.update(dt, car, solids);
       }
+
       this.tickHud(dt, car, fares, false);
+
       return;
     }
 
@@ -2420,9 +2307,11 @@ vec3 ocGerstner(vec2 p, float t) {
     this.handleFareEvent(ev);
     this.state.update(dt, fares.carryingInfo() !== null);
     const patience = fares.patienceFrac();
+
     if (patience <= 0.25 && this.lastPatience > 0.25) {
       this.sfx.passengerWarning();
     }
+
     this.lastPatience = patience;
 
     const drifting = this.updateDriftFx(dt, car, input);
@@ -2432,13 +2321,9 @@ vec3 ocGerstner(vec2 p, float t) {
     this.updateWallFx(car);
     this.updateHints(dt, car, input);
 
-    // Announce the SF neighborhood as the taxi crosses into it. Under freecam
-    // (DEV inspection, trailer shots) the taxi is parked somewhere else
-    // entirely, so sample where the FRAME is — same rule the shadow follow
-    // below already uses. Four separate QA passes filed screenshots labelled
-    // with the taxi's district instead of the one in shot.
     const eye = this.freecam ? this.rig.camera.position : car.position;
     const dist = districtAt(city.gridX(eye.x), city.gridZ(eye.z));
+
     if (dist.name !== this.lastDistrict) {
       this.lastDistrict = dist.name;
       this.hud.setArea(dist.name);
@@ -2448,12 +2333,8 @@ vec3 ocGerstner(vec2 p, float t) {
     if (!this.freecam) {
       this.rig.update(dt, car, solids);
     }
-    // Speed streaks are a first-person effect glued to the chase camera —
-    // under freecam (trailer fixed shots, DEV) feed 0 so leftovers fade out
-    // instead of rushing along a static camera's forward axis.
+
     this.speedLines?.update(dt, this.rig.camera, this.freecam ? 0 : car.speed / CAR.boostSpeed);
-    // The post lens (CA / vignette squeeze / bloom lift) reads the same
-    // motion; freecam feeds 0 so staged shots stay clean.
     setGradeMotion(this.freecam ? 0 : car.speed / CAR.boostSpeed, !this.freecam && car.isBoosting);
     this.hud.setVignette(THREE.MathUtils.clamp((car.speed - 45) / 40, 0, 1) * 0.6);
     this.tickHud(dt, car, fares, true);
@@ -2466,7 +2347,7 @@ vec3 ocGerstner(vec2 p, float t) {
     traffic: Traffic,
     input: CarInput,
     solids: SolidIndex,
-  ): void {
+  ) {
     car.update(dt, input, solids);
     this.handleTrafficImpacts(car, traffic, dt);
     this.handleParkedImpacts(car, dt);
@@ -2480,8 +2361,6 @@ vec3 ocGerstner(vec2 p, float t) {
       () => car.captureStep(),
     );
     car.syncFromPhysics(dt, this.physics?.alpha ?? 1);
-    // Same gate as the vehicle's pedal state machine: at/below 0.5 u/s the
-    // pedal means reverse, so the cap says so.
     this.touch?.setReverseHint(car.forwardSpeed <= 0.5);
     traffic.syncWrecked();
     this.parked?.sync();
@@ -2491,49 +2370,51 @@ vec3 ocGerstner(vec2 p, float t) {
     this.handleCones(car);
   }
 
-  /** Reports whether the taxi is drifting this frame. */
-  private updateDriftFx(dt: number, car: Car, input: CarInput): boolean {
-    // Drift: score + screech + smoke + skid marks (slip-gated in the car).
+  private updateDriftFx(dt: number, car: Car, input: CarInput) {
     const water = car.waterContact;
     const floating = water.kind === "floating";
+
     if (water.kind === "floating" && !this.wasFloating) {
       this.sfx.waterSplash(water.entrySpeed, water.entryVerticalSpeed);
     }
+
     this.wasFloating = floating;
     this.sfx.setWaterMotion(floating ? car.speed : 0);
     const drifting = !floating && car.isDrifting && car.speed > 8;
+
     if (drifting) {
       this.state.addDrift(dt);
     } else {
       this.state.endDrift();
     }
-    // Hard straight braking reads like the drift: streaks + smoke + screech.
+
     const brakingHard =
       !floating && !drifting && !car.airborne && input.brake > 0.05 && car.forwardSpeed > 8;
+
     const slipAmt = Math.min(1, Math.abs(car.slip) / 0.6);
     let screech = 0;
+
     if (drifting && !car.airborne) {
       screech = Math.max(0.25, slipAmt);
     } else if (brakingHard) {
       screech = 0.3;
     }
+
     this.sfx.setScreech(screech, car.speed / CAR.maxSpeed);
     this.vehicleFx.update(dt, car, drifting, brakingHard, this.wheelSurfaceAt);
+
     return drifting;
   }
 
-  private updateMiniTurbo(car: Car, drifting: boolean): void {
-    // Mini-turbo tier tell (Mario Kart): a blip + spark flare each time the
-    // charge steps up a tier — blue at tier 1, orange at tier 2.
+  private updateMiniTurbo(car: Car, drifting: boolean) {
     const tier = drifting ? car.driftTier : 0;
+
     if (tier > this.lastDriftTier && (tier === 1 || tier === 2)) {
       this.sfx.driftArm(tier);
     }
+
     this.lastDriftTier = tier;
 
-    // Drift-release mini-turbo — the signature skill move — pays by tier.
-    // Mario Kart grammar: the pop comes out of the exhaust pipes, tier-
-    // colored (cyan → orange). No ground shockwave.
     if (car.miniBoostFired) {
       const superTurbo = car.miniTurboTier >= 2;
       this.sfx.miniTurbo(superTurbo ? 2 : 1);
@@ -2543,30 +2424,35 @@ vec3 ocGerstner(vec2 p, float t) {
     }
   }
 
-  private updateBoostFx(dt: number, car: Car, input: CarInput): void {
-    // Boost package: ignition one-shot + loop + flames + camera kick.
+  private updateBoostFx(dt: number, car: Car, input: CarInput) {
     if (car.isBoosting && !this.wasBoosting) {
       if (!car.miniBoostFired) {
         this.sfx.boost();
       }
+
       this.rig.addTrauma(0.12);
     } else if (!car.isBoosting && this.wasBoosting) {
       this.sfx.boostEnd();
     }
+
     this.wasBoosting = car.isBoosting;
     const boostFull = car.boostMeter >= CAR.boostMax;
+
     if (boostFull && !this.boostWasFull) {
       this.sfx.boostReady();
     }
+
     this.boostWasFull = boostFull;
     this.sfx.setBoostLoop(car.isBoosting);
+
     if (car.isBoosting) {
       this.flameAccum += dt;
+
       if (this.flameAccum >= 0.05) {
         this.flameAccum = 0;
-        // Twin flame cones off the rear corners (not one center plume).
         const fx = Math.sin(car.heading);
         const fz = Math.cos(car.heading);
+
         for (const s of [-1, 1] as const) {
           this.fx.exhaustFlame(
             car.position.x - fx * 1.9 - fz * 0.55 * s,
@@ -2578,6 +2464,7 @@ vec3 ocGerstner(vec2 p, float t) {
         }
       }
     }
+
     if (car.boostDenied) {
       this.sfx.denied();
       this.hud.boostDenied();
@@ -2585,28 +2472,27 @@ vec3 ocGerstner(vec2 p, float t) {
 
     this.sfx.setEngine(
       Math.min(1, car.speed / CAR.boostSpeed),
-      // the engine hum still reads the old -1..1 pedal axis
       input.throttle - input.brake,
       car.isBoosting,
       car.airborne,
     );
+
     if (car.airborne && !this.wasAirborne && car.speed > 8) {
       this.sfx.jump();
     }
+
     this.wasAirborne = car.airborne;
   }
 
-  private updateLandingFx(car: Car): void {
-    // Landing package: squash (in the car), dust ring, thud, shake, air pay.
+  private updateLandingFx(car: Car) {
     if (car.justLanded > 0) {
-      // Toon pass: the ring is now opaque cel puffs, so it is kept for real
-      // landings — a jump, or a drop hard enough to matter — not the settle
-      // after a spawn or teleport (see LANDING_RING_*).
       if (car.airTime > LANDING_RING_AIR || car.justLanded > LANDING_RING_IMPACT) {
         this.fx.dustRing(car.position.x, car.position.y + 0.15, car.position.z, 10);
       }
+
       this.sfx.landThud(Math.min(1, car.justLanded / 12));
       this.rig.addTrauma(Math.min(0.45, 0.15 + car.justLanded * 0.015));
+
       if (car.airTime > 0.45) {
         const pts = this.state.landAir(car.airTime);
         const air = `AIR ${car.airTime.toFixed(1)}s`;
@@ -2615,8 +2501,7 @@ vec3 ocGerstner(vec2 p, float t) {
     }
   }
 
-  private updateWallFx(car: Car): void {
-    // Wall contact: crash / scrape / curb-tap, in descending order of drama.
+  private updateWallFx(car: Car) {
     if (car.lastWallHit > CRASH_THRESHOLD) {
       const impact = car.lastWallHit;
       const p = Math.min(1, (impact - CRASH_THRESHOLD) / 20);
@@ -2632,6 +2517,7 @@ vec3 ocGerstner(vec2 p, float t) {
         car.lastWallNormal.y,
         impact,
       );
+
       if (this.skids) {
         for (let i = 0; i < 4; i += 1) {
           this.skids.stamp(
@@ -2642,6 +2528,7 @@ vec3 ocGerstner(vec2 p, float t) {
           );
         }
       }
+
       if (impact > 12) {
         this.hitStop = THREE.MathUtils.clamp(0.04 + (impact - 12) * 0.004, 0.04, 0.13);
       }
@@ -2649,13 +2536,14 @@ vec3 ocGerstner(vec2 p, float t) {
       this.sfx.thud();
       this.rig.addTrauma(0.06);
     }
-    // Scrape loop: grinding along a wall below crash speed.
+
     this.scrapeFrames =
       car.wallContact && car.lastWallHit <= CRASH_THRESHOLD && car.speed > 7
         ? Math.min(this.scrapeFrames + 1, 10)
         : Math.max(this.scrapeFrames - 1, 0);
     const scraping = this.scrapeFrames >= 2;
     this.sfx.setScrape(scraping);
+
     if (scraping && Math.random() < 0.4) {
       this.fx.scrapeSparks(
         car.position.x - car.lastWallNormal.x * 0.9,
@@ -2667,16 +2555,17 @@ vec3 ocGerstner(vec2 p, float t) {
     }
   }
 
-  private updateHints(dt: number, car: Car, input: CarInput): void {
-    // One-time teach toasts for the two skill verbs.
+  private updateHints(dt: number, car: Car, input: CarInput) {
     if (!this.hintDriftShown) {
       this.turnHold = Math.abs(input.steer) > 0.5 && car.speed > 30 ? this.turnHold + dt : 0;
+
       if (this.turnHold > 0.8) {
         this.hintDriftShown = true;
         storageSet(HINT_DRIFT_KEY, "1");
         this.hud.announceMinor("BRAKE + STEER TO DRIFT", "#ffd147");
       }
     }
+
     if (!this.hintBoostShown && car.boostMeter >= CAR.boostMax) {
       this.hintBoostShown = true;
       storageSet(HINT_BOOST_KEY, "1");
@@ -2684,83 +2573,84 @@ vec3 ocGerstner(vec2 p, float t) {
     }
   }
 
-  private handleCones(car: Car): void {
+  private handleCones(car: Car) {
     const { cones } = this;
+
     if (!cones) {
       return;
     }
+
     const vx = Math.sin(car.heading) * car.speed;
     const vz = Math.cos(car.heading) * car.speed;
     const hits = cones.tryHit(car.position.x, car.position.z, vx, vz);
+
     if (hits > 0) {
       let cash = 0;
+
       for (let i = 0; i < hits; i += 1) {
         cash += this.state.smash();
       }
+
       this.hud.announceMinor(cash > 0 ? `SMASH +$${cash}` : "SMASH", "#ffb64d");
       this.sfx.thud();
       this.fx.burst(car.position.x, 0.8, car.position.z, 0.07, 5, 4);
     }
   }
 
-  // Ram a traffic car → it gets punted into the physics world (dynamic body,
-  // impulse along the contact normal); the taxi sheds some speed but keeps
-  // its line. Airborne taxis clear roofs (handled by the height check).
-  private handleTrafficImpacts(car: Car, traffic: Traffic, dt: number): void {
+  private handleTrafficImpacts(car: Car, traffic: Traffic, dt: number) {
     const { physics } = this;
+
     if (!physics) {
       return;
     }
+
     for (const c of traffic.cars) {
-      // A wreck is already totalled. Left in the loop, plowing one re-fires the
-      // whole crash package (flash, trauma, debris, SFX) and re-bills the
-      // traffic penalty every 0.25s for the ~7s the wreck survives.
       if (c.wrecked) {
         continue;
       }
+
       if (c.puntCooldown > 0) {
         continue;
       }
+
       if (car.position.y > c.position.y + 1.9) {
         continue;
-        // flying over it
       }
+
       const dx = c.position.x - car.position.x;
       const dz = c.position.z - car.position.z;
       const d = Math.hypot(dx, dz);
+
       if (d < 1e-4) {
         continue;
       }
+
       const nx = dx / d;
       const nz = dz / d;
-      // Closing speed of the taxi toward this car (0 in physics mode has no
-      // side effects — it just reads the velocity along the normal).
       const impact = car.contactPunt(nx, nz, 0);
-      // Flip the car to a dynamic body the frame contact is imminent (bodies
-      // touch at CONTACT_R; the taxi covers `closing * dt` more this step), so
-      // Rapier resolves against a real (heavy) body, not a kinematic wall. Then
-      // the taxi's own momentum shoves it — pure physics, no scripted push. The
-      // heavier taxi wins the exchange; both slow like actual cars.
       const reach = CONTACT_R + Math.max(0, impact) * dt;
+
       if (d > reach) {
         continue;
       }
+
       if (impact < 0.4 && d > CONTACT_R) {
         continue;
       }
+
       c.puntCooldown = 0.25;
       c.punt(physics);
-      // Feed the existing crash pipeline (sfx/debris/shake scale with it).
       car.lastWallHit = Math.max(car.lastWallHit, impact * 0.5);
-      // SF has opinions about robotaxis. Bumped drivers share theirs.
+
       if (impact > 4 && this.heckleCooldown <= 0 && Math.random() < 0.65) {
         this.heckleCooldown = 7;
         const line = this.pickHeckle();
+
         if (line) {
           this.bubbles.say(c.object3D, line, { accent: "#e05c2e", dur: 4.5, lift: 2.3 });
         }
       }
-      // Real hits cost money — traffic is the risk side of weaving.
+
       if (impact > 7) {
         const pen = this.state.trafficHit(impact);
         this.hud.announceMinor(`TRAFFIC HIT −$${pen}`, "#ff5a52");
@@ -2768,47 +2658,48 @@ vec3 ocGerstner(vec2 p, float t) {
     }
   }
 
-  // Ram a parked car → it becomes a dynamic body and the taxi's momentum shoves
-  // it off (pure physics), same feel as traffic but with no run/wreck
-  // bookkeeping. tryPunt returns the closing speed for the crash pipeline.
-  private handleParkedImpacts(car: Car, dt: number): void {
+  private handleParkedImpacts(car: Car, dt: number) {
     const { parked } = this;
+
     if (!parked) {
       return;
     }
+
     const impact = parked.tryPunt(car.position.x, car.position.z, car.velX, car.velZ, dt);
+
     if (impact > 0) {
       car.lastWallHit = Math.max(car.lastWallHit, impact * 0.5);
     }
   }
 
-  private handleHonks(traffic: Traffic): void {
+  private handleHonks(traffic: Traffic) {
     for (const c of traffic.cars) {
       if (!c.wantsHonk) {
         continue;
       }
+
       c.wantsHonk = false;
       this.sfx.honk(this.panFor(c.position));
     }
   }
 
-  // Feed the ambient bed (fx/sfx.ts) the driver's surroundings: altitude for
-  // the wind, nearby open water for the gulls, and which ear the Golden Gate
-  // foghorn should come from. Cheap, but there is no reason to run it at
-  // frame rate — every value it sets is smoothed on the audio side.
-  private updateAmbience(dt: number, night: number): void {
+  private updateAmbience(dt: number, night: number) {
     this.ambienceAcc += dt;
+
     if (this.ambienceAcc < 1 / AMBIENCE_HZ) {
       return;
     }
+
     this.ambienceAcc = 0;
     const p = this.car?.position ?? this.rig.camera.position;
     let water = 0;
+
     for (const probe of SHORE_PROBES) {
       const u = (p.x + probe.x) / WORLD_W + 0.5;
       const v = (p.z + probe.z) / WORLD_H + 0.5;
       water = Math.max(water, 1 - THREE.MathUtils.clamp(landFactor(u, v), 0, 1));
     }
+
     const right = this.scrRight.setFromMatrixColumn(this.rig.camera.matrixWorld, 0);
     const toGate = this.scrToGate.subVectors(GATE_POS, this.rig.camera.position).normalize();
     this.sfx.setAmbience({
@@ -2819,59 +2710,64 @@ vec3 ocGerstner(vec2 p, float t) {
     });
   }
 
-  // Which ear should hear an event at this world position?
-  private panFor(pos: THREE.Vector3): number {
+  private panFor(pos: THREE.Vector3) {
     const cam = this.rig.camera;
     const right = new THREE.Vector3().setFromMatrixColumn(cam.matrixWorld, 0);
     const rel = new THREE.Vector3().subVectors(pos, cam.position);
+
     return THREE.MathUtils.clamp(rel.dot(right) / 14, -1, 1);
   }
 
-  private handleFareEvent(ev: FareEvent): void {
+  private handleFareEvent(ev: FareEvent) {
     const { car } = this;
     const { city } = this;
+
     if (ev.kind === "pickup") {
       this.sfx.pickup();
       this.fx.burst(ev.pos.x, 1.2, ev.pos.z, 0.5, 10, 5);
       const destName = city ? districtAt(ev.dest.gx, ev.dest.gz).name : "";
       this.hud.showCombo(destName ? `TO ${destName.toUpperCase()}!` : "GO GO GO!");
       this.sayRiderLine("pickup");
+
       if (car) {
         car.addBoost(20);
       }
     } else if (ev.kind === "dropoff") {
       const reward = this.state.dropoff(ev.tiles, ev.rideTime, tierPayMult(ev.tier));
       this.sfx.dropoff(reward.combo);
-      // Confetti pop: bursts across the hue wheel + a gold ring — a paycheck
-      // should look like a party, not a dust cloud.
       this.fx.burst(ev.pos.x, 1.2, ev.pos.z, 0, 9, 8);
       this.fx.burst(ev.pos.x, 1.7, ev.pos.z, 0.33, 9, 7);
       this.fx.burst(ev.pos.x, 2.1, ev.pos.z, 0.6, 9, 6);
       this.shocks.fire(ev.pos.x, 1, ev.pos.z, 0xff_d1_47);
       this.hud.flash("#6bff8e", 0.22);
       this.rig.addTrauma(0.25);
-      // Itemized receipt: fare, then tip, then combo — each earns its beat.
+
       const lines: { text: string; color: string }[] = [
         { color: "#ffffff", text: `FARE $${reward.fare}` },
       ];
+
       if (reward.tip > 0) {
         lines.push({ color: "#6bff8e", text: `TIP $${reward.tip} SPEEDY!` });
       }
+
       if (reward.combo > 1) {
         lines.push({ color: "#ffd147", text: `${reward.combo}× COMBO` });
       }
+
       if (reward.overflowCash > 0) {
         lines.push({ color: "#8fd9ff", text: `LONG HAUL +$${reward.overflowCash}` });
       }
+
       this.hud.showReceipt(lines);
       this.hud.showCombo(`+$${reward.gross}`);
-      // The drive is endless, so no end-of-run hands the title screen its BEST
-      // line — bank it wherever the score grows instead.
       const score = this.state.displayScore;
+
       if (!this.trailerMode && score > readBest()) {
         storageSet(BEST_KEY, String(score));
       }
+
       this.sayRiderLine("dropoff");
+
       if (car) {
         car.addBoost(30);
       }
@@ -2883,50 +2779,52 @@ vec3 ocGerstner(vec2 p, float t) {
     }
   }
 
-  // Heckles know WHO they're yelling at: mostly the citywide anti-robotaxi
-  // pool, but ~45% of the time an operator-specific jab at the equipped car.
-  private pickHeckle(): string | undefined {
-    // The trailer places its few reactions explicitly; random heckles compete
-    // with those lines and make consecutive takes say different things.
+  private pickHeckle() {
     if (this.trailerMode) {
-      return undefined;
+      return;
     }
+
     const sk = skinById(this.skinId);
     const pool = sk.heckles.length > 0 && Math.random() < 0.45 ? sk.heckles : HECKLES;
+
     return pool[Math.floor(Math.random() * pool.length)];
   }
 
-  // Rider flavor: operator-specific one-liners in the equipped brand's color.
-  private sayRiderLine(kind: "pickup" | "dropoff"): void {
+  private sayRiderLine(kind: "pickup" | "dropoff") {
     const { car } = this;
+
     if (!car) {
       return;
     }
+
     const sk = skinById(this.skinId);
     const pool = kind === "pickup" ? sk.pickupLines : sk.dropoffLines;
     const line = pool[Math.floor(Math.random() * pool.length)];
+
     if (line) {
       this.bubbles.say(car.object3D, line, { accent: sk.accent, dur: 3.5, lift: 3 });
     }
   }
 
-  private handleNearMiss(car: Car, traffic: Traffic): void {
+  private handleNearMiss(car: Car, traffic: Traffic) {
     if (car.speed < NEAR_MISS_SPEED) {
       return;
     }
+
     if (car.lastWallHit > 0) {
       return;
-      // a crash this frame isn't a near miss
     }
+
     for (const c of traffic.cars) {
       if (c.missCooldown > 0) {
         continue;
       }
+
       const dx = car.position.x - c.position.x;
       const dz = car.position.z - c.position.z;
       const d = Math.hypot(dx, dz);
+
       if (d >= NEAR_MISS_MIN && d <= NEAR_MISS_MAX) {
-        // long enough that tailgating can't farm it
         c.missCooldown = 2.6;
         const speedFrac = car.speed / CAR.boostSpeed;
         const pts = this.state.nearMiss(speedFrac);
@@ -2939,9 +2837,11 @@ vec3 ocGerstner(vec2 p, float t) {
           insane ? "#ff8a3c" : "#aee3ff",
         );
         this.sfx.nearMiss(this.panFor(c.position));
+
         if (this.heckleCooldown <= 0 && Math.random() < 0.22) {
           this.heckleCooldown = 9;
           const line = this.pickHeckle();
+
           if (line) {
             this.bubbles.say(c.object3D, line, { accent: "#e05c2e", dur: 4, lift: 2.3 });
           }
@@ -2950,35 +2850,36 @@ vec3 ocGerstner(vec2 p, float t) {
     }
   }
 
-  // HUD + minimap redraws, throttled to HUD_HZ on mobile (canvas dial blits
-  // and DOM writes at 60Hz are real main-thread cost on phones). Desktop
-  // flushes every call, exactly as before. Accumulated dt keeps the minimap
-  // pulse animation running at true speed.
-  private tickHud(dt: number, car: Car, fares: FareManager, withMinimap: boolean): void {
+  private tickHud(dt: number, car: Car, fares: FareManager, withMinimap: boolean) {
     this.hudAcc += dt;
+
     if (this.mobileUi && this.hudAcc < 1 / HUD_HZ) {
       return;
     }
+
     this.updateHud(car, fares);
+
     if (withMinimap) {
       this.updateMinimap(this.hudAcc, car, fares);
     }
+
     this.hudAcc = 0;
   }
 
-  private updateMinimap(dt: number, car: Car, fares: FareManager): void {
+  private updateMinimap(dt: number, car: Car, fares: FareManager) {
     const { minimap } = this;
+
     if (!minimap) {
       return;
     }
-    // persistent — this runs every redraw
+
     const markers = this.mmMarkers;
     markers.length = 0;
-    // Garages at the bottom of the stack: orange pads, drawn only in-window
-    // except the nearest one, which pins to the edge as a "swap here" hint.
     const { city } = this;
+
     if (city) {
       const nearest = this.nearestGarage();
+
       for (const g of city.garages) {
         markers.push({
           color: "#ffa63d",
@@ -2989,16 +2890,15 @@ vec3 ocGerstner(vec2 p, float t) {
         });
       }
     }
-    // Other online drivers under the objectives, outlined so they read on
-    // road-grey (plain white dots were invisible). Read off the remote cars,
-    // which keep every player in interest range parsed (MP_INTEREST); staged
-    // trailer rivals are scenery, never players.
+
     if (!this.trailerFakes) {
       this.remoteCars?.forEachPresent((x, z) => {
         markers.push({ color: "#ffffff", glyph: "player", x, z });
       });
     }
+
     const carrying = fares.carryingInfo();
+
     if (carrying) {
       markers.push({ color: "#49e0ff", ring: true, x: carrying.pos.x, z: carrying.pos.z });
     } else {
@@ -3006,29 +2906,28 @@ vec3 ocGerstner(vec2 p, float t) {
         markers.push({ color: tierHex(w.tier), x: w.x, z: w.z });
       }
     }
+
     const { destination } = this.mapNav;
+
     if (destination) {
       markers.push({ color: "#6bff8e", ring: true, x: destination.x, z: destination.z });
     }
+
     const route = destination ? this.mapNav.remainingRoute : null;
     minimap.update(dt, car.position.x, car.position.z, car.heading, markers, route);
   }
 
-  private updateSun(): void {
-    // Shadows follow the camera in freecam so any inspected spot is lit.
+  private updateSun() {
     const raw = this.freecam ? this.rig.camera.position : this.car?.position;
+
     if (!raw) {
       return;
     }
-    // Long low-sun shadows (desktop only): widen the follow-box as the sun
-    // drops so golden-hour shadows cast across the block instead of clipping
-    // at the box edge — and the same 2048 texels spread wider, which is the
-    // soft penumbra plain PCF cannot otherwise buy. Mobile keeps the fixed
-    // box: the cadenced texel-snap below assumes a constant extent between
-    // re-renders. normalBias scales with texel size or the wider box acnes.
+
     if (this.quality.shadowEvery === 1 && !isCoarsePointer()) {
       const elevY = this.scrSnapDir.copy(this.dayNight.sunOffset).normalize().y;
       const ext = 58 + 16 * (1 - THREE.MathUtils.smoothstep(elevY, 0.15, 0.45));
+
       if (Math.abs(ext - this.shadowExtent) > 0.25) {
         this.shadowExtent = ext;
         const sc = this.sun.shadow.camera;
@@ -3037,24 +2936,18 @@ vec3 ocGerstner(vec2 p, float t) {
         sc.top = ext;
         sc.bottom = -ext;
         sc.updateProjectionMatrix();
-        // The bias pair was tuned at extent 58: normalBias tracks texel size
-        // up, and the negative depth bias backs off with it — at the wider
-        // box the fixed -0.0005 read as contour-band acne down every steep
-        // Sunset street at golden hour.
         const k = ext / 58;
         this.sun.shadow.normalBias = 0.04 * k * k;
         this.sun.shadow.bias = -0.0005 / (k * k);
       }
     }
+
     const anchor = this.scrSnapAnchor.copy(raw);
-    // Cadenced shadow updates (mobile low tiers): snap the shadow camera to a
-    // shadow-texel grid in light space, or every 2nd/3rd-frame re-render
-    // lands on a sub-texel offset and the whole shadow field swims.
+
     if (this.quality.shadowEvery > 1) {
       const dir = this.scrSnapDir.copy(this.dayNight.sunOffset).normalize();
       const up = Math.abs(dir.y) > 0.97 ? this.scrSnapUp.set(0, 0, 1) : this.scrSnapUp.set(0, 1, 0);
       const right = this.scrSnapRight.crossVectors(up, dir).normalize();
-      // orthonormal
       const upOrtho = this.scrSnapUp.crossVectors(dir, right);
       const cam = this.sun.shadow.camera;
       const texel = (cam.right - cam.left) / Math.max(1, this.sun.shadow.mapSize.x);
@@ -3064,63 +2957,67 @@ vec3 ocGerstner(vec2 p, float t) {
         .addScaledVector(right, Math.round(rx / texel) * texel - rx)
         .addScaledVector(upOrtho, Math.round(ry / texel) * texel - ry);
     }
+
     this.sun.position.copy(anchor).add(this.dayNight.sunOffset);
     this.sun.target.position.copy(anchor);
     this.sun.target.updateMatrixWorld();
   }
 
-  // DEV-only: jump the day-night cycle (night-look verification).
-  debugSetDayPhase(p: number): void {
+  debugSetDayPhase(p: number) {
     this.dayNight.setPhase(p);
   }
 
-  // TRAILER (src/trailer/trailer-director.ts): fake remote robotaxis staged by
-  // the director; null in every normal boot (updateNet checks it).
   private trailerFakes: PlayerMap | null = null;
   private trailerStage: TrailerStage | null = null;
   private trailerFrame: ((dt: number) => void) | null = null;
 
   /** Load the trailer's taxi before revealing footage; leave saved equipment alone. */
-  async prepareTrailer(): Promise<void> {
+  async prepareTrailer() {
     if (!this.trailerMode) {
       return;
     }
+
     await this.cache.ensure(skinModelUrl(skinById("waymo")));
-    // Keep the taxi consistent without changing the player's saved equipment.
     this.skinId = "waymo";
     this.car?.setSkin(this.skinId);
   }
 
   /** Enter gameplay and expose staging controls after `ready`; idempotent and
    *  restricted to trailer boots. A trusted gesture unlocks audio through the shell. */
-  beginTrailer(): TrailerStage | null {
+  beginTrailer() {
     if (this.trailerStage) {
       return this.trailerStage;
     }
+
     if (!this.trailerMode || !this.loadDone) {
       return null;
     }
+
     const { car } = this;
     const { city } = this;
     const { fares } = this;
     const { traffic } = this;
     const { cones } = this;
+
     if (!car || !city || !fares || !traffic || !cones) {
       return null;
     }
+
     this.hud.hideBanner();
     this.hud.setLanding(false);
     this.minimap?.setVisible(false);
     this.closeMap();
-    // No teach toasts or garage waypoints photobombing a staged shot.
     this.hintDriftShown = true;
     this.hintBoostShown = true;
+
     if (this.garagePillar) {
       this.garagePillar.visible = false;
     }
+
     if (this.garageRings) {
       this.garageRings.visible = false;
     }
+
     this.bubbles.clear();
     this.state.reset();
     this.mode = { kind: "playing" };
@@ -3130,6 +3027,7 @@ vec3 ocGerstner(vec2 p, float t) {
       city,
       closeShowroom: () => {
         this.closeGarage(false);
+
         if (this.garageRings) {
           this.garageRings.visible = false;
         }
@@ -3139,34 +3037,37 @@ vec3 ocGerstner(vec2 p, float t) {
       hud: this.hud,
       openShowroom: async () => {
         await this.loadShowroom();
+
         if (this.garageRings) {
           this.garageRings.visible = true;
         }
+
         this.openGarage();
+
         if (this.garageEl) {
           await this.mountShowroom(this.garageEl);
         }
       },
       placeCar: (x, z, yaw, speed, y) => {
-        // Every scout gates its marks on the play area, so a mark outside it is
-        // a staging bug — and an expensive one: past the map edge the ground
-        // collider runs out from under drawn-but-fake asphalt and the car
-        // free-falls for the rest of the trailer. Clamp (a wrong-looking shot
-        // still rolls) and shout, rather than lose the take to the void.
         const sx = clampToPlayArea(x, WORLD_HALF_X);
         const sz = clampToPlayArea(z, WORLD_HALF_Z);
+
         if (sx !== x || sz !== z) {
           console.error(`trailer: staged (${x.toFixed(0)}, ${z.toFixed(0)}) outside the play area`);
         }
+
         car.reset(sx, sz, yaw);
         const veh = car.physicsVehicle;
+
         if (veh) {
           if (y !== undefined) {
             veh.teleport(sx, y + 1.4, sz, yaw);
             car.position.y = y;
           }
+
           veh.chassis.setLinvel({ x: Math.sin(yaw) * speed, y: 0, z: Math.cos(yaw) * speed }, true);
         }
+
         this.rig.snapTo(car);
       },
       restoreParked: () => this.parked?.restore(),
@@ -3187,6 +3088,7 @@ vec3 ocGerstner(vec2 p, float t) {
       setDayPhase: (p) => this.dayNight.setPhase(p),
       setFakePlayers: (players) => {
         this.trailerFakes = players;
+
         if (this.remoteCars) {
           this.remoteCars.showBeacons = players === null;
         }
@@ -3202,9 +3104,11 @@ vec3 ocGerstner(vec2 p, float t) {
       setScriptedInput: (input) => this.input.setScripted(input),
       setSpeed: (speed) => {
         const veh = car.physicsVehicle;
+
         if (!veh) {
           return;
         }
+
         const vy = veh.chassis.linvel().y;
         veh.chassis.setLinvel(
           { x: Math.sin(car.heading) * speed, y: vy, z: Math.cos(car.heading) * speed },
@@ -3216,7 +3120,6 @@ vec3 ocGerstner(vec2 p, float t) {
         this.parked?.stageRow(x0, z0, tx, tz, n, spacing),
       state: this.state,
       traffic,
-      // Unmuted for the session only — the M-key preference is untouched.
       unlockAudio: () => {
         this.sfx.ensure();
         this.sfx.setMuted(false);
@@ -3227,10 +3130,11 @@ vec3 ocGerstner(vec2 p, float t) {
         this.car?.setSkin(skinId);
       },
     };
+
     return this.trailerStage;
   }
 
-  private updateHud(car: Car, fares: FareManager): void {
+  private updateHud(car: Car, fares: FareManager) {
     this.hud.setTimer(this.state.timeLeft, this.state.timeLeft <= 10);
     this.hud.setScore(this.state.displayScore);
     this.hud.setSpeed(car.speed * MPH_FACTOR);
@@ -3238,51 +3142,55 @@ vec3 ocGerstner(vec2 p, float t) {
     this.hud.setDrift(car.driftTier, car.driftCharge);
     this.hud.setCombo(this.state.combo, this.state.comboTimer / FARE.comboWindow);
 
-    // The card only shows while CARRYING (destination + patience); while
-    // seeking, the beacon, minimap dot and off-screen arrow are enough.
     const carrying = fares.carryingInfo();
+
     if (carrying) {
       const { city } = this;
       const name = city ? districtAt(carrying.dest.gx, carrying.dest.gz).name : "";
       const distM = Math.hypot(car.position.x - carrying.pos.x, car.position.z - carrying.pos.z);
       this.hud.setFareCard(`TO ${name.toUpperCase()} →`, distM, fares.patienceFrac());
       this.projectArrow(carrying.pos, "#49e0ff");
+
       return;
     }
+
     this.hud.hideFareCard();
     const next = fares.nearestWaiting(car.position.x, car.position.z);
+
     if (!next) {
       this.hud.setArrow(false, 0, 0, 0);
+
       return;
     }
+
     this.projectArrow(next.pos, tierHex(next.tier));
   }
 
-  // The fare's off-screen bearing, drawn on the border of the HUD-free box.
-  // Clamping the projected point per axis (what this used to do) collapses the
-  // bearing into a corner, and the corners are exactly where the pedal and the
-  // speedo live — so instead the arrow rides where the ray from the box centre
-  // toward the target leaves the box, which is inside the viewport, clear of
-  // the touch controls, and still pointing the right way.
-  private projectArrow(target: THREE.Vector3, color: string): void {
+  private projectArrow(target: THREE.Vector3, color: string) {
     const ndc = this.scrArrow.copy(target).project(this.rig.camera);
     const behind = ndc.z > 1;
     const x = behind ? -ndc.x : ndc.x;
     const y = behind ? -ndc.y : ndc.y;
     const onScreen = !behind && x > -0.92 && x < 0.92 && y > -0.92 && y < 0.92;
+
     if (onScreen) {
       this.hud.setArrow(false, 0, 0, 0);
+
       return;
     }
+
     const box = this.hud.arrowBounds();
     const cx = (box.minX + box.maxX) / 2;
     const cy = (box.minY + box.maxY) / 2;
     const dx = (x * 0.5 + 0.5) * window.innerWidth - cx;
     const dy = (-y * 0.5 + 0.5) * window.innerHeight - cy;
+
     if (dx === 0 && dy === 0) {
       this.hud.setArrow(false, 0, 0, 0);
+
       return;
     }
+
     const hitX = dx === 0 ? Infinity : (box.maxX - cx) / Math.abs(dx);
     const hitY = dy === 0 ? Infinity : (box.maxY - cy) / Math.abs(dy);
     const t = Math.min(hitX, hitY);

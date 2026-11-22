@@ -1,81 +1,37 @@
-// Helix ribbons dragged behind a projectile — the wake Grimelda's Hex Bolt
-// leaves as it curdles through the air.
-//
-// Ported from the Elemental Sandbox VFX sandbox (MIT, Copyright (c) 2026
-// mohamedachrefelouafi) — https://github.com/achrefelouafi/LinearAbiltyCastingExtendedThreeJS
-// (the "Cyber Serpent" neon trail), with the sandbox's depth-buffer soft fade
-// dropped (we run no depth prepass) and the palette re-graded from neon cyan
-// to bog green running out to violet.
-//
-// A whole nest of them is ONE draw call: the geometry is the same instanced
-// parameter strip the lightning bolt uses, and each instance winds its own
-// helix about the flight line from nothing but its instance index. The CPU
-// hands over four vectors a frame — where the nose is, and the frame it is
-// flying in — and never touches a vertex. There is no path to go stale, so a
-// projectile that dies mid-flight leaves a wake that dissolves in place.
-//
-// Three things stop this reading as a machined screw thread, which is what a
-// plain helix looks like:
-//   - the RADIUS PROFILE opens just behind the head and closes to a point at
-//     the far end, so a ribbon is a teardrop wrapped around the path;
-//   - each strand carries its own PHASE, PITCH and RADIUS, rolled off its
-//     index, so the strands cross each other instead of nesting;
-//   - a low-frequency WANDER pushes the whole helix off axis — the difference
-//     between a light ribbon and a spring.
-//
-// The strip is billboarded: a fixed normal would make a strand vanish edge-on
-// every half turn, which on a helix is twice a revolution.
 import * as THREE from "three";
 import { NOISE_GLSL } from "./fx-noise";
 
 const POOL = 6;
-// samples along the wake
 const NODES = 40;
-// ribbons per wake
 const STRANDS = 5;
 
 const RIBBON = {
-  // the hard thread down the middle of it
   core: 20,
-  // it is a curse, not a wire — let it stutter
   flicker: 0.3,
   flickerScale: 6,
   flickerSpeed: 2.2,
   intensity: 1.35,
-  // seconds a wake takes to dissolve once its head is gone
   loose: 0.3,
   opacity: 0.68,
-  // charge running up it
   pulse: 1.3,
   pulseFreq: 2.2,
   pulseSpeed: 1.3,
-  // how far off the axis they ride, metres
   radius: 0.34,
-  // falloff across the ribbon
   sharp: 2.8,
-  // metres of path they reach back over
   span: 4.5,
-  // turns/second they roll on top of that
   spin: 0.35,
-  // where along the span they are fattest
   swell: 0.5,
-  // turns each makes over that span
   turns: 1.8,
-  // metres the helix drifts off axis
   wander: 0.12,
   wanderScale: 2,
   wanderSpeed: 0.8,
-  // half-width at the head, metres
   width: 0.07,
-  // that width at the tail, as a multiple
   widthTip: 0.5,
 } as const;
 
-/** Bog green out of a white thread, running to violet at the tail. */
 const HEX = { body: 0x7f_e0_8a, core: 0xf0_ff_f0, tail: 0x6a_3a_a8 } as const;
 
-// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-const VERT = /* glsl */ `
+const VERT = `
 #define TAU 6.283185307179586
 #define PI  3.141592653589793
 attribute float aStrand;
@@ -140,8 +96,7 @@ void main() {
   gl_Position = projectionMatrix * viewMatrix * vec4(p0 + side * (position.y * halfWidth), 1.0);
 }`;
 
-// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-const FRAG = /* glsl */ `
+const FRAG = `
 uniform float uTime;
 uniform float uSeed;
 uniform float uFade;
@@ -184,9 +139,9 @@ void main() {
   gl_FragColor = vec4(color, alpha);
 }`;
 
-/** The bolt's strip: (t, ±1) per vertex, one instance per strand. */
-const createStripGeometry = (): THREE.InstancedBufferGeometry => {
+const createStripGeometry = () => {
   const positions = new Float32Array(NODES * 2 * 3);
+
   for (let i = 0; i < NODES; i += 1) {
     const t = i / (NODES - 1);
     const o = i * 6;
@@ -195,7 +150,9 @@ const createStripGeometry = (): THREE.InstancedBufferGeometry => {
     positions[o + 3] = t;
     positions[o + 4] = 1;
   }
+
   const indices = new Uint16Array((NODES - 1) * 6);
+
   for (let i = 0; i < NODES - 1; i += 1) {
     const a = i * 2;
     const o = i * 6;
@@ -206,16 +163,20 @@ const createStripGeometry = (): THREE.InstancedBufferGeometry => {
     indices[o + 4] = a + 3;
     indices[o + 5] = a + 2;
   }
+
   const strand = new Float32Array(STRANDS);
+
   for (let i = 0; i < STRANDS; i += 1) {
     strand[i] = i;
   }
+
   const geo = new THREE.InstancedBufferGeometry();
   geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
   geo.setAttribute("aStrand", new THREE.InstancedBufferAttribute(strand, 1));
   geo.setIndex(new THREE.BufferAttribute(indices, 1));
   geo.instanceCount = STRANDS;
   geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e4);
+
   return geo;
 };
 
@@ -236,11 +197,8 @@ type RibbonUniforms = {
 interface Ribbon {
   mesh: THREE.Mesh;
   uni: RibbonUniforms;
-  // the projectile it follows; "" when free
   id: string;
-  // followed this frame
   fed: boolean;
-  // seconds since its head last reported in
   loose: number;
 }
 
@@ -258,6 +216,7 @@ export class RibbonPool {
 
   constructor(scene: THREE.Scene, clock: { value: number }) {
     this.scene = scene;
+
     for (let i = 0; i < POOL; i += 1) {
       const uni: RibbonUniforms = {
         uColorBody: { value: new THREE.Color(HEX.body) },
@@ -272,6 +231,7 @@ export class RibbonPool {
         uTime: clock,
         uUp: { value: new THREE.Vector3(0, 1, 0) },
       };
+
       const mesh = new THREE.Mesh(
         this.geo,
         new THREE.ShaderMaterial({
@@ -284,6 +244,7 @@ export class RibbonPool {
           vertexShader: VERT,
         }),
       );
+
       mesh.frustumCulled = false;
       mesh.visible = false;
       mesh.renderOrder = 6;
@@ -307,19 +268,18 @@ export class RibbonPool {
     dz: number,
     traveled: number,
     palette: RibbonPalette = HEX,
-  ): void {
+  ) {
     let r = this.ribbons.find((e) => e.id === id);
+
     if (!r) {
       r = this.ribbons.find((e) => e.id === "");
+
       if (!r) {
         return;
-        // saturated — this bolt flies without a wake
       }
+
       r.id = id;
       r.loose = 0;
-      // A slot freed by a wake that had faded out still carries that fade —
-      // reset it here, not in update(), or the new wake's first frame draws
-      // at whatever the old one died at.
       r.uni.uFade.value = 1;
       r.uni.uSeed.value = Math.random() * 100;
       r.uni.uColorCore.value.setHex(palette.core);
@@ -327,6 +287,7 @@ export class RibbonPool {
       r.uni.uColorTail.value.setHex(palette.tail);
       r.mesh.visible = true;
     }
+
     r.fed = true;
     r.uni.uHead.value.set(x, h, z);
     r.uni.uDir.value.set(dx, 0, dz);
@@ -334,31 +295,33 @@ export class RibbonPool {
     r.uni.uSpan.value = Math.min(RIBBON.span, traveled + 0.4);
   }
 
-  update(dt: number): void {
+  update(dt: number) {
     for (const r of this.ribbons) {
       if (r.id === "") {
         continue;
       }
+
       if (r.fed) {
         r.fed = false;
         r.loose = 0;
         r.uni.uFade.value = 1;
         continue;
       }
-      // The head is gone (the bolt burst or fizzled): the wake dissolves where
-      // it was, tail first.
+
       r.loose += dt;
       const k = r.loose / RIBBON.loose;
+
       if (k >= 1) {
         r.id = "";
         r.mesh.visible = false;
         continue;
       }
+
       r.uni.uFade.value = 1 - k;
     }
   }
 
-  clear(): void {
+  clear() {
     for (const r of this.ribbons) {
       r.id = "";
       r.fed = false;
@@ -369,13 +332,15 @@ export class RibbonPool {
     }
   }
 
-  dispose(): void {
+  dispose() {
     for (const r of this.ribbons) {
       r.mesh.removeFromParent();
+
       if (r.mesh.material instanceof THREE.Material) {
         r.mesh.material.dispose();
       }
     }
+
     this.ribbons.length = 0;
     this.geo.dispose();
   }

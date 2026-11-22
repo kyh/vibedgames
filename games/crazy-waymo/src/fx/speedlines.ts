@@ -1,34 +1,17 @@
 import * as THREE from "three";
 
-// Anime-style speed lines: additive streaks in a torus around the camera's
-// forward axis, rushing past at high speed. The whole system fades in above
-// FADE_START of top speed and is fully hidden below it. One LineSegments,
-// zero allocation per frame.
-//
-// Lines live in camera space: the object copies the camera's transform each
-// frame and the streaks slide along local +Z (toward/behind the camera),
-// respawning ahead once they pass behind. The slide runs in the vertex
-// shader off one distance-travelled uniform, so the vertex buffer is written
-// once: each line carries a seed and a spawn depth, wraps back ahead when it
-// passes the camera, and re-hashes its ring position from the wrap count —
-// the same fresh-random respawn the CPU version rolled, without the upload.
-
 const COUNT = 36;
 const RADIUS_MIN = 5;
 const RADIUS_MAX = 10;
-// spawn distance ahead of the camera (local -Z)
 const AHEAD_MIN = 10;
 const AHEAD_MAX = 25;
 const BASE_ALPHA = 0.2;
-// speedFrac where lines begin to appear
 const FADE_START = 0.75;
-// fully visible here
 const FADE_FULL = 0.9;
 
-const f = (n: number): string => (Number.isInteger(n) ? `${n}.0` : String(n));
+const f = (n: number) => (Number.isInteger(n) ? `${n}.0` : String(n));
 
-// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-const VERT = /* glsl */ `
+const VERT = `
   attribute vec4 aLine; // seed, spawn depth z0 (< 0), start phase (u), tail flag
   uniform float uDist;
   uniform float uStretch;
@@ -53,9 +36,7 @@ const VERT = /* glsl */ `
   }
 `;
 
-// LineBasicMaterial's output, minus the vertex colour path.
-// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-const FRAG = /* glsl */ `
+const FRAG = `
   uniform float uOpacity;
   #include <fog_pars_fragment>
   void main() {
@@ -74,17 +55,18 @@ export class SpeedLines {
 
   constructor() {
     const lines = new Float32Array(COUNT * 2 * 4);
+
     for (let i = 0; i < COUNT; i += 1) {
       const seed = Math.random();
       const z0 = -(AHEAD_MAX - Math.random() * 5);
-      // start mid-flight, as the CPU version seeded its heads
       const phase = Math.random() * (AHEAD_MAX - AHEAD_MIN);
+
       for (let e = 0; e < 2; e += 1) {
         lines.set([seed, z0, phase, e], (i * 2 + e) * 4);
       }
     }
+
     const geo = new THREE.BufferGeometry();
-    // the renderer sizes the draw from `position`; the shader ignores it
     geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(COUNT * 2 * 3), 3));
     geo.setAttribute("aLine", new THREE.BufferAttribute(lines, 4));
     geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e6);
@@ -95,7 +77,6 @@ export class SpeedLines {
       fog: true,
       fragmentShader: FRAG,
       transparent: true,
-      // spread, not merge(): merge clones, and the uniforms must stay ours
       uniforms: {
         ...THREE.UniformsUtils.clone(THREE.UniformsLib.fog),
         uDist: this.uDist,
@@ -104,29 +85,27 @@ export class SpeedLines {
       },
       vertexShader: VERT,
     });
+
     const segments = new THREE.LineSegments(geo, mat);
     segments.frustumCulled = false;
     segments.visible = false;
-    // over world transparents
     segments.renderOrder = 10;
     this.object3D = segments;
   }
 
-  update(dt: number, camera: THREE.PerspectiveCamera, speedFrac: number): void {
+  update(dt: number, camera: THREE.PerspectiveCamera, speedFrac: number) {
     const fade = THREE.MathUtils.clamp((speedFrac - FADE_START) / (FADE_FULL - FADE_START), 0, 1);
     this.uOpacity.value = BASE_ALPHA * fade;
     this.object3D.visible = fade > 0;
+
     if (fade <= 0) {
       return;
-      // kill invisible work
     }
 
-    // Ride the camera.
     this.object3D.position.copy(camera.position);
     this.object3D.quaternion.copy(camera.quaternion);
 
     this.uStretch.value = 1 + speedFrac * 3;
-    // how fast streaks rush past
     this.uDist.value += (20 + speedFrac * 60) * dt;
   }
 }

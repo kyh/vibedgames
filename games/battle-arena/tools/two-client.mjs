@@ -1,9 +1,3 @@
-// Two-client online smoke: host + guest through join, wire traffic, pause, a
-// dropped connection on either side, rematch, host handoff and a late join;
-// then a client no room admits, which plays on against bots offline.
-// Needs the party server on :8787 and Chrome.
-// `node tools/two-client.mjs [--url http://localhost:PORT]` — without --url it
-// launches its own vite on :5313.
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
@@ -26,6 +20,7 @@ const startVite = async () => {
       stdio: ["ignore", "pipe", "inherit"],
     },
   );
+
   // oxlint-disable-next-line promise/avoid-new -- child_process.spawn is event-based
   await new Promise((resolve, reject) => {
     child.stdout.on("data", (chunk) => {
@@ -35,6 +30,7 @@ const startVite = async () => {
     });
     child.on("exit", (code) => reject(new Error(`vite exited ${code}`)));
   });
+
   return child;
 };
 
@@ -49,6 +45,7 @@ const openClient = async (browser, base, name, prepare) => {
   });
   await prepare?.(page);
   await page.goto(`${base}/?online=1&room=${room}&name=${name}`);
+
   return { context, name, page };
 };
 
@@ -56,13 +53,17 @@ const diag = (page) => page.evaluate(() => structuredClone(window.__GAME_DIAGNOS
 
 const until = async (page, predicate, label, timeout = 20_000, arg = null) => {
   const started = Date.now();
+
   while (Date.now() - started < timeout) {
     const value = await page.evaluate(predicate, arg);
+
     if (value) {
       return value;
     }
+
     await wait(100);
   }
+
   throw new Error(`timeout: ${label}`);
 };
 
@@ -71,6 +72,7 @@ const joined = (client) =>
     client.page,
     () => {
       const d = window.__GAME_DIAGNOSTICS__;
+
       return d?.online?.connection === "connected" && d.player ? d.online.playerId : null;
     },
     `${client.name} joined`,
@@ -80,6 +82,7 @@ const joined = (client) =>
 const unitOf = (page, id) =>
   page.evaluate((unitId) => {
     const u = window.__ba.world.units.get(`h-${unitId}`);
+
     return u ? { alive: u.alive, hp: u.hp, x: u.x, y: u.y } : null;
   }, id);
 
@@ -106,6 +109,7 @@ const endMatch = async (page) => {
 const rematchLabel = (page) =>
   page.evaluate(() => {
     const b = document.querySelector('#hud [data-act="again"]');
+
     return b ? { disabled: b.disabled, text: b.textContent } : null;
   });
 
@@ -119,21 +123,14 @@ const movesOnKey = async (page, id, sim = page) => {
   assert.ok(Math.hypot(after.x - before.x, after.y - before.y) > 0.5, "moved on KeyW");
 };
 
-// A network blip, as the SDK's tests make one: the transport drops without a
-// leave, so the server holds the seat, until the socket redials.
 const dropTransport = (page) => page.evaluate(() => window.__ba.net.socket.close(4000));
 const restoreTransport = (page) => page.evaluate(() => window.__ba.net.socket.reconnect());
 
-// (the scene appears once the arena has loaded)
 const showsStatus = (page, text, label) =>
   until(page, (expected) => window.__ba?.statusEl.textContent === expected, label, 45_000, text);
 
 const run = async (base) => {
-  // Both clients must keep simulating; Chrome otherwise throttles whichever
-  // window is not focused, which reads as a frozen peer.
   const browser = await chromium.launch({
-    // channel:"chrome" alone lands on ANGLE Metal; the flag is belt-and-braces
-    // against a GPU blocklist. SwiftShader renders this scene at ~1 fps.
     args: [
       "--use-angle=metal",
       "--ignore-gpu-blocklist",
@@ -145,12 +142,15 @@ const run = async (base) => {
     channel: "chrome",
     headless: true,
   });
+
   const results = [];
+
   const step = async (label, body) => {
     const started = Date.now();
     await body();
     results.push(`${label}: pass (${((Date.now() - started) / 1000).toFixed(1)}s)`);
   };
+
   try {
     const host = await openClient(browser, base, "Host");
     const guest = await openClient(browser, base, "Guest");
@@ -180,7 +180,6 @@ const run = async (base) => {
       assert.ok(await unitOf(guest.page, hostId));
     });
     await step("guest input crosses the wire", async () => {
-      // the intro sweep; the sim runs, input is live
       await wait(1500);
       await movesOnKey(guest.page, guestId, host.page);
       await key(guest.page, "keydown", "Space", " ");
@@ -233,12 +232,12 @@ const run = async (base) => {
       await dropTransport(host.page);
       await showsStatus(host.page, "Reconnecting…", "host shows its own drop");
       await showsStatus(guest.page, "Host reconnecting…", "guest waits for the host");
-      // back inside the server's host-liveness window (6 s), so the role stays
       await restoreTransport(host.page);
       await until(
         host.page,
         (id) => {
           const d = window.__GAME_DIAGNOSTICS__.online;
+
           return d.authority && d.hostId === id && d.takeover === "own";
         },
         "host carries the match on from its own world",
@@ -339,16 +338,16 @@ const run = async (base) => {
       await late.context.close();
     });
     await step("no room admits: Connecting…, then a match vs bots, offline", async () => {
-      // A party server out of reach: every dial is refused.
       const lone = await openClient(browser, base, "Lone", (page) =>
         page.routeWebSocket(/\/parties\//u, (ws) => ws.close({ code: 1011 })),
       );
+
       await showsStatus(lone.page, "Connecting…", "no room yet");
-      // The 8 s fallback counts rendered frames, so a slow page takes longer.
       await until(
         lone.page,
         () => {
           const d = window.__GAME_DIAGNOSTICS__;
+
           return d?.online?.connection === "offline" && d.online.authority && !!d.player;
         },
         "hosts its own room of one",
@@ -359,12 +358,13 @@ const run = async (base) => {
         () => document.querySelector("#ba-toasts")?.textContent?.includes("SERVER UNREACHABLE"),
         "says why",
       );
+
       const heroes = await lone.page.evaluate(
         () => [...window.__ba.world.units.values()].filter((u) => u.kind === "hero").length,
       );
+
       assert.equal(heroes, 4, "bots fill the arena");
       await movesOnKey(lone.page, "solo");
-      // nobody shares this match, so a pause freezes it as it does solo
       await key(lone.page, "keydown", "Escape", "Escape");
       await until(lone.page, () => window.__ba.controlsPaused, "paused");
       const t0 = await gameTime(lone.page);
@@ -378,12 +378,14 @@ const run = async (base) => {
     console.log(results.join("\n"));
     await browser.close();
   }
+
   if (errors.length) {
     throw new Error(`console errors:\n${errors.join("\n")}`);
   }
 };
 
 const vite = urlArg === -1 ? await startVite() : null;
+
 try {
   await run(urlArg === -1 ? `http://localhost:${PORT}` : process.argv[urlArg + 1]);
   console.log("two-client: ok");
@@ -392,6 +394,5 @@ try {
   process.exitCode = 1;
 } finally {
   vite?.kill();
-  // A leaked dev-server handle would otherwise keep node alive past the last check.
   process.exit(process.exitCode ?? 0);
 }

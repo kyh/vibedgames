@@ -1,14 +1,8 @@
-// What a player can read off the screen, as small vectors relative to the
-// player: the fight worth taking, the loot worth walking to, where the gas
-// is. `vg playtest run`'s decision model sees nothing else, so rankings are
-// digested here into single named fields rather than left as lists to sort.
-
 import { nearestBox, nearestCube } from "./ai/goals";
 import type { Brawler } from "./entities/brawler";
 import type { Game } from "./game";
 import { dist } from "./utils";
 
-/** Roughly the half-width of the match camera's view; further brawlers are off screen. */
 const VIEW_RANGE = 16;
 const CROWD_RANGE = 9;
 const UNDER_FIRE_S = 1.5;
@@ -53,52 +47,63 @@ export interface PlaytestSense {
   zone: SensedZone;
 }
 
-const round1 = (value: number): number => Math.round(value * 10) / 10;
-const round2 = (value: number): number => Math.round(value * 100) / 100;
+const round1 = (value: number) => Math.round(value * 10) / 10;
+const round2 = (value: number) => Math.round(value * 100) / 100;
 
 /** Throwers lob over walls; everyone else needs a clear line. */
-export const canHit = (game: Game, player: Brawler, x: number, z: number): boolean => {
+export const canHit = (game: Game, player: Brawler, x: number, z: number) => {
   const { attack } = player.def;
+
   if (dist(player.x, player.z, x, z) > attack.range * 0.95) {
     return false;
   }
+
   return attack.kind === "lob" || game.world.hasLineOfSight(player.x, player.z, x, z);
 };
 
-const isVisibleEnemy = (player: Brawler, other: Brawler): boolean =>
+const isVisibleEnemy = (player: Brawler, other: Brawler) =>
   other !== player && other.alive && !other.hidden && !other.airborne;
 
 /**
  * The opponent worth fighting: one a shot reaches beats one that needs a
  * walk, then the closer and the more hurt. Null when nobody is on screen.
  */
-export const pickBestTarget = (game: Game, player: Brawler): Brawler | null => {
+export const pickBestTarget = (game: Game, player: Brawler) => {
   let best: Brawler | null = null;
   let bestCost = Number.POSITIVE_INFINITY;
+
   for (const other of game.brawlers) {
     if (!isVisibleEnemy(player, other)) {
       continue;
     }
+
     const range = dist(player.x, player.z, other.x, other.z);
+
     if (range > VIEW_RANGE) {
       continue;
     }
+
     const reachable = canHit(game, player, other.x, other.z) ? 0 : 4;
     const cost = range + reachable + (other.hp / other.maxHp) * 3;
+
     if (cost < bestCost) {
       best = other;
       bestCost = cost;
     }
   }
+
   return best;
 };
 
-const senseTarget = (game: Game, player: Brawler): SensedTarget | null => {
+const senseTarget = (game: Game, player: Brawler) => {
   const target = pickBestTarget(game, player);
+
   if (!target) {
     return null;
   }
+
   const hpPct = target.hp / target.maxHp;
+
   return {
     canHit: canHit(game, player, target.x, target.z),
     dist: round1(dist(player.x, player.z, target.x, target.z)),
@@ -109,12 +114,14 @@ const senseTarget = (game: Game, player: Brawler): SensedTarget | null => {
   };
 };
 
-const senseLoot = (game: Game, player: Brawler): SensedLoot | null => {
+const senseLoot: (game: Game, player: Brawler) => SensedLoot | null = (game, player) => {
   const cube = nearestCube(game, player);
   const found = cube ?? nearestBox(game, player);
+
   if (!found) {
     return null;
   }
+
   return {
     dist: round1(dist(player.x, player.z, found.x, found.z)),
     dx: round1(found.x - player.x),
@@ -123,18 +130,21 @@ const senseLoot = (game: Game, player: Brawler): SensedLoot | null => {
   };
 };
 
-const countNear = (player: Brawler, brawlers: readonly Brawler[]): number =>
+const countNear = (player: Brawler, brawlers: readonly Brawler[]) =>
   brawlers.filter(
     (other) =>
       isVisibleEnemy(player, other) && dist(player.x, player.z, other.x, other.z) < CROWD_RANGE,
   ).length;
 
-export const sensePlaytest = (game: Game): PlaytestSense | null => {
+export const sensePlaytest: (game: Game) => PlaytestSense | null = (game) => {
   const { gas, player } = game;
+
   if (!player) {
     return null;
   }
+
   const depth = gas.depthAt(player.x, player.z);
+
   return {
     ammo: Math.floor(player.ammo),
     bestTarget: senseTarget(game, player),

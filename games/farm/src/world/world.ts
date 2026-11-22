@@ -5,14 +5,12 @@ import type { CropId } from "../data/crops";
 import { CELL, buildSemantics } from "./worldmap";
 import type { Cell, WorldMap } from "./worldmap";
 
-// Legacy ground vocabulary kept for the scenes: grass = tillable, water =
-// fishable/refill, sand = any other walkable ground.
 export const GROUND = { grass: 0, sand: 2, water: 1 } as const;
+
 export type Ground = (typeof GROUND)[keyof typeof GROUND];
 
 export interface CropState {
   crop: CropId;
-  // watered days accumulated
   daysGrown: number;
 }
 
@@ -26,48 +24,41 @@ export type ObjType =
   | "barn"
   | "coop"
   | "forage"
-  // ore nodes used in the mine
   | "ore";
 
 export interface WorldObject {
   id: number;
   type: ObjType;
   tx: number;
-  // anchor tile (bottom for buildings/trees)
   ty: number;
-  // footprint width in tiles (collision)
   w: number;
-  // footprint height in tiles (collision)
   h: number;
   hp: number;
   maxHp: number;
-  // e.g. forage kind, ore kind, tree art
   variant?: string;
-  // override: forage is non-solid (walk over to pick)
   solid?: boolean;
 }
 
-export const inBounds = (tx: number, ty: number): boolean =>
-  tx >= 0 && ty >= 0 && tx < MAP_W && ty < MAP_H;
+export const inBounds = (tx: number, ty: number) => tx >= 0 && ty >= 0 && tx < MAP_W && ty < MAP_H;
 
 /** Trees, rocks and forage: the objects a farmer can take off the map. */
-export const isClearable = (o: WorldObject): boolean =>
+export const isClearable = (o: WorldObject) =>
   o.type === "tree" || o.type === "rock" || o.type === "forage";
 
-export const tileIdx = (tx: number, ty: number): number => ty * MAP_W + tx;
+export const tileIdx = (tx: number, ty: number) => ty * MAP_W + tx;
 
-// Wide footprints straddle their anchor column, leaning left on even widths.
-const footprintX0 = (o: WorldObject): number => o.tx - Math.floor((o.w - 1) / 2);
+const footprintX0 = (o: WorldObject) => o.tx - Math.floor((o.w - 1) / 2);
 
-// Buildings/trees occupy their footprint counting up from the anchor tile.
-const covers = (o: WorldObject, tx: number, ty: number): boolean => {
+const covers = (o: WorldObject, tx: number, ty: number) => {
   const x0 = footprintX0(o);
+
   return tx >= x0 && tx <= x0 + o.w - 1 && ty >= o.ty - o.h + 1 && ty <= o.ty;
 };
 
-const footprintKeys = (o: WorldObject): number[] => {
+const footprintKeys = (o: WorldObject) => {
   const keys: number[] = [];
   const x0 = footprintX0(o);
+
   for (let ty = o.ty - o.h + 1; ty <= o.ty; ty += 1) {
     for (let tx = x0; tx < x0 + o.w; tx += 1) {
       if (inBounds(tx, ty)) {
@@ -75,23 +66,18 @@ const footprintKeys = (o: WorldObject): number[] => {
       }
     }
   }
+
   return keys;
 };
 
 export class World {
-  // static, derived from the world map — never serialized
   kind: Uint8Array = new Uint8Array(MAP_W * MAP_H);
-  // dynamic state
   tilled: Uint8Array = new Uint8Array(MAP_W * MAP_H);
   watered: Uint8Array = new Uint8Array(MAP_W * MAP_H);
   crops = new Map<number, CropState>();
-  // co-op: crops planted on each tile in this farm's run, naming each crop in
-  // claim keys (net/claims). Never saved: a loaded farm starts a new run.
   gens: Uint16Array = new Uint16Array(MAP_W * MAP_H);
   objects: WorldObject[] = [];
   nextId = 1;
-  // tile idx -> first object (in array order) covering it. Objects never move,
-  // so the index only changes in addObject/removeObject/fromJSON.
   private occupied = new Map<number, WorldObject>();
 
   constructor(worldMap?: WorldMap) {
@@ -100,65 +86,70 @@ export class World {
     }
   }
 
-  cellKind(tx: number, ty: number): Cell {
+  cellKind(tx: number, ty: number) {
     const v = this.kind[tileIdx(tx, ty)] ?? CELL.void;
-    // SAFETY: `kind` bytes are only ever written from CELL constants (the
-    // buildSemantics classifiers), so every stored value is a Cell member.
+
     return v as Cell;
   }
 
-  getGround(tx: number, ty: number): Ground {
+  getGround(tx: number, ty: number) {
     switch (this.cellKind(tx, ty)) {
       case CELL.grass: {
         return GROUND.grass;
       }
+
       case CELL.water:
       case CELL.void: {
         return GROUND.water;
       }
+
       default: {
         return GROUND.sand;
       }
     }
   }
 
-  addObject(o: Omit<WorldObject, "id">): WorldObject {
+  addObject(o: Omit<WorldObject, "id">) {
     const obj = { ...o, id: this.nextId };
     this.nextId += 1;
     this.objects.push(obj);
     this.indexObject(obj);
+
     return obj;
   }
 
   /** Put back an object removed earlier, under its original id — co-op object
    *  keys name generated ids, which addObject would not keep. */
-  restoreObject(o: WorldObject): void {
+  restoreObject(o: WorldObject) {
     this.objects.push(o);
     this.indexObject(o);
     this.nextId = Math.max(this.nextId, o.id + 1);
   }
 
-  removeObject(o: WorldObject): void {
+  removeObject(o: WorldObject) {
     const i = this.objects.indexOf(o);
+
     if (i !== -1) {
       this.objects.splice(i, 1);
     }
+
     for (const key of footprintKeys(o)) {
       if (this.occupied.get(key) !== o) {
         continue;
       }
+
       this.occupied.delete(key);
-      // an overlapping object may have been shadowed on this tile
       const tx = key % MAP_W;
       const ty = Math.trunc(key / MAP_W);
       const other = this.objects.find((c) => covers(c, tx, ty));
+
       if (other) {
         this.occupied.set(key, other);
       }
     }
   }
 
-  private indexObject(o: WorldObject): void {
+  private indexObject(o: WorldObject) {
     for (const key of footprintKeys(o)) {
       if (!this.occupied.has(key)) {
         this.occupied.set(key, o);
@@ -166,41 +157,47 @@ export class World {
     }
   }
 
-  // Object occupying a tile (for collision / targeting).
-  objectAt(tx: number, ty: number): WorldObject | null {
+  objectAt(tx: number, ty: number) {
     if (!inBounds(tx, ty)) {
       return null;
     }
+
     return this.occupied.get(tileIdx(tx, ty)) ?? null;
   }
 
-  isSolidTile(tx: number, ty: number): boolean {
+  isSolidTile(tx: number, ty: number) {
     if (!inBounds(tx, ty)) {
       return true;
     }
+
     const k = this.cellKind(tx, ty);
+
     if (k === CELL.solid || k === CELL.water || k === CELL.void) {
       return true;
     }
+
     const o = this.objectAt(tx, ty);
+
     return o !== null && o.solid !== false;
   }
 
-  canTill(tx: number, ty: number): boolean {
+  canTill(tx: number, ty: number) {
     if (!inBounds(tx, ty)) {
       return false;
     }
+
     if (this.cellKind(tx, ty) !== CELL.grass) {
       return false;
     }
+
     if (this.tilled[tileIdx(tx, ty)]) {
       return false;
     }
+
     if (this.objectAt(tx, ty)) {
       return false;
     }
-    // A standing tree's crown draws over the tile north of its trunk, so a crop
-    // there would grow unseen. Felling the tree frees the tile with the trunk's.
+
     return this.objectAt(tx, ty + 1)?.type !== "tree";
   }
 
@@ -209,10 +206,12 @@ export class World {
    * watered (or rained-on) ones grow a day, and the soil dries — or stays wet
    * under rain. Returns the tiles that changed, so co-op sends only those.
    */
-  growOvernight(season: Season, rainy: boolean): Set<number> {
+  growOvernight(season: Season, rainy: boolean) {
     const changed = new Set<number>();
+
     for (const [i, cs] of this.crops) {
       const def = CROPS[cs.crop];
+
       if (!def.seasons.includes(season)) {
         this.crops.delete(i);
         changed.add(i);
@@ -221,17 +220,19 @@ export class World {
         changed.add(i);
       }
     }
+
     for (let i = 0; i < this.watered.length; i += 1) {
       const wet = rainy && this.tilled[i] === 1 ? 1 : 0;
+
       if (this.watered[i] !== wet) {
         this.watered[i] = wet;
         changed.add(i);
       }
     }
+
     return changed;
   }
 
-  // ---- serialization (dynamic state only; terrain rebuilds from the world map) ----
   toJSON() {
     return {
       crops: [...this.crops.entries()],
@@ -242,16 +243,18 @@ export class World {
     };
   }
 
-  static fromJSON(d: ReturnType<World["toJSON"]>, worldMap: WorldMap): World {
+  static fromJSON(d: ReturnType<World["toJSON"]>, worldMap: WorldMap) {
     const w = new World(worldMap);
     w.tilled = new Uint8Array(d.tilled);
     w.watered = new Uint8Array(d.watered);
     w.crops = new Map(d.crops);
     w.objects = d.objects;
     w.nextId = d.nextId;
+
     for (const o of w.objects) {
       w.indexObject(o);
     }
+
     return w;
   }
 }

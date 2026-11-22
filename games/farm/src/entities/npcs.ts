@@ -29,23 +29,28 @@ export class NpcManager {
     this.scene = scene;
   }
 
-  spawnAll(): void {
+  spawnAll() {
     for (const id of NPC_IDS) {
       const def = NPCS[id];
+
       if (store.npcFriendship[id] === undefined) {
         store.npcFriendship[id] = 0;
       }
+
       const x = def.homeTile.tx * TILE + 8;
       const y = def.homeTile.ty * TILE + 14;
+
       const shadow = this.scene.add
         .sprite(x, y + 1, "char-shadow-tex")
         .setOrigin(0.5, 0.5)
         .setScale(1.1, 1)
         .setAlpha(0.35);
+
       const spr = this.scene.add
         .sprite(x, y, "p-idle")
         .setOrigin(0.5, CHAR_ORIGIN_Y)
         .play("p-idle");
+
       spr.setTint(def.tint);
       spr.setDepth(DEPTH.entityBase + y);
       shadow.setDepth(spr.depth - 1);
@@ -63,11 +68,13 @@ export class NpcManager {
 
   /** Trailer staging: move an NPC (and its wander anchor) to a tile.
    *  Dead in normal play (NPCs live at their fixed homes). */
-  placeNpc(id: NpcId, tx: number, ty: number): void {
+  placeNpc(id: NpcId, tx: number, ty: number) {
     const l = this.live.find((n) => n.id === id);
+
     if (!l) {
       return;
     }
+
     const x = tx * TILE + 8;
     const y = ty * TILE + 14;
     l.home = { x, y };
@@ -80,7 +87,7 @@ export class NpcManager {
   /** Trailer staging: show exactly these NPCs and hide the rest. Villagers are
    *  drawn from the player's own sprite, so an unstaged one standing in shot
    *  reads as a motionless duplicate of the hero. Dead in normal play. */
-  trailerVisible(ids: NpcId[]): void {
+  trailerVisible(ids: NpcId[]) {
     for (const l of this.live) {
       const on = ids.includes(l.id);
       l.spr.setVisible(on);
@@ -91,33 +98,38 @@ export class NpcManager {
   /** Trailer staging: send an NPC walking to a tile through the ordinary wander
    *  mover — the anchor moves with them, so they settle there instead of
    *  drifting back. Dead in normal play (NPCs pick their own targets). */
-  trailerWalkTo(id: NpcId, tx: number, ty: number): void {
+  trailerWalkTo(id: NpcId, tx: number, ty: number) {
     const l = this.live.find((n) => n.id === id);
+
     if (!l) {
       return;
     }
+
     const x = tx * TILE + 8;
     const y = ty * TILE + 14;
     l.home = { x, y };
     l.target = { x, y };
-    // long enough that no wander re-roll interrupts the walk
     l.rest = 6;
   }
 
   /** Trailer staging: a live NPC's feet tile — NPCs wander around their anchor,
    *  so scripted approach/gifting resolves the live position. Dead otherwise. */
-  trailerTileOf(id: NpcId): { tx: number; ty: number } | null {
+  trailerTileOf(id: NpcId) {
     const l = this.live.find((n) => n.id === id);
+
     if (!l) {
       return null;
     }
+
     return { tx: Math.floor(l.spr.x / TILE), ty: Math.floor((l.spr.y - 1) / TILE) };
   }
 
-  update(dt: number): void {
+  update(dt: number) {
     const day = this.scene.timeMin < 20 * 60 && this.scene.timeMin > 7 * 60;
+
     for (const l of this.live) {
       l.rest -= dt;
+
       if (l.rest <= 0 && day) {
         l.target = {
           x: l.home.x + PhaserMath.Between(-28, 28),
@@ -125,49 +137,59 @@ export class NpcManager {
         };
         l.rest = PhaserMath.FloatBetween(1.5, 4);
       }
+
       const dx = l.target.x - l.spr.x;
       const dy = l.target.y - l.spr.y;
       const dist = Math.hypot(dx, dy);
+
       if (dist > 1.5 && day) {
         const sp = 20 * dt;
         l.spr.x += (dx / dist) * sp;
         l.spr.y += (dy / dist) * sp;
         l.spr.setFlipX(dx < 0);
+
         if (l.spr.anims.currentAnim?.key !== "p-walk") {
           l.spr.play("p-walk", true);
         }
       } else if (l.spr.anims.currentAnim?.key !== "p-idle") {
         l.spr.play("p-idle", true);
       }
+
       l.spr.setDepth(DEPTH.entityBase + l.spr.y);
       l.shadow.setPosition(l.spr.x, l.spr.y + 1);
       l.shadow.setDepth(l.spr.depth - 1);
     }
   }
 
-  tryTalk(tx: number, ty: number, item: Item | null): boolean {
+  tryTalk(tx: number, ty: number, item: Item | null) {
     for (const l of this.live) {
       const nx = Math.floor(l.spr.x / TILE);
       const ny = Math.floor((l.spr.y - 1) / TILE);
+
       if (Math.abs(nx - tx) <= 1 && Math.abs(ny - ty) <= 1) {
         const def = NPCS[l.id];
         l.spr.setFlipX(this.scene.player.x < l.spr.x);
+
         if (item && giftable(item) && !this.giftedToday.has(l.id)) {
           this.giveGift(l, item);
         } else {
           this.talk(l, def.greeting, def.lines);
         }
+
         return true;
       }
     }
+
     return false;
   }
 
-  private giveGift(l: Live, item: Item): void {
+  private giveGift(l: Live, item: Item) {
     const def = NPCS[l.id];
+
     if (!store.inv.remove(item, 1)) {
       return;
     }
+
     this.giftedToday.add(l.id);
     const reaction = def.react(item);
     store.npcFriendship[l.id] = Math.min(
@@ -186,19 +208,21 @@ export class NpcManager {
     this.scene.requestSave();
   }
 
-  private talk(l: Live, greeting: string, lines: string[]): void {
+  private talk(l: Live, greeting: string, lines: string[]) {
     const first = !this.talkedToday.has(l.id);
+
     if (first) {
       this.talkedToday.add(l.id);
       store.npcFriendship[l.id] = Math.min(500, (store.npcFriendship[l.id] ?? 0) + 5);
     }
+
     const text = first ? greeting : (lines[l.lineIdx % lines.length] ?? greeting);
     l.lineIdx += 1;
     Sound.click();
     this.emitDialogue(l.id, text);
   }
 
-  private emitDialogue(id: NpcId, text: string): void {
+  private emitDialogue(id: NpcId, text: string) {
     const def = NPCS[id];
     this.scene.events.emit("dialogue", {
       hearts: hearts(store.npcFriendship[id] ?? 0),
@@ -208,7 +232,7 @@ export class NpcManager {
     });
   }
 
-  runOvernight(): void {
+  runOvernight() {
     this.talkedToday.clear();
     this.giftedToday.clear();
   }

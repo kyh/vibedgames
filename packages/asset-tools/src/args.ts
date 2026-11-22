@@ -1,13 +1,3 @@
-/**
- * A small `argparse`-shaped argv reader for the skill scripts.
- *
- * The scripts it serves are the direct replacements for the Python ones, so
- * this accepts the spellings those accepted: `--flag`, `--key value`,
- * `--key=value`, repeated options, and positionals. It deliberately does no
- * schema validation — each script checks the handful of options it cares
- * about and reports a message an agent can act on.
- */
-
 import { readFileSync } from "node:fs";
 
 export interface Args {
@@ -40,33 +30,31 @@ export interface ParseOptions {
   values?: readonly string[];
 }
 
-/**
- * The script's own header docblock, which is its help text.
- *
- * `argparse` built `--help` from the declarations; here the authoritative
- * description of a script is the comment at the top of it. Reading that back
- * means help cannot drift from the documentation the way a second copy of the
- * usage string would.
- */
-const headerDoc = (entry: string | undefined): string | null => {
+const headerDoc = (entry: string | undefined) => {
   if (!entry) {
     return null;
   }
+
   let source: string;
+
   try {
     source = readFileSync(entry, "utf-8");
   } catch {
     return null;
   }
+
   const doc = /^(?:#![^\n]*\n)?\/\*\*(?<doc>[\s\S]*?)\*\//u.exec(source)?.groups?.doc;
+
   if (doc === undefined) {
     return null;
   }
+
   const text = doc
     .split("\n")
     .map((line) => line.replace(/^\s*\* ?/u, ""))
     .join("\n")
     .trim();
+
   return text.length > 0 ? text : null;
 };
 
@@ -89,19 +77,16 @@ export const failUsage = (message: string): never => {
 
 const declaredOptions = (options: ParseOptions) => {
   const booleans = new Set(options.booleans);
-  // `help` is free on every script, as `-h`/`--help` were under argparse.
   const known = new Set([...booleans, ...(options.values ?? []), "help"]);
-  // A script that declares nothing gets the old permissive parse; every shipped
-  // script declares, and a test enforces that.
   const strict = options.booleans !== undefined || options.values !== undefined;
+
   return { booleans, known, strict };
 };
 
-/** A token that can serve as an option's value: present and not itself an option. */
 const isValueToken = (token: string | undefined): token is string =>
   token !== undefined && !token.startsWith("--");
 
-export const parseArgs = (argv: string[], options: ParseOptions = {}): Args => {
+export const parseArgs = (argv: string[], options: ParseOptions = {}) => {
   const { booleans, known, strict } = declaredOptions(options);
   const unknown: string[] = [];
   const positionals: string[] = [];
@@ -109,6 +94,7 @@ export const parseArgs = (argv: string[], options: ParseOptions = {}): Args => {
 
   const push = (key: string, value: string) => {
     const existing = parsed.get(key);
+
     if (existing) {
       existing.push(value);
     } else {
@@ -119,16 +105,16 @@ export const parseArgs = (argv: string[], options: ParseOptions = {}): Args => {
   for (let i = 0; i < argv.length; i += 1) {
     const token = argv[i] ?? "";
 
-    // `-h` is the one short option argparse gave every script for free.
     if (token === "-h") {
       push("help", "true");
       continue;
     }
+
     if (!token.startsWith("--")) {
       positionals.push(token);
       continue;
     }
-    // A bare `--` ends option parsing, as it does in any POSIX tool.
+
     if (token === "--") {
       positionals.push(...argv.slice(i + 1));
       break;
@@ -136,31 +122,35 @@ export const parseArgs = (argv: string[], options: ParseOptions = {}): Args => {
 
     const body = token.slice(2);
     const equals = body.indexOf("=");
+
     if (equals !== -1) {
       const name = body.slice(0, equals);
+
       if (strict && !known.has(name)) {
         unknown.push(`--${name}`);
       }
+
       push(name, body.slice(equals + 1));
       continue;
     }
+
     if (booleans.has(body)) {
       push(body, "true");
       continue;
     }
+
     if (strict && !known.has(body)) {
       unknown.push(`--${body}`);
-      // Skip what looks like its value too, so one typo reports once rather
-      // than turning the following filename into a second complaint.
+
       if (isValueToken(argv[i + 1])) {
         i += 1;
       }
+
       continue;
     }
 
     const next = argv[i + 1];
-    // A declared value option takes the next token, unless that token is
-    // itself an option or there is nothing left.
+
     if (isValueToken(next)) {
       push(body, next);
       i += 1;
@@ -173,8 +163,6 @@ export const parseArgs = (argv: string[], options: ParseOptions = {}): Args => {
     failUsage(`unrecognized arguments: ${unknown.join(" ")}`);
   }
 
-  // `-h`/`--help` short-circuits before any required-argument check, the way
-  // argparse did, so asking a script what it does never looks like misuse.
   if (parsed.has("help")) {
     const help = headerDoc(process.argv[1]);
     process.stdout.write(`${help ?? "No help available."}\n`);
@@ -184,25 +172,29 @@ export const parseArgs = (argv: string[], options: ParseOptions = {}): Args => {
   return { options: parsed, positionals };
 };
 
-export const getString = (args: Args, key: string): string | undefined =>
-  args.options.get(key)?.at(-1);
+export const getString = (args: Args, key: string) => args.options.get(key)?.at(-1);
 
-export const getAll = (args: Args, key: string): string[] => args.options.get(key) ?? [];
+export const getAll = (args: Args, key: string) => args.options.get(key) ?? [];
 
-export const getFlag = (args: Args, key: string): boolean => {
+export const getFlag = (args: Args, key: string) => {
   const value = getString(args, key);
+
   return value !== undefined && value !== "false";
 };
 
-export const getNumber = (args: Args, key: string, fallback: number): number => {
+export const getNumber = (args: Args, key: string, fallback: number) => {
   const raw = getString(args, key);
+
   if (raw === undefined) {
     return fallback;
   }
+
   const value = Number(raw);
+
   if (!Number.isFinite(value)) {
     failUsage(`--${key} must be a number, got "${raw}"`);
   }
+
   return value;
 };
 
@@ -213,15 +205,19 @@ export const getNumber = (args: Args, key: string, fallback: number): number => 
  * so a sheet was sliced on a geometry nobody asked for and the run exited 0.
  * Python refused it outright, and so does this.
  */
-export const getInt = (args: Args, key: string, fallback: number): number => {
+export const getInt = (args: Args, key: string, fallback: number) => {
   const raw = getString(args, key);
+
   if (raw === undefined) {
     return fallback;
   }
+
   const value = Number(raw);
+
   if (!Number.isInteger(value)) {
     failUsage(`--${key} must be a whole number, got "${raw}"`);
   }
+
   return value;
 };
 
@@ -229,7 +225,7 @@ export const getInt = (args: Args, key: string, fallback: number): number => {
  * Run a script body, turning thrown errors into a clean one-line message.
  * A stack trace tells an agent nothing it can act on; the message does.
  */
-export const main = (run: () => void): void => {
+export const main = (run: () => void) => {
   try {
     run();
   } catch (error) {

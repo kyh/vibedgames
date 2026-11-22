@@ -1,8 +1,7 @@
-// Skills: five tracks that gain XP from related actions and grant perks.
-
 import { SKILL_MAX_LEVEL, XP_BASE, XP_EXP } from "../config";
 
 export type SkillId = "farming" | "mining" | "fishing" | "foraging" | "combat";
+
 export const SKILL_IDS: readonly SkillId[] = [
   "farming",
   "mining",
@@ -27,11 +26,11 @@ export const SKILL_ICON = {
   mining: "⛏",
 } satisfies Record<SkillId, string>;
 
-// XP needed to advance FROM `level` to level+1. Level SKILL_MAX_LEVEL is the cap.
-export const xpToNext = (level: number): number => {
+export const xpToNext = (level: number) => {
   if (level >= SKILL_MAX_LEVEL) {
     return Infinity;
   }
+
   return Math.floor(XP_BASE * (level + 1) ** XP_EXP);
 };
 
@@ -39,9 +38,10 @@ export interface SkillState {
   xp: number;
   level: number;
 }
+
 export type SkillsJSON = { [K in SkillId]: SkillState };
 
-const freshState = (): SkillsJSON => ({
+const freshState = () => ({
   combat: { level: 0, xp: 0 },
   farming: { level: 0, xp: 0 },
   fishing: { level: 0, xp: 0 },
@@ -52,53 +52,53 @@ const freshState = (): SkillsJSON => ({
 export class Skills {
   private data = freshState();
 
-  get(id: SkillId): SkillState {
+  get(id: SkillId) {
     return this.data[id];
   }
 
-  level(id: SkillId): number {
+  level(id: SkillId) {
     return this.data[id].level;
   }
 
-  // Adds XP; returns the new level if a level-up happened, else null.
-  addXP(id: SkillId, amount: number): number | null {
+  addXP(id: SkillId, amount: number) {
     const s = this.data[id];
+
     if (s.level >= SKILL_MAX_LEVEL) {
       return null;
     }
+
     s.xp += amount;
     let leveled: number | null = null;
+
     while (s.level < SKILL_MAX_LEVEL && s.xp >= xpToNext(s.level)) {
       s.xp -= xpToNext(s.level);
       s.level += 1;
       leveled = s.level;
     }
+
     return leveled;
   }
 
-  // ---- perks ----
-  yieldBonusChance(): number {
-    // chance of +1 produce
+  yieldBonusChance() {
     return this.data.farming.level * 0.07;
   }
-  oreBonusChance(): number {
+  oreBonusChance() {
     return this.data.mining.level * 0.06;
   }
-  reelEase(): number {
-    // widens the catch zone
+  reelEase() {
     return this.data.fishing.level * 0.06;
   }
-  forageBonusChance(): number {
+  forageBonusChance() {
     return this.data.foraging.level * 0.08;
   }
-  swordDamage(base: number): number {
+  swordDamage(base: number) {
     return base + this.data.combat.level * 2;
   }
-  bonusMaxHp(): number {
+  bonusMaxHp() {
     return this.data.combat.level * 6;
   }
 
-  toJSON(): SkillsJSON {
+  toJSON() {
     return {
       combat: { ...this.data.combat },
       farming: { ...this.data.farming },
@@ -108,18 +108,21 @@ export class Skills {
     };
   }
 
-  static fromJSON(d: SkillsJSON): Skills {
+  static fromJSON(d: SkillsJSON) {
     const sk = new Skills();
+
     for (const id of SKILL_IDS) {
       const v = d[id];
+
       if (v) {
         sk.data[id] = { level: v.level, xp: v.xp };
       }
     }
+
     return sk;
   }
 
-  static fresh(): Skills {
+  static fresh() {
     return new Skills();
   }
 }

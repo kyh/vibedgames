@@ -12,6 +12,7 @@ const KEYS = {
   R: "4",
   W: "2",
 } satisfies Record<AbilityKey, string>;
+
 const TARGETS = {
   dash: "Moves along your aim direction.",
   direction: "Aim with mouse or right stick.",
@@ -20,10 +21,11 @@ const TARGETS = {
   self: "Affects you or the area around you.",
 };
 
-const ensureStyle = (): void => {
+const ensureStyle = () => {
   if (document.querySelector("#ba-kit-style")) {
     return;
   }
+
   const style = document.createElement("style");
   style.id = "ba-kit-style";
   style.textContent = `
@@ -75,6 +77,7 @@ export class AbilityGuide {
     header.append(this.title, this.closeButton);
     this.tabs.className = "ba-kit-tabs";
     this.copy.className = "ba-kit-copy";
+
     for (const key of ALL_ABILITY_KEYS) {
       const button = document.createElement("button");
       button.type = "button";
@@ -82,10 +85,13 @@ export class AbilityGuide {
       this.buttons.set(key, button);
       this.tabs.append(button);
     }
+
     this.dialog.append(header, this.tabs, this.copy);
+
     for (const name of ["pointerdown", "pointermove", "pointerup", "pointercancel"]) {
       this.dialog.addEventListener(name, (event) => event.stopPropagation());
     }
+
     this.dialog.addEventListener("cancel", (event) => {
       event.preventDefault();
       this.close();
@@ -96,19 +102,21 @@ export class AbilityGuide {
     ensureStyle();
   }
 
-  get open(): boolean {
+  get open() {
     return this.dialog.open;
   }
 
-  show(champion: string, unit: Unit | null = null): void {
+  show(champion: string, unit: Unit | null = null) {
     if (this.open || !CHAMP_BY_ID[champion]) {
       return;
     }
+
     this.champion = champion;
     this.unit = unit;
     this.returnFocus =
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
     this.title.textContent = `${CHAMP_BY_ID[champion]?.name ?? "Champion"} · Kit`;
+
     for (const [key, button] of this.buttons) {
       const ability = CHAMP_BY_ID[champion]?.abilities[key];
       const icon = document.createElement("img");
@@ -119,6 +127,7 @@ export class AbilityGuide {
       button.replaceChildren(icon, label);
       button.setAttribute("aria-label", `Inspect ${KEYS[key]}: ${ability?.name ?? key}`);
     }
+
     this.select("Q");
     this.pad.update();
     this.pad.update();
@@ -127,15 +136,19 @@ export class AbilityGuide {
     this.closeButton.focus();
   }
 
-  private select(key: AbilityKey): void {
+  private select(key: AbilityKey) {
     const ability = CHAMP_BY_ID[this.champion]?.abilities[key];
+
     if (!ability) {
       return;
     }
+
     this.selected = key;
+
     for (const [id, button] of this.buttons) {
       button.setAttribute("aria-pressed", String(id === key));
     }
+
     const rank = this.unit?.abilities[key].rank ?? 1;
     this.shownRank = rank;
     const heading = document.createElement("h3");
@@ -155,33 +168,42 @@ export class AbilityGuide {
     this.copy.replaceChildren(heading, description, targeting, facts, note);
   }
 
-  update(unit?: Unit | null): void {
+  update(unit?: Unit | null) {
     if (!this.open) {
       return;
     }
+
     if (unit !== undefined) {
       this.unit = unit;
     }
+
     if ((this.unit?.abilities[this.selected].rank ?? 1) !== this.shownRank) {
       this.select(this.selected);
     }
+
     this.pad.update();
+
     if (this.pad.justPressed("b") || this.pad.justPressed("start") || this.pad.justPressed("ls")) {
       this.close();
+
       return;
     }
+
     let direction = 0;
+
     if (this.pad.justPressed("left") || this.pad.justPressed("lb")) {
       direction = -1;
     } else if (this.pad.justPressed("right") || this.pad.justPressed("rb")) {
       direction = 1;
     }
+
     if (direction) {
       const key =
         ALL_ABILITY_KEYS[
           (ALL_ABILITY_KEYS.indexOf(this.selected) + direction + ALL_ABILITY_KEYS.length) %
             ALL_ABILITY_KEYS.length
         ];
+
       if (key) {
         this.select(key);
         this.buttons.get(key)?.focus();
@@ -189,13 +211,13 @@ export class AbilityGuide {
     }
   }
 
-  private readonly onKeyDown = (event: KeyboardEvent): void => {
+  private readonly onKeyDown = (event: KeyboardEvent) => {
     if (!this.open || event.code === "KeyM") {
       return;
     }
-    // The menu's own H toggle listens on this same window; only immediate
-    // propagation stops it reopening the guide the key just closed.
+
     event.stopImmediatePropagation();
+
     if (event.code === "Escape" || event.code === "KeyH") {
       event.preventDefault();
       this.closingKey = event.code;
@@ -203,30 +225,34 @@ export class AbilityGuide {
     }
   };
 
-  private readonly onKeyUp = (event: KeyboardEvent): void => {
+  private readonly onKeyUp = (event: KeyboardEvent) => {
     if (event.code === "KeyM") {
       return;
     }
+
     if (this.open || this.closingKey === event.code) {
       event.stopPropagation();
     }
+
     if (this.closingKey === event.code) {
       this.closingKey = null;
     }
   };
 
-  close(): void {
+  close() {
     if (!this.open) {
       return;
     }
+
     this.dialog.close();
     this.onChange(false);
+
     if (this.returnFocus?.isConnected) {
       this.returnFocus.focus({ preventScroll: true });
     }
   }
 
-  dispose(): void {
+  dispose() {
     this.close();
     this.pad.destroy();
     window.removeEventListener("keydown", this.onKeyDown, true);

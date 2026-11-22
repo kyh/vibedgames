@@ -33,6 +33,7 @@ const DiscoverPage = () => {
                   if (activeGame === game.slug) {
                     return;
                   }
+
                   void navigate({
                     replace: true,
                     search: { game: game.slug },

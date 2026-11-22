@@ -13,6 +13,7 @@ import type { ShotCharge } from "../src/shared/contact-shot.ts";
 
 test("four returns fill charge; only an armed accepted return spends it", () => {
   let charge: ShotCharge = { hits: 0, kind: "charging" };
+
   for (let hits = 1; hits <= 4; hits += 1) {
     assert.deepEqual(armCharge(charge), charge);
     const result = acceptReturn(charge);
@@ -20,6 +21,7 @@ test("four returns fill charge; only an armed accepted return spends it", () => 
     ({ charge } = result);
     assert.equal(chargeHits(charge), hits);
   }
+
   assert.equal(charge.kind, "ready");
   assert.deepEqual(acceptReturn(charge), { charge, powered: false });
   const armed = armCharge(charge);
@@ -66,6 +68,7 @@ test("charge snapshots reject invalid and oversized states", () => {
   for (const hits of [-1, 0.5, 5, Infinity, Number.NaN, "4", null]) {
     assert.equal(readCharge(hits, false), null);
   }
+
   assert.equal(readCharge(2, true), null);
   assert.deepEqual(readCharge(2, false), { hits: 2, kind: "charging" });
   assert.deepEqual(readCharge(4, false), { kind: "ready" });

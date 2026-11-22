@@ -14,6 +14,7 @@ describe("signed upload URLs", () => {
       signing,
       target: { key: "games/a.png" },
     });
+
     assert.ok(url.startsWith("https://vibedgames.com/api/upload?"));
     assert.deepStrictEqual(await verifyUploadUrl(paramsOf(url), signing.secret), {
       contentType: "image/png",
@@ -67,6 +68,7 @@ describe("signed upload URLs", () => {
       signing,
       target: { key: "a" },
     });
+
     assert.deepStrictEqual(await verifyUploadUrl(paramsOf(url), signing.secret), {
       error: "expired",
     });

@@ -1,8 +1,3 @@
-// Time-of-day lighting: a sun/moon key light with a camera-fitted shadow
-// frustum, hemisphere + fill lights, an image-based environment, the street
-// lanterns (spot lights recycled between the nearest lamps each frame), and a
-// small pool of point lights handed out to the brightest transient requests
-// (bullets, bombs, loot). Everything is driven by one clock, `time` (hours).
 import * as THREE from "three";
 import { LAMP } from "../config";
 import type { Quality } from "../config";
@@ -73,7 +68,6 @@ type ScalarKey = "envI" | "exp" | "fillI" | "hemiI" | "sat" | "sunI" | "vig";
 
 const SCALAR_KEYS: readonly ScalarKey[] = ["sunI", "hemiI", "fillI", "envI", "exp", "sat", "vig"];
 
-// Deep night: no sun, cool blue sky bounce, heavy vignette.
 const NIGHT_KEY = {
   envI: 0.09,
   exp: 1.2,
@@ -88,7 +82,6 @@ const NIGHT_KEY = {
   vig: 0.46,
 };
 
-// Full daylight: warm white sun, bright sky bounce.
 const DAY_KEY = {
   envI: 0.26,
   exp: 0.98,
@@ -193,22 +186,16 @@ export const TIME_KEYS: readonly Keyframe[] = RAW_KEYS.map((raw) => ({
 
 const MOON_COLOR = new THREE.Color(0x86_a8_ff);
 const MOON_INTENSITY = 1.35;
-// Colour-grade tint blended in as night falls: cool shadows, lifted blues.
 const NIGHT_TINT = new THREE.Color(0.74, 0.88, 1.26);
 const LAMP_COLOR = new THREE.Color(0xff_b5_60);
 const LAMP_INTENSITY = 46;
 const LAMP_DECAY = 2;
-// How far along its direction the key light sits from the shadow centre.
 const KEY_DISTANCE = 60;
-// Lantern spot lights that may cast shadows (the first N slots).
 const LAMP_SHADOW_SLOTS = 4;
 const LAMP_SLOT_COUNT = 8;
 const REQUEST_CAPACITY = 96;
-// Rays past this length never meet the ground in view; clamp them so a
-// horizon-grazing corner cannot blow the shadow frustum up.
 const CORNER_REACH = 90;
-// Screen corners (NDC) plus the top/bottom edge midpoints, whose average is
-// the shadow centre.
+
 const SCREEN_CORNERS: readonly (readonly [number, number])[] = [
   [-1, -1],
   [1, -1],
@@ -267,26 +254,27 @@ const SKY_FRAGMENT = `
             gl_FragColor = vec4( c, 1.0 );
           }`;
 
-/** Index into a list whose bounds the caller has already established. */
-const at = <T>(list: readonly T[], index: number): T => {
+const at = <T>(list: readonly T[], index: number) => {
   const item = list[index];
+
   if (item === undefined) {
     throw new RangeError(`index ${index} out of range`);
   }
+
   return item;
 };
 
-/** Which keyframe segment an hour falls in (the last segment absorbs 24h). */
-const segmentFor = (hour: number): number => {
+const segmentFor = (hour: number) => {
   let index = 0;
+
   while (index < TIME_KEYS.length - 2 && hour >= at(TIME_KEYS, index + 1).h) {
     index += 1;
   }
+
   return index;
 };
 
-/** Interpolate the keyframe table at `hour` into `out`. */
-const sampleKeyframes = (hour: number, out: LightingState): LightingState => {
+const sampleKeyframes = (hour: number, out: LightingState) => {
   const index = segmentFor(hour);
   const from = at(TIME_KEYS, index);
   const to = at(TIME_KEYS, index + 1);
@@ -295,13 +283,15 @@ const sampleKeyframes = (hour: number, out: LightingState): LightingState => {
   out.sky.lerpColors(from.sky, to.sky, t);
   out.ground.lerpColors(from.ground, to.ground, t);
   out.fill.lerpColors(from.fill, to.fill, t);
+
   for (const key of SCALAR_KEYS) {
     out[key] = lerp(from[key], to[key], t);
   }
+
   return out;
 };
 
-const makeRequest = (): LightRequest => ({
+const makeRequest = () => ({
   b: 1,
   distance: 4,
   g: 1,
@@ -313,17 +303,13 @@ const makeRequest = (): LightRequest => ({
   z: 0,
 });
 
-/**
- * Where the four screen corners and the top/bottom edge midpoints land on
- * the ground plane, so the shadow frustum can be fitted to what is visible.
- * Writes into the shared `CORNERS` scratch.
- */
-const projectScreenCorners = (camera: THREE.Camera): readonly THREE.Vector3[] => {
+const projectScreenCorners = (camera: THREE.Camera) => {
   for (const [index, [x, y]] of SCREEN_CORNERS.entries()) {
     const corner = at(CORNERS, index);
     NDC.set(x, y);
     RAYCASTER.setFromCamera(NDC, camera);
     const hit = RAYCASTER.ray.intersectPlane(GROUND_PLANE, HIT);
+
     if (hit && RAYCASTER.ray.origin.distanceTo(hit) < CORNER_REACH) {
       corner.copy(hit);
     } else {
@@ -333,6 +319,7 @@ const projectScreenCorners = (camera: THREE.Camera): readonly THREE.Vector3[] =>
         .setY(0);
     }
   }
+
   return CORNERS;
 };
 
@@ -427,9 +414,9 @@ export class Lighting {
     this.setTime(this.time);
   }
 
-  /** Bake a gradient sky into a PMREM so PBR surfaces get sky reflections. */
-  private buildEnvironment(): THREE.WebGLRenderTarget {
+  private buildEnvironment() {
     const skyScene = new THREE.Scene();
+
     const dome = new THREE.Mesh(
       new THREE.SphereGeometry(10, 32, 16),
       new THREE.ShaderMaterial({
@@ -438,6 +425,7 @@ export class Lighting {
         vertexShader: SKY_VERTEX,
       }),
     );
+
     skyScene.add(dome);
     const pmrem = new THREE.PMREMGenerator(this.pipeline.renderer);
     const target = pmrem.fromScene(skyScene, 0.03);
@@ -446,34 +434,43 @@ export class Lighting {
     dome.geometry.dispose();
     dome.material.dispose();
     this.scene.background = this.background;
+
     return target;
   }
 
-  applyQuality(quality: Quality): void {
+  applyQuality(quality: Quality) {
     this.tier = quality.tier;
     this.pcss = this.pipeline.usingPCSS;
+
     if (this.mapSize !== quality.shadowMap) {
       this.mapSize = quality.shadowMap;
       this.key.shadow.mapSize.set(quality.shadowMap, quality.shadowMap);
+
       if (this.key.shadow.map) {
         this.key.shadow.map.dispose();
         this.key.shadow.map = null;
       }
     }
+
     this.setPoolSize(quality.poolLights);
+
     for (const [index, slot] of this.lampSlots.entries()) {
       const wantsShadow = quality.lampShadows && index < this.lampShadowSlots;
+
       if (slot.castShadow !== wantsShadow) {
         slot.castShadow = wantsShadow;
       }
+
       if (slot.shadow.mapSize.x !== quality.lampMap) {
         slot.shadow.mapSize.set(quality.lampMap, quality.lampMap);
+
         if (slot.shadow.map) {
           slot.shadow.map.dispose();
           slot.shadow.map = null;
         }
       }
     }
+
     this.updateShadowParams();
   }
 
@@ -482,31 +479,36 @@ export class Lighting {
    * size relative to the frustum (sun) or, negated, the lamp's angular size
    * (spots); under plain PCF it is just a blur width.
    */
-  updateShadowParams(): void {
+  updateShadowParams() {
     const lampSize = LAMP.size / (4 * Math.tan(LAMP.angle));
+
     if (this.pcss) {
       this.key.shadow.radius = this.tier + clamp(10 / (this.shadowRadius * 2), 0.001, 0.999);
       const lampTier = Math.max(0, this.tier - 1);
+
       for (const slot of this.lampSlots) {
         slot.shadow.radius = -(lampTier + lampSize);
       }
     } else {
       this.key.shadow.radius = 2.5;
+
       for (const slot of this.lampSlots) {
         slot.shadow.radius = 2;
       }
     }
   }
 
-  setPoolSize(size: number): void {
+  setPoolSize(size: number) {
     while (this.pool.length < size) {
       const light = new THREE.PointLight(0xff_ff_ff, 0, 5, 2);
       light.position.set(0, -50, 0);
       this.scene.add(light);
       this.pool.push(light);
     }
+
     while (this.pool.length > size) {
       const light = this.pool.pop();
+
       if (light) {
         this.scene.remove(light);
         light.dispose();
@@ -514,7 +516,7 @@ export class Lighting {
     }
   }
 
-  buildLampSlots(count: number): void {
+  buildLampSlots(count: number) {
     for (let i = 0; i < count; i += 1) {
       const slot = new THREE.SpotLight(LAMP_COLOR, 0, LAMP.far, LAMP.angle, 0.55, LAMP_DECAY);
       slot.position.set(0, LAMP.height, 0);
@@ -531,10 +533,11 @@ export class Lighting {
   }
 
   /** Register the world's lanterns: one glow cone each, shared glass material. */
-  setLamps(lanterns: readonly LampPosition[], glass: THREE.MeshStandardMaterial | null): void {
+  setLamps(lanterns: readonly LampPosition[], glass: THREE.MeshStandardMaterial | null) {
     for (const cone of this.cones) {
       this.scene.remove(cone);
     }
+
     this.cones.length = 0;
     this.coneGeometry?.dispose();
     this.lamps = lanterns.map((lantern) => ({
@@ -546,6 +549,7 @@ export class Lighting {
     }));
     this.lampGlass = glass;
     const height = LAMP.height - 0.12;
+
     const geometry = new THREE.ConeGeometry(
       Math.tan(LAMP.angle * 0.8) * height,
       height,
@@ -553,8 +557,10 @@ export class Lighting {
       1,
       true,
     );
+
     geometry.translate(0, height / 2, 0);
     this.coneGeometry = geometry;
+
     for (const lamp of this.lamps) {
       const cone = new THREE.Mesh(geometry, this.coneMaterial);
       cone.position.set(lamp.x, lamp.y, lamp.z);
@@ -565,24 +571,24 @@ export class Lighting {
     }
   }
 
-  setTime(hour: number): void {
+  setTime(hour: number) {
     this.time = ((hour % 24) + 24) % 24;
     this.applyTime();
   }
 
-  sample(hour: number): LightingState {
+  sample(hour: number) {
     return sampleKeyframes(hour, this.state);
   }
 
   /** Push the sampled keyframe into the lights, environment and exposure. */
-  applyTime(): void {
+  applyTime() {
     const hour = this.time;
     const state = this.sample(hour);
-    // Sun arc: rises at 6, sets at 19.
     const arc = ((hour - 6) / 13) * Math.PI;
     const elevation = Math.sin(arc);
     const sunUp = hour > 6 && hour < 19 ? smoothstep(0, 0.2, elevation) : 0;
     const moonUp = Math.max(smoothstep(19.15, 20.2, hour), 1 - smoothstep(4.7, 5.7, hour));
+
     if (sunUp > 0.0005) {
       this.keyDir
         .set(Math.cos(arc), Math.max(elevation * 0.85, 0.17), -(0.22 + 0.3 * elevation))
@@ -590,12 +596,12 @@ export class Lighting {
       this.key.color.copy(state.sun);
       this.key.intensity = state.sunI * sunUp;
     } else {
-      // The moon drifts slowly across the night sky.
       const drift = (hour > 12 ? hour - 20 : hour + 4) * 0.06;
       this.keyDir.set(0.55 - drift, 0.78, -0.5).normalize();
       this.key.color.copy(MOON_COLOR);
       this.key.intensity = MOON_INTENSITY * moonUp;
     }
+
     this.hemi.color.copy(state.sky);
     this.hemi.groundColor.copy(state.ground);
     this.hemi.intensity = state.hemiI;
@@ -609,17 +615,11 @@ export class Lighting {
   }
 
   /** Queue a transient point light; the brightest nearby ones get a real light. */
-  addLight(
-    x: number,
-    y: number,
-    z: number,
-    color: THREE.Color,
-    intensity: number,
-    distance = 5,
-  ): void {
+  addLight(x: number, y: number, z: number, color: THREE.Color, intensity: number, distance = 5) {
     if (this.requestCount >= this.requests.length || intensity <= 0.01) {
       return;
     }
+
     const request = at(this.requests, this.requestCount);
     this.requestCount += 1;
     request.x = x;
@@ -633,30 +633,35 @@ export class Lighting {
   }
 
   /** Hand the pool's point lights to the highest-scoring requests. */
-  assignPool(): void {
+  assignPool() {
     const count = this.requestCount;
     const { focus, requests } = this;
+
     for (let i = 0; i < count; i += 1) {
       const request = at(requests, i);
       const dx = request.x - focus.x;
       const dz = request.z - (focus.z - 2);
       request.score = request.intensity / (1 + (dx * dx + dz * dz) * 0.03);
     }
-    // Partial selection sort: only the first `used` slots need ordering.
+
     const used = Math.min(this.pool.length, count);
+
     for (let i = 0; i < used; i += 1) {
       let best = i;
+
       for (let j = i + 1; j < count; j += 1) {
         if (at(requests, j).score > at(requests, best).score) {
           best = j;
         }
       }
+
       if (best !== i) {
         const swapped = at(requests, i);
         requests[i] = at(requests, best);
         requests[best] = swapped;
       }
     }
+
     for (const [index, light] of this.pool.entries()) {
       if (index < used) {
         const request = at(requests, index);
@@ -668,53 +673,69 @@ export class Lighting {
         light.intensity = 0;
       }
     }
+
     this.requestCount = 0;
   }
 
   /** Recycle the spot-light slots onto the lanterns nearest the focus. */
-  updateLamps(elapsed: number): void {
+  updateLamps(elapsed: number) {
     const { night } = this;
     const lit = night > 0.002;
+
     for (const slot of this.lampSlots) {
       if (slot.castShadow && slot.shadow.map === null) {
         slot.shadow.needsUpdate = true;
       }
     }
+
     if (this.lampGlass) {
       this.lampGlass.emissiveIntensity = 0.15 + night * 4.2;
     }
+
     this.coneStrength.value = night * 0.6;
+
     for (const cone of this.cones) {
       cone.visible = lit;
     }
+
     if (!lit || this.lamps.length === 0) {
       for (const slot of this.lampSlots) {
         slot.intensity = 0;
         slot.shadow.autoUpdate = false;
       }
+
       return;
     }
+
     const { focus } = this;
+
     for (const lamp of this.lamps) {
       lamp.d = Math.hypot(lamp.x - focus.x, lamp.z - (focus.z - 2));
     }
+
     this.lamps.sort((a, b) => a.d - b.d);
+
     for (const [index, slot] of this.lampSlots.entries()) {
       const lamp = this.lamps[index];
+
       if (!lamp) {
         slot.intensity = 0;
         slot.shadow.autoUpdate = false;
         continue;
       }
+
       const reach = 1 - smoothstep(19, 25, lamp.d);
+
       const flicker =
         1 +
         Math.sin(elapsed * 7 + lamp.phase) * 0.006 +
         Math.sin(elapsed * 17 + lamp.phase * 3) * 0.004;
+
       slot.position.set(lamp.x, lamp.y + LAMP.height - 0.52, lamp.z);
       slot.target.position.set(lamp.x, lamp.y, lamp.z);
       slot.target.updateMatrixWorld();
       slot.intensity = LAMP_INTENSITY * night * reach * flicker;
+
       if (slot.castShadow) {
         slot.shadow.intensity = 1 - smoothstep(10.5, 14.5, lamp.d);
         slot.shadow.autoUpdate = slot.intensity > 0.01 && slot.shadow.intensity > 0.005;
@@ -726,21 +747,25 @@ export class Lighting {
    * Fit the sun shadow frustum to the visible ground and snap its centre to
    * shadow-map texels so the shadows don't shimmer as the camera pans.
    */
-  fitShadow(camera: THREE.Camera): void {
+  fitShadow(camera: THREE.Camera) {
     const corners = projectScreenCorners(camera);
     CENTER.copy(at(corners, 4)).add(at(corners, 5)).multiplyScalar(0.5);
     let reach = 0;
+
     for (let i = 0; i < 4; i += 1) {
       reach = Math.max(reach, CENTER.distanceTo(at(corners, i)));
     }
+
     const wanted = clamp(Math.ceil(reach + 3.5), 12, 46);
-    // Grow immediately, shrink only with hysteresis, so the frustum stays put.
+
     if (wanted > this.shadowRadius || wanted < this.shadowRadius - 3) {
       this.shadowRadius = wanted;
       this.updateShadowParams();
     }
+
     const radius = this.shadowRadius;
     const shadowCamera = this.key.shadow.camera;
+
     if (shadowCamera.right !== radius) {
       shadowCamera.left = -radius;
       shadowCamera.right = radius;
@@ -748,6 +773,7 @@ export class Lighting {
       shadowCamera.bottom = -radius;
       shadowCamera.updateProjectionMatrix();
     }
+
     SCRATCH_MATRIX.lookAt(
       SCRATCH_OFFSET.copy(this.keyDir).multiplyScalar(KEY_DISTANCE),
       ORIGIN,
@@ -755,7 +781,6 @@ export class Lighting {
     );
     SCRATCH_RIGHT.setFromMatrixColumn(SCRATCH_MATRIX, 0);
     SCRATCH_UP.setFromMatrixColumn(SCRATCH_MATRIX, 1);
-    // Snap in light space, in steps of 64 texels.
     const step = ((2 * radius) / this.mapSize) * 64;
     const alongRight = CENTER.dot(SCRATCH_RIGHT);
     const alongUp = CENTER.dot(SCRATCH_UP);
@@ -771,34 +796,36 @@ export class Lighting {
   }
 
   /** Force the next `fitShadow` to refit from scratch (e.g. after a camera cut). */
-  resetShadowFit(): void {
+  resetShadowFit() {
     this.shadowRadius = 0;
   }
 
-  update(
-    dt: number,
-    elapsed: number,
-    camera: THREE.Camera,
-    focus: THREE.Vector3,
-    paused = false,
-  ): void {
+  update(dt: number, elapsed: number, camera: THREE.Camera, focus: THREE.Vector3, paused = false) {
     this.focus.copy(focus);
     this.fitShadow(camera);
     this.updateLamps(elapsed);
+
     if (!paused) {
       this.assignPool();
     }
+
     const { grade } = this.pipeline;
+
     if (grade) {
       const saturation = grade.uniforms.uSaturation;
+
       if (saturation) {
         saturation.value = this.state.sat;
       }
+
       const vignette = grade.uniforms.uVignette;
+
       if (vignette) {
         vignette.value = this.state.vig;
       }
+
       const tint = grade.uniforms.uTint;
+
       if (tint && tint.value instanceof THREE.Color) {
         tint.value.setRGB(1, 1, 1).lerp(NIGHT_TINT, this.night);
       }

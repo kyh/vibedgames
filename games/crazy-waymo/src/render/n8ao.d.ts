@@ -1,6 +1,3 @@
-// n8ao ships no type declarations; this covers the surface the post chain
-// uses. The pass is built for three's example EffectComposer (renders the
-// scene itself into an internal half-float target — it REPLACES RenderPass).
 declare module "n8ao" {
   import type * as THREE from "three";
   import type { Pass } from "three/addons/postprocessing/Pass.js";

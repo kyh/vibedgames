@@ -1,13 +1,4 @@
 import { readPreference } from "./data/preferences";
-// Boot: load the lobby's assets, show the lobby, then run the chosen match.
-//
-// Asset loading is two-phase. The champion-select lobby needs six champion
-// models, the weapons they hold and one idle clip library — ~3 MB. The arena
-// (enemies, the dungeon prop vocabulary, the combat/movement clip libraries)
-// is another ~13 MB that nothing on screen can show yet, so it is fetched on
-// the first sign of intent and awaited when a match actually launches. A phone
-// on cellular reaches champion select in a quarter of the bytes, and a visitor
-// who never taps never pays for the arena at all.
 import {
   createTouchControls,
   isOfflineRequested,
@@ -34,13 +25,11 @@ import { Menu } from "./scenes/menu-scene";
 import { MenuStage } from "./render/menu-stage";
 import { roomId } from "./net/protocol";
 import { DUNGEON_MODELS, MAP_STORAGE_KEY, parseMapData } from "./data/map-format";
-import type { MapData } from "./data/map-format";
 import { applyMapData } from "./data/map";
 import { setDecorOverride } from "./data/decor";
 import { buildPlaytestManifest } from "./playtest/manifest";
 import type { BattleDiagnostics } from "./playtest/manifest";
 
-// Dev-console handles (assigned only in DEV builds).
 declare global {
   interface Window {
     __ba?: GameScene;
@@ -48,16 +37,17 @@ declare global {
   }
 }
 
-const requireEl = (selector: string): HTMLElement => {
+const requireEl = (selector: string) => {
   const node = document.querySelector<HTMLElement>(selector);
+
   if (!node) {
     throw new Error(`missing ${selector}`);
   }
+
   return node;
 };
 
 const container = requireEl("#game");
-// the longest real frame the match loop hands the scene (s)
 const MAX_FRAME_S = 0.25;
 const loadingEl = document.querySelector<HTMLElement>("#loading");
 const barFill = document.querySelector<HTMLElement>("#bar-fill");
@@ -65,23 +55,20 @@ const barFill = document.querySelector<HTMLElement>("#bar-fill");
 const CHAMP_MODELS = ["Knight", "Ranger", "Mage", "Rogue_Hooded", "Paladin_with_Helmet", "Witch"];
 const BOSS_MODEL = "Skeleton_Golem";
 const ENEMY_MODELS = ["Skeleton_Warrior", "Skeleton_Mage", "Skeleton_Minion", "FrostGolem"];
-// what the roster holds in champion select — loaded with the champions
+
 const CHAMP_WEAPON_MODELS = [
-  // Garran (knight) — the one 2H greatsword champ
   "sword_2handed",
-  // Vesper (rogue) — dualwield
   "dagger",
-  // Aurelius — hammer + shield
   "paladin_hammer",
   "paladin_shield",
   "bow",
   "staff",
   "wand_A",
 ];
+
 const ARENA_WEAPON_MODELS = [
   "Skeleton_Staff",
   "FrostGolem_Axe_Large",
-  // Fantasy Weapons Bits — the creep-drop loot pickups (world-view syncCoins)
   "sword_A",
   "sword_D",
   "axe_A",
@@ -91,118 +78,125 @@ const ARENA_WEAPON_MODELS = [
   "staff_B",
   "wand_B",
 ];
-// Idle_B lives here, and it is the only clip the 3D roster plays.
+
 const LOBBY_CLIP_LIB = "Rig_Medium_General";
+
 const CLIP_LIBS = [
   "Rig_Medium_MovementBasic",
   "Rig_Medium_MovementAdvanced",
   "Rig_Medium_CombatMelee",
   "Rig_Medium_CombatRanged",
-  // Spawn / Taunt / Skeletons_* flourishes
   "Rig_Medium_Special",
 ];
-// Rig_Large clip names collide with Rig_Medium (Idle_A, Running_A, …), so these
-// load under a "Large/" key prefix and resolve per-character via clipPrefix.
+
 const CLIP_LIBS_LARGE = [
   "Rig_Large_General",
   "Rig_Large_MovementBasic",
   "Rig_Large_MovementAdvanced",
   "Rig_Large_CombatMelee",
-  // Flexing — the boss taunt fallback
   "Rig_Large_Simulation",
 ];
-// the dungeon prop vocabulary lives in data/map-format.ts (shared with the
-// map editor's palette, which must not import this boot module)
+
 interface PropSpec {
   name: string;
   url: string;
 }
+
 const PROP_SPECS: PropSpec[] = [
   ...DUNGEON_MODELS.map((m) => ({ name: m, url: `./models/dungeon/${m}.gltf` })),
   { name: "vampire_throne", url: "./models/props/Vampire_Throne.gltf" },
   { name: "paladin_statue", url: "./models/props/paladin_statue.gltf" },
-  // Witch hex-polymorph body
   { name: "mushroom", url: "./models/props/Mushroom.gltf" },
 ];
 
-/** Fetch the bundled custom map (public/maps/default.json). Absence or an
- *  invalid file = keep the procedural arena — today's behavior exactly. */
-const fetchBundledMap = async (): Promise<MapData | null> => {
+const fetchBundledMap = async () => {
   try {
     const res = await fetch("./maps/default.json");
+
     if (!res.ok) {
       return null;
     }
+
     const parsed = parseMapData(await res.json());
+
     if (!parsed) {
       console.warn("[map] maps/default.json is invalid — using the procedural arena");
     }
+
     return parsed;
   } catch {
     return null;
   }
 };
 
-/** The editor's localStorage draft (offline test loop). */
-const readLocalMapDraft = (): MapData | null => {
+const readLocalMapDraft = () => {
   const raw = readPreference(MAP_STORAGE_KEY);
+
   if (raw === null) {
     return null;
   }
+
   try {
     const parsed = parseMapData(JSON.parse(raw));
+
     if (!parsed) {
       console.warn(`[map] localStorage ${MAP_STORAGE_KEY} is invalid — ignoring`);
     }
+
     return parsed;
   } catch {
     console.warn(`[map] localStorage ${MAP_STORAGE_KEY} is not JSON — ignoring`);
+
     return null;
   }
 };
 
-/** Await `jobs`, driving the boot progress bar as they land. */
-const runJobs = async (jobs: Promise<void>[]): Promise<void> => {
+const runJobs = async (jobs: Promise<void>[]) => {
   let done = 0;
+
   if (barFill) {
     barFill.style.width = "0%";
   }
-  const track = async (job: Promise<void>): Promise<void> => {
+
+  const track = async (job: Promise<void>) => {
     await job;
     done += 1;
+
     if (barFill) {
       barFill.style.width = `${Math.round((done / jobs.length) * 100)}%`;
     }
   };
+
   await Promise.all(jobs.map(track));
 };
 
-const showLoading = (on: boolean): void => {
+const showLoading = (on: boolean) => {
   if (loadingEl) {
     loadingEl.style.display = on ? "flex" : "none";
   }
 };
 
-/** A load that never resolves leaves the veil up forever, so both the boot and
- *  the deferred arena load report through here instead. */
-const showFailure = (cause: unknown): void => {
+const showFailure = (cause: unknown) => {
   console.error(cause);
+
   if (!loadingEl) {
     return;
   }
-  // Trailer mode hides the veil via html.trailer; an inline display beats that
-  // rule, so a failed load still surfaces instead of dying to a black frame.
+
   loadingEl.style.display = "flex";
   loadingEl.innerHTML = `<div style="color:#ff6a6a;font:14px monospace;padding:20px;text-align:center">Failed to load:<br>${cause instanceof Error ? cause.message : String(cause)}</div>`;
 };
 
-const main = async (): Promise<void> => {
+const main = async () => {
   const webgl = probeWebGL();
+
   if (!webgl.ok) {
     console.error(`WebGL unavailable: ${webgl.reason}`);
     showWebGLVeil(webgl);
+
     return;
   }
+
   const view = new View(container);
   view.renderer.domElement.addEventListener("webglcontextlost", () => {
     console.error("WebGL context lost");
@@ -212,7 +206,6 @@ const main = async (): Promise<void> => {
     );
   });
   const lib = new ModelLibrary();
-  // in parallel with the model loads
   const bundledMapJob = fetchBundledMap();
 
   await runJobs([
@@ -223,14 +216,13 @@ const main = async (): Promise<void> => {
 
   let arenaJob: Promise<void> | null = null;
   let arenaReady = false;
-  const loadArenaOnce = async (): Promise<void> => {
+
+  const loadArenaOnce = async () => {
     await runJobs([
       lib.loadCharacter(BOSS_MODEL, `./models/characters/${BOSS_MODEL}.glb`),
       ...ENEMY_MODELS.map((m) => lib.loadCharacter(m, `./models/characters/${m}.glb`)),
       ...CLIP_LIBS.map((c) => lib.loadClips(`./models/animations/${c}.glb`)),
       ...CLIP_LIBS_LARGE.map((c) => lib.loadClips(`./models/animations/${c}.glb`, "Large/")),
-      // scenery gets a matte grade (KayKit ships glossy); the dungeon atlas also
-      // takes a warm-dark tint so the pale floor mortar stops reading as neon
       ...PROP_SPECS.map((p) =>
         lib.loadCharacter(
           p.name,
@@ -242,88 +234,80 @@ const main = async (): Promise<void> => {
     ]);
     arenaReady = true;
   };
-  const loadArena = (): Promise<void> => (arenaJob ??= loadArenaOnce());
+
+  const loadArena = () => (arenaJob ??= loadArenaOnce());
 
   const params = new URLSearchParams(location.search);
   const playtest = isPlaytestRequested();
 
-  // Every branch below the lobby renders the arena itself, so they pay for it
-  // up front behind the same progress bar the champion set just used.
   if (
     params.has("trailer") ||
     params.has("editor") ||
     params.has("viewer") ||
     params.has("auto") ||
     params.has("online") ||
-    // setState('active-play') has to land in a live match synchronously
     playtest
   ) {
     await loadArena();
   }
+
   showLoading(false);
 
-  // ── Gameplay trailer (?trailer=1): scripted, letterboxed, offline-staged
-  //    showcase; its own scene/loop + a separate vite chunk so gameplay never
-  //    pays for trailer code. No menus, no pause wiring, no network. ──
   if (params.has("trailer")) {
     const { runBattleArenaTrailer } = await import("./trailer/trailer-director");
-    // Same handle the editor and viewer branches publish — headless trailer
-    // checks need the renderer and camera to measure what was actually drawn.
+
     if (import.meta.env.DEV) {
       Object.assign(window, { __view: view });
     }
+
     runBattleArenaTrailer(view, lib);
     window.addEventListener("resize", () => view.resize());
+
     return;
   }
 
-  // ── Map editor (?editor=1): its own scene + input; a separate vite chunk so
-  //    gameplay never pays for the editor code ──
   if (params.has("editor")) {
     const { EditorScene } = await import("./scenes/editor-scene");
     const editor = new EditorScene(view, lib);
     await editor.init();
+
     if (import.meta.env.DEV) {
       Object.assign(window, { __ed: editor, __view: view });
     }
+
     const edTimer = new THREE.Timer();
     view.renderer.setAnimationLoop((t) => {
       edTimer.update(t);
       editor.update(Math.min(edTimer.getDelta(), 1 / 30));
     });
     window.addEventListener("resize", () => view.resize());
+
     return;
   }
 
-  // ── Character & animation viewer (?viewer=1): its own scene + input; a
-  //    separate vite chunk so gameplay never pays for the viewer code ──
   if (params.has("viewer")) {
     const { ViewerScene } = await import("./scenes/viewer-scene");
     const viewer = new ViewerScene(view, lib);
     viewer.init();
+
     if (import.meta.env.DEV) {
       Object.assign(window, { __view: view, __vw: viewer });
     }
+
     const vwTimer = new THREE.Timer();
     view.renderer.setAnimationLoop((t) => {
       vwTimer.update(t);
       viewer.update(Math.min(vwTimer.getDelta(), 1 / 30));
     });
     window.addEventListener("resize", () => view.resize());
+
     return;
   }
 
-  // ── Custom map resolution (applied per-launch, before the world/renderer
-  //    read OBSTACLES/decor): the bundled maps/default.json applies everywhere
-  //    (identical for every client, so online-safe); a localStorage draft (the
-  //    editor's TEST loop) overrides it in OFFLINE matches only — colliders
-  //    are sim state and must match across clients. ──
   const bundledMap = await bundledMapJob;
   const localMapDraft = readLocalMapDraft();
 
   const timer = new THREE.Timer();
-  // Wrapper-pause bookkeeping (see setPauseHandlers below): which match loop is
-  // live, whether it's online, and whether onPause actually froze it.
   let activeScene: GameScene | null = null;
   let frame = 0;
   publishDiagnostics(() => ({
@@ -338,40 +322,40 @@ const main = async (): Promise<void> => {
     }),
   }));
   let froze = false;
-  const matchLoop = (t: number): void => {
+
+  const matchLoop = (t: number) => {
     frame += 1;
     timer.update(t);
-    // Real elapsed time: the sim must keep wall-clock pace even when frames
-    // are slow — an online host below 30 fps would otherwise run the whole
-    // room in slow motion. The scene caps how much catch-up one frame does
-    // and steps visuals by at most 1/30 s.
     activeScene?.update(Math.min(timer.getDelta(), MAX_FRAME_S));
   };
-  const startMatch = (opts: SceneOpts): void => {
+
+  const startMatch = (opts: SceneOpts) => {
     notifyGameStarted();
     const custom = (opts.online ? null : localMapDraft) ?? bundledMap;
+
     if (custom) {
       applyMapData(custom);
       setDecorOverride(custom.props);
     }
-    // create input only when a match starts, so menu clicks never grab the
-    // pointer (Controls' mousedown requests pointer lock).
+
     const controls = new Controls(view.renderer.domElement, {
       absoluteAim: import.meta.env.DEV || playtest,
     });
+
     const touch = new TouchControls();
     const scene = new GameScene(view, lib, controls, opts, touch);
     activeScene = scene;
-    // Escape is keyboard-only, so a phone otherwise has no way to pause the
-    // arena (sound lives on the pause overlay, see render/audio.ts).
     createTouchControls();
+
     if (import.meta.env.DEV) {
       window.__ba = scene;
       window.__view = view;
     }
+
     view.renderer.setAnimationLoop(matchLoop);
   };
-  const startWhenLoaded = async (opts: SceneOpts): Promise<void> => {
+
+  const startWhenLoaded = async (opts: SceneOpts) => {
     try {
       showLoading(true);
       await loadArena();
@@ -381,35 +365,22 @@ const main = async (): Promise<void> => {
       showFailure(error);
     }
   };
-  const launch = (requested: SceneOpts): void => {
-    // The one choke point for online matches — the lobby's PLAY ONLINE button
-    // and the `?online[&room=]` deep link both land here, so `?offline=1` is
-    // enforced once and no socket can be opened behind it. Dropping the room
-    // too keeps the offline branch's localStorage map draft applicable.
+
+  const launch = (requested: SceneOpts) => {
     const opts: SceneOpts =
       isOfflineRequested() && requested.online
         ? { ...requested, online: false, room: "" }
         : requested;
+
     if (arenaReady) {
       startMatch(opts);
+
       return;
     }
+
     void startWhenLoaded(opts);
   };
 
-  // Wrapper-requested pause (registered once at boot — the embed package
-  // no-ops pause until notifyGameStarted has fired, i.e. only during a match).
-  // HARD RULE: never freeze a live online session — it's host-authoritative
-  // and shared with another client, so stopping our loop just desyncs/stalls
-  // them; the wrapper's overlay alone is the pause UI there. Offline is safe —
-  // solo, or an online match whose client fell back to the SDK's room of one
-  // (GameScene.isLive): sim time only ever advances inside matchLoop
-  // (world.ts step() does `w.now += dt * 1000`; abilities/PendingStrike run
-  // off that sim clock, not Date.now/performance.now), so simply not
-  // scheduling the loop holds everything — cooldowns included — dead in place
-  // with nothing to unwind.
-  // timer.reset() on resume avoids a huge first delta from the real-time gap
-  // (belt-and-suspenders: matchLoop already caps a frame at MAX_FRAME_S).
   const pauseOverlay = createPauseOverlay({
     isLive: () => activeScene?.isLive ?? false,
     mute: {
@@ -417,33 +388,36 @@ const main = async (): Promise<void> => {
       set: (next) => activeScene?.audio.setMuted(next),
     },
   });
+
   setPauseHandlers({
     escapePauses: () => activeScene !== null && !activeScene.isGuideOpen,
     onPause: () => {
       pauseOverlay.show();
       activeScene?.pauseAudio();
+
       if (!activeScene || activeScene.isLive) {
         return;
       }
+
       froze = true;
       view.renderer.setAnimationLoop(null);
     },
     onResume: () => {
       pauseOverlay.hide();
       activeScene?.resumeAudio();
+
       if (!froze) {
         return;
       }
+
       froze = false;
       timer.reset();
       view.renderer.setAnimationLoop(matchLoop);
     },
   });
 
-  // See plugins/tooling/skills/playtest/references/autonomous-playtest.md. The hooks
-  // only ever stage a SOLO match: a seeded world written into a live room would
-  // be every other player's match too.
   let leaveLobby: (() => void) | null = null;
+
   if (import.meta.env.DEV || playtest) {
     let seed: number | undefined;
     publishTestHooks({
@@ -455,6 +429,7 @@ const main = async (): Promise<void> => {
         if (!activeScene?.isOffline) {
           return;
         }
+
         timer.reset();
         view.renderer.setAnimationLoop(paused ? null : matchLoop);
       },
@@ -462,6 +437,7 @@ const main = async (): Promise<void> => {
         if (name !== "active-play" || activeScene?.isOffline === false) {
           return;
         }
+
         if (activeScene) {
           activeScene.restartSolo(seed ?? 0);
         } else {
@@ -475,16 +451,13 @@ const main = async (): Promise<void> => {
             skipIntro: true,
           });
         }
+
         return { state: name };
       },
     });
     publishPlaytest<BattleDiagnostics>(buildPlaytestManifest(chosenChamp()));
   }
 
-  // Boot flow: bare URL = champion-select lobby (the right default for a cold
-  // shared link — first-time visitors choose a champion instead of being
-  // dropped into a match). Quick-start deep-links skip it: ?auto = instant solo
-  // vs bots, ?online[&room=] = instant online. Champ/name persist in localStorage.
   if (params.has("auto") || params.has("online")) {
     launch({
       champId: chosenChamp(),
@@ -493,20 +466,20 @@ const main = async (): Promise<void> => {
       room: roomId(params.get("room") ?? ""),
     });
   } else {
-    // 3D character-select lobby: render the champion row behind the DOM overlay
     const canvas = view.renderer.domElement;
-    // remember the last pick across visits
     const initialChamp = chosenChamp();
     let menu: Menu | null = null;
     const stage = new MenuStage(view.renderer, lib, (id) => menu?.setSelected(id));
-    const onMove = (e: PointerEvent): void => stage.onPointerMove(e.clientX, e.clientY);
-    const onResize = (): void => stage.resize();
-    const disposeLobby = (): void => {
+    const onMove = (e: PointerEvent) => stage.onPointerMove(e.clientX, e.clientY);
+    const onResize = () => stage.resize();
+
+    const disposeLobby = () => {
       view.renderer.setAnimationLoop(null);
       canvas.removeEventListener("pointermove", onMove);
       window.removeEventListener("resize", onResize);
       stage.dispose();
     };
+
     const lobby = new Menu({
       initial: initialChamp,
       onSelect: (id) => stage.select(id),
@@ -515,44 +488,42 @@ const main = async (): Promise<void> => {
         launch(opts);
       },
     });
+
     menu = lobby;
     leaveLobby = () => {
       leaveLobby = null;
       lobby.remove();
       disposeLobby();
     };
+
     canvas.addEventListener("pointermove", onMove);
     window.addEventListener("resize", onResize);
-    // First touch or keypress in the lobby = someone who is going to play, so
-    // the arena streams in behind champion select and START usually finds it
-    // already there. A visitor who only looks never downloads it.
-    // loadArena is memoised, so a failure here is reported by launch()'s own
-    // handler; swallow it now rather than raising it over champion select.
-    const warmArena = async (): Promise<void> => {
-      try {
-        await loadArena();
-      } catch {
-        /* empty */
-      }
+
+    const warmArena = async () => {
+      await loadArena().catch(() => null);
     };
-    const onWarm = (): void => {
+
+    const onWarm = () => {
       window.removeEventListener("pointerdown", onWarm);
       window.removeEventListener("keydown", onWarm);
       void warmArena();
     };
+
     window.addEventListener("pointerdown", onWarm);
     window.addEventListener("keydown", onWarm);
-    // sync the 3D row with the persisted pick
     stage.select(initialChamp);
     const menuTimer = new THREE.Timer();
     view.renderer.setAnimationLoop((t) => {
       if (!menu) {
         return;
       }
+
       menu.update();
+
       if (!menu.active) {
         return;
       }
+
       menuTimer.update(t);
       stage.update(Math.min(menuTimer.getDelta(), 1 / 30));
       stage.render();
@@ -562,11 +533,12 @@ const main = async (): Promise<void> => {
   window.addEventListener("resize", () => view.resize());
 };
 
-const boot = async (): Promise<void> => {
+const boot = async () => {
   try {
     await main();
   } catch (error) {
     showFailure(error);
   }
 };
+
 void boot();

@@ -1,7 +1,3 @@
-// The centre-screen objective banner: one notice shows at a time, higher
-// priorities interrupt, and a small queue holds the rest until they expire.
-// A status (the connection's) holds the ribbon over all of them while it lasts.
-
 import type Phaser from "phaser";
 import { Math as PhaserMath } from "phaser";
 
@@ -13,15 +9,16 @@ const NOTICE_PRIORITY = { ending: 3, major: 2, objective: 1 } satisfies Record<
   ObjectiveNotice["priority"],
   number
 >;
+
 const NOTICE_LIFETIME = 14_000;
 const SHOW_MS = 3900;
 const QUEUE_CAP = 3;
+
 const TONE_COLORS = { bad: "#ffb0a4", good: "#9bf0b4", neutral: "#fff3c4" } satisfies Record<
   ObjectiveNotice["tone"],
   string
 >;
 
-/** What the ribbon is showing, and for how long (ms). */
 interface Shown {
   entry: StatusNotice;
   age: number;
@@ -63,20 +60,24 @@ export class AnnouncementBanner {
 
   /** Hold `entry` up, never fading, until it changes or clears (null). The
    *  queue runs on behind it. */
-  setStatus(entry: StatusNotice | null): void {
+  setStatus(entry: StatusNotice | null) {
     if (entry === (this.status?.entry ?? null)) {
       return;
     }
+
     this.status = entry && { age: 0, entry };
     this.layout();
   }
 
-  queue(entry: ObjectiveNotice, now: number): void {
+  queue(entry: ObjectiveNotice, now: number) {
     const remaining = NOTICE_LIFETIME - Math.max(0, now - entry.at);
+
     if (remaining <= 0) {
       return;
     }
+
     const next = { age: 0, entry, remaining };
+
     if (!this.active) {
       this.active = next;
     } else if (NOTICE_PRIORITY[entry.priority] > NOTICE_PRIORITY[this.active.entry.priority]) {
@@ -85,10 +86,11 @@ export class AnnouncementBanner {
     } else {
       this.hold(next);
     }
+
     this.layout();
   }
 
-  private hold(next: Announcement, interrupted = false): void {
+  private hold(next: Announcement, interrupted = false) {
     if (
       this.pending.some(
         (p) =>
@@ -99,14 +101,18 @@ export class AnnouncementBanner {
     ) {
       return;
     }
+
     if (this.pending.length === QUEUE_CAP) {
       const lowest = Math.min(...this.pending.map((p) => NOTICE_PRIORITY[p.entry.priority]));
+
       if (NOTICE_PRIORITY[next.entry.priority] < lowest) {
         return;
       }
+
       const drop = this.pending.findIndex((p) => NOTICE_PRIORITY[p.entry.priority] === lowest);
       this.pending.splice(drop, 1);
     }
+
     if (interrupted) {
       this.pending.unshift(next);
     } else {
@@ -114,19 +120,23 @@ export class AnnouncementBanner {
     }
   }
 
-  update(delta: number, now: number): void {
+  update(delta: number, now: number) {
     if (this.status) {
       this.status.age += delta;
     }
+
     for (const p of this.pending) {
       p.remaining -= delta;
     }
+
     this.pending = this.pending.filter(
       (p) => p.remaining > 0 && now - p.entry.at < NOTICE_LIFETIME,
     );
+
     if (this.active) {
       this.active.age += delta;
       this.active.remaining -= delta;
+
       if (
         this.active.age >= SHOW_MS ||
         this.active.remaining <= 0 ||
@@ -135,15 +145,17 @@ export class AnnouncementBanner {
         this.active = null;
       }
     }
+
     if (!this.active && this.pending.length > 0) {
       const highest = Math.max(...this.pending.map((p) => NOTICE_PRIORITY[p.entry.priority]));
       const index = this.pending.findIndex((p) => NOTICE_PRIORITY[p.entry.priority] === highest);
       this.active = this.pending.splice(index, 1)[0] ?? null;
     }
+
     this.layout();
   }
 
-  clear(): void {
+  clear() {
     this.active = null;
     this.pending = [];
     this.status = null;
@@ -151,37 +163,47 @@ export class AnnouncementBanner {
     this.ribbon.setAlpha(0);
   }
 
-  layout(): void {
+  layout() {
     const { status } = this;
     const shown: Shown | null = status ?? this.active;
+
     if (!shown) {
       this.text.setAlpha(0);
       this.ribbon.setAlpha(0);
+
       return;
     }
+
     const { text, tone } = shown.entry;
     const W = this.scene.scale.width;
     const cy = this.scene.scale.height * 0.26;
     const color = TONE_COLORS[tone];
+
     if (this.text.text !== text) {
       this.text.setText(text);
     }
+
     if (this.text.style.color !== color) {
       this.text.setColor(color);
     }
+
     const fit = Math.min(1, (W - 56) / Math.max(1, this.text.width));
+
     const entrance = reducedMotion()
       ? 1
       : 0.6 + 0.4 * PhaserMath.Easing.Back.Out(Math.min(1, shown.age / 320));
+
     const alpha = status ? 1 : Math.min(1, Math.max(0, (SHOW_MS - shown.age) / 700));
     this.text
       .setPosition(W / 2, cy - 4)
       .setScale(fit * entrance)
       .setAlpha(alpha);
     const ribbonWidth = Math.min(W - 8, Math.max(380, this.text.width * fit + 150));
+
     if (this.ribbon.width !== ribbonWidth) {
       this.ribbon.setSize(ribbonWidth, 76);
     }
+
     this.ribbon
       .setPosition(W / 2, cy)
       .setScale(entrance)

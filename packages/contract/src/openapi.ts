@@ -1,14 +1,6 @@
 import type { OpenAPIV3_2 } from "@orpc/openapi";
 import { openapi } from "@orpc/openapi";
 
-/**
- * OpenAPI description shared by every procedure: the error body, the
- * credentials @repo/service's `createORPCContext` accepts, and the
- * per-procedure summary.
- * `apps/web` feeds `openAPIComponents` into the generator's base document, so
- * the `$ref`s below always resolve.
- */
-
 const ERROR_SCHEMA_REF = "#/components/schemas/Error";
 
 const ERROR_DESCRIPTIONS = {
@@ -26,8 +18,8 @@ const ERROR_DESCRIPTIONS = {
 
 type ErrorStatus = keyof typeof ERROR_DESCRIPTIONS;
 
-// The generator builds 3.2 and downgrades to the version apps/web asks for.
 type Components = OpenAPIV3_2.ComponentsObject;
+
 type OperationObject = OpenAPIV3_2.OperationObject;
 
 const securitySchemes = {
@@ -71,30 +63,27 @@ export const openAPIComponents: Components = {
   securitySchemes,
 };
 
-const withErrors =
-  (statuses: readonly ErrorStatus[]) =>
-  (operation: OperationObject): OperationObject => ({
-    ...operation,
-    responses: {
-      ...operation.responses,
-      ...Object.fromEntries(
-        statuses.map((status) => [
-          status,
-          {
-            content: { "application/json": { schema: { $ref: ERROR_SCHEMA_REF } } },
-            description: ERROR_DESCRIPTIONS[status],
-          },
-        ]),
-      ),
-    },
-  });
+const withErrors = (statuses: readonly ErrorStatus[]) => (operation: OperationObject) => ({
+  ...operation,
+  responses: {
+    ...operation.responses,
+    ...Object.fromEntries(
+      statuses.map((status) => [
+        status,
+        {
+          content: { "application/json": { schema: { $ref: ERROR_SCHEMA_REF } } },
+          description: ERROR_DESCRIPTIONS[status],
+        },
+      ]),
+    ),
+  },
+});
 
-const withSecurity =
-  (schemes: readonly SecurityScheme[]) =>
-  (operation: OperationObject): OperationObject => ({
+const withSecurity = (schemes: readonly SecurityScheme[]) => (operation: OperationObject) =>
+  ({
     ...operation,
     security: schemes.map((scheme) => ({ [scheme]: [] })),
-  });
+  }) satisfies OperationObject;
 
 /** Errors any procedure can answer with, before its own logic runs. */
 export const publicProcedureSpec = openapi({ spec: withErrors([400, 500]) });

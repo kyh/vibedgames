@@ -1,5 +1,17 @@
 import * as THREE from "three";
-import { createTouchControls, probeWebGL, setPauseHandlers, showWebGLVeil } from "@repo/embed";
+import {
+  createTouchControls,
+  isPausable,
+  isPlayables,
+  isSystemPaused,
+  markGameReady,
+  pauseGame,
+  playablesAudio,
+  probeWebGL,
+  setPauseHandlers,
+  showWebGLVeil,
+  watchSystemPause,
+} from "@repo/embed";
 import {
   isPlaytestRequested,
   pointerTracker,
@@ -8,7 +20,7 @@ import {
   publishTestHooks,
 } from "@vibedgames/playtest";
 
-import { isMuted, resumeSound, setMuted, setSoundPaused } from "./fx/sfx";
+import { followSystemAudio, isMuted, resumeSound, setMuted, setSoundPaused } from "./fx/sfx";
 import { createHandCamera } from "./input/camera";
 import type { HandCamera } from "./input/camera";
 import { createPongPauseOverlay } from "./pause-overlay";
@@ -18,35 +30,34 @@ import { DITHER_PIXEL, HIT_HALF_X, MAX_FRAME_DT } from "./shared/constants";
 import { COARSE_INPUT } from "./shared/input-mode";
 
 const container = document.querySelector("#game");
+
 if (!container) {
   throw new Error("missing #game container");
 }
 
 const webgl = probeWebGL();
+
 if (!webgl.ok) {
   showWebGLVeil(webgl);
-  // Module-level boot has no early return: the uncaught throw logs the reason and stops.
   throw new Error(`WebGL unavailable: ${webgl.reason}`);
 }
 
-// No MSAA: the scene renders into the dither pass's low-res target, where
-// hard pixels are the point — the canvas only ever shows the quantized quad.
 const renderer = new THREE.WebGLRenderer({ antialias: false });
-// Diagnostics count the scene pass and the dither quad together.
+
 renderer.info.autoReset = false;
 
-// Snap the pixel ratio so one dithered game pixel maps to a whole number of
-// device pixels. A fractional DPR (1.25/1.75 display scaling) would otherwise
-// upscale game pixels to alternating 2- and 3-device-px columns, visibly
-// warping the Bayer cells. Recomputed on resize (monitor moves change DPR).
-const applyPixelRatio = (): void => {
+const applyPixelRatio = () => {
   const dpr = Math.min(window.devicePixelRatio, 2);
   const gamePxDevice = Math.max(1, Math.round(DITHER_PIXEL * dpr));
   renderer.setPixelRatio(gamePxDevice / DITHER_PIXEL);
 };
+
 applyPixelRatio();
+
 renderer.setSize(window.innerWidth, window.innerHeight);
+
 container.append(renderer.domElement);
+
 renderer.domElement.addEventListener("webglcontextlost", () => {
   console.error("WebGL context lost");
   showWebGLVeil(
@@ -55,69 +66,78 @@ renderer.domElement.addEventListener("webglcontextlost", () => {
   );
 });
 
-// Unlock audio on the first real gesture (capture: before that gesture serves).
 for (const event of ["pointerdown", "keydown"]) {
   window.addEventListener(event, resumeSound, { capture: true });
 }
+
 const game = new GameScene();
 const dither = new DitherPass(window.innerWidth, window.innerHeight);
 
-// Wrapper pause: freeze the sim unless a live human opponent is connected
-// (see GameScene.requestPause) — the wrapper's own overlay shows either way.
-const pauseOverlay = createPongPauseOverlay(() => game.hasLiveOpponent(), {
-  get: isMuted,
-  set: setMuted,
-});
+const systemAudio = playablesAudio();
+
+if (systemAudio !== null) {
+  followSystemAudio(systemAudio.enabled());
+  systemAudio.watch(followSystemAudio);
+}
+
+const pauseOverlay = createPongPauseOverlay(
+  () => game.hasLiveOpponent(),
+  systemAudio === null ? { get: isMuted, set: setMuted } : undefined,
+);
+
+let playerPaused = false;
+
 setPauseHandlers({
   onPause: () => {
+    playerPaused = true;
     game.requestPause();
     setSoundPaused(true);
     pauseOverlay.show();
   },
   onResume: () => {
+    playerPaused = false;
     pauseOverlay.hide();
     game.requestResume();
     setSoundPaused(false);
   },
 });
 
-// Pause is Escape, so without this a phone plays a game it cannot leave.
 createTouchControls();
+
 window.addEventListener("keydown", (e) => {
   if (e.code === "Space") {
-    // Space on a focused button already clicks it; confirming here too would double-fire.
     if (e.target instanceof HTMLElement && e.target.closest("button")) {
       return;
     }
+
     e.preventDefault();
+
     if (!e.repeat) {
       game.handleGestureConfirm();
     }
-  } else if (e.code === "KeyM" && !e.repeat) {
+  } else if (e.code === "KeyM" && !e.repeat && systemAudio === null) {
     setMuted(!isMuted());
   }
 });
 
-// Webcam hand tracking. On failure it shows a status in its panel and the
-// pointer keeps working; a closed fist serves, arms a power shot or rematches,
-// so a cam-only player never has to touch. Starting it costs ~17 MB of
-// third-party wasm + model and a camera-permission prompt, so it never runs
-// during boot: a fine pointer still gets it automatically (the hand is the
-// better paddle) but only once the court is up, while a phone — which already
-// steers well with a finger, and pays for the download in cellular data —
-// opts in by tapping the panel.
-const handCamera = createHandCamera(
-  (x) => game.handleHandPosition(x),
-  () => game.handleGestureConfirm(),
-);
-// A browser under automation has no camera to grant. A playtest's denies it,
-// and the rejection is a console error — a failed playtest for a reason that
-// has nothing to do with pong — and loading the recognizer first stalls the
-// page for seconds, which a lag check reads as netcode. The panel still
-// starts it on a tap.
-if (!COARSE_INPUT && !isPlaytestRequested() && !navigator.webdriver) {
+const handCamera = isPlayables()
+  ? null
+  : createHandCamera(
+      (x) => game.handleHandPosition(x),
+      () => game.handleGestureConfirm(),
+    );
+
+if (handCamera !== null && !COARSE_INPUT && !isPlaytestRequested() && !navigator.webdriver) {
   window.addEventListener("load", () => handCamera.enable(), { once: true });
 }
+
+watchSystemPause((paused) => {
+  if (paused && isPausable()) {
+    pauseGame();
+  }
+
+  setSoundPaused(paused || playerPaused);
+});
 
 window.addEventListener("resize", () => {
   game.resize(window.innerWidth / window.innerHeight);
@@ -127,20 +147,26 @@ window.addEventListener("resize", () => {
 });
 
 const timer = new THREE.Timer();
+
 renderer.setAnimationLoop((time) => {
   timer.update(time);
+
+  if (isSystemPaused()) {
+    return;
+  }
+
   const dt = Math.min(timer.getDelta(), MAX_FRAME_DT);
   game.update(dt);
   renderer.info.reset();
   dither.setInverted(game.isScreenInverted());
   dither.render(renderer, game.scene, game.camera);
+  markGameReady();
 });
 
-// See plugins/tooling/skills/playtest/references/scripted-playtest.md. State hooks
-// opt into a solo match, never write a staged score into a live room.
 type PongDiagnostics = ReturnType<GameScene["diagnostics"]> & {
   renderer: { calls: number; triangles: number };
 };
+
 declare global {
   interface Window {
     /** Dev-only hooks; __pongHand(x) drives the gesture→paddle path synthetically (x ∈ [0,1]). */
@@ -149,10 +175,12 @@ declare global {
     __pongCamera?: HandCamera;
   }
 }
-publishDiagnostics((): PongDiagnostics => ({
+
+publishDiagnostics(() => ({
   ...game.diagnostics(),
   renderer: { calls: renderer.info.render.calls, triangles: renderer.info.render.triangles },
 }));
+
 if (import.meta.env.DEV || isPlaytestRequested()) {
   publishTestHooks({
     seed: (seed) => game.seed(seed),
@@ -160,35 +188,24 @@ if (import.meta.env.DEV || isPlaytestRequested()) {
     setReducedMotion: (enabled) => game.setReducedMotion(enabled),
     setState: (name) => {
       game.setTestState(name);
+
       return { state: name };
     },
   });
-  // What `vg playtest run` may do to this game, in the words the decision
-  // model chooses between. The paddle follows the pointer's x, so the
-  // playtester steers by parking the cursor; five lanes are enough to get
-  // under the ball. `track_ball` is the fast-game path: a per-frame reflex
-  // that walks the pointer until the paddle sits under the ball. The
-  // pointer→paddle map is a raycast, so rather than invert it the tracker
-  // nudges the cursor by the paddle's error each frame and lets the game
-  // close the loop — the model decides a few times a second, this runs at
-  // 60 fps while it is the model's intent.
   const track = pointerTracker();
-  // A dead-centre return goes straight back and the rival never misses one;
-  // the angle comes from where on the paddle the ball lands. Holding the
-  // paddle this far to one side of the ball is an off-centre hit on purpose.
   const AIM_OFFSET = HIT_HALF_X * 0.6;
-  // Which way to send it is a per-ball read of where the rival stands — too
-  // fast and too fiddly for a decision a few times a second, so the reflex
-  // makes it. The side only flips once the rival is clearly across the ball,
-  // or a rival hovering under it would flip the paddle every frame.
   let aimSide: 1 | -1 = 1;
+
   const aimAway = (diag: PongDiagnostics) => {
     const rivalOffset = diag.opponent.x - diag.ball.x;
+
     if (Math.abs(rivalOffset) > HIT_HALF_X / 2) {
       aimSide = rivalOffset > 0 ? 1 : -1;
     }
+
     return track(diag.ball.x + aimSide * AIM_OFFSET - diag.player.x);
   };
+
   publishPlaytest<PongDiagnostics>({
     actions: {
       confirm: {
@@ -198,7 +215,6 @@ if (import.meta.env.DEV || isPlaytestRequested()) {
       },
     },
     goal: "You control the bottom paddle; it follows the pointer's x. A point is won when the rival (top paddle, game.opponent.x) fails to reach your return. `track_ball` returns the ball straight — safe, but the rival always reaches a straight ball, so it never wins a point. To WIN points choose `aim_away`: it returns every ball at an angle, to the side the rival is NOT on. Use `track_ball` only to play safe when game.opponentScore is one point from winning. Every 4 returns game.charge.ready turns true: confirm then, and the next return is a power shot. game.points is your points and game.opponentScore is theirs; game.score is 10 per point plus 1 per ball you return; first to the target wins.",
-    // The court is a few world units wide, not a few hundred pixels.
     minDisplacement: 0.05,
     move: {
       aim_away: {
@@ -227,6 +243,7 @@ if (import.meta.env.DEV || isPlaytestRequested()) {
     },
   });
 }
+
 if (import.meta.env.DEV) {
   Object.assign(window, {
     __pong: game,

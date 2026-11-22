@@ -1,5 +1,3 @@
-// Pure-logic checks: host roster reconciliation, objective/hint state, HUD
-// readability helpers and the particle priority pools. No DOM, no renderer.
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import * as THREE from "three";
@@ -10,15 +8,12 @@ import { humanRoster, reconcileHostHeroes, restoreHostState } from "../src/net/h
 import { emptyGuestWorld, encodeWorld } from "../src/net/snapshot.ts";
 import { castAbility, requestCast } from "../src/sim/abilities.ts";
 import { ALL_ABILITY_KEYS } from "../src/sim/types.ts";
-import type { Coin } from "../src/sim/types.ts";
 import { createWorld, ensureBots, setHeroInput, spawnHero, step } from "../src/sim/world.ts";
 import { abilityReadiness, readablePlates } from "../src/render/hud-readability.ts";
 import { Hints } from "../src/render/hints.ts";
 import { coinObjective, deliveryObjective } from "../src/render/objective-state.ts";
 import { ParticlePools } from "../src/render/fx-particles.ts";
 import type { ParticleKind, ParticlePriority } from "../src/render/fx-particles.ts";
-
-// ── host state ──
 
 const human = (
   world: ReturnType<typeof createWorld>,
@@ -51,14 +46,17 @@ const playingFixture = () => {
   world.nextDeliveryAt = 76;
   world.campRespawnAt["held"] = 93;
   world.seq = 122;
+
   return world;
 };
 
 test("host promotion adopts the snapshot in place and keeps stepping identically", () => {
   const world = playingFixture();
+
   for (let i = 0; i < 600; i += 1) {
     step(world);
   }
+
   const wire = structuredClone(encodeWorld(world));
   const promoted = emptyGuestWorld();
   const { units } = promoted;
@@ -68,10 +66,12 @@ test("host promotion adopts the snapshot in place and keeps stepping identically
   assert.deepEqual(roster.seats.local, { slot: 3, team: "local" });
   assert.deepEqual(roster.picks.local, { champId: "mage", name: "local" });
   const before = structuredClone(wire);
+
   for (let i = 0; i < 60; i += 1) {
     step(world);
     step(promoted);
   }
+
   assert.deepEqual(encodeWorld(promoted), encodeWorld(world));
   assert.deepEqual(wire, before);
 });
@@ -93,11 +93,13 @@ test("empty room seeds once; an ended empty roster stays ended", () => {
 test("late humans replace one bot seat; grace humans keep their hero and go neutral", () => {
   const world = playingFixture();
   const roster = humanRoster(world);
+
   const players: PlayerMap = {
     local: { connected: true, id: "local" },
     newcomer: { connected: true, id: "newcomer" },
     peer: { connected: false, id: "peer" },
   };
+
   const grace = world.units.get("h-peer");
   assert.ok(grace);
   setHeroInput(grace, 1, 0, 0, 1, true);
@@ -125,10 +127,9 @@ test("late humans replace one bot seat; grace humans keep their hero and go neut
   assert.deepEqual(encodeWorld(world), terminal);
 });
 
-// ── objectives + hints ──
-
 const soloFixture = () => {
   const world = createWorld(724);
+
   const me = spawnHero(world, {
     champId: "knight",
     id: "local",
@@ -138,9 +139,11 @@ const soloFixture = () => {
     slot: 0,
     team: "local",
   });
+
   return { me, world };
 };
-const coin = (id: string, x = 0): Coin => ({
+
+const coin = (id: string, x = 0) => ({
   expireAt: 9900,
   fromX: 0,
   fromY: 0,
@@ -201,10 +204,12 @@ test("creep loot does not retire the first boss-coin lesson; rematch keeps it le
   me.lastCastAt = 1;
   me.lastAttackAt = 1;
   const messages: string[] = [];
+
   const hints = new Hints(
     () => false,
     (message) => messages.push(message),
   );
+
   hints.update(world, me);
   me.x += 6;
   world.gameTime = 1;
@@ -238,13 +243,14 @@ test("creep loot does not retire the first boss-coin lesson; rematch keeps it le
 test("observing the economy never alters coin schedules or payouts", () => {
   const observed = soloFixture();
   const control = soloFixture();
+
   const hints = new Hints(
     () => false,
-    () => {
-      /* empty */
-    },
+    () => null,
   );
+
   let lastCoin: string | null = null;
+
   for (let i = 0; i < 1200; i += 1) {
     step(observed.world);
     step(control.world);
@@ -255,12 +261,11 @@ test("observing the economy never alters coin schedules or payouts", () => {
   }
 });
 
-// ── HUD readability ──
-
 const duel = (champId = "knight") => {
   const world = createWorld(41);
   world.units.clear();
   world.now = 5000;
+
   const me = spawnHero(world, {
     champId,
     id: "local",
@@ -270,6 +275,7 @@ const duel = (champId = "knight") => {
     slot: 0,
     team: "local",
   });
+
   const enemy = spawnHero(world, {
     champId: "knight",
     id: "enemy",
@@ -279,8 +285,10 @@ const duel = (champId = "knight") => {
     slot: 1,
     team: "enemy",
   });
+
   Object.assign(me, { aimX: 1, aimY: 0, facing: 0, x: 0, y: 16 });
   Object.assign(enemy, { x: 2, y: 16 });
+
   return { me, world };
 };
 
@@ -301,9 +309,11 @@ test("all six kits: HUD availability agrees with the sim's cast admission gates"
         me.abilities[key].rank = gate === "locked" ? 0 : 1;
         me.abilities[key].readyAt = world.now + (gate === "cooldown" ? 1 : 0);
         me.alive = gate !== "dead";
+
         if (["stun", "silence", "hex", "root"].includes(gate)) {
           me.statuses.push({ id: "gate", kind: gate, until: world.now + 1000 });
         }
+
         const before = structuredClone(me);
         const readiness = abilityReadiness(me, key, world.now);
         assert.deepEqual(me, before, "presentation cannot consume casts or queued input");
@@ -345,28 +355,31 @@ test("plate placement is iteration-independent, prioritizes local, never moves a
   assert.equal(readablePlates(candidates, keepOut)[0], local, "uses original anchor record");
 });
 
-// ── particle priority pools ──
-
-const meshFor = (scene: THREE.Scene, kind: ParticleKind): THREE.InstancedMesh => {
+const meshFor = (scene: THREE.Scene, kind: ParticleKind) => {
   const mesh = scene.children.find(
     (child): child is THREE.InstancedMesh =>
       child instanceof THREE.InstancedMesh && child.renderOrder === (kind === "add" ? 11 : 10),
   );
+
   if (!mesh) {
     throw new Error("particle mesh missing");
   }
+
   return mesh;
 };
 
-const visiblePositions = (mesh: THREE.InstancedMesh): number[] => {
+const visiblePositions = (mesh: THREE.InstancedMesh) => {
   const matrix = new THREE.Matrix4();
   const xs: number[] = [];
+
   for (let i = 0; i < mesh.count; i += 1) {
     mesh.getMatrixAt(i, matrix);
+
     if (matrix.determinant() > 0) {
       xs.push(matrix.elements[12] ?? 0);
     }
   }
+
   return xs;
 };
 
@@ -377,11 +390,13 @@ for (const { kind, cap, reserve } of [
   test(`${kind} pool: reserve, replace in place, expire and refill without duplicate slots`, () => {
     const scene = new THREE.Scene();
     const pools = new ParticlePools(scene);
+
     const spawn = (n: number, priority: ParticlePriority, x: number) => {
       for (let i = 0; i < n; i += 1) {
         pools.spawn(kind, { life: 1, priority, size: 1, x, y: 1, z: 0 });
       }
     };
+
     spawn(cap * 2, "ambient", 1);
     assert.equal(pools.counts()[kind].active, cap - reserve);
     spawn(reserve, "impact", 2);
@@ -398,19 +413,23 @@ for (const { kind, cap, reserve } of [
     assert.equal(visiblePositions(mesh).filter((x) => x === 3).length, 23);
     spawn(cap, "ambient", 4);
     assert.equal(pools.counts()[kind].major, 23);
+
     for (let cycle = 0; cycle < 4; cycle += 1) {
       pools.update(2);
       assert.equal(pools.counts()[kind].active, 0);
       assert.equal(visiblePositions(mesh).length, 0);
+
       for (let i = 0; i < cap; i += 1) {
         pools.spawn(kind, { life: 1, priority: "impact", size: 1, x: i + 100, y: 0, z: 0 });
       }
+
       assert.equal(pools.counts()[kind].active, cap);
       assert.equal(new Set(visiblePositions(mesh)).size, cap);
       spawn(31, "major", -1);
       assert.equal(pools.counts()[kind].active, cap);
       assert.equal(visiblePositions(mesh).filter((x) => x === -1).length, 31);
     }
+
     pools.dispose();
     assert.equal(scene.children.length, 0);
   });
@@ -419,9 +438,11 @@ for (const { kind, cap, reserve } of [
 test("equal-priority saturation keeps the active major particles", () => {
   const scene = new THREE.Scene();
   const pools = new ParticlePools(scene);
+
   for (let i = 0; i < 512; i += 1) {
     pools.spawn("add", { life: 2, priority: "major", size: 1, x: i, y: 0, z: 0 });
   }
+
   pools.spawn("add", { life: 2, priority: "major", size: 1, x: 9999, y: 0, z: 0 });
   assert.equal(pools.counts().add.major, 512);
   assert.equal(visiblePositions(meshFor(scene, "add")).includes(9999), false);

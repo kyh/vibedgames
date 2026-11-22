@@ -1,16 +1,15 @@
-// The gear-button settings panel: quality and bot-difficulty segments, the
-// time-of-day scrubber, effect toggles and the live renderer stats readout.
-
 import { DIFFICULTIES, QUALITIES, isDifficultyName, isQualityName } from "./config";
 import type { Game } from "./game";
 import { mustGet, mustGetInput } from "./dom";
 
-const buildQualitySegment = (game: Game): void => {
+const buildQualitySegment = (game: Game) => {
   const seg = mustGet("quality-seg");
+
   for (const [name, quality] of Object.entries(QUALITIES)) {
     if (!isQualityName(name)) {
       continue;
     }
+
     const button = document.createElement("button");
     button.textContent = quality.label;
     button.dataset.q = name;
@@ -19,12 +18,14 @@ const buildQualitySegment = (game: Game): void => {
   }
 };
 
-const buildDifficultySegment = (game: Game): void => {
+const buildDifficultySegment = (game: Game) => {
   const seg = mustGet("difficulty-seg");
+
   for (const [name, difficulty] of Object.entries(DIFFICULTIES)) {
     if (!isDifficultyName(name)) {
       continue;
     }
+
     const button = document.createElement("button");
     button.textContent = difficulty.label;
     button.dataset.d = name;
@@ -34,7 +35,7 @@ const buildDifficultySegment = (game: Game): void => {
 };
 
 /** Wire every control in the panel to the game's setters. Runs once. */
-export const buildSettingsPanel = (game: Game): void => {
+export const buildSettingsPanel = (game: Game) => {
   const panel = mustGet("settings");
   mustGet("gear").addEventListener("click", () => panel.classList.toggle("open"));
   buildQualitySegment(game);
@@ -55,13 +56,15 @@ export const buildSettingsPanel = (game: Game): void => {
 };
 
 /** Push the game's current settings into the panel's controls. */
-export const syncSettingsPanel = (game: Game): void => {
+export const syncSettingsPanel = (game: Game) => {
   for (const button of document.querySelectorAll<HTMLElement>("#quality-seg button")) {
     button.classList.toggle("on", button.dataset.q === game.pipeline.qualityName);
   }
+
   for (const button of document.querySelectorAll<HTMLElement>("#difficulty-seg button")) {
     button.classList.toggle("on", button.dataset.d === game.difficultyName);
   }
+
   mustGetInput("auto-time").checked = game.autoTime;
   const ao = mustGetInput("tog-ao");
   ao.checked = game.pipeline.toggles.ao;
@@ -71,18 +74,22 @@ export const syncSettingsPanel = (game: Game): void => {
 };
 
 /** Frame-rate and shadow diagnostics shown at the bottom of the panel. */
-export const renderStats = (game: Game, fps: number): void => {
+export const renderStats = (game: Game, fps: number) => {
   const { frameStats, lighting, pipeline } = game;
   const lit = lighting.lampSlots.filter((lamp) => lamp.intensity > 0.01).length;
+
   const casting = lighting.lampSlots.filter(
     (lamp) => lamp.castShadow && lamp.shadow.autoUpdate,
   ).length;
+
   const poolLit = lighting.pool.filter((light) => light.intensity > 0).length;
   const shadowKind = pipeline.usingPCSS ? "PCSS" : "PCF";
   const bench = game.perf.benchMs ? game.perf.benchMs.toFixed(1) : "?";
+
   const qualityLine = game.userPickedQuality
     ? "quality: your choice"
     : `quality: auto  (night frame ${bench} ms at startup)`;
+
   const tris = (frameStats.triangles / 1000).toFixed(0);
   const span = (lighting.shadowRadius * 2).toFixed(0);
   mustGet("stats").textContent = `${fps} fps   ${frameStats.calls} draws   ${tris}k tris

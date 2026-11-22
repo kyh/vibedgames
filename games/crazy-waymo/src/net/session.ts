@@ -1,11 +1,3 @@
-// The room connection: every driver shares one free-roam room through
-// @vibedgames/multiplayer, and the scene reads the client directly each frame.
-// The client also plays the room alone when it has to — offline by intent it
-// never dials, and a room that has not admitted it within OFFLINE_FALLBACK_MS
-// of rendered frames leaves it playing solo. Offline it is a room of one with
-// the same API (this player is `OFFLINE_PLAYER_ID` and the host, the server
-// clock reads the local one), so the scene runs one code path either way.
-
 import { isOfflineRequested } from "@repo/embed";
 import { MultiplayerClient } from "@vibedgames/multiplayer";
 
@@ -29,7 +21,7 @@ export interface RoomOptions {
  * a slow link the load alone would use up the deadline and strand the player
  * solo before the socket got its chance.
  */
-export const connectRoom = ({ offline, room }: RoomOptions): MultiplayerClient =>
+export const connectRoom = ({ offline, room }: RoomOptions) =>
   new MultiplayerClient({
     fallbackMs: OFFLINE_FALLBACK_MS,
     host: MULTIPLAYER_HOST,
@@ -46,7 +38,7 @@ export const connectRoom = ({ offline, room }: RoomOptions): MultiplayerClient =
  * every notification, not every frame, since a drop and the reconnect after
  * it can both land while the tab is hidden and draws none.
  */
-export const watchReadmission = (net: MultiplayerClient, readmitted: () => void): void => {
+export const watchReadmission = (net: MultiplayerClient, readmitted: () => void) => {
   let away = false;
   net.subscribe(() => {
     if (net.connectionStatus === "reconnecting") {
@@ -58,18 +50,22 @@ export const watchReadmission = (net: MultiplayerClient, readmitted: () => void)
   });
 };
 
-const roomStatusText = (net: MultiplayerClient): string => {
+const roomStatusText = (net: MultiplayerClient) => {
   switch (net.connectionStatus) {
     case "connecting": {
       return "CONNECTING…";
     }
+
     case "reconnecting": {
       return "RECONNECTING…";
     }
+
     case "connected": {
       const others = Object.keys(net.players).length - 1;
+
       return others > 0 ? `${others} ONLINE` : "";
     }
+
     default: {
       return "";
     }
@@ -83,11 +79,13 @@ const roomStatusText = (net: MultiplayerClient): string => {
  * gives up; reconnecting is this client's own drop, which would otherwise read
  * only as every other taxi stalling and greying out. Solo it is blank.
  */
-export const showRoomStatus = (el: Element, net: MultiplayerClient): void => {
+export const showRoomStatus = (el: Element, net: MultiplayerClient) => {
   const text = roomStatusText(net);
+
   if (el.textContent === text) {
     return;
   }
+
   el.textContent = text;
   const status = net.connectionStatus;
   el.classList.toggle("wait", status === "connecting" || status === "reconnecting");

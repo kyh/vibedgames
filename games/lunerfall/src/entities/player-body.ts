@@ -4,7 +4,6 @@ import type { Grid } from "../sys/grid";
 import { specialReadiness } from "../data/special-readiness";
 import type { SpecialReadiness } from "../data/special-readiness";
 
-// ── Feel constants (px, seconds; tuned for 60fps fixed step) ────────────────
 const MAX_RUN = 236;
 const RUN_ACCEL = 2100;
 const GROUND_DECEL = 3400;
@@ -38,9 +37,7 @@ const LAND_MIN = 130;
 const ATTACK_BUFFER = 0.12;
 const ATTACK_END_CD = 0.08;
 const ATTACK_MOVE_MULT = 0.78;
-// press within this long after a swing to chain the next hit
 const COMBO_GRACE = 0.32;
-// a queued next hit cancels the swing's tail at this fraction of dur (after the strike lands) so J-J-J chains snappily
 const COMBO_CANCEL_FRAC = 0.5;
 const SPECIAL_BUFFER = 0.12;
 
@@ -52,24 +49,19 @@ const HURT_POP = 120;
 const HW = 6;
 const BODY_H = 22;
 const EPS = 0.0001;
-// px of cross-axis overlap a move slides round rather than stopping on
 const CORNER = 2;
 
-// Melee hitbox extents (px), relative to the player's feet at (x, y). Exported so
-// the viewer's reach box can draw the ACTUAL hit area instead of an approximation.
-// overlaps this far behind center so point-blank hits land
 export const HIT_BACK = 8;
-// reaches up over the body
 export const HIT_UP = 34;
-// down to just past the feet (catches grounded enemies)
 export const HIT_DOWN = 6;
 
 export const PLAYER_HALF_W = HW;
 export const PLAYER_BODY_H = BODY_H;
 
-const approach = (cur: number, target: number, maxDelta: number): number =>
+const approach = (cur: number, target: number, maxDelta: number) =>
   cur < target ? Math.min(cur + maxDelta, target) : Math.max(cur - maxDelta, target);
-const clamp = (v: number, a: number, b: number): number => Math.min(Math.max(v, a), b);
+
+const clamp = (v: number, a: number, b: number) => Math.min(Math.max(v, a), b);
 
 export interface BodyInput {
   left: boolean;
@@ -100,7 +92,9 @@ export interface Rect {
   right: number;
   bottom: number;
 }
+
 export type AttackBox = Rect & { dmg: number; kb: number };
+
 export type PlayerShot = {
   x: number;
   y: number;
@@ -108,10 +102,7 @@ export type PlayerShot = {
   vy: number;
   dmg: number;
 };
-// A discontinuity something outside step() applied to the body — a hit, a
-// stomp bounce, a last-stand down/revive, a duel death or respawn. The host
-// journals these on a guest's body so the guest's prediction can replay them
-// at the tick they happened (net/predict.ts).
+
 export type BodyEdge =
   | { kind: "hurt"; dir: number }
   | { kind: "bounce" }
@@ -120,12 +111,9 @@ export type BodyEdge =
   | { kind: "dead" }
   | { kind: "spawn"; x: number; y: number };
 
-// Pure platformer physics + combat state (kit-driven). No Phaser, no rendering.
-// Deterministic given the same grid + input stream.
 export class PlayerBody {
   x: number;
   y: number;
-  // sim position one step ago — for render interpolation
   prevX = 0;
   prevY = 0;
   vx = 0;
@@ -135,7 +123,6 @@ export class PlayerBody {
   wallDir: -1 | 0 | 1 = 0;
   iframes = 0;
   dead = false;
-  // co-op last stand: frozen + invulnerable awaiting a revive
   downed = false;
 
   attackStep = 0;
@@ -144,16 +131,13 @@ export class PlayerBody {
   specialActive = false;
   pendingShot: PlayerShot | null = null;
   pendingHeal = 0;
-  // host: a guest's body records its edges here; null records nothing
   journal: BodyEdge[] | null = null;
 
   private attackTime = 0;
   private attackBuf = 0;
   private attackCd = 0;
   private comboQueued = false;
-  // last hit in the current chain (persists through comboGrace)
   private comboStage = 0;
-  // window after a swing to press for the next hit
   private comboGrace = 0;
 
   private specialBuf = 0;
@@ -284,7 +268,7 @@ export class PlayerBody {
   }
 
   /** Drop queued/held input; active actions and their deadlines keep running. */
-  clearInput(): void {
+  clearInput() {
     this.hLeft = false;
     this.hRight = false;
     this.hUp = false;
@@ -309,21 +293,22 @@ export class PlayerBody {
     this.y = y;
   }
 
-  get dashing(): boolean {
+  get dashing() {
     return this.dashTime > 0;
   }
-  get dashReady(): boolean {
+  get dashReady() {
     return this.dashCd <= 0 && this.dashTime <= 0 && (this.grounded || this.airDash);
   }
-  get hurting(): boolean {
+  get hurting() {
     return this.hurtStun > 0;
   }
-  get specialCdFrac(): number {
+  get specialCdFrac() {
     const { cd } = this.kit.special;
+
     return cd > 0 ? clamp(this.specialCd / cd, 0, 1) : 0;
   }
 
-  get specialReadiness(): SpecialReadiness {
+  get specialReadiness() {
     return specialReadiness({
       attackStep: this.attackStep,
       dashTime: this.dashTime,
@@ -332,7 +317,7 @@ export class PlayerBody {
       hurtStun: this.hurtStun,
       specialActive: this.specialActive,
       specialCd: this.specialCd,
-    });
+    }) satisfies SpecialReadiness;
   }
 
   buffer(input: BodyInput) {
@@ -341,15 +326,19 @@ export class PlayerBody {
     this.hUp = input.up;
     this.hDown = input.down;
     this.jumpHeld = input.jumpHeld;
+
     if (input.jumpPressed) {
       this.jumpBuf = JUMP_BUFFER;
     }
+
     if (input.dashPressed) {
       this.dashBuf = DASH_BUFFER;
     }
+
     if (input.attackPressed) {
       this.attackBuf = ATTACK_BUFFER;
     }
+
     if (input.specialPressed) {
       this.specialBuf = SPECIAL_BUFFER;
     }
@@ -380,14 +369,16 @@ export class PlayerBody {
     this.grounded = false;
   }
 
-  applyHurt(dirX: number): boolean {
+  applyHurt(dirX: number) {
     if (this.iframes > 0 || this.dead || this.downed) {
       return false;
     }
+
     const dir = Math.sign(dirX || this.facing);
     this.knockBack(dir);
     this.journal?.push({ dir, kind: "hurt" });
     this.ev.onHurt?.();
+
     return true;
   }
 
@@ -415,8 +406,6 @@ export class PlayerBody {
     this.journal?.push({ kind: "spawn", x, y });
   }
 
-  // Enter co-op last stand: frozen (no move/attack/dash) and invulnerable via
-  // the applyHurt guard; gravity still applies so an airborne down hits the floor.
   down() {
     this.crumple();
     this.journal?.push({ kind: "down" });
@@ -425,7 +414,6 @@ export class PlayerBody {
   private crumple() {
     this.downed = true;
     this.vx = 0;
-    // invulnerability comes from the downed guard, not i-frames
     this.iframes = 0;
     this.hurtStun = 0;
     this.attackStep = 0;
@@ -438,14 +426,12 @@ export class PlayerBody {
     this.pendingHeal = 0;
   }
 
-  // Revived by a teammate: control returns with a mercy invulnerability window.
   revive() {
     this.downed = false;
     this.iframes = HURT_IFRAMES;
     this.journal?.push({ kind: "revive" });
   }
 
-  // ── guest prediction (see net/predict.ts) ───────────────────────────────────
   /** Re-apply an edge the host journaled. The host already decided it landed,
    * so the hurt skips the i-frame guard; nothing is journaled or emitted. */
   applyEdge(edge: BodyEdge) {
@@ -454,30 +440,36 @@ export class PlayerBody {
         this.knockBack(Math.sign(edge.dir) || this.facing);
         break;
       }
+
       case "bounce": {
         this.vy = -STOMP_BOUNCE;
         this.grounded = false;
         this.airDash = true;
         break;
       }
+
       case "down": {
         this.crumple();
         break;
       }
+
       case "revive": {
         this.downed = false;
         this.iframes = HURT_IFRAMES;
         break;
       }
+
       case "dead": {
         this.dead = true;
         break;
       }
+
       case "spawn": {
         this.dead = false;
         this.enterRoom(this.grid, edge.x, edge.y);
         break;
       }
+
       default: {
         break;
       }
@@ -503,12 +495,11 @@ export class PlayerBody {
     this.depenetrate();
   }
 
-  // Authority arrives from another timeline, so a correction can land the
-  // box across a tile edge; moveX/moveY assume they start clear of solids.
   private depenetrate() {
     if (!this.blocked(this.x, this.y)) {
       return;
     }
+
     const exits = [
       { x: Math.floor((this.x + HW) / TILE) * TILE - HW - EPS, y: this.y },
       { x: (Math.floor((this.x - HW) / TILE) + 1) * TILE + HW + EPS, y: this.y },
@@ -523,26 +514,29 @@ export class PlayerBody {
           Math.abs(b.x - this.x) -
           Math.abs(b.y - this.y),
       );
+
     const [exit] = exits;
+
     if (exit) {
       this.x = exit.x;
       this.y = exit.y;
     }
   }
 
-  attackBox(): AttackBox | null {
+  attackBox() {
     if (this.attackStep === 0) {
       return null;
     }
+
     const s = this.kit.swings[this.attackStep - 1];
+
     if (!s || this.attackTime < s.a0 || this.attackTime > s.a1) {
       return null;
     }
-    // Reaches `reach` px forward, overlaps the body (HIT_BACK) so point-blank
-    // swings connect, and spans HIT_UP above the feet to HIT_DOWN below — a tall
-    // box that reliably catches grounded enemies in front.
+
     const left = this.facing > 0 ? this.x - HIT_BACK : this.x - s.reach;
     const right = this.facing > 0 ? this.x + s.reach : this.x + HIT_BACK;
+
     return {
       bottom: this.y + HIT_DOWN,
       dmg: s.dmg,
@@ -553,15 +547,17 @@ export class PlayerBody {
     };
   }
 
-  // AoE special hitbox (super-smash / reaping spin), else null.
-  specialBox(): AttackBox | null {
+  specialBox() {
     const sp = this.kit.special;
+
     if (!this.specialActive || sp.kind !== "aoe") {
       return null;
     }
+
     if (this.specialElapsed < sp.a0 || this.specialElapsed > sp.a1) {
       return null;
     }
+
     return {
       bottom: this.y + 4,
       dmg: sp.dmg,
@@ -572,20 +568,24 @@ export class PlayerBody {
     };
   }
 
-  hurtBox(): Rect {
+  hurtBox() {
     return { bottom: this.y, left: this.x - HW, right: this.x + HW, top: this.y - BODY_H };
   }
 
   step(dt: number) {
     this.prevX = this.x;
     this.prevY = this.y;
+
     if (this.dead) {
       return;
     }
+
     if (this.downed) {
       this.stepDowned(dt);
+
       return;
     }
+
     const busy = this.specialActive;
 
     this.stepSpecialTrigger();
@@ -598,6 +598,7 @@ export class PlayerBody {
     this.moveX(this.vx * dt);
     this.moveY(this.vy * dt);
     this.updateContacts();
+
     if (!prevGrounded && this.grounded && this.landVy > LAND_MIN) {
       this.ev.onSquash?.(1.3, 0.72, 150);
       this.ev.onLand?.(this.landVy);
@@ -606,17 +607,17 @@ export class PlayerBody {
     this.stepTimers(dt);
   }
 
-  // Last stand: crumpled in place — gravity + collision only; all buffered input
-  // is dropped so nothing fires on the frame a revive lands.
   private stepDowned(dt: number) {
     this.jumpBuf = 0;
     this.dashBuf = 0;
     this.attackBuf = 0;
     this.specialBuf = 0;
     this.vx = approach(this.vx, 0, GROUND_DECEL * dt);
+
     if (!this.grounded) {
       this.vy = Math.min(this.vy + G_FALL * dt, FALL_CAP);
     }
+
     this.moveX(this.vx * dt);
     this.moveY(this.vy * dt);
     this.updateContacts();
@@ -645,11 +646,9 @@ export class PlayerBody {
       this.hurtStun <= 0
     ) {
       if (this.attackStep === 0) {
-        // Continue the chain if a press lands within the post-swing grace window,
-        // else start fresh at hit 1 — so consecutive taps reliably go 1 → 2 → 3
-        // whether you press during the swing or just after it lands.
         const chain =
           this.comboGrace > 0 && this.comboStage > 0 && this.comboStage < this.kit.swings.length;
+
         this.startSwing(chain ? this.comboStage + 1 : 1);
         this.attackBuf = 0;
       } else if (this.comboOpen()) {
@@ -657,11 +656,12 @@ export class PlayerBody {
         this.attackBuf = 0;
       }
     }
+
     if (this.attackStep > 0) {
       this.advanceSwing(dt);
     } else if (this.comboGrace > 0) {
       this.comboGrace -= dt;
-      // chain lapsed → next tap is hit 1
+
       if (this.comboGrace <= 0) {
         this.comboStage = 0;
       }
@@ -671,21 +671,19 @@ export class PlayerBody {
   private advanceSwing(dt: number) {
     this.attackTime += dt;
     const cur = this.kit.swings[this.attackStep - 1];
+
     if (!cur) {
       return;
     }
+
     if (
       this.comboQueued &&
       this.attackStep < this.kit.swings.length &&
       this.attackTime >= cur.dur * COMBO_CANCEL_FRAC
     ) {
-      // Queued next hit + the strike has landed (dur*FRAC is well past a1):
-      // cancel this swing's recovery straight into the next slash.
       this.startSwing(this.attackStep + 1);
       this.comboQueued = false;
     } else if (this.attackTime >= cur.dur) {
-      // Uncanceled swing ran its full readable length → end, hold the chain
-      // open for one more tap.
       this.attackStep = 0;
       this.attackTime = 0;
       this.attackCd = ATTACK_END_CD;
@@ -698,8 +696,10 @@ export class PlayerBody {
     if (!this.specialActive) {
       return;
     }
+
     this.specialElapsed += dt;
     const sp = this.kit.special;
+
     if (sp.kind === "projectile" && !this.specialFired && this.specialElapsed >= sp.fireAt) {
       this.pendingShot = {
         dmg: sp.dmg,
@@ -710,6 +710,7 @@ export class PlayerBody {
       };
       this.specialFired = true;
     }
+
     if (this.specialElapsed >= this.specialDur) {
       this.specialActive = false;
     }
@@ -719,19 +720,25 @@ export class PlayerBody {
     if (this.dashTime > 0) {
       this.vx = this.dashDirX * DASH_SPEED;
       this.vy = this.dashDirY * DASH_SPEED;
+
       return;
     }
+
     this.applyRun(dt, swinging, rooted);
+
     if (this.jumpBuf > 0 && this.hurtStun <= 0 && !rooted) {
       this.tryJump();
     }
+
     if (this.jumping && this.vy < 0 && !this.jumpHeld) {
       this.vy *= JUMP_CUT;
       this.jumping = false;
     }
+
     if (this.vy >= 0) {
       this.jumping = false;
     }
+
     if (!this.grounded) {
       this.applyGravity(dt);
     }
@@ -741,9 +748,8 @@ export class PlayerBody {
     const locked = this.wallLock > 0 || this.hurtStun > 0 || rooted;
     const dir = locked ? 0 : (this.hRight ? 1 : 0) - (this.hLeft ? 1 : 0);
     const speedMult = swinging ? ATTACK_MOVE_MULT : 1;
+
     if (dir !== 0) {
-      // Turn freely even mid-swing — the hit lands in the first ~0.1s, so the
-      // long readable recovery shouldn't lock your facing (that read as sluggish).
       this.facing = dir > 0 ? 1 : -1;
       this.vx = approach(
         this.vx,
@@ -778,11 +784,14 @@ export class PlayerBody {
 
   private applyGravity(dt: number) {
     let g = this.vy < 0 ? G_RISE : G_FALL;
+
     if (this.jumpHeld && Math.abs(this.vy) < APEX_V) {
       g *= APEX_MULT;
     }
+
     this.vy = Math.min(this.vy + g * dt, FALL_CAP);
     const pressingWall = (this.wallDir === 1 && this.hRight) || (this.wallDir === -1 && this.hLeft);
+
     if (pressingWall && this.vy > WALL_SLIDE_MAX && this.hurtStun <= 0) {
       this.vy = WALL_SLIDE_MAX;
     }
@@ -799,6 +808,7 @@ export class PlayerBody {
     ) {
       this.startDash();
     }
+
     if (this.dashTime > 0) {
       this.vx = this.dashDirX * DASH_SPEED;
       this.vy = this.dashDirY * DASH_SPEED;
@@ -812,6 +822,7 @@ export class PlayerBody {
     } else {
       this.coyote = Math.max(0, this.coyote - dt);
     }
+
     this.jumpBuf = Math.max(0, this.jumpBuf - dt);
     this.dashBuf = Math.max(0, this.dashBuf - dt);
     this.specialBuf = Math.max(0, this.specialBuf - dt);
@@ -820,11 +831,14 @@ export class PlayerBody {
     this.iframes = Math.max(0, this.iframes - dt);
     this.hurtStun = Math.max(0, this.hurtStun - dt);
     this.attackCd = Math.max(0, this.attackCd - dt);
+
     if (this.dashTime > 0) {
       this.dashTime -= dt;
+
       if (this.dashTime <= 0) {
         this.dashCd = DASH_CD;
         this.vx = clamp(this.vx, -MAX_RUN, MAX_RUN);
+
         if (this.dashDirY !== 0) {
           this.vy = 0;
         }
@@ -842,52 +856,64 @@ export class PlayerBody {
     this.specialFired = false;
     this.specialId += 1;
     this.attackStep = 0;
+
     switch (sp.kind) {
       case "aoe": {
         this.specialDur = sp.dur;
         break;
       }
+
       case "projectile": {
         this.specialDur = sp.dur;
         break;
       }
+
       case "heal": {
         this.specialDur = sp.dur;
         this.pendingHeal = sp.amount;
         break;
       }
+
       case "blink": {
         this.specialDur = 0.24;
         this.doBlink(sp.dist, sp.iframes);
         break;
       }
+
       default: {
         break;
       }
     }
+
     this.ev.onSpecial?.(sp.kind);
   }
 
   private doBlink(dist: number, iframes: number) {
     const dir = this.facing;
     let nx = this.x;
+
     for (let d = 4; d <= dist; d += 4) {
       const tryx = this.x + dir * d;
+
       if (this.blocked(tryx, this.y)) {
         break;
       }
+
       nx = tryx;
     }
+
     this.x = nx;
     this.iframes = Math.max(this.iframes, iframes);
     this.vx = 0;
   }
 
-  private comboOpen(): boolean {
+  private comboOpen() {
     if (this.attackStep === 0) {
       return false;
     }
+
     const s = this.kit.swings[this.attackStep - 1];
+
     return !!s && this.attackTime >= s.combo && this.attackTime <= s.dur;
   }
 
@@ -897,9 +923,11 @@ export class PlayerBody {
     this.swingId += 1;
     this.comboStage = n;
     const s = this.kit.swings[n - 1];
+
     if (s && this.grounded) {
       this.vx = this.facing * s.lunge;
     }
+
     this.ev.onSwing?.(n);
   }
 
@@ -907,75 +935,91 @@ export class PlayerBody {
     this.dashBuf = 0;
     this.attackStep = 0;
     this.comboQueued = false;
-    // dashing cancels the chain → next tap is hit 1
     this.comboGrace = 0;
     let dx = (this.hRight ? 1 : 0) - (this.hLeft ? 1 : 0);
     const dy = (this.hDown ? 1 : 0) - (this.hUp ? 1 : 0);
+
     if (dx === 0 && dy === 0) {
       dx = this.facing;
     }
+
     const len = Math.hypot(dx, dy) || 1;
     this.dashDirX = dx / len;
     this.dashDirY = dy / len;
     this.dashTime = DASH_DUR;
     this.iframes = Math.max(this.iframes, DASH_IFRAMES);
+
     if (!this.grounded) {
       this.airDash = false;
     }
+
     if (dx !== 0) {
       this.facing = dx > 0 ? 1 : -1;
     }
+
     this.ev.onDash?.();
   }
 
-  private blocked(x: number, y: number): boolean {
+  private blocked(x: number, y: number) {
     return this.grid.solidInRect(x - HW, y - BODY_H, x + HW, y);
   }
 
-  // Corner correction: a box stopped by a tile it overlaps by no more than
-  // CORNER px on the cross axis slides round it instead. The whole box is
-  // re-tested at the corrected spot, so a move never ends inside a tile.
-  private cornerX(y: number): number | null {
+  private cornerX(y: number) {
     const right = (Math.floor((this.x - HW) / TILE) + 1) * TILE + HW + EPS;
+
     if (right - this.x <= CORNER && !this.blocked(right, y)) {
       return right;
     }
+
     const left = Math.floor((this.x + HW) / TILE) * TILE - HW - EPS;
+
     if (this.x - left <= CORNER && !this.blocked(left, y)) {
       return left;
     }
+
     return null;
   }
 
-  private cornerY(x: number): number | null {
+  private cornerY(x: number) {
     const up = Math.floor((this.y - EPS) / TILE) * TILE;
+
     if (this.y - up <= CORNER && !this.blocked(x, up)) {
       return up;
     }
+
     const down = (Math.floor((this.y - BODY_H) / TILE) + 1) * TILE + BODY_H + EPS;
+
     if (down - this.y <= CORNER && !this.blocked(x, down)) {
       return down;
     }
+
     return null;
   }
 
   private moveX(dx: number) {
     const nx = this.x + dx;
+
     if (!this.blocked(nx, this.y)) {
       this.x = nx;
+
       return;
     }
+
     const ny = this.cornerY(nx);
+
     if (ny !== null) {
       this.x = nx;
       this.y = ny;
+
       return;
     }
+
     if (dx > 0) {
       this.x = Math.floor((nx + HW) / TILE) * TILE - HW - EPS;
     } else if (dx < 0) {
       this.x = (Math.floor((nx - HW) / TILE) + 1) * TILE + HW + EPS;
     }
+
     this.vx = 0;
   }
 
@@ -983,8 +1027,10 @@ export class PlayerBody {
     this.landVy = 0;
     const prevFeet = this.y;
     const ny = this.y + dy;
+
     if (this.blocked(this.x, ny)) {
       const nx = this.cornerX(ny);
+
       if (nx === null) {
         this.y =
           dy > 0
@@ -992,13 +1038,18 @@ export class PlayerBody {
             : (Math.floor((ny - BODY_H) / TILE) + 1) * TILE + BODY_H + EPS;
         this.landVy = Math.max(this.vy, 0);
         this.vy = 0;
+
         return;
       }
+
       this.x = nx;
     }
+
     this.y = ny;
+
     if (dy > 0 && !this.hDown) {
       const top = Math.floor((ny - EPS) / TILE) * TILE;
+
       if (prevFeet <= top + EPS && this.oneWayUnderFeet(top)) {
         this.y = top;
         this.landVy = this.vy;
@@ -1007,35 +1058,40 @@ export class PlayerBody {
     }
   }
 
-  private oneWayUnderFeet(top: number): boolean {
+  private oneWayUnderFeet(top: number) {
     const row = Math.floor(top / TILE);
+
     return (
       this.grid.isOneWayCell(Math.floor((this.x - HW + CORNER) / TILE), row) ||
       this.grid.isOneWayCell(Math.floor((this.x + HW - CORNER) / TILE), row)
     );
   }
 
-  private groundBelow(): boolean {
+  private groundBelow() {
     const probe = this.y + 2;
+
     if (this.grid.solidInRect(this.x - HW, this.y, this.x + HW, probe)) {
-      // A lip under only the outer CORNER px is one moveY slides off, not ground.
       return (
         this.grid.solidInRect(this.x - HW + CORNER, this.y, this.x + HW - CORNER, probe) ||
         this.cornerX(probe) === null
       );
     }
-    // Feet inside a one-way (rising through it) are not standing on it.
+
     const top = Math.floor((probe - EPS) / TILE) * TILE;
+
     return !this.hDown && this.vy >= 0 && this.y <= top + EPS && this.oneWayUnderFeet(top);
   }
 
   private updateContacts() {
     this.grounded = this.groundBelow();
+
     if (this.grounded && this.vy > 0) {
       this.vy = 0;
     }
+
     const t = this.y - BODY_H + 3;
     const b = this.y - 3;
+
     if (this.grid.solidInRect(this.x + HW, t, this.x + HW + 2, b)) {
       this.wallDir = 1;
     } else if (this.grid.solidInRect(this.x - HW - 2, t, this.x - HW, b)) {
@@ -1046,22 +1102,22 @@ export class PlayerBody {
   }
 }
 
-export const rectsOverlap = (a: Rect, b: Rect): boolean =>
+export const rectsOverlap = (a: Rect, b: Rect) =>
   a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
 
-// The stomp test — falling feet at (x, y) in the band over a head — shared by
-// the host and a guest predicting its own stomps on the enemies it draws.
 export const onEnemyHead = (
   x: number,
   y: number,
   ex: number,
   ey: number,
   size: { h: number; hw: number },
-): boolean => {
+) => {
   const top = ey - size.h;
+
   return y <= top + 8 && y >= top - 12 && Math.abs(x - ex) < size.hw + 6;
 };
-export const onBossHead = (x: number, y: number, bx: number, top: number): boolean =>
+
+export const onBossHead = (x: number, y: number, bx: number, top: number) =>
   y <= top + 10 && y >= top - 16 && Math.abs(x - bx) < 22;
 
 export type PlayerBodyCheckpoint = ReturnType<PlayerBody["checkpoint"]>;

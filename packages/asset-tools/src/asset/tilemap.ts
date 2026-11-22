@@ -44,47 +44,51 @@ export interface TilesetEntry {
   path: string;
 }
 
-/** Coerce a manifest number the way the Python `_int` helper did. */
-const asInt = (value: JsonValue | undefined, fallback: number): number =>
+const asInt = (value: JsonValue | undefined, fallback: number) =>
   isFiniteJsonNumber(value) ? Math.trunc(value) : fallback;
 
-export const loadManifestJson = (manifestPath: string): JsonObject => {
+export const loadManifestJson = (manifestPath: string) => {
   const payload = parseJsonText(readFileSync(manifestPath, "utf-8"));
+
   if (!isJsonObject(payload)) {
     throw new Error("Manifest JSON must be an object at top-level.");
   }
+
   return payload;
 };
 
 /** Tilesets that are usable: an object with a string `path`. */
 export const sanitizeTilesets = (manifest: JsonObject) => {
   const { tilesets } = manifest;
+
   if (!isJsonObject(tilesets)) {
     throw new Error("Manifest missing `tilesets` object.");
   }
+
   const out: Record<string, TilesetEntry> = {};
+
   for (const [name, entry] of Object.entries(tilesets)) {
     if (!isJsonObject(entry)) {
       continue;
     }
+
     const { path: tilesetPath } = entry;
+
     if (!isJsonString(tilesetPath)) {
       continue;
     }
+
     out[name] = { ...entry, path: tilesetPath };
   }
+
   if (Object.keys(out).length === 0) {
     throw new Error("Manifest has no usable tilesets (each needs a string `path`).");
   }
+
   return out;
 };
 
-/**
- * Resolve an asset path against the manifest's `meta.root`, then the manifest
- * folder, then the cwd — first hit wins, and the `meta.root` candidate is the
- * fallback when nothing exists so the error names the expected location.
- */
-const resolveAssetPath = (manifestPath: string, manifest: JsonObject, rel: string): string => {
+const resolveAssetPath = (manifestPath: string, manifest: JsonObject, rel: string) => {
   const manifestDir = path.resolve(path.dirname(manifestPath));
   const { meta } = manifest;
   const root = isJsonObject(meta) && isJsonString(meta.root) ? meta.root : null;
@@ -93,8 +97,10 @@ const resolveAssetPath = (manifestPath: string, manifest: JsonObject, rel: strin
   if (path.isAbsolute(rel)) {
     return path.resolve(rel);
   }
+
   const preferred = path.resolve(base, rel);
   const candidates = [preferred, path.resolve(manifestDir, rel), path.resolve(process.cwd(), rel)];
+
   return candidates.find((c) => existsSync(c)) ?? preferred;
 };
 
@@ -102,14 +108,16 @@ export const tilesetMetaFromManifest = (
   manifestPath: string,
   manifest: JsonObject,
   name: string,
-): TilesetMeta => {
+) => {
   const tilesets = sanitizeTilesets(manifest);
   const entry = tilesets[name];
+
   if (!entry) {
     throw new Error(`Tileset not found in manifest: ${name}`);
   }
 
   const assetPath = resolveAssetPath(manifestPath, manifest, entry.path);
+
   if (!existsSync(assetPath)) {
     throw new Error(`Tileset file not found: ${path}`);
   }
@@ -120,22 +128,24 @@ export const tilesetMetaFromManifest = (
   const spacing = asInt(entry.spacing, 0);
 
   const size = readImageSize(assetPath);
+
   if (!size) {
     throw new Error(`Could not read tileset dimensions: ${assetPath}`);
   }
 
-  // A manifest may state the grid explicitly; otherwise derive it from the
-  // image, accounting for the margin around the sheet and the gaps between.
   let columns = asInt(entry.columns, 0);
   let rows = asInt(entry.rows, 0);
+
   if (columns <= 0) {
     const denom = tileW + spacing;
     columns = denom > 0 ? Math.floor((size.width - 2 * margin + spacing) / denom) : 0;
   }
+
   if (rows <= 0) {
     const denom = tileH + spacing;
     rows = denom > 0 ? Math.floor((size.height - 2 * margin + spacing) / denom) : 0;
   }
+
   if (columns <= 0 || rows <= 0) {
     throw new Error(`Invalid tileset grid for ${name}: columns=${columns} rows=${rows}`);
   }
@@ -154,22 +164,28 @@ export const tilesetMetaFromManifest = (
   };
 };
 
-export const tileCount = (meta: TilesetMeta): number => meta.columns * meta.rows;
+export const tileCount = (meta: TilesetMeta) => meta.columns * meta.rows;
 
 /** Tile IDs are 1-based in row-major order; 0 means "no tile". */
-export const tileIdFromColRow = (meta: TilesetMeta, col: number, row: number): number => {
+export const tileIdFromColRow = (meta: TilesetMeta, col: number, row: number) => {
   if (col < 0 || row < 0 || col >= meta.columns || row >= meta.rows) {
     return 0;
   }
+
   return row * meta.columns + col + 1;
 };
 
-const colRowFromTileId = (meta: TilesetMeta, tileId: number): [number, number] => {
+const colRowFromTileId: (meta: TilesetMeta, tileId: number) => [number, number] = (
+  meta,
+  tileId,
+) => {
   if (tileId <= 0) {
     return [0, 0];
   }
+
   const index = tileId - 1;
   const row = Math.floor(index / meta.columns);
+
   return [index - row * meta.columns, row];
 };
 
@@ -178,11 +194,13 @@ export const cropBox = (meta: TilesetMeta, tileId: number) => {
   const [col, row] = colRowFromTileId(meta, tileId);
   const left = meta.margin + col * (meta.tileW + meta.spacing);
   const top = meta.margin + row * (meta.tileH + meta.spacing);
+
   return { bottom: top + meta.tileH, left, right: left + meta.tileW, top };
 };
 
-const trimTransparent = (image: Bitmap): Bitmap => {
+const trimTransparent = (image: Bitmap) => {
   const bbox = image.getBBox();
+
   return bbox ? image.crop(bbox) : image;
 };
 
@@ -191,9 +209,10 @@ export const exportTilesetGrid = (
   meta: TilesetMeta,
   outPath: string,
   options: { scale: number; labelIds: boolean; trim: boolean },
-): void => {
+) => {
   const scale = Math.max(1, Math.trunc(options.scale));
   let image = Bitmap.fromFile(meta.path);
+
   if (scale !== 1) {
     image = image.resize(image.width * scale, image.height * scale, "nearest");
   }
@@ -204,8 +223,10 @@ export const exportTilesetGrid = (
   const y0 = meta.margin * scale;
   const stepX = (meta.tileW + meta.spacing) * scale;
   const stepY = (meta.tileH + meta.spacing) * scale;
+
   const width =
     meta.columns * meta.tileW * scale + Math.max(0, (meta.columns - 1) * meta.spacing * scale);
+
   const height =
     meta.rows * meta.tileH * scale + Math.max(0, (meta.rows - 1) * meta.spacing * scale);
 
@@ -213,10 +234,12 @@ export const exportTilesetGrid = (
     const x = x0 + c * stepX;
     drawLine(image, x, y0, x, y0 + height, line);
   }
+
   for (let r = 0; r <= meta.rows; r += 1) {
     const y = y0 + r * stepY;
     drawLine(image, x0, y, x0 + width, y, line);
   }
+
   strokeRect(image, x0, y0, x0 + width, y0 + height, bold, 2);
 
   if (options.labelIds) {
@@ -225,8 +248,6 @@ export const exportTilesetGrid = (
         const id = String(tileIdFromColRow(meta, c, r));
         const tx = x0 + c * stepX + 2;
         const ty = y0 + r * stepY + 2;
-        // Shadow first, then the light face, so IDs stay readable over both
-        // dark and light tiles.
         drawDigits(image, tx + 1, ty + 1, id, [0, 0, 0, 180]);
         drawDigits(image, tx, ty, id, [255, 255, 255, 200]);
       }
@@ -245,7 +266,7 @@ export interface FillRect {
 }
 
 /** An all-empty map of the given size. */
-export const newMap = (width: number, height: number): number[][] =>
+export const newMap = (width: number, height: number) =>
   Array.from({ length: height }, () => Array.from({ length: width }, () => 0));
 
 /**
@@ -255,19 +276,23 @@ export const newMap = (width: number, height: number): number[][] =>
  * non-numbers; rather than reject it, pad and truncate to the declared size so
  * the file stays openable and the damage is visible on screen.
  */
-export const normalizeMapData = (data: JsonValue, width: number, height: number): number[][] => {
+export const normalizeMapData = (data: JsonValue, width: number, height: number) => {
   const rows = Array.isArray(data) ? data : [];
   const out = newMap(width, height);
+
   for (const [y, outRow] of out.entries()) {
     const row = rows[y];
+
     if (!Array.isArray(row)) {
       continue;
     }
+
     for (let x = 0; x < width; x += 1) {
       const cell = row[x];
       outRow[x] = isFiniteJsonNumber(cell) ? Math.trunc(cell) : 0;
     }
   }
+
   return out;
 };
 
@@ -282,9 +307,10 @@ export const exportMapRender = (
     fills: FillRect[];
     trim: boolean;
   },
-): void => {
+) => {
   const scale = Math.max(1, Math.trunc(options.scale));
   const { data } = options.mapPayload;
+
   if (!Array.isArray(data)) {
     throw new TypeError("Map JSON must have `data` as a 2D array.");
   }
@@ -292,6 +318,7 @@ export const exportMapRender = (
   const mapMeta = options.mapPayload.meta;
   let width = isJsonObject(mapMeta) ? asInt(mapMeta.width, 0) : 0;
   let height = isJsonObject(mapMeta) ? asInt(mapMeta.height, 0) : 0;
+
   if (width <= 0) {
     for (const row of data) {
       if (Array.isArray(row)) {
@@ -299,15 +326,18 @@ export const exportMapRender = (
       }
     }
   }
+
   if (height <= 0) {
     height = data.length;
   }
+
   if (width <= 0 || height <= 0) {
     throw new Error("Invalid map dimensions.");
   }
 
   const grid = normalizeMapData(data, width, height);
   const sheet = Bitmap.fromFile(meta.path);
+
   let out = Bitmap.create(
     width * meta.tileW,
     height * meta.tileH,
@@ -328,9 +358,11 @@ export const exportMapRender = (
   for (let y = 0; y < height; y += 1) {
     for (let x = 0; x < width; x += 1) {
       const id = grid[y]?.[x] ?? 0;
+
       if (id <= 0) {
         continue;
       }
+
       out.alphaComposite(sheet.crop(cropBox(meta, id)), x * meta.tileW, y * meta.tileH);
     }
   }
@@ -338,18 +370,21 @@ export const exportMapRender = (
   if (scale !== 1) {
     out = out.resize(out.width * scale, out.height * scale, "nearest");
   }
+
   (options.trim ? trimTransparent(out) : out).toFile(outPath);
 };
 
 /** Tile IDs whose cell contains at least one non-transparent pixel. */
-export const nonEmptyTileIds = (meta: TilesetMeta): Set<number> => {
+export const nonEmptyTileIds = (meta: TilesetMeta) => {
   const image = Bitmap.fromFile(meta.path);
   const out = new Set<number>();
+
   for (let id = 1; id <= tileCount(meta); id += 1) {
     if (image.crop(cropBox(meta, id)).getBBox()) {
       out.add(id);
     }
   }
+
   return out;
 };
 
@@ -375,7 +410,7 @@ export const tilemapPayload = (
   width: number,
   height: number,
   data: number[][],
-): TilemapDoc => ({
+) => ({
   data,
   meta: {
     height,
@@ -399,12 +434,16 @@ export const parseTilemap = (payload: JsonValue, fallback: { width: number; heig
   if (!isJsonObject(payload)) {
     throw new Error("Map JSON must be an object.");
   }
+
   const { meta } = payload;
+
   if (!isJsonObject(meta) || !Array.isArray(payload.data)) {
     throw new Error("Map JSON must have a `meta` object and a `data` array.");
   }
+
   const width = clampMapSize(asInt(meta.width, fallback.width));
   const height = clampMapSize(asInt(meta.height, fallback.height));
+
   return {
     data: normalizeMapData(payload.data, width, height),
     height,
@@ -421,12 +460,15 @@ export const parseTilemap = (payload: JsonValue, fallback: { width: number; heig
 export const makeSelftestMap = (meta: TilesetMeta) => {
   const nonEmpty = nonEmptyTileIds(meta);
   const data: number[][] = [];
+
   for (let r = 0; r < meta.rows; r += 1) {
     const row: number[] = [];
+
     for (let c = 0; c < meta.columns; c += 1) {
       const id = tileIdFromColRow(meta, c, r);
       row.push(nonEmpty.has(id) ? id : 0);
     }
+
     data.push(row);
   }
 

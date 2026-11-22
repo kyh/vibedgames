@@ -3,16 +3,9 @@ import * as THREE from "three";
 import type { ModelCache } from "../assets/loader";
 import { ROBOTAXI_SKINS, buildSkinBody } from "../vehicle/car";
 
-// Showroom previews for the garage cards: one tiny offscreen renderer shared
-// by every card, one turntable (car + podium) per skin. Each card's <canvas>
-// gets a snapshot at the rest pose; the hovered card spins like a display
-// model. Renders only happen while the garage is open and something changed,
-// so this costs nothing during normal driving.
 const VIEW_W = 150;
 const VIEW_H = 96;
-// three-quarter view
 const REST_ANGLE = -0.65;
-// rad/s while hovered
 const SPIN_RATE = 1.7;
 
 interface Slot {
@@ -50,6 +43,7 @@ export class GaragePreview {
       metalness: 0.35,
       roughness: 0.45,
     });
+
     for (const sk of ROBOTAXI_SKINS) {
       const body = buildSkinBody(cache, sk);
       const box = new THREE.Box3().setFromObject(body);
@@ -59,23 +53,23 @@ export class GaragePreview {
       body.position.set(-center.x, -box.min.y, -center.z);
       turntable.add(body);
       const podR = Math.max(size.x, size.z) * 0.62;
+
       const podium = new THREE.Mesh(
         new THREE.CylinderGeometry(podR, podR * 1.07, 0.14, 36),
         podiumMat,
       );
+
       podium.position.y = -0.07;
       turntable.add(podium);
       turntable.visible = false;
       this.scene.add(turntable);
       this.turntables.set(sk.id, turntable);
       const maxDim = Math.max(size.x, size.y * 1.4, size.z);
-      // Tighter framing than before — the showroom car fills the card.
       this.camDist.set(sk.id, maxDim * 1.72);
     }
   }
 
-  // Delegated hover tracking; call once on the garage container.
-  bind(container: HTMLElement): void {
+  bind(container: HTMLElement) {
     container.addEventListener("pointermove", (e) => {
       const card = e.target instanceof Element ? e.target.closest("[data-skin]") : null;
       this.setHovered(card instanceof HTMLElement ? (card.dataset["skin"] ?? null) : null);
@@ -83,56 +77,65 @@ export class GaragePreview {
     container.addEventListener("pointerleave", () => this.setHovered(null));
   }
 
-  // Re-grab the card canvases after renderGarage rewrites innerHTML.
-  attach(container: HTMLElement): void {
+  attach(container: HTMLElement) {
     this.slots = new Map();
+
     for (const canvas of container.querySelectorAll("canvas.gprev")) {
       if (!(canvas instanceof HTMLCanvasElement)) {
         continue;
       }
+
       const id = canvas.dataset["prev"];
+
       if (!id || !this.turntables.has(id)) {
         continue;
       }
+
       canvas.width = this.renderer.domElement.width;
       canvas.height = this.renderer.domElement.height;
       const ctx = canvas.getContext("2d");
+
       if (!ctx) {
         continue;
       }
+
       this.slots.set(id, { canvas, ctx });
       this.renderInto(id, REST_ANGLE);
     }
   }
 
-  update(dt: number): void {
+  update(dt: number) {
     if (!this.hovered) {
       return;
     }
+
     this.angle += dt * SPIN_RATE;
     this.renderInto(this.hovered, this.angle);
   }
 
-  private setHovered(id: string | null): void {
+  private setHovered(id: string | null) {
     if (id === this.hovered) {
       return;
     }
+
     const prev = this.hovered;
     this.hovered = id;
     this.angle = REST_ANGLE;
-    // Park the card we just left back at the showroom pose.
+
     if (prev) {
       this.renderInto(prev, REST_ANGLE);
     }
   }
 
-  private renderInto(id: string, angle: number): void {
+  private renderInto(id: string, angle: number) {
     const turntable = this.turntables.get(id);
     const slot = this.slots.get(id);
     const dist = this.camDist.get(id);
+
     if (!turntable || !slot || dist === undefined) {
       return;
     }
+
     turntable.visible = true;
     turntable.rotation.y = angle;
     this.camera.position.set(0, dist * 0.42, dist);

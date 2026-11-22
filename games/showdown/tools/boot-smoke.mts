@@ -1,5 +1,3 @@
-// Pure-data checks: the brawler roster, the seeded PRNG and the numeric
-// helpers the sim relies on. No DOM, no three.js.
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
@@ -10,6 +8,7 @@ import { clamp, damp, lerp, randIn, seededRandom, smoothstep } from "../src/util
 test("nine champions, each keyed by its own id with a super that outranges nothing absurd", () => {
   const ids = Object.keys(BRAWLERS);
   assert.equal(ids.length, 9);
+
   for (const id of ids) {
     assert.ok(isBrawlerId(id));
     const def = BRAWLERS[id];
@@ -17,11 +16,13 @@ test("nine champions, each keyed by its own id with a super that outranges nothi
     assert.ok(def.hp > 0);
     assert.ok(def.attack.range > 0 && def.super.range > 0);
   }
+
   assert.ok(!isBrawlerId("constructor"));
 });
 
 test("each difficulty tier is at least as dangerous as the one below it", () => {
   const { easy, normal, hard } = DIFFICULTIES;
+
   for (const [softer, tougher] of [
     [easy, normal],
     [normal, hard],
@@ -51,6 +52,7 @@ test("seededRandom is deterministic per seed and stays in [0, 1)", () => {
   const runC = Array.from({ length: 16 }, () => c());
   assert.deepEqual(runA, runB);
   assert.notDeepEqual(runA, runC);
+
   for (const value of runA) {
     assert.ok(value >= 0 && value < 1);
   }
@@ -64,11 +66,9 @@ test("randIn scales the stream it is handed and draws exactly once", () => {
   assert.deepEqual(scaled, raw);
 });
 
-// A match replays from its seed only while every sim draw comes off game.rng
-// (tools/seed-smoke.mjs proves the replay in a browser). The bot brain is all
-// sim, so an unseeded draw there is always a regression.
 test("the bot brain draws only from the match's seeded stream", () => {
   const dir = path.resolve(import.meta.dirname, "../src/ai");
+
   for (const file of readdirSync(dir)) {
     const source = readFileSync(path.join(dir, file), "utf-8");
     assert.ok(!source.includes("Math.random"), `src/ai/${file} calls Math.random`);

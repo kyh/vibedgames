@@ -36,14 +36,6 @@ const railItems = [
   { adminOnly: true, icon: ShieldIcon, label: "Admin", to: "/admin" },
 ] as const;
 
-/**
- * One shared highlight disc for the whole rail: it sits on the active route
- * and springs to whatever the pointer or keyboard focus is over, returning
- * home on leave. The disc IS the highlight — hover, focus, and active get
- * the identical treatment (disc + foreground icon), never separate styles.
- * Its surface must stay in lockstep with the games-list row highlight in
- * home.tsx (same bg/shadow/blur) — one highlight recipe app-wide.
- */
 const RailLink = ({
   to,
   label,
@@ -92,12 +84,14 @@ const RailLink = ({
   );
 };
 
-const initials = (user: ShellUser): string => {
+const initials = (user: ShellUser) => {
   const source = user.name.trim() || user.email;
   const parts = source.split(/\s+/u).filter(Boolean);
+
   if (parts.length >= 2) {
     return `${parts[0]?.[0] ?? ""}${parts[1]?.[0] ?? ""}`.toUpperCase();
   }
+
   return source.slice(0, 2).toUpperCase();
 };
 
@@ -156,19 +150,21 @@ export const AccountShell = ({
               }}
               className="bg-input/40 flex items-center gap-1 rounded-full p-1.5 shadow-[0_8px_24px_rgb(0_0_0/0.4),0_2px_6px_rgb(0_0_0/0.3)] backdrop-blur-sm md:w-11 md:flex-col"
             >
-              {railItems
-                .filter((item) => !item.adminOnly || user.isAdmin)
-                .map((item) => (
-                  <RailLink
-                    key={item.to}
-                    to={item.to}
-                    label={item.label}
-                    icon={item.icon}
-                    hovered={hoveredRail}
-                    onHover={setHoveredRail}
-                    tooltipSide={isMobile ? "top" : "right"}
-                  />
-                ))}
+              {railItems.flatMap((item) =>
+                !item.adminOnly || user.isAdmin
+                  ? [
+                      <RailLink
+                        key={item.to}
+                        to={item.to}
+                        label={item.label}
+                        icon={item.icon}
+                        hovered={hoveredRail}
+                        onHover={setHoveredRail}
+                        tooltipSide={isMobile ? "top" : "right"}
+                      />,
+                    ]
+                  : [],
+              )}
             </nav>
           </div>
         </div>

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.0 — 2026-11-17
+
+- `vg distribute`: package a build per platform — `itch`, `newgrounds`, `crazygames`, `poki`, `gamedistribution`, `youtube`, `web` (portal zips, audited against each portal's limits; `--preview` serves them as the portal does, with a stand-in YouTube SDK), `ios` / `android` (Capacitor shells generated from `vibedgames.json`), `targets`
+- `vg login`: OAuth device flow; tokens refresh, `vg logout` revokes. Logins from older versions keep working until their session ends
+- `vg deploy`: one bundle upload, published in a second call; the live game keeps serving until then
+- `vg deployments` list / delete; `vg skills` reads the bundled skills
+- All uploads and downloads go through vibedgames.com
+
 ## 0.8.1 — 2026-10-11
 
 - `vg update` (and the daily background update) keeps an installed factory current

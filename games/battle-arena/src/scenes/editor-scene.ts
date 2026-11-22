@@ -1,12 +1,3 @@
-// In-browser map editor (?editor=1). Renders the arena shell (Environment
-// without its decor/obstacle placement) and every prop of the working set as
-// an individual pickable object. Edits write a debounced draft to
-// localStorage["ba-map"] (the ?auto=1 test loop) and SAVE downloads
-// battle-arena-map.json — commit it as public/maps/default.json to make a
-// custom map canonical. Loaded via dynamic import so gameplay never pays for
-// this chunk. The editor owns its input (no Controls/TouchControls) and drives
-// the camera directly: fixed-pitch top-down orbit, RMB/MMB-or-WASD pan, wheel
-// zoom.
 import * as THREE from "three";
 import { buildDefaultObstacles, clampToArena, FLOOR_OVERRIDES, floorKey, HEX_R } from "../data/map";
 import { buildProceduralDecor } from "../data/decor";
@@ -23,21 +14,15 @@ import {
 } from "../data/map-format";
 import type { FloorType, MapCollider, MapData, MapFloorCell, MapProp } from "../data/map-format";
 
-// collider-only wall stub (no prop model)
 const WALL_RUN = "wall_run";
-// default camera elevation above horizontal
 const PITCH = (55 * Math.PI) / 180;
 const MIN_PITCH = (28 * Math.PI) / 180;
 const MAX_PITCH = (82 * Math.PI) / 180;
 const MIN_H = 15;
-// camera height clamp (wheel zoom)
 const MAX_H = 110;
-// hex clamp apron (matches map-format's parser)
 const POS_MARGIN = -3;
-// the floor builder's cell size
 const FLOOR_TILE = 4;
 
-/** Floor-palette swatch colors (hover highlight + UI chips). */
 const FLOOR_COLORS = {
   auto: 0xff_ff_ff,
   dirt: 0x8a_6a_4a,
@@ -61,47 +46,51 @@ export interface EdItem {
   height: number;
   obj: THREE.Object3D;
   colliderMesh: THREE.Mesh | null;
-  // selection-ring footprint radius (from the placed bbox)
   ringR: number;
 }
 
 type ItemSpec = Omit<EdItem, "obj" | "colliderMesh" | "ringR">;
 
 const BOX = new THREE.Box3();
-const snapHalf = (v: number): number => Math.round(v * 2) / 2;
-const r3 = (v: number): number => Math.round(v * 1000) / 1000;
-const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
+const snapHalf = (v: number) => Math.round(v * 2) / 2;
+const r3 = (v: number) => Math.round(v * 1000) / 1000;
+const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
-const pillarModel = (i: number): string => {
+const pillarModel = (i: number) => {
   if (i % 3 === 0) {
     return "pillar_decorated";
   }
+
   if (i % 3 === 1) {
     return "column";
   }
+
   return "pillar";
 };
 
-/** Today's map as MapData: the procedural decor plus the default OBSTACLES
- *  materialized as collidable props (the pillar cycle / statues become
- *  explicit models so the editor — and saved maps — need no index magic). */
-const proceduralMapData = (): MapData => {
+const proceduralMapData: () => MapData = () => {
   const props: MapProp[] = buildProceduralDecor().map((d) => {
     const p: MapProp = { model: d.model, rot: d.rot, scale: d.scale, x: d.x, y: d.y };
+
     if (d.lie) {
       p.lie = true;
     }
+
     if (d.h !== undefined && d.h !== 0) {
       p.h = d.h;
     }
+
     return p;
   });
+
   const colliders: MapCollider[] = [];
+
   for (const [i, o] of buildDefaultObstacles().entries()) {
     if (o.model === WALL_RUN) {
       colliders.push({ height: o.height, model: WALL_RUN, radius: o.radius, x: o.x, y: o.y });
       continue;
     }
+
     const model = o.model ?? pillarModel(i);
     const tall = TALL_TARGET.get(model) ?? o.height;
     props.push({
@@ -113,32 +102,41 @@ const proceduralMapData = (): MapData => {
     });
     colliders.push({ height: o.height, radius: o.radius, x: o.x, y: o.y });
   }
+
   return { colliders, props, version: 1 };
 };
 
-const loadInitial = async (): Promise<MapData> => {
-  const raw = localStorage.getItem(MAP_STORAGE_KEY);
-  if (raw !== null) {
-    try {
-      const parsed = parseMapData(JSON.parse(raw));
-      if (parsed) {
-        return parsed;
-      }
-    } catch {
-      /* corrupt draft — fall through */
-    }
+const parseStoredMap = (raw: string) => {
+  try {
+    return parseMapData(JSON.parse(raw));
+  } catch {
+    return null;
   }
+};
+
+const loadInitial: () => Promise<MapData> = async () => {
+  const raw = localStorage.getItem(MAP_STORAGE_KEY);
+
+  const stored = raw === null ? null : parseStoredMap(raw);
+
+  if (stored) {
+    return stored;
+  }
+
   try {
     const res = await fetch("./maps/default.json");
+
     if (res.ok) {
       const parsed = parseMapData(await res.json());
+
       if (parsed) {
         return parsed;
       }
     }
   } catch {
-    /* no bundled map */
+    return proceduralMapData();
   }
+
   return proceduralMapData();
 };
 
@@ -150,21 +148,23 @@ const FLOOR_LABELS = {
   worn: "worn rock",
 } satisfies Record<FloorType | "auto", string>;
 
-const nextFrame = (): Promise<void> =>
+const nextFrame: () => Promise<void> = () =>
   // oxlint-disable-next-line promise/avoid-new -- requestAnimationFrame has no promise form
   new Promise((resolve) => {
     requestAnimationFrame(() => resolve());
   });
 
-const on = (id: string, fn: () => void): void => {
+const on = (id: string, fn: () => void) => {
   document.querySelector<HTMLElement>(`#${id}`)?.addEventListener("click", fn);
 };
 
 let styled = false;
-const injectStyle = (): void => {
+
+const injectStyle = () => {
   if (styled) {
     return;
   }
+
   styled = true;
   const s = document.createElement("style");
   s.textContent = `
@@ -211,14 +211,12 @@ export class EditorScene {
   private env: Environment | null = null;
   private scene: THREE.Scene;
 
-  // camera — yaw/pitch orbit around a ground target
   private target = new THREE.Vector3(0, 0, 0);
   private camH = 55;
   private yaw = 0;
   private pitch = PITCH;
   private keys = new Set<string>();
 
-  // picking / dragging
   private ray = new THREE.Raycaster();
   private ndc = new THREE.Vector2();
   private groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
@@ -231,14 +229,11 @@ export class EditorScene {
   private panX = 0;
   private panY = 0;
 
-  // place mode: a palette pick follows the cursor as an opaque preview; click
-  // stamps it, click-drag stamps a trail
   private placing: { model: string; ghost: THREE.Object3D; ringR: number } | null = null;
   private stamping = false;
   private stampX = 0;
   private stampY = 0;
 
-  // floor mode: paint tile bands onto the 4u grid
   private mode: "props" | "floor" = "props";
   private floorType: FloorType | "auto" = "dirt";
   private paintingFloor = false;
@@ -246,7 +241,6 @@ export class EditorScene {
   private floorCursorMat: THREE.MeshBasicMaterial;
   private floorRebuildTimer: number | undefined;
 
-  // shared editor-only resources
   private cylGeo = new THREE.CylinderGeometry(1, 1, 1, 20);
   private boxGeo = new THREE.BoxGeometry(1, 1, 1);
   private colMat = new THREE.MeshBasicMaterial({
@@ -263,15 +257,12 @@ export class EditorScene {
   });
   private stubMat = new THREE.MeshStandardMaterial({ color: 0x8a_85_78, roughness: 0.9 });
   private selRing: THREE.Mesh;
-  // native template heights
   private heights = new Map<string, number>();
 
-  // persistence
   private dirty = false;
   private saveTimer: number | undefined;
   private t = 0;
 
-  // UI refs
   private ui: HTMLDivElement | null = null;
   private statusEl: HTMLElement | null = null;
   private inspector: HTMLElement | null = null;
@@ -284,10 +275,11 @@ export class EditorScene {
     this.view = view;
     this.lib = lib;
     this.scene = view.scene;
-    // the gameplay fog reads as murk from the editor's high vantage — thin it
+
     if (this.scene.fog instanceof THREE.FogExp2) {
       this.scene.fog.density = 0.004;
     }
+
     const ringGeo = new THREE.RingGeometry(0.9, 1, 40);
     ringGeo.rotateX(-Math.PI / 2);
     this.selRing = new THREE.Mesh(
@@ -317,7 +309,7 @@ export class EditorScene {
 
   /** Build the shell, resolve the working set (draft → bundled → procedural),
    *  place the items, and mount the UI. */
-  async init(): Promise<void> {
+  async init() {
     this.env = new Environment(this.scene, this.lib, { decor: false, obstacles: false });
     this.env.setup();
     this.setWorkingSet(await loadInitial());
@@ -326,25 +318,23 @@ export class EditorScene {
     this.view.refreshShadows();
   }
 
-  // ── working set ────────────────────────────────────────────────────────────
+  private clearItems() {
+    for (const edItem of this.items) {
+      this.scene.remove(edItem.obj);
 
-  private clearItems(): void {
-    for (const it of this.items) {
-      this.scene.remove(it.obj);
-      if (it.colliderMesh) {
-        this.scene.remove(it.colliderMesh);
+      if (edItem.colliderMesh) {
+        this.scene.remove(edItem.colliderMesh);
       }
     }
+
     this.items.length = 0;
     this.byObj.clear();
     this.selected = null;
   }
 
-  /** Replace the working set from MapData. Modelless colliders pair with the
-   *  prop at the same spot (a collidable prop saves as prop + bare collider);
-   *  unpaired ones become standalone red-cylinder items. */
-  private setWorkingSet(data: MapData): void {
+  private setWorkingSet(data: MapData) {
     this.clearItems();
+
     const propItems: EdItem[] = data.props.map((p) =>
       this.makeItem({
         collidable: false,
@@ -359,22 +349,27 @@ export class EditorScene {
         y: p.y,
       }),
     );
+
     const wallRuns = data.colliders.filter((c) => c.model === WALL_RUN);
+
     for (const c of data.colliders) {
       if (c.model === WALL_RUN) {
-        // orient the stub along its run: face the nearest sibling wall_run
         let rot = 0;
         let best = Infinity;
+
         for (const o of wallRuns) {
           if (o === c) {
             continue;
           }
+
           const d = Math.hypot(o.x - c.x, o.y - c.y);
+
           if (d < best) {
             best = d;
             rot = -Math.atan2(o.y - c.y, o.x - c.x);
           }
         }
+
         this.makeItem({
           collidable: true,
           h: 0,
@@ -391,6 +386,7 @@ export class EditorScene {
         const host = propItems.find(
           (p) => !p.collidable && Math.hypot(p.x - c.x, p.y - c.y) < 0.05,
         );
+
         if (host) {
           host.collidable = true;
           host.radius = c.radius;
@@ -412,7 +408,6 @@ export class EditorScene {
           });
         }
       } else {
-        // hand-authored modeled collider — edit it as a collidable prop
         const tall = TALL_TARGET.get(c.model);
         this.makeItem({
           collidable: true,
@@ -428,10 +423,13 @@ export class EditorScene {
         });
       }
     }
+
     FLOOR_OVERRIDES.clear();
+
     for (const f of data.floor ?? []) {
       FLOOR_OVERRIDES.set(floorKey(f.x, f.y), f.t);
     }
+
     this.env?.rebuildFloor();
     this.refreshStatus();
   }
@@ -439,57 +437,69 @@ export class EditorScene {
   /** Serialize the working set to the map format. Collidable props emit BOTH a
    *  prop (rendered via the decor override) and a bare collider (sim-only);
    *  wall stubs keep the "wall_run" render hint; pure colliders stay bare. */
-  toMapData(): MapData {
+  toMapData() {
     const props: MapProp[] = [];
     const colliders: MapCollider[] = [];
-    for (const it of this.items) {
-      if (it.model !== WALL_RUN && it.model !== "") {
+
+    for (const edItem of this.items) {
+      if (edItem.model !== WALL_RUN && edItem.model !== "") {
         const p: MapProp = {
-          model: it.model,
-          rot: r3(it.rot),
-          scale: r3(it.scale),
-          x: r3(it.x),
-          y: r3(it.y),
+          model: edItem.model,
+          rot: r3(edItem.rot),
+          scale: r3(edItem.scale),
+          x: r3(edItem.x),
+          y: r3(edItem.y),
         };
-        if (it.lie) {
+
+        if (edItem.lie) {
           p.lie = true;
         }
-        if (it.h !== 0) {
-          p.h = r3(it.h);
+
+        if (edItem.h !== 0) {
+          p.h = r3(edItem.h);
         }
+
         props.push(p);
       }
-      if (it.collidable) {
+
+      if (edItem.collidable) {
         const c: MapCollider = {
-          height: r3(it.height),
-          radius: r3(it.radius),
-          x: r3(it.x),
-          y: r3(it.y),
+          height: r3(edItem.height),
+          radius: r3(edItem.radius),
+          x: r3(edItem.x),
+          y: r3(edItem.y),
         };
-        if (it.model === WALL_RUN) {
+
+        if (edItem.model === WALL_RUN) {
           c.model = WALL_RUN;
         }
+
         colliders.push(c);
       }
     }
+
     const floor: MapFloorCell[] = [];
+
     for (const [key, t] of FLOOR_OVERRIDES) {
       const [gx, gz] = key.split(",").map(Number);
+
       if (gx !== undefined && gz !== undefined && Number.isFinite(gx) && Number.isFinite(gz)) {
         floor.push({ t, x: gx, y: gz });
       }
     }
+
     const out: MapData = { colliders, props, version: 1 };
+
     if (floor.length > 0) {
       out.floor = floor;
     }
+
     return out;
   }
 
-  // ── item lifecycle ─────────────────────────────────────────────────────────
-
-  private makeItem(spec: ItemSpec): EdItem {
+  private makeItem(spec: ItemSpec) {
     let obj: THREE.Object3D;
+
     if (spec.model === WALL_RUN) {
       obj = new THREE.Mesh(this.boxGeo, this.stubMat);
     } else if (spec.model === "") {
@@ -503,37 +513,41 @@ export class EditorScene {
         }
       });
     }
+
     this.scene.add(obj);
     const item: EdItem = { ...spec, colliderMesh: null, obj, ringR: 1 };
     this.byObj.set(obj, item);
     this.items.push(item);
+
     if (item.collidable && item.model !== "") {
       this.addColliderMesh(item);
     }
+
     this.plant(item);
+
     return item;
   }
 
-  private nativeHeight(model: string): number {
+  private nativeHeight(model: string) {
     const cached = this.heights.get(model);
+
     if (cached !== undefined) {
       return cached;
     }
+
     const tpl = this.lib.instance(model);
     tpl.updateMatrixWorld(true);
     BOX.setFromObject(tpl);
     const h = Math.max(0.01, BOX.max.y - BOX.min.y);
     this.heights.set(model, h);
+
     return h;
   }
 
-  /** Shared placement math (also used by the place-mode ghost): replicate
-   *  Environment.decorMatrix (tall models scale-to-height, lie topples 90° on
-   *  Z, base at terrain − rotated-box min.y, plus the `h` lift) so the editor
-   *  preview matches the game. Returns the footprint ring radius. */
-  private plantTransform(obj: THREE.Object3D, spec: Omit<ItemSpec, "collidable">): number {
+  private plantTransform(obj: THREE.Object3D, spec: Omit<ItemSpec, "collidable">) {
     obj.rotation.order = "YXZ";
     obj.rotation.set(0, spec.rot, spec.lie ? Math.PI / 2 : 0);
+
     if (spec.model === WALL_RUN) {
       obj.scale.set(Math.max(0.2, spec.radius * 2), Math.max(0.2, spec.height), 0.9);
     } else if (spec.model === "") {
@@ -548,51 +562,59 @@ export class EditorScene {
         tall === undefined ? spec.scale : (tall * spec.scale) / this.nativeHeight(spec.model),
       );
     }
+
     obj.position.set(0, 0, 0);
     obj.updateMatrixWorld(true);
     BOX.setFromObject(obj);
     const ringR = Math.max(0.6, Math.max(BOX.max.x - BOX.min.x, BOX.max.z - BOX.min.z) / 2 + 0.35);
     obj.position.set(spec.x, terrainHeight(spec.x, spec.y) - BOX.min.y + spec.h, spec.y);
     obj.updateMatrixWorld(true);
+
     return ringR;
   }
 
-  private plant(it: EdItem): void {
-    it.ringR = this.plantTransform(it.obj, it);
-    if (it.colliderMesh) {
-      it.colliderMesh.scale.set(it.radius, it.height, it.radius);
-      it.colliderMesh.position.set(it.x, terrainHeight(it.x, it.y) + it.height / 2, it.y);
+  private plant(edItem: EdItem) {
+    edItem.ringR = this.plantTransform(edItem.obj, edItem);
+
+    if (edItem.colliderMesh) {
+      edItem.colliderMesh.scale.set(edItem.radius, edItem.height, edItem.radius);
+      edItem.colliderMesh.position.set(
+        edItem.x,
+        terrainHeight(edItem.x, edItem.y) + edItem.height / 2,
+        edItem.y,
+      );
     }
   }
 
-  private addColliderMesh(it: EdItem): void {
-    if (it.colliderMesh) {
+  private addColliderMesh(edItem: EdItem) {
+    if (edItem.colliderMesh) {
       return;
     }
+
     const m = new THREE.Mesh(this.cylGeo, this.colMat);
     this.scene.add(m);
-    it.colliderMesh = m;
+    edItem.colliderMesh = m;
   }
 
-  private removeColliderMesh(it: EdItem): void {
-    if (!it.colliderMesh) {
+  private removeColliderMesh(edItem: EdItem) {
+    if (!edItem.colliderMesh) {
       return;
     }
-    this.scene.remove(it.colliderMesh);
-    it.colliderMesh = null;
+
+    this.scene.remove(edItem.colliderMesh);
+    edItem.colliderMesh = null;
   }
 
-  // ── public edit API (also the dev handle window.__ed) ─────────────────────
-
-  select(it: EdItem | null): void {
-    this.selected = it;
+  select(edItem: EdItem | null) {
+    this.selected = edItem;
     this.syncInspector(true);
   }
 
   /** Spawn a palette model at (x,y) — default: the camera's look-at point. */
-  addProp(model: string, x?: number, y?: number): EdItem {
+  addProp(model: string, x?: number, y?: number) {
     const pos = clampToArena(x ?? this.target.x, y ?? this.target.z, POS_MARGIN);
     const isWall = model === WALL_RUN;
+
     const item = this.makeItem({
       collidable: isWall,
       h: 0,
@@ -605,130 +627,151 @@ export class EditorScene {
       x: pos.x,
       y: pos.y,
     });
+
     this.select(item);
     this.markDirty();
+
     return item;
   }
 
-  setSelectedPos(x: number, y: number): void {
-    const it = this.selected;
-    if (!it) {
+  setSelectedPos(x: number, y: number) {
+    const edItem = this.selected;
+
+    if (!edItem) {
       return;
     }
+
     const pos = clampToArena(x, y, POS_MARGIN);
-    it.x = pos.x;
-    it.y = pos.y;
-    this.plant(it);
+    edItem.x = pos.x;
+    edItem.y = pos.y;
+    this.plant(edItem);
     this.markDirty();
     this.syncInspector();
   }
 
-  rotateSelected(rad: number): void {
-    const it = this.selected;
-    if (!it) {
+  rotateSelected(rad: number) {
+    const edItem = this.selected;
+
+    if (!edItem) {
       return;
     }
-    it.rot += rad;
-    this.plant(it);
+
+    edItem.rot += rad;
+    this.plant(edItem);
     this.markDirty();
     this.syncInspector();
   }
 
-  scaleSelected(factor: number): void {
-    const it = this.selected;
-    if (!it) {
+  scaleSelected(factor: number) {
+    const edItem = this.selected;
+
+    if (!edItem) {
       return;
     }
-    it.scale = clamp(it.scale * factor, 0.2, 4);
-    this.plant(it);
+
+    edItem.scale = clamp(edItem.scale * factor, 0.2, 4);
+    this.plant(edItem);
     this.markDirty();
     this.syncInspector();
   }
 
-  toggleSelectedLie(): void {
-    const it = this.selected;
-    if (!it || it.model === WALL_RUN || it.model === "") {
+  toggleSelectedLie() {
+    const edItem = this.selected;
+
+    if (!edItem || edItem.model === WALL_RUN || edItem.model === "") {
       return;
     }
-    it.lie = !it.lie;
-    this.plant(it);
+
+    edItem.lie = !edItem.lie;
+    this.plant(edItem);
     this.markDirty();
     this.syncInspector();
   }
 
   /** Collidable toggle — the default radius/height come from the placed
    *  model's bounding-box footprint (editable in the inspector). */
-  toggleSelectedCollidable(): void {
-    const it = this.selected;
-    if (!it || it.model === WALL_RUN || it.model === "") {
+  toggleSelectedCollidable() {
+    const edItem = this.selected;
+
+    if (!edItem || edItem.model === WALL_RUN || edItem.model === "") {
       return;
-      // those are always colliders
     }
-    it.collidable = !it.collidable;
-    if (it.collidable) {
-      BOX.setFromObject(it.obj);
-      it.radius = clamp(Math.max(BOX.max.x - BOX.min.x, BOX.max.z - BOX.min.z) / 2, 0.2, 8);
-      it.height = clamp(BOX.max.y - BOX.min.y, 0.5, 8);
-      this.addColliderMesh(it);
+
+    edItem.collidable = !edItem.collidable;
+
+    if (edItem.collidable) {
+      BOX.setFromObject(edItem.obj);
+      edItem.radius = clamp(Math.max(BOX.max.x - BOX.min.x, BOX.max.z - BOX.min.z) / 2, 0.2, 8);
+      edItem.height = clamp(BOX.max.y - BOX.min.y, 0.5, 8);
+      this.addColliderMesh(edItem);
     } else {
-      this.removeColliderMesh(it);
+      this.removeColliderMesh(edItem);
     }
-    this.plant(it);
+
+    this.plant(edItem);
     this.markDirty();
     this.syncInspector(true);
   }
 
-  removeSelected(): void {
-    const it = this.selected;
-    if (!it) {
+  removeSelected() {
+    const edItem = this.selected;
+
+    if (!edItem) {
       return;
     }
-    this.scene.remove(it.obj);
-    this.removeColliderMesh(it);
-    this.byObj.delete(it.obj);
-    const idx = this.items.indexOf(it);
+
+    this.scene.remove(edItem.obj);
+    this.removeColliderMesh(edItem);
+    this.byObj.delete(edItem.obj);
+    const idx = this.items.indexOf(edItem);
+
     if (idx !== -1) {
       this.items.splice(idx, 1);
     }
+
     this.select(null);
     this.markDirty();
   }
 
-  duplicateSelected(): EdItem | null {
-    const it = this.selected;
-    if (!it) {
+  duplicateSelected() {
+    const edItem = this.selected;
+
+    if (!edItem) {
       return null;
     }
-    const pos = clampToArena(it.x + 1, it.y, POS_MARGIN);
+
+    const pos = clampToArena(edItem.x + 1, edItem.y, POS_MARGIN);
+
     const copy = this.makeItem({
-      collidable: it.collidable,
-      h: it.h,
-      height: it.height,
-      lie: it.lie,
-      model: it.model,
-      radius: it.radius,
-      rot: it.rot,
-      scale: it.scale,
+      collidable: edItem.collidable,
+      h: edItem.h,
+      height: edItem.height,
+      lie: edItem.lie,
+      model: edItem.model,
+      radius: edItem.radius,
+      rot: edItem.rot,
+      scale: edItem.scale,
       x: pos.x,
       y: pos.y,
     });
+
     this.select(copy);
     this.markDirty();
+
     return copy;
   }
 
-  // ── place mode (ghost-under-cursor stamping) ───────────────────────────────
-
   /** Enter place mode: `model` follows the cursor as a translucent ghost;
-   *  LMB stamps it (drag = stamp a trail). RMB/Esc exits. */
-  startPlacing(model: string): void {
+   *  LMB stamps edItem (drag = stamp a trail). RMB/Esc exits. */
+  startPlacing(model: string) {
     this.stopPlacing();
     this.select(null);
-    // OPAQUE preview — the real model under the cursor, exactly what a stamp
-    // will drop (translucency read as "not really there")
+
     const ghost =
       model === WALL_RUN ? new THREE.Mesh(this.boxGeo, this.stubMat) : this.lib.instance(model);
+
     this.scene.add(ghost);
+
     const ringR = this.plantTransform(ghost, {
       h: 0,
       height: 2.4,
@@ -740,26 +783,31 @@ export class EditorScene {
       x: this.target.x,
       y: this.target.z,
     });
+
     this.placing = { ghost, model, ringR };
     this.highlightPalette(model);
   }
 
-  stopPlacing(): void {
+  stopPlacing() {
     const p = this.placing;
+
     if (!p) {
       return;
     }
+
     this.scene.remove(p.ghost);
     this.placing = null;
     this.stamping = false;
     this.highlightPalette(null);
   }
 
-  private moveGhost(x: number, y: number, snap: boolean): void {
+  private moveGhost(x: number, y: number, snap: boolean) {
     const p = this.placing;
+
     if (!p) {
       return;
     }
+
     const pos = clampToArena(snap ? snapHalf(x) : x, snap ? snapHalf(y) : y, POS_MARGIN);
     p.ringR = this.plantTransform(p.ghost, {
       h: 0,
@@ -774,9 +822,7 @@ export class EditorScene {
     });
   }
 
-  /** Render each palette model to a small 3/4-view thumbnail (offscreen GL
-   *  context, batched across frames) and feed the palette row images. */
-  private async genThumbs(models: string[]): Promise<void> {
+  private async genThumbs(models: string[]) {
     const size = 96;
     const canvas = document.createElement("canvas");
     canvas.width = size;
@@ -791,12 +837,15 @@ export class EditorScene {
     sun.position.set(3, 5, 2.2);
     scene.add(sun);
     let n = 0;
+
     for (const model of models) {
       const obj =
         model === WALL_RUN ? new THREE.Mesh(this.boxGeo, this.stubMat) : this.lib.instance(model);
+
       if (model === WALL_RUN) {
         obj.scale.set(2.2, 2.4, 0.9);
       }
+
       scene.add(obj);
       obj.updateMatrixWorld(true);
       BOX.setFromObject(obj);
@@ -808,25 +857,29 @@ export class EditorScene {
       r.render(scene, cam);
       const url = canvas.toDataURL();
       scene.remove(obj);
+
       for (const img of this.ui?.querySelectorAll<HTMLImageElement>(`img[data-thumb="${model}"]`) ??
         []) {
         img.src = url;
       }
+
       n += 1;
+
       if (n % 6 === 0) {
         await nextFrame();
-        // keep init responsive
       }
     }
+
     r.dispose();
   }
 
-  /** Stamp one copy at the ghost's spot (place mode LMB / drag trail). */
-  private stampAt(x: number, y: number): void {
+  private stampAt(x: number, y: number) {
     const p = this.placing;
+
     if (!p) {
       return;
     }
+
     const pos = clampToArena(x, y, POS_MARGIN);
     const isWall = p.model === WALL_RUN;
     this.makeItem({
@@ -846,65 +899,76 @@ export class EditorScene {
     this.markDirty();
   }
 
-  private highlightPalette(model: string | null): void {
+  private highlightPalette(model: string | null) {
     for (const btn of this.ui?.querySelectorAll<HTMLButtonElement>(".edp") ?? []) {
       btn.classList.toggle("edp-on", model !== null && btn.dataset["model"] === model);
     }
   }
 
-  // ── floor mode (paint tile bands on the 4u grid) ───────────────────────────
-
-  setMode(mode: "props" | "floor"): void {
+  setMode(mode: "props" | "floor") {
     this.mode = mode;
+
     if (mode === "floor") {
       this.stopPlacing();
       this.select(null);
       this.dragging = false;
     }
+
     this.paintingFloor = false;
     this.floorCursor.visible = false;
     document.querySelector<HTMLElement>("#ed-tab-props")?.classList.toggle("on", mode === "props");
     document.querySelector<HTMLElement>("#ed-tab-floor")?.classList.toggle("on", mode === "floor");
     const fp = document.querySelector<HTMLElement>("#ed-floorpal");
+
     if (fp) {
       fp.style.display = mode === "floor" ? "flex" : "none";
     }
+
     const pp = document.querySelector<HTMLElement>("#ed-proppal");
+
     if (pp) {
       pp.style.display = mode === "floor" ? "none" : "flex";
     }
+
     const roster = document.querySelector<HTMLElement>("#ed-roster");
+
     if (roster) {
       roster.style.display = mode === "floor" ? "none" : "flex";
     }
+
     this.syncInspector(true);
   }
 
-  setFloorType(t: FloorType | "auto"): void {
+  setFloorType(t: FloorType | "auto") {
     this.floorType = t;
     this.floorCursorMat.color.setHex(FLOOR_COLORS[t]);
+
     for (const btn of this.ui?.querySelectorAll<HTMLButtonElement>(".edf") ?? []) {
       btn.classList.toggle("edp-on", btn.dataset["floor"] === t);
     }
   }
 
-  private paintFloorAt(x: number, y: number): void {
+  private paintFloorAt(x: number, y: number) {
     const gx = Math.round(x / FLOOR_TILE) * FLOOR_TILE;
     const gz = Math.round(y / FLOOR_TILE) * FLOOR_TILE;
     const key = floorKey(gx, gz);
+
     if (this.floorType === "auto") {
       if (!FLOOR_OVERRIDES.has(key)) {
         return;
       }
+
       FLOOR_OVERRIDES.delete(key);
     } else {
       if (FLOOR_OVERRIDES.get(key) === this.floorType) {
         return;
       }
+
       FLOOR_OVERRIDES.set(key, this.floorType);
     }
+
     this.markDirty();
-    // rebuilding ~1k instanced tiles is cheap but not per-mousemove-event cheap
+
     if (this.floorRebuildTimer === undefined) {
       this.floorRebuildTimer = window.setTimeout(() => {
         this.floorRebuildTimer = undefined;
@@ -914,28 +978,28 @@ export class EditorScene {
   }
 
   /** Write the draft to localStorage NOW (edits debounce through markDirty). */
-  flush(): void {
+  flush() {
     if (this.saveTimer !== undefined) {
       window.clearTimeout(this.saveTimer);
       this.saveTimer = undefined;
     }
+
     localStorage.setItem(MAP_STORAGE_KEY, serializeMapData(this.toMapData()));
   }
 
-  private markDirty(): void {
+  private markDirty() {
     this.dirty = true;
     this.refreshStatus();
-    // scenery moved — re-bake the static shadow map
     this.view.refreshShadows();
+
     if (this.saveTimer !== undefined) {
       window.clearTimeout(this.saveTimer);
     }
+
     this.saveTimer = window.setTimeout(() => this.flush(), 300);
   }
 
-  // ── input ──────────────────────────────────────────────────────────────────
-
-  private bindInput(): void {
+  private bindInput() {
     const el = this.view.renderer.domElement;
     el.addEventListener("contextmenu", (e) => e.preventDefault());
     el.addEventListener("pointerdown", (e) => this.onPointerDown(e));
@@ -953,7 +1017,7 @@ export class EditorScene {
     window.addEventListener("keyup", (e) => this.keys.delete(e.key.toLowerCase()));
   }
 
-  private setNdc(e: PointerEvent): void {
+  private setNdc(e: PointerEvent) {
     const r = this.view.renderer.domElement.getBoundingClientRect();
     this.ndc.set(
       ((e.clientX - r.left) / r.width) * 2 - 1,
@@ -961,72 +1025,85 @@ export class EditorScene {
     );
   }
 
-  private groundPoint(e: PointerEvent): boolean {
+  private groundPoint(e: PointerEvent) {
     this.setNdc(e);
     this.ray.setFromCamera(this.ndc, this.view.camera);
+
     return this.ray.ray.intersectPlane(this.groundPlane, this.groundHit) !== null;
   }
 
-  private itemFromHit(o: THREE.Object3D): EdItem | null {
+  private itemFromHit(o: THREE.Object3D) {
     let cur: THREE.Object3D | null = o;
+
     while (cur) {
-      const it = this.byObj.get(cur);
-      if (it) {
-        return it;
+      const edItem = this.byObj.get(cur);
+
+      if (edItem) {
+        return edItem;
       }
+
       cur = cur.parent;
     }
+
     return null;
   }
 
-  private pick(e: PointerEvent): EdItem | null {
+  private pick(e: PointerEvent) {
     this.setNdc(e);
     this.ray.setFromCamera(this.ndc, this.view.camera);
-    const roots = this.items.map((it) => it.obj);
+    const roots = this.items.map((edItem) => edItem.obj);
     const hits = this.ray.intersectObjects(roots, true);
     const [first] = hits;
+
     return first ? this.itemFromHit(first.object) : null;
   }
 
-  private onPointerDown(e: PointerEvent): void {
+  private onPointerDown(e: PointerEvent) {
     const el = this.view.renderer.domElement;
-    // RMB: orbit (Shift+RMB pans, for mice without a wheel button). Also
-    // cancels place mode. MMB: pan.
+
     if (e.button === 2) {
       if (this.placing) {
         this.stopPlacing();
+
         return;
       }
+
       if (e.shiftKey) {
         this.panning = true;
       } else {
         this.rotating = true;
       }
+
       this.panX = e.clientX;
       this.panY = e.clientY;
       el.setPointerCapture(e.pointerId);
+
       return;
     }
+
     if (e.button === 1) {
       this.panning = true;
       this.panX = e.clientX;
       this.panY = e.clientY;
       el.setPointerCapture(e.pointerId);
+
       return;
     }
+
     if (e.button !== 0) {
       return;
     }
-    // floor mode: LMB paints (click or drag)
+
     if (this.mode === "floor") {
       if (this.groundPoint(e)) {
         this.paintingFloor = true;
         this.paintFloorAt(this.groundHit.x, this.groundHit.z);
         el.setPointerCapture(e.pointerId);
       }
+
       return;
     }
-    // place mode: LMB stamps; holding stamps a trail as the pointer moves
+
     if (this.placing) {
       if (this.groundPoint(e)) {
         this.stamping = true;
@@ -1034,10 +1111,13 @@ export class EditorScene {
         this.stampAt(this.placing.ghost.position.x, this.placing.ghost.position.z);
         el.setPointerCapture(e.pointerId);
       }
+
       return;
     }
+
     const hit = this.pick(e);
     this.select(hit);
+
     if (hit && this.groundPoint(e)) {
       this.dragging = true;
       this.dragOffX = this.groundHit.x - hit.x;
@@ -1046,19 +1126,20 @@ export class EditorScene {
     }
   }
 
-  private onPointerMove(e: PointerEvent): void {
+  private onPointerMove(e: PointerEvent) {
     if (this.rotating) {
       this.yaw -= (e.clientX - this.panX) * 0.005;
       this.pitch = clamp(this.pitch + (e.clientY - this.panY) * 0.004, MIN_PITCH, MAX_PITCH);
       this.panX = e.clientX;
       this.panY = e.clientY;
+
       return;
     }
+
     if (this.panning) {
       const k = (this.camH / window.innerHeight) * 1.35;
       const dx = (e.clientX - this.panX) * k;
       const dy = (e.clientY - this.panY) * k;
-      // yaw-aware: screen-right / screen-up in ground coordinates
       const rx = Math.cos(this.yaw);
       const rz = -Math.sin(this.yaw);
       const fx = -Math.sin(this.yaw);
@@ -1067,78 +1148,100 @@ export class EditorScene {
       this.target.z = clamp(this.target.z - rz * dx + fz * dy, -HEX_R, HEX_R);
       this.panX = e.clientX;
       this.panY = e.clientY;
+
       return;
     }
+
     if (this.mode === "floor") {
       if (!this.groundPoint(e)) {
         return;
       }
+
       const gx = Math.round(this.groundHit.x / FLOOR_TILE) * FLOOR_TILE;
       const gz = Math.round(this.groundHit.z / FLOOR_TILE) * FLOOR_TILE;
       this.floorCursor.visible = true;
       this.floorCursor.position.set(gx, terrainHeight(gx, gz) + 0.14, gz);
+
       if (this.paintingFloor) {
         this.paintFloorAt(this.groundHit.x, this.groundHit.z);
       }
+
       return;
     }
+
     if (this.placing) {
       if (!this.groundPoint(e)) {
         return;
       }
+
       this.moveGhost(this.groundHit.x, this.groundHit.z, e.shiftKey);
+
       if (this.stamping) {
         const g = this.placing.ghost.position;
         const spacing = Math.max(1.6, this.placing.ringR * 1.15);
+
         if (Math.hypot(g.x - this.stampX, g.z - this.stampY) >= spacing) {
           this.stampAt(g.x, g.z);
         }
       }
+
       return;
     }
+
     if (!this.dragging || !this.selected) {
       return;
     }
+
     if (!this.groundPoint(e)) {
       return;
     }
+
     let nx = this.groundHit.x - this.dragOffX;
     let ny = this.groundHit.z - this.dragOffZ;
+
     if (e.shiftKey) {
       nx = snapHalf(nx);
       ny = snapHalf(ny);
     }
+
     this.setSelectedPos(nx, ny);
   }
 
-  private onPointerUp(e: PointerEvent): void {
+  private onPointerUp(e: PointerEvent) {
     this.panning = false;
     this.rotating = false;
     this.dragging = false;
     this.stamping = false;
+
     if (this.paintingFloor) {
       this.paintingFloor = false;
-      // flush the throttled rebuild so the stroke commits immediately
+
       if (this.floorRebuildTimer !== undefined) {
         window.clearTimeout(this.floorRebuildTimer);
         this.floorRebuildTimer = undefined;
       }
+
       this.env?.rebuildFloor();
     }
+
     const el = this.view.renderer.domElement;
+
     if (el.hasPointerCapture(e.pointerId)) {
       el.releasePointerCapture(e.pointerId);
     }
   }
 
-  private onKeyDown(e: KeyboardEvent): void {
+  private onKeyDown(e: KeyboardEvent) {
     if (document.activeElement instanceof HTMLInputElement) {
       return;
     }
+
     const lower = e.key.toLowerCase();
+
     if (lower === "w" || lower === "a" || lower === "s" || lower === "d") {
       this.keys.add(lower);
     }
+
     switch (lower) {
       case "escape": {
         if (this.placing) {
@@ -1146,90 +1249,103 @@ export class EditorScene {
         } else {
           this.select(null);
         }
+
         break;
       }
+
       case "f": {
         this.setMode(this.mode === "floor" ? "props" : "floor");
         break;
       }
+
       default: {
         this.onSelectionKey(lower, e);
       }
     }
   }
 
-  private onSelectionKey(lower: string, e: KeyboardEvent): void {
+  private onSelectionKey(lower: string, e: KeyboardEvent) {
     switch (lower) {
       case "q": {
         this.rotateSelected(((e.shiftKey ? -1 : -15) * Math.PI) / 180);
         break;
       }
+
       case "e": {
         this.rotateSelected(((e.shiftKey ? 1 : 15) * Math.PI) / 180);
         break;
       }
+
       case "+":
       case "=": {
         this.scaleSelected(1.1);
         break;
       }
+
       case "-":
       case "_": {
         this.scaleSelected(1 / 1.1);
         break;
       }
+
       case "l": {
         this.toggleSelectedLie();
         break;
       }
+
       case "c": {
         this.toggleSelectedCollidable();
         break;
       }
+
       case "d": {
-        // D duplicates when something is selected; otherwise it pans (WASD)
         if (this.selected && !e.repeat) {
           this.duplicateSelected();
         }
+
         break;
       }
+
       case "delete":
       case "backspace": {
         this.removeSelected();
         break;
       }
+
       default: {
         break;
       }
     }
   }
 
-  // ── frame ──────────────────────────────────────────────────────────────────
-
-  update(dt: number): void {
+  update(dt: number) {
     this.t += dt;
-    // WASD pan, yaw-relative ('d' is duplicate while something is selected)
     const pan = this.camH * 0.9 * dt;
     const fx = -Math.sin(this.yaw);
     const fz = -Math.cos(this.yaw);
     const rx = Math.cos(this.yaw);
     const rz = -Math.sin(this.yaw);
+
     if (this.keys.has("w")) {
       this.target.x += fx * pan;
       this.target.z += fz * pan;
     }
+
     if (this.keys.has("s")) {
       this.target.x -= fx * pan;
       this.target.z -= fz * pan;
     }
+
     if (this.keys.has("a")) {
       this.target.x -= rx * pan;
       this.target.z -= rz * pan;
     }
+
     if (this.keys.has("d") && !this.selected) {
       this.target.x += rx * pan;
       this.target.z += rz * pan;
     }
+
     this.target.x = clamp(this.target.x, -HEX_R, HEX_R);
     this.target.z = clamp(this.target.z, -HEX_R, HEX_R);
 
@@ -1243,9 +1359,9 @@ export class EditorScene {
     cam.lookAt(this.target.x, 0, this.target.z);
 
     const sel = this.selected;
+
     if (sel) {
       this.selRing.visible = true;
-      // above tile tops (0.05) + dirt bumps
       this.selRing.position.set(sel.x, terrainHeight(sel.x, sel.y) + 0.12, sel.y);
       this.selRing.scale.setScalar(sel.ringR);
     } else {
@@ -1256,117 +1372,145 @@ export class EditorScene {
     this.view.render();
   }
 
-  // ── DOM UI ─────────────────────────────────────────────────────────────────
-
-  private input(id: string): HTMLInputElement {
+  private input(id: string) {
     const cached = this.inputs.get(id);
+
     if (cached) {
       return cached;
     }
+
     const el = document.querySelector<HTMLElement>(`#${id}`);
+
     if (!(el instanceof HTMLInputElement)) {
       throw new TypeError(`editor: missing input #${id}`);
     }
+
     this.inputs.set(id, el);
+
     return el;
   }
 
-  private refreshStatus(): void {
+  private refreshStatus() {
     if (!this.statusEl) {
       return;
     }
-    const nProps = this.items.filter((it) => it.model !== WALL_RUN && it.model !== "").length;
-    const nCols = this.items.filter((it) => it.collidable).length;
+
+    const nProps = this.items.filter(
+      (edItem) => edItem.model !== WALL_RUN && edItem.model !== "",
+    ).length;
+
+    const nCols = this.items.filter((edItem) => edItem.collidable).length;
     this.statusEl.textContent = `${nProps} props · ${nCols} colliders${this.dirty ? " · ●" : ""}`;
   }
 
-  /** Update inspector fields; full=true also rebuilds visibility/model label. */
-  private syncInspector(full = false): void {
+  private syncInspector(full = false) {
     const box = this.inspector;
+
     if (!box) {
       return;
     }
-    const it = this.selected;
-    if (!it) {
+
+    const edItem = this.selected;
+
+    if (!edItem) {
       box.style.display = "none";
       const emptyNote = document.querySelector<HTMLElement>("#ed-note");
+
       if (emptyNote) {
         emptyNote.style.display = "block";
       }
+
       return;
     }
+
     box.style.display = "flex";
     const note = document.querySelector<HTMLElement>("#ed-note");
+
     if (note) {
       note.style.display = "none";
     }
+
     if (full) {
       const label = document.querySelector<HTMLElement>("#ed-i-model");
+
       if (label) {
-        label.textContent = it.model === "" ? "(pure collider)" : it.model;
+        label.textContent = edItem.model === "" ? "(pure collider)" : edItem.model;
       }
     }
-    const setVal = (id: string, v: string): void => {
+
+    const setVal = (id: string, v: string) => {
       const el = this.input(id);
+
       if (document.activeElement !== el) {
         el.value = v;
       }
     };
-    setVal("ed-ix", it.x.toFixed(2));
-    setVal("ed-iy", it.y.toFixed(2));
-    setVal("ed-irot", (((it.rot * 180) / Math.PI) % 360).toFixed(1));
-    setVal("ed-iscale", it.scale.toFixed(2));
-    setVal("ed-ih", it.h.toFixed(2));
-    this.input("ed-ilie").checked = it.lie;
-    this.input("ed-icol").checked = it.collidable;
-    const isProp = it.model !== WALL_RUN && it.model !== "";
+
+    setVal("ed-ix", edItem.x.toFixed(2));
+    setVal("ed-iy", edItem.y.toFixed(2));
+    setVal("ed-irot", (((edItem.rot * 180) / Math.PI) % 360).toFixed(1));
+    setVal("ed-iscale", edItem.scale.toFixed(2));
+    setVal("ed-ih", edItem.h.toFixed(2));
+    this.input("ed-ilie").checked = edItem.lie;
+    this.input("ed-icol").checked = edItem.collidable;
+    const isProp = edItem.model !== WALL_RUN && edItem.model !== "";
     this.input("ed-ilie").disabled = !isProp;
     this.input("ed-icol").disabled = !isProp;
     this.input("ed-iscale").disabled = !isProp;
     this.input("ed-ih").disabled = !isProp;
     const colRow = document.querySelector<HTMLElement>("#ed-colrow");
+
     if (colRow) {
-      colRow.style.display = it.collidable ? "flex" : "none";
+      colRow.style.display = edItem.collidable ? "flex" : "none";
     }
-    if (it.collidable) {
-      setVal("ed-irad", it.radius.toFixed(2));
-      setVal("ed-iht", it.height.toFixed(2));
+
+    if (edItem.collidable) {
+      setVal("ed-irad", edItem.radius.toFixed(2));
+      setVal("ed-iht", edItem.height.toFixed(2));
     }
   }
 
-  private async loadMapFile(file: File): Promise<void> {
+  private async loadMapFile(file: File) {
     const text = await file.text();
     let parsed: MapData | null = null;
+
     try {
       parsed = parseMapData(JSON.parse(text));
     } catch {
       parsed = null;
     }
+
     if (!parsed) {
       // oxlint-disable-next-line no-alert -- dev-only editor; the blocking alert is the intended feedback for a bad file
       window.alert("Not a valid battle-arena map file.");
+
       return;
     }
+
     this.setWorkingSet(parsed);
     this.markDirty();
   }
 
-  private buildUI(): void {
+  private buildUI() {
     injectStyle();
     const ui = document.createElement("div");
     ui.id = "ba-editor";
+
     const paletteButtons = [WALL_RUN, ...PLACEABLE_MODELS]
       .map(
         (m) =>
           `<button class="edp" data-model="${m}"><img data-thumb="${m}" alt=""><span>${m}</span></button>`,
       )
       .join("");
+
     const floorButtons = [...FLOOR_TYPES, "auto" as const]
       .map((t) => {
         const hex = `#${FLOOR_COLORS[t].toString(16).padStart(6, "0")}`;
+
         return `<button class="edf" data-floor="${t}"><i style="background:${hex}"></i>${FLOOR_LABELS[t]}</button>`;
       })
       .join("");
+
     ui.innerHTML = `
       <div class="ed-top">
         <span class="ed-logo">MAP EDITOR</span>
@@ -1404,7 +1548,7 @@ export class EditorScene {
             </div>
             <button id="ed-idel">DELETE</button>
           </div>
-          <div class="ed-note" id="ed-note">Pick a prop on the left — it follows your cursor; click to stamp it, click-drag to stamp a trail. RMB or Esc exits place mode. Click a placed prop to select and edit it here.</div>
+          <div class="ed-note" id="ed-note">Pick a prop on the left — edItem follows your cursor; click to stamp edItem, click-drag to stamp a trail. RMB or Esc exits place mode. Click a placed prop to select and edit edItem here.</div>
         </div>
         <div class="ed-body" id="ed-floorpal" style="display:none">
           <div class="ed-roster-h">FLOOR PAINT</div>
@@ -1418,14 +1562,14 @@ export class EditorScene {
     this.statusEl = document.querySelector<HTMLElement>("#ed-status");
     this.inspector = document.querySelector<HTMLElement>("#ed-inspector");
 
-    // palette → place mode (opaque preview under the cursor; clicking the
-    // active model again exits)
     for (const btn of ui.querySelectorAll<HTMLButtonElement>(".edp")) {
       btn.addEventListener("click", () => {
         const { model } = btn.dataset;
+
         if (!model) {
           return;
         }
+
         if (this.placing?.model === model) {
           this.stopPlacing();
         } else {
@@ -1433,34 +1577,38 @@ export class EditorScene {
         }
       });
     }
-    // floor palette
+
     for (const btn of ui.querySelectorAll<HTMLButtonElement>(".edf")) {
       btn.addEventListener("click", () => {
         const t = btn.dataset["floor"];
         const floor = t === "auto" ? t : FLOOR_TYPES.find((f) => f === t);
+
         if (floor) {
           this.setFloorType(floor);
         }
       });
     }
+
     this.setFloorType(this.floorType);
+
     for (const btn of ui.querySelectorAll<HTMLButtonElement>(".edt")) {
       btn.addEventListener("click", () =>
         this.setMode(btn.dataset["tab"] === "floor" ? "floor" : "props"),
       );
     }
+
     this.setMode(this.mode);
     void this.genThumbs([WALL_RUN, ...PLACEABLE_MODELS]);
     const search = this.input("ed-search");
     search.addEventListener("input", () => {
       const q = search.value.trim().toLowerCase();
+
       for (const btn of ui.querySelectorAll<HTMLButtonElement>(".edp")) {
         const name = btn.dataset["model"] ?? "";
         btn.style.display = name.includes(q) ? "" : "none";
       }
     });
 
-    // top bar
     on("ed-save", () => {
       this.flush();
       const blob = new Blob([serializeMapData(this.toMapData())], { type: "application/json" });
@@ -1480,9 +1628,11 @@ export class EditorScene {
     on("ed-loadbtn", () => this.input("ed-file").click());
     this.input("ed-file").addEventListener("change", () => {
       const file = this.input("ed-file").files?.item(0);
+
       if (!file) {
         return;
       }
+
       void this.loadMapFile(file);
       this.input("ed-file").value = "";
     });
@@ -1492,15 +1642,18 @@ export class EditorScene {
     });
     on("ed-clear", () => {
       const kept: EdItem[] = [];
-      for (const it of this.items) {
-        if (it.model === WALL_RUN || it.model === "") {
-          kept.push(it);
+
+      for (const edItem of this.items) {
+        if (edItem.model === WALL_RUN || edItem.model === "") {
+          kept.push(edItem);
           continue;
         }
-        this.scene.remove(it.obj);
-        this.removeColliderMesh(it);
-        this.byObj.delete(it.obj);
+
+        this.scene.remove(edItem.obj);
+        this.removeColliderMesh(edItem);
+        this.byObj.delete(edItem.obj);
       }
+
       this.items.splice(0, this.items.length, ...kept);
       this.select(null);
       this.markDirty();
@@ -1508,44 +1661,46 @@ export class EditorScene {
     });
     on("ed-idel", () => this.removeSelected());
 
-    // inspector live inputs
-    const bindNum = (id: string, apply: (it: EdItem, v: number) => void): void => {
+    const bindNum = (id: string, apply: (edItem: EdItem, v: number) => void) => {
       const el = this.input(id);
       el.addEventListener("input", () => {
-        const it = this.selected;
+        const edItem = this.selected;
         const v = el.valueAsNumber;
-        if (!it || !Number.isFinite(v)) {
+
+        if (!edItem || !Number.isFinite(v)) {
           return;
         }
-        apply(it, v);
-        this.plant(it);
+
+        apply(edItem, v);
+        this.plant(edItem);
         this.markDirty();
       });
     };
-    bindNum("ed-ix", (it, v) => {
-      const pos = clampToArena(v, it.y, POS_MARGIN);
-      it.x = pos.x;
-      it.y = pos.y;
+
+    bindNum("ed-ix", (edItem, v) => {
+      const pos = clampToArena(v, edItem.y, POS_MARGIN);
+      edItem.x = pos.x;
+      edItem.y = pos.y;
     });
-    bindNum("ed-iy", (it, v) => {
-      const pos = clampToArena(it.x, v, POS_MARGIN);
-      it.x = pos.x;
-      it.y = pos.y;
+    bindNum("ed-iy", (edItem, v) => {
+      const pos = clampToArena(edItem.x, v, POS_MARGIN);
+      edItem.x = pos.x;
+      edItem.y = pos.y;
     });
-    bindNum("ed-irot", (it, v) => {
-      it.rot = (v * Math.PI) / 180;
+    bindNum("ed-irot", (edItem, v) => {
+      edItem.rot = (v * Math.PI) / 180;
     });
-    bindNum("ed-iscale", (it, v) => {
-      it.scale = clamp(v, 0.2, 4);
+    bindNum("ed-iscale", (edItem, v) => {
+      edItem.scale = clamp(v, 0.2, 4);
     });
-    bindNum("ed-ih", (it, v) => {
-      it.h = clamp(v, -10, 20);
+    bindNum("ed-ih", (edItem, v) => {
+      edItem.h = clamp(v, -10, 20);
     });
-    bindNum("ed-irad", (it, v) => {
-      it.radius = clamp(v, 0.1, 20);
+    bindNum("ed-irad", (edItem, v) => {
+      edItem.radius = clamp(v, 0.1, 20);
     });
-    bindNum("ed-iht", (it, v) => {
-      it.height = clamp(v, 0.1, 30);
+    bindNum("ed-iht", (edItem, v) => {
+      edItem.height = clamp(v, 0.1, 30);
     });
     this.input("ed-ilie").addEventListener("change", () => this.toggleSelectedLie());
     this.input("ed-icol").addEventListener("change", () => this.toggleSelectedCollidable());

@@ -1,10 +1,3 @@
-// The 3D scene camera as a gameplay tool. The eye orbits 4 fixed corners of
-// the well; stepping a corner is a deliberate act (gravity pauses during the
-// swing — see isInMotion). Layered on top, a continuous parallax "peek" (head
-// crane / lean within the dead band) tilts the view a few degrees to reveal
-// occlusion WITHOUT changing state. Trauma shake + idle wobble compose last,
-// after lookAt, so they jitter the frame without re-aiming.
-
 import { PerspectiveCamera, Vector3 } from "three";
 
 import {
@@ -46,17 +39,11 @@ export class CameraRig {
   private readonly trauma = new TraumaCamera();
   private readonly reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 
-  // Scratch (no per-frame allocation).
   private readonly rel = new Vector3();
   private readonly right = new Vector3();
 
   constructor(aspect: number) {
-    // near=1: the eye orbits ~10+ units from everything (well, particles,
-    // collapse debris), and near dominates depth precision — 0.1 would spend
-    // most of the depth buffer inside the first metre and let the floor grid
-    // shimmer at grazing orbit angles.
     this.camera = new PerspectiveCamera(CAMERA_FOV, aspect, 1, 400);
-    // portrait boots need the FOV correction from frame 1
     this.resize(aspect);
     CameraRig.cornerPosition(0, this.target);
     this.baseEye.copy(this.target);
@@ -64,50 +51,47 @@ export class CameraRig {
     this.camera.lookAt(this.center);
   }
 
-  private static cornerPosition(i: number, out: Vector3): Vector3 {
-    // Quadrants: 0:+x+z  1:-x+z  2:-x-z  3:+x-z (matches Well.setCorner).
+  private static cornerPosition(i: number, out: Vector3) {
     const angle = (i * 90 + 45) * (Math.PI / 180);
     out.set(
       WELL_CENTER_X + Math.cos(angle) * CAMERA_RADIUS,
       CAMERA_HEIGHT,
       WELL_CENTER_Z + Math.sin(angle) * CAMERA_RADIUS,
     );
+
     return out;
   }
 
   /** Step to the next/previous corner. dir > 0 = right, < 0 = left. */
-  orbit(dir: number, nowMs: number): number {
+  orbit(dir: number, nowMs: number) {
     this.corner = (((this.corner + (dir > 0 ? 1 : -1)) % 4) + 4) % 4;
     CameraRig.cornerPosition(this.corner, this.target);
     this.inMotionUntil = nowMs + ORBIT_PAUSE_MS;
+
     return this.corner;
   }
 
   /** True while the camera is swinging to a new corner (gravity pauses). */
-  isInMotion(nowMs: number): boolean {
+  isInMotion(nowMs: number) {
     return nowMs < this.inMotionUntil;
   }
 
-  shiftWallClock(pausedMs: number): void {
+  shiftWallClock(pausedMs: number) {
     this.inMotionUntil += pausedMs;
   }
 
-  addTrauma(amount: number): void {
+  addTrauma(amount: number) {
     this.trauma.add(amount);
   }
 
-  resetTrauma(): void {
+  resetTrauma() {
     this.trauma.reset();
   }
 
-  update(dt: number, nowMs: number): void {
+  update(dt: number, nowMs: number) {
     const reduced = this.reducedMotion.matches;
-    // 1. ease the base eye toward the active corner.
     this.baseEye.lerp(this.target, frameLerp(CAMERA_LERP_PER_FRAME, dt));
 
-    // 2. automatic peek-sway: a slow orbit-drift around the corner so the back
-    // of the stack is always glimpsed. Never touches the logical corner, so the
-    // camera-relative controls stay stable.
     const tp = (nowMs / AUTO_PEEK_PERIOD_MS) * Math.PI * 2;
     this.peekYawTarget = reduced ? 0 : Math.sin(tp) * PEEK_YAW_MAX;
     this.peekPitchTarget = reduced ? 0 : Math.sin(tp * 0.6 + 1.3) * PEEK_PITCH_MAX;
@@ -118,15 +102,14 @@ export class CameraRig {
     this.peekPitch = p.pos;
     this.peekPitchVel = p.vel;
 
-    // 3. orbit the eye around the centre by the peek angles.
     this.rel.copy(this.baseEye).sub(this.center);
     this.rel.applyAxisAngle(UP, this.peekYaw);
     this.right.crossVectors(UP, this.rel).normalize();
     this.rel.applyAxisAngle(this.right, this.peekPitch);
     this.camera.position.copy(this.center).add(this.rel);
 
-    // 4. idle breathing wobble.
     const t = nowMs / 2000;
+
     if (!reduced) {
       this.camera.position.x += (Math.sin(t) * CAMERA_WOBBLE) / 2;
       this.camera.position.y += (Math.cos(t * 1.3) * CAMERA_WOBBLE) / 2;
@@ -135,8 +118,8 @@ export class CameraRig {
     this.camera.up.copy(UP);
     this.camera.lookAt(this.center);
 
-    // 5. trauma shake AFTER lookAt so it jitters without re-aiming.
     const shake = this.trauma.update(dt, nowMs / 1000);
+
     if (!reduced && (shake.ox !== 0 || shake.oy !== 0 || shake.rot !== 0)) {
       this.camera.translateX(shake.ox);
       this.camera.translateY(shake.oy);
@@ -144,12 +127,8 @@ export class CameraRig {
     }
   }
 
-  resize(aspect: number): void {
+  resize(aspect: number) {
     this.camera.aspect = aspect;
-    // Portrait: the vertical FOV alone narrows the horizontal frustum until
-    // the well's diagonal clips at the sides. Hold the horizontal FOV at its
-    // square-aspect value instead (solve vFov from hFov(1) = CAMERA_FOV),
-    // capped so extreme aspect ratios don't fisheye.
     this.camera.fov =
       aspect >= 1
         ? CAMERA_FOV

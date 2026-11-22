@@ -11,12 +11,6 @@ const GameChromeHiddenContext = createContext(false);
 /** Whether the wrapper chrome is tucked away because a game is being played. */
 export const useGameChromeHidden = () => useContext(GameChromeHiddenContext);
 
-/**
- * Motion props for a piece of wrapper chrome that animates out of the way on
- * game start. `hiddenAt` is where the piece rests while hidden (defaults to
- * sliding down off the bottom edge). Includes `inert` so hidden chrome can't
- * be clicked or focused.
- */
 const DEFAULT_HIDDEN_AT = { y: 96 };
 
 export const gameChromeMotion = (hidden: boolean, hiddenAt?: { x?: number; y?: number }) => ({
@@ -40,14 +34,15 @@ export const GameChrome = ({ children }: GameChromeProps) => {
   const game = useGameParam();
   const playing = pathname === "/";
   const [hidden, setHidden] = useState(false);
+
   const gameOrigins = useMemo(
     () => new Set(featuredGames.map((item) => new URL(gameUrl(item.slug)).origin)),
     [],
   );
 
-  // Navigating to another game (or away from one) re-shows the chrome.
   const screen = `${pathname}:${game}`;
   const [shownFor, setShownFor] = useState(screen);
+
   if (shownFor !== screen) {
     setShownFor(screen);
     setHidden(false);
@@ -57,45 +52,53 @@ export const GameChrome = ({ children }: GameChromeProps) => {
     if (!playing) {
       return;
     }
+
     const handleMessage = (event: MessageEvent<MessageData>) => {
       const localDevGame =
         event.origin.startsWith("http://localhost:") ||
         event.origin.startsWith("http://127.0.0.1:");
+
       if (!localDevGame && !gameOrigins.has(event.origin)) {
         return;
       }
+
       if (isGameStartedMessage(event.data)) {
         setHidden(true);
       }
-      // The game paused itself (Escape inside the iframe) — bring chrome back.
+
       if (isGamePausedMessage(event.data)) {
         setHidden(false);
       }
     };
 
     window.addEventListener("message", handleMessage);
+
     return () => window.removeEventListener("message", handleMessage);
   }, [gameOrigins, playing]);
 
   const pause = useCallback(() => {
     const frame = document.querySelector<HTMLIFrameElement>("iframe[title='Game']");
+
     if (frame?.contentWindow) {
       requestGamePause(frame.contentWindow);
     }
+
     setHidden(false);
   }, []);
 
-  // Escape with wrapper focus mirrors Escape inside the game: pause + chrome.
   useEffect(() => {
     if (!hidden) {
       return;
     }
+
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         pause();
       }
     };
+
     window.addEventListener("keydown", onKeyDown);
+
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [hidden, pause]);
 

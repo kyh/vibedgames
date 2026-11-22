@@ -2,7 +2,7 @@ import type Phaser from "phaser";
 import { Animations, Cameras, Math as PhaserMath, Scene, Scenes } from "phaser";
 import { PhysicalGamepad } from "@vibedgames/gamepad";
 import type { PhaserGamepad } from "@vibedgames/gamepad/phaser";
-import type { MultiplayerClient, MultiplayerConnectionStatus } from "@vibedgames/multiplayer";
+import type { MultiplayerClient } from "@vibedgames/multiplayer";
 import { notifyGameStarted } from "@repo/embed";
 import {
   TILE,
@@ -63,14 +63,12 @@ import { burst, floatText, shake, pop, rewardArc } from "../render/fx";
 import { FarmAmbience } from "../render/farm-ambience";
 import { Sound } from "../render/audio";
 import { seasonOfDay } from "../data/calendar";
-import type { Season } from "../data/calendar";
 import { isWet, weatherForDay } from "../systems/weather";
 import type { Weather } from "../systems/weather";
 import { Fishing } from "../systems/fishing";
 import { makeGameKeys, NUM_KEY_NAMES } from "../systems/keys";
 import type { GameKeys } from "../systems/keys";
 import { stickMove } from "../systems/stick";
-import type { StickMove } from "../systems/stick";
 import { isTap } from "../systems/touch";
 import { AnimalManager } from "../entities/animals";
 import { NpcManager } from "../entities/npcs";
@@ -79,6 +77,7 @@ type CharAction = "dig" | "water" | "axe" | "mine" | "doing";
 
 /** Presentation receipt for this visit. Never persisted or used to award gold. */
 export type DayRecap = Readonly<{ day: number; shippedGold: number; shipments: number }>;
+
 export type MineRecap = Readonly<{
   deepest: number;
   defeated: number;
@@ -94,23 +93,16 @@ declare global {
   }
 }
 
-/** Routine saves are debounced: flushed at most this often (seconds). */
 const SAVE_FLUSH_SEC = 3;
 
-/** The co-op farm's objects as generated — the ones `o<id>` shared keys name. */
-const coopObjects = (): readonly WorldObject[] =>
-  generateFarm(FARM_SEED, getWorldMap()).world.objects;
+const coopObjects = () => generateFarm(FARM_SEED, getWorldMap()).world.objects;
 
-// ---- trailer mode (src/trailer/) --------------------------------------------
-// Set once by the trailer director before the scene boots. Keeps a staged demo
-// run fully isolated: no co-op session, no HUD scene. Dead in normal play.
 let trailerStaging = false;
-export const enableTrailerStaging = (): void => {
+
+export const enableTrailerStaging = () => {
   trailerStaging = true;
 };
 
-/** DEV-only room override (?room=): the two-client harness isolates each run
- *  so a stale room's farm can't leak into assertions. */
 const ROOM = (import.meta.env.DEV && new URLSearchParams(location.search).get("room")) || MP_ROOM;
 
 const ACTION_TIMING = {
@@ -121,7 +113,6 @@ const ACTION_TIMING = {
   water: [9, 5, 3],
 } satisfies Record<CharAction, [number, number, number]>;
 
-/** What actionHint last looked at; idx -1 forces a recompute. */
 interface HintKey {
   idx: number;
   item: Item | null;
@@ -133,23 +124,18 @@ export class GameScene extends Scene {
   timeMin = DAY_START_MIN;
   canCharge = CAN_MAX;
   uiOpen = false;
-  /** The E / A press that answers a modal can reach this scene in the same
-   *  frame, after the Hud has closed it — it must not also act on the world
-   *  (facing the bed, it would reopen the prompt). */
   private uiClosedFrame = -1;
   controlsPaused = false;
   weather: Weather = "sunny";
   private shipping: DayRecap = { day: 1, shipments: 0, shippedGold: 0 };
 
   private seed = 0;
-  /** A staged solo run (test hooks): never joins the co-op room, mine trips included. */
   private solo = false;
   player!: Phaser.GameObjects.Sprite;
   private shadow!: Phaser.GameObjects.Sprite;
   facing = { x: 0, y: 1 };
   acting = false;
   private moving = false;
-  // click-to-move: waypoint pixel positions the player walks through
   private clickPath: Waypoint[] = [];
   private pathStuck = 0;
 
@@ -164,7 +150,6 @@ export class GameScene extends Scene {
   private keys!: GameKeys;
   /** Attached by Hud — the pad must render there, outside this camera's zoom. */
   gamepad?: PhaserGamepad;
-  /** Physical controller — polled here (this scene owns the frame while active). */
   private readonly pad = new PhysicalGamepad();
   transitioning = false;
   private pendingSpawn = { x: 0, y: 0 };
@@ -187,32 +172,16 @@ export class GameScene extends Scene {
   trailerFrame: ((dt: number) => void) | null = null;
   private fainted = false;
   private onResizeHandler?: (gs: Phaser.Structs.Size) => void;
-  private saveHandler = (): void => this.save();
-  /** Debounced-save state: actions mark dirty, update() flushes (see save). */
+  private saveHandler = () => this.save();
   private saveDirty = false;
   private saveAcc = 0;
   private saveFailed = false;
-  /** The instance keeps the live farm across mine trips; save() serves the mine too. */
   private farmReady = false;
   private farmPosition = { x: 0, y: 0 };
 
-  // ---- multiplayer (co-op shared farm) ---------------------------------------
-  // The host owns the world (soil, crops, cleared trees/rocks/forage) and the
-  // clock; guests adopt both, act at once locally and send each action to the
-  // host as an intent. Inventory/energy stay per-player. Each farmer moves
-  // locally and streams its position; peers interpolate it.
-  // Created in create(), NOT at page load: Phaser constructs every scene at
-  // boot, and a socket opened from the title screen would join (and possibly
-  // HOST) the room with no world and no update loop — a dead room for everyone.
-  // Its offline deadline (fallbackMs) counts from the first frame after that,
-  // so it runs on play, never on the title screen. Offline, it is a room of one
-  // that this farmer hosts.
   private net?: MultiplayerClient;
   private remoteFarmers?: RemoteFarmers;
   private readonly farmerSender = new FarmerSender();
-  /** Bumped whenever the local clip (re)starts: peers seek only on a change and
-   *  run the clip themselves in between. The instance survives mine trips, so
-   *  the counter stays monotonic for the room. */
   private poseRevision = 0;
   private readonly farmSync = new FarmSync(
     {
@@ -223,20 +192,11 @@ export class GameScene extends Scene {
     },
     coopObjects,
   );
-  /** Online: the room's day clock, anchored on server time — the host's own,
-   *  re-anchored whenever its clock starts, stops or turns a day, or the one a
-   *  guest adopted from it. Kept through mine trips; a new farm drops it. */
   private clockAnchor: ClockAnchor | null = null;
-  /** Host: the anchor last published (null: publish it again). */
   private publishedAnchor: ClockAnchor | null = null;
-  /** Host: the player id the farm was last published under. A new host — or a
-   *  new scene start, which may be a different farm — publishes it whole. */
   private publishedAs: string | null = null;
-  /** Guest: the shared state last folded in (a new object per patch). */
   private lastShared: JsonObject | null = null;
-  /** This farmer's claims still waiting on the server's word. */
   private readonly claims = new ClaimBook();
-  /** actionHint memo: what it last looked at (idx -1 = stale). */
   private hintKey: HintKey = { idx: -1, item: null };
   private hint: string | null = null;
 
@@ -244,14 +204,12 @@ export class GameScene extends Scene {
     super("Game");
   }
 
-  private get amHost(): boolean {
-    // No session (multiplayer-ineligible save, or pre-create) = solo world.
+  private get amHost() {
     return this.net ? this.net.isHost : true;
   }
 
-  // The headless two-client harness reaches the inventory through window.__gs.
   // oxlint-disable-next-line class-methods-use-this -- passthrough to the module store
-  get inv(): Inventory {
+  get inv() {
     return store.inv;
   }
 
@@ -262,10 +220,9 @@ export class GameScene extends Scene {
     mineRecap?: MineRecap;
     /** Test hooks only: a fresh farm that never touches the shared room. */
     solo?: { seed: number };
-  }): void {
+  }) {
     notifyGameStarted();
     document.querySelector("#veil")?.classList.add("hidden");
-    // reset reused-instance state (Phaser keeps the scene instance across start/stop)
     this.soilImgs = new Map();
     this.cropImgs = new Map();
     this.objSprites = new Map();
@@ -278,28 +235,28 @@ export class GameScene extends Scene {
     this.stepTimer = 0;
     this.clickPath = [];
     this.pathStuck = 0;
+
     if (!data?.fromMine) {
       this.saveDirty = false;
     }
+
     this.saveAcc = 0;
     this.trailerMove = null;
 
     this.adoptSolo(data);
+
     if (data?.fromMine) {
-      // returning from the mine — world/state already initialized; just rebuild
       this.restoreFromStore();
+
       if (data.fainted) {
         this.fainted = true;
       }
     } else {
       this.openFarm(data);
     }
+
     this.weather = weatherForDay(this.seed, this.day);
 
-    // Join the co-op room only for the shared fixed-seed farm. A continue-mode
-    // save from before the fixed seed is a DIFFERENT map — half-merging two
-    // worlds (tilling grass that is water elsewhere) is worse than playing it
-    // solo (Phase 1). The session survives mine trips: only created once.
     if (!trailerStaging && !this.solo && !this.net && this.seed === FARM_SEED) {
       this.net = openSession({
         fallbackMs: OFFLINE_FALLBACK_MS,
@@ -330,7 +287,6 @@ export class GameScene extends Scene {
     this.farmReady = true;
 
     this.highlight = this.add.graphics().setDepth(DEPTH.highlight);
-    // scene instances persist across restarts: a stale idx would skip the first draw
     this.highlightIdx = -1;
 
     this.nightOverlay = this.add
@@ -338,13 +294,16 @@ export class GameScene extends Scene {
       .setOrigin(0, 0)
       .setScrollFactor(0)
       .setDepth(DEPTH.night);
+
     if (this.onResizeHandler) {
       this.scale.off("resize", this.onResizeHandler);
     }
+
     this.onResizeHandler = (gs: Phaser.Structs.Size) => {
       this.nightOverlay.setSize(gs.width, gs.height);
       this.cameras.main.setZoom(zoomForWidth(gs.width));
     };
+
     this.scale.on("resize", this.onResizeHandler);
     this.events.once(Scenes.Events.SHUTDOWN, () => {
       if (this.onResizeHandler) {
@@ -372,8 +331,6 @@ export class GameScene extends Scene {
       this.ambience = null;
       this.collisionOverlay = null;
     });
-    // Prime the pad so an A still held from the title/mine doesn't read as a
-    // fresh press (and swing a tool) on this scene's first frame.
     this.pad.update();
 
     if (!trailerStaging) {
@@ -397,15 +354,14 @@ export class GameScene extends Scene {
     }
 
     this.remoteFarmers = new RemoteFarmers(this);
-    // Every start redraws from the world, so both roles take the room afresh:
-    // a host republishes its farm whole (a new or loaded farm must replace the
-    // room's, under a new epoch), a guest re-adopts the host's farm and clock.
+
     if (data?.fromMine) {
       this.farmSync.reset();
     } else {
       this.farmSync.forget();
       this.claims.clear();
     }
+
     this.publishedAs = null;
     this.publishedAnchor = null;
     this.lastShared = null;
@@ -416,12 +372,11 @@ export class GameScene extends Scene {
     }
   }
 
-  // ---------------------------------------------------------------- init
-
-  private showMineRecap(recap: MineRecap | undefined): void {
+  private showMineRecap(recap: MineRecap | undefined) {
     if (!recap) {
       return;
     }
+
     this.time.delayedCall(420, () =>
       this.toast(
         `${recap.fainted ? "Rescued" : "Home"} · Floor ${recap.deepest} · ${recap.gathered} minerals · ${recap.defeated} defeated · ${recap.gold >= 0 ? "+" : ""}${recap.gold}g`,
@@ -430,33 +385,31 @@ export class GameScene extends Scene {
     );
   }
 
-  private openFarm(data: { mode: "new" | "continue"; solo?: { seed: number } }): void {
-    // A new farm keeps its own day; in the room a guest re-adopts the host's.
+  private openFarm(data: { mode: "new" | "continue"; solo?: { seed: number } }) {
     this.clockAnchor = null;
     const s = data.mode === "continue" ? loadSave() : null;
+
     if (s) {
       this.loadFrom(s);
     } else {
       this.startNew(data.solo?.seed);
     }
+
     this.shipping = { day: this.day, shipments: 0, shippedGold: 0 };
   }
 
-  /** A mine trip keeps whichever kind of run it left; any other start decides afresh. */
-  private adoptSolo(data: { fromMine?: boolean; solo?: { seed: number } }): void {
+  private adoptSolo(data: { fromMine?: boolean; solo?: { seed: number } }) {
     if (!data.fromMine) {
       this.solo = data.solo !== undefined;
     }
+
     if (this.solo) {
       this.net?.destroy();
       this.net = undefined;
     }
   }
 
-  private startNew(seed = FARM_SEED): void {
-    // Fixed seed so every client builds the identical co-op farm (no seed
-    // exchange needed). Solo new games are deterministic too — acceptable for
-    // a demo, and it keeps the shared world trivially consistent.
+  private startNew(seed = FARM_SEED) {
     this.seed = seed;
     const gen = generateFarm(this.seed, getWorldMap());
     this.world = gen.world;
@@ -467,7 +420,7 @@ export class GameScene extends Scene {
     this.pendingSpawn = { x: gen.spawn.tx * TILE + 8, y: gen.spawn.ty * TILE + 12 };
   }
 
-  private loadFrom(s: SaveData): void {
+  private loadFrom(s: SaveData) {
     this.seed = s.seed;
     this.world = World.fromJSON(s.world, getWorldMap());
     store.inv = Inventory.fromJSON(s.inv);
@@ -480,37 +433,41 @@ export class GameScene extends Scene {
     this.timeMin = s.timeMin;
     this.canCharge = s.canCharge;
     this.pendingSpawn = { x: s.player.x, y: s.player.y };
+
     if (s.animals) {
       store.loadAnimals(s.animals, s.animalSeq ?? 1);
     }
+
     if (s.npcFriendship) {
       store.npcFriendship = s.npcFriendship;
     }
   }
 
-  // Scene stop releases rendering, not the world. Keep the live farm through
-  // mine trips, including when storage is unavailable or a write is pending.
-  private restoreFromStore(): void {
+  private restoreFromStore() {
     if (!this.farmReady) {
       this.startNew();
     }
+
     this.pendingSpawn = { x: MINE_EXIT.tx * TILE + 8, y: MINE_EXIT.ty * TILE + 8 };
   }
 
-  private setupInput(): void {
+  private setupInput() {
     const kb = this.input.keyboard;
+
     if (!kb) {
       return;
     }
-    // scene instances + Key objects persist across restart — clear stale listeners
+
     this.input.removeAllListeners();
     kb.removeAllListeners();
     kb.on("keydown", () => Sound.resume());
     this.input.on("pointerdown", () => Sound.resume());
     this.keys = makeGameKeys(kb);
+
     for (const k of Object.values(this.keys)) {
       k.removeAllListeners();
     }
+
     this.keys.M.on("down", () => {
       this.toast(Sound.toggleMute() ? "Sound off" : "Sound on", "#dfe9ff");
     });
@@ -521,67 +478,78 @@ export class GameScene extends Scene {
 
     this.keys.SPACE.on("down", () => this.tryAction());
     this.keys.E.on("down", () => this.tryAction());
-    // click / tap: act on the cell when it's within reach, else walk to it
-    const actOrWalk = (p: Phaser.Input.Pointer): void => {
+
+    const actOrWalk = (p: Phaser.Input.Pointer) => {
       if (this.controlsPaused) {
         return;
       }
+
       const wp = this.cameras.main.getWorldPoint(p.x, p.y);
       const tx = Math.floor(wp.x / TILE);
       const ty = Math.floor(wp.y / TILE);
+
       if (!inBounds(tx, ty)) {
         return;
       }
+
       const f = this.feetTile();
       const dist = Math.max(Math.abs(tx - f.tx), Math.abs(ty - f.ty));
+
       if (dist <= 1) {
         this.clickPath = [];
+
         if (dist > 0) {
           this.faceTowards(tx, ty);
         }
+
         this.tryAction({ tx, ty });
       } else {
         this.startClickMove(tx, ty, wp.x, wp.y);
       }
     };
+
     this.input.on("pointerdown", (p: Phaser.Input.Pointer) => {
       if (this.controlsPaused || this.uiOpen || p.button !== 0) {
         return;
       }
+
       const hud = this.scene.get("Hud");
-      // hotbar click
+
       if (hud.input.hitTestPointer(p).length > 0) {
         return;
       }
+
       if (this.fishing.active) {
         this.tryAction();
+
         return;
       }
-      // touches feed the virtual stick on the way down — a tile tap is only
-      // recognisable at pointerup (see below), so mouse-only here
+
       if (p.wasTouch) {
         return;
       }
+
       actOrWalk(p);
     });
     this.input.on("pointerup", (p: Phaser.Input.Pointer) => {
       if (this.controlsPaused || !p.wasTouch || this.uiOpen || this.fishing.active) {
         return;
       }
+
       const hud = this.scene.get("Hud");
-      // hotbar tap
+
       if (hud.input.hitTestPointer(p).length > 0) {
         return;
       }
-      // a drag was the stick, not a tap
+
       if (!isTap(p)) {
         return;
       }
+
       actOrWalk(p);
     });
     this.keys.I.on("down", () => this.toggleInventory());
     kb.on("keydown-T", () => this.toggleCollisionOverlay());
-    // scroll wheel cycles the hotbar selection (documented in the help modal)
     this.input.on(
       "wheel",
       (_p: Phaser.Input.Pointer, _o: Phaser.GameObjects.GameObject[], _dx: number, dy: number) => {
@@ -592,19 +560,22 @@ export class GameScene extends Scene {
     );
   }
 
-  // debug aid (T): tint blocked cells — red solid, blue water/void (fishable)
   private collisionOverlay: Phaser.GameObjects.Graphics | null = null;
-  private toggleCollisionOverlay(): void {
+  private toggleCollisionOverlay() {
     if (this.collisionOverlay) {
       this.collisionOverlay.destroy();
       this.collisionOverlay = null;
+
       return;
     }
+
     const g = this.add.graphics();
     g.setDepth(650_000);
+
     for (let ty = 0; ty < MAP_H; ty += 1) {
       for (let tx = 0; tx < MAP_W; tx += 1) {
         const k = this.world.cellKind(tx, ty);
+
         if (k === CELL.water || k === CELL.void) {
           g.fillStyle(0x35_b8_ff, 0.35);
         } else if (this.world.isSolidTile(tx, ty)) {
@@ -612,16 +583,19 @@ export class GameScene extends Scene {
         } else {
           continue;
         }
+
         g.fillRect(tx * TILE, ty * TILE, TILE, TILE);
       }
     }
+
     this.collisionOverlay = g;
   }
 
-  toggleInventory(): void {
+  toggleInventory() {
     if (this.controlsPaused || this.fishing.active) {
       return;
     }
+
     if (this.scene.isActive("Inventory")) {
       this.scene.stop("Inventory");
       this.uiOpen = false;
@@ -631,30 +605,27 @@ export class GameScene extends Scene {
     }
   }
 
-  // ---------------------------------------------------------------- render build
-
-  // Render the world map; placements that became live world
-  // objects (trees/mushrooms) are skipped — their sprites come from objects.
-  private buildGround(): void {
+  private buildGround() {
     const worldMap = getWorldMap();
+
     const skip = new Set<WorldMapSprite>(
       consumedSprites(worldMap, this.world).map((c) => c.sprite),
     );
+
     buildWorldMap(this, worldMap, skip);
   }
 
-  private buildObjects(): void {
+  private buildObjects() {
     for (const o of this.world.objects) {
       this.spawnObjectSprite(o);
     }
   }
 
-  // Visuals for buildings/doors come from the world-map tiles — those objects are
-  // interaction hotspots only and spawn no sprite.
-  spawnObjectSprite(o: WorldObject): void {
+  spawnObjectSprite(o: WorldObject) {
     const cx = o.tx * TILE + TILE / 2;
     const by = (o.ty + 1) * TILE;
     let spr: Phaser.GameObjects.Sprite;
+
     switch (o.type) {
       case "tree": {
         const name = o.variant === "tree2" ? "spr_deco_tree_02" : "spr_deco_tree_01";
@@ -665,14 +636,17 @@ export class GameScene extends Scene {
         spr.anims.setProgress(Math.random());
         break;
       }
+
       case "rock": {
         spr = this.add.sprite(cx, by + 1, "obj-rock").setOrigin(0.5, 1);
         break;
       }
+
       case "ore": {
         spr = this.add.sprite(cx, by + 1, `obj-ore-${o.variant ?? "coal"}`).setOrigin(0.5, 1);
         break;
       }
+
       case "forage": {
         const key = o.variant === "mushroom_blue" ? "obj-mushroom-blue" : "obj-mushroom-red";
         spr = this.add
@@ -681,6 +655,7 @@ export class GameScene extends Scene {
           .play(o.variant === "mushroom_blue" ? "mushroom-blue-bob" : "mushroom-red-bob");
         break;
       }
+
       case "house":
       case "shop":
       case "bin":
@@ -689,45 +664,54 @@ export class GameScene extends Scene {
       case "coop": {
         return;
       }
-      // no default
+
+      default: {
+        return;
+      }
     }
+
     spr.setDepth(DEPTH.entityBase + by);
     this.objSprites.set(o.id, spr);
   }
 
-  private buildSoilAndCrops(): void {
+  private buildSoilAndCrops() {
     for (let i = 0; i < MAP_W * MAP_H; i += 1) {
       if (this.world.tilled[i]) {
         this.ensureSoil(i);
       }
     }
+
     for (const [i, cs] of this.world.crops) {
       this.ensureCrop(i, cs.crop, cropStage(CROPS[cs.crop], cs.daysGrown));
     }
   }
 
-  private ensureSoil(i: number): void {
+  private ensureSoil(i: number) {
     if (this.soilImgs.has(i)) {
       return;
     }
+
     const tx = i % MAP_W;
     const ty = Math.trunc(i / MAP_W);
+
     const img = this.add
       .image(tx * TILE, ty * TILE + 4, "obj-soil")
       .setOrigin(0, 0)
       .setDepth(DEPTH.soil);
+
     this.soilImgs.set(i, img);
     this.refreshSoilTint(i);
   }
 
-  private refreshSoilTint(i: number): void {
+  private refreshSoilTint(i: number) {
     this.soilImgs.get(i)?.setTint(this.world.watered[i] ? 0x6b_4f_33 : 0xff_ff_ff);
   }
 
-  private ensureCrop(i: number, crop: CropId, stage: number): void {
+  private ensureCrop(i: number, crop: CropId, stage: number) {
     const tx = i % MAP_W;
     const ty = Math.trunc(i / MAP_W);
     let img = this.cropImgs.get(i);
+
     if (img) {
       img.setTexture(`crop-${crop}`, stage);
     } else {
@@ -745,61 +729,68 @@ export class GameScene extends Scene {
     tx: number,
     ty: number,
     s: { tilled: boolean; watered: boolean; crop: CropId | null; daysGrown: number },
-  ): void {
+  ) {
     if (!inBounds(tx, ty)) {
       return;
     }
+
     const idx = tileIdx(tx, ty);
     this.world.crops.delete(idx);
     this.cropImgs.get(idx)?.destroy();
     this.cropImgs.delete(idx);
     this.world.tilled[idx] = s.tilled ? 1 : 0;
     this.world.watered[idx] = s.tilled && s.watered ? 1 : 0;
+
     if (s.tilled) {
       this.ensureSoil(idx);
     } else {
       this.soilImgs.get(idx)?.destroy();
       this.soilImgs.delete(idx);
     }
+
     this.refreshSoilTint(idx);
+
     if (s.tilled && s.crop) {
       this.world.crops.set(idx, { crop: s.crop, daysGrown: s.daysGrown });
       this.ensureCrop(idx, s.crop, cropStage(CROPS[s.crop], s.daysGrown));
     }
   }
 
-  // ---------------------------------------------------------------- update
-
-  /** Physical pad: A mirrors E/SPACE (tryAction guards busy states itself),
-   *  Y mirrors I, LB/RB mirror the scroll wheel's hotbar cycle. */
-  private pollPad(): void {
+  private pollPad() {
     this.pad.update();
+
     if (this.pad.justPressed("a")) {
       this.tryAction();
     }
+
     if (this.pad.justPressed("y")) {
       this.toggleInventory();
     }
+
     if (!this.controlsPaused && !this.uiOpen) {
       if (this.pad.justPressed("lb")) {
         store.inv.cycle(-1);
       }
+
       if (this.pad.justPressed("rb")) {
         store.inv.cycle(1);
       }
     }
   }
 
-  override update(_t: number, dms: number): void {
+  override update(_t: number, dms: number) {
     const dt = Math.min(dms, 50) / 1000;
     this.gamepad?.update();
     this.pollPad();
+
     if (this.net && this.isOnline()) {
       this.claims.poll(this.net);
     }
+
     this.followHost();
     const busy = this.uiOpen || this.transitioning || this.fishing.active;
     this.runClock(dt, !busy);
+
     if (!busy) {
       if (!this.controlsPaused) {
         this.handleMovement(dt);
@@ -807,483 +798,509 @@ export class GameScene extends Scene {
     } else if (!this.acting && !this.fishing.active) {
       this.setAnim("idle");
     }
+
     if (!this.controlsPaused) {
       this.fishing.update(dt);
     }
+
     this.animals.update(dt);
     this.npcs.update(dt);
     this.updateHighlight();
     this.updateNightTint();
     this.ambience?.update(dt, this.weather, this.season(), this.timeMin);
     this.player.setDepth(DEPTH.entityBase + this.player.y);
-    // shadow rides the feet, always one depth step under its owner
     this.shadow.setPosition(this.player.x, this.player.y + 1);
     this.shadow.setDepth(this.player.depth - 1);
     this.updateNet();
     this.trailerFrame?.(dt);
-    // flush debounced saves (transitions and tab-hide/unload still save at once)
     this.retryPendingSave(dt);
   }
-
-  // ---- multiplayer: sync ----------------------------------------------------
 
   /**
    * True only while in a live co-op room: not still connecting, not dropped
    * and waiting to be readmitted, not offline. Used by the wrapper's pause
    * handler so it never freezes a session other players are relying on.
    */
-  isOnline(): boolean {
+  isOnline() {
     return this.net?.connectionStatus === "connected";
   }
 
   /** Where this farmer stands with the co-op room, for the HUD's notice; null
    *  on a farm that never joins it (an older save's map, a staged run). */
-  connectionStatus(): MultiplayerConnectionStatus | null {
+  connectionStatus() {
     return this.net?.connectionStatus ?? null;
   }
 
   /** Live co-op keeps its clock and connection; only this farmer takes a break. */
-  setControlsPaused(paused: boolean): void {
+  setControlsPaused(paused: boolean) {
     this.controlsPaused = paused;
     this.moving = false;
     this.clickPath = [];
     this.pathStuck = 0;
+
     for (const key of Object.values(this.keys)) {
       key.reset();
     }
+
     this.gamepad?.pad.reset();
     this.pad.update();
     this.fishing.setPaused(paused);
+
     if (!this.acting && !this.fishing.active) {
       this.setAnim("idle");
     }
   }
 
-  private handleNetEvent(event: string, payload: JsonValue, from: string): void {
+  private handleNetEvent(event: string, payload: JsonValue, from: string) {
     const { net } = this;
-    // Only the host acts on intents. Its world stays live while it is down the
-    // mine (this scene stopped), so they apply at once; create() redraws.
+
     if (!net || !this.amHost || event !== "tile") {
       return;
     }
+
     const intent = parseTileIntent(payload);
+
     if (!intent) {
       return;
     }
-    // A planting is its claim's winner's alone. The intent left after the claim
-    // on the same socket, so the grant is in by now.
+
     if (intent.action === "plant") {
       const target: ClaimTarget = { gen: intent.gen, idx: intent.idx, kind: "plant" };
       const key = this.claimKeyFor(target);
+
       if (key === null || net.ownerOf(key) !== from) {
         return;
       }
     }
+
     if (this.farmSync.applyIntent(intent)) {
       this.redrawTile(intent.idx);
       this.farmSync.publishTiles(net, [intent.idx]);
+
       if (intent.action === "plant") {
         this.releaseSpent(net, intent.idx, intent.gen);
       }
     }
   }
 
-  /** The server named an owner for a claim: this farmer's own claims settle,
-   *  and the host applies the world's side of every grant. */
-  private handleClaim(key: string, owner: string | null): void {
+  private handleClaim(key: string, owner: string | null) {
     const { net } = this;
+
     if (!net) {
       return;
     }
-    // A reconnect hands this farmer's claims to its new id before the sync
-    // that names it: until connected, the poll in update() settles them.
+
     if (this.isOnline()) {
       this.claims.hear(net, key, owner);
     }
+
     if (owner !== null && this.amHost) {
       this.applyGrant(net, key, owner);
     }
   }
 
-  /** Host: the world's side of a granted claim, published, whoever won it —
-   *  the host's own claims' effects have already landed here. */
-  private applyGrant(net: MultiplayerClient, key: string, owner: string): void {
+  private applyGrant(net: MultiplayerClient, key: string, owner: string) {
     const claim = parseClaimKey(key);
+
     if (!claim || claim.epoch !== this.farmSync.epoch) {
       return;
     }
+
     const { target } = claim;
+
     switch (target.kind) {
       case "harvest": {
         if (this.farmSync.harvest(net, target.idx, target.gen)) {
           this.redrawTile(target.idx);
         }
+
         break;
       }
+
       case "clear": {
         const gone = this.farmSync.clear(net, target.id);
+
         if (gone) {
           this.objectGone(gone);
         }
+
         break;
       }
+
       case "plant": {
-        // A guest's crop arrives with its intent; the host's own is planted here.
         if (owner === net.playerId) {
           this.farmSync.publishTiles(net, [target.idx]);
           this.releaseSpent(net, target.idx, target.gen);
         }
+
         break;
       }
+
       case "hold": {
         break;
       }
-      // no default
+
+      default: {
+        break;
+      }
     }
   }
 
-  /** Host: every grant the room holds, applied — the claims are the room's
-   *  record of who took what, and a host that left may not have applied the
-   *  last of them. (Grants a dropped connection missed come with the sync.) */
-  private applyHeldGrants(net: MultiplayerClient): void {
+  private applyHeldGrants(net: MultiplayerClient) {
     for (const [key, { owner }] of Object.entries(net.claims)) {
       this.applyGrant(net, key, owner);
     }
   }
 
-  /** Host: crop `gen` of tile `idx` is in, so the claims on the crop before it
-   *  — its planting and its harvest — can never be contested again. Give them
-   *  back, so a long session never runs the room out of claims. */
-  private releaseSpent(net: MultiplayerClient, idx: number, gen: number): void {
+  private releaseSpent(net: MultiplayerClient, idx: number, gen: number) {
     if (gen <= 1) {
       return;
     }
+
     const spent: ClaimTarget[] = [
       { gen: gen - 1, idx, kind: "plant" },
       { gen: gen - 1, idx, kind: "harvest" },
     ];
+
     for (const target of spent) {
       const key = this.claimKeyFor(target);
+
       if (key !== null && net.ownerOf(key) !== null) {
         net.release(key);
       }
     }
   }
 
-  /** The key `target` is claimed under in this room, or null where nothing
-   *  arbitrates: offline, connecting, or before the room's farm arrived. */
-  private claimKeyFor(target: ClaimTarget): string | null {
+  private claimKeyFor(target: ClaimTarget) {
     const { epoch } = this.farmSync;
+
     return this.isOnline() && epoch !== null ? claimKey(epoch, target) : null;
   }
 
-  /** Who else already holds `target` (this farmer must leave it), or null. */
-  private otherHolder(target: ClaimTarget): string | null {
+  private otherHolder(target: ClaimTarget) {
     const { net } = this;
     const key = this.claimKeyFor(target);
     const owner = net && key !== null ? net.ownerOf(key) : null;
+
     return owner === null || owner === net?.playerId ? null : owner;
   }
 
-  /** Claim `target` as its effect lands: the ticket settles it once the server
-   *  has spoken. Granted at once where nothing arbitrates. */
-  private claim(target: ClaimTarget, ttlMs?: number): ClaimTicket {
+  private claim(target: ClaimTarget, ttlMs?: number) {
     const { net } = this;
     const key = this.claimKeyFor(target);
+
     return net && key !== null ? this.claims.ask(net, key, ttlMs) : ClaimTicket.won();
   }
 
-  /** After tilling, watering or planting: a guest keeps its change protected
-   *  and asks the host to make the same one. The host publishes its tilling
-   *  and watering at once, its planting when the claim is granted. Offline
-   *  there is no room to tell. */
-  private netTileAction(intent: TileIntent): void {
+  private netTileAction(intent: TileIntent) {
     const { net } = this;
+
     if (!net || net.connectionStatus === "offline") {
       return;
     }
+
     if (this.amHost) {
       if (intent.action !== "plant") {
         this.farmSync.publishTiles(net, [intent.idx]);
       }
+
       return;
     }
+
     this.farmSync.protectTile(intent.idx, performance.now());
     net.sendToHost("tile", intent);
   }
 
-  /** After a claimed harvest: a guest shields its tile from older host values
-   *  until the host, hearing the grant, publishes the same. (Offline, this
-   *  farmer hosts its room of one.) */
-  private shieldTile(idx: number): void {
+  private shieldTile(idx: number) {
     if (!this.amHost) {
       this.farmSync.protectTile(idx, performance.now());
     }
   }
 
-  /** After a claimed fell, break or pick: the same, for the object. */
-  private shieldClear(id: number): void {
+  private shieldClear(id: number) {
     if (!this.amHost) {
       this.farmSync.protectClear(id, performance.now());
     }
   }
 
-  /** Redraw a tile from the world after the sync rewrote it. A stopped scene
-   *  (down the mine) skips it: create() redraws everything on return. */
-  private redrawTile(idx: number): void {
+  private redrawTile(idx: number) {
     if (!this.sys.isActive()) {
       return;
     }
+
     if (idx === this.hintKey.idx) {
       this.hintKey.idx = -1;
     }
+
     const cs = this.world.crops.get(idx);
+
     if (cs) {
       this.ensureCrop(idx, cs.crop, cropStage(CROPS[cs.crop], cs.daysGrown));
     } else {
       this.cropImgs.get(idx)?.destroy();
       this.cropImgs.delete(idx);
     }
+
     if (this.world.tilled[idx]) {
       this.ensureSoil(idx);
     } else {
       this.soilImgs.get(idx)?.destroy();
       this.soilImgs.delete(idx);
     }
+
     this.refreshSoilTint(idx);
   }
 
-  /** Another farmer cleared this object, or the host's world has no such one. */
-  private objectGone(o: WorldObject): void {
+  private objectGone(o: WorldObject) {
     this.hintKey.idx = -1;
     const spr = this.objSprites.get(o.id);
     this.objSprites.delete(o.id);
+
     if (spr && this.sys.isActive()) {
       this.tweens.add({ alpha: 0, duration: 200, onComplete: () => spr.destroy(), targets: spr });
     }
   }
 
-  /** The host's world still has this object: it stands here again. */
-  private objectBack(o: WorldObject): void {
+  private objectBack(o: WorldObject) {
     this.hintKey.idx = -1;
+
     if (this.sys.isActive()) {
       this.spawnObjectSprite(o);
     }
   }
 
-  /** Guest: fold the host's farm and clock in as they change, and let this
-   *  farmer's unconfirmed changes lapse back to the host's when it never
-   *  echoes them. */
-  private followHost(): void {
+  private followHost() {
     const { net } = this;
+
     if (!net || this.amHost) {
       return;
     }
+
     const shared = net.sharedState;
     const now = performance.now();
+
     if (shared !== this.lastShared) {
       this.farmSync.adopt(shared, now);
       this.adoptClock(net, shared);
     }
+
     this.lastShared = shared;
     this.farmSync.expire(shared, now);
   }
 
-  /** Guest: the host's clock anchor (runClock reads the minute off it). A later
-   *  day means this farmer slept too — the same personal night the host gets
-   *  in endDay. */
-  private adoptClock(net: MultiplayerClient, shared: JsonObject): void {
+  private adoptClock(net: MultiplayerClient, shared: JsonObject) {
     const anchor = readClock(shared);
+
     if (!anchor) {
       return;
     }
+
     const turn = turnDay(this, anchor);
     this.clockAnchor = anchor;
     this.weather = anchor.weather;
+
     if (!turn) {
       return;
     }
+
     this.day = anchor.day;
     this.timeMin = clockTime(anchor, net.serverNow());
     const recap = this.shipping.shipments > 0 ? this.shipping : undefined;
     this.shipping = { day: this.day, shipments: 0, shippedGold: 0 };
+
     if (turn.rested) {
       this.wakeUp(turn.exhausted);
     }
+
     this.events.emit("daybanner", this.day, seasonOfDay(this.day), this.weather, recap);
   }
 
-  private updateNet(): void {
+  private updateNet() {
     const { net } = this;
+
     if (!net) {
       return;
     }
+
     if (this.isOnline()) {
-      // Stamps are server time, so peers read them as the same instant; until
-      // the clock is measured (a round trip after joining) there is none.
       const update = net.serverClock.synced
         ? this.farmerSender.tick(this.player, this.moving, this.poseRevision, net.serverNow())
         : null;
+
       if (update) {
         net.updateMyState(update);
       }
+
       if (this.amHost) {
         this.publishHost(net);
       } else {
         this.publishedAs = null;
       }
     }
+
     this.remoteFarmers?.sync(net.players, net.playerId);
     this.remoteFarmers?.update();
   }
 
-  /** Host: the whole farm once (per new host or scene start), then the clock's
-   *  anchor whenever it changes — when the clock starts, stops or turns a day,
-   *  never in between: every client reads the minute off it alone. */
-  private publishHost(net: MultiplayerClient): void {
+  private publishHost(net: MultiplayerClient) {
     if (this.publishedAs !== net.playerId) {
       this.publishedAs = net.playerId;
       this.publishedAnchor = null;
       const before = roomEpoch(net.sharedState);
       this.applyHeldGrants(net);
       this.farmSync.publishWorld(net, net.sharedState, Date.now());
-      // A farm the room hadn't seen replaced the old one, and with it the old
-      // farm's claims.
+
       if (before !== null && before !== this.farmSync.epoch) {
         net.clearClaims(claimPrefix(before));
       }
     }
+
     const anchor = this.clockAnchor;
+
     if (anchor && anchor !== this.publishedAnchor) {
       net.updateSharedState(clockPatch(anchor));
       this.publishedAnchor = anchor;
     }
   }
 
-  /**
-   * The day clock. In the room every client reads it off the anchor on the
-   * server clock; the host re-anchors it when its clock starts, stops (a menu,
-   * a fade, fishing) or turns a day, and a guest's own menu never stops it.
-   * Out of the room (offline, connecting, reconnecting) — and until its clock
-   * is measured, since a clock frozen in the connect window reads as a hang —
-   * it runs on this frame's time.
-   */
-  private runClock(dt: number, running: boolean): void {
+  private runClock(dt: number, running: boolean) {
     const { net } = this;
+
     if (!net || !this.isOnline() || !net.serverClock.synced) {
       if (running) {
         this.advanceTime(dt);
       }
+
       return;
     }
+
     const now = net.serverNow();
     const held = this.clockAnchor;
+
     if (
       this.amHost &&
       (!held || held.day !== this.day || held.weather !== this.weather || held.running !== running)
     ) {
       this.clockAnchor = anchorClock(this.day, this.timeMin, this.weather, running, now);
     }
+
     const anchor = this.clockAnchor;
-    // A guest before the host's first anchor waits for it.
+
     if (!anchor) {
       return;
     }
+
     this.timeMin = clockTime(anchor, now);
+
     if (this.amHost && this.timeMin >= DAY_END_MIN) {
       this.passOut();
     }
   }
 
-  private advanceTime(dt: number): void {
+  private advanceTime(dt: number) {
     this.timeMin += dt * GAME_MIN_PER_REAL_SEC;
+
     if (this.timeMin >= DAY_END_MIN) {
       this.passOut();
     }
   }
 
-  /** Keyboard first; then the sticks (virtual touch, then physical pad) and
-   *  finally trailer choreography fill in while real input is silent. */
-  private moveIntent(): StickMove {
+  private moveIntent() {
     const k = this.keys;
     let dx = 0;
     let dy = 0;
+
     if (k.A.isDown || k.LEFT.isDown) {
       dx -= 1;
     }
+
     if (k.D.isDown || k.RIGHT.isDown) {
       dx += 1;
     }
+
     if (k.W.isDown || k.UP.isDown) {
       dy -= 1;
     }
+
     if (k.S.isDown || k.DOWN.isDown) {
       dy += 1;
     }
+
     if (dx !== 0 || dy !== 0) {
       return { dx, dy, run: false };
     }
+
     const move =
       (this.gamepad ? stickMove(this.gamepad.getStick()) : null) ?? stickMove(this.pad.getStick());
+
     if (move) {
       return move;
     }
+
     if (this.trailerMove) {
       return { dx: this.trailerMove.x, dy: this.trailerMove.y, run: this.trailerMove.run };
     }
+
     return { dx: 0, dy: 0, run: false };
   }
 
-  /** Steer along the click-to-move path; returns the leg's unit direction, or
-   *  null once the next waypoint is reached (or there is no path). */
-  private pathStep(): { dx: number; dy: number } | null {
+  private pathStep() {
     const [wpt] = this.clickPath;
+
     if (!wpt) {
       return null;
     }
+
     const vx = wpt.x - this.player.x;
     const vy = wpt.y - this.player.y;
     const d = Math.hypot(vx, vy);
+
     if (d < 2.5) {
       this.clickPath.shift();
+
       return null;
     }
+
     return { dx: vx / d, dy: vy / d };
   }
 
-  /** A click path that makes no progress (snagged on a corner) gets dropped. */
-  private trackPathProgress(moved: number, expected: number, dt: number): void {
+  private trackPathProgress(moved: number, expected: number, dt: number) {
     if (this.clickPath.length === 0) {
       return;
     }
+
     this.pathStuck = moved < expected * 0.25 ? this.pathStuck + dt : 0;
+
     if (this.pathStuck > 0.4) {
       this.clickPath = [];
       this.pathStuck = 0;
     }
   }
 
-  private handleMovement(dt: number): void {
+  private handleMovement(dt: number) {
     if (this.acting) {
       this.moving = false;
+
       return;
     }
+
     const k = this.keys;
     const intent = this.moveIntent();
     let { dx, dy } = intent;
     const { run: stickRun } = intent;
 
-    // keyboard/stick input cancels click-to-move; otherwise steer along the path
     if (dx !== 0 || dy !== 0) {
       this.clickPath = [];
     } else if (this.clickPath.length > 0) {
       const step = this.pathStep();
+
       if (step) {
         ({ dx, dy } = step);
       }
     }
 
     this.moving = dx !== 0 || dy !== 0;
+
     if (this.moving) {
       this.facing =
         Math.abs(dx) >= Math.abs(dy) ? { x: Math.sign(dx), y: 0 } : { x: 0, y: Math.sign(dy) };
@@ -1299,43 +1316,48 @@ export class GameScene extends Scene {
         dt,
       );
       this.stepTimer -= dt;
+
       if (this.stepTimer <= 0) {
         Sound.footstep();
         this.stepTimer = run ? 0.22 : 0.32;
       }
+
       this.setAnim(run ? "run" : "walk");
+
       if (dx < 0) {
         this.player.setFlipX(true);
       } else if (dx > 0) {
         this.player.setFlipX(false);
       }
+
       this.tryForagePickup();
     } else {
       this.setAnim("idle");
     }
   }
 
-  // ---------------------------------------------------------- click-to-move
-
   /** Waypoints from the farmer's feet to (tx,ty); see systems/pathfind. */
-  pathTo(tx: number, ty: number): Waypoint[] {
+  pathTo(tx: number, ty: number) {
     return pathTo(this.world, this.feetTile(), tx, ty);
   }
 
-  private startClickMove(tx: number, ty: number, wx: number, wy: number): void {
+  private startClickMove(tx: number, ty: number, wx: number, wy: number) {
     if (this.acting) {
       return;
     }
+
     const path = this.pathTo(tx, ty);
+
     if (path.length === 0) {
       return;
     }
+
     this.clickPath = path;
     this.pathStuck = 0;
     this.showClickMarker(wx, wy);
   }
 
-  private showClickMarker(wx: number, wy: number): void {
+  private showClickMarker(wx: number, wy: number) {
     const g = this.add.graphics({ x: wx, y: wy });
     g.setDepth(600_000);
     g.lineStyle(1.2, 0xff_ff_ff, 0.9);
@@ -1350,33 +1372,42 @@ export class GameScene extends Scene {
     });
   }
 
-  private moveResolved(mx: number, my: number): void {
+  private moveResolved(mx: number, my: number) {
     const hh = 3;
     const hw = 4;
+
     const solid = (x: number, y: number) =>
       this.world.isSolidTile(Math.floor(x / TILE), Math.floor(y / TILE));
+
     const collides = (px: number, py: number) =>
       solid(px - hw, py - hh) ||
       solid(px + hw, py - hh) ||
       solid(px - hw, py + hh) ||
       solid(px + hw, py + hh);
+
     const nx = this.player.x + mx;
+
     if (!collides(nx, this.player.y)) {
       this.player.x = nx;
     }
+
     const ny = this.player.y + my;
+
     if (!collides(this.player.x, ny)) {
       this.player.y = ny;
     }
+
     this.player.x = PhaserMath.Clamp(this.player.x, hw, MAP_W * TILE - hw);
     this.player.y = PhaserMath.Clamp(this.player.y, hh + 4, MAP_H * TILE - hh);
   }
 
-  private setAnim(name: "idle" | "walk" | "run" | null): void {
+  private setAnim(name: "idle" | "walk" | "run" | null) {
     if (name === null) {
       return;
     }
+
     const key = `p-${name}`;
+
     if (this.player.anims.currentAnim?.key !== key || !this.player.anims.isPlaying) {
       this.player.play(key, true);
     }
@@ -1387,27 +1418,31 @@ export class GameScene extends Scene {
   }
   targetTile() {
     const f = this.feetTile();
+
     return { tx: f.tx + this.facing.x, ty: f.ty + this.facing.y };
   }
-  /** targetTile() as a flat index, -1 out of bounds — allocation-free for per-frame change checks. */
-  private targetIdx(): number {
+  private targetIdx() {
     const tx = Math.floor(this.player.x / TILE) + this.facing.x;
     const ty = Math.floor((this.player.y - 1) / TILE) + this.facing.y;
+
     return inBounds(tx, ty) ? tileIdx(tx, ty) : -1;
   }
 
-  private updateHighlight(): void {
-    // trailer shots: no target-tile chrome
+  private updateHighlight() {
     const hidden = trailerStaging || this.uiOpen || this.transitioning || this.fishing.active;
     const idx = hidden ? -1 : this.targetIdx();
+
     if (idx === this.highlightIdx) {
       return;
     }
+
     this.highlightIdx = idx;
     this.highlight.clear();
+
     if (idx < 0) {
       return;
     }
+
     const { tx, ty } = this.targetTile();
     const x = tx * TILE;
     const y = ty * TILE;
@@ -1417,54 +1452,59 @@ export class GameScene extends Scene {
     this.highlight.fillRect(x, y, TILE, TILE);
   }
 
-  // walk-over pickup of forage at the player's feet
-  private tryForagePickup(): void {
+  private tryForagePickup() {
     const f = this.feetTile();
     const o = this.world.objectAt(f.tx, f.ty);
+
     if (o && o.type === "forage") {
       this.pickForage(o);
     }
   }
 
-  // ---------------------------------------------------------------- actions
-
   /** Public: the trailer director drives staged actions through this exact path. */
-  tryAction(target?: { tx: number; ty: number }): void {
+  tryAction(target?: { tx: number; ty: number }) {
     if (this.controlsPaused || this.uiOpen || this.acting || this.transitioning) {
       return;
     }
+
     if (this.game.loop.frame === this.uiClosedFrame) {
       return;
     }
+
     if (this.fishing.active) {
       this.fishing.onActionPress();
+
       return;
     }
+
     const { tx, ty } = target ?? this.targetTile();
     const obj = inBounds(tx, ty) ? this.world.objectAt(tx, ty) : null;
     const item = store.inv.selectedItem();
 
     if (obj) {
       this.actOnObject(obj, tx, ty, item);
+
       return;
     }
 
-    // harvest a ripe crop in front takes priority over petting/gifting nearby
     const idx = inBounds(tx, ty) ? tileIdx(tx, ty) : -1;
+
     if (this.tryHarvest(idx)) {
       return;
     }
 
-    // animal or NPC in front?
     if (this.animals.tryPet(tx, ty)) {
       return;
     }
+
     if (this.npcs.tryTalk(tx, ty, item)) {
       return;
     }
+
     if (!item) {
       return;
     }
+
     if (item.kind === "tool") {
       this.useTool(item.tool, tx, ty, idx);
     } else if (item.kind === "seed") {
@@ -1472,44 +1512,50 @@ export class GameScene extends Scene {
     }
   }
 
-  /** Swing at a ripe crop on tile `idx`, if there is one. True when the
-   *  action went to it — even when someone else's harvest holds it. */
-  private tryHarvest(idx: number): boolean {
+  private tryHarvest(idx: number) {
     const cs = idx >= 0 ? this.world.crops.get(idx) : undefined;
+
     if (!cs || !isMature(CROPS[cs.crop], cs.daysGrown)) {
       return false;
     }
+
     const holder = this.otherHolder({ gen: this.world.gens[idx] ?? 0, idx, kind: "harvest" });
+
     if (holder === null) {
       this.beginAction("doing", () => this.harvest(idx));
     } else {
       this.toast(`${farmerTag(holder)} is harvesting that.`, "#ffd27a");
     }
+
     return true;
   }
 
-  private actOnObject(obj: WorldObject, tx: number, ty: number, item: Item | null): void {
+  private actOnObject(obj: WorldObject, tx: number, ty: number, item: Item | null) {
     switch (obj.type) {
       case "shop": {
         this.faceTowards(tx, ty);
         this.openShop();
         break;
       }
+
       case "house": {
         this.faceTowards(tx, ty);
         this.confirmSleep();
         break;
       }
+
       case "bin": {
         this.faceTowards(tx, ty);
         this.shipProduce();
         break;
       }
+
       case "cave": {
         this.faceTowards(tx, ty);
         this.enterMine();
         break;
       }
+
       case "barn":
       case "coop": {
         this.faceTowards(tx, ty);
@@ -1517,35 +1563,43 @@ export class GameScene extends Scene {
         this.uiOpen = true;
         break;
       }
+
       case "forage": {
         this.pickForage(obj);
         break;
       }
+
       case "tree": {
         if (item?.kind === "tool" && item.tool === "axe") {
           this.workObject(obj, "axe");
         } else {
           this.toast("You need an axe.", "#ffd27a");
         }
+
         break;
       }
+
       case "rock": {
         if (item?.kind === "tool" && item.tool === "pickaxe") {
           this.workObject(obj, "mine");
         } else {
           this.toast("You need a pickaxe.", "#ffd27a");
         }
+
         break;
       }
-      // ore lives in the mine
+
       case "ore": {
         break;
       }
-      // no default
+
+      default: {
+        break;
+      }
     }
   }
 
-  private useTool(tool: ToolId, tx: number, ty: number, idx: number): void {
+  private useTool(tool: ToolId, tx: number, ty: number, idx: number) {
     if (tool === "hoe") {
       if (this.world.canTill(tx, ty)) {
         this.beginAction("dig", () => this.till(idx));
@@ -1561,13 +1615,11 @@ export class GameScene extends Scene {
         this.toast("Face the water to fish.", "#9fd8ff");
       }
     } else if (tool === "sword") {
-      this.beginAction("doing", () => {
-        /* swung at nothing on the farm */
-      });
+      this.beginAction("doing", () => null);
     }
   }
 
-  private useCan(tx: number, ty: number, idx: number): void {
+  private useCan(tx: number, ty: number, idx: number) {
     if (inBounds(tx, ty) && this.world.getGround(tx, ty) === GROUND.water) {
       this.beginAction("water", () => this.refillCan());
     } else if (idx >= 0 && this.world.tilled[idx]) {
@@ -1581,82 +1633,93 @@ export class GameScene extends Scene {
     }
   }
 
-  private plantSeed(crop: CropId, idx: number): void {
+  private plantSeed(crop: CropId, idx: number) {
     if (idx >= 0 && this.world.tilled[idx] && !this.world.crops.has(idx)) {
       if (!CROPS[crop].seasons.includes(seasonOfDay(this.day))) {
         this.toast(`${CROPS[crop].name} won't grow in ${seasonOfDay(this.day)}.`, "#ffd27a");
+
         return;
       }
+
       const holder = this.otherHolder({ gen: (this.world.gens[idx] ?? 0) + 1, idx, kind: "plant" });
+
       if (holder !== null) {
         this.toast(`${farmerTag(holder)} is planting there.`, "#ffd27a");
+
         return;
       }
+
       this.beginAction("doing", () => this.plant(idx, crop));
     } else {
       this.toast(this.world.tilled[idx] ? "Already planted." : "Till the soil first.", "#ffd27a");
     }
   }
 
-  faceTowards(tx: number, ty: number): void {
+  faceTowards(tx: number, ty: number) {
     const f = this.feetTile();
+
     if (tx < f.tx) {
       this.player.setFlipX(true);
     } else if (tx > f.tx) {
       this.player.setFlipX(false);
     }
+
     this.facing = { x: Math.sign(tx - f.tx), y: tx === f.tx ? Math.sign(ty - f.ty) : 0 };
   }
 
   /** Swing `action`, landing `onImpact` on its impact frame. False when too
    *  tired to swing. */
-  beginAction(action: CharAction, onImpact: () => void): boolean {
+  beginAction(action: CharAction, onImpact: () => void) {
     if (store.energy <= 0 && action !== "doing") {
       this.toast("Too tired… time to sleep.", "#c8b6ff");
+
       return false;
     }
+
     this.clickPath = [];
     this.acting = true;
     const [rate, , impactFrame] = ACTION_TIMING[action];
     this.player.play(`p-${action}`, true);
+
     if (action !== "doing") {
       store.spendEnergy(ENERGY_PER_SWING);
     }
+
     this.time.delayedCall((impactFrame / rate) * 1000, () => {
       if (this.acting) {
         onImpact();
       }
     });
-    // Keyed on this clip: a generic ANIMATION_COMPLETE would also fire for the
-    // next non-action clip to finish (casting, caught) and re-idle mid-pose.
     this.player.once(`animationcomplete-p-${action}`, () => {
       this.acting = false;
       this.player.play("p-idle", true);
     });
+
     return true;
   }
 
-  /** Swing at a tree or rock. Each swing holds it for this farmer a while
-   *  (WORK_HOLD_MS), so two farmers never work one; while someone else holds
-   *  it, it is left alone. */
-  private workObject(obj: WorldObject, action: "axe" | "mine"): void {
+  private workObject(obj: WorldObject, action: "axe" | "mine") {
     const holder =
       this.otherHolder({ id: obj.id, kind: "hold" }) ??
       this.otherHolder({ id: obj.id, kind: "clear" });
+
     if (holder !== null) {
       this.toast(`${farmerTag(holder)} is working on that.`, "#ffd27a");
+
       return;
     }
-    // Claimed only once the swing really starts; the impact reads it then.
+
     let hold = ClaimTicket.won();
-    const hit = (): void => (action === "axe" ? this.chop(obj, hold) : this.mineRock(obj, hold));
+    const hit = () => (action === "axe" ? this.chop(obj, hold) : this.mineRock(obj, hold));
+
     if (this.beginAction(action, hit)) {
       hold = this.claim({ id: obj.id, kind: "hold" }, WORK_HOLD_MS);
     }
   }
 
-  awardXP(skill: SkillId, amount: number): void {
+  awardXP(skill: SkillId, amount: number) {
     const newLevel = store.skills.addXP(skill, amount);
+
     if (newLevel !== null) {
       this.events.emit("levelup", skill, newLevel);
       Sound.wake();
@@ -1670,12 +1733,11 @@ export class GameScene extends Scene {
     }
   }
 
-  // ---- effects ----
-
-  private till(idx: number): void {
+  private till(idx: number) {
     if (idx < 0) {
       return;
     }
+
     this.world.tilled[idx] = 1;
     store.work.tilled += 1;
     this.ensureSoil(idx);
@@ -1694,11 +1756,11 @@ export class GameScene extends Scene {
     this.netTileAction({ action: "till", idx });
   }
 
-  private waterTile(idx: number): void {
-    // Re-soaking wet soil is allowed but is not work done.
+  private waterTile(idx: number) {
     if (!this.world.watered[idx]) {
       store.work.watered += 1;
     }
+
     this.world.watered[idx] = 1;
     this.canCharge = Math.max(0, this.canCharge - 1);
     this.refreshSoilTint(idx);
@@ -1717,7 +1779,7 @@ export class GameScene extends Scene {
     this.netTileAction({ action: "water", idx });
   }
 
-  private refillCan(): void {
+  private refillCan() {
     this.canCharge = CAN_MAX;
     burst(this, this.player.x, this.player.y - 8, {
       colors: [0x6f_c6_ff, 0x9f_e0_ff],
@@ -1729,10 +1791,10 @@ export class GameScene extends Scene {
     this.toast("Watering can refilled!", "#9fd8ff");
   }
 
-  private plant(idx: number, crop: CropId): void {
+  private plant(idx: number, crop: CropId) {
     const gen = (this.world.gens[idx] ?? 0) + 1;
     const slot = store.inv.slots[store.inv.selected];
-    // Planted during the swing: the host's word, or someone's claim came first.
+
     if (
       this.world.crops.has(idx) ||
       !slot ||
@@ -1741,6 +1803,7 @@ export class GameScene extends Scene {
     ) {
       return;
     }
+
     const ticket = this.claim({ gen, idx, kind: "plant" });
     store.inv.consumeSlot(store.inv.selected, 1);
     this.world.crops.set(idx, { crop, daysGrown: 0 });
@@ -1748,9 +1811,11 @@ export class GameScene extends Scene {
     store.work.planted += 1;
     this.ensureCrop(idx, crop, 0);
     const img = this.cropImgs.get(idx);
+
     if (img) {
       pop(this, img);
     }
+
     const tx = idx % MAP_W;
     const ty = Math.trunc(idx / MAP_W);
     burst(this, tx * TILE + 8, ty * TILE + 12, {
@@ -1762,7 +1827,6 @@ export class GameScene extends Scene {
     });
     Sound.plant();
     this.requestSave();
-    // After the claim, on the same socket: the host hears the grant first.
     this.netTileAction({ action: "plant", crop, gen, idx });
     ticket.land({
       lost: (owner) => this.unplant(idx, crop, gen, owner),
@@ -1770,48 +1834,51 @@ export class GameScene extends Scene {
     });
   }
 
-  /** This farmer's planting lost its claim: its crop comes off, the seed goes
-   *  back in the bag, and the tile takes the winner's crop from the host. */
-  private unplant(idx: number, crop: CropId, gen: number, owner: string): void {
+  private unplant(idx: number, crop: CropId, gen: number, owner: string) {
     if (this.world.crops.get(idx)?.crop === crop && this.world.gens[idx] === gen) {
       this.world.crops.delete(idx);
       this.world.gens[idx] = gen - 1;
       this.redrawTile(idx);
     }
+
     const { net } = this;
+
     if (net && !this.amHost) {
       this.farmSync.settleTile(idx, net.sharedState, performance.now());
     }
+
     store.inv.add({ crop, kind: "seed" }, 1);
     store.work.planted -= 1;
     this.toast(`${farmerTag(owner)} planted there first.`, "#ffd27a");
     this.requestSave();
   }
 
-  /** A claim this farmer lost after its effect landed: what only the winner
-   *  gets comes back out of the bag. */
-  private giveBack(owner: string, deed: string, haul: readonly [Item, number][]): void {
+  private giveBack(owner: string, deed: string, haul: readonly [Item, number][]) {
     for (const [item, qty] of haul) {
       store.inv.remove(item, qty);
     }
+
     this.toast(`${farmerTag(owner)} ${deed} that first.`, "#ffd27a");
     this.requestSave();
   }
 
-  private harvest(idx: number): void {
+  private harvest(idx: number) {
     const cs = this.world.crops.get(idx);
     const gen = this.world.gens[idx] ?? 0;
-    // Gone during the swing: the host's word, or someone's claim came first.
+
     if (!cs || this.otherHolder({ gen, idx, kind: "harvest" }) !== null) {
       return;
     }
+
     const ticket = this.claim({ gen, idx, kind: "harvest" });
     const def = CROPS[cs.crop];
     const [lo, hi] = def.yield;
     let n = lo + Math.trunc(Math.random() * (hi - lo + 1));
+
     if (Math.random() < store.skills.yieldBonusChance()) {
       n += 1;
     }
+
     const item: Item = { crop: cs.crop, kind: "produce" };
     const leftover = store.inv.add(item, n);
     const accepted = n - leftover;
@@ -1819,18 +1886,22 @@ export class GameScene extends Scene {
     store.work.harvested += 1;
     this.world.crops.delete(idx);
     const img = this.cropImgs.get(idx);
+
     if (img) {
       pop(this, img);
       this.time.delayedCall(80, () => img.destroy());
     }
+
     this.cropImgs.delete(idx);
     this.world.watered[idx] = 0;
     this.refreshSoilTint(idx);
     const tx = idx % MAP_W;
     const ty = Math.trunc(idx / MAP_W);
+
     if (leftover < n) {
       rewardArc(this, tx * TILE + 8, ty * TILE + 4, this.player, item);
     }
+
     burst(this, tx * TILE + 8, ty * TILE + 8, {
       colors: [0x7e_c8_50, 0xff_e2_7a, 0xff_9e_d2],
       count: 12,
@@ -1845,9 +1916,11 @@ export class GameScene extends Scene {
       accepted > 0 ? `+${accepted} ${def.name}` : "Bag full",
       "#d8ffb0",
     );
+
     if (leftover > 0) {
       this.toast(`${leftover} ${def.name} left behind — bag full.`, "#ffd27a");
     }
+
     Sound.harvest();
     this.requestSave();
     this.shieldTile(idx);
@@ -1856,7 +1929,6 @@ export class GameScene extends Scene {
         store.work.harvested -= 1;
         this.giveBack(owner, "harvested", [[item, accepted]]);
       },
-      // The journal and the skill count a harvest once it is this farmer's.
       won: () => {
         this.showDiscovery(store.collections.recordHarvest(cs.crop, season, accepted));
         this.awardXP("farming", 12);
@@ -1864,20 +1936,19 @@ export class GameScene extends Scene {
     });
   }
 
-  /** Whether a swing at a tree or rock lands: not once someone else holds it
-   *  (the swing whiffs), nor once it has left the farm. */
-  private swingLands(o: WorldObject, hold: ClaimTicket): boolean {
+  private swingLands(o: WorldObject, hold: ClaimTicket) {
     const holder = hold.lostTo;
+
     if (holder !== null) {
       this.toast(`${farmerTag(holder)} is working on that.`, "#ffd27a");
+
       return false;
     }
+
     return this.world.objects.includes(o);
   }
 
-  /** A landed swing's skill XP once the hold is this farmer's; the hit itself
-   *  is taken back if the server gave the hold to someone else. */
-  private holdHit(o: WorldObject, hold: ClaimTicket, skill: SkillId, xp: number): void {
+  private holdHit(o: WorldObject, hold: ClaimTicket, skill: SkillId, xp: number) {
     hold.land({
       lost: () => {
         o.hp = Math.min(o.maxHp, o.hp + 1);
@@ -1886,12 +1957,14 @@ export class GameScene extends Scene {
     });
   }
 
-  private chop(o: WorldObject, hold: ClaimTicket): void {
+  private chop(o: WorldObject, hold: ClaimTicket) {
     if (!this.swingLands(o, hold)) {
       return;
     }
+
     o.hp -= 1;
     const spr = this.objSprites.get(o.id);
+
     if (spr) {
       this.tweens.add({ duration: 50, repeat: 2, targets: spr, x: spr.x + 1.5, yoyo: true });
       burst(this, spr.x, spr.y - 16, {
@@ -1901,17 +1974,18 @@ export class GameScene extends Scene {
         speed: 50,
       });
     }
+
     shake(this, 0.004, 110);
     Sound.chop();
     this.holdHit(o, hold, "foraging", 2);
-    // Felled — unless someone else's felling claim came first: then the tree
-    // goes with the host's word, its wood theirs.
+
     if (o.hp <= 0 && this.otherHolder({ id: o.id, kind: "clear" }) === null) {
       const felled = this.claim({ id: o.id, kind: "clear" });
       Sound.thud();
       const wood: Item = { kind: "resource", res: "wood" };
       const got = 2 + Math.trunc(Math.random() * 2);
       const kept = got - store.inv.add(wood, got);
+
       if (spr) {
         this.tweens.add({
           alpha: 0,
@@ -1923,6 +1997,7 @@ export class GameScene extends Scene {
           y: spr.y + 3,
         });
       }
+
       this.objSprites.delete(o.id);
       this.world.removeObject(o);
       this.shieldClear(o.id);
@@ -1936,15 +2011,18 @@ export class GameScene extends Scene {
         won: () => this.awardXP("foraging", 6),
       });
     }
+
     this.requestSave();
   }
 
-  private mineRock(o: WorldObject, hold: ClaimTicket): void {
+  private mineRock(o: WorldObject, hold: ClaimTicket) {
     if (!this.swingLands(o, hold)) {
       return;
     }
+
     o.hp -= 1;
     const spr = this.objSprites.get(o.id);
+
     if (spr) {
       this.tweens.add({ duration: 60, scaleX: 1.12, scaleY: 0.9, targets: spr, yoyo: true });
       burst(this, spr.x, spr.y - 8, {
@@ -1954,20 +2032,23 @@ export class GameScene extends Scene {
         speed: 55,
       });
     }
+
     shake(this, 0.005, 110);
     Sound.mine();
     this.holdHit(o, hold, "mining", 3);
-    // Broken — unless someone else's claim on it came first, as with a tree.
+
     if (o.hp <= 0 && this.otherHolder({ id: o.id, kind: "clear" }) === null) {
       const broken = this.claim({ id: o.id, kind: "clear" });
       Sound.thud();
       const stone: Item = { kind: "resource", res: "stone" };
       const got = 1 + Math.trunc(Math.random() * 2);
       const haul: [Item, number][] = [[stone, got - store.inv.add(stone, got)]];
+
       if (Math.random() < 0.25) {
         const coal: Item = { kind: "resource", res: "coal" };
         haul.push([coal, 1 - store.inv.add(coal, 1)]);
       }
+
       if (spr) {
         this.tweens.add({
           alpha: 0,
@@ -1978,6 +2059,7 @@ export class GameScene extends Scene {
           targets: spr,
         });
       }
+
       this.objSprites.delete(o.id);
       this.world.removeObject(o);
       this.shieldClear(o.id);
@@ -1991,24 +2073,28 @@ export class GameScene extends Scene {
         won: () => this.awardXP("mining", 5),
       });
     }
+
     this.requestSave();
   }
 
-  private pickForage(o: WorldObject): void {
-    // Someone else's pick came first: the mushroom goes with the host's word.
+  private pickForage(o: WorldObject) {
     if (this.otherHolder({ id: o.id, kind: "clear" }) !== null) {
       return;
     }
+
     const picked = this.claim({ id: o.id, kind: "clear" });
     const kind: ForageId = o.variant === "mushroom_blue" ? "mushroom_blue" : "mushroom_red";
     let n = 1;
+
     if (Math.random() < store.skills.forageBonusChance()) {
       n += 1;
     }
+
     const item: Item = { forage: kind, kind: "forage" };
     const kept = n - store.inv.add(item, n);
     store.work.foraged += 1;
     const spr = this.objSprites.get(o.id);
+
     if (spr) {
       burst(this, spr.x, spr.y - 4, {
         colors: [0xff_8a_8a, 0x9f_d8_ff, 0xff_ff_ff],
@@ -2024,6 +2110,7 @@ export class GameScene extends Scene {
         y: spr.y - 6,
       });
     }
+
     this.objSprites.delete(o.id);
     this.world.removeObject(o);
     this.shieldClear(o.id);
@@ -2045,54 +2132,61 @@ export class GameScene extends Scene {
     });
   }
 
-  // ---------------------------------------------------------------- economy / ui
-
-  private openShop(): void {
+  private openShop() {
     this.uiOpen = true;
     this.events.emit("open-shop");
   }
 
-  buySeed(crop: CropId, qty: number): boolean {
+  buySeed(crop: CropId, qty: number) {
     return this.buyItem({ crop, kind: "seed" }, qty, CROPS[crop].seedPrice);
   }
 
-  // Deduct gold first, then refund any units that didn't fit — so a partial add
-  // can never leave the player with free items.
-  buyItem(item: Item, qty: number, unitCost: number): boolean {
+  buyItem(item: Item, qty: number, unitCost: number) {
     const cost = unitCost * qty;
+
     if (store.gold < cost) {
       this.toast("Not enough gold.", "#ffb0b0");
+
       return false;
     }
+
     store.gold -= cost;
     const left = store.inv.add(item, qty);
+
     if (left === qty) {
       store.gold += cost;
       this.toast("Inventory full.", "#ffb0b0");
+
       return false;
     }
+
     if (left > 0) {
       store.gold += unitCost * left;
       this.toast("Only some fit — inventory full.", "#ffd27a");
     }
+
     Sound.coins();
     this.requestSave();
+
     return true;
   }
 
-  sellAll(): number {
+  sellAll() {
     const total = store.inv.sellAll();
+
     if (total > 0) {
       store.gold += total;
       store.work.goldEarned += total;
       Sound.coins();
       this.requestSave();
     }
+
     return total;
   }
 
-  private shipProduce(): void {
+  private shipProduce() {
     const total = this.sellAll();
+
     if (total > 0) {
       const previous = this.shipping.day === this.day ? this.shipping : null;
       this.shipping = {
@@ -2101,6 +2195,7 @@ export class GameScene extends Scene {
         shippedGold: (previous?.shippedGold ?? 0) + total,
       };
       const bin = this.world.objects.find((o) => o.type === "bin");
+
       if (bin) {
         burst(this, bin.tx * TILE + 8, bin.ty * TILE + 4, {
           colors: [0xff_d3_4d, 0xff_e2_7a, 0xff_ff_ff],
@@ -2110,93 +2205,95 @@ export class GameScene extends Scene {
         });
         floatText(this, bin.tx * TILE + 8, bin.ty * TILE - 6, `+${total}g`, "#ffe27a");
       }
+
       this.toast(`Shipped goods for ${total}g!`, "#ffe27a");
     } else {
       this.toast("Nothing to ship. Gather produce first.", "#ffd27a");
     }
   }
 
-  closeUi(): void {
+  closeUi() {
     this.uiOpen = false;
     this.uiClosedFrame = this.game.loop.frame;
   }
 
-  private confirmSleep(): void {
+  private confirmSleep() {
     this.uiOpen = true;
     this.events.emit("confirm-sleep");
   }
 
-  // ---------------------------------------------------------------- mine handoff
-
-  private enterMine(): void {
+  private enterMine() {
     if (store.inv.count((it) => it.kind === "tool" && it.tool === "pickaxe") === 0) {
       this.toast("You need a pickaxe to mine.", "#ffd27a");
+
       return;
     }
+
     this.transitioning = true;
     this.save();
     this.cameras.main.fadeOut(450, 0, 0, 0);
     this.cameras.main.once(Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
-      // Unsynced, no update was ever sent: no peer has this farmer to hide.
       const { net } = this;
+
       if (net && this.isOnline() && net.serverClock.synced) {
         net.updateMyState(this.farmerSender.away(net.serverNow()));
       }
+
       this.scene.stop("Hud");
       this.scene.start("Mine", { depth: 1 });
     });
   }
 
-  // ---------------------------------------------------------------- day cycle
-
-  doSleep(): void {
+  doSleep() {
     this.closeUi();
-    // Only the host may end the day: a guest's overnight pass would advance
-    // crops + refill energy locally, then snap back to the host clock —
-    // leaving the worlds diverged (and a free-energy exploit).
+
     if (!this.amHost) {
       this.toast("Only the host can end the day — ask them to sleep!", "#ffd27a");
+
       return;
     }
+
     this.endDay();
   }
 
-  private passOut(): void {
+  private passOut() {
     if (this.transitioning) {
       return;
     }
+
     this.toast("You passed out from exhaustion…", "#c8b6ff");
     this.endDay(true);
   }
 
-  endDay(exhausted = false): void {
+  endDay(exhausted = false) {
     this.transitioning = true;
+
     const recap =
       this.shipping.day === this.day && this.shipping.shipments > 0 ? this.shipping : undefined;
+
     const cam = this.cameras.main;
     cam.fadeOut(600, 6, 10, 24);
     cam.once(Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
-      // Only the host advances the shared world/clock. A guest reaching here
-      // (passing out before it reached the room) still gets the personal
-      // night — but running overnight growth locally would diverge from the
-      // world the host publishes. Connected guests get theirs in adoptClock.
       if (this.amHost) {
         const changed = this.runOvernight();
-        // Mid-reconnect too: the patch applies here, and the reconnect
-        // re-sends whatever the room holds differently.
         const { net } = this;
+
         if (net && net.connectionStatus !== "offline") {
           this.farmSync.publishTiles(net, changed);
         }
+
         this.day += 1;
         this.shipping = { day: this.day, shipments: 0, shippedGold: 0 };
         this.timeMin = DAY_START_MIN;
         this.weather = weatherForDay(this.seed, this.day);
       }
+
       this.wakeUp(exhausted);
+
       if (this.amHost) {
         this.events.emit("daybanner", this.day, seasonOfDay(this.day), this.weather, recap);
       }
+
       Sound.wake();
       cam.fadeIn(700, 6, 10, 24);
       cam.once(Cameras.Scene2D.Events.FADE_IN_COMPLETE, () => {
@@ -2205,23 +2302,22 @@ export class GameScene extends Scene {
     });
   }
 
-  /** The shared farm's night (host only). Returns the tiles that changed. */
-  private runOvernight(): Set<number> {
+  private runOvernight() {
     const nextDay = this.day + 1;
+
     const changed = this.world.growOvernight(
       seasonOfDay(nextDay),
       isWet(weatherForDay(this.seed, nextDay)),
     );
+
     for (const idx of changed) {
       this.redrawTile(idx);
     }
+
     return changed;
   }
 
-  /** This farmer's own night, on every client — the host's at its day end, a
-   *  guest's when the host's next day reaches it: vitals, a full can, their
-   *  animals' produce and the villagers' daily chats. */
-  private wakeUp(exhausted: boolean): void {
+  private wakeUp(exhausted: boolean) {
     this.canCharge = CAN_MAX;
     this.animals.runOvernight();
     this.npcs.runOvernight();
@@ -2230,22 +2326,21 @@ export class GameScene extends Scene {
     this.save();
   }
 
-  // ---------------------------------------------------------------- misc
-
-  private updateNightTint(): void {
+  private updateNightTint() {
     const { color, alpha } = tintFor(this.timeMin, this.weather);
     this.nightOverlay.setFillStyle(color);
     this.nightOverlay.setAlpha(alpha);
   }
 
-  toast(text: string, color = "#fff6d5"): void {
+  toast(text: string, color = "#fff6d5") {
     this.events.emit("toast", text, color);
   }
 
-  showDiscovery(discovery: CollectionDiscovery | null): void {
+  showDiscovery(discovery: CollectionDiscovery | null) {
     if (!discovery) {
       return;
     }
+
     this.toast(
       discovery.completedSeason
         ? `${discovery.season} journal complete!`
@@ -2258,39 +2353,45 @@ export class GameScene extends Scene {
   overnightPreview() {
     const season = seasonOfDay(this.day + 1);
     let withering = 0;
+
     for (const crop of this.world.crops.values()) {
       if (!CROPS[crop.crop].seasons.includes(season)) {
         withering += 1;
       }
     }
+
     return { changingSeason: season !== this.season(), season, withering };
   }
 
   /** Mark the save dirty; update() flushes at most every SAVE_FLUSH_SEC.
    *  Transitions (enterMine/endDay) and hidden/beforeunload call save() directly. */
-  requestSave(): void {
+  requestSave() {
     this.saveDirty = true;
   }
 
-  get savePending(): boolean {
+  get savePending() {
     return this.saveDirty;
   }
 
-  retryPendingSave(dt: number): void {
+  retryPendingSave(dt: number) {
     this.saveAcc += dt;
+
     if (this.saveDirty && this.saveAcc >= SAVE_FLUSH_SEC) {
       this.save();
     }
   }
 
-  save(): void {
+  save() {
     if (!this.farmReady) {
       return;
     }
+
     this.saveAcc = 0;
+
     if (this.scene.isActive()) {
       this.farmPosition = { x: this.player.x, y: this.player.y };
     }
+
     const d: SaveData = {
       animalSeq: store.animalSeq,
       animals: store.animalSave(),
@@ -2309,12 +2410,14 @@ export class GameScene extends Scene {
       v: 3,
       world: this.world.toJSON(),
     };
+
     const outcome = writeSave(d);
     this.saveDirty = outcome.kind === "failure";
-    // The mine saves through this stopped scene; its own HUD shows the retry hint.
+
     if (!this.scene.isActive()) {
       return;
     }
+
     if (outcome.kind === "failure" && !this.saveFailed) {
       this.saveFailed = true;
       this.toast("Save unavailable. Progress stays here; retrying…", "#ffd27a");
@@ -2328,7 +2431,7 @@ export class GameScene extends Scene {
    *  (target tile, selected item); every busy state drops the memo, so an
    *  action's outcome (tilled, watered, out of energy) re-reads on the next
    *  idle frame instead of every frame. */
-  actionHint(): string | null {
+  actionHint() {
     if (
       this.controlsPaused ||
       this.uiOpen ||
@@ -2337,13 +2440,18 @@ export class GameScene extends Scene {
       this.fishing.active
     ) {
       this.hintKey.idx = -1;
+
       return null;
     }
+
     const idx = this.targetIdx();
+
     if (idx < 0) {
       return null;
     }
+
     const item = store.inv.selectedItem();
+
     if (idx !== this.hintKey.idx || item !== this.hintKey.item) {
       this.hintKey.idx = idx;
       this.hintKey.item = item;
@@ -2359,15 +2467,17 @@ export class GameScene extends Scene {
         world: this.world,
       });
     }
+
     return this.hint;
   }
-  season(): Season {
+  season() {
     return seasonOfDay(this.day);
   }
-  actionHeld(): boolean {
+  actionHeld() {
     if (this.controlsPaused) {
       return false;
     }
+
     return (
       this.keys.SPACE.isDown ||
       this.keys.E.isDown ||
@@ -2375,7 +2485,7 @@ export class GameScene extends Scene {
       this.pad.isButtonDown("a")
     );
   }
-  playerAnim(key: string): void {
+  playerAnim(key: string) {
     this.player.play(key, true);
   }
 }

@@ -1,7 +1,3 @@
-// Renderer + post-processing chain: scene render -> NaN/Inf sanitize -> GTAO
-// (high tiers) -> bloom -> colour grade -> output. Rebuilt whenever the
-// quality tier changes, since MSAA sample count and AO are baked into the
-// composer's render targets.
 import * as THREE from "three";
 import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { GTAOPass } from "three/addons/postprocessing/GTAOPass.js";
@@ -18,12 +14,11 @@ export interface PipelineToggles {
   ao: boolean;
   bloom: boolean;
 }
+
 export type ToggleName = keyof PipelineToggles;
 
 const CLEAR_COLOR = 0x0b_0e_1a;
 
-// A single NaN in the HDR buffer smears into a black rectangle once bloom
-// blurs it, so scrub the scene colour before any pass reads it.
 const SANITIZE_SHADER = {
   fragmentShader: `
     uniform sampler2D tDiffuse;
@@ -44,8 +39,6 @@ const SANITIZE_SHADER = {
     }`,
 };
 
-// Vignette, saturation and a night tint that only colours the dark end, so
-// lamp-lit areas keep their warmth. The lighting rig drives the uniforms.
 const GRADE_SHADER = {
   fragmentShader: `
     uniform sampler2D tDiffuse;
@@ -79,9 +72,7 @@ const GRADE_SHADER = {
     }`,
 };
 
-// With PCSS spliced in, the shader does all the filtering itself and the
-// hardware filter must stay off.
-const shadowMapTypeFor = (pcss: boolean): THREE.ShadowMapType =>
+const shadowMapTypeFor: (pcss: boolean) => THREE.ShadowMapType = (pcss) =>
   pcss ? THREE.BasicShadowMap : THREE.PCFShadowMap;
 
 const buildAoPass = (
@@ -89,7 +80,7 @@ const buildAoPass = (
   camera: THREE.Camera,
   size: THREE.Vector2,
   enabled: boolean,
-): SceneAoPass => {
+) => {
   const pass = new SceneAoPass(scene, camera, size.x, size.y);
   pass.output = GTAOPass.OUTPUT.Default;
   pass.blendIntensity = 0.85;
@@ -112,6 +103,7 @@ const buildAoPass = (
     samples: 14,
   });
   pass.enabled = enabled;
+
   return pass;
 };
 
@@ -123,7 +115,6 @@ export class Pipeline {
   qualityName: QualityName;
   quality: Quality;
   toggles: PipelineToggles;
-  // >0 forces this pixel ratio (the `?ss=` param); 0 follows the quality tier
   superSample: number;
   composer: EffectComposer | null;
   gtao: SceneAoPass | null;
@@ -136,21 +127,20 @@ export class Pipeline {
     this.scene = scene;
     this.camera = camera;
     this.pcssAvailable = installPcssShadows();
+
     const renderer = new THREE.WebGLRenderer({
       antialias: false,
       canvas,
       powerPreference: "high-performance",
       stencil: false,
     });
+
     this.renderer = renderer;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1;
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = shadowMapTypeFor(this.pcssAvailable);
-    // The composer renders the scene more than once per frame (GTAO's
-    // normal/depth pre-pass), so render() arms the shadow maps by hand and only
-    // the first scene render redraws them.
     renderer.shadowMap.autoUpdate = false;
     renderer.setClearColor(CLEAR_COLOR, 1);
     this.qualityName = "high";
@@ -165,40 +155,49 @@ export class Pipeline {
     this.height = 1;
   }
 
-  get usingPCSS(): boolean {
+  get usingPCSS() {
     return this.pcssAvailable && this.quality.pcss;
   }
 
-  setQuality(name: string): void {
+  setQuality(name: string) {
     if (!isQualityName(name)) {
       return;
     }
+
     this.qualityName = name;
     this.quality = QUALITIES[name];
     const shadowType = shadowMapTypeFor(this.usingPCSS);
+
     if (this.renderer.shadowMap.type !== shadowType) {
       this.renderer.shadowMap.type = shadowType;
     }
+
     this.build();
   }
 
-  build(): void {
+  build() {
     const { quality, renderer } = this;
     const width = Math.max(2, window.innerWidth);
     const height = Math.max(2, window.innerHeight);
+
     const pixelRatio =
       this.superSample > 0 ? this.superSample : Math.min(window.devicePixelRatio || 1, quality.dpr);
+
     renderer.setPixelRatio(pixelRatio);
     renderer.setSize(width, height, false);
     this.width = width;
     this.height = height;
+
     if (this.composer) {
       for (const pass of this.composer.passes) {
         pass.dispose();
       }
+
       this.composer.dispose();
     }
+
     const bufferSize = renderer.getDrawingBufferSize(new THREE.Vector2());
+
     const composer = new EffectComposer(
       renderer,
       new THREE.WebGLRenderTarget(bufferSize.x, bufferSize.y, {
@@ -206,23 +205,27 @@ export class Pipeline {
         type: THREE.HalfFloatType,
       }),
     );
+
     composer.setPixelRatio(pixelRatio);
     composer.setSize(width, height);
     this.composer = composer;
     composer.addPass(new RenderPass(this.scene, this.camera));
     composer.addPass(new ShaderPass(SANITIZE_SHADER));
     this.gtao = null;
+
     if (quality.ao) {
       const gtao = buildAoPass(this.scene, this.camera, bufferSize, this.toggles.ao);
       composer.addPass(gtao);
       this.gtao = gtao;
     }
+
     const bloom = new UnrealBloomPass(
       new THREE.Vector2(bufferSize.x, bufferSize.y),
       0.5,
       0.72,
       1.2,
     );
+
     bloom.enabled = quality.bloom && this.toggles.bloom;
     this.bloom = bloom;
     composer.addPass(bloom);
@@ -231,22 +234,26 @@ export class Pipeline {
     composer.addPass(new OutputPass());
   }
 
-  setToggle(name: ToggleName, on: boolean): void {
+  setToggle(name: ToggleName, on: boolean) {
     this.toggles[name] = on;
+
     if (name === "ao" && this.gtao) {
       this.gtao.enabled = on;
     }
+
     if (name === "bloom" && this.bloom) {
       this.bloom.enabled = on && this.quality.bloom;
     }
   }
 
-  resize(): void {
+  resize() {
     const width = Math.max(2, window.innerWidth);
     const height = Math.max(2, window.innerHeight);
+
     if (width === this.width && height === this.height) {
       return;
     }
+
     this.width = width;
     this.height = height;
     this.renderer.setSize(width, height, false);
@@ -255,15 +262,16 @@ export class Pipeline {
     this.camera.updateProjectionMatrix();
   }
 
-  render(dt: number): void {
+  render(dt: number) {
     this.renderer.shadowMap.needsUpdate = true;
     this.requireComposer().render(dt);
   }
 
-  private requireComposer(): EffectComposer {
+  private requireComposer() {
     if (!this.composer) {
       throw new Error("Pipeline.build() must run before the first frame");
     }
+
     return this.composer;
   }
 }

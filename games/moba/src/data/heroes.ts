@@ -1,12 +1,9 @@
-// Hero definitions distilled from the design pass. Pure data: per-rank numbers
-// plus an `effect` tag the ability system switches on (see sim/abilities.ts).
-
 export type AbilityKey = "Q" | "W" | "E" | "R";
 
-// How the player aims an ability (drives input + bot targeting).
 export type Targeting = "unit" | "point" | "none" | "passive";
 
 export type AbilityValue = number | number[] | boolean;
+
 export type AbilityValues = Record<string, AbilityValue>;
 
 export interface AbilityDef {
@@ -18,7 +15,6 @@ export interface AbilityDef {
   /** how the design categorised it (for tooltips/fx) */
   flavor: string;
   desc: string;
-  // 4 for Q/W/E, 3 for R
   maxRank: number;
   manaCost: number[];
   cooldown: number[];
@@ -35,11 +31,8 @@ export interface HeroStats {
   damage: number;
   armor: number;
   attackRange: number;
-  // attacks/sec
   attackSpeed: number;
-  // px/sec
   moveSpeed: number;
-  // 0 = melee instant
   projectileSpeed: number;
 }
 
@@ -59,18 +52,21 @@ export interface HeroDef {
 }
 
 /** Read a per-rank value; scalars apply at every rank. rank is 1-based. */
-export const valAt = (v: AbilityValue | undefined, rank: number): number => {
+export const valAt = (v: AbilityValue | undefined, rank: number) => {
   if (Array.isArray(v)) {
     return v[Math.max(0, Math.min(v.length - 1, rank - 1))] ?? 0;
   }
+
   if (v === undefined || v === false || v === true) {
     return 0;
   }
+
   return v;
 };
 
-const ab = (d: Omit<AbilityDef, "maxRank" | "isUltimate"> & { maxRank?: number }): AbilityDef => {
+const ab = (d: Omit<AbilityDef, "maxRank" | "isUltimate"> & { maxRank?: number }) => {
   const isUltimate = d.key === "R";
+
   return { ...d, isUltimate, maxRank: d.maxRank ?? (isUltimate ? 3 : 4) };
 };
 
@@ -667,8 +663,9 @@ const failEmptyHeroes = (): never => {
 /** Fallback definition (ironvow) for lookups by an unknown hero id. */
 export const DEFAULT_HERO: HeroDef = HEROES[0] ?? failEmptyHeroes();
 
-export const heroStatAt = (h: HeroDef, stat: keyof HeroStats, level: number): number => {
+export const heroStatAt = (h: HeroDef, stat: keyof HeroStats, level: number) => {
   const base = h.base[stat];
   const g = h.growth[stat] ?? 0;
+
   return base + g * (level - 1);
 };

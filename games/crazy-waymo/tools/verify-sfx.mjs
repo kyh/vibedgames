@@ -1,39 +1,47 @@
-// Browser audio acceptance: real controls and staged game positions/timers.
-// Usage: node tools/verify-sfx.mjs [dev-url] [output-directory]
 import { writeFileSync } from "node:fs";
 import path from "node:path";
 import { createMobileSession } from "./mobile-browser-session.mjs";
 
 const url = process.argv[2] ?? "http://localhost:5193/?time=noon&offline=1";
 const output = path.resolve(process.argv[3] ?? "/private/tmp/waymo-sfx");
+
 const { call, evaluate, until, sleep, screenshot, close, pageErrors } = await createMobileSession({
   output,
   sessionPrefix: "crazy-waymo-sfx",
 });
+
 const report = { checkedAt: new Date().toISOString(), checks: [], url };
+
 const check = (name, passed, evidence) => {
   report.checks.push({ evidence, name, passed });
   console.log(JSON.stringify({ evidence, name, passed }));
+
   if (!passed) {
     throw new Error(name);
   }
 };
+
 const count = (method) =>
   evaluate(`window.__sfxEvents.filter(event => event.method === ${JSON.stringify(method)}).length`);
+
 const diagnostics = () => evaluate("window.__taxi.game.sfx.diagnostics()");
+
 const key = async (name, code, virtualKey, hold = 80) => {
   const event = { code, key: name, windowsVirtualKeyCode: virtualKey };
   await call("Input.dispatchKeyEvent", { ...event, type: "keyDown" });
   await sleep(hold);
   await call("Input.dispatchKeyEvent", { ...event, type: "keyUp" });
 };
+
 const click = async (selector) => {
   await until(
     `(()=>{const e=document.querySelector(${JSON.stringify(selector)});if(!e)return false;const r=e.getBoundingClientRect();return r.width>0&&r.height>0&&e.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2))})()`,
   );
+
   const point = await evaluate(
     `(()=>{const r=document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()`,
   );
+
   await call("Input.dispatchMouseEvent", { type: "mouseMoved", ...point });
   await call("Input.dispatchMouseEvent", {
     button: "left",
@@ -48,6 +56,7 @@ const click = async (selector) => {
     ...point,
   });
 };
+
 const stageFareObjective = async () => {
   await evaluate(`(()=>{
     const game = window.__taxi.game;
@@ -63,6 +72,7 @@ const stageFareObjective = async () => {
     game.rig.snapTo(game.car);
   })()`);
 };
+
 try {
   await call("Runtime.enable");
   await call("Page.enable");
@@ -85,15 +95,18 @@ try {
       };
     }
   })()`);
+
   if (await evaluate("window.__taxi.game.sfx.muted")) {
     await key("m", "KeyM", 77);
   }
+
   await click("#banner-cta");
   await until('window.__taxi.game.mode.kind === "playing"');
   await until(
     "(()=>{const bank=window.__taxi.game.sfx.diagnostics().bank;return bank.loaded + bank.failed.length === bank.total})()",
   );
   const { bank } = await diagnostics();
+
   if (bank.failed.length > 0) {
     report.assetFailures = await evaluate(`(async()=>{
       const ctx = new AudioContext();
@@ -109,6 +122,7 @@ try {
       return failures;
     })()`);
   }
+
   check("complete sound bank loaded", bank.loaded === bank.total && bank.total > 0, bank);
   await evaluate(`(()=>{
     const sfx = window.__taxi.game.sfx;
@@ -252,9 +266,11 @@ try {
   await screenshot("garage");
   await evaluate("window.__taxi.teleport(0.37, 0.39)");
   await until("!window.__taxi.game.garageOpen");
+
   const ui = await evaluate(
     'window.__sfxEvents.filter(event => event.method === "ui").map(event => event.args[0])',
   );
+
   check(
     "garage browse, select, open and close cues",
     ["open", "move", "select", "back"].every((cue) => ui.includes(cue)),
@@ -300,22 +316,21 @@ try {
 } catch (error) {
   report.failure = String(error);
   report.pageErrors = pageErrors;
+
   try {
     report.finalAudio = await diagnostics();
     report.events = await evaluate("window.__sfxEvents");
-  } catch {
-    // A dead page cannot describe its own audio; the failure above is the report.
+  } catch (readError) {
+    report.finalAudioError = String(readError);
   }
-  try {
-    await screenshot("failure");
-  } catch {
-    // A dead page cannot be photographed; the failure above is the report.
-  }
+
+  await screenshot("failure").catch(() => null);
 } finally {
   report.passed = !report.failure && report.checks.every((entry) => entry.passed);
   writeFileSync(path.join(output, "report.json"), `${JSON.stringify(report, null, 2)}\n`);
   close();
 }
+
 if (!report.passed) {
   process.exitCode = 1;
 }

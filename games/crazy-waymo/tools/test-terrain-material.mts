@@ -11,13 +11,14 @@ import { CUSTOM_MAP } from "../src/world/custom-map.ts";
 import { groundBlendInto, makeGroundBlendAt, makeGroundColorAt } from "../src/world/ground.ts";
 import type { CityPlan } from "../src/world/grid.ts";
 import { makeLandClassAt, wheelSurface } from "../src/world/land-class.ts";
-import type { GroundCover, LandClass, LandClassAt } from "../src/world/land-class.ts";
+import type { GroundCover, LandClassAt } from "../src/world/land-class.ts";
 import { makeTerrain } from "../src/world/sf-map.ts";
 
 type Check = (name: string, condition: boolean, detail?: string) => void;
+
 const blend = () => ({ loose: 0, sand: 0, stone: 0, turf: 0 });
 
-const landFixture = (cover: GroundCover, under = cover, strength = 1): LandClass => ({
+const landFixture = (cover: GroundCover, under = cover, strength = 1) => ({
   built: false,
   cover,
   fabric: { kind: "interior" },
@@ -31,30 +32,35 @@ const landFixture = (cover: GroundCover, under = cover, strength = 1): LandClass
 
 type Blend = ReturnType<typeof blend>;
 
-const surfaceMismatch = (surface: string, value: Blend): boolean => {
+const surfaceMismatch = (surface: string, value: Blend) => {
   switch (surface) {
     case "grass": {
       return value.turf < 0.8;
     }
+
     case "sand": {
       return value.sand < 0.68;
     }
+
     case "rock": {
       return value.stone < 0.8;
     }
+
     case "dirt": {
       return value.loose < 0.8;
     }
+
     case "gravel": {
       return value.stone < 0.56 || value.loose < 0.24;
     }
+
     default: {
       return false;
     }
   }
 };
 
-const checkCoverBlends = (check: Check): void => {
+const checkCoverBlends = (check: Check) => {
   const grass = blend();
   groundBlendInto(landFixture("grassland"), grass);
   const sand = blend();
@@ -99,17 +105,20 @@ const checkCoverBlends = (check: Check): void => {
   );
 };
 
-const checkBlendTexture = (check: Check): void => {
+const checkBlendTexture = (check: Check) => {
   const texture = createTerrainBlendTexture((x, z, into) => {
     into.turf = x < 0 ? 1 : 0;
     into.sand = x >= 0 && z < 0 ? 1 : 0;
     into.stone = x >= 0 && z >= 0 ? 1 : 0;
     into.loose = 0;
   });
+
   const { data } = texture.image;
+
   if (!(data instanceof Uint8Array)) {
     throw new TypeError("Terrain classification stopped using RGBA8");
   }
+
   const ne = (TERRAIN_BLEND_SIZE - 1) * 4;
   const sw = (TERRAIN_BLEND_SIZE - 1) * TERRAIN_BLEND_SIZE * 4;
   const se = TERRAIN_BLEND_BYTES - 4;
@@ -134,16 +143,12 @@ const checkBlendTexture = (check: Check): void => {
   texture.dispose();
 };
 
-const checkWorldSurfaces = (
-  check: Check,
-  plan: CityPlan,
-  landAt: LandClassAt,
-  value: Blend,
-): void => {
+const checkWorldSurfaces = (check: Check, plan: CityPlan, landAt: LandClassAt, value: Blend) => {
   const blendAt = makeGroundBlendAt(landAt);
   const sampled = new Set<string>();
   let mismatches = 0;
   let normalized = true;
+
   for (let gz = 0; gz < GRID_Z; gz += 2) {
     for (let gx = 0; gx < GRID_X; gx += 2) {
       const x = (gx + 0.5) * ROAD_TILE - WORLD_HALF_X;
@@ -154,16 +159,20 @@ const checkWorldSurfaces = (
       normalized &&=
         weights.every((weight) => weight >= 0 && weight <= 1) &&
         weights.reduce((sum, weight) => sum + weight, 0) <= 1.000001;
+
       if (land.strength < 0.8 || land.fabric.kind === "street" || land.shore.kind !== "inland") {
         continue;
       }
+
       const surface = wheelSurface(land);
       sampled.add(surface);
+
       if (surfaceMismatch(surface, value)) {
         mismatches += 1;
       }
     }
   }
+
   check("world terrain material blends stay normalized", normalized);
   check(
     "world ground treatments agree with tire surfaces across actual SF land classes",
@@ -177,7 +186,7 @@ const checkWorldSurfaces = (
 };
 
 /** Material identity is tied to land semantics, never to the baked RGB palette. */
-export const checkTerrainMaterials = (check: Check, plan: CityPlan): void => {
+export const checkTerrainMaterials = (check: Check, plan: CityPlan) => {
   checkCoverBlends(check);
   checkBlendTexture(check);
 
@@ -187,6 +196,7 @@ export const checkTerrainMaterials = (check: Check, plan: CityPlan): void => {
   checkWorldSurfaces(check, plan, landAt, value);
 
   const originalFloor = CUSTOM_MAP.floor;
+
   try {
     CUSTOM_MAP.floor = [
       [10, 10, "grass"],

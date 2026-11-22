@@ -41,7 +41,7 @@ export const creditsContract = {
     .meta(
       documented({
         description:
-          "Returns the caller's generation credit balance in micro-USD (1,000,000 = $1), their 100 most recent ledger entries, and whether card purchases are open.",
+          "Returns the caller's generation credit balance in micro-USD (1,000,000 = $1), their 100 most recent ledger entries, whether card purchases are open, and whether the caller must confirm their email before redeeming a code.",
         summary: "Get your credit balance",
       }),
     )
@@ -49,6 +49,11 @@ export const creditsContract = {
       z.object({
         balanceMicro: z.number().int(),
         entries: z.array(creditEntry),
+        mustVerifyEmail: z
+          .boolean()
+          .describe(
+            "True until the caller confirms their email address; `credits.redeem` answers 412 meanwhile.",
+          ),
         purchasesEnabled: z
           .boolean()
           .describe(
@@ -62,8 +67,8 @@ export const creditsContract = {
     .meta(
       documented({
         description:
-          "Redeems a credit code for the caller, adding its value to their balance. Each account can redeem a given code once. 403 when the code is unknown, expired, revoked or used up; 409 when this account already redeemed it.",
-        errors: [403, 409],
+          "Redeems a credit code for the caller, adding its value to their balance. Each account can redeem a given code once. 403 when the code is unknown, expired, revoked or used up; 409 when this account already redeemed it; 412 until the account's email address is confirmed.",
+        errors: [403, 409, 412],
         summary: "Redeem a credit code",
       }),
     )

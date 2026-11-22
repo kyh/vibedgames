@@ -26,13 +26,17 @@ export const PlayView = () => {
   const refresh = useCallback(() => {
     const iframe =
       iframeRef.current ?? document.querySelector<HTMLIFrameElement>("iframe[title='Game']");
+
     if (!iframe) {
       return;
     }
+
     setLoading(true);
+
     if (timerRef.current) {
       clearTimeout(timerRef.current);
     }
+
     timerRef.current = setTimeout(() => setLoading(false), 1500);
     const src = new URL(iframe.src);
     src.searchParams.set("t", Date.now().toString());

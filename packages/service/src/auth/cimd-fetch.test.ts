@@ -3,21 +3,16 @@ import { afterEach, describe, test } from "node:test";
 
 import { fetchClientMetadataResource } from "./cimd-fetch";
 
-/**
- * The transport is the only network boundary a client's `client_id` URL
- * reaches: it must refuse what the edge does not, and never follow a redirect.
- */
-
 const realFetch = globalThis.fetch;
 const seen: { redirect: string | undefined; url: string }[] = [];
 
-/** The transport's answer as a promise, whatever it returns. */
 const fetchMetadata = async (url: string, init?: RequestInit) =>
   await fetchClientMetadataResource(url, init);
 
 const answerWith = (response: Response) => {
   globalThis.fetch = (input, init) => {
     seen.push({ redirect: init?.redirect, url: String(input) });
+
     return Promise.resolve(response);
   };
 };
@@ -48,7 +43,6 @@ describe("fetchClientMetadataResource", () => {
     ["plain HTTP", "http://claude.ai/oauth/client.json"],
     ["an IPv4 literal", "https://169.254.169.254/latest/meta-data"],
     ["an IPv6 literal", "https://[::1]/client.json"],
-    // `URL.hostname` keeps the brackets, which is what the literal check matches.
     ["a public IPv6 literal", "https://[2606:4700::1111]/client.json"],
     ["a loopback name", "https://localhost/client.json"],
   ]) {

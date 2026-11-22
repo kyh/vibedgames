@@ -22,53 +22,51 @@ const DIR_KEY = {
   up: "ArrowUp",
 } satisfies Record<Dir, string>;
 
-// An empty hold, not null: a reflex that returns null leaves the previous
-// frame's keys down, and a stale direction walks back into the blast.
 const RELEASE: ReflexInputs = { keys: [] };
 
 const isDir = (step: PlanStep): step is Dir => step in DIR_KEY;
 
-// Directions go down only once the step cooldown has elapsed. The game queues
-// a direction on its keydown edge, so a key pressed mid-step is taken a cell
-// later — by which time the plan may have changed.
-const press = (diag: BombermanDiagnostics, step: PlanStep): ReflexInputs => {
+const press = (diag: BombermanDiagnostics, step: PlanStep) => {
   if (step === "bomb") {
     return { keys: ["Space"] };
   }
+
   return isDir(step) && diag.canStep ? { keys: [DIR_KEY[step]] } : RELEASE;
 };
 
 type Intent = "crate" | "bot" | "powerup" | "bombHere";
 
-/** Cover first, then the intent's next step, then the fallbacks' — so a move with no target still plays. */
 const pursue =
   (...intents: Intent[]) =>
-  (diag: BombermanDiagnostics | null): ReflexInputs => {
+  (diag: BombermanDiagnostics | null) => {
     const plan = diag?.plan;
+
     if (!diag || !plan) {
       return RELEASE;
     }
+
     if (diag.inDanger) {
       return press(diag, plan.cover);
     }
+
     const step = intents.map((intent) => plan[intent]).find((next) => next !== "none");
+
     return press(diag, step ?? "wait");
   };
 
-const walk =
-  (dir: Dir) =>
-  (diag: BombermanDiagnostics | null): ReflexInputs => {
-    const ahead = diag?.around?.[dir];
-    if (!diag || ahead === undefined) {
-      return RELEASE;
-    }
-    // A free step while a fuse burns is how a player walks into a dead end
-    // beside their own bomb; cover outranks the direction, as in every move.
-    if (diag.inDanger) {
-      return press(diag, diag.plan?.cover ?? "wait");
-    }
-    return ahead === "open" ? press(diag, dir) : RELEASE;
-  };
+const walk = (dir: Dir) => (diag: BombermanDiagnostics | null) => {
+  const ahead = diag?.around?.[dir];
+
+  if (!diag || ahead === undefined) {
+    return RELEASE;
+  }
+
+  if (diag.inDanger) {
+    return press(diag, diag.plan?.cover ?? "wait");
+  }
+
+  return ahead === "open" ? press(diag, dir) : RELEASE;
+};
 
 export const playtestManifest = definePlaytest<BombermanDiagnostics>({
   goal: [

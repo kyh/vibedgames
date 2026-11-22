@@ -1,7 +1,3 @@
-// Every transient visual in the arena: glow and smoke particles, muzzle and
-// blast flashes, debris chunks, ground scorch decals, shockwave rings and the
-// night-time fireflies. Combat and the brawlers call the named recipes here
-// (`muzzle`, `explosion`, `leaves`, ...) and never touch the pools directly.
 import * as THREE from "three";
 import type { Game } from "../game";
 import type { FxMethod, FxRecorder } from "../net/presentation";
@@ -10,14 +6,12 @@ import { terrainHeight } from "../world/terrain";
 import { DebrisField } from "./debris";
 import { DecalPool } from "./decals";
 import { createFireflies } from "./fireflies";
-import type { FireflySwarm, FireflyUniforms } from "./fireflies";
+import type { FireflyUniforms } from "./fireflies";
 import { FlashList } from "./flashes";
 import { ParticlePool } from "./particle-pool";
 import { RingPool } from "./rings";
 import { SlashPool } from "./slashes";
 
-// A full turn, deliberately a touch short of 2π: the gap is invisible in a
-// random scatter and the value is what the effects were tuned against.
 const TURN = 6.28;
 const DEBRIS_CAP = 140;
 
@@ -38,7 +32,6 @@ export class Effects {
   private readonly slashes: SlashPool;
   /** While hosting online, every top-level recipe call is also written here for guests. */
   recorder: FxRecorder | null = null;
-  /** Nesting depth of recipe calls: composites (explosion → flash + ring …) record once. */
   private depth = 0;
 
   constructor(game: Game) {
@@ -57,28 +50,29 @@ export class Effects {
     this.fireflyUniforms = swarm.uniforms;
   }
 
-  private buildFireflies(): void {
+  private buildFireflies() {
     const swarm = this.mountFireflies();
     this.fireflies = swarm.points;
     this.fireflyMat = swarm.material;
     this.fireflyUniforms = swarm.uniforms;
   }
 
-  private mountFireflies(): FireflySwarm {
+  private mountFireflies() {
     const swarm = createFireflies(this.game.world);
     this.game.scene.add(swarm.points);
+
     return swarm;
   }
 
   /** The world was regenerated: re-seat the fireflies on the new bushes. */
-  rebuildFireflies(): void {
+  rebuildFireflies() {
     this.game.scene.remove(this.fireflies);
     this.fireflies.geometry.dispose();
     this.fireflyMat.dispose();
     this.buildFireflies();
   }
 
-  private record(m: FxMethod, a: number[]): void {
+  private record(m: FxMethod, a: number[]) {
     if (this.depth === 0) {
       this.recorder?.(m, a);
     }
@@ -92,12 +86,12 @@ export class Effects {
     intensity: number,
     distance: number,
     duration: number,
-  ): void {
+  ) {
     this.record("flash", [x, y, z, color.getHex(), intensity, distance, duration]);
     this.flashes.add(x, y, z, color, intensity, distance, duration);
   }
 
-  spark(x: number, y: number, z: number, color: THREE.Color): void {
+  spark(x: number, y: number, z: number, color: THREE.Color) {
     this.glow.emit(
       x,
       y,
@@ -127,12 +121,12 @@ export class Effects {
     color: THREE.Color,
     big: boolean,
     followTime = 0.13,
-  ): void {
+  ) {
     this.record("slash", [x, y, z, angle, radius, arc, color.getHex(), big ? 1 : 0, followTime]);
     this.slashes.spawn(x, y, z, angle, radius, arc, color, big, followTime);
   }
 
-  trail(x: number, y: number, z: number, color: THREE.Color, size: number): void {
+  trail(x: number, y: number, z: number, color: THREE.Color, size: number) {
     this.glow.emit(
       x + rand(-0.04, 0.04),
       y + rand(-0.04, 0.04),
@@ -152,8 +146,9 @@ export class Effects {
     );
   }
 
-  impact(x: number, y: number, z: number, color: THREE.Color, count: number): void {
+  impact(x: number, y: number, z: number, color: THREE.Color, count: number) {
     this.record("impact", [x, y, z, color.getHex(), count]);
+
     for (let i = 0; i < count; i += 1) {
       const angle = Math.random() * TURN;
       const speed = rand(1.5, 5);
@@ -175,6 +170,7 @@ export class Effects {
         9,
       );
     }
+
     this.glow.emit(
       x,
       y,
@@ -194,8 +190,9 @@ export class Effects {
     );
   }
 
-  burst(x: number, y: number, z: number, color: THREE.Color, count: number, speed: number): void {
+  burst(x: number, y: number, z: number, color: THREE.Color, count: number, speed: number) {
     this.record("burst", [x, y, z, color.getHex(), count, speed]);
+
     for (let i = 0; i < count; i += 1) {
       const angle = Math.random() * TURN;
       const v = rand(0.4, 1) * speed;
@@ -227,7 +224,7 @@ export class Effects {
     dz: number,
     color: THREE.Color,
     scale: number,
-  ): void {
+  ) {
     this.record("muzzle", [x, y, z, dx, dz, color.getHex(), scale]);
     this.depth += 1;
     this.flash(x + dx * 0.2, y + 0.1, z + dz * 0.2, color, 6.5 * scale, 5.5, 0.09);
@@ -249,6 +246,7 @@ export class Effects {
       0,
       0,
     );
+
     for (let i = 0; i < 5; i += 1) {
       const jitter = 0.5;
       const vx = dx * rand(4, 9) + rand(-0.5, jitter) * 3;
@@ -271,6 +269,7 @@ export class Effects {
         3,
       );
     }
+
     this.smoke.emit(
       x + dx * 0.15,
       y + 0.05,
@@ -290,8 +289,9 @@ export class Effects {
     );
   }
 
-  dust(x: number, z: number, count: number, speed: number): void {
+  dust(x: number, z: number, count: number, speed: number) {
     this.record("dust", [x, z, count, speed]);
+
     for (let i = 0; i < count; i += 1) {
       const angle = Math.random() * TURN;
       const v = rand(0.4, 1) * speed;
@@ -315,7 +315,7 @@ export class Effects {
     }
   }
 
-  footDust(x: number, z: number): void {
+  footDust(x: number, z: number) {
     this.smoke.emit(
       x + rand(-0.1, 0.1),
       terrainHeight(x, z) + 0.06,
@@ -335,8 +335,9 @@ export class Effects {
     );
   }
 
-  leaves(x: number, z: number, count: number): void {
+  leaves(x: number, z: number, count: number) {
     this.record("leaves", [x, z, count]);
+
     for (let i = 0; i < count; i += 1) {
       const angle = Math.random() * TURN;
       this.smoke.emit(
@@ -359,8 +360,9 @@ export class Effects {
     }
   }
 
-  healPuff(x: number, z: number): void {
+  healPuff(x: number, z: number) {
     this.record("healPuff", [x, z]);
+
     for (let i = 0; i < 5; i += 1) {
       this.glow.emit(
         x + rand(-0.4, 0.4),
@@ -382,29 +384,22 @@ export class Effects {
     }
   }
 
-  debris(x: number, y: number, z: number, color: THREE.ColorRepresentation, count: number): void {
+  debris(x: number, y: number, z: number, color: THREE.ColorRepresentation, count: number) {
     this.record("debris", [x, y, z, scratchColor.set(color).getHex(), count]);
     this.debrisField.spawn(x, y, z, color, count);
   }
 
-  ring(
-    x: number,
-    z: number,
-    radius: number,
-    color: THREE.Color,
-    duration = 0.4,
-    brightness = 3,
-  ): void {
+  ring(x: number, z: number, radius: number, color: THREE.Color, duration = 0.4, brightness = 3) {
     this.record("ring", [x, z, radius, color.getHex(), duration, brightness]);
     this.rings.spawn(x, z, radius, color, duration, brightness);
   }
 
-  decal(x: number, z: number, radius: number): void {
+  decal(x: number, z: number, radius: number) {
     this.record("decal", [x, z, radius]);
     this.decals.stamp(x, z, radius);
   }
 
-  explosion(x: number, z: number, radius: number, color: THREE.Color, big: boolean): void {
+  explosion(x: number, z: number, radius: number, color: THREE.Color, big: boolean) {
     this.record("explosion", [x, z, radius, color.getHex(), big ? 1 : 0]);
     this.depth += 1;
     const emberCount = big ? 46 : 24;
@@ -436,6 +431,7 @@ export class Effects {
       0,
       0,
     );
+
     for (let i = 0; i < emberCount; i += 1) {
       const angle = Math.random() * TURN;
       const speed = rand(0.3, 1) * radius * 4.2;
@@ -458,7 +454,9 @@ export class Effects {
         6,
       );
     }
+
     const smokeCount = big ? 16 : 9;
+
     for (let i = 0; i < smokeCount; i += 1) {
       const angle = Math.random() * TURN;
       const speed = rand(0.2, 1) * radius * 1.6;
@@ -480,17 +478,19 @@ export class Effects {
         -0.5,
       );
     }
+
     this.dust(x, z, big ? 14 : 8, radius * 2.2);
     this.depth -= 1;
   }
 
-  slam(x: number, z: number, radius: number, color: THREE.Color): void {
+  slam(x: number, z: number, radius: number, color: THREE.Color) {
     this.record("slam", [x, z, radius, color.getHex()]);
     this.depth += 1;
     this.flash(x, terrainHeight(x, z) + 0.9, z, color, 40, 10, 0.32);
     this.ring(x, z, radius * 1.2, color, 0.42, 2.4);
     this.decal(x, z, radius * 0.6);
     this.dust(x, z, 22, radius * 3.2);
+
     for (let i = 0; i < 18; i += 1) {
       const angle = Math.random() * TURN;
       const speed = rand(2, 7);
@@ -512,15 +512,17 @@ export class Effects {
         8,
       );
     }
+
     this.depth -= 1;
   }
 
-  defeat(x: number, z: number, color: THREE.Color): void {
+  defeat(x: number, z: number, color: THREE.Color) {
     this.record("defeat", [x, z, color.getHex()]);
     this.depth += 1;
     this.flash(x, terrainHeight(x, z) + 1, z, color, 26, 8, 0.4);
     this.ring(x, z, 1.6, color, 0.45, 2.2);
     this.burst(x, terrainHeight(x, z) + 0.8, z, color, 26, 5);
+
     for (let i = 0; i < 8; i += 1) {
       this.smoke.emit(
         x + rand(-0.3, 0.3),
@@ -540,17 +542,18 @@ export class Effects {
         -0.3,
       );
     }
+
     this.depth -= 1;
   }
 
-  update(dt: number): void {
+  update(dt: number) {
     const { game } = this;
     const { lighting } = game;
-    // Point sprites are sized in world units: convert to pixels per unit at
-    // distance 1 so they stay the same physical size across resolutions.
+
     const pixelScale =
       game.pipeline.renderer.getDrawingBufferSize(scratchSize).y /
       (2 * Math.tan((game.camera.fov * Math.PI) / 360));
+
     this.glow.uniforms.uScale.value = pixelScale;
     this.smoke.uniforms.uScale.value = pixelScale;
     this.smoke.uniforms.uDim.value = lighting.ambientLevel;

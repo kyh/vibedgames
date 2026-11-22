@@ -5,12 +5,14 @@ import { ModelCache } from "../src/assets/loader.ts";
 type Check = (name: string, condition: boolean, detail?: string) => void;
 
 /** Cached source identity is the contract shared by live and baked trees. */
-export const checkTreeTemplates = async (check: Check): Promise<void> => {
+export const checkTreeTemplates = async (check: Check) => {
   const cache = new ModelCache();
+
   const templates = [
     { height: 0.7669999599456787, url: "/models/props/tree-large.glb" },
     { height: 0.5670000314712524, url: "/models/props/tree-small.glb" },
   ];
+
   for (const template of templates) {
     await cache.ensure(template.url);
     const mesh = cache.srcMesh(template.url, 0);
@@ -18,9 +20,11 @@ export const checkTreeTemplates = async (check: Check): Promise<void> => {
       `tree template retains one baked mesh index: ${template.url}`,
       mesh !== null && cache.srcMesh(template.url, 1) === null,
     );
+
     if (!mesh) {
       continue;
     }
+
     const bounds = cache.bounds(template.url);
     check(
       `tree template retains source ground and height: ${template.url}`,

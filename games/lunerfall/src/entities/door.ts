@@ -4,23 +4,20 @@ import { BlendModes } from "phaser";
 import { COLORS } from "../config";
 import { ROOM_LABEL } from "../data/rooms";
 import type { RoomType } from "../data/rooms";
-import type { Rect } from "./player-body";
 
 const DANGER = new Set<RoomType>(["combat", "elite", "boss"]);
 
-// Gate sprites cropped from the Luneblade prop sheet (env:props): a teal glowing
-// doorway for safe paths, pink for danger. Registered once as named frames.
 const registerGates = (scene: Phaser.Scene) => {
   const tex = scene.textures.get("env:props");
+
   if (tex.has("gate-teal")) {
     return;
   }
+
   tex.add("gate-teal", 0, 165, 23, 48, 51);
   tex.add("gate-pink", 0, 163, 101, 48, 51);
 };
 
-// An exit gate. Locked (dim) until the room is cleared, then it lights up and its
-// trigger zone sends the player to the next room.
 export class Door {
   private scene: Phaser.Scene;
   readonly x: number;
@@ -32,7 +29,6 @@ export class Door {
   private gate: Phaser.GameObjects.Image;
   private label: Phaser.GameObjects.Text;
   private color: number;
-  // null forces the initial locked paint; repeated snapshots keep one pulse.
   private renderedActive: boolean | null = null;
   active = false;
 
@@ -63,15 +59,17 @@ export class Door {
 
   setActive(v: boolean) {
     this.active = v;
+
     if (this.renderedActive === v) {
       return;
     }
+
     this.renderedActive = v;
     this.glow.setVisible(v);
     this.label.setAlpha(v ? 1 : 0.3);
-    // Locked gates dim + desaturate toward the stone; cleared gates glow full.
     this.gate.setAlpha(v ? 1 : 0.42).setTint(v ? 0xff_ff_ff : 0x6f_7a_8c);
     this.scene.tweens.killTweensOf(this.glow);
+
     if (v) {
       this.glow.setScale(1).setAlpha(1);
       this.scene.tweens.add({
@@ -86,7 +84,7 @@ export class Door {
     }
   }
 
-  triggerRect(): Rect {
+  triggerRect() {
     return { bottom: this.y, left: this.x - 12, right: this.x + 12, top: this.y - 42 };
   }
 

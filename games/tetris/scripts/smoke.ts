@@ -1,16 +1,13 @@
-// Headless verification of the renderer-agnostic game core (no three.js).
-// Run: npx tsx scripts/smoke.ts   →   exits non-zero on any failed assertion.
-
 import { Board } from "../src/game/board";
 import { Engine } from "../src/game/engine";
 import { Piece } from "../src/game/piece";
 import { teachingExamples } from "../src/game/teaching-examples";
-import type { Pose } from "../src/input/camera";
 import { PoseControls } from "../src/input/pose-control";
 import { WELL_DEPTH, WELL_WIDTH } from "../src/shared/constants";
 
 let failures = 0;
-const check = (label: string, cond: boolean): void => {
+
+const check = (label: string, cond: boolean) => {
   if (cond) {
     console.log(`  ok   ${label}`);
   } else {
@@ -19,15 +16,16 @@ const check = (label: string, cond: boolean): void => {
   }
 };
 
-// 1) Full layer clears on both axes and empties the board.
 {
   const b = new Board();
   const cells = [];
+
   for (let x = 0; x < WELL_WIDTH; x += 1) {
     for (let z = 0; z < WELL_DEPTH; z += 1) {
       cells.push({ x, y: 0, z });
     }
   }
+
   b.lock(cells, 1);
   const r = b.clearLayer(0);
   check("full layer: xColumns = width", r.xColumns === WELL_WIDTH);
@@ -37,15 +35,15 @@ const check = (label: string, cond: boolean): void => {
   check("full layer: board empty after", remaining === 0);
 }
 
-// 2) Single full column clears and the stack above drops one layer.
 {
   const b = new Board();
   const col = [];
+
   for (let z = 0; z < WELL_DEPTH; z += 1) {
     col.push({ x: 0, y: 0, z });
   }
+
   b.lock(col, 1);
-  // a cube sitting above the cleared column
   b.lock([{ x: 0, y: 1, z: 0 }], 2);
   const r = b.clearLayer(0);
   check("single column: 1 xColumn, 0 zRows", r.xColumns === 1 && r.zRows === 0);
@@ -53,18 +51,18 @@ const check = (label: string, cond: boolean): void => {
   check("single column: old y=1 now empty", !b.occupied(0, 1, 0));
 }
 
-// 3) Dual-axis intersection clear reports both + counts the shared cube once.
 {
   const b = new Board();
   const cells = [];
+
   for (let z = 0; z < WELL_DEPTH; z += 1) {
     cells.push({ x: 0, y: 0, z });
-    // column x=0
   }
+
   for (let x = 1; x < WELL_WIDTH; x += 1) {
     cells.push({ x, y: 0, z: 0 });
-    // row z=0 (x=0 already added)
   }
+
   b.lock(cells, 1);
   const r = b.clearLayer(0);
   check("dual axis: 1 xColumn + 1 zRow", r.xColumns === 1 && r.zRows === 1);
@@ -80,10 +78,8 @@ const check = (label: string, cond: boolean): void => {
   );
 }
 
-// 4) Piece moves, rotates, and lands via the board.
 {
   const b = new Board();
-  // I piece
   const p = new Piece(0, b);
   const before = JSON.stringify(p.cells());
   check("piece: moves in +x", p.move(b, 1, 0));
@@ -95,24 +91,24 @@ const check = (label: string, cond: boolean): void => {
   check("piece: lands on the floor (min y === 0)", Math.min(...landing.map((c) => c.y)) === 0);
 }
 
-// 5) Engine plays: gravity locks a piece and spawns the next.
 {
   const e = new Engine();
   e.startGame();
   check("engine: playing", e.state.status === "playing");
   check("engine: has active piece", e.activeCells().length > 0);
-  // Drive ~30s of gravity in 16ms ticks — pieces lock & stack.
   let locks = 0;
+
   for (let i = 0; i < 2000 && e.state.status === "playing"; i += 1) {
     const ev = e.tick(16, false);
+
     if (ev) {
       locks += 1;
     }
   }
+
   check("engine: locked many pieces over time", locks > 3);
 }
 
-// 6) Hard drop locks immediately and returns an event.
 {
   const e = new Engine();
   e.startGame();
@@ -121,7 +117,6 @@ const check = (label: string, cond: boolean): void => {
   check("engine: a new piece spawned after hardDrop", e.activeCells().length > 0);
 }
 
-// 7) Hold swaps the active piece and is limited to once per piece.
 {
   const e = new Engine();
   e.startGame();
@@ -139,7 +134,6 @@ const check = (label: string, cond: boolean): void => {
   check("engine: reset clears the hold", e.holdSpent === false && e.holdIndex === null);
 }
 
-// 7b) Title-screen rule cards are derived from real board clears.
 {
   const [single, landing, crossed] = teachingExamples();
   check(
@@ -151,6 +145,7 @@ const check = (label: string, cond: boolean): void => {
     "teaching: crossed clear counts the intersection once",
     crossed?.clear?.lines === 2 && crossed?.clear?.cubes === WELL_WIDTH + WELL_DEPTH - 1,
   );
+
   if (landing) {
     const b = new Board();
     b.lock(landing.cells, 6);
@@ -162,21 +157,17 @@ const check = (label: string, cond: boolean): void => {
   }
 }
 
-// 8) Power-sweep clears the lowest layer once charged.
 {
   const e = new Engine();
   e.startGame();
   check("engine: not charged at start", e.canPower() === false);
-  // simulate a full meter
   e.charge = 1;
-  // lay a cube on the floor so there's something to sweep
   e.board.lock([{ x: 0, y: 0, z: 0 }], 1);
   const removed = e.power();
   check("engine: power removed cubes", removed > 0);
   check("engine: charge spent", e.canPower() === false);
 }
 
-// 9) board.sweepLowestLayer drops the stack above.
 {
   const b = new Board();
   b.lock([{ x: 0, y: 0, z: 0 }], 1);
@@ -186,11 +177,11 @@ const check = (label: string, cond: boolean): void => {
   check("sweep: upper cube dropped one", b.occupied(0, 1, 0) && !b.occupied(0, 2, 0));
 }
 
-// 10) Pose: circling a raised hand orbits the camera; a still hand does not.
 {
   const W = 640;
   const H = 480;
-  const makePose = (rwx: number, rwy: number): Pose => ({
+
+  const makePose = (rwx: number, rwy: number) => ({
     height: H,
     keypoints: [
       { name: "nose", score: 1, x: 320, y: 150 },
@@ -198,48 +189,39 @@ const check = (label: string, cond: boolean): void => {
       { name: "right_shoulder", score: 1, x: 380, y: 240 },
       { name: "left_hip", score: 1, x: 270, y: 360 },
       { name: "right_hip", score: 1, x: 370, y: 360 },
-      // resting hand
       { name: "left_wrist", score: 1, x: 250, y: 250 },
-      // the circling hand
       { name: "right_wrist", score: 1, x: rwx, y: rwy },
     ],
     width: W,
   });
 
-  const feed = (circle: boolean): number => {
+  const feed = (circle: boolean) => {
     let orbits = 0;
+
     const controls = new PoseControls({
-      catchCollapse: () => {
-        /* empty */
-      },
-      hold: () => {
-        /* empty */
-      },
+      catchCollapse: () => null,
+      hold: () => null,
       orbit: () => {
         orbits += 1;
       },
-      power: () => {
-        /* empty */
-      },
+      power: () => null,
       rotate: () => false,
-      steer: () => {
-        /* empty */
-      },
+      steer: () => null,
     });
+
     for (let i = 0; i < 24; i += 1) {
       controls.handlePose(makePose(390, 250), null);
-      // calibrate (still)
     }
+
     for (let i = 0; i < 48; i += 1) {
       if (circle) {
-        // ~3 loops, raised above shoulders
         const a = (i / 16) * Math.PI * 2;
         controls.handlePose(makePose(384 + Math.cos(a) * 60, 130 + Math.sin(a) * 60), null);
       } else {
-        // raised but still
         controls.handlePose(makePose(384, 130), null);
       }
     }
+
     return orbits;
   };
 
@@ -249,11 +231,11 @@ const check = (label: string, cond: boolean): void => {
   check("pose: a still raised hand does not orbit", still === 0);
 }
 
-// 11) Pose: a T-pose held across pause/resume must reach neutral before re-firing.
 {
   const W = 640;
   const H = 480;
-  const makePose = (lw: { x: number; y: number }, rw: { x: number; y: number }): Pose => ({
+
+  const makePose = (lw: { x: number; y: number }, rw: { x: number; y: number }) => ({
     height: H,
     keypoints: [
       { name: "nose", score: 1, x: 320, y: 150 },
@@ -266,43 +248,40 @@ const check = (label: string, cond: boolean): void => {
     ],
     width: W,
   });
-  // Arms out wide, wrists a hair below shoulder level: still a T-pose to the
-  // power detector, so the resume gate must not read it as neutral.
+
   const tPose = makePose({ x: 60, y: 250 }, { x: 600, y: 250 });
   const armsDown = makePose({ x: 250, y: 350 }, { x: 390, y: 350 });
 
   let powers = 0;
+
   const controls = new PoseControls({
-    catchCollapse: () => {
-      /* empty */
-    },
-    hold: () => {
-      /* empty */
-    },
-    orbit: () => {
-      /* empty */
-    },
+    catchCollapse: () => null,
+    hold: () => null,
+    orbit: () => null,
     power: () => {
       powers += 1;
     },
     rotate: () => false,
-    steer: () => {
-      /* empty */
-    },
+    steer: () => null,
   });
-  // Calibrate.
+
   for (let i = 0; i < 24; i += 1) {
     controls.handlePose(armsDown, null);
   }
+
   controls.setActionsPaused(true);
   controls.setActionsPaused(false);
+
   for (let i = 0; i < 30; i += 1) {
     controls.handlePose(tPose, null);
   }
+
   check("pose: T-pose held across resume does not re-fire power", powers === 0);
+
   for (let i = 0; i < 4; i += 1) {
     controls.handlePose(armsDown, null);
   }
+
   controls.handlePose(tPose, null);
   check("pose: power fires again after a real return to neutral", powers === 1);
 }
@@ -311,4 +290,5 @@ if (failures > 0) {
   console.error(`\n${failures} assertion(s) failed.`);
   process.exit(1);
 }
+
 console.log("\nAll game-core smoke checks passed.");

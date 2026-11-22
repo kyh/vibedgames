@@ -167,26 +167,37 @@ export interface TickSync {
 
 /** Highest player cap a room may have, whatever `maxPlayers` asks for. */
 export const MAX_ROOM_CAP = 64;
+
 /** Largest room meta (JSON characters): every lobby listing carries it. */
 export const MAX_ROOM_META_CHARS = 1024;
+
 /** The party that serves lobbies: `/parties/vg-lobby/:lobby`. */
 export const LOBBY_PARTY = "vg-lobby";
+
 /** Highest tick rate a room may run at. */
 export const MAX_TICK_RATE = 60;
+
 /** Ticks of input history a room keeps (and sends in `sync`) for replay. */
 export const MAX_TICK_HISTORY = 600;
+
 /** How far ahead of the server's next tick an input may be scheduled. */
 export const MAX_INPUT_LEAD_TICKS = 32;
+
 /** Largest input (JSON characters): inputs are held and re-sent in every sync, so keep them to a few fields. */
 export const MAX_INPUT_BYTES = 1024;
+
 /** Claims a room holds at most; past it new keys are refused. */
 export const MAX_CLAIMS = 10_000;
+
 /** Longest claim key (characters). */
 export const MAX_CLAIM_KEY_LENGTH = 128;
+
 /** Longest claim time-to-live (ms). */
 export const MAX_CLAIM_TTL_MS = 3_600_000;
+
 /** Keys no claim may use: a plain-object claim map can't hold them as its own entries. */
 export const RESERVED_CLAIM_KEYS: readonly string[] = ["__proto__", "constructor", "prototype"];
+
 /** How often the SDK re-measures the server clock (ms). */
 export const TIME_PROBE_INTERVAL_MS = 5000;
 
@@ -283,32 +294,21 @@ export interface SendEventOptions {
 }
 
 export type ClientMessage =
-  // The shared state's changes since the last patch, as path ops (patch.ts).
   | { type: "state_patch"; data: PatchOp[] }
   | { type: "player_state_patch"; data: JsonRecord }
   | { type: "emit"; data: { event: string; payload: JsonValue; to?: string[]; except?: string[] } }
-  // Liveness ping sent on an interval so the server can detect a host that has
-  // gone away ungracefully (laptop sleep, crashed tab, dropped network) without
-  // waiting for the WebSocket's much-longer TCP timeout, and migrate host.
   | { type: "heartbeat" }
-  // Reply to the server's `ping`. Distinct from `heartbeat` on purpose — see
-  // the note on EVICTION_TIMEOUT_MS below.
   | { type: "pong" }
-  // Server-clock probe: `c` is the client's clock at send, echoed back.
   | { type: "time"; data: { c: number } }
-  // Ask for a key; `ttl` (ms, positive) releases it automatically.
   | { type: "claim"; data: { key: string; ttl?: number } }
-  // Give a key back (its owner, or the host for any key).
   | { type: "release"; data: { key: string } }
-  // Host only: release every key starting with `prefix` ("" = all).
   | { type: "clear_claims"; data: { prefix: string } }
-  // Tick rooms: this player's input from tick `n` on (default: the next tick).
   | { type: "input"; data: { v: JsonValue; n?: number } }
-  // Host only: lock or unlock the room, or replace its meta.
   | { type: "room_info"; data: Partial<RoomInfo> };
 
 /** How often the SDK sends a heartbeat (ms). */
 export const HEARTBEAT_INTERVAL_MS = 2000;
+
 /** Server migrates host if it hasn't heard from the host within this window (ms). */
 export const HOST_LIVENESS_TIMEOUT_MS = 6000;
 
@@ -327,6 +327,7 @@ export const HOST_LIVENESS_TIMEOUT_MS = 6000;
  * unreachable, not merely in another tab.
  */
 export const PING_INTERVAL_MS = 30_000;
+
 /** Server evicts a connection it has not heard *anything* from within this window (ms). */
 export const EVICTION_TIMEOUT_MS = 75_000;
 
@@ -347,33 +348,17 @@ export type ServerMessage =
   | { type: "player_joined"; data: Player }
   | { type: "player_left"; data: { id: string } }
   | { type: "host"; data: { id: string } }
-  // The host's ops, relayed; or, to a client whose write was refused, the
-  // whole state as one op (`[[], state]`).
   | { type: "state_patch"; data: PatchOp[] }
-  // A keyed delta of the player's state — or the whole state when the player
-  // has just come back into this client's interest radius.
   | { type: "player_state"; data: { id: string; state: JsonRecord } }
-  // A player's transport dropped (connected: false — seat held for the grace
-  // window) or came back (connected: true).
   | { type: "player_connection"; data: { id: string; connected: boolean } }
-  // A player left (visible: false) or entered (true) this client's interest radius.
   | { type: "player_visibility"; data: { id: string; visible: boolean } }
   | { type: "event"; data: { event: string; payload: JsonValue; from: string } }
-  // Sent (then the socket is closed) when a player connects to a room that is
-  // already at capacity, or locked. `room` is the sibling room the client
-  // should retry; `capacity` is 0 for a locked room without a cap.
   | { type: "room_full"; data: { room: string; capacity: number; locked?: boolean } }
-  // The host locked or unlocked the room, or set its meta.
   | { type: "room_info"; data: RoomInfo }
-  // Liveness probe; the client answers with `pong`. See EVICTION_TIMEOUT_MS.
   | { type: "ping" }
-  // Server-clock probe answer: the client's `c` echoed, and the server's time `s`.
   | { type: "time"; data: { c: number; s: number } }
-  // A key's owner: granted, released (null), or — to a refused claimer alone —
-  // whoever already holds it.
   | { type: "claim"; data: { key: string; owner: string | null; until?: number } }
   | { type: "claims_cleared"; data: { prefix: string } }
-  // Tick rooms: tick `n`, with the inputs that changed on it (null = cleared).
   | { type: "tick"; data: { n: number; i: Record<string, JsonValue> } };
 
 export interface MultiplayerRoomState {

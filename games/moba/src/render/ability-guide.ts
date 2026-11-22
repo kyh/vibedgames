@@ -1,7 +1,3 @@
-// The native ability guide: a DOM toggle + dialog beside the HUD that explains
-// the local hero's kit. DOM rather than Phaser so it scrolls, wraps and is
-// reachable by keyboard/screen reader; ability buttons keep their cast action.
-
 import { HERO_BY_ID } from "../data/heroes";
 import type { AbilityKey } from "../data/heroes";
 import type { MatchResult } from "../scenes/game-scene";
@@ -77,24 +73,24 @@ export interface AbilityGuideOptions {
   onClose: () => void;
 }
 
-const el = <K extends keyof HTMLElementTagNameMap>(
-  tag: K,
-  className = "",
-  text = "",
-): HTMLElementTagNameMap[K] => {
+const el = <K extends keyof HTMLElementTagNameMap>(tag: K, className = "", text = "") => {
   const node = document.createElement(tag);
+
   if (className) {
     node.className = className;
   }
+
   if (text) {
     node.textContent = text;
   }
+
   return node;
 };
 
-const button = (className: string, text: string): HTMLButtonElement => {
+const button = (className: string, text: string) => {
   const node = el("button", className, text);
   node.type = "button";
+
   return node;
 };
 
@@ -140,9 +136,11 @@ export class AbilityGuide {
     header.append(heading, this.close);
     const nav = el("nav");
     nav.setAttribute("aria-label", "Inspect an ability");
+
     for (const tab of this.tabs) {
       nav.append(tab.button);
     }
+
     this.copy.tabIndex = 0;
     this.copy.setAttribute("aria-label", "Ability details");
     this.copy.append(this.name, this.rank, this.description, this.costs, this.unlock);
@@ -151,36 +149,43 @@ export class AbilityGuide {
     this.root.append(this.toggle, this.panel);
 
     this.copy.addEventListener("scroll", () => this.refreshOverflow());
+
     for (const event of ["pointerdown", "pointerup", "pointermove", "click"]) {
       this.root.addEventListener(event, (e) => e.stopPropagation());
     }
+
     this.root.addEventListener("keydown", this.fenceKey);
     this.root.addEventListener("keyup", this.fenceKey);
     this.toggle.addEventListener("click", () => this.toggleGuide());
     this.close.addEventListener("click", () => this.closeGuide());
+
     for (const tab of this.tabs) {
       tab.button.addEventListener("click", () => {
         this.selected = tab.key;
         this.refresh();
       });
     }
+
     document.head.append(this.style);
     document.body.append(this.root);
   }
 
-  get open(): boolean {
+  get open() {
     return !this.panel.hidden;
   }
 
   /** The toggle's action, shared with its G key twin in the HUD scene. */
-  toggleGuide(): void {
+  toggleGuide() {
     if (this.gs.matchResult || this.gs.controlsPaused || this.options.blocked()) {
       return;
     }
+
     if (this.open) {
       this.closeGuide();
+
       return;
     }
+
     this.panel.hidden = false;
     this.root.dataset.open = "true";
     this.toggle.setAttribute("aria-expanded", "true");
@@ -190,44 +195,53 @@ export class AbilityGuide {
   }
 
   private closingEscape = false;
-  /** Keys inside the dialog belong to it: Tab cycles focus, Escape closes
-   *  (and its keyup is swallowed so the pause overlay never sees a stray
-   *  Escape release), Q/W/E/R inspect. Only M (mute) passes through. */
-  private readonly fenceKey = (event: KeyboardEvent): void => {
+  private readonly fenceKey = (event: KeyboardEvent) => {
     if (this.open) {
       if (event.key !== "m" && event.key !== "M") {
         event.stopPropagation();
       }
+
       if (event.key === "Tab" && event.type === "keydown") {
         event.preventDefault();
+
         const focusable: HTMLElement[] = [
           this.close,
           ...this.tabs.map((tab) => tab.button),
           this.copy,
         ];
+
         const { activeElement } = document;
+
         const current =
           activeElement instanceof HTMLElement ? focusable.indexOf(activeElement) : -1;
+
         focusable[
           (current + (event.shiftKey ? -1 : 1) + focusable.length) % focusable.length
         ]?.focus();
+
         return;
       }
+
       if (event.key === "Escape") {
         if (event.type === "keydown") {
           event.preventDefault();
           this.closingEscape = true;
           this.closeGuide();
         }
+
         return;
       }
+
       if (event.key.toUpperCase() === "G") {
         if (event.type === "keydown") {
           this.closeGuide();
         }
+
         return;
       }
+
       const key = KEYS.find((k) => k === event.key.toUpperCase());
+
       if (key && event.type === "keydown") {
         this.selected = key;
         this.refresh();
@@ -240,44 +254,53 @@ export class AbilityGuide {
     }
   };
 
-  closeGuide(focus = true): void {
+  closeGuide(focus = true) {
     if (!this.open) {
       return;
     }
+
     this.panel.hidden = true;
     this.root.dataset.open = "false";
     this.toggle.setAttribute("aria-expanded", "false");
     this.options.onClose();
+
     if (focus) {
       this.toggle.focus();
     }
   }
 
   /** Hide the whole surface (result screen), not just the dialog. */
-  hide(): void {
+  hide() {
     this.closeGuide(false);
     this.root.hidden = true;
   }
 
-  refresh(): void {
+  refresh() {
     const me = this.gs.player;
     const hero = me?.hero;
     this.root.hidden = !hero || !!this.gs.matchResult || this.options.blocked();
+
     if (!me || !hero || !this.open) {
       return;
     }
+
     const signature = `${hero.defId}:${hero.level}:${Math.floor(hero.xp)}:${hero.abilityPoints}:${
       me.alive
     }:${this.selected}:${KEYS.map((key) => hero.abilities[key].rank).join(",")}`;
+
     if (signature === this.signature) {
       this.refreshOverflow();
+
       return;
     }
+
     this.signature = signature;
     const explanation = abilityExplanation(hero, this.selected);
+
     if (!explanation) {
       return;
     }
+
     this.title.textContent = HERO_BY_ID[hero.defId]?.name ?? "Your champion";
     this.experience.textContent = `Level ${hero.level} · ${experienceProgress(hero).text}`;
     this.name.textContent = explanation.name;
@@ -285,6 +308,7 @@ export class AbilityGuide {
     this.description.textContent = explanation.description;
     this.costs.textContent = explanation.costs;
     this.unlock.textContent = me.alive ? explanation.unlock : "Upgrade after respawning";
+
     for (const tab of this.tabs) {
       tab.button.setAttribute("aria-pressed", String(tab.key === this.selected));
       tab.button.setAttribute(
@@ -292,19 +316,22 @@ export class AbilityGuide {
         `Inspect ${tab.key}: ${HERO_BY_ID[hero.defId]?.abilities[tab.key].name ?? tab.key}`,
       );
     }
+
     this.refreshOverflow();
   }
 
-  private refreshOverflow(): void {
+  private refreshOverflow() {
     const more =
       this.open && this.copy.scrollHeight - this.copy.clientHeight - this.copy.scrollTop > 2;
+
     const visibility = more ? "visible" : "hidden";
+
     if (this.more.style.visibility !== visibility) {
       this.more.style.visibility = visibility;
     }
   }
 
-  place(at: GuidePlacement): void {
+  place(at: GuidePlacement) {
     this.toggle.dataset.flat = String(at.flat);
     this.toggle.style.width = `${at.toggleWidth}px`;
     this.toggle.style.height = `${at.toggleHeight}px`;
@@ -317,7 +344,7 @@ export class AbilityGuide {
   }
 
   /** DOM, not a Phaser object: the owning scene must remove it on shutdown. */
-  destroy(): void {
+  destroy() {
     this.root.remove();
     this.style.remove();
   }

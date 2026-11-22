@@ -4,16 +4,6 @@ import type { RequiredScope } from "./auth/oauth-scopes";
 import { protectedProcedureSpec, publicProcedureSpec, sessionOnlyProcedureSpec } from "./openapi";
 
 /**
- * Each base declares what its procedures promise in the OpenAPI document; the
- * middleware that keeps the promise is @repo/service's, applied on the
- * implementer so it runs before input validation. Nothing ties the two
- * together at compile time — a procedure on `sessionOnlyBase` whose router
- * skips `rejectApiKey` documents a 403 it never sends — so each base also
- * records its credential on every procedure built from it, and the service's
- * `root-router.test.ts` holds every procedure's router to it.
- */
-
-/**
  * Who may call a procedure: anyone, any credential (session cookie, session
  * token or API key), a real session, or an admin's real session. The OpenAPI
  * security says the first three; it has no way to say the last.
@@ -22,7 +12,7 @@ export type Credential = "none" | "any" | "session" | "admin";
 
 const [requires, getRequiredCredential] = defineMeta(
   "credential",
-  (incoming: Credential): Credential => incoming,
+  (incoming: Credential) => incoming,
 );
 
 /** The credential a procedure's base declares; read by nothing at runtime. */
@@ -30,7 +20,7 @@ export { getRequiredCredential };
 
 const [requiresScope, getRequiredScope] = defineMeta(
   "scope",
-  (incoming: RequiredScope): RequiredScope => incoming,
+  (incoming: RequiredScope) => incoming,
 );
 
 /**

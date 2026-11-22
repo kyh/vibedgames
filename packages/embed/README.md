@@ -29,7 +29,9 @@ On a pause request the package shows a full-screen "PAUSED — resume" overlay.
 Clicking it (or releasing any key) hides the overlay, calls `onResume`, and
 re-sends `game-started` so the wrapper can tuck its chrome away again.
 
-Everything no-ops when the game runs standalone (not in an iframe).
+Everything no-ops when the game runs standalone: at its own origin, in a native
+shell, or framed by anything other than the wrapper, which names its iframe
+`WRAPPER_FRAME_NAME` so the game can tell.
 
 `createTouchControls()` is the one piece that runs the other way round: the
 touch-only pause button mounts only when the game is standalone on a coarse

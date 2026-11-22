@@ -17,7 +17,7 @@ export interface JsonObject {
 }
 
 /** `JSON.parse`, typed at the boundary: its output is `JsonValue` by construction. */
-export const parseJsonText = (text: string): JsonValue => JSON.parse(text);
+export const parseJsonText: (text: string) => JsonValue = (text) => JSON.parse(text);
 
 export const isJsonObject = (value: JsonValue | undefined): value is JsonObject =>
   Object(value) === value && !Array.isArray(value);

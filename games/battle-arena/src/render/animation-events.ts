@@ -2,6 +2,7 @@ interface Stamps {
   lastCastAt: number;
   lastAttackAt: number;
 }
+
 export interface AnimationEvent {
   kind: "cast" | "attack";
   at: number;
@@ -14,7 +15,7 @@ export class AnimationEvents {
   private cast = -1;
   private attack = -1;
 
-  observe(stamps: Stamps, now: number): AnimationEvent | null {
+  observe(stamps: Stamps, now: number) {
     const castChanged = stamps.lastCastAt !== this.cast;
     const attackChanged = stamps.lastAttackAt !== this.attack;
     this.cast = stamps.lastCastAt;
@@ -23,13 +24,16 @@ export class AnimationEvents {
     const attackAge = now - this.attack;
     const cast = castChanged && this.cast > 0 && castAge >= 0 && castAge < 520;
     const attack = attackChanged && this.attack > 0 && attackAge >= 0 && attackAge < 340;
+
     if (cast && (!attack || this.cast >= this.attack)) {
-      return { age: castAge, at: this.cast, kind: "cast" };
+      return { age: castAge, at: this.cast, kind: "cast" } satisfies AnimationEvent | null;
     }
+
     if (attack) {
-      return { age: attackAge, at: this.attack, kind: "attack" };
+      return { age: attackAge, at: this.attack, kind: "attack" } satisfies AnimationEvent | null;
     }
-    return null;
+
+    return null satisfies AnimationEvent | null;
   }
 }
 
@@ -38,6 +42,7 @@ export class AnimationEvents {
  * so intentional hit-stop still slows the character exactly as before. */
 export const animationWindow = (duration: number, speed: number, event: AnimationEvent) => {
   const window = Math.min(2500, Math.max(240, (duration / speed) * 1000));
+
   return {
     offset: Math.min(duration, (event.age * speed) / 1000),
     remaining: Math.max(0, window - event.age),

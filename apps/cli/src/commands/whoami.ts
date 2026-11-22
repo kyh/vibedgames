@@ -24,20 +24,19 @@ export const whoamiCommand = defineCommand({
       process.exit(1);
     }
 
-    // Goes through the API (not the raw better-auth endpoint) so it resolves
-    // both session tokens and `vg_…` API keys.
     const client = createClient();
 
     try {
       const user = await client.auth.me();
+
       if (writeStructured({ email: user.email, id: user.id, name: user.name }, args)) {
         return;
       }
+
       consola.log(user.email ? `${user.name} (${user.email})` : user.name);
     } catch (error) {
-      // Only an auth error means "log in"; surface network/server failures as
-      // themselves so they aren't mistaken for a bad credential.
       const code = authErrorCode(error);
+
       if (code === "UNAUTHORIZED" || code === "FORBIDDEN") {
         consola.warn("Not authenticated. Run `vg login`, or check your VG_TOKEN / API key.");
       } else {
@@ -45,6 +44,7 @@ export const whoamiCommand = defineCommand({
           `Failed to fetch current user: ${error instanceof Error ? error.message : String(error)}`,
         );
       }
+
       process.exit(1);
     }
   },

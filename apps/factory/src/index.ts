@@ -30,48 +30,39 @@ import {
 } from "./state.ts";
 import { runTui } from "./tui/main.tsx";
 
-/** Cap how much of a context file we inline into the brief. */
 const MAX_CONTEXT_BYTES = 20_000;
 
-/** Read at most maxBytes from a file without loading the whole thing. */
-const readBounded = (file: string, maxBytes: number): string => {
+const readBounded = (file: string, maxBytes: number) => {
   const fd = openSync(file, "r");
+
   try {
     const buf = Buffer.alloc(maxBytes);
     const n = readSync(fd, buf, 0, maxBytes, 0);
+
     return buf.subarray(0, n).toString("utf-8");
   } finally {
     closeSync(fd);
   }
 };
 
-/**
- * Resolve the optional --context value into a brief (and maybe a reference dir
- * the agents get read access to). A path to a file is read inline (bounded); a
- * path to a directory becomes a reference the agents explore; anything that
- * isn't an existing path is treated as literal brief text. A path that exists
- * but can't be read is a hard error (don't silently treat it as text).
- */
-interface ResolvedContext {
-  context?: string;
-  contextDir?: string;
-}
-
-const resolveContext = (raw: string | undefined): ResolvedContext => {
+const resolveContext = (raw: string | undefined) => {
   const value = (raw ?? "").trim();
+
   if (!value) {
     return {};
   }
+
   const p = path.resolve(process.cwd(), value);
 
   let stat;
+
   try {
     stat = statSync(p);
   } catch (error) {
     if (error instanceof Error && "code" in error && error.code === "ENOENT") {
-      // not a path — a literal brief
       return { context: value };
     }
+
     consola.error(
       `Could not access --context path ${p}: ${error instanceof Error ? error.message : String(error)}`,
     );
@@ -84,6 +75,7 @@ const resolveContext = (raw: string | undefined): ResolvedContext => {
       contextDir: p,
     };
   }
+
   if (stat.isFile()) {
     try {
       return { context: readBounded(p, MAX_CONTEXT_BYTES) };
@@ -94,6 +86,7 @@ const resolveContext = (raw: string | undefined): ResolvedContext => {
       process.exit(1);
     }
   }
+
   return { context: value };
 };
 
@@ -106,52 +99,57 @@ const ROLE_NAMES: readonly RoleName[] = [
   "shipper",
 ];
 
-/** Parse + validate --codex-roles, exiting on an unknown role (CLI edge only). */
-const parseCodexRoles = (raw: string): RoleName[] => {
+const parseCodexRoles = (raw: string) => {
   const names = raw
     .split(",")
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean);
+
   const roles: RoleName[] = [];
+
   for (const name of names) {
     const match = ROLE_NAMES.find((r) => r === name);
+
     if (!match) {
       consola.error(`Unknown role in --codex-roles: "${name}". Use ${ROLE_NAMES.join(", ")}.`);
       process.exit(1);
     }
+
     roles.push(match);
   }
+
   return roles;
 };
 
-/** Validate a slug or exit with a helpful message (CLI edge only). */
-const requireSlug = (raw: string): string => {
+const requireSlug = (raw: string) => {
   const slug = normalizeSlug(raw);
+
   if (!slug) {
     consola.error(
       `Invalid slug: ${raw}\n  Use lowercase letters, digits, and hyphens (e.g. "asteroid-belt").`,
     );
     process.exit(1);
   }
+
   return slug;
 };
 
-/**
- * Parse a CLI integer strictly: only a plain non-negative integer (>= min) is
- * accepted; anything malformed or out of range falls back, so a typo can't
- * silently disable a timeout or set a nonsensical budget.
- */
-const toInt = (v: string | undefined, fallback: number, min = 0): number => {
+const toInt = (v: string | undefined, fallback: number, min = 0) => {
   if (v === undefined) {
     return fallback;
   }
+
   const t = v.trim();
+
   if (!/^\d+$/u.test(t)) {
     return fallback;
   }
+
   const n = Number(t);
+
   return Number.isSafeInteger(n) && n >= min ? n : fallback;
 };
+
 const startCommand = defineCommand({
   args: {
     "auto-deploy": {
@@ -253,12 +251,15 @@ const startCommand = defineCommand({
   },
   run: async ({ args }) => {
     const { context, contextDir } = resolveContext(args.context);
+
     if (!isRunner(args.runner)) {
       consola.error(`Unknown --runner "${args.runner}". Use ${RUNNERS.join(" or ")}.`);
       process.exit(1);
     }
+
     const { runner } = args;
     const codexRoles = parseCodexRoles(args["codex-roles"]);
+
     const knobs = {
       autoDeploy: Boolean(args["auto-deploy"]),
       checkpointWaitMs: toInt(args["checkpoint-wait"], 120) * 1000,
@@ -278,40 +279,35 @@ const startCommand = defineCommand({
       skipPermissions: !args.guarded,
     };
 
-    // The interactive dashboard needs a real terminal on both ends (keyboard +
-    // screen); anything else (CI, piped logs, --no-tui) streams plain logs.
     const interactive =
       !args["no-tui"] && process.stdout.isTTY === true && process.stdin.isTTY === true;
 
     if (interactive) {
-      // Validate an explicit slug here so a typo fails fast with the usual CLI
-      // error; the setup screen re-validates whatever the user types in.
       const slug = args.slug ? requireSlug(args.slug) : undefined;
       runTui({ ...knobs, dir: args.dir, slug });
+
       return;
     }
 
-    // The slug is only the deploy identity — derive it when omitted (folder
-    // name, else the idea's first words), exactly like the setup screen does.
     const explicit = args.slug ? requireSlug(args.slug) : undefined;
     let slug = deriveSlug({ dir: args.dir, idea: knobs.idea || undefined, slug: explicit });
+
     if (!slug) {
       consola.error(
         'Nothing identifies the game: pass a slug, --dir <folder>, or --idea "your one-line idea".',
       );
       process.exit(1);
     }
+
     if (!explicit && !args.dir) {
       slug = availableSlug(slug);
     }
+
     const workspace = resolveWorkspace(slug, args.dir);
     const bb = blackboard(workspace);
     const fresh = !existsSync(bb.state);
-    // A new game needs *something* to go on: a seed idea, an operator brief, or
-    // an existing project in the game dir to build upon.
+
     if (fresh && !knobs.idea && !context && !hasExistingProject(workspace)) {
-      // Distinguish "no --context given" from "--context given but empty", so an
-      // operator who pointed at an empty file isn't told to "add --context".
       const contextAttempted = Boolean((args.context ?? "").trim());
       consola.error(
         contextAttempted
@@ -320,10 +316,9 @@ const startCommand = defineCommand({
       );
       process.exit(1);
     }
-    // A stale STOP sentinel is cleared inside runAgent once the workspace lock
-    // is held, so a restart can never wipe a still-running process's stop.
 
     const started = await runAgent({ ...knobs, slug, workspace }, createConsoleReporter());
+
     if (!started) {
       process.exit(1);
     }
@@ -342,10 +337,12 @@ const stopCommand = defineCommand({
   run: ({ args }) => {
     const slug = requireSlug(args.slug);
     const bb = blackboard(resolveWorkspace(slug, args.dir));
+
     if (!existsSync(bb.dir)) {
       consola.error(`No agent workspace found for "${slug}".`);
       process.exit(1);
     }
+
     writeFileSync(bb.stop, `stop requested ${new Date().toISOString()}\n`);
     consola.success(
       `Stop signalled for "${slug}". It will halt after the current specialist finishes.`,
@@ -366,15 +363,20 @@ const statusCommand = defineCommand({
   run: ({ args }) => {
     const slug = requireSlug(args.slug);
     const bb = blackboard(resolveWorkspace(slug, args.dir));
+
     if (!existsSync(bb.state)) {
       consola.error(`No agent state found for "${slug}".`);
       process.exit(1);
     }
+
     const state = loadState(bb);
+
     if (args.json) {
       consola.log(JSON.stringify(state, null, 2));
+
       return;
     }
+
     consola.box(
       [
         `Game:       ${state.slug}`,
@@ -406,10 +408,12 @@ const approveCommand = defineCommand({
   run: ({ args }) => {
     const slug = requireSlug(args.slug);
     const bb = blackboard(resolveWorkspace(slug, args.dir));
+
     if (!existsSync(bb.dir)) {
       consola.error(`No agent workspace found for "${slug}".`);
       process.exit(1);
     }
+
     requestApproval(bb);
     consola.success(
       `Approved "${slug}" for one deployment. A running agent publishes the current build shortly (after the in-flight step finishes); the next release needs fresh approval.`,

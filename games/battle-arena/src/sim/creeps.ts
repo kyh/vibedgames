@@ -1,6 +1,3 @@
-// Neutral creep stat table + the reward a kill pays. Its own module so the
-// economy can price a creep kill without importing the tick loop back.
-
 export interface CreepStat {
   model: string;
   attackType: "melee" | "ranged";
@@ -16,9 +13,7 @@ export interface CreepStat {
   radius: number;
   bounty: number;
   xp: number;
-  // display name (default "Skeleton")
   name?: string;
-  // hp/s (default 6; the golem regens hard between fights)
   hpRegen?: number;
 }
 
@@ -93,22 +88,24 @@ const CREEP_STATS = new Map<string, CreepStat>(
   } satisfies Record<string, CreepStat>),
 );
 
-const mustGetCreep = (id: string): CreepStat => {
+const mustGetCreep = (id: string) => {
   const stat = CREEP_STATS.get(id);
+
   if (!stat) {
     throw new Error(`unknown creep: ${id}`);
   }
+
   return stat;
 };
 
-// Fallback for unknown creep types.
 const DEFAULT_CREEP = mustGetCreep("skwarrior");
 
 /** Stats for a creep type; unknown types fall back to the warrior. */
-export const creepStat = (type: string): CreepStat => CREEP_STATS.get(type) ?? DEFAULT_CREEP;
+export const creepStat = (type: string) => CREEP_STATS.get(type) ?? DEFAULT_CREEP;
 
 /** Look up a creep's bounty/xp for the economy on kill. */
 export const creepReward = (type: string) => {
   const s = creepStat(type);
+
   return { bounty: s.bounty, xp: s.xp };
 };

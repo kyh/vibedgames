@@ -1,7 +1,3 @@
-// Deathmatch protocol. The host runs the rules (rules.ts) and publishes the match
-// under one shared-state key; every client publishes its own body in player
-// state and sends the host intents. Nothing here is backward compatible: a
-// wire change bumps ROOM_PREFIX so old tabs never share a room with new ones.
 import type { JsonRecord, JsonValue } from "@vibedgames/multiplayer";
 
 import type { Fighter, MatchState, Phase } from "./rules";
@@ -10,16 +6,20 @@ import { isRecord, isStr, numOr, nums } from "./wire";
 export const PARTY = "vg-server";
 export const LOBBY = "strikeforce";
 export const ROOM_PREFIX = "strikeforce-v4-";
+
 /** A full dock. Overflow rooms take the seventeenth. */
 export const MAX_PLAYERS = 16;
+
 /** No room in this long (rendered frames): play alone in warmup. */
 export const FALLBACK_MS = 6000;
 
 /** Host match snapshot rate. */
 export const MATCH_HZ = 10;
+
 /** Own-body send rate. */
 export const BODY_HZ = 20;
 export const MATCH_KEY = "match";
+
 /** The host's bots: `{ [botId]: [t, x, y, z, yaw, pitch] }`, at BODY_HZ. */
 export const BOTS_KEY = "bots";
 
@@ -58,7 +58,7 @@ export interface BodyWire {
 }
 
 /** Build the room id from a squad code (`?room=`). */
-export const roomId = (code: string): string =>
+export const roomId = (code: string) =>
   ROOM_PREFIX +
   code
     .toLowerCase()
@@ -66,18 +66,18 @@ export const roomId = (code: string): string =>
     .slice(0, 16);
 
 /** Round for the wire: three decimals is a millimetre, or a milliradian. */
-export const q3 = (v: number): number => Math.round(v * 1000) / 1000;
+export const q3 = (v: number) => Math.round(v * 1000) / 1000;
 
 const PHASES: readonly Phase[] = ["warmup", "live", "over"];
 
 /** The match as the host publishes it. */
-export const encodeMatch = (s: MatchState, stamp: number): JsonRecord => {
+export const encodeMatch = (s: MatchState, stamp: number) => {
   const ro: JsonRecord = {};
+
   for (const [id, f] of s.roster) {
-    // `back` (server ms) rides along so a promoted host keeps respawns; `life`
-    // is what a client places its body by.
     ro[id] = [f.alive ? 1 : 0, Math.round(f.hp), f.kills, f.deaths, Math.round(f.back), f.life];
   }
+
   return {
     e: Math.round(s.ends),
     ld: s.champ,
@@ -88,12 +88,15 @@ export const encodeMatch = (s: MatchState, stamp: number): JsonRecord => {
   };
 };
 
-const decodeFighter = (raw: JsonValue | undefined): Fighter | null => {
+const decodeFighter = (raw: JsonValue | undefined) => {
   const v = nums(raw, 6);
+
   if (!v) {
     return null;
   }
+
   const [alive, hp, kills, deaths, back, life] = v;
+
   return {
     alive: alive === 1,
     back: back ?? 0,
@@ -105,19 +108,21 @@ const decodeFighter = (raw: JsonValue | undefined): Fighter | null => {
 };
 
 /** A client's read of the host's match, or null if it is not one. */
-export const decodeMatch = (
-  raw: JsonValue | undefined,
-): { state: MatchState; stamp: number } | null => {
+export const decodeMatch = (raw: JsonValue | undefined) => {
   if (!isRecord(raw) || !isRecord(raw.ro)) {
     return null;
   }
+
   const roster = new Map<string, Fighter>();
+
   for (const [id, f] of Object.entries(raw.ro)) {
     const fighter = decodeFighter(f);
+
     if (fighter) {
       roster.set(id, fighter);
     }
   }
+
   return {
     stamp: numOr(raw.t, 0),
     state: {

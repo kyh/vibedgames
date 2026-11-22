@@ -13,15 +13,11 @@ import type { GameScene } from "../scenes/game-scene";
 type State = "idle" | "casting" | "waiting" | "bite" | "reeling" | "done";
 
 const BAR_H = 150;
-/** The reel panel drawReel lays out, in screen pixels at zoom 1. */
 const PANEL_W = 56;
 const PANEL_H = BAR_H + 24;
-/** Trailer-only meter presentation (see `unzoom`): big enough to read at a
- *  glance, small enough that the world — not the HUD — owns the frame. */
 const TRAILER_METER_SCALE = 2.2;
 const TRAILER_METER_MARGIN = 96;
 
-// Self-contained fishing minigame. Owns its bobber (world) and reel bar (screen).
 export class Fishing {
   /** Trailer mode: compress the wait, auto-hook the bite, and play the reel
    *  minigame perfectly — all through the real state machine. Dead otherwise. */
@@ -42,7 +38,6 @@ export class Fishing {
   private bobberPos = { x: 0, y: 0 };
   private target: FishDef | null = null;
 
-  // reel state
   private zonePos = 0;
   private zoneVel = 0;
   private zoneH = 36;
@@ -55,14 +50,15 @@ export class Fishing {
     this.scene = scene;
   }
 
-  get active(): boolean {
+  get active() {
     return this.state !== "idle";
   }
 
-  startCast(tx: number, ty: number): void {
+  startCast(tx: number, ty: number) {
     if (this.state !== "idle") {
       return;
     }
+
     this.scene.faceTowards(tx, ty);
     this.state = "casting";
     this.scene.acting = true;
@@ -71,32 +67,38 @@ export class Fishing {
     Sound.water();
     this.pending = this.scene.time.delayedCall(750, () => {
       this.pending = null;
+
       if (this.state !== "casting") {
         return;
       }
+
       this.scene.acting = false;
       this.beginWaiting();
     });
   }
 
-  private beginWaiting(): void {
+  private beginWaiting() {
     this.state = "waiting";
     this.scene.playerAnim("p-idle");
+
     const b = this.scene.add
       .circle(this.bobberPos.x, this.bobberPos.y, 2.2, 0xff_5d_5d)
       .setDepth(DEPTH.crop + 5);
+
     b.setStrokeStyle(1, 0xff_ff_ff, 0.8);
     this.bobber = b;
     this.timer = PhaserMath.FloatBetween(1.6, 4.8);
   }
 
-  onActionPress(): void {
+  onActionPress() {
     if (this.scene.controlsPaused) {
       return;
     }
+
     if (this.state === "done" || this.state === "casting") {
       return;
     }
+
     if (this.state === "waiting") {
       this.cancel("Reeled in early.");
     } else if (this.state === "bite") {
@@ -104,7 +106,7 @@ export class Fishing {
     }
   }
 
-  private hook(): void {
+  private hook() {
     this.state = "reeling";
     Sound.click();
     this.bang?.destroy();
@@ -121,10 +123,11 @@ export class Fishing {
     this.scene.playerAnim("p-reeling");
   }
 
-  update(dt: number): void {
+  update(dt: number) {
     if (this.state === "idle") {
       return;
     }
+
     if (this.trailerAuto) {
       if (this.state === "waiting") {
         this.timer = Math.min(this.timer, 0.45);
@@ -132,19 +135,24 @@ export class Fishing {
         this.hook();
       }
     }
+
     if (this.state === "waiting") {
       this.timer -= dt;
+
       if (this.bobber) {
         this.bobber.y = this.bobberPos.y + Math.sin(this.scene.time.now / 250) * 1.2;
       }
+
       if (this.timer <= 0) {
         this.startBite();
       }
     } else if (this.state === "bite") {
       this.timer -= dt;
+
       if (this.bang) {
         this.bang.y = this.bobberPos.y - 14 + Math.sin(this.scene.time.now / 80) * 2;
       }
+
       if (this.timer <= 0) {
         this.cancel("It got away…");
       }
@@ -153,13 +161,15 @@ export class Fishing {
     }
   }
 
-  private startBite(): void {
+  private startBite() {
     this.state = "bite";
     this.timer = 1;
     Sound.thud();
+
     if (this.bobber) {
       this.bobber.y += 2;
     }
+
     this.bang = this.scene.add
       .text(this.bobberPos.x, this.bobberPos.y - 14, "!", {
         color: "#ffe27a",
@@ -173,30 +183,33 @@ export class Fishing {
       .setDepth(DEPTH.particles + 20);
   }
 
-  private tickReel(dt: number): void {
-    // trailerAuto: thrust when the fish sits above the zone's center (perfect play)
+  private tickReel(dt: number) {
     const held = this.trailerAuto
       ? this.fishPos < this.zonePos + this.zoneH / 2
       : this.scene.actionHeld();
-    // zone physics: gravity down, thrust up while held
+
     this.zoneVel += (held ? -560 : 320) * dt;
     this.zoneVel = PhaserMath.Clamp(this.zoneVel, -180, 180);
     this.zonePos += this.zoneVel * dt;
+
     if (this.zonePos < 0) {
       this.zonePos = 0;
       this.zoneVel = 0;
     }
+
     if (this.zonePos > BAR_H - this.zoneH) {
       this.zonePos = BAR_H - this.zoneH;
       this.zoneVel = 0;
     }
-    // fish wanders, more erratic with difficulty
+
     const diff = this.target?.difficulty ?? 1;
     this.fishTimer -= dt;
+
     if (this.fishTimer <= 0) {
       this.fishTimer = PhaserMath.FloatBetween(0.4, 1.2) / (0.6 + diff * 0.2);
       this.fishTarget = PhaserMath.Between(6, BAR_H - 6);
     }
+
     this.fishPos = PhaserMath.Linear(
       this.fishPos,
       this.fishTarget,
@@ -207,6 +220,7 @@ export class Fishing {
     this.progress += inZone ? 0.42 * dt : -(0.18 + diff * 0.05) * dt;
     this.progress = PhaserMath.Clamp(this.progress, 0, 1);
     this.drawReel(inZone);
+
     if (this.progress >= 1) {
       this.land();
     } else if (this.progress <= 0) {
@@ -214,35 +228,32 @@ export class Fishing {
     }
   }
 
-  private drawReel(inZone: boolean): void {
+  private drawReel(inZone: boolean) {
     const W = this.scene.scale.width;
     const H = this.scene.scale.height;
-    // right of the player, but clamped on-screen for narrow (portrait) phones
     const bx = Math.min(W / 2 + 200, W - 64 - safeAreaInset().right);
     const by = H / 2 - BAR_H / 2;
+
     if (!this.g) {
       this.g = this.scene.add
         .graphics()
         .setScrollFactor(0)
         .setDepth(DEPTH.night + 10);
     }
+
     const { g } = this;
     g.clear();
-    // frame
     g.fillStyle(0x1a_14_10, 0.85);
     g.fillRoundedRect(bx - 16, by - 12, 56, BAR_H + 24, 8);
-    // track
     g.fillStyle(0x0e_18_30, 1);
     g.fillRoundedRect(bx - 2, by, 24, BAR_H, 6);
-    // catch zone
     g.fillStyle(inZone ? 0x8e_f0_7a : 0x4f_9d_3f, 0.9);
     g.fillRoundedRect(bx - 1, by + this.zonePos, 22, this.zoneH, 5);
-    // progress bar (left)
     g.fillStyle(0x2a_1e_0e, 1);
     g.fillRoundedRect(bx - 14, by, 8, BAR_H, 3);
     g.fillStyle(0xff_d3_4d, 1);
     g.fillRoundedRect(bx - 14, by + BAR_H * (1 - this.progress), 8, BAR_H * this.progress, 3);
-    // fish marker
+
     if (!this.fishIcon) {
       this.fishIcon = this.scene.add
         .image(0, 0, "obj-fish")
@@ -250,9 +261,10 @@ export class Fishing {
         .setDepth(DEPTH.night + 11)
         .setScale(1.6);
     }
+
     this.fishIcon.setPosition(bx + 10, by + this.fishPos);
     this.unzoom(g, this.fishIcon, bx, by);
-    // no button prompts in trailer captures — the meter alone tells the story
+
     if (!this.hint && !this.trailerAuto) {
       this.hint = this.scene.add
         .text(bx + 12, by + BAR_H + 16, "HOLD", {
@@ -266,39 +278,29 @@ export class Fishing {
     }
   }
 
-  /**
-   * Trailer framing only. The reel meter is screen-anchored (scrollFactor 0),
-   * but a zoomed camera still scales it AND pushes it out from screen centre,
-   * so above ~3.3x the panel walks off the right edge — which is why the
-   * fishing beat was pinned to the widest framing in the trailer while every
-   * other shot tightened. Undo the camera zoom for these two objects and park
-   * the meter in a fixed screen box, so the shot can frame the angler instead.
-   *
-   * Local point p renders at `z * (P + p*s - half) + half`; solving that for
-   * `screen(p) = T + (p - p0) * S` gives `s = S/z` and the placement below.
-   * Dead in normal play (trailerAuto is a trailer-only flag).
-   */
   private unzoom(
     g: Phaser.GameObjects.Graphics,
     icon: Phaser.GameObjects.Image,
     bx: number,
     by: number,
-  ): void {
+  ) {
     if (!this.trailerAuto) {
       return;
     }
+
     const cam = this.scene.cameras.main;
     const z = cam.zoom;
     const S = TRAILER_METER_SCALE;
-    // the panel's top-left in the layout space drawReel computes in, and the
-    // screen box it should occupy: right-hand margin, vertically centred
     const p0 = { x: bx - 16, y: by - 12 };
+
     const t = {
       x: cam.width - TRAILER_METER_MARGIN - PANEL_W * S,
       y: (cam.height - PANEL_H * S) / 2,
     };
-    const proj = (v: number, tv: number, p0v: number, half: number): number =>
+
+    const proj = (v: number, tv: number, p0v: number, half: number) =>
       (tv + (v - p0v) * S - half) / z + half;
+
     g.setScale(S / z);
     g.setPosition(proj(0, t.x, p0.x, cam.width / 2), proj(0, t.y, p0.y, cam.height / 2));
     icon.setScale((1.6 * S) / z);
@@ -308,21 +310,24 @@ export class Fishing {
     );
   }
 
-  private land(): void {
+  private land() {
     const fish = this.target;
     this.cleanup();
     this.state = "done";
     this.scene.acting = false;
     this.scene.playerAnim("p-caught");
+
     if (fish) {
       const item: Item = { fish: fish.id, kind: "fish" };
       const leftover = store.inv.add(item, 1);
       this.scene.showDiscovery(
         store.collections.recordCatch(fish.id, this.scene.season(), 1 - leftover),
       );
+
       if (leftover === 0) {
         rewardArc(this.scene, this.bobberPos.x, this.bobberPos.y, this.scene.player, item);
       }
+
       const xp = 10 + fish.difficulty * 4;
       this.scene.awardXP("fishing", xp);
       floatText(
@@ -341,6 +346,7 @@ export class Fishing {
       });
       Sound.harvest();
     }
+
     this.scene.requestSave();
     this.pending = this.scene.time.delayedCall(650, () => {
       this.pending = null;
@@ -349,7 +355,7 @@ export class Fishing {
     });
   }
 
-  private cancel(msg: string): void {
+  private cancel(msg: string) {
     this.cleanup();
     this.state = "idle";
     this.scene.acting = false;
@@ -357,7 +363,7 @@ export class Fishing {
     this.scene.toast(msg, "#9fd8ff");
   }
 
-  private cleanup(): void {
+  private cleanup() {
     this.bobber?.destroy();
     this.bobber = null;
     this.bang?.destroy();
@@ -371,10 +377,11 @@ export class Fishing {
   }
 
   /** A local co-op pause freezes the catch, never the partner's world clock. */
-  setPaused(paused: boolean): void {
+  setPaused(paused: boolean) {
     if (this.pending) {
       this.pending.paused = paused;
     }
+
     if (this.active) {
       if (paused) {
         this.scene.player.anims.pause();

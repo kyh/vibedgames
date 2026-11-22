@@ -1,8 +1,6 @@
 import type Phaser from "phaser";
 import { BlendModes } from "phaser";
 
-// Fixed-size pool of pooled images driven by a hand-rolled ease (no per-hit
-// allocations or tweens). Owned by SceneFx; see fx.ts for the effect recipes.
 interface SpriteFx {
   image: Phaser.GameObjects.Image;
   age: number;
@@ -17,6 +15,7 @@ interface SpriteFx {
   alpha: number;
   ease: number;
 }
+
 export interface SpriteOpts {
   key?: string;
   frame?: string | number;
@@ -56,11 +55,13 @@ export class SpritePool {
     }
   }
 
-  spawn(x: number, y: number, life: number, opts: SpriteOpts): Phaser.GameObjects.Image {
+  spawn(x: number, y: number, life: number, opts: SpriteOpts) {
     const slot = this.slots.find((s) => s.age >= s.life) ?? this.slots[this.next];
+
     if (!slot) {
       throw new Error("FX pool has no slots");
     }
+
     this.next = (this.next + 1) % this.slots.length;
     Object.assign(slot, {
       age: 0,
@@ -75,6 +76,7 @@ export class SpritePool {
       x,
       y,
     });
+
     return slot.image
       .setTexture(opts.key ?? "fx-glow", opts.frame)
       .setOrigin(0.5)
@@ -96,11 +98,14 @@ export class SpritePool {
       if (s.age >= s.life) {
         continue;
       }
+
       s.age += ms;
+
       if (s.age >= s.life) {
         s.image.setVisible(false).setActive(false);
         continue;
       }
+
       const t = s.age / s.life;
       const eased = 1 - (1 - t) ** s.ease;
       const scale = 1 + (s.end - 1) * eased;
@@ -116,6 +121,7 @@ export class SpritePool {
       s.age = s.life;
       s.image.setVisible(false).setActive(false);
     }
+
     this.next = 0;
   }
 }

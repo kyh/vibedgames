@@ -6,13 +6,13 @@ type Check = (name: string, condition: boolean, detail?: string) => void;
 class CountedGroup extends THREE.Group {
   visits = 0;
 
-  override updateMatrixWorld(force?: boolean): void {
+  override updateMatrixWorld(force?: boolean) {
     this.visits += 1;
     super.updateMatrixWorld(force);
   }
 }
 
-export const checkStaticWorldGroup = (check: Check): void => {
+export const checkStaticWorldGroup = (check: Check) => {
   const scene = new THREE.Scene();
   scene.position.x = 3;
   const root = new StaticWorldGroup();
@@ -25,17 +25,17 @@ export const checkStaticWorldGroup = (check: Check): void => {
   root.seal();
   const world = child.matrixWorld.clone();
   child.visits = 0;
-  // Renderer updates the live scene, whose local compose forces descendants.
+
   for (let i = 0; i < 120; i += 1) {
     scene.updateMatrixWorld();
   }
+
   check("sealed city skips every redundant descendant matrix visit", child.visits === 0);
   check(
     "sealed city preserves composed parent and child transforms",
     child.matrixWorld.equals(world) && world.elements[12] === 10 && world.elements[14] === 11,
   );
 
-  // Matches ParcelStreamer.install: attach, compose, then freeze the new cell.
   const cell = new THREE.Group();
   const facade = new CountedGroup();
   facade.position.set(2, 4, 6);

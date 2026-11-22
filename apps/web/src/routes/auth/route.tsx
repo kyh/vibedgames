@@ -4,11 +4,8 @@ import { createServerFn } from "@tanstack/react-start";
 
 import { socialSignInProviders } from "@/auth/server";
 
-// Loose: when a connecting app sends someone here to sign in, the OAuth
-// provider's signed authorize query rides along and must survive untouched.
 const authSearchSchema = z.looseObject({
   callbackUrl: z.string().optional(),
-  // A credit code to redeem after sign-in (the name pre-launch invite links carry).
   invite: z.string().optional(),
   nextPath: z.string().optional(),
 });
@@ -25,12 +22,10 @@ const AuthLayout = () => (
 
 export const Route = createFileRoute("/auth")({
   component: AuthLayout,
-  // Sign-in screens are app chrome, not content: keep them out of the index.
   head: () => ({
     meta: [{ title: "Authentication" }, { content: "noindex, nofollow", name: "robots" }],
   }),
   loader: async () => ({ socialProviders: await fetchSocialProviders() }),
-  // Which providers are configured changes only on deploy.
   staleTime: Infinity,
   validateSearch: authSearchSchema,
 });

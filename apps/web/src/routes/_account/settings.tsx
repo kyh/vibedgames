@@ -6,12 +6,6 @@ import { ConnectedAppsSettings } from "@/components/settings/connected-apps-sett
 import { CreditsSettings } from "@/components/settings/credits-settings";
 import { ProfileSettings } from "@/components/settings/profile-settings";
 
-/**
- * Stacked side-by-side sections: each is a `md:grid-cols-3` grid — heading +
- * description in the first column, content spanning the other two — divided
- * by hairlines. Section roots share the `settings-section` layout classes
- * defined in each component.
- */
 const SettingsPage = () => {
   const { user } = Route.useRouteContext();
   const { code, purchase } = Route.useSearch();
@@ -26,6 +20,7 @@ const SettingsPage = () => {
         <ConnectedAppsSettings />
         <CreditsSettings
           code={code}
+          email={user.email}
           purchase={purchase === "success"}
           onCodeRedeemed={() => {
             if (code) {
@@ -42,9 +37,7 @@ export const Route = createFileRoute("/_account/settings")({
   component: SettingsPage,
   head: () => ({ meta: [{ title: "Settings — Vibedgames" }] }),
   validateSearch: z.object({
-    // A credit code from a shared link, prefilled into the redeem field.
     code: z.string().optional(),
-    // Set by Stripe's redirect after a paid checkout (credits.checkout).
     purchase: z.string().optional(),
   }),
 });

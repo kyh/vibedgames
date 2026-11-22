@@ -23,20 +23,15 @@ export class BootScene extends Scene {
     super("Boot");
   }
 
-  preload(): void {
-    // SAFETY: CHAR_FRAMES is a closed const record keyed by CharAction, so its
-    // runtime keys are exactly that union.
+  preload() {
     for (const a of Object.keys(CHAR_FRAMES) as CharAction[]) {
       this.load.spritesheet(`p-${a}`, `assets/char/${a}.webp`, CHAR);
     }
+
     for (const a of Object.keys(SKEL)) {
       this.load.spritesheet(`e-skel-${a}`, `assets/enemy/skel_${a}.webp`, CHAR);
     }
 
-    // world map: tileset atlas (as tileset image AND frame sheet), the
-    // packed deco sprite atlas, and the layout
-    // One texture, used both as the tilemap's tileset and as a 16px frame
-    // sheet — loading it under two keys fetched the game's biggest asset twice.
     this.load.spritesheet("atlas", "assets/tiles/atlas.webp", {
       frameHeight: 16,
       frameWidth: 16,
@@ -45,7 +40,6 @@ export class BootScene extends Scene {
     this.load.json("map", "assets/map.json");
     this.load.image("char-shadow-tex", "assets/obj/charactershadow.webp");
 
-    // crops
     for (const c of CROP_ORDER) {
       this.load.spritesheet(`crop-${c}`, `assets/crops/${c}.webp`, {
         frameHeight: 16,
@@ -54,7 +48,6 @@ export class BootScene extends Scene {
       this.load.image(`crop-${c}-icon`, `assets/crops/${c}_icon.webp`);
     }
 
-    // objects still spawned by gameplay (mine nodes, soil, icons)
     this.load.image("obj-rock", "assets/obj/rock.webp");
     this.load.image("obj-ore-coal", "assets/obj/ore_coal.webp");
     this.load.image("obj-ore-copper", "assets/obj/ore_copper.webp");
@@ -75,7 +68,6 @@ export class BootScene extends Scene {
       frameWidth: 16,
     });
 
-    // animals
     this.load.spritesheet("obj-chicken", "assets/obj/chicken.webp", {
       frameHeight: 32,
       frameWidth: 32,
@@ -89,18 +81,17 @@ export class BootScene extends Scene {
     this.load.spritesheet("obj-duck", "assets/obj/duck.webp", { frameHeight: 16, frameWidth: 16 });
     this.load.spritesheet("obj-bird", "assets/obj/bird.webp", { frameHeight: 16, frameWidth: 16 });
 
-    // ui
     for (const n of ["axe", "pickaxe", "shovel", "water", "sword", "rod"]) {
       this.load.image(`ui-${n}`, `assets/ui/${n}.webp`);
     }
   }
 
-  create(): void {
+  create() {
     setWorldMap(parseWorldMap(this.cache.json.get("map")));
     this.makeAnimsAndStart();
   }
 
-  private makeAnimsAndStart(): void {
+  private makeAnimsAndStart() {
     const mk = (key: string, src: string, rate: number, repeat: number) =>
       this.anims.create({
         frameRate: rate,
@@ -128,8 +119,6 @@ export class BootScene extends Scene {
     mk("e-skel-walk", "e-skel-walk", 10, -1);
     mk("e-skel-death", "e-skel-death", 12, 0);
     mk("e-skel-hurt", "e-skel-hurt", (7 * 1000) / SKELETON_HURT_MS, 0);
-    // The original strip's arc/recovery follows accepted contact. Its windup
-    // frames would imply a delay that this enemy's contact damage does not have.
     this.anims.create({
       frameRate: (3 * 1000) / SKELETON_CONTACT_MS,
       frames: this.anims.generateFrameNumbers("e-skel-attack", { end: 6, start: 4 }),
@@ -146,9 +135,8 @@ export class BootScene extends Scene {
     mk("mushroom-red-bob", "obj-mushroom-red", 4, -1);
     mk("mushroom-blue-bob", "obj-mushroom-blue", 4, -1);
 
-    // every animated deco sprite referenced by the world map (frames live in
-    // the packed deco-atlas as "<name>/<i>")
     const worldMap = getWorldMap();
+
     for (const [name, def] of Object.entries(worldMap.deco)) {
       if (def.frames > 1) {
         this.anims.create({
@@ -201,59 +189,56 @@ export class BootScene extends Scene {
       g.fillRect(2, 0, 2, 16);
       g.fillRect(12, 0, 2, 16);
       g.fillStyle(0xb5_80_3f, 1);
+
       for (let y = 2; y < 16; y += 4) {
         g.fillRect(2, y, 12, 2);
       }
     });
 
     const params = new URLSearchParams(window.location.search);
-    // ?trailer=1 hands the boot over to the trailer director (lazy-loaded so
-    // trailer code stays out of the normal play path entirely; presence-check
-    // only — importing trailer-shell here would hoist it into the main chunk)
+
     if (params.has("trailer")) {
       void this.startTrailer();
+
       return;
     }
-    // ?gallery opens the asset-inspection page instead of the game
-    // (lazy-loaded so gallery code stays out of the main chunk)
+
     if (params.has("gallery")) {
       void this.startGallery();
+
       return;
     }
-    // DEV: ?online skips the title into a fresh co-op farm, in the ?room= room
-    // when one is named — how the multiplayer lag check's two clients meet
-    // with no menu in the way. Like a staged playtest run, it neither reads
-    // nor overwrites the player's real save.
+
     if (import.meta.env.DEV && params.has("online")) {
       disableSaves();
       this.scene.start("Game", { mode: "new" });
+
       return;
     }
+
     this.scene.start("Title");
   }
 
-  private async startTrailer(): Promise<void> {
+  private async startTrailer() {
     const { startTrailer } = await import("../trailer/trailer-director");
     startTrailer(this.game);
   }
 
-  private async startGallery(): Promise<void> {
+  private async startGallery() {
     const { GalleryScene } = await import("./gallery-scene");
+
     if (!this.scene.get("Gallery")) {
       this.scene.add("Gallery", GalleryScene);
     }
+
     this.scene.start("Gallery");
   }
 
-  private makeIcon(
-    key: string,
-    draw: (g: Phaser.GameObjects.Graphics) => void,
-    w = 16,
-    h = 16,
-  ): void {
+  private makeIcon(key: string, draw: (g: Phaser.GameObjects.Graphics) => void, w = 16, h = 16) {
     if (this.textures.exists(key)) {
       return;
     }
+
     const g = this.make.graphics({ x: 0, y: 0 });
     draw(g);
     g.generateTexture(key, w, h);

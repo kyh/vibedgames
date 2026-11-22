@@ -1,6 +1,8 @@
 import { spawn } from "node:child_process";
+import { bestEffort } from "./best-effort.ts";
 
-const esc = (s: string): string => s.replaceAll("\\", "\\\\").replaceAll('"', '\\"');
+const esc = (s: string) => s.replaceAll("\\", "\\\\").replaceAll('"', '\\"');
+
 /**
  * Best-effort operator notification for events that block on a human: a build
  * awaiting deploy approval, a checkpoint window, a rate-limit stall. The loop
@@ -12,17 +14,20 @@ const esc = (s: string): string => s.replaceAll("\\", "\\\\").replaceAll('"', '\
  * native notification is posted via osascript. Elsewhere it's a no-op. Always
  * fire-and-forget: a broken notifier must never stall or crash the loop.
  */
-export const notifyOperator = (title: string, message: string): void => {
+export const notifyOperator = (title: string, message: string) => {
   const custom = process.env.FACTORY_NOTIFY;
-  try {
+
+  bestEffort(() => {
     if (custom) {
       spawn("sh", ["-c", custom], {
         detached: true,
         env: { ...process.env, FACTORY_NOTIFY_MESSAGE: message, FACTORY_NOTIFY_TITLE: title },
         stdio: "ignore",
       }).unref();
+
       return;
     }
+
     if (process.platform === "darwin") {
       spawn(
         "osascript",
@@ -30,7 +35,5 @@ export const notifyOperator = (title: string, message: string): void => {
         { detached: true, stdio: "ignore" },
       ).unref();
     }
-  } catch {
-    /* notification is best-effort by contract */
-  }
+  });
 };

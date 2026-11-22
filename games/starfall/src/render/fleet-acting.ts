@@ -27,36 +27,48 @@ export const fleetPose = (
   if (reduced) {
     return IDLE_POSE;
   }
+
   const age = now - enemy.attackAt;
   const recoveryMs = RECOVERY_MS[enemy.kind];
+
   if (age >= 0 && age < recoveryMs) {
     const release = (1 - age / recoveryMs) ** 2;
+
     return {
       recoil: Math.min(5, ENEMY_SPECS[enemy.kind].hitRadius * 0.13) * release,
       scaleX: 1 - 0.045 * release,
       scaleY: 1 + 0.045 * release,
     };
   }
+
   if (enemy.telegraphUntil > now) {
     const charge = enemyChargeProgress(enemy.telegraphUntil, now, chargeDuration);
+
     return { recoil: 0, scaleX: 1 - charge * 0.035, scaleY: 1 + charge * 0.035 };
   }
+
   if (enemy.kind === "lancer" && enemy.chargeUntil > now) {
     return { recoil: 0, scaleX: 1.06, scaleY: 0.96 };
   }
+
   return IDLE_POSE;
 };
 
 /** Same speed bands as the incoming-damage classifier. */
-export const hostileShotLook = (speed: number): "lance" | "rail" | "burst" | "plasma" => {
+export const hostileShotLook: (speed: number) => "lance" | "rail" | "burst" | "plasma" = (
+  speed,
+) => {
   if (speed >= 800) {
     return "lance";
   }
+
   if (speed >= 600) {
     return "rail";
   }
+
   if (speed > 270) {
     return "burst";
   }
+
   return "plasma";
 };

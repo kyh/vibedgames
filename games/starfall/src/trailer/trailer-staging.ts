@@ -1,12 +1,3 @@
-// Trailer-mode staging contract between GameScene and the trailer director.
-//
-// Link holds ONE nullable `TrailerStaging` field (null outside ?trailer=1,
-// so every guard is dead in normal play). The director writes the per-frame
-// override fields; `GameScene.trailerStage()` installs the staging and returns
-// the `TrailerStageApi` closures, all of which route through the exact code
-// paths real gameplay uses (spawn factories, hostDamageEnemy, gainXp, die).
-// Types only — this module has no runtime cost in the game bundle.
-
 import type { PlayerMap } from "@vibedgames/multiplayer";
 
 import type {

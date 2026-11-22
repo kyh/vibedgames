@@ -27,6 +27,7 @@ export class PowerHalo {
         transparent: true,
       }),
     );
+
     const arc = new THREE.Mesh(this.arcGeometry, this.arcMaterial);
     arc.position.z = 0.002;
     this.group.add(track, arc);
@@ -35,11 +36,13 @@ export class PowerHalo {
     scene.add(this.group);
   }
 
-  update(x: number, z: number, remainingMs: number): void {
+  update(x: number, z: number, remainingMs: number) {
     this.group.visible = remainingMs > 0;
+
     if (!this.group.visible) {
       return;
     }
+
     this.group.position.set(x, FLOOR_Y + 0.025, z);
     const fraction = Math.min(1, remainingMs / SCARED_MS);
     this.arcGeometry.setDrawRange(0, Math.ceil(fraction * SEGMENTS) * 6);

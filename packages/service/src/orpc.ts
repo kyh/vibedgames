@@ -1,6 +1,3 @@
-/**
- * tl;dr - this is where all the oRPC server stuff is created and plugged in.
- */
 import type { Auth } from "./auth/auth";
 import type { Db } from "@repo/db/drizzle-client";
 import { contract } from "@repo/contract";
@@ -34,8 +31,6 @@ export interface R2BucketLike {
     cursor?: string;
   }>;
   delete: (key: string) => Promise<void>;
-  // The real binding resolves with the written object's metadata; this
-  // package only ever awaits the write, so just the key is modeled.
   put: (
     key: string,
     value: ArrayBuffer | ArrayBufferView | ReadableStream | string,
@@ -122,17 +117,15 @@ export interface CreateORPCContextOptions {
 }
 
 export const createORPCContext = async (opts: CreateORPCContextOptions) => {
-  // Try a normal better-auth session first (cookie or session bearer token).
-  // Fall back to a long-lived API key (`vg_…`) so CLI/HTTP clients can
-  // authenticate in CI, then to an OAuth access token a person granted an
-  // app for this resource; all three resolve to the same `Session` shape.
   const direct =
     (await opts.auth.api.getSession({ headers: opts.headers })) ??
     (await resolveApiKeySession(opts.auth, opts.db, opts.headers));
+
   const grant =
     !direct && opts.oauthResource
       ? await resolveOAuthSession(opts.auth, opts.db, opts.headers, opts.oauthResource)
       : null;
+
   const session = direct ?? grant?.session ?? null;
 
   return {
@@ -142,10 +135,6 @@ export const createORPCContext = async (opts: CreateORPCContextOptions) => {
     decision: opts.decision,
     headers: opts.headers,
     media: opts.media,
-    /**
-     * The scopes an OAuth access token was granted; null for every other
-     * credential, which acts as the person in full.
-     */
     oauthScopes: grant?.scopes ?? null,
     productionURL: opts.productionURL,
     r2: opts.r2,
@@ -176,15 +165,16 @@ export const requireSession = base.middleware(({ context, next, procedure }) => 
   if (!context.session?.user) {
     throw new ORPCError("UNAUTHORIZED");
   }
-  // A procedure without a scope is session-only, and `rejectApiKey` turns
-  // the token away there with its own message.
+
   const required = getRequiredScope(procedure);
+
   if (context.oauthScopes && required && !context.oauthScopes.includes(required)) {
     throw new ORPCError("FORBIDDEN", {
       data: { error: "insufficient_scope", scope: required },
       message: `insufficient_scope: this app was not granted "${required}". Reconnect it to grant it.`,
     });
   }
+
   return next({
     context: {
       session: { ...context.session, user: context.session.user },
@@ -207,12 +197,14 @@ const sessionBase = builder.$context<SessionContext>();
  */
 export const rejectApiKey = sessionBase.middleware(({ context, next }) => {
   const { token } = context.session.session;
+
   if (token.startsWith(API_KEY_SESSION_PREFIX) || token.startsWith(OAUTH_SESSION_PREFIX)) {
     throw new ORPCError("FORBIDDEN", {
       message:
         "This action requires an interactive login, not an API key or a connected app. Use the web app.",
     });
   }
+
   return next();
 });
 
@@ -225,5 +217,6 @@ export const requireAdmin = sessionBase.middleware(({ context, next }) => {
   if (context.session.user.role !== "admin") {
     throw new ORPCError("FORBIDDEN");
   }
+
   return next();
 });

@@ -1,17 +1,4 @@
-// Shared GLSL noise chunk for the procedural spell materials (ice, bolt, beam,
-// fissures). Injected as a string so every material compiles against the same
-// source and the driver's shader cache gets a hit instead of a recompile.
-//
-// `snoise` is Ashima Arts / Stefan Gustavson simplex noise (MIT). The library
-// shape and the ridged/fbm helpers come from the Elemental Sandbox VFX sandbox
-// (MIT, Copyright (c) 2026 mohamedachrefelouafi) —
-// https://github.com/achrefelouafi/LinearAbiltyCastingThreeJS
-//
-// `fbm2` is ours: two octaves instead of three or four. The toon grade wants
-// broad flat masses, and the extra octaves only add high-frequency grain that
-// the bloom pass then smears into mush at our camera distance.
-// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-export const NOISE_GLSL = /* glsl */ `
+export const NOISE_GLSL = `
 #ifndef VG_NOISE_INCLUDED
 #define VG_NOISE_INCLUDED
 

@@ -7,4 +7,4 @@ import { env } from "cloudflare:workers";
  * `cloudflare:workers` module in both dev and production — no more
  * Nitro globalThis.__env__ hacks or request-sniffing.
  */
-export const getCloudflareEnv = (): Cloudflare.Env => env;
+export const getCloudflareEnv = () => env;

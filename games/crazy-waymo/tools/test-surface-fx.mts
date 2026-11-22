@@ -12,47 +12,57 @@ import {
 import type { WheelSurface } from "../src/world/land-class.ts";
 
 type Check = (name: string, condition: boolean, detail?: string) => void;
+
 const LOOSE: readonly WheelSurface[] = ["grass", "sand", "dirt", "gravel", "rock"];
 
-const emissions = (surface: WheelSurface, speed: number, hz: number): number => {
+const emissions = (surface: WheelSurface, speed: number, hz: number) => {
   const clock = new TireEmissionClock();
   let bursts = 0;
+
   for (let i = 0; i < hz * 10; i += 1) {
     bursts += clock.step(1 / hz, surface, speed, true);
   }
+
   return bursts;
 };
 
-const alive = (attribute: THREE.BufferAttribute | THREE.InterleavedBufferAttribute): number => {
+const alive = (attribute: THREE.BufferAttribute | THREE.InterleavedBufferAttribute) => {
   let count = 0;
+
   for (let i = 0; i < attribute.count; i += 1) {
     if (attribute.getX(i) > 0) {
       count += 1;
     }
   }
+
   return count;
 };
 
-const checkTireContact = (check: Check): void => {
+const checkTireContact = (check: Check) => {
   const point = { x: 0, y: 0, z: 0 };
+
   const airborneContact = {
     wheelContactPoint: () => ({ x: 10, y: 6, z: 20 }),
     wheelIsInContact: () => false,
   };
+
   check(
     "rear tires stop immediately during the car's airborne grace period",
     !readTireContact(airborneContact, 2, true, point),
   );
+
   const partialContact = {
     wheelContactPoint: (_index: number, target?: { x: number; y: number; z: number }) => {
       const into = target ?? { x: 0, y: 0, z: 0 };
       into.x = 10;
       into.y = 6;
       into.z = 20;
+
       return into;
     },
     wheelIsInContact: (index: number) => index === 3,
   };
+
   check(
     "partial wheel contact preserves the contacted tire's deck position",
     !readTireContact(partialContact, 2, true, point) &&
@@ -74,7 +84,7 @@ const checkTireContact = (check: Check): void => {
   );
 };
 
-const checkTireThrow = (check: Check): void => {
+const checkTireThrow = (check: Check) => {
   const direction = { x: 0, y: 0, z: 0 };
   tireThrow(0, -20, direction);
   const reverse = direction.z === 1;
@@ -97,7 +107,7 @@ const checkTireThrow = (check: Check): void => {
   );
 };
 
-const checkParticlePool = (check: Check): void => {
+const checkParticlePool = (check: Check) => {
   const direction = { x: 0, y: 0, z: 0 };
   const fx = new Fx();
   const scene = new THREE.Scene();
@@ -110,29 +120,39 @@ const checkParticlePool = (check: Check): void => {
   let particles = 0;
   let maxAlive = 0;
   let allExpired = true;
+
   for (const surface of LOOSE) {
     const profile = SURFACE_FX[surface];
+
     if (profile.kind !== "loose") {
       throw new Error("Loose fixture resolved as pavement");
     }
+
     const cadence = new TireEmissionClock();
     tireThrow(0, 55, direction);
+
     for (let frame = 0; frame < 360; frame += 1) {
       const bursts = cadence.step(1 / 60, surface, 55, true);
+
       for (let burst = 0; burst < bursts * 2; burst += 1) {
         fx.kickup(0, 0, 0, profile, direction, 3.8);
         particles += profile.dust.count + profile.debris.count;
       }
+
       fx.update(1 / 60);
       maxAlive = Math.max(maxAlive, alive(smoke.getAttribute("aLife")));
     }
+
     const sizes = smoke.getAttribute("aSize");
+
     for (let i = 0; i < sizes.count; i += 1) {
       maxSizes.push(sizes.getX(i));
     }
+
     fx.update(0.6);
     allExpired &&= alive(smoke.getAttribute("aLife")) === 0;
   }
+
   const { material } = fx.smoke.points;
   check(
     "off-road particles stay normal-blend and never occupy the spark pool",
@@ -158,14 +178,16 @@ const checkParticlePool = (check: Check): void => {
 };
 
 /** Contact, surface transitions, reverse travel and real particle-pool budgets. */
-export const checkSurfaceFx = (check: Check): void => {
+export const checkSurfaceFx = (check: Check) => {
   const clock = new TireEmissionClock();
   let quiet = true;
+
   for (let i = 0; i < 100; i += 1) {
     quiet &&= clock.step(1 / 60, "sand", 0, true) === 0;
     quiet &&= clock.step(1 / 60, null, 40, true) === 0;
     quiet &&= clock.step(1 / 60, "road", 40, false) === 0;
   }
+
   check("parked, airborne and cruising paved tires emit no surface matter", quiet);
 
   clock.step(0.049, "sand", 40, true);
@@ -188,6 +210,7 @@ export const checkSurfaceFx = (check: Check): void => {
     "surface cadence stays stable at 30, 60 and 144Hz",
     LOOSE.every((surface) => {
       const rates = [30, 60, 144].map((hz) => emissions(surface, 40, hz));
+
       return Math.max(...rates) - Math.min(...rates) <= 1;
     }),
   );

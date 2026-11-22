@@ -4,8 +4,6 @@ import { test } from "node:test";
 import { endpointPath, queueAppId } from "@repo/contract/generate/queue-path";
 
 test("queueAppId drops the model subpath so status/result/cancel hit the app id", () => {
-  // fal queues submission under the full id but keys status/result/cancel
-  // by owner/app only. Passing the subpath returns 405.
   assert.equal(queueAppId("fal-ai/flux/schnell"), "fal-ai/flux");
   assert.equal(queueAppId("fal-ai/flux/dev"), "fal-ai/flux");
   assert.equal(queueAppId("openai/gpt-image-2/edit"), "openai/gpt-image-2");

@@ -5,12 +5,11 @@ import path from "node:path";
 import { claudeBin, codexBin, findRepoRoot } from "./config.ts";
 import type { Reporter } from "./reporter.ts";
 import type { Runner } from "./runner.ts";
+import { bestEffort } from "./best-effort.ts";
 
-/** Generous cap on the one-time `vg init` (npm installs over the network). */
 const INIT_TIMEOUT_MS = 5 * 60_000;
 
-/** Can `bin` be spawned at all? (ENOENT is the only failure we care about) */
-const onPath = (bin: string): boolean => {
+const onPath = (bin: string) => {
   try {
     return spawnSync(bin, ["--version"], { stdio: "ignore", timeout: 15_000 }).error === undefined;
   } catch {
@@ -24,46 +23,46 @@ const onPath = (bin: string): boolean => {
  * a failing `vg deploy`, so the orchestrator skips shipping instead — the
  * operator can `vg login` mid-run and the next release point deploys.
  */
-export const vgAuthenticated = (): boolean => {
+export const vgAuthenticated = () => {
   try {
     const res = spawnSync("vg", ["whoami"], { stdio: "ignore", timeout: 30_000 });
+
     return res.error === undefined && res.status === 0;
   } catch {
     return false;
   }
 };
 
-/** Run `vg init` (or bootstrap it via npx when vg itself is missing) in the
- * workspace, installing the vibedgames skills there + the vg CLI globally. */
-/** Holds a timeout armed after the closure that clears it. */
 interface TimeoutCell {
   handle?: ReturnType<typeof setTimeout>;
 }
 
-const runInit = (cwd: string, viaNpx: boolean): Promise<boolean> =>
+const runInit: (cwd: string, viaNpx: boolean) => Promise<boolean> = (cwd, viaNpx) =>
   // oxlint-disable-next-line promise/avoid-new -- child_process.spawn is event-based
   new Promise((resolve) => {
-    // Install for both runners in one shot so switching --runner later works.
     const initArgs = ["init", "-a", "claude-code,codex"];
+
     const child = viaNpx
       ? spawn("npx", ["-y", "vibedgames", ...initArgs], { cwd, stdio: "ignore" })
       : spawn("vg", initArgs, { cwd, stdio: "ignore" });
+
     let settled = false;
     const timeout: TimeoutCell = {};
-    const settle = (ok: boolean): void => {
+
+    const settle = (ok: boolean) => {
       if (settled) {
         return;
       }
+
       settled = true;
       clearTimeout(timeout.handle);
       resolve(ok);
     };
+
     timeout.handle = setTimeout(() => {
-      try {
+      bestEffort(() => {
         child.kill("SIGKILL");
-      } catch {
-        /* already gone */
-      }
+      });
       settle(false);
     }, INIT_TIMEOUT_MS);
     timeout.handle.unref?.();
@@ -77,46 +76,44 @@ const runInit = (cwd: string, viaNpx: boolean): Promise<boolean> =>
  * with the vibedgames skills + vg CLI via `vg init`. Hard failures are
  * reported and return false; the run must not start without them.
  */
-export const preflight = async (
-  workspace: string,
-  runner: Runner,
-  reporter: Reporter,
-): Promise<boolean> => {
+export const preflight = async (workspace: string, runner: Runner, reporter: Reporter) => {
   if (runner === "claude" && !onPath(claudeBin())) {
     reporter.error(
       `\`${claudeBin()}\` not found — the factory drives headless Claude Code sessions. Install it (npm install -g @anthropic-ai/claude-code) and log in, or point CLAUDE_BIN at the binary.`,
     );
+
     return false;
   }
+
   if (runner === "codex" && !onPath(codexBin())) {
     reporter.error(
       `\`${codexBin()}\` not found — the codex runner drives headless Codex sessions. Install the Codex CLI and log in, or point CODEX_BIN at the binary.`,
     );
+
     return false;
   }
 
   const inRepo = findRepoRoot() !== null;
+
   if (inRepo) {
-    // Dev mode: claude resolves skills from <repo>/.claude/skills via
-    // --add-dir; codex reads AGENTS.md-installed skills, which the repo
-    // doesn't carry — flag it rather than silently running skill-less.
     if (!onPath("vg")) {
       reporter.warn(
         "`vg` not found on PATH — run `pnpm dogfood` at the repo root so subagents can scaffold/generate/deploy.",
       );
     }
+
     if (runner === "codex" && !existsSync(path.resolve(workspace, "AGENTS.md"))) {
       reporter.warn(
         "codex runner: no AGENTS.md in the game workspace — run `vg init -a codex` there so codex subagents see the vibedgames skills.",
       );
     }
+
     return true;
   }
 
-  // Installed mode: the workspace itself must hold the vibedgames skills, and
-  // subagents call the globally-installed vg CLI. `vg init` provides both.
   const hasVg = onPath("vg");
   const hasSkills = existsSync(path.resolve(workspace, ".claude", "skills"));
+
   if (hasVg && hasSkills) {
     return true;
   }
@@ -124,12 +121,16 @@ export const preflight = async (
   reporter.info(
     "Setting up the game workspace — installing the vibedgames skills and vg CLI (one-time, ~a minute)…",
   );
+
   if (await runInit(workspace, !hasVg)) {
     reporter.info("Workspace ready.");
+
     return true;
   }
+
   reporter.error(
     "Workspace setup failed. Run `npx -y vibedgames init` inside the game folder, then start again.",
   );
+
   return false;
 };

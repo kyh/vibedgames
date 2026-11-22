@@ -2,23 +2,6 @@ import * as THREE from "three";
 
 import { GlowLayer, HALO_GAIN, POOL_GAIN } from "./glow-layer";
 
-// Night lights for anything that is NOT a street lamp: pier lanterns, dock
-// floods, bridge deck strings, the aviation beacons on the tower tops — and,
-// through the shared GlowLayer (fx/glow-layer.ts), the headlights and tail
-// lights of the traffic fleet (fx/vehicle-lights.ts).
-//
-// Street lamps ride `city.lampHeads`, which is packed into the baked world bin
-// — so adding a field to it (colour, blink) would force a world rebake. The
-// waterfront geometry is rebuilt live on every load instead, so its lights get
-// this runtime-only registry: a builder calls `registerBeacons` while it builds,
-// GameScene drains the registry once the world's streamed tail resolves and
-// turns the whole lot into ONE additive instanced draw (plus one for the deck
-// pools).
-//
-// Registration is keyed by source so a rebuild replaces its own entries rather
-// than doubling them — the landmark/pier/bridge builders all run again on every
-// load, and dev HMR runs them more than that.
-
 export interface Beacon {
   readonly x: number;
   readonly y: number;
@@ -55,28 +38,28 @@ const registry = new Map<string, readonly Beacon[]>();
  * Publish (or replace) one builder's night lights. Call it while the world is
  * being generated — GameScene reads the registry once, after the load tail.
  */
-export const registerBeacons = (source: string, beacons: readonly Beacon[]): void => {
+export const registerBeacons = (source: string, beacons: readonly Beacon[]) => {
   registry.set(source, beacons);
 };
 
 /** Every registered beacon, flattened. Order follows registration order. */
-export const collectBeacons = (): readonly Beacon[] => {
+export const collectBeacons = () => {
   const all: Beacon[] = [];
+
   for (const list of registry.values()) {
     all.push(...list);
   }
+
   return all;
 };
 
 const HALO_ALPHA = 0.62;
 const POOL_ALPHA = 0.32;
-// pool diameter relative to the halo
 const POOL_SCALE = 3.2;
-// clear of the deck it is drawn on
 const POOL_LIFT = 0.06;
 
 /** Blink period in seconds → the shader's angular rate. 0 stays steady. */
-export const blinkRate = (blinkS: number | undefined): number =>
+export const blinkRate = (blinkS: number | undefined) =>
   blinkS !== undefined && blinkS > 0 ? (Math.PI * 2) / blinkS : 0;
 
 export class BeaconLights {
@@ -88,7 +71,9 @@ export class BeaconLights {
     if (beacons.length === 0) {
       return;
     }
+
     const pooled = beacons.filter((b) => b.groundY !== undefined).length;
+
     const halo = new GlowLayer({
       alpha: HALO_ALPHA,
       capacity: beacons.length,
@@ -97,11 +82,14 @@ export class BeaconLights {
       kind: "halo",
       time: this.time,
     });
+
     halo.begin();
     const col = new THREE.Color();
+
     for (const b of beacons) {
       halo.push(b.x, b.y, b.z, col.setHex(b.color), b.size, blinkRate(b.blinkS));
     }
+
     halo.commit();
     this.group.add(halo.mesh);
 
@@ -114,11 +102,14 @@ export class BeaconLights {
         kind: "pool",
         time: this.time,
       });
+
       pool.begin();
+
       for (const b of beacons) {
         if (b.groundY === undefined) {
           continue;
         }
+
         const c = col.setHex(b.color).multiplyScalar(b.poolBoost ?? 1);
         pool.push(
           b.x,
@@ -129,19 +120,20 @@ export class BeaconLights {
           blinkRate(b.blinkS),
         );
       }
+
       pool.commit();
       this.group.add(pool.mesh);
     }
+
     this.group.visible = false;
   }
 
-  setIntensity(night: number): void {
+  setIntensity(night: number) {
     this.intensity.value = night;
-    // no draw at all in daylight
     this.group.visible = night > 0.01;
   }
 
-  update(dt: number): void {
+  update(dt: number) {
     if (this.group.visible) {
       this.time.value += dt;
     }

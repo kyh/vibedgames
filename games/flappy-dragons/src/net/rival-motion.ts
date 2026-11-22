@@ -1,6 +1,3 @@
-// How each rival's dragon moves on this screen. Free of Phaser so
-// tools/net.test.mts can drive it headless.
-
 import { Interpolator, RemoteClock, lerp } from "@vibedgames/multiplayer";
 
 /** What a rival's dragon streams per tick, as rendered between ticks. */
@@ -16,9 +13,7 @@ export interface DragonPose {
  */
 export const RIVAL_TELEPORT_PX = 150;
 
-const blendPose = (a: DragonPose, b: DragonPose, k: number): DragonPose => ({
-  // A crash shows where it happened: the dragon flies on into the trunk and
-  // greys out mid-blend, instead of skipping ahead to the wreck.
+const blendPose = (a: DragonPose, b: DragonPose, k: number) => ({
   live: k < 0.5 ? a.live : b.live,
   vy: lerp(a.vy, b.vy, k),
   y: lerp(a.y, b.y, k),
@@ -38,7 +33,6 @@ const blendPose = (a: DragonPose, b: DragonPose, k: number): DragonPose => ({
 export class RivalMotion {
   /** Stamp of the newest sample pushed: state is polled every frame, but only a new stamp is news. */
   stamp = Number.NaN;
-  /** This rival's clock, taught by its samples and nothing else. */
   private readonly clock = new RemoteClock();
   private readonly interp = new Interpolator<DragonPose>({ clock: this.clock, lerp: blendPose });
   private life = Number.NaN;
@@ -49,21 +43,23 @@ export class RivalMotion {
    * covers is a teleport: the history goes, so the dragon appears there
    * instead of gliding across the screen.
    */
-  push(t: number, life: number, pose: DragonPose, receivedAt?: number): void {
+  push(t: number, life: number, pose: DragonPose, receivedAt?: number) {
     const last = this.interp.latest;
+
     if (
       life !== this.life ||
       (last !== undefined && Math.abs(pose.y - last.y) > RIVAL_TELEPORT_PX)
     ) {
       this.interp.clear();
     }
+
     this.life = life;
     this.stamp = t;
     this.interp.push(t, pose, receivedAt);
   }
 
   /** The pose to draw at local time `now`; undefined before the first sample. */
-  sample(now?: number): DragonPose | undefined {
+  sample(now?: number) {
     return this.interp.sample(now);
   }
 
@@ -75,7 +71,7 @@ export class RivalMotion {
    * of the dragon being drawn early until the old route's faster trips age
    * out.
    */
-  relearn(): void {
+  relearn() {
     this.clock.relearn();
   }
 }

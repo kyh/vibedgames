@@ -1,17 +1,3 @@
-// The deathmatch: the `G.net` hooks strikeforce-core.js calls, and everything
-// behind them.
-//
-// A tab joins a room only when it deploys into deathmatch, so solo PvE never
-// shares anything. The room's host runs the rules (rules.ts) on its own clock
-// and publishes the match at MATCH_HZ: phase, clock, kills, who is alive,
-// which barrels stand. Every client — the host included — plays its own body,
-// publishes it at BODY_HZ, and follows the published match: it places itself,
-// at the spawn farthest from its enemies, whenever the host brings its fighter
-// back (a new `life`). Hits favour the shooter: a client tests its shots
-// against the avatars on its own screen and tells the host, which applies the
-// damage and sends the victim a `hurt`. Area damage (barrels) each client
-// applies to itself and reports through its body's health. The host also
-// plays the bots (bots.ts) that keep a thin room in a match.
 import { FixedRate } from "@vibedgames/multiplayer";
 import type { JsonValue, MultiplayerClient } from "@vibedgames/multiplayer";
 import { Vector3 } from "three";
@@ -20,7 +6,6 @@ import type { GameState, NetHooks, StrikeforceGame, ShotHit, WeaponFire } from "
 import type { Combatant, Shot } from "../soldier/soldier-brain";
 import { showShot } from "../soldier/gunfire";
 import { Radar } from "../minimap";
-import type { RadarMark } from "../minimap";
 import { Bots, botPlayers } from "./bots";
 import { arenaSpawns, darkenRelays, safestSpawn } from "./map";
 import type { Spawn } from "./map";
@@ -50,19 +35,16 @@ import {
 import type { Fighter, MatchEvent, MatchState, Point } from "./rules";
 import { isRecord, isStr, nums, vecAt, vecWire } from "./wire";
 
-/** A rifle headshot kills outright; anything else is the weapon's damage. */
 const HEAD_MULTIPLIER = 4;
 
-const escapeHtml = (text: string): string =>
+const escapeHtml = (text: string) =>
   text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 
-const inPlay = (state: GameState): boolean => state === "playing" || state === "paused";
+const inPlay = (state: GameState) => state === "playing" || state === "paused";
 
-/** The title is set to (or deployed in) deathmatch, not a solo PvE mode. */
-const online = (game: StrikeforceGame | null): boolean => game?.game.run.mode === "deathmatch";
+const online = (game: StrikeforceGame | null) => game?.game.run.mode === "deathmatch";
 
-/** Deployed into deathmatch (not the title, not a solo PvE mode). */
-const inMatch = (game: StrikeforceGame): boolean => inPlay(game.game.state) && online(game);
+const inMatch = (game: StrikeforceGame) => inPlay(game.game.state) && online(game);
 
 /** Opens the room (session.ts), once, when the player first deploys online. */
 export type Connector = () => Promise<MultiplayerClient>;
@@ -72,17 +54,18 @@ export interface MatchOptions {
   botFill: number;
 }
 
-/** Solo modes: the relays still standing ("relay_a" → "A"). */
-const relayMarks = (game: StrikeforceGame): RadarMark[] =>
+const relayMarks = (game: StrikeforceGame) =>
   game.game.run.relays
     .filter((r) => !r.cut)
     .map((r) => ({ label: r.id.slice(-1).toUpperCase(), x: r.o.pos.x, z: r.o.pos.z }));
 
-const remoteShot = (payload: JsonValue, game: StrikeforceGame, players: Players | null): void => {
+const remoteShot = (payload: JsonValue, game: StrikeforceGame, players: Players | null) => {
   const v = nums(payload, 7);
+
   if (!v) {
     return;
   }
+
   const muzzle = vecAt(v, 0, new Vector3());
   players?.fired(muzzle);
   showShot(game, muzzle, vecAt(v, 3, new Vector3()));
@@ -95,13 +78,12 @@ const remoteShot = (payload: JsonValue, game: StrikeforceGame, players: Players 
 
 export class Match implements NetHooks {
   /** The core's mission flow stands down while the deployed mode is online. */
-  get match(): boolean {
+  get match() {
     return online(this.game);
   }
   private readonly connector: Connector;
   private readonly botFill: number;
   private bots: Bots | null = null;
-  /** The bots' bodies: the host's own, or as a guest last read them. */
   private botRaw: JsonValue | undefined = undefined;
   private joining = false;
   private client: MultiplayerClient | null = null;
@@ -110,14 +92,11 @@ export class Match implements NetHooks {
   private spawns: Spawn[] = [];
   private readonly hud = new MatchHud();
   private readonly radar = new Radar();
-  /** The host's own rules state; null on a guest. */
   private rules: MatchState | null = null;
-  /** The match as this client last read it. */
   private view: MatchState | null = null;
   private lastRaw: JsonValue | undefined = undefined;
   private seenState: GameState | null = null;
   private stateListener: ((state: GameState, game: StrikeforceGame) => void) | null = null;
-  /** The life (rules.ts) this body was last placed as. */
   private placedLife = -1;
   private seenRound = -1;
   private seenPhase = "";
@@ -132,32 +111,34 @@ export class Match implements NetHooks {
    * requests and publishes no barrels, so they stand for everyone rather than
    * blowing differently on each guest's dock. Solo PvE keeps its own barrels.
    */
-  get guest(): boolean {
+  get guest() {
     return Boolean(this.client) && !this.isHost() && this.match;
   }
 
   /** For the two-client harness and playtest diagnostics. */
-  get state(): MatchState | null {
+  get state() {
     return this.view;
   }
 
-  get me(): string {
+  get me() {
     return this.client?.playerId ?? "";
   }
 
   /** Where every living enemy stands (spawning, playtest diagnostics). */
-  enemies(): Point[] {
+  enemies() {
     const out: Point[] = [];
+
     for (const p of this.players?.all.values() ?? []) {
       if (p.pose && this.view?.roster.get(p.id)?.alive) {
         out.push(p.pose);
       }
     }
+
     return out;
   }
 
   /** Players in this room, us included. */
-  get size(): number {
+  get size() {
     return (this.players?.all.size ?? 0) + 1;
   }
 
@@ -166,11 +147,11 @@ export class Match implements NetHooks {
     this.botFill = options.botFill;
   }
 
-  /** Deployed online: open the room (once per page). */
-  private async connect(): Promise<void> {
+  private async connect() {
     if (this.client || this.joining) {
       return;
     }
+
     this.joining = true;
     const client = await this.connector();
     client.onEvent = (event, payload, from) => this.onEvent(event, payload, from);
@@ -181,11 +162,11 @@ export class Match implements NetHooks {
    * Hear the game's flow change (title → playing → …), once per change,
    * starting with its state when it attaches. Register before booting.
    */
-  watchState(listener: (state: GameState, game: StrikeforceGame) => void): void {
+  watchState(listener: (state: GameState, game: StrikeforceGame) => void) {
     this.stateListener = listener;
   }
 
-  attach(game: StrikeforceGame): void {
+  attach(game: StrikeforceGame) {
     this.game = game;
     this.players = new Players(game, {
       joined: (p) => this.feed(`<b>${escapeHtml(p.callsign)}</b> joined`),
@@ -200,33 +181,41 @@ export class Match implements NetHooks {
     this.stateListener?.(game.game.state, game);
   }
 
-  frame(dt: number): void {
+  frame(dt: number) {
     const { client, game, players } = this;
+
     if (!game || !players) {
       return;
     }
+
     this.watchFlow(game);
     this.radar.update(game, game.game.state === "playing", online(game) ? [] : relayMarks(game));
+
     if (!client) {
       return;
     }
+
     const { me, view } = this;
     const everyone = { ...client.players, ...botPlayers(this.botRaw, view?.roster) };
     players.update(everyone, me, (id) => view?.roster.get(id) ?? null, dt);
+
     if (!inMatch(game)) {
-      // Solo PvE (or the title): the room's players stay out of this dock.
       players.hide();
     }
+
     if (this.isHost()) {
       this.runHost(client, game, dt);
     } else {
       this.readMatch(client);
       this.botRaw = client.sharedState[BOTS_KEY];
     }
+
     this.followMatch(game);
+
     if (this.bodyRate.due(dt * 1000)) {
       this.publishBody(client, game);
     }
+
     this.hud.update({
       callsign: (id) => (id === me ? "You" : callsignOf(id)),
       match: this.view,
@@ -237,70 +226,75 @@ export class Match implements NetHooks {
     });
   }
 
-  shoot(origin: Vector3, dir: Vector3, maxDist: number, damage: number): ShotHit | null {
+  shoot(origin: Vector3, dir: Vector3, maxDist: number, damage: number) {
     const roster = this.view?.roster;
+
     if (!this.players || !this.client || !roster?.get(this.me)?.alive || !this.game) {
-      return null;
+      return null satisfies ShotHit | null;
     }
+
     if (!inMatch(this.game)) {
-      return null;
+      return null satisfies ShotHit | null;
     }
+
     const hit = this.players.hitTest(origin, dir, maxDist, (id) => Boolean(roster.get(id)?.alive));
+
     if (!hit) {
-      return null;
+      return null satisfies ShotHit | null;
     }
+
     const head = hit.part === "head";
     this.client.sendToHost(EV.hit, [
       hit.id,
       Math.round(damage * (head ? HEAD_MULTIPLIER : 1)),
       head ? 1 : 0,
     ]);
-    return hit;
+
+    return hit satisfies ShotHit | null;
   }
 
-  barrelHit(index: number, damage: number, point: Vector3 | null, dir: Vector3 | null): void {
+  barrelHit(index: number, damage: number, point: Vector3 | null, dir: Vector3 | null) {
     if (index >= 0) {
       this.client?.sendToHost(EV.barrel, [index, q3(damage), ...vecWire(point), ...vecWire(dir)]);
     }
   }
 
-  // ---- host ----------------------------------------------------------------
-
-  private isHost(): boolean {
+  private isHost() {
     const c = this.client;
+
     return Boolean(c && (c.isHost || c.connectionStatus === "offline"));
   }
 
-  /** Where a player last said its body stood (ours: where it stands). */
-  private bodyOf(id: string, game: StrikeforceGame): Point | undefined {
+  private bodyOf(id: string, game: StrikeforceGame) {
     return id === this.me ? game.player.pos : (this.players?.all.get(id)?.reported ?? undefined);
   }
 
-  private deployedIds(game: StrikeforceGame): string[] {
-    const ids = [...(this.players?.all.values() ?? [])]
-      // A dropped connection keeps its seat for the SDK's reconnect grace: only
-      // leaving the room (gone from client.players) gives it up.
-      .filter((p) => p.deployed && !isBot(p.id))
-      .map((p) => p.id);
+  private deployedIds(game: StrikeforceGame) {
+    const ids = [...(this.players?.all.values() ?? [])].flatMap((p) =>
+      p.deployed && !isBot(p.id) ? [p.id] : [],
+    );
+
     if (inMatch(game)) {
       ids.push(this.me);
     }
+
     return ids;
   }
 
-  private runHost(client: MultiplayerClient, game: StrikeforceGame, dt: number): void {
-    // A guest promoted to host picks the match up where the last host left it.
+  private runHost(client: MultiplayerClient, game: StrikeforceGame, dt: number) {
     this.rules ??= this.view ?? newMatch();
     const { rules } = this;
     const now = client.serverNow();
     const humans = this.deployedIds(game);
     syncRoster(rules, [...humans, ...botSeats(humans.length, this.botFill)]);
     const events: MatchEvent[] = [];
+
     for (const p of this.players?.all.values() ?? []) {
       if (!isBot(p.id)) {
         events.push(...applySelfReport(rules, p.id, p.hp, p.life, now));
       }
     }
+
     events.push(
       ...applySelfReport(rules, this.me, game.player.health, this.placedLife, now),
       ...tick(rules, now),
@@ -308,6 +302,7 @@ export class Match implements NetHooks {
     this.view = rules;
     this.hostEvents(client, game, events);
     this.runBots(client, game, rules, dt);
+
     if (this.matchRate.due(dt * 1000)) {
       client.updateSharedState({
         [MATCH_KEY]: inMatch(game)
@@ -317,15 +312,11 @@ export class Match implements NetHooks {
     }
   }
 
-  private runBots(
-    client: MultiplayerClient,
-    game: StrikeforceGame,
-    rules: MatchState,
-    dt: number,
-  ): void {
+  private runBots(client: MultiplayerClient, game: StrikeforceGame, rules: MatchState, dt: number) {
     if (!this.bots) {
       return;
     }
+
     this.bots.update(
       dt,
       rules.roster,
@@ -336,15 +327,16 @@ export class Match implements NetHooks {
     );
     const raw = this.bots.encode(client.serverNow());
     this.botRaw = raw;
+
     if (this.botRate.due(dt * 1000)) {
       client.updateSharedState({ [BOTS_KEY]: raw });
     }
   }
 
-  /** The people a bot may shoot: deployed, and alive in the match. */
-  private peopleStanding(game: StrikeforceGame, rules: MatchState): Combatant[] {
+  private peopleStanding(game: StrikeforceGame, rules: MatchState) {
     const out: Combatant[] = [];
     const { player } = game;
+
     if (inMatch(game) && player.alive && rules.roster.get(this.me)?.alive) {
       out.push({
         crouch: player.crouching,
@@ -353,26 +345,31 @@ export class Match implements NetHooks {
         pos: player.pos,
       });
     }
+
     for (const p of this.players?.all.values() ?? []) {
       if (!isBot(p.id) && p.reported && rules.roster.get(p.id)?.alive) {
         out.push({ crouch: (p.pose?.crouch ?? 0) > 0.5, id: p.id, moving: true, pos: p.reported });
       }
     }
+
     return out;
   }
 
-  /** A bot fired: everyone sees the tracer; a hit counts like anyone's. */
-  private botShot(client: MultiplayerClient, game: StrikeforceGame, shot: Shot): void {
+  private botShot(client: MultiplayerClient, game: StrikeforceGame, shot: Shot) {
     const wire = [...vecWire(shot.muzzle), ...vecWire(shot.end), 0];
     client.sendEvent(EV.shot, wire, { except: client.playerId ?? undefined });
+
     if (inMatch(game)) {
       remoteShot(wire, game, this.players);
       this.radar.ping(shot.muzzle.x, shot.muzzle.z, game.time.t);
     }
+
     const { rules } = this;
+
     if (!rules || !shot.victim) {
       return;
     }
+
     const result = applyHit(
       rules,
       shot.shooter,
@@ -381,50 +378,50 @@ export class Match implements NetHooks {
       shot.head,
       client.serverNow(),
     );
+
     if (result) {
       this.hurt(shot.victim, shot.damage, shot.muzzle, result.hp);
       this.hostEvents(client, game, result.events);
     }
   }
 
-  private hostEvents(client: MultiplayerClient, game: StrikeforceGame, events: MatchEvent[]): void {
+  private hostEvents(client: MultiplayerClient, game: StrikeforceGame, events: MatchEvent[]) {
     for (const e of events) {
       if (e.kind === "kill") {
         const wire = [e.killer, e.victim, e.head ? 1 : 0];
         client.sendEvent(EV.kill, wire, { except: client.playerId ?? undefined });
         this.onKill(wire);
       } else if (e.kind === "start") {
-        // Every match starts on a full dock.
         game.explosives.reset();
       }
     }
   }
 
-  private applyIntent(
-    event: string,
-    payload: JsonValue,
-    from: string,
-    game: StrikeforceGame,
-  ): void {
+  private applyIntent(event: string, payload: JsonValue, from: string, game: StrikeforceGame) {
     const { rules, client } = this;
+
     if (!rules || !client) {
       return;
     }
+
     if (event === EV.hit) {
       const v = Array.isArray(payload) ? payload : [];
       const [victim, dmg, head] = v;
+
       if (!isStr(victim) || !Number.isFinite(dmg)) {
         return;
       }
+
       const now = client.serverNow();
       const result = applyHit(rules, from, victim, Number(dmg), head === 1, now);
+
       if (result) {
         this.hurt(victim, Number(dmg), this.bodyOf(from, game), result.hp);
         this.hostEvents(client, game, result.events);
       }
     } else if (event === EV.barrel) {
       const v = nums(payload, 8);
-      // Only a host on the same dock as the match owns its barrels.
+
       if (v && inMatch(game)) {
         game.explosives.netHit(v[0] ?? -1, v[1] ?? 0, v.slice(2, 5), v.slice(5, 8));
       }
@@ -436,12 +433,15 @@ export class Match implements NetHooks {
     dmg: number,
     from: { x: number; y: number; z: number } | undefined,
     hp: number,
-  ): void {
+  ) {
     if (isBot(victim)) {
       this.bots?.alert(victim, from);
+
       return;
     }
+
     const wire = [dmg, ...vecWire(from ? this.a.set(from.x, from.y, from.z) : null), hp];
+
     if (victim === this.me) {
       this.onHurt(wire);
     } else {
@@ -449,84 +449,92 @@ export class Match implements NetHooks {
     }
   }
 
-  // ---- everyone ------------------------------------------------------------
-
-  private readMatch(client: MultiplayerClient): void {
+  private readMatch(client: MultiplayerClient) {
     const raw = client.sharedState[MATCH_KEY];
+
     if (raw === this.lastRaw) {
       return;
     }
+
     this.lastRaw = raw;
     this.rules = null;
     const decoded = decodeMatch(raw);
+
     if (decoded) {
       this.view = decoded.state;
     }
+
     if (isRecord(raw) && isStr(raw.bar) && this.game && this.match) {
       this.game.explosives.syncMask(raw.bar);
     }
   }
 
-  private watchFlow(game: StrikeforceGame): void {
+  private watchFlow(game: StrikeforceGame) {
     const { state } = game.game;
+
     if (state === this.seenState) {
       return;
     }
+
     const was = this.seenState;
     this.seenState = state;
+
     if (was === "title" && inPlay(state) && online(game)) {
-      // Deployed online: join the room; the first match read places us.
       this.placedLife = -1;
       darkenRelays(game);
       void this.connect();
     }
+
     this.stateListener?.(state, game);
   }
 
-  /** Put our body where the match says it is, and keep the HUD on the match. */
-  private followMatch(game: StrikeforceGame): void {
+  private followMatch(game: StrikeforceGame) {
     const m = this.view;
     const me = m?.roster.get(this.me);
+
     if (!inMatch(game) || !m || !me) {
       return;
     }
+
     this.syncBody(game, me);
     this.announce(game, m);
     this.objective(game, m);
   }
 
-  /**
-   * Place the body whenever the host brings our fighter back (a new life: a
-   * match start, a respawn), and go down when the host says so.
-   */
-  private syncBody(game: StrikeforceGame, me: Fighter): void {
+  private syncBody(game: StrikeforceGame, me: Fighter) {
     const { player } = game;
+
     if (me.alive && me.life !== this.placedLife) {
       this.place(game, me);
     }
+
     if (!me.alive && player.alive && me.life === this.placedLife) {
-      // The host says we are down (a hit we missed).
       player.damage(9999);
     }
+
     player.enabled = true;
   }
 
-  private place(game: StrikeforceGame, me: Fighter): void {
+  private place(game: StrikeforceGame, me: Fighter) {
     const spawn = safestSpawn(this.spawns, this.enemies());
+
     if (spawn) {
       game.player.reset({ pos: spawn.pos.clone(), yaw: spawn.yaw });
       game.weapon.reset();
     }
+
     this.placedLife = me.life;
   }
 
-  private announce(game: StrikeforceGame, m: MatchState): void {
+  private announce(game: StrikeforceGame, m: MatchState) {
     if (m.phase === this.seenPhase && m.round === this.seenRound) {
       return;
     }
+
     const first = this.seenPhase === "";
     this.seenPhase = m.phase;
     this.seenRound = m.round;
+
     if (m.phase === "live" && !first) {
       game.hud.warn(`Deathmatch · first to ${RULES.kills}`, 3);
     } else if (m.phase === "over") {
@@ -537,8 +545,7 @@ export class Match implements NetHooks {
     }
   }
 
-  /** Kills and standing; no markers, no prompt. */
-  private objective(game: StrikeforceGame, m: MatchState): void {
+  private objective(game: StrikeforceGame, m: MatchState) {
     const kills = m.roster.get(this.me)?.kills ?? 0;
     const place = standings(m).findIndex(([id]) => id === this.me);
     game.hud.setTally(`${kills} kills · ${place <= 0 ? "leading" : `#${place + 1}`}`);
@@ -549,7 +556,7 @@ export class Match implements NetHooks {
     game.hud.setPrompt(null);
   }
 
-  private publishBody(client: MultiplayerClient, game: StrikeforceGame): void {
+  private publishBody(client: MultiplayerClient, game: StrikeforceGame) {
     const p = game.player;
     client.updateMyState({
       a: p.alive ? 1 : 0,
@@ -566,11 +573,13 @@ export class Match implements NetHooks {
     });
   }
 
-  private sendShot(shot: WeaponFire): void {
+  private sendShot(shot: WeaponFire) {
     const { client } = this;
+
     if (!client || !shot.muzzle || !shot.end) {
       return;
     }
+
     client.sendEvent(
       EV.shot,
       [...vecWire(shot.muzzle), ...vecWire(shot.end), shot.weapon === "pistol" ? 1 : 0],
@@ -580,21 +589,25 @@ export class Match implements NetHooks {
     );
   }
 
-  private onEvent(event: string, payload: JsonValue, from: string): void {
+  private onEvent(event: string, payload: JsonValue, from: string) {
     const { game, client } = this;
+
     if (!game || !client) {
       return;
     }
+
     const playing = inMatch(game);
+
     if (event === EV.shot && from !== client.playerId) {
       const v = nums(payload, 3);
+
       if (playing && v) {
         remoteShot(payload, game, this.players);
-        // Firing gives you away on everyone's radar.
         this.radar.ping(v[0] ?? 0, v[2] ?? 0, game.time.t);
       }
     } else if (event === EV.hurt) {
       const v = nums(payload, 5);
+
       if (v && playing) {
         this.onHurt(v);
       }
@@ -607,43 +620,49 @@ export class Match implements NetHooks {
     }
   }
 
-  private onHurt(v: readonly (number | string)[]): void {
+  private onHurt(v: readonly (number | string)[]) {
     const { game } = this;
     const nv = v.map(Number);
     const dmg = nv[0] ?? 0;
     const hp = nv[4] ?? 0;
+
     if (!game?.player.alive) {
       return;
     }
+
     game.player.damage(dmg, vecAt(nv, 1, new Vector3()));
-    // The host's count is the truth; never sit above it.
+
     if (game.player.health > hp) {
       game.player.damage(game.player.health - hp);
     }
   }
 
-  private onKill(v: readonly JsonValue[]): void {
+  private onKill(v: readonly JsonValue[]) {
     const { game } = this;
     const [killer, victim, head] = v;
+
     if (!game || !isStr(killer) || !isStr(victim)) {
       return;
     }
-    const name = (id: string): string => (id === this.me ? "You" : callsignOf(id));
+
+    const name = (id: string) => (id === this.me ? "You" : callsignOf(id));
     const by = killer ? `<b>${escapeHtml(name(killer))}</b> ` : "";
     this.feed(
       `${by}<em>${head === 1 ? "headshot" : "down"}</em> <b>${escapeHtml(name(victim))}</b>`,
     );
     const from = killer ? this.bodyOf(killer, game) : undefined;
+
     if (from) {
       this.players?.felled(victim, from, head === 1);
     }
+
     if (killer === this.me && victim !== this.me) {
       game.combat.stats.kills += 1;
       game.hud.hitmarker("kill");
     }
   }
 
-  private feed(html: string): void {
+  private feed(html: string) {
     this.game?.hud.feed(html);
   }
 }

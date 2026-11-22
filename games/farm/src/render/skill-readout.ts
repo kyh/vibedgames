@@ -1,6 +1,6 @@
 import type { SkillId, Skills } from "../systems/skills";
 
-const pct = (chance: number): string => `${Math.round(chance * 100)}% chance`;
+const pct = (chance: number) => `${Math.round(chance * 100)}% chance`;
 
 const PERK: Record<SkillId, (skills: Skills) => string> = {
   combat: (skills) => `Sword +${skills.swordDamage(0)} · Max HP +${skills.bonusMaxHp()}`,
@@ -11,4 +11,4 @@ const PERK: Record<SkillId, (skills: Skills) => string> = {
 };
 
 /** Current, already-earned perks. This view never grants XP or changes a skill. */
-export const skillPerk = (skills: Skills, id: SkillId): string => PERK[id](skills);
+export const skillPerk = (skills: Skills, id: SkillId) => PERK[id](skills);

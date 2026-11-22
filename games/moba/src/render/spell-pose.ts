@@ -3,7 +3,9 @@ export interface SpellCue {
   at: number;
   facing: 1 | -1;
 }
+
 type Gesture = "strike" | "throw" | "brace" | "blink" | "channel";
+
 interface Profile {
   gesture: Gesture;
   duration: number;
@@ -45,10 +47,13 @@ export const spellPose = (
   if (!Number.isFinite(now)) {
     return null;
   }
+
   if (channel && channel.until > now) {
     const profile = profiles.get(channel.effect);
+
     if (profile?.gesture === "channel") {
       const breath = Math.sin(now * 0.007) * 0.35;
+
       return {
         angle: -facing * 4,
         frame: null,
@@ -59,19 +64,26 @@ export const spellPose = (
       };
     }
   }
+
   if (!cue || !Number.isFinite(cue.at) || now < cue.at) {
     return null;
   }
+
   const profile = profiles.get(cue.effect);
+
   if (!profile || profile.gesture === "channel") {
     return null;
   }
+
   const t = (now - cue.at) / profile.duration;
+
   if (t >= 1) {
     return null;
   }
+
   const settle = (1 - t) ** 2;
   const f = cue.facing;
+
   switch (profile.gesture) {
     case "strike": {
       return {
@@ -83,6 +95,7 @@ export const spellPose = (
         y: 2 * settle,
       };
     }
+
     case "throw": {
       return {
         angle: f * 7 * settle,
@@ -93,6 +106,7 @@ export const spellPose = (
         y: -2 * settle,
       };
     }
+
     case "brace": {
       return {
         angle: -f * 4 * settle,
@@ -103,6 +117,7 @@ export const spellPose = (
         y: 2 * settle,
       };
     }
+
     case "blink": {
       return {
         angle: -f * 8 * settle,
@@ -113,6 +128,7 @@ export const spellPose = (
         y: -3 * settle,
       };
     }
+
     default: {
       return null;
     }

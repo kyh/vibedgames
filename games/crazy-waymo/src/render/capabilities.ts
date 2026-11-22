@@ -5,8 +5,8 @@ export interface RenderCapabilities {
 
 let current: RenderCapabilities = { multiDraw: false };
 
-export const setRenderCapabilities = (capabilities: RenderCapabilities): void => {
+export const setRenderCapabilities = (capabilities: RenderCapabilities) => {
   current = { multiDraw: capabilities.multiDraw };
 };
 
-export const renderCapabilities = (): RenderCapabilities => current;
+export const renderCapabilities = () => current;

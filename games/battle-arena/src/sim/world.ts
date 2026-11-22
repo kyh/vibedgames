@@ -1,7 +1,3 @@
-// The authoritative host loop. step(world, dt) advances one fixed tick. Pure
-// data in/out — no engine, no Math.random. Guests never call this; they render
-// host frames and predict only their own body with stepBody, the same movement
-// code. createWorld is deterministic given (seed).
 import { CHAMP_BY_ID, DEFAULT_CHAMP } from "../data/champions";
 import {
   ARENA_BOT_FILL,
@@ -19,7 +15,7 @@ import {
 } from "../data/config";
 import { ITEM_BY_ID, MAX_ITEMS } from "../data/items";
 import { BOSS_POS, CAMPS, SPAWNS, clampToArena, resolveObstacles } from "../data/map";
-import type { CampSpec, SpawnPoint } from "../data/map";
+import type { CampSpec } from "../data/map";
 import { destructibleProps } from "../data/props";
 import { resolveElevation } from "./elevation";
 import { nextId } from "./types";
@@ -34,13 +30,13 @@ const BOT_NAMES = ["Ru{}", "Vex", "Kato", "Mire", "Brak", "Nyx", "Orin", "Pyra"]
 
 const BOT_CHAMPS = ["knight", "ranger", "mage", "rogue", "blackknight", "witch"];
 
-/** The spawn pad a slot belongs to. SPAWNS is generated from the arena's edge
- *  angles, so this only throws on a misbuilt map. */
-const mustGetSpawn = (slot: number): SpawnPoint => {
+const mustGetSpawn = (slot: number) => {
   const sp = SPAWNS[slot % SPAWNS.length];
+
   if (!sp) {
     throw new Error(`no spawn point for slot ${slot}`);
   }
+
   return sp;
 };
 
@@ -56,14 +52,14 @@ export interface SpawnArgs {
 
 /** A fully-zeroed Unit skeleton — the ONE place the 60-field literal lives.
  *  Spawners spread real stats over it; the net codec diffs units against it. */
-export const blankCombatant = (
+export const blankCombatant: (
   id: string,
   kind: Unit["kind"],
   team: string,
   ownerId: string,
   champId: string,
   name: string,
-): Unit => ({
+) => Unit = (id, kind, team, ownerId, champId, name) => ({
   abilities: {
     DASH: { rank: 0, readyAt: 0 },
     E: { rank: 0, readyAt: 0 },
@@ -143,9 +139,7 @@ export const blankCombatant = (
   y: 0,
 });
 
-/** Spawn the destructible props (host-side; guests receive them in snapshots).
- *  unit.slot = the spec index so the renderer can look the placement back up. */
-const spawnProps = (w: World): void => {
+const spawnProps = (w: World) => {
   for (const [i, spec] of destructibleProps().entries()) {
     const u: Unit = {
       ...blankCombatant(nextId(w, "prop"), "prop", NEUTRAL_TEAM, "neutral", spec.model, spec.model),
@@ -156,12 +150,14 @@ const spawnProps = (w: World): void => {
       x: spec.x,
       y: spec.y,
     };
+
     w.units.set(u.id, u);
   }
 };
 
-export const createWorld = (seed: number, opts: { soloMercy?: boolean } = {}): World => {
+export const createWorld = (seed: number, opts: { soloMercy?: boolean } = {}) => {
   const boss = { alive: true, hp: 4000, maxHp: 4000, x: BOSS_POS.x, y: BOSS_POS.y };
+
   const w: World = {
     boss,
     campRespawnAt: {},
@@ -187,17 +183,22 @@ export const createWorld = (seed: number, opts: { soloMercy?: boolean } = {}): W
     units: new Map(),
     winner: null,
   };
+
   spawnProps(w);
+
   return w;
 };
 
 /** Create a hero unit at its base spawn, fully statted and alive. */
-export const spawnHero = (w: World, args: SpawnArgs): Unit => {
+export const spawnHero = (w: World, args: SpawnArgs) => {
   const def = CHAMP_BY_ID[args.champId] ?? CHAMP_BY_ID[DEFAULT_CHAMP];
+
   if (!def) {
     throw new Error(`unknown champion: ${args.champId}`);
   }
+
   const sp = mustGetSpawn(args.slot);
+
   const u: Unit = {
     ...blankCombatant(args.id, "hero", args.team, args.ownerId, def.id, args.name),
     abilities: {
@@ -223,18 +224,18 @@ export const spawnHero = (w: World, args: SpawnArgs): Unit => {
     x: sp.x,
     y: sp.y,
   };
+
   recomputeStats(u);
   u.hp = u.maxHp;
   w.units.set(u.id, u);
+
   return u;
 };
 
-export const botName = (w: World, i: number): string =>
+export const botName = (w: World, i: number) =>
   (BOT_NAMES[i % BOT_NAMES.length] ?? "Bot{}").replace("{}", String(i));
 
-// ── Neutral skeleton camps (PvE) ─────────────────────────────────────────────
 const CAMP_RESPAWN_SEC = 28;
-// sentinel: camp is alive (JSON-safe, unlike Infinity)
 const POPULATED = 1e9;
 
 interface CreepStat {
@@ -252,9 +253,7 @@ interface CreepStat {
   radius: number;
   bounty: number;
   xp: number;
-  // display name (default "Skeleton")
   name?: string;
-  // hp/s (default 6; the golem regens hard between fights)
   hpRegen?: number;
 }
 
@@ -329,15 +328,16 @@ const CREEP_STATS = new Map<string, CreepStat>(
   } satisfies Record<string, CreepStat>),
 );
 
-const mustGetCreep = (id: string): CreepStat => {
+const mustGetCreep = (id: string) => {
   const stat = CREEP_STATS.get(id);
+
   if (!stat) {
     throw new Error(`unknown creep: ${id}`);
   }
+
   return stat;
 };
 
-// Fallback for unknown creep types.
 const DEFAULT_CREEP = mustGetCreep("skwarrior");
 
 export const spawnCreep = (
@@ -346,8 +346,9 @@ export const spawnCreep = (
   x: number,
   y: number,
   camp: { id: string; x: number; y: number },
-): void => {
+) => {
   const s = CREEP_STATS.get(type) ?? DEFAULT_CREEP;
+
   const u: Unit = {
     ...blankCombatant(nextId(w, "c"), "creep", NEUTRAL_TEAM, "neutral", type, s.name ?? "Skeleton"),
     armor: s.armor,
@@ -370,51 +371,57 @@ export const spawnCreep = (
     x,
     y,
   };
+
   w.units.set(u.id, u);
 };
 
 /** Look up a creep's bounty/xp for the economy on kill. */
 export const creepReward = (type: string) => {
   const s = CREEP_STATS.get(type) ?? DEFAULT_CREEP;
+
   return { bounty: s.bounty, xp: s.xp };
 };
 
-// Themed lineups per camp (camp0 = Armory runs warrior-heavy, camp3 = Cellar
-// runs a minion swarm); the default pack is a balanced mix.
 const CAMP_PACKS = new Map<string, string[]>([
   ["camp0", ["skwarrior", "skwarrior", "skmage", "skminion"]],
   ["camp3", ["skwarrior", "skmage", "skminion", "skminion"]],
 ]);
+
 const DEFAULT_PACK = ["skwarrior", "skmage", "skminion", "skminion"];
 
-const spawnCampPack = (w: World, camp: CampSpec): void => {
+const spawnCampPack = (w: World, camp: CampSpec) => {
   const pack = camp.pack ?? CAMP_PACKS.get(camp.id) ?? DEFAULT_PACK;
   const [lone] = pack;
+
   if (pack.length === 1 && lone) {
-    // a lone elite (the Frost Golem) holds the center of its lair
     spawnCreep(w, lone, camp.x, camp.y, camp);
+
     return;
   }
+
   for (const [i, type] of pack.entries()) {
     const a = (i / pack.length) * Math.PI * 2;
     spawnCreep(w, type, camp.x + Math.cos(a) * 2.2, camp.y + Math.sin(a) * 2.2, camp);
   }
 };
 
-const tickCamps = (w: World): void => {
+const tickCamps = (w: World) => {
   for (const camp of CAMPS) {
     let alive = 0;
+
     for (const u of w.units.values()) {
       if (u.kind === "creep" && u.alive && u.campId === camp.id) {
         alive += 1;
       }
     }
+
     if (alive > 0) {
       continue;
     }
+
     const at = w.campRespawnAt[camp.id] ?? 0;
+
     if (at === POPULATED) {
-      // just cleared → schedule
       w.campRespawnAt[camp.id] = w.gameTime + (camp.respawnSec ?? CAMP_RESPAWN_SEC);
     } else if (w.gameTime >= at) {
       spawnCampPack(w, camp);
@@ -423,7 +430,7 @@ const tickCamps = (w: World): void => {
   }
 };
 
-const cleanupDeadCreeps = (w: World): void => {
+const cleanupDeadCreeps = (w: World) => {
   for (const [id, u] of w.units) {
     if (u.kind === "creep" && !u.alive && w.now >= u.respawnAt) {
       w.units.delete(id);
@@ -431,66 +438,77 @@ const cleanupDeadCreeps = (w: World): void => {
   }
 };
 
-const slotOf = (u: Unit): number => u.slot;
+const slotOf = (u: Unit) => u.slot;
 
 /** Is this unit standing in its own base (shop usable / fountain heals)? */
-export const inOwnBase = (u: Unit): boolean => {
+export const inOwnBase = (u: Unit) => {
   const sp = mustGetSpawn(slotOf(u));
+
   return (u.x - sp.x) ** 2 + (u.y - sp.y) ** 2 <= SHOP_RADIUS * SHOP_RADIUS;
 };
 
 /** Host-side purchase. Returns true on success. */
-export const buyItem = (w: World, u: Unit, itemId: string): boolean => {
+export const buyItem = (w: World, u: Unit, itemId: string) => {
   const it = ITEM_BY_ID[itemId];
+
   if (!it || !u.alive) {
     return false;
   }
+
   if (!inOwnBase(u)) {
     return false;
   }
+
   if (u.items.length >= MAX_ITEMS) {
     return false;
   }
+
   if (u.gold < it.cost) {
     return false;
   }
+
   u.gold -= it.cost;
   u.items.push(itemId);
   recomputeStats(u);
+
   return true;
 };
 
 /** Fill the arena up to ARENA_BOT_FILL combatants with bots (host-side). */
-export const ensureBots = (w: World): void => {
-  // The online host runs this every frame; almost always the roster is already
-  // full, so count first and only build the slot bookkeeping on a change.
+export const ensureBots = (w: World) => {
   let heroes = 0;
   let humanCount = 0;
+
   for (const u of w.units.values()) {
     if (u.kind === "hero") {
       heroes += 1;
       humanCount += u.isBot ? 0 : 1;
     }
   }
+
   if (heroes === Math.max(ARENA_BOT_FILL, humanCount)) {
     return;
   }
+
   const humans = [...w.units.values()].filter((u) => u.kind === "hero" && !u.isBot).length;
   const bots = [...w.units.values()].filter((u) => u.kind === "hero" && u.isBot);
   const want = Math.max(0, ARENA_BOT_FILL - humans);
-  // remove surplus bots
+
   for (const bot of bots.slice(want)) {
     w.units.delete(bot.id);
   }
-  // add missing bots in free slots
+
   const usedSlots = new Set(
-    [...w.units.values()].filter((u) => u.kind === "hero").map((u) => slotOf(u)),
+    [...w.units.values()].flatMap((u) => (u.kind === "hero" ? [slotOf(u)] : [])),
   );
+
   let added = bots.length;
+
   for (let s = 0; s < SPAWNS.length && added < want; s += 1) {
     if (usedSlots.has(s)) {
       continue;
     }
+
     const idx = added;
     spawnHero(w, {
       champId: BOT_CHAMPS[idx % BOT_CHAMPS.length] ?? DEFAULT_CHAMP,
@@ -506,7 +524,6 @@ export const ensureBots = (w: World): void => {
   }
 };
 
-// ── Input ────────────────────────────────────────────────────────────────────
 export const setHeroInput = (
   u: Unit,
   moveX: number,
@@ -514,17 +531,19 @@ export const setHeroInput = (
   aimX: number,
   aimY: number,
   attackHeld: boolean,
-): void => {
+) => {
   u.moveX = moveX;
   u.moveY = moveY;
+
   if (aimX !== 0 || aimY !== 0) {
     u.aimX = aimX;
     u.aimY = aimY;
   }
+
   u.attackHeld = attackHeld;
 };
 
-export const respawn = (w: World, u: Unit): void => {
+export const respawn = (w: World, u: Unit) => {
   const sp = mustGetSpawn(slotOf(u));
   u.alive = true;
   u.respawnAt = 0;
@@ -546,20 +565,20 @@ export const respawn = (w: World, u: Unit): void => {
   u.hp = u.maxHp;
 };
 
-const tickHeroLifecycle = (w: World, u: Unit, _dt: number): void => {
+const tickHeroLifecycle = (w: World, u: Unit, _dt: number) => {
   if (!u.alive && u.respawnAt > 0 && w.now >= u.respawnAt) {
     respawn(w, u);
   }
 };
 
-/** Retry queued casts (input buffer). Runs after bot intent, before movement,
- *  so a buffered press lands the first tick it becomes legal. */
-const drainInputBuffers = (w: World): void => {
+const drainInputBuffers = (w: World) => {
   for (const u of w.units.values()) {
     if (u.kind !== "hero" || !u.alive) {
       continue;
     }
+
     const qc = u.queuedCast;
+
     if (qc) {
       if (w.now > qc.until) {
         u.queuedCast = null;
@@ -572,22 +591,22 @@ const drainInputBuffers = (w: World): void => {
   }
 };
 
-// ── Jump (Space) ─────────────────────────────────────────────────────────────
 /** Start an evasive hop. Host-authoritative; jumpUntil rides the snapshot so
  *  guests see the same arc. Blocked while stunned/rooted or already airborne.
  *  (JUMP_MS/JUMP_RECOVER live in data/config to avoid a world↔abilities cycle.) */
-export const tryJump = (w: World, u: Unit): void => {
+export const tryJump = (w: World, u: Unit) => {
   if (!u.alive || isDisabled(u) || isRooted(u)) {
     return;
   }
+
   if (w.now < u.jumpUntil + JUMP_RECOVER) {
     return;
-    // mid-hop or still recovering
   }
+
   u.jumpUntil = w.now + JUMP_MS;
 };
 
-const regen = (u: Unit, dt: number): void => {
+const regen = (u: Unit, dt: number) => {
   if (u.hp < u.maxHp) {
     u.hp = Math.min(u.maxHp, u.hp + u.hpRegen * dt);
   }
@@ -595,10 +614,9 @@ const regen = (u: Unit, dt: number): void => {
 
 const ASSIST_MEMORY_MS = 6500;
 
-const pruneAssist = (u: Unit, now: number): void => {
-  // Every unit, every tick: rebuild only when an entry actually expired, so the
-  // common case (nothing stale, usually nothing at all) allocates nothing.
+const pruneAssist = (u: Unit, now: number) => {
   let stale = false;
+
   for (const id in u.recentDamageFrom) {
     if (
       Object.hasOwn(u.recentDamageFrom, id) &&
@@ -608,6 +626,7 @@ const pruneAssist = (u: Unit, now: number): void => {
       break;
     }
   }
+
   if (stale) {
     u.recentDamageFrom = Object.fromEntries(
       Object.entries(u.recentDamageFrom).filter(([, at]) => now - at <= ASSIST_MEMORY_MS),
@@ -615,52 +634,43 @@ const pruneAssist = (u: Unit, now: number): void => {
   }
 };
 
-// Steering accel/decel (units/s of blend rate): starts ramp over ~3 ticks,
-// stops snap in ~1-2 — stop-faster-than-start reads planted, not slippery.
 const MOVE_ACCEL = 16;
 const MOVE_DECEL = 26;
 
-/** Travelling under an ability dash RIGHT NOW. A dash window with no velocity is
- *  a HOVER (an aerial ability holding you in the air): it still overrides
- *  steering, so you're committed, but it isn't going anywhere for you to face.
- *  (dashVx/dashVy are not cleared when a dash ends, so the time window is half
- *  the test — without it, facing would never follow aim again after one dash.) */
-const isDashing = (w: World, u: Unit): boolean =>
+const isDashing = (w: World, u: Unit) =>
   w.now < u.dashUntil && Math.hypot(u.dashVx, u.dashVy) > 0.01;
 
-export const moveUnit = (w: World, u: Unit, dt: number): void => {
+export const moveUnit = (w: World, u: Unit, dt: number) => {
   if (w.now < u.dashUntil) {
-    // dash overrides steering (writes it directly — dashes stay instant)
     u.steerVx = u.dashVx;
     u.steerVy = u.dashVy;
-    // a dash faces its travel direction — but a ZERO-speed dash is a HOVER (an
-    // aerial ability pinning you in the air) and has no travel to face, so it
-    // falls through to the aim-follow below instead of snapping to atan2(0, 0)
+
     if (isDashing(w, u)) {
       u.facing = Math.atan2(u.dashVy, u.dashVx);
     }
   } else {
-    // target velocity from intent, then smooth steer toward it
     let tx = 0;
     let ty = 0;
+
     if (!isRooted(u)) {
       const jumping = w.now < u.jumpUntil;
-      // hops cover ground
       const ms = effectiveMoveSpeed(u) * (jumping ? 1.25 : 1);
       let mx = u.moveX;
       let my = u.moveY;
       let mag = Math.hypot(mx, my);
-      // a standing hop still bounds forward along your facing (reads as a leap)
+
       if (jumping && mag < 0.01) {
         mx = Math.cos(u.facing);
         my = Math.sin(u.facing);
         mag = 1;
       }
+
       if (mag > 0.01) {
         tx = (mx / mag) * ms;
         ty = (my / mag) * ms;
       }
     }
+
     const rate = tx !== 0 || ty !== 0 ? MOVE_ACCEL : MOVE_DECEL;
     const a = Math.min(1, rate * dt);
     u.steerVx += (tx - u.steerVx) * a;
@@ -670,7 +680,6 @@ export const moveUnit = (w: World, u: Unit, dt: number): void => {
   let vx = u.steerVx;
   let vy = u.steerVy;
 
-  // knockback impulse (decays linearly to kbUntil) stacks on top of steering
   if (w.now < u.kbUntil) {
     const frac = (u.kbUntil - w.now) / 1000;
     vx += u.kbx * frac;
@@ -686,46 +695,44 @@ export const moveUnit = (w: World, u: Unit, dt: number): void => {
   nx = r.x;
   ny = r.y;
   const c = clampToArena(nx, ny, u.radius);
-  // gate the throne plateau: can't cross its edge except at the stair gaps
   const e = resolveElevation(u.x, u.y, c.x, c.y, u.radius);
   u.x = e.x;
   u.y = e.y;
 
-  // facing follows aim when not in an ability-dash (a dash faces its travel; a
-  // hover isn't going anywhere, so you keep aiming through it)
   if (!isDashing(w, u) && (u.aimX !== 0 || u.aimY !== 0)) {
     u.facing = Math.atan2(u.aimY, u.aimX);
   }
 };
 
-/** Boid push-apart so heroes don't stack on the throne. Destructible props are
- *  immovable — they shove the other body the full distance instead of moving.
- *  The push respects the plateau edge: a shove is a move like any other, so it
- *  can't post a body through the cliff (that used to teleport a unit a level up
- *  or down and left it standing inside the wall). */
-const separation = (w: World): void => {
+const separation = (w: World) => {
   const units = [...w.units.values()].filter((u) => u.alive && u.kind !== "boss");
   const before = units.map((u) => ({ x: u.x, y: u.y }));
+
   for (let i = 0; i < units.length; i += 1) {
     for (let j = i + 1; j < units.length; j += 1) {
       const a = units[i];
       const b = units[j];
+
       if (!a || !b) {
         continue;
       }
+
       const aProp = a.kind === "prop";
       const bProp = b.kind === "prop";
+
       if (aProp && bProp) {
         continue;
-        // pre-placed, never overlap
       }
+
       const dx = b.x - a.x;
       const dy = b.y - a.y;
       const min = a.radius + b.radius;
       const d2 = dx * dx + dy * dy;
+
       if (d2 < min * min && d2 > 1e-6) {
         const d = Math.sqrt(d2);
         const push = (min - d) / d / 2;
+
         if (aProp) {
           b.x += dx * push * 2;
           b.y += dy * push * 2;
@@ -741,28 +748,32 @@ const separation = (w: World): void => {
       }
     }
   }
+
   for (let i = 0; i < units.length; i += 1) {
     const u = units[i];
     const p = before[i];
+
     if (!u || !p || u.kind === "prop") {
       continue;
     }
+
     const e = resolveElevation(p.x, p.y, u.x, u.y, u.radius);
     u.x = e.x;
     u.y = e.y;
   }
 };
 
-/** Home fountains heal their owner fast; enemy bases knock back + burn intruders
- *  (anti spawn-camp). */
-const fountains = (w: World, dt: number): void => {
+const fountains = (w: World, dt: number) => {
   for (const u of w.units.values()) {
     if (u.kind !== "hero" || !u.alive) {
       continue;
     }
+
     const mySlot = slotOf(u);
+
     for (const sp of SPAWNS) {
       const d2 = (u.x - sp.x) ** 2 + (u.y - sp.y) ** 2;
+
       if (sp.slot === mySlot) {
         if (d2 <= SHOP_RADIUS * SHOP_RADIUS && u.hp < u.maxHp) {
           u.hp = Math.min(u.maxHp, u.hp + u.maxHp * FOUNTAIN_HEAL_PER_SEC * dt);
@@ -775,7 +786,7 @@ const fountains = (w: World, dt: number): void => {
   }
 };
 
-const clampAll = (w: World): void => {
+const clampAll = (w: World) => {
   for (const u of w.units.values()) {
     const r = resolveObstacles(u.x, u.y, u.radius);
     const c = clampToArena(r.x, r.y, u.radius);
@@ -789,29 +800,28 @@ const clampAll = (w: World): void => {
  *  clamp. A guest runs this on its own hero to predict it with the host's code.
  *  Shoves between moving bodies are left out — only the host knows where the
  *  others are now; reconciliation absorbs those. */
-export const stepBody = (
-  w: World,
-  u: Unit,
-  dt: number,
-  bodies: ReadonlyMap<string, Unit>,
-): void => {
+export const stepBody = (w: World, u: Unit, dt: number, bodies: ReadonlyMap<string, Unit>) => {
   moveUnit(w, u, dt);
   const fromX = u.x;
   const fromY = u.y;
+
   for (const p of bodies.values()) {
     if (p.kind !== "prop" || !p.alive) {
       continue;
     }
+
     const dx = u.x - p.x;
     const dy = u.y - p.y;
     const min = u.radius + p.radius;
     const d2 = dx * dx + dy * dy;
+
     if (d2 < min * min && d2 > 1e-6) {
       const d = Math.sqrt(d2);
       u.x += (dx / d) * (min - d);
       u.y += (dy / d) * (min - d);
     }
   }
+
   const e = resolveElevation(fromX, fromY, u.x, u.y, u.radius);
   const r = resolveObstacles(e.x, e.y, u.radius);
   const c = clampToArena(r.x, r.y, u.radius);
@@ -819,79 +829,84 @@ export const stepBody = (
   u.y = c.y;
 };
 
-const endMatch = (w: World, winner: string, name: string): void => {
+const endMatch = (w: World, winner: string, name: string) => {
   w.phase = "ended";
   w.winner = winner;
   w.fx.push({ kind: "matchend", t: "notify", text: `${name} WINS` });
 };
 
-const checkWin = (w: World): void => {
+const checkWin = (w: World) => {
   if (w.phase !== "playing") {
     return;
   }
+
   const heroes = [...w.units.values()].filter((u) => u.kind === "hero");
-  // kill goal
+
   for (const u of heroes) {
     if (u.kills >= w.killGoal) {
       endMatch(w, u.team, u.name);
+
       return;
     }
   }
-  // timer
+
   if (w.gameTime >= w.matchTime) {
     const sorted = [...heroes].toSorted((a, b) => b.kills - a.kills);
     const [top, second] = sorted;
+
     if (!top) {
       return;
     }
+
     if (!second || top.kills > second.kills) {
       endMatch(w, top.team, top.name);
     } else {
-      // tie → first to pull ahead wins (checked above via kill goal logic)
       w.suddenDeath = true;
-      // raise an effective goal: leader+1
       w.killGoal = top.kills + 1;
     }
   }
 };
 
-// ── The tick ─────────────────────────────────────────────────────────────────
-export const step = (w: World, dt: number = SIM_DT): void => {
+export const step = (w: World, dt: number = SIM_DT) => {
   if (w.phase === "ended") {
     stepProjectiles(w, dt);
+
     return;
   }
+
   w.now += dt * 1000;
   w.gameTime += dt;
 
   for (const u of w.units.values()) {
     expireStatuses(u, w.now);
+
     if (u.kind === "hero") {
       tickHeroLifecycle(w, u, dt);
     }
+
     if (u.kind === "prop" && !u.alive && u.respawnAt > 0 && w.now >= u.respawnAt) {
       u.alive = true;
       u.hp = u.maxHp;
       u.respawnAt = 0;
       u.statuses = [];
     }
+
     if (u.alive) {
       regen(u, dt);
     }
+
     pruneAssist(u, w.now);
   }
 
-  // (re)populate skeleton camps
   tickCamps(w);
-  // bots + skeletons decide intent before movement resolves
   tickBots(w);
-  // buffered casts fire the moment they're legal
   drainInputBuffers(w);
 
   for (const u of w.units.values()) {
     if (!u.alive || u.kind === "boss" || u.kind === "dummy" || u.kind === "prop") {
       continue;
     }
+
     moveUnit(w, u, dt);
   }
 
@@ -908,6 +923,9 @@ export const step = (w: World, dt: number = SIM_DT): void => {
 };
 
 export { abilityRankCap, syncAbilityRanks } from "./ranks";
+
 export { ABILITY_KEYS } from "./types";
+
 export { champStatAt } from "../data/champions";
+
 export { NEUTRAL_TEAM } from "../data/config";

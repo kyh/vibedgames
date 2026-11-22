@@ -2,61 +2,15 @@ import * as THREE from "three";
 
 import { MARINE_COLOR_GLSL, MARINE_GLSL } from "./marine-profile";
 
-// Aerial perspective + a staged marine layer, installed by REPLACING three's
-// four fog ShaderChunks. Every fogged material in the scene — the built-in
-// standard materials the city is batched with, the ocean, the custom
-// ambient-life shaders — resolves those chunks at program-compile time, so one
-// patch re-grades the whole world with no per-material plumbing and no rebake.
-//
-// Why the chunks and not uniforms: three's renderer only feeds `fogColor`,
-// `fogNear` and `fogFar` through to a material's fog uniforms. Any extra
-// uniform we declared would read 0 on every built-in material. The layer
-// geometry is fixed world data (SF does not move), so it bakes into the shader
-// as constants and costs nothing to feed.
-//
-// Height-attenuated aerial haze preserves the distant hill silhouettes. The
-// marine bank integrates coastal density along the viewing ray, so an object
-// beyond the bank still fades through it. Its low lid lets hilltops emerge.
-
-// --- Height grading -------------------------------------------------------
-// Haze is full strength below HAZE_BASE and e-folds away over HAZE_SCALE above
-// it: Nob Hill's crest (~43u) keeps about a third, Twin Peaks (~110u) a tenth.
-// The scale was 34 and the amount 0.86 until the vista pass — from the Twin
-// Peaks summit that still left ~0.30 of linear fog on downtown at 1400u, which
-// tone-maps to a white ghost. Both knobs are gated on ALTITUDE (the camera's
-// and the fragment's), so tightening them cannot touch the chase-cam grade:
-// at y < HAZE_BASE both terms are 1 and the base fog passes through untouched.
-// Exported because the long-range landmark silhouette (render/far-terrain.ts)
-// is drawn by a shader of its own and has to age into the distance on exactly
-// this curve — a stand-in graded on a second set of numbers announces itself
-// the moment the real geometry hands over.
 export const HAZE_BASE = 18;
 export const HAZE_SCALE = 26;
-// Never let the attenuation go all the way to zero — a razor-sharp 1.5km
-// ridgeline reads as a cardboard cut-out. 0.95 left a 5% floor, which is close
-// enough to nothing that every elevated view had NO depth cue at all: the far
-// city sat at the same value and the same chroma as the near city and the
-// vistas read flat. Now that the fog color is a saturated blue rather than a
-// near-white (see day-night.ts), a 18% floor TINTS the distance instead of
-// ghosting it, which is the aerial perspective those views were missing.
 export const HAZE_AMOUNT = 0.82;
 
-// --- Dual-rate mix (the painter's aerial perspective) ---------------------
-// A surface loses its HUE before it loses its VALUE: chroma converges onto the
-// haze FOG_CHROMA_RATE times faster than the plain fog lerp converges
-// brightness. A single-rate lerp keeps a far facade reading as saturated
-// cardboard right up until it vanishes; with the drain, a distant ridge is
-// mostly desaturated while still holding its value step, so the silhouette
-// ladder survives. The caps are the residuals: FOG_MAX leaves 8% of the
-// surface in the mix so backdrop planes never fuse into one sheet, and
-// FOG_CHROMA_MAX leaves a whisper of the surface's own hue at full drain.
-// Toon pass (2026-10): 1.85 -> 1.4. The storybook look keeps more hue in the
-// middle distance; the value ladder still separates the planes.
 const FOG_CHROMA_RATE = 1.4;
 const FOG_CHROMA_MAX = 0.96;
 const FOG_MAX = 0.92;
 
-const f = (n: number): string => n.toFixed(2);
+const f = (n: number) => n.toFixed(2);
 
 let installed = false;
 
@@ -65,18 +19,14 @@ let installed = false;
  * and must run before the first program compiles (the chunks are resolved
  * then) — GameScene calls it as its first construction step.
  */
-export const installAerialFog = (): void => {
+export const installAerialFog = () => {
   if (installed) {
     return;
   }
+
   installed = true;
 
-  // World position without a modelMatrix: the view transform is rigid, so the
-  // camera-space position rotates back with the transpose of its rotation.
-  // Doing it this way means batched, instanced and skinned meshes all work —
-  // `mvPosition` is already in scope wherever three includes <fog_vertex>.
-  // oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-  THREE.ShaderChunk.fog_vertex = /* glsl */ `
+  THREE.ShaderChunk.fog_vertex = `
 #ifdef USE_FOG
 	vFogDepth = - mvPosition.z;
 	vFogWorld = cameraPosition + mvPosition.xyz * mat3( viewMatrix );
@@ -84,8 +34,7 @@ export const installAerialFog = (): void => {
 #endif
 `;
 
-  // oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-  THREE.ShaderChunk.fog_pars_vertex = /* glsl */ `
+  THREE.ShaderChunk.fog_pars_vertex = `
 #ifdef USE_FOG
 	varying float vFogDepth;
 	varying vec3 vFogWorld;
@@ -93,8 +42,7 @@ export const installAerialFog = (): void => {
 #endif
 `;
 
-  // oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-  THREE.ShaderChunk.fog_pars_fragment = /* glsl */ `
+  THREE.ShaderChunk.fog_pars_fragment = `
 #ifdef USE_FOG
 
 	uniform vec3 fogColor;
@@ -115,8 +63,7 @@ export const installAerialFog = (): void => {
 #endif
 `;
 
-  // oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-  THREE.ShaderChunk.fog_fragment = /* glsl */ `
+  THREE.ShaderChunk.fog_fragment = `
 #ifdef USE_FOG
 
 	#ifdef FOG_EXP2

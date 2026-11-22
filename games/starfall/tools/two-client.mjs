@@ -1,6 +1,3 @@
-// Two-client online smoke: `pnpm --filter @repo/starfall test:online`.
-// Needs the party server on localhost:8787 and a Chrome install. Launches its
-// own vite unless `--url http://localhost:<port>` is given.
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
@@ -17,6 +14,7 @@ const room = `t${process.pid}-${Date.now().toString(36)}`;
 
 const startVite = async () => {
   const port = 5400 + Math.floor(Math.random() * 400);
+
   const child = spawn(
     path.resolve(gameDir, "node_modules/.bin/vite"),
     ["--port", String(port), "--strictPort"],
@@ -25,75 +23,85 @@ const startVite = async () => {
       stdio: ["ignore", "pipe", "inherit"],
     },
   );
+
   // oxlint-disable-next-line promise/avoid-new -- races vite's stdout banner against its exit; no promise form for that
   const url = await new Promise((resolve, reject) => {
     child.stdout.on("data", (chunk) => {
       const m = /Local:\s+(?<url>http:\/\/localhost:\d+)/u.exec(String(chunk));
+
       if (m) {
         resolve(m.groups.url);
       }
     });
     child.on("exit", (code) => reject(new Error(`vite exited ${code}`)));
   });
+
   return { stop: () => child.kill(), url };
 };
 
-/** Poll `fn` (evaluated in the page) until truthy; returns its value. */
 const until = async (page, fn, label, arg, timeoutMs = 15_000) => {
   const deadline = Date.now() + timeoutMs;
+
   for (;;) {
     const v = await page.evaluate(fn, arg);
+
     if (v) {
       return v;
     }
+
     if (Date.now() > deadline) {
       throw new Error(`timeout: ${label}`);
     }
+
     await sleep(100);
   }
 };
+
 const net = (page) =>
   page.evaluate(() => {
     const c = window.__starfall.client;
+
     return { hostId: c.hostId, id: c.playerId, isHost: c.isHost, status: c.connectionStatus };
   });
+
 const summary = (page) => page.evaluate(() => window.__starfall.summary());
+
 const ship = (page) =>
   page.evaluate(() => ({ x: __starfall.scene.shipX, y: __starfall.scene.shipY }));
+
 const enemyIds = (page) => page.evaluate(() => __starfall.scene.world.enemies.map((e) => e.id));
+
 const key = (page, type, k) =>
   page.evaluate(
     ([t, name]) => window.dispatchEvent(new KeyboardEvent(t, { key: name })),
     [type, k],
   );
-/** Drop the transport (RWS's own disconnect path, so the close is seen at once
- *  — a raw ws.close() sits in CLOSING against the dev party server) and hold
- *  the auto-reconnect for `ms`, so the room sees a real drop-and-reclaim.
- *  4000 because WebSocket.close() rejects reserved codes such as 1006, and
- *  _disconnect swallows that throw — the link would stay up. */
-/** A transport blip: an unclean close (anything but 1000, which the server
- * reads as a deliberate leave) parks the seat, then reconnect after `ms`. */
+
 const dropLink = (page, ms) =>
   page.evaluate((holdMs) => {
     const s = __starfall.client.socket;
     s.close(4000, "blip");
     setTimeout(() => s.reconnect(), holdMs);
   }, ms);
-/** Local time keeps flowing and bodies keep moving over `ms`. */
+
 const assertTicking = async (page, ms, label) => {
   const a = await page.evaluate(() => [
     __starfall.summary().now,
     __starfall.scene.world.asteroids[0].x,
   ]);
+
   await sleep(ms);
+
   const b = await page.evaluate(() => [
     __starfall.summary().now,
     __starfall.scene.world.asteroids[0].x,
   ]);
+
   assert.ok(b[0] > a[0] && b[1] !== a[1], `${label}: world frozen`);
 };
 
 const errors = [];
+
 const open = async (browser, url, name) => {
   const context = await browser.newContext();
   const page = await context.newPage();
@@ -109,24 +117,30 @@ const open = async (browser, url, name) => {
     () => window.__starfall?.client.connectionStatus === "connected",
     `${name} connected`,
   );
+
   return page;
 };
+
 const startPlay = async (page, name) => {
   await key(page, "keyup", "Shift");
   await until(page, () => __starfall.summary().alive, `${name} spawned`);
 };
+
 const join = async (browser, url, name, expectHost) => {
   const page = await open(browser, url, name);
   const n = await net(page);
   assert.equal(n.isHost, expectHost, `${name} host role`);
   await startPlay(page, name);
+
   return page;
 };
+
 const seesPeer = (page, id, want, label) =>
   until(
     page,
     ([peerId, expected]) => {
       const p = __starfall.client.players[peerId];
+
       return (
         p !== undefined &&
         (p.connected ?? true) &&
@@ -141,6 +155,7 @@ const seesPeer = (page, id, want, label) =>
 const step = (name, note) => console.log(`PASS ${name}${note ? ` — ${note}` : ""}`);
 
 const vite = urlFlag === -1 ? await startVite() : { url: argv[urlFlag + 1] };
+
 const browser = await chromium.launch({
   args: [
     "--disable-background-timer-throttling",
@@ -150,8 +165,8 @@ const browser = await chromium.launch({
   channel: "chrome",
   headless: true,
 });
+
 try {
-  // 1. join: both connected, both see each other's ship
   const host = await join(browser, vite.url, "host", true);
   const guest = await join(browser, vite.url, "guest", false);
   const hostNet = await net(host);
@@ -162,12 +177,13 @@ try {
   await seesPeer(guest, hostId, { present: true }, "guest sees host");
   step("join + mutual presence");
 
-  // 2. events cross the wire: host spawn → guest sees; guest hit → host kills
   const g = await ship(guest);
+
   const droneId = await host.evaluate(
     ([x, y]) => __starfall.spawnEnemy("drone", x + 400, y),
     [g.x, g.y],
   );
+
   await until(
     guest,
     (id) => __starfall.scene.world.enemies.some((e) => e.id === id),
@@ -192,12 +208,11 @@ try {
   );
   step("gameplay events cross the wire");
 
-  // 2b. pickup ownership: guest grabs a RAILGUN the host dropped on it. The
-  // drone killed above may have dropped loot of its own, so watch this item.
   const railgunId = await host.evaluate(
     ([x, y]) => __starfall.spawnItem("weapon", "RAILGUN", x, y),
     [g.x, g.y],
   );
+
   await until(guest, () => __starfall.summary().weapon === "RAILGUN", "guest holds RAILGUN");
   await until(
     host,
@@ -207,17 +222,19 @@ try {
   );
   const hostSummary = await summary(host);
   assert.notEqual(hostSummary.weapon, "RAILGUN", "host kept its own weapon");
+
   const mastery = await until(
     guest,
     () => {
       const el = document.querySelector("#weapon-mastery");
+
       return !el.hidden && el.textContent;
     },
     "guest mastery HUD",
   );
+
   step("pickup ownership (guest RAILGUN + mastery HUD)", mastery);
 
-  // 3. pause on the guest: host's match keeps running, guest docks out
   await key(guest, "keydown", "Escape");
   await until(guest, () => __starfall.scene.paused, "guest paused");
   await seesPeer(host, guestId, { present: false }, "host sees guest docked");
@@ -227,7 +244,6 @@ try {
   await seesPeer(host, guestId, { present: true }, "host sees guest back");
   step("pause on one side does not freeze the other");
 
-  // 4. no rematch in an endless arena: death → re-entry from each side instead
   for (const [page, other, id, name] of [
     [guest, host, guestId, "guest"],
     [host, guest, hostId, "host"],
@@ -238,14 +254,16 @@ try {
     await until(page, () => __starfall.summary().alive, `${name} re-entered`);
     await seesPeer(other, id, { alive: true, present: true }, `${name} re-entry seen`);
   }
+
   step("restart from each side", "death → re-entry (no rematch concept)");
 
-  // 5. host leaves: guest promoted, boss + epoch survive, no reset
   const h = await ship(host);
+
   const bossId = await host.evaluate(
     ([x, y]) => __starfall.spawnEnemy("dreadnought", x + 900, y + 900),
     [h.x, h.y],
   );
+
   await until(
     guest,
     (id) => __starfall.scene.world.enemies.some((e) => e.id === id),
@@ -264,9 +282,6 @@ try {
   assert.equal(await guest.evaluate(() => __starfall.scene.world.arenaEpoch), epoch, "epoch kept");
   const guestEnemies = await enemyIds(guest);
   assert.ok(guestEnemies.includes(bossId), "boss kept across migration");
-  // A closed tab is a transport drop: the server parks the seat for the
-  // reconnect grace window, and a tab that vanished without a close frame is
-  // only reaped by the ping eviction.
   await until(
     guest,
     (id) => !(id in __starfall.client.players),
@@ -276,7 +291,6 @@ try {
   );
   step("host leaves → guest promoted, world continues");
 
-  // 6. late join into the running match
   const late = await join(browser, vite.url, "late", false);
   const lateNet = await net(late);
   const lateId = lateNet.id;
@@ -289,7 +303,6 @@ try {
   await seesPeer(guest, lateId, { present: true }, "new host sees late joiner");
   step("late join");
 
-  // 7. transport blips: a guest keeps predicting, the host stays host
   await dropLink(late, 1500);
   await until(late, () => __starfall.client.connectionStatus !== "connected", "late dropped");
   await assertTicking(late, 400, "guest during blip");
@@ -317,10 +330,12 @@ try {
     [true, true, epoch],
     "host resumed without re-adopting",
   );
+
   const before = await late.evaluate(
     (id) => __starfall.scene.world.enemies.find((e) => e.id === id)?.x,
     bossId,
   );
+
   await until(
     late,
     ([id, x]) => __starfall.scene.world.enemies.find((e) => e.id === id)?.x !== x,
@@ -337,6 +352,5 @@ try {
 } finally {
   await browser.close();
   vite.stop?.();
-  // A leaked dev-server handle would otherwise keep node alive past the last check.
   process.exit(process.exitCode ?? 0);
 }

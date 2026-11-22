@@ -5,16 +5,18 @@
 export const MICRO_PER_USD = 1_000_000;
 
 /** 2 decimals normally; 4 when sub-cent so tiny charges don't show as $0.00. */
-export const formatUsd = (micro: number): string => {
+export const formatUsd = (micro: number) => {
   const abs = Math.abs(micro);
   const decimals = abs > 0 && abs < MICRO_PER_USD / 100 ? 4 : 2;
+
   return `${micro < 0 ? "-" : ""}$${(abs / MICRO_PER_USD).toFixed(decimals)}`;
 };
 
-export const kindLabel = (kind: string, deltaMicro: number): string => {
+export const kindLabel = (kind: string, deltaMicro: number) => {
   if (kind === "admin_grant") {
     return deltaMicro < 0 ? "Adjustment" : "Credit grant";
   }
+
   const labels = new Map([
     ["signup_grant", "Welcome credits"],
     ["code_redeem", "Code redeemed"],
@@ -23,5 +25,6 @@ export const kindLabel = (kind: string, deltaMicro: number): string => {
     ["generation_settle", "Usage adjustment"],
     ["generation_release", "Refund — failed generation"],
   ]);
+
   return labels.get(kind) ?? kind;
 };

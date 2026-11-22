@@ -3,52 +3,26 @@ import * as THREE from "three";
 import { DRAPE_MAX_ERROR } from "../world/conform";
 import { ASPHALT_LIFT } from "../world/roads";
 
-// Tire skid marks: a single mesh holding a ring buffer of quads stamped onto
-// the road. One draw call, zero allocation per stamp, per-quad age fade.
-//
-// The material MULTIPLIES the framebuffer (r185 requires premultipliedAlpha
-// for MultiplyBlending: src DST_COLOR / dst ONE_MINUS_SRC_ALPHA, so the
-// effective multiplier is mix(1, tint, a)). A mark darkens whatever it lands
-// on — correct on sunlit and night asphalt alike, and it can never float like
-// black paint. Output is a multiplier, not radiance: no tone map, no fog.
-
 const MAX_QUADS = 600;
-// seconds until a mark fully fades
 const LIFE = 10;
-// 0.28u wide
 const HALF_W = 0.14;
-// ~0.5u long
 const HALF_L = 0.25;
-// The asphalt drape sits at terrain + ASPHALT_LIFT and its coarse
-// tessellation can bow up to DRAPE_MAX_ERROR above the height field between
-// verts — marks must clear the worst-case road SURFACE, not the terrain, or
-// the road swallows them. Exported so trails layer above skids by contract.
-// 0.18
 export const SKID_LIFT = ASPHALT_LIFT + DRAPE_MAX_ERROR + 0.02;
 
-// Plain rubber: near-black, slightly cool (multiplier target at full alpha).
 const RUBBER_TINT = { b: 0.19, g: 0.16, r: 0.17 } as const;
 
-// A multiply layer cannot show an emissive tier color, so the tier hue becomes
-// a tint OF the darkening: normalize the color's max channel to a fixed lift
-// so every tier darkens equally and the hue lives only in the channel ratios —
-// reads as burnt road (cool / warm / violet scorch), never glowing paint.
 const SCORCH_LIFT = 0.34;
 const SCORCH_BASE = { b: 0.06, g: 0.065, r: 0.07 } as const;
 
-export const scorchTint = (color: THREE.Color, out: THREE.Color): THREE.Color => {
+export const scorchTint = (color: THREE.Color, out: THREE.Color) => {
   const mx = Math.max(color.r, Math.max(color.g, color.b), 1e-4);
   const k = SCORCH_LIFT / mx;
   out.setRGB(SCORCH_BASE.r + color.r * k, SCORCH_BASE.g + color.g * k, SCORCH_BASE.b + color.b * k);
+
   return out;
 };
 
-// Age fade runs on the GPU: each vertex carries its stamp time and the shader
-// compares it to a clock uniform — update() advances ONE float instead of
-// rewriting the whole color buffer every frame. Fade holds, then dissolves
-// over the back half of LIFE.
-// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-const SKID_VERT = /* glsl */ `
+const SKID_VERT = `
   attribute vec4 aTint;
   attribute float aBirth;
   uniform float uTime;
@@ -61,8 +35,8 @@ const SKID_VERT = /* glsl */ `
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
   }
 `;
-// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-const SKID_FRAG = /* glsl */ `
+
+const SKID_FRAG = `
   varying vec4 vTint;
   varying float vFade;
   void main() {
@@ -87,11 +61,11 @@ export class SkidMarks {
   constructor(heightAt: (x: number, z: number) => number) {
     this.heightAt = heightAt;
     this.positions = new Float32Array(MAX_QUADS * 4 * 3);
-    // RGBA, starts all-zero
     this.colors = new Float32Array(MAX_QUADS * 4 * 4);
     this.births = new Float32Array(MAX_QUADS * 4);
 
     const index = new Uint16Array(MAX_QUADS * 6);
+
     for (let q = 0; q < MAX_QUADS; q += 1) {
       const v = q * 4;
       const t = q * 6;
@@ -126,22 +100,17 @@ export class SkidMarks {
       uniforms: { uTime: this.timeU },
       vertexShader: SKID_VERT,
     });
+
     this.mesh = new THREE.Mesh(geo, mat);
     this.mesh.frustumCulled = false;
   }
 
-  // Stamp one rubber quad aligned to `yaw` (forward = (sin yaw, cos yaw)) at
-  // terrain height + SKID_LIFT. Ring buffer: the oldest mark is overwritten.
-  stamp(x: number, z: number, yaw: number, alpha = 0.7): void {
+  stamp(x: number, z: number, yaw: number, alpha = 0.7) {
     const fx = Math.sin(yaw) * HALF_L;
     const fz = Math.cos(yaw) * HALF_L;
     this.stampSegment(x - fx, z - fz, x + fx, z + fz, alpha);
   }
 
-  // Stamp a quad spanning (x0,z0) → (x1,z1) — consecutive segments share
-  // their endpoints, so a braking line reads continuous, never dashed.
-  // `tint` is the multiplier target (default plain rubber); `halfW` widens
-  // one-shot scorch stamps (promotion kisses) past the tyre width.
   stampSegment(
     x0: number,
     z0: number,
@@ -150,12 +119,14 @@ export class SkidMarks {
     alpha = 0.7,
     tint: { r: number; g: number; b: number } = RUBBER_TINT,
     halfW = HALF_W,
-  ): void {
+  ) {
     const dx = x1 - x0;
     const dz = z1 - z0;
+
     if (dx * dx + dz * dz < 0.002) {
       return;
     }
+
     const yaw = Math.atan2(dx, dz);
     const q = this.cursor;
     this.cursor = (this.cursor + 1) % MAX_QUADS;
@@ -164,12 +135,10 @@ export class SkidMarks {
     const rz = -Math.sin(yaw) * halfW;
 
     const p = q * 4 * 3;
-    // Vertex order: back-left, back-right, front-left, front-right.
     this.writeVert(p, x0 - rx, z0 - rz);
     this.writeVert(p + 3, x0 + rx, z0 + rz);
     this.writeVert(p + 6, x1 - rx, z1 - rz);
     this.writeVert(p + 9, x1 + rx, z1 + rz);
-    // One quad per stamp goes up, not the 600-quad ring.
     this.posAttr.addUpdateRange(p, 12);
     this.posAttr.needsUpdate = true;
 
@@ -186,25 +155,20 @@ export class SkidMarks {
     this.colAttr.needsUpdate = true;
   }
 
-  update(dt: number): void {
-    // The fade is computed per-fragment from (uTime - birth) — expired quads
-    // clamp to alpha 0 on the GPU and just sit in the ring until overwritten.
+  update(dt: number) {
     this.time += dt;
     this.timeU.value = this.time;
   }
 
-  private writeVert(offset: number, x: number, z: number): void {
+  private writeVert(offset: number, x: number, z: number) {
     this.positions[offset] = x;
     this.positions[offset + 1] = this.heightAt(x, z) + SKID_LIFT;
     this.positions[offset + 2] = z;
   }
 
-  private writeQuadColor(
-    q: number,
-    alpha: number,
-    tint: { r: number; g: number; b: number },
-  ): void {
+  private writeQuadColor(q: number, alpha: number, tint: { r: number; g: number; b: number }) {
     const c = q * 4 * 4;
+
     for (let v = 0; v < 4; v += 1) {
       const o = c + v * 4;
       this.colors[o] = tint.r;

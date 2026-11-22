@@ -9,15 +9,12 @@ import type { ControlsCard } from "../render/controls-card";
 import { mountTouchControls } from "../touch-controls";
 import { seasonName, seasonOfDay } from "../data/calendar";
 
-// idle.webp's nine 96×64 frames have a combined alpha silhouette y=23..39.
-// Layout uses its 16px visible height; the 64px frame includes transparent padding.
 const FARMER_VISIBLE_HEIGHT = 16;
 const FARMER_CENTER_OFFSET_Y = -1;
 
-const drawBackdrop = (g: Phaser.GameObjects.Graphics, w: number, h: number): void => {
+const drawBackdrop = (g: Phaser.GameObjects.Graphics, w: number, h: number) => {
   g.fillGradientStyle(0x9f_d8_f0, 0x9f_d8_f0, 0x8f_ce_5a, 0x6f_b8_4a, 1);
   g.fillRect(0, 0, w, h);
-  // soft sun
   g.fillStyle(0xff_f3_c4, 0.5);
   g.fillCircle(w * 0.8, h * 0.2, 80);
   g.fillStyle(0xff_f3_c4, 0.8);
@@ -35,16 +32,14 @@ export class TitleScene extends Scene {
     super("Title");
   }
 
-  create(): void {
+  create() {
     document.querySelector("#veil")?.classList.add("hidden");
     mountTouchControls();
     const { width, height } = this.scale;
 
-    // cozy sky->grass backdrop
     const bg = this.add.graphics();
     drawBackdrop(bg, width, height);
 
-    // decorative idle farmer
     const farmer = this.add.sprite(0, 0, "p-idle").setScale(5).play("p-idle");
 
     const title = this.add
@@ -59,6 +54,7 @@ export class TitleScene extends Scene {
       })
       .setOrigin(0.5)
       .setLineSpacing(-6);
+
     title.setShadow(0, 8, "rgba(0,0,0,0.25)", 12, true, true);
 
     const tag = this.add
@@ -81,15 +77,12 @@ export class TitleScene extends Scene {
 
     const newBtn = this.makeButton("🌱  New Farm", "#5fae3a");
     const contBtn = this.makeButton("☀  Continue", "#3a86c8");
-    // The controls card — the pause sign's grouped parchment chips, rendered
-    // in Phaser. Rebuilt fresh whenever a pad connects/disconnects.
     let cardBand = "";
 
-    // A stored key that no longer parses is not a farm to continue: the load
-    // is the single source of truth for the label and every confirm path.
     const saved = loadSave();
     this.canContinue = saved !== null;
     contBtn.container.setAlpha(saved ? 1 : 0.35);
+
     const saveDetail = this.add
       .text(
         0,
@@ -98,6 +91,7 @@ export class TitleScene extends Scene {
         { color: "#e5f3ff", fontFamily: "ui-monospace, monospace", fontSize: "11px" },
       )
       .setOrigin(0.5);
+
     contBtn.text.setFontSize(20).setY(-7);
     contBtn.container.add(saveDetail);
 
@@ -106,6 +100,7 @@ export class TitleScene extends Scene {
       Sound.click();
       this.startNew();
     });
+
     if (saved) {
       contBtn.zone.on("pointerdown", () => {
         Sound.resume();
@@ -118,6 +113,7 @@ export class TitleScene extends Scene {
     this.input.keyboard?.on("keydown-ENTER", () =>
       saved ? this.scene.start("Game", { mode: "continue" }) : this.startNew(),
     );
+
     if (saved) {
       this.input.keyboard?.on("keydown-C", () => this.scene.start("Game", { mode: "continue" }));
     }
@@ -126,7 +122,6 @@ export class TitleScene extends Scene {
       const w = this.scale.width;
       const cx = w / 2;
       const h = this.scale.height;
-      // compact stack for short (landscape phone) viewports
       const compact = h < 520;
       title.setFontSize(compact ? 50 : 84);
       title.setPosition(cx, h * (compact ? 0.13 : 0.26));
@@ -138,53 +133,56 @@ export class TitleScene extends Scene {
       newBtn.container.setPosition(cx, h * (compact ? 0.39 : 0.66));
       contBtn.container.setPosition(cx, newBtn.container.y + (compact ? 60 : 70));
       intro.setVisible(!compact).setPosition(cx, newBtn.container.y - 48);
-      // Keep the decorative farmer inside its band as shorter screens reflow.
+
       const farmerScale = Math.min(
         5,
         Math.max(1, Math.floor((intro.y - tag.y - 44) / FARMER_VISIBLE_HEIGHT)),
       );
+
       farmer
         .setScale(farmerScale)
         .setPosition(cx, (tag.y + intro.y) / 2 - FARMER_CENTER_OFFSET_Y * farmerScale);
-      // Controls card fills the band under the buttons, bottom-anchored where
-      // the hint line lived. The card reflows to the band (build-time work), so
-      // it is rebuilt only when the band itself changes — i.e. on a rotation.
       const top = contBtn.container.y + (compact ? 34 : 38);
       const bottom = h - (compact ? 8 : 16);
       const band = { maxHeight: bottom - top, maxWidth: w - 24 };
       const bandKey = `${Math.round(band.maxWidth)}x${Math.round(band.maxHeight)}`;
+
       if (bandKey !== cardBand) {
         cardBand = bandKey;
         this.controlsCard?.container.destroy();
         this.controlsCard = buildControlsCard(this, band);
       }
+
       const card = this.controlsCard;
+
       if (card) {
         const scale = Math.min(1, band.maxHeight / card.height, band.maxWidth / card.width);
         card.container.setScale(scale).setPosition(cx, bottom - (card.height * scale) / 2);
       }
     };
+
     if (this.onResize) {
       this.scale.off("resize", this.onResize);
     }
+
     this.onResize = (gs: Phaser.Structs.Size) => {
       bg.clear();
       drawBackdrop(bg, gs.width, gs.height);
       layout();
     };
+
     this.scale.on("resize", this.onResize);
     this.events.once(Scenes.Events.SHUTDOWN, () => {
       if (this.onResize) {
         this.scale.off("resize", this.onResize);
       }
     });
+
     const rebuildCard = () => {
       cardBand = "";
       layout();
     };
-    // Plugging in (or unplugging) a pad while the title is up updates the card.
-    // Scene instances persist across start/stop — drop any stale subscription
-    // before adding this run's, and tear it down on shutdown.
+
     this.unwatchControls?.();
     this.unwatchControls = watchControlContext(rebuildCard);
     this.events.once(Scenes.Events.SHUTDOWN, () => {
@@ -195,10 +193,9 @@ export class TitleScene extends Scene {
     layout();
   }
 
-  // A on a physical pad confirms, like ENTER: continue when a save exists,
-  // else start fresh.
-  override update(): void {
+  override update() {
     this.pad.update();
+
     if (this.pad.justPressed("a")) {
       if (this.canContinue) {
         this.scene.start("Game", { mode: "continue" });
@@ -208,7 +205,7 @@ export class TitleScene extends Scene {
     }
   }
 
-  private startNew(): void {
+  private startNew() {
     clearSave();
     this.scene.start("Game", { mode: "new" });
   }
@@ -225,6 +222,7 @@ export class TitleScene extends Scene {
     bg.fillRoundedRect(-w / 2, -h / 2, w, h, 14);
     bg.lineStyle(3, 0xff_ff_ff, 0.5);
     bg.strokeRoundedRect(-w / 2, -h / 2, w, h, 14);
+
     const txt = this.add
       .text(0, 0, label, {
         color: "#ffffff",
@@ -233,10 +231,12 @@ export class TitleScene extends Scene {
         fontStyle: "bold",
       })
       .setOrigin(0.5);
+
     const zone = this.add.zone(0, 0, w, h).setInteractive({ useHandCursor: true });
     container.add([bg, txt, zone]);
     zone.on("pointerover", () => container.setScale(1.05));
     zone.on("pointerout", () => container.setScale(1));
+
     return { container, text: txt, zone };
   }
 }

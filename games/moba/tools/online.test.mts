@@ -15,7 +15,7 @@ import { emptyGuestWorld, encodeWorld, sharedSnapAt, sharedSnapshot } from "../s
 import { TickEncoder, applyTick, parseTick } from "../src/net/stream.ts";
 import { dealDamage } from "../src/sim/combat.ts";
 import type { Vec2 } from "../src/sim/math.ts";
-import type { FxEvent, Unit, World } from "../src/sim/types.ts";
+import type { FxEvent, World } from "../src/sim/types.ts";
 import {
   createWorld,
   dashHero,
@@ -88,16 +88,20 @@ test("promotion resumes the same deterministic simulation instead of resetting i
   const host = createWorld(987);
   spawnHero(host, "ironvow", "radiant", "a", true, 0);
   spawnHero(host, "emberhex", "dire", "b", true, 0);
+
   for (let i = 0; i < 180; i += 1) {
     step(host, 1 / 30);
   }
+
   const promoted = emptyGuestWorld();
   restoreHostState(promoted, structuredClone(encodeWorld(host)));
   host.fx.length = 0;
+
   for (let i = 0; i < 180; i += 1) {
     step(host, 1 / 30);
     step(promoted, 1 / 30);
   }
+
   assert.deepEqual(encodeWorld(promoted), encodeWorld(host));
   assert.deepEqual(promoted.fx, host.fx);
 });
@@ -128,69 +132,62 @@ test("host adoption owns its mutable state without rewriting the accepted snapsh
   const before = structuredClone(accepted);
   const promoted = emptyGuestWorld();
   restoreHostState(promoted, accepted);
+
   for (let i = 0; i < 180; i += 1) {
     step(promoted, 1 / 30);
   }
+
   assert.deepEqual(accepted, before);
   assert.notDeepEqual(encodeWorld(promoted), before);
   restoreHostState(promoted, accepted);
   assert.deepEqual(encodeWorld(promoted), before);
 });
 
-// ---- netcode: the tick stream, interpolation and own-hero prediction --------
-// Hosts and guests joined by simulated links — one-way latency plus jitter, in
-// order like TCP — run on one virtual clock so every assertion is
-// deterministic. Hosts stamp with the room's server clock, each reading it off
-// its own lopsided time probe: a few ms out, as a real reading is. Guests time
-// the stream by its arrivals alone.
-
 const STEP_MS = SIM_DT * 1000;
 const FRAME_MS = 1000 / 60;
-/** Server time is an epoch clock, where a page's own clock starts near zero. */
 const SERVER_EPOCH_MS = 1_790_000_000_000;
 const DEAD_ZONE_PX = 16;
 
-/** Deterministic jitter in [0, 1). */
-const noise = (i: number): number => {
+const noise = (i: number) => {
   const s = Math.sin(i * 12.9898) * 43_758.5453;
+
   return s - Math.floor(s);
 };
 
-/** What crosses the wire is JSON, never the sender's own objects. */
-const wire = (v: JsonValue): JsonValue =>
+const wire = (v: JsonValue) =>
   // oxlint-disable-next-line unicorn/prefer-structured-clone -- emulates the JSON wire, which drops what structuredClone keeps (undefined-valued keys)
   JSON.parse(JSON.stringify(v));
 
-/** A client's reading of the server clock, off one time probe whose way out
- *  took `lopsidedMs` longer than the way back: off by half that. */
-const readServerClock = (lopsidedMs: number): ServerClock => {
+const readServerClock = (lopsidedMs: number) => {
   const clock = new ServerClock();
   const back = 40;
   const out = back + lopsidedMs;
   clock.sample(0, SERVER_EPOCH_MS + out, out + back);
+
   return clock;
 };
 
-/** One direction of a link: each message lands `latencyMs` plus up to
- *  `jitterMs` after it was sent, and never ahead of the one before it. */
 interface Link {
   send: (now: number, payload: JsonValue) => void;
   receive: (now: number) => JsonValue[];
 }
 
-const link = (latencyMs: number, jitterMs: number): Link => {
+const link = (latencyMs: number, jitterMs: number) => {
   const queue: { at: number; payload: JsonValue }[] = [];
   let sent = 0;
   let lastAt = 0;
+
   return {
     receive: (now) => {
       const out: JsonValue[] = [];
       let [next] = queue;
+
       while (next && next.at <= now) {
         out.push(next.payload);
         queue.shift();
         [next] = queue;
       }
+
       return out;
     },
     send: (now, payload) => {
@@ -201,46 +198,38 @@ const link = (latencyMs: number, jitterMs: number): Link => {
   };
 };
 
-/** The host half of GameScene: a 30 Hz sim, each step stamped with the host's
- *  reading of server time and sent down every guest's link, after the keyframe
- *  the stream is based on. */
 interface StreamHost {
   readonly world: World;
   readonly guests: Link[];
-  /** Per guest hero: the newest input applied and the world.now it landed. */
   readonly acks: Map<string, { seq: number; at: number }>;
-  /** The stamp of every tick sent. */
   readonly stamps: number[];
-  /** The whole world as shared state carries it, stamped now, and the stream
-   *  re-based on it — what GameScene publishes on taking over. */
   keyframe: (now: number) => void;
-  /** One 60 fps frame: the sim steps on its own 30 Hz clock, each step
-   *  stamped with the moment it stands for. */
   frame: (now: number) => void;
 }
 
-const streamHost = (world: World, clock: ServerClock): StreamHost => {
+const streamHost = (world: World, clock: ServerClock) => {
   const encoder = new TickEncoder();
   const guests: Link[] = [];
   const acks = new Map<string, { seq: number; at: number }>();
   const stamps: number[] = [];
   let acc = 0;
+
   return {
     acks,
     frame: (now) => {
       acc += FRAME_MS;
       const stampNow = clock.now(now);
+
       while (acc >= STEP_MS) {
         acc -= STEP_MS;
         step(world, SIM_DT);
-        const rows = [...acks].map(([id, a]): [string, number, number] => [
-          id,
-          a.seq,
-          Math.round(world.now - a.at),
-        ]);
+
+        const rows = [...acks].map(([id, a]) => [id, a.seq, Math.round(world.now - a.at)]);
+
         const t = Math.round(stampNow - acc);
         stamps.push(t);
         const tick = encoder.encode(world, t, world.fx.splice(0), rows);
+
         for (const guest of guests) {
           guest.send(now, { tick });
         }
@@ -250,6 +239,7 @@ const streamHost = (world: World, clock: ServerClock): StreamHost => {
     keyframe: (now) => {
       const snapAt = Math.round(clock.now(now));
       encoder.reset(world);
+
       for (const guest of guests) {
         guest.send(now, { snap: encodeWorld(world), snapAt });
       }
@@ -259,57 +249,60 @@ const streamHost = (world: World, clock: ServerClock): StreamHost => {
   };
 };
 
-/** The guest half of GameScene: a mirror rendering the stream as its arrivals
- *  time it, and its hero predicted. */
 interface StreamGuest {
   readonly heroId: string;
   readonly view: World;
   readonly mirror: GuestMirror;
   readonly predictor: HeroPredictor;
-  /** Everything any host sends it, in order: its one connection. */
   readonly down: Link;
-  /** Take what arrived, then draw: GameScene's onNetChange and onHostTick,
-   *  then followHost. */
   frame: (now: number) => void;
-  /** Where this guest draws a unit this frame. */
   drawn: (id?: string) => Vec2;
 }
 
-const streamGuest = (heroId: string, down: Link): StreamGuest => {
+const streamGuest = (heroId: string, down: Link) => {
   const view = emptyGuestWorld();
   const mirror = new GuestMirror(view);
   const predictor = new HeroPredictor();
-  const take = (payload: JsonValue, now: number): void => {
+
+  const take = (payload: JsonValue, now: number) => {
     assert.ok(isJsonObject(payload), "a message");
+
     if (payload.tick === undefined) {
       const snap = sharedSnapshot(payload);
       const at = sharedSnapAt(payload);
       assert.ok(snap && at !== null, "a keyframe");
+
       if (mirror.keyframe(snap, at, true)) {
         predictor.reset();
       }
+
       return;
     }
+
     const tick = parseTick(payload.tick);
     assert.ok(tick, "tick parses");
     mirror.tick(tick, now);
     const me = mirror.latest?.units.get(heroId);
     const ack = tick.k?.find(([id]) => id === heroId);
+
     if (me) {
       predictor.reconcile(me, ack ? [ack[1], ack[2]] : null);
     }
   };
+
   return {
     down,
     drawn: (id = heroId) => {
       const u = view.units.get(id);
       assert.ok(u, `${id} drawn`);
+
       return { x: u.x, y: u.y };
     },
     frame: (now) => {
       for (const payload of down.receive(now)) {
         take(payload, now);
       }
+
       mirror.frame(now, heroId);
       const { latest } = mirror;
       predictor.frame(latest?.units.get(heroId), latest, now);
@@ -322,7 +315,6 @@ const streamGuest = (heroId: string, down: Link): StreamGuest => {
   };
 };
 
-/** A host simulating `host` and one guest playing `heroId`, a link each way. */
 class Session {
   readonly host: World;
   readonly heroId: string;
@@ -341,57 +333,59 @@ class Session {
     this.streamer.keyframe(this.now);
   }
 
-  get mirror(): GuestMirror {
+  get mirror() {
     return this.guest.mirror;
   }
 
-  get predictor(): HeroPredictor {
+  get predictor() {
     return this.guest.predictor;
   }
 
-  /** The guest acts: played on its hero at once, sent to the host numbered. */
-  press(intent: Intent): void {
+  press(intent: Intent) {
     const seq = this.predictor.input(intent, this.now);
     this.up.send(this.now, { ...intent, seq });
   }
 
-  /** One 60 fps frame: the host applies whatever input arrived and steps, then
-   *  the guest takes whatever arrived and draws. */
-  frame(): void {
+  frame() {
     this.now += FRAME_MS;
+
     for (const payload of this.up.receive(this.now)) {
       this.apply(payload);
     }
+
     this.streamer.frame(this.now);
     this.guest.frame(this.now);
   }
 
-  frames(n: number): void {
+  frames(n: number) {
     for (let i = 0; i < n; i += 1) {
       this.frame();
     }
   }
 
-  /** Where the guest draws a unit this frame. */
-  drawn(id = this.heroId): Vec2 {
+  drawn(id = this.heroId) {
     return this.guest.drawn(id);
   }
 
-  hostUnit(id = this.heroId): Unit {
+  hostUnit(id = this.heroId) {
     const u = this.host.units.get(id);
     assert.ok(u, `${id} on the host`);
+
     return u;
   }
 
-  private apply(payload: JsonValue): void {
+  private apply(payload: JsonValue) {
     const intent = parseIntent(payload);
     const u = this.host.units.get(this.heroId);
+
     if (!intent || intent.kind === "join" || !u) {
       return;
     }
+
     if (intent.seq !== undefined) {
       this.streamer.acks.set(u.id, { at: this.host.now, seq: intent.seq });
     }
+
     if (intent.kind === "order") {
       issueOrder(this.host, u, intent.order);
     } else if (intent.kind === "dash") {
@@ -400,13 +394,12 @@ class Session {
   }
 }
 
-/** A guest's hero alone at its fountain, open ground to the east. */
-const soloSession = (latencyMs: number, jitterMs: number): Session => {
+const soloSession = (latencyMs: number, jitterMs: number) => {
   const host = createWorld(4242);
   const hero = spawnHero(host, "ironvow", "radiant", "guest", false, 2);
   const session = new Session(host, hero.id, latencyMs, jitterMs);
-  // past the first ticks: the clock is synced and the buffer is full
   session.frames(30);
+
   return session;
 };
 
@@ -433,11 +426,13 @@ test("running straight through latency and jitter, the guest's hero stays inside
   const start = s.drawn();
   s.press(RUN_EAST);
   let worst = 0;
+
   for (let i = 0; i < 150; i += 1) {
     s.frame();
     const { x, y } = s.predictor.correction;
     worst = Math.max(worst, Math.hypot(x, y));
   }
+
   assert.equal(worst, 0, "the host's copy always lay on the predicted path: no correction");
   assert.ok(s.drawn().x - start.x > 600, `it really ran (${s.drawn().x - start.x} px)`);
   s.press(STOP);
@@ -475,14 +470,18 @@ test("a respawn snaps the guest's hero to the fountain, no glide from where it f
   assert.equal(hero.alive, false);
   let fell: Vec2 | null = null;
   let respawned = false;
+
   for (let i = 0; i < 60 * 15 && !respawned; i += 1) {
     s.frame();
     const alive = s.mirror.latest?.units.get(s.heroId)?.alive;
+
     if (alive === false) {
       fell ??= s.drawn();
     }
+
     respawned = fell !== null && alive === true;
   }
+
   assert.ok(fell && respawned, "death and respawn both streamed");
   const host = s.mirror.latest?.units.get(s.heroId);
   assert.ok(host);
@@ -497,13 +496,13 @@ test("a respawn snaps the guest's hero to the fountain, no glide from where it f
 test("remote bodies move steadily however unevenly their ticks arrive", () => {
   const host = createWorld(4243);
   const guest = spawnHero(host, "ironvow", "radiant", "guest", false, 2);
-  // ahead of the guest on open ground, so nothing but the network shapes its path
   const other = spawnHero(host, "duskblade", "radiant", "other", false, 4);
   issueOrder(host, other, { dx: 1, dy: 0, type: "moveDir" });
   const s = new Session(host, guest.id, 60, 45);
   s.frames(40);
   const speed = other.moveSpeedBase * (FRAME_MS / 1000);
   let prev = s.drawn(other.id).x;
+
   for (let i = 0; i < 90; i += 1) {
     s.frame();
     const { x } = s.drawn(other.id);
@@ -512,21 +511,17 @@ test("remote bodies move steadily however unevenly their ticks arrive", () => {
   }
 });
 
-/** A guest watching a runner cross open ground over a link with `jitterMs` of
- *  jitter, as means over a second and a half: how far the view's clock trails
- *  the host's, and how far the runner, drawn by interpolation, is from that
- *  moment on its own path (ms). */
 const replayLag = (jitterMs: number) => {
   const host = createWorld(4249);
   const guest = spawnHero(host, "ironvow", "radiant", "guest", false, 2);
   const runner = spawnHero(host, "duskblade", "radiant", "runner", false, 4);
   issueOrder(host, runner, { dx: 1, dy: 0, type: "moveDir" });
   const s = new Session(host, guest.id, 60, jitterMs);
-  // long enough for the clock to have measured the route
   s.frames(60);
   let behind = 0;
   let apart = 0;
   const FRAMES = 90;
+
   for (let i = 0; i < FRAMES; i += 1) {
     s.frame();
     const view = (host.gameTime - s.guest.view.gameTime) * 1000;
@@ -534,6 +529,7 @@ const replayLag = (jitterMs: number) => {
     behind += view;
     apart += Math.abs(body - view);
   }
+
   return { apart: apart / FRAMES, behind: behind / FRAMES };
 };
 
@@ -549,24 +545,24 @@ test("a jittery route draws further back, and the ticks replay where the bodies 
 });
 
 test("a body the stream removes is drawn to its end, never past the stream", () => {
-  // A skirmish beside the guest: a bot archer's arrows land and are removed,
-  // and the creeps it fights fall and are reaped.
   const host = createWorld(4251);
   const guest = spawnHero(host, "ironvow", "radiant", "guest", false, 2);
   const archer = spawnHero(host, "stormcaller", "radiant", "archer", true, 4);
+
   for (const dy of [-40, 0, 40]) {
     spawnCreepAt(host, "dire", "top", "melee", archer.x + 260, archer.y + dy);
   }
-  // A steady route: a body is drawn past its newest update only if the stream
-  // itself left it there.
+
   const s = new Session(host, guest.id, 60, 0);
   const before = netStats();
   let removed = 0;
+
   for (let i = 0; i < 60 * 8; i += 1) {
     const live = [...host.units.keys(), ...host.projectiles.keys()];
     s.frame();
     removed += live.filter((id) => !host.units.has(id) && !host.projectiles.has(id)).length;
   }
+
   const drawn = netStats();
   assert.ok(removed > 10, `arrows landed and creeps fell (${removed} removed)`);
   assert.ok(drawn.frames - before.frames > 1000, "the skirmish was drawn");
@@ -582,6 +578,7 @@ test("effects are never lost, however many ticks land in one frame", () => {
   mirror.keyframe(structuredClone(encodeWorld(host)), SERVER_EPOCH_MS, true);
   encoder.reset(host);
   const notes = ["first", "second", "third"];
+
   for (const [i, text] of notes.entries()) {
     step(host, SIM_DT);
     const fx: FxEvent[] = [{ t: "notify", text, tone: "neutral" }];
@@ -590,6 +587,7 @@ test("effects are never lost, however many ticks land in one frame", () => {
     assert.ok(tick);
     mirror.tick(tick, 150);
   }
+
   mirror.frame(10_000, "");
   assert.deepEqual(
     view.fx.map((fx) => (fx.t === "notify" ? fx.text : fx.t)),
@@ -599,12 +597,15 @@ test("effects are never lost, however many ticks land in one frame", () => {
 
 test("the per-step stream is a small fraction of the world it replaces, and rebuilds it", () => {
   const host = createWorld(4245);
+
   for (const [i, id] of ["ironvow", "stormcaller", "emberhex"].entries()) {
     spawnHero(host, id, "radiant", `r${i}`, true, i);
   }
+
   for (const [i, id] of ["duskblade", "brewkeeper", "boomtinker"].entries()) {
     spawnHero(host, id, "dire", `d${i}`, true, i);
   }
+
   const replica = emptyGuestWorld();
   restoreHostState(replica, structuredClone(encodeWorld(host)));
   const encoder = new TickEncoder();
@@ -613,6 +614,7 @@ test("the per-step stream is a small fraction of the world it replaces, and rebu
   let ticks = 0;
   let fullBytes = 0;
   let fulls = 0;
+
   for (let i = 0; i < 30 * 150; i += 1) {
     step(host, SIM_DT);
     const json = JSON.stringify(encoder.encode(host, i * STEP_MS, host.fx.splice(0), []));
@@ -621,15 +623,18 @@ test("the per-step stream is a small fraction of the world it replaces, and rebu
     const tick = parseTick(JSON.parse(json));
     assert.ok(tick);
     applyTick(replica, tick, false);
+
     if (i % 30 === 0) {
       fullBytes += JSON.stringify(encodeWorld(host)).length;
       fulls += 1;
     }
   }
+
   const perTick = tickBytes / ticks;
   const perFull = fullBytes / fulls;
   assert.ok(perTick < 1500, `a tick averages ${Math.round(perTick)} bytes`);
   assert.ok(perTick * 15 < perFull, `vs ${Math.round(perFull)} bytes for the whole world`);
+
   for (const u of host.units.values()) {
     const copy = replica.units.get(u.id);
     assert.ok(copy, `${u.id} replicated`);
@@ -637,6 +642,7 @@ test("the per-step stream is a small fraction of the world it replaces, and rebu
     assert.equal(copy.alive, u.alive);
     assert.ok(Math.abs(copy.hp - u.hp) < 0.1, `${u.id} hp`);
   }
+
   assert.deepEqual([...replica.projectiles.keys()], [...host.projectiles.keys()]);
   assert.equal(replica.rngState, host.rngState);
   assert.equal(replica.seq, host.seq);
@@ -649,21 +655,23 @@ test("a promoted guest carries on the host's match from its replica, not a stale
   spawnHero(host, "duskblade", "radiant", "bot-radiant-1", true, 1);
   const s = new Session(host, me.id, 60, 30);
   s.press(RUN_EAST);
-  // far past any keyframe: only the stream knows where things are now
   s.frames(60 * 20);
   const replica = s.mirror.resumable;
   assert.ok(replica, "a whole replica");
   const promoted = emptyGuestWorld();
   restoreHostState(promoted, encodeWorld(replica));
   assert.ok(Math.abs(promoted.gameTime - host.gameTime) < 0.2, "resumes at the host's moment");
+
   for (let i = 0; i < 90; i += 1) {
     step(host, SIM_DT);
     step(promoted, SIM_DT);
   }
+
   for (const u of host.units.values()) {
     if (u.kind !== "hero") {
       continue;
     }
+
     const copy = promoted.units.get(u.id);
     assert.ok(copy);
     assert.ok(
@@ -674,8 +682,6 @@ test("a promoted guest carries on the host's match from its replica, not a stale
 });
 
 test("through a host migration the others play straight on: one clock, no reset, no jump", () => {
-  // A hosts B and C. B's hero runs east the whole time, a remote body to C,
-  // whose own hero runs alongside it, predicted.
   const world = createWorld(4247);
   const runner = spawnHero(world, "ironvow", "radiant", "b", false, 2);
   const watcher = spawnHero(world, "duskblade", "radiant", "c", false, 4);
@@ -698,17 +704,15 @@ test("through a host migration the others play straight on: one clock, no reset,
   let start: Vec2 | null = null;
   let viewTime = 0;
   let worstCorrection = 0;
+
   for (let f = 1; f <= ELECTED + 120; f += 1) {
     now += FRAME_MS;
+
     if (f === LEAVES) {
-      // A's tab closes: no more steps, but what it already sent still lands.
       host = null;
     }
+
     if (f === ELECTED) {
-      // The server names B host and tells everyone. B takes over from its
-      // replica as GameScene's prepareOnlineHost does, keeping its own order;
-      // C stops building on the replica A's stream was based on, and times
-      // B's route afresh.
       const replica = b.mirror.resumable;
       assert.ok(replica, "B saw every one of A's steps");
       assert.equal(replica.gameTime, world.gameTime, "B's replica is A's last moment");
@@ -724,41 +728,48 @@ test("through a host migration the others play straight on: one clock, no reset,
       c.mirror.hostChanged();
       guests = [c];
     }
+
     host?.frame(now);
+
     for (const guest of guests) {
       guest.frame(now);
     }
+
     if (f < 30) {
       continue;
     }
-    // From C's seat: the runner never jumps, either way, and the view's clock
-    // never goes back more than the step it may have run ahead.
+
     const at = c.drawn(runner.id);
     start ??= at;
+
     if (prev) {
       const dx: number = at.x - prev.x;
       assert.ok(dx > -1.5 * travel && dx < 1.5 * travel, `f${f}: C drew the runner move ${dx} px`);
     }
+
     prev = at;
     assert.ok(c.view.gameTime > viewTime - STEP_MS / 1000 - 1e-9, `f${f}: C's clock went back`);
     viewTime = Math.max(viewTime, c.view.gameTime);
     const { x, y } = c.predictor.correction;
     worstCorrection = Math.max(worstCorrection, Math.hypot(x, y));
   }
+
   assert.ok(promoted && host && start && prev);
   const [resumedAt] = host.stamps;
   const leftAt = a.stamps.at(-1);
   assert.ok(resumedAt && leftAt && resumedAt > leftAt, "B stamps on where A stopped");
   assert.ok(prev.x - start.x > travel * 160, `C saw the runner run on (${prev.x - start.x} px)`);
   assert.ok(worstCorrection < DEAD_ZONE_PX, `C's own hero ran through it (${worstCorrection} px)`);
-  // Drained, C holds B's world exactly, and whole: it could take over next.
+
   for (let i = 0; i < 20; i += 1) {
     now += FRAME_MS;
     c.frame(now);
   }
+
   const replica = c.mirror.resumable;
   assert.ok(replica, "C's replica is whole again");
   assert.equal(replica.gameTime, promoted.gameTime);
+
   for (const u of promoted.units.values()) {
     const copy = replica.units.get(u.id);
     assert.ok(copy, `${u.id} replicated`);
@@ -767,15 +778,9 @@ test("through a host migration the others play straight on: one clock, no reset,
 });
 
 test("a new host's slower route is eased onto: the view keeps its delay in hand", () => {
-  // A hosts C, then B carries the match on, stamping on the same clock, but
-  // B's ticks reach the server 80 ms later than A's did. Timed by A's faster
-  // trips, C would draw B's ticks 80 ms early, its buffer against late ones
-  // spent, until those trips left the clock's window seconds later.
   const world = createWorld(4248);
   const watcher = spawnHero(world, "duskblade", "radiant", "c", false, 4);
   const c = streamGuest(watcher.id, link(30, 20));
-  // Each host's ticks reach the server by its own link; the server relays
-  // them down C's one connection.
   const fromA = link(20, 10);
   const fromB = link(100, 10);
   const a = streamHost(world, readServerClock(-12));
@@ -785,52 +790,56 @@ test("a new host's slower route is eased onto: the view keeps its delay in hand"
   const ELECTED = LEAVES + 9;
   let host: StreamHost | null = a;
   let now = 0;
-  /** Per frame: how far the view trails the newest tick C holds (ms). */
   const inHand: number[] = [];
+
   for (let f = 1; f <= ELECTED + 165; f += 1) {
     now += FRAME_MS;
+
     if (f === LEAVES) {
       host = null;
     }
+
     if (f === ELECTED) {
       host = streamHost(world, readServerClock(18));
       host.guests.push(fromB);
       host.keyframe(now);
       c.mirror.hostChanged();
     }
+
     host?.frame(now);
+
     for (const up of [fromA, fromB]) {
       for (const payload of up.receive(now)) {
         c.down.send(now, payload);
       }
     }
+
     c.frame(now);
     const newest = c.mirror.latest;
     inHand[f] = newest ? (newest.gameTime - c.view.gameTime) * 1000 : Number.NaN;
   }
-  const mean = (from: number, to: number): number =>
+
+  const mean = (from: number, to: number) =>
     inHand.slice(from, to).reduce((sum, ms) => sum + ms, 0) / (to - from);
+
   const onA = mean(LEAVES - 90, LEAVES);
-  // Eased onto B's route, before A's trips would have aged out.
   const onB = mean(ELECTED + 75, ELECTED + 165);
   assert.ok(onA > INTERP_DELAY_MS / 2, `the view trails A's ticks by ${onA} ms`);
   assert.ok(Math.abs(onB - onA) < 10, `it trails B's by ${onB} ms, A's by ${onA} ms`);
 });
 
 test("a guest back from a drop by a slower route keeps its delay in hand", () => {
-  // C watches A's match, its connection drops, and it comes back half a
-  // second later by a route 80 ms slower (a phone off wifi). Timed by the old
-  // route's trips, the view ran nearly dry for three seconds, then trailed
-  // 35 ms too far for four more.
   const world = createWorld(4253);
   const watcher = spawnHero(world, "duskblade", "radiant", "c", false, 4);
   const fast = link(30, 20);
   const slow = link(110, 20);
   let route = fast;
+
   const down: Link = {
     receive: (now) => route.receive(now),
     send: (now, payload) => route.send(now, payload),
   };
+
   const c = streamGuest(watcher.id, down);
   const a = streamHost(world, readServerClock(-12));
   a.guests.push(down);
@@ -838,31 +847,34 @@ test("a guest back from a drop by a slower route keeps its delay in hand", () =>
   const DROPS = 180;
   const BACK = DROPS + 30;
   let now = 0;
-  /** Per frame: how far the view trails the newest tick C holds (ms). */
   const inHand: number[] = [];
+
   for (let f = 1; f <= BACK + 480; f += 1) {
     now += FRAME_MS;
+
     if (f === DROPS) {
-      // What was in flight is lost with the socket; GameScene resets the mirror.
       a.guests.length = 0;
       c.mirror.reset();
       route = slow;
     }
+
     if (f === BACK) {
-      // Readmitted: C starts again from the room's keyframe.
       a.guests.push(down);
       a.keyframe(now);
     }
+
     a.frame(now);
     c.frame(now);
     const newest = c.mirror.latest;
     inHand[f] = newest ? (newest.gameTime - c.view.gameTime) * 1000 : Number.NaN;
   }
-  const mean = (from: number, to: number): number =>
+
+  const mean = (from: number, to: number) =>
     inHand.slice(from, to).reduce((sum, ms) => sum + ms, 0) / (to - from);
+
   const before = mean(DROPS - 90, DROPS);
   assert.ok(before > INTERP_DELAY_MS / 2, `the view trails the fast route by ${before} ms`);
-  // From a second after the return, every half second keeps the same delay.
+
   for (let f = BACK + 60; f < BACK + 480; f += 30) {
     const after = mean(f, f + 30);
     assert.ok(

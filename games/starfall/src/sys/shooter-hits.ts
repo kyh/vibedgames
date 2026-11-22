@@ -21,7 +21,6 @@ import { DEG } from "./geometry";
 import type { Progression } from "./progression";
 import type { Weapons } from "./weapons";
 
-/** PHASE LANCE: the asteroid pass iterates this instead (skip, zero alloc). */
 const NO_ASTEROIDS: readonly AsteroidState[] = [];
 
 export interface ShooterHitsDeps {
@@ -34,9 +33,6 @@ export interface ShooterHitsDeps {
   intents: HostIntents;
 }
 
-/** One pass of beams against the host-owned targets. Mine report damage
- *  (and predict the destroy bonus); a remote player's copies only react —
- *  vanish, bounce, burst, explode — so they fly the path its owner sees. */
 interface HitPass {
   beams: Beam[];
   owner: BeamOwner;
@@ -45,9 +41,7 @@ interface HitPass {
   now: number;
 }
 
-/** The world's deadlines are on my sim clock; a remote pass runs on its
- *  shooter's clock, so it reads mine for them. */
-const worldNow = (pass: HitPass): number => (pass.report ? pass.now : simNow());
+const worldNow = (pass: HitPass) => (pass.report ? pass.now : simNow());
 
 /** Shooter-side hit detection: my beams against host-owned targets, reported to the host with the destroy bonus predicted locally — and the same contact reactions for every remote player's beams. */
 export class ShooterHits {
@@ -80,7 +74,7 @@ export class ShooterHits {
     this.intents = deps.intents;
   }
 
-  private recordMasteryContact(beam: Beam, enemyId: string, now: number): void {
+  private recordMasteryContact(beam: Beam, enemyId: string, now: number) {
     if (beam.mastery) {
       this.pilot.mastery.contact(beam.mastery, enemyId, beam.glaive?.returning ?? false, now);
     }
@@ -95,12 +89,14 @@ export class ShooterHits {
     x: number,
     y: number,
     now: number,
-  ): boolean {
+  ) {
     if (this.predictedKills.has(id)) {
       return false;
     }
+
     this.predictedKills.set(id, now);
     this.progress.registerKill(xp, now, kind, x, y);
+
     return true;
   }
 
@@ -110,12 +106,11 @@ export class ShooterHits {
    * awarded locally, with the destroy bonus predicted from the same damage
    * formula the host runs.
    */
-  detectMyHits(now: number): void {
+  detectMyHits(now: number) {
     if (!this.pilot.spawned) {
       return;
     }
-    // Crowd-scale FX budget: skip non-kill hit-spark spawns over the cap
-    // (the victim's white flash stays — it's the readability signal).
+
     this.scan({
       beams: this.weapons.beams,
       now,
@@ -123,6 +118,7 @@ export class ShooterHits {
       report: true,
       sparksOk: this.fx.aliveParticles() <= HITSPARK_SKIP_BUDGET,
     });
+
     for (const [id, t] of this.predictedKills) {
       if (now - t > 5000) {
         this.predictedKills.delete(id);
@@ -131,34 +127,37 @@ export class ShooterHits {
   }
 
   /** A remote player's beams against the same targets: reactions only. */
-  react(beams: Beam[], owner: BeamOwner, now: number): void {
+  react(beams: Beam[], owner: BeamOwner, now: number) {
     this.scan({ beams, now, owner, report: false, sparksOk: false });
   }
 
-  private scan(pass: HitPass): void {
+  private scan(pass: HitPass) {
     for (const b of pass.beams) {
-      // ARC damage applied at cast
       if (b.vanished || b.chain) {
         continue;
       }
-      // inert until triggered
+
       if (b.mine && !b.exploding) {
         continue;
       }
+
       this.hitAsteroids(pass, b);
+
       if (b.vanished) {
         continue;
       }
+
       this.hitEnemies(pass, b);
+
       if (b.vanished) {
         continue;
       }
+
       this.hitUfo(pass, b);
     }
   }
 
-  /** Impact burst + sparks at the contact point, in the beam's tint. */
-  private hitSparks(b: Beam, contact: Vec, impactAngle: number): void {
+  private hitSparks(b: Beam, contact: Vec, impactAngle: number) {
     this.fx.battle.burst(
       contact.x,
       contact.y,
@@ -175,27 +174,29 @@ export class ShooterHits {
     });
   }
 
-  private hitAsteroids(pass: HitPass, b: Beam): void {
+  private hitAsteroids(pass: HitPass, b: Beam) {
     const { now } = pass;
-    // PHASE LANCE: no asteroid hit-test at all — rocks aren't cover.
     const rocks = b.weapon.phasesRock ? NO_ASTEROIDS : this.world.asteroids;
+
     for (const a of rocks) {
       if (!beamHitsCircle(b, a.x, a.y, a.radius)) {
         continue;
       }
+
       if (b.weapon.singularity && !b.exploding) {
-        // Flight contact collapses the orb; damage comes from the pop.
         this.sim.startCollapse(b, pass.owner, now);
         break;
       }
+
       if (b.hitIds.has(a.id)) {
         continue;
       }
+
       b.hitIds.add(a.id);
       const contact = contactPoint(b.tail, b.head, a, a.radius, b.exploding);
       const impactAngle = b.angle;
+
       if (b.weapon.ricochet && b.bouncesLeft > 0 && !b.exploding) {
-        // RICOCHET: damage lands below, but the bolt bounces instead of dying.
         const nx = b.head.x - a.x;
         const ny = b.head.y - a.y;
         const nl = Math.hypot(nx, ny) || 1;
@@ -203,96 +204,120 @@ export class ShooterHits {
       } else {
         this.sim.onBeamHit(pass.beams, b, pass.owner, now);
       }
+
       if (pass.report) {
         const destroyed = asteroidDestroyedBy(a.radius, b.weapon.power);
+
         const predicted =
           destroyed && this.predictKill(a.id, XP.ASTEROID_DESTROY, "asteroid", a.x, a.y, now);
-        // flat, never multiplied
+
         if (!predicted) {
           this.progress.gainXp(XP.ASTEROID_CHIP, now);
         }
+
         if (pass.sparksOk || destroyed) {
           this.hitSparks(b, contact, impactAngle);
         }
+
         sfx.play("hit_spark", { gain: 0.4 });
         this.intents.asteroidHit(a.id, b.weapon.power);
       }
-      // AoE circle keeps testing every target
+
       if (!b.exploding) {
         break;
       }
     }
   }
 
-  private hitEnemies(pass: HitPass, b: Beam): void {
+  private hitEnemies(pass: HitPass, b: Beam) {
     const { now } = pass;
+
     for (const e of this.world.enemies) {
       const charging = e.kind === "lancer" && e.chargeUntil > worldNow(pass);
       const r = charging ? LANCER_CHARGE_HIT_RADIUS : ENEMY_SPECS[e.kind].hitRadius;
+
       if (!beamHitsCircle(b, e.x, e.y, r)) {
         continue;
       }
+
       if (b.weapon.singularity && !b.exploding) {
         this.sim.startCollapse(b, pass.owner, now);
         break;
       }
+
       if (b.hitIds.has(e.id)) {
         continue;
       }
+
       b.hitIds.add(e.id);
       const contact = contactPoint(b.tail, b.head, e, r, b.exploding);
       const impactAngle = b.angle;
       this.sim.onBeamHit(pass.beams, b, pass.owner, now);
+
       if (pass.report) {
         this.recordMasteryContact(b, e.id, now);
         const dmg = b.weapon.power * 100;
         const killed = e.hp - dmg <= 0;
+
         if (killed) {
           this.predictKill(e.id, enemyKillXp(e), "enemy", e.x, e.y, now);
         }
-        // immediate local feedback; host echoes
+
         e.blinkUntil = now + 150;
+
         if (pass.sparksOk || killed) {
           this.hitSparks(b, contact, impactAngle);
         }
+
         sfx.play("hit_spark", { gain: 0.4 });
         this.intents.enemyHit(e.id, dmg);
       }
-      // AoE circle keeps testing every target
+
       if (!b.exploding) {
         break;
       }
     }
   }
 
-  private hitUfo(pass: HitPass, b: Beam): void {
+  private hitUfo(pass: HitPass, b: Beam) {
     const { now } = pass;
     const u = this.world.ufo;
+
     if (!u) {
       return;
     }
+
     const hit = beamHitsCircle(b, u.x, u.y, UFO_RADIUS);
+
     if (hit && b.weapon.singularity && !b.exploding) {
       this.sim.startCollapse(b, pass.owner, now);
+
       return;
     }
+
     if (!hit || b.hitIds.has(u.id)) {
       return;
     }
+
     b.hitIds.add(u.id);
     const contact = contactPoint(b.tail, b.head, u, UFO_RADIUS, b.exploding);
     const impactAngle = b.angle;
     this.sim.onBeamHit(pass.beams, b, pass.owner, now);
+
     if (!pass.report) {
       return;
     }
+
     const killed = u.hp - b.weapon.power * 100 <= 0;
+
     if (killed) {
       this.predictKill(u.id, XP.UFO_DESTROY, "ufo", u.x, u.y, now);
     }
+
     if (pass.sparksOk || killed) {
       this.hitSparks(b, contact, impactAngle);
     }
+
     sfx.play("hit_spark", { gain: 0.4 });
     this.intents.ufoHit(b.weapon.power);
   }

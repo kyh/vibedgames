@@ -1,7 +1,3 @@
-/**
- * Slugs that cannot be used for user games because they collide with platform
- * subdomains or reserved namespaces.
- */
 const RESERVED_SLUGS = new Set<string>([
   "admin",
   "api",
@@ -22,4 +18,4 @@ const RESERVED_SLUGS = new Set<string>([
   "_v",
 ]);
 
-export const isSlugReserved = (slug: string): boolean => RESERVED_SLUGS.has(slug.toLowerCase());
+export const isSlugReserved = (slug: string) => RESERVED_SLUGS.has(slug.toLowerCase());

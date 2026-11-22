@@ -1,9 +1,3 @@
-// Points under gravity, held to each other by distance limits and kept out
-// of the level: position-based (Verlet) dynamics, where a point's velocity is
-// only the difference between where it is and where it was. Limits are
-// satisfied by moving points, so a tangle of them settles instead of blowing
-// up, and a body built of them needs no physics engine. The ragdoll
-// (ragdoll.ts) is the only thing made of these.
 import { Vector3 } from "three";
 
 import type { Physics } from "../core/types";
@@ -12,18 +6,14 @@ import type { Physics } from "../core/types";
 export type Terrain = Pick<Physics, "groundHeight" | "raycast">;
 
 const STEP = 1 / 60;
-/** A hitch is not simulated through: the body just falls a little late. */
 const MAX_STEPS = 8;
 const GRAVITY = 9.8;
 const DRAG = 0.995;
 const FRICTION = 0.9;
 const ITERATIONS = 6;
-/** A floor this far above a point is still a floor to it, not a ceiling it is under. */
 const LEDGE = 0.25;
-/** Slower than this, metres a step, for this many steps and it is at rest. */
 const REST_MOVE = 0.0015;
 const REST_STEPS = 30;
-/** Nothing falls for longer than this many steps, whatever keeps twitching. */
 const LONGEST = 60 * 5;
 
 /** One point: where it is, and where it was a step ago. */
@@ -48,13 +38,15 @@ interface Limit {
 const delta = new Vector3();
 const heading = new Vector3();
 
-const hold = ({ a, b, min, max }: Limit): void => {
+const hold = ({ a, b, min, max }: Limit) => {
   delta.subVectors(b.at, a.at);
   const d = delta.length();
   const want = Math.min(max, Math.max(min, d));
+
   if (d === want || d < 1e-6) {
     return;
   }
+
   delta.multiplyScalar((d - want) / d / (a.give + b.give));
   a.at.addScaledVector(delta, a.give);
   b.at.addScaledVector(delta, -b.give);
@@ -75,32 +67,33 @@ export class Verlet {
   }
 
   /** A point at `at`, kept `radius` clear of the level. */
-  add(at: Vector3, radius: number, mass = 1): Point {
+  add(at: Vector3, radius: number, mass = 1) {
     const point = { at: at.clone(), floor: -Infinity, give: 1 / mass, radius, was: at.clone() };
     this.points.push(point);
+
     return point;
   }
 
   /** Hold two points between `lo` and `hi` times as far apart as they are now. */
-  rod(a: Point, b: Point, lo = 1, hi = 1): void {
+  rod(a: Point, b: Point, lo = 1, hi = 1) {
     const d = a.at.distanceTo(b.at);
     this.limits.push({ a, b, max: d * hi, min: d * lo });
   }
 
   /** Keep two points at least `least` metres apart. */
-  apart(a: Point, b: Point, least: number): void {
+  apart(a: Point, b: Point, least: number) {
     this.limits.push({ a, b, max: Infinity, min: least });
   }
 
   /** Put a point somewhere, moving at `velocity`. */
-  place(point: Point, at: Vector3, velocity: Vector3): void {
+  place(point: Point, at: Vector3, velocity: Vector3) {
     point.at.copy(at);
     point.was.copy(at).addScaledVector(velocity, -STEP);
     this.wake();
   }
 
   /** Add `velocity` to a point. */
-  kick(point: Point, velocity: Vector3, scale = 1): void {
+  kick(point: Point, velocity: Vector3, scale = 1) {
     point.was.addScaledVector(velocity, -STEP * scale);
     this.wake();
   }
@@ -109,22 +102,24 @@ export class Verlet {
    * `dt` seconds on. `joints` runs with the limits each pass, for whatever a
    * distance cannot say (which way a knee folds).
    */
-  advance(dt: number, joints?: () => void): void {
+  advance(dt: number, joints?: () => void) {
     this.owed = Math.min(this.owed + dt, STEP * MAX_STEPS);
+
     while (this.owed >= STEP && !this.resting) {
       this.owed -= STEP;
       this.step(joints);
     }
   }
 
-  private wake(): void {
+  private wake() {
     this.resting = false;
     this.still = 0;
     this.steps = 0;
   }
 
-  private step(joints?: () => void): void {
+  private step(joints?: () => void) {
     const { points, terrain } = this;
+
     for (const p of points) {
       delta.subVectors(p.at, p.was).multiplyScalar(DRAG);
       p.was.copy(p.at);
@@ -132,40 +127,48 @@ export class Verlet {
       p.at.y -= GRAVITY * STEP * STEP;
       p.floor = terrain.groundHeight(p.at.x, p.at.z, p.was.y + LEDGE) + p.radius;
     }
+
     for (let pass = 0; pass < ITERATIONS; pass += 1) {
       for (const limit of this.limits) {
         hold(limit);
       }
+
       joints?.();
+
       for (const p of points) {
         p.at.y = Math.max(p.at.y, p.floor);
       }
     }
+
     let moved = 0;
+
     for (const p of points) {
       this.collide(p);
       moved = Math.max(moved, p.at.distanceToSquared(p.was));
     }
+
     this.steps += 1;
     this.still = moved < REST_MOVE * REST_MOVE ? this.still + 1 : 0;
     this.resting = this.still >= REST_STEPS || this.steps >= LONGEST;
   }
 
-  /** Stop a point at whatever stands between where it was and where it is; drag it where it lies. */
-  private collide({ at, was, radius, floor }: Point): void {
+  private collide({ at, was, radius, floor }: Point) {
     heading.subVectors(at, was);
     const far = heading.length();
+
     if (far > 1e-5) {
       heading.multiplyScalar(1 / far);
       const hit = this.terrain.raycast(was, heading, far + radius);
+
       if (hit) {
         at.copy(was).addScaledVector(heading, Math.max(0, hit.dist - radius));
       }
     }
+
     if (at.y > floor + 1e-4) {
       return;
     }
-    // On the ground: no bounce, and what slides is slowed as much as its weight presses it down.
+
     was.y = at.y;
     const slide = Math.hypot(at.x - was.x, at.z - was.z);
     const grip = Math.min(1, (FRICTION * GRAVITY * STEP * STEP) / Math.max(slide, 1e-9));

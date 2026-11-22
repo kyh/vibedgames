@@ -3,6 +3,7 @@ import { isEnemy } from "../sim/combat";
 import type { HeroState, Unit, World } from "../sim/types";
 
 export type ScoreMode = "quiet" | "skirmish" | "battle" | "fallen";
+
 export type SoundscapeFrame =
   | { kind: "silent"; time: number }
   | { kind: "ended"; time: number }
@@ -15,6 +16,7 @@ interface Envelope {
   release: number;
   at: number;
 }
+
 export type ScoreNote = Envelope &
   (
     | {
@@ -27,6 +29,7 @@ export type ScoreNote = Envelope &
       }
     | { kind: "score-noise"; frequency: number; filter: BiquadFilterType }
   );
+
 export interface ScoreStep {
   step: number;
   mode: ScoreMode;
@@ -38,9 +41,10 @@ export const SCORE_BPM = 84;
 export const SCORE_STEP_SECONDS = 60 / SCORE_BPM / 2;
 const LISTEN_RADIUS_SQ = 720 * 720;
 
-const nearWater = (me: Unit): boolean => {
+const nearWater = (me: Unit) => {
   const cx = Math.floor(me.x / CELL);
   const cy = Math.floor(me.y / CELL);
+
   return (
     !isLandCell(cx - 2, cy) ||
     !isLandCell(cx + 2, cy) ||
@@ -49,83 +53,106 @@ const nearWater = (me: Unit): boolean => {
   );
 };
 
-const isMajorThreat = (unit: Unit | undefined): boolean =>
+const isMajorThreat = (unit: Unit | undefined) =>
   unit?.kind === "hero" || Boolean(unit?.creep?.boss);
 
-const modeFromRecentDamage = (world: World, hero: HeroState): ScoreMode => {
+const modeFromRecentDamage: (world: World, hero: HeroState) => ScoreMode = (world, hero) => {
   let kind: ScoreMode = "quiet";
+
   for (const id of Object.keys(hero.recentDamageFrom)) {
     const at = hero.recentDamageFrom[id] ?? 0;
+
     if (at > world.now || world.now - at > 1200) {
       continue;
     }
+
     if (isMajorThreat(world.units.get(id))) {
       kind = "battle";
     } else if (kind === "quiet") {
       kind = "skirmish";
     }
   }
+
   return kind;
 };
 
-const isEngagedWith = (world: World, me: Unit, unit: Unit): boolean => {
+const isEngagedWith = (world: World, me: Unit, unit: Unit) => {
   const attacking =
     unit.pendingAttack !== null ||
     (unit.lastAttackAt > 0 &&
       unit.lastAttackAt <= world.now &&
       world.now - unit.lastAttackAt < 1200);
+
   return attacking || me.pendingAttack?.targetId === unit.id;
 };
 
-const modeFromNearbyEnemies = (world: World, me: Unit, initial: ScoreMode): ScoreMode => {
+const modeFromNearbyEnemies = (world: World, me: Unit, initial: ScoreMode) => {
   let kind = initial;
+
   for (const unit of world.units.values()) {
     if (!unit.alive || !isEnemy(me, unit)) {
       continue;
     }
+
     if ((unit.x - me.x) ** 2 + (unit.y - me.y) ** 2 > LISTEN_RADIUS_SQ) {
       continue;
     }
+
     if (!isEngagedWith(world, me, unit)) {
       continue;
     }
+
     if (isMajorThreat(unit)) {
       return "battle";
     }
+
     if (kind === "quiet") {
       kind = "skirmish";
     }
   }
+
   return kind;
 };
 
 /** Presentation reads accepted world state. Proximity without an actual attack
  * stays quiet; distant lane battles do not drive the local arrangement. */
-export const readSoundscape = (world: World, playerId: string): SoundscapeFrame => {
+export const readSoundscape: (world: World, playerId: string) => SoundscapeFrame = (
+  world,
+  playerId,
+) => {
   const time = world.now / 1000;
+
   if (world.phase === "ended") {
     return { kind: "ended", time };
   }
+
   const me = world.units.get(playerId);
+
   if (!me?.hero) {
     return { kind: "silent", time };
   }
+
   const water = nearWater(me);
+
   if (!me.alive) {
     return { kind: "fallen", time, water };
   }
+
   const kind = modeFromNearbyEnemies(world, me, modeFromRecentDamage(world, me.hero));
+
   return { kind, time, water };
 };
 
-const midi = (note: number): number => 440 * 2 ** ((note - 69) / 12);
+const midi = (note: number) => 440 * 2 ** ((note - 69) / 12);
 const ROOTS = [50, 48, 55, 57, 50, 48, 55, 50];
+
 const CHORDS = [
   [62, 65, 69, 64],
   [60, 64, 67, 62],
   [59, 62, 67, 69],
   [57, 60, 64, 67],
 ];
+
 const WALK = [0, 2, 1, 3, 2, 1, 3, 2];
 
 type Voice = "bass" | "reed" | "pluck";
@@ -136,7 +163,12 @@ const VOICES = {
   reed: { attack: 0.08, cutoff: 950, wave: "triangle" },
 } satisfies Record<Voice, { attack: number; cutoff: number; wave: "sine" | "triangle" }>;
 
-const instrument = (voice: Voice, pitch: number, gain: number, dur: number): ScoreNote => ({
+const instrument: (voice: Voice, pitch: number, gain: number, dur: number) => ScoreNote = (
+  voice,
+  pitch,
+  gain,
+  dur,
+) => ({
   at: 0,
   attack: VOICES[voice].attack,
   cutoff: VOICES[voice].cutoff,
@@ -151,7 +183,7 @@ const instrument = (voice: Voice, pitch: number, gain: number, dur: number): Sco
 
 const DRUM_HIT_BEATS = new Set([0, 4]);
 
-const drum = (mode: ScoreMode): ScoreNote => ({
+const drum: (mode: ScoreMode) => ScoreNote = (mode) => ({
   at: 0,
   attack: 0.006,
   cutoff: 260,
@@ -187,35 +219,35 @@ const SHORE: ScoreNote = {
   release: 0.7,
 };
 
-const pluckNow = (mode: ScoreMode, beat: number, bar: number): boolean => {
+const pluckNow = (mode: ScoreMode, beat: number, bar: number) => {
   if (mode === "battle") {
     return true;
   }
+
   if (mode === "skirmish") {
     return beat % 2 === 0;
   }
+
   return mode === "quiet" && (beat === 2 || (beat === 6 && bar % 2 === 0));
 };
 
-const downbeatNotes = (mode: ScoreMode, bar: number, root: number): ScoreNote[] => {
+const downbeatNotes = (mode: ScoreMode, bar: number, root: number) => {
   const notes: ScoreNote[] = [];
+
   if (mode !== "fallen" || bar % 2 === 0) {
     notes.push(instrument("bass", root - 12, mode === "battle" ? 0.018 : 0.021, 2.35));
   }
+
   if (mode === "quiet" || mode === "fallen") {
     notes.push(instrument("reed", root + 7, mode === "fallen" ? 0.008 : 0.012, 1.75));
   }
+
   return notes;
 };
 
-const rhythmNotes = (
-  mode: ScoreMode,
-  beat: number,
-  bar: number,
-  chord: number[],
-  root: number,
-): ScoreNote[] => {
+const rhythmNotes = (mode: ScoreMode, beat: number, bar: number, chord: number[], root: number) => {
   const notes: ScoreNote[] = [];
+
   if (pluckNow(mode, beat, bar)) {
     const pick = WALK[beat] ?? 0;
     notes.push(
@@ -227,18 +259,21 @@ const rhythmNotes = (
       ),
     );
   }
+
   if ((mode === "battle" || mode === "skirmish") && DRUM_HIT_BEATS.has(beat)) {
     notes.push(drum(mode));
   }
+
   if (mode === "battle" && beat === 6 && bar % 2 === 1) {
     notes.push(instrument("reed", (chord[2] ?? 69) + 12, 0.008, 0.7));
   }
+
   return notes;
 };
 
 /** Eight bars in D Dorian. More danger adds rhythm, not tempo or loudness.
  * Each step is a short recipe; no whole song is queued in the audio graph. */
-export const scoreStep = (step: number, mode: ScoreMode, water: boolean): ScoreStep => {
+export const scoreStep = (step: number, mode: ScoreMode, water: boolean) => {
   const bar = Math.floor(step / 8) % ROOTS.length;
   const beat = step % 8;
   const root = ROOTS[bar] ?? 50;
@@ -246,12 +281,15 @@ export const scoreStep = (step: number, mode: ScoreMode, water: boolean): ScoreS
   const music: ScoreNote[] = beat === 0 ? downbeatNotes(mode, bar, root) : [];
   music.push(...rhythmNotes(mode, beat, bar, chord, root));
   const ambience: ScoreNote[] = [];
+
   if (mode === "quiet" && beat === 0 && bar % 4 === 1) {
     ambience.push(WIND);
+
     if (water) {
       ambience.push(SHORE);
     }
   }
+
   return { ambience, mode, music, step };
 };
 
@@ -264,7 +302,7 @@ export class ScoreClock {
   private skirmishUntil = -1;
   mode: ScoreMode | "silent" = "silent";
 
-  reset(): void {
+  reset() {
     this.lastStep = -1;
     this.lastTime = -1;
     this.battleUntil = -1;
@@ -273,56 +311,70 @@ export class ScoreClock {
   }
 
   /** A correction can rewind time without crossing a musical step boundary. */
-  isRewind(time: number): boolean {
+  isRewind(time: number) {
     return time < this.lastTime;
   }
 
-  observe(frame: SoundscapeFrame, audible: boolean): ScoreStep | null {
+  observe(frame: SoundscapeFrame, audible: boolean) {
     if (!Number.isFinite(frame.time) || frame.time < 0) {
       this.reset();
+
       return null;
     }
+
     if (this.isRewind(frame.time)) {
       this.reset();
     }
+
     this.lastTime = frame.time;
     const step = Math.floor(frame.time / SCORE_STEP_SECONDS);
+
     if (frame.kind === "silent" || frame.kind === "ended") {
       this.lastStep = step;
       this.mode = "silent";
       this.battleUntil = -1;
       this.skirmishUntil = -1;
+
       return null;
     }
+
     if (frame.kind === "battle") {
       this.battleUntil = frame.time + 4;
     }
+
     if (frame.kind === "battle" || frame.kind === "skirmish") {
       this.skirmishUntil = frame.time + 5;
     }
+
     if (frame.kind === "fallen") {
       this.battleUntil = -1;
       this.skirmishUntil = -1;
     }
+
     this.mode = this.resolveMode(frame.kind, frame.time);
+
     if (step === this.lastStep) {
       return null;
     }
+
     this.lastStep = step;
+
     return audible ? scoreStep(step, this.mode, frame.water) : null;
   }
 
-  private resolveMode(kind: ScoreMode, time: number): ScoreMode {
+  private resolveMode(kind: ScoreMode, time: number) {
     if (kind === "fallen") {
       return "fallen";
     }
+
     if (time < this.battleUntil) {
       return "battle";
     }
+
     return time < this.skirmishUntil ? "skirmish" : "quiet";
   }
 
-  get step(): number {
+  get step() {
     return this.lastStep;
   }
 }

@@ -44,8 +44,8 @@ ship before the craft pass.
      Replace the template's logo/bg — never ship placeholder art.
 
    **3D (`--engine threejs`)** — meshes and props, not sprite sheets:
-   - hero characters and organic shapes → Meshy via `model-catalog`
-     (text-to-3d / image-to-3d); rigged animated characters → `regenerate-3d`.
+   - hero characters and organic shapes, rigged and animated or not →
+     `model-catalog`'s `references/3d.md` (one path: mesh, then rig + clips).
    - hero props that must **hinge, open, detach, or break** (chests, doors,
      levers) → `image-to-threejs`: a procedural factory with a pivot/socket
      rig, built from one generated reference image.

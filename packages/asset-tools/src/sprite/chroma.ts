@@ -12,7 +12,7 @@ import type { RGB } from "../image/raster.js";
 
 export const HIGH_FRINGE_REMOVAL_RATIO = 0.02;
 
-export const colorDistance = (a: RGB, b: RGB): number =>
+export const colorDistance = (a: RGB, b: RGB) =>
   // oxlint-disable-next-line unicorn/prefer-modern-math-apis -- Math.hypot rounds differently from sqrt of an exact integer sum; tolerance boundaries must match the Python original
   Math.sqrt((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2);
 
@@ -26,43 +26,51 @@ export interface FringeChannels {
  * Throws when the matte cannot be split (grey or white), because fringe
  * detection needs at least one high and one low channel.
  */
-export const chromaFringeChannels = (chroma: RGB): FringeChannels => {
+export const chromaFringeChannels = (chroma: RGB) => {
   const dominant = [0, 1, 2].filter((i) => (chroma[i] ?? 0) >= 128);
   const suppressed = [0, 1, 2].filter((i) => (chroma[i] ?? 0) < 128);
+
   if (dominant.length === 0 || suppressed.length === 0) {
     throw new Error(
       `chroma (${chroma.join(", ")}) cannot be split into dominant/suppressed channels; ` +
         "fringe cleanup needs a saturated matte color such as #00FF00 or #FF00FF",
     );
   }
+
   return { dominant, suppressed };
 };
 
 /** Strongly green-dominant matte — the legacy green path. */
-export const isGreenMatte = (chroma: RGB): boolean =>
+export const isGreenMatte = (chroma: RGB) =>
   chroma[1] >= 180 && chroma[1] - Math.max(chroma[0], chroma[2]) >= 80;
 
 /** Saturated enough for fringe cleanup. */
-export const isKeyableFringeChroma = (chroma: RGB): boolean => {
+export const isKeyableFringeChroma = (chroma: RGB) => {
   let split;
+
   try {
     split = chromaFringeChannels(chroma);
   } catch {
     return false;
   }
+
   const low = Math.min(...split.dominant.map((i) => chroma[i] ?? 0));
   const high = Math.max(...split.suppressed.map((i) => chroma[i] ?? 0));
+
   return low >= 180 && low - high >= 80;
 };
 
-export const fringeWarning = (removed: number, kept: number, chroma: RGB): string | null => {
+export const fringeWarning = (removed: number, kept: number, chroma: RGB) => {
   const total = removed + kept;
+
   if (total <= 0) {
     return null;
   }
+
   if (removed / total < HIGH_FRINGE_REMOVAL_RATIO) {
     return null;
   }
+
   return isGreenMatte(chroma)
     ? "high green-fringe removal ratio; green foreground details may have been removed. " +
         "Use a non-green matte such as #FF00FF, or pass --no-decontam to keep green specks."
@@ -84,7 +92,7 @@ export const backgroundReachable = (
   width: number,
   height: number,
   isFloodable: (index: number) => boolean,
-): Uint8Array => {
+) => {
   const reachable = new Uint8Array(width * height);
   const queue = new Int32Array(width * height);
   let head = 0;
@@ -92,9 +100,11 @@ export const backgroundReachable = (
 
   const enqueue = (x: number, y: number) => {
     const index = y * width + x;
+
     if (reachable[index] || !isFloodable(index)) {
       return;
     }
+
     reachable[index] = 1;
     queue[tail] = index;
     tail += 1;
@@ -104,6 +114,7 @@ export const backgroundReachable = (
     enqueue(x, 0);
     enqueue(x, height - 1);
   }
+
   for (let y = 0; y < height; y += 1) {
     enqueue(0, y);
     enqueue(width - 1, y);
@@ -114,19 +125,24 @@ export const backgroundReachable = (
     head += 1;
     const y = Math.floor(index / width);
     const x = index - y * width;
+
     if (x + 1 < width) {
       enqueue(x + 1, y);
     }
+
     if (x > 0) {
       enqueue(x - 1, y);
     }
+
     if (y + 1 < height) {
       enqueue(x, y + 1);
     }
+
     if (y > 0) {
       enqueue(x, y - 1);
     }
   }
+
   return reachable;
 };
 
@@ -137,33 +153,38 @@ const hasBackgroundNeighbor = (
   width: number,
   height: number,
   radius: number,
-): boolean => {
+) => {
   for (let ny = Math.max(0, y - radius); ny < Math.min(height, y + radius + 1); ny += 1) {
     for (let nx = Math.max(0, x - radius); nx < Math.min(width, x + radius + 1); nx += 1) {
       if (nx === x && ny === y) {
         continue;
       }
+
       if (reachable[ny * width + nx]) {
         return true;
       }
     }
   }
+
   return false;
 };
 
 /** Keep only connected opaque components of at least `minArea` pixels. */
-export const keepLargestComponents = (image: Bitmap, minArea: number): Bitmap => {
+export const keepLargestComponents = (image: Bitmap, minArea: number) => {
   const { width, height } = image;
   const seen = new Uint8Array(width * height);
   const queue = new Int32Array(width * height);
   const out = Bitmap.create(width, height);
   let head = 0;
   let tail = 0;
+
   const visit = (nx: number, ny: number) => {
     const n = ny * width + nx;
+
     if (seen[n] || image.data[n * 4 + 3] === 0) {
       return;
     }
+
     seen[n] = 1;
     queue[tail] = n;
     tail += 1;
@@ -172,6 +193,7 @@ export const keepLargestComponents = (image: Bitmap, minArea: number): Bitmap =>
   for (let startY = 0; startY < height; startY += 1) {
     for (let startX = 0; startX < width; startX += 1) {
       const start = startY * width + startX;
+
       if (seen[start] || image.data[start * 4 + 3] === 0) {
         continue;
       }
@@ -189,15 +211,19 @@ export const keepLargestComponents = (image: Bitmap, minArea: number): Bitmap =>
         points.push(index);
         const y = Math.floor(index / width);
         const x = index - y * width;
+
         if (x + 1 < width) {
           visit(x + 1, y);
         }
+
         if (x > 0) {
           visit(x - 1, y);
         }
+
         if (y + 1 < height) {
           visit(x, y + 1);
         }
+
         if (y > 0) {
           visit(x, y - 1);
         }
@@ -214,6 +240,7 @@ export const keepLargestComponents = (image: Bitmap, minArea: number): Bitmap =>
       }
     }
   }
+
   return out;
 };
 
@@ -233,22 +260,26 @@ export interface KeyMatteResult {
   record: KeyRecord;
 }
 
-/** 1 marks a transparent candidate; `count` is how many of those were opaque matte. */
 const matteCandidates = (image: Bitmap, chroma: RGB, tolerance: number) => {
   const candidate = new Uint8Array(image.width * image.height);
   let count = 0;
+
   for (let index = 0; index < candidate.length; index += 1) {
     const p = index * 4;
+
     if (image.data[p + 3] === 0) {
       candidate[index] = 1;
       continue;
     }
+
     const rgb: RGB = [image.data[p] ?? 0, image.data[p + 1] ?? 0, image.data[p + 2] ?? 0];
+
     if (colorDistance(rgb, chroma) <= tolerance) {
       candidate[index] = 1;
       count += 1;
     }
   }
+
   return { candidate, count };
 };
 
@@ -262,7 +293,7 @@ const matteCandidates = (image: Bitmap, chroma: RGB, tolerance: number) => {
 export const keyMatte = (
   image: Bitmap,
   options: { chroma: RGB; tolerance?: number; keepLargest?: boolean; minComponentArea?: number },
-): KeyMatteResult => {
+) => {
   const { chroma, tolerance = 90, keepLargest = false, minComponentArea = 80 } = options;
   const { width, height } = image;
   const { candidate, count: candidates } = matteCandidates(image, chroma, tolerance);
@@ -272,18 +303,23 @@ export const keyMatte = (
   let out = Bitmap.create(width, height);
   let removed = 0;
   let kept = 0;
+
   for (let index = 0; index < candidate.length; index += 1) {
     const p = index * 4;
     const alpha = image.data[p + 3] ?? 0;
+
     if (reachable[index]) {
       if (alpha !== 0) {
         removed += 1;
       }
+
       continue;
     }
+
     if (alpha === 0) {
       continue;
     }
+
     out.data[p] = image.data[p] ?? 0;
     out.data[p + 1] = image.data[p + 1] ?? 0;
     out.data[p + 2] = image.data[p + 2] ?? 0;
@@ -294,6 +330,7 @@ export const keyMatte = (
   if (keepLargest) {
     out = keepLargestComponents(out, minComponentArea);
   }
+
   const bbox = out.getBBox();
 
   return {
@@ -339,7 +376,7 @@ export interface FringeCleanResult {
 export const removeChromaFringe = (
   image: Bitmap,
   options: { chroma: RGB; minLevel?: number; dominance?: number; edgeRadius?: number },
-): FringeCleanResult => {
+) => {
   const { chroma, minLevel = 70, dominance = 24, edgeRadius = 1 } = options;
   const { dominant, suppressed } = chromaFringeChannels(chroma);
   const { width, height } = image;
@@ -353,9 +390,11 @@ export const removeChromaFringe = (
     for (let x = 0; x < width; x += 1) {
       const p = image.index(x, y);
       const alpha = image.data[p + 3] ?? 0;
+
       if (alpha === 0) {
         continue;
       }
+
       const rgb: RGB = [image.data[p] ?? 0, image.data[p + 1] ?? 0, image.data[p + 2] ?? 0];
       const low = Math.min(...dominant.map((i) => rgb[i] ?? 0));
       const high = Math.max(...suppressed.map((i) => rgb[i] ?? 0));
@@ -368,6 +407,7 @@ export const removeChromaFringe = (
         removed += 1;
         continue;
       }
+
       [out.data[p], out.data[p + 1], out.data[p + 2]] = rgb;
       out.data[p + 3] = alpha;
       kept += 1;
@@ -375,6 +415,7 @@ export const removeChromaFringe = (
   }
 
   const bbox = out.getBBox();
+
   return {
     image: out,
     record: {
@@ -391,37 +432,44 @@ export const removeChromaFringe = (
   };
 };
 
-/** Pixels within `radius` (4-connected) of a transparent pixel. */
-const nearTransparentMask = (image: Bitmap, radius: number): Uint8Array => {
+const nearTransparentMask = (image: Bitmap, radius: number) => {
   const { width, height } = image;
   let near = new Uint8Array(width * height);
+
   for (let i = 0; i < near.length; i += 1) {
     near[i] = image.data[i * 4 + 3] === 0 ? 1 : 0;
   }
 
   for (let step = 0; step < Math.max(0, radius); step += 1) {
     const grown = Uint8Array.from(near);
+
     for (let y = 0; y < height; y += 1) {
       for (let x = 0; x < width; x += 1) {
         if (!near[y * width + x]) {
           continue;
         }
+
         if (y + 1 < height) {
           grown[(y + 1) * width + x] = 1;
         }
+
         if (y > 0) {
           grown[(y - 1) * width + x] = 1;
         }
+
         if (x + 1 < width) {
           grown[y * width + x + 1] = 1;
         }
+
         if (x > 0) {
           grown[y * width + x - 1] = 1;
         }
       }
     }
+
     near = grown;
   }
+
   return near;
 };
 
@@ -449,7 +497,7 @@ export interface DespillResult {
 export const despillChroma = (
   image: Bitmap,
   options: { chroma: RGB; edgeRadius?: number; bandOnly?: boolean },
-): DespillResult => {
+) => {
   const { chroma, edgeRadius = 2, bandOnly = true } = options;
   const { dominant, suppressed } = chromaFringeChannels(chroma);
   const out = image.copy();
@@ -460,9 +508,11 @@ export const despillChroma = (
 
   for (let index = 0; index < image.width * image.height; index += 1) {
     const p = index * 4;
+
     if (image.data[p + 3] === 0) {
       continue;
     }
+
     if (near && !near[index]) {
       continue;
     }
@@ -470,15 +520,19 @@ export const despillChroma = (
     const high = Math.max(...suppressed.map((i) => image.data[p + i] ?? 0));
     let changed = false;
     let delta = 0;
+
     for (const channel of dominant) {
       const original = image.data[p + channel] ?? 0;
       const clamped = Math.min(original, high);
+
       if (clamped !== original) {
         changed = true;
         delta += original - clamped;
       }
+
       out.data[p + channel] = clamped;
     }
+
     if (changed) {
       despilled += 1;
       spillRemoved += delta;
@@ -500,6 +554,7 @@ export const despillChroma = (
 export interface DecontamRecord {
   specksRemoved: number;
 }
+
 export interface DecontamResult {
   image: Bitmap;
   record: DecontamRecord;
@@ -516,7 +571,7 @@ export interface DecontamResult {
 export const decontaminateMatte = (
   image: Bitmap,
   options: { chroma: RGB; excess?: number; minLevel?: number },
-): DecontamResult => {
+) => {
   const { chroma, excess = 50, minLevel = 100 } = options;
   const { dominant, suppressed } = chromaFringeChannels(chroma);
   const out = image.copy();
@@ -524,16 +579,20 @@ export const decontaminateMatte = (
 
   for (let index = 0; index < image.width * image.height; index += 1) {
     const p = index * 4;
+
     if ((image.data[p + 3] ?? 0) <= 0) {
       continue;
     }
+
     const domMin = Math.min(...dominant.map((i) => image.data[p + i] ?? 0));
     const supMax = Math.max(...suppressed.map((i) => image.data[p + i] ?? 0));
+
     if (domMin - supMax > excess && domMin > minLevel) {
       out.data[p + 3] = 0;
       removed += 1;
     }
   }
+
   return { image: out, record: { specksRemoved: removed } };
 };
 
@@ -546,7 +605,7 @@ export interface ChromaCleanResult {
 }
 
 /** Key, then de-fringe, then despill, then decontaminate — the full path. */
-export const cleanChroma = (
+export const cleanChroma: (
   image: Bitmap,
   options: {
     chroma: RGB;
@@ -555,7 +614,7 @@ export const cleanChroma = (
     despillRadius?: number;
     decontam?: boolean;
   },
-): ChromaCleanResult => {
+) => ChromaCleanResult = (image, options) => {
   const { chroma, tolerance = 90, fringeRadius = 1, despillRadius = 2, decontam = true } = options;
 
   const keyed = keyMatte(image, { chroma, tolerance });
@@ -564,6 +623,7 @@ export const cleanChroma = (
 
   let result = despilled.image;
   let decontamRecord: { specksRemoved: number } | { skipped: true } = { skipped: true };
+
   if (decontam && isKeyableFringeChroma(chroma)) {
     const cleaned = decontaminateMatte(result, { chroma });
     result = cleaned.image;

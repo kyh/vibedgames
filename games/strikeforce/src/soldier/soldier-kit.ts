@@ -1,19 +1,9 @@
-// The two kits a soldier wears. Every soldier is the same textured mesh
-// (soldier-rig.ts), modelled in urban grey; a kit recolours its whole
-// loadout in the shader and paints an armband on, so the two sides read
-// apart at a glance: `garrison` (the grey it came in, a red band: the dock's
-// crew) and `operator` (coyote, an orange band: every deathmatch fighter).
-//
-// Recolouring keeps each texel's shading and swaps its hue, so a darker vest
-// stays a darker vest and nothing needs a mask. Which vertices are band is
-// worked out once, when the rig loads, into the `band` attribute.
 import { Color } from "three";
 import type { MeshStandardMaterial } from "three";
 
 export type Kit = "operator" | "garrison";
 
 interface Dye {
-  /** What mid-grey cloth becomes; null leaves the mesh as modelled. */
   cloth: string | null;
   band: string;
 }
@@ -24,7 +14,7 @@ const DYES: Record<Kit, Dye> = {
 };
 
 /** `base` in a kit's colours. The maps are shared; only the program differs. */
-export const kitMaterial = (kit: Kit, base: MeshStandardMaterial): MeshStandardMaterial => {
+export const kitMaterial = (kit: Kit, base: MeshStandardMaterial) => {
   const dye = DYES[kit];
   const material = base.clone();
   material.onBeforeCompile = (shader) => {
@@ -54,6 +44,8 @@ export const kitMaterial = (kit: Kit, base: MeshStandardMaterial): MeshStandardM
         diffuseColor.rgb = mix(diffuseColor.rgb, uBand * (0.5 + kitLuma * 2.5), step(0.5, vBand));`,
       );
   };
+
   material.customProgramCacheKey = () => "soldier-kit";
+
   return material;
 };

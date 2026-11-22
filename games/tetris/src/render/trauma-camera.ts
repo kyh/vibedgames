@@ -1,22 +1,8 @@
-// Trauma-based camera shake (Eiserloh, GDC 2016), 3D flavor: events ADD
-// trauma, shake magnitude = trauma², sampled from layered sin noise per axis.
-// Offsets are in world units (applied along the camera's right/up after
-// lookAt) plus a small roll — copied from pacman, retuned a touch punchier
-// for Tetris impacts.
-//
-// Sibling copies (pacman/starfall) share this structure; only the tuning
-// constants and the unit of `rot` (radians here, degrees for 2D Phaser games)
-// legitimately differ. Keep the shape identical so drift stays visible.
-
-/** Linear decay per second. */
 const TRAUMA_DECAY = 1.7;
-/** Max positional offset per axis at trauma=1, world units. */
 const MAX_OFFSET = 0.22;
-/** Max camera roll at trauma=1, radians (~2.9°). */
 const MAX_ROT = 0.05;
 
-/** Layered sin "noise" in [-1, 1]: sin(t·31) + 0.5·sin(t·47), normalized. */
-const shakeNoise = (t: number, phase: number): number =>
+const shakeNoise = (t: number, phase: number) =>
   (Math.sin(t * 31 + phase) + 0.5 * Math.sin(t * 47 + phase * 1.7)) / 1.5;
 
 /** Frame sample: positional offset (world units) + roll (radians). */
@@ -33,21 +19,23 @@ export class TraumaCamera {
   private readonly phaseR = Math.random() * 100;
 
   /** Events add trauma; clamped so total shake time stays bounded. */
-  add(amount: number): void {
+  add(amount: number) {
     this.trauma = Math.min(1, this.trauma + amount);
   }
 
-  reset(): void {
+  reset() {
     this.trauma = 0;
   }
 
   /** Decay + sample the current frame's offset/roll. tSec = elapsed seconds. */
-  update(dt: number, tSec: number): ShakeSample {
+  update(dt: number, tSec: number) {
     this.trauma = Math.max(0, this.trauma - TRAUMA_DECAY * dt);
     const shake = this.trauma * this.trauma;
+
     if (shake <= 0.0001) {
       return { ox: 0, oy: 0, rot: 0 };
     }
+
     return {
       ox: MAX_OFFSET * shake * shakeNoise(tSec, this.phaseX),
       oy: MAX_OFFSET * shake * shakeNoise(tSec, this.phaseY),

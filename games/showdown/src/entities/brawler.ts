@@ -36,12 +36,9 @@ import type { RangedCue } from "./ranged-pose";
  */
 export type BrawlerDrive = "sim" | "predict" | "puppet";
 
-/** Hit stop on a hit the player deals or takes: three frames, a kill holds longer. */
 const HIT_STOP_S = 0.05;
 const KILL_STOP_S = 0.12;
 
-// A multi-shot attack in flight: one shot fires every `a.interval` seconds
-// until `left` reaches zero, all along the direction captured at the trigger.
 interface BurstState {
   a: VolleyAttack;
   left: number;
@@ -59,7 +56,6 @@ interface MeleeState {
   remaining: number;
 }
 
-// A leap super in flight, interpolated from the launch tile to the landing tile.
 interface LeapState {
   a: LeapAttack;
   t: number;
@@ -166,7 +162,6 @@ export class Brawler {
   readonly lightColor: THREE.Color;
   readonly superColor: THREE.Color;
 
-  // Ranged props keep their authored grip while the whole body follows recoil.
   private readonly weaponRestRotation: THREE.Euler;
   private readonly weaponRestPosition: THREE.Vector3;
   private readonly rightHandRest: THREE.Vector3;
@@ -212,6 +207,7 @@ export class Brawler {
     this.root.add(this.ring);
 
     this.disc = null;
+
     if (this.isPlayer) {
       const disc = new THREE.Mesh(
         PLAYER_DISC_GEOMETRY.clone(),
@@ -222,6 +218,7 @@ export class Brawler {
           transparent: true,
         }),
       );
+
       disc.position.y = 0.035;
       disc.renderOrder = 2;
       disc.userData.noAO = true;
@@ -258,7 +255,6 @@ export class Brawler {
     this.knock = new THREE.Vector2();
     this.moveX = 0;
     this.moveZ = 0;
-    // Spawn facing the arena centre.
     this.facing = Math.atan2(-options.x, -options.z);
     this.lookAngle = null;
     this.aimAngle = this.facing;
@@ -283,72 +279,67 @@ export class Brawler {
     this.superColor = new THREE.Color(def.super.color);
   }
 
-  get x(): number {
+  get x() {
     return this.root.position.x;
   }
 
-  get position(): THREE.Vector3 {
+  get position() {
     return this.root.position;
   }
 
-  get z(): number {
+  get z() {
     return this.root.position.z;
   }
 
-  get damageMul(): number {
+  get damageMul() {
     return 1 + this.cubes * TUNING.cubeDamage;
   }
 
-  get superReady(): boolean {
+  get superReady() {
     return this.superCharge >= 1;
   }
 
-  get airborne(): boolean {
+  get airborne() {
     return this.leap !== null || this.netAir;
   }
 
-  get evadingInvulnerable(): boolean {
+  get evadingInvulnerable() {
     return evasionInvulnerable(this.evasion);
   }
 
-  /** Hidden mercy only ever softens bots against the solo player. */
-  private mercyScale(): number {
+  private mercyScale() {
     return this.isPlayer && this.game.mode === "solo" ? this.game.mercy.damageScale : 1;
   }
 
-  /**
-   * Freeze both parties briefly. Only a body whose input is local can hold: a
-   * guest's body frozen on the host would fall behind its own prediction.
-   */
-  private hitStop(source: Brawler | null, seconds: number): void {
+  private hitStop(source: Brawler | null, seconds: number) {
     if (this.drive === "sim" && !this.remoteControlled) {
       this.freezeT = Math.max(this.freezeT, seconds);
     }
+
     if (source && source !== this && source.drive === "sim" && !source.remoteControlled) {
       source.freezeT = Math.max(source.freezeT, seconds);
     }
   }
 
   /** A person plays this brawler (locally or from another client), not a bot brain. */
-  get isHuman(): boolean {
+  get isHuman() {
     return this.isPlayer || this.owner !== null;
   }
 
   /** A guest plays this body from another client; the host only replays its intents. */
-  get remoteControlled(): boolean {
+  get remoteControlled() {
     return this.owner !== null && !this.isPlayer;
   }
 
   /** A hit shoves this body. Sequenced so the guest predicting it can replay the same shove. */
-  applyKnock(x: number, z: number): void {
+  applyKnock(x: number, z: number) {
     this.knock.set(x, z);
     this.knockSeq += 1;
     this.knockX = x;
     this.knockZ = z;
   }
 
-  // The current muzzle offset rotated by the aim angle into world space.
-  muzzleWorld(out: THREE.Vector3): THREE.Vector3 {
+  muzzleWorld(out: THREE.Vector3) {
     const { muzzles } = this.model;
     const muzzle = muzzles[this.muzzleIndex % muzzles.length] ?? ORIGIN;
     const cos = Math.cos(this.aimAngle);
@@ -358,15 +349,16 @@ export class Brawler {
       muzzle.y + this.root.position.y,
       this.z - muzzle.x * sin + muzzle.z * cos,
     );
+
     return out;
   }
 
-  canAct(): boolean {
+  canAct() {
     return this.alive && !this.airborne && !this.evasion && this.game.state !== "countdown";
   }
 
   /** `grace` lets a remote request through a hair early: the guest's cooldown ran on its own clock. */
-  evade(dx: number, dz: number, grace = 0): boolean {
+  evade(dx: number, dz: number, grace = 0) {
     if (
       !this.alive ||
       this.drive === "puppet" ||
@@ -379,6 +371,7 @@ export class Brawler {
     ) {
       return false;
     }
+
     this.evasion = createEvasion(dx, dz, this.facing);
     this.evadeCooldown = EVADE.cooldown;
     this.burst = null;
@@ -403,34 +396,38 @@ export class Brawler {
       } else {
         this.game.effects.dust(this.x, this.z, 6, 1.7);
       }
+
       this.game.audio.play("leap", this.x, this.z);
     });
+
     return true;
   }
 
-  attack(dx: number, dz: number, x: number, z: number): boolean {
+  attack(dx: number, dz: number, x: number, z: number) {
     if (!this.canAct() || this.ammo < 1 || this.fireCooldown > 0 || this.burst || this.swing) {
       return false;
     }
+
     this.ammo -= 1;
     this.game.asActor(this, () => this.startVolley(this.def.attack, dx, dz, x, z, false));
+
     return true;
   }
 
-  useSuper(dx: number, dz: number, x: number, z: number): boolean {
+  useSuper(dx: number, dz: number, x: number, z: number) {
     if (!this.canAct() || !this.superReady || this.burst || this.swing) {
       return false;
     }
+
     this.superCharge = 0;
     this.game.asActor(this, () => {
       this.startVolley(this.def.super, dx, dz, x, z, true);
       this.game.audio.play("super");
     });
+
     return true;
   }
 
-  // Aim along (dx, dz) toward the target point and launch whichever attack
-  // shape the definition describes.
   startVolley(
     a: AttackDef,
     dx: number,
@@ -438,7 +435,7 @@ export class Brawler {
     targetX: number,
     targetZ: number,
     isSuper: boolean,
-  ): void {
+  ) {
     const len = Math.hypot(dx, dz);
     const dirX = len > 0.001 ? dx / len : Math.sin(this.facing);
     const dirZ = len > 0.001 ? dz / len : Math.cos(this.facing);
@@ -447,6 +444,7 @@ export class Brawler {
     this.lastCombat = this.game.elapsed;
     this.revealT = Math.max(this.revealT, 0.9);
     this.fireCooldown = 0.22;
+
     if (a.kind === "spread") {
       this.fireSpread(a, isSuper);
     } else if (a.kind === "burst") {
@@ -469,10 +467,11 @@ export class Brawler {
     }
   }
 
-  private fireSpread(a: SpreadAttack, isSuper: boolean): void {
+  private fireSpread(a: SpreadAttack, isSuper: boolean) {
     this.rangedCue = { elapsed: 0, isSuper };
     this.recoil = 1;
     const muzzle = this.muzzleWorld(new THREE.Vector3());
+
     for (let i = 0; i < a.pellets; i += 1) {
       const fan = a.pellets === 1 ? 0 : i / (a.pellets - 1) - 0.5;
       const angle = this.aimAngle + fan * a.spread + (this.game.rng() - 0.5) * 0.04;
@@ -487,6 +486,7 @@ export class Brawler {
         a.speed * (0.94 + this.game.rng() * 0.12),
       );
     }
+
     this.game.effects.impact(
       muzzle.x,
       muzzle.y,
@@ -504,7 +504,7 @@ export class Brawler {
     targetX: number,
     targetZ: number,
     isSuper: boolean,
-  ): void {
+  ) {
     this.rangedCue = { elapsed: 0, isSuper };
     this.recoil = 1;
     const reach = Math.min(a.range, Math.hypot(targetX - this.x, targetZ - this.z));
@@ -530,13 +530,7 @@ export class Brawler {
     this.fireCooldown = 0.3;
   }
 
-  private startLeap(
-    a: LeapAttack,
-    dirX: number,
-    dirZ: number,
-    targetX: number,
-    targetZ: number,
-  ): void {
+  private startLeap(a: LeapAttack, dirX: number, dirZ: number, targetX: number, targetZ: number) {
     const reach = clamp(Math.hypot(targetX - this.x, targetZ - this.z), 2, a.range);
     const landing = this.game.world.nearestOpen(this.x + dirX * reach, this.z + dirZ * reach);
     this.leap = { a, sx: this.x, sz: this.z, t: 0, tx: landing.x, tz: landing.z };
@@ -544,23 +538,27 @@ export class Brawler {
     this.game.audio.play("leap", this.x, this.z);
   }
 
-  bulletColor(isSuper: boolean): THREE.Color {
+  bulletColor(isSuper: boolean) {
     return isSuper ? this.superColor : this.lightColor;
   }
 
-  fireBurstShot(): void {
+  fireBurstShot() {
     const { burst } = this;
+
     if (!burst) {
       return;
     }
+
     this.game.asActor(this, () => this.fireShot(burst));
   }
 
-  private fireShot(burst: BurstState): void {
+  private fireShot(burst: BurstState) {
     const { a } = burst;
+
     if (this.def.attack.kind !== "melee") {
       this.rangedCue = { elapsed: 0, isSuper: burst.isSuper };
     }
+
     this.muzzleIndex += 1;
     this.recoil = 1;
     const muzzle = this.muzzleWorld(new THREE.Vector3());
@@ -568,39 +566,43 @@ export class Brawler {
     const dirX = Math.sin(angle);
     const dirZ = Math.cos(angle);
     this.game.combat.spawnBullet(this, muzzle.x, muzzle.z, dirX, dirZ, a, burst.isSuper, a.speed);
+
     if (this.def.attack.kind === "melee") {
       this.meleeCue = { angle, elapsed: 0.12, recovery: 0.38, windup: 0.12 };
     }
+
     this.game.audio.play(a.style === "bolt" ? "bolt" : "shot", this.x, this.z);
   }
 
-  addCharge(amount: number): void {
+  addCharge(amount: number) {
     if (!this.alive) {
       return;
     }
+
     const wasReady = this.superReady;
     this.superCharge = Math.min(1, this.superCharge + amount / this.def.superCharge);
+
     if (!wasReady && this.superReady && this.isPlayer) {
       this.game.audio.play("ready");
     }
   }
 
-  // Returns the damage actually absorbed (capped at remaining hp) so the
-  // attacker's super charge reflects what landed, not overkill.
-  takeDamage(amount: number, source: Brawler | null = null, isGas = false): number {
+  takeDamage(amount: number, source: Brawler | null = null, isGas = false) {
     if (!this.alive || this.airborne || (!isGas && this.evadingInvulnerable)) {
       return 0;
     }
+
     let dealt = amount;
+
     if (source && !source.isHuman) {
-      // Bots hit humans at the difficulty's rate and each other softly, so
-      // bot-on-bot fights thin the field without deciding the match.
       dealt *= this.isHuman ? this.game.difficulty.damage * this.mercyScale() : 0.34;
     }
+
     if (source) {
       this.lastAttacker = source;
       this.lastHitTime = this.game.elapsed;
     }
+
     dealt = Math.round(dealt);
     const absorbed = Math.min(this.hp, dealt);
     this.hp -= dealt;
@@ -609,51 +611,59 @@ export class Brawler {
     this.flash = 1;
     this.squash = 1;
     this.revealT = Math.max(this.revealT, 0.9);
+
     if (this.def.id === "titan") {
       this.addCharge(dealt * 0.35);
     }
+
     if (source && source !== this) {
       source.addCharge(absorbed);
       source.lastCombat = this.game.elapsed;
     }
+
     this.presentHit(dealt, source, isGas);
+
     if (this.hp <= 0) {
       this.die(source);
     }
+
     return absorbed;
   }
 
-  /** Everything a hit shows and sounds: the number, the beat, the thud, the flash. */
-  private presentHit(dealt: number, source: Brawler | null, isGas: boolean): void {
+  private presentHit(dealt: number, source: Brawler | null, isGas: boolean) {
     if (!this.hidden || this.isPlayer) {
       this.game.hud.floatText(this.x, 1.7, this.z, `${dealt}`, this.isPlayer ? "dmg-self" : "dmg");
     }
+
     if (!isGas && (this.isPlayer || source?.isPlayer)) {
       this.hitStop(source, this.hp <= 0 ? KILL_STOP_S : HIT_STOP_S);
     }
+
     if (!isGas) {
       this.game.audio.play("hit", this.x, this.z);
     }
+
     if (this.isPlayer) {
       this.game.onPlayerHurt(dealt);
     }
   }
 
-  heal(amount: number): void {
+  heal(amount: number) {
     if (!this.alive || this.hp >= this.maxHp) {
       return;
     }
+
     const before = this.hp;
     this.hp = Math.min(this.maxHp, this.hp + amount);
     const gained = Math.round(this.hp - before);
+
     if (gained > 0 && (!this.hidden || this.isPlayer)) {
       this.game.hud.floatText(this.x, 1.7, this.z, `+${gained}`, "heal");
       this.game.effects.healPuff(this.x, this.z);
     }
   }
 
-  // A power cube raises max hp and tops up half a cube's worth on the spot.
-  addCube(): void {
+  addCube() {
     this.cubes += 1;
     const fraction = this.hp / this.maxHp;
     this.maxHp += TUNING.cubeHp;
@@ -661,10 +671,11 @@ export class Brawler {
     this.squash = -1;
   }
 
-  die(killer: Brawler | null): void {
+  die(killer: Brawler | null) {
     if (!this.alive) {
       return;
     }
+
     this.alive = false;
     this.hp = 0;
     this.deadT = 0;
@@ -673,102 +684,119 @@ export class Brawler {
     this.rangedCue = null;
     this.leap = null;
     this.evasion = null;
+
     if (killer && killer !== this) {
       killer.kills += 1;
     }
+
     this.game.onBrawlerDown(this, killer);
   }
 
-  // The sim and a guest's prediction of its own body run the same step; only
-  // the sim resolves blows and regenerates — the host's rows carry those.
-  update(dt: number): void {
+  update(dt: number) {
     if (this.drive === "puppet") {
       this.updatePuppet(dt);
+
       return;
     }
+
     if (!this.alive) {
       this.updateDeath(dt);
+
       return;
     }
+
     if (this.freezeT > 0) {
-      // Hit stop: the parties to a blow hold still for a beat so it lands.
       this.freezeT = Math.max(0, this.freezeT - dt);
+
       if (!this.evasion) {
         return;
       }
     }
+
     this.tickTimers(dt);
     this.tickReload(dt);
     this.tickBurst(dt);
     this.tickMelee(dt);
+
     if (this.evasion) {
       this.tickEvasion(dt, this.evasion);
     } else if (this.leap) {
       this.tickLeap(dt, this.leap);
     } else if (this.netLeap) {
-      // A leap the host started on a guest's own body: fly it on between the host's frames.
       this.netLeap.t += dt;
       leapPoint(this.netLeap, leapFlight(this.def), this.game.world.heightAt, this.root.position);
     } else {
       this.tickMovement(dt);
     }
+
     const moving = this.vel.lengthSq() > 0.2 && !this.airborne;
     this.updateFacing(dt, moving);
     this.updateBush();
+
     if (this.drive === "sim") {
       this.tickRegen(dt);
     }
+
     this.animate(dt, moving);
   }
 
-  // A remote body on a guest: the guest view poses it from the host's frames
-  // (position, facing, velocity, cues); this only animates what the pose implies.
-  private updatePuppet(dt: number): void {
+  private updatePuppet(dt: number) {
     if (!this.alive) {
       this.updateDeath(dt);
+
       return;
     }
+
     this.tickTimers(dt);
+
     if (this.evasion) {
       const before = this.evasion.elapsed;
       this.evasion.elapsed += dt;
       this.showEvasionTrail(before, this.evasion);
+
       if (this.evasion.elapsed >= EVADE.duration) {
         this.evasion = null;
       }
     }
+
     if (this.netLeap) {
       this.netLeap.t += dt;
     }
+
     this.root.rotation.y = this.facing;
     this.animate(dt, this.vel.lengthSq() > 0.2 && !this.netAir);
   }
 
-  // Shrink and spin away over a third of a second, then drop out of the scene.
-  private updateDeath(dt: number): void {
+  private updateDeath(dt: number) {
     this.deadT += dt;
     const scale = clamp(1 - this.deadT / 0.32, 0, 1);
     this.root.scale.setScalar(scale);
     this.root.rotation.y += dt * 14;
+
     if (scale <= 0) {
       this.root.visible = false;
     }
   }
 
-  private tickTimers(dt: number): void {
+  private tickTimers(dt: number) {
     this.evadeCooldown = Math.max(0, this.evadeCooldown - dt);
+
     if (this.rangedCue) {
       this.rangedCue.elapsed += dt;
+
       if (this.rangedCue.elapsed >= rangedPoseDuration(this.def.id, this.rangedCue.isSuper)) {
         this.rangedCue = null;
       }
     }
+
     if (this.meleeCue) {
       this.meleeCue.elapsed += dt;
+
       if (this.meleeCue.elapsed >= this.meleeCue.windup + this.meleeCue.recovery) {
         this.meleeCue = null;
       }
     }
+
     this.fireCooldown = Math.max(0, this.fireCooldown - dt);
     this.aimHold = Math.max(0, this.aimHold - dt);
     this.revealT = Math.max(0, this.revealT - dt);
@@ -778,15 +806,16 @@ export class Brawler {
   }
 
   /** Run the reload on by `seconds` — a guest adopting the host's count from a round trip ago. */
-  catchUpReload(seconds: number): void {
+  catchUpReload(seconds: number) {
     if (seconds > 0) {
       this.tickReload(seconds);
     }
   }
 
-  private tickReload(dt: number): void {
+  private tickReload(dt: number) {
     if (this.ammo < MAX_AMMO) {
       this.reloadT += dt / this.def.reload;
+
       if (this.reloadT >= 1) {
         this.reloadT = 0;
         this.ammo = Math.min(MAX_AMMO, this.ammo + 1);
@@ -796,45 +825,55 @@ export class Brawler {
     }
   }
 
-  private tickBurst(dt: number): void {
+  private tickBurst(dt: number) {
     const { burst } = this;
+
     if (!burst) {
       return;
     }
+
     burst.timer -= dt;
+
     while (burst.timer <= 0 && burst.left > 0) {
       this.fireBurstShot();
       burst.left -= 1;
       burst.timer += burst.a.interval;
     }
+
     if (burst.left <= 0) {
       this.burst = null;
     }
+
     this.aimHold = Math.max(this.aimHold, 0.35);
   }
 
-  private tickMelee(dt: number): void {
+  private tickMelee(dt: number) {
     const { swing } = this;
+
     if (!swing) {
       return;
     }
+
     swing.remaining -= dt;
     this.aimHold = Math.max(this.aimHold, 0.35);
+
     if (swing.remaining > 0) {
       return;
     }
+
     this.swing = null;
     this.recoil = 1;
+
     if (this.drive === "sim") {
       swingMelee(this.game.combat, this, swing.a, swing.dx, swing.dz, swing.isSuper);
     } else {
       showSlash(this.game, this, swing.a, swing.dx, swing.dz, swing.isSuper);
     }
+
     this.game.asActor(this, () => this.game.audio.play("punch", this.x, this.z));
   }
 
-  // Arc between launch and landing tiles with a full forward flip, then slam.
-  private tickLeap(dt: number, leap: LeapState): void {
+  private tickLeap(dt: number, leap: LeapState) {
     const pos = this.root.position;
     const { body } = this.model;
     const { world } = this.game;
@@ -843,15 +882,18 @@ export class Brawler {
     body.rotation.x = progress * Math.PI * 2;
     this.aimAngle = Math.atan2(leap.tx - leap.sx, leap.tz - leap.sz);
     this.aimHold = 0.3;
+
     if (progress < 1) {
       return;
     }
+
     pos.y = world.heightAt(pos.x, pos.z);
     body.rotation.x = 0;
     this.leap = null;
     this.squash = 1.4;
     world.resolveCircle(pos, BRAWLER_RADIUS);
     pos.y = world.heightAt(pos.x, pos.z);
+
     if (this.drive === "sim") {
       this.game.combat.explode(pos.x, pos.z, leap.a, this, true, true);
     } else {
@@ -860,34 +902,41 @@ export class Brawler {
   }
 
   /** Abandon a leap the host never started: back on the ground, upright. */
-  cancelLeap(): void {
+  cancelLeap() {
     this.leap = null;
     this.model.body.rotation.x = 0;
     this.root.position.y = this.game.world.heightAt(this.x, this.z);
   }
 
-  private tickMovement(dt: number): void {
+  private tickMovement(dt: number) {
     let { speed } = this.def;
+
     if (this.burst) {
       speed *= BURST_SLOW;
     }
+
     if (this.game.state === "countdown") {
       speed = 0;
     }
+
     stepMover(this, this.moveX, this.moveZ, speed, this.game.world, dt);
   }
 
-  private tickEvasion(dt: number, state: EvasionState): void {
+  private tickEvasion(dt: number, state: EvasionState) {
     const before = state.elapsed;
     const { x } = this;
     const { z } = this;
     const finished = advanceEvasion(state, this.root.position, this.game.world, dt);
+
     if (dt > 0) {
       this.vel.set((this.x - x) / dt, (this.z - z) / dt);
     }
+
     this.showEvasionTrail(before, state);
+
     if (finished) {
       this.evasion = null;
+
       if (evadeStyle(this.def.id) === "blink") {
         this.game.asActor(this, () =>
           this.game.effects.burst(
@@ -903,10 +952,11 @@ export class Brawler {
     }
   }
 
-  private showEvasionTrail(before: number, state: EvasionState): void {
+  private showEvasionTrail(before: number, state: EvasionState) {
     if (Math.floor(state.elapsed / 0.045) <= Math.floor(before / 0.045)) {
       return;
     }
+
     if (evadeStyle(this.def.id) === "blink") {
       this.game.effects.trail(this.x, this.root.position.y + 0.65, this.z, this.lightColor, 0.7);
     } else {
@@ -914,10 +964,10 @@ export class Brawler {
     }
   }
 
-  // Follow live aim while strafing; melee poses keep the blade on its committed hit sector.
-  private updateFacing(dt: number, moving: boolean): void {
+  private updateFacing(dt: number, moving: boolean) {
     let target = this.lookAngle ?? this.facing;
     const aiming = this.lookAngle !== null || this.aimHold > 0;
+
     if (this.meleeCue && this.lookAngle === null) {
       target = this.meleeCue.angle;
     } else if (this.leap || (this.lookAngle === null && this.aimHold > 0)) {
@@ -925,23 +975,25 @@ export class Brawler {
     } else if (this.lookAngle === null && moving) {
       target = Math.atan2(this.vel.x, this.vel.y);
     }
+
     this.facing = dampAngle(this.facing, target, aiming || this.meleeCue ? 26 : 13, dt);
     this.root.rotation.y = this.facing;
   }
 
-  private updateBush(): void {
+  private updateBush() {
     const pos = this.root.position;
     const wasInBush = this.inBush;
     this.inBush = !this.airborne && this.game.world.isBushAt(pos.x, pos.z);
+
     if (this.inBush !== wasInBush && (!this.hidden || this.isPlayer)) {
       this.game.asActor(this, () => this.game.effects.leaves(pos.x, pos.z, 5));
     }
   }
 
-  // Out of combat for three seconds: recover 13% of max hp every second.
-  private tickRegen(dt: number): void {
+  private tickRegen(dt: number) {
     if (this.game.elapsed - this.lastCombat > 3 && this.hp < this.maxHp) {
       this.regenT += dt;
+
       if (this.regenT >= 1) {
         this.regenT = 0;
         this.heal(Math.round(this.maxHp * 0.13));
@@ -949,35 +1001,41 @@ export class Brawler {
     }
   }
 
-  animate(dt: number, moving: boolean): void {
+  animate(dt: number, moving: boolean) {
     const speed = this.vel.length();
+
     if (moving) {
       const step = dt * speed * 3.3;
       this.walkPhase += step;
-      // A sign change of the stride wave is a footfall.
       const footfall = Math.sin(this.walkPhase) * Math.sin(this.walkPhase - step) < 0;
+
       if (footfall && (!this.hidden || this.isPlayer) && !this.inBush) {
         this.game.effects.footDust(this.x, this.z);
       }
     }
+
     const stride = moving ? Math.sin(this.walkPhase) * 0.8 : 0;
     const melee = this.def.attack.kind === "melee" ? this.def.attack : null;
+
     const pose = sampleMeleePose(
       this.leap || this.netAir ? null : this.meleeCue,
       melee ? melee.style : "cleave",
     );
+
     this.animateBody(dt, moving, stride, pose);
     this.animateArms(moving, stride, pose);
     this.animateEvasion();
     this.animateOverlays(dt);
   }
 
-  private animateBody(dt: number, moving: boolean, stride: number, pose: MeleePose): void {
+  private animateBody(dt: number, moving: boolean, stride: number, pose: MeleePose) {
     const { model } = this;
     const [leftLeg, rightLeg] = model.legs;
+
     const bob = moving
       ? Math.abs(Math.cos(this.walkPhase)) * 0.05
       : Math.sin(this.game.elapsed * 2.3 + this.id) * 0.012;
+
     const { squash } = this;
     const melee = this.def.attack.kind === "melee";
     const step = melee ? pose.advance : 0;
@@ -989,31 +1047,37 @@ export class Brawler {
     model.body.position.x = Math.sin(committedYaw) * step;
     model.body.position.z = Math.cos(committedYaw) * step;
     model.body.scale.set(1 + squash * 0.09, 1 - squash * 0.11, 1 + squash * 0.09);
+
     if (!this.leap) {
       model.body.rotation.x = (moving ? 0.13 : 0) + (melee ? pose.bodyPitch : -this.recoil * 0.2);
     }
+
     model.body.rotation.y = melee ? pose.bodyYaw : 0;
     model.body.rotation.z = melee ? -pose.bodyYaw * 0.13 : 0;
     model.head.rotation.z = moving ? Math.sin(this.walkPhase) * 0.05 : 0;
     model.head.rotation.y = melee ? -pose.bodyYaw * 0.65 : 0;
+
     if (!melee) {
       model.weapon.rotation.copy(this.weaponRestRotation);
     }
   }
 
-  private animateEvasion(): void {
+  private animateEvasion() {
     const { rig } = this.model;
     rig.position.set(0, 0, 0);
     rig.quaternion.identity();
     rig.scale.setScalar(1);
+
     if (!this.evasion) {
       return;
     }
+
     const progress = clamp(this.evasion.elapsed / EVADE.duration, 0, 1);
     const lift = Math.sin(progress * Math.PI);
     const yaw = this.evasion.angle - this.facing;
     let pitch = 0;
     const style = evadeStyle(this.def.id);
+
     switch (style) {
       case "roll": {
         const rotation = progress * Math.PI * 2;
@@ -1022,7 +1086,7 @@ export class Brawler {
         const shift = -0.8 * Math.sin(rotation);
         rig.position.x = shift * Math.sin(yaw);
         rig.position.z = shift * Math.cos(yaw);
-        // Long weapons fold across the body around their fixed hand grip.
+
         if (this.def.id === "ace" || this.def.id === "rowan") {
           this.evasionRotation.set(
             0,
@@ -1032,35 +1096,42 @@ export class Brawler {
           this.evasionWeaponQuaternion.setFromEuler(this.evasionRotation);
           this.model.weapon.quaternion.slerp(this.evasionWeaponQuaternion, lift);
         }
+
         break;
       }
+
       case "dash": {
         pitch = lift * 0.6;
         rig.position.y = lift * 0.18;
         rig.scale.y = 1 - lift * 0.12;
         break;
       }
+
       case "blink": {
         rig.scale.setScalar(1 - lift * 0.78);
         pitch = -lift * 0.3;
         rig.position.y = lift * 0.4;
         break;
       }
+
       default: {
         const unreachable: never = style;
         throw new Error(`Unknown evade style: ${unreachable}`);
       }
     }
+
     this.evasionRotation.set(pitch, yaw, 0);
     rig.quaternion.setFromEuler(this.evasionRotation);
   }
 
-  private animateArms(moving: boolean, stride: number, attack: MeleePose): void {
+  private animateArms(moving: boolean, stride: number, attack: MeleePose) {
     const { arms, pose, weapon } = this.model;
     const [leftArm, rightArm] = arms;
     const [leftBase, rightBase] = pose.armBase;
+
     if (this.def.attack.kind === "melee") {
       const sway = moving && !this.meleeCue ? stride * 0.14 : 0;
+
       if (this.def.attack.style === "flurry") {
         leftArm.rotation.set(
           leftBase[0] + attack.armPitch - sway,
@@ -1070,28 +1141,33 @@ export class Brawler {
       } else {
         leftArm.rotation.set(leftBase[0] - attack.guard * 0.35 - sway, 0, leftBase[1]);
       }
+
       rightArm.rotation.set(
         rightBase[0] + attack.armPitch + sway,
         attack.armYaw,
         rightBase[1] + attack.armRoll,
       );
-      // The grip stays inside the hand; the shoulder moves it through the swing.
       const difference = this.meleeCue ? this.meleeCue.angle - this.facing : 0;
+
       const committedYaw =
         Math.atan2(Math.sin(difference), Math.cos(difference)) * attack.commitment;
+
       this.meleeWeaponRotation.set(
         attack.weaponPitch,
         attack.weaponYaw + committedYaw,
         attack.weaponRoll,
       );
       weapon.quaternion.copy(rightArm.quaternion).invert();
+
       if (!this.leap && !this.netAir) {
         this.meleeWeaponQuaternion.copy(this.model.body.quaternion).invert();
         weapon.quaternion.multiply(this.meleeWeaponQuaternion);
       }
+
       this.meleeWeaponQuaternion.setFromEuler(this.meleeWeaponRotation);
       weapon.quaternion.multiply(this.meleeWeaponQuaternion);
       const { offhand } = this.model;
+
       if (offhand) {
         this.meleeWeaponRotation.set(
           attack.weaponPitch + (Math.PI - 2 * attack.weaponPitch) * attack.commitment,
@@ -1099,19 +1175,24 @@ export class Brawler {
           -attack.weaponRoll,
         );
         offhand.quaternion.copy(leftArm.quaternion).invert();
+
         if (!this.leap && !this.netAir) {
           this.meleeWeaponQuaternion.copy(this.model.body.quaternion).invert();
           offhand.quaternion.multiply(this.meleeWeaponQuaternion);
         }
+
         this.meleeWeaponQuaternion.setFromEuler(this.meleeWeaponRotation);
         offhand.quaternion.multiply(this.meleeWeaponQuaternion);
       }
+
       return;
     }
+
     const ranged = sampleRangedPose(
       this.evasion || this.leap || this.netAir ? null : this.rangedCue,
       this.def.id,
     );
+
     const sway = moving && !this.rangedCue && pose.swingLeft ? -stride * 0.7 : 0;
     leftArm.rotation.set(
       leftBase[0] + ranged.leftPitch + sway,
@@ -1130,7 +1211,6 @@ export class Brawler {
     body.rotation.y += ranged.bodyYaw;
     head.rotation.x = -ranged.bodyPitch * 0.4;
     head.rotation.y = -ranged.bodyYaw * 0.5;
-    // Preserve the authored grip offset as its supporting shoulder moves.
     this.rangedGrip.set(0, -0.28, 0).applyEuler(rightArm.rotation).sub(this.rightHandRest);
     weapon.position.copy(this.weaponRestPosition).add(this.rangedGrip);
     weapon.rotation.set(
@@ -1139,44 +1219,50 @@ export class Brawler {
       this.weaponRestRotation.z + ranged.weaponRoll,
     );
     weapon.visible = ranged.weaponVisible;
+
     if (loadedProjectile) {
       loadedProjectile.visible = ranged.loaded;
     }
   }
 
-  // Hit flash on every body material, ground markers pinned to the floor
-  // while leaping, and the super ring pulsing when a super is ready.
-  private animateOverlays(dt: number): void {
+  private animateOverlays(dt: number) {
     const { flash } = this;
+
     for (const mat of this.model.flashMats) {
       mat.emissive.setRGB(flash, flash * 0.92, flash * 0.85);
     }
+
     const lift = this.root.position.y - this.game.world.heightAt(this.x, this.z);
     this.ring.position.y = 0.04 - lift;
     this.superRing.position.y = 0.045 - lift;
+
     if (this.disc) {
       this.disc.position.y = 0.035 - lift;
     }
+
     const ringMat = this.superRing.material;
     const target = this.superReady ? 0.55 + Math.sin(this.game.elapsed * 6) * 0.25 : 0;
     ringMat.opacity = damp(ringMat.opacity, target, 8, dt);
     this.superRing.visible = ringMat.opacity > 0.01;
     this.superRing.rotation.y = -this.facing;
     this.conformMarker(this.ring);
+
     if (this.superRing.visible) {
       this.conformMarker(this.superRing);
     }
+
     if (this.disc) {
       this.conformMarker(this.disc);
     }
   }
 
-  private conformMarker(marker: GroundMarker): void {
+  private conformMarker(marker: GroundMarker) {
     const positions = marker.geometry.getAttribute("position");
     const angle = this.facing + marker.rotation.y;
     const cos = Math.cos(angle);
     const sin = Math.sin(angle);
     const ground = this.game.world.heightAt(this.x, this.z);
+
     for (let i = 0; i < positions.count; i += 1) {
       const x = positions.getX(i);
       const z = positions.getZ(i);
@@ -1185,18 +1271,22 @@ export class Brawler {
         this.game.world.heightAt(this.x + x * cos + z * sin, this.z - x * sin + z * cos) - ground,
       );
     }
+
     positions.needsUpdate = true;
   }
 
-  dispose(): void {
+  dispose() {
     this.game.scene.remove(this.root);
+
     for (const mat of this.model.allMats) {
       mat.dispose();
     }
+
     this.ring.geometry.dispose();
     this.ring.material.dispose();
     this.superRing.geometry.dispose();
     this.superRing.material.dispose();
+
     if (this.disc) {
       this.disc.geometry.dispose();
       this.disc.material.dispose();

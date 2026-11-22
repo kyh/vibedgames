@@ -5,6 +5,7 @@ import { itemIcon } from "../data/items";
 import type { Item } from "../data/items";
 
 type Matter = "dust" | "droplet" | "leaf" | "spark";
+
 interface BurstOptions {
   colors: number[];
   count?: number;
@@ -15,6 +16,7 @@ interface BurstOptions {
   life?: number;
   matter?: Matter;
 }
+
 interface Particle {
   image: Phaser.GameObjects.Rectangle;
   vx: number;
@@ -24,6 +26,7 @@ interface Particle {
   age: number;
   life: number;
 }
+
 interface Reward {
   image: Phaser.GameObjects.Image;
   fromX: number;
@@ -31,24 +34,25 @@ interface Reward {
   target: { x: number; y: number };
   age: number;
 }
+
 interface MatterBody {
   spin: number;
-  /** Width and height as multiples of the requested size. */
   w: number;
   h: number;
 }
+
 const MATTER_BODY: Record<Matter, MatterBody> = {
   droplet: { h: 1.8, spin: 0, w: 0.65 },
   dust: { h: 1, spin: 75, w: 1 },
   leaf: { h: 1, spin: 160, w: 1.7 },
   spark: { h: 1.8, spin: 0, w: 1 },
 };
+
 const PARTICLE_CAP = 144;
 const REWARD_CAP = 8;
 const REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)");
 const pools = new WeakMap<Phaser.Scene, SceneFx>();
 
-/** Scene-local matter and reward sprites. One delta update, no per-particle timers. */
 class SceneFx {
   private readonly particles: Particle[];
   private readonly rewards: Reward[];
@@ -78,35 +82,40 @@ class SceneFx {
         .setVisible(false),
       target: { x: 0, y: 0 },
     }));
-    const update = (_time: number, delta: number): void => this.update(Math.min(delta, 50) / 1000);
+    const update = (_time: number, delta: number) => this.update(Math.min(delta, 50) / 1000);
     scene.events.on(Scenes.Events.POST_UPDATE, update);
-    // The display list destroys the rectangles on shutdown; a restart pools afresh.
     scene.events.once(Scenes.Events.SHUTDOWN, () => {
       scene.events.off(Scenes.Events.POST_UPDATE, update);
       pools.delete(scene);
     });
   }
 
-  burst(x: number, y: number, opts: BurstOptions): void {
+  burst(x: number, y: number, opts: BurstOptions) {
     if (opts.colors.length === 0) {
       return;
     }
+
     const count = Math.min(PARTICLE_CAP, REDUCED_MOTION.matches ? 3 : (opts.count ?? 8));
     const size = opts.size ?? 2;
     const matter = opts.matter ?? "dust";
     const body = MATTER_BODY[matter];
     const w = size * body.w;
     const h = size * body.h;
+
     for (let i = 0; i < count; i += 1) {
       const p = this.particles[this.cursor];
       this.cursor = (this.cursor + 1) % PARTICLE_CAP;
+
       if (!p) {
         continue;
       }
+
       const color = opts.colors[Math.floor(Math.random() * opts.colors.length)] ?? 0xff_ff_ff;
+
       const ang = opts.up
         ? -Math.PI / 2 + (Math.random() - 0.5) * 1.6
         : Math.random() * Math.PI * 2;
+
       const speed = (opts.speed ?? 50) * (0.4 + Math.random() * 0.9);
       p.vx = Math.cos(ang) * speed;
       p.vy = Math.sin(ang) * speed - (opts.up ? 30 : 0);
@@ -125,12 +134,14 @@ class SceneFx {
     }
   }
 
-  reward(x: number, y: number, target: { x: number; y: number }, item: Item): void {
+  reward(x: number, y: number, target: { x: number; y: number }, item: Item) {
     const reward = this.rewards[this.rewardCursor];
     this.rewardCursor = (this.rewardCursor + 1) % REWARD_CAP;
+
     if (!reward) {
       return;
     }
+
     const icon = itemIcon(item);
     reward.fromX = x;
     reward.fromY = y;
@@ -144,31 +155,38 @@ class SceneFx {
       .setVisible(true);
   }
 
-  private update(dt: number): void {
+  private update(dt: number) {
     for (const p of this.particles) {
       if (!p.image.visible) {
         continue;
       }
+
       p.age += dt;
+
       if (p.age >= p.life) {
         p.image.setVisible(false);
         continue;
       }
+
       p.vy += p.gravity * dt;
       p.image.x += p.vx * dt;
       p.image.y += p.vy * dt;
       p.image.angle += p.spin * dt;
       p.image.setAlpha(1 - p.age / p.life);
     }
+
     for (const r of this.rewards) {
       if (!r.image.visible) {
         continue;
       }
+
       r.age += dt / 0.55;
+
       if (r.age >= 1) {
         r.image.setVisible(false);
         continue;
       }
+
       const t = r.age;
       const ease = t * t * (3 - 2 * t);
       const reduced = REDUCED_MOTION.matches;
@@ -185,13 +203,16 @@ class SceneFx {
   }
 }
 
-const poolFor = (scene: Phaser.Scene): SceneFx => {
+const poolFor = (scene: Phaser.Scene) => {
   const existing = pools.get(scene);
+
   if (existing) {
     return existing;
   }
+
   const pool = new SceneFx(scene);
   pools.set(scene, pool);
+
   return pool;
 };
 
@@ -202,7 +223,7 @@ export const rewardArc = (
   y: number,
   target: { x: number; y: number },
   item: Item,
-): void => {
+) => {
   poolFor(scene).reward(x, y, target, item);
 };
 
@@ -216,7 +237,7 @@ export const floatText = (
   color = "#fff6d5",
   size = 11,
   life = 900,
-): void => {
+) => {
   const t = scene.add
     .text(x, y, text, {
       color,
@@ -228,6 +249,7 @@ export const floatText = (
     })
     .setOrigin(0.5, 1)
     .setDepth(DEPTH.particles + 10);
+
   scene.tweens.add({
     alpha: { from: 1, to: 0 },
     duration: life,
@@ -238,26 +260,26 @@ export const floatText = (
   });
 };
 
-// burst of small colored squares (dust, leaves, sparks, droplets)
-export const burst = (scene: Phaser.Scene, x: number, y: number, opts: BurstOptions): void => {
+export const burst = (scene: Phaser.Scene, x: number, y: number, opts: BurstOptions) => {
   poolFor(scene).burst(x, y, opts);
 };
 
-export const shake = (scene: Phaser.Scene, intensity = 0.004, duration = 120): void => {
+export const shake = (scene: Phaser.Scene, intensity = 0.004, duration = 120) => {
   if (REDUCED_MOTION.matches) {
     return;
   }
+
   scene.cameras.main.shake(duration, intensity);
 };
 
-// a quick squash-stretch "pop" tween on a sprite
 export const pop = (
   scene: Phaser.Scene,
   obj: Phaser.GameObjects.Components.Transform & { scaleX: number; scaleY: number },
-): void => {
+) => {
   if (REDUCED_MOTION.matches) {
     return;
   }
+
   const sx = obj.scaleX;
   const sy = obj.scaleY;
   scene.tweens.add({

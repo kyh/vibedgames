@@ -16,10 +16,11 @@ export interface BacklogItem {
   done: boolean;
 }
 
-const asText = (v: JsonValue | undefined): string => {
+const asText = (v: JsonValue | undefined) => {
   if (isJsonString(v)) {
     return v;
   }
+
   return isJsonNumber(v) ? String(v) : "";
 };
 
@@ -28,28 +29,36 @@ const asText = (v: JsonValue | undefined): string => {
  * priority), done items last — the order the dashboard displays. Returns []
  * when the file is missing, unreadable, or not an array.
  */
-export const readBacklog = (path: string): BacklogItem[] => {
+export const readBacklog = (path: string) => {
   let text: string;
+
   try {
     text = readFileSync(path, "utf-8");
   } catch {
     return [];
   }
+
   const parsed = parseJson(text);
+
   if (!Array.isArray(parsed)) {
     return [];
   }
 
   const items: BacklogItem[] = [];
+
   for (const [i, raw] of parsed.entries()) {
     const record = asJsonObject(raw);
+
     if (!record) {
       continue;
     }
+
     const title = asText(record.title) || asText(record.detail);
+
     if (!title) {
       continue;
     }
+
     const priority = asNumber(record.priority) ?? 99;
     items.push({
       done: asText(record.status).toLowerCase() === "done",
@@ -60,11 +69,14 @@ export const readBacklog = (path: string): BacklogItem[] => {
       type: asText(record.type),
     });
   }
+
   items.sort((a, b) => {
     if (a.done === b.done) {
       return a.priority - b.priority;
     }
+
     return a.done ? 1 : -1;
   });
+
   return items;
 };

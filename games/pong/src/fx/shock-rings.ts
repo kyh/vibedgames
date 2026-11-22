@@ -1,8 +1,3 @@
-// Pooled expanding shockwave rings, flat on the table plane. Scale eases
-// out (cubic) while opacity falls linearly — through the dither pass the
-// fading ring reads as a widening band of speckle. Reserve the big spawn
-// for goals; the small one marks paddle contact.
-
 import * as THREE from "three";
 
 import { INK } from "../shared/constants";
@@ -35,6 +30,7 @@ export class RingPool {
 
   constructor(scene: THREE.Scene, max = 4) {
     const geometry = new THREE.RingGeometry(0.82, 1, 48);
+
     for (let i = 0; i < max; i += 1) {
       const material = new THREE.MeshBasicMaterial({
         color: INK,
@@ -42,6 +38,7 @@ export class RingPool {
         opacity: 0,
         transparent: true,
       });
+
       const mesh = new THREE.Mesh(geometry, material);
       mesh.visible = false;
       scene.add(mesh);
@@ -49,11 +46,13 @@ export class RingPool {
     }
   }
 
-  spawn(opts: RingOptions): void {
+  spawn(opts: RingOptions) {
     const ring = this.rings.find((r) => !r.mesh.visible) ?? this.rings[0];
+
     if (!ring) {
       return;
     }
+
     ring.mesh.visible = true;
     ring.mesh.position.set(opts.x, opts.y, 0.015);
     ring.mesh.scale.setScalar(opts.from);
@@ -65,18 +64,21 @@ export class RingPool {
     ring.material.opacity = opts.opacity;
   }
 
-  update(dt: number): void {
+  update(dt: number) {
     for (const ring of this.rings) {
       if (!ring.mesh.visible) {
         continue;
       }
+
       ring.age += dt;
       const p = Math.min(1, ring.age / ring.life);
+
       if (p >= 1) {
         ring.mesh.visible = false;
         ring.material.opacity = 0;
         continue;
       }
+
       const eased = 1 - (1 - p) ** 3;
       ring.mesh.scale.setScalar(ring.from + (ring.to - ring.from) * eased);
       ring.material.opacity = ring.opacity * (1 - p);

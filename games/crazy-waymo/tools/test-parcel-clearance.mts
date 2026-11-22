@@ -10,6 +10,7 @@ const clearFor = (coordinates: readonly number[]) => {
   const maxX = Math.max(...xs);
   const minZ = Math.min(...zs);
   const maxZ = Math.max(...zs);
+
   return buildParcelClearance([
     {
       n: ring.length / 2,
@@ -26,7 +27,7 @@ const clearFor = (coordinates: readonly number[]) => {
   ]);
 };
 
-export const checkParcelClearance = (check: Check): void => {
+export const checkParcelClearance = (check: Check) => {
   const footprint = { halfDepth: 1, halfWidth: 1, x: 0, yaw: 0, z: 0 };
 
   check(

@@ -5,29 +5,23 @@ import { PKG_NAME } from "./package-manager.js";
 import { isJsonObject, isJsonString } from "./types.js";
 import type { JsonValue } from "./types.js";
 
-/**
- * The CLI's own package, wherever it is installed: the nearest directory
- * above this module whose package.json names it. Found rather than spelled
- * as `../..`, because a source file (`src/lib/`) and the bundle's chunks
- * (`dist/`) sit at different depths below it.
- */
-interface InstalledPackage {
-  root: string;
-  version: string;
-}
-
-const findPackage = (dir: string): InstalledPackage => {
+const findPackage = (dir: string) => {
   const manifestPath = path.join(dir, "package.json");
+
   if (existsSync(manifestPath)) {
     const manifest: JsonValue = JSON.parse(readFileSync(manifestPath, "utf-8"));
+
     if (isJsonObject(manifest) && manifest.name === PKG_NAME && isJsonString(manifest.version)) {
       return { root: dir, version: manifest.version };
     }
   }
+
   const parent = path.dirname(dir);
+
   if (parent === dir) {
     throw new Error(`No ${PKG_NAME} package.json above ${import.meta.filename}.`);
   }
+
   return findPackage(parent);
 };
 

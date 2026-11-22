@@ -23,34 +23,40 @@ export const HEADER = `${MARKER}
  * The generator emits each on a single line, so slicing by line is exact and
  * avoids brace-matching a few kB of inlined JSON.
  */
-export const dropUserDataAssignment = (source: string, prop: string): string => {
+export const dropUserDataAssignment = (source: string, prop: string) => {
   const marker = `.userData.${prop} = `;
   const out: string[] = [];
   let cursor = 0;
 
   for (;;) {
     const hit = source.indexOf(marker, cursor);
+
     if (hit === -1) {
       break;
     }
+
     const lineStart = source.lastIndexOf("\n", hit) + 1;
     const lineEnd = source.indexOf("\n", hit);
+
     if (lineEnd === -1) {
       break;
     }
+
     out.push(source.slice(cursor, lineStart));
     cursor = lineEnd + 1;
   }
 
   out.push(source.slice(cursor));
+
   return out.join("");
 };
 
-export const normalizeFactory = (source: string, keepActionProfile = false): string => {
+export const normalizeFactory = (source: string, keepActionProfile = false) => {
   let out = dropUserDataAssignment(source, "sculptComponent");
+
   if (!keepActionProfile) {
     out = dropUserDataAssignment(out, "actionProfile");
   }
-  // The header starts with MARKER, so a second pass is a no-op.
+
   return out.startsWith(MARKER) ? out : HEADER + out;
 };

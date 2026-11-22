@@ -19,13 +19,6 @@ import { ROAD_TILE, WORLD_H, WORLD_W } from "../shared/constants";
 import { CUSTOM_PROPS } from "../world/custom-props";
 import { loadLocalProps, parseMapFile, saveLocalProps } from "../world/map-file";
 
-// The map editor (?editor=1), battle-arena style: left roster of model
-// thumbnails (click one — it follows the cursor, click to stamp), right panel
-// with PROPS / STREETS / FLOOR tabs + an inspector for the selected prop.
-// EVERY edit auto-saves to this browser; SAVE downloads the one-file map
-// (load it in-game with ?map=<url>). Streets change the generated world, so
-// the STREETS tab has the one rebuild button; everything else is live.
-
 interface Entry {
   model: string;
   u: number;
@@ -77,21 +70,21 @@ const MINIMAP_FILL = new Map<string, string>([
   ["road", "#9aa0a8"],
 ]);
 
-const noop = (): void => {
-  /* empty */
-};
+const noop = () => null;
 
-const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
+const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
-const cellPairs = (set: Set<string>): [number, number][] =>
+const cellPairs: (set: Set<string>) => [number, number][] = (set) =>
   [...set].map((k) => {
     const [a, b] = k.split(",").map(Number);
+
     return [a ?? 0, b ?? 0];
   });
 
-const forEachCell = (keys: Iterable<string>, fn: (gx: number, gz: number) => void): void => {
+const forEachCell = (keys: Iterable<string>, fn: (gx: number, gz: number) => void) => {
   for (const k of keys) {
     const [gx, gz] = k.split(",").map(Number);
+
     if (gx !== undefined && gz !== undefined) {
       fn(gx, gz);
     }
@@ -99,10 +92,12 @@ const forEachCell = (keys: Iterable<string>, fn: (gx: number, gz: number) => voi
 };
 
 let styled = false;
-const injectStyle = (): void => {
+
+const injectStyle = () => {
   if (styled) {
     return;
   }
+
   styled = true;
   const s = document.createElement("style");
   s.textContent = `
@@ -146,46 +141,44 @@ const injectStyle = (): void => {
   document.head.append(s);
 };
 
-// Kit models arrive at wildly different native sizes — normalize each pick to
-// a sensible in-world default (adjust after with [ ] or the inspector).
-const defaultScale = (cat: string, size: THREE.Vector3): number => {
+const defaultScale = (cat: string, size: THREE.Vector3) => {
   if (cat === "buildings") {
     return clamp(8 / Math.max(size.x, size.z, 0.001), 0.5, 12);
   }
+
   if (cat === "characters") {
     return clamp(1.7 / Math.max(size.y, 0.001), 0.5, 6);
   }
+
   if (cat === "cars") {
     return 1;
   }
-  // props: trees/lamps etc read right around 3-4u tall
+
   return clamp(3.4 / Math.max(size.y, 0.001), 0.4, 6);
 };
 
-export const startEditor = async (
-  game: GameScene,
-  renderer: THREE.WebGLRenderer,
-): Promise<void> => {
+export const startEditor = async (game: GameScene, renderer: THREE.WebGLRenderer) => {
   const city = game.getCity();
+
   if (!city) {
     return;
   }
+
   const cache = game.getCache();
-  // The KayKit cars/extra props are in nobody's play preload — the roster is
-  // the only thing that can place them, so it fetches them itself.
-  await cache.preload(editorModelUrls(), () => {
-    /* empty */
-  });
+  await cache.preload(editorModelUrls(), () => null);
   const { camera } = game;
 
   game.freecam = true;
   game.enableEditorLighting();
+
   for (const id of ["hud", "banner", "legend", "touch", "loading"]) {
     const el = document.querySelector<HTMLElement>(`#${id}`);
+
     if (el) {
       el.style.display = "none";
     }
   }
+
   window.addEventListener(
     "keydown",
     (e) => {
@@ -208,16 +201,19 @@ export const startEditor = async (
   const raycaster = new THREE.Raycaster();
   const pointer = new THREE.Vector2();
 
-  // --- State ---
   let tab: Tab = "props";
   let streetErase = false;
+
   const placed: Placed[] = [...CUSTOM_PROPS, ...loadLocalProps()].map((p) => {
     const entry: Entry = { model: p.model, s: p.s, u: p.u, v: p.v, yaw: p.yaw };
+
     if (p.solid) {
       entry.solid = true;
     }
+
     return { baked: true, entry, node: null };
   });
+
   let selected: Placed | null = null;
   let selectedBox: THREE.BoxHelper | null = null;
   let palette: { cat: string; name: string } | null = null;
@@ -238,13 +234,14 @@ export const startEditor = async (
   const floorMap = new Map<string, FloorKind>(overrides.floor.map(([a, b, k]) => [`${a},${b}`, k]));
   const clearSet = new Set((overrides.clear ?? []).map(([a, b]) => `${a},${b}`));
 
-  // --- Cell preview quads (streets + floors) ---
   const quads = new Map<string, THREE.Object3D>();
   const quadGeo = new THREE.PlaneGeometry(ROAD_TILE * 0.94, ROAD_TILE * 0.94).rotateX(-Math.PI / 2);
   const quadMats = new Map<string, THREE.MeshBasicMaterial>();
-  const quadMat = (hex: number, opacity: number): THREE.MeshBasicMaterial => {
+
+  const quadMat = (hex: number, opacity: number) => {
     const k = `${hex},${opacity}`;
     let m = quadMats.get(k);
+
     if (!m) {
       m = new THREE.MeshBasicMaterial({
         color: hex,
@@ -254,28 +251,35 @@ export const startEditor = async (
       });
       quadMats.set(k, m);
     }
+
     return m;
   };
+
   const roadPadGeo = new THREE.PlaneGeometry(ROAD_TILE * 1.02, ROAD_TILE * 1.02).rotateX(
     -Math.PI / 2,
   );
+
   const dashGeo = new THREE.PlaneGeometry(1.1, ROAD_TILE * 0.86).rotateX(-Math.PI / 2);
-  const setQuad = (scope: "st" | "fl" | "cl", gx: number, gz: number, hex: number | null): void => {
+
+  const setQuad = (scope: "st" | "fl" | "cl", gx: number, gz: number, hex: number | null) => {
     const k = `${scope}:${gx},${gz}`;
     const prev = quads.get(k);
+
     if (prev) {
       game.scene.remove(prev);
       quads.delete(k);
     }
+
     if (hex === null) {
       return;
     }
+
     const x = (gx + 0.5) * ROAD_TILE - WORLD_W / 2;
     const z = (gz + 0.5) * ROAD_TILE - WORLD_H / 2;
     const y = city.heightAt(x, z);
     let m: THREE.Object3D;
+
     if (scope === "st" && hex === 0xd2_3f_34) {
-      // erased street: patch the cell with ground tones — reads as REMOVED
       const grp = new THREE.Group();
       const patch = new THREE.Mesh(roadPadGeo, quadMat(0x9a_9b_92, 1));
       patch.position.y = 0.62;
@@ -283,7 +287,6 @@ export const startEditor = async (
       grp.position.set(x, y, z);
       m = grp;
     } else if (scope === "st" && hex === 0x2f_bf_4f) {
-      // painted street: realtime road look (sidewalk pad + asphalt + dash)
       const grp = new THREE.Group();
       const pad = new THREE.Mesh(roadPadGeo, quadMat(0xb6_b9_b0, 0.95));
       pad.position.y = 0.5;
@@ -299,9 +302,11 @@ export const startEditor = async (
       quad.position.set(x, y + (scope === "st" ? 0.55 : 0.4), z);
       m = quad;
     }
+
     game.scene.add(m);
     quads.set(k, m);
   };
+
   forEachCell(addSet, (gx, gz) => {
     setQuad("st", gx, gz, 0x2f_bf_4f);
   });
@@ -312,19 +317,22 @@ export const startEditor = async (
     setQuad("cl", gx, gz, 0xe0_80_30);
   });
 
-  // --- UI ---
   injectStyle();
   const ui = document.createElement("div");
   ui.id = "cw-editor";
+
   const catTabs = CATEGORIES.map(
     (c, i) => `<button class="edc${i === 0 ? " on" : ""}" data-cat="${i}">${c.label}</button>`,
   ).join("");
+
   const floorButtons = (["plaza", "grass", "sand", "erase"] as const)
     .map((t) => {
       const hex = `#${FLOOR_COLORS[t].toString(16).padStart(6, "0")}`;
+
       return `<button class="edf${t === "plaza" ? " on" : ""}" data-floor="${t}"><i style="background:${hex}"></i>${t}</button>`;
     })
     .join("");
+
   ui.innerHTML = `
     <div class="ed-top">
       <span class="ed-logo">MAP EDITOR</span>
@@ -375,54 +383,68 @@ export const startEditor = async (
     <div class="ed-help">click prop = select · drag = move · Q/E rotate · [ ] scale · Del delete · Esc done · left-drag pan · RMB orbit · Z/X rotate · wheel zoom · WASD pan · edits auto-save</div>`;
   document.body.append(ui);
 
-  const $ = (id: string): HTMLElement => {
+  const $ = (id: string) => {
     const el = ui.querySelector(`#${id}`);
+
     if (!(el instanceof HTMLElement)) {
       throw new TypeError(`editor: missing #${id}`);
     }
+
     return el;
   };
-  const $input = (id: string): HTMLInputElement => {
+
+  const $input = (id: string) => {
     const el = $(id);
+
     if (!(el instanceof HTMLInputElement)) {
       throw new TypeError(`editor: #${id} is not an input`);
     }
+
     return el;
   };
 
   const inspector = $("ed-inspector");
-  const refreshInspector = (): void => {
+
+  const refreshInspector = () => {
     if (!selected) {
       inspector.style.display = "none";
+
       return;
     }
+
     inspector.style.display = "flex";
     $("ed-i-model").textContent = selected.entry.model;
     $input("ed-irot").value = String(Math.round((selected.entry.yaw * 180) / Math.PI));
     $input("ed-iscale").value = String(selected.entry.s);
     $input("ed-icol").checked = selected.entry.solid === true;
   };
-  const refreshStatus = (): void => {
+
+  const refreshStatus = () => {
     const st = [];
     st.push(`${placed.length} props`);
+
     if (addSet.size || removeSet.size) {
       st.push(`streets +${addSet.size} −${removeSet.size}`);
     }
+
     if (floorMap.size) {
       st.push(`floor ${floorMap.size}`);
     }
+
     if (streetsDirty) {
       st.push("● street rebuild pending…");
     }
+
     $("ed-status").textContent = st.join(" · ");
   };
 
-  // --- Auto-save: every mutation persists immediately ---
-  const saveNow = (): void => {
+  const saveNow = () => {
     const floor: [number, number, FloorKind][] = [...floorMap].map(([k, kind]) => {
       const [a, b] = k.split(",").map(Number);
+
       return [a ?? 0, b ?? 0, kind];
     });
+
     saveLocalOverrides({
       add: cellPairs(addSet),
       clear: cellPairs(clearSet),
@@ -433,56 +455,66 @@ export const startEditor = async (
     refreshStatus();
   };
 
-  // --- Selection ---
-  const deselect = (): void => {
+  const deselect = () => {
     if (selectedBox) {
       game.scene.remove(selectedBox);
       selectedBox = null;
     }
+
     selected = null;
     refreshInspector();
     refreshStatus();
   };
-  const select = (p: Placed): void => {
+
+  const select = (p: Placed) => {
     deselect();
     selected = p;
+
     if (p.node) {
       selectedBox = new THREE.BoxHelper(p.node, 0xff_d2_4a);
       game.scene.add(selectedBox);
     }
+
     refreshInspector();
     refreshStatus();
   };
-  const moveSelected = (x: number, z: number): void => {
+
+  const moveSelected = (x: number, z: number) => {
     if (!selected || !selected.node) {
       return;
     }
+
     selected.node.position.set(x, city.heightAt(x, z), z);
     selected.node.updateMatrixWorld(true);
     selected.entry.u = Math.round((x / WORLD_W + 0.5) * 10_000) / 10_000;
     selected.entry.v = Math.round((z / WORLD_H + 0.5) * 10_000) / 10_000;
     selectedBox?.update();
   };
-  const deleteSelected = (): void => {
+
+  const deleteSelected = () => {
     if (!selected) {
       return;
     }
+
     if (selected.node) {
       game.scene.remove(selected.node);
     }
+
     const i = placed.indexOf(selected);
+
     if (i !== -1) {
       placed.splice(i, 1);
     }
+
     deselect();
     saveNow();
   };
 
-  // Inspector bindings
   $("ed-irot").addEventListener("input", () => {
     if (!selected?.node) {
       return;
     }
+
     const deg = Number($input("ed-irot").value) || 0;
     selected.entry.yaw = Math.round(((deg * Math.PI) / 180) * 1000) / 1000;
     selected.node.rotation.y = selected.entry.yaw;
@@ -494,10 +526,13 @@ export const startEditor = async (
     if (!selected?.node) {
       return;
     }
+
     const v = Number($input("ed-iscale").value);
+
     if (!Number.isFinite(v) || v <= 0) {
       return;
     }
+
     selected.entry.s = Math.round(v * 100) / 100;
     selected.node.scale.setScalar(selected.entry.s);
     selected.node.updateMatrixWorld(true);
@@ -508,30 +543,35 @@ export const startEditor = async (
     if (!selected) {
       return;
     }
+
     if ($input("ed-icol").checked) {
       selected.entry.solid = true;
     } else {
       delete selected.entry.solid;
     }
+
     saveNow();
   });
   $("ed-idel").addEventListener("click", deleteSelected);
 
-  // --- Ghost (place-on-pick) ---
-  const clearGhost = (): void => {
+  const clearGhost = () => {
     if (ghost) {
       game.scene.remove(ghost);
     }
+
     ghost = null;
     palette = null;
+
     for (const b of ui.querySelectorAll(".edp")) {
       b.classList.remove("on");
     }
   };
-  const setGhost = (cat: string, name: string): void => {
+
+  const setGhost = (cat: string, name: string) => {
     if (ghost) {
       game.scene.remove(ghost);
     }
+
     deselect();
     palette = { cat, name };
     const url = modelUrl(cat, name);
@@ -549,18 +589,20 @@ export const startEditor = async (
     ghost.scale.setScalar(ghostScale);
     ghost.rotation.y = ghostYaw;
     game.scene.add(ghost);
+
     for (const b of ui.querySelectorAll(".edp")) {
       b.classList.toggle("on", b instanceof HTMLElement && b.dataset["model"] === `${cat}/${name}`);
     }
   };
 
-  // --- Roster: thumbnails + search + category tabs ---
   const thumbCache = new Map<string, string>();
+
   const thumbRenderer = new THREE.WebGLRenderer({
     alpha: true,
     antialias: true,
     preserveDrawingBuffer: true,
   });
+
   thumbRenderer.setSize(64, 64);
   const thumbScene = new THREE.Scene();
   thumbScene.add(new THREE.AmbientLight(0xff_ff_ff, 1.1));
@@ -568,12 +610,15 @@ export const startEditor = async (
   thumbSun.position.set(3, 6, 4);
   thumbScene.add(thumbSun);
   const thumbCam = new THREE.PerspectiveCamera(30, 1, 0.05, 2000);
-  const thumbnail = (cat: string, name: string): string => {
+
+  const thumbnail = (cat: string, name: string) => {
     const url = modelUrl(cat, name);
     const hit = thumbCache.get(url);
+
     if (hit) {
       return hit;
     }
+
     const node = cache.instance(url);
     thumbScene.add(node);
     const box = new THREE.Box3().setFromObject(node);
@@ -585,10 +630,11 @@ export const startEditor = async (
     const data = thumbRenderer.domElement.toDataURL();
     thumbScene.remove(node);
     thumbCache.set(url, data);
+
     return data;
   };
 
-  const togglePalette = (cat: string, name: string): void => {
+  const togglePalette = (cat: string, name: string) => {
     if (palette?.name === name && palette.cat === cat) {
       clearGhost();
     } else {
@@ -598,17 +644,22 @@ export const startEditor = async (
 
   let activeCat = 0;
   const list = $("ed-list");
-  const renderList = (): void => {
+
+  const renderList = () => {
     list.replaceChildren();
     const c = CATEGORIES[activeCat];
+
     if (!c) {
       return;
     }
+
     const q = ($input("ed-search").value ?? "").trim().toLowerCase();
+
     for (const name of c.names) {
       if (q && !name.toLowerCase().includes(q)) {
         continue;
       }
+
       const btn = document.createElement("button");
       btn.className = `edp${palette?.name === name && palette.cat === c.cat ? " on" : ""}`;
       btn.dataset["model"] = `${c.cat}/${name}`;
@@ -623,18 +674,23 @@ export const startEditor = async (
       list.append(btn);
     }
   };
-  const selectCategory = (btn: HTMLButtonElement): void => {
+
+  const selectCategory = (btn: HTMLButtonElement) => {
     activeCat = Number(btn.dataset["cat"]) || 0;
+
     for (const b of ui.querySelectorAll(".edc")) {
       b.classList.toggle("on", b === btn);
     }
+
     renderList();
   };
+
   for (const btn of ui.querySelectorAll<HTMLButtonElement>(".edc")) {
     btn.addEventListener("click", () => {
       selectCategory(btn);
     });
   }
+
   $("ed-search").addEventListener("input", renderList);
   renderList();
 
@@ -642,28 +698,33 @@ export const startEditor = async (
   hoverQuad.visible = false;
   game.scene.add(hoverQuad);
 
-  // --- Tabs ---
-  const setTab = (t: Tab): void => {
+  const setTab = (t: Tab) => {
     tab = t;
+
     for (const b of ui.querySelectorAll<HTMLButtonElement>(".edt")) {
       b.classList.toggle("on", b.dataset["tab"] === t);
     }
+
     $("ed-body-props").style.display = t === "props" ? "flex" : "none";
     $("ed-body-streets").style.display = t === "streets" ? "flex" : "none";
     $("ed-body-floor").style.display = t === "floor" ? "flex" : "none";
     $("ed-body-clear").style.display = t === "clear" ? "flex" : "none";
     controls.enablePan = t === "props";
+
     if (t !== "props") {
       clearGhost();
     }
+
     hoverQuad.visible = false;
   };
+
   for (const btn of ui.querySelectorAll<HTMLButtonElement>(".edt")) {
     btn.addEventListener("click", () => {
       const t = btn.dataset["tab"];
       setTab(t === "props" || t === "streets" || t === "floor" || t === "clear" ? t : "props");
     });
   }
+
   $("ed-st-paint").addEventListener("click", () => {
     streetErase = false;
     $("ed-st-paint").classList.add("on");
@@ -678,79 +739,98 @@ export const startEditor = async (
     saveNow();
     window.location.reload();
   });
-  const selectFloor = (btn: HTMLButtonElement): void => {
+
+  const selectFloor = (btn: HTMLButtonElement) => {
     const f = btn.dataset["floor"];
     floorKind = f === "plaza" || f === "grass" || f === "sand" || f === "erase" ? f : "plaza";
+
     for (const b of ui.querySelectorAll(".edf")) {
       b.classList.toggle("on", b === btn);
     }
   };
+
   for (const btn of ui.querySelectorAll<HTMLButtonElement>(".edf")) {
     btn.addEventListener("click", () => {
       selectFloor(btn);
     });
   }
 
-  // --- Raycast helpers ---
-  const castFrom = (e: PointerEvent): void => {
+  const castFrom = (e: PointerEvent) => {
     pointer.set((e.clientX / window.innerWidth) * 2 - 1, -(e.clientY / window.innerHeight) * 2 + 1);
     raycaster.setFromCamera(pointer, camera);
   };
-  const groundPoint = (e: PointerEvent): THREE.Vector3 | null => {
+
+  const groundPoint = (e: PointerEvent) => {
     if (!ground) {
       return null;
     }
+
     castFrom(e);
     const [hit] = raycaster.intersectObject(ground, true);
+
     return hit ? hit.point : null;
   };
-  const groundCell = (e: PointerEvent): [number, number] | null => {
+
+  const groundCell: (e: PointerEvent) => [number, number] | null = (e) => {
     const p = groundPoint(e);
+
     if (!p) {
       return null;
     }
+
     return [
       Math.floor((p.x + WORLD_W / 2) / ROAD_TILE),
       Math.floor((p.z + WORLD_H / 2) / ROAD_TILE),
     ];
   };
-  const pickProp = (e: PointerEvent): Placed | null => {
+
+  const pickProp = (e: PointerEvent) => {
     castFrom(e);
     const nodes: THREE.Object3D[] = [];
+
     for (const p of placed) {
       if (p.node) {
         nodes.push(p.node);
       }
     }
+
     if (nodes.length === 0) {
       return null;
     }
+
     const [hit] = raycaster.intersectObjects(nodes, true);
+
     if (!hit) {
       return null;
     }
+
     let cur: THREE.Object3D | null = hit.object;
+
     while (cur) {
       const node = cur;
       const found = placed.find((p) => p.node === node);
+
       if (found) {
         return found;
       }
+
       cur = cur.parent;
     }
+
     return null;
   };
 
-  // --- Live floor recolor: paint terrain vertex colors in-place ---
   const floorPaintColors = {
     grass: 0x67_a8_6b,
     plaza: 0xd8_da_d2,
     sand: 0xd9_c4_89,
   } satisfies Record<FloorKind, number>;
+
   interface GroundGeo {
     geo: THREE.BufferGeometry;
     original: Float32Array;
   }
+
   const groundGeos: GroundGeo[] = [];
   {
     const seen = new Set<THREE.BufferGeometry>();
@@ -758,6 +838,7 @@ export const startEditor = async (
       if (o.name !== "terrain-ground") {
         return;
       }
+
       o.traverse((c) => {
         if (
           c instanceof THREE.Mesh &&
@@ -765,6 +846,7 @@ export const startEditor = async (
           !seen.has(c.geometry)
         ) {
           const col = c.geometry.getAttribute("color");
+
           if (col instanceof THREE.BufferAttribute && col.array instanceof Float32Array) {
             seen.add(c.geometry);
             groundGeos.push({ geo: c.geometry, original: new Float32Array(col.array) });
@@ -773,52 +855,63 @@ export const startEditor = async (
       });
     });
   }
-  const recolorCell = (gx: number, gz: number, kind: FloorKind | null): void => {
+
+  const recolorCell = (gx: number, gz: number, kind: FloorKind | null) => {
     const x0 = gx * ROAD_TILE - WORLD_W / 2;
     const z0 = gz * ROAD_TILE - WORLD_H / 2;
     const tint = kind === null ? null : new THREE.Color(floorPaintColors[kind]);
+
     for (const { geo, original } of groundGeos) {
       const pos = geo.getAttribute("position");
       const col = geo.getAttribute("color");
+
       if (!(pos instanceof THREE.BufferAttribute) || !(col instanceof THREE.BufferAttribute)) {
         continue;
       }
+
       let touched = false;
+
       for (let i = 0; i < pos.count; i += 1) {
         const vx = pos.getX(i);
         const vz = pos.getZ(i);
+
         if (vx < x0 || vx > x0 + ROAD_TILE || vz < z0 || vz > z0 + ROAD_TILE) {
           continue;
         }
+
         touched = true;
+
         if (tint) {
           col.setXYZ(i, tint.r, tint.g, tint.b);
         } else {
           col.setXYZ(i, original[i * 3] ?? 0, original[i * 3 + 1] ?? 0, original[i * 3 + 2] ?? 0);
         }
       }
+
       if (touched) {
         col.needsUpdate = true;
       }
     }
   };
+
   for (const [k, kind] of floorMap) {
     const [gx, gz] = k.split(",").map(Number);
+
     if (gx !== undefined && gz !== undefined) {
       recolorCell(gx, gz, kind);
     }
   }
 
-  const orbitBy = (angle: number): void => {
+  const orbitBy = (angle: number) => {
     const off = new THREE.Vector3().subVectors(camera.position, controls.target);
     off.applyAxisAngle(new THREE.Vector3(0, 1, 0), angle);
     camera.position.copy(controls.target).add(off);
     camera.lookAt(controls.target);
   };
 
-  // --- Top bar: save/load/clear ---
-  const buildMapFile = (): string => {
+  const buildMapFile = () => {
     const floor = [...floorMap].map(([k, kind]) => [...k.split(",").map(Number), kind]);
+
     return JSON.stringify(
       {
         clear: cellPairs(clearSet),
@@ -831,6 +924,7 @@ export const startEditor = async (
       1,
     );
   };
+
   $("ed-save").addEventListener("click", () => {
     saveNow();
     const a = document.createElement("a");
@@ -841,14 +935,18 @@ export const startEditor = async (
   $("ed-loadbtn").addEventListener("click", () => $("ed-file").click());
   $("ed-file").addEventListener("change", async () => {
     const input = $("ed-file");
+
     if (!(input instanceof HTMLInputElement) || !input.files?.[0]) {
       return;
     }
+
     try {
       const parsed = parseMapFile(JSON.parse(await input.files[0].text()));
+
       if (!parsed) {
         return;
       }
+
       saveLocalOverrides({
         add: parsed.streets.add,
         clear: parsed.clear ?? [],
@@ -856,10 +954,9 @@ export const startEditor = async (
         remove: parsed.streets.remove,
       });
       saveLocalProps(parsed.props);
-      // rebuild the world from the loaded file
       window.location.reload();
-    } catch {
-      // bad file — current session untouched
+    } catch (error) {
+      console.warn("[editor] map file not loaded", error);
     }
   });
   $("ed-clear-props").addEventListener("click", () => {
@@ -868,6 +965,7 @@ export const startEditor = async (
         game.scene.remove(p.node);
       }
     }
+
     placed.length = 0;
     deselect();
     saveNow();
@@ -877,24 +975,27 @@ export const startEditor = async (
   $("ed-clear-map").addEventListener("click", () => {
     for (const k of floorMap.keys()) {
       const [gx, gz] = k.split(",").map(Number);
+
       if (gx !== undefined && gz !== undefined) {
         recolorCell(gx, gz, null);
       }
     }
+
     addSet.clear();
     removeSet.clear();
     floorMap.clear();
     clearSet.clear();
+
     for (const [, m] of quads) {
       game.scene.remove(m);
     }
+
     quads.clear();
     streetsDirty = true;
     saveNow();
   });
 
-  // --- World spawning ---
-  const spawn = (entry: Entry): THREE.Object3D => {
+  const spawn = (entry: Entry) => {
     const parts = entry.model.split("/");
     const node = cache.instance(modelUrl(parts[0] ?? "props", parts[1] ?? ""));
     node.scale.setScalar(entry.s);
@@ -903,12 +1004,15 @@ export const startEditor = async (
     const z = (entry.v - 0.5) * WORLD_H;
     node.position.set(x, city.heightAt(x, z), z);
     game.scene.add(node);
+
     return node;
   };
-  const stampAt = (x: number, z: number): void => {
+
+  const stampAt = (x: number, z: number) => {
     if (!palette) {
       return;
     }
+
     const entry: Entry = {
       model: `${palette.cat}/${palette.name}`,
       s: Math.round(ghostScale * 100) / 100,
@@ -916,35 +1020,41 @@ export const startEditor = async (
       v: Math.round((z / WORLD_H + 0.5) * 10_000) / 10_000,
       yaw: Math.round(ghostYaw * 1000) / 1000,
     };
+
     placed.push({ baked: false, entry, node: spawn(entry) });
     saveNow();
   };
 
-  // --- Street + floor painting ---
-  const isRoadCell = (gx: number, gz: number): boolean => {
+  const isRoadCell = (gx: number, gz: number) => {
     const col = city.plan.cells[gx];
+
     return col !== undefined && col[gz] === "road";
   };
+
   let refreshMinimapBase: () => void = noop;
   let streetTimer: number | undefined;
-  const scheduleStreetRebuild = (): void => {
+
+  const scheduleStreetRebuild = () => {
     window.clearTimeout(streetTimer);
     streetTimer = window.setTimeout(() => {
       game.rebuildStreets();
-      // the road is real now — the interim previews can go
+
       for (const [k, m] of quads) {
         if (k.startsWith("st:")) {
           game.scene.remove(m);
           quads.delete(k);
         }
       }
+
       refreshMinimapBase();
       streetsDirty = false;
       refreshStatus();
     }, 900);
   };
-  const paintStreet = (gx: number, gz: number, erase: boolean): void => {
+
+  const paintStreet = (gx: number, gz: number, erase: boolean) => {
     const k = `${gx},${gz}`;
+
     if (!erase) {
       if (removeSet.has(k)) {
         removeSet.delete(k);
@@ -960,12 +1070,15 @@ export const startEditor = async (
       removeSet.add(k);
       setQuad("st", gx, gz, 0xd2_3f_34);
     }
+
     streetsDirty = true;
     saveNow();
     scheduleStreetRebuild();
   };
-  const paintClear = (gx: number, gz: number): void => {
+
+  const paintClear = (gx: number, gz: number) => {
     const k = `${gx},${gz}`;
+
     if (clearSet.has(k)) {
       clearSet.delete(k);
       setQuad("cl", gx, gz, null);
@@ -973,10 +1086,13 @@ export const startEditor = async (
       clearSet.add(k);
       setQuad("cl", gx, gz, 0xe0_80_30);
     }
+
     saveNow();
   };
-  const paintFloor = (gx: number, gz: number): void => {
+
+  const paintFloor = (gx: number, gz: number) => {
     const k = `${gx},${gz}`;
+
     if (floorKind === "erase") {
       floorMap.delete(k);
       recolorCell(gx, gz, null);
@@ -984,27 +1100,34 @@ export const startEditor = async (
       floorMap.set(k, floorKind);
       recolorCell(gx, gz, floorKind);
     }
+
     saveNow();
   };
 
-  // --- Hover preview (streets/floor): a translucent cell follows the cursor ---
-  const updateHover = (e: PointerEvent): void => {
+  const updateHover = (e: PointerEvent) => {
     if (tab !== "streets" && tab !== "floor" && tab !== "clear") {
       hoverQuad.visible = false;
+
       return;
     }
+
     const cell = groundCell(e);
+
     if (!cell) {
       hoverQuad.visible = false;
+
       return;
     }
+
     const [gx, gz] = cell;
     let hex = FLOOR_COLORS[floorKind];
+
     if (tab === "streets") {
       hex = streetErase ? 0xd2_3f_34 : 0x2f_bf_4f;
     } else if (tab === "clear") {
       hex = 0xe0_80_30;
     }
+
     hoverQuad.material = quadMat(hex, 0.45);
     const x = (gx + 0.5) * ROAD_TILE - WORLD_W / 2;
     const z = (gz + 0.5) * ROAD_TILE - WORLD_H / 2;
@@ -1012,90 +1135,121 @@ export const startEditor = async (
     hoverQuad.visible = true;
   };
 
-  // --- Pointer flow ---
   const dom = renderer.domElement;
   dom.addEventListener("pointerdown", (e) => {
     if (e.button !== 0) {
       return;
     }
+
     if (tab === "streets") {
       const cell = groundCell(e);
+
       if (cell) {
         paintStreet(cell[0], cell[1], streetErase);
       }
+
       paintDrag = true;
+
       return;
     }
+
     if (tab === "floor") {
       const cell = groundCell(e);
+
       if (cell) {
         paintFloor(cell[0], cell[1]);
       }
+
       paintDrag = true;
+
       return;
     }
+
     if (tab === "clear") {
       const cell = groundCell(e);
+
       if (cell) {
         paintClear(cell[0], cell[1]);
       }
+
       paintDrag = true;
+
       return;
     }
-    // props tab: picking an existing prop wins over placing a new one.
+
     const hit = pickProp(e);
+
     if (hit && hit.node) {
       select(hit);
       moveDrag = true;
       controls.enabled = false;
+
       return;
     }
+
     if (ghost && ghostOnGround) {
       stampAt(ghostPos.x, ghostPos.z);
       stampLast = { x: ghostPos.x, z: ghostPos.z };
       paintDrag = true;
       controls.enabled = false;
+
       return;
     }
+
     deselect();
   });
   dom.addEventListener("pointermove", (e) => {
     updateHover(e);
+
     if (moveDrag && selected) {
       const p = groundPoint(e);
+
       if (p) {
         moveSelected(p.x, p.z);
       }
+
       return;
     }
+
     // oxlint-disable-next-line no-bitwise -- PointerEvent.buttons is a bitmask; bit 0 is the primary button
     if (paintDrag && (e.buttons & 1) === 1) {
       if (tab === "streets") {
         const cell = groundCell(e);
+
         if (cell) {
           paintStreet(cell[0], cell[1], streetErase);
         }
+
         return;
       }
+
       if (tab === "floor") {
         const cell = groundCell(e);
+
         if (cell) {
           paintFloor(cell[0], cell[1]);
         }
+
         return;
       }
+
       if (tab === "clear") {
         const cell = groundCell(e);
+
         if (cell) {
           paintClear(cell[0], cell[1]);
         }
+
         return;
       }
+
       if (ghost && stampLast) {
         const p = groundPoint(e);
+
         if (p) {
           const box = new THREE.Box3().setFromObject(ghost);
           const spacing = Math.max(2.4, (box.max.x - box.min.x) * 1.1);
+
           if (Math.hypot(p.x - stampLast.x, p.z - stampLast.z) >= spacing) {
             stampAt(p.x, p.z);
             stampLast = { x: p.x, z: p.z };
@@ -1103,8 +1257,10 @@ export const startEditor = async (
         }
       }
     }
+
     if (tab === "props" && ghost) {
       const p = groundPoint(e);
+
       if (p) {
         ghostPos = p;
         ghost.position.set(p.x, city.heightAt(p.x, p.z), p.z);
@@ -1116,27 +1272,30 @@ export const startEditor = async (
     if (moveDrag && selected) {
       saveNow();
     }
+
     paintDrag = false;
     moveDrag = false;
     stampLast = null;
     controls.enabled = true;
   });
 
-  // --- Keyboard ---
-  const panCamera = (dx: number, dz: number): void => {
+  const panCamera = (dx: number, dz: number) => {
     const dist = camera.position.distanceTo(controls.target);
     const step = Math.max(6, dist * 0.05);
     const fwd = new THREE.Vector3().subVectors(controls.target, camera.position);
     fwd.y = 0;
     fwd.normalize();
     const right = new THREE.Vector3(-fwd.z, 0, fwd.x);
+
     const move = new THREE.Vector3()
       .addScaledVector(right, dx * step)
       .addScaledVector(fwd, -dz * step);
+
     camera.position.add(move);
     controls.target.add(move);
   };
-  const rotateBy = (d: number): void => {
+
+  const rotateBy = (d: number) => {
     if (selected?.node) {
       selected.entry.yaw = Math.round((selected.entry.yaw + d) * 1000) / 1000;
       selected.node.rotation.y = selected.entry.yaw;
@@ -1144,14 +1303,18 @@ export const startEditor = async (
       selectedBox?.update();
       refreshInspector();
       saveNow();
+
       return;
     }
+
     ghostYaw += d;
+
     if (ghost) {
       ghost.rotation.y = ghostYaw;
     }
   };
-  const scaleBy = (f: number): void => {
+
+  const scaleBy = (f: number) => {
     if (selected?.node) {
       selected.entry.s = Math.round(Math.max(0.1, Math.min(20, selected.entry.s * f)) * 100) / 100;
       selected.node.scale.setScalar(selected.entry.s);
@@ -1159,27 +1322,37 @@ export const startEditor = async (
       selectedBox?.update();
       refreshInspector();
       saveNow();
+
       return;
     }
+
     ghostScale = Math.max(0.1, Math.min(20, ghostScale * f));
+
     if (ghost) {
       ghost.scale.setScalar(ghostScale);
     }
   };
+
   window.addEventListener("keydown", (e) => {
     if (document.activeElement instanceof HTMLInputElement) {
       return;
     }
+
     const k = e.key.toLowerCase();
     const pan = PAN_BY_KEY.get(k);
+
     if (pan) {
       panCamera(...pan);
+
       return;
     }
+
     if (k === "z" || k === "x") {
       orbitBy(k === "z" ? Math.PI / 12 : -Math.PI / 12);
+
       return;
     }
+
     if (k === "q" || k === "e") {
       rotateBy((k === "q" ? 1 : -1) * (Math.PI / 8));
     } else if (k === "[" || k === "]") {
@@ -1197,11 +1370,11 @@ export const startEditor = async (
     }
   });
 
-  // --- Minimap: plan overview, camera marker, click to jump ---
   {
     const mmEl = $("ed-minimap");
     const mm = mmEl instanceof HTMLCanvasElement ? mmEl : null;
     const mctx = mm ? mm.getContext("2d") : null;
+
     if (mm && mctx) {
       const { cells } = city.plan;
       const nx = cells.length;
@@ -1210,17 +1383,21 @@ export const startEditor = async (
       base.width = mm.width;
       base.height = mm.height;
       const bctx = base.getContext("2d");
-      const drawBase = (): void => {
+
+      const drawBase = () => {
         if (!bctx) {
           return;
         }
-        // re-read: live rebuild replaces the plan
+
         const cur = city.plan.cells;
+
         for (let gx = 0; gx < nx; gx += 1) {
           const col = cur[gx];
+
           if (!col) {
             continue;
           }
+
           for (let gz = 0; gz < nz; gz += 1) {
             bctx.fillStyle = MINIMAP_FILL.get(col[gz] ?? "") ?? "#39503b";
             bctx.fillRect(
@@ -1232,11 +1409,12 @@ export const startEditor = async (
           }
         }
       };
+
       drawBase();
       refreshMinimapBase = drawBase;
-      const draw = (): void => {
+
+      const draw = () => {
         mctx.drawImage(base, 0, 0);
-        // camera target marker
         const u = controls.target.x / WORLD_W + 0.5;
         const v = controls.target.z / WORLD_H + 0.5;
         mctx.strokeStyle = "#ffd24a";
@@ -1244,6 +1422,7 @@ export const startEditor = async (
         mctx.strokeRect(u * mm.width - 4, v * mm.height - 4, 8, 8);
         requestAnimationFrame(draw);
       };
+
       draw();
       mm.addEventListener("pointerdown", (e) => {
         const r = mm.getBoundingClientRect();

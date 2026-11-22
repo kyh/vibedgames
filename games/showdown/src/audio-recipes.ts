@@ -1,8 +1,3 @@
-// Every sound effect is synthesised on the fly from two primitives: a swept
-// oscillator and a filtered burst of white noise. Each recipe takes the
-// distance-attenuated loudness of the event; UI cues (ready, count, go, win,
-// lose, click) ignore it and always play at full volume.
-
 export interface Synth {
   noise: (
     filter: BiquadFilterType,

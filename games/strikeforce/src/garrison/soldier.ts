@@ -1,6 +1,3 @@
-// One of the garrison's soldiers as the core sees an enemy: a kind, a position,
-// alive or not, and `damage()` for the player's shots and blasts. The brain
-// decides what it does; the model shows it.
 import { Vector3 } from "three";
 
 import type { Enemy } from "../core/types";
@@ -9,10 +6,6 @@ import type { Orders, World } from "../soldier/soldier-brain";
 import type { SoldierModel } from "../soldier/soldier-model";
 import type { Fielded, Role } from "./roles";
 
-/**
- * A rifle headshot (26, the core's ×2.2 for a weak point, then this) drops a
- * rifleman on every difficulty (Brutal's is 133); a heavy's helmet takes two.
- */
 const HEADSHOT_BONUS = 2.5;
 
 export interface SoldierEvents {
@@ -53,28 +46,32 @@ export class Soldier implements Enemy {
     this.events = events;
   }
 
-  get pos(): Vector3 {
+  get pos() {
     return this.brain.pos;
   }
 
-  damage(amount: number, point: Vector3, dir: Vector3, part: string): boolean {
+  damage(amount: number, point: Vector3, dir: Vector3, part: string) {
     if (!this.alive) {
       return false;
     }
+
     this.hp -= part === "weak" ? amount * HEADSHOT_BONUS : amount;
     this.model.hit(point, dir);
+
     if (this.hp > 0) {
-      // A hit comes from back along the shot.
       this.events.hurt(this, point.clone().addScaledVector(dir, -20));
+
       return false;
     }
+
     this.alive = false;
     this.events.killed(this);
+
     return true;
   }
 
   /** Down: hand back any right to fire. */
-  standDown(orders: Orders): void {
+  standDown(orders: Orders) {
     this.brain.stop(orders);
   }
 }

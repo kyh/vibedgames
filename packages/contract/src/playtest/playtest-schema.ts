@@ -50,8 +50,6 @@ export const decideInput = z.object({
       (questions) => Object.keys(questions).length <= MAX_QUESTIONS,
       `at most ${MAX_QUESTIONS} questions`,
     ),
-  // Any JSON. Size-checked in the handler, where the bytes are what matter
-  // rather than the shape.
   state: stateSchema,
 });
 

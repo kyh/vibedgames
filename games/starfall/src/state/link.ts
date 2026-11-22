@@ -1,5 +1,4 @@
 import { MultiplayerClient } from "@vibedgames/multiplayer";
-import type { JsonRecord, PlayerMap } from "@vibedgames/multiplayer";
 import type { WireRecord, WireValue } from "../net/wire-read";
 import { now as simNow } from "../shared/clock";
 import { INTEREST_RADIUS, OFFLINE_FALLBACK_MS } from "../shared/constants";
@@ -78,7 +77,7 @@ export class Link {
    *  rendered frames, the SDK goes offline and the scene seeds a solo arena.
    *  Until then a refused handshake (cold server, wifi blip) is only
    *  retried; once admitted, a drop reconnects and never falls back. */
-  connect(options: ConnectOptions): void {
+  connect(options: ConnectOptions) {
     const client = new MultiplayerClient({
       fallbackMs: OFFLINE_FALLBACK_MS,
       host: options.host,
@@ -90,55 +89,56 @@ export class Link {
       party: "vg-server",
       room: options.room,
     });
+
     this.client = client;
     let status = client.connectionStatus;
     client.subscribe(() => {
       const was = status;
       status = client.connectionStatus;
+
       if (was === "reconnecting" && status === "connected") {
         options.onReadmitted?.();
       }
+
       options.onUpdate();
     });
   }
 
   /** Leave the room for a solo arena (refresh to go online again). */
-  goOffline(): void {
+  goOffline() {
     this.client?.goOffline();
   }
 
-  destroy(): void {
+  destroy() {
     this.client?.destroy();
   }
 
   /** A local room of one: by intent, after the fallback, or goOffline. */
-  get offline(): boolean {
+  get offline() {
     return this.client?.connectionStatus === "offline";
   }
 
-  /** Server time is known: a clock probe has answered, or this client is
-   *  offline, where the local clock is the room's. Stamps are taken in it. */
-  private get clockSynced(): boolean {
+  private get clockSynced() {
     return this.client?.serverClock.synced === true;
   }
 
   /** In the room with its clock measured. Everything on the wire is stamped
    *  with server time, so nothing goes out — and no snapshot is read — before
    *  the first clock probe answers, about one round trip after admission. */
-  get connected(): boolean {
+  get connected() {
     return this.client?.connectionStatus === "connected" && this.clockSynced;
   }
 
   /** Server time at local `performance.now()` time `localNow`: the room's
    *  shared clock, so a stamp means the same instant to every client, whoever
    *  hosts. Offline, where nothing is stamped, the local clock. */
-  serverNow(localNow: number = performance.now()): number {
+  serverNow(localNow: number = performance.now()) {
     return this.client?.serverNow(localNow) ?? localNow;
   }
 
   /** Server time at the sim-clock instant `simT` (shared/clock.ts): online
    *  the sim clock never pauses, so the two tick together. */
-  serverAt(simT: number): number {
+  serverAt(simT: number) {
     return this.serverNow() + (simT - simNow());
   }
 
@@ -147,7 +147,7 @@ export class Link {
    *  frozen arena); readmission reconciles it. Admitted but still waiting on
    *  the first clock probe is not live yet: nothing is stamped or read
    *  before the room clock is measured. */
-  get live(): boolean {
+  get live() {
     return this.clockSynced && this.client?.connectionStatus !== "connecting";
   }
 
@@ -157,11 +157,11 @@ export class Link {
    *  rewinding to the server's last snapshot. If the server migrated host
    *  meanwhile, `sync` flips isHost and prepareHost demotes us — a former
    *  host never re-adopts its own stale snapshot. */
-  get amHost(): boolean {
+  get amHost() {
     return this.live && this.client?.isHost === true;
   }
 
-  get myId(): string | null {
+  get myId() {
     return this.client?.playerId ?? null;
   }
 
@@ -169,18 +169,18 @@ export class Link {
    *  `id === myId` render path (ship gfx, shield ring, impact arcs, twin
    *  drone, windup glow, nitro trail, minimap own-dot) runs solo as online.
    *  Trailer scenes swap in a fake peer map (staged local "remotes"). */
-  get peers(): PlayerMap {
+  get peers() {
     return this.trailer?.peers ?? this.client?.players ?? {};
   }
 
   /** The room's shared snapshot as the SDK holds it (null before connect).
    *  Identity changes exactly when a real state patch lands. */
-  get sharedState(): JsonRecord | null {
+  get sharedState() {
     return this.client?.sharedState ?? null;
   }
 
   /** Raw SDK client for the DEV harness only (`__starfall.client`). */
-  get rawClient(): MultiplayerClient | null {
+  get rawClient() {
     return this.client;
   }
 
@@ -188,7 +188,7 @@ export class Link {
    *  it to the inbox right here, with no round trip through the server. A
    *  guest sends nothing while dropped: the socket would queue a batch every
    *  frame and replay the backlog on reconnect, against a world gone by. */
-  toHost(event: string, payload: WireRecord): void {
+  toHost(event: string, payload: WireRecord) {
     if (this.amHost || this.connected) {
       this.client?.sendToHost(event, payload);
     }
@@ -196,15 +196,16 @@ export class Link {
 
   /** Something that happened to me, for everyone else (shots, deaths). Not
    *  sent while dropped (see `toHost`): a shot is only news when it's fired. */
-  broadcast(event: string, payload: WireRecord): void {
+  broadcast(event: string, payload: WireRecord) {
     const me = this.client?.playerId;
+
     if (me && this.connected) {
       this.client?.sendEvent(event, payload, { except: me });
     }
   }
 
   /** An event for one player. Not sent while dropped (see `toHost`). */
-  sendTo(id: string, event: string, payload: WireRecord): void {
+  sendTo(id: string, event: string, payload: WireRecord) {
     if (this.connected) {
       this.client?.sendEvent(event, payload, { to: id });
     }
@@ -214,14 +215,14 @@ export class Link {
    *  down the SDK keeps the patch and sends nothing; readmitted as host, it
    *  re-sends every key the server holds differently, so guests catch up on
    *  whatever changed in the drop. */
-  patchShared(patch: WireRecord): void {
+  patchShared(patch: WireRecord) {
     this.client?.updateSharedState(patch);
   }
 
   /** Claims can be made: online and connected, or offline. While the link is
    *  down a claim would wait in the socket past its pickup's pending window
    *  (sys/pickups.ts), so nothing is claimed until it is back. */
-  get canClaim(): boolean {
+  get canClaim() {
     return this.offline || this.connected;
   }
 
@@ -229,19 +230,19 @@ export class Link {
    *  hop for every client alike, the host included; `onClaim` hears the
    *  answer. It lapses after `ttlMs`. Offline nobody contends: the SDK grants
    *  it before this returns. Only while `canClaim`. */
-  claim(key: string, ttlMs: number): void {
+  claim(key: string, ttlMs: number) {
     this.client?.claim(key, { ttlMs: Math.max(1, Math.round(ttlMs)) });
   }
 
   /** Someone holds `key` (offline that is me, until the claim lapses). */
-  claimed(key: string): boolean {
+  claimed(key: string) {
     return (this.client?.ownerOf(key) ?? null) !== null;
   }
 
   /** My state push (flat primitives; unchanged keys stay off the wire). It is
    *  stamped with server time, so it waits for the clock; while the link is
    *  down the SDK keeps the latest and sends it on readmission. */
-  pushMyState(state: WireRecord): void {
+  pushMyState(state: WireRecord) {
     if (this.clockSynced) {
       this.client?.updateMyState(state);
     }

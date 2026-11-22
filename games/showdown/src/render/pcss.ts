@@ -1,17 +1,7 @@
-// Percentage-closer soft shadows, spliced into three's shadow-map shader chunk.
-// The stock chunk picks between PCF, VSM and a basic single-tap lookup at
-// compile time; this replaces the basic branch, so `BasicShadowMap` (no
-// hardware filtering) plus our own blocker search and variable-width filter
-// gives sun and lamp shadows a contact-hardening penumbra.
-//
-// `shadowRadius` is repurposed as a packed parameter: its integer part is the
-// sample tier (0-3), the fraction the softness, and a negative sign marks a
-// perspective (lamp) light whose depth must be linearised first.
 import { ShaderChunk } from "three";
 import { LAMP } from "../config";
 
-// oxlint-disable-next-line no-inline-comments -- the /* glsl */ tag must sit on the template line for editor shader highlighting
-const PCSS_SHADOW_CHUNK = /* glsl */ `
+const PCSS_SHADOW_CHUNK = `
 
 		#define PCSS_SUN_DEPTH_SOFTNESS ${(120 * 0.085 * 0.5).toFixed(4)}
 		#define PCSS_SUN_MAX_WORLD ${(0.2).toFixed(4)}
@@ -134,57 +124,53 @@ const PCSS_SHADOW_CHUNK = /* glsl */ `
 
 `;
 
-interface ChunkRange {
-  end: number;
-  start: number;
-}
-
 const VSM_BRANCH = "#elif defined( SHADOWMAP_TYPE_VSM )";
 const GET_SHADOW_SIGNATURE = "float getShadow( sampler2D shadowMap";
 
-// Locate the basic-lookup `getShadow` inside the shadow chunk: from the end of
-// the `#else` line that follows the VSM `#elif` (skipping any nested
-// preprocessor blocks) up to the matching `#endif`.
-const findVsmBranch = (source: string): ChunkRange | undefined => {
+const findVsmBranch = (source: string) => {
   const branchAt = source.indexOf(VSM_BRANCH);
+
   if (branchAt === -1) {
-    return undefined;
+    return;
   }
+
   const DIRECTIVE = /#[ \t]*(?<word>ifdef|ifndef|if|elif|else|endif)\b/gu;
   DIRECTIVE.lastIndex = branchAt + 5;
   let depth = 0;
   let start = -1;
   let match = DIRECTIVE.exec(source);
+
   while (match !== null) {
     const word = match.groups?.word;
+
     if (word === "if" || word === "ifdef" || word === "ifndef") {
       depth += 1;
     } else if (word === "endif") {
       if (depth === 0) {
         if (start === -1) {
-          return undefined;
+          return;
         }
+
         return source.slice(start, match.index).includes(GET_SHADOW_SIGNATURE)
           ? { end: match.index, start }
           : undefined;
       }
+
       depth -= 1;
     } else if (word === "else" && depth === 0 && start < 0) {
       const lineEnd = source.indexOf("\n", match.index);
       start = lineEnd === -1 ? match.index + match[0].length : lineEnd;
     }
+
     match = DIRECTIVE.exec(source);
   }
-  return undefined;
 };
 
-// Lamps sit on posts a couple of metres above the ground, so unclamped
-// inverse-square falloff blows out the post top. Clamp the distance the
-// attenuation sees.
-const patchSpotAttenuation = (): void => {
+const patchSpotAttenuation = () => {
   const original = "getDistanceAttenuation( lightDistance, spotLight.distance, spotLight.decay )";
   const clamped = `getDistanceAttenuation( max( lightDistance, ${LAMP.nearClamp.toFixed(2)} ), spotLight.distance, spotLight.decay )`;
   const chunk = ShaderChunk.lights_pars_begin;
+
   if (chunk.includes(original)) {
     ShaderChunk.lights_pars_begin = chunk.replace(original, clamped);
   } else {
@@ -194,21 +180,24 @@ const patchSpotAttenuation = (): void => {
 
 let installed: boolean | undefined;
 
-// Patch the shader chunks once. Returns whether the PCSS branch could be
-// spliced in; when it could not, callers fall back to hardware PCF shadows.
-export const installPcssShadows = (): boolean => {
+export const installPcssShadows = () => {
   if (installed !== undefined) {
     return installed;
   }
+
   patchSpotAttenuation();
   const source = ShaderChunk.shadowmap_pars_fragment;
   const range = findVsmBranch(source);
+
   if (range) {
     ShaderChunk.shadowmap_pars_fragment = `${source.slice(0, range.start)}\n${PCSS_SHADOW_CHUNK}\n\t${source.slice(range.end)}`;
     installed = true;
+
     return true;
   }
+
   console.warn("[pipeline] shadow chunk layout changed - falling back to hardware PCF shadows");
   installed = false;
+
   return false;
 };

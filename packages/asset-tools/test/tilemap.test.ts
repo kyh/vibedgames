@@ -20,31 +20,26 @@ import { drawDigits, drawLine, fillRect, strokeRect } from "../src/image/draw.js
 import { Bitmap } from "../src/image/raster.js";
 import { must } from "./must.js";
 
-/**
- * Parity tests for the headless exports ported from `asset_tilemap_editor.py`.
- * Expected values come from running that script over the same generated
- * tileset; its grid overlays and map renders match these byte for byte.
- */
-
 const TILE = 16;
 const COLS = 5;
 const ROWS = 3;
 const MARGIN = 2;
 const SPACING = 1;
 
-/** A tileset with margin and spacing, so the grid maths is actually exercised. */
-const buildTileset = (dir: string): string => {
+const buildTileset = (dir: string) => {
   const width = MARGIN * 2 + COLS * TILE + (COLS - 1) * SPACING;
   const height = MARGIN * 2 + ROWS * TILE + (ROWS - 1) * SPACING;
   const sheet = Bitmap.create(width, height);
+
   for (let r = 0; r < ROWS; r += 1) {
     for (let c = 0; c < COLS; c += 1) {
       if ((c + r) % 7 === 3) {
         continue;
-        // leave some tiles empty
       }
+
       const x0 = MARGIN + c * (TILE + SPACING);
       const y0 = MARGIN + r * (TILE + SPACING);
+
       for (let y = 0; y < TILE; y += 1) {
         for (let x = 0; x < TILE; x += 1) {
           sheet.putPixel(x0 + x, y0 + y, [
@@ -57,6 +52,7 @@ const buildTileset = (dir: string): string => {
       }
     }
   }
+
   const file = path.join(dir, "tiles.png");
   sheet.toFile(file);
   writeFileSync(
@@ -73,13 +69,15 @@ const buildTileset = (dir: string): string => {
       },
     }),
   );
+
   return path.join(dir, "assets_index.json");
 };
 
-const workspace = (): string => mkdtempSync(path.join(tmpdir(), "vg-tilemap-"));
+const workspace = () => mkdtempSync(path.join(tmpdir(), "vg-tilemap-"));
 
 const meta = (dir: string) => {
   const manifestPath = buildTileset(dir);
+
   return tilesetMetaFromManifest(manifestPath, loadManifestJson(manifestPath), "main");
 };
 
@@ -102,10 +100,7 @@ test("tile IDs are 1-based row-major, and 0 means no tile", () => {
 test("crop boxes account for margin and spacing", () => {
   const m = meta(workspace());
   assert.deepEqual(cropBox(m, 1), { bottom: 18, left: 2, right: 18, top: 2 });
-  // Second column starts one tile plus one spacing pixel further right, and
-  // stays on row 0.
   assert.deepEqual(cropBox(m, 2), { bottom: 18, left: 19, right: 35, top: 2 });
-  // First tile of row 1 drops by one tile plus one spacing pixel.
   assert.deepEqual(cropBox(m, COLS + 1), { bottom: 35, left: 2, right: 18, top: 19 });
 });
 
@@ -122,13 +117,14 @@ test("the self-test map places every non-empty tile at its own coordinate", () =
   assert.equal(map.meta.width, COLS);
   assert.equal(map.meta.height, ROWS);
   assert.equal(map.data.length, ROWS);
+
   for (let r = 0; r < ROWS; r += 1) {
     for (let c = 0; c < COLS; c += 1) {
       const id = tileIdFromColRow(m, c, r);
       assert.equal(must(map.data[r])[c], nonEmpty.has(id) ? id : 0);
     }
   }
-  // The corpus deliberately blanks some cells, so this must not be all-nonzero.
+
   assert.ok(map.data.flat().includes(0), "expected some empty tiles");
 });
 
@@ -158,7 +154,6 @@ test("renders a tilemap at the requested scale", () => {
 
   const rendered = Bitmap.fromFile(out);
   assert.deepEqual([rendered.width, rendered.height], [4 * TILE * 2, 3 * TILE * 2]);
-  // A zero tile leaves the background showing through.
   assert.deepEqual(rendered.getPixel(2 * TILE * 2 + 4, 4), [16, 32, 48, 255]);
 });
 
@@ -199,8 +194,6 @@ test("grid overlay scales the sheet and can label tile IDs", () => {
 });
 
 test("draw primitives write ink directly rather than blending", () => {
-  // Grid overlays rely on this: a translucent ink is stored as-is, not
-  // composited over what was underneath.
   const bmp = Bitmap.create(8, 8, [0, 0, 0, 255]);
   drawLine(bmp, 0, 0, 7, 0, [255, 255, 255, 80]);
   assert.deepEqual(bmp.getPixel(3, 0), [255, 255, 255, 80]);
@@ -220,31 +213,33 @@ test("strokeRect thickens inward", () => {
 });
 
 test("digit labels take ink outright over transparent pixels", () => {
-  // Pillow lerps a glyph's coverage against the destination, except where the
-  // destination is fully transparent — there the ink colour wins outright.
-  // Blending instead turns white labels over empty tiles into grey mush.
   const transparent = Bitmap.create(12, 14);
   drawDigits(transparent, 0, 0, "8", [255, 255, 255, 200]);
   let sawInk = false;
+
   for (let y = 0; y < 14; y += 1) {
     for (let x = 0; x < 12; x += 1) {
       const [r, g, b, a] = transparent.getPixel(x, y);
+
       if (a === 0) {
         continue;
       }
+
       sawInk = true;
       assert.deepEqual([r, g, b], [255, 255, 255], `pixel ${x},${y} kept the ink colour`);
       assert.ok(a <= 200, "alpha never exceeds the ink's own");
     }
   }
+
   assert.ok(sawInk, "expected the glyph to draw something");
 
-  // Over an opaque background the same glyph blends normally.
   const opaque = Bitmap.create(12, 14, [0, 0, 0, 255]);
   drawDigits(opaque, 0, 0, "8", [255, 255, 255, 200]);
   const shades = new Set<number>();
+
   for (let x = 0; x < 12; x += 1) {
     shades.add(opaque.getPixel(x, 5)[0]);
   }
+
   assert.ok(shades.size > 2, "expected antialiased shades, not a hard mask");
 });

@@ -1,6 +1,7 @@
 import type { AnimalProductId } from "./items";
 
 export type AnimalKind = "chicken" | "duck" | "cow" | "sheep" | "pig";
+
 export type BuildingKind = "barn" | "coop";
 
 export interface AnimalDef {
@@ -11,8 +12,6 @@ export interface AnimalDef {
   product: AnimalProductId;
   texture: string;
   anim: string;
-  // sprite origin Y so the art's feet sit exactly on the anchor (the frames
-  // have empty space below the body), and the ground-shadow width to match
   originY: number;
   shadowScale: number;
 }
@@ -96,4 +95,5 @@ const NAMES = [
   "Hazel",
   "Pumpkin",
 ];
-export const randomAnimalName = (seq: number): string => NAMES[seq % NAMES.length] ?? `Pet ${seq}`;
+
+export const randomAnimalName = (seq: number) => NAMES[seq % NAMES.length] ?? `Pet ${seq}`;

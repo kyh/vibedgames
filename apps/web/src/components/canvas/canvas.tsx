@@ -11,9 +11,11 @@ const deckMode = (isDiscover: boolean, isPlay: boolean) => {
   if (isDiscover) {
     return "stack";
   }
+
   if (isPlay) {
     return "zoom";
   }
+
   return "hidden";
 };
 
@@ -25,8 +27,6 @@ export const Canvas = () => {
   const isPlay = pathname === "/";
   const isDiscover = pathname === "/discover";
 
-  // The zoom hand-off only makes sense between discover and play, where the iframe lands on
-  // top of the card. Anywhere else (build, auth, ...) the deck just fades out.
   const mode = deckMode(isDiscover, isPlay);
 
   return (

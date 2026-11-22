@@ -11,8 +11,6 @@ const inputVariants = cva(
     variants: {
       variant: {
         default: "bg-transparent dark:bg-input/30",
-        // Frosted glass — only reads over a textured surface (the backdrop-blur
-        // has nothing to blur on a flat background). Opt in per-surface.
         frosted: "bg-input/40 backdrop-blur-sm",
       },
     },

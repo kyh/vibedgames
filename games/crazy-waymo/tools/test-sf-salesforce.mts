@@ -18,6 +18,7 @@ const kitStats = (kit: ReturnType<typeof getSalesforceKit>) => {
   let maxY = -Infinity;
   let degenerate = 0;
   let finite = true;
+
   for (const part of kit) {
     const positions = part.geo.getAttribute("position");
     const normals = part.geo.getAttribute("normal");
@@ -28,6 +29,7 @@ const kitStats = (kit: ReturnType<typeof getSalesforceKit>) => {
       normals.array.byteLength +
       part.geo.getAttribute("color").array.byteLength +
       (index?.array.byteLength ?? 0);
+
     for (let i = 0; i < positions.count; i += 1) {
       const x = positions.getX(i);
       const y = positions.getY(i);
@@ -39,22 +41,26 @@ const kitStats = (kit: ReturnType<typeof getSalesforceKit>) => {
         Number.isFinite,
       );
     }
+
     const a = new THREE.Vector3();
     const b = new THREE.Vector3();
     const c = new THREE.Vector3();
+
     for (let i = 0; i < (index?.count ?? positions.count); i += 3) {
       a.fromBufferAttribute(positions, index?.getX(i) ?? i);
       b.fromBufferAttribute(positions, index?.getX(i + 1) ?? i + 1).sub(a);
       c.fromBufferAttribute(positions, index?.getX(i + 2) ?? i + 2).sub(a);
+
       if (b.cross(c).lengthSq() <= 1e-14) {
         degenerate += 1;
       }
     }
   }
+
   return { bytes, degenerate, finite, maxY, minY, radius, triangles };
 };
 
-export const checkSalesforce = (check: Check): void => {
+export const checkSalesforce = (check: Check) => {
   const kit = getSalesforceKit();
   const repeated = getSalesforceKit();
   const { bytes, radius, triangles, minY, maxY, degenerate, finite } = kitStats(kit);

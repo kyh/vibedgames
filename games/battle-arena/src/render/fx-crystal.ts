@@ -1,45 +1,21 @@
-// The material every ground eruption is shaded with — frost-nova ice, bog
-// thorns, stone teeth, ember spurs. One material, one draw call: the body hue
-// arrives as the InstancedMesh's per-instance color, so a green vine and a blue
-// icicle are the same program.
-//
-// Shading model ported from the Elemental Sandbox VFX sandbox (MIT, Copyright
-// (c) 2026 mohamedachrefelouafi) —
-// https://github.com/achrefelouafi/LinearAbiltyCastingThreeJS — and re-graded
-// for our look. The sandbox is lit for photoreal translucent ice against a dark
-// stage; our arena is bright and the characters are flat-shaded plastic, so the
-// smooth terms are posterised into steps (see `bands`) and the noise runs at
-// two octaves. Photoreal ice next to a KayKit knight reads as a bug.
-//
-// Built on MeshStandardMaterial rather than a raw ShaderMaterial so eruptions
-// still take the arena's real lights and shadows; the stylisation is injected
-// on top of the lit result.
 import * as THREE from "three";
 import { NOISE_GLSL } from "./fx-noise";
 
-/** Shading controls. One literal — the sandbox's 90-odd live sliders, frozen. */
 const ICE = {
   birthGlow: 3,
-  // how much a head-on facet darkens toward the deep tone
   depthTint: 1.05,
   edgeGlow: 1.25,
-  // posterise steps across the body — the toon term
   facetBands: 4,
-  // lift on facets pointing at the camera
   facetSharp: 0.72,
   fracture: 0.6,
-  // low: at our camera distance the sandbox's 6.5 streaked
   fractureScale: 3,
   fresnel: 1.9,
   fresnelPower: 2.2,
-  // rime gathering where the crystal left the floor
   frostLine: 0.55,
   glow: 1,
   opacity: 0.94,
   sparkle: 1.3,
-  // lower than the sandbox: our camera sits farther out and
   sparkleScale: 18,
-  // its 34 aliased into moving grain at this distance
   sparkleSpeed: 0.6,
   translucency: 1.1,
   veinScale: 3,
@@ -50,19 +26,14 @@ const ICE = {
  * @param clock the shared hit-stop-scaled FX clock, so eruptions freeze with
  *   everything else during a hard hit.
  */
-export const createCrystalMaterial = (clock: { value: number }): THREE.MeshStandardMaterial => {
+export const createCrystalMaterial = (clock: { value: number }) => {
   const material = new THREE.MeshStandardMaterial({
     color: 0xff_ff_ff,
-    // Kept on: these are near-opaque, and writing depth is what stops a field
-    // from sorting through itself.
     depthWrite: true,
     flatShading: true,
     metalness: 0,
     opacity: ICE.opacity,
     roughness: 0.18,
-    // A crystal is translucent, so the far wall is part of what you see through
-    // the near one. Culling it leaves the interior empty and thin shards read
-    // as hollow shells.
     side: THREE.DoubleSide,
     transparent: true,
   });
@@ -70,9 +41,6 @@ export const createCrystalMaterial = (clock: { value: number }): THREE.MeshStand
   const uniforms = {
     uBirthGlow: { value: ICE.birthGlow },
     uCore: { value: new THREE.Color(0xa8_e6_ff) },
-    // The colour a facet reaches at full thickness. Darker than it looks: the
-    // banded mix runs all the way to it now, where it used to overshoot past a
-    // lighter value and land here anyway.
     uDeep: { value: new THREE.Color(0x13_5c_91) },
     uDensity: { value: ICE.depthTint },
     uEdgeGlow: { value: ICE.edgeGlow },
@@ -152,9 +120,6 @@ export const createCrystalMaterial = (clock: { value: number }): THREE.MeshStand
         varying float vCrystalBirth;
         ${NOISE_GLSL}`,
       )
-      // Injected once the normal is resolved: with `flatShading` there is no
-      // `vNormal` varying, so every view-dependent term has to read the face
-      // normal that <normal_fragment_begin> derives from derivatives.
       .replace(
         "#include <emissivemap_fragment>",
         `#include <emissivemap_fragment>

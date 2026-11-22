@@ -9,13 +9,16 @@ test("rendered floor rises to both highlands without gaps at ramp boundaries", (
   const geometry = buildGroundGeometry(new Uint8Array(TILE_COUNT));
   const position = geometry.getAttribute("position");
   let highlandVertices = 0;
+
   for (let i = 0; i < position.count; i += 1) {
     const height = terrainHeight(position.getX(i), position.getZ(i));
     assert.ok(Math.abs(position.getY(i) - height) < 1e-6);
+
     if (height > 2) {
       highlandVertices += 1;
     }
   }
+
   assert.ok(highlandVertices > 0);
   assert.ok(terrainHeight(0, 0) < terrainHeight(0, 10));
   assert.ok(terrainHeight(0, 10) < terrainHeight(0, 20));
@@ -35,18 +38,22 @@ test("cursor rays find the intended target across both slopes and terraces", () 
     assert.ok(distance !== null);
     assert.ok(Math.abs(distance - length) < 1e-4);
   }
+
   assert.equal(terrainAimDistance({ x: 0, y: 10, z: 0 }, { x: 0, y: 1, z: 0 }), null);
 });
 
 test("expanding shockwaves sit on the ground while crossing ramp creases", () => {
   const geometry = new RingGeometry(0.82, 1, 64).rotateX(-Math.PI / 2);
+
   for (const scale of [0.2, 1, 3]) {
     conformGroundGeometry(geometry, 0, 5, scale);
     const position = geometry.getAttribute("position");
+
     for (let i = 0; i < position.count; i += 1) {
       const expected = terrainHeight(position.getX(i) * scale, 5 + position.getZ(i) * scale);
       assert.ok(Math.abs(position.getY(i) - expected) < 1e-6);
     }
   }
+
   geometry.dispose();
 });

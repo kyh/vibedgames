@@ -64,47 +64,52 @@ export class TuiStore {
   #listeners = new Set<() => void>();
   #nextId = 1;
 
-  subscribe = (listener: () => void): (() => void) => {
+  subscribe = (listener: () => void) => {
     this.#listeners.add(listener);
+
     return () => {
       this.#listeners.delete(listener);
     };
   };
 
-  getSnapshot = (): Snapshot => this.#snapshot;
+  getSnapshot = () => this.#snapshot;
 
-  set(patch: Partial<Snapshot>): void {
+  set(patch: Partial<Snapshot>) {
     this.#snapshot = { ...this.#snapshot, ...patch };
+
     for (const listener of this.#listeners) {
       listener();
     }
   }
 
-  push(tone: Tone, text: string): void {
-    const lines = text.split("\n").map((t): FeedLine => {
+  push(tone: Tone, text: string) {
+    const lines = text.split("\n").map((t) => {
       const id = this.#nextId;
       this.#nextId += 1;
+
       return { id, text: t, tone };
     });
+
     this.set({ feed: [...this.#snapshot.feed, ...lines].slice(-FEED_CAP) });
   }
 
-  turnStart(turn: TurnInfo): void {
+  turnStart(turn: TurnInfo) {
     this.set({ turn: { ...turn, events: 0, startedAt: Date.now() } });
   }
 
-  bumpEvents(): void {
+  bumpEvents() {
     const { turn } = this.#snapshot;
+
     if (turn) {
       this.set({ turn: { ...turn, events: turn.events + 1 } });
     }
   }
 
-  turnEnd(): void {
+  turnEnd() {
     this.set({ turn: null });
   }
 
-  stateChanged(state: AgentState, approvalPending: boolean): void {
+  stateChanged(state: AgentState, approvalPending: boolean) {
     this.set({ approvalPending, state });
   }
 }

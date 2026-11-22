@@ -1,12 +1,3 @@
-// Pacman's own pause overlay — a soft "clinic sign" in the same plush
-// Baymax-ward look as the title banner (index.html): cream scrim, plush white
-// card, butter heading with the banner's white bump-shadow, pellet-dotted
-// divider, and a gently chomping mouth motif up top.
-//
-// Built on the shared @repo/embed pause shell, which owns resume behavior
-// (pointerup / non-Escape keyup / fresh pad press), the full-screen root, and
-// the fade; the `.shown` class here only drives the card's spring-scale pop.
-
 import { controlGroups, createPauseShell } from "@repo/embed";
 import type { ControlMethod } from "@repo/embed";
 
@@ -24,9 +15,6 @@ const METHOD_LABELS = {
 
 const STYLE_ID = "pacman-pause-style";
 
-// Palette custom properties (--cream, --butter, …) come from index.html :root,
-// so the overlay re-skins for free if the game's palette ever changes.
-// Positioning/z-index/fade live on the shell's root — visuals only here.
 const CSS = `
 #pacman-pause {
   display: flex;
@@ -243,20 +231,22 @@ const CSS = `
 `;
 
 /** Inject the shared control-card styles (pause overlay AND title banner). */
-export const ensureStyle = (): void => {
+export const ensureStyle = () => {
   if (document.querySelector(`#${STYLE_ID}`)) {
     return;
   }
+
   const style = document.createElement("style");
   style.id = STYLE_ID;
   style.textContent = CSS;
   document.head.append(style);
 };
 
-const div = (className: string, parent: HTMLElement): HTMLDivElement => {
+const div = (className: string, parent: HTMLElement) => {
   const node = document.createElement("div");
   node.className = className;
   parent.append(node);
+
   return node;
 };
 
@@ -265,18 +255,22 @@ const div = (className: string, parent: HTMLElement): HTMLDivElement => {
  * and the pause overlay teach controls with the SAME UI. Null when nothing is
  * visible for the current device/pad context.
  */
-export const buildControls = (coarse: boolean): HTMLElement | null => {
+export const buildControls = (coarse: boolean) => {
   const groups = controlGroups(CONTROLS, { coarse });
+
   if (groups.length === 0) {
     return null;
   }
+
   const list = document.createElement("div");
   list.className = "pp-groups";
+
   for (const group of groups) {
     const section = document.createElement("div");
     const label = div("pp-group-label", section);
     label.textContent = METHOD_LABELS[group.method];
     const grid = div("pp-grid", section);
+
     for (const entry of group.entries) {
       const chip = document.createElement("span");
       chip.className = "pp-chip";
@@ -286,12 +280,14 @@ export const buildControls = (coarse: boolean): HTMLElement | null => {
       action.textContent = entry.action;
       grid.append(chip, action);
     }
+
     list.append(section);
   }
+
   return list;
 };
 
-const buildChompRow = (parent: HTMLElement): void => {
+const buildChompRow = (parent: HTMLElement) => {
   const row = div("pp-chomp-row", parent);
   const chomp = div("pp-chomp", row);
   const jawTop = div("pp-jaw pp-jaw-top", chomp);
@@ -299,6 +295,7 @@ const buildChompRow = (parent: HTMLElement): void => {
   const jawBot = div("pp-jaw pp-jaw-bot", chomp);
   div("pp-cheek", jawBot);
   const pellets = div("pp-pellets", row);
+
   for (let i = 0; i < 3; i += 1) {
     div("pp-pellet", pellets);
   }
@@ -314,15 +311,12 @@ const shell = createPauseShell({
       if (muted === !isSoundOn()) {
         return;
       }
-      // The overlay seals its pointer events, so the window listener that
-      // normally unlocks audio never sees the tap that turned sound on.
+
       if (toggleSound()) {
         unlockAudio();
       }
     },
   },
-  // Dropping `.shown` at the start of hide() lets the card spring back down
-  // while the shell fades the root out — same exit as the hand-rolled version.
   onHide: () => {
     root?.classList.remove("shown");
     root = null;
@@ -331,8 +325,6 @@ const shell = createPauseShell({
     ensureStyle();
     root = overlay;
     overlay.id = "pacman-pause";
-    // Same boot check as input-mode.ts / @repo/embed, re-evaluated fresh so
-    // the hint copy and control rows match the device the moment we pause.
     const coarse = window.matchMedia("(pointer: coarse)").matches || "ontouchstart" in window;
 
     const card = div("pp-card", overlay);
@@ -344,6 +336,7 @@ const shell = createPauseShell({
     sub.textContent = "taking a little breather ♥";
 
     const list = buildControls(coarse);
+
     if (list) {
       card.append(list);
     }

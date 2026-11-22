@@ -24,12 +24,14 @@ There is no bootstrap script; the five commands above _are_ the provisioning ste
 
 One file, two consumers. Everything lives in the repo-root `.env`; template is `.env.example`.
 
-| Consumer                                         | Reaches it via                                                  | Holds                                                                                       |
-| ------------------------------------------------ | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| drizzle-kit, the cf CLI                          | `process.env`, loaded by each package's `with-env` (dotenv-cli) | `CLOUDFLARE_ACCOUNT_ID` / `_DATABASE_ID` / `_D1_TOKEN` / `_API_TOKEN`                       |
-| the dev Worker, via the Cloudflare `env` binding | `bindings.secret()` in `apps/web/cloudflare.config.ts`          | `BETTER_AUTH_SECRET`, `FAL_API_KEY`, `TYPESAFE_API_KEY`, `STRIPE_*`, `GITHUB_*`, `GOOGLE_*` |
+| Consumer                                         | Reaches it via                                                  | Holds                                                                                                         |
+| ------------------------------------------------ | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| drizzle-kit, the cf CLI                          | `process.env`, loaded by each package's `with-env` (dotenv-cli) | `CLOUDFLARE_ACCOUNT_ID` / `_DATABASE_ID` / `_D1_TOKEN` / `_API_TOKEN`                                         |
+| the dev Worker, via the Cloudflare `env` binding | `bindings.secret()` in `apps/web/cloudflare.config.ts`          | `BETTER_AUTH_SECRET`, `FAL_API_KEY`, `TYPESAFE_API_KEY`, `STRIPE_*`, `GITHUB_*`, `GOOGLE_*`, `RESEND_API_KEY` |
 
 **The declared secrets are the whole mechanism.** Declaring a name with `bindings.secret()` makes the dev server fold `process.env` into the Worker binding and filter it down to exactly the declared names — so a secret that is in `.env` but not declared silently never reaches the Worker. Adding one means editing two places: `.env.example` and `cloudflare.config.ts` (the `Env` type is generated from it).
+
+Leave `RESEND_API_KEY` out of `.env`: without it the dev server writes each email, password-reset link included, to its own log instead of sending it, so a reset can be followed headlessly and seeded addresses never receive mail.
 
 Do not reintroduce `apps/web/.dev.vars`. The dev server prefers it and stops reading `.env`/`process.env` the moment it exists, so the root file goes quietly dead. In production the same names are set with `cf workers secrets update`.
 
@@ -105,9 +107,9 @@ Static gate — before a commit:
 pnpm verify   # typecheck · lint · format · test
 ```
 
-**Lint is a clean gate.** `oxlint.config.ts` extends the ultracite presets (`ultracite/oxlint/core`, `react`, `anti-slop`); every rule is an error and `lint` fails on the first one. `no-await-in-loop` is the one deliberate override (sequential awaits are intentional). Prefer fixing code over `oxlint-disable` comments; when a rule is genuinely wrong for a line, disable that line with a `-- reason`.
+**Lint is a clean gate.** `oxlint.config.ts` extends the ultracite presets (`ultracite/oxlint/core`, `react`, `anti-slop`, `landmines`); every rule is an error and `lint` fails on the first one. Landmines means no prose comments (TSDoc on exported API, directives and a one-line `// WARNING:` excepted), no annotated return types (type the variable or use `satisfies`), no test doubles or fixed sleeps, and tests beside the module they test. The deliberate overrides and why are listed in `CLAUDE.md`. Prefer fixing code over `oxlint-disable` comments; when a rule is genuinely wrong for a line, disable that line with a `-- reason`.
 
-`pnpm test` runs each workspace's own suite: the `vg` CLI's units, the sims and smoke checks in ten of the example games, `apps/web`'s content-negotiation / structured-data / page-content / OpenAPI / oRPC-handler units, the games and party workers under workerd, and the packages' units. Nothing in `verify` renders a web route, drives a browser or runs a procedure against a database (`packages/service`'s suites stop at middleware, auth config, and the generate and playtest proxies against a stubbed upstream) — so a green `verify` is a floor, not proof. Drive the change: `vg playtest` for games (see the `playtest` skill), the recipe below for the web app.
+`pnpm test` runs each workspace's own suite: the `vg` CLI's units, the sims and smoke checks in ten of the example games, `apps/web`'s content-negotiation / structured-data / page-content / OpenAPI / oRPC-handler units, the games and party workers under workerd, and the packages' units. Nothing in `verify` renders a web route, drives a browser or runs a procedure against a database (`packages/service`'s suites stop at middleware, auth config, and the generate and playtest proxies against a local stand-in upstream) — so a green `verify` is a floor, not proof. Drive the change: `vg playtest` for games (see the `playtest` skill), the recipe below for the web app.
 
 Runtime — the web app and the example games are both browser-reachable. `vg playtest` is the one browser driver (a passthrough to agent-browser; it installs itself and its browser on first use, so there is nothing to set up beyond `pnpm dogfood`). With `pnpm dev:web` running:
 

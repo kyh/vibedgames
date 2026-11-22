@@ -18,31 +18,35 @@ export class FixedStep {
    * The sim time of the oldest step due by `now`, taken, or null when none
    * is. A step not taken stays due: the next call that reaches it returns it.
    */
-  next(now: number): number | null {
+  next(now: number) {
     if (this.last === null || now < this.last - this.maxBacklogMs) {
-      // First step, or the clock was replaced (a promoted host adopts the room's).
       this.last = now - this.stepMs;
     } else if (now - this.last > this.maxBacklogMs) {
       this.last = now - this.maxBacklogMs;
     }
+
     if (now - this.last < this.stepMs) {
       return null;
     }
+
     this.last += this.stepMs;
+
     return this.last;
   }
 
   /** The sim times of every step due by `now`, oldest first. */
-  due(now: number): number[] {
+  due(now: number) {
     const due: number[] = [];
+
     for (let at = this.next(now); at !== null; at = this.next(now)) {
       due.push(at);
     }
+
     return due;
   }
 
   /** Forget the grid; the next `due` starts a fresh one with a step at once. */
-  reset(): void {
+  reset() {
     this.last = null;
   }
 }

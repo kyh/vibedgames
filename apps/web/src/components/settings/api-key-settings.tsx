@@ -38,8 +38,6 @@ export const ApiKeySettings = () => {
   const [expiresInDays, setExpiresInDays] = useState<number | "">("");
   const [newKey, setNewKey] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-  // Expiry badges are dated against the fetch the rows came from, so they stay
-  // put across renders instead of drifting with the wall clock.
   const openedAt = list.dataUpdatedAt;
 
   const create = useMutation(
@@ -53,6 +51,7 @@ export const ApiKeySettings = () => {
       },
     }),
   );
+
   const revoke = useMutation(
     orpc.apiKeys.revoke.mutationOptions({
       onSuccess: () => {
@@ -66,12 +65,15 @@ export const ApiKeySettings = () => {
     if (!newKey) {
       return;
     }
+
     try {
       await navigator.clipboard.writeText(newKey);
     } catch {
       toast.error("Copy failed");
+
       return;
     }
+
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   };
@@ -117,9 +119,11 @@ export const ApiKeySettings = () => {
         <form
           onSubmit={(e) => {
             e.preventDefault();
+
             if (!name.trim()) {
               return;
             }
+
             create.mutate({
               expiresInDays: expiresInDays === "" ? null : expiresInDays,
               name: name.trim(),
@@ -177,6 +181,7 @@ export const ApiKeySettings = () => {
                 {list.data.keys.map((k) => {
                   const expired =
                     k.expiresAt !== null && new Date(k.expiresAt).getTime() < openedAt;
+
                   return (
                     <li key={k.id} className="flex items-center gap-3 py-4 text-sm">
                       <div className="min-w-0">

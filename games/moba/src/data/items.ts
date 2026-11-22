@@ -1,5 +1,3 @@
-// Shop items: flat stat bonuses + a few actives. Pure data.
-
 export interface ItemStats {
   damage?: number;
   hp?: number;
@@ -8,7 +6,6 @@ export interface ItemStats {
   moveSpeed?: number;
   hpRegen?: number;
   mpRegen?: number;
-  // percent points (e.g. 35 = +35)
   attackSpeed?: number;
   lifestealPct?: number;
   spellAmpPct?: number;
@@ -21,7 +18,6 @@ export interface ItemDef {
   name: string;
   cost: number;
   desc: string;
-  // frame in the packed ui icon sheet (assets/ui/icons.webp)
   icon: number;
   stats: ItemStats;
   active?: { kind: ActiveKind; cooldown: number; desc: string };

@@ -6,8 +6,6 @@ import type { BiomePalette } from "./data/biomes";
 
 type Rect = readonly [x: number, y: number, width: number, height: number];
 
-// Measured opaque bounds in the original sheet. Its four rows are irregularly
-// spaced, not a uniform spritesheet; grid cuts included neighboring silhouettes.
 const TREE_ROWS: readonly (readonly Rect[])[] = [
   [
     [55, 69, 84, 83],
@@ -52,6 +50,7 @@ const TREE_ROWS: readonly (readonly Rect[])[] = [
 ];
 
 type Sheet = "rocks" | "bushes" | "bamboo";
+
 const DRESSING_FRAMES = {
   bamboo: [
     [16, 73, 174, 149],
@@ -78,19 +77,25 @@ const DRESSING_FRAMES = {
 
 const registerScenery = (scene: Phaser.Scene) => {
   const tex = scene.textures.get("env:tree");
+
   for (const [r, row] of TREE_ROWS.entries()) {
     for (const [c, rect] of row.entries()) {
       const key = `tree-cut-${r}-${c}`;
+
       if (!tex.has(key)) {
         tex.add(key, 0, ...rect);
       }
     }
   }
+
   const sheets: readonly Sheet[] = ["rocks", "bushes", "bamboo"];
+
   for (const sheet of sheets) {
     const texture = scene.textures.get(`env:${sheet}`);
+
     for (const [i, rect] of DRESSING_FRAMES[sheet].entries()) {
       const key = `scenery-${i}`;
+
       if (!texture.has(key)) {
         texture.add(key, 0, ...rect);
       }
@@ -98,9 +103,9 @@ const registerScenery = (scene: Phaser.Scene) => {
   }
 };
 
-// View-only index jitter never consumes the simulation's random stream.
 const hash = (n: number) => {
   const s = Math.sin(n * 12.9898) * 43_758.5453;
+
   return s - Math.floor(s);
 };
 
@@ -114,7 +119,6 @@ interface Layer {
   tint: number;
 }
 
-// From deepest to nearest. `sf` = scrollFactor, `step` = px between trees.
 const LAYERS: Layer[] = [
   { alpha: 0.55, depth: -33, row: 3, scale: 1.15, sf: 0.18, step: 150, tint: 0x8b_97_ad },
   { alpha: 0.7, depth: -24, row: 2, scale: 1.05, sf: 0.34, step: 128, tint: 0x6d_7a_90 },
@@ -151,7 +155,7 @@ interface Composition {
   near: Dressing;
 }
 
-const composition = (name: string): Composition => {
+const composition: (name: string) => Composition = (name) => {
   const ruins: Dressing = {
     alpha: 0.48,
     depth: -30,
@@ -161,6 +165,7 @@ const composition = (name: string): Composition => {
     sheet: "rocks",
     step: 360,
   };
+
   const stones: Dressing = {
     alpha: 0.68,
     depth: -9,
@@ -170,6 +175,7 @@ const composition = (name: string): Composition => {
     sheet: "rocks",
     step: 270,
   };
+
   const bushes: Dressing = {
     alpha: 0.62,
     depth: -8,
@@ -179,13 +185,16 @@ const composition = (name: string): Composition => {
     sheet: "bushes",
     step: 350,
   };
+
   switch (name) {
     case "EMBERDEEP": {
       return { far: ruins, near: stones, trees: 0.45 };
     }
+
     case "FROSTVAULT": {
       return { far: ruins, near: { ...stones, alpha: 0.62, frames: [6] }, trees: 0.4 };
     }
+
     case "VENOMHOLLOW": {
       return {
         far: {
@@ -201,6 +210,7 @@ const composition = (name: string): Composition => {
         trees: 0.6,
       };
     }
+
     case "VOIDSANCTUM": {
       return {
         far: { ...ruins, alpha: 0.57, scale: 1.35 },
@@ -208,6 +218,7 @@ const composition = (name: string): Composition => {
         trees: 0.3,
       };
     }
+
     default: {
       return {
         far: {
@@ -231,37 +242,39 @@ export const buildParallax = (
   roomW: number,
   roomH: number,
   pal: BiomePalette = biomePalette(1),
-): Phaser.GameObjects.GameObject[] => {
+) => {
   registerScenery(scene);
   const out: Phaser.GameObjects.GameObject[] = [];
   const scenery = composition(pal.name);
-  // top of the floor in px
   const groundY = (roomH / TILE - 2) * TILE;
-  // Parallax is horizontal: scenery feet must follow the floor when the camera climbs.
 
-  // Deep ruin-pillars — soft grey verticals receding into the mist.
   const pillarN = Math.min(12, Math.max(4, Math.round(roomW / 150)));
+
   for (let i = 0; i < pillarN; i += 1) {
     const px = 40 + (i / pillarN) * (roomW - 80) + (hash(i * 3.1) - 0.5) * 90;
     const h = 90 + hash(i * 7.7) * 150;
     const w = 10 + Math.round(hash(i * 2.3) * 8);
+
     const p = scene.add
       .rectangle(px, groundY, w, h, pal.horizon, 0.25)
       .setOrigin(0.5, 1)
       .setScrollFactor(0.12, 1)
       .setDepth(-36);
+
     out.push(p);
   }
 
   for (const L of LAYERS) {
     const spacing = L.step / scenery.trees;
     const n = Math.min(24, Math.ceil(roomW / spacing) + 2);
+
     for (let i = 0; i < n; i += 1) {
       const seed = L.row * 100 + i;
       const col = Math.floor(hash(seed * 1.7) * 8);
       const x = i * spacing + (hash(seed * 4.2) - 0.5) * spacing * 0.7;
       const y = groundY + 6 + (hash(seed * 9.1) - 0.5) * 8 - L.depth * 0.25;
       const s = L.scale * (0.82 + hash(seed * 3.3) * 0.4);
+
       const t = scene.add
         .image(x, y, "env:tree", `tree-cut-${L.row}-${col}`)
         .setOrigin(0.5, 1)
@@ -270,20 +283,23 @@ export const buildParallax = (
         .setScale(s)
         .setAlpha(L.alpha)
         .setTint(mulColor(L.tint, pal.tree));
+
       if (hash(seed * 5.5) > 0.5) {
         t.setFlipX(true);
       }
+
       out.push(t);
     }
   }
 
-  // Near silhouettes: faster parallax, but drawn behind actors so they never mask play.
   const nearSpacing = FG_LAYER.step / scenery.trees;
   const fgN = Math.min(12, Math.ceil(roomW / nearSpacing) + 1);
+
   for (let i = 0; i < fgN; i += 1) {
     const seed = 900 + i;
     const col = Math.floor(hash(seed * 2.1) * 8);
     const x = i * nearSpacing + hash(seed * 6.4) * nearSpacing * 0.6;
+
     const t = scene.add
       .image(x, groundY + 14, "env:tree", `tree-cut-0-${col}`)
       .setOrigin(0.5, 1)
@@ -293,18 +309,22 @@ export const buildParallax = (
       .setAlpha(0.96)
       .setTint(mulColor(FG_LAYER.tint, pal.tree))
       .setName(FG_TREE_NAME);
+
     if (hash(seed * 8.8) > 0.5) {
       t.setFlipX(true);
     }
+
     out.push(t);
   }
 
   for (const layer of [scenery.far, scenery.near]) {
     const count = Math.min(16, Math.ceil(roomW / layer.step) + 1);
+
     for (let i = 0; i < count; i += 1) {
       const seed = i + 1300 - layer.depth;
       const frame = layer.frames[Math.floor(hash(seed * 2.7) * layer.frames.length)] ?? 0;
       const x = (i + 0.35 + hash(seed * 4.1) * 0.35) * layer.step;
+
       const node = scene.add
         .image(x, groundY + 3, `env:${layer.sheet}`, `scenery-${frame}`)
         .setOrigin(0.5, 1)
@@ -313,9 +333,11 @@ export const buildParallax = (
         .setScale(layer.scale)
         .setAlpha(layer.alpha)
         .setTint(pal.tree);
+
       if (hash(seed * 8.3) > 0.5) {
         node.setFlipX(true);
       }
+
       out.push(node);
     }
   }

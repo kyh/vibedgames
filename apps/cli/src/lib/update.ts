@@ -10,79 +10,97 @@ import path from "node:path";
 const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const VERSION_RE = /^\d+\.\d+\.\d+$/u;
 
-const getCachePath = (): string => path.join(getConfigDir(), "update-check.json");
+const getCachePath = () => path.join(getConfigDir(), "update-check.json");
 
-const getLastCheckedAt = (): number => {
+const getLastCheckedAt = () => {
   const cache = getCachePath();
+
   if (!existsSync(cache)) {
     return 0;
   }
+
   try {
     const data: JsonValue = JSON.parse(readFileSync(cache, "utf-8"));
+
     if (isJsonObject(data)) {
       const ts = data.lastCheckedAt;
+
       if (isJsonNumber(ts)) {
         return ts;
       }
     }
   } catch {
-    // corrupt cache — treat as never checked
+    return 0;
   }
+
   return 0;
 };
 
-export const markUpdateChecked = (): void => {
+export const markUpdateChecked = () => {
   const dir = getConfigDir();
+
   try {
     if (!existsSync(dir)) {
       mkdirSync(dir, { mode: 0o700, recursive: true });
     }
+
     writeFileSync(getCachePath(), JSON.stringify({ lastCheckedAt: Date.now() }, null, 2));
+
+    return true;
   } catch {
-    // best-effort; worst case we check again next run
+    return false;
   }
 };
 
-export const isNewerVersion = (latest: string, current: string): boolean => {
+export const isNewerVersion = (latest: string, current: string) => {
   if (!VERSION_RE.test(latest) || !VERSION_RE.test(current)) {
     return false;
   }
+
   const a = latest.split(".").map(Number);
   const b = current.split(".").map(Number);
+
   for (let i = 0; i < 3; i += 1) {
     const left = a[i] ?? 0;
     const right = b[i] ?? 0;
+
     if (left > right) {
       return true;
     }
+
     if (left < right) {
       return false;
     }
   }
+
   return false;
 };
 
-export const fetchLatestVersion = async (packageName: string): Promise<string | null> => {
+export const fetchLatestVersion = async (packageName: string) => {
   const registry = process.env.VG_REGISTRY_URL ?? "https://registry.npmjs.org";
+
   try {
     const res = await fetch(`${registry}/${packageName}/latest`, {
       signal: AbortSignal.timeout(5000),
     });
+
     if (!res.ok) {
       return null;
     }
-    // SAFETY: res.json() is JSON.parse of the response body, which is
-    // structurally JsonValue.
+
     const data = (await res.json()) as JsonValue;
+
     if (isJsonObject(data)) {
       const { version } = data;
+
       if (isJsonString(version)) {
         return version;
       }
     }
   } catch {
-    // offline or registry down — skip this round
+    return null;
   }
+
   return null;
 };
 
@@ -92,25 +110,33 @@ export const fetchLatestVersion = async (packageName: string): Promise<string | 
  * `vg update --auto`, which only applies anything when npm has a newer
  * version. The foreground command pays no latency and prints nothing.
  */
-export const maybeScheduleAutoUpdate = (): void => {
+export const maybeScheduleAutoUpdate = () => {
   if (process.env.CI || resolveSetting("update.auto").value === "false") {
     return;
   }
+
   const [, script] = process.argv;
+
   if (!script) {
     return;
   }
+
   if (Date.now() - getLastCheckedAt() < CHECK_INTERVAL_MS) {
     return;
   }
+
   markUpdateChecked();
+
   try {
     const child = spawn(process.execPath, [script, "update", "--auto"], {
       detached: true,
       stdio: "ignore",
     });
+
     child.unref();
+
+    return true;
   } catch {
-    // best-effort; worst case we try again next run
+    return false;
   }
 };

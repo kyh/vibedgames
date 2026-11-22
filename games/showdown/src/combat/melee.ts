@@ -18,26 +18,33 @@ export const inMeleeArc = (
   attack: Pick<MeleeAttack, "arc" | "range">,
   target: Point,
   radius: number,
-): boolean => {
+) => {
   const x = target.x - origin.x;
   const z = target.z - origin.z;
   const distance = Math.hypot(x, z);
+
   if (distance > attack.range + radius) {
     return false;
   }
+
   if (distance <= radius) {
     return true;
   }
+
   const angle = Math.abs(
     Math.atan2(direction.x * z - direction.z * x, direction.x * x + direction.z * z),
   );
+
   if (angle <= attack.arc / 2) {
     return true;
   }
+
   const edgeAngle = angle - attack.arc / 2;
   const projected = Math.max(0, Math.min(attack.range, distance * Math.cos(edgeAngle)));
+
   const edgeDistanceSquared =
     distance * distance + projected * projected - 2 * distance * projected * Math.cos(edgeAngle);
+
   return edgeDistanceSquared <= radius * radius;
 };
 
@@ -47,8 +54,9 @@ export const meleeReaches = (
   origin: Point,
   target: Point,
   targetBlocks: boolean,
-): boolean => {
+) => {
   const hit = world.raycast(origin.x, origin.z, target.x, target.z);
+
   return (
     !hit || (targetBlocks && hit.tx === world.toTile(target.x) && hit.ty === world.toTile(target.z))
   );
@@ -62,7 +70,7 @@ export const showSlash = (
   dx: number,
   dz: number,
   isSuper: boolean,
-): void => {
+) => {
   game.effects.slash(
     owner.x,
     game.world.heightAt(owner.x, owner.z) + 0.72,
@@ -84,10 +92,11 @@ export const swingMelee = (
   dx: number,
   dz: number,
   isSuper: boolean,
-): void => {
+) => {
   const { game } = combat;
   const { world, effects } = game;
   const direction = { x: dx, z: dz };
+
   const targets = game.brawlers.filter(
     (target) =>
       target !== owner &&
@@ -97,20 +106,25 @@ export const swingMelee = (
       inMeleeArc(owner, direction, attack, target, BRAWLER_RADIUS) &&
       meleeReaches(world, owner, target, false),
   );
+
   const boxes = combat.boxes.filter(
     (box) =>
       box.alive &&
       inMeleeArc(owner, direction, attack, box, 0.46) &&
       meleeReaches(world, owner, box, true),
   );
+
   const walls: Point[] = [];
+
   if (attack.breaksWalls) {
     const reach = Math.ceil(attack.range);
     const tx = world.toTile(owner.x);
     const tz = world.toTile(owner.z);
+
     for (let z = tz - reach; z <= tz + reach; z += 1) {
       for (let x = tx - reach; x <= tx + reach; x += 1) {
         const tile = { x: world.center(x), z: world.center(z) };
+
         if (
           world.isBreakable(x, z) &&
           inMeleeArc(owner, direction, attack, tile, 0.4) &&
@@ -121,14 +135,17 @@ export const swingMelee = (
       }
     }
   }
+
   const color = owner.bulletColor(isSuper);
-  // The swinger's guest drew this arc itself when its own swing landed.
   game.asActor(owner, () => showSlash(game, owner, attack, dx, dz, isSuper));
+
   for (const target of targets) {
     const dealt = target.takeDamage(attack.damage * owner.damageMul, owner);
+
     if (dealt <= 0) {
       continue;
     }
+
     const distance = Math.hypot(target.x - owner.x, target.z - owner.z) || 1;
     const force = attack.knockback ?? 2;
     target.applyKnock(
@@ -143,13 +160,16 @@ export const swingMelee = (
       isSuper ? 10 : 6,
     );
   }
+
   for (const box of boxes) {
     combat.damageBox(box, attack.damage * owner.damageMul, owner);
     effects.impact(box.x, world.heightAt(box.x, box.z) + 0.65, box.z, color, 5);
   }
+
   for (const wall of walls) {
     combat.breakTile(wall.x, wall.z);
   }
+
   if (targets.length > 0 || boxes.length > 0) {
     game.shake(isSuper ? 0.25 : 0.09, owner.x, owner.z);
   }

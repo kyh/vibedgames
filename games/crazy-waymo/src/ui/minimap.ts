@@ -3,49 +3,32 @@ import type { CityPlan } from "../world/grid";
 import type { SurfaceDeck } from "../world/city";
 import { districtAt } from "../world/sf-map";
 
-// Corner minimap: a ZOOMED north-up viewport (~VIEW world units across)
-// following the taxi — the full-map view made streets unreadably small at SF
-// scale. The whole map is painted once into a high-res offscreen base; each
-// frame blits the window around the car and composites live markers: waiting
-// fares (tier colors), the destination, and the taxi as a heading arrow.
-// Off-window markers clamp to the edge so you always know which way to go.
-
 export interface MinimapMarker {
   readonly x: number;
   readonly z: number;
   readonly color: string;
-  // destination gets a pulsing ring
   readonly ring?: boolean;
-  // "player" = outlined dot (plain white was invisible on road-grey);
-  // "square" = garage pad. Default: the plain objective dot.
   readonly glyph?: "player" | "square";
-  // false = draw only inside the window (no edge pin). Default true.
   readonly edgeClamp?: boolean;
 }
 
-// Dark-chart palette: plum ground, cream streets — the kart-cluster read
-// (light-grey paper made the map the brightest plate on screen at night).
-// Toon pass: plum land under the HUD's ink, candy water and park.
 const WATER = "#3a9fe0";
 const LAND = "#2c2144";
 const PARK = "#5fbf4f";
 const ROAD = "#fff4e2";
 const DECK = "#c0483c";
-// the autopilot's route
 export const ROUTE = "#6bff8e";
 
-// World units across the minimap window. The small box zooms in: it is ~2/3
-// the desktop size, so the same VIEW would shrink streets below legibility.
-const blipRadius = (clamped: boolean, glyph: "player" | "square" | undefined): number => {
+const blipRadius = (clamped: boolean, glyph: "player" | "square" | undefined) => {
   if (clamped) {
     return 3.2;
   }
+
   return glyph === "player" ? 3.4 : 2.8;
 };
 
 const VIEW_DESKTOP = 560;
 const VIEW_MOBILE = 340;
-// offscreen full-map resolution (px on the long axis)
 export const BASE_PX = 2048;
 
 /**
@@ -59,30 +42,36 @@ export const paintCity = (
   decks: readonly SurfaceDeck[],
   scale: number,
   roads: boolean,
-): void => {
+) => {
   canvas.width = Math.ceil(WORLD_W * scale);
   canvas.height = Math.ceil(WORLD_H * scale);
   const b = canvas.getContext("2d");
+
   if (!b) {
     return;
   }
+
   const cellX = (WORLD_W * scale) / GRID_X;
   const cellZ = (WORLD_H * scale) / GRID_Z;
+
   for (let gx = 0; gx < GRID_X; gx += 1) {
     for (let gz = 0; gz < GRID_Z; gz += 1) {
       const kind = plan.cells[gx]?.[gz];
       let fill = WATER;
+
       if (kind === "road") {
         fill = roads ? ROAD : LAND;
       } else if (kind === "lot") {
         fill = districtAt(gx, gz).character === "park" ? PARK : LAND;
       }
+
       b.fillStyle = fill;
       b.fillRect(gx * cellX, gz * cellZ, cellX + 0.5, cellZ + 0.5);
     }
   }
-  // Drivable decks (Golden Gate + wharf piers) read as landmarks.
+
   b.fillStyle = DECK;
+
   for (const d of decks) {
     b.fillRect(
       (d.minX + WORLD_HALF_X) * scale,
@@ -100,7 +89,6 @@ export class Minimap {
   private size: number;
   private dpr: number;
   private t = 0;
-  // world units → base px
   private baseScale: number;
   private view: number;
 
@@ -108,35 +96,26 @@ export class Minimap {
     const node = document.querySelector("#minimap");
     this.canvas = node instanceof HTMLCanvasElement ? node : document.createElement("canvas");
     this.dpr = Math.min(window.devicePixelRatio || 1, 2);
-    // #minimap is `display: none` until setVisible(true) at race start, and a
-    // display:none element reports clientWidth 0 — reading it here always fell
-    // back to the desktop 148 and drew phone HUDs 30% undersized. A resolved
-    // `width` still returns the explicit length the media queries set (this
-    // would NOT hold for auto/percentage widths, which #minimap does not use).
     // oxlint-disable-next-line unicorn/prefer-number-coercion -- the resolved width carries a "px" suffix; Number() would give NaN
     this.size = Number.parseFloat(getComputedStyle(this.canvas).width) || 148;
-    // Zoom follows the widget size, not the pointer type: a narrow mouse
-    // window gets the same 104px box as a phone.
     this.view = this.size < 128 ? VIEW_MOBILE : VIEW_DESKTOP;
     this.canvas.width = this.size * this.dpr;
     this.canvas.height = this.size * this.dpr;
     this.ctx = this.canvas.getContext("2d");
 
-    // Paint the static base once, at high resolution so the zoom window
-    // stays crisp (VIEW window → this.size px needs ~0.6 px/u; we bake 0.65).
     this.baseScale = BASE_PX / Math.max(WORLD_W, WORLD_H);
     this.base = document.createElement("canvas");
     paintCity(this.base, plan, decks, this.baseScale, true);
   }
 
   /** Clicking the corner map (it ignores the pointer otherwise). */
-  onClick(open: () => void): void {
+  onClick(open: () => void) {
     this.canvas.style.pointerEvents = "auto";
     this.canvas.style.cursor = "pointer";
     this.canvas.addEventListener("click", open);
   }
 
-  setVisible(v: boolean): void {
+  setVisible(v: boolean) {
     this.canvas.style.display = v ? "block" : "none";
   }
 
@@ -146,16 +125,16 @@ export class Minimap {
     carZ: number,
     heading: number,
     markers: readonly MinimapMarker[],
-    // [x0,z0, x1,z1, ...] the autopilot is following
     route: Float64Array | null = null,
-  ): void {
+  ) {
     const { ctx } = this;
+
     if (!ctx) {
       return;
     }
+
     this.t += dt;
 
-    // Blit the window around the car (base px), water-blue beyond the map.
     const winPx = this.view * this.baseScale;
     const sx = (carX + WORLD_HALF_X) * this.baseScale - winPx / 2;
     const sz = (carZ + WORLD_HALF_Z) * this.baseScale - winPx / 2;
@@ -165,10 +144,9 @@ export class Minimap {
     ctx.drawImage(this.base, sx, sz, winPx, winPx, 0, 0, this.canvas.width, this.canvas.height);
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
 
-    // World → viewport CSS px.
     const vScale = this.size / this.view;
-    const px = (x: number): number => (x - carX + this.view / 2) * vScale;
-    const pz = (z: number): number => (z - carZ + this.view / 2) * vScale;
+    const px = (x: number) => (x - carX + this.view / 2) * vScale;
+    const pz = (z: number) => (z - carZ + this.view / 2) * vScale;
 
     if (route && route.length >= 4) {
       ctx.strokeStyle = ROUTE;
@@ -177,22 +155,25 @@ export class Minimap {
       ctx.lineCap = "round";
       ctx.beginPath();
       ctx.moveTo(px(route[0] ?? 0), pz(route[1] ?? 0));
+
       for (let k = 2; k + 1 < route.length; k += 2) {
         ctx.lineTo(px(route[k] ?? 0), pz(route[k + 1] ?? 0));
       }
+
       ctx.stroke();
     }
 
     for (const m of markers) {
-      // Clamp off-window markers to the edge (direction hint).
       const rawX = px(m.x);
       const rawZ = pz(m.z);
       const mx = Math.min(this.size - 5, Math.max(5, rawX));
       const mz = Math.min(this.size - 5, Math.max(5, rawZ));
       const clamped = mx !== rawX || mz !== rawZ;
+
       if (clamped && m.edgeClamp === false) {
         continue;
       }
+
       if (m.ring && !clamped) {
         const pulse = 4 + Math.sin(this.t * 5) * 1.4;
         ctx.strokeStyle = m.color;
@@ -201,6 +182,7 @@ export class Minimap {
         ctx.arc(mx, mz, pulse, 0, Math.PI * 2);
         ctx.stroke();
       }
+
       if (m.glyph === "square") {
         const s = clamped ? 2.8 : 3.6;
         ctx.fillStyle = m.color;
@@ -212,10 +194,12 @@ export class Minimap {
         ctx.stroke();
         continue;
       }
+
       ctx.fillStyle = m.color;
       ctx.beginPath();
       ctx.arc(mx, mz, blipRadius(clamped, m.glyph), 0, Math.PI * 2);
       ctx.fill();
+
       if (m.glyph === "player") {
         ctx.strokeStyle = "#1b1428";
         ctx.lineWidth = 1.2;
@@ -223,7 +207,6 @@ export class Minimap {
       }
     }
 
-    // The taxi: centred heading arrow. Screen up is -Z; heading 0 faces +Z.
     ctx.save();
     ctx.translate(this.size / 2, this.size / 2);
     ctx.rotate(Math.PI - heading);

@@ -5,20 +5,15 @@ import type { FxPool } from "../render/fx-pool";
 import { ENEMY_SPECS } from "../shared/constants";
 import type { EnemyKind, Vec } from "../shared/constants";
 
-// Cosmetic backdrop for the start screen that mimics ACTUAL play: one hero
-// ship kiting and gunning down an endless swarm of the game's real enemies.
-// Enemies fly in from beyond the screen edges (never pop in), press toward the
-// hero, and die to beam fire or burst against the hero's shield. It is PURELY
-// visual: nothing here touches the net session, XP, collisions with real
-// players or the shared world. Driven from GameScene.update() only while play
-// hasn't begun; torn down the instant real play starts.
-
 /** Builds a ship Graphics (delegates to the scene's real makeShipGfx). */
 type ShipFactory = (tint: number, level: number) => Phaser.GameObjects.Graphics;
+
 /** The ship hull polygon for a level (delegates to the scene's shipHullPoints). */
 type HullPoints = (level: number) => Vec[];
+
 /** Builds an enemy Graphics / hull (delegates to the scene's real enemy art). */
 type EnemyFactory = (kind: EnemyKind) => Phaser.GameObjects.Graphics;
+
 type EnemyHull = (kind: EnemyKind) => readonly Vec[];
 
 export interface AttractDeps {
@@ -29,14 +24,8 @@ export interface AttractDeps {
   enemyHull: EnemyHull;
 }
 
-/** Live swarm size the spawner maintains. A dozen chasers reads as "one
- *  against the horde" without denting the frame budget: every entity is one
- *  static Graphics (drawn once, only transformed per frame); beams batch into
- *  a single pooled Graphics; explosions ride the shared FxPool cap. */
 const SWARM_SIZE = 16;
 
-/** The light enemy kinds that swarm in real play (heavies would dwarf the
- *  title). Weighted toward drones, like an actual early arena. */
 const SWARM_KINDS: readonly { kind: EnemyKind; weight: number; hp: number; speed: number }[] = [
   { hp: 2, kind: "drone", speed: 118, weight: 0.5 },
   { hp: 3, kind: "wasp", speed: 150, weight: 0.3 },
@@ -46,29 +35,20 @@ const SWARM_KINDS: readonly { kind: EnemyKind; weight: number; hp: number; speed
 const HERO_TINT = 0x7f_b2_ff;
 const HERO_LEVEL = 3;
 const HERO_SPEED = 125;
-// rad/s toward desired heading
 const HERO_TURN = 3.6;
-// how fast velocity chases heading*speed (per s)
 const VEL_BLEND = 3.2;
 const HERO_FIRE_RANGE = 360;
 const HERO_FIRE_CD_MIN = 330;
 const HERO_FIRE_CD_MAX = 560;
-// closer than this, the hero breaks away from the pack
 const KITE_DIST = 150;
 const BEAM_LIFE_MS = 110;
-// rad/s — chasers arc in rather than rail-turn
 const ENEMY_TURN = 2.6;
-// swarm reaching the hero bursts on its shield
 const CONTACT_DIST = 30;
-// spawn this far beyond the screen edge...
 const ENTRY_MARGIN_MIN = 60;
-// ...so every enemy visibly FLIES IN
 const ENTRY_MARGIN_MAX = 140;
 const RESPAWN_MIN_MS = 150;
 const RESPAWN_MAX_MS = 600;
-// rad/s of heading weave
 const WEAVE_RATE = 2.3;
-// hero stays inside this viewport band
 const EDGE_PAD = 90;
 
 interface Hero {
@@ -97,7 +77,6 @@ interface Swarmer {
   weavePhase: number;
   weaveAmp: number;
   alive: boolean;
-  // ms; 0 while alive
   respawnAt: number;
 }
 
@@ -111,30 +90,36 @@ interface Shot {
   bornAt: number;
 }
 
-const rand = (a: number, b: number): number => a + Math.random() * (b - a);
+const rand = (a: number, b: number) => a + Math.random() * (b - a);
 
-/** Shortest signed angle a→b. */
-const angleDelta = (a: number, b: number): number => {
+const angleDelta = (a: number, b: number) => {
   let d = b - a;
+
   while (d > Math.PI) {
     d -= Math.PI * 2;
   }
+
   while (d < -Math.PI) {
     d += Math.PI * 2;
   }
+
   return d;
 };
 
-const rollKind = (): { kind: EnemyKind; hp: number; speed: number } => {
+const rollKind = () => {
   const r = Math.random();
   let acc = 0;
+
   for (const s of SWARM_KINDS) {
     acc += s.weight;
+
     if (r < acc) {
       return s;
     }
   }
+
   const last = SWARM_KINDS.at(-1);
+
   return last ?? { hp: 2, kind: "drone", speed: 118 };
 };
 
@@ -150,22 +135,20 @@ export class AttractBattle {
   constructor(scene: Phaser.Scene, deps: AttractDeps) {
     this.scene = scene;
     this.deps = deps;
-    // Below the DOM start overlay, above the starfield; additive so the beams
-    // bloom like the in-game weapon fire.
     this.beamGfx = scene.add.graphics().setDepth(8).setBlendMode(BlendModes.ADD);
   }
 
-  /** Lazily seed hero + swarm (needs a laid-out camera). */
-  private seed(): void {
+  private seed() {
     if (this.started) {
       return;
     }
+
     const view = this.scene.cameras.main.worldView;
-    // The first frame(s) can run before the camera has real bounds — seeding
-    // then dumps everything in a tiny box at the top-left corner.
+
     if (view.width < 200 || view.height < 200) {
       return;
     }
+
     this.started = true;
 
     const { now } = this.scene.time;
@@ -179,13 +162,11 @@ export class AttractBattle {
       wpX: view.centerX,
       wpY: view.centerY + 100,
       x: view.centerX + rand(-80, 80),
-      // below the title text block,
       y: view.centerY + rand(60, 140),
     };
 
     for (let i = 0; i < SWARM_SIZE; i += 1) {
       const s = this.makeSwarmer();
-      // Stagger the opening entries so the swarm streams in, not a wall.
       s.alive = false;
       s.gfx.setVisible(false);
       s.respawnAt = now + i * rand(120, 320);
@@ -193,8 +174,9 @@ export class AttractBattle {
     }
   }
 
-  private makeSwarmer(): Swarmer {
+  private makeSwarmer() {
     const roll = rollKind();
+
     return {
       alive: true,
       angle: 0,
@@ -212,8 +194,7 @@ export class AttractBattle {
     };
   }
 
-  /** Send a swarmer in from beyond a random screen edge, aimed at the hero. */
-  private enter(s: Swarmer): void {
+  private enter(s: Swarmer) {
     const view = this.scene.cameras.main.worldView;
     const roll = rollKind();
     s.kind = roll.kind;
@@ -224,6 +205,7 @@ export class AttractBattle {
 
     const m = rand(ENTRY_MARGIN_MIN, ENTRY_MARGIN_MAX);
     const edge = Math.floor(Math.random() * 4);
+
     if (edge === 0) {
       s.x = view.x - m;
       s.y = rand(view.y, view.bottom);
@@ -237,9 +219,11 @@ export class AttractBattle {
       s.x = rand(view.x, view.right);
       s.y = view.bottom + m;
     }
+
     const at = this.hero
       ? Math.atan2(this.hero.y - s.y, this.hero.x - s.x)
       : Math.atan2(view.centerY - s.y, view.centerX - s.x);
+
     s.angle = at;
     s.vx = Math.cos(at) * s.speed;
     s.vy = Math.sin(at) * s.speed;
@@ -248,7 +232,7 @@ export class AttractBattle {
     s.gfx.setVisible(true).setPosition(s.x, s.y).setRotation(s.angle);
   }
 
-  private killSwarmer(s: Swarmer, now: number): void {
+  private killSwarmer(s: Swarmer, now: number) {
     const spec = ENEMY_SPECS[s.kind];
     this.deps.fx.shatter(s.x, s.y, this.deps.enemyHull(s.kind), s.angle, spec.tint);
     this.deps.fx.sparks(s.x, s.y, 8, spec.tint, { lifeMax: 280, lifeMin: 140 });
@@ -259,28 +243,32 @@ export class AttractBattle {
 
   /** Advance the cosmetic battle one frame. Safe to call every frame while the
    *  start screen is up; no-ops once destroyed. */
-  update(dt: number, now: number): void {
+  update(dt: number, now: number) {
     this.seed();
     const { hero } = this;
+
     if (!hero) {
       return;
     }
+
     const view = this.scene.cameras.main.worldView;
 
-    // ---- hero: kite the pack, gun the nearest chaser -------------------------
     let nearest: Swarmer | null = null;
     let nearestD = Infinity;
     let packX = 0;
     let packY = 0;
     let packN = 0;
+
     for (const s of this.swarm) {
       if (!s.alive) {
         continue;
       }
+
       packX += s.x;
       packY += s.y;
       packN += 1;
       const d = Math.hypot(s.x - hero.x, s.y - hero.y);
+
       if (d < nearestD) {
         nearestD = d;
         nearest = s;
@@ -288,24 +276,27 @@ export class AttractBattle {
     }
 
     let desired: number;
+
     if (nearest && nearestD < KITE_DIST && packN > 0) {
-      // Too much company: burn away from the pack's center of mass.
       desired = Math.atan2(hero.y - packY / packN, hero.x - packX / packN);
     } else {
-      // Drift between waypoints so the fight wanders the screen.
       if (now >= hero.wpUntil || Math.hypot(hero.wpX - hero.x, hero.wpY - hero.y) < 50) {
         hero.wpX = rand(view.x + view.width * 0.2, view.right - view.width * 0.2);
         hero.wpY = rand(view.y + view.height * 0.25, view.bottom - view.height * 0.15);
         hero.wpUntil = now + rand(1800, 3600);
       }
+
       desired = Math.atan2(hero.wpY - hero.y, hero.wpX - hero.x);
     }
+
     desired += Math.sin(now * 0.001 * WEAVE_RATE) * 0.2;
+
     const outside =
       hero.x < view.x + EDGE_PAD ||
       hero.x > view.right - EDGE_PAD ||
       hero.y < view.y + EDGE_PAD ||
       hero.y > view.bottom - EDGE_PAD;
+
     if (outside) {
       desired = Math.atan2(view.centerY - hero.y, view.centerX - hero.x);
     }
@@ -322,8 +313,6 @@ export class AttractBattle {
     hero.y += hero.vy * dt;
     hero.gfx.setPosition(hero.x, hero.y).setRotation(hero.angle);
 
-    // In real play aim is mouse-driven, decoupled from travel — so the hero
-    // fires at the nearest threat regardless of heading.
     if (nearest && nearestD < HERO_FIRE_RANGE && now >= hero.fireAt) {
       this.fireHero(hero, nearest, now);
       hero.fireAt = now + rand(HERO_FIRE_CD_MIN, HERO_FIRE_CD_MAX);
@@ -333,15 +322,16 @@ export class AttractBattle {
     this.drawBeams(now);
   }
 
-  /** Swarm: press the hero, burst on shield contact. */
-  private updateSwarm(hero: Hero, k: number, dt: number, now: number): void {
+  private updateSwarm(hero: Hero, k: number, dt: number, now: number) {
     for (const s of this.swarm) {
       if (!s.alive) {
         if (now >= s.respawnAt) {
           this.enter(s);
         }
+
         continue;
       }
+
       const toHero = Math.atan2(hero.y - s.y, hero.x - s.x);
       const chase = toHero + Math.sin(now * 0.001 * WEAVE_RATE + s.weavePhase) * s.weaveAmp;
       s.angle += PhaserMath.Clamp(angleDelta(s.angle, chase), -ENEMY_TURN * dt, ENEMY_TURN * dt);
@@ -351,8 +341,6 @@ export class AttractBattle {
       s.y += s.vy * dt;
       s.gfx.setPosition(s.x, s.y).setRotation(s.angle);
 
-      // Reached the hero: burst against the shield (white flash, no harm —
-      // the demo pilot is having a better run than you will).
       if (Math.hypot(s.x - hero.x, s.y - hero.y) < CONTACT_DIST) {
         this.deps.fx.ring(hero.x, hero.y, 10, 44, 260, 0xff_ff_ff, 0.75);
         this.killSwarmer(s, now);
@@ -360,7 +348,7 @@ export class AttractBattle {
     }
   }
 
-  private fireHero(hero: Hero, target: Swarmer, now: number): void {
+  private fireHero(hero: Hero, target: Swarmer, now: number) {
     this.shots.push({
       bornAt: now,
       tint: HERO_TINT,
@@ -377,6 +365,7 @@ export class AttractBattle {
       speedMin: 40,
     });
     target.hp -= 1;
+
     if (target.hp <= 0) {
       this.killSwarmer(target, now);
     } else {
@@ -385,21 +374,25 @@ export class AttractBattle {
     }
   }
 
-  private drawBeams(now: number): void {
+  private drawBeams(now: number) {
     const g = this.beamGfx;
     g.clear();
+
     for (let i = this.shots.length - 1; i >= 0; i -= 1) {
       const s = this.shots[i];
+
       if (!s) {
         continue;
       }
+
       const age = now - s.bornAt;
+
       if (age >= BEAM_LIFE_MS) {
         this.shots.splice(i, 1);
         continue;
       }
+
       const a = 1 - age / BEAM_LIFE_MS;
-      // Outer glow + bright core, mirroring the in-game beam look.
       g.lineStyle(s.width * 3, s.tint, 0.18 * a);
       g.lineBetween(s.x1, s.y1, s.x2, s.y2);
       g.lineStyle(s.width, 0xff_ff_ff, 0.85 * a);
@@ -408,12 +401,14 @@ export class AttractBattle {
   }
 
   /** Despawn everything. Called the moment real play begins. */
-  destroy(): void {
+  destroy() {
     this.hero?.gfx.destroy();
     this.hero = null;
+
     for (const s of this.swarm) {
       s.gfx.destroy();
     }
+
     this.swarm.length = 0;
     this.shots.length = 0;
     this.beamGfx.destroy();

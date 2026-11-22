@@ -8,6 +8,7 @@
     "./auth/auth": "./src/auth/auth.ts",
     "./auth/oauth-resources": "./src/auth/oauth-resources.ts",
     "./credits/stripe": "./src/credits/stripe.ts",
+    "./email/mailer": "./src/email/mailer.ts",
     "./storage/signed-urls": "./src/storage/signed-urls.ts",
     "./generate/limits": "./src/generate/limits.ts",
     "./orpc": "./src/orpc.ts",

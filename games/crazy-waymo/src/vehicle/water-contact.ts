@@ -8,4 +8,5 @@ export interface FloatingWaterContact {
 }
 
 export type WaterContact = { readonly kind: "dry" } | FloatingWaterContact;
+
 export const DRY_WATER_CONTACT = { kind: "dry" } satisfies WaterContact;

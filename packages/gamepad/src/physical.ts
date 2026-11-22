@@ -98,12 +98,12 @@ const IDLE_STICK: StickState = {
   magnitude: 0,
 };
 
-const defaultPoll = (): readonly (Gamepad | null)[] =>
+const defaultPoll = () =>
   typeof navigator !== "undefined" && "getGamepads" in navigator ? navigator.getGamepads() : [];
 
 /** True if any physical pad is currently connected — e.g. to decide whether
  *  controller rows belong on an instructions screen. */
-export const isPadConnected = (): boolean => defaultPoll().some((pad) => pad?.connected ?? false);
+export const isPadConnected = () => defaultPoll().some((pad) => pad?.connected ?? false);
 
 /**
  * Physical controller input, API-mirroring {@link VirtualGamepad} so a game's
@@ -132,7 +132,6 @@ export class PhysicalGamepad {
   private axes: readonly number[] = [];
   private down = new Set<PadButton>();
   private prevDown = new Set<PadButton>();
-  /** Raw analog values (triggers), by button name. */
   private values = new Map<PadButton, number>();
 
   constructor(options: PhysicalGamepadOptions = {}) {
@@ -145,8 +144,9 @@ export class PhysicalGamepad {
   }
 
   /** Poll the first connected pad and publish press edges for this frame. */
-  update(): void {
+  update() {
     let pad: Gamepad | null = null;
+
     for (const candidate of this.poll()) {
       if (candidate?.connected) {
         pad = candidate;
@@ -155,8 +155,10 @@ export class PhysicalGamepad {
     }
 
     const connected = pad !== null;
+
     if (connected !== this.wasConnected) {
       this.wasConnected = connected;
+
       if (connected) {
         this.onConnect?.();
       } else {
@@ -164,23 +166,24 @@ export class PhysicalGamepad {
       }
     }
 
-    // Swap, then rebuild — prevDown keeps last frame's state for edge reads.
     [this.prevDown, this.down] = [this.down, this.prevDown];
     this.down.clear();
     this.values.clear();
     this.axes = pad ? [...pad.axes] : [];
+
     if (!pad) {
       return;
     }
 
     for (const name of PAD_BUTTONS) {
       const button = pad.buttons[BUTTON_INDEX[name]];
+
       if (!button) {
         continue;
       }
+
       this.values.set(name, button.value);
-      // Triggers report analog values; some pads never set `pressed` for a
-      // light pull, so a value past the threshold also counts as down.
+
       if (button.pressed || button.value > this.triggerThreshold) {
         this.down.add(name);
       }
@@ -188,29 +191,31 @@ export class PhysicalGamepad {
   }
 
   /** A pad was connected as of the last `update()`. */
-  get connected(): boolean {
+  get connected() {
     return this.wasConnected;
   }
 
   /** `id` is a binding action id or a raw {@link PadButton} name. */
-  isButtonDown(id: string): boolean {
+  isButtonDown(id: string) {
     return this.resolve(id).some((b) => this.down.has(b));
   }
 
   /** Action went up→down since the previous `update()` (any bound button). */
-  justPressed(id: string): boolean {
+  justPressed(id: string) {
     const buttons = this.resolve(id);
+
     return buttons.some((b) => this.down.has(b)) && !buttons.some((b) => this.prevDown.has(b));
   }
 
   /** Action went down→up since the previous `update()` (all bound buttons up). */
-  justReleased(id: string): boolean {
+  justReleased(id: string) {
     const buttons = this.resolve(id);
+
     return buttons.some((b) => this.prevDown.has(b)) && !buttons.some((b) => this.down.has(b));
   }
 
   /** Raw analog value 0–1 (triggers are the interesting case). 0 when absent. */
-  buttonValue(button: PadButton): number {
+  buttonValue(button: PadButton) {
     return this.values.get(button) ?? 0;
   }
 
@@ -219,15 +224,17 @@ export class PhysicalGamepad {
    * y-down matches screen space), so `stickDirection4/8` work unchanged.
    * `active` while a pad is connected; dead-zoned like the virtual stick.
    */
-  getStick(side: "left" | "right" = "left"): StickState {
+  getStick(side: "left" | "right" = "left") {
     if (!this.wasConnected) {
       return { ...IDLE_STICK };
     }
+
     const base = side === "left" ? 0 : 2;
     const dx = this.axes[base] ?? 0;
     const dy = this.axes[base + 1] ?? 0;
     const distance = Math.hypot(dx, dy);
     const span = Math.max(1e-6, 1 - this.stickDeadZone);
+
     return {
       active: true,
       anchorX: 0,
@@ -244,7 +251,7 @@ export class PhysicalGamepad {
   }
 
   /** Release all state (the class holds no listeners — this just clears). */
-  destroy(): void {
+  destroy() {
     this.down.clear();
     this.prevDown.clear();
     this.values.clear();
@@ -252,11 +259,13 @@ export class PhysicalGamepad {
     this.wasConnected = false;
   }
 
-  private resolve(id: string): readonly PadButton[] {
+  private resolve(id: string) {
     const bound = this.bindings[id];
+
     if (bound) {
       return bound;
     }
+
     return isPadButton(id) ? [id] : [];
   }
 }

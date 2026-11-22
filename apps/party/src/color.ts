@@ -42,22 +42,26 @@ const colorValues = Object.values(colors);
 /* oxlint-disable no-bitwise, unicorn/prefer-math-trunc -- int32 string hash */
 const hashCode = (string?: string, mod?: number) => {
   let hash = 0;
+
   if (!string || string.length === 0) {
     return hash;
   }
+
   for (let i = 0; i < string.length; i += 1) {
     const chr = string.codePointAt(i) ?? 0;
     hash = (hash << 5) - hash + chr;
     hash |= 0;
   }
+
   if (mod) {
     return Math.abs(hash % mod);
   }
+
   return hash;
 };
 /* oxlint-enable no-bitwise, unicorn/prefer-math-trunc */
 
-const sampleSize = <T>(array: T[], size: number): T[] => {
+const sampleSize = <T>(array: T[], size: number) => {
   const shuffled = [...array];
   const { length } = array;
   const lastIndex = length - 1;
@@ -67,11 +71,13 @@ const sampleSize = <T>(array: T[], size: number): T[] => {
     const rand = index + Math.floor(Math.random() * (lastIndex - index + 1));
     const picked = shuffled[rand];
     const current = shuffled[index];
+
     if (picked !== undefined && current !== undefined) {
       shuffled[rand] = current;
       shuffled[index] = picked;
     }
   }
+
   return shuffled.slice(0, count);
 };
 
@@ -82,14 +88,11 @@ export const getRandomUniqueColor = (currentColors: string[]) => {
   const uniqueColors = colorNames.filter((color: string) => !currentColors.includes(color));
   const uniqueColor = uniqueColors[Math.floor(Math.random() * uniqueColors.length)];
   const uniqueColorSet = colorValues.find((color) => color.color === uniqueColor);
+
   return uniqueColorSet ?? getRandomColor();
 };
 
 export const getRandomColors = (qty: number) => sampleSize(colorValues, qty);
 
-export const getColorById = (
-  id: string,
-): {
-  color: string;
-  hue: string;
-} => colorValues[hashCode(id, colorValues.length)] ?? colors.blue;
+export const getColorById = (id: string) =>
+  colorValues[hashCode(id, colorValues.length)] ?? colors.blue;

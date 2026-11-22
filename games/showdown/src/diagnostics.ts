@@ -1,7 +1,3 @@
-// Read-only state snapshot for the repo's playtest tooling, published as
-// window.__GAME_DIAGNOSTICS__ (see the playtest skill). Typed through a small
-// structural view of Game so the builder needs no renderer to run.
-
 import { publishDiagnostics } from "@vibedgames/playtest";
 
 import type { PlaytestSense } from "./playtest-sense";
@@ -67,7 +63,6 @@ export interface OnlineDiagnostics {
   seq: number;
 }
 
-/** Kills dominate; cubes make looting count, so progress shows before the first kill. */
 const KILL_SCORE = 100;
 const CUBE_SCORE = 10;
 
@@ -89,18 +84,21 @@ export interface Diagnostics extends Partial<PlaytestSense> {
 let frame = 0;
 
 /** Count a rendered frame. Game calls this once per animation frame. */
-export const tick = (): void => {
+export const tick = () => {
   frame += 1;
 };
 
-const round2 = (n: number): number => Math.round(n * 100) / 100;
+const round2 = (n: number) => Math.round(n * 100) / 100;
 
-const netDiagnostics = (game: DiagnosticsSource): NetDiagnostics | null => {
+const netDiagnostics = (game: DiagnosticsSource) => {
   const { netGuest, session } = game;
+
   if (!session) {
     return null;
   }
+
   const lag = netGuest?.prediction.lagMs ?? null;
+
   return {
     ...session.stats,
     correction: netGuest ? round2(netGuest.prediction.lastError) : null,
@@ -109,11 +107,13 @@ const netDiagnostics = (game: DiagnosticsSource): NetDiagnostics | null => {
   };
 };
 
-const onlineDiagnostics = (game: DiagnosticsSource): OnlineDiagnostics | null => {
+const onlineDiagnostics = (game: DiagnosticsSource) => {
   const { mode, session } = game;
+
   if (mode === "solo") {
     return null;
   }
+
   return {
     connection: session?.status ?? null,
     isHost: session?.isHost ?? false,
@@ -125,11 +125,9 @@ const onlineDiagnostics = (game: DiagnosticsSource): OnlineDiagnostics | null =>
   };
 };
 
-export const buildDiagnostics = (
-  game: DiagnosticsSource,
-  sense: PlaytestSense | null = null,
-): Diagnostics => {
+export const buildDiagnostics = (game: DiagnosticsSource, sense: PlaytestSense | null = null) => {
   const { player } = game;
+
   return {
     ...sense,
     brawlersLeft: game.brawlers.filter((b) => b.alive).length,
@@ -158,6 +156,6 @@ export const buildDiagnostics = (
 export const installDiagnostics = (
   game: DiagnosticsSource,
   sense: () => PlaytestSense | null = () => null,
-): void => {
+) => {
   publishDiagnostics(() => buildDiagnostics(game, sense()));
 };
