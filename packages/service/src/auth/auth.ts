@@ -17,7 +17,7 @@ import { admin, bearer, jwt, oAuthProxy } from "better-auth/plugins";
 import { z } from "zod";
 
 import type { Mailer } from "../email/mailer";
-import { passwordResetEmail } from "../email/templates";
+import { passwordResetEmail, verifyEmail } from "../email/templates";
 import { fetchClientMetadataResource } from "./cimd-fetch";
 import { oauthResources } from "./oauth-resources";
 
@@ -97,6 +97,13 @@ export const createAuth = (opts: AuthOptions) => {
         ? ({ user, url }) => mailer({ to: user.email, ...passwordResetEmail(url) })
         : undefined,
     },
+    emailVerification: mailer
+      ? {
+          autoSignInAfterVerification: true,
+          sendOnSignUp: true,
+          sendVerificationEmail: ({ user, url }) => mailer({ to: user.email, ...verifyEmail(url) }),
+        }
+      : undefined,
     plugins: [
       oAuthProxy({
         currentURL: baseURL,
@@ -284,5 +291,9 @@ const firstPartyCliClient = (apiResource: string) =>
   }) satisfies BetterAuthPlugin;
 
 export type Auth = ReturnType<typeof createAuth>;
+
+/** Whether this deployment can send a verification link, so an unverified address can be asked to confirm. */
+export const verifiesEmail = (auth: Auth) =>
+  auth.options.emailVerification?.sendVerificationEmail !== undefined;
 
 export type Session = Auth["$Infer"]["Session"];

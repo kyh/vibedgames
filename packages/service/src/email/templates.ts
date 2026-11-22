@@ -24,3 +24,19 @@ Choose a new password: ${url}
 The link works once and expires in an hour. If you didn't ask for this, ignore this email; your password stays the same.`,
   } satisfies Message;
 };
+
+export const verifyEmail = (url: string) => {
+  const href = escapeHtml(url);
+
+  return {
+    html: `<p>Confirm this address for your vibedgames account.</p>
+<p><a href="${href}">Confirm my email</a></p>
+<p>The link expires in an hour. If you didn't sign up, ignore this email.</p>`,
+    subject: "Confirm your email for vibedgames",
+    text: `Confirm this address for your vibedgames account.
+
+Confirm my email: ${url}
+
+The link expires in an hour. If you didn't sign up, ignore this email.`,
+  } satisfies Message;
+};

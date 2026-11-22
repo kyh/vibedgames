@@ -219,6 +219,7 @@ export const RegisterForm = ({ className, callbackUrl, ...props }: StepFormProps
         const [emailPrefix] = credentials.email.split("@");
         let result: SubmitResult = UNREPORTED;
         await authClient.signUp.email({
+          callbackURL: "/settings#credits",
           email: credentials.email,
           fetchOptions: {
             onError: (ctx) => {

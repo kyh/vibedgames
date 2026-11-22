@@ -19,6 +19,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { SkeletonReveal } from "@/components/ui/skeleton-reveal";
 import { formatUsd, kindLabel } from "@/lib/credits-format";
 import { formatDate } from "@/lib/format";
+import { authClient } from "@/auth/client";
 import { useORPC } from "@/lib/orpc";
 
 const REDEEMED_CLOSE_MS = 1200;
@@ -106,6 +107,50 @@ const RedeemCode = ({
   );
 };
 
+const VerifyEmailToRedeem = ({ email }: { email: string }) => {
+  const [state, setState] = useState<"idle" | "sending" | "sent">("idle");
+
+  const send = async () => {
+    setState("sending");
+
+    const { error } = await authClient.sendVerificationEmail({
+      callbackURL: "/settings#credits",
+      email,
+    });
+
+    if (error) {
+      toast.error(error.message ?? "Couldn't send the link. Try again.");
+      setState("idle");
+
+      return;
+    }
+
+    setState("sent");
+  };
+
+  return (
+    <div className="space-y-1">
+      <p className="text-muted-foreground text-xs">
+        {state === "sent"
+          ? `Link sent to ${email}. Open it, then redeem your code here.`
+          : `Confirm ${email} to redeem a code.`}
+      </p>
+      {state !== "sent" && (
+        <Button
+          type="button"
+          variant="link"
+          size="sm"
+          className="h-auto px-0 text-xs"
+          loading={state === "sending"}
+          onClick={send}
+        >
+          Send confirmation link
+        </Button>
+      )}
+    </div>
+  );
+};
+
 const BuyCredits = ({ children }: { children: React.ReactNode }) => {
   const orpc = useORPC();
 
@@ -177,11 +222,13 @@ const CreditsSkeleton = () => (
 
 export const CreditsSettings = ({
   code,
+  email,
   purchase,
   onCodeRedeemed,
 }: {
   /** A credit code from the link (`?code=`), prefilled into the redeem field. */
   code?: string;
+  email: string;
   /** True when Stripe has just sent the person back from a paid checkout. */
   purchase: boolean;
   /** Drops `?code=` once used, so a reload doesn't redeem it again. */
@@ -269,11 +316,19 @@ export const CreditsSettings = ({
 
                 {credits.data.purchasesEnabled ? (
                   <BuyCredits>
-                    <RedeemCode defaultValue={code ?? ""} onRedeemed={onCodeRedeemed} />
+                    {credits.data.mustVerifyEmail ? (
+                      <VerifyEmailToRedeem email={email} />
+                    ) : (
+                      <RedeemCode defaultValue={code ?? ""} onRedeemed={onCodeRedeemed} />
+                    )}
                   </BuyCredits>
                 ) : (
                   <AddCredit>
-                    <RedeemCode defaultValue={code ?? ""} onRedeemed={onCodeRedeemed} primary />
+                    {credits.data.mustVerifyEmail ? (
+                      <VerifyEmailToRedeem email={email} />
+                    ) : (
+                      <RedeemCode defaultValue={code ?? ""} onRedeemed={onCodeRedeemed} primary />
+                    )}
                   </AddCredit>
                 )}
 

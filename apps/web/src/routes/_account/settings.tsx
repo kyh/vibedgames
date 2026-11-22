@@ -20,6 +20,7 @@ const SettingsPage = () => {
         <ConnectedAppsSettings />
         <CreditsSettings
           code={code}
+          email={user.email}
           purchase={purchase === "success"}
           onCodeRedeemed={() => {
             if (code) {
