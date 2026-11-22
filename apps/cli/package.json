@@ -28,8 +28,8 @@
     "cross-spawn": "^7.0.6",
     "esbuild": "^0.28.2",
     "fflate": "^0.8.3",
-    "ignore": "^7.0.14",
-    "tar": "^7.5.22",
+    "ignore": "^7.0.16",
+    "tar": "^7.5.23",
     "typescript": "catalog:"
   }
 }
