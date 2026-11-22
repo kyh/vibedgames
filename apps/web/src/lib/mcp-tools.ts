@@ -177,7 +177,17 @@ const generateTools = {
         title: "Search model docs",
       }),
     )
-    .input(z.object({ query: z.string().min(1).max(500) }))
+    .input(
+      z.object({
+        query: z
+          .string()
+          .min(1)
+          .max(500)
+          .describe(
+            "What to look up, in plain words and up to 500 characters, e.g. `how to prompt seedance camera moves`",
+          ),
+      }),
+    )
     .handler(({ context, input }) =>
       forward(context, {
         body: {
@@ -204,10 +214,29 @@ const generateTools = {
     )
     .input(
       z.object({
-        category: z.string().optional().describe("e.g. text-to-image, image-to-video"),
-        cursor: z.string().optional(),
-        endpoint_id: z.array(z.string()).optional().describe("Look these ids up instead"),
-        limit: z.number().int().min(1).max(100).default(20),
+        category: z
+          .string()
+          .optional()
+          .describe("Only models in this category, e.g. `text-to-image`, `image-to-video`"),
+        cursor: z
+          .string()
+          .optional()
+          .describe(
+            "The `next_cursor` of a previous generate_models result, for the page after it; omit for the first page",
+          ),
+        endpoint_id: z
+          .array(z.string())
+          .optional()
+          .describe(
+            "Endpoint ids to look up directly instead of searching, e.g. `fal-ai/flux/dev`",
+          ),
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .max(100)
+          .default(20)
+          .describe("How many models to return per page, 1 to 100; default 20"),
         query: z.string().optional().describe("Free text, e.g. `pixel art sprite`"),
       }),
     )
@@ -265,7 +294,12 @@ const generateTools = {
     .input(
       z.object({
         endpoint_id: endpointId,
-        format: z.enum(["compact", "openapi"]).default("compact"),
+        format: z
+          .enum(["compact", "openapi"])
+          .default("compact")
+          .describe(
+            "`compact` (the default) returns the model's catalog entry; `openapi` adds its full OpenAPI 3.0 document, with every input and output field",
+          ),
       }),
     )
     .handler(({ context, input }) => {
@@ -290,10 +324,20 @@ const generateTools = {
     )
     .input(
       z.object({
-        action: z.enum(["status", "result", "cancel"]).default("status"),
+        action: z
+          .enum(["status", "result", "cancel"])
+          .default("status")
+          .describe(
+            "`status` (the default) reports where the job is; `result` fetches its output once COMPLETED, which settles the bill; `cancel` stops a job that is still queued or running",
+          ),
         endpoint_id: endpointId,
         logs: z.boolean().default(false).describe("Include the job's logs with its status"),
-        request_id: z.string().min(1),
+        request_id: z
+          .string()
+          .min(1)
+          .describe(
+            "The job's `request_id`, as generate or a generate_* tool returned it, with the endpoint_id it ran on",
+          ),
       }),
     )
     .handler(async ({ context, input }) => {
@@ -431,8 +475,21 @@ const mediaTools = {
           .optional()
           .describe("Model a character in this pose, which rigs cleanly in animate_3d"),
         prompt: prompt.max(600).optional().describe("What to model; needed without image_url"),
-        target_polycount: z.number().int().min(100).max(300_000).optional(),
-        topology: z.enum(["quad", "triangle"]).optional(),
+        target_polycount: z
+          .number()
+          .int()
+          .min(100)
+          .max(300_000)
+          .optional()
+          .describe(
+            "The mesh's polygon budget, 100 to 300,000; the model's default is 30,000. Games suit 5,000 to 15,000 for a prop, 15,000 to 40,000 for a hero character",
+          ),
+        topology: z
+          .enum(["quad", "triangle"])
+          .optional()
+          .describe(
+            "The mesh's faces: `triangle` (the model's default) keeps detail, `quad` gives smoother surfaces",
+          ),
         wait_seconds: waitSeconds,
       }),
     )
@@ -470,7 +527,12 @@ const mediaTools = {
     )
     .input(
       z.object({
-        background: z.enum(["auto", "transparent", "opaque"]).optional(),
+        background: z
+          .enum(["auto", "transparent", "opaque"])
+          .optional()
+          .describe(
+            "`transparent` leaves no background, for sprites and props; `opaque` always fills one; `auto` lets the model choose. Omit for the model's default",
+          ),
         image_size: z
           .enum([
             "auto",
@@ -489,10 +551,25 @@ const mediaTools = {
           .max(16)
           .optional()
           .describe("Images to edit or combine"),
-        num_images: z.number().int().min(1).max(4).optional(),
+        num_images: z
+          .number()
+          .int()
+          .min(1)
+          .max(4)
+          .optional()
+          .describe(
+            "How many images to make from the one prompt, 1 to 4; omit for the model's default",
+          ),
         options,
-        prompt,
-        quality: z.enum(["auto", "low", "medium", "high", "xhigh", "max"]).optional(),
+        prompt: prompt.describe(
+          "What to draw, or with image_urls how to edit or combine them, up to 5,000 characters, e.g. `pixel-art knight sprite, side view`",
+        ),
+        quality: z
+          .enum(["auto", "low", "medium", "high", "xhigh", "max"])
+          .optional()
+          .describe(
+            "Rendering quality from `low` (quick drafts) to `max`; higher takes longer and may cost more (see generate_pricing). `auto` lets the model choose; omit for the model's default",
+          ),
         wait_seconds: waitSeconds,
       }),
     )
@@ -527,10 +604,23 @@ const mediaTools = {
     )
     .input(
       z.object({
-        force_instrumental: z.boolean().optional(),
-        music_length_ms: z.number().int().min(3000).max(600_000).optional(),
+        force_instrumental: z
+          .boolean()
+          .optional()
+          .describe("true makes a track with no vocals; omit to let the prompt decide"),
+        music_length_ms: z
+          .number()
+          .int()
+          .min(3000)
+          .max(600_000)
+          .optional()
+          .describe(
+            "The track's length in milliseconds, 3,000 to 600,000 (3 seconds to 10 minutes), e.g. 60000 for a minute; omit for the model's default",
+          ),
         options,
-        prompt,
+        prompt: prompt.describe(
+          "The music to compose, up to 5,000 characters: genre, mood, instruments, tempo, structure, e.g. `upbeat chiptune boss battle loop, 140 bpm`",
+        ),
         wait_seconds: waitSeconds,
       }),
     )
@@ -558,7 +648,14 @@ const mediaTools = {
     )
     .input(
       z.object({
-        duration_seconds: z.number().min(0.5).max(22).optional(),
+        duration_seconds: z
+          .number()
+          .min(0.5)
+          .max(22)
+          .optional()
+          .describe(
+            "The sound's length in seconds, 0.5 to 22; omit to let the model fit the length to the sound",
+          ),
         loop: z.boolean().optional().describe("Make it loop seamlessly"),
         options,
         text: prompt.describe("The sound to make"),
@@ -615,7 +712,12 @@ const mediaTools = {
     )
     .input(
       z.object({
-        aspect_ratio: z.enum(["auto", "21:9", "16:9", "4:3", "1:1", "3:4", "9:16"]).optional(),
+        aspect_ratio: z
+          .enum(["auto", "21:9", "16:9", "4:3", "1:1", "3:4", "9:16"])
+          .optional()
+          .describe(
+            "The frame's width to height, e.g. `16:9` landscape, `9:16` portrait, `1:1` square; `auto` lets the model choose, e.g. from image_url. Omit for the model's default",
+          ),
         duration: z
           .enum([
             "auto",
@@ -650,11 +752,21 @@ const mediaTools = {
           .optional()
           .describe("Seconds, 4 to 30"),
         end_image_url: imageUrl.optional().describe("The last frame, with image_url"),
-        generate_audio: z.boolean().optional(),
+        generate_audio: z
+          .boolean()
+          .optional()
+          .describe(
+            "false makes a silent clip; omit for the model's default, which generates sound with the video",
+          ),
         image_url: imageUrl.optional().describe("The first frame"),
         options,
         prompt: prompt.optional().describe("What happens; needed without image_url"),
-        resolution: z.enum(["480p", "720p", "1080p"]).optional(),
+        resolution: z
+          .enum(["480p", "720p", "1080p"])
+          .optional()
+          .describe(
+            "The clip's resolution; higher takes longer and may cost more (see generate_pricing). Omit for the model's default",
+          ),
         wait_seconds: waitSeconds,
       }),
     )
