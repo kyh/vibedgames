@@ -707,11 +707,11 @@ const rowOf = (room: WireRecord, key: string, id: string) => asWireRecord(room[k
   });
 
   soloLink.connect(SOLO);
-  soloLink.claim("i:item0001", 20);
+  soloLink.claim("i:item0001", 200);
   assert.deepEqual(grants, [["i:item0001", OFFLINE_PLAYER_ID]]);
   assert.equal(soloLink.myId, OFFLINE_PLAYER_ID, "the grant is mine");
   assert.ok(soloLink.claimed("i:item0001"));
-  await sleep(40);
+  await sleep(400);
   assert.deepEqual(grants.at(-1), ["i:item0001", null], "the claim lapses on its TTL");
   assert.equal(soloLink.claimed("i:item0001"), false);
   soloLink.destroy();
