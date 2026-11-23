@@ -28,6 +28,14 @@ export const forwardInput = z
 
 /** A model input to upload: what its storage slot is opened for. */
 export const uploadInput = z.object({
-  contentType: z.string().min(1).max(127).describe("e.g. image/png"),
-  fileName: z.string().min(1).max(255),
+  contentType: z
+    .string()
+    .min(1)
+    .max(127)
+    .describe("The file's MIME type, e.g. `image/png`; PUT the bytes with this Content-Type"),
+  fileName: z
+    .string()
+    .min(1)
+    .max(255)
+    .describe("The file's name with its extension, e.g. `hero.png`, up to 255 characters"),
 });

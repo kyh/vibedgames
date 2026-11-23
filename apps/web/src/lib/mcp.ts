@@ -108,6 +108,35 @@ const registrar = new McpRegistrar(tools, {
   plugins: [new SmartCoercionHandlerPlugin({ converters })],
 });
 
+const serverInfo = {
+  icons: [
+    {
+      mimeType: "image/svg+xml",
+      sizes: ["any"],
+      src: "https://vibedgames.com/favicon/favicon.svg",
+    },
+    {
+      mimeType: "image/png",
+      sizes: ["96x96"],
+      src: "https://vibedgames.com/favicon/favicon-96x96.png",
+    },
+    {
+      mimeType: "image/png",
+      sizes: ["192x192"],
+      src: "https://vibedgames.com/favicon/web-app-manifest-192x192.png",
+    },
+    {
+      mimeType: "image/png",
+      sizes: ["512x512"],
+      src: "https://vibedgames.com/favicon/web-app-manifest-512x512.png",
+    },
+  ],
+  name: "vibedgames",
+  title: "vibedgames",
+  version: "1.0.0",
+  websiteUrl: "https://vibedgames.com",
+};
+
 const instructions = [
   "vibedgames hosts browser games at {slug}.vibedgames.com and gives coding agents the abilities of a game studio.",
   "Start with `skills` for how to build, art-direct and ship a game; `generate_image`, `generate_video`, `generate_speech`, `generate_music`, `generate_sound`, `generate_3d`, `animate_3d` and `remove_background` make its assets on default models, `generate` runs any other model; `deploy` puts it live.",
@@ -121,7 +150,7 @@ const instructions = [
 /** Builds a fresh server per request: the handler is stateless, so nothing outlives a call. */
 export const createVibedgamesMcpHandler = (context: McpContext) =>
   createMcpHandler(async () => {
-    const server = new McpServer({ name: "vibedgames", version: "1.0.0" }, { instructions });
+    const server = new McpServer(serverInfo, { instructions });
     const { tools: registered } = await registrar.register(server, { context });
 
     for (const [name, tool] of Object.entries(registered)) {
