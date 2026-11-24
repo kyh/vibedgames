@@ -3,7 +3,7 @@ import { describe, test } from "node:test";
 import type { ContractClient } from "@repo/contract";
 import type { ORPCContext } from "@repo/service/orpc";
 import { CLI_VERSION_HEADER } from "@repo/contract/cli";
-import { createAuth } from "@repo/service/auth/auth";
+import { createAuth } from "@repo/service/identity/auth";
 import { createDb } from "@repo/db/drizzle-client";
 import { MAX_RPC_BODY_BYTES } from "@repo/service/generate/limits";
 import { createORPCClient, ORPCError, safe } from "@orpc/client";

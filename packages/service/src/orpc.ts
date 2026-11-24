@@ -1,57 +1,13 @@
-import type { Auth } from "./auth/auth";
+import type { Auth } from "./identity/auth";
 import type { Db } from "@repo/db/drizzle-client";
 import { contract } from "@repo/contract";
 import { implement, ORPCError, os as builder } from "@orpc/server";
 import { getRequiredScope } from "@repo/contract/base";
 
-import { API_KEY_SESSION_PREFIX, resolveApiKeySession } from "./auth/api-key";
-import { OAUTH_SESSION_PREFIX, resolveOAuthSession } from "./auth/oauth-token";
+import type { R2Config, UrlSigning } from "./storage/signed-urls";
+import { isDelegated, resolveCaller } from "./identity/caller";
 
-/**
- * Minimal structural view of the R2 binding methods this package (and, through
- * `R2Config`, the web app's R2 proxy routes) uses. Declared here rather than
- * imported from `@cloudflare/workers-types` so the context names only what the
- * code calls: any object with these methods stands in for the binding, and
- * nothing that reads `ORPCContext` needs the Workers globals.
- */
-export interface R2BucketLike {
-  get: (key: string) => Promise<{
-    size: number;
-    httpMetadata?: { contentType?: string };
-    arrayBuffer: () => Promise<ArrayBuffer>;
-    body: ReadableStream<Uint8Array<ArrayBuffer>>;
-  } | null>;
-  head: (key: string) => Promise<{
-    size: number;
-    httpMetadata?: { contentType?: string };
-  } | null>;
-  list: (options: { prefix?: string; cursor?: string; limit?: number }) => Promise<{
-    objects: { key: string; size: number }[];
-    truncated: boolean;
-    cursor?: string;
-  }>;
-  delete: (key: string) => Promise<void>;
-  put: (
-    key: string,
-    value: ArrayBuffer | ArrayBufferView | ReadableStream | string,
-    options?: { httpMetadata?: { contentType?: string } },
-  ) => Promise<{ key: string } | null>;
-}
-
-/** The bucket that games and source archives live in, as the Worker binds it. */
-export interface R2Config {
-  bucket: R2BucketLike;
-}
-
-/**
- * Mints the short-lived `/api/upload` and `/api/download` URLs that carry
- * bytes through the web Worker (see storage/signed-urls.ts): the host they
- * point at, and the secret they are signed with.
- */
-export interface UrlSigning {
-  baseUrl: string;
-  secret: string;
-}
+export type { R2BucketLike, R2Config, UrlSigning } from "./storage/signed-urls";
 
 /**
  * Server-held config for the fal proxy that backs `generate.forward`. fal
@@ -117,16 +73,7 @@ export interface CreateORPCContextOptions {
 }
 
 export const createORPCContext = async (opts: CreateORPCContextOptions) => {
-  const direct =
-    (await opts.auth.api.getSession({ headers: opts.headers })) ??
-    (await resolveApiKeySession(opts.auth, opts.db, opts.headers));
-
-  const grant =
-    !direct && opts.oauthResource
-      ? await resolveOAuthSession(opts.auth, opts.db, opts.headers, opts.oauthResource)
-      : null;
-
-  const session = direct ?? grant?.session ?? null;
+  const { oauthScopes, session } = await resolveCaller(opts);
 
   return {
     auth: opts.auth,
@@ -135,7 +82,7 @@ export const createORPCContext = async (opts: CreateORPCContextOptions) => {
     decision: opts.decision,
     headers: opts.headers,
     media: opts.media,
-    oauthScopes: grant?.scopes ?? null,
+    oauthScopes,
     productionURL: opts.productionURL,
     r2: opts.r2,
     session,
@@ -191,14 +138,10 @@ const sessionBase = builder.$context<SessionContext>();
  * authenticated with an API key or an OAuth access token — for surfaces a
  * delegated credential must not reach (managing API keys, admin actions).
  * Keeps both scoped to their intended use (deploy/generate) so a leaked key
- * or a connected app can't escalate. Their sessions are synthesized with a
- * namespaced `apikey:` / `oauth:` token (see `resolveApiKeySession`,
- * `resolveOAuthSession`); real better-auth tokens never collide with them.
+ * or a connected app can't escalate (see `isDelegated`).
  */
 export const rejectApiKey = sessionBase.middleware(({ context, next }) => {
-  const { token } = context.session.session;
-
-  if (token.startsWith(API_KEY_SESSION_PREFIX) || token.startsWith(OAUTH_SESSION_PREFIX)) {
+  if (isDelegated(context.session)) {
     throw new ORPCError("FORBIDDEN", {
       message:
         "This action requires an interactive login, not an API key or a connected app. Use the web app.",

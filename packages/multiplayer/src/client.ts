@@ -2,7 +2,6 @@ import { PartySocket } from "partysocket";
 
 import { trackClient } from "./net-stats.js";
 import { applyPatch, cloneJson, clonePatch, diffState, readPatch } from "./patch.js";
-import type { PatchOp } from "./patch.js";
 import { ServerClock } from "./server-clock.js";
 import type {
   ClaimMap,
@@ -11,6 +10,7 @@ import type {
   JsonValue,
   MultiplayerConnectionStatus,
   MultiplayerOptions,
+  PatchOp,
   Player,
   PlayerMap,
   RoomInfo,

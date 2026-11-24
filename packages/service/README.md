@@ -9,7 +9,7 @@ The server half of the oRPC API: implements [`@repo/contract`](../contract) — 
 ## Stack
 
 - [oRPC](https://orpc.unnoq.com) with [Zod](https://zod.dev)
-- [better-auth](https://better-auth.com) — config lives in `src/auth/auth.ts`
+- [better-auth](https://better-auth.com) — config lives in `src/identity/auth.ts`
 - `@repo/db` for data access (Drizzle + D1)
 - HMAC-signed `/api/upload` / `/api/download` URLs for R2 bytes (`src/storage/signed-urls.ts`)
 

@@ -1,7 +1,7 @@
 import { ORPCError } from "@orpc/server";
 
-import type { Auth } from "../auth/auth";
-import { verifiesEmail } from "../auth/auth";
+import type { Auth } from "../identity/auth";
+import { verifiesEmail } from "../identity/auth";
 import { os, requireSession } from "../orpc";
 import { getBalanceMicro, listEntries, redeemCreditCode } from "./credit-ledger";
 import { createCheckoutSession, purchasesEnabled, StripeError } from "./stripe";

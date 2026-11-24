@@ -1,5 +1,3 @@
-import type { PatchOp } from "./patch.js";
-
 /** A JSON-parseable wire value — everything a multiplayer message can carry. */
 export type JsonValue =
   | string
@@ -13,6 +11,12 @@ export type JsonValue =
 export interface JsonRecord {
   [key: string]: JsonValue;
 }
+
+/** A key into an object, or an index into an array. */
+export type PatchSegment = string | number;
+
+/** Set the value at a path, or — with no value — delete the key there. */
+export type PatchOp = [path: PatchSegment[], value: JsonValue] | [path: PatchSegment[]];
 
 export interface MultiplayerOptions {
   host: string;

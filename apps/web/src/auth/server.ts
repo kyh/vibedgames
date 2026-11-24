@@ -6,9 +6,9 @@ import type {
   UrlSigning,
 } from "@repo/service/orpc";
 import type { Mailer } from "@repo/service/email/mailer";
-import { createAuth as initAuth } from "@repo/service/auth/auth";
+import { createAuth as initAuth } from "@repo/service/identity/auth";
 import { consoleMailer, resendMailer } from "@repo/service/email/mailer";
-import { oauthResources } from "@repo/service/auth/oauth-resources";
+import { oauthResources } from "@repo/service/identity/oauth-resources";
 import { createORPCContext } from "@repo/service/orpc";
 import { createDb } from "@repo/db/drizzle-client";
 import { getRequestHeaders } from "@tanstack/react-start/server";

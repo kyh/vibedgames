@@ -1,11 +1,5 @@
-import type { JsonRecord, JsonValue } from "./types.js";
+import type { JsonRecord, JsonValue, PatchOp, PatchSegment } from "./types.js";
 import { FORBIDDEN_KEYS, findNestingIssue, MAX_STATE_DEPTH } from "./validation.js";
-
-/** A key into an object, or an index into an array. */
-export type PatchSegment = string | number;
-
-/** Set the value at a path, or — with no value — delete the key there. */
-export type PatchOp = [path: PatchSegment[], value: JsonValue] | [path: PatchSegment[]];
 
 type Container = JsonRecord | JsonValue[];
 
