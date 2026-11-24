@@ -75,6 +75,37 @@ channels (color + shape/motion/sound) — never color alone.
 - Trap: `.x button { display: grid }` beats the UA `[hidden]` rule, so
   `el.hidden = true` silently no-ops. Add `button[hidden] { display: none }`.
 
+## Front end: title, settings, loading
+
+- **Menus sit on the game's world**, with that scene's sound under them and
+  focus sounds, holding the same frame-rate floor as play. A grain, CRT or
+  scanline effect is a texture over the backdrop; text and buttons never
+  shake, roll or warp.
+- **The title shows the world**, with the game's name as crisp live text and
+  one clear way in.
+- **The press that starts play** hides the menu in its own frame and starts
+  play with no second wait and no "click to take control"; pointer lock is
+  taken in the same press.
+- **Interface time runs on the wall clock** (menu tweens, countdowns,
+  loading bars), while the simulation keeps its own clamped step, so a press
+  on any visible screen acts at once, even during an entrance animation.
+- **Settings from one typed schema**: the settings screen, storage, defaults,
+  migration and any import all read it, so a saved value can only be an
+  allowed one and no two actions share a key. Every changed value survives a
+  reload; tell the player if storage is blocked.
+- **An honest loading bar** (`ship-ready` → `references/loading.md`): real
+  work, small steps, never backwards, full only when play can start. The
+  cover lifts at a deadline anyway, with the reason logged.
+- **Every wait has a deadline and a fallback**; a failure says what happened
+  and offers a way forward.
+- **Text never clips** at any supported window size: not cut, ellipsised,
+  overlapping or below readable size. When space runs out, drop decoration
+  before words.
+- **Later additions match**: every dialog, toast and card added later looks
+  and sounds like the existing menus from its first frame.
+- **Share image and icons come from the game** as it plays, with its name,
+  and no debug text or placeholders.
+
 ## Touch controls (mobile)
 
 - **~44 CSS px minimum touch targets**, with enough separation that adjacent

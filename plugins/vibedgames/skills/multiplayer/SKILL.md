@@ -182,6 +182,43 @@ setSpawn(SPAWNS[idx]);
 
 5. **Automated two-client check:** a Playwright harness with two headless contexts in one room — run one suite at a time, unique room id per run, `client.destroy()` before closing a context, assert on both clients' state. The full trap list — GPU flags, grace/eviction timing, blips vs leaves, virtual time — is in [references/architecture.md](references/architecture.md) → Automated two-client check.
 
+## Matches that hold up
+
+- **Own actions never wait on the network.** A player's movement and shots
+  answer on their own page at once (prediction + `Reconciler`); outcomes that
+  matter (damage, kills, pickups, score, doors) are decided by the host.
+- **Losing the host keeps the world moving.** Host reassignment is automatic;
+  make sure the new host can carry on from shared state alone (no state that
+  lived only in the old host's locals), and test it by closing the host tab
+  mid-match.
+- **Reload rejoins your seat.** Keep a per-player id in `localStorage` and
+  restore what the player had from shared state when they come back.
+- **The match never pauses.** A player's menu, settings or idle tab never
+  stops other players, timers or spawns. A player in the menu stays in the
+  world (spectator or immune), with the world's sound ducked.
+- **Count down only when everyone is loaded.** Hold the start until every
+  seated player reports the map and every other player's model and gear are
+  resident, so nobody appears late or as a stand-in.
+- **Fair spawns**: no player spawns in a rival's line of sight, and the seat
+  count fits the map's area and the frame budget.
+
+## Bots that fill a lobby
+
+When bots stand in for missing players, they behave like a lobby, not a
+script: the room fills gradually and not always to the cap, some leave during
+and after the match, names look like real handles, and they move, aim and
+miss like people (`action-3d` → `references/enemies.md`). They never fake
+speech. Run bots on the host only, as ordinary players written through the
+same state paths, so a human joining can take a bot's seat.
+
+## Report what nobody has proven
+
+Multiplayer claims come from real game pages, several at once, through a
+throttled network (the 200 ms pass in "Local dev loop"). Every multiplayer
+report starts by naming what has **not** been done yet: the deployed URL
+played from two devices on different networks, a host dropping mid-match, a
+phone in the room. Until then, the feature is "works locally".
+
 ## Anti-patterns
 
 - ❌ **Mutating the local mirror directly.** `client.sharedState.score = 100` (or pushing into an array read from it) is never sent, and nothing overwrites it: a patch touches only the leaves that changed, so the edit outlives it and this client's copy drifts from the room's. Write through `updateSharedState`; `structuredClone` anything read from shared state before editing it.

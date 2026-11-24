@@ -118,5 +118,30 @@ counts as designed. Apply on top of the core rules.
   second confirms, third twists. Failure reveals information — no hidden
   dependency chains that force guessing.
 
+## 3D maps: spec as data, proven by tests
+
+- **A written spec before geometry**: scale from two independent anchors
+  (a door is ~2.1 m, a stair riser ~0.18 m), every dimension marked fact,
+  measured or estimate, and a coordinate table that is the authority. Lanes,
+  perches and spawns are in the spec, not discovered later.
+- **The layout is data** (JSON of solids, walkable areas and routes) that
+  tests read before the engine boots; both the meshes and the colliders are
+  built from it, so art passes cannot move gameplay (`action-3d` →
+  `references/world.md`).
+- **Lanes and sightlines as numbers**: an intended count per side, a measured
+  length, open or broken; every dominant perch has a counter; the player
+  count fits the walkable floor.
+- **Spawns are checked by script**: never inside or under geometry, in a
+  closed volume, off the navmesh, facing a wall, or in a live sightline, on
+  every path that picks a spawn.
+- **Threat arrives from several sides** at a useful range wherever the player
+  stands, in every door/gate state.
+- **The world guides the player**: from anywhere, the next place to go is
+  readable by light the world carries (a lit doorway, a beacon), with a spoken
+  or written hint when they are lost.
+- **Matching a reference map**: list every item of the target (openings per
+  side, jump-ups, cover you can peek over, door widths, stair routes) and
+  check each is present, working and framed by a camera.
+
 Related skills: `game-playbook` (build order), `onboarding` (the first 30
 seconds), `game-balance` (wave economy/scaling math), `phaser` (tilemaps).

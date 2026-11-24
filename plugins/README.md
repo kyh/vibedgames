@@ -13,14 +13,14 @@ them. Claude Code users can also install straight from the marketplace:
 `claude plugin install vibedgames@vibedgames`. An agent that has them can do what
 a studio does — design, scaffold, generate art, add multiplayer, tune feel, ship.
 
-| Area           | Skills                                                                                                                                                                   |
-| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Craft          | `game-playbook` · `ask-me` · `teach-me` · `game-feel` · `game-balance` · `game-ui` · `level-design` · `onboarding` · `animation` · `vfx` · `design-lenses` · `finish-it` |
-| Engines        | `phaser` · `threejs` · `capacitor-ios`                                                                                                                                   |
-| Features       | `multiplayer` · `gamepad`                                                                                                                                                |
-| Generation     | `generate` · `model-catalog` · `model-prompting` · `media-workflow` · `pixel-art` · `character-design` · `cinematography` · `storytelling` · `regenerate-3d`             |
-| Asset pipeline | `animated-spritesheets` · `aseprite` · `asset-pipeline` · `image-to-threejs` · `pixel-snapper`                                                                           |
-| Tooling        | `vg-setup` · `deploy` · `distribute` · `fork` · `playtest`                                                                                                               |
+| Area           | Skills                                                                                                                                                                                                                   |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Craft          | `game-playbook` · `ask-me` · `teach-me` · `game-feel` · `game-balance` · `game-ui` · `level-design` · `onboarding` · `animation` · `vfx` · `audio` · `look` · `action-3d` · `design-lenses` · `finish-it` · `production` |
+| Engines        | `phaser` · `threejs` · `capacitor-ios`                                                                                                                                                                                   |
+| Features       | `multiplayer` · `gamepad`                                                                                                                                                                                                |
+| Generation     | `generate` · `model-catalog` · `model-prompting` · `media-workflow` · `pixel-art` · `character-design` · `cinematography` · `storytelling` · `regenerate-3d`                                                             |
+| Asset pipeline | `animated-spritesheets` · `aseprite` · `asset-pipeline` · `image-to-threejs` · `pixel-snapper`                                                                                                                           |
+| Tooling        | `vg-setup` · `deploy` · `distribute` · `fork` · `playtest` · `ship-ready` · `trailer`                                                                                                                                    |
 
 `game-playbook` is the entry point — the build order from a one-line idea to a
 shipped game; the rest are the deep modules it routes into.

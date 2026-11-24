@@ -67,7 +67,8 @@ ship before the craft pass.
    With a visual bar locked, run the critic loop before shipping: capture,
    a fresh critic subagent scores against the refs, fix the punch list, repeat
    until every criterion passes — `references/critic-loop.md`.
-6. **Ship.** `vg deploy ./dist` (see `deploy`); `add multiplayer` / `add touch
+6. **Ship.** Run the `ship-ready` gate (frame-time tails, cold load, a real
+   phone, crashes, accessibility), then `vg deploy ./dist` (see `deploy`); `add multiplayer` / `add touch
    controls` / `make it forkable` are one prompt each (see `multiplayer`,
    `gamepad`, `fork`). Link-shared games get opened on phones — if the game is
    mouse/keyboard-only, add on-screen touch controls so it's playable there.
@@ -110,8 +111,10 @@ damage). Each is a few lines; together they're the whole difference.
   hero and enemies read BIG — a too-wide camera makes everything feel small and
   floaty. Show ~9–12 character-heights tall.
 - **Easing everywhere**: tween with `Sine/Quad/Back/Cubic`, never linear pops.
-- **Sound** (optional but huge): generate SFX/music with `vg generate` (audio
-  models) — a hit thwack, a death pop, a loop — and play on the same events.
+- **Sound** (not optional): generate SFX/music with `vg generate` (audio
+  models) — a hit thwack, a death pop, a loop — and play on the same events,
+  through one master chain with buses (`audio`). Sound is most of the
+  distance between a prototype and a game.
 - **Readable HUD**: monospace/tabular numbers, hearts for HP, a clear
   win/lose banner. Surface connection state for multiplayer.
 
@@ -155,6 +158,18 @@ This playbook is the index; when a step needs real depth, load the module:
   severity-ranked findings mapped to the modules above.
 - `finish-it` — the project is sprawling or stalled; cut to a shippable core
   and ship it.
+- `audio` — the mix: one master chain, buses, voice limits, take pools,
+  loudness per family, generated banks, QA without ears.
+- `look` — 3D art direction: reference as pass/fail statements, tone curve,
+  fog and horizon, grade, honest materials, lighting characters can read in.
+- `action-3d` — enemies and bosses, first-person weapons, collision that
+  matches the picture, rigs and locomotion, the scene audit.
+- `ship-ready` — frame-time tails, cold loads, real phones, zero crashes,
+  accessibility. The release gate.
+- `production` — long builds and many agents: the ask register, rounds that
+  end in a deployed build, streams that own their paths.
+- `trailer` — make the game filmable, then plan, capture, cut and gate a
+  trailer or montage.
 
 References in this skill:
 
@@ -162,6 +177,9 @@ References in this skill:
   the per-game bar, art order (light first), asset ledger, escalation ladder.
 - `references/critic-loop.md` — capture spec, the fresh-critic prompt and
   verdict format, punch items, stuck-loop diagnosis, the final eye check.
+- `references/quality-bar.md` — the cheap tells a stranger sees first,
+  blunt scoring, anchored model judges, class sweeps, frozen approvals, and
+  how to report what was observed versus assumed.
 
 ## Remember
 

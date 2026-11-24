@@ -45,6 +45,7 @@ Voice cloning and custom voice design.
 
 - `fal-ai/minimax/voice-clone`: Minimax · Voice Cloning
 - `fal-ai/minimax/voice-design`: Minimax · Voice Design
+- `fal-ai/elevenlabs/voice-changer`: ElevenLabs · Voice Changer (restyle a recorded line into another voice)
 - `fal-ai/qwen-3-tts/clone-voice/0.6b`: Alibaba · Qwen 3 Clone (0.6B)
 - `fal-ai/qwen-3-tts/clone-voice/1.7b`: Alibaba · Qwen 3 Clone (1.7B)
 - `fal-ai/qwen-3-tts/voice-design/1.7b`: Alibaba · Qwen 3 Voice Design
@@ -63,9 +64,17 @@ Vocal music generation with lyrics.
 Instrumental music and sound effects.
 
 - `fal-ai/elevenlabs/sound-effects/v2`: ElevenLabs · Sound Effects v2 (the default; up to 22s, seamless loops)
+- `elevenlabs/sound-effects/v3`: ElevenLabs · Sound Effects v3 (newer; up to 30s, seamless loops)
+- `mirelo-ai/sfx2.0/video-to-audio`: Mirelo · SFX 2.0 video-to-audio (foley synced to a clip, for trailers and cutscenes)
 - `mirelo-ai/sfx2.0/text-to-audio`: Mirelo · SFX 2.0 (newer; negative prompts)
 - `cassetteai/music-generator`: Cassette AI · Music Generator
 - `fal-ai/stable-audio-25/text-to-audio`: Stability AI · Stable Audio 2.5
+
+## Post-processing
+
+- `fal-ai/workflow-utilities/impulse-response`: apply a room impulse response (reverb per space)
+- `fal-ai/workflow-utilities/audio-compressor`: dynamic range compression
+- Stems and cleanup are in [audio-to-text.md](audio-to-text.md) (`fal-ai/demucs`, `fal-ai/elevenlabs/audio-isolation`)
 
 ## Discovery
 
@@ -81,3 +90,4 @@ vg generate models "sound effect" --json
 - For TTS chained into talking-head video: [media-workflow/references/character-lipsync.md](../../media-workflow/references/character-lipsync.md)
 - For TTS chained into video narration: [media-workflow/references/video-with-audio.md](../../media-workflow/references/video-with-audio.md)
 - For STT (audio → text), see [audio-to-text.md](audio-to-text.md)
+- For mixing, loudness and wiring sounds into a game: the `audio` skill
