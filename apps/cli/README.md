@@ -71,8 +71,9 @@ of failing with a bare exit code.
 installed as a platform-specific optional package on first use — the CLI itself
 carries none of it.
 
-`vg generate` calls the `generate.forward` proc — the server holds the
-provider API key, so generation works for any logged-in user with no local keys.
+`vg generate` calls the `generate.*` procedures (`run`, `status`, `models`,
+`schema`, `pricing`, `docs`, `upload`), the same ones the MCP `generate_*`
+tools call — the server holds the provider API key, so generation works for any logged-in user with no local keys.
 
 ## Using with a coding agent
 

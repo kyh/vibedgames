@@ -179,7 +179,7 @@ export const creditEntry = sqliteTable(
 );
 
 /**
- * One row per generation submitted through `generate.forward`, keyed by the
+ * One row per generation submitted through the generate procedures, keyed by the
  * provider's request id. Tracks the credit lifecycle:
  *
  *   held    — an estimated hold was debited at submit

@@ -21,15 +21,19 @@ For the full command surface (every flag, every option, every example), see [ref
 
 ## Command index
 
-| Command                                           | Purpose                                                       |
-| ------------------------------------------------- | ------------------------------------------------------------- |
-| `vg generate models <query>`                      | Search the catalog (or `--category`, or `--endpoint_id`)      |
-| `vg generate schema <endpoint_id>`                | Inspect inputs/outputs (compact or `--format openapi`)        |
-| `vg generate run <endpoint_id> --<param> <value>` | Execute a model                                               |
-| `vg generate status <endpoint_id> <request_id>`   | Poll an async job (with `--result`, `--cancel`, `--download`) |
-| `vg generate upload <path>`                       | Upload a local file (returns a URL usable as a model input)   |
-| `vg generate pricing <endpoint_id>`               | Check cost per call                                           |
-| `vg generate docs <query>`                        | Search generative-model documentation                         |
+| Command                                               | Purpose                                                       |
+| ----------------------------------------------------- | ------------------------------------------------------------- |
+| `vg generate models <query>`                          | Search the catalog (or `--category`, or `--endpoint_id`)      |
+| `vg generate schema <endpoint_id>`                    | Inspect inputs/outputs (compact or `--format openapi`)        |
+| `vg generate run <endpoint_id> --<param> <value>`     | Execute a model                                               |
+| `vg generate status <endpoint_id> <request_id>`       | Poll an async job (with `--result`, `--cancel`, `--download`) |
+| `vg generate upload <path>`                           | Upload a local file (returns a URL usable as a model input)   |
+| `vg generate pricing <endpoint_id>`                   | Check cost per call                                           |
+| `vg generate docs <query>`                            | Search generative-model documentation                         |
+| `vg generate image\|video\|3d\|animate-3d --prompt …` | Make one asset on the default model for it, inputs typed      |
+| `vg generate music\|sound\|speech\|remove-background` | Same, for audio and cut-outs; `--help` lists each one's flags |
+
+The asset commands pick the default model from the model-catalog skill (an image edit when `--image_urls` is given, image-to-video when `--image_url` is), upload local paths given to `*_url` flags, and take `--options '<json>'` for any other model input. They share `run`'s `--async`, `--download`, `--json` and `--field`. Use `run` for any other endpoint.
 
 > **Images can run through your own Codex plan.** Opt in once with `vg config set generate.provider codex`: OpenAI image runs (`openai/gpt-image-*`) then go to the local `codex` CLI on the user's own Codex plan, with no vibedgames auth or credits, while every other endpoint (Flux, video, audio, 3D) stays on the vibedgames catalog. A run Codex can't serve (`--async`, a URL reference) uses vibedgames and says so on stderr. `--provider codex|vibedgames` decides a single run, and the literal endpoint `codex` always uses Codex. On the codex path: images only, synchronous, local reference files only, and output is saved straight to disk — read `downloaded_files[]` from the `--json` result (there are no URLs). If `codex` is missing the run exits non-zero; rerun with `--provider vibedgames`. Full contract (recognized inputs, JSON shape, failure semantics): [full-reference.md](references/full-reference.md#provider-codex-use-your-own-codex-plan-for-images).
 

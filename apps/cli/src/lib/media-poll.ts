@@ -1,9 +1,6 @@
 import { setTimeout as sleep } from "node:timers/promises";
 import { consola } from "consola";
 
-import { queueAppId } from "@repo/contract/generate/queue-path";
-
-import { forwardJson } from "./api.js";
 import type { createClient } from "./api.js";
 import { isJsonNumber, isJsonObject, isJsonString } from "./types.js";
 import type { JsonValue } from "./types.js";
@@ -38,9 +35,9 @@ const pickErrorReason = (value: JsonValue) => {
 };
 
 /**
- * Poll fal's queue from the client side until the job reaches a
- * terminal status, then fetch the result. The Worker isn't in the
- * loop — it's only along for each individual `generate.forward` hop.
+ * Poll `generate.status` from the client side until the job reaches a
+ * terminal status, then fetch the result. A Worker request cannot wait
+ * minutes, so the loop lives here and each poll is one short call.
  */
 export const waitForCompletion = async (
   client: Client,
@@ -48,7 +45,7 @@ export const waitForCompletion = async (
   request_id: string,
   opts: { quiet: boolean },
 ) => {
-  const ep = queueAppId(endpoint_id);
+  const job = { endpoint_id, request_id };
   const deadline = Date.now() + POLL_TIMEOUT_MS;
   let lastStatus: string | undefined;
 
@@ -61,11 +58,7 @@ export const waitForCompletion = async (
       );
     }
 
-    const raw = await forwardJson(client, {
-      method: "GET",
-      path: `/${ep}/requests/${request_id}/status`,
-      target: "queue",
-    });
+    const raw = await client.generate.status({ ...job, action: "status" });
 
     const status = isJsonObject(raw) && isJsonString(raw.status) ? raw.status : "UNKNOWN";
     const upper = status.toUpperCase();
@@ -96,11 +89,7 @@ export const waitForCompletion = async (
     await sleep(POLL_INTERVAL_MS);
   }
 
-  const result = await forwardJson(client, {
-    method: "GET",
-    path: `/${ep}/requests/${request_id}`,
-    target: "queue",
-  });
+  const result = await client.generate.status({ ...job, action: "result" });
 
   return { request_id, result };
 };

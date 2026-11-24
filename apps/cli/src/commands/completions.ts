@@ -25,7 +25,23 @@ const SUBCOMMANDS = [
   "whoami",
 ];
 
-const GENERATE_SUBCOMMANDS = ["run", "status", "models", "schema", "pricing", "docs", "upload"];
+const GENERATE_SUBCOMMANDS = [
+  "run",
+  "status",
+  "models",
+  "schema",
+  "pricing",
+  "docs",
+  "upload",
+  "image",
+  "video",
+  "3d",
+  "animate-3d",
+  "music",
+  "sound",
+  "speech",
+  "remove-background",
+];
 
 const COMMON_FLAGS = ["--help", "--version"];
 

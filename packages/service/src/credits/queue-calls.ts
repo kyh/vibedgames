@@ -1,5 +1,5 @@
 /**
- * Classify a `generate.forward` queue hop for credit accounting. Mirrors the
+ * Classify a generate queue hop for credit accounting. Mirrors the
  * fal queue URL shape the CLI builds (see `apps/cli/src/lib/media-poll.ts`):
  *
  *   POST /{endpoint...}                      submit (bills the caller)

@@ -10,7 +10,7 @@ import { isDelegated, resolveCaller } from "./identity/caller";
 export type { R2BucketLike, R2Config, UrlSigning } from "./storage/signed-urls";
 
 /**
- * Server-held config for the fal proxy that backs `generate.forward`. fal
+ * Server-held config for the fal proxy that backs the generate procedures. fal
  * is the single gateway we route through; per-target base URLs let
  * deployments point each fal target at a Cloudflare AI Gateway prefix
  * for caching, rate limits, fallbacks, and observability.
