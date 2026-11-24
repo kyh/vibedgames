@@ -74,3 +74,20 @@ test("uploads a local path given to a url field, and only there", async () => {
   ]);
   assert.equal(input.prompt, file);
 });
+
+test("reads --no-<flag> as false for a boolean field", async () => {
+  const input = await readMediaInput(
+    videoInput.shape,
+    ["--prompt", "a run", "--no-generate_audio"],
+    noUpload,
+  );
+
+  assert.equal(input.generate_audio, false);
+});
+
+test("names a url field's missing file rather than passing it on as a bad URL", async () => {
+  await assert.rejects(
+    readMediaInput(imageInput.shape, ["--image_urls", "./nope.png", "--prompt", "x"], noUpload),
+    /--image_urls: no file at \.\/nope\.png/u,
+  );
+});

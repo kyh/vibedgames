@@ -13,6 +13,8 @@ type Kind = "array" | "boolean" | "number" | "record" | "string";
 
 const RESERVED = new Set(["options", "wait_seconds"]);
 
+const REMOTE = /^(?:https?:|data:)/iu;
+
 const unwrap: (schema: Schema) => Schema = (schema) =>
   schema instanceof z.ZodOptional || schema instanceof z.ZodDefault
     ? unwrap(schema.def.innerType)
@@ -119,19 +121,26 @@ export const readMediaInput = async (
       return value;
     }
 
+    if (REMOTE.test(value)) {
+      return value;
+    }
+
     const file = readExplicitLocalFile(value);
 
-    return file ? await upload(file) : value;
+    if (!file) {
+      throw new Error(`--${key}: no file at ${value}, and it is not an http(s) or data: URL.`);
+    }
+
+    return await upload(file);
   };
 
   for (const [key, schema] of Object.entries(fields)) {
-    const value = raw[key];
+    const kind = kindOf(schema);
+    const value = kind === "boolean" && raw[`no-${key}`] === true ? false : raw[key];
 
     if (value === undefined || key === "wait_seconds") {
       continue;
     }
-
-    const kind = kindOf(schema);
 
     if (kind === "array") {
       const element = elementOf(schema);
