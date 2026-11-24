@@ -19,8 +19,12 @@ export interface Skill {
   name: string;
 }
 
-/** What a tool call runs with: the API's context plus the bundled skills. */
-export type McpContext = ORPCContext & { skills: readonly Skill[] };
+/**
+ * What a tool call runs with: the API's context plus the bundled skills.
+ * `taskMode` is set when the call will be answered as an MCP task, so a
+ * generation returns as soon as it is queued.
+ */
+export type McpContext = ORPCContext & { skills: readonly Skill[]; taskMode?: boolean };
 
 const asTool = <T extends AnyProcedure>(procedure: T, meta: McpToolMeta) =>
   new DecoratedProcedure(procedure["~orpc"]).meta(mcp.tool(meta));
@@ -55,12 +59,13 @@ const endpointId = z
   .min(1)
   .describe("A model's endpoint id, as generate_models lists it, e.g. `fal-ai/flux/dev`");
 
-const TERMINAL = new Set(["COMPLETED", "FAILED", "CANCELLED"]);
+export const TERMINAL: ReadonlySet<string> = new Set(["COMPLETED", "FAILED", "CANCELLED"]);
 const POLL_MS = 2000;
 
 const MAX_WAIT_SECONDS = 25;
 
-const queueStatus = async (context: McpContext, endpoint: string, requestId: string) => {
+/** A queued job's status, upper-cased: `IN_QUEUE`, `IN_PROGRESS`, `COMPLETED`, `FAILED`, `CANCELLED`. */
+export const queueStatus = async (context: McpContext, endpoint: string, requestId: string) => {
   const status = await forward(context, {
     method: "GET",
     path: `/${queueAppId(endpoint)}/requests/${requestId}/status`,
@@ -70,10 +75,19 @@ const queueStatus = async (context: McpContext, endpoint: string, requestId: str
   return stringField(status, "status")?.toUpperCase() ?? "UNKNOWN";
 };
 
-const queueResult = (context: McpContext, endpoint: string, requestId: string) =>
+/** A completed job's output; fetching it settles the bill. */
+export const queueResult = (context: McpContext, endpoint: string, requestId: string) =>
   forward(context, {
     method: "GET",
     path: `/${queueAppId(endpoint)}/requests/${requestId}`,
+    target: "queue",
+  });
+
+/** Asks the queue to stop a job that is still queued or running. */
+export const queueCancel = (context: McpContext, endpoint: string, requestId: string) =>
+  forward(context, {
+    method: "PUT",
+    path: `/${queueAppId(endpoint)}/requests/${requestId}/cancel`,
     target: "queue",
   });
 
@@ -99,7 +113,7 @@ const runModel = async (
   }
 
   try {
-    const deadline = Date.now() + waitSeconds * 1000;
+    const deadline = Date.now() + (context.taskMode ? 0 : waitSeconds) * 1000;
     let status = stringField(submission, "status")?.toUpperCase() ?? "IN_QUEUE";
 
     while (!TERMINAL.has(status) && Date.now() + POLL_MS <= deadline) {
@@ -341,18 +355,12 @@ const generateTools = {
       }),
     )
     .handler(async ({ context, input }) => {
-      const base = `/${queueAppId(input.endpoint_id)}/requests/${input.request_id}`;
-
       if (input.action === "result") {
         return queueResult(context, input.endpoint_id, input.request_id);
       }
 
       if (input.action === "cancel") {
-        const answer = await forward(context, {
-          method: "PUT",
-          path: `${base}/cancel`,
-          target: "queue",
-        });
+        const answer = await queueCancel(context, input.endpoint_id, input.request_id);
 
         await confirmCancelled(context, input.endpoint_id, input.request_id);
 
@@ -361,7 +369,7 @@ const generateTools = {
 
       return forward(context, {
         method: "GET",
-        path: `${base}/status`,
+        path: `/${queueAppId(input.endpoint_id)}/requests/${input.request_id}/status`,
         query: input.logs ? { logs: "1" } : undefined,
         target: "queue",
       });
@@ -412,6 +420,9 @@ export const MEDIA_MODELS = {
   ],
   remove_background: ["bria/guided-remove-background"],
 } as const;
+
+/** The tools that queue a generation, which a client with the tasks extension gets back as a task. */
+export const TASK_TOOLS: ReadonlySet<string> = new Set(["generate", ...Object.keys(MEDIA_MODELS)]);
 
 const billed =
   "Billed against your credits; waits up to `wait_seconds`, then returns the `request_id` to follow with generate_status.";
