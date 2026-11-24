@@ -9,7 +9,7 @@ import { createDb } from "@repo/db/drizzle-client";
 import { z } from "zod";
 
 import { handleMcpRequest } from "./mcp";
-import { TASKS_EXTENSION } from "./mcp-tasks";
+import { GENERATION_META, TASKS_EXTENSION } from "./mcp-tasks";
 
 const unavailable = (): never => {
   throw new Error("the database is not reachable in this test");
@@ -184,9 +184,15 @@ const rpc = async (
   return z.looseObject({}).parse(JSON.parse(json));
 };
 
+const generation = z.looseObject({
+  [GENERATION_META]: z.object({ endpoint_id: z.string(), request_id: z.string() }),
+});
+
 const task = z.object({
   result: z.looseObject({
+    _meta: generation,
     resultType: z.literal("task"),
+    statusMessage: z.string(),
     status: z.literal("working"),
     taskId: z.string(),
   }),
@@ -203,6 +209,7 @@ const startTask = async () => {
 
 const taskState = z.object({
   result: z.looseObject({
+    _meta: generation,
     result: z.looseObject({ structuredContent: z.unknown() }).optional(),
     resultType: z.literal("complete"),
     status: z.string(),
@@ -236,6 +243,26 @@ describe("mcp tasks", () => {
       seen.filter((line) => line.includes("/requests/")),
       [],
     );
+  });
+
+  test("names the generation's endpoint_id and request_id beside the taskId", async () => {
+    const body = await rpc("tools/call", {
+      arguments: { endpoint_id: "fal-ai/flux/dev", input: { prompt: "a cat" } },
+      name: "generate",
+    });
+
+    const { result } = task.parse(body);
+
+    assert.deepStrictEqual(result._meta[GENERATION_META], {
+      endpoint_id: "fal-ai/flux/dev",
+      request_id: "request-1",
+    });
+    assert.match(result.statusMessage, /endpoint_id: fal-ai\/flux\/dev, request_id: request-1/u);
+    assert.ok("io.modelcontextprotocol/serverInfo" in result._meta);
+
+    const polled = taskState.parse(await rpc("tasks/get", { taskId: result.taskId })).result;
+
+    assert.strictEqual(polled._meta[GENERATION_META].request_id, "request-1");
   });
 
   test("answers a client without the extension with the tool's own result", async () => {

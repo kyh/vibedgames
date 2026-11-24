@@ -120,23 +120,27 @@ const readTaskId = async (secret: string, taskId: string, userId: string) => {
 
 type TaskStatus = "cancelled" | "completed" | "working";
 
-const taskState = (taskId: string, ref: TaskRef, status: TaskStatus, statusMessage?: string) => {
-  const state = {
-    createdAt: new Date(ref.c).toISOString(),
-    lastUpdatedAt: new Date().toISOString(),
-    pollIntervalMs: POLL_INTERVAL_MS,
-    status,
-    taskId,
-    ttlMs: TTL_MS,
-  };
+/** The `_meta` key every task carries its generation under, by the ids generate_status and `vg generate status` take. */
+export const GENERATION_META = "com.vibedgames/generation";
 
-  return statusMessage === undefined ? state : { ...state, statusMessage };
-};
-
-const STATUS_MESSAGES = new Map([
+const PHASES = new Map([
+  ["CANCELLED", "Cancelled"],
+  ["COMPLETED", "Completed"],
+  ["FAILED", "The model failed"],
   ["IN_PROGRESS", "Generating"],
   ["IN_QUEUE", "Queued"],
 ]);
+
+const taskState = (taskId: string, ref: TaskRef, status: TaskStatus, jobStatus: string) => ({
+  _meta: { [GENERATION_META]: { endpoint_id: ref.e, request_id: ref.r } },
+  createdAt: new Date(ref.c).toISOString(),
+  lastUpdatedAt: new Date().toISOString(),
+  pollIntervalMs: POLL_INTERVAL_MS,
+  status,
+  statusMessage: `${PHASES.get(jobStatus) ?? jobStatus}. endpoint_id: ${ref.e}, request_id: ${ref.r} (what generate_status and \`vg generate status <endpoint_id> <request_id>\` take; taskId is only for tasks/get and tasks/cancel).`,
+  taskId,
+  ttlMs: TTL_MS,
+});
 
 const queued = z.object({
   endpoint_id: z.string().min(1),
@@ -195,12 +199,12 @@ export const asTaskResult = async (
 
   const ref = { c: Date.now(), e: job.endpoint_id, r: job.request_id, u: userId };
   const taskId = await mintTaskId(secret, ref);
-  const task = taskState(taskId, ref, "working", STATUS_MESSAGES.get(job.status));
+  const { _meta: generation, ...task } = taskState(taskId, ref, "working", job.status);
 
   return Response.json({
     id: parsed.data.id,
     jsonrpc: "2.0",
-    result: { _meta: meta, resultType: "task", ...task },
+    result: { _meta: { ...meta, ...generation }, resultType: "task", ...task },
   });
 };
 
@@ -243,24 +247,24 @@ export const registerTasks = (server: McpServer, context: McpContext) => {
     const status = await queueStatus(context, ref.e, ref.r);
 
     if (status === "CANCELLED") {
-      return taskState(params.taskId, ref, "cancelled");
+      return taskState(params.taskId, ref, "cancelled", status);
     }
 
     if (status === "FAILED") {
       return {
-        ...taskState(params.taskId, ref, "completed", "The model failed"),
+        ...taskState(params.taskId, ref, "completed", status),
         result: toolResult(ref, status, null),
       };
     }
 
     if (status !== "COMPLETED") {
-      return taskState(params.taskId, ref, "working", STATUS_MESSAGES.get(status));
+      return taskState(params.taskId, ref, "working", status);
     }
 
     const result = await queueResult(context, ref.e, ref.r);
 
     return {
-      ...taskState(params.taskId, ref, "completed"),
+      ...taskState(params.taskId, ref, "completed", status),
       result: toolResult(ref, status, result),
     };
   });

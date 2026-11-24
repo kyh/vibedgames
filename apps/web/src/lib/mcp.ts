@@ -188,7 +188,7 @@ const instructions = [
   "If you have a shell, the `vg` CLI does all of this in one step per job: `npx vibedgames deploy ./dist` with `VG_TOKEN` set to the same API key. Each tool here is named for its `vg` command, spaces as `_` (`vg generate run` is `generate`).",
   "To deploy with the tool: call `deploy` with `bundle: true`, PUT the built game as one gzipped tar (`tar -czf game.tgz -C dist .`, index.html at its root) to `bundleUpload` (`curl -T game.tgz -H 'Content-Type: application/gzip' \"$url\"`), then call `deploy` with the `deploymentId` and `publish: true`. With no shell, send text files in `files` and generated assets as `encoding: url`, which the server fetches, rather than downloading them.",
   "Big bytes never ride a tool call: uploads go to URLs on this server (generate_upload for a model input), and fork returns a URL to download source from.",
-  "A client with the io.modelcontextprotocol/tasks extension gets a generation back as a task as soon as it is queued, to follow with tasks/get rather than generate_status.",
+  'A client with the io.modelcontextprotocol/tasks extension gets a generation back as a task as soon as it is queued, to follow with tasks/get. A task\'s `taskId` is only for tasks/get and tasks/cancel; its `_meta["com.vibedgames/generation"]` names the `endpoint_id` and `request_id` that generate_status and `vg generate status <endpoint_id> <request_id>` take.',
   "The skills are also `skill://` resources (the io.modelcontextprotocol/skills extension: skills/list, skills/get), supporting files included.",
   API_KEY_HINT,
 ].join(" ");
