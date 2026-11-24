@@ -4,7 +4,7 @@ import { MissingRequiredClientCapabilityError, ProtocolError } from "@modelconte
 import { z } from "zod";
 
 import type { McpContext } from "@/lib/mcp-tools";
-import { queueCancel, queueResult, queueStatus, TERMINAL } from "@/lib/mcp-tools";
+import { confirmCancelled, queueCancel, queueResult, queueStatus, TERMINAL } from "@/lib/mcp-tools";
 
 /**
  * Generations over MCP's Tasks extension (`io.modelcontextprotocol/tasks`,
@@ -275,6 +275,7 @@ export const registerTasks = (server: McpServer, context: McpContext) => {
     const ref = await resolve(params);
 
     await queueCancel(context, ref.e, ref.r).catch(() => null);
+    await confirmCancelled(context, ref.e, ref.r);
 
     return {};
   });

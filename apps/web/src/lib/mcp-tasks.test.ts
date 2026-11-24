@@ -33,6 +33,8 @@ const replyTo = (path: string) => {
   }
 
   if (path.endsWith("/cancel")) {
+    jobStatus = "CANCELLED";
+
     return { status: "CANCELLATION_REQUESTED" };
   }
 
@@ -283,6 +285,7 @@ describe("mcp tasks", () => {
       "complete",
     );
     assert.ok(seen.includes("PUT /queue/fal-ai/flux/requests/request-1/cancel"));
+    assert.ok(seen.includes("GET /queue/fal-ai/flux/requests/request-1/status"));
   });
 
   test("refuses another account's task, and a forged one", async () => {
