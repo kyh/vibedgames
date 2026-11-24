@@ -1,8 +1,8 @@
 import type { Db } from "@repo/db/drizzle-client";
-import type { forwardInput, modelsInput } from "@repo/contract/generate/generate-schema";
+import type { modelsInput } from "@repo/contract/generate/generate-schema";
 import type { JsonValue } from "@repo/contract/json";
 import { endpointPath, jobPath, TERMINAL_STATUSES } from "@repo/contract/generate/queue-path";
-import { call, ORPCError } from "@orpc/server";
+import { ORPCError } from "@orpc/server";
 import { z } from "zod";
 
 import type { EndpointPricing, PlatformAnswer } from "../credits/endpoint-pricing";
@@ -23,6 +23,7 @@ import {
 import { purchasesEnabled } from "../credits/stripe";
 import { os, requireSession } from "../orpc";
 import { signUploadUrl } from "../storage/signed-urls";
+import { forwardInput } from "./forward-input";
 import { MAX_PARAMS_BYTES } from "./limits";
 import {
   fetchProviderResponse,
@@ -273,9 +274,31 @@ const readQueueStatus = (body: JsonValue) => {
 
 const authed = os.generate.use(requireSession);
 
-const forward = authed.forward.handler(async ({ context, input }) => {
+type ForwardCall = z.input<typeof forwardInput>;
+
+const parseForward = (raw: ForwardCall) => {
+  const parsed = forwardInput.safeParse(raw);
+
+  if (!parsed.success) {
+    throw new ORPCError("BAD_REQUEST", {
+      message: parsed.error.issues.map((issue) => issue.message).join("; "),
+    });
+  }
+
+  return parsed.data;
+};
+
+/** One hop to the media provider with the server's key, metered by the credit ledger. */
+export const forward = async (context: ORPCContext, raw: ForwardCall) => {
+  const user = context.session?.user;
+
+  if (!user) {
+    throw new ORPCError("UNAUTHORIZED");
+  }
+
+  const input = parseForward(raw);
   const { apiKey, config } = pickFalKey(context.media);
-  const userId = context.session.user.id;
+  const userId = user.id;
 
   const queueCall =
     input.target === "queue"
@@ -285,7 +308,7 @@ const forward = authed.forward.handler(async ({ context, input }) => {
   let pricing: EndpointPricing | null = null;
 
   if (queueCall.kind === "submit") {
-    const gated = context.session.user.role !== "admin";
+    const gated = user.role !== "admin";
 
     if (gated) {
       await requirePositiveBalance(context.db, userId, purchasesEnabled(context.billing));
@@ -358,11 +381,9 @@ const forward = authed.forward.handler(async ({ context, input }) => {
   }
 
   return body;
-});
+};
 
-type ForwardCall = z.input<typeof forwardInput>;
-
-const hop = (context: ORPCContext, input: ForwardCall) => call(forward, input, { context });
+const hop = forward;
 
 const POLL_MS = 2000;
 
@@ -484,8 +505,6 @@ export const generateRouter = {
       target: "docs",
     }),
   ),
-
-  forward,
 
   models: authed.models.handler(({ context, input }) =>
     hop(context, {

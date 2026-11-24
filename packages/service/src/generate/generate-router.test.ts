@@ -10,7 +10,7 @@ import { MICRO_PER_USD } from "../credits/credit-ledger";
 import type { ORPCContext } from "../orpc";
 import { startUpstream } from "../upstream.test-utils";
 import type { UpstreamReply } from "../upstream.test-utils";
-import { generateRouter } from "./generate-router";
+import { forward, generateRouter } from "./generate-router";
 
 const unavailable = (): never => {
   throw new Error("this test's database only reads the balance and batches writes");
@@ -212,13 +212,9 @@ const stubFal = ({
 const ranOnQueue = () => fetchedUrls().some((url) => url.hostname === "queue.upstream");
 
 const submit = (path: string, role: string) =>
-  call(
-    generateRouter.forward,
-    { method: "POST", path, target: "queue" },
-    { context: contextAs(role) },
-  );
+  forward(contextAs(role), { method: "POST", path, target: "queue" });
 
-describe("generate.forward path", () => {
+describe("forward path", () => {
   test("refuses a path the URL parser would rewrite, before anything is fetched", async () => {
     const rewritten = [
       "/owner\\model",
@@ -261,11 +257,7 @@ describe("generate.forward path", () => {
     for (const { method, path } of folded) {
       stubFal();
       await assert.rejects(
-        call(
-          generateRouter.forward,
-          { method, path, target: "queue" },
-          { context: contextAs("user") },
-        ),
+        forward(contextAs("user"), { method, path, target: "queue" }),
         { code: "BAD_REQUEST" },
         path,
       );
@@ -281,11 +273,7 @@ describe("generate.forward path", () => {
 
     for (const { path, target } of elsewhere) {
       stubFal();
-      await call(
-        generateRouter.forward,
-        { method: "GET", path, target },
-        { context: contextAs("user") },
-      );
+      await forward(contextAs("user"), { method: "GET", path, target });
       assert.deepEqual(
         fetchedUrls().map((url) => url.pathname),
         [path],
@@ -321,7 +309,7 @@ describe("generate.forward path", () => {
   });
 });
 
-describe("generate.forward submit", () => {
+describe("forward submit", () => {
   test("refuses a member's submit to an endpoint no price is published for", async () => {
     const unpriced = {
       "a 400": json(400, {
@@ -426,18 +414,18 @@ describe("generate.forward submit", () => {
   });
 });
 
-describe("generate.forward errors", () => {
+describe("forward errors", () => {
   const BRAND = /\bfal\b(?!-)/iu;
 
   test("names no provider when an upstream call fails", async () => {
     stubFal();
     routes = { ...routes, other: json(500, { detail: "boom" }) };
     await assert.rejects(
-      call(
-        generateRouter.forward,
-        { method: "GET", path: "/fal-ai/flux/requests/request-1/status", target: "queue" },
-        { context: contextAs("user") },
-      ),
+      forward(contextAs("user"), {
+        method: "GET",
+        path: "/fal-ai/flux/requests/request-1/status",
+        target: "queue",
+      }),
       (error: Error) => {
         assert.match(error.message, /failed \(500\)/u);
         assert.doesNotMatch(error.message, BRAND);
@@ -449,10 +437,9 @@ describe("generate.forward errors", () => {
 
   test("names no provider when media is not configured", async () => {
     await assert.rejects(
-      call(
-        generateRouter.forward,
+      forward(
+        { ...contextAs("user"), media: undefined },
         { method: "GET", path: "/v1/models", target: "platform" },
-        { context: { ...contextAs("user"), media: undefined } },
       ),
       (error: Error) => {
         assert.doesNotMatch(error.message, BRAND);

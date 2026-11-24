@@ -1,6 +1,6 @@
 /**
  * What the CLI's I/O boundaries actually produce: fal responses proxied
- * through `generate.forward`, config files, and any other `JSON.parse`
+ * through the generate procedures, config files, and any other `JSON.parse`
  * output. Values are narrowed from this closed union instead of sniffed
  * with `typeof`.
  */

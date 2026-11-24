@@ -5,7 +5,6 @@ import { z } from "zod";
 
 import {
   docsInput,
-  forwardInput,
   modelsInput,
   pricingInput,
   runInput,
@@ -19,19 +18,6 @@ const upstreamJson = jsonValueSchema.describe(
 );
 
 export const generateContract = {
-  forward: protectedBase
-    .meta(requiresScope("generate"))
-    .meta(
-      documented({
-        description:
-          "Forwards one request to the fal media-generation API with the server's key: `target` picks the host (queue, platform, storage, docs), `path`/`query`/`body` the rest; a queue path holds only lowercase letters, digits and `-._~/`, so the endpoint billed is the one fal runs. Returns the upstream JSON body. The typed generate procedures (run, status, models, schema, pricing, docs) are built on it and are the way in; forward stays for raw hops they do not cover. Queue submits are billed on the result fetch, and need a positive credit balance (403 `insufficient_credits` otherwise) and an endpoint with a published price (400 `unknown_endpoint` otherwise) unless the caller is an admin, whose submits are billed but never refused.",
-        errors: [403, 412, 413, 502],
-        summary: "Proxy a media-generation request",
-      }),
-    )
-    .input(forwardInput)
-    .output(upstreamJson),
-
   docs: protectedBase
     .meta(requiresScope("generate"))
     .meta(

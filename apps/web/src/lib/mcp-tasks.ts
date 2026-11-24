@@ -15,7 +15,7 @@ import type { McpContext } from "@/lib/mcp-tools";
  * `tasks/get` / `tasks/cancel` instead of blocking on `wait_seconds` and
  * polling generate_status. Nothing is stored: the task id is the queue job
  * (endpoint and request id) signed for the caller, and every `tasks/get` asks
- * the queue, through `generate.forward` so the ledger holds, settles and
+ * the queue, through `generate.status` so the ledger holds, settles and
  * refunds exactly as for any other call.
  */
 export const TASKS_EXTENSION = "io.modelcontextprotocol/tasks";
