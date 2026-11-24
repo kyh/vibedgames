@@ -542,15 +542,15 @@ export const generateRouter = {
     }
 
     if (input.action === "cancel") {
-      const answer = await hop(context, {
-        method: "PUT",
-        path: jobPath(input.endpoint_id, input.request_id, "/cancel"),
-        target: "queue",
-      });
-
-      await confirmCancelled(context, input.endpoint_id, input.request_id);
-
-      return answer;
+      try {
+        return await hop(context, {
+          method: "PUT",
+          path: jobPath(input.endpoint_id, input.request_id, "/cancel"),
+          target: "queue",
+        });
+      } finally {
+        await confirmCancelled(context, input.endpoint_id, input.request_id);
+      }
     }
 
     return hop(context, {

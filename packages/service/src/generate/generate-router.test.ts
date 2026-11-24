@@ -601,6 +601,28 @@ describe("generate.status", () => {
   });
 });
 
+describe("generate.status cancel", () => {
+  test("still polls the job, which refunds its hold, when the cancel itself is refused", async () => {
+    stubFal();
+    routes = {
+      ...routes,
+      other: onQueue({ "/fal-ai/flux/requests/request-1/status": { status: "FAILED" } }),
+    };
+
+    await assert.rejects(
+      call(
+        generateRouter.status,
+        { action: "cancel", endpoint_id: "fal-ai/flux/dev", request_id: "request-1" },
+        { context: contextAs("user") },
+      ),
+    );
+    assert.deepStrictEqual(queueHops(), [
+      "/fal-ai/flux/requests/request-1/cancel",
+      "/fal-ai/flux/requests/request-1/status",
+    ]);
+  });
+});
+
 describe("generate catalog", () => {
   test("spells a model search as the platform's query", async () => {
     stubFal();
