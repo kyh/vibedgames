@@ -138,7 +138,11 @@ const runModel = async (
 };
 
 /** Polls a cancelled job's status until the queue settles it, which is the hop that refunds its hold. */
-export const confirmCancelled = async (context: McpContext, endpoint: string, requestId: string) => {
+export const confirmCancelled = async (
+  context: McpContext,
+  endpoint: string,
+  requestId: string,
+) => {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     await sleep(1000);
 
