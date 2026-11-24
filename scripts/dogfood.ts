@@ -10,7 +10,7 @@ import {
   symlinkSync,
 } from "node:fs";
 import path from "node:path";
-import { checkSkillRefs, reportSkillRefs } from "./check-skill-refs.ts";
+import { checkSkillRefs, reportSkillRefs } from "./check-skill-refs";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const PLUGINS = path.join(ROOT, "plugins");
