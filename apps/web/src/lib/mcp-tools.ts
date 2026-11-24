@@ -127,26 +127,26 @@ const waitFor = (context: McpContext, wait: number) => (context.taskMode ? 0 : w
 /** The tools that queue a generation, which a client with the tasks extension gets back as a task. */
 export const TASK_TOOLS: ReadonlySet<string> = new Set([
   "generate",
-  "animate_3d",
+  "generate_animate_3d",
   "generate_3d",
   "generate_image",
   "generate_music",
   "generate_sound",
   "generate_speech",
   "generate_video",
-  "remove_background",
+  "generate_remove_background",
 ]);
 
 const billed =
   "Billed against your credits; waits up to `wait_seconds`, then returns the `request_id` to follow with generate_status.";
 
 const mediaTools = {
-  animate_3d: generateTool
+  generate_animate_3d: generateTool
     .meta(
       mcp.tool({
         annotations: external,
         description: `Rigs a humanoid character GLB, e.g. one generate_3d made, and bakes animation clips onto that one skeleton: a GLB per \`animation_action_ids\` entry from Meshy's animation library, plus walking and running (Meshy rigging: \`${MEDIA_MODELS.animate3d[0]}\`). The 3d reference of the model-catalog skill lists the clip ids games use. ${billed}`,
-        name: "animate_3d",
+        name: "generate_animate_3d",
         title: "Rig and animate a 3D character",
       }),
     )
@@ -163,7 +163,7 @@ const mediaTools = {
     .meta(
       mcp.tool({
         annotations: external,
-        description: `Generates a textured 3D model (GLB) from a prompt, or from an image when \`image_url\` is given (Meshy 7.1: \`${MEDIA_MODELS.model3d.join("`, `")}\`); a low \`target_polycount\` suits games. To animate a character, model it with \`pose_mode\` and pass its \`model_glb\` to animate_3d. ${billed}`,
+        description: `Generates a textured 3D model (GLB) from a prompt, or from an image when \`image_url\` is given (Meshy 7.1: \`${MEDIA_MODELS.model3d.join("`, `")}\`); a low \`target_polycount\` suits games. To animate a character, model it with \`pose_mode\` and pass its \`model_glb\` to generate_animate_3d. ${billed}`,
         name: "generate_3d",
         title: "Generate a 3D model",
       }),
@@ -267,12 +267,12 @@ const mediaTools = {
       ),
     ),
 
-  remove_background: generateTool
+  generate_remove_background: generateTool
     .meta(
       mcp.tool({
         annotations: external,
         description: `Cuts the subject out of an image onto a transparent background, for sprites and props; \`prompt\` names what to keep when the cut is ambiguous (Bria Guided Remove Background: \`${MEDIA_MODELS.removeBackground[0]}\`). ${billed}`,
-        name: "remove_background",
+        name: "generate_remove_background",
         title: "Remove an image's background",
       }),
     )

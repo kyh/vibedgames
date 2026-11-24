@@ -201,14 +201,14 @@ describe("mcp endpoint", () => {
         "generate_upload",
         "skills",
         "whoami",
-        "animate_3d",
+        "generate_animate_3d",
         "generate_3d",
         "generate_image",
         "generate_music",
         "generate_sound",
         "generate_speech",
         "generate_video",
-        "remove_background",
+        "generate_remove_background",
       ].toSorted(),
     );
   });
@@ -337,10 +337,10 @@ describe("mcp endpoint", () => {
     assert.match(result.content[0]?.text ?? "", /prompt or an image_url/u);
   });
 
-  test("asks animate_3d for at least one clip", async () => {
+  test("asks generate_animate_3d for at least one clip", async () => {
     const { body } = await rpc("tools/call", {
       arguments: { animation_action_ids: [], model_url: "https://example.com/knight.glb" },
-      name: "animate_3d",
+      name: "generate_animate_3d",
     });
 
     const { result } = callResult.parse(body);
