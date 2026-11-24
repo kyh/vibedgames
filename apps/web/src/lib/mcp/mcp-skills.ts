@@ -2,7 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/server";
 import { ProtocolError } from "@modelcontextprotocol/server";
 import { z } from "zod";
 
-import type { Skill } from "@/lib/mcp-tools";
+import type { Skill } from "./mcp-tools";
 
 /**
  * The bundled skills over MCP's Skills extension (SEP-2640,

@@ -3,10 +3,10 @@ import { consola } from "consola";
 
 import { queueAppId } from "@repo/contract/generate/queue-path";
 
-import { forwardJson } from "./api.js";
-import type { createClient } from "./api.js";
-import { isJsonNumber, isJsonObject, isJsonString } from "./types.js";
-import type { JsonValue } from "./types.js";
+import { forwardJson } from "../api.js";
+import type { createClient } from "../api.js";
+import { isJsonNumber, isJsonObject, isJsonString } from "../types.js";
+import type { JsonValue } from "../types.js";
 
 type Client = ReturnType<typeof createClient>;
 

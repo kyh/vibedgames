@@ -2,8 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { applyPatch, cloneJson, diffState, readPatch } from "../src/patch.js";
-import type { PatchOp, PatchSegment } from "../src/patch.js";
-import type { JsonRecord, JsonValue } from "../src/types.js";
+import type { JsonRecord, JsonValue, PatchOp, PatchSegment } from "../src/types.js";
 import { findStructuralIssue, MAX_STATE_DEPTH } from "../src/validation.js";
 
 const random = (seed: number) => {

@@ -1,7 +1,7 @@
 import { openAsBlob } from "node:fs";
 
-import type { createClient } from "./api.js";
-import type { LocalFile } from "./media-args.js";
+import type { createClient } from "../api.js";
+import type { LocalFile } from "./args.js";
 
 type Client = ReturnType<typeof createClient>;
 

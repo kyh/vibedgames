@@ -24,7 +24,7 @@ export type { Correction, ReconcilerOptions } from "./prediction.js";
 
 export { applyPatch, diffState, readPatch } from "./patch.js";
 
-export type { PatchOp, PatchSegment } from "./patch.js";
+export type { PatchOp, PatchSegment } from "./types.js";
 
 export { isLobbyName, listRooms, quickMatch } from "./lobby.js";
 

@@ -4,8 +4,8 @@ import type { IncomingMessage } from "node:http";
 import path from "node:path";
 import { afterEach, test } from "node:test";
 
-import { downloadMedia, extractMediaRefs } from "../media-download.js";
-import { makeCleanups, makeTestServer, makeTmpDir } from "../../../test/_helpers.js";
+import { downloadMedia, extractMediaRefs } from "../download.js";
+import { makeCleanups, makeTestServer, makeTmpDir } from "../../../../test/_helpers.js";
 
 const { cleanups, drain } = makeCleanups();
 

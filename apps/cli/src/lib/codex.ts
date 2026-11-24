@@ -6,8 +6,8 @@ import path from "node:path";
 
 import spawn from "cross-spawn";
 
-import { readExplicitLocalFile } from "./media-args.js";
-import { disambiguateTargets } from "./media-download.js";
+import { readExplicitLocalFile } from "./media/args.js";
+import { disambiguateTargets } from "./media/download.js";
 import { resolveSetting } from "./settings.js";
 import { isJsonNumber, isJsonString } from "./types.js";
 import type { JsonObject } from "./types.js";
