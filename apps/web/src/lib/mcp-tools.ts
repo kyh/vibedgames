@@ -1,8 +1,7 @@
-import type { RouterInputs } from "@repo/contract";
 import type { JsonValue } from "@repo/contract/json";
 import type { ORPCContext } from "@repo/service/orpc";
 import { requiresScope } from "@repo/contract/base";
-import { endpointPath, queueAppId } from "@repo/contract/generate/queue-path";
+import { runInput } from "@repo/contract/generate/generate-schema";
 import { appRouter } from "@repo/service";
 import type { McpToolMeta } from "@orpc/mcp";
 import { mcp } from "@orpc/mcp";
@@ -37,132 +36,16 @@ const tool = os.$context<McpContext>();
 
 const generateTool = tool.meta(requiresScope("generate"));
 
-type ForwardQuery = NonNullable<RouterInputs["generate"]["forward"]["query"]>;
-
-const forward = (context: McpContext, input: RouterInputs["generate"]["forward"]) =>
-  call(appRouter.generate.forward, input, { context });
-
-const stringField = (value: JsonValue, key: string) => {
-  const parsed = z.looseObject({ [key]: z.string() }).safeParse(value);
-
-  return parsed.success ? (parsed.data[key] ?? null) : null;
-};
-
-const sleep = (ms: number) =>
-  // oxlint-disable-next-line promise/avoid-new -- a Worker has no promise-returning timer to await
-  new Promise<void>((resolve) => {
-    setTimeout(resolve, ms);
-  });
-
-const endpointId = z
-  .string()
-  .min(1)
-  .describe("A model's endpoint id, as generate_models lists it, e.g. `fal-ai/flux/dev`");
-
-export const TERMINAL: ReadonlySet<string> = new Set(["COMPLETED", "FAILED", "CANCELLED"]);
-const POLL_MS = 2000;
-
-const MAX_WAIT_SECONDS = 25;
-
-/** A queued job's status, upper-cased: `IN_QUEUE`, `IN_PROGRESS`, `COMPLETED`, `FAILED`, `CANCELLED`. */
-export const queueStatus = async (context: McpContext, endpoint: string, requestId: string) => {
-  const status = await forward(context, {
-    method: "GET",
-    path: `/${queueAppId(endpoint)}/requests/${requestId}/status`,
-    target: "queue",
-  });
-
-  return stringField(status, "status")?.toUpperCase() ?? "UNKNOWN";
-};
-
-/** A completed job's output; fetching it settles the bill. */
-export const queueResult = (context: McpContext, endpoint: string, requestId: string) =>
-  forward(context, {
-    method: "GET",
-    path: `/${queueAppId(endpoint)}/requests/${requestId}`,
-    target: "queue",
-  });
-
-/** Asks the queue to stop a job that is still queued or running. */
-export const queueCancel = (context: McpContext, endpoint: string, requestId: string) =>
-  forward(context, {
-    method: "PUT",
-    path: `/${queueAppId(endpoint)}/requests/${requestId}/cancel`,
-    target: "queue",
-  });
-
 type ModelInput = Record<string, JsonValue>;
 
-const runModel = async (
-  context: McpContext,
-  endpoint: string,
-  body: ModelInput,
-  waitSeconds: number,
-) => {
-  const submission = await forward(context, {
-    body,
-    method: "POST",
-    path: `/${endpointPath(endpoint)}`,
-    target: "queue",
-  });
+const runModel = (context: McpContext, endpoint: string, body: ModelInput, wait: number) =>
+  call(
+    appRouter.generate.run,
+    { endpoint_id: endpoint, input: body, wait_seconds: context.taskMode ? 0 : wait },
+    { context },
+  );
 
-  const requestId = stringField(submission, "request_id");
-
-  if (!requestId) {
-    throw new ORPCError("BAD_GATEWAY", { message: "The model's queue returned no request_id." });
-  }
-
-  try {
-    const deadline = Date.now() + (context.taskMode ? 0 : waitSeconds) * 1000;
-    let status = stringField(submission, "status")?.toUpperCase() ?? "IN_QUEUE";
-
-    while (!TERMINAL.has(status) && Date.now() + POLL_MS <= deadline) {
-      await sleep(POLL_MS);
-      status = await queueStatus(context, endpoint, requestId);
-    }
-
-    if (status !== "COMPLETED") {
-      return { endpoint_id: endpoint, request_id: requestId, result: null, status };
-    }
-
-    const result = await queueResult(context, endpoint, requestId);
-
-    return { endpoint_id: endpoint, request_id: requestId, result, status };
-  } catch (error) {
-    const reason = error instanceof Error ? error.message : "no reason given";
-    throw new ORPCError(error instanceof ORPCError ? error.code : "BAD_GATEWAY", {
-      cause: error,
-      message: `Submitted as request ${requestId} on ${endpoint}, then the poll failed (${reason}). Follow it with generate_status rather than generating again.`,
-    });
-  }
-};
-
-/** Polls a cancelled job's status until the queue settles it, which is the hop that refunds its hold. */
-export const confirmCancelled = async (
-  context: McpContext,
-  endpoint: string,
-  requestId: string,
-) => {
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    await sleep(1000);
-
-    try {
-      if (TERMINAL.has(await queueStatus(context, endpoint, requestId))) {
-        return;
-      }
-    } catch {
-      return;
-    }
-  }
-};
-
-const waitSeconds = z
-  .number()
-  .int()
-  .min(0)
-  .max(MAX_WAIT_SECONDS)
-  .default(20)
-  .describe("How long to wait for the result before returning the request id");
+const waitSeconds = runInput.shape.wait_seconds;
 
 const generateTools = {
   generate: generateTool
@@ -175,210 +58,49 @@ const generateTools = {
         title: "Generate media",
       }),
     )
-    .input(
-      z.object({
-        endpoint_id: endpointId,
-        input: z.record(z.string(), z.json()).describe("The model's input, per generate_schema"),
-        wait_seconds: waitSeconds,
-      }),
-    )
+    .input(runInput)
     .handler(({ context, input }) =>
       runModel(context, input.endpoint_id, input.input, input.wait_seconds),
     ),
 
-  generate_docs: generateTool
-    .meta(
-      mcp.tool({
-        annotations: { ...readOnly, openWorldHint: true },
-        description:
-          "Searches the model documentation: how a model is prompted, what its inputs mean, which to pick for a task.",
-        name: "generate_docs",
-        title: "Search model docs",
-      }),
-    )
-    .input(
-      z.object({
-        query: z
-          .string()
-          .min(1)
-          .max(500)
-          .describe(
-            "What to look up, in plain words and up to 500 characters, e.g. `how to prompt seedance camera moves`",
-          ),
-      }),
-    )
-    .handler(({ context, input }) =>
-      forward(context, {
-        body: {
-          id: 1,
-          jsonrpc: "2.0",
-          method: "tools/call",
-          params: { arguments: { query: input.query }, name: "search_fal" },
-        },
-        method: "POST",
-        path: "/docs/mcp",
-        target: "docs",
-      }),
-    ),
+  generate_docs: asTool(appRouter.generate.docs, {
+    annotations: { ...readOnly, openWorldHint: true },
+    description:
+      "Searches the model documentation: how a model is prompted, what its inputs mean, which to pick for a task.",
+    name: "generate_docs",
+    title: "Search model docs",
+  }),
 
-  generate_models: generateTool
-    .meta(
-      mcp.tool({
-        annotations: { ...readOnly, openWorldHint: true },
-        description:
-          "Searches the models generate can run, by what they do (`query`) or by id, with a cursor for the next page.",
-        name: "generate_models",
-        title: "Search models",
-      }),
-    )
-    .input(
-      z.object({
-        category: z
-          .string()
-          .optional()
-          .describe("Only models in this category, e.g. `text-to-image`, `image-to-video`"),
-        cursor: z
-          .string()
-          .optional()
-          .describe(
-            "The `next_cursor` of a previous generate_models result, for the page after it; omit for the first page",
-          ),
-        endpoint_id: z
-          .array(z.string())
-          .optional()
-          .describe(
-            "Endpoint ids to look up directly instead of searching, e.g. `fal-ai/flux/dev`",
-          ),
-        limit: z
-          .number()
-          .int()
-          .min(1)
-          .max(100)
-          .default(20)
-          .describe("How many models to return per page, 1 to 100; default 20"),
-        query: z.string().optional().describe("Free text, e.g. `pixel art sprite`"),
-      }),
-    )
-    .handler(({ context, input }) => {
-      const query: ForwardQuery = { limit: String(input.limit) };
+  generate_models: asTool(appRouter.generate.models, {
+    annotations: { ...readOnly, openWorldHint: true },
+    description:
+      "Searches the models generate can run, by what they do (`query`) or by id, with a cursor for the next page.",
+    name: "generate_models",
+    title: "Search models",
+  }),
 
-      if (input.query) {
-        query.q = input.query;
-      }
+  generate_pricing: asTool(appRouter.generate.pricing, {
+    annotations: { ...readOnly, openWorldHint: true },
+    description: "A model's price per unit, which generate bills against your credits.",
+    name: "generate_pricing",
+    title: "Model pricing",
+  }),
 
-      if (input.category) {
-        query.category = input.category;
-      }
+  generate_schema: asTool(appRouter.generate.schema, {
+    annotations: { ...readOnly, openWorldHint: true },
+    description:
+      "A model's input and output schema: what generate's `input` takes. `openapi` gives the full OpenAPI document.",
+    name: "generate_schema",
+    title: "Model schema",
+  }),
 
-      if (input.cursor) {
-        query.cursor = input.cursor;
-      }
-
-      if (input.endpoint_id?.length) {
-        query.endpoint_id = input.endpoint_id;
-      }
-
-      return forward(context, { method: "GET", path: "/v1/models", query, target: "platform" });
-    }),
-
-  generate_pricing: generateTool
-    .meta(
-      mcp.tool({
-        annotations: { ...readOnly, openWorldHint: true },
-        description: "A model's price per unit, which generate bills against your credits.",
-        name: "generate_pricing",
-        title: "Model pricing",
-      }),
-    )
-    .input(z.object({ endpoint_id: endpointId }))
-    .handler(({ context, input }) =>
-      forward(context, {
-        method: "GET",
-        path: "/v1/models/pricing",
-        query: { endpoint_id: input.endpoint_id },
-        target: "platform",
-      }),
-    ),
-
-  generate_schema: generateTool
-    .meta(
-      mcp.tool({
-        annotations: { ...readOnly, openWorldHint: true },
-        description:
-          "A model's input and output schema: what generate's `input` takes. `openapi` gives the full OpenAPI document.",
-        name: "generate_schema",
-        title: "Model schema",
-      }),
-    )
-    .input(
-      z.object({
-        endpoint_id: endpointId,
-        format: z
-          .enum(["compact", "openapi"])
-          .default("compact")
-          .describe(
-            "`compact` (the default) returns the model's catalog entry; `openapi` adds its full OpenAPI 3.0 document, with every input and output field",
-          ),
-      }),
-    )
-    .handler(({ context, input }) => {
-      const query: ForwardQuery = { endpoint_id: input.endpoint_id, limit: "1" };
-
-      if (input.format === "openapi") {
-        query.expand = ["openapi-3.0"];
-      }
-
-      return forward(context, { method: "GET", path: "/v1/models", query, target: "platform" });
-    }),
-
-  generate_status: generateTool
-    .meta(
-      mcp.tool({
-        annotations: { ...external, idempotentHint: true },
-        description:
-          "Follows a generate job: its status (`status`), its output once COMPLETED (`result`, which settles the bill), or `cancel`.",
-        name: "generate_status",
-        title: "Generation status",
-      }),
-    )
-    .input(
-      z.object({
-        action: z
-          .enum(["status", "result", "cancel"])
-          .default("status")
-          .describe(
-            "`status` (the default) reports where the job is; `result` fetches its output once COMPLETED, which settles the bill; `cancel` stops a job that is still queued or running",
-          ),
-        endpoint_id: endpointId,
-        logs: z.boolean().default(false).describe("Include the job's logs with its status"),
-        request_id: z
-          .string()
-          .min(1)
-          .describe(
-            "The job's `request_id`, as generate or a generate_* tool returned it, with the endpoint_id it ran on",
-          ),
-      }),
-    )
-    .handler(async ({ context, input }) => {
-      if (input.action === "result") {
-        return queueResult(context, input.endpoint_id, input.request_id);
-      }
-
-      if (input.action === "cancel") {
-        const answer = await queueCancel(context, input.endpoint_id, input.request_id);
-
-        await confirmCancelled(context, input.endpoint_id, input.request_id);
-
-        return answer;
-      }
-
-      return forward(context, {
-        method: "GET",
-        path: `/${queueAppId(input.endpoint_id)}/requests/${input.request_id}/status`,
-        query: input.logs ? { logs: "1" } : undefined,
-        target: "queue",
-      });
-    }),
+  generate_status: asTool(appRouter.generate.status, {
+    annotations: { ...external, idempotentHint: true },
+    description:
+      "Follows a generate job: its status (`status`), its output once COMPLETED (`result`, which settles the bill), or `cancel`.",
+    name: "generate_status",
+    title: "Generation status",
+  }),
 
   generate_upload: asTool(appRouter.generate.upload, {
     annotations: external,

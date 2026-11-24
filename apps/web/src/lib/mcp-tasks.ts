@@ -1,10 +1,12 @@
 import type { JsonValue } from "@repo/contract/json";
 import type { McpServer } from "@modelcontextprotocol/server";
 import { MissingRequiredClientCapabilityError, ProtocolError } from "@modelcontextprotocol/server";
+import { TERMINAL_STATUSES } from "@repo/contract/generate/queue-path";
+import { appRouter } from "@repo/service";
+import { call } from "@orpc/server";
 import { z } from "zod";
 
 import type { McpContext } from "@/lib/mcp-tools";
-import { confirmCancelled, queueCancel, queueResult, queueStatus, TERMINAL } from "@/lib/mcp-tools";
 
 /**
  * Generations over MCP's Tasks extension (`io.modelcontextprotocol/tasks`,
@@ -13,7 +15,7 @@ import { confirmCancelled, queueCancel, queueResult, queueStatus, TERMINAL } fro
  * `tasks/get` / `tasks/cancel` instead of blocking on `wait_seconds` and
  * polling generate_status. Nothing is stored: the task id is the queue job
  * (endpoint and request id) signed for the caller, and every `tasks/get` asks
- * the queue, through `generate.forward` so the ledger holds, settles and
+ * the queue, through `generate.status` so the ledger holds, settles and
  * refunds exactly as for any other call.
  */
 export const TASKS_EXTENSION = "io.modelcontextprotocol/tasks";
@@ -193,7 +195,7 @@ export const asTaskResult = async (
 
   const { _meta: meta, structuredContent: job } = parsed.data.result;
 
-  if (TERMINAL.has(job.status)) {
+  if (TERMINAL_STATUSES.has(job.status)) {
     return passThrough;
   }
 
@@ -215,6 +217,21 @@ const toolResult = (ref: TaskRef, status: string, result: JsonValue) => {
     content: [{ text: JSON.stringify(structured), type: "text" }],
     structuredContent: structured,
   };
+};
+
+const follow = (context: McpContext, ref: TaskRef, action: "status" | "result" | "cancel") =>
+  call(
+    appRouter.generate.status,
+    { action, endpoint_id: ref.e, logs: false, request_id: ref.r },
+    { context },
+  );
+
+const statusOf = z.looseObject({ status: z.string() });
+
+const queueStatus = async (context: McpContext, ref: TaskRef) => {
+  const parsed = statusOf.safeParse(await follow(context, ref, "status"));
+
+  return parsed.success ? parsed.data.status.toUpperCase() : "UNKNOWN";
 };
 
 const taskParams = z.looseObject({ taskId: z.string() });
@@ -244,7 +261,7 @@ export const registerTasks = (server: McpServer, context: McpContext) => {
 
   server.server.setRequestHandler("tasks/get", { params: taskParams }, async (params) => {
     const ref = await resolve(params);
-    const status = await queueStatus(context, ref.e, ref.r);
+    const status = await queueStatus(context, ref);
 
     if (status === "CANCELLED") {
       return taskState(params.taskId, ref, "cancelled", status);
@@ -261,7 +278,7 @@ export const registerTasks = (server: McpServer, context: McpContext) => {
       return taskState(params.taskId, ref, "working", status);
     }
 
-    const result = await queueResult(context, ref.e, ref.r);
+    const result = await follow(context, ref, "result");
 
     return {
       ...taskState(params.taskId, ref, "completed", status),
@@ -278,8 +295,7 @@ export const registerTasks = (server: McpServer, context: McpContext) => {
   server.server.setRequestHandler("tasks/cancel", { params: taskParams }, async (params) => {
     const ref = await resolve(params);
 
-    await queueCancel(context, ref.e, ref.r).catch(() => null);
-    await confirmCancelled(context, ref.e, ref.r);
+    await follow(context, ref, "cancel").catch(() => null);
 
     return {};
   });

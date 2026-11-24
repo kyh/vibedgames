@@ -8,3 +8,10 @@ export const queueAppId = (endpointId: string) => {
 
   return parts.slice(0, take).join("/");
 };
+
+/** The statuses a queued job ends in; any other is still queued or running. */
+export const TERMINAL_STATUSES: ReadonlySet<string> = new Set(["COMPLETED", "FAILED", "CANCELLED"]);
+
+/** Where a queued job's status, output (`""`) or cancel lives on the queue. */
+export const jobPath = (endpointId: string, requestId: string, hop: "" | "/status" | "/cancel") =>
+  `/${queueAppId(endpointId)}/requests/${requestId}${hop}`;

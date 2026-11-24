@@ -10,7 +10,7 @@ import { MICRO_PER_USD } from "../credits/credit-ledger";
 import type { ORPCContext } from "../orpc";
 import { startUpstream } from "../upstream.test-utils";
 import type { UpstreamReply } from "../upstream.test-utils";
-import { generateRouter } from "./generate-router";
+import { forward, generateRouter } from "./generate-router";
 
 const unavailable = (): never => {
   throw new Error("this test's database only reads the balance and batches writes");
@@ -159,7 +159,7 @@ const priceList = (endpointId: string) =>
 interface Routes {
   estimate: Upstream;
   price: (endpointId: string) => UpstreamReply;
-  other: Upstream;
+  other: (url: URL) => UpstreamReply;
 }
 
 const queued: Upstream = () => ({ json: { request_id: "request-1" } });
@@ -182,7 +182,7 @@ const upstream = await startUpstream((request) => {
     return routes.estimate();
   }
 
-  return routes.other();
+  return routes.other(url);
 });
 
 after(upstream.close);
@@ -212,13 +212,9 @@ const stubFal = ({
 const ranOnQueue = () => fetchedUrls().some((url) => url.hostname === "queue.upstream");
 
 const submit = (path: string, role: string) =>
-  call(
-    generateRouter.forward,
-    { method: "POST", path, target: "queue" },
-    { context: contextAs(role) },
-  );
+  forward(contextAs(role), { method: "POST", path, target: "queue" });
 
-describe("generate.forward path", () => {
+describe("forward path", () => {
   test("refuses a path the URL parser would rewrite, before anything is fetched", async () => {
     const rewritten = [
       "/owner\\model",
@@ -261,11 +257,7 @@ describe("generate.forward path", () => {
     for (const { method, path } of folded) {
       stubFal();
       await assert.rejects(
-        call(
-          generateRouter.forward,
-          { method, path, target: "queue" },
-          { context: contextAs("user") },
-        ),
+        forward(contextAs("user"), { method, path, target: "queue" }),
         { code: "BAD_REQUEST" },
         path,
       );
@@ -281,11 +273,7 @@ describe("generate.forward path", () => {
 
     for (const { path, target } of elsewhere) {
       stubFal();
-      await call(
-        generateRouter.forward,
-        { method: "GET", path, target },
-        { context: contextAs("user") },
-      );
+      await forward(contextAs("user"), { method: "GET", path, target });
       assert.deepEqual(
         fetchedUrls().map((url) => url.pathname),
         [path],
@@ -321,7 +309,7 @@ describe("generate.forward path", () => {
   });
 });
 
-describe("generate.forward submit", () => {
+describe("forward submit", () => {
   test("refuses a member's submit to an endpoint no price is published for", async () => {
     const unpriced = {
       "a 400": json(400, {
@@ -426,18 +414,18 @@ describe("generate.forward submit", () => {
   });
 });
 
-describe("generate.forward errors", () => {
+describe("forward errors", () => {
   const BRAND = /\bfal\b(?!-)/iu;
 
   test("names no provider when an upstream call fails", async () => {
     stubFal();
     routes = { ...routes, other: json(500, { detail: "boom" }) };
     await assert.rejects(
-      call(
-        generateRouter.forward,
-        { method: "GET", path: "/fal-ai/flux/requests/request-1/status", target: "queue" },
-        { context: contextAs("user") },
-      ),
+      forward(contextAs("user"), {
+        method: "GET",
+        path: "/fal-ai/flux/requests/request-1/status",
+        target: "queue",
+      }),
       (error: Error) => {
         assert.match(error.message, /failed \(500\)/u);
         assert.doesNotMatch(error.message, BRAND);
@@ -449,10 +437,9 @@ describe("generate.forward errors", () => {
 
   test("names no provider when media is not configured", async () => {
     await assert.rejects(
-      call(
-        generateRouter.forward,
+      forward(
+        { ...contextAs("user"), media: undefined },
         { method: "GET", path: "/v1/models", target: "platform" },
-        { context: { ...contextAs("user"), media: undefined } },
       ),
       (error: Error) => {
         assert.doesNotMatch(error.message, BRAND);
@@ -511,6 +498,177 @@ describe("generate.upload", () => {
         { context: { ...contextAs("user"), signing } },
       ),
       { code: "BAD_GATEWAY" },
+    );
+  });
+});
+
+const queueHops = () =>
+  fetchedUrls()
+    .filter((url) => url.hostname === "queue.upstream")
+    .map((url) => `${url.pathname}${url.search}`);
+
+const onQueue = (replies: Record<string, JsonValue>) => (url: URL) => {
+  const body = replies[`${url.pathname}${url.search}`];
+
+  return body === undefined ? { json: { error: "unexpected hop" }, status: 404 } : { json: body };
+};
+
+describe("generate.run", () => {
+  test("submits the full endpoint and fetches the output from its app once completed", async () => {
+    stubFal();
+    routes = {
+      ...routes,
+      other: onQueue({
+        "/fal-ai/flux/dev": { request_id: "request-1", status: "COMPLETED" },
+        "/fal-ai/flux/requests/request-1": { images: [{ url: "https://media.example/a.png" }] },
+      }),
+    };
+
+    const run = await call(
+      generateRouter.run,
+      { endpoint_id: "fal-ai/flux/dev", input: { prompt: "a cat" }, wait_seconds: 0 },
+      { context: contextAs("user") },
+    );
+
+    assert.deepStrictEqual(run, {
+      endpoint_id: "fal-ai/flux/dev",
+      request_id: "request-1",
+      result: { images: [{ url: "https://media.example/a.png" }] },
+      status: "COMPLETED",
+    });
+    assert.deepStrictEqual(queueHops(), ["/fal-ai/flux/dev", "/fal-ai/flux/requests/request-1"]);
+    assert.ok(heldGeneration(), "the submit was not held against the ledger");
+  });
+
+  test("returns the request id without polling when it may not wait", async () => {
+    stubFal();
+    routes = {
+      ...routes,
+      other: onQueue({ "/fal-ai/flux/dev": { request_id: "request-1", status: "IN_QUEUE" } }),
+    };
+
+    const run = await call(
+      generateRouter.run,
+      { endpoint_id: "fal-ai/flux/dev", input: {}, wait_seconds: 0 },
+      { context: contextAs("user") },
+    );
+
+    assert.deepStrictEqual(run, {
+      endpoint_id: "fal-ai/flux/dev",
+      request_id: "request-1",
+      result: null,
+      status: "IN_QUEUE",
+    });
+    assert.deepStrictEqual(queueHops(), ["/fal-ai/flux/dev"]);
+  });
+
+  test("holds an endpoint id to the queue path rules", async () => {
+    stubFal();
+    await assert.rejects(
+      call(
+        generateRouter.run,
+        { endpoint_id: "FAL-AI/FLUX/DEV", input: {}, wait_seconds: 0 },
+        { context: contextAs("user") },
+      ),
+      { code: "BAD_REQUEST" },
+    );
+    assert.equal(ranOnQueue(), false);
+  });
+});
+
+describe("generate.status", () => {
+  test("reaches a job's status, with logs, and its output on the endpoint's app", async () => {
+    stubFal();
+    routes = {
+      ...routes,
+      other: onQueue({
+        "/fal-ai/flux/requests/request-1": { images: [] },
+        "/fal-ai/flux/requests/request-1/status?logs=1": { logs: [], status: "IN_PROGRESS" },
+      }),
+    };
+
+    const context = { context: contextAs("user") };
+    const job = { endpoint_id: "fal-ai/flux/dev", request_id: "request-1" };
+
+    assert.deepStrictEqual(
+      await call(generateRouter.status, { ...job, action: "status", logs: true }, context),
+      { logs: [], status: "IN_PROGRESS" },
+    );
+    assert.deepStrictEqual(
+      await call(generateRouter.status, { ...job, action: "result", logs: false }, context),
+      { images: [] },
+    );
+  });
+});
+
+describe("generate.status cancel", () => {
+  test("still polls the job, which refunds its hold, when the cancel itself is refused", async () => {
+    stubFal();
+    routes = {
+      ...routes,
+      other: onQueue({ "/fal-ai/flux/requests/request-1/status": { status: "FAILED" } }),
+    };
+
+    await assert.rejects(
+      call(
+        generateRouter.status,
+        { action: "cancel", endpoint_id: "fal-ai/flux/dev", request_id: "request-1" },
+        { context: contextAs("user") },
+      ),
+    );
+    assert.deepStrictEqual(queueHops(), [
+      "/fal-ai/flux/requests/request-1/cancel",
+      "/fal-ai/flux/requests/request-1/status",
+    ]);
+  });
+});
+
+describe("generate catalog", () => {
+  test("spells a model search as the platform's query", async () => {
+    stubFal();
+    routes = { ...routes, other: json(200, { models: [] }) };
+
+    await call(
+      generateRouter.models,
+      {
+        category: "text-to-image",
+        endpoint_id: ["fal-ai/flux/dev"],
+        expand: ["openapi-3.0"],
+        limit: 5,
+        query: "pixel art",
+        status: "all",
+      },
+      { context: contextAs("user") },
+    );
+
+    const [asked] = fetchedUrls();
+    assert.strictEqual(asked?.pathname, "/v1/models");
+    assert.deepStrictEqual(
+      [...(asked?.searchParams ?? [])],
+      [
+        ["limit", "5"],
+        ["q", "pixel art"],
+        ["category", "text-to-image"],
+        ["endpoint_id", "fal-ai/flux/dev"],
+        ["expand", "openapi-3.0"],
+      ],
+    );
+  });
+
+  test("asks for one model's OpenAPI document as its schema", async () => {
+    stubFal();
+    routes = { ...routes, other: json(200, { models: [] }) };
+
+    await call(
+      generateRouter.schema,
+      { endpoint_id: "fal-ai/flux/dev", format: "openapi" },
+      { context: contextAs("user") },
+    );
+
+    const [asked] = fetchedUrls();
+    assert.strictEqual(
+      `${asked?.pathname}${asked?.search}`,
+      "/v1/models?endpoint_id=fal-ai%2Fflux%2Fdev&limit=1&expand=openapi-3.0",
     );
   });
 });

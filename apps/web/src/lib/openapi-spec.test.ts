@@ -51,7 +51,7 @@ describe("OpenAPI spec", async () => {
     assert.ok(operations.length >= 23, `expected >= 23 operations, got ${operations.length}`);
     assert.ok(operations.every(({ method }) => method === "post"));
 
-    for (const path of ["/auth/me", "/deploy/create", "/generate/forward", "/waitlist/join"]) {
+    for (const path of ["/auth/me", "/deploy/create", "/generate/run", "/waitlist/join"]) {
       assert.ok(spec.paths[path], `missing ${path}`);
     }
   });
