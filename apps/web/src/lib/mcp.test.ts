@@ -263,6 +263,7 @@ describe("mcp endpoint", () => {
 
     assert.deepStrictEqual(result.capabilities.extensions, {
       "io.modelcontextprotocol/skills": {},
+      "io.modelcontextprotocol/tasks": {},
     });
     assert.ok(result.capabilities.resources);
   });
