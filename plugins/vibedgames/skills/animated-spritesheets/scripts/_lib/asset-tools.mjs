@@ -2164,8 +2164,8 @@ var buildSequenceGif = (frames, flatBackground) => {
   if (frames.length === 0) {
     throw new Error("No frames selected");
   }
-  const composed = frames.map(({ path: path7, delayMs }) => {
-    let bitmap = Bitmap.fromFile(path7);
+  const composed = frames.map(({ path: path8, delayMs }) => {
+    let bitmap = Bitmap.fromFile(path8);
     if (flatBackground) {
       const backdrop = Bitmap.create(bitmap.width, bitmap.height, flatBackground);
       backdrop.alphaComposite(bitmap, 0, 0);
@@ -3935,6 +3935,127 @@ var HEADER = `${MARKER}
 // Do not edit: re-run the generator, then normalize-factory.mjs. Consume it only
 // through its exported factory functions, which are typed at the call site.
 `;
+
+// src/sprite/process-sheet.ts
+import { mkdirSync as mkdirSync3, rmSync, unlinkSync, writeFileSync as writeFileSync3 } from "node:fs";
+import path7 from "node:path";
+var RUNTIME_CANVAS = { height: 256, width: 256 };
+var frameName = (i) => `frame-${String(i).padStart(2, "0")}.png`;
+var sliceGrid = (board, rows, cols, frames, outDir, warn) => {
+  const image = Bitmap.fromFile(board);
+  if (image.width % cols || image.height % rows) {
+    warn(
+      `board ${image.width}x${image.height} does not divide evenly into ${cols}x${rows} cells (${image.width % cols}px wide / ${image.height % rows}px tall remainder dropped). Regenerate at a divisible size or adjust --rows/--cols if frames look shifted.`
+    );
+  }
+  const cw = Math.floor(image.width / cols);
+  const ch = Math.floor(image.height / rows);
+  const count = Math.min(frames, rows * cols);
+  for (let i = 0; i < count; i += 1) {
+    const r = Math.floor(i / cols);
+    const c = i - r * cols;
+    image.crop({ bottom: (r + 1) * ch, left: c * cw, right: (c + 1) * cw, top: r * ch }).toFile(path7.join(outDir, frameName(i + 1)));
+  }
+  return count;
+};
+var recoverGrid = (board, rows, cols, frames, outDir, warn) => {
+  try {
+    const { crops } = recoverFrames(board, { cols, frames, rows, threshold: 15 });
+    for (const crop of crops) {
+      crop.image.toFile(path7.join(outDir, `frame-${crop.label}.png`));
+    }
+    return crops.length;
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    warn(`--recover fell back to uniform slice: ${reason}`);
+    return sliceGrid(board, rows, cols, frames, outDir, warn);
+  }
+};
+var pixelSnapFrames = (framesDir, kColors) => {
+  const paths = globFrames(framesDir, "frame-*.png");
+  if (paths.length === 0) {
+    return;
+  }
+  const images = paths.map((p) => Bitmap.fromFile(p));
+  const n = images.length;
+  const cw = Math.max(...images.map((im) => im.width));
+  const ch = Math.max(...images.map((im) => im.height));
+  const strip = Bitmap.create(cw * n, ch);
+  for (const [i, im] of images.entries()) {
+    const x = i * cw + Math.floor((cw - im.width) / 2);
+    const y = Math.floor((ch - im.height) / 2);
+    strip.pasteMasked(im, x, y, im.channel(3));
+  }
+  const stripPath = path7.join(framesDir, "_snap_strip.png");
+  strip.toFile(stripPath);
+  const snapped = snapImage(stripPath, { ...DEFAULT_SNAP_CONFIG, kColors });
+  unlinkSync(stripPath);
+  const fw = Math.floor(snapped.width / n);
+  for (const [i, framePath] of paths.entries()) {
+    const right = i === n - 1 ? snapped.width : (i + 1) * fw;
+    snapped.crop({ bottom: snapped.height, left: i * fw, right, top: 0 }).toFile(framePath);
+  }
+};
+var processSheet = (options) => {
+  const {
+    action: action2,
+    board,
+    charFill = 0.5,
+    chroma = [0, 255, 0],
+    cols,
+    outDir,
+    pixelSnap = true,
+    qc: runSheetQc = true,
+    recover = false,
+    rows,
+    snapKColors = 16,
+    warn = (message) => process.stderr.write(`warning: ${message}
+`)
+  } = options;
+  const { defaultFrames, fps } = actionFacts(action2);
+  const frames = options.frames ?? Math.min(defaultFrames, rows * cols);
+  const dCells = path7.join(outDir, "cells");
+  const dKeyed = path7.join(outDir, "_keyed");
+  const dRuntime = path7.join(outDir, "runtime");
+  const dReview = path7.join(outDir, "review");
+  for (const dir of [dCells, dKeyed, dRuntime]) {
+    rmSync(dir, { force: true, recursive: true });
+  }
+  const n = recover ? recoverGrid(board, rows, cols, frames, dCells, warn) : sliceGrid(board, rows, cols, frames, dCells, warn);
+  for (const framePath of globFrames(dCells, "frame-*.png")) {
+    const result = cleanChroma(Bitmap.fromFile(framePath), { chroma });
+    result.image.toFile(path7.join(dKeyed, framePath.slice(dCells.length + 1)));
+  }
+  if (pixelSnap) {
+    pixelSnapFrames(dKeyed, snapKColors);
+  }
+  normalizeCanvas(dKeyed, dRuntime, { canvas: RUNTIME_CANVAS, charFill, glob: "frame-*.png" });
+  const spritesheet = path7.join(outDir, "spritesheet.png");
+  const manifest = path7.join(outDir, "spritesheet.json");
+  const packed = packSpritesheet(dRuntime, spritesheet, { action: action2, fps, glob: "frame-*.png" });
+  packed.sheet.toFile(spritesheet);
+  writeJsonFile(manifest, packed.manifest);
+  const gif = path7.join(dReview, `${action2}.gif`);
+  const delayMs = Math.round(1e3 / fps);
+  const gifBytes = buildSequenceGif(
+    Array.from({ length: n }, (_, i) => ({ delayMs, path: path7.join(dRuntime, frameName(i + 1)) })),
+    null
+  );
+  mkdirSync3(dReview, { recursive: true });
+  writeFileSync3(gif, gifBytes);
+  return {
+    action: action2,
+    fps,
+    frames: n,
+    gif,
+    manifest,
+    pixelSnap,
+    qc: runSheetQc ? runQc(spritesheet, null, null) : null,
+    runtimeFrames: dRuntime,
+    slicing: recover ? "recover" : "naive",
+    spritesheet
+  };
+};
 export {
   ACTIONS,
   Bitmap,
@@ -3967,6 +4088,7 @@ export {
   packSpritesheet,
   parseArgs,
   parseColor,
+  processSheet,
   promptGuidanceForContract,
   recoverFrames,
   removeChromaFringe,

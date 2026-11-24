@@ -127,121 +127,55 @@ export {
   tilesetMetaFromManifest,
 } from "./asset/tilemap.js";
 
-export { globFrames, type LoadedFrame, loadFrames, median } from "./sprite/frames.js";
+export { globFrames } from "./sprite/frames.js";
 
 export {
-  chromaFringeChannels,
   cleanChroma,
-  colorDistance,
-  decontaminateMatte,
   despillChroma,
-  type DespillRecord,
-  fringeWarning,
   HIGH_FRINGE_REMOVAL_RATIO,
-  type FringeRecord,
-  isGreenMatte,
-  isKeyableFringeChroma,
-  keepLargestComponents,
   keyMatte,
-  type KeyRecord,
   removeChromaFringe,
 } from "./sprite/chroma.js";
 
 export { normalizeCanvas } from "./sprite/normalize.js";
 
 export {
-  type ActionFacts,
   ACTIONS,
-  type ActionPreset,
   actionFacts,
   canonicalProfiles,
   coerceFrameCount,
   formatPythonValue,
-  type Profile,
   PROFILES,
   resolveProfile,
-  type SelectionPolicy,
-  type Timing,
 } from "./sprite/presets.js";
 
-export {
-  type Component,
-  findComponents,
-  recoverFrames,
-  type RecoverResult,
-} from "./sprite/recover.js";
+export { recoverFrames } from "./sprite/recover.js";
 
 export { buildSequenceGif } from "./sprite/sequence-gif.js";
 
-export {
-  frameGeometry,
-  frameMetrics,
-  type FrameMetrics,
-  qc,
-  type QcCheck,
-  type QcReport,
-  runQc,
-  verdictFor,
-} from "./sprite/qc.js";
+export { runQc } from "./sprite/qc.js";
 
-export {
-  computeProfiles,
-  DEFAULT_SNAP_CONFIG,
-  estimateStepSize,
-  quantize,
-  resample,
-  resolveStepSizes,
-  sanitizeCuts,
-  type SnapConfig,
-  type SheetSnapInfo,
-  snapImage,
-  snapSheet,
-  snapWarning,
-  walk,
-} from "./sprite/pixel-snap.js";
+export { DEFAULT_SNAP_CONFIG, snapImage, snapSheet, snapWarning } from "./sprite/pixel-snap.js";
 
 export {
   auditSizeContract,
-  cellSizeOf,
-  type Check,
-  contractChecks,
-  DEFAULT_TOLERANCES,
   deriveSizeContract,
   FRAME_HEIGHT,
   FRAME_WIDTH,
   loadSizeContract,
-  type Measurement,
-  measureSource,
   promptGuidanceForContract,
-  summarizeMeasurements,
-  type Tolerances,
 } from "./sprite/size-contract.js";
 
 export {
-  ACTION_IDS,
-  ANCHOR_GAME_VIEWS,
-  ANCHOR_ROLES,
-  cellHeight,
-  cellWidth,
-  type Direction,
-  DIRECTIONS,
-  frameLabel,
-  getActionId,
   getDirection,
-  POSE_BOARD_PRESETS,
-  type PoseBoardPreset,
   renderAnchorPrompt,
-  renderFrameGuidance,
   renderPoseBoardPrompt,
-  resolveAnchorGameView,
-  resolveAnchorRole,
   resolvePoseBoardPreset,
-  styleBlock,
   totalCells,
   withStyle,
 } from "./sprite/prompt.js";
 
-export { packSpritesheet, type PackResult, type SpritesheetManifest } from "./sprite/pack.js";
+export { packSpritesheet } from "./sprite/pack.js";
 
 export {
   dropUserDataAssignment,
@@ -251,3 +185,5 @@ export {
 } from "./skill/normalize-factory.js";
 
 export { roundHalfToEven } from "./pymath.js";
+
+export { processSheet } from "./sprite/process-sheet.js";
