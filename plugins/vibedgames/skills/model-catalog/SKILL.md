@@ -36,7 +36,7 @@ The endpoint each task uses when the user names none. The vibedgames MCP server'
 | Video from an image          | `bytedance/seedance-2.5/us/image-to-video` |
 | Speech                       | `elevenlabs/tts/eleven-v4`                 |
 | Music                        | `elevenlabs/music/v2.5`                    |
-| Sound effect                 | `fal-ai/elevenlabs/sound-effects/v2`       |
+| Sound effect                 | `elevenlabs/sound-effects/v3`              |
 | 3D from a prompt             | `meshy/v7.1/text-to-3d`                    |
 | 3D from an image             | `meshy/v7.1/image-to-3d`                   |
 | Rig + animate a character    | `meshy/rigging/multi-animation`            |

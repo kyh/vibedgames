@@ -4,19 +4,18 @@ Every sound below goes through `vg generate`, so it is billed to the vibedgames
 account and needs no other key. Check the schema and price before the first
 call of a batch: `vg generate schema <id> --json`, `vg generate pricing <id> --json`.
 
-| Need                                 | Endpoint                                       |
-| ------------------------------------ | ---------------------------------------------- |
-| Sound effect, loopable bed           | `fal-ai/elevenlabs/sound-effects/v2` (default) |
-| Longer SFX (to 30 s), seamless loops | `elevenlabs/sound-effects/v3`                  |
-| Foley synced to a clip (trailers)    | `mirelo-ai/sfx2.0/video-to-audio`              |
-| Character line                       | `elevenlabs/tts/eleven-v4` (default)           |
-| A scene between speakers             | `fal-ai/elevenlabs/text-to-dialogue/eleven-v3` |
-| A new voice from a description       | `fal-ai/minimax/voice-design`                  |
-| Restyle a recorded line              | `fal-ai/elevenlabs/voice-changer`              |
-| Music (vocal or instrumental)        | `elevenlabs/music/v2.5` (default)              |
-| Split a track into stems             | `fal-ai/demucs`                                |
-| Clean a noisy take                   | `fal-ai/elevenlabs/audio-isolation`            |
-| Reverb from an impulse response      | `fal-ai/workflow-utilities/impulse-response`   |
+| Need                                   | Endpoint                                       |
+| -------------------------------------- | ---------------------------------------------- |
+| Sound effect or loopable bed (to 30 s) | `elevenlabs/sound-effects/v3` (default)        |
+| Foley synced to a clip (trailers)      | `mirelo-ai/sfx2.0/video-to-audio`              |
+| Character line                         | `elevenlabs/tts/eleven-v4` (default)           |
+| A scene between speakers               | `fal-ai/elevenlabs/text-to-dialogue/eleven-v3` |
+| A new voice from a description         | `fal-ai/minimax/voice-design`                  |
+| Restyle a recorded line                | `fal-ai/elevenlabs/voice-changer`              |
+| Music (vocal or instrumental)          | `elevenlabs/music/v2.5` (default)              |
+| Split a track into stems               | `fal-ai/demucs`                                |
+| Clean a noisy take                     | `fal-ai/elevenlabs/audio-isolation`            |
+| Reverb from an impulse response        | `fal-ai/workflow-utilities/impulse-response`   |
 
 ## Write the spec before buying
 
@@ -30,7 +29,7 @@ prompts, so any take can be regenerated exactly.
   "id": "pistol_fire",
   "family": "weapons",
   "event": "player.fire",
-  "endpoint": "fal-ai/elevenlabs/sound-effects/v2",
+  "endpoint": "elevenlabs/sound-effects/v3",
   "prompt": "single compact pistol shot, sharp transient, short indoor tail, no music",
   "duration_seconds": 1.2,
   "takes": 4,

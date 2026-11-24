@@ -63,8 +63,8 @@ Vocal music generation with lyrics.
 
 Instrumental music and sound effects.
 
-- `fal-ai/elevenlabs/sound-effects/v2`: ElevenLabs · Sound Effects v2 (the default; up to 22s, seamless loops)
-- `elevenlabs/sound-effects/v3`: ElevenLabs · Sound Effects v3 (newer; up to 30s, seamless loops)
+- `elevenlabs/sound-effects/v3`: ElevenLabs · Sound Effects v3 (the default; up to 30s, seamless loops)
+- `fal-ai/elevenlabs/sound-effects/v2`: ElevenLabs · Sound Effects v2 (previous default; up to 22s)
 - `mirelo-ai/sfx2.0/video-to-audio`: Mirelo · SFX 2.0 video-to-audio (foley synced to a clip, for trailers and cutscenes)
 - `mirelo-ai/sfx2.0/text-to-audio`: Mirelo · SFX 2.0 (newer; negative prompts)
 - `cassetteai/music-generator`: Cassette AI · Music Generator
