@@ -672,3 +672,45 @@ describe("generate catalog", () => {
     );
   });
 });
+
+describe("generate assets", () => {
+  test("edits on the image model's edit endpoint, with the typed fields over the options", async () => {
+    stubFal();
+    routes = { ...routes, other: json(200, { request_id: "request-1", status: "IN_QUEUE" }) };
+
+    await call(
+      generateRouter.image,
+      {
+        image_urls: ["https://media.example/a.png"],
+        options: { prompt: "ignored", seed: 7 },
+        prompt: "make it night",
+        wait_seconds: 0,
+      },
+      { context: contextAs("user") },
+    );
+
+    const submitted = upstream.requests.find(
+      (request) => targetOf(request.url).hostname === "queue.upstream",
+    );
+
+    assert.equal(submitted && targetOf(submitted.url).pathname, "/openai/gpt-image-2.5/flare/edit");
+    assert.deepStrictEqual(JSON.parse(submitted?.body ?? "null"), {
+      image_urls: ["https://media.example/a.png"],
+      prompt: "make it night",
+      seed: 7,
+    });
+  });
+
+  test("refuses a video's last frame without its first, before anything is fetched", async () => {
+    stubFal();
+    await assert.rejects(
+      call(
+        generateRouter.video,
+        { end_image_url: "https://media.example/z.png", prompt: "a run", wait_seconds: 0 },
+        { context: contextAs("user") },
+      ),
+      { code: "BAD_REQUEST" },
+    );
+    assert.deepEqual(fetchedUrls(), []);
+  });
+});

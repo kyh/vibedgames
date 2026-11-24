@@ -1,5 +1,17 @@
 import { defineCommand } from "citty";
+import type { z } from "zod";
 import { consola } from "consola";
+
+import {
+  animate3dInput,
+  imageInput,
+  model3dInput,
+  musicInput,
+  removeBackgroundInput,
+  soundInput,
+  speechInput,
+  videoInput,
+} from "@repo/contract/generate/media-schema";
 
 import { createClient } from "../lib/api.js";
 import {
@@ -11,6 +23,7 @@ import {
 import { parseDownloadFlag, parseRunInput, readExplicitLocalFile } from "../lib/media-args.js";
 import type { DownloadFlag } from "../lib/media-args.js";
 import { downloadMedia, extractMediaRefs } from "../lib/media-download.js";
+import { mediaFlagArgs, readMediaInput } from "../lib/media-flags.js";
 import { waitForCompletion } from "../lib/media-poll.js";
 import { uploadFile } from "../lib/media-upload.js";
 import { isJsonOutput, outputArgs, writeJson, writeStructured } from "../lib/output.js";
@@ -190,6 +203,70 @@ const reportRun = (
   }
 };
 
+interface Submission {
+  endpoint_id: string;
+  request_id: string;
+  result: JsonValue;
+  status: string;
+}
+
+const finishRun = async (
+  client: ReturnType<typeof createClient>,
+  opts: {
+    args: { async?: boolean; json?: boolean; field?: string; quiet?: boolean };
+    downloadFlag: DownloadFlag;
+    submission: Submission;
+  },
+) => {
+  const { args, downloadFlag, submission } = opts;
+  const { endpoint_id } = submission;
+  const requestId = submission.request_id;
+
+  if (args.async) {
+    const payload = {
+      endpoint_id,
+      hint: `Check status: vg generate status ${endpoint_id} ${requestId}`,
+      request_id: requestId,
+      status: "submitted",
+    };
+
+    if (!writeStructured(payload, args)) {
+      consola.success(`Submitted ${endpoint_id}`);
+      consola.log(`  request_id: ${requestId}`);
+    }
+
+    return;
+  }
+
+  const completed =
+    submission.status.toUpperCase() === "COMPLETED"
+      ? { request_id: requestId, result: submission.result }
+      : await waitForCompletion(client, endpoint_id, requestId, {
+          quiet: Boolean(args.quiet) || isStructuredOutput(args),
+        });
+
+  let downloaded: Awaited<ReturnType<typeof downloadMedia>> | undefined;
+
+  if (downloadFlag.mode === "on") {
+    const refs = extractMediaRefs(completed.result);
+    downloaded = await downloadMedia({
+      refs,
+      requestId: completed.request_id,
+      template: downloadFlag.template,
+    });
+  }
+
+  const payload = buildRunPayload(endpoint_id, completed, downloaded);
+
+  if (!writeStructured(payload, args)) {
+    reportRun(completed, downloaded);
+  }
+
+  if (downloaded && downloaded.failed.length > 0 && downloaded.downloaded.length === 0) {
+    process.exit(1);
+  }
+};
+
 const runCommand = defineCommand({
   args: {
     async: {
@@ -244,48 +321,7 @@ const runCommand = defineCommand({
       wait_seconds: 0,
     });
 
-    const requestId = submission.request_id;
-
-    if (args.async) {
-      const payload = {
-        endpoint_id,
-        hint: `Check status: vg generate status ${endpoint_id} ${requestId}`,
-        request_id: requestId,
-        status: "submitted",
-      };
-
-      if (!writeStructured(payload, args)) {
-        consola.success(`Submitted ${endpoint_id}`);
-        consola.log(`  request_id: ${requestId}`);
-      }
-
-      return;
-    }
-
-    const completed = await waitForCompletion(client, endpoint_id, requestId, {
-      quiet: Boolean(args.quiet) || isStructuredOutput(args),
-    });
-
-    let downloaded: Awaited<ReturnType<typeof downloadMedia>> | undefined;
-
-    if (downloadFlag.mode === "on") {
-      const refs = extractMediaRefs(completed.result);
-      downloaded = await downloadMedia({
-        refs,
-        requestId: completed.request_id,
-        template: downloadFlag.template,
-      });
-    }
-
-    const payload = buildRunPayload(endpoint_id, completed, downloaded);
-
-    if (!writeStructured(payload, args)) {
-      reportRun(completed, downloaded);
-    }
-
-    if (downloaded && downloaded.failed.length > 0 && downloaded.downloaded.length === 0) {
-      process.exit(1);
-    }
+    await finishRun(client, { args, downloadFlag, submission });
   },
 });
 
@@ -607,12 +643,108 @@ const uploadCommand = defineCommand({
   },
 });
 
+type Client = ReturnType<typeof createClient>;
+
+const mediaCommand = <S extends z.ZodObject>(
+  name: string,
+  description: string,
+  schema: S,
+  submit: (client: Client, body: z.output<S>) => Promise<Submission>,
+) =>
+  defineCommand({
+    args: {
+      ...mediaFlagArgs(schema.shape),
+      async: {
+        description: "Submit to queue and return request_id without waiting.",
+        type: "boolean",
+      },
+      download: {
+        description:
+          "Download media from result. Optional value is a path or template with {index},{name},{ext},{request_id}.",
+        type: "string",
+      },
+      options: {
+        description: "Any other model input as a JSON object; the flags above win.",
+        type: "string",
+      },
+      ...outputArgs,
+      quiet: { description: "Suppress progress output while waiting.", type: "boolean" },
+    },
+    meta: { description, name },
+    run: async ({ args, rawArgs }) => {
+      const client = createClient();
+      const downloadFlag = parseDownloadFlag(rawArgs);
+      const input = await readMediaInput(schema.shape, rawArgs, (file) => uploadFile(client, file));
+      const parsed = schema.safeParse({ ...input, wait_seconds: 0 });
+
+      if (!parsed.success) {
+        for (const issue of parsed.error.issues) {
+          consola.error(`--${issue.path.join(".") || "input"}: ${issue.message}`);
+        }
+
+        process.exit(1);
+      }
+
+      await finishRun(client, {
+        args,
+        downloadFlag,
+        submission: await submit(client, parsed.data),
+      });
+    },
+  });
+
+const mediaCommands = {
+  "3d": mediaCommand(
+    "3d",
+    "Generate a textured 3D model (GLB) from a prompt or an image.",
+    model3dInput,
+    (client, body) => client.generate.model3d(body),
+  ),
+  "animate-3d": mediaCommand(
+    "animate-3d",
+    "Rig a humanoid GLB and bake animation clips onto it.",
+    animate3dInput,
+    (client, body) => client.generate.animate3d(body),
+  ),
+  image: mediaCommand(
+    "image",
+    "Generate images from a prompt, or edit and combine reference images.",
+    imageInput,
+    (client, body) => client.generate.image(body),
+  ),
+  music: mediaCommand("music", "Compose music from a prompt.", musicInput, (client, body) =>
+    client.generate.music(body),
+  ),
+  "remove-background": mediaCommand(
+    "remove-background",
+    "Cut an image's subject out onto a transparent background.",
+    removeBackgroundInput,
+    (client, body) => client.generate.removeBackground(body),
+  ),
+  sound: mediaCommand(
+    "sound",
+    "Generate a sound effect from a description.",
+    soundInput,
+    (client, body) => client.generate.sound(body),
+  ),
+  speech: mediaCommand("speech", "Speak a line of text.", speechInput, (client, body) =>
+    client.generate.speech(body),
+  ),
+  video: mediaCommand(
+    "video",
+    "Generate a video clip from a prompt, or animate an image.",
+    videoInput,
+    (client, body) => client.generate.video(body),
+  ),
+};
+
 export const generateCommand = defineCommand({
   meta: {
     description: "Generate, edit, and inspect images, video, and audio.",
     name: "generate",
   },
   subCommands: {
+    ...mediaCommands,
     docs: docsCommand,
     models: modelsCommand,
     pricing: pricingCommand,

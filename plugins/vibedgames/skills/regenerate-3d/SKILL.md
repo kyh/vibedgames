@@ -30,7 +30,7 @@ All packaged into a single static HTML page with a Three.js scene. ~25–35 MB o
 1. Character image → full-body A-pose, per the riggable-character rules in
    model-catalog's 3d.md (default image model)
 2. generate_3d (meshy/v7.1/image-to-3d, pose_mode: a-pose) → character mesh
-3. animate_3d (meshy/rigging/multi-animation) → rigged GLB + one GLB per clip
+3. generate_animate_3d (meshy/rigging/multi-animation) → rigged GLB + one GLB per clip
    (idle, alert, a dance, ...) on one skeleton
 4. Image edit → companion creature, color-locked to the character palette
 5. generate_3d → static companion GLB (not rigged)

@@ -30,6 +30,7 @@
     "fflate": "^0.8.3",
     "ignore": "^7.0.16",
     "tar": "^7.5.23",
-    "typescript": "catalog:"
+    "typescript": "catalog:",
+    "zod": "catalog:"
   }
 }
