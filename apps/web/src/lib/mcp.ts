@@ -13,9 +13,9 @@ import { createInsufficientScopeError } from "better-auth/oauth2";
 import { z } from "zod";
 
 import { jsonError } from "@/lib/json-error";
-import { registerSkills } from "./mcp-skills";
-import type { McpContext, Skill } from "./mcp-tools";
-import { tools } from "./mcp-tools";
+import { registerSkills } from "@/lib/mcp-skills";
+import type { McpContext, Skill } from "@/lib/mcp-tools";
+import { tools } from "@/lib/mcp-tools";
 import { isCrossOrigin, reportFaults } from "@/lib/orpc-handler";
 
 const converters = [new ZodToJsonSchemaConverter()];

@@ -10,11 +10,11 @@ import {
   placeCodexOutputs,
   chooseProvider,
 } from "../lib/codex.js";
-import { parseDownloadFlag, parseRunInput, readExplicitLocalFile } from "../lib/media/args.js";
-import type { DownloadFlag } from "../lib/media/args.js";
-import { downloadMedia, extractMediaRefs } from "../lib/media/download.js";
-import { waitForCompletion } from "../lib/media/poll.js";
-import { uploadFile } from "../lib/media/upload.js";
+import { parseDownloadFlag, parseRunInput, readExplicitLocalFile } from "../lib/media-args.js";
+import type { DownloadFlag } from "../lib/media-args.js";
+import { downloadMedia, extractMediaRefs } from "../lib/media-download.js";
+import { waitForCompletion } from "../lib/media-poll.js";
+import { uploadFile } from "../lib/media-upload.js";
 import { isJsonOutput, outputArgs, writeJson, writeStructured } from "../lib/output.js";
 import { isJsonNumber, isJsonObject, isJsonString } from "../lib/types.js";
 import type { JsonObject, JsonValue } from "../lib/types.js";

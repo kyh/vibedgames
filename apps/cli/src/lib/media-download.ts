@@ -2,8 +2,8 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { isMediaUrl } from "@repo/contract/generate/media-hosts";
 
-import { isJsonObject, isJsonString } from "../types.js";
-import type { JsonValue } from "../types.js";
+import { isJsonObject, isJsonString } from "./types.js";
+import type { JsonValue } from "./types.js";
 
 const MEDIA_EXT = new Set([
   "png",

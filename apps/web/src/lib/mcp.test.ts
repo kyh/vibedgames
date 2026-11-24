@@ -348,7 +348,7 @@ describe("mcp endpoint", () => {
 
   test("runs the defaults the model-catalog skill names", async () => {
     const skill = await readFile(
-      new URL("../../../../../plugins/vibedgames/skills/model-catalog/SKILL.md", import.meta.url),
+      new URL("../../../../plugins/vibedgames/skills/model-catalog/SKILL.md", import.meta.url),
       "utf-8",
     );
 

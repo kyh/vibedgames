@@ -13,10 +13,10 @@ import {
 import { ORPCError } from "@orpc/server";
 import type { z } from "zod";
 
-import type { R2Config, UrlSigning } from "../orpc";
 import { os, requireSession } from "../orpc";
 import type { DecodedFile } from "./inline-files";
 import { decodeInlineFiles, sha256Hex } from "./inline-files";
+import type { R2Config, UrlSigning } from "../storage/signed-urls";
 import { deletePrefix, signDownloadUrl, signUploadUrl } from "../storage/signed-urls";
 import { forEachBundleFile } from "./bundle-extract";
 import { sourceArchive } from "./source-archive";

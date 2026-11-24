@@ -1,4 +1,48 @@
-import type { R2Config, UrlSigning } from "../orpc";
+/**
+ * Minimal structural view of the R2 binding methods this package (and, through
+ * `R2Config`, the web app's R2 proxy routes) uses. Declared here rather than
+ * imported from `@cloudflare/workers-types` so the context names only what the
+ * code calls: any object with these methods stands in for the binding, and
+ * nothing that reads `ORPCContext` needs the Workers globals.
+ */
+export interface R2BucketLike {
+  get: (key: string) => Promise<{
+    size: number;
+    httpMetadata?: { contentType?: string };
+    arrayBuffer: () => Promise<ArrayBuffer>;
+    body: ReadableStream<Uint8Array<ArrayBuffer>>;
+  } | null>;
+  head: (key: string) => Promise<{
+    size: number;
+    httpMetadata?: { contentType?: string };
+  } | null>;
+  list: (options: { prefix?: string; cursor?: string; limit?: number }) => Promise<{
+    objects: { key: string; size: number }[];
+    truncated: boolean;
+    cursor?: string;
+  }>;
+  delete: (key: string) => Promise<void>;
+  put: (
+    key: string,
+    value: ArrayBuffer | ArrayBufferView | ReadableStream | string,
+    options?: { httpMetadata?: { contentType?: string } },
+  ) => Promise<{ key: string } | null>;
+}
+
+/** The bucket that games and source archives live in, as the Worker binds it. */
+export interface R2Config {
+  bucket: R2BucketLike;
+}
+
+/**
+ * Mints the short-lived `/api/upload` and `/api/download` URLs that carry
+ * bytes through the web Worker: the host they point at, and the secret they
+ * are signed with.
+ */
+export interface UrlSigning {
+  baseUrl: string;
+  secret: string;
+}
 
 const constantTimeEqual = (a: string, b: string) => {
   let mismatch = 0;

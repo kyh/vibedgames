@@ -2,7 +2,7 @@ import { statSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 
-import type { JsonObject, JsonValue } from "../types.js";
+import type { JsonObject, JsonValue } from "./types.js";
 
 const RUN_RESERVED_FLAGS = new Set([
   "--json",

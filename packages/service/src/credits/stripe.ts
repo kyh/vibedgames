@@ -1,8 +1,19 @@
 import type { Db } from "@repo/db/drizzle-client";
 import { z } from "zod";
 
-import type { BillingConfig } from "../orpc";
 import { creditPurchase, MICRO_PER_USD } from "./credit-ledger";
+
+/**
+ * Server-held Stripe config behind `credits.checkout` and the
+ * `/api/stripe/webhook` route. Either key missing
+ * turns its half off: checkout answers 412, the webhook 412.
+ */
+export interface BillingConfig {
+  stripeSecretKey?: string;
+  stripeWebhookSecret?: string;
+  /** Points checkout at a Stripe stand-in; production never sets it. */
+  stripeApiBaseUrl?: string;
+}
 
 const DEFAULT_STRIPE_API = "https://api.stripe.com";
 
