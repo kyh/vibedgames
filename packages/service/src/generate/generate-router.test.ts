@@ -159,7 +159,7 @@ const priceList = (endpointId: string) =>
 interface Routes {
   estimate: Upstream;
   price: (endpointId: string) => UpstreamReply;
-  other: Upstream;
+  other: (url: URL) => UpstreamReply;
 }
 
 const queued: Upstream = () => ({ json: { request_id: "request-1" } });
@@ -182,7 +182,7 @@ const upstream = await startUpstream((request) => {
     return routes.estimate();
   }
 
-  return routes.other();
+  return routes.other(url);
 });
 
 after(upstream.close);
@@ -511,6 +511,155 @@ describe("generate.upload", () => {
         { context: { ...contextAs("user"), signing } },
       ),
       { code: "BAD_GATEWAY" },
+    );
+  });
+});
+
+const queueHops = () =>
+  fetchedUrls()
+    .filter((url) => url.hostname === "queue.upstream")
+    .map((url) => `${url.pathname}${url.search}`);
+
+const onQueue = (replies: Record<string, JsonValue>) => (url: URL) => {
+  const body = replies[`${url.pathname}${url.search}`];
+
+  return body === undefined ? { json: { error: "unexpected hop" }, status: 404 } : { json: body };
+};
+
+describe("generate.run", () => {
+  test("submits the full endpoint and fetches the output from its app once completed", async () => {
+    stubFal();
+    routes = {
+      ...routes,
+      other: onQueue({
+        "/fal-ai/flux/dev": { request_id: "request-1", status: "COMPLETED" },
+        "/fal-ai/flux/requests/request-1": { images: [{ url: "https://media.example/a.png" }] },
+      }),
+    };
+
+    const run = await call(
+      generateRouter.run,
+      { endpoint_id: "fal-ai/flux/dev", input: { prompt: "a cat" }, wait_seconds: 0 },
+      { context: contextAs("user") },
+    );
+
+    assert.deepStrictEqual(run, {
+      endpoint_id: "fal-ai/flux/dev",
+      request_id: "request-1",
+      result: { images: [{ url: "https://media.example/a.png" }] },
+      status: "COMPLETED",
+    });
+    assert.deepStrictEqual(queueHops(), ["/fal-ai/flux/dev", "/fal-ai/flux/requests/request-1"]);
+    assert.ok(heldGeneration(), "the submit was not held against the ledger");
+  });
+
+  test("returns the request id without polling when it may not wait", async () => {
+    stubFal();
+    routes = {
+      ...routes,
+      other: onQueue({ "/fal-ai/flux/dev": { request_id: "request-1", status: "IN_QUEUE" } }),
+    };
+
+    const run = await call(
+      generateRouter.run,
+      { endpoint_id: "fal-ai/flux/dev", input: {}, wait_seconds: 0 },
+      { context: contextAs("user") },
+    );
+
+    assert.deepStrictEqual(run, {
+      endpoint_id: "fal-ai/flux/dev",
+      request_id: "request-1",
+      result: null,
+      status: "IN_QUEUE",
+    });
+    assert.deepStrictEqual(queueHops(), ["/fal-ai/flux/dev"]);
+  });
+
+  test("holds an endpoint id to the queue path rules", async () => {
+    stubFal();
+    await assert.rejects(
+      call(
+        generateRouter.run,
+        { endpoint_id: "FAL-AI/FLUX/DEV", input: {}, wait_seconds: 0 },
+        { context: contextAs("user") },
+      ),
+      { code: "BAD_REQUEST" },
+    );
+    assert.equal(ranOnQueue(), false);
+  });
+});
+
+describe("generate.status", () => {
+  test("reaches a job's status, with logs, and its output on the endpoint's app", async () => {
+    stubFal();
+    routes = {
+      ...routes,
+      other: onQueue({
+        "/fal-ai/flux/requests/request-1": { images: [] },
+        "/fal-ai/flux/requests/request-1/status?logs=1": { logs: [], status: "IN_PROGRESS" },
+      }),
+    };
+
+    const context = { context: contextAs("user") };
+    const job = { endpoint_id: "fal-ai/flux/dev", request_id: "request-1" };
+
+    assert.deepStrictEqual(
+      await call(generateRouter.status, { ...job, action: "status", logs: true }, context),
+      { logs: [], status: "IN_PROGRESS" },
+    );
+    assert.deepStrictEqual(
+      await call(generateRouter.status, { ...job, action: "result", logs: false }, context),
+      { images: [] },
+    );
+  });
+});
+
+describe("generate catalog", () => {
+  test("spells a model search as the platform's query", async () => {
+    stubFal();
+    routes = { ...routes, other: json(200, { models: [] }) };
+
+    await call(
+      generateRouter.models,
+      {
+        category: "text-to-image",
+        endpoint_id: ["fal-ai/flux/dev"],
+        expand: ["openapi-3.0"],
+        limit: 5,
+        query: "pixel art",
+        status: "all",
+      },
+      { context: contextAs("user") },
+    );
+
+    const [asked] = fetchedUrls();
+    assert.strictEqual(asked?.pathname, "/v1/models");
+    assert.deepStrictEqual(
+      [...(asked?.searchParams ?? [])],
+      [
+        ["limit", "5"],
+        ["q", "pixel art"],
+        ["category", "text-to-image"],
+        ["endpoint_id", "fal-ai/flux/dev"],
+        ["expand", "openapi-3.0"],
+      ],
+    );
+  });
+
+  test("asks for one model's OpenAPI document as its schema", async () => {
+    stubFal();
+    routes = { ...routes, other: json(200, { models: [] }) };
+
+    await call(
+      generateRouter.schema,
+      { endpoint_id: "fal-ai/flux/dev", format: "openapi" },
+      { context: contextAs("user") },
+    );
+
+    const [asked] = fetchedUrls();
+    assert.strictEqual(
+      `${asked?.pathname}${asked?.search}`,
+      "/v1/models?endpoint_id=fal-ai%2Fflux%2Fdev&limit=1&expand=openapi-3.0",
     );
   });
 });

@@ -1,9 +1,7 @@
-import { setTimeout as sleep } from "node:timers/promises";
 import { defineCommand } from "citty";
 import { consola } from "consola";
-import { endpointPath, queueAppId } from "@repo/contract/generate/queue-path";
 
-import { createClient, forwardJson } from "../lib/api.js";
+import { createClient } from "../lib/api.js";
 import {
   CodexError,
   generateImagesWithCodex,
@@ -240,21 +238,13 @@ const runCommand = defineCommand({
 
     const client = createClient();
 
-    const submission = await forwardJson(client, {
-      body: finalInput,
-      method: "POST",
-      path: `/${endpointPath(endpoint_id)}`,
-      target: "queue",
+    const submission = await client.generate.run({
+      endpoint_id,
+      input: finalInput,
+      wait_seconds: 0,
     });
 
-    const requestId =
-      isJsonObject(submission) && isJsonString(submission.request_id)
-        ? submission.request_id
-        : null;
-
-    if (!requestId) {
-      throw new Error("queue submit did not return a request_id.");
-    }
+    const requestId = submission.request_id;
 
     if (args.async) {
       const payload = {
@@ -319,31 +309,6 @@ interface CodexRunPayload {
   download_failures?: DownloadFailure[];
   ignored_references?: string[];
 }
-
-const confirmCancelled = async (
-  client: ReturnType<typeof createClient>,
-  ep: string,
-  requestId: string,
-) => {
-  const statusPath = `/${ep}/requests/${requestId}/status`;
-
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    await sleep(1000);
-
-    try {
-      const poll = await forwardJson(client, { method: "GET", path: statusPath, target: "queue" });
-
-      const status =
-        isJsonObject(poll) && isJsonString(poll.status) ? poll.status.toUpperCase() : "";
-
-      if (["CANCELLED", "FAILED", "COMPLETED"].includes(status)) {
-        break;
-      }
-    } catch {
-      break;
-    }
-  }
-};
 
 const reportStatus = (
   action: "status" | "result" | "cancel",
@@ -417,21 +382,14 @@ const statusCommand = defineCommand({
       action = "result";
     }
 
-    const ep = queueAppId(args.endpoint_id);
     const client = createClient();
-    const suffixes = { cancel: "/cancel", result: "", status: "/status" };
-    const path = `/${ep}/requests/${args.request_id}${suffixes[action]}`;
 
-    const data = await forwardJson(client, {
-      method: action === "cancel" ? "PUT" : "GET",
-      path,
-      query: action === "status" && args.logs ? { logs: "1" } : undefined,
-      target: "queue",
+    const data = await client.generate.status({
+      action,
+      endpoint_id: args.endpoint_id,
+      logs: Boolean(args.logs),
+      request_id: args.request_id,
     });
-
-    if (action === "cancel") {
-      await confirmCancelled(client, ep, args.request_id);
-    }
 
     let downloaded: Awaited<ReturnType<typeof downloadMedia>> | undefined;
 
@@ -521,6 +479,21 @@ const printModels = (data: JsonValue) => {
   }
 };
 
+const MODEL_STATUSES = ["active", "deprecated", "all"] as const;
+
+const MODEL_EXPANSIONS = ["openapi-3.0", "enterprise_status"] as const;
+
+const pickOne = <T extends string>(allowed: readonly T[], value: string, flag: string) => {
+  const found = allowed.find((option) => option === value);
+
+  if (!found) {
+    consola.error(`--${flag} takes ${allowed.join(" | ")}, not "${value}".`);
+    process.exit(1);
+  }
+
+  return found;
+};
+
 const modelsCommand = defineCommand({
   args: {
     category: { description: "Filter by category.", type: "string" },
@@ -540,45 +513,17 @@ const modelsCommand = defineCommand({
   },
   meta: { description: "Search/list available models.", name: "models" },
   run: async ({ args }) => {
-    const query: Record<string, string | string[]> = {};
-
-    if (args.query) {
-      query.q = args.query;
-    }
-
-    if (args.category) {
-      query.category = args.category;
-    }
-
-    if (args.status && args.status !== "all") {
-      query.status = args.status;
-    }
-
-    query.limit = args.limit ?? "20";
-
-    if (args.cursor) {
-      query.cursor = args.cursor;
-    }
-
     const endpointIds = splitList(args.endpoint_id);
+    const expand = splitList(args.expand).map((e) => pickOne(MODEL_EXPANSIONS, e, "expand"));
 
-    if (endpointIds.length > 0) {
-      query.endpoint_id = endpointIds;
-    }
-
-    const expand = splitList(args.expand);
-
-    if (expand.length > 0) {
-      query.expand = expand;
-    }
-
-    const client = createClient();
-
-    const data = await forwardJson(client, {
-      method: "GET",
-      path: "/v1/models",
-      query,
-      target: "platform",
+    const data = await createClient().generate.models({
+      category: args.category || undefined,
+      cursor: args.cursor || undefined,
+      endpoint_id: endpointIds.length > 0 ? endpointIds : undefined,
+      expand: expand.length > 0 ? expand : undefined,
+      limit: args.limit ? Number(args.limit) : 20,
+      query: args.query || undefined,
+      status: args.status ? pickOne(MODEL_STATUSES, args.status, "status") : undefined,
     });
 
     if (!writeStructured(data, args)) {
@@ -595,21 +540,9 @@ const schemaCommand = defineCommand({
   },
   meta: { description: "Fetch a model's input/output schema.", name: "schema" },
   run: async ({ args }) => {
-    const expand = args.format === "openapi" ? ["openapi-3.0"] : [];
-    const client = createClient();
-    const query: Record<string, string | string[]> = {};
-    query.endpoint_id = args.endpoint_id;
-    query.limit = "1";
-
-    if (expand.length > 0) {
-      query.expand = expand;
-    }
-
-    const data = await forwardJson(client, {
-      method: "GET",
-      path: "/v1/models",
-      query,
-      target: "platform",
+    const data = await createClient().generate.schema({
+      endpoint_id: args.endpoint_id,
+      format: args.format === "openapi" ? "openapi" : "compact",
     });
 
     if (!writeStructured(data, args)) {
@@ -625,14 +558,7 @@ const pricingCommand = defineCommand({
   },
   meta: { description: "Fetch pricing for a model.", name: "pricing" },
   run: async ({ args }) => {
-    const client = createClient();
-
-    const data = await forwardJson(client, {
-      method: "GET",
-      path: "/v1/models/pricing",
-      query: { endpoint_id: args.endpoint_id },
-      target: "platform",
-    });
+    const data = await createClient().generate.pricing({ endpoint_id: args.endpoint_id });
 
     if (!writeStructured(data, args)) {
       writeJson(data);
@@ -647,19 +573,7 @@ const docsCommand = defineCommand({
   },
   meta: { description: "Search generative-model documentation.", name: "docs" },
   run: async ({ args }) => {
-    const client = createClient();
-
-    const data = await forwardJson(client, {
-      body: {
-        id: 1,
-        jsonrpc: "2.0",
-        method: "tools/call",
-        params: { arguments: { query: args.query }, name: "search_fal" },
-      },
-      method: "POST",
-      path: "/docs/mcp",
-      target: "docs",
-    });
+    const data = await createClient().generate.docs({ query: args.query });
 
     if (!writeStructured(data, args)) {
       writeJson(data);

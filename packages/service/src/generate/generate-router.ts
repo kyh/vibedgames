@@ -1,11 +1,12 @@
 import type { Db } from "@repo/db/drizzle-client";
-import type { forwardInput } from "@repo/contract/generate/generate-schema";
+import type { forwardInput, modelsInput } from "@repo/contract/generate/generate-schema";
 import type { JsonValue } from "@repo/contract/json";
-import { ORPCError } from "@orpc/server";
+import { endpointPath, jobPath, TERMINAL_STATUSES } from "@repo/contract/generate/queue-path";
+import { call, ORPCError } from "@orpc/server";
 import { z } from "zod";
 
 import type { EndpointPricing, PlatformAnswer } from "../credits/endpoint-pricing";
-import type { MediaProviderConfig } from "../orpc";
+import type { MediaProviderConfig, ORPCContext } from "../orpc";
 import {
   formatUsd,
   getBalanceMicro,
@@ -272,100 +273,273 @@ const readQueueStatus = (body: JsonValue) => {
 
 const authed = os.generate.use(requireSession);
 
-export const generateRouter = {
-  /**
-   * Single proxy hop to fal. The CLI builds the URL it wants, the
-   * server attaches the FAL_KEY and the X-Fal-Store-IO directives,
-   * forwards, and returns the parsed JSON body. This is deliberately
-   * dumb — typed shapes for individual fal endpoints live on the
-   * client and in fal's docs, not in this layer. Per-user policy
-   * (auth, quotas, allowlists, billing meters) hooks in here.
-   */
-  forward: authed.forward.handler(async ({ context, input }) => {
-    const { apiKey, config } = pickFalKey(context.media);
-    const userId = context.session.user.id;
+const forward = authed.forward.handler(async ({ context, input }) => {
+  const { apiKey, config } = pickFalKey(context.media);
+  const userId = context.session.user.id;
 
-    const queueCall =
-      input.target === "queue"
-        ? classifyQueueCall(input.method, input.path)
-        : { kind: "other" as const };
+  const queueCall =
+    input.target === "queue"
+      ? classifyQueueCall(input.method, input.path)
+      : { kind: "other" as const };
 
-    let pricing: EndpointPricing | null = null;
+  let pricing: EndpointPricing | null = null;
 
-    if (queueCall.kind === "submit") {
-      const gated = context.session.user.role !== "admin";
+  if (queueCall.kind === "submit") {
+    const gated = context.session.user.role !== "admin";
 
-      if (gated) {
-        await requirePositiveBalance(context.db, userId, purchasesEnabled(context.billing));
-      }
+    if (gated) {
+      await requirePositiveBalance(context.db, userId, purchasesEnabled(context.billing));
+    }
 
-      pricing = await getEndpointPricing(queueCall.endpointId, platformFetchJson(apiKey, config));
+    pricing = await getEndpointPricing(queueCall.endpointId, platformFetchJson(apiKey, config));
 
-      if (gated) {
-        requirePublishedPrice(pricing, queueCall.endpointId);
+    if (gated) {
+      requirePublishedPrice(pricing, queueCall.endpointId);
+    }
+  }
+
+  const serialized = serializeBody(input);
+  const base = targetBase(input.target, config);
+  const url = buildUrl(base, input.path, input.query);
+  const headers = buildHeaders(apiKey, input.target, serialized);
+
+  const fetchLabel = `media ${input.target} ${input.method} ${input.path}`;
+
+  const res = await fetchProviderResponse({
+    credentialed: true,
+    init: { body: serialized, headers, method: input.method },
+    label: fetchLabel,
+    tolerateHttpError: queueCall.kind === "result",
+    url,
+  });
+
+  if (!res.ok) {
+    const units = parseBillableUnits(res.headers.get("x-fal-billable-units"));
+
+    if (queueCall.kind === "result" && units !== null) {
+      try {
+        await settleGeneration(context.db, queueCall.requestId, units);
+      } catch (error) {
+        console.error(`credit settle failed for ${queueCall.requestId}`, error);
       }
     }
 
-    const serialized = serializeBody(input);
-    const base = targetBase(input.target, config);
-    const url = buildUrl(base, input.path, input.query);
-    const headers = buildHeaders(apiKey, input.target, serialized);
+    await throwProviderError(res, fetchLabel);
+  }
 
-    const fetchLabel = `media ${input.target} ${input.method} ${input.path}`;
+  const body = await readBody(res, input.target);
 
-    const res = await fetchProviderResponse({
-      credentialed: true,
-      init: { body: serialized, headers, method: input.method },
-      label: fetchLabel,
-      tolerateHttpError: queueCall.kind === "result",
-      url,
-    });
+  // WARNING: a ledger failure must never destroy a response the user already paid for.
+  try {
+    if (queueCall.kind === "submit" && pricing !== null) {
+      const requestId = readRequestId(body);
 
-    if (!res.ok) {
-      const units = parseBillableUnits(res.headers.get("x-fal-billable-units"));
-
-      if (queueCall.kind === "result" && units !== null) {
-        try {
-          await settleGeneration(context.db, queueCall.requestId, units);
-        } catch (error) {
-          console.error(`credit settle failed for ${queueCall.requestId}`, error);
-        }
+      if (requestId !== null) {
+        await holdGeneration(context.db, {
+          endpointId: queueCall.endpointId,
+          holdMicro: pricing.holdMicro,
+          requestId,
+          unit: pricing.unit,
+          unitPriceMicro: pricing.unitPriceMicro,
+          userId,
+        });
       }
-
-      await throwProviderError(res, fetchLabel);
+    } else if (queueCall.kind === "result") {
+      await settleGeneration(
+        context.db,
+        queueCall.requestId,
+        parseBillableUnits(res.headers.get("x-fal-billable-units")),
+      );
+    } else if (queueCall.kind === "status" && isUnbilledTerminalStatus(readQueueStatus(body))) {
+      await releaseGeneration(context.db, queueCall.requestId);
     }
+  } catch (error) {
+    console.error(`credit accounting failed for ${fetchLabel}`, error);
+  }
 
-    const body = await readBody(res, input.target);
+  return body;
+});
 
-    // WARNING: a ledger failure must never destroy a response the user already paid for.
+type ForwardCall = z.input<typeof forwardInput>;
+
+const hop = (context: ORPCContext, input: ForwardCall) => call(forward, input, { context });
+
+const POLL_MS = 2000;
+
+const sleep = (ms: number) =>
+  // oxlint-disable-next-line promise/avoid-new -- a Worker has no promise-returning timer to await
+  new Promise<void>((resolve) => {
+    setTimeout(resolve, ms);
+  });
+
+const queueStatus = async (context: ORPCContext, endpointId: string, requestId: string) => {
+  const body = await hop(context, {
+    method: "GET",
+    path: jobPath(endpointId, requestId, "/status"),
+    target: "queue",
+  });
+
+  return readQueueStatus(body)?.toUpperCase() ?? "UNKNOWN";
+};
+
+const queueResult = (context: ORPCContext, endpointId: string, requestId: string) =>
+  hop(context, { method: "GET", path: jobPath(endpointId, requestId, ""), target: "queue" });
+
+const confirmCancelled = async (context: ORPCContext, endpointId: string, requestId: string) => {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await sleep(1000);
+
     try {
-      if (queueCall.kind === "submit" && pricing !== null) {
-        const requestId = readRequestId(body);
-
-        if (requestId !== null) {
-          await holdGeneration(context.db, {
-            endpointId: queueCall.endpointId,
-            holdMicro: pricing.holdMicro,
-            requestId,
-            unit: pricing.unit,
-            unitPriceMicro: pricing.unitPriceMicro,
-            userId,
-          });
-        }
-      } else if (queueCall.kind === "result") {
-        await settleGeneration(
-          context.db,
-          queueCall.requestId,
-          parseBillableUnits(res.headers.get("x-fal-billable-units")),
-        );
-      } else if (queueCall.kind === "status" && isUnbilledTerminalStatus(readQueueStatus(body))) {
-        await releaseGeneration(context.db, queueCall.requestId);
+      if (TERMINAL_STATUSES.has(await queueStatus(context, endpointId, requestId))) {
+        return;
       }
-    } catch (error) {
-      console.error(`credit accounting failed for ${fetchLabel}`, error);
+    } catch {
+      return;
+    }
+  }
+};
+
+const runModel = async (
+  context: ORPCContext,
+  input: { endpoint_id: string; input: Record<string, JsonValue>; wait_seconds: number },
+) => {
+  const endpointId = input.endpoint_id;
+
+  const submission = await hop(context, {
+    body: input.input,
+    method: "POST",
+    path: `/${endpointPath(endpointId)}`,
+    target: "queue",
+  });
+
+  const requestId = readRequestId(submission);
+
+  if (!requestId) {
+    throw new ORPCError("BAD_GATEWAY", { message: "The model's queue returned no request_id." });
+  }
+
+  try {
+    const deadline = Date.now() + input.wait_seconds * 1000;
+    let status = readQueueStatus(submission)?.toUpperCase() ?? "IN_QUEUE";
+
+    while (!TERMINAL_STATUSES.has(status) && Date.now() + POLL_MS <= deadline) {
+      await sleep(POLL_MS);
+      status = await queueStatus(context, endpointId, requestId);
     }
 
-    return body;
+    const result =
+      status === "COMPLETED" ? await queueResult(context, endpointId, requestId) : null;
+
+    return { endpoint_id: endpointId, request_id: requestId, result, status };
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : "no reason given";
+    throw new ORPCError(error instanceof ORPCError ? error.code : "BAD_GATEWAY", {
+      cause: error,
+      message: `Submitted as request ${requestId} on ${endpointId}, then the poll failed (${reason}). Follow it with generate status rather than generating again.`,
+    });
+  }
+};
+
+const modelsQuery = (input: z.infer<typeof modelsInput>) => {
+  const query: NonNullable<ForwardCall["query"]> = { limit: String(input.limit) };
+
+  if (input.query) {
+    query.q = input.query;
+  }
+
+  if (input.category) {
+    query.category = input.category;
+  }
+
+  if (input.cursor) {
+    query.cursor = input.cursor;
+  }
+
+  if (input.status && input.status !== "all") {
+    query.status = input.status;
+  }
+
+  if (input.endpoint_id?.length) {
+    query.endpoint_id = input.endpoint_id;
+  }
+
+  if (input.expand?.length) {
+    query.expand = input.expand;
+  }
+
+  return query;
+};
+
+export const generateRouter = {
+  docs: authed.docs.handler(({ context, input }) =>
+    hop(context, {
+      body: {
+        id: 1,
+        jsonrpc: "2.0",
+        method: "tools/call",
+        params: { arguments: { query: input.query }, name: "search_fal" },
+      },
+      method: "POST",
+      path: "/docs/mcp",
+      target: "docs",
+    }),
+  ),
+
+  forward,
+
+  models: authed.models.handler(({ context, input }) =>
+    hop(context, {
+      method: "GET",
+      path: "/v1/models",
+      query: modelsQuery(input),
+      target: "platform",
+    }),
+  ),
+
+  pricing: authed.pricing.handler(({ context, input }) =>
+    hop(context, {
+      method: "GET",
+      path: "/v1/models/pricing",
+      query: { endpoint_id: input.endpoint_id },
+      target: "platform",
+    }),
+  ),
+
+  run: authed.run.handler(({ context, input }) => runModel(context, input)),
+
+  schema: authed.schema.handler(({ context, input }) => {
+    const query: NonNullable<ForwardCall["query"]> = { endpoint_id: input.endpoint_id, limit: "1" };
+
+    if (input.format === "openapi") {
+      query.expand = ["openapi-3.0"];
+    }
+
+    return hop(context, { method: "GET", path: "/v1/models", query, target: "platform" });
+  }),
+
+  status: authed.status.handler(async ({ context, input }) => {
+    if (input.action === "result") {
+      return queueResult(context, input.endpoint_id, input.request_id);
+    }
+
+    if (input.action === "cancel") {
+      const answer = await hop(context, {
+        method: "PUT",
+        path: jobPath(input.endpoint_id, input.request_id, "/cancel"),
+        target: "queue",
+      });
+
+      await confirmCancelled(context, input.endpoint_id, input.request_id);
+
+      return answer;
+    }
+
+    return hop(context, {
+      method: "GET",
+      path: jobPath(input.endpoint_id, input.request_id, "/status"),
+      query: input.logs ? { logs: "1" } : undefined,
+      target: "queue",
+    });
   }),
 
   /**
