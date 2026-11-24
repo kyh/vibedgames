@@ -7,9 +7,9 @@ import { createDb } from "@repo/db/drizzle-client";
 import type { AnyProcedure } from "@orpc/server";
 import { call, getRouter, ORPCError, Procedure, walkProcedureContractsSync } from "@orpc/server";
 
-import { API_KEY_SESSION_PREFIX } from "./auth/api-key";
-import { OAUTH_SESSION_PREFIX } from "./auth/oauth-token";
-import { createAuth } from "./auth/auth";
+import { API_KEY_SESSION_PREFIX } from "./identity/api-key";
+import { OAUTH_SESSION_PREFIX } from "./identity/oauth-token";
+import { createAuth } from "./identity/auth";
 import type { ORPCContext } from "./orpc";
 import { appRouter } from "./root-router";
 

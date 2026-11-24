@@ -4,7 +4,7 @@ import { describe, test } from "node:test";
 import type { JsonValue } from "@repo/contract/json";
 import { getRequiredScope } from "@repo/contract/base";
 import type { ORPCContext } from "@repo/service/orpc";
-import { createAuth } from "@repo/service/auth/auth";
+import { createAuth } from "@repo/service/identity/auth";
 import { createDb } from "@repo/db/drizzle-client";
 import { MAX_RPC_BODY_BYTES } from "@repo/service/generate/limits";
 import { z } from "zod";

@@ -66,7 +66,7 @@ export default defineConfig({
     },
     {
       files: [
-        "packages/service/src/auth/cimd-fetch.test.ts",
+        "packages/service/src/identity/cimd-fetch.test.ts",
         "packages/service/src/deploy/inline-files.test.ts",
         "packages/multiplayer/test/offline.test.ts",
       ],

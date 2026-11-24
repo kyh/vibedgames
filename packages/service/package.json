@@ -5,8 +5,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./auth/auth": "./src/auth/auth.ts",
-    "./auth/oauth-resources": "./src/auth/oauth-resources.ts",
+    "./identity/auth": "./src/identity/auth.ts",
+    "./identity/oauth-resources": "./src/identity/oauth-resources.ts",
     "./credits/stripe": "./src/credits/stripe.ts",
     "./email/mailer": "./src/email/mailer.ts",
     "./storage/signed-urls": "./src/storage/signed-urls.ts",

@@ -1,14 +1,11 @@
-import type { Auth } from "./auth/auth";
+import type { Auth } from "./identity/auth";
 import type { Db } from "@repo/db/drizzle-client";
 import { contract } from "@repo/contract";
 import { implement, ORPCError, os as builder } from "@orpc/server";
 import { getRequiredScope } from "@repo/contract/base";
 
-import type { BillingConfig } from "./credits/stripe";
 import type { R2Config, UrlSigning } from "./storage/signed-urls";
-import { isDelegated, resolveCaller } from "./auth/caller";
-
-export type { BillingConfig } from "./credits/stripe";
+import { isDelegated, resolveCaller } from "./identity/caller";
 
 export type { R2BucketLike, R2Config, UrlSigning } from "./storage/signed-urls";
 
@@ -36,6 +33,18 @@ export interface DecisionProviderConfig {
   typesafeBaseUrl?: string;
   /** Signs the short-lived tokens the in-page playtester carries (see playtest/session-token.ts). */
   tokenSecret?: string;
+}
+
+/**
+ * Server-held Stripe config behind `credits.checkout` and the
+ * `/api/stripe/webhook` route (see credits/stripe.ts). Either key missing
+ * turns its half off: checkout answers 412, the webhook 412.
+ */
+export interface BillingConfig {
+  stripeSecretKey?: string;
+  stripeWebhookSecret?: string;
+  /** Points checkout at a Stripe stand-in; production never sets it. */
+  stripeApiBaseUrl?: string;
 }
 
 /**

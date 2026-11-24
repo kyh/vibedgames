@@ -5,7 +5,7 @@ import type { JsonValue } from "@repo/contract/json";
 import { createDb } from "@repo/db/drizzle-client";
 import { call } from "@orpc/server";
 
-import { createAuth } from "../auth/auth";
+import { createAuth } from "../identity/auth";
 import { MICRO_PER_USD } from "../credits/credit-ledger";
 import type { ORPCContext } from "../orpc";
 import { startUpstream } from "../upstream.test-utils";
