@@ -25,6 +25,7 @@ import { os, requireSession } from "../orpc";
 import { signUploadUrl } from "../storage/signed-urls";
 import { forwardInput } from "./forward-input";
 import { MAX_PARAMS_BYTES } from "./limits";
+import { mediaRouter } from "./media-router";
 import {
   fetchProviderResponse,
   readJsonBounded,
@@ -492,6 +493,10 @@ const modelsQuery = (input: z.infer<typeof modelsInput>) => {
 };
 
 export const generateRouter = {
+  ...mediaRouter((context, endpoint, body, wait) =>
+    runModel(context, { endpoint_id: endpoint, input: body, wait_seconds: wait }),
+  ),
+
   docs: authed.docs.handler(({ context, input }) =>
     hop(context, {
       body: {
