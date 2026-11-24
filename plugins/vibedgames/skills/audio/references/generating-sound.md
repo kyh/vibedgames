@@ -61,7 +61,7 @@ prompts, so any take can be regenerated exactly.
    family's target after encoding:
 
    ```bash
-   ffmpeg -y -i raw.mp3 -af "silenceremove=start_periods=1:start_threshold=-50dB,areverse,silenceremove=start_periods=1:start_threshold=-50dB,areverse,afade=t=out:st=0:d=0.02,loudnorm=I=-14:TP=-1.5:LRA=7" -c:a libopus -b:a 96k out.ogg
+   ffmpeg -y -i raw.mp3 -af "silenceremove=start_periods=1:start_threshold=-50dB,areverse,silenceremove=start_periods=1:start_threshold=-50dB,afade=t=in:d=0.02,areverse,loudnorm=I=-14:TP=-1.5:LRA=7" -c:a libopus -b:a 96k out.ogg
    ```
 
 4. **Screen by measurement, then by a person.** Reject takes that clip, carry

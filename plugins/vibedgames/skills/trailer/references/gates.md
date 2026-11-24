@@ -66,8 +66,9 @@ ffmpeg -i master.mp4 -af ebur128=peak=true -f null - 2>&1 | tail -12
 ffmpeg -i master.mp4 -vf "select='gt(scene,0.3)',showinfo" -f null - 2>&1 | grep pts_time
 # audio onsets: use a beat/onset tracker on the mix, or the silencedetect filter for holes
 ffmpeg -i master.mp4 -af silencedetect=noise=-40dB:d=0.3 -f null - 2>&1 | grep silence_
-# duplicated frames
-ffmpeg -i master.mp4 -vf mpdecimate -loglevel debug -f null - 2>&1 | grep -c drop
+# duplicated frames: frames kept by mpdecimate vs total (equal means none dropped)
+ffprobe -v error -count_frames -select_streams v:0 -show_entries stream=nb_read_frames -of csv=p=0 master.mp4
+ffmpeg -i master.mp4 -vf mpdecimate -f null - 2>&1 | grep -oE "frame= *[0-9]+" | tail -1
 # frame by index for a still check
 ffmpeg -i master.mp4 -vf "select=eq(n\,1548)" -vframes 1 f1548.png
 ```
