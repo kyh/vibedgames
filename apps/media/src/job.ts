@@ -114,11 +114,22 @@ export class RecipeJob extends Container {
     }
 
     if (request.method === "POST" && url.pathname.endsWith("/final")) {
-      await this.update({ final: z.json().parse(await request.json()) });
-      await this.dropOutputs();
-      const state = await this.load();
+      const final = z.json().parse(await request.json());
+      const before = await this.load();
 
-      return state ? json(state) : json({ error: "No such job." }, 404);
+      if (!before) {
+        return json({ error: "No such job." }, 404);
+      }
+
+      if (before.final !== null) {
+        return json(before);
+      }
+
+      const state = { ...before, final };
+      await this.save(state);
+      await this.dropOutputs();
+
+      return json(state);
     }
 
     if (request.method === "GET" && out) {

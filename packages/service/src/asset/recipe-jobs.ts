@@ -147,6 +147,12 @@ const paramsOf = (name: RecipeName, input: RecipeFields) => {
 
 const fileNameOf = (name: string) => name.replaceAll("/", "__").replaceAll(/[^\w.-]/gu, "_");
 
+const recordFinal = async (jobs: MediaJobs, jobId: string, final: JsonValue) => {
+  const res = await call(jobs, jobId, "/final", { body: JSON.stringify(final), method: "POST" });
+
+  return jobState.parse(await res.json());
+};
+
 const keptOutput = async (jobs: MediaJobs, jobId: string, name: string) => {
   const res = await jobs.fetch(
     new Request(`https://media/jobs/${jobId}/out/${encodeURIComponent(name)}`),
@@ -175,9 +181,8 @@ const finalize = async (context: ORPCContext, jobId: string, state: JobState) =>
   if (state.status === "failed") {
     await releaseRecipe(context.db, jobId);
     const final = { cost_usd: 0, outputs: [] };
-    await call(jobs, jobId, "/final", { body: JSON.stringify(final), method: "POST" });
 
-    return { ...state, final };
+    return recordFinal(jobs, jobId, final);
   }
 
   const outputs: z.infer<typeof finalOutput>[] = [];
@@ -200,9 +205,7 @@ const finalize = async (context: ORPCContext, jobId: string, state: JobState) =>
         outputs: [],
       };
 
-      await call(jobs, jobId, "/final", { body: JSON.stringify(final), method: "POST" });
-
-      return { ...state, final };
+      return recordFinal(jobs, jobId, final);
     }
 
     const bytes = await readBytesBounded(res, MAX_RECIPE_OUTPUT_BYTES, output.name);
@@ -221,9 +224,7 @@ const finalize = async (context: ORPCContext, jobId: string, state: JobState) =>
     outputs,
   };
 
-  await call(jobs, jobId, "/final", { body: JSON.stringify(final), method: "POST" });
-
-  return { ...state, final };
+  return recordFinal(jobs, jobId, final);
 };
 
 const report = (jobId: string, state: JobState) => ({

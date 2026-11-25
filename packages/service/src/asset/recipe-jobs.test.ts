@@ -75,6 +75,7 @@ interface Job {
   final: JsonValue;
   error: string | null;
   outputs: { bytes: number; contentType: string; name: string }[];
+  staleRead?: boolean;
 }
 
 const jobs = new Map<string, Job>();
@@ -103,14 +104,13 @@ const routeMedia: (request: UpstreamRequest) => UpstreamReply = (request) => {
   }
 
   if (action === "final") {
-    job.final = JSON.parse(request.body) as JsonValue;
-
-    return answer({});
+    job.final ??= JSON.parse(request.body) as JsonValue;
+    job.staleRead = false;
   }
 
   return answer({
     error: job.error,
-    final: job.final,
+    final: job.staleRead ? null : job.final,
     outputs: job.outputs,
     recipe: "video-to-sheet",
     result: job.status === "done" ? { frames: 8 } : null,
@@ -270,6 +270,31 @@ describe("hosted recipe jobs", () => {
     assert.equal(done.cost_usd, 0);
     assert.match(done.error ?? "", /no longer kept/u);
     assert.ok(ledgerKinds().includes("generation_release"));
+  });
+
+  test("keeps the first final record when two follows finish one job", async () => {
+    const { job_id: jobId } = await submit();
+    const job = jobs.get(jobId);
+    assert.ok(job);
+    job.status = "done";
+
+    const follow = () =>
+      call(
+        assetRouter.status,
+        { job_id: jobId, wait_seconds: 0 },
+        { context: contextAs("user-1") },
+      );
+
+    const first = await follow();
+
+    job.outputs = [{ bytes: 10, contentType: "image/png", name: "sheet.png" }];
+    job.staleRead = true;
+
+    const second = await follow();
+
+    assert.equal(first.cost_usd, 0.01);
+    assert.equal(second.cost_usd, 0.01);
+    assert.equal(second.error, null);
   });
 
   test("hides another account's job", async () => {
