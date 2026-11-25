@@ -74,6 +74,7 @@ interface Job {
   userId: string;
   final: JsonValue;
   error: string | null;
+  outputs: { bytes: number; contentType: string; name: string }[];
 }
 
 const jobs = new Map<string, Job>();
@@ -88,13 +89,17 @@ const routeMedia: (request: UpstreamRequest) => UpstreamReply = (request) => {
   if (action === "start") {
     const body = JSON.parse(request.body) as { userId: string };
     started.push(JSON.parse(request.body) as JsonValue);
-    jobs.set(id, { error: null, final: null, status: "queued", userId: body.userId });
+    jobs.set(id, { error: null, final: null, outputs: [], status: "queued", userId: body.userId });
 
     return answer({ status: "queued" });
   }
 
   if (!job) {
     return answer({ error: "no such job" }, 404);
+  }
+
+  if (action === "out") {
+    return answer({ error: "no longer kept" }, 404);
   }
 
   if (action === "final") {
@@ -106,7 +111,7 @@ const routeMedia: (request: UpstreamRequest) => UpstreamReply = (request) => {
   return answer({
     error: job.error,
     final: job.final,
-    outputs: [],
+    outputs: job.outputs,
     recipe: "video-to-sheet",
     result: job.status === "done" ? { frames: 8 } : null,
     seconds: job.status === "queued" ? null : 3,
@@ -246,6 +251,24 @@ describe("hosted recipe jobs", () => {
     assert.equal(failed.status, "failed");
     assert.equal(failed.cost_usd, 0);
     assert.equal(failed.error, "video_url has no video stream.");
+    assert.ok(ledgerKinds().includes("generation_release"));
+  });
+
+  test("releases the hold when a done job's outputs are no longer kept", async () => {
+    const { job_id: jobId } = await submit();
+    const job = jobs.get(jobId);
+    assert.ok(job);
+    job.status = "done";
+    job.outputs = [{ bytes: 10, contentType: "image/png", name: "sheet.png" }];
+
+    const done = await call(
+      assetRouter.status,
+      { job_id: jobId, wait_seconds: 0 },
+      { context: contextAs("user-1") },
+    );
+
+    assert.equal(done.cost_usd, 0);
+    assert.match(done.error ?? "", /no longer kept/u);
     assert.ok(ledgerKinds().includes("generation_release"));
   });
 

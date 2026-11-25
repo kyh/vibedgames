@@ -7,7 +7,7 @@ import {
   recipeHoldMicro,
 } from "@repo/contract/asset/recipe-schema";
 import { generation } from "@repo/db/drizzle-schema";
-import { and, eq, gt, like, sql } from "drizzle-orm";
+import { and, eq, gt, like, lt, sql } from "drizzle-orm";
 
 import { holdGeneration, MICRO_PER_USD, settleGeneration } from "./credit-ledger";
 
@@ -52,4 +52,22 @@ export const runningRecipeJobs = async (db: Db, userId: string) => {
     );
 
   return rows[0]?.count ?? 0;
+};
+
+/** An account's recipe jobs still holding credit after ten minutes: done or failed jobs nobody followed. */
+export const staleRecipeJobs = async (db: Db, userId: string) => {
+  const rows = await db
+    .select({ jobId: generation.requestId })
+    .from(generation)
+    .where(
+      and(
+        eq(generation.userId, userId),
+        eq(generation.status, "held"),
+        like(generation.endpointId, `${ENDPOINT_PREFIX}%`),
+        lt(generation.createdAt, new Date(Date.now() - 10 * 60 * 1000)),
+      ),
+    )
+    .limit(4);
+
+  return rows.map((row) => row.jobId);
 };

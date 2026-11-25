@@ -16,6 +16,7 @@ import {
   releaseRecipe,
   runningRecipeJobs,
   settleRecipe,
+  staleRecipeJobs,
 } from "../credits/recipe-metering";
 import { purchasesEnabled } from "../credits/stripe";
 import { requirePositiveBalance, storeFile } from "../generate/generate-router";
@@ -34,7 +35,11 @@ const finalOutput = z.object({
   url: z.string(),
 });
 
-const finalRecord = z.object({ cost_usd: z.number(), outputs: z.array(finalOutput) });
+const finalRecord = z.object({
+  cost_usd: z.number(),
+  error: z.string().optional(),
+  outputs: z.array(finalOutput),
+});
 
 const jobState = z.object({
   error: z.string().nullable(),
@@ -142,6 +147,24 @@ const paramsOf = (name: RecipeName, input: RecipeFields) => {
 
 const fileNameOf = (name: string) => name.replaceAll("/", "__").replaceAll(/[^\w.-]/gu, "_");
 
+const keptOutput = async (jobs: MediaJobs, jobId: string, name: string) => {
+  const res = await jobs.fetch(
+    new Request(`https://media/jobs/${jobId}/out/${encodeURIComponent(name)}`),
+  );
+
+  if (res.status === 404) {
+    return null;
+  }
+
+  if (!res.ok) {
+    throw new ORPCError("BAD_GATEWAY", {
+      message: `The recipe service answered ${res.status} for ${jobId}'s ${name}.`,
+    });
+  }
+
+  return res;
+};
+
 const finalize = async (context: ORPCContext, jobId: string, state: JobState) => {
   if (state.final || !isRecipeName(state.recipe)) {
     return state;
@@ -166,7 +189,22 @@ const finalize = async (context: ORPCContext, jobId: string, state: JobState) =>
       });
     }
 
-    const res = await call(jobs, jobId, `/out/${encodeURIComponent(output.name)}`);
+    const res = await keptOutput(jobs, jobId, output.name);
+
+    if (!res) {
+      await releaseRecipe(context.db, jobId);
+
+      const final = {
+        cost_usd: 0,
+        error: "Its outputs are no longer kept; run it again. It was not charged.",
+        outputs: [],
+      };
+
+      await call(jobs, jobId, "/final", { body: JSON.stringify(final), method: "POST" });
+
+      return { ...state, final };
+    }
+
     const bytes = await readBytesBounded(res, MAX_RECIPE_OUTPUT_BYTES, output.name);
 
     const url = await storeFile(context, {
@@ -190,7 +228,7 @@ const finalize = async (context: ORPCContext, jobId: string, state: JobState) =>
 
 const report = (jobId: string, state: JobState) => ({
   cost_usd: state.final?.cost_usd ?? null,
-  error: state.error,
+  error: state.final?.error ?? state.error,
   job_id: jobId,
   outputs: state.final?.outputs ?? [],
   recipe: state.recipe,
@@ -239,6 +277,10 @@ export const submitRecipe = async (
   const user = userOf(context);
   const files = filesOf(name, input);
   const params = paramsOf(name, input);
+
+  for (const stale of await staleRecipeJobs(context.db, user.id)) {
+    await follow(context, stale, 0).catch(() => null);
+  }
 
   if (user.role !== "admin") {
     await requirePositiveBalance(context.db, user.id, purchasesEnabled(context.billing));

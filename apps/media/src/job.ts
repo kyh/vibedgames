@@ -1,7 +1,7 @@
 import { Container } from "@cloudflare/containers";
 import type { RecipeName } from "@repo/contract/asset/recipe-schema";
 import { isMediaUrl } from "@repo/contract/generate/media-hosts";
-import { isRecipeName, RECIPES } from "@repo/contract/asset/recipe-schema";
+import { isRecipeName, MAX_RECIPE_OUTPUT_BYTES, RECIPES } from "@repo/contract/asset/recipe-schema";
 import { z } from "zod";
 
 import { JobFailureError } from "./job-failure";
@@ -42,6 +42,10 @@ const runAnswer = z.object({
   result: z.json(),
   seconds: z.number(),
 });
+
+const CHUNK_BYTES = 1024 * 1024;
+const KEEP_OUTPUTS_MS = 7 * 24 * 60 * 60 * 1000;
+const chunkKey = (name: string, index: number) => `out:${name}:${index}`;
 
 const EXT = /\.(?<ext>[a-z0-9]{1,8})$/iu;
 
@@ -111,14 +115,14 @@ export class RecipeJob extends Container {
 
     if (request.method === "POST" && url.pathname.endsWith("/final")) {
       await this.update({ final: z.json().parse(await request.json()) });
-      await this.destroy();
+      await this.dropOutputs();
       const state = await this.load();
 
       return state ? json(state) : json({ error: "No such job." }, 404);
     }
 
     if (request.method === "GET" && out) {
-      return this.containerFetch(`http://container/out/${out}`);
+      return this.readOutput(decodeURIComponent(out));
     }
 
     if (request.method === "GET") {
@@ -218,6 +222,11 @@ export class RecipeJob extends Container {
     }
 
     const answer = runAnswer.parse(await res.json());
+
+    for (const file of answer.outputs) {
+      await this.keepOutput(file);
+    }
+
     await this.update({
       endedAt: Date.now(),
       outputs: answer.outputs,
@@ -225,6 +234,8 @@ export class RecipeJob extends Container {
       seconds: answer.seconds,
       status: "done",
     });
+    await this.destroy();
+    await this.schedule(new Date(Date.now() + KEEP_OUTPUTS_MS), "dropOutputs");
   }
 
   private async stage(file: z.infer<typeof input>, index: number) {
@@ -257,6 +268,75 @@ export class RecipeJob extends Container {
     }
 
     return name;
+  }
+
+  private async keepOutput(file: z.infer<typeof output>) {
+    if (file.bytes > MAX_RECIPE_OUTPUT_BYTES) {
+      throw new JobFailureError(
+        `${file.name} is ${file.bytes} bytes, over the ${MAX_RECIPE_OUTPUT_BYTES} a recipe returns; ask for less (a lower crf, size or frame count).`,
+      );
+    }
+
+    const res = await this.containerFetch(`http://container/out/${encodeURIComponent(file.name)}`);
+
+    if (!res.ok) {
+      throw new JobFailureError(`${file.name}: ${await errorText(res)}`);
+    }
+
+    const bytes = new Uint8Array(await res.arrayBuffer());
+
+    for (let index = 0; index * CHUNK_BYTES < bytes.byteLength; index += 1) {
+      await this.ctx.storage.put(
+        chunkKey(file.name, index),
+        bytes.slice(index * CHUNK_BYTES, (index + 1) * CHUNK_BYTES),
+      );
+    }
+  }
+
+  private async readOutput(name: string) {
+    const state = await this.load();
+    const file = state?.outputs.find((o) => o.name === name);
+    const count = file ? Math.ceil(file.bytes / CHUNK_BYTES) : 0;
+    const first = file ? await this.ctx.storage.get(chunkKey(name, 0)) : undefined;
+
+    if (!file || (count > 0 && first === undefined)) {
+      return json({ error: `${name} is no longer kept` }, 404);
+    }
+
+    const { storage } = this.ctx;
+    let next = 0;
+
+    const body = new ReadableStream<Uint8Array>({
+      pull: async (controller) => {
+        if (next >= count) {
+          controller.close();
+
+          return;
+        }
+
+        const chunk = await storage.get(chunkKey(name, next));
+        next += 1;
+
+        if (chunk instanceof Uint8Array) {
+          controller.enqueue(chunk);
+        } else {
+          controller.error(new Error(`${name} lost a chunk`));
+        }
+      },
+    });
+
+    return new Response(body, {
+      headers: { "content-length": String(file.bytes), "content-type": file.contentType },
+    });
+  }
+
+  async dropOutputs() {
+    const kept = await this.ctx.storage.list({ prefix: "out:" });
+    const keys = [...kept.keys()];
+
+    for (let start = 0; start < keys.length; start += 128) {
+      await this.ctx.storage.delete(keys.slice(start, start + 128));
+    }
   }
 
   override async onStop() {
