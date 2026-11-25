@@ -56,6 +56,35 @@ The canonical genmedia loop that every domain skill (character-design, cinematog
 4. **Run.** Stills usually complete inline; video/audio/3D need `--async` then `vg generate status <id> <request_id> --json` to poll.
 5. **Download** via `--download "./outputs/<dir>/{request_id}_{index}.{ext}"`, reading paths from `downloaded_files[]` — never curl URLs.
 
+## Batches for a game
+
+Generating a game's worth of assets is where credit and days get lost. Before
+any batch:
+
+1. **Prove one route end to end.** One asset from that endpoint and prompt
+   style, downloaded, loaded in the running game, captured beside its
+   reference and accepted. Only then buy the rest, and stop the batch the
+   moment the route is shown not to reach the bar.
+2. **Agree a cap and log every call.** Ask the human for a spend cap, check
+   `vg generate pricing` per endpoint, and append each call (endpoint, request
+   id, estimate) to a ledger file before it runs. The running total comes from
+   `vg credits --json` and the ledger, not from memory.
+3. **Record every request so it can be rerun.** Keep the exact inputs (prompt,
+   seed, reference URLs, endpoint) beside each output.
+4. **Save at once, recover instead of rebuying.** Results expire upstream:
+   always `--download`. A timed-out or interrupted job is fetched with
+   `vg generate status <id> <request_id> --download …`, never submitted again.
+5. **One art direction.** Every generated asset follows one composed
+   reference image of the game seen from the player's camera; a held or
+   collected item is generated from an image of that item alone.
+6. **References guide composition, not facts.** A generated image can set mood
+   and layout; how a real object, text or mechanism looks comes from real
+   references. Generated hard-surface objects held close to the camera top out
+   at passable: prefer authored, procedural (`image-to-threejs`) or licensed
+   models there, and keep each source and licence on file.
+7. **It counts once it is in the game.** An asset that is generated but never
+   loaded is waste; one shown only in a hero still is unverified.
+
 ## Quick patterns
 
 ### Run a model and download the result

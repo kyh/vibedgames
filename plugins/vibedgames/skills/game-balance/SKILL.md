@@ -126,6 +126,33 @@ figuring out what numbers to use. What the player can't perceive doesn't exist
 8. **Watch one real first-timer** (or cold playtest): your numbers were
    calibrated by someone who's played 1,000 times.
 
+## Proving depth with simulated players
+
+- **Prove a natural win before tuning feel.** Seeded simulated players at
+  several skill tiers (random, novice, competent, expert) run the whole game
+  headlessly; every stage must be reachable and finishable with the gear the
+  game gives. Then confirm with real-input runs (`vg playtest run`).
+- **Simulated players act at human rates** first: reaction 200–300 ms, aim
+  error that settles, finite APM. Numbers tuned on a perfect bot make a game
+  too hard for people. And never soften the danger just so a test bot
+  survives.
+- **Random mashing loses to playing well** at every difficulty past the
+  first; check it with a random-input tier.
+- **Pace in the player's unit**: enemies met per minute, longest lull, blows
+  to down, coins per minute. Write targets for each and measure them.
+- **Tune the economy through prices.** The first purchase fits the first
+  purse; a better item is never the worse buy; a run cannot end rich (cash
+  with nothing worth buying is a design failure).
+- **Size boss health from real damage**: the expected loadout's damage in each
+  vulnerable window times the windows you want, in one documented number.
+- **Every system earns its place** by changing a decision the player makes;
+  write that decision down before building the system.
+- **Rounds end**: a round ends shortly after the player clears what they can
+  reach, and the last enemies are easy to find.
+- **Honest cheats**: devs and test agents can jump to any round, phase or
+  loadout, a run that used a cheat is marked from its first frame, and no
+  cheat ships in the public build.
+
 Related skills: `design-lenses` (Meaningful Choices/Reward lenses find what
 this fixes), `level-design` (wave scaling), `onboarding` (difficulty feel),
 `game-playbook` (build order).

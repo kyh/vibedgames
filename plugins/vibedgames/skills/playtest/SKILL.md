@@ -161,6 +161,30 @@ A diff catches a change; it can't tell you the frame was wrong to begin with. Fo
 
 **Metrics and eyes, both.** Appearance work reports numbers _and_ same-camera before/after pairs; a number that improves while the frame still looks wrong is a failure. A metric is worth most on the first problem and less on every one after — alternate a measured pass with a by-eye pass that carries no number, and ask "would you show this to someone?". A harness check can be true and useless: it covers what it was written for, not the frame.
 
+## Proof Discipline
+
+- **Plant the defect first.** A check is trusted only after it has failed on
+  the fault it looks for (a hidden player, a stuck key, a missing asset). A
+  check that examined nothing reports failure, not pass; a gate that crashed
+  or timed out exits non-zero.
+- **The person's exact path.** Reproduce a reported bug on the build they are
+  served (the deployed URL), started the way they start it, with their saved
+  settings and a return visit, and see the fix there.
+- **Every result names its build** (commit or deployment id), and the files
+  the browser loaded match it.
+- **Input changes state, not just pixels.** After a key press, read
+  `__GAME_DIAGNOSTICS__` and confirm the game believes something changed.
+- **Hide one layer at a time before mending.** For a visual defect, find the
+  object, material or pass that draws it by hiding exactly that one thing.
+- **A fix names its neighbour.** Check the paired condition through every
+  caller of what you changed (lower, softer, darker and louder each need a
+  check from the player's own view).
+- **Tools must not change the game.** No game code reads whether a test hook
+  is present, except hooks that declare what they change.
+- **Motion, flicker, feel and the mix** are judged from recordings over time,
+  never a single still or a number; and the report says which of them no
+  agent can perceive (sound, feel at speed), so a person checks those.
+
 ## Anti-Patterns
 
 ❌ **Sleep-driven steps** — `wait 2000` then click

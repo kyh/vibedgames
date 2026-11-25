@@ -160,6 +160,45 @@ Working method:
 - **Face/pose-only players never fire the unlock gesture.** Show a sound-hint
   pill while the context is locked; silence reads as a broken game.
 
+## 3D cameras, held items and hits
+
+For first- and third-person 3D games (with `action-3d` for weapons and
+bodies):
+
+- **The camera is the mouse.** The same mouse travel turns the same angle at
+  any frame rate (apply `movementX × sensitivity`, never scaled by `dt`), and
+  the picture is never more than one frame behind the input. Read pointer
+  deltas right before render. Any lag or trail lives in the held item's
+  sway, never in the camera.
+- **A held item is still when the player is still**, and moves only for a
+  cause the player made (sway on look, bob on walk, kick on fire).
+- **Springs settle at any frame rate.** Use exponential smoothing
+  (`x += (target - x) * (1 - Math.exp(-k * dt))`) or a critically damped
+  spring, never `x += (target - x) * 0.1` per frame, and never a hard clamp.
+  The same spring lands in the same place at 30, 60 and 144 Hz.
+- **Recoil returns to where the player aimed**, not to where recoil left the
+  view. The shot goes where the unshaken view points; shake and bob are
+  visual only.
+- **Hit feedback on the frame the hit resolves**, and only for scored damage:
+  marker, confirm sound, enemy flinch and sparks together. Hits, criticals
+  and kills each get their own marker; a stronger confirm replaces a weaker
+  one.
+- **Getting hit is readable on the next frame**: how hard and from where (a
+  directional edge marker), with the screen centre kept clear.
+- **One time scale.** Hitstop and slow motion are measured in game time and
+  every timer reads that scale; effects keep moving through a hitstop;
+  menus and input run on wall time.
+- **Effects near the lens are capped.** No muzzle flash, explosion or
+  particle covers more than a small share of the frame or whites it out,
+  however close it happens.
+- **Speed through the lens**: sprint and slide widen FOV by 5–10°, easing back
+  faster than it widened. Head bob follows distance travelled, not time.
+- **Killcams replay what happened**: the killer's real weapon, moves and
+  sounds at normal speed, slowing only around the deciding shot of a final
+  killcam.
+- **Judge motion on video**, recorded frame by frame and watched at quarter
+  speed, then at full speed. Stills cannot show jitter.
+
 ## Tuning session
 
 Numbers above are starting points, not answers. Wire the 5–6 feel constants

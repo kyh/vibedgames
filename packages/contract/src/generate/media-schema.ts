@@ -12,7 +12,7 @@ export const MEDIA_MODELS = {
   model3d: ["meshy/v7.1/text-to-3d", "meshy/v7.1/image-to-3d"],
   music: ["elevenlabs/music/v2.5"],
   removeBackground: ["bria/guided-remove-background"],
-  sound: ["fal-ai/elevenlabs/sound-effects/v2"],
+  sound: ["elevenlabs/sound-effects/v3"],
   speech: ["elevenlabs/tts/eleven-v4"],
   video: ["bytedance/seedance-2.5/us/text-to-video", "bytedance/seedance-2.5/us/image-to-video"],
 } as const;
@@ -145,10 +145,10 @@ export const soundInput = z.object({
   duration_seconds: z
     .number()
     .min(0.5)
-    .max(22)
+    .max(30)
     .optional()
     .describe(
-      "The sound's length in seconds, 0.5 to 22; omit to let the model fit the length to the sound",
+      "The sound's length in seconds, 0.5 to 30; omit to let the model fit the length to the sound",
     ),
   loop: z.boolean().optional().describe("Make it loop seamlessly"),
   options,
