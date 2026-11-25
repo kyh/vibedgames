@@ -230,6 +230,16 @@ const normalize = (doc: Document, options: OptimizeOptions) => {
   pivot.setRotation(rotation);
 
   const { max: hi, min: lo } = getBounds(scene);
+
+  if (
+    !hi.every(Number.isFinite) &&
+    (options.height ?? options.size ?? options.origin) !== undefined
+  ) {
+    throw new ORPCError("BAD_REQUEST", {
+      message: "This model has no meshes, so height, size and origin have nothing to measure.",
+    });
+  }
+
   const scale = scaleFor([hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]], options);
   pivot.setScale([scale, scale, scale]);
 
@@ -280,12 +290,12 @@ export const optimizeGlb = async (bytes: Uint8Array, options: OptimizeOptions) =
   const { io, meshoptimizer } = await createIO();
   const doc = await read(io, bytes, "model_url");
 
-  if (options.strip_meshes) {
-    stripMeshes(doc);
-  }
-
   if (needsNormalize(options)) {
     normalize(doc, options);
+  }
+
+  if (options.strip_meshes) {
+    stripMeshes(doc);
   }
 
   if (options.target_triangles !== undefined && !options.strip_meshes) {

@@ -199,6 +199,19 @@ describe("optimizeGlb", () => {
     assert.equal(stats.triangles, 0);
     assert.equal(stats.animations[0]?.name, "run");
   });
+
+  test("strip_meshes after normalizing keeps the character's scale on the clip", async () => {
+    const { bytes } = await optimizeGlb(await model({ clip: "run" }), {
+      ...OPTIMIZE_DEFAULTS,
+      height: 1,
+      strip_meshes: true,
+    });
+
+    await assert.rejects(
+      optimizeGlb(bytes, { ...OPTIMIZE_DEFAULTS, origin: "feet" }),
+      /no meshes/u,
+    );
+  });
 });
 
 const each = async function* each(clips: Uint8Array[]) {
