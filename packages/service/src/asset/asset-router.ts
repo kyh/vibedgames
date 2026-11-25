@@ -8,7 +8,7 @@ import type { ORPCContext } from "../orpc";
 import { storeFile } from "../generate/generate-router";
 import { readBytesBounded } from "../generate/provider-io";
 import { os, requireSession } from "../orpc";
-import { inspectGlb, mergeClipsGlb, optimizeGlb } from "./gltf-ops";
+import { inspectGlb, mergeClipsGlb, optimizeGlb, SkeletonMismatchError } from "./gltf-ops";
 import { recipeStatus, submitRecipe } from "./recipe-jobs";
 
 const GLB = "model/gltf-binary";
@@ -87,32 +87,54 @@ const fetchEach = async function* fetchEach(urls: readonly string[]) {
 
 const GLTF_PATH = /\.(?:glb|gltf)$/iu;
 
+const UNREADABLE_GLB = / is not a GLB this can read: /u;
+
+const blenderCanTake = (error: Error) =>
+  error instanceof SkeletonMismatchError ||
+  (error instanceof ORPCError &&
+    (error.code === "PAYLOAD_TOO_LARGE" ||
+      (error.code === "BAD_REQUEST" && UNREADABLE_GLB.test(error.message))));
+
+const mergeSameRig = async (input: AddAnimations) => {
+  try {
+    const base = await fetchModel(input.model_url, "model_url");
+
+    return await mergeClipsGlb(base, fetchEach(input.animation_urls), input);
+  } catch (error) {
+    if (error instanceof Error && blenderCanTake(error)) {
+      return null;
+    }
+
+    throw error;
+  }
+};
+
 const sameRigMerge = async (context: ORPCContext, input: AddAnimations) => {
   if (!input.animation_urls.every((url) => GLTF_PATH.test(new URL(url).pathname))) {
     return null;
   }
 
-  try {
-    const base = await fetchModel(input.model_url, "model_url");
-    const merged = await mergeClipsGlb(base, fetchEach(input.animation_urls), input);
-    const url = await store(context, merged.bytes, input.model_url, "animated");
+  const merged = await mergeSameRig(input);
 
-    return {
-      cost_usd: 0,
-      error: null,
-      job_id: null,
-      outputs: [{ bytes: merged.bytes.byteLength, content_type: GLB, name: "model.glb", url }],
-      recipe: "add-animations",
-      result: {
-        animations: merged.stats.animations.map((a) => a.name),
-        skipped_channels: merged.skipped_channels,
-      },
-      seconds: null,
-      status: "done" as const,
-    };
-  } catch {
+  if (!merged) {
     return null;
   }
+
+  const url = await store(context, merged.bytes, input.model_url, "animated");
+
+  return {
+    cost_usd: 0,
+    error: null,
+    job_id: null,
+    outputs: [{ bytes: merged.bytes.byteLength, content_type: GLB, name: "model.glb", url }],
+    recipe: "add-animations",
+    result: {
+      animations: merged.stats.animations.map((a) => a.name),
+      skipped_channels: merged.skipped_channels,
+    },
+    seconds: null,
+    status: "done" as const,
+  };
 };
 
 const authed = os.asset.use(requireSession);
