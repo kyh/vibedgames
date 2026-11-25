@@ -2,6 +2,7 @@ import type { JsonValue } from "@repo/contract/json";
 import type { ORPCContext } from "@repo/service/orpc";
 import { requiresScope } from "@repo/contract/base";
 import { runInput } from "@repo/contract/generate/generate-schema";
+import { RECIPE_PROCEDURES } from "@repo/contract/asset/recipe-schema";
 import {
   animate3dInput,
   imageInput,
@@ -46,6 +47,21 @@ const mutates = { destructiveHint: false, readOnlyHint: false } as const;
 const external = { ...mutates, openWorldHint: true } as const;
 
 const tool = os.$context<McpContext>();
+
+const recipeTools = Object.fromEntries(
+  Object.entries(RECIPE_PROCEDURES).map(([recipe, procedure]) => {
+    const name = `asset_${recipe.replaceAll("-", "_")}`;
+
+    return [
+      name,
+      asTool(appRouter.asset[procedure], {
+        annotations: external,
+        name,
+        title: `Run the ${recipe} recipe`,
+      }),
+    ];
+  }),
+);
 
 const generateTool = tool.meta(requiresScope("generate"));
 
@@ -342,6 +358,12 @@ export const tools = {
     name: "asset_optimize",
     title: "Optimize a 3D model",
   }),
+  asset_status: asTool(appRouter.asset.status, {
+    annotations: { ...readOnly, openWorldHint: true },
+    name: "asset_status",
+    title: "Follow an asset recipe job",
+  }),
+  ...recipeTools,
   ...generateTools,
   ...mediaTools,
   skills: tool

@@ -12,6 +12,7 @@ import { createClient } from "../lib/api.js";
 import { mediaFlagArgs, readMediaInput } from "../lib/media-flags.js";
 import { uploadFile } from "../lib/media-upload.js";
 import { outputArgs, writeStructured } from "../lib/output.js";
+import { recipeCommands } from "./asset-recipes.js";
 
 type Client = ReturnType<typeof createClient>;
 
@@ -152,12 +153,13 @@ const mergeClipsCommand = defineCommand({
 export const assetCommand = defineCommand({
   meta: {
     description:
-      "Inspect, optimize and merge 3D models on vibedgames' servers (nothing to install).",
+      "Process 3D models, audio and video: inspect, optimize, merge clips, retarget, convert, bake, render, master, cut, probe. Runs locally when the tool is installed, else on vibedgames' servers.",
     name: "asset",
   },
   subCommands: {
     inspect: inspectCommand,
     "merge-clips": mergeClipsCommand,
     optimize: optimizeCommand,
+    ...recipeCommands,
   },
 });

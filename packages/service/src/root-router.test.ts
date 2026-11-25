@@ -62,6 +62,7 @@ const contextAs: (
   billing: undefined,
   db,
   decision: undefined,
+  mediaJobs: undefined,
   headers: new Headers(),
   media: undefined,
   oauthScopes,

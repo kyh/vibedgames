@@ -7,6 +7,7 @@ import { storeFile } from "../generate/generate-router";
 import { readBytesBounded } from "../generate/provider-io";
 import { os, requireSession } from "../orpc";
 import { inspectGlb, mergeClipsGlb, optimizeGlb } from "./gltf-ops";
+import { recipeStatus, submitRecipe } from "./recipe-jobs";
 
 const GLB = "model/gltf-binary";
 
@@ -73,6 +74,19 @@ const fetchEach = async function* fetchEach(urls: readonly string[]) {
 const authed = os.asset.use(requireSession);
 
 export const assetRouter = {
+  audioMaster: authed.audioMaster.handler(({ context, input }) =>
+    submitRecipe(context, "audio-master", input),
+  ),
+  bake: authed.bake.handler(({ context, input }) => submitRecipe(context, "bake", input)),
+  fbxToGlb: authed.fbxToGlb.handler(({ context, input }) =>
+    submitRecipe(context, "fbx-to-glb", input),
+  ),
+  framesToVideo: authed.framesToVideo.handler(({ context, input }) =>
+    submitRecipe(context, "frames-to-video", input),
+  ),
+  imageToThreejs: authed.imageToThreejs.handler(({ context, input }) =>
+    submitRecipe(context, "image-to-threejs", input),
+  ),
   inspect: authed.inspect.handler(async ({ input }) =>
     inspectGlb(await fetchModel(input.model_url, "model_url")),
   ),
@@ -103,4 +117,22 @@ export const assetRouter = {
       stats: optimized.stats,
     };
   }),
+
+  render: authed.render.handler(({ context, input }) => submitRecipe(context, "render", input)),
+  retarget: authed.retarget.handler(({ context, input }) =>
+    submitRecipe(context, "retarget", input),
+  ),
+  status: authed.status.handler(({ context, input }) => recipeStatus(context, input)),
+  textureCompress: authed.textureCompress.handler(({ context, input }) =>
+    submitRecipe(context, "texture-compress", input),
+  ),
+  trailerRender: authed.trailerRender.handler(({ context, input }) =>
+    submitRecipe(context, "trailer-render", input),
+  ),
+  videoProbe: authed.videoProbe.handler(({ context, input }) =>
+    submitRecipe(context, "video-probe", input),
+  ),
+  videoToSheet: authed.videoToSheet.handler(({ context, input }) =>
+    submitRecipe(context, "video-to-sheet", input),
+  ),
 };

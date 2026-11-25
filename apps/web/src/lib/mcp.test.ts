@@ -64,6 +64,7 @@ const contextWith =
       billing: undefined,
       db,
       decision: undefined,
+      mediaJobs: undefined,
       headers,
       media: undefined,
       oauthScopes,
@@ -185,9 +186,21 @@ describe("mcp endpoint", () => {
     assert.deepStrictEqual(
       names,
       [
+        "asset_audio_master",
+        "asset_bake",
+        "asset_fbx_to_glb",
+        "asset_frames_to_video",
+        "asset_image_to_threejs",
         "asset_inspect",
         "asset_merge_clips",
         "asset_optimize",
+        "asset_render",
+        "asset_retarget",
+        "asset_status",
+        "asset_texture_compress",
+        "asset_trailer_render",
+        "asset_video_probe",
+        "asset_video_to_sheet",
         "credits",
         "credits_buy",
         "credits_redeem",
@@ -228,6 +241,7 @@ describe("mcp endpoint", () => {
       "skills",
       "generate_models",
       "asset_inspect",
+      "asset_status",
     ]) {
       assert.strictEqual(byName.get(name)?.annotations?.readOnlyHint, true, name);
     }
@@ -240,6 +254,7 @@ describe("mcp endpoint", () => {
       "deploy",
       "credits_redeem",
       "asset_optimize",
+      "asset_retarget",
     ]) {
       assert.strictEqual(byName.get(name)?.annotations?.readOnlyHint, false, name);
     }

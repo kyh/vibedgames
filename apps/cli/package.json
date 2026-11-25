@@ -21,6 +21,7 @@
     "@kyh/tsconfig": "catalog:",
     "@orpc/client": "catalog:",
     "@repo/contract": "workspace:^",
+    "@repo/recipes": "workspace:^",
     "@types/cross-spawn": "^6.0.6",
     "@types/node": "catalog:",
     "citty": "^0.2.2",

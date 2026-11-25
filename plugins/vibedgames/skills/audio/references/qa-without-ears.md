@@ -72,16 +72,14 @@ logged event lines up with the samples on the audio clock.
 - Pull the recording out with `vg playtest eval`, base64-encode the Float32
   data in the page, and write a 32-bit float WAV in Node.
 
-## 3. Measure without installing anything
+## 3. Measure the run
 
-The whole run's loudness comes from the hosted loudness meter. Upload the WAV
-and read the measurement of the input:
+The whole run's loudness comes from one probe, on this machine when ffmpeg
+is installed, else hosted:
 
 ```bash
-URL=$(vg generate upload run.wav --field url)
-vg generate run fal-ai/ffmpeg-api/loudnorm --audio_url "$URL" --print_summary true \
-  --field result.summary
-# input_integrated (LUFS), input_true_peak (dBTP), input_lra (LU)
+vg asset video-probe --video_url run.wav --field result.loudness
+# integrated (LUFS), true_peak (dBTP), lra (LU); result.silences lists the holes
 ```
 
 Moments, bands and clicks are measured where the recording already is, in the

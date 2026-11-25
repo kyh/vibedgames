@@ -104,6 +104,7 @@ const contextFor = (userId: string | null) => (headers: Headers) =>
     billing: undefined,
     db,
     decision: undefined,
+    mediaJobs: undefined,
     headers,
     media: {
       fal: "fal-test-key",

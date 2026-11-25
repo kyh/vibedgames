@@ -13,6 +13,7 @@ jobs:
     outputs:
       web: ${{ steps.check.outputs.web }}
       party: ${{ steps.check.outputs.party }}
+      media: ${{ steps.check.outputs.media }}
       games: ${{ steps.check.outputs.games }}
       example_games: ${{ steps.check.outputs.example_games }}
       r2_lifecycle: ${{ steps.check.outputs.r2_lifecycle }}
@@ -33,13 +34,14 @@ jobs:
           if [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
             echo "web=true" >> "$GITHUB_OUTPUT"
             echo "party=true" >> "$GITHUB_OUTPUT"
+            echo "media=true" >> "$GITHUB_OUTPUT"
             echo "games=true" >> "$GITHUB_OUTPUT"
             echo "example_games=$(ls -d games/*/ | tr '\n' ' ')" >> "$GITHUB_OUTPUT"
             echo "r2_lifecycle=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          for app in web party games; do
+          for app in web party media games; do
             output=$(pnpm turbo ls --filter="@repo/${app}...[${BASE}]") || { echo "${app}=true" >> "$GITHUB_OUTPUT"; continue; }
             if echo "$output" | grep -q "@repo/"; then
               echo "${app}=true" >> "$GITHUB_OUTPUT"
@@ -76,9 +78,28 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
-  deploy-web:
+  # Builds both container images with Docker and pushes them to Cloudflare's registry.
+  deploy-media:
     needs: detect-changes
-    if: needs.detect-changes.outputs.web == 'true'
+    if: needs.detect-changes.outputs.media == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: pnpm/setup@v2
+        with:
+          runtime: node@24
+          cache: true
+
+      - name: Build & deploy media
+        run: pnpm turbo run build --filter=@repo/media... && pnpm -F @repo/media build:cloudflare && pnpm -F @repo/media exec cf deploy --prebuilt
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+  # After media when it changed too: web's MEDIA_JOBS binding names that Worker.
+  deploy-web:
+    needs: [detect-changes, deploy-media]
+    if: ${{ !cancelled() && needs.detect-changes.outputs.web == 'true' && needs.deploy-media.result != 'failure' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6

@@ -113,6 +113,7 @@ const contextAs: (role: string) => ORPCContext = (role) => ({
   billing: undefined,
   db,
   decision: undefined,
+  mediaJobs: undefined,
   headers: new Headers(),
   media,
   oauthScopes: null,

@@ -47,6 +47,11 @@ export interface BillingConfig {
   stripeApiBaseUrl?: string;
 }
 
+/** What the asset recipe procedures need of the media Worker: its fetch. */
+export interface MediaJobs {
+  fetch: (request: Request) => Promise<Response>;
+}
+
 /**
  * Per-request context.
  *
@@ -64,6 +69,8 @@ export interface CreateORPCContextOptions {
   media?: MediaProviderConfig;
   decision?: DecisionProviderConfig;
   billing?: BillingConfig;
+  /** The media Worker's service binding that runs hosted recipe jobs; unset where there is none (Previews). */
+  mediaJobs?: MediaJobs;
   /**
    * The protected resource this request is for (`oauth-resources.ts`): an
    * OAuth access token is accepted only when it was issued for it. Unset, no
@@ -82,6 +89,7 @@ export const createORPCContext = async (opts: CreateORPCContextOptions) => {
     decision: opts.decision,
     headers: opts.headers,
     media: opts.media,
+    mediaJobs: opts.mediaJobs,
     oauthScopes,
     productionURL: opts.productionURL,
     r2: opts.r2,

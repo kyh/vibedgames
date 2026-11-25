@@ -4,20 +4,21 @@ Every sound below goes through `vg generate`, so it is billed to the vibedgames
 account and needs no other key. Check the schema and price before the first
 call of a batch: `vg generate schema <id> --json`, `vg generate pricing <id> --json`.
 
-| Need                                     | Endpoint                                       |
-| ---------------------------------------- | ---------------------------------------------- |
-| Sound effect or loopable bed (to 30 s)   | `elevenlabs/sound-effects/v3` (default)        |
-| Foley synced to a clip (trailers)        | `mirelo-ai/sfx2.0/video-to-audio`              |
-| Character line                           | `elevenlabs/tts/eleven-v4` (default)           |
-| A scene between speakers                 | `fal-ai/elevenlabs/text-to-dialogue/eleven-v3` |
-| A new voice from a description           | `fal-ai/minimax/voice-design`                  |
-| Restyle a recorded line                  | `fal-ai/elevenlabs/voice-changer`              |
-| Music (vocal or instrumental)            | `elevenlabs/music/v2.5` (default)              |
-| Split a track into stems                 | `fal-ai/demucs`                                |
-| Clean a noisy take                       | `fal-ai/elevenlabs/audio-isolation`            |
-| Reverb from an impulse response          | `fal-ai/workflow-utilities/impulse-response`   |
-| Measure or normalise loudness (EBU R128) | `fal-ai/ffmpeg-api/loudnorm`                   |
-| Compress dynamics                        | `fal-ai/workflow-utilities/audio-compressor`   |
+| Need                                    | Endpoint                                       |
+| --------------------------------------- | ---------------------------------------------- |
+| Sound effect or loopable bed (to 30 s)  | `elevenlabs/sound-effects/v3` (default)        |
+| Foley synced to a clip (trailers)       | `mirelo-ai/sfx2.0/video-to-audio`              |
+| Character line                          | `elevenlabs/tts/eleven-v4` (default)           |
+| A scene between speakers                | `fal-ai/elevenlabs/text-to-dialogue/eleven-v3` |
+| A new voice from a description          | `fal-ai/minimax/voice-design`                  |
+| Restyle a recorded line                 | `fal-ai/elevenlabs/voice-changer`              |
+| Music (vocal or instrumental)           | `elevenlabs/music/v2.5` (default)              |
+| Split a track into stems                | `fal-ai/demucs`                                |
+| Clean a noisy take                      | `fal-ai/elevenlabs/audio-isolation`            |
+| Reverb from an impulse response         | `fal-ai/workflow-utilities/impulse-response`   |
+| Trim, fade, normalise and encode a take | `vg asset audio-master`                        |
+| Measure loudness, silences (EBU R128)   | `vg asset video-probe`                         |
+| Compress dynamics                       | `fal-ai/workflow-utilities/audio-compressor`   |
 
 ## Write the spec before buying
 
@@ -58,16 +59,18 @@ prompts, so any take can be regenerated exactly.
 2. **Download at once.** `--download ./public/audio/<family>/` on every call.
    Results expire upstream; a timed-out request is recovered with
    `vg generate status <id> <request_id> --download …`, never re-bought.
-3. **Master every take.** Normalise each take to its family's target with the
-   hosted loudness normaliser, and keep its measurement in the bank file:
+3. **Master every take.** `vg asset audio-master` trims silence below
+   `--trim_db` (-60 dB), fades the tail 10 ms against a click, normalises to
+   the family's target in two passes and encodes Opus. It runs on this
+   machine when ffmpeg is installed, else hosted. Keep `result.output` (LUFS,
+   true peak, LRA) in the bank file:
 
    ```bash
-   vg generate run fal-ai/ffmpeg-api/loudnorm --audio_url "$TAKE_URL" \
-     --integrated_loudness -14 --true_peak -1.5 --loudness_range 7 --print_summary true \
-     --download "./public/audio/<family>/<name>.{ext}" --json
+   vg asset audio-master --audio_url ./raw/jump-2.wav --lufs -14 --true_peak -1.5 \
+     --mono --name jump --out ./public/audio/sfx --json
    ```
 
-   Trim leading silence where the sound is decoded, not in the file: find the
+   Trim any remaining attack offset where the sound is decoded: find the
    first sample above -50 dBFS in the `AudioBuffer` and pass that offset to
    `source.start(when, offset)`, with a 20 ms gain ramp on the way in and out.
 

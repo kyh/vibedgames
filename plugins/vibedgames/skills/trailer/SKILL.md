@@ -57,16 +57,23 @@ Log the answers, and any defaults you took, in `trailer/DECISIONS.md`.
 5. **Write the story, then the shot list** (`trailer/shots.json`), then a
    storyboard page (publish it as an artifact if the person wants to review).
 6. **Capture** each shot as code: scripted input, a seed, a director camera
-   path, speed keys on the beat grid, frame-stepped to PNG or straight into
-   ffmpeg.
+   path, speed keys on the beat grid, frame-stepped to PNG, then
+   `vg asset frames-to-video --frames_url ./take-03/ --fps 60` (a folder is
+   packed for you).
 7. **Grade and title in the engine** at capture (the grade is the game's own
    post chain; the title is the game's logo placed in the world of its shot,
-   not a sticker over the frame), then **cut and mix hosted**: upload the
-   takes and stems and lay them on the grid with `fal-ai/ffmpeg-api/compose`
-   (one video track, any number of audio tracks, each keyframe a URL, a start
-   and a duration in ms), or join takes in order with
-   `fal-ai/ffmpeg-api/merge-videos` and lay the mix on with
-   `fal-ai/ffmpeg-api/merge-audio-video`.
+   not a sticker over the frame), then **cut and mix** with
+   `vg asset trailer-render`: the takes, one in/out pair per shot from
+   `shots.json`, the music bed, an optional LUT, one size and frame rate, and
+   the mix normalised to -14 LUFS. It runs on this machine when ffmpeg is
+   installed, else hosted, and reports the measured loudness:
+
+   ```bash
+   vg asset trailer-render --video_urls take-01.mp4,take-02.mp4 \
+     --clips '[{"video":0,"in_seconds":0,"out_seconds":2.4},{"video":1,"in_seconds":1,"out_seconds":3.1}]' \
+     --music_url score.wav --width 1920 --height 1080 --fps 60 --out ./trailer/cut --json
+   ```
+
 8. **Gate the cut** (`references/gates.md`), then get a fresh reviewer that
    didn't build it (`game-playbook` → `references/critic-loop.md`), then the
    person. Log their notes word for word.

@@ -59,21 +59,19 @@ montage drops the silence and equal-length rules.
 
 ## Measuring
 
-Hosted, with nothing to install:
+One command, on this machine when ffmpeg is installed, else hosted with
+nothing to install:
 
 ```bash
-URL=$(vg generate upload master.mp4 --field url)
-# frame count, fps, duration, resolution, codec: the delivery gates
-vg generate run fal-ai/ffmpeg-api/metadata --media_url "$URL" --field result.media
-# loudness and true peak of the delivered mix
-AUDIO=$(vg generate run fal-ai/workflow-utilities/extract-audio --video_url "$URL" --field result.audio.url)
-vg generate run fal-ai/ffmpeg-api/loudnorm --audio_url "$AUDIO" --print_summary true --field result.summary
-# first, middle or last frame for a still check
-vg generate run fal-ai/ffmpeg-api/extract-frame --video_url "$URL" --frame_type last --download ./trailer/checks/
+# frame count, fps, duration, size, scene cuts, silences, duplicated frames,
+# loudness and true peak, plus the frames you name saved as PNG
+vg asset video-probe --video_url master.mp4 --frames 0,1548 --out ./trailer/checks --json
 ```
 
-Check `vg generate schema <id>` before the first call; field names are the
-schema's, not guesses.
+`result.cuts` are scene-change times, `result.silences` the holes below
+`--silence_db`, `result.duplicate_frames` the frames identical to the one
+before (a capture at a lower rate than delivery shows here), and
+`result.loudness` the delivered mix in LUFS and dBTP.
 
 From the capture itself, which already holds every frame:
 
@@ -84,13 +82,3 @@ From the capture itself, which already holds every frame:
   against a scene detector.
 - **Holes and onsets**: measure the mix where it is built, the way the
   `audio` skill measures a run (`references/qa-without-ears.md`).
-
-Frame-accurate probes on the delivered file (scene detection, silence
-detection, a frame by index) have no hosted endpoint yet. Where ffmpeg is
-already installed:
-
-```bash
-ffmpeg -i master.mp4 -vf "select='gt(scene,0.3)',showinfo" -f null - 2>&1 | grep pts_time
-ffmpeg -i master.mp4 -af silencedetect=noise=-40dB:d=0.3 -f null - 2>&1 | grep silence_
-ffmpeg -i master.mp4 -vf "select=eq(n\,1548)" -vframes 1 f1548.png
-```

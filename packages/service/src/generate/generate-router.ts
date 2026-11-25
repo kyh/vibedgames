@@ -224,7 +224,7 @@ const platformFetchJson =
     } satisfies PlatformAnswer;
   };
 
-const requirePositiveBalance = async (db: Db, userId: string, canBuy: boolean) => {
+export const requirePositiveBalance = async (db: Db, userId: string, canBuy: boolean) => {
   const balanceMicro = await getBalanceMicro(db, userId);
 
   if (balanceMicro > 0) {

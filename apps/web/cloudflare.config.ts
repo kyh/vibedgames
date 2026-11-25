@@ -27,6 +27,11 @@ const emailSecrets = {
   RESEND_API_KEY: bindings.secret(),
 };
 
+// WARNING: only production binds the recipe Worker; a Preview would otherwise run jobs on prod containers.
+const recipeService = {
+  MEDIA_JOBS: bindings.worker({ worker: "vibedgames-media" }),
+};
+
 const optionalSecrets = { ...stripeSecrets, ...socialSecrets, ...openaiSecrets, ...emailSecrets };
 
 // WARNING: a Preview binds only preview D1/R2; never let it reach the prod database or bucket.
@@ -49,8 +54,10 @@ const productionEnv = {
 export default defineConfig(({ isPreview, mode }) => {
   const base = isPreview ? previewEnv : productionEnv;
 
-  const env: typeof base & Partial<typeof optionalSecrets> =
-    mode === "production" ? base : { ...base, ...optionalSecrets };
+  const deployed = isPreview ? base : { ...base, ...recipeService };
+
+  const env: typeof base & Partial<typeof optionalSecrets & typeof recipeService> =
+    mode === "production" ? deployed : { ...base, ...optionalSecrets };
 
   return {
     worker: {

@@ -1,0 +1,11 @@
+{
+  "extends": "@kyh/tsconfig/base.json",
+  "compilerOptions": {
+    // cloudflare.config.ts imports the entry by its .ts path, as Node loads it by stripping types
+    "allowImportingTsExtensions": true,
+    // the runtime types come with the generated Env
+    "types": []
+  },
+  "include": ["cloudflare.config.ts", "src", ".cloudflare/types/index.d.ts"],
+  "exclude": ["node_modules", "dist", "container"]
+}

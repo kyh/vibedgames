@@ -3,6 +3,8 @@ import { documented } from "../openapi";
 import { z } from "zod";
 
 import { inspectInput, MAX_CLIPS, mergeClipsInput, optimizeInput } from "./asset-schema";
+import { RECIPES, statusInput } from "./recipe-schema";
+import type { RecipeName } from "./recipe-schema";
 
 const vec3 = z.tuple([z.number(), z.number(), z.number()]);
 
@@ -54,7 +56,44 @@ const asset = (summary: string, description: string) =>
 
 const free = "Runs on vibedgames' servers and is not billed.";
 
+/** A hosted recipe job, as submitting it and asset status report it. */
+export const recipeJob = z.object({
+  cost_usd: z.number().nullable().describe("What the job billed, once it ended"),
+  error: z.string().nullable().describe("Why the job failed"),
+  job_id: z.string().describe("Follow the job with asset status"),
+  outputs: z
+    .array(
+      z.object({
+        bytes: z.number().int(),
+        content_type: z.string(),
+        name: z.string(),
+        url: z.string().describe("The file's URL, to download or pass to the next step"),
+      }),
+    )
+    .describe("The files the recipe wrote, once done"),
+  recipe: z.string(),
+  result: z.json().nullable().describe("What the recipe measured or reports, once done"),
+  seconds: z.number().nullable().describe("How long it ran"),
+  status: z.enum(["queued", "running", "done", "failed"]),
+});
+
+const billed =
+  "Runs in a vibedgames container and bills its compute time to credits (from $0.01). `vg asset` runs it on the caller's machine instead when the tool it needs is installed.";
+
+const recipe = <N extends RecipeName>(name: N) => {
+  const { description, title } = RECIPES[name];
+
+  return asset(title, `${description} ${billed} Backs \`vg asset ${name}\`.`)
+    .input(RECIPES[name].input)
+    .output(recipeJob);
+};
+
 export const assetContract = {
+  audioMaster: recipe("audio-master"),
+  bake: recipe("bake"),
+  fbxToGlb: recipe("fbx-to-glb"),
+  framesToVideo: recipe("frames-to-video"),
+  imageToThreejs: recipe("image-to-threejs"),
   inspect: asset(
     "Inspect a 3D model",
     `Reports what a GLB holds: triangles and vertices, its bounding box in metres, materials, each texture's pixel size and bytes, each skeleton's joints, each animation clip's name and length, and the extensions it uses. Use it before placing a generated model and after asset optimize to check the result. ${free} Backs \`vg asset inspect\`.`,
@@ -75,4 +114,19 @@ export const assetContract = {
   )
     .input(optimizeInput)
     .output(processed),
+
+  render: recipe("render"),
+  retarget: recipe("retarget"),
+
+  status: asset(
+    "Follow an asset recipe job",
+    "Reports a recipe job's state, and once it is done its output files and result. Waits up to wait_seconds for it to end. Backs `vg asset status`.",
+  )
+    .input(statusInput)
+    .output(recipeJob),
+
+  textureCompress: recipe("texture-compress"),
+  trailerRender: recipe("trailer-render"),
+  videoProbe: recipe("video-probe"),
+  videoToSheet: recipe("video-to-sheet"),
 };

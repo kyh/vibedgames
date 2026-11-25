@@ -1,6 +1,7 @@
 import type {
   BillingConfig,
   DecisionProviderConfig,
+  MediaJobs,
   MediaProviderConfig,
   R2Config,
   UrlSigning,
@@ -102,7 +103,11 @@ export const getServerContext = () => {
     stripeWebhookSecret: env.STRIPE_WEBHOOK_SECRET,
   };
 
-  return { auth, baseUrl, billing, db, decision, media, productionUrl, r2, signing };
+  const mediaJobs: MediaJobs | undefined = env.MEDIA_JOBS
+    ? { fetch: (request) => env.MEDIA_JOBS.fetch(request) }
+    : undefined;
+
+  return { auth, baseUrl, billing, db, decision, media, mediaJobs, productionUrl, r2, signing };
 };
 
 /** The social sign-in providers this deployment has credentials for, in button order. */
@@ -134,6 +139,7 @@ export const createRpcContext = (headers: Headers, surface: OAuthSurface = "api"
     productionUrl,
     r2,
     media,
+    mediaJobs,
     decision,
     signing,
   } = getServerContext();
@@ -145,6 +151,7 @@ export const createRpcContext = (headers: Headers, surface: OAuthSurface = "api"
     decision,
     headers,
     media,
+    mediaJobs,
     oauthResource: oauthResources(baseUrl)[surface],
     productionURL: productionUrl,
     r2,
