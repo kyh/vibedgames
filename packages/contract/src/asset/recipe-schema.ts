@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { MAX_WAIT_SECONDS } from "../generate/generate-schema";
+import { MAX_CLIPS } from "./asset-schema";
 
 /** The two container images recipes run in, and the instance each gets. */
 export const RECIPE_IMAGES = {
@@ -199,21 +200,32 @@ export const fbxToGlbInput = z.object({
   wait_seconds: waitSeconds,
 });
 
-export const retargetInput = z.object({
-  character_url: mediaUrl("The rigged character GLB the clip should play on"),
-  clip_name: z
-    .string()
+export const addAnimationsInput = z.object({
+  animation_urls: z
+    .array(
+      mediaUrl(
+        "A GLB or FBX holding an animation, on the model's rig or any other humanoid skeleton (Mixamo, SMPL, UE5, Meshy)",
+      ),
+    )
     .min(1)
-    .max(64)
-    .optional()
-    .describe("The new animation's name; the clip file's own name if omitted"),
-  clip_url: mediaUrl(
-    "A GLB or FBX holding the animation, on any humanoid skeleton (Mixamo, SMPL, UE5, Meshy)",
-  ),
+    .max(MAX_CLIPS)
+    .describe(`The animations to add, up to ${MAX_CLIPS}`),
   in_place: z
     .boolean()
     .default(false)
-    .describe("Drop the root's horizontal travel, for a clip the game moves itself"),
+    .describe(
+      "Drop the root's horizontal travel when retargeting, for a clip the game moves itself",
+    ),
+  keep_animations: z
+    .boolean()
+    .default(true)
+    .describe("Keep the animations model_url already has; false keeps only the added ones"),
+  model_url: mediaUrl("The rigged character GLB the animations should play on"),
+  names: z
+    .array(z.string().min(1).max(64))
+    .max(MAX_CLIPS)
+    .optional()
+    .describe("A name per animation, in order; each file's own animation name if omitted"),
   wait_seconds: waitSeconds,
 });
 
@@ -351,6 +363,15 @@ interface RecipeDefinition {
 
 /** Every hosted recipe: the image it runs in, its hard time cap, the local tools that replace it. */
 export const RECIPES = {
+  "add-animations": {
+    description:
+      "Adds animations to a rigged character GLB. Clips of the same rig (e.g. one animate-3d run) are copied joint by joint; clips on another humanoid skeleton (Mixamo, SMPL, UE5, Meshy names, or a motion generator's FBX) are retargeted in Blender and baked. Returns the character with every animation in one file.",
+    title: "Add animations to a character",
+    capSeconds: 300,
+    image: "blender",
+    input: addAnimationsInput,
+    tools: ["blender"],
+  },
   "audio-master": {
     description:
       "Trims silence, fades the ends, normalises to a loudness target in two passes (integrated LUFS and true peak) and encodes Opus, MP3, AAC or WAV. Returns the input and output loudness.",
@@ -405,15 +426,7 @@ export const RECIPES = {
     input: renderInput,
     tools: ["blender"],
   },
-  retarget: {
-    description:
-      "Copies an animation from a GLB or FBX on one humanoid skeleton onto a rigged character on another, matching bones by name across Mixamo, SMPL, UE5 and Meshy conventions, bakes it, and returns the character with the clip added.",
-    title: "Retarget an animation onto another skeleton",
-    capSeconds: 120,
-    image: "blender",
-    input: retargetInput,
-    tools: ["blender"],
-  },
+
   "texture-compress": {
     description:
       "Resizes every texture of a GLB to fit a size and recompresses it as WebP, KTX2 (Basis), PNG or JPEG.",
@@ -456,13 +469,13 @@ export type RecipeName = keyof typeof RECIPES;
 
 /** The asset procedure behind each recipe, the camelCase of its name. */
 export const RECIPE_PROCEDURES = {
+  "add-animations": "addAnimations",
   "audio-master": "audioMaster",
   bake: "bake",
   "fbx-to-glb": "fbxToGlb",
   "frames-to-video": "framesToVideo",
   "image-to-threejs": "imageToThreejs",
   render: "render",
-  retarget: "retarget",
   "texture-compress": "textureCompress",
   "trailer-render": "trailerRender",
   "video-probe": "videoProbe",

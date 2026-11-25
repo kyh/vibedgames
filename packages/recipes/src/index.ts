@@ -39,7 +39,7 @@ const HANDLERS: Record<RecipeName, Handler> = {
   "frames-to-video": framesToVideo,
   "image-to-threejs": imageToThreejs,
   render: (ctx) => runBlender(ctx, "render"),
-  retarget: (ctx) => runBlender(ctx, "retarget"),
+  "add-animations": (ctx) => runBlender(ctx, "add-animations"),
   "texture-compress": textureCompress,
   "trailer-render": trailerRender,
   "video-probe": videoProbe,

@@ -107,11 +107,11 @@ for (const [name, file] of Object.entries(clipFiles)) {
 actions.idle.play();
 ```
 
-Better, bake every clip into the rigged GLB once so the page loads one file and one mesh, on vibedgames' servers:
+Better, bake every clip into the rigged GLB once so the page loads one file and one mesh (free for clips of the same rig; a clip from another skeleton is retargeted):
 
 ```bash
-vg asset merge-clips --model_url ./knight/idle.glb \
-  --clip_urls ./knight/idle.glb,./knight/attack.glb,./knight/death.glb \
+vg asset add-animations --model_url ./knight/idle.glb \
+  --animation_urls ./knight/idle.glb,./knight/attack.glb,./knight/death.glb \
   --names idle,attack,death --keep_animations false --out public/models/knight.glb
 ```
 

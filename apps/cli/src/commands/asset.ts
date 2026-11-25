@@ -6,7 +6,7 @@ import type { z } from "zod";
 import { consola } from "consola";
 
 import type { RouterOutputs } from "@repo/contract";
-import { inspectInput, mergeClipsInput, optimizeInput } from "@repo/contract/asset/asset-schema";
+import { inspectInput, optimizeInput } from "@repo/contract/asset/asset-schema";
 
 import { createClient } from "../lib/api.js";
 import { mediaFlagArgs, readMediaInput } from "../lib/media-flags.js";
@@ -136,29 +136,14 @@ const optimizeCommand = defineCommand({
   },
 });
 
-const mergeClipsCommand = defineCommand({
-  args: { ...mediaFlagArgs(mergeClipsInput.shape), ...outArg, ...outputArgs },
-  meta: {
-    description:
-      "Copy the animations of GLBs of the same rig onto one model, so a game loads one file.",
-    name: "merge-clips",
-  },
-  run: async ({ args, rawArgs }) => {
-    const client = createClient();
-    const input = await parseInput(client, mergeClipsInput, rawArgs);
-    await processed(args, await client.asset.mergeClips(input));
-  },
-});
-
 export const assetCommand = defineCommand({
   meta: {
     description:
-      "Process 3D models, audio and video: inspect, optimize, merge clips, retarget, convert, bake, render, master, cut, probe. Runs locally when the tool is installed, else on vibedgames' servers.",
+      "Process 3D models, audio and video: inspect, optimize, add animations, convert, bake, render, master, cut, probe. Runs locally when the tool is installed, else on vibedgames' servers.",
     name: "asset",
   },
   subCommands: {
     inspect: inspectCommand,
-    "merge-clips": mergeClipsCommand,
     optimize: optimizeCommand,
     ...recipeCommands,
   },

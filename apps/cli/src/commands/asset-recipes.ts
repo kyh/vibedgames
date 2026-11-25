@@ -1,4 +1,4 @@
-import { createWriteStream, mkdirSync, mkdtempSync, statSync } from "node:fs";
+import { copyFileSync, createWriteStream, mkdirSync, mkdtempSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { Readable } from "node:stream";
@@ -206,7 +206,7 @@ const runInCloud = async (name: RecipeName, argv: string[], out: string) => {
 
   let job = await procedure(parsed.data);
 
-  while (job.status === "queued" || job.status === "running") {
+  while ((job.status === "queued" || job.status === "running") && job.job_id) {
     job = await client.asset.status({ job_id: job.job_id, wait_seconds: 20 });
   }
 
@@ -217,6 +217,17 @@ const runInCloud = async (name: RecipeName, argv: string[], out: string) => {
   return finish(job, out);
 };
 
+const placeOutputs = (outputs: { name: string; path: string }[], target: string) => {
+  mkdirSync(path.dirname(target), { recursive: true });
+
+  for (const output of outputs) {
+    const placed = outputs.length === 1 ? target : path.join(path.dirname(target), output.name);
+    mkdirSync(path.dirname(placed), { recursive: true });
+    copyFileSync(output.path, placed);
+    output.path = placed;
+  }
+};
+
 const recipeCommand = (name: RecipeName) => {
   const fields = RECIPES[name].input.shape;
 
@@ -224,7 +235,7 @@ const recipeCommand = (name: RecipeName) => {
     args: {
       ...mediaFlagArgs(fields),
       out: {
-        description: `Folder the output files go in; ./${name} by default.`,
+        description: `Folder the output files go in (./${name} by default), or a file path when the recipe writes one file.`,
         type: "string",
       },
       where: {
@@ -249,7 +260,9 @@ const recipeCommand = (name: RecipeName) => {
       }
 
       const tools = findTools();
-      const out = path.resolve(args.out ?? name);
+      const target = path.resolve(args.out ?? name);
+      const toFile = path.extname(target) !== "";
+      const out = toFile ? mkdtempSync(path.join(tmpdir(), `vg-${name}-`)) : target;
       const argv = await packFolders(name, rawArgs, tools);
       const chosen = pickWhere(name, where, tools);
 
@@ -257,6 +270,11 @@ const recipeCommand = (name: RecipeName) => {
         chosen === "local"
           ? await runLocally(name, argv, out, tools)
           : await runInCloud(name, argv, out);
+
+      if (toFile) {
+        placeOutputs(report.outputs, target);
+        rmSync(out, { force: true, recursive: true });
+      }
 
       if (!writeStructured(report, args)) {
         consola.success(`${name} done ${chosen === "local" ? "on this machine" : "on vibedgames"}`);

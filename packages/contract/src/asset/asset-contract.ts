@@ -2,7 +2,7 @@ import { protectedBase, requiresScope } from "../base";
 import { documented } from "../openapi";
 import { z } from "zod";
 
-import { inspectInput, MAX_CLIPS, mergeClipsInput, optimizeInput } from "./asset-schema";
+import { inspectInput, optimizeInput } from "./asset-schema";
 import { RECIPES, statusInput } from "./recipe-schema";
 import type { RecipeName } from "./recipe-schema";
 
@@ -60,7 +60,10 @@ const free = "Runs on vibedgames' servers and is not billed.";
 export const recipeJob = z.object({
   cost_usd: z.number().nullable().describe("What the job billed, once it ended"),
   error: z.string().nullable().describe("Why the job failed"),
-  job_id: z.string().describe("Follow the job with asset status"),
+  job_id: z
+    .string()
+    .nullable()
+    .describe("Follow the job with asset status; null when it finished within the call"),
   outputs: z
     .array(
       z.object({
@@ -89,6 +92,12 @@ const recipe = <N extends RecipeName>(name: N) => {
 };
 
 export const assetContract = {
+  addAnimations: asset(
+    RECIPES["add-animations"].title,
+    `${RECIPES["add-animations"].description} Same-rig GLBs are merged in the call, free; any other clip runs in a vibedgames container billed by the second (from $0.01), or on the caller's machine when Blender is installed. Backs \`vg asset add-animations\`.`,
+  )
+    .input(RECIPES["add-animations"].input)
+    .output(recipeJob),
   audioMaster: recipe("audio-master"),
   bake: recipe("bake"),
   fbxToGlb: recipe("fbx-to-glb"),
@@ -101,13 +110,6 @@ export const assetContract = {
     .input(inspectInput)
     .output(assetStats),
 
-  mergeClips: asset(
-    "Merge animation clips into one model",
-    `Copies the animations of up to ${MAX_CLIPS} GLBs of the same rig onto one rigged model, matching joints by name, so a game loads one GLB with every clip instead of one mesh per clip; animate-3d returns one GLB per clip. A clip whose joints mostly do not match the model's is refused: retargeting across different skeletons is not done here. ${free} Backs \`vg asset merge-clips\`.`,
-  )
-    .input(mergeClipsInput)
-    .output(processed.extend({ skipped_channels: z.number().int() })),
-
   optimize: asset(
     "Normalize, simplify and compress a 3D model",
     `Makes a GLB game-ready in one pass: turns a z-up model y-up and yaws it to face +z, scales it to a height or size in metres, moves its pivot to its feet or centre, simplifies it to a triangle budget, removes duplicate and unused data, and quantizes and meshopt-compresses it (\`compress\`). \`strip_meshes\` keeps only the skeleton and animations, for clip files. Textures pass through unchanged. ${free} Backs \`vg asset optimize\`.`,
@@ -116,7 +118,6 @@ export const assetContract = {
     .output(processed),
 
   render: recipe("render"),
-  retarget: recipe("retarget"),
 
   status: asset(
     "Follow an asset recipe job",

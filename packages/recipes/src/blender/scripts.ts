@@ -181,119 +181,141 @@ def build_map(src, dst):
 
 
 reset()
-dst_objects, _ = import_model(IN["character_url"])
+dst_objects, dst_actions = import_model(IN["model_url"])
 dst = next(iter(armatures(dst_objects)), None)
 if dst is None:
-    fail("character_url has no armature; rig it first (generate animate-3d)")
+    fail("model_url has no armature; rig it first (generate animate-3d)")
 for o in dst_objects:
     if o.animation_data:
         o.animation_data.action = None
-
-src_objects, src_actions = import_model(IN["clip_url"])
-src = next(iter(armatures(src_objects)), None)
-if src is None:
-    fail("clip_url has no armature")
-action = (src.animation_data.action if src.animation_data else None) or (src_actions[0] if src_actions else None)
-if action is None:
-    fail("clip_url holds no animation")
-if not src.animation_data:
-    src.animation_data_create()
-src.animation_data.action = None
-
-mapping = build_map(src, dst)
-if len(mapping) < 6:
-    fail("only %d bones of the character match the clip's skeleton" % len(mapping))
+if not P.get("keep_animations", True):
+    for a in dst_actions:
+        bpy.data.actions.remove(a)
+    if dst.animation_data:
+        for t in list(dst.animation_data.nla_tracks):
+            dst.animation_data.nla_tracks.remove(t)
 
 scene = bpy.context.scene
-start, end = (int(round(v)) for v in action.frame_range)
-
-for pb in src.pose.bones:
-    pb.matrix_basis = Matrix.Identity(4)
-for pb in dst.pose.bones:
-    pb.matrix_basis = Matrix.Identity(4)
-bpy.context.view_layer.update()
 
 
 def world_rot(arm, bone):
     return (arm.matrix_world @ bone.matrix).to_quaternion()
 
 
-offsets = {}
-for d_name, s_name in mapping.items():
-    d_rest = world_rot(dst, dst.pose.bones[d_name])
-    s_rest = world_rot(src, src.pose.bones[s_name])
-    offsets[d_name] = s_rest.inverted() @ d_rest
+def add_animation(clip_path, label, wanted):
+    src_objects, src_actions = import_model(clip_path)
+    src = next(iter(armatures(src_objects)), None)
+    if src is None:
+        fail("%s has no armature" % label)
+    action = (src.animation_data.action if src.animation_data else None) or (src_actions[0] if src_actions else None)
+    if action is None:
+        fail("%s holds no animation" % label)
+    if not src.animation_data:
+        src.animation_data_create()
+    src.animation_data.action = None
+    if dst.animation_data:
+        dst.animation_data.action = None
 
-hips = next((n for n in mapping if canon(n, has_collar(dst)) == ":hips"), None)
-if hips is None:
-    roots = [b.name for b in dst.data.bones if b.parent is None and b.name in mapping]
-    hips = roots[0] if roots else None
-src_hips = mapping.get(hips) if hips else None
-scale = 1.0
-if hips and src_hips:
-    d_h = (dst.matrix_world @ dst.pose.bones[hips].head).z - bounds(dst_objects)[0].z
-    s_h = (src.matrix_world @ src.pose.bones[src_hips].head).z - bounds(src_objects)[0].z
-    if s_h > 1e-4 and d_h > 1e-4:
-        scale = d_h / s_h
-    d_rest_loc = dst.matrix_world @ dst.pose.bones[hips].head
-    s_rest_loc = src.matrix_world @ src.pose.bones[src_hips].head
+    mapping = build_map(src, dst)
+    if len(mapping) < 6:
+        fail("only %d bones of the model match the skeleton in %s" % (len(mapping), label))
 
-src.animation_data.action = action
+    start, end = (int(round(v)) for v in action.frame_range)
 
-new_action = bpy.data.actions.new(P.get("clip_name") or action.name.split("|")[-1])
-dst.animation_data_create()
-dst.animation_data.action = new_action
-for pb in dst.pose.bones:
-    pb.rotation_mode = "QUATERNION"
+    for pb in src.pose.bones:
+        pb.matrix_basis = Matrix.Identity(4)
+    for pb in dst.pose.bones:
+        pb.matrix_basis = Matrix.Identity(4)
+    bpy.context.view_layer.update()
 
-order = sorted(mapping, key=lambda n: len(dst.data.bones[n].parent_recursive))
-depths = {}
-for n in order:
-    depths.setdefault(len(dst.data.bones[n].parent_recursive), []).append(n)
+    offsets = {}
+    for d_name, s_name in mapping.items():
+        d_rest = world_rot(dst, dst.pose.bones[d_name])
+        s_rest = world_rot(src, src.pose.bones[s_name])
+        offsets[d_name] = s_rest.inverted() @ d_rest
 
-for frame in range(start, end + 1):
-    scene.frame_set(frame)
-    for level in sorted(depths):
-        for d_name in depths[level]:
+    hips = next((n for n in mapping if canon(n, has_collar(dst)) == ":hips"), None)
+    if hips is None:
+        roots = [b.name for b in dst.data.bones if b.parent is None and b.name in mapping]
+        hips = roots[0] if roots else None
+    src_hips = mapping.get(hips) if hips else None
+    scale = 1.0
+    d_rest_loc = s_rest_loc = None
+    if hips and src_hips:
+        d_h = (dst.matrix_world @ dst.pose.bones[hips].head).z - bounds(dst_objects)[0].z
+        s_h = (src.matrix_world @ src.pose.bones[src_hips].head).z - bounds(src_objects)[0].z
+        if s_h > 1e-4 and d_h > 1e-4:
+            scale = d_h / s_h
+        d_rest_loc = dst.matrix_world @ dst.pose.bones[hips].head
+        s_rest_loc = src.matrix_world @ src.pose.bones[src_hips].head
+
+    src.animation_data.action = action
+
+    new_action = bpy.data.actions.new(wanted or action.name.split("|")[-1])
+    dst.animation_data_create()
+    dst.animation_data.action = new_action
+    for pb in dst.pose.bones:
+        pb.rotation_mode = "QUATERNION"
+
+    order = sorted(mapping, key=lambda n: len(dst.data.bones[n].parent_recursive))
+    depths = {}
+    for n in order:
+        depths.setdefault(len(dst.data.bones[n].parent_recursive), []).append(n)
+
+    for frame in range(start, end + 1):
+        scene.frame_set(frame)
+        for level in sorted(depths):
+            for d_name in depths[level]:
+                pb = dst.pose.bones[d_name]
+                s_rot = world_rot(src, src.pose.bones[mapping[d_name]])
+                target = s_rot @ offsets[d_name]
+                current = dst.matrix_world @ pb.matrix
+                loc = current.to_translation()
+                if d_name == hips and src_hips:
+                    s_loc = src.matrix_world @ src.pose.bones[src_hips].head
+                    delta = (s_loc - s_rest_loc) * scale
+                    if P.get("in_place"):
+                        delta.x = 0.0
+                        delta.y = 0.0
+                    loc = d_rest_loc + delta
+                world = Matrix.LocRotScale(loc, target, current.to_scale())
+                pb.matrix = dst.matrix_world.inverted() @ world
+            bpy.context.view_layer.update()
+        for d_name in order:
             pb = dst.pose.bones[d_name]
-            s_rot = world_rot(src, src.pose.bones[mapping[d_name]])
-            target = s_rot @ offsets[d_name]
-            current = dst.matrix_world @ pb.matrix
-            loc = current.to_translation()
-            if d_name == hips and src_hips:
-                s_loc = src.matrix_world @ src.pose.bones[src_hips].head
-                delta = (s_loc - s_rest_loc) * scale
-                if P.get("in_place"):
-                    delta.x = 0.0
-                    delta.y = 0.0
-                loc = d_rest_loc + delta
-            world = Matrix.LocRotScale(loc, target, current.to_scale())
-            pb.matrix = dst.matrix_world.inverted() @ world
-        bpy.context.view_layer.update()
-    for d_name in order:
-        pb = dst.pose.bones[d_name]
-        pb.keyframe_insert("rotation_quaternion", frame=frame, group=d_name)
-        if d_name == hips:
-            pb.keyframe_insert("location", frame=frame, group=d_name)
+            pb.keyframe_insert("rotation_quaternion", frame=frame, group=d_name)
+            if d_name == hips:
+                pb.keyframe_insert("location", frame=frame, group=d_name)
 
-for o in src_objects:
-    bpy.data.objects.remove(o, do_unlink=True)
-for a in src_actions:
-    if a != new_action and a.users == 0:
-        bpy.data.actions.remove(a)
+    for o in src_objects:
+        bpy.data.objects.remove(o, do_unlink=True)
+    for a in src_actions:
+        if a != new_action and a.users == 0:
+            bpy.data.actions.remove(a)
 
-track = dst.animation_data.nla_tracks.new()
-track.strips.new(new_action.name, start, new_action)
-dst.animation_data.action = None
+    track = dst.animation_data.nla_tracks.new()
+    track.name = new_action.name
+    track.strips.new(new_action.name, start, new_action)
+    dst.animation_data.action = None
+    unmapped = [b.name for b in dst.data.bones if b.name not in mapping]
+    return {
+        "animation": new_action.name,
+        "frames": end - start + 1,
+        "mapped_bones": len(mapping),
+        "unmapped_bones": unmapped[:64],
+    }
+
+
+clips = IN["animation_urls"]
+if isinstance(clips, str):
+    clips = [clips]
+names = P.get("names") or []
+added = []
+for i, clip in enumerate(clips):
+    added.append(add_animation(clip, "animation_urls[%d]" % i, names[i] if i < len(names) else None))
+
 export_glb(os.path.join(OUT, "model.glb"), dst_objects)
-unmapped = [b.name for b in dst.data.bones if b.name not in mapping]
-write_result({
-    "animation": new_action.name,
-    "frames": end - start + 1,
-    "fps": scene.render.fps,
-    "mapped_bones": len(mapping),
-    "unmapped_bones": unmapped[:64],
-})
+write_result({"animations": added, "fps": scene.render.fps})
 `;
 
 const BAKE = String.raw`
@@ -470,7 +492,7 @@ export const BLENDER_SCRIPTS = {
   bake: PRELUDE + BAKE,
   "fbx-to-glb": PRELUDE + FBX_TO_GLB,
   render: PRELUDE + RENDER,
-  retarget: PRELUDE + RETARGET,
+  "add-animations": PRELUDE + RETARGET,
 } as const;
 
 export type BlenderRecipe = keyof typeof BLENDER_SCRIPTS;

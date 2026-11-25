@@ -1,6 +1,7 @@
 import type { Accessor, Document, Node, Scene } from "@gltf-transform/core";
 import type { RouterOutputs } from "@repo/contract";
-import type { mergeClipsInput, optimizeInput } from "@repo/contract/asset/asset-schema";
+import type { optimizeInput } from "@repo/contract/asset/asset-schema";
+import type { addAnimationsInput } from "@repo/contract/asset/recipe-schema";
 import type { z } from "zod";
 import { ImageUtils, WebIO } from "@gltf-transform/core";
 import { ALL_EXTENSIONS } from "@gltf-transform/extensions";
@@ -20,7 +21,12 @@ type Stats = RouterOutputs["asset"]["inspect"];
 
 type OptimizeOptions = Omit<z.infer<typeof optimizeInput>, "model_url">;
 
-type MergeOptions = Pick<z.infer<typeof mergeClipsInput>, "keep_animations" | "names">;
+type MergeOptions = Pick<z.infer<typeof addAnimationsInput>, "keep_animations" | "names">;
+
+/** A clip whose joints are not the model's: it needs retargeting, which the Worker does not do. */
+export class SkeletonMismatchError extends Error {
+  override name = "SkeletonMismatchError";
+}
 
 type Vec3 = [number, number, number];
 
@@ -395,14 +401,14 @@ const mergeOne = (
 
   if (total === 0) {
     throw new ORPCError("BAD_REQUEST", {
-      message: `clip_urls[${clipIndex}] holds no animation.`,
+      message: `animation_urls[${clipIndex}] holds no animation.`,
     });
   }
 
   if (total - skipped < total * MIN_MATCHED) {
-    throw new ORPCError("BAD_REQUEST", {
-      message: `clip_urls[${clipIndex}]'s skeleton does not match model_url's: only ${total - skipped} of ${total} channels name a joint the model has. Clips must come from the same rig, e.g. one animate-3d run.`,
-    });
+    throw new SkeletonMismatchError(
+      `animation_urls[${clipIndex}]'s skeleton does not match model_url's: only ${total - skipped} of ${total} channels name a joint the model has.`,
+    );
   }
 
   return skipped;
@@ -431,7 +437,7 @@ export const mergeClipsGlb = async (
   let index = 0;
 
   for await (const bytes of clips) {
-    const clip = await read(io, bytes, `clip_urls[${index}]`);
+    const clip = await read(io, bytes, `animation_urls[${index}]`);
     skipped += mergeOne(doc, byName, clip, index, options.names);
     index += 1;
   }

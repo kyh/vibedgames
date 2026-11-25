@@ -186,16 +186,15 @@ describe("mcp endpoint", () => {
     assert.deepStrictEqual(
       names,
       [
+        "asset_add_animations",
         "asset_audio_master",
         "asset_bake",
         "asset_fbx_to_glb",
         "asset_frames_to_video",
         "asset_image_to_threejs",
         "asset_inspect",
-        "asset_merge_clips",
         "asset_optimize",
         "asset_render",
-        "asset_retarget",
         "asset_status",
         "asset_texture_compress",
         "asset_trailer_render",
@@ -254,7 +253,7 @@ describe("mcp endpoint", () => {
       "deploy",
       "credits_redeem",
       "asset_optimize",
-      "asset_retarget",
+      "asset_add_animations",
     ]) {
       assert.strictEqual(byName.get(name)?.annotations?.readOnlyHint, false, name);
     }

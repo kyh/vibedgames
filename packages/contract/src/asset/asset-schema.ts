@@ -3,7 +3,7 @@ import { z } from "zod";
 /** The largest GLB an asset procedure fetches, in bytes. */
 export const MAX_ASSET_BYTES = 24 * 1024 * 1024;
 
-/** The most clip files one merge-clips call takes. */
+/** The most animation files one add-animations call takes. */
 export const MAX_CLIPS = 16;
 
 const modelUrl = z
@@ -76,29 +76,5 @@ export const optimizeInput = z.object({
     .optional()
     .describe(
       "Turn the model about its up axis, e.g. -90 for a model that faces +x to face +z (glTF's forward)",
-    ),
-});
-
-export const mergeClipsInput = z.object({
-  clip_urls: z
-    .array(modelUrl)
-    .min(1)
-    .max(MAX_CLIPS)
-    .describe(
-      "GLBs of the same rig, each holding one or more animations, e.g. animate-3d's per-clip GLBs; up to 16",
-    ),
-  keep_animations: z
-    .boolean()
-    .default(true)
-    .describe("Keep the animations model_url already has; false keeps only the clips' animations"),
-  model_url: modelUrl.describe(
-    "The rigged character the clips play on, e.g. animate-3d's rigged GLB or one of its clip GLBs",
-  ),
-  names: z
-    .array(z.string().min(1).max(64))
-    .max(MAX_CLIPS)
-    .optional()
-    .describe(
-      "A name for each clip, in clip_urls order, e.g. idle,run,attack; omitted, each clip keeps the name its file gives it",
     ),
 });

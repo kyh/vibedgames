@@ -348,11 +348,6 @@ export const tools = {
     name: "asset_inspect",
     title: "Inspect a 3D model",
   }),
-  asset_merge_clips: asTool(appRouter.asset.mergeClips, {
-    annotations: external,
-    name: "asset_merge_clips",
-    title: "Merge animation clips",
-  }),
   asset_optimize: asTool(appRouter.asset.optimize, {
     annotations: external,
     name: "asset_optimize",

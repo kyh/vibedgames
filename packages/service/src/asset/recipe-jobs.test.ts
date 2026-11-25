@@ -177,12 +177,17 @@ const contextAs = (userId: string, withMedia = true) => {
 
 const VIDEO = "https://v3.fal.media/files/clip.mp4";
 
-const submit = (userId = "user-1", withMedia = true) =>
-  call(
+const submit = async (userId = "user-1", withMedia = true) => {
+  const job = await call(
     assetRouter.videoToSheet,
     { video_url: VIDEO, wait_seconds: 0 },
     { context: contextAs(userId, withMedia) },
   );
+
+  assert.ok(job.job_id, "a hosted job has an id");
+
+  return { ...job, job_id: job.job_id };
+};
 
 const KIND = /'(?<kind>generation_\w+)'/u;
 
