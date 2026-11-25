@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /** The largest GLB an asset procedure fetches, in bytes. */
-export const MAX_ASSET_BYTES = 48 * 1024 * 1024;
+export const MAX_ASSET_BYTES = 24 * 1024 * 1024;
 
 /** The most clip files one merge-clips call takes. */
 export const MAX_CLIPS = 16;

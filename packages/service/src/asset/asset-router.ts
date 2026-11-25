@@ -44,9 +44,19 @@ const fetchModel = async (url: string, label: string) => {
   try {
     return await readBytesBounded(response, MAX_ASSET_BYTES, label);
   } catch (error) {
-    throw new ORPCError("PAYLOAD_TOO_LARGE", {
+    if (
+      error instanceof ORPCError &&
+      error.message === `${label} exceeded ${MAX_ASSET_BYTES} bytes.`
+    ) {
+      throw new ORPCError("PAYLOAD_TOO_LARGE", {
+        cause: error,
+        message: `${label} is over ${MAX_ASSET_BYTES} bytes, more than this step holds in memory; shrink its textures first with \`vg asset texture-compress\`.`,
+      });
+    }
+
+    throw new ORPCError("BAD_GATEWAY", {
       cause: error,
-      message: `${label} is over ${MAX_ASSET_BYTES} bytes; simplify it with a lower target_polycount when generating.`,
+      message: `${label}: reading ${url} failed partway; try again.`,
     });
   }
 };
