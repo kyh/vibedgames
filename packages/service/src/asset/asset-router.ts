@@ -8,7 +8,7 @@ import type { ORPCContext } from "../orpc";
 import { storeFile } from "../generate/generate-router";
 import { readBytesBounded } from "../generate/provider-io";
 import { os, requireSession } from "../orpc";
-import { inspectGlb, mergeClipsGlb, optimizeGlb, SkeletonMismatchError } from "./gltf-ops";
+import { inspectGlb, mergeClipsGlb, optimizeGlb } from "./gltf-ops";
 import { recipeStatus, submitRecipe } from "./recipe-jobs";
 
 const GLB = "model/gltf-binary";
@@ -110,12 +110,8 @@ const sameRigMerge = async (context: ORPCContext, input: AddAnimations) => {
       seconds: null,
       status: "done" as const,
     };
-  } catch (error) {
-    if (error instanceof SkeletonMismatchError) {
-      return null;
-    }
-
-    throw error;
+  } catch {
+    return null;
   }
 };
 

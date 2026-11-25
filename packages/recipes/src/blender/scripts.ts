@@ -215,6 +215,8 @@ def add_animation(clip_path, label, wanted):
     src.animation_data.action = None
     if dst.animation_data:
         dst.animation_data.action = None
+        for t in dst.animation_data.nla_tracks:
+            t.mute = True
 
     mapping = build_map(src, dst)
     if len(mapping) < 6:
@@ -314,6 +316,9 @@ added = []
 for i, clip in enumerate(clips):
     added.append(add_animation(clip, "animation_urls[%d]" % i, names[i] if i < len(names) else None))
 
+if dst.animation_data:
+    for t in dst.animation_data.nla_tracks:
+        t.mute = False
 export_glb(os.path.join(OUT, "model.glb"), dst_objects)
 write_result({"animations": added, "fps": scene.render.fps})
 `;
