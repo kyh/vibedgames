@@ -568,7 +568,7 @@ loader.load(
 
 ## Advanced: Compressed GLBs (meshopt or Draco)
 
-Prefer **meshopt** (`EXT_meshopt_compression`, what `gltf-transform optimize` writes by default) for new assets: its decoder ships inside `three` as a plain module, so Vite bundles it and there is nothing extra to host.
+Prefer **meshopt** (`EXT_meshopt_compression`, what `vg asset optimize` writes by default) for new assets: its decoder ships inside `three` as a plain module, so Vite bundles it and there is nothing extra to host.
 
 ```ts
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
@@ -592,7 +592,7 @@ dracoLoader.setDecoderPath("./draco/"); // relative, so it resolves under vg dep
 loader.setDRACOLoader(dracoLoader);
 ```
 
-**Meshopt / quantized GLBs** (`gltf-transform optimize` output: `KHR_mesh_quantization` + `EXT_meshopt_compression`) arrive with `Int16` attributes and the dequantisation scale on the **node** matrix. Any geometry-level bake — `geometry.applyMatrix4`, `geometry.scale`, `mergeGeometries` — must first promote the attributes to `Float32` (or run `gltf-transform dequantize` offline), otherwise the bake lands in quantized units and the mesh explodes or collapses.
+**Meshopt / quantized GLBs** (`vg asset optimize` output: `KHR_mesh_quantization` + `EXT_meshopt_compression`) arrive with `Int16` attributes and the dequantisation scale on the **node** matrix. Any geometry-level bake — `geometry.applyMatrix4`, `geometry.scale`, `mergeGeometries` — must first promote the attributes to `Float32` (or optimize with `--compress none`), otherwise the bake lands in quantized units and the mesh explodes or collapses.
 
 ---
 

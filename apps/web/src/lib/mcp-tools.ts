@@ -327,6 +327,21 @@ export const tools = {
     name: "fork",
     title: "Fork a game's source",
   }),
+  asset_inspect: asTool(appRouter.asset.inspect, {
+    annotations: { ...readOnly, openWorldHint: true },
+    name: "asset_inspect",
+    title: "Inspect a 3D model",
+  }),
+  asset_merge_clips: asTool(appRouter.asset.mergeClips, {
+    annotations: external,
+    name: "asset_merge_clips",
+    title: "Merge animation clips",
+  }),
+  asset_optimize: asTool(appRouter.asset.optimize, {
+    annotations: external,
+    name: "asset_optimize",
+    title: "Optimize a 3D model",
+  }),
   ...generateTools,
   ...mediaTools,
   skills: tool

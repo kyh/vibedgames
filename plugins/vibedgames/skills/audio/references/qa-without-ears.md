@@ -72,24 +72,60 @@ logged event lines up with the samples on the audio clock.
 - Pull the recording out with `vg playtest eval`, base64-encode the Float32
   data in the page, and write a 32-bit float WAV in Node.
 
-## 3. Measure with ffmpeg
+## 3. Measure without installing anything
+
+The whole run's loudness comes from the hosted loudness meter. Upload the WAV
+and read the measurement of the input:
 
 ```bash
-# integrated loudness, loudness range, true peak
-ffmpeg -hide_banner -i run.wav -af ebur128=peak=true -f null - 2>&1 | tail -12
-
-# loudness of one moment (seconds 12.0–12.4)
-ffmpeg -hide_banner -ss 12 -t 0.4 -i run.wav -af ebur128 -f null - 2>&1 | grep "I:"
-
-# a band a laptop speaker can actually play (200 Hz – 6 kHz)
-ffmpeg -hide_banner -i run.wav -af "highpass=f=200,lowpass=f=6000,ebur128" -f null - 2>&1 | grep "I:"
-
-# spectrogram to look at (clicks = vertical lines, whines = horizontal lines)
-ffmpeg -y -i run.wav -lavfi showspectrumpic=s=1600x600:legend=1 spec.png
+URL=$(vg generate upload run.wav --field url)
+vg generate run fal-ai/ffmpeg-api/loudnorm --audio_url "$URL" --print_summary true \
+  --field result.summary
+# input_integrated (LUFS), input_true_peak (dBTP), input_lra (LU)
 ```
 
-Read the spectrogram as an image: vertical lines are clicks, horizontal lines
-are whines or fixed tones, a tail cut square is a sound stopped early.
+Moments, bands and clicks are measured where the recording already is, in the
+page, with `vg playtest eval`. These are dB RMS, not LUFS: good for comparing
+sounds against each other (section 4), not for an absolute target.
+
+```js
+// in the page after the run; `rate` is the AudioContext's sampleRate
+const mono = Float32Array.from(
+  window.__AUDIO_TAP__.batches.flatMap((b) => b.chunks.flatMap((c) => [...c[0]])),
+);
+const db = (x, from = 0, to = x.length / rate) => {
+  let sum = 0;
+  const a = Math.floor(from * rate);
+  const b = Math.floor(to * rate);
+  for (let i = a; i < b; i += 1) sum += x[i] * x[i];
+  return 10 * Math.log10(sum / Math.max(1, b - a));
+};
+
+// a band a laptop speaker can actually play (200 Hz – 6 kHz)
+const band = async (x) => {
+  const off = new OfflineAudioContext(1, x.length, rate);
+  const buffer = off.createBuffer(1, x.length, rate);
+  buffer.copyToChannel(x, 0);
+  const src = new AudioBufferSourceNode(off, { buffer });
+  src
+    .connect(new BiquadFilterNode(off, { frequency: 200, type: "highpass" }))
+    .connect(new BiquadFilterNode(off, { frequency: 6000, type: "lowpass" }))
+    .connect(off.destination);
+  src.start();
+  return (await off.startRendering()).getChannelData(0);
+};
+
+// clicks: sample-to-sample jumps no real sound makes
+const clicks = [];
+for (let i = 1; i < mono.length; i += 1) {
+  if (Math.abs(mono[i] - mono[i - 1]) > 0.5) clicks.push(+(i / rate).toFixed(3));
+}
+
+({ moment: db(mono, 12, 12.4), speakerBand: db(await band(mono)), clicks: clicks.slice(0, 20) });
+```
+
+A click lines up with an event in `__AUDIO_TAP__.events` (a source started or
+stopped without a ramp) or with nothing (a buffer underrun, a bad file).
 
 ## 4. Gate relationships, not absolutes
 

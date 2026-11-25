@@ -492,6 +492,57 @@ const modelsQuery = (input: z.infer<typeof modelsInput>) => {
   return query;
 };
 
+const storageSlot = z.object({
+  file_url: z.url({ protocol: /^https$/u }),
+  upload_url: z.url({ protocol: /^https$/u }),
+});
+
+const openStorageSlot = async (context: ORPCContext, contentType: string, fileName: string) => {
+  const { apiKey, config } = pickFalKey(context.media);
+  const serialized = JSON.stringify({ content_type: contentType, file_name: fileName });
+  const label = "media storage upload slot";
+
+  const res = await fetchProviderResponse({
+    credentialed: true,
+    init: {
+      body: serialized,
+      headers: buildHeaders(apiKey, "storage", serialized),
+      method: "POST",
+    },
+    label,
+    url: buildUrl(targetBase("storage", config), "/storage/upload/initiate"),
+  });
+
+  const slot = storageSlot.safeParse(await readJsonBounded(res, label));
+
+  if (!slot.success) {
+    throw new ORPCError("BAD_GATEWAY", { message: "Storage returned no upload slot." });
+  }
+
+  return slot.data;
+};
+
+/**
+ * Puts bytes the server made (a processed asset) in generate's storage and
+ * returns their stable URL, the same kind of URL a generation returns.
+ */
+export const storeFile = async (
+  context: ORPCContext,
+  file: { bytes: Uint8Array<ArrayBuffer>; contentType: string; fileName: string },
+) => {
+  const slot = await openStorageSlot(context, file.contentType, file.fileName);
+  const label = "media storage upload";
+
+  await fetchProviderResponse({
+    credentialed: false,
+    init: { body: file.bytes, headers: { "content-type": file.contentType }, method: "PUT" },
+    label,
+    url: slot.upload_url,
+  });
+
+  return slot.file_url;
+};
+
 export const generateRouter = {
   ...mediaRouter((context, endpoint, body, wait) =>
     runModel(context, { endpoint_id: endpoint, input: body, wait_seconds: wait }),
@@ -572,50 +623,21 @@ export const generateRouter = {
    * this host. Uploads aren't billed.
    */
   upload: authed.upload.handler(async ({ context, input }) => {
-    const { apiKey, config } = pickFalKey(context.media);
-
     if (!context.signing) {
       throw new ORPCError("PRECONDITION_FAILED", {
         message: "Uploads are not configured on the server.",
       });
     }
 
-    const serialized = JSON.stringify({
-      content_type: input.contentType,
-      file_name: input.fileName,
-    });
-
-    const label = "media storage upload slot";
-
-    const res = await fetchProviderResponse({
-      credentialed: true,
-      init: {
-        body: serialized,
-        headers: buildHeaders(apiKey, "storage", serialized),
-        method: "POST",
-      },
-      label,
-      url: buildUrl(targetBase("storage", config), "/storage/upload/initiate"),
-    });
-
-    const slot = z
-      .object({
-        file_url: z.url({ protocol: /^https$/u }),
-        upload_url: z.url({ protocol: /^https$/u }),
-      })
-      .safeParse(await readJsonBounded(res, label));
-
-    if (!slot.success) {
-      throw new ORPCError("BAD_GATEWAY", { message: "Storage returned no upload slot." });
-    }
+    const slot = await openStorageSlot(context, input.contentType, input.fileName);
 
     return {
-      fileUrl: slot.data.file_url,
+      fileUrl: slot.file_url,
       headers: { "content-type": input.contentType },
       uploadUrl: await signUploadUrl({
         contentType: input.contentType,
         signing: context.signing,
-        target: { url: slot.data.upload_url },
+        target: { url: slot.upload_url },
       }),
     };
   }),

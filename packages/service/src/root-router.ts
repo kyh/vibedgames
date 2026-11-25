@@ -1,4 +1,5 @@
 import { adminRouter } from "./admin/admin-router";
+import { assetRouter } from "./asset/asset-router";
 import { apiKeyRouter } from "./auth/api-key-router";
 import { authRouter } from "./auth/auth-router";
 import { connectedAppsRouter } from "./auth/connected-apps-router";
@@ -13,6 +14,7 @@ import { waitlistRouter } from "./waitlist/waitlist-router";
 export const appRouter = os.router({
   admin: adminRouter,
   apiKeys: apiKeyRouter,
+  asset: assetRouter,
   auth: authRouter,
   connectedApps: connectedAppsRouter,
   credits: creditsRouter,

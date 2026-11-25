@@ -5,6 +5,7 @@ import type {
 } from "@orpc/contract";
 
 import { adminContract } from "./admin/admin-contract";
+import { assetContract } from "./asset/asset-contract";
 import { apiKeyContract } from "./auth/api-key-contract";
 import { authContract } from "./auth/auth-contract";
 import { connectedAppsContract } from "./auth/connected-apps-contract";
@@ -18,6 +19,7 @@ import { waitlistContract } from "./waitlist/waitlist-contract";
 export const contract = {
   admin: adminContract,
   apiKeys: apiKeyContract,
+  asset: assetContract,
   auth: authContract,
   connectedApps: connectedAppsContract,
   credits: creditsContract,

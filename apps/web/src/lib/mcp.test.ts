@@ -185,6 +185,9 @@ describe("mcp endpoint", () => {
     assert.deepStrictEqual(
       names,
       [
+        "asset_inspect",
+        "asset_merge_clips",
+        "asset_optimize",
         "credits",
         "credits_buy",
         "credits_redeem",
@@ -217,13 +220,27 @@ describe("mcp endpoint", () => {
     const tools = await listTools();
     const byName = new Map(tools.map((tool) => [tool.name, tool]));
 
-    for (const name of ["whoami", "credits", "deployments", "fork", "skills", "generate_models"]) {
+    for (const name of [
+      "whoami",
+      "credits",
+      "deployments",
+      "fork",
+      "skills",
+      "generate_models",
+      "asset_inspect",
+    ]) {
       assert.strictEqual(byName.get(name)?.annotations?.readOnlyHint, true, name);
     }
 
     assert.strictEqual(byName.get("deployments_delete")?.annotations?.destructiveHint, true);
 
-    for (const name of ["generate", "generate_image", "deploy", "credits_redeem"]) {
+    for (const name of [
+      "generate",
+      "generate_image",
+      "deploy",
+      "credits_redeem",
+      "asset_optimize",
+    ]) {
       assert.strictEqual(byName.get(name)?.annotations?.readOnlyHint, false, name);
     }
   });

@@ -93,7 +93,7 @@ source → voice gain → bus (music | ambience | sfx | weapons | voice | ui)
 - **Loudness per family, measured after encoding.** Group files (weapons, UI,
   footsteps, voice, music, ambience), give each family a loudness target, and
   normalise to it after the final codec. Measure integrated LUFS and true peak
-  with ffmpeg (`references/qa-without-ears.md`).
+  with the hosted loudness meter (`references/qa-without-ears.md`).
 - **Music streams.** Long tracks play through an `<audio>` element routed with
   `createMediaElementSource`, never fully decoded into an `AudioBuffer`.
 - **Every file has a caller.** A file nothing plays is either wired up or

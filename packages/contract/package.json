@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./asset/asset-schema": "./src/asset/asset-schema.ts",
     "./auth/auth-limits": "./src/auth/auth-limits.ts",
     "./auth/oauth-scopes": "./src/auth/oauth-scopes.ts",
     "./base": "./src/base.ts",

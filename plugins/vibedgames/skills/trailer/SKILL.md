@@ -59,8 +59,14 @@ Log the answers, and any defaults you took, in `trailer/DECISIONS.md`.
 6. **Capture** each shot as code: scripted input, a seed, a director camera
    path, speed keys on the beat grid, frame-stepped to PNG or straight into
    ffmpeg.
-7. **Cut, mix, grade, title, render** with ffmpeg. Title is the game's own
-   logo placed in the world of its shot, not a sticker over the frame.
+7. **Grade and title in the engine** at capture (the grade is the game's own
+   post chain; the title is the game's logo placed in the world of its shot,
+   not a sticker over the frame), then **cut and mix hosted**: upload the
+   takes and stems and lay them on the grid with `fal-ai/ffmpeg-api/compose`
+   (one video track, any number of audio tracks, each keyframe a URL, a start
+   and a duration in ms), or join takes in order with
+   `fal-ai/ffmpeg-api/merge-videos` and lay the mix on with
+   `fal-ai/ffmpeg-api/merge-audio-video`.
 8. **Gate the cut** (`references/gates.md`), then get a fresh reviewer that
    didn't build it (`game-playbook` → `references/critic-loop.md`), then the
    person. Log their notes word for word.

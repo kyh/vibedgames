@@ -107,7 +107,15 @@ for (const [name, file] of Object.entries(clipFiles)) {
 actions.idle.play();
 ```
 
-Ship the clip files for their animation only: `gltf-transform` can strip their meshes and textures, or bake every clip into the rigged GLB once so the page loads one file.
+Better, bake every clip into the rigged GLB once so the page loads one file and one mesh, on vibedgames' servers:
+
+```bash
+vg asset merge-clips --model_url ./knight/idle.glb \
+  --clip_urls ./knight/idle.glb,./knight/attack.glb,./knight/death.glb \
+  --names idle,attack,death --keep_animations false --out public/models/knight.glb
+```
+
+Then `gltf.animations` holds `idle`, `attack` and `death`. To keep separate clip files instead, ship them for their animation only: `vg asset optimize --model_url ./knight/attack.glb --strip_meshes --out public/models/knight/attack.glb` drops their meshes and textures.
 
 ### 4. Validate rigged GLBs before wiring them in
 
@@ -145,15 +153,18 @@ Two more routes at this decision point:
   or uniform-scale the returned group — that moves the hinges.
 - Free **asset-kit GLBs** (e.g. Kenney kits) are the fastest fill for generic
   set dressing. Traps:
-  - Kit GLBs often reference an external per-kit colormap — embed it via a
-    gltf-transform read→write with `ALL_EXTENSIONS` (preserving
-    `KHR_texture_transform`) or the colors break on load.
+  - Kit GLBs often reference an external per-kit colormap — use the kit's
+    `.glb` export (texture embedded), not its `.gltf` + PNG pair, or the
+    colors break on load.
   - Colour lives in that shared colormap, so runtime `material.color`
-    **multiplies** — it can only darken. Recolours are baked variants:
-    `gltf-transform copy in.glb out.gltf`, edit the atlas, repack.
-  - Measure axes before placement: `npx @gltf-transform/cli inspect model.glb`.
-    Kenney streetlight arms run local −Z; Meshy vehicles/props face ±X
-    (yaw −π/2, scale by the length axis, ground at y=0).
+    **multiplies** — it can only darken. Recolours are baked variants: edit
+    a copy of the atlas image and swap it onto the material's `map` at load.
+  - Measure before placement: `vg asset inspect --model_url model.glb` reports
+    the size in metres, triangles, textures and clips. Kenney streetlight
+    arms run local −Z; Meshy vehicles/props face ±X — fix it once in the file
+    with `vg asset optimize --model_url car.glb --yaw_degrees -90 --size 4.5
+    --origin feet --out public/models/car.glb` (scale by the length axis,
+    ground at y=0) instead of per spawn.
   - Kits are authored at different scales (Kenney Car Kit ≈ 1.5×2.75 u, City
     Kit 1 u tiles, Mini Characters 0.67 u). Pick one kit as native and scale
     the others to it — never rescale the world per kit.

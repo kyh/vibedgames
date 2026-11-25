@@ -150,6 +150,7 @@ const contentTypeForPath = (file: string) => {
       bmp: "image/bmp",
       flac: "audio/flac",
       gif: "image/gif",
+      glb: "model/gltf-binary",
       jpeg: "image/jpeg",
       jpg: "image/jpeg",
       json: "application/json",

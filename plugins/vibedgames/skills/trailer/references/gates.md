@@ -24,7 +24,7 @@ montage drops the silence and equal-length rules.
 ## Motion
 
 - [ ] ≥ 6 legible, eased speed ramps; at most one long slow-motion beat.
-- [ ] 0% duplicated frames (`ffmpeg -vf mpdecimate` drops nothing).
+- [ ] 0% duplicated frames (no two equal frame hashes in a row at capture).
 - [ ] Every frame moves ≥ 1 px/frame at 1080p unless a hold pays off within
       0.3 s; the first frame after every cut moves too.
 - [ ] Hero inside 12–85% of frame height on every follow frame (from the
@@ -59,16 +59,38 @@ montage drops the silence and equal-length rules.
 
 ## Measuring
 
+Hosted, with nothing to install:
+
 ```bash
-# loudness and true peak on the delivered file
-ffmpeg -i master.mp4 -af ebur128=peak=true -f null - 2>&1 | tail -12
-# scene cuts with timestamps
+URL=$(vg generate upload master.mp4 --field url)
+# frame count, fps, duration, resolution, codec: the delivery gates
+vg generate run fal-ai/ffmpeg-api/metadata --media_url "$URL" --field result.media
+# loudness and true peak of the delivered mix
+AUDIO=$(vg generate run fal-ai/workflow-utilities/extract-audio --video_url "$URL" --field result.audio.url)
+vg generate run fal-ai/ffmpeg-api/loudnorm --audio_url "$AUDIO" --print_summary true --field result.summary
+# first, middle or last frame for a still check
+vg generate run fal-ai/ffmpeg-api/extract-frame --video_url "$URL" --frame_type last --download ./trailer/checks/
+```
+
+Check `vg generate schema <id>` before the first call; field names are the
+schema's, not guesses.
+
+From the capture itself, which already holds every frame:
+
+- **Duplicated frames**: hash each PNG buffer in `capture-take.mjs` as it is
+  written (`crypto.createHash("sha1")`) and fail the take on two equal
+  hashes in a row.
+- **Cut times** are `shots.json`'s; measure sync against `grid.json`, not
+  against a scene detector.
+- **Holes and onsets**: measure the mix where it is built, the way the
+  `audio` skill measures a run (`references/qa-without-ears.md`).
+
+Frame-accurate probes on the delivered file (scene detection, silence
+detection, a frame by index) have no hosted endpoint yet. Where ffmpeg is
+already installed:
+
+```bash
 ffmpeg -i master.mp4 -vf "select='gt(scene,0.3)',showinfo" -f null - 2>&1 | grep pts_time
-# audio onsets: use a beat/onset tracker on the mix, or the silencedetect filter for holes
 ffmpeg -i master.mp4 -af silencedetect=noise=-40dB:d=0.3 -f null - 2>&1 | grep silence_
-# duplicated frames: frames kept by mpdecimate vs total (equal means none dropped)
-ffprobe -v error -count_frames -select_streams v:0 -show_entries stream=nb_read_frames -of csv=p=0 master.mp4
-ffmpeg -i master.mp4 -vf mpdecimate -f null - 2>&1 | grep -oE "frame= *[0-9]+" | tail -1
-# frame by index for a still check
 ffmpeg -i master.mp4 -vf "select=eq(n\,1548)" -vframes 1 f1548.png
 ```
