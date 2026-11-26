@@ -1,5 +1,6 @@
 import type { Connection, ConnectionContext } from "partyserver";
 import { getServerByName, routePartykitRequest, Server } from "partyserver";
+import { runInOrder } from "@repo/contract/run-in-order";
 
 import type {
   ClaimMap,
@@ -26,6 +27,7 @@ import {
   MAX_ROOM_META_CHARS,
   MAX_TICK_HISTORY,
   MAX_TICK_RATE,
+  parseJson,
   PING_INTERVAL_MS,
   RECONNECT_GRACE_MS,
   readPatch,
@@ -45,7 +47,8 @@ interface StateMap {
   [key: string]: JsonValue;
 }
 
-const isJsonString = (value: JsonValue | undefined): value is string => String(value) === value;
+const isJsonString = (value: JsonValue | undefined): value is string =>
+  Object.prototype.toString.call(value) === "[object String]";
 
 const isJsonNumber = (value: JsonValue | undefined): value is number => Number.isFinite(value);
 
@@ -99,7 +102,7 @@ const decodeRoomMessage: (
   type: JsonValue | undefined,
   data: StateMap | undefined,
 ) => IncomingMessage = (type, data) => {
-  if (!data) {
+  if (!data || !isJsonString(type)) {
     return { type: "unrecognized" };
   }
 
@@ -162,11 +165,16 @@ const decodeIncoming: (raw: JsonValue) => IncomingMessage = (raw) => {
   }
 
   const data = asStateMap(message.data);
+  const { type } = message;
 
-  switch (message.type) {
+  if (!isJsonString(type)) {
+    return { type: "unrecognized" };
+  }
+
+  switch (type) {
     case "state_patch":
     case "player_state_patch": {
-      return { data: message.data, type: message.type };
+      return { data: message.data, type };
     }
 
     case "emit": {
@@ -187,11 +195,11 @@ const decodeIncoming: (raw: JsonValue) => IncomingMessage = (raw) => {
 
     case "heartbeat":
     case "pong": {
-      return { type: message.type };
+      return { type };
     }
 
     default: {
-      return decodeRoomMessage(message.type, data);
+      return decodeRoomMessage(type, data);
     }
   }
 };
@@ -410,7 +418,7 @@ const readRoomRules = (ctx: ConnectionContext) => {
   let parsed: JsonValue;
 
   try {
-    parsed = JSON.parse(raw) as JsonValue;
+    parsed = parseJson(raw);
   } catch {
     return null;
   }
@@ -555,19 +563,13 @@ export class VgServer extends Server {
   }
 
   private connectionOf(id: string) {
-    for (const connection of this.getConnections<Presence>()) {
-      if (connection.id === id && connection.state) {
-        return connection;
-      }
-    }
+    return [...this.getConnections<Presence>()].find(
+      (connection) => connection.id === id && connection.state !== null,
+    );
   }
 
   private graceById(id: string) {
-    for (const entry of this.grace.values()) {
-      if (entry.id === id) {
-        return entry;
-      }
-    }
+    return [...this.grace.values()].find((entry) => entry.id === id);
   }
 
   private async consumeGrace(entry: GraceEntry) {
@@ -862,7 +864,7 @@ export class VgServer extends Server {
         return;
       }
 
-      const message = decodeIncoming(JSON.parse(rawMessage));
+      const message = decodeIncoming(parseJson(rawMessage));
 
       switch (message.type) {
         case "player_state_patch": {
@@ -936,9 +938,15 @@ export class VgServer extends Server {
           break;
         }
 
-        default: {
+        case "unrecognized": {
           VgServer.touch(sender, true);
           break;
+        }
+
+        default: {
+          const exhaustive: never = message;
+
+          throw new Error(`Unhandled message ${JSON.stringify(exhaustive)}`);
         }
       }
     } catch (error) {
@@ -1443,7 +1451,7 @@ export class VgServer extends Server {
       return;
     }
 
-    this.schedule(sender.id, input === null ? false : input, n);
+    this.schedule(sender.id, input ?? false, n);
   }
 
   private markRoomDirty() {
@@ -1586,17 +1594,17 @@ export class VgServer extends Server {
       }
     }
 
-    for (const connection of stale) {
+    await runInOrder(stale, async (connection) => {
       closeIdle(connection);
       await this.removePlayer(connection);
-    }
+    });
 
     const lapsed = [...this.grace.values()].filter((entry) => entry.expiresAt <= now);
 
-    for (const entry of lapsed) {
+    await runInOrder(lapsed, async (entry) => {
       await this.consumeGrace(entry);
       await this.announceDeparture(entry.id);
-    }
+    });
 
     this.expireClaims(now);
     await this.scheduleSweep();
@@ -1763,7 +1771,7 @@ export default {
     }
 
     return (
-      (await routePartykitRequest(request, env, { cors: true })) ||
+      (await routePartykitRequest(request, env, { cors: true })) ??
       new Response("Not Found", { status: 404 })
     );
   },

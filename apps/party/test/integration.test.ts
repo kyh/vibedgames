@@ -5,8 +5,8 @@ import { after, before, test } from "node:test";
 import { setImmediate as nextTask, setTimeout as delay } from "node:timers/promises";
 import { isDeepStrictEqual } from "node:util";
 
+import { repeatWhile, runInOrder } from "@repo/contract/run-in-order";
 import { Miniflare } from "miniflare";
-import type { MiniflareOptions } from "miniflare";
 import { z } from "zod";
 
 import type { MultiplayerClientOptions } from "@vibedgames/multiplayer";
@@ -16,6 +16,7 @@ import {
   MAX_TICK_HISTORY,
   MAX_TICK_RATE,
   MultiplayerClient,
+  parseJson,
   quickMatch,
 } from "@vibedgames/multiplayer";
 
@@ -35,26 +36,25 @@ const BuiltWorkerSchema = z.object({
   manifest: z.object({ mainModule: z.string() }),
 });
 
+const built = BuiltWorkerSchema.parse(
+  JSON.parse(await readFile(path.join(OUTPUT, "worker.config.json"), "utf-8")),
+);
+
+const workerOptions = {
+  compatibilityDate: built.compatibilityDate,
+  compatibilityFlags: built.compatibilityFlags,
+  d1Databases: { DB: "vibedgames" },
+  durableObjects: { VgLobby: "VgLobby", VgServer: "VgServer" },
+  modules: true,
+  scriptPath: path.join(OUTPUT, "bundle", built.manifest.mainModule),
+};
+
 let miniflare: Miniflare;
-let miniflareOptions: MiniflareOptions;
 let worker: URL;
 
 before(async () => {
-  const built = BuiltWorkerSchema.parse(
-    JSON.parse(await readFile(path.join(OUTPUT, "worker.config.json"), "utf-8")),
-  );
-
-  miniflareOptions = {
-    compatibilityDate: built.compatibilityDate,
-    compatibilityFlags: built.compatibilityFlags,
-    d1Databases: { DB: "vibedgames" },
-    durableObjects: { VgLobby: "VgLobby", VgServer: "VgServer" },
-    modules: true,
-    scriptPath: path.join(OUTPUT, "bundle", built.manifest.mainModule),
-  };
-  miniflare = new Miniflare(miniflareOptions);
+  miniflare = new Miniflare(workerOptions);
   worker = await miniflare.ready;
-  miniflareOptions = { ...miniflareOptions, port: Number(worker.port) };
 });
 
 after(async () => {
@@ -72,13 +72,19 @@ const uniqueRoom = (label: string) => {
 const waitFor = async (predicate: () => boolean, label: string, timeoutMs = 10_000) => {
   const deadline = Date.now() + timeoutMs;
 
-  while (!predicate()) {
+  await repeatWhile(async () => {
+    if (predicate()) {
+      return false;
+    }
+
     if (Date.now() > deadline) {
       throw new Error(`timed out after ${timeoutMs}ms waiting for: ${label}`);
     }
 
     await delay(25);
-  }
+
+    return true;
+  });
 };
 
 const connect = (
@@ -98,13 +104,19 @@ const connect = (
 const eventually = async (check: () => Promise<boolean>, label: string, timeoutMs = 10_000) => {
   const deadline = Date.now() + timeoutMs;
 
-  while (!(await check())) {
+  await repeatWhile(async () => {
+    if (await check()) {
+      return false;
+    }
+
     if (Date.now() > deadline) {
       throw new Error(`timed out after ${timeoutMs}ms waiting for: ${label}`);
     }
 
     await delay(50);
-  }
+
+    return true;
+  });
 };
 
 const roomInfo = async (room: string) => {
@@ -167,8 +179,18 @@ test("host state_patch propagates to guests; non-host writes are dropped", async
   const room = uniqueRoom("shared-state");
   const eventsA: string[] = [];
   const eventsB: string[] = [];
-  const clientA = connect(room, { onEvent: (event) => eventsA.push(event) });
-  const clientB = connect(room, { onEvent: (event) => eventsB.push(event) });
+
+  const clientA = connect(room, {
+    onEvent: (event) => {
+      eventsA.push(event);
+    },
+  });
+
+  const clientB = connect(room, {
+    onEvent: (event) => {
+      eventsB.push(event);
+    },
+  });
 
   try {
     await waitFor(() => admitted(clientA) && admitted(clientB), "both clients admitted");
@@ -220,7 +242,8 @@ interface JsonRecord {
   [key: string]: JsonValue;
 }
 
-const isJsonString = (value: JsonValue | undefined): value is string => String(value) === value;
+const isJsonString = (value: JsonValue | undefined): value is string =>
+  Object.prototype.toString.call(value) === "[object String]";
 
 const toRecord = (value: JsonValue | undefined) => {
   if (!(value instanceof Object) || Array.isArray(value)) {
@@ -236,7 +259,7 @@ interface WireMessage {
 }
 
 const parseWireMessage = (raw: string) => {
-  const record = toRecord(JSON.parse(raw));
+  const record = toRecord(parseJson(raw));
   const { type } = record;
 
   if (!isJsonString(type)) {
@@ -273,10 +296,10 @@ class RawClient {
       this.closeCode = event.code;
     });
     this.ws.addEventListener("message", (event) => {
-      const text = event.data;
+      const text = z.string().safeParse(event.data);
 
-      if (String(text) === text) {
-        const message = parseWireMessage(text);
+      if (text.success) {
+        const message = parseWireMessage(text.data);
 
         if (message.type === "ping") {
           this.ws.send(JSON.stringify({ type: "pong" }));
@@ -401,7 +424,7 @@ const summary = (message: WireMessage) => {
   if (message.type === "event") {
     const { event, payload } = toRecord(message.data);
 
-    return `event ${String(event)} ${JSON.stringify(payload)}`;
+    return `event ${isJsonString(event) ? event : JSON.stringify(event)} ${JSON.stringify(payload)}`;
   }
 
   if (message.type === "player_state") {
@@ -506,17 +529,20 @@ test("over a run of writes, a guest and a late joiner hold exactly the host's st
       return seed / 2_147_483_648;
     };
 
-    for (let round = 1; round <= 60; round += 1) {
-      writer.updateSharedState((prev) => worldStep(prev, roll, round));
+    await runInOrder(
+      Array.from({ length: 60 }, (_, index) => index + 1),
+      async (round) => {
+        writer.updateSharedState((prev) => worldStep(prev, roll, round));
 
-      if (roll() < 0.4) {
-        writer.updateSharedState({ [`k${round % 3}`]: roll() < 0.5 ? { at: round } : [round] });
-      }
+        if (roll() < 0.4) {
+          writer.updateSharedState({ [`k${round % 3}`]: roll() < 0.5 ? { at: round } : [round] });
+        }
 
-      if (round % 4 === 0) {
-        await nextTask();
-      }
-    }
+        if (round % 4 === 0) {
+          await nextTask();
+        }
+      },
+    );
 
     await waitFor(
       () => isDeepStrictEqual(reader.sharedState, writer.sharedState),
@@ -557,12 +583,27 @@ test("a shared write made before admission reaches the room once it is in", asyn
 
 test("targeted events reach exactly their audience", async () => {
   const room = uniqueRoom("targeting");
-  const eventsA: string[] = [];
-  const eventsB: string[] = [];
-  const eventsC: string[] = [];
-  const clientA = connect(room, { onEvent: (event) => eventsA.push(event) });
-  const clientB = connect(room, { onEvent: (event) => eventsB.push(event) });
-  const clientC = connect(room, { onEvent: (event) => eventsC.push(event) });
+  const eventsA = new Set<string>();
+  const eventsB = new Set<string>();
+  const eventsC = new Set<string>();
+
+  const clientA = connect(room, {
+    onEvent: (event) => {
+      eventsA.add(event);
+    },
+  });
+
+  const clientB = connect(room, {
+    onEvent: (event) => {
+      eventsB.add(event);
+    },
+  });
+
+  const clientC = connect(room, {
+    onEvent: (event) => {
+      eventsC.add(event);
+    },
+  });
 
   try {
     await waitFor(
@@ -576,28 +617,23 @@ test("targeted events reach exactly their audience", async () => {
     clientA.sendEvent("secret", null, { to: [bId] });
     clientA.sendEvent("fence-to", null);
     await waitFor(
-      () =>
-        eventsA.includes("fence-to") &&
-        eventsB.includes("fence-to") &&
-        eventsC.includes("fence-to"),
+      () => eventsA.has("fence-to") && eventsB.has("fence-to") && eventsC.has("fence-to"),
       "fence after to-targeted event reached everyone",
     );
-    assert.ok(eventsB.includes("secret"), "targeted recipient got the event");
-    assert.ok(!eventsA.includes("secret"), "sender not in `to` list is excluded");
-    assert.ok(!eventsC.includes("secret"), "bystander is excluded");
+    assert.ok(eventsB.has("secret"), "targeted recipient got the event");
+    assert.ok(!eventsA.has("secret"), "sender not in `to` list is excluded");
+    assert.ok(!eventsC.has("secret"), "bystander is excluded");
 
     clientA.sendEvent("boom", null, { except: [cId] });
     clientA.sendEvent("fence-except", null);
     await waitFor(
       () =>
-        eventsA.includes("fence-except") &&
-        eventsB.includes("fence-except") &&
-        eventsC.includes("fence-except"),
+        eventsA.has("fence-except") && eventsB.has("fence-except") && eventsC.has("fence-except"),
       "fence after except-targeted event reached everyone",
     );
-    assert.ok(eventsA.includes("boom"), "sender receives its own except-broadcast");
-    assert.ok(eventsB.includes("boom"), "unexcluded peer receives it");
-    assert.ok(!eventsC.includes("boom"), "excepted peer is excluded");
+    assert.ok(eventsA.has("boom"), "sender receives its own except-broadcast");
+    assert.ok(eventsB.has("boom"), "unexcluded peer receives it");
+    assert.ok(!eventsC.has("boom"), "excepted peer is excluded");
   } finally {
     clientA.destroy();
     clientB.destroy();
@@ -614,10 +650,26 @@ test("sendToHost reaches the host alone, and the host handles its own at once", 
   const heardA: [string, string][] = [];
   const heardB: [string, string][] = [];
   const heardC: [string, string][] = [];
-  const clientA = connect(room, { onEvent: (event, _payload, from) => heardA.push([event, from]) });
+
+  const clientA = connect(room, {
+    onEvent: (event, _payload, from) => {
+      heardA.push([event, from]);
+    },
+  });
+
   await waitFor(() => admitted(clientA), "A admitted first, so A hosts");
-  const clientB = connect(room, { onEvent: (event, _payload, from) => heardB.push([event, from]) });
-  const clientC = connect(room, { onEvent: (event, _payload, from) => heardC.push([event, from]) });
+
+  const clientB = connect(room, {
+    onEvent: (event, _payload, from) => {
+      heardB.push([event, from]);
+    },
+  });
+
+  const clientC = connect(room, {
+    onEvent: (event, _payload, from) => {
+      heardC.push([event, from]);
+    },
+  });
 
   try {
     await waitFor(() => admitted(clientB) && admitted(clientC), "guests admitted");
@@ -657,7 +709,9 @@ test("coalesced events collapse to the latest payload and never trail the state 
     const arrivals: string[] = [];
 
     const clientB = connect(room, {
-      onEvent: (event, payload) => arrivals.push(`event:${event}:${JSON.stringify(payload)}`),
+      onEvent: (event, payload) => {
+        arrivals.push(`event:${event}:${JSON.stringify(payload)}`);
+      },
     });
 
     const unsubscribe = clientB.subscribe(() => {
@@ -742,7 +796,7 @@ test("a page that unloads (1001) leaves at once: nothing can reclaim its seat", 
     const query = new URLSearchParams({ _pk: rawId, _reconnectToken: `tok-away-${process.pid}` });
 
     const response = await miniflare.dispatchFetch(
-      `http://localhost/parties/vg-server/${room}?${query}`,
+      `http://localhost/parties/vg-server/${room}?${query.toString()}`,
       { headers: { Upgrade: "websocket" } },
     );
 
@@ -807,7 +861,13 @@ test("time probes give every client the server's clock", async () => {
 test("claims go to the first claimer; the loser hears the owner; release, clear and TTL free them", async () => {
   const room = uniqueRoom("claims");
   const heardByA: [string, string | null][] = [];
-  const clientA = connect(room, { onClaim: (key, owner) => heardByA.push([key, owner]) });
+
+  const clientA = connect(room, {
+    onClaim: (key, owner) => {
+      heardByA.push([key, owner]);
+    },
+  });
+
   await waitFor(() => admitted(clientA), "A admitted first (host)");
   const clientB = connect(room);
 
@@ -845,7 +905,12 @@ test("claims go to the first claimer; the loser hears the owner; release, clear 
     await waitFor(() => !("brief" in clientA.claims), "the server announces the lapse");
 
     const heardByLate: [string, string | null][] = [];
-    const late = connect(room, { onClaim: (key, owner) => heardByLate.push([key, owner]) });
+
+    const late = connect(room, {
+      onClaim: (key, owner) => {
+        heardByLate.push([key, owner]);
+      },
+    });
 
     try {
       await waitFor(() => admitted(late), "late joiner admitted");
@@ -959,7 +1024,14 @@ test("tick rooms: inputs land on numbered ticks, in order, held across a late jo
 test("a client back from a transport blip replays the ticks it missed, and its input resumes", async () => {
   const room = uniqueRoom("tick-replay");
   const seen: number[] = [];
-  const client = connect(room, { onTick: (tick) => seen.push(tick.n), tickRate: 30 });
+
+  const client = connect(room, {
+    onTick: (tick) => {
+      seen.push(tick.n);
+    },
+    tickRate: 30,
+  });
+
   let observer: RawClient | null = null;
 
   try {
@@ -969,23 +1041,17 @@ test("a client back from a transport blip replays the ticks it missed, and its i
     client.sendInput("left");
     await waitFor(() => client.tickInputs()?.[me] === "left", "input held");
 
-    // oxlint-disable-next-line anti-slop/no-reflect-get -- a test simulating a network blip on the SDK's private socket
-    const socket: { close: (code: number) => void; reconnect: () => void } = Reflect.get(
-      client,
-      "socket",
-    );
-
     const watcher = new RawClient(room, { _pk: `replay-obs-${process.pid}` });
     observer = watcher;
     await waitFor(() => watcher.synced(), "observer synced");
 
-    socket.close(4000);
+    client.dropConnection();
     await waitFor(() => client.connectionStatus === "reconnecting", "transport down");
     const away = seen.length;
     const watched = watcher.received("tick").length;
     await waitFor(() => watcher.received("tick").length >= watched + 12, "the room ticked on");
     assert.equal(seen.length, away, "no ticks while away");
-    socket.reconnect();
+    client.redial();
     await waitFor(() => admitted(client) && seen.length > away + 12, "back, and caught up");
 
     for (let i = 1; i < seen.length; i += 1) {
@@ -1013,13 +1079,7 @@ test("a client back from a drop sends the latest of each stream once, not every 
     observer = watching;
     await waitFor(() => watching.synced(), "observer synced");
 
-    // oxlint-disable-next-line anti-slop/no-reflect-get -- a test simulating a network blip on the SDK's private socket
-    const socket: { close: (code: number) => void; reconnect: () => void } = Reflect.get(
-      host,
-      "socket",
-    );
-
-    socket.close(4000);
+    host.dropConnection();
     await waitFor(() => host.connectionStatus === "reconnecting", "transport down");
 
     for (let frame = 1; frame <= 60; frame += 1) {
@@ -1029,7 +1089,7 @@ test("a client back from a drop sends the latest of each stream once, not every 
     }
 
     const from = watching.messages.length;
-    socket.reconnect();
+    host.redial();
 
     const since = (type: string) =>
       watching.messages
@@ -1135,7 +1195,7 @@ test("a room's world and claims survive a server restart, and its host re-sends 
     host.updateSharedState({ level: 4 });
     await waitFor(() => guest.sharedState.level === 4, "guest sees the newest world");
 
-    await miniflare.setOptions(miniflareOptions);
+    await miniflare.setOptions({ ...workerOptions, port: Number(worker.port) });
     await waitFor(() => drops > 0, "the restart dropped the guest");
     await waitFor(() => admitted(host) && admitted(guest), "both reconnected");
 
@@ -1201,7 +1261,13 @@ test("a room's rules come from its first client, even when that client sets none
 test("reserved claim keys are refused, so every client's claim map agrees", async () => {
   const room = uniqueRoom("claim-reserved");
   const heard: [string, string | null][] = [];
-  const observer = connect(room, { onClaim: (key, owner) => heard.push([key, owner]) });
+
+  const observer = connect(room, {
+    onClaim: (key, owner) => {
+      heard.push([key, owner]);
+    },
+  });
+
   await waitFor(() => admitted(observer), "observer admitted");
   const raw = new RawClient(room, { _pk: `proto-${process.pid}` });
 
@@ -1228,7 +1294,13 @@ test("reserved claim keys are refused, so every client's claim map agrees", asyn
 test("a claim whose ttl isn't positive is refused, not held for good", async () => {
   const room = uniqueRoom("claim-ttl");
   const heard: [string, string | null][] = [];
-  const observer = connect(room, { onClaim: (key, owner) => heard.push([key, owner]) });
+
+  const observer = connect(room, {
+    onClaim: (key, owner) => {
+      heard.push([key, owner]);
+    },
+  });
+
   await waitFor(() => admitted(observer), "observer admitted");
   const raw = new RawClient(room, { _pk: `ttl-${process.pid}` });
 
@@ -1396,7 +1468,12 @@ test("goOffline leaves the room at once and plays on alone from the room's world
   const host = connect(room);
   await waitFor(() => admitted(host), "host admitted first");
   const heard: string[] = [];
-  const guest = connect(room, { onEvent: (event) => heard.push(event) });
+
+  const guest = connect(room, {
+    onEvent: (event) => {
+      heard.push(event);
+    },
+  });
 
   try {
     assert.equal(guest.connectionStatus, "connecting", "not admitted yet");
@@ -1415,7 +1492,8 @@ test("goOffline leaves the room at once and plays on alone from the room's world
     guest.updateSharedState({ level: 3 });
     guest.sendEvent("ping", 1);
     assert.deepEqual(heard, ["ping"], "its own events loop back");
-    await delay(200);
+    host.claim("fence");
+    await waitFor(() => host.ownerOf("fence") === host.playerId, "the room answered a later write");
     assert.equal(host.sharedState.level, 2, "nothing it writes offline reaches the room");
   } finally {
     host.destroy();
@@ -1579,11 +1657,11 @@ test("quick match fills one room before opening another, and skips a locked one"
     assert.notEqual(third, first, "a full room sends the third to a new one");
     assert.ok(first.startsWith(`${lobby}-`), "a new room is named after its lobby");
 
-    for (const room of [first, first, third]) {
+    await runInOrder([first, first, third], async (room) => {
       const client = connect(room, { lobby, maxPlayers: 2 });
       clients.push(client);
       await waitFor(() => admitted(client), `admitted to ${room}`);
-    }
+    });
 
     await eventually(async () => {
       const rooms = await listRooms(options);

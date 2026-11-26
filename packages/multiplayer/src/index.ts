@@ -84,4 +84,9 @@ export type {
   StandardSchemaResult,
 } from "./validation.js";
 
-export { findStructuralIssue, MAX_MESSAGE_BYTES, MAX_STATE_DEPTH } from "./validation.js";
+export {
+  findStructuralIssue,
+  MAX_MESSAGE_BYTES,
+  MAX_STATE_DEPTH,
+  parseJson,
+} from "./validation.js";

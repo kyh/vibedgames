@@ -13,6 +13,7 @@
     "with-env": "dotenv -e ../../.env --"
   },
   "dependencies": {
+    "@repo/contract": "workspace:^",
     "@vibedgames/multiplayer": "workspace:^"
   },
   "devDependencies": {

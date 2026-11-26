@@ -1,7 +1,7 @@
 import { Server } from "partyserver";
 
 import type { JsonValue, RoomListing } from "@vibedgames/multiplayer";
-import { MAX_ROOM_CAP } from "@vibedgames/multiplayer";
+import { MAX_ROOM_CAP, parseJson } from "@vibedgames/multiplayer";
 
 /** How a room stands, as it reports itself to its lobby. */
 export type RoomReport = Omit<RoomListing, "room">;
@@ -21,7 +21,7 @@ const readCapacity = (body: string) => {
   let cap: JsonValue | undefined;
 
   try {
-    const parsed = JSON.parse(body) as JsonValue;
+    const parsed = parseJson(body);
     cap = parsed instanceof Object && !Array.isArray(parsed) ? parsed.maxPlayers : undefined;
   } catch {
     return null;

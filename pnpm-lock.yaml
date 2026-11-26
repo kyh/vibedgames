@@ -455,6 +455,9 @@ importers:
 
   apps/party:
     dependencies:
+      '@repo/contract':
+        specifier: workspace:^
+        version: link:../../packages/contract
       '@vibedgames/multiplayer':
         specifier: workspace:^
         version: link:../../packages/multiplayer

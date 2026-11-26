@@ -77,7 +77,7 @@ export default defineConfig({
     ],
     "landmines-testing/no-fixed-sleep": [
       "error",
-      { allow: { "apps/party/test/integration.test.ts": 2 } },
+      { allow: { "apps/party/test/integration.test.ts": 1 } },
     ],
     "no-use-before-define": ["error", { functions: false, variables: false }],
   },
