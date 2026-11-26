@@ -285,6 +285,9 @@ importers:
       '@libsql/client':
         specifier: ^0.18.0
         version: 0.18.0
+      '@repo/contract':
+        specifier: workspace:*
+        version: link:packages/contract
       '@types/node':
         specifier: 'catalog:'
         version: 26.6.6
@@ -303,6 +306,9 @@ importers:
       oxlint-tsgolint:
         specifier: ^7.0.2008
         version: 7.0.2008
+      playwright-core:
+        specifier: ^1.65.1
+        version: 1.65.1
       tsx:
         specifier: ^4.23.15
         version: 4.23.15
@@ -315,6 +321,9 @@ importers:
       ultracite:
         specifier: ^8.3.1
         version: 8.3.1(oxfmt@0.73.0)(oxlint@1.94.0(oxlint-tsgolint@7.0.2008))(prettier@3.9.9)
+      zod:
+        specifier: 'catalog:'
+        version: 4.6.7
 
   apps/cli:
     devDependencies:

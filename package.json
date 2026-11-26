@@ -46,16 +46,19 @@
   "devDependencies": {
     "@interfere/landmines": "^0.1.1",
     "@libsql/client": "^0.18.0",
+    "@repo/contract": "workspace:*",
     "@types/node": "catalog:",
     "better-auth": "1.7.2",
     "dotenv-cli": "^11.1.0",
     "oxfmt": "^0.73.0",
     "oxlint": "^1.94.0",
     "oxlint-tsgolint": "^7.0.2008",
+    "playwright-core": "^1.65.1",
     "tsx": "^4.23.15",
     "turbo": "^2.11.13",
     "typescript": "catalog:",
-    "ultracite": "^8.3.1"
+    "ultracite": "^8.3.1",
+    "zod": "catalog:"
   },
   "engines": {
     "node": "24.x"
