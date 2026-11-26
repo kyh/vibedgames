@@ -94,8 +94,12 @@ export class JournalView {
     const frame = element("div", "farm-bag-frame");
     const nav = element("nav", "farm-bag-nav");
     nav.setAttribute("aria-label", "Bag pages");
-    this.inventoryButton = button("Inventory", () => this.selectPage("inventory"));
-    this.journalButton = button("Journal", () => this.selectPage("journal"));
+    this.inventoryButton = button("Inventory", () => {
+      this.selectPage("inventory");
+    });
+    this.journalButton = button("Journal", () => {
+      this.selectPage("journal");
+    });
     this.closeButton = button("Close", actions.close);
     this.closeButton.classList.add("farm-bag-close");
     nav.append(this.inventoryButton, this.journalButton, this.closeButton);
@@ -225,7 +229,7 @@ export class JournalView {
     this.scroll.replaceChildren(...sections);
   }
 
-  private onKeyDown = (event: KeyboardEvent) => {
+  private readonly onKeyDown = (event: KeyboardEvent) => {
     if (event.key.toLowerCase() === "m") {
       return;
     }
@@ -256,7 +260,7 @@ export class JournalView {
     }
   };
 
-  private onKeyUp = (event: KeyboardEvent) => {
+  private readonly onKeyUp = (event: KeyboardEvent) => {
     const key = event.key.toLowerCase();
 
     if (key === "escape" || key === "i") {

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @ts-check
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
@@ -17,19 +18,19 @@ main(() => {
     values: ["durations-ms", "flat-bg", "input-dir", "order", "out", "pattern"],
   });
 
-  const inputDir = getString(args, "input-dir");
-  const order = getString(args, "order");
-  const out = getString(args, "out");
+  const inputDir = getString(args, "input-dir") ?? "";
+  const order = getString(args, "order") ?? "";
+  const out = getString(args, "out") ?? "";
 
-  if (!inputDir) {
+  if (inputDir === "") {
     failUsage("--input-dir is required");
   }
 
-  if (!order) {
+  if (order === "") {
     failUsage("--order is required, e.g. --order 01,03,02,04");
   }
 
-  if (!out) {
+  if (out === "") {
     failUsage("--out is required");
   }
 
@@ -43,10 +44,10 @@ main(() => {
   }
 
   const pattern = getString(args, "pattern") ?? "frame-{id}.png";
-  const durationsSpec = getString(args, "durations-ms");
+  const durationsSpec = getString(args, "durations-ms") ?? "";
   let durations = null;
 
-  if (durationsSpec) {
+  if (durationsSpec !== "") {
     durations = durationsSpec
       .split(",")
       .map((part) => part.trim())
@@ -58,20 +59,20 @@ main(() => {
     }
   }
 
-  const flatBg = getString(args, "flat-bg");
+  const flatBg = getString(args, "flat-bg") ?? "";
 
   const frames = ids.map((id, i) => ({
-    delayMs: durations ? durations[i] : 120,
+    delayMs: durations?.[i] ?? 120,
     path: path.resolve(inputDir, pattern.replace("{id}", id)),
   }));
 
   let gif;
 
   try {
-    gif = buildSequenceGif(frames, flatBg ? parseColor(flatBg) : null);
+    gif = buildSequenceGif(frames, flatBg === "" ? null : parseColor(flatBg));
   } catch (error) {
-    if (error && error.code === "ENOENT") {
-      fail(`frame file not found: ${error.path}`);
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      fail(`frame file not found: ${"path" in error ? String(error.path) : "undefined"}`);
     }
 
     throw error;

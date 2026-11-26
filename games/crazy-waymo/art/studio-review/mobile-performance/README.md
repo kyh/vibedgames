@@ -52,10 +52,10 @@ After the safe-start and underpass camera fixes, a fresh 4× CPU run covered 224
 Run from `games/crazy-waymo`, with an HMR-disabled dev server and no competing rendering browser or heavy build:
 
 ```sh
-node tools/verify-mobile-performance.mjs 'http://localhost:5193/?time=noon&offline=1' /tmp/mobile-transition 4 8000 --transition
-node tools/verify-mobile-performance.mjs 'http://localhost:5193/?time=noon&offline=1' /tmp/mobile-adaptive 2,4 8000
-node tools/verify-mobile.mjs 'http://localhost:5193/?time=night&offline=1' /tmp/mobile-controls
-node tools/verify-mobile-performance.mjs 'http://localhost:5199/?time=noon&offline=1' /tmp/mobile-production 2 8000 --production
+node tools/verify-mobile-performance.mts 'http://localhost:5193/?time=noon&offline=1' /tmp/mobile-transition 4 8000 --transition
+node tools/verify-mobile-performance.mts 'http://localhost:5193/?time=noon&offline=1' /tmp/mobile-adaptive 2,4 8000
+node tools/verify-mobile.mts 'http://localhost:5193/?time=night&offline=1' /tmp/mobile-controls
+node tools/verify-mobile-performance.mts 'http://localhost:5199/?time=noon&offline=1' /tmp/mobile-production 2 8000 --production
 ```
 
 Each run owns and closes its headed browser. CDP stays attached for the entire emulation. The production check reads visible dashboard drawing and native touch input; it requires development hooks to be absent.

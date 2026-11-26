@@ -26,8 +26,10 @@ test("publishDiagnostics installs a live getter, not a copy", () => {
   assert.equal(target.__GAME_DIAGNOSTICS__?.frame, 7);
   publishDiagnostics(() => ({ ...state, frame: 99 }), target);
   assert.equal(target.__GAME_DIAGNOSTICS__?.frame, 99);
-  // oxlint-disable-next-line unicorn/prefer-structured-clone -- the JSON round trip is the thing under test
-  assert.equal(JSON.parse(JSON.stringify(target)).__GAME_DIAGNOSTICS__.frame, 99);
+  assert.equal(
+    JSON.stringify(target),
+    '{"__GAME_DIAGNOSTICS__":{"ball":{"x":0},"complete":false,"frame":99,"score":0}}',
+  );
 });
 
 test("publishTestHooks sets the global and hands the hooks back typed", () => {
@@ -63,9 +65,10 @@ test("publishPlaytest accepts a manifest with a typed reflex and publishes it", 
 
   assert.equal(publishPlaytest(manifest, target), manifest);
   assert.equal(target.__GAME_PLAYTEST__?.goal, "Return every ball.");
-  // oxlint-disable-next-line unicorn/prefer-structured-clone -- structuredClone throws on the reflex; JSON dropping it is the point
-  const wire = JSON.parse(JSON.stringify(target.__GAME_PLAYTEST__));
-  assert.deepEqual(Object.keys(wire.move.track_ball), ["description"]);
+  assert.equal(
+    JSON.stringify(target.__GAME_PLAYTEST__?.move.track_ball),
+    '{"description":"Follow the ball"}',
+  );
 });
 
 test("publishPlaytest rejects what `vg playtest run` would reject, naming the option", () => {

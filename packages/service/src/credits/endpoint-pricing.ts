@@ -60,7 +60,7 @@ const priceEntry = z
   .looseObject({
     endpoint_id: z.string(),
     unit: z.string().nullable().catch(null),
-    unit_price: z.number().finite(),
+    unit_price: z.number(),
   })
   .nullable()
   .catch(null);
@@ -103,7 +103,7 @@ const readPrice: (
   return { kind: "priced", unit: price.unit, unitPriceMicro: usdToMicro(price.unit_price) };
 };
 
-const estimatePayload = z.looseObject({ total_cost: z.number().finite() });
+const estimatePayload = z.looseObject({ total_cost: z.number() });
 
 const readEstimate = (answer: PromiseSettledResult<PlatformAnswer>) => {
   if (answer.status === "rejected" || !answer.value.ok) {

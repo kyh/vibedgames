@@ -148,15 +148,9 @@ export class World {
     this.banners = buildLandmarks(this);
   }
 
-  // oxlint-disable-next-line class-methods-use-this -- part of the world's public query surface
-  toTile(world: number) {
-    return toTile(world);
-  }
+  toTile = toTile;
 
-  // oxlint-disable-next-line class-methods-use-this -- part of the world's public query surface
-  center(tile: number) {
-    return tileCenter(tile);
-  }
+  center = tileCenter;
 
   heightAt = terrainHeight;
 
@@ -324,7 +318,7 @@ export class World {
 
   private buildWater() {
     if (!this.tiles.includes(TILE.WATER)) {
-      return;
+      return null;
     }
 
     const normal = makeWaterNormalTexture();

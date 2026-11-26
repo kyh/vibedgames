@@ -67,7 +67,7 @@ const specificityOf = (type: string, subtype: string) => {
 
 /** Parse an `Accept` header into entries. Malformed entries are skipped. */
 export const parseAccept = (header: string | null | undefined) => {
-  if (!header) {
+  if (header === undefined || header === null || header === "") {
     return [];
   }
 
@@ -77,13 +77,13 @@ export const parseAccept = (header: string | null | undefined) => {
     const [mediaRange, ...params] = raw.split(";");
     const media = mediaRange?.trim().toLowerCase();
 
-    if (!media) {
+    if (media === undefined || media === "") {
       continue;
     }
 
     const [type, subtype] = media.split("/");
 
-    if (!(type && subtype)) {
+    if (!(type !== undefined && type !== "" && subtype !== undefined && subtype !== "")) {
       continue;
     }
 
@@ -178,16 +178,29 @@ export const prefersMarkdown = (request: Request) => {
   return result.kind === "match" && result.type === MARKDOWN;
 };
 
+/** Response headers: `defaults`, each overridden by the same header in `overrides`. */
+export const mergeHeaders = (defaults: Record<string, string>, overrides?: HeadersInit) => {
+  const headers = new Headers(defaults);
+
+  for (const [key, value] of new Headers(overrides)) {
+    headers.set(key, value);
+  }
+
+  return headers;
+};
+
 export const markdownResponse = (body: string, init: ResponseInit = {}) =>
   new Response(body, {
     status: 200,
     ...init,
-    headers: {
-      "Cache-Control": "public, max-age=300",
-      "Content-Type": "text/markdown; charset=utf-8",
-      Vary: VARY,
-      ...init.headers,
-    },
+    headers: mergeHeaders(
+      {
+        "Cache-Control": "public, max-age=300",
+        "Content-Type": "text/markdown; charset=utf-8",
+        Vary: VARY,
+      },
+      init.headers,
+    ),
   });
 
 /**

@@ -39,7 +39,7 @@ export interface Skill {
  */
 export type McpContext = ORPCContext & { skills: readonly Skill[]; taskMode?: boolean };
 
-const asTool = <T extends AnyProcedure>(procedure: T, meta: McpToolMeta) =>
+const asTool = (procedure: AnyProcedure, meta: McpToolMeta) =>
   new DecoratedProcedure(procedure["~orpc"]).meta(mcp.tool(meta));
 
 const readOnly = { openWorldHint: false, readOnlyHint: true } as const;
@@ -67,10 +67,10 @@ const generateTool = tool.meta(requiresScope("generate"));
 
 type ModelInput = Record<string, JsonValue>;
 
-const runModel = (context: McpContext, endpoint: string, body: ModelInput, wait: number) =>
-  call(
+const runModel = async (context: McpContext, endpoint: string, body: ModelInput, wait: number) =>
+  await call(
     appRouter.generate.run,
-    { endpoint_id: endpoint, input: body, wait_seconds: context.taskMode ? 0 : wait },
+    { endpoint_id: endpoint, input: body, wait_seconds: context.taskMode === true ? 0 : wait },
     { context },
   );
 
@@ -86,8 +86,9 @@ const generateTools = {
       }),
     )
     .input(runInput)
-    .handler(({ context, input }) =>
-      runModel(context, input.endpoint_id, input.input, input.wait_seconds),
+    .handler(
+      async ({ context, input }) =>
+        await runModel(context, input.endpoint_id, input.input, input.wait_seconds),
     ),
 
   generate_docs: asTool(appRouter.generate.docs, {
@@ -138,7 +139,7 @@ const generateTools = {
   }),
 };
 
-const waitFor = (context: McpContext, wait: number) => (context.taskMode ? 0 : wait);
+const waitFor = (context: McpContext, wait: number) => (context.taskMode === true ? 0 : wait);
 
 /** The tools that queue a generation, which a client with the tasks extension gets back as a task. */
 export const TASK_TOOLS: ReadonlySet<string> = new Set([
@@ -167,12 +168,13 @@ const mediaTools = {
       }),
     )
     .input(animate3dInput)
-    .handler(({ context, input }) =>
-      call(
-        appRouter.generate.animate3d,
-        { ...input, wait_seconds: waitFor(context, input.wait_seconds) },
-        { context },
-      ),
+    .handler(
+      async ({ context, input }) =>
+        await call(
+          appRouter.generate.animate3d,
+          { ...input, wait_seconds: waitFor(context, input.wait_seconds) },
+          { context },
+        ),
     ),
 
   generate_3d: generateTool
@@ -185,12 +187,13 @@ const mediaTools = {
       }),
     )
     .input(model3dInput)
-    .handler(({ context, input }) =>
-      call(
-        appRouter.generate.model3d,
-        { ...input, wait_seconds: waitFor(context, input.wait_seconds) },
-        { context },
-      ),
+    .handler(
+      async ({ context, input }) =>
+        await call(
+          appRouter.generate.model3d,
+          { ...input, wait_seconds: waitFor(context, input.wait_seconds) },
+          { context },
+        ),
     ),
 
   generate_image: generateTool
@@ -203,12 +206,13 @@ const mediaTools = {
       }),
     )
     .input(imageInput)
-    .handler(({ context, input }) =>
-      call(
-        appRouter.generate.image,
-        { ...input, wait_seconds: waitFor(context, input.wait_seconds) },
-        { context },
-      ),
+    .handler(
+      async ({ context, input }) =>
+        await call(
+          appRouter.generate.image,
+          { ...input, wait_seconds: waitFor(context, input.wait_seconds) },
+          { context },
+        ),
     ),
 
   generate_music: generateTool
@@ -221,12 +225,13 @@ const mediaTools = {
       }),
     )
     .input(musicInput)
-    .handler(({ context, input }) =>
-      call(
-        appRouter.generate.music,
-        { ...input, wait_seconds: waitFor(context, input.wait_seconds) },
-        { context },
-      ),
+    .handler(
+      async ({ context, input }) =>
+        await call(
+          appRouter.generate.music,
+          { ...input, wait_seconds: waitFor(context, input.wait_seconds) },
+          { context },
+        ),
     ),
 
   generate_sound: generateTool
@@ -239,12 +244,13 @@ const mediaTools = {
       }),
     )
     .input(soundInput)
-    .handler(({ context, input }) =>
-      call(
-        appRouter.generate.sound,
-        { ...input, wait_seconds: waitFor(context, input.wait_seconds) },
-        { context },
-      ),
+    .handler(
+      async ({ context, input }) =>
+        await call(
+          appRouter.generate.sound,
+          { ...input, wait_seconds: waitFor(context, input.wait_seconds) },
+          { context },
+        ),
     ),
 
   generate_speech: generateTool
@@ -257,12 +263,13 @@ const mediaTools = {
       }),
     )
     .input(speechInput)
-    .handler(({ context, input }) =>
-      call(
-        appRouter.generate.speech,
-        { ...input, wait_seconds: waitFor(context, input.wait_seconds) },
-        { context },
-      ),
+    .handler(
+      async ({ context, input }) =>
+        await call(
+          appRouter.generate.speech,
+          { ...input, wait_seconds: waitFor(context, input.wait_seconds) },
+          { context },
+        ),
     ),
 
   generate_video: generateTool
@@ -275,12 +282,13 @@ const mediaTools = {
       }),
     )
     .input(videoInput)
-    .handler(({ context, input }) =>
-      call(
-        appRouter.generate.video,
-        { ...input, wait_seconds: waitFor(context, input.wait_seconds) },
-        { context },
-      ),
+    .handler(
+      async ({ context, input }) =>
+        await call(
+          appRouter.generate.video,
+          { ...input, wait_seconds: waitFor(context, input.wait_seconds) },
+          { context },
+        ),
     ),
 
   generate_remove_background: generateTool
@@ -293,12 +301,13 @@ const mediaTools = {
       }),
     )
     .input(removeBackgroundInput)
-    .handler(({ context, input }) =>
-      call(
-        appRouter.generate.removeBackground,
-        { ...input, wait_seconds: waitFor(context, input.wait_seconds) },
-        { context },
-      ),
+    .handler(
+      async ({ context, input }) =>
+        await call(
+          appRouter.generate.removeBackground,
+          { ...input, wait_seconds: waitFor(context, input.wait_seconds) },
+          { context },
+        ),
     ),
 };
 

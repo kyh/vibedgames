@@ -73,11 +73,7 @@ export const useMultiplayerRoom = <TShared extends JsonRecord = JsonRecord>(
 
   const { onClaim, onEvent, onTick } = config;
   useEffect(() => {
-    /* oxlint-disable react/immutability -- the client is a socket wrapper held in state only for its identity; reassigning its callback slots is the intended API */
-    client.onEvent = onEvent;
-    client.onClaim = onClaim;
-    client.onTick = onTick;
-    /* oxlint-enable react/immutability */
+    client.setCallbacks({ onClaim, onEvent, onTick });
   }, [client, onClaim, onEvent, onTick]);
 
   const subscribe = useCallback((listener: () => void) => client.subscribe(listener), [client]);
@@ -87,8 +83,10 @@ export const useMultiplayerRoom = <TShared extends JsonRecord = JsonRecord>(
   const updateSharedState = useCallback(
     (updater: Partial<TShared> | SharedUpdaterFn<TShared>) => {
       if (isSharedUpdaterFn(updater)) {
+        // oxlint-disable-next-line typescript/no-unsafe-type-assertion, anti-slop/require-safety-comment-for-type-assertion -- the room holds JSON the server relays unchecked; TShared is the caller's claim about it, and the hook has no schema to check it with
         client.updateSharedState((prev) => (updater as (p: TShared) => TShared)(prev as TShared));
       } else {
+        // oxlint-disable-next-line typescript/no-unsafe-type-assertion, anti-slop/require-safety-comment-for-type-assertion -- the room holds JSON the server relays unchecked; TShared is the caller's claim about it, and the hook has no schema to check it with
         client.updateSharedState(updater as TShared);
       }
     },
@@ -103,19 +101,29 @@ export const useMultiplayerRoom = <TShared extends JsonRecord = JsonRecord>(
   );
 
   const sendEvent = useCallback(
-    (event: string, payload: JsonValue, options?: SendEventOptions) =>
-      client.sendEvent(event, payload, options),
+    (event: string, payload: JsonValue, options?: SendEventOptions) => {
+      client.sendEvent(event, payload, options);
+    },
     [client],
   );
 
   const sendToHost = useCallback(
-    (event: string, payload: JsonValue) => client.sendToHost(event, payload),
+    (event: string, payload: JsonValue) => {
+      client.sendToHost(event, payload);
+    },
     [client],
   );
 
-  const goOffline = useCallback(() => client.goOffline(), [client]);
+  const goOffline = useCallback(() => {
+    client.goOffline();
+  }, [client]);
 
-  const setRoomInfo = useCallback((info: Partial<RoomInfo>) => client.setRoomInfo(info), [client]);
+  const setRoomInfo = useCallback(
+    (info: Partial<RoomInfo>) => {
+      client.setRoomInfo(info);
+    },
+    [client],
+  );
 
   return useMemo(
     () => ({
@@ -124,6 +132,7 @@ export const useMultiplayerRoom = <TShared extends JsonRecord = JsonRecord>(
       sendEvent,
       sendToHost,
       setRoomInfo,
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion, anti-slop/require-safety-comment-for-type-assertion -- the room holds JSON the server relays unchecked; TShared is the caller's claim about it, and the hook has no schema to check it with
       sharedState: snapshot.sharedState as TShared,
       updateMyState,
       updateSharedState,
@@ -179,15 +188,23 @@ export const usePlayerState = <TPlayerState extends JsonRecord = JsonRecord>(
   const seededForPlayer = useRef<string | null>(null);
 
   const playerState = useMemo(() => {
-    const state = room.playerId
-      ? (room.players[room.playerId]?.state as TPlayerState | undefined)
-      : undefined;
+    const state =
+      room.playerId !== null && room.playerId !== ""
+        ? // oxlint-disable-next-line typescript/no-unsafe-type-assertion, anti-slop/require-safety-comment-for-type-assertion -- the room holds JSON the server relays unchecked; TPlayerState is the caller's claim about it, and the hook has no schema to check it with
+          (room.players[room.playerId]?.state as TPlayerState | undefined)
+        : undefined;
 
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion, anti-slop/require-safety-comment-for-type-assertion -- the room holds JSON the server relays unchecked; TPlayerState is the caller's claim about it, and the hook has no schema to check it with
     return state ?? initialState ?? ({} as TPlayerState);
   }, [initialState, room.playerId, room.players]);
 
   useEffect(() => {
-    if (initialState && playerId && seededForPlayer.current !== playerId) {
+    if (
+      initialState &&
+      playerId !== null &&
+      playerId !== "" &&
+      seededForPlayer.current !== playerId
+    ) {
       seededForPlayer.current = playerId;
       updateMyState((prev) => ({ ...initialState, ...prev }));
     }

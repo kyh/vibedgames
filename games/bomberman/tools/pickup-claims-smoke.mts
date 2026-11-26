@@ -71,7 +71,9 @@ const server = () => {
         id,
         lost: [],
         room: {
-          claim: (key) => queue.push({ from: peer, key }),
+          claim: (key) => {
+            queue.push({ from: peer, key });
+          },
           clearClaims: (prefix) => {
             for (const key of [...owners.keys()].filter((k) => k.startsWith(prefix))) {
               owners.delete(key);
@@ -139,8 +141,8 @@ test("the host claims for its bots through the room, and grants what it won to t
   const granted = host.claims.settle(host.room, state, "h");
   assert.ok(granted);
   assert.equal(granted.stats["bot-2"]?.bombs, 2, "the bot it claimed for gets it");
-  assert.equal(granted.stats["g"]?.range, BASE_RANGE + 1);
-  assert.equal(granted.stats["h"], undefined, "not the host's own body");
+  assert.equal(granted.stats.g?.range, BASE_RANGE + 1);
+  assert.equal(granted.stats.h, undefined, "not the host's own body");
   state = { ...state, ...granted };
   assert.deepEqual(state.powerups, {});
 });
@@ -180,7 +182,9 @@ test("offline, the room grants a claim before claim() returns, and the host step
   const room = new MultiplayerClient({
     host: "http://127.0.0.1:9",
     offline: true,
-    onClaim: (key, owner) => heard.push([key, owner]),
+    onClaim: (key, owner) => {
+      heard.push([key, owner]);
+    },
     party: "vg-server",
     room: "pickup-claims-smoke",
   });

@@ -40,7 +40,7 @@ const boxAt = (b: Float32Array, i: number) => {
 };
 
 export class PhysicsWorld {
-  private world: World;
+  private readonly world: World;
   private acc = 0;
   private readonly blocks = new Map<number, SolidBlock>();
   private streamX = Infinity;
@@ -105,7 +105,7 @@ export class PhysicsWorld {
     let count = 0;
 
     for (const s of solids) {
-      if (s.noBody) {
+      if (s.noBody === true) {
         continue;
       }
 

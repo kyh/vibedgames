@@ -38,7 +38,7 @@ const createPilot: () => (line: Line) => (diag: FlappyDiagnostics | null) => Ref
   let lastFlapFrame = -FLAP_COOLDOWN_FRAMES;
 
   return (line) => (diag) => {
-    if (!diag?.canFlap) {
+    if (diag?.canFlap !== true) {
       return GLIDE;
     }
 
@@ -69,7 +69,9 @@ const coinLine: Line = (diag) => {
 export const publishPlaytestSurface = (scene: GameScene) => {
   publishDiagnostics(() => scene.diagnostics());
   publishTestHooks({
-    seed: (seed) => scene.testSeed(seed),
+    seed: (seed) => {
+      scene.testSeed(seed);
+    },
     setPausedForScreenshot: (paused) => {
       if (paused) {
         scene.game.loop.sleep();

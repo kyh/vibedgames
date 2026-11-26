@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { z } from "zod";
 import { after, beforeEach, test } from "node:test";
 import type { JsonValue } from "@repo/contract/json";
 
@@ -36,11 +37,11 @@ const post = (init: { token?: string; body?: string; cookie?: string; origin?: s
     headers.set("authorization", `Bearer ${init.token}`);
   }
 
-  if (init.cookie) {
+  if (init.cookie !== undefined && init.cookie !== "") {
     headers.set("cookie", init.cookie);
   }
 
-  if (init.origin) {
+  if (init.origin !== undefined && init.origin !== "") {
     headers.set("origin", init.origin);
   }
 
@@ -51,12 +52,10 @@ const post = (init: { token?: string; body?: string; cookie?: string; origin?: s
   });
 };
 
-interface ErrorBody {
-  error?: { code?: string };
-}
+const ErrorBody = z.object({ error: z.object({ code: z.string().optional() }).optional() });
 
 const status: (response: Response) => Promise<[number, string]> = async (response) => {
-  const json: ErrorBody = await response.json();
+  const json = ErrorBody.parse(await response.json());
 
   return [response.status, json.error?.code ?? "ok"];
 };

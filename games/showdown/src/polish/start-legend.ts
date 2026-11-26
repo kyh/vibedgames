@@ -31,5 +31,7 @@ export const mountStartLegend = (
 ) => {
   render(target, manifest, labels);
 
-  return watchControlContext(() => render(target, manifest, labels));
+  return watchControlContext(() => {
+    render(target, manifest, labels);
+  });
 };

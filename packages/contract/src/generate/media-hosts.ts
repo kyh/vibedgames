@@ -6,7 +6,7 @@ const HTTPS = /^https:\/\/(?<host>[a-z0-9.-]+)(?::\d{1,5})?(?:[/?#]|$)/iu;
 export const isMediaUrl = (url: string) => {
   const host = HTTPS.exec(url)?.groups?.host?.toLowerCase();
 
-  if (!host) {
+  if (host === undefined || host === "") {
     return false;
   }
 

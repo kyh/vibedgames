@@ -10,7 +10,7 @@ const DT = 1 / 60;
 const STILL = { boost: false, brake: 0, steer: 0, throttle: 0 };
 const SEA: WaterSampler = { waterHeightAt: () => 0 };
 
-const step = (world: RAPIER.World, taxi: RaycastVehicle, count: number) => {
+const step = (world: World, taxi: RaycastVehicle, count: number) => {
   for (let i = 0; i < count; i += 1) {
     taxi.fixedStep(DT);
     world.step();

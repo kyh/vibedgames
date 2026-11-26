@@ -19,7 +19,12 @@ type Client = ReturnType<typeof createClient>;
 type Stats = RouterOutputs["asset"]["inspect"];
 
 const parseInput = async <S extends z.ZodObject>(client: Client, schema: S, argv: string[]) => {
-  const input = await readMediaInput(schema.shape, argv, (file) => uploadFile(client, file));
+  const input = await readMediaInput(
+    schema.shape,
+    argv,
+    async (file) => await uploadFile(client, file),
+  );
+
   const parsed = schema.safeParse(input);
 
   if (!parsed.success) {
@@ -107,14 +112,18 @@ const processed = async (
   args: { out?: string; json?: boolean; field?: string },
   result: { model_url: string; stats: Stats; skipped_channels?: number },
 ) => {
-  const saved = args.out ? await saveTo(result.model_url, args.out) : undefined;
+  const saved =
+    args.out === undefined || args.out === ""
+      ? undefined
+      : await saveTo(result.model_url, args.out);
+
   const payload = { ...result, path: saved };
 
   if (!writeStructured(payload, args)) {
-    consola.success(saved ? `Saved ${saved}` : result.model_url);
+    consola.success(saved === undefined ? result.model_url : `Saved ${saved}`);
     printStats(result.stats);
 
-    if (result.skipped_channels) {
+    if (result.skipped_channels !== undefined && result.skipped_channels > 0) {
       consola.warn(
         `  ${result.skipped_channels} channels named joints the model lacks and were dropped`,
       );

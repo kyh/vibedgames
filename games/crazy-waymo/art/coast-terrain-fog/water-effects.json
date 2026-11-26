@@ -926,7 +926,7 @@
     }
   },
   "scope": "Revision 94 with final flotation physics and water FX. Revision 95 changes shoreline joints and planting only; final-world verification is recorded separately.",
-  "command": "node tools/verify-water-fx.mjs 'http://localhost:5193/?time=noon&offline=1' /private/tmp/waymo-water-fx-final",
+  "command": "node tools/verify-water-fx.mts 'http://localhost:5193/?time=noon&offline=1' /private/tmp/waymo-water-fx-final",
   "captureTiming": "Screenshot intervals excluded from timing; four view runs summarized before capture. Counts track actual GameScene updates and simulated elapsed time, not display callbacks.",
   "captures": [
     {

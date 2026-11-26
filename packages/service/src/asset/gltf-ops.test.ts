@@ -88,7 +88,9 @@ const animate = (
 
 const JOINTS = ["Hips", "Spine", "Head"] as const;
 
-const model = (options: { cells?: number; joints?: readonly string[]; clip?: string } = {}) => {
+const model = async (
+  options: { cells?: number; joints?: readonly string[]; clip?: string } = {},
+) => {
   const doc = new Document();
   const { buffer, nodes } = rig(doc, options.joints ?? JOINTS);
   const { indices, positions } = grid(options.cells ?? 4, 1, 2);
@@ -107,11 +109,11 @@ const model = (options: { cells?: number; joints?: readonly string[]; clip?: str
     .addChild(meshNode)
     .addChild(nodes[0] ?? doc.createNode());
 
-  if (options.clip) {
+  if (options.clip !== undefined) {
     animate(doc, options.clip, nodes);
   }
 
-  return new WebIO().writeBinary(doc);
+  return await new WebIO().writeBinary(doc);
 };
 
 describe("inspectGlb", () => {
@@ -216,7 +218,7 @@ describe("optimizeGlb", () => {
 
 const each = async function* each(clips: Uint8Array[]) {
   for (const clip of clips) {
-    yield await Promise.resolve(clip);
+    yield clip;
   }
 };
 

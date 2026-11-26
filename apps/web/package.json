@@ -58,6 +58,7 @@
     "@types/react-dom": "catalog:",
     "@vitejs/plugin-react": "catalog:",
     "cf": "catalog:",
+    "playwright-core": "^1.65.1",
     "tailwindcss": "catalog:",
     "tsx": "^4.23.15",
     "typescript": "catalog:",

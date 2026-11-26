@@ -1,8 +1,8 @@
 import type Phaser from "phaser";
 import { Math as PhaserMath, Scene } from "phaser";
 import { CHAR_FRAMES } from "../data/character";
-import type { CharAction } from "../data/character";
 import { CROP_ORDER } from "../data/crops";
+import { isJsonValue } from "../json";
 import { parseWorldMap } from "../world/worldmap";
 import { setWorldMap, getWorldMap } from "../world/map-store";
 import { disableSaves } from "../systems/save";
@@ -24,7 +24,7 @@ export class BootScene extends Scene {
   }
 
   preload() {
-    for (const a of Object.keys(CHAR_FRAMES) as CharAction[]) {
+    for (const a of Object.keys(CHAR_FRAMES)) {
       this.load.spritesheet(`p-${a}`, `assets/char/${a}.webp`, CHAR);
     }
 
@@ -87,7 +87,13 @@ export class BootScene extends Scene {
   }
 
   create() {
-    setWorldMap(parseWorldMap(this.cache.json.get("map")));
+    const raw: unknown = this.cache.json.get("map");
+
+    if (!isJsonValue(raw)) {
+      throw new Error("map.json: not an object");
+    }
+
+    setWorldMap(parseWorldMap(raw));
     this.makeAnimsAndStart();
   }
 
@@ -227,7 +233,9 @@ export class BootScene extends Scene {
   private async startGallery() {
     const { GalleryScene } = await import("./gallery-scene");
 
-    if (!this.scene.get("Gallery")) {
+    const existing: Scene | null = this.scene.get("Gallery");
+
+    if (existing === null) {
       this.scene.add("Gallery", GalleryScene);
     }
 

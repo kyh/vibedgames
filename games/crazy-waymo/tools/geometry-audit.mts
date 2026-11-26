@@ -803,7 +803,9 @@ const canonicalLandmarkReservations = (
   terrain: Terrain,
 ) => {
   const bodies: WaterBody[] = [];
-  buildLandmarks(terrain, new ModelCache(), network, undefined, (body) => bodies.push(body));
+  buildLandmarks(terrain, new ModelCache(), network, undefined, (body) => {
+    bodies.push(body);
+  });
 
   return carveWaterReservations(landmarkProtection(plan, network).solids, bodies);
 };
@@ -1038,12 +1040,12 @@ export const buildAuditWorld = () => {
   const standAt = makeStandingSurface(network, terrain, groundOffset, drape);
 
   return {
-    drapeAt: (x, z) => drape.heightAt(x, z),
+    drapeAt: (x: number, z: number) => drape.heightAt(x, z),
     network,
     plan,
     standAt,
     terrain,
-    terrainAt: (x, z) => terrain.heightAt(x, z),
+    terrainAt: (x: number, z: number) => terrain.heightAt(x, z),
   };
 };
 
@@ -1321,10 +1323,9 @@ const reportInterpenetration = (massBoxes: readonly Obb[], classOf: (k: number) 
   }
 
   for (const d of ov.defects.slice(0, 24)) {
+    const centre = d.centreInside ? " CENTRE-INSIDE" : "";
     console.log(
-      `    ${uv(d.x, d.z)} ${classOf(d.i)} x ${classOf(d.j)} depth ${d.depth.toFixed(2)}u ` +
-        `area ${d.area.toFixed(1)}u2 share ${(d.share * 100).toFixed(0)}%` +
-        `${d.centreInside ? " CENTRE-INSIDE" : ""}`,
+      `    ${uv(d.x, d.z)} ${classOf(d.i)} x ${classOf(d.j)} depth ${d.depth.toFixed(2)}u area ${d.area.toFixed(1)}u2 share ${(d.share * 100).toFixed(0)}%${centre}`,
     );
   }
 };
@@ -1531,7 +1532,7 @@ const main = async () => {
   const { rev, rest } = await loadBakedRest();
   const world = buildAuditWorld();
   const props = propInstances(rest);
-  const cls = classifySolids(rest.solids, world, props);
+  const cls = classifySolids(rest.solids, world, props, loadParcelSource());
   reportLoad(rev, rest, props, cls, Date.now() - t0);
 
   const massIdx: number[] = [];

@@ -21,6 +21,7 @@
   },
   "devDependencies": {
     "@kyh/tsconfig": "catalog:",
+    "@repo/smoke": "workspace:*",
     "@types/node": "catalog:",
     "@types/three": "^0.186.0",
     "tsx": "^4.23.15",

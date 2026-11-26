@@ -11,10 +11,10 @@ const captureWasm = async (file: string) => {
   const real = WebAssembly.instantiate;
   const chunks: Uint8Array[] = [];
 
-  const capture = (source: BufferSource, imports?: WebAssembly.Imports) => {
+  const capture = async (source: BufferSource, imports?: WebAssembly.Imports) => {
     chunks.push(new Uint8Array(ArrayBuffer.isView(source) ? source.buffer : source).slice());
 
-    return real(source, imports);
+    return await real(source, imports);
   };
 
   Object.assign(WebAssembly, { instantiate: capture });
@@ -54,7 +54,7 @@ export const meshoptWasm: () => Plugin = () => {
     transform: async (code, id) => {
       const name = GLUE.exec(id.split("?")[0] ?? "")?.groups?.name;
 
-      if (!name || !INSTANTIATE.test(code)) {
+      if (name === undefined || !INSTANTIATE.test(code)) {
         return null;
       }
 

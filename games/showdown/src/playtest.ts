@@ -1,7 +1,14 @@
 import { publishPlaytest, publishTestHooks } from "@vibedgames/playtest";
+import type { PlaytestManifest } from "@vibedgames/playtest";
 
 import type { Game } from "./game";
 import { Pilot } from "./playtest-pilot";
+
+declare global {
+  interface Window {
+    __GAME_PLAYTEST__?: PlaytestManifest;
+  }
+}
 
 const GOAL = [
   "Top-down battle royale: you against 7 bots, last brawler standing wins. game.score = kills x100 + power cubes x10, so BOTH kills and cubes are progress. You lose when game.player.alive turns false. The reflexes walk, aim and shoot for you — you only choose the plan.",
@@ -17,22 +24,26 @@ const GOAL = [
 export const installPlaytest = (game: Game) => {
   const pilot = new Pilot(game);
   publishTestHooks({
-    seed: (seed) => game.startSeeded(seed),
-    setPausedForScreenshot: (paused) => game.setPaused(paused),
+    seed: (seed) => {
+      game.startSeeded(seed);
+    },
+    setPausedForScreenshot: (paused) => {
+      game.setPaused(paused);
+    },
     setState: (name) => {
-      if (name !== "active-play") {
-        return;
+      const applies = name === "active-play";
+
+      if (applies) {
+        const live = game.state === "countdown" || game.state === "playing";
+
+        if (game.mode !== "solo" || !live) {
+          game.startSeeded(game.nextSeed);
+        }
+
+        game.skipCountdown();
       }
 
-      const live = game.state === "countdown" || game.state === "playing";
-
-      if (game.mode !== "solo" || !live) {
-        game.startSeeded(game.nextSeed);
-      }
-
-      game.skipCountdown();
-
-      return { state: name };
+      return applies ? { state: name } : undefined;
     },
   });
   publishPlaytest({

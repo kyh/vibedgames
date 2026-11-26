@@ -151,6 +151,8 @@ export const createPongPauseOverlay = (
     css: SOUND_TOGGLE_CSS,
     fadeMs: 220,
     mute,
-    render: (overlay) => renderCard(overlay, matchContinues()),
+    render: (overlay) => {
+      renderCard(overlay, matchContinues());
+    },
     styleId: "pong-pause-css",
   });

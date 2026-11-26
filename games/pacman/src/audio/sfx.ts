@@ -169,7 +169,7 @@ export class Sfx {
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
   private duckBus: GainNode | null = null;
-  private buffers = new Map<SfxName, AudioBuffer>();
+  private readonly buffers = new Map<SfxName, AudioBuffer>();
   private paused = false;
 
   unlock() {

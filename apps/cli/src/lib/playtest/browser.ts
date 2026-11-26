@@ -1,3 +1,4 @@
+import { parseJson } from "@repo/contract/json";
 import { spawnSync } from "node:child_process";
 
 import type { JsonValue } from "../types.js";
@@ -96,7 +97,7 @@ export class GameBrowser {
     let parsed: JsonValue;
 
     try {
-      parsed = JSON.parse(text);
+      parsed = parseJson(text);
     } catch {
       throw new HarnessError(`\`${args[0]} --json\` did not return JSON: ${text.slice(0, 200)}`);
     }

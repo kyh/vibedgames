@@ -10,6 +10,7 @@ import {
 
 import { pauseOverlay } from "./pause-overlay";
 import { farmManifest, readDiagnostics } from "./playtest";
+import type { FarmDiagnostics } from "./playtest";
 import { BootScene } from "./scenes/boot-scene";
 import { TitleScene } from "./scenes/title-scene";
 import { GameScene } from "./scenes/game-scene";
@@ -35,6 +36,7 @@ declare global {
   interface Window {
     /** DEV-only hook for headless verification. */
     __game?: Game;
+    __GAME_DIAGNOSTICS__?: FarmDiagnostics;
   }
 }
 
@@ -79,7 +81,13 @@ if (import.meta.env.DEV || isPlaytestRequested()) {
   const publishHooks = () => {
     publishTestHooks({
       seed: startSolo,
-      setPausedForScreenshot: (paused) => (paused ? game.loop.sleep() : game.loop.wake()),
+      setPausedForScreenshot: (paused) => {
+        if (paused) {
+          game.loop.sleep();
+        } else {
+          game.loop.wake();
+        }
+      },
       setState: (name) => {
         if (name !== "active-play") {
           return { state: "unsupported" };
@@ -109,7 +117,9 @@ let settle: ReturnType<typeof setTimeout> | undefined;
 
 const refreshScale = () => {
   clearTimeout(settle);
-  settle = setTimeout(() => game.scale.refresh(), 150);
+  settle = setTimeout(() => {
+    game.scale.refresh();
+  }, 150);
 };
 
 window.addEventListener("resize", refreshScale);
@@ -174,7 +184,7 @@ setPauseHandlers({
     Sound.setPaused(true);
     pauseOverlay.show();
 
-    if (!world?.isOnline()) {
+    if (world?.isOnline() !== true) {
       freeze();
     }
   },

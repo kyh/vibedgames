@@ -12,24 +12,24 @@ piece — the street layout — with real data, aligned to that same geography.
 
 ```
 fetch-streets.sh   →  sf-streets.raw.json      (real OSM streets, ~15 MB, gitignored)
-calibrate.mjs      →  the lon/lat → (u,v) projection, fitted to the game's hills
-rasterize.mjs      →  src/world/sf-streets.ts   (baked road mask the game loads)
+calibrate.mts      →  the lon/lat → (u,v) projection, fitted to the game's hills
+rasterize.mts      →  src/world/sf-streets.ts   (baked road mask the game loads)
 ```
 
 1. **`fetch-streets.sh`** — pulls every drivable `highway=*` way inside the SF
    peninsula bbox from the Overpass API.
-2. **`calibrate.mjs`** — recovers the exact linear `lon/lat → (u,v)` map the game
+2. **`calibrate.mts`** — recovers the exact linear `lon/lat → (u,v)` map the game
    already uses, by least-squares fitting against 12 hill summits whose `(u,v)`
    are hand-placed in `sf-map.ts` (fit is R² ≈ 0.999). This guarantees the
    streets line up with the existing coastline, hills and districts.
-3. **`rasterize.mjs`** — projects each street polyline into `(u,v)`, supercover-
+3. **`rasterize.mts`** — projects each street polyline into `(u,v)`, supercover-
    rasterizes it onto the grid, then **thins** the residential grid (arterials
    are always kept; a connectivity-preserving pass opens building blocks so the
    city isn't wall-to-wall asphalt). Emits `src/world/sf-streets.ts`.
 
 ## Production bake (`bake-network.mts`)
 
-`rasterize.mjs` above is the exploratory raster-only path. The shipped world is
+`rasterize.mts` above is the exploratory raster-only path. The shipped world is
 baked by **`bake-network.mts`** (`pnpm bake:map`, runs under vite-node), which
 builds the VECTOR network (`sf-network.ts`) and derives the raster mask
 (`sf-streets.ts`) from the SAME polylines. Car-free-park clipping lives here —
@@ -45,14 +45,14 @@ lines. It runs under vite-node so it can import the TS park data
 
 ```bash
 ./fetch-streets.sh                 # once, or when you want fresh OSM data
-node calibrate.mjs                 # optional: inspect the projection + SF aspect ratio
-node rasterize.mjs                 # sweep candidate sizes + print density stats
-node rasterize.mjs 244 200         # bake one size -> src/world/sf-streets.ts
+node calibrate.mts                 # optional: inspect the projection + SF aspect ratio
+node rasterize.mts                 # sweep candidate sizes + print density stats
+node rasterize.mts 244 200         # bake one size -> src/world/sf-streets.ts
 ```
 
 The baked mask's `gx`/`gz` **must equal `GRID_X`/`GRID_Z`** in
 `src/shared/constants.ts` (`generateCity()` throws otherwise). If you change the
-grid, re-bake at those dimensions: `node rasterize.mjs <GRID_X> <GRID_Z>`.
+grid, re-bake at those dimensions: `node rasterize.mts <GRID_X> <GRID_Z>`.
 
 ## Notes on sizing
 
@@ -70,7 +70,7 @@ grid, re-bake at those dimensions: `node rasterize.mjs <GRID_X> <GRID_Z>`.
 
 ## Real-footprint / waterfront / freeway pipeline (2026-07-12)
 
-- **`extract-footprints.mjs <obj>`** — parses the licensed "Downtown San
+- **`extract-footprints.mts <obj>`** — parses the licensed "Downtown San
   Francisco" OBJ into per-building footprint POLYGONS + heights →
   `src/world/sf-footprints.ts` (~21k entries). The model→world transform is
   hardcoded (`CAL`): anchored on Salesforce/Transamerica (identified by the
@@ -81,7 +81,7 @@ grid, re-bake at those dimensions: `node rasterize.mjs <GRID_X> <GRID_Z>`.
   upside-down downtown. Anchors are re-verified on every run (aborts >12u).
   The game extrudes these outlines as prisms (`src/world/sf-prisms.ts`),
   replacing the old bbox+kit-model downtown pass.
-- **`bake-piers.mjs`** — `sf-piers.raw.json` (Overpass `man_made=pier`, no
+- **`bake-piers.mts`** — `sf-piers.raw.json` (Overpass `man_made=pier`, no
   fetch script yet — query in git history; gitignored like the other raws) →
   `src/world/sf-piers.ts`. Piers
   the traced coast swallows slide seaward along their long axis to hang off
@@ -91,4 +91,4 @@ grid, re-bake at those dimensions: `node rasterize.mjs <GRID_X> <GRID_Z>`.
   `src/world/freeways.ts` — never part of the drivable network.
 - **`EMBARCADERO_SHORE`** — the NE coast is cut to the REAL shoreline in
   `src/world/sf-map.ts` `landFactor` (copies in bake-network.mts +
-  bake-piers.mjs must stay in sync) so downtown meets the bay at the seawall.
+  bake-piers.mts must stay in sync) so downtown meets the bay at the seawall.

@@ -29,10 +29,10 @@ const stubCache = () => {
   const cache = new ModelCache();
   const loaded = new Set([skinModelUrl(skinById(null))]);
   cache.has = (url) => loaded.has(url);
-  cache.ensure = (url) => {
+  cache.ensure = async (url) => {
     loaded.add(url);
 
-    return Promise.resolve();
+    await Promise.resolve();
   };
 
   return cache;

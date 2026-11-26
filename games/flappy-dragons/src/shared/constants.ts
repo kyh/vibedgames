@@ -113,18 +113,18 @@ export const COURSE_H = 720;
  */
 export const MIN_VIEW_W = 480;
 
-/* oxlint-disable no-bitwise, eslint/operator-assignment -- mulberry32 is defined
-   over int32 wraparound; Math.trunc and ^= rewrites would change the sequence. */
+/* oxlint-disable no-bitwise -- mulberry32 is defined
+   over int32 wraparound; Math.trunc rewrites would change the sequence. */
 /** A stable 0..1 hash for course slot `i` under `seed` (mulberry32-style). */
 export const hash01 = (seed: number, i: number) => {
   let t = (seed ^ (i * 0x9e_37_79_b9)) >>> 0;
   t = (t + 0x6d_2b_79_f5) >>> 0;
   let x = Math.imul(t ^ (t >>> 15), 1 | t);
-  x = (x + Math.imul(x ^ (x >>> 7), 61 | x)) ^ x;
+  x ^= x + Math.imul(x ^ (x >>> 7), 61 | x);
 
   return ((x ^ (x >>> 14)) >>> 0) / 4_294_967_296;
 };
-/* oxlint-enable no-bitwise, eslint/operator-assignment */
+/* oxlint-enable no-bitwise */
 
 /** Course x of pipe `i` (absolute, viewport-independent). */
 export const pipeCourseX = (i: number) => RUNWAY + i * PIPE_SPAWN_DISTANCE;

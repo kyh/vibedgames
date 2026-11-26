@@ -26,7 +26,7 @@ export class BotStride {
     const { stride } = this;
 
     if (!stride) {
-      return;
+      return null;
     }
 
     const { at, dir, from, to } = stride;

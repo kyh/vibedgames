@@ -182,7 +182,7 @@ export class Shield {
 
   deathHint = "";
 
-  private deathCounts = new Map<string, number>();
+  private readonly deathCounts = new Map<string, number>();
 
   private readonly world: SharedState;
 
@@ -913,7 +913,7 @@ export class Shield {
     this.deathHint = count >= 3 ? (DEATH_HINTS.get(cause) ?? "") : "";
     const { myId } = this.link;
 
-    if (killerId && myId) {
+    if (killerId !== null && killerId !== "" && myId !== null && myId !== "") {
       this.link.sendTo(killerId, "player_killed", { cause, killerId, victimId: myId });
     }
 

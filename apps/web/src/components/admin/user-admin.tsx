@@ -66,20 +66,22 @@ export const UserAdmin = () => {
 
   const create = useMutation(
     orpc.admin.users.create.mutationOptions({
-      onSuccess: () => {
-        qc.invalidateQueries({ queryKey: orpc.admin.users.list.queryKey() });
+      onSuccess: async () => {
         setForm(initialForm);
         toast.success("User created");
+
+        await qc.invalidateQueries({ queryKey: orpc.admin.users.list.queryKey() });
       },
     }),
   );
 
   const grant = useMutation(
     orpc.admin.credits.grant.mutationOptions({
-      onSuccess: ({ balanceMicro }) => {
-        qc.invalidateQueries({ queryKey: orpc.admin.credits.balances.queryKey() });
+      onSuccess: async ({ balanceMicro }) => {
         setGrantTarget(null);
         toast.success(`Credits updated — new balance ${formatUsd(balanceMicro)}`);
+
+        await qc.invalidateQueries({ queryKey: orpc.admin.credits.balances.queryKey() });
       },
     }),
   );
@@ -130,7 +132,9 @@ export const UserAdmin = () => {
                   type="text"
                   required
                   value={form.name}
-                  onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                  onChange={(e) => {
+                    setForm((f) => ({ ...f, name: e.target.value }));
+                  }}
                 />
               </FieldContent>
             </Field>
@@ -143,7 +147,9 @@ export const UserAdmin = () => {
                   required
                   autoComplete="off"
                   value={form.email}
-                  onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+                  onChange={(e) => {
+                    setForm((f) => ({ ...f, email: e.target.value }));
+                  }}
                 />
               </FieldContent>
             </Field>
@@ -157,7 +163,9 @@ export const UserAdmin = () => {
                   minLength={8}
                   autoComplete="new-password"
                   value={form.password}
-                  onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
+                  onChange={(e) => {
+                    setForm((f) => ({ ...f, password: e.target.value }));
+                  }}
                 />
               </FieldContent>
             </Field>
@@ -168,7 +176,9 @@ export const UserAdmin = () => {
                   id="user-role"
                   className="bg-input text-foreground h-9 rounded-md border border-white/10 px-2 text-sm"
                   value={form.role}
-                  onChange={(e) => setForm((f) => ({ ...f, role: parseRole(e.target.value) }))}
+                  onChange={(e) => {
+                    setForm((f) => ({ ...f, role: parseRole(e.target.value) }));
+                  }}
                 >
                   <option value="user">user</option>
                   <option value="admin">admin</option>
@@ -206,7 +216,7 @@ export const UserAdmin = () => {
                       admin
                     </span>
                   )}
-                  {u.banned && (
+                  {u.banned === true && (
                     <span className="shrink-0 rounded bg-red-900/40 px-2 py-0.5 text-xs text-red-200">
                       banned
                     </span>
@@ -220,7 +230,9 @@ export const UserAdmin = () => {
                     variant="ghost"
                     size="sm"
                     className="shrink-0"
-                    onClick={() => openGrant({ email: u.email, id: u.id })}
+                    onClick={() => {
+                      openGrant({ email: u.email, id: u.id });
+                    }}
                   >
                     Grant credits
                   </Button>
@@ -291,7 +303,9 @@ export const UserAdmin = () => {
                   max={1000}
                   placeholder="e.g. 20 or -5"
                   value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
+                  onChange={(e) => {
+                    setAmount(e.target.value);
+                  }}
                 />
               </FieldContent>
             </Field>
@@ -304,7 +318,9 @@ export const UserAdmin = () => {
                   maxLength={500}
                   placeholder="e.g. goodwill for failed generations"
                   value={note}
-                  onChange={(e) => setNote(e.target.value)}
+                  onChange={(e) => {
+                    setNote(e.target.value);
+                  }}
                 />
               </FieldContent>
             </Field>

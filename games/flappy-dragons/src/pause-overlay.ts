@@ -173,5 +173,7 @@ export const createFlappyPauseOverlay = (controls: ControlsManifest, mute: MuteA
   createPauseShell({
     className: "fdp-root",
     mute,
-    render: (overlay) => renderCard(overlay, controls),
+    render: (overlay) => {
+      renderCard(overlay, controls);
+    },
   });

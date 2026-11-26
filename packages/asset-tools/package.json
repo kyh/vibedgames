@@ -12,6 +12,9 @@
     "test": "node --import tsx --test \"test/*.test.ts\" \"src/**/*.test.ts\"",
     "typecheck": "tsc --noEmit"
   },
+  "dependencies": {
+    "zod": "catalog:"
+  },
   "devDependencies": {
     "@kyh/tsconfig": "catalog:",
     "@types/node": "catalog:",

@@ -1,29 +1,24 @@
+import { runInOrder } from "@repo/contract/run-in-order";
 import assert from "node:assert/strict";
-import { describe, test } from "node:test";
+import { after, describe, test } from "node:test";
 import type { Credential } from "@repo/contract/base";
 import { getRequiredCredential, getRequiredScope } from "@repo/contract/base";
 import { OAUTH_SCOPES } from "@repo/contract/auth/oauth-scopes";
-import { createDb } from "@repo/db/drizzle-client";
 import type { AnyProcedure } from "@orpc/server";
 import { call, getRouter, ORPCError, Procedure, walkProcedureContractsSync } from "@orpc/server";
 
+import { startD1 } from "./d1.test-utils";
 import { API_KEY_SESSION_PREFIX } from "./identity/api-key";
 import { OAUTH_SESSION_PREFIX } from "./identity/oauth-token";
 import { createAuth } from "./identity/auth";
 import type { ORPCContext } from "./orpc";
 import { appRouter } from "./root-router";
 
-const unavailable = (): never => {
-  throw new Error("the database is not reachable in this test");
-};
+const d1 = await startD1();
 
-const db = createDb({
-  batch: unavailable,
-  dump: unavailable,
-  exec: unavailable,
-  prepare: unavailable,
-  withSession: unavailable,
-});
+after(d1.close);
+
+const { db } = d1;
 
 const auth = createAuth({ baseURL: "http://localhost:3000", db, secret: "test-secret" });
 
@@ -86,7 +81,6 @@ const callers: [Caller, ORPCContext][] = [
 ];
 
 const API_KEY_REFUSAL = /interactive login, not an API key/u;
-const SCOPE_REFUSAL = /^insufficient_scope/u;
 
 const REFUSALS = new Set(["UNAUTHORIZED", "FORBIDDEN", "FORBIDDEN (API key)", "FORBIDDEN (scope)"]);
 
@@ -124,9 +118,9 @@ const outcomeOf = async (procedure: AnyProcedure, context: ORPCContext) => {
       return "FORBIDDEN (API key)";
     }
 
-    return error.code === "FORBIDDEN" && SCOPE_REFUSAL.test(error.message)
+    return error.code === "FORBIDDEN" && error.message.startsWith("insufficient_scope")
       ? "FORBIDDEN (scope)"
-      : error.code;
+      : String(error.code);
   }
 };
 
@@ -165,7 +159,10 @@ describe("procedure authorization", () => {
   test("declares a scope on every procedure an access token can reach", () => {
     for (const { name, credential, scope } of entries) {
       if (credential === "any") {
-        assert.ok(scope, `${name} declares no scope; add requiresScope(...)`);
+        assert.ok(
+          scope !== undefined && scope !== "",
+          `${name} declares no scope; add requiresScope(...)`,
+        );
       } else {
         assert.equal(scope, undefined, `${name} declares a scope no access token can use`);
       }
@@ -176,18 +173,18 @@ describe("procedure authorization", () => {
     test(`${name} answers each caller as its base (${credential}) declares`, async () => {
       assert.ok(credential && procedure);
 
-      for (const [caller, context] of callers) {
+      await runInOrder(callers, async ([caller, context]) => {
         const outcome = await outcomeOf(procedure, context);
         const refusal: string | undefined = refused[credential][caller];
 
-        if (refusal) {
+        if (refusal !== undefined && refusal !== "") {
           assert.equal(outcome, refusal, `${name} as ${caller}`);
         } else if (takesInput) {
           assert.equal(outcome, "BAD_REQUEST", `${name} as ${caller}`);
         } else {
           assert.ok(!REFUSALS.has(outcome), `${name} as ${caller} was refused: ${outcome}`);
         }
-      }
+      });
     });
   }
 });

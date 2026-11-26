@@ -511,19 +511,19 @@ export class WorldSync {
       w.arenaEpoch = epoch;
     }
 
-    const bossIdx = wireNum(s["sectorBossIdx"]);
+    const bossIdx = wireNum(s.sectorBossIdx);
 
     if (bossIdx !== null) {
       w.sectorBossIdx = bossIdx;
     }
 
-    const playW = wireNum(s["playW"]);
+    const playW = wireNum(s.playW);
 
     if (playW !== null) {
       w.playW = PhaserMath.Clamp(playW, BASE_WORLD_W, WORLD_W);
     }
 
-    const playH = wireNum(s["playH"]);
+    const playH = wireNum(s.playH);
 
     if (playH !== null) {
       w.playH = PhaserMath.Clamp(playH, BASE_WORLD_H, WORLD_H);

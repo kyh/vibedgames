@@ -47,16 +47,16 @@ const SKID_FRAG = `
 
 export class SkidMarks {
   readonly mesh: THREE.Mesh;
-  private heightAt: (x: number, z: number) => number;
+  private readonly heightAt: (x: number, z: number) => number;
   private positions: Float32Array;
   private colors: Float32Array;
   private births: Float32Array;
-  private posAttr: THREE.BufferAttribute;
-  private colAttr: THREE.BufferAttribute;
-  private birthAttr: THREE.BufferAttribute;
+  private readonly posAttr: THREE.BufferAttribute;
+  private readonly colAttr: THREE.BufferAttribute;
+  private readonly birthAttr: THREE.BufferAttribute;
   private cursor = 0;
   private time = 0;
-  private timeU = { value: 0 };
+  private readonly timeU = { value: 0 };
 
   constructor(heightAt: (x: number, z: number) => number) {
     this.heightAt = heightAt;

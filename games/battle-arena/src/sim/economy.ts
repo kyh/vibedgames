@@ -115,7 +115,7 @@ const awardAssists = (w: World, killer: Unit | null, victim: Unit) => {
 };
 
 export const awardKill = (w: World, killerId: string | null, victim: Unit) => {
-  const killer = killerId ? findByOwner(w, killerId) : null;
+  const killer = killerId !== null && killerId !== "" ? findByOwner(w, killerId) : null;
   const standing = standings(w);
 
   if (killer && killer !== victim && killer.team !== victim.team) {
@@ -171,7 +171,7 @@ export const awardKill = (w: World, killerId: string | null, victim: Unit) => {
  *  can grab (the "drops" — visible reward for clearing a camp). */
 export const awardCreepKill = (w: World, killerId: string | null, victim: Unit) => {
   const reward = creepReward(victim.champId);
-  const killer = killerId ? findByOwner(w, killerId) : null;
+  const killer = killerId !== null && killerId !== "" ? findByOwner(w, killerId) : null;
 
   if (killer && killer.kind === "hero") {
     killer.gold += reward.bounty;

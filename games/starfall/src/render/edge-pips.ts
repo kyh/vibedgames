@@ -15,7 +15,7 @@ export interface PipTarget {
 }
 
 export class EdgePips {
-  private gfx: Phaser.GameObjects.Graphics;
+  private readonly gfx: Phaser.GameObjects.Graphics;
 
   constructor(scene: Phaser.Scene, depth: number) {
     this.gfx = scene.add.graphics().setDepth(depth).setBlendMode(BlendModes.ADD);
@@ -45,7 +45,7 @@ export class EdgePips {
         continue;
       }
 
-      if (t.blink && Math.floor(now / 250) % 2 === 1) {
+      if (t.blink === true && Math.floor(now / 250) % 2 === 1) {
         continue;
       }
 

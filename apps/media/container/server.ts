@@ -37,10 +37,12 @@ const readJson = async (req: IncomingMessage) => {
   const chunks: Buffer[] = [];
 
   for await (const chunk of req) {
-    chunks.push(Buffer.from(chunk as Uint8Array));
+    chunks.push(Buffer.from(z.instanceof(Uint8Array).parse(chunk)));
   }
 
-  return JSON.parse(Buffer.concat(chunks).toString("utf-8")) as unknown;
+  const parsed: unknown = JSON.parse(Buffer.concat(chunks).toString("utf-8"));
+
+  return parsed;
 };
 
 const safePath = (dir: string, name: string) => {
@@ -55,10 +57,12 @@ const localFiles = (files: z.infer<typeof runBody>["files"]) => {
   const local: RecipeFiles = {};
 
   for (const [key, value] of Object.entries(files)) {
+    const single = z.string().safeParse(value);
+
     if (Array.isArray(value)) {
       local[key] = value.map((name) => safePath(INPUTS, name));
-    } else if (z.string().safeParse(value).success) {
-      local[key] = safePath(INPUTS, String(value));
+    } else if (single.success) {
+      local[key] = safePath(INPUTS, single.data);
     } else {
       local[key] = Object.fromEntries(
         Object.entries(value).map(([rel, name]) => [rel, safePath(INPUTS, name)]),
@@ -158,7 +162,7 @@ const handle = async (req: IncomingMessage, res: ServerResponse) => {
 
 mkdirSync(INPUTS, { recursive: true });
 
-createServer(async (req, res) => {
+const serve = async (req: IncomingMessage, res: ServerResponse) => {
   try {
     await handle(req, res);
   } catch (error) {
@@ -168,4 +172,8 @@ createServer(async (req, res) => {
       });
     }
   }
+};
+
+createServer((req, res) => {
+  void serve(req, res);
 }).listen(PORT);

@@ -148,16 +148,24 @@ export class AbilityGuide {
     this.panel.append(header, nav, this.copy, this.more);
     this.root.append(this.toggle, this.panel);
 
-    this.copy.addEventListener("scroll", () => this.refreshOverflow());
+    this.copy.addEventListener("scroll", () => {
+      this.refreshOverflow();
+    });
 
     for (const event of ["pointerdown", "pointerup", "pointermove", "click"]) {
-      this.root.addEventListener(event, (e) => e.stopPropagation());
+      this.root.addEventListener(event, (e) => {
+        e.stopPropagation();
+      });
     }
 
     this.root.addEventListener("keydown", this.fenceKey);
     this.root.addEventListener("keyup", this.fenceKey);
-    this.toggle.addEventListener("click", () => this.toggleGuide());
-    this.close.addEventListener("click", () => this.closeGuide());
+    this.toggle.addEventListener("click", () => {
+      this.toggleGuide();
+    });
+    this.close.addEventListener("click", () => {
+      this.closeGuide();
+    });
 
     for (const tab of this.tabs) {
       tab.button.addEventListener("click", () => {
@@ -171,12 +179,12 @@ export class AbilityGuide {
   }
 
   get open() {
-    return !this.panel.hidden;
+    return this.panel.hidden === false;
   }
 
   /** The toggle's action, shared with its G key twin in the HUD scene. */
   toggleGuide() {
-    if (this.gs.matchResult || this.gs.controlsPaused || this.options.blocked()) {
+    if (this.gs.matchResult !== null || this.gs.controlsPaused || this.options.blocked()) {
       return;
     }
 

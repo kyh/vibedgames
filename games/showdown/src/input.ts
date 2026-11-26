@@ -35,6 +35,8 @@ export interface Sticks {
   super: Stick;
 }
 
+const allSticks = (sticks: Sticks) => [sticks.aim, sticks.move, sticks.super];
+
 export interface Axis {
   x: number;
   z: number;
@@ -60,7 +62,7 @@ const FALLBACK_KEY_CODES = new Map<string, string>([
 ]);
 
 export const keyCode = (e: KeyboardEvent) =>
-  e.code || FALLBACK_KEY_CODES.get((e.key || "").toLowerCase()) || "";
+  e.code === "" ? (FALLBACK_KEY_CODES.get(e.key.toLowerCase()) ?? "") : e.code;
 
 const makeStick: () => Stick = () => ({
   id: null,
@@ -149,7 +151,7 @@ export class Input {
     this.evadePressed = false;
     this.shots.length = 0;
 
-    for (const stick of Object.values(this.sticks)) {
+    for (const stick of allSticks(this.sticks)) {
       resetStick(stick);
     }
   }
@@ -205,7 +207,9 @@ export class Input {
         this.superReleased = true;
       }
     });
-    window.addEventListener("blur", () => this.clear());
+    window.addEventListener("blur", () => {
+      this.clear();
+    });
   }
 
   private bindEvadeButton(button: HTMLElement) {
@@ -262,19 +266,31 @@ export class Input {
         this.superReleased = true;
       }
     });
-    canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+    canvas.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+    });
   }
 
   private bindTouch(canvas: HTMLElement, superButton: HTMLElement) {
-    canvas.addEventListener("pointerdown", (e) => this.beginTouch(e, "field"));
-    superButton.addEventListener("pointerdown", (e) => this.beginTouch(e, "super"));
+    canvas.addEventListener("pointerdown", (e) => {
+      this.beginTouch(e, "field");
+    });
+    superButton.addEventListener("pointerdown", (e) => {
+      this.beginTouch(e, "super");
+    });
     superButton.addEventListener("click", () => {
       if (this.enabled && !this.recentTouch()) {
         this.shots.push({ cancelled: false, kind: "super", mag: 0, tap: true, x: 0, y: 0 });
       }
     });
-    window.addEventListener("pointermove", (e) => this.moveTouch(e));
-    const release = (e: PointerEvent) => this.endTouch(e);
+    window.addEventListener("pointermove", (e) => {
+      this.moveTouch(e);
+    });
+
+    const release = (e: PointerEvent) => {
+      this.endTouch(e);
+    };
+
     window.addEventListener("pointerup", release);
     window.addEventListener("pointercancel", release);
   }
@@ -288,9 +304,7 @@ export class Input {
   }
 
   private stickHeldBy(e: PointerEvent) {
-    return Object.values(this.sticks).find((stick) => stick.id === e.pointerId) satisfies
-      | Stick
-      | undefined;
+    return allSticks(this.sticks).find((stick) => stick.id === e.pointerId);
   }
 
   private beginTouch(e: PointerEvent, zone: "field" | "super") {
@@ -385,7 +399,7 @@ export class Input {
     this.fire = false;
 
     if (!on) {
-      for (const stick of Object.values(this.sticks)) {
+      for (const stick of allSticks(this.sticks)) {
         resetStick(stick);
       }
     }

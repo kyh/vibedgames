@@ -7,4 +7,5 @@ export const isJsonObject = (v: JsonValue | undefined): v is JsonRecord =>
 
 export const isJsonNumber = (v: JsonValue | undefined): v is number => Number.isFinite(v);
 
-export const isJsonString = (v: JsonValue | undefined): v is string => String(v) === v;
+export const isJsonString = (v: JsonValue | undefined): v is string =>
+  Object.prototype.toString.call(v) === "[object String]";

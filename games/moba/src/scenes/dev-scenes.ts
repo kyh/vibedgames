@@ -13,13 +13,16 @@ const ensureScene = async (
   key: string,
   load: () => Promise<Phaser.Types.Scenes.SceneType>,
 ) => {
-  if (game.scene.getScene(key)) {
+  const loaded: Phaser.Scene | null = game.scene.getScene(key);
+
+  if (loaded !== null) {
     return;
   }
 
   const scene = await load();
+  const raced: Phaser.Scene | null = game.scene.getScene(key);
 
-  if (!game.scene.getScene(key)) {
+  if (raced === null) {
     game.scene.add(key, scene);
   }
 };

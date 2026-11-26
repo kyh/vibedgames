@@ -1,5 +1,6 @@
 import { Container } from "@cloudflare/containers";
 import type { RecipeName } from "@repo/contract/asset/recipe-schema";
+import { runInOrder } from "@repo/contract/run-in-order";
 import { isMediaUrl } from "@repo/contract/generate/media-hosts";
 import { isRecipeName, MAX_RECIPE_OUTPUT_BYTES, RECIPES } from "@repo/contract/asset/recipe-schema";
 import { z } from "zod";
@@ -61,10 +62,12 @@ const TYPE_EXT = {
   "video/webm": "webm",
 } as const satisfies Record<string, string>;
 
+const EXT_BY_TYPE: ReadonlyMap<string, string> = new Map(Object.entries(TYPE_EXT));
+
 const extensionOf = (url: string, contentType: string | null) => {
   const fromPath = EXT.exec(new URL(url).pathname)?.groups?.ext?.toLowerCase();
   const type = (contentType ?? "").split(";")[0]?.trim() ?? "";
-  const fromType = Object.hasOwn(TYPE_EXT, type) ? TYPE_EXT[type as keyof typeof TYPE_EXT] : null;
+  const fromType = EXT_BY_TYPE.get(type) ?? null;
 
   return fromPath ?? fromType ?? "bin";
 };
@@ -110,7 +113,7 @@ export class RecipeJob extends Container {
     const out = /^\/jobs\/[^/]+\/out\/(?<name>.+)$/u.exec(url.pathname)?.groups?.name;
 
     if (request.method === "POST" && url.pathname.endsWith("/start")) {
-      return this.begin(startBody.parse(await request.json()));
+      return await this.begin(startBody.parse(await request.json()));
     }
 
     if (request.method === "POST" && url.pathname.endsWith("/final")) {
@@ -132,8 +135,8 @@ export class RecipeJob extends Container {
       return json(state);
     }
 
-    if (request.method === "GET" && out) {
-      return this.readOutput(decodeURIComponent(out));
+    if (request.method === "GET" && out !== undefined && out !== "") {
+      return await this.readOutput(decodeURIComponent(out));
     }
 
     if (request.method === "GET") {
@@ -208,9 +211,12 @@ export class RecipeJob extends Container {
     const lists: Record<string, string[]> = {};
     const maps: Record<string, Record<string, string>> = {};
 
-    for (const [index, file] of body.files.entries()) {
-      const name = await this.stage(file, index);
+    const staged = await runInOrder(body.files, async (file, index) => ({
+      file,
+      name: await this.stage(file, index),
+    }));
 
+    for (const { file, name } of staged) {
       if (file.key !== undefined) {
         maps[file.field] = { ...maps[file.field], [file.key]: name };
       } else if (file.field.endsWith("_urls")) {
@@ -234,9 +240,9 @@ export class RecipeJob extends Container {
 
     const answer = runAnswer.parse(await res.json());
 
-    for (const file of answer.outputs) {
+    await runInOrder(answer.outputs, async (file) => {
       await this.keepOutput(file);
-    }
+    });
 
     await this.update({
       endedAt: Date.now(),
@@ -296,12 +302,14 @@ export class RecipeJob extends Container {
 
     const bytes = new Uint8Array(await res.arrayBuffer());
 
-    for (let index = 0; index * CHUNK_BYTES < bytes.byteLength; index += 1) {
+    const chunks = Array.from({ length: Math.ceil(bytes.byteLength / CHUNK_BYTES) }, (_, i) => i);
+
+    await runInOrder(chunks, async (index) => {
       await this.ctx.storage.put(
         chunkKey(file.name, index),
         bytes.slice(index * CHUNK_BYTES, (index + 1) * CHUNK_BYTES),
       );
-    }
+    });
   }
 
   private async readOutput(name: string) {
@@ -345,9 +353,13 @@ export class RecipeJob extends Container {
     const kept = await this.ctx.storage.list({ prefix: "out:" });
     const keys = [...kept.keys()];
 
-    for (let start = 0; start < keys.length; start += 128) {
-      await this.ctx.storage.delete(keys.slice(start, start + 128));
-    }
+    const batches = Array.from({ length: Math.ceil(keys.length / 128) }, (_, i) =>
+      keys.slice(i * 128, (i + 1) * 128),
+    );
+
+    await runInOrder(batches, async (batch) => {
+      await this.ctx.storage.delete(batch);
+    });
   }
 
   override async onStop() {

@@ -137,7 +137,7 @@ export class Engine {
     }
 
     const cur = this.active.index;
-    const incoming = this.holdIndex === null ? this.nextIndex : this.holdIndex;
+    const incoming = this.holdIndex ?? this.nextIndex;
     const piece = new Piece(incoming, this.board);
 
     if (this.board.collides(piece.cells())) {

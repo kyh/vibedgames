@@ -89,13 +89,13 @@ const shiftedKey = (code: string, key: string) => {
 export const keyFields: (code: string) => [keyCode: number, key: string] = (code) => {
   const letter = /^Key(?<letter>[A-Z])$/u.exec(code)?.groups?.letter;
 
-  if (letter) {
+  if (letter !== undefined && letter !== "") {
     return [letter.codePointAt(0) ?? 0, letter.toLowerCase()];
   }
 
   const digit = /^Digit(?<digit>[0-9])$/u.exec(code)?.groups?.digit;
 
-  if (digit) {
+  if (digit !== undefined && digit !== "") {
     return [48 + Number(digit), digit];
   }
 

@@ -72,16 +72,17 @@ const stemOf = (url: string) => {
   return stem || "model";
 };
 
-const store = (
+const store = async (
   context: ORPCContext,
   bytes: Uint8Array<ArrayBuffer>,
   from: string,
   suffix: string,
-) => storeFile(context, { bytes, contentType: GLB, fileName: `${stemOf(from)}-${suffix}.glb` });
+) =>
+  await storeFile(context, { bytes, contentType: GLB, fileName: `${stemOf(from)}-${suffix}.glb` });
 
 const fetchEach = async function* fetchEach(urls: readonly string[]) {
   for (const [index, url] of urls.entries()) {
-    yield await fetchModel(url, `animation_urls[${index}]`);
+    yield fetchModel(url, `animation_urls[${index}]`);
   }
 };
 
@@ -147,23 +148,26 @@ export const assetRouter = {
       });
     }
 
-    return (await sameRigMerge(context, input)) ?? submitRecipe(context, "add-animations", input);
+    return await ((await sameRigMerge(context, input)) ??
+      submitRecipe(context, "add-animations", input));
   }),
-  audioMaster: authed.audioMaster.handler(({ context, input }) =>
-    submitRecipe(context, "audio-master", input),
+  audioMaster: authed.audioMaster.handler(
+    async ({ context, input }) => await submitRecipe(context, "audio-master", input),
   ),
-  bake: authed.bake.handler(({ context, input }) => submitRecipe(context, "bake", input)),
-  fbxToGlb: authed.fbxToGlb.handler(({ context, input }) =>
-    submitRecipe(context, "fbx-to-glb", input),
+  bake: authed.bake.handler(
+    async ({ context, input }) => await submitRecipe(context, "bake", input),
   ),
-  framesToVideo: authed.framesToVideo.handler(({ context, input }) =>
-    submitRecipe(context, "frames-to-video", input),
+  fbxToGlb: authed.fbxToGlb.handler(
+    async ({ context, input }) => await submitRecipe(context, "fbx-to-glb", input),
   ),
-  imageToThreejs: authed.imageToThreejs.handler(({ context, input }) =>
-    submitRecipe(context, "image-to-threejs", input),
+  framesToVideo: authed.framesToVideo.handler(
+    async ({ context, input }) => await submitRecipe(context, "frames-to-video", input),
   ),
-  inspect: authed.inspect.handler(async ({ input }) =>
-    inspectGlb(await fetchModel(input.model_url, "model_url")),
+  imageToThreejs: authed.imageToThreejs.handler(
+    async ({ context, input }) => await submitRecipe(context, "image-to-threejs", input),
+  ),
+  inspect: authed.inspect.handler(
+    async ({ input }) => await inspectGlb(await fetchModel(input.model_url, "model_url")),
   ),
 
   optimize: authed.optimize.handler(async ({ context, input }) => {
@@ -176,18 +180,20 @@ export const assetRouter = {
     };
   }),
 
-  render: authed.render.handler(({ context, input }) => submitRecipe(context, "render", input)),
-  status: authed.status.handler(({ context, input }) => recipeStatus(context, input)),
-  textureCompress: authed.textureCompress.handler(({ context, input }) =>
-    submitRecipe(context, "texture-compress", input),
+  render: authed.render.handler(
+    async ({ context, input }) => await submitRecipe(context, "render", input),
   ),
-  trailerRender: authed.trailerRender.handler(({ context, input }) =>
-    submitRecipe(context, "trailer-render", input),
+  status: authed.status.handler(async ({ context, input }) => await recipeStatus(context, input)),
+  textureCompress: authed.textureCompress.handler(
+    async ({ context, input }) => await submitRecipe(context, "texture-compress", input),
   ),
-  videoProbe: authed.videoProbe.handler(({ context, input }) =>
-    submitRecipe(context, "video-probe", input),
+  trailerRender: authed.trailerRender.handler(
+    async ({ context, input }) => await submitRecipe(context, "trailer-render", input),
   ),
-  videoToSheet: authed.videoToSheet.handler(({ context, input }) =>
-    submitRecipe(context, "video-to-sheet", input),
+  videoProbe: authed.videoProbe.handler(
+    async ({ context, input }) => await submitRecipe(context, "video-probe", input),
+  ),
+  videoToSheet: authed.videoToSheet.handler(
+    async ({ context, input }) => await submitRecipe(context, "video-to-sheet", input),
   ),
 };

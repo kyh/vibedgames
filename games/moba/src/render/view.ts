@@ -133,11 +133,11 @@ const damageLabelColor = (magic: boolean, crit: boolean | undefined) => {
     return "#c78bff";
   }
 
-  return crit ? "#ffd23a" : "#ffffff";
+  return crit === true ? "#ffd23a" : "#ffffff";
 };
 
 const unitRingColor = (u: Unit) => {
-  if (u.neutral) {
+  if (u.neutral === true) {
     return 0xd0_a2_3a;
   }
 
@@ -220,7 +220,7 @@ const projTex = (p: Projectile) => {
 };
 
 const groundColor = (g: GroundEffect) => {
-  if (g.allyHealPerTick) {
+  if (g.allyHealPerTick !== undefined && g.allyHealPerTick !== 0) {
     return 0x6b_e0_7a;
   }
 
@@ -245,17 +245,17 @@ const shortName = (defId: string) => {
 };
 
 export class WorldView {
-  private scene: Phaser.Scene;
+  private readonly scene: Phaser.Scene;
   private readonly commonFx: CommonFx;
-  private units = new Map<string, UnitView>();
-  private structs = new Map<string, StructView>();
-  private projs = new Map<string, Phaser.GameObjects.Image | Phaser.GameObjects.Sprite>();
-  private projTrailAt = new Map<string, number>();
-  private grounds = new Map<string, GroundView>();
-  private mines = new Map<string, Phaser.GameObjects.Arc>();
-  private shoreCells: { x: number; y: number }[] = [];
+  private readonly units = new Map<string, UnitView>();
+  private readonly structs = new Map<string, StructView>();
+  private readonly projs = new Map<string, Phaser.GameObjects.Image | Phaser.GameObjects.Sprite>();
+  private readonly projTrailAt = new Map<string, number>();
+  private readonly grounds = new Map<string, GroundView>();
+  private readonly mines = new Map<string, Phaser.GameObjects.Arc>();
+  private readonly shoreCells: { x: number; y: number }[] = [];
   private splashAcc = 0;
-  private scorches: Phaser.GameObjects.Image[] = [];
+  private readonly scorches: Phaser.GameObjects.Image[] = [];
   private reticle: Phaser.GameObjects.Image | null = null;
   private reticleId = "";
   private aimDir: Vec2 | null = null;
@@ -263,14 +263,14 @@ export class WorldView {
   private plateLeaders: Phaser.GameObjects.Graphics | null = null;
   private reducedMotion = false;
   private focused = false;
-  private clouds: Phaser.GameObjects.Image[] = [];
+  private readonly clouds: Phaser.GameObjects.Image[] = [];
   playerHeroId = "";
   playerTeam: "radiant" | "dire" = "radiant";
   /** Where to draw a unit or projectile, by id. Set, bodies sit exactly there
    *  (falling back to the world's own x/y) — the game scene hands over sim
    *  positions blended between steps, or a guest's interpolated ones. Unset
    *  (showcase, trailer), bodies chase the sim position to hide its 30 Hz step. */
-  poseOf: ((id: string) => Vec2 | undefined) | null = null;
+  poseOf: ((id: string) => Vec2 | null) | null = null;
 
   private trauma = 0;
   shakeX = 0;
@@ -979,7 +979,9 @@ export class WorldView {
       s.tweens.add({
         duration: 6000 + rng2(p.x, p.y) * 6000,
         ease: "Sine.InOut",
-        onUpdate: () => sh.setDepth(sh.y),
+        onUpdate: () => {
+          sh.setDepth(sh.y);
+        },
         repeat: -1,
         targets: sh,
         x: p.x + (rng2(p.x, 2) - 0.5) * 160,
@@ -1115,9 +1117,7 @@ export class WorldView {
       return;
     }
 
-    if (!this.aimChevron) {
-      this.aimChevron = this.scene.add.image(0, 0, "fx-chevron").setTint(0xff_e1_4a).setAlpha(0.9);
-    }
+    this.aimChevron ??= this.scene.add.image(0, 0, "fx-chevron").setTint(0xff_e1_4a).setAlpha(0.9);
 
     const { x, y } = this.aimDir;
     this.aimChevron
@@ -1140,9 +1140,7 @@ export class WorldView {
 
     const { u, struct, v } = target;
 
-    if (!this.reticle) {
-      this.reticle = this.scene.add.image(0, 0, "cursor-target").setDepth(89_000);
-    }
+    this.reticle ??= this.scene.add.image(0, 0, "cursor-target").setDepth(89_000);
 
     const size = reticleSize(u, struct);
     const bx = struct ? u.x : (v?.dx ?? u.x);
@@ -1225,7 +1223,9 @@ export class WorldView {
         .setScale(0.8 + Math.random() * 0.4);
 
       sp.play("fx-splash");
-      sp.once("animationcomplete", () => sp.destroy());
+      sp.once("animationcomplete", () => {
+        sp.destroy();
+      });
       break;
     }
   }
@@ -1354,7 +1354,7 @@ export class WorldView {
 
       const unit = world.units.get(actor.unitId);
 
-      if (!unit?.alive || !unit.hero || !fx.effect.startsWith(`${unit.hero.defId}:`)) {
+      if (unit?.alive !== true || !unit.hero || !fx.effect.startsWith(`${unit.hero.defId}:`)) {
         continue;
       }
 
@@ -1391,9 +1391,7 @@ export class WorldView {
 
       let v = this.units.get(u.id);
 
-      if (!v) {
-        v = this.createUnitView(u);
-      }
+      v ??= this.createUnitView(u);
 
       if (v.dead) {
         this.reviveUnitView(u, v);
@@ -1449,11 +1447,15 @@ export class WorldView {
     if (this.scene.anims.exists(dkey)) {
       v.sprite.play(dkey);
       v.curAnim = dkey;
-      v.sprite.once("animationcomplete", () =>
-        this.collapseSprite(v.sprite, () => v.container.setVisible(false)),
-      );
+      v.sprite.once("animationcomplete", () => {
+        this.collapseSprite(v.sprite, () => {
+          v.container.setVisible(false);
+        });
+      });
     } else {
-      this.collapseSprite(v.sprite, () => v.container.setVisible(false));
+      this.collapseSprite(v.sprite, () => {
+        v.container.setVisible(false);
+      });
     }
   }
 
@@ -1536,7 +1538,7 @@ export class WorldView {
 
     const cue = v.attackCue;
     const cancelled = cue && !u.pendingAttack && (speed > 12 || world.now < cue.resolveAt);
-    const attack = cue && !cancelled ? attackPose(cue, world.now) : null;
+    const attack = cue && cancelled !== true ? attackPose(cue, world.now) : null;
 
     if (!cue || !attack) {
       v.attackCue = null;
@@ -1611,7 +1613,7 @@ export class WorldView {
   private syncUnitBars(u: Unit, v: UnitView) {
     const bw = u.kind === "hero" ? 56 : 34;
     v.hpFill.width = Math.max(0, (u.hp / u.maxHp) * bw);
-    v.hpFill.setFillStyle(u.neutral ? 0xe0_a9_3a : teamHpColor(u.team));
+    v.hpFill.setFillStyle(u.neutral === true ? 0xe0_a9_3a : teamHpColor(u.team));
 
     if (v.mpFill) {
       v.mpFill.width = Math.max(0, (u.mp / Math.max(1, u.maxMp)) * bw);
@@ -1638,9 +1640,7 @@ export class WorldView {
   }
 
   private syncHeroPlates(world: World) {
-    if (!this.plateLeaders) {
-      this.plateLeaders = this.scene.add.graphics().setDepth(DEPTH_UNIT_PLATE - 1);
-    }
+    this.plateLeaders ??= this.scene.add.graphics().setDepth(DEPTH_UNIT_PLATE - 1);
 
     this.plateLeaders.clear();
     const plates: HeroPlate[] = [];
@@ -1648,7 +1648,7 @@ export class WorldView {
     for (const [id, v] of this.units) {
       const u = world.units.get(id);
 
-      if (!u?.alive || u.kind !== "hero" || !v.label) {
+      if (u?.alive !== true || u.kind !== "hero" || !v.label) {
         continue;
       }
 
@@ -1813,12 +1813,12 @@ export class WorldView {
     }
 
     const baseAng = Math.atan2(ny, nx);
-    const priority = important || crit ? "important" : "common";
+    const priority = important || crit === true ? "important" : "common";
     const sparks = this.hitBurstCount(crit, { crit: 7, focused: 2, normal: 4, reduced: 1 });
 
     for (let i = 0; i < sparks; i += 1) {
       const a = baseAng + (Math.random() - 0.5) * 1.5;
-      const speed = this.reducedMotion ? 0 : (crit ? 90 : 60) + Math.random() * 70;
+      const speed = this.reducedMotion ? 0 : (crit === true ? 90 : 60) + Math.random() * 70;
       this.commonFx.image({
         depth: y + 320,
         dx: Math.cos(a) * speed,
@@ -1838,7 +1838,7 @@ export class WorldView {
 
     for (let i = 0; i < puffs; i += 1) {
       const a = baseAng + (Math.random() - 0.5) * 1.1;
-      const speed = (crit ? 130 : 95) + Math.random() * 90;
+      const speed = (crit === true ? 130 : 95) + Math.random() * 90;
       this.commonFx.image({
         alpha: 0.9,
         depth: y + 321,
@@ -1849,7 +1849,7 @@ export class WorldView {
         life: (180 + Math.random() * 110) / 1000,
         priority,
         rotation: a,
-        scale: crit ? 1.5 : 1.05,
+        scale: crit === true ? 1.5 : 1.05,
         scaleY: 0.7,
         texture: "streak",
         tint,
@@ -1942,12 +1942,16 @@ export class WorldView {
         s.tweens.add({
           alpha: 0,
           duration: 260,
-          onComplete: () => corpse.destroy(),
+          onComplete: () => {
+            corpse.destroy();
+          },
           targets: corpse,
         });
       });
     } else {
-      this.collapseSprite(corpse, () => corpse.destroy());
+      this.collapseSprite(corpse, () => {
+        corpse.destroy();
+      });
     }
   }
 
@@ -1967,7 +1971,9 @@ export class WorldView {
       alpha: 0,
       duration: 900,
       ease: "Sine.Out",
-      onComplete: () => wisp.destroy(),
+      onComplete: () => {
+        wisp.destroy();
+      },
       scaleX: 0.2,
       scaleY: 0.95,
       targets: wisp,
@@ -1992,7 +1998,9 @@ export class WorldView {
         angle: 140,
         duration: 700 + Math.random() * 300,
         ease: "Sine.Out",
-        onComplete: () => st.destroy(),
+        onComplete: () => {
+          st.destroy();
+        },
         targets: st,
         x: st.x + (Math.random() - 0.5) * 30,
         y: y - 50 - Math.random() * 30,
@@ -2013,7 +2021,9 @@ export class WorldView {
       .setDepth(y + 1);
 
     sk.play("skull-pop");
-    sk.once("animationcomplete", () => sk.destroy());
+    sk.once("animationcomplete", () => {
+      sk.destroy();
+    });
   }
 
   private collapseSprite(sprite: Phaser.GameObjects.Sprite, onDone?: () => void) {
@@ -2047,7 +2057,7 @@ export class WorldView {
       return tiers.focused;
     }
 
-    return crit ? tiers.crit : tiers.normal;
+    return crit === true ? tiers.crit : tiers.normal;
   }
 
   private createUnitView(u: Unit) {
@@ -2309,7 +2319,12 @@ export class WorldView {
 
     for (const g of world.groundEffects) {
       seen.add(g.id);
-      const kind = groundFxKind(g.effect, !!g.allyHealPerTick);
+
+      const kind = groundFxKind(
+        g.effect,
+        g.allyHealPerTick !== undefined && g.allyHealPerTick !== 0,
+      );
+
       let gv = this.grounds.get(g.id);
 
       if (!gv) {
@@ -2381,7 +2396,9 @@ export class WorldView {
             .setBlendMode(BlendModes.ADD);
 
           bolt.play("sp-lightning");
-          bolt.once("animationcomplete", () => bolt.destroy());
+          bolt.once("animationcomplete", () => {
+            bolt.destroy();
+          });
         }
       }
     }
@@ -2400,7 +2417,7 @@ export class WorldView {
   }
 
   private groundAt(g: GroundEffect) {
-    return (g.followOwner ? this.poseOf?.(g.ownerId) : undefined) ?? g;
+    return (g.followOwner === true ? this.poseOf?.(g.ownerId) : undefined) ?? g;
   }
 
   private syncMines(world: World) {
@@ -2484,8 +2501,14 @@ export class WorldView {
         break;
       }
 
-      default: {
+      case "kill":
+      case "notify": {
         break;
+      }
+
+      default: {
+        const unhandled: never = fx;
+        throw new Error("unhandled fx", { cause: unhandled });
       }
     }
   }
@@ -2500,7 +2523,7 @@ export class WorldView {
       fx.targetId === this.playerHeroId ||
       fx.targetId === this.reticleId ||
       fx.crit === true ||
-      (!fx.isAttack && fx.amount >= 60);
+      (fx.isAttack !== true && fx.amount >= 60);
 
     const priority = important ? "important" : "common";
     const bigHit = fx.isAttack === true || fx.crit === true || fx.amount >= 30;
@@ -2511,13 +2534,13 @@ export class WorldView {
       this.spawnHitSparks(fx.x, fx.y, fx.nx, fx.ny, tintCol, fx.crit, important);
     }
 
-    if (fx.crit || fx.amount >= 55) {
-      this.spawnShockwave(fx.x, fx.y, tintCol, fx.crit ? 1 : 0.8);
+    if (fx.crit === true || fx.amount >= 55) {
+      this.spawnShockwave(fx.x, fx.y, tintCol, fx.crit === true ? 1 : 0.8);
     }
 
     if (fx.targetId === this.playerHeroId && fx.amount >= 25) {
       this.addTrauma(Math.min(0.5, 0.14 + fx.amount / 400));
-    } else if (fx.crit || fx.amount >= 60) {
+    } else if (fx.crit === true || fx.amount >= 60) {
       this.traumaAt(fx.x, fx.y, 0.2);
     }
 
@@ -2526,10 +2549,10 @@ export class WorldView {
       crit: fx.crit,
       depth: 90_000,
       group: fx.targetId,
-      life: fx.crit ? 0.82 : 0.7,
+      life: fx.crit === true ? 0.82 : 0.7,
       priority,
-      rise: fx.crit ? 52 : 38,
-      size: fx.crit ? 24 : 15,
+      rise: fx.crit === true ? 52 : 38,
+      size: fx.crit === true ? 24 : 15,
       text: `${fx.amount}`,
       x: fx.x,
       y: fx.y,
@@ -2548,11 +2571,11 @@ export class WorldView {
       depth: fx.y + 300,
       endScale: 0.15,
       endScaleY: 0.1,
-      hold: fx.crit ? 0.045 : 0.025,
-      life: fx.crit ? 0.26 : 0.17,
+      hold: fx.crit === true ? 0.045 : 0.025,
+      life: fx.crit === true ? 0.26 : 0.17,
       priority,
       rotation: Math.atan2(fx.ny, fx.nx) + 0.55,
-      scale: fx.crit ? 1.8 : 1.05,
+      scale: fx.crit === true ? 1.8 : 1.05,
       scaleY: magic ? 1.3 : 0.65,
       texture: "fx-star",
       tint: tintCol,
@@ -2567,11 +2590,11 @@ export class WorldView {
         endScale: 0,
         endScaleY: 0.1,
         hold: 0.02,
-        life: fx.crit ? 0.15 : 0.095,
+        life: fx.crit === true ? 0.15 : 0.095,
         priority,
         rotation: Math.atan2(fx.ny, fx.nx) - 0.55,
-        scale: fx.crit ? 2.7 : 1.7,
-        scaleY: fx.crit ? 1.1 : 0.65,
+        scale: fx.crit === true ? 2.7 : 1.7,
+        scaleY: fx.crit === true ? 1.1 : 0.65,
         texture: "streak",
         x: fx.x,
         y: fx.y,
@@ -2587,10 +2610,13 @@ export class WorldView {
     }
 
     vv.sprite.setTint(magic ? 0xd9_a6_ff : 0xff_8a_8a);
-    vv.flashUntil = this.scene.time.now + (fx.crit ? 130 : 90);
+    vv.flashUntil = this.scene.time.now + (fx.crit === true ? 130 : 90);
 
     if (bigHit && !this.reducedMotion) {
-      const kick = Math.min(fx.isAttack ? 16 : 9, 4 + fx.amount * 0.12) * (fx.crit ? 1.6 : 1);
+      const kick =
+        Math.min(fx.isAttack === true ? 16 : 9, 4 + fx.amount * 0.12) *
+        (fx.crit === true ? 1.6 : 1);
+
       vv.recoilX += fx.nx * kick;
       vv.recoilY += fx.ny * kick;
       const recoil = Math.hypot(vv.recoilX, vv.recoilY);
@@ -2665,7 +2691,9 @@ export class WorldView {
       s.tweens.add({
         alpha: 0,
         duration: 300,
-        onComplete: () => c.destroy(),
+        onComplete: () => {
+          c.destroy();
+        },
         scale: 0,
         targets: c,
       });
@@ -2696,7 +2724,9 @@ export class WorldView {
     s.tweens.add({
       alpha: 0,
       duration: 600,
-      onComplete: () => ring.destroy(),
+      onComplete: () => {
+        ring.destroy();
+      },
       scale: 3,
       targets: ring,
     });
@@ -2713,7 +2743,9 @@ export class WorldView {
       alpha: 0,
       duration: 520,
       ease: "Quad.Out",
-      onComplete: () => glow.destroy(),
+      onComplete: () => {
+        glow.destroy();
+      },
       scaleX: 0.9,
       scaleY: 2.2,
       targets: glow,
@@ -2739,7 +2771,9 @@ export class WorldView {
           delay: i * 32,
           duration: 620 + Math.random() * 260,
           ease: "Sine.Out",
-          onComplete: () => star.destroy(),
+          onComplete: () => {
+            star.destroy();
+          },
           targets: star,
           y: y - 40 - Math.random() * 42,
         });

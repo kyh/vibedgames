@@ -49,7 +49,7 @@ export const destructibleProps = () => {
       y,
     };
 
-    if (explosive) {
+    if (explosive === true) {
       spec.explosive = true;
     }
 

@@ -236,6 +236,8 @@ export const createPauseOverlay = ({ onRestart, mute }: PauseOverlayOptions) =>
   createPauseShell({
     css: CSS,
     mute,
-    render: (overlay) => renderContent(overlay, onRestart),
+    render: (overlay) => {
+      renderContent(overlay, onRestart);
+    },
     styleId: STYLE_ID,
   });

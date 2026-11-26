@@ -35,7 +35,7 @@ export const imageToThreejs = async (ctx: RecipeContext<RecipeInput<"image-to-th
   const root = need(ctx.tools.img2threejs, "image-to-threejs");
   const script = findScript(root, ctx.params.script);
 
-  if (!script) {
+  if (script === null) {
     throw new RecipeError(`${ctx.params.script} is not in this image-to-threejs checkout.`);
   }
 
@@ -49,9 +49,10 @@ export const imageToThreejs = async (ctx: RecipeContext<RecipeInput<"image-to-th
 
   const before = snapshotFiles(run);
 
-  const [program, prefix] = ctx.tools.uv
-    ? [ctx.tools.uv, ["run", "--python", "3.12", "--no-project", "python"]]
-    : [need(ctx.tools.python, "Python 3"), []];
+  const program = ctx.tools.uv ?? need(ctx.tools.python, "Python 3");
+
+  const prefix =
+    ctx.tools.uv === undefined ? [] : ["run", "--python", "3.12", "--no-project", "python"];
 
   const result = await ctx.run(program, [...prefix, script, ...ctx.params.args], {
     allowFailure: true,

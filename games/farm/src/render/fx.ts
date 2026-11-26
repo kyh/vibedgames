@@ -82,7 +82,11 @@ class SceneFx {
         .setVisible(false),
       target: { x: 0, y: 0 },
     }));
-    const update = (_time: number, delta: number) => this.update(Math.min(delta, 50) / 1000);
+
+    const update = (_time: number, delta: number) => {
+      this.update(Math.min(delta, 50) / 1000);
+    };
+
     scene.events.on(Scenes.Events.POST_UPDATE, update);
     scene.events.once(Scenes.Events.SHUTDOWN, () => {
       scene.events.off(Scenes.Events.POST_UPDATE, update);
@@ -112,13 +116,12 @@ class SceneFx {
 
       const color = opts.colors[Math.floor(Math.random() * opts.colors.length)] ?? 0xff_ff_ff;
 
-      const ang = opts.up
-        ? -Math.PI / 2 + (Math.random() - 0.5) * 1.6
-        : Math.random() * Math.PI * 2;
+      const ang =
+        opts.up === true ? -Math.PI / 2 + (Math.random() - 0.5) * 1.6 : Math.random() * Math.PI * 2;
 
       const speed = (opts.speed ?? 50) * (0.4 + Math.random() * 0.9);
       p.vx = Math.cos(ang) * speed;
-      p.vy = Math.sin(ang) * speed - (opts.up ? 30 : 0);
+      p.vy = Math.sin(ang) * speed - (opts.up === true ? 30 : 0);
       p.gravity = opts.gravity ?? 120;
       p.spin = body.spin;
       p.age = 0;
@@ -254,7 +257,9 @@ export const floatText = (
     alpha: { from: 1, to: 0 },
     duration: life,
     ease: "Cubic.easeOut",
-    onComplete: () => t.destroy(),
+    onComplete: () => {
+      t.destroy();
+    },
     targets: t,
     y: y - 22,
   });

@@ -559,7 +559,7 @@ export class GameScene {
     };
 
     if (index === 0) {
-      next["points"] = {};
+      next.points = {};
     }
 
     this.client.updateSharedState(next);
@@ -587,7 +587,7 @@ export class GameScene {
     if (client.isHost && !this.wasHost && now > 0) {
       this.bots.adopt(
         this.track,
-        client.sharedState["bots"],
+        client.sharedState.bots,
         Math.max(1, Object.keys(client.players).length),
       );
     }
@@ -698,7 +698,7 @@ export class GameScene {
 
   private scoreCup() {
     const table: JsonRecord = {};
-    const before = this.client.sharedState["points"];
+    const before = this.client.sharedState.points;
 
     if (isJsonObject(before)) {
       for (const [key, value] of Object.entries(before)) {
@@ -897,7 +897,9 @@ export class GameScene {
 
         return this.client.isHost ? this.bots.kart(key) : null;
       },
-      notify: (what, kind) => this.notify(what, kind),
+      notify: (what, kind) => {
+        this.notify(what, kind);
+      },
       paint: this.paint,
       rampOf: (key) => this.racers.get(key)?.ramp ?? RAMP.white,
       shareOf: (key) => {
@@ -1090,7 +1092,7 @@ export class GameScene {
     }
 
     this.botCount = clamp(GRID_SIZE - humans, 0, BOTS.length);
-    const rows = client.sharedState["bots"];
+    const rows = client.sharedState.bots;
 
     for (const [key, pose] of this.bots.poses(
       client.isHost,
@@ -1619,7 +1621,7 @@ export class GameScene {
 
   private showResults(order: readonly Racer[], now: number) {
     const shares = this.paint.coverage(MAX_SLOT);
-    const table = this.client.sharedState["points"];
+    const table = this.client.sharedState.points;
 
     const pointsOf = (racer: Racer) => {
       const value = isJsonObject(table) ? table[this.cupKey(racer)] : 0;

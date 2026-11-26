@@ -5,6 +5,7 @@ import { WaterFx } from "../src/fx/water-fx.ts";
 import type { WaterSprayKind } from "../src/fx/water-fx.ts";
 import { DRY_WATER_CONTACT } from "../src/vehicle/water-contact.ts";
 import type { WaterContact } from "../src/vehicle/water-contact.ts";
+import { isMesh, isPoints } from "../src/shared/three-guards.ts";
 
 type Check = (name: string, condition: boolean, detail?: string) => void;
 
@@ -68,7 +69,11 @@ const checkWakeCadence = (check: Check) => {
 
 const checkWakeDirection = (check: Check) => {
   for (const speed of [-20, 20]) {
-    const direction = new WaterFx(() => null);
+    const sprays: WaterSprayKind[] = [];
+
+    const direction = new WaterFx((_x, _y, _z, _strength, _vx, _vz, kind) => {
+      sprays.push(kind);
+    });
 
     direction.contact(0, STILL, 0, -0.7, 0, 0, 0);
     direction.update(1.4);
@@ -137,7 +142,7 @@ const checkWaterPool = (check: Check) => {
     liveParticles(fx) === 0 && !fx.water.mesh.visible,
   );
   scene.traverse((object) => {
-    if (object instanceof THREE.Mesh || object instanceof THREE.Points) {
+    if (isMesh(object) || isPoints(object)) {
       object.geometry.dispose();
 
       if (Array.isArray(object.material)) {

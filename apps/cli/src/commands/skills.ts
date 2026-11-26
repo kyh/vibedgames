@@ -1,3 +1,4 @@
+import { parseJson } from "@repo/contract/json";
 import { defineCommand } from "citty";
 import { consola } from "consola";
 
@@ -23,7 +24,8 @@ const fetchOrExit = async (url: URL, doing: string) => {
     return await fetch(url);
   } catch (error) {
     consola.error(`${doing}: ${error instanceof Error ? error.message : String(error)}`);
-    process.exit(1);
+
+    return process.exit(1);
   }
 };
 
@@ -51,7 +53,7 @@ const listSkills = async () => {
     process.exit(1);
   }
 
-  const index: JsonValue = JSON.parse(await res.text());
+  const index: JsonValue = parseJson(await res.text());
 
   return summaries(index);
 };
@@ -66,7 +68,7 @@ export const skillsCommand = defineCommand({
   run: async ({ args, rawArgs }) => {
     assertKnownFlags(rawArgs, skillsArgs);
 
-    if (!args.name) {
+    if (args.name === undefined || args.name === "") {
       const skills = await listSkills();
 
       if (writeStructured({ skills }, args)) {
@@ -99,7 +101,7 @@ export const skillsCommand = defineCommand({
 
     const content = await res.text();
 
-    if (isJsonOutput(args) || args.field) {
+    if (isJsonOutput(args) || (args.field !== undefined && args.field !== "")) {
       const listed = await listSkills();
       const summary = listed.find((skill) => skill.name === name);
       writeStructured({ content, description: summary?.description ?? "", name }, args);

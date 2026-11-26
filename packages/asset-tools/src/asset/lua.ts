@@ -187,9 +187,9 @@ const tokenize = (text: string) => {
 
 type TableKey = { kind: "index"; index: number } | { kind: "name"; name: string };
 
-const numberTokenValue = (raw: string) =>
-  // oxlint-disable-next-line unicorn/prefer-number-coercion -- a token like `1.2.3` must read its leading number, not NaN
-  raw.includes(".") ? Number.parseFloat(raw) : Number.parseInt(raw, 10);
+const LEADING_NUMBER = /^-?\d+(?:\.\d*)?/u;
+
+const numberTokenValue = (raw: string) => Number(LEADING_NUMBER.exec(raw)?.[0]);
 
 /** Parse a Lua table literal (optionally `return`-prefixed) into JSON data. */
 export const parseLua = (text: string) => {

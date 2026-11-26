@@ -1,8 +1,6 @@
 import { HERO_NAMES } from "./animations";
 import type { HeroName } from "./animations";
 
-/* oxlint-disable anti-slop/no-unknown-parameters -- This module is the parser for untyped Phaser scene-entry data. */
-
 type Reached = Readonly<{ hero: HeroName; biome: number; depth: number; gold: number }>;
 
 /** A guest snapshot does not contain score or banking results. Keep that
@@ -20,7 +18,7 @@ export type RunRecap =
 const whole = (value: unknown, minimum: number): value is number =>
   typeof value === "number" && Number.isSafeInteger(value) && value >= minimum;
 
-type RecapCandidate = Partial<{
+export type RecapCandidate = Partial<{
   kind: unknown;
   hero: unknown;
   biome: unknown;
@@ -31,16 +29,13 @@ type RecapCandidate = Partial<{
   bestScore: unknown;
 }>;
 
-const isCandidate = (value: unknown): value is RecapCandidate =>
+/** Scene data is untyped: an object that might hold a recap. */
+export const isRecapCandidate = (value: unknown): value is RecapCandidate =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
 /** Scene data is untyped and may survive an earlier Scene.start. Validate the
  * explicit recap value and copy primitives; never retain the caller's object. */
-export const readRunRecap: (value: unknown) => RunRecap | null = (value) => {
-  if (!isCandidate(value)) {
-    return null;
-  }
-
+export const readRunRecap: (value: RecapCandidate) => RunRecap | null = (value) => {
   const hero = HERO_NAMES.find((name) => name === value.hero);
 
   if (!hero || !whole(value.biome, 1) || !whole(value.depth, 1) || !whole(value.gold, 0)) {

@@ -11,12 +11,13 @@ import { siteConfig } from "@/lib/site-config";
  * docs index for the developer surface.
  */
 export const notFoundDoc: (pathname?: string) => Doc = (pathname?) => {
-  const requested = pathname && pathname !== "/" ? pathname : null;
+  const requested = pathname !== undefined && pathname !== "" && pathname !== "/" ? pathname : null;
 
   return {
-    description: requested
-      ? `There is no page at ${requested} on ${siteConfig.url}.`
-      : `That page does not exist on ${siteConfig.url}.`,
+    description:
+      requested !== null && requested !== ""
+        ? `There is no page at ${requested} on ${siteConfig.url}.`
+        : `That page does not exist on ${siteConfig.url}.`,
     lead: [
       {
         kind: "p",

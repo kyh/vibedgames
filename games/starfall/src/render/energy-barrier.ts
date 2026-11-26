@@ -18,7 +18,7 @@ const VIGNETTE_STEPS = 8;
  * leaked Graphics on scene reuse (Phaser keeps scene instances around).
  */
 export class EnergyBarrier {
-  private frame: Phaser.GameObjects.Graphics;
+  private readonly frame: Phaser.GameObjects.Graphics;
   /** Screen-space dark frame. Public: the scene counter-transforms it against
    *  camera zoom/roll along with its other screen-fixed objects. */
   readonly vignette: Phaser.GameObjects.Graphics;
@@ -71,7 +71,7 @@ export class EnergyBarrier {
     }
   }
 
-  private drawVignette() {
+  private readonly drawVignette = () => {
     const w = this.frame.scene.scale.width;
     const h = this.frame.scene.scale.height;
     const band = Math.min(w, h) * VIGNETTE_BAND;
@@ -89,7 +89,7 @@ export class EnergyBarrier {
       v.fillRect(o, 0, thick, h);
       v.fillRect(w - o - thick, 0, thick, h);
     }
-  }
+  };
 
   destroy() {
     this.frame.scene.scale.off(Scale.Events.RESIZE, this.drawVignette, this);

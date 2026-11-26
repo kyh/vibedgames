@@ -60,11 +60,14 @@ const getMine = (game: Phaser.Game) => {
   return s;
 };
 
-const sceneReady = <T extends Phaser.Scene>(scene: T) =>
-  // oxlint-disable-next-line promise/avoid-new -- wraps Phaser's one-shot CREATE event callback
-  new Promise<T>((resolve) => {
-    scene.events.once(Scenes.Events.CREATE, () => resolve(scene));
+const sceneReady = async <T extends Phaser.Scene>(scene: T) => {
+  const { promise, resolve } = Promise.withResolvers<T>();
+  scene.events.once(Scenes.Events.CREATE, () => {
+    resolve(scene);
   });
+
+  return await promise;
+};
 
 const freshFarm = async (game: Phaser.Game) => {
   const mgr = game.scene;
@@ -232,8 +235,9 @@ const selectTool = (match: (item: Item) => boolean) => {
 };
 
 const clearFieldObjects = (gs: GameScene) => {
-  // oxlint-disable-next-line unicorn/no-useless-spread -- removeObject splices gs.world.objects, so the walk needs its own snapshot
-  for (const o of [...gs.world.objects]) {
+  const standing = [...gs.world.objects];
+
+  for (const o of standing) {
     if (o.type !== "tree" && o.type !== "rock" && o.type !== "forage") {
       continue;
     }
@@ -869,11 +873,14 @@ class FarmScript {
 
       const mid = (at.tx * TILE + 8 + gs.player.x) / 2;
 
-      const heart = (dx: number) =>
+      const heart = (dx: number) => {
         floatText(gs, mid + dx, at.ty * TILE + 14, "♥", "#ff3d6e", 20, 1200);
+      };
 
       heart(0);
-      gs.time.delayedCall(500, () => heart(7));
+      gs.time.delayedCall(500, () => {
+        heart(7);
+      });
     });
   }
 
@@ -1971,10 +1978,10 @@ export const startTrailer = (game: Phaser.Game) => {
       sceneFullFarm(game),
     ].map((scene) => ({
       ...scene,
-      setup: () => {
+      setup: async () => {
         getGame(game).trailerFrame = null;
 
-        return scene.setup();
+        await scene.setup();
       },
     })),
     vignette: false,

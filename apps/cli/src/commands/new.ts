@@ -1,3 +1,4 @@
+import { parseJson } from "@repo/contract/json";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
@@ -129,7 +130,7 @@ const ensureTypecheckScript = (target: string) => {
   }
 
   try {
-    const pkg: JsonValue = JSON.parse(readFileSync(pkgPath, "utf-8"));
+    const pkg: JsonValue = parseJson(readFileSync(pkgPath, "utf-8"));
 
     if (!isJsonObject(pkg)) {
       return;
@@ -158,7 +159,7 @@ const rewritePackageName = (target: string, slug: string) => {
 
   try {
     const raw = readFileSync(pkgPath, "utf-8");
-    const pkg: JsonValue = JSON.parse(raw);
+    const pkg: JsonValue = parseJson(raw);
 
     if (!isJsonObject(pkg)) {
       throw new Error("package.json is not a JSON object");
@@ -229,7 +230,10 @@ export const newCommand = defineCommand({
     let template: TemplateSpec | undefined;
 
     try {
-      template = args.template ? parseTemplateSpec(args.template) : undefined;
+      template =
+        args.template !== undefined && args.template !== ""
+          ? parseTemplateSpec(args.template)
+          : undefined;
     } catch (error) {
       consola.error(error instanceof Error ? error.message : String(error));
       process.exit(1);

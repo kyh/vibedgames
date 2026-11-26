@@ -344,7 +344,9 @@ const shell = createPauseShell({
     const hint = div("pp-hint", card);
     hint.textContent = coarse ? "tap anywhere to resume" : "click or press any key to resume";
 
-    requestAnimationFrame(() => overlay.classList.add("shown"));
+    requestAnimationFrame(() => {
+      overlay.classList.add("shown");
+    });
   },
 });
 

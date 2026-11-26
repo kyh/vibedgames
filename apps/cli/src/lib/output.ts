@@ -54,6 +54,22 @@ export const writeJson = (value: OutputValue) => {
   process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
 };
 
+const fieldOf = (current: OutputValue, segment: string) => {
+  if (Array.isArray(current)) {
+    const index = Number(segment);
+
+    return Number.isInteger(index) ? current.at(index) : undefined;
+  }
+
+  return isOutputObject(current) ? current[segment] : undefined;
+};
+
+const walk: (current: OutputValue, segments: string[]) => OutputValue = (current, segments) => {
+  const [head, ...rest] = segments;
+
+  return head === undefined ? current : walk(fieldOf(current, head), rest);
+};
+
 /**
  * Resolve a dotted path against a decoded JSON value. Supports array indexing
  * in both `items[0]` and `items.0` spellings, since agents write both.
@@ -65,35 +81,10 @@ export const selectField = (value: OutputValue, path: string) => {
     .split(".")
     .filter(Boolean);
 
-  let current: OutputValue = value;
-
-  for (const segment of segments) {
-    if (current === null || current === undefined) {
-      return;
-    }
-
-    if (Array.isArray(current)) {
-      const index = Number(segment);
-
-      if (!Number.isInteger(index)) {
-        return;
-      }
-
-      current = current.at(index);
-      continue;
-    }
-
-    if (!isOutputObject(current)) {
-      return;
-    }
-
-    current = current[segment];
-  }
-
-  return current;
+  return walk(value, segments);
 };
 
-const isScalarEntry = (value: OutputValue) =>
+const isScalarEntry = (value: OutputValue): value is string | number | boolean | null =>
   value === null || (value !== undefined && Object(value) !== value);
 
 /**
@@ -101,7 +92,7 @@ const isScalarEntry = (value: OutputValue) =>
  * `$(vg ... --field url)` needs no unquoting; arrays of scalars print one per
  * line so they can be looped over; anything structural falls back to JSON.
  */
-export const formatField = (value: OutputValue) => {
+export const formatField = (value?: OutputValue) => {
   if (value === null || value === undefined) {
     return "";
   }
@@ -128,7 +119,7 @@ export const formatField = (value: OutputValue) => {
  * given, so the caller can fall through to its human-readable rendering.
  */
 export const writeStructured = <T extends OutputPayload<T>>(value: T, args: OutputArgs) => {
-  if (args.field) {
+  if (args.field !== undefined && args.field !== "") {
     const selected = selectField(value, args.field);
 
     if (selected === undefined) {

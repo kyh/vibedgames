@@ -73,7 +73,7 @@ export const readIntents = (payload: WireValue) => {
   }
 
   const hits: HostHit[] = [];
-  const rawHits = p["h"];
+  const rawHits = p.h;
 
   if (Array.isArray(rawHits)) {
     for (const raw of rawHits) {
@@ -86,7 +86,7 @@ export const readIntents = (payload: WireValue) => {
   }
 
   const pulls: IntentBatch["pulls"] = [];
-  const rawPulls = p["g"];
+  const rawPulls = p.g;
 
   if (Array.isArray(rawPulls)) {
     for (const raw of rawPulls) {
@@ -101,7 +101,7 @@ export const readIntents = (payload: WireValue) => {
     }
   }
 
-  return { hits, pulls, shots: strings(p["c"]) };
+  return { hits, pulls, shots: strings(p.c) };
 };
 
 /** The per-frame outbox. Producers queue; the scene flushes once per frame. */
@@ -144,15 +144,15 @@ export class HostIntents {
     const batch: WireRecord = {};
 
     if (this.hits.length > 0) {
-      batch["h"] = this.hits;
+      batch.h = this.hits;
     }
 
     if (this.shots.length > 0) {
-      batch["c"] = this.shots;
+      batch.c = this.shots;
     }
 
     if (this.pulls.length > 0) {
-      batch["g"] = this.pulls;
+      batch.g = this.pulls;
     }
 
     this.hits = [];

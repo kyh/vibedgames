@@ -33,7 +33,7 @@ export interface SpriteOpts {
 }
 
 export class SpritePool {
-  private slots: SpriteFx[] = [];
+  private readonly slots: SpriteFx[] = [];
   private next = 0;
 
   constructor(scene: Phaser.Scene, cap: number) {
@@ -88,7 +88,7 @@ export class SpritePool {
       .setTint(opts.color ?? 0xff_ff_ff)
       .setAlpha(slot.alpha)
       .setDepth(opts.depth ?? 60)
-      .setBlendMode(opts.add ? BlendModes.ADD : BlendModes.NORMAL)
+      .setBlendMode(opts.add === true ? BlendModes.ADD : BlendModes.NORMAL)
       .setVisible(true)
       .setActive(true);
   }

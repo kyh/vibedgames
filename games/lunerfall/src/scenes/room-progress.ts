@@ -82,7 +82,9 @@ export class RoomProgress {
         this.scene.tweens.add({
           alpha: 0,
           duration: 350,
-          onComplete: () => m.g.destroy(),
+          onComplete: () => {
+            m.g.destroy();
+          },
           targets: m.g,
           y: m.y - 6,
         });
@@ -117,7 +119,9 @@ export class RoomProgress {
     this.scene.tweens.add({
       alpha: 0,
       duration: 400,
-      onComplete: () => f.g.destroy(),
+      onComplete: () => {
+        f.g.destroy();
+      },
       targets: f.g,
       y: f.y - 6,
     });

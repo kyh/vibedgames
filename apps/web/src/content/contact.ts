@@ -3,14 +3,14 @@ import { siteConfig } from "@/lib/site-config";
 
 const directBlocks: Block[] = [];
 
-if (siteConfig.contact.email) {
+if (siteConfig.contact.email !== null && siteConfig.contact.email !== "") {
   directBlocks.push({
     kind: "p",
     text: `Email: [${siteConfig.contact.email}](mailto:${siteConfig.contact.email})`,
   });
 }
 
-if (siteConfig.contact.telephone) {
+if (siteConfig.contact.telephone !== null && siteConfig.contact.telephone !== "") {
   directBlocks.push({ kind: "p", text: `Phone: ${siteConfig.contact.telephone}` });
 }
 

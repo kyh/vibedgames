@@ -78,7 +78,9 @@ export const framesToVideo = async (ctx: RecipeContext<RecipeInput<"frames-to-vi
     String(fps),
     "-i",
     path.join(seq, `f%06d${ext}`),
-    ...(audio ? ["-i", audio, "-map", "0:v:0", "-map", "1:a:0", "-shortest", "-c:a", "aac"] : []),
+    ...(audio === undefined
+      ? []
+      : ["-i", audio, "-map", "0:v:0", "-map", "1:a:0", "-shortest", "-c:a", "aac"]),
     "-vf",
     "pad=ceil(iw/2)*2:ceil(ih/2)*2",
     "-c:v",

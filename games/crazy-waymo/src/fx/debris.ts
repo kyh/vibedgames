@@ -31,9 +31,9 @@ interface Piece {
 
 export class Debris {
   readonly group = new THREE.Group();
-  private pieces: Piece[] = [];
+  private readonly pieces: Piece[] = [];
   private clock = 0;
-  private heightAt: (x: number, z: number) => number;
+  private readonly heightAt: (x: number, z: number) => number;
 
   constructor(cache: ModelCache, heightAt: (x: number, z: number) => number) {
     this.heightAt = heightAt;

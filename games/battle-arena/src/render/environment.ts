@@ -24,6 +24,7 @@ import type { ModelLibrary } from "./models";
 import { refreshStaticShadows } from "./view";
 import { teamColor } from "./palette";
 import { ArenaMaterials, floorVariation } from "./arena-materials";
+import { isMesh } from "./mesh";
 
 /** Standing-tall models scale-to-height (target × decor scale) so they match
  *  the arena pillars; everything else keeps native size × scale. (Exported for
@@ -257,10 +258,10 @@ const plantMatrix = (
 };
 
 const decorMatrix = (d: Decor, box: THREE.Box3) => {
-  const tall = d.lie ? undefined : TALL_TARGET.get(d.model);
+  const tall = d.lie === true ? undefined : TALL_TARGET.get(d.model);
   const bh = Math.max(0.01, box.max.y - box.min.y);
   const s = tall === undefined ? d.scale : (tall * d.scale) / bh;
-  E_ROT.set(0, d.rot, d.lie ? Math.PI / 2 : 0);
+  E_ROT.set(0, d.rot, d.lie === true ? Math.PI / 2 : 0);
   Q_ROT.setFromEuler(E_ROT);
   V_SCL.set(s, s, s);
   M_SCRATCH.compose(V_ZERO, Q_ROT, V_SCL);
@@ -272,9 +273,9 @@ const decorMatrix = (d: Decor, box: THREE.Box3) => {
 };
 
 export class Environment {
-  private materials = new ArenaMaterials();
+  private readonly materials = new ArenaMaterials();
   private readonly reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)") ?? null;
-  private flames: THREE.PointLight[] = [];
+  private readonly flames: THREE.PointLight[] = [];
   private embers: THREE.Points | null = null;
   private motes: THREE.Points | null = null;
   private goldMotes: THREE.Points | null = null;
@@ -287,14 +288,14 @@ export class Environment {
   private homeSlot = -1;
   private lastT = -1;
   private disposed = false;
-  private extras = new Map<string, THREE.Object3D>();
-  private added: THREE.Object3D[] = [];
-  private ownedGeos: THREE.BufferGeometry[] = [];
-  private ownedMats: THREE.Material[] = [];
+  private readonly extras = new Map<string, THREE.Object3D>();
+  private readonly added: THREE.Object3D[] = [];
+  private readonly ownedGeos: THREE.BufferGeometry[] = [];
+  private readonly ownedMats: THREE.Material[] = [];
 
-  private scene: THREE.Scene;
-  private lib: ModelLibrary;
-  private opts: { decor?: boolean; obstacles?: boolean };
+  private readonly scene: THREE.Scene;
+  private readonly lib: ModelLibrary;
+  private readonly opts: { decor?: boolean; obstacles?: boolean };
 
   constructor(
     scene: THREE.Scene,
@@ -358,7 +359,7 @@ export class Environment {
       const banner = this.place("banner_red", sp.x - ox, sp.y - oy, 3, sp.facing);
       const team = new THREE.Color(teamColor(`bot:${sp.slot}`));
       banner.traverse((o) => {
-        if (!(o instanceof THREE.Mesh)) {
+        if (!isMesh(o)) {
           return;
         }
 
@@ -420,7 +421,7 @@ export class Environment {
         const gltf = await loader.loadAsync(`./models/dungeon/${name}.gltf`);
         const graded = new Set<THREE.Material>();
         gltf.scene.traverse((o) => {
-          if (!(o instanceof THREE.Mesh)) {
+          if (!isMesh(o)) {
             return;
           }
 
@@ -447,7 +448,7 @@ export class Environment {
   private disposeExtras() {
     for (const tpl of this.extras.values()) {
       tpl.traverse((o) => {
-        if (!(o instanceof THREE.Mesh)) {
+        if (!isMesh(o)) {
           return;
         }
 
@@ -481,7 +482,7 @@ export class Environment {
     tpl.updateMatrixWorld(true);
     const meshes: THREE.Mesh[] = [];
     tpl.traverse((o) => {
-      if (o instanceof THREE.Mesh) {
+      if (isMesh(o)) {
         meshes.push(o);
       }
     });
@@ -528,7 +529,7 @@ export class Environment {
         const obj = this.templateOf(model);
         obj.applyMatrix4(m);
         obj.traverse((c) => {
-          if (c instanceof THREE.Mesh) {
+          if (isMesh(c)) {
             c.castShadow = shadows;
             c.receiveShadow = true;
           }
@@ -668,13 +669,13 @@ export class Environment {
       rings.push(g);
     }
 
-    const merged = mergeGeometries(rings);
+    const merged: THREE.BufferGeometry | null = mergeGeometries(rings);
 
     for (const g of rings) {
       g.dispose();
     }
 
-    if (!merged) {
+    if (merged === null) {
       return;
     }
 
@@ -715,13 +716,13 @@ export class Environment {
       cones.push(g);
     }
 
-    const merged = mergeGeometries(cones);
+    const merged: THREE.BufferGeometry | null = mergeGeometries(cones);
 
     for (const g of cones) {
       g.dispose();
     }
 
-    if (!merged) {
+    if (merged === null) {
       return;
     }
 
@@ -924,8 +925,8 @@ export class Environment {
     this.buildFloor();
   }
 
-  private floorMeshes: THREE.InstancedMesh[] = [];
-  private floorGeos = new Set<THREE.BufferGeometry>();
+  private readonly floorMeshes: THREE.InstancedMesh[] = [];
+  private readonly floorGeos = new Set<THREE.BufferGeometry>();
 
   private buildFloor() {
     const flag = this.geoOf("floor_tile_large");
@@ -1375,7 +1376,7 @@ export class Environment {
     obj.position.set(x, terrainHeight(x, y) - box2.min.y, y);
     obj.rotation.y = rotY;
     obj.traverse((c) => {
-      if (c instanceof THREE.Mesh) {
+      if (isMesh(c)) {
         c.castShadow = true;
         c.receiveShadow = true;
       }
@@ -1442,7 +1443,7 @@ export class Environment {
   }
 
   private placeScaled(d: Decor) {
-    const tall = d.lie ? undefined : TALL_TARGET.get(d.model);
+    const tall = d.lie === true ? undefined : TALL_TARGET.get(d.model);
 
     if (tall !== undefined) {
       const obj = this.place(d.model, d.x, d.y, tall * d.scale, d.rot);
@@ -1456,7 +1457,7 @@ export class Environment {
     obj.rotation.order = "YXZ";
     obj.rotation.y = d.rot;
 
-    if (d.lie) {
+    if (d.lie === true) {
       obj.rotation.z = Math.PI / 2;
     }
 
@@ -1464,7 +1465,7 @@ export class Environment {
     const box = new THREE.Box3().setFromObject(obj);
     obj.position.set(d.x, terrainHeight(d.x, d.y) - box.min.y + (d.h ?? 0), d.y);
     obj.traverse((c) => {
-      if (c instanceof THREE.Mesh) {
+      if (isMesh(c)) {
         c.castShadow = true;
         c.receiveShadow = true;
       }

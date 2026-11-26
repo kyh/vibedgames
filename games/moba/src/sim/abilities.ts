@@ -63,11 +63,11 @@ const enemiesInRadius = (
   const r2 = radius * radius;
 
   for (const u of w.units.values()) {
-    if (!u.alive || (!u.neutral && u.team === team)) {
+    if (!u.alive || (u.neutral !== true && u.team === team)) {
       continue;
     }
 
-    if (u.kind === "structure" && (!allowStructure || !u.structure?.attackable)) {
+    if (u.kind === "structure" && (!allowStructure || u.structure?.attackable !== true)) {
       continue;
     }
 
@@ -84,9 +84,9 @@ const enemiesInRadius = (
 };
 
 const createGround = (w: World, c: Unit, effect: string, p: Vec2, o: GroundOpts) => {
-  if (o.followOwner) {
+  if (o.followOwner === true) {
     w.groundEffects = w.groundEffects.filter(
-      (g) => !(g.followOwner && g.ownerId === c.id && g.effect === effect),
+      (g) => !(g.followOwner === true && g.ownerId === c.id && g.effect === effect),
     );
   }
 
@@ -156,7 +156,7 @@ const alliesInRadius = (w: World, team: string, p: Vec2, radius: number, heroesO
   const r2 = radius * radius;
 
   for (const u of w.units.values()) {
-    if (!u.alive || u.neutral || u.team !== team) {
+    if (!u.alive || u.neutral === true || u.team !== team) {
       continue;
     }
 
@@ -697,7 +697,7 @@ const castBoomtinker: Caster = ({ w, c, def, rank, p, amp }) => {
 const castBrewkeeper: Caster = ({ w, c, def, rank, p, amp, target }) => {
   switch (def.effect) {
     case "brewkeeper:Q": {
-      const ally = target && !target.neutral && target.team === c.team ? target : c;
+      const ally = target && target.neutral !== true && target.team === c.team ? target : c;
       ally.hp = Math.min(ally.maxHp, ally.hp + v(def, "heal", rank));
       addStatus(ally, {
         hps: v(def, "regenPerSec", rank),
@@ -823,6 +823,39 @@ const dispatch = (w: World, c: Unit, def: AbilityDef, rank: number, p: Vec2, tar
   return cast({ amp: spellAmp(c), c, def, p, rank, target, w });
 };
 
+interface Aim {
+  point: Vec2;
+  target?: Unit;
+}
+
+const aimOf = (w: World, caster: Unit, def: AbilityDef, input: CastInput) => {
+  if (def.targeting === "unit") {
+    if (input.targetId === undefined || input.targetId === "") {
+      return null;
+    }
+
+    const target = w.units.get(input.targetId);
+
+    if (!target || !target.alive) {
+      return null;
+    }
+
+    if (dist(caster, target) > def.castRange + caster.radius + target.radius + 30) {
+      return null;
+    }
+
+    return { point: { x: target.x, y: target.y }, target } satisfies Aim;
+  }
+
+  if (def.targeting === "point") {
+    return input.point
+      ? ({ point: clampCastRange(caster, input.point, def.castRange) } satisfies Aim)
+      : null;
+  }
+
+  return { point: { x: caster.x, y: caster.y } } satisfies Aim;
+};
+
 /** Attempt to cast. Returns true if the cast went through (mana/cd consumed). */
 export const castAbility = (w: World, caster: Unit, input: CastInput) => {
   if (!caster.alive || !caster.hero) {
@@ -861,35 +894,13 @@ export const castAbility = (w: World, caster: Unit, input: CastInput) => {
     return false;
   }
 
-  let point: Vec2 | undefined = input.point;
-  let target: Unit | undefined;
+  const aim: Aim | null = aimOf(w, caster, def, input);
 
-  if (def.targeting === "unit") {
-    if (!input.targetId) {
-      return false;
-    }
-
-    target = w.units.get(input.targetId);
-
-    if (!target || !target.alive) {
-      return false;
-    }
-
-    if (dist(caster, target) > def.castRange + caster.radius + target.radius + 30) {
-      return false;
-    }
-
-    point = { x: target.x, y: target.y };
-  } else if (def.targeting === "point") {
-    if (!point) {
-      return false;
-    }
-
-    point = clampCastRange(caster, point, def.castRange);
-  } else {
-    point = { x: caster.x, y: caster.y };
+  if (!aim) {
+    return false;
   }
 
+  const { point, target } = aim;
   const ok = dispatch(w, caster, def, rank, point, target);
 
   if (!ok) {
@@ -899,7 +910,7 @@ export const castAbility = (w: World, caster: Unit, input: CastInput) => {
   caster.mp -= manaCost;
   slot.readyAt = w.now + valAt(def.cooldown, rank) * 1000;
 
-  if (caster.facing !== undefined && point) {
+  if (caster.facing !== undefined) {
     caster.facing = point.x >= caster.x ? 1 : -1;
   }
 
@@ -933,7 +944,7 @@ export const breakChannel = (w: World, u: Unit) => {
   const eff = u.hero.channel.effect;
   u.hero.channel = null;
   w.groundEffects = w.groundEffects.filter(
-    (g) => !(g.ownerId === u.id && g.effect === eff && g.channel),
+    (g) => !(g.ownerId === u.id && g.effect === eff && g.channel === true),
   );
 };
 
@@ -1030,52 +1041,60 @@ const tickStatusDots = (w: World) => {
   }
 };
 
-const applyGroundTick = (w: World, g: GroundEffect) => {
-  if (g.enemyDps && g.enemyDps > 0) {
-    const src = w.units.get(g.ownerId) ?? null;
+const burnGroundEnemies = (w: World, g: GroundEffect) => {
+  const src = w.units.get(g.ownerId) ?? null;
+  const slowPct = g.slowPct ?? 0;
 
-    for (const e of enemiesInRadius(w, g.team, g, g.radius, false)) {
-      if (e.kind === "structure") {
-        continue;
-      }
+  for (const e of enemiesInRadius(w, g.team, g, g.radius, false)) {
+    if (e.kind === "structure") {
+      continue;
+    }
 
-      dealDamage(w, src, e, g.enemyDps * (g.tickInterval / 1000), g.dtype ?? "magic", {
-        attackerSpellAmp: src ? spellAmp(src) : 0,
+    dealDamage(w, src, e, (g.enemyDps ?? 0) * (g.tickInterval / 1000), g.dtype ?? "magic", {
+      attackerSpellAmp: src ? spellAmp(src) : 0,
+    });
+
+    if (slowPct > 0) {
+      addStatus(e, {
+        id: `ground:${g.id}:${e.id}`,
+        kind: "slow",
+        pct: slowPct,
+        until: w.now + 800,
       });
+    }
+  }
+};
 
-      if (g.slowPct && g.slowPct > 0) {
-        addStatus(e, {
-          id: `ground:${g.id}:${e.id}`,
-          kind: "slow",
-          pct: g.slowPct,
-          until: w.now + 800,
-        });
-      }
+const tendGroundAllies = (w: World, g: GroundEffect) => {
+  const heal = g.allyHealPerTick ?? 0;
+  const mana = g.allyManaPerTick ?? 0;
+
+  for (const a of alliesInRadius(w, g.team, g, g.radius)) {
+    if (heal !== 0) {
+      a.hp = Math.min(a.maxHp, a.hp + heal);
+    }
+
+    if (mana !== 0) {
+      a.mp = Math.min(a.maxMp, a.mp + mana);
+    }
+
+    if (g.cleanse === true) {
+      cleanseSlows(a);
     }
   }
 
-  if (
-    (g.allyHealPerTick && g.allyHealPerTick > 0) ||
-    (g.allyManaPerTick && g.allyManaPerTick > 0) ||
-    g.cleanse
-  ) {
-    for (const a of alliesInRadius(w, g.team, g, g.radius)) {
-      if (g.allyHealPerTick) {
-        a.hp = Math.min(a.maxHp, a.hp + g.allyHealPerTick);
-      }
+  if (heal !== 0) {
+    w.fx.push({ amount: heal, t: "heal", x: g.x, y: g.y });
+  }
+};
 
-      if (g.allyManaPerTick) {
-        a.mp = Math.min(a.maxMp, a.mp + g.allyManaPerTick);
-      }
+const applyGroundTick = (w: World, g: GroundEffect) => {
+  if ((g.enemyDps ?? 0) > 0) {
+    burnGroundEnemies(w, g);
+  }
 
-      if (g.cleanse) {
-        cleanseSlows(a);
-      }
-    }
-
-    if (g.allyHealPerTick) {
-      w.fx.push({ amount: g.allyHealPerTick, t: "heal", x: g.x, y: g.y });
-    }
+  if ((g.allyHealPerTick ?? 0) > 0 || (g.allyManaPerTick ?? 0) > 0 || g.cleanse === true) {
+    tendGroundAllies(w, g);
   }
 };
 
@@ -1108,7 +1127,7 @@ const tickGround = (w: World) => {
   const survivors: GroundEffect[] = [];
 
   for (const g of w.groundEffects) {
-    if (g.followOwner) {
+    if (g.followOwner === true) {
       const owner = w.units.get(g.ownerId);
 
       if (owner && owner.alive) {

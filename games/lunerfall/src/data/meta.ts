@@ -1,5 +1,6 @@
+import { parseJson } from "@vibedgames/multiplayer";
+
 import { isJsonNumber, isJsonObject, isJsonString } from "../net/json";
-import type { JsonValue } from "../net/json";
 import type { HeroName } from "./animations";
 
 export interface MetaState {
@@ -110,11 +111,11 @@ export const loadMeta: () => MetaState = () => {
   try {
     const raw = localStorage.getItem(KEY);
 
-    if (!raw) {
+    if (raw === null || raw === "") {
       return fresh();
     }
 
-    const p: JsonValue = JSON.parse(raw);
+    const p = parseJson(raw);
     const o = isJsonObject(p) ? p : {};
 
     const unlocked = Array.isArray(o.unlocked)

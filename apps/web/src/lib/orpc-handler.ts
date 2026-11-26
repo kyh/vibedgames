@@ -23,9 +23,10 @@ const FAULTS_BELOW_500 = new Set(["PRECONDITION_FAILED"]);
 
 export const reportFaults = (error: Error | undefined) => {
   if (error instanceof ORPCError) {
-    const status = ERROR_STATUS.get(error.code) ?? 500;
+    const code = String(error.code);
+    const status = ERROR_STATUS.get(code) ?? 500;
 
-    if (status < 500 && !FAULTS_BELOW_500.has(error.code)) {
+    if (status < 500 && !FAULTS_BELOW_500.has(code)) {
       return;
     }
   }

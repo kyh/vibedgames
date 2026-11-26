@@ -17,8 +17,7 @@ import type { RunMods } from "../data/relics";
 import { parseRoomType } from "../data/rooms";
 import type { RoomType } from "../data/rooms";
 import { Player } from "../entities/player";
-import { isJsonString } from "../net/json";
-import type { JsonValue } from "../net/json";
+import { isJsonString, isJsonValue } from "../net/json";
 import { ExpeditionHud } from "../expedition-hud";
 import type { ExpeditionOffer } from "../expedition-hud";
 import { newRoomState } from "../state/room-state";
@@ -115,12 +114,12 @@ export class GameScene extends Scene implements SceneHooks {
     return this.seat.mode === "versus";
   }
 
-  /** Host match state; tools/two-client.mjs ends rounds through it. */
+  /** Host match state; tools/two-client.mts ends rounds through it. */
   get vs() {
     return this.run.match;
   }
 
-  /** The party connection; tools/two-client.mjs counts its players. */
+  /** The party connection; tools/two-client.mts counts its players. */
   get session() {
     return this.seat.session;
   }
@@ -166,10 +165,16 @@ export class GameScene extends Scene implements SceneHooks {
     this.wireSceneEvents();
   }
 
+  private registryString(key: string) {
+    const raw: unknown = this.registry.get(key);
+
+    return isJsonValue(raw) && isJsonString(raw) ? raw : null;
+  }
+
   private heroParam(params: URLSearchParams) {
     const { data } = this.scene.settings;
     const dataHero = data instanceof Object && "hero" in data ? data.hero : undefined;
-    const wanted = params.get("hero") ?? dataHero ?? this.registry.get("hero");
+    const wanted = params.get("hero") ?? dataHero ?? this.registryString("hero");
 
     return HERO_NAMES.find((h) => h === wanted) ?? "axion";
   }
@@ -186,14 +191,9 @@ export class GameScene extends Scene implements SceneHooks {
   }
 
   private partyParams(params: URLSearchParams) {
-    const regParty: JsonValue = this.registry.get("party");
+    const party = (params.get("party") ?? this.registryString("party") ?? "").trim().toUpperCase();
 
-    const party = (params.get("party") ?? (isJsonString(regParty) ? regParty : ""))
-      .trim()
-      .toUpperCase();
-
-    const regMode: JsonValue = this.registry.get("mode");
-    const modeStr = params.get("mode") ?? (isJsonString(regMode) ? regMode : "");
+    const modeStr = params.get("mode") ?? this.registryString("mode") ?? "";
     const mode: SeatState["mode"] = party.length > 0 && modeStr === "vs" ? "versus" : "coop";
 
     return { mode, party };
@@ -320,8 +320,12 @@ export class GameScene extends Scene implements SceneHooks {
 
   private wireSceneEvents() {
     sfx.unlock();
-    this.input.keyboard?.once("keydown", () => sfx.unlock());
-    this.input.once("pointerdown", () => sfx.unlock());
+    this.input.keyboard?.once("keydown", () => {
+      sfx.unlock();
+    });
+    this.input.once("pointerdown", () => {
+      sfx.unlock();
+    });
     this.input.keyboard?.on("keydown-M", () => {
       sfx.toggleMute();
       this.banners.show(sfx.muted ? "SOUND OFF" : "SOUND ON", 700, "status");
@@ -481,7 +485,9 @@ export class GameScene extends Scene implements SceneHooks {
 
         sfx.hurt(pl === this.seat.player ? "essential" : "routine");
       },
-      onJump: () => sfx.jump(pl === this.seat.player ? "local" : "routine"),
+      onJump: () => {
+        sfx.jump(pl === this.seat.player ? "local" : "routine");
+      },
       onLand: (impact) => {
         if (pl === this.seat.player) {
           this.shake(80, Math.min(0.003 + impact * 0.00002, 0.008));
@@ -489,7 +495,9 @@ export class GameScene extends Scene implements SceneHooks {
 
         dust(this, pl.x, pl.y);
       },
-      onSpecial: (kind) => this.combat.onSpecialFx(kind, pl),
+      onSpecial: (kind) => {
+        this.combat.onSpecialFx(kind, pl);
+      },
       onSwing: () => {
         if (pl === this.seat.player) {
           this.shake(50, 0.0015);
@@ -905,7 +913,7 @@ export class GameScene extends Scene implements SceneHooks {
   private layoutHudText(type: RoomType, bossShown: boolean) {
     this.banners.text.setY(type === "merchant" ? 170 : BASE_H / 2 - 20);
     this.banners.text.setVisible(
-      !this.expeditionHud?.inspecting || this.banners.active?.kind === "critical",
+      this.expeditionHud?.inspecting !== true || this.banners.active?.kind === "critical",
     );
     this.chrome.comboText.setY(bossShown ? 67 + gameInset(this).top : 42 + gameInset(this).top);
   }

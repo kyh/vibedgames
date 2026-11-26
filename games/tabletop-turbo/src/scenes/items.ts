@@ -1,7 +1,7 @@
 import type { JsonValue, MultiplayerClient } from "@vibedgames/multiplayer";
 
 import { sfx } from "../audio/sfx";
-import { isJsonNumber, isJsonObject } from "../net/wire";
+import { isJsonNumber, isJsonObject, isJsonString } from "../net/wire";
 import type { Sparks } from "../render/fx";
 import { PickupView } from "../render/pickup-view";
 import type { Bomb } from "../render/pickup-view";
@@ -181,7 +181,7 @@ export class ItemSystem {
       return;
     }
 
-    const key = by === from || !String(by).startsWith("b") ? from : String(by);
+    const key = isJsonString(by) && by !== from && by.startsWith("b") ? by : from;
     this.apply(
       key,
       k,

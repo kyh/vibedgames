@@ -393,7 +393,7 @@ const spawnCampPack = (w: World, camp: CampSpec) => {
   const pack = camp.pack ?? CAMP_PACKS.get(camp.id) ?? DEFAULT_PACK;
   const [lone] = pack;
 
-  if (pack.length === 1 && lone) {
+  if (pack.length === 1 && lone !== undefined && lone !== "") {
     spawnCreep(w, lone, camp.x, camp.y, camp);
 
     return;

@@ -133,7 +133,7 @@ export const paintAO = ({ tiles, styles, blockers }: Occluders, target?: HTMLCan
       const i = gridIndex(x, y);
       const tile = tiles[i];
 
-      if (tile === TILE.WALL || blockers[i]) {
+      if (tile === TILE.WALL || (blockers[i] ?? 0) !== 0) {
         ctx.fillStyle = "#000";
       } else if (tile === TILE.BUSH) {
         ctx.fillStyle = "#6a6a6a";

@@ -83,8 +83,14 @@ const unlockText = (rank: number, upgrade: Upgrade) => {
       return "Maximum rank";
     }
 
-    default: {
+    case "points":
+    case "unavailable": {
       return "Earn an ability point to upgrade";
+    }
+
+    default: {
+      const unhandled: never = upgrade;
+      throw new Error("unhandled upgrade", { cause: unhandled });
     }
   }
 };

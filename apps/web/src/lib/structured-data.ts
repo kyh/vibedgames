@@ -148,11 +148,11 @@ const organizationSchema = () => {
     url: siteConfig.issues,
   };
 
-  if (contact.email) {
+  if (contact.email !== null && contact.email !== "") {
     contactPoint.email = contact.email;
   }
 
-  if (contact.telephone) {
+  if (contact.telephone !== null && contact.telephone !== "") {
     contactPoint.telephone = contact.telephone;
   }
 
@@ -169,11 +169,11 @@ const organizationSchema = () => {
     url: siteConfig.url,
   };
 
-  if (contact.email) {
+  if (contact.email !== null && contact.email !== "") {
     organization.email = contact.email;
   }
 
-  if (contact.telephone) {
+  if (contact.telephone !== null && contact.telephone !== "") {
     organization.telephone = contact.telephone;
   }
 

@@ -39,10 +39,13 @@ const BLENDER_APPS = [
   "C:\\Program Files\\Blender Foundation\\Blender\\blender.exe",
 ];
 
-const findBlender = () =>
-  process.env.BLENDER_PATH && isFile(process.env.BLENDER_PATH)
-    ? process.env.BLENDER_PATH
+const findBlender = () => {
+  const configured = process.env.BLENDER_PATH;
+
+  return configured !== undefined && configured !== "" && isFile(configured)
+    ? configured
     : (which("blender") ?? BLENDER_APPS.find(isFile));
+};
 
 const findImg2threejs = () => {
   const root = process.env.IMG2THREEJS_HOME ?? path.join(homedir(), ".local/share/img2threejs");
@@ -67,19 +70,19 @@ export const hasTools = (tools: Tools, needs: readonly RecipeTool[]) =>
   needs.every((tool) => {
     switch (tool) {
       case "blender": {
-        return Boolean(tools.blender);
+        return tools.blender !== undefined;
       }
 
       case "ffmpeg": {
-        return Boolean(tools.ffmpeg && tools.ffprobe);
+        return tools.ffmpeg !== undefined && tools.ffprobe !== undefined;
       }
 
       case "gltf-transform": {
-        return Boolean(tools.gltfTransform);
+        return tools.gltfTransform !== undefined;
       }
 
       case "img2threejs": {
-        return Boolean(tools.img2threejs && (tools.uv ?? tools.python));
+        return tools.img2threejs !== undefined && (tools.uv ?? tools.python) !== undefined;
       }
 
       default: {

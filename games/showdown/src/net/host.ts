@@ -244,7 +244,7 @@ export const applyRemoteIntents = (game: Game, stepStartMs: number) => {
 
     const b = humanBrawler(game, from);
 
-    if (b?.ack.take(intent.seq, stepStartMs)) {
+    if (b?.ack.take(intent.seq, stepStartMs) === true) {
       applyIntent(b, intent);
     }
   }

@@ -167,7 +167,7 @@ export class TrailerStaging {
   private stageRoom(o: TrailerStageOpts, room: RoomType) {
     const def = this.expedition.debugEnter(room, o.biome ?? 1, o.depth ?? 2);
 
-    if (o.noEnemies) {
+    if (o.noEnemies === true) {
       def.enemySpawns.length = 0;
     }
 
@@ -189,7 +189,7 @@ export class TrailerStaging {
 
     this.rooms.build(def);
 
-    if (o.hideDoors) {
+    if (o.hideDoors === true) {
       for (const d of this.room.doors) {
         d.destroy();
       }

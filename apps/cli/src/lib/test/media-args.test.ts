@@ -147,7 +147,9 @@ test("readExplicitLocalFile accepts bare non-media filenames (3D/audio/etc)", ()
   const dir = makeTmpDir(cleanups, "vg-explicit-");
   const cwd = process.cwd();
   process.chdir(dir);
-  cleanups.push(() => process.chdir(cwd));
+  cleanups.push(() => {
+    process.chdir(cwd);
+  });
 
   for (const name of ["model.glb", "scene.fbx", "data.ply", "LICENSE"]) {
     writeFileSync(path.join(dir, name), "x");

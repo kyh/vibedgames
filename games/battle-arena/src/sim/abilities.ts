@@ -191,8 +191,13 @@ const targetsInRegion = (
       return aoeEnemies(w, c.team, point.x, point.y, region.radius);
     }
 
-    default: {
+    case "projectile": {
       return [];
+    }
+
+    default: {
+      const unhandled: never = region;
+      throw new Error("unhandled hit region", { cause: unhandled });
     }
   }
 };
@@ -666,7 +671,7 @@ const dispatchEffect = (
   dir: { x: number; y: number },
   point: { x: number; y: number },
 ) => {
-  const [champ] = def.effect.split(":");
+  const [champ = ""] = def.effect.split(":");
 
   switch (champ) {
     case "knight": {
@@ -709,7 +714,7 @@ const castMotion = (
   const v = (f: string) => valAt(def.values[f], c.abilities[key].rank);
 
   if (key === "DASH") {
-    if (def.values["speed"]) {
+    if (def.values.speed) {
       startDash(c, dir, v("speed"), def.castRange, w);
     } else {
       const range = v("range");
@@ -723,7 +728,7 @@ const castMotion = (
     return 0;
   }
 
-  if (def.values["air"]) {
+  if (def.values.air) {
     const airMs = v("air") * 1000;
     startHover(c, w, airMs);
     c.jumpUntil = w.now + airMs;
@@ -757,7 +762,7 @@ const dispatch = (
   }
 
   if (key === "JUMP") {
-    if (def.values["air"]) {
+    if (def.values.air) {
       const airMs = castMotion(w, c, def, key, dir);
       addStatus(c, { id: "jump", kind: "untargetable", until: w.now + v("iframe") * 1000 });
       scheduleStrike(w, c, key, airMs * 0.45, dir, { x: c.x, y: c.y });
@@ -898,9 +903,9 @@ export const requestCast = (w: World, u: Unit, key: AbilityKey, ctx: CastCtx) =>
 const applyValueRiders = (w: World, c: Unit, t: Unit, def: AbilityDef, rank: number) => {
   const v = (f: string) => valAt(def.values[f], rank);
 
-  if (def.values["stun"]) {
+  if (def.values.stun) {
     addStatus(t, { id: def.effect, kind: "stun", until: w.now + v("stun") * 1000 });
-  } else if (def.values["slowDur"]) {
+  } else if (def.values.slowDur) {
     addStatus(t, {
       id: def.effect,
       kind: "slow",
@@ -909,7 +914,7 @@ const applyValueRiders = (w: World, c: Unit, t: Unit, def: AbilityDef, rank: num
     });
   }
 
-  if (def.values["burnDps"]) {
+  if (def.values.burnDps) {
     addStatus(t, {
       dps: v("burnDps"),
       dtype: "magic",
@@ -945,7 +950,7 @@ const applyJumpStrike = (w: World, c: Unit, s: PendingStrike, def: AbilityDef, r
   const dtype =
     def.effect.startsWith("mage") || def.effect.startsWith("witch") ? "magic" : "physical";
 
-  if (def.values["shots"]) {
+  if (def.values.shots) {
     const n = v("shots");
     const dmg = v("damage") + v("perLevel") * (c.level - 1);
     const base = angleOf(dir.x, dir.y);
@@ -961,7 +966,7 @@ const applyJumpStrike = (w: World, c: Unit, s: PendingStrike, def: AbilityDef, r
         kind: c.attackKind,
         launchH: HOP_HEIGHT,
         pierce: dtype === "physical",
-        radius: def.values["splash"] ? v("splash") : 0,
+        radius: def.values.splash ? v("splash") : 0,
         range: 11,
         speed: Math.max(24, c.projectileSpeed),
       });
@@ -999,7 +1004,8 @@ const applyJumpStrike = (w: World, c: Unit, s: PendingStrike, def: AbilityDef, r
 };
 
 const applyExecuteStrike = (w: World, c: Unit, s: PendingStrike, def: AbilityDef, r: number) => {
-  const target = s.targetId ? w.units.get(s.targetId) : undefined;
+  const target =
+    s.targetId !== undefined && s.targetId !== "" ? w.units.get(s.targetId) : undefined;
 
   if (!target || !target.alive || isUntargetable(target)) {
     return;
@@ -1274,7 +1280,7 @@ export const resolveStrikes = (w: World) => {
 
 const detonateGround = (w: World, g: GroundEffect) => {
   for (const t of aoeEnemies(w, g.team, g.x, g.y, g.radius)) {
-    if (g.detonateDmg) {
+    if (g.detonateDmg !== undefined && g.detonateDmg !== 0) {
       dealDamage(
         w,
         w.units.get(g.ownerId) ?? null,
@@ -1289,17 +1295,17 @@ const detonateGround = (w: World, g: GroundEffect) => {
       continue;
     }
 
-    if (g.stunMs) {
+    if (g.stunMs !== undefined && g.stunMs !== 0) {
       addStatus(t, { id: g.effect, kind: "stun", until: w.now + g.stunMs });
     }
 
-    if (g.rootMs) {
+    if (g.rootMs !== undefined && g.rootMs !== 0) {
       addStatus(t, { id: g.effect, kind: "root", until: w.now + g.rootMs });
     }
 
-    if (g.hexMs) {
+    if (g.hexMs !== undefined && g.hexMs !== 0) {
       addStatus(t, { id: g.effect, kind: "hex", pct: g.slowPct ?? 0, until: w.now + g.hexMs });
-    } else if (g.slowPct) {
+    } else if (g.slowPct !== undefined && g.slowPct !== 0) {
       addStatus(t, {
         id: g.effect,
         kind: "slow",
@@ -1322,7 +1328,7 @@ const springTrap = (w: World, g: GroundEffect) => {
   for (const t of inside) {
     dealDamage(w, w.units.get(g.ownerId) ?? null, t, g.enemyDps ?? 0, g.dtype ?? "physical", {});
 
-    if (g.rootMs && t.alive) {
+    if (g.rootMs !== undefined && g.rootMs !== 0 && t.alive) {
       addStatus(t, { id: "trap", kind: "root", until: w.now + g.rootMs });
     }
   }
@@ -1335,19 +1341,19 @@ const springTrap = (w: World, g: GroundEffect) => {
 const tickZone = (w: World, g: GroundEffect) => {
   const owner = w.units.get(g.ownerId) ?? null;
 
-  if (g.enemyDps) {
+  if (g.enemyDps !== undefined && g.enemyDps !== 0) {
     for (const t of aoeEnemies(w, g.team, g.x, g.y, g.radius)) {
       dealDamage(w, owner, t, g.enemyDps * (g.tickInterval / 1000), g.dtype ?? "physical", {
         silentFx: true,
       });
 
-      if (g.slowPct && t.alive) {
+      if (g.slowPct !== undefined && g.slowPct !== 0 && t.alive) {
         addStatus(t, { id: g.effect, kind: "slow", pct: g.slowPct, until: w.now + 600 });
       }
     }
   }
 
-  if (g.allyHps) {
+  if (g.allyHps !== undefined && g.allyHps !== 0) {
     for (const t of w.units.values()) {
       if (!t.alive || t.team !== g.team) {
         continue;
@@ -1392,7 +1398,11 @@ const tickGround = (w: World) => {
       continue;
     }
 
-    if ((g.enemyDps || g.allyHps) && w.now >= g.nextTick) {
+    if (
+      ((g.enemyDps !== undefined && g.enemyDps !== 0) ||
+        (g.allyHps !== undefined && g.allyHps !== 0)) &&
+      w.now >= g.nextTick
+    ) {
       g.nextTick += g.tickInterval;
       tickZone(w, g);
     }
@@ -1438,7 +1448,7 @@ export const activateItem = (
 ) => {
   const id = u.items[slot];
 
-  if (!id) {
+  if (id === undefined || id === "") {
     return false;
   }
 

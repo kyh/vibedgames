@@ -1,0 +1,1721 @@
+import { spawnSync } from "node:child_process";
+import { createReadStream, readFileSync, writeFileSync } from "node:fs";
+import path from "node:path";
+import { createInterface } from "node:readline";
+
+import { at, GRID_X, GRID_Z, rdp, ringArea, WORLD_H, WORLD_W } from "./lib.mts";
+import type { Point } from "./lib.mts";
+
+const [objPath, outPath] = process.argv.slice(2);
+
+if (objPath === undefined || objPath === "" || outPath === undefined || outPath === "") {
+  console.error("usage: node extract-adjacency-obj.mts <obj> <out.json>");
+  process.exit(1);
+}
+
+interface Comp {
+  faces: number[][];
+  maxX: number;
+  maxY: number;
+  maxZ: number;
+  minX: number;
+  minY: number;
+  minZ: number;
+}
+
+interface Building {
+  cx: number;
+  cz: number;
+  d: number;
+  h: number;
+  outline: Point[] | null;
+  w: number;
+}
+
+interface ParcelRec {
+  bboxFallback: boolean;
+  h: number;
+  raw: Point[];
+  rawToEmit: number[];
+  ring: Point[];
+}
+
+interface RingEdge {
+  dx: number;
+  dz: number;
+  i: number;
+  len: number;
+  p: number;
+  x0: number;
+  x1: number;
+  z0: number;
+  z1: number;
+}
+
+interface EdgeIndex {
+  cell: number;
+  edges: RingEdge[];
+  grid: Map<number, number[]>;
+}
+
+interface Pair {
+  ai: number;
+  anti: boolean;
+  bi: number;
+  ov: number;
+  sep: number;
+}
+
+interface Wall {
+  a: number;
+  b: number;
+  edgesA: Set<number>;
+  edgesB: Set<number>;
+  len: number;
+}
+
+interface Neighbour {
+  edges: number[];
+  len: number;
+  nx: number;
+  nz: number;
+  q: number;
+}
+
+interface DistrictBox {
+  character: string;
+  name: string;
+  uMax: number;
+  uMin: number;
+  vMax: number;
+  vMin: number;
+}
+
+interface Band {
+  p25: number;
+  p50: number;
+  p75: number;
+}
+
+interface DistrictStats {
+  attached: number;
+  inRun4: number;
+  lotWidth: Band;
+  medRunSize: number;
+  n: number;
+}
+
+interface AdjacencyOut {
+  meta: { span: { uMax: number; uMin: number; vMax: number; vMin: number } };
+  parcels: { bbox: number; id: number; nb: { e: number[]; l: number; q: number }[]; s: number }[];
+  stats: {
+    bboxFallbackRings: { n: number };
+    byDistrict: Readonly<Record<string, DistrictStats>>;
+    districtsWithNoParcels: readonly string[];
+    donorForUncovered: Readonly<Record<string, string>>;
+    lotWidth: Band;
+    pairs: number;
+    stackedParcels: number;
+  };
+}
+
+const EPS = 0.02;
+const MIN_OVERLAP = 0.5;
+const MAX_CROSS = 0.05;
+const RUN_COS = Math.cos((38 * Math.PI) / 180);
+const METERS_PER_UNIT = 4.446;
+
+const CAL = { bx: 325.2, bz: -400.5, sx: 0.17829, sz: 0.17909 };
+const CAL_SY = 1 / (1.598 * 4.446);
+
+const ANCHORS: readonly (readonly [string, number, number, number, number])[] = [
+  ["Salesforce", 2458.4, -2088.9, 760, -770.1],
+  ["Transamerica", 1809.9, -2842.1, 644.9, -907.7],
+];
+
+const toWorld: (p: Point) => Point = ([x, z]) => [x * CAL.sx + CAL.bx, z * CAL.sz + CAL.bz];
+
+const pushTo = <K, V>(map: Map<K, V[]>, k: K, v: V) => {
+  const list = map.get(k);
+
+  if (list === undefined) {
+    map.set(k, [v]);
+  } else {
+    list.push(v);
+  }
+};
+
+const vx: number[] = [];
+const vy: number[] = [];
+const vz: number[] = [];
+let curGroup: string | null = null;
+let curMtl = "";
+const buildingGroups = new Map<string, number[][]>();
+
+const rl = createInterface({ crlfDelay: Infinity, input: createReadStream(objPath) });
+
+rl.on("line", (l) => {
+  const c0 = l.codePointAt(0);
+
+  if (c0 === 118 && l.codePointAt(1) === 32) {
+    let i = 2;
+
+    while (l.codePointAt(i) === 32) {
+      i += 1;
+    }
+
+    const j = l.indexOf(" ", i);
+    const k = l.indexOf(" ", j + 1);
+    vx.push(Number(l.slice(i, j)));
+    vy.push(Number(l.slice(j + 1, k)));
+    vz.push(Number(l.slice(k + 1)));
+  } else if (c0 === 102) {
+    if (curGroup === null || curGroup === "" || curMtl !== "building") {
+      return;
+    }
+
+    const ids: number[] = [];
+
+    for (const part of l.slice(2).trim().split(/\s+/u)) {
+      const s = part.includes("/") ? part.slice(0, part.indexOf("/")) : part;
+      let id = Number(s);
+
+      if (id < 0) {
+        id = vx.length + 1 + id;
+      }
+
+      ids.push(id - 1);
+    }
+
+    pushTo(buildingGroups, curGroup, ids);
+  } else if (l.startsWith("g ") || l.startsWith("o ")) {
+    curGroup = l.slice(2).trim();
+  } else if (l.startsWith("usemtl")) {
+    curMtl = l.slice(7).trim();
+  }
+});
+
+rl.on("close", () => {
+  main();
+});
+
+const boundaryNext = (topFaces: readonly (readonly number[])[]) => {
+  const edgeCount = new Map<string, number>();
+  const edgeDir = new Map<string, Point>();
+
+  for (const f of topFaces) {
+    for (let i = 0; i < f.length; i += 1) {
+      const a = at(f, i);
+      const b = at(f, (i + 1) % f.length);
+
+      if (a === b) {
+        continue;
+      }
+
+      const k = a < b ? `${a},${b}` : `${b},${a}`;
+      edgeCount.set(k, (edgeCount.get(k) ?? 0) + 1);
+
+      if (!edgeDir.has(k)) {
+        edgeDir.set(k, [a, b]);
+      }
+    }
+  }
+
+  const next = new Map<number, number>();
+
+  for (const [k, n] of edgeCount) {
+    if (n !== 1) {
+      continue;
+    }
+
+    const dir = edgeDir.get(k);
+
+    if (dir !== undefined) {
+      next.set(dir[0], dir[1]);
+    }
+  }
+
+  return next;
+};
+
+const roofOutline = (c: Comp) => {
+  const topFaces = c.faces.filter((f) => f.every((id) => at(vy, id) >= c.maxY - 0.75));
+
+  if (topFaces.length === 0) {
+    return null;
+  }
+
+  const next = boundaryNext(topFaces);
+
+  if (next.size < 3) {
+    return null;
+  }
+
+  const seen = new Set<number>();
+  let best: number[] | null = null;
+
+  for (const start of next.keys()) {
+    if (seen.has(start)) {
+      continue;
+    }
+
+    const loop: number[] = [];
+    let cur: number | undefined = start;
+
+    while (cur !== undefined && !seen.has(cur)) {
+      seen.add(cur);
+      loop.push(cur);
+      cur = next.get(cur);
+    }
+
+    if (cur === start && loop.length >= 3 && (best === null || loop.length > best.length)) {
+      best = loop;
+    }
+  }
+
+  if (best === null) {
+    return null;
+  }
+
+  const pts = best.map<Point>((id) => [at(vx, id), at(vz, id)]);
+
+  if (Math.abs(ringArea(pts)) < 0.45 * (c.maxX - c.minX) * (c.maxZ - c.minZ)) {
+    return null;
+  }
+
+  return pts;
+};
+
+const components = () => {
+  const buildings: Building[] = [];
+
+  for (const [, faces] of buildingGroups) {
+    const parent = new Map<number, number>();
+    const parentOf = (x: number) => parent.get(x) ?? x;
+
+    const find = (start: number) => {
+      let r = start;
+
+      while (parentOf(r) !== r) {
+        r = parentOf(r);
+      }
+
+      let a = start;
+
+      while (parentOf(a) !== r) {
+        const next = parentOf(a);
+        parent.set(a, r);
+        a = next;
+      }
+
+      return r;
+    };
+
+    const union = (a: number, b: number) => {
+      if (!parent.has(a)) {
+        parent.set(a, a);
+      }
+
+      if (!parent.has(b)) {
+        parent.set(b, b);
+      }
+
+      const ra = find(a);
+      const rb = find(b);
+
+      if (ra !== rb) {
+        parent.set(ra, rb);
+      }
+    };
+
+    for (const f of faces) {
+      for (let i = 1; i < f.length; i += 1) {
+        union(at(f, 0), at(f, i));
+      }
+    }
+
+    const comps = new Map<number, Comp>();
+
+    for (const f of faces) {
+      const root = find(at(f, 0));
+      let c = comps.get(root);
+
+      if (c === undefined) {
+        c = { faces: [], maxX: -1e9, maxY: -1e9, maxZ: -1e9, minX: 1e9, minY: 1e9, minZ: 1e9 };
+        comps.set(root, c);
+      }
+
+      c.faces.push(f);
+
+      for (const id of f) {
+        const x = at(vx, id);
+        const y = at(vy, id);
+        const z = at(vz, id);
+
+        if (x < c.minX) {
+          c.minX = x;
+        }
+
+        if (x > c.maxX) {
+          c.maxX = x;
+        }
+
+        if (y < c.minY) {
+          c.minY = y;
+        }
+
+        if (y > c.maxY) {
+          c.maxY = y;
+        }
+
+        if (z < c.minZ) {
+          c.minZ = z;
+        }
+
+        if (z > c.maxZ) {
+          c.maxZ = z;
+        }
+      }
+    }
+
+    for (const c of comps.values()) {
+      const w = c.maxX - c.minX;
+      const d = c.maxZ - c.minZ;
+
+      if (w < 3 || d < 3) {
+        continue;
+      }
+
+      buildings.push({
+        cx: (c.minX + c.maxX) / 2,
+        cz: (c.minZ + c.maxZ) / 2,
+        d,
+        h: c.maxY - c.minY,
+        outline: roofOutline(c),
+        w,
+      });
+    }
+  }
+
+  return buildings;
+};
+
+const buildParcels = (buildings: readonly Building[]) => {
+  const parcels: ParcelRec[] = [];
+
+  for (const b of buildings) {
+    if (b.w > 900 || b.d > 900) {
+      continue;
+    }
+
+    const h = b.h * CAL_SY;
+
+    if (h < 1 || h > 130) {
+      continue;
+    }
+
+    const box: Point[] = [
+      [b.cx - b.w / 2, b.cz - b.d / 2],
+      [b.cx + b.w / 2, b.cz - b.d / 2],
+      [b.cx + b.w / 2, b.cz + b.d / 2],
+      [b.cx - b.w / 2, b.cz + b.d / 2],
+    ];
+
+    const modelRing = b.outline ?? box;
+
+    let raw = modelRing.map(toWorld);
+
+    if (ringArea(raw) < 0) {
+      raw = raw.toReversed();
+    }
+
+    const simp = rdp(raw, 0.3);
+
+    if (simp.length < 3 || simp.length > 64) {
+      continue;
+    }
+
+    const world = simp.map<Point>(([x, z]) => [Math.round(x * 10) / 10, Math.round(z * 10) / 10]);
+
+    if (Math.abs(ringArea(simp)) < 5) {
+      continue;
+    }
+
+    let clipped = false;
+
+    for (const [x, z] of simp) {
+      if (Math.abs(x) > WORLD_W / 2 || Math.abs(z) > WORLD_H / 2) {
+        clipped = true;
+      }
+    }
+
+    if (clipped) {
+      continue;
+    }
+
+    const rawIndex = new Map(raw.map((p, i) => [p, i]));
+
+    const keep = simp.map((p) => {
+      const i = rawIndex.get(p);
+
+      if (i === undefined) {
+        throw new RangeError("simplified vertex is not a raw vertex");
+      }
+
+      return i;
+    });
+
+    const rawToEmit = Array.from({ length: raw.length }, () => 0);
+
+    for (let j = 0; j < keep.length; j += 1) {
+      const k0 = at(keep, j);
+      const k1 = j + 1 < keep.length ? at(keep, j + 1) : raw.length;
+
+      for (let i = k0; i < k1; i += 1) {
+        rawToEmit[i] = j;
+      }
+    }
+
+    parcels.push({
+      bboxFallback: b.outline === null,
+      h: Math.round(h * 10) / 10,
+      raw,
+      rawToEmit,
+      ring: world,
+    });
+  }
+
+  parcels.sort((a, b) => b.h - a.h);
+
+  return parcels;
+};
+
+const assertMatchesShipped = (parcels: readonly ParcelRec[]) => {
+  const src = readFileSync(new URL("../../src/world/sf-footprints.ts", import.meta.url), "utf-8");
+  const body = src.slice(src.indexOf("SF_FOOTPRINTS: readonly"));
+
+  const rows = [...body.matchAll(/\[(?<nums>[-\d.,\s]+)\]/gu)].map((m) =>
+    (m.groups?.nums ?? "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0)
+      .map(Number),
+  );
+
+  let bad = rows.length === parcels.length ? 0 : 1;
+
+  for (let i = 0; i < Math.min(rows.length, parcels.length) && bad === 0; i += 1) {
+    const parcel = at(parcels, i);
+    const mine = [parcel.h];
+
+    for (const [x, z] of parcel.ring) {
+      mine.push(x, z);
+    }
+
+    if (JSON.stringify(rows[i]) !== JSON.stringify(mine)) {
+      bad = 1;
+    }
+  }
+
+  console.log(
+    `id check vs src/world/sf-footprints.ts: ${bad === 0 ? "PASS" : "FAIL"} ` +
+      `(${parcels.length} parcels vs ${rows.length} shipped rows)`,
+  );
+
+  if (bad !== 0) {
+    console.error(
+      "parcel ids would NOT index SF_FOOTPRINTS — re-run extract-footprints.mts first, " +
+        "or reconcile the two filter chains before trusting this output.",
+    );
+    process.exit(1);
+  }
+};
+
+const DISTRICT_RE =
+  /\{\s*character:\s*"(?<character>[^"]+)",\s*color:\s*0x[\dA-Fa-f_]+,\s*name:\s*"(?<name>[^"]+)",\s*uMax:\s*(?<uMax>[-\d.]+),\s*uMin:\s*(?<uMin>[-\d.]+),\s*vMax:\s*(?<vMax>[-\d.]+),\s*vMin:\s*(?<vMin>[-\d.]+)/gu;
+
+const loadDistricts = () => {
+  const src = readFileSync(new URL("../../src/world/sf-map.ts", import.meta.url), "utf-8");
+
+  const block = src.slice(
+    src.indexOf("const NEIGHBORHOODS"),
+    src.indexOf("export const districtAt"),
+  );
+
+  const boxes = [...block.matchAll(DISTRICT_RE)].map<DistrictBox>((m) => {
+    const g = m.groups ?? {};
+
+    return {
+      character: g.character ?? "",
+      name: g.name ?? "",
+      uMax: Number(g.uMax),
+      uMin: Number(g.uMin),
+      vMax: Number(g.vMax),
+      vMin: Number(g.vMin),
+    };
+  });
+
+  if (boxes.length < 40) {
+    throw new Error(`parsed only ${boxes.length} districts from sf-map.ts`);
+  }
+
+  return boxes;
+};
+
+const districtAtUV = (boxes: readonly DistrictBox[], u: number, v: number) => {
+  let best: DistrictBox | null = null;
+  let bd = Infinity;
+
+  for (const n of boxes) {
+    if (u >= n.uMin && u <= n.uMax && v >= n.vMin && v <= n.vMax) {
+      return n;
+    }
+
+    const du = Math.max(n.uMin - u, 0, u - n.uMax);
+    const dv = Math.max(n.vMin - v, 0, v - n.vMax);
+    const d = du * du + dv * dv;
+
+    if (d < bd) {
+      bd = d;
+      best = n;
+    }
+  }
+
+  if (best === null) {
+    throw new RangeError("no districts to pick from");
+  }
+
+  return best;
+};
+
+const cellKey = (gx: number, gz: number) => gx * 100_003 + gz;
+
+const buildEdgeIndex = (parcels: readonly ParcelRec[], cell: number) => {
+  const edges: RingEdge[] = [];
+  const grid = new Map<number, number[]>();
+
+  for (let p = 0; p < parcels.length; p += 1) {
+    const r = at(parcels, p).raw;
+
+    for (let i = 0; i < r.length; i += 1) {
+      const [x0, z0] = at(r, i);
+      const [x1, z1] = at(r, (i + 1) % r.length);
+      const len = Math.hypot(x1 - x0, z1 - z0);
+
+      if (len < 1e-9) {
+        continue;
+      }
+
+      const e = { dx: (x1 - x0) / len, dz: (z1 - z0) / len, i, len, p, x0, x1, z0, z1 };
+      const id = edges.push(e) - 1;
+      const gx0 = Math.floor((Math.min(x0, x1) - EPS) / cell);
+      const gx1 = Math.floor((Math.max(x0, x1) + EPS) / cell);
+      const gz0 = Math.floor((Math.min(z0, z1) - EPS) / cell);
+      const gz1 = Math.floor((Math.max(z0, z1) + EPS) / cell);
+
+      for (let gx = gx0; gx <= gx1; gx += 1) {
+        for (let gz = gz0; gz <= gz1; gz += 1) {
+          pushTo(grid, cellKey(gx, gz), id);
+        }
+      }
+    }
+  }
+
+  const idx: EdgeIndex = { cell, edges, grid };
+
+  return idx;
+};
+
+const measure = (a: RingEdge, b: RingEdge) => {
+  if (Math.abs(a.dx * b.dz - a.dz * b.dx) > MAX_CROSS) {
+    return null;
+  }
+
+  const perp = (px: number, pz: number) => Math.abs((px - a.x0) * a.dz - (pz - a.z0) * a.dx);
+  const sep = Math.max(perp(b.x0, b.z0), perp(b.x1, b.z1));
+  const along = (px: number, pz: number) => (px - a.x0) * a.dx + (pz - a.z0) * a.dz;
+  const t0 = along(b.x0, b.z0);
+  const t1 = along(b.x1, b.z1);
+  const ov = Math.min(a.len, Math.max(t0, t1)) - Math.max(0, Math.min(t0, t1));
+
+  if (ov <= 0) {
+    return null;
+  }
+
+  return { ov, sep };
+};
+
+const candidatePairs = (idx: EdgeIndex, maxSep: number) => {
+  const { edges, grid, cell } = idx;
+  const out: Pair[] = [];
+
+  for (let ai = 0; ai < edges.length; ai += 1) {
+    const a = at(edges, ai);
+    const gx0 = Math.floor((Math.min(a.x0, a.x1) - maxSep) / cell);
+    const gx1 = Math.floor((Math.max(a.x0, a.x1) + maxSep) / cell);
+    const gz0 = Math.floor((Math.min(a.z0, a.z1) - maxSep) / cell);
+    const gz1 = Math.floor((Math.max(a.z0, a.z1) + maxSep) / cell);
+    const seen = new Set<number>();
+
+    for (let gx = gx0; gx <= gx1; gx += 1) {
+      for (let gz = gz0; gz <= gz1; gz += 1) {
+        const c = grid.get(cellKey(gx, gz));
+
+        if (c === undefined) {
+          continue;
+        }
+
+        for (const bi of c) {
+          if (bi <= ai || seen.has(bi)) {
+            continue;
+          }
+
+          seen.add(bi);
+          const b = at(edges, bi);
+
+          if (b.p === a.p) {
+            continue;
+          }
+
+          const m = measure(a, b);
+
+          if (m === null || m.sep > maxSep || m.ov < MIN_OVERLAP) {
+            continue;
+          }
+
+          out.push({ ai, anti: a.dx * b.dx + a.dz * b.dz < 0, bi, ov: m.ov, sep: m.sep });
+        }
+      }
+    }
+  }
+
+  return out;
+};
+
+const pct = (arr: readonly number[], t: number) => {
+  if (arr.length === 0) {
+    return 0;
+  }
+
+  const s = arr.toSorted((x, y) => x - y);
+
+  return at(s, Math.min(s.length - 1, Math.floor(s.length * t)));
+};
+
+const aggregateWalls = (pairs: readonly Pair[], idx: EdgeIndex, parcels: readonly ParcelRec[]) => {
+  const walls = new Map<string, Wall>();
+
+  for (const { ai, bi, ov } of pairs) {
+    const ea = at(idx.edges, ai);
+    const eb = at(idx.edges, bi);
+    const lo = Math.min(ea.p, eb.p);
+    const hi = Math.max(ea.p, eb.p);
+    const k = `${lo},${hi}`;
+    let w = walls.get(k);
+
+    if (w === undefined) {
+      w = { a: lo, b: hi, edgesA: new Set(), edgesB: new Set(), len: 0 };
+      walls.set(k, w);
+    }
+
+    w.len += ov;
+    const [la, lb] = ea.p === lo ? [ea, eb] : [eb, ea];
+    w.edgesA.add(at(at(parcels, lo).rawToEmit, la.i));
+    w.edgesB.add(at(at(parcels, hi).rawToEmit, lb.i));
+  }
+
+  return walls;
+};
+
+const centroidOf = (ring: readonly Point[]) => {
+  let x = 0;
+  let z = 0;
+
+  for (const [px, pz] of ring) {
+    x += px;
+    z += pz;
+  }
+
+  const c: Point = [x / ring.length, z / ring.length];
+
+  return c;
+};
+
+const edgeNormal = (ring: readonly Point[], i: number) => {
+  const [x0, z0] = at(ring, i);
+  const [x1, z1] = at(ring, (i + 1) % ring.length);
+  const dx = x1 - x0;
+  const dz = z1 - z0;
+  const L = Math.hypot(dx, dz) || 1;
+  const n: Point = [dz / L, -dx / L];
+
+  return n;
+};
+
+const buildNeighbours = (parcels: readonly ParcelRec[], walls: ReadonlyMap<string, Wall>) => {
+  const nb = parcels.map<Neighbour[]>(() => []);
+
+  for (const w of walls.values()) {
+    const ea = [...w.edgesA].toSorted((x, y) => x - y);
+    const eb = [...w.edgesB].toSorted((x, y) => x - y);
+    const na = edgeNormal(at(parcels, w.a).ring, at(ea, 0));
+    const nbn = edgeNormal(at(parcels, w.b).ring, at(eb, 0));
+    const len = Math.round(w.len * 100) / 100;
+    at(nb, w.a).push({ edges: ea, len, nx: na[0], nz: na[1], q: w.b });
+    at(nb, w.b).push({ edges: eb, len, nx: nbn[0], nz: nbn[1], q: w.a });
+  }
+
+  for (const list of nb) {
+    list.sort((x, y) => y.len - x.len || x.q - y.q);
+  }
+
+  return nb;
+};
+
+const buildRuns = (parcels: readonly ParcelRec[], nb: readonly (readonly Neighbour[])[]) => {
+  const runOf = Array.from({ length: parcels.length }, () => -1);
+  const runs: number[][] = [];
+
+  const extend = (from: number, dirX: number, dirZ: number, chain: number[], used: Set<number>) => {
+    let cur = from;
+    let dx = dirX;
+    let dz = dirZ;
+
+    for (;;) {
+      let pick: { d: number; n: Neighbour } | null = null;
+
+      for (const n of at(nb, cur)) {
+        if (at(runOf, n.q) !== -1 || used.has(n.q)) {
+          continue;
+        }
+
+        const d = n.nx * dx + n.nz * dz;
+
+        if (d < RUN_COS) {
+          continue;
+        }
+
+        if (pick === null || n.len > pick.n.len) {
+          pick = { d, n };
+        }
+      }
+
+      if (pick === null) {
+        return;
+      }
+
+      chain.push(pick.n.q);
+      used.add(pick.n.q);
+      dx = dx * 0.6 + pick.n.nx * 0.4;
+      dz = dz * 0.6 + pick.n.nz * 0.4;
+      const L = Math.hypot(dx, dz) || 1;
+      dx /= L;
+      dz /= L;
+      cur = pick.n.q;
+    }
+  };
+
+  for (let p = 0; p < parcels.length; p += 1) {
+    if (at(runOf, p) !== -1) {
+      continue;
+    }
+
+    const seed = at(nb, p).find((n) => at(runOf, n.q) === -1);
+
+    if (seed === undefined) {
+      continue;
+    }
+
+    const used = new Set([p]);
+    const fwd: number[] = [];
+    const back: number[] = [];
+    extend(p, seed.nx, seed.nz, fwd, used);
+    extend(p, -seed.nx, -seed.nz, back, used);
+    const chain = [...back.toReversed(), p, ...fwd];
+
+    if (chain.length < 2) {
+      continue;
+    }
+
+    const rid = runs.length;
+
+    for (const q of chain) {
+      runOf[q] = rid;
+    }
+
+    runs.push(chain);
+  }
+
+  return { runOf, runs };
+};
+
+const bucketByBBox = (parcels: readonly ParcelRec[], cell: number) => {
+  const buckets = new Map<number, number[]>();
+  const bbs: (readonly [number, number, number, number])[] = [];
+
+  for (const [i, p] of parcels.entries()) {
+    let x0 = Infinity;
+    let x1 = -Infinity;
+    let z0 = Infinity;
+    let z1 = -Infinity;
+
+    for (const [x, z] of p.ring) {
+      if (x < x0) {
+        x0 = x;
+      }
+
+      if (x > x1) {
+        x1 = x;
+      }
+
+      if (z < z0) {
+        z0 = z;
+      }
+
+      if (z > z1) {
+        z1 = z;
+      }
+    }
+
+    bbs.push([x0, z0, x1, z1]);
+
+    for (let gx = Math.floor(x0 / cell); gx <= Math.floor(x1 / cell); gx += 1) {
+      for (let gz = Math.floor(z0 / cell); gz <= Math.floor(z1 / cell); gz += 1) {
+        pushTo(buckets, cellKey(gx, gz), i);
+      }
+    }
+  }
+
+  return { bbs, buckets };
+};
+
+const inside = (ring: readonly Point[], x: number, z: number) => {
+  let hit = false;
+  let j = ring.length - 1;
+
+  for (let i = 0; i < ring.length; i += 1) {
+    const [xi, zi] = at(ring, i);
+    const [xj, zj] = at(ring, j);
+
+    if (zi > z !== zj > z && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) {
+      hit = !hit;
+    }
+
+    j = i;
+  }
+
+  return hit;
+};
+
+const stackedFlags = (parcels: readonly ParcelRec[], cent: readonly Point[]) => {
+  const CB = 20;
+  const { bbs, buckets } = bucketByBBox(parcels, CB);
+  const stacked = Array.from({ length: parcels.length }, () => 0);
+
+  for (let i = 0; i < parcels.length; i += 1) {
+    const [cxx, czz] = at(cent, i);
+    const c = buckets.get(cellKey(Math.floor(cxx / CB), Math.floor(czz / CB)));
+
+    if (c === undefined) {
+      continue;
+    }
+
+    for (const j of c) {
+      if (j === i) {
+        continue;
+      }
+
+      const bb = at(bbs, j);
+
+      if (cxx < bb[0] || cxx > bb[2] || czz < bb[1] || czz > bb[3]) {
+        continue;
+      }
+
+      if (inside(at(parcels, j).ring, cxx, czz)) {
+        stacked[i] = 1;
+        break;
+      }
+    }
+  }
+
+  return stacked;
+};
+
+const histOf = (vals: readonly number[], edges: readonly number[]) => {
+  const h = Array.from({ length: edges.length + 1 }, () => 0);
+
+  for (const v of vals) {
+    let k = edges.findIndex((t) => v <= t);
+
+    if (k < 0) {
+      k = edges.length;
+    }
+
+    h[k] = at(h, k) + 1;
+  }
+
+  return h;
+};
+
+const parcelSpan = (parcels: readonly ParcelRec[]) => {
+  let uMin = 1;
+  let uMax = 0;
+  let vMin = 1;
+  let vMax = 0;
+
+  for (const p of parcels) {
+    for (const [x, z] of p.ring) {
+      const u = x / WORLD_W + 0.5;
+      const v = z / WORLD_H + 0.5;
+
+      if (u < uMin) {
+        uMin = u;
+      }
+
+      if (u > uMax) {
+        uMax = u;
+      }
+
+      if (v < vMin) {
+        vMin = v;
+      }
+
+      if (v > vMax) {
+        vMax = v;
+      }
+    }
+  }
+
+  return { uMax, uMin, vMax, vMin };
+};
+
+interface RunData {
+  ax: number;
+  az: number;
+  id: number;
+  len: number;
+  p: number[];
+  w: number[];
+}
+
+interface DistrictAcc {
+  att: number;
+  n: number;
+  r4: number;
+  rs: number[];
+  w: number[];
+}
+
+type RhythmRow = [string, number, number, number, number, string];
+
+const main = () => {
+  for (const [name, mx, mz, wx, wz] of ANCHORS) {
+    const [ax, az] = toWorld([mx, mz]);
+    const err = Math.hypot(ax - wx, az - wz);
+    console.log(`anchor ${name}: ${err.toFixed(1)}u drift`);
+
+    if (err > 12) {
+      console.error("anchor drift — recheck CAL before emitting");
+      process.exit(1);
+    }
+  }
+
+  const comps = components();
+  console.log(`components: ${comps.length} (${buildingGroups.size} tag groups)`);
+  const parcels = buildParcels(comps);
+  assertMatchesShipped(parcels);
+
+  const idx = buildEdgeIndex(parcels, 4);
+  console.log(`raw ring edges: ${idx.edges.length}`);
+
+  const sweep = candidatePairs(idx, 2);
+  const bins = [0.001, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2];
+  console.log(`separation sweep — near-parallel pairs with overlap >= ${MIN_OVERLAP}u:`);
+  let prev = 0;
+
+  for (const t of bins) {
+    const n = sweep.filter((p) => p.sep <= t && p.anti).length;
+    const par = sweep.filter((p) => p.sep <= t && !p.anti).length;
+    console.log(
+      `  sep <= ${String(t).padStart(5)}u : antiparallel ${String(n).padStart(6)} ` +
+        `(+${String(n - prev).padStart(5)} in bin)   parallel ${String(par).padStart(5)}`,
+    );
+    prev = n;
+  }
+
+  const pairs = sweep.filter((p) => p.sep <= EPS && p.anti);
+  console.log(`party-wall edge pairs at EPS=${EPS}u: ${pairs.length}`);
+
+  const walls = aggregateWalls(pairs, idx, parcels);
+  console.log(`distinct attached parcel pairs: ${walls.size}`);
+
+  const nb = buildNeighbours(parcels, walls);
+  const cent = parcels.map((p) => centroidOf(p.ring));
+
+  const { runOf, runs } = buildRuns(parcels, nb);
+
+  const runData = runs.map<RunData>((chain, rid) => {
+    const [x0, z0] = at(cent, at(chain, 0));
+    const [x1, z1] = at(cent, at(chain, chain.length - 1));
+    let ax = x1 - x0;
+    let az = z1 - z0;
+    const L = Math.hypot(ax, az) || 1;
+    ax /= L;
+    az /= L;
+    let lo = Infinity;
+    let hi = -Infinity;
+
+    const widths = chain.map((q) => {
+      let a = Infinity;
+      let b = -Infinity;
+
+      for (const [px, pz] of at(parcels, q).ring) {
+        const t = px * ax + pz * az;
+
+        if (t < a) {
+          a = t;
+        }
+
+        if (t > b) {
+          b = t;
+        }
+
+        if (t < lo) {
+          lo = t;
+        }
+
+        if (t > hi) {
+          hi = t;
+        }
+      }
+
+      return Math.round((b - a) * 100) / 100;
+    });
+
+    return {
+      ax: Math.round(ax * 1000) / 1000,
+      az: Math.round(az * 1000) / 1000,
+      id: rid,
+      len: Math.round((hi - lo) * 100) / 100,
+      p: chain,
+      w: widths,
+    };
+  });
+
+  const boxes = loadDistricts();
+
+  const uvOf = (p: number) => {
+    const [x, z] = at(cent, p);
+
+    return [x / WORLD_W + 0.5, z / WORLD_H + 0.5] as const;
+  };
+
+  const district = parcels.map((_, p) => {
+    const [u, v] = uvOf(p);
+
+    return districtAtUV(boxes, u, v).name;
+  });
+
+  const deg = nb.map((l) => l.length);
+  const attached = deg.filter((d) => d > 0).length;
+  const runLenOf = Array.from({ length: parcels.length }, () => 1);
+
+  for (const r of runData) {
+    for (const q of r.p) {
+      runLenOf[q] = r.p.length;
+    }
+  }
+
+  const in2 = runLenOf.filter((n) => n >= 2).length;
+  const in4 = runLenOf.filter((n) => n >= 4).length;
+  const in8 = runLenOf.filter((n) => n >= 8).length;
+
+  const allWidths = runData.flatMap((r) => r.w);
+  const wallLens = [...walls.values()].map((w) => w.len);
+
+  const bboxIds = parcels.map((p, i) => (p.bboxFallback ? i : -1)).filter((i) => i >= 0);
+  const realIds = parcels.map((p, i) => (p.bboxFallback ? -1 : i)).filter((i) => i >= 0);
+
+  const attRate = (ids: readonly number[]) =>
+    ids.length > 0 ? ids.filter((i) => at(deg, i) > 0).length / ids.length : 0;
+
+  console.log("");
+  console.log(
+    `FIDELITY: roof-loop rings ${realIds.length} (${(attRate(realIds) * 100).toFixed(1)}% attached) | ` +
+      `bbox-rectangle fallbacks ${bboxIds.length} (${(attRate(bboxIds) * 100).toFixed(1)}% attached — a rectangle cannot share a wall)`,
+  );
+
+  const stacked = stackedFlags(parcels, cent);
+  const nStacked = stacked.reduce((a, b) => a + b, 0);
+  console.log(
+    `  STACKED: ${nStacked} parcels (${((nStacked / parcels.length) * 100).toFixed(1)}%) sit with their centroid inside another parcel — height-band / building-part duplicates, not lots`,
+  );
+
+  const runSizes = runData.map((r) => r.p.length);
+  const runSizeHist: Record<string, number> = {};
+
+  for (let s = 2; s <= 7; s += 1) {
+    runSizeHist[String(s)] = runSizes.filter((x) => x === s).length;
+  }
+
+  runSizeHist["8+"] = runSizes.filter((x) => x >= 8).length;
+  console.log(
+    `  run size (parcels): ${Object.entries(runSizeHist)
+      .map(([k, v]) => `${k}:${v}`)
+      .join("  ")}`,
+  );
+  const W_BINS = [1.5, 2, 2.5, 3, 4, 5, 7, 10];
+  const wh = histOf(allWidths, W_BINS);
+  const wTop = at(W_BINS, W_BINS.length - 1);
+  console.log(
+    `  lot width hist (u): ${W_BINS.map((t, i) => `<=${t}:${at(wh, i)}`).join("  ")}  >${wTop}:${at(wh, W_BINS.length)}`,
+  );
+
+  console.log("");
+  console.log(
+    `ATTACHMENT: ${attached}/${parcels.length} parcels (${((attached / parcels.length) * 100).toFixed(1)}%) share >=1 party wall`,
+  );
+  console.log(
+    `  degree distribution: ${[0, 1, 2, 3, 4].map((d) => `${d === 4 ? "4+" : d}:${deg.filter((x) => (d === 4 ? x >= 4 : x === d)).length}`).join("  ")}`,
+  );
+  console.log(
+    `  runs: ${runData.length}   in run>=2: ${in2} (${((in2 / parcels.length) * 100).toFixed(1)}%)   >=4: ${in4} (${((in4 / parcels.length) * 100).toFixed(1)}%)   >=8: ${in8} (${((in8 / parcels.length) * 100).toFixed(1)}%)`,
+  );
+  console.log(`  longest run: ${Math.max(0, ...runData.map((r) => r.p.length))} parcels`);
+
+  const fmtU = (u: number) =>
+    `${u.toFixed(2)}u (${(u * METERS_PER_UNIT).toFixed(1)}m / ${((u * METERS_PER_UNIT) / 0.3048).toFixed(0)}ft)`;
+
+  console.log(
+    `  party-wall length  p25 ${fmtU(pct(wallLens, 0.25))}  median ${fmtU(pct(wallLens, 0.5))}  p75 ${fmtU(pct(wallLens, 0.75))}`,
+  );
+  console.log(
+    `  LOT WIDTH along run p10 ${fmtU(pct(allWidths, 0.1))}  p25 ${fmtU(pct(allWidths, 0.25))}  median ${fmtU(pct(allWidths, 0.5))}  p75 ${fmtU(pct(allWidths, 0.75))}  p90 ${fmtU(pct(allWidths, 0.9))}`,
+  );
+  const runLens = runData.map((r) => r.len);
+  console.log(
+    `  RUN frontage length p25 ${fmtU(pct(runLens, 0.25))}  median ${fmtU(pct(runLens, 0.5))}  p75 ${fmtU(pct(runLens, 0.75))}  p95 ${fmtU(pct(runLens, 0.95))}`,
+  );
+
+  const byDistrict = new Map<string, DistrictAcc>();
+
+  for (let p = 0; p < parcels.length; p += 1) {
+    const d = at(district, p);
+    let s = byDistrict.get(d);
+
+    if (s === undefined) {
+      s = { att: 0, n: 0, r4: 0, rs: [], w: [] };
+      byDistrict.set(d, s);
+    }
+
+    s.n += 1;
+
+    if (at(deg, p) > 0) {
+      s.att += 1;
+    }
+
+    if (at(runLenOf, p) >= 4) {
+      s.r4 += 1;
+    }
+
+    const run = at(runOf, p);
+
+    if (run !== -1) {
+      const r = at(runData, run);
+      s.w.push(...r.w);
+      s.rs.push(r.p.length);
+    }
+  }
+
+  const rows = [...byDistrict.entries()].toSorted((a, b) => b[1].n - a[1].n);
+  console.log("");
+  console.log("per-district (OBJ parcels only):");
+  console.log("  district                     parcels  attached%  run>=4%  medLotW");
+
+  for (const [name, s] of rows) {
+    console.log(
+      `  ${name.padEnd(28)} ${String(s.n).padStart(6)}  ${((s.att / s.n) * 100).toFixed(1).padStart(8)}%  ${((s.r4 / s.n) * 100).toFixed(1).padStart(6)}%  ${pct(s.w, 0.5).toFixed(2).padStart(6)}u`,
+    );
+  }
+
+  const missing = boxes.map((b) => b.name).filter((n) => !byDistrict.has(n));
+  console.log("");
+  console.log(
+    `districts with ZERO OBJ parcels (heuristic fallback only): ${missing.length}/${boxes.length}`,
+  );
+  console.log(`  ${missing.join(", ")}`);
+
+  const shadowed = boxes.filter((b, i) =>
+    boxes.some(
+      (a, j) =>
+        j < i && a.uMin <= b.uMin && a.uMax >= b.uMax && a.vMin <= b.vMin && a.vMax >= b.vMax,
+    ),
+  );
+
+  if (shadowed.length > 0) {
+    console.log(
+      `UNREACHABLE district boxes (fully inside an earlier box, districtAt can never return them): ${shadowed.map((b) => b.name).join(", ")}`,
+    );
+  }
+
+  const { uMax, uMin, vMax, vMin } = parcelSpan(parcels);
+  console.log(
+    `OBJ parcel span: u ${uMin.toFixed(3)}..${uMax.toFixed(3)}  v ${vMin.toFixed(3)}..${vMax.toFixed(3)}`,
+  );
+
+  const donorFor = (name: string) => {
+    const b = boxes.find((x) => x.name === name);
+
+    if (b === undefined) {
+      throw new Error(`district ${name} has no box`);
+    }
+
+    const cu = (b.uMin + b.uMax) / 2;
+    const cv = (b.vMin + b.vMax) / 2;
+    let pick: string | null = null;
+    let pd = Infinity;
+
+    for (const [dn] of rows) {
+      const db = boxes.find((x) => x.name === dn);
+
+      if (db === undefined) {
+        continue;
+      }
+
+      const sameChar = db.character === b.character;
+
+      const d =
+        Math.hypot((db.uMin + db.uMax) / 2 - cu, (db.vMin + db.vMax) / 2 - cv) +
+        (sameChar ? 0 : 1.5);
+
+      if (d < pd) {
+        pd = d;
+        pick = dn;
+      }
+    }
+
+    return pick;
+  };
+
+  const donors = missing.flatMap((name) => {
+    const pick = donorFor(name);
+
+    return pick === null || pick === "" ? [] : [[name, pick] as const];
+  });
+
+  const out = {
+    meta: {
+      cal: CAL,
+      calSy: CAL_SY,
+      eps: EPS,
+      generator: "tools/sf-data/extract-adjacency-obj.mts",
+      metersPerUnit: METERS_PER_UNIT,
+      minOverlap: MIN_OVERLAP,
+      parcelIdsIndex: "src/world/sf-footprints.ts SF_FOOTPRINTS",
+      runCosDeg: 38,
+      source: objPath.split("/").pop(),
+      span: { uMax, uMin, vMax, vMin },
+      world: { gridX: GRID_X, gridZ: GRID_Z, h: WORLD_H, w: WORLD_W },
+    },
+    parcels: parcels.map((p, i) => {
+      const flat: number[] = [];
+
+      for (const [x, z] of p.ring) {
+        flat.push(x, z);
+      }
+
+      const wallEdges = new Set<number>();
+
+      for (const n of at(nb, i)) {
+        for (const e of n.edges) {
+          wallEdges.add(e);
+        }
+      }
+
+      let front = -1;
+      let bestLen = 0;
+
+      for (let e = 0; e < p.ring.length; e += 1) {
+        if (wallEdges.has(e)) {
+          continue;
+        }
+
+        const [x0, z0] = at(p.ring, e);
+        const [x1, z1] = at(p.ring, (e + 1) % p.ring.length);
+        const L = Math.hypot(x1 - x0, z1 - z0);
+
+        if (L > bestLen) {
+          bestLen = L;
+          front = e;
+        }
+      }
+
+      return {
+        bbox: p.bboxFallback ? 1 : 0,
+        d: at(district, i),
+        f: front,
+        h: p.h,
+        id: i,
+        nb: at(nb, i).map((n) => ({ e: n.edges, l: n.len, q: n.q })),
+        r: flat,
+        run: at(runOf, i),
+        s: at(stacked, i),
+      };
+    }),
+    runs: runData,
+    stats: {
+      parcels: parcels.length,
+      attached,
+      pairs: walls.size,
+      runs: runData.length,
+      inRun2: in2,
+      inRun4: in4,
+      inRun8: in8,
+      lotWidth: {
+        p10: pct(allWidths, 0.1),
+        p25: pct(allWidths, 0.25),
+        p50: pct(allWidths, 0.5),
+        p75: pct(allWidths, 0.75),
+        p90: pct(allWidths, 0.9),
+      },
+      runLength: {
+        p25: pct(runLens, 0.25),
+        p50: pct(runLens, 0.5),
+        p75: pct(runLens, 0.75),
+        p95: pct(runLens, 0.95),
+      },
+      runSizeHist,
+      lotWidthHist: Object.fromEntries([
+        ...W_BINS.map((t, i) => [`<=${t}`, at(wh, i)] as const),
+        [`>${wTop}`, at(wh, W_BINS.length)] as const,
+      ]),
+      wallLength: { p25: pct(wallLens, 0.25), p50: pct(wallLens, 0.5), p75: pct(wallLens, 0.75) },
+      degreeHist: Object.fromEntries([
+        ...[0, 1, 2, 3].map((d) => [String(d), deg.filter((x) => x === d).length] as const),
+        ["4+", deg.filter((x) => x >= 4).length] as const,
+      ]),
+      roofLoopRings: { attached: realIds.filter((i) => at(deg, i) > 0).length, n: realIds.length },
+      bboxFallbackRings: {
+        attached: bboxIds.filter((i) => at(deg, i) > 0).length,
+        n: bboxIds.length,
+      },
+      stackedParcels: nStacked,
+      unreachableDistrictBoxes: shadowed.map((b) => b.name),
+      byDistrict: Object.fromEntries(
+        rows.map(
+          ([name, s]) =>
+            [
+              name,
+              {
+                attached: s.att,
+                inRun4: s.r4,
+                lotWidth: { p25: pct(s.w, 0.25), p50: pct(s.w, 0.5), p75: pct(s.w, 0.75) },
+                medRunSize: pct(s.rs, 0.5),
+                n: s.n,
+              },
+            ] as const,
+        ),
+      ),
+      districtsWithNoParcels: missing,
+      donorForUncovered: Object.fromEntries(donors),
+    },
+  };
+
+  writeFileSync(outPath, JSON.stringify(out));
+  console.log("");
+  console.log(`wrote ${outPath}`);
+
+  emitAdjacencyModule(out);
+};
+
+const DONOR_OVERRIDE = new Map([
+  ["Bayview", "Potrero Hill"],
+  ["Hunters Point", "Potrero Hill"],
+  ["the Richmond", "Potrero Hill"],
+  ["the Sunset", "Potrero Hill"],
+]);
+
+const b36 = (n: number, w: number) => {
+  const s = n.toString(36);
+
+  if (s.length > w) {
+    throw new Error(`${n} does not fit in ${w} base-36 chars`);
+  }
+
+  return s.padStart(w, "0");
+};
+
+const usableRhythm = (s: DistrictStats) => Number.isFinite(s.lotWidth.p50) && s.lotWidth.p50 > 0;
+
+const emitAdjacencyModule = (out: AdjacencyOut) => {
+  const N = out.parcels.length;
+
+  let stream = "";
+  let nbTotal = 0;
+  let wallTotal = 0;
+
+  for (const p of out.parcels) {
+    if (p.nb.length > 7) {
+      throw new Error(`parcel ${p.id} has ${p.nb.length} neighbours (max 7)`);
+    }
+
+    // oxlint-disable-next-line no-bitwise -- the head is a real bitfield: count in the low 3 bits, flags at 8 and 16
+    stream += b36(p.nb.length | (p.s > 0 ? 8 : 0) | (p.bbox > 0 ? 16 : 0), 1);
+
+    for (const n of p.nb) {
+      stream += b36(n.q, 3) + b36(n.e.length, 1);
+
+      for (const e of n.e) {
+        stream += b36(e, 2);
+      }
+
+      nbTotal += 1;
+      wallTotal += n.e.length;
+    }
+  }
+
+  const ROW = 240;
+  const rows: string[] = [];
+
+  for (let i = 0; i < stream.length; i += ROW) {
+    rows.push(stream.slice(i, i + ROW));
+  }
+
+  const measured = out.stats.byDistrict;
+  const rhythm: RhythmRow[] = [];
+  const unmeasured: string[] = [];
+
+  for (const [name, s] of Object.entries(measured)) {
+    if (!usableRhythm(s)) {
+      unmeasured.push(`${name} (${s.n} parcels, none in a run)`);
+      continue;
+    }
+
+    rhythm.push([name, s.lotWidth.p25, s.lotWidth.p50, s.lotWidth.p75, s.medRunSize, ""]);
+  }
+
+  for (const name of out.stats.districtsWithNoParcels) {
+    const donor = DONOR_OVERRIDE.get(name) ?? out.stats.donorForUncovered[name];
+    const s = donor === undefined ? undefined : measured[donor];
+
+    if (donor === undefined || s === undefined || !usableRhythm(s)) {
+      unmeasured.push(`${name} (no usable donor)`);
+      continue;
+    }
+
+    rhythm.push([name, s.lotWidth.p25, s.lotWidth.p50, s.lotWidth.p75, s.medRunSize, donor]);
+  }
+
+  if (unmeasured.length > 0) {
+    console.log(`  districts left to the global band: ${unmeasured.join(", ")}`);
+  }
+
+  rhythm.sort((a, b) => (a[0] < b[0] ? -1 : 1));
+  const gw = out.stats.lotWidth;
+  const nMeasured = rhythm.filter((row) => row[5] === "").length;
+  const nBorrowed = rhythm.length - nMeasured;
+  const { span } = out.meta;
+
+  const attached = out.parcels.filter((p) => p.nb.length > 0).length;
+
+  const src = `// AUTO-GENERATED by tools/sf-data/extract-adjacency-obj.mts — do not edit by hand.
+// PARTY WALLS and LOT RHYTHM for the real downtown fabric. Parcel ids are
+// indices into SF_FOOTPRINTS (src/world/sf-footprints.ts) — byte-identical by
+// construction, and the extractor refuses to emit if they ever drift. A map
+// bake does NOT invalidate this file: bake-network.mts never touches the
+// footprints.
+//
+// The party walls are not fitted. In the source model every building carries its
+// own vertices, so a shared wall survives as two EXACTLY coincident antiparallel
+// ring edges (separation spike at <=0.001u on a flat background). ${out.stats.pairs} attached
+// pairs over ${attached} of ${N} parcels, 0 asymmetric records.
+//
+// DOWNTOWN ONLY: measured parcels cover u ${span.uMin.toFixed(3)}-${span.uMax.toFixed(3)}, v ${span.vMin.toFixed(3)}-${span.vMax.toFixed(3)}, so only
+// ${nMeasured} districts have a measured lot rhythm. The other ${nBorrowed} in SF_LOT_RHYTHM carry a
+// \`from\` field naming the district they borrowed their band from; a name in
+// neither set resolves to LOT_RHYTHM_GLOBAL. Two of those borrows (the Sunset,
+// the Richmond) are known to still be ~20% too wide — see the extractor's
+// DONOR_OVERRIDE.
+import { SF_FOOTPRINTS } from "./sf-footprints";
+
+/** Parcels covered — equal to SF_FOOTPRINTS.length by construction. */
+export const SF_ADJACENCY_PARCELS = ${N};
+
+/** One party wall: the parcel across it, and which of OUR ring edges it is. */
+export type PartyWall = {
+  /** Attached neighbour, an index into SF_FOOTPRINTS. */
+  readonly neighbour: number;
+  /** Ring edge indices that ARE the shared wall; edge e spans ring vertex e -> e+1. */
+  readonly edges: readonly number[];
+};
+
+export type Parcel = {
+  /** Every attached neighbour, with the wall each one shares. */
+  readonly walls: readonly PartyWall[];
+  /**
+   * Union of every party-wall edge: the BLIND faces. No windows, no cornice
+   * return, no setback, no plinth chamfer on these — that is the whole point of
+   * this file, and it removes geometry rather than adding it.
+   */
+  readonly blind: ReadonlySet<number>;
+  /**
+   * The centroid falls inside another parcel — a height-band or building-part
+   * duplicate (${out.stats.stackedParcels} of them). Do not extrude as its own lot; they are the
+   * double-extruded grey mush downtown.
+   */
+  readonly stacked: boolean;
+  /**
+   * The ring is a bbox rectangle because the roof loop was unrecoverable
+   * (${out.stats.bboxFallbackRings.n} of them). Such a ring can never be coincident with anything, so
+   * \`walls\` is empty for reasons of geometry, not of fact — treat as massing.
+   */
+  readonly bboxFallback: boolean;
+};
+
+// One record per parcel in id order, base 36, no separators:
+//   head  1 char: (neighbour count) | 8 stacked | 16 bboxFallback
+//   then per neighbour: 3 chars id · 1 char wall-edge count · 2 chars per edge
+// ${nbTotal} neighbour records / ${wallTotal} wall edges over ${N} parcels.
+const ROWS: readonly string[] = [
+${rows.map((r) => `  "${r}",`).join("\n")}
+];
+
+const STREAM = ROWS.join("");
+
+const at36 = (i: number, w: number): number => Number.parseInt(STREAM.slice(i, i + w), 36);
+
+/** Record start offset + head byte per parcel, built once on first query. */
+type Offsets = { readonly off: Int32Array; readonly head: Uint8Array };
+let offsets: Offsets | null = null;
+
+function ensureOffsets(): Offsets {
+  const built = offsets;
+  if (built !== null) return built;
+  const off = new Int32Array(SF_ADJACENCY_PARCELS);
+  const head = new Uint8Array(SF_ADJACENCY_PARCELS);
+  let i = 0;
+  for (let id = 0; id < SF_ADJACENCY_PARCELS; id++) {
+    off[id] = i;
+    const h = at36(i, 1);
+    head[id] = h;
+    i += 1;
+    for (let k = 0; k < (h & 7); k++) i += 4 + at36(i + 3, 1) * 2;
+  }
+  const fresh: Offsets = { off, head };
+  offsets = fresh;
+  return fresh;
+}
+
+/**
+ * Party walls and flags for one parcel, or null when the id is out of range.
+ * Decoded on demand — the fabric pass touches each parcel once or twice, so
+ * caching 21k records would cost more memory than the decode costs time.
+ */
+export function parcelAt(id: number): Parcel | null {
+  if (!Number.isInteger(id) || id < 0 || id >= SF_ADJACENCY_PARCELS) return null;
+  const { off, head } = ensureOffsets();
+  const h = head[id] ?? 0;
+  let i = (off[id] ?? 0) + 1;
+  const walls: PartyWall[] = [];
+  const blind = new Set<number>();
+  for (let k = 0; k < (h & 7); k++) {
+    const neighbour = at36(i, 3);
+    const count = at36(i + 3, 1);
+    i += 4;
+    const edges: number[] = [];
+    for (let e = 0; e < count; e++) {
+      const edge = at36(i, 2);
+      i += 2;
+      edges.push(edge);
+      blind.add(edge);
+    }
+    walls.push({ neighbour, edges });
+  }
+  return { walls, blind, stacked: (h & 8) !== 0, bboxFallback: (h & 16) !== 0 };
+}
+
+/**
+ * The longest ring edge that is NOT a party wall: the frontage, i.e. where the
+ * entry, awning or bay belongs. Derived from the ring rather than shipped, so it
+ * can never contradict \`blind\`. Null when the parcel has no ring or every edge
+ * is a wall.
+ */
+export function frontEdgeOf(id: number): number | null {
+  const ring = SF_FOOTPRINTS[id];
+  if (ring === undefined) return null;
+  const blind = parcelAt(id)?.blind;
+  const n = (ring.length - 1) / 2;
+  let best: number | null = null;
+  let bestLen = 0;
+  for (let e = 0; e < n; e++) {
+    if (blind?.has(e) === true) continue;
+    const j = (e + 1) % n;
+    const x0 = ring[1 + e * 2];
+    const z0 = ring[2 + e * 2];
+    const x1 = ring[1 + j * 2];
+    const z1 = ring[2 + j * 2];
+    if (x0 === undefined || z0 === undefined || x1 === undefined || z1 === undefined) continue;
+    const len = Math.hypot(x1 - x0, z1 - z0);
+    if (len > bestLen) {
+      bestLen = len;
+      best = e;
+    }
+  }
+  return best;
+}
+
+/**
+ * Lot rhythm for one district, in WORLD UNITS (not fractions of ROAD_TILE).
+ * The frontage walk should step by a width drawn from this band and lay
+ * \`runSize\` lots shoulder to shoulder before inserting a break — that row,
+ * break, row cadence is the San Francisco read, and a random per-lot pitch is
+ * what makes dense districts look like gapped suburbia.
+ */
+export type LotRhythm = {
+  readonly p25: number;
+  readonly p50: number;
+  readonly p75: number;
+  /** Median parcels per uninterrupted run. */
+  readonly runSize: number;
+  /** "" when measured in this district, else the district the band came from. */
+  readonly from: string;
+};
+
+export const SF_LOT_RHYTHM: Readonly<Record<string, LotRhythm>> = {
+${rhythm
+  .map(
+    ([name, p25, p50, p75, runSize, from]) =>
+      `  ${JSON.stringify(name)}: { p25: ${p25}, p50: ${p50}, p75: ${p75}, runSize: ${runSize}, from: ${JSON.stringify(from)} },`,
+  )
+  .join("\n")}
+};
+
+/** City-wide band, for a district name the table does not know. */
+export const LOT_RHYTHM_GLOBAL: LotRhythm = {
+  p25: ${gw.p25},
+  p50: ${gw.p50},
+  p75: ${gw.p75},
+  runSize: 2,
+  from: "citywide",
+};
+
+export function lotRhythmFor(district: string): LotRhythm {
+  return SF_LOT_RHYTHM[district] ?? LOT_RHYTHM_GLOBAL;
+}
+`;
+
+  const target = new URL("../../src/world/sf-adjacency.ts", import.meta.url);
+  writeFileSync(target, src);
+
+  const bin = path.resolve(
+    new URL("../../../../node_modules/.bin/oxfmt", import.meta.url).pathname,
+  );
+
+  if (spawnSync(bin, ["--write", target.pathname], { stdio: "ignore" }).status !== 0) {
+    console.log("  (could not run oxfmt on sf-adjacency.ts — format it before committing)");
+  }
+
+  console.log(
+    `wrote src/world/sf-adjacency.ts — ${attached}/${N} attached parcels, ${nbTotal} wall records, ${rhythm.length} districts, ${(src.length / 1024).toFixed(1)} KB`,
+  );
+};

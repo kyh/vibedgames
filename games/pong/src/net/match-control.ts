@@ -42,15 +42,21 @@ export class MatchControl {
     this.net = new NetSession({
       fallbackMs: OFFLINE_FALLBACK_MS,
       maxPlayers: MP_MAX_PLAYERS,
-      onEvent: (event, payload, from) => this.handleEvent(event, payload, from),
-      onTick: (tick) => this.handleTick(tick),
+      onEvent: (event, payload, from) => {
+        this.handleEvent(event, payload, from);
+      },
+      onTick: (tick) => {
+        this.handleTick(tick);
+      },
       room,
       tickRate: TICK_RATE,
     });
     this.scopeName = this.nextSoloScope();
     this.current = new LocalDriver(soloOpening(0, held), 0);
     this.lastStatus = this.net.connectionStatus;
-    this.net.client.subscribe(() => this.noteStatus());
+    this.net.client.subscribe(() => {
+      this.noteStatus();
+    });
   }
 
   get driver() {

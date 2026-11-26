@@ -176,9 +176,10 @@ const OTPInput = ({
     if (result === false) {
       setState("error");
 
-      const clearDelay = reducedMotion
-        ? 400
-        : SHAKE_TRANSITION.duration * 1000 + length * STAGGER_S * 1000 + 260;
+      const clearDelay =
+        reducedMotion === true
+          ? 400
+          : SHAKE_TRANSITION.duration * 1000 + length * STAGGER_S * 1000 + 260;
 
       settleTimerRef.current = window.setTimeout(() => {
         setValue("");
@@ -194,7 +195,7 @@ const OTPInput = ({
       }, clearDelay);
     } else {
       setState("success");
-      const successDelay = reducedMotion ? 0 : length * FILL_S * 1000 + 500;
+      const successDelay = reducedMotion === true ? 0 : length * FILL_S * 1000 + 500;
       settleTimerRef.current = window.setTimeout(
         () => onSuccess?.(result === true ? candidate : result),
         successDelay,
@@ -203,19 +204,18 @@ const OTPInput = ({
   });
 
   useEffect(() => {
-    if (state !== "idle" || value.length !== length) {
-      return;
-    }
-
     let cancelled = false;
 
-    const timer = window.setTimeout(async () => {
-      const result = await runVerify(value);
+    const timer =
+      state === "idle" && value.length === length
+        ? window.setTimeout(async () => {
+            const result = await runVerify(value);
 
-      if (!cancelled) {
-        settle(result, value);
-      }
-    }, VERIFY_DELAY_MS);
+            if (!cancelled) {
+              settle(result, value);
+            }
+          }, VERIFY_DELAY_MS)
+        : undefined;
 
     return () => {
       cancelled = true;
@@ -223,7 +223,12 @@ const OTPInput = ({
     };
   }, [value, state, length]);
 
-  useEffect(() => () => clearTimeout(settleTimerRef.current), []);
+  useEffect(
+    () => () => {
+      clearTimeout(settleTimerRef.current);
+    },
+    [],
+  );
 
   return (
     <MotionConfig reducedMotion="user">
@@ -260,12 +265,12 @@ const OTPInput = ({
                 }
                 aria-hidden="true"
               >
-                {char && (
+                {char !== undefined && char !== "" && (
                   <motion.span key={char} className="inline-block" {...glyphMotion(state, index)}>
                     {char}
                   </motion.span>
                 )}
-                {active && !char && (
+                {active && (char === undefined || char === "") && (
                   <span className="h-5 w-[1.5px] animate-[otp-caret-blink_1.1s_linear_infinite] rounded-[1px] bg-foreground motion-reduce:animate-none" />
                 )}
               </div>
@@ -298,7 +303,9 @@ const OTPInput = ({
               el?.setSelectionRange(value.length, value.length);
               syncSel();
             }}
-            onBlur={() => setFocused(false)}
+            onBlur={() => {
+              setFocused(false);
+            }}
             {...props}
           />
         </motion.div>

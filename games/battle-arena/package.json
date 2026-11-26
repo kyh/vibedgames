@@ -7,10 +7,10 @@
     "build": "vite build",
     "clean": "rm -rf .turbo dist node_modules",
     "dev": "vite",
-    "fx:shots": "node tools/fx-shots.mjs",
+    "fx:shots": "node tools/fx-shots.mts",
     "preview": "vite preview",
     "test": "tsx tools/verify-timing.mts && tsx --test tools/verify-logic.mts tools/verify-netcode.mts tools/verify-handover.mts",
-    "test:online": "node tools/two-client.mjs",
+    "test:online": "node tools/two-client.mts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -21,7 +21,9 @@
     "three": "^0.186.1"
   },
   "devDependencies": {
+    "@gltf-transform/core": "^4.5.1",
     "@kyh/tsconfig": "catalog:",
+    "@repo/smoke": "workspace:*",
     "@types/node": "catalog:",
     "@types/three": "^0.186.0",
     "playwright-core": "^1.65.1",

@@ -166,9 +166,9 @@ export class RoadNetwork {
   readonly edges: readonly NetEdge[];
   readonly nodeEdges: readonly (readonly number[])[];
   readonly maxNodeTrim: number;
-  private nodeTrims: Float32Array;
-  private passThrough: Uint8Array;
-  private buckets: Map<string, number[]>;
+  private readonly nodeTrims: Float32Array;
+  private readonly passThrough: Uint8Array;
+  private readonly buckets: Map<string, number[]>;
 
   constructor(
     nodes: readonly (readonly [number, number])[] = SF_NODES,

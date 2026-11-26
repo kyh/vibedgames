@@ -85,7 +85,9 @@ export class Link {
       maxPlayers: options.maxPlayers,
       offline: options.offline,
       onClaim: (key, owner) => this.claimSink?.(key, owner),
-      onEvent: (event, payload, from) => this.inbox(event, payload, from),
+      onEvent: (event, payload, from) => {
+        this.inbox(event, payload, from);
+      },
       party: "vg-server",
       room: options.room,
     });
@@ -199,7 +201,7 @@ export class Link {
   broadcast(event: string, payload: WireRecord) {
     const me = this.client?.playerId;
 
-    if (me && this.connected) {
+    if (me !== undefined && me !== null && me !== "" && this.connected) {
       this.client?.sendEvent(event, payload, { except: me });
     }
   }

@@ -484,9 +484,9 @@ export const RECIPE_PROCEDURES = {
 
 export type RecipeInput<N extends RecipeName> = z.output<(typeof RECIPES)[N]["input"]>;
 
-export const RECIPE_NAMES = Object.keys(RECIPES) as RecipeName[];
-
 export const isRecipeName = (name: string): name is RecipeName => Object.hasOwn(RECIPES, name);
+
+export const RECIPE_NAMES = Object.keys(RECIPES).filter(isRecipeName);
 
 /** The input fields of a recipe that carry files, by the `_url`/`_urls` naming every recipe follows. */
 export const fileFields = (name: RecipeName) =>

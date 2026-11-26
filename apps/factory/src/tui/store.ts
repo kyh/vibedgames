@@ -61,7 +61,7 @@ export class TuiStore {
     stopping: false,
     turn: null,
   };
-  #listeners = new Set<() => void>();
+  readonly #listeners = new Set<() => void>();
   #nextId = 1;
 
   subscribe = (listener: () => void) => {

@@ -75,7 +75,7 @@ export class HeroPredictor {
     this.sentAt.delete(this.seq - SENT_KEPT);
     const { body } = this;
 
-    if (body?.alive) {
+    if (body?.alive === true) {
       if (intent.kind === "order") {
         issueOrder(this.ctx, body, structuredClone(intent.order));
       } else if (intent.kind === "dash") {

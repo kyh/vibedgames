@@ -33,20 +33,21 @@ const authed = os.generate.use(requireSession);
 
 /** One procedure per kind of asset, each running its default model through `runModel`. */
 export const mediaRouter = (runModel: RunModel) => ({
-  animate3d: authed.animate3d.handler(({ context, input }) =>
-    runModel(
-      context,
-      MEDIA_MODELS.animate3d[0],
-      bodyOf(input.options, {
-        animation_action_ids: input.animation_action_ids,
-        height_meters: input.height_meters,
-        model_url: input.model_url,
-      }),
-      input.wait_seconds,
-    ),
+  animate3d: authed.animate3d.handler(
+    async ({ context, input }) =>
+      await runModel(
+        context,
+        MEDIA_MODELS.animate3d[0],
+        bodyOf(input.options, {
+          animation_action_ids: input.animation_action_ids,
+          height_meters: input.height_meters,
+          model_url: input.model_url,
+        }),
+        input.wait_seconds,
+      ),
   ),
 
-  image: authed.image.handler(({ context, input }) => {
+  image: authed.image.handler(async ({ context, input }) => {
     const [fromText, edit] = MEDIA_MODELS.image;
 
     const fields = {
@@ -58,7 +59,7 @@ export const mediaRouter = (runModel: RunModel) => ({
       quality: input.quality,
     };
 
-    return runModel(
+    return await runModel(
       context,
       input.image_urls === undefined ? fromText : edit,
       bodyOf(input.options, fields),
@@ -66,7 +67,7 @@ export const mediaRouter = (runModel: RunModel) => ({
     );
   }),
 
-  model3d: authed.model3d.handler(({ context, input }) => {
+  model3d: authed.model3d.handler(async ({ context, input }) => {
     const [fromText, fromImage] = MEDIA_MODELS.model3d;
 
     if (input.image_url === undefined && input.prompt === undefined) {
@@ -81,7 +82,7 @@ export const mediaRouter = (runModel: RunModel) => ({
       topology: input.topology,
     };
 
-    return runModel(
+    return await runModel(
       context,
       input.image_url === undefined ? fromText : fromImage,
       bodyOf(input.options, fields),
@@ -89,51 +90,55 @@ export const mediaRouter = (runModel: RunModel) => ({
     );
   }),
 
-  music: authed.music.handler(({ context, input }) =>
-    runModel(
-      context,
-      MEDIA_MODELS.music[0],
-      bodyOf(input.options, {
-        force_instrumental: input.force_instrumental,
-        music_length_ms: input.music_length_ms,
-        prompt: input.prompt,
-      }),
-      input.wait_seconds,
-    ),
+  music: authed.music.handler(
+    async ({ context, input }) =>
+      await runModel(
+        context,
+        MEDIA_MODELS.music[0],
+        bodyOf(input.options, {
+          force_instrumental: input.force_instrumental,
+          music_length_ms: input.music_length_ms,
+          prompt: input.prompt,
+        }),
+        input.wait_seconds,
+      ),
   ),
 
-  removeBackground: authed.removeBackground.handler(({ context, input }) =>
-    runModel(
-      context,
-      MEDIA_MODELS.removeBackground[0],
-      bodyOf(input.options, { image_url: input.image_url, prompt: input.prompt }),
-      input.wait_seconds,
-    ),
+  removeBackground: authed.removeBackground.handler(
+    async ({ context, input }) =>
+      await runModel(
+        context,
+        MEDIA_MODELS.removeBackground[0],
+        bodyOf(input.options, { image_url: input.image_url, prompt: input.prompt }),
+        input.wait_seconds,
+      ),
   ),
 
-  sound: authed.sound.handler(({ context, input }) =>
-    runModel(
-      context,
-      MEDIA_MODELS.sound[0],
-      bodyOf(input.options, {
-        duration_seconds: input.duration_seconds,
-        loop: input.loop,
-        text: input.text,
-      }),
-      input.wait_seconds,
-    ),
+  sound: authed.sound.handler(
+    async ({ context, input }) =>
+      await runModel(
+        context,
+        MEDIA_MODELS.sound[0],
+        bodyOf(input.options, {
+          duration_seconds: input.duration_seconds,
+          loop: input.loop,
+          text: input.text,
+        }),
+        input.wait_seconds,
+      ),
   ),
 
-  speech: authed.speech.handler(({ context, input }) =>
-    runModel(
-      context,
-      MEDIA_MODELS.speech[0],
-      bodyOf(input.options, { text: input.text, voice: input.voice }),
-      input.wait_seconds,
-    ),
+  speech: authed.speech.handler(
+    async ({ context, input }) =>
+      await runModel(
+        context,
+        MEDIA_MODELS.speech[0],
+        bodyOf(input.options, { text: input.text, voice: input.voice }),
+        input.wait_seconds,
+      ),
   ),
 
-  video: authed.video.handler(({ context, input }) => {
+  video: authed.video.handler(async ({ context, input }) => {
     const [fromText, fromImage] = MEDIA_MODELS.video;
 
     if (input.end_image_url !== undefined && input.image_url === undefined) {
@@ -154,7 +159,7 @@ export const mediaRouter = (runModel: RunModel) => ({
       resolution: input.resolution,
     };
 
-    return runModel(
+    return await runModel(
       context,
       input.image_url === undefined ? fromText : fromImage,
       bodyOf(input.options, fields),

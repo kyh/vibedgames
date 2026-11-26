@@ -6,9 +6,8 @@ import type {
   R2Config,
   UrlSigning,
 } from "@repo/service/orpc";
-import type { Mailer } from "@repo/service/email/mailer";
 import { createAuth as initAuth } from "@repo/service/identity/auth";
-import { consoleMailer, resendMailer } from "@repo/service/email/mailer";
+import { mailerOf, NO_EMAIL_WARNING } from "@repo/service/email/mailer";
 import { oauthResources } from "@repo/service/identity/oauth-resources";
 import { createORPCContext } from "@repo/service/orpc";
 import { createDb } from "@repo/db/drizzle-client";
@@ -20,12 +19,14 @@ type Env = ReturnType<typeof getCloudflareEnv>;
 
 const authInstances = new WeakMap<Env, Map<string, ReturnType<typeof initAuth>>>();
 
+let warnedNoEmail = false;
+
 const authFor = (
   env: Env,
   db: ReturnType<typeof createDb>,
   baseUrl: string,
   productionUrl: string,
-  mailer: Mailer | undefined,
+  isLocalhost: boolean,
 ) => {
   let byOrigin = authInstances.get(env);
 
@@ -37,6 +38,13 @@ const authFor = (
   let auth = byOrigin.get(baseUrl);
 
   if (!auth) {
+    const mailer = mailerOf({ apiKey: env.RESEND_API_KEY, local: isLocalhost });
+
+    if (!mailer && !warnedNoEmail) {
+      warnedNoEmail = true;
+      console.warn(NO_EMAIL_WARNING);
+    }
+
     auth = initAuth({
       baseURL: baseUrl,
       db,
@@ -53,31 +61,28 @@ const authFor = (
   return auth;
 };
 
-const mailerFor = (env: Env, isLocalhost: boolean) => {
-  if (env.RESEND_API_KEY) {
-    return resendMailer({ apiKey: env.RESEND_API_KEY });
-  }
-
-  return isLocalhost ? consoleMailer : undefined;
-};
-
 export const getServerContext = () => {
   const env = getCloudflareEnv();
   const db = createDb(env.DB);
 
   const headers = new Headers(getRequestHeaders());
   const host = headers.get("host") ?? headers.get("x-forwarded-host");
-  const hostname = host ? new URL(`http://${host}`).hostname : null;
+  const hostname = host !== null && host !== "" ? new URL(`http://${host}`).hostname : null;
   const isLocalhost = hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]";
   const forwardedProto = headers.get("x-forwarded-proto")?.split(",")[0]?.trim();
-  const protocol = forwardedProto || (isLocalhost ? "http" : "https");
-  const baseUrl = host ? `${protocol}://${host}` : "http://localhost:3000";
+
+  const fallbackProtocol = isLocalhost ? "http" : "https";
+
+  const protocol =
+    forwardedProto === undefined || forwardedProto === "" ? fallbackProtocol : forwardedProto;
+
+  const baseUrl = host !== null && host !== "" ? `${protocol}://${host}` : "http://localhost:3000";
 
   const productionUrl = env.PRODUCTION_URL || baseUrl;
 
-  const auth = authFor(env, db, baseUrl, productionUrl, mailerFor(env, isLocalhost));
+  const auth = authFor(env, db, baseUrl, productionUrl, isLocalhost);
 
-  const r2: R2Config | undefined = env.GAMES_BUCKET ? { bucket: env.GAMES_BUCKET } : undefined;
+  const r2: R2Config = { bucket: env.GAMES_BUCKET };
 
   const signing: UrlSigning | undefined = env.BETTER_AUTH_SECRET
     ? { baseUrl, secret: env.BETTER_AUTH_SECRET }
@@ -103,9 +108,12 @@ export const getServerContext = () => {
     stripeWebhookSecret: env.STRIPE_WEBHOOK_SECRET,
   };
 
-  const mediaJobs: MediaJobs | undefined = env.MEDIA_JOBS
-    ? { fetch: (request) => env.MEDIA_JOBS.fetch(request) }
-    : undefined;
+  const recipeService: MediaJobs | undefined = env.MEDIA_JOBS;
+
+  const mediaJobs: MediaJobs | undefined =
+    recipeService === undefined
+      ? undefined
+      : { fetch: async (request) => await recipeService.fetch(request) };
 
   return { auth, baseUrl, billing, db, decision, media, mediaJobs, productionUrl, r2, signing };
 };
@@ -130,7 +138,7 @@ export type OAuthSurface = keyof ReturnType<typeof oauthResources>;
  * SSR client in `lib/orpc.tsx` — so a binding added here can't reach one and
  * silently miss the other.
  */
-export const createRpcContext = (headers: Headers, surface: OAuthSurface = "api") => {
+export const createRpcContext = async (headers: Headers, surface: OAuthSurface = "api") => {
   const {
     baseUrl,
     db,
@@ -144,7 +152,7 @@ export const createRpcContext = (headers: Headers, surface: OAuthSurface = "api"
     signing,
   } = getServerContext();
 
-  return createORPCContext({
+  return await createORPCContext({
     auth: betterAuth,
     billing,
     db,
@@ -166,9 +174,9 @@ export const createRpcContext = (headers: Headers, surface: OAuthSurface = "api"
  * reused for both the handler and any internal getSession calls.
  */
 export const auth = {
-  handler: (request: Request) => {
+  handler: async (request: Request) => {
     const { auth: betterAuth } = getServerContext();
 
-    return betterAuth.handler(request);
+    return await betterAuth.handler(request);
   },
 };

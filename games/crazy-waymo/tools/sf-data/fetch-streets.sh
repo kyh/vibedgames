@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Download the real San Francisco street network from OpenStreetMap (Overpass)
-# into sf-streets.raw.json. Regenerate the baked mask afterwards with rasterize.mjs.
+# into sf-streets.raw.json. Regenerate the baked mask afterwards with rasterize.mts.
 #
 # The raw dump (~15 MB) is gitignored; this script reproduces it on demand.
 set -euo pipefail

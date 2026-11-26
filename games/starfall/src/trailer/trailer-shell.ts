@@ -50,11 +50,14 @@ declare global {
 
 export const isTrailerMode = () => new URLSearchParams(window.location.search).has("trailer");
 
-const wait: (ms: number) => Promise<void> = (ms) =>
-  // oxlint-disable-next-line promise/avoid-new -- the one shared sleep helper
-  new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
+const wait = async (ms: number) => {
+  const { promise, resolve } = Promise.withResolvers<number>();
+  setTimeout(() => {
+    resolve(ms);
+  }, ms);
+
+  await promise;
+};
 
 const el = (tag: string, cls: string, parent: Element) => {
   const node = document.createElement(tag);
@@ -176,56 +179,61 @@ export const runTrailer = (config: TrailerConfig) => {
     state.sceneIndex = index;
     state.t = 0;
 
-    // oxlint-disable-next-line promise/avoid-new -- wraps the rAF loop
-    await new Promise<void>((resolve) => {
-      const start = performance.now();
-      let last = start;
+    const { promise, resolve } = Promise.withResolvers<"cut" | "done">();
+    const start = performance.now();
+    let last = start;
 
-      const frame = (now: number) => {
-        if (myGen !== generation) {
-          return resolve();
-        }
+    const frame = (now: number) => {
+      if (myGen !== generation) {
+        resolve("cut");
 
-        const t = now - start;
-        state.t = t;
+        return;
+      }
 
-        try {
-          scene.run?.(t, now - last);
-        } catch (error) {
-          console.error(`[trailer] run failed for scene "${scene.id}"`, error);
-        }
+      const t = now - start;
+      state.t = t;
 
-        last = now;
+      try {
+        scene.run?.(t, now - last);
+      } catch (error) {
+        console.error(`[trailer] run failed for scene "${scene.id}"`, error);
+      }
 
-        if (t >= scene.duration) {
-          return resolve();
-        }
+      last = now;
 
-        requestAnimationFrame(frame);
-      };
+      if (t >= scene.duration) {
+        resolve("done");
+
+        return;
+      }
 
       requestAnimationFrame(frame);
-    });
+    };
+
+    requestAnimationFrame(frame);
+
+    await promise;
+  };
+
+  const playScenes: (index: number, myGen: number) => Promise<void> = async (index, myGen) => {
+    const scene = config.scenes[index];
+
+    if (scene === undefined) {
+      return;
+    }
+
+    await playScene(scene, index, myGen);
+
+    if (myGen === generation) {
+      await playScenes(index + 1, myGen);
+    }
   };
 
   const playFrom = async (startIndex: number) => {
     generation += 1;
     const myGen = generation;
     state.done = false;
-
-    for (let i = startIndex; i < config.scenes.length; i += 1) {
-      const scene = config.scenes[i];
-
-      if (scene === undefined) {
-        break;
-      }
-
-      await playScene(scene, i, myGen);
-
-      if (myGen !== generation) {
-        return;
-      }
-    }
+    await playScenes(startIndex, myGen);
 
     if (myGen !== generation) {
       return;

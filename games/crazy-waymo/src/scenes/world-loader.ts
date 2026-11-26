@@ -43,6 +43,8 @@ import { fetchBakedWorld, fetchParcelSource, fetchWorldMeta } from "../world/wor
 import type { CityRestMeta } from "../world/world-bin";
 import { PHONE_REACH, SAFE_REACH, isCoarsePointer } from "../render/quality";
 import { Minimap } from "../ui/minimap";
+import { parseJsonText } from "../shared/json";
+import { delay, nextFrame } from "../shared/wait";
 
 export type WorldSpawn = PlayerSpawn;
 
@@ -157,80 +159,83 @@ interface ParcelResolved {
   readonly source: ParcelSource | null;
 }
 
-const runGenWorker: () => Promise<CityGenPayload | null> = () =>
-  // oxlint-disable-next-line promise/avoid-new -- wraps the gen worker's message/error callbacks
-  new Promise((resolve) => {
-    try {
-      const worker = new Worker(new URL("../world/gen-worker.ts", import.meta.url), {
-        type: "module",
-      });
+const runGenWorker: () => Promise<CityGenPayload | null> = async () => {
+  const { promise, resolve } = Promise.withResolvers<CityGenPayload | null>();
 
-      const timeout = new URLSearchParams(window.location.search).has("bake") ? 900_000 : 90_000;
+  try {
+    const worker = new Worker(new URL("../world/gen-worker.ts", import.meta.url), {
+      type: "module",
+    });
 
-      const bail = setTimeout(() => {
-        worker.terminate();
-        resolve(null);
-      }, timeout);
+    const timeout = new URLSearchParams(window.location.search).has("bake") ? 900_000 : 90_000;
 
-      worker.addEventListener("message", (ev: MessageEvent<CityGenPayload>) => {
-        clearTimeout(bail);
-        worker.terminate();
-        writeWorldCache(ev.data);
-        resolve(ev.data);
-      });
-      worker.addEventListener("error", () => {
-        clearTimeout(bail);
-        worker.terminate();
-        resolve(null);
-      });
-    } catch {
+    const bail = setTimeout(() => {
+      worker.terminate();
       resolve(null);
-    }
-  });
+    }, timeout);
 
-const startGenWorker: () => Promise<CityGenPayload | null> = () => {
-  if (cityEdited()) {
-    return Promise.resolve(null);
+    worker.addEventListener("message", (ev: MessageEvent<CityGenPayload>) => {
+      clearTimeout(bail);
+      worker.terminate();
+      writeWorldCache(ev.data);
+      resolve(ev.data);
+    });
+    worker.addEventListener("error", () => {
+      clearTimeout(bail);
+      worker.terminate();
+      resolve(null);
+    });
+  } catch {
+    resolve(null);
   }
 
-  return readWorldCache().then((cached) => {
-    if (cached) {
-      return cached;
-    }
-
-    return runGenWorker();
-  });
+  return await promise;
 };
 
-const runParcelWorker: (source: ArrayBuffer) => Promise<ParcelPlanResult | null> = (source) => {
+const startGenWorker: () => Promise<CityGenPayload | null> = async () => {
+  if (cityEdited()) {
+    return null;
+  }
+
+  return (await readWorldCache()) ?? (await runGenWorker());
+};
+
+const runParcelWorker: (source: ArrayBuffer) => Promise<ParcelPlanResult | null> = async (
+  source,
+) => {
   const bytes = source.byteLength;
 
-  // oxlint-disable-next-line promise/avoid-new -- wraps the parcel worker's message/error callbacks
-  return new Promise((resolve) => {
-    try {
-      const worker = new Worker(new URL("../world/parcel-worker.ts", import.meta.url), {
-        type: "module",
-      });
+  const { promise, resolve } = Promise.withResolvers<ParcelPlanResult | null>();
 
-      worker.addEventListener("message", (ev: MessageEvent<ParcelWorkerResponse>) => {
-        const r = ev.data;
-        console.log(`[parcel-worker] planned ${r.plans.length} parcels in ${r.ms}ms`);
-        runAfterLoad(() => writeParcelPlanCache(bytes, r));
-        resolve(fromWorker(r));
-        worker.terminate();
+  try {
+    const worker = new Worker(new URL("../world/parcel-worker.ts", import.meta.url), {
+      type: "module",
+    });
+
+    worker.addEventListener("message", (ev: MessageEvent<ParcelWorkerResponse>) => {
+      const r = ev.data;
+      console.log(`[parcel-worker] planned ${r.plans.length} parcels in ${r.ms}ms`);
+      runAfterLoad(() => {
+        writeParcelPlanCache(bytes, r);
       });
-      worker.addEventListener("error", (e) => {
-        console.log(`[parcel-worker] failed: ${e.message}`);
-        resolve(null);
-        worker.terminate();
-      });
-      const req: ParcelWorkerRequest = { source };
-      worker.postMessage(req, [source]);
-    } catch (error) {
-      console.log(`[parcel-worker] unavailable: ${error instanceof Error ? error.message : error}`);
+      resolve(fromWorker(r));
+      worker.terminate();
+    });
+    worker.addEventListener("error", (e) => {
+      console.log(`[parcel-worker] failed: ${e.message}`);
       resolve(null);
-    }
-  });
+      worker.terminate();
+    });
+    const req: ParcelWorkerRequest = { source };
+    worker.postMessage(req, [source]);
+  } catch (error) {
+    console.log(
+      `[parcel-worker] unavailable: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    resolve(null);
+  }
+
+  return await promise;
 };
 
 const resolveParcels: (
@@ -271,7 +276,7 @@ const resolveParcels: (
 const resolveGen: (
   bakedWorldPromise: Promise<CityGenPayload | null>,
 ) => Promise<CityGenPayload | null> = async (bakedWorldPromise) =>
-  (await bakedWorldPromise) ?? startGenWorker();
+  await ((await bakedWorldPromise) ?? startGenWorker());
 
 const resolveRest: (
   metaPromise: Promise<CityRestMeta | null>,
@@ -286,11 +291,10 @@ const resolveRest: (
   return { meta: null, rest: edited ? null : await readRestCache() };
 };
 
-const paint: () => Promise<void> = () =>
-  // oxlint-disable-next-line promise/avoid-new -- wraps the requestAnimationFrame + setTimeout callbacks
-  new Promise((resolve) => {
-    requestAnimationFrame(() => setTimeout(resolve, 0));
-  });
+const paint: () => Promise<void> = async () => {
+  await nextFrame();
+  await delay(0);
+};
 
 const warmupShaders = async (deps: WorldLoaderDeps) => {
   const renderer = deps.getRenderer();
@@ -438,7 +442,9 @@ const finishLoad = async (
 
   if (city.restCapture && !meta) {
     const { restCapture } = city;
-    runWhenIdle(() => writeRestCache(restCapture));
+    runWhenIdle(() => {
+      writeRestCache(restCapture);
+    });
   }
 
   await paint();
@@ -526,10 +532,10 @@ const storageGet = (key: string) => {
 export const loadWorld = async (deps: WorldLoaderDeps) => {
   const mapUrl = new URLSearchParams(window.location.search).get("map");
 
-  if (mapUrl) {
+  if (mapUrl !== null && mapUrl !== "") {
     try {
       const res = await fetch(mapUrl);
-      const parsed = parseMapFile(await res.json());
+      const parsed = parseMapFile(parseJsonText(await res.text()));
 
       if (parsed) {
         setRuntimeMap(parsed);
@@ -538,7 +544,9 @@ export const loadWorld = async (deps: WorldLoaderDeps) => {
         console.log(`[map] ${mapUrl} rejected (bad format/version)`);
       }
     } catch (error) {
-      console.log(`[map] ${mapUrl} failed: ${error instanceof Error ? error.message : error}`);
+      console.log(
+        `[map] ${mapUrl} failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   }
 
@@ -560,7 +568,7 @@ export const loadWorld = async (deps: WorldLoaderDeps) => {
     deps.setLoading(0.14 + frac * (MODELS_TO - 0.14), "Loading models…");
   });
 
-  const latePreload = deps.cache.preload(lateModelUrls(), () => null);
+  const latePreload = deps.cache.preload(lateModelUrls());
 
   deps.glideLoading(
     WORLD_TO,

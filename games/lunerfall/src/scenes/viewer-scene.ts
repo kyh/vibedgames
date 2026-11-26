@@ -116,18 +116,36 @@ export class ViewerScene extends Scene {
     this.fxLayer = this.add.graphics().setDepth(4);
 
     const kb = this.input.keyboard;
-    kb?.on("keydown-LEFT", () => this.cycleChar(-1));
-    kb?.on("keydown-A", () => this.cycleChar(-1));
-    kb?.on("keydown-RIGHT", () => this.cycleChar(1));
-    kb?.on("keydown-D", () => this.cycleChar(1));
-    kb?.on("keydown-UP", () => this.selectClip(this.clipI - 1));
-    kb?.on("keydown-DOWN", () => this.selectClip(this.clipI + 1));
-    kb?.on("keydown-J", () => this.playHotkey("J"));
-    kb?.on("keydown-K", () => this.playHotkey("K"));
-    kb?.on("keydown-L", () => this.playHotkey("⇧ / L"));
+    kb?.on("keydown-LEFT", () => {
+      this.cycleChar(-1);
+    });
+    kb?.on("keydown-A", () => {
+      this.cycleChar(-1);
+    });
+    kb?.on("keydown-RIGHT", () => {
+      this.cycleChar(1);
+    });
+    kb?.on("keydown-D", () => {
+      this.cycleChar(1);
+    });
+    kb?.on("keydown-UP", () => {
+      this.selectClip(this.clipI - 1);
+    });
+    kb?.on("keydown-DOWN", () => {
+      this.selectClip(this.clipI + 1);
+    });
+    kb?.on("keydown-J", () => {
+      this.playHotkey("J");
+    });
+    kb?.on("keydown-K", () => {
+      this.playHotkey("K");
+    });
+    kb?.on("keydown-L", () => {
+      this.playHotkey("⇧ / L");
+    });
 
     const want = new URLSearchParams(location.search).get("char");
-    const at = want ? CHARS.findIndex((c) => c.key === want) : -1;
+    const at = want !== null && want !== "" ? CHARS.findIndex((c) => c.key === want) : -1;
 
     if (at >= 0) {
       this.ci = at;
@@ -196,9 +214,9 @@ export class ViewerScene extends Scene {
     const hero = char.hero ? HEROES[char.key] : undefined;
     const key = hero ? kitClipKey(this, hero.name, info.clip) : `${char.key}:${info.clip}`;
     this.sprite.play({ key, repeat: -1 });
-    const gm = hero ? clipGameMs(hero, info.clip) : undefined;
+    const gm = hero ? clipGameMs(hero, info.clip) : null;
     const authored = this.sprite.anims.currentAnim?.duration ?? 0;
-    this.sprite.anims.timeScale = gm !== undefined && gm > 0 && authored > 0 ? authored / gm : 1;
+    this.sprite.anims.timeScale = gm !== null && gm > 0 && authored > 0 ? authored / gm : 1;
     this.drawFx(char, info.clip);
     this.updateStatus(info, gm);
     this.highlightClip();
@@ -271,7 +289,7 @@ export class ViewerScene extends Scene {
 
     for (const btn of ui.querySelectorAll<HTMLButtonElement>(".lf-char")) {
       btn.addEventListener("click", () => {
-        const i = Number(btn.dataset["i"]);
+        const i = Number(btn.dataset.i);
 
         if (Number.isFinite(i)) {
           this.selectChar(i);
@@ -300,7 +318,7 @@ export class ViewerScene extends Scene {
 
     for (const btn of list.querySelectorAll<HTMLButtonElement>(".lf-clip")) {
       btn.addEventListener("click", () => {
-        const i = Number(btn.dataset["i"]);
+        const i = Number(btn.dataset.i);
 
         if (Number.isFinite(i)) {
           this.selectClip(i);
@@ -311,7 +329,7 @@ export class ViewerScene extends Scene {
 
   private highlightRoster() {
     for (const btn of this.ui?.querySelectorAll<HTMLButtonElement>(".lf-char") ?? []) {
-      btn.classList.toggle("on", btn.dataset["i"] === String(this.ci));
+      btn.classList.toggle("on", btn.dataset.i === String(this.ci));
     }
   }
 
@@ -327,7 +345,7 @@ export class ViewerScene extends Scene {
     }
   }
 
-  private updateStatus(info: ClipInfo, gameMs: number | undefined) {
+  private updateStatus(info: ClipInfo, gameMs: number | null) {
     const el = document.querySelector("#lf-status");
 
     if (!el) {
@@ -337,7 +355,7 @@ export class ViewerScene extends Scene {
     const char = CHARS[this.ci];
 
     const timing =
-      gameMs !== undefined && gameMs !== info.ms ? `${info.ms}→${gameMs}ms` : `${info.ms}ms`;
+      gameMs !== null && gameMs !== info.ms ? `${info.ms}→${gameMs}ms` : `${info.ms}ms`;
 
     el.textContent = `${char?.key ?? ""}  ·  ${info.clip}  ·  ${info.frames}f  ·  ${timing}`;
   }

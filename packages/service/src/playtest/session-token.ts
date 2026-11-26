@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 /**
  * Short-lived, single-purpose tokens for the in-page playtester.
  *
@@ -16,6 +18,8 @@
 export const PLAYTEST_TOKEN_TTL_MS = 15 * 60_000;
 
 const PREFIX = "pt";
+
+const tokenClaims = z.object({ e: z.number(), u: z.string().min(1) });
 
 const base64url = (bytes: Uint8Array) =>
   btoa(String.fromCodePoint(...bytes))
@@ -36,32 +40,27 @@ const fromBase64url = (text: string) => {
   }
 };
 
-const hmac = async (secret: string, message: string) => {
-  const key = await crypto.subtle.importKey(
+const hmacKey = async (secret: string) =>
+  await crypto.subtle.importKey(
     "raw",
     new TextEncoder().encode(secret),
     { hash: "SHA-256", name: "HMAC" },
     false,
-    ["sign"],
+    ["sign", "verify"],
   );
 
-  return new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(message)));
-};
+const hmac = async (secret: string, message: string) =>
+  new Uint8Array(
+    await crypto.subtle.sign("HMAC", await hmacKey(secret), new TextEncoder().encode(message)),
+  );
 
-const constantTimeEqual = (a: Uint8Array, b: Uint8Array) => {
-  if (a.length !== b.length) {
-    return false;
-  }
-
-  let mismatch = 0;
-
-  for (let i = 0; i < a.length; i += 1) {
-    // oxlint-disable-next-line no-bitwise -- accumulating XOR diffs is the point of a constant-time compare
-    mismatch |= (a[i] ?? 0) ^ (b[i] ?? 0);
-  }
-
-  return mismatch === 0;
-};
+const hmacMatches = async (secret: string, message: string, signature: Uint8Array<ArrayBuffer>) =>
+  await crypto.subtle.verify(
+    "HMAC",
+    await hmacKey(secret),
+    signature,
+    new TextEncoder().encode(message),
+  );
 
 export interface MintedToken {
   token: string;
@@ -90,13 +89,20 @@ export interface VerifiedToken {
 export const verifyPlaytestToken = async (secret: string, token: string, now = Date.now()) => {
   const [prefix, payload, signature, extra] = token.split(".");
 
-  if (prefix !== PREFIX || !payload || !signature || extra !== undefined) {
+  if (
+    prefix !== PREFIX ||
+    payload === undefined ||
+    payload === "" ||
+    signature === undefined ||
+    signature === "" ||
+    extra !== undefined
+  ) {
     return null;
   }
 
   const given = fromBase64url(signature);
 
-  if (!given || !constantTimeEqual(given, await hmac(secret, `${PREFIX}.${payload}`))) {
+  if (!given || !(await hmacMatches(secret, `${PREFIX}.${payload}`, given))) {
     return null;
   }
 
@@ -106,19 +112,19 @@ export const verifyPlaytestToken = async (secret: string, token: string, now = D
     return null;
   }
 
-  let claims: { u?: string; e?: number };
+  let raw: unknown;
 
   try {
-    claims = JSON.parse(new TextDecoder().decode(bytes));
+    raw = JSON.parse(new TextDecoder().decode(bytes));
   } catch {
     return null;
   }
 
-  const { u, e } = claims;
+  const claims = tokenClaims.safeParse(raw);
 
-  if (String(u) !== u || u.length === 0 || !Number.isFinite(e) || Number(e) <= now) {
+  if (!claims.success || claims.data.e <= now) {
     return null;
   }
 
-  return { expiresAt: Number(e), userId: u };
+  return { expiresAt: claims.data.e, userId: claims.data.u };
 };

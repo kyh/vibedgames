@@ -1,10 +1,11 @@
 import { z } from "zod";
-import { createFileRoute, redirect } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import { APIError } from "better-auth/api";
 
 import { getServerContext } from "@/auth/server";
+import { leaveFor, signInHref } from "@/lib/leave-for";
 import { DeviceApproval } from "@/components/oauth/device-approval";
 
 const deviceSearchSchema = z.object({ user_code: z.string().optional() });
@@ -17,11 +18,15 @@ const fetchDeviceRequest = createServerFn({ method: "GET" })
     const { auth } = getServerContext();
     const headers = new Headers(getRequestHeaders());
     const session = await auth.api.getSession({ headers });
-    const userCode = data.user_code ? normalizeUserCode(data.user_code) : "";
+
+    const userCode =
+      data.user_code !== undefined && data.user_code !== ""
+        ? normalizeUserCode(data.user_code)
+        : "";
 
     if (!session) {
       const back = userCode ? `/device?user_code=${userCode}` : "/device";
-      throw redirect({ search: { callbackUrl: back }, to: "/auth/login" });
+      leaveFor(signInHref(back));
     }
 
     if (!userCode) {
@@ -42,7 +47,11 @@ const fetchDeviceRequest = createServerFn({ method: "GET" })
       };
     }
 
-    if (request.status !== "pending" || !request.client_id) {
+    if (
+      request.status !== "pending" ||
+      request.client_id === undefined ||
+      request.client_id === ""
+    ) {
       return { state: "used" as const, userName: session.user.name };
     }
 
@@ -76,7 +85,7 @@ export const Route = createFileRoute("/device")({
   head: () => ({
     meta: [{ title: "Connect a device" }, { content: "noindex, nofollow", name: "robots" }],
   }),
-  loader: ({ deps }) => fetchDeviceRequest({ data: deps }),
+  loader: async ({ deps }) => await fetchDeviceRequest({ data: deps }),
   loaderDeps: ({ search }) => ({ user_code: search.user_code }),
   validateSearch: deviceSearchSchema,
 });

@@ -2,7 +2,7 @@ import type { DamageType } from "../data/config";
 import type { AbilityKey } from "../sim/types";
 import { Music } from "./music";
 import { VoicePool } from "./audio-voices";
-import type { VoiceGroup, VoicePriority } from "./audio-voices";
+import type { VoiceGroup, VoicePriority } from "./voice-group";
 
 type BusName = "sfx" | "ui" | "amb";
 
@@ -87,8 +87,8 @@ export class Audio {
   private musicInst: Music | null = null;
   private mutedOverride: boolean | null = null;
   private last: Record<string, number> = {};
-  private voices = new VoicePool(48, 32);
-  private ambience = new VoicePool(8, 8);
+  private readonly voices = new VoicePool(48, 32);
+  private readonly ambience = new VoicePool(8, 8);
   private group: VoiceGroup | null = null;
   private preference = readMuted();
   private paused = false;
@@ -104,7 +104,7 @@ export class Audio {
   private ambNextPop = 0;
   private ambNextMoan = 0;
 
-  private unlock = () => {
+  private readonly unlock = () => {
     this.unlocked = true;
     window.removeEventListener("pointerdown", this.unlock);
     window.removeEventListener("keydown", this.unlock);
@@ -139,7 +139,7 @@ export class Audio {
 
     persistMuted(on);
 
-    if (!on && window.navigator?.userActivation?.isActive === true) {
+    if (!on && window.navigator?.userActivation?.isActive) {
       this.unlocked = true;
     }
 
@@ -253,10 +253,12 @@ export class Audio {
       return;
     }
 
-    const scope: typeof globalThis & { webkitAudioContext?: typeof AudioContext } = globalThis;
+    const scope: { AudioContext?: typeof AudioContext; webkitAudioContext?: typeof AudioContext } =
+      globalThis;
+
     const Ctor = scope.AudioContext ?? scope.webkitAudioContext;
 
-    if (!Ctor) {
+    if (Ctor === undefined) {
       return;
     }
 
@@ -598,7 +600,9 @@ export class Audio {
       return;
     }
 
-    this.phrase(important ? "essential" : "routine", () => this.impact(this.now(), x, y, dtype, 1));
+    this.phrase(important ? "essential" : "routine", () => {
+      this.impact(this.now(), x, y, dtype, 1);
+    });
   }
 
   /** Crit: physical layers pitched ×1.3 + 1244Hz ring + 72→48Hz sub. */
@@ -716,7 +720,9 @@ export class Audio {
       return;
     }
 
-    this.phrase(local ? "essential" : "routine", () => this.attackVoice(champId, x, y));
+    this.phrase(local ? "essential" : "routine", () => {
+      this.attackVoice(champId, x, y);
+    });
   }
 
   private attackVoice(champId: string, x: number, y: number) {
@@ -866,7 +872,9 @@ export class Audio {
       return;
     }
 
-    this.phrase(local ? "essential" : "routine", () => this.castPhrase(champId, key, x, y, local));
+    this.phrase(local ? "essential" : "routine", () => {
+      this.castPhrase(champId, key, x, y, local);
+    });
   }
 
   private castPhrase(
@@ -884,7 +892,7 @@ export class Audio {
       this.dodge(x, y);
     }
 
-    if (m.ult && this.gate(local ? "ult:local" : "ult", 300)) {
+    if (m.ult === true && this.gate(local ? "ult:local" : "ult", 300)) {
       this.tone({ at: t, dur: 0.4, freq: 55, gain: 0.22, slideTo: 38, type: "sine", x, y });
       this.noise({
         at: t,
@@ -1280,7 +1288,9 @@ export class Audio {
     const t = this.ctx.currentTime;
     this.ambNextPop = t + 0.4;
     this.ambNextMoan = t + 14 + Math.random() * 12;
-    this.ambTimer = window.setInterval(() => this.ambTick(), 400);
+    this.ambTimer = window.setInterval(() => {
+      this.ambTick();
+    }, 400);
   }
 
   private stopAmbience() {

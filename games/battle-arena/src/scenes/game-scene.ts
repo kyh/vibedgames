@@ -38,7 +38,7 @@ import { OwnHeroPredictor } from "../net/own-hero";
 import type { HeldInput } from "../net/own-hero";
 import type { Vec2 } from "../sim/math";
 import { isJsonNumber, isJsonObject, isJsonString } from "../data/json";
-import type { JsonValue } from "../data/json";
+import type { JsonObject, JsonValue } from "../data/json";
 import type { Controls } from "../input/controls";
 import type { TouchControls } from "../input/touch";
 import type { ModelLibrary } from "../render/models";
@@ -78,6 +78,8 @@ type Online =
 
 type Seated = Extract<Online, { kind: "guest" | "host" }>;
 
+const intentKind = (payload: JsonObject) => (isJsonString(payload.kind) ? payload.kind : "");
+
 const sharedCounter = (value: JsonValue | undefined) =>
   isJsonNumber(value) && Number.isSafeInteger(value) && value >= 0 ? value : 0;
 
@@ -111,7 +113,7 @@ const matchOutcome: (me: Unit | null, winner: string | null) => "won" | "lost" |
   me,
   winner,
 ) => {
-  if (!me || !winner) {
+  if (!me || winner === null || winner === "") {
     return "unassigned";
   }
 
@@ -124,13 +126,13 @@ const matchOutcome: (me: Unit | null, winner: string | null) => "won" | "lost" |
 export const chosenChamp = () => {
   const fromUrl = new URLSearchParams(location.search).get("champ");
 
-  if (fromUrl && CHAMP_BY_ID[fromUrl]) {
+  if (fromUrl !== null && fromUrl !== "" && CHAMP_BY_ID[fromUrl]) {
     return fromUrl;
   }
 
   const stored = readPreference("ba-champ");
 
-  if (stored && CHAMP_BY_ID[stored]) {
+  if (stored !== null && stored !== "" && CHAMP_BY_ID[stored]) {
     return stored;
   }
 
@@ -139,21 +141,24 @@ export const chosenChamp = () => {
 
 export class GameScene {
   world: World;
-  private net: MultiplayerClient | null = null;
-  private worldView: WorldView;
-  private environment: Environment;
-  private fx: Fx;
-  private hud: Hud;
-  private guide: AbilityGuide;
+  /** The room; tools/two-client.mts drops and redials it. */
+  net: MultiplayerClient | null = null;
+  private readonly worldView: WorldView;
+  private readonly environment: Environment;
+  private readonly fx: Fx;
+  private readonly hud: Hud;
+  private readonly guide: AbilityGuide;
   private acc = 0;
   private aimX = 0;
   private aimY = 1;
   private aimInit = false;
-  private champId: string;
-  private name: string;
-  private localId = "h-local";
-  private statusEl: HTMLDivElement;
-  private hints: Hints;
+  private readonly champId: string;
+  private readonly name: string;
+  /** tools/two-client.mts reads which unit is ours. */
+  localId = "h-local";
+  /** tools/two-client.mts reads the connection banner. */
+  statusEl: HTMLDivElement;
+  private readonly hints: Hints;
   private introTime = 0;
   private lastCount = -1;
   private musicClock = 0;
@@ -186,13 +191,14 @@ export class GameScene {
   private worldIsSim = false;
   private publishedT: number | null = null;
   private takeover: TakeoverSource | null = null;
-  private controlsPaused = false;
+  /** tools/two-client.mts reads whether this client is paused. */
+  controlsPaused = false;
   private neutralPending = false;
   private takedowns = 0;
 
-  private view: View;
-  private controls: Controls;
-  private touch: TouchControls | null;
+  private readonly view: View;
+  private readonly controls: Controls;
+  private readonly touch: TouchControls | null;
 
   constructor(
     view: View,
@@ -215,14 +221,16 @@ export class GameScene {
         fallbackMs: ONLINE_FALLBACK_MS,
         host: MULTIPLAYER_HOST,
         maxPlayers: ARENA_BOT_FILL,
-        onEvent: (e, p, from) => this.onNetEvent(e, p, from),
+        onEvent: (e, p, from) => {
+          this.onNetEvent(e, p, from);
+        },
         party: PARTY,
         room: opts.room,
       });
     } else {
       this.world = this.createSoloWorld(opts.seed ?? SOLO_SEED);
 
-      if (opts.skipIntro) {
+      if (opts.skipIntro === true) {
         this.introTime = INTRO_S;
       }
     }
@@ -245,9 +253,20 @@ export class GameScene {
     this.hud = new Hud(
       view,
       this.fx,
-      { buy: (id) => this.requestBuy(id), canShop: () => this.canShop() },
+      {
+        buy: (id) => {
+          this.requestBuy(id);
+        },
+        canShop: () => this.canShop(),
+      },
       opts.online
-        ? { canRematch: () => this.canRematch(), kind: "online", rematch: () => this.rematch() }
+        ? {
+            canRematch: () => this.canRematch(),
+            kind: "online",
+            rematch: () => {
+              this.rematch();
+            },
+          }
         : { kind: "offline" },
     );
     this.hud.setPlateAnchors((id) => this.worldView.plateAnchor(id));
@@ -259,10 +278,14 @@ export class GameScene {
       this.neutralPending = true;
       this.flushNeutralInput();
     });
-    this.hud.setKitAction(() => this.guide.show(this.champId, this.localUnit()));
+    this.hud.setKitAction(() => {
+      this.guide.show(this.champId, this.localUnit());
+    });
     this.hints = new Hints(
       () => this.touch?.active ?? false,
-      (t) => this.hud.showHint(t),
+      (t) => {
+        this.hud.showHint(t);
+      },
     );
 
     this.statusEl = document.createElement("div");
@@ -673,7 +696,7 @@ export class GameScene {
     const seated = net.connectionStatus === "connected" || net.connectionStatus === "offline";
     const id = seated ? net.playerId : null;
 
-    if (!id) {
+    if (id === null || id === "") {
       if (this.online.kind !== "connecting") {
         this.resetHeldInput();
         this.neutralPending = true;
@@ -700,7 +723,7 @@ export class GameScene {
     } else if (seat.kind === "host" && !net.isHost) {
       seat = { id, kind: "guest" };
       this.acc = 0;
-      this.lastSnap = net.sharedState["snap"];
+      this.lastSnap = net.sharedState.snap;
       this.joining = false;
       this.mirror.reset();
       this.predictor.reset();
@@ -764,7 +787,7 @@ export class GameScene {
     }
 
     if (seat.kind === "host") {
-      const generation = sharedCounter(net.sharedState["matchGeneration"]);
+      const generation = sharedCounter(net.sharedState.matchGeneration);
 
       if (this.matchGeneration !== null && generation !== this.matchGeneration) {
         this.resetMatchPresentation();
@@ -796,7 +819,7 @@ export class GameScene {
     }
 
     this.trackHost(net);
-    const generation = sharedCounter(net.sharedState["matchGeneration"]);
+    const generation = sharedCounter(net.sharedState.matchGeneration);
     const newMatch = this.matchGeneration !== null && generation !== this.matchGeneration;
 
     if (newMatch) {
@@ -858,7 +881,7 @@ export class GameScene {
   private announcePick(net: MultiplayerClient) {
     const id = net.playerId;
 
-    if (!id || !net.hostId) {
+    if (id === null || id === "" || net.hostId === null || net.hostId === "") {
       return;
     }
 
@@ -921,7 +944,9 @@ export class GameScene {
         performance.now(),
         this.world.now,
         this.held,
-        (p) => net.sendToHost(INTENT_EVENT, inputWire(p)),
+        (p) => {
+          net.sendToHost(INTENT_EVENT, inputWire(p));
+        },
       );
       this.predictor.render(me, this.world.units, this.held);
     }
@@ -935,7 +960,9 @@ export class GameScene {
         this.publishedT = t;
         net.updateSharedState({ matchGeneration: this.matchGeneration ?? 0, snap, snapT: t });
       },
-      sendFrame: (frame) => net.sendEvent(FRAME_EVENT, frame, { except: id }),
+      sendFrame: (frame) => {
+        net.sendEvent(FRAME_EVENT, frame, { except: id });
+      },
     } satisfies HostLink;
   }
 
@@ -1036,7 +1063,7 @@ export class GameScene {
       this.aimInit = true;
     }
 
-    if (this.touch?.active) {
+    if (this.touch?.active === true) {
       const look = this.touch.lookVec();
 
       if (look) {
@@ -1050,7 +1077,7 @@ export class GameScene {
   }
 
   private readMove() {
-    if (this.touch?.active) {
+    if (this.touch?.active === true) {
       const m = this.touch.moveVec();
 
       return { attack: this.touch.attackDown(), mv: this.rotateToAim(-m.y, m.x) };
@@ -1192,7 +1219,7 @@ export class GameScene {
       return;
     }
 
-    switch (payload["kind"]) {
+    switch (intentKind(payload)) {
       case "join": {
         const { champId, name } = payload;
 
@@ -1451,11 +1478,11 @@ export class GameScene {
 export const chosenName = () => {
   const fromUrl = new URLSearchParams(location.search).get("name")?.trim();
 
-  if (fromUrl) {
+  if (fromUrl !== undefined && fromUrl !== "") {
     return fromUrl.slice(0, 14);
   }
 
   const stored = readPreference("ba-name")?.trim();
 
-  return stored ? stored.slice(0, 14) : "Player";
+  return stored !== undefined && stored !== "" ? stored.slice(0, 14) : "Player";
 };

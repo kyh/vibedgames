@@ -7,12 +7,13 @@
     "build": "cf build",
     "clean": "rm -rf .cache .cloudflare .turbo .wrangler dist node_modules",
     "deploy": "cf deploy",
-    "dev": "pnpm with-env cf dev",
+    "dev": "pnpm with-env cf dev --inspector-port 9230",
     "test": "cf build && node --import tsx --test test/integration.test.ts",
     "typecheck": "cf workers types && tsc --noEmit && tsc -p test --noEmit",
     "with-env": "dotenv -e ../../.env --"
   },
   "dependencies": {
+    "@repo/contract": "workspace:^",
     "@vibedgames/multiplayer": "workspace:^"
   },
   "devDependencies": {

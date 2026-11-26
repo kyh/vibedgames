@@ -22,11 +22,12 @@ const accessTokenClaims = z.object({
 const bearerToken = (headers: Headers) => {
   const header = headers.get("authorization");
 
-  const token = header
-    ? /^Bearer\s+(?<token>.+)$/iu.exec(header)?.groups?.token?.trim()
-    : undefined;
+  const token =
+    header !== null && header !== ""
+      ? /^Bearer\s+(?<token>.+)$/iu.exec(header)?.groups?.token?.trim()
+      : undefined;
 
-  return token && JWS.test(token) ? token : null;
+  return token !== undefined && token !== "" && JWS.test(token) ? token : null;
 };
 
 const jwksCacheKeys = new WeakMap<object, object>();
@@ -92,14 +93,14 @@ export const resolveOAuthSession: (
 ) => Promise<OAuthGrant | null> = async (auth, db, headers, resource) => {
   const token = bearerToken(headers);
 
-  if (!token) {
+  if (token === null || token === "") {
     return null;
   }
 
   let getJwks = keySources.get(auth);
 
   if (!getJwks) {
-    getJwks = () => auth.api.getJwks();
+    getJwks = async () => await auth.api.getJwks();
     keySources.set(auth, getJwks);
   }
 
@@ -115,7 +116,10 @@ export const resolveOAuthSession: (
 
   const [user] = await db.select().from(userTable).where(eq(userTable.id, claims.sub)).limit(1);
 
-  if (!user || (user.banned && (!user.banExpires || user.banExpires.getTime() > Date.now()))) {
+  if (
+    !user ||
+    (user.banned === true && (!user.banExpires || user.banExpires.getTime() > Date.now()))
+  ) {
     return null;
   }
 
@@ -135,7 +139,7 @@ export const resolveOAuthSession: (
       userId: user.id,
     },
     user,
-  } as Session;
+  } satisfies Session;
 
   return { scopes: claims.scope.split(" ").filter(Boolean), session };
 };

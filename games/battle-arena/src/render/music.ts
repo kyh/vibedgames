@@ -1,5 +1,5 @@
 import { VoicePool } from "./audio-voices";
-import type { VoiceGroup } from "./audio-voices";
+import type { VoiceGroup } from "./voice-group";
 
 export type MusicIntensity = 0 | 1 | 2 | 3;
 
@@ -36,7 +36,7 @@ export class Music {
   private targets = { drone: 1, kit: 0, lead: 0, pulse: 0 } satisfies Record<LayerName, number>;
   private fadeEnds = { drone: 0, kit: 0, lead: 0, pulse: 0 } satisfies Record<LayerName, number>;
   private drone: VoiceGroup | null = null;
-  private voices = new VoicePool(24, 24);
+  private readonly voices = new VoicePool(24, 24);
   private disposed = false;
   private resolved = false;
   private noiseBuf: AudioBuffer | null = null;
@@ -47,8 +47,8 @@ export class Music {
   private intensity: MusicIntensity = 0;
   private running = false;
 
-  private ctx: AudioContext;
-  private bus: GainNode;
+  private readonly ctx: AudioContext;
+  private readonly bus: GainNode;
 
   constructor(ctx: AudioContext, bus: GainNode) {
     this.ctx = ctx;
@@ -90,7 +90,9 @@ export class Music {
     this.applyIntensityGains();
     this.startDrone(this.gains.drone, t);
     this.nextTime = t + 0.06;
-    this.timer = window.setInterval(() => this.tick(), SCHEDULER_MS);
+    this.timer = window.setInterval(() => {
+      this.tick();
+    }, SCHEDULER_MS);
   }
 
   /** Crossfade the layer stack (1.5s); tempo shifts to 112 on the next bar at 3. */

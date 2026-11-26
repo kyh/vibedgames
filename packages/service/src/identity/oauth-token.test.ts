@@ -62,7 +62,8 @@ const claims = (overrides: Partial<TokenClaims> = {}) => ({
 });
 
 const checkFor = (resource: string) => ({
-  getJwks: () => Promise.resolve({ keys: [{ ...publicJwk, alg: "EdDSA", kid: "key-1" }] }),
+  getJwks: async () =>
+    await Promise.resolve({ keys: [{ ...publicJwk, alg: "EdDSA", kid: "key-1" }] }),
   issuer: ISSUER,
   resource,
 });

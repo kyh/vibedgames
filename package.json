@@ -12,6 +12,7 @@
     "db:seed-local": "pnpm -F db exec tsx d1-execute.ts --file seed.sql",
     "db:local": "pnpm db:push && pnpm db:seed-local",
     "admin:create": "tsx scripts/create-admin.ts",
+    "bootstrap": "tsx scripts/bootstrap.ts",
     "dogfood": "tsx scripts/dogfood.ts",
     "dogfood:reset": "tsx scripts/dogfood-reset.ts",
     "dev": "turbo watch db studio dev --continue --filter=!./games/*",
@@ -35,7 +36,7 @@
     "dev:cli": "turbo watch dev -F vibedgames...",
     "lint": "oxlint --report-unused-disable-directives",
     "r2:lifecycle": "pnpm -C apps/web exec wrangler r2 bucket lifecycle set vibedgames-games --file ./infra/r2/vibedgames-games.lifecycle.json --force",
-    "typecheck": "turbo run typecheck",
+    "typecheck": "tsc --noEmit && tsc -p plugins/vibedgames && turbo run typecheck",
     "test": "turbo run test",
     "format": "oxfmt --check",
     "lint:fix": "oxlint --fix",
@@ -43,18 +44,26 @@
     "verify": "pnpm typecheck && pnpm lint && pnpm format && pnpm test"
   },
   "devDependencies": {
+    "@dimforge/rapier3d-compat": "^0.21.0",
     "@interfere/landmines": "^0.1.1",
     "@libsql/client": "^0.18.0",
+    "@repo/contract": "workspace:*",
+    "@types/node": "catalog:",
+    "@types/three": "^0.186.0",
+    "better-auth": "1.7.2",
     "dotenv-cli": "^11.1.0",
     "oxfmt": "^0.73.0",
     "oxlint": "^1.94.0",
+    "oxlint-tsgolint": "^7.0.2008",
+    "playwright-core": "^1.65.1",
     "tsx": "^4.23.15",
     "turbo": "^2.11.13",
     "typescript": "catalog:",
-    "ultracite": "^8.3.1"
+    "ultracite": "^8.3.1",
+    "zod": "catalog:"
   },
   "engines": {
     "node": "24.x"
   },
-  "packageManager": "pnpm@12.3.4"
+  "packageManager": "pnpm@12.23.0"
 }

@@ -6,8 +6,8 @@ import { BattleFx, REDUCED_MOTION } from "./battle-fx";
 
 export type FxImportance = "common" | "important";
 
-const admitFx = <T extends { importance: FxImportance }>(
-  entries: T[],
+const admitFx = (
+  entries: { importance: FxImportance }[],
   capacity: number,
   importance: FxImportance,
 ) => {
@@ -115,18 +115,18 @@ interface BossCue {
 
 export class FxPool {
   readonly battle: BattleFx;
-  private scene: Phaser.Scene;
-  private sparkAdd: Phaser.GameObjects.Particles.ParticleEmitter;
-  private debrisNormal: Phaser.GameObjects.Particles.ParticleEmitter;
-  private shatterGfx: Phaser.GameObjects.Graphics;
-  private ringGfx: Phaser.GameObjects.Graphics;
+  private readonly scene: Phaser.Scene;
+  private readonly sparkAdd: Phaser.GameObjects.Particles.ParticleEmitter;
+  private readonly debrisNormal: Phaser.GameObjects.Particles.ParticleEmitter;
+  private readonly shatterGfx: Phaser.GameObjects.Graphics;
+  private readonly ringGfx: Phaser.GameObjects.Graphics;
   private shatters: ShatterGroup[] = [];
   private rings: Ring[] = [];
   private converges: Converge[] = [];
   private hullCue: HullCue | null = null;
   private bossCue: BossCue | null = null;
-  private hullText: Phaser.GameObjects.Text;
-  private bossText: Phaser.GameObjects.Text;
+  private readonly hullText: Phaser.GameObjects.Text;
+  private readonly bossText: Phaser.GameObjects.Text;
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene;

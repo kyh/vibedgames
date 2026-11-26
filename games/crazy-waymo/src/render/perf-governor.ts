@@ -93,8 +93,12 @@ declare global {
 
 const installPerfDebug = (governor: PerfGovernor) => {
   window.__perf = {
-    detail: (detailScale) => setLiveQuality({ ...governor.features, detailScale }),
-    pin: (tier) => governor.pinTier(tier),
+    detail: (detailScale) => {
+      setLiveQuality({ ...governor.features, detailScale });
+    },
+    pin: (tier) => {
+      governor.pinTier(tier);
+    },
     tier: () => governor.currentTier,
     tierCount: () => governor.tierCount,
   };
@@ -112,9 +116,9 @@ export class PerfGovernor {
   private shadowClock = 0;
   private pinned: number | null = null;
 
-  private renderer: THREE.WebGLRenderer;
-  private sun: THREE.DirectionalLight;
-  private onApply: (features: QualityFeatures) => void;
+  private readonly renderer: THREE.WebGLRenderer;
+  private readonly sun: THREE.DirectionalLight;
+  private readonly onApply: (features: QualityFeatures) => void;
 
   constructor(
     renderer: THREE.WebGLRenderer,

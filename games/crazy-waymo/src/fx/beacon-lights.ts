@@ -64,8 +64,8 @@ export const blinkRate = (blinkS: number | undefined) =>
 
 export class BeaconLights {
   readonly group = new THREE.Group();
-  private intensity = { value: 0 };
-  private time = { value: 0 };
+  private readonly intensity = { value: 0 };
+  private readonly time = { value: 0 };
 
   constructor(beacons: readonly Beacon[]) {
     if (beacons.length === 0) {

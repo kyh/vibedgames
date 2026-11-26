@@ -34,12 +34,12 @@ type Handler = (ctx: RecipeContext<never>) => Promise<RecipeOutcome>;
 
 const HANDLERS: Record<RecipeName, Handler> = {
   "audio-master": audioMaster,
-  bake: (ctx) => runBlender(ctx, "bake"),
-  "fbx-to-glb": (ctx) => runBlender(ctx, "fbx-to-glb"),
+  bake: async (ctx) => await runBlender(ctx, "bake"),
+  "fbx-to-glb": async (ctx) => await runBlender(ctx, "fbx-to-glb"),
   "frames-to-video": framesToVideo,
   "image-to-threejs": imageToThreejs,
-  render: (ctx) => runBlender(ctx, "render"),
-  "add-animations": (ctx) => runBlender(ctx, "add-animations"),
+  render: async (ctx) => await runBlender(ctx, "render"),
+  "add-animations": async (ctx) => await runBlender(ctx, "add-animations"),
   "texture-compress": textureCompress,
   "trailer-render": trailerRender,
   "video-probe": videoProbe,
@@ -86,8 +86,11 @@ export const runRecipe = async (name: RecipeName, options: RunRecipeOptions) => 
       files: options.files,
       name,
       out,
+      // SAFETY: parsed.data passed paramsSchema(name), the non-file fields of RECIPES[name].input, which is what HANDLERS[name] reads.
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- HANDLERS is keyed by name, and TypeScript cannot correlate the parsed schema with that one handler's input type
       params: parsed.data as never,
-      run: (program, args, runOptions) => exec(program, args, { signal, ...runOptions }),
+      run: async (program, args, runOptions) =>
+        await exec(program, args, { signal, ...runOptions }),
       signal,
       tools: options.tools ?? findTools(),
       work: scratch,

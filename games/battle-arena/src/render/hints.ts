@@ -168,7 +168,7 @@ export class Hints {
     if (this.visible) {
       const r = this.visible;
 
-      if (t >= this.visibleUntil || r.done?.(w, me, this.st) || r.dismiss?.(w)) {
+      if (t >= this.visibleUntil || r.done?.(w, me, this.st) === true || r.dismiss?.(w) === true) {
         this.hide();
       }
 

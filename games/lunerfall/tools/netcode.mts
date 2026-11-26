@@ -244,7 +244,7 @@ const run = (sc: Scenario) => {
       own.step(STEP_MS / 1000);
       sc.host?.(t, hostBody);
 
-      if (sc.hitstop?.(t)) {
+      if (sc.hitstop?.(t) === true) {
         host.freeze = 70;
       }
     }

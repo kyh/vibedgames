@@ -280,7 +280,7 @@ export class VersusFlow implements DuelTarget {
   private side(pl: Player) {
     const id = ownerId(this.seat, pl);
 
-    if (id) {
+    if (id !== null && id !== "") {
       return id === this.seat.seats.host ? "host" : "guest";
     }
 
@@ -291,7 +291,7 @@ export class VersusFlow implements DuelTarget {
     if (this.seat.session) {
       const id = this.seat.seats[side];
 
-      return id ? seatPlayer(this.seat, id) : undefined;
+      return id !== null && id !== "" ? seatPlayer(this.seat, id) : undefined;
     }
 
     if (this.seat.role === "guest") {

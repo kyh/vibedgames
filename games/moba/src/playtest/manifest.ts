@@ -47,7 +47,7 @@ const stand: (diag: MobaDiagnostics) => ReflexInputs = (diag) => ({
 });
 
 const fight: (diag: MobaDiagnostics) => ReflexInputs = (diag) =>
-  (diag.channeling ? null : click(diag.lastHit ?? null)) ?? stand(diag);
+  (diag.channeling === true ? null : click(diag.lastHit ?? null)) ?? stand(diag);
 
 const TOWER_MARGIN = 120;
 
@@ -106,7 +106,7 @@ export const createManifest: (heroId: string) => PlaytestManifest<MobaDiagnostic
         description:
           "Chase and attack the nearest enemy hero (game.enemyHero) — for a kill on a weaker or lone hero",
         reflex: (diag) => {
-          if (!diag?.player?.alive) {
+          if (diag?.player?.alive !== true) {
             return null;
           }
 
@@ -116,7 +116,7 @@ export const createManifest: (heroId: string) => PlaytestManifest<MobaDiagnostic
             return canHit(diag) ? fight(diag) : walk(diag.advance);
           }
 
-          if (foe.targeted || diag.channeling) {
+          if (foe.targeted || diag.channeling === true) {
             return stand(diag);
           }
 
@@ -126,21 +126,21 @@ export const createManifest: (heroId: string) => PlaytestManifest<MobaDiagnostic
       hold_and_attack: {
         description:
           "Stand your ground and attack what is already in range, last-hitting creeps — do not step forward",
-        reflex: (diag) => (diag?.player?.alive ? fight(diag) : null),
+        reflex: (diag) => (diag?.player?.alive === true ? fight(diag) : null),
       },
       push_lane: {
         description:
           "Advance down the lane with your creep wave and attack whatever comes into range — the default, and how the score rises",
         reflex: (diag) => {
-          if (!diag?.player?.alive) {
+          if (diag?.player?.alive !== true) {
             return null;
           }
 
-          if (diag.channeling) {
+          if (diag.channeling === true) {
             return stand(diag);
           }
 
-          if (diag.towerDanger) {
+          if (diag.towerDanger === true) {
             return walk(diag.home);
           }
 
@@ -151,7 +151,7 @@ export const createManifest: (heroId: string) => PlaytestManifest<MobaDiagnostic
         description:
           "Walk back to your fountain to heal — when hp is low, a tower is shooting you, or you are outnumbered",
         reflex: (diag) => {
-          if (!diag?.player?.alive || diag.order === "fountain") {
+          if (diag?.player?.alive !== true || diag.order === "fountain") {
             return { keys: [], pointer: null };
           }
 

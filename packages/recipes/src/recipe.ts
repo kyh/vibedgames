@@ -69,10 +69,12 @@ const TYPES = {
   ".webp": "image/webp",
 } as const satisfies Record<string, string>;
 
+const TYPE_BY_EXT: ReadonlyMap<string, string> = new Map(Object.entries(TYPES));
+
 export const contentTypeOf = (file: string) => {
   const ext = path.extname(file).toLowerCase();
 
-  return Object.hasOwn(TYPES, ext) ? TYPES[ext as keyof typeof TYPES] : "application/octet-stream";
+  return TYPE_BY_EXT.get(ext) ?? "application/octet-stream";
 };
 
 const walkFiles = (dir: string, visit: (rel: string, full: string) => void) => {
@@ -100,7 +102,9 @@ const stampOf = (full: string) => {
 /** Every file under `dir`, by its path relative to it, with its size and modification time. */
 export const snapshotFiles = (dir: string) => {
   const seen = new Map<string, string>();
-  walkFiles(dir, (rel, full) => seen.set(rel, stampOf(full)));
+  walkFiles(dir, (rel, full) => {
+    seen.set(rel, stampOf(full));
+  });
 
   return seen;
 };
@@ -126,7 +130,7 @@ export const collectOutputs = (dir: string, before = new Map<string, string>()) 
 };
 
 export const need = (tool: string | undefined, name: string) => {
-  if (!tool) {
+  if (tool === undefined || tool === "") {
     throw new RecipeError(`${name} is not installed here.`);
   }
 

@@ -330,7 +330,7 @@ export class BeamSim {
   /** Over the live-mine cap the oldest detonates harmlessly at 30% scale —
    *  run before a new mine joins the list. */
   capMines(beams: readonly Beam[]) {
-    const live = beams.filter((b) => b.mine && !b.exploding && !b.vanished);
+    const live = beams.filter((b) => b.mine !== null && !b.exploding && !b.vanished);
 
     if (live.length < MINE_MAX_LIVE) {
       return;
@@ -379,7 +379,7 @@ export class BeamSim {
         continue;
       }
 
-      if (!st || !st.alive || st.invuln || st.shieldMod?.phased) {
+      if (!st || !st.alive || st.invuln || st.shieldMod?.phased === true) {
         continue;
       }
 

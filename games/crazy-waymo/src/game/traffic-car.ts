@@ -112,12 +112,12 @@ export class TrafficCar {
   private brakeTimer = 0;
   private honkCooldown = 0;
   private yaw = 0;
-  private targetQuat = new THREE.Quaternion();
+  private readonly targetQuat = new THREE.Quaternion();
   private clearedNode = -1;
   private stopHeld = 0;
-  private network: RoadNetwork;
-  private rng: Rng;
-  private nodeClaims: Map<number, { car: TrafficCar; t: number }>;
+  private readonly network: RoadNetwork;
+  private readonly rng: Rng;
+  private readonly nodeClaims: Map<number, { car: TrafficCar; t: number }>;
 
   constructor(
     object3D: THREE.Object3D,

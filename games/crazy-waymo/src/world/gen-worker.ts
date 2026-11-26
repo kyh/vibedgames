@@ -11,6 +11,7 @@ import { makeTerrain } from "./sf-map";
 import { packGeometry } from "./quantized-geometry";
 import type { PackedTile } from "./world-bin";
 import { GRID_X, GRID_Z, ROAD_TILE } from "../shared/constants";
+import { isMesh } from "../shared/three-guards";
 
 export interface CityGenPayload {
   roadParts: RoadPartBuffers[];
@@ -21,8 +22,15 @@ export interface CityGenPayload {
 const worldX = (gx: number) => (gx + 0.5) * ROAD_TILE - (GRID_X * ROAD_TILE) / 2;
 const worldZ = (gz: number) => (gz + 0.5) * ROAD_TILE - (GRID_Z * ROAD_TILE) / 2;
 
-const transferable = (view: Float32Array | Uint16Array | Uint32Array | Int8Array | Uint8Array) =>
-  view.buffer as ArrayBuffer;
+const transferable = (view: Float32Array | Uint16Array | Uint32Array | Int8Array | Uint8Array) => {
+  const { buffer } = view;
+
+  if (!(buffer instanceof ArrayBuffer)) {
+    throw new TypeError("gen-worker: a shared buffer cannot be transferred");
+  }
+
+  return buffer;
+};
 
 const run = () => {
   const t0 = performance.now();
@@ -52,7 +60,7 @@ const run = () => {
   const tiles: PackedTile[] = [];
 
   for (const tile of ground.children) {
-    if (!(tile instanceof THREE.Mesh)) {
+    if (!isMesh(tile)) {
       continue;
     }
 

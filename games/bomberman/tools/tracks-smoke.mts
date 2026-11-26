@@ -14,7 +14,7 @@ import {
   newGrid,
   PLAYER_BEAT_HZ,
 } from "../src/shared/constants";
-import type { SharedState } from "../src/shared/constants";
+import type { Cell, SharedState } from "../src/shared/constants";
 import { FixedStep } from "../src/sim/fixed-step";
 import { hostTick } from "../src/sim/host-sim";
 
@@ -36,7 +36,7 @@ type Latency = (k: number, step: number | null) => number;
 const walkLatency: Latency = (k) => ROUTE_MS + noise(k) * 60;
 const tightLatency: Latency = (k) => ROUTE_MS + noise(k) * 10;
 
-const bunched = (latency: Latency, stride: number) => (k, step) =>
+const bunched = (latency: Latency, stride: number) => (k: number, step: number | null) =>
   step !== null && step % 5 === 2 ? latency(k, step) + stride : latency(k, step);
 
 const LOOP: GridTile[] = [
@@ -63,7 +63,11 @@ const START = 1000;
 const walk = (
   steps: number,
   latency: Latency,
-  { stride = STRIDE_MS, warmup = 1000, pauses = (_i: number) => 0 } = {},
+  {
+    stride = STRIDE_MS,
+    warmup = 1000,
+    pauses = () => 0,
+  }: { stride?: number; warmup?: number; pauses?: (i: number) => number } = {},
 ) => {
   const sends: Omit<Packet, "at">[] = [
     { step: { index: -1, stride: 0, to: pathTile(0) }, t: START - warmup },
@@ -431,7 +435,7 @@ const roomClock = (skew = 0) => ({
 
 test("bots on the fixed host step stride exactly BOT_MOVE_MS, drawn on time by the host", () => {
   const humans = ["a", "b", "c"].map((id) => ({ id, pos: null }));
-  const empty = newGrid().map((cells) => cells.map(() => ({ kind: "empty" })));
+  const empty: Cell[][] = newGrid().map((cells) => cells.map(() => ({ kind: "empty" })));
 
   const grid = newGrid().map((cells, row) =>
     cells.map((cell, col) => (cell.kind === "crate" ? (empty[row]?.[col] ?? cell) : cell)),
@@ -462,7 +466,7 @@ test("bots on the fixed host step stride exactly BOT_MOVE_MS, drawn on time by t
       s = patch ? { ...s, ...patch } : s;
       const bot = s.bots["bot-3"];
 
-      if (bot && (at?.col !== bot.col || at.row !== bot.row)) {
+      if (bot && (at === null || at.col !== bot.col || at.row !== bot.row)) {
         if (at) {
           moves.push(tick);
         }

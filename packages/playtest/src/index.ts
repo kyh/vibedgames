@@ -24,15 +24,25 @@ export type {
   TestHooks,
 } from "./types.js";
 
-const defaultTarget = () => globalThis as PlaytestTarget;
+declare global {
+  var __GAME_DIAGNOSTICS__: Diagnostics | undefined;
+  var __GAME_TEST_HOOKS__: TestHooks | undefined;
+  var __GAME_PLAYTEST__: PlaytestManifest | undefined;
+}
+
+const defaultTarget = () => {
+  const target: PlaytestTarget = globalThis;
+
+  return target;
+};
 
 /**
  * Publish `window.__GAME_DIAGNOSTICS__` as a live getter: `read()` runs on
  * every access, so the playtest always sees the current frame and the game
  * never copies state it isn't being asked for. Call once at boot.
  */
-export const publishDiagnostics = <TGame extends Diagnostics>(
-  read: () => TGame,
+export const publishDiagnostics = (
+  read: () => Diagnostics,
   target: PlaytestTarget = defaultTarget(),
 ) => {
   Object.defineProperty(target, "__GAME_DIAGNOSTICS__", {
@@ -141,7 +151,12 @@ export const publishPlaytest = <TGame extends Diagnostics>(
   }
 
   if (
-    !moves.some(([, option]) => option.reflex || option.pointer || (option.keys?.length ?? 0) > 0)
+    !moves.some(
+      ([, option]) =>
+        option.reflex !== undefined ||
+        option.pointer !== undefined ||
+        (option.keys?.length ?? 0) > 0,
+    )
   ) {
     fail("no `move` option holds any input, so the playtester could never move.");
   }
@@ -156,20 +171,17 @@ export const publishPlaytest = <TGame extends Diagnostics>(
     fail("`minDisplacement` must be a positive number, in the units of player.x/y.");
   }
 
-  target.__GAME_PLAYTEST__ = manifest as PlaytestManifest;
+  Object.defineProperty(target, "__GAME_PLAYTEST__", {
+    configurable: true,
+    enumerable: true,
+    value: manifest,
+    writable: true,
+  });
 
   return manifest;
 };
 
-interface LocationLike {
-  location?: { search: string };
-}
-
-const readSearch = () => {
-  const scope = globalThis as LocationLike;
-
-  return scope.location?.search ?? "";
-};
+const readSearch = () => ("location" in globalThis ? globalThis.location.search : "");
 
 /**
  * Whether the page was opened with `?test=1` — the conventional switch for a

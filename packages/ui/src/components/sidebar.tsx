@@ -8,6 +8,7 @@ import type { VariantProps } from "class-variance-authority";
 
 import { useIsMobile } from "@repo/ui/hooks/use-mobile";
 import { cn } from "cn";
+import "@repo/ui/lib/css-variables";
 import { Button } from "@repo/ui/components/button";
 import { Input } from "@repo/ui/components/input";
 import { Separator } from "@repo/ui/components/separator";
@@ -80,16 +81,19 @@ const SidebarProvider = ({
         setOpenState(next);
       }
 
-      // oxlint-disable-next-line unicorn/no-document-cookie -- cookieStore is Chromium-only
+      // oxlint-disable-next-line unicorn/no-document-cookie -- cookieStore is missing before Safari 18.4, and this setter must write the cookie synchronously
       document.cookie = `${SIDEBAR_COOKIE_NAME}=${next}; path=/; max-age=${SIDEBAR_COOKIE_MAX_AGE}`;
     },
     [setOpenProp, open],
   );
 
-  const toggleSidebar = React.useCallback(
-    () => (isMobile ? setOpenMobile((prev) => !prev) : setOpen((prev) => !prev)),
-    [isMobile, setOpen, setOpenMobile],
-  );
+  const toggleSidebar = React.useCallback(() => {
+    if (isMobile) {
+      setOpenMobile((prev) => !prev);
+    } else {
+      setOpen((prev) => !prev);
+    }
+  }, [isMobile, setOpen, setOpenMobile]);
 
   React.useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -101,7 +105,9 @@ const SidebarProvider = ({
 
     window.addEventListener("keydown", handleKeyDown);
 
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
   }, [toggleSidebar]);
 
   const state = open ? "expanded" : "collapsed";
@@ -123,13 +129,11 @@ const SidebarProvider = ({
     <SidebarContext.Provider value={contextValue}>
       <div
         data-slot="sidebar-wrapper"
-        style={
-          {
-            "--sidebar-width": SIDEBAR_WIDTH,
-            "--sidebar-width-icon": SIDEBAR_WIDTH_ICON,
-            ...style,
-          } as React.CSSProperties
-        }
+        style={{
+          "--sidebar-width": SIDEBAR_WIDTH,
+          "--sidebar-width-icon": SIDEBAR_WIDTH_ICON,
+          ...style,
+        }}
         className={cn(
           "group/sidebar-wrapper flex min-h-svh w-full has-data-[variant=inset]:bg-sidebar",
           className,
@@ -181,11 +185,9 @@ const Sidebar = ({
           data-slot="sidebar"
           data-mobile="true"
           className="w-(--sidebar-width) bg-sidebar p-0 text-sidebar-foreground [&>button]:hidden"
-          style={
-            {
-              "--sidebar-width": SIDEBAR_WIDTH_MOBILE,
-            } as React.CSSProperties
-          }
+          style={{
+            "--sidebar-width": SIDEBAR_WIDTH_MOBILE,
+          }}
           side={side}
         >
           <SheetHeader className="sr-only">
@@ -468,6 +470,8 @@ const SidebarMenuButton = ({
   } & VariantProps<typeof sidebarMenuButtonVariants>) => {
   const { isMobile, state } = useSidebar();
 
+  const hasTooltip = tooltip !== undefined && tooltip !== "";
+
   const comp = useRender({
     defaultTagName: "button",
     props: mergeProps<"button">(
@@ -476,7 +480,7 @@ const SidebarMenuButton = ({
       },
       props,
     ),
-    render: tooltip ? <TooltipTrigger render={render} /> : render,
+    render: hasTooltip ? <TooltipTrigger render={render} /> : render,
     state: {
       active: isActive,
       sidebar: "menu-button",
@@ -485,7 +489,7 @@ const SidebarMenuButton = ({
     },
   });
 
-  if (!tooltip) {
+  if (!hasTooltip) {
     return comp;
   }
 
@@ -566,11 +570,9 @@ const SidebarMenuSkeleton = ({
       <Skeleton
         className="h-4 max-w-(--skeleton-width) flex-1"
         data-sidebar="menu-skeleton-text"
-        style={
-          {
-            "--skeleton-width": width,
-          } as React.CSSProperties
-        }
+        style={{
+          "--skeleton-width": width,
+        }}
       />
     </div>
   );

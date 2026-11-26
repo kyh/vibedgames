@@ -126,7 +126,7 @@ const fighterPositions = (next: SharedState, humans: readonly Human[]) => {
   const out: Position[] = [];
 
   for (const { id, pos } of humans) {
-    if (next.deaths[id] || !pos) {
+    if ((next.deaths[id] ?? 0) !== 0 || !pos) {
       continue;
     }
 
@@ -134,7 +134,7 @@ const fighterPositions = (next: SharedState, humans: readonly Human[]) => {
   }
 
   for (const bot of Object.values(next.bots)) {
-    if (next.deaths[bot.id]) {
+    if ((next.deaths[bot.id] ?? 0) !== 0) {
       continue;
     }
 
@@ -399,7 +399,7 @@ const MOVED: Turn = { bomb: false, bot: true };
 const tickBot = (ctx: BotContext, bot: Bot) => {
   const { next, now } = ctx;
 
-  if (next.deaths[bot.id]) {
+  if ((next.deaths[bot.id] ?? 0) !== 0) {
     if (bot.moving) {
       bot.moving = false;
 
@@ -620,7 +620,7 @@ const applyBlastDeaths = (next: SharedState, livePos: Position[], now: number, d
   }
 
   for (const [fid, col, row] of livePos) {
-    if (next.deaths[fid]) {
+    if ((next.deaths[fid] ?? 0) !== 0) {
       continue;
     }
 
@@ -632,14 +632,14 @@ const applyBlastDeaths = (next: SharedState, livePos: Position[], now: number, d
 };
 
 const resolveWinner = (next: SharedState, fighterIds: string[], d: Dirty) => {
-  if (fighterIds.length < 2 || next.winner) {
+  if (fighterIds.length < 2 || (next.winner !== null && next.winner !== "")) {
     return;
   }
 
-  const alive = fighterIds.filter((id) => !next.deaths[id]);
+  const alive = fighterIds.filter((id) => (next.deaths[id] ?? 0) === 0);
   const [sole] = alive;
 
-  if (alive.length === 1 && sole) {
+  if (alive.length === 1 && sole !== undefined && sole !== "") {
     next.winner = sole;
     d.winner = true;
   } else if (alive.length === 0) {
@@ -746,7 +746,7 @@ export const placeBomb = (
   now: number,
   localId?: number,
 ) => {
-  if (s.deaths[ownerId]) {
+  if ((s.deaths[ownerId] ?? 0) !== 0) {
     return null;
   }
 

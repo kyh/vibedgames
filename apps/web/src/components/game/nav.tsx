@@ -32,7 +32,7 @@ export const Nav = () => {
   const pathname = usePathname();
   const game = useGameParam();
   const hidden = useGameChromeHidden();
-  const search = game ? { game } : {};
+  const search = game !== undefined && game !== "" ? { game } : {};
 
   return (
     <motion.nav

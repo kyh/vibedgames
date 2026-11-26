@@ -146,7 +146,7 @@ const phaseTask: (phase: Phase, state: AgentState, bb: Blackboard) => string = (
 
     case "work": {
       const next = readNext(bb);
-      const kind = next.type ? ` [${next.type}]` : "";
+      const kind = next.type !== undefined && next.type !== "" ? ` [${next.type}]` : "";
 
       const close = {
         artist: `Generate/update the assets, place them where the game loads them, and record file paths + exact frame sizes. When done, set the item's status to "done" in backlog.json and append a note to journal.md naming the files.`,
@@ -170,9 +170,10 @@ const phaseTask: (phase: Phase, state: AgentState, bb: Blackboard) => string = (
 export const buildTask = (phase: Phase, state: AgentState, bb: Blackboard) => {
   const directive = readDirective(bb);
 
-  const steer = directive
-    ? `OPERATOR DIRECTIVE — the human steering this game said: "${directive}". Honor it above other priorities until it changes.\n\n`
-    : "";
+  const steer =
+    directive !== null && directive !== ""
+      ? `OPERATOR DIRECTIVE — the human steering this game said: "${directive}". Honor it above other priorities until it changes.\n\n`
+      : "";
 
   return `${steer}${phaseTask(phase, state, bb)}`;
 };

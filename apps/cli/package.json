@@ -11,27 +11,39 @@
   ],
   "type": "module",
   "scripts": {
-    "build": "node scripts/build.mjs",
-    "dev": "node scripts/build.mjs --watch",
+    "build": "node scripts/build.ts",
+    "dev": "node scripts/build.ts --watch",
     "clean": "rm -rf .turbo dist node_modules",
     "test": "node --import tsx --test \"test/*.test.ts\" \"src/**/*.test.ts\"",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit && tsc --noEmit -p templates/none && tsc --noEmit -p templates/phaser && tsc --noEmit -p templates/react-r3f && tsc --noEmit -p templates/threejs"
   },
   "devDependencies": {
     "@kyh/tsconfig": "catalog:",
     "@orpc/client": "catalog:",
+    "@react-three/drei": "^10.7.9",
+    "@react-three/fiber": "^9.8.2",
     "@repo/contract": "workspace:^",
     "@repo/recipes": "workspace:^",
     "@types/cross-spawn": "^6.0.6",
     "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "@types/three": "^0.186.0",
+    "@vitejs/plugin-react": "catalog:",
     "citty": "^0.2.2",
     "consola": "^3.4.2",
     "cross-spawn": "^7.0.6",
     "esbuild": "^0.28.2",
     "fflate": "^0.8.3",
     "ignore": "^7.0.16",
+    "msw": "2.11.3",
+    "phaser": "^4.2.1",
+    "react": "catalog:",
+    "react-dom": "catalog:",
     "tar": "^7.5.23",
+    "three": "^0.186.1",
     "typescript": "catalog:",
+    "vite": "catalog:",
     "zod": "catalog:"
   }
 }

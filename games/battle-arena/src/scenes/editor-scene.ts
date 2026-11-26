@@ -1,3 +1,4 @@
+import { parseJson } from "@vibedgames/multiplayer";
 import * as THREE from "three";
 import { buildDefaultObstacles, clampToArena, FLOOR_OVERRIDES, floorKey, HEX_R } from "../data/map";
 import { buildProceduralDecor } from "../data/decor";
@@ -13,6 +14,7 @@ import {
   serializeMapData,
 } from "../data/map-format";
 import type { FloorType, MapCollider, MapData, MapFloorCell, MapProp } from "../data/map-format";
+import { isMesh } from "../render/mesh";
 
 const WALL_RUN = "wall_run";
 const PITCH = (55 * Math.PI) / 180;
@@ -72,7 +74,7 @@ const proceduralMapData: () => MapData = () => {
   const props: MapProp[] = buildProceduralDecor().map((d) => {
     const p: MapProp = { model: d.model, rot: d.rot, scale: d.scale, x: d.x, y: d.y };
 
-    if (d.lie) {
+    if (d.lie === true) {
       p.lie = true;
     }
 
@@ -108,7 +110,7 @@ const proceduralMapData: () => MapData = () => {
 
 const parseStoredMap = (raw: string) => {
   try {
-    return parseMapData(JSON.parse(raw));
+    return parseMapData(parseJson(raw));
   } catch {
     return null;
   }
@@ -127,7 +129,7 @@ const loadInitial: () => Promise<MapData> = async () => {
     const res = await fetch("./maps/default.json");
 
     if (res.ok) {
-      const parsed = parseMapData(await res.json());
+      const parsed = parseMapData(parseJson(await res.text()));
 
       if (parsed) {
         return parsed;
@@ -148,11 +150,14 @@ const FLOOR_LABELS = {
   worn: "worn rock",
 } satisfies Record<FloorType | "auto", string>;
 
-const nextFrame: () => Promise<void> = () =>
-  // oxlint-disable-next-line promise/avoid-new -- requestAnimationFrame has no promise form
-  new Promise((resolve) => {
-    requestAnimationFrame(() => resolve());
-  });
+const THUMBS_PER_FRAME = 6;
+
+const nextFrame = async () => {
+  const { promise, resolve } = Promise.withResolvers<number>();
+  requestAnimationFrame(resolve);
+
+  return await promise;
+};
 
 const on = (id: string, fn: () => void) => {
   document.querySelector<HTMLElement>(`#${id}`)?.addEventListener("click", fn);
@@ -206,21 +211,21 @@ const injectStyle = () => {
 
 export class EditorScene {
   readonly items: EdItem[] = [];
-  private byObj = new Map<THREE.Object3D, EdItem>();
+  private readonly byObj = new Map<THREE.Object3D, EdItem>();
   private selected: EdItem | null = null;
   private env: Environment | null = null;
-  private scene: THREE.Scene;
+  private readonly scene: THREE.Scene;
 
-  private target = new THREE.Vector3(0, 0, 0);
+  private readonly target = new THREE.Vector3(0, 0, 0);
   private camH = 55;
   private yaw = 0;
   private pitch = PITCH;
-  private keys = new Set<string>();
+  private readonly keys = new Set<string>();
 
-  private ray = new THREE.Raycaster();
-  private ndc = new THREE.Vector2();
-  private groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-  private groundHit = new THREE.Vector3();
+  private readonly ray = new THREE.Raycaster();
+  private readonly ndc = new THREE.Vector2();
+  private readonly groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+  private readonly groundHit = new THREE.Vector3();
   private dragging = false;
   private dragOffX = 0;
   private dragOffZ = 0;
@@ -237,27 +242,27 @@ export class EditorScene {
   private mode: "props" | "floor" = "props";
   private floorType: FloorType | "auto" = "dirt";
   private paintingFloor = false;
-  private floorCursor: THREE.Mesh;
-  private floorCursorMat: THREE.MeshBasicMaterial;
+  private readonly floorCursor: THREE.Mesh;
+  private readonly floorCursorMat: THREE.MeshBasicMaterial;
   private floorRebuildTimer: number | undefined;
 
-  private cylGeo = new THREE.CylinderGeometry(1, 1, 1, 20);
-  private boxGeo = new THREE.BoxGeometry(1, 1, 1);
-  private colMat = new THREE.MeshBasicMaterial({
+  private readonly cylGeo = new THREE.CylinderGeometry(1, 1, 1, 20);
+  private readonly boxGeo = new THREE.BoxGeometry(1, 1, 1);
+  private readonly colMat = new THREE.MeshBasicMaterial({
     color: 0xff_44_33,
     depthWrite: false,
     opacity: 0.28,
     transparent: true,
   });
-  private pureMat = new THREE.MeshBasicMaterial({
+  private readonly pureMat = new THREE.MeshBasicMaterial({
     color: 0xff_44_33,
     depthWrite: false,
     opacity: 0.45,
     transparent: true,
   });
-  private stubMat = new THREE.MeshStandardMaterial({ color: 0x8a_85_78, roughness: 0.9 });
-  private selRing: THREE.Mesh;
-  private heights = new Map<string, number>();
+  private readonly stubMat = new THREE.MeshStandardMaterial({ color: 0x8a_85_78, roughness: 0.9 });
+  private readonly selRing: THREE.Mesh;
+  private readonly heights = new Map<string, number>();
 
   private dirty = false;
   private saveTimer: number | undefined;
@@ -266,10 +271,10 @@ export class EditorScene {
   private ui: HTMLDivElement | null = null;
   private statusEl: HTMLElement | null = null;
   private inspector: HTMLElement | null = null;
-  private inputs = new Map<string, HTMLInputElement>();
+  private readonly inputs = new Map<string, HTMLInputElement>();
 
-  private view: View;
-  private lib: ModelLibrary;
+  private readonly view: View;
+  private readonly lib: ModelLibrary;
 
   constructor(view: View, lib: ModelLibrary) {
     this.view = view;
@@ -507,7 +512,7 @@ export class EditorScene {
     } else {
       obj = this.lib.instance(spec.model);
       obj.traverse((c) => {
-        if (c instanceof THREE.Mesh) {
+        if (isMesh(c)) {
           c.castShadow = true;
           c.receiveShadow = true;
         }
@@ -836,9 +841,8 @@ export class EditorScene {
     const sun = new THREE.DirectionalLight(0xff_ff_ff, 1.7);
     sun.position.set(3, 5, 2.2);
     scene.add(sun);
-    let n = 0;
 
-    for (const model of models) {
+    const draw = (model: string) => {
       const obj =
         model === WALL_RUN ? new THREE.Mesh(this.boxGeo, this.stubMat) : this.lib.instance(model);
 
@@ -862,14 +866,22 @@ export class EditorScene {
         []) {
         img.src = url;
       }
+    };
 
-      n += 1;
+    const drawFrom: (start: number) => Promise<void> = async (start) => {
+      const batch = models.slice(start, start + THUMBS_PER_FRAME);
 
-      if (n % 6 === 0) {
-        await nextFrame();
+      for (const model of batch) {
+        draw(model);
       }
-    }
 
+      if (batch.length === THUMBS_PER_FRAME) {
+        await nextFrame();
+        await drawFrom(start + THUMBS_PER_FRAME);
+      }
+    };
+
+    await drawFrom(0);
     r.dispose();
   }
 
@@ -901,7 +913,7 @@ export class EditorScene {
 
   private highlightPalette(model: string | null) {
     for (const btn of this.ui?.querySelectorAll<HTMLButtonElement>(".edp") ?? []) {
-      btn.classList.toggle("edp-on", model !== null && btn.dataset["model"] === model);
+      btn.classList.toggle("edp-on", model !== null && btn.dataset.model === model);
     }
   }
 
@@ -944,7 +956,7 @@ export class EditorScene {
     this.floorCursorMat.color.setHex(FLOOR_COLORS[t]);
 
     for (const btn of this.ui?.querySelectorAll<HTMLButtonElement>(".edf") ?? []) {
-      btn.classList.toggle("edp-on", btn.dataset["floor"] === t);
+      btn.classList.toggle("edp-on", btn.dataset.floor === t);
     }
   }
 
@@ -969,12 +981,10 @@ export class EditorScene {
 
     this.markDirty();
 
-    if (this.floorRebuildTimer === undefined) {
-      this.floorRebuildTimer = window.setTimeout(() => {
-        this.floorRebuildTimer = undefined;
-        this.env?.rebuildFloor();
-      }, 90);
-    }
+    this.floorRebuildTimer ??= window.setTimeout(() => {
+      this.floorRebuildTimer = undefined;
+      this.env?.rebuildFloor();
+    }, 90);
   }
 
   /** Write the draft to localStorage NOW (edits debounce through markDirty). */
@@ -996,15 +1006,25 @@ export class EditorScene {
       window.clearTimeout(this.saveTimer);
     }
 
-    this.saveTimer = window.setTimeout(() => this.flush(), 300);
+    this.saveTimer = window.setTimeout(() => {
+      this.flush();
+    }, 300);
   }
 
   private bindInput() {
     const el = this.view.renderer.domElement;
-    el.addEventListener("contextmenu", (e) => e.preventDefault());
-    el.addEventListener("pointerdown", (e) => this.onPointerDown(e));
-    el.addEventListener("pointermove", (e) => this.onPointerMove(e));
-    el.addEventListener("pointerup", (e) => this.onPointerUp(e));
+    el.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+    });
+    el.addEventListener("pointerdown", (e) => {
+      this.onPointerDown(e);
+    });
+    el.addEventListener("pointermove", (e) => {
+      this.onPointerMove(e);
+    });
+    el.addEventListener("pointerup", (e) => {
+      this.onPointerUp(e);
+    });
     el.addEventListener(
       "wheel",
       (e) => {
@@ -1013,8 +1033,12 @@ export class EditorScene {
       },
       { passive: false },
     );
-    window.addEventListener("keydown", (e) => this.onKeyDown(e));
-    window.addEventListener("keyup", (e) => this.keys.delete(e.key.toLowerCase()));
+    window.addEventListener("keydown", (e) => {
+      this.onKeyDown(e);
+    });
+    window.addEventListener("keyup", (e) => {
+      this.keys.delete(e.key.toLowerCase());
+    });
   }
 
   private setNdc(e: PointerEvent) {
@@ -1475,7 +1499,7 @@ export class EditorScene {
     let parsed: MapData | null = null;
 
     try {
-      parsed = parseMapData(JSON.parse(text));
+      parsed = parseMapData(parseJson(text));
     } catch {
       parsed = null;
     }
@@ -1566,7 +1590,7 @@ export class EditorScene {
       btn.addEventListener("click", () => {
         const { model } = btn.dataset;
 
-        if (!model) {
+        if (model === undefined || model === "") {
           return;
         }
 
@@ -1580,7 +1604,7 @@ export class EditorScene {
 
     for (const btn of ui.querySelectorAll<HTMLButtonElement>(".edf")) {
       btn.addEventListener("click", () => {
-        const t = btn.dataset["floor"];
+        const t = btn.dataset.floor;
         const floor = t === "auto" ? t : FLOOR_TYPES.find((f) => f === t);
 
         if (floor) {
@@ -1592,9 +1616,9 @@ export class EditorScene {
     this.setFloorType(this.floorType);
 
     for (const btn of ui.querySelectorAll<HTMLButtonElement>(".edt")) {
-      btn.addEventListener("click", () =>
-        this.setMode(btn.dataset["tab"] === "floor" ? "floor" : "props"),
-      );
+      btn.addEventListener("click", () => {
+        this.setMode(btn.dataset.tab === "floor" ? "floor" : "props");
+      });
     }
 
     this.setMode(this.mode);
@@ -1604,7 +1628,7 @@ export class EditorScene {
       const q = search.value.trim().toLowerCase();
 
       for (const btn of ui.querySelectorAll<HTMLButtonElement>(".edp")) {
-        const name = btn.dataset["model"] ?? "";
+        const name = btn.dataset.model ?? "";
         btn.style.display = name.includes(q) ? "" : "none";
       }
     });
@@ -1625,7 +1649,9 @@ export class EditorScene {
       this.flush();
       window.open(`${location.pathname}?auto=1`, "_blank");
     });
-    on("ed-loadbtn", () => this.input("ed-file").click());
+    on("ed-loadbtn", () => {
+      this.input("ed-file").click();
+    });
     this.input("ed-file").addEventListener("change", () => {
       const file = this.input("ed-file").files?.item(0);
 
@@ -1659,7 +1685,9 @@ export class EditorScene {
       this.markDirty();
       this.refreshStatus();
     });
-    on("ed-idel", () => this.removeSelected());
+    on("ed-idel", () => {
+      this.removeSelected();
+    });
 
     const bindNum = (id: string, apply: (edItem: EdItem, v: number) => void) => {
       const el = this.input(id);
@@ -1702,8 +1730,12 @@ export class EditorScene {
     bindNum("ed-iht", (edItem, v) => {
       edItem.height = clamp(v, 0.1, 30);
     });
-    this.input("ed-ilie").addEventListener("change", () => this.toggleSelectedLie());
-    this.input("ed-icol").addEventListener("change", () => this.toggleSelectedCollidable());
+    this.input("ed-ilie").addEventListener("change", () => {
+      this.toggleSelectedLie();
+    });
+    this.input("ed-icol").addEventListener("change", () => {
+      this.toggleSelectedCollidable();
+    });
 
     this.refreshStatus();
   }

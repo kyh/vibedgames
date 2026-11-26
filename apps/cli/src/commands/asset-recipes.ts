@@ -11,7 +11,8 @@ import { z } from "zod";
 import type { RouterOutputs } from "@repo/contract";
 import type { RecipeName, RecipeTool } from "@repo/contract/asset/recipe-schema";
 import type { RecipeFiles, Tools } from "@repo/recipes";
-import { fileFields, RECIPE_PROCEDURES, RECIPES } from "@repo/contract/asset/recipe-schema";
+import { fileFields, RECIPE_NAMES, RECIPES } from "@repo/contract/asset/recipe-schema";
+import { repeatWhile, runInOrder } from "@repo/contract/run-in-order";
 import { exec, findTools, hasTools, runRecipe } from "@repo/recipes";
 
 import type { JsonObject, JsonValue } from "../lib/types.js";
@@ -60,21 +61,22 @@ const isDir = (value: string) => {
 const packFolders = async (name: RecipeName, argv: string[], tools: Tools) => {
   const next = [...argv];
 
-  for (const key of fileFields(name)) {
+  await runInOrder(fileFields(name), async (key) => {
     const flag = flagOf(next, key);
+    const folder = flag?.value;
 
-    if (!flag?.value || !isDir(flag.value)) {
-      continue;
+    if (flag === null || folder === undefined || !isDir(folder)) {
+      return;
     }
 
-    if (!tools.tar) {
+    if (tools.tar === undefined) {
       throw new Error(`--${key} is a folder; packing it needs tar on PATH.`);
     }
 
     const tarball = path.join(mkdtempSync(path.join(tmpdir(), "vg-pack-")), `${key}.tar`);
-    await exec(tools.tar, ["-cf", tarball, "-C", path.resolve(flag.value), "."]);
-    next[flag.index] = flag.inline ? `--${key}=${tarball}` : tarball;
-  }
+    await exec(tools.tar, ["-cf", tarball, "-C", path.resolve(folder), "."]);
+    next[flag.index] = flag.inline === true ? `--${key}=${tarball}` : tarball;
+  });
 
   return next;
 };
@@ -92,14 +94,14 @@ const download = async (url: string, target: string) => {
   return target;
 };
 
-const localValue = (value: string, dir: string, key: string, index: number) => {
+const localValue = async (value: string, dir: string, key: string, index: number) => {
   if (!REMOTE.test(value)) {
-    return Promise.resolve(path.resolve(value));
+    return path.resolve(value);
   }
 
   const ext = path.extname(new URL(value).pathname) || ".bin";
 
-  return download(value, path.join(dir, `${key}-${index}${ext}`));
+  return await download(value, path.join(dir, `${key}-${index}${ext}`));
 };
 
 const splitInput = async (name: RecipeName, input: JsonObject) => {
@@ -109,29 +111,34 @@ const splitInput = async (name: RecipeName, input: JsonObject) => {
   const fields = new Set(fileFields(name));
   let index = 0;
 
-  for (const [key, value] of Object.entries(input)) {
+  const fetchOne = async (key: string, value: string) => {
+    index += 1;
+
+    return await localValue(value, dir, key, index);
+  };
+
+  await runInOrder(Object.entries(input), async ([key, value]) => {
+    const single = z.string().safeParse(value);
+    const list = z.array(z.string()).safeParse(value);
+    const map = z.record(z.string(), z.string()).safeParse(value);
+
     if (!fields.has(key)) {
       params[key] = value;
-    } else if (Array.isArray(value)) {
-      const list: string[] = [];
+    } else if (single.success) {
+      files[key] = await fetchOne(key, single.data);
+    } else if (list.success) {
+      files[key] = await runInOrder(list.data, async (item) => await fetchOne(key, item));
+    } else if (map.success) {
+      const entries = await runInOrder(
+        Object.entries(map.data),
+        async ([rel, item]) => [rel, await fetchOne(key, item)] as const,
+      );
 
-      for (const item of value) {
-        list.push(await localValue(String(item), dir, key, (index += 1)));
-      }
-
-      files[key] = list;
-    } else if (z.record(z.string(), z.json()).safeParse(value).success) {
-      const map: Record<string, string> = {};
-
-      for (const [rel, item] of Object.entries(z.record(z.string(), z.json()).parse(value))) {
-        map[rel] = await localValue(String(item), dir, key, (index += 1));
-      }
-
-      files[key] = map;
+      files[key] = Object.fromEntries(entries);
     } else {
-      files[key] = await localValue(String(value), dir, key, (index += 1));
+      throw new Error(`--${key} takes a path or URL.`);
     }
-  }
+  });
 
   return { files, params };
 };
@@ -155,9 +162,7 @@ const pickWhere = (name: RecipeName, where: Where, tools: Tools) => {
 };
 
 const runLocally = async (name: RecipeName, argv: string[], out: string, tools: Tools) => {
-  const input = await readMediaInput(RECIPES[name].input.shape, argv, (file) =>
-    Promise.resolve(file.path),
-  );
+  const input = await readMediaInput(RECIPES[name].input.shape, argv, (file) => file.path);
 
   const { files, params } = await splitInput(name, input);
   const started = performance.now();
@@ -175,46 +180,74 @@ const runLocally = async (name: RecipeName, argv: string[], out: string, tools: 
 };
 
 const finish = async (job: Job, out: string) => {
-  const outputs = [];
-
-  for (const output of job.outputs) {
-    const target = path.join(out, output.name);
-    outputs.push({
-      bytes: output.bytes,
-      name: output.name,
-      path: await download(output.url, target),
-      url: output.url,
-    });
-  }
+  const outputs = await runInOrder(job.outputs, async (output) => ({
+    bytes: output.bytes,
+    name: output.name,
+    path: await download(output.url, path.join(out, output.name)),
+    url: output.url,
+  }));
 
   return { ...job, outputs, where: "cloud" };
+};
+
+type Client = ReturnType<typeof createClient>;
+
+const SUBMIT: Record<RecipeName, (client: Client, input: JsonObject) => Promise<Job>> = {
+  "add-animations": async (client, input) =>
+    await client.asset.addAnimations(RECIPES["add-animations"].input.parse(input)),
+  "audio-master": async (client, input) =>
+    await client.asset.audioMaster(RECIPES["audio-master"].input.parse(input)),
+  bake: async (client, input) => await client.asset.bake(RECIPES.bake.input.parse(input)),
+  "fbx-to-glb": async (client, input) =>
+    await client.asset.fbxToGlb(RECIPES["fbx-to-glb"].input.parse(input)),
+  "frames-to-video": async (client, input) =>
+    await client.asset.framesToVideo(RECIPES["frames-to-video"].input.parse(input)),
+  "image-to-threejs": async (client, input) =>
+    await client.asset.imageToThreejs(RECIPES["image-to-threejs"].input.parse(input)),
+  render: async (client, input) => await client.asset.render(RECIPES.render.input.parse(input)),
+  "texture-compress": async (client, input) =>
+    await client.asset.textureCompress(RECIPES["texture-compress"].input.parse(input)),
+  "trailer-render": async (client, input) =>
+    await client.asset.trailerRender(RECIPES["trailer-render"].input.parse(input)),
+  "video-probe": async (client, input) =>
+    await client.asset.videoProbe(RECIPES["video-probe"].input.parse(input)),
+  "video-to-sheet": async (client, input) =>
+    await client.asset.videoToSheet(RECIPES["video-to-sheet"].input.parse(input)),
 };
 
 const runInCloud = async (name: RecipeName, argv: string[], out: string) => {
   const client = createClient();
   const schema = RECIPES[name].input;
-  const raw = await readMediaInput(schema.shape, argv, (file) => uploadFile(client, file));
+
+  const raw = await readMediaInput(
+    schema.shape,
+    argv,
+    async (file) => await uploadFile(client, file),
+  );
+
   const parsed = schema.safeParse(raw);
 
   if (!parsed.success) {
     fail(parsed.error.issues.map((i) => `--${i.path.join(".")}: ${i.message}`).join("\n"));
   }
 
-  const procedure = client.asset[RECIPE_PROCEDURES[name]] as (
-    input: typeof parsed.data,
-  ) => Promise<Job>;
+  let job = await SUBMIT[name](client, raw);
 
-  let job = await procedure(parsed.data);
+  await repeatWhile(async () => {
+    if ((job.status !== "queued" && job.status !== "running") || job.job_id === null) {
+      return false;
+    }
 
-  while ((job.status === "queued" || job.status === "running") && job.job_id) {
     job = await client.asset.status({ job_id: job.job_id, wait_seconds: 20 });
-  }
+
+    return true;
+  });
 
   if (job.status === "failed") {
     fail(`${name} failed: ${job.error ?? "no reason given"}`);
   }
 
-  return finish(job, out);
+  return await finish(job, out);
 };
 
 const placeOutputs = (outputs: { name: string; path: string }[], target: string) => {
@@ -300,11 +333,18 @@ const statusCommand = defineCommand({
     const client = createClient();
     let job = await client.asset.status({ job_id: args.job_id, wait_seconds: 20 });
 
-    while (job.status === "queued" || job.status === "running") {
-      job = await client.asset.status({ job_id: args.job_id, wait_seconds: 20 });
-    }
+    await repeatWhile(async () => {
+      if (job.status !== "queued" && job.status !== "running") {
+        return false;
+      }
 
-    const report = args.out ? await finish(job, path.resolve(args.out)) : job;
+      job = await client.asset.status({ job_id: args.job_id, wait_seconds: 20 });
+
+      return true;
+    });
+
+    const report =
+      args.out === undefined || args.out === "" ? job : await finish(job, path.resolve(args.out));
 
     if (!writeStructured(report, args)) {
       consola.log(JSON.stringify(report, null, 2));
@@ -314,8 +354,6 @@ const statusCommand = defineCommand({
 
 /** One `vg asset <recipe>` per hosted recipe, plus `vg asset status`. */
 export const recipeCommands = {
-  ...Object.fromEntries(
-    (Object.keys(RECIPES) as RecipeName[]).map((name) => [name, recipeCommand(name)]),
-  ),
+  ...Object.fromEntries(RECIPE_NAMES.map((name) => [name, recipeCommand(name)])),
   status: statusCommand,
 };

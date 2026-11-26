@@ -138,15 +138,15 @@ export class FarmerSender {
       return update;
     }
 
-    update["a"] = clip;
-    update["r"] = revision;
-    update["p"] = anims.isPlaying;
+    update.a = clip;
+    update.r = revision;
+    update.p = anims.isPlaying;
 
     if (revision !== this.seekRevision || anims.isPlaying !== this.seekPlaying) {
       this.seekRevision = revision;
       this.seekPlaying = anims.isPlaying;
-      update["k"] = (anims.currentFrame?.index ?? 1) - 1;
-      update["e"] = Math.round(anims.accumulator);
+      update.k = (anims.currentFrame?.index ?? 1) - 1;
+      update.e = Math.round(anims.accumulator);
     }
 
     return update;
@@ -173,13 +173,13 @@ export const readFarmer = (state: JsonValue | undefined) => {
   }
 
   const sample: FarmerSample = {
-    away: state["h"] === true,
+    away: state.h === true,
     clip: null,
     elapsed: 0,
-    flip: state["f"] === true,
+    flip: state.f === true,
     frame: 0,
-    moving: state["m"] === true,
-    playing: state["p"] !== false,
+    moving: state.m === true,
+    playing: state.p !== false,
     revision: 0,
     x,
     y,

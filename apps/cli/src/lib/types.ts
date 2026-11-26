@@ -20,7 +20,7 @@ export const isJsonObject = (value: JsonValue | undefined): value is JsonObject 
   Object(value) === value && !Array.isArray(value);
 
 export const isJsonString = (value: JsonValue | undefined): value is string =>
-  String(value) === value;
+  Object.prototype.toString.call(value) === "[object String]";
 
 export const isJsonNumber = (value: JsonValue | undefined): value is number =>
   Number.isFinite(value);

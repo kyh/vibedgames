@@ -464,15 +464,15 @@ const box = (
   const c3x = px(-halfA, halfB);
   const c3z = pz(-halfA, halfB);
 
-  if (faces.top) {
+  if (faces.top === true) {
     g.quad(c0x, y1, c0z, c1x, y1, c1z, c2x, y1, c2z, c3x, y1, c3z, 0, 1, 0, color);
   }
 
-  if (faces.bottom) {
+  if (faces.bottom === true) {
     g.quad(c0x, y0, c0z, c1x, y0, c1z, c2x, y0, c2z, c3x, y0, c3z, 0, -1, 0, color);
   }
 
-  if (faces.sides) {
+  if (faces.sides === true) {
     g.quad(c0x, y0, c0z, c1x, y0, c1z, c1x, y1, c1z, c0x, y1, c0z, ez, 0, -ex, color);
     g.quad(c1x, y0, c1z, c2x, y0, c2z, c2x, y1, c2z, c1x, y1, c1z, ex, 0, ez, color);
     g.quad(c2x, y0, c2z, c3x, y0, c3z, c3x, y1, c3z, c2x, y1, c2z, -ez, 0, ex, color);
@@ -2432,17 +2432,21 @@ export const buildParcelGeometry = async (
   lots: readonly ParcelLot[] = [],
 ) => {
   const buckets = new Buckets();
-  let k = 0;
 
-  for (const p of plans) {
-    k += 1;
+  const buildFrom: (start: number) => Promise<void> = async (start) => {
+    const end = Math.min(plans.length, (Math.floor((start + 1) / 400) + 1) * 400 - 1);
 
-    if (onBreathe && k % 400 === 0) {
-      await onBreathe();
+    for (const p of plans.slice(start, end)) {
+      buildOne(buckets, p, detail);
     }
 
-    buildOne(buckets, p, detail);
-  }
+    if (end < plans.length) {
+      await onBreathe?.();
+      await buildFrom(end);
+    }
+  };
+
+  await buildFrom(0);
 
   for (const lot of lots) {
     buildLot(buckets, lot);
@@ -2481,7 +2485,7 @@ export const buildParcelGeometrySync = (
   const steps = buildParcelGeometrySteps(plans, detail, lots);
   let next = steps.next();
 
-  while (!next.done) {
+  while (next.done !== true) {
     next = steps.next();
   }
 

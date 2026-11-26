@@ -18,8 +18,11 @@ const ENDPOINT_PREFIX = "vibedgames/recipe/";
 const rateOf = (name: RecipeName) => RECIPE_IMAGES[RECIPES[name].image].microUsdPerSecond;
 
 /** Debits a recipe job's hold: its time cap at the image's rate, clamped to $0.01–$1. */
-export const holdRecipe = (db: Db, input: { userId: string; jobId: string; recipe: RecipeName }) =>
-  holdGeneration(db, {
+export const holdRecipe = async (
+  db: Db,
+  input: { userId: string; jobId: string; recipe: RecipeName },
+) => {
+  await holdGeneration(db, {
     endpointId: `${ENDPOINT_PREFIX}${input.recipe}`,
     holdMicro: recipeHoldMicro(input.recipe),
     requestId: input.jobId,
@@ -27,6 +30,7 @@ export const holdRecipe = (db: Db, input: { userId: string; jobId: string; recip
     unitPriceMicro: rateOf(input.recipe),
     userId: input.userId,
   });
+};
 
 /** Settles a finished job to the seconds it ran, at least the $0.01 floor; returns the charge in USD. */
 export const settleRecipe = async (db: Db, jobId: string, recipe: RecipeName, seconds: number) => {

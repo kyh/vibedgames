@@ -1,9 +1,10 @@
-import { buildRoadParts } from "./src/world/roads";
-import { RoadNetwork } from "./src/world/network";
-import { makeTerrain } from "./src/world/sf-map";
-import { generateCity } from "./src/world/grid";
-import { makeGroundColorAt, makeGroundOffset } from "./src/world/ground";
+import { buildRoadParts } from "../src/world/roads";
+import { RoadNetwork } from "../src/world/network";
+import { makeTerrain } from "../src/world/sf-map";
+import { generateCity } from "../src/world/grid";
+import { makeGroundColorAt, makeGroundOffset } from "../src/world/ground";
 import * as THREE from "three";
+import { isMesh } from "../src/shared/three-guards";
 
 const network = new RoadNetwork();
 const terrain = makeTerrain();
@@ -28,16 +29,16 @@ let tileBytes = 0;
 let tileVerts = 0;
 
 for (const t of ground.children) {
-  if (!(t instanceof THREE.Mesh)) {
+  if (!isMesh(t)) {
     continue;
   }
 
   const g = t.geometry;
 
   for (const k of ["position", "normal", "color"]) {
-    const a = g.getAttribute(k);
+    const a = g.attributes[k];
 
-    if (a) {
+    if (a !== undefined) {
       tileBytes += a.array.byteLength;
     }
   }

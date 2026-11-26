@@ -1,6 +1,7 @@
 import path from "node:path";
 
 import type { RecipeInput } from "@repo/contract/asset/recipe-schema";
+import { runInOrder } from "@repo/contract/run-in-order";
 
 import type { JsonValue, RecipeContext } from "../recipe";
 import { need, one } from "../recipe";
@@ -59,13 +60,9 @@ export const videoProbe = async (ctx: RecipeContext<RecipeInput<"video-probe">>)
   }
 
   const frameCount = info.frames ?? 0;
-  const stills: string[] = [];
+  const wanted = [...new Set(params.frames)].filter((index) => index < frameCount);
 
-  for (const index of new Set(params.frames)) {
-    if (index >= frameCount) {
-      continue;
-    }
-
+  const stills = await runInOrder(wanted, async (index) => {
     const name = `frame-${index}.png`;
     await ctx.run(ffmpeg, [
       ...base,
@@ -77,8 +74,9 @@ export const videoProbe = async (ctx: RecipeContext<RecipeInput<"video-probe">>)
       "-y",
       path.join(ctx.out, name),
     ]);
-    stills.push(name);
-  }
+
+    return name;
+  });
 
   return {
     outputs: [],

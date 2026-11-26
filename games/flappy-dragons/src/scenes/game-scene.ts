@@ -98,7 +98,8 @@ const GHOST_SCALE_MIN = 0.82;
 const GHOST_SCALE_MAX = 1.06;
 
 const TOUCH = isCoarsePointer();
-const ROOM = (import.meta.env.DEV && new URLSearchParams(location.search).get("room")) || MP_ROOM;
+const ROOM_PARAM = import.meta.env.DEV ? new URLSearchParams(location.search).get("room") : null;
+const ROOM = ROOM_PARAM === null || ROOM_PARAM === "" ? MP_ROOM : ROOM_PARAM;
 
 const HINT_FLAP = TOUCH ? "TAP TO FLAP" : "CLICK · SPACE — FLAP";
 const HINT_RESTART = TOUCH ? "TAP ANYWHERE TO RESTART" : "CLICK OR PRESS SPACE TO RESTART";
@@ -175,7 +176,7 @@ const readPeer = (state: Player["state"]) => {
 
   return {
     life: isJsonNumber(life) ? life : 0,
-    live: state["live"] === true,
+    live: state.live === true,
     score: isJsonNumber(score) ? score : 0,
     skin: validSkin(isJsonNumber(skin) ? skin : 1),
     t,
@@ -274,7 +275,7 @@ const renderStandings = (rows: readonly BoardRow[]) => {
 export class GameScene extends Scene {
   private net!: NetSession;
 
-  private phase: Phase = "ready";
+  phase: Phase = "ready";
   private birdY = BIRD_SPAWN_Y;
   private vy = 0;
   private score = 0;
@@ -283,23 +284,23 @@ export class GameScene extends Scene {
   private skin = 1;
   private gates = 0;
 
-  private worldX = 0;
+  worldX = 0;
   private readyDrift = 0;
-  private seed = 0;
+  seed = 0;
 
   private lastScoredIndex = -1;
-  private collectedCoins = new Set<number>();
+  private readonly collectedCoins = new Set<number>();
 
-  private pipes = new Map<number, Pipe>();
-  private ghosts = new Map<string, Ghost>();
-  private rivalIds: string[] = [];
+  pipes = new Map<number, Pipe>();
+  ghosts = new Map<string, Ghost>();
+  rivalIds: string[] = [];
   private rivalSource: PlayerMap | null = null;
   private bgLayers: BgLayer[] = [];
   private bird!: GameObjects.Sprite;
   private readyImg!: GameObjects.Image;
   private overImg!: GameObjects.Image;
   private titleDragon: GameObjects.Sprite | null = null;
-  private digits: GameObjects.Image[] = [];
+  private readonly digits: GameObjects.Image[] = [];
   private flightFx!: FlightFx;
 
   private lastFrameAt = -1;
@@ -321,16 +322,16 @@ export class GameScene extends Scene {
   private resultLayoutKey = "";
   private resultLayoutAt = 0;
   private phraseTimer: Time.TimerEvent | null = null;
-  private presentationPaused = false;
+  presentationPaused = false;
   private boardEl: HTMLElement | null = null;
   private touchControls: TouchControls | null = null;
   private muted = true;
   private netInfoEl: HTMLElement | null = null;
   private startEl: HTMLElement | null = null;
-  private started = false;
+  started = false;
   private readonly pad = new PhysicalGamepad();
   private unwatchControls: (() => void) | null = null;
-  private countingDown = false;
+  countingDown = false;
   private countdownTimer: Time.TimerEvent | null = null;
   private goWord = "JUMP!";
 
@@ -359,7 +360,9 @@ export class GameScene extends Scene {
       offline: isPlaytestRequested(),
       room: ROOM,
     });
-    this.net.subscribe(() => this.watchOwnConnection());
+    this.net.subscribe(() => {
+      this.watchOwnConnection();
+    });
 
     this.bgLayers = BG_FACTORS.map((factor, i) => ({
       factor,
@@ -393,7 +396,9 @@ export class GameScene extends Scene {
       .setVisible(false);
 
     this.buildStartScreen();
-    this.input.on("pointerdown", () => this.handleInput());
+    this.input.on("pointerdown", () => {
+      this.handleInput();
+    });
     this.input.keyboard?.on("keydown-SPACE", (e: KeyboardEvent) => {
       if (!e.repeat) {
         this.handleInput();
@@ -549,8 +554,16 @@ export class GameScene extends Scene {
     }
 
     this.startEl?.classList.add("ready");
-    this.input.keyboard?.once("keyup", () => this.beginPlay());
-    this.startEl?.addEventListener("pointerup", () => this.beginPlay(), { once: true });
+    this.input.keyboard?.once("keyup", () => {
+      this.beginPlay();
+    });
+    this.startEl?.addEventListener(
+      "pointerup",
+      () => {
+        this.beginPlay();
+      },
+      { once: true },
+    );
   }
 
   private spawnTitleDragon() {
@@ -580,7 +593,9 @@ export class GameScene extends Scene {
     this.tweens.add({
       duration: 5200 + Math.random() * 2000,
       ease: "Sine.easeInOut",
-      onComplete: () => this.flyTitleDragon(),
+      onComplete: () => {
+        this.flyTitleDragon();
+      },
       targets: d,
       x: this.viewW() + 80,
     });
@@ -827,7 +842,7 @@ export class GameScene extends Scene {
   }
 
   private roomCourse() {
-    const ref = this.net.sharedState["course"];
+    const ref = this.net.sharedState.course;
 
     if (ref !== this.courseRef) {
       this.courseRef = ref;
@@ -1147,12 +1162,7 @@ export class GameScene extends Scene {
     const iHigh = Math.floor((this.worldX + width - RUNWAY) / PIPE_SPAWN_DISTANCE);
 
     for (let i = iLow; i <= iHigh; i += 1) {
-      let pipe = this.pipes.get(i);
-
-      if (!pipe) {
-        pipe = this.spawnPipe(i);
-      }
-
+      const pipe = this.pipes.get(i) ?? this.spawnPipe(i);
       this.positionPipe(pipe);
     }
 
@@ -1318,7 +1328,9 @@ export class GameScene extends Scene {
       .setDepth(7)
       .play("burst");
 
-    burst.once(Animations.Events.ANIMATION_COMPLETE, () => burst.destroy());
+    burst.once(Animations.Events.ANIMATION_COMPLETE, () => {
+      burst.destroy();
+    });
     coin.destroy();
     this.score += 1;
     this.playSound("point", { rate: 1.5 });
@@ -1431,7 +1443,7 @@ export class GameScene extends Scene {
 
     const state = player?.state;
 
-    if (known && state?.["t"] === known.motion.stamp) {
+    if (known && state?.t === known.motion.stamp) {
       return known;
     }
 
@@ -1643,12 +1655,16 @@ export class GameScene extends Scene {
       this.playSound("point", { rate, volume: 0.45 });
 
       if (index + 1 < rates.length) {
-        this.phraseTimer = this.time.delayedCall(PHRASE_NOTE_MS, () => note(index + 1));
+        this.phraseTimer = this.time.delayedCall(PHRASE_NOTE_MS, () => {
+          note(index + 1);
+        });
       }
     };
 
     if (delay > 0) {
-      this.phraseTimer = this.time.delayedCall(delay, () => note(0));
+      this.phraseTimer = this.time.delayedCall(delay, () => {
+        note(0);
+      });
     } else {
       note(0);
     }
@@ -1808,7 +1824,7 @@ export class GameScene extends Scene {
     return this.scoreY() + 44;
   }
 
-  private layout() {
+  private readonly layout = () => {
     const zoom = this.viewZoom();
     const width = this.viewW();
     const top = this.viewTop();
@@ -1835,7 +1851,7 @@ export class GameScene extends Scene {
     }
 
     this.clearPipes();
-  }
+  };
 
   private applyParallax() {
     const px = this.worldX + this.readyDrift;

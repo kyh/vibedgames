@@ -4,8 +4,12 @@ import { createRpcContext } from "@/auth/server";
 import { agentSkills } from "@/lib/agent-skills";
 import { handleMcpRequest } from "@/lib/mcp";
 
-const handler = ({ request }: { request: Request }) =>
-  handleMcpRequest(request, (headers) => createRpcContext(headers, "mcp"), agentSkills);
+const handler = async ({ request }: { request: Request }) =>
+  await handleMcpRequest(
+    request,
+    async (headers) => await createRpcContext(headers, "mcp"),
+    agentSkills,
+  );
 
 export const Route = createFileRoute("/mcp")({
   server: {

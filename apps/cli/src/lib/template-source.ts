@@ -74,18 +74,13 @@ export const templateTarballUrl = ({ owner, repo, ref }: TemplateSpec) =>
  * Unpack the template into `target`. A non-empty `target` is refused unless
  * `force`, which overwrites whatever the template also carries.
  */
-export const fetchTemplate = async (
-  template: TemplateSpec,
-  target: string,
-  force: boolean,
-  fetchImpl: typeof fetch = fetch,
-) => {
+export const fetchTemplate = async (template: TemplateSpec, target: string, force: boolean) => {
   if (!force && readdirSync(target).length > 0) {
     throw new Error(`${target} is not empty. Pass --force to scaffold into it anyway.`);
   }
 
   const url = templateTarballUrl(template);
-  const res = await fetchImpl(url, { signal: AbortSignal.timeout(120_000) });
+  const res = await fetch(url, { signal: AbortSignal.timeout(120_000) });
 
   if (res.status === 404) {
     throw new Error(

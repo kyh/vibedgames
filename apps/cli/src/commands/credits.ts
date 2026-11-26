@@ -93,7 +93,7 @@ const formatWhen = (date: Date, now: Date) => {
 };
 
 const requireLogin = () => {
-  if (!getToken()) {
+  if ((getToken() ?? "") === "") {
     consola.warn("Not logged in. Run `vg login` to authenticate.");
     process.exit(1);
   }

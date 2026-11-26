@@ -1,0 +1,504 @@
+import path from "node:path";
+import { setTimeout as wait } from "node:timers/promises";
+
+import { flagValue, poll, repeat, startVite } from "@repo/smoke";
+import { chromium } from "playwright-core";
+import type { Browser, Page } from "playwright-core";
+
+const gameDir = path.resolve(import.meta.dirname, "..");
+
+const PARTY = "http://localhost:8787";
+const DEV_PORT = 5325;
+const HOST_STALE_MS = 9000;
+const MAP_W = 86;
+const MAP_H = 48;
+
+const probe = async (url: string) => {
+  try {
+    return await fetch(url);
+  } catch {
+    return null;
+  }
+};
+
+const waitFor = async <T,>(read: () => Promise<T>, label: string, timeoutMs = 8000) => {
+  let last: T | null = null;
+
+  const found = await poll(
+    async () => {
+      last = await read();
+
+      return last;
+    },
+    Boolean,
+    { intervalMs: 100, timeoutMs },
+  );
+
+  if (found === null) {
+    throw new Error(`timeout: ${label} (last=${JSON.stringify(last)})`);
+  }
+
+  return found;
+};
+
+const snapshot = async (page: Page) =>
+  await page.evaluate(() => {
+    const gs = window.__gs;
+    const d = window.__GAME_DIAGNOSTICS__;
+    const net = gs?.net;
+
+    if (gs === undefined || d === undefined || net === undefined || net === null) {
+      throw new Error("window.__gs is missing: run the game in dev mode");
+    }
+
+    return {
+      day: gs.day,
+      frame: d.frame,
+      host: net.isHost,
+      hostId: net.hostId,
+      paused: gs.controlsPaused,
+      phase: d.phase,
+      players: Object.keys(net.players).length,
+      remote: gs.remoteFarmers?.count() ?? 0,
+      status: net.connectionStatus,
+      time: gs.timeMin,
+    };
+  });
+
+const remoteCount = async (page: Page) =>
+  await page.evaluate(() => window.__gs?.remoteFarmers?.count() ?? -1);
+
+const isTilled = async (page: Page, tile: number) =>
+  await page.evaluate((i) => window.__gs?.world.tilled[i] === 1, tile);
+
+const hasObject = async (page: Page, id: number) =>
+  await page.evaluate((o) => window.__gs?.world.objects.some((obj) => obj.id === o) === true, id);
+
+const paused = async (page: Page) =>
+  await page.evaluate(() => window.__gs?.controlsPaused === true);
+
+const minePaused = async (page: Page) => await page.evaluate(() => window.__mine?.controlsPaused);
+const phase = async (page: Page) => await page.evaluate(() => window.__GAME_DIAGNOSTICS__?.phase);
+
+const frame = async (page: Page) =>
+  await page.evaluate(() => window.__GAME_DIAGNOSTICS__?.frame ?? 0);
+
+const energy = async (page: Page) =>
+  await page.evaluate(() => window.__GAME_DIAGNOSTICS__?.energy ?? 0);
+
+const openClient = async (browser: Browser, url: string, errors: string[]) => {
+  const context = await browser.newContext({ viewport: { height: 600, width: 900 } });
+  const page = await context.newPage();
+  page.on("pageerror", (e) => errors.push(String(e)));
+  page.on("console", (m) => {
+    if (m.type() === "error") {
+      errors.push(m.text());
+    }
+  });
+  await page.goto(url);
+  await waitFor(
+    async () => await page.evaluate(() => window.__game?.scene.isActive("Title")),
+    "title",
+    20_000,
+  );
+  await page.keyboard.press("n");
+  await waitFor(
+    async () => await page.evaluate(() => window.__gs?.net?.connectionStatus === "connected"),
+    "connected",
+    15_000,
+  );
+
+  return page;
+};
+
+const till = async (page: Page) =>
+  await page.evaluate(
+    ({ w, h }) => {
+      const gs = window.__gs;
+
+      if (gs === undefined) {
+        throw new Error("window.__gs is missing");
+      }
+
+      const f = gs.feetTile();
+      let best: { d: number; tx: number; ty: number } | null = null;
+
+      for (let ty = 0; ty < h; ty += 1) {
+        for (let tx = 0; tx < w; tx += 1) {
+          if (!gs.world.canTill(tx, ty)) {
+            continue;
+          }
+
+          const d = Math.abs(tx - f.tx) + Math.abs(ty - f.ty);
+
+          if (!best || d < best.d) {
+            best = { d, tx, ty };
+          }
+        }
+      }
+
+      if (best === null) {
+        throw new Error("no tillable tile");
+      }
+
+      gs.inv.select(0);
+      gs.tryAction({ tx: best.tx, ty: best.ty });
+
+      return best.ty * w + best.tx;
+    },
+    { h: MAP_H, w: MAP_W },
+  );
+
+type ClipSample = [key: string | undefined, index: number | undefined];
+
+const sampleRemoteClip = async (page: Page) =>
+  await page.evaluate(async () => {
+    const { promise, resolve } = Promise.withResolvers<{ samples: ClipSample[]; seeks: number }>();
+
+    const [farmer] = window.__gs?.remoteFarmers?.farmers.values() ?? [];
+
+    if (farmer === undefined) {
+      throw new Error("no remote farmer");
+    }
+
+    const { anims } = farmer.sprite;
+    const setCurrentFrame = anims.setCurrentFrame.bind(anims);
+    let seeks = 0;
+    anims.setCurrentFrame = (next) => {
+      if ((new Error("stack probe").stack ?? "").includes("seekClip")) {
+        seeks += 1;
+      }
+
+      return setCurrentFrame(next);
+    };
+
+    const samples: ClipSample[] = [];
+
+    const id = setInterval(() => {
+      samples.push([anims.currentAnim?.key, anims.currentFrame?.index]);
+
+      if (samples.length >= 45) {
+        clearInterval(id);
+        anims.setCurrentFrame = setCurrentFrame;
+        resolve({ samples, seeks });
+      }
+    }, 33);
+
+    return await promise;
+  });
+
+const swingAt = async (page: Page, tx: number, ty: number) => {
+  await page.evaluate(
+    ({ x, y }) => {
+      window.__gs?.tryAction({ tx: x, ty: y });
+    },
+    { x: tx, y: ty },
+  );
+  await waitFor(
+    async () => await page.evaluate(() => window.__gs?.acting === false),
+    "swing done",
+    3000,
+  );
+};
+
+const backwardSteps = (samples: ClipSample[]) =>
+  samples.filter((sample, i) => {
+    const prev = samples[i - 1]?.[1];
+    const [, cur] = sample;
+
+    return i > 0 && prev !== undefined && cur !== undefined && cur < prev && cur !== 1;
+  }).length;
+
+const startDev = async () => {
+  const urlArg = flagValue("--url");
+
+  if (urlArg !== null) {
+    return { base: urlArg, child: null };
+  }
+
+  const base = `http://localhost:${DEV_PORT}`;
+  const child = await startVite({ gameDir, port: DEV_PORT, timeoutMs: 20_000, url: base });
+
+  return { base, child };
+};
+
+const main = async () => {
+  const dev = await startDev();
+
+  if (!(await probe(PARTY))) {
+    throw new Error(`party server not reachable at ${PARTY} (pnpm dev:party)`);
+  }
+
+  const room = `t${process.pid}-${Date.now().toString(36)}`;
+  const url = `${dev.base}/?room=${room}`;
+  const errors: Record<"guest" | "host" | "late", string[]> = { guest: [], host: [], late: [] };
+
+  const browser = await chromium.launch({
+    args: [
+      "--disable-background-timer-throttling",
+      "--disable-backgrounding-occluded-windows",
+      "--disable-renderer-backgrounding",
+    ],
+    ...(process.env.CHROME_PATH !== undefined && process.env.CHROME_PATH !== ""
+      ? { executablePath: process.env.CHROME_PATH }
+      : { channel: "chrome" }),
+    headless: true,
+  });
+
+  const results: string[] = [];
+
+  const step = (name: string, ok: boolean, note = "") => {
+    results.push(`${ok ? "pass" : "FAIL"}  ${name}${note ? ` — ${note}` : ""}`);
+
+    if (!ok) {
+      throw new Error(`${name}: ${note}`);
+    }
+  };
+
+  try {
+    const host = await openClient(browser, url, errors.host);
+    let h = await snapshot(host);
+    step("host joins as host", h.host && h.players === 1, JSON.stringify(h));
+
+    const guest = await openClient(browser, url, errors.guest);
+    await waitFor(async () => (await remoteCount(guest)) === 1, "guest sees host");
+    await waitFor(async () => (await remoteCount(host)) === 1, "host sees guest");
+    h = await snapshot(host);
+    let g = await snapshot(guest);
+    step("both see each other", h.players === 2 && g.players === 2 && !g.host);
+
+    const guestTile = await till(guest);
+    await waitFor(async () => await isTilled(host, guestTile), "host adopts guest till", 5000);
+    await waitFor(
+      async () =>
+        await guest.evaluate((i) => window.__gs?.net?.sharedState[`t${i}`] === 1, guestTile),
+      "room ledger",
+      5000,
+    );
+    step("guest's till reaches the host world", true, `tile ${guestTile}`);
+    const hostTile = await till(host);
+    await waitFor(async () => await isTilled(guest, hostTile), "guest adopts host till", 5000);
+    step("host's till reaches the guest world", true, `tile ${hostTile}`);
+
+    const felled = await guest.evaluate(() => {
+      const gs = window.__gs;
+
+      if (gs === undefined) {
+        throw new Error("window.__gs is missing");
+      }
+
+      const f = gs.feetTile();
+      const trees = gs.world.objects.filter((o) => o.type === "tree");
+      trees.sort(
+        (a, b) =>
+          Math.abs(a.tx - f.tx) +
+          Math.abs(a.ty - f.ty) -
+          Math.abs(b.tx - f.tx) -
+          Math.abs(b.ty - f.ty),
+      );
+      gs.inv.select(
+        gs.inv.slots.findIndex((s) => s?.item.kind === "tool" && s.item.tool === "axe"),
+      );
+
+      const [nearest] = trees;
+
+      if (nearest === undefined) {
+        throw new Error("no tree");
+      }
+
+      return { hp: nearest.hp, id: nearest.id, tx: nearest.tx, ty: nearest.ty };
+    });
+
+    await repeat(felled.hp, async () => {
+      await swingAt(guest, felled.tx, felled.ty);
+    });
+
+    await waitFor(
+      async () => !(await hasObject(host, felled.id)),
+      "host loses the felled tree",
+      5000,
+    );
+    step("guest's felled tree is gone on the host", true, `object ${felled.id}`);
+
+    const picked = await host.evaluate(() => {
+      const gs = window.__gs;
+      const mushroom = gs?.world.objects.find((o) => o.type === "forage");
+
+      if (gs === undefined || mushroom === undefined) {
+        throw new Error("no mushroom");
+      }
+
+      gs.tryAction({ tx: mushroom.tx, ty: mushroom.ty });
+
+      return mushroom.id;
+    });
+
+    await waitFor(
+      async () => !(await hasObject(guest, picked)),
+      "guest loses the picked mushroom",
+      5000,
+    );
+    step("host's picked mushroom is gone on the guest", true, `object ${picked}`);
+
+    await host.keyboard.down("d");
+    await wait(600);
+    const { samples, seeks } = await sampleRemoteClip(guest);
+    await host.keyboard.up("d");
+    const walking = samples.filter(([k]) => k === "p-walk").length;
+    const back = backwardSteps(samples);
+    step(
+      "remote walk clip runs locally between packets",
+      walking >= 40 && seeks === 0 && back === 0,
+      `walk ${walking}/45, seeks ${seeks}, back-steps ${back}`,
+    );
+
+    const home = await host.evaluate(() => {
+      const player = window.__gs?.player;
+
+      if (player === undefined) {
+        throw new Error("window.__gs is missing");
+      }
+
+      const was = { x: player.x, y: player.y };
+      player.setPosition(80 * 16 + 8, 20 * 16 + 12);
+
+      return was;
+    });
+
+    await waitFor(async () => (await remoteCount(guest)) === 0, "far host hidden", 5000);
+    h = await snapshot(host);
+    step("a far farmer leaves the guest's view; the host still sees everyone", h.remote === 1);
+    await host.evaluate((p) => {
+      window.__gs?.player.setPosition(p.x, p.y);
+    }, home);
+    await waitFor(async () => (await remoteCount(guest)) === 1, "host back in view", 5000);
+    step("back in range, the farmer is drawn again", true);
+
+    await guest.keyboard.press("Escape");
+    await waitFor(async () => await paused(guest), "guest paused");
+    let before = await snapshot(guest);
+    await wait(700);
+    g = await snapshot(guest);
+    step(
+      "guest pause keeps the shared clock moving",
+      g.time > before.time,
+      `+${(g.time - before.time).toFixed(2)} min`,
+    );
+    await guest.keyboard.press("Escape");
+    await waitFor(async () => !(await paused(guest)), "guest resumed");
+    await host.keyboard.press("Escape");
+    await waitFor(async () => await paused(host), "host paused");
+    before = await snapshot(guest);
+    await wait(700);
+    g = await snapshot(guest);
+    step(
+      "host pause keeps the guest's clock moving",
+      g.time > before.time,
+      `+${(g.time - before.time).toFixed(2)} min`,
+    );
+    await host.keyboard.press("Escape");
+    await waitFor(async () => !(await paused(host)), "host resumed");
+
+    await host.evaluate(() => {
+      const gs = window.__gs;
+      const cave = gs?.world.objects.find((o) => o.type === "cave");
+
+      if (gs === undefined || cave === undefined) {
+        throw new Error("no cave");
+      }
+
+      gs.tryAction({ tx: cave.tx, ty: cave.ty });
+    });
+    await waitFor(async () => (await phase(host)) === "mine", "host in mine", 5000);
+    await host.keyboard.press("Escape");
+    await waitFor(async () => (await minePaused(host)) === true, "mine paused");
+    const { hostId: hostIdBefore } = await snapshot(guest);
+    const frameBefore = await frame(host);
+    await wait(HOST_STALE_MS);
+    const frameAfter = await frame(host);
+    g = await snapshot(guest);
+    step(
+      "mine pause keeps the host loop alive",
+      frameAfter > frameBefore + 30,
+      `+${frameAfter - frameBefore} frames`,
+    );
+    step(
+      "paused host is not migrated away",
+      g.hostId === hostIdBefore && !g.host && g.players === 2,
+      `after ${HOST_STALE_MS} ms`,
+    );
+    await host.keyboard.press("Escape");
+    await waitFor(async () => (await minePaused(host)) === false, "mine resumed");
+    await host.evaluate(() => {
+      window.__mine?.exitToFarm();
+    });
+    await waitFor(async () => (await phase(host)) === "farm", "host back on farm", 5000);
+
+    await guest.evaluate(() => {
+      window.__gs?.doSleep();
+    });
+    await wait(300);
+    const afterGuestSleep = await snapshot(guest);
+    step("guest cannot end the day", afterGuestSleep.day === 1);
+    const tired = await energy(guest);
+    await host.evaluate(() => {
+      window.__gs?.endDay();
+    });
+    await waitFor(
+      async () => await guest.evaluate(() => window.__gs?.day === 2),
+      "guest sees day 2",
+      6000,
+    );
+    step("host's day end reaches the guest", true);
+    const rested = await energy(guest);
+    step(
+      "the new day restores the guest's energy",
+      tired < 100 && rested === 100,
+      `${tired} → ${rested}`,
+    );
+
+    await host.close();
+    await waitFor(
+      async () => await guest.evaluate(() => window.__gs?.net?.isHost),
+      "guest promoted",
+      15_000,
+    );
+    g = await snapshot(guest);
+    step("guest promoted on host leave", g.host && g.phase === "farm", JSON.stringify(g));
+    before = g;
+    await wait(700);
+    g = await snapshot(guest);
+    step("promoted host drives the clock", g.time > before.time && g.day === 2);
+
+    const late = await openClient(browser, url, errors.late);
+    await waitFor(async () => (await remoteCount(late)) >= 1, "late sees host");
+    await waitFor(
+      async () =>
+        await late.evaluate(
+          (ids) => ids.every((i) => window.__gs?.world.tilled[i] === 1),
+          [guestTile, hostTile],
+        ),
+      "late adopts farm",
+      6000,
+    );
+    const l = await snapshot(late);
+    step("late joiner adopts the promoted host's farm and day", !l.host && l.day === 2);
+    await guest.close();
+    await late.close();
+
+    for (const [who, list] of Object.entries(errors)) {
+      step(`no console errors: ${who}`, list.length === 0, list.join(" | "));
+    }
+  } finally {
+    console.log(results.join("\n"));
+    await browser.close();
+    dev.child?.kill();
+  }
+};
+
+try {
+  await main();
+} catch (error) {
+  console.error(error);
+  process.exit(1);
+}

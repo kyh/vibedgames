@@ -35,8 +35,8 @@ screech, glass crash stack and announcer voices are gone.
 For the two driving loops, generate steady WAV originals and process only those files:
 
 ```sh
-node tools/generate-driving-audio.mjs /tmp/driving-originals
-node tools/prepare-sfx.mjs /tmp/driving-originals engine-loop road-loop
+node tools/generate-driving-audio.mts /tmp/driving-originals
+node tools/prepare-sfx.mts /tmp/driving-originals engine-loop road-loop
 ```
 
 The motor uses phase-locked 140/280/420 Hz harmonics with faint filtered air. Road
@@ -49,7 +49,7 @@ For the remaining 30 clips, download each completed request with `vg generate st
 --download /tmp/originals/<name>.mp3 --json`, then process the named clip from the game directory:
 
 ```sh
-node tools/prepare-sfx.mjs /tmp/originals <clip-name>
+node tools/prepare-sfx.mts /tmp/originals <clip-name>
 ```
 
 Requires Node and ffmpeg with libopus. Trims only outer silence on one-shots,
@@ -69,7 +69,7 @@ returning to a paused game preserves pause. Sound still defaults to off.
 
 ```sh
 pnpm typecheck
-node tools/verify-sfx.mjs 'http://localhost:5193/?time=noon&offline=1' /tmp/waymo-sfx
+node tools/verify-sfx.mts 'http://localhost:5193/?time=noon&offline=1' /tmp/waymo-sfx
 ```
 
 The browser harness exercises real controls plus staged passenger/garage states.

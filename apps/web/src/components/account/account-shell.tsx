@@ -62,8 +62,12 @@ const RailLink = ({
           <Link
             to={to}
             aria-label={label}
-            onMouseEnter={() => onHover(to)}
-            onFocus={() => onHover(to)}
+            onMouseEnter={() => {
+              onHover(to);
+            }}
+            onFocus={() => {
+              onHover(to);
+            }}
             className={`relative rounded-full p-3.5 outline-none transition-colors duration-100 md:p-2 ${
               showDisc ? "text-foreground" : "text-muted-foreground"
             }`}
@@ -142,7 +146,9 @@ export const AccountShell = ({
             {/* oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- the pair only clears a hover highlight, and onBlur already covers the keyboard path the rule asks for */}
             <nav
               aria-label="Account"
-              onMouseLeave={() => setHoveredRail(null)}
+              onMouseLeave={() => {
+                setHoveredRail(null);
+              }}
               onBlur={(e) => {
                 if (!e.currentTarget.contains(e.relatedTarget)) {
                   setHoveredRail(null);

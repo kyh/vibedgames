@@ -59,7 +59,7 @@ const AVAILABILITY_LABEL = {
 } satisfies Record<UnavailableReason, string>;
 
 const minimapCreepColor = (u: Unit) => {
-  if (u.neutral) {
+  if (u.neutral === true) {
     return 0xe0_a9_3a;
   }
 
@@ -150,8 +150,8 @@ export class HudScene extends Scene {
   private xpFill: Phaser.GameObjects.Rectangle | null = null;
   private xpText: Phaser.GameObjects.Text | null = null;
   private guide: AbilityGuide | null = null;
-  private banner!: AnnouncementBanner;
-  private result: ResultCard | null = null;
+  banner!: AnnouncementBanner;
+  result: ResultCard | null = null;
   private objectiveText: Phaser.GameObjects.Text | null = null;
   private respawnTipText: Phaser.GameObjects.Text | null = null;
   private guidanceNextAt = 0;
@@ -285,12 +285,30 @@ export class HudScene extends Scene {
     this.buildBoard();
     this.buildAbilityGuide();
     this.layout();
-    this.input.keyboard?.on("keydown-B", () => this.toggleShop());
+    this.input.keyboard?.on("keydown-B", () => {
+      this.toggleShop();
+    });
     this.input.keyboard?.on("keydown-G", () => this.guide?.toggleGuide());
-    this.input.keyboard?.on("keydown-UP", () => this.shopOpen && this.moveShopSel(-1));
-    this.input.keyboard?.on("keydown-DOWN", () => this.shopOpen && this.moveShopSel(1));
-    this.input.keyboard?.on("keydown-ENTER", () => this.shopOpen && this.buySelected());
-    this.input.keyboard?.on("keydown-SPACE", () => this.shopOpen && this.buySelected());
+    this.input.keyboard?.on("keydown-UP", () => {
+      if (this.shopOpen) {
+        this.moveShopSel(-1);
+      }
+    });
+    this.input.keyboard?.on("keydown-DOWN", () => {
+      if (this.shopOpen) {
+        this.moveShopSel(1);
+      }
+    });
+    this.input.keyboard?.on("keydown-ENTER", () => {
+      if (this.shopOpen) {
+        this.buySelected();
+      }
+    });
+    this.input.keyboard?.on("keydown-SPACE", () => {
+      if (this.shopOpen) {
+        this.buySelected();
+      }
+    });
     this.input.keyboard?.on("keydown-TAB", (e: KeyboardEvent) => {
       e.preventDefault?.();
       this.toggleBoard();
@@ -462,7 +480,9 @@ export class HudScene extends Scene {
         .setVisible(false)
         .setInteractive({ useHandCursor: true });
 
-      circle.on("pointerdown", () => this.gs.castSlot(key, true));
+      circle.on("pointerdown", () => {
+        this.gs.castSlot(key, true);
+      });
       const panel = this.add.image(0, 0, "ui-panel").setDisplaySize(62, 62);
 
       const box = this.add
@@ -497,7 +517,9 @@ export class HudScene extends Scene {
         .setOrigin(0.5);
 
       const pips = [0, 1, 2, 3].map(() => this.add.rectangle(0, 0, 10, 4, 0x8a_73_50));
-      box.on("pointerdown", () => this.gs.castSlot(key, true));
+      box.on("pointerdown", () => {
+        this.gs.castSlot(key, true);
+      });
 
       const plus = this.add
         .text(0, 0, "+", {
@@ -512,7 +534,9 @@ export class HudScene extends Scene {
         .setVisible(false)
         .setInteractive({ useHandCursor: true });
 
-      plus.on("pointerdown", () => this.gs.levelSlot(key));
+      plus.on("pointerdown", () => {
+        this.gs.levelSlot(key);
+      });
       this.slots.push({
         box,
         cd,
@@ -534,13 +558,17 @@ export class HudScene extends Scene {
       .setStrokeStyle(2, 0x6a_b0_ff)
       .setVisible(false)
       .setInteractive({ useHandCursor: true });
-    this.dashCircle.on("pointerdown", () => this.gs.dash());
+    this.dashCircle.on("pointerdown", () => {
+      this.gs.dash();
+    });
     this.dashPanel = this.add.image(0, 0, "ui-panel").setDisplaySize(54, 62);
     this.dashBox = this.add
       .rectangle(0, 0, 50, 58, 0x1c_14_10, 0.12)
       .setStrokeStyle(2, 0x6a_b0_ff)
       .setInteractive({ useHandCursor: true });
-    this.dashBox.on("pointerdown", () => this.gs.dash());
+    this.dashBox.on("pointerdown", () => {
+      this.gs.dash();
+    });
     this.dashLabel = this.add
       .text(0, 0, this.touchUi ? "⚡\ndash" : "F\ndash", {
         align: "center",
@@ -561,7 +589,9 @@ export class HudScene extends Scene {
         .setVisible(false)
         .setInteractive({ useHandCursor: true });
 
-      circle.on("pointerdown", () => this.gs.useItemForPlayer(i));
+      circle.on("pointerdown", () => {
+        this.gs.useItemForPlayer(i);
+      });
       const panel = this.add.image(0, 0, "ui-panel").setDisplaySize(42, 42);
 
       const box = this.add
@@ -575,7 +605,9 @@ export class HudScene extends Scene {
         .text(0, 0, `${i + 1}`, { color: "#6b5530", fontFamily: FONT, fontSize: "10px" })
         .setOrigin(0.5);
 
-      box.on("pointerdown", () => this.gs.useItemForPlayer(i));
+      box.on("pointerdown", () => {
+        this.gs.useItemForPlayer(i);
+      });
       this.itemSlots.push({ box, circle, icon, key, panel });
     }
 
@@ -626,9 +658,15 @@ export class HudScene extends Scene {
       this.uiButtons.push({ glyph, img, key, keyTxt, txt, word, zone });
     };
 
-    mkBtn("SHOP", "B", "🛒", () => this.toggleShop());
-    mkBtn("SCORES", "TAB", "🏆", () => this.toggleBoard());
-    mkBtn("RECALL", "H", "⌂", () => this.gs.recall());
+    mkBtn("SHOP", "B", "🛒", () => {
+      this.toggleShop();
+    });
+    mkBtn("SCORES", "TAB", "🏆", () => {
+      this.toggleBoard();
+    });
+    mkBtn("RECALL", "H", "⌂", () => {
+      this.gs.recall();
+    });
 
     this.respawnText = this.add
       .text(0, 0, "", {
@@ -667,10 +705,12 @@ export class HudScene extends Scene {
 
     this.guidanceNextAt = this.time.now + 200;
     const world = this.gs.worldRef;
-    const guidance = world ? objectiveGuidance(world, this.gs.player) : null;
+    const guidance = objectiveGuidance(world, this.gs.player);
     this.objectiveText?.setText(guidance?.text ?? "");
     const tip = guidance?.respawnTip;
-    this.respawnTipText?.setText(tip ?? "").setVisible(!!tip && !this.guide?.open);
+    this.respawnTipText
+      ?.setText(tip ?? "")
+      .setVisible(tip !== undefined && tip !== null && tip !== "" && this.guide?.open !== true);
   }
 
   private buildAbilityGuide() {
@@ -756,7 +796,9 @@ export class HudScene extends Scene {
       .setOrigin(0.5)
       .setInteractive({ useHandCursor: true });
 
-    close.on("pointerdown", () => this.toggleShop());
+    close.on("pointerdown", () => {
+      this.toggleShop();
+    });
     const children: Phaser.GameObjects.GameObject[] = [bg, title, sub, close];
 
     for (const [i, it] of ITEMS.entries()) {
@@ -859,10 +901,6 @@ export class HudScene extends Scene {
   }
 
   private drawMapTerrain() {
-    if (!this.mapTerrain) {
-      return;
-    }
-
     const g = this.mapTerrain;
     const ox = this.mapX;
     const oy = this.mapY;
@@ -896,10 +934,6 @@ export class HudScene extends Scene {
 
   private updateMinimap() {
     const w = this.gs?.worldRef;
-
-    if (!w) {
-      return;
-    }
 
     if (this.time.now < this.mapNextRedrawAt) {
       return;
@@ -1033,9 +1067,9 @@ export class HudScene extends Scene {
     this.gs.uiBlocking = true;
     this.banner.clear();
     this.cameras.main.ignore(this.children.list);
-    this.result = new ResultCard(this, data, this.gs.canReplay, (action) =>
-      this.gs.leaveResult(action),
-    );
+    this.result = new ResultCard(this, data, this.gs.canReplay, (action) => {
+      this.gs.leaveResult(action);
+    });
   }
 
   private buildBoard() {
@@ -1059,10 +1093,6 @@ export class HudScene extends Scene {
   private renderBoard() {
     const w = this.gs?.worldRef;
 
-    if (!w) {
-      return;
-    }
-
     this.board.removeAll(true);
     const W = this.scale.width;
     const H = this.scale.height;
@@ -1071,7 +1101,7 @@ export class HudScene extends Scene {
     const colW = stacked ? panelW - 48 : panelW / 2 - 54;
     const rowH = 24;
 
-    const heroes = [...w.units.values()].filter((u) => u.kind === "hero" && u.hero);
+    const heroes = [...w.units.values()].filter((u) => u.kind === "hero" && u.hero !== undefined);
     const teams: Team[] = ["radiant", "dire"];
 
     const rosters = teams.map((team) => ({
@@ -1187,7 +1217,7 @@ export class HudScene extends Scene {
     );
   }
 
-  private layout() {
+  private readonly layout = () => {
     if (this.result) {
       this.result.layout();
 
@@ -1227,7 +1257,7 @@ export class HudScene extends Scene {
     this.layoutOverlays(ctx);
     this.banner.layout();
     this.layoutAbilityGuide();
-  }
+  };
 
   private layoutWidgetForms(compact: boolean) {
     for (const s of this.slots) {
@@ -1274,9 +1304,7 @@ export class HudScene extends Scene {
       s.icon.setDisplaySize(compact ? 26 : 30, compact ? 26 : 30);
     }
 
-    if (this.barPanel) {
-      this.barPanel.setVisible(true);
-    }
+    this.barPanel.setVisible(true);
   }
 
   private dashLabelText(compact: boolean) {
@@ -1306,15 +1334,11 @@ export class HudScene extends Scene {
       this.mapY = H - this.mapH - 22 - inset.bottom;
     }
 
-    if (this.mapHit) {
-      this.mapHit.setPosition(this.mapX, this.mapY).setScale(mapK);
-    }
+    this.mapHit.setPosition(this.mapX, this.mapY).setScale(mapK);
 
-    if (this.mapFrame) {
-      this.mapFrame
-        .setPosition(this.mapX - 12, this.mapY - 12)
-        .setSize(this.mapW + 24, this.mapH + 24);
-    }
+    this.mapFrame
+      .setPosition(this.mapX - 12, this.mapY - 12)
+      .setSize(this.mapW + 24, this.mapH + 24);
 
     this.drawMapTerrain();
     this.mapNextRedrawAt = 0;
@@ -1513,14 +1537,12 @@ export class HudScene extends Scene {
   }
 
   private placeDock({ dashPos, slotPos, itemPos }: DockLayout, compact: boolean) {
-    if (this.dashBox) {
-      this.dashPanel.setPosition(dashPos.x, dashPos.y);
-      this.dashBox.setPosition(dashPos.x, dashPos.y);
-      this.dashCircle.setPosition(dashPos.x, dashPos.y);
-      this.dashCdCircle.setPosition(dashPos.x, dashPos.y);
-      this.dashLabel.setPosition(dashPos.x, dashPos.y);
-      this.dashCd.setPosition(dashPos.x, dashPos.y + 29);
-    }
+    this.dashPanel.setPosition(dashPos.x, dashPos.y);
+    this.dashBox.setPosition(dashPos.x, dashPos.y);
+    this.dashCircle.setPosition(dashPos.x, dashPos.y);
+    this.dashCdCircle.setPosition(dashPos.x, dashPos.y);
+    this.dashLabel.setPosition(dashPos.x, dashPos.y);
+    this.dashCd.setPosition(dashPos.x, dashPos.y + 29);
 
     for (const [i, s] of this.slots.entries()) {
       const p = slotPos[i];
@@ -1559,10 +1581,8 @@ export class HudScene extends Scene {
   }
 
   private layoutOverlays({ W, H, cx, compact }: LayoutCtx) {
-    if (this.shop) {
-      this.shop.setPosition(cx, H / 2);
-      this.shop.setScale(Math.min(1, (W - 20) / 430, (H - 20) / Math.max(1, this.shopPanelH)));
-    }
+    this.shop.setPosition(cx, H / 2);
+    this.shop.setScale(Math.min(1, (W - 20) / 430, (H - 20) / Math.max(1, this.shopPanelH)));
 
     const respawnY = compact ? Math.max(H / 2 - 120, H * 0.45) : H / 2 - 120;
     this.respawnText.setPosition(cx, respawnY).setFontSize(compact ? 28 : 42);
@@ -1571,9 +1591,7 @@ export class HudScene extends Scene {
       .setFontSize(compact ? 13 : 15)
       .setWordWrapWidth(Math.min(480, W - 32));
 
-    if (this.danger) {
-      this.danger.setSize(W, H).setPosition(0, 0);
-    }
+    this.danger.setSize(W, H).setPosition(0, 0);
 
     if (this.vignette) {
       this.vignette.setDisplaySize(W, H).setPosition(0, 0);
@@ -1616,7 +1634,7 @@ export class HudScene extends Scene {
       return;
     }
 
-    if (this.shopOpen && !this.gs?.player?.alive) {
+    if (this.shopOpen && this.gs?.player?.alive !== true) {
       this.toggleShop();
     }
 
@@ -1625,16 +1643,14 @@ export class HudScene extends Scene {
     const me = this.gs?.player;
     const world = this.gs?.worldRef;
 
-    if (!me || !world || !me.hero) {
+    if (!me?.hero) {
       return;
     }
 
     const h = me.hero;
     this.updateTopLeft(h, world);
 
-    if (this.dashCd) {
-      this.updateDash(me, h, world);
-    }
+    this.updateDash(me, h, world);
 
     this.updatePortraitAndBars(me, h);
     const def = HERO_BY_ID[h.defId];
@@ -1672,9 +1688,7 @@ export class HudScene extends Scene {
 
     const wRef = this.gs?.worldRef;
 
-    if (wRef && this.teamScore) {
-      this.updateTeamScore(wRef);
-    }
+    this.updateTeamScore(wRef);
 
     this.updateDangerPulse();
   }
@@ -1699,10 +1713,6 @@ export class HudScene extends Scene {
   }
 
   private updateDangerPulse() {
-    if (!this.danger) {
-      return;
-    }
-
     const p = this.gs?.player;
     const pct = p && p.alive && p.maxHp > 0 ? p.hp / p.maxHp : 1;
 
@@ -1756,13 +1766,13 @@ export class HudScene extends Scene {
     const label =
       blocked && availability.kind === "blocked" ? AVAILABILITY_LABEL[availability.reason] : null;
 
-    if (label) {
+    if (label !== null && label !== "") {
       this.dashLabel.setText(`${label}${cooling ? `\n${Math.ceil(left)}s` : ""}`).setFontSize(11);
     } else {
       this.dashLabel.setText(this.dashLabelText(this.compact)).setFontSize(this.compact ? 20 : 11);
     }
 
-    const labelColor = label ? "#ffe8b0" : "#3a5a78";
+    const labelColor = label !== null && label !== "" ? "#ffe8b0" : "#3a5a78";
 
     if (this.dashLabel.style.color !== labelColor) {
       this.dashLabel.setColor(labelColor);
@@ -1899,7 +1909,7 @@ export class HudScene extends Scene {
     for (const [i, s] of this.itemSlots.entries()) {
       const id = h.items[i];
 
-      if (id) {
+      if (id !== undefined && id !== "") {
         const it = ITEM_BY_ID[id];
         s.icon.setVisible(true).setTexture("ui-icons", it?.icon ?? 0);
         const ready = (h.itemActiveReadyAt[id] ?? 0) <= world.now;

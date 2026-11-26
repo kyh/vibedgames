@@ -1,3 +1,5 @@
+import type { JsonValue } from "@vibedgames/multiplayer";
+
 /** Charge is earned only at an authoritative paddle contact. */
 export type ShotCharge =
   | { readonly kind: "charging"; readonly hits: 0 | 1 | 2 | 3 }
@@ -85,8 +87,13 @@ export const contactShot = (offset: number, towardY: 1 | -1, speed: number, powe
   };
 };
 
-/* oxlint-disable anti-slop/no-unknown-parameters -- parses two fields of an untrusted snapshot. */
-export const readCharge: (hits: unknown, armed: unknown) => ShotCharge | null = (hits, armed) => {
+type WireField = JsonValue | undefined;
+
+/** Reads a charge back from the two fields of an untrusted snapshot. */
+export const readCharge: (hits: WireField, armed: WireField) => ShotCharge | null = (
+  hits,
+  armed,
+) => {
   if (hits === 4) {
     return armed === true ? { kind: "armed" } : { kind: "ready" };
   }

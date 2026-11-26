@@ -132,7 +132,7 @@ export class PhysicalGamepad {
   private axes: readonly number[] = [];
   private down = new Set<PadButton>();
   private prevDown = new Set<PadButton>();
-  private values = new Map<PadButton, number>();
+  private readonly values = new Map<PadButton, number>();
 
   constructor(options: PhysicalGamepadOptions = {}) {
     this.bindings = options.bindings ?? {};
@@ -148,7 +148,7 @@ export class PhysicalGamepad {
     let pad: Gamepad | null = null;
 
     for (const candidate of this.poll()) {
-      if (candidate?.connected) {
+      if (candidate?.connected === true) {
         pad = candidate;
         break;
       }

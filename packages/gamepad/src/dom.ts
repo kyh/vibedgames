@@ -132,7 +132,7 @@ const createOverlay: (parent: HTMLElement, opts: DomGamepadRenderOptions) => Ove
       set(base, { display: stickOn ? "block" : "none" });
       set(knob, { display: stickOn ? "block" : "none" });
 
-      if (stickOn && geom) {
+      if (stickOn) {
         const clamped = Math.min(stick.distance, geom.radius);
 
         const kx =
@@ -166,7 +166,7 @@ const createOverlay: (parent: HTMLElement, opts: DomGamepadRenderOptions) => Ove
             `${circle}border:2px solid;align-items:center;justify-content:center;` +
               "font-weight:600;letter-spacing:.04em;color:rgba(255,255,255,.92);",
           );
-          node.dataset["id"] = b.id;
+          node.dataset.id = b.id;
           buttons.set(b.id, node);
         }
 
@@ -227,8 +227,9 @@ export const attachDomGamepad: (options?: DomGamepadOptions) => DomGamepad = (op
 
   const live = new Set<number>();
 
-  const syncViewport = () =>
+  const syncViewport = () => {
     pad.setViewport(window.innerWidth, window.innerHeight, safeAreaInset());
+  };
 
   syncViewport();
 

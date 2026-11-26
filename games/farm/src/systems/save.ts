@@ -1,3 +1,5 @@
+import { parseJson } from "@vibedgames/multiplayer";
+
 import { isJsonNumber, isJsonObject } from "../json";
 import type { World } from "../world/world";
 import type { Inventory } from "./inventory";
@@ -48,7 +50,7 @@ export const disableSaves = () => {
 };
 
 const isSaveData = (v: JsonValue): v is JsonValue & SaveData => {
-  if (!isJsonObject(v) || v["v"] !== 3) {
+  if (!isJsonObject(v) || v.v !== 3) {
     return false;
   }
 
@@ -59,10 +61,7 @@ const isSaveData = (v: JsonValue): v is JsonValue & SaveData => {
   }
 
   return (
-    isJsonObject(v["player"]) &&
-    isJsonObject(v["world"]) &&
-    isJsonObject(v["inv"]) &&
-    isJsonObject(v["skills"])
+    isJsonObject(v.player) && isJsonObject(v.world) && isJsonObject(v.inv) && isJsonObject(v.skills)
   );
 };
 
@@ -74,11 +73,11 @@ export const loadSave = () => {
   try {
     const raw = localStorage.getItem(KEY);
 
-    if (!raw) {
+    if (raw === null || raw === "") {
       return null;
     }
 
-    const d: JsonValue = JSON.parse(raw);
+    const d = parseJson(raw);
 
     return isSaveData(d) ? d : null;
   } catch {
@@ -102,7 +101,7 @@ export const writeSave: (d: SaveData) => SaveOutcome = (d) => {
 
 export const clearSave = () => {
   if (savesDisabled) {
-    return;
+    return false;
   }
 
   try {

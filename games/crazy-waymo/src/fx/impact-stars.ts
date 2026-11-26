@@ -61,7 +61,7 @@ interface Star {
 
 export class ImpactStars {
   readonly group = new THREE.Group();
-  private stars: Star[] = [];
+  private readonly stars: Star[] = [];
   private clock = 0;
 
   constructor() {

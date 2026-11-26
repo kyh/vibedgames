@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- `dropConnection(code?)` and `redial()` close and reopen the socket the way a
+  dropped network would, without leaving the room, for rehearsing a blip.
+
 ## 0.3.0 — 2026-10-10
 
 **Breaking: requires the matching party server.** The protocol drops the

@@ -1,3 +1,4 @@
+import { runInOrder } from "@repo/contract/run-in-order";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import type { IncomingMessage } from "node:http";
@@ -153,15 +154,15 @@ test("downloadMedia treats '.' / './' / 'out/' as a destination directory", asyn
     url: `http://127.0.0.1:${port}/a.png`,
   };
 
-  for (const template of [dir, `${dir}/`, `${path.join(dir, "nested")}/`]) {
+  await runInOrder([dir, `${dir}/`, `${path.join(dir, "nested")}/`], async (template) => {
     const result = await downloadMedia({ refs: [ref], requestId: "rid", template });
     assert.equal(result.failed.length, 0);
     assert.equal(result.downloaded.length, 1);
     const [written] = result.downloaded;
-    assert.ok(written);
+    assert.ok(written !== undefined);
     assert.equal(written, path.resolve(template, "a.png"));
     assert.equal(readFileSync(written).length, 4);
-  }
+  });
 });
 
 test("downloadMedia writes to a file template literally (not as a directory)", async () => {
@@ -218,7 +219,7 @@ test("downloadMedia stays quiet when the extension matches, aliases included", a
     url: `http://127.0.0.1:${port}/source.jpg`,
   };
 
-  for (const name of ["board.jpg", "board.jpeg"]) {
+  await runInOrder(["board.jpg", "board.jpeg"], async (name) => {
     const result = await downloadMedia({
       refs: [ref],
       requestId: "rid",
@@ -226,7 +227,7 @@ test("downloadMedia stays quiet when the extension matches, aliases included", a
     });
 
     assert.deepEqual(result.mislabeled, [], `${name} names the same format`);
-  }
+  });
 });
 
 test("downloadMedia suffixes colliding targets so multi-output runs don't overwrite", async () => {

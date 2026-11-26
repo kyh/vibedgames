@@ -52,7 +52,7 @@ const fallOf = (tick: Tick, id: string) => {
  *  last had it — call after the local hero's predicted pose is written. */
 export const placeFollowers = (view: World) => {
   for (const g of view.groundEffects) {
-    const owner = g.followOwner ? view.units.get(g.ownerId) : undefined;
+    const owner = g.followOwner === true ? view.units.get(g.ownerId) : undefined;
 
     if (owner) {
       g.x = owner.x;

@@ -2,6 +2,7 @@ import { isOfflineRequested } from "@repo/embed";
 import { MultiplayerClient } from "@vibedgames/multiplayer";
 
 import { MP_INTEREST, MP_MAX_PLAYERS, OFFLINE_FALLBACK_MS } from "../shared/constants";
+import { unreachable } from "../shared/unreachable";
 
 const MULTIPLAYER_HOST = import.meta.env.DEV
   ? "http://localhost:8787"
@@ -66,8 +67,12 @@ const roomStatusText = (net: MultiplayerClient) => {
       return others > 0 ? `${others} ONLINE` : "";
     }
 
-    default: {
+    case "offline": {
       return "";
+    }
+
+    default: {
+      return unreachable(net.connectionStatus);
     }
   }
 };

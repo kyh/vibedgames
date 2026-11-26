@@ -12,6 +12,7 @@ import { setAudioPaused, unlockAudio } from "./audio/sfx";
 import { FaceCamera } from "./input/face-camera";
 import type { FaceCameraState } from "./input/face-camera";
 import { IS_TOUCH } from "./input/input-mode";
+import { PELLET_CELLS, pelletClaimKey } from "./net/pellet-claims";
 import { pauseOverlay } from "./pause-overlay";
 import { GameScene } from "./scenes/game-scene";
 import type { GameDiagnostics } from "./scenes/game-scene";
@@ -52,7 +53,7 @@ renderer.toneMappingExposure = TONE_EXPOSURE;
 
 renderer.shadowMap.enabled = !IS_TOUCH;
 
-renderer.shadowMap.type = IS_TOUCH ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
+renderer.shadowMap.type = THREE.PCFShadowMap;
 
 container.append(renderer.domElement);
 
@@ -111,8 +112,13 @@ const cameraStatus = (state: FaceCameraState) => {
       return "Camera unavailable";
     }
 
-    default: {
+    case "idle": {
       return "Camera off";
+    }
+
+    default: {
+      const unhandled: never = state;
+      throw new Error("unknown camera state", { cause: unhandled });
     }
   }
 };
@@ -131,8 +137,13 @@ const cameraCue = (state: FaceCameraState) => {
       return state.tracking ? "📷 FACE READY" : "📷 FIND FACE";
     }
 
-    default: {
+    case "idle": {
       return "📷 CAMERA";
+    }
+
+    default: {
+      const unhandled: never = state;
+      throw new Error("unknown camera state", { cause: unhandled });
     }
   }
 };
@@ -148,9 +159,15 @@ const renderCameraState = () => {
 };
 
 const face = new FaceCamera({
-  onHeadTurnLeft: () => game.onHeadTurnLeft(),
-  onHeadTurnRight: () => game.onHeadTurnRight(),
-  onMouthChange: (open) => game.onMouthChange(open),
+  onHeadTurnLeft: () => {
+    game.onHeadTurnLeft();
+  },
+  onHeadTurnRight: () => {
+    game.onHeadTurnRight();
+  },
+  onMouthChange: (open) => {
+    game.onMouthChange(open);
+  },
   onState: (state) => {
     cameraState = state;
 
@@ -263,7 +280,9 @@ renderer.setAnimationLoop((time) => {
 if (import.meta.env.DEV || isPlaytestRequested()) {
   game.enableNavDiagnostics();
   publishTestHooks({
-    seed: (seed) => game.seed(seed),
+    seed: (seed) => {
+      game.seed(seed);
+    },
     setPausedForScreenshot: (next) => {
       paused = next;
       game.setPaused(next);
@@ -351,18 +370,33 @@ if (import.meta.env.DEV || isPlaytestRequested()) {
   });
 }
 
+const devHooks = () => ({
+  cells: PELLET_CELLS,
+  chomp: () => {
+    game.onMouthChange(true);
+    game.onMouthChange(false);
+  },
+  claimKey: pelletClaimKey,
+  face,
+  game,
+  mouth: (open: boolean) => {
+    game.onMouthChange(open);
+  },
+  turnLeft: () => {
+    game.onHeadTurnLeft();
+  },
+  turnRight: () => {
+    game.onHeadTurnRight();
+  },
+});
+
+declare global {
+  interface Window {
+    /** DEV-only hooks tools/two-client.mts drives. */
+    __pacman?: ReturnType<typeof devHooks>;
+  }
+}
+
 if (import.meta.env.DEV) {
-  Object.assign(window, {
-    __pacman: {
-      chomp: () => {
-        game.onMouthChange(true);
-        game.onMouthChange(false);
-      },
-      face,
-      game,
-      mouth: (open: boolean) => game.onMouthChange(open),
-      turnLeft: () => game.onHeadTurnLeft(),
-      turnRight: () => game.onHeadTurnRight(),
-    },
-  });
+  window.__pacman = devHooks();
 }

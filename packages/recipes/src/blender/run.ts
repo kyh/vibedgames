@@ -1,7 +1,9 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
-import type { JsonValue, RecipeContext } from "../recipe";
+import { z } from "zod";
+
+import type { RecipeContext } from "../recipe";
 import { need, RecipeError } from "../recipe";
 import type { BlenderRecipe } from "./scripts";
 import { BLENDER_SCRIPTS } from "./scripts";
@@ -44,5 +46,5 @@ export const runBlender = async (ctx: RecipeContext<unknown>, recipe: BlenderRec
     throw new RecipeError(message ?? `Blender failed:\n${tail}`);
   }
 
-  return { outputs: [], result: JSON.parse(readFileSync(result, "utf-8")) as JsonValue };
+  return { outputs: [], result: z.json().parse(JSON.parse(readFileSync(result, "utf-8"))) };
 };

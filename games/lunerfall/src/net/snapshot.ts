@@ -248,8 +248,16 @@ const edgeOf = (kind: EdgeKind, a: number, b: number) => {
       return null;
     }
 
-    default: {
+    case "bounce":
+    case "dead":
+    case "down":
+    case "revive": {
       return { kind };
+    }
+
+    default: {
+      const unhandled: never = kind;
+      throw new Error("unhandled case", { cause: unhandled });
     }
   }
 };

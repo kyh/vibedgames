@@ -121,11 +121,14 @@ const styleZone = (d: Decal, g: GroundEffect, localTeam: Team, now: number) => {
     d.uni.uFill.value = Math.min(1, Math.max(0, 1 - remaining / total));
     d.uni.uAlpha.value = 0.28;
     d.uni.uPulse.value = remaining < 400 ? 0.55 + 0.45 * (0.5 + 0.5 * Math.sin(now * 0.0377)) : 0.8;
-  } else if (g.enemyDps || g.allyHps) {
+  } else if (
+    (g.enemyDps !== undefined && g.enemyDps !== 0) ||
+    (g.allyHps !== undefined && g.allyHps !== 0)
+  ) {
     d.uni.uFill.value = 1;
     d.uni.uAlpha.value = 0.26 + 0.04 * Math.sin(now * 0.004);
     d.uni.uPulse.value = 0.7;
-  } else if (g.telegraph) {
+  } else if (g.telegraph === true) {
     d.uni.uFill.value = 0;
     d.uni.uAlpha.value = 0;
     d.uni.uPulse.value = hostile
@@ -145,7 +148,7 @@ export class Telegraphs {
   private frame = 0;
   private lastNow = 0;
 
-  private scene: THREE.Scene;
+  private readonly scene: THREE.Scene;
 
   constructor(scene: THREE.Scene) {
     this.scene = scene;
@@ -359,7 +362,7 @@ export class Telegraphs {
   private acquire() {
     const idx = this.free.pop();
 
-    return idx === undefined ? -1 : idx;
+    return idx ?? -1;
   }
 
   private release(idx: number) {

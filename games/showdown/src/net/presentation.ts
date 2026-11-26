@@ -103,22 +103,19 @@ const FX_METHODS: ReadonlySet<string> = new Set<FxMethod>([
 const isFxMethod = (v: JsonValue | undefined): v is FxMethod => isStr(v) && FX_METHODS.has(v);
 
 const isFxRow = (v: JsonObject) =>
-  isFxMethod(v["m"]) && Array.isArray(v["a"]) && v["a"].every((n) => isNum(n));
+  isFxMethod(v.m) && Array.isArray(v.a) && v.a.every((n) => isNum(n));
 
 const isSfxRow = (v: JsonObject) =>
-  isStr(v["n"]) &&
-  isSoundName(v["n"]) &&
-  (v["x"] === null || isNum(v["x"])) &&
-  (v["z"] === null || isNum(v["z"]));
+  isStr(v.n) && isSoundName(v.n) && (v.x === null || isNum(v.x)) && (v.z === null || isNum(v.z));
 
 const isFloatRow = (v: JsonObject) =>
-  isNum(v["x"]) && isNum(v["y"]) && isNum(v["z"]) && isStr(v["text"]) && isStr(v["cls"]);
+  isNum(v.x) && isNum(v.y) && isNum(v.z) && isStr(v.text) && isStr(v.cls);
 
 const isFeedRow = (v: JsonObject) =>
-  (v["killer"] === null || isStr(v["killer"])) &&
-  isStr(v["victim"]) &&
-  (v["kid"] === null || isStr(v["kid"])) &&
-  isStr(v["vid"]);
+  (v.killer === null || isStr(v.killer)) &&
+  isStr(v.victim) &&
+  (v.kid === null || isStr(v.kid)) &&
+  isStr(v.vid);
 
 const isWhole = (v: JsonValue | undefined) => isNum(v) && Number.isSafeInteger(v);
 
@@ -128,14 +125,18 @@ const isShotRow = (v: JsonObject) =>
 const isLobRow = (v: JsonObject) =>
   ["o", "s", "x", "y", "z", "tx", "tz"].every((key) => isWhole(v[key]));
 
-const isGoneRow = (v: JsonObject) => isWhole(v["i"]);
+const isGoneRow = (v: JsonObject) => isWhole(v.i);
 
-const hasActor = (v: JsonObject) => v["o"] === undefined || isWhole(v["o"]);
+const hasActor = (v: JsonObject) => v.o === undefined || isWhole(v.o);
 
 const isActorFxRow = (v: JsonObject) => isFxRow(v) && hasActor(v);
 const isActorSfxRow = (v: JsonObject) => isSfxRow(v) && hasActor(v);
 
 const rowGuard = (kind: JsonValue | undefined) => {
+  if (!isStr(kind)) {
+    return null;
+  }
+
   switch (kind) {
     case "fx": {
       return isActorFxRow;
@@ -176,7 +177,7 @@ const isFxRecord = (v: JsonValue): v is FxRecord => {
     return false;
   }
 
-  const guard = rowGuard(v["k"]);
+  const guard = rowGuard(v.k);
 
   return guard !== null && guard(v);
 };
@@ -307,8 +308,15 @@ export const replayBatch = (
         break;
       }
 
-      default: {
+      case "gone":
+      case "lob":
+      case "shot": {
         break;
+      }
+
+      default: {
+        const unhandled: never = row;
+        throw new Error("unhandled case", { cause: unhandled });
       }
     }
   }
@@ -390,9 +398,14 @@ export const setRecorders = (
     sink(o === -1 ? { ...at, k: "sfx", n } : { ...at, k: "sfx", n, o });
   };
 
-  hud.floatRecorder = (x, y, z, text, cls) =>
+  hud.floatRecorder = (x, y, z, text, cls) => {
     sink({ cls, k: "float", text, x: round2(x), y: round2(y), z: round2(z) });
-  hud.feedRecorder = (killer, victim, kid, vid) => sink({ k: "feed", kid, killer, victim, vid });
+  };
+
+  hud.feedRecorder = (killer, victim, kid, vid) => {
+    sink({ k: "feed", kid, killer, victim, vid });
+  };
+
   combat.shotRecorder = (bullet) => {
     const o = context.indexOf(bullet.owner);
 
@@ -409,5 +422,7 @@ export const setRecorders = (
     }
   };
 
-  combat.goneRecorder = (bullet) => sink({ i: bullet.netId, k: "gone" });
+  combat.goneRecorder = (bullet) => {
+    sink({ i: bullet.netId, k: "gone" });
+  };
 };

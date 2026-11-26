@@ -79,16 +79,18 @@ export class BootScene extends Scene {
       void (async () => {
         const { ViewerScene } = await import("./viewer-scene");
 
-        if (!this.scene.manager.getScene("viewer")) {
+        const existing: Scene | null = this.scene.manager.getScene("viewer");
+
+        if (existing === null) {
           this.scene.add("viewer", ViewerScene);
         }
 
         this.scene.start("viewer");
       })();
     } else if (
-      params.get("demo") ||
-      params.get("room") ||
-      params.get("hero") ||
+      (params.get("demo") ?? "") !== "" ||
+      (params.get("room") ?? "") !== "" ||
+      (params.get("hero") ?? "") !== "" ||
       params.has("trailer")
     ) {
       notifyGameStarted();

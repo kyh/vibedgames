@@ -17,7 +17,7 @@ export const localD1File = () => {
     ? readdirSync(d1Dir).find((f) => /^[0-9a-f]{64}\.sqlite$/u.test(f))
     : undefined;
 
-  if (!file) {
+  if (file === undefined || file === "") {
     throw new Error("Local D1 not found. Run `pnpm dev:web` once to initialize it.");
   }
 

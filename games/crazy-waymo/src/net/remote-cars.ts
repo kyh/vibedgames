@@ -251,7 +251,7 @@ export class RemoteCars {
     for (const peer of this.peers.values()) {
       const dx = peer.latest.x - origin.x;
       const dz = peer.latest.z - origin.z;
-      const radiusSq = peer.view?.attached ? DROP_RADIUS_SQ : RENDER_RADIUS_SQ;
+      const radiusSq = peer.view?.attached === true ? DROP_RADIUS_SQ : RENDER_RADIUS_SQ;
 
       if (this.present(peer, serverNow) && dx * dx + dz * dz <= radiusSq) {
         this.place(peer, now, serverNow);
@@ -345,7 +345,7 @@ export class RemoteCars {
   private hide(peer: Peer) {
     const { view } = peer;
 
-    if (view?.attached) {
+    if (view?.attached === true) {
       this.group.remove(view.group);
       view.attached = false;
     }

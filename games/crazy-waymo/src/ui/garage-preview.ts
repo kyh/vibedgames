@@ -72,9 +72,11 @@ export class GaragePreview {
   bind(container: HTMLElement) {
     container.addEventListener("pointermove", (e) => {
       const card = e.target instanceof Element ? e.target.closest("[data-skin]") : null;
-      this.setHovered(card instanceof HTMLElement ? (card.dataset["skin"] ?? null) : null);
+      this.setHovered(card instanceof HTMLElement ? (card.dataset.skin ?? null) : null);
     });
-    container.addEventListener("pointerleave", () => this.setHovered(null));
+    container.addEventListener("pointerleave", () => {
+      this.setHovered(null);
+    });
   }
 
   attach(container: HTMLElement) {
@@ -85,9 +87,9 @@ export class GaragePreview {
         continue;
       }
 
-      const id = canvas.dataset["prev"];
+      const id = canvas.dataset.prev;
 
-      if (!id || !this.turntables.has(id)) {
+      if (id === undefined || id === "" || !this.turntables.has(id)) {
         continue;
       }
 
@@ -105,7 +107,7 @@ export class GaragePreview {
   }
 
   update(dt: number) {
-    if (!this.hovered) {
+    if (this.hovered === null || this.hovered === "") {
       return;
     }
 
@@ -122,7 +124,7 @@ export class GaragePreview {
     this.hovered = id;
     this.angle = REST_ANGLE;
 
-    if (prev) {
+    if (prev !== null && prev !== "") {
       this.renderInto(prev, REST_ANGLE);
     }
   }

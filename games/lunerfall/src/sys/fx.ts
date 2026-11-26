@@ -51,7 +51,7 @@ interface LabelFx {
 class SceneFx {
   readonly particles: SpritePool;
   readonly echoes: SpritePool;
-  private labels: LabelFx[] = [];
+  private readonly labels: LabelFx[] = [];
   private nextLabel = 0;
 
   constructor(scene: Phaser.Scene) {
@@ -81,11 +81,11 @@ class SceneFx {
     });
   }
 
-  private update(_time: number, delta: number) {
+  private readonly update = (_time: number, delta: number) => {
     const ms = Math.max(0, delta);
     this.particles.update(ms);
 
-    if (reducedMotion?.matches) {
+    if (reducedMotion?.matches === true) {
       this.echoes.clear();
     } else {
       this.echoes.update(ms);
@@ -106,7 +106,7 @@ class SceneFx {
       const eased = 1 - (1 - s.age / 600) ** 2;
       s.text.setPosition(s.x, s.y - eased * 12).setAlpha(1 - eased);
     }
-  }
+  };
 
   label(x: number, y: number, text: string, color: string) {
     const slot = this.labels.find((s) => s.age >= 600) ?? this.labels[this.nextLabel];
@@ -164,7 +164,7 @@ const glow = (
   ms: number,
   depth = 60,
 ) => {
-  if (reducedMotion?.matches) {
+  if (reducedMotion?.matches === true) {
     return;
   }
 
@@ -229,7 +229,7 @@ export const afterImage = (
   spr: Phaser.GameObjects.Sprite,
   color: number = COLORS.teal,
 ) => {
-  if (reducedMotion?.matches) {
+  if (reducedMotion?.matches === true) {
     return;
   }
 

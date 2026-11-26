@@ -159,18 +159,16 @@ const sha256Hex = async (text: string) => {
 let indexCache: Promise<SkillIndexEntry[]> | null = null;
 
 /** Build (and memoize) the discovery index entries with content digests. */
-export const getSkillIndex = () => {
-  if (!indexCache) {
-    indexCache = Promise.all(
-      agentSkills.map(async (skill) => ({
-        description: skill.description,
-        digest: `sha256:${await sha256Hex(skill.content)}`,
-        name: skill.name,
-        type: "skill-md" as const,
-        url: skillUrl(skill.name),
-      })),
-    );
-  }
+export const getSkillIndex = async () => {
+  indexCache ??= Promise.all(
+    agentSkills.map(async (skill) => ({
+      description: skill.description,
+      digest: `sha256:${await sha256Hex(skill.content)}`,
+      name: skill.name,
+      type: "skill-md" as const,
+      url: skillUrl(skill.name),
+    })),
+  );
 
-  return indexCache;
+  return await indexCache;
 };

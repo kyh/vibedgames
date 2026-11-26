@@ -7,7 +7,7 @@ import { outputArgs, writeStructured } from "../lib/output.js";
 import { assertKnownFlags } from "../lib/strict-args.js";
 
 const requireLogin = () => {
-  if (!getToken()) {
+  if ((getToken() ?? "") === "") {
     consola.warn("Not logged in. Run `vg login` to authenticate.");
     process.exit(1);
   }
@@ -119,7 +119,7 @@ const deleteCommand = defineCommand({
       process.exit(1);
     }
 
-    if (!args.yes) {
+    if (args.yes !== true) {
       if (!process.stdin.isTTY) {
         consola.error(`Deleting is permanent: pass --yes to delete ${args.slug}.`);
         process.exit(2);
@@ -130,7 +130,7 @@ const deleteCommand = defineCommand({
         { type: "confirm" },
       );
 
-      if (confirmed !== true) {
+      if (!confirmed) {
         consola.info("Nothing deleted.");
 
         return;

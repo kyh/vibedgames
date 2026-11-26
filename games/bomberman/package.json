@@ -10,7 +10,7 @@
     "preview": "vite preview",
     "test": "node --import tsx --test tools/*-smoke.mts",
     "typecheck": "tsc --noEmit",
-    "test:online": "node tools/two-client.mjs"
+    "test:online": "node tools/two-client.mts"
   },
   "dependencies": {
     "@repo/embed": "workspace:*",
@@ -21,6 +21,7 @@
   },
   "devDependencies": {
     "@kyh/tsconfig": "catalog:",
+    "@repo/smoke": "workspace:*",
     "@types/node": "catalog:",
     "playwright-core": "^1.65.1",
     "tsx": "^4.23.15",

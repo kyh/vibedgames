@@ -7,18 +7,13 @@ This is the tool-agnostic guide for coding agents, and it is meant to be **run**
 ## Quickstart (headless)
 
 ```sh
-pnpm install
-cp .env.example .env  # every credential, CLI and Worker alike (see Environment)
-pnpm dev:web          # ← run once, then stop it
-pnpm db:local         # db:push + seed dev identities
-pnpm dev:web          # http://localhost:5173
+pnpm install && pnpm bootstrap --yes   # .env, local D1 schema, seeded logins
+pnpm dev:web                           # http://localhost:5173
 ```
 
-**The double `dev:web` is not a typo.** `packages/db/drizzle.config.local.ts` resolves the Miniflare SQLite file out of `apps/web/.wrangler/state/v3/d1/miniflare-D1DatabaseObject/`, and that directory only exists after the dev Worker has booted once. Skip the first run and `pnpm db:local` dies with `Local D1 not found. Run 'pnpm dev:web' once to initialize it.`
+`pnpm bootstrap` (`scripts/bootstrap.ts`) copies `.env.example` to `.env` if there is none, boots the dev Worker once if the local Miniflare D1 does not exist yet (`packages/db/drizzle.config.local.ts` resolves the SQLite file out of `apps/web/.wrangler/state/v3/d1/miniflare-D1DatabaseObject/`, which only the dev Worker creates) and stops it again, then runs `pnpm db:push` and `pnpm db:seed-local`. Everything it touches is local: it never reads `.env.production*` and never reaches the remote D1. It is idempotent — re-run it any time, and after every schema change. Without `--yes` it asks once before starting, unless stdin or stdout is not a TTY.
 
 Liveness: `curl -s -o /dev/null -w '%{http_code}' localhost:5173/auth/login` → `200`. (`/` answers `307` — it redirects to a featured game — so don't use it as a health check.)
-
-There is no bootstrap script; the five commands above _are_ the provisioning steps. `pnpm db:local` is idempotent — re-run it any time, and after every schema change.
 
 ## Environment
 
@@ -31,7 +26,7 @@ One file, two consumers. Everything lives in the repo-root `.env`; template is `
 
 **The declared secrets are the whole mechanism.** Declaring a name with `bindings.secret()` makes the dev server fold `process.env` into the Worker binding and filter it down to exactly the declared names — so a secret that is in `.env` but not declared silently never reaches the Worker. Adding one means editing two places: `.env.example` and `cloudflare.config.ts` (the `Env` type is generated from it).
 
-Leave `RESEND_API_KEY` out of `.env`: without it the dev server writes each email, password-reset link included, to its own log instead of sending it, so a reset can be followed headlessly and seeded addresses never receive mail.
+Keep `RESEND_API_KEY` empty in `.env`, as `.env.example` ships it (an empty value counts as unset, and every other optional key is read the same way): without it the dev server writes each email, password-reset link included, to its own log instead of sending it, so a reset can be followed headlessly and seeded addresses never receive mail. Only a request to `localhost` logs (`mailerOf` in `packages/service/src/email/mailer.ts`): a deployed Worker without the key sends and logs nothing, since a logged reset link is a live login, warns once per isolate that it sends no email, refuses a password reset up front and skips email verification.
 
 Do not reintroduce `apps/web/.dev.vars`. The dev server prefers it and stops reading `.env`/`process.env` the moment it exists, so the root file goes quietly dead. In production the same names are set with `cf workers secrets update`.
 
@@ -42,11 +37,11 @@ Do not reintroduce `apps/web/.dev.vars`. The dev server prefers it and stops rea
 | Identity                               | Use                                                                       |
 | -------------------------------------- | ------------------------------------------------------------------------- |
 | `user@vibedgames.com` / `password123`  | browser login, regular user                                               |
-| `admin@vibedgames.com` / `password123` | browser login, admin (`/admin/users`, `/admin/invites`)                   |
+| `admin@vibedgames.com` / `password123` | browser login, admin (`/admin`: users and credit codes)                   |
 | `dev-local-session-token-0000000000`   | long-lived bearer token for the CLI and raw HTTP                          |
 | `DEV123`                               | credit code, $20, unlimited uses — redeem once per account in `/settings` |
 
-Five sample games are seeded onto the admin account, so `/home` is non-empty when signed in as `admin@vibedgames.com`, and they show up in `/admin/users`. (The games themselves are served from the live prod subdomains; only the D1 rows are local.) `/` and `/discover` never read D1 — they render the hardcoded `featuredGames` array in `apps/web/src/components/game/data.ts`, so re-seeding cannot change them.
+Five sample games are seeded onto the admin account, so `/home` is non-empty when signed in as `admin@vibedgames.com`, and they show up under Users in `/admin`. (The games themselves are served from the live prod subdomains; only the D1 rows are local.) `/` and `/discover` never read D1 — they render the hardcoded `featuredGames` array in `apps/web/src/components/game/data.ts`, so re-seeding cannot change them.
 
 Headless auth without a browser:
 
@@ -107,9 +102,9 @@ Static gate — before a commit:
 pnpm verify   # typecheck · lint · format · test
 ```
 
-**Lint is a clean gate.** `oxlint.config.ts` extends the ultracite presets (`ultracite/oxlint/core`, `react`, `anti-slop`, `landmines`); every rule is an error and `lint` fails on the first one. Landmines means no prose comments (TSDoc on exported API, directives and a one-line `// WARNING:` excepted), no annotated return types (type the variable or use `satisfies`), no test doubles or fixed sleeps, and tests beside the module they test. The deliberate overrides and why are listed in `CLAUDE.md`. Prefer fixing code over `oxlint-disable` comments; when a rule is genuinely wrong for a line, disable that line with a `-- reason`.
+**Lint is a clean gate.** `oxlint.config.ts` extends the ultracite presets (`ultracite/oxlint/core`, `react`, `anti-slop`, `landmines`); every rule is an error, `lint` fails on the first one, and it is type-aware (`options.typeAware`), so a file outside every tsconfig lints as `any`. Landmines means no prose comments (TSDoc on exported API, directives and a one-line `// WARNING:` excepted), no annotated return types (type the variable or use `satisfies`), no test doubles or fixed sleeps, and tests beside the module they test. The few deliberate exceptions and why are listed in `CLAUDE.md`. Prefer fixing code over `oxlint-disable` comments; when a rule is genuinely wrong for a line, disable that line with a `-- reason`.
 
-`pnpm test` runs each workspace's own suite: the `vg` CLI's units, the sims and smoke checks in ten of the example games, `apps/web`'s content-negotiation / structured-data / page-content / OpenAPI / oRPC-handler units, the games and party workers under workerd, and the packages' units. Nothing in `verify` renders a web route, drives a browser or runs a procedure against a database (`packages/service`'s suites stop at middleware, auth config, and the generate and playtest proxies against a local stand-in upstream) — so a green `verify` is a floor, not proof. Drive the change: `vg playtest` for games (see the `playtest` skill), the recipe below for the web app.
+`pnpm test` runs each workspace's own suite: the `vg` CLI's units, the sims and smoke checks in all fourteen example games, `apps/web`'s content-negotiation / structured-data / page-content / OpenAPI / oRPC-handler units, the games and party workers under workerd, and the packages' units. Nothing in `verify` renders a web route, drives a browser or runs a procedure against a database (`packages/service`'s suites stop at middleware, auth config, and the generate and playtest proxies against a local stand-in upstream) — so a green `verify` is a floor, not proof. Drive the change: `vg playtest` for games (see the `playtest` skill), the recipe below for the web app.
 
 Runtime — the web app and the example games are both browser-reachable. `vg playtest` is the one browser driver (a passthrough to agent-browser; it installs itself and its browser on first use, so there is nothing to set up beyond `pnpm dogfood`). With `pnpm dev:web` running:
 
@@ -127,7 +122,7 @@ vg playtest screenshot /tmp/after.png
 
 The auth form uses react-hook-form, so prefer the `data-test` attributes over positional refs for the two credential fields; everything else is reliable off `snapshot`.
 
-Six flows cover all ten `useMutation` sites in the app: `/settings` (create + revoke an API key), `/admin/invites` (create + revoke a code), `/admin/users` (create a user, grant credits, then re-check `/settings`), `/home` (delete a game), `/settings` again (click "Have a code? Redeem it" and type `DEV123` into the dialog — that is the `credits.redeem` mutation; a second redeem by the same account answers 409; the buy buttons, which fire `credits.checkout`, render only when both `STRIPE_*` keys are set — without them `credits.me` reports `purchasesEnabled: false` and the section offers a code button instead), `/settings` → Connected apps (Disconnect an app, after `vg login` against the dev server has connected the CLI). `/device` is not a `useMutation` site: `vg login` against the dev server prints a code, and its page approves or denies it through the auth client.
+Six flows cover all ten `useMutation` sites in the app: `/settings` (create + revoke an API key), `/admin` → Credit codes (create + revoke a code), `/admin` → Users (create a user, grant credits, then re-check `/settings`), `/home` (delete a game), `/settings` again (click "Have a code? Redeem it" and type `DEV123` into the dialog — that is the `credits.redeem` mutation; a second redeem by the same account answers 409; the buy buttons, which fire `credits.checkout`, render only when both `STRIPE_*` keys are set — without them `credits.me` reports `purchasesEnabled: false` and the section offers a code button instead), `/settings` → Connected apps (Disconnect an app, after `vg login` against the dev server has connected the CLI). `/device` is not a `useMutation` site: `vg login` against the dev server prints a code, and its page approves or denies it through the auth client.
 
 ## Platform matrix
 
@@ -139,6 +134,8 @@ Six flows cover all ten `useMutation` sites in the app: `/settings` (create + re
 | Games worker  | `pnpm dev:games`              | `:3002`                    | Partly — curl; serves R2 bundles, no local fixtures  |
 | Example games | `pnpm dev:<game>`             | per-game vite port         | **Yes** — `vg playtest`; see the `playtest` skill    |
 | Factory       | `pnpm -F @repo/factory start` | terminal                   | No — interactive Ink app                             |
+
+`dev:party` pins its inspector to `:9230`, so it runs beside `dev:games` or `dev:web`, which both take the default `:9229` first.
 
 For the surfaces marked No, `pnpm typecheck` and `pnpm build` are the gate; a real check needs a human. Games are agent-verifiable for _correctness_ (loop alive, input alive, objective reachable, no errors) — whether one is **fun** still needs a human, and headless frame rates are meaningless.
 

@@ -2,4 +2,6 @@ import { init } from "@dimforge/rapier3d-compat";
 
 export * from "@dimforge/rapier3d-compat";
 
-export const ready = () => init();
+export const ready = async () => {
+  await init();
+};

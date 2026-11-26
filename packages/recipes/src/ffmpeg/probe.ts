@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 import type { RecipeContext } from "../recipe";
 import { need, RecipeError } from "../recipe";
 
@@ -11,26 +13,28 @@ export interface MediaInfo {
   frames: number | null;
 }
 
-interface ProbeStream {
-  codec_type?: string;
-  width?: number;
-  height?: number;
-  r_frame_rate?: string;
-  avg_frame_rate?: string;
-  nb_frames?: string;
-  nb_read_frames?: string;
-  duration?: string;
-}
+const probeStream = z.object({
+  avg_frame_rate: z.string().optional(),
+  codec_type: z.string().optional(),
+  duration: z.string().optional(),
+  height: z.number().optional(),
+  nb_frames: z.string().optional(),
+  nb_read_frames: z.string().optional(),
+  r_frame_rate: z.string().optional(),
+  width: z.number().optional(),
+});
 
-interface ProbeOutput {
-  streams?: ProbeStream[];
-  format?: { duration?: string };
-}
+const probeOutput = z.object({
+  format: z.object({ duration: z.string().optional() }).optional(),
+  streams: z.array(probeStream).optional(),
+});
+
+type ProbeOutput = z.infer<typeof probeOutput>;
 
 const rate = (text: string | undefined) => {
   const [num, den] = (text ?? "").split("/").map(Number);
 
-  if (!num || !den) {
+  if (num === undefined || den === undefined || !(num > 0) || !(den > 0)) {
     return null;
   }
 
@@ -57,7 +61,7 @@ export const probe = async (ctx: RecipeContext<unknown>, file: string, countFram
   let parsed: ProbeOutput;
 
   try {
-    parsed = JSON.parse(stdout) as ProbeOutput;
+    parsed = probeOutput.parse(JSON.parse(stdout));
   } catch {
     throw new RecipeError(`${file} is not a media file ffprobe can read.`);
   }
@@ -131,7 +135,7 @@ export const loudnormStats = (stderr: string) => {
     throw new RecipeError("loudnorm printed no measurement.");
   }
 
-  return JSON.parse(stderr.slice(start, end + 1)) as Record<string, string>;
+  return z.record(z.string(), z.string()).parse(JSON.parse(stderr.slice(start, end + 1)));
 };
 
 export const roundTo = (value: number, places = 2) => {

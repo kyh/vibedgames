@@ -27,7 +27,7 @@ const isFiniteNumber = (v: PlayerStateField): v is number => Number.isFinite(v);
  * everyone else on race rules.
  */
 export const readPacSample = (state: Player["state"]) => {
-  if (state?.["active"] !== true) {
+  if (state?.active !== true) {
     return null;
   }
 

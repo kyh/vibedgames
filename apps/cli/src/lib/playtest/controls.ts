@@ -1,3 +1,4 @@
+import { parseJson } from "@repo/contract/json";
 import { readFileSync } from "node:fs";
 
 import type { JsonObject, JsonValue } from "../types.js";
@@ -211,7 +212,7 @@ export const parseControls = (raw: JsonValue, source: string) => {
 
   if (
     !Object.values(moves).some(
-      (option) => option.keys.length > 0 || option.pointer || option.reflex,
+      (option) => option.keys.length > 0 || option.pointer !== null || option.reflex,
     )
   ) {
     fail(`${source}: no \`move\` option holds any input, so the playtester could never move.`);
@@ -271,7 +272,7 @@ export const readControlsArg = (value: string) => {
   let raw: JsonValue;
 
   try {
-    raw = JSON.parse(text);
+    raw = parseJson(text);
   } catch (error) {
     fail(
       `--controls ${value} isn't valid JSON: ${error instanceof Error ? error.message : String(error)}`,

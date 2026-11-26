@@ -11,10 +11,10 @@ import { getServerContext } from "@/auth/server";
 export const Route = createFileRoute("/api/stripe/webhook")({
   server: {
     handlers: {
-      POST: ({ request }) => {
+      POST: async ({ request }) => {
         const { billing, db } = getServerContext();
 
-        return handleStripeWebhook(request, { billing, db });
+        return await handleStripeWebhook(request, { billing, db });
       },
     },
   },

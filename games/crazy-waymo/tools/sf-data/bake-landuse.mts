@@ -1,0 +1,495 @@
+import { writeFileSync } from "node:fs";
+
+import { at } from "./lib.mts";
+import { readOverpass } from "./osm.mts";
+import type { OsmGeom, OsmMember, OsmTags } from "./osm.mts";
+
+const GRID_X = 244;
+const GRID_Z = 200;
+const U_B = 765.2557;
+const U_M = 6.2462;
+const V_M = -9.6095;
+const V_B = 363.344;
+const SUB_ROWS = 4;
+const MIN_COVER = 0.34;
+
+const CLASSES = [
+  "unclassified",
+  "park",
+  "grass",
+  "garden",
+  "wood",
+  "scrub",
+  "cemetery",
+  "turf",
+  "court",
+  "plaza",
+  "parking",
+  "industrial",
+  "railyard",
+  "port",
+  "institution",
+  "retail",
+  "sand",
+  "rock",
+  "water",
+];
+
+const ID = new Map(CLASSES.map((c, i) => [c, i]));
+
+const idOf = (c: string) => {
+  const id = ID.get(c);
+
+  if (id === undefined) {
+    throw new RangeError(`unknown ground class ${c}`);
+  }
+
+  return id;
+};
+
+const WEIGHT = new Map([
+  ["cemetery", 1.5],
+  ["court", 1.4],
+  ["garden", 1.5],
+  ["grass", 1.1],
+  ["industrial", 0.95],
+  ["institution", 0.9],
+  ["park", 1],
+  ["parking", 1.3],
+  ["plaza", 1],
+  ["port", 0.95],
+  ["railyard", 1.2],
+  ["retail", 0.85],
+  ["rock", 1.5],
+  ["sand", 1.6],
+  ["scrub", 1.2],
+  ["turf", 1.4],
+  ["water", 1.6],
+  ["wood", 1.2],
+]);
+
+const GREEN = ["park", "grass", "garden", "wood", "scrub", "cemetery", "turf"];
+const SAND = ["sand"];
+
+const GRASS_SURFACE = new Set(["grass", "dirt", "earth", "ground", "sand", "clay", "gravel"]);
+
+const HARD_SURFACE = new Set([
+  "asphalt",
+  "concrete",
+  "paved",
+  "acrylic",
+  "tartan",
+  "rubber",
+  "artificial_turf",
+  "metal",
+  "wood",
+]);
+
+const TURF_SPORT = new Set([
+  "soccer",
+  "baseball",
+  "softball",
+  "american_football",
+  "rugby",
+  "cricket",
+  "field_hockey",
+  "athletics",
+  "golf",
+  "multi",
+]);
+
+const NATURAL_CLASS = new Map([
+  ["bare_rock", "rock"],
+  ["beach", "sand"],
+  ["cliff", "rock"],
+  ["grassland", "grass"],
+  ["heath", "scrub"],
+  ["sand", "sand"],
+  ["scrub", "scrub"],
+  ["wetland", "water"],
+  ["water", "water"],
+  ["wood", "wood"],
+]);
+
+const LEISURE_CLASS = new Map([
+  ["common", "park"],
+  ["dog_park", "park"],
+  ["garden", "garden"],
+  ["golf_course", "turf"],
+  ["nature_reserve", "park"],
+  ["park", "park"],
+  ["recreation_ground", "grass"],
+  ["sports_centre", "court"],
+  ["stadium", "court"],
+]);
+
+const LANDUSE_CLASS = new Map([
+  ["allotments", "garden"],
+  ["brownfield", "industrial"],
+  ["cemetery", "cemetery"],
+  ["commercial", "retail"],
+  ["construction", "industrial"],
+  ["forest", "wood"],
+  ["grass", "grass"],
+  ["industrial", "industrial"],
+  ["meadow", "grass"],
+  ["military", "institution"],
+  ["orchard", "garden"],
+  ["port", "port"],
+  ["quarry", "industrial"],
+  ["railway", "railyard"],
+  ["recreation_ground", "grass"],
+  ["retail", "retail"],
+  ["village_green", "park"],
+]);
+
+const AMENITY_CLASS = new Map([
+  ["college", "institution"],
+  ["hospital", "institution"],
+  ["parking", "parking"],
+  ["school", "institution"],
+  ["university", "institution"],
+]);
+
+const MAN_MADE_CLASS = new Map([
+  ["breakwater", "port"],
+  ["pier", "port"],
+  ["quay", "port"],
+  ["works", "industrial"],
+]);
+
+const PITCH_LEISURE = new Set(["pitch", "playground", "track"]);
+
+const pitchClass = (t: OsmTags) => {
+  const surface = t.surface ?? "";
+
+  if (GRASS_SURFACE.has(surface)) {
+    return "turf";
+  }
+
+  if (HARD_SURFACE.has(surface)) {
+    return "court";
+  }
+
+  if (t.leisure === "playground") {
+    return "court";
+  }
+
+  return TURF_SPORT.has(t.sport ?? "") ? "turf" : "court";
+};
+
+const classOf = (t: OsmTags) => {
+  const natural = NATURAL_CLASS.get(t.natural ?? "");
+
+  if (natural !== undefined && natural !== "") {
+    return natural;
+  }
+
+  if (PITCH_LEISURE.has(t.leisure ?? "")) {
+    return pitchClass(t);
+  }
+
+  const leisure = LEISURE_CLASS.get(t.leisure ?? "");
+
+  if (leisure !== undefined && leisure !== "") {
+    return leisure;
+  }
+
+  const landuse = LANDUSE_CLASS.get(t.landuse ?? "");
+
+  if (landuse !== undefined && landuse !== "") {
+    return landuse;
+  }
+
+  const amenity = AMENITY_CLASS.get(t.amenity ?? "");
+
+  if (amenity !== undefined && amenity !== "") {
+    return amenity;
+  }
+
+  const manMade = MAN_MADE_CLASS.get(t.man_made ?? "");
+
+  if (manMade !== undefined && manMade !== "") {
+    return manMade;
+  }
+
+  if (t.highway === "pedestrian" || t.place === "square") {
+    return "plaza";
+  }
+
+  return null;
+};
+
+const toGrid = (geometry: readonly OsmGeom[]) => {
+  const ring: number[] = [];
+
+  for (const g of geometry) {
+    ring.push((U_M * g.lon + U_B) * GRID_X, (V_M * g.lat + V_B) * GRID_Z);
+  }
+
+  return ring;
+};
+
+const key = (g: OsmGeom) => `${g.lat.toFixed(7)},${g.lon.toFixed(7)}`;
+const first = (g: readonly OsmGeom[]) => at(g, 0);
+const last = (g: readonly OsmGeom[]) => at(g, g.length - 1);
+const isClosed = (g: readonly OsmGeom[]) => g.length > 3 && key(first(g)) === key(last(g));
+
+const stitch = (members: readonly OsmMember[]) => {
+  const open = members.flatMap((m) =>
+    m.geometry !== undefined && m.geometry.length > 1 ? [m.geometry] : [],
+  );
+
+  const rings: OsmGeom[][] = [];
+  const pending: OsmGeom[][] = [];
+
+  for (const g of open) {
+    (isClosed(g) ? rings : pending).push(g);
+  }
+
+  const takeNext = () => pending.pop();
+
+  for (let next = takeNext(); next !== undefined; next = takeNext()) {
+    const run = [...next];
+    let grew = true;
+
+    while (grew && !isClosed(run)) {
+      grew = false;
+
+      for (let i = 0; i < pending.length; i += 1) {
+        const c = at(pending, i);
+        const head = key(first(run));
+        const tail = key(last(run));
+
+        if (key(first(c)) === tail) {
+          run.push(...c.slice(1));
+        } else if (key(last(c)) === tail) {
+          run.push(...c.slice(0, -1).toReversed());
+        } else if (key(last(c)) === head) {
+          run.unshift(...c.slice(0, -1));
+        } else if (key(first(c)) === head) {
+          run.unshift(...c.slice(1).toReversed());
+        } else {
+          continue;
+        }
+
+        pending.splice(i, 1);
+        grew = true;
+        break;
+      }
+    }
+
+    if (isClosed(run)) {
+      rings.push(run);
+    }
+  }
+
+  return rings;
+};
+
+const raw = readOverpass(new URL("sf-landuse.raw.json", import.meta.url));
+const rings: { cls: string; inner: boolean; ring: number[] }[] = [];
+let skippedTags = 0;
+let relRings = 0;
+
+for (const e of raw.elements) {
+  const cls = classOf(e.tags ?? {});
+
+  if (cls === null) {
+    skippedTags += 1;
+    continue;
+  }
+
+  if (e.type === "way") {
+    if (e.geometry === undefined || e.geometry.length < 3) {
+      continue;
+    }
+
+    rings.push({ cls, inner: false, ring: toGrid(e.geometry) });
+  } else if (e.type === "relation") {
+    const members = (e.members ?? []).filter((m) => m.type === "way");
+    const outers = stitch(members.filter((m) => m.role !== "inner"));
+    const inners = stitch(members.filter((m) => m.role === "inner"));
+
+    for (const g of outers) {
+      rings.push({ cls, inner: false, ring: toGrid(g) });
+    }
+
+    for (const g of inners) {
+      rings.push({ cls, inner: true, ring: toGrid(g) });
+    }
+
+    relRings += outers.length + inners.length;
+  }
+}
+
+console.log(
+  `${rings.length} rings (${relRings} from relations), ${skippedTags} elements with no ground class`,
+);
+
+const cover = CLASSES.map(() => new Float32Array(GRID_X * GRID_Z));
+
+const fill = (target: Float32Array, ring: readonly number[], sign: number) => {
+  const n = ring.length / 2;
+  let minZ = Infinity;
+  let maxZ = -Infinity;
+
+  for (let i = 1; i < ring.length; i += 2) {
+    minZ = Math.min(minZ, at(ring, i));
+    maxZ = Math.max(maxZ, at(ring, i));
+  }
+
+  const gz0 = Math.max(0, Math.floor(minZ));
+  const gz1 = Math.min(GRID_Z - 1, Math.ceil(maxZ));
+  const xs: number[] = [];
+
+  for (let gz = gz0; gz <= gz1; gz += 1) {
+    for (let s = 0; s < SUB_ROWS; s += 1) {
+      const pz = gz + (s + 0.5) / SUB_ROWS;
+      xs.length = 0;
+
+      for (let i = 0; i < n; i += 1) {
+        const j = (i + n - 1) % n;
+        const zi = at(ring, i * 2 + 1);
+        const zj = at(ring, j * 2 + 1);
+
+        if (zi > pz === zj > pz) {
+          continue;
+        }
+
+        const xi = at(ring, i * 2);
+        const xj = at(ring, j * 2);
+        xs.push(xi + ((xj - xi) * (pz - zi)) / (zj - zi));
+      }
+
+      if (xs.length < 2) {
+        continue;
+      }
+
+      xs.sort((a, b) => a - b);
+
+      for (let k = 0; k + 1 < xs.length; k += 2) {
+        const x0 = Math.max(0, at(xs, k));
+        const x1 = Math.min(GRID_X, at(xs, k + 1));
+
+        if (x1 <= x0) {
+          continue;
+        }
+
+        for (let gx = Math.floor(x0); gx <= Math.min(GRID_X - 1, Math.floor(x1)); gx += 1) {
+          const overlap = Math.min(x1, gx + 1) - Math.max(x0, gx);
+
+          if (overlap > 0) {
+            const cell = gx * GRID_Z + gz;
+            target[cell] = at(target, cell) + (sign * overlap) / SUB_ROWS;
+          }
+        }
+      }
+    }
+  }
+};
+
+for (const r of rings) {
+  fill(at(cover, idOf(r.cls)), r.ring, r.inner ? -1 : 1);
+}
+
+const cls = new Uint8Array(GRID_X * GRID_Z);
+const counts = CLASSES.map(() => 0);
+const weightOf = CLASSES.map((c) => WEIGHT.get(c) ?? 1);
+
+for (let i = 0; i < cls.length; i += 1) {
+  let best = 0;
+  let bestScore = 0;
+
+  for (let c = 1; c < CLASSES.length; c += 1) {
+    const v = at(at(cover, c), i);
+
+    if (v < MIN_COVER) {
+      continue;
+    }
+
+    const score = v * at(weightOf, c);
+
+    if (score > bestScore) {
+      bestScore = score;
+      best = c;
+    }
+  }
+
+  cls[i] = best;
+  counts[best] = at(counts, best) + 1;
+}
+
+const classified = cls.length - at(counts, 0);
+
+console.log(
+  `classified ${classified}/${cls.length} cells (${((classified / cls.length) * 100).toFixed(1)}%)`,
+);
+
+for (let c = 1; c < CLASSES.length; c += 1) {
+  if (at(counts, c) > 0) {
+    console.log(`  ${at(CLASSES, c).padEnd(13)} ${at(counts, c)}`);
+  }
+}
+
+const cols: string[] = [];
+
+for (let gx = 0; gx < GRID_X; gx += 1) {
+  let hex = "";
+
+  for (let gz = 0; gz < GRID_Z; gz += 1) {
+    hex += at(cls, gx * GRID_Z + gz)
+      .toString(16)
+      .padStart(2, "0");
+  }
+
+  cols.push(hex.replace(/(?:00)+$/u, ""));
+}
+
+const union = (names: readonly string[]) => names.map((n) => JSON.stringify(n)).join(" | ");
+const list = (names: readonly string[]) => names.map((n) => JSON.stringify(n)).join(", ");
+
+const out = `// AUTO-GENERATED by tools/sf-data/bake-landuse.mts — do not edit by hand.
+// Real OSM ground classes per grid cell: what each 13u cell of San Francisco
+// actually IS. One byte per cell, two hex chars, column-major (same shape as
+// sf-streets.ts); trailing unclassified runs are trimmed per column.
+
+/** Ground classes, in id order. Append only — the raster stores the index. */
+export const LANDUSE_CLASSES = [
+${CLASSES.map((c) => `  ${JSON.stringify(c)},`).join("\n")}
+] as const;
+
+export type LanduseClass = ${union(CLASSES)};
+
+const CLASS_COLS: readonly string[] = ${JSON.stringify(cols)};
+
+function classId(gx: number, gz: number): number {
+  const col = CLASS_COLS[gx];
+  if (col === undefined || gz < 0) return 0;
+  const at = gz * 2;
+  if (at + 2 > col.length) return 0; // column trimmed past its last class
+  const id = Number.parseInt(col.slice(at, at + 2), 16);
+  return Number.isNaN(id) ? 0 : id;
+}
+
+/** What the ground at this cell is. "unclassified" = OSM says nothing. */
+export function landuseClassAt(gx: number, gz: number): LanduseClass {
+  return LANDUSE_CLASSES[classId(gx, gz)] ?? "unclassified";
+}
+
+// Vegetated classes. This gates park tiles, the car-free park clip and the
+// meadow patches, so it stays narrow: an asphalt schoolyard is a "court".
+const GREEN_CLASSES: ReadonlySet<LanduseClass> = new Set([${list(GREEN)}]);
+const SAND_CLASSES: ReadonlySet<LanduseClass> = new Set([${list(SAND)}]);
+
+export function landuseGreenAt(gx: number, gz: number): boolean {
+  return GREEN_CLASSES.has(landuseClassAt(gx, gz));
+}
+export function landuseSandAt(gx: number, gz: number): boolean {
+  return SAND_CLASSES.has(landuseClassAt(gx, gz));
+}
+`;
+
+writeFileSync(new URL("../../src/world/sf-landuse.ts", import.meta.url), out);
+
+console.log(`sf-landuse.ts written (${(out.length / 1024).toFixed(1)} KB)`);

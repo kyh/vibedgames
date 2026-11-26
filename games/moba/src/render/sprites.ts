@@ -20,8 +20,8 @@ export const unitSprite = (u: Unit) => {
   }
 
   if (u.kind === "creep" && u.creep) {
-    if (u.neutral) {
-      if (u.creep.boss) {
+    if (u.neutral === true) {
+      if (u.creep.boss === true) {
         return { animBase: "e-minotaur", scale: 0.42, tex: "e-minotaur-idle", tint: 0xff_ff_ff };
       }
 

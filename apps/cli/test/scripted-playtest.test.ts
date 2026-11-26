@@ -10,7 +10,7 @@ import type { JsonValue } from "../src/lib/types.js";
 
 const BOT = fileURLToPath(
   new URL(
-    "../../../plugins/vibedgames/skills/playtest/scripts/scripted-playtest.mjs",
+    "../../../plugins/vibedgames/skills/playtest/scripts/scripted-playtest.ts",
     import.meta.url,
   ),
 );

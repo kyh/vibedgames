@@ -49,18 +49,18 @@ export class ChaseCamera {
   readonly camera: THREE.PerspectiveCamera;
   private designFov = CAMERA.fov;
   private camYaw = 0;
-  private look = new THREE.Vector3();
+  private readonly look = new THREE.Vector3();
   private shake = 0;
   private shakeT = 0;
-  private shakeOff = new THREE.Vector3();
+  private readonly shakeOff = new THREE.Vector3();
   private ceilings: CeilingIndex | null = null;
   private groundAt: ((x: number, z: number, referenceY: number) => number) | null = null;
   private ceilY = Infinity;
   private ceilCap = Infinity;
-  private scrFwd = new THREE.Vector2();
-  private scrPerp = new THREE.Vector2();
-  private scrDesired = new THREE.Vector3();
-  private scrLook = new THREE.Vector3();
+  private readonly scrFwd = new THREE.Vector2();
+  private readonly scrPerp = new THREE.Vector2();
+  private readonly scrDesired = new THREE.Vector3();
+  private readonly scrLook = new THREE.Vector3();
 
   constructor(aspect: number) {
     this.camera = new THREE.PerspectiveCamera(

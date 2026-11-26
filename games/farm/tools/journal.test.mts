@@ -8,6 +8,7 @@ import { CROPS } from "../src/data/crops";
 import { FISH } from "../src/data/fish";
 import { loadSave, writeSave } from "../src/systems/save";
 import type { SaveData } from "../src/systems/save";
+import type { JsonValue } from "@vibedgames/multiplayer";
 
 test("season pages list every eligible crop and fish; winter is fish-only", () => {
   const journal = Collections.empty();
@@ -79,7 +80,16 @@ test("each entry and each season completion fires once, across years", () => {
 });
 
 test("fromJSON drops malformed, duplicate and out-of-season entries", () => {
-  for (const raw of [undefined, null, [], "bad", { discoveries: [], v: 2 }, { v: 1 }]) {
+  const malformed: (JsonValue | undefined)[] = [
+    undefined,
+    null,
+    [],
+    "bad",
+    { discoveries: [], v: 2 },
+    { v: 1 },
+  ];
+
+  for (const raw of malformed) {
     assert.equal(Collections.fromJSON(raw).toJSON().discoveries.length, 0);
   }
 
@@ -135,7 +145,7 @@ test("save outcome reports storage failures; a v3 save without a journal still l
     skills: store.skills.toJSON(),
     timeMin: 830,
     v: 3,
-    world: { objects: [], tilled: [1, 2] },
+    world: { crops: [], nextId: 1, objects: [], tilled: [1, 2], watered: [] },
   };
 
   assert.deepEqual(writeSave(save), { kind: "success" });
@@ -144,10 +154,10 @@ test("save outcome reports storage failures; a v3 save without a journal still l
   assert.equal(Collections.fromJSON(loaded?.collections).page("spring").discovered, 0);
   fillStorage();
 
-  const bigger = {
+  const bigger: SaveData = {
     ...save,
     gold: 900,
-    world: { objects: [], tilled: Array.from({ length: 512 }, (_, i) => i) },
+    world: { ...save.world, tilled: Array.from({ length: 512 }, (_, i) => i) },
   };
 
   assert.deepEqual(writeSave(bigger), { kind: "failure" });

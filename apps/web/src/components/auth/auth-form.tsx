@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { getRouteApi, useRouter, useSearch } from "@tanstack/react-router";
+import { getRouteApi, useHydrated, useRouter, useSearch } from "@tanstack/react-router";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Button } from "@repo/ui/components/button";
 import { Field, FieldContent, FieldError, FieldGroup, FieldLabel } from "@repo/ui/components/field";
@@ -17,7 +17,7 @@ const DEFAULT_NEXT_PATH = "/home";
 const PROTOCOL_RELATIVE = /^\/[/\\]/u;
 
 const safeNextPath = (path?: string) =>
-  path?.startsWith("/") && !PROTOCOL_RELATIVE.test(path) ? path : DEFAULT_NEXT_PATH;
+  path?.startsWith("/") === true && !PROTOCOL_RELATIVE.test(path) ? path : DEFAULT_NEXT_PATH;
 
 const inOAuthFlow = () =>
   typeof window !== "undefined" && new URLSearchParams(window.location.search).has("sig");
@@ -30,6 +30,18 @@ interface Credentials {
 }
 
 type SubmitResult = { status: "ok" } | { status: "failed"; message: string };
+
+const HydratedForm = ({ children, ...props }: Omit<React.ComponentProps<"form">, "method">) => {
+  const hydrated = useHydrated();
+
+  return (
+    <form method="post" {...props}>
+      <fieldset disabled={!hydrated} className="contents">
+        {children}
+      </fieldset>
+    </form>
+  );
+};
 
 const UNREPORTED: SubmitResult = {
   message: "Something went wrong. Please try again.",
@@ -71,7 +83,7 @@ const CredentialsForm = ({
         return;
       }
 
-      router.navigate({ href: safeNextPath(callbackUrl ?? nextPath), replace: true });
+      await router.navigate({ href: safeNextPath(callbackUrl ?? nextPath), replace: true });
 
       return;
     }
@@ -82,7 +94,13 @@ const CredentialsForm = ({
   });
 
   return (
-    <form ref={shakeScope} className="grid gap-2" onSubmit={handleAuthWithPassword}>
+    <HydratedForm
+      ref={shakeScope}
+      className="grid gap-2"
+      onSubmit={(event) => {
+        void handleAuthWithPassword(event);
+      }}
+    >
       <FieldGroup className="gap-2">
         <Controller
           control={form.control}
@@ -150,7 +168,7 @@ const CredentialsForm = ({
       <Button type="submit" loading={form.formState.isSubmitting}>
         {submitLabel}
       </Button>
-    </form>
+    </HydratedForm>
   );
 };
 
@@ -176,9 +194,9 @@ const SocialSignIn = ({ callbackUrl }: { callbackUrl?: string }) => {
           variant="outline"
           loading={pending === provider}
           disabled={pending !== null}
-          onClick={async () => {
+          onClick={() => {
             setPending(provider);
-            await authClient.signIn.social({
+            void authClient.signIn.social({
               callbackURL: safeNextPath(callbackUrl ?? search.nextPath),
               errorCallbackURL: `${window.location.pathname}${window.location.search}`,
               fetchOptions: {
@@ -206,7 +224,9 @@ const SocialSignIn = ({ callbackUrl }: { callbackUrl?: string }) => {
  * destination.
  */
 export const creditCodeCallback = (code?: string) =>
-  code ? `/settings?code=${encodeURIComponent(code)}#credits` : undefined;
+  code !== undefined && code !== ""
+    ? `/settings?code=${encodeURIComponent(code)}#credits`
+    : undefined;
 
 export const RegisterForm = ({ className, callbackUrl, ...props }: StepFormProps) => (
   <div className={cn("grid gap-6", className)} {...props}>
@@ -284,8 +304,13 @@ export const RequestPasswordResetForm = () => {
       email: data.email,
       fetchOptions: {
         onError: (ctx) => {
-          toast.error(ctx.error.message);
-          form.setError("root", { message: ctx.error.message });
+          const message =
+            ctx.error.code === "RESET_PASSWORD_DISABLED"
+              ? "This site can't send email right now, so a password can't be reset by email."
+              : ctx.error.message;
+
+          toast.error(message);
+          form.setError("root", { message });
         },
       },
       redirectTo: "/auth/password-update",
@@ -305,7 +330,12 @@ export const RequestPasswordResetForm = () => {
   }
 
   return (
-    <form className="grid gap-4" onSubmit={handlePasswordReset}>
+    <HydratedForm
+      className="grid gap-4"
+      onSubmit={(event) => {
+        void handlePasswordReset(event);
+      }}
+    >
       <FieldGroup className="gap-4">
         <Controller
           control={form.control}
@@ -336,7 +366,7 @@ export const RequestPasswordResetForm = () => {
       <Button type="submit" loading={form.formState.isSubmitting}>
         Request Password Reset
       </Button>
-    </form>
+    </HydratedForm>
   );
 };
 
@@ -369,7 +399,7 @@ export const UpdatePasswordForm = ({ token }: { token: string }) => {
         },
         onSuccess: () => {
           toast.success("Password updated. Sign in with the new one.");
-          updateRouter.navigate({ to: "/auth/login" });
+          void updateRouter.navigate({ to: "/auth/login" });
         },
       },
       newPassword: data.password,
@@ -378,7 +408,12 @@ export const UpdatePasswordForm = ({ token }: { token: string }) => {
   });
 
   return (
-    <form className="grid gap-4" onSubmit={handleUpdatePassword}>
+    <HydratedForm
+      className="grid gap-4"
+      onSubmit={(event) => {
+        void handleUpdatePassword(event);
+      }}
+    >
       <FieldGroup className="gap-4">
         <Controller
           control={form.control}
@@ -434,6 +469,6 @@ export const UpdatePasswordForm = ({ token }: { token: string }) => {
       <Button type="submit" loading={form.formState.isSubmitting}>
         Update Password
       </Button>
-    </form>
+    </HydratedForm>
   );
 };

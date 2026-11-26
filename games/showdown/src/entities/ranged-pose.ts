@@ -196,8 +196,15 @@ export const sampleRangedPose = (cue: RangedCue | null, id: BrawlerId) => {
       return pipPose(phase);
     }
 
-    default: {
+    case "dusty":
+    case "nyx":
+    case "titan": {
       return REST;
+    }
+
+    default: {
+      const unhandled: never = id;
+      throw new Error("unhandled case", { cause: unhandled });
     }
   }
 };

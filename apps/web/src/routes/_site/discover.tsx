@@ -41,7 +41,7 @@ const DiscoverPage = () => {
                   });
                 }}
                 onClick={() => {
-                  trigger("selection");
+                  void trigger("selection");
                   void navigate({ search: { game: game.slug }, to: "/" });
                 }}
                 className="hover:border-foreground relative aspect-video w-30 shrink-0 overflow-clip rounded-lg border border-transparent transition-colors"

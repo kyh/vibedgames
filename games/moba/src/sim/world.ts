@@ -497,7 +497,13 @@ const tickNeutrals = (w: World) => {
   const aliveByCamp: Record<string, number> = {};
 
   for (const u of w.units.values()) {
-    if (u.neutral && u.alive && u.creep?.camp) {
+    if (
+      u.neutral === true &&
+      u.alive &&
+      u.creep !== undefined &&
+      u.creep.camp !== undefined &&
+      u.creep.camp !== ""
+    ) {
       aliveByCamp[u.creep.camp] = (aliveByCamp[u.creep.camp] ?? 0) + 1;
     }
   }
@@ -602,7 +608,7 @@ const acquireNearbyEnemy = (w: World, u: Unit, radius: number) => {
       continue;
     }
 
-    if (t.kind === "structure" && !t.structure?.attackable) {
+    if (t.kind === "structure" && t.structure?.attackable !== true) {
       continue;
     }
 
@@ -626,7 +632,7 @@ const acquireNearbyEnemy = (w: World, u: Unit, radius: number) => {
 const pickCombatTarget = (w: World, u: Unit) => {
   const taunt = tauntTarget(u);
 
-  if (taunt) {
+  if (taunt !== null && taunt !== "") {
     const t = w.units.get(taunt);
 
     if (t && t.alive) {
@@ -645,7 +651,7 @@ const pickCombatTarget = (w: World, u: Unit) => {
   }
 
   if (u.kind === "creep") {
-    if (u.neutral) {
+    if (u.neutral === true) {
       const home = { x: u.homeX ?? u.x, y: u.homeY ?? u.y };
 
       if (dist(u, home) > 360) {
@@ -948,7 +954,7 @@ const detonateMine = (w: World, m: Mine) => {
   const owner = w.units.get(m.ownerId) ?? null;
 
   for (const u of w.units.values()) {
-    if ((!u.neutral && u.team === m.team) || !u.alive || u.kind === "structure") {
+    if ((u.neutral !== true && u.team === m.team) || !u.alive || u.kind === "structure") {
       continue;
     }
 
@@ -980,7 +986,7 @@ const tickMines = (w: World) => {
     }
 
     for (const u of w.units.values()) {
-      if ((!u.neutral && u.team === m.team) || !u.alive || u.kind === "structure") {
+      if ((u.neutral !== true && u.team === m.team) || !u.alive || u.kind === "structure") {
         continue;
       }
 
@@ -1012,7 +1018,13 @@ const structureRegen = (w: World, dt: number) => {
     let enemyCreepNear = false;
 
     for (const e of w.units.values()) {
-      if (e.kind === "creep" && e.alive && !e.neutral && isEnemy(e, u) && dist(e, u) <= guardR) {
+      if (
+        e.kind === "creep" &&
+        e.alive &&
+        e.neutral !== true &&
+        isEnemy(e, u) &&
+        dist(e, u) <= guardR
+      ) {
         enemyCreepNear = true;
         break;
       }

@@ -36,7 +36,11 @@ const octal = (value: number, width: number) => `${value.toString(8).padStart(wi
 
 const header = (path: string, size: number, mtime: number) => {
   const block = new Uint8Array(BLOCK);
-  const put = (offset: number, value: string) => block.set(encoder.encode(value), offset);
+
+  const put = (offset: number, value: string) => {
+    block.set(encoder.encode(value), offset);
+  };
+
   const { name, prefix } = splitPath(path);
   put(0, name);
   put(100, octal(0o644, 8));

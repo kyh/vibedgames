@@ -45,7 +45,7 @@ export const findRepoRoot = (start: string = process.cwd()) => {
 export const defaultWorkspace = (slug: string) => {
   const repoRoot = findRepoRoot();
 
-  return repoRoot
+  return repoRoot !== null && repoRoot !== ""
     ? path.resolve(repoRoot, "apps/factory/.workspaces", slug)
     : path.resolve(homedir(), "vibedgames", slug);
 };
@@ -54,7 +54,9 @@ export const defaultWorkspace = (slug: string) => {
 export const defaultWorkspaceLabel = () => {
   const repoRoot = findRepoRoot();
 
-  return repoRoot ? "apps/factory/.workspaces/<slug>" : "~/vibedgames/<slug>";
+  return repoRoot !== null && repoRoot !== ""
+    ? "apps/factory/.workspaces/<slug>"
+    : "~/vibedgames/<slug>";
 };
 
 const SLUG_RE = /^[a-z0-9][a-z0-9-]*[a-z0-9]$/u;
@@ -125,21 +127,21 @@ const SLUG_STOPWORDS = new Set([
 export const deriveSlug = (input: { slug?: string; dir?: string; idea?: string }) => {
   const explicit = input.slug?.trim();
 
-  if (explicit) {
+  if (explicit !== undefined && explicit !== "") {
     return normalizeSlug(explicit);
   }
 
-  if (input.dir?.trim()) {
+  if (input.dir !== undefined && input.dir.trim() !== "") {
     const fromDir = slugify(path.basename(path.resolve(input.dir)));
 
-    if (fromDir) {
+    if (fromDir !== null && fromDir !== "") {
       return fromDir;
     }
   }
 
   const idea = input.idea?.trim();
 
-  if (idea) {
+  if (idea !== undefined && idea !== "") {
     const words = idea.toLowerCase().split(/\s+/u);
     const meaningful = words.filter((w) => !SLUG_STOPWORDS.has(w.replaceAll(/[^a-z0-9]/gu, "")));
 
@@ -180,7 +182,11 @@ export const availableSlug = (base: string) => {
  * inspects the blackboard.
  */
 export const resolveWorkspace = (slug: string, override?: string) => {
-  const workspace = override ? path.resolve(process.cwd(), override) : defaultWorkspace(slug);
+  const workspace =
+    override !== undefined && override !== ""
+      ? path.resolve(process.cwd(), override)
+      : defaultWorkspace(slug);
+
   migrateLegacyLayout(workspace);
 
   return workspace;

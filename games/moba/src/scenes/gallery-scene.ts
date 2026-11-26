@@ -70,7 +70,10 @@ export class GalleryScene extends Scene {
   }
 
   init(data: { section?: string | null }) {
-    this.section = data?.section || "units";
+    this.section =
+      data.section === undefined || data.section === null || data.section === ""
+        ? "units"
+        : data.section;
   }
 
   create() {
@@ -79,7 +82,9 @@ export class GalleryScene extends Scene {
 
     if (veil) {
       veil.classList.add("hidden");
-      setTimeout(() => veil.remove(), 400);
+      setTimeout(() => {
+        veil.remove();
+      }, 400);
     }
 
     if (this.section === "map") {
@@ -134,7 +139,9 @@ export class GalleryScene extends Scene {
         angle: 78,
         duration: 520,
         ease: "Quad.easeIn",
-        onComplete: () => this.time.delayedCall(450, run),
+        onComplete: () => {
+          this.time.delayedCall(450, run);
+        },
         targets: sprite,
         y: baseY + 14,
       });
@@ -231,7 +238,9 @@ export class GalleryScene extends Scene {
               this.tweens.add({
                 alpha: 0,
                 duration: 220,
-                onComplete: () => p.destroy(),
+                onComplete: () => {
+                  p.destroy();
+                },
                 scale: 1.9,
                 targets: p,
               });
@@ -272,7 +281,9 @@ export class GalleryScene extends Scene {
       frameHeight: CELL,
       frameWidth: CELL,
     });
-    L.once(Loader.Events.COMPLETE, () => this.renderTerrainPage());
+    L.once(Loader.Events.COMPLETE, () => {
+      this.renderTerrainPage();
+    });
     L.start();
   }
 
@@ -309,13 +320,13 @@ export class GalleryScene extends Scene {
       this.add.rectangle(x, y, cellW - 16, cellH - 16, 0x2e_75_70, 0.6);
 
       if (this.textures.exists(it.tex)) {
-        if (it.sheet && this.anims.exists(`${it.tex}-anim`)) {
+        if (it.sheet === true && this.anims.exists(`${it.tex}-anim`)) {
           const sp = this.add.sprite(x, y, it.tex, 0).setScale(it.scale);
           sp.play(`${it.tex}-anim`);
-        } else if (it.sheet && this.anims.exists(`${it.tex}-sway`)) {
+        } else if (it.sheet === true && this.anims.exists(`${it.tex}-sway`)) {
           const sp = this.add.sprite(x, y, it.tex, 0).setScale(it.scale);
           sp.play(`${it.tex}-sway`);
-        } else if (it.sheet && this.anims.exists("sheep-idle") && it.tex === "sheep") {
+        } else if (it.sheet === true && this.anims.exists("sheep-idle") && it.tex === "sheep") {
           const sp = this.add.sprite(x, y, it.tex, 0).setScale(it.scale);
           sp.play("sheep-idle");
         } else {
@@ -369,7 +380,9 @@ export class GalleryScene extends Scene {
     L.spritesheet("sc-pawn", "assets/showcase/pawn.webp", { frameHeight: 192, frameWidth: 192 });
     L.spritesheet("sc-foam", "assets/terrain/foam.webp", { frameHeight: 192, frameWidth: 192 });
     L.image("sc-shadow", "assets/terrain/shadow.webp");
-    L.once(Loader.Events.COMPLETE, () => this.renderMap());
+    L.once(Loader.Events.COMPLETE, () => {
+      this.renderMap();
+    });
     L.start();
   }
 

@@ -1670,9 +1670,7 @@ let busIndex: Map<number, number> | null = null;
 
 /** Bus service density on a street edge; 0 where no route runs. */
 export const busLoadAt = (edge: number) => {
-  if (busIndex === null) {
-    busIndex = new Map(SF_BUS_LOAD);
-  }
+  busIndex ??= new Map(SF_BUS_LOAD);
 
   return busIndex.get(edge) ?? 0;
 };

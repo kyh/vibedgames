@@ -25,13 +25,15 @@ export const useDelayedFlag = (active: boolean, ms: number) => {
   }
 
   useEffect(() => {
-    if (!active) {
-      return;
-    }
+    const timer = active
+      ? window.setTimeout(() => {
+          setElapsed(true);
+        }, ms)
+      : undefined;
 
-    const timer = window.setTimeout(() => setElapsed(true), ms);
-
-    return () => window.clearTimeout(timer);
+    return () => {
+      window.clearTimeout(timer);
+    };
   }, [active, ms]);
 
   return active && elapsed;

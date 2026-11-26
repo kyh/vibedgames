@@ -57,7 +57,7 @@ const unauthorized = (request: Request) => {
 
   const challenge = response.headers.get("www-authenticate");
 
-  if (challenge && request.headers.has("authorization")) {
+  if (challenge !== null && challenge !== "" && request.headers.has("authorization")) {
     response.headers.set("www-authenticate", `${challenge}, error="invalid_token"`);
   }
 
@@ -223,23 +223,18 @@ export const withoutCookies = (headers: Headers) => {
   return bearerOnly;
 };
 
-const readCapped = async (stream: ReadableStream<Uint8Array>, limit: number) => {
-  const reader = stream.getReader();
+const readCapped = async (stream: ReadableStream<unknown>, limit: number) => {
   const chunks: Uint8Array[] = [];
   let size = 0;
 
-  for (;;) {
-    const { done, value } = await reader.read();
-
-    if (done) {
-      break;
+  for await (const value of stream) {
+    if (!(value instanceof Uint8Array)) {
+      return null;
     }
 
     size += value.byteLength;
 
     if (size > limit) {
-      await reader.cancel();
-
       return null;
     }
 
@@ -294,7 +289,7 @@ export const handleMcpRequest = async (
 
   const lacking = context.oauthScopes ? missingScope(required, context.oauthScopes) : null;
 
-  if (lacking && context.oauthScopes) {
+  if (lacking !== null && lacking !== "" && context.oauthScopes) {
     const scopes = [...new Set([...context.oauthScopes, lacking])];
 
     return challengeResponse(
@@ -312,5 +307,5 @@ export const handleMcpRequest = async (
     new Request(request.url, { body, headers, method: request.method }),
   );
 
-  return taskMode ? asTaskResult(response, { secret, userId }) : response;
+  return taskMode ? await asTaskResult(response, { secret, userId }) : response;
 };

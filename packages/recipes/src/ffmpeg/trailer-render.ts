@@ -1,6 +1,7 @@
 import path from "node:path";
 
 import type { RecipeInput } from "@repo/contract/asset/recipe-schema";
+import { runInOrder } from "@repo/contract/run-in-order";
 
 import type { RecipeContext } from "../recipe";
 import { many, maybe, need, RecipeError } from "../recipe";
@@ -19,7 +20,7 @@ interface Plan {
 
 const buildGraph = (
   params: RecipeInput<"trailer-render">,
-  infos: MediaInfo[],
+  infos: readonly MediaInfo[],
   lut: string | undefined,
   musicIndex: number | null,
 ) => {
@@ -92,7 +93,9 @@ const buildGraph = (
 
   const duration = durations.reduce((sum, d) => sum + d, 0) - xf * (clips.length - 1);
   const joined = join("v");
-  graph.push(lut ? `${joined}lut3d=file='${filterPath(lut)}'[vout]` : `${joined}null[vout]`);
+  graph.push(
+    lut === undefined ? `${joined}null[vout]` : `${joined}lut3d=file='${filterPath(lut)}'[vout]`,
+  );
 
   const beds: string[] = [];
 
@@ -129,17 +132,16 @@ export const trailerRender = async (ctx: RecipeContext<RecipeInput<"trailer-rend
   const music = maybe(ctx.files, "music_url");
   const lut = maybe(ctx.files, "lut_url");
   const p = ctx.params;
-  const infos: MediaInfo[] = [];
-
-  for (const video of videos) {
-    infos.push(await probe(ctx, video));
-  }
-
-  const musicIndex = music ? videos.length : null;
+  const infos = await runInOrder(videos, async (video) => await probe(ctx, video));
+  const musicIndex = music === undefined ? null : videos.length;
   const plan = buildGraph(p, infos, lut, musicIndex);
   const edit = path.join(ctx.work, "edit.mp4");
   const output = path.join(ctx.out, "trailer.mp4");
-  const inputs = [...videos, ...(music ? [music] : [])].flatMap((file) => ["-i", file]);
+
+  const inputs = [...videos, ...(music === undefined ? [] : [music])].flatMap((file) => [
+    "-i",
+    file,
+  ]);
 
   const encode = [
     "-c:v",
@@ -160,17 +162,17 @@ export const trailerRender = async (ctx: RecipeContext<RecipeInput<"trailer-rend
     plan.graph.join(";"),
     "-map",
     "[vout]",
-    ...(plan.audio ? ["-map", plan.audio, "-c:a", "pcm_s16le"] : []),
+    ...(plan.audio === null ? [] : ["-map", plan.audio, "-c:a", "pcm_s16le"]),
     ...encode,
     "-f",
-    plan.audio ? "mov" : "mp4",
-    ...(plan.audio ? [] : ["-movflags", "+faststart"]),
-    plan.audio ? `${edit}.mov` : output,
+    plan.audio === null ? "mp4" : "mov",
+    ...(plan.audio === null ? ["-movflags", "+faststart"] : []),
+    plan.audio === null ? output : `${edit}.mov`,
   ]);
 
   let loudness = null;
 
-  if (plan.audio) {
+  if (plan.audio !== null) {
     const target = `I=${p.lufs}:TP=${p.true_peak}:LRA=11`;
 
     const pass1 = await ctx.run(ffmpeg, [

@@ -83,13 +83,8 @@ export const recipeJob = z.object({
 const billed =
   "Runs in a vibedgames container and bills its compute time to credits (from $0.01). `vg asset` runs it on the caller's machine instead when the tool it needs is installed.";
 
-const recipe = <N extends RecipeName>(name: N) => {
-  const { description, title } = RECIPES[name];
-
-  return asset(title, `${description} ${billed} Backs \`vg asset ${name}\`.`)
-    .input(RECIPES[name].input)
-    .output(recipeJob);
-};
+const recipeAsset = (name: RecipeName) =>
+  asset(RECIPES[name].title, `${RECIPES[name].description} ${billed} Backs \`vg asset ${name}\`.`);
 
 export const assetContract = {
   addAnimations: asset(
@@ -98,11 +93,15 @@ export const assetContract = {
   )
     .input(RECIPES["add-animations"].input)
     .output(recipeJob),
-  audioMaster: recipe("audio-master"),
-  bake: recipe("bake"),
-  fbxToGlb: recipe("fbx-to-glb"),
-  framesToVideo: recipe("frames-to-video"),
-  imageToThreejs: recipe("image-to-threejs"),
+  audioMaster: recipeAsset("audio-master").input(RECIPES["audio-master"].input).output(recipeJob),
+  bake: recipeAsset("bake").input(RECIPES.bake.input).output(recipeJob),
+  fbxToGlb: recipeAsset("fbx-to-glb").input(RECIPES["fbx-to-glb"].input).output(recipeJob),
+  framesToVideo: recipeAsset("frames-to-video")
+    .input(RECIPES["frames-to-video"].input)
+    .output(recipeJob),
+  imageToThreejs: recipeAsset("image-to-threejs")
+    .input(RECIPES["image-to-threejs"].input)
+    .output(recipeJob),
   inspect: asset(
     "Inspect a 3D model",
     `Reports what a GLB holds: triangles and vertices, its bounding box in metres, materials, each texture's pixel size and bytes, each skeleton's joints, each animation clip's name and length, and the extensions it uses. Use it before placing a generated model and after asset optimize to check the result. ${free} Backs \`vg asset inspect\`.`,
@@ -117,7 +116,7 @@ export const assetContract = {
     .input(optimizeInput)
     .output(processed),
 
-  render: recipe("render"),
+  render: recipeAsset("render").input(RECIPES.render.input).output(recipeJob),
 
   status: asset(
     "Follow an asset recipe job",
@@ -126,8 +125,14 @@ export const assetContract = {
     .input(statusInput)
     .output(recipeJob),
 
-  textureCompress: recipe("texture-compress"),
-  trailerRender: recipe("trailer-render"),
-  videoProbe: recipe("video-probe"),
-  videoToSheet: recipe("video-to-sheet"),
+  textureCompress: recipeAsset("texture-compress")
+    .input(RECIPES["texture-compress"].input)
+    .output(recipeJob),
+  trailerRender: recipeAsset("trailer-render")
+    .input(RECIPES["trailer-render"].input)
+    .output(recipeJob),
+  videoProbe: recipeAsset("video-probe").input(RECIPES["video-probe"].input).output(recipeJob),
+  videoToSheet: recipeAsset("video-to-sheet")
+    .input(RECIPES["video-to-sheet"].input)
+    .output(recipeJob),
 };

@@ -1,3 +1,4 @@
+import { once } from "node:events";
 import { createServer } from "node:http";
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
 
@@ -74,23 +75,21 @@ for (const button of document.querySelectorAll("button[data-a]")) {
 </script></body></html>`;
 };
 
-const listen: (server: Server, port: number, host: string) => Promise<void> = (
+const listen: (server: Server, port: number, host: string) => Promise<void> = async (
   server,
   port,
   host,
-) =>
-  // oxlint-disable-next-line promise/avoid-new -- node:http's listen is callback-based
-  new Promise((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(port, host, () => resolve());
-  });
+) => {
+  server.listen(port, host);
+  await once(server, "listening");
+};
 
-const closeServer: (server: Server) => Promise<void> = (server) =>
-  // oxlint-disable-next-line promise/avoid-new -- node:http's close is callback-based
-  new Promise((resolve) => {
-    server.close(() => resolve());
-    server.closeAllConnections();
-  });
+const closeServer: (server: Server) => Promise<void> = async (server) => {
+  const closed = once(server, "close");
+  server.close();
+  server.closeAllConnections();
+  await closed;
+};
 
 const send = (
   res: ServerResponse,
@@ -158,7 +157,10 @@ export const startPreview = async ({ zip, portal, port }: PreviewOptions) => {
   const gameUrl = `http://127.0.0.1:${port}${GAME_PATH}index.html`;
   const page = previewPage(portal, gameUrl);
   const game = createServer(serveGame);
-  const host = createServer((_req, res) => send(res, 200, "text/html; charset=utf-8", page));
+
+  const host = createServer((_req, res) => {
+    send(res, 200, "text/html; charset=utf-8", page);
+  });
 
   try {
     await listen(game, port, "127.0.0.1");

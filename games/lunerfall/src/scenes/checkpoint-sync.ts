@@ -124,7 +124,7 @@ export class CheckpointSync {
     const auth = this.seat.authority;
     const writer = this.seat.session?.playerId;
 
-    if (auth.kind !== "ready" || !writer) {
+    if (auth.kind !== "ready" || writer === undefined || writer === null || writer === "") {
       return null satisfies ExpeditionCheckpoint | null;
     }
 
@@ -160,7 +160,7 @@ export class CheckpointSync {
     for (const pl of livePlayers(this.seat)) {
       const id = ownerId(this.seat, pl);
 
-      if (!id) {
+      if (id === null || id === "") {
         continue;
       }
 
@@ -246,10 +246,10 @@ export class CheckpointSync {
           hitP: [...s.hitP].flatMap((p) => {
             const id = ownerId(this.seat, p);
 
-            return id && playerIds.has(id) ? [id] : [];
+            return id !== null && id !== "" && playerIds.has(id) ? [id] : [];
           }),
           life: s.life,
-          owner: owner && playerIds.has(owner) ? owner : null,
+          owner: owner !== null && owner !== "" && playerIds.has(owner) ? owner : null,
           vx: s.vx,
           vy: s.vy,
           x: s.x,
@@ -276,7 +276,7 @@ export class CheckpointSync {
     return {
       ...common,
       lastStand:
-        this.run.downed && downedId
+        this.run.downed && downedId !== null && downedId !== ""
           ? {
               bleed: this.run.downed.bleedT,
               id: downedId,
@@ -472,7 +472,7 @@ export class CheckpointSync {
         s.vx,
         s.vy,
         s.dmg,
-        s.owner ? (seatPlayer(this.seat, s.owner) ?? null) : null,
+        s.owner !== null && s.owner !== "" ? (seatPlayer(this.seat, s.owner) ?? null) : null,
       );
       const view = this.room.shots.at(-1);
 
@@ -542,15 +542,13 @@ export class CheckpointSync {
   }
 
   observeTerminal(c: ExpeditionCheckpoint) {
-    if (!this.run.runRecap) {
-      this.run.runRecap = {
-        biome: c.run.biome,
-        depth: c.run.depth,
-        gold: c.gold,
-        hero: this.seat.heroName,
-        kind: "coop-guest",
-      };
-    }
+    this.run.runRecap ??= {
+      biome: c.run.biome,
+      depth: c.run.depth,
+      gold: c.gold,
+      hero: this.seat.heroName,
+      kind: "coop-guest",
+    };
 
     this.run.state = "dead";
     this.run.deadT = c.phase.kind === "dead" ? c.phase.elapsed : 0;

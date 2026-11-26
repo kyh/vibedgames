@@ -87,11 +87,7 @@ const RootDocument = ({ children }: { children: React.ReactNode }) => {
       <head>
         <HeadContent />
         <link rel="canonical" href={canonical} />
-        <script
-          type="application/ld+json"
-          // oxlint-disable-next-line react/no-danger -- JSON-LD is only readable to a crawler when it is inline text, and `serializeJsonLd` escapes `<` so no string can close the tag
-          dangerouslySetInnerHTML={{ __html: serializeJsonLd(siteGraph()) }}
-        />
+        <script type="application/ld+json">{serializeJsonLd(siteGraph())}</script>
       </head>
       <body
         className={cn(

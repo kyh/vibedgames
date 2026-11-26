@@ -33,11 +33,13 @@ const config: Types.Core.GameConfig = {
   type: WEBGL,
 };
 
-const fontReady = Promise.race([
-  document.fonts.load('20px "Lilita One"'),
-  // oxlint-disable-next-line no-promise-executor-return, promise/avoid-new -- setTimeout sleep has no promise form in the browser
-  new Promise((resolve) => setTimeout(resolve, 1500)),
-]);
+const fontTimeout = Promise.withResolvers<null>();
+
+setTimeout(() => {
+  fontTimeout.resolve(null);
+}, 1500);
+
+const fontReady = Promise.race([document.fonts.load('20px "Lilita One"'), fontTimeout.promise]);
 
 declare global {
   interface Window {
@@ -70,7 +72,7 @@ const publishPlaytestContract = (game: Game, activeGame: () => GameScene | null)
         }
       },
       setPausedForScreenshot: (paused) => {
-        if (paused === frozen || activeGame()?.isOnline()) {
+        if (paused === frozen || activeGame()?.isOnline() === true) {
           return;
         }
 
@@ -154,7 +156,9 @@ const boot = async () => {
 
   const refreshScale = () => {
     clearTimeout(settle);
-    settle = setTimeout(() => game.scale.refresh(), 150);
+    settle = setTimeout(() => {
+      game.scale.refresh();
+    }, 150);
   };
 
   window.addEventListener("resize", refreshScale);
@@ -177,7 +181,7 @@ const boot = async () => {
       setSoundPaused(true);
       showPauseOverlay();
 
-      if (scene?.isOnline()) {
+      if (scene?.isOnline() === true) {
         return;
       }
 

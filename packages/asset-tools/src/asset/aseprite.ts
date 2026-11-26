@@ -206,7 +206,7 @@ export const inferBoundsFromPixels = (
       const rowOff = y * width * 4;
 
       for (let x = 0; x < width; x += 1) {
-        if (raw[rowOff + x * 4 + 3]) {
+        if ((raw[rowOff + x * 4 + 3] ?? 0) !== 0) {
           mark(x, y);
         }
       }
@@ -216,7 +216,7 @@ export const inferBoundsFromPixels = (
       const rowOff = y * width * 2;
 
       for (let x = 0; x < width; x += 1) {
-        if (raw[rowOff + x * 2 + 1]) {
+        if ((raw[rowOff + x * 2 + 1] ?? 0) !== 0) {
           mark(x, y);
         }
       }
@@ -1085,6 +1085,8 @@ const parseChunk = (
 
     default: {
       state.unknownChunks.push({ size: chunkSize, type: chunkType });
+
+      return null;
     }
   }
 };
@@ -1251,7 +1253,7 @@ export const inspectAseprite = (path: string, bytes: Uint8Array, options: Inspec
       const chunkSummary: ChunkSummary = { size: chunkSize, type: chunkType };
       const parsed = parseChunk(state, frameOut, frameIndex, chunkType, chunkSize, r);
 
-      if (parsed !== undefined) {
+      if (parsed !== null) {
         chunkSummary.parsed = parsed;
       }
 

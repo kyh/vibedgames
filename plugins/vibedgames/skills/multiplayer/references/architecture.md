@@ -419,7 +419,7 @@ ones.
 
 ## Automated two-client check
 
-For lag, start with `scripts/net-check.mjs` (SKILL.md → Local dev loop): it
+For lag, start with `scripts/net-check.ts` (SKILL.md → Local dev loop): it
 already runs two clients in a fresh room with lag on the party socket
 (Playwright WebSocket routing, frames delayed but never reordered), drives both
 from your playtest moves, and judges each by `window.__VG_NET__` — the SDK's

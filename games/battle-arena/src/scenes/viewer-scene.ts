@@ -19,6 +19,7 @@ import { AnimatedCharacter } from "../render/animated-character";
 import type { ModelLibrary } from "../render/models";
 import type { View } from "../render/view";
 import { WorldView } from "../render/world-view";
+import { isMesh } from "../render/mesh";
 
 type ViewerKeycaps = { [K in AbilityKey]?: string };
 
@@ -286,10 +287,10 @@ const injectStyle = () => {
 };
 
 export class ViewerScene {
-  private world: World;
-  private worldView: WorldView;
-  private fx: Fx;
-  private scene: THREE.Scene;
+  private readonly world: World;
+  private readonly worldView: WorldView;
+  private readonly fx: Fx;
+  private readonly scene: THREE.Scene;
   private acc = 0;
   private t = 0;
 
@@ -315,7 +316,7 @@ export class ViewerScene {
   private yaw = 0;
   private pitch = 0.3;
   private dist = 10;
-  private target = new THREE.Vector3(SUBJECT.x, 0, SUBJECT.y);
+  private readonly target = new THREE.Vector3(SUBJECT.x, 0, SUBJECT.y);
   private panX = 0;
   private panZ = 0;
   private orbiting = false;
@@ -331,8 +332,8 @@ export class ViewerScene {
   private hitVizGroup: THREE.Group | null = null;
   private hitVizKey = "";
   private rosterEl: HTMLElement | null = null;
-  private view: View;
-  private lib: ModelLibrary;
+  private readonly view: View;
+  private readonly lib: ModelLibrary;
 
   constructor(view: View, lib: ModelLibrary) {
     this.view = view;
@@ -459,11 +460,11 @@ export class ViewerScene {
     char.root.position.set(SUBJECT.x, terrainHeight(SUBJECT.x, SUBJECT.y), SUBJECT.y);
     char.root.rotation.y = this.yaw + 0.65;
 
-    if (entry.weaponR) {
+    if (entry.weaponR !== undefined && entry.weaponR !== "") {
       char.attach(this.weapon(entry.weaponR), "handslot.r");
     }
 
-    if (entry.weaponL) {
+    if (entry.weaponL !== undefined && entry.weaponL !== "") {
       char.attach(this.weapon(entry.weaponL), "handslot.l");
     }
 
@@ -832,7 +833,7 @@ export class ViewerScene {
     const clip = clips[this.attackIdx % Math.max(1, clips.length)];
     this.attackIdx += 1;
 
-    if (!clip) {
+    if (clip === undefined || clip === "") {
       return;
     }
 
@@ -844,7 +845,7 @@ export class ViewerScene {
   }
 
   private dummyPrevHp = -1;
-  private dummyDmgWindow: { t: number; d: number }[] = [];
+  private readonly dummyDmgWindow: { t: number; d: number }[] = [];
   private dummyLastDmg = 0;
   private dummyKills = 0;
 
@@ -916,7 +917,7 @@ export class ViewerScene {
           ? rhythm[Math.max(0, me.swingCount - 1) % rhythm.length]
           : undefined;
 
-      if (swing?.aoe) {
+      if (swing !== undefined && swing.aoe !== undefined && swing.aoe !== 0) {
         return [{ forward: 0, kind: "circle", radius: swing.aoe }] satisfies DrawRegion[];
       }
 
@@ -931,11 +932,6 @@ export class ViewerScene {
     }
 
     const def = champ.abilities[act];
-
-    if (!def) {
-      return [] satisfies DrawRegion[];
-    }
-
     const rank = Math.max(1, me.abilities[act]?.rank ?? def.maxRank);
 
     return abilityRegions(def, rank).flatMap((s) =>
@@ -1016,7 +1012,7 @@ export class ViewerScene {
       const g = this.hitVizGroup;
 
       for (const c of g.children) {
-        if (c instanceof THREE.Mesh) {
+        if (isMesh(c)) {
           c.geometry.dispose();
         }
       }
@@ -1053,7 +1049,7 @@ export class ViewerScene {
 
     const grp = this.hitVizGroup;
 
-    if (!grp || !me) {
+    if (!me) {
       return;
     }
 
@@ -1109,7 +1105,9 @@ export class ViewerScene {
 
   private bindInput() {
     const el = this.view.renderer.domElement;
-    el.addEventListener("contextmenu", (e) => e.preventDefault());
+    el.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+    });
     el.addEventListener("pointerdown", (e) => {
       if (e.button === 0) {
         this.orbiting = true;
@@ -1228,7 +1226,7 @@ export class ViewerScene {
       btn.addEventListener("click", () => {
         const { id } = btn.dataset;
 
-        if (id) {
+        if (id !== undefined && id !== "") {
           this.select(id);
         }
       });
@@ -1253,7 +1251,9 @@ export class ViewerScene {
         this.hitVizGroup.visible = false;
       }
     });
-    document.querySelector("#vw-reset")?.addEventListener("click", () => this.reset());
+    document.querySelector("#vw-reset")?.addEventListener("click", () => {
+      this.reset();
+    });
     document.querySelector("#vw-editor")?.addEventListener("click", () => {
       location.href = `${location.pathname}?editor=1`;
     });
@@ -1264,7 +1264,7 @@ export class ViewerScene {
 
   private renderRosterActive() {
     for (const btn of this.rosterEl?.querySelectorAll<HTMLButtonElement>(".vwr") ?? []) {
-      btn.classList.toggle("on", btn.dataset["id"] === this.selected.id);
+      btn.classList.toggle("on", btn.dataset.id === this.selected.id);
     }
 
     document.querySelector("#vw-tab-abilities")?.classList.toggle("on", this.tab === "abilities");
@@ -1300,7 +1300,9 @@ export class ViewerScene {
           <span class="vwa-txt"><b>Basic Attack ${atkOn ? "· LOOPING" : ""}</b><i>Swings on repeat. Click again to stop.</i></span>
         </button>
         <div class="vw-note">Enemies have no abilities — browse their full rig on the ANIMATIONS tab.</div>`;
-      document.querySelector("#vw-atk")?.addEventListener("click", () => this.attack());
+      document.querySelector("#vw-atk")?.addEventListener("click", () => {
+        this.attack();
+      });
 
       return;
     }
@@ -1327,7 +1329,9 @@ export class ViewerScene {
       <div class="vw-sect">ABILITIES <span class="vw-dim">(max rank · no cooldowns)</span></div>
       ${abilityRows}
       <div class="vw-note">Pick an action — it repeats through the real sim (walk into range, face the dummy, fire). Click the selected action again to idle.</div>`;
-    document.querySelector("#vw-atk")?.addEventListener("click", () => this.attack());
+    document.querySelector("#vw-atk")?.addEventListener("click", () => {
+      this.attack();
+    });
 
     for (const btn of box.querySelectorAll<HTMLButtonElement>(".vwa[data-key]")) {
       btn.addEventListener("click", () => {
@@ -1405,20 +1409,24 @@ export class ViewerScene {
     const loopEl = document.querySelector("#vw-loop");
 
     if (loopEl instanceof HTMLInputElement) {
-      loopEl.addEventListener("change", () => this.setLoop(loopEl.checked));
+      loopEl.addEventListener("change", () => {
+        this.setLoop(loopEl.checked);
+      });
     }
 
     const speedEl = document.querySelector("#vw-speed");
 
     if (speedEl instanceof HTMLInputElement) {
-      speedEl.addEventListener("input", () => this.setSpeed(Number(speedEl.value)));
+      speedEl.addEventListener("input", () => {
+        this.setSpeed(Number(speedEl.value));
+      });
     }
 
     for (const btn of box.querySelectorAll<HTMLButtonElement>(".vwc")) {
       btn.addEventListener("click", () => {
         const { clip } = btn.dataset;
 
-        if (clip) {
+        if (clip !== undefined && clip !== "") {
           this.playClip(clip);
         }
       });
@@ -1427,7 +1435,7 @@ export class ViewerScene {
 
   private refreshClipHighlight() {
     for (const btn of document.querySelectorAll<HTMLButtonElement>(".vwc")) {
-      btn.classList.toggle("on", btn.dataset["clip"] === this.activeClip);
+      btn.classList.toggle("on", btn.dataset.clip === this.activeClip);
     }
   }
 }

@@ -118,11 +118,11 @@ FACADE.name = "parcel-facade";
 applyMaterialBreakup(FACADE, CITY_BREAKUP);
 
 {
-  const prev = FACADE.onBeforeCompile;
+  const prev = FACADE.onBeforeCompile.bind(FACADE);
   const prevKey = FACADE.customProgramCacheKey.bind(FACADE);
   FACADE.customProgramCacheKey = () => `${prevKey()}|facade-sashes-v3`;
   FACADE.onBeforeCompile = (shader, renderer) => {
-    prev.call(FACADE, shader, renderer);
+    prev(shader, renderer);
     shader.uniforms.uFacadeNight = FACADE_NIGHT;
     shader.vertexShader = shader.vertexShader
       .replace(

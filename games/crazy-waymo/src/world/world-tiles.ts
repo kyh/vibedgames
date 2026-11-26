@@ -122,7 +122,7 @@ export class WorldTileStreamer {
     this.holdRadius = Math.max(this.holdRadius, radius);
     let attempts = 0;
 
-    for (;;) {
+    const poll: () => Promise<void> = async () => {
       this.scan(x, z, Math.max(this.holdRadius, radius), Infinity, performance.now());
       const done = wanted.reduce((a, s) => a + (s.state === "resident" ? s.ref.bytes : 0), 0);
       onProgress?.(done, total);
@@ -139,15 +139,23 @@ export class WorldTileStreamer {
         }
       }
 
-      // oxlint-disable-next-line promise/avoid-new -- wraps the wake/timeout callback pair
-      await new Promise<void>((resolve) => {
-        this.waiters.add(resolve);
-        setTimeout(() => {
-          this.waiters.delete(resolve);
-          resolve();
-        }, RETRY_MS);
-      });
-    }
+      const { promise, resolve } = Promise.withResolvers<null>();
+
+      const release = () => {
+        resolve(null);
+      };
+
+      this.waiters.add(release);
+      setTimeout(() => {
+        this.waiters.delete(release);
+        release();
+      }, RETRY_MS);
+
+      await promise;
+      await poll();
+    };
+
+    await poll();
   }
 
   private wake() {

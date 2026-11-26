@@ -91,8 +91,8 @@ const MULTIPLAYER_HOST = import.meta.env.DEV
 
 const ROOM_DEFAULT = "starfall-arena-v9";
 
-const ROOM =
-  (import.meta.env.DEV && new URLSearchParams(location.search).get("room")) || ROOM_DEFAULT;
+const ROOM_PARAM = import.meta.env.DEV ? new URLSearchParams(location.search).get("room") : null;
+const ROOM = ROOM_PARAM === null || ROOM_PARAM === "" ? ROOM_DEFAULT : ROOM_PARAM;
 
 const STARFALL_MAX_PLAYERS = 32;
 
@@ -141,8 +141,12 @@ export class GameScene extends Scene {
   private readonly world = emptyShared();
   private readonly pilot = newPilot();
   private readonly link = new Link({
-    inbox: (event, payload, from) => this.net.handleEvent(event, payload, from),
-    onClaim: (key, owner) => this.pickups.onClaim(key, owner),
+    inbox: (event, payload, from) => {
+      this.net.handleEvent(event, payload, from);
+    },
+    onClaim: (key, owner) => {
+      this.pickups.onClaim(key, owner);
+    },
   });
   private readonly roster = new PeerRoster(this.link);
   private readonly intents = new HostIntents();
@@ -187,9 +191,19 @@ export class GameScene extends Scene {
 
   create() {
     installTestHooks({
-      activePlay: () => this.forceOfflineSolo(),
-      restart: (seed) => this.restartSolo(seed),
-      setPaused: (paused) => (paused ? this.freezeSim() : this.unfreezeSim()),
+      activePlay: () => {
+        this.forceOfflineSolo();
+      },
+      restart: (seed) => {
+        this.restartSolo(seed);
+      },
+      setPaused: (paused) => {
+        if (paused) {
+          this.freezeSim();
+        } else {
+          this.unfreezeSim();
+        }
+      },
     });
     this.starfield = new Starfield(this);
     this.fx = new FxPool(this);
@@ -223,8 +237,12 @@ export class GameScene extends Scene {
         isOfflineRequested() ||
         isPlaytestRequested() ||
         new URLSearchParams(location.search).has("trailer"),
-      onReadmitted: () => this.roster.relearn(),
-      onUpdate: () => this.roster.ingest(performance.now()),
+      onReadmitted: () => {
+        this.roster.relearn();
+      },
+      onUpdate: () => {
+        this.roster.ingest(performance.now());
+      },
       room: ROOM,
     });
     this.sync.ensureSeeded();
@@ -249,7 +267,9 @@ export class GameScene extends Scene {
 
     this.gamepad = attachVirtualGamepad(this, {
       buttons: [{ id: "fire" }],
-      onFirstTouch: () => this.enterTouchMode(),
+      onFirstTouch: () => {
+        this.enterTouchMode();
+      },
       stick: {
         deadZone: JOYSTICK_DEAD_ZONE,
         knobRadius: JOYSTICK_KNOB_RADIUS,
@@ -273,7 +293,9 @@ export class GameScene extends Scene {
 
     const pauseOverlay = createStarfallPauseOverlay({
       get: () => sfx.muted,
-      set: (next) => sfx.setMuted(next),
+      set: (next) => {
+        sfx.setMuted(next);
+      },
     });
 
     setPauseHandlers({
@@ -322,7 +344,9 @@ export class GameScene extends Scene {
       fx,
       hooks: {
         myTint: () => this.myTint(),
-        popCombo: () => this.hud.popCombo(),
+        popCombo: () => {
+          this.hud.popCombo();
+        },
         shield: () => this.shield,
       },
       pilot,
@@ -332,7 +356,9 @@ export class GameScene extends Scene {
     this.hostCombat = new HostCombat({
       ai: this.ai,
       hooks: {
-        onBossKilled: (now) => this.host.noteBossKilled(now),
+        onBossKilled: (now) => {
+          this.host.noteBossKilled(now);
+        },
       },
       world,
     });
@@ -402,7 +428,9 @@ export class GameScene extends Scene {
       hits: this.hits,
       hooks: {
         myTint: () => this.myTint(),
-        pushMyState: (now) => this.net.pushMyState(now),
+        pushMyState: (now) => {
+          this.net.pushMyState(now);
+        },
       },
       intents,
       layers,
@@ -484,7 +512,9 @@ export class GameScene extends Scene {
       ai: this.ai,
       beacon: this.beacon,
       cameras: this.cameras,
-      forceOfflineSolo: () => this.forceOfflineSolo(),
+      forceOfflineSolo: () => {
+        this.forceOfflineSolo();
+      },
       fx: this.fx,
       hits: this.hits,
       host: this.host,
@@ -611,7 +641,7 @@ export class GameScene extends Scene {
     this.publishDiag();
   }
 
-  private onViewportChange() {
+  private readonly onViewportChange = () => {
     this.layers.safeInset = safeAreaInset();
 
     if (this.link.trailer) {
@@ -620,7 +650,7 @@ export class GameScene extends Scene {
 
     const zoom = PhaserMath.Clamp(this.scale.width / CAMERA_REF_WIDTH, CAMERA_MIN_ZOOM, 1);
     this.cameras.main.setZoom(zoom);
-  }
+  };
 
   private buildStartScreen() {
     this.startEl = document.querySelector("#start");
@@ -631,11 +661,19 @@ export class GameScene extends Scene {
         this.writeStartCopy();
       }
     });
-    this.input.keyboard?.once("keyup", () => this.beginPlay());
+    this.input.keyboard?.once("keyup", () => {
+      this.beginPlay();
+    });
 
     if (this.startEl) {
       sealPointerEvents(this.startEl);
-      this.startEl.addEventListener("pointerup", () => this.beginPlay(), { once: true });
+      this.startEl.addEventListener(
+        "pointerup",
+        () => {
+          this.beginPlay();
+        },
+        { once: true },
+      );
     }
   }
 
@@ -782,7 +820,7 @@ export class GameScene extends Scene {
     this.progress.streak = 0;
     this.progress.comboTier = 1;
 
-    if (this.link.started && this.link.myId) {
+    if (this.link.started && this.link.myId !== null && this.link.myId !== "") {
       this.net.pushMyState(simNow());
     }
 
@@ -807,7 +845,13 @@ export class GameScene extends Scene {
   }
 
   private ensureSpawned() {
-    if (!this.link.started || this.link.paused || this.pilot.spawned || !this.link.myId) {
+    if (
+      !this.link.started ||
+      this.link.paused ||
+      this.pilot.spawned ||
+      this.link.myId === null ||
+      this.link.myId === ""
+    ) {
       return;
     }
 
@@ -930,7 +974,9 @@ export class GameScene extends Scene {
   private spawnInFx(x: number, y: number) {
     const tint = this.myTint();
     this.fx.converge(x, y, 12, 60, 300, tint, "important");
-    this.time.delayedCall(300, () => this.fx.ring(x, y, 6, 30, 200, tint, 0.7, "important"));
+    this.time.delayedCall(300, () => {
+      this.fx.ring(x, y, 6, 30, 200, tint, 0.7, "important");
+    });
   }
 
   private steerShip(dt: number) {
@@ -1061,7 +1107,7 @@ export class GameScene extends Scene {
       return true;
     }
 
-    if (this.fireKey?.isDown) {
+    if (this.fireKey?.isDown === true) {
       return true;
     }
 
@@ -1073,7 +1119,9 @@ export class GameScene extends Scene {
   private myTint() {
     const { myId } = this.link;
 
-    return (myId ? this.shipView.ships.get(myId)?.tint : undefined) ?? 0xff_ff_ff;
+    return (
+      (myId !== null && myId !== "" ? this.shipView.ships.get(myId)?.tint : undefined) ?? 0xff_ff_ff
+    );
   }
 
   private updateCamera(dt: number, timeMs: number) {

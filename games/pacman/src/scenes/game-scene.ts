@@ -148,12 +148,15 @@ interface EatUndo {
   scaredBefore: number | null;
 }
 
+const isMesh = (o: THREE.Object3D): o is THREE.Mesh => o instanceof THREE.Mesh;
+
 const COMBO_SCALE: readonly number[] = [0, 2, 4, 7, 9, 12, 14, 16, 19];
 const COMBO_WINDOW_S = 0.9;
 
 const SWIPE_MIN_PX = 24;
 const EPS = 1e-4;
-const ROOM = (import.meta.env.DEV && new URLSearchParams(location.search).get("room")) || MP_ROOM;
+const ROOM_PARAM = import.meta.env.DEV ? new URLSearchParams(location.search).get("room") : null;
+const ROOM = ROOM_PARAM === null || ROOM_PARAM === "" ? MP_ROOM : ROOM_PARAM;
 const CAPTURE_ECHO_S = 0.28;
 const REAPPEAR_S = 0.24;
 const RESULT_REVEAL_S = 0.16;
@@ -538,50 +541,52 @@ const scaredTint = (scared: boolean, blinkOut: boolean, own: number) => {
 };
 
 export class GameScene {
-  private paused = false;
+  paused = false;
   readonly scene = new THREE.Scene();
   readonly camera: THREE.PerspectiveCamera;
 
-  private phase: Phase = "title";
-  private pac: PacBody = {
+  phase: Phase = "title";
+  pac: PacBody = {
     dir: "right",
     isMoving: false,
     target: { x: PACMAN_SPAWN.col, z: PACMAN_SPAWN.row },
     x: PACMAN_SPAWN.col,
     z: PACMAN_SPAWN.row,
   };
-  private ghosts: Ghost[] = [];
+  private readonly ghosts: Ghost[] = [];
   private random: () => number = Math.random;
   private navDiagnostics = false;
-  private pelletField: PelletField;
-  private hearts = new Map<string, Heart>();
-  private score = 0;
+  private readonly pelletField: PelletField;
+  private readonly hearts = new Map<string, Heart>();
+  score = 0;
   private best = 0;
   private ghostsChomped = 0;
 
-  private readonly net = joinRoom({
+  readonly net = joinRoom({
     fallbackMs: OFFLINE_FALLBACK_MS,
     limits: PAC_LIMITS,
     maxPlayers: MP_MAX_PLAYERS,
     offline: isPlaytestRequested(),
-    onEvent: (event, payload, from) => this.handleNetEvent(event, payload, from),
+    onEvent: (event, payload, from) => {
+      this.handleNetEvent(event, payload, from);
+    },
     room: ROOM,
   });
-  private remotePacs: RemotePacs;
+  remotePacs: RemotePacs;
   private ownDrop = false;
-  private rivalIds: string[] = [];
+  rivalIds: string[] = [];
   private readonly netRate = new FixedRate(NET_TICK_HZ);
   private spawnCount = 0;
-  private boardRound = 0;
+  boardRound = 0;
   private boardSig = "";
-  private appliedEaten = new Set<string>();
-  private pellets = new PelletClaims<EatUndo>();
+  appliedEaten = new Set<string>();
+  pellets = new PelletClaims<EatUndo>();
   private claimsSeen: ClaimMap | null = null;
   private boardStale = true;
   private scaredBy: string | null = null;
   private netInfoText = "";
-  private boardEl = el("board");
-  private netInfoEl = el("netinfo");
+  private readonly boardEl = el("board");
+  private readonly netInfoEl = el("netinfo");
   private lives = START_LIVES;
   private scaredMs = 0;
   private graceMs = 0;
@@ -596,28 +601,28 @@ export class GameScene {
   private readonly pad = new PhysicalGamepad();
   private padStickDir: Dir4 | null = null;
   private unwatchControls: (() => void) | null = null;
-  private pacRig = new THREE.Group();
-  private pacGroup: THREE.Group;
-  private captureEcho: THREE.Group;
+  private readonly pacRig = new THREE.Group();
+  private readonly pacGroup: THREE.Group;
+  private readonly captureEcho: THREE.Group;
   private captureAge = CAPTURE_ECHO_S;
   private reappearAge = REAPPEAR_S;
   private resultAge = 0;
-  private mouthMesh: THREE.Mesh;
+  private readonly mouthMesh: THREE.Mesh;
   private mouthAngle = 0;
   private mouthBuiltBucket = -1;
-  private mouthGeoCache = new Map<number, THREE.SphereGeometry>();
-  private heartGeo = buildHeartGeometry(POWER_PELLET_RADIUS * 1.85);
-  private powerMat = new THREE.MeshStandardMaterial({
+  private readonly mouthGeoCache = new Map<number, THREE.SphereGeometry>();
+  private readonly heartGeo = buildHeartGeometry(POWER_PELLET_RADIUS * 1.85);
+  private readonly powerMat = new THREE.MeshStandardMaterial({
     color: COLORS.power,
     emissive: COLORS.heartGlow,
     emissiveIntensity: 0.4,
     roughness: 0.5,
   });
 
-  private fx: FxPool;
-  private powerHalo: PowerHalo;
-  private shaker = new TraumaCamera();
-  private t = 0;
+  private readonly fx: FxPool;
+  private readonly powerHalo: PowerHalo;
+  private readonly shaker = new TraumaCamera();
+  t = 0;
   private fovKick = 0;
   private baseFov = BASE_FOV;
   private squashKick = 0;
@@ -630,38 +635,38 @@ export class GameScene {
   private noticeTimer: ReturnType<typeof setTimeout> | null = null;
 
   private camInit = false;
-  private camCur = new THREE.Vector3();
-  private camTarget = new THREE.Vector3();
-  private lookCur = new THREE.Vector3();
-  private lookTarget = new THREE.Vector3();
+  private readonly camCur = new THREE.Vector3();
+  private readonly camTarget = new THREE.Vector3();
+  private readonly lookCur = new THREE.Vector3();
+  private readonly lookTarget = new THREE.Vector3();
 
-  private scoreEl = el("score");
-  private bestEl = el("best");
-  private statsEl = el("stats");
-  private chainEl = el("chain");
+  private readonly scoreEl = el("score");
+  private readonly bestEl = el("best");
+  statsEl = el("stats");
+  private readonly chainEl = el("chain");
   private chainText = "";
-  private bannerEl = el("banner");
-  private bannerTitleEl = el("banner-title");
-  private bannerSubEl = el("banner-sub");
-  private bannerControlsEl = el("banner-controls");
-  private flashEl = el("flash");
-  private selfieBtnEl = el("btn-selfie");
-  private restartBtnEl = el("btn-restart");
-  private teachingEl = el("teaching");
-  private teachingNoteEl = el("teaching-note");
-  private teachingStepEl = el("teaching-step");
-  private teachingTurnEl = el("teaching-turn");
+  private readonly bannerEl = el("banner");
+  private readonly bannerTitleEl = el("banner-title");
+  private readonly bannerSubEl = el("banner-sub");
+  private readonly bannerControlsEl = el("banner-controls");
+  private readonly flashEl = el("flash");
+  private readonly selfieBtnEl = el("btn-selfie");
+  private readonly restartBtnEl = el("btn-restart");
+  private readonly teachingEl = el("teaching");
+  private readonly teachingNoteEl = el("teaching-note");
+  private readonly teachingStepEl = el("teaching-step");
+  private readonly teachingTurnEl = el("teaching-turn");
   private taughtStep = false;
   private taughtTurn = false;
   private teachingDoneAt = -1;
   private teachingBlockedUntil = -1;
   private teachingShown = "";
-  private resultEl = el("result");
-  private resultModeEl = el("result-mode");
-  private resultScoreEl = el("result-score");
-  private resultBestEl = el("result-best");
-  private resultGhostsEl = el("result-ghosts");
-  private resultLeftEl = el("result-left");
+  private readonly resultEl = el("result");
+  private readonly resultModeEl = el("result-mode");
+  private readonly resultScoreEl = el("result-score");
+  private readonly resultBestEl = el("result-best");
+  private readonly resultGhostsEl = el("result-ghosts");
+  private readonly resultLeftEl = el("result-left");
 
   constructor() {
     createTouchControls({
@@ -683,7 +688,7 @@ export class GameScene {
     this.pacGroup = buildPacman();
     const mouth = this.pacGroup.getObjectByName("mouth");
 
-    if (!(mouth instanceof THREE.Mesh)) {
+    if (!mouth || !isMesh(mouth)) {
       throw new TypeError("pacman mouth missing");
     }
 
@@ -719,7 +724,9 @@ export class GameScene {
     this.fx = new FxPool(this.scene);
     this.powerHalo = new PowerHalo(this.scene);
     this.remotePacs = new RemotePacs(this.scene);
-    this.net.subscribe(() => this.watchOwnConnection());
+    this.net.subscribe(() => {
+      this.watchOwnConnection();
+    });
     this.best = loadBest();
     this.bindInput();
     this.setPhase("title");
@@ -762,7 +769,7 @@ export class GameScene {
   private handleNetEvent(event: string, payload: JsonValue, from: string) {
     const p = isJsonObject(payload) ? payload : {};
 
-    if (p["round"] !== this.boardRound) {
+    if (p.round !== this.boardRound) {
       return;
     }
 
@@ -1052,7 +1059,7 @@ export class GameScene {
     if (netInfo !== this.netInfoText) {
       this.netInfoText = netInfo;
       this.netInfoEl.textContent = netInfo;
-      this.netInfoEl.dataset["status"] = this.net.connectionStatus;
+      this.netInfoEl.dataset.status = this.net.connectionStatus;
       this.updateHud();
     }
 
@@ -1069,7 +1076,7 @@ export class GameScene {
     const rows = [{ id: this.net.playerId ?? "solo", me: true, score: this.score }];
 
     for (const id of this.rivalIds) {
-      const sc = this.net.players[id]?.state?.["score"];
+      const sc = this.net.players[id]?.state?.score;
       rows.push({ id, me: false, score: isJsonNumber(sc) ? sc : 0 });
     }
 
@@ -1371,7 +1378,7 @@ export class GameScene {
     this.pelletField.reset(pearls);
   }
 
-  private pelletsLeft() {
+  pelletsLeft() {
     return this.pelletField.count + this.hearts.size;
   }
 
@@ -1382,8 +1389,12 @@ export class GameScene {
     window.addEventListener("pointerdown", this.onPointerDown);
     window.addEventListener("pointermove", this.onPointerMove);
     window.addEventListener("pointerup", this.onPointerUp);
-    this.selfieBtnEl.addEventListener("click", () => this.toggleSelfie());
-    this.restartBtnEl.addEventListener("click", () => this.requestRestart());
+    this.selfieBtnEl.addEventListener("click", () => {
+      this.toggleSelfie();
+    });
+    this.restartBtnEl.addEventListener("click", () => {
+      this.requestRestart();
+    });
   }
 
   /** Wrapper pause: drop anything half-entered so resume starts from neutral. */
@@ -1427,7 +1438,7 @@ export class GameScene {
     }
   }
 
-  private onKeyDown = (e: KeyboardEvent) => {
+  private readonly onKeyDown = (e: KeyboardEvent) => {
     if (this.paused || SYSTEM_KEYS.has(e.key)) {
       return;
     }
@@ -1494,17 +1505,17 @@ export class GameScene {
     }
   };
 
-  private onKeyUp = (e: KeyboardEvent) => {
+  private readonly onKeyUp = (e: KeyboardEvent) => {
     if (e.key === "Shift") {
       this.shiftHeld = false;
     }
   };
 
-  private onBlur = () => {
+  private readonly onBlur = () => {
     this.shiftHeld = false;
   };
 
-  private onPointerDown = (e: PointerEvent) => {
+  private readonly onPointerDown = (e: PointerEvent) => {
     if (this.paused) {
       return;
     }
@@ -1517,7 +1528,7 @@ export class GameScene {
     this.swiped = false;
   };
 
-  private onPointerMove = (e: PointerEvent) => {
+  private readonly onPointerMove = (e: PointerEvent) => {
     if (this.paused) {
       return;
     }
@@ -1550,7 +1561,7 @@ export class GameScene {
     }
   };
 
-  private onPointerUp = () => {
+  private readonly onPointerUp = () => {
     if (!this.swiped && this.swipeOrigin && this.onBanner) {
       this.handleStart();
     }
@@ -1722,7 +1733,7 @@ export class GameScene {
     return true;
   }
 
-  private collectPellet() {
+  collectPellet() {
     const col = Math.round(this.pac.x);
     const row = Math.round(this.pac.z);
     const cell = cellKey(col, row);
@@ -1941,7 +1952,9 @@ export class GameScene {
     this.unwatchControls?.();
     this.unwatchControls =
       phase === "title" || phase === "win" || phase === "gameover"
-        ? watchControlContext(() => this.renderBanner())
+        ? watchControlContext(() => {
+            this.renderBanner();
+          })
         : null;
 
     if (phase === "win") {

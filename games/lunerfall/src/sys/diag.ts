@@ -349,7 +349,9 @@ export const installTestHooks = (game: Phaser.Game) => {
   }
 
   publishTestHooks({
-    seed: (n) => restartSolo(game, n),
+    seed: (n) => {
+      restartSolo(game, n);
+    },
     setPausedForScreenshot: (paused) => {
       if (paused) {
         game.loop.sleep();
@@ -358,13 +360,13 @@ export const installTestHooks = (game: Phaser.Game) => {
       }
     },
     setState: (name) => {
-      if (name !== "active-play") {
-        return;
+      const applies = name === "active-play";
+
+      if (applies) {
+        restartSolo(game);
       }
 
-      restartSolo(game);
-
-      return { state: name };
+      return applies ? { state: name } : undefined;
     },
   });
   publishManifest();

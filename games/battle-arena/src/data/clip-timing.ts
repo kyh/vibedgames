@@ -178,7 +178,7 @@ export const strikeMs = (clip: string, intervalMs: number) => {
 export const castStrikeMs = (champId: string, key: string) => {
   const clip = ABILITY_CLIPS.get(champId)?.[key];
 
-  if (!clip) {
+  if (clip === undefined || clip === "") {
     return 0;
   }
 

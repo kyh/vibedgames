@@ -93,8 +93,14 @@ interface BootBar {
   at: () => number;
 }
 
+declare global {
+  interface Window {
+    __bootBar?: Partial<BootBar>;
+  }
+}
+
 const boot = () => {
-  const { at, stop } = (globalThis as { __bootBar?: Partial<BootBar> }).__bootBar ?? {};
+  const { at, stop } = window.__bootBar ?? {};
 
   if (!(at && stop)) {
     return null;
@@ -138,58 +144,58 @@ export interface ReceiptLine {
 }
 
 export class Hud {
-  private timer = el("timer");
-  private timerVal = el("timer").querySelector<HTMLElement>(".value");
-  private timeBonus = el("time-bonus");
-  private district = el("district");
-  private area = el("area");
-  private scoreVal = el("score").querySelector<HTMLElement>(".value");
-  private scorePill = el("score");
-  private scoreLabel = el("score").querySelector<HTMLElement>(".label");
-  private boostPill = el("speed");
-  private boostFill = el("boost-fill");
-  private dial = el("dash-dial");
+  private readonly timer = el("timer");
+  private readonly timerVal = el("timer").querySelector<HTMLElement>(".value");
+  private readonly timeBonus = el("time-bonus");
+  private readonly district = el("district");
+  private readonly area = el("area");
+  private readonly scoreVal = el("score").querySelector<HTMLElement>(".value");
+  private readonly scorePill = el("score");
+  private readonly scoreLabel = el("score").querySelector<HTMLElement>(".label");
+  private readonly boostPill = el("speed");
+  private readonly boostFill = el("boost-fill");
+  private readonly dial = el("dash-dial");
   private dialCtx: CanvasRenderingContext2D | null = null;
   private dialFaceGrad: CanvasGradient | null = null;
   private dialValueGrad: CanvasGradient | null = null;
   private dialHubGrad: CanvasGradient | null = null;
-  private railL = el("rail-l");
-  private railR = el("rail-r");
-  private railBarL = sub("#rail-l > i");
-  private railBarR = sub("#rail-r > i");
+  private readonly railL = el("rail-l");
+  private readonly railR = el("rail-r");
+  private readonly railBarL = sub("#rail-l > i");
+  private readonly railBarR = sub("#rail-r > i");
   private railOn = 0;
   private railOnShown = -1;
   private railFillShown = -1;
   private railTierShown = -1;
-  private fareCard = el("fare-card");
-  private fareWho = el("fare-card").querySelector<HTMLElement>(".who");
-  private fareDist = el("fare-card").querySelector<HTMLElement>(".dist");
-  private patienceFill = el("patience-fill");
-  private combo = el("combo");
-  private announceMinorEl = el("announce-minor");
-  private receipt = el("receipt");
-  private comboMeter = el("combo-meter");
-  private comboMult = el("combo-meter").querySelector<HTMLElement>(".mult");
-  private comboFill = el("combo-fill");
-  private countdown = el("countdown");
-  private vignette = el("vignette");
-  private arrow = el("dest-arrow");
-  private arrowPoly = el("dest-arrow").querySelector<SVGPolygonElement>("polygon");
+  private readonly fareCard = el("fare-card");
+  private readonly fareWho = el("fare-card").querySelector<HTMLElement>(".who");
+  private readonly fareDist = el("fare-card").querySelector<HTMLElement>(".dist");
+  private readonly patienceFill = el("patience-fill");
+  private readonly combo = el("combo");
+  private readonly announceMinorEl = el("announce-minor");
+  private readonly receipt = el("receipt");
+  private readonly comboMeter = el("combo-meter");
+  private readonly comboMult = el("combo-meter").querySelector<HTMLElement>(".mult");
+  private readonly comboFill = el("combo-fill");
+  private readonly countdown = el("countdown");
+  private readonly vignette = el("vignette");
+  private readonly arrow = el("dest-arrow");
+  private readonly arrowPoly = el("dest-arrow").querySelector<SVGPolygonElement>("polygon");
   private arrowBox: { minX: number; maxX: number; minY: number; maxY: number } | null = null;
   private arrowBoxAt = 0;
-  private banner = el("banner");
-  private bannerTitle = el("banner-title");
-  private bannerSub = el("banner-sub");
-  private bannerStats = el("banner-stats");
-  private bannerControls = el("banner-controls");
-  private bannerCta = el("banner-cta");
-  private flashEl = el("flash");
-  private loading = el("loading");
-  private barFill = el("bar-fill");
-  private loadSub = sub("#loading .ls");
+  private readonly banner = el("banner");
+  private readonly bannerTitle = el("banner-title");
+  private readonly bannerSub = el("banner-sub");
+  private readonly bannerStats = el("banner-stats");
+  private readonly bannerControls = el("banner-controls");
+  private readonly bannerCta = el("banner-cta");
+  private readonly flashEl = el("flash");
+  private readonly loading = el("loading");
+  private readonly barFill = el("bar-fill");
+  private readonly loadSub = sub("#loading .ls");
   private loadFrac = 0;
   private loadLabel = "";
-  private reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  private readonly reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   private scoreShown = 0;
   private scoreTarget = 0;
   private lastScorePop = 0;
@@ -199,7 +205,7 @@ export class Hud {
   private mphVel = 0;
   private dialLive = false;
 
-  private coarseUi: boolean;
+  private readonly coarseUi: boolean;
 
   constructor(coarseUi = false) {
     this.coarseUi = coarseUi;
@@ -723,7 +729,7 @@ export class Hud {
     this.arrow.style.opacity = "1";
     this.arrow.style.transform = `translate(${x}px, ${y}px) rotate(${rot}rad)`;
 
-    if (color && this.arrowPoly) {
+    if (color !== undefined && color !== "" && this.arrowPoly) {
       this.arrowPoly.setAttribute("fill", color);
     }
   }

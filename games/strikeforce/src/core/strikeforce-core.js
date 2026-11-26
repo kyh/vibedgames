@@ -204,7 +204,13 @@ function BM() {
   let n = /* @__PURE__ */ new Map();
   return {
     on(e, t) {
-      return (n.has(e) || n.set(e, []), n.get(e).push(t), () => this.off(e, t));
+      return (
+        n.has(e) || n.set(e, []),
+        n.get(e).push(t),
+        () => {
+          this.off(e, t);
+        }
+      );
     },
     off(e, t) {
       let i = n.get(e);
@@ -2532,7 +2538,11 @@ async function ov(n) {
     }),
       j && console.log(`[render] interior probe assigned to ${j} material(s)`));
   }
-  ((Q.captureInteriorProbe = J), Q.resize(), window.addEventListener("resize", () => Q.resize()));
+  ((Q.captureInteriorProbe = J),
+    Q.resize(),
+    window.addEventListener("resize", () => {
+      Q.resize();
+    }));
   try {
     let G = new L0({ color: 8421504 }),
       te = new ht(new R0(1, 1, 1), G);
@@ -4852,7 +4862,9 @@ async function lv(n) {
       (k.userData.set = A.key),
       (k.userData.tile = A.tile),
       L.interior && (k.userData.interior = true),
-      (k.onBeforeCompile = (Q) => g_(Q, N)));
+      (k.onBeforeCompile = (Q) => {
+        g_(Q, N);
+      }));
     let Z = "sl2|" + C.tint + (F ? "t" : "") + (H ? "f" : "") + (C.alphaCut ? "a" : "");
     return ((k.customProgramCacheKey = () => Z), _.set(U, k), k);
   }
@@ -4971,7 +4983,11 @@ function _k(n) {
           (M += L + 0.14));
       };
     ([E.slice(0, 9), E.slice(9, 17), E.slice(17)].forEach((R, z) => {
-      ((M = -v / 2 + 0.25), (_ = y - 0.75 - z * 0.78), R.forEach((I) => w(e.decal(I), T)));
+      ((M = -v / 2 + 0.25),
+        (_ = y - 0.75 - z * 0.78),
+        R.forEach((I) => {
+          w(e.decal(I), T);
+        }));
     }),
       (M = -v / 2 + 0.25),
       (_ = y - 0.75 - 3 * 0.78 - 0.05),
@@ -14691,7 +14707,13 @@ function pP(n) {
 }
 async function mP(n) {
   let e = await Pg(n);
-  return { cam: [-32, 1.7, 6], target: [0, 2.4, 6.4], update: (t) => e.update(t) };
+  return {
+    cam: [-32, 1.7, 6],
+    target: [0, 2.4, 6.4],
+    update: (t) => {
+      e.update(t);
+    },
+  };
 }
 var zv = {};
 ar(zv, { create: () => Iv, showcase: () => _P });
@@ -15484,7 +15506,9 @@ function Dg(n, e, t = {}) {
   let O = o.build({ cast: true, recv: true });
   O.name = "crane";
   let q = new ho(),
-    ue = (P, D, B) => q.add(P, D, B),
+    ue = (P, D, B) => {
+      q.add(P, D, B);
+    },
     de = 8.3;
   for (let P of [-0.9, 0.9])
     for (let D of [-0.8, 0.8]) ue(h, dt([P, 0, D], [P * 0.8, -de, D * 0.7], 0.022, 5));
@@ -15656,7 +15680,9 @@ function ww(n, e) {
     c = n.mats.get("rubber"),
     u = [2.6, 1.75, 0.95],
     f = (ee) => e.add(ee, u, 0),
-    h = (ee, le, xe) => t.add(ee, le, xe),
+    h = (ee, le, xe) => {
+      t.add(ee, le, xe);
+    },
     p = [0, 0.35, 0.9, 1.8, 3, 4.5, 6, 8, 10, 12, 14.5, 17, 20];
   for (let ee = 23; ee < Ln - 0.5; ee += 3) p.push(ee);
   p.push(Ln);
@@ -16092,7 +16118,9 @@ function Ew(n, e) {
     o = n.mats.get("polymer_black"),
     r = n.mats.get("steel_galv"),
     a = n.mats.get("glass"),
-    l = (U, k, C) => t.add(U, k, C),
+    l = (U, k, C) => {
+      t.add(U, k, C);
+    },
     c = [2, 2.02, 2.08],
     u = [0.5, 0.5, 0.52],
     f = [1.9, 1.7, 1.2],
@@ -16640,7 +16668,11 @@ function Rw(n, e) {
       e.add(Rn(C - 3.3, 20, A - 4, 0.24), o, 0),
       e.add(Rn(C + 3.3, 20, A + 4, 0.24), o, 0));
   }
-  let R = { add: (C, A, F) => c(A, F) },
+  let R = {
+      add: (C, A, F) => {
+        c(A, F);
+      },
+    },
     z = Ng(6172444, 0.7);
   (S(-61, -52.06, E, -3, 4.5),
     S(-61, 41.1, z, 5, 9),
@@ -16726,8 +16758,9 @@ function Rw(n, e) {
     [-70, 150, 80],
   ]) {
     let H = Math.abs(A) > 120,
-      N = (Z, Q, W, J, G, te, oe) =>
+      N = (Z, Q, W, J, G, te, oe) => {
         c(H ? Pe(C + Z, Q, A + W, C + J, G, A + te) : Pe(C + W, Q, A + Z, C + te, G, A + J), oe);
+      };
     (N(-F / 2, 0, -16, F / 2, 9.5, 16, [0.2, 0.22, 0.24]),
       N(-F / 2, 9.5, -16.4, F / 2, 9.9, 16.4, [0.12, 0.12, 0.13]),
       N(-F / 2, 9.9, -10, F / 2, 12.2, 10, [0.17, 0.18, 0.2]),
@@ -17000,7 +17033,12 @@ function _P(n) {
     boat: { cam: [19.5, 1.7, 11.5], target: [24, 0.9, 15] },
     sky: { cam: [-32, 1.7, 6], target: [30, 9, 0] },
   };
-  return { ...(i[e] || i.crane), update: (s) => t.update(s) };
+  return {
+    ...(i[e] || i.crane),
+    update: (s) => {
+      t.update(s);
+    },
+  };
 }
 var Lv = {};
 ar(Lv, { create: () => Vg, showcase: () => BP });
@@ -27907,7 +27945,9 @@ function uE(n, e, t) {
     Fe("player:dead", () => {
       (Bt.death(), (ce = 1));
     }),
-    Fe("enemy:spawn", (ie) => oi(ie.enemy)),
+    Fe("enemy:spawn", (ie) => {
+      oi(ie.enemy);
+    }),
     Fe("enemy:alert", (ie) => {
       me = Math.max(me, 0.6);
       let ae = e.currentTime;
@@ -28007,8 +28047,12 @@ function uE(n, e, t) {
     Fe("objective:done", (ie) => {
       (I0(ie), Bt.relay());
     }),
-    Fe("objective:all", () => Bt.finalRun()));
-  let De = () => Bt.complete();
+    Fe("objective:all", () => {
+      Bt.finalRun();
+    }));
+  let De = () => {
+    Bt.complete();
+  };
   (Fe("extraction:reached", De),
     Fe("thunder", (ie) => {
       let ae = ti(ie.intensity != null ? +ie.intensity : 0.6, 0.1, 1);
@@ -28563,7 +28607,9 @@ function gE(n) {
       }
       n.events.emit("input:lock", { locked: m.locked });
     }),
-    document.addEventListener("pointerlockerror", () => T()));
+    document.addEventListener("pointerlockerror", () => {
+      T();
+    }));
   let E = 0.5,
     M = 0.5,
     _ = false;
@@ -28582,7 +28628,11 @@ function gE(n) {
       try {
         l = performance.now();
         let ne = e.requestPointerLock();
-        ne && ne.catch && ne.catch(() => T());
+        ne &&
+          ne.catch &&
+          ne.catch(() => {
+            T();
+          });
       } catch {
         T();
       }
@@ -29859,7 +29909,9 @@ function Fz() {
         "WARNING — CLEAR CHAMBER BEFORE",
         "STOWAGE. AUTHORISED BREACH",
         "PERSONNEL ONLY. PA-REG 44/7",
-      ].forEach((d, m) => e.fillText(d, h + 4, p + 32 + m * 52, 630)));
+      ].forEach((d, m) => {
+        e.fillText(d, h + 4, p + 32 + m * 52, 630);
+      }));
   }
   {
     let [h, p, d, m] = Qo.dots;
@@ -35019,7 +35071,12 @@ function Fh(n, e = {}) {
     bone: Object.fromEntries(T1.map((A, F) => [A, o[F]])),
     triCount: k.geometry.userData.triCount,
     setLayer(A) {
-      return (s.traverse((F) => F.layers.set(A)), C);
+      return (
+        s.traverse((F) => {
+          F.layers.set(A);
+        }),
+        C
+      );
     },
     setVisible(A) {
       return ((s.visible = !!A), C);
@@ -38990,7 +39047,10 @@ async function BD(n) {
       e.reset(),
       e.equip(f));
     for (let E of Object.values(e.rigs))
-      (n.camera.add(E.root), E.root.traverse((M) => M.layers.set(Ro)));
+      (n.camera.add(E.root),
+        E.root.traverse((M) => {
+          M.layers.set(Ro);
+        }));
     let m = e.root,
       x = e.rigs[f],
       v = (E, M) => {
@@ -42923,7 +42983,9 @@ function pT(n) {
       menus: l,
       holdout: cs,
       difficulty: "hard",
-      setDifficulty: (Y) => h(Y),
+      setDifficulty: (Y) => {
+        h(Y);
+      },
       start(Y = {}) {
         G({
           skipIntro: !!Y.skipIntro,
@@ -43147,7 +43209,10 @@ function pT(n) {
         : C.state === "playing" && r.locked && o.message("", 0);
     }
   }
-  (r.onModeChange && r.onModeChange(() => ee(false)),
+  (r.onModeChange &&
+    r.onModeChange(() => {
+      ee(false);
+    }),
     n.events.on("input:lock", (Y) => {
       if (Y.locked) {
         ((R = true), ee(false));
@@ -43188,7 +43253,9 @@ function pT(n) {
       (R = false),
       r.requestLock(),
       A("playing"),
-      setTimeout(() => ee(true), 700));
+      setTimeout(() => {
+        ee(true);
+      }, 700));
   }
   function j(Y) {
     let he = Y === "gull" ? "air" : "ground",
@@ -43999,5 +44066,7 @@ function hL(n) {
 }
 
 export function bootStrikeforce(net, modules) {
-  return cL(net, modules).catch((n) => yT((n && n.stack) || n));
+  return cL(net, modules).catch((n) => {
+    yT((n && n.stack) || n);
+  });
 }

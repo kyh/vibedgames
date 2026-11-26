@@ -92,17 +92,17 @@ export class FareManager {
   readonly group = new THREE.Group();
   private waiting: WaitingFare[] = [];
   private carrying: Carrying | null = null;
-  private carryBeacon: Beacon;
+  private readonly carryBeacon: Beacon;
   private extras: Extra[] = [];
   private clock = 0;
   private spawnAt = 0;
   private firstSpawn = true;
-  private rng: Rng;
+  private readonly rng: Rng;
   private trailerHold = false;
   private trailerDest: RoadCell | null = null;
 
-  private cache: ModelCache;
-  private city: CityModel;
+  private readonly cache: ModelCache;
+  private readonly city: CityModel;
 
   constructor(cache: ModelCache, city: CityModel, seed = 7) {
     this.cache = cache;

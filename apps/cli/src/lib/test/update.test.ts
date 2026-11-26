@@ -16,8 +16,10 @@ const LATEST = new Map([
 const useRegistry = async () => {
   const port = await makeTestServer(cleanups, (req, res) => {
     const version = LATEST.get(req.url ?? "");
-    res.writeHead(version ? 200 : 404, { "content-type": "application/json" });
-    res.end(version ? JSON.stringify({ version }) : "{}");
+    res.writeHead(version !== undefined && version !== "" ? 200 : 404, {
+      "content-type": "application/json",
+    });
+    res.end(version !== undefined && version !== "" ? JSON.stringify({ version }) : "{}");
   });
 
   const previous = process.env.VG_REGISTRY_URL;

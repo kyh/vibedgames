@@ -34,6 +34,10 @@ export interface NetProbe {
   clients: () => NetClientInfo[];
 }
 
+declare global {
+  var __VG_NET__: NetProbe | undefined;
+}
+
 /** A client that can report itself (MultiplayerClient). */
 export interface NetClientSource {
   netInfo: () => NetClientInfo;

@@ -1,3 +1,4 @@
+import { runInOrder } from "@repo/contract/run-in-order";
 import { z } from "zod";
 
 import { parseRunInput, readExplicitLocalFile } from "./media-args.js";
@@ -111,7 +112,7 @@ const listOf = (value: JsonValue) => {
 export const readMediaInput = async (
   fields: Fields,
   argv: string[],
-  upload: (file: LocalFile) => Promise<string>,
+  upload: (file: LocalFile) => Promise<string> | string,
 ) => {
   const raw = parseRunInput(argv);
   const input: JsonObject = {};
@@ -134,35 +135,31 @@ export const readMediaInput = async (
     return await upload(file);
   };
 
-  for (const [key, schema] of Object.entries(fields)) {
+  await runInOrder(Object.entries(fields), async ([key, schema]) => {
     const kind = kindOf(schema);
     const value = kind === "boolean" && raw[`no-${key}`] === true ? false : raw[key];
 
     if (value === undefined || key === "wait_seconds") {
-      continue;
+      return;
     }
 
     if (kind === "array") {
       const element = elementOf(schema);
-      const items: JsonValue[] = [];
 
-      for (const item of listOf(value)) {
-        items.push(coerce(element, await resolve(key, item)));
-      }
-
-      input[key] = items;
+      input[key] = await runInOrder(listOf(value), async (item) =>
+        coerce(element, await resolve(key, item)),
+      );
     } else if (kind === "record" && isLocalFileField(key) && isJsonObject(value)) {
-      const entries: JsonObject = {};
+      const entries = await runInOrder(
+        Object.entries(value),
+        async ([name, item]) => [name, await resolve(key, item)] as const,
+      );
 
-      for (const [name, item] of Object.entries(value)) {
-        entries[name] = await resolve(key, item);
-      }
-
-      input[key] = entries;
+      input[key] = Object.fromEntries(entries);
     } else {
       input[key] = coerce(kind, await resolve(key, value));
     }
-  }
+  });
 
   return input;
 };

@@ -282,7 +282,7 @@ export class PlayerBody {
   }
 
   private grid: Grid;
-  private kit: HeroKit;
+  private readonly kit: HeroKit;
   private ev: BodyEvents;
 
   constructor(grid: Grid, x: number, y: number, kit: HeroKit, ev: BodyEvents = {}) {

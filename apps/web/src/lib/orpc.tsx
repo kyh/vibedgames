@@ -14,7 +14,7 @@ import { createRpcContext } from "@/auth/server";
 export const makeORPCClient = createIsomorphicFn()
   .server(() =>
     createRouterClient(appRouter, {
-      context: () => createRpcContext(new Headers(getRequestHeaders())),
+      context: async () => await createRpcContext(new Headers(getRequestHeaders())),
     }),
   )
   .client(() => {

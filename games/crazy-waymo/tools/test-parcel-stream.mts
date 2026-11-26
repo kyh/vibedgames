@@ -1,36 +1,39 @@
 import { mock } from "node:test";
 import { isDeepStrictEqual } from "node:util";
-import { Box3, Group, Mesh } from "three";
+import { Box3, Group } from "three";
 import { buildParcelGeometry, buildParcelGeometrySteps } from "../src/world/parcel-mesh.ts";
 import type { DetailLevel } from "../src/world/parcel-mesh.ts";
 import type { ParcelLot, ParcelPlan } from "../src/world/parcel-plan.ts";
 import { ParcelStreamer } from "../src/world/parcel-stream.ts";
 import { packLots, packPlans } from "../src/world/parcel-pack.ts";
+import { isMesh } from "../src/shared/three-guards.ts";
+import { inOrder } from "../src/shared/paced.ts";
 
 type Check = (name: string, condition: boolean, detail?: string) => void;
 
-const house = (x: number, z: number, seed: number) => ({
-  blind: new Uint8Array([0, 1, 0, 1]),
-  blockHash: 4,
-  character: "victorian",
-  district: "the Haight",
-  footY: 0,
-  front: 0,
-  height: 4.8,
-  hero: false,
-  hint: "house",
-  id: seed,
-  kind: "rowhouse",
-  n: 4,
-  obb: { cx: x + 2, cz: z + 3, ex: 1, ez: 0, halfA: 2, halfB: 3 },
-  rect: true,
-  ring: new Float32Array([x, z, x + 4, z, x + 4, z + 6, x, z + 6]),
-  seatY: 0,
-  seed,
-  solids: [],
-  storeys: 3,
-  units: 1,
-});
+const house = (x: number, z: number, seed: number) =>
+  ({
+    blind: new Uint8Array([0, 1, 0, 1]),
+    blockHash: 4,
+    character: "victorian",
+    district: "the Haight",
+    footY: 0,
+    front: 0,
+    height: 4.8,
+    hero: false,
+    hint: "house",
+    id: seed,
+    kind: "rowhouse",
+    n: 4,
+    obb: { cx: x + 2, cz: z + 3, ex: 1, ez: 0, halfA: 2, halfB: 3 },
+    rect: true,
+    ring: new Float32Array([x, z, x + 4, z, x + 4, z + 6, x, z + 6]),
+    seatY: 0,
+    seed,
+    solids: [],
+    storeys: 3,
+    units: 1,
+  }) satisfies ParcelPlan;
 
 const block = (x: number, z = 0) =>
   Array.from({ length: 16 }, (_, index) =>
@@ -65,13 +68,13 @@ const checkResumableSteps = async (
   variants: readonly ParcelPlan[],
   lot: ParcelLot,
 ) => {
-  for (const detail of [0, 1, 2] satisfies DetailLevel[]) {
+  for await (const detail of inOrder([0, 1, 2] satisfies DetailLevel[])) {
     const expected = await buildParcelGeometry(variants, detail, undefined, [lot]);
     const steps = buildParcelGeometrySteps(variants, detail, [lot]);
     let slices = 0;
     let result = steps.next();
 
-    while (!result.done) {
+    while (result.done !== true) {
       slices += 1;
       result = steps.next();
     }
@@ -153,7 +156,7 @@ export const checkParcelStreaming = async (check: Check) => {
     };
 
     for (const mesh of sourceMeshes) {
-      if (mesh instanceof Mesh) {
+      if (isMesh(mesh)) {
         mesh.geometry.addEventListener("dispose", countDisposal);
       }
     }
@@ -238,7 +241,9 @@ export const checkParcelStreaming = async (check: Check) => {
 if (process.argv.includes("--check")) {
   let failures = 0;
   await checkParcelStreaming((name, condition, detail) => {
-    console.log(`${condition ? "ok" : "FAIL"} ${name}${detail ? ` (${detail})` : ""}`);
+    console.log(
+      `${condition ? "ok" : "FAIL"} ${name}${detail !== undefined && detail !== "" ? ` (${detail})` : ""}`,
+    );
 
     if (!condition) {
       failures += 1;

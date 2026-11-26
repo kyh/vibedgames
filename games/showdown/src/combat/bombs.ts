@@ -21,7 +21,7 @@ export const placeLob = (
 ) => {
   const { a } = lob;
   const k = clamp(lob.t / a.flight, 0, 1);
-  let arc = a.big ? 4.4 : 3.3;
+  let arc = a.big === true ? 4.4 : 3.3;
 
   if (a.style === "potion") {
     arc *= 0.65;
@@ -43,7 +43,9 @@ const flyBomb = (combat: Combat, bomb: Bomb, dt: number) => {
 
   if (k >= 1) {
     bomb.landed = true;
-    combat.game.asActor(bomb.owner, () => effects.dust(bomb.tx, bomb.tz, 4, 1.4));
+    combat.game.asActor(bomb.owner, () => {
+      effects.dust(bomb.tx, bomb.tz, 4, 1.4);
+    });
   }
 };
 
@@ -65,7 +67,7 @@ export const stepBomb = (combat: Combat, bomb: Bomb, dt: number) => {
   slot.ring.material.opacity = 0.55 + pulse * 0.35;
   slot.fillDisc.material.opacity = 0.1 + urgency * 0.22;
   const p = slot.group.position;
-  effects.trail(p.x, p.y, p.z, bomb.color, a.big ? 0.46 : 0.26);
+  effects.trail(p.x, p.y, p.z, bomb.color, a.big === true ? 0.46 : 0.26);
   lighting.addLight(p.x, p.y + 0.3, p.z, bomb.color, 2.2 + pulse * 2.5, 4);
 
   if (Math.random() < dt * 40) {

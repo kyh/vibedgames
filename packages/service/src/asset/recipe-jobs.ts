@@ -7,6 +7,7 @@ import {
   RECIPES,
 } from "@repo/contract/asset/recipe-schema";
 import { isMediaUrl } from "@repo/contract/generate/media-hosts";
+import { repeatWhile, runInOrder } from "@repo/contract/run-in-order";
 import { ORPCError } from "@orpc/server";
 import { z } from "zod";
 
@@ -54,11 +55,12 @@ const jobState = z.object({
 
 type JobState = z.infer<typeof jobState>;
 
-const sleep = (ms: number) =>
+const sleep = async (ms: number) => {
   // oxlint-disable-next-line promise/avoid-new -- a Worker has no promise-returning timer to await
-  new Promise<void>((resolve) => {
+  await new Promise<void>((resolve) => {
     setTimeout(resolve, ms);
   });
+};
 
 const jobsOf = (context: ORPCContext, name: string) => {
   if (!context.mediaJobs) {
@@ -108,21 +110,20 @@ const filesOf = (name: RecipeName, input: RecipeFields) => {
   for (const field of fileFields(name)) {
     const value = input[field];
 
-    const entries = z
-      .union([z.string(), z.array(z.string()), z.record(z.string(), z.string())])
-      .optional()
-      .parse(value);
+    const single = z.string().safeParse(value);
+    const list = z.array(z.string()).safeParse(value);
+    const map = z.record(z.string(), z.string()).safeParse(value);
 
-    if (entries === undefined) {
-      continue;
-    }
-
-    if (Array.isArray(entries)) {
-      files.push(...entries.map((url) => ({ field, url })));
-    } else if (z.string().safeParse(entries).success) {
-      files.push({ field, url: String(entries) });
-    } else {
-      files.push(...Object.entries(entries).map(([key, url]) => ({ field, key, url })));
+    if (single.success) {
+      files.push({ field, url: single.data });
+    } else if (list.success) {
+      files.push(...list.data.map((url) => ({ field, url })));
+    } else if (map.success) {
+      files.push(...Object.entries(map.data).map(([key, url]) => ({ field, key, url })));
+    } else if (value !== undefined) {
+      throw new ORPCError("BAD_REQUEST", {
+        message: `${field} is not a URL, a list of URLs or a map of them.`,
+      });
     }
   }
 
@@ -182,10 +183,8 @@ const finalize = async (context: ORPCContext, jobId: string, state: JobState) =>
     await releaseRecipe(context.db, jobId);
     const final = { cost_usd: 0, outputs: [] };
 
-    return recordFinal(jobs, jobId, final);
+    return await recordFinal(jobs, jobId, final);
   }
-
-  const outputs: z.infer<typeof finalOutput>[] = [];
 
   for (const output of state.outputs) {
     if (output.bytes > MAX_RECIPE_OUTPUT_BYTES) {
@@ -193,19 +192,17 @@ const finalize = async (context: ORPCContext, jobId: string, state: JobState) =>
         message: `${output.name} is ${output.bytes} bytes, over the ${MAX_RECIPE_OUTPUT_BYTES} a recipe returns; ask for less (a lower crf, size or frame count).`,
       });
     }
+  }
 
-    const res = await keptOutput(jobs, jobId, output.name);
+  let expired = false;
+
+  const stored = await runInOrder(state.outputs, async (output) => {
+    const res = expired ? null : await keptOutput(jobs, jobId, output.name);
 
     if (!res) {
-      await releaseRecipe(context.db, jobId);
+      expired = true;
 
-      const final = {
-        cost_usd: 0,
-        error: "Its outputs are no longer kept; run it again. It was not charged.",
-        outputs: [],
-      };
-
-      return recordFinal(jobs, jobId, final);
+      return null;
     }
 
     const bytes = await readBytesBounded(res, MAX_RECIPE_OUTPUT_BYTES, output.name);
@@ -216,7 +213,28 @@ const finalize = async (context: ORPCContext, jobId: string, state: JobState) =>
       fileName: fileNameOf(output.name),
     });
 
-    outputs.push({ bytes: output.bytes, content_type: output.contentType, name: output.name, url });
+    const kept: z.infer<typeof finalOutput> = {
+      bytes: output.bytes,
+      content_type: output.contentType,
+      name: output.name,
+      url,
+    };
+
+    return kept;
+  });
+
+  const outputs = stored.filter((output) => output !== null);
+
+  if (expired) {
+    await releaseRecipe(context.db, jobId);
+
+    const final = {
+      cost_usd: 0,
+      error: "Its outputs are no longer kept; run it again. It was not charged.",
+      outputs: [],
+    };
+
+    return await recordFinal(jobs, jobId, final);
   }
 
   const final = {
@@ -224,7 +242,7 @@ const finalize = async (context: ORPCContext, jobId: string, state: JobState) =>
     outputs,
   };
 
-  return recordFinal(jobs, jobId, final);
+  return await recordFinal(jobs, jobId, final);
 };
 
 const report = (jobId: string, state: JobState) => ({
@@ -233,7 +251,7 @@ const report = (jobId: string, state: JobState) => ({
   job_id: jobId,
   outputs: state.final?.outputs ?? [],
   recipe: state.recipe,
-  result: (state.result ?? null) as JsonValue,
+  result: state.result ?? null,
   seconds: state.seconds,
   status: state.status,
 });
@@ -253,13 +271,19 @@ const follow = async (context: ORPCContext, jobId: string, waitSeconds: number) 
     throw new ORPCError("NOT_FOUND", { message: `No recipe job ${jobId}.` });
   }
 
-  while (
-    (state.status === "queued" || state.status === "running") &&
-    Date.now() + POLL_MS <= deadline
-  ) {
+  await repeatWhile(async () => {
+    if (
+      (state.status !== "queued" && state.status !== "running") ||
+      Date.now() + POLL_MS > deadline
+    ) {
+      return false;
+    }
+
     await sleep(POLL_MS);
     state = await readState(jobs, jobId);
-  }
+
+    return true;
+  });
 
   if (state.status === "done" || state.status === "failed") {
     state = await finalize(context, jobId, state);
@@ -279,9 +303,10 @@ export const submitRecipe = async (
   const files = filesOf(name, input);
   const params = paramsOf(name, input);
 
-  for (const stale of await staleRecipeJobs(context.db, user.id)) {
-    await follow(context, stale, 0).catch(() => null);
-  }
+  await runInOrder(
+    await staleRecipeJobs(context.db, user.id),
+    async (stale) => await follow(context, stale, 0).catch(() => null),
+  );
 
   if (user.role !== "admin") {
     await requirePositiveBalance(context.db, user.id, purchasesEnabled(context.billing));
@@ -307,10 +332,10 @@ export const submitRecipe = async (
     throw error;
   }
 
-  return follow(context, jobId, input.wait_seconds);
+  return await follow(context, jobId, input.wait_seconds);
 };
 
-export const recipeStatus = (
+export const recipeStatus = async (
   context: ORPCContext,
   input: { job_id: string; wait_seconds: number },
-) => follow(context, input.job_id, input.wait_seconds);
+) => await follow(context, input.job_id, input.wait_seconds);

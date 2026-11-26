@@ -26,13 +26,15 @@ export class GameAudio implements Synth {
   unlock() {
     if (this.ctx) {
       if (this.ctx.state === "suspended") {
-        this.ctx.resume();
+        void this.ctx.resume().catch(() => null);
       }
 
       return;
     }
 
-    const Context = window.AudioContext ?? window.webkitAudioContext;
+    const Context = Object.hasOwn(window, "AudioContext")
+      ? window.AudioContext
+      : window.webkitAudioContext;
 
     if (Context) {
       this.attach(new Context());

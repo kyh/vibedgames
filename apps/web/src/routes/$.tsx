@@ -21,7 +21,7 @@ export const Route = createFileRoute("/$")({
   component: () => null,
   headers: varyHeaders(),
   loader: () => {
-    throw notFound();
+    notFound({ throw: true });
   },
   server: {
     handlers: {

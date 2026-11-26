@@ -18,6 +18,7 @@ import type { FloorKind } from "../world/custom-map";
 import { ROAD_TILE, WORLD_H, WORLD_W } from "../shared/constants";
 import { CUSTOM_PROPS } from "../world/custom-props";
 import { loadLocalProps, parseMapFile, saveLocalProps } from "../world/map-file";
+import { isMesh } from "../shared/three-guards";
 
 interface Entry {
   model: string;
@@ -69,8 +70,6 @@ const MINIMAP_FILL = new Map<string, string>([
   ["water", "#3f6f9f"],
   ["road", "#9aa0a8"],
 ]);
-
-const noop = () => null;
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
@@ -165,7 +164,7 @@ export const startEditor = async (game: GameScene, renderer: THREE.WebGLRenderer
   }
 
   const cache = game.getCache();
-  await cache.preload(editorModelUrls(), () => null);
+  await cache.preload(editorModelUrls());
   const { camera } = game;
 
   game.freecam = true;
@@ -207,7 +206,7 @@ export const startEditor = async (game: GameScene, renderer: THREE.WebGLRenderer
   const placed: Placed[] = [...CUSTOM_PROPS, ...loadLocalProps()].map((p) => {
     const entry: Entry = { model: p.model, s: p.s, u: p.u, v: p.v, yaw: p.yaw };
 
-    if (p.solid) {
+    if (p.solid === true) {
       entry.solid = true;
     }
 
@@ -577,7 +576,7 @@ export const startEditor = async (game: GameScene, renderer: THREE.WebGLRenderer
     const url = modelUrl(cat, name);
     ghost = cache.instance(url);
     ghost.traverse((c) => {
-      if (c instanceof THREE.Mesh && c.material instanceof THREE.Material) {
+      if (isMesh(c) && c.material instanceof THREE.Material) {
         const m = c.material.clone();
         m.transparent = true;
         m.opacity = 0.65;
@@ -591,7 +590,7 @@ export const startEditor = async (game: GameScene, renderer: THREE.WebGLRenderer
     game.scene.add(ghost);
 
     for (const b of ui.querySelectorAll(".edp")) {
-      b.classList.toggle("on", b instanceof HTMLElement && b.dataset["model"] === `${cat}/${name}`);
+      b.classList.toggle("on", b instanceof HTMLElement && b.dataset.model === `${cat}/${name}`);
     }
   };
 
@@ -615,7 +614,7 @@ export const startEditor = async (game: GameScene, renderer: THREE.WebGLRenderer
     const url = modelUrl(cat, name);
     const hit = thumbCache.get(url);
 
-    if (hit) {
+    if (hit !== undefined && hit !== "") {
       return hit;
     }
 
@@ -662,7 +661,7 @@ export const startEditor = async (game: GameScene, renderer: THREE.WebGLRenderer
 
       const btn = document.createElement("button");
       btn.className = `edp${palette?.name === name && palette.cat === c.cat ? " on" : ""}`;
-      btn.dataset["model"] = `${c.cat}/${name}`;
+      btn.dataset.model = `${c.cat}/${name}`;
       const img = document.createElement("img");
       img.src = thumbnail(c.cat, name);
       const label = document.createElement("span");
@@ -676,7 +675,7 @@ export const startEditor = async (game: GameScene, renderer: THREE.WebGLRenderer
   };
 
   const selectCategory = (btn: HTMLButtonElement) => {
-    activeCat = Number(btn.dataset["cat"]) || 0;
+    activeCat = Number(btn.dataset.cat) || 0;
 
     for (const b of ui.querySelectorAll(".edc")) {
       b.classList.toggle("on", b === btn);
@@ -702,7 +701,7 @@ export const startEditor = async (game: GameScene, renderer: THREE.WebGLRenderer
     tab = t;
 
     for (const b of ui.querySelectorAll<HTMLButtonElement>(".edt")) {
-      b.classList.toggle("on", b.dataset["tab"] === t);
+      b.classList.toggle("on", b.dataset.tab === t);
     }
 
     $("ed-body-props").style.display = t === "props" ? "flex" : "none";
@@ -720,7 +719,7 @@ export const startEditor = async (game: GameScene, renderer: THREE.WebGLRenderer
 
   for (const btn of ui.querySelectorAll<HTMLButtonElement>(".edt")) {
     btn.addEventListener("click", () => {
-      const t = btn.dataset["tab"];
+      const t = btn.dataset.tab;
       setTab(t === "props" || t === "streets" || t === "floor" || t === "clear" ? t : "props");
     });
   }
@@ -741,7 +740,7 @@ export const startEditor = async (game: GameScene, renderer: THREE.WebGLRenderer
   });
 
   const selectFloor = (btn: HTMLButtonElement) => {
-    const f = btn.dataset["floor"];
+    const f = btn.dataset.floor;
     floorKind = f === "plaza" || f === "grass" || f === "sand" || f === "erase" ? f : "plaza";
 
     for (const b of ui.querySelectorAll(".edf")) {
@@ -840,11 +839,7 @@ export const startEditor = async (game: GameScene, renderer: THREE.WebGLRenderer
       }
 
       o.traverse((c) => {
-        if (
-          c instanceof THREE.Mesh &&
-          c.geometry instanceof THREE.BufferGeometry &&
-          !seen.has(c.geometry)
-        ) {
+        if (isMesh(c) && c.geometry instanceof THREE.BufferGeometry && !seen.has(c.geometry)) {
           const col = c.geometry.getAttribute("color");
 
           if (col instanceof THREE.BufferAttribute && col.array instanceof Float32Array) {
@@ -932,8 +927,11 @@ export const startEditor = async (game: GameScene, renderer: THREE.WebGLRenderer
     a.download = "crazy-waymo-map.json";
     a.click();
   });
-  $("ed-loadbtn").addEventListener("click", () => $("ed-file").click());
-  $("ed-file").addEventListener("change", async () => {
+  $("ed-loadbtn").addEventListener("click", () => {
+    $("ed-file").click();
+  });
+
+  const loadMapFile = async () => {
     const input = $("ed-file");
 
     if (!(input instanceof HTMLInputElement) || !input.files?.[0]) {
@@ -958,6 +956,10 @@ export const startEditor = async (game: GameScene, renderer: THREE.WebGLRenderer
     } catch (error) {
       console.warn("[editor] map file not loaded", error);
     }
+  };
+
+  $("ed-file").addEventListener("change", () => {
+    void loadMapFile();
   });
   $("ed-clear-props").addEventListener("click", () => {
     for (const p of placed) {
@@ -970,8 +972,12 @@ export const startEditor = async (game: GameScene, renderer: THREE.WebGLRenderer
     deselect();
     saveNow();
   });
-  $("ed-rot-l").addEventListener("click", () => orbitBy(Math.PI / 8));
-  $("ed-rot-r").addEventListener("click", () => orbitBy(-Math.PI / 8));
+  $("ed-rot-l").addEventListener("click", () => {
+    orbitBy(Math.PI / 8);
+  });
+  $("ed-rot-r").addEventListener("click", () => {
+    orbitBy(-Math.PI / 8);
+  });
   $("ed-clear-map").addEventListener("click", () => {
     for (const k of floorMap.keys()) {
       const [gx, gz] = k.split(",").map(Number);
@@ -1031,7 +1037,7 @@ export const startEditor = async (game: GameScene, renderer: THREE.WebGLRenderer
     return col !== undefined && col[gz] === "road";
   };
 
-  let refreshMinimapBase: () => void = noop;
+  let refreshMinimapBase: (() => void) | null = null;
   let streetTimer: number | undefined;
 
   const scheduleStreetRebuild = () => {
@@ -1046,7 +1052,7 @@ export const startEditor = async (game: GameScene, renderer: THREE.WebGLRenderer
         }
       }
 
-      refreshMinimapBase();
+      refreshMinimapBase?.();
       streetsDirty = false;
       refreshStatus();
     }, 900);

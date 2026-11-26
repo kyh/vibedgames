@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { ServerClock } from "@vibedgames/multiplayer";
+import { parseJson, ServerClock } from "@vibedgames/multiplayer";
 import { DAY_END_MIN, FARM_SEED, MAP_W, PENDING_EDIT_MS } from "../src/config";
 import { CROP_ORDER, CROPS } from "../src/data/crops";
 import type { JsonObject } from "../src/json";
@@ -26,8 +26,10 @@ import { isClearable, tileIdx } from "../src/world/world";
 import type { World } from "../src/world/world";
 import { parseWorldMap } from "../src/world/worldmap";
 
+const byNumber = (a: number, b: number) => a - b;
+
 const map = parseWorldMap(
-  JSON.parse(readFileSync(new URL("../public/assets/map.json", import.meta.url), "utf-8")),
+  parseJson(readFileSync(new URL("../public/assets/map.json", import.meta.url), "utf-8")),
 );
 
 const freshFarm = () => generateFarm(FARM_SEED, map).world;
@@ -40,9 +42,15 @@ const syncOver = (world: World) => {
 
   const sync = new FarmSync(
     {
-      objectBack: (o) => back.push(o.id),
-      objectGone: (o) => gone.push(o.id),
-      redrawTile: (idx) => redrawn.push(idx),
+      objectBack: (o) => {
+        back.push(o.id);
+      },
+      objectGone: (o) => {
+        gone.push(o.id);
+      },
+      redrawTile: (idx) => {
+        redrawn.push(idx);
+      },
       world: () => world,
     },
     () => generated,
@@ -183,10 +191,10 @@ test("the host publishes its farm once, then only the tiles that change", () => 
   const fix = net.patches.at(-1);
   assert.equal(fix?.[tileKey(9)], 0);
   assert.equal(fix?.[objectKey(tree(world).id)], 0);
-  assert.equal(fix?.["w"], 7, "the same farm keeps its epoch");
+  assert.equal(fix?.w, 7, "the same farm keeps its epoch");
   sync.reset();
   sync.publishWorld(net.writer, net.shared(), 9);
-  assert.equal(net.patches.at(-1)?.["w"], 7, "and keeps it through a scene start");
+  assert.equal(net.patches.at(-1)?.w, 7, "and keeps it through a scene start");
   sync.forget();
   sync.publishWorld(net.writer, net.shared(), 10);
   assert.equal(roomEpoch(net.shared()), 10, "a farm the room hasn't seen gets a new one");
@@ -209,7 +217,11 @@ test("a guest adopts the host's world whole, its own save's farm included", () =
   guest.removeObject(guestFelled);
   const { back, gone, redrawn, sync } = syncOver(guest);
   sync.adopt(net.shared(), 0);
-  assert.deepEqual(redrawn.toSorted(), [a, own].toSorted(), "only tiles that differ redraw");
+  assert.deepEqual(
+    redrawn.toSorted(byNumber),
+    [a, own].toSorted(byNumber),
+    "only tiles that differ redraw",
+  );
 
   assert.equal(guest.tilled[a], 1, "the host's plot");
   assert.equal(guest.tilled[own], 0, "its own plot gives way");
@@ -233,11 +245,11 @@ test("a guest adopts the host's world whole, its own save's farm included", () =
     guest.objects
       .filter(isClearable)
       .map((o) => o.id)
-      .toSorted(),
+      .toSorted(byNumber),
     host.objects
       .filter(isClearable)
       .map((o) => o.id)
-      .toSorted(),
+      .toSorted(byNumber),
   );
 
   redrawn.length = 0;

@@ -201,7 +201,11 @@ test("an actual channel permits another spell and a dash that cancels it", () =>
   );
   assert.equal(actionAvailability(unit, world.now, { kind: "dash" }).kind, "available");
   assert.equal(castAbility(world, unit, { key: "Q", point }), true);
-  assert.ok(unit.hero.channel, "The simulation allows this spell without cancelling its channel");
+  assert.notEqual(
+    unit.hero.channel,
+    null,
+    "The simulation allows this spell without cancelling its channel",
+  );
   dashHero(world, unit, 1, 0);
   assert.equal(unit.hero.channel, null);
   assert.ok(unit.hero.dashUntil > world.now);
@@ -425,7 +429,7 @@ test("route selection is stable across snapshot order and ignores protected/neut
   }
 
   assert.notEqual(objectiveGuidance(world, player)?.targetId, ancient.id);
-  assert.equal(objectiveGuidance(world), null);
+  assert.equal(objectiveGuidance(world, undefined), null);
   assert.equal(objectiveGuidance(world, ancient), null, "unassigned spectator is not a hero");
 });
 
@@ -626,7 +630,11 @@ test("attack pose follows the real wind-up, strike, recovery and repeated snapsh
   const world = createWorld(718);
   world.gameTime = 300;
   step(world);
-  const attacker = [...world.units.values()].find((u) => u.neutral && u.creep?.boss);
+
+  const attacker = [...world.units.values()].find(
+    (u) => u.neutral === true && u.creep?.boss === true,
+  );
+
   assert.ok(attacker, "real neutral boss must exist");
   const victim = spawnHero(world, "ironvow", "radiant", "target", false, 0);
   victim.x = attacker.x + 40;
@@ -707,7 +715,13 @@ test("malformed cast actors from older or hostile peers are stripped, valid ones
 
   assert.equal(batch.length, 5);
   assert.deepEqual(
-    batch.map((event) => (event.t === "cast" ? (event.actor ?? null) : event.t)),
+    batch.map((event) => {
+      if (event.t !== "cast") {
+        return event.t;
+      }
+
+      return "actor" in event ? event.actor : null;
+    }),
     [{ at: 1234, unitId: "h-a" }, null, null, null, null],
   );
 });

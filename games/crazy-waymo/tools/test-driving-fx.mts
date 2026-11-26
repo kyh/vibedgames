@@ -12,6 +12,7 @@ import { DriveSurface } from "../src/world/surface.ts";
 import { Terrain } from "../src/world/terrain.ts";
 import type { CityRestPayload } from "../src/world/city.ts";
 import type { AuditWorld } from "./geometry-audit.mts";
+import { isMesh } from "../src/shared/three-guards.ts";
 
 type Check = (name: string, condition: boolean, detail?: string) => void;
 
@@ -101,7 +102,7 @@ const checkFreewayContacts = (check: Check, world: AuditWorld) => {
   const group = buildFreeways(world.terrain, world.network);
   const deck = group.getObjectByName("freeway-deck");
 
-  if (!(deck instanceof THREE.Mesh)) {
+  if (deck === undefined || !isMesh(deck)) {
     throw new TypeError("Freeway deck fixture missing");
   }
 
@@ -128,7 +129,7 @@ const checkFreewayContacts = (check: Check, world: AuditWorld) => {
       : `${underpass.kind} at ${underpass.x.toFixed(2)},${underpass.y.toFixed(2)},${underpass.z.toFixed(2)}`,
   );
   group.traverse((object) => {
-    if (object instanceof THREE.Mesh) {
+    if (isMesh(object)) {
       object.geometry.dispose();
     }
   });

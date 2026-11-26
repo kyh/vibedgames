@@ -4,16 +4,21 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { before, describe, test } from "node:test";
 
+import { z } from "zod";
+
 import { exec } from "./exec";
 import { findTools, runRecipe } from "./index";
 
 const tools = findTools();
-const skip = tools.ffmpeg && tools.ffprobe ? false : "ffmpeg is not installed";
+
+const skip =
+  tools.ffmpeg !== undefined && tools.ffprobe !== undefined ? false : "ffmpeg is not installed";
+
 const dir = mkdtempSync(path.join(tmpdir(), "recipes-test-"));
 const at = (name: string) => path.join(dir, name);
 
-const ffmpeg = (...args: string[]) =>
-  exec(tools.ffmpeg ?? "ffmpeg", ["-hide_banner", "-loglevel", "error", "-y", ...args]);
+const ffmpeg = async (...args: string[]) =>
+  await exec(tools.ffmpeg ?? "ffmpeg", ["-hide_banner", "-loglevel", "error", "-y", ...args]);
 
 const fixtures = async () => {
   await ffmpeg(
@@ -81,12 +86,14 @@ describe("recipes on local ffmpeg", { skip }, () => {
       tools,
     });
 
-    const info = result as {
-      cuts: number[];
-      fps: number;
-      frame_count: number;
-      has_audio: boolean;
-    };
+    const info = z
+      .object({
+        cuts: z.array(z.number()),
+        fps: z.number(),
+        frame_count: z.number(),
+        has_audio: z.boolean(),
+      })
+      .parse(result);
 
     assert.equal(info.frame_count, 90);
     assert.equal(info.fps, 30);
@@ -108,7 +115,9 @@ describe("recipes on local ffmpeg", { skip }, () => {
       tools,
     });
 
-    const info = result as { duration_seconds: number; output: { integrated: number } };
+    const info = z
+      .object({ duration_seconds: z.number(), output: z.object({ integrated: z.number() }) })
+      .parse(result);
 
     assert.deepEqual(
       outputs.map((o) => o.name),
@@ -125,7 +134,12 @@ describe("recipes on local ffmpeg", { skip }, () => {
       tools,
     });
 
-    const info = result as { frame_count: number; loudness: { integrated: number } | null };
+    const info = z
+      .object({
+        frame_count: z.number(),
+        loudness: z.object({ integrated: z.number() }).nullable(),
+      })
+      .parse(result);
 
     assert.equal(info.frame_count, 0);
     assert.ok(info.loudness, "no loudness for the audio");
@@ -156,7 +170,7 @@ describe("recipes on local ffmpeg", { skip }, () => {
       tools,
     });
 
-    assert.equal((result as { frames: number }).frames, 10);
+    assert.equal(z.object({ frames: z.number() }).parse(result).frames, 10);
     assert.equal(outputs[0]?.name, "video.mp4");
   });
 
@@ -194,7 +208,7 @@ describe("recipes on local ffmpeg", { skip }, () => {
       tools,
     });
 
-    const info = result as { duration_seconds: number; loudness: unknown };
+    const info = z.object({ duration_seconds: z.number(), loudness: z.unknown() }).parse(result);
 
     assert.equal(outputs[0]?.name, "trailer.mp4");
     assert.ok(Math.abs(info.duration_seconds - 1.75) < 0.1, `${info.duration_seconds} s`);
@@ -227,7 +241,7 @@ describe("recipes on local ffmpeg", { skip }, () => {
       tools: { ...tools, img2threejs: root, uv: undefined },
     });
 
-    assert.equal((result as { exit_code: number }).exit_code, 0);
+    assert.equal(z.object({ exit_code: z.number() }).parse(result).exit_code, 0);
     assert.deepEqual(
       outputs.map((o) => o.name),
       ["out/copy.json"],

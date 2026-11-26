@@ -1,5 +1,6 @@
 import type { Connection, ConnectionContext } from "partyserver";
 import { getServerByName, routePartykitRequest, Server } from "partyserver";
+import { runInOrder } from "@repo/contract/run-in-order";
 
 import type {
   ClaimMap,
@@ -26,6 +27,7 @@ import {
   MAX_ROOM_META_CHARS,
   MAX_TICK_HISTORY,
   MAX_TICK_RATE,
+  parseJson,
   PING_INTERVAL_MS,
   RECONNECT_GRACE_MS,
   readPatch,
@@ -45,7 +47,8 @@ interface StateMap {
   [key: string]: JsonValue;
 }
 
-const isJsonString = (value: JsonValue | undefined): value is string => String(value) === value;
+const isJsonString = (value: JsonValue | undefined): value is string =>
+  Object.prototype.toString.call(value) === "[object String]";
 
 const isJsonNumber = (value: JsonValue | undefined): value is number => Number.isFinite(value);
 
@@ -99,7 +102,7 @@ const decodeRoomMessage: (
   type: JsonValue | undefined,
   data: StateMap | undefined,
 ) => IncomingMessage = (type, data) => {
-  if (!data) {
+  if (!data || !isJsonString(type)) {
     return { type: "unrecognized" };
   }
 
@@ -162,11 +165,16 @@ const decodeIncoming: (raw: JsonValue) => IncomingMessage = (raw) => {
   }
 
   const data = asStateMap(message.data);
+  const { type } = message;
 
-  switch (message.type) {
+  if (!isJsonString(type)) {
+    return { type: "unrecognized" };
+  }
+
+  switch (type) {
     case "state_patch":
     case "player_state_patch": {
-      return { data: message.data, type: message.type };
+      return { data: message.data, type };
     }
 
     case "emit": {
@@ -187,11 +195,11 @@ const decodeIncoming: (raw: JsonValue) => IncomingMessage = (raw) => {
 
     case "heartbeat":
     case "pong": {
-      return { type: message.type };
+      return { type };
     }
 
     default: {
-      return decodeRoomMessage(message.type, data);
+      return decodeRoomMessage(type, data);
     }
   }
 };
@@ -330,12 +338,11 @@ const searchParam = (ctx: ConnectionContext, key: string) =>
 const readRoomCap = (ctx: ConnectionContext) => {
   const raw = searchParam(ctx, ROOM_CAP_QUERY_PARAM);
 
-  if (!raw) {
+  if (raw === null || raw === "") {
     return null;
   }
 
-  // oxlint-disable-next-line unicorn/prefer-number-coercion -- query string may carry trailing garbage; parseInt reads the leading digits, Number would give NaN
-  const parsed = Number.parseInt(raw, 10);
+  const parsed = Number(/^\s*\+?\d+/u.exec(raw)?.[0]);
 
   if (!Number.isFinite(parsed) || parsed <= 0) {
     return null;
@@ -347,7 +354,7 @@ const readRoomCap = (ctx: ConnectionContext) => {
 const readReconnectToken = (ctx: ConnectionContext) => {
   const raw = searchParam(ctx, RECONNECT_TOKEN_QUERY_PARAM);
 
-  return raw && raw.length > 0 ? raw : null;
+  return raw !== null && raw !== "" && raw.length > 0 ? raw : null;
 };
 
 const isRuleKey = (value: JsonValue | undefined): value is string =>
@@ -403,14 +410,14 @@ const readLimits = (raw: JsonValue | undefined) => {
 const readRoomRules = (ctx: ConnectionContext) => {
   const raw = searchParam(ctx, ROOM_RULES_QUERY_PARAM);
 
-  if (!raw || raw.length > 4096) {
+  if (raw === null || raw === "" || raw.length > 4096) {
     return null;
   }
 
   let parsed: JsonValue;
 
   try {
-    parsed = JSON.parse(raw) as JsonValue;
+    parsed = parseJson(raw);
   } catch {
     return null;
   }
@@ -478,15 +485,15 @@ const withinLimits = (patch: StateMap, limits: Record<string, PlayerLimit> | und
 
 export class VgServer extends Server {
   private shared: StateMap = {};
-  private snapshots = new Map<string, StateMap>();
+  private readonly snapshots = new Map<string, StateMap>();
   private hostId: string | null = null;
   private cap: number | null = null;
   private rules: RoomRules | null = null;
   private info: RoomInfo = UNPUBLISHED;
   private grace = new Map<string, GraceEntry>();
   private claims = new Map<string, Claim>();
-  private positions = new Map<string, { x: number; y: number }>();
-  private views = new Map<string, Map<string, boolean>>();
+  private readonly positions = new Map<string, { x: number; y: number }>();
+  private readonly views = new Map<string, Map<string, boolean>>();
   private ticker: Ticker | null = null;
   private persistTimer: ReturnType<typeof setTimeout> | null = null;
   private roomPersisted = false;
@@ -555,19 +562,13 @@ export class VgServer extends Server {
   }
 
   private connectionOf(id: string) {
-    for (const connection of this.getConnections<Presence>()) {
-      if (connection.id === id && connection.state) {
-        return connection;
-      }
-    }
+    return [...this.getConnections<Presence>()].find(
+      (connection) => connection.id === id && connection.state !== null,
+    );
   }
 
   private graceById(id: string) {
-    for (const entry of this.grace.values()) {
-      if (entry.id === id) {
-        return entry;
-      }
-    }
+    return [...this.grace.values()].find((entry) => entry.id === id);
   }
 
   private async consumeGrace(entry: GraceEntry) {
@@ -679,7 +680,7 @@ export class VgServer extends Server {
   private async checkHostLiveness() {
     const host = this.hostId;
 
-    if (!host) {
+    if (host === null || host === "") {
       return;
     }
 
@@ -754,7 +755,7 @@ export class VgServer extends Server {
   async onConnect(connection: Connection<Presence>, ctx: ConnectionContext) {
     const token = readReconnectToken(ctx);
 
-    if (!token) {
+    if (token === null || token === "") {
       connection.close(4002, "reconnect_token_required");
 
       return;
@@ -817,7 +818,7 @@ export class VgServer extends Server {
 
     void this.scheduleSweep();
 
-    if (!this.hostId) {
+    if (this.hostId === null || this.hostId === "") {
       await this.setHostId(connection.id);
     }
 
@@ -862,7 +863,7 @@ export class VgServer extends Server {
         return;
       }
 
-      const message = decodeIncoming(JSON.parse(rawMessage));
+      const message = decodeIncoming(parseJson(rawMessage));
 
       switch (message.type) {
         case "player_state_patch": {
@@ -936,9 +937,15 @@ export class VgServer extends Server {
           break;
         }
 
-        default: {
+        case "unrecognized": {
           VgServer.touch(sender, true);
           break;
+        }
+
+        default: {
+          const exhaustive: never = message;
+
+          throw new Error(`Unhandled message ${JSON.stringify(exhaustive)}`);
         }
       }
     } catch (error) {
@@ -1306,7 +1313,7 @@ export class VgServer extends Server {
   private ensureTicker() {
     const rate = this.rules?.tickRate;
 
-    if (!rate || this.ticker) {
+    if (rate === undefined || rate === 0 || this.ticker) {
       return;
     }
 
@@ -1443,7 +1450,7 @@ export class VgServer extends Server {
       return;
     }
 
-    this.schedule(sender.id, input === null ? false : input, n);
+    this.schedule(sender.id, input ?? false, n);
   }
 
   private markRoomDirty() {
@@ -1489,12 +1496,14 @@ export class VgServer extends Server {
     }
   }
 
-  onClose(connection: Connection<Presence>, code: number) {
+  async onClose(connection: Connection<Presence>, code: number) {
     if (code === 1000 || code === 1001) {
-      return this.removePlayer(connection);
+      await this.removePlayer(connection);
+
+      return;
     }
 
-    return this.departPlayer(connection);
+    await this.departPlayer(connection);
   }
 
   /**
@@ -1504,8 +1513,8 @@ export class VgServer extends Server {
    * otherwise the error path leaks a ghost that keeps occupying a slot against
    * the room cap. An errored transport is exactly what grace exists for.
    */
-  onError(connection: Connection<Presence>) {
-    return this.departPlayer(connection);
+  async onError(connection: Connection<Presence>) {
+    await this.departPlayer(connection);
   }
 
   private async departPlayer(connection: Connection<Presence>) {
@@ -1584,24 +1593,24 @@ export class VgServer extends Server {
       }
     }
 
-    for (const connection of stale) {
+    await runInOrder(stale, async (connection) => {
       closeIdle(connection);
       await this.removePlayer(connection);
-    }
+    });
 
     const lapsed = [...this.grace.values()].filter((entry) => entry.expiresAt <= now);
 
-    for (const entry of lapsed) {
+    await runInOrder(lapsed, async (entry) => {
       await this.consumeGrace(entry);
       await this.announceDeparture(entry.id);
-    }
+    });
 
     this.expireClaims(now);
     await this.scheduleSweep();
   }
 
   private async scheduleSweep() {
-    const hasConnections = !this.getConnections()[Symbol.iterator]().next().done;
+    const hasConnections = this.getConnections()[Symbol.iterator]().next().done !== true;
 
     let target: number | null = hasConnections ? Date.now() + PING_INTERVAL_MS : null;
 
@@ -1708,7 +1717,7 @@ export class VgServer extends Server {
     if (this.hostId === id) {
       await this.setHostId(firstRemaining);
 
-      if (firstRemaining) {
+      if (firstRemaining !== null && firstRemaining !== "") {
         const hostMessage: ServerMessage = {
           data: { id: firstRemaining },
           type: "host",
@@ -1761,7 +1770,7 @@ export default {
     }
 
     return (
-      (await routePartykitRequest(request, env, { cors: true })) ||
+      (await routePartykitRequest(request, env, { cors: true })) ??
       new Response("Not Found", { status: 404 })
     );
   },

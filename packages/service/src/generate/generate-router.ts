@@ -1,3 +1,5 @@
+import { setTimeout as sleep } from "node:timers/promises";
+
 import type { Db } from "@repo/db/drizzle-client";
 import type { modelsInput } from "@repo/contract/generate/generate-schema";
 import type { JsonValue } from "@repo/contract/json";
@@ -108,7 +110,7 @@ const buildUrl = (base: string, path: string, query?: Record<string, string | st
 type ForwardInput = z.infer<typeof forwardInput>;
 
 const pickFalKey = (media: MediaProviderConfig | undefined) => {
-  if (!media?.fal) {
+  if (media === undefined || media.fal === undefined || media.fal === "") {
     throw new ORPCError("PRECONDITION_FAILED", {
       message: "Media generation is not configured on the server (its API key is missing).",
     });
@@ -123,13 +125,7 @@ const FAL_STATIC_HEADERS = {
   "x-app-fal-disable-fallback": "true",
 } as const;
 
-const serializeBody = (input: ForwardInput) => {
-  const { body } = input;
-
-  if (body === undefined) {
-    return;
-  }
-
+const serializeBody = (body: Exclude<ForwardInput["body"], undefined>) => {
   let serialized: string;
 
   try {
@@ -322,7 +318,7 @@ export const forward = async (context: ORPCContext, raw: ForwardCall) => {
     }
   }
 
-  const serialized = serializeBody(input);
+  const serialized = input.body === undefined ? undefined : serializeBody(input.body);
   const base = targetBase(input.target, config);
   const url = buildUrl(base, input.path, input.query);
   const headers = buildHeaders(apiKey, input.target, serialized);
@@ -388,12 +384,6 @@ const hop = forward;
 
 const POLL_MS = 2000;
 
-const sleep = (ms: number) =>
-  // oxlint-disable-next-line promise/avoid-new -- a Worker has no promise-returning timer to await
-  new Promise<void>((resolve) => {
-    setTimeout(resolve, ms);
-  });
-
 const queueStatus = async (context: ORPCContext, endpointId: string, requestId: string) => {
   const body = await hop(context, {
     method: "GET",
@@ -404,21 +394,30 @@ const queueStatus = async (context: ORPCContext, endpointId: string, requestId: 
   return readQueueStatus(body)?.toUpperCase() ?? "UNKNOWN";
 };
 
-const queueResult = (context: ORPCContext, endpointId: string, requestId: string) =>
-  hop(context, { method: "GET", path: jobPath(endpointId, requestId, ""), target: "queue" });
+const queueResult = async (context: ORPCContext, endpointId: string, requestId: string) =>
+  await hop(context, { method: "GET", path: jobPath(endpointId, requestId, ""), target: "queue" });
 
-const confirmCancelled = async (context: ORPCContext, endpointId: string, requestId: string) => {
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    await sleep(1000);
+const confirmCancelled = async (
+  context: ORPCContext,
+  endpointId: string,
+  requestId: string,
+  attemptsLeft = 3,
+) => {
+  if (attemptsLeft === 0) {
+    return;
+  }
 
-    try {
-      if (TERMINAL_STATUSES.has(await queueStatus(context, endpointId, requestId))) {
-        return;
-      }
-    } catch {
+  await sleep(1000);
+
+  try {
+    if (TERMINAL_STATUSES.has(await queueStatus(context, endpointId, requestId))) {
       return;
     }
+  } catch {
+    return;
   }
+
+  await confirmCancelled(context, endpointId, requestId, attemptsLeft - 1);
 };
 
 const runModel = async (
@@ -436,18 +435,24 @@ const runModel = async (
 
   const requestId = readRequestId(submission);
 
-  if (!requestId) {
+  if (requestId === null || requestId === "") {
     throw new ORPCError("BAD_GATEWAY", { message: "The model's queue returned no request_id." });
   }
 
   try {
     const deadline = Date.now() + input.wait_seconds * 1000;
-    let status = readQueueStatus(submission)?.toUpperCase() ?? "IN_QUEUE";
 
-    while (!TERMINAL_STATUSES.has(status) && Date.now() + POLL_MS <= deadline) {
+    const settle: (current: string) => Promise<string> = async (current) => {
+      if (TERMINAL_STATUSES.has(current) || Date.now() + POLL_MS > deadline) {
+        return current;
+      }
+
       await sleep(POLL_MS);
-      status = await queueStatus(context, endpointId, requestId);
-    }
+
+      return await settle(await queueStatus(context, endpointId, requestId));
+    };
+
+    const status = await settle(readQueueStatus(submission)?.toUpperCase() ?? "IN_QUEUE");
 
     const result =
       status === "COMPLETED" ? await queueResult(context, endpointId, requestId) : null;
@@ -465,15 +470,15 @@ const runModel = async (
 const modelsQuery = (input: z.infer<typeof modelsInput>) => {
   const query: NonNullable<ForwardCall["query"]> = { limit: String(input.limit) };
 
-  if (input.query) {
+  if (input.query !== undefined && input.query !== "") {
     query.q = input.query;
   }
 
-  if (input.category) {
+  if (input.category !== undefined && input.category !== "") {
     query.category = input.category;
   }
 
-  if (input.cursor) {
+  if (input.cursor !== undefined && input.cursor !== "") {
     query.cursor = input.cursor;
   }
 
@@ -481,11 +486,19 @@ const modelsQuery = (input: z.infer<typeof modelsInput>) => {
     query.status = input.status;
   }
 
-  if (input.endpoint_id?.length) {
+  if (
+    input.endpoint_id !== undefined &&
+    input.endpoint_id.length !== undefined &&
+    input.endpoint_id.length !== 0
+  ) {
     query.endpoint_id = input.endpoint_id;
   }
 
-  if (input.expand?.length) {
+  if (
+    input.expand !== undefined &&
+    input.expand.length !== undefined &&
+    input.expand.length !== 0
+  ) {
     query.expand = input.expand;
   }
 
@@ -544,57 +557,61 @@ export const storeFile = async (
 };
 
 export const generateRouter = {
-  ...mediaRouter((context, endpoint, body, wait) =>
-    runModel(context, { endpoint_id: endpoint, input: body, wait_seconds: wait }),
+  ...mediaRouter(
+    async (context, endpoint, body, wait) =>
+      await runModel(context, { endpoint_id: endpoint, input: body, wait_seconds: wait }),
   ),
 
-  docs: authed.docs.handler(({ context, input }) =>
-    hop(context, {
-      body: {
-        id: 1,
-        jsonrpc: "2.0",
-        method: "tools/call",
-        params: { arguments: { query: input.query }, name: "search_fal" },
-      },
-      method: "POST",
-      path: "/docs/mcp",
-      target: "docs",
-    }),
+  docs: authed.docs.handler(
+    async ({ context, input }) =>
+      await hop(context, {
+        body: {
+          id: 1,
+          jsonrpc: "2.0",
+          method: "tools/call",
+          params: { arguments: { query: input.query }, name: "search_fal" },
+        },
+        method: "POST",
+        path: "/docs/mcp",
+        target: "docs",
+      }),
   ),
 
-  models: authed.models.handler(({ context, input }) =>
-    hop(context, {
-      method: "GET",
-      path: "/v1/models",
-      query: modelsQuery(input),
-      target: "platform",
-    }),
+  models: authed.models.handler(
+    async ({ context, input }) =>
+      await hop(context, {
+        method: "GET",
+        path: "/v1/models",
+        query: modelsQuery(input),
+        target: "platform",
+      }),
   ),
 
-  pricing: authed.pricing.handler(({ context, input }) =>
-    hop(context, {
-      method: "GET",
-      path: "/v1/models/pricing",
-      query: { endpoint_id: input.endpoint_id },
-      target: "platform",
-    }),
+  pricing: authed.pricing.handler(
+    async ({ context, input }) =>
+      await hop(context, {
+        method: "GET",
+        path: "/v1/models/pricing",
+        query: { endpoint_id: input.endpoint_id },
+        target: "platform",
+      }),
   ),
 
-  run: authed.run.handler(({ context, input }) => runModel(context, input)),
+  run: authed.run.handler(async ({ context, input }) => await runModel(context, input)),
 
-  schema: authed.schema.handler(({ context, input }) => {
+  schema: authed.schema.handler(async ({ context, input }) => {
     const query: NonNullable<ForwardCall["query"]> = { endpoint_id: input.endpoint_id, limit: "1" };
 
     if (input.format === "openapi") {
       query.expand = ["openapi-3.0"];
     }
 
-    return hop(context, { method: "GET", path: "/v1/models", query, target: "platform" });
+    return await hop(context, { method: "GET", path: "/v1/models", query, target: "platform" });
   }),
 
   status: authed.status.handler(async ({ context, input }) => {
     if (input.action === "result") {
-      return queueResult(context, input.endpoint_id, input.request_id);
+      return await queueResult(context, input.endpoint_id, input.request_id);
     }
 
     if (input.action === "cancel") {
@@ -609,7 +626,7 @@ export const generateRouter = {
       }
     }
 
-    return hop(context, {
+    return await hop(context, {
       method: "GET",
       path: jobPath(input.endpoint_id, input.request_id, "/status"),
       query: input.logs ? { logs: "1" } : undefined,

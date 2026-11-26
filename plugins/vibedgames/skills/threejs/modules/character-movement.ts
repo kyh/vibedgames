@@ -179,9 +179,9 @@ export class CharacterController {
     const hasInput = moveDir.lengthSq() > EPS_SQ;
     let targetSpeed = cfg.walkSpeed;
 
-    if (input.crouch) {
+    if (input.crouch === true) {
       targetSpeed = cfg.crouchSpeed;
-    } else if (input.sprint) {
+    } else if (input.sprint === true) {
       targetSpeed = cfg.sprintSpeed;
     }
 
@@ -203,7 +203,7 @@ export class CharacterController {
     if (grounded) {
       velocity.y = 0;
 
-      if (input.jump && !input.crouch) {
+      if (input.jump === true && input.crouch !== true) {
         velocity.y = cfg.jumpVelocity;
         grounded = false;
         jumped = true;

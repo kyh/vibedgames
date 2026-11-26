@@ -82,7 +82,9 @@ const makeMatch = (seed = 1) => {
     inbox,
     link: new IntentLink(() => ({
       reachable: true,
-      sendIntent: (intent) => up.send(state.now, JSON.stringify(intent)),
+      sendIntent: (intent) => {
+        up.send(state.now, JSON.stringify(intent));
+      },
     })),
     nextGuest: 0,
     nextHost: 0,

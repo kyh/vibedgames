@@ -1,16 +1,16 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { EMAIL_FROM, resendMailer } from "./mailer";
+import { consoleMailer, EMAIL_FROM, mailerOf, resendMailer } from "./mailer";
 import { passwordResetEmail } from "./templates";
 
 const recorder = (response: Response) => {
-  const calls: { url: string; init: RequestInit | undefined }[] = [];
+  const calls: Request[] = [];
 
-  const fetch = (input: RequestInfo | URL, init?: RequestInit) => {
-    calls.push({ init, url: String(input) });
+  const fetch = async (input: Request | string | URL, init?: RequestInit) => {
+    calls.push(new Request(input, init));
 
-    return Promise.resolve(response);
+    return await Promise.resolve(response);
   };
 
   return { calls, fetch };
@@ -26,9 +26,11 @@ test("resendMailer posts one message from the verified sender", async () => {
   });
   assert.equal(calls.length, 1);
   const [call] = calls;
-  assert.equal(call?.url, "https://api.resend.com/emails");
-  assert.equal(new Headers(call?.init?.headers).get("authorization"), "Bearer re_test");
-  assert.deepEqual(JSON.parse(String(call?.init?.body)), {
+  assert.ok(call);
+  assert.equal(call.url, "https://api.resend.com/emails");
+  assert.equal(call.headers.get("authorization"), "Bearer re_test");
+  const body: unknown = await call.json();
+  assert.deepEqual(body, {
     from: EMAIL_FROM,
     html: "<p>hi</p>",
     subject: "Hi",
@@ -51,4 +53,22 @@ test("the reset email carries the link, escaped in HTML", () => {
   assert.ok(email.text.includes(url));
   assert.ok(email.html.includes("callbackURL=/a&amp;b=&lt;x&gt;"));
   assert.ok(!email.html.includes("<x>"));
+});
+
+test("mailerOf sends through Resend whenever a key is set, local or not", async () => {
+  const { calls, fetch } = recorder(Response.json({ id: "email-1" }));
+  const mailer = mailerOf({ apiKey: "re_test", fetch, local: false });
+  await mailer?.({ html: "", subject: "Hi", text: "hi", to: "a@b.c" });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]?.url, "https://api.resend.com/emails");
+});
+
+test("mailerOf logs to the local dev server without a key", () => {
+  assert.equal(mailerOf({ apiKey: undefined, local: true }), consoleMailer);
+  assert.equal(mailerOf({ apiKey: "", local: true }), consoleMailer);
+});
+
+test("mailerOf sends and logs nothing off the local dev server without a key", () => {
+  assert.equal(mailerOf({ apiKey: undefined, local: false }), undefined);
+  assert.equal(mailerOf({ apiKey: "", local: false }), undefined);
 });

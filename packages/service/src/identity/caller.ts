@@ -31,7 +31,10 @@ export const resolveCaller: (opts: {
     return { oauthScopes: null, session: direct };
   }
 
-  const grant = oauthResource ? await resolveOAuthSession(auth, db, headers, oauthResource) : null;
+  const grant =
+    oauthResource !== undefined && oauthResource !== ""
+      ? await resolveOAuthSession(auth, db, headers, oauthResource)
+      : null;
 
   return { oauthScopes: grant?.scopes ?? null, session: grant?.session ?? null };
 };

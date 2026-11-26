@@ -482,22 +482,22 @@ const INK_NIGHT = 0.45;
 const INK_ROWS_PER_TEXEL = 540;
 
 export class PostPipeline {
-  private composer: EffectComposer;
+  private readonly composer: EffectComposer;
   readonly ao: N8AOPass;
-  private bloom: UnrealBloomPass;
-  private bloomKnee: THREE.IUniform | undefined;
-  private grade: ShaderPass;
-  private ink: ShaderPass;
-  private finalGrade: ShaderPass;
-  private dof: ShaderPass;
-  private renderer: THREE.WebGLRenderer;
-  private camera: THREE.Camera;
+  private readonly bloom: UnrealBloomPass;
+  private readonly bloomKnee: THREE.IUniform | undefined;
+  private readonly grade: ShaderPass;
+  private readonly ink: ShaderPass;
+  private readonly finalGrade: ShaderPass;
+  private readonly dof: ShaderPass;
+  private readonly renderer: THREE.WebGLRenderer;
+  private readonly camera: THREE.Camera;
   private lastTime = 0;
   private fast = 0;
   private kick = 0;
   private kickSlow = 0;
   private smearTier = true;
-  private smearDepthOk = false;
+  private readonly smearDepthOk: boolean = false;
   private subjectPinned = false;
   private readonly subject = new THREE.Vector3();
   private readonly camPos = new THREE.Vector3();
@@ -741,7 +741,7 @@ export class PostPipeline {
     }
 
     const u = this.dof.uniforms;
-    const texel = u.uTexel?.value;
+    const texel: unknown = u.uTexel?.value;
     const scale = texel instanceof THREE.Vector2 && texel.y > 0 ? 1 / texel.y / 1080 : 1;
 
     const set = (name: string, value: number) => {

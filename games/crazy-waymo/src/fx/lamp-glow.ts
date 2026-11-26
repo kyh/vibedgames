@@ -179,8 +179,8 @@ interface CappedState {
 
 export class LampGlow {
   readonly group = new THREE.Group();
-  private intensity = { value: 0 };
-  private capped: CappedState | null = null;
+  private readonly intensity = { value: 0 };
+  private readonly capped: CappedState | null = null;
 
   constructor(heads: readonly LampHead[], budget: LampGlowBudget | null = null) {
     if (heads.length === 0) {

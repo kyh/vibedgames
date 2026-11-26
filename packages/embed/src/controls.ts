@@ -31,7 +31,7 @@ export const isCoarsePointer = () =>
   (typeof window !== "undefined" && "ontouchstart" in window);
 
 const padConnectedNow = () => {
-  if (typeof navigator === "undefined" || !navigator.getGamepads) {
+  if (typeof navigator === "undefined" || !("getGamepads" in navigator)) {
     return false;
   }
 

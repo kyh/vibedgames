@@ -235,7 +235,7 @@ export const buildCodexPrompt = (
     `Prompt: ${input.prompt}`,
   ];
 
-  if (input.sizeHint) {
+  if (input.sizeHint !== undefined && input.sizeHint !== "") {
     lines.push(
       `Size: aim for ${input.sizeHint}. Use the closest size the generator offers and save that as-is — never resize, crop or ask about it.`,
     );
@@ -263,7 +263,7 @@ export const renderLocalTarget = (
   requestId: string,
   count: number,
 ) => {
-  if (!template) {
+  if (template === undefined || template === "") {
     return path.resolve(process.cwd(), `codex-image-${requestId}-${index}.${ext}`);
   }
 
@@ -347,30 +347,36 @@ const spawnCodex: (
   bin: string,
   args: string[],
   cwd: string,
-) => Promise<{ code: number; output: string; notFound: boolean }> = (bin, args, cwd) =>
-  // oxlint-disable-next-line promise/avoid-new -- child_process.spawn is event-based
-  new Promise((resolve) => {
-    const child = spawn(bin, args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
-    let output = "";
-    child.stdout?.on("data", (c: Buffer) => {
-      output += c.toString("utf-8");
-      process.stderr.write(c);
-    });
-    child.stderr?.on("data", (c: Buffer) => {
-      output += c.toString("utf-8");
-      process.stderr.write(c);
-    });
-    child.on("error", (err: NodeJS.ErrnoException) => {
-      resolve({
-        code: 1,
-        notFound: err.code === "ENOENT",
-        output: output + err.message,
-      });
-    });
-    child.on("close", (code) => {
-      resolve({ code: code ?? 1, notFound: false, output });
+) => Promise<{ code: number; output: string; notFound: boolean }> = async (bin, args, cwd) => {
+  const { promise, resolve } = Promise.withResolvers<{
+    code: number;
+    output: string;
+    notFound: boolean;
+  }>();
+
+  const child = spawn(bin, args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
+  let output = "";
+  child.stdout?.on("data", (c: Buffer) => {
+    output += c.toString("utf-8");
+    process.stderr.write(c);
+  });
+  child.stderr?.on("data", (c: Buffer) => {
+    output += c.toString("utf-8");
+    process.stderr.write(c);
+  });
+  child.on("error", (err: NodeJS.ErrnoException) => {
+    resolve({
+      code: 1,
+      notFound: err.code === "ENOENT",
+      output: output + err.message,
     });
   });
+  child.on("close", (code) => {
+    resolve({ code: code ?? 1, notFound: false, output });
+  });
+
+  return await promise;
+};
 
 /** The `codex exec` argv for one image run. */
 export const codexExecArgs = (workDir: string, references: string[], prompt: string) => [

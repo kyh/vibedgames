@@ -49,9 +49,7 @@ export const GameChrome = ({ children }: GameChromeProps) => {
   }
 
   useEffect(() => {
-    if (!playing) {
-      return;
-    }
+    const listening = new AbortController();
 
     const handleMessage = (event: MessageEvent<MessageData>) => {
       const localDevGame =
@@ -71,9 +69,13 @@ export const GameChrome = ({ children }: GameChromeProps) => {
       }
     };
 
-    window.addEventListener("message", handleMessage);
+    if (playing) {
+      window.addEventListener("message", handleMessage, { signal: listening.signal });
+    }
 
-    return () => window.removeEventListener("message", handleMessage);
+    return () => {
+      listening.abort();
+    };
   }, [gameOrigins, playing]);
 
   const pause = useCallback(() => {
@@ -87,9 +89,7 @@ export const GameChrome = ({ children }: GameChromeProps) => {
   }, []);
 
   useEffect(() => {
-    if (!hidden) {
-      return;
-    }
+    const listening = new AbortController();
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
@@ -97,9 +97,13 @@ export const GameChrome = ({ children }: GameChromeProps) => {
       }
     };
 
-    window.addEventListener("keydown", onKeyDown);
+    if (hidden) {
+      window.addEventListener("keydown", onKeyDown, { signal: listening.signal });
+    }
 
-    return () => window.removeEventListener("keydown", onKeyDown);
+    return () => {
+      listening.abort();
+    };
   }, [hidden, pause]);
 
   return (

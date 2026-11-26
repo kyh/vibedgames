@@ -31,10 +31,10 @@ const hitTile = (combat: Combat, bullet: Bullet, tx: number, tz: number) => {
   if (box) {
     combat.damageBox(box, bullet.damage, bullet.owner);
     bullet.alive = false;
-  } else if (bullet.a.breaksWalls && world.isBreakable(tx, tz)) {
+  } else if (bullet.a.breaksWalls === true && world.isBreakable(tx, tz)) {
     combat.breakTile(tx, tz);
 
-    if (!bullet.a.pierce) {
+    if (bullet.a.pierce !== true) {
       bullet.alive = false;
     }
   } else {
@@ -42,15 +42,15 @@ const hitTile = (combat: Combat, bullet: Bullet, tx: number, tz: number) => {
   }
 
   if (!bullet.alive) {
-    combat.game.asActor(bullet.owner, () =>
+    combat.game.asActor(bullet.owner, () => {
       effects.impact(
         bullet.x - bullet.dx * 0.12,
         BULLET_Y + world.heightAt(bullet.x, bullet.z),
         bullet.z - bullet.dz * 0.12,
         bullet.color,
         WALL_IMPACT,
-      ),
-    );
+      );
+    });
   }
 };
 
@@ -79,7 +79,7 @@ const hitBrawlers = (combat: Combat, bullet: Bullet) => {
     bullet.hitTargets.add(target.id);
     target.takeDamage(bullet.damage, bullet.owner);
 
-    if (bullet.a.knockback) {
+    if (bullet.a.knockback !== undefined && bullet.a.knockback !== 0) {
       target.applyKnock(bullet.dx * bullet.a.knockback, bullet.dz * bullet.a.knockback);
     } else {
       target.applyKnock(target.knock.x + bullet.dx * 1.2, target.knock.y + bullet.dz * 1.2);
@@ -102,7 +102,7 @@ const hitBrawlers = (combat: Combat, bullet: Bullet) => {
       0.12,
     );
 
-    if (!bullet.a.pierce) {
+    if (bullet.a.pierce !== true) {
       bullet.alive = false;
 
       return;
@@ -130,7 +130,7 @@ export const advanceBullet = (combat: Combat, bullet: Bullet, dt: number) => {
       if (!bullet.alive) {
         break;
       }
-    } else if (bullet.a.breaksWalls && world.tiles[gridIndex(tx, tz)] === TILE.BUSH) {
+    } else if (bullet.a.breaksWalls === true && world.tiles[gridIndex(tx, tz)] === TILE.BUSH) {
       combat.breakTile(tx, tz);
     }
 
@@ -138,15 +138,15 @@ export const advanceBullet = (combat: Combat, bullet: Bullet, dt: number) => {
 
     if (bullet.alive && bullet.travel >= bullet.range) {
       bullet.alive = false;
-      combat.game.asActor(bullet.owner, () =>
+      combat.game.asActor(bullet.owner, () => {
         effects.impact(
           bullet.x,
           BULLET_Y + world.heightAt(bullet.x, bullet.z),
           bullet.z,
           bullet.color,
           SPENT_IMPACT,
-        ),
-      );
+        );
+      });
     }
   }
 };
@@ -160,13 +160,13 @@ export const buildArrowGeometry = () => {
     new THREE.BoxGeometry(0.13, 1.2, 0.6).translate(0, 0, -0.95),
   ];
 
-  const geometry = mergeGeometries(parts);
+  const geometry: THREE.BufferGeometry | null = mergeGeometries(parts);
 
   for (const part of parts) {
     part.dispose();
   }
 
-  if (!geometry) {
+  if (geometry === null) {
     throw new Error("Arrow geometry could not be merged");
   }
 
@@ -212,7 +212,7 @@ export const drawProjectile = (
 
     default: {
       const unreachable: never = style;
-      throw new Error(`Unknown projectile style: ${unreachable}`);
+      throw new Error("Unknown projectile style", { cause: unreachable });
     }
   }
 

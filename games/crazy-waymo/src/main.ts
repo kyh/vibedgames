@@ -12,6 +12,8 @@ import { installPlaytest } from "./playtest/install";
 import { GameScene } from "./scenes/game-scene";
 import { MAX_DT } from "./shared/constants";
 import { createPauseOverlay } from "./ui/pause-overlay";
+import { delay } from "./shared/wait";
+import { inOrder } from "./shared/paced";
 
 const container = document.querySelector("#game");
 
@@ -58,11 +60,9 @@ const hideFatal = () => {
 
 const msaa = !(isCoarsePointer() && (window.devicePixelRatio || 1) >= 2);
 
-const sleep: (ms: number) => Promise<void> = (ms) =>
-  // oxlint-disable-next-line promise/avoid-new -- wraps the setTimeout callback API
-  new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
+const sleep: (ms: number) => Promise<void> = async (ms) => {
+  await delay(ms);
+};
 
 const probeCanvas = () => {
   const canvas = document.createElement("canvas");
@@ -86,7 +86,7 @@ const createRenderer = async () => {
   let reason = "";
   let lastError: unknown;
 
-  for (const [i, params] of attempts.entries()) {
+  for await (const [i, params] of inOrder(attempts.entries())) {
     const probe = probeCanvas();
 
     try {
@@ -167,7 +167,9 @@ const pauseOverlay = createPauseOverlay({
       }
     },
   },
-  onRestart: () => game.restartRun(),
+  onRestart: () => {
+    game.restartRun();
+  },
 });
 
 const renderHeightPx = () => window.innerHeight * renderer.getPixelRatio();

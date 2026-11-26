@@ -157,7 +157,9 @@ export const checkFrameTiming = (check: Check) => {
 if (process.argv.includes("--check")) {
   let failures = 0;
   checkFrameTiming((name, condition, detail) => {
-    console.log(`${condition ? "ok" : "FAIL"} ${name}${detail ? ` (${detail})` : ""}`);
+    console.log(
+      `${condition ? "ok" : "FAIL"} ${name}${detail !== undefined && detail !== "" ? ` (${detail})` : ""}`,
+    );
 
     if (!condition) {
       failures += 1;

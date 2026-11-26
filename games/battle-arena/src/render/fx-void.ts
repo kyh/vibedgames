@@ -193,8 +193,8 @@ const syncHole = (h: Hole) => {
 
 /** Pooled singularities. One billboard, one draw call each. */
 export class VoidPool {
-  private holes: Hole[] = [];
-  private geo = new THREE.PlaneGeometry(1, 1);
+  private readonly holes: Hole[] = [];
+  private readonly geo = new THREE.PlaneGeometry(1, 1);
   private readonly scene: THREE.Scene;
 
   constructor(scene: THREE.Scene, clock: { value: number }) {

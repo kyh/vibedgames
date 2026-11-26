@@ -133,9 +133,9 @@ let degenerate = 0;
 let tris = 0;
 
 for (const mesh of meshes) {
-  const pos = mesh.geometry.getAttribute("position");
+  const pos = mesh.geometry.attributes.position;
 
-  if (!pos) {
+  if (pos === undefined) {
     continue;
   }
 
@@ -208,9 +208,9 @@ check(
   });
 
   for (const mesh of yellow) {
-    const pos = mesh.geometry.getAttribute("position");
+    const pos = mesh.geometry.attributes.position;
 
-    if (!pos) {
+    if (pos === undefined) {
       continue;
     }
 

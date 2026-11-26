@@ -3,6 +3,8 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import path from "node:path";
 import { afterEach, test } from "node:test";
 
+import { parseJson } from "@repo/contract/json";
+
 import { copyTemplate, SLUG_TOKEN, TEMPLATES_DIR } from "../templates.js";
 import { isJsonObject, isJsonString } from "../types.js";
 import { makeCleanups, makeTmpDir } from "../../../test/_helpers.js";
@@ -13,7 +15,7 @@ afterEach(drain);
 
 const ENGINES = ["phaser", "threejs", "react-r3f", "none"];
 
-const listFiles = (dir: string, relative = "") =>
+const listFiles: (dir: string, relative?: string) => string[] = (dir, relative = "") =>
   readdirSync(path.join(dir, relative), { withFileTypes: true }).flatMap((entry) => {
     const child = path.join(relative, entry.name);
 
@@ -40,7 +42,7 @@ for (const engine of ENGINES) {
       );
     }
 
-    const pkg: unknown = JSON.parse(readFileSync(path.join(target, "package.json"), "utf-8"));
+    const pkg = parseJson(readFileSync(path.join(target, "package.json"), "utf-8"));
     assert.ok(isJsonObject(pkg));
     assert.equal(pkg.name, "neon-slasher");
     assert.ok(isJsonObject(pkg.scripts));

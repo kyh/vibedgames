@@ -8,6 +8,7 @@ import { ROAD_TILE } from "../shared/constants";
 import type { Rng } from "../shared/rng";
 import type { CityModel } from "../world/city";
 import { toFloat32Attributes } from "../world/conform";
+import { isMesh } from "../shared/three-guards";
 
 const COUNT = 64;
 const HIT_RADIUS = 1.7;
@@ -30,15 +31,15 @@ interface ConeState {
 
 export class SmashCones {
   readonly mesh: THREE.InstancedMesh;
-  private city: CityModel;
-  private physics: PhysicsWorld | null;
-  private cones: ConeState[] = [];
-  private homes: { x: number; y: number; z: number; yaw: number; live: boolean }[] = [];
-  private mat4 = new THREE.Matrix4();
-  private quat = new THREE.Quaternion();
-  private eul = new THREE.Euler();
-  private scl = new THREE.Vector3();
-  private posV = new THREE.Vector3();
+  private readonly city: CityModel;
+  private readonly physics: PhysicsWorld | null;
+  private readonly cones: ConeState[] = [];
+  private readonly homes: { x: number; y: number; z: number; yaw: number; live: boolean }[] = [];
+  private readonly mat4 = new THREE.Matrix4();
+  private readonly quat = new THREE.Quaternion();
+  private readonly eul = new THREE.Euler();
+  private readonly scl = new THREE.Vector3();
+  private readonly posV = new THREE.Vector3();
 
   constructor(cache: ModelCache, city: CityModel, rng: Rng, physics: PhysicsWorld | null = null) {
     this.city = city;
@@ -50,11 +51,7 @@ export class SmashCones {
     let mat: THREE.Material = new THREE.MeshStandardMaterial({ color: 0xe0_64_28 });
     let nodeMatrix = new THREE.Matrix4();
     template.traverse((c) => {
-      if (
-        c instanceof THREE.Mesh &&
-        c.geometry instanceof THREE.BufferGeometry &&
-        !Array.isArray(c.material)
-      ) {
+      if (isMesh(c) && c.geometry instanceof THREE.BufferGeometry && !Array.isArray(c.material)) {
         geo = c.geometry;
         mat = c.material;
         nodeMatrix = c.matrixWorld.clone();

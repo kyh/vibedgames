@@ -5,6 +5,8 @@ import path from "node:path";
 import { test } from "node:test";
 import { deflateSync } from "node:zlib";
 
+import { z } from "zod";
+
 import { parseColor, toHex } from "../color.js";
 import { encodeGif } from "../gif.js";
 import { decodePng, encodePng, readPngSize } from "../png.js";
@@ -13,9 +15,9 @@ import { must } from "../../../test/must.js";
 
 const FIXTURES = path.join(import.meta.dirname, "../../../test/fixtures");
 
-const expected: Record<string, { w: number; h: number; sha: string }> = JSON.parse(
-  readFileSync(path.join(FIXTURES, "expected.json"), "utf-8"),
-);
+const expected = z
+  .record(z.string(), z.object({ h: z.number(), sha: z.string(), w: z.number() }))
+  .parse(JSON.parse(readFileSync(path.join(FIXTURES, "expected.json"), "utf-8")));
 
 const sha = (data: Uint8Array) => createHash("sha256").update(data).digest("hex");
 

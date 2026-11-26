@@ -1,3 +1,4 @@
+import { parseJson } from "@repo/contract/json";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -44,7 +45,7 @@ const rewritePackageName = (dir: string, slug: string) => {
   }
 
   try {
-    const pkg: JsonValue = JSON.parse(readFileSync(pkgPath, "utf-8"));
+    const pkg: JsonValue = parseJson(readFileSync(pkgPath, "utf-8"));
 
     if (!isJsonObject(pkg)) {
       throw new Error("package.json is not a JSON object");
@@ -95,7 +96,7 @@ export const forkCommand = defineCommand({
 
     const client = createClient();
 
-    if (!isJsonOutput(args) && !args.field) {
+    if (!isJsonOutput(args) && (args.field === undefined || args.field === "")) {
       consola.start(`Forking ${source}`);
     }
 

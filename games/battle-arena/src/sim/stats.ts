@@ -35,7 +35,7 @@ export const recomputeStats = (u: Unit) => {
 };
 
 export const addStatus = (u: Unit, st: Status) => {
-  if (st.id) {
+  if (st.id !== undefined && st.id !== "") {
     const i = u.statuses.findIndex((s) => s.kind === st.kind && s.id === st.id);
 
     if (i !== -1) {

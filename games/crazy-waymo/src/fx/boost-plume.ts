@@ -164,14 +164,14 @@ const PLUME_FRAG = `
 
 export class BoostPlume {
   readonly mesh: THREE.Mesh;
-  private uTime = { value: 0 };
-  private uOriginL = { value: new THREE.Vector3() };
-  private uOriginR = { value: new THREE.Vector3() };
-  private uAxis = { value: new THREE.Vector3(0, 0, -1) };
-  private uLen = { value: 0 };
-  private uRad = { value: 0 };
-  private uIntensity = { value: 0 };
-  private uTint = { value: new THREE.Color(FLAME_MID) };
+  private readonly uTime = { value: 0 };
+  private readonly uOriginL = { value: new THREE.Vector3() };
+  private readonly uOriginR = { value: new THREE.Vector3() };
+  private readonly uAxis = { value: new THREE.Vector3(0, 0, -1) };
+  private readonly uLen = { value: 0 };
+  private readonly uRad = { value: 0 };
+  private readonly uIntensity = { value: 0 };
+  private readonly uTint = { value: new THREE.Color(FLAME_MID) };
   private burn = 0;
   private burnTarget = 0;
   private igniteT = 0;

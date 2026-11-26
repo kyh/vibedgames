@@ -95,11 +95,11 @@ export const mountTunePanel = (vehicle: RaycastVehicle) => {
     row.style.cssText = "display:flex;gap:6px;align-items:center;margin-bottom:4px";
     const input = document.createElement("input");
     input.type = "checkbox";
-    input.checked = vehicle.params[key] === true;
+    input.checked = vehicle.params[key];
     input.addEventListener("change", () => {
       vehicle.params[key] = input.checked;
     });
-    row.append(input, document.createTextNode(String(key)));
+    row.append(input, document.createTextNode(key));
     wrap.append(row);
   }
 

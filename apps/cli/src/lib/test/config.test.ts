@@ -4,6 +4,8 @@ import path from "node:path";
 import { afterEach, test } from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { parseJson } from "@repo/contract/json";
+
 import { isJsonObject } from "../types.js";
 import { makeCleanups, makeTmpDir } from "../../../test/_helpers.js";
 
@@ -33,7 +35,7 @@ const vg = (configHome: string, ...args: string[]) => {
 };
 
 const json = (stdout: string) => {
-  const data: unknown = JSON.parse(stdout);
+  const data = parseJson(stdout);
   assert.ok(isJsonObject(data));
 
   return data;

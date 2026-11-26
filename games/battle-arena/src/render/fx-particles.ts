@@ -40,7 +40,7 @@ export class ParticlePools {
   private readonly normal: Pool;
   private readonly addMat: THREE.MeshBasicMaterial;
 
-  private scene: THREE.Scene;
+  private readonly scene: THREE.Scene;
 
   constructor(scene: THREE.Scene) {
     this.scene = scene;

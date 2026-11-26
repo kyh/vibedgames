@@ -6,6 +6,7 @@ import { ServerClock } from "./server-clock.js";
 import type {
   ClaimMap,
   ClientMessage,
+  FrameClock,
   JsonRecord,
   JsonValue,
   MultiplayerConnectionStatus,
@@ -31,15 +32,36 @@ import {
   TIME_PROBE_INTERVAL_MS,
 } from "./types.js";
 import type { MultiplayerSchemas, SchemaViolation } from "./validation.js";
-import { MAX_MESSAGE_BYTES } from "./validation.js";
+import { MAX_MESSAGE_BYTES, parseJson } from "./validation.js";
 
-const normalizeIds = (ids: string | string[] | undefined) => {
-  if (ids === undefined) {
-    return;
-  }
+const SERVER_MESSAGE_TYPES = {
+  claim: true,
+  claims_cleared: true,
+  event: true,
+  host: true,
+  ping: true,
+  player_connection: true,
+  player_joined: true,
+  player_left: true,
+  player_state: true,
+  player_visibility: true,
+  room_full: true,
+  room_info: true,
+  state_patch: true,
+  sync: true,
+  tick: true,
+  time: true,
+} satisfies Record<ServerMessage["type"], true>;
 
-  return Array.isArray(ids) ? ids : [ids];
-};
+const isServerMessage = (value: unknown): value is ServerMessage =>
+  value instanceof Object &&
+  "type" in value &&
+  String(value.type) === value.type &&
+  Object.hasOwn(SERVER_MESSAGE_TYPES, value.type) &&
+  (value.type === "ping" || "data" in value);
+
+const normalizeIds = (ids: string | string[] | undefined) =>
+  ids === undefined ? undefined : [ids].flat();
 
 type OutboxItem =
   | { kind: "shared" }
@@ -168,6 +190,13 @@ const rafHost: typeof globalThis & {
   cancelAnimationFrame?: (handle: number) => void;
 } = globalThis;
 
+const pageFrames = () => {
+  const request = rafHost.requestAnimationFrame?.bind(rafHost);
+  const cancel = rafHost.cancelAnimationFrame?.bind(rafHost);
+
+  return request === undefined || cancel === undefined ? null : { cancel, request };
+};
+
 const cryptoHost: typeof globalThis & {
   crypto?: { randomUUID?: () => string };
 } = globalThis;
@@ -223,13 +252,14 @@ const isUpdaterFn = (updater: JsonRecord | StateUpdater): updater is StateUpdate
  */
 export class MultiplayerClient {
   private socket: PartySocket | null = null;
-  private listeners = new Set<Listener>();
+  private readonly listeners = new Set<Listener>();
   private initialStateApplied = false;
   private remoteStateSeen = false;
-  private options: MultiplayerClientOptions;
+  private readonly options: MultiplayerClientOptions;
   private cap: number | null;
-  private reconnectToken = generateReconnectToken();
+  private readonly reconnectToken = generateReconnectToken();
   private heartbeatRaf: number | null = null;
+  private readonly frames: FrameClock | null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private lastHeartbeatAt = 0;
   private admitted = false;
@@ -266,18 +296,22 @@ export class MultiplayerClient {
 
   constructor(options: MultiplayerClientOptions) {
     this.options = options;
+    this.frames = options.frames ?? pageFrames();
     this._sharedState = options.initialState ?? {};
     this._onEvent = options.onEvent;
     this._onClaim = options.onClaim;
     this._onTick = options.onTick;
     this._room = options.room;
-    this.cap = options.maxPlayers && options.maxPlayers > 0 ? Math.floor(options.maxPlayers) : null;
+    this.cap =
+      options.maxPlayers !== undefined && options.maxPlayers !== 0 && options.maxPlayers > 0
+        ? Math.floor(options.maxPlayers)
+        : null;
 
     if (options.initialState) {
       this.passesSchema("sharedState", "outgoing", options.initialState);
     }
 
-    if (options.offline) {
+    if (options.offline === true) {
       this.enterOffline();
     } else {
       this.socket = this.dial();
@@ -350,16 +384,9 @@ export class MultiplayerClient {
       }
     };
 
-    const raf = rafHost.requestAnimationFrame ? rafHost.requestAnimationFrame.bind(rafHost) : null;
+    const raf = this.frames?.request ?? null;
 
-    if (raf) {
-      const loop = (t: number) => {
-        this.heartbeatRaf = raf(loop);
-        ping(t);
-      };
-
-      this.heartbeatRaf = raf(loop);
-    } else {
+    if (raf === null) {
       this.heartbeatTimer = setInterval(() => {
         if (this._connectionStatus === "connected") {
           this.send({ type: "heartbeat" });
@@ -376,6 +403,13 @@ export class MultiplayerClient {
           }
         }, fallbackMs);
       }
+    } else {
+      const loop = (t: number) => {
+        this.heartbeatRaf = raf(loop);
+        ping(t);
+      };
+
+      this.heartbeatRaf = raf(loop);
     }
   }
 
@@ -403,7 +437,7 @@ export class MultiplayerClient {
     this.probeTimers = [];
 
     if (this.heartbeatRaf !== null) {
-      rafHost.cancelAnimationFrame?.(this.heartbeatRaf);
+      this.frames?.cancel(this.heartbeatRaf);
       this.heartbeatRaf = null;
     }
 
@@ -775,7 +809,7 @@ export class MultiplayerClient {
    * re-sends the whole state.
    */
   updateMyState(updater: JsonRecord | StateUpdater) {
-    if (!this._playerId) {
+    if (this._playerId === null || this._playerId === "") {
       return;
     }
 
@@ -827,7 +861,7 @@ export class MultiplayerClient {
     if (this._connectionStatus === "offline") {
       if (
         (to === undefined || to.includes(OFFLINE_PLAYER_ID)) &&
-        !except?.includes(OFFLINE_PLAYER_ID)
+        except?.includes(OFFLINE_PLAYER_ID) !== true
       ) {
         this._onEvent?.(event, payload, OFFLINE_PLAYER_ID);
       }
@@ -835,7 +869,7 @@ export class MultiplayerClient {
       return;
     }
 
-    if (options?.coalesce) {
+    if (options?.coalesce === true) {
       const key = `event\u0000${event}\u0000${to?.join(",") ?? ""}\u0000${except?.join(",") ?? ""}`;
       this.enqueue(key, { data: emitData(event, payload, to, except), kind: "event" });
 
@@ -917,6 +951,13 @@ export class MultiplayerClient {
     this._onTick = fn;
   }
 
+  /** Replace all three callbacks at once; a callback left out is cleared. */
+  setCallbacks(callbacks: Pick<MultiplayerOptions, "onClaim" | "onEvent" | "onTick">) {
+    this._onClaim = callbacks.onClaim;
+    this._onEvent = callbacks.onEvent;
+    this._onTick = callbacks.onTick;
+  }
+
   /**
    * Leave the room, if in one, and carry on as a local room of one — what
    * `fallbackMs` does when no room answers, and what a "play solo" button
@@ -942,6 +983,20 @@ export class MultiplayerClient {
     this.enterOffline();
     this.reportClaimChanges(claimsBefore);
     this.notify();
+  }
+
+  /**
+   * Close the socket the way a dropped network would, without leaving the
+   * room: the seat is held for the reconnect window and nothing redials
+   * until `redial()`. For rehearsing how a game rides out a blip.
+   */
+  dropConnection(code = 4000) {
+    this.socket?.close(code);
+  }
+
+  /** Reopen the socket `dropConnection()` closed. */
+  redial() {
+    this.socket?.reconnect();
   }
 
   /** Disconnect and clean up. */
@@ -1159,7 +1214,7 @@ export class MultiplayerClient {
     }
   }
 
-  private handleTransport = () => {
+  private readonly handleTransport = () => {
     this._connectionStatus = this.admitted ? "reconnecting" : "connecting";
     this.notify();
   };
@@ -1222,7 +1277,7 @@ export class MultiplayerClient {
     this.maybeSeedInitialState(data.hostId);
     this.sendSharedDiff();
 
-    if (this._playerId && Object.keys(this._myState).length > 0) {
+    if (this._playerId !== null && this._playerId !== "" && Object.keys(this._myState).length > 0) {
       this._players = {
         ...this._players,
         [this._playerId]: {
@@ -1337,11 +1392,11 @@ export class MultiplayerClient {
     this._onTick?.({ changed, inputs: Object.fromEntries(ticks.held), n });
   }
 
-  private handleMessage = (event: MessageEvent) => {
+  private readonly handleMessage = (event: MessageEvent) => {
     try {
-      const message = JSON.parse(event.data) as ServerMessage;
+      const message = parseJson(String(event.data));
 
-      if (this.applyMessage(message)) {
+      if (isServerMessage(message) && this.applyMessage(message)) {
         this.notify();
       }
     } catch (error) {

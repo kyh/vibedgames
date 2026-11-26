@@ -1523,8 +1523,13 @@ export const enemySpawnWeight = (kind: EnemyKind, intensity: number) => {
       return 3.5 * Math.max(0, intensity - 1.5);
     }
 
-    default: {
+    case "dreadnought": {
       return 0;
+    }
+
+    default: {
+      const unhandled: never = kind;
+      throw new Error("unhandled case", { cause: unhandled });
     }
   }
 };

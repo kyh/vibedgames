@@ -10,11 +10,13 @@
   },
   "scripts": {
     "clean": "rm -rf .cache .turbo dist node_modules",
-    "test": "node --import tsx tools/pause-key-smoke.mjs",
+    "test": "node --import tsx --test 'src/**/*.test.ts'",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
+    "@happy-dom/global-registrator": "20.0.11",
     "@kyh/tsconfig": "catalog:",
+    "@types/node": "catalog:",
     "tsx": "^4.23.15",
     "typescript": "catalog:"
   }

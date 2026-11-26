@@ -40,9 +40,9 @@ const append = (chunks: string[], size: { n: number }, chunk: Buffer) => {
 };
 
 /** Runs a program with an argument list, never a shell, and collects its output. */
-export const exec = (program: string, args: readonly string[], options: ExecOptions = {}) =>
+export const exec = async (program: string, args: readonly string[], options: ExecOptions = {}) =>
   // oxlint-disable-next-line promise/avoid-new -- child_process exposes events, not a promise
-  new Promise<ExecResult>((resolve, reject) => {
+  await new Promise<ExecResult>((resolve, reject) => {
     const child = spawn(program, args, {
       cwd: options.cwd,
       env: { ...process.env, ...options.env },
@@ -65,7 +65,7 @@ export const exec = (program: string, args: readonly string[], options: ExecOpti
     child.on("close", (code) => {
       const result = { code, stderr: err.join(""), stdout: out.join("") };
 
-      if (code !== 0 && !options.allowFailure) {
+      if (code !== 0 && options.allowFailure !== true) {
         reject(new RecipeCommandError(program, code, result.stderr || result.stdout));
 
         return;
