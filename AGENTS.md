@@ -145,13 +145,35 @@ For the surfaces marked No, `pnpm typecheck` and `pnpm build` are the gate; a re
 
 ## Rules that matter
 
-- **Never `cf deploy` (or `wrangler deploy`) locally.** Deploys happen from GitHub Actions on push to `main`.
+- **Never `cf deploy` (or `wrangler deploy`) locally.** A push to `main` deploys, through Cloudflare Workers Builds (below).
 - **`vg deploy` against the dev Worker stays local.** Upload and download URLs are signed `/api/upload` / `/api/download` URLs on the request's own host, streamed through the `GAMES_BUCKET` binding (`packages/service/src/storage/signed-urls.ts`), so bytes land in the Miniflare bucket whether you address it as `localhost` or `127.0.0.1`.
 - **Never push schema to remote.** `pnpm db:push-remote` is the only command that touches production D1; it is the only one that reads `.env.production.local`. `pnpm db:push`, `db:studio` and `db:local` are local-only.
 - **Every mutation invalidates exactly the query keys it touches**, in its own `onSuccess`. There is no blanket invalidation in the query client; if a write should refresh a list, say so at the call site.
 - **No `any`, no non-null `!`, no `as` casts. Kebab-case filenames.** Make illegal states unrepresentable.
 - **Render dates through `apps/web/src/lib/format.ts`.** The Worker renders in UTC and the browser doesn't; an unpinned `toLocaleDateString()` is a hydration mismatch.
 - **Games are untrusted user code.** Session cookies stay scoped to the apex domain. Never weaken that boundary — see `CLAUDE.md`.
+
+## Deploys
+
+Each platform Worker is connected to this repo with Cloudflare Workers Builds (the Worker → **Settings** → **Builds**). A push to `main` builds and deploys production; a push to any other branch builds a Worker Preview named for the branch, whose URLs Cloudflare posts on the PR, beside a check run per Worker. Nothing deploys a Worker from GitHub Actions, and the commands are package scripts, so the dashboard holds only these:
+
+| Setting                     | `vibedgames-web`                                                                                                | `vibedgames-party`                                              | `vibedgames-games`                                                                         |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| Root directory              | `/`                                                                                                             | `/`                                                             | `/`                                                                                        |
+| Build command               | `pnpm turbo run build --filter=@repo/web^...`                                                                   | `pnpm turbo run build --filter=@repo/party^...`                 | `pnpm turbo run build --filter=@repo/games^...`                                            |
+| Deploy command              | `pnpm -F @repo/web run deploy`                                                                                  | `pnpm -F @repo/party run deploy`                                | `pnpm -F @repo/games run deploy`                                                           |
+| Preview builds              | on: `pnpm -F @repo/web run deploy:preview`                                                                      | on: `pnpm -F @repo/party run deploy:preview`                    | off: it routes by `{slug}.vibedgames.com`, so a Preview URL has no slug and serves nothing |
+| Build watch paths (include) | `apps/web/*`, `packages/contract/*`, `packages/db/*`, `packages/embed/*`, `packages/service/*`, `packages/ui/*` | `apps/party/*`, `packages/contract/*`, `packages/multiplayer/*` | `apps/games/*`, `packages/contract/*`, `packages/db/*`                                     |
+
+Every Worker also watches `package.json`, `pnpm-lock.yaml`, `pnpm-workspace.yaml` and `turbo.json`: the watch paths are each Worker's workspace dependencies (`pnpm turbo ls --filter=@repo/<app>...`), so a package added to one is added there too. `run` matters: `pnpm deploy` is pnpm's own command. The build command builds the workspace packages only; `cf deploy` and `cf previews deploy` build the Worker itself (a Preview with `isPreview`, which binds `vibedgames-preview` and `vibedgames-games-preview`). Node and pnpm come from `engines` and `packageManager`.
+
+- **API token**: one for all three, with Workers Scripts, Workers Routes, D1 and Workers R2 Storage, each Edit. The one Workers Builds creates lacks D1, which a Preview binding its database by name needs; the token the old `CLOUDFLARE_API_TOKEN` repo secret held has all four.
+- **Build variables, web's Previews only**: `CLOUDFLARE_ACCOUNT_ID` (a variable) and `CLOUDFLARE_D1_TOKEN` (a secret, D1 Edit), for `pnpm -F @repo/db push:preview`, which pushes the branch's schema to `vibedgames-preview` with `--force` before the Preview deploys. Production needs none: its schema is `pnpm db:push-remote`'s, by hand.
+- **Runtime secrets** stay on each Worker, not in Builds: production's in **Settings** → **Variables & Secrets** (or `cf workers secrets update`), every name web's `cloudflare.config.ts` declares with `bindings.secret()`; a Preview's in the Previews base config (`pnpm -F @repo/web exec wrangler preview base-config secret put <NAME> --worker-name vibedgames-web`), the same names, with `OAUTH_PROXY_SECRET` equal to production's.
+- **Web's production deploy also applies the R2 lifecycle** (`apps/web/infra/r2/vibedgames-games.lifecycle.json`) after `cf deploy`: it replaces the bucket's rules whole, so applying it every deploy is applying it when it changes.
+- **A Preview goes with its branch** once GitHub deletes the merged head branch (the repo's "Automatically delete head branches"), and it builds on every push, red or green: it never reaches the production database or bucket.
+
+The example games are not Workers: `.github/workflows/example-games.yml` runs `vg deploy` for each one a push to `main` changed, with the `VG_TOKEN` repo secret, after every Workers Build of the same commit when the party Worker changed too (a check run's name is Cloudflare's, so it waits on all of them).
 
 ## Map
 

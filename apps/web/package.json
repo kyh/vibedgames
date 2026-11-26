@@ -9,9 +9,11 @@
     "build": "cf build",
     "start": "vite preview",
     "clean": "rm -rf .cache .cloudflare .turbo .tanstack .wrangler dist node_modules",
-    "deploy": "cf deploy",
+    "deploy": "cf deploy && pnpm r2:lifecycle",
+    "deploy:preview": "pnpm -F @repo/db push:preview && cf previews deploy",
     "og:video": "tsx scripts/og-video.ts",
     "preview": "vite preview",
+    "r2:lifecycle": "wrangler r2 bucket lifecycle set vibedgames-games --file ./infra/r2/vibedgames-games.lifecycle.json --force",
     "test": "node --import tsx --test \"src/**/*.test.ts\" \"test/*.test.ts\"",
     "typecheck": "cf workers types --include-runtime=false && tsc --noEmit",
     "with-env": "dotenv -e ../../.env --"
