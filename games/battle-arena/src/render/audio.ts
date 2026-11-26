@@ -2,7 +2,7 @@ import type { DamageType } from "../data/config";
 import type { AbilityKey } from "../sim/types";
 import { Music } from "./music";
 import { VoicePool } from "./audio-voices";
-import type { VoiceGroup, VoicePriority } from "./audio-voices";
+import type { VoiceGroup, VoicePriority } from "./voice-group";
 
 type BusName = "sfx" | "ui" | "amb";
 

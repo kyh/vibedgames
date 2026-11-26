@@ -2,7 +2,7 @@ import * as THREE from "three";
 
 const LOADER = new THREE.TextureLoader();
 const cache = new Map<string, THREE.Texture>();
-const pending: Promise<void>[] = [];
+const pending: Promise<boolean>[] = [];
 
 /** Options: `wrap` for tiling erosion/noise maps; `srgb` for COLORED sprites
  *  (grayscale masks sample raw — sRGB would gamma-crush the erosion ramps). */
@@ -14,19 +14,18 @@ export const fxTex = (name: string, opts: { wrap?: boolean; srgb?: boolean } = {
     return cached;
   }
 
-  let settle: (() => void) | undefined;
-  pending.push(
-    // oxlint-disable-next-line promise/avoid-new -- bridges TextureLoader's load/error callbacks, which have no promise form that also resolves on error
-    new Promise<void>((resolve) => {
-      settle = resolve;
-    }),
-  );
+  const { promise, resolve } = Promise.withResolvers<boolean>();
+  pending.push(promise);
 
   const t = LOADER.load(
     `./fx/${name}.png`,
-    () => settle?.(),
+    () => {
+      resolve(true);
+    },
     undefined,
-    () => settle?.(),
+    () => {
+      resolve(false);
+    },
   );
 
   if (opts.wrap === true) {
