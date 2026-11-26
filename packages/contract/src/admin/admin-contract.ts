@@ -50,7 +50,8 @@ export const adminContract = {
     create: adminBase
       .meta(
         documented({
-          description: "Creates a user with an email and password. Admin only.",
+          description:
+            "Creates a user who signs in with a code emailed to their address, or a social provider using it. Admin only.",
           summary: "Create a user",
         }),
       )

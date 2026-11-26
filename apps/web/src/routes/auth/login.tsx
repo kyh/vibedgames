@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 
-import { creditCodeCallback, LoginForm } from "@/components/auth/auth-form";
+import { AuthForm, creditCodeCallback } from "@/components/auth/auth-form";
 
 const LoginPage = () => {
   const { callbackUrl, invite } = Route.useSearch();
@@ -11,7 +11,7 @@ const LoginPage = () => {
         <div className="flex flex-col text-center">
           <h1 className="text-lg font-light">Welcome back</h1>
         </div>
-        <LoginForm callbackUrl={creditCodeCallback(invite) ?? callbackUrl} />
+        <AuthForm callbackUrl={creditCodeCallback(invite) ?? callbackUrl} />
       </div>
       <p className="text-muted-foreground mt-6 px-8 text-center text-xs">
         Don&apos;t have an account?{" "}

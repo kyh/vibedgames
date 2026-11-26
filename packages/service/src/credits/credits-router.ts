@@ -1,15 +1,14 @@
 import { ORPCError } from "@orpc/server";
 
-import type { Auth } from "../identity/auth";
-import { verifiesEmail } from "../identity/auth";
+import type { ORPCContext } from "../orpc";
 import { os, requireSession } from "../orpc";
 import { getBalanceMicro, listEntries, redeemCreditCode } from "./credit-ledger";
 import { createCheckoutSession, purchasesEnabled, StripeError } from "./stripe";
 
 const authed = os.credits.use(requireSession);
 
-const mustVerifyEmail = (auth: Auth, emailVerified: boolean) =>
-  !emailVerified && verifiesEmail(auth);
+const mustVerifyEmail = ({ sendsEmail, session }: ORPCContext) =>
+  sendsEmail && session?.user.emailVerified === false;
 
 /**
  * User-facing credit state. Balances are integer micro-USD; clients format.
@@ -58,15 +57,15 @@ export const creditsRouter = {
     return {
       balanceMicro,
       entries,
-      mustVerifyEmail: mustVerifyEmail(context.auth, context.session.user.emailVerified),
+      mustVerifyEmail: mustVerifyEmail(context),
       purchasesEnabled: purchasesEnabled(context.billing),
     };
   }),
 
   redeem: authed.redeem.handler(async ({ context, input }) => {
-    if (mustVerifyEmail(context.auth, context.session.user.emailVerified)) {
+    if (mustVerifyEmail(context)) {
       throw new ORPCError("PRECONDITION_FAILED", {
-        message: `Confirm ${context.session.user.email} before redeeming a code: open the link we emailed, or send a new one from Settings → Credits.`,
+        message: `Confirm ${context.session.user.email} before redeeming a code: send yourself a code from Settings → Credits and enter it there.`,
       });
     }
 

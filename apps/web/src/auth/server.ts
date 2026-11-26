@@ -25,7 +25,7 @@ const authFor = (
   db: ReturnType<typeof createDb>,
   baseUrl: string,
   productionUrl: string,
-  isLocalhost: boolean,
+  mailer: ReturnType<typeof mailerOf>,
 ) => {
   let byOrigin = authInstances.get(env);
 
@@ -37,8 +37,6 @@ const authFor = (
   let auth = byOrigin.get(baseUrl);
 
   if (!auth) {
-    const mailer = mailerOf({ apiKey: env.RESEND_API_KEY, local: isLocalhost });
-
     if (!mailer && !warnedNoEmail) {
       warnedNoEmail = true;
       console.warn(NO_EMAIL_WARNING);
@@ -79,7 +77,8 @@ export const getServerContext = () => {
 
   const productionUrl = env.PRODUCTION_URL || baseUrl;
 
-  const auth = authFor(env, db, baseUrl, productionUrl, isLocalhost);
+  const mailer = mailerOf({ apiKey: env.RESEND_API_KEY, local: isLocalhost });
+  const auth = authFor(env, db, baseUrl, productionUrl, mailer);
 
   const r2: R2Config = { bucket: env.GAMES_BUCKET };
 
@@ -107,7 +106,18 @@ export const getServerContext = () => {
     stripeWebhookSecret: env.STRIPE_WEBHOOK_SECRET,
   };
 
-  return { auth, baseUrl, billing, db, decision, media, productionUrl, r2, signing };
+  return {
+    auth,
+    baseUrl,
+    billing,
+    db,
+    decision,
+    media,
+    productionUrl,
+    r2,
+    sendsEmail: mailer !== undefined,
+    signing,
+  };
 };
 
 /** The social sign-in providers this deployment has credentials for, in button order. */
@@ -140,6 +150,7 @@ export const createRpcContext = async (headers: Headers, surface: OAuthSurface =
     r2,
     media,
     decision,
+    sendsEmail,
     signing,
   } = getServerContext();
 
@@ -153,6 +164,7 @@ export const createRpcContext = async (headers: Headers, surface: OAuthSurface =
     oauthResource: oauthResources(baseUrl)[surface],
     productionURL: productionUrl,
     r2,
+    sendsEmail,
     signing,
   });
 };

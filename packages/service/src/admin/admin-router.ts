@@ -39,7 +39,6 @@ export const adminRouter = {
           body: {
             email: input.email,
             name: input.name,
-            password: input.password,
             role: input.role,
           },
           headers: context.headers,

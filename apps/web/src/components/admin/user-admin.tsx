@@ -24,7 +24,6 @@ type Role = "user" | "admin";
 
 interface UserForm {
   email: string;
-  password: string;
   name: string;
   role: Role;
 }
@@ -32,7 +31,6 @@ interface UserForm {
 const initialForm: UserForm = {
   email: "",
   name: "",
-  password: "",
   role: "user",
 };
 
@@ -149,22 +147,6 @@ export const UserAdmin = () => {
                   value={form.email}
                   onChange={(e) => {
                     setForm((f) => ({ ...f, email: e.target.value }));
-                  }}
-                />
-              </FieldContent>
-            </Field>
-            <Field className="gap-1">
-              <FieldLabel htmlFor="user-password">Password</FieldLabel>
-              <FieldContent>
-                <Input
-                  id="user-password"
-                  type="password"
-                  required
-                  minLength={8}
-                  autoComplete="new-password"
-                  value={form.password}
-                  onChange={(e) => {
-                    setForm((f) => ({ ...f, password: e.target.value }));
                   }}
                 />
               </FieldContent>

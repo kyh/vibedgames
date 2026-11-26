@@ -14,5 +14,5 @@ test("the one form tag posts, so no submit keeps credentials in the URL", () => 
 
 test("every auth form is the wrapper that holds its fields until hydration", () => {
   assert.match(source, /<fieldset disabled=\{!hydrated\}/u);
-  assert.equal([...source.matchAll(/<HydratedForm\b/gu)].length, 3);
+  assert.equal([...source.matchAll(/<HydratedForm\b/gu)].length, 1);
 });

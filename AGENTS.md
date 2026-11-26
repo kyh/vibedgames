@@ -26,7 +26,7 @@ One file, two consumers. Everything lives in the repo-root `.env`; template is `
 
 **The declared secrets are the whole mechanism.** Declaring a name with `bindings.secret()` makes the dev server fold `process.env` into the Worker binding and filter it down to exactly the declared names — so a secret that is in `.env` but not declared silently never reaches the Worker. Adding one means editing two places: `.env.example` and `cloudflare.config.ts` (the `Env` type is generated from it).
 
-Keep `RESEND_API_KEY` empty in `.env`, as `.env.example` ships it (an empty value counts as unset, and every other optional key is read the same way): without it the dev server writes each email, password-reset link included, to its own log instead of sending it, so a reset can be followed headlessly and seeded addresses never receive mail. Only a request to `localhost` logs (`mailerOf` in `packages/service/src/email/mailer.ts`): a deployed Worker without the key sends and logs nothing, since a logged reset link is a live login, warns once per isolate that it sends no email, refuses a password reset up front and skips email verification.
+Keep `RESEND_API_KEY` empty in `.env`, as `.env.example` ships it (an empty value counts as unset, and every other optional key is read the same way): without it the dev server writes each email, sign-in code included, to its own log instead of sending it, so a sign-in can be followed headlessly and seeded addresses never receive mail. Only a request to `localhost` logs (`mailerOf` in `packages/service/src/email/mailer.ts`): a deployed Worker without the key sends and logs nothing, since a logged code is a live login, warns once per isolate that it sends no email, refuses to send a code (`EMAIL_DISABLED`) and skips the confirmed-address check on credit codes.
 
 Do not reintroduce `apps/web/.dev.vars`. The dev server prefers it and stops reading `.env`/`process.env` the moment it exists, so the root file goes quietly dead. In production the same names are set with `cf workers secrets update`.
 
@@ -34,12 +34,14 @@ Do not reintroduce `apps/web/.dev.vars`. The dev server prefers it and stops rea
 
 `pnpm db:seed-local` applies `packages/db/seed.sql` to the local D1. It creates:
 
-| Identity                               | Use                                                                       |
-| -------------------------------------- | ------------------------------------------------------------------------- |
-| `user@vibedgames.com` / `password123`  | browser login, regular user                                               |
-| `admin@vibedgames.com` / `password123` | browser login, admin (`/admin`: users and credit codes)                   |
-| `dev-local-session-token-0000000000`   | long-lived bearer token for the CLI and raw HTTP                          |
-| `DEV123`                               | credit code, $20, unlimited uses — redeem once per account in `/settings` |
+| Identity                             | Use                                                                       |
+| ------------------------------------ | ------------------------------------------------------------------------- |
+| `user@vibedgames.com`                | browser login, regular user                                               |
+| `admin@vibedgames.com`               | browser login, admin (`/admin`: users and credit codes)                   |
+| `dev-local-session-token-0000000000` | long-lived bearer token for the CLI and raw HTTP                          |
+| `DEV123`                             | credit code, $20, unlimited uses — redeem once per account in `/settings` |
+
+Sign-in is a six-digit code emailed to the address (better-auth `emailOTP`), never a password, and the same form signs a new address up. `pnpm sign-in-code [email]` (default `user@vibedgames.com`) writes a fresh code for it into the local D1 and prints it, so no inbox or log is needed; it never touches a remote database.
 
 Five sample games are seeded onto the admin account, so `/home` is non-empty when signed in as `admin@vibedgames.com`, and they show up under Users in `/admin`. (The games themselves are served from the live prod subdomains; only the D1 rows are local.) `/` and `/discover` never read D1 — they render the hardcoded `featuredGames` array in `apps/web/src/components/game/data.ts`, so re-seeding cannot change them.
 
@@ -66,12 +68,12 @@ curl -s http://localhost:5173/mcp \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"deployments","arguments":{}}}'
 
 # a real session cookie, for handing to a browser context
-curl -s -i -X POST http://localhost:5173/api/auth/sign-in/email \
+curl -s -i -X POST http://localhost:5173/api/auth/sign-in/email-otp \
   -H 'content-type: application/json' -H 'Origin: http://localhost:5173' \
-  -d '{"email":"user@vibedgames.com","password":"password123"}' | grep -i set-cookie
+  -d "{\"email\":\"user@vibedgames.com\",\"otp\":\"$(pnpm --silent sign-in-code)\"}" | grep -i set-cookie
 ```
 
-Note better-auth rate-limits to 10 requests / 60s per IP — a tight retry loop against `/api/auth/*` will start getting 429s.
+Note better-auth rate-limits to 10 requests / 60s per IP, and sending or checking a code to 3 / 60s — a tight retry loop against `/api/auth/*` will start getting 429s.
 
 ### A real `VG_TOKEN`, for a session with no browser
 
@@ -111,8 +113,8 @@ Runtime — the web app and the example games are both browser-reachable. `vg pl
 ```sh
 vg playtest open http://localhost:5173/auth/login
 vg playtest fill '[data-test="email-input"]' user@vibedgames.com
-vg playtest fill '[data-test="password-input"]' password123
-vg playtest press Enter                       # lands on /home
+vg playtest press Enter                       # sends a code; the form asks for it
+vg playtest fill '[data-test="code-input"]' "$(pnpm --silent sign-in-code)"   # a full code submits; lands on /home
 vg playtest open http://localhost:5173/settings
 vg playtest snapshot                          # accessibility tree with @eN refs
 vg playtest fill @e10 my-key                  # refs come from the snapshot above
@@ -120,7 +122,7 @@ vg playtest click @e12                        # "Create key" — the list should
 vg playtest screenshot /tmp/after.png
 ```
 
-The auth form uses react-hook-form, so prefer the `data-test` attributes over positional refs for the two credential fields; everything else is reliable off `snapshot`.
+Prefer the `data-test` attributes over positional refs for the email and code fields; everything else is reliable off `snapshot`.
 
 Six flows cover all ten `useMutation` sites in the app: `/settings` (create + revoke an API key), `/admin` → Credit codes (create + revoke a code), `/admin` → Users (create a user, grant credits, then re-check `/settings`), `/home` (delete a game), `/settings` again (click "Have a code? Redeem it" and type `DEV123` into the dialog — that is the `credits.redeem` mutation; a second redeem by the same account answers 409; the buy buttons, which fire `credits.checkout`, render only when both `STRIPE_*` keys are set — without them `credits.me` reports `purchasesEnabled: false` and the section offers a code button instead), `/settings` → Connected apps (Disconnect an app, after `vg login` against the dev server has connected the CLI). `/device` is not a `useMutation` site: `vg login` against the dev server prints a code, and its page approves or denies it through the auth client.
 
