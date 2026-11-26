@@ -6,10 +6,9 @@ let armed = false;
 let released = 0;
 
 const release = (attr: THREE.BufferAttribute) => {
-  const Ctor = attr.array.constructor as THREE.TypedArrayConstructor;
-  attr.array = new Ctor(0);
+  attr.array = attr.array.slice(0, 0);
   attr.updateRanges.length = 0;
-  attr.onUpload(() => null);
+  attr.onUpload(THREE.BufferAttribute.prototype.onUploadCallback);
   released += 1;
 };
 

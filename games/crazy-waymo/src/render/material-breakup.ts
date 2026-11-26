@@ -112,12 +112,12 @@ export const applyMaterialBreakup = (mat: THREE.Material, cfg: BreakupConfig) =>
 
   applied.add(mat);
 
-  const prev = mat.onBeforeCompile;
+  const prev = mat.onBeforeCompile.bind(mat);
   const prevKey = mat.customProgramCacheKey();
   const cfgKey = `kbreakup:${JSON.stringify(cfg)}`;
 
   mat.onBeforeCompile = (shader, renderer) => {
-    prev.call(mat, shader, renderer);
+    prev(shader, renderer);
 
     if (
       !shader.fragmentShader.includes(FRAG_ANCHOR) ||

@@ -119,7 +119,7 @@ const fetchBin = async (path: string) => {
     return data;
   } catch (error) {
     console.log(
-      `[world-bin] ${path} failed: ${error instanceof Error ? `${error.name}: ${error.message}` : error}`,
+      `[world-bin] ${path} failed: ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`,
     );
 
     return null;
@@ -133,7 +133,7 @@ export const fetchBakedWorld: () => Promise<CityGenPayload | null> = async () =>
     return d?.world ? unpackWorld(d.world) : null;
   } catch (error) {
     console.log(
-      `[world-bin] world unpack failed: ${error instanceof Error ? error.message : error}`,
+      `[world-bin] world unpack failed: ${error instanceof Error ? error.message : String(error)}`,
     );
 
     return null;
@@ -148,7 +148,7 @@ export const fetchWorldMeta = async () => {
     return d?.meta ? await unpackMeta(d.meta) : null;
   } catch (error) {
     console.log(
-      `[world-bin] meta unpack failed: ${error instanceof Error ? error.message : error}`,
+      `[world-bin] meta unpack failed: ${error instanceof Error ? error.message : String(error)}`,
     );
 
     return null;
@@ -165,7 +165,7 @@ export const fetchWorldTile = async (ref: WorldTileRef) => {
     return d?.tile ?? null;
   } catch (error) {
     console.log(
-      `[world-bin] tile ${ref.ix},${ref.iz} failed: ${error instanceof Error ? error.message : error}`,
+      `[world-bin] tile ${ref.ix},${ref.iz} failed: ${error instanceof Error ? error.message : String(error)}`,
     );
 
     return null;
@@ -196,7 +196,7 @@ export const fetchParcelSource = async () => {
     return buf;
   } catch (error) {
     console.log(
-      `[world-bin] parcels.bin failed: ${error instanceof Error ? error.message : error}`,
+      `[world-bin] parcels.bin failed: ${error instanceof Error ? error.message : String(error)}`,
     );
 
     return null;

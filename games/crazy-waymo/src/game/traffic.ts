@@ -14,6 +14,7 @@ import type { DistrictChar } from "../world/sf-map";
 import { createHullBatch, placeHulls } from "../vehicle/ink-hull";
 import { BODY_LIFT, TrafficCar } from "./traffic-car";
 import type { FleetPart, VehicleKind } from "./traffic-car";
+import { isMesh } from "../shared/three-guards";
 
 const RECYCLE_DIST = ROAD_TILE * 20;
 const RESPAWN_MIN = ROAD_TILE * 6;
@@ -248,11 +249,7 @@ export class Traffic {
       const node = cache.instance(modelUrl("cars", model));
       node.updateMatrixWorld(true);
       node.traverse((c) => {
-        if (
-          c instanceof THREE.Mesh &&
-          c.geometry instanceof THREE.BufferGeometry &&
-          !Array.isArray(c.material)
-        ) {
+        if (isMesh(c) && c.geometry instanceof THREE.BufferGeometry && !Array.isArray(c.material)) {
           parts?.push({ geo: c.geometry, local: c.matrixWorld.clone(), mat: c.material });
         }
       });

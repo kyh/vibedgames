@@ -590,11 +590,11 @@ export class Car {
     const { surface } = this;
     const sample = surface?.waterHeightAt;
     this.vehicle?.setWaterSampler(
-      sample && surface
-        ? {
+      surface === null || sample === undefined
+        ? null
+        : {
             waterHeightAt: (x, z) => sample.call(surface, x, z),
-          }
-        : null,
+          },
     );
   }
 

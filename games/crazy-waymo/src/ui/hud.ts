@@ -93,8 +93,14 @@ interface BootBar {
   at: () => number;
 }
 
+declare global {
+  interface Window {
+    __bootBar?: Partial<BootBar>;
+  }
+}
+
 const boot = () => {
-  const { at, stop } = (globalThis as { __bootBar?: Partial<BootBar> }).__bootBar ?? {};
+  const { at, stop } = window.__bootBar ?? {};
 
   if (!(at && stop)) {
     return null;

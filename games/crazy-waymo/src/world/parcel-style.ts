@@ -92,7 +92,7 @@ const hintStoreys = (character: FabricChar, hint: ParcelHint, roll: number) => {
 
     case "commercial":
     case "generic": {
-      return;
+      return null;
     }
 
     default: {

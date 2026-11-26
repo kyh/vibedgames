@@ -363,9 +363,7 @@ let kit: readonly SalesforcePart[] | null = null;
 
 /** Shared geometry/material ownership stays here; placement code must not dispose it. */
 export const getSalesforceKit = () => {
-  if (kit === null) {
-    kit = buildKit();
-  }
+  kit ??= buildKit();
 
   return kit;
 };

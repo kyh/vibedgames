@@ -2432,17 +2432,21 @@ export const buildParcelGeometry = async (
   lots: readonly ParcelLot[] = [],
 ) => {
   const buckets = new Buckets();
-  let k = 0;
 
-  for (const p of plans) {
-    k += 1;
+  const buildFrom: (start: number) => Promise<void> = async (start) => {
+    const end = Math.min(plans.length, (Math.floor((start + 1) / 400) + 1) * 400 - 1);
 
-    if (onBreathe && k % 400 === 0) {
-      await onBreathe();
+    for (const p of plans.slice(start, end)) {
+      buildOne(buckets, p, detail);
     }
 
-    buildOne(buckets, p, detail);
-  }
+    if (end < plans.length) {
+      await onBreathe?.();
+      await buildFrom(end);
+    }
+  };
+
+  await buildFrom(0);
 
   for (const lot of lots) {
     buildLot(buckets, lot);

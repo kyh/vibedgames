@@ -118,10 +118,10 @@ export class DriveSurface {
     const gz = Math.floor((z + WORLD_HALF_Z) / ROAD_TILE);
 
     if (gx < 0 || gz < 0 || gx >= GRID_X || gz >= GRID_Z) {
-      return;
+      return null;
     }
 
-    return this.terraces.get(gx * GRID_Z + gz);
+    return this.terraces.get(gx * GRID_Z + gz) ?? null;
   }
 
   heightAt(x: number, z: number) {
@@ -135,7 +135,7 @@ export class DriveSurface {
 
     const terrace = this.terraceAt(x, z);
 
-    return terrace === undefined ? ground : Math.max(terrace, ground);
+    return terrace === null ? ground : Math.max(terrace, ground);
   }
 
   /** Camera floor: an elevated deck above the viewer belongs to the ceiling. */
@@ -143,7 +143,7 @@ export class DriveSurface {
     let floor = this.groundHeightAt(x, z);
     const terrace = this.terraceAt(x, z);
 
-    if (terrace !== undefined) {
+    if (terrace !== null) {
       floor = Math.max(floor, terrace);
     }
 
@@ -179,7 +179,7 @@ export class DriveSurface {
 
     const terrace = this.terraceAt(x, z);
 
-    if (terrace !== undefined && terrace >= this.groundHeightAt(x, z) - 0.05) {
+    if (terrace !== null && terrace >= this.groundHeightAt(x, z) - 0.05) {
       return out.set(0, 1, 0);
     }
 

@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
+import { mergeGeometriesOrNull } from "../shared/three-guards";
 
 export type SfTreeKind = "cypress" | "broadleaf";
 
@@ -187,7 +187,7 @@ export const createSfTreeModel = (kind: SfTreeKind) => {
     pieces.push(geometry);
   }
 
-  const geometry = mergeGeometries(pieces);
+  const geometry = mergeGeometriesOrNull(pieces);
 
   for (const piece of pieces) {
     piece.dispose();

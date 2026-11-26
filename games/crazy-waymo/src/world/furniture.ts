@@ -61,6 +61,8 @@ import { getMuniShelterKit } from "./sf-street-kit";
 import type { ParcelClearance } from "./parcel-clearance";
 import { getTreeTrunks } from "./tree-clearance";
 import type { TreeClearance } from "./tree-clearance";
+import { delay, nextFrame } from "../shared/wait";
+import { gridCells, inOrder, paced, range } from "../shared/paced";
 
 export interface FurnitureCtx {
   readonly plan: CityPlan;
@@ -795,12 +797,8 @@ export const buildFurniture: (ctx: FurnitureCtx) => Promise<FurnitureResult> = a
       return;
     }
 
-    const { promise, resolve } = Promise.withResolvers<void>();
-    requestAnimationFrame(() => {
-      setTimeout(resolve, 0);
-    });
-
-    await promise;
+    await nextFrame();
+    await delay(0);
     lastYield = performance.now();
   };
 
@@ -1137,8 +1135,7 @@ export const buildFurniture: (ctx: FurnitureCtx) => Promise<FurnitureResult> = a
   const LAMP_SPACING = ROAD_TILE * 4.5;
   let lampFlip = false;
 
-  for (const edge of network.edges) {
-    await breathe();
+  for await (const edge of paced(network.edges, breathe)) {
     const mid = network.sample(edge, edge.len / 2);
 
     if (inPark(mid.x, mid.z)) {
@@ -1201,8 +1198,7 @@ export const buildFurniture: (ctx: FurnitureCtx) => Promise<FurnitureResult> = a
     }
   }
 
-  for (const edge of network.edges) {
-    await breathe();
+  for await (const edge of paced(network.edges, breathe)) {
     const trimA = network.nodeTrim(edge.a) + 3;
     const trimB = network.nodeTrim(edge.b) + 3;
 
@@ -1387,77 +1383,73 @@ export const buildFurniture: (ctx: FurnitureCtx) => Promise<FurnitureResult> = a
   const planterUrl = modelUrl("props", PROP_PLANTER);
   const planterScale = 1.5 / Math.max(cache.bounds(planterUrl).size.x, 0.001);
 
-  for (let gx = 0; gx < GRID_X; gx += 1) {
-    for (let gz = 0; gz < GRID_Z; gz += 1) {
-      await breathe();
+  for await (const [gx, gz] of paced(gridCells(GRID_X, GRID_Z), breathe)) {
+    if (!isGGPark(gx, gz)) {
+      continue;
+    }
 
-      if (!isGGPark(gx, gz)) {
-        continue;
-      }
+    if (reserved.has(cellKey(gx, gz))) {
+      continue;
+    }
 
-      if (reserved.has(cellKey(gx, gz))) {
-        continue;
-      }
+    if (cellAt(gx, gz) !== "lot") {
+      continue;
+    }
 
-      if (cellAt(gx, gz) !== "lot") {
-        continue;
-      }
+    const wx = worldX(gx);
+    const wz = worldZ(gz);
+    const edges: number[] = [];
 
-      const wx = worldX(gx);
-      const wz = worldZ(gz);
-      const edges: number[] = [];
+    if (!isGGPark(gx, gz - 1)) {
+      edges.push(-1);
+    }
 
-      if (!isGGPark(gx, gz - 1)) {
-        edges.push(-1);
-      }
+    if (!isGGPark(gx, gz + 1)) {
+      edges.push(1);
+    }
 
-      if (!isGGPark(gx, gz + 1)) {
-        edges.push(1);
-      }
+    for (const edge of edges) {
+      const tz = wz + edge * (ROAD_TILE * 0.5 - 0.9);
 
-      for (const edge of edges) {
-        const tz = wz + edge * (ROAD_TILE * 0.5 - 0.9);
+      for (const off of [-0.25, 0.25] as const) {
+        const tx = wx + off * ROAD_TILE;
 
-        for (const off of [-0.25, 0.25] as const) {
-          const tx = wx + off * ROAD_TILE;
+        if (onAsphalt(tx, tz, 1.6)) {
+          continue;
+        }
 
-          if (onAsphalt(tx, tz, 1.6)) {
-            continue;
-          }
+        const planted = seat(
+          treeUrl,
+          tx,
+          tz,
+          rng.range(0, Math.PI * 2),
+          scaleToHeight(treeUrl, rng.range(5, 6.5)),
+        );
 
-          const planted = seat(
-            treeUrl,
-            tx,
-            tz,
-            rng.range(0, Math.PI * 2),
-            scaleToHeight(treeUrl, rng.range(5, 6.5)),
-          );
-
-          if (planted) {
-            solids.push({
-              maxX: tx + 0.55,
-              maxZ: tz + 0.55,
-              minX: tx - 0.55,
-              minZ: tz - 0.55,
-              noBody: true,
-            });
-          }
+        if (planted) {
+          solids.push({
+            maxX: tx + 0.55,
+            maxZ: tz + 0.55,
+            minX: tx - 0.55,
+            minZ: tz - 0.55,
+            noBody: true,
+          });
         }
       }
+    }
 
-      if (rng.chance(0.25)) {
-        const count = 3 + rng.int(3);
+    if (rng.chance(0.25)) {
+      const count = 3 + rng.int(3);
 
-        for (let i = 0; i < count; i += 1) {
-          const px = wx + rng.range(-2.6, 2.6);
-          const pz = wz + rng.range(-2.6, 2.6);
+      for (let i = 0; i < count; i += 1) {
+        const px = wx + rng.range(-2.6, 2.6);
+        const pz = wz + rng.range(-2.6, 2.6);
 
-          if (onAsphalt(px, pz, 1.2)) {
-            continue;
-          }
-
-          seat(planterUrl, px, pz, rng.range(0, Math.PI * 2), planterScale);
+        if (onAsphalt(px, pz, 1.2)) {
+          continue;
         }
+
+        seat(planterUrl, px, pz, rng.range(0, Math.PI * 2), planterScale);
       }
     }
   }
@@ -1553,234 +1545,230 @@ export const buildFurniture: (ctx: FurnitureCtx) => Promise<FurnitureResult> = a
   const wallBounds = cache.bounds(wallUrl);
   const wallH = 1.1 / Math.max(wallBounds.size.y, 0.001);
 
-  for (let gx = 0; gx < GRID_X; gx += 1) {
-    for (let gz = 0; gz < GRID_Z; gz += 1) {
-      await breathe();
+  for await (const [gx, gz] of paced(gridCells(GRID_X, GRID_Z), breathe)) {
+    if (!isParkCell(gx, gz)) {
+      continue;
+    }
 
-      if (!isParkCell(gx, gz)) {
+    if (reserved.has(cellKey(gx, gz))) {
+      continue;
+    }
+
+    const wx = worldX(gx);
+    const wz = worldZ(gz);
+
+    if (
+      stowBasinOverlapsBox(
+        wx - ROAD_TILE / 2,
+        wx + ROAD_TILE / 2,
+        wz - ROAD_TILE / 2,
+        wz + ROAD_TILE / 2,
+      )
+    ) {
+      continue;
+    }
+
+    if (onAsphalt(wx, wz, ROAD_TILE * 0.55)) {
+      continue;
+    }
+
+    for (const d of DIRS) {
+      const [dx, dz] = DIR_DELTA[d];
+
+      if (cellAt(gx + dx, gz + dz) !== "road") {
         continue;
       }
 
-      if (reserved.has(cellKey(gx, gz))) {
-        continue;
-      }
+      const edgeOff = ROAD_TILE / 2 - 0.5;
+      const along = dx === 0 ? "x" : "z";
+      const runLen = ROAD_TILE / 2 - 2.2;
+      const wallRun = runLen / Math.max(wallBounds.size.z, 0.001);
 
-      const wx = worldX(gx);
-      const wz = worldZ(gz);
+      for (const side of [-1, 1] as const) {
+        const mid = side * (2.2 + runLen / 2);
+        const px = along === "x" ? wx + mid : wx + dx * edgeOff;
+        const pz = along === "x" ? wz + dz * edgeOff : wz + mid;
+        const halfRun = runLen / 2;
+        const ax = along === "x" ? halfRun : 0;
+        const az = along === "x" ? 0 : halfRun;
 
-      if (
-        stowBasinOverlapsBox(
-          wx - ROAD_TILE / 2,
-          wx + ROAD_TILE / 2,
-          wz - ROAD_TILE / 2,
-          wz + ROAD_TILE / 2,
-        )
-      ) {
-        continue;
-      }
-
-      if (onAsphalt(wx, wz, ROAD_TILE * 0.55)) {
-        continue;
-      }
-
-      for (const d of DIRS) {
-        const [dx, dz] = DIR_DELTA[d];
-
-        if (cellAt(gx + dx, gz + dz) !== "road") {
+        if (
+          onAsphalt(px, pz, 1) ||
+          onAsphalt(px - ax, pz - az, 1) ||
+          onAsphalt(px + ax, pz + az, 1)
+        ) {
           continue;
         }
 
-        const edgeOff = ROAD_TILE / 2 - 0.5;
-        const along = dx === 0 ? "x" : "z";
-        const runLen = ROAD_TILE / 2 - 2.2;
-        const wallRun = runLen / Math.max(wallBounds.size.z, 0.001);
+        const wall = cache.instance(wallUrl);
+        wall.scale.set(wallH, wallH, wallRun);
+        wall.rotation.y = along === "x" ? HALF_PI : 0;
+        const endA = along === "x" ? [px - runLen / 2, pz] : [px, pz - runLen / 2];
+        const endB = along === "x" ? [px + runLen / 2, pz] : [px, pz + runLen / 2];
+        const wallY = surfaceAt(px, pz);
 
-        for (const side of [-1, 1] as const) {
-          const mid = side * (2.2 + runLen / 2);
-          const px = along === "x" ? wx + mid : wx + dx * edgeOff;
-          const pz = along === "x" ? wz + dz * edgeOff : wz + mid;
-          const halfRun = runLen / 2;
-          const ax = along === "x" ? halfRun : 0;
-          const az = along === "x" ? 0 : halfRun;
+        const lowY = Math.min(
+          wallY,
+          surfaceAt(endA[0] ?? px, endA[1] ?? pz),
+          surfaceAt(endB[0] ?? px, endB[1] ?? pz),
+        );
 
-          if (
-            onAsphalt(px, pz, 1) ||
-            onAsphalt(px - ax, pz - az, 1) ||
-            onAsphalt(px + ax, pz + az, 1)
-          ) {
-            continue;
-          }
+        wall.position.set(px, wallY, pz);
+        wall.updateMatrixWorld(true);
+        objects.push(wall);
 
-          const wall = cache.instance(wallUrl);
-          wall.scale.set(wallH, wallH, wallRun);
-          wall.rotation.y = along === "x" ? HALF_PI : 0;
-          const endA = along === "x" ? [px - runLen / 2, pz] : [px, pz - runLen / 2];
-          const endB = along === "x" ? [px + runLen / 2, pz] : [px, pz + runLen / 2];
-          const wallY = surfaceAt(px, pz);
-
-          const lowY = Math.min(
-            wallY,
-            surfaceAt(endA[0] ?? px, endA[1] ?? pz),
-            surfaceAt(endB[0] ?? px, endB[1] ?? pz),
-          );
-
-          wall.position.set(px, wallY, pz);
-          wall.updateMatrixWorld(true);
-          objects.push(wall);
-
-          if (wallY - lowY > 0.15) {
-            const drop = wallY - lowY + 0.25;
-            const footing = new THREE.Mesh(WALL_FOOTING_BOX, SEAWALL_MAT);
-            footing.scale.set(along === "x" ? runLen : 0.72, drop, along === "x" ? 0.72 : runLen);
-            footing.position.set(px, wallY + 0.1 - drop / 2, pz);
-            footing.updateMatrixWorld(true);
-            objects.push(footing);
-          }
-
-          const t = 0.5;
-          solids.push(
-            along === "x"
-              ? {
-                  maxX: px + runLen / 2,
-                  maxY: wallY + 1.4,
-                  maxZ: pz + t,
-                  minX: px - runLen / 2,
-                  minZ: pz - t,
-                }
-              : {
-                  maxX: px + t,
-                  maxY: wallY + 1.4,
-                  maxZ: pz + runLen / 2,
-                  minX: px - t,
-                  minZ: pz - runLen / 2,
-                },
-          );
+        if (wallY - lowY > 0.15) {
+          const drop = wallY - lowY + 0.25;
+          const footing = new THREE.Mesh(WALL_FOOTING_BOX, SEAWALL_MAT);
+          footing.scale.set(along === "x" ? runLen : 0.72, drop, along === "x" ? 0.72 : runLen);
+          footing.position.set(px, wallY + 0.1 - drop / 2, pz);
+          footing.updateMatrixWorld(true);
+          objects.push(footing);
         }
 
-        for (const side of [-2.2, 2.2] as const) {
-          const px = along === "x" ? wx + side : wx + dx * edgeOff;
-          const pz = along === "x" ? wz + dz * edgeOff : wz + side;
+        const t = 0.5;
+        solids.push(
+          along === "x"
+            ? {
+                maxX: px + runLen / 2,
+                maxY: wallY + 1.4,
+                maxZ: pz + t,
+                minX: px - runLen / 2,
+                minZ: pz - t,
+              }
+            : {
+                maxX: px + t,
+                maxY: wallY + 1.4,
+                maxZ: pz + runLen / 2,
+                minX: px - t,
+                minZ: pz - runLen / 2,
+              },
+        );
+      }
 
-          if (onAsphalt(px, pz, 1)) {
-            continue;
-          }
+      for (const side of [-2.2, 2.2] as const) {
+        const px = along === "x" ? wx + side : wx + dx * edgeOff;
+        const pz = along === "x" ? wz + dz * edgeOff : wz + side;
 
-          const post = new THREE.Mesh(GATE_POST_BOX, SEAWALL_MAT);
-          post.scale.set(0.9, 2.4, 0.9);
-          post.position.set(px, surfaceAt(px, pz) + 1.2, pz);
-          post.updateMatrixWorld(true);
-          objects.push(post);
+        if (onAsphalt(px, pz, 1)) {
+          continue;
+        }
+
+        const post = new THREE.Mesh(GATE_POST_BOX, SEAWALL_MAT);
+        post.scale.set(0.9, 2.4, 0.9);
+        post.position.set(px, surfaceAt(px, pz) + 1.2, pz);
+        post.updateMatrixWorld(true);
+        objects.push(post);
+      }
+    }
+
+    {
+      const seatY = parkCellHeight(terrain, gx, gz);
+      const spread = seatY - 0.05 - parkCellFloor(terrain, gx, gz);
+      let lip = 0;
+
+      for (let a = 0; a < 8; a += 1) {
+        const th = (a / 8) * Math.PI * 2;
+
+        const drop =
+          seatY -
+          surfaceAt(wx + Math.cos(th) * ROAD_TILE * 0.62, wz + Math.sin(th) * ROAD_TILE * 0.62);
+
+        if (drop > lip) {
+          lip = drop;
         }
       }
 
-      {
-        const seatY = parkCellHeight(terrain, gx, gz);
-        const spread = seatY - 0.05 - parkCellFloor(terrain, gx, gz);
-        let lip = 0;
+      const roll = rng.range(0, 1);
 
-        for (let a = 0; a < 8; a += 1) {
-          const th = (a / 8) * Math.PI * 2;
+      if (spread <= 0.8 && lip <= PARK_SKIRT_DEPTH) {
+        const path = isPathCell(gx, gz) ? pathTileFor(pathMask(gx, gz)) : null;
+        let name = path?.name;
 
-          const drop =
-            seatY -
-            surfaceAt(wx + Math.cos(th) * ROAD_TILE * 0.62, wz + Math.sin(th) * ROAD_TILE * 0.62);
-
-          if (drop > lip) {
-            lip = drop;
+        if (name === undefined) {
+          if (spread < 0.3 && roll < 0.015) {
+            name = rng.pick(PARK_TILE_PLAZAS);
+          } else if (roll < 0.4) {
+            name = "park-base-decorated-trees";
+          } else if (roll < 0.6) {
+            name = "park-base-decorated-bushes";
+          } else {
+            name = "park-base";
           }
         }
 
-        const roll = rng.range(0, 1);
+        const url = modelUrl("parks", name);
+        const b = cache.bounds(url);
+        const sc = ROAD_TILE / Math.max(b.size.x, b.size.z, 0.001);
+        const yaw = HALF_PI * (path ? path.quarter : rng.int(4));
+        const planted = ctx.treeClear(url, { scaleX: sc, scaleZ: sc, x: wx, yaw, z: wz });
+        const node = cache.instance(planted ? url : modelUrl("parks", "park-base"));
+        node.scale.setScalar(sc);
+        node.rotation.y = yaw;
+        node.position.set(wx, seatY, wz);
+        node.updateMatrixWorld(true);
+        objects.push(node);
+        const skirt = new THREE.Mesh(PARK_SKIRT_BOX, SEAWALL_MAT);
+        skirt.scale.set(ROAD_TILE * 1.02, PARK_SKIRT_DEPTH, ROAD_TILE * 1.02);
+        skirt.position.set(wx, seatY - PARK_SKIRT_DEPTH / 2, wz);
+        skirt.updateMatrixWorld(true);
+        objects.push(skirt);
 
-        if (spread <= 0.8 && lip <= PARK_SKIRT_DEPTH) {
-          const path = isPathCell(gx, gz) ? pathTileFor(pathMask(gx, gz)) : null;
-          let name = path?.name;
-
-          if (name === undefined) {
-            if (spread < 0.3 && roll < 0.015) {
-              name = rng.pick(PARK_TILE_PLAZAS);
-            } else if (roll < 0.4) {
-              name = "park-base-decorated-trees";
-            } else if (roll < 0.6) {
-              name = "park-base-decorated-bushes";
-            } else {
-              name = "park-base";
-            }
+        if (planted && name === "park-base-decorated-trees") {
+          for (const trunk of getTreeTrunks(cache, url)) {
+            const x = wx + (trunk.rootX * Math.cos(yaw) + trunk.rootZ * Math.sin(yaw)) * sc;
+            const z = wz + (-trunk.rootX * Math.sin(yaw) + trunk.rootZ * Math.cos(yaw)) * sc;
+            solids.push({
+              maxX: x + 0.55,
+              maxZ: z + 0.55,
+              minX: x - 0.55,
+              minZ: z - 0.55,
+              noBody: true,
+            });
           }
+        }
+      } else {
+        const clusters = 1 + rng.int(2);
 
-          const url = modelUrl("parks", name);
-          const b = cache.bounds(url);
-          const sc = ROAD_TILE / Math.max(b.size.x, b.size.z, 0.001);
-          const yaw = HALF_PI * (path ? path.quarter : rng.int(4));
-          const planted = ctx.treeClear(url, { scaleX: sc, scaleZ: sc, x: wx, yaw, z: wz });
-          const node = cache.instance(planted ? url : modelUrl("parks", "park-base"));
-          node.scale.setScalar(sc);
-          node.rotation.y = yaw;
-          node.position.set(wx, seatY, wz);
-          node.updateMatrixWorld(true);
-          objects.push(node);
-          const skirt = new THREE.Mesh(PARK_SKIRT_BOX, SEAWALL_MAT);
-          skirt.scale.set(ROAD_TILE * 1.02, PARK_SKIRT_DEPTH, ROAD_TILE * 1.02);
-          skirt.position.set(wx, seatY - PARK_SKIRT_DEPTH / 2, wz);
-          skirt.updateMatrixWorld(true);
-          objects.push(skirt);
+        for (let c = 0; c < clusters; c += 1) {
+          const cx2 = wx + rng.range(-4, 4);
+          const cz2 = wz + rng.range(-4, 4);
+          const count = 2 + rng.int(4);
 
-          if (planted && name === "park-base-decorated-trees") {
-            for (const trunk of getTreeTrunks(cache, url)) {
-              const x = wx + (trunk.rootX * Math.cos(yaw) + trunk.rootZ * Math.sin(yaw)) * sc;
-              const z = wz + (-trunk.rootX * Math.sin(yaw) + trunk.rootZ * Math.cos(yaw)) * sc;
+          for (let i = 0; i < count; i += 1) {
+            const tUrl = modelUrl("props", rng.pick(PARK_TREES));
+            const ptx = cx2 + rng.range(-2.4, 2.4);
+            const ptz = cz2 + rng.range(-2.4, 2.4);
+
+            const planted = seat(
+              tUrl,
+              ptx,
+              ptz,
+              rng.range(0, Math.PI * 2),
+              scaleToHeight(tUrl, rng.range(3.6, 5.6)),
+            );
+
+            if (planted) {
               solids.push({
-                maxX: x + 0.55,
-                maxZ: z + 0.55,
-                minX: x - 0.55,
-                minZ: z - 0.55,
+                maxX: ptx + 0.55,
+                maxZ: ptz + 0.55,
+                minX: ptx - 0.55,
+                minZ: ptz - 0.55,
                 noBody: true,
               });
             }
           }
-        } else {
-          const clusters = 1 + rng.int(2);
+        }
 
-          for (let c = 0; c < clusters; c += 1) {
-            const cx2 = wx + rng.range(-4, 4);
-            const cz2 = wz + rng.range(-4, 4);
-            const count = 2 + rng.int(4);
-
-            for (let i = 0; i < count; i += 1) {
-              const tUrl = modelUrl("props", rng.pick(PARK_TREES));
-              const ptx = cx2 + rng.range(-2.4, 2.4);
-              const ptz = cz2 + rng.range(-2.4, 2.4);
-
-              const planted = seat(
-                tUrl,
-                ptx,
-                ptz,
-                rng.range(0, Math.PI * 2),
-                scaleToHeight(tUrl, rng.range(3.6, 5.6)),
-              );
-
-              if (planted) {
-                solids.push({
-                  maxX: ptx + 0.55,
-                  maxZ: ptz + 0.55,
-                  minX: ptx - 0.55,
-                  minZ: ptz - 0.55,
-                  noBody: true,
-                });
-              }
-            }
-          }
-
-          if (rng.chance(0.5)) {
-            const bUrl = modelUrl("props", rng.pick(BUSHES));
-            seat(
-              bUrl,
-              wx + rng.range(-4, 4),
-              wz + rng.range(-4, 4),
-              rng.range(0, Math.PI * 2),
-              scaleToHeight(bUrl, rng.range(0.9, 1.4)),
-            );
-          }
+        if (rng.chance(0.5)) {
+          const bUrl = modelUrl("props", rng.pick(BUSHES));
+          seat(
+            bUrl,
+            wx + rng.range(-4, 4),
+            wz + rng.range(-4, 4),
+            rng.range(0, Math.PI * 2),
+            scaleToHeight(bUrl, rng.range(0.9, 1.4)),
+          );
         }
       }
     }
@@ -1793,12 +1781,10 @@ export const buildFurniture: (ctx: FurnitureCtx) => Promise<FurnitureResult> = a
 
   const pierCandidates: PierColumn[] = [];
 
-  for (let gx = 0; gx < GRID_X; gx += 1) {
+  for await (const gx of inOrder(range(GRID_X))) {
     let landGz = -1;
 
-    for (let gz = 0; gz < GRID_Z; gz += 1) {
-      await breathe();
-
+    for await (const gz of paced(range(GRID_Z), breathe)) {
       if (cellAt(gx, gz) !== "water") {
         landGz = gz;
         break;
@@ -2242,8 +2228,7 @@ export const buildFurniture: (ctx: FurnitureCtx) => Promise<FurnitureResult> = a
     let stations = 0;
     let sinceTransformer = 0;
 
-    for (const edge of topCorridors("trolleybus", TROLLEY_CORRIDOR_COUNT)) {
-      await breathe();
+    for await (const edge of paced(topCorridors("trolleybus", TROLLEY_CORRIDOR_COUNT), breathe)) {
       const trimA = network.nodeTrim(edge.a) + 3;
       const trimB = network.nodeTrim(edge.b) + 3;
 
@@ -2308,12 +2293,11 @@ export const buildFurniture: (ctx: FurnitureCtx) => Promise<FurnitureResult> = a
 
     let poles = 0;
 
-    for (const edge of network.edges) {
+    for await (const edge of paced(network.edges, breathe)) {
       if (poles >= POWER_POLE_CAP) {
         break;
       }
 
-      await breathe();
       const mid = network.sample(edge, edge.len / 2);
 
       if (uOf(mid.x) > 0.6) {
@@ -2426,10 +2410,10 @@ export const buildFurniture: (ctx: FurnitureCtx) => Promise<FurnitureResult> = a
     const poleParts = stopPoleKit();
     const served = new Set<number>();
 
-    for (const mode of ["trolleybus", "tram", "cable", "light_rail"] as const) {
+    for await (const mode of inOrder(["trolleybus", "tram", "cable", "light_rail"] as const)) {
       const take = mode === "trolleybus" ? TROLLEY_CORRIDOR_COUNT : SF_TRANSIT[mode].length;
 
-      for (const edge of topCorridors(mode, take)) {
+      for await (const edge of paced(topCorridors(mode, take), breathe)) {
         if (stops >= STOP_CAP) {
           break;
         }
@@ -2439,7 +2423,6 @@ export const buildFurniture: (ctx: FurnitureCtx) => Promise<FurnitureResult> = a
         }
 
         served.add(edge.id);
-        await breathe();
         const street = edgeStreet.get(edge.id) ?? "";
         const route = ROUTE_FOR.get(street) ?? "MUNI";
         const routeGeo = labelGeo(route);
@@ -2678,12 +2661,11 @@ export const buildFurniture: (ctx: FurnitureCtx) => Promise<FurnitureResult> = a
     const palmParts = palmKit();
     let trees = 0;
 
-    for (const edge of network.edges) {
+    for await (const edge of paced(network.edges, breathe)) {
       if (trees >= TREE_CAP) {
         break;
       }
 
-      await breathe();
       const mid = network.sample(edge, edge.len / 2);
       const midDistrict = districtAt(toGx(mid.x), toGz(mid.z));
 
@@ -3066,12 +3048,11 @@ export const buildFurniture: (ctx: FurnitureCtx) => Promise<FurnitureResult> = a
       clutter += 1;
     };
 
-    for (const edge of network.edges) {
+    for await (const edge of paced(network.edges, breathe)) {
       if (clutter >= CLUTTER_CAP) {
         break;
       }
 
-      await breathe();
       const mid = network.sample(edge, edge.len / 2);
 
       if (inPark(mid.x, mid.z)) {
@@ -3236,12 +3217,11 @@ export const buildFurniture: (ctx: FurnitureCtx) => Promise<FurnitureResult> = a
       plates += 1;
     };
 
-    for (const edge of network.edges) {
+    for await (const edge of paced(network.edges, breathe)) {
       if (plates >= REGULATORY_CAP) {
         break;
       }
 
-      await breathe();
       const mid = network.sample(edge, edge.len / 2);
 
       if (inPark(mid.x, mid.z)) {
@@ -3295,8 +3275,7 @@ export const buildFurniture: (ctx: FurnitureCtx) => Promise<FurnitureResult> = a
       return facadeAt(p.x, p.z);
     };
 
-    for (const edge of network.edges) {
-      await breathe();
+    for await (const edge of paced(network.edges, breathe)) {
       const mid = network.sample(edge, edge.len / 2);
 
       if (inPark(mid.x, mid.z)) {

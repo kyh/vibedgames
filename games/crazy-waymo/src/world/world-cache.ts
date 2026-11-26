@@ -46,9 +46,9 @@ const settle = async <T>(req: IDBRequest<T>, failure: string) => {
 };
 
 const complete: (tx: IDBTransaction) => Promise<void> = async (tx) => {
-  const { promise, resolve, reject } = Promise.withResolvers<void>();
+  const { promise, resolve, reject } = Promise.withResolvers<null>();
   tx.addEventListener("complete", () => {
-    resolve();
+    resolve(null);
   });
   tx.addEventListener("error", () => {
     reject(tx.error ?? new Error("idb write failed"));
@@ -68,12 +68,13 @@ const openDb: () => Promise<IDBDatabase> = async () => {
   return await settle(req, "idb open failed");
 };
 
-interface CacheRecord {
-  payload: unknown;
-  version: string;
+interface CacheEntries {
+  payload: CityGenPayload;
+  rest: CityRestPayload;
+  parcels: ParcelWorkerResponse;
 }
 
-const readRecord = async (key: string, version: string) => {
+const readRecord = async <K extends keyof CacheEntries>(key: K, version: string) => {
   const db = await openDb();
   const tx = db.transaction(STORE, "readonly");
   const value: unknown = await settle(tx.objectStore(STORE).get(key), "idb read failed");
@@ -85,18 +86,23 @@ const readRecord = async (key: string, version: string) => {
     "payload" in value &&
     value.version === version
   ) {
-    return { payload: value.payload, version };
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion, anti-slop/require-safety-comment-for-type-assertion -- IndexedDB returns an untyped structured clone; only writeRecord fills this store, with CacheEntries[K] under key K, and the version check above ties it to this build
+    return value.payload as CacheEntries[K];
   }
 
   return null;
 };
 
-const writeRecord = async (key: string, record: CacheRecord) => {
+const writeRecord = async <K extends keyof CacheEntries>(
+  key: K,
+  payload: CacheEntries[K],
+  version: string,
+) => {
   const db = await openDb();
 
   try {
     const tx = db.transaction(STORE, "readwrite");
-    tx.objectStore(STORE).put(record, key);
+    tx.objectStore(STORE).put({ payload, version }, key);
     await complete(tx);
   } finally {
     db.close();
@@ -109,15 +115,13 @@ export const readWorldCache = async () => {
   }
 
   try {
-    const record = await readRecord(KEY, buildId());
+    const payload = await readRecord(KEY, buildId());
 
-    if (record) {
+    if (payload !== null) {
       console.log("[world-cache] hit");
-
-      return record.payload as CityGenPayload;
     }
 
-    return null;
+    return payload;
   } catch {
     return null;
   }
@@ -129,23 +133,26 @@ export const readRestCache = async () => {
   }
 
   try {
-    const record = await readRecord("rest", buildId());
+    const payload = await readRecord("rest", buildId());
 
-    if (record) {
+    if (payload !== null) {
       console.log("[world-cache] rest hit");
-
-      return record.payload as CityRestPayload;
     }
 
-    return null;
+    return payload;
   } catch {
     return null;
   }
 };
 
-const storeQuietly = async (key: string, record: CacheRecord, label: string) => {
+const storeQuietly = async <K extends keyof CacheEntries>(
+  key: K,
+  payload: CacheEntries[K],
+  version: string,
+  label: string,
+) => {
   try {
-    await writeRecord(key, record);
+    await writeRecord(key, payload, version);
     console.log(`[world-cache] ${label}`);
 
     return true;
@@ -159,7 +166,7 @@ export const writeRestCache = (payload: CityRestPayload) => {
     return;
   }
 
-  void storeQuietly("rest", { payload, version: buildId() }, "rest stored");
+  void storeQuietly("rest", payload, buildId(), "rest stored");
 };
 
 export const writeWorldCache = (payload: CityGenPayload) => {
@@ -167,7 +174,7 @@ export const writeWorldCache = (payload: CityGenPayload) => {
     return;
   }
 
-  void storeQuietly(KEY, { payload, version: buildId() }, "stored");
+  void storeQuietly(KEY, payload, buildId(), "stored");
 };
 
 const PARCEL_KEY = "parcels";
@@ -180,13 +187,7 @@ export const readParcelPlanCache = async (sourceBytes: number) => {
   }
 
   try {
-    const record = await readRecord(PARCEL_KEY, parcelVersion(sourceBytes));
-
-    if (record) {
-      return record.payload as ParcelWorkerResponse;
-    }
-
-    return null;
+    return await readRecord(PARCEL_KEY, parcelVersion(sourceBytes));
   } catch {
     return null;
   }
@@ -197,9 +198,5 @@ export const writeParcelPlanCache = (sourceBytes: number, payload: ParcelWorkerR
     return;
   }
 
-  void storeQuietly(
-    PARCEL_KEY,
-    { payload, version: parcelVersion(sourceBytes) },
-    "parcel plan stored",
-  );
+  void storeQuietly(PARCEL_KEY, payload, parcelVersion(sourceBytes), "parcel plan stored");
 };

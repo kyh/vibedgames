@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
+import { isMesh } from "../shared/three-guards";
 import { createSfTreeModel } from "./sf-trees";
 
 export interface Bounds {
@@ -14,7 +15,7 @@ export const geoLayoutKey = (geo: THREE.BufferGeometry) => {
   const parts: string[] = [];
 
   for (const [name, attr] of Object.entries(geo.attributes)) {
-    const arrType = "array" in attr && attr.array ? attr.array.constructor.name : "gl";
+    const arrType = "array" in attr ? attr.array.constructor.name : "gl";
     parts.push(`${name}:${attr.itemSize}:${attr.normalized ? 1 : 0}:${arrType}`);
   }
 
@@ -23,12 +24,23 @@ export const geoLayoutKey = (geo: THREE.BufferGeometry) => {
   return `${parts.join(",")}|${geo.index ? "i" : "n"}`;
 };
 
+/** Where a cache instance's mesh came from: its template's url and its mesh index there. */
+export interface MeshSource {
+  readonly url: string;
+  readonly idx: number;
+}
+
+const meshSources = new WeakMap<THREE.Object3D, MeshSource>();
+
+/** The template mesh a cache instance's mesh was cloned from, or null for any other object. */
+export const meshSourceOf = (object: THREE.Object3D) => meshSources.get(object) ?? null;
+
 const computeMeshBounds = (obj: THREE.Object3D) => {
   const box = new THREE.Box3();
   let found = false;
   obj.updateWorldMatrix(true, true);
   obj.traverse((child) => {
-    if (child instanceof THREE.Mesh && child.geometry instanceof THREE.BufferGeometry) {
+    if (isMesh(child) && child.geometry instanceof THREE.BufferGeometry) {
       child.geometry.computeBoundingBox();
       const bb = child.geometry.boundingBox;
 
@@ -185,7 +197,7 @@ export class ModelCache {
 
   private storeTemplate(url: string, scene: THREE.Object3D) {
     scene.traverse((child) => {
-      if (child instanceof THREE.Mesh) {
+      if (isMesh(child)) {
         child.castShadow = true;
         child.receiveShadow = true;
 
@@ -210,21 +222,12 @@ export class ModelCache {
       return;
     }
 
-    /* oxlint-disable-next-line promise/avoid-new -- GLTFLoader only reports through success/error callbacks */
-    await (new Promise((resolve, reject) => {
-      this.loader.load(
-        url,
-        (gltf) => {
-          this.storeTemplate(url, gltf.scene);
-          resolve();
-        },
-        undefined,
-        // oxlint-disable-next-line promise/prefer-await-to-callbacks -- GLTFLoader reports failure only through this callback
-        (err) => {
-          reject(err instanceof Error ? err : new Error(String(err)));
-        },
-      );
-    }) satisfies Promise<void>);
+    try {
+      const gltf = await this.loader.loadAsync(url);
+      this.storeTemplate(url, gltf.scene);
+    } catch (error) {
+      throw error instanceof Error ? error : new Error(String(error));
+    }
   }
 
   /** Loaded and instanceable right now (no fallback box). */
@@ -262,14 +265,14 @@ export class ModelCache {
     }
   }
 
-  async preload(urls: readonly string[], onProgress: (frac: number) => void) {
+  async preload(urls: readonly string[], onProgress?: (frac: number) => void) {
     let done = 0;
     const total = urls.length;
     await Promise.all(
       urls.map(async (url) => {
         await this.ensure(url);
         done += 1;
-        onProgress(done / total);
+        onProgress?.(done / total);
       }),
     );
   }
@@ -309,8 +312,8 @@ export class ModelCache {
     const clone = tpl.clone(true);
     let idx = 0;
     clone.traverse((c) => {
-      if (c instanceof THREE.Mesh) {
-        c.userData.src = { idx, url };
+      if (isMesh(c)) {
+        meshSources.set(c, { idx, url });
         idx += 1;
       }
     });
@@ -326,7 +329,7 @@ export class ModelCache {
       for (const [url, tpl] of this.templates) {
         let i = 0;
         tpl.traverse((c) => {
-          if (c instanceof THREE.Mesh) {
+          if (isMesh(c)) {
             if (!Array.isArray(c.material) && this.matSrc?.has(c.material) !== true) {
               this.matSrc?.set(c.material, { idx: i, url });
             }
@@ -362,7 +365,7 @@ export class ModelCache {
 
     const meshes: THREE.Mesh[] = [];
     tpl.traverse((c) => {
-      if (c instanceof THREE.Mesh) {
+      if (isMesh(c)) {
         meshes.push(c);
       }
     });

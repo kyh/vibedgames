@@ -7,6 +7,7 @@ import type { ModelCache } from "../assets/loader";
 import { modelUrl } from "../assets/manifest";
 import type { PhysicsWorld } from "../physics/physics-world";
 import type { ParkedSpec } from "../world/furniture";
+import { isMesh } from "../shared/three-guards";
 
 const BODY_LIFT = 0.8;
 const HIT_RADIUS = 2.6;
@@ -76,11 +77,7 @@ export class ParkedCars {
       const node = cache.instance(modelUrl("cars", model));
       node.updateMatrixWorld(true);
       node.traverse((c) => {
-        if (
-          c instanceof THREE.Mesh &&
-          c.geometry instanceof THREE.BufferGeometry &&
-          !Array.isArray(c.material)
-        ) {
+        if (isMesh(c) && c.geometry instanceof THREE.BufferGeometry && !Array.isArray(c.material)) {
           parts?.push({ geo: c.geometry, local: c.matrixWorld.clone(), mat: c.material });
         }
       });

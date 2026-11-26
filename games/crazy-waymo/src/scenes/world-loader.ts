@@ -43,6 +43,8 @@ import { fetchBakedWorld, fetchParcelSource, fetchWorldMeta } from "../world/wor
 import type { CityRestMeta } from "../world/world-bin";
 import { PHONE_REACH, SAFE_REACH, isCoarsePointer } from "../render/quality";
 import { Minimap } from "../ui/minimap";
+import { parseJsonText } from "../shared/json";
+import { delay, nextFrame } from "../shared/wait";
 
 export type WorldSpawn = PlayerSpawn;
 
@@ -159,6 +161,7 @@ interface ParcelResolved {
 
 const runGenWorker: () => Promise<CityGenPayload | null> = async () => {
   const { promise, resolve } = Promise.withResolvers<CityGenPayload | null>();
+
   try {
     const worker = new Worker(new URL("../world/gen-worker.ts", import.meta.url), {
       type: "module",
@@ -203,6 +206,7 @@ const runParcelWorker: (source: ArrayBuffer) => Promise<ParcelPlanResult | null>
   const bytes = source.byteLength;
 
   const { promise, resolve } = Promise.withResolvers<ParcelPlanResult | null>();
+
   try {
     const worker = new Worker(new URL("../world/parcel-worker.ts", import.meta.url), {
       type: "module",
@@ -225,7 +229,9 @@ const runParcelWorker: (source: ArrayBuffer) => Promise<ParcelPlanResult | null>
     const req: ParcelWorkerRequest = { source };
     worker.postMessage(req, [source]);
   } catch (error) {
-    console.log(`[parcel-worker] unavailable: ${error instanceof Error ? error.message : error}`);
+    console.log(
+      `[parcel-worker] unavailable: ${error instanceof Error ? error.message : String(error)}`,
+    );
     resolve(null);
   }
 
@@ -286,10 +292,8 @@ const resolveRest: (
 };
 
 const paint: () => Promise<void> = async () => {
-  const { promise, resolve } = Promise.withResolvers<void>();
-  requestAnimationFrame(() => setTimeout(resolve, 0));
-
-  await promise;
+  await nextFrame();
+  await delay(0);
 };
 
 const warmupShaders = async (deps: WorldLoaderDeps) => {
@@ -531,7 +535,7 @@ export const loadWorld = async (deps: WorldLoaderDeps) => {
   if (mapUrl !== null && mapUrl !== "") {
     try {
       const res = await fetch(mapUrl);
-      const parsed = parseMapFile(await res.json());
+      const parsed = parseMapFile(parseJsonText(await res.text()));
 
       if (parsed) {
         setRuntimeMap(parsed);
@@ -540,7 +544,9 @@ export const loadWorld = async (deps: WorldLoaderDeps) => {
         console.log(`[map] ${mapUrl} rejected (bad format/version)`);
       }
     } catch (error) {
-      console.log(`[map] ${mapUrl} failed: ${error instanceof Error ? error.message : error}`);
+      console.log(
+        `[map] ${mapUrl} failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   }
 
@@ -562,7 +568,7 @@ export const loadWorld = async (deps: WorldLoaderDeps) => {
     deps.setLoading(0.14 + frac * (MODELS_TO - 0.14), "Loading models…");
   });
 
-  const latePreload = deps.cache.preload(lateModelUrls(), () => null);
+  const latePreload = deps.cache.preload(lateModelUrls());
 
   deps.glideLoading(
     WORLD_TO,

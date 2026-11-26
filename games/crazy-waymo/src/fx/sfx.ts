@@ -155,7 +155,7 @@ export class Sfx {
       return;
     }
 
-    if (!window.AudioContext) {
+    if (!("AudioContext" in window)) {
       return;
     }
 

@@ -122,7 +122,7 @@ export class WorldTileStreamer {
     this.holdRadius = Math.max(this.holdRadius, radius);
     let attempts = 0;
 
-    for (;;) {
+    const poll: () => Promise<void> = async () => {
       this.scan(x, z, Math.max(this.holdRadius, radius), Infinity, performance.now());
       const done = wanted.reduce((a, s) => a + (s.state === "resident" ? s.ref.bytes : 0), 0);
       onProgress?.(done, total);
@@ -139,15 +139,23 @@ export class WorldTileStreamer {
         }
       }
 
-      const { promise, resolve } = Promise.withResolvers<void>();
-      this.waiters.add(resolve);
+      const { promise, resolve } = Promise.withResolvers<null>();
+
+      const release = () => {
+        resolve(null);
+      };
+
+      this.waiters.add(release);
       setTimeout(() => {
-        this.waiters.delete(resolve);
-        resolve();
+        this.waiters.delete(release);
+        release();
       }, RETRY_MS);
 
       await promise;
-    }
+      await poll();
+    };
+
+    await poll();
   }
 
   private wake() {
