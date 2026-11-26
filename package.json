@@ -12,6 +12,7 @@
     "db:seed-local": "pnpm -F db exec tsx d1-execute.ts --file seed.sql",
     "db:local": "pnpm db:push && pnpm db:seed-local",
     "admin:create": "tsx scripts/create-admin.ts",
+    "bootstrap": "tsx scripts/bootstrap.ts",
     "dogfood": "tsx scripts/dogfood.ts",
     "dogfood:reset": "tsx scripts/dogfood-reset.ts",
     "dev": "turbo watch db studio dev --continue --filter=!./games/*",

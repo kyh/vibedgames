@@ -68,15 +68,13 @@ example games, [`plugins/`](./plugins) for the skills, and
 ## Local development
 
 ```sh
-pnpm install
-cp .env.example .env  # every credential, CLI and Worker alike
-pnpm dev:web          # run once, then stop — creates the local D1
-pnpm db:local         # db:push + db:seed-local
-pnpm dev              # http://localhost:5173
+pnpm install && pnpm bootstrap --yes  # .env, local D1 schema, seeded logins
+pnpm dev                               # http://localhost:5173
 ```
 
-The first `dev:web` is not a typo — the Miniflare D1 file has to exist before
-`db:local` can push to it. Seeded login: `user@vibedgames.com` / `password123`.
+`pnpm bootstrap` copies `.env.example` to `.env` if missing, boots the dev Worker
+once to create the local Miniflare D1 if it doesn't exist, then runs `db:push` and
+`db:seed-local`. It is local-only and idempotent. Seeded login: `user@vibedgames.com` / `password123`.
 Full agent-oriented guide, including headless auth: [AGENTS.md](./AGENTS.md).
 
 ## Common commands
@@ -89,6 +87,7 @@ pnpm dev:<game>       # one example game (see games/README.md)
 pnpm build            # build everything
 pnpm typecheck        # type check all packages
 pnpm verify           # typecheck + lint + format + test (run before every commit)
+pnpm bootstrap        # .env + local D1 schema + seed (idempotent)
 pnpm db:push          # push schema to local D1
 pnpm db:local         # db:push + seed dev identity
 pnpm db:push-remote   # push schema to production

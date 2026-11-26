@@ -109,6 +109,7 @@ pnpm db:push          # Push schema to local D1 (Miniflare file)
 pnpm db:push-remote   # Print the plan, then push schema to prod on confirm (.env.production.local)
 pnpm db:seed-local    # Seed local dev identity (packages/db/d1-execute.ts seed.sql)
 pnpm db:local         # push-local + seed-local (one-shot local DB setup)
+pnpm bootstrap        # .env from .env.example, init local D1 once, db:push + db:seed-local (--yes: no prompt)
 pnpm dogfood          # Link local vg CLI + sync plugin skills into .claude/skills/
 pnpm dogfood:reset    # Unlink local vg CLI
 pnpm verify           # typecheck + lint + format + test (run before every commit)

@@ -7,18 +7,13 @@ This is the tool-agnostic guide for coding agents, and it is meant to be **run**
 ## Quickstart (headless)
 
 ```sh
-pnpm install
-cp .env.example .env  # every credential, CLI and Worker alike (see Environment)
-pnpm dev:web          # ← run once, then stop it
-pnpm db:local         # db:push + seed dev identities
-pnpm dev:web          # http://localhost:5173
+pnpm install && pnpm bootstrap --yes   # .env, local D1 schema, seeded logins
+pnpm dev:web                           # http://localhost:5173
 ```
 
-**The double `dev:web` is not a typo.** `packages/db/drizzle.config.local.ts` resolves the Miniflare SQLite file out of `apps/web/.wrangler/state/v3/d1/miniflare-D1DatabaseObject/`, and that directory only exists after the dev Worker has booted once. Skip the first run and `pnpm db:local` dies with `Local D1 not found. Run 'pnpm dev:web' once to initialize it.`
+`pnpm bootstrap` (`scripts/bootstrap.ts`) copies `.env.example` to `.env` if there is none, boots the dev Worker once if the local Miniflare D1 does not exist yet (`packages/db/drizzle.config.local.ts` resolves the SQLite file out of `apps/web/.wrangler/state/v3/d1/miniflare-D1DatabaseObject/`, which only the dev Worker creates) and stops it again, then runs `pnpm db:push` and `pnpm db:seed-local`. Everything it touches is local: it never reads `.env.production*` and never reaches the remote D1. It is idempotent — re-run it any time, and after every schema change. Without `--yes` it asks once before starting, unless stdin or stdout is not a TTY.
 
 Liveness: `curl -s -o /dev/null -w '%{http_code}' localhost:5173/auth/login` → `200`. (`/` answers `307` — it redirects to a featured game — so don't use it as a health check.)
-
-There is no bootstrap script; the five commands above _are_ the provisioning steps. `pnpm db:local` is idempotent — re-run it any time, and after every schema change.
 
 ## Environment
 
@@ -31,7 +26,7 @@ One file, two consumers. Everything lives in the repo-root `.env`; template is `
 
 **The declared secrets are the whole mechanism.** Declaring a name with `bindings.secret()` makes the dev server fold `process.env` into the Worker binding and filter it down to exactly the declared names — so a secret that is in `.env` but not declared silently never reaches the Worker. Adding one means editing two places: `.env.example` and `cloudflare.config.ts` (the `Env` type is generated from it).
 
-Leave `RESEND_API_KEY` out of `.env`: without it the dev server writes each email, password-reset link included, to its own log instead of sending it, so a reset can be followed headlessly and seeded addresses never receive mail.
+Keep `RESEND_API_KEY` empty in `.env`, as `.env.example` ships it (an empty value counts as unset, and every other optional key is read the same way): without it the dev server writes each email, password-reset link included, to its own log instead of sending it, so a reset can be followed headlessly and seeded addresses never receive mail.
 
 Do not reintroduce `apps/web/.dev.vars`. The dev server prefers it and stops reading `.env`/`process.env` the moment it exists, so the root file goes quietly dead. In production the same names are set with `cf workers secrets update`.
 
