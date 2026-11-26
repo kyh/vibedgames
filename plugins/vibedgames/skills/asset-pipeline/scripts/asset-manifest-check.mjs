@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @ts-check
 import { existsSync } from "node:fs";
 
 import {
@@ -26,9 +27,9 @@ main(() => {
     fail(`Root not found: ${root}`);
   }
 
-  const manifest = getString(args, "manifest") ?? autoDetectManifest();
+  const manifest = getString(args, "manifest") ?? autoDetectManifest() ?? "";
 
-  if (!manifest || !existsSync(manifest)) {
+  if (manifest === "" || !existsSync(manifest)) {
     fail(`Manifest not found. Pass --manifest or create one of: ${MANIFEST_CANDIDATES.join(", ")}`);
   }
 
@@ -47,9 +48,9 @@ main(() => {
     console.log(`  EXTRA ${path}`);
   }
 
-  const json = getString(args, "json");
+  const json = getString(args, "json") ?? "";
 
-  if (json) {
+  if (json !== "") {
     writeJsonFile(json, report);
   }
 

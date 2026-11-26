@@ -36,7 +36,7 @@
     "dev:cli": "turbo watch dev -F vibedgames...",
     "lint": "oxlint --report-unused-disable-directives",
     "r2:lifecycle": "pnpm -C apps/web exec wrangler r2 bucket lifecycle set vibedgames-games --file ./infra/r2/vibedgames-games.lifecycle.json --force",
-    "typecheck": "tsc --noEmit && turbo run typecheck",
+    "typecheck": "tsc --noEmit && tsc -p plugins/vibedgames && turbo run typecheck",
     "test": "turbo run test",
     "format": "oxfmt --check",
     "lint:fix": "oxlint --fix",
@@ -44,10 +44,12 @@
     "verify": "pnpm typecheck && pnpm lint && pnpm format && pnpm test"
   },
   "devDependencies": {
+    "@dimforge/rapier3d-compat": "^0.21.0",
     "@interfere/landmines": "^0.1.1",
     "@libsql/client": "^0.18.0",
     "@repo/contract": "workspace:*",
     "@types/node": "catalog:",
+    "@types/three": "^0.186.0",
     "better-auth": "1.7.2",
     "dotenv-cli": "^11.1.0",
     "oxfmt": "^0.73.0",

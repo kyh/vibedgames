@@ -126,6 +126,82 @@ var main = (run) => {
   }
 };
 
+// src/image/color.ts
+var NAMED = {
+  aqua: [0, 255, 255],
+  black: [0, 0, 0],
+  blue: [0, 0, 255],
+  brown: [165, 42, 42],
+  cyan: [0, 255, 255],
+  fuchsia: [255, 0, 255],
+  gray: [128, 128, 128],
+  green: [0, 128, 0],
+  grey: [128, 128, 128],
+  lime: [0, 255, 0],
+  magenta: [255, 0, 255],
+  maroon: [128, 0, 0],
+  navy: [0, 0, 128],
+  olive: [128, 128, 0],
+  orange: [255, 165, 0],
+  pink: [255, 192, 203],
+  purple: [128, 0, 128],
+  red: [255, 0, 0],
+  silver: [192, 192, 192],
+  teal: [0, 128, 128],
+  transparent: [0, 0, 0],
+  white: [255, 255, 255],
+  yellow: [255, 255, 0]
+};
+var isNamedColor = (value) => Object.hasOwn(NAMED, value);
+var expandHexDigit = (c) => Number.parseInt(c + c, 16);
+var parseColor = (input) => {
+  const value = input.trim().toLowerCase();
+  if (value === "transparent") {
+    return [0, 0, 0, 0];
+  }
+  if (isNamedColor(value)) {
+    const named = NAMED[value];
+    return [named[0], named[1], named[2], 255];
+  }
+  if (value.startsWith("#")) {
+    const hex = value.slice(1);
+    if (!/^(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/u.test(hex)) {
+      throw new Error(`Unrecognised colour: ${input}`);
+    }
+    if (hex.length === 3 || hex.length === 4) {
+      const a = hex.length === 4 ? expandHexDigit(hex.charAt(3)) : 255;
+      return [
+        expandHexDigit(hex.charAt(0)),
+        expandHexDigit(hex.charAt(1)),
+        expandHexDigit(hex.charAt(2)),
+        a
+      ];
+    }
+    const byte = (i) => Number.parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+    return [byte(0), byte(1), byte(2), hex.length === 8 ? byte(3) : 255];
+  }
+  const body = /^rgba?\((?<body>[^)]+)\)$/u.exec(value)?.groups?.body;
+  if (body !== void 0) {
+    const [r, g, b, rawAlpha] = body.split(/[,/\s]+/u).filter(Boolean);
+    if (r === void 0 || g === void 0 || b === void 0) {
+      throw new Error(`Unrecognised colour: ${input}`);
+    }
+    const channel = (raw) => {
+      const n = raw.endsWith("%") ? Number.parseFloat(raw) * 255 / 100 : Number.parseFloat(raw);
+      if (Number.isNaN(n)) {
+        throw new TypeError(`Unrecognised colour: ${input}`);
+      }
+      return Math.max(0, Math.min(255, Math.round(n)));
+    };
+    const alpha = rawAlpha === void 0 ? 255 : (
+      // oxlint-disable-next-line unicorn/prefer-number-coercion -- CSS alpha may carry a `%` suffix, which Number() rejects
+      Math.max(0, Math.min(255, Math.round(Number.parseFloat(rawAlpha) * 255)))
+    );
+    return [channel(r), channel(g), channel(b), alpha];
+  }
+  throw new Error(`Unrecognised colour: ${input}`);
+};
+
 // src/image/raster.ts
 import { mkdirSync, readFileSync as readFileSync2, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -1067,5 +1143,6 @@ export {
   getInt,
   getString,
   main,
-  parseArgs
+  parseArgs,
+  parseColor
 };

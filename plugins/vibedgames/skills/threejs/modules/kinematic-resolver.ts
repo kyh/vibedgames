@@ -213,7 +213,7 @@ export class KinematicResolver {
     };
 
     this.actorColliderHandles.add(collider.handle);
-    this.world.updateSceneQueries();
+    this.world.propagateModifiedBodyPositionsToColliders();
 
     return actor;
   }
@@ -228,7 +228,7 @@ export class KinematicResolver {
     this.results.delete(actor);
 
     for (let i = this.queuedMoves.length - 1; i >= 0; i -= 1) {
-      if (this.queuedMoves[i].actor === actor) {
+      if (this.queuedMoves[i]?.actor === actor) {
         this.queuedMoves.splice(i, 1);
       }
     }
@@ -265,7 +265,7 @@ export class KinematicResolver {
     if (mode === "sequential") {
       for (const move of this.queuedMoves) {
         KinematicResolver.syncActor(move.actor, move.startPosition);
-        this.world.updateSceneQueries();
+        this.world.propagateModifiedBodyPositionsToColliders();
         this.results.set(
           move.actor,
           this.resolveMove(move, this.actorFilter(move.actor, mode), true, deltaSeconds),
@@ -276,7 +276,7 @@ export class KinematicResolver {
         KinematicResolver.syncActor(move.actor, move.startPosition);
       }
 
-      this.world.updateSceneQueries();
+      this.world.propagateModifiedBodyPositionsToColliders();
 
       for (const move of this.queuedMoves) {
         this.results.set(
@@ -299,7 +299,9 @@ export class KinematicResolver {
   private actorFilter(actor: Actor, mode: ActorCollisionMode) {
     const ignore = actor.ignoreActors ?? mode === "ignore-actors";
 
-    return ignore ? (collider) => !this.actorColliderHandles.has(collider.handle) : undefined;
+    return ignore
+      ? (collider: RAPIER.Collider) => !this.actorColliderHandles.has(collider.handle)
+      : undefined;
   }
 
   private resolveMove(
@@ -390,6 +392,6 @@ export class KinematicResolver {
 
     this.world.timestep = Math.max(this.minStepSeconds, deltaSeconds);
     this.world.step();
-    this.world.updateSceneQueries();
+    this.world.propagateModifiedBodyPositionsToColliders();
   }
 }

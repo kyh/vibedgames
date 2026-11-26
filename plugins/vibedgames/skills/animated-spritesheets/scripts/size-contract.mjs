@@ -18,17 +18,17 @@ import {
   writeJsonFile,
 } from "./_lib/asset-tools.mjs";
 
-const parseCell = (value) => {
+const leadingInteger = (text = "") => Number(/^\s*[+-]?\d+/u.exec(text)?.[0] ?? Number.NaN);
+
+const parseCell = (value = "") => {
   const parts = value.toLowerCase().split("x");
 
   if (parts.length !== 2) {
     fail(`cell must be WxH, got: '${value}'`);
   }
 
-  // oxlint-disable-next-line unicorn/prefer-number-coercion -- CLI input like "32px" must read as 32, not NaN
-  const width = Number.parseInt(parts[0], 10);
-  // oxlint-disable-next-line unicorn/prefer-number-coercion -- same as above
-  const height = Number.parseInt(parts[1], 10);
+  const width = leadingInteger(parts[0]);
+  const height = leadingInteger(parts[1]);
 
   if (!Number.isFinite(width) || !Number.isFinite(height)) {
     fail(`cell must be WxH integers, got: '${value}'`);
@@ -37,75 +37,12 @@ const parseCell = (value) => {
   return [width, height];
 };
 
-const readContract = (path) => {
-  if (!path) {
+const readContract = (path = "") => {
+  if (path === "") {
     failUsage("--contract is required");
   }
 
   return loadSizeContract(JSON.parse(readFileSync(path, "utf-8")), path);
-};
-
-const COMMANDS = {
-  audit(args) {
-    const source = getString(args, "source");
-
-    if (!source) {
-      failUsage("--source is required");
-    }
-
-    const contract = readContract(getString(args, "contract"));
-
-    const report = auditSizeContract(source, contract, {
-      frameGlob: getString(args, "frame-glob") ?? "frame-*.png",
-      stage: getString(args, "stage") ?? "runtime",
-    });
-
-    const out = getString(args, "out");
-
-    if (out) {
-      writeJsonFile(out, report);
-    }
-
-    console.log(toPythonJson(report));
-
-    if (getFlag(args, "strict") && report.status !== "pass") {
-      process.exit(1);
-    }
-  },
-
-  derive(args) {
-    const source = getString(args, "source");
-    const out = getString(args, "out");
-
-    if (!source) {
-      failUsage("--source is required");
-    }
-
-    if (!out) {
-      failUsage("--out is required");
-    }
-
-    const contract = deriveSizeContract(source, {
-      action: getString(args, "action") ?? null,
-      anchorPolicy: getString(args, "anchor-policy") ?? "grounded",
-      cellSize: parseCell(getString(args, "cell") ?? `${FRAME_WIDTH}x${FRAME_HEIGHT}`),
-      direction: getString(args, "direction") ?? null,
-      frameGlob: getString(args, "frame-glob") ?? "frame-*.png",
-      name: getString(args, "name") ?? null,
-      pivot: getString(args, "pivot") ?? "base-center",
-    });
-
-    writeJsonFile(out, contract);
-    console.log(out);
-  },
-
-  prompt(args) {
-    const contract = readContract(getString(args, "contract"));
-
-    for (const line of promptGuidanceForContract(contract)) {
-      console.log(`- ${line}`);
-    }
-  },
 };
 
 main(() => {
@@ -126,11 +63,76 @@ main(() => {
     ],
   });
 
-  const run = COMMANDS[args.positionals[0]];
+  const audit = () => {
+    const source = getString(args, "source") ?? "";
 
-  if (!run) {
+    if (source === "") {
+      failUsage("--source is required");
+    }
+
+    const contract = readContract(getString(args, "contract"));
+
+    const report = auditSizeContract(source, contract, {
+      frameGlob: getString(args, "frame-glob") ?? "frame-*.png",
+      stage: getString(args, "stage") ?? "runtime",
+    });
+
+    const out = getString(args, "out") ?? "";
+
+    if (out !== "") {
+      writeJsonFile(out, report);
+    }
+
+    console.log(toPythonJson(report));
+
+    if (getFlag(args, "strict") && report.status !== "pass") {
+      process.exit(1);
+    }
+  };
+
+  const derive = () => {
+    const source = getString(args, "source") ?? "";
+    const out = getString(args, "out") ?? "";
+
+    if (source === "") {
+      failUsage("--source is required");
+    }
+
+    if (out === "") {
+      failUsage("--out is required");
+    }
+
+    const contract = deriveSizeContract(source, {
+      action: getString(args, "action") ?? null,
+      anchorPolicy: getString(args, "anchor-policy") ?? "grounded",
+      cellSize: parseCell(getString(args, "cell") ?? `${FRAME_WIDTH}x${FRAME_HEIGHT}`),
+      direction: getString(args, "direction") ?? null,
+      frameGlob: getString(args, "frame-glob") ?? "frame-*.png",
+      name: getString(args, "name") ?? null,
+      pivot: getString(args, "pivot") ?? "base-center",
+    });
+
+    writeJsonFile(out, contract);
+    console.log(out);
+  };
+
+  const prompt = () => {
+    const contract = readContract(getString(args, "contract"));
+
+    for (const line of promptGuidanceForContract(contract)) {
+      console.log(`- ${line}`);
+    }
+  };
+
+  const run = new Map([
+    ["audit", audit],
+    ["derive", derive],
+    ["prompt", prompt],
+  ]).get(args.positionals[0] ?? "");
+
+  if (run === undefined) {
     failUsage("Usage: node size-contract.mjs <derive|audit|prompt> ...");
   }
 
-  run(args);
+  run?.();
 });

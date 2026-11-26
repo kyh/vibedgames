@@ -16,9 +16,9 @@ main(() => {
     values: ["frame-height", "frame-width"],
   });
 
-  const [sheet] = args.positionals;
+  const [sheet = ""] = args.positionals;
 
-  if (!sheet) {
+  if (sheet === "") {
     failUsage("a spritesheet path is required");
   }
 

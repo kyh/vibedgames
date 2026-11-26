@@ -16,15 +16,15 @@ main(() => {
     values: ["cols", "frames", "out-dir", "prefix", "rows", "threshold"],
   });
 
-  const [sheet] = args.positionals;
+  const [sheet = ""] = args.positionals;
 
-  if (!sheet) {
+  if (sheet === "") {
     failUsage("A pose-board PNG path is required.");
   }
 
-  const outDir = getString(args, "out-dir");
+  const outDir = getString(args, "out-dir") ?? "";
 
-  if (!outDir) {
+  if (outDir === "") {
     failUsage("--out-dir is required");
   }
 

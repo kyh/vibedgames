@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @ts-check
 import {
   fail,
   failUsage,
@@ -17,23 +18,39 @@ import {
 
 const STYLE_CHOICES = ["lobit-v1", "high-fidelity-v1", "preserve-reference-v1"];
 
-const styleOf = (args) => {
-  const style = getString(args, "style");
+main(() => {
+  const args = parseArgs(process.argv.slice(2), {
+    booleans: ["guide-image"],
+    values: [
+      "action",
+      "anchor-context",
+      "chroma",
+      "direction",
+      "frame-prompt-style",
+      "frames",
+      "game-view",
+      "pose-board",
+      "role",
+      "style",
+    ],
+  });
 
-  if (style !== undefined && !STYLE_CHOICES.includes(style)) {
-    failUsage(
-      `argument --style: invalid choice: '${style}' (choose from ${STYLE_CHOICES.map((c) => `'${c}'`).join(", ")})`,
-    );
-  }
+  const styleOf = () => {
+    const style = getString(args, "style");
 
-  return style ?? null;
-};
+    if (style !== undefined && !STYLE_CHOICES.includes(style)) {
+      failUsage(
+        `argument --style: invalid choice: '${style}' (choose from ${STYLE_CHOICES.map((c) => `'${c}'`).join(", ")})`,
+      );
+    }
 
-const COMMANDS = {
-  anchor(args) {
-    const direction = getString(args, "direction");
+    return style ?? null;
+  };
 
-    if (!direction) {
+  const anchor = () => {
+    const direction = getString(args, "direction") ?? "";
+
+    if (direction === "") {
       failUsage("--direction is required (n,s,e,w,ne,nw,se,sw)");
     }
 
@@ -45,18 +62,18 @@ const COMMANDS = {
       guideImage: getFlag(args, "guide-image"),
     });
 
-    console.log(withStyle(prompt, styleOf(args)));
-  },
+    console.log(withStyle(prompt, styleOf()));
+  };
 
-  "pose-board"(args) {
-    const action = getString(args, "action");
-    const direction = getString(args, "direction");
+  const poseBoard = () => {
+    const action = getString(args, "action") ?? "";
+    const direction = getString(args, "direction") ?? "";
 
-    if (!action) {
+    if (action === "") {
       failUsage("--action is required (e.g. attack, idle, walk)");
     }
 
-    if (!direction) {
+    if (direction === "") {
       failUsage("--direction is required (n,s,e,w,ne,nw,se,sw)");
     }
 
@@ -94,32 +111,17 @@ const COMMANDS = {
       },
     );
 
-    console.log(withStyle(prompt, styleOf(args)));
-  },
-};
+    console.log(withStyle(prompt, styleOf()));
+  };
 
-main(() => {
-  const args = parseArgs(process.argv.slice(2), {
-    booleans: ["guide-image"],
-    values: [
-      "action",
-      "anchor-context",
-      "chroma",
-      "direction",
-      "frame-prompt-style",
-      "frames",
-      "game-view",
-      "pose-board",
-      "role",
-      "style",
-    ],
-  });
+  const run = new Map([
+    ["anchor", anchor],
+    ["pose-board", poseBoard],
+  ]).get(args.positionals[0] ?? "");
 
-  const run = COMMANDS[args.positionals[0]];
-
-  if (!run) {
+  if (run === undefined) {
     failUsage("Usage: node sprite-prompt.mjs <anchor|pose-board> ...");
   }
 
-  run(args);
+  run?.();
 });

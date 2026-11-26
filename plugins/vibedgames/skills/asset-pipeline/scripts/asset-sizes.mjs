@@ -30,15 +30,15 @@ main(() => {
     console.log(`${row.width}x${row.height}\t${row.path}`);
   }
 
-  const csv = getString(args, "csv");
+  const csv = getString(args, "csv") ?? "";
 
-  if (csv) {
+  if (csv !== "") {
     writeTextFile(csv, sizesToCsv(rows));
   }
 
-  const json = getString(args, "json");
+  const json = getString(args, "json") ?? "";
 
-  if (json) {
+  if (json !== "") {
     writeJsonFile(json, rows);
   }
 });

@@ -5231,7 +5231,6 @@ export {
   FRAME_HEIGHT,
   FRAME_WIDTH,
   HIGH_FRINGE_REMOVAL_RATIO,
-  PROFILES,
   actionFacts,
   auditSizeContract,
   buildSequenceGif,
