@@ -1,7 +1,10 @@
-import { createReadStream, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { createReadStream, existsSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 
-import { onLandUV, plLen, rdp, ringArea, WORLD_H, WORLD_W } from "./lib.mts";
+import { at, onLandUV, plLen, rdp, ringArea, WORLD_H, WORLD_W } from "./lib.mts";
+import type { Point } from "./lib.mts";
+import { readOverpass } from "./osm.mts";
+import type { OsmElement, OsmGeom } from "./osm.mts";
 
 const [objPath, outArg] = process.argv.slice(2);
 const outPath = outArg ?? new URL("sf-landuse-obj.json", import.meta.url).pathname;
@@ -11,17 +14,90 @@ if (objPath === undefined || objPath === "") {
   process.exit(1);
 }
 
+type Face = readonly number[];
+
+interface Comp {
+  faces: Face[];
+  maxX: number;
+  maxY: number;
+  maxZ: number;
+  minX: number;
+  minY: number;
+  minZ: number;
+}
+
+interface OsmWay {
+  area: number;
+  cx: number;
+  cz: number;
+  id: number;
+  len: number;
+  name: string | null;
+  ring: Point[] | null;
+  tags: string[];
+}
+
+interface WayIndex {
+  near: (x: number, z: number, r: number) => number[];
+}
+
+interface GroundPoly {
+  area: number;
+  cls: string | null;
+  compact: number;
+  cx: number;
+  cz: number;
+  dist: number | null;
+  fromGroupVote: boolean;
+  group: string;
+  name: string;
+  osmName: string | null;
+  rank: number;
+  ring: Point[];
+  simple: boolean;
+  strip: boolean;
+  tag: string | null;
+  tags: string[] | null;
+  y: number;
+}
+
+interface DecodedGroup {
+  areaU2: number;
+  confidence: number;
+  decoded: string | null;
+  group: string;
+  hintAgrees: boolean | null;
+  matchRate: number;
+  matched: number;
+  nameHint: readonly string[] | null;
+  polygons: number;
+  runnersUp: string[];
+  tagSpectrum: string[];
+}
+
+interface AreaItem {
+  cls: string;
+  ring: readonly Point[];
+}
+
+interface Bucket {
+  faces: Face[];
+  key: string;
+  mtl: string;
+  name: string;
+}
+
 const CAL = { bx: 325.2, bz: -400.5, sx: 0.17829, sz: 0.17909 };
 const CAL_SY = 1 / (1.598 * 4.446);
 const M_PER_U = 4.446;
 
-const ANCHORS = [
+const ANCHORS: readonly (readonly [string, number, number, number, number])[] = [
   ["Salesforce", 2458.4, -2088.9, 760, -770.1],
   ["Transamerica", 1809.9, -2842.1, 644.9, -907.7],
 ];
 
-const toWorldX = (x: string | number | undefined) => x * CAL.sx + CAL.bx;
-const toWorldZ = (z: string | number | undefined) => z * CAL.sz + CAL.bz;
+const toWorldX = (x: number) => x * CAL.sx + CAL.bx;
+const toWorldZ = (z: number) => z * CAL.sz + CAL.bz;
 const toU = (wx: number) => wx / WORLD_W + 0.5;
 const toV = (wz: number) => wz / WORLD_H + 0.5;
 
@@ -47,10 +123,16 @@ const CH_V = 118;
 const vx: number[] = [];
 const vy: number[] = [];
 const vz: number[] = [];
-const groups = new Map();
+const groups = new Map<string, number[][]>();
 let curName: string | null = null;
 let curMtl = "";
 let objLines = 0;
+
+const splitKey = (key: string) => {
+  const bar = key.indexOf("|");
+
+  return bar === -1 ? ([key, ""] as const) : ([key.slice(0, bar), key.slice(bar + 1)] as const);
+};
 
 const rl = createInterface({ crlfDelay: Infinity, input: createReadStream(objPath) });
 
@@ -77,12 +159,12 @@ rl.on("line", (l) => {
     const key = `${curName}|${curMtl}`;
     let g = groups.get(key);
 
-    if (!g) {
+    if (g === undefined) {
       g = [];
       groups.set(key, g);
     }
 
-    const ids = [];
+    const ids: number[] = [];
 
     for (const part of l.slice(2).trim().split(/\s+/u)) {
       const s = part.includes("/") ? part.slice(0, part.indexOf("/")) : part;
@@ -121,20 +203,21 @@ rl.on("close", () => {
   main();
 });
 
-const components = (faces: any) => {
-  const parent = new Map();
+const components = (faces: readonly Face[]) => {
+  const parent = new Map<number, number>();
+  const parentOf = (x: number) => parent.get(x) ?? x;
 
-  const find = (a: any) => {
+  const find = (a: number) => {
     let r = a;
 
-    while (parent.get(r) !== r) {
-      r = parent.get(r);
+    while (parentOf(r) !== r) {
+      r = parentOf(r);
     }
 
     let walk = a;
 
-    while (parent.get(walk) !== r) {
-      const nxt = parent.get(walk);
+    while (parentOf(walk) !== r) {
+      const nxt = parentOf(walk);
       parent.set(walk, r);
       walk = nxt;
     }
@@ -142,7 +225,7 @@ const components = (faces: any) => {
     return r;
   };
 
-  const union = (a: any, b: any) => {
+  const union = (a: number, b: number) => {
     if (!parent.has(a)) {
       parent.set(a, a);
     }
@@ -161,17 +244,17 @@ const components = (faces: any) => {
 
   for (const f of faces) {
     for (let i = 1; i < f.length; i += 1) {
-      union(f[0], f[i]);
+      union(at(f, 0), at(f, i));
     }
   }
 
-  const out = new Map();
+  const out = new Map<number, Comp>();
 
   for (const f of faces) {
-    const root = find(f[0]);
+    const root = find(at(f, 0));
     let c = out.get(root);
 
-    if (!c) {
+    if (c === undefined) {
       c = { faces: [], maxX: -1e9, maxY: -1e9, maxZ: -1e9, minX: 1e9, minY: 1e9, minZ: 1e9 };
       out.set(root, c);
     }
@@ -179,9 +262,9 @@ const components = (faces: any) => {
     c.faces.push(f);
 
     for (const id of f) {
-      const x = vx[id];
-      const y = vy[id];
-      const z = vz[id];
+      const x = at(vx, id);
+      const y = at(vy, id);
+      const z = at(vz, id);
 
       if (x < c.minX) {
         c.minX = x;
@@ -212,16 +295,17 @@ const components = (faces: any) => {
   return [...out.values()];
 };
 
-const edgeAngle = (a: string | number, b: number) => Math.atan2(vz[b] - vz[a], vx[b] - vx[a]);
+const edgeAngle = (a: number, b: number) =>
+  Math.atan2(at(vz, b) - at(vz, a), at(vx, b) - at(vx, a));
 
-const boundaryEdges = (top: any) => {
-  const count = new Map();
-  const dir = new Map();
+const boundaryEdges = (top: readonly Face[]) => {
+  const count = new Map<string, number>();
+  const dir = new Map<string, readonly [number, number]>();
 
   for (const f of top) {
     for (let i = 0; i < f.length; i += 1) {
-      const a = f[i];
-      const b = f[(i + 1) % f.length];
+      const a = at(f, i);
+      const b = at(f, (i + 1) % f.length);
 
       if (a === b) {
         continue;
@@ -236,7 +320,7 @@ const boundaryEdges = (top: any) => {
     }
   }
 
-  const next = new Map();
+  const next = new Map<number, number[]>();
   let edges = 0;
 
   for (const [k, n] of count) {
@@ -246,13 +330,13 @@ const boundaryEdges = (top: any) => {
 
     const d = dir.get(k);
 
-    if (!d) {
+    if (d === undefined) {
       continue;
     }
 
     let l = next.get(d[0]);
 
-    if (!l) {
+    if (l === undefined) {
       l = [];
       next.set(d[0], l);
     }
@@ -264,12 +348,12 @@ const boundaryEdges = (top: any) => {
   return { edges, next };
 };
 
-const traceRings = (next: Map<any, any>, edges: number) => {
-  const rings = [];
+const traceRings = (next: ReadonlyMap<number, number[]>, edges: number) => {
+  const rings: Point[][] = [];
 
   for (const start of next.keys()) {
     while ((next.get(start)?.length ?? 0) > 0) {
-      const loop = [];
+      const loop: number[] = [];
       let prev = -1;
       let cur = start;
       let guard = 0;
@@ -278,7 +362,7 @@ const traceRings = (next: Map<any, any>, edges: number) => {
         guard += 1;
         const outs = next.get(cur);
 
-        if (!outs || outs.length === 0) {
+        if (outs === undefined || outs.length === 0) {
           break;
         }
 
@@ -289,7 +373,7 @@ const traceRings = (next: Map<any, any>, edges: number) => {
           let bestD = Infinity;
 
           for (let i = 0; i < outs.length; i += 1) {
-            let d = base - edgeAngle(cur, outs[i]);
+            let d = base - edgeAngle(cur, at(outs, i));
 
             while (d <= 1e-9) {
               d += Math.PI * 2;
@@ -308,7 +392,7 @@ const traceRings = (next: Map<any, any>, edges: number) => {
 
         loop.push(cur);
         prev = cur;
-        [cur] = outs.splice(pick, 1);
+        cur = at(outs.splice(pick, 1), 0);
 
         if (cur === start) {
           break;
@@ -316,7 +400,7 @@ const traceRings = (next: Map<any, any>, edges: number) => {
       }
 
       if (cur === start && loop.length >= 3) {
-        rings.push(loop.map((id) => [toWorldX(vx[id]), toWorldZ(vz[id])]));
+        rings.push(loop.map<Point>((id) => [toWorldX(at(vx, id)), toWorldZ(at(vz, id))]));
       }
     }
   }
@@ -324,12 +408,9 @@ const traceRings = (next: Map<any, any>, edges: number) => {
   return rings;
 };
 
-const topRings = (c: { maxY: number; minY: number; faces: any[] }) => {
+const topRings = (c: Comp) => {
   const eps = Math.max(1e-4, Math.min(0.75, (c.maxY - c.minY) * 0.1));
-
-  const top = c.faces.filter((f: any[]) =>
-    f.every((id: string | number) => vy[id] >= c.maxY - eps),
-  );
+  const top = c.faces.filter((f) => f.every((id) => at(vy, id) >= c.maxY - eps));
 
   if (top.length === 0) {
     return [];
@@ -344,25 +425,25 @@ const topRings = (c: { maxY: number; minY: number; faces: any[] }) => {
   return traceRings(next, edges);
 };
 
-const cross = (p: number[], q: number[], s: number[]) =>
+const cross = (p: Point, q: Point, s: Point) =>
   (q[0] - p[0]) * (s[1] - p[1]) - (q[1] - p[1]) * (s[0] - p[0]);
 
-const isSimpleRing = (r: string | any[]) => {
+const isSimpleRing = (r: readonly Point[]) => {
   if (r.length > 120) {
     return true;
   }
 
   for (let i = 0; i < r.length; i += 1) {
-    const a = r[i];
-    const b = r[(i + 1) % r.length];
+    const a = at(r, i);
+    const b = at(r, (i + 1) % r.length);
 
     for (let k = i + 2; k < r.length; k += 1) {
       if (i === 0 && k === r.length - 1) {
         continue;
       }
 
-      const c = r[k];
-      const d = r[(k + 1) % r.length];
+      const c = at(r, k);
+      const d = at(r, (k + 1) % r.length);
 
       if (cross(c, d, a) > 0 !== cross(c, d, b) > 0 && cross(a, b, c) > 0 !== cross(a, b, d) > 0) {
         return false;
@@ -373,14 +454,14 @@ const isSimpleRing = (r: string | any[]) => {
   return true;
 };
 
-const centroidOf = (ring: string | any[]) => {
+const centroidOf = (ring: readonly Point[]) => {
   let a = 0;
   let cx = 0;
   let cz = 0;
 
   for (let i = 0; i < ring.length; i += 1) {
-    const [x0, z0] = ring[i];
-    const [x1, z1] = ring[(i + 1) % ring.length];
+    const [x0, z0] = at(ring, i);
+    const [x1, z1] = at(ring, (i + 1) % ring.length);
     const cr = x0 * z1 - x1 * z0;
     a += cr;
     cx += (x0 + x1) * cr;
@@ -396,10 +477,10 @@ const centroidOf = (ring: string | any[]) => {
       sz += z;
     }
 
-    return [sx / ring.length, sz / ring.length];
+    return [sx / ring.length, sz / ring.length] as const;
   }
 
-  return [cx / (3 * a), cz / (3 * a)];
+  return [cx / (3 * a), cz / (3 * a)] as const;
 };
 
 const TAG_KEYS = [
@@ -416,38 +497,37 @@ const TAG_KEYS = [
   "railway",
 ];
 
-const tagsOf = (element: { tags: { [x: string]: any } }) => {
-  const tags = [];
+const tagsOf = (element: OsmElement) => {
+  const tags: string[] = [];
 
   for (const k of TAG_KEYS) {
-    if (element.tags?.[k]) {
-      tags.push(`${k}=${element.tags[k]}`);
+    const v = element.tags?.[k];
+
+    if (v !== undefined && v !== "") {
+      tags.push(`${k}=${v}`);
     }
   }
 
   return tags;
 };
 
-const ringGeometriesOf = (element: { type: string; geometry: string | any[]; members: any }) => {
+const ringGeometriesOf = (element: OsmElement) => {
   if (element.type === "way") {
-    return element.geometry?.length >= 2 ? [element.geometry] : [];
+    return element.geometry !== undefined && element.geometry.length >= 2 ? [element.geometry] : [];
   }
 
   if (element.type === "relation") {
-    return (element.members ?? [])
-      .filter(
-        (m: { role: string; geometry: string | any[] }) =>
-          m.role !== "inner" && m.geometry?.length >= 3,
-      )
-      .map((m: { geometry: any }) => m.geometry);
+    return (element.members ?? []).flatMap((m) =>
+      m.role !== "inner" && m.geometry !== undefined && m.geometry.length >= 3 ? [m.geometry] : [],
+    );
   }
 
   return [];
 };
 
 const loadOsm = () => {
-  const ways = [];
-  const seen = new Set();
+  const ways: OsmWay[] = [];
+  const seen = new Set<string>();
 
   for (const file of ["sf-landuse.raw.json", "sf-osm-tags.raw.json"]) {
     const url = new URL(file, import.meta.url);
@@ -457,11 +537,11 @@ const loadOsm = () => {
       continue;
     }
 
-    const raw = JSON.parse(readFileSync(url, "utf-8"));
+    const raw = readOverpass(url);
     let n = 0;
     let rel = 0;
 
-    for (const e of raw.elements ?? []) {
+    for (const e of raw.elements) {
       const key = `${e.type}/${e.id}`;
 
       if (seen.has(key)) {
@@ -487,9 +567,9 @@ const loadOsm = () => {
       }
 
       for (const geom of geoms) {
-        const ring = geom.map((g: { lon: any; lat: any }) => [osmX(g.lon), osmZ(g.lat)]);
+        const ring = geom.map<Point>((g: OsmGeom) => [osmX(g.lon), osmZ(g.lat)]);
         const closed = ring.length > 3;
-        const [cx, cz] = closed ? centroidOf(ring) : ring[Math.floor(ring.length / 2)];
+        const [cx, cz] = closed ? centroidOf(ring) : at(ring, Math.floor(ring.length / 2));
         ways.push({
           area: closed ? Math.abs(ringArea(ring)) : 0,
           cx,
@@ -513,16 +593,16 @@ const loadOsm = () => {
 const CELL = 64;
 const cellKey = (gx: number, gz: number) => gx * 100_000 + gz;
 
-const indexWays = (ways: string | any[]) => {
-  const map = new Map();
+const indexWays = (ways: readonly OsmWay[]) => {
+  const map = new Map<number, number[]>();
 
-  for (let i = 0; i < ways.length; i += 1) {
-    const gx = Math.floor(ways[i].cx / CELL);
-    const gz = Math.floor(ways[i].cz / CELL);
+  for (const [i, w] of ways.entries()) {
+    const gx = Math.floor(w.cx / CELL);
+    const gz = Math.floor(w.cz / CELL);
     const k = cellKey(gx, gz);
     let b = map.get(k);
 
-    if (!b) {
+    if (b === undefined) {
       b = [];
       map.set(k, b);
     }
@@ -530,9 +610,9 @@ const indexWays = (ways: string | any[]) => {
     b.push(i);
   }
 
-  return {
-    near(x: number, z: number, r: number) {
-      const out = [];
+  const index: WayIndex = {
+    near(x, z, r) {
+      const out: number[] = [];
       const g0x = Math.floor((x - r) / CELL);
       const g1x = Math.floor((x + r) / CELL);
       const g0z = Math.floor((z - r) / CELL);
@@ -542,7 +622,7 @@ const indexWays = (ways: string | any[]) => {
         for (let gz = g0z; gz <= g1z; gz += 1) {
           const b = map.get(cellKey(gx, gz));
 
-          if (b) {
+          if (b !== undefined) {
             out.push(...b);
           }
         }
@@ -551,132 +631,136 @@ const indexWays = (ways: string | any[]) => {
       return out;
     },
   };
+
+  return index;
 };
 
-const CLASS_OF = {
-  "amenity=bicycle_parking": ["parking", 34],
-  "amenity=college": ["institution", 14],
-  "amenity=fountain": ["plaza", 64],
-  "amenity=hospital": ["institution", 14],
-  "amenity=kindergarten": ["institution", 14],
-  "amenity=motorcycle_parking": ["parking", 34],
-  "amenity=parking": ["parking", 34],
-  "amenity=parking_space": ["parking", 34],
-  "amenity=place_of_worship": ["institution", 14],
-  "amenity=school": ["institution", 14],
-  "amenity=shelter": ["plaza", 64],
-  "amenity=university": ["institution", 14],
-  "landuse=allotments": ["garden", 50],
-  "landuse=brownfield": ["brownfield", 26],
-  "landuse=cemetery": ["cemetery", 52],
-  "landuse=commercial": ["commercial", 18],
-  "landuse=construction": ["construction", 28],
-  "landuse=flowerbed": ["garden", 50],
-  "landuse=forest": ["wood", 46],
-  "landuse=grass": ["grass", 40],
-  "landuse=industrial": ["industrial", 24],
-  "landuse=meadow": ["grass", 40],
-  "landuse=military": ["military", 32],
-  "landuse=port": ["port", 30],
-  "landuse=railway": ["railyard", 30],
-  "landuse=recreation_ground": ["recreation", 48],
-  "landuse=religious": ["cemetery", 52],
-  "landuse=residential": ["residential", 10],
-  "landuse=retail": ["retail", 20],
-  "landuse=tree_pit": ["garden", 50],
-  "landuse=village_green": ["grass", 40],
-  "leisure=bleachers": ["recreation", 48],
-  "leisure=common": ["park", 60],
-  "leisure=dog_park": ["park", 60],
-  "leisure=fitness_station": ["recreation", 48],
-  "leisure=garden": ["garden", 50],
-  "leisure=golf_course": ["golf", 44],
-  "leisure=marina": ["water", 90],
-  "leisure=nature_reserve": ["park", 60],
-  "leisure=outdoor_seating": ["plaza", 64],
-  "leisure=park": ["park", 60],
-  "leisure=parklet": ["garden", 50],
-  "leisure=pitch": ["pitch", 70],
-  "leisure=playground": ["playground", 72],
-  "leisure=slipway": ["port", 30],
-  "leisure=sports_centre": ["recreation", 48],
-  "leisure=stadium": ["recreation", 48],
-  "leisure=swimming_pool": ["water", 90],
-  "leisure=track": ["pitch", 70],
-  "man_made=breakwater": ["pier", 36],
-  "man_made=pier": ["pier", 36],
-  "man_made=storage_tank": ["industrial", 24],
-  "natural=bare_rock": ["rock", 78],
-  "natural=beach": ["sand", 80],
-  "natural=cliff": ["rock", 78],
-  "natural=grassland": ["grass", 40],
-  "natural=sand": ["sand", 80],
-  "natural=scrub": ["scrub", 42],
-  "natural=shrubbery": ["scrub", 42],
-  "natural=tree_row": ["wood", 46],
-  "natural=water": ["water", 90],
-  "natural=wood": ["wood", 46],
-  "place=square": ["plaza", 66],
-  "tourism=attraction": ["plaza", 64],
-  "tourism=picnic_site": ["park", 60],
-  "waterway=dock": ["water", 90],
-  "waterway=riverbank": ["water", 90],
-};
+const CLASS_OF = new Map<string, readonly [string, number]>([
+  ["amenity=bicycle_parking", ["parking", 34]],
+  ["amenity=college", ["institution", 14]],
+  ["amenity=fountain", ["plaza", 64]],
+  ["amenity=hospital", ["institution", 14]],
+  ["amenity=kindergarten", ["institution", 14]],
+  ["amenity=motorcycle_parking", ["parking", 34]],
+  ["amenity=parking", ["parking", 34]],
+  ["amenity=parking_space", ["parking", 34]],
+  ["amenity=place_of_worship", ["institution", 14]],
+  ["amenity=school", ["institution", 14]],
+  ["amenity=shelter", ["plaza", 64]],
+  ["amenity=university", ["institution", 14]],
+  ["landuse=allotments", ["garden", 50]],
+  ["landuse=brownfield", ["brownfield", 26]],
+  ["landuse=cemetery", ["cemetery", 52]],
+  ["landuse=commercial", ["commercial", 18]],
+  ["landuse=construction", ["construction", 28]],
+  ["landuse=flowerbed", ["garden", 50]],
+  ["landuse=forest", ["wood", 46]],
+  ["landuse=grass", ["grass", 40]],
+  ["landuse=industrial", ["industrial", 24]],
+  ["landuse=meadow", ["grass", 40]],
+  ["landuse=military", ["military", 32]],
+  ["landuse=port", ["port", 30]],
+  ["landuse=railway", ["railyard", 30]],
+  ["landuse=recreation_ground", ["recreation", 48]],
+  ["landuse=religious", ["cemetery", 52]],
+  ["landuse=residential", ["residential", 10]],
+  ["landuse=retail", ["retail", 20]],
+  ["landuse=tree_pit", ["garden", 50]],
+  ["landuse=village_green", ["grass", 40]],
+  ["leisure=bleachers", ["recreation", 48]],
+  ["leisure=common", ["park", 60]],
+  ["leisure=dog_park", ["park", 60]],
+  ["leisure=fitness_station", ["recreation", 48]],
+  ["leisure=garden", ["garden", 50]],
+  ["leisure=golf_course", ["golf", 44]],
+  ["leisure=marina", ["water", 90]],
+  ["leisure=nature_reserve", ["park", 60]],
+  ["leisure=outdoor_seating", ["plaza", 64]],
+  ["leisure=park", ["park", 60]],
+  ["leisure=parklet", ["garden", 50]],
+  ["leisure=pitch", ["pitch", 70]],
+  ["leisure=playground", ["playground", 72]],
+  ["leisure=slipway", ["port", 30]],
+  ["leisure=sports_centre", ["recreation", 48]],
+  ["leisure=stadium", ["recreation", 48]],
+  ["leisure=swimming_pool", ["water", 90]],
+  ["leisure=track", ["pitch", 70]],
+  ["man_made=breakwater", ["pier", 36]],
+  ["man_made=pier", ["pier", 36]],
+  ["man_made=storage_tank", ["industrial", 24]],
+  ["natural=bare_rock", ["rock", 78]],
+  ["natural=beach", ["sand", 80]],
+  ["natural=cliff", ["rock", 78]],
+  ["natural=grassland", ["grass", 40]],
+  ["natural=sand", ["sand", 80]],
+  ["natural=scrub", ["scrub", 42]],
+  ["natural=shrubbery", ["scrub", 42]],
+  ["natural=tree_row", ["wood", 46]],
+  ["natural=water", ["water", 90]],
+  ["natural=wood", ["wood", 46]],
+  ["place=square", ["plaza", 66]],
+  ["tourism=attraction", ["plaza", 64]],
+  ["tourism=picnic_site", ["park", 60]],
+  ["waterway=dock", ["water", 90]],
+  ["waterway=riverbank", ["water", 90]],
+]);
 
-const classFor = (tag: string) => CLASS_OF[tag] ?? null;
+const classFor = (tag: string) => CLASS_OF.get(tag) ?? null;
 
-const NAME_HINTS = {
-  "landuse=al": ["allotments"],
-  "landuse=br": ["brownfield"],
-  "landuse=c*": ["commercial", "construction", "cemetery", "churchyard"],
-  "landuse=ch": ["churchyard"],
-  "landuse=co": ["commercial", "construction"],
-  "landuse=g*": ["grass", "greenfield", "garages", "greenhouse_horticulture"],
-  "landuse=ga": ["garages"],
-  "landuse=i*": ["industrial", "institutional"],
-  "landuse=in": ["industrial", "institutional"],
-  "landuse=me": ["meadow"],
-  "landuse=mi": ["military"],
-  "landuse=po": ["port", "pond"],
-  "landuse=r*": ["residential", "retail", "religious", "railway", "recreation_ground"],
-  "landuse=ra": ["railway"],
-  "landuse=wa": ["wasteland", "water"],
-  "leisure=PO": ["POPS"],
-  "leisure=b*": ["bleachers", "beach_resort"],
-  "leisure=c*": ["common"],
-  "leisure=do": ["dog_park"],
-  "leisure=fi": ["fitness_station", "fitness_centre"],
-  "leisure=ga": ["garden"],
-  "leisure=go": ["golf_course"],
-  "leisure=ma": ["marina", "maze"],
-  "leisure=mi": ["miniature_golf"],
-  "leisure=ou": ["outdoor_seating"],
-  "leisure=p*": ["park", "pitch", "playground", "parklet", "picnic_table"],
-  "leisure=pl": ["playground"],
-  "leisure=pr": ["practice_pitch"],
-  "leisure=s*": ["swimming_pool", "sports_centre", "slipway", "stadium"],
-  "leisure=sl": ["slipway"],
-  "leisure=sp": ["sports_centre"],
-};
+const NAME_HINTS = new Map<string, readonly string[]>([
+  ["landuse=al", ["allotments"]],
+  ["landuse=br", ["brownfield"]],
+  ["landuse=c*", ["commercial", "construction", "cemetery", "churchyard"]],
+  ["landuse=ch", ["churchyard"]],
+  ["landuse=co", ["commercial", "construction"]],
+  ["landuse=g*", ["grass", "greenfield", "garages", "greenhouse_horticulture"]],
+  ["landuse=ga", ["garages"]],
+  ["landuse=i*", ["industrial", "institutional"]],
+  ["landuse=in", ["industrial", "institutional"]],
+  ["landuse=me", ["meadow"]],
+  ["landuse=mi", ["military"]],
+  ["landuse=po", ["port", "pond"]],
+  ["landuse=r*", ["residential", "retail", "religious", "railway", "recreation_ground"]],
+  ["landuse=ra", ["railway"]],
+  ["landuse=wa", ["wasteland", "water"]],
+  ["leisure=PO", ["POPS"]],
+  ["leisure=b*", ["bleachers", "beach_resort"]],
+  ["leisure=c*", ["common"]],
+  ["leisure=do", ["dog_park"]],
+  ["leisure=fi", ["fitness_station", "fitness_centre"]],
+  ["leisure=ga", ["garden"]],
+  ["leisure=go", ["golf_course"]],
+  ["leisure=ma", ["marina", "maze"]],
+  ["leisure=mi", ["miniature_golf"]],
+  ["leisure=ou", ["outdoor_seating"]],
+  ["leisure=p*", ["park", "pitch", "playground", "parklet", "picnic_table"]],
+  ["leisure=pl", ["playground"]],
+  ["leisure=pr", ["practice_pitch"]],
+  ["leisure=s*", ["swimming_pool", "sports_centre", "slipway", "stadium"]],
+  ["leisure=sl", ["slipway"]],
+  ["leisure=sp", ["sports_centre"]],
+]);
 
 const nameHint = (objName: string) => {
   const m = /^(?<tagKey>landuse|leisure)=(?<suffix>..)$/u.exec(objName);
+  const suffix = m?.groups?.suffix;
+  const tagKey = m?.groups?.tagKey;
 
-  if (!m?.groups) {
+  if (suffix === undefined || tagKey === undefined) {
     return null;
   }
 
-  const { suffix, tagKey } = m.groups;
-  const wild = /\d$/u.test(suffix) ? `${tagKey}=${suffix[0]}*` : `${tagKey}=${suffix}`;
+  const wild = /\d$/u.test(suffix) ? `${tagKey}=${suffix.slice(0, 1)}*` : `${tagKey}=${suffix}`;
+  const candidates = NAME_HINTS.get(wild);
 
-  return NAME_HINTS[wild] ? { candidates: NAME_HINTS[wild], pattern: wild } : null;
+  return candidates === undefined ? null : { candidates, pattern: wild };
 };
 
 const groundBucketsOf = () => {
-  const buckets = [];
+  const buckets: Bucket[] = [];
 
   for (const [key, faces] of groups) {
-    const [name, mtl] = key.split("|");
+    const [name, mtl] = splitKey(key);
 
     if (name === "base" || name === "railway" || name === "power") {
       continue;
@@ -696,11 +780,7 @@ const groundBucketsOf = () => {
   return buckets;
 };
 
-const groundPolyOf = (
-  bucket: { key: any; name: string },
-  c: { maxY: number },
-  ring: number[][],
-) => {
+const groundPolyOf = (bucket: Bucket, c: Comp, ring: readonly Point[]) => {
   let r = rdp(ring, 0.4);
 
   if (r.length < 3) {
@@ -717,25 +797,34 @@ const groundPolyOf = (
     return null;
   }
 
-  const per = plLen([...r, r[0]]);
+  const per = plLen([...r, at(r, 0)]);
   const [cx, cz] = centroidOf(r);
 
-  return {
+  const poly: GroundPoly = {
     area,
+    cls: null,
     compact: per > 0 ? (4 * Math.PI * area) / (per * per) : 0,
     cx,
     cz,
+    dist: null,
+    fromGroupVote: false,
     group: bucket.key,
     name: bucket.name,
+    osmName: null,
+    rank: 0,
     ring: r,
     simple: isSimpleRing(r),
     strip: STRIPY_NAME.test(bucket.name),
+    tag: null,
+    tags: null,
     y: c.maxY * CAL_SY,
   };
+
+  return poly;
 };
 
-const buildGroundPolys = (buckets: { faces: any; key: any; mtl: any; name: any }[]) => {
-  const polys = [];
+const buildGroundPolys = (buckets: readonly Bucket[]) => {
+  const polys: GroundPoly[] = [];
   let comps = 0;
   let ringFail = 0;
 
@@ -752,7 +841,7 @@ const buildGroundPolys = (buckets: { faces: any; key: any; mtl: any; name: any }
       for (const ring of rings) {
         const poly = groundPolyOf(b, c, ring);
 
-        if (poly) {
+        if (poly !== null) {
           polys.push(poly);
         }
       }
@@ -771,40 +860,20 @@ const areaPenalty = (pArea: number, wArea: number) => {
 };
 
 const matchWay = (
-  ways: {
-    area: number;
-    cx: any;
-    cz: any;
-    id: any;
-    len: number;
-    name: any;
-    ring: any;
-    tags: string[];
-  }[],
-  idx: { near: any },
-  p: {
-    area: any;
-    compact?: number;
-    cx: any;
-    cz: any;
-    group?: any;
-    name?: any;
-    ring?: any;
-    simple?: boolean;
-    strip?: boolean;
-    y?: number;
-  },
+  ways: readonly OsmWay[],
+  idx: WayIndex,
+  p: Readonly<Pick<GroundPoly, "area" | "cx" | "cz">>,
   dx: number,
   dz: number,
   radius: number,
 ) => {
   const x = p.cx - dx;
   const z = p.cz - dz;
-  let best = null;
+  let best: OsmWay | null = null;
   let bestScore = Infinity;
 
   for (const i of idx.near(x, z, radius)) {
-    const w = ways[i];
+    const w = at(ways, i);
     const d = Math.hypot(w.cx - x, w.cz - z);
 
     if (d > radius) {
@@ -832,44 +901,24 @@ const matchWay = (
   return bestScore < 1.2 ? best : null;
 };
 
-const median = (a: string | any[]) => [...a].toSorted((x, y) => x - y)[Math.floor(a.length / 2)];
+const median = (a: readonly number[]) =>
+  at(
+    a.toSorted((x, y) => x - y),
+    Math.floor(a.length / 2),
+  );
 
-const measureOsmOffset = (
-  polys: {
-    area: number;
-    compact: number;
-    cx: number | undefined;
-    cz: number | undefined;
-    group: any;
-    name: any;
-    ring: any;
-    simple: boolean;
-    strip: boolean;
-    y: number;
-  }[],
-  ways: {
-    area: number;
-    cx: any;
-    cz: any;
-    id: any;
-    len: number;
-    name: any;
-    ring: any;
-    tags: string[];
-  }[],
-  idx: { near(x: any, z: any, r: any): any[] },
-) => {
+const measureOsmOffset = (polys: readonly GroundPoly[], ways: readonly OsmWay[], idx: WayIndex) => {
   let dx = 0;
   let dz = 0;
 
   for (let pass = 0; pass < 2; pass += 1) {
-    const ex = [];
-    const ez = [];
+    const ex: number[] = [];
+    const ez: number[] = [];
 
     for (const p of polys) {
       const w = matchWay(ways, idx, p, dx, dz, 45);
 
-      if (!w) {
+      if (w === null) {
         continue;
       }
 
@@ -888,26 +937,21 @@ const measureOsmOffset = (
   return { dx, dz };
 };
 
-const voteGroups = (
-  polys: {
-    area: number;
-    compact: number;
-    cx: number | undefined;
-    cz: number | undefined;
-    group: any;
-    name: any;
-    ring: any;
-    simple: boolean;
-    strip: boolean;
-    y: number;
-  }[],
-) => {
-  const groupInfo = new Map();
+interface GroupTally {
+  area: number;
+  group: string;
+  matched: number;
+  polys: number;
+  votes: Map<string, number>;
+}
+
+const voteGroups = (polys: readonly GroundPoly[]) => {
+  const groupInfo = new Map<string, GroupTally>();
 
   for (const p of polys) {
     let g = groupInfo.get(p.group);
 
-    if (!g) {
+    if (g === undefined) {
       g = { area: 0, group: p.group, matched: 0, polys: 0, votes: new Map() };
       groupInfo.set(p.group, g);
     }
@@ -915,7 +959,7 @@ const voteGroups = (
     g.polys += 1;
     g.area += p.area;
 
-    if (!p.tags) {
+    if (p.tags === null) {
       continue;
     }
 
@@ -926,20 +970,23 @@ const voteGroups = (
     }
   }
 
-  const decoded = [];
+  const decoded: DecodedGroup[] = [];
 
   for (const g of groupInfo.values()) {
     const ranked = [...g.votes.entries()].toSorted((a, b) => b[1] - a[1]);
     const [top] = ranked;
-    const conf = top ? top[1] / Math.max(1, g.matched) : 0;
-    const hint = nameHint(g.group.split("|")[0]);
+    const conf = top === undefined ? 0 : top[1] / Math.max(1, g.matched);
+    const hint = nameHint(splitKey(g.group)[0]);
     decoded.push({
       areaU2: Math.round(g.area),
-      confidence: +conf.toFixed(3),
+      confidence: Number(conf.toFixed(3)),
       decoded: top?.[0] ?? null,
       group: g.group,
-      hintAgrees: hint ? hint.candidates.some((c: any) => top?.[0]?.endsWith(`=${c}`)) : null,
-      matchRate: +(g.matched / g.polys).toFixed(3),
+      hintAgrees:
+        hint === null
+          ? null
+          : hint.candidates.some((c) => top !== undefined && top[0].endsWith(`=${c}`)),
+      matchRate: Number((g.matched / g.polys).toFixed(3)),
       matched: g.matched,
       nameHint: hint?.candidates ?? null,
       polygons: g.polys,
@@ -953,102 +1000,49 @@ const voteGroups = (
   return decoded;
 };
 
-const assignPolyClasses = (
-  polys: {
-    area: number;
-    compact: number;
-    cx: number | undefined;
-    cz: number | undefined;
-    group: any;
-    name: any;
-    ring: any;
-    simple: boolean;
-    strip: boolean;
-    y: number;
-  }[],
-  decoded: {
-    areaU2: number;
-    confidence: number;
-    decoded: any;
-    group: any;
-    hintAgrees: any;
-    matchRate: number;
-    matched: any;
-    nameHint: any;
-    polygons: any;
-    runnersUp: string[];
-    tagSpectrum: string[];
-  }[],
-) => {
+const assignPolyClasses = (polys: readonly GroundPoly[], decoded: readonly DecodedGroup[]) => {
   const groupVerdict = new Map(
-    decoded
-      .filter((d: { confidence: number }) => d.confidence >= 0.5)
-      .map((d: { group: any; decoded: any }) => [d.group, d.decoded]),
+    decoded.flatMap((d) => (d.confidence >= 0.5 ? [[d.group, d.decoded] as const] : [])),
   );
 
   for (const p of polys) {
-    const own = p.tags?.map((t: any) => classFor(t)).find(Boolean);
+    const own = p.tags?.map((t) => classFor(t)).find((c) => c !== null) ?? null;
     const grp = classFor(groupVerdict.get(p.group) ?? "");
     const cls = own ?? grp;
     p.cls = cls?.[0] ?? null;
     p.rank = cls?.[1] ?? 0;
-    p.tag = p.tags?.find((t: any) => classFor(t)) ?? groupVerdict.get(p.group) ?? null;
-    p.fromGroupVote = !own && !!grp;
+    p.tag = p.tags?.find((t) => classFor(t) !== null) ?? groupVerdict.get(p.group) ?? null;
+    p.fromGroupVote = own === null && grp !== null;
   }
 };
 
 const DISTRICT_MIN = 20_000;
 
-const isDistrict = (p: {
-  area: any;
-  compact?: number;
-  cx?: number | undefined;
-  cz?: number | undefined;
-  group?: any;
-  name: any;
-  ring?: any;
-  simple?: boolean;
-  strip?: boolean;
-  y?: number;
-}) => p.area >= DISTRICT_MIN || p.name === "boundary";
+const isDistrict = (p: Readonly<Pick<GroundPoly, "area" | "name">>) =>
+  p.area >= DISTRICT_MIN || p.name === "boundary";
 
-const districtRings = (polys: any[]) =>
+const roundRing = (ring: readonly Point[]) =>
+  ring.flatMap(([x, z]) => [Math.round(x * 10) / 10, Math.round(z * 10) / 10]);
+
+const districtRings = (polys: readonly GroundPoly[]) =>
   polys
-    .filter((p: any) => isDistrict(p))
-    .map(
-      (p: {
-        area: number;
-        group: any;
-        tags: any[];
-        osmName: any;
-        ring: [any, any][];
-        cx: any;
-        cz: any;
-      }) => ({
-        areaKm2: +((p.area * M_PER_U * M_PER_U) / 1e6).toFixed(2),
-        areaU2: Math.round(p.area),
-        group: p.group,
-        matchedOsm: !!p.tags,
-        name: p.osmName ?? null,
-        ring: p.ring.flatMap(([x, z]) => [Math.round(x * 10) / 10, Math.round(z * 10) / 10]),
-        tag: p.tags?.[0] ?? null,
-        u: +toU(p.cx).toFixed(4),
-        v: +toV(p.cz).toFixed(4),
-      }),
-    )
-    .toSorted((a: { areaU2: number }, b: { areaU2: number }) => b.areaU2 - a.areaU2);
+    .flatMap((p) => (isDistrict(p) ? [p] : []))
+    .map((p) => ({
+      areaKm2: Number(((p.area * M_PER_U * M_PER_U) / 1e6).toFixed(2)),
+      areaU2: Math.round(p.area),
+      group: p.group,
+      matchedOsm: p.tags !== null,
+      name: p.osmName,
+      ring: roundRing(p.ring),
+      tag: p.tags?.[0] ?? null,
+      u: Number(toU(p.cx).toFixed(4)),
+      v: Number(toV(p.cz).toFixed(4)),
+    }))
+    .toSorted((a, b) => b.areaU2 - a.areaU2);
 
 const OBJ_BOX = { u0: 0.43, u1: 0.89, v0: -0.07, v1: 0.49 };
 
-const coverageOf = (grid: {
-  classes?: any[];
-  classified?: number;
-  cols: any;
-  histogram?: [any, any][];
-  gridX?: number;
-  gridZ?: number;
-  note?: string;
-}) => {
+const coverageOf = (grid: { readonly cols: readonly string[] }) => {
   let inBox = 0;
   let inBoxCls = 0;
   let outBox = 0;
@@ -1060,7 +1054,7 @@ const coverageOf = (grid: {
     for (let gz = 0; gz < GRID_Z; gz += 1) {
       const u = (gx + 0.5) / GRID_X;
       const v = (gz + 0.5) / GRID_Z;
-      const has = Number.parseInt(grid.cols[gx].slice(gz * 2, gz * 2 + 2), 16) > 0;
+      const has = Number.parseInt(at(grid.cols, gx).slice(gz * 2, gz * 2 + 2), 16) > 0;
 
       if (onLandUV(u, v)) {
         land += 1;
@@ -1090,14 +1084,18 @@ const coverageOf = (grid: {
     insideObjFootprint: {
       cells: inBox,
       classified: inBoxCls,
-      pct: +((inBoxCls / inBox) * 100).toFixed(1),
+      pct: Number(((inBoxCls / inBox) * 100).toFixed(1)),
     },
-    landCells: { cells: land, classified: landCls, pct: +((landCls / land) * 100).toFixed(1) },
+    landCells: {
+      cells: land,
+      classified: landCls,
+      pct: Number(((landCls / land) * 100).toFixed(1)),
+    },
     objFootprint: OBJ_BOX,
     outsideObjFootprint: {
       cells: outBox,
       classified: outBoxCls,
-      pct: +((outBoxCls / outBox) * 100).toFixed(1),
+      pct: Number(((outBoxCls / outBox) * 100).toFixed(1)),
     },
   };
 };
@@ -1126,7 +1124,7 @@ const main = () => {
   for (const p of polys) {
     const w = matchWay(ways, idx, p, dx, dz, 45);
 
-    if (w) {
+    if (w !== null) {
       matched += 1;
       p.tags = w.tags;
       p.osmName = w.name;
@@ -1152,22 +1150,24 @@ const main = () => {
 
   const infra = analyseInfra(ways, idx, dx, dz);
 
-  const objInput = polys
-    .filter((p) => p.cls && p.simple && !p.strip && p.compact >= 0.12)
-    .map((p) => ({ cls: p.cls, ring: p.ring }));
+  const objInput = polys.flatMap<AreaItem>((p) =>
+    p.cls !== null && p.cls !== "" && p.simple && !p.strip && p.compact >= 0.12
+      ? [{ cls: p.cls, ring: p.ring }]
+      : [],
+  );
 
   const objGrid = rasteriseAreas(objInput, 0.06);
 
-  const osmInput = [];
+  const osmInput: AreaItem[] = [];
 
   for (const w of ways) {
-    if (!w.ring) {
+    if (w.ring === null) {
       continue;
     }
 
-    const cls = w.tags.map((t) => classFor(t)).find(Boolean);
+    const cls = w.tags.map((t) => classFor(t)).find((c) => c !== null);
 
-    if (cls && w.area < 20_000) {
+    if (cls !== undefined && w.area < 20_000) {
       osmInput.push({ cls: cls[0], ring: w.ring });
     }
   }
@@ -1198,13 +1198,13 @@ const main = () => {
   );
 
   const emitPolys = polys
-    .filter((p) => p.cls || p.strip)
+    .filter((p) => (p.cls !== null && p.cls !== "") || p.strip)
     .map((p) => ({
       a: Math.round(p.area),
       cls: p.cls,
       grp: p.group,
       name: p.osmName ?? undefined,
-      r: p.ring.flatMap(([x, z]) => [Math.round(x * 10) / 10, Math.round(z * 10) / 10]),
+      r: roundRing(p.ring),
       selfIntersects: p.simple ? undefined : 1,
       strip: p.strip || p.compact < 0.12 ? 1 : undefined,
       tag: p.tag,
@@ -1229,7 +1229,7 @@ const main = () => {
       objBuckets: groups.size,
       objObjects: objLines,
       objVerts: vx.length,
-      osmOffset: { dx: +dx.toFixed(2), dz: +dz.toFixed(2) },
+      osmOffset: { dx: Number(dx.toFixed(2)), dz: Number(dz.toFixed(2)) },
       source: objPath,
       world: { gridX: GRID_X, gridZ: GRID_Z, h: WORLD_H, w: WORLD_W },
     },
@@ -1254,13 +1254,14 @@ const main = () => {
   console.log("\n=== DECODED GROUPS (by total area) ===");
 
   for (const d of decoded.slice(0, 60)) {
+    const disagrees =
+      d.hintAgrees === false ? `NAME-HINT DISAGREES (${(d.nameHint ?? []).join("|")}) ` : "";
+
     console.log(
       `${d.group.padEnd(24)} n=${String(d.polygons).padStart(5)} ` +
         `match=${String(Math.round(d.matchRate * 100)).padStart(3)}% ` +
         `area=${String(d.areaU2).padStart(8)}u² -> ${String(d.decoded).padEnd(28)} ` +
-        `conf=${d.confidence.toFixed(2)} ` +
-        (d.hintAgrees === false ? `NAME-HINT DISAGREES (${d.nameHint.join("|")}) ` : "") +
-        d.runnersUp.slice(0, 2).join(", "),
+        `conf=${d.confidence.toFixed(2)} ${disagrees}${d.runnersUp.slice(0, 2).join(", ")}`,
     );
   }
 
@@ -1268,7 +1269,7 @@ const main = () => {
 
   for (const d of districts) {
     console.log(
-      `${String(d.name ?? d.tag ?? "(no OSM match)").padEnd(28)} ${String(d.areaKm2).padStart(6)} km²  ` +
+      `${(d.name ?? d.tag ?? "(no OSM match)").padEnd(28)} ${String(d.areaKm2).padStart(6)} km²  ` +
         `u=${d.u} v=${d.v}  from ${d.group}`,
     );
   }
@@ -1297,35 +1298,45 @@ const main = () => {
   console.log(infra.summary.join("\n"));
 };
 
-const levelsOf = (c: { faces: any; minY: number }) => {
-  const lv = new Map();
+interface Extent {
+  maxX: number;
+  maxZ: number;
+  minX: number;
+  minZ: number;
+  n: number;
+}
+
+const levelsOf = (c: Comp) => {
+  const lv = new Map<number, Extent>();
 
   for (const f of c.faces) {
     for (const id of f) {
-      const b = Math.round(vy[id] * 2) / 2;
+      const x = at(vx, id);
+      const z = at(vz, id);
+      const b = Math.round(at(vy, id) * 2) / 2;
       let e = lv.get(b);
 
-      if (!e) {
+      if (e === undefined) {
         e = { maxX: -1e9, maxZ: -1e9, minX: 1e9, minZ: 1e9, n: 0 };
         lv.set(b, e);
       }
 
       e.n += 1;
 
-      if (vx[id] < e.minX) {
-        e.minX = vx[id];
+      if (x < e.minX) {
+        e.minX = x;
       }
 
-      if (vx[id] > e.maxX) {
-        e.maxX = vx[id];
+      if (x > e.maxX) {
+        e.maxX = x;
       }
 
-      if (vz[id] < e.minZ) {
-        e.minZ = vz[id];
+      if (z < e.minZ) {
+        e.minZ = z;
       }
 
-      if (vz[id] > e.maxZ) {
-        e.maxZ = vz[id];
+      if (z > e.maxZ) {
+        e.maxZ = z;
       }
     }
   }
@@ -1334,13 +1345,13 @@ const levelsOf = (c: { faces: any; minY: number }) => {
     .filter(([, e]) => e.n >= 3)
     .toSorted((a, b) => a[0] - b[0])
     .map(([y, e]) => ({
-      area: +((e.maxX - e.minX) * CAL.sx * ((e.maxZ - e.minZ) * CAL.sz)).toFixed(1),
-      h: +((y - c.minY) * CAL_SY).toFixed(2),
+      area: Number(((e.maxX - e.minX) * CAL.sx * ((e.maxZ - e.minZ) * CAL.sz)).toFixed(1)),
+      h: Number(((y - c.minY) * CAL_SY).toFixed(2)),
       n: e.n,
     }));
 };
 
-const bandExtent = (c: { maxY: number; minY: number; faces: any }, lo: number, hi: number) => {
+const bandExtent = (c: Comp, lo: number, hi: number) => {
   const ext = c.maxY - c.minY;
   let x0 = 1e9;
   let x1 = -1e9;
@@ -1350,28 +1361,30 @@ const bandExtent = (c: { maxY: number; minY: number; faces: any }, lo: number, h
 
   for (const f of c.faces) {
     for (const id of f) {
-      const t = ext > 0 ? (vy[id] - c.minY) / ext : 0;
+      const t = ext > 0 ? (at(vy, id) - c.minY) / ext : 0;
 
       if (t < lo || t > hi) {
         continue;
       }
 
       n += 1;
+      const x = at(vx, id);
+      const z = at(vz, id);
 
-      if (vx[id] < x0) {
-        x0 = vx[id];
+      if (x < x0) {
+        x0 = x;
       }
 
-      if (vx[id] > x1) {
-        x1 = vx[id];
+      if (x > x1) {
+        x1 = x;
       }
 
-      if (vz[id] < z0) {
-        z0 = vz[id];
+      if (z < z0) {
+        z0 = z;
       }
 
-      if (vz[id] > z1) {
-        z1 = vz[id];
+      if (z > z1) {
+        z1 = z;
       }
     }
   }
@@ -1379,34 +1392,31 @@ const bandExtent = (c: { maxY: number; minY: number; faces: any }, lo: number, h
   return n === 0 ? 0 : (x1 - x0) * CAL.sx * ((z1 - z0) * CAL.sz);
 };
 
-const massingOf = (
-  key: any,
-  c: { minY: number; maxY: number; minX: any; maxX: any; minZ: any; maxZ: any },
-  w: number,
-  d: number,
-) => {
+const massingOf = (key: string, c: Comp, w: number, d: number) => {
   const lowA = bandExtent(c, 0, 0.25);
   const highA = bandExtent(c, 0.75, 1);
 
   return {
-    base: +(c.minY * CAL_SY).toFixed(2),
-    bboxArea: +(w * d).toFixed(1),
+    base: Number((c.minY * CAL_SY).toFixed(2)),
+    bboxArea: Number((w * d).toFixed(1)),
     group: key,
-    h: +((c.maxY - c.minY) * CAL_SY).toFixed(2),
+    h: Number(((c.maxY - c.minY) * CAL_SY).toFixed(2)),
     levels: levelsOf(c),
-    taper: lowA > 0 ? +(highA / lowA).toFixed(3) : 1,
-    wx: +toWorldX((c.minX + c.maxX) / 2).toFixed(1),
-    wz: +toWorldZ((c.minZ + c.maxZ) / 2).toFixed(1),
-    x: +((c.minX + c.maxX) / 2).toFixed(1),
-    z: +((c.minZ + c.maxZ) / 2).toFixed(1),
+    taper: lowA > 0 ? Number((highA / lowA).toFixed(3)) : 1,
+    wx: Number(toWorldX((c.minX + c.maxX) / 2).toFixed(1)),
+    wz: Number(toWorldZ((c.minZ + c.maxZ) / 2).toFixed(1)),
+    x: Number(((c.minX + c.maxX) / 2).toFixed(1)),
+    z: Number(((c.minZ + c.maxZ) / 2).toFixed(1)),
   };
 };
 
+type Massing = ReturnType<typeof massingOf>;
+
 const analyseMassing = () => {
-  const comps: never[] = [];
+  const comps: Massing[] = [];
 
   for (const [key, faces] of groups) {
-    const [name, mtl] = key.split("|");
+    const [name, mtl] = splitKey(key);
 
     if (mtl !== "building" || !BUILDING_NAME.test(name)) {
       continue;
@@ -1431,8 +1441,8 @@ const analyseMassing = () => {
   comps.sort((a, b) => b.h - a.h);
 
   const hs = comps.map((c) => c.h).toSorted((a, b) => a - b);
-  const q = (t: number) => hs[Math.min(hs.length - 1, Math.floor(hs.length * t))];
-  const hist = new Map();
+  const q = (t: number) => at(hs, Math.min(hs.length - 1, Math.floor(hs.length * t)));
+  const hist = new Map<number, number>();
 
   for (const h of hs) {
     hist.set(Math.floor(h), (hist.get(Math.floor(h)) ?? 0) + 1);
@@ -1442,14 +1452,14 @@ const analyseMassing = () => {
 
   const distinct = new Set(hs.map((h) => h.toFixed(2)));
 
-  const BANDS = [
-    ["<1u  (<4.4m)", (c: { h: number }) => c.h < 1],
-    ["1-2u (4-9m)", (c: { h: number }) => c.h >= 1 && c.h < 2],
-    ["2-4u (9-18m)", (c: { h: number }) => c.h >= 2 && c.h < 4],
-    ["4-9u (18-40m)", (c: { h: number }) => c.h >= 4 && c.h < 9],
-    ["9-20u (40-89m)", (c: { h: number }) => c.h >= 9 && c.h < 20],
-    ["20-40u (89-178m)", (c: { h: number }) => c.h >= 20 && c.h < 40],
-    [">=40u (>=178m)", (c: { h: number }) => c.h >= 40],
+  const BANDS: readonly (readonly [string, (c: Massing) => boolean])[] = [
+    ["<1u  (<4.4m)", (c) => c.h < 1],
+    ["1-2u (4-9m)", (c) => c.h >= 1 && c.h < 2],
+    ["2-4u (9-18m)", (c) => c.h >= 2 && c.h < 4],
+    ["4-9u (18-40m)", (c) => c.h >= 4 && c.h < 9],
+    ["9-20u (40-89m)", (c) => c.h >= 9 && c.h < 20],
+    ["20-40u (89-178m)", (c) => c.h >= 20 && c.h < 40],
+    [">=40u (>=178m)", (c) => c.h >= 40],
   ];
 
   const bandStats = BANDS.map(([label, test]) => {
@@ -1457,21 +1467,21 @@ const analyseMassing = () => {
     const prisms = set.filter((c) => c.levels.length <= 2).length;
     const tapered = set.filter((c) => c.taper < 0.8).length;
     const taperSorted = set.map((c) => c.taper).toSorted((a, b) => a - b);
-    const medTaper = set.length ? taperSorted[Math.floor(set.length / 2)].toFixed(2) : "-";
+    const medTaper = set.length > 0 ? at(taperSorted, Math.floor(set.length / 2)).toFixed(2) : "-";
 
     return {
       band: label,
-      flatPrismPct: set.length ? +((prisms / set.length) * 100).toFixed(1) : 0,
+      flatPrismPct: set.length > 0 ? Number(((prisms / set.length) * 100).toFixed(1)) : 0,
       flatPrisms: prisms,
-      medianTaper: +medTaper,
+      medianTaper: Number(medTaper),
       n: set.length,
-      pctOfCity: +((set.length / comps.length) * 100).toFixed(2),
+      pctOfCity: Number(((set.length / comps.length) * 100).toFixed(2)),
       taperedBelow80pct: tapered,
     };
   });
 
   const tiers = { 2: 0, 3: 0, 4: 0, "5+": 0 };
-  const setbacks: never[] = [];
+  const setbacks: Massing[] = [];
 
   for (const c of comps) {
     const n = c.levels.length;
@@ -1491,7 +1501,7 @@ const analyseMassing = () => {
     }
   }
 
-  const hCount = new Map();
+  const hCount = new Map<number, number>();
 
   for (const c of comps) {
     hCount.set(c.h, (hCount.get(c.h) ?? 0) + 1);
@@ -1500,7 +1510,7 @@ const analyseMassing = () => {
   const modalHeights = [...hCount.entries()]
     .toSorted((a, b) => b[1] - a[1])
     .slice(0, 20)
-    .map(([h, n]) => ({ h, m: +(h * M_PER_U).toFixed(1), n }));
+    .map(([h, n]) => ({ h, m: Number((h * M_PER_U).toFixed(1)), n }));
 
   const tall = comps.filter((c) => c.h >= 9);
   const towers = comps.filter((c) => c.h >= 20);
@@ -1512,9 +1522,12 @@ const analyseMassing = () => {
     return u > 0.66 && u < 0.8 && v > 0.12 && v < 0.27;
   });
 
+  const hMin = at(hs, 0);
+  const hMax = at(hs, hs.length - 1);
+
   const summary = [
     `components: ${comps.length}`,
-    `height (world u, 1u = ${M_PER_U} m): min ${hs[0].toFixed(2)} p25 ${q(0.25).toFixed(2)} p50 ${q(0.5).toFixed(2)} p75 ${q(0.75).toFixed(2)} p90 ${q(0.9).toFixed(2)} p99 ${q(0.99).toFixed(2)} max ${hs.at(-1).toFixed(2)}`,
+    `height (world u, 1u = ${M_PER_U} m): min ${hMin.toFixed(2)} p25 ${q(0.25).toFixed(2)} p50 ${q(0.5).toFixed(2)} p75 ${q(0.75).toFixed(2)} p90 ${q(0.9).toFixed(2)} p99 ${q(0.99).toFixed(2)} max ${hMax.toFixed(2)}`,
     `distinct height values: ${distinct.size} — the model carries the OSM height/levels tag, so heights are QUANTISED. Top 5 repeats: ${modalHeights
       .slice(0, 5)
       .map((x) => `${x.h}u x${x.n}`)
@@ -1542,8 +1555,8 @@ const analyseMassing = () => {
       towers: fidi
         .toSorted((a, b) => b.h - a.h)
         .map((c) => [
-          +toU(c.wx).toFixed(4),
-          +toV(c.wz).toFixed(4),
+          Number(toU(c.wx).toFixed(4)),
+          Number(toV(c.wz).toFixed(4)),
           c.h,
           c.taper,
           Math.round(c.bboxArea),
@@ -1551,8 +1564,8 @@ const analyseMassing = () => {
     },
     heightHistogram: histogram,
     heightQuantiles: {
-      max: hs.at(-1),
-      min: hs[0],
+      max: hMax,
+      min: hMin,
       p10: q(0.1),
       p25: q(0.25),
       p50: q(0.5),
@@ -1570,8 +1583,8 @@ const analyseMassing = () => {
         h: c.h,
         levels: c.levels,
         taper: c.taper,
-        u: +toU(c.wx).toFixed(4),
-        v: +toV(c.wz).toFixed(4),
+        u: Number(toU(c.wx).toFixed(4)),
+        v: Number(toV(c.wz).toFixed(4)),
         wx: c.wx,
         wz: c.wz,
       })),
@@ -1581,32 +1594,34 @@ const analyseMassing = () => {
       group: c.group,
       h: c.h,
       levels: c.levels.length,
-      m: +(c.h * M_PER_U).toFixed(0),
+      m: Number((c.h * M_PER_U).toFixed(0)),
       taper: c.taper,
-      u: +toU(c.wx).toFixed(4),
-      v: +toV(c.wz).toFixed(4),
+      u: Number(toU(c.wx).toFixed(4)),
+      v: Number(toV(c.wz).toFixed(4)),
       wx: c.wx,
       wz: c.wz,
     })),
   };
 };
 
+type InfraKind = "power" | "railway";
+
 const nearestInfraWay = (
-  ways: { [x: string]: any },
-  idx: { near: (arg0: number, arg1: number, arg2: number) => any },
-  which: any,
+  ways: readonly OsmWay[],
+  idx: WayIndex,
+  which: InfraKind,
   cx: number,
   cz: number,
   dx: number,
-  dz: number | undefined,
+  dz: number,
 ) => {
-  let best = null;
+  let best: OsmWay | null = null;
   let bd = 60;
 
   for (const i of idx.near(cx - dx, cz - dz, 60)) {
-    const wobj = ways[i];
+    const wobj = at(ways, i);
 
-    if (!wobj.tags.some((t: string) => t.startsWith(`${which}=`))) {
+    if (!wobj.tags.some((t) => t.startsWith(`${which}=`))) {
       continue;
     }
 
@@ -1622,60 +1637,74 @@ const nearestInfraWay = (
 };
 
 const infraItemOf = (
-  which: string,
-  key: any,
-  c: { maxX: number; minX: number; maxZ: number; minZ: number; maxY: number; minY: number },
-  ways: any,
-  idx: any,
-  dx: any,
-  dz: any,
+  which: InfraKind,
+  key: string,
+  c: Comp,
+  ways: readonly OsmWay[],
+  idx: WayIndex,
+  dx: number,
+  dz: number,
 ) => {
   const [ring] = topRings(c).toSorted((a, b) => Math.abs(ringArea(b)) - Math.abs(ringArea(a)));
   const w = (c.maxX - c.minX) * CAL.sx;
   const d = (c.maxZ - c.minZ) * CAL.sz;
-  const r = ring ? rdp(ring, 0.5) : null;
-  const area = r ? Math.abs(ringArea(r)) : 0;
-  const per = r ? plLen([...r, r[0]]) : 0;
-  const best = r ? nearestInfraWay(ways, idx, which, ...centroidOf(r), dx, dz) : null;
+  const r = ring === undefined ? null : rdp(ring, 0.5);
+  const area = r === null ? 0 : Math.abs(ringArea(r));
+  const per = r === null ? 0 : plLen([...r, at(r, 0)]);
+  let best: OsmWay | null = null;
+
+  if (r !== null) {
+    const [rx, rz] = centroidOf(r);
+    best = nearestInfraWay(ways, idx, which, rx, rz, dx, dz);
+  }
 
   return {
-    area: +area.toFixed(1),
-    compact: +(per > 0 ? (4 * Math.PI * area) / (per * per) : 0).toFixed(3),
+    area: Number(area.toFixed(1)),
+    compact: Number((per > 0 ? (4 * Math.PI * area) / (per * per) : 0).toFixed(3)),
     key,
     name: best?.name ?? null,
-    ring: r ? r.flatMap(([x, z]) => [Math.round(x * 10) / 10, Math.round(z * 10) / 10]) : null,
-    span: +Math.max(w, d).toFixed(1),
-    tag: best?.tags.find((t: string) => t.startsWith(`${which}=`)) ?? null,
-    thin: +Math.min(w, d).toFixed(1),
-    u: +toU(toWorldX((c.minX + c.maxX) / 2)).toFixed(4),
-    v: +toV(toWorldZ((c.minZ + c.maxZ) / 2)).toFixed(4),
-    wx: +toWorldX((c.minX + c.maxX) / 2).toFixed(1),
-    wz: +toWorldZ((c.minZ + c.maxZ) / 2).toFixed(1),
-    yMax: +(c.maxY * CAL_SY).toFixed(2),
-    yMin: +(c.minY * CAL_SY).toFixed(2),
+    ring: r === null ? null : roundRing(r),
+    span: Number(Math.max(w, d).toFixed(1)),
+    tag: best?.tags.find((t) => t.startsWith(`${which}=`)) ?? null,
+    thin: Number(Math.min(w, d).toFixed(1)),
+    u: Number(toU(toWorldX((c.minX + c.maxX) / 2)).toFixed(4)),
+    v: Number(toV(toWorldZ((c.minZ + c.maxZ) / 2)).toFixed(4)),
+    wx: Number(toWorldX((c.minX + c.maxX) / 2).toFixed(1)),
+    wz: Number(toWorldZ((c.minZ + c.maxZ) / 2).toFixed(1)),
+    yMax: Number((c.maxY * CAL_SY).toFixed(2)),
+    yMin: Number((c.minY * CAL_SY).toFixed(2)),
   };
 };
 
-const analyseInfra = (
-  ways: {
-    area: number;
-    cx: any;
-    cz: any;
-    id: any;
-    len: number;
-    name: any;
-    ring: any;
-    tags: string[];
-  }[],
-  idx: { near(x: any, z: any, r: any): any[] },
-  dx: number,
-  dz: number,
-) => {
-  const out = { summary: [] };
+type InfraItem = ReturnType<typeof infraItemOf>;
 
-  for (const which of ["power", "railway"]) {
-    const buckets = [...groups.entries()].filter(([k]) => k.split("|")[0] === which);
-    const items = [];
+interface InfraReport {
+  areaLike: number;
+  components: number;
+  items: InfraItem[];
+  lineLike: number;
+  osmAvailableNotInObj: [string, number][];
+  osmTags: [string, number][];
+  totalAreaU2: number;
+  totalLineSpanU: number;
+  yRangeM: [number, number];
+  yRangeU: [number, number];
+}
+
+const INFRA_KINDS: readonly InfraKind[] = ["power", "railway"];
+
+interface InfraOut {
+  power?: InfraReport;
+  railway?: InfraReport;
+  summary: string[];
+}
+
+const analyseInfra = (ways: readonly OsmWay[], idx: WayIndex, dx: number, dz: number) => {
+  const out: InfraOut = { summary: [] };
+
+  for (const which of INFRA_KINDS) {
+    const buckets = [...groups.entries()].filter(([k]) => splitKey(k)[0] === which);
+    const items: InfraItem[] = [];
 
     for (const [key, faces] of buckets) {
       for (const c of components(faces)) {
@@ -1685,28 +1714,17 @@ const analyseInfra = (
 
     const lines = items.filter((i) => i.compact < 0.15 && i.span > 8);
     const areas = items.filter((i) => !(i.compact < 0.15 && i.span > 8));
-    const tagHist = new Map();
+    const tagHist = new Map<string, number>();
 
     for (const i of items) {
-      if (i.tag) {
+      if (i.tag !== null && i.tag !== "") {
         tagHist.set(i.tag, (tagHist.get(i.tag) ?? 0) + 1);
       }
     }
 
     const yMin = Math.min(...items.map((i) => i.yMin));
     const yMax = Math.max(...items.map((i) => i.yMax));
-    out[which] = {
-      areaLike: areas.length,
-      components: items.length,
-      items: items.toSorted((a, b) => b.span - a.span).slice(0, 200),
-      lineLike: lines.length,
-      osmTags: [...tagHist.entries()].toSorted((a, b) => b[1] - a[1]),
-      totalAreaU2: +areas.reduce((s, i) => s + i.area, 0).toFixed(0),
-      totalLineSpanU: +lines.reduce((s, i) => s + i.span, 0).toFixed(0),
-      yRangeM: [+(yMin * M_PER_U).toFixed(1), +(yMax * M_PER_U).toFixed(1)],
-      yRangeU: [yMin, yMax],
-    };
-    const avail = new Map();
+    const avail = new Map<string, number>();
 
     for (const w of ways) {
       for (const t of w.tags) {
@@ -1716,7 +1734,18 @@ const analyseInfra = (
       }
     }
 
-    out[which].osmAvailableNotInObj = [...avail.entries()].toSorted((a, b) => b[1] - a[1]);
+    out[which] = {
+      areaLike: areas.length,
+      components: items.length,
+      items: items.toSorted((a, b) => b.span - a.span).slice(0, 200),
+      lineLike: lines.length,
+      osmTags: [...tagHist.entries()].toSorted((a, b) => b[1] - a[1]),
+      totalAreaU2: Number(areas.reduce((s, i) => s + i.area, 0).toFixed(0)),
+      totalLineSpanU: Number(lines.reduce((s, i) => s + i.span, 0).toFixed(0)),
+      yRangeM: [Number((yMin * M_PER_U).toFixed(1)), Number((yMax * M_PER_U).toFixed(1))],
+      yRangeU: [yMin, yMax],
+      osmAvailableNotInObj: [...avail.entries()].toSorted((a, b) => b[1] - a[1]),
+    };
     out.summary.push(
       `${which}: ${items.length} components — ${lines.length} line-like, ${areas.length} area-like; ` +
         `y ${yMin.toFixed(2)}..${yMax.toFixed(2)}u (${(yMin * M_PER_U).toFixed(1)}..${(yMax * M_PER_U).toFixed(1)} m); ` +
@@ -1740,13 +1769,13 @@ const CELL_W = WORLD_W / GRID_X;
 const CELL_H = WORLD_H / GRID_Z;
 const CELL_AREA = CELL_W * CELL_H;
 
-const inRing = (ring: string | any[], px: number, pz: number) => {
+const inRing = (ring: readonly Point[], px: number, pz: number) => {
   let inside = false;
   let j = ring.length - 1;
 
   for (let i = 0; i < ring.length; i += 1) {
-    const [xi, zi] = ring[i];
-    const [xj, zj] = ring[j];
+    const [xi, zi] = at(ring, i);
+    const [xj, zj] = at(ring, j);
 
     if (zi > pz !== zj > pz && px < ((xj - xi) * (pz - zi)) / (zj - zi) + xi) {
       inside = !inside;
@@ -1760,7 +1789,7 @@ const inRing = (ring: string | any[], px: number, pz: number) => {
 
 const STEP = 1.5;
 
-const ringBounds = (ring: any) => {
+const ringBounds = (ring: readonly Point[]) => {
   let minX = 1e9;
   let maxX = -1e9;
   let minZ = 1e9;
@@ -1787,7 +1816,7 @@ const ringBounds = (ring: any) => {
   return { maxX, maxZ, minX, minZ };
 };
 
-const accumulateCoverage = (acc: Map<any, any>, p: { ring: any; cls: any }) => {
+const accumulateCoverage = (acc: Map<number, Map<string, number>>, p: AreaItem) => {
   const { maxX, maxZ, minX, minZ } = ringBounds(p.ring);
   const w = STEP * STEP;
 
@@ -1807,7 +1836,7 @@ const accumulateCoverage = (acc: Map<any, any>, p: { ring: any; cls: any }) => {
       const k = gx * GRID_Z + gz;
       let m = acc.get(k);
 
-      if (!m) {
+      if (m === undefined) {
         m = new Map();
         acc.set(k, m);
       }
@@ -1817,17 +1846,19 @@ const accumulateCoverage = (acc: Map<any, any>, p: { ring: any; cls: any }) => {
   }
 };
 
-const RANK_OF = new Map(Object.values(CLASS_OF).map(([c, r]) => [c, r]));
+const RANK_OF = new Map(CLASS_OF.values());
 
-const bestClassOf = (m: any) => {
-  let bestC = null;
+const rankOf = (c: string | null) => (c === null ? 0 : (RANK_OF.get(c) ?? 0));
+
+const bestClassOf = (m: ReadonlyMap<string, number>) => {
+  let bestC: string | null = null;
   let bestA = 0;
   let total = 0;
 
   for (const [c, a] of m) {
     total += a;
 
-    if (a > bestA || (a === bestA && (RANK_OF.get(c) ?? 0) > (RANK_OF.get(bestC) ?? 0))) {
+    if (a > bestA || (a === bestA && rankOf(c) > rankOf(bestC))) {
       bestA = a;
       bestC = c;
     }
@@ -1836,17 +1867,17 @@ const bestClassOf = (m: any) => {
   return { bestA, bestC, total };
 };
 
-const rasteriseAreas = (items: { cls: any; ring: any }[], minFill: number) => {
-  const acc = new Map();
+const rasteriseAreas = (items: readonly AreaItem[], minFill: number) => {
+  const acc = new Map<number, Map<string, number>>();
 
   for (const p of items) {
     accumulateCoverage(acc, p);
   }
 
-  const classes: any[] = [];
-  const classId = new Map();
+  const classes: string[] = [];
+  const classId = new Map<string, number>();
 
-  const idOf = (c: any) => {
+  const idOf = (c: string) => {
     let i = classId.get(c);
 
     if (i === undefined) {
@@ -1865,25 +1896,25 @@ const rasteriseAreas = (items: { cls: any; ring: any }[], minFill: number) => {
     const { bestA, bestC, total } = bestClassOf(m);
     fill[k] = total / CELL_AREA;
 
-    if (bestC && bestA / CELL_AREA >= minFill) {
+    if (bestC !== null && bestC !== "" && bestA / CELL_AREA >= minFill) {
       cell[k] = idOf(bestC);
     }
   }
 
-  const counts = new Map();
+  const counts = new Map<string, number>();
 
   for (const v of cell) {
-    const c = v < 0 ? "unclassified" : classes[v];
+    const c = v < 0 ? "unclassified" : at(classes, v);
     counts.set(c, (counts.get(c) ?? 0) + 1);
   }
 
-  const cols = [];
+  const cols: string[] = [];
 
   for (let gx = 0; gx < GRID_X; gx += 1) {
     let s = "";
 
     for (let gz = 0; gz < GRID_Z; gz += 1) {
-      s += (cell[gx * GRID_Z + gz] + 1).toString(16).padStart(2, "0");
+      s += (at(cell, gx * GRID_Z + gz) + 1).toString(16).padStart(2, "0");
     }
 
     cols.push(s);
