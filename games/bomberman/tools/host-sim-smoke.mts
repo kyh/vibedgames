@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { hostTick, placeBomb } from "../src/sim/host-sim";
 import { BOT_MOVE_MS, FUSE_MS, newGrid } from "../src/shared/constants";
-import type { Cell, SharedState } from "../src/shared/constants";
+import type { Bot, Cell, SharedState } from "../src/shared/constants";
 
 const openGrid = (crates: [col: number, row: number][]) => {
-  const grid = newGrid().map((row) =>
+  const grid: Cell[][] = newGrid().map((row) =>
     row.map((cell) => (cell.kind === "crate" ? { kind: "empty" as const } : cell)),
   );
 
@@ -13,7 +13,7 @@ const openGrid = (crates: [col: number, row: number][]) => {
     const line = grid[row];
 
     if (line) {
-      line[col] = { kind: "crate" };
+      line[col] = { kind: "crate" as const };
     }
   }
 
@@ -33,15 +33,16 @@ const world = (grid: Cell[][], patch: Partial<SharedState> = {}) => ({
   ...patch,
 });
 
-const bot = (id: string, col: number, row: number) => ({
-  col,
-  colorIdx: 1,
-  dir: "down",
-  id,
-  moving: false,
-  nextMoveAt: 0,
-  row,
-});
+const bot = (id: string, col: number, row: number) =>
+  ({
+    col,
+    colorIdx: 1,
+    dir: "down",
+    id,
+    moving: false,
+    nextMoveAt: 0,
+    row,
+  }) satisfies Bot;
 
 test("bomb placement: stock, tile occupancy and death gate the request", () => {
   const s = world(openGrid([]));

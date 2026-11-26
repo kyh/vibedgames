@@ -66,8 +66,8 @@ Run browser checks serially; keep other rendering browsers and heavy builds idle
 
 ```sh
 pnpm -F @repo/crazy-waymo test
-node tools/verify-water.mjs 'http://localhost:5193/?time=noon&offline=1' /tmp/waymo-water
-node tools/verify-menu-keyboard.mjs 'http://localhost:5193/?time=noon&offline=1' /tmp/waymo-menu
-node tools/verify-mobile.mjs 'http://localhost:5193/?time=night&offline=1' /tmp/waymo-mobile
-node tools/verify-mobile-performance.mjs 'http://localhost:5193/?time=noon&offline=1' /tmp/waymo-performance 4,4,4 8000 --tier=4 --no-multi-draw
+node tools/verify-water.mts 'http://localhost:5193/?time=noon&offline=1' /tmp/waymo-water
+node tools/verify-menu-keyboard.mts 'http://localhost:5193/?time=noon&offline=1' /tmp/waymo-menu
+node tools/verify-mobile.mts 'http://localhost:5193/?time=night&offline=1' /tmp/waymo-mobile
+node tools/verify-mobile-performance.mts 'http://localhost:5193/?time=noon&offline=1' /tmp/waymo-performance 4,4,4 8000 --tier=4 --no-multi-draw
 ```

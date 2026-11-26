@@ -29,7 +29,7 @@ export interface NetSessionOptions {
 
 export class NetSession {
   /** The room. Public for its own verbs, and for the two-client harness
-   *  (tools/two-client.mjs), which drops and redials its socket. */
+   *  (tools/two-client.mts), which drops and redials its socket. */
   readonly client: MultiplayerClient;
   private otherScanned: PlayerMap | null = null;
   private other: Player | null = null;

@@ -115,12 +115,12 @@ export class GameScene extends Scene implements SceneHooks {
     return this.seat.mode === "versus";
   }
 
-  /** Host match state; tools/two-client.mjs ends rounds through it. */
+  /** Host match state; tools/two-client.mts ends rounds through it. */
   get vs() {
     return this.run.match;
   }
 
-  /** The party connection; tools/two-client.mjs counts its players. */
+  /** The party connection; tools/two-client.mts counts its players. */
   get session() {
     return this.seat.session;
   }

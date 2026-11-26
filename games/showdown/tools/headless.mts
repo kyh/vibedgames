@@ -83,7 +83,7 @@ export const hop = (seed: number, latency: number, jitter: number) => {
   const rng = seededRandom(seed);
   let last = 0;
 
-  return (now) => {
+  return (now: number) => {
     last = Math.max(last, now + latency + (rng() * 2 - 1) * jitter);
 
     return last;
@@ -107,7 +107,7 @@ export const wire = (...hops: Hop[]) => {
 
   return {
     delays,
-    send: (now, data) => {
+    send: (now: number, data: any) => {
       let at = now;
 
       for (const leg of hops) {
@@ -117,7 +117,7 @@ export const wire = (...hops: Hop[]) => {
       delays.push(at - now);
       queue.push({ at, data });
     },
-    take: (now) => {
+    take: (now: number) => {
       const out: string[] = [];
 
       while (queue.length > 0 && (queue[0]?.at ?? Number.POSITIVE_INFINITY) <= now) {
@@ -160,7 +160,7 @@ export const peerClock = (seed: number, loadedAt: number, latency: number, jitte
     server.sample(local(sent), SERVER_EPOCH + sent + up, local(sent + up + down));
   }
 
-  return { local, server, serverAt: (wall) => Math.round(server.now(local(wall))) };
+  return { local, server, serverAt: (wall: number) => Math.round(server.now(local(wall))) };
 };
 
 /** One client as the network sees it: its link to the server, both ways, and its reading of the server clock. */

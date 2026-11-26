@@ -30,8 +30,26 @@ import { setDecorOverride } from "./data/decor";
 import { buildPlaytestManifest } from "./playtest/manifest";
 import type { BattleDiagnostics } from "./playtest/manifest";
 
+const MENU_DIAGNOSTICS = {
+  audio: null,
+  complete: false,
+  fight: null,
+  kills: 0,
+  online: null,
+  phase: "menu",
+  player: undefined,
+  score: 0,
+} as const;
+
+/** What `window.__GAME_DIAGNOSTICS__` reads: the live scene's, or the menu's before a match. */
+export type BattleArenaDiagnostics = { frame: number } & (
+  | ReturnType<GameScene["diagnostics"]>
+  | typeof MENU_DIAGNOSTICS
+);
+
 declare global {
   interface Window {
+    __GAME_DIAGNOSTICS__?: BattleArenaDiagnostics;
     __ba?: GameScene;
     __view?: View;
   }
@@ -310,16 +328,9 @@ const main = async () => {
   const timer = new THREE.Timer();
   let activeScene: GameScene | null = null;
   let frame = 0;
-  publishDiagnostics(() => ({
+  publishDiagnostics<BattleArenaDiagnostics>(() => ({
     frame,
-    ...(activeScene?.diagnostics() ?? {
-      audio: null,
-      complete: false,
-      fight: null,
-      phase: "menu",
-      player: undefined,
-      score: 0,
-    }),
+    ...(activeScene?.diagnostics() ?? MENU_DIAGNOSTICS),
   }));
   let froze = false;
 

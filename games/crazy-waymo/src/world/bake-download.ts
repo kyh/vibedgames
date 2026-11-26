@@ -141,6 +141,6 @@ export const downloadWorldArtifacts = async (
   a.download = "world-bake.bin";
   a.click();
   console.log(
-    "[bake] artifacts downloaded — tools/bake-world.mjs installs them into public/world/",
+    "[bake] artifacts downloaded — tools/bake-world.mts installs them into public/world/",
   );
 };

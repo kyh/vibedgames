@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync } from "node:fs";
 
-import { GRID_X, GRID_Z, projU, projV, rdp, ROAD_TILE, WORLD_H, WORLD_W } from "./lib.mjs";
+import { GRID_X, GRID_Z, projU, projV, rdp, ROAD_TILE, WORLD_H, WORLD_W } from "./lib.mts";
 import { parkCell } from "../../src/world/park-clear.ts";
 import { landuseGreenAt } from "../../src/world/sf-landuse.ts";
 import { districtAt, landFactor, makeTerrain } from "../../src/world/sf-map.ts";
@@ -24,7 +24,7 @@ const MINOR_MIN_LEN = 45;
 const MERGE_MIN_HALF = 4.6;
 const MINOR_MAX_HALF = 3.2;
 
-const plLen = (pts) => {
+const plLen = (pts: string | any[]) => {
   let L = 0;
 
   for (let i = 1; i < pts.length; i += 1) {
@@ -34,9 +34,11 @@ const plLen = (pts) => {
   return L;
 };
 
-const edgeLen = (e) => plLen(e.pts);
+const edgeLen = (
+  e: { a: any; b: any; half: any; pts: number[][] } | { a: any; b: any; half: number; pts: any[] },
+) => plLen(e.pts);
 
-const samplesOf = (e, step) => {
+const samplesOf = (e: { pts: string | any[] }, step: number) => {
   const out = [];
   let acc = 0;
 
@@ -61,7 +63,7 @@ const samplesOf = (e, step) => {
   return out;
 };
 
-const samplesWithS = (e, step) => {
+const samplesWithS = (e: { pts: string | any[] }, step: number) => {
   const out = [];
   let acc = 0;
   let base = 0;
@@ -89,7 +91,7 @@ const samplesWithS = (e, step) => {
   return out;
 };
 
-const nearestOnEdge = (x, z, e) => {
+const nearestOnEdge = (x: number, z: number, e: { pts: string | any[] }) => {
   let best = Infinity;
   let tx = 1;
   let tz = 0;
@@ -116,7 +118,7 @@ const nearestOnEdge = (x, z, e) => {
   return { d: best, tx, tz };
 };
 
-const armsByNode = (es) => {
+const armsByNode = (es: any[]) => {
   const byNode = new Map();
 
   for (const [i, e] of es.entries()) {
@@ -132,7 +134,12 @@ const armsByNode = (es) => {
   return byNode;
 };
 
-const excessArmKills = (es) => {
+const excessArmKills = (
+  es: (
+    | { a: any; b: any; half: any; pts: number[][] }
+    | { a: any; b: any; half: number; pts: any[] }
+  )[],
+) => {
   const kill = new Set();
 
   for (const [, list] of armsByNode(es)) {
@@ -141,10 +148,13 @@ const excessArmKills = (es) => {
     }
 
     const candidates = list
-      .filter((i) => !kill.has(i) && es[i].half <= MINOR_MAX_HALF)
-      .toSorted((x, y) => es[x].half - es[y].half || edgeLen(es[x]) - edgeLen(es[y]));
+      .filter((i: unknown) => !kill.has(i) && es[i].half <= MINOR_MAX_HALF)
+      .toSorted(
+        (x: string | number, y: string | number) =>
+          es[x].half - es[y].half || edgeLen(es[x]) - edgeLen(es[y]),
+      );
 
-    let excess = list.filter((i) => !kill.has(i)).length - 4;
+    let excess = list.filter((i: unknown) => !kill.has(i)).length - 4;
 
     for (const i of candidates) {
       if (excess <= 0) {
@@ -161,8 +171,8 @@ const excessArmKills = (es) => {
 
 const COS_SLIVER = Math.cos((25 * Math.PI) / 180);
 
-const armTangents = (es, n, live) =>
-  live.map((i) => {
+const armTangents = (es: { [x: string]: { a: any } }, n: any, live: any[]) =>
+  live.map((i: string | number) => {
     const { pts } = es[i];
     const m = pts.length;
 
@@ -176,11 +186,16 @@ const armTangents = (es, n, live) =>
     return { i, tx: tx / l, tz: tz / l };
   });
 
-const sliverArmKills = (es) => {
+const sliverArmKills = (
+  es: (
+    | { a: any; b: any; half: any; pts: number[][] }
+    | { a: any; b: any; half: number; pts: any[] }
+  )[],
+) => {
   const kill = new Set();
 
   for (const [n, list] of armsByNode(es)) {
-    const live = list.filter((i) => !kill.has(i));
+    const live = list.filter((i: unknown) => !kill.has(i));
 
     if (live.length < 2) {
       continue;
@@ -216,7 +231,7 @@ const sliverArmKills = (es) => {
   return kill;
 };
 
-const bucketEdges = (es, cell) => {
+const bucketEdges = (es: any[], cell: number) => {
   const buckets = new Map();
 
   for (const [i, e] of es.entries()) {
@@ -248,7 +263,7 @@ const bucketEdges = (es, cell) => {
   return buckets;
 };
 
-const route = (ax, az, bx, bz, midX, midZ) => {
+const route = (ax: number, az: number, bx: number, bz: number, midX: number, midZ: number) => {
   const dx = bx - ax;
   const dz = bz - az;
   const adx = Math.abs(dx);
@@ -273,10 +288,10 @@ const route = (ax, az, bx, bz, midX, midZ) => {
   return [[ax, az], k, [bx, bz]];
 };
 
-const stepKey = (x1, z1, x2, z2) =>
+const stepKey = (x1: number, z1: number, x2: number, z2: number) =>
   x1 < x2 || (x1 === x2 && z1 <= z2) ? `${x1},${z1}|${x2},${z2}` : `${x2},${z2}|${x1},${z1}`;
 
-const sampleEvery = (pts, step) => {
+const sampleEvery = (pts: string | any[], step: number) => {
   const out = [];
   let acc = 0;
   out.push(pts[0]);
@@ -301,7 +316,8 @@ const sampleEvery = (pts, step) => {
 const raw = JSON.parse(readFileSync(new URL("sf-streets.raw.json", import.meta.url)));
 
 const ways = raw.elements.filter(
-  (e) => e.type === "way" && e.geometry && CLASS_HALF[e.tags?.highway] !== undefined,
+  (e: { type: string; geometry: any; tags: { highway: string | number } }) =>
+    e.type === "way" && e.geometry && CLASS_HALF[e.tags?.highway] !== undefined,
 );
 
 console.log(`ways kept (arterials): ${ways.length}`);
@@ -336,10 +352,10 @@ for (const w of ways) {
 
 {
   const before = polylines.length;
-  const isMinor = (half) => half <= MINOR_MAX_HALF;
+  const isMinor = (half: number) => half <= MINOR_MAX_HALF;
   const hillTerrain = makeTerrain();
 
-  const steepAt = (x, z) => {
+  const steepAt = (x: number, z: number) => {
     const e = 6;
     const dx = hillTerrain.heightAt(x + e, z) - hillTerrain.heightAt(x - e, z);
     const dz = hillTerrain.heightAt(x, z + e) - hillTerrain.heightAt(x, z - e);
@@ -347,7 +363,7 @@ for (const w of ways) {
     return Math.hypot(dx, dz) / (2 * e);
   };
 
-  const onHill = (pts) => {
+  const onHill = (pts: string | any[]) => {
     let meanX = 0;
     let meanZ = 0;
 
@@ -428,7 +444,7 @@ for (const w of ways) {
 }
 
 const useCount = new Map();
-const K = (p) => `${Math.round(p[0] * 100)},${Math.round(p[1] * 100)}`;
+const K = (p: number[] | undefined) => `${Math.round(p[0] * 100)},${Math.round(p[1] * 100)}`;
 
 for (const pl of polylines) {
   for (const p of pl.pts) {
@@ -438,9 +454,9 @@ for (const pl of polylines) {
 }
 
 const nodeIds = new Map();
-const nodes = [];
+const nodes: any[][] = [];
 
-const nodeAt = (p) => {
+const nodeAt = (p: any[] | undefined) => {
   const k = K(p);
   let id = nodeIds.get(k);
 
@@ -453,7 +469,7 @@ const nodeAt = (p) => {
   return id;
 };
 
-let edges = [];
+let edges: any[] = [];
 
 for (const pl of polylines) {
   let start = 0;
@@ -554,7 +570,7 @@ for (const e of edges) {
   });
 }
 
-const sameRoadway = (B, bLen, A) => {
+const sameRoadway = (B: { half: any }, bLen: number | undefined, A: { half: any }) => {
   const union = A.half + B.half;
   const inner = samplesWithS(B, 4).filter((p) => p[2] > union && p[2] < bLen - union);
 
@@ -886,9 +902,9 @@ clusterJunctionsPass();
 
 {
   const remap = new Map();
-  const outNodes = [];
+  const outNodes: any[] = [];
 
-  const idFor = (n) => {
+  const idFor = (n: string | number) => {
     let id = remap.get(n);
 
     if (id === undefined) {
@@ -911,7 +927,7 @@ clusterJunctionsPass();
 
 {
   const LATTICE = ROAD_TILE / 2;
-  const snapC = (v) => Math.round(v / LATTICE) * LATTICE;
+  const snapC = (v: number) => Math.round(v / LATTICE) * LATTICE;
   const byPos = new Map();
   const redirect = Array.from({ length: nodes.length });
 
@@ -962,7 +978,11 @@ clusterJunctionsPass();
     `octilinear: merged ${snapped} edge endpoints onto lattice nodes, ${edges.length} edges routed`,
   );
   {
-    const edgeSteps = (e) => {
+    const edgeSteps = (
+      e:
+        | { a: any; b: any; half: any; pts: number[][] }
+        | { a: any; b: any; half: number; pts: any[] },
+    ) => {
       const steps = [];
 
       for (let i = 1; i < e.pts.length; i += 1) {
@@ -1087,9 +1107,9 @@ clusterJunctionsPass();
   const main = sizes.indexOf(Math.max(...sizes));
   edges = edges.filter((e) => comp.get(e.a) === main);
   const remap = new Map();
-  const outNodes = [];
+  const outNodes: any[] = [];
 
-  const idFor = (n) => {
+  const idFor = (n: string | number) => {
     let id = remap.get(n);
 
     if (id === undefined) {
@@ -1110,13 +1130,17 @@ clusterJunctionsPass();
   nodes.push(...outNodes);
 }
 
-const toG = (x, z) => [
+const toG = (x: number, z: number) => [
   Math.floor((x / WORLD_W + 0.5) * GRID_X),
   Math.floor((z / WORLD_H + 0.5) * GRID_Z),
 ];
 
-const rasterizeEdges = (road, major, edgeList) => {
-  const mark = (cx, cz, isMajor) => {
+const rasterizeEdges = (
+  road: Uint8Array<ArrayBuffer>,
+  major: Uint8Array<ArrayBuffer> | null,
+  edgeList: any[],
+) => {
+  const mark = (cx: number, cz: number, isMajor: any) => {
     if (cx < 0 || cz < 0 || cx >= GRID_X || cz >= GRID_Z) {
       return;
     }
@@ -1128,7 +1152,13 @@ const rasterizeEdges = (road, major, edgeList) => {
     }
   };
 
-  const seg = (gx0, gz0, gx1, gz1, isMajor) => {
+  const seg = (
+    gx0: number | undefined,
+    gz0: number | undefined,
+    gx1: number | undefined,
+    gz1: number | undefined,
+    isMajor: boolean,
+  ) => {
     let x = gx0;
     let z = gz0;
     const dx = Math.abs(gx1 - gx0);
@@ -1176,8 +1206,9 @@ const rasterizeEdges = (road, major, edgeList) => {
   }
 };
 
-const thin = (road, sizeX, sizeZ) => {
-  const at = (x, z) => x >= 0 && z >= 0 && x < sizeX && z < sizeZ && road[x * sizeZ + z] === 1;
+const thin = (road: Uint8Array<ArrayBuffer> | number[], sizeX: number, sizeZ: number) => {
+  const at = (x: number, z: number) =>
+    x >= 0 && z >= 0 && x < sizeX && z < sizeZ && road[x * sizeZ + z] === 1;
 
   const RING = [
     [0, -1],
@@ -1190,7 +1221,7 @@ const thin = (road, sizeX, sizeZ) => {
     [-1, -1],
   ];
 
-  const inSquare = (x, z) => {
+  const inSquare = (x: number, z: number) => {
     for (const dx of [-1, 1]) {
       for (const dz of [-1, 1]) {
         if (at(x + dx, z) && at(x, z + dz) && at(x + dx, z + dz)) {
@@ -1202,7 +1233,7 @@ const thin = (road, sizeX, sizeZ) => {
     return false;
   };
 
-  const removable = (x, z) => {
+  const removable = (x: number, z: number) => {
     let n4 = 0;
     const ring = [];
 
@@ -1290,10 +1321,10 @@ const CROSSOVER_X1 = -320;
 const CROSSOVER_KEEP_HALF = 4.8;
 const MIN_FRAGMENT_LEN = 14;
 
-const greenAtWorld = (x, z) =>
+const greenAtWorld = (x: number, z: number) =>
   parkCell(Math.floor((x + WORLD_W / 2) / ROAD_TILE), Math.floor((z + WORLD_H / 2) / ROAD_TILE));
 
-const parkFrac = (pts) => {
+const parkFrac = (pts: string | any[]) => {
   let inside = 0;
   let total = 0;
 
@@ -1315,16 +1346,18 @@ const parkFrac = (pts) => {
   return total > 0 ? inside / total : 0;
 };
 
-const inCrossover = (pts) => pts.every(([x]) => x >= CROSSOVER_X0 && x <= CROSSOVER_X1);
+const inCrossover = (pts: any[]) => pts.every(([x]) => x >= CROSSOVER_X0 && x <= CROSSOVER_X1);
 const baseNodeCount = nodes.length;
 
-const cutNode = (x, z) => {
+const cutNode = (x: any, z: any) => {
   nodes.push([x, z]);
 
   return nodes.length - 1;
 };
 
-const clipEdge = (e) => {
+const clipEdge = (
+  e: { a: any; b: any; half: any; pts: number[][] } | { a: any; b: any; half: number; pts: any[] },
+) => {
   const pts = [];
 
   for (let k = 0; k < e.pts.length; k += 1) {
@@ -1374,11 +1407,11 @@ const clipEdge = (e) => {
     i = j;
   }
 
-  const out = [];
-  let run = [];
+  const out: { b: any }[] = [];
+  let run: [any] | (any[] | undefined)[] = [];
   let runStartsAtA = false;
 
-  const flush = (endsAtB) => {
+  const flush = (endsAtB: boolean) => {
     if (run.length >= 2) {
       let len = 0;
 
@@ -1523,8 +1556,9 @@ const gridMajor = new Uint8Array(GRID_X * GRID_Z);
 
 rasterizeEdges(grid, gridMajor, edges);
 
-const maskComponents = (g) => {
-  const at = (x, z) => x >= 0 && z >= 0 && x < GRID_X && z < GRID_Z && g[x * GRID_Z + z] === 1;
+const maskComponents = (g: Uint8Array<ArrayBuffer>) => {
+  const at = (x: number, z: number) =>
+    x >= 0 && z >= 0 && x < GRID_X && z < GRID_Z && g[x * GRID_Z + z] === 1;
   const seen = new Set();
   const sizes = [];
 
@@ -1611,7 +1645,7 @@ for (const v of parkPath) {
 
 console.log(`park-path cells: ${parkPathCells}`);
 
-const packCols = (bytes) => {
+const packCols = (bytes: any[] | Uint8Array<ArrayBuffer>) => {
   const out = [];
 
   for (let gx = 0; gx < GRID_X; gx += 1) {
@@ -1692,7 +1726,7 @@ export function parkPathMaskAt(gx: number, gz: number): boolean {
 `,
 );
 
-const r1 = (n) => Math.round(n * 10) / 10;
+const r1 = (n: number) => Math.round(n * 10) / 10;
 const nodesOut = nodes.map(([x, z]) => `[${r1(x)},${r1(z)}]`).join(",");
 
 const edgesOut = edges
@@ -1746,8 +1780,8 @@ ${edgesOut}
     }
   }
 
-  const sx = (x) => (x / WORLD_W + 0.5) * GRID_X * cell;
-  const sz = (z) => (z / WORLD_H + 0.5) * GRID_Z * cell;
+  const sx = (x: number) => (x / WORLD_W + 0.5) * GRID_X * cell;
+  const sz = (z: number) => (z / WORLD_H + 0.5) * GRID_Z * cell;
 
   for (const e of edges) {
     out += `<polyline fill="none" stroke="#c22" stroke-width="1.6" points="${e.pts.map(([x, z]) => `${sx(x).toFixed(1)},${sz(z).toFixed(1)}`).join(" ")}"/>`;
@@ -1759,7 +1793,7 @@ ${edgesOut}
 
 console.log("Wrote src/world/sf-network.ts, src/world/sf-streets.ts, preview-network.svg");
 
-const chainFragments = (parts) => {
+const chainFragments = (parts: any[]) => {
   let joined = true;
 
   while (joined) {
@@ -1789,7 +1823,8 @@ const chainFragments = (parts) => {
   const FWY_HALF = { motorway: 5.2, trunk: 4.4 };
 
   const fwyWays = raw.elements.filter(
-    (e) => e.type === "way" && e.geometry && FWY_HALF[e.tags?.highway] !== undefined,
+    (e: { type: string; geometry: any; tags: { highway: string | number } }) =>
+      e.type === "way" && e.geometry && FWY_HALF[e.tags?.highway] !== undefined,
   );
 
   const fwys = [];
@@ -1835,7 +1870,8 @@ const chainFragments = (parts) => {
   const RAMP_HALF = { motorway_link: 3.6, trunk_link: 3.6 };
 
   const rampWays = raw.elements.filter(
-    (e) => e.type === "way" && e.geometry && RAMP_HALF[e.tags?.highway] !== undefined,
+    (e: { type: string; geometry: any; tags: { highway: string | number } }) =>
+      e.type === "way" && e.geometry && RAMP_HALF[e.tags?.highway] !== undefined,
   );
 
   const ramps = [];

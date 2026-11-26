@@ -9,7 +9,7 @@
     "dev": "vite",
     "preview": "vite preview",
     "test": "mkdir -p .cache && node --experimental-webstorage --localstorage-file=.cache/test.localstorage --import tsx --test tools/*.test.mts",
-    "test:online": "node tools/two-client.mjs",
+    "test:online": "node tools/two-client.mts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -21,6 +21,7 @@
   },
   "devDependencies": {
     "@kyh/tsconfig": "catalog:",
+    "@repo/smoke": "workspace:*",
     "@types/node": "catalog:",
     "playwright-core": "^1.65.1",
     "tsx": "^4.23.15",

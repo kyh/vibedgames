@@ -178,7 +178,7 @@ const link = (latencyMs: number, jitterMs: number) => {
   let lastAt = 0;
 
   return {
-    receive: (now) => {
+    receive: (now: number) => {
       const out: JsonValue[] = [];
       let [next] = queue;
 
@@ -190,7 +190,10 @@ const link = (latencyMs: number, jitterMs: number) => {
 
       return out;
     },
-    send: (now, payload) => {
+    send: (
+      now: number,
+      payload: string | number | boolean | JsonValue[] | { [key: string]: JsonValue } | null,
+    ) => {
       sent += 1;
       lastAt = Math.max(lastAt, now + latencyMs + noise(sent) * jitterMs);
       queue.push({ at: lastAt, payload: wire(payload) });
@@ -216,7 +219,7 @@ const streamHost = (world: World, clock: ServerClock) => {
 
   return {
     acks,
-    frame: (now) => {
+    frame: (now: number | undefined) => {
       acc += FRAME_MS;
       const stampNow = clock.now(now);
 
@@ -236,7 +239,7 @@ const streamHost = (world: World, clock: ServerClock) => {
       }
     },
     guests,
-    keyframe: (now) => {
+    keyframe: (now: number | undefined) => {
       const snapAt = Math.round(clock.now(now));
       encoder.reset(world);
 
@@ -298,7 +301,7 @@ const streamGuest = (heroId: string, down: Link) => {
 
       return { x: u.x, y: u.y };
     },
-    frame: (now) => {
+    frame: (now: number) => {
       for (const payload of down.receive(now)) {
         take(payload, now);
       }

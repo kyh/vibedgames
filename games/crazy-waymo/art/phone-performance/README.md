@@ -44,10 +44,10 @@ Cold loading is separate from driving. In the final fallback run the full destin
 Run an HMR-disabled dev server; keep other rendering browsers and heavy builds idle during timing samples.
 
 ```sh
-node tools/verify-mobile-performance.mjs 'http://localhost:5193/?time=noon&offline=1' /tmp/phone-fallback 4 8000 --tier=3 --no-multi-draw
-node tools/verify-mobile-performance.mjs 'http://localhost:5193/?time=noon&offline=1' /tmp/phone-repeat 1,4,8,4,4,1 8000 --keep-quality --memory
-node tools/verify-mobile-performance.mjs 'http://localhost:5193/?time=noon&offline=1' /tmp/phone-fallback-repeat 4,4,4 8000 --keep-quality --memory --no-multi-draw
-node tools/verify-mobile.mjs 'http://localhost:5193/?time=night&offline=1' /tmp/phone-controls
+node tools/verify-mobile-performance.mts 'http://localhost:5193/?time=noon&offline=1' /tmp/phone-fallback 4 8000 --tier=3 --no-multi-draw
+node tools/verify-mobile-performance.mts 'http://localhost:5193/?time=noon&offline=1' /tmp/phone-repeat 1,4,8,4,4,1 8000 --keep-quality --memory
+node tools/verify-mobile-performance.mts 'http://localhost:5193/?time=noon&offline=1' /tmp/phone-fallback-repeat 4,4,4 8000 --keep-quality --memory --no-multi-draw
+node tools/verify-mobile.mts 'http://localhost:5193/?time=night&offline=1' /tmp/phone-controls
 pnpm exec vite-node tools/benchmark-parcel-stream.mts
 pnpm exec vite-node tools/benchmark-parcel-stream.mts --cost
 ```

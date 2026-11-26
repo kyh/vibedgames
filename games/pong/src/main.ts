@@ -163,7 +163,7 @@ renderer.setAnimationLoop((time) => {
   markGameReady();
 });
 
-type PongDiagnostics = ReturnType<GameScene["diagnostics"]> & {
+export type PongDiagnostics = ReturnType<GameScene["diagnostics"]> & {
   renderer: { calls: number; triangles: number };
 };
 
@@ -171,6 +171,7 @@ declare global {
   interface Window {
     /** Dev-only hooks; __pongHand(x) drives the gesture→paddle path synthetically (x ∈ [0,1]). */
     __pong?: GameScene;
+    __GAME_DIAGNOSTICS__?: PongDiagnostics;
     __pongHand?: (x: number) => void;
     __pongCamera?: HandCamera;
   }

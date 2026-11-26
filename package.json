@@ -51,6 +51,7 @@
     "dotenv-cli": "^11.1.0",
     "oxfmt": "^0.73.0",
     "oxlint": "^1.94.0",
+    "oxlint-tsgolint": "^7.0.2008",
     "tsx": "^4.23.15",
     "turbo": "^2.11.13",
     "typescript": "catalog:",

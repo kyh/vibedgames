@@ -9,7 +9,7 @@
     "dev": "vite",
     "preview": "vite preview",
     "test": "node --import tsx --test \"src/**/*.test.mts\"",
-    "test:online": "node tools/two-client.mjs",
+    "test:online": "node tools/two-client.mts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -23,6 +23,7 @@
     "@gltf-transform/extensions": "^4.5.1",
     "@gltf-transform/functions": "^4.5.1",
     "@kyh/tsconfig": "catalog:",
+    "@repo/smoke": "workspace:*",
     "@types/node": "catalog:",
     "@types/three": "0.180.0",
     "meshoptimizer": "^1.3.0",

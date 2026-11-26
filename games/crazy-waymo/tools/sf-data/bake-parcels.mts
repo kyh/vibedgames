@@ -2,7 +2,7 @@ import { gzipSync } from "node:zlib";
 import { readFileSync, writeFileSync, statSync } from "node:fs";
 import path from "node:path";
 
-import { onLandXZ, projU, projV, rdp, WORLD_H, WORLD_W } from "./lib.mjs";
+import { onLandXZ, projU, projV, rdp, WORLD_H, WORLD_W } from "./lib.mts";
 import { parcelAt } from "../../src/world/sf-adjacency.ts";
 import { SF_FOOTPRINTS } from "../../src/world/sf-footprints.ts";
 import {

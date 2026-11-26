@@ -48,7 +48,7 @@ const nearbyEntries = <T extends Expected>(entries: readonly T[]) => {
     }
   }
 
-  return (x, z) => {
+  return (x: number, z: number) => {
     const result: T[] = [];
 
     for (const dx of [-4, 0, 4]) {

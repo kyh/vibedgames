@@ -1038,12 +1038,12 @@ export const buildAuditWorld = () => {
   const standAt = makeStandingSurface(network, terrain, groundOffset, drape);
 
   return {
-    drapeAt: (x, z) => drape.heightAt(x, z),
+    drapeAt: (x: number, z: number) => drape.heightAt(x, z),
     network,
     plan,
     standAt,
     terrain,
-    terrainAt: (x, z) => terrain.heightAt(x, z),
+    terrainAt: (x: number, z: number) => terrain.heightAt(x, z),
   };
 };
 

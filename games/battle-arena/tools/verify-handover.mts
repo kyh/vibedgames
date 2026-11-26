@@ -85,25 +85,25 @@ const room = () => {
   let picks: Record<string, HeroPick> = {};
   let seats: Record<string, OnlineSeat> = {};
   const players: PlayerMap = { p: { id: "p" }, q: { id: "q" } };
-  let watch = unwatched;
+  let watch: () => void = unwatched;
 
   const guests = () => peers.filter((g) => g.id !== host?.id);
 
   const link = (h: Host) => ({
-    inputHero: (owner) => {
+    inputHero: (owner: string) => {
       const u = h.world.units.get(`h-${owner}`);
 
       return owner !== h.id && u?.alive && h.world.phase === "playing" ? u : null;
     },
     now: () => now,
-    publish: (snap, t) => {
+    publish: (snap: any, t: any) => {
       roomSnap = structuredClone(snap);
 
       for (const g of guests()) {
         g.down.send(now, { kind: "snap", snap, t });
       }
     },
-    sendFrame: (frame) => {
+    sendFrame: (frame: any) => {
       for (const g of guests()) {
         g.down.send(now, { frame, kind: "frame" });
       }

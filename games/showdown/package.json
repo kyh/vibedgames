@@ -9,8 +9,8 @@
     "dev": "vite",
     "preview": "vite preview",
     "test": "node --import tsx --test tools/*-smoke.mts",
-    "test:online": "node tools/two-client.mjs",
-    "test:seed": "node tools/seed-smoke.mjs",
+    "test:online": "node tools/two-client.mts",
+    "test:seed": "node tools/seed-smoke.mts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -22,6 +22,7 @@
   },
   "devDependencies": {
     "@kyh/tsconfig": "catalog:",
+    "@repo/smoke": "workspace:*",
     "@types/node": "catalog:",
     "@types/three": "^0.186.0",
     "playwright-core": "^1.65.1",

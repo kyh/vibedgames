@@ -114,7 +114,7 @@ Mission and Holdout alike.
   Both meshes are our own Meshy generations; the soldier was rigged (task
   `01a1d292-fe27-733c-a087-60acaf77a6eb`) and animated (task
   `01a1d295-d056-70ba-9190-660830f57119`) through Meshy's API.
-  `tools/build-soldier.mjs tools/soldier-src public/models/soldier.glb` packs
+  `tools/build-soldier.mts tools/soldier-src public/models/soldier.glb` packs
   what Meshy returned: it decimates both, recomputes smooth normals, rolls the
   rig's flat, fingerless hands closed, renames the clips, plays them on the
   spot, and mirrors the left-handed sidesteps into right-handed ones. The
@@ -223,7 +223,7 @@ Wire format: `src/net/protocol.ts`. A wire change bumps `ROOM_PREFIX`.
 | `src/net/bots.ts`              | bots: the host's brains, and their bodies as player reports    |
 | `src/net/players.ts`           | other players: interpolation, avatars, hitboxes                |
 | `src/soldier/`                 | the soldier rig, kits, gait, model, brain and tracer           |
-| `tools/build-soldier.mjs`      | packs Meshy's rig and clips into `public/models/soldier.glb`   |
+| `tools/build-soldier.mts`      | packs Meshy's rig and clips into `public/models/soldier.glb`   |
 | `src/garrison/`                | the crew in Mission and Holdout: the core's enemies module     |
 | `src/net/map.ts`               | arena spawns on the dock                                       |
 | `src/net/match-hud.ts`         | kills bar, match clock, Tab scoreboard                         |

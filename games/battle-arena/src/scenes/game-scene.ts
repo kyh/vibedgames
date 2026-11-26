@@ -139,7 +139,8 @@ export const chosenChamp = () => {
 
 export class GameScene {
   world: World;
-  private net: MultiplayerClient | null = null;
+  /** The room; tools/two-client.mts drops and redials it. */
+  net: MultiplayerClient | null = null;
   private worldView: WorldView;
   private environment: Environment;
   private fx: Fx;
@@ -151,8 +152,10 @@ export class GameScene {
   private aimInit = false;
   private champId: string;
   private name: string;
-  private localId = "h-local";
-  private statusEl: HTMLDivElement;
+  /** tools/two-client.mts reads which unit is ours. */
+  localId = "h-local";
+  /** tools/two-client.mts reads the connection banner. */
+  statusEl: HTMLDivElement;
   private hints: Hints;
   private introTime = 0;
   private lastCount = -1;
@@ -186,7 +189,8 @@ export class GameScene {
   private worldIsSim = false;
   private publishedT: number | null = null;
   private takeover: TakeoverSource | null = null;
-  private controlsPaused = false;
+  /** tools/two-client.mts reads whether this client is paused. */
+  controlsPaused = false;
   private neutralPending = false;
   private takedowns = 0;
 

@@ -310,8 +310,12 @@ test("all six kits: HUD availability agrees with the sim's cast admission gates"
         me.abilities[key].readyAt = world.now + (gate === "cooldown" ? 1 : 0);
         me.alive = gate !== "dead";
 
-        if (["stun", "silence", "hex", "root"].includes(gate)) {
-          me.statuses.push({ id: "gate", kind: gate, until: world.now + 1000 });
+        const until = world.now + 1000;
+
+        if (gate === "hex") {
+          me.statuses.push({ id: "gate", kind: gate, pct: 0, until });
+        } else if (gate === "stun" || gate === "silence" || gate === "root") {
+          me.statuses.push({ id: "gate", kind: gate, until });
         }
 
         const before = structuredClone(me);

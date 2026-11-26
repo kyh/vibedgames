@@ -4,6 +4,7 @@ import { test } from "node:test";
 import { createArena, readArena } from "../src/shared/arena";
 import type { Arena } from "../src/shared/arena";
 import { GRID_COLS, GRID_ROWS, SPAWN_POINTS } from "../src/shared/constants";
+import type { Cell } from "../src/shared/constants";
 
 const seeded = (arena: Arena, seed: number) => {
   let state = seed;
@@ -47,7 +48,7 @@ test("Crossroads only clears central-lane crates; walls, escapes and RNG stay id
       assert.equal(crossroads.grid[r]?.length, GRID_COLS);
 
       for (const [c, cell] of row.entries()) {
-        const next = crossroads.grid[r]?.[c];
+        const next: Cell | undefined = crossroads.grid[r]?.[c];
 
         if (cell.kind === "crate" && (r === 7 || c === 9)) {
           assert.deepEqual(next, { kind: "empty" });
@@ -75,5 +76,5 @@ test("Crossroads only clears central-lane crates; walls, escapes and RNG stay id
 test("arena wire boundary: only explicit Crossroads; legacy rooms are Classic", () => {
   assert.equal(readArena("crossroads"), "crossroads");
   assert.equal(readArena("classic"), "classic");
-  assert.equal(readArena(), "classic");
+  assert.equal(readArena(undefined), "classic");
 });

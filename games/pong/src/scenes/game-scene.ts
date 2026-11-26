@@ -255,8 +255,10 @@ export class GameScene {
   readonly scene = new THREE.Scene();
   readonly camera: THREE.PerspectiveCamera;
 
-  private readonly control: MatchControl;
-  private shown: SimState;
+  /** Public for the two-client harness, which reads the match through it. */
+  readonly control: MatchControl;
+  /** Public for the two-client harness, which aims from the ball it shows. */
+  shown: SimState;
   private settled: SimState;
   private shownAt = 0;
   private horizonAt = 0;
@@ -276,7 +278,8 @@ export class GameScene {
   private frame = 0;
   private testSeed = 1 + Math.floor(Math.random() * 1_000_000);
 
-  private localX = 0;
+  /** Public for the two-client harness, which steers the paddle directly. */
+  localX = 0;
   private presses = 0;
   private cancels = 0;
 

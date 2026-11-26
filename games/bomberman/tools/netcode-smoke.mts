@@ -114,20 +114,21 @@ test("fixed host step: an exact 50 ms grid at any frame rate, a bounded catch-up
   assert.deepEqual(step.due(5210), [5150, 5200], "taken by the next frame");
 });
 
-const openWorld = (patch: Partial<SharedState> = {}) => ({
-  blasts: {},
-  bombs: {},
-  bots: {},
-  deaths: {},
-  grid: newGrid().map((cells) =>
-    cells.map((cell) => (cell.kind === "crate" ? { kind: "empty" } : cell)),
-  ),
-  powerups: {},
-  startedAt: 1,
-  stats: {},
-  winner: null,
-  ...patch,
-});
+const openWorld = (patch: Partial<SharedState> = {}) =>
+  ({
+    blasts: {},
+    bombs: {},
+    bots: {},
+    deaths: {},
+    grid: newGrid().map((cells) =>
+      cells.map((cell) => (cell.kind === "crate" ? { kind: "empty" } : cell)),
+    ),
+    powerups: {},
+    startedAt: 1,
+    stats: {},
+    winner: null,
+    ...patch,
+  }) satisfies SharedState;
 
 test("a guest's bomb shows on the press under the id the host gives it, and is adopted silently", () => {
   const state = openWorld();

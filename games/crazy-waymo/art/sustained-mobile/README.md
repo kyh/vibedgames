@@ -72,8 +72,8 @@ Run from `games/crazy-waymo`, with a dev server at port 5193. Keep other GPU and
 build/test work idle; run browsers serially.
 
 ```sh
-node tools/verify-mobile-soak.mjs 'http://localhost:5193/?time=noon&offline=1' /tmp/waymo-soak --minutes=5 --cpu=4
-node tools/verify-native-soak.mjs 'http://localhost:5193/?time=noon&offline=1' /tmp/waymo-native-soak 240
+node tools/verify-mobile-soak.mts 'http://localhost:5193/?time=noon&offline=1' /tmp/waymo-soak --minutes=5 --cpu=4
+node tools/verify-native-soak.mts 'http://localhost:5193/?time=noon&offline=1' /tmp/waymo-native-soak 240
 ```
 
 The native runner needs Appium/XCUITest and an available iOS simulator runtime;

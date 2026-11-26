@@ -42,6 +42,7 @@ const jsonPayloadModules = [
 export default defineConfig({
   extends: [core, react, antiSlop, landmines],
   jsPlugins: landmines.jsPlugins,
+  options: { typeAware: true },
   ignorePatterns: [
     ...(core.ignorePatterns ?? []),
     "*.generated.ts",
@@ -74,12 +75,18 @@ export default defineConfig({
     },
   ],
   rules: {
-    "anti-slop/require-safety-comment-for-type-assertion": "off",
+    "typescript/no-floating-promises": [
+      "error",
+      {
+        allowForKnownSafeCalls: [
+          { from: "package", package: "node:test", name: ["describe", "it", "suite", "test"] },
+        ],
+      },
+    ],
     "landmines-testing/no-fixed-sleep": [
       "error",
       { allow: { "apps/party/test/integration.test.ts": 2 } },
     ],
-    "no-await-in-loop": "off",
     "no-use-before-define": ["error", { functions: false, variables: false }],
   },
 });

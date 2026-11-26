@@ -48,18 +48,19 @@ class Wire {
   }
 }
 
-const emptyWorld = (random: () => number, startedAt: number) => ({
-  arena: "classic",
-  blasts: {},
-  bombs: {},
-  bots: {},
-  deaths: {},
-  grid: createArena("classic", random),
-  powerups: {},
-  startedAt,
-  stats: {},
-  winner: null,
-});
+const emptyWorld = (random: () => number, startedAt: number) =>
+  ({
+    arena: "classic",
+    blasts: {},
+    bombs: {},
+    bots: {},
+    deaths: {},
+    grid: createArena("classic", random),
+    powerups: {},
+    startedAt,
+    stats: {},
+    winner: null,
+  }) satisfies SharedState;
 
 const opened = new Wire();
 const board = new Wire();
@@ -81,7 +82,7 @@ const lateJoin = { board: 0, opened: 0 };
 for (let round = 0; round < ROUNDS; round += 1) {
   const random = seededRandom(round + 1);
   const t0 = 1_000_000 + round * ROUND_CAP_MS * 2;
-  let s = emptyWorld(random, t0);
+  let s: SharedState = emptyWorld(random, t0);
   const layout = s.grid;
   const sentBefore = { board: board.sent, opened: opened.sent };
   opened.write({ ...s, clock: CLOCK, opened: "" });

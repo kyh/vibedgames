@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Fetch the UNTRUNCATED OSM tags for every ground-class area in the SF
-# peninsula. extract-landuse-obj.mjs needs this to decode the licensed OBJ's
+# peninsula. extract-landuse-obj.mts needs this to decode the licensed OBJ's
 # 10-character-truncated object names (`landuse=g1`, `leisure=p0`, ...) by
 # matching each OBJ polygon to a real OSM way/relation.
 #

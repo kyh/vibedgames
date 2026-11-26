@@ -103,7 +103,7 @@ const match = (opts: MatchOptions = {}) => {
   const guestDt = 1000 / (opts.guestFps ?? 60);
   let nextHost = now;
   let nextGuest = now;
-  let onGuestFrame = ignoreFrame;
+  let onGuestFrame: (me: Unit | null) => void = ignoreFrame;
 
   const guestFrame = () => {
     for (const message of toGuest.receive(now)) {

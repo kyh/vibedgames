@@ -20,7 +20,7 @@ import { loadSoldierRig } from "./soldier/soldier-rig";
 
 declare global {
   interface Window {
-    /** Dev-only handle for tools/two-client.mjs. */
+    /** Dev-only handle for tools/two-client.mts. */
     __strikeforce?: { match: Match };
   }
 }

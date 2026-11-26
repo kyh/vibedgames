@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Fetch the SF ground-class polygons (what every square metre of the city
-# ACTUALLY is) into sf-landuse.raw.json. bake-landuse.mjs rasterizes them into
+# ACTUALLY is) into sf-landuse.raw.json. bake-landuse.mts rasterizes them into
 # the per-cell class grid src/world/sf-landuse.ts.
 #
 # This used to ask only for green + beach, which is why 72% of the city's land

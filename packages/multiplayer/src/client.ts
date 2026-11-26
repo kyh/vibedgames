@@ -944,6 +944,20 @@ export class MultiplayerClient {
     this.notify();
   }
 
+  /**
+   * Close the socket the way a dropped network would, without leaving the
+   * room: the seat is held for the reconnect window and nothing redials
+   * until `redial()`. For rehearsing how a game rides out a blip.
+   */
+  dropConnection(code = 4000) {
+    this.socket?.close(code);
+  }
+
+  /** Reopen the socket `dropConnection()` closed. */
+  redial() {
+    this.socket?.reconnect();
+  }
+
   /** Disconnect and clean up. */
   destroy() {
     this.untrack();

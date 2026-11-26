@@ -15,6 +15,7 @@ import {
   publishTestHooks,
 } from "@vibedgames/playtest";
 import type { JsonRecord, JsonValue, Player } from "@vibedgames/multiplayer";
+import type { TestHooks } from "@vibedgames/playtest";
 import type Phaser from "phaser";
 import { BlendModes, Input, Math as PhaserMath, Scale, Scene, Scenes } from "phaser";
 import { createArena, readArena } from "../shared/arena";
@@ -93,6 +94,7 @@ import { seededRandom } from "../util/seeded-random";
 
 declare global {
   interface Window {
+    __GAME_TEST_HOOKS__?: TestHooks;
     /** Dev-console hook (DEV builds only). */
     __bb?: {
       scene: GameScene;
@@ -368,8 +370,8 @@ export class GameScene extends Scene {
   private characterTime = 0;
   private followStarted = false;
 
-  private myCol = 0;
-  private myRow = 0;
+  myCol = 0;
+  myRow = 0;
   private myDir: Dir = "down";
   private stepFrom = { col: 0, row: 0 };
   private stepStartedAt = 0;
@@ -379,7 +381,7 @@ export class GameScene extends Scene {
   private readonly dirInput = new DirInput();
   private localBombSeq = 1;
   private readonly prediction = new BombPrediction();
-  private readonly pickupClaims = new PickupClaims();
+  readonly pickupClaims = new PickupClaims();
   private readonly hostStep = new FixedStep(HOST_STEP_MS, MAX_FRAME_MS);
 
   private readonly humanTracks = new Map<string, StepTrack>();
@@ -407,14 +409,14 @@ export class GameScene extends Scene {
   private pickupNoteEl: HTMLElement | null = null;
   private restartButton: HTMLButtonElement | null = null;
   private observedWinner: string | null = null;
-  private started = false;
+  started = false;
   private lastStatus: string | null = null;
   private lastStats: string | null = null;
   private lastBanner: string | null = null;
 
   private netDirty = true;
   private clockAuthority = false;
-  private simulationFrozen = false;
+  simulationFrozen = false;
 
   private sparkEmitter: Phaser.GameObjects.Particles.ParticleEmitter | null = null;
   private battleFx: BattleFx | null = null;
@@ -428,7 +430,7 @@ export class GameScene extends Scene {
   private diagnosticsAt = -1;
   private diagnosticsValue: BombermanDiagnostics | null = null;
   private aliveCount = 0;
-  private controlsPaused = false;
+  controlsPaused = false;
 
   /** The wrapper pause owns local input; a connected host keeps the other
    *  fighters running. The embed key gate swallows keyup while paused, so
@@ -536,7 +538,7 @@ export class GameScene extends Scene {
     }
   }
 
-  private get myId() {
+  get myId() {
     return this.client.playerId;
   }
 
@@ -552,7 +554,7 @@ export class GameScene extends Scene {
     return present;
   }
 
-  private netPatchShared(patch: Partial<SharedState>) {
+  netPatchShared(patch: Partial<SharedState>) {
     this.netDirty = true;
 
     if (this.amHost) {
@@ -1094,7 +1096,7 @@ export class GameScene extends Scene {
     };
   }
 
-  private requestBomb() {
+  requestBomb() {
     const id = this.myId;
     const state = this.shared();
     const pose = this.ownPose(performance.now());
@@ -1133,7 +1135,7 @@ export class GameScene extends Scene {
     this.players.get(id)?.action.place(bomb, simNow(), this.characterTime, pose);
   }
 
-  private requestRestart() {
+  requestRestart() {
     if (this.controlsPaused || !this.live) {
       return;
     }
@@ -1365,7 +1367,8 @@ export class GameScene extends Scene {
     }
   }
 
-  private shared() {
+  /** The room's state, once it has the shape; tools/two-client.mts reads it too. */
+  shared() {
     const state = this.client.sharedState;
 
     return isShared(state) ? state : null;
@@ -2291,7 +2294,7 @@ export class GameScene extends Scene {
     }
   }
 
-  private myStats() {
+  myStats() {
     const id = this.myId;
     const s = this.shared();
 
