@@ -2,6 +2,7 @@ import type { MultiplayerClient } from "@vibedgames/multiplayer";
 
 import type { FxEvent, GroundEffect, Mine, Projectile, Unit, World } from "../sim/types";
 import { isSnapshot } from "./rows";
+import { isJsonNumber, isJsonString } from "./json";
 import type { JsonObject, JsonValue } from "./json";
 
 export type Snapshot = {
@@ -163,13 +164,11 @@ const castActor = (value: JsonValue | undefined) => {
 
   const { unitId, at } = value;
 
-  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- protocol boundary
-  if (typeof unitId !== "string" || !unitId || unitId.length > 128) {
+  if (!isJsonString(unitId) || unitId === "" || unitId.length > 128) {
     return null;
   }
 
-  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- protocol boundary
-  if (typeof at !== "number" || !Number.isFinite(at) || at < 0) {
+  if (!isJsonNumber(at) || at < 0) {
     return null;
   }
 

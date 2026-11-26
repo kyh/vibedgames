@@ -15,8 +15,7 @@ const PRIORITY = { hero: 2, player: 0, target: 1 };
 export const layoutHeroPlates = (plates: readonly HeroPlate[]) => {
   const placed: (HeroPlate & { lift: number })[] = [];
 
-  // oxlint-disable-next-line unicorn/no-array-sort -- ES2022 game; only this fresh copy is mutated.
-  const ordered = [...plates].sort(
+  const ordered = plates.toSorted(
     (a, b) => PRIORITY[a.priority] - PRIORITY[b.priority] || a.id.localeCompare(b.id),
   );
 
