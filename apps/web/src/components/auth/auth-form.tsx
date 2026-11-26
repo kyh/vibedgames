@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { getRouteApi, useRouter, useSearch } from "@tanstack/react-router";
+import { getRouteApi, useHydrated, useRouter, useSearch } from "@tanstack/react-router";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Button } from "@repo/ui/components/button";
 import { Field, FieldContent, FieldError, FieldGroup, FieldLabel } from "@repo/ui/components/field";
@@ -30,6 +30,18 @@ interface Credentials {
 }
 
 type SubmitResult = { status: "ok" } | { status: "failed"; message: string };
+
+const HydratedForm = ({ children, ...props }: Omit<React.ComponentProps<"form">, "method">) => {
+  const hydrated = useHydrated();
+
+  return (
+    <form method="post" {...props}>
+      <fieldset disabled={!hydrated} className="contents">
+        {children}
+      </fieldset>
+    </form>
+  );
+};
 
 const UNREPORTED: SubmitResult = {
   message: "Something went wrong. Please try again.",
@@ -82,7 +94,7 @@ const CredentialsForm = ({
   });
 
   return (
-    <form ref={shakeScope} method="post" className="grid gap-2" onSubmit={handleAuthWithPassword}>
+    <HydratedForm ref={shakeScope} className="grid gap-2" onSubmit={handleAuthWithPassword}>
       <FieldGroup className="gap-2">
         <Controller
           control={form.control}
@@ -150,7 +162,7 @@ const CredentialsForm = ({
       <Button type="submit" loading={form.formState.isSubmitting}>
         {submitLabel}
       </Button>
-    </form>
+    </HydratedForm>
   );
 };
 
@@ -310,7 +322,7 @@ export const RequestPasswordResetForm = () => {
   }
 
   return (
-    <form method="post" className="grid gap-4" onSubmit={handlePasswordReset}>
+    <HydratedForm className="grid gap-4" onSubmit={handlePasswordReset}>
       <FieldGroup className="gap-4">
         <Controller
           control={form.control}
@@ -341,7 +353,7 @@ export const RequestPasswordResetForm = () => {
       <Button type="submit" loading={form.formState.isSubmitting}>
         Request Password Reset
       </Button>
-    </form>
+    </HydratedForm>
   );
 };
 
@@ -383,7 +395,7 @@ export const UpdatePasswordForm = ({ token }: { token: string }) => {
   });
 
   return (
-    <form method="post" className="grid gap-4" onSubmit={handleUpdatePassword}>
+    <HydratedForm className="grid gap-4" onSubmit={handleUpdatePassword}>
       <FieldGroup className="gap-4">
         <Controller
           control={form.control}
@@ -439,6 +451,6 @@ export const UpdatePasswordForm = ({ token }: { token: string }) => {
       <Button type="submit" loading={form.formState.isSubmitting}>
         Update Password
       </Button>
-    </form>
+    </HydratedForm>
   );
 };
