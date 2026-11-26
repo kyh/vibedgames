@@ -13,12 +13,18 @@ const BANNER = `// GENERATED FILE — do not edit.
 // Contains only the exports this skill's scripts import; edit the TypeScript
 // source there and re-run \`pnpm dogfood\` (or that build) to regenerate.`;
 
-const IMPORT_RE = /import\s*\{(?<names>[^}]*)\}\s*from\s*"\.\/_lib\/asset-tools\.mjs"/gsu;
+const IMPORT_RE =
+  /import\s*\{(?<names>[^}]*)\}\s*from\s*"(?:\.\/|\.\.\/)_lib\/asset-tools\.mjs"/gsu;
+
+const scriptFiles = (scriptsDir: string) =>
+  globSync(["**/*.mjs", "**/*.ts"], { cwd: scriptsDir }).filter(
+    (file) => !file.split(path.sep).includes("_lib"),
+  );
 
 const importedNames = (scriptsDir: string) => {
   const names = new Set<string>();
 
-  for (const file of globSync("*.mjs", { cwd: scriptsDir })) {
+  for (const file of scriptFiles(scriptsDir)) {
     const source = readFileSync(path.join(scriptsDir, file), "utf-8");
 
     for (const match of source.matchAll(IMPORT_RE)) {
@@ -28,7 +34,7 @@ const importedNames = (scriptsDir: string) => {
           .split(/\s+as\s+/u)[0]
           ?.trim();
 
-        if (name !== undefined && name !== "") {
+        if (name !== undefined && name !== "" && !name.startsWith("type ")) {
           names.add(name);
         }
       }
@@ -41,11 +47,9 @@ const importedNames = (scriptsDir: string) => {
 const findConsumers = () => {
   const dirs = new Set<string>();
 
-  for (const file of globSync("*/skills/*/scripts/*.mjs", { cwd: PLUGINS_ROOT })) {
-    const scriptsDir = path.join(PLUGINS_ROOT, path.dirname(file));
-
-    if (importedNames(scriptsDir).length > 0) {
-      dirs.add(path.dirname(path.dirname(file)));
+  for (const scripts of globSync("*/skills/*/scripts", { cwd: PLUGINS_ROOT })) {
+    if (importedNames(path.join(PLUGINS_ROOT, scripts)).length > 0) {
+      dirs.add(path.dirname(scripts));
     }
   }
 

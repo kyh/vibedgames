@@ -41,7 +41,7 @@ Scene setup is inline below. Read the relevant reference before working on that 
 | Black screen, low FPS, mobile issues, memory leaks, physics debugging                                        | `references/debugging-and-profiling.md` |
 | Auditing a scene you didn't write, visual-defect sweeps, React Three Fiber (R3F)                             | `references/debugging-and-profiling.md` |
 
-**Verify it actually renders.** `scripts/check-canvas.mjs` loads a build in headless Chromium and fails on a blank canvas or uncaught page error — run it in CI / before `vg deploy` (details in `references/debugging-and-profiling.md`).
+**Verify it actually renders.** `scripts/check-canvas.ts` loads a build in headless Chromium and fails on a blank canvas or uncaught page error — run it in CI / before `vg deploy` (details in `references/debugging-and-profiling.md`).
 
 ### Physics: pick the lightest tool (decide early)
 
@@ -390,4 +390,4 @@ Use ES modules from the `three` package or CDN — CommonJS and the global `THRE
 
 ## See Also
 
-See the **Reference Files** table near the top for the full map of `references/` (gameplay systems, physics, controllers/camera, GLTF loading, game patterns, generated assets, advanced topics, debugging) and `scripts/check-canvas.mjs`. For 2D games use the `phaser` skill; for engine-agnostic feel/balance/level/onboarding craft use the `game-craft` skills.
+See the **Reference Files** table near the top for the full map of `references/` (gameplay systems, physics, controllers/camera, GLTF loading, game patterns, generated assets, advanced topics, debugging) and `scripts/check-canvas.ts`. For 2D games use the `phaser` skill; for engine-agnostic feel/balance/level/onboarding craft use the `game-craft` skills.

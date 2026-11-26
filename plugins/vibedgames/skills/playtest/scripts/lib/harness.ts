@@ -1,13 +1,53 @@
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 
-export const isPlainObject = (v) => Object.prototype.toString.call(v) === "[object Object]";
-export const isString = (v) => String(v) === v;
+import type { JsonObject, JsonValue } from "../_lib/asset-tools.mjs";
+import {
+  isFiniteJsonNumber,
+  isJsonObject,
+  isJsonString,
+  parseJsonText,
+} from "../_lib/asset-tools.mjs";
+
+export const isJsonBoolean = (v: JsonValue | undefined): v is boolean => v === true || v === false;
+
+export interface Pointer {
+  x: number;
+  y: number;
+  down?: boolean;
+}
+
+export interface HeldInputs {
+  keys?: string[];
+  pointer?: Pointer;
+}
+
+export interface Sample {
+  x: number;
+  y: number;
+  z: number;
+  frame: number;
+  score: number;
+  complete: boolean;
+}
+
+export interface StepSummary {
+  path: number;
+  peak: number;
+  frameBefore: number;
+  frame: number;
+  scoreBefore: number;
+  score: number;
+  x: number;
+  y: number;
+  z: number;
+  complete: boolean;
+}
 
 export const HARNESS_FAILURE = 2;
 
 /** Print a script's header docblock, so `--help` cannot drift from the docs. */
-export const printHelp = (file) => {
+export const printHelp = (file: string) => {
   const source = readFileSync(file, "utf-8");
   const match = /^(?:#![^\n]*\n)?\/\*\*(?<body>[\s\S]*?)\*\//u.exec(source);
 
@@ -17,12 +57,12 @@ export const printHelp = (file) => {
     .join("\n")
     .trim();
 
-  process.stdout.write(`${text || "No help available."}\n`);
+  process.stdout.write(`${text === "" ? "No help available." : text}\n`);
 };
 
 let programName = "playtest";
 
-export const setProgramName = (name) => {
+export const setProgramName = (name: string) => {
   programName = name;
 };
 
@@ -45,14 +85,14 @@ export const MOVEMENT_CODES = new Set([
   "ArrowRight",
 ]);
 
-let held = null;
+let held: HeldInputs | null = null;
 
 /**
  * Record that `inputs` are about to be pressed. Call BEFORE dispatching: an
  * eval that fails part-way through can still have pressed something, and an
  * input this process never releases stays held in the daemon's page.
  */
-export const claimHeld = (inputs) => {
+export const claimHeld = (inputs: HeldInputs) => {
   held = inputs;
 };
 
@@ -65,7 +105,7 @@ export const releaseHeldInputs = () => {
   const inputs = held;
   held = null;
 
-  if (!inputs) {
+  if (inputs === null) {
     return;
   }
 
@@ -88,7 +128,7 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
   });
 }
 
-export const fail = (message) => {
+export const fail: (message: string) => never = (message) => {
   releaseHeldInputs();
   console.error(`${programName}: ${message}`);
   process.exit(HARNESS_FAILURE);
@@ -123,85 +163,99 @@ export const NAMED_KEYS = {
   Slash: 191,
   Space: 32,
   Tab: 9,
-};
+} satisfies Record<string, number>;
 
-const NAMED_VALUES = {
-  AltLeft: "Alt",
-  AltRight: "Alt",
-  Backquote: "`",
-  Backslash: "\\",
-  BracketLeft: "[",
-  BracketRight: "]",
-  Comma: ",",
-  ControlLeft: "Control",
-  ControlRight: "Control",
-  Equal: "=",
-  Minus: "-",
-  Period: ".",
-  Quote: "'",
-  Semicolon: ";",
-  ShiftLeft: "Shift",
-  ShiftRight: "Shift",
-  Slash: "/",
-  Space: " ",
-};
+const NAMED_VALUES = new Map(
+  Object.entries({
+    AltLeft: "Alt",
+    AltRight: "Alt",
+    Backquote: "`",
+    Backslash: "\\",
+    BracketLeft: "[",
+    BracketRight: "]",
+    Comma: ",",
+    ControlLeft: "Control",
+    ControlRight: "Control",
+    Equal: "=",
+    Minus: "-",
+    Period: ".",
+    Quote: "'",
+    Semicolon: ";",
+    ShiftLeft: "Shift",
+    ShiftRight: "Shift",
+    Slash: "/",
+    Space: " ",
+  }),
+);
 
-const SHIFTED = {
-  Backquote: "~",
-  Backslash: "|",
-  BracketLeft: "{",
-  BracketRight: "}",
-  Comma: "<",
-  Digit0: ")",
-  Digit1: "!",
-  Digit2: "@",
-  Digit3: "#",
-  Digit4: "$",
-  Digit5: "%",
-  Digit6: "^",
-  Digit7: "&",
-  Digit8: "*",
-  Digit9: "(",
-  Equal: "+",
-  Minus: "_",
-  Period: ">",
-  Quote: '"',
-  Semicolon: ":",
-  Slash: "?",
-};
+const KEY_CODES = new Map(Object.entries(NAMED_KEYS));
 
-const shiftedKey = (code, key) => {
+const SHIFTED = new Map(
+  Object.entries({
+    Backquote: "~",
+    Backslash: "|",
+    BracketLeft: "{",
+    BracketRight: "}",
+    Comma: "<",
+    Digit0: ")",
+    Digit1: "!",
+    Digit2: "@",
+    Digit3: "#",
+    Digit4: "$",
+    Digit5: "%",
+    Digit6: "^",
+    Digit7: "&",
+    Digit8: "*",
+    Digit9: "(",
+    Equal: "+",
+    Minus: "_",
+    Period: ">",
+    Quote: '"',
+    Semicolon: ":",
+    Slash: "?",
+  }),
+);
+
+const shiftedKey = (code: string, key: string) => {
   if (/^Key[A-Z]$/u.test(code)) {
     return key.toUpperCase();
   }
 
-  return SHIFTED[code] ?? key;
+  return SHIFTED.get(code) ?? key;
 };
 
 /** `keyCode` and `key` for a KeyboardEvent `code`. Fails naming an unsupported code. */
-export const keyFields = (code) => {
+export const keyFields = (code: string) => {
   const letter = /^Key(?<letter>[A-Z])$/u.exec(code)?.groups?.letter;
 
-  if (letter) {
-    return [letter.codePointAt(0), letter.toLowerCase()];
+  if (letter !== undefined) {
+    const fields: [number, string] = [letter.codePointAt(0) ?? 0, letter.toLowerCase()];
+
+    return fields;
   }
 
   const digit = /^Digit(?<digit>[0-9])$/u.exec(code)?.groups?.digit;
 
-  if (digit) {
-    return [48 + Number(digit), digit];
+  if (digit !== undefined) {
+    const fields: [number, string] = [48 + Number(digit), digit];
+
+    return fields;
   }
 
-  if (Object.hasOwn(NAMED_KEYS, code)) {
-    return [NAMED_KEYS[code], Object.hasOwn(NAMED_VALUES, code) ? NAMED_VALUES[code] : code];
+  const keyCode = KEY_CODES.get(code);
+
+  if (keyCode !== undefined) {
+    const fields: [number, string] = [keyCode, NAMED_VALUES.get(code) ?? code];
+
+    return fields;
   }
 
-  fail(
+  return fail(
     `unsupported key code "${code}". Supported: Key<A-Z>, Digit<0-9>, and ${Object.keys(NAMED_KEYS).join(", ")}.`,
   );
 };
 
-const keyInits = (codes) => {
+const keyInits = (codes: string[]) => {
   const modifiers = {
     altKey: codes.some((c) => c === "AltLeft" || c === "AltRight"),
     ctrlKey: codes.some((c) => c === "ControlLeft" || c === "ControlRight"),
@@ -234,7 +288,7 @@ const keyInits = (codes) => {
  * event ourselves is the only way to hold a properly-formed key. The tradeoff
  * is `isTrusted: false`, which matters only for games that check it.
  */
-export const keyParts = (type, codes) => {
+export const keyParts = (type: "keydown" | "keyup", codes: string[]) => {
   if (codes.length === 0) {
     return [];
   }
@@ -254,12 +308,12 @@ const POINTER_FN = `window.__botPointer = (frac, type, buttons) => {
   target.dispatchEvent(new MouseEvent(type === "pointermove" ? "mousemove" : type === "pointerdown" ? "mousedown" : "mouseup", init));
 };`;
 
-const pointerCall = (pointer, type, buttons) =>
+const pointerCall = (pointer: Pointer, type: string, buttons: number) =>
   `window.__botPointer(${JSON.stringify({ x: pointer.x, y: pointer.y })}, ${JSON.stringify(type)}, ${buttons});`;
 
 /** In-page source moving/pressing (`"down"`) or releasing (`"up"`) the cursor. */
-export const pointerParts = (pointer, phase) => {
-  if (!pointer) {
+export const pointerParts = (pointer: Pointer | undefined, phase: "down" | "up") => {
+  if (pointer === undefined) {
     return [];
   }
 
@@ -276,26 +330,32 @@ export const pointerParts = (pointer, phase) => {
   ];
 };
 
+const isFraction = (v: JsonValue | undefined): v is number =>
+  isFiniteJsonNumber(v) && v >= 0 && v <= 1;
+
 /**
  * Check a `pointer` before anything launches. Fractions of the viewport, so a
  * script isn't tied to one window size; pixels are the tempting mistake, and
  * they'd silently aim off-screen.
  */
-export const validatePointer = (pointer, where) => {
-  const { x, y } = pointer;
+export const validatePointer = (pointer: JsonValue, where: string) => {
+  const { x, y, down } = isJsonObject(pointer) ? pointer : {};
 
-  for (const [name, value] of [
-    ["x", x],
-    ["y", y],
-  ]) {
-    if (!Number.isFinite(value) || value < 0 || value > 1) {
-      fail(`${where}: \`pointer.${name}\` must be a viewport fraction between 0 and 1.`);
-    }
+  if (!isFraction(x)) {
+    return fail(`${where}: \`pointer.x\` must be a viewport fraction between 0 and 1.`);
   }
 
-  if (pointer.down !== undefined && pointer.down !== true && pointer.down !== false) {
-    fail(`${where}: \`pointer.down\` must be a boolean.`);
+  if (!isFraction(y)) {
+    return fail(`${where}: \`pointer.y\` must be a viewport fraction between 0 and 1.`);
   }
+
+  if (down !== undefined && down !== true && down !== false) {
+    return fail(`${where}: \`pointer.down\` must be a boolean.`);
+  }
+
+  const checked: Pointer = down === undefined ? { x, y } : { down, x, y };
+
+  return checked;
 };
 
 /**
@@ -359,19 +419,27 @@ export const SAMPLE = `(() => { ${READ_FN} return __botRead(); })()`;
  * samples from inside the page, so neither needs the harness awake — holding
  * here costs nothing and saves a `vg playtest wait` subprocess per step.
  */
-export const sleep = (ms) => {
+export const sleep = (ms: number) => {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 };
 
 /** Run one `vg playtest` command. */
-export const playtest = (args) => {
+export const playtest = (args: string[]) => {
   const res = spawnSync("vg", ["playtest", ...args], { encoding: "utf-8", timeout: 120_000 });
 
-  if (res.error) {
+  if (res.error !== undefined) {
     fail(`couldn't run \`vg playtest\` — is the vg CLI installed? (${res.error.message})`);
   }
 
   return { status: res.status ?? 1, stderr: res.stderr ?? "", stdout: res.stdout ?? "" };
+};
+
+const parseJson = (text: string, onError: () => never) => {
+  try {
+    return parseJsonText(text);
+  } catch {
+    return onError();
+  }
 };
 
 /**
@@ -385,47 +453,49 @@ export const playtest = (args) => {
  * every field and produce a report full of zeroes that reads like a broken
  * game rather than a broken harness.
  */
-export const payload = (args, key) => {
+export const payload = (args: string[], key: string) => {
+  const command = args[0] ?? "";
   const { status, stdout, stderr } = playtest([...args, "--json"]);
   const text = stdout.trim();
 
   if (status !== 0) {
-    fail(`\`${args[0]}\` failed: ${stderr.trim() || text}`);
+    const detail = stderr.trim();
+    fail(`\`${command}\` failed: ${detail === "" ? text : detail}`);
   }
 
-  let parsed;
+  const parsed = parseJson(text, () =>
+    fail(`\`${command} --json\` did not return JSON: ${text.slice(0, 200)}`),
+  );
 
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    fail(`\`${args[0]} --json\` did not return JSON: ${text.slice(0, 200)}`);
+  const envelope = isJsonObject(parsed) ? parsed : {};
+
+  if (envelope.success === false) {
+    fail(`\`${command}\` failed: ${JSON.stringify(envelope.error)}`);
   }
 
-  if (parsed?.success === false) {
-    fail(`\`${args[0]}\` failed: ${JSON.stringify(parsed.error)}`);
-  }
+  const { data } = envelope;
 
-  if (!parsed?.data || !(key in parsed.data)) {
-    fail(
-      `unexpected agent-browser response for \`${args[0]}\` (no data.${key}): ${text.slice(0, 200)}`,
+  if (!isJsonObject(data) || !(key in data)) {
+    return fail(
+      `unexpected agent-browser response for \`${command}\` (no data.${key}): ${text.slice(0, 200)}`,
     );
   }
 
-  return parsed.data[key];
+  return data[key];
 };
 
-export const evaluate = (expression) => payload(["eval", expression], "result");
+export const evaluate = (expression: string) => payload(["eval", expression], "result");
 
 const readConsoleErrors = () => {
   const entries = payload(["console"], "messages");
 
   if (!Array.isArray(entries)) {
-    fail("`console` returned a non-array `messages`.");
+    return fail("`console` returned a non-array `messages`.");
   }
 
   return entries
-    .filter((entry) => entry?.type === "error")
-    .map((entry) => entry?.text ?? JSON.stringify(entry));
+    .filter((entry) => isJsonObject(entry) && entry.type === "error")
+    .map((entry) => (isJsonObject(entry) ? entry.text : undefined) ?? JSON.stringify(entry));
 };
 
 /**
@@ -439,10 +509,58 @@ export const collectErrors = () => {
   const pageErrors = payload(["errors"], "errors");
 
   if (!Array.isArray(pageErrors)) {
-    fail("`errors` returned a non-array `errors`.");
+    return fail("`errors` returned a non-array `errors`.");
   }
 
   return { consoleErrors, pageErrors };
+};
+
+const numberIn = (fields: JsonObject, name: string, what: string) => {
+  const value = fields[name];
+
+  if (!isFiniteJsonNumber(value)) {
+    return fail(`${what} read a non-number \`${name}\`: ${JSON.stringify(fields)}`);
+  }
+
+  return value;
+};
+
+/** Read an in-page `__botRead()` result, failing on a shape it can't produce. */
+export const readSample = (value: JsonValue | undefined, what: string) => {
+  if (!isJsonObject(value)) {
+    return fail(`${what} was not an object: ${JSON.stringify(value)}`);
+  }
+
+  const sample: Sample = {
+    complete: value.complete === true,
+    frame: numberIn(value, "frame", what),
+    score: numberIn(value, "score", what),
+    x: numberIn(value, "x", what),
+    y: numberIn(value, "y", what),
+    z: numberIn(value, "z", what),
+  };
+
+  return sample;
+};
+
+/** Read a `TRACK_SUMMARY` result: null when the page lost the tracker. */
+export const readSummary = (value: JsonValue | undefined, what: string) => {
+  if (value === null) {
+    return null;
+  }
+
+  const sample = readSample(value, what);
+  const fields = isJsonObject(value) ? value : {};
+
+  const summary: StepSummary = {
+    ...sample,
+    frameBefore: numberIn(fields, "frameBefore", what),
+    path: numberIn(fields, "path", what),
+    peak: numberIn(fields, "peak", what),
+    scoreBefore: numberIn(fields, "scoreBefore", what),
+  };
+
+  return summary;
 };
 
 /**
@@ -464,28 +582,31 @@ export const readGpuInfo = () => {
     })()`,
   );
 
-  if (!isPlainObject(info) || !isString(info.renderer)) {
+  const { renderer, vendor } = isJsonObject(info) ? info : {};
+
+  if (!isJsonString(renderer)) {
     return { renderer: null, softwareRendered: null, vendor: null };
   }
 
   return {
-    renderer: info.renderer,
-    softwareRendered: /swiftshader|llvmpipe|software|basic render/iu.test(info.renderer),
-    vendor: isString(info.vendor) ? info.vendor : null,
+    renderer,
+    softwareRendered: /swiftshader|llvmpipe|software|basic render/iu.test(renderer),
+    vendor: isJsonString(vendor) ? vendor : null,
   };
 };
 
 const CONTRACT_READY =
   "window.__GAME_DIAGNOSTICS__ !== undefined && window.__GAME_TEST_HOOKS__ !== undefined";
 
-const boot = (target, headed, whenAbsent) => {
+const boot = (target: string[], headed: boolean, whenAbsent: string) => {
   playtest(["console", "--clear"]);
   playtest(["errors", "--clear"]);
 
   const open = playtest(["open", ...target, ...(headed ? ["--headed"] : [])]);
 
   if (open.status !== 0) {
-    fail(`couldn't open the game: ${open.stderr.trim() || open.stdout.trim()}`);
+    const detail = open.stderr.trim();
+    fail(`couldn't open the game: ${detail === "" ? open.stdout.trim() : detail}`);
   }
 
   if (playtest(["wait", "--fn", CONTRACT_READY]).status !== 0) {
@@ -493,20 +614,22 @@ const boot = (target, headed, whenAbsent) => {
   }
 };
 
-const applySeed = (seed, headed) => {
+const applySeed = (seed: number, headed: boolean) => {
   const boot0 = evaluate(
     "({ hasSeedHook: typeof window.__GAME_TEST_HOOKS__?.seed === 'function', href: location.href })",
   );
 
-  if (boot0?.hasSeedHook) {
+  const { hasSeedHook, href } = isJsonObject(boot0) ? boot0 : {};
+
+  if (hasSeedHook === true) {
     return "hook";
   }
 
-  if (!isString(boot0?.href)) {
-    fail("couldn't read location.href to apply the seed.");
+  if (!isJsonString(href)) {
+    return fail("couldn't read location.href to apply the seed.");
   }
 
-  const url = new URL(boot0.href);
+  const url = new URL(href);
   url.searchParams.set("seed", String(seed));
   boot(
     [url.toString()],
@@ -523,7 +646,15 @@ const applySeed = (seed, headed) => {
  * against. `target` is `["--game", slug]` or `[url]` — `vg playtest` owns
  * slug→URL resolution and follows VG_API_URL when doing it.
  */
-export const launch = ({ headed, seed, target }) => {
+export const launch = ({
+  headed,
+  seed,
+  target,
+}: {
+  headed: boolean;
+  seed: number;
+  target: string[];
+}) => {
   boot(
     target,
     headed,
@@ -536,7 +667,7 @@ export const launch = ({ headed, seed, target }) => {
     `(async () => { const h = window.__GAME_TEST_HOOKS__; h.seed?.(${seed}); const ack = await h.setState?.('active-play'); window.__BOT_F0__ = h && window.__GAME_DIAGNOSTICS__.frame; return ack === undefined ? null : ack; })()`,
   );
 
-  if (ack !== null && (!isPlainObject(ack) || ack.state !== "active-play")) {
+  if (ack !== null && (!isJsonObject(ack) || ack.state !== "active-play")) {
     fail(
       `setState('active-play') acknowledged ${JSON.stringify(ack)} instead of { state: 'active-play' } — the hook applied a different state or is a no-op (see references/scripted-playtest.md).`,
     );
@@ -554,5 +685,5 @@ export const launch = ({ headed, seed, target }) => {
     );
   }
 
-  return { before: evaluate(SAMPLE), seedApplied };
+  return { before: readSample(evaluate(SAMPLE), "the baseline sample"), seedApplied };
 };

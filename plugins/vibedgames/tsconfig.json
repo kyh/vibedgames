@@ -15,7 +15,9 @@
       "playwright": ["../../node_modules/playwright-core"],
       "@repo/asset-tools": ["../../packages/asset-tools/src/index.ts"]
     },
-    "allowImportingTsExtensions": true
+    "allowImportingTsExtensions": true,
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true
   },
   "include": ["skills/**/*.mjs", "skills/**/*.ts", "types/**/*.d.ts"],
   "exclude": ["skills/**/_lib/**"]

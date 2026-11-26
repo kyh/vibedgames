@@ -4,6 +4,43 @@ import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { setTimeout as sleep } from "node:timers/promises";
 
+import type { Browser, BrowserContext, BrowserType, Page } from "playwright";
+
+type NetProbe = NonNullable<typeof globalThis.__VG_NET__>;
+
+type NetStats = ReturnType<NetProbe["stats"]>;
+
+type NetClientInfo = ReturnType<NetProbe["clients"]>[number];
+
+interface Options {
+  jitter: number;
+  json: boolean;
+  latency: number;
+  loadTimeout: number;
+  maxStalled: number;
+  maxStarved: number;
+  minFps: number;
+  noDraw: boolean;
+  roomParam: string;
+  seconds: number;
+  setState: string | null;
+  url: string | null;
+  viewport: { height: number; width: number };
+  warmup: number;
+}
+
+type NumberOption =
+  | "jitter"
+  | "latency"
+  | "loadTimeout"
+  | "maxStalled"
+  | "maxStarved"
+  | "minFps"
+  | "seconds"
+  | "warmup";
+
+type Verdict = "never connected" | "too slow" | "not measurable" | "stalls" | "choppy" | "smooth";
+
 const printHelp = () => {
   const source = readFileSync(import.meta.filename, "utf-8");
   const match = /^(?:#![^\n]*\n)?\/\*\*(?<body>[\s\S]*?)\*\//u.exec(source);
@@ -14,22 +51,77 @@ const printHelp = () => {
     .join("\n")
     .trim();
 
-  process.stdout.write(`${text || "No help available."}\n`);
+  process.stdout.write(`${text === "" ? "No help available." : text}\n`);
 };
 
-const NUMBER_FLAGS = {
-  "--jitter": "jitter",
-  "--latency": "latency",
-  "--load-timeout": "loadTimeout",
-  "--max-stalled": "maxStalled",
-  "--max-starved": "maxStarved",
-  "--min-fps": "minFps",
-  "--seconds": "seconds",
-  "--warmup": "warmup",
-};
+const NUMBER_FLAGS = new Map<string, NumberOption>([
+  ["--jitter", "jitter"],
+  ["--latency", "latency"],
+  ["--load-timeout", "loadTimeout"],
+  ["--max-stalled", "maxStalled"],
+  ["--max-starved", "maxStarved"],
+  ["--min-fps", "minFps"],
+  ["--seconds", "seconds"],
+  ["--warmup", "warmup"],
+]);
 
-const parseArgs = (argv) => {
-  const options = {
+type Parsed = { help: true } | { error: string } | { options: Options & { url: string } };
+
+type ValueFlag = (options: Options, value: string | undefined) => string | null;
+
+const setNumber: (name: NumberOption, flag: string) => ValueFlag =
+  (name, flag) => (options, raw) => {
+    const value = Number(raw);
+
+    if (!Number.isFinite(value) || value < 0) {
+      return `${flag} takes a non-negative number`;
+    }
+
+    options[name] = value;
+
+    return null;
+  };
+
+const VALUE_FLAGS = new Map<string, ValueFlag>([
+  [
+    "--room-param",
+    (options, value) => {
+      options.roomParam = value ?? "";
+
+      return null;
+    },
+  ],
+  [
+    "--set-state",
+    (options, value) => {
+      options.setState = value ?? null;
+
+      return null;
+    },
+  ],
+  [
+    "--viewport",
+    (options, value) => {
+      const match = /^(?<width>\d+)x(?<height>\d+)$/u.exec(value ?? "");
+
+      if (match?.groups === undefined) {
+        return "--viewport takes WxH, e.g. 480x270";
+      }
+
+      options.viewport = { height: Number(match.groups.height), width: Number(match.groups.width) };
+
+      return null;
+    },
+  ],
+  ...[...NUMBER_FLAGS].map(([flag, name]) => {
+    const entry: [string, ValueFlag] = [flag, setNumber(name, flag)];
+
+    return entry;
+  }),
+]);
+
+const parseArgs: (argv: string[]) => Parsed = (argv) => {
+  const options: Options = {
     jitter: 40,
     json: false,
     latency: 80,
@@ -47,7 +139,8 @@ const parseArgs = (argv) => {
   };
 
   for (let i = 0; i < argv.length; i += 1) {
-    const arg = argv[i];
+    const arg = argv[i] ?? "";
+    const valueFlag = VALUE_FLAGS.get(arg);
 
     if (arg === "--help" || arg === "-h") {
       return { help: true };
@@ -57,26 +150,12 @@ const parseArgs = (argv) => {
       options.json = true;
     } else if (arg === "--no-draw") {
       options.noDraw = true;
-    } else if (arg === "--room-param") {
-      options.roomParam = argv[(i += 1)];
-    } else if (arg === "--set-state") {
-      options.setState = argv[(i += 1)] ?? null;
-    } else if (arg === "--viewport") {
-      const match = /^(?<width>\d+)x(?<height>\d+)$/u.exec(argv[(i += 1)] ?? "");
+    } else if (valueFlag !== undefined) {
+      const error = valueFlag(options, argv[(i += 1)]);
 
-      if (!match?.groups) {
-        return { error: "--viewport takes WxH, e.g. 480x270" };
+      if (error !== null) {
+        return { error };
       }
-
-      options.viewport = { height: Number(match.groups.height), width: Number(match.groups.width) };
-    } else if (arg in NUMBER_FLAGS) {
-      const value = Number(argv[(i += 1)]);
-
-      if (!Number.isFinite(value) || value < 0) {
-        return { error: `${arg} takes a non-negative number` };
-      }
-
-      options[NUMBER_FLAGS[arg]] = value;
     } else if (arg.startsWith("--")) {
       return { error: `unknown flag ${arg}` };
     } else if (options.url === null) {
@@ -86,31 +165,44 @@ const parseArgs = (argv) => {
     }
   }
 
-  if (!options.url || !options.roomParam) {
-    return { error: "usage: node net-check.mjs <url> [flags] (see --help)" };
+  const { url } = options;
+
+  if (url === null || url === "" || options.roomParam === "") {
+    return { error: "usage: node net-check.ts <url> [flags] (see --help)" };
   }
 
-  return { options };
+  return { options: { ...options, url } };
 };
 
-const delayed = (send, { latency, jitter }) => {
-  const queue = [];
+type Frame = string | Buffer;
+
+const delayed = (
+  send: (data: Frame) => void,
+  { latency, jitter }: { latency: number; jitter: number },
+) => {
+  const queue: { at: number; data: Frame }[] = [];
   let last = 0;
-  let timer = null;
+  let timer: NodeJS.Timeout | null = null;
 
   const pump = () => {
     timer = null;
 
-    while (queue.length > 0 && queue[0].at <= Date.now()) {
-      send(queue.shift().data);
+    while (queue.length > 0 && (queue[0]?.at ?? Infinity) <= Date.now()) {
+      const next = queue.shift();
+
+      if (next !== undefined) {
+        send(next.data);
+      }
     }
 
-    if (queue.length > 0) {
-      timer = setTimeout(pump, Math.max(0, queue[0].at - Date.now()));
+    const [head] = queue;
+
+    if (head !== undefined) {
+      timer = setTimeout(pump, Math.max(0, head.at - Date.now()));
     }
   };
 
-  return (data) => {
+  return (data: Frame) => {
     const at = Math.max(last, Date.now() + latency + Math.random() * jitter);
     last = at;
     queue.push({ at, data });
@@ -118,22 +210,31 @@ const delayed = (send, { latency, jitter }) => {
   };
 };
 
-const launchBrowser = async (chromium) => {
-  const args = [
-    "--disable-background-timer-throttling",
-    "--disable-backgrounding-occluded-windows",
-    "--disable-renderer-backgrounding",
-  ];
+const inOrder = async function* inOrder<T>(items: Iterable<T>) {
+  yield* items;
+};
 
-  for (const channel of ["chrome", "chromium"]) {
-    try {
-      return await chromium.launch({ args, channel });
-    } catch {
-      continue;
-    }
+const BROWSER_ARGS = [
+  "--disable-background-timer-throttling",
+  "--disable-backgrounding-occluded-windows",
+  "--disable-renderer-backgrounding",
+];
+
+const launchBrowser: (
+  chromium: BrowserType,
+  channels?: readonly string[],
+) => Promise<Browser> = async (chromium, channels = ["chrome", "chromium"]) => {
+  const [channel, ...rest] = channels;
+
+  if (channel === undefined) {
+    return await chromium.launch({ args: BROWSER_ARGS });
   }
 
-  return chromium.launch({ args });
+  try {
+    return await chromium.launch({ args: BROWSER_ARGS, channel });
+  } catch {
+    return await launchBrowser(chromium, rest);
+  }
 };
 
 const COUNT_FRAMES = `
@@ -155,14 +256,28 @@ for (const proto of [globalThis.WebGLRenderingContext?.prototype, globalThis.Web
 }
 `;
 
-const readNet = (page) =>
-  page.evaluate(() => {
+const readNet = async (page: Page) =>
+  await page.evaluate(() => {
     const probe = globalThis.__VG_NET__;
 
     return probe ? { clients: probe.clients(), stats: probe.stats() } : null;
   });
 
-const openClient = async (browser, url, options) => {
+const waitForPlayer = async (page: Page, deadline: number) => {
+  const net = await readNet(page);
+
+  const joined =
+    net?.clients.some(
+      (c) => c.status === "connected" && c.playerId !== null && c.playerId !== "",
+    ) ?? false;
+
+  if (!joined && Date.now() < deadline) {
+    await sleep(250);
+    await waitForPlayer(page, deadline);
+  }
+};
+
+const openClient = async (browser: Browser, url: string, options: Options) => {
   const context = await browser.newContext({ viewport: options.viewport });
   await context.addInitScript({ content: COUNT_FRAMES });
 
@@ -172,40 +287,43 @@ const openClient = async (browser, url, options) => {
 
   await context.routeWebSocket(/\/parties\//u, (ws) => {
     const server = ws.connectToServer();
-    const up = delayed((data) => server.send(data), options);
-    const down = delayed((data) => ws.send(data), options);
+
+    const up = delayed((data) => {
+      server.send(data);
+    }, options);
+
+    const down = delayed((data) => {
+      ws.send(data);
+    }, options);
+
     ws.onMessage(up);
     server.onMessage(down);
-    ws.onClose((code, reason) => server.close({ code, reason }));
-    server.onClose((code, reason) => ws.close({ code, reason }));
+
+    ws.onClose(async (code, reason) => {
+      await server.close({ code, reason });
+    });
+    server.onClose(async (code, reason) => {
+      await ws.close({ code, reason });
+    });
   });
   const page = await context.newPage();
-  const errors = [];
+  const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto(url, { timeout: options.loadTimeout * 1000, waitUntil: "load" });
 
-  if (options.setState) {
+  if (options.setState !== null && options.setState !== "") {
     await page.evaluate(async (state) => {
       await globalThis.__GAME_TEST_HOOKS__?.setState?.(state);
     }, options.setState);
   }
 
-  const deadline = Date.now() + options.loadTimeout * 1000;
-  let net = await readNet(page);
-
-  while (
-    !net?.clients.some((c) => c.status === "connected" && c.playerId) &&
-    Date.now() < deadline
-  ) {
-    await sleep(250);
-    net = await readNet(page);
-  }
+  await waitForPlayer(page, Date.now() + options.loadTimeout * 1000);
 
   return { context, errors, page };
 };
 
-const movesOf = (page) =>
-  page.evaluate(() => {
+const movesOf = async (page: Page) =>
+  await page.evaluate(() => {
     const moves = Object.values(globalThis.__GAME_PLAYTEST__?.move ?? {})
       .map((move) => move.keys ?? [])
       .filter((keys) => keys.length > 0);
@@ -220,27 +338,44 @@ const movesOf = (page) =>
         ];
   });
 
-const drive = async (page, until) => {
-  const moves = await movesOf(page);
-
-  for (let i = 0; Date.now() < until; i += 1) {
-    const keys = moves[i % moves.length];
-
-    for (const key of keys) {
-      await page.keyboard.down(key);
-    }
-
-    await sleep(700);
-
-    for (const key of keys) {
-      await page.keyboard.up(key);
-    }
+const driveFrom = async (page: Page, moves: string[][], until: number, i: number) => {
+  if (Date.now() >= until) {
+    return;
   }
+
+  const keys = moves[i % moves.length] ?? [];
+
+  for await (const key of inOrder(keys)) {
+    await page.keyboard.down(key);
+  }
+
+  await sleep(700);
+
+  for await (const key of inOrder(keys)) {
+    await page.keyboard.up(key);
+  }
+
+  await driveFrom(page, moves, until, i + 1);
 };
 
-const ratio = (part, whole) => (whole > 0 ? part / whole : 0);
+const drive = async (page: Page, until: number) => {
+  await driveFrom(page, await movesOf(page), until, 0);
+};
 
-const judge = (client, options) => {
+const ratio = (part: number, whole: number) => (whole > 0 ? part / whole : 0);
+
+interface ClientReport {
+  connected: boolean;
+  errors: string[];
+  fps: number;
+  role: "none" | "host" | "guest";
+  rttMs: number | null;
+  stalled: number;
+  starved: number;
+  stats: NetStats;
+}
+
+const judge: (client: ClientReport, options: Options) => Verdict = (client, options) => {
   const { stats } = client;
 
   if (!client.connected) {
@@ -266,57 +401,72 @@ const judge = (client, options) => {
   return "smooth";
 };
 
-const roleOf = (self) => {
-  if (!self) {
+const roleOf = (self: NetClientInfo | null) => {
+  if (self === null) {
     return "none";
   }
 
   return self.isHost ? "host" : "guest";
 };
 
-const measure = async (pages, options) => {
+interface OpenClient {
+  context: BrowserContext;
+  errors: string[];
+  page: Page;
+}
+
+const measure = async (pages: OpenClient[], options: Options) => {
   await sleep(options.warmup * 1000);
 
   const startFrames = await Promise.all(
-    pages.map(({ page }) =>
-      page.evaluate(() => {
-        globalThis.__VG_NET__?.reset();
+    pages.map(
+      async ({ page }) =>
+        await page.evaluate(() => {
+          globalThis.__VG_NET__?.reset();
 
-        return globalThis.__NET_CHECK_FRAMES__;
-      }),
+          return globalThis.__NET_CHECK_FRAMES__;
+        }),
     ),
   );
 
   const started = Date.now();
-  await Promise.all(pages.map(async ({ page }) => drive(page, started + options.seconds * 1000)));
+  await Promise.all(
+    pages.map(async ({ page }) => {
+      await drive(page, started + options.seconds * 1000);
+    }),
+  );
   const elapsed = (Date.now() - started) / 1000;
-  const clients = [];
 
-  for (const [i, { page, errors }] of pages.entries()) {
-    const frames = await page.evaluate(() => globalThis.__NET_CHECK_FRAMES__);
-    const net = await readNet(page);
-    const self = net?.clients.find((c) => c.status === "connected") ?? net?.clients[0] ?? null;
-    const stats = net?.stats ?? { frames: 0, stalled: 0, starved: 0, updates: 0 };
+  return await Promise.all(
+    pages.map(async ({ page, errors }, i) => {
+      const frames = await page.evaluate(() => globalThis.__NET_CHECK_FRAMES__);
+      const net = await readNet(page);
+      const self = net?.clients.find((c) => c.status === "connected") ?? net?.clients[0] ?? null;
+      const stats = net?.stats ?? { frames: 0, stalled: 0, starved: 0, updates: 0 };
+      const rtt = self?.rttMs ?? null;
 
-    const client = {
-      connected: self?.status === "connected",
-      errors,
-      fps: Math.round((frames - startFrames[i]) / elapsed),
-      role: roleOf(self),
-      rttMs: Number.isFinite(self?.rttMs) ? Math.round(self.rttMs) : null,
-      stalled: Number(ratio(stats.stalled, stats.frames).toFixed(4)),
-      starved: Number(ratio(stats.starved, stats.frames).toFixed(4)),
-      stats,
-    };
+      const client: ClientReport = {
+        connected: self?.status === "connected",
+        errors,
+        fps: Math.round(((frames ?? Number.NaN) - (startFrames[i] ?? Number.NaN)) / elapsed),
+        role: roleOf(self),
+        rttMs: rtt !== null && Number.isFinite(rtt) ? Math.round(rtt) : null,
+        stalled: Number(ratio(stats.stalled, stats.frames).toFixed(4)),
+        starved: Number(ratio(stats.starved, stats.frames).toFixed(4)),
+        stats,
+      };
 
-    clients.push({ ...client, verdict: judge(client, options) });
-  }
-
-  return clients;
+      return { ...client, verdict: judge(client, options) };
+    }),
+  );
 };
 
-const exitCodeOf = (verdicts) => {
-  if (verdicts.some((verdict) => ["never connected", "stalls", "choppy"].includes(verdict))) {
+const exitCodeOf = (verdicts: Verdict[]) => {
+  if (
+    verdicts.some(
+      (verdict) => verdict === "never connected" || verdict === "stalls" || verdict === "choppy",
+    )
+  ) {
     return 1;
   }
 
@@ -327,7 +477,20 @@ const exitCodeOf = (verdicts) => {
   return 0;
 };
 
-const printReport = (report, options) => {
+interface Report {
+  clients: (ClientReport & { verdict: Verdict })[];
+  exitCode: number;
+  jitterMs: number;
+  latencyMs: number;
+  limits: { maxStalled: number; maxStarved: number; minFps: number };
+  noDraw: boolean;
+  ok: boolean;
+  room: string;
+  seconds: number;
+  url: string;
+}
+
+const printReport = (report: Report, options: Options) => {
   console.log(
     `net-check ${report.url}\n  ${options.latency} ms ± ${options.jitter} ms one way, ${options.seconds} s measured`,
   );
@@ -358,12 +521,20 @@ const printReport = (report, options) => {
   }
 };
 
-const run = async (options) => {
-  let chromium;
-
+const loadChromium = async () => {
   try {
-    ({ chromium } = await import("playwright"));
+    const { chromium } = await import("playwright");
+
+    return chromium;
   } catch {
+    return null;
+  }
+};
+
+const run = async (options: Options & { url: string }) => {
+  const chromium = await loadChromium();
+
+  if (chromium === null) {
     console.error("Playwright not found. Install it in the game project: npm i -D playwright");
 
     return 2;
@@ -381,7 +552,7 @@ const run = async (options) => {
     const clients = await measure([first, second], options);
     const exitCode = exitCodeOf(clients.map((client) => client.verdict));
 
-    const report = {
+    const report: Report = {
       clients,
       exitCode,
       jitterMs: options.jitter,
@@ -404,7 +575,11 @@ const run = async (options) => {
       printReport(report, options);
     }
 
-    await Promise.all([first, second].map(({ context }) => context.close()));
+    await Promise.all(
+      [first, second].map(async ({ context }) => {
+        await context.close();
+      }),
+    );
 
     return exitCode;
   } finally {
@@ -414,12 +589,12 @@ const run = async (options) => {
 
 const parsed = parseArgs(process.argv.slice(2));
 
-if (parsed.help) {
+if ("help" in parsed) {
   printHelp();
   process.exit(0);
 }
 
-if (parsed.error) {
+if ("error" in parsed) {
   console.error(parsed.error);
   process.exit(2);
 }

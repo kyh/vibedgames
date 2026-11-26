@@ -10,19 +10,19 @@ import {
   getFlag,
   getInt,
   getString,
+  isJsonObject,
+  isJsonString,
   loadManifestJson,
   main,
   makeSelftestMap,
   MANIFEST_JSON_CANDIDATES,
   parseArgs,
   parseColor,
+  parseJsonText,
   sanitizeTilesets,
   tilesetMetaFromManifest,
   writeJsonFile,
 } from "./_lib/asset-tools.mjs";
-
-const isPlainObject = (v) => Object.prototype.toString.call(v) === "[object Object]";
-const isString = (v) => String(v) === v;
 
 const resolveManifest = (explicit = "") => {
   if (explicit === "") {
@@ -142,15 +142,15 @@ main(() => {
       fail("--export-map-render requires --map PATH");
     }
 
-    const mapPayload = JSON.parse(readFileSync(mapPath, "utf-8"));
+    const parsedMap = parseJsonText(readFileSync(mapPath, "utf-8"));
 
-    if (!isPlainObject(mapPayload)) {
-      fail("Map JSON must be an object at top-level.");
-    }
+    const mapPayload = isJsonObject(parsedMap)
+      ? parsedMap
+      : fail("Map JSON must be an object at top-level.");
 
     const mapMeta = mapPayload.meta;
 
-    if (isPlainObject(mapMeta) && isString(mapMeta.tileset) && mapMeta.tileset in tilesets) {
+    if (isJsonObject(mapMeta) && isJsonString(mapMeta.tileset) && mapMeta.tileset in tilesets) {
       meta = tilesetMetaFromManifest(manifestPath, manifest, mapMeta.tileset);
     }
 

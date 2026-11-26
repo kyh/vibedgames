@@ -201,17 +201,15 @@ var parseColor = (input) => {
     if (r === void 0 || g === void 0 || b === void 0) {
       throw new Error(`Unrecognised colour: ${input}`);
     }
-    const channel = (raw) => {
-      const n = raw.endsWith("%") ? Number.parseFloat(raw) * 255 / 100 : Number.parseFloat(raw);
+    const scaled = (raw, whole) => {
+      const n = raw.endsWith("%") ? Number(raw.slice(0, -1)) * whole / 100 : Number(raw);
       if (Number.isNaN(n)) {
         throw new TypeError(`Unrecognised colour: ${input}`);
       }
-      return Math.max(0, Math.min(255, Math.round(n)));
+      return n;
     };
-    const alpha = rawAlpha === void 0 ? 255 : (
-      // oxlint-disable-next-line unicorn/prefer-number-coercion -- CSS alpha may carry a `%` suffix, which Number() rejects
-      Math.max(0, Math.min(255, Math.round(Number.parseFloat(rawAlpha) * 255)))
-    );
+    const channel = (raw) => Math.max(0, Math.min(255, Math.round(scaled(raw, 255))));
+    const alpha = rawAlpha === void 0 ? 255 : Math.max(0, Math.min(255, Math.round(scaled(rawAlpha, 1) * 255)));
     return [channel(r), channel(g), channel(b), alpha];
   }
   throw new Error(`Unrecognised colour: ${input}`);
@@ -3102,8 +3100,7 @@ var presetOf = (actionId) => {
   return preset;
 };
 var canonicalProfiles = () => Object.keys(PROFILES).filter((key) => !PROFILE_ALIASES.has(key));
-var resolveProfile = (profileId) => {
-  const key = profileId ?? "platformer";
+var resolveProfile = (key = "platformer") => {
   const profile = lookup(PROFILES, key);
   if (!profile) {
     const known = canonicalProfiles().toSorted().join(", ");
@@ -5255,6 +5252,7 @@ export {
   packSpritesheet,
   parseArgs,
   parseColor,
+  parseJsonText,
   processSheet,
   promptGuidanceForContract,
   recoverFrames,

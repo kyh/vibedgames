@@ -4,6 +4,51 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { inflateSync } from "node:zlib";
 
+import type { Browser, BrowserType, Page } from "playwright";
+
+type Tier = "desktop" | "mobile";
+
+interface Options {
+  json: boolean;
+  minStd: number;
+  mobile: boolean;
+  out: string | null;
+  selector: string;
+  target: string | null;
+  wait: number;
+}
+
+interface Stats {
+  meanLum: number;
+  opaqueFraction: number;
+  sampled: number;
+  stdLum: number;
+}
+
+interface BudgetRow {
+  actual: number | null;
+  limit: number;
+  metric: string;
+  ok: boolean | null;
+}
+
+interface GpuInfo {
+  renderer: string | null;
+  softwareRendered: boolean | null;
+  vendor: string | null;
+}
+
+interface Result extends Partial<Stats> {
+  budget?: BudgetRow[] | null;
+  consoleErrors: string[];
+  gpu?: GpuInfo;
+  ok: boolean;
+  out?: string | null;
+  pageErrors: string[];
+  reason: string;
+  tier?: Tier;
+}
+
 const printHelp = () => {
   const source = readFileSync(import.meta.filename, "utf-8");
   const match = /^(?:#![^\n]*\n)?\/\*\*(?<body>[\s\S]*?)\*\//u.exec(source);
@@ -14,7 +59,7 @@ const printHelp = () => {
     .join("\n")
     .trim();
 
-  process.stdout.write(`${text || "No help available."}\n`);
+  process.stdout.write(`${text === "" ? "No help available." : text}\n`);
 };
 
 const RENDER_BUDGETS = {
@@ -22,17 +67,26 @@ const RENDER_BUDGETS = {
   mobile: { calls: 150, geometries: 200, textures: 40, triangles: 300_000 },
 };
 
-const parseArgs = (argv) => {
-  const opts = { json: false, minStd: 4, mobile: false, out: null, selector: "canvas", wait: 1500 };
-  const rest = [];
+const parseArgs = (argv: string[]) => {
+  const opts: Options = {
+    json: false,
+    minStd: 4,
+    mobile: false,
+    out: null,
+    selector: "canvas",
+    target: null,
+    wait: 1500,
+  };
+
+  const rest: string[] = [];
 
   for (let i = 0; i < argv.length; i += 1) {
-    const a = argv[i];
+    const a = argv[i] ?? "";
 
     if (a === "--selector") {
-      opts.selector = argv[(i += 1)];
+      opts.selector = argv[(i += 1)] ?? "";
     } else if (a === "--out") {
-      opts.out = argv[(i += 1)];
+      opts.out = argv[(i += 1)] ?? null;
     } else if (a === "--wait") {
       opts.wait = Number(argv[(i += 1)]);
     } else if (a === "--min-std") {
@@ -46,7 +100,7 @@ const parseArgs = (argv) => {
     }
   }
 
-  [opts.target] = rest;
+  opts.target = rest[0] ?? null;
 
   if (!Number.isFinite(opts.wait) || opts.wait < 0) {
     throw new Error(`--wait must be a non-negative number (got ${opts.wait})`);
@@ -59,7 +113,7 @@ const parseArgs = (argv) => {
   return opts;
 };
 
-const toUrl = (target) => {
+const toUrl = (target: string) => {
   if (/^https?:\/\//u.test(target) || target.startsWith("file://")) {
     return target;
   }
@@ -67,7 +121,7 @@ const toUrl = (target) => {
   return pathToFileURL(target).href;
 };
 
-const paeth = (a, b, c) => {
+const paeth = (a: number, b: number, c: number) => {
   const p = a + b - c;
   const pa = Math.abs(p - a);
   const pb = Math.abs(p - b);
@@ -80,17 +134,48 @@ const paeth = (a, b, c) => {
   return pb <= pc ? b : c;
 };
 
-const decodePng = (buf) => {
-  if (buf.readUInt32BE(0) !== 0x89_50_4e_47) {
-    throw new Error("not a PNG");
-  }
+const CHANNELS = new Map([
+  [0, 1],
+  [2, 3],
+  [4, 2],
+  [6, 4],
+]);
 
+const unfilter = (filter: number, v: number, a: number, b: number, c: number) => {
+  switch (filter) {
+    case 0: {
+      return v;
+    }
+
+    case 1: {
+      return v + a;
+    }
+
+    case 2: {
+      return v + b;
+    }
+
+    case 3: {
+      return v + Math.floor((a + b) / 2);
+    }
+
+    case 4: {
+      return v + paeth(a, b, c);
+    }
+
+    default: {
+      throw new Error(`bad filter ${filter}`);
+    }
+  }
+};
+
+const readChunks = (buf: Buffer) => {
   let off = 8;
   let bitDepth = 8;
   let colorType = 6;
   let height = 0;
   let width = 0;
-  const idat = [];
+  const idat: Buffer[] = [];
 
   while (off < buf.length) {
     const len = buf.readUInt32BE(off);
@@ -115,13 +200,23 @@ const decodePng = (buf) => {
     off += 12 + len;
   }
 
+  return { bitDepth, colorType, height, idat, width };
+};
+
+const decodePng = (buf: Buffer) => {
+  if (buf.readUInt32BE(0) !== 0x89_50_4e_47) {
+    throw new Error("not a PNG");
+  }
+
+  const { bitDepth, colorType, height, idat, width } = readChunks(buf);
+
   if (bitDepth !== 8) {
     throw new Error(`bit depth ${bitDepth} unsupported`);
   }
 
-  const channels = { 0: 1, 2: 3, 4: 2, 6: 4 }[colorType];
+  const channels = CHANNELS.get(colorType);
 
-  if (!channels) {
+  if (channels === undefined) {
     throw new Error(`color type ${colorType} unsupported`);
   }
 
@@ -132,56 +227,33 @@ const decodePng = (buf) => {
   let pos = 0;
 
   for (let y = 0; y < height; y += 1) {
-    const filter = raw[pos];
+    const filter = raw[pos] ?? 0;
     pos += 1;
 
     for (let x = 0; x < stride; x += 1) {
-      const v = raw[pos];
+      const v = raw[pos] ?? 0;
       pos += 1;
-      const a = x >= channels ? out[y * stride + x - channels] : 0;
-      const b = y > 0 ? out[(y - 1) * stride + x] : 0;
-      const c = x >= channels && y > 0 ? out[(y - 1) * stride + x - channels] : 0;
-      let recon;
-
-      switch (filter) {
-        case 0: {
-          recon = v;
-          break;
-        }
-
-        case 1: {
-          recon = v + a;
-          break;
-        }
-
-        case 2: {
-          recon = v + b;
-          break;
-        }
-
-        case 3: {
-          recon = v + Math.floor((a + b) / 2);
-          break;
-        }
-
-        case 4: {
-          recon = v + paeth(a, b, c);
-          break;
-        }
-
-        default: {
-          throw new Error(`bad filter ${filter}`);
-        }
-      }
-
-      out[y * stride + x] = recon % 256;
+      const a = x >= channels ? (out[y * stride + x - channels] ?? 0) : 0;
+      const b = y > 0 ? (out[(y - 1) * stride + x] ?? 0) : 0;
+      const c = x >= channels && y > 0 ? (out[(y - 1) * stride + x - channels] ?? 0) : 0;
+      out[y * stride + x] = unfilter(filter, v, a, b, c) % 256;
     }
   }
 
   return { channels, data: out, height, width };
 };
 
-const analyze = ({ width, height, channels, data }) => {
+const analyze = ({
+  width,
+  height,
+  channels,
+  data,
+}: {
+  width: number;
+  height: number;
+  channels: number;
+  data: Buffer;
+}) => {
   const stride = width * channels;
   const stepX = Math.max(1, Math.floor(width / 200));
   const stepY = Math.max(1, Math.floor(height / 200));
@@ -193,19 +265,19 @@ const analyze = ({ width, height, channels, data }) => {
   for (let y = 0; y < height; y += stepY) {
     for (let x = 0; x < width; x += stepX) {
       const i = y * stride + x * channels;
-      let alpha;
-      let b;
-      let g;
-      const r = data[i];
+      let alpha = 255;
+      let b = 0;
+      let g = 0;
+      const r = data[i] ?? 0;
 
       if (channels >= 3) {
-        g = data[i + 1];
-        b = data[i + 2];
-        alpha = channels === 4 ? data[i + 3] : 255;
+        g = data[i + 1] ?? 0;
+        b = data[i + 2] ?? 0;
+        alpha = channels === 4 ? (data[i + 3] ?? 0) : 255;
       } else {
         g = r;
         b = r;
-        alpha = channels === 2 ? data[i + 1] : 255;
+        alpha = channels === 2 ? (data[i + 1] ?? 0) : 255;
       }
 
       const lum = 0.299 * r + 0.587 * g + 0.114 * b;
@@ -221,13 +293,16 @@ const analyze = ({ width, height, channels, data }) => {
   }
 
   if (n === 0) {
-    return { meanLum: 0, opaqueFraction: 0, sampled: 0, stdLum: 0 };
+    const empty: Stats = { meanLum: 0, opaqueFraction: 0, sampled: 0, stdLum: 0 };
+
+    return empty;
   }
 
   const mean = sum / n;
   const std = Math.sqrt(Math.max(0, sumSq / n - mean * mean));
+  const stats: Stats = { meanLum: mean, opaqueFraction: opaque / n, sampled: n, stdLum: std };
 
-  return { meanLum: mean, opaqueFraction: opaque / n, sampled: n, stdLum: std };
+  return stats;
 };
 
 const PAGE_OPTIONS = {
@@ -240,25 +315,31 @@ const PAGE_OPTIONS = {
   },
 };
 
-const renderBudget = (rendererInfo, tier) => {
-  if (!rendererInfo) {
+const renderBudget = (rendererInfo: Record<string, number> | null, tier: Tier) => {
+  if (rendererInfo === null) {
     return null;
   }
 
-  return Object.entries(RENDER_BUDGETS[tier]).map(([metric, limit]) => ({
-    actual: Number.isFinite(rendererInfo[metric]) ? rendererInfo[metric] : null,
-    limit,
-    metric,
-    ok: Number.isFinite(rendererInfo[metric]) ? rendererInfo[metric] <= limit : null,
-  }));
+  return Object.entries(RENDER_BUDGETS[tier]).map(([metric, limit]) => {
+    const value = Object.hasOwn(rendererInfo, metric) ? rendererInfo[metric] : undefined;
+    const actual = value !== undefined && Number.isFinite(value) ? value : null;
+    const row: BudgetRow = { actual, limit, metric, ok: actual === null ? null : actual <= limit };
+
+    return row;
+  });
 };
 
-const launchBrowser = async (chromium) => {
-  for (const channel of ["chrome", "chromium"]) {
+const launchBrowser: (
+  chromium: BrowserType,
+  channels?: readonly string[],
+) => Promise<Browser> = async (chromium, channels = ["chrome", "chromium"]) => {
+  const [channel, ...rest] = channels;
+
+  if (channel !== undefined) {
     try {
       return await chromium.launch({ channel });
     } catch {
-      continue;
+      return await launchBrowser(chromium, rest);
     }
   }
 
@@ -270,10 +351,10 @@ const launchBrowser = async (chromium) => {
     ].join("\n"),
   );
 
-  return chromium.launch();
+  return await chromium.launch();
 };
 
-const readGpuInfo = async (page) => {
+const readGpuInfo = async (page: Page) => {
   const info = await page
     .evaluate(() => {
       const canvas = document.querySelector("canvas");
@@ -291,28 +372,50 @@ const readGpuInfo = async (page) => {
 
       const debug = gl.getExtension("WEBGL_debug_renderer_info");
 
+      const read = (name: number) => {
+        const value: unknown = gl?.getParameter(name);
+
+        return String(value) === value ? value : null;
+      };
+
       return {
-        renderer: debug
-          ? gl.getParameter(debug.UNMASKED_RENDERER_WEBGL)
-          : gl.getParameter(gl.RENDERER),
-        vendor: debug ? gl.getParameter(debug.UNMASKED_VENDOR_WEBGL) : gl.getParameter(gl.VENDOR),
+        renderer: read(debug === null ? gl.RENDERER : debug.UNMASKED_RENDERER_WEBGL),
+        vendor: read(debug === null ? gl.VENDOR : debug.UNMASKED_VENDOR_WEBGL),
       };
     })
     .catch(() => null);
 
-  if (!info?.renderer) {
-    return { renderer: null, softwareRendered: null, vendor: null };
+  const renderer = info?.renderer ?? null;
+
+  if (renderer === null || renderer === "") {
+    const unknown: GpuInfo = { renderer: null, softwareRendered: null, vendor: null };
+
+    return unknown;
   }
 
-  return {
-    renderer: info.renderer,
-    softwareRendered: /swiftshader|llvmpipe|software|basic render/iu.test(info.renderer),
-    vendor: info.vendor,
+  const gpu: GpuInfo = {
+    renderer,
+    softwareRendered: /swiftshader|llvmpipe|software|basic render/iu.test(renderer),
+    vendor: info?.vendor ?? null,
   };
+
+  return gpu;
 };
 
-const failureReason = ({ blankLum, minStd, nearEmpty, pageErrors, stats }) => {
-  if (pageErrors.length) {
+const failureReason = ({
+  blankLum,
+  minStd,
+  nearEmpty,
+  pageErrors,
+  stats,
+}: {
+  blankLum: boolean;
+  minStd: number;
+  nearEmpty: boolean;
+  pageErrors: string[];
+  stats: Stats;
+}) => {
+  if (pageErrors.length > 0) {
     return `uncaught page error: ${pageErrors[0]}`;
   }
 
@@ -327,6 +430,29 @@ const failureReason = ({ blankLum, minStd, nearEmpty, pageErrors, stats }) => {
   return "rendered non-blank content";
 };
 
+const messageOf = (error: Error | string) =>
+  error instanceof Error && error.message !== "" ? error.message : String(error);
+
+const readOptions = (argv: string[]) => {
+  try {
+    return parseArgs(argv);
+  } catch (error) {
+    console.error(messageOf(error instanceof Error ? error : String(error)));
+
+    return null;
+  }
+};
+
+const loadChromium = async () => {
+  try {
+    const { chromium } = await import("playwright");
+
+    return chromium;
+  } catch {
+    return null;
+  }
+};
+
 const main = async () => {
   if (process.argv.includes("--help") || process.argv.includes("-h")) {
     printHelp();
@@ -334,29 +460,25 @@ const main = async () => {
     return 0;
   }
 
-  let opts;
+  const opts = readOptions(process.argv.slice(2));
 
-  try {
-    opts = parseArgs(process.argv.slice(2));
-  } catch (error) {
-    console.error(String(error?.message || error));
-
+  if (opts === null) {
     return 2;
   }
 
-  if (!opts.target) {
+  const { target } = opts;
+
+  if (target === null || target === "") {
     console.error(
-      "usage: node check-canvas.mjs <url|file> [--selector css] [--out png] [--wait ms] [--min-std n] [--mobile] [--json]",
+      "usage: node check-canvas.ts <url|file> [--selector css] [--out png] [--wait ms] [--min-std n] [--mobile] [--json]",
     );
 
     return 2;
   }
 
-  let chromium;
+  const chromium = await loadChromium();
 
-  try {
-    ({ chromium } = await import("playwright"));
-  } catch {
+  if (chromium === null) {
     console.error(
       "Playwright not found. Install it: pnpm add -D playwright (Chromium is pre-resolved in this environment).",
     );
@@ -364,23 +486,31 @@ const main = async () => {
     return 2;
   }
 
-  let browser;
-  const consoleErrors = [];
-  const pageErrors = [];
+  let browser: Browser | null = null;
+  const consoleErrors: string[] = [];
+  const pageErrors: string[] = [];
 
   try {
     browser = await launchBrowser(chromium);
-    const tier = opts.mobile ? "mobile" : "desktop";
+    const tier: Tier = opts.mobile ? "mobile" : "desktop";
     const page = await browser.newPage(PAGE_OPTIONS[tier]);
-    page.on("console", (m) => m.type() === "error" && consoleErrors.push(m.text()));
-    page.on("pageerror", (e) => pageErrors.push(String(e)));
 
-    await page.goto(toUrl(opts.target), { timeout: 30_000, waitUntil: "load" });
+    page.on("console", (m) => {
+      if (m.type() === "error") {
+        consoleErrors.push(m.text());
+      }
+    });
+
+    page.on("pageerror", (e) => {
+      pageErrors.push(String(e));
+    });
+
+    await page.goto(toUrl(target), { timeout: 30_000, waitUntil: "load" });
     await page.waitForTimeout(opts.wait);
 
     const canvas = await page.$(opts.selector);
 
-    if (!canvas) {
+    if (canvas === null) {
       report(opts, {
         consoleErrors,
         ok: false,
@@ -393,12 +523,30 @@ const main = async () => {
 
     const png = await canvas.screenshot();
 
-    if (opts.out) {
+    if (opts.out !== null && opts.out !== "") {
       writeFileSync(opts.out, png);
     }
 
     const rendererInfo = await page
-      .evaluate(() => globalThis.__GAME_DIAGNOSTICS__?.renderer ?? null)
+      .evaluate(() => {
+        const diagnostics = globalThis.__GAME_DIAGNOSTICS__;
+
+        const renderer =
+          diagnostics !== undefined && "renderer" in diagnostics ? diagnostics.renderer : null;
+
+        const present = Boolean(renderer);
+
+        if (!present) {
+          return null;
+        }
+
+        const fields: [string, unknown][] =
+          renderer instanceof Object ? Object.entries(renderer) : [];
+
+        return Object.fromEntries(
+          fields.filter((field): field is [string, number] => Number(field[1]) === field[1]),
+        );
+      })
       .catch(() => null);
 
     const budget = renderBudget(rendererInfo, tier);
@@ -423,17 +571,59 @@ const main = async () => {
 
     return ok ? 0 : 1;
   } catch (error) {
-    report(opts, { consoleErrors, ok: false, pageErrors, reason: String(error?.message || error) });
+    report(opts, {
+      consoleErrors,
+      ok: false,
+      pageErrors,
+      reason: messageOf(error instanceof Error ? error : String(error)),
+    });
 
     return 2;
   } finally {
-    if (browser) {
+    if (browser !== null) {
       await browser.close();
     }
   }
 };
 
-const report = (opts, result) => {
+const reportGpu = (gpu: GpuInfo) => {
+  if (gpu.renderer === null) {
+    console.log("  gpu: no WebGL context on the canvas — renderer unknown");
+  } else if (gpu.softwareRendered === true) {
+    console.log(
+      `  gpu: ${gpu.renderer} (SOFTWARE) — pixel/budget/functional checks valid; FPS and frame-time numbers from this run are NOT performance evidence`,
+    );
+  } else {
+    console.log(`  gpu: ${gpu.renderer}`);
+  }
+};
+
+const reportBudget = (budget: BudgetRow[], tier: Tier) => {
+  const over = budget.filter((row) => row.ok === false);
+  const missing = budget.filter((row) => row.ok === null);
+
+  if (over.length > 0) {
+    console.log(`  render budget (${tier} tier, advisory) — OVER:`);
+
+    for (const row of over) {
+      console.log(`    - ${row.metric}: ${row.actual ?? "null"} > ${row.limit}`);
+    }
+  } else if (missing.length === budget.length) {
+    console.log(
+      `  render budget (${tier} tier): diagnostics present but no numeric metrics — not validated`,
+    );
+  } else {
+    console.log(`  render budget (${tier} tier): within limits`);
+  }
+
+  if (missing.length > 0 && missing.length < budget.length) {
+    console.log(
+      `    (not reported by diagnostics: ${missing.map((row) => row.metric).join(", ")})`,
+    );
+  }
+};
+
+const report = (opts: Options, result: Result) => {
   if (opts.json) {
     console.log(JSON.stringify(result, null, 2));
 
@@ -442,54 +632,27 @@ const report = (opts, result) => {
 
   console.log(`${result.ok ? "PASS" : "FAIL"} — ${result.reason}`);
 
-  if (result.stdLum !== undefined) {
+  const { meanLum, opaqueFraction, stdLum } = result;
+
+  if (stdLum !== undefined && meanLum !== undefined && opaqueFraction !== undefined) {
     console.log(
-      `  luminance stddev: ${result.stdLum.toFixed(2)}  mean: ${result.meanLum.toFixed(1)}  opaque: ${(result.opaqueFraction * 100).toFixed(1)}%`,
+      `  luminance stddev: ${stdLum.toFixed(2)}  mean: ${meanLum.toFixed(1)}  opaque: ${(opaqueFraction * 100).toFixed(1)}%`,
     );
   }
 
-  if (result.out) {
+  if (result.out !== undefined && result.out !== null && result.out !== "") {
     console.log(`  screenshot: ${result.out}`);
   }
 
-  if (result.gpu) {
-    if (result.gpu.renderer === null) {
-      console.log("  gpu: no WebGL context on the canvas — renderer unknown");
-    } else if (result.gpu.softwareRendered) {
-      console.log(
-        `  gpu: ${result.gpu.renderer} (SOFTWARE) — pixel/budget/functional checks valid; FPS and frame-time numbers from this run are NOT performance evidence`,
-      );
-    } else {
-      console.log(`  gpu: ${result.gpu.renderer}`);
-    }
+  if (result.gpu !== undefined) {
+    reportGpu(result.gpu);
   }
 
-  if (result.budget) {
-    const over = result.budget.filter((row) => row.ok === false);
-    const missing = result.budget.filter((row) => row.ok === null);
-
-    if (over.length) {
-      console.log(`  render budget (${result.tier} tier, advisory) — OVER:`);
-
-      for (const row of over) {
-        console.log(`    - ${row.metric}: ${row.actual} > ${row.limit}`);
-      }
-    } else if (missing.length === result.budget.length) {
-      console.log(
-        `  render budget (${result.tier} tier): diagnostics present but no numeric metrics — not validated`,
-      );
-    } else {
-      console.log(`  render budget (${result.tier} tier): within limits`);
-    }
-
-    if (missing.length && missing.length < result.budget.length) {
-      console.log(
-        `    (not reported by diagnostics: ${missing.map((row) => row.metric).join(", ")})`,
-      );
-    }
+  if (result.budget !== undefined && result.budget !== null) {
+    reportBudget(result.budget, result.tier ?? "desktop");
   }
 
-  if (result.pageErrors?.length) {
+  if (result.pageErrors.length > 0) {
     console.log(`  uncaught page errors (${result.pageErrors.length}):`);
 
     for (const e of result.pageErrors.slice(0, 5)) {
@@ -497,7 +660,7 @@ const report = (opts, result) => {
     }
   }
 
-  if (result.consoleErrors?.length) {
+  if (result.consoleErrors.length > 0) {
     console.log(`  console errors (${result.consoleErrors.length}, advisory):`);
 
     for (const e of result.consoleErrors.slice(0, 5)) {

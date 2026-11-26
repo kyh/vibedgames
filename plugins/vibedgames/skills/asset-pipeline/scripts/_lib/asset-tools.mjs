@@ -191,17 +191,15 @@ var parseColor = (input) => {
     if (r === void 0 || g === void 0 || b === void 0) {
       throw new Error(`Unrecognised colour: ${input}`);
     }
-    const channel = (raw) => {
-      const n = raw.endsWith("%") ? Number.parseFloat(raw) * 255 / 100 : Number.parseFloat(raw);
+    const scaled = (raw, whole) => {
+      const n = raw.endsWith("%") ? Number(raw.slice(0, -1)) * whole / 100 : Number(raw);
       if (Number.isNaN(n)) {
         throw new TypeError(`Unrecognised colour: ${input}`);
       }
-      return Math.max(0, Math.min(255, Math.round(n)));
+      return n;
     };
-    const alpha = rawAlpha === void 0 ? 255 : (
-      // oxlint-disable-next-line unicorn/prefer-number-coercion -- CSS alpha may carry a `%` suffix, which Number() rejects
-      Math.max(0, Math.min(255, Math.round(Number.parseFloat(rawAlpha) * 255)))
-    );
+    const channel = (raw) => Math.max(0, Math.min(255, Math.round(scaled(raw, 255))));
+    const alpha = rawAlpha === void 0 ? 255 : Math.max(0, Math.min(255, Math.round(scaled(rawAlpha, 1) * 255)));
     return [channel(r), channel(g), channel(b), alpha];
   }
   throw new Error(`Unrecognised colour: ${input}`);
@@ -1247,252 +1245,6 @@ var drawDigits = (target, x, y, text, ink) => {
     cursor += GLYPH_WIDTH;
   }
 };
-
-// src/asset/lua.ts
-var LuaParseError = class extends Error {
-  constructor(message) {
-    super(message);
-    this.name = "LuaParseError";
-  }
-};
-var IDENT_START = /[A-Za-z_]/u;
-var IDENT_BODY = /[A-Za-z0-9_]/u;
-var punctuationOf = (ch) => {
-  switch (ch) {
-    case "{":
-    case "}":
-    case "[":
-    case "]":
-    case "=":
-    case ",":
-    case ";": {
-      return ch;
-    }
-    default: {
-      return null;
-    }
-  }
-};
-var isSpace = (ch) => ch !== "" && /\s/u.test(ch);
-var isDigit = (ch) => ch >= "0" && ch <= "9";
-var peek = (cur, n = 0) => cur.text.charAt(cur.i + n);
-var skipTrivia = (cur) => {
-  for (; ; ) {
-    while (isSpace(peek(cur))) {
-      cur.i += 1;
-    }
-    if (peek(cur) !== "-" || peek(cur, 1) !== "-") {
-      return;
-    }
-    cur.i += 2;
-    if (peek(cur) === "[" && peek(cur, 1) === "[") {
-      cur.i += 2;
-      const end = cur.text.indexOf("]]", cur.i);
-      cur.i = end === -1 ? cur.text.length : end + 2;
-    } else {
-      while (peek(cur) !== "" && peek(cur) !== "\n") {
-        cur.i += 1;
-      }
-    }
-  }
-};
-var ESCAPES = /* @__PURE__ */ new Map([
-  ["n", "\n"],
-  ["t", "	"],
-  ["r", "\r"],
-  ['"', '"'],
-  ["'", "'"],
-  ["\\", "\\"]
-]);
-var readString = (cur) => {
-  const quote = peek(cur);
-  cur.i += 1;
-  const out = [];
-  for (; ; ) {
-    const c = peek(cur);
-    if (c === "") {
-      throw new LuaParseError("Unterminated string");
-    }
-    if (c === quote) {
-      cur.i += 1;
-      return out.join("");
-    }
-    if (c === "\\") {
-      cur.i += 1;
-      const esc2 = peek(cur);
-      out.push(ESCAPES.get(esc2) ?? `\\${esc2}`);
-      if (esc2 !== "") {
-        cur.i += 1;
-      }
-      continue;
-    }
-    out.push(c);
-    cur.i += 1;
-  }
-};
-var readWhile = (cur, from, accept) => {
-  let j = from;
-  while (j < cur.text.length && accept(cur.text.charAt(j))) {
-    j += 1;
-  }
-  const value = cur.text.slice(cur.i, j);
-  cur.i = j;
-  return value;
-};
-var tokenize = (text) => {
-  const tokens = [];
-  const cur = { i: 0, text };
-  for (; ; ) {
-    skipTrivia(cur);
-    if (cur.i >= text.length) {
-      tokens.push({ pos: cur.i, type: "eof", value: "" });
-      return tokens;
-    }
-    const ch = peek(cur);
-    const pos = cur.i;
-    const punctuation = punctuationOf(ch);
-    if (punctuation !== null) {
-      tokens.push({ pos, type: punctuation, value: punctuation });
-      cur.i += 1;
-      continue;
-    }
-    if (ch === "'" || ch === '"') {
-      tokens.push({ pos, type: "string", value: readString(cur) });
-      continue;
-    }
-    if (isDigit(ch) || ch === "-" && isDigit(peek(cur, 1))) {
-      const from = ch === "-" ? cur.i + 1 : cur.i;
-      const value = readWhile(cur, from, (c) => isDigit(c) || c === ".");
-      tokens.push({ pos, type: "number", value });
-      continue;
-    }
-    if (IDENT_START.test(ch)) {
-      const value = readWhile(cur, cur.i + 1, (c) => IDENT_BODY.test(c));
-      tokens.push({ pos, type: "ident", value });
-      continue;
-    }
-    throw new LuaParseError(`Unexpected character at ${pos}: '${ch}'`);
-  }
-};
-var numberTokenValue = (raw) => (
-  // oxlint-disable-next-line unicorn/prefer-number-coercion -- a token like `1.2.3` must read its leading number, not NaN
-  raw.includes(".") ? Number.parseFloat(raw) : Number.parseInt(raw, 10)
-);
-var parseLua = (text) => {
-  const tokens = tokenize(text);
-  let k = 0;
-  const EOF = { pos: text.length, type: "eof", value: "" };
-  const cur = () => tokens[k] ?? EOF;
-  const peekToken = (n = 1) => tokens[Math.min(k + n, tokens.length - 1)] ?? EOF;
-  const eat = (type) => {
-    const token = cur();
-    if (type !== void 0 && token.type !== type) {
-      throw new LuaParseError(`Expected ${type}, got ${token.type} at ${token.pos}`);
-    }
-    k += 1;
-    return token;
-  };
-  const parseValue = () => {
-    const token = cur();
-    if (token.type === "{") {
-      return parseTable();
-    }
-    if (token.type === "string") {
-      eat("string");
-      return token.value;
-    }
-    if (token.type === "number") {
-      eat("number");
-      return numberTokenValue(token.value);
-    }
-    if (token.type === "ident") {
-      if (token.value === "true") {
-        eat("ident");
-        return true;
-      }
-      if (token.value === "false") {
-        eat("ident");
-        return false;
-      }
-      if (token.value === "nil") {
-        eat("ident");
-        return null;
-      }
-      throw new LuaParseError(`Unsupported identifier value at ${token.pos}: '${token.value}'`);
-    }
-    throw new LuaParseError(`Unexpected token at ${token.pos}: ${token.type}`);
-  };
-  const parseTable = () => {
-    eat("{");
-    const items = [];
-    let arrayIndex = 1;
-    while (cur().type !== "}") {
-      if (cur().type === "ident" && peekToken().type === "=") {
-        const key = eat("ident").value;
-        eat("=");
-        items.push([{ kind: "name", name: key }, parseValue()]);
-      } else if (cur().type === "[") {
-        eat("[");
-        const keyToken = cur();
-        parseValue();
-        eat("]");
-        eat("=");
-        if (keyToken.type === "string") {
-          items.push([{ kind: "name", name: keyToken.value }, parseValue()]);
-        } else if (keyToken.type === "number") {
-          items.push([{ index: numberTokenValue(keyToken.value), kind: "index" }, parseValue()]);
-        } else {
-          throw new LuaParseError("Only string/int table keys are supported");
-        }
-      } else {
-        items.push([{ index: arrayIndex, kind: "index" }, parseValue()]);
-        arrayIndex += 1;
-      }
-      if (cur().type === "," || cur().type === ";") {
-        eat();
-      }
-    }
-    eat("}");
-    const numeric = [];
-    for (const [key] of items) {
-      if (key.kind === "index") {
-        numeric.push(key.index);
-      }
-    }
-    if (items.length > 0 && numeric.length === items.length) {
-      const max = Math.max(...numeric);
-      const dense = new Set(numeric).size === numeric.length && max === numeric.length;
-      if (dense) {
-        const out2 = Array.from({ length: max }, () => null);
-        for (const [key, value2] of items) {
-          if (key.kind === "index") {
-            out2[key.index - 1] = value2;
-          }
-        }
-        return out2;
-      }
-    }
-    const out = {};
-    for (const [key, value2] of items) {
-      out[key.kind === "index" ? String(key.index) : key.name] = value2;
-    }
-    return out;
-  };
-  if (cur().type === "ident" && cur().value === "return") {
-    eat("ident");
-  }
-  const value = parseValue();
-  if (cur().type !== "eof") {
-    throw new LuaParseError(`Trailing tokens at ${cur().pos}`);
-  }
-  return value;
-};
-
-// src/asset/tilemap-server.ts
-import { randomUUID } from "node:crypto";
-import { existsSync as existsSync2, mkdirSync as mkdirSync2, readFileSync as readFileSync4, writeFileSync as writeFileSync2 } from "node:fs";
-import { createServer } from "node:http";
-import path3 from "node:path";
 
 // ../../node_modules/.pnpm/zod@4.6.7/node_modules/zod/v4/core/util.js
 function jsonStringifyReplacer(_, value) {
@@ -2658,6 +2410,250 @@ var isJsonObject = (value) => Object(value) === value && !Array.isArray(value);
 var isJsonString = (value) => Object.prototype.toString.call(value) === "[object String]";
 var isFiniteJsonNumber = (value) => Number.isFinite(value);
 
+// src/asset/lua.ts
+var LuaParseError = class extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "LuaParseError";
+  }
+};
+var IDENT_START = /[A-Za-z_]/u;
+var IDENT_BODY = /[A-Za-z0-9_]/u;
+var punctuationOf = (ch) => {
+  switch (ch) {
+    case "{":
+    case "}":
+    case "[":
+    case "]":
+    case "=":
+    case ",":
+    case ";": {
+      return ch;
+    }
+    default: {
+      return null;
+    }
+  }
+};
+var isSpace = (ch) => ch !== "" && /\s/u.test(ch);
+var isDigit = (ch) => ch >= "0" && ch <= "9";
+var peek = (cur, n = 0) => cur.text.charAt(cur.i + n);
+var skipTrivia = (cur) => {
+  for (; ; ) {
+    while (isSpace(peek(cur))) {
+      cur.i += 1;
+    }
+    if (peek(cur) !== "-" || peek(cur, 1) !== "-") {
+      return;
+    }
+    cur.i += 2;
+    if (peek(cur) === "[" && peek(cur, 1) === "[") {
+      cur.i += 2;
+      const end = cur.text.indexOf("]]", cur.i);
+      cur.i = end === -1 ? cur.text.length : end + 2;
+    } else {
+      while (peek(cur) !== "" && peek(cur) !== "\n") {
+        cur.i += 1;
+      }
+    }
+  }
+};
+var ESCAPES = /* @__PURE__ */ new Map([
+  ["n", "\n"],
+  ["t", "	"],
+  ["r", "\r"],
+  ['"', '"'],
+  ["'", "'"],
+  ["\\", "\\"]
+]);
+var readString = (cur) => {
+  const quote = peek(cur);
+  cur.i += 1;
+  const out = [];
+  for (; ; ) {
+    const c = peek(cur);
+    if (c === "") {
+      throw new LuaParseError("Unterminated string");
+    }
+    if (c === quote) {
+      cur.i += 1;
+      return out.join("");
+    }
+    if (c === "\\") {
+      cur.i += 1;
+      const esc2 = peek(cur);
+      out.push(ESCAPES.get(esc2) ?? `\\${esc2}`);
+      if (esc2 !== "") {
+        cur.i += 1;
+      }
+      continue;
+    }
+    out.push(c);
+    cur.i += 1;
+  }
+};
+var readWhile = (cur, from, accept) => {
+  let j = from;
+  while (j < cur.text.length && accept(cur.text.charAt(j))) {
+    j += 1;
+  }
+  const value = cur.text.slice(cur.i, j);
+  cur.i = j;
+  return value;
+};
+var tokenize = (text) => {
+  const tokens = [];
+  const cur = { i: 0, text };
+  for (; ; ) {
+    skipTrivia(cur);
+    if (cur.i >= text.length) {
+      tokens.push({ pos: cur.i, type: "eof", value: "" });
+      return tokens;
+    }
+    const ch = peek(cur);
+    const pos = cur.i;
+    const punctuation = punctuationOf(ch);
+    if (punctuation !== null) {
+      tokens.push({ pos, type: punctuation, value: punctuation });
+      cur.i += 1;
+      continue;
+    }
+    if (ch === "'" || ch === '"') {
+      tokens.push({ pos, type: "string", value: readString(cur) });
+      continue;
+    }
+    if (isDigit(ch) || ch === "-" && isDigit(peek(cur, 1))) {
+      const from = ch === "-" ? cur.i + 1 : cur.i;
+      const value = readWhile(cur, from, (c) => isDigit(c) || c === ".");
+      tokens.push({ pos, type: "number", value });
+      continue;
+    }
+    if (IDENT_START.test(ch)) {
+      const value = readWhile(cur, cur.i + 1, (c) => IDENT_BODY.test(c));
+      tokens.push({ pos, type: "ident", value });
+      continue;
+    }
+    throw new LuaParseError(`Unexpected character at ${pos}: '${ch}'`);
+  }
+};
+var LEADING_NUMBER = /^-?\d+(?:\.\d*)?/u;
+var numberTokenValue = (raw) => Number(LEADING_NUMBER.exec(raw)?.[0]);
+var parseLua = (text) => {
+  const tokens = tokenize(text);
+  let k = 0;
+  const EOF = { pos: text.length, type: "eof", value: "" };
+  const cur = () => tokens[k] ?? EOF;
+  const peekToken = (n = 1) => tokens[Math.min(k + n, tokens.length - 1)] ?? EOF;
+  const eat = (type) => {
+    const token = cur();
+    if (type !== void 0 && token.type !== type) {
+      throw new LuaParseError(`Expected ${type}, got ${token.type} at ${token.pos}`);
+    }
+    k += 1;
+    return token;
+  };
+  const parseValue = () => {
+    const token = cur();
+    if (token.type === "{") {
+      return parseTable();
+    }
+    if (token.type === "string") {
+      eat("string");
+      return token.value;
+    }
+    if (token.type === "number") {
+      eat("number");
+      return numberTokenValue(token.value);
+    }
+    if (token.type === "ident") {
+      if (token.value === "true") {
+        eat("ident");
+        return true;
+      }
+      if (token.value === "false") {
+        eat("ident");
+        return false;
+      }
+      if (token.value === "nil") {
+        eat("ident");
+        return null;
+      }
+      throw new LuaParseError(`Unsupported identifier value at ${token.pos}: '${token.value}'`);
+    }
+    throw new LuaParseError(`Unexpected token at ${token.pos}: ${token.type}`);
+  };
+  const parseTable = () => {
+    eat("{");
+    const items = [];
+    let arrayIndex = 1;
+    while (cur().type !== "}") {
+      if (cur().type === "ident" && peekToken().type === "=") {
+        const key = eat("ident").value;
+        eat("=");
+        items.push([{ kind: "name", name: key }, parseValue()]);
+      } else if (cur().type === "[") {
+        eat("[");
+        const keyToken = cur();
+        parseValue();
+        eat("]");
+        eat("=");
+        if (keyToken.type === "string") {
+          items.push([{ kind: "name", name: keyToken.value }, parseValue()]);
+        } else if (keyToken.type === "number") {
+          items.push([{ index: numberTokenValue(keyToken.value), kind: "index" }, parseValue()]);
+        } else {
+          throw new LuaParseError("Only string/int table keys are supported");
+        }
+      } else {
+        items.push([{ index: arrayIndex, kind: "index" }, parseValue()]);
+        arrayIndex += 1;
+      }
+      if (cur().type === "," || cur().type === ";") {
+        eat();
+      }
+    }
+    eat("}");
+    const numeric = [];
+    for (const [key] of items) {
+      if (key.kind === "index") {
+        numeric.push(key.index);
+      }
+    }
+    if (items.length > 0 && numeric.length === items.length) {
+      const max = Math.max(...numeric);
+      const dense = new Set(numeric).size === numeric.length && max === numeric.length;
+      if (dense) {
+        const out2 = Array.from({ length: max }, () => null);
+        for (const [key, value2] of items) {
+          if (key.kind === "index") {
+            out2[key.index - 1] = value2;
+          }
+        }
+        return out2;
+      }
+    }
+    const out = {};
+    for (const [key, value2] of items) {
+      out[key.kind === "index" ? String(key.index) : key.name] = value2;
+    }
+    return out;
+  };
+  if (cur().type === "ident" && cur().value === "return") {
+    eat("ident");
+  }
+  const value = parseValue();
+  if (cur().type !== "eof") {
+    throw new LuaParseError(`Trailing tokens at ${cur().pos}`);
+  }
+  return value;
+};
+
+// src/asset/tilemap-server.ts
+import { randomUUID } from "node:crypto";
+import { existsSync as existsSync2, mkdirSync as mkdirSync2, readFileSync as readFileSync4, writeFileSync as writeFileSync2 } from "node:fs";
+import { createServer } from "node:http";
+import path3 from "node:path";
+
 // src/asset/tilemap.ts
 import { existsSync, readFileSync as readFileSync3 } from "node:fs";
 import path2 from "node:path";
@@ -2972,26 +2968,25 @@ var sendJson = (res, status, body) => {
   });
   res.end(payload);
 };
-var readBody = async (req, limitBytes = 8 * 1024 * 1024) => (
-  // oxlint-disable-next-line promise/avoid-new -- wraps the stream's event callbacks
-  await new Promise((resolve, reject) => {
-    const chunks = [];
-    let total = 0;
-    req.on("data", (chunk2) => {
-      total += chunk2.length;
-      if (total > limitBytes) {
-        reject(new Error("Request body too large."));
-        req.destroy();
-        return;
-      }
-      chunks.push(chunk2);
-    });
-    req.on("end", () => {
-      resolve(Buffer.concat(chunks).toString("utf-8"));
-    });
-    req.on("error", reject);
-  })
-);
+var readBody = async (req, limitBytes = 8 * 1024 * 1024) => {
+  const { promise, reject, resolve } = Promise.withResolvers();
+  const chunks = [];
+  let total = 0;
+  req.on("data", (chunk2) => {
+    total += chunk2.length;
+    if (total > limitBytes) {
+      reject(new Error("Request body too large."));
+      req.destroy();
+      return;
+    }
+    chunks.push(chunk2);
+  });
+  req.on("end", () => {
+    resolve(Buffer.concat(chunks).toString("utf-8"));
+  });
+  req.on("error", reject);
+  return await promise;
+};
 var tilesetSummary = (meta2) => ({
   columns: meta2.columns,
   imageHeight: meta2.imageH,
@@ -3635,12 +3630,15 @@ export {
   getFlag,
   getInt,
   getString,
+  isJsonObject,
+  isJsonString,
   loadManifestJson,
   main,
   makeSelftestMap,
   parseArgs,
   parseColor,
   parseFrame,
+  parseJsonText,
   probeSheet,
   resolveTargets,
   sanitizeTilesets,

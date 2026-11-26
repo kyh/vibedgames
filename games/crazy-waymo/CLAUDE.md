@@ -258,7 +258,7 @@ sample count is reported explicitly, never as proof of stable memory.
 Safari with one owned iPhone simulator; see `--help` for Appium setup. Run these
 serially. Neither simulator nor desktop throttling measures phone thermals.
 
-**Lag check.** Point the multiplayer skill's `scripts/net-check.mjs` at
+**Lag check.** Point the multiplayer skill's `scripts/net-check.ts` at
 `http://localhost:5193/?online`: on the dev server `?online&room=<id>` skips
 the title into a run in that room, every such client from the same street, so
 the check's two clients meet and drive at once. Without a GPU two

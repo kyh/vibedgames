@@ -98,7 +98,7 @@ done
 
 ```sh
 # from the project root
-node $SKILL/scripts/scripted-playtest.mjs --url http://localhost:5173 --seed 12345
+node $SKILL/scripts/scripted-playtest.ts --url http://localhost:5173 --seed 12345
 ```
 
 The bundled script (zero dependencies — just Node and `vg`) drives a scripted sweep of held keys and pointer moves, samples diagnostics **during** each step, and prints a JSON report. It measures four things: the loop survived (`framesAdvanced`), input reaches the player (`distanceTravelled`), the objective is reachable (`scoreAfter` / `stepOfFirstScore`), and the player never wedged (`longestStuckRun`) — plus zero console and page errors. Exit `0` means it plays, `1` means it doesn't and the report names which check failed, `2` means the harness itself broke.
@@ -221,9 +221,9 @@ A diff catches a change; it can't tell you the frame was wrong to begin with. Fo
 
 ## Bundled Resources
 
-- `scripts/scripted-playtest.mjs` — the progression-measuring bot; run it, read the JSON report
+- `scripts/scripted-playtest.ts` — the progression-measuring bot; run it, read the JSON report
 - `scripts/ref-sxs.mjs` — reference-vs-capture side-by-side plus blurred twin, for visual-parity review
-- `scripts/lib/harness.mjs` — the bot's `vg playtest` plumbing, held-key and pointer dispatch, motion tracker, boot and seeding
+- `scripts/lib/harness.ts` — the bot's `vg playtest` plumbing, held-key and pointer dispatch, motion tracker, boot and seeding
 - `references/scripted-playtest.md` — diagnostics contract, metrics, difficulty/fairness runs
 - `references/autonomous-playtest.md` — `vg playtest run`: making a game playable by the model (`__GAME_PLAYTEST__`), flags, what the model sees, reading a run as a playtest
 - `references/canvas-determinism.md` — deterministic mode, readiness, flake triage, Phaser/Three.js specifics

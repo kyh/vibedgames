@@ -78,7 +78,7 @@ vg playtest scroll down 300
 > vg playtest eval "window.dispatchEvent(new KeyboardEvent('keydown',{key:'d',code:'KeyD',keyCode:68,which:68,bubbles:true}))"
 > ```
 >
-> `scripts/scripted-playtest.mjs` handles this and the `code` → `keyCode` mapping for you. Full explanation in `references/scripted-playtest.md`.
+> `scripts/scripted-playtest.ts` handles this and the `code` → `keyCode` mapping for you. Full explanation in `references/scripted-playtest.md`.
 
 ## Read Game State
 

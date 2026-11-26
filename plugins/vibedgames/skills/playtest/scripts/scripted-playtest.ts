@@ -2,6 +2,14 @@
 
 import { readFileSync } from "node:fs";
 
+import type { JsonObject, JsonValue } from "./_lib/asset-tools.mjs";
+import {
+  isFiniteJsonNumber,
+  isJsonObject,
+  isJsonString,
+  parseJsonText,
+} from "./_lib/asset-tools.mjs";
+import type { Pointer, Sample } from "./lib/harness.ts";
 import {
   MOVEMENT_CODES,
   TRACK_BEGIN,
@@ -11,7 +19,7 @@ import {
   disownHeld,
   evaluate,
   fail,
-  isPlainObject,
+  isJsonBoolean,
   keyFields,
   keyParts,
   launch,
@@ -19,14 +27,22 @@ import {
   pointerParts,
   printHelp,
   readGpuInfo,
+  readSummary,
   setProgramName,
   sleep,
   validatePointer,
-} from "./lib/harness.mjs";
+} from "./lib/harness.ts";
 
 setProgramName("scripted-playtest");
 
-const DEFAULT_SCRIPT = [
+interface Step {
+  keys: string[];
+  ms: number;
+  pointer?: Pointer;
+  expectMotion?: boolean;
+}
+
+const DEFAULT_SCRIPT: JsonValue = [
   { keys: ["KeyW"], ms: 1000 },
   { keys: ["KeyA"], ms: 1900 },
   { keys: ["KeyD"], ms: 3400 },
@@ -42,8 +58,19 @@ const THRESHOLDS = {
   stuckRun: 2,
 };
 
-const parseArgs = (argv) => {
-  const opts = {
+interface Options {
+  expectProgress: boolean;
+  game: string | null;
+  headed: boolean;
+  keepOpen: boolean;
+  reactionDelay: number;
+  script: JsonValue;
+  seed: number;
+  url: string | null;
+}
+
+const parseArgs = (argv: string[]) => {
+  const opts: Options = {
     expectProgress: false,
     game: null,
     headed: false,
@@ -99,11 +126,11 @@ const parseArgs = (argv) => {
     }
   }
 
-  if (!opts.url && !opts.game) {
+  if (opts.url === null && opts.game === null) {
     fail("Pass --url <url> or --game <slug>.");
   }
 
-  if (opts.url && opts.game) {
+  if (opts.url !== null && opts.game !== null) {
     fail("Pass either --url or --game, not both.");
   }
 
@@ -115,120 +142,132 @@ const parseArgs = (argv) => {
     fail("`--reaction-delay` must be a non-negative number of milliseconds.");
   }
 
-  validateScript(opts.script);
-
-  return opts;
+  return { ...opts, script: validateScript(opts.script) };
 };
 
-const readScript = (path) => {
-  let text;
-
+const readText = (path: string) => {
   try {
-    text = readFileSync(path, "utf-8");
+    return readFileSync(path, "utf-8");
   } catch {
-    fail(`couldn't read --script ${path}.`);
+    return fail(`couldn't read --script ${path}.`);
   }
+};
+
+const readScript = (path: string) => {
+  const text = readText(path);
 
   try {
-    return JSON.parse(text);
+    return parseJsonText(text);
   } catch (error) {
-    fail(`--script ${path} isn't valid JSON: ${error.message}`);
+    return fail(
+      `--script ${path} isn't valid JSON: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
 };
 
-const validateScript = (script) => {
+const validateStep = (step: JsonObject, index: number) => {
+  const keys = step.keys ?? [];
+  const { pointer, ms, expectMotion } = step;
+
+  if (!Array.isArray(keys)) {
+    return fail(`step ${index}: \`keys\` must be an array.`);
+  }
+
+  const hasPointer = pointer !== undefined && Boolean(pointer);
+
+  if (keys.length === 0 && !hasPointer) {
+    fail(`step ${index} needs a non-empty \`keys\` array or a \`pointer\`.`);
+  }
+
+  if (!isFiniteJsonNumber(ms) || ms <= 0) {
+    return fail(`step ${index} needs a positive \`ms\` duration.`);
+  }
+
+  if (expectMotion !== undefined && !isJsonBoolean(expectMotion)) {
+    return fail(`step ${index}: \`expectMotion\` must be a boolean.`);
+  }
+
+  const checked: Step = {
+    keys: keys.map((code) =>
+      isJsonString(code)
+        ? code
+        : fail(`step ${index}: \`keys\` must be KeyboardEvent code strings.`),
+    ),
+    ms,
+  };
+
+  if (hasPointer) {
+    checked.pointer = validatePointer(pointer, `step ${index}`);
+  }
+
+  for (const code of checked.keys) {
+    keyFields(code);
+  }
+
+  if (expectMotion !== undefined) {
+    checked.expectMotion = expectMotion;
+  }
+
+  return checked;
+};
+
+const validateScript = (script: JsonValue) => {
   if (!Array.isArray(script) || script.length === 0) {
-    fail("`--script` must be a non-empty JSON array of { keys, ms } steps.");
+    return fail("`--script` must be a non-empty JSON array of { keys, ms } steps.");
   }
 
-  for (const [index, step] of script.entries()) {
-    if (!isPlainObject(step)) {
-      fail(`step ${index} must be an object.`);
-    }
-
-    const keys = step.keys ?? [];
-
-    if (!Array.isArray(keys)) {
-      fail(`step ${index}: \`keys\` must be an array.`);
-    }
-
-    if (keys.length === 0 && !step.pointer) {
-      fail(`step ${index} needs a non-empty \`keys\` array or a \`pointer\`.`);
-    }
-
-    if (!Number.isFinite(step.ms) || step.ms <= 0) {
-      fail(`step ${index} needs a positive \`ms\` duration.`);
-    }
-
-    if (
-      step.expectMotion !== undefined &&
-      step.expectMotion !== true &&
-      step.expectMotion !== false
-    ) {
-      fail(`step ${index}: \`expectMotion\` must be a boolean.`);
-    }
-
-    if (step.pointer) {
-      validatePointer(step.pointer, `step ${index}`);
-    }
-
-    for (const code of keys) {
-      keyFields(code);
-    }
-  }
+  return script.map((step, index) =>
+    isJsonObject(step) ? validateStep(step, index) : fail(`step ${index} must be an object.`),
+  );
 };
 
-const expectsMotion = (step) => {
+const expectsMotion = (step: Step) => {
   if (step.expectMotion === true || step.expectMotion === false) {
     return step.expectMotion;
   }
 
-  return Boolean(step.pointer) || (step.keys ?? []).some((code) => MOVEMENT_CODES.has(code));
+  return step.pointer !== undefined || step.keys.some((code) => MOVEMENT_CODES.has(code));
 };
 
-const beginStep = (step) => {
+const beginStep = (step: Step) => {
   const parts = [
     TRACK_BEGIN,
     ...pointerParts(step.pointer, "down"),
-    ...keyParts("keydown", step.keys ?? []),
+    ...keyParts("keydown", step.keys),
   ];
 
   claimHeld(step);
   evaluate(`(() => { ${parts.join("\n")}\nreturn true; })()`);
 };
 
-const endStep = (step) => {
-  const parts = [
-    ...keyParts("keyup", step.keys ?? []),
-    ...pointerParts(step.pointer, "up"),
-    TRACK_END,
-  ];
+const endStep = (step: Step, index: number) => {
+  const parts = [...keyParts("keyup", step.keys), ...pointerParts(step.pointer, "up"), TRACK_END];
 
   const summary = evaluate(`(() => { ${parts.join("\n")} })()`);
   disownHeld();
 
-  return summary;
+  return readSummary(summary, `step ${index}'s tracker`);
 };
 
-const runScript = (opts, before) => {
-  let prev = before;
+const runScript = (opts: { reactionDelay: number; script: Step[] }, before: Sample) => {
+  let prev: Sample = before;
   let distance = 0;
   let maxStepDisplacement = 0;
   let stuckSteps = 0;
   let stuckRun = 0;
   let longestStuckRun = 0;
-  let stepOfFirstScore = null;
+  let stepOfFirstScore: number | null = null;
 
   for (const [index, step] of opts.script.entries()) {
     beginStep(step);
     sleep(step.ms);
-    const moved = endStep(step);
+    const moved = endStep(step, index);
 
     if (opts.reactionDelay > 0) {
       sleep(opts.reactionDelay);
     }
 
-    if (!moved) {
+    if (moved === null) {
       fail(`step ${index} lost its in-page tracker; the page probably navigated mid-run.`);
     }
 
@@ -265,7 +304,7 @@ const main = () => {
   const { before, seedApplied } = launch({
     headed: opts.headed,
     seed: opts.seed,
-    target: opts.game ? ["--game", opts.game] : [opts.url],
+    target: opts.game === null ? [opts.url ?? ""] : ["--game", opts.game],
   });
 
   const { distance, longestStuckRun, maxStepDisplacement, prev, stepOfFirstScore, stuckSteps } =
@@ -291,11 +330,11 @@ const main = () => {
     stepOfFirstScore,
     steps: opts.script.length,
     stuckSteps,
-    target: opts.game ? `game:${opts.game}` : opts.url,
+    target: opts.game === null ? opts.url : `game:${opts.game}`,
   };
 
-  const failures = [];
-  const warnings = [];
+  const failures: string[] = [];
+  const warnings: string[] = [];
 
   if (report.framesAdvanced <= THRESHOLDS.framesAdvanced) {
     failures.push(`game loop stalled (framesAdvanced ${report.framesAdvanced})`);

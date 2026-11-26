@@ -13,6 +13,7 @@ import {
   loadSizeContract,
   main,
   parseArgs,
+  parseJsonText,
   promptGuidanceForContract,
   toPythonJson,
   writeJsonFile,
@@ -42,7 +43,7 @@ const readContract = (path = "") => {
     failUsage("--contract is required");
   }
 
-  return loadSizeContract(JSON.parse(readFileSync(path, "utf-8")), path);
+  return loadSizeContract(parseJsonText(readFileSync(path, "utf-8")), path);
 };
 
 main(() => {
