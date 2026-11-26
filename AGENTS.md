@@ -183,7 +183,7 @@ Every Worker also watches `package.json`, `pnpm-lock.yaml`, `pnpm-workspace.yaml
 - **Web's production deploy also applies the R2 lifecycle** (`apps/web/infra/r2/vibedgames-games.lifecycle.json`) after `cf deploy`: it replaces the bucket's rules whole, so applying it every deploy is applying it when it changes.
 - **A Preview goes with its branch** once GitHub deletes the merged head branch (the repo's "Automatically delete head branches"), and it builds on every push, red or green: it never reaches the production database or bucket.
 
-The example games are not Workers: `.github/workflows/example-games.yml` runs `vg deploy` for each one a push to `main` changed, with the `VG_TOKEN` repo secret, after every Workers Build of the same commit when the party Worker changed too (a check run's name is Cloudflare's, so it waits on all of them).
+The example games are not Workers: `.github/workflows/example-games.yml` runs `vg deploy` for each one a push to `main` changed, with the `VG_TOKEN` repo secret, after every Workers Build of the same commit when the party Worker changed too (a check run's name is Cloudflare's, so it waits on all of them). To retry a failed deploy or redeploy games no push touched, run it by hand: `gh workflow run example-games.yml -f games="farm moba"` (empty `games` deploys every one).
 
 ## Map
 

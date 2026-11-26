@@ -1,6 +1,7 @@
 # The bundled example games deploy to vibedgames itself, through `vg deploy`. The platform's
 # Workers (web, party, games) deploy from Cloudflare Workers Builds, not from here: AGENTS.md →
-# Deploys has their settings.
+# Deploys has their settings. Run it by hand (Actions → Example games → Run workflow) to retry a
+# failed deploy or redeploy games a push did not touch.
 name: Example games
 
 on:
@@ -14,6 +15,12 @@ on:
       - pnpm-workspace.yaml
       - turbo.json
       - .github/workflows/example-games.yml
+  workflow_dispatch:
+    inputs:
+      games:
+        description: Games to deploy, space-separated folder names under games/ (empty deploys every one)
+        required: false
+        default: ""
 
 concurrency:
   group: example-games-${{ github.ref }}
@@ -45,7 +52,22 @@ jobs:
         id: changed
         env:
           BASE: ${{ github.event.before }}
+          EVENT: ${{ github.event_name }}
+          PICKED: ${{ inputs.games }}
         run: |
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            games=""
+            for name in ${PICKED:-$(ls games)}; do
+              if [ ! -d "games/$name" ] || [ "$name" != "$(basename "$name")" ]; then
+                echo "::error::no game folder games/$name"
+                exit 1
+              fi
+              games="$games games/$name/"
+            done
+            echo "games=${games# }" >> "$GITHUB_OUTPUT"
+            echo "party=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           if [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
             echo "games=$(ls -d games/*/ | tr '\n' ' ')" >> "$GITHUB_OUTPUT"
             echo "party=true" >> "$GITHUB_OUTPUT"
