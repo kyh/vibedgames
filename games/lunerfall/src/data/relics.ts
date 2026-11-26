@@ -45,7 +45,9 @@ export const RARITY_COLOR = {
 
 export const RELICS: Relic[] = [
   {
-    apply: (m) => (m.dmg += 0.3),
+    apply: (m) => {
+      m.dmg += 0.3;
+    },
     desc: "+30% damage",
     id: "fury",
     name: "Fury Brand",
@@ -53,7 +55,9 @@ export const RELICS: Relic[] = [
     rarity: "common",
   },
   {
-    apply: (m) => (m.crit += 0.12),
+    apply: (m) => {
+      m.crit += 0.12;
+    },
     desc: "+12% crit chance",
     id: "keen",
     name: "Keen Fang",
@@ -61,7 +65,9 @@ export const RELICS: Relic[] = [
     rarity: "common",
   },
   {
-    apply: (m) => (m.maxHearts += 1),
+    apply: (m) => {
+      m.maxHearts += 1;
+    },
     desc: "+1 max heart",
     id: "vigor",
     name: "Vigor Charm",
@@ -69,7 +75,9 @@ export const RELICS: Relic[] = [
     rarity: "common",
   },
   {
-    apply: (m) => (m.armor += 0.22),
+    apply: (m) => {
+      m.armor += 0.22;
+    },
     desc: "22% block",
     id: "ward",
     name: "Ward Stone",
@@ -77,7 +85,9 @@ export const RELICS: Relic[] = [
     rarity: "common",
   },
   {
-    apply: (m) => (m.lifesteal += 0.2),
+    apply: (m) => {
+      m.lifesteal += 0.2;
+    },
     desc: "20% lifesteal",
     id: "leech",
     name: "Leech Sigil",
@@ -85,7 +95,9 @@ export const RELICS: Relic[] = [
     rarity: "common",
   },
   {
-    apply: (m) => (m.goldMult += 0.5),
+    apply: (m) => {
+      m.goldMult += 0.5;
+    },
     desc: "+50% gold",
     id: "greed",
     name: "Greed Idol",
@@ -93,7 +105,9 @@ export const RELICS: Relic[] = [
     rarity: "common",
   },
   {
-    apply: (m) => (m.regen += 1),
+    apply: (m) => {
+      m.regen += 1;
+    },
     desc: "heal 1 per room cleared",
     id: "mend",
     name: "Mending Moss",
@@ -101,7 +115,9 @@ export const RELICS: Relic[] = [
     rarity: "common",
   },
   {
-    apply: (m) => (m.dmg += 0.6),
+    apply: (m) => {
+      m.dmg += 0.6;
+    },
     desc: "+60% damage",
     id: "edge",
     name: "Moon Edge",
@@ -120,7 +136,9 @@ export const RELICS: Relic[] = [
     rarity: "rare",
   },
   {
-    apply: (m) => (m.maxHearts += 2),
+    apply: (m) => {
+      m.maxHearts += 2;
+    },
     desc: "+2 max hearts",
     id: "heartroot",
     name: "Heartroot",
@@ -128,7 +146,9 @@ export const RELICS: Relic[] = [
     rarity: "rare",
   },
   {
-    apply: (m) => (m.armor += 0.4),
+    apply: (m) => {
+      m.armor += 0.4;
+    },
     desc: "40% block",
     id: "aegis",
     name: "Aegis Sigil",
@@ -136,7 +156,9 @@ export const RELICS: Relic[] = [
     rarity: "rare",
   },
   {
-    apply: (m) => (m.lifesteal += 0.35),
+    apply: (m) => {
+      m.lifesteal += 0.35;
+    },
     desc: "35% lifesteal",
     id: "sanguine",
     name: "Sanguine Crown",
@@ -144,7 +166,9 @@ export const RELICS: Relic[] = [
     rarity: "rare",
   },
   {
-    apply: (m) => (m.goldMult += 1),
+    apply: (m) => {
+      m.goldMult += 1;
+    },
     desc: "+100% gold",
     id: "fortune",
     name: "Fortune Coin",
@@ -152,7 +176,9 @@ export const RELICS: Relic[] = [
     rarity: "rare",
   },
   {
-    apply: (m) => (m.rage += 0.12),
+    apply: (m) => {
+      m.rage += 0.12;
+    },
     desc: "+12% damage per missing heart",
     id: "bloodpact",
     name: "Blood Pact",
@@ -227,7 +253,9 @@ export const RELICS: Relic[] = [
     rarity: "legendary",
   },
   {
-    apply: (m) => (m.rage += 0.22),
+    apply: (m) => {
+      m.rage += 0.22;
+    },
     desc: "+22% damage per missing heart",
     id: "wrath",
     name: "Wrathblood",

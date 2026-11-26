@@ -81,7 +81,7 @@ class SceneFx {
     });
   }
 
-  private update(_time: number, delta: number) {
+  private readonly update = (_time: number, delta: number) => {
     const ms = Math.max(0, delta);
     this.particles.update(ms);
 
@@ -106,7 +106,7 @@ class SceneFx {
       const eased = 1 - (1 - s.age / 600) ** 2;
       s.text.setPosition(s.x, s.y - eased * 12).setAlpha(1 - eased);
     }
-  }
+  };
 
   label(x: number, y: number, text: string, color: string) {
     const slot = this.labels.find((s) => s.age >= 600) ?? this.labels[this.nextLabel];

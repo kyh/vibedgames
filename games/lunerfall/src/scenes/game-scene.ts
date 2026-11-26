@@ -17,8 +17,7 @@ import type { RunMods } from "../data/relics";
 import { parseRoomType } from "../data/rooms";
 import type { RoomType } from "../data/rooms";
 import { Player } from "../entities/player";
-import { isJsonString } from "../net/json";
-import type { JsonValue } from "../net/json";
+import { isJsonString, isJsonValue } from "../net/json";
 import { ExpeditionHud } from "../expedition-hud";
 import type { ExpeditionOffer } from "../expedition-hud";
 import { newRoomState } from "../state/room-state";
@@ -166,10 +165,16 @@ export class GameScene extends Scene implements SceneHooks {
     this.wireSceneEvents();
   }
 
+  private registryString(key: string) {
+    const raw: unknown = this.registry.get(key);
+
+    return isJsonValue(raw) && isJsonString(raw) ? raw : null;
+  }
+
   private heroParam(params: URLSearchParams) {
     const { data } = this.scene.settings;
     const dataHero = data instanceof Object && "hero" in data ? data.hero : undefined;
-    const wanted = params.get("hero") ?? dataHero ?? this.registry.get("hero");
+    const wanted = params.get("hero") ?? dataHero ?? this.registryString("hero");
 
     return HERO_NAMES.find((h) => h === wanted) ?? "axion";
   }
@@ -186,14 +191,9 @@ export class GameScene extends Scene implements SceneHooks {
   }
 
   private partyParams(params: URLSearchParams) {
-    const regParty: JsonValue = this.registry.get("party");
+    const party = (params.get("party") ?? this.registryString("party") ?? "").trim().toUpperCase();
 
-    const party = (params.get("party") ?? (isJsonString(regParty) ? regParty : ""))
-      .trim()
-      .toUpperCase();
-
-    const regMode: JsonValue = this.registry.get("mode");
-    const modeStr = params.get("mode") ?? (isJsonString(regMode) ? regMode : "");
+    const modeStr = params.get("mode") ?? this.registryString("mode") ?? "";
     const mode: SeatState["mode"] = party.length > 0 && modeStr === "vs" ? "versus" : "coop";
 
     return { mode, party };

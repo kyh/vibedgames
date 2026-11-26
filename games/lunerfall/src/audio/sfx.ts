@@ -150,11 +150,11 @@ class Sfx {
     }
 
     if (!this.bus) {
-      const AC = window.AudioContext;
-
-      if (!AC) {
+      if (!("AudioContext" in window)) {
         return null;
       }
+
+      const AC = window.AudioContext;
 
       try {
         const ctx = new AC();

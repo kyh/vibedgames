@@ -31,9 +31,7 @@ export const clipGameMs = (hero: HeroDef, clip: string) => {
     return DASH_DUR * 1000;
   }
 
-  if (clip === "run") {
-    return RUN_MS;
-  }
+  return clip === "run" ? RUN_MS : null;
 };
 
 const iframeAlpha = (iframes: number, dead: boolean) => {
@@ -175,7 +173,7 @@ export class Player {
     this.sprite.play(this.clipKey(clip), loop);
     const ms = clipGameMs(this.hero, clip);
     const authored = this.sprite.anims.currentAnim?.duration ?? 0;
-    this.sprite.anims.timeScale = ms !== undefined && ms > 0 && authored > 0 ? authored / ms : 1;
+    this.sprite.anims.timeScale = ms !== null && ms > 0 && authored > 0 ? authored / ms : 1;
   }
 
   private clipKey(clip: string) {

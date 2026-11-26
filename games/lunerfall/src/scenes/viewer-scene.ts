@@ -214,9 +214,9 @@ export class ViewerScene extends Scene {
     const hero = char.hero ? HEROES[char.key] : undefined;
     const key = hero ? kitClipKey(this, hero.name, info.clip) : `${char.key}:${info.clip}`;
     this.sprite.play({ key, repeat: -1 });
-    const gm = hero ? clipGameMs(hero, info.clip) : undefined;
+    const gm = hero ? clipGameMs(hero, info.clip) : null;
     const authored = this.sprite.anims.currentAnim?.duration ?? 0;
-    this.sprite.anims.timeScale = gm !== undefined && gm > 0 && authored > 0 ? authored / gm : 1;
+    this.sprite.anims.timeScale = gm !== null && gm > 0 && authored > 0 ? authored / gm : 1;
     this.drawFx(char, info.clip);
     this.updateStatus(info, gm);
     this.highlightClip();
@@ -345,7 +345,7 @@ export class ViewerScene extends Scene {
     }
   }
 
-  private updateStatus(info: ClipInfo, gameMs: number | undefined) {
+  private updateStatus(info: ClipInfo, gameMs: number | null) {
     const el = document.querySelector("#lf-status");
 
     if (!el) {
@@ -355,7 +355,7 @@ export class ViewerScene extends Scene {
     const char = CHARS[this.ci];
 
     const timing =
-      gameMs !== undefined && gameMs !== info.ms ? `${info.ms}→${gameMs}ms` : `${info.ms}ms`;
+      gameMs !== null && gameMs !== info.ms ? `${info.ms}→${gameMs}ms` : `${info.ms}ms`;
 
     el.textContent = `${char?.key ?? ""}  ·  ${info.clip}  ·  ${info.frames}f  ·  ${timing}`;
   }

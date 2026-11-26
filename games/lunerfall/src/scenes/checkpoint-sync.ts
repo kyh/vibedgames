@@ -542,15 +542,13 @@ export class CheckpointSync {
   }
 
   observeTerminal(c: ExpeditionCheckpoint) {
-    if (!this.run.runRecap) {
-      this.run.runRecap = {
-        biome: c.run.biome,
-        depth: c.run.depth,
-        gold: c.gold,
-        hero: this.seat.heroName,
-        kind: "coop-guest",
-      };
-    }
+    this.run.runRecap ??= {
+      biome: c.run.biome,
+      depth: c.run.depth,
+      gold: c.gold,
+      hero: this.seat.heroName,
+      kind: "coop-guest",
+    };
 
     this.run.state = "dead";
     this.run.deadT = c.phase.kind === "dead" ? c.phase.elapsed : 0;
