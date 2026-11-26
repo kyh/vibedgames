@@ -81,6 +81,12 @@ export interface Diagnostics extends Partial<PlaytestSense> {
   score: number;
 }
 
+declare global {
+  interface Window {
+    __GAME_DIAGNOSTICS__?: Diagnostics;
+  }
+}
+
 let frame = 0;
 
 /** Count a rendered frame. Game calls this once per animation frame. */

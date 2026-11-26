@@ -3,6 +3,8 @@ import type { ChildProcess } from "node:child_process";
 import path from "node:path";
 import { setTimeout as wait } from "node:timers/promises";
 
+import type { z } from "zod";
+
 export interface PollOptions {
   timeoutMs: number;
   intervalMs?: number;
@@ -147,3 +149,6 @@ export const flagValue = (name: string, argv: readonly string[] = process.argv) 
 
   return value;
 };
+
+/** Parse `text` as JSON that `schema` accepts, throwing when it does not. */
+export const parseJson = <T,>(text: string, schema: z.ZodType<T>) => schema.parse(JSON.parse(text));

@@ -1,70 +1,26 @@
-import { spawn } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { setTimeout as wait } from "node:timers/promises";
+
+import { createReport, flagValue, startVite } from "@repo/smoke";
 import { chromium } from "playwright-core";
 
 const gameDir = path.resolve(import.meta.dirname, "..");
 const PORT = 5395;
 
-const flag = (name: string, fallback: string) => {
-  const i = process.argv.indexOf(name);
-
-  return i === -1 ? fallback : process.argv[i + 1];
-};
-
-const baseUrl = flag("--url", `http://localhost:${PORT}`);
-const outDir = flag("--out", path.join(gameDir, ".smoke"));
-const seconds = Number(flag("--seconds", "8"));
+const urlFlag = flagValue("--url", process.argv);
+const baseUrl = urlFlag ?? `http://localhost:${PORT}`;
+const outDir = flagValue("--out", process.argv) ?? path.join(gameDir, ".smoke");
+const seconds = Number(flagValue("--seconds", process.argv) ?? "8");
 
 mkdirSync(outDir, { recursive: true });
 
-const reachable = async (url: string | URL | Request) => {
-  try {
-    await fetch(url);
+const report = createReport();
+const { check } = report;
 
-    return true;
-  } catch {
-    return false;
-  }
-};
-
-let vite = null;
-
-const startVite = async () => {
-  vite = spawn(
-    path.join(gameDir, "node_modules/.bin/vite"),
-    ["--port", String(PORT), "--strictPort"],
-    {
-      cwd: gameDir,
-      stdio: "ignore",
-    },
-  );
-
-  for (let i = 0; i < 150; i += 1) {
-    if (await reachable(baseUrl)) {
-      return;
-    }
-
-    await wait(100);
-  }
-
-  throw new Error(`vite did not come up on ${baseUrl}`);
-};
-
-let failures = 0;
-
-const check = (ok: boolean, label: string) => {
-  console.log(`${ok ? "ok  " : "FAIL"} ${label}`);
-
-  if (!ok) {
-    failures += 1;
-  }
-};
-
-if (!process.argv.includes("--url")) {
-  await startVite();
-}
+const vite: ChildProcess | null =
+  urlFlag === null ? await startVite({ gameDir, port: PORT, timeoutMs: 15_000 }) : null;
 
 const browser = await chromium.launch({
   args: [
@@ -146,13 +102,13 @@ check(Number(left) >= 1 && Number(left) <= 8, `brawlers left pill reads ${left}`
 
 check(
   errors.length === 0,
-  `no page/console errors${errors.length ? `:\n  ${errors.slice(0, 8).join("\n  ")}` : ""}`,
+  `no page/console errors${errors.length > 0 ? `:\n  ${errors.slice(0, 8).join("\n  ")}` : ""}`,
 );
 
 await browser.close();
 
 vite?.kill();
 
-if (failures > 0) {
+if (report.failures > 0) {
   process.exitCode = 1;
 }

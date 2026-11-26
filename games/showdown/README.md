@@ -20,7 +20,7 @@ pnpm --filter @repo/showdown typecheck   # tsc --noEmit
 pnpm --filter @repo/showdown build       # vite build
 pnpm --filter @repo/showdown preview     # vite preview
 pnpm --filter @repo/showdown test        # headless smoke checks (tools/*-smoke.mts), incl. a host + predicting guest over a jittery link
-pnpm --filter @repo/showdown test:seed   # headless Chromium: the same seed replays the same brawl (tools/seed-smoke.mts; --soak N for balance runs)
+pnpm --filter @repo/showdown test:seed   # headless Chromium: the same seed replays the same brawl (tools/seed-check.mts; --soak N for balance runs)
 ```
 
 ## Routes

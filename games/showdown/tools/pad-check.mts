@@ -1,58 +1,26 @@
-import { spawn } from "node:child_process";
 import path from "node:path";
-import { setTimeout as wait } from "node:timers/promises";
+
+import { createReport, flagValue, poll, startVite } from "@repo/smoke";
+import type { ChildProcess } from "node:child_process";
 import { chromium } from "playwright-core";
+
+declare global {
+  interface Window {
+    __pad?: {
+      connect: () => void;
+      set: (input: { axes?: number[]; buttons?: boolean[] }) => void;
+    };
+  }
+}
 
 const gameDir = path.resolve(import.meta.dirname, "..");
 const PORT = 5396;
 
-const flag = (name: string, fallback: string) => {
-  const i = process.argv.indexOf(name);
+const urlFlag = flagValue("--url", process.argv);
+const baseUrl = urlFlag ?? `http://localhost:${PORT}`;
 
-  return i === -1 ? fallback : process.argv[i + 1];
-};
-
-const baseUrl = flag("--url", `http://localhost:${PORT}`);
-
-const reachable = async (url: string | URL | Request) => {
-  try {
-    await fetch(url);
-
-    return true;
-  } catch {
-    return false;
-  }
-};
-
-let vite = null;
-
-const startVite = async () => {
-  vite = spawn(
-    path.join(gameDir, "node_modules/.bin/vite"),
-    ["--port", String(PORT), "--strictPort"],
-    { cwd: gameDir, stdio: "ignore" },
-  );
-
-  for (let i = 0; i < 150; i += 1) {
-    if (await reachable(baseUrl)) {
-      return;
-    }
-
-    await wait(100);
-  }
-
-  throw new Error(`vite did not come up on ${baseUrl}`);
-};
-
-let failures = 0;
-
-const check = (ok: boolean, label: string) => {
-  console.log(`${ok ? "ok  " : "FAIL"} ${label}`);
-
-  if (!ok) {
-    failures += 1;
-  }
-};
+const report = createReport();
+const { check } = report;
 
 const installPadStub = () => {
   const buttons = Array.from({ length: 17 }, () => ({ pressed: false, touched: false, value: 0 }));
@@ -84,12 +52,11 @@ const installPadStub = () => {
       pad.buttons = buttons;
     },
   };
-  navigator.getGamepads = () => [pad.connected ? pad : null];
+  Object.defineProperty(navigator, "getGamepads", { value: () => [pad.connected ? pad : null] });
 };
 
-if (!process.argv.includes("--url")) {
-  await startVite();
-}
+const vite: ChildProcess | null =
+  urlFlag === null ? await startVite({ gameDir, port: PORT, timeoutMs: 15_000 }) : null;
 
 const browser = await chromium.launch({
   args: [
@@ -119,7 +86,7 @@ await page.waitForFunction(
 
 check(true, "loading veil lifted");
 
-await page.evaluate(() => window.__pad.connect());
+await page.evaluate(() => window.__pad?.connect());
 
 await page.click("#play");
 
@@ -132,17 +99,16 @@ const before = await readPlayer();
 
 check(before !== null, "diagnostics expose the player (installDiagnostics wired)");
 
-await page.evaluate(() => window.__pad.set({ axes: [1, 0, 0, 0] }));
+await page.evaluate(() => window.__pad?.set({ axes: [1, 0, 0, 0] }));
 
-let after = before;
-const movedRight = () => before !== null && after !== null && after.x - before.x > 0.5;
+const movedRight = (after: typeof before) =>
+  before !== null && after !== null && after.x - before.x > 0.5;
+const after = movedRight(before)
+  ? before
+  : ((await poll(readPlayer, movedRight, { intervalMs: 250, timeoutMs: 60 * 250 })) ??
+    (await readPlayer()));
 
-for (let i = 0; i < 60 && !movedRight(); i += 1) {
-  await wait(250);
-  after = await readPlayer();
-}
-
-await page.evaluate(() => window.__pad.set({ axes: [0, 0, 0, 0] }));
+await page.evaluate(() => window.__pad?.set({ axes: [0, 0, 0, 0] }));
 
 const moved = before !== null && after !== null && after.x - before.x > 0.5;
 
@@ -150,13 +116,13 @@ check(moved, `left stick moved the player right (${before?.x} -> ${after?.x})`);
 
 check(
   errors.length === 0,
-  `no page errors${errors.length ? `:\n  ${errors.slice(0, 8).join("\n  ")}` : ""}`,
+  `no page errors${errors.length > 0 ? `:\n  ${errors.slice(0, 8).join("\n  ")}` : ""}`,
 );
 
 await browser.close();
 
 vite?.kill();
 
-if (failures > 0) {
+if (report.failures > 0) {
   process.exitCode = 1;
 }

@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { createReport, flagValue, inSequence, poll } from "./index.ts";
+import { z } from "zod";
+
+import { createReport, flagValue, inSequence, parseJson, poll } from "./index.ts";
 
 test("poll resolves the first accepted value", async () => {
   let reads = 0;
@@ -52,4 +54,11 @@ test("flagValue reads a flag's value", () => {
   assert.equal(flagValue("--url", ["node", "x", "--url", "http://a"]), "http://a");
   assert.equal(flagValue("--url", ["node", "x"]), null);
   assert.throws(() => flagValue("--url", ["node", "x", "--url"]));
+});
+
+test("parseJson reads what the schema accepts and refuses anything else", () => {
+  const schema = z.object({ a: z.number() });
+  assert.deepEqual(parseJson('{"a":1}', schema), { a: 1 });
+  assert.throws(() => parseJson("[1]", schema));
+  assert.throws(() => parseJson("not json", schema));
 });

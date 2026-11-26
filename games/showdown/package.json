@@ -10,7 +10,7 @@
     "preview": "vite preview",
     "test": "node --import tsx --test tools/*-smoke.mts",
     "test:online": "node tools/two-client.mts",
-    "test:seed": "node tools/seed-smoke.mts",
+    "test:seed": "node tools/seed-check.mts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -28,6 +28,7 @@
     "playwright-core": "^1.65.1",
     "tsx": "^4.23.15",
     "typescript": "catalog:",
-    "vite": "catalog:"
+    "vite": "catalog:",
+    "zod": "catalog:"
   }
 }

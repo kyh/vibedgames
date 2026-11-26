@@ -1,28 +1,37 @@
-import { Game } from "../src/game";
+import type { ReflexInputs } from "@vibedgames/playtest";
 
-import { Game } from "../src/game";
+import type { Diagnostics } from "../src/diagnostics.ts";
+import type { Game } from "../src/game.ts";
+import type { Input } from "../src/input.ts";
 
-import { Input } from "../src/input";
+declare global {
+  interface Window {
+    __seedPilot?: { playMatch: typeof playMatch };
+  }
+}
+
+export interface MatchOptions {
+  hz: number;
+  moveName: string;
+  sampleEvery: number;
+  seed: number;
+  ticks: number;
+  tune: Partial<Game["difficulty"]>;
+  untilEnded: boolean;
+}
 
 const DECIDE_EVERY = 15;
 
 const round = (value: number) => Math.round(value * 1e6) / 1e6;
 
-const chooseMove = (sense: {
-  hpPct?: any;
-  underFire?: any;
-  enemiesNear?: any;
-  nearestLoot?: any;
-  bestTarget?: any;
-  zone?: any;
-}) => {
+const chooseMove = (sense: Diagnostics) => {
   const { bestTarget, zone } = sense;
 
-  if (zone.outside || (zone.closing && zone.margin < 4)) {
+  if (zone !== undefined && (zone.outside || (zone.closing && zone.margin < 4))) {
     return "to_zone";
   }
 
-  if (sense.hpPct < 0.35 && (sense.underFire || sense.enemiesNear >= 2)) {
+  if ((sense.hpPct ?? 1) < 0.35 && (sense.underFire === true || (sense.enemiesNear ?? 0) >= 2)) {
     return "flee";
   }
 
@@ -33,14 +42,14 @@ const chooseMove = (sense: {
   return sense.nearestLoot ? "loot" : "fight";
 };
 
-const tapSuper = (sense: { superReady: any; bestTarget: { canHit: any } }) => {
-  if (sense.superReady && sense.bestTarget?.canHit) {
+const tapSuper = (sense: Diagnostics) => {
+  if (sense.superReady === true && sense.bestTarget?.canHit === true) {
     window.dispatchEvent(new KeyboardEvent("keydown", { code: "Space" }));
     window.dispatchEvent(new KeyboardEvent("keyup", { code: "Space" }));
   }
 };
 
-const applyInputs = (input: Input, out: { keys: any; pointer?: any }) => {
+const applyInputs = (input: Input, out: ReflexInputs) => {
   input.keys.clear();
 
   for (const key of out.keys ?? []) {
@@ -56,35 +65,28 @@ const applyInputs = (input: Input, out: { keys: any; pointer?: any }) => {
 };
 
 const sample = (game: Game) =>
-  game.brawlers.map((b: { name: any; def: { id: any }; x: any; z: any; hp: any; cubes: any }) => [
-    b.name,
-    b.def.id,
-    round(b.x),
-    round(b.z),
-    b.hp,
-    b.cubes,
-  ]);
+  game.brawlers.map((b) => [b.name, b.def.id, round(b.x), round(b.z), b.hp, b.cubes] as const);
 
-const summarise = (game: Game, samples: any[], survived: number) => {
+const summarise = (game: Game, samples: ReturnType<typeof sample>[], survived: number) => {
   const { player } = game;
-  const alive = game.brawlers.filter((b: { alive: any }) => b.alive).length;
+  const alive = game.brawlers.filter((b) => b.alive).length;
 
   return {
     cubes: player?.cubes ?? 0,
     downs: game.brawlers
-      .filter((b: { alive: any }) => !b.alive)
-      .toSorted((a: { rank: number }, b: { rank: number }) => b.rank - a.rank)
-      .map((b: { name: any }) => b.name),
+      .filter((b) => !b.alive)
+      .toSorted((a, b) => b.rank - a.rank)
+      .map((b) => b.name),
     ended: game.state === "ended",
     kills: player?.kills ?? 0,
-    rank: player?.alive ? alive : (player?.rank ?? 0),
-    roster: game.brawlers.map((b: { name: any; def: { id: any } }) => `${b.name}:${b.def.id}`),
+    rank: player?.alive === true ? alive : (player?.rank ?? 0),
+    roster: game.brawlers.map((b) => `${b.name}:${b.def.id}`),
     samples,
     survived: Math.round(survived * 10) / 10,
   };
 };
 
-const playMatch = ({ hz, moveName, sampleEvery, seed, ticks, tune, untilEnded }) => {
+const playMatch = ({ hz, moveName, sampleEvery, seed, ticks, tune, untilEnded }: MatchOptions) => {
   const game = window.__game;
   const moves = window.__GAME_PLAYTEST__?.move;
 
@@ -98,22 +100,25 @@ const playMatch = ({ hz, moveName, sampleEvery, seed, ticks, tune, untilEnded })
   game.skipCountdown();
   input.ndcX = 0;
   input.ndcY = 0;
-  const samples = [];
+  const samples: ReturnType<typeof sample>[] = [];
   let current = moveName === "rules" ? "fight" : moveName;
   let survived = 0;
 
   for (let tick = 0; tick < ticks; tick += 1) {
-    if (moveName === "rules" && tick % DECIDE_EVERY === 0 && game.player?.alive) {
+    if (moveName === "rules" && tick % DECIDE_EVERY === 0 && game.player?.alive === true) {
       const sense = window.__GAME_DIAGNOSTICS__;
-      current = chooseMove(sense);
-      tapSuper(sense);
+
+      if (sense) {
+        current = chooseMove(sense);
+        tapSuper(sense);
+      }
     }
 
-    applyInputs(input, moves[current].reflex());
+    applyInputs(input, moves[current]?.reflex?.(null) ?? {});
     game.update(1 / hz);
     game.camera.updateMatrixWorld();
 
-    if (game.player?.alive) {
+    if (game.player?.alive === true) {
       survived = game.matchTime;
     }
 
