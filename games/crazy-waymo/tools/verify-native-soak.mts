@@ -1,14 +1,20 @@
 import type { ChildProcessByStdio } from "node:child_process";
-import { execFile, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
+import { once } from "node:events";
 import { createWriteStream, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
-import { setTimeout as sleep } from "node:timers/promises";
-import { promisify } from "node:util";
 import type { Readable } from "node:stream";
+import { setTimeout as sleep } from "node:timers/promises";
+import { fileURLToPath } from "node:url";
 
-const run = promisify(execFile);
+import { poll } from "@repo/smoke";
+import { z } from "zod";
+import type { JsonValue } from "../src/shared/json.ts";
+import { inOrder } from "../src/shared/paced.ts";
+import { execFileText } from "./exec-file.mts";
+import { jsonSchema, probeSchema } from "./page-shapes.mts";
+import type { CheckEntry } from "./page-shapes.mts";
 
 if (process.argv.includes("--help")) {
   console.log(
@@ -25,7 +31,7 @@ if (!Number.isFinite(durationSeconds) || durationSeconds < 120 || durationSecond
 }
 
 const out = process.argv[3] ?? `/private/tmp/waymo-native-soak-${process.pid}`;
-const preserved = new Set();
+const preserved = new Set<string>();
 
 mkdirSync(out, { recursive: true });
 
@@ -42,7 +48,141 @@ if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 1) {
   throw new Error("Cannot read expected WORLD_REV from source");
 }
 
-const report = {
+const pointSchema = z.object({ x: z.number(), y: z.number() });
+
+type Point = z.infer<typeof pointSchema>;
+
+const deviceStateSchema = z.object({ id: z.string(), state: z.string() });
+
+const devicesSchema = z.object({
+  devices: z.record(z.string(), z.array(z.object({ state: z.string(), udid: z.string() }))),
+});
+
+const runtimesSchema = z.object({
+  runtimes: z.array(
+    z.object({
+      identifier: z.string(),
+      isAvailable: z.boolean(),
+      name: z.string(),
+      version: z.string(),
+    }),
+  ),
+});
+
+const deviceTypesSchema = z.object({
+  devicetypes: z.array(z.object({ identifier: z.string(), name: z.string() })),
+});
+
+const webDriverSchema = z.object({ value: z.unknown() });
+
+const webDriverErrorSchema = z.object({ error: z.string().min(1) });
+
+const eventSchema = z.object({
+  cta: z.boolean(),
+  mode: z.string().nullable().default(null),
+  phase: z.string(),
+  pointer: z.string(),
+  pointerId: z.number(),
+  tag: z.string().nullable().default(null),
+  trusted: z.boolean(),
+  type: z.string(),
+  x: z.number(),
+  y: z.number(),
+});
+
+type StartEvent = z.infer<typeof eventSchema>;
+
+const snapshotSchema = z.object({
+  banner: z.object({ inert: z.boolean().nullish(), opacity: z.string().nullish() }),
+  cta: z.object({
+    center: pointSchema.nullish(),
+    pointerEvents: z.string().nullish(),
+    rect: z.object({ width: z.number() }).nullish(),
+  }),
+  events: z.array(eventSchema),
+  fonts: z.string().nullish(),
+  hit: z.object({ cta: z.boolean() }).nullish(),
+  mode: z.string().nullish(),
+  ready: z.boolean().nullish(),
+  visibility: z.string().nullish(),
+});
+
+const rectSchema = z.object({
+  height: z.number(),
+  width: z.number(),
+  x: z.number(),
+  y: z.number(),
+});
+
+const elementsSchema = z.array(
+  z.object({ "element-6066-11e4-a52e-4f735466cecf": z.string().optional() }),
+);
+
+const metricsSchema = z.object({
+  finite: z.boolean(),
+  frames: z.number(),
+  maxFoamIndices: z.number(),
+  maxSteer: z.number(),
+  maxThrottle: z.number(),
+  movingFraction: z.number(),
+  wetFrames: z.number(),
+});
+
+const waterProbeSchema = probeSchema.extend({ waterContact: z.object({ kind: z.string() }) });
+
+const consoleEntrySchema = z.object({
+  level: jsonSchema.optional(),
+  source: jsonSchema.optional(),
+  text: z.coerce.string().optional(),
+  url: z.coerce.string().optional(),
+});
+
+interface StartAttempt {
+  [key: string]: JsonValue;
+  attempt: number;
+  before: JsonValue;
+}
+
+interface StageReport {
+  [key: string]: JsonValue;
+  kind: string;
+  legs: JsonValue[];
+  loadingMs: number;
+  name: string;
+  phase: number;
+  resourcesBefore: JsonValue;
+  samples: JsonValue[];
+}
+
+interface NativeReport {
+  appiumPid?: number;
+  cases: StageReport[];
+  checkedAt: string;
+  checks: CheckEntry[];
+  deleteFailure?: string;
+  durationSeconds: number;
+  expectedRevision: number;
+  failure?: string;
+  failureState?: JsonValue;
+  finalResources?: JsonValue;
+  initialResources?: JsonValue;
+  interrupted?: string;
+  ownedSimulator?: string;
+  ownedSimulatorDeleted?: boolean;
+  passed?: boolean;
+  preservationFailure?: string;
+  preservedBefore?: z.infer<typeof deviceStateSchema>[];
+  runtime?: { device: string; name: string; version: string };
+  scope: string;
+  sessionCleanup?: string;
+  sessionId?: string;
+  shutdownNote?: string;
+  startAttempts?: StartAttempt[];
+  url: string;
+  world?: JsonValue;
+}
+
+const report: NativeReport = {
   cases: [],
   checkedAt: new Date().toISOString(),
   checks: [],
@@ -53,174 +193,95 @@ const report = {
   url,
 };
 
-let ownedId: unknown = null;
+let ownedId: string | null = null;
 let appium: ChildProcessByStdio<null, Readable, Readable> | null = null;
-let sessionId: null = null;
+let sessionId: string | null = null;
 let endpoint = "";
 let cleaned: Promise<void> | null = null;
+let touchOffset: Point | null = null;
 
 const save = () => {
   writeFileSync(path.join(out, "report.json"), `${JSON.stringify(report, null, 2)}\n`);
 };
 
-const check = (
-  name: string,
-  passed: boolean,
-  evidence:
-    | { id: any; state: any }[]
-    | {
-        unsupportedSelector: string | boolean | undefined;
-        renders?: undefined;
-        resumed?: undefined;
-      }
-    | { renders: number; resumed: boolean; unsupportedSelector?: undefined },
-) => {
+const check = (name: string, passed: boolean, evidence: JsonValue) => {
   const entry = { evidence, name, passed };
+
   report.checks.push(entry);
   console.log(JSON.stringify(entry));
   save();
 };
 
-const command = async (
-  name: string,
-  args: any[] | readonly string[] | null | undefined,
-  timeout = 120_000,
-) => {
-  const { stdout } = await run(name, args, { maxBuffer: 8 * 1024 * 1024, timeout });
+const command = async (name: string, args: readonly string[], timeout = 120_000) => {
+  const { stdout } = await execFileText(name, args, { timeout });
 
   return stdout.trim();
 };
 
 const states = async () => {
-  const data = JSON.parse(await command("xcrun", ["simctl", "list", "devices", "--json"]));
+  const data = devicesSchema.parse(
+    JSON.parse(await command("xcrun", ["simctl", "list", "devices", "--json"])),
+  );
 
   return Object.values(data.devices)
     .flat()
-    .filter((device) => !ownedId || device.udid !== ownedId)
+    .filter((device) => ownedId === null || device.udid !== ownedId)
     .map((device) => ({ id: device.udid, state: device.state }))
     .toSorted((a, b) => a.id.localeCompare(b.id));
 };
 
 const port = async () => {
   const server = createServer();
-  const { promise, resolve, reject } = Promise.withResolvers<void>();
-  server.once("error", reject);
-  server.listen(0, "127.0.0.1", resolve);
+  const listening = Promise.withResolvers<null>();
 
-  await promise;
-  const address = server.address();
+  server.once("error", listening.reject);
+  server.listen(0, "127.0.0.1", () => {
+    listening.resolve(null);
+  });
+  await listening.promise;
 
-  if (!Number.isSafeInteger(address?.port)) {
+  const address = z.object({ port: z.number().int() }).safeParse(server.address());
+
+  if (!address.success) {
     throw new TypeError("No owned local port");
   }
 
-  const result = address.port;
-  const { promise: promise2, resolve } = Promise.withResolvers<void>();
-  server.close(resolve);
+  const result = address.data.port;
+  const closed = Promise.withResolvers<null>();
 
-  await promise2;
+  server.close(() => {
+    closed.resolve(null);
+  });
+  await closed.promise;
 
   return result;
 };
 
-const http = async (
-  method: string,
-  route: string,
-  body:
-    | {
-        capabilities: {
-          alwaysMatch: {
-            "appium:automationName": string;
-            "appium:deviceName": any;
-            "appium:nativeWebTap": boolean;
-            "appium:newCommandTimeout": number;
-            "appium:noReset": boolean;
-            "appium:platformVersion": any;
-            "appium:safariInitialUrl": string;
-            "appium:showSafariConsoleLog": boolean;
-            "appium:showSafariNetworkLog": boolean;
-            "appium:showXcodeLog": boolean;
-            "appium:shutdownOtherSimulators": boolean;
-            "appium:udid": string;
-            "appium:waitForIdleTimeout": number;
-            "appium:wdaLocalPort": any;
-            browserName: string;
-            platformName: string;
-          };
-          firstMatch: {}[];
-        };
-      }
-    | undefined,
-  timeout = 180_000,
-) => {
-  const options = {
+const http = async (method: string, route: string, body?: JsonValue, timeout = 180_000) => {
+  const init: RequestInit = {
     headers: { "content-type": "application/json" },
     method,
     signal: AbortSignal.timeout(timeout),
   };
 
   if (body !== undefined) {
-    options.body = JSON.stringify(body);
+    init.body = JSON.stringify(body);
   }
 
-  const response = await fetch(`${endpoint}${route}`, options);
-  const data = await response.json();
+  const response = await fetch(`${endpoint}${route}`, init);
 
-  if (!response.ok || data.value?.error) {
-    throw new Error(`${method} ${route}: ${JSON.stringify(data.value ?? data)}`);
+  const data = jsonSchema.parse(await response.json());
+  const { value } = webDriverSchema.parse(data);
+
+  if (!response.ok || webDriverErrorSchema.safeParse(value).success) {
+    throw new Error(`${method} ${route}: ${JSON.stringify(value ?? data)}`);
   }
 
-  return data.value;
+  return value;
 };
 
-const call = async (
-  method: string,
-  route: string,
-  body:
-    | {
-        args?: never[];
-        script?: any;
-        name?: any;
-        using?: string;
-        value?: string;
-        actions?:
-          | {
-              actions: (
-                | { duration: number; origin: string; type: string; x: number; y: number }
-                | { button: number; type: string }
-                | { duration: number; type: string }
-              )[];
-              id: string;
-              parameters: { pointerType: string };
-              type: string;
-            }[]
-          | {
-              actions: (
-                | { button: number; type: string }
-                | { duration: number; origin: string; type: string; x: any; y: number }
-                | { duration: any; type: string }
-              )[];
-              id: any;
-              parameters: { pointerType: string };
-              type: string;
-            }[]
-          | {
-              actions: (
-                | { duration: number; origin: string; type: string; x: number; y: number }
-                | { button: number; type: string }
-                | { duration: number; type: string }
-              )[];
-              id: string;
-              parameters: { pointerType: string };
-              type: string;
-            }[];
-        orientation?: string;
-        url?: string;
-        type?: string;
-      }
-    | undefined,
-) => {
-  if (!sessionId) {
+const call = async (method: string, route: string, body?: JsonValue) => {
+  if (sessionId === null || sessionId === "") {
     throw new Error("Owned Safari session absent");
   }
 
@@ -230,22 +291,28 @@ const call = async (
 const evaluate = async (script: string) =>
   await call("POST", "/execute/sync", { args: [], script });
 
-const until = async (script: string, timeout = 120_000) => {
-  const start = Date.now();
+const read = async <T,>(script: string, schema: z.ZodType<T>) =>
+  schema.parse(await evaluate(script));
 
-  while (Date.now() - start < timeout) {
-    if (await evaluate(script)) {
-      return;
-    }
+const readBoth = async <T,>(script: string, schema: z.ZodType<T>) => {
+  const raw = jsonSchema.parse(await evaluate(script));
 
-    await sleep(500);
-  }
-
-  throw new Error(`Timeout: ${script}`);
+  return { raw, value: schema.parse(raw) };
 };
 
-const startSnapshot = async () =>
-  await evaluate(`
+const until = async (script: string, timeout = 120_000) => {
+  const met = await poll(
+    async () => Boolean(await evaluate(script)),
+    (value) => value,
+    { intervalMs: 500, timeoutMs: timeout },
+  );
+
+  if (met === null) {
+    throw new Error(`Timeout: ${script}`);
+  }
+};
+
+const SNAPSHOT = `
     const cta=document.querySelector('#banner-cta'),banner=document.querySelector('#banner');
     const rect=cta?.getBoundingClientRect(),style=cta?getComputedStyle(cta):null,bs=banner?getComputedStyle(banner):null;
     const center=rect?{x:rect.x+rect.width/2,y:rect.y+rect.height/2}:null;
@@ -256,152 +323,162 @@ const startSnapshot = async () =>
       hit:center?describe(document.elementFromPoint(center.x,center.y)):null,
       active:describe(document.activeElement),viewport:{width:innerWidth,height:innerHeight,screenWidth:screen.width,screenHeight:screen.height,dpr:devicePixelRatio,scrollX,scrollY,visual:window.visualViewport?{offsetLeft:visualViewport.offsetLeft,offsetTop:visualViewport.offsetTop,pageTop:visualViewport.pageTop,width:visualViewport.width,height:visualViewport.height,scale:visualViewport.scale}:null},
       events:window.__coastSafari?.events??[],errors:window.__coastSafari?.errors??[]};
-  `);
+  `;
+
+const startSnapshot = async () => await readBoth(SNAPSHOT, snapshotSchema);
 
 const waitForStartTarget = async () => {
-  let previous = null;
-  let stable = 0;
   const begin = Date.now();
 
-  while (Date.now() - begin < 15_000) {
-    const state = await startSnapshot();
-    const { center } = state.cta;
+  const settle: (
+    previous: Point | null,
+    stable: number,
+  ) => Promise<Awaited<ReturnType<typeof startSnapshot>> & { center: Point }> = async (
+    previous,
+    stable,
+  ) => {
+    if (Date.now() - begin >= 15_000) {
+      throw new Error("Start CTA did not become visible, hit-testable and center-stable");
+    }
+
+    const snapshot = await startSnapshot();
+    const state = snapshot.value;
+    const center = state.cta.center ?? null;
 
     const visible =
-      state.ready &&
+      state.ready === true &&
       state.fonts === "loaded" &&
       state.visibility === "visible" &&
-      !state.banner.inert &&
+      state.banner.inert !== true &&
       Number(state.banner.opacity) >= 0.99 &&
       state.cta.pointerEvents === "auto" &&
-      state.hit?.cta &&
-      state.cta.rect.width > 0;
+      state.hit?.cta === true &&
+      (state.cta.rect?.width ?? 0) > 0;
 
-    if (
+    const steady =
       visible &&
-      center &&
-      previous &&
-      Math.hypot(center.x - previous.x, center.y - previous.y) < 0.5
-    ) {
-      stable += 1;
-    } else {
-      stable = 0;
+      center !== null &&
+      previous !== null &&
+      Math.hypot(center.x - previous.x, center.y - previous.y) < 0.5;
+
+    const count = steady ? stable + 1 : 0;
+
+    if (count >= 2 && center !== null) {
+      return { ...snapshot, center };
     }
 
-    if (stable >= 2) {
-      return state;
-    }
-
-    previous = center;
     await sleep(250);
-  }
 
-  throw new Error("Start CTA did not become visible, hit-testable and center-stable");
+    return await settle(center, count);
+  };
+
+  return await settle(null, 0);
 };
 
-const directStartTouch = async (
-  before: { cta: { center: { x: number; y: number } } },
-  attempt: number,
-) => {
-  const webContext = await call("GET", "/context");
+const touchActions = (id: string, x: number, y: number, holdMs: number, dragX = 0) => {
+  const steps: JsonValue[] = [
+    { duration: 0, origin: "viewport", type: "pointerMove", x, y },
+    { button: 0, type: "pointerDown" },
+  ];
+
+  if (dragX !== 0) {
+    steps.push({ duration: 200, origin: "viewport", type: "pointerMove", x: x + dragX, y });
+  }
+
+  steps.push({ duration: holdMs, type: "pause" }, { button: 0, type: "pointerUp" });
+
+  return [{ actions: steps, id, parameters: { pointerType: "touch" }, type: "pointer" }];
+};
+
+const inNativeContext = async <T,>(step: () => Promise<T>) => {
+  const context = z.string().parse(await call("GET", "/context"));
+
   await call("POST", "/context", { name: "NATIVE_APP" });
 
   try {
-    const elements = await call("POST", "/elements", {
-      using: "accessibility id",
-      value: "Start driving",
-    });
+    return await step();
+  } finally {
+    await call("POST", "/context", { name: context });
+  }
+};
+
+const directStartTouch = async (webCenter: Point, attempt: number) =>
+  await inNativeContext(async () => {
+    const elements = elementsSchema.parse(
+      await call("POST", "/elements", {
+        using: "accessibility id",
+        value: "Start driving",
+      }),
+    );
 
     if (elements.length !== 1) {
       throw new Error(`Expected one native Start button, found ${elements.length}`);
     }
 
-    const id = elements[0]["element-6066-11e4-a52e-4f735466cecf"];
+    const id = elements[0]?.["element-6066-11e4-a52e-4f735466cecf"];
 
-    if (!id) {
+    if (id === undefined || id === "") {
       throw new Error("Native Start accessibility element missing ID");
     }
 
-    const rect = await call("GET", `/element/${id}/rect`);
+    const nativeRect = jsonSchema.parse(await call("GET", `/element/${id}/rect`));
+    const rect = rectSchema.parse(nativeRect);
     const x = Math.round(rect.x + rect.width / 2);
     const y = Math.round(rect.y + rect.height / 2);
+    const offset = { x: x - webCenter.x, y: y - webCenter.y };
 
     const evidence = {
       duration: 100,
       method: "native-w3c-touch",
       nativeCenter: { x, y },
-      nativeRect: rect,
-      offset: { x: x - before.cta.center.x, y: y - before.cta.center.y },
-      webCenter: before.cta.center,
+      nativeRect,
+      offset,
+      webCenter,
     };
 
-    await call("POST", "/actions", {
-      actions: [
-        {
-          actions: [
-            { duration: 0, origin: "viewport", type: "pointerMove", x, y },
-            { button: 0, type: "pointerDown" },
-            { duration: 100, type: "pause" },
-            { button: 0, type: "pointerUp" },
-          ],
-          id: `start-${attempt}`,
-          parameters: { pointerType: "touch" },
-          type: "pointer",
-        },
-      ],
-    });
+    await call("POST", "/actions", { actions: touchActions(`start-${attempt}`, x, y, 100) });
 
-    return evidence;
-  } finally {
-    await call("POST", "/context", { name: webContext });
-  }
-};
+    return { evidence, offset };
+  });
+
+const isTouch = (event: StartEvent, type: string) =>
+  event.type === type &&
+  event.phase === "capture" &&
+  event.trusted &&
+  event.cta &&
+  event.pointer === "touch";
 
 const activateStart = async () => {
   const before = await waitForStartTarget();
-  const eventIndex = before.events.length;
-  const entry = { attempt: 1, before };
+  const eventIndex = before.value.events.length;
+  const entry: StartAttempt = { attempt: 1, before: before.raw };
+
   report.startAttempts = [entry];
   save();
-  entry.gesture = await directStartTouch(before, 1);
+
+  const gesture = await directStartTouch(before.center, 1);
+
+  touchOffset = gesture.offset;
+  entry.gesture = gesture.evidence;
   await sleep(700);
-  entry.after = await startSnapshot();
-  entry.events = entry.after.events.slice(eventIndex);
 
-  const down = entry.events.find(
-    (event: { type: string; phase: string; trusted: any; cta: any; pointer: string }) =>
-      event.type === "pointerdown" &&
-      event.phase === "capture" &&
-      event.trusted &&
-      event.cta &&
-      event.pointer === "touch",
-  );
+  const after = await startSnapshot();
+  const events = after.value.events.slice(eventIndex);
 
-  const up = entry.events.find(
-    (event: {
-      type: string;
-      phase: string;
-      trusted: any;
-      cta: any;
-      pointer: string;
-      pointerId: any;
-    }) =>
-      event.type === "pointerup" &&
-      event.phase === "capture" &&
-      event.trusted &&
-      event.cta &&
-      event.pointer === "touch" &&
-      event.pointerId === down?.pointerId,
+  entry.after = after.raw;
+  entry.events = events;
+
+  const down = events.find((event) => isTouch(event, "pointerdown"));
+
+  const up = events.find(
+    (event) => isTouch(event, "pointerup") && event.pointerId === down?.pointerId,
   );
 
   const validTouch =
-    !!down &&
-    !!up &&
+    down !== undefined &&
+    up !== undefined &&
     Math.hypot(up.x - down.x, up.y - down.y) <= 12 &&
-    !entry.events.some(
-      (event: { type: string; pointerId: any }) =>
-        event.type === "pointercancel" && event.pointerId === down.pointerId,
-    );
+    !events.some((event) => event.type === "pointercancel" && event.pointerId === down.pointerId);
 
   entry.delivery = validTouch ? "trusted-cta-pointerup" : "invalid-first-touch";
   save();
@@ -413,101 +490,113 @@ const activateStart = async () => {
   try {
     await until('return window.__taxi.game.mode.kind === "playing";', 25_000);
   } catch (error) {
-    entry.failureState = await startSnapshot();
+    const failure = await startSnapshot();
+
+    entry.failureState = failure.raw;
     save();
-    throw new Error(`First native touch did not start play (mode ${entry.failureState.mode})`, {
+    throw new Error(`First native touch did not start play (mode ${failure.value.mode})`, {
       cause: error,
     });
   }
 
-  entry.completed = await startSnapshot();
+  const completed = await startSnapshot();
+
+  entry.completed = completed.raw;
   save();
   check(
     "First native Start touch reaches play without retry",
-    entry.completed.mode === "playing" && validTouch,
+    completed.value.mode === "playing" && validTouch,
     { attempts: report.startAttempts },
   );
 };
 
 const screenshot = async (name: string) => {
-  const png = await call("GET", "/screenshot");
+  const png = z.string().parse(await call("GET", "/screenshot"));
+
   writeFileSync(path.join(out, `${name}.png`), Buffer.from(png, "base64"));
 };
 
-const cleanup = async () => {
-  if (cleaned) {
-    await cleaned;
+const stopAppium = async (child: ChildProcessByStdio<null, Readable, Readable>) => {
+  child.kill("SIGTERM");
 
-    return;
+  try {
+    await Promise.race([once(child, "exit"), sleep(3000)]);
+  } catch (error) {
+    console.warn(`Appium exit wait failed: ${String(error)}`);
   }
 
-  cleaned = (async () => {
-    if (sessionId) {
-      try {
-        await http("DELETE", `/session/${sessionId}`, undefined, 45_000);
-      } catch (error) {
-        report.sessionCleanup = String(error);
-      }
+  if (child.exitCode === null && child.signalCode === null) {
+    child.kill("SIGKILL");
+  }
+};
 
-      sessionId = null;
-    }
+const releaseSimulator = async (id: string) => {
+  try {
+    await command("xcrun", ["simctl", "shutdown", id], 60_000);
+  } catch (error) {
+    report.shutdownNote = String(error);
+  }
 
-    if (appium) {
-      appium.kill("SIGTERM");
-      await Promise.race([
-        // oxlint-disable-next-line promise/avoid-new -- child exit arrives only as an event
-        new Promise((resolve) => {
-          appium.once("exit", resolve);
-        }),
-        sleep(3000),
-      ]);
+  try {
+    await command("xcrun", ["simctl", "delete", id], 60_000);
+    report.ownedSimulatorDeleted = true;
+  } catch (error) {
+    report.deleteFailure = String(error);
+  }
+};
 
-      if (appium.exitCode === null && appium.signalCode === null) {
-        appium.kill("SIGKILL");
-      }
-    }
-
-    if (ownedId && !preserved.has(ownedId)) {
-      try {
-        await command("xcrun", ["simctl", "shutdown", ownedId], 60_000);
-      } catch (error) {
-        report.shutdownNote = String(error);
-      }
-
-      try {
-        await command("xcrun", ["simctl", "delete", ownedId], 60_000);
-        report.ownedSimulatorDeleted = true;
-      } catch (error) {
-        report.deleteFailure = String(error);
-      }
-    }
-
+const cleanOnce = async () => {
+  if (sessionId !== null && sessionId !== "") {
     try {
-      const after = await states();
-      check(
-        "Existing simulator states preserved",
-        JSON.stringify(after) === JSON.stringify(report.preservedBefore),
-        after,
-      );
+      await http("DELETE", `/session/${sessionId}`, undefined, 45_000);
     } catch (error) {
-      report.preservationFailure = String(error);
+      report.sessionCleanup = String(error);
     }
 
-    save();
-  })();
+    sessionId = null;
+  }
 
+  if (appium) {
+    await stopAppium(appium);
+  }
+
+  if (ownedId !== null && !preserved.has(ownedId)) {
+    await releaseSimulator(ownedId);
+  }
+
+  try {
+    const after = await states();
+
+    check(
+      "Existing simulator states preserved",
+      JSON.stringify(after) === JSON.stringify(report.preservedBefore),
+      after,
+    );
+  } catch (error) {
+    report.preservationFailure = String(error);
+  }
+
+  save();
+};
+
+const cleanup = async () => {
+  cleaned ??= cleanOnce();
   await cleaned;
 };
 
+const interrupt = async (signal: string) => {
+  report.interrupted = signal;
+  await cleanup();
+  process.exit(1);
+};
+
 for (const signal of ["SIGINT", "SIGTERM"]) {
-  process.once(signal, async () => {
-    report.interrupted = signal;
-    await cleanup();
-    process.exit(1);
+  process.once(signal, () => {
+    void interrupt(signal);
   });
 }
 
-const instrumentation = `
+const INSTRUMENTATION = `
   const s = window.__coastSafari, renderer = window.__renderer, game = window.__taxi.game;
   const foam = game.scene.getObjectByName('vehicle-water-foam');
   const make = () => ({ bins: new Uint32Array(4001), count: 0, sum: 0, max: 0, over50: 0, over100: 0 });
@@ -540,277 +629,7 @@ const instrumentation = `
   return true;
 `;
 
-const heldTouch = async (label: string, holdMs: number, dragX: number) => {
-  const point = await evaluate(
-    `const x=Math.round(innerWidth*.3),y=Math.round(innerHeight*.58),e=document.elementFromPoint(x,y);return {x,y,tag:e?.tagName};`,
-  );
-
-  if (point.tag !== "CANVAS") {
-    throw new Error(`Drive input covered: ${JSON.stringify(point)}`);
-  }
-
-  const { offset } = report.startAttempts[0].gesture;
-  const x = Math.round(point.x + offset.x);
-  const y = Math.round(point.y + offset.y);
-  const context = await call("GET", "/context");
-  await call("POST", "/context", { name: "NATIVE_APP" });
-
-  try {
-    await call("POST", "/actions", {
-      actions: [
-        {
-          actions: [
-            { duration: 0, origin: "viewport", type: "pointerMove", x, y },
-            { button: 0, type: "pointerDown" },
-            ...(dragX
-              ? [{ duration: 200, origin: "viewport", type: "pointerMove", x: x + dragX, y }]
-              : []),
-            { duration: holdMs, type: "pause" },
-            { button: 0, type: "pointerUp" },
-          ],
-          id: label,
-          parameters: { pointerType: "touch" },
-          type: "pointer",
-        },
-      ],
-    });
-  } finally {
-    await call("POST", "/context", { name: context });
-  }
-};
-
-const stage = async (kind: string, phase: number) => {
-  await evaluate(`const t=window.__taxi,g=t.game,s=window.__coastSafari;
-    s.measure.active=false;s.measure.previous=null;t.setTime(600);t.setPhase(${phase});t.setFreecam(false);g.input.setScripted(null);
-    const pose=${kind === "coast" ? "{x:-1510,z:200,yaw:0}" : "s.denseSpawn"};
-    g.car.reset(pose.x,pose.z,pose.yaw);g.rig.snapTo(g.car);
-    g.traffic.reset({gx:g.city.gridX(pose.x),gz:g.city.gridZ(pose.z)},70);g.traffic.setHoldRecycle(true);return true;`);
-  await sleep(1500);
-};
-
-const nativePauseResume = async () => {
-  const context = await call("GET", "/context");
-
-  for (const [selector, pause] of [
-    ['.waymo-touch [aria-label="Pause"]', true],
-    ["#waymo-pause .pcta", false],
-  ]) {
-    const target = await evaluate(
-      `const e=document.querySelector(${JSON.stringify(selector)});if(!e)return null;const r=e.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};`,
-    );
-
-    if (!target) {
-      return { unsupportedSelector: selector };
-    }
-
-    const { offset } = report.startAttempts[0].gesture;
-    await call("POST", "/context", { name: "NATIVE_APP" });
-
-    try {
-      await call("POST", "/actions", {
-        actions: [
-          {
-            actions: [
-              {
-                duration: 0,
-                origin: "viewport",
-                type: "pointerMove",
-                x: Math.round(target.x + offset.x),
-                y: Math.round(target.y + offset.y),
-              },
-              { button: 0, type: "pointerDown" },
-              { duration: 100, type: "pause" },
-              { button: 0, type: "pointerUp" },
-            ],
-            id: "pause-native",
-            parameters: { pointerType: "touch" },
-            type: "pointer",
-          },
-        ],
-      });
-    } finally {
-      await call("POST", "/context", { name: context });
-    }
-
-    await until(`return window.__taxi.game.paused === ${pause};`, 5000);
-
-    if (pause) {
-      const before = await evaluate("return window.__coastSafari.measure.totalRenders;");
-      await sleep(1500);
-      const after = await evaluate("return window.__coastSafari.measure.totalRenders;");
-      check("Native pause stops repeated rendering", after - before <= 1, { after, before });
-    }
-  }
-
-  const before = await evaluate("return window.__coastSafari.measure.totalRenders;");
-  await sleep(700);
-  const after = await evaluate("return window.__coastSafari.measure.totalRenders;");
-
-  return { renders: after - before, resumed: after - before > 10 };
-};
-
-try {
-  report.preservedBefore = await states();
-
-  for (const device of report.preservedBefore) {
-    preserved.add(device.id);
-  }
-
-  const { runtimes } = JSON.parse(await command("xcrun", ["simctl", "list", "runtimes", "--json"]));
-
-  const [runtime] = runtimes
-    .filter(
-      (candidate: { isAvailable: any; name: string }) =>
-        candidate.isAvailable && candidate.name.startsWith("iOS"),
-    )
-    .toSorted((a: { version: any }, b: { version: string }) =>
-      b.version.localeCompare(a.version, undefined, { numeric: true }),
-    );
-
-  const types = JSON.parse(
-    await command("xcrun", ["simctl", "list", "devicetypes", "--json"]),
-  ).devicetypes;
-
-  const type = types.find((candidate: { name: string }) => candidate.name === "iPhone 17 Pro");
-
-  if (!runtime || !type) {
-    throw new Error("Available iOS runtime / iPhone 17 Pro device type missing");
-  }
-
-  ownedId = await command("xcrun", [
-    "simctl",
-    "create",
-    `Crazy Waymo Soak ${Date.now()}`,
-    type.identifier,
-    runtime.identifier,
-  ]);
-
-  if (!/^[0-9A-F-]{36}$/iu.test(ownedId) || preserved.has(ownedId)) {
-    throw new Error("Fresh simulator ownership validation failed");
-  }
-
-  report.ownedSimulator = ownedId;
-  report.runtime = { device: type.name, name: runtime.name, version: runtime.version };
-  save();
-  console.log("Created owned simulator; booting.");
-  await command("xcrun", ["simctl", "boot", ownedId]);
-  await command("xcrun", ["simctl", "bootstatus", ownedId, "-b"], 180_000);
-  await command("open", ["-a", "Simulator", "--args", "-CurrentDeviceUDID", ownedId]);
-  const appiumPort = await port();
-  const wdaPort = await port();
-  endpoint = `http://127.0.0.1:${appiumPort}`;
-  const log = createWriteStream(path.join(out, "appium.log"));
-
-  const appiumArgs = [
-    "--address",
-    "127.0.0.1",
-    "--port",
-    String(appiumPort),
-    "--log-level",
-    "warn",
-    "--log-timestamp",
-  ];
-
-  const appiumEnv = { ...process.env };
-
-  if (process.env.WAYMO_APPIUM_HOME !== undefined) {
-    appiumEnv.APPIUM_HOME = process.env.WAYMO_APPIUM_HOME;
-  }
-
-  const appiumMain = process.env.WAYMO_APPIUM_MAIN;
-
-  if (appiumMain !== undefined) {
-    appiumArgs.unshift(appiumMain);
-  }
-
-  appium = spawn(appiumMain === undefined ? "appium" : process.execPath, appiumArgs, {
-    env: appiumEnv,
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  let appiumFailure = null;
-  appium.once("error", (error) => {
-    appiumFailure = error;
-  });
-  appium.stdout.pipe(log);
-  appium.stderr.pipe(log);
-  report.appiumPid = appium.pid;
-  let ready = false;
-
-  for (let i = 0; i < 60; i += 1) {
-    if (appiumFailure) {
-      throw new Error("Could not launch owned Appium", { cause: appiumFailure });
-    }
-
-    try {
-      await http("GET", "/status", undefined, 1000);
-      ready = true;
-      break;
-    } catch {
-      await sleep(500);
-    }
-  }
-
-  if (!ready) {
-    throw new Error("Owned Appium server did not become ready");
-  }
-
-  console.log("Creating native Safari session; WDA may compile.");
-
-  const session = await http(
-    "POST",
-    "/session",
-    {
-      capabilities: {
-        alwaysMatch: {
-          "appium:automationName": "XCUITest",
-          "appium:deviceName": type.name,
-          "appium:nativeWebTap": true,
-          "appium:newCommandTimeout": 1800,
-          "appium:noReset": true,
-          "appium:platformVersion": runtime.version,
-          "appium:safariInitialUrl": "about:blank",
-          "appium:showSafariConsoleLog": true,
-          "appium:showSafariNetworkLog": true,
-          "appium:showXcodeLog": false,
-          "appium:shutdownOtherSimulators": false,
-          "appium:udid": ownedId,
-          "appium:waitForIdleTimeout": 0,
-          "appium:wdaLocalPort": wdaPort,
-          browserName: "Safari",
-          platformName: "iOS",
-        },
-        firstMatch: [{}],
-      },
-    },
-    300_000,
-  );
-
-  const { sessionId: openedSession } = session;
-  sessionId = openedSession;
-
-  if (!sessionId) {
-    throw new Error("Appium did not return owned session ID");
-  }
-
-  report.sessionId = sessionId;
-  save();
-  await call("POST", "/orientation", { orientation: "PORTRAIT" });
-  await call("POST", "/url", { url });
-  await until(
-    'return window.__taxi?.game.isReady === true && getComputedStyle(document.querySelector("#loading")).display === "none" && document.querySelector("#banner-cta").getBoundingClientRect().width > 0;',
-    150_000,
-  );
-
-  const env = await evaluate(
-    'return {title:document.title,width:innerWidth,height:innerHeight,dpr:devicePixelRatio,coarse:matchMedia("(pointer:coarse)").matches,post:window.__post !== null,renderer:window.__renderer.getContext().getParameter(window.__renderer.getContext().RENDERER)};',
-  );
-
-  check(
-    "Native Safari initializes the coarse DPR3 phone render path",
-    env.title === "Crazy Waymo" && env.coarse && env.dpr === 3 && !env.post,
-    env,
-  );
-  await evaluate(`
+const POINTER_HOOKS = `
     window.__coastSafari={errors:[],events:[]};
     const bounded=(array,value)=>{if(array.length<64)array.push(value);};
     window.addEventListener('error',e=>bounded(window.__coastSafari.errors,String(e.message)));
@@ -820,10 +639,9 @@ try {
     for(const type of ['pointerdown','pointerup','pointercancel']) for(const capture of [true,false]) document.addEventListener(type,e=>{
       const a=window.__coastSafari.events;if(a.length>=64)a.shift();a.push({type,phase:capture?'capture':'bubble',trusted:e.isTrusted,pointer:e.pointerType,pointerId:e.pointerId,mode:window.__taxi.game.mode.kind,cta:!!e.target.closest?.('#banner-cta'),tag:e.target.tagName,x:e.clientX,y:e.clientY});
     },{capture,passive:true});return true;
-  `);
-  await activateStart();
-  await evaluate(instrumentation);
-  await evaluate(`
+  `;
+
+const WORLD_SETUP = `
     window.__nativeSetup=null;
     Promise.all([import('/src/world/player-spawn.ts'),import('/src/world/world-bin.ts')]).then(async([spawn,bin])=>{
       const g=window.__taxi.game,c=g.city;
@@ -839,115 +657,495 @@ try {
       const installed=bin.deserializeWorldBin(inflated);
       window.__nativeSetup={revision:bin.WORLD_REV,installedRevision:installed.rev,denseSpawn:candidate};
     }).catch(e=>window.__nativeSetup={error:String(e)});return true;
-  `);
-  await until("return window.__nativeSetup!==null;", 30_000);
-  report.world = await evaluate("return window.__nativeSetup;");
-  check(
-    "Source and installed world match",
-    report.world.revision === expectedRevision &&
-      report.world.installedRevision === expectedRevision,
-    report.world,
+  `;
+
+const RESOURCES = "return window.__coastSafari.resources();";
+
+const TOTAL_RENDERS = "return window.__coastSafari.measure.totalRenders;";
+
+const currentOffset = () => {
+  if (touchOffset === null) {
+    throw new Error("Native touch offset unknown before the first Start touch");
+  }
+
+  return touchOffset;
+};
+
+const heldTouch = async (label: string, holdMs: number, dragX: number) => {
+  const point = await readBoth(
+    `const x=Math.round(innerWidth*.3),y=Math.round(innerHeight*.58),e=document.elementFromPoint(x,y);return {x,y,tag:e?.tagName};`,
+    pointSchema.extend({ tag: z.string().nullish() }),
   );
 
-  if (!report.checks.at(-1).passed) {
+  if (point.value.tag !== "CANVAS") {
+    throw new Error(`Drive input covered: ${JSON.stringify(point.raw)}`);
+  }
+
+  const offset = currentOffset();
+  const x = Math.round(point.value.x + offset.x);
+  const y = Math.round(point.value.y + offset.y);
+
+  await inNativeContext(
+    async () =>
+      await call("POST", "/actions", { actions: touchActions(label, x, y, holdMs, dragX) }),
+  );
+};
+
+const stage = async (kind: string, phase: number) => {
+  await evaluate(`const t=window.__taxi,g=t.game,s=window.__coastSafari;
+    s.measure.active=false;s.measure.previous=null;t.setTime(600);t.setPhase(${phase});t.setFreecam(false);g.input.setScripted(null);
+    const pose=${kind === "coast" ? "{x:-1510,z:200,yaw:0}" : "s.denseSpawn"};
+    g.car.reset(pose.x,pose.z,pose.yaw);g.rig.snapTo(g.car);
+    g.traffic.reset({gx:g.city.gridX(pose.x),gz:g.city.gridZ(pose.z)},70);g.traffic.setHoldRecycle(true);return true;`);
+  await sleep(1500);
+};
+
+const PAUSE_TARGETS = [
+  ['.waymo-touch [aria-label="Pause"]', true],
+  ["#waymo-pause .pcta", false],
+] as const;
+
+const nativePauseResume = async () => {
+  for await (const [selector, pause] of inOrder(PAUSE_TARGETS)) {
+    const target = await read(
+      `const e=document.querySelector(${JSON.stringify(selector)});if(!e)return null;const r=e.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};`,
+      pointSchema.nullable(),
+    );
+
+    if (!target) {
+      const unsupported: JsonValue = { unsupportedSelector: selector };
+
+      return { evidence: unsupported, resumed: false };
+    }
+
+    const offset = currentOffset();
+
+    await inNativeContext(
+      async () =>
+        await call("POST", "/actions", {
+          actions: touchActions(
+            "pause-native",
+            Math.round(target.x + offset.x),
+            Math.round(target.y + offset.y),
+            100,
+          ),
+        }),
+    );
+    await until(`return window.__taxi.game.paused === ${pause};`, 5000);
+
+    if (pause) {
+      const before = await read(TOTAL_RENDERS, z.number());
+
+      await sleep(1500);
+
+      const after = await read(TOTAL_RENDERS, z.number());
+
+      check("Native pause stops repeated rendering", after - before <= 1, { after, before });
+    }
+  }
+
+  const before = await read(TOTAL_RENDERS, z.number());
+
+  await sleep(700);
+
+  const after = await read(TOTAL_RENDERS, z.number());
+
+  const renders = after - before;
+
+  const evidence: JsonValue = { renders, resumed: renders > 10 };
+
+  return { evidence, resumed: renders > 10 };
+};
+
+const launchAppium = (appiumPort: number) => {
+  const log = createWriteStream(path.join(out, "appium.log"));
+
+  const appiumArgs = [
+    "--address",
+    "127.0.0.1",
+    "--port",
+    String(appiumPort),
+    "--log-level",
+    "warn",
+    "--log-timestamp",
+  ];
+
+  const appiumEnv = { ...process.env };
+  const appiumHome = process.env.WAYMO_APPIUM_HOME;
+
+  if (appiumHome !== undefined && appiumHome !== "") {
+    appiumEnv.APPIUM_HOME = appiumHome;
+  }
+
+  const appiumMain = process.env.WAYMO_APPIUM_MAIN;
+  const viaNode = appiumMain !== undefined && appiumMain !== "";
+
+  if (viaNode) {
+    appiumArgs.unshift(appiumMain);
+  }
+
+  const child = spawn(viaNode ? process.execPath : "appium", appiumArgs, {
+    env: appiumEnv,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+
+  child.stdout.pipe(log);
+  child.stderr.pipe(log);
+
+  return child;
+};
+
+const awaitAppium = async (child: ChildProcessByStdio<null, Readable, Readable>) => {
+  let failure: Error | null = null;
+
+  child.once("error", (error) => {
+    failure = error;
+  });
+
+  const attempt: (remaining: number) => Promise<boolean> = async (remaining) => {
+    if (failure !== null) {
+      throw new Error("Could not launch owned Appium", { cause: failure });
+    }
+
+    if (remaining === 0) {
+      return false;
+    }
+
+    try {
+      await http("GET", "/status", undefined, 1000);
+
+      return true;
+    } catch {
+      await sleep(500);
+
+      return await attempt(remaining - 1);
+    }
+  };
+
+  if (!(await attempt(60))) {
+    throw new Error("Owned Appium server did not become ready");
+  }
+};
+
+const driveLegs = async (
+  phase: { kind: string; name: string; phase: number },
+  stageReport: StageReport,
+  travels: number[],
+  deadline: number,
+  nextResource: number,
+) => {
+  if (Date.now() >= deadline) {
+    return;
+  }
+
+  await stage(phase.kind, phase.phase);
+
+  const before = await read("return window.__taxi.probe();", waterProbeSchema);
+
+  await evaluate(
+    "window.__coastSafari.measure.active=true;window.__coastSafari.measure.previous=null;return true;",
+  );
+
+  const holdMs = phase.kind === "coast" ? 8000 : 3000;
+
+  await heldTouch(
+    `${phase.name}-${stageReport.legs.length}`,
+    holdMs,
+    phase.kind === "coast" ? 35 : 0,
+  );
+  await evaluate(
+    "window.__coastSafari.measure.active=false;window.__coastSafari.measure.previous=null;return true;",
+  );
+
+  const after = await read("return window.__taxi.probe();", waterProbeSchema);
+  const travel = Math.hypot(after.x - before.x, after.z - before.z);
+
+  travels.push(travel);
+  stageReport.legs.push({
+    endSpeed: after.speed,
+    headingChange: after.heading - before.heading,
+    holdMs,
+    travel,
+    water: after.waterContact.kind,
+  });
+
+  let next = nextResource;
+
+  if (Date.now() >= nextResource) {
+    stageReport.samples.push(await read(RESOURCES, jsonSchema));
+    next = Date.now() + 15_000;
+  }
+
+  await driveLegs(phase, stageReport, travels, deadline, next);
+};
+
+const PHASES = [
+  { kind: "dense", name: "dense-day", phase: 0.25 },
+  { kind: "coast", name: "coast-day", phase: 0.25 },
+  { kind: "dense", name: "dense-night", phase: 0.7 },
+  { kind: "coast", name: "coast-night", phase: 0.7 },
+] as const;
+
+const soakPhase = async (phase: (typeof PHASES)[number]) => {
+  await stage(phase.kind, phase.phase);
+
+  const loadingStart = Date.now();
+
+  await until("return window.__taxi.game.city.parcelStreamStats().pending===0;", 60_000);
+
+  const loadingMs = Date.now() - loadingStart;
+
+  await evaluate("window.__coastSafari.resetMetrics();return true;");
+
+  const stageReport: StageReport = {
+    kind: phase.kind,
+    legs: [],
+    loadingMs,
+    name: phase.name,
+    phase: phase.phase,
+    resourcesBefore: await read(RESOURCES, jsonSchema),
+    samples: [],
+  };
+
+  const travels: number[] = [];
+
+  await driveLegs(
+    phase,
+    stageReport,
+    travels,
+    Date.now() + (durationSeconds * 1000) / PHASES.length,
+    0,
+  );
+
+  const metrics = await readBoth("return window.__coastSafari.metrics();", metricsSchema);
+
+  stageReport.metrics = metrics.raw;
+  stageReport.resourcesAfter = await read(RESOURCES, jsonSchema);
+  report.cases.push(stageReport);
+  save();
+
+  const m = metrics.value;
+
+  check(
+    `Sustained native motion and finite rendering (${phase.name})`,
+    m.frames > 60 &&
+      m.movingFraction > 0.45 &&
+      m.maxThrottle === 1 &&
+      m.finite &&
+      travels.every((travel) => travel > 8),
+    { legs: stageReport.legs.length, metrics: metrics.raw },
+  );
+
+  if (phase.kind === "coast") {
+    check(
+      `Floating steering and foam (${phase.name})`,
+      m.wetFrames / m.frames > 0.95 && m.maxSteer > 0.4 && m.maxFoamIndices > 0,
+      {
+        maxFoamIndices: m.maxFoamIndices,
+        maxSteer: m.maxSteer,
+        wetFraction: m.wetFrames / m.frames,
+      },
+    );
+  }
+
+  await screenshot(phase.name);
+};
+
+const isSevere = (entry: JsonValue) => {
+  const parsed = consoleEntrySchema.safeParse(entry);
+
+  if (!parsed.success) {
+    return false;
+  }
+
+  const { level, source, text } = parsed.data;
+
+  return (
+    (level === "error" || level === "SEVERE") &&
+    !(
+      source === "network" &&
+      /\/world\/rest\.bin\?v=\d+$/u.test(parsed.data.url ?? "") &&
+      String(text).includes("404")
+    )
+  );
+};
+
+const consoleEntryOf = (entry: { level: JsonValue; message: string }) => {
+  try {
+    return JSON.parse(entry.message);
+  } catch {
+    return { level: entry.level, text: entry.message };
+  }
+};
+
+const recordFailureState = async () => {
+  try {
+    const { raw } = await startSnapshot();
+
+    report.failureState = raw;
+  } catch {
+    report.failureState = null;
+  }
+
+  try {
+    await screenshot("failure");
+  } catch (error) {
+    console.warn(`Failure screenshot failed: ${String(error)}`);
+  }
+};
+
+try {
+  const before = await states();
+
+  report.preservedBefore = before;
+
+  for (const device of before) {
+    preserved.add(device.id);
+  }
+
+  const { runtimes } = runtimesSchema.parse(
+    JSON.parse(await command("xcrun", ["simctl", "list", "runtimes", "--json"])),
+  );
+
+  const [runtime] = runtimes
+    .filter((candidate) => candidate.isAvailable && candidate.name.startsWith("iOS"))
+    .toSorted((a, b) => b.version.localeCompare(a.version, undefined, { numeric: true }));
+
+  const { devicetypes: types } = deviceTypesSchema.parse(
+    JSON.parse(await command("xcrun", ["simctl", "list", "devicetypes", "--json"])),
+  );
+
+  const type = types.find((candidate) => candidate.name === "iPhone 17 Pro");
+
+  if (!runtime || !type) {
+    throw new Error("Available iOS runtime / iPhone 17 Pro device type missing");
+  }
+
+  const created = await command("xcrun", [
+    "simctl",
+    "create",
+    `Crazy Waymo Soak ${Date.now()}`,
+    type.identifier,
+    runtime.identifier,
+  ]);
+
+  ownedId = created;
+
+  if (!/^[0-9A-F-]{36}$/iu.test(created) || preserved.has(created)) {
+    throw new Error("Fresh simulator ownership validation failed");
+  }
+
+  report.ownedSimulator = created;
+  report.runtime = { device: type.name, name: runtime.name, version: runtime.version };
+  save();
+  console.log("Created owned simulator; booting.");
+  await command("xcrun", ["simctl", "boot", created]);
+  await command("xcrun", ["simctl", "bootstatus", created, "-b"], 180_000);
+  await command("open", ["-a", "Simulator", "--args", "-CurrentDeviceUDID", created]);
+
+  const appiumPort = await port();
+  const wdaPort = await port();
+
+  endpoint = `http://127.0.0.1:${appiumPort}`;
+
+  const child = launchAppium(appiumPort);
+
+  appium = child;
+  report.appiumPid = child.pid;
+  await awaitAppium(child);
+  console.log("Creating native Safari session; WDA may compile.");
+
+  const { sessionId: opened } = z.object({ sessionId: z.string() }).parse(
+    await http(
+      "POST",
+      "/session",
+      {
+        capabilities: {
+          alwaysMatch: {
+            "appium:automationName": "XCUITest",
+            "appium:deviceName": type.name,
+            "appium:nativeWebTap": true,
+            "appium:newCommandTimeout": 1800,
+            "appium:noReset": true,
+            "appium:platformVersion": runtime.version,
+            "appium:safariInitialUrl": "about:blank",
+            "appium:showSafariConsoleLog": true,
+            "appium:showSafariNetworkLog": true,
+            "appium:showXcodeLog": false,
+            "appium:shutdownOtherSimulators": false,
+            "appium:udid": created,
+            "appium:waitForIdleTimeout": 0,
+            "appium:wdaLocalPort": wdaPort,
+            browserName: "Safari",
+            platformName: "iOS",
+          },
+          firstMatch: [{}],
+        },
+      },
+      300_000,
+    ),
+  );
+
+  if (opened === "") {
+    throw new Error("Appium did not return owned session ID");
+  }
+
+  sessionId = opened;
+  report.sessionId = opened;
+  save();
+  await call("POST", "/orientation", { orientation: "PORTRAIT" });
+  await call("POST", "/url", { url });
+  await until(
+    'return window.__taxi?.game.isReady === true && getComputedStyle(document.querySelector("#loading")).display === "none" && document.querySelector("#banner-cta").getBoundingClientRect().width > 0;',
+    150_000,
+  );
+
+  const env = await readBoth(
+    'return {title:document.title,width:innerWidth,height:innerHeight,dpr:devicePixelRatio,coarse:matchMedia("(pointer:coarse)").matches,post:window.__post !== null,renderer:window.__renderer.getContext().getParameter(window.__renderer.getContext().RENDERER)};',
+    z.object({ coarse: z.boolean(), dpr: z.number(), post: z.boolean(), title: z.string() }),
+  );
+
+  check(
+    "Native Safari initializes the coarse DPR3 phone render path",
+    env.value.title === "Crazy Waymo" && env.value.coarse && env.value.dpr === 3 && !env.value.post,
+    env.raw,
+  );
+  await evaluate(POINTER_HOOKS);
+  await activateStart();
+  await evaluate(INSTRUMENTATION);
+  await evaluate(WORLD_SETUP);
+  await until("return window.__nativeSetup!==null;", 30_000);
+
+  const world = await readBoth(
+    "return window.__nativeSetup;",
+    z.object({ installedRevision: z.number().optional(), revision: z.number().optional() }),
+  );
+
+  report.world = world.raw;
+
+  const worldMatches =
+    world.value.revision === expectedRevision && world.value.installedRevision === expectedRevision;
+
+  check("Source and installed world match", worldMatches, world.raw);
+
+  if (!worldMatches) {
     throw new Error("Native soak world mismatch");
   }
 
-  report.initialResources = await evaluate("return window.__coastSafari.resources();");
+  report.initialResources = await read(RESOURCES, jsonSchema);
 
-  const phases = [
-    { kind: "dense", name: "dense-day", phase: 0.25 },
-    { kind: "coast", name: "coast-day", phase: 0.25 },
-    { kind: "dense", name: "dense-night", phase: 0.7 },
-    { kind: "coast", name: "coast-night", phase: 0.7 },
-  ];
-
-  for (const phase of phases) {
-    await stage(phase.kind, phase.phase);
-    const loadingStart = Date.now();
-    await until("return window.__taxi.game.city.parcelStreamStats().pending===0;", 60_000);
-    const loadingMs = Date.now() - loadingStart;
-    await evaluate("window.__coastSafari.resetMetrics();return true;");
-
-    const stageReport = {
-      kind: phase.kind,
-      legs: [],
-      loadingMs,
-      name: phase.name,
-      phase: phase.phase,
-      resourcesBefore: await evaluate("return window.__coastSafari.resources();"),
-      samples: [],
-    };
-
-    const deadline = Date.now() + (durationSeconds * 1000) / phases.length;
-    let nextResource = 0;
-
-    while (Date.now() < deadline) {
-      await stage(phase.kind, phase.phase);
-      const before = await evaluate("return window.__taxi.probe();");
-      await evaluate(
-        "window.__coastSafari.measure.active=true;window.__coastSafari.measure.previous=null;return true;",
-      );
-      const holdMs = phase.kind === "coast" ? 8000 : 3000;
-      await heldTouch(
-        `${phase.name}-${stageReport.legs.length}`,
-        holdMs,
-        phase.kind === "coast" ? 35 : 0,
-      );
-      await evaluate(
-        "window.__coastSafari.measure.active=false;window.__coastSafari.measure.previous=null;return true;",
-      );
-      const after = await evaluate("return window.__taxi.probe();");
-      stageReport.legs.push({
-        endSpeed: after.speed,
-        headingChange: after.heading - before.heading,
-        holdMs,
-        travel: Math.hypot(after.x - before.x, after.z - before.z),
-        water: after.waterContact.kind,
-      });
-
-      if (Date.now() >= nextResource) {
-        stageReport.samples.push(await evaluate("return window.__coastSafari.resources();"));
-        nextResource = Date.now() + 15_000;
-      }
-    }
-
-    stageReport.metrics = await evaluate("return window.__coastSafari.metrics();");
-    stageReport.resourcesAfter = await evaluate("return window.__coastSafari.resources();");
-    report.cases.push(stageReport);
-    save();
-    const m = stageReport.metrics;
-    check(
-      `Sustained native motion and finite rendering (${phase.name})`,
-      m.frames > 60 &&
-        m.movingFraction > 0.45 &&
-        m.maxThrottle === 1 &&
-        m.finite &&
-        stageReport.legs.every((leg) => leg.travel > 8),
-      { legs: stageReport.legs.length, metrics: m },
-    );
-
-    if (phase.kind === "coast") {
-      check(
-        `Floating steering and foam (${phase.name})`,
-        m.wetFrames / m.frames > 0.95 && m.maxSteer > 0.4 && m.maxFoamIndices > 0,
-        {
-          maxFoamIndices: m.maxFoamIndices,
-          maxSteer: m.maxSteer,
-          wetFraction: m.wetFrames / m.frames,
-        },
-      );
-    }
-
-    await screenshot(phase.name);
+  for await (const phase of inOrder(PHASES)) {
+    await soakPhase(phase);
   }
 
   const resumed = await nativePauseResume();
-  check("Native resume restores rendering", resumed.resumed === true, resumed);
-  report.finalResources = await evaluate("return window.__coastSafari.resources();");
 
-  const errors = await evaluate(
+  check("Native resume restores rendering", resumed.resumed, resumed.evidence);
+  report.finalResources = await read(RESOURCES, jsonSchema);
+
+  const errors = await read(
     "return {errors:window.__coastSafari.errors,failedPrograms:(window.__renderer.info.programs??[]).filter(p=>p.diagnostics?.runnable===false).length,contextLost:window.__renderer.getContext().isContextLost()};",
+    z.object({ contextLost: z.boolean(), errors: z.array(jsonSchema), failedPrograms: z.number() }),
   );
 
   check(
@@ -955,43 +1153,29 @@ try {
     errors.errors.length === 0 && errors.failedPrograms === 0 && !errors.contextLost,
     errors,
   );
-  const logs = await call("POST", "/log", { type: "safariConsole" });
-  writeFileSync(path.join(out, "safari-console.json"), `${JSON.stringify(logs, null, 2)}\n`);
 
-  const parsed = logs.map((entry: { message: string; level: any }) => {
-    try {
-      return JSON.parse(entry.message);
-    } catch {
-      return { level: entry.level, text: entry.message };
-    }
-  });
+  const logsValue = jsonSchema.parse(await call("POST", "/log", { type: "safariConsole" }));
 
-  const severe = parsed.filter(
-    (entry: { level: string; source: string; url: any; text: any }) =>
-      (entry.level === "error" || entry.level === "SEVERE") &&
-      !(
-        entry.source === "network" &&
-        /\/world\/rest\.bin\?v=\d+$/u.test(entry.url ?? "") &&
-        String(entry.text).includes("404")
-      ),
-  );
+  writeFileSync(path.join(out, "safari-console.json"), `${JSON.stringify(logsValue, null, 2)}\n`);
+
+  const logs = z.array(z.object({ level: jsonSchema, message: z.string() })).parse(logsValue);
+  const severe = logs.map(consoleEntryOf).filter(isSevere);
 
   check("No Safari console errors", severe.length === 0, severe.slice(0, 64));
 } catch (error) {
   report.failure = String(error);
   console.error(String(error));
 
-  if (sessionId) {
-    report.failureState = await startSnapshot().catch(() => null);
-    await screenshot("failure").catch(() => null);
+  if (sessionId !== null && sessionId !== "") {
+    await recordFailureState();
   }
 } finally {
   await cleanup();
   report.passed =
-    !report.failure &&
-    !report.deleteFailure &&
-    !report.preservationFailure &&
-    !report.sessionCleanup &&
+    report.failure === undefined &&
+    report.deleteFailure === undefined &&
+    report.preservationFailure === undefined &&
+    report.sessionCleanup === undefined &&
     report.cases.length === 4 &&
     report.checks.every((c) => c.passed);
   save();
@@ -1003,7 +1187,7 @@ try {
   console.log(
     JSON.stringify({
       checks: report.checks.length,
-      ownedSimulatorDeleted: report.ownedSimulatorDeleted,
+      ownedSimulatorDeleted: report.ownedSimulatorDeleted ?? null,
       passed: report.passed,
       report: path.join(out, "report.json"),
     }),
