@@ -44,7 +44,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "[ \"$CLAUDE_CODE_REMOTE\" = \"true\" ] && cd \"$CLAUDE_PROJECT_DIR\" && pnpm install || true",
+            "command": "[ \"$CLAUDE_CODE_REMOTE\" = \"true\" ] && cd \"$CLAUDE_PROJECT_DIR\" && { [ ! -x /opt/node24/bin/node ] || { export PATH=\"/opt/node24/bin:$PATH\"; [ -z \"$CLAUDE_ENV_FILE\" ] || echo 'export PATH=\"/opt/node24/bin:$PATH\"' >> \"$CLAUDE_ENV_FILE\"; }; } && pnpm install || true",
             "timeout": 600
           }
         ]
