@@ -139,14 +139,14 @@ export class WorldTileStreamer {
         }
       }
 
-      // oxlint-disable-next-line promise/avoid-new -- wraps the wake/timeout callback pair
-      await new Promise<void>((resolve) => {
-        this.waiters.add(resolve);
-        setTimeout(() => {
-          this.waiters.delete(resolve);
-          resolve();
-        }, RETRY_MS);
-      });
+      const { promise, resolve } = Promise.withResolvers<void>();
+      this.waiters.add(resolve);
+      setTimeout(() => {
+        this.waiters.delete(resolve);
+        resolve();
+      }, RETRY_MS);
+
+      await promise;
     }
   }
 

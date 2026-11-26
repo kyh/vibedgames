@@ -63,8 +63,8 @@ const fromBase64url = (text: string) => {
   }
 };
 
-const hmacKey = (secret: string) =>
-  crypto.subtle.importKey(
+const hmacKey = async (secret: string) =>
+  await crypto.subtle.importKey(
     "raw",
     new TextEncoder().encode(`mcp-task:${secret}`),
     { hash: "SHA-256", name: "HMAC" },
@@ -86,9 +86,17 @@ const mintTaskId = async (secret: string, ref: TaskRef) => {
 
 const readTaskId = async (secret: string, taskId: string, userId: string) => {
   const [prefix, payload, signature, ...rest] = taskId.split(".");
-  const signatureBytes = signature ? fromBase64url(signature) : null;
 
-  if (prefix !== PREFIX || !payload || !signatureBytes || rest.length > 0) {
+  const signatureBytes =
+    signature !== undefined && signature !== "" ? fromBase64url(signature) : null;
+
+  if (
+    prefix !== PREFIX ||
+    payload === undefined ||
+    payload === "" ||
+    !signatureBytes ||
+    rest.length > 0
+  ) {
     return null;
   }
 
@@ -161,13 +169,14 @@ const toolResponse = z.looseObject({
 });
 
 const messageOf = (text: string, contentType: string | null) => {
-  const json = contentType?.includes("text/event-stream")
-    ? text
-        .split("\n")
-        .filter((line) => line.startsWith("data:"))
-        .map((line) => line.slice("data:".length))
-        .join("")
-    : text;
+  const json =
+    contentType?.includes("text/event-stream") === true
+      ? text
+          .split("\n")
+          .filter((line) => line.startsWith("data:"))
+          .map((line) => line.slice("data:".length))
+          .join("")
+      : text;
 
   try {
     return toolResponse.safeParse(JSON.parse(json));
@@ -189,7 +198,7 @@ export const asTaskResult = async (
   const passThrough = new Response(text, response);
   const parsed = messageOf(text, response.headers.get("content-type"));
 
-  if (!parsed?.success || parsed.data.result.isError) {
+  if (parsed?.success !== true || parsed.data.result.isError === true) {
     return passThrough;
   }
 
@@ -219,8 +228,8 @@ const toolResult = (ref: TaskRef, status: string, result: JsonValue) => {
   };
 };
 
-const follow = (context: McpContext, ref: TaskRef, action: "status" | "result" | "cancel") =>
-  call(
+const follow = async (context: McpContext, ref: TaskRef, action: "status" | "result" | "cancel") =>
+  await call(
     appRouter.generate.status,
     { action, endpoint_id: ref.e, logs: false, request_id: ref.r },
     { context },

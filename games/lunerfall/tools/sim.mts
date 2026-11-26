@@ -170,7 +170,7 @@ console.log("lunerfall physics sim\n");
   let jumpedUp = false;
 
   for (let f = 0; f < 30; f += 1) {
-    if (b.grounded === false && airborneAt < 0) {
+    if (!b.grounded && airborneAt < 0) {
       airborneAt = f;
     }
 
@@ -274,7 +274,7 @@ console.log("lunerfall physics sim\n");
   const b = spawn();
   const first = b.applyHurt(1);
   const second = b.applyHurt(1);
-  check("hurt lands once, then invuln", first === true && second === false);
+  check("hurt lands once, then invuln", first && !second);
 }
 
 {
@@ -298,7 +298,7 @@ console.log("lunerfall physics sim\n");
     Math.abs(b.x - x0) < 1 && b.attackStep === 0,
     `dx=${(b.x - x0).toFixed(1)}`,
   );
-  check("downed body is invulnerable", b.applyHurt(1) === false);
+  check("downed body is invulnerable", !b.applyHurt(1));
   const air = new PlayerBody(Grid.test(), 240, FLOOR_Y - 60, HEROES.axion.kit);
   air.down();
 
@@ -592,10 +592,7 @@ const inRoom = (r: { cols: number; rows: number }, s: { x: number; y: number }) 
     "round 1 opens as a frozen countdown",
     m.phase === "countdown" && m.round === 1 && m.frozen,
   );
-  check(
-    "no damage lands during the countdown",
-    m.damage("guest", 2) === false && m.hp.guest === VS_HEARTS,
-  );
+  check("no damage lands during the countdown", !m.damage("guest", 2) && m.hp.guest === VS_HEARTS);
   let t: string | null = null;
 
   for (let f = 0; f < 180 && t !== "fight"; f += 1) {
@@ -605,11 +602,11 @@ const inRoom = (r: { cols: number; rows: number }, s: { x: number; y: number }) 
   check("countdown releases into fighting", t === "fight" && m.phase === "fighting" && !m.frozen);
   check(
     "a hit takes the victim's OWN hearts",
-    m.damage("guest", 1) === false && m.hp.guest === VS_HEARTS - 1 && m.hp.host === VS_HEARTS,
+    !m.damage("guest", 1) && m.hp.guest === VS_HEARTS - 1 && m.hp.host === VS_HEARTS,
   );
   check(
     "per-hit damage is capped",
-    m.damage("guest", 99) === false && m.hp.guest === VS_HEARTS - 1 - VS_HIT_CAP,
+    !m.damage("guest", 99) && m.hp.guest === VS_HEARTS - 1 - VS_HIT_CAP,
   );
   let ended = false;
 
@@ -655,7 +652,7 @@ const inRoom = (r: { cols: number; rows: number }, s: { x: number; y: number }) 
     "first to 3 rounds takes the match",
     sawEnd === "matchEnd" && m.winner === "host" && m.score.host === VS_WIN_SCORE,
   );
-  check("rematch waits out the end hold", m.canRematch === false);
+  check("rematch waits out the end hold", !m.canRematch);
 
   for (let f = 0; f < 180; f += 1) {
     m.step(STEP);
@@ -1156,11 +1153,12 @@ const script = (f: number) => ({
     readCheckpoint(null).kind === "absent" && readCheckpoint({}).kind === "absent",
   );
 
-  const reject = (label: string, patch: Readonly<Record<string, unknown>>, r: NetRoom = room) =>
+  const reject = (label: string, patch: Readonly<Record<string, unknown>>, r: NetRoom = room) => {
     check(
       `validator rejects ${label}`,
       readCheckpoint(wire({ checkpoint: { ...checkpoint, ...patch }, room: r })).kind === "invalid",
     );
+  };
 
   reject("a room seq mismatch", { room: 4 });
   const [first] = checkpoint.players;

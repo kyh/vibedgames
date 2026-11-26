@@ -288,7 +288,7 @@ const measure = async (pages, options) => {
   );
 
   const started = Date.now();
-  await Promise.all(pages.map(({ page }) => drive(page, started + options.seconds * 1000)));
+  await Promise.all(pages.map(async ({ page }) => drive(page, started + options.seconds * 1000)));
   const elapsed = (Date.now() - started) / 1000;
   const clients = [];
 

@@ -53,7 +53,11 @@ interface SocialProviders {
 }
 
 const configured = (credentials: SocialProviderCredentials | undefined) =>
-  credentials?.clientId && credentials.clientSecret
+  credentials !== undefined &&
+  credentials.clientId !== undefined &&
+  credentials.clientId !== "" &&
+  credentials.clientSecret !== undefined &&
+  credentials.clientSecret !== ""
     ? { clientId: credentials.clientId, clientSecret: credentials.clientSecret }
     : undefined;
 
@@ -94,14 +98,18 @@ export const createAuth = (opts: AuthOptions) => {
       enabled: true,
       revokeSessionsOnPasswordReset: true,
       sendResetPassword: mailer
-        ? ({ user, url }) => mailer({ to: user.email, ...passwordResetEmail(url) })
+        ? async ({ user, url }) => {
+            await mailer({ to: user.email, ...passwordResetEmail(url) });
+          }
         : undefined,
     },
     emailVerification: mailer
       ? {
           autoSignInAfterVerification: true,
           sendOnSignUp: true,
-          sendVerificationEmail: ({ user, url }) => mailer({ to: user.email, ...verifyEmail(url) }),
+          sendVerificationEmail: async ({ user, url }) => {
+            await mailer({ to: user.email, ...verifyEmail(url) });
+          },
         }
       : undefined,
     plugins: [

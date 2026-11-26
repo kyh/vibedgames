@@ -205,7 +205,9 @@ export class ResultCard {
           this.clicked = true;
           bg.setTexture(`ui-btn-${color}-pressed`);
           label.setText("…").setY(bg.y);
-          scene.time.delayedCall(40, () => onLeave(action));
+          scene.time.delayedCall(40, () => {
+            onLeave(action);
+          });
         },
       );
     };

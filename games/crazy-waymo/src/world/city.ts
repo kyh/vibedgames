@@ -234,28 +234,29 @@ export const materialFactory = () => {
     let mat = mats.get(k);
 
     if (!mat) {
-      mat = m.unlit
-        ? new THREE.MeshBasicMaterial({
-            color: m.color,
-            opacity: m.opacity,
-            polygonOffset: m.polygonOffset,
-            polygonOffsetFactor: m.polygonOffsetFactor,
-            polygonOffsetUnits: m.polygonOffsetUnits,
-            toneMapped: m.toneMapped ?? true,
-            transparent: m.transparent,
-            vertexColors: m.vertexColors,
-          })
-        : new THREE.MeshStandardMaterial({
-            color: m.color,
-            metalness: m.metalness,
-            opacity: m.opacity,
-            polygonOffset: m.polygonOffset,
-            polygonOffsetFactor: m.polygonOffsetFactor,
-            polygonOffsetUnits: m.polygonOffsetUnits,
-            roughness: m.roughness,
-            transparent: m.transparent,
-            vertexColors: m.vertexColors,
-          });
+      mat =
+        m.unlit === true
+          ? new THREE.MeshBasicMaterial({
+              color: m.color,
+              opacity: m.opacity,
+              polygonOffset: m.polygonOffset,
+              polygonOffsetFactor: m.polygonOffsetFactor,
+              polygonOffsetUnits: m.polygonOffsetUnits,
+              toneMapped: m.toneMapped ?? true,
+              transparent: m.transparent,
+              vertexColors: m.vertexColors,
+            })
+          : new THREE.MeshStandardMaterial({
+              color: m.color,
+              metalness: m.metalness,
+              opacity: m.opacity,
+              polygonOffset: m.polygonOffset,
+              polygonOffsetFactor: m.polygonOffsetFactor,
+              polygonOffsetUnits: m.polygonOffsetUnits,
+              roughness: m.roughness,
+              transparent: m.transparent,
+              vertexColors: m.vertexColors,
+            });
 
       if (m.propShadow !== undefined) {
         setPropShadowPolicy(mat, m.propShadow);
@@ -455,21 +456,23 @@ const landmarkHoldAt = (volumes: readonly LandmarkVolume[], p: THREE.Vector3) =>
   return hold;
 };
 
-const nextFrame = () =>
-  // oxlint-disable-next-line promise/avoid-new -- wraps requestAnimationFrame
-  new Promise<void>((resolve) => {
-    requestAnimationFrame(() => {
-      resolve();
-    });
+const nextFrame = async () => {
+  const { promise, resolve } = Promise.withResolvers<void>();
+  requestAnimationFrame(() => {
+    resolve();
   });
 
-const nextFrameTask = () =>
-  // oxlint-disable-next-line promise/avoid-new -- wraps requestAnimationFrame plus setTimeout
-  new Promise<void>((resolve) => {
-    requestAnimationFrame(() => {
-      setTimeout(resolve, 0);
-    });
+  await promise;
+};
+
+const nextFrameTask = async () => {
+  const { promise, resolve } = Promise.withResolvers<void>();
+  requestAnimationFrame(() => {
+    setTimeout(resolve, 0);
   });
+
+  await promise;
+};
 
 const gpuOnlyGeometry = () => isCoarsePointer() && !editorMode();
 
@@ -1140,27 +1143,27 @@ export class CityModel {
 
     return this.roadDrapeCache;
   }
-  private batches: { mesh: PropBatch; chunkIds: Uint16Array }[] = [];
+  private readonly batches: { mesh: PropBatch; chunkIds: Uint16Array }[] = [];
   private batchChunkGrid = { nx: 1, nz: 1 };
   private chunkVisible: Uint8Array | null = null;
-  private chunkInstancesNear = new Map<number, [number, number][]>();
-  private chunkInstancesTall = new Map<number, [number, number][]>();
-  private chunkInstancesLandmark = new Map<number, [number, number][]>();
+  private readonly chunkInstancesNear = new Map<number, [number, number][]>();
+  private readonly chunkInstancesTall = new Map<number, [number, number][]>();
+  private readonly chunkInstancesLandmark = new Map<number, [number, number][]>();
   private chunkVisibleLandmark: Uint8Array | null = null;
   private chunkLandmarkHold: Float32Array | null = null;
-  private imposterInstances = new Map<number, number[]>();
-  private imposterMidInstances = new Map<number, number[]>();
+  private readonly imposterInstances = new Map<number, number[]>();
+  private readonly imposterMidInstances = new Map<number, number[]>();
   private imposterMesh: PropBatch | null = null;
   private imposterVisible: Uint8Array | null = null;
   private imposterMidVisible: Uint8Array | null = null;
   restCapture: CityRestPayload | null = null;
-  private capturedMerged: MergedChunkRec[] = [];
-  private capturedMergedMats = new Map<MergedChunkRec, THREE.Material>();
-  private restItems: BatchItemRec[] = [];
+  private readonly capturedMerged: MergedChunkRec[] = [];
+  private readonly capturedMergedMats = new Map<MergedChunkRec, THREE.Material>();
+  private readonly restItems: BatchItemRec[] = [];
   private restComplete = true;
-  private rawGeos: RawGeoRec[] = [];
-  private rawGeoIds = new Map<string, number>();
-  private restSkipLogged = new Set<string>();
+  private readonly rawGeos: RawGeoRec[] = [];
+  private readonly rawGeoIds = new Map<string, number>();
+  private readonly restSkipLogged = new Set<string>();
 
   private captureMerged(mesh: THREE.Mesh, cx: number, cz: number, dist: number) {
     const geo = mesh.geometry;
@@ -1345,7 +1348,9 @@ export class CityModel {
       [],
       { detail: DETAIL_DISTANCE, imposter: imposterDistance(), midImposter: midImposterDistance() },
       detail,
-      () => this.breathe(),
+      async () => {
+        await this.breathe();
+      },
     );
 
     for (const c of built.chunks) {
@@ -2147,7 +2152,7 @@ export class CityModel {
     for (const p of activeMapProps(editorMode())) {
       const [cat, name] = p.model.split("/");
 
-      if (!cat || !name) {
+      if (cat === undefined || cat === "" || name === undefined || name === "") {
         continue;
       }
 
@@ -2159,7 +2164,7 @@ export class CityModel {
       node.position.set(x, this.heightAt(x, z), z);
       collect(node);
 
-      if (p.solid) {
+      if (p.solid === true) {
         const b = this.cache.bounds(modelUrl(cat, name));
         const hx = (b.size.x * p.s) / 2;
         const hz = (b.size.z * p.s) / 2;
@@ -2217,7 +2222,9 @@ export class CityModel {
     const cullRadius = CHUNK * 0.71 + ROAD_TILE * 2;
 
     const groups = await buildMergedChunkGroups({
-      breathe: () => this.breathe(),
+      breathe: async () => {
+        await this.breathe();
+      },
       cache: this.cache,
       materialFor: this.bakedMaterialFor,
       onRecord: (done, total) => {
@@ -2248,7 +2255,9 @@ export class CityModel {
       [],
       { detail: DETAIL_DISTANCE, imposter: imposterDistance(), midImposter: midImposterDistance() },
       detail,
-      () => this.breathe(),
+      async () => {
+        await this.breathe();
+      },
     );
 
     for (const c of built.chunks) {
@@ -2258,9 +2267,13 @@ export class CityModel {
 
     this.parcelStreamer = new ParcelStreamer(this.group, detail);
     this.tileStreamer = new WorldTileStreamer(meta.tiles, CHUNK, {
-      evict: (key) => this.evictWorldTile(key),
+      evict: (key) => {
+        this.evictWorldTile(key);
+      },
       fetch: fetchWorldTile,
-      install: (key, tile) => this.installWorldTile(key, tile),
+      install: async (key, tile) => {
+        await this.installWorldTile(key, tile);
+      },
     });
     console.log(
       `[city] parcels: ${skyline.length} skyline buildings static (${built.stats.vertices} verts), ` +
@@ -2272,7 +2285,9 @@ export class CityModel {
     const cullRadius = CHUNK * 0.71 + ROAD_TILE * 2;
 
     const groups = await buildMergedChunkGroups({
-      breathe: () => this.breathe(),
+      breathe: async () => {
+        await this.breathe();
+      },
       cache: this.cache,
       materialFor: this.bakedMaterialFor,
       records: tile.mergedChunks,

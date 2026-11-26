@@ -1,4 +1,5 @@
-import { ChildProcessByStdio, spawn } from "node:child_process";
+import type { ChildProcessByStdio } from "node:child_process";
+import { spawn } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
@@ -12,13 +13,13 @@ import { gunzipSync } from "node:zlib";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { chromium } from "playwright-core";
-import { Readable } from "node:stream";
+import type { Readable } from "node:stream";
 
 const root = path.resolve(import.meta.dirname, "..");
 const worldDir = path.join(root, "public/world");
 
 const src = readFileSync(path.join(root, "src/world/world-bin.ts"), "utf-8");
-const revMatch = src.match(/WORLD_REV = (?<rev>\d+)/u);
+const revMatch = /WORLD_REV = (?<rev>\d+)/u.exec(src);
 
 if (!revMatch?.groups) {
   throw new Error("WORLD_REV not found in src/world/world-bin.ts");
@@ -44,7 +45,7 @@ const shippedRev = () => {
   }
 };
 
-const unpackContainer = (bytes: Buffer<ArrayBufferLike>) => {
+const unpackContainer = (bytes: Buffer) => {
   const headerLen = new DataView(bytes.buffer, bytes.byteOffset, 4).getUint32(0, true);
   const header = JSON.parse(new TextDecoder().decode(bytes.subarray(4, 4 + headerLen)));
   const offsets: number[] = [];
@@ -89,7 +90,7 @@ const argPort =
 let server: ChildProcessByStdio<null, Readable, Readable> | null = null;
 let port = argPort;
 
-if (!port) {
+if (port === null || port === 0) {
   console.log("[bake] starting vite dev server…");
   server = spawn("pnpm", ["dev"], {
     cwd: root,
@@ -98,16 +99,21 @@ if (!port) {
   });
   // oxlint-disable-next-line promise/avoid-new -- wraps vite's stdout/exit events, which have no promise form
   port = await new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error("vite did not report a port in 60s")), 60_000);
+    const timer = setTimeout(() => {
+      reject(new Error("vite did not report a port in 60s"));
+    }, 60_000);
+
     server.stdout.on("data", (chunk: any) => {
-      const m = String(chunk).match(/localhost:(?<port>\d+)/u);
+      const m = /localhost:(?<port>\d+)/u.exec(String(chunk));
 
       if (m?.groups) {
         clearTimeout(timer);
         resolve(Number(m.groups.port));
       }
     });
-    server.on("exit", () => reject(new Error("vite exited before reporting a port")));
+    server.on("exit", () => {
+      reject(new Error("vite exited before reporting a port"));
+    });
   });
 }
 
@@ -117,7 +123,7 @@ const dl = mkdtempSync(path.join(tmpdir(), "waymo-bake-"));
 let failed = false;
 
 const browser = await chromium.launch(
-  process.env.BAKE_BROWSER
+  process.env.BAKE_BROWSER !== undefined && process.env.BAKE_BROWSER !== ""
     ? { executablePath: process.env.BAKE_BROWSER, headless: false }
     : { channel: "chrome", headless: false },
 );
@@ -127,11 +133,15 @@ let heartbeat;
 try {
   const page = await browser.newPage({ acceptDownloads: true });
 
-  // oxlint-disable-next-line promise/avoid-new -- wraps playwright page events, which have no promise form
-  const pageFailed = new Promise((_resolve, reject) => {
-    page.on("pageerror", (error) => reject(new Error(`world page: ${error.message}`)));
-    page.on("crash", () => reject(new Error("world page crashed")));
+  const { promise, resolve: _resolve, reject } = Promise.withResolvers<void>();
+  page.on("pageerror", (error) => {
+    reject(new Error(`world page: ${error.message}`));
   });
+  page.on("crash", () => {
+    reject(new Error("world page crashed"));
+  });
+
+  const pageFailed = promise;
 
   page.on("console", (msg) => {
     const t = msg.text();
@@ -147,40 +157,40 @@ try {
     }
   });
 
-  // oxlint-disable-next-line promise/avoid-new -- wraps playwright console events, which have no promise form
-  const restSkipped = new Promise((_resolve, reject) => {
-    page.on("console", (msg) => {
-      const t = msg.text();
+  const { promise: promise2, resolve: _resolve, reject } = Promise.withResolvers<void>();
+  page.on("console", (msg) => {
+    const t = msg.text();
 
-      if (t.startsWith("[city] rest capture skipped")) {
-        reject(
-          new Error(
-            `${t} — the city could not serialize every batch item, so no rest.bin ` +
-              `exists to bake. See the "[city] untagged batch items" / "untagged ` +
-              `texture" line above for which material.`,
-          ),
-        );
-      }
-    });
+    if (t.startsWith("[city] rest capture skipped")) {
+      reject(
+        new Error(
+          `${t} — the city could not serialize every batch item, so no rest.bin ` +
+            `exists to bake. See the "[city] untagged batch items" / "untagged ` +
+            `texture" line above for which material.`,
+        ),
+      );
+    }
   });
 
-  // oxlint-disable-next-line promise/avoid-new -- wraps the playwright download event, which has no promise form
-  const gotContainer = new Promise((resolve, reject) => {
-    page.on("download", async (d) => {
-      const name = d.suggestedFilename();
-      const target = path.join(dl, name);
-      console.log(`[bake] downloading ${name}…`);
+  const restSkipped = promise2;
 
-      if (name === "world-bake.bin") {
-        try {
-          await d.saveAs(target);
-          resolve(target);
-        } catch (error) {
-          reject(error);
-        }
+  const { promise: promise3, resolve, reject } = Promise.withResolvers<void>();
+  page.on("download", async (d) => {
+    const name = d.suggestedFilename();
+    const target = path.join(dl, name);
+    console.log(`[bake] downloading ${name}…`);
+
+    if (name === "world-bake.bin") {
+      try {
+        await d.saveAs(target);
+        resolve(target);
+      } catch (error) {
+        reject(error);
       }
-    });
+    }
   });
+
+  const gotContainer = promise3;
 
   await page.goto(`http://localhost:${port}/?bake=1&offline=1`, { waitUntil: "domcontentloaded" });
   await page.bringToFront();
@@ -207,7 +217,9 @@ try {
     pageFailed,
     // oxlint-disable-next-line promise/avoid-new -- a timeout arm for Promise.race has no promise form
     new Promise((_resolve, reject) => {
-      setTimeout(() => reject(new Error("bake download did not arrive in 30 minutes")), 1_800_000);
+      setTimeout(() => {
+        reject(new Error("bake download did not arrive in 30 minutes"));
+      }, 1_800_000);
     }),
   ]);
 
@@ -246,7 +258,7 @@ try {
   clearInterval(heartbeat);
   await browser.close();
 
-  if (server?.pid) {
+  if (server !== null && server.pid !== undefined && server.pid !== 0) {
     try {
       process.kill(-server.pid, "SIGTERM");
     } catch {

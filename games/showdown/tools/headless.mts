@@ -27,7 +27,9 @@ export const stubGame = (mode: "guest" | "host", inbox: RemoteIntent[] = []) => 
   const brawlers: Brawler[] = [];
 
   return {
-    asActor: (_actor: Brawler, present: () => void) => present(),
+    asActor: (_actor: Brawler, present: () => void) => {
+      present();
+    },
     audio: silent,
     brawlers,
     combat: silent,

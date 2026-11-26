@@ -44,7 +44,7 @@ const playingFixture = () => {
   world.gameTime = 61;
   world.nextCoinAt = 64;
   world.nextDeliveryAt = 76;
-  world.campRespawnAt["held"] = 93;
+  world.campRespawnAt.held = 93;
   world.seq = 122;
 
   return world;

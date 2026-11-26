@@ -223,12 +223,12 @@ const isUpdaterFn = (updater: JsonRecord | StateUpdater): updater is StateUpdate
  */
 export class MultiplayerClient {
   private socket: PartySocket | null = null;
-  private listeners = new Set<Listener>();
+  private readonly listeners = new Set<Listener>();
   private initialStateApplied = false;
   private remoteStateSeen = false;
-  private options: MultiplayerClientOptions;
+  private readonly options: MultiplayerClientOptions;
   private cap: number | null;
-  private reconnectToken = generateReconnectToken();
+  private readonly reconnectToken = generateReconnectToken();
   private heartbeatRaf: number | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private lastHeartbeatAt = 0;
@@ -271,13 +271,16 @@ export class MultiplayerClient {
     this._onClaim = options.onClaim;
     this._onTick = options.onTick;
     this._room = options.room;
-    this.cap = options.maxPlayers && options.maxPlayers > 0 ? Math.floor(options.maxPlayers) : null;
+    this.cap =
+      options.maxPlayers !== undefined && options.maxPlayers !== 0 && options.maxPlayers > 0
+        ? Math.floor(options.maxPlayers)
+        : null;
 
     if (options.initialState) {
       this.passesSchema("sharedState", "outgoing", options.initialState);
     }
 
-    if (options.offline) {
+    if (options.offline === true) {
       this.enterOffline();
     } else {
       this.socket = this.dial();
@@ -775,7 +778,7 @@ export class MultiplayerClient {
    * re-sends the whole state.
    */
   updateMyState(updater: JsonRecord | StateUpdater) {
-    if (!this._playerId) {
+    if (this._playerId === null || this._playerId === "") {
       return;
     }
 
@@ -827,7 +830,7 @@ export class MultiplayerClient {
     if (this._connectionStatus === "offline") {
       if (
         (to === undefined || to.includes(OFFLINE_PLAYER_ID)) &&
-        !except?.includes(OFFLINE_PLAYER_ID)
+        except?.includes(OFFLINE_PLAYER_ID) !== true
       ) {
         this._onEvent?.(event, payload, OFFLINE_PLAYER_ID);
       }
@@ -835,7 +838,7 @@ export class MultiplayerClient {
       return;
     }
 
-    if (options?.coalesce) {
+    if (options?.coalesce === true) {
       const key = `event\u0000${event}\u0000${to?.join(",") ?? ""}\u0000${except?.join(",") ?? ""}`;
       this.enqueue(key, { data: emitData(event, payload, to, except), kind: "event" });
 
@@ -1173,7 +1176,7 @@ export class MultiplayerClient {
     }
   }
 
-  private handleTransport = () => {
+  private readonly handleTransport = () => {
     this._connectionStatus = this.admitted ? "reconnecting" : "connecting";
     this.notify();
   };
@@ -1236,7 +1239,7 @@ export class MultiplayerClient {
     this.maybeSeedInitialState(data.hostId);
     this.sendSharedDiff();
 
-    if (this._playerId && Object.keys(this._myState).length > 0) {
+    if (this._playerId !== null && this._playerId !== "" && Object.keys(this._myState).length > 0) {
       this._players = {
         ...this._players,
         [this._playerId]: {
@@ -1351,7 +1354,7 @@ export class MultiplayerClient {
     this._onTick?.({ changed, inputs: Object.fromEntries(ticks.held), n });
   }
 
-  private handleMessage = (event: MessageEvent) => {
+  private readonly handleMessage = (event: MessageEvent) => {
     try {
       const message = JSON.parse(event.data) as ServerMessage;
 

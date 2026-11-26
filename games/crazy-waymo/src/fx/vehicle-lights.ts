@@ -37,14 +37,14 @@ const SIDES: readonly number[] = [-1, 1];
 
 export class VehicleLights {
   readonly group = new THREE.Group();
-  private intensity = { value: 0 };
-  private time = { value: 0 };
-  private halo: GlowLayer;
-  private pool: GlowLayer;
-  private fwd = new THREE.Vector3();
-  private right = new THREE.Vector3();
-  private up = new THREE.Vector3();
-  private picks: { d2: number; car: LitVehicle }[] = [];
+  private readonly intensity = { value: 0 };
+  private readonly time = { value: 0 };
+  private readonly halo: GlowLayer;
+  private readonly pool: GlowLayer;
+  private readonly fwd = new THREE.Vector3();
+  private readonly right = new THREE.Vector3();
+  private readonly up = new THREE.Vector3();
+  private readonly picks: { d2: number; car: LitVehicle }[] = [];
 
   constructor() {
     this.halo = new GlowLayer({

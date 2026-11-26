@@ -25,7 +25,11 @@ const PasswordUpdatePage = () => {
       <div className="flex flex-col gap-2 text-center">
         <h1 className="text-lg font-light">Update your Password</h1>
       </div>
-      {token && !error ? <UpdatePasswordForm token={token} /> : <InvalidLink />}
+      {token !== undefined && token !== "" && (error === undefined || error === "") ? (
+        <UpdatePasswordForm token={token} />
+      ) : (
+        <InvalidLink />
+      )}
     </div>
   );
 };

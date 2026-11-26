@@ -31,14 +31,14 @@ interface Sample {
 
 export class DriftTrails {
   readonly mesh: THREE.Mesh;
-  private heightAt: (x: number, z: number) => number;
-  private samples: Sample[][] = [];
-  private heads: { x: number; z: number; connected: boolean }[] = [];
+  private readonly heightAt: (x: number, z: number) => number;
+  private readonly samples: Sample[][] = [];
+  private readonly heads: { x: number; z: number; connected: boolean }[] = [];
   private positions: Float32Array;
   private colors: Float32Array;
-  private posAttr: THREE.BufferAttribute;
-  private colAttr: THREE.BufferAttribute;
-  private tmp = new THREE.Color();
+  private readonly posAttr: THREE.BufferAttribute;
+  private readonly colAttr: THREE.BufferAttribute;
+  private readonly tmp = new THREE.Color();
 
   constructor(heightAt: (x: number, z: number) => number) {
     this.heightAt = heightAt;

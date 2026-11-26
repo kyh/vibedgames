@@ -132,9 +132,9 @@ export class RaycastVehicle {
   private boosting = false;
   private throttle = 0;
 
-  private q = new THREE.Quaternion();
-  private v = new THREE.Vector3();
-  private v2 = new THREE.Vector3();
+  private readonly q = new THREE.Quaternion();
+  private readonly v = new THREE.Vector3();
+  private readonly v2 = new THREE.Vector3();
 
   private readonly physics: Pick<PhysicsWorld, "raw">;
 

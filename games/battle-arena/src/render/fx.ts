@@ -275,12 +275,12 @@ export class Fx {
   readonly pillars: PillarPool;
   readonly voids: VoidPool;
   readonly ribbons: RibbonPool;
-  private rings: Ring[] = [];
-  private beams: Beam[] = [];
-  private cones: ConeDecal[] = [];
-  private domes: Dome[] = [];
-  private slashes: Slash[] = [];
-  private flares: {
+  private readonly rings: Ring[] = [];
+  private readonly beams: Beam[] = [];
+  private readonly cones: ConeDecal[] = [];
+  private readonly domes: Dome[] = [];
+  private readonly slashes: Slash[] = [];
+  private readonly flares: {
     sprite: THREE.Sprite;
     mat: THREE.SpriteMaterial;
     life: number;
@@ -288,26 +288,26 @@ export class Fx {
     s0: number;
     grow: number;
   }[] = [];
-  private cracks: Crack[] = [];
-  private coneGeoCache = new Map<number, THREE.CircleGeometry>();
-  private rimGeoCache = new Map<number, THREE.RingGeometry>();
-  private ringPlane = new THREE.PlaneGeometry(2, 2);
-  private zonePieces = new Map<string, ZonePiece>();
-  private brewPools = new Map<string, BrewPoolMaterial>();
-  private vortexGeo = new THREE.CylinderGeometry(1, 0.72, 1, 20, 1, true);
-  private cometGeo = createRockGeometry({ craters: 6, cuts: 8, detail: 2, seed: 4 });
-  private rockMat = createBurningRockMaterial(fxClock);
+  private readonly cracks: Crack[] = [];
+  private readonly coneGeoCache = new Map<number, THREE.CircleGeometry>();
+  private readonly rimGeoCache = new Map<number, THREE.RingGeometry>();
+  private readonly ringPlane = new THREE.PlaneGeometry(2, 2);
+  private readonly zonePieces = new Map<string, ZonePiece>();
+  private readonly brewPools = new Map<string, BrewPoolMaterial>();
+  private readonly vortexGeo = new THREE.CylinderGeometry(1, 0.72, 1, 20, 1, true);
+  private readonly cometGeo = createRockGeometry({ craters: 6, cuts: 8, detail: 2, seed: 4 });
+  private readonly rockMat = createBurningRockMaterial(fxClock);
   private pendingWarm: { renderer: THREE.WebGLRenderer; camera: THREE.Camera } | null = null;
-  private warmParked: { mesh: THREE.Mesh; ownMat: boolean }[] = [];
+  private readonly warmParked: { mesh: THREE.Mesh; ownMat: boolean }[] = [];
   private texturesReady = false;
-  private boltFrom = new THREE.Vector3();
-  private boltTo = new THREE.Vector3();
+  private readonly boltFrom = new THREE.Vector3();
+  private readonly boltTo = new THREE.Vector3();
   private delayed: Delayed[] = [];
   private clock = 0;
   private nowMs = 0;
-  private numbers: DamageNumbers;
+  private readonly numbers: DamageNumbers;
   readonly audio = new Audio();
-  private zoneAnim = new Map<string, ZoneAnim>();
+  private readonly zoneAnim = new Map<string, ZoneAnim>();
   private zoneSweepAt = 0;
   readonly feed: {
     killerName: string;
@@ -333,8 +333,8 @@ export class Fx {
   private heavyThisFrame = false;
   private flashGain = 1;
 
-  private scene: THREE.Scene;
-  private view: View;
+  private readonly scene: THREE.Scene;
+  private readonly view: View;
 
   constructor(scene: THREE.Scene, view: View) {
     this.scene = scene;
@@ -856,7 +856,13 @@ export class Fx {
 
   private propBreakFx(e: FxOf<"propBreak">) {
     const wood = propWoodColor(e.model);
-    this.chunks.burst(e.x, e.y, e.model.includes("stacked") ? 10 : 7, wood, e.explosive ? 7 : 5);
+    this.chunks.burst(
+      e.x,
+      e.y,
+      e.model.includes("stacked") ? 10 : 7,
+      wood,
+      e.explosive === true ? 7 : 5,
+    );
     this.dust(e.x, e.y, 4);
     this.sparks(e.x, 0.7, e.y, 0, 1, 5, 0xd8_c0_90);
     this.impactRing(e.x, e.y, 0xc0_a0_60, 1.4);
@@ -915,7 +921,9 @@ export class Fx {
         this.telegraphs.spawnResidue(e.x, e.y, e.radius * 0.85, 0x7f_d4_ff, 1.6);
         const nx = e.x;
         const ny = e.y;
-        this.delay(1.2, () => this.chunks.burst(nx, ny, 9, 0x9f_d8_ff, 6));
+        this.delay(1.2, () => {
+          this.chunks.burst(nx, ny, 9, 0x9f_d8_ff, 6);
+        });
         break;
       }
 
@@ -945,7 +953,9 @@ export class Fx {
         });
 
         for (const t of [0.45, 0.8, 1.15]) {
-          this.delay(t, () => this.implode(hx, hy, 0x9f_ef_a8, hr * 0.9, 8, 0.3));
+          this.delay(t, () => {
+            this.implode(hx, hy, 0x9f_ef_a8, hr * 0.9, 8, 0.3);
+          });
         }
 
         break;
@@ -1165,7 +1175,7 @@ export class Fx {
       }
     }
 
-    if (e.leader) {
+    if (e.leader === true) {
       this.audio.leaderSlain();
     }
   }
@@ -1705,7 +1715,9 @@ export class Fx {
         this.sparks(x + dx, 1.2, y + dy, dx, dy, 10, 0xff_f2_c0);
         const gx = x + dx * 2.2;
         const gy = y + dy * 2.2;
-        this.delay(0.12, () => this.sparks(gx, 2.4, gy, 0, -1, 8, 0xff_e6_a0));
+        this.delay(0.12, () => {
+          this.sparks(gx, 2.4, gy, 0, -1, 8, 0xff_e6_a0);
+        });
         break;
       }
 
@@ -1931,7 +1943,7 @@ export class Fx {
       }
 
       default: {
-        if (!g.enemyDps || now < st.next) {
+        if (g.enemyDps === undefined || g.enemyDps === 0 || now < st.next) {
           return;
         }
 
@@ -2248,7 +2260,9 @@ export class Fx {
   respawnBurst(x: number, y: number, color: number, isLocal: boolean) {
     this.beam(x, y, color, 10, 1.1);
     this.implode(x, y, color, 2.5, 12, 0.3);
-    this.delay(0.15, () => this.shockwave(x, y, color, 2.5));
+    this.delay(0.15, () => {
+      this.shockwave(x, y, color, 2.5);
+    });
 
     if (isLocal) {
       this.view.addTrauma(0.1);
@@ -2570,15 +2584,15 @@ export class Fx {
     }
   }
 
-  private texActors: {
+  private readonly texActors: {
     obj: THREE.Object3D;
     mats: THREE.Material[];
     life: number;
     maxLife: number;
     tick: (k: number) => void;
   }[] = [];
-  private texQuad = new THREE.PlaneGeometry(1, 1);
-  private texSphere = new THREE.SphereGeometry(1, 20, 12);
+  private readonly texQuad = new THREE.PlaneGeometry(1, 1);
+  private readonly texSphere = new THREE.SphereGeometry(1, 20, 12);
 
   private texActor(
     obj: THREE.Object3D,
@@ -3207,7 +3221,7 @@ export class Fx {
     }
   }
 
-  private ghostTint = new THREE.Color();
+  private readonly ghostTint = new THREE.Color();
   ghost(x: number, y: number, color: number) {
     this.ghostTint.setHex(color).multiplyScalar(0.4);
 

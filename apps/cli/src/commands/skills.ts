@@ -66,7 +66,7 @@ export const skillsCommand = defineCommand({
   run: async ({ args, rawArgs }) => {
     assertKnownFlags(rawArgs, skillsArgs);
 
-    if (!args.name) {
+    if (args.name === undefined || args.name === "") {
       const skills = await listSkills();
 
       if (writeStructured({ skills }, args)) {
@@ -99,7 +99,7 @@ export const skillsCommand = defineCommand({
 
     const content = await res.text();
 
-    if (isJsonOutput(args) || args.field) {
+    if (isJsonOutput(args) || (args.field !== undefined && args.field !== "")) {
       const listed = await listSkills();
       const summary = listed.find((skill) => skill.name === name);
       writeStructured({ content, description: summary?.description ?? "", name }, args);

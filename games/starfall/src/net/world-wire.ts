@@ -499,7 +499,7 @@ export const readBeaconRow = (row: WireValue | undefined, epoch: number) => {
   return {
     activeAt: epoch + activeAt,
     contested: row[5] === 1,
-    controllerId: controller || null,
+    controllerId: controller === null || controller === "" ? null : controller,
     diesAt: epoch + diesAt,
     x,
     y,

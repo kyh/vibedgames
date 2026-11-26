@@ -192,15 +192,15 @@ const randomUnit = () => {
 const rand = (min: number, max: number) => min + Math.random() * (max - min);
 
 export class FxPool {
-  private puffMesh: THREE.InstancedMesh;
-  private heartMesh: THREE.InstancedMesh;
-  private confettiMesh: THREE.InstancedMesh;
-  private puffs: Puff[] = [];
-  private hearts: Heart[] = [];
-  private confetti: Confetti[] = [];
-  private rings: Ring[] = [];
+  private readonly puffMesh: THREE.InstancedMesh;
+  private readonly heartMesh: THREE.InstancedMesh;
+  private readonly confettiMesh: THREE.InstancedMesh;
+  private readonly puffs: Puff[] = [];
+  private readonly hearts: Heart[] = [];
+  private readonly confetti: Confetti[] = [];
+  private readonly rings: Ring[] = [];
   private readonly moteTime = { value: 0 };
-  private dummy = new THREE.Object3D();
+  private readonly dummy = new THREE.Object3D();
   private elapsed = 0;
 
   constructor(scene: THREE.Scene) {

@@ -24,7 +24,7 @@ const fetchConsent = createServerFn({ method: "GET" })
       throw redirect({ href: `/auth/login${search}` });
     }
 
-    if (!clientId) {
+    if (clientId === null || clientId === "") {
       return { client: null, userName: session.user.name };
     }
 
@@ -39,7 +39,7 @@ const fetchConsent = createServerFn({ method: "GET" })
   });
 
 const redirectHost = (uri?: string) => {
-  if (!uri) {
+  if (uri === undefined || uri === "") {
     return null;
   }
 
@@ -83,6 +83,6 @@ export const Route = createFileRoute("/oauth/consent")({
   head: () => ({
     meta: [{ title: "Connect an app" }, { content: "noindex, nofollow", name: "robots" }],
   }),
-  loader: ({ location }) => fetchConsent({ data: { search: location.searchStr } }),
+  loader: async ({ location }) => await fetchConsent({ data: { search: location.searchStr } }),
   validateSearch: consentSearchSchema,
 });

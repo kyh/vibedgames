@@ -76,7 +76,7 @@ export const ConnectedAppsSettings = () => {
                       <div className="truncate font-medium">{app.name ?? "Unnamed app"}</div>
                       <div className="text-muted-foreground text-xs">
                         {app.connectedAt ? `connected ${formatDate(app.connectedAt)}` : "connected"}
-                        {app.uri ? (
+                        {app.uri !== null && app.uri !== "" ? (
                           <>
                             {" · "}
                             <span className="select-text">{app.uri}</span>
@@ -103,7 +103,9 @@ export const ConnectedAppsSettings = () => {
                       size="sm"
                       className="ml-auto"
                       loading={revoke.isPending && revoke.variables?.clientId === app.clientId}
-                      onClick={() => revoke.mutate({ clientId: app.clientId })}
+                      onClick={() => {
+                        revoke.mutate({ clientId: app.clientId });
+                      }}
                     >
                       Disconnect
                     </Button>

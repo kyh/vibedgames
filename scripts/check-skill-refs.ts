@@ -55,7 +55,12 @@ const skillPathIssues = (root: string, skills: Set<string>, file: string, text: 
       continue;
     }
 
-    if (m.groups?.rest && !existsSync(path.join(root, m[0]))) {
+    if (
+      m.groups !== undefined &&
+      m.groups.rest !== undefined &&
+      m.groups.rest !== "" &&
+      !existsSync(path.join(root, m[0]))
+    ) {
       issues.push({ file, ref: m[0], why: "path under skill missing" });
     }
   }

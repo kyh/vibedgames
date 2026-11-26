@@ -409,7 +409,9 @@ export class Brawler {
     }
 
     this.ammo -= 1;
-    this.game.asActor(this, () => this.startVolley(this.def.attack, dx, dz, x, z, false));
+    this.game.asActor(this, () => {
+      this.startVolley(this.def.attack, dx, dz, x, z, false);
+    });
 
     return true;
   }
@@ -549,7 +551,9 @@ export class Brawler {
       return;
     }
 
-    this.game.asActor(this, () => this.fireShot(burst));
+    this.game.asActor(this, () => {
+      this.fireShot(burst);
+    });
   }
 
   private fireShot(burst: BurstState) {
@@ -635,7 +639,7 @@ export class Brawler {
       this.game.hud.floatText(this.x, 1.7, this.z, `${dealt}`, this.isPlayer ? "dmg-self" : "dmg");
     }
 
-    if (!isGas && (this.isPlayer || source?.isPlayer)) {
+    if (!isGas && (this.isPlayer || source?.isPlayer === true)) {
       this.hitStop(source, this.hp <= 0 ? KILL_STOP_S : HIT_STOP_S);
     }
 
@@ -870,7 +874,9 @@ export class Brawler {
       showSlash(this.game, this, swing.a, swing.dx, swing.dz, swing.isSuper);
     }
 
-    this.game.asActor(this, () => this.game.audio.play("punch", this.x, this.z));
+    this.game.asActor(this, () => {
+      this.game.audio.play("punch", this.x, this.z);
+    });
   }
 
   private tickLeap(dt: number, leap: LeapState) {
@@ -938,7 +944,7 @@ export class Brawler {
       this.evasion = null;
 
       if (evadeStyle(this.def.id) === "blink") {
-        this.game.asActor(this, () =>
+        this.game.asActor(this, () => {
           this.game.effects.burst(
             this.x,
             this.root.position.y + 0.65,
@@ -946,8 +952,8 @@ export class Brawler {
             this.lightColor,
             7,
             2,
-          ),
-        );
+          );
+        });
       }
     }
   }
@@ -986,7 +992,9 @@ export class Brawler {
     this.inBush = !this.airborne && this.game.world.isBushAt(pos.x, pos.z);
 
     if (this.inBush !== wasInBush && (!this.hidden || this.isPlayer)) {
-      this.game.asActor(this, () => this.game.effects.leaves(pos.x, pos.z, 5));
+      this.game.asActor(this, () => {
+        this.game.effects.leaves(pos.x, pos.z, 5);
+      });
     }
   }
 

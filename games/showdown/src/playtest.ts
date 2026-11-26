@@ -24,8 +24,12 @@ const GOAL = [
 export const installPlaytest = (game: Game) => {
   const pilot = new Pilot(game);
   publishTestHooks({
-    seed: (seed) => game.startSeeded(seed),
-    setPausedForScreenshot: (paused) => game.setPaused(paused),
+    seed: (seed) => {
+      game.startSeeded(seed);
+    },
+    setPausedForScreenshot: (paused) => {
+      game.setPaused(paused);
+    },
     setState: (name) => {
       if (name !== "active-play") {
         return;

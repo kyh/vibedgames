@@ -73,7 +73,7 @@ const objectHint = (c: HintContext, object: WorldObject) => {
 };
 
 const seedHint = (c: HintContext, item: Extract<Item, { kind: "seed" }>, idx: number) => {
-  if (!c.world.tilled[idx]) {
+  if ((c.world.tilled[idx] ?? 0) === 0) {
     return "Till the soil before planting";
   }
 
@@ -109,9 +109,9 @@ const canHint = (c: HintContext) => {
     return "Empty can — refill at the pond";
   }
 
-  return c.world.tilled[tileIdx(c.tx, c.ty)]
-    ? "Water the soil for overnight growth"
-    : "Till the soil before watering";
+  return (c.world.tilled[tileIdx(c.tx, c.ty)] ?? 0) === 0
+    ? "Till the soil before watering"
+    : "Water the soil for overnight growth";
 };
 
 const rodHint = (c: HintContext) =>

@@ -36,7 +36,7 @@ export class Piece {
       const row = m[r] ?? [];
 
       for (let c = 0; c < row.length; c += 1) {
-        if (row[c]) {
+        if ((row[c] ?? 0) !== 0) {
           out.push({ x: ox + c, y, z: oz + r });
         }
       }

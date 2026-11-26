@@ -180,8 +180,12 @@ export class Hud {
       this.game.audio.unlock();
       this.game.startMatch(this.selected);
     });
-    mustGet("again").addEventListener("click", () => this.game.playAgain());
-    mustGet("to-menu").addEventListener("click", () => this.game.toMenu());
+    mustGet("again").addEventListener("click", () => {
+      this.game.playAgain();
+    });
+    mustGet("to-menu").addEventListener("click", () => {
+      this.game.toMenu();
+    });
   }
 
   select(id: BrawlerId) {
@@ -218,7 +222,7 @@ export class Hud {
       `${kills} takedown${kills === 1 ? "" : "s"}  ·  ${cubes} power cube${cubes === 1 ? "" : "s"}`;
     const best = mustGet("result-best");
     best.textContent = verdict?.line ?? "";
-    best.hidden = !verdict?.line;
+    best.hidden = verdict === undefined || verdict.line === undefined || verdict.line === "";
     best.classList.toggle("record", verdict?.record === true);
     mustGet("result").classList.add("open");
   }
@@ -237,7 +241,9 @@ export class Hud {
     el.textContent = message;
     el.classList.add("show");
     clearTimeout(this.toastTimer);
-    this.toastTimer = setTimeout(() => el.classList.remove("show"), TOAST_MS);
+    this.toastTimer = setTimeout(() => {
+      el.classList.remove("show");
+    }, TOAST_MS);
   }
 
   reset() {
@@ -287,7 +293,9 @@ export class Hud {
       feed.firstChild?.remove();
     }
 
-    setTimeout(() => line.remove(), FEED_MS);
+    setTimeout(() => {
+      line.remove();
+    }, FEED_MS);
   }
 
   /** One kill-feed line; `*IsYou` highlights the local player's own name. */
@@ -466,7 +474,7 @@ export class Hud {
     const percent = player ? Math.round((1 - player.evadeCooldown / EVADE.cooldown) * 100) : 0;
 
     const ready = Boolean(
-      player?.alive &&
+      player?.alive === true &&
       state === "playing" &&
       !player.airborne &&
       !player.evasion &&

@@ -347,7 +347,7 @@ const schedule = (target: Bus, phrase: Phrase, note: Note, now: number, level: n
     osc.type = note.type;
     osc.frequency.setValueAtTime(note.freq, t);
 
-    if (note.slideTo) {
+    if (note.slideTo !== undefined && note.slideTo !== 0) {
       osc.frequency.exponentialRampToValueAtTime(Math.max(40, note.slideTo), t + note.dur);
     }
 
@@ -395,7 +395,7 @@ const schedule = (target: Bus, phrase: Phrase, note: Note, now: number, level: n
       osc.type = note.wave;
       osc.frequency.setValueAtTime(note.freq, t);
 
-      if (note.endFreq) {
+      if (note.endFreq !== undefined && note.endFreq !== 0) {
         osc.frequency.exponentialRampToValueAtTime(note.endFreq, t + note.dur);
       }
 
@@ -421,7 +421,13 @@ const schedule = (target: Bus, phrase: Phrase, note: Note, now: number, level: n
   const voice: Voice = { nodes, phrase, source };
   voices.add(voice);
   phrase.voices.add(voice);
-  source.addEventListener("ended", () => release(voice), { once: true });
+  source.addEventListener(
+    "ended",
+    () => {
+      release(voice);
+    },
+    { once: true },
+  );
   source.start(t);
 
   if (note.kind === "tone" || note.kind === "score-tone") {
@@ -477,7 +483,12 @@ const play = (
   const gate = throttle && (important ? `${throttle.key}:local` : throttle.key);
   const now = performance.now();
 
-  if (throttle && gate && (lastAt.get(gate) ?? -Infinity) + throttle.minMs > now) {
+  if (
+    throttle &&
+    gate !== undefined &&
+    gate !== "" &&
+    (lastAt.get(gate) ?? -Infinity) + throttle.minMs > now
+  ) {
     return;
   }
 
@@ -485,7 +496,7 @@ const play = (
     return;
   }
 
-  if (gate) {
+  if (gate !== undefined && gate !== "") {
     lastAt.set(gate, now);
   }
 

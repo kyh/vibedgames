@@ -434,9 +434,9 @@ export class Sfx {
   private master: GainNode | null = null;
   private duckBus: GainNode | null = null;
   private musicBus: GainNode | null = null;
-  private buffers = new Map<SfxName, AudioBuffer>();
-  private musicBuffers = new Map<MusicScore, AudioBuffer>();
-  private voices = new Set<Voice>();
+  private readonly buffers = new Map<SfxName, AudioBuffer>();
+  private readonly musicBuffers = new Map<MusicScore, AudioBuffer>();
+  private readonly voices = new Set<Voice>();
   /** Muted by default — returning players who opted into sound stay unmuted. */
   muted = storageGet(SOUND_KEY) !== "1";
   private paused = false;
@@ -649,7 +649,16 @@ export class Sfx {
     const gain = ctx.createGain();
     gain.gain.value = volume;
     src.connect(gain).connect(bus);
-    const voice: Voice = { gain, onEnded: () => this.release(voice, false), role, source: src };
+
+    const voice: Voice = {
+      gain,
+      onEnded: () => {
+        this.release(voice, false);
+      },
+      role,
+      source: src,
+    };
+
     this.voices.add(voice);
     src.addEventListener("ended", voice.onEnded, { once: true });
     src.start(at);
@@ -702,7 +711,9 @@ export class Sfx {
     }
 
     this.nextMusicAt = ctx.currentTime + scoreLeadIn(this.battleBeat);
-    this.musicTimer = window.setInterval(() => this.tickMusic(), 200);
+    this.musicTimer = window.setInterval(() => {
+      this.tickMusic();
+    }, 200);
   }
 
   private restartMusic() {

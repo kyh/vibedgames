@@ -139,7 +139,15 @@ export const verifyUploadUrl: (
   const exp = params.get("exp");
   const sig = params.get("sig");
 
-  if ((key === null) === (to === null) || !contentType || !exp || !sig) {
+  if (
+    (key === null) === (to === null) ||
+    contentType === null ||
+    contentType === "" ||
+    exp === null ||
+    exp === "" ||
+    sig === null ||
+    sig === ""
+  ) {
     return { error: "missing query params (key or to, ct, exp, sig)" };
   }
 
@@ -183,7 +191,7 @@ export const verifyDownloadUrl: (
   const exp = params.get("exp");
   const sig = params.get("sig");
 
-  if (!key || !exp || !sig) {
+  if (key === null || key === "" || exp === null || exp === "" || sig === null || sig === "") {
     return { error: "missing query params (key, exp, sig)" };
   }
 
@@ -206,7 +214,11 @@ export const deletePrefix = async ({ r2, prefix }: { r2: R2Config; prefix: strin
       return;
     }
 
-    await Promise.all(listed.objects.map((o) => r2.bucket.delete(o.key)));
+    await Promise.all(
+      listed.objects.map(async (o) => {
+        await r2.bucket.delete(o.key);
+      }),
+    );
 
     if (!listed.truncated) {
       return;

@@ -139,9 +139,13 @@ const fmtElapsed = (ms: number) => {
 const useNow = () => {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 250);
+    const id = setInterval(() => {
+      setNow(Date.now());
+    }, 250);
 
-    return () => clearInterval(id);
+    return () => {
+      clearInterval(id);
+    };
   }, []);
 
   return now;
@@ -217,7 +221,7 @@ const KeyBar = ({ keys, right }: { keys: { keys: string; label: string }[]; righ
       </Fragment>
     ))}
     <Box flexGrow={1} />
-    {right ? <Text color={color.accentDim}>{right}</Text> : null}
+    {right !== undefined && right !== "" ? <Text color={color.accentDim}>{right}</Text> : null}
   </Box>
 );
 
@@ -439,7 +443,9 @@ const usePong = (width: number, height: number, solids: readonly Rect[]) => {
       });
     }, 16);
 
-    return () => clearInterval(id);
+    return () => {
+      clearInterval(id);
+    };
   }, [playable, width, height]);
 
   return playable ? state : null;
@@ -599,12 +605,14 @@ const dirHintFor = (
 
 const slugHintFor = (slug: string, preview: string | null) => {
   if (slug.trim()) {
-    return preview
+    return preview !== null && preview !== ""
       ? `deploys to ${preview}.vibedgames.com`
       : "invalid — lowercase letters, digits, hyphens";
   }
 
-  return preview ? `auto: ${preview}.vibedgames.com` : "derived from the folder or instructions";
+  return preview !== null && preview !== ""
+    ? `auto: ${preview}.vibedgames.com`
+    : "derived from the folder or instructions";
 };
 
 const rectIn = (
@@ -703,7 +711,9 @@ const SetupScreen = ({
   });
 
   const slugHint = slugHintFor(slug, preview);
-  const slugHintTone = slug.trim() && !preview ? color.warn : color.faint;
+
+  const slugHintTone =
+    slug.trim() && (preview === null || preview === "") ? color.warn : color.faint;
 
   const formWidth = Math.min(64, Math.max(40, width - 8));
   const fieldWidth = formWidth - 6;
@@ -804,7 +814,7 @@ const SetupScreen = ({
                 <Text color={color.faint}>{choice.description}</Text>
               </Box>
             </Box>
-            {error ? <Text color={color.err}>{`✘ ${error}`}</Text> : null}
+            {error !== null && error !== "" ? <Text color={color.err}>{`✘ ${error}`}</Text> : null}
           </Panel>
         </Box>
       </Box>
@@ -843,7 +853,12 @@ const runStatus = (running: boolean, stopping: boolean, paused: boolean) => {
 const Header = ({ snapshot, width }: { snapshot: Snapshot; width: number }) => {
   const { setup, state, running, stopping, paused } = snapshot;
   const status = runStatus(running, stopping, paused);
-  const idea = setup?.idea || "(existing project)";
+
+  const idea =
+    setup === null || setup.idea === undefined || setup.idea === ""
+      ? "(existing project)"
+      : setup.idea;
+
   const left = 16 + (setup?.slug.length ?? 0);
 
   return (
@@ -879,11 +894,11 @@ const Header = ({ snapshot, width }: { snapshot: Snapshot; width: number }) => {
 };
 
 const deployStatus = (setup: Snapshot["setup"], approvalPending: boolean) => {
-  if (setup?.noShip) {
+  if (setup?.noShip === true) {
     return { fg: color.faint, text: "DEPLOY OFF (--skip-ship)" };
   }
 
-  if (setup?.autoDeploy) {
+  if (setup?.autoDeploy === true) {
     return { fg: color.warn, text: "DEPLOY AUTO" };
   }
 
@@ -1052,7 +1067,7 @@ const BacklogPanel = ({
 };
 
 const DirectiveRow = ({ directive }: { directive: string | null }) => {
-  if (!directive) {
+  if (directive === null || directive === "") {
     return null;
   }
 
@@ -1238,7 +1253,14 @@ const Dashboard = ({
       ) : (
         <TurnBar snapshot={snapshot} now={now} />
       )}
-      <KeyBar keys={keys} right={live ? truncate(`LIVE ▸ ${live}`, 40) : undefined} />
+      <KeyBar
+        keys={keys}
+        right={
+          live !== undefined && live !== null && live !== ""
+            ? truncate(`LIVE ▸ ${live}`, 40)
+            : undefined
+        }
+      />
       {steering ? (
         <Panel
           title=" STEER THE AGENT "

@@ -90,7 +90,14 @@ export interface VerifiedToken {
 export const verifyPlaytestToken = async (secret: string, token: string, now = Date.now()) => {
   const [prefix, payload, signature, extra] = token.split(".");
 
-  if (prefix !== PREFIX || !payload || !signature || extra !== undefined) {
+  if (
+    prefix !== PREFIX ||
+    payload === undefined ||
+    payload === "" ||
+    signature === undefined ||
+    signature === "" ||
+    extra !== undefined
+  ) {
     return null;
   }
 

@@ -100,8 +100,11 @@ after(() => {
   rmSync(root, { force: true, recursive: true });
 });
 
-const get = (route: string, init: RequestInit = {}) =>
-  fetch(`${base}${route}`, { ...init, headers: { ...init.headers, "x-editor-token": token } });
+const get = async (route: string, init: RequestInit = {}) =>
+  await fetch(`${base}${route}`, {
+    ...init,
+    headers: { ...init.headers, "x-editor-token": token },
+  });
 
 interface TilesetSummary {
   name: string;

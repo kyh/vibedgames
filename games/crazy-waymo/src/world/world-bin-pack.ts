@@ -73,7 +73,7 @@ export const packWorld = (world: CityGenPayload) => ({ tiles: world.tiles });
 const packSolidFlags = (so: CityRestPayload["solids"][number]) =>
   (so.maxY === undefined ? 0 : 1) +
   (so.yaw === undefined ? 0 : 2) +
-  (so.noBody ? 4 : 0) +
+  (so.noBody === true ? 4 : 0) +
   (so.unseen === undefined ? 0 : 8) +
   (so.minY === undefined ? 0 : 16);
 

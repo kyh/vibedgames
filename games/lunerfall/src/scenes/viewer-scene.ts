@@ -116,18 +116,36 @@ export class ViewerScene extends Scene {
     this.fxLayer = this.add.graphics().setDepth(4);
 
     const kb = this.input.keyboard;
-    kb?.on("keydown-LEFT", () => this.cycleChar(-1));
-    kb?.on("keydown-A", () => this.cycleChar(-1));
-    kb?.on("keydown-RIGHT", () => this.cycleChar(1));
-    kb?.on("keydown-D", () => this.cycleChar(1));
-    kb?.on("keydown-UP", () => this.selectClip(this.clipI - 1));
-    kb?.on("keydown-DOWN", () => this.selectClip(this.clipI + 1));
-    kb?.on("keydown-J", () => this.playHotkey("J"));
-    kb?.on("keydown-K", () => this.playHotkey("K"));
-    kb?.on("keydown-L", () => this.playHotkey("⇧ / L"));
+    kb?.on("keydown-LEFT", () => {
+      this.cycleChar(-1);
+    });
+    kb?.on("keydown-A", () => {
+      this.cycleChar(-1);
+    });
+    kb?.on("keydown-RIGHT", () => {
+      this.cycleChar(1);
+    });
+    kb?.on("keydown-D", () => {
+      this.cycleChar(1);
+    });
+    kb?.on("keydown-UP", () => {
+      this.selectClip(this.clipI - 1);
+    });
+    kb?.on("keydown-DOWN", () => {
+      this.selectClip(this.clipI + 1);
+    });
+    kb?.on("keydown-J", () => {
+      this.playHotkey("J");
+    });
+    kb?.on("keydown-K", () => {
+      this.playHotkey("K");
+    });
+    kb?.on("keydown-L", () => {
+      this.playHotkey("⇧ / L");
+    });
 
     const want = new URLSearchParams(location.search).get("char");
-    const at = want ? CHARS.findIndex((c) => c.key === want) : -1;
+    const at = want !== null && want !== "" ? CHARS.findIndex((c) => c.key === want) : -1;
 
     if (at >= 0) {
       this.ci = at;
@@ -271,7 +289,7 @@ export class ViewerScene extends Scene {
 
     for (const btn of ui.querySelectorAll<HTMLButtonElement>(".lf-char")) {
       btn.addEventListener("click", () => {
-        const i = Number(btn.dataset["i"]);
+        const i = Number(btn.dataset.i);
 
         if (Number.isFinite(i)) {
           this.selectChar(i);
@@ -300,7 +318,7 @@ export class ViewerScene extends Scene {
 
     for (const btn of list.querySelectorAll<HTMLButtonElement>(".lf-clip")) {
       btn.addEventListener("click", () => {
-        const i = Number(btn.dataset["i"]);
+        const i = Number(btn.dataset.i);
 
         if (Number.isFinite(i)) {
           this.selectClip(i);
@@ -311,7 +329,7 @@ export class ViewerScene extends Scene {
 
   private highlightRoster() {
     for (const btn of this.ui?.querySelectorAll<HTMLButtonElement>(".lf-char") ?? []) {
-      btn.classList.toggle("on", btn.dataset["i"] === String(this.ci));
+      btn.classList.toggle("on", btn.dataset.i === String(this.ci));
     }
   }
 

@@ -41,13 +41,13 @@ const npmGlobalRoot = () => {
 const findEntry = () => {
   const override = process.env.VG_FACTORY_BIN;
 
-  if (override) {
+  if (override !== undefined && override !== "") {
     return existsSync(override) ? override : null;
   }
 
   const root = npmGlobalRoot();
 
-  if (!root) {
+  if (root === null || root === "") {
     return null;
   }
 
@@ -60,7 +60,7 @@ const findEntry = () => {
 export const installedFactoryVersion = () => {
   const root = npmGlobalRoot();
 
-  if (!root) {
+  if (root === null || root === "") {
     return null;
   }
 
@@ -75,14 +75,14 @@ export const installedFactoryVersion = () => {
   }
 };
 
-export const updateFactory: () => Promise<RunResult> = () =>
-  run("npm", ["install", "-g", `${FACTORY_PACKAGE}@latest`]);
+export const updateFactory: () => Promise<RunResult> = async () =>
+  await run("npm", ["install", "-g", `${FACTORY_PACKAGE}@latest`]);
 
 /** Resolve (installing on first use) and exec the factory. Never returns. */
 export const runFactory = (args: string[]): never => {
   let entry = findEntry();
 
-  if (!entry) {
+  if (entry === null || entry === "") {
     consola.start(`Installing the factory (${FACTORY_PACKAGE})…`);
     const install = spawnSync("npm", ["install", "-g", FACTORY_PACKAGE], { stdio: "inherit" });
 
@@ -95,7 +95,7 @@ export const runFactory = (args: string[]): never => {
 
     entry = findEntry();
 
-    if (!entry) {
+    if (entry === null || entry === "") {
       consola.error(
         `Installed ${FACTORY_PACKAGE} but couldn't find its entry under npm's global root. Check \`npm root -g\`.`,
       );

@@ -112,7 +112,7 @@ export class AimGuide {
       player.z + dz * attack.range,
     );
 
-    if (hit && !(attack.breaksWalls && world.isBreakable(hit.tx, hit.ty))) {
+    if (hit && !(attack.breaksWalls === true && world.isBreakable(hit.tx, hit.ty))) {
       length = Math.max(0.6, hit.dist);
     }
 

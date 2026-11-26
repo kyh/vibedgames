@@ -205,7 +205,9 @@ export class Input {
         this.superReleased = true;
       }
     });
-    window.addEventListener("blur", () => this.clear());
+    window.addEventListener("blur", () => {
+      this.clear();
+    });
   }
 
   private bindEvadeButton(button: HTMLElement) {
@@ -262,19 +264,31 @@ export class Input {
         this.superReleased = true;
       }
     });
-    canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+    canvas.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+    });
   }
 
   private bindTouch(canvas: HTMLElement, superButton: HTMLElement) {
-    canvas.addEventListener("pointerdown", (e) => this.beginTouch(e, "field"));
-    superButton.addEventListener("pointerdown", (e) => this.beginTouch(e, "super"));
+    canvas.addEventListener("pointerdown", (e) => {
+      this.beginTouch(e, "field");
+    });
+    superButton.addEventListener("pointerdown", (e) => {
+      this.beginTouch(e, "super");
+    });
     superButton.addEventListener("click", () => {
       if (this.enabled && !this.recentTouch()) {
         this.shots.push({ cancelled: false, kind: "super", mag: 0, tap: true, x: 0, y: 0 });
       }
     });
-    window.addEventListener("pointermove", (e) => this.moveTouch(e));
-    const release = (e: PointerEvent) => this.endTouch(e);
+    window.addEventListener("pointermove", (e) => {
+      this.moveTouch(e);
+    });
+
+    const release = (e: PointerEvent) => {
+      this.endTouch(e);
+    };
+
     window.addEventListener("pointerup", release);
     window.addEventListener("pointercancel", release);
   }

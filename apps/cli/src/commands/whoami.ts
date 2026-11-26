@@ -19,7 +19,7 @@ export const whoamiCommand = defineCommand({
 
     const token = getToken();
 
-    if (!token) {
+    if (token === null || token === "") {
       consola.warn("Not logged in. Run `vg login` to authenticate.");
       process.exit(1);
     }
@@ -33,7 +33,9 @@ export const whoamiCommand = defineCommand({
         return;
       }
 
-      consola.log(user.email ? `${user.name} (${user.email})` : user.name);
+      consola.log(
+        user.email !== null && user.email !== "" ? `${user.name} (${user.email})` : user.name,
+      );
     } catch (error) {
       const code = authErrorCode(error);
 

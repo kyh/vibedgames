@@ -34,7 +34,7 @@ export const startUpstream = async (reply: (request: UpstreamRequest) => Upstrea
       requests.push(request);
       const answer = reply(request);
 
-      if (answer.drop) {
+      if (answer.drop === true) {
         req.socket.destroy();
 
         return;

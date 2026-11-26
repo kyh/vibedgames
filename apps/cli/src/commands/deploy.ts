@@ -114,7 +114,7 @@ const resolveDeployConfig = async (dir: string, slugOverride: string | undefined
     process.exit(1);
   }
 
-  if (slugOverride) {
+  if (slugOverride !== undefined && slugOverride !== "") {
     config = { name: config?.name, slug: slugOverride };
   }
 
@@ -131,7 +131,7 @@ const resolveDeployConfig = async (dir: string, slugOverride: string | undefined
 const packForkableSource = async (dir: string, slug: string, say: Say) => {
   const root = findProjectRoot(dir);
 
-  if (!root) {
+  if (root === null || root === "") {
     consola.warn("No vibedgames.json found above the deploy dir — skipping source upload.");
 
     return null;
@@ -197,7 +197,11 @@ export const deployCommand = defineCommand({
 
     const structured = isJsonOutput(args) || Boolean(args.field);
 
-    const say = structured ? () => null : (message: string) => consola.info(message);
+    const say = structured
+      ? () => null
+      : (message: string) => {
+          consola.info(message);
+        };
 
     const dir = path.resolve(args.dir);
 

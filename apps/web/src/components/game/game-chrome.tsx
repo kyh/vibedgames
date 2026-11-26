@@ -73,7 +73,9 @@ export const GameChrome = ({ children }: GameChromeProps) => {
 
     window.addEventListener("message", handleMessage);
 
-    return () => window.removeEventListener("message", handleMessage);
+    return () => {
+      window.removeEventListener("message", handleMessage);
+    };
   }, [gameOrigins, playing]);
 
   const pause = useCallback(() => {
@@ -99,7 +101,9 @@ export const GameChrome = ({ children }: GameChromeProps) => {
 
     window.addEventListener("keydown", onKeyDown);
 
-    return () => window.removeEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+    };
   }, [hidden, pause]);
 
   return (

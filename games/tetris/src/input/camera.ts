@@ -60,7 +60,7 @@ const landmarksToKeypoints = (landmarks: NormalizedLandmark[], width: number, he
   landmarks.flatMap((lm, i) => {
     const name = LANDMARK_NAMES.get(i);
 
-    if (!name) {
+    if (name === undefined || name === "") {
       return [];
     }
 
@@ -155,7 +155,10 @@ export class PoseCamera {
       this.stream = stream;
       this.video.srcObject = stream;
       const tracks = stream.getTracks();
-      const onEnded = () => this.fail(attempt);
+
+      const onEnded = () => {
+        this.fail(attempt);
+      };
 
       const onVideoError = () => {
         if (this.video.srcObject === stream && this.video.error !== null) {
@@ -283,7 +286,7 @@ export class PoseCamera {
     this.landmarker = landmarker;
   }
 
-  private detectFrame = (attempt = this.attempt) => {
+  private readonly detectFrame = (attempt = this.attempt) => {
     if (!this.current(attempt)) {
       return;
     }
@@ -293,7 +296,9 @@ export class PoseCamera {
     const { landmarker } = this;
 
     if (video.readyState !== 4 || !landmarker) {
-      this.rafId = requestAnimationFrame(() => this.detectFrame(attempt));
+      this.rafId = requestAnimationFrame(() => {
+        this.detectFrame(attempt);
+      });
 
       return;
     }
@@ -328,7 +333,9 @@ export class PoseCamera {
     }
 
     if (this.current(attempt)) {
-      this.rafId = requestAnimationFrame(() => this.detectFrame(attempt));
+      this.rafId = requestAnimationFrame(() => {
+        this.detectFrame(attempt);
+      });
     }
   };
 

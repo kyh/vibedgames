@@ -94,7 +94,9 @@ await page.waitForFunction(() => window.__GAME_DIAGNOSTICS__?.phase === "playing
   timeout: 90_000,
 });
 
-const readPlayer = () => page.evaluate(() => window.__GAME_DIAGNOSTICS__?.player ?? null);
+const readPlayer = async () =>
+  await page.evaluate(() => window.__GAME_DIAGNOSTICS__?.player ?? null);
+
 const before = await readPlayer();
 
 check(before !== null, "diagnostics expose the player (installDiagnostics wired)");
@@ -103,6 +105,7 @@ await page.evaluate(() => window.__pad?.set({ axes: [1, 0, 0, 0] }));
 
 const movedRight = (after: typeof before) =>
   before !== null && after !== null && after.x - before.x > 0.5;
+
 const after = movedRight(before)
   ? before
   : ((await poll(readPlayer, movedRight, { intervalMs: 250, timeoutMs: 60 * 250 })) ??

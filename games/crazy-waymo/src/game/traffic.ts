@@ -120,16 +120,16 @@ export interface TrafficOpts {
 export class Traffic {
   readonly group = new THREE.Group();
   readonly cars: TrafficCar[] = [];
-  private rng: Rng;
+  private readonly rng: Rng;
   private simTime = 0;
   private readonly nodeClaims = new Map<number, { car: TrafficCar; t: number }>();
   /** Traffic sim clock — feeds the signal-lamp FX so lights match behavior. */
   get time() {
     return this.simTime;
   }
-  private city: CityModel;
-  private network: RoadNetwork;
-  private physics: PhysicsWorld | null;
+  private readonly city: CityModel;
+  private readonly network: RoadNetwork;
+  private readonly physics: PhysicsWorld | null;
   private readonly fleetBatches: THREE.BatchedMesh[] = [];
   private readonly weightedEdges: NetEdge[] = [];
   private activeCount = -1;

@@ -227,8 +227,12 @@ const main = async () => {
   const bundledMapJob = fetchBundledMap();
 
   await runJobs([
-    ...CHAMP_MODELS.map((m) => lib.loadCharacter(m, `./models/characters/${m}.glb`)),
-    ...CHAMP_WEAPON_MODELS.map((m) => lib.loadCharacter(m, `./models/weapons/${m}.gltf`)),
+    ...CHAMP_MODELS.map(async (m) => {
+      await lib.loadCharacter(m, `./models/characters/${m}.glb`);
+    }),
+    ...CHAMP_WEAPON_MODELS.map(async (m) => {
+      await lib.loadCharacter(m, `./models/weapons/${m}.gltf`);
+    }),
     lib.loadClips(`./models/animations/${LOBBY_CLIP_LIB}.glb`),
   ]);
 
@@ -238,22 +242,32 @@ const main = async () => {
   const loadArenaOnce = async () => {
     await runJobs([
       lib.loadCharacter(BOSS_MODEL, `./models/characters/${BOSS_MODEL}.glb`),
-      ...ENEMY_MODELS.map((m) => lib.loadCharacter(m, `./models/characters/${m}.glb`)),
-      ...CLIP_LIBS.map((c) => lib.loadClips(`./models/animations/${c}.glb`)),
-      ...CLIP_LIBS_LARGE.map((c) => lib.loadClips(`./models/animations/${c}.glb`, "Large/")),
-      ...PROP_SPECS.map((p) =>
-        lib.loadCharacter(
+      ...ENEMY_MODELS.map(async (m) => {
+        await lib.loadCharacter(m, `./models/characters/${m}.glb`);
+      }),
+      ...CLIP_LIBS.map(async (c) => {
+        await lib.loadClips(`./models/animations/${c}.glb`);
+      }),
+      ...CLIP_LIBS_LARGE.map(async (c) => {
+        await lib.loadClips(`./models/animations/${c}.glb`, "Large/");
+      }),
+      ...PROP_SPECS.map(async (p) => {
+        await lib.loadCharacter(
           p.name,
           p.url,
           p.url.includes("/dungeon/") ? { matte: true, tint: 0xca_bb_9f } : { matte: true },
-        ),
-      ),
-      ...ARENA_WEAPON_MODELS.map((m) => lib.loadCharacter(m, `./models/weapons/${m}.gltf`)),
+        );
+      }),
+      ...ARENA_WEAPON_MODELS.map(async (m) => {
+        await lib.loadCharacter(m, `./models/weapons/${m}.gltf`);
+      }),
     ]);
     arenaReady = true;
   };
 
-  const loadArena = () => (arenaJob ??= loadArenaOnce());
+  const loadArena = async () => {
+    await (arenaJob ??= loadArenaOnce());
+  };
 
   const params = new URLSearchParams(location.search);
   const playtest = isPlaytestRequested();
@@ -279,7 +293,9 @@ const main = async () => {
     }
 
     runBattleArenaTrailer(view, lib);
-    window.addEventListener("resize", () => view.resize());
+    window.addEventListener("resize", () => {
+      view.resize();
+    });
 
     return;
   }
@@ -298,7 +314,9 @@ const main = async () => {
       edTimer.update(t);
       editor.update(Math.min(edTimer.getDelta(), 1 / 30));
     });
-    window.addEventListener("resize", () => view.resize());
+    window.addEventListener("resize", () => {
+      view.resize();
+    });
 
     return;
   }
@@ -317,7 +335,9 @@ const main = async () => {
       vwTimer.update(t);
       viewer.update(Math.min(vwTimer.getDelta(), 1 / 30));
     });
-    window.addEventListener("resize", () => view.resize());
+    window.addEventListener("resize", () => {
+      view.resize();
+    });
 
     return;
   }
@@ -437,7 +457,7 @@ const main = async () => {
         activeScene?.restartSolo(next);
       },
       setPausedForScreenshot: (paused) => {
-        if (!activeScene?.isOffline) {
+        if (activeScene?.isOffline !== true) {
           return;
         }
 
@@ -481,8 +501,14 @@ const main = async () => {
     const initialChamp = chosenChamp();
     let menu: Menu | null = null;
     const stage = new MenuStage(view.renderer, lib, (id) => menu?.setSelected(id));
-    const onMove = (e: PointerEvent) => stage.onPointerMove(e.clientX, e.clientY);
-    const onResize = () => stage.resize();
+
+    const onMove = (e: PointerEvent) => {
+      stage.onPointerMove(e.clientX, e.clientY);
+    };
+
+    const onResize = () => {
+      stage.resize();
+    };
 
     const disposeLobby = () => {
       view.renderer.setAnimationLoop(null);
@@ -493,7 +519,9 @@ const main = async () => {
 
     const lobby = new Menu({
       initial: initialChamp,
-      onSelect: (id) => stage.select(id),
+      onSelect: (id) => {
+        stage.select(id);
+      },
       onStart: (opts) => {
         disposeLobby();
         launch(opts);
@@ -541,7 +569,9 @@ const main = async () => {
     });
   }
 
-  window.addEventListener("resize", () => view.resize());
+  window.addEventListener("resize", () => {
+    view.resize();
+  });
 };
 
 const boot = async () => {

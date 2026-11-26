@@ -256,7 +256,10 @@ export class Game {
     this.audio = new GameAudio();
     this.audio.muted = Boolean(saved.muted);
     this.input = new Input(this.pipeline.renderer.domElement, mustGet("super"), mustGet("evade"));
-    this.input.onTouchMode = (on) => this.hud.setTouchMode(on);
+    this.input.onTouchMode = (on) => {
+      this.hud.setTouchMode(on);
+    };
+
     this.camZoom = numberParam(this.params, "zoom") || 1;
     this.simSteps = clamp(Math.trunc(numberParam(this.params, "speed")) || 1, 1, 16);
     this.autoTime = saved.autoTime !== false;
@@ -284,7 +287,9 @@ export class Game {
     }
 
     this.applyInitialTime(saved);
-    window.addEventListener("keydown", (event) => this.onHotkey(event));
+    window.addEventListener("keydown", (event) => {
+      this.onHotkey(event);
+    });
     this.hud.syncSettings();
     this.toMenu();
 
@@ -692,7 +697,7 @@ export class Game {
 
     const left = aliveCount(this.brawlers);
 
-    if (left === 1 && this.player?.alive) {
+    if (left === 1 && this.player?.alive === true) {
       this.localWin();
     }
 
@@ -767,7 +772,7 @@ export class Game {
       this.state = "ended";
     }
 
-    this.spectate = killer?.alive ? killer : null;
+    this.spectate = killer?.alive === true ? killer : null;
     this.pendingResult = { rank, t: 1.5, won: false };
 
     if (this.mode === "solo") {
@@ -801,9 +806,9 @@ export class Game {
 
     if (downed === player) {
       this.localDown(downed.rank, killer);
-    } else if (left === 1 && player?.alive) {
+    } else if (left === 1 && player?.alive === true) {
       this.localWin();
-    } else if (left === 2 && player?.alive) {
+    } else if (left === 2 && player?.alive === true) {
       this.hud.banner("SHOWDOWN!", 1.5, true);
     }
 
@@ -913,7 +918,7 @@ export class Game {
 
     const { player } = this;
 
-    if (player?.alive && lighting.night > 0.02) {
+    if (player?.alive === true && lighting.night > 0.02) {
       lighting.addLight(
         player.x,
         player.root.position.y + 1.9,

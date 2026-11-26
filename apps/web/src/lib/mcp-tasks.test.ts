@@ -98,8 +98,8 @@ const sessionFor = (userId: string) =>
     },
   }) satisfies Session;
 
-const contextFor = (userId: string | null) => (headers: Headers) =>
-  Promise.resolve<ORPCContext>({
+const contextFor = (userId: string | null) => async (headers: Headers) =>
+  await Promise.resolve<ORPCContext>({
     auth,
     billing: undefined,
     db,

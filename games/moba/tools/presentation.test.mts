@@ -626,7 +626,7 @@ test("attack pose follows the real wind-up, strike, recovery and repeated snapsh
   const world = createWorld(718);
   world.gameTime = 300;
   step(world);
-  const attacker = [...world.units.values()].find((u) => u.neutral && u.creep?.boss);
+  const attacker = [...world.units.values()].find((u) => u.neutral === true && u.creep?.boss);
   assert.ok(attacker, "real neutral boss must exist");
   const victim = spawnHero(world, "ironvow", "radiant", "target", false, 0);
   victim.x = attacker.x + 40;

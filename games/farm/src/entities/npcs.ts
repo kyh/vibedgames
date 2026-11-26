@@ -20,10 +20,10 @@ interface Live {
 }
 
 export class NpcManager {
-  private scene: GameScene;
-  private live: Live[] = [];
-  private talkedToday = new Set<NpcId>();
-  private giftedToday = new Set<NpcId>();
+  private readonly scene: GameScene;
+  private readonly live: Live[] = [];
+  private readonly talkedToday = new Set<NpcId>();
+  private readonly giftedToday = new Set<NpcId>();
 
   constructor(scene: GameScene) {
     this.scene = scene;

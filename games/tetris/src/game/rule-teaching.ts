@@ -95,8 +95,12 @@ export const mountRuleTeaching = (root: HTMLElement) => {
     paint();
   };
 
-  previous.addEventListener("click", () => step(-1));
-  next.addEventListener("click", () => step(1));
+  previous.addEventListener("click", () => {
+    step(-1);
+  });
+  next.addEventListener("click", () => {
+    step(1);
+  });
 
   root.replaceChildren(content, navigation);
   root.setAttribute("aria-label", "Spatial rules");

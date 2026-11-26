@@ -21,8 +21,8 @@ const fogColorSpace = (renderer: THREE.WebGLRenderer, target: THREE.WebGLRenderT
  */
 export class MarineSky {
   readonly mesh: THREE.Mesh;
-  private fog = { value: new THREE.Color() };
-  private sourceFog = new THREE.Color();
+  private readonly fog = { value: new THREE.Color() };
+  private readonly sourceFog = new THREE.Color();
 
   constructor() {
     const geometry = new THREE.SphereGeometry(

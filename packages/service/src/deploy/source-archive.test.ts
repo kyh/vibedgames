@@ -11,7 +11,7 @@ const bytes = (text: string) => new Uint8Array(new TextEncoder().encode(text));
 
 const file = (name: string, content: Uint8Array<ArrayBuffer>) => ({
   path: name,
-  read: () => Promise.resolve(content),
+  read: async () => await Promise.resolve(content),
 });
 
 const extract = (archive: Uint8Array) => {

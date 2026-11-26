@@ -68,10 +68,10 @@ const until = async <T,>(read: () => Promise<T>, label: string, timeout = 20_000
   return value;
 };
 
-const joined = (client: Client) =>
-  until(
-    () =>
-      client.page.evaluate(() => {
+const joined = async (client: Client) =>
+  await until(
+    async () =>
+      await client.page.evaluate(() => {
         const d = window.__GAME_DIAGNOSTICS__;
 
         return d?.online?.connection === "connected" && d.player !== undefined
@@ -82,18 +82,18 @@ const joined = (client: Client) =>
     45_000,
   );
 
-const unitOf = (page: Page, id: string) =>
-  page.evaluate((unitId) => {
+const unitOf = async (page: Page, id: string) =>
+  await page.evaluate((unitId) => {
     const u = window.__ba?.world.units.get(`h-${unitId}`);
 
     return u ? { alive: u.alive, hp: u.hp, x: u.x, y: u.y } : null;
   }, id);
 
-const hasUnit = (page: Page, id: string) =>
-  page.evaluate((unitId) => window.__ba?.world.units.has(`h-${unitId}`) === true, id);
+const hasUnit = async (page: Page, id: string) =>
+  await page.evaluate((unitId) => window.__ba?.world.units.has(`h-${unitId}`) === true, id);
 
-const key = (page: Page, type: string, code: string, keyName = code) =>
-  page.evaluate(
+const key = async (page: Page, type: string, code: string, keyName = code) =>
+  await page.evaluate(
     (ev) =>
       window.dispatchEvent(
         new KeyboardEvent(ev.type, { bubbles: true, code: ev.code, key: ev.key }),
@@ -101,8 +101,10 @@ const key = (page: Page, type: string, code: string, keyName = code) =>
     { code, key: keyName, type },
   );
 
-const gameTime = (page: Page) => page.evaluate(() => window.__ba?.world.gameTime ?? 0);
-const isPaused = (page: Page) => page.evaluate(() => window.__ba?.controlsPaused ?? false);
+const gameTime = async (page: Page) => await page.evaluate(() => window.__ba?.world.gameTime ?? 0);
+
+const isPaused = async (page: Page) =>
+  await page.evaluate(() => window.__ba?.controlsPaused ?? false);
 
 const endMatch = async (page: Page) => {
   await page.evaluate(() => {
@@ -118,15 +120,15 @@ const endMatch = async (page: Page) => {
   });
 };
 
-const rematchLabel = (page: Page) =>
-  page.evaluate(() => {
+const rematchLabel = async (page: Page) =>
+  await page.evaluate(() => {
     const b = document.querySelector<HTMLButtonElement>('#hud [data-act="again"]');
 
     return b ? { disabled: b.disabled, text: b.textContent } : null;
   });
 
-const rematchReady = (page: Page) =>
-  page.evaluate(
+const rematchReady = async (page: Page) =>
+  await page.evaluate(
     () => document.querySelector('#hud [data-act="again"]')?.textContent === "START REMATCH",
   );
 
@@ -140,26 +142,30 @@ const movesOnKey = async (page: Page, id: string, sim = page) => {
   assert.ok(Math.hypot(after.x - before.x, after.y - before.y) > 0.5, "moved on KeyW");
 };
 
-const dropTransport = (page: Page) =>
-  page.evaluate(() => {
+const dropTransport = async (page: Page) => {
+  await page.evaluate(() => {
     window.__ba?.net?.dropConnection(4000);
   });
-const restoreTransport = (page: Page) =>
-  page.evaluate(() => {
+};
+
+const restoreTransport = async (page: Page) => {
+  await page.evaluate(() => {
     window.__ba?.net?.redial();
   });
+};
 
-const showsStatus = (page: Page, text: string, label: string) =>
-  until(
-    () => page.evaluate((expected) => window.__ba?.statusEl.textContent === expected, text),
+const showsStatus = async (page: Page, text: string, label: string) =>
+  await until(
+    async () =>
+      await page.evaluate((expected) => window.__ba?.statusEl.textContent === expected, text),
     label,
     45_000,
   );
 
 const matchGeneration = async (page: Page) => (await onlineOf(page)).matchGeneration;
 
-const rematchStarted = (page: Page, previous: number | null) =>
-  page.evaluate(
+const rematchStarted = async (page: Page, previous: number | null) =>
+  await page.evaluate(
     (gen) =>
       window.__ba?.world.phase === "playing" &&
       window.__GAME_DIAGNOSTICS__?.online?.matchGeneration === (gen ?? 0) + 1,
@@ -198,27 +204,28 @@ const run = async (base: string) => {
       assert.equal((await onlineOf(host.page)).authority, true, "first player hosts");
     });
     await step("both see each other", async () => {
-      await until(() => hasUnit(host.page, guestId), "host sees guest");
-      await until(() => hasUnit(guest.page, hostId), "guest sees host");
+      await until(async () => await hasUnit(host.page, guestId), "host sees guest");
+      await until(async () => await hasUnit(guest.page, hostId), "guest sees host");
       assert.ok(await unitOf(host.page, guestId));
       assert.ok(await unitOf(guest.page, hostId));
     });
     await step("guest input crosses the wire", async () => {
-      const jumped = (page: Page) =>
-        page.evaluate(
+      const jumped = async (page: Page) =>
+        await page.evaluate(
           (id) => (window.__ba?.world.units.get(`h-${id}`)?.jumpUntil ?? 0) > 0,
           guestId,
         );
+
       await wait(1500);
       await movesOnKey(guest.page, guestId, host.page);
       await key(guest.page, "keydown", "Space", " ");
       await key(guest.page, "keyup", "Space", " ");
-      await until(() => jumped(host.page), "guest jump reached host");
-      await until(() => jumped(guest.page), "jump echoed to guest");
+      await until(async () => await jumped(host.page), "guest jump reached host");
+      await until(async () => await jumped(guest.page), "jump echoed to guest");
     });
     await step("host pause does not freeze the guest", async () => {
       await key(host.page, "keydown", "Escape", "Escape");
-      await until(() => isPaused(host.page), "host paused");
+      await until(async () => await isPaused(host.page), "host paused");
       const t0 = await gameTime(guest.page);
       await wait(1000);
       assert.ok((await gameTime(guest.page)) - t0 > 0.5, "guest clock advances while host pauses");
@@ -230,14 +237,17 @@ const run = async (base: string) => {
       await dropTransport(guest.page);
       await showsStatus(guest.page, "Reconnecting…", "guest shows its own drop");
       await until(
-        () =>
-          host.page.evaluate((id) => window.__ba?.net?.players[id]?.connected === false, guestId),
+        async () =>
+          await host.page.evaluate(
+            (id) => window.__ba?.net?.players[id]?.connected === false,
+            guestId,
+          ),
         "host holds the guest's seat",
       );
       await restoreTransport(guest.page);
       await until(
-        () =>
-          guest.page.evaluate(
+        async () =>
+          await guest.page.evaluate(
             () => window.__GAME_DIAGNOSTICS__?.online?.connection === "connected",
           ),
         "guest back in the room",
@@ -251,8 +261,8 @@ const run = async (base: string) => {
       await showsStatus(guest.page, "Host reconnecting…", "guest waits for the host");
       await restoreTransport(host.page);
       await until(
-        () =>
-          host.page.evaluate((id) => {
+        async () =>
+          await host.page.evaluate((id) => {
             const d = window.__GAME_DIAGNOSTICS__?.online;
 
             return d?.authority === true && d.hostId === id && d.takeover === "own";
@@ -265,24 +275,24 @@ const run = async (base: string) => {
     await step("rematch from the host", async () => {
       await endMatch(host.page);
       await until(
-        () => guest.page.evaluate(() => window.__ba?.world.phase === "ended"),
+        async () => await guest.page.evaluate(() => window.__ba?.world.phase === "ended"),
         "guest sees the result",
       );
       assert.deepEqual(await rematchLabel(guest.page), {
         disabled: true,
         text: "WAITING FOR HOST",
       });
-      await until(() => rematchReady(host.page), "host may rematch");
+      await until(async () => await rematchReady(host.page), "host may rematch");
       const gen = await matchGeneration(guest.page);
       await host.page.click('#hud [data-act="again"]');
-      await until(() => rematchStarted(guest.page, gen), "guest joins the rematch");
+      await until(async () => await rematchStarted(guest.page, gen), "guest joins the rematch");
       assert.ok(await unitOf(guest.page, guestId), "guest keeps a seat");
     });
     await step("host leaves, guest is promoted and plays on", async () => {
       await host.context.close();
       await until(
-        () =>
-          guest.page.evaluate((id) => {
+        async () =>
+          await guest.page.evaluate((id) => {
             const online = window.__GAME_DIAGNOSTICS__?.online;
 
             return online?.hostId === id && online.authority;
@@ -303,30 +313,30 @@ const run = async (base: string) => {
     await step("rematch from the promoted guest", async () => {
       const gen = await matchGeneration(guest.page);
       await endMatch(guest.page);
-      await until(() => rematchReady(guest.page), "promoted guest may rematch");
+      await until(async () => await rematchReady(guest.page), "promoted guest may rematch");
       await guest.page.click('#hud [data-act="again"]');
-      await until(() => rematchStarted(guest.page, gen), "rematch started");
+      await until(async () => await rematchStarted(guest.page, gen), "rematch started");
     });
     await step("late join into the running match", async () => {
       await wait(2000);
       const late = await openClient(browser, base, "Late");
       const lateId = await joined(late);
-      await until(() => hasUnit(late.page, guestId), "late sees the host");
-      await until(() => hasUnit(guest.page, lateId), "host sees late");
+      await until(async () => await hasUnit(late.page, guestId), "late sees the host");
+      await until(async () => await hasUnit(guest.page, lateId), "host sees late");
       assert.ok((await gameTime(late.page)) > 1, "late joiner lands in a live clock");
       await late.context.close();
     });
     await step("no room admits: Connecting…, then a match vs bots, offline", async () => {
-      const lone = await openClient(browser, base, "Lone", (page) =>
-        page.routeWebSocket(/\/parties\//u, async (ws) => {
+      const lone = await openClient(browser, base, "Lone", async (page) => {
+        await page.routeWebSocket(/\/parties\//u, async (ws) => {
           await ws.close({ code: 1011 });
-        }),
-      );
+        });
+      });
 
       await showsStatus(lone.page, "Connecting…", "no room yet");
       await until(
-        () =>
-          lone.page.evaluate(() => {
+        async () =>
+          await lone.page.evaluate(() => {
             const d = window.__GAME_DIAGNOSTICS__;
 
             return (
@@ -337,8 +347,8 @@ const run = async (base: string) => {
         60_000,
       );
       await until(
-        () =>
-          lone.page.evaluate(
+        async () =>
+          await lone.page.evaluate(
             () =>
               document.querySelector("#ba-toasts")?.textContent.includes("SERVER UNREACHABLE") ===
               true,
@@ -354,7 +364,7 @@ const run = async (base: string) => {
       assert.equal(heroes, 4, "bots fill the arena");
       await movesOnKey(lone.page, "solo");
       await key(lone.page, "keydown", "Escape", "Escape");
-      await until(() => isPaused(lone.page), "paused");
+      await until(async () => await isPaused(lone.page), "paused");
       const t0 = await gameTime(lone.page);
       await wait(1000);
       assert.equal(await gameTime(lone.page), t0, "frozen while paused");

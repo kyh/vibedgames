@@ -50,7 +50,7 @@ const mark = (attr: THREE.BufferAttribute, first: number, count: number) => {
 
 export class ParticleField {
   readonly points: THREE.Points;
-  private n: number;
+  private readonly n: number;
   private pos: Float32Array;
   private col: Float32Array;
   private size: Float32Array;
@@ -62,11 +62,11 @@ export class ParticleField {
   private grav: Float32Array;
   private drag: Float32Array;
   private cursor = 0;
-  private mat: THREE.ShaderMaterial;
+  private readonly mat: THREE.ShaderMaterial;
   private readonly posAttr: THREE.BufferAttribute;
   private readonly lifeAttr: THREE.BufferAttribute;
   private readonly emitAttrs: readonly THREE.BufferAttribute[];
-  private scaleUniform = { value: typeof window === "undefined" ? 1 : window.innerHeight };
+  private readonly scaleUniform = { value: typeof window === "undefined" ? 1 : window.innerHeight };
 
   constructor(
     n: number,
@@ -152,8 +152,8 @@ export class ParticleField {
       this.size[i] = o.size * (0.7 + Math.random() * 0.6);
       this.life[i] = o.life;
       this.max[i] = o.life;
-      this.chan[i] = o.channel ? 1 : 0;
-      this.grain[i] = o.grain ? 1 : 0;
+      this.chan[i] = o.channel === true ? 1 : 0;
+      this.grain[i] = o.grain === true ? 1 : 0;
       this.grav[i] = o.gravity;
       this.drag[i] = o.drag;
     }

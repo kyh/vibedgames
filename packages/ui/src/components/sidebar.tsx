@@ -86,10 +86,9 @@ const SidebarProvider = ({
     [setOpenProp, open],
   );
 
-  const toggleSidebar = React.useCallback(
-    () => (isMobile ? setOpenMobile((prev) => !prev) : setOpen((prev) => !prev)),
-    [isMobile, setOpen, setOpenMobile],
-  );
+  const toggleSidebar = React.useCallback(() => {
+    isMobile ? setOpenMobile((prev) => !prev) : setOpen((prev) => !prev);
+  }, [isMobile, setOpen, setOpenMobile]);
 
   React.useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -101,7 +100,9 @@ const SidebarProvider = ({
 
     window.addEventListener("keydown", handleKeyDown);
 
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
   }, [toggleSidebar]);
 
   const state = open ? "expanded" : "collapsed";

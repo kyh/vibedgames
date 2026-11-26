@@ -201,7 +201,9 @@ const hosting = (host: Farmer) => {
   return { grants, onClaim, shared };
 };
 
-const hear = (f: Farmer) => (key: string, owner: string | null) => f.book.hear(f.net, key, owner);
+const hear = (f: Farmer) => (key: string, owner: string | null) => {
+  f.book.hear(f.net, key, owner);
+};
 
 test("two farmers harvest one crop at once: the first claim wins, the other gives it back", () => {
   const server = partyServer();
@@ -278,7 +280,9 @@ test("the next crop on a tile is a new target, whatever became of the last one's
   const idx = ripeTile([world], 1);
   const first = harvest(guest, idx);
   guest.flush();
-  guest.read((key, owner) => guest.book.hear(guest.net, key, owner));
+  guest.read((key, owner) => {
+    guest.book.hear(guest.net, key, owner);
+  });
   assert.equal(first?.lostTo, null);
 
   assert.equal(applyTileIntent(world, { action: "plant", crop: "parsnip", gen: 2, idx }), true);
@@ -291,7 +295,9 @@ test("the next crop on a tile is a new target, whatever became of the last one's
   const second = harvest(guest, idx);
   assert.ok(second, "but it never blocks the new crop");
   guest.flush();
-  guest.read((key, owner) => guest.book.hear(guest.net, key, owner));
+  guest.read((key, owner) => {
+    guest.book.hear(guest.net, key, owner);
+  });
   assert.equal(second.lostTo, null);
   assert.equal(parsnips(guest), 2);
 
@@ -309,7 +315,9 @@ test("a swing holds a tree for its farmer until the hold lapses", () => {
   const hold = claimKey(EPOCH, { id: 42, kind: "hold" });
   const swing = a.book.ask(a.net, hold, WORK_HOLD_MS);
   a.flush();
-  a.read((key, owner) => a.book.hear(a.net, key, owner));
+  a.read((key, owner) => {
+    a.book.hear(a.net, key, owner);
+  });
   b.read();
   assert.equal(swing.lostTo, null);
   assert.equal(b.net.ownerOf(hold), "a", "b leaves the tree alone");
@@ -319,7 +327,9 @@ test("a swing holds a tree for its farmer until the hold lapses", () => {
   a.flush();
   const raced = b.book.ask(b.net, hold, WORK_HOLD_MS);
   b.flush();
-  b.read((key, owner) => b.book.hear(b.net, key, owner));
+  b.read((key, owner) => {
+    b.book.hear(b.net, key, owner);
+  });
   assert.equal(raced.lostTo, "a");
   let undone = false;
   raced.land({ lost: () => (undone = true) });

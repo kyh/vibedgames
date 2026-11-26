@@ -109,7 +109,9 @@ export class TitleScene extends Scene {
       });
     }
 
-    this.input.keyboard?.on("keydown-N", () => this.startNew());
+    this.input.keyboard?.on("keydown-N", () => {
+      this.startNew();
+    });
     this.input.keyboard?.on("keydown-ENTER", () =>
       saved ? this.scene.start("Game", { mode: "continue" }) : this.startNew(),
     );

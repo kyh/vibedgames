@@ -33,21 +33,31 @@ const enabled = () => {
   }
 };
 
-const settle = <T>(req: IDBRequest<T>, failure: string) =>
-  // oxlint-disable-next-line promise/avoid-new -- wraps the IDBRequest callback API
-  new Promise<T>((resolve, reject) => {
-    req.addEventListener("success", () => resolve(req.result));
-    req.addEventListener("error", () => reject(req.error ?? new Error(failure)));
+const settle = async <T>(req: IDBRequest<T>, failure: string) => {
+  const { promise, resolve, reject } = Promise.withResolvers<T>();
+  req.addEventListener("success", () => {
+    resolve(req.result);
+  });
+  req.addEventListener("error", () => {
+    reject(req.error ?? new Error(failure));
   });
 
-const complete: (tx: IDBTransaction) => Promise<void> = (tx) =>
-  // oxlint-disable-next-line promise/avoid-new -- wraps the IDBTransaction callback API
-  new Promise((resolve, reject) => {
-    tx.addEventListener("complete", () => resolve());
-    tx.addEventListener("error", () => reject(tx.error ?? new Error("idb write failed")));
+  return await promise;
+};
+
+const complete: (tx: IDBTransaction) => Promise<void> = async (tx) => {
+  const { promise, resolve, reject } = Promise.withResolvers<void>();
+  tx.addEventListener("complete", () => {
+    resolve();
+  });
+  tx.addEventListener("error", () => {
+    reject(tx.error ?? new Error("idb write failed"));
   });
 
-const openDb: () => Promise<IDBDatabase> = () => {
+  await promise;
+};
+
+const openDb: () => Promise<IDBDatabase> = async () => {
   const req = indexedDB.open(DB_NAME, 1);
   req.addEventListener("upgradeneeded", () => {
     if (!req.result.objectStoreNames.contains(STORE)) {
@@ -55,7 +65,7 @@ const openDb: () => Promise<IDBDatabase> = () => {
     }
   });
 
-  return settle(req, "idb open failed");
+  return await settle(req, "idb open failed");
 };
 
 interface CacheRecord {

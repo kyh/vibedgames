@@ -37,10 +37,10 @@ const streamOf = (bytes: Uint8Array<ArrayBuffer>) =>
 
 const read = async (bytes: Uint8Array<ArrayBuffer>, maxFileBytes = 1024 * 1024) => {
   const files: BundleFile[] = [];
-  await forEachBundleFile(streamOf(bytes), { maxFileBytes }, (file) => {
+  await forEachBundleFile(streamOf(bytes), { maxFileBytes }, async (file) => {
     files.push(file);
 
-    return Promise.resolve();
+    await Promise.resolve();
   });
 
   return files.map((file) => ({ content: text(file.bytes), path: file.path }));
@@ -51,8 +51,11 @@ describe("forEachBundleFile", () => {
     const deep = `${"d".repeat(120)}/${"f".repeat(90)}.js`;
 
     const archive = await sourceArchive([
-      { path: "index.html", read: () => Promise.resolve(new Uint8Array(encoder.encode("<p>"))) },
-      { path: deep, read: () => Promise.resolve(new Uint8Array(encoder.encode("x"))) },
+      {
+        path: "index.html",
+        read: async () => await Promise.resolve(new Uint8Array(encoder.encode("<p>"))),
+      },
+      { path: deep, read: async () => await Promise.resolve(new Uint8Array(encoder.encode("x"))) },
     ]);
 
     assert.deepStrictEqual(await read(archive), [

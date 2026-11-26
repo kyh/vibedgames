@@ -365,7 +365,7 @@ export class ExpeditionHud {
       .setText(hint);
   }
 
-  private layout = () => {
+  private readonly layout = () => {
     const ins = gameInset(this.scene);
     this.inset = ins;
     this.hearts.setPosition(8 + ins.left, 6 + ins.top);
@@ -393,11 +393,11 @@ export class ExpeditionHud {
     this.renderOffer(true);
   };
 
-  private onToggle = () => {
+  private readonly onToggle = () => {
     this.renderOffer();
   };
 
-  private onWorldPointerDown = () => {
+  private readonly onWorldPointerDown = () => {
     this.build.open = false;
     const focused = document.activeElement;
 
@@ -408,7 +408,7 @@ export class ExpeditionHud {
     this.renderOffer();
   };
 
-  private onKeyDown = (event: KeyboardEvent) => {
+  private readonly onKeyDown = (event: KeyboardEvent) => {
     if (event.key !== "Escape" && (this.build.open || event.key === "Enter" || event.key === " ")) {
       event.stopPropagation();
     }

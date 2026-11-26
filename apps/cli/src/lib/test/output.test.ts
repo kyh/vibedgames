@@ -70,11 +70,11 @@ test("formatField falls back to JSON for structural values", () => {
 const captureStdout = (body: () => void) => {
   const original = process.stdout.write.bind(process.stdout);
   let captured = "";
-  process.stdout.write = ((chunk: string | Uint8Array) => {
+  process.stdout.write = (chunk: string | Uint8Array) => {
     captured += chunk instanceof Uint8Array ? Buffer.from(chunk).toString("utf-8") : chunk;
 
     return true;
-  }) as typeof process.stdout.write;
+  };
 
   try {
     body();

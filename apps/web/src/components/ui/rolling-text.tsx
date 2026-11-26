@@ -143,7 +143,9 @@ const RollingColumn = ({
       ease: "easeOut",
     });
 
-    return () => controls.stop();
+    return () => {
+      controls.stop();
+    };
   }, [char, width, delay, exitOffset, duration]);
 
   useEffect(() => {
@@ -163,7 +165,9 @@ const RollingColumn = ({
 
     observer.observe(sizer);
 
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+    };
   }, [char, width]);
 
   const roll = { delay: delay + exitOffset, duration, ease: EASE };
@@ -172,23 +176,24 @@ const RollingColumn = ({
   const initial: TargetAndTransition = {
     rotate: tilt,
     y: enterY,
-    ...(tint && { "--flash": 1 }),
+    ...(tint !== undefined && tint !== "" && { "--flash": 1 }),
   };
 
   const enter: TargetAndTransition = {
     rotate: 0,
     y: "0%",
-    ...(tint && { "--flash": 0 }),
+    ...(tint !== undefined && tint !== "" && { "--flash": 0 }),
     transition: {
       rotate: roll,
       y: roll,
-      ...(tint && {
-        "--flash": {
-          delay: delay + exitOffset + duration,
-          duration: colorFade,
-          ease: "linear",
-        },
-      }),
+      ...(tint !== undefined &&
+        tint !== "" && {
+          "--flash": {
+            delay: delay + exitOffset + duration,
+            duration: colorFade,
+            ease: "linear",
+          },
+        }),
     },
   };
 
@@ -220,7 +225,7 @@ const RollingColumn = ({
           key={wordKey}
           className="absolute inset-0 flex items-center justify-center will-change-transform"
           style={
-            tint
+            tint !== undefined && tint !== ""
               ? {
                   color: `color-mix(in oklab, ${tint} calc(var(--flash) * 100%), currentColor)`,
                 }
@@ -263,13 +268,17 @@ export const RollingText = ({
   const reduceMotion = useReducedMotion();
 
   useEffect(() => {
-    if (reduceMotion || words.length <= 1) {
+    if (reduceMotion === true || words.length <= 1) {
       return;
     }
 
-    const id = setInterval(() => setIndex((i) => (i + 1) % words.length), interval);
+    const id = setInterval(() => {
+      setIndex((i) => (i + 1) % words.length);
+    }, interval);
 
-    return () => clearInterval(id);
+    return () => {
+      clearInterval(id);
+    };
   }, [reduceMotion, words.length, interval]);
 
   const columns = useMemo(() => {
@@ -297,7 +306,7 @@ export const RollingText = ({
   const enterY = direction === "down" ? "-100%" : "100%";
   const exitY = direction === "down" ? "100%" : "-100%";
 
-  if (reduceMotion) {
+  if (reduceMotion === true) {
     return <span className={cn("inline-flex", className)}>{words[0]}</span>;
   }
 
@@ -360,11 +369,13 @@ export const RollingLabel = ({ words, index, fluid = true, className }: RollingL
 
     const controls = animate(width, target, { duration: 0.3, ease: "easeOut" });
 
-    return () => controls.stop();
+    return () => {
+      controls.stop();
+    };
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- `label` is the trigger, not a value read: a new label is what changes the sizer's width, and the effect measures the DOM afterwards
   }, [fluid, label, width]);
 
-  if (reduceMotion) {
+  if (reduceMotion === true) {
     return <span className={cn("inline-flex", className)}>{label}</span>;
   }
 

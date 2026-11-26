@@ -157,7 +157,7 @@ export class RemoteFire {
     }
 
     for (const [id, beams] of this.staged) {
-      if (this.link.peerStates.get(id)?.alive) {
+      if (this.link.peerStates.get(id)?.alive === true) {
         draw(beams, perfNow);
       }
     }

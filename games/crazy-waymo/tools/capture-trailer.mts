@@ -73,19 +73,20 @@ const options = (argv: string | any[]) => {
   return result;
 };
 
-const run = (command: string, args: readonly string[], cwd: string) =>
-  // oxlint-disable-next-line promise/avoid-new -- child_process exposes completion only as events
-  new Promise((resolve, reject) => {
-    const child = spawn(command, args, { cwd, stdio: "inherit" });
-    child.on("error", reject);
-    child.on("exit", (code) => {
-      if (code === 0) {
-        resolve();
-      } else {
-        reject(new Error(`${command} exited ${code}`));
-      }
-    });
+const run = async (command: string, args: readonly string[], cwd: string) => {
+  const { promise, resolve, reject } = Promise.withResolvers<void>();
+  const child = spawn(command, args, { cwd, stdio: "inherit" });
+  child.on("error", reject);
+  child.on("exit", (code) => {
+    if (code === 0) {
+      resolve();
+    } else {
+      reject(new Error(`${command} exited ${code}`));
+    }
   });
+
+  return await promise;
+};
 
 const waitForServer = async (url: string | URL | Request | null) => {
   const deadline = Date.now() + 60_000;
@@ -93,7 +94,7 @@ const waitForServer = async (url: string | URL | Request | null) => {
   while (Date.now() < deadline) {
     const response = await fetch(url, { signal: AbortSignal.timeout(1500) }).catch(() => null);
 
-    if (response?.ok) {
+    if (response?.ok === true) {
       return;
     }
 
@@ -137,7 +138,7 @@ const installAudioCapture = () => {
         MediaRecorder.isTypeSupported(mime),
       );
 
-      if (!mimeType) {
+      if (mimeType === undefined || mimeType === "") {
         throw new Error("Chrome does not support WebM audio recording");
       }
 
@@ -149,7 +150,9 @@ const installAudioCapture = () => {
             chunks.push(event.data);
           }
         });
-        recorder.addEventListener("error", () => reject(new Error("Audio recorder failed")));
+        recorder.addEventListener("error", () => {
+          reject(new Error("Audio recorder failed"));
+        });
         recorder.addEventListener("stop", async () => {
           const blob = new Blob(chunks, { type: mimeType });
           const bytes = new Uint8Array(await blob.arrayBuffer());
@@ -167,14 +170,14 @@ const installAudioCapture = () => {
 
       return startedAtMs;
     },
-    stop() {
+    async stop() {
       if (!recorder || !stopped) {
         throw new Error("Audio recording was not started");
       }
 
       recorder.stop();
 
-      return stopped;
+      return await stopped;
     },
   };
 };
@@ -268,11 +271,11 @@ const capture = async (
     await page.goto(url.href, { waitUntil: "domcontentloaded" });
     await page.bringToFront();
     await page.waitForFunction(
-      () => window["__trailer"]?.phase === "ready" || window["__trailer"]?.phase === "error",
+      () => window.__trailer?.phase === "ready" || window.__trailer?.phase === "error",
       null,
       { timeout: 240_000 },
     );
-    const ready = await page.evaluate(() => window["__trailer"]);
+    const ready = await page.evaluate(() => window.__trailer);
 
     if (ready.phase === "error") {
       throw new Error(`Trailer failed while loading: ${JSON.stringify(ready)}`);
@@ -290,13 +293,13 @@ const capture = async (
     audioStartedAtMs = await page.evaluate(() => window.captureAudio.start());
     await wait(600);
     markerEndedAtMs = await page.evaluate(() => {
-      if (!window["__trailerStart"]) {
+      if (!window.__trailerStart) {
         throw new Error("Missing manual trailer start API");
       }
 
       document.querySelector("#capture-sync")?.remove();
       const now = performance.now();
-      window["__trailerStart"]();
+      window.__trailerStart();
 
       return now;
     });
@@ -306,7 +309,7 @@ const capture = async (
     for (;;) {
       const state = await page.evaluate(() => ({
         now: performance.now(),
-        state: window["__trailer"],
+        state: window.__trailer,
       }));
 
       result = { ...state.state, errors, finishedAtMs: state.now, warnings };
@@ -342,11 +345,11 @@ const capture = async (
     captureFailure = error instanceof Error ? error.message : String(error);
     throw error;
   } finally {
-    if (captureFailure && !page.isClosed()) {
+    if (captureFailure !== null && captureFailure !== "" && !page.isClosed()) {
       try {
         const snapshot = await page.evaluate(() => ({
           now: performance.now(),
-          state: window["__trailer"],
+          state: window.__trailer,
         }));
 
         result = { ...result, ...snapshot.state, finishedAtMs: snapshot.now };
@@ -364,7 +367,7 @@ const capture = async (
     await context.close();
   }
 
-  if (audioFailure) {
+  if (audioFailure !== null && audioFailure !== "") {
     throw new Error(`Audio capture failed: ${audioFailure}`);
   }
 
@@ -898,18 +901,18 @@ const main = async () => {
       browser = await chromium.launch({ channel: "chrome", headless: false });
     }
 
-    const recordingFor = (clean: boolean) => {
+    const recordingFor = async (clean: boolean) => {
       const folder = path.join(scratch, clean ? "clean" : "publication");
 
       if (config.reencode) {
-        return loadRecording(folder);
+        return await loadRecording(folder);
       }
 
       if (!browser || !baseUrl) {
         throw new Error("Capture browser was not initialized");
       }
 
-      return capture(browser, baseUrl, folder, { clean, scene: config.scene });
+      return await capture(browser, baseUrl, folder, { clean, scene: config.scene });
     };
 
     const publication = await recordingFor(false);
@@ -929,7 +932,7 @@ const main = async () => {
   } finally {
     await browser?.close();
 
-    if (server?.pid) {
+    if (server !== null && server.pid !== undefined && server.pid !== 0) {
       try {
         process.kill(-server.pid, "SIGTERM");
       } catch (killError) {

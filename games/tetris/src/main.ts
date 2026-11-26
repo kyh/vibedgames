@@ -23,7 +23,9 @@ if (!container) {
   throw new Error("missing #game container");
 }
 
-container.addEventListener("contextmenu", (e) => e.preventDefault());
+container.addEventListener("contextmenu", (e) => {
+  e.preventDefault();
+});
 
 const webgl = probeWebGL();
 
@@ -40,7 +42,10 @@ const renderer = new THREE.WebGLRenderer({
 });
 
 const dprCap = isCoarsePointer() ? 1.5 : 2;
-const applyPixelRatio = () => renderer.setPixelRatio(Math.min(window.devicePixelRatio, dprCap));
+
+const applyPixelRatio = () => {
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, dprCap));
+};
 
 applyPixelRatio();
 
@@ -175,7 +180,9 @@ publishDiagnostics(
 
 if (import.meta.env.DEV || isPlaytestRequested()) {
   publishTestHooks({
-    seed: (seed) => game.seed(seed),
+    seed: (seed) => {
+      game.seed(seed);
+    },
     setPausedForScreenshot: (paused) => {
       frozenForScreenshot = paused;
     },

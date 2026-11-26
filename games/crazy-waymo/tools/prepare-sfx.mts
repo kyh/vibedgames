@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 
 const raw = process.argv.at(2);
 
-if (!raw) {
+if (raw === undefined || raw === "") {
   throw new Error("Usage: node tools/prepare-sfx.mts <original-directory> [clip-name...]");
 }
 

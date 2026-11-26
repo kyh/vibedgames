@@ -27,7 +27,11 @@ describe("siteGraph", () => {
     const [contactPoint] = organization.contactPoint;
     assert.ok(contactPoint, "Organization has no contactPoint");
     assert.ok(contactPoint.contactType.length > 0);
-    assert.ok(contactPoint.url || contactPoint.email || contactPoint.telephone);
+    assert.ok(
+      contactPoint.url ||
+        (contactPoint.email !== undefined && contactPoint.email !== "") ||
+        (contactPoint.telephone !== undefined && contactPoint.telephone !== ""),
+    );
   });
 
   test("Organization lists only verifiable sameAs profiles", () => {

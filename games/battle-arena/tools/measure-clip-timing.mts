@@ -96,8 +96,7 @@ const mulMat = (a: Vec, b: Vec) =>
     return [0, 1, 2, 3].reduce((sum, k) => sum + at(a, k * 4 + r) * at(b, c * 4 + k), 0);
   });
 
-const slice = (values: TypedArray, from: number, to: number) =>
-  Array.from(values.subarray(from, to));
+const slice = (values: TypedArray, from: number, to: number) => [...values.subarray(from, to)];
 
 const sampleTrack = ({ times, values }: Track, comps: number, t: number, isQuat: boolean) => {
   const n = times.length;
@@ -114,6 +113,7 @@ const sampleTrack = ({ times, values }: Track, comps: number, t: number, isQuat:
     1,
     times.findIndex((time) => time >= t),
   );
+
   const t0 = at(times, i - 1);
   const t1 = at(times, i);
   const k = t1 - t0 > 0 ? (t - t0) / (t1 - t0) : 0;
@@ -174,9 +174,11 @@ const analyze = async (io: NodeIO, path: string) => {
         }
 
         const tr = tracks.get(node);
+
         const T = tr?.translation
           ? sampleTrack(tr.translation, 3, t, false)
           : node.getTranslation();
+
         const R = tr?.rotation ? sampleTrack(tr.rotation, 4, t, true) : node.getRotation();
         const S = tr?.scale ? sampleTrack(tr.scale, 3, t, false) : node.getScale();
         const local = composeMat(T, R, S);
@@ -217,10 +219,15 @@ const analyze = async (io: NodeIO, path: string) => {
 };
 
 const io = new NodeIO();
+
 const files = readdirSync(ANIM_DIR)
   .filter((name) => name.endsWith(".glb"))
   .toSorted();
-const analyses = await Promise.all(files.map((f) => analyze(io, nodePath.join(ANIM_DIR, f))));
+
+const analyses = await Promise.all(
+  files.map(async (f) => await analyze(io, nodePath.join(ANIM_DIR, f))),
+);
+
 const out: Record<string, ClipTiming> = {};
 
 for (const [i, f] of files.entries()) {

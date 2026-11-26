@@ -26,7 +26,7 @@ export class OAuthError extends Error {
   readonly code: string;
 
   constructor(code: string, description?: string) {
-    super(description ? `${code}: ${description}` : code);
+    super(description !== undefined && description !== "" ? `${code}: ${description}` : code);
     this.code = code;
     this.name = "OAuthError";
   }
@@ -131,7 +131,12 @@ export const pollDeviceToken = async (baseUrl: string, deviceCode: string) =>
 
 /** Whether a saved login's access token needs refreshing before it is sent. */
 export const needsRefresh = (config: Config, now = Date.now()) =>
-  Boolean(config.refreshToken && config.expiresAt && config.expiresAt - EXPIRY_MARGIN_MS <= now);
+  Boolean(
+    config.refreshToken !== undefined &&
+    config.refreshToken !== "" &&
+    config.expiresAt &&
+    config.expiresAt - EXPIRY_MARGIN_MS <= now,
+  );
 
 const refresh = async (config: Config & { refreshToken: string }) => {
   const next = toConfig(
@@ -160,7 +165,7 @@ let refreshing: Promise<Config> | null = null;
  * is gone (disconnected in Settings, or idle too long), and says so.
  */
 export const getAccessToken = async () => {
-  if (process.env.VG_TOKEN) {
+  if (process.env.VG_TOKEN !== undefined && process.env.VG_TOKEN !== "") {
     return process.env.VG_TOKEN;
   }
 
@@ -170,7 +175,7 @@ export const getAccessToken = async () => {
     return null;
   }
 
-  if (!needsRefresh(config) || !config.refreshToken) {
+  if (!needsRefresh(config) || config.refreshToken === undefined || config.refreshToken === "") {
     return config.token;
   }
 
@@ -195,7 +200,7 @@ export const getAccessToken = async () => {
 
 /** Best-effort revocation of a saved login's refresh token, for `vg logout`. */
 export const revokeLogin = async (config: Config) => {
-  if (!config.refreshToken) {
+  if (config.refreshToken === undefined || config.refreshToken === "") {
     return;
   }
 

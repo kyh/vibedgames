@@ -171,8 +171,8 @@ const writeCapacitorConfig = ({ project, native, buildDir }: ShellInput) => {
   writeFileSync(file, `${JSON.stringify(config, null, 2)}\n`);
 };
 
-const cap: (root: string, args: string[]) => Promise<RunResult> = (root, args) =>
-  run("npx", ["--no-install", "cap", ...args], root);
+const cap: (root: string, args: string[]) => Promise<RunResult> = async (root, args) =>
+  await run("npx", ["--no-install", "cap", ...args], root);
 
 const rewrite = (file: string, transform: (text: string) => string) => {
   if (!existsSync(file)) {

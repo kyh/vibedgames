@@ -171,7 +171,7 @@ export class Players {
     const [hit] = this.ray.intersectObjects(boxes, false);
     const id = hit ? owner.get(hit.object) : undefined;
 
-    if (!hit || !id) {
+    if (!hit || id === undefined || id === "") {
       return null satisfies (ShotHit & { id: string }) | null;
     }
 
@@ -199,7 +199,7 @@ export class Players {
     let best = MUZZLE_REACH;
 
     for (const p of this.all.values()) {
-      if (!p.pose || !p.avatar?.root.visible) {
+      if (!p.pose || p.avatar?.root.visible !== true) {
         continue;
       }
 

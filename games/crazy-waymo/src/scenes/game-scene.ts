@@ -216,7 +216,7 @@ const storageGet = (key: string) => {
 };
 
 const storedSkinIds = (raw: string | null) => {
-  if (!raw) {
+  if (raw === null || raw === "") {
     return [];
   }
 
@@ -252,7 +252,7 @@ const DEV_ONLINE = devParams?.has("online") === true;
 const DEV_ONLINE_START_SEED = 1;
 
 const parseSpawn = (raw: string | null) => {
-  if (!raw) {
+  if (raw === null || raw === "") {
     return null;
   }
 
@@ -353,17 +353,17 @@ const LANDING_RING_IMPACT = 9;
 export class GameScene {
   readonly scene = new THREE.Scene();
   private readonly mobileUi = isCoarsePointer();
-  private rig: ChaseCamera;
-  private cache = new ModelCache();
-  private input = new InputState();
-  private hud = new Hud(this.mobileUi);
-  private fx = new Fx();
-  private sfx = new Sfx();
-  private state = new GameState();
+  private readonly rig: ChaseCamera;
+  private readonly cache = new ModelCache();
+  private readonly input = new InputState();
+  private readonly hud = new Hud(this.mobileUi);
+  private readonly fx = new Fx();
+  private readonly sfx = new Sfx();
+  private readonly state = new GameState();
 
   private net: MultiplayerClient | null = null;
   private remoteCars: RemoteCars | null = null;
-  private bubbles = new SpeechBubbles();
+  private readonly bubbles = new SpeechBubbles();
   private heckleCooldown = 0;
   private skinId = "waymo";
   private chatText = "";
@@ -375,10 +375,10 @@ export class GameScene {
   private garageEl: HTMLDivElement | null = null;
   private garagePreview: GaragePreview | null = null;
   private showroomLoad: Promise<void> | null = null;
-  private ownedSkins = new Set<string>(["waymo"]);
+  private readonly ownedSkins = new Set<string>(["waymo"]);
   private readonly netRate = new FixedRate(NET_TICK_HZ);
   private netAt = 0;
-  private netInfoEl = document.querySelector("#netinfo");
+  private readonly netInfoEl = document.querySelector("#netinfo");
 
   private city: CityModel | null = null;
   private car: Car | null = null;
@@ -387,22 +387,22 @@ export class GameScene {
   private signalLights: SignalLights | null = null;
   private skids: SkidMarks | null = null;
   private debris: Debris | null = null;
-  private speedLines = this.mobileUi ? new SpeedLines() : null;
-  private clouds = new SkyClouds(this.mobileUi);
-  private marineSky = new MarineSky();
+  private readonly speedLines = this.mobileUi ? new SpeedLines() : null;
+  private readonly clouds = new SkyClouds(this.mobileUi);
+  private readonly marineSky = new MarineSky();
   private trails: DriftTrails | null = null;
-  private vehicleFx = new VehicleFxRig(
+  private readonly vehicleFx = new VehicleFxRig(
     this.fx,
     () => this.trails,
     () => this.skids,
   );
   private readonly wheelSurfaceAt = (x: number, z: number, y: number) =>
     this.city?.surfaceKindAt(x, z, y) ?? "road";
-  private shocks = new Shockwaves();
-  private impactStars = new ImpactStars();
-  private harbor = new Harbor();
-  private oceanTime = { value: 0 };
-  private dayNight: DayNight;
+  private readonly shocks = new Shockwaves();
+  private readonly impactStars = new ImpactStars();
+  private readonly harbor = new Harbor();
+  private readonly oceanTime = { value: 0 };
+  private readonly dayNight: DayNight;
   private lampGlow: LampGlow | null = null;
   private cones: SmashCones | null = null;
   private parked: ParkedCars | null = null;
@@ -412,14 +412,14 @@ export class GameScene {
   private readonly mapPilot = new Autopilot();
   private ambient: AmbientLife | null = null;
   private beacons: BeaconLights | null = null;
-  private vehicleLights = new VehicleLights();
-  private farTerrain = new FarTerrain();
-  private landmarkSilhouettes = new LandmarkSilhouettes();
-  private sceneFog: THREE.Fog;
+  private readonly vehicleLights = new VehicleLights();
+  private readonly farTerrain = new FarTerrain();
+  private readonly landmarkSilhouettes = new LandmarkSilhouettes();
+  private readonly sceneFog: THREE.Fog;
 
-  private sun = new THREE.DirectionalLight(0xff_f2_d8, 2);
-  private hemi = new THREE.HemisphereLight(0xbf_e0_ff, 0x4a_4a_3e, 0.35);
-  private sky: Sky;
+  private readonly sun = new THREE.DirectionalLight(0xff_f2_d8, 2);
+  private readonly hemi = new THREE.HemisphereLight(0xbf_e0_ff, 0x4a_4a_3e, 0.35);
+  private readonly sky: Sky;
   private quality: QualityFeatures = FULL_QUALITY;
   private renderer: THREE.WebGLRenderer | null = null;
   private skyBakeRT: THREE.WebGLCubeRenderTarget | null = null;
@@ -427,13 +427,13 @@ export class GameScene {
   private skyBakedPhase = -1;
   private hudAcc = 0;
   private readonly mmMarkers: MinimapMarker[] = [];
-  private scrSnapDir = new THREE.Vector3();
-  private scrRight = new THREE.Vector3();
-  private scrToGate = new THREE.Vector3();
+  private readonly scrSnapDir = new THREE.Vector3();
+  private readonly scrRight = new THREE.Vector3();
+  private readonly scrToGate = new THREE.Vector3();
   private ambienceAcc = 0;
-  private scrSnapRight = new THREE.Vector3();
-  private scrSnapUp = new THREE.Vector3();
-  private scrSnapAnchor = new THREE.Vector3();
+  private readonly scrSnapRight = new THREE.Vector3();
+  private readonly scrSnapUp = new THREE.Vector3();
+  private readonly scrSnapAnchor = new THREE.Vector3();
   private shadowExtent = 58;
   private mode: GameMode = { kind: "loading", progress: 0 };
   ready: Promise<void> = Promise.resolve();
@@ -536,8 +536,8 @@ export class GameScene {
   }
   private loadDone = false;
   private pendingStart = false;
-  private touchUi = false;
-  private touch: TouchControls | null = null;
+  private readonly touchUi: boolean = false;
+  private readonly touch: TouchControls | null = null;
   private titleT = 0;
   private flameAccum = 0;
   private scrapeFrames = 0;
@@ -548,7 +548,7 @@ export class GameScene {
   private lastPatience = 1;
   private lastDriftTier: 0 | 1 | 2 = 0;
   private countdownShown = -1;
-  private camFrom = new THREE.Vector3();
+  private readonly camFrom = new THREE.Vector3();
   private hintDriftShown = storageGet(HINT_DRIFT_KEY) !== null;
   private hintBoostShown = storageGet(HINT_BOOST_KEY) !== null;
   private turnHold = 0;
@@ -557,7 +557,7 @@ export class GameScene {
   private hitStop = 0;
   private spawn: WorldSpawn = { gx: 0, gz: 0, x: 0, yaw: 0, z: 0 };
   private lastDistrict = "";
-  private scrArrow = new THREE.Vector3();
+  private readonly scrArrow = new THREE.Vector3();
   freecam = false;
   private readonly trailerMode: boolean;
 
@@ -911,7 +911,9 @@ vec3 ocGerstner(vec2 p, float t) {
         this.openMap();
       }
     });
-    this.hud.onCta(() => this.handleStartPress());
+    this.hud.onCta(() => {
+      this.handleStartPress();
+    });
     this.sfx.setMuted(storageGet(SOUND_KEY) !== "1");
   }
 
@@ -1102,7 +1104,9 @@ vec3 ocGerstner(vec2 p, float t) {
         this.mode = { kind: "loading", progress };
         this.hud.glideLoading(progress, seconds, label);
       },
-      hideLoading: () => this.hud.hideLoading(),
+      hideLoading: () => {
+        this.hud.hideLoading();
+      },
       lampGlowBudget: this.mobileUi ? LAMP_GLOW_BUDGET : null,
       onAmbient: (ambient, city) => {
         this.ambient = ambient;
@@ -1112,7 +1116,9 @@ vec3 ocGerstner(vec2 p, float t) {
       onCones: (cones) => {
         this.cones = cones;
       },
-      onCoreSystems: (systems) => this.assignCoreSystems(systems),
+      onCoreSystems: (systems) => {
+        this.assignCoreSystems(systems);
+      },
       onDebris: (debris) => {
         this.debris = debris;
       },
@@ -1123,7 +1129,9 @@ vec3 ocGerstner(vec2 p, float t) {
       onPhysics: (physics) => {
         this.physics = physics;
       },
-      onPlayable: () => this.markLoadDone(),
+      onPlayable: () => {
+        this.markLoadDone();
+      },
       onTraffic: (traffic) => {
         this.traffic = traffic;
         this.rebuildSignalLights();
@@ -1134,11 +1142,19 @@ vec3 ocGerstner(vec2 p, float t) {
         this.mode = { kind: "loading", progress };
         this.hud.setLoading(progress, label);
       },
-      setStage: (label) => this.setFinishStage(label),
-      setupGarages: (city) => this.setupGarages(city),
+      setStage: (label) => {
+        this.setFinishStage(label);
+      },
+      setupGarages: (city) => {
+        this.setupGarages(city);
+      },
       shadowlessWarmup: this.mobileUi ? this.sun : null,
-      showTitle: () => this.toTitle(),
-      snapToCar: (car) => this.rig.snapTo(car),
+      showTitle: () => {
+        this.toTitle();
+      },
+      snapToCar: (car) => {
+        this.rig.snapTo(car);
+      },
     });
 
     const { city } = loaded;
@@ -1156,16 +1172,12 @@ vec3 ocGerstner(vec2 p, float t) {
     const t0 = performance.now();
 
     try {
-      const spans = await harvestCeilingSpans(
-        city.group,
-        city.terrain,
-        city.network,
-        () =>
-          // oxlint-disable-next-line promise/avoid-new -- wraps setTimeout to yield a macrotask
-          new Promise<void>((resolve) => {
-            setTimeout(resolve, 0);
-          }),
-      );
+      const spans = await harvestCeilingSpans(city.group, city.terrain, city.network, async () => {
+        const { promise, resolve } = Promise.withResolvers<void>();
+        setTimeout(resolve, 0);
+
+        await promise;
+      });
 
       spans.push(...deckCeilings(city.getDecks()));
       const index = new CeilingIndex(spans);
@@ -1198,7 +1210,9 @@ vec3 ocGerstner(vec2 p, float t) {
     this.trails = systems.trails;
     this.lampGlow = systems.lampGlow;
     this.minimap = systems.minimap;
-    systems.minimap.onClick(() => this.openMap());
+    systems.minimap.onClick(() => {
+      this.openMap();
+    });
   }
 
   /** True while the full-screen map is up (Escape closes it, not pause). */
@@ -1217,7 +1231,9 @@ vec3 ocGerstner(vec2 p, float t) {
     this.mapOverlay ??= new MapOverlay({
       decks: city.getDecks(),
       network: city.network,
-      pick: (x, z) => this.driveTo(x, z),
+      pick: (x, z) => {
+        this.driveTo(x, z);
+      },
       plan: city.plan,
       snapshot: () => ({
         carX: this.car?.position.x ?? 0,
@@ -1245,7 +1261,7 @@ vec3 ocGerstner(vec2 p, float t) {
 
     this.mapNav.destination = null;
 
-    if (message) {
+    if (message !== undefined && message !== "") {
       this.hud.announceMinor(message, "#6bff8e");
     }
   }
@@ -1331,7 +1347,9 @@ vec3 ocGerstner(vec2 p, float t) {
       this.bubbles.say(anchor, text, { lift: 3 });
     });
 
-    watchReadmission(net, () => remoteCars.relearn());
+    watchReadmission(net, () => {
+      remoteCars.relearn();
+    });
     this.scene.add(remoteCars.group);
     this.net = net;
     this.remoteCars = remoteCars;
@@ -1478,10 +1496,10 @@ vec3 ocGerstner(vec2 p, float t) {
     }
   }
 
-  private loadShowroom() {
+  private async loadShowroom() {
     this.showroomLoad ??= this.cache.preload(ROBOTAXI_SKINS.map(skinModelUrl), () => null);
 
-    return this.showroomLoad;
+    await this.showroomLoad;
   }
 
   private garageCardsHtml() {
@@ -1522,9 +1540,9 @@ vec3 ocGerstner(vec2 p, float t) {
           return;
         }
 
-        const id = card.dataset["skin"];
+        const id = card.dataset.skin;
 
-        if (!id || id === browsedSkin) {
+        if (id === undefined || id === "" || id === browsedSkin) {
           return;
         }
 
@@ -1544,7 +1562,7 @@ vec3 ocGerstner(vec2 p, float t) {
           return;
         }
 
-        const id = btn.dataset["skin"];
+        const id = btn.dataset.skin;
         const sk = ROBOTAXI_SKINS.find((k) => k.id === id);
 
         if (!sk || !this.car) {
@@ -1670,7 +1688,9 @@ vec3 ocGerstner(vec2 p, float t) {
           this.closeChat();
         }
       });
-      el.addEventListener("blur", () => this.closeChat());
+      el.addEventListener("blur", () => {
+        this.closeChat();
+      });
     }
 
     el.style.display = "block";
@@ -2357,8 +2377,12 @@ vec3 ocGerstner(vec2 p, float t) {
     this.physics?.streamSolids(car.position.x, car.position.z);
     this.physics?.step(
       dt,
-      (fdt) => car.physicsFixedStep(fdt),
-      () => car.captureStep(),
+      (fdt) => {
+        car.physicsFixedStep(fdt);
+      },
+      () => {
+        car.captureStep();
+      },
     );
     car.syncFromPhysics(dt, this.physics?.alpha ?? 1);
     this.touch?.setReverseHint(car.forwardSpeed <= 0.5);
@@ -2646,7 +2670,7 @@ vec3 ocGerstner(vec2 p, float t) {
         this.heckleCooldown = 7;
         const line = this.pickHeckle();
 
-        if (line) {
+        if (line !== undefined && line !== "") {
           this.bubbles.say(c.object3D, line, { accent: "#e05c2e", dur: 4.5, lift: 2.3 });
         }
       }
@@ -2801,7 +2825,7 @@ vec3 ocGerstner(vec2 p, float t) {
     const pool = kind === "pickup" ? sk.pickupLines : sk.dropoffLines;
     const line = pool[Math.floor(Math.random() * pool.length)];
 
-    if (line) {
+    if (line !== undefined && line !== "") {
       this.bubbles.say(car.object3D, line, { accent: sk.accent, dur: 3.5, lift: 3 });
     }
   }
@@ -2842,7 +2866,7 @@ vec3 ocGerstner(vec2 p, float t) {
           this.heckleCooldown = 9;
           const line = this.pickHeckle();
 
-          if (line) {
+          if (line !== undefined && line !== "") {
             this.bubbles.say(c.object3D, line, { accent: "#e05c2e", dur: 4, lift: 2.3 });
           }
         }
@@ -3085,7 +3109,9 @@ vec3 ocGerstner(vec2 p, float t) {
         this.bubbles.clear();
         this.bubbles.group.visible = visible;
       },
-      setDayPhase: (p) => this.dayNight.setPhase(p),
+      setDayPhase: (p) => {
+        this.dayNight.setPhase(p);
+      },
       setFakePlayers: (players) => {
         this.trailerFakes = players;
 
@@ -3099,9 +3125,13 @@ vec3 ocGerstner(vec2 p, float t) {
       setFreecam: (on) => {
         this.freecam = on;
       },
-      setFxDim: (dim) => this.fx.setFxDim(dim),
+      setFxDim: (dim) => {
+        this.fx.setFxDim(dim);
+      },
       setGameplayHud: (visible) => this.minimap?.setVisible(visible),
-      setScriptedInput: (input) => this.input.setScripted(input),
+      setScriptedInput: (input) => {
+        this.input.setScripted(input);
+      },
       setSpeed: (speed) => {
         const veh = car.physicsVehicle;
 
@@ -3115,7 +3145,9 @@ vec3 ocGerstner(vec2 p, float t) {
           true,
         );
       },
-      snapCamera: () => this.rig.snapTo(car),
+      snapCamera: () => {
+        this.rig.snapTo(car);
+      },
       stageParkedRow: (x0, z0, tx, tz, n, spacing) =>
         this.parked?.stageRow(x0, z0, tx, tz, n, spacing),
       state: this.state,

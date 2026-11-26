@@ -2,7 +2,6 @@
 
 /* oxlint-disable jsx-a11y/prefer-tag-over-role -- a fieldset's default box model breaks the flex layout */
 
-import { useMemo } from "react";
 import { cva } from "class-variance-authority";
 import type { VariantProps } from "class-variance-authority";
 
@@ -158,33 +157,34 @@ const FieldError = ({
 }: React.ComponentProps<"div"> & {
   errors?: ({ message?: string } | undefined)[];
 }) => {
-  const content = useMemo(() => {
-    if (children) {
-      return children;
-    }
+  const uniqueErrors = [
+    ...new Map((errors ?? []).map((error) => [error?.message, error])).values(),
+  ];
+  const messages = uniqueErrors.flatMap((error) =>
+    error?.message === undefined || error.message === "" ? [] : [error.message],
+  );
+  const hasChildren =
+    children !== undefined && children !== null && children !== false && children !== "";
+  const single = uniqueErrors.length === 1 ? uniqueErrors[0]?.message : undefined;
 
-    if (!errors?.length) {
-      return null;
-    }
-
-    const uniqueErrors = [...new Map(errors.map((error) => [error?.message, error])).values()];
-
-    if (uniqueErrors?.length === 1) {
-      return uniqueErrors[0]?.message;
-    }
-
-    return (
-      <ul className="ml-4 flex list-disc flex-col gap-1">
-        {uniqueErrors.map(
-          (error) => error?.message && <li key={error.message}>{error.message}</li>,
-        )}
-      </ul>
-    );
-  }, [children, errors]);
-
-  if (!content) {
+  if (
+    !hasChildren &&
+    (uniqueErrors.length === 1 ? single === undefined || single === "" : messages.length === 0)
+  ) {
     return null;
   }
+
+  const content = hasChildren ? (
+    children
+  ) : uniqueErrors.length === 1 ? (
+    single
+  ) : (
+    <ul className="ml-4 flex list-disc flex-col gap-1">
+      {messages.map((message) => (
+        <li key={message}>{message}</li>
+      ))}
+    </ul>
+  );
 
   return (
     <div

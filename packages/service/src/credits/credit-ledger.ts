@@ -254,7 +254,7 @@ export const grantCredits = async (db: Db, input: GrantInput) => {
     })
     .onConflictDoNothing();
 
-  return getBalanceMicro(db, input.userId);
+  return await getBalanceMicro(db, input.userId);
 };
 
 export const creditCodeAvailable = (now: Date) =>

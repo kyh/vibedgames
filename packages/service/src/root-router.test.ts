@@ -123,7 +123,7 @@ const outcomeOf = async (procedure: AnyProcedure, context: ORPCContext) => {
       return "FORBIDDEN (API key)";
     }
 
-    return error.code === "FORBIDDEN" && SCOPE_REFUSAL.test(error.message)
+    return error.code === "FORBIDDEN" && error.message.startsWith("insufficient_scope")
       ? "FORBIDDEN (scope)"
       : error.code;
   }
@@ -164,7 +164,10 @@ describe("procedure authorization", () => {
   test("declares a scope on every procedure an access token can reach", () => {
     for (const { name, credential, scope } of entries) {
       if (credential === "any") {
-        assert.ok(scope, `${name} declares no scope; add requiresScope(...)`);
+        assert.ok(
+          scope !== undefined && scope !== "",
+          `${name} declares no scope; add requiresScope(...)`,
+        );
       } else {
         assert.equal(scope, undefined, `${name} declares a scope no access token can use`);
       }
@@ -179,7 +182,7 @@ describe("procedure authorization", () => {
         const outcome = await outcomeOf(procedure, context);
         const refusal: string | undefined = refused[credential][caller];
 
-        if (refusal) {
+        if (refusal !== undefined && refusal !== "") {
           assert.equal(outcome, refusal, `${name} as ${caller}`);
         } else if (takesInput) {
           assert.equal(outcome, "BAD_REQUEST", `${name} as ${caller}`);

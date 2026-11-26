@@ -45,17 +45,18 @@ const lf = async (page: Page) => {
   return probe;
 };
 
-const hubReady = (page: Page) =>
-  until(
-    () => page.evaluate(() => document.querySelector("#lf-room-code") !== null),
+const hubReady = async (page: Page) => {
+  await until(
+    async () => await page.evaluate(() => document.querySelector("#lf-room-code") !== null),
     "hub ready",
     30_000,
   );
+};
 
-const inGame = (page: Page, role: "host" | "guest") =>
-  until(
-    () =>
-      page.evaluate((want) => {
+const inGame = async (page: Page, role: "host" | "guest") => {
+  await until(
+    async () =>
+      await page.evaluate((want) => {
         const s = window.__lf;
 
         return s !== undefined && s.conn === "connected" && s.state === "active" && s.role === want;
@@ -63,13 +64,15 @@ const inGame = (page: Page, role: "host" | "guest") =>
     `in game as ${role}`,
     30_000,
   );
+};
 
-const seesPeer = (page: Page, label: string) =>
-  until(
-    () => page.evaluate(() => window.__lf?.players === 2 && window.__lf.rx !== null),
+const seesPeer = async (page: Page, label: string) => {
+  await until(
+    async () => await page.evaluate(() => window.__lf?.players === 2 && window.__lf.rx !== null),
     label,
     20_000,
   );
+};
 
 const openClient = async (browser: Browser, base: string, name: string, url: string) => {
   const context = await browser.newContext({ viewport: { height: 720, width: 1280 } });
@@ -103,19 +106,19 @@ const hold = async (page: Page, code: string, ms: number) => {
   await page.keyboard.up(code);
 };
 
-const live = (page: Page) =>
-  page.evaluate(() => window.__lf?.vs === null || window.__lf?.vs?.phase === "fighting");
+const live = async (page: Page) =>
+  await page.evaluate(() => window.__lf?.vs === null || window.__lf?.vs?.phase === "fighting");
 
-const vsPhase = (page: Page) => page.evaluate(() => window.__lf?.vs?.phase ?? null);
+const vsPhase = async (page: Page) => await page.evaluate(() => window.__lf?.vs?.phase ?? null);
 
 const attackCrossesWire = async (guest: Client, host: Client) => {
   const hostState = await lf(host.page);
   const before = hostState.rSwing ?? 0;
-  await until(() => live(host.page), "round live on the host");
-  await until(() => live(guest.page), "round live on the guest");
+  await until(async () => await live(host.page), "round live on the host");
+  await until(async () => await live(guest.page), "round live on the guest");
   await tap(guest.page, "KeyJ");
   await until(
-    () => host.page.evaluate((n) => (window.__lf?.rSwing ?? 0) > n, before),
+    async () => await host.page.evaluate((n) => (window.__lf?.rSwing ?? 0) > n, before),
     "guest attack reached host",
     8000,
   );
@@ -126,25 +129,27 @@ const moveCrossesWire = async (guest: Client, host: Client) => {
   const before = hostState.rx;
   await hold(guest.page, "KeyD", 500);
   await until(
-    () => host.page.evaluate((x) => window.__lf?.rx !== x, before),
+    async () => await host.page.evaluate((x) => window.__lf?.rx !== x, before),
     "guest movement reached host",
     8000,
   );
 };
 
-const killRun = (page: Page) =>
-  page.evaluate(() => {
+const killRun = async (page: Page) => {
+  await page.evaluate(() => {
     window.__game?.scene.getScene<GameScene>("game").playerDie();
   });
+};
 
-const endMatch = (page: Page) =>
-  page.evaluate(() => {
+const endMatch = async (page: Page) => {
+  await page.evaluate(() => {
     const vs = window.__game?.scene.getScene<GameScene>("game").vs;
 
     if (vs?.phase === "fighting") {
       vs.damage("guest", 99);
     }
   });
+};
 
 const run = async (base: string, mode: string) => {
   const code = roomCode();
@@ -225,7 +230,7 @@ const run = async (base: string, mode: string) => {
 
           await wait(120);
 
-          return hop(left - 1);
+          return await hop(left - 1);
         };
 
         assert.ok(await hop(40), "guest never landed a hit");
@@ -240,15 +245,23 @@ const run = async (base: string, mode: string) => {
         }
 
         await host.page.keyboard.press("Escape");
-        await until(() => host.page.evaluate(() => window.__lf?.paused === true), "host paused");
+        await until(
+          async () => await host.page.evaluate(() => window.__lf?.paused === true),
+          "host paused",
+        );
         await moveCrossesWire(guest, host);
         await host.page.keyboard.press("Escape");
-        await until(() => host.page.evaluate(() => window.__lf?.paused === false), "host resumed");
+        await until(
+          async () => await host.page.evaluate(() => window.__lf?.paused === false),
+          "host resumed",
+        );
       },
     );
 
-    const rematch = (page: Page) =>
-      page.evaluate(() => window.__lf?.vs?.round === 1 && window.__lf.vs.phase !== "matchEnd");
+    const rematch = async (page: Page) =>
+      await page.evaluate(
+        () => window.__lf?.vs?.round === 1 && window.__lf.vs.phase !== "matchEnd",
+      );
 
     const restart = async (first: Client, second: Client) => {
       if (mode === "vs") {
@@ -269,8 +282,8 @@ const run = async (base: string, mode: string) => {
         await until(async () => (await vsPhase(guest.page)) === "matchEnd", "guest sees match end");
         await wait(1500);
         await tap(first.page, "KeyJ");
-        await until(() => rematch(host.page), "rematch round 1");
-        await until(() => rematch(guest.page), "guest sees rematch");
+        await until(async () => await rematch(host.page), "rematch round 1");
+        await until(async () => await rematch(guest.page), "guest sees rematch");
 
         return;
       }
@@ -280,7 +293,10 @@ const run = async (base: string, mode: string) => {
       await hubReady(guest.page);
 
       const receipts = await Promise.all(
-        [first, second].map(async (c) => ({ c, seen: (await c.page.$(".lf-hub-receipt")) !== null })),
+        [first, second].map(async (c) => ({
+          c,
+          seen: (await c.page.$(".lf-hub-receipt")) !== null,
+        })),
       );
 
       for (const { c, seen } of receipts) {
@@ -294,13 +310,20 @@ const run = async (base: string, mode: string) => {
       [host, guest] = [first, second];
     };
 
-    await step("restart from the guest", () => restart(guest, host));
-    await step("restart from the host", () => restart(host, guest));
+    await step("restart from the guest", async () => {
+      await restart(guest, host);
+    });
+    await step("restart from the host", async () => {
+      await restart(host, guest);
+    });
     await step("host leaves, guest is promoted and plays on", async () => {
       const before = await lf(guest.page);
       await host.context.close();
       await until(
-        () => guest.page.evaluate(() => window.__lf?.role === "host" && window.__lf.state === "active"),
+        async () =>
+          await guest.page.evaluate(
+            () => window.__lf?.role === "host" && window.__lf.state === "active",
+          ),
         "guest promoted",
         30_000,
       );
@@ -313,7 +336,7 @@ const run = async (base: string, mode: string) => {
       const { swing } = after;
       await tap(guest.page, "KeyJ");
       await until(
-        () => guest.page.evaluate((n) => (window.__lf?.swing ?? n) > n, swing),
+        async () => await guest.page.evaluate((n) => (window.__lf?.swing ?? n) > n, swing),
         "promoted host attacks",
         8000,
       );
@@ -321,8 +344,8 @@ const run = async (base: string, mode: string) => {
     });
     await step("late join via the lobby room code", async () => {
       await until(
-        () =>
-          host.page.evaluate(() => {
+        async () =>
+          await host.page.evaluate(() => {
             const session = window.__game?.scene.getScene<GameScene>("game").session;
 
             return session !== undefined && Object.keys(session.players).length === 1;
@@ -335,8 +358,8 @@ const run = async (base: string, mode: string) => {
       await late.page.fill("#lf-room-code", code);
       await late.page.press("#lf-room-code", "Enter");
       await until(
-        () =>
-          late.page.evaluate(() =>
+        async () =>
+          await late.page.evaluate(() =>
             /Room selected/u.test(document.querySelector(".lf-hub-status")?.textContent ?? ""),
           ),
         "room selected",
@@ -352,8 +375,8 @@ const run = async (base: string, mode: string) => {
       const extra = await openClient(browser, base, "extra", query);
       await extra.page.click(".lf-hub-go");
       await until(
-        () =>
-          extra.page.evaluate(() =>
+        async () =>
+          await extra.page.evaluate(() =>
             /Room full/u.test(document.querySelector(".lf-hub-status")?.textContent ?? ""),
           ),
         "room full notice",

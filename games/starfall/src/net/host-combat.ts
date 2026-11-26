@@ -230,7 +230,7 @@ export class HostCombat {
 
     const broodParent = this.ai.enemySim.get(e.id)?.broodParent;
 
-    if (broodParent) {
+    if (broodParent !== undefined && broodParent !== null && broodParent !== "") {
       const psim = this.ai.enemySim.get(broodParent);
 
       if (psim) {

@@ -366,11 +366,11 @@ export class KinematicResolver {
       return false;
     }
 
-    const hit = this.world["castShape"](
+    const hit = this.world.castShape(
       origin,
       actor.collider.rotation(),
       { x: 0, y: -1, z: 0 },
-      actor.collider["shape"],
+      actor.collider.shape,
       0,
       distance,
       true,

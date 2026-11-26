@@ -764,7 +764,14 @@ test("through a host migration the others play straight on: one clock, no reset,
   assert.ok(promoted && host && start && prev);
   const [resumedAt] = host.stamps;
   const leftAt = a.stamps.at(-1);
-  assert.ok(resumedAt && leftAt && resumedAt > leftAt, "B stamps on where A stopped");
+  assert.ok(
+    resumedAt !== undefined &&
+      resumedAt !== 0 &&
+      leftAt !== undefined &&
+      leftAt !== 0 &&
+      resumedAt > leftAt,
+    "B stamps on where A stopped",
+  );
   assert.ok(prev.x - start.x > travel * 160, `C saw the runner run on (${prev.x - start.x} px)`);
   assert.ok(worstCorrection < DEAD_ZONE_PX, `C's own hero ran through it (${worstCorrection} px)`);
 
@@ -844,7 +851,9 @@ test("a guest back from a drop by a slower route keeps its delay in hand", () =>
 
   const down: Link = {
     receive: (now) => route.receive(now),
-    send: (now, payload) => route.send(now, payload),
+    send: (now, payload) => {
+      route.send(now, payload);
+    },
   };
 
   const c = streamGuest(watcher.id, down);

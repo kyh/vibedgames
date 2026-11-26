@@ -329,7 +329,9 @@ export class GameScene {
   private readonly downAt = { x: 0, y: 0 };
   private readonly camDrag = new THREE.Vector3(0, CAM_START_OFFSET_Y, 0);
 
-  private readonly hud = new Hud(() => this.bannerAction());
+  private readonly hud = new Hud(() => {
+    this.bannerAction();
+  });
 
   constructor() {
     this.control = new MatchControl(ROOM, this.localInput());
@@ -432,7 +434,9 @@ export class GameScene {
     window.addEventListener("pointerdown", this.onPointerDown);
     window.addEventListener("pointerup", this.onPointerUp);
     window.addEventListener("pointercancel", this.onPointerUp);
-    this.motionQuery.addEventListener("change", (e) => this.setReducedMotion(e.matches));
+    this.motionQuery.addEventListener("change", (e) => {
+      this.setReducedMotion(e.matches);
+    });
     this.setReducedMotion(this.reducedMotion);
     this.syncHud();
   }

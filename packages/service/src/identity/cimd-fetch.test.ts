@@ -10,10 +10,10 @@ const fetchMetadata = async (url: string, init?: RequestInit) =>
   await fetchClientMetadataResource(url, init);
 
 const answerWith = (response: Response) => {
-  globalThis.fetch = (input, init) => {
+  globalThis.fetch = async (input, init) => {
     seen.push({ redirect: init?.redirect, url: String(input) });
 
-    return Promise.resolve(response);
+    return await Promise.resolve(response);
   };
 };
 

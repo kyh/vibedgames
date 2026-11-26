@@ -95,7 +95,7 @@ export const forkCommand = defineCommand({
 
     const client = createClient();
 
-    if (!isJsonOutput(args) && !args.field) {
+    if (!isJsonOutput(args) && (args.field === undefined || args.field === "")) {
       consola.start(`Forking ${source}`);
     }
 

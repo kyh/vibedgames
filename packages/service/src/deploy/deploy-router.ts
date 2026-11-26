@@ -108,7 +108,7 @@ const claimGame = async (
     throw new ORPCError("FORBIDDEN", { message: `Slug "${slug}" is already taken.` });
   }
 
-  if (name && name !== row.name) {
+  if (name !== undefined && name !== "" && name !== row.name) {
     await db.update(game).set({ name }).where(eq(game.id, row.id));
   }
 
@@ -241,7 +241,7 @@ const presignUploads = async (
 
   await upsertFileRows(db, rows);
 
-  return Promise.all(
+  return await Promise.all(
     rows.map(async (row) => ({
       headers: { "content-type": row.contentType },
       path: row.path,
@@ -364,7 +364,12 @@ const extractBundle = async (
 const assertSourceStored = async (db: Db, r2: R2Config, deploymentId: string) => {
   const staged = await db.query.deployment.findFirst({ where: { id: deploymentId } });
 
-  if (!staged?.sourceKey) {
+  if (
+    staged === undefined ||
+    staged.sourceKey === undefined ||
+    staged.sourceKey === null ||
+    staged.sourceKey === ""
+  ) {
     return;
   }
 
@@ -489,7 +494,7 @@ export const deployRouter = {
     const existing = await claimGame(context.db, userId, { name: input.name, slug: input.slug });
     const gameId = existing.id;
 
-    if (existing.currentDeploymentId) {
+    if (existing.currentDeploymentId !== null && existing.currentDeploymentId !== "") {
       await deletePrefix({ prefix: `games/${gameId}/`, r2 });
       await deletePrefix({ prefix: `sources/${gameId}/`, r2 });
       await context.db.update(game).set({ currentDeploymentId: null }).where(eq(game.id, gameId));
@@ -535,16 +540,17 @@ export const deployRouter = {
       })),
     );
 
-    const sourceUpload = sourceKey
-      ? {
-          headers: { "content-type": "application/gzip" },
-          url: await signUploadUrl({
-            contentType: "application/gzip",
-            signing,
-            target: { key: sourceKey },
-          }),
-        }
-      : null;
+    const sourceUpload =
+      sourceKey !== null && sourceKey !== ""
+        ? {
+            headers: { "content-type": "application/gzip" },
+            url: await signUploadUrl({
+              contentType: "application/gzip",
+              signing,
+              target: { key: sourceKey },
+            }),
+          }
+        : null;
 
     return {
       deploymentId,
@@ -632,7 +638,12 @@ export const deployRouter = {
       where: { slug: input.slug },
     });
 
-    if (!g?.currentDeploymentId) {
+    if (
+      g === undefined ||
+      g.currentDeploymentId === undefined ||
+      g.currentDeploymentId === null ||
+      g.currentDeploymentId === ""
+    ) {
       throw new ORPCError("NOT_FOUND", {
         message: `No live deployment for "${input.slug}".`,
       });
@@ -642,7 +653,12 @@ export const deployRouter = {
       where: { id: g.currentDeploymentId },
     });
 
-    if (!dep?.sourceKey) {
+    if (
+      dep === undefined ||
+      dep.sourceKey === undefined ||
+      dep.sourceKey === null ||
+      dep.sourceKey === ""
+    ) {
       throw new ORPCError("NOT_FOUND", {
         message: `"${input.slug}" was deployed without source, so it can't be forked.`,
       });

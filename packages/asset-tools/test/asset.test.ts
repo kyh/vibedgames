@@ -615,7 +615,9 @@ test("every skill script loads and reports a usage error, not a crash", (t) => {
 
   assert.ok(scripts.length >= 20, `expected the skill scripts, found ${scripts.length}`);
   const cwd = workspace();
-  t.after(() => rmSync(cwd, { force: true, recursive: true }));
+  t.after(() => {
+    rmSync(cwd, { force: true, recursive: true });
+  });
 
   const offenders: string[] = [];
 

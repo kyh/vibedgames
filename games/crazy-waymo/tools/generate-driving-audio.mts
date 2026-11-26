@@ -4,7 +4,7 @@ import path from "node:path";
 
 const destination = process.argv.at(2);
 
-if (!destination) {
+if (destination === undefined || destination === "") {
   throw new Error("Usage: node tools/generate-driving-audio.mts <wav-directory>");
 }
 

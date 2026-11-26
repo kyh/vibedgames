@@ -379,7 +379,7 @@ export class BeamSim {
         continue;
       }
 
-      if (!st || !st.alive || st.invuln || st.shieldMod?.phased) {
+      if (!st || !st.alive || st.invuln || st.shieldMod?.phased === true) {
         continue;
       }
 

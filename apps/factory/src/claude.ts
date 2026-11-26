@@ -27,9 +27,11 @@ const describeError = (
 ) => {
   const parts: string[] = [];
 
-  if (evt.result?.trim()) {
-    parts.push(evt.result.trim());
-  } else if (evt.subtype && evt.subtype !== "success") {
+  const result = evt.result?.trim() ?? "";
+
+  if (result !== "") {
+    parts.push(result);
+  } else if (evt.subtype !== undefined && evt.subtype !== "" && evt.subtype !== "success") {
     parts.push(`agent error (${evt.subtype})`);
   } else {
     parts.push("agent reported an error");
@@ -146,8 +148,10 @@ const emitActivity = (onActivity: (activity: Activity) => void, evt: StreamEvent
 
   if (evt.type === "assistant") {
     for (const block of evt.message?.content ?? []) {
-      if (block.type === "text" && block.text?.trim()) {
-        onActivity({ kind: "text", text: block.text.trim() });
+      const text = block.type === "text" ? (block.text?.trim() ?? "") : "";
+
+      if (text !== "") {
+        onActivity({ kind: "text", text });
       } else if (block.type === "tool_use") {
         onActivity({
           detail: summarizeTool(block.input) || undefined,
@@ -165,7 +169,7 @@ const emitActivity = (onActivity: (activity: Activity) => void, evt: StreamEvent
  * work in real time; the terminal `result` event carries the final summary,
  * cost and session id.
  */
-export const runClaude: (opts: RunOptions) => Promise<RunResult> = (opts) => {
+export const runClaude: (opts: RunOptions) => Promise<RunResult> = async (opts) => {
   const args = [
     "-p",
     opts.prompt,
@@ -184,7 +188,7 @@ export const runClaude: (opts: RunOptions) => Promise<RunResult> = (opts) => {
     args.push("--dangerously-skip-permissions");
   }
 
-  if (opts.resumeSessionId) {
+  if (opts.resumeSessionId !== undefined && opts.resumeSessionId !== "") {
     args.push("--resume", opts.resumeSessionId);
   }
 
@@ -193,7 +197,7 @@ export const runClaude: (opts: RunOptions) => Promise<RunResult> = (opts) => {
   }
 
   // oxlint-disable-next-line promise/avoid-new -- child_process.spawn is event-based
-  return new Promise((resolve) => {
+  return await new Promise((resolve) => {
     let child: ReturnType<typeof spawn> | undefined;
     let rl: ReturnType<typeof createInterface> | undefined;
     let final: RunResult = { ok: false, result: "" };
@@ -313,9 +317,9 @@ export const runClaude: (opts: RunOptions) => Promise<RunResult> = (opts) => {
 
       final = {
         costUsd: evt.total_cost_usd,
-        error: evt.is_error ? describeError(evt, lastText, stderr) : undefined,
+        error: evt.is_error === true ? describeError(evt, lastText, stderr) : undefined,
         numTurns: evt.num_turns,
-        ok: evt.subtype === "success" && !evt.is_error,
+        ok: evt.subtype === "success" && evt.is_error !== true,
         result: evt.result ?? "",
         sessionId: evt.session_id ?? sessionId,
       };
@@ -359,14 +363,21 @@ export const runClaude: (opts: RunOptions) => Promise<RunResult> = (opts) => {
 
       emitActivity(opts.onActivity, evt);
 
-      if (evt.type === "system" && evt.subtype === "init" && evt.session_id) {
+      if (
+        evt.type === "system" &&
+        evt.subtype === "init" &&
+        evt.session_id !== undefined &&
+        evt.session_id !== ""
+      ) {
         sessionId = evt.session_id;
       }
 
       if (evt.type === "assistant") {
         for (const block of evt.message?.content ?? []) {
-          if (block.type === "text" && block.text?.trim()) {
-            lastText = block.text.trim();
+          const text = block.type === "text" ? (block.text?.trim() ?? "") : "";
+
+          if (text !== "") {
+            lastText = text;
           }
         }
       }

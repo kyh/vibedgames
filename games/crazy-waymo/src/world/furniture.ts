@@ -795,12 +795,12 @@ export const buildFurniture: (ctx: FurnitureCtx) => Promise<FurnitureResult> = a
       return;
     }
 
-    // oxlint-disable-next-line promise/avoid-new -- wraps requestAnimationFrame plus setTimeout
-    await new Promise<void>((resolve) => {
-      requestAnimationFrame(() => {
-        setTimeout(resolve, 0);
-      });
+    const { promise, resolve } = Promise.withResolvers<void>();
+    requestAnimationFrame(() => {
+      setTimeout(resolve, 0);
     });
+
+    await promise;
     lastYield = performance.now();
   };
 
@@ -3110,7 +3110,7 @@ export const buildFurniture: (ctx: FurnitureCtx) => Promise<FurnitureResult> = a
 
       const text = bladeText(best);
 
-      if (text) {
+      if (text !== null && text !== "") {
         bladeFor.set(best, text);
       } else {
         rejected.add(best);
@@ -3135,13 +3135,13 @@ export const buildFurniture: (ctx: FurnitureCtx) => Promise<FurnitureResult> = a
       for (const id of network.nodeEdges[n] ?? []) {
         const street = edgeStreet.get(id);
 
-        if (!street) {
+        if (street === undefined || street === "") {
           continue;
         }
 
         const text = bladeFor.get(street);
 
-        if (text && !labels.includes(text)) {
+        if (text !== undefined && text !== "" && !labels.includes(text)) {
           labels.push(text);
         }
       }

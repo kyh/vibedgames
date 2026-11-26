@@ -34,7 +34,7 @@ const ignoreFrame = (_me: Unit | null) => null;
 const match = (opts: MatchOptions = {}) => {
   const world = createWorld(7);
 
-  if (!opts.bots) {
+  if (opts.bots !== true) {
     for (const c of CAMPS) {
       world.campRespawnAt[c.id] = 9e8;
     }
@@ -54,7 +54,7 @@ const match = (opts: MatchOptions = {}) => {
   const hostHero = hero(HOST, 0);
   const guestHero = hero(GUEST, 1);
 
-  if (opts.bots) {
+  if (opts.bots === true) {
     ensureBots(world);
   }
 
@@ -81,7 +81,7 @@ const match = (opts: MatchOptions = {}) => {
     inputHero: (owner) => {
       const u = world.units.get(`h-${owner}`);
 
-      return owner !== HOST && u?.alive && world.phase === "playing" ? u : null;
+      return owner !== HOST && u?.alive === true && world.phase === "playing" ? u : null;
     },
     now: () => now,
     publish: (snap, t) => {
@@ -111,15 +111,15 @@ const match = (opts: MatchOptions = {}) => {
         continue;
       }
 
-      if (message["kind"] === "state") {
-        guestRoom.apply(message["ops"] ?? null);
+      if (message.kind === "state") {
+        guestRoom.apply(message.ops ?? null);
         const { snap, snapT } = guestRoom.state;
 
         if (isSnapshot(snap)) {
           mirror.applySnapshot(guestWorld, snap, isJsonNumber(snapT) ? snapT : null, now, true);
         }
       } else {
-        const frame = parseFrame(message["frame"] ?? null);
+        const frame = parseFrame(message.frame ?? null);
 
         if (frame) {
           fxReceived += frame.fx?.length ?? 0;
@@ -137,9 +137,9 @@ const match = (opts: MatchOptions = {}) => {
     const me = guestWorld.units.get(guestHero.id) ?? null;
 
     if (me && guestWorld.phase === "playing") {
-      predictor.advance(me, guestWorld.units, guestDt, now, guestWorld.now, held, (p) =>
-        toHost.send(now, inputWire(p)),
-      );
+      predictor.advance(me, guestWorld.units, guestDt, now, guestWorld.now, held, (p) => {
+        toHost.send(now, inputWire(p));
+      });
       predictor.render(me, guestWorld.units, held);
     }
 

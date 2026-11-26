@@ -36,7 +36,7 @@ const AccountLayout = () => {
 };
 
 export const Route = createFileRoute("/_account")({
-  beforeLoad: ({ location }) => requireAuth({ data: location.pathname }),
+  beforeLoad: async ({ location }) => await requireAuth({ data: location.pathname }),
   component: AccountLayout,
   head: () => ({ meta: [{ content: "noindex, nofollow", name: "robots" }] }),
 });

@@ -64,9 +64,10 @@ const uniqueCodes = (n: number) => {
  * `revokedAt`) fall back to their schema defaults.
  */
 export const buildInviteRows = (opts: BuildInviteRowsOptions) => {
-  const codes = opts.code
-    ? [normalizeCustomCode(opts.code)]
-    : uniqueCodes(resolveCount(opts.count));
+  const codes =
+    opts.code !== undefined && opts.code !== null && opts.code !== ""
+      ? [normalizeCustomCode(opts.code)]
+      : uniqueCodes(resolveCount(opts.count));
 
   return codes.map((code) => ({
     code,

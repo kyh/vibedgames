@@ -39,8 +39,8 @@ const openClient = async (browser: Browser, base: string, name: string, kit = "d
   return { context, name, page } satisfies Client;
 };
 
-const status = (page: Page) =>
-  page.evaluate(() => {
+const status = async (page: Page) =>
+  await page.evaluate(() => {
     const g = window.__game;
 
     if (!g) {
@@ -90,7 +90,7 @@ const untilArg = async <R, A>(
   arg: A,
 ) => {
   const found = await poll(
-    () => page.evaluate(predicate, arg),
+    async () => await page.evaluate(predicate, arg),
     (value) => Boolean(value),
     { intervalMs: 150, timeoutMs: timeout },
   );
@@ -102,15 +102,15 @@ const untilArg = async <R, A>(
   return found;
 };
 
-const until = <R,>(
+const until = async <R,>(
   page: Page,
   predicate: Parameters<typeof page.evaluate<R, null>>[0],
   label: string,
   timeout = 30_000,
-) => untilArg(page, predicate, label, timeout, null);
+) => await untilArg(page, predicate, label, timeout, null);
 
-const connectedAs = (client: Client, mode: "host" | "guest") =>
-  untilArg(
+const connectedAs = async (client: Client, mode: "host" | "guest") =>
+  await untilArg(
     client.page,
     (want) => {
       const g = window.__game;
@@ -128,15 +128,15 @@ const connectedAs = (client: Client, mode: "host" | "guest") =>
     mode,
   );
 
-const brawlerOf = (page: Page, playerId: string) =>
-  page.evaluate((id) => {
+const brawlerOf = async (page: Page, playerId: string) =>
+  await page.evaluate((id) => {
     const b = window.__game?.brawlers.find((other) => other.netId === `p:${id}`);
 
     return b ? { alive: b.alive, ammo: b.ammo, owner: b.owner, x: b.x, z: b.z } : null;
   }, playerId);
 
-const facesAim = (client: Client, playerId: string, angle: number) =>
-  untilArg(
+const facesAim = async (client: Client, playerId: string, angle: number) =>
+  await untilArg(
     client.page,
     ({ id, aim }) => {
       const b = window.__game?.brawlers.find((other) => other.netId === `p:${id}`);
@@ -158,8 +158,8 @@ const facesAim = (client: Client, playerId: string, angle: number) =>
     { aim: angle, id: playerId },
   );
 
-const endBrawl = (page: Page) =>
-  page.evaluate(() => {
+const endBrawl = async (page: Page) => {
+  await page.evaluate(() => {
     const g = window.__game;
 
     if (g === undefined) {
@@ -172,6 +172,7 @@ const endBrawl = (page: Page) =>
       }
     }
   });
+};
 
 const restartFrom = async (authority: Client, watchers: Client[]) => {
   const before = await status(authority.page);
@@ -326,6 +327,7 @@ const run = async (base: string) => {
           if (g === undefined) {
             throw new Error("window.__game is missing");
           }
+
           const b = g.brawlers.find((other) => other.netId === `p:${id}`);
 
           if (b === undefined || g.player === null) {
@@ -404,6 +406,7 @@ const run = async (base: string) => {
           if (g === undefined) {
             throw new Error("window.__game is missing");
           }
+
           const b = g.brawlers.find((other) => other.netId === `p:${id}`);
 
           return (
@@ -424,9 +427,10 @@ const run = async (base: string) => {
         if (g === undefined) {
           throw new Error("window.__game is missing");
         }
+
         const b = g.brawlers.find((other) => other.netId === `p:${id}`);
 
-        if (!b?.alive) {
+        if (b?.alive !== true) {
           return null;
         }
 
@@ -480,6 +484,7 @@ const run = async (base: string) => {
         if (g === undefined) {
           throw new Error("window.__game is missing");
         }
+
         const b = g.player;
 
         if (b === null) {
@@ -494,15 +499,17 @@ const run = async (base: string) => {
       assert.ok(result.ground > 2, "the test runs on the high terrace");
       assert.ok(Math.abs(result.y - result.ground) < 0.001, "guest feet meet terrain");
     });
+
     const leapLanding = await host.page.evaluate((id) => {
       const g = window.__game;
 
       if (g === undefined) {
         throw new Error("window.__game is missing");
       }
+
       const b = g.brawlers.find((other) => other.netId === `p:${id}`);
 
-      if (!b?.alive) {
+      if (b?.alive !== true) {
         return null;
       }
 
@@ -516,6 +523,7 @@ const run = async (base: string) => {
 
       return b.leap ? { x: b.leap.tx, z: b.leap.tz } : null;
     }, guestId);
+
     await step("guest receives a leap frozen midway through its arc", async () => {
       assert.ok(leapLanding, "Warden starts its leap");
       await until(
@@ -526,9 +534,10 @@ const run = async (base: string) => {
           if (g === undefined) {
             throw new Error("window.__game is missing");
           }
+
           const b = g.player;
 
-          return b?.netAir && b.root.position.y > g.world.heightAt(b.x, b.z) + 1;
+          return b?.netAir === true && b.root.position.y > g.world.heightAt(b.x, b.z) + 1;
         },
         "guest receives airborne snapshot",
         20_000,
@@ -575,6 +584,7 @@ const run = async (base: string) => {
           if (g === undefined) {
             throw new Error("window.__game is missing");
           }
+
           const b = g.player;
 
           return (
@@ -642,6 +652,7 @@ const run = async (base: string) => {
 };
 
 const urlFlag = flagValue("--url", process.argv);
+
 const vite: ChildProcess | null =
   urlFlag === null ? await startVite({ gameDir, port: PORT, timeoutMs: 30_000 }) : null;
 

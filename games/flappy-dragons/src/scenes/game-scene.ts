@@ -175,7 +175,7 @@ const readPeer = (state: Player["state"]) => {
 
   return {
     life: isJsonNumber(life) ? life : 0,
-    live: state["live"] === true,
+    live: state.live === true,
     score: isJsonNumber(score) ? score : 0,
     skin: validSkin(isJsonNumber(skin) ? skin : 1),
     t,
@@ -288,7 +288,7 @@ export class GameScene extends Scene {
   seed = 0;
 
   private lastScoredIndex = -1;
-  private collectedCoins = new Set<number>();
+  private readonly collectedCoins = new Set<number>();
 
   pipes = new Map<number, Pipe>();
   ghosts = new Map<string, Ghost>();
@@ -299,7 +299,7 @@ export class GameScene extends Scene {
   private readyImg!: GameObjects.Image;
   private overImg!: GameObjects.Image;
   private titleDragon: GameObjects.Sprite | null = null;
-  private digits: GameObjects.Image[] = [];
+  private readonly digits: GameObjects.Image[] = [];
   private flightFx!: FlightFx;
 
   private lastFrameAt = -1;
@@ -359,7 +359,9 @@ export class GameScene extends Scene {
       offline: isPlaytestRequested(),
       room: ROOM,
     });
-    this.net.subscribe(() => this.watchOwnConnection());
+    this.net.subscribe(() => {
+      this.watchOwnConnection();
+    });
 
     this.bgLayers = BG_FACTORS.map((factor, i) => ({
       factor,
@@ -393,7 +395,9 @@ export class GameScene extends Scene {
       .setVisible(false);
 
     this.buildStartScreen();
-    this.input.on("pointerdown", () => this.handleInput());
+    this.input.on("pointerdown", () => {
+      this.handleInput();
+    });
     this.input.keyboard?.on("keydown-SPACE", (e: KeyboardEvent) => {
       if (!e.repeat) {
         this.handleInput();
@@ -549,8 +553,16 @@ export class GameScene extends Scene {
     }
 
     this.startEl?.classList.add("ready");
-    this.input.keyboard?.once("keyup", () => this.beginPlay());
-    this.startEl?.addEventListener("pointerup", () => this.beginPlay(), { once: true });
+    this.input.keyboard?.once("keyup", () => {
+      this.beginPlay();
+    });
+    this.startEl?.addEventListener(
+      "pointerup",
+      () => {
+        this.beginPlay();
+      },
+      { once: true },
+    );
   }
 
   private spawnTitleDragon() {
@@ -580,7 +592,9 @@ export class GameScene extends Scene {
     this.tweens.add({
       duration: 5200 + Math.random() * 2000,
       ease: "Sine.easeInOut",
-      onComplete: () => this.flyTitleDragon(),
+      onComplete: () => {
+        this.flyTitleDragon();
+      },
       targets: d,
       x: this.viewW() + 80,
     });
@@ -827,7 +841,7 @@ export class GameScene extends Scene {
   }
 
   private roomCourse() {
-    const ref = this.net.sharedState["course"];
+    const ref = this.net.sharedState.course;
 
     if (ref !== this.courseRef) {
       this.courseRef = ref;
@@ -1318,7 +1332,9 @@ export class GameScene extends Scene {
       .setDepth(7)
       .play("burst");
 
-    burst.once(Animations.Events.ANIMATION_COMPLETE, () => burst.destroy());
+    burst.once(Animations.Events.ANIMATION_COMPLETE, () => {
+      burst.destroy();
+    });
     coin.destroy();
     this.score += 1;
     this.playSound("point", { rate: 1.5 });
@@ -1431,7 +1447,7 @@ export class GameScene extends Scene {
 
     const state = player?.state;
 
-    if (known && state?.["t"] === known.motion.stamp) {
+    if (known && state?.t === known.motion.stamp) {
       return known;
     }
 
@@ -1643,12 +1659,16 @@ export class GameScene extends Scene {
       this.playSound("point", { rate, volume: 0.45 });
 
       if (index + 1 < rates.length) {
-        this.phraseTimer = this.time.delayedCall(PHRASE_NOTE_MS, () => note(index + 1));
+        this.phraseTimer = this.time.delayedCall(PHRASE_NOTE_MS, () => {
+          note(index + 1);
+        });
       }
     };
 
     if (delay > 0) {
-      this.phraseTimer = this.time.delayedCall(delay, () => note(0));
+      this.phraseTimer = this.time.delayedCall(delay, () => {
+        note(0);
+      });
     } else {
       note(0);
     }

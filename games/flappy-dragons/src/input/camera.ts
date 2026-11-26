@@ -270,7 +270,10 @@ class PoseCamera {
 
       const { video } = this.ui;
       const tracks = stream.getTracks();
-      const onEnded = () => this.failStart(attempt, "Camera stream ended");
+
+      const onEnded = () => {
+        this.failStart(attempt, "Camera stream ended");
+      };
 
       const onVideoError = () => {
         if (video.srcObject !== stream || video.error === null) {

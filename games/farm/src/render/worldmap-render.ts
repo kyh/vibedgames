@@ -70,7 +70,7 @@ const labelComponents = (w: number, h: number, occupied: Uint8Array) => {
     for (let x = 0; x < w; x += 1) {
       const start = y * w + x;
 
-      if (!occupied[start] || compId[start] !== -1) {
+      if ((occupied[start] ?? 0) === 0 || compId[start] !== -1) {
         continue;
       }
 
@@ -105,7 +105,7 @@ const labelComponents = (w: number, h: number, occupied: Uint8Array) => {
 
             const ni = ny * w + nx;
 
-            if (occupied[ni] && compId[ni] === -1) {
+            if ((occupied[ni] ?? 0) !== 0 && compId[ni] === -1) {
               compId[ni] = id;
               queue.push(ni);
             }

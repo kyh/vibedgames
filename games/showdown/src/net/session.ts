@@ -26,7 +26,7 @@ const devPartyHost = () => {
 
   const p = new URLSearchParams(location.search).get("party");
 
-  if (!p) {
+  if (p === null || p === "") {
     return fallback;
   }
 
@@ -138,14 +138,23 @@ export class Session {
       fallbackMs: OFFLINE_FALLBACK_MS,
       host: MULTIPLAYER_HOST,
       maxPlayers: MAX_PLAYERS,
-      onEvent: (event, payload, from) => this.onEvent(event, payload, from),
+      onEvent: (event, payload, from) => {
+        this.onEvent(event, payload, from);
+      },
       party: PARTY,
       room: options.room,
     });
-    this.unsubscribe = this.client.subscribe(() => this.collect());
+    this.unsubscribe = this.client.subscribe(() => {
+      this.collect();
+    });
 
     if (import.meta.env.DEV) {
-      window.__net = { blip: () => this.blip(), client: this.client };
+      window.__net = {
+        blip: () => {
+          this.blip();
+        },
+        client: this.client,
+      };
     }
   }
 
@@ -209,7 +218,7 @@ export class Session {
 
   /** Re-announce the local pick every few seconds so any host — current or future — has it. */
   announce(kit: Intent & { kind: "join" }) {
-    if (!this.playerId) {
+    if (this.playerId === null || this.playerId === "") {
       return;
     }
 
@@ -277,13 +286,13 @@ export class Session {
     this.seen = seenOf(state);
 
     return {
-      boxes: parseBoxes(state["bx"]),
-      broken: parseBroken(state["br"]),
-      cubes: parseCubes(state["cu"]),
-      frame: parseFrame(state["f"]),
+      boxes: parseBoxes(state.bx),
+      broken: parseBroken(state.br),
+      cubes: parseCubes(state.cu),
+      frame: parseFrame(state.f),
       fx: [],
       host: this.client.hostId,
-      match: parseMatch(state["m"]),
+      match: parseMatch(state.m),
       receivedAt: performance.now(),
     };
   }
@@ -318,9 +327,9 @@ export class Session {
     };
 
     if (fx.length > 0) {
-      this.fxSeqOut = Math.max(this.fxSeqOut, sharedCounter(this.client.sharedState["fs"])) + 1;
-      patch["fx"] = fx;
-      patch["fs"] = this.fxSeqOut;
+      this.fxSeqOut = Math.max(this.fxSeqOut, sharedCounter(this.client.sharedState.fs)) + 1;
+      patch.fx = fx;
+      patch.fs = this.fxSeqOut;
     }
 
     this.seq = world.frame.s;
@@ -363,7 +372,7 @@ export class Session {
       broken: fresh("br") ? parseBroken(next.br) : null,
       cubes: fresh("cu") ? parseCubes(next.cu) : null,
       frame,
-      fx: fxFresh && seen.fs !== null ? parseFxBatch(state["fx"]) : [],
+      fx: fxFresh && seen.fs !== null ? parseFxBatch(state.fx) : [],
       host: this.client.hostId,
       match: fresh("m") ? parseMatch(next.m) : null,
       receivedAt: performance.now(),

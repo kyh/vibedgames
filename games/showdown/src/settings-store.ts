@@ -63,16 +63,17 @@ export const resolveQuality = (
   saved: SavedSettings,
   coarsePointer: boolean,
 ) => {
-  const requested = param || saved.quality || (coarsePointer ? "medium" : "high");
+  const requested =
+    (param === null || param === "" ? saved.quality : param) || (coarsePointer ? "medium" : "high");
 
   return {
     name: isQualityName(requested) ? requested : "high",
-    userPicked: Boolean(param || saved.quality),
+    userPicked: Boolean(param === null || param === "" ? saved.quality : param),
   };
 };
 
 export const resolveDifficulty = (param: string | null, saved: SavedSettings) => {
-  const requested = param || saved.difficulty || "";
+  const requested = (param === null || param === "" ? saved.difficulty : param) || "";
 
   return isDifficultyName(requested) ? requested : "normal";
 };

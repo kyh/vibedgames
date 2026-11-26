@@ -149,9 +149,9 @@ const injectStyle = () => {
 };
 
 export class Menu {
-  private el: HTMLDivElement;
+  private readonly el: HTMLDivElement;
   private selected: string;
-  private unwatchControls: () => void;
+  private readonly unwatchControls: () => void;
   private removed = false;
   private selectionAnimations: Animation[] = [];
   private readonly pad = new PhysicalGamepad();
@@ -166,7 +166,7 @@ export class Menu {
     }
   };
 
-  private opts: MenuOpts;
+  private readonly opts: MenuOpts;
 
   constructor(opts: MenuOpts) {
     this.opts = opts;
@@ -176,7 +176,9 @@ export class Menu {
     document.body.append(this.el);
     injectStyle();
     this.build();
-    this.unwatchControls = watchControlContext(() => this.renderHelp());
+    this.unwatchControls = watchControlContext(() => {
+      this.renderHelp();
+    });
     this.motion.addEventListener("change", this.onMotionChange);
     window.addEventListener("keydown", this.onKeyDown);
     this.pad.update();
@@ -222,25 +224,29 @@ export class Menu {
       btn.addEventListener("click", () => {
         const { id } = btn.dataset;
 
-        if (!this.removed && id && id !== this.selected && CHAMPIONS.some((c) => c.id === id)) {
+        if (
+          !this.removed &&
+          id !== undefined &&
+          id !== "" &&
+          id !== this.selected &&
+          CHAMPIONS.some((c) => c.id === id)
+        ) {
           this.opts.onSelect(id);
         }
       });
     }
 
-    document
-      .querySelector("#ba-bots")
-      ?.addEventListener("click", () =>
-        this.start({ champId: this.selected, name: nameOf(), online: false, room: "" }),
-      );
-    document.querySelector("#ba-online")?.addEventListener("click", () =>
+    document.querySelector("#ba-bots")?.addEventListener("click", () => {
+      this.start({ champId: this.selected, name: nameOf(), online: false, room: "" });
+    });
+    document.querySelector("#ba-online")?.addEventListener("click", () => {
       this.start({
         champId: this.selected,
         name: nameOf(),
         online: true,
         room: roomId(codeOf()),
-      }),
-    );
+      });
+    });
 
     this.setSelected(this.selected);
   }
@@ -269,12 +275,12 @@ export class Menu {
     const chips = [...this.el.querySelectorAll<HTMLButtonElement>(".ba-chip")];
 
     for (const b of chips) {
-      const selected = b.dataset["id"] === id;
+      const selected = b.dataset.id === id;
       b.classList.toggle("sel", selected);
       b.setAttribute("aria-pressed", String(selected));
     }
 
-    const chip = chips.find((b) => b.dataset["id"] === id);
+    const chip = chips.find((b) => b.dataset.id === id);
 
     const ab = ALL_ABILITY_KEYS.map(
       (k) =>
@@ -286,9 +292,9 @@ export class Menu {
         <span class="ba-i-role">${c.role} · ${c.primary.toUpperCase()} · <span class="ba-i-diff">${dots(c.difficulty)}</span></span>
         <span class="ba-i-blurb">${c.blurb}</span>
         <span class="ba-i-abrow">${ab}<button type="button" class="ba-kit-menu">KIT GUIDE</button></span>`;
-    info
-      .querySelector(".ba-kit-menu")
-      ?.addEventListener("click", () => this.guide.show(this.selected));
+    info.querySelector(".ba-kit-menu")?.addEventListener("click", () => {
+      this.guide.show(this.selected);
+    });
 
     if (!changed || this.motion.matches) {
       return;

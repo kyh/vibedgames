@@ -48,7 +48,7 @@ export class IntentLink {
     if (this.gate.due(next, now)) {
       const port = this.port();
 
-      if (port?.reachable) {
+      if (port?.reachable === true) {
         const seq = this.prediction.stamp("input");
         port.sendIntent({ dir: next.dir, kind: "input", look: next.look, seq });
       }
@@ -67,7 +67,7 @@ export class IntentLink {
   sendAction(body: Pick<Brawler, "def" | "leap">, kind: "attack" | "super", aim: Aim) {
     const port = this.port();
 
-    if (!port?.reachable) {
+    if (port?.reachable !== true) {
       return;
     }
 
@@ -83,7 +83,7 @@ export class IntentLink {
   sendEvade(body: OwnBody, dx: number, dz: number) {
     const port = this.port();
 
-    if (!port?.reachable) {
+    if (port?.reachable !== true) {
       return;
     }
 

@@ -21,10 +21,12 @@ const check = (name: string | undefined, passed: boolean, evidence: any[]) => {
   }
 };
 
-const count = (method: string) =>
-  evaluate(`window.__sfxEvents.filter(event => event.method === ${JSON.stringify(method)}).length`);
+const count = async (method: string) =>
+  await evaluate(
+    `window.__sfxEvents.filter(event => event.method === ${JSON.stringify(method)}).length`,
+  );
 
-const diagnostics = () => evaluate("window.__taxi.game.sfx.diagnostics()");
+const diagnostics = async () => await evaluate("window.__taxi.game.sfx.diagnostics()");
 
 const key = async (name: string, code: string, virtualKey: number, hold = 80) => {
   const event = { code, key: name, windowsVirtualKeyCode: virtualKey };

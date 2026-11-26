@@ -71,7 +71,7 @@ export const findNestingIssue: (value: JsonValue, depth: number) => string | nul
 
       const issue = findNestingIssue(item, depth + 1);
 
-      if (issue) {
+      if (issue !== null && issue !== "") {
         return issue;
       }
     }
@@ -97,7 +97,7 @@ export const findNestingIssue: (value: JsonValue, depth: number) => string | nul
 
       const issue = findNestingIssue(child, depth + 1);
 
-      if (issue) {
+      if (issue !== null && issue !== "") {
         return issue;
       }
     }

@@ -138,7 +138,7 @@ const countPlots = (world: World) => {
   const plots = { dry: 0, empty: 0, growing: 0, ripe: 0 };
 
   for (let i = 0; i < MAP_W * MAP_H; i += 1) {
-    if (!world.tilled[i]) {
+    if ((world.tilled[i] ?? 0) === 0) {
       continue;
     }
 
@@ -148,10 +148,10 @@ const countPlots = (world: World) => {
       plots.empty += 1;
     } else if (isMature(CROPS[cs.crop], cs.daysGrown)) {
       plots.ripe += 1;
-    } else if (world.watered[i]) {
-      plots.growing += 1;
-    } else {
+    } else if ((world.watered[i] ?? 0) === 0) {
       plots.dry += 1;
+    } else {
+      plots.growing += 1;
     }
   }
 
@@ -429,13 +429,13 @@ const choreReflex: (
   const tap = keyTapper({ downFrames: 3, upFrames: 6 });
 
   return (diag) => {
-    if (diag?.modal) {
-      return { keys: tap([confirms && diag[confirms] ? "Space" : "Escape"]) };
+    if (diag?.modal === true) {
+      return { keys: tap([confirms && diag[confirms] === true ? "Space" : "Escape"]) };
     }
 
     const chore = diag?.chores?.[id];
 
-    if (!diag || !chore || diag.busy) {
+    if (!diag || !chore || diag.busy === true) {
       tap([]);
 
       return NO_INPUT;

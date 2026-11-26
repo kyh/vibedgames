@@ -91,10 +91,10 @@ const rerollStar = (star: Star) => {
  * 5s) plus chunky shooting stars falling from the top edge.
  */
 export class Starfield {
-  private scene: Phaser.Scene;
-  private stars: Star[] = [];
+  private readonly scene: Phaser.Scene;
+  private readonly stars: Star[] = [];
   private shooters: ShootingStar[] = [];
-  private gfx: Phaser.GameObjects.Graphics;
+  private readonly gfx: Phaser.GameObjects.Graphics;
   private regenAcc = 0;
   private shootAcc = 0;
   private nextShootMs = randBetween(SHOOT_SPAWN_MS_MIN, SHOOT_SPAWN_MS_MAX);

@@ -257,12 +257,15 @@ export const browserEnv: () => AgentEnv = () => {
     Object.prototype.toString.call(value) === "[object Function]";
 
   return {
-    caf: (id) => window.cancelAnimationFrame(id),
-    delay: (ms) =>
-      // oxlint-disable-next-line promise/avoid-new -- the page has no timers/promises; wrapping setTimeout is the only way to await a delay there
-      new Promise((resolve) => {
-        window.setTimeout(resolve, ms);
-      }),
+    caf: (id) => {
+      window.cancelAnimationFrame(id);
+    },
+    delay: async (ms) => {
+      const { promise, resolve } = Promise.withResolvers<void>();
+      window.setTimeout(resolve, ms);
+
+      await promise;
+    },
     dispatchKey: (type, init) => {
       const target = document.activeElement ?? document.body ?? window;
       target.dispatchEvent(new KeyboardEvent(type, init));
@@ -300,7 +303,7 @@ export const browserEnv: () => AgentEnv = () => {
       target.dispatchEvent(new PointerEvent(type, init));
       target.dispatchEvent(new MouseEvent(mouseType(type), init));
     },
-    fetch: (url, init) => window.fetch(url, init),
+    fetch: async (url, init) => await window.fetch(url, init),
     live: () => window.__GAME_DIAGNOSTICS__ ?? null,
     now: () => Date.now(),
     publish: (result) => {
@@ -688,7 +691,7 @@ export const inPageAgent = (config: AgentConfig, env: AgentEnv) => {
         failure = error instanceof Error ? error.message : String(error);
       }
 
-      if (response?.ok) {
+      if (response?.ok === true) {
         const text = await response.text();
 
         return parseDecision(text, offered);

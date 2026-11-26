@@ -1,3 +1,17 @@
+/** A planar point: `[x, z]` in world units, or `[u, v]` in map fractions. */
+export type Point = readonly [number, number];
+
+/** Read item `i` of a list whose index the caller has already bounded. */
+export const at = <T,>(items: readonly T[], i: number) => {
+  const item = items[i];
+
+  if (item === undefined) {
+    throw new RangeError(`item ${i} of ${items.length}`);
+  }
+
+  return item;
+};
+
 export const GRID_X = 244;
 export const GRID_Z = 200;
 export const ROAD_TILE = 13;
@@ -17,7 +31,7 @@ export const smooth = (x: number, a: number, b: number) => {
   return t * t * (3 - 2 * t);
 };
 
-const box = (u: any, v: any, uMin: number, uMax: number, vMin: number, vMax: number) => {
+const box = (u: number, v: number, uMin: number, uMax: number, vMin: number, vMax: number) => {
   const fu = Math.min(smooth(u, uMin - 0.02, uMin + 0.01), 1 - smooth(u, uMax - 0.01, uMax + 0.02));
   const fv = Math.min(smooth(v, vMin - 0.02, vMin + 0.01), 1 - smooth(v, vMax - 0.01, vMax + 0.02));
 
@@ -27,25 +41,25 @@ const box = (u: any, v: any, uMin: number, uMax: number, vMin: number, vMax: num
 const lineSide = (u: number, v: number, ax: number, ay: number, bx: number, by: number) =>
   (bx - ax) * (v - ay) - (by - ay) * (u - ax);
 
-const stationAt = (S: any[], x: number) => {
-  if (x <= S[0][0] || x >= S.at(-1)[0]) {
+const stationAt = (S: readonly Point[], x: number) => {
+  if (x <= at(S, 0)[0] || x >= at(S, S.length - 1)[0]) {
     return null;
   }
 
   let i = 1;
 
-  while (i < S.length - 1 && S[i][0] < x) {
+  while (i < S.length - 1 && at(S, i)[0] < x) {
     i += 1;
   }
 
-  const a = S[i - 1];
-  const b = S[i];
+  const a = at(S, i - 1);
+  const b = at(S, i);
   const t = (x - a[0]) / (b[0] - a[0] || 1);
 
   return a[1] + (b[1] - a[1]) * t;
 };
 
-const EMBARCADERO_SHORE = [
+const EMBARCADERO_SHORE: readonly Point[] = [
   [0.021, 0.6596],
   [0.0415, 0.7146],
   [0.0838, 0.7458],
@@ -54,7 +68,7 @@ const EMBARCADERO_SHORE = [
   [0.2634, 0.8114],
 ];
 
-const shoreCut = (u: any, v: any) => {
+const shoreCut = (u: number, v: number) => {
   const su = stationAt(EMBARCADERO_SHORE, v);
 
   return su === null ? 1 : 1 - smooth(u, su - 0.004, su + 0.008);
@@ -63,7 +77,7 @@ const shoreCut = (u: any, v: any) => {
 const NORTH_SHORE_V = 0.0475;
 const NORTH_SHORE_FEATHER = 0.0225;
 
-const GATE_SHORE = [
+const GATE_SHORE: readonly Point[] = [
   [0.155, 0.124],
   [0.2, 0.116],
   [0.25, 0.104],
@@ -77,7 +91,7 @@ const GATE_SHORE = [
 
 const MARIN_FEATHER = 0.005;
 
-const MARIN_COAST = [
+const MARIN_COAST: readonly Point[] = [
   [0.085, -0.006],
   [0.13, 0.004],
   [0.18, 0.0135],
@@ -91,7 +105,7 @@ const MARIN_COAST = [
   [0.42, -0.028],
 ];
 
-const marinLand = (u: any, v: any) => {
+const marinLand = (u: number, v: number) => {
   const cv = stationAt(MARIN_COAST, u);
 
   return cv === null ? 0 : 1 - smooth(v, cv - MARIN_FEATHER, cv + MARIN_FEATHER);
@@ -99,7 +113,7 @@ const marinLand = (u: any, v: any) => {
 
 const RING_FEATHER = 5;
 
-const MISSION_CREEK = [
+const MISSION_CREEK: readonly Point[] = [
   [0.7804, 0.3358],
   [0.7328, 0.3918],
   [0.7313, 0.393],
@@ -112,7 +126,7 @@ const MISSION_CREEK = [
 
 const YERBA_BUENA = { ru: 95, rv: 190, u: 0.938, v: -0.005 };
 
-const ringFactor = (u: number, v: number, ring: string | any[]) => {
+const ringFactor = (u: number, v: number, ring: readonly Point[]) => {
   const px = u * WORLD_W;
   const pz = v * WORLD_H;
   let best = Infinity;
@@ -120,10 +134,10 @@ const ringFactor = (u: number, v: number, ring: string | any[]) => {
 
   for (let i = 0; i < ring.length; i += 1) {
     const j = (i + ring.length - 1) % ring.length;
-    const ax = ring[i][0] * WORLD_W;
-    const az = ring[i][1] * WORLD_H;
-    const cx = ring[j][0] * WORLD_W;
-    const cz = ring[j][1] * WORLD_H;
+    const ax = at(ring, i)[0] * WORLD_W;
+    const az = at(ring, i)[1] * WORLD_H;
+    const cx = at(ring, j)[0] * WORLD_W;
+    const cz = at(ring, j)[1] * WORLD_H;
 
     if (az > pz !== cz > pz && px < ((cx - ax) * (pz - az)) / (cz - az) + ax) {
       inside = !inside;
@@ -147,7 +161,7 @@ const ringFactor = (u: number, v: number, ring: string | any[]) => {
   return 1 - smooth(inside ? -best : best, -RING_FEATHER, RING_FEATHER);
 };
 
-const isle = (u: number, v: number, c: { ru: any; rv: any; u: any; v: any }) =>
+const isle = (u: number, v: number, c: { ru: number; rv: number; u: number; v: number }) =>
   1 - smooth(Math.hypot(((u - c.u) * WORLD_W) / c.ru, ((v - c.v) * WORLD_H) / c.rv), 0.72, 1);
 
 export const landFactor = (u: number, v: number) => {
@@ -173,28 +187,29 @@ export const landFactor = (u: number, v: number) => {
 };
 
 export const onLandUV = (u: number, v: number) => landFactor(u, v) > 0.5;
-export const onLandXZ = (x: number | undefined, z: number | undefined) =>
-  onLandUV(x / WORLD_W + 0.5, z / WORLD_H + 0.5);
+export const onLandXZ = (x: number, z: number) => onLandUV(x / WORLD_W + 0.5, z / WORLD_H + 0.5);
 
-export const ringArea = (pts: string | any[]) => {
+export const ringArea = (pts: readonly Point[]) => {
   let a = 0;
 
   for (let i = 0; i < pts.length; i += 1) {
-    const [x0, z0] = pts[i];
-    const [x1, z1] = pts[(i + 1) % pts.length];
+    const [x0, z0] = at(pts, i);
+    const [x1, z1] = at(pts, (i + 1) % pts.length);
     a += x0 * z1 - x1 * z0;
   }
 
   return a / 2;
 };
 
-export const rdp = (pts: any[], eps: number) => {
+export const rdp: <P extends Point>(pts: readonly P[], eps: number) => P[] = (pts, eps) => {
   if (pts.length <= 2) {
-    return pts;
+    return [...pts];
   }
 
-  const [[x0, z0]] = pts;
-  const [x1, z1] = pts.at(-1);
+  const first = at(pts, 0);
+  const last = at(pts, pts.length - 1);
+  const [x0, z0] = first;
+  const [x1, z1] = last;
   const dx = x1 - x0;
   const dz = z1 - z0;
   const len = Math.hypot(dx, dz) || 1;
@@ -202,7 +217,8 @@ export const rdp = (pts: any[], eps: number) => {
   let maxI = 0;
 
   for (let i = 1; i + 1 < pts.length; i += 1) {
-    const d = Math.abs((pts[i][0] - x0) * dz - (pts[i][1] - z0) * dx) / len;
+    const [px, pz] = at(pts, i);
+    const d = Math.abs((px - x0) * dz - (pz - z0) * dx) / len;
 
     if (d > maxD) {
       maxD = d;
@@ -211,7 +227,7 @@ export const rdp = (pts: any[], eps: number) => {
   }
 
   if (maxD <= eps) {
-    return [pts[0], pts.at(-1)];
+    return [first, last];
   }
 
   const l = rdp(pts.slice(0, maxI + 1), eps);
@@ -220,11 +236,13 @@ export const rdp = (pts: any[], eps: number) => {
   return [...l.slice(0, -1), ...r];
 };
 
-export const plLen = (pts: string | any[]) => {
+export const plLen = (pts: readonly Point[]) => {
   let L = 0;
 
   for (let i = 1; i < pts.length; i += 1) {
-    L += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+    const [x1, z1] = at(pts, i);
+    const [x0, z0] = at(pts, i - 1);
+    L += Math.hypot(x1 - x0, z1 - z0);
   }
 
   return L;

@@ -361,7 +361,13 @@ test("Interpolator renders a jittery stream at the hold it needs, where a fixed 
 
   const fixed = starvedShare(
     new Interpolator<Pose>({
-      clock: { now: (t) => route.now(t), observe: (a, b) => route.observe(a, b), synced: true },
+      clock: {
+        now: (t) => route.now(t),
+        observe: (a, b) => {
+          route.observe(a, b);
+        },
+        synced: true,
+      },
       lerp: lerpPose,
     }),
     arrivals,
@@ -508,7 +514,7 @@ const run = (options: {
     if (i % 3 === 0) {
       const hostAt = at - options.lagMs;
       const hostX = pathAt(hostAt) + (options.hostOffset ?? 0);
-      options.reconciler.reconcile(hostX, 0, options.aligned ? hostAt : undefined);
+      options.reconciler.reconcile(hostX, 0, options.aligned === true ? hostAt : undefined);
     }
 
     const fix = options.reconciler.step(x, 0, frame, at);

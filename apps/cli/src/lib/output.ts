@@ -128,7 +128,7 @@ export const formatField = (value: OutputValue) => {
  * given, so the caller can fall through to its human-readable rendering.
  */
 export const writeStructured = <T extends OutputPayload<T>>(value: T, args: OutputArgs) => {
-  if (args.field) {
+  if (args.field !== undefined && args.field !== "") {
     const selected = selectField(value, args.field);
 
     if (selected === undefined) {

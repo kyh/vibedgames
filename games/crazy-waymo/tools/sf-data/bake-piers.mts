@@ -4,6 +4,7 @@ import { onLandUV, rdp, ringArea, projU, projV, WORLD_H, WORLD_W } from "./lib.m
 const waterAt = ([x, z]) => !onLandUV(x / WORLD_W + 0.5, z / WORLD_H + 0.5);
 
 const raw = JSON.parse(readFileSync(new URL("sf-piers.raw.json", import.meta.url)));
+
 const ways = raw.elements.filter(
   (e: { type: string; geometry: any }) => e.type === "way" && e.geometry,
 );

@@ -172,7 +172,9 @@ export class GameScene extends Scene {
   trailerFrame: ((dt: number) => void) | null = null;
   private fainted = false;
   private onResizeHandler?: (gs: Phaser.Structs.Size) => void;
-  private saveHandler = () => this.save();
+  private readonly saveHandler = () => {
+    this.save();
+  };
   private saveDirty = false;
   private saveAcc = 0;
   private saveFailed = false;
@@ -185,9 +187,15 @@ export class GameScene extends Scene {
   private poseRevision = 0;
   private readonly farmSync = new FarmSync(
     {
-      objectBack: (o) => this.objectBack(o),
-      objectGone: (o) => this.objectGone(o),
-      redrawTile: (idx) => this.redrawTile(idx),
+      objectBack: (o) => {
+        this.objectBack(o);
+      },
+      objectGone: (o) => {
+        this.objectGone(o);
+      },
+      redrawTile: (idx) => {
+        this.redrawTile(idx);
+      },
       world: () => this.world,
     },
     coopObjects,
@@ -197,7 +205,7 @@ export class GameScene extends Scene {
   private publishedAs: string | null = null;
   private lastShared: JsonObject | null = null;
   private readonly claims = new ClaimBook();
-  private hintKey: HintKey = { idx: -1, item: null };
+  private readonly hintKey: HintKey = { idx: -1, item: null };
   private hint: string | null = null;
 
   constructor() {
@@ -236,7 +244,7 @@ export class GameScene extends Scene {
     this.clickPath = [];
     this.pathStuck = 0;
 
-    if (!data?.fromMine) {
+    if (data?.fromMine !== true) {
       this.saveDirty = false;
     }
 
@@ -245,10 +253,10 @@ export class GameScene extends Scene {
 
     this.adoptSolo(data);
 
-    if (data?.fromMine) {
+    if (data?.fromMine === true) {
       this.restoreFromStore();
 
-      if (data.fainted) {
+      if (data.fainted === true) {
         this.fainted = true;
       }
     } else {
@@ -263,8 +271,12 @@ export class GameScene extends Scene {
         interest: { radius: MP_INTEREST_RADIUS },
         limits: MP_LIMITS,
         maxPlayers: MP_MAX_PLAYERS,
-        onClaim: (key, owner) => this.handleClaim(key, owner),
-        onEvent: (event, payload, from) => this.handleNetEvent(event, payload, from),
+        onClaim: (key, owner) => {
+          this.handleClaim(key, owner);
+        },
+        onEvent: (event, payload, from) => {
+          this.handleNetEvent(event, payload, from);
+        },
         room: ROOM,
       });
     }
@@ -346,7 +358,7 @@ export class GameScene extends Scene {
     window.removeEventListener("beforeunload", this.saveHandler);
     window.addEventListener("beforeunload", this.saveHandler);
 
-    if (data?.fromMine) {
+    if (data?.fromMine === true) {
       cam.fadeIn(400, 0, 0, 0);
       this.showMineRecap(data.mineRecap);
     } else {
@@ -355,7 +367,7 @@ export class GameScene extends Scene {
 
     this.remoteFarmers = new RemoteFarmers(this);
 
-    if (data?.fromMine) {
+    if (data?.fromMine === true) {
       this.farmSync.reset();
     } else {
       this.farmSync.forget();
@@ -377,12 +389,12 @@ export class GameScene extends Scene {
       return;
     }
 
-    this.time.delayedCall(420, () =>
+    this.time.delayedCall(420, () => {
       this.toast(
         `${recap.fainted ? "Rescued" : "Home"} · Floor ${recap.deepest} · ${recap.gathered} minerals · ${recap.defeated} defeated · ${recap.gold >= 0 ? "+" : ""}${recap.gold}g`,
         recap.fainted ? "#ffb3b3" : "#d8ffb0",
-      ),
-    );
+      );
+    });
   }
 
   private openFarm(data: { mode: "new" | "continue"; solo?: { seed: number } }) {
@@ -399,7 +411,7 @@ export class GameScene extends Scene {
   }
 
   private adoptSolo(data: { fromMine?: boolean; solo?: { seed: number } }) {
-    if (!data.fromMine) {
+    if (data.fromMine !== true) {
       this.solo = data.solo !== undefined;
     }
 
@@ -460,8 +472,12 @@ export class GameScene extends Scene {
 
     this.input.removeAllListeners();
     kb.removeAllListeners();
-    kb.on("keydown", () => Sound.resume());
-    this.input.on("pointerdown", () => Sound.resume());
+    kb.on("keydown", () => {
+      Sound.resume();
+    });
+    this.input.on("pointerdown", () => {
+      Sound.resume();
+    });
     this.keys = makeGameKeys(kb);
 
     for (const k of Object.values(this.keys)) {
@@ -476,8 +492,12 @@ export class GameScene extends Scene {
       this.keys[name].on("down", () => !this.controlsPaused && !this.uiOpen && store.inv.select(i));
     }
 
-    this.keys.SPACE.on("down", () => this.tryAction());
-    this.keys.E.on("down", () => this.tryAction());
+    this.keys.SPACE.on("down", () => {
+      this.tryAction();
+    });
+    this.keys.E.on("down", () => {
+      this.tryAction();
+    });
 
     const actOrWalk = (p: Phaser.Input.Pointer) => {
       if (this.controlsPaused) {
@@ -548,8 +568,12 @@ export class GameScene extends Scene {
 
       actOrWalk(p);
     });
-    this.keys.I.on("down", () => this.toggleInventory());
-    kb.on("keydown-T", () => this.toggleCollisionOverlay());
+    this.keys.I.on("down", () => {
+      this.toggleInventory();
+    });
+    kb.on("keydown-T", () => {
+      this.toggleCollisionOverlay();
+    });
     this.input.on(
       "wheel",
       (_p: Phaser.Input.Pointer, _o: Phaser.GameObjects.GameObject[], _dx: number, dy: number) => {
@@ -676,7 +700,7 @@ export class GameScene extends Scene {
 
   private buildSoilAndCrops() {
     for (let i = 0; i < MAP_W * MAP_H; i += 1) {
-      if (this.world.tilled[i]) {
+      if ((this.world.tilled[i] ?? 0) !== 0) {
         this.ensureSoil(i);
       }
     }
@@ -704,7 +728,7 @@ export class GameScene extends Scene {
   }
 
   private refreshSoilTint(i: number) {
-    this.soilImgs.get(i)?.setTint(this.world.watered[i] ? 0x6b_4f_33 : 0xff_ff_ff);
+    this.soilImgs.get(i)?.setTint((this.world.watered[i] ?? 0) === 0 ? 0xff_ff_ff : 0x6b_4f_33);
   }
 
   private ensureCrop(i: number, crop: CropId, stage: number) {
@@ -1041,11 +1065,11 @@ export class GameScene extends Scene {
       this.cropImgs.delete(idx);
     }
 
-    if (this.world.tilled[idx]) {
-      this.ensureSoil(idx);
-    } else {
+    if ((this.world.tilled[idx] ?? 0) === 0) {
       this.soilImgs.get(idx)?.destroy();
       this.soilImgs.delete(idx);
+    } else {
+      this.ensureSoil(idx);
     }
 
     this.refreshSoilTint(idx);
@@ -1057,7 +1081,14 @@ export class GameScene extends Scene {
     this.objSprites.delete(o.id);
 
     if (spr && this.sys.isActive()) {
-      this.tweens.add({ alpha: 0, duration: 200, onComplete: () => spr.destroy(), targets: spr });
+      this.tweens.add({
+        alpha: 0,
+        duration: 200,
+        onComplete: () => {
+          spr.destroy();
+        },
+        targets: spr,
+      });
     }
   }
 
@@ -1365,7 +1396,9 @@ export class GameScene extends Scene {
     this.tweens.add({
       alpha: 0,
       duration: 300,
-      onComplete: () => g.destroy(),
+      onComplete: () => {
+        g.destroy();
+      },
       scaleX: 0.3,
       scaleY: 0.3,
       targets: g,
@@ -1522,7 +1555,9 @@ export class GameScene extends Scene {
     const holder = this.otherHolder({ gen: this.world.gens[idx] ?? 0, idx, kind: "harvest" });
 
     if (holder === null) {
-      this.beginAction("doing", () => this.harvest(idx));
+      this.beginAction("doing", () => {
+        this.harvest(idx);
+      });
     } else {
       this.toast(`${farmerTag(holder)} is harvesting that.`, "#ffd27a");
     }
@@ -1602,7 +1637,9 @@ export class GameScene extends Scene {
   private useTool(tool: ToolId, tx: number, ty: number, idx: number) {
     if (tool === "hoe") {
       if (this.world.canTill(tx, ty)) {
-        this.beginAction("dig", () => this.till(idx));
+        this.beginAction("dig", () => {
+          this.till(idx);
+        });
       } else {
         this.toast("Can't till there.", "#ffd27a");
       }
@@ -1621,12 +1658,16 @@ export class GameScene extends Scene {
 
   private useCan(tx: number, ty: number, idx: number) {
     if (inBounds(tx, ty) && this.world.getGround(tx, ty) === GROUND.water) {
-      this.beginAction("water", () => this.refillCan());
-    } else if (idx >= 0 && this.world.tilled[idx]) {
+      this.beginAction("water", () => {
+        this.refillCan();
+      });
+    } else if (idx >= 0 && (this.world.tilled[idx] ?? 0) !== 0) {
       if (this.canCharge <= 0) {
         this.toast("Out of water — refill at the pond.", "#9fd8ff");
       } else {
-        this.beginAction("water", () => this.waterTile(idx));
+        this.beginAction("water", () => {
+          this.waterTile(idx);
+        });
       }
     } else {
       this.toast("Till the soil first.", "#ffd27a");
@@ -1634,7 +1675,7 @@ export class GameScene extends Scene {
   }
 
   private plantSeed(crop: CropId, idx: number) {
-    if (idx >= 0 && this.world.tilled[idx] && !this.world.crops.has(idx)) {
+    if (idx >= 0 && (this.world.tilled[idx] ?? 0) !== 0 && !this.world.crops.has(idx)) {
       if (!CROPS[crop].seasons.includes(seasonOfDay(this.day))) {
         this.toast(`${CROPS[crop].name} won't grow in ${seasonOfDay(this.day)}.`, "#ffd27a");
 
@@ -1649,9 +1690,14 @@ export class GameScene extends Scene {
         return;
       }
 
-      this.beginAction("doing", () => this.plant(idx, crop));
+      this.beginAction("doing", () => {
+        this.plant(idx, crop);
+      });
     } else {
-      this.toast(this.world.tilled[idx] ? "Already planted." : "Till the soil first.", "#ffd27a");
+      this.toast(
+        (this.world.tilled[idx] ?? 0) === 0 ? "Till the soil first." : "Already planted.",
+        "#ffd27a",
+      );
     }
   }
 
@@ -1710,7 +1756,10 @@ export class GameScene extends Scene {
     }
 
     let hold = ClaimTicket.won();
-    const hit = () => (action === "axe" ? this.chop(obj, hold) : this.mineRock(obj, hold));
+
+    const hit = () => {
+      action === "axe" ? this.chop(obj, hold) : this.mineRock(obj, hold);
+    };
 
     if (this.beginAction(action, hit)) {
       hold = this.claim({ id: obj.id, kind: "hold" }, WORK_HOLD_MS);
@@ -1757,7 +1806,7 @@ export class GameScene extends Scene {
   }
 
   private waterTile(idx: number) {
-    if (!this.world.watered[idx]) {
+    if ((this.world.watered[idx] ?? 0) === 0) {
       store.work.watered += 1;
     }
 
@@ -1829,8 +1878,12 @@ export class GameScene extends Scene {
     this.requestSave();
     this.netTileAction({ action: "plant", crop, gen, idx });
     ticket.land({
-      lost: (owner) => this.unplant(idx, crop, gen, owner),
-      won: () => this.awardXP("farming", 2),
+      lost: (owner) => {
+        this.unplant(idx, crop, gen, owner);
+      },
+      won: () => {
+        this.awardXP("farming", 2);
+      },
     });
   }
 
@@ -1889,7 +1942,9 @@ export class GameScene extends Scene {
 
     if (img) {
       pop(this, img);
-      this.time.delayedCall(80, () => img.destroy());
+      this.time.delayedCall(80, () => {
+        img.destroy();
+      });
     }
 
     this.cropImgs.delete(idx);
@@ -1953,7 +2008,9 @@ export class GameScene extends Scene {
       lost: () => {
         o.hp = Math.min(o.maxHp, o.hp + 1);
       },
-      won: () => this.awardXP(skill, xp),
+      won: () => {
+        this.awardXP(skill, xp);
+      },
     });
   }
 
@@ -1990,7 +2047,9 @@ export class GameScene extends Scene {
         this.tweens.add({
           alpha: 0,
           duration: 220,
-          onComplete: () => spr.destroy(),
+          onComplete: () => {
+            spr.destroy();
+          },
           scaleX: 0.7,
           scaleY: 0.6,
           targets: spr,
@@ -2008,7 +2067,9 @@ export class GameScene extends Scene {
           store.work.felled -= 1;
           this.giveBack(owner, "felled", [[wood, kept]]);
         },
-        won: () => this.awardXP("foraging", 6),
+        won: () => {
+          this.awardXP("foraging", 6);
+        },
       });
     }
 
@@ -2053,7 +2114,9 @@ export class GameScene extends Scene {
         this.tweens.add({
           alpha: 0,
           duration: 200,
-          onComplete: () => spr.destroy(),
+          onComplete: () => {
+            spr.destroy();
+          },
           scaleX: 0.5,
           scaleY: 0.5,
           targets: spr,
@@ -2070,7 +2133,9 @@ export class GameScene extends Scene {
           store.work.quarried -= 1;
           this.giveBack(owner, "broke", haul);
         },
-        won: () => this.awardXP("mining", 5),
+        won: () => {
+          this.awardXP("mining", 5);
+        },
       });
     }
 
@@ -2105,7 +2170,9 @@ export class GameScene extends Scene {
       this.tweens.add({
         alpha: 0,
         duration: 200,
-        onComplete: () => spr.destroy(),
+        onComplete: () => {
+          spr.destroy();
+        },
         targets: spr,
         y: spr.y - 6,
       });
@@ -2128,7 +2195,9 @@ export class GameScene extends Scene {
         store.work.foraged -= 1;
         this.giveBack(owner, "picked", [[item, kept]]);
       },
-      won: () => this.awardXP("foraging", 8),
+      won: () => {
+        this.awardXP("foraging", 8);
+      },
     });
   }
 

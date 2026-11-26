@@ -101,9 +101,9 @@ const banner = (setup: RunSetup) => {
       `Game dir:  ${setup.workspace}`,
       setup.existingProject ? `Source:    building on existing files in the game dir` : null,
       setup.hasContext
-        ? `Context:   provided${setup.contextDir ? ` (+ reference dir: ${setup.contextDir})` : ""}`
+        ? `Context:   provided${setup.contextDir !== null && setup.contextDir !== "" ? ` (+ reference dir: ${setup.contextDir})` : ""}`
         : null,
-      setup.repoRoot ? `Repo:      ${setup.repoRoot}` : null,
+      setup.repoRoot !== null && setup.repoRoot !== "" ? `Repo:      ${setup.repoRoot}` : null,
       `Mode:      ${setup.guarded ? "guarded (will block on approvals!)" : "unattended (tools auto-approved)"}`,
       deployNote(setup),
       setup.maxCycles > 0
@@ -132,7 +132,9 @@ const summaryBanner = (summary: RunSummary) => {
     [
       `Agent stopped for "${summary.slug}".`,
       `Cycles run: ${summary.cycles} · iterations: ${summary.iterations}`,
-      summary.deployUrl ? `Live: ${summary.deployUrl}` : "Not yet shipped.",
+      summary.deployUrl !== null && summary.deployUrl !== ""
+        ? `Live: ${summary.deployUrl}`
+        : "Not yet shipped.",
       `Approx spend: $${summary.totalCostUsd.toFixed(2)}`,
       `Resume anytime: pnpm start ${summary.slug}`,
     ].join("\n"),
@@ -174,7 +176,9 @@ export const createConsoleReporter: () => Reporter = () => {
       }
 
       case "tool": {
-        consola.log(`${tag} ⚙ ${event.name}${event.detail ? `  (${event.detail})` : ""}`);
+        consola.log(
+          `${tag} ⚙ ${event.name}${event.detail !== undefined && event.detail !== "" ? `  (${event.detail})` : ""}`,
+        );
         break;
       }
 

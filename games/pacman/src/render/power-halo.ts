@@ -6,9 +6,9 @@ const SEGMENTS = 80;
 
 /** Floor ring under Pacman that drains with the power clock (a track + a shrinking arc). */
 export class PowerHalo {
-  private group = new THREE.Group();
-  private arcGeometry = new THREE.RingGeometry(0.6, 0.69, SEGMENTS, 1, Math.PI / 2);
-  private arcMaterial = new THREE.MeshBasicMaterial({
+  private readonly group = new THREE.Group();
+  private readonly arcGeometry = new THREE.RingGeometry(0.6, 0.69, SEGMENTS, 1, Math.PI / 2);
+  private readonly arcMaterial = new THREE.MeshBasicMaterial({
     color: COLORS.power,
     depthWrite: false,
     opacity: 0.9,

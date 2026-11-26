@@ -86,9 +86,9 @@ export class BootScene extends Scene {
         this.scene.start("viewer");
       })();
     } else if (
-      params.get("demo") ||
-      params.get("room") ||
-      params.get("hero") ||
+      (params.get("demo") ?? "") !== "" ||
+      (params.get("room") ?? "") !== "" ||
+      (params.get("hero") ?? "") !== "" ||
       params.has("trailer")
     ) {
       notifyGameStarted();

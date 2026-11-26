@@ -165,7 +165,7 @@ const parseNative = (root: string, block: JsonObject) => {
 export const readDistributeProject = (dir: string) => {
   const root = findProjectRoot(dir);
 
-  if (!root) {
+  if (root === null || root === "") {
     throw new Error(
       `No vibedgames.json at or above ${dir}. Create one: {"slug": "my-game", "name": "My Game"}`,
     );

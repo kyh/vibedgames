@@ -17,7 +17,7 @@ const DEFAULT_NEXT_PATH = "/home";
 const PROTOCOL_RELATIVE = /^\/[/\\]/u;
 
 const safeNextPath = (path?: string) =>
-  path?.startsWith("/") && !PROTOCOL_RELATIVE.test(path) ? path : DEFAULT_NEXT_PATH;
+  path?.startsWith("/") === true && !PROTOCOL_RELATIVE.test(path) ? path : DEFAULT_NEXT_PATH;
 
 const inOAuthFlow = () =>
   typeof window !== "undefined" && new URLSearchParams(window.location.search).has("sig");
@@ -206,7 +206,9 @@ const SocialSignIn = ({ callbackUrl }: { callbackUrl?: string }) => {
  * destination.
  */
 export const creditCodeCallback = (code?: string) =>
-  code ? `/settings?code=${encodeURIComponent(code)}#credits` : undefined;
+  code !== undefined && code !== ""
+    ? `/settings?code=${encodeURIComponent(code)}#credits`
+    : undefined;
 
 export const RegisterForm = ({ className, callbackUrl, ...props }: StepFormProps) => (
   <div className={cn("grid gap-6", className)} {...props}>

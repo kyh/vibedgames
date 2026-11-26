@@ -213,7 +213,9 @@ const useIsMobile = () => {
 
     window.addEventListener("resize", checkMobile);
 
-    return () => window.removeEventListener("resize", checkMobile);
+    return () => {
+      window.removeEventListener("resize", checkMobile);
+    };
   }, []);
 
   return isMobile;
@@ -276,7 +278,7 @@ export const GameStack = <
                 transition={{ duration: 0.2 }}
               >
                 <picture>
-                  {item.previewPortrait && (
+                  {item.previewPortrait !== undefined && item.previewPortrait !== "" && (
                     <source media="(orientation: portrait)" srcSet={item.previewPortrait} />
                   )}
                   <img

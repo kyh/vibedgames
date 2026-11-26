@@ -93,7 +93,7 @@ const room = () => {
     inputHero: (owner: string) => {
       const u = h.world.units.get(`h-${owner}`);
 
-      return owner !== h.id && u?.alive && h.world.phase === "playing" ? u : null;
+      return owner !== h.id && u?.alive === true && h.world.phase === "playing" ? u : null;
     },
     now: () => now,
     publish: (snap: any, t: any) => {
@@ -127,7 +127,7 @@ const room = () => {
       reconcileHostHeroes(h.world, players, picks, seats);
       const me = h.world.units.get(self.heroId);
 
-      if (me?.alive) {
+      if (me?.alive === true) {
         const { held } = self;
         setHeroInput(me, held.mx, held.my, held.ax, held.ay, held.attack);
       }
@@ -143,14 +143,14 @@ const room = () => {
         continue;
       }
 
-      if (message["kind"] === "snap") {
+      if (message.kind === "snap") {
         const { snap, t } = message;
 
         if (isSnapshot(snap)) {
           g.mirror.applySnapshot(g.world, snap, isJsonNumber(t) ? t : null, now, true);
         }
       } else {
-        const frame = parseFrame(message["frame"] ?? null);
+        const frame = parseFrame(message.frame ?? null);
         const own = frame ? g.mirror.applyFrame(g.world, frame, now) : null;
 
         if (own) {
@@ -164,9 +164,9 @@ const room = () => {
     const me = g.world.units.get(g.heroId);
 
     if (me && g.world.phase === "playing") {
-      g.predictor.advance(me, g.world.units, FRAME_MS, now, g.world.now, g.held, (packet) =>
-        g.up.send(now, inputWire(packet)),
-      );
+      g.predictor.advance(me, g.world.units, FRAME_MS, now, g.world.now, g.held, (packet) => {
+        g.up.send(now, inputWire(packet));
+      });
       g.predictor.render(me, g.world.units, g.held);
     }
   };

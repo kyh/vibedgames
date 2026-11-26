@@ -33,7 +33,14 @@ test("two mints differ, and each verifies only under its own secret", async () =
 test("a tampered token is rejected", async () => {
   const { token } = await mintPlaytestToken(SECRET, "user-1");
   const [prefix, payload, signature] = token.split(".");
-  assert.ok(prefix && payload && signature);
+  assert.ok(
+    prefix !== undefined &&
+      prefix !== "" &&
+      payload !== undefined &&
+      payload !== "" &&
+      signature !== undefined &&
+      signature !== "",
+  );
 
   const forgedPayload = Buffer.from(
     JSON.stringify({ e: Date.now() + 60_000, n: "x", u: "user-2" }),

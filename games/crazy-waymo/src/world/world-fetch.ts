@@ -145,7 +145,7 @@ export const fetchWorldMeta = async () => {
   try {
     const d = await fetchBin("world/meta.bin");
 
-    return d?.meta ? unpackMeta(d.meta) : null;
+    return d?.meta ? await unpackMeta(d.meta) : null;
   } catch (error) {
     console.log(
       `[world-bin] meta unpack failed: ${error instanceof Error ? error.message : error}`,

@@ -115,7 +115,7 @@ const markPoints = () => {
   const svg = readFileSync(path.join(PUBLIC, "favicon/favicon.svg"), "utf-8");
   const points = /<polygon[^>]*points="(?<points>[^"]+)"/u.exec(svg)?.groups?.points;
 
-  if (!points) {
+  if (points === undefined || points === "") {
     throw new Error("og-video: no polygon in public/favicon/favicon.svg");
   }
 

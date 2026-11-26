@@ -29,13 +29,13 @@ export const wireStr = (v: WireValue | undefined) => {
 };
 
 const readShieldMod = (s: WireRecord) => {
-  const kind = SHIELD_MOD_KINDS.find((k) => k === s["mod"]);
+  const kind = SHIELD_MOD_KINDS.find((k) => k === s.mod);
 
   if (!kind) {
     return null;
   }
 
-  return { active: s["modOn"] === true, kind, phased: s["phased"] === true };
+  return { active: s.modOn === true, kind, phased: s.phased === true };
 };
 
 /** A peer's flat wire state (shared/wire.ts playerToWire), decoded. */
@@ -46,36 +46,36 @@ export const readNetState = (player: Player | undefined) => {
     return null;
   }
 
-  const x = wireNum(s["x"]);
-  const y = wireNum(s["y"]);
-  const angle = wireNum(s["angle"]);
+  const x = wireNum(s.x);
+  const y = wireNum(s.y);
+  const angle = wireNum(s.angle);
 
   if (x === null || y === null || angle === null) {
     return null;
   }
 
   return {
-    alive: s["alive"] !== false,
+    alive: s.alive !== false,
     angle,
-    invuln: s["invuln"] === true,
-    level: wireNum(s["level"]) ?? 1,
-    magnet: s["magnet"] === true,
-    nitro: s["nitro"] === true,
-    overHp: wireNum(s["overHp"]) ?? 0,
-    present: s["present"] !== false,
-    sectorScore: wireNum(s["sectorScore"]) ?? 0,
-    shieldHp: wireNum(s["shieldHp"]) ?? SHIELD_MAX,
+    invuln: s.invuln === true,
+    level: wireNum(s.level) ?? 1,
+    magnet: s.magnet === true,
+    nitro: s.nitro === true,
+    overHp: wireNum(s.overHp) ?? 0,
+    present: s.present !== false,
+    sectorScore: wireNum(s.sectorScore) ?? 0,
+    shieldHp: wireNum(s.shieldHp) ?? SHIELD_MAX,
     shieldMod: readShieldMod(s),
-    streak: wireNum(s["streak"]) ?? 0,
-    t: wireNum(s["t"]) ?? 0,
-    tesla: s["tesla"] === true,
-    twin: s["twin"] === true,
-    vx: wireNum(s["vx"]) ?? 0,
-    vy: wireNum(s["vy"]) ?? 0,
-    weaponName: wireStr(s["weaponName"]) ?? "",
-    windup: wireNum(s["windup"]) ?? 0,
+    streak: wireNum(s.streak) ?? 0,
+    t: wireNum(s.t) ?? 0,
+    tesla: s.tesla === true,
+    twin: s.twin === true,
+    vx: wireNum(s.vx) ?? 0,
+    vy: wireNum(s.vy) ?? 0,
+    weaponName: wireStr(s.weaponName) ?? "",
+    windup: wireNum(s.windup) ?? 0,
     x,
-    xp: wireNum(s["xp"]) ?? 0,
+    xp: wireNum(s.xp) ?? 0,
     y,
   };
 };

@@ -54,8 +54,8 @@ const FALLBACK_IDLE = "Idle_B";
 /** Wraps one character instance + its mixer; crossfades named clips. */
 export class AnimatedCharacter {
   readonly root: THREE.Object3D;
-  private mixer: THREE.AnimationMixer;
-  private actions = new Map<
+  private readonly mixer: THREE.AnimationMixer;
+  private readonly actions = new Map<
     THREE.AnimationClip,
     { first: THREE.AnimationAction; second: THREE.AnimationAction | null }
   >();
@@ -63,8 +63,8 @@ export class AnimatedCharacter {
   private currentName = "";
   private fading: { action: THREE.AnimationAction; left: number } | null = null;
 
-  private lib: ModelLibrary;
-  private clipPrefix: string;
+  private readonly lib: ModelLibrary;
+  private readonly clipPrefix: string;
 
   constructor(lib: ModelLibrary, modelName: string, clipPrefix = "") {
     this.lib = lib;

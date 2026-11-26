@@ -52,11 +52,11 @@ export const OAuthConsent = ({
       <div className="grid gap-3 text-sm">
         <p>{name} will be able to:</p>
         <ScopeList scopes={scopes} />
-        {(redirectHost ?? clientUri) && (
+        {(redirectHost ?? clientUri ?? "") !== "" && (
           <p className="text-muted-foreground text-xs">
             You will be sent back to{" "}
             <span className="text-foreground select-text">{redirectHost}</span>
-            {clientUri ? (
+            {clientUri !== null && clientUri !== "" ? (
               <>
                 {" "}
                 (<span className="select-text">{clientUri}</span>)
@@ -72,7 +72,9 @@ export const OAuthConsent = ({
           variant="outline"
           loading={pending === "deny"}
           disabled={pending !== null}
-          onClick={() => answer(false)}
+          onClick={async () => {
+            await answer(false);
+          }}
         >
           Deny
         </Button>
@@ -80,7 +82,9 @@ export const OAuthConsent = ({
           type="button"
           loading={pending === "allow"}
           disabled={pending !== null}
-          onClick={() => answer(true)}
+          onClick={async () => {
+            await answer(true);
+          }}
         >
           Allow
         </Button>

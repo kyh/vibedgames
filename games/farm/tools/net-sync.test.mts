@@ -183,10 +183,10 @@ test("the host publishes its farm once, then only the tiles that change", () => 
   const fix = net.patches.at(-1);
   assert.equal(fix?.[tileKey(9)], 0);
   assert.equal(fix?.[objectKey(tree(world).id)], 0);
-  assert.equal(fix?.["w"], 7, "the same farm keeps its epoch");
+  assert.equal(fix?.w, 7, "the same farm keeps its epoch");
   sync.reset();
   sync.publishWorld(net.writer, net.shared(), 9);
-  assert.equal(net.patches.at(-1)?.["w"], 7, "and keeps it through a scene start");
+  assert.equal(net.patches.at(-1)?.w, 7, "and keeps it through a scene start");
   sync.forget();
   sync.publishWorld(net.writer, net.shared(), 10);
   assert.equal(roomEpoch(net.shared()), 10, "a farm the room hasn't seen gets a new one");

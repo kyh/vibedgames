@@ -1308,13 +1308,13 @@ export const scoutFreeway = (ctx: ScoutCtx) => {
     const ok = markStageable(r, walls);
 
     for (let i = 0; i < ok.length; i += 1) {
-      if (!ok[i]) {
+      if (ok[i] !== true) {
         continue;
       }
 
       let j = i;
 
-      while (j + 1 < ok.length && ok[j + 1]) {
+      while (j + 1 < ok.length && ok[j + 1] === true) {
         j += 1;
       }
 

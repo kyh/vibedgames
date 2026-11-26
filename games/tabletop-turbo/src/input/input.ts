@@ -35,7 +35,9 @@ export class Input {
       this.keys.add(event.code);
     });
     window.addEventListener("keyup", (event) => this.keys.delete(event.code));
-    window.addEventListener("blur", () => this.keys.clear());
+    window.addEventListener("blur", () => {
+      this.keys.clear();
+    });
     this.touch = attachDomGamepad({
       buttons: [
         {

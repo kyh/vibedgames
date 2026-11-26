@@ -69,7 +69,7 @@ export class BeaconClient {
 
     const ended = prev && (!b || b.activeAt !== prev.activeAt) && now >= prev.diesAt - 100;
 
-    if (ended && prev.controllerId !== null && !prev.contested) {
+    if (ended === true && prev.controllerId !== null && !prev.contested) {
       this.beaconPayoutFx(prev, now);
     }
 

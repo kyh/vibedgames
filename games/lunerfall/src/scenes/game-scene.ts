@@ -320,8 +320,12 @@ export class GameScene extends Scene implements SceneHooks {
 
   private wireSceneEvents() {
     sfx.unlock();
-    this.input.keyboard?.once("keydown", () => sfx.unlock());
-    this.input.once("pointerdown", () => sfx.unlock());
+    this.input.keyboard?.once("keydown", () => {
+      sfx.unlock();
+    });
+    this.input.once("pointerdown", () => {
+      sfx.unlock();
+    });
     this.input.keyboard?.on("keydown-M", () => {
       sfx.toggleMute();
       this.banners.show(sfx.muted ? "SOUND OFF" : "SOUND ON", 700, "status");
@@ -481,7 +485,9 @@ export class GameScene extends Scene implements SceneHooks {
 
         sfx.hurt(pl === this.seat.player ? "essential" : "routine");
       },
-      onJump: () => sfx.jump(pl === this.seat.player ? "local" : "routine"),
+      onJump: () => {
+        sfx.jump(pl === this.seat.player ? "local" : "routine");
+      },
       onLand: (impact) => {
         if (pl === this.seat.player) {
           this.shake(80, Math.min(0.003 + impact * 0.00002, 0.008));
@@ -489,7 +495,9 @@ export class GameScene extends Scene implements SceneHooks {
 
         dust(this, pl.x, pl.y);
       },
-      onSpecial: (kind) => this.combat.onSpecialFx(kind, pl),
+      onSpecial: (kind) => {
+        this.combat.onSpecialFx(kind, pl);
+      },
       onSwing: () => {
         if (pl === this.seat.player) {
           this.shake(50, 0.0015);
@@ -905,7 +913,7 @@ export class GameScene extends Scene implements SceneHooks {
   private layoutHudText(type: RoomType, bossShown: boolean) {
     this.banners.text.setY(type === "merchant" ? 170 : BASE_H / 2 - 20);
     this.banners.text.setVisible(
-      !this.expeditionHud?.inspecting || this.banners.active?.kind === "critical",
+      this.expeditionHud?.inspecting !== true || this.banners.active?.kind === "critical",
     );
     this.chrome.comboText.setY(bossShown ? 67 + gameInset(this).top : 42 + gameInset(this).top);
   }

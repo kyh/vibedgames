@@ -249,7 +249,13 @@ class SoundEngine {
   private ownVoice(source: AudioScheduledSourceNode, nodes: AudioNode[], phrase: Phrase) {
     const voice = { nodes, phrase, source };
     this.voices.add(voice);
-    source.addEventListener("ended", () => this.releaseVoice(voice, false), { once: true });
+    source.addEventListener(
+      "ended",
+      () => {
+        this.releaseVoice(voice, false);
+      },
+      { once: true },
+    );
   }
 
   private releaseVoice(voice: Voice, stopped: boolean) {
@@ -310,7 +316,7 @@ class SoundEngine {
     osc.type = opts.type ?? "sine";
     osc.frequency.setValueAtTime(opts.freq, t0);
 
-    if (opts.slideTo) {
+    if (opts.slideTo !== undefined && opts.slideTo !== 0) {
       osc.frequency.exponentialRampToValueAtTime(opts.slideTo, t0 + opts.dur);
     }
 
@@ -360,7 +366,7 @@ class SoundEngine {
     const nodes: AudioNode[] = [src];
     let node: AudioNode = src;
 
-    if (opts.hp) {
+    if (opts.hp !== undefined && opts.hp !== 0) {
       const f = c.createBiquadFilter();
       f.type = "highpass";
       f.frequency.value = opts.hp;
@@ -369,7 +375,7 @@ class SoundEngine {
       nodes.push(f);
     }
 
-    if (opts.lp) {
+    if (opts.lp !== undefined && opts.lp !== 0) {
       const f = c.createBiquadFilter();
       f.type = "lowpass";
       f.frequency.value = opts.lp;
@@ -498,10 +504,10 @@ class SoundEngine {
   private music: MusicSession | null = null;
   private musicId: ReturnType<typeof setTimeout> | null = null;
 
-  private static FARM_MELODY = [523, 659, 784, 659, 880, 784, 659, 587];
-  private static FARM_BASS = [131, 0, 98, 0, 110, 0, 87, 0];
-  private static MINE_MELODY = [440, 523, 659, 0, 392, 440, 0, 330];
-  private static MINE_BASS = [82, 0, 0, 0, 73, 0, 0, 0];
+  private static readonly FARM_MELODY = [523, 659, 784, 659, 880, 784, 659, 587];
+  private static readonly FARM_BASS = [131, 0, 98, 0, 110, 0, 87, 0];
+  private static readonly MINE_MELODY = [440, 523, 659, 0, 392, 440, 0, 330];
+  private static readonly MINE_BASS = [82, 0, 0, 0, 73, 0, 0, 0];
 
   startMusic(mode: "farm" | "mine") {
     this.stopMusic();
@@ -561,11 +567,11 @@ class SoundEngine {
     const phrase = this.admit("music", Number(Boolean(note)) + Number(Boolean(b)));
 
     if (phrase) {
-      if (note) {
+      if (note !== undefined && note !== 0) {
         this.musicNote(phrase, note, session.mode === "mine" ? 0.05 : 0.06, stepDur * 1.6);
       }
 
-      if (b) {
+      if (b !== undefined && b !== 0) {
         this.musicNote(phrase, b, 0.05, stepDur * 2.2, "triangle");
       }
     }

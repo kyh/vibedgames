@@ -70,7 +70,7 @@ const publishPlaytestContract = (game: Game, activeGame: () => GameScene | null)
         }
       },
       setPausedForScreenshot: (paused) => {
-        if (paused === frozen || activeGame()?.isOnline()) {
+        if (paused === frozen || activeGame()?.isOnline() === true) {
           return;
         }
 
@@ -177,7 +177,7 @@ const boot = async () => {
       setSoundPaused(true);
       showPauseOverlay();
 
-      if (scene?.isOnline()) {
+      if (scene?.isOnline() === true) {
         return;
       }
 

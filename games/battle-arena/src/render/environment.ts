@@ -257,10 +257,10 @@ const plantMatrix = (
 };
 
 const decorMatrix = (d: Decor, box: THREE.Box3) => {
-  const tall = d.lie ? undefined : TALL_TARGET.get(d.model);
+  const tall = d.lie === true ? undefined : TALL_TARGET.get(d.model);
   const bh = Math.max(0.01, box.max.y - box.min.y);
   const s = tall === undefined ? d.scale : (tall * d.scale) / bh;
-  E_ROT.set(0, d.rot, d.lie ? Math.PI / 2 : 0);
+  E_ROT.set(0, d.rot, d.lie === true ? Math.PI / 2 : 0);
   Q_ROT.setFromEuler(E_ROT);
   V_SCL.set(s, s, s);
   M_SCRATCH.compose(V_ZERO, Q_ROT, V_SCL);
@@ -272,9 +272,9 @@ const decorMatrix = (d: Decor, box: THREE.Box3) => {
 };
 
 export class Environment {
-  private materials = new ArenaMaterials();
+  private readonly materials = new ArenaMaterials();
   private readonly reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)") ?? null;
-  private flames: THREE.PointLight[] = [];
+  private readonly flames: THREE.PointLight[] = [];
   private embers: THREE.Points | null = null;
   private motes: THREE.Points | null = null;
   private goldMotes: THREE.Points | null = null;
@@ -287,14 +287,14 @@ export class Environment {
   private homeSlot = -1;
   private lastT = -1;
   private disposed = false;
-  private extras = new Map<string, THREE.Object3D>();
-  private added: THREE.Object3D[] = [];
-  private ownedGeos: THREE.BufferGeometry[] = [];
-  private ownedMats: THREE.Material[] = [];
+  private readonly extras = new Map<string, THREE.Object3D>();
+  private readonly added: THREE.Object3D[] = [];
+  private readonly ownedGeos: THREE.BufferGeometry[] = [];
+  private readonly ownedMats: THREE.Material[] = [];
 
-  private scene: THREE.Scene;
-  private lib: ModelLibrary;
-  private opts: { decor?: boolean; obstacles?: boolean };
+  private readonly scene: THREE.Scene;
+  private readonly lib: ModelLibrary;
+  private readonly opts: { decor?: boolean; obstacles?: boolean };
 
   constructor(
     scene: THREE.Scene,
@@ -924,8 +924,8 @@ export class Environment {
     this.buildFloor();
   }
 
-  private floorMeshes: THREE.InstancedMesh[] = [];
-  private floorGeos = new Set<THREE.BufferGeometry>();
+  private readonly floorMeshes: THREE.InstancedMesh[] = [];
+  private readonly floorGeos = new Set<THREE.BufferGeometry>();
 
   private buildFloor() {
     const flag = this.geoOf("floor_tile_large");
@@ -1442,7 +1442,7 @@ export class Environment {
   }
 
   private placeScaled(d: Decor) {
-    const tall = d.lie ? undefined : TALL_TARGET.get(d.model);
+    const tall = d.lie === true ? undefined : TALL_TARGET.get(d.model);
 
     if (tall !== undefined) {
       const obj = this.place(d.model, d.x, d.y, tall * d.scale, d.rot);
@@ -1456,7 +1456,7 @@ export class Environment {
     obj.rotation.order = "YXZ";
     obj.rotation.y = d.rot;
 
-    if (d.lie) {
+    if (d.lie === true) {
       obj.rotation.z = Math.PI / 2;
     }
 

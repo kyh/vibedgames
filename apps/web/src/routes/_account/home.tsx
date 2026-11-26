@@ -40,7 +40,9 @@ const GameTile = ({ slug, name, live }: { slug: string; name: string; live: bool
             src={`${gameUrl(slug)}/favicon.png`}
             alt=""
             loading="lazy"
-            onError={() => setFaviconFailed(true)}
+            onError={() => {
+              setFaviconFailed(true);
+            }}
             className="size-full rounded-md object-cover"
           />
         )}
@@ -153,7 +155,12 @@ const GamesPage = () => {
                 <span>Last Updated</span>
               </div>
               {/* oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- hover-only row highlight; the keyboard path is the CSS :focus-within styling on each row */}
-              <ul className="pt-1 text-sm" onMouseLeave={() => setHoveredRow(null)}>
+              <ul
+                className="pt-1 text-sm"
+                onMouseLeave={() => {
+                  setHoveredRow(null);
+                }}
+              >
                 {list.data.games.map((g) => {
                   const name = g.name ?? g.slug;
                   const deployed = g.deployment !== null;
@@ -162,7 +169,9 @@ const GamesPage = () => {
                     // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- hover-only row highlight; the keyboard path is the CSS :focus-within styling below
                     <li
                       key={g.id}
-                      onMouseEnter={() => setHoveredRow(g.id)}
+                      onMouseEnter={() => {
+                        setHoveredRow(g.id);
+                      }}
                       className="group relative -mx-3 flex items-center gap-3 rounded-lg px-3 py-2 focus-within:bg-white/10 focus-within:shadow-[inset_0_1px_0_rgb(255_255_255/0.06)] focus-within:backdrop-blur-sm"
                     >
                       {hoveredRow === g.id && (
@@ -197,7 +206,9 @@ const GamesPage = () => {
                           size="sm"
                           aria-label={`Delete ${name}`}
                           className="peer absolute top-1/2 right-0 z-10 -translate-y-1/2 opacity-0 transition-opacity duration-100 group-hover:opacity-100 focus-visible:opacity-100"
-                          onClick={() => confirmDelete(g)}
+                          onClick={() => {
+                            confirmDelete(g);
+                          }}
                           loading={remove.isPending && remove.variables?.gameId === g.id}
                         >
                           <Trash2Icon className="size-3.5" />

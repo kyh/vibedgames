@@ -78,7 +78,7 @@ export class World {
   gens: Uint16Array = new Uint16Array(MAP_W * MAP_H);
   objects: WorldObject[] = [];
   nextId = 1;
-  private occupied = new Map<number, WorldObject>();
+  private readonly occupied = new Map<number, WorldObject>();
 
   constructor(worldMap?: WorldMap) {
     if (worldMap) {
@@ -190,7 +190,7 @@ export class World {
       return false;
     }
 
-    if (this.tilled[tileIdx(tx, ty)]) {
+    if ((this.tilled[tileIdx(tx, ty)] ?? 0) !== 0) {
       return false;
     }
 

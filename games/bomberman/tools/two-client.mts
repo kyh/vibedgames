@@ -139,25 +139,33 @@ const open = async (
   };
 
   const client = {
-    bomb: () =>
-      page.evaluate(() => {
+    bomb: async () => {
+      await page.evaluate(() => {
         window.__bb?.scene.requestBomb();
-      }),
-    close: () => context.close(),
-    escape: () => page.keyboard.press("Escape"),
+      });
+    },
+    close: async () => {
+      await context.close();
+    },
+    escape: async () => {
+      await page.keyboard.press("Escape");
+    },
     name,
     page,
-    play: () =>
-      page.evaluate(async () => {
+    play: async () => {
+      await page.evaluate(async () => {
         await window.__GAME_TEST_HOOKS__?.setState("active-play");
-      }),
-    restart: () =>
-      page.evaluate(() => {
+      });
+    },
+    restart: async () => {
+      await page.evaluate(() => {
         window.__bb?.scene.requestRestart();
-      }),
+      });
+    },
     snap,
     until: async (label: string, predicate: (s: Snapshot) => boolean, timeout = 8000) => {
       let last: Snapshot | null = null;
+
       const found = await poll(
         async () => {
           last = await snap();
@@ -194,6 +202,7 @@ const assertMoving = async (client: Client, label: string) => {
 
 const assertSameBoard = async (a: Client, b: Client, label: string) => {
   const deadline = Date.now() + 4000;
+
   const compare: () => Promise<void> = async () => {
     const [x, y] = await Promise.all([a.snap(), b.snap()]);
 
@@ -251,7 +260,7 @@ const browser = await chromium.launch({
     "--disable-backgrounding-occluded-windows",
     "--disable-renderer-backgrounding",
   ],
-  ...(process.env.CHROME_PATH
+  ...(process.env.CHROME_PATH !== undefined && process.env.CHROME_PATH !== ""
     ? { executablePath: process.env.CHROME_PATH }
     : { channel: "chrome" }),
   headless: true,
@@ -359,8 +368,8 @@ try {
     }, pickup);
     await live(guest).until("guest sees the power-up", (s) => s.pickups > before.pickups);
 
-    const reach = (client: Client) =>
-      client.page.evaluate((pu) => {
+    const reach = async (client: Client) =>
+      await client.page.evaluate((pu) => {
         const hooks = window.__bb;
         const state = hooks?.scene.shared();
 
@@ -390,11 +399,13 @@ try {
     const before = await live(guest).snap();
     await live(host).close();
     host = null;
+
     const g = await live(guest).until(
       "promoted",
       (s) => s.isHost && s.players.length === 1,
       15_000,
     );
+
     const gid = g.id ?? "";
     assert.equal(g.round, before.round, "promotion must not reset the round");
     assert.equal(g.arena, before.arena);
@@ -406,10 +417,12 @@ try {
   await step("late join into the running match", async () => {
     late = await open(browser, server.url, "late", errors, { skewMs: -3000 });
     const g = await live(guest).snap();
+
     const l = await live(late).until(
       "late synced",
       (s) => s.players.length === 2 && s.round === g.round,
     );
+
     const lid = l.id ?? "";
     assert.equal(l.arena, g.arena);
     await assertSameBoard(live(guest), live(late), "late join");

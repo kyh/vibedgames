@@ -148,12 +148,20 @@ const check = (name: string, cond: boolean, extra = "") => {
   brew.mp = brew.maxMp;
   const cast = castAbility(w, brew, { key: "R", point: { x: brew.x, y: brew.y } });
   check("Last Call channel cast", cast, `channel=${!!brewHero.channel}`);
-  const groundsBefore = w.groundEffects.filter((g) => g.channel && g.ownerId === brew.id).length;
+
+  const groundsBefore = w.groundEffects.filter(
+    (g) => g.channel === true && g.ownerId === brew.id,
+  ).length;
+
   check("channel spawned a ground zone", groundsBefore >= 1);
   dealDamage(w, null, brew, 1e9, "pure", {});
   check("caster is dead", !brew.alive);
   check("channel cleared on death", brewHero.channel === null);
-  const groundsAfter = w.groundEffects.filter((g) => g.channel && g.ownerId === brew.id).length;
+
+  const groundsAfter = w.groundEffects.filter(
+    (g) => g.channel === true && g.ownerId === brew.id,
+  ).length;
+
   check(
     "channel ground zone removed on death (no ticking from corpse)",
     groundsAfter === 0,

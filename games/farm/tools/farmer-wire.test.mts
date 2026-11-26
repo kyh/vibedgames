@@ -151,9 +151,9 @@ test("a farmer sends primitives at 20 Hz on any frame rate; standing still costs
     wire.slice(1, 15).every((d) => !("k" in d) && !("e" in d)),
     "the same clip is not re-sent",
   );
-  const stopped = wire.findIndex((d) => d["m"] === false);
+  const stopped = wire.findIndex((d) => d.m === false);
   assert.ok(stopped > 0);
-  assert.equal(wire[stopped]?.["a"], "idle");
+  assert.equal(wire[stopped]?.a, "idle");
 
   for (const d of wire.slice(stopped + 1)) {
     assert.deepEqual(Object.keys(d), ["t"], "standing still sends only the stamp");
@@ -165,21 +165,21 @@ test("a new clip, or a pause, carries where the clip stands", () => {
   const walk = body(100, "walk");
   const first = sender.tick(walk, true, 1, 0) ?? sender.tick(walk, true, 1, 60);
   assert.ok(first && "k" in first && "e" in first);
-  assert.equal(sender.tick(walk, true, 1, 120)?.["k"], undefined);
+  assert.equal(sender.tick(walk, true, 1, 120)?.k, undefined);
   const paused = body(100, "casting");
   paused.anims.isPlaying = false;
   const held = sender.tick(paused, false, 1, 180);
-  assert.equal(held?.["p"], false);
+  assert.equal(held?.p, false);
   assert.ok(held && "k" in held, "a pause re-sends the frame it holds");
   assert.deepEqual(sender.away(200), { h: true, t: 200 });
-  assert.equal(sender.away(200)["t"], 201, "stamps never repeat");
+  assert.equal(sender.away(200).t, 201, "stamps never repeat");
 
   for (let now = 250; now < 1000; now += 50) {
     assert.equal(sender.tick(walk, true, 2, now), null);
   }
 
   sender.arrive();
-  assert.equal(sender.tick(walk, true, 3, 1100)?.["h"], false, "back on the farm, drawn again");
+  assert.equal(sender.tick(walk, true, 3, 1100)?.h, false, "back on the farm, drawn again");
 });
 
 test("a remote farmer walks at a steady pace on any route, its pose belonging to its body", () => {

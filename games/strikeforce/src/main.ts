@@ -43,7 +43,7 @@ const botFill = isPlaytestRequested()
   ? 0
   : Math.max(0, Math.min(16, Number(params.get("bots") ?? BOTS.fill) || 0));
 
-const match = new Match(() => openRoom(params, { solo }), { botFill });
+const match = new Match(async () => await openRoom(params, { solo }), { botFill });
 
 if (import.meta.env.DEV) {
   window.__strikeforce = { match };

@@ -257,10 +257,10 @@ export class CommonFx {
       .setTint(recipe.tint ?? 0xff_ff_ff)
       .setAlpha(recipe.alpha ?? 1)
       .setFlipX(recipe.flip ?? false)
-      .setBlendMode(recipe.additive ? BlendModes.ADD : BlendModes.NORMAL)
-      .setVisible((recipe.delay ?? 0) === 0);
+      .setBlendMode(recipe.additive === true ? BlendModes.ADD : BlendModes.NORMAL)
+      .setVisible(recipe.delay === undefined || recipe.delay === 0);
 
-    if ((recipe.delay ?? 0) === 0) {
+    if (recipe.delay === undefined || recipe.delay === 0) {
       slot.node.play({ key: anim, startFrame: recipe.startFrame ?? 0 });
     }
 
@@ -270,7 +270,7 @@ export class CommonFx {
   label(recipe: LabelFx) {
     const occupied = new Set<number>();
 
-    if (recipe.group) {
+    if (recipe.group !== undefined && recipe.group !== "") {
       for (const slot of this.labels) {
         if (slot.live?.recipe.group === recipe.group) {
           occupied.add(slot.live.recipe.lane);
@@ -304,19 +304,19 @@ export class CommonFx {
       .setText(recipe.text)
       .setFontSize(recipe.size)
       .setColor(recipe.color)
-      .setStroke("#1c1410", recipe.crit ? 5 : 4)
+      .setStroke("#1c1410", recipe.crit === true ? 5 : 4)
       .setPosition(placed.x, placed.y)
       .setDepth(recipe.depth)
-      .setScale(recipe.crit ? 0.4 : 1)
+      .setScale(recipe.crit === true ? 0.4 : 1)
       .setAlpha(1)
       .setVisible(true);
 
-    if (!recipe.group) {
+    if (recipe.group === undefined || recipe.group === "") {
       return;
     }
 
-    let width = slot.node.width * (recipe.crit ? 1.3 : 1) + 8;
-    let height = slot.node.height * (recipe.crit ? 1.3 : 1) + recipe.rise + 8;
+    let width = slot.node.width * (recipe.crit === true ? 1.3 : 1) + 8;
+    let height = slot.node.height * (recipe.crit === true ? 1.3 : 1) + recipe.rise + 8;
 
     for (const other of this.labels) {
       if (other.live?.recipe.group !== recipe.group) {
@@ -436,7 +436,7 @@ export class CommonFx {
       slot.node
         .setY(r.y - r.rise * eased)
         .setAlpha(1 - eased)
-        .setScale(r.crit ? 0.4 + back * 0.75 : 1);
+        .setScale(r.crit === true ? 0.4 + back * 0.75 : 1);
 
       if (t >= 1) {
         slot.live = null;

@@ -65,7 +65,7 @@ if (process.argv.includes("--cost")) {
     for (let index = 0; index < modes.length; index += 1) {
       const mode = modes[(index + round) % modes.length];
 
-      if (!mode) {
+      if (mode === undefined || mode === "") {
         continue;
       }
 
@@ -80,7 +80,7 @@ if (process.argv.includes("--cost")) {
           const steps = buildParcelGeometrySteps(cell.plans, cell.detail, cell.lots);
           let next = steps.next();
 
-          while (!next.done) {
+          while (next.done !== true) {
             if (mode === "clock-per-parcel" && performance.now() === Infinity) {
               throw new Error("Invalid clock");
             }

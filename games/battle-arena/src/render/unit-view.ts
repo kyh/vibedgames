@@ -137,7 +137,7 @@ const attackClip = (def: ViewDef) => {
     return def.attackDamageType === "magic" ? "Ranged_Magic_Shoot" : "Ranged_Bow_Release";
   }
 
-  if (def.twoHanded) {
+  if (def.twoHanded === true) {
     return "Melee_2H_Attack_Chop";
   }
 
@@ -156,19 +156,19 @@ export class UnitView {
   readonly group = new THREE.Group();
   private readonly platePoint: PlateAnchor = { x: 0, y: 0, z: 0 };
   private readonly plateHeight: number;
-  private pose = new THREE.Group();
-  private char: AnimatedCharacter;
-  private ring: THREE.Mesh;
-  private ringMat: THREE.MeshBasicMaterial;
-  private ringBase: THREE.Color;
-  private def: ViewDef;
-  private baseScale: number;
+  private readonly pose = new THREE.Group();
+  private readonly char: AnimatedCharacter;
+  private readonly ring: THREE.Mesh;
+  private readonly ringMat: THREE.MeshBasicMaterial;
+  private readonly ringBase: THREE.Color;
+  private readonly def: ViewDef;
+  private readonly baseScale: number;
   private deadShown = false;
   private placed = false;
   private wasAlive = true;
   private yaw = 0;
   private groundY = 0;
-  private actionEvents = new AnimationEvents();
+  private readonly actionEvents = new AnimationEvents();
   private lastHitShown = -1;
   private lastFlinchAt = -1;
   private jumpPhase = "";
@@ -178,12 +178,12 @@ export class UnitView {
   private hitIdx = 0;
   private recoilX = 0;
   private recoilZ = 0;
-  private weapons: THREE.Object3D[] = [];
-  private mats: THREE.MeshStandardMaterial[] = [];
-  private weaponMats: THREE.MeshStandardMaterial[] = [];
-  private trails: WeaponTrail[] = [];
-  private blob: THREE.Mesh;
-  private dissolve: DissolveHandle;
+  private readonly weapons: THREE.Object3D[] = [];
+  private readonly mats: THREE.MeshStandardMaterial[] = [];
+  private readonly weaponMats: THREE.MeshStandardMaterial[] = [];
+  private readonly trails: WeaponTrail[] = [];
+  private readonly blob: THREE.Mesh;
+  private readonly dissolve: DissolveHandle;
   private statusFx: StatusFx | null = null;
   private prevHop = 0;
   private squash = 0;
@@ -197,12 +197,12 @@ export class UnitView {
   private mushScale = 1;
   private hexShown = false;
 
-  private scene: THREE.Scene;
-  private lib: ModelLibrary;
-  private color: number;
-  private isLocal: boolean;
-  private isCreep: boolean;
-  private identity: { champId: string; team: string };
+  private readonly scene: THREE.Scene;
+  private readonly lib: ModelLibrary;
+  private readonly color: number;
+  private readonly isLocal: boolean;
+  private readonly isCreep: boolean;
+  private readonly identity: { champId: string; team: string };
 
   constructor(
     scene: THREE.Scene,
@@ -234,7 +234,7 @@ export class UnitView {
 
     const melee = def.attackType === "melee";
 
-    if (def.weaponR) {
+    if (def.weaponR !== undefined && def.weaponR !== "") {
       this.mountHand(
         def.weaponR,
         "handslot.r",
@@ -243,7 +243,7 @@ export class UnitView {
       );
     }
 
-    if (def.weaponL) {
+    if (def.weaponL !== undefined && def.weaponL !== "") {
       this.mountHand(
         def.weaponL,
         "handslot.l",

@@ -26,7 +26,7 @@ export class Fishing {
    *  payoff landing inside the shot — is deterministic. Dead (null) otherwise. */
   trailerFish: FishDef | null = null;
   private state: State = "idle";
-  private scene: GameScene;
+  private readonly scene: GameScene;
   private bobber: Phaser.GameObjects.Arc | null = null;
   private bang: Phaser.GameObjects.Text | null = null;
   private g: Phaser.GameObjects.Graphics | null = null;

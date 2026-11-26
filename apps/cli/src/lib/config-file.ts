@@ -43,13 +43,13 @@ const findConfigPath = (dir: string) => {
 export const findProjectRoot = (dir: string) => {
   const found = findConfigPath(dir);
 
-  return found ? path.dirname(found) : null;
+  return found !== null && found !== "" ? path.dirname(found) : null;
 };
 
 export const readProjectConfig = (dir: string) => {
   const file = findConfigPath(dir);
 
-  if (!file) {
+  if (file === null || file === "") {
     return null;
   }
 

@@ -116,7 +116,7 @@ export const swingMelee = (
 
   const walls: Point[] = [];
 
-  if (attack.breaksWalls) {
+  if (attack.breaksWalls === true) {
     const reach = Math.ceil(attack.range);
     const tx = world.toTile(owner.x);
     const tz = world.toTile(owner.z);
@@ -137,7 +137,9 @@ export const swingMelee = (
   }
 
   const color = owner.bulletColor(isSuper);
-  game.asActor(owner, () => showSlash(game, owner, attack, dx, dz, isSuper));
+  game.asActor(owner, () => {
+    showSlash(game, owner, attack, dx, dz, isSuper);
+  });
 
   for (const target of targets) {
     const dealt = target.takeDamage(attack.damage * owner.damageMul, owner);

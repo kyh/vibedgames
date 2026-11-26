@@ -7,7 +7,7 @@ import { FALLBACK_MS, LOBBY, MAX_PLAYERS, PARTY, roomId } from "./protocol";
 const devPartyHost = (params: URLSearchParams) => {
   const raw = params.get("party");
 
-  if (!raw) {
+  if (raw === null || raw === "") {
     return null;
   }
 
@@ -35,7 +35,7 @@ export const openRoom = async (
 
   const code = params.get("room");
 
-  if (code) {
+  if (code !== null && code !== "") {
     return new MultiplayerClient({ ...base, room: roomId(code) });
   }
 

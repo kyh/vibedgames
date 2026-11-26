@@ -229,7 +229,10 @@ export const newCommand = defineCommand({
     let template: TemplateSpec | undefined;
 
     try {
-      template = args.template ? parseTemplateSpec(args.template) : undefined;
+      template =
+        args.template !== undefined && args.template !== ""
+          ? parseTemplateSpec(args.template)
+          : undefined;
     } catch (error) {
       consola.error(error instanceof Error ? error.message : String(error));
       process.exit(1);

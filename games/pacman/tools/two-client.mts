@@ -13,6 +13,7 @@ const SCORE_PELLET = 10;
 
 const waitFor = async <T,>(read: () => Promise<T>, label: string, timeoutMs = 8000) => {
   let last: T | null = null;
+
   const found = await poll(
     async () => {
       last = await read();
@@ -30,8 +31,8 @@ const waitFor = async <T,>(read: () => Promise<T>, label: string, timeoutMs = 80
   return found;
 };
 
-const gameOf = (page: Page) =>
-  page.evaluate(() => {
+const gameOf = async (page: Page) =>
+  await page.evaluate(() => {
     const game = window.__pacman?.game;
 
     return game === undefined
@@ -46,8 +47,13 @@ const gameOf = (page: Page) =>
 
 type GameView = NonNullable<Awaited<ReturnType<typeof gameOf>>>;
 
-const until = (page: Page, test: (game: GameView) => boolean, label: string, timeoutMs = 8000) =>
-  waitFor(
+const until = async (
+  page: Page,
+  test: (game: GameView) => boolean,
+  label: string,
+  timeoutMs = 8000,
+) =>
+  await waitFor(
     async () => {
       const game = await gameOf(page);
 
@@ -57,8 +63,8 @@ const until = (page: Page, test: (game: GameView) => boolean, label: string, tim
     timeoutMs,
   );
 
-const snapshot = (page: Page) =>
-  page.evaluate(() => {
+const snapshot = async (page: Page) =>
+  await page.evaluate(() => {
     const game = window.__pacman?.game;
 
     if (game === undefined) {
@@ -82,8 +88,8 @@ const snapshot = (page: Page) =>
     };
   });
 
-const chompFrom = (page: Page, col: number, row: number) =>
-  page.evaluate(
+const chompFrom = async (page: Page, col: number, row: number) => {
+  await page.evaluate(
     ([x, z]) => {
       const hooks = window.__pacman;
 
@@ -102,16 +108,17 @@ const chompFrom = (page: Page, col: number, row: number) =>
     },
     [col, row] as const,
   );
+};
 
-const eaten = (page: Page, key: string) =>
-  waitFor(
-    () => page.evaluate((k) => window.__pacman?.game.appliedEaten.has(k) === true, key),
+const eaten = async (page: Page, key: string) =>
+  await waitFor(
+    async () => await page.evaluate((k) => window.__pacman?.game.appliedEaten.has(k) === true, key),
     `eaten ${key}`,
     4000,
   );
 
-const ownerOf = (page: Page, cell: string) =>
-  page.evaluate((c) => {
+const ownerOf = async (page: Page, cell: string) =>
+  await page.evaluate((c) => {
     const hooks = window.__pacman;
 
     if (hooks === undefined) {
@@ -125,12 +132,13 @@ const ownerOf = (page: Page, cell: string) =>
     return claim === null ? null : (game.net.claims[claim]?.owner ?? null);
   }, cell);
 
-const idOf = (page: Page) => page.evaluate(() => window.__pacman?.game.net.playerId ?? null);
+const idOf = async (page: Page) =>
+  await page.evaluate(() => window.__pacman?.game.net.playerId ?? null);
 
-const drawsRivalAt = (page: Page, col: number, row: number) =>
-  waitFor(
-    () =>
-      page.evaluate(
+const drawsRivalAt = async (page: Page, col: number, row: number) =>
+  await waitFor(
+    async () =>
+      await page.evaluate(
         ([x, z]) => {
           const pacs = [...(window.__pacman?.game.remotePacs.pacs.values() ?? [])];
           const at = pacs[0]?.group.position;
@@ -166,6 +174,7 @@ const hideScene = () => {
 };
 
 type Errors = Record<"guest" | "host" | "idle" | "late" | "solo", string[]>;
+
 type Step = (name: string, ok: boolean, note?: string) => void;
 
 interface Pair {
@@ -197,7 +206,8 @@ const openClient = async (browser: Browser, url: string, errors: string[]) => {
   });
   await page.goto(url);
   await waitFor(
-    () => page.evaluate(() => window.__pacman?.game.net.connectionStatus === "connected"),
+    async () =>
+      await page.evaluate(() => window.__pacman?.game.net.connectionStatus === "connected"),
     "connected",
   );
 
@@ -248,20 +258,12 @@ const contest = async ({ guest, host, step }: Pair) => {
   );
 };
 
-const handOver = async ({
-  browser,
-  errors,
-  fullMaze,
-  guest,
-  host,
-  step,
-  url,
-}: Room & Pair) => {
+const handOver = async ({ browser, errors, fullMaze, guest, host, step, url }: Room & Pair) => {
   await chompFrom(host, 1, 1);
   await eaten(guest, "2,1");
   await host.close();
   await waitFor(
-    () => guest.evaluate(() => window.__pacman?.game.net.isHost === true),
+    async () => await guest.evaluate(() => window.__pacman?.game.net.isHost === true),
     "guest promoted",
     10_000,
   );
@@ -416,8 +418,8 @@ const main = async () => {
     await chompFrom(guest, 3, 1);
     await eaten(guest, "4,1");
     await waitFor(
-      () =>
-        guest.evaluate(() => {
+      async () =>
+        await guest.evaluate(() => {
           const hooks = window.__pacman;
 
           if (hooks === undefined) {

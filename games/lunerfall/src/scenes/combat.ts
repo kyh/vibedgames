@@ -319,7 +319,9 @@ export class Combat {
         this.scene.tweens.add({
           alpha: 0,
           duration: 500 + Math.random() * 200,
-          onComplete: () => p.destroy(),
+          onComplete: () => {
+            p.destroy();
+          },
           targets: p,
           y: py - 14,
         });

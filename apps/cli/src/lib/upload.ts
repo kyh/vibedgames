@@ -68,6 +68,9 @@ export const uploadAll = async ({
     }
   };
 
-  const workers = Array.from({ length: Math.min(concurrency, uploads.length) }, () => worker());
+  const workers = Array.from({ length: Math.min(concurrency, uploads.length) }, async () => {
+    await worker();
+  });
+
   await Promise.all(workers);
 };

@@ -167,7 +167,7 @@ export const treeRootSeatSamples = async (
   for (const [i, item] of rest.batchItems.entries()) {
     const prop = props[i];
 
-    if (!prop || !item.url) {
+    if (!prop || item.url === null || item.url === "") {
       continue;
     }
 
@@ -343,7 +343,7 @@ const embeddedTreeSolids = (rest: CityRestPayload) => {
 
   for (const solid of rest.solids) {
     if (
-      !solid.noBody ||
+      solid.noBody !== true ||
       Math.abs(solid.maxX - solid.minX - 1.1) > 0.01 ||
       Math.abs(solid.maxZ - solid.minZ - 1.1) > 0.01
     ) {
@@ -458,7 +458,7 @@ export const auditTreeClearance = async (
   for (const item of rest.batchItems) {
     const { url } = item;
 
-    if (!url) {
+    if (url === null || url === "") {
       continue;
     }
 

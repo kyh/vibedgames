@@ -7,11 +7,12 @@ import { createReport, flagValue, inSequence, parseJson, poll } from "./index.ts
 
 test("poll resolves the first accepted value", async () => {
   let reads = 0;
+
   const value = await poll(
-    () => {
+    async () => {
       reads += 1;
 
-      return Promise.resolve(reads);
+      return await Promise.resolve(reads);
     },
     (n) => n === 3,
     { intervalMs: 1, timeoutMs: 1000 },
@@ -22,7 +23,7 @@ test("poll resolves the first accepted value", async () => {
 
 test("poll resolves null once the deadline passes", async () => {
   const value = await poll(
-    () => Promise.resolve(false),
+    async () => await Promise.resolve(false),
     (ok) => ok,
     { intervalMs: 1, timeoutMs: 5 },
   );
@@ -32,6 +33,7 @@ test("poll resolves null once the deadline passes", async () => {
 
 test("inSequence runs each step after the last", async () => {
   const order: number[] = [];
+
   const results = await inSequence([3, 1, 2], async (n) => {
     await Promise.resolve();
     order.push(n);

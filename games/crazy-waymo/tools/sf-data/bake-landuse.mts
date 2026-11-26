@@ -168,7 +168,7 @@ const classOf = (tags: {}) => {
   const t = tags ?? {};
   const natural = NATURAL_CLASS.get(t.natural ?? "");
 
-  if (natural) {
+  if (natural !== undefined && natural !== "") {
     return natural;
   }
 
@@ -178,25 +178,25 @@ const classOf = (tags: {}) => {
 
   const leisure = LEISURE_CLASS.get(t.leisure ?? "");
 
-  if (leisure) {
+  if (leisure !== undefined && leisure !== "") {
     return leisure;
   }
 
   const landuse = LANDUSE_CLASS.get(t.landuse ?? "");
 
-  if (landuse) {
+  if (landuse !== undefined && landuse !== "") {
     return landuse;
   }
 
   const amenity = AMENITY_CLASS.get(t.amenity ?? "");
 
-  if (amenity) {
+  if (amenity !== undefined && amenity !== "") {
     return amenity;
   }
 
   const manMade = MAN_MADE_CLASS.get(t.man_made ?? "");
 
-  if (manMade) {
+  if (manMade !== undefined && manMade !== "") {
     return manMade;
   }
 
@@ -224,6 +224,7 @@ const stitch = (members: any[]) => {
   const open = members
     .map((m: { geometry: any }) => m.geometry)
     .filter((g: string | any[]) => Array.isArray(g) && g.length > 1);
+
   const rings: any[][] = [];
   const pending: any[] = [];
 

@@ -18,7 +18,10 @@ const ASSUME_YES = process.argv.includes("--yes") || process.argv.includes("-y")
 const INTERACTIVE = Boolean(process.stdin.isTTY && process.stdout.isTTY) && !ASSUME_YES;
 
 const dim = (text: string) => styleText("dim", text);
-const ok = (text: string) => console.log(`  ${styleText("green", "✓")} ${text}`);
+
+const ok = (text: string) => {
+  console.log(`  ${styleText("green", "✓")} ${text}`);
+};
 
 const exec = (command: string) => {
   execSync(command, { cwd: ROOT_DIR, stdio: "inherit" });

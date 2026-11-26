@@ -121,7 +121,7 @@ const setCommand = defineCommand({
     const value = args.value.trim();
     const problem = validate(key, value);
 
-    if (problem) {
+    if (problem !== null && problem !== "") {
       consola.error(problem);
       process.exit(1);
     }

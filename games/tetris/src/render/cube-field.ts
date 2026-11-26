@@ -184,7 +184,7 @@ export class CubeField {
       const mesh = this.activeMeshes[i];
       const target = this.activeTargets[i];
 
-      if (mesh?.visible && target) {
+      if (mesh?.visible === true && target) {
         mesh.position.lerp(target, posK);
       }
     }

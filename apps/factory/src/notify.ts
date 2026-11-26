@@ -18,7 +18,7 @@ export const notifyOperator = (title: string, message: string) => {
   const custom = process.env.FACTORY_NOTIFY;
 
   bestEffort(() => {
-    if (custom) {
+    if (custom !== undefined && custom !== "") {
       spawn("sh", ["-c", custom], {
         detached: true,
         env: { ...process.env, FACTORY_NOTIFY_MESSAGE: message, FACTORY_NOTIFY_TITLE: title },

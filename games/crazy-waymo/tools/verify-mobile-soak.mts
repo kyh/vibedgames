@@ -602,7 +602,8 @@ const main = async () => {
 
   const session = await createMobileSession({ output, sessionPrefix: "crazy-waymo-mobile-soak" });
   const { call, evaluate, pause, until, tap, sleep, screenshot, close, pageErrors } = session;
-  const run = (
+
+  const run = async (
     fn: {
       (): {
         browserMs: number;
@@ -757,10 +758,11 @@ const main = async () => {
       toString?: any;
     },
     ...values: undefined[]
-  ) => evaluate(`(${fn.toString()})(...${JSON.stringify(values)})`);
+  ) => await evaluate(`(${fn.toString()})(...${JSON.stringify(values)})`);
 
-  const save = () =>
+  const save = () => {
     writeFileSync(path.join(output, "report.json"), JSON.stringify(report, null, 2));
+  };
 
   const check = (name: string, passed: boolean, evidence: any[]) => {
     report.checks.push({ evidence, name, passed });
@@ -770,7 +772,8 @@ const main = async () => {
     }
   };
 
-  const release = () => call("Input.dispatchTouchEvent", { touchPoints: [], type: "touchEnd" });
+  const release = async () =>
+    await call("Input.dispatchTouchEvent", { touchPoints: [], type: "touchEnd" });
 
   const resources = async () => ({
     ...(await run(snapshot)),
@@ -893,7 +896,9 @@ const main = async () => {
         width: view.width,
       });
       await until(`innerWidth === ${view.width} && innerHeight === ${view.height}`);
-      await run((phase: number) => window.__taxi.setPhase(phase), view.phase);
+      await run((phase: number) => {
+        window.__taxi.setPhase(phase);
+      }, view.phase);
       let viewMs = 0;
 
       const anchor = {

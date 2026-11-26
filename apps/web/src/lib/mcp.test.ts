@@ -56,10 +56,10 @@ const signedIn: Session = {
 
 const contextWith =
   (session: Session | null, seen: Headers[] = [], oauthScopes: readonly string[] | null = null) =>
-  (headers: Headers) => {
+  async (headers: Headers) => {
     seen.push(headers);
 
-    return Promise.resolve<ORPCContext>({
+    return await Promise.resolve<ORPCContext>({
       auth,
       billing: undefined,
       db,

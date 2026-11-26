@@ -154,7 +154,9 @@ export const createTerrainMaterial = (blendAt: GroundBlendAt) => {
 
   material.name = "semantic-terrain";
   material.customProgramCacheKey = () => `semantic-terrain-v2-${lowDetail ? "phone" : "full"}`;
-  material.addEventListener("dispose", () => texture.dispose());
+  material.addEventListener("dispose", () => {
+    texture.dispose();
+  });
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uTerrainBlend = { value: texture };
     shader.vertexShader = shader.vertexShader

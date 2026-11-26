@@ -226,13 +226,13 @@ export class GameScene extends Scene {
     skipToLane?: boolean;
     unreachable?: boolean;
   }) {
-    if (data?.heroId) {
+    if (data.heroId !== undefined && data.heroId !== "") {
       this.heroChoice = data.heroId;
     }
 
     this.seed = data?.seed ?? DEFAULT_SEED;
     this.skipToLane = data?.skipToLane === true;
-    this.online = !!data?.online && !isOfflineRequested();
+    this.online = data?.online === true && !isOfflineRequested();
     this.unreachable = data?.unreachable === true;
   }
 
@@ -296,7 +296,11 @@ export class GameScene extends Scene {
     this.cam.roundPixels = true;
     this.cam.setBackgroundColor("#0a0e16");
     this.applyZoom();
-    const stopPresentationSettings = watchPresentationSettings(() => this.applyZoom());
+
+    const stopPresentationSettings = watchPresentationSettings(() => {
+      this.applyZoom();
+    });
+
     this.scale.on(Scale.Events.RESIZE, this.applyZoom, this);
 
     if (this.online) {
@@ -325,7 +329,7 @@ export class GameScene extends Scene {
       const at = new URLSearchParams(window.location.search).get("at");
       const me = this.player;
 
-      if (at && me) {
+      if (at !== null && at !== "" && me) {
         const [ax, ay] = at.split(",").map(Number);
 
         if (Number.isFinite(ax) && Number.isFinite(ay)) {
@@ -352,7 +356,9 @@ export class GameScene extends Scene {
 
     if (veil) {
       veil.classList.add("hidden");
-      setTimeout(() => veil.remove(), 600);
+      setTimeout(() => {
+        veil.remove();
+      }, 600);
     }
   }
 
@@ -390,7 +396,7 @@ export class GameScene extends Scene {
       for (const u of this.world.units.values()) {
         if (
           u.kind === "creep" &&
-          !u.neutral &&
+          u.neutral !== true &&
           u.alive &&
           isEnemy(player, u) &&
           dist2(player, u) < LANE_SKIP_CONTACT * LANE_SKIP_CONTACT
@@ -418,7 +424,9 @@ export class GameScene extends Scene {
       fallbackMs: ONLINE_FALLBACK_MS,
       host: multiplayerHost(),
       maxPlayers: TEAM_SIZE * TEAMS.length,
-      onEvent: (event, payload, from) => this.onNetEvent(event, payload, from),
+      onEvent: (event, payload, from) => {
+        this.onNetEvent(event, payload, from);
+      },
       party: PARTY,
       room: roomFromLocation(),
     });
@@ -426,7 +434,9 @@ export class GameScene extends Scene {
     this.net = net;
     this.mirror = new GuestMirror(this.world);
     this.predictor = new HeroPredictor();
-    net.subscribe(() => this.onNetChange(net));
+    net.subscribe(() => {
+      this.onNetChange(net);
+    });
   }
 
   private playVsBots(net: MultiplayerClient) {
@@ -485,7 +495,7 @@ export class GameScene extends Scene {
 
     this.seenSnap = snap;
 
-    if (this.mirror?.keyframe(snap, at, live)) {
+    if (this.mirror?.keyframe(snap, at, live) === true) {
       this.predictor?.reset();
     }
   }
@@ -631,7 +641,7 @@ export class GameScene extends Scene {
       case "useItem": {
         const id = u.hero?.items[intent.slot];
 
-        if (id) {
+        if (id !== undefined && id !== "") {
           activateItem(this.world, u, id, intent.point);
         }
 
@@ -724,7 +734,7 @@ export class GameScene extends Scene {
     const hid = `h-${id}`;
     const pick = this.picks[id];
 
-    if (!pick) {
+    if (pick === undefined || pick === "") {
       return;
     }
 
@@ -965,11 +975,17 @@ export class GameScene extends Scene {
       });
     }
 
-    kb.on(`keydown-${DASH_KEY}`, () => this.dash());
-    kb.on("keydown-H", () => this.cmd({ kind: "order", order: { type: "fountain" } }));
+    kb.on(`keydown-${DASH_KEY}`, () => {
+      this.dash();
+    });
+    kb.on("keydown-H", () => {
+      this.cmd({ kind: "order", order: { type: "fountain" } });
+    });
 
     for (const [i, code] of ["ONE", "TWO", "THREE", "FOUR", "FIVE", "SIX"].entries()) {
-      kb.on(`keydown-${code}`, () => this.useItemSlot(i));
+      kb.on(`keydown-${code}`, () => {
+        this.useItemSlot(i);
+      });
     }
 
     kb.on("keydown-M", () => {
@@ -1002,7 +1018,9 @@ export class GameScene extends Scene {
   private bindPad() {
     this.pad = attachVirtualGamepad(this, {
       buttons: [{ id: "attack" }],
-      onFirstTouch: () => resumeAudio(),
+      onFirstTouch: () => {
+        resumeAudio();
+      },
       render: { blendMode: BlendModes.NORMAL, depth: 50_000 },
     });
   }
@@ -1240,7 +1258,7 @@ export class GameScene extends Scene {
         continue;
       }
 
-      if (u.kind === "structure" && !u.structure?.attackable) {
+      if (u.kind === "structure" && u.structure?.attackable !== true) {
         continue;
       }
 
@@ -1350,7 +1368,7 @@ export class GameScene extends Scene {
   private aimDirection() {
     const me = this.player;
 
-    if (!me?.alive) {
+    if (me?.alive !== true) {
       return null;
     }
 
@@ -1428,7 +1446,12 @@ export class GameScene extends Scene {
   private useItemSlot(i: number, fromHud = false) {
     const me = this.player;
 
-    if (!me?.hero?.items[i]) {
+    if (
+      me === undefined ||
+      me.hero === undefined ||
+      me.hero.items[i] === undefined ||
+      me.hero.items[i] === ""
+    ) {
       return;
     }
 
@@ -1480,7 +1503,7 @@ export class GameScene extends Scene {
         continue;
       }
 
-      if (u.kind === "structure" && !u.structure?.attackable) {
+      if (u.kind === "structure" && u.structure?.attackable !== true) {
         continue;
       }
 
@@ -1549,7 +1572,7 @@ export class GameScene extends Scene {
         continue;
       }
 
-      if (u.kind === "structure" && !u.structure?.attackable) {
+      if (u.kind === "structure" && u.structure?.attackable !== true) {
         continue;
       }
 
@@ -1594,7 +1617,7 @@ export class GameScene extends Scene {
     this.pad?.update();
     this.flushPauseHold();
 
-    if (!this.inputPaused && this.pad?.justPressed("attack")) {
+    if (!this.inputPaused && this.pad?.justPressed("attack") === true) {
       this.spaceAttack();
     }
 
@@ -1707,7 +1730,14 @@ export class GameScene extends Scene {
     this.lastStamp = Math.round(stamp);
     const { net } = this;
 
-    if (!this.online || !net?.playerId || !this.amHost) {
+    if (
+      !this.online ||
+      net === null ||
+      net.playerId === undefined ||
+      net.playerId === null ||
+      net.playerId === "" ||
+      !this.amHost
+    ) {
       return;
     }
 
@@ -1766,7 +1796,7 @@ export class GameScene extends Scene {
       return;
     }
 
-    if (!this.joinedSelf && net.playerId) {
+    if (!this.joinedSelf && net.playerId !== null && net.playerId !== "") {
       this.joinedSelf = true;
       const playerId = `h-${net.playerId}`;
 
@@ -1788,7 +1818,7 @@ export class GameScene extends Scene {
     if (this.amHost) {
       this.prepareOnlineHost(net);
 
-      if (net.playerId && !this.picks[net.playerId]) {
+      if (net.playerId !== null && net.playerId !== "" && (this.picks[net.playerId] ?? "") === "") {
         this.picks[net.playerId] = this.heroChoice;
       }
 
@@ -1836,7 +1866,7 @@ export class GameScene extends Scene {
     predictor.draw(this.world);
     placeFollowers(this.world);
 
-    if (this.restateOrder && net.hostId && this.seated) {
+    if (this.restateOrder && net.hostId !== null && net.hostId !== "" && this.seated) {
       this.restateOrder = false;
       const { order } = predictor;
 

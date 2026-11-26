@@ -120,7 +120,10 @@ const VIEW_ALIASES = {
 };
 
 export const resolveAnchorGameView = (gameView: string | null) => {
-  let resolved = (gameView || "platformer").trim().toLowerCase();
+  let resolved = (gameView === null || gameView === "" ? "platformer" : gameView)
+    .trim()
+    .toLowerCase();
+
   resolved = lookup(VIEW_ALIASES, resolved) ?? resolved;
 
   if (!(resolved in ANCHOR_GAME_VIEWS)) {
@@ -132,7 +135,9 @@ export const resolveAnchorGameView = (gameView: string | null) => {
 };
 
 export const resolveAnchorRole = (anchorRole: string | null) => {
-  const resolved = (anchorRole || "character").trim().toLowerCase();
+  const resolved = (anchorRole === null || anchorRole === "" ? "character" : anchorRole)
+    .trim()
+    .toLowerCase();
 
   if (!(resolved in ANCHOR_ROLES)) {
     const known = Object.keys(ANCHOR_ROLES).toSorted().join(", ");
@@ -424,7 +429,7 @@ const anchorRoleGuidance = (anchorRole: string) => {
 };
 
 const anchorContextGuidance = (anchorContext: string | null) => {
-  const context = (anchorContext || "").trim();
+  const context = (anchorContext === null || anchorContext === "" ? "" : anchorContext).trim();
 
   return context
     ? `Additional game context: ${context}`
@@ -521,7 +526,7 @@ export const totalCells = (p: PoseBoardPreset) => p.columns * p.rows;
 
 export const resolvePoseBoardPreset = (presetId: string | null) => {
   // oxlint-disable-next-line unicorn/prefer-default-parameters -- null and "" both mean the default; a default parameter only covers undefined
-  const resolved = presetId || "standard";
+  const resolved = presetId === null || presetId === "" ? "standard" : presetId;
   const preset = lookup(POSE_BOARD_PRESETS, resolved);
 
   if (!preset) {

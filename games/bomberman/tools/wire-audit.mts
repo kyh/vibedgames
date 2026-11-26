@@ -91,13 +91,13 @@ for (let round = 0; round < ROUNDS; round += 1) {
   claims.clear();
   let now = t0;
 
-  for (; now <= t0 + ROUND_CAP_MS && !s.winner; now += HOST_STEP_MS) {
+  for (; now <= t0 + ROUND_CAP_MS && (s.winner === null || s.winner === ""); now += HOST_STEP_MS) {
     const { patch } = hostTick(s, [human], now, random);
     let merged: Partial<SharedState> = patch ?? {};
     s = patch ? { ...s, ...patch } : s;
 
     for (const bot of Object.values(s.bots)) {
-      if (!s.deaths[bot.id]) {
+      if ((s.deaths[bot.id] ?? 0) === 0) {
         claims.reach(room, s, bot.id, bot);
       }
     }
@@ -181,7 +181,7 @@ const playerStream = (beats: boolean) => {
     }
 
     if (beat.due(FRAME_MS) && beats) {
-      write["h"] = Math.round(EPOCH + now);
+      write.h = Math.round(EPOCH + now);
     }
 
     const delta = changed(held, write);

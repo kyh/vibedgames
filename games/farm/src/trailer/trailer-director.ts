@@ -60,11 +60,14 @@ const getMine = (game: Phaser.Game) => {
   return s;
 };
 
-const sceneReady = <T extends Phaser.Scene>(scene: T) =>
-  // oxlint-disable-next-line promise/avoid-new -- wraps Phaser's one-shot CREATE event callback
-  new Promise<T>((resolve) => {
-    scene.events.once(Scenes.Events.CREATE, () => resolve(scene));
+const sceneReady = async <T extends Phaser.Scene>(scene: T) => {
+  const { promise, resolve } = Promise.withResolvers<T>();
+  scene.events.once(Scenes.Events.CREATE, () => {
+    resolve(scene);
   });
+
+  return await promise;
+};
 
 const freshFarm = async (game: Phaser.Game) => {
   const mgr = game.scene;
@@ -869,11 +872,14 @@ class FarmScript {
 
       const mid = (at.tx * TILE + 8 + gs.player.x) / 2;
 
-      const heart = (dx: number) =>
+      const heart = (dx: number) => {
         floatText(gs, mid + dx, at.ty * TILE + 14, "♥", "#ff3d6e", 20, 1200);
+      };
 
       heart(0);
-      gs.time.delayedCall(500, () => heart(7));
+      gs.time.delayedCall(500, () => {
+        heart(7);
+      });
     });
   }
 
@@ -1971,10 +1977,10 @@ export const startTrailer = (game: Phaser.Game) => {
       sceneFullFarm(game),
     ].map((scene) => ({
       ...scene,
-      setup: () => {
+      setup: async () => {
         getGame(game).trailerFrame = null;
 
-        return scene.setup();
+        await scene.setup();
       },
     })),
     vignette: false,

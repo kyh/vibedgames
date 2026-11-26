@@ -43,8 +43,8 @@ const readCapacity = (body: string) => {
  * names, and the second finds it.
  */
 export class VgLobby extends Server {
-  private rooms = new Map<string, LobbyEntry>();
-  private holds = new Map<string, number[]>();
+  private readonly rooms = new Map<string, LobbyEntry>();
+  private readonly holds = new Map<string, number[]>();
 
   /** Rehydrate the listing (partyserver awaits this before any request or RPC). */
   async onStart() {

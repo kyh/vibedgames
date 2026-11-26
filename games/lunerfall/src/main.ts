@@ -81,7 +81,7 @@ setPauseHandlers({
     activeGame()?.setControlsPaused(true);
     pauseOverlay.show();
 
-    if (activeGame()?.isOnline()) {
+    if (activeGame()?.isOnline() === true) {
       return;
     }
 

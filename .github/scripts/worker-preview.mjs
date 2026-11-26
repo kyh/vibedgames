@@ -32,7 +32,7 @@ const gh = async (method, path, body) => {
     throw new Error(`${method} ${path}: ${response.status} ${await response.text()}`);
   }
 
-  return response.status === 204 ? null : response.json();
+  return response.status === 204 ? null : await response.json();
 };
 
 const environmentOf = (project) => `Preview – ${project}`;

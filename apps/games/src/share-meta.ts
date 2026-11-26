@@ -66,7 +66,7 @@ export const extractTitle = (html: string) => {
   const m = /<title[^>]*>(?<text>[^<]*)<\/title>/iu.exec(html);
   const t = m?.groups?.text?.trim();
 
-  return t ? decodeEntities(t) : null;
+  return t !== undefined && t !== "" ? decodeEntities(t) : null;
 };
 
 export const extractDescription = (html: string) => {
@@ -76,7 +76,7 @@ export const extractDescription = (html: string) => {
 
   const d = m?.groups?.text?.trim();
 
-  return d ? decodeEntities(d) : null;
+  return d !== undefined && d !== "" ? decodeEntities(d) : null;
 };
 
 /**

@@ -27,8 +27,8 @@ import type { Projectile, ProjectileHit, Unit, World } from "./types";
 import { nextId, rand } from "./types";
 
 export const isEnemy = (a: Unit, b: Unit) => {
-  if (a.neutral || b.neutral) {
-    return !(a.neutral && b.neutral);
+  if (a.neutral === true || b.neutral === true) {
+    return !(a.neutral === true && b.neutral === true);
   }
 
   return a.team !== b.team;
@@ -58,7 +58,7 @@ const attacksAlliedHeroInRange = (w: World, u: Unit, t: Unit, range: number) => 
   const victimId =
     t.pendingAttack?.targetId ?? (t.order.type === "attackUnit" ? t.order.targetId : null);
 
-  if (!victimId) {
+  if (victimId === null || victimId === "") {
     return false;
   }
 
@@ -118,7 +118,7 @@ const acquireForStructure = (w: World, u: Unit, range: number) => {
 export const acquireTarget = (w: World, u: Unit) => {
   const taunt = tauntTarget(u);
 
-  if (taunt) {
+  if (taunt !== null && taunt !== "") {
     const t = w.units.get(taunt);
 
     if (t && targetable(t, { allowStructure: true })) {
@@ -227,9 +227,9 @@ const boomtinkerBuildingBonus = (u: Unit, target: Unit) => {
     return 0;
   }
 
-  const def = HERO_BY_ID["boomtinker"]?.abilities.E;
+  const def = HERO_BY_ID.boomtinker?.abilities.E;
 
-  return def ? valAt(def.values["passiveBuildingPct"], rank) : 0;
+  return def ? valAt(def.values.passiveBuildingPct, rank) : 0;
 };
 
 const attackProjectileKind: (u: Unit) => Projectile["kind"] = (u) => {
@@ -316,7 +316,7 @@ const awardCreepKill = (w: World, victim: Unit, killer: Unit | null) => {
   const def = CREEPS[cs.ckind];
   const [lo, hi] = cs.goldOverride ?? def.goldBounty;
   const xpBounty = cs.xpOverride ?? def.xpBounty;
-  const denied = !victim.neutral && killer !== null && killer.team === victim.team;
+  const denied = victim.neutral !== true && killer !== null && killer.team === victim.team;
 
   if (killer && killer.hero) {
     if (denied) {
@@ -327,7 +327,7 @@ const awardCreepKill = (w: World, victim: Unit, killer: Unit | null) => {
       killer.hero.lastHits += 1;
       w.fx.push({ amount: gold, heroId: killer.id, t: "gold", x: victim.x, y: victim.y - 20 });
 
-      if (cs.boss) {
+      if (cs.boss === true) {
         addStatus(killer, { kind: "aegis", until: w.now + 300_000 });
         w.fx.push(
           {
@@ -479,7 +479,7 @@ const handleDeath = (w: World, victim: Unit, killer: Unit | null) => {
       const eff = h.channel.effect;
       h.channel = null;
       w.groundEffects = w.groundEffects.filter(
-        (g) => !(g.ownerId === victim.id && g.effect === eff && g.channel),
+        (g) => !(g.ownerId === victim.id && g.effect === eff && g.channel === true),
       );
     }
 
@@ -513,7 +513,11 @@ const handleDeath = (w: World, victim: Unit, killer: Unit | null) => {
 const scaleRawDamage = (attacker: Unit | null, victim: Unit, raw: number, opts: DamageOpts) => {
   let amount = raw;
 
-  if (opts.structureBonusPct && victim.kind === "structure") {
+  if (
+    opts.structureBonusPct !== undefined &&
+    opts.structureBonusPct !== 0 &&
+    victim.kind === "structure"
+  ) {
     amount *= 1 + opts.structureBonusPct / 100;
   }
 
@@ -534,7 +538,7 @@ const scaleRawDamage = (attacker: Unit | null, victim: Unit, raw: number, opts: 
 };
 
 const applyLifesteal = (attacker: Unit, leftover: number, opts: DamageOpts) => {
-  const ls = opts.noLifesteal ? 0 : lifestealPct(attacker);
+  const ls = opts.noLifesteal === true ? 0 : lifestealPct(attacker);
 
   if (ls > 0 && leftover > 0) {
     attacker.hp = Math.min(attacker.maxHp, attacker.hp + leftover * ls);
@@ -597,7 +601,12 @@ export const dealDamage = (
   const amount = scaleRawDamage(attacker, victim, raw, opts);
   const final = computeDamage(victim, amount, dtype, opts.attackerSpellAmp ?? 0);
 
-  if (opts.isAttack && attacker && attacker.kind === "hero" && dist(attacker, victim) < 200) {
+  if (
+    opts.isAttack === true &&
+    attacker &&
+    attacker.kind === "hero" &&
+    dist(attacker, victim) < 200
+  ) {
     const refl = victim.statuses.find((s) => s.kind === "reflect");
 
     if (refl && refl.kind === "reflect" && attacker.projectileSpeed === 0) {
@@ -612,7 +621,7 @@ export const dealDamage = (
     victim.hero.recentDamageFrom[attacker.id] = w.now;
   }
 
-  if (attacker && attacker.hero && opts.isAttack) {
+  if (attacker && attacker.hero && opts.isAttack === true) {
     applyLifesteal(attacker, leftover, opts);
   }
 
@@ -763,7 +772,7 @@ const impactProjectile = (w: World, p: Projectile, x: number, y: number) => {
     });
 
     for (const v of w.units.values()) {
-      if (!v.alive || (!v.neutral && v.team === p.team)) {
+      if (!v.alive || (v.neutral !== true && v.team === p.team)) {
         continue;
       }
 
@@ -776,9 +785,9 @@ const impactProjectile = (w: World, p: Projectile, x: number, y: number) => {
       }
     }
   } else {
-    const t = p.targetId ? w.units.get(p.targetId) : null;
+    const t = p.targetId !== null && p.targetId !== "" ? w.units.get(p.targetId) : null;
 
-    if (t && t.alive && (t.neutral || t.team !== p.team)) {
+    if (t && t.alive && (t.neutral === true || t.team !== p.team)) {
       applyTo(t);
     }
   }
@@ -789,7 +798,7 @@ export const stepProjectiles = (w: World, dt: number) => {
     let { tx } = p;
     let { ty } = p;
 
-    if (p.targetId) {
+    if (p.targetId !== null && p.targetId !== "") {
       const t = w.units.get(p.targetId);
 
       if (t && t.alive) {

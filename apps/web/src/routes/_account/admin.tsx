@@ -27,7 +27,9 @@ const AdminPage = () => (
 );
 
 export const Route = createFileRoute("/_account/admin")({
-  beforeLoad: () => requireAdmin(),
+  beforeLoad: async () => {
+    await requireAdmin();
+  },
   component: AdminPage,
   head: () => ({ meta: [{ title: "Admin — Vibedgames" }] }),
 });

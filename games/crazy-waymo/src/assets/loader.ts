@@ -56,11 +56,11 @@ const computeMeshBounds = (obj: THREE.Object3D) => {
 const canonTag = (u: string) => u.replace(/^(?:\.\/|\/)+/u, "");
 
 export class ModelCache {
-  private loader = new GLTFLoader();
-  private templates = new Map<string, THREE.Object3D>();
-  private boundsCache = new Map<string, Bounds>();
-  private canonMats = new Map<string, THREE.Material>();
-  private texFingerprints = new Map<THREE.Texture, string>();
+  private readonly loader = new GLTFLoader();
+  private readonly templates = new Map<string, THREE.Object3D>();
+  private readonly boundsCache = new Map<string, Bounds>();
+  private readonly canonMats = new Map<string, THREE.Material>();
+  private readonly texFingerprints = new Map<THREE.Texture, string>();
   private fpCtx: CanvasRenderingContext2D | null = null;
 
   constructor() {
@@ -70,7 +70,7 @@ export class ModelCache {
   private textureFingerprint(tex: THREE.Texture) {
     const cached = this.texFingerprints.get(tex);
 
-    if (cached) {
+    if (cached !== undefined && cached !== "") {
       return cached;
     }
 
@@ -200,16 +200,18 @@ export class ModelCache {
     this.canonMap = null;
   }
 
-  private loadOne(url: string) {
+  private async loadOne(url: string) {
     if (url.endsWith("/props/tree-large.glb") || url.endsWith("/props/tree-small.glb")) {
       const kind = url.endsWith("/tree-large.glb") ? "cypress" : "broadleaf";
       this.storeTemplate(url, createSfTreeModel(kind));
 
-      return Promise.resolve() satisfies Promise<void>;
+      await (Promise.resolve() satisfies Promise<void>);
+
+      return;
     }
 
     /* oxlint-disable-next-line promise/avoid-new -- GLTFLoader only reports through success/error callbacks */
-    return new Promise((resolve, reject) => {
+    await (new Promise((resolve, reject) => {
       this.loader.load(
         url,
         (gltf) => {
@@ -218,9 +220,11 @@ export class ModelCache {
         },
         undefined,
         // oxlint-disable-next-line promise/prefer-await-to-callbacks -- GLTFLoader reports failure only through this callback
-        (err) => reject(err instanceof Error ? err : new Error(String(err))),
+        (err) => {
+          reject(err instanceof Error ? err : new Error(String(err)));
+        },
       );
-    }) satisfies Promise<void>;
+    }) satisfies Promise<void>);
   }
 
   /** Loaded and instanceable right now (no fallback box). */
@@ -228,22 +232,26 @@ export class ModelCache {
     return this.templates.has(url);
   }
 
-  private inFlight = new Map<string, Promise<void>>();
-  ensure(url: string) {
+  private readonly inFlight = new Map<string, Promise<void>>();
+  async ensure(url: string) {
     if (this.templates.has(url)) {
-      return Promise.resolve();
+      await Promise.resolve();
+
+      return;
     }
 
     const pending = this.inFlight.get(url);
 
     if (pending) {
-      return pending;
+      await pending;
+
+      return;
     }
 
     const load = this.loadSettled(url);
     this.inFlight.set(url, load);
 
-    return load;
+    await load;
   }
 
   private async loadSettled(url: string) {
@@ -319,7 +327,7 @@ export class ModelCache {
         let i = 0;
         tpl.traverse((c) => {
           if (c instanceof THREE.Mesh) {
-            if (!Array.isArray(c.material) && !this.matSrc?.has(c.material)) {
+            if (!Array.isArray(c.material) && this.matSrc?.has(c.material) !== true) {
               this.matSrc?.set(c.material, { idx: i, url });
             }
 

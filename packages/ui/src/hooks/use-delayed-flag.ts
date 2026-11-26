@@ -29,9 +29,13 @@ export const useDelayedFlag = (active: boolean, ms: number) => {
       return;
     }
 
-    const timer = window.setTimeout(() => setElapsed(true), ms);
+    const timer = window.setTimeout(() => {
+      setElapsed(true);
+    }, ms);
 
-    return () => window.clearTimeout(timer);
+    return () => {
+      window.clearTimeout(timer);
+    };
   }, [active, ms]);
 
   return active && elapsed;

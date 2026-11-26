@@ -170,7 +170,7 @@ export const rateLimitDelayMs = (message: string) => {
     hour += 12;
   }
 
-  const targetMin = hour * 60 + (minute ? Number(minute) : 0);
+  const targetMin = hour * 60 + (minute !== undefined && minute !== "" ? Number(minute) : 0);
   const nowMin = minutesNowIn(tz);
 
   if (nowMin === null) {
@@ -460,7 +460,7 @@ export const runAgent = async (opts: AgentOptions, reporter: Reporter) => {
   const maybeCheckpoint = async () => {
     const note = takeCheckpoint(bb);
 
-    if (!note || stopping) {
+    if (note === null || note === "" || stopping) {
       return;
     }
 
@@ -596,7 +596,7 @@ export const runAgent = async (opts: AgentOptions, reporter: Reporter) => {
       return "stop";
     }
 
-    return shipGate();
+    return await shipGate();
   };
 
   const runTurn: () => Promise<TurnOutcome> = async () => {
@@ -617,9 +617,10 @@ export const runAgent = async (opts: AgentOptions, reporter: Reporter) => {
     const exec = useCodex ? runCodex : runClaude;
     const resuming = useCodex ? undefined : resumeSessionId;
 
-    const prompt = resuming
-      ? `Your previous session on this assignment was interrupted before it reported success. First check what you already completed (git status/diff, the files and journal entries you touched), then finish ONLY the remaining work — do not redo what's done.\n\nThe assignment again, for reference:\n\n${task}`
-      : task;
+    const prompt =
+      resuming !== undefined && resuming !== ""
+        ? `Your previous session on this assignment was interrupted before it reported success. First check what you already completed (git status/diff, the files and journal entries you touched), then finish ONLY the remaining work — do not redo what's done.\n\nThe assignment again, for reference:\n\n${task}`
+        : task;
 
     const res = await exec({
       addDirs: [repoRoot, state.contextDir].filter((d): d is string => Boolean(d)),
@@ -629,7 +630,9 @@ export const runAgent = async (opts: AgentOptions, reporter: Reporter) => {
       maxSessionMs: opts.maxSessionMs,
       maxTurns: opts.maxTurns,
       model: useCodex && opts.runner !== "codex" ? opts.codexModel : state.model,
-      onActivity: (activity) => reporter.activity(activity),
+      onActivity: (activity) => {
+        reporter.activity(activity);
+      },
       prompt,
       resumeSessionId: resuming,
       signal: abort.signal,
@@ -707,7 +710,7 @@ export const runAgent = async (opts: AgentOptions, reporter: Reporter) => {
       );
     }
 
-    resumeSessionId = resuming ? undefined : res.sessionId;
+    resumeSessionId = resuming !== undefined && resuming !== "" ? undefined : res.sessionId;
     reporter.turnEnd({
       costUsd: res.costUsd,
       error: truncate(failure, 400),
@@ -804,7 +807,7 @@ export const runAgent = async (opts: AgentOptions, reporter: Reporter) => {
     const outcome = await runTurn();
     const { failure } = outcome;
 
-    if (failure) {
+    if (failure !== undefined && failure !== "") {
       await handleFailure(outcome, failure);
       continue;
     }

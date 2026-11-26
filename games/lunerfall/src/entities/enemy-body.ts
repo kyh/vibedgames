@@ -116,7 +116,7 @@ export class EnemyBody {
   }
 
   readonly kind: EnemyKind;
-  private grid: Grid;
+  private readonly grid: Grid;
 
   constructor(kind: EnemyKind, grid: Grid, x: number, y: number) {
     this.kind = kind;
@@ -143,13 +143,19 @@ export class EnemyBody {
     }
 
     const base =
-      this.state === "charge" && this.kind.attackDmg ? this.kind.attackDmg : this.kind.contactDmg;
+      this.state === "charge" && this.kind.attackDmg !== undefined && this.kind.attackDmg !== 0
+        ? this.kind.attackDmg
+        : this.kind.contactDmg;
 
     return base === 0 ? 0 : Math.round(base * this.dmgOutMult);
   }
 
   attackBox() {
-    if (this.state !== "attack" || !this.kind.attackRange) {
+    if (
+      this.state !== "attack" ||
+      this.kind.attackRange === undefined ||
+      this.kind.attackRange === 0
+    ) {
       return null;
     }
 

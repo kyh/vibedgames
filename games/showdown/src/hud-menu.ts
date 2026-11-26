@@ -142,7 +142,11 @@ export const buildBrawlerCards = (
     card.setAttribute("aria-pressed", String(on));
     card.setAttribute("aria-label", `${def.name}, ${def.role}`);
     card.innerHTML = cardMarkup(def, index);
-    const pick = () => onPick(def.id);
+
+    const pick = () => {
+      onPick(def.id);
+    };
+
     card.addEventListener("click", pick);
     card.addEventListener("keydown", (event) => {
       const direction = rosterKeys.get(event.key);

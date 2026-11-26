@@ -41,6 +41,7 @@ if (animations.length > 0) {
     const targets = [
       ...new Set(first.listChannels().map((c) => c.getTargetNode()?.getName() ?? "?")),
     ];
+
     console.log(
       `  first clip "${first.getName()}" targets ${targets.length} nodes: ${targets.join(", ")}`,
     );

@@ -36,11 +36,11 @@ const post = (init: { token?: string; body?: string; cookie?: string; origin?: s
     headers.set("authorization", `Bearer ${init.token}`);
   }
 
-  if (init.cookie) {
+  if (init.cookie !== undefined && init.cookie !== "") {
     headers.set("cookie", init.cookie);
   }
 
-  if (init.origin) {
+  if (init.origin !== undefined && init.origin !== "") {
     headers.set("origin", init.origin);
   }
 

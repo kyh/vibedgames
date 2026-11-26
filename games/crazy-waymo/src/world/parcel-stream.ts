@@ -320,11 +320,11 @@ export class ParcelStreamer {
       let result = job.steps.next();
       advanced = true;
 
-      while (!result.done && performance.now() < deadline) {
+      while (result.done !== true && performance.now() < deadline) {
         result = job.steps.next();
       }
 
-      if (result.done) {
+      if (result.done === true) {
         this.install(job.cell, job.detail, result.value);
         this.building = null;
         this.pending -= 1;
@@ -334,7 +334,7 @@ export class ParcelStreamer {
 
       this.builtMs += performance.now() - t0;
 
-      if (!result.done) {
+      if (result.done !== true) {
         break;
       }
     }

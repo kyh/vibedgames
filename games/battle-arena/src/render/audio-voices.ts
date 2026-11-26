@@ -2,8 +2,8 @@
 export type VoicePriority = "routine" | "essential";
 
 export class VoiceGroup {
-  private sources = new Map<AudioScheduledSourceNode, () => void>();
-  private nodes = new Set<AudioNode>();
+  private readonly sources = new Map<AudioScheduledSourceNode, () => void>();
+  private readonly nodes = new Set<AudioNode>();
   private sealed = false;
   private closed = false;
 
@@ -33,7 +33,11 @@ export class VoiceGroup {
     }
 
     const source = create();
-    const onEnded = () => this.release(source);
+
+    const onEnded = () => {
+      this.release(source);
+    };
+
     this.sources.set(source, onEnded);
     source.addEventListener("ended", onEnded, { once: true });
 
@@ -96,7 +100,7 @@ export class VoiceGroup {
 }
 
 export class VoicePool {
-  private groups = new Set<VoiceGroup>();
+  private readonly groups = new Set<VoiceGroup>();
 
   private readonly limit: number;
   private readonly routineLimit: number;

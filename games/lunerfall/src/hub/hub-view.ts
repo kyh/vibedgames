@@ -93,7 +93,9 @@ export class HubView {
     this.root.tabIndex = -1;
     const mast = element("header", "lf-hub-mast");
     this.forge = button("FORGE", actions.forge);
-    this.help = button("HELP", () => this.openHelp());
+    this.help = button("HELP", () => {
+      this.openHelp();
+    });
     this.help.setAttribute("aria-haspopup", "dialog");
     this.help.setAttribute("aria-expanded", "false");
     this.help.setAttribute("aria-controls", "lf-hub-help");
@@ -109,7 +111,14 @@ export class HubView {
     const grid = element("div", "lf-hub-heroes");
 
     for (const [index, name] of HERO_ORDER.entries()) {
-      const pick = button("", () => actions.hero(index), "lf-hub-hero");
+      const pick = button(
+        "",
+        () => {
+          actions.hero(index);
+        },
+        "lf-hub-hero",
+      );
+
       pick.dataset.hero = name;
       pick.style.setProperty("--hero", `#${HEROES[name].color.toString(16).padStart(6, "0")}`);
       pick.append(
@@ -125,9 +134,15 @@ export class HubView {
 
     const tools = element("section", "lf-hub-tools");
     tools.setAttribute("aria-label", "Play options");
-    this.solo = button("SOLO", () => actions.mode("off"));
-    this.coop = button("CO-OP", () => actions.mode("coop"));
-    this.versus = button("VERSUS", () => actions.mode("vs"));
+    this.solo = button("SOLO", () => {
+      actions.mode("off");
+    });
+    this.coop = button("CO-OP", () => {
+      actions.mode("coop");
+    });
+    this.versus = button("VERSUS", () => {
+      actions.mode("vs");
+    });
     const modes = element("div", "lf-hub-modes");
     modes.setAttribute("role", "group");
     modes.setAttribute("aria-label", "Game mode");
@@ -215,7 +230,9 @@ export class HubView {
     const helpHead = element("header", "lf-hub-forge-head");
     helpHead.append(
       element("h2", "", "HOW TO PLAY"),
-      button("CLOSE", () => this.closeHelp()),
+      button("CLOSE", () => {
+        this.closeHelp();
+      }),
     );
     this.helpDialog.id = "lf-hub-help";
     this.helpDialog.setAttribute("aria-label", "Lunerfall controls and game modes");
@@ -250,7 +267,14 @@ export class HubView {
     );
 
     for (const [index] of UPGRADES.entries()) {
-      const row = button("", () => actions.offer(index), "lf-hub-upgrade");
+      const row = button(
+        "",
+        () => {
+          actions.offer(index);
+        },
+        "lf-hub-upgrade",
+      );
+
       row.append(
         element("strong", ""),
         element("span", "lf-hub-upgrade-cost"),

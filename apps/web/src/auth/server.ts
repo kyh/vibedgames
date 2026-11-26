@@ -66,11 +66,18 @@ export const getServerContext = () => {
 
   const headers = new Headers(getRequestHeaders());
   const host = headers.get("host") ?? headers.get("x-forwarded-host");
-  const hostname = host ? new URL(`http://${host}`).hostname : null;
+  const hostname = host !== null && host !== "" ? new URL(`http://${host}`).hostname : null;
   const isLocalhost = hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]";
   const forwardedProto = headers.get("x-forwarded-proto")?.split(",")[0]?.trim();
-  const protocol = forwardedProto || (isLocalhost ? "http" : "https");
-  const baseUrl = host ? `${protocol}://${host}` : "http://localhost:3000";
+
+  const protocol =
+    forwardedProto === undefined || forwardedProto === ""
+      ? isLocalhost
+        ? "http"
+        : "https"
+      : forwardedProto;
+
+  const baseUrl = host !== null && host !== "" ? `${protocol}://${host}` : "http://localhost:3000";
 
   const productionUrl = env.PRODUCTION_URL || baseUrl;
 
@@ -125,7 +132,7 @@ export type OAuthSurface = keyof ReturnType<typeof oauthResources>;
  * SSR client in `lib/orpc.tsx` — so a binding added here can't reach one and
  * silently miss the other.
  */
-export const createRpcContext = (headers: Headers, surface: OAuthSurface = "api") => {
+export const createRpcContext = async (headers: Headers, surface: OAuthSurface = "api") => {
   const {
     baseUrl,
     db,
@@ -138,7 +145,7 @@ export const createRpcContext = (headers: Headers, surface: OAuthSurface = "api"
     signing,
   } = getServerContext();
 
-  return createORPCContext({
+  return await createORPCContext({
     auth: betterAuth,
     billing,
     db,
@@ -159,9 +166,9 @@ export const createRpcContext = (headers: Headers, surface: OAuthSurface = "api"
  * reused for both the handler and any internal getSession calls.
  */
 export const auth = {
-  handler: (request: Request) => {
+  handler: async (request: Request) => {
     const { auth: betterAuth } = getServerContext();
 
-    return betterAuth.handler(request);
+    return await betterAuth.handler(request);
   },
 };

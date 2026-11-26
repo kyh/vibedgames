@@ -56,13 +56,13 @@ const title = async () => {
     for(const type of ["pointerdown","pointerup","pointercancel","click"])document.addEventListener(type,event=>window.__menuEvents.push({type,trusted:event.isTrusted,pointer:event.pointerType,cta:!!event.target.closest("#banner-cta"),mode:window.__taxi.game.mode.kind}));`);
 };
 
-const state = () =>
-  evaluate(
+const state = async () =>
+  await evaluate(
     '({mode:window.__taxi.game.mode.kind,chatting:document.body.classList.contains("chatting"),events:window.__menuEvents,clicks:window.__menuClicks,active:document.activeElement?.id})',
   );
 
-const touch = (type: string, point: undefined) =>
-  call("Input.dispatchTouchEvent", { touchPoints: point ? [point] : [], type });
+const touch = async (type: string, point: undefined) =>
+  await call("Input.dispatchTouchEvent", { touchPoints: point ? [point] : [], type });
 
 try {
   await call("Runtime.enable");

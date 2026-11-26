@@ -47,7 +47,6 @@ export interface OnlineFlowDeps {
   restartRequested: boolean;
 }
 
-
 /** What tools/two-client.mts reads of an online run, published each frame. */
 export interface OnlineProbe {
   ax: number | null;
@@ -123,8 +122,12 @@ export class OnlineFlow {
     this.seat.session = new NetSession({
       fallbackMs: 6000,
       maxPlayers: 2,
-      onEvent: (event, payload, from) => this.hostNet.receive(event, payload, from),
-      onShared: (state) => this.guest.receive(state),
+      onEvent: (event, payload, from) => {
+        this.hostNet.receive(event, payload, from);
+      },
+      onShared: (state) => {
+        this.guest.receive(state);
+      },
       room: `lunerfall-v${WIRE_VERSION}-${this.seat.mode === "versus" ? "vs" : "coop"}-${party}`,
     });
   }
@@ -393,7 +396,7 @@ export class OnlineFlow {
     const sess = this.seat.session;
     const myId = sess?.playerId;
 
-    if (!sess?.isHost || !myId) {
+    if (sess?.isHost !== true || myId === undefined || myId === null || myId === "") {
       return;
     }
 
@@ -427,7 +430,7 @@ export class OnlineFlow {
     } else {
       this.run.match = null;
       const param = new URLSearchParams(location.search).get("room");
-      const rt = param ? parseRoomType(param) : null;
+      const rt = param !== null && param !== "" ? parseRoomType(param) : null;
       this.rooms.build(rt ? this.expedition.debugEnter(rt) : this.expedition.begin());
     }
 
@@ -490,7 +493,7 @@ export class OnlineFlow {
     const sess = this.seat.session;
     const auth = this.seat.authority;
 
-    if (!sess?.live || auth.kind !== "ready" || this.seat.mode !== "coop") {
+    if (sess?.live !== true || auth.kind !== "ready" || this.seat.mode !== "coop") {
       return;
     }
 

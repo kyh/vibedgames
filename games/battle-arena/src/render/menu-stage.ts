@@ -24,9 +24,9 @@ interface Slot {
 export class MenuStage {
   readonly scene = new THREE.Scene();
   readonly camera: THREE.PerspectiveCamera;
-  private slots: Slot[] = [];
-  private raycaster = new THREE.Raycaster();
-  private picks: THREE.Object3D[] = [];
+  private readonly slots: Slot[] = [];
+  private readonly raycaster = new THREE.Raycaster();
+  private readonly picks: THREE.Object3D[] = [];
   private selectedId = CHAMPIONS[0]?.id ?? DEFAULT_CHAMP;
   private hoverId: string | null = null;
   private t = 0;
@@ -91,11 +91,11 @@ export class MenuStage {
       char.root.scale.setScalar(scale);
       group.add(char.root);
 
-      if (c.weaponR) {
+      if (c.weaponR !== undefined && c.weaponR !== "") {
         char.attach(lib.instance(c.weaponR), "handslot.r");
       }
 
-      if (c.weaponL) {
+      if (c.weaponL !== undefined && c.weaponL !== "") {
         char.attach(lib.instance(c.weaponL), "handslot.l");
       }
 
@@ -119,7 +119,7 @@ export class MenuStage {
       );
 
       proxy.position.y = 1.15 * scale;
-      proxy.userData["champId"] = c.id;
+      proxy.userData.champId = c.id;
       group.add(proxy);
       this.picks.push(proxy);
 
@@ -164,7 +164,7 @@ export class MenuStage {
       return null;
     }
 
-    return hit.object.userData["champId"] as string;
+    return hit.object.userData.champId as string;
   }
 
   onPointerMove(clientX: number, clientY: number) {
@@ -175,7 +175,7 @@ export class MenuStage {
   onClick(clientX: number, clientY: number) {
     const id = this.pick(clientX, clientY);
 
-    if (id) {
+    if (id !== null && id !== "") {
       this.select(id);
 
       return true;

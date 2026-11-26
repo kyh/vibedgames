@@ -33,8 +33,8 @@ const d1Result = <T>() =>
 
 function raw<T = unknown[]>(options: { columnNames: true }): Promise<[string[], ...T[]]>;
 function raw<T = unknown[]>(options?: { columnNames?: false }): Promise<T[]>;
-function raw() {
-  return Promise.resolve([[20 * MICRO_PER_USD]]);
+async function raw() {
+  return await Promise.resolve([[20 * MICRO_PER_USD]]);
 }
 
 interface Write {
@@ -47,11 +47,11 @@ const bound = new WeakMap<D1PreparedStatement, Write>();
 
 const prepare = (query: string, params: unknown[] = []) => {
   const statement: D1PreparedStatement = {
-    all: <T>() => Promise.resolve(d1Result<T>()),
+    all: async <T>() => await Promise.resolve(d1Result<T>()),
     bind: (...values) => prepare(query, values),
-    first: () => Promise.resolve(null),
+    first: async () => await Promise.resolve(null),
     raw,
-    run: <T>() => Promise.resolve(d1Result<T>()),
+    run: async <T>() => await Promise.resolve(d1Result<T>()),
   };
 
   bound.set(statement, { params, query });
@@ -60,7 +60,7 @@ const prepare = (query: string, params: unknown[] = []) => {
 };
 
 const db = createDb({
-  batch: <T>(statements: D1PreparedStatement[]) => {
+  batch: async <T>(statements: D1PreparedStatement[]) => {
     for (const statement of statements) {
       const write = bound.get(statement);
 
@@ -69,7 +69,7 @@ const db = createDb({
       }
     }
 
-    return Promise.resolve(statements.map(() => d1Result<T>()));
+    return await Promise.resolve(statements.map(() => d1Result<T>()));
   },
   dump: unavailable,
   exec: unavailable,
@@ -84,7 +84,14 @@ const heldGeneration = () => {
     insert?.query ?? "",
   )?.groups;
 
-  if (!insert || !groups?.columns || !groups.values) {
+  if (
+    !insert ||
+    groups === undefined ||
+    groups.columns === undefined ||
+    groups.columns === "" ||
+    groups.values === undefined ||
+    groups.values === ""
+  ) {
     return null;
   }
 
@@ -211,8 +218,8 @@ const stubFal = ({
 
 const ranOnQueue = () => fetchedUrls().some((url) => url.hostname === "queue.upstream");
 
-const submit = (path: string, role: string) =>
-  forward(contextAs(role), { method: "POST", path, target: "queue" });
+const submit = async (path: string, role: string) =>
+  await forward(contextAs(role), { method: "POST", path, target: "queue" });
 
 describe("forward path", () => {
   test("refuses a path the URL parser would rewrite, before anything is fetched", async () => {

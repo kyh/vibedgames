@@ -12,14 +12,18 @@ const extractApiKeys = (headers: Headers) => {
 
   const direct = headers.get("x-api-key");
 
-  if (direct?.startsWith(API_KEY_PREFIX)) {
+  if (direct?.startsWith(API_KEY_PREFIX) === true) {
     candidates.push(direct);
   }
 
   const auth = headers.get("authorization");
-  const token = auth ? /^Bearer\s+(?<token>.+)$/iu.exec(auth)?.groups?.token?.trim() : undefined;
 
-  if (token?.startsWith(API_KEY_PREFIX)) {
+  const token =
+    auth !== null && auth !== ""
+      ? /^Bearer\s+(?<token>.+)$/iu.exec(auth)?.groups?.token?.trim()
+      : undefined;
+
+  if (token?.startsWith(API_KEY_PREFIX) === true) {
     candidates.push(token);
   }
 
@@ -58,7 +62,7 @@ export const resolveApiKeySession = async (auth: Auth, db: Db, headers: Headers)
       continue;
     }
 
-    if (user.banned && (!user.banExpires || user.banExpires.getTime() > Date.now())) {
+    if (user.banned === true && (!user.banExpires || user.banExpires.getTime() > Date.now())) {
       continue;
     }
 

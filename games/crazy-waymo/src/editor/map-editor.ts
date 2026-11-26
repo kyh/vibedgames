@@ -207,7 +207,7 @@ export const startEditor = async (game: GameScene, renderer: THREE.WebGLRenderer
   const placed: Placed[] = [...CUSTOM_PROPS, ...loadLocalProps()].map((p) => {
     const entry: Entry = { model: p.model, s: p.s, u: p.u, v: p.v, yaw: p.yaw };
 
-    if (p.solid) {
+    if (p.solid === true) {
       entry.solid = true;
     }
 
@@ -591,7 +591,7 @@ export const startEditor = async (game: GameScene, renderer: THREE.WebGLRenderer
     game.scene.add(ghost);
 
     for (const b of ui.querySelectorAll(".edp")) {
-      b.classList.toggle("on", b instanceof HTMLElement && b.dataset["model"] === `${cat}/${name}`);
+      b.classList.toggle("on", b instanceof HTMLElement && b.dataset.model === `${cat}/${name}`);
     }
   };
 
@@ -615,7 +615,7 @@ export const startEditor = async (game: GameScene, renderer: THREE.WebGLRenderer
     const url = modelUrl(cat, name);
     const hit = thumbCache.get(url);
 
-    if (hit) {
+    if (hit !== undefined && hit !== "") {
       return hit;
     }
 
@@ -662,7 +662,7 @@ export const startEditor = async (game: GameScene, renderer: THREE.WebGLRenderer
 
       const btn = document.createElement("button");
       btn.className = `edp${palette?.name === name && palette.cat === c.cat ? " on" : ""}`;
-      btn.dataset["model"] = `${c.cat}/${name}`;
+      btn.dataset.model = `${c.cat}/${name}`;
       const img = document.createElement("img");
       img.src = thumbnail(c.cat, name);
       const label = document.createElement("span");
@@ -676,7 +676,7 @@ export const startEditor = async (game: GameScene, renderer: THREE.WebGLRenderer
   };
 
   const selectCategory = (btn: HTMLButtonElement) => {
-    activeCat = Number(btn.dataset["cat"]) || 0;
+    activeCat = Number(btn.dataset.cat) || 0;
 
     for (const b of ui.querySelectorAll(".edc")) {
       b.classList.toggle("on", b === btn);
@@ -702,7 +702,7 @@ export const startEditor = async (game: GameScene, renderer: THREE.WebGLRenderer
     tab = t;
 
     for (const b of ui.querySelectorAll<HTMLButtonElement>(".edt")) {
-      b.classList.toggle("on", b.dataset["tab"] === t);
+      b.classList.toggle("on", b.dataset.tab === t);
     }
 
     $("ed-body-props").style.display = t === "props" ? "flex" : "none";
@@ -720,7 +720,7 @@ export const startEditor = async (game: GameScene, renderer: THREE.WebGLRenderer
 
   for (const btn of ui.querySelectorAll<HTMLButtonElement>(".edt")) {
     btn.addEventListener("click", () => {
-      const t = btn.dataset["tab"];
+      const t = btn.dataset.tab;
       setTab(t === "props" || t === "streets" || t === "floor" || t === "clear" ? t : "props");
     });
   }
@@ -741,7 +741,7 @@ export const startEditor = async (game: GameScene, renderer: THREE.WebGLRenderer
   });
 
   const selectFloor = (btn: HTMLButtonElement) => {
-    const f = btn.dataset["floor"];
+    const f = btn.dataset.floor;
     floorKind = f === "plaza" || f === "grass" || f === "sand" || f === "erase" ? f : "plaza";
 
     for (const b of ui.querySelectorAll(".edf")) {
@@ -932,7 +932,9 @@ export const startEditor = async (game: GameScene, renderer: THREE.WebGLRenderer
     a.download = "crazy-waymo-map.json";
     a.click();
   });
-  $("ed-loadbtn").addEventListener("click", () => $("ed-file").click());
+  $("ed-loadbtn").addEventListener("click", () => {
+    $("ed-file").click();
+  });
   $("ed-file").addEventListener("change", async () => {
     const input = $("ed-file");
 
@@ -970,8 +972,12 @@ export const startEditor = async (game: GameScene, renderer: THREE.WebGLRenderer
     deselect();
     saveNow();
   });
-  $("ed-rot-l").addEventListener("click", () => orbitBy(Math.PI / 8));
-  $("ed-rot-r").addEventListener("click", () => orbitBy(-Math.PI / 8));
+  $("ed-rot-l").addEventListener("click", () => {
+    orbitBy(Math.PI / 8);
+  });
+  $("ed-rot-r").addEventListener("click", () => {
+    orbitBy(-Math.PI / 8);
+  });
   $("ed-clear-map").addEventListener("click", () => {
     for (const k of floorMap.keys()) {
       const [gx, gz] = k.split(",").map(Number);

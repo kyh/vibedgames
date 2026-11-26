@@ -1,5 +1,7 @@
 const OUT = process.argv[2] ?? "/tmp/shots";
+
 import { chromium } from "playwright-core";
+
 const PORT = process.argv[3] ?? "5199";
 
 const SPOTS = [

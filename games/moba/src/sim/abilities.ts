@@ -63,11 +63,11 @@ const enemiesInRadius = (
   const r2 = radius * radius;
 
   for (const u of w.units.values()) {
-    if (!u.alive || (!u.neutral && u.team === team)) {
+    if (!u.alive || (u.neutral !== true && u.team === team)) {
       continue;
     }
 
-    if (u.kind === "structure" && (!allowStructure || !u.structure?.attackable)) {
+    if (u.kind === "structure" && (!allowStructure || u.structure?.attackable !== true)) {
       continue;
     }
 
@@ -84,9 +84,9 @@ const enemiesInRadius = (
 };
 
 const createGround = (w: World, c: Unit, effect: string, p: Vec2, o: GroundOpts) => {
-  if (o.followOwner) {
+  if (o.followOwner === true) {
     w.groundEffects = w.groundEffects.filter(
-      (g) => !(g.followOwner && g.ownerId === c.id && g.effect === effect),
+      (g) => !(g.followOwner === true && g.ownerId === c.id && g.effect === effect),
     );
   }
 
@@ -156,7 +156,7 @@ const alliesInRadius = (w: World, team: string, p: Vec2, radius: number, heroesO
   const r2 = radius * radius;
 
   for (const u of w.units.values()) {
-    if (!u.alive || u.neutral || u.team !== team) {
+    if (!u.alive || u.neutral === true || u.team !== team) {
       continue;
     }
 
@@ -697,7 +697,7 @@ const castBoomtinker: Caster = ({ w, c, def, rank, p, amp }) => {
 const castBrewkeeper: Caster = ({ w, c, def, rank, p, amp, target }) => {
   switch (def.effect) {
     case "brewkeeper:Q": {
-      const ally = target && !target.neutral && target.team === c.team ? target : c;
+      const ally = target && target.neutral !== true && target.team === c.team ? target : c;
       ally.hp = Math.min(ally.maxHp, ally.hp + v(def, "heal", rank));
       addStatus(ally, {
         hps: v(def, "regenPerSec", rank),
@@ -865,7 +865,7 @@ export const castAbility = (w: World, caster: Unit, input: CastInput) => {
   let target: Unit | undefined;
 
   if (def.targeting === "unit") {
-    if (!input.targetId) {
+    if (input.targetId === undefined || input.targetId === "") {
       return false;
     }
 
@@ -933,7 +933,7 @@ export const breakChannel = (w: World, u: Unit) => {
   const eff = u.hero.channel.effect;
   u.hero.channel = null;
   w.groundEffects = w.groundEffects.filter(
-    (g) => !(g.ownerId === u.id && g.effect === eff && g.channel),
+    (g) => !(g.ownerId === u.id && g.effect === eff && g.channel === true),
   );
 };
 
@@ -1031,7 +1031,7 @@ const tickStatusDots = (w: World) => {
 };
 
 const applyGroundTick = (w: World, g: GroundEffect) => {
-  if (g.enemyDps && g.enemyDps > 0) {
+  if (g.enemyDps !== undefined && g.enemyDps !== 0 && g.enemyDps > 0) {
     const src = w.units.get(g.ownerId) ?? null;
 
     for (const e of enemiesInRadius(w, g.team, g, g.radius, false)) {
@@ -1043,7 +1043,7 @@ const applyGroundTick = (w: World, g: GroundEffect) => {
         attackerSpellAmp: src ? spellAmp(src) : 0,
       });
 
-      if (g.slowPct && g.slowPct > 0) {
+      if (g.slowPct !== undefined && g.slowPct !== 0 && g.slowPct > 0) {
         addStatus(e, {
           id: `ground:${g.id}:${e.id}`,
           kind: "slow",
@@ -1055,25 +1055,25 @@ const applyGroundTick = (w: World, g: GroundEffect) => {
   }
 
   if (
-    (g.allyHealPerTick && g.allyHealPerTick > 0) ||
-    (g.allyManaPerTick && g.allyManaPerTick > 0) ||
-    g.cleanse
+    (g.allyHealPerTick !== undefined && g.allyHealPerTick !== 0 && g.allyHealPerTick > 0) ||
+    (g.allyManaPerTick !== undefined && g.allyManaPerTick !== 0 && g.allyManaPerTick > 0) ||
+    g.cleanse === true
   ) {
     for (const a of alliesInRadius(w, g.team, g, g.radius)) {
-      if (g.allyHealPerTick) {
+      if (g.allyHealPerTick !== undefined && g.allyHealPerTick !== 0) {
         a.hp = Math.min(a.maxHp, a.hp + g.allyHealPerTick);
       }
 
-      if (g.allyManaPerTick) {
+      if (g.allyManaPerTick !== undefined && g.allyManaPerTick !== 0) {
         a.mp = Math.min(a.maxMp, a.mp + g.allyManaPerTick);
       }
 
-      if (g.cleanse) {
+      if (g.cleanse === true) {
         cleanseSlows(a);
       }
     }
 
-    if (g.allyHealPerTick) {
+    if (g.allyHealPerTick !== undefined && g.allyHealPerTick !== 0) {
       w.fx.push({ amount: g.allyHealPerTick, t: "heal", x: g.x, y: g.y });
     }
   }
@@ -1108,7 +1108,7 @@ const tickGround = (w: World) => {
   const survivors: GroundEffect[] = [];
 
   for (const g of w.groundEffects) {
-    if (g.followOwner) {
+    if (g.followOwner === true) {
       const owner = w.units.get(g.ownerId);
 
       if (owner && owner.alive) {

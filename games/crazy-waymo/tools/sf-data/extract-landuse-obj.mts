@@ -6,7 +6,7 @@ import { onLandUV, plLen, rdp, ringArea, WORLD_H, WORLD_W } from "./lib.mts";
 const [objPath, outArg] = process.argv.slice(2);
 const outPath = outArg ?? new URL("sf-landuse-obj.json", import.meta.url).pathname;
 
-if (!objPath) {
+if (objPath === undefined || objPath === "") {
   console.error("usage: node extract-landuse-obj.mts <obj> [out.json]");
   process.exit(1);
 }
@@ -70,7 +70,7 @@ rl.on("line", (l) => {
     vy.push(Number(l.slice(j + 1, k)));
     vz.push(Number(l.slice(k + 1)));
   } else if (c0 === CH_F && l.codePointAt(1) === CH_SPACE) {
-    if (!curName) {
+    if (curName === null || curName === "") {
       return;
     }
 
@@ -326,6 +326,7 @@ const traceRings = (next: Map<any, any>, edges: number) => {
 
 const topRings = (c: { maxY: number; minY: number; faces: any[] }) => {
   const eps = Math.max(1e-4, Math.min(0.75, (c.maxY - c.minY) * 0.1));
+
   const top = c.faces.filter((f: any[]) =>
     f.every((id: string | number) => vy[id] >= c.maxY - eps),
   );
@@ -449,7 +450,7 @@ const loadOsm = () => {
   const seen = new Set();
 
   for (const file of ["sf-landuse.raw.json", "sf-osm-tags.raw.json"]) {
-    const url = new URL(`${file}`, import.meta.url);
+    const url = new URL(file, import.meta.url);
 
     if (!existsSync(url)) {
       console.log(`WARN ${file} missing — decode coverage will be reduced`);
@@ -997,6 +998,7 @@ const assignPolyClasses = (
 };
 
 const DISTRICT_MIN = 20_000;
+
 const isDistrict = (p: {
   area: any;
   compact?: number;
@@ -1257,8 +1259,8 @@ const main = () => {
         `match=${String(Math.round(d.matchRate * 100)).padStart(3)}% ` +
         `area=${String(d.areaU2).padStart(8)}u² -> ${String(d.decoded).padEnd(28)} ` +
         `conf=${d.confidence.toFixed(2)} ` +
-        `${d.hintAgrees === false ? `NAME-HINT DISAGREES (${d.nameHint.join("|")}) ` : ""}` +
-        `${d.runnersUp.slice(0, 2).join(", ")}`,
+        (d.hintAgrees === false ? `NAME-HINT DISAGREES (${d.nameHint.join("|")}) ` : "") +
+        d.runnersUp.slice(0, 2).join(", "),
     );
   }
 

@@ -32,7 +32,7 @@ const toCache = (response: Response, headers: Headers, compressed: boolean) => {
 const fromCache = (hit: Response) => {
   const encoding = hit.headers.get(ENCODING_MARKER);
 
-  if (!encoding) {
+  if (encoding === null || encoding === "") {
     return hit;
   }
 
@@ -72,7 +72,7 @@ const extractSlug = (host: string) => {
 
   const [slug] = parts;
 
-  if (!slug || slug === "www") {
+  if (slug === undefined || slug === "" || slug === "www") {
     return null;
   }
 
@@ -161,7 +161,7 @@ export default {
 
     const slug = extractSlug(host);
 
-    if (!slug) {
+    if (slug === null || slug === "") {
       return notFound("Invalid host");
     }
 
@@ -172,7 +172,12 @@ export default {
       where: { slug },
     });
 
-    if (!g?.currentDeploymentId) {
+    if (
+      g === undefined ||
+      g.currentDeploymentId === undefined ||
+      g.currentDeploymentId === null ||
+      g.currentDeploymentId === ""
+    ) {
       return notFound("Game not found");
     }
 
@@ -225,7 +230,7 @@ export default {
     headers.set("x-vg-cache", cacheStatus);
 
     if (isHtml) {
-      return serveHtml({
+      return await serveHtml({
         db,
         deploymentId: g.currentDeploymentId,
         headers,

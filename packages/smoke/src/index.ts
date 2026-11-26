@@ -15,12 +15,13 @@ export interface PollOptions {
  * `intervalMs` between reads. Resolves the accepted value, or `null` once the
  * deadline has passed.
  */
-export const poll = <T>(
+export const poll = async <T>(
   read: () => Promise<T>,
   done: (value: T) => boolean,
   { intervalMs = 50, timeoutMs }: PollOptions,
 ) => {
   const deadline = Date.now() + timeoutMs;
+
   const attempt: () => Promise<T | null> = async () => {
     if (Date.now() >= deadline) {
       return null;
@@ -34,10 +35,10 @@ export const poll = <T>(
 
     await wait(intervalMs);
 
-    return attempt();
+    return await attempt();
   };
 
-  return attempt();
+  return await attempt();
 };
 
 /** Run `step` for each item in order, each one after the last has settled. */
@@ -47,20 +48,18 @@ export const inSequence = async <T, R>(
 ) => {
   const results: R[] = [];
 
-  await items.reduce<Promise<void>>(
-    (previous, item, index) =>
-      previous.then(async () => {
-        results.push(await step(item, index));
-      }),
-    Promise.resolve(),
-  );
+  await items.reduce<Promise<void>>(async (previous, item, index) => {
+    await previous.then(async () => {
+      results.push(await step(item, index));
+    });
+  }, Promise.resolve());
 
   return results;
 };
 
 /** Run `step` `count` times in order. */
-export const repeat = (count: number, step: (index: number) => Promise<void>) =>
-  inSequence(
+export const repeat = async (count: number, step: (index: number) => Promise<void>) =>
+  await inSequence(
     Array.from({ length: count }, (_, index) => index),
     step,
   );
@@ -93,13 +92,15 @@ export const startVite = async ({
   url,
 }: ViteOptions) => {
   const target = url ?? `http://localhost:${port}`;
+
   const vite: ChildProcess = spawn(
     path.join(gameDir, "node_modules/.bin/vite"),
     ["--port", String(port), "--strictPort", ...args],
     { cwd: gameDir, stdio: "ignore" },
   );
+
   const up = await poll(
-    () => reachable(target),
+    async () => await reachable(target),
     (ok) => ok,
     { intervalMs: 100, timeoutMs },
   );
@@ -151,4 +152,4 @@ export const flagValue = (name: string, argv: readonly string[] = process.argv) 
 };
 
 /** Parse `text` as JSON that `schema` accepts, throwing when it does not. */
-export const parseJson = <T,>(text: string, schema: z.ZodType<T>) => schema.parse(JSON.parse(text));
+export const parseJson = <T>(text: string, schema: z.ZodType<T>) => schema.parse(JSON.parse(text));

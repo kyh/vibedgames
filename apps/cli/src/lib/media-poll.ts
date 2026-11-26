@@ -82,7 +82,9 @@ export const waitForCompletion = async (
     if (upper === "FAILED" || upper === "CANCELLED") {
       const reason = pickErrorReason(raw);
       throw new Error(
-        reason ? `Job ${upper.toLowerCase()}: ${reason}` : `Job ${upper.toLowerCase()}`,
+        reason !== null && reason !== ""
+          ? `Job ${upper.toLowerCase()}: ${reason}`
+          : `Job ${upper.toLowerCase()}`,
       );
     }
 

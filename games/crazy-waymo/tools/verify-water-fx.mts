@@ -2,9 +2,9 @@
 import { writeFileSync } from "node:fs";
 import path from "node:path";
 import { createMobileSession } from "./mobile-browser-session.mts";
-import { Fx } from "../src/fx/particles";
-import { SkidMarks } from "../src/fx/skids";
-import { DriftTrails } from "../src/fx/trails";
+import type { Fx } from "../src/fx/particles";
+import type { SkidMarks } from "../src/fx/skids";
+import type { DriftTrails } from "../src/fx/trails";
 
 const url = process.argv[2] ?? "http://localhost:5193/?time=noon&offline=1";
 const output = path.resolve(process.argv[3] ?? "/private/tmp/waymo-water-fx");
@@ -29,7 +29,7 @@ const report = {
   views: [],
 };
 
-const run = (
+const run = async (
   fn: {
     (): {
       coarse: boolean;
@@ -75,7 +75,7 @@ const run = (
     toString?: any;
   },
   ...args: (string | number | undefined)[]
-) => evaluate(`(${fn.toString()})(...${JSON.stringify(args)})`);
+) => await evaluate(`(${fn.toString()})(...${JSON.stringify(args)})`);
 
 const check = (name: string, passed: boolean, evidence: string | any[]) => {
   report.checks.push({ evidence, name, passed });
@@ -115,7 +115,7 @@ const installMetrics = () => {
       m[args[6]] += 1;
     }
 
-    return baseSpray.apply(this, args);
+    baseSpray.apply(this, args);
   };
 
   const tire = (owner: Fx | DriftTrails | SkidMarks | null, key: string) => {
@@ -202,7 +202,7 @@ const installMetrics = () => {
   water.mesh.onBeforeRender = function onBeforeRender(...args) {
     beforeFoam = r.info.render.calls;
 
-    return before.apply(this, args);
+    before.apply(this, args);
   };
 
   water.mesh.onAfterRender = function onAfterRender(...args) {
@@ -210,7 +210,7 @@ const installMetrics = () => {
       m.peakFoamDraws = Math.max(m.peakFoamDraws, r.info.render.calls - beforeFoam);
     }
 
-    return after.apply(this, args);
+    after.apply(this, args);
   };
 
   const baseRender = r.render;

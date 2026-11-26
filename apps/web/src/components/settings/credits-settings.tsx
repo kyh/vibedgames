@@ -51,7 +51,9 @@ const RedeemCode = ({
         qc.invalidateQueries({ queryKey: orpc.credits.me.queryKey() });
         toast.success(`Added ${formatUsd(data.creditedMicro)} of credit`);
         onRedeemed();
-        setTimeout(() => setOpen(false), REDEEMED_CLOSE_MS);
+        setTimeout(() => {
+          setOpen(false);
+        }, REDEEMED_CLOSE_MS);
       },
     }),
   );
@@ -174,7 +176,9 @@ const BuyCredits = ({ children }: { children: React.ReactNode }) => {
             size="sm"
             disabled={checkout.isPending && checkout.variables?.amountUsd !== amountUsd}
             loading={checkout.isPending && checkout.variables?.amountUsd === amountUsd}
-            onClick={() => checkout.mutate({ amountUsd })}
+            onClick={() => {
+              checkout.mutate({ amountUsd });
+            }}
           >
             ${amountUsd}
           </Button>
@@ -262,13 +266,17 @@ export const CreditsSettings = ({
       return;
     }
 
-    const timer = setTimeout(() => setWatchingSince(null), PURCHASE_WATCH_MS);
+    const timer = setTimeout(() => {
+      setWatchingSince(null);
+    }, PURCHASE_WATCH_MS);
 
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+    };
   }, [watchingSince]);
 
   useEffect(() => {
-    if (code || purchase) {
+    if ((code !== undefined && code !== "") || purchase) {
       sectionRef.current?.scrollIntoView({ block: "start" });
     }
   }, [code, purchase]);

@@ -60,7 +60,7 @@ const placeMirrored = (draft: Draft, x: number, y: number, tile: number, style =
   for (const [mx, my] of mirrored(x, y)) {
     const i = gridIndex(mx, my);
 
-    if (draft.reserved[i] || draft.tiles[i] !== TILE.EMPTY) {
+    if ((draft.reserved[i] ?? 0) !== 0 || draft.tiles[i] !== TILE.EMPTY) {
       continue;
     }
 
@@ -196,7 +196,7 @@ const placeLamps = (draft: Draft) => {
     for (const [mx, my] of mirrored(x, y)) {
       const i = gridIndex(mx, my);
 
-      if (draft.reserved[i]) {
+      if ((draft.reserved[i] ?? 0) !== 0) {
         continue;
       }
 
@@ -222,7 +222,7 @@ const pickBoxSpots = (draft: Draft) => {
     const y = randInt(rng, 3, 20);
     const i = gridIndex(x, y);
 
-    if (draft.tiles[i] !== TILE.EMPTY || draft.reserved[i]) {
+    if (draft.tiles[i] !== TILE.EMPTY || (draft.reserved[i] ?? 0) !== 0) {
       continue;
     }
 
@@ -265,7 +265,7 @@ const floodReachable = (tiles: Uint8Array, start: number) => {
       const ny = y + dy;
       const n = gridIndex(nx, ny);
 
-      if (!inGrid(nx, ny) || reached[n]) {
+      if (!inGrid(nx, ny) || (reached[n] ?? 0) !== 0) {
         continue;
       }
 

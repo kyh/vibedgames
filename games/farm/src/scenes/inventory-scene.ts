@@ -112,7 +112,9 @@ export class InventoryScene extends Scene {
       seasonOfDay(game.day),
       (season) => store.collections.page(season),
       {
-        close: () => this.close(),
+        close: () => {
+          this.close();
+        },
         page: (page) => {
           this.cameras.main.visible = page === "inventory";
           this.input.enabled = page === "inventory";
@@ -127,7 +129,10 @@ export class InventoryScene extends Scene {
       this.scale.off("resize", this.onResize);
     }
 
-    this.onResize = () => this.layout();
+    this.onResize = () => {
+      this.layout();
+    };
+
     this.scale.on("resize", this.onResize);
     this.events.once(Scenes.Events.SHUTDOWN, () => {
       if (this.onResize) {
@@ -141,9 +146,15 @@ export class InventoryScene extends Scene {
       }
     });
 
-    this.input.on("pointerdown", (p: Phaser.Input.Pointer) => this.onClick(p));
-    this.input.keyboard?.on("keydown-ESC", () => this.close());
-    this.input.keyboard?.on("keydown-I", () => this.close());
+    this.input.on("pointerdown", (p: Phaser.Input.Pointer) => {
+      this.onClick(p);
+    });
+    this.input.keyboard?.on("keydown-ESC", () => {
+      this.close();
+    });
+    this.input.keyboard?.on("keydown-I", () => {
+      this.close();
+    });
   }
 
   private close() {

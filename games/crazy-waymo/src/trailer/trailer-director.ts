@@ -422,10 +422,12 @@ class Director {
         let stable = 0;
 
         while (stable < 8) {
-          // oxlint-disable-next-line promise/avoid-new -- rAF has no promise form in the browser
-          await new Promise<void>((resolve) => {
-            requestAnimationFrame(() => resolve());
+          const { promise, resolve } = Promise.withResolvers<void>();
+          requestAnimationFrame(() => {
+            resolve();
           });
+
+          await promise;
 
           if (performance.now() > deadline) {
             throw new Error(`Scenery did not settle for ${scene.id}`);
@@ -1244,7 +1246,7 @@ class Director {
     const catalog = this.catalog();
     const isSceneId = (id: string): id is keyof typeof catalog => id in catalog;
     const pick = new URLSearchParams(window.location.search).get("scene");
-    const ids = pick ? pick.split(",") : Director.SCENE_ORDER;
+    const ids = pick !== null && pick !== "" ? pick.split(",") : Director.SCENE_ORDER;
 
     return ids.map((id) => {
       if (!isSceneId(id)) {
@@ -2242,7 +2244,9 @@ export const startTrailer = (game: GameScene, captureFrame: () => HTMLCanvasElem
   runTrailer({
     captureFrame,
     clock: director.clock,
-    onGesture: () => director.unlockAudio(),
+    onGesture: () => {
+      director.unlockAudio();
+    },
     scenes: director.scenes(),
   });
   document.querySelector("#trailer-plate")?.remove();

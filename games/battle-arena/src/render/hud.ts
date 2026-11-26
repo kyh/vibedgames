@@ -602,8 +602,8 @@ const injectStyle = () => {
 };
 
 export class Hud {
-  private root: HTMLElement;
-  private plates = new Map<string, Plate>();
+  private readonly root: HTMLElement;
+  private readonly plates = new Map<string, Plate>();
   private plateAnchors: ((id: string) => PlateAnchor | null) | null = null;
   private plateKeepOut: ScreenBox[] = [];
   private plateKeepOutAt = 0;
@@ -626,14 +626,14 @@ export class Hud {
   private lvlEl!: HTMLElement;
   private goldEl!: HTMLElement;
   private buffsEl!: HTMLElement;
-  private abilityEls = new Map<AbilityKey, AbilityEl>();
+  private readonly abilityEls = new Map<AbilityKey, AbilityEl>();
   private respawnEl!: HTMLElement;
   private respawnSlain!: HTMLElement;
   private respawnRing!: HTMLElement;
   private respawnTimer!: HTMLElement;
   private respawnTip!: HTMLElement;
   private itemsEl!: HTMLElement;
-  private itemSockets: ItemSocket[] = [];
+  private readonly itemSockets: ItemSocket[] = [];
   private itemTaps: number[] = [];
   private itemSig = "";
   private minimap!: HTMLCanvasElement;
@@ -650,8 +650,8 @@ export class Hud {
   private menuBtn!: HTMLButtonElement;
   private arrowCoin!: Arrow;
   private arrowDelivery!: Arrow;
-  private lowHpEl: HTMLDivElement;
-  private lowHpEl2: HTMLDivElement;
+  private readonly lowHpEl: HTMLDivElement;
+  private readonly lowHpEl2: HTMLDivElement;
   private readonly remeasureTopBand = () => {
     this.plateKeepOutAt = 0;
   };
@@ -675,10 +675,10 @@ export class Hud {
   private lastGoalStr = "";
   private lastObjCoin = "";
   private lastObjDrop = "";
-  private buffSeen = new Map<string, { seenAt: number; until: number }>();
-  private buffEls = new Map<string, BuffEl>();
+  private readonly buffSeen = new Map<string, { seenAt: number; until: number }>();
+  private readonly buffEls = new Map<string, BuffEl>();
   private buffSig = "";
-  private buffScratch: { kind: string; until: number }[] = [];
+  private readonly buffScratch: { kind: string; until: number }[] = [];
   private boardSig = "";
   private boardForced = false;
   private boardTapped = false;
@@ -725,10 +725,10 @@ export class Hud {
     this.sfx.setMuted(!this.sfx.isMuted);
   };
 
-  private view: View;
-  private fx: Fx;
-  private shop: ShopCallbacks;
-  private matchActions: MatchActions;
+  private readonly view: View;
+  private readonly fx: Fx;
+  private readonly shop: ShopCallbacks;
+  private readonly matchActions: MatchActions;
 
   constructor(view: View, fx: Fx, shop: ShopCallbacks, matchActions: MatchActions) {
     this.view = view;
@@ -877,7 +877,9 @@ export class Hud {
       });
 
       for (const name of ["pointerdown", "pointerup"]) {
-        kit.addEventListener(name, (event) => event.stopPropagation());
+        kit.addEventListener(name, (event) => {
+          event.stopPropagation();
+        });
       }
 
       kit.addEventListener("keydown", sealKitActivation);
@@ -969,7 +971,7 @@ export class Hud {
       btn.addEventListener("click", () => {
         const { id } = btn.dataset;
 
-        if (!id) {
+        if (id === undefined || id === "") {
           return;
         }
 
@@ -1069,7 +1071,7 @@ export class Hud {
     scoreHeld = false,
     frameDt = Math.max(0, (w.now - this.lastNow) / 1000),
   ) {
-    if (this.shownEnd && (w.phase !== "ended" || !w.winner)) {
+    if (this.shownEnd && (w.phase !== "ended" || w.winner === null || w.winner === "")) {
       this.updateEnd(w, me);
     }
 
@@ -1689,7 +1691,7 @@ export class Hud {
 
       for (const [i, sock] of this.itemSockets.entries()) {
         const id = me.items[i];
-        const it = id ? ITEM_BY_ID[id] : undefined;
+        const it = id !== undefined && id !== "" ? ITEM_BY_ID[id] : undefined;
         sock.chip.hidden = !it && !this.shopOpen;
 
         if (it) {
@@ -1710,7 +1712,7 @@ export class Hud {
     for (let i = 0; i < MAX_ITEMS; i += 1) {
       const id = me.items[i];
 
-      if (!id) {
+      if (id === undefined || id === "") {
         continue;
       }
 
@@ -2117,7 +2119,7 @@ export class Hud {
   }
 
   private updateEnd(w: World, me: Unit | null) {
-    if (w.phase !== "ended" || !w.winner) {
+    if (w.phase !== "ended" || w.winner === null || w.winner === "") {
       if (this.shownEnd) {
         this.shownEnd = false;
         this.endEl.hidden = true;
@@ -2164,7 +2166,9 @@ export class Hud {
       </div>`;
 
     for (const btn of this.endEl.querySelectorAll<HTMLButtonElement>(".ba-end-btn")) {
-      btn.addEventListener("click", () => this.onEndButton(btn.dataset.act));
+      btn.addEventListener("click", () => {
+        this.onEndButton(btn.dataset.act);
+      });
     }
 
     this.syncRematchAction();

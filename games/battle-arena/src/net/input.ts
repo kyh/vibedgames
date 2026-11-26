@@ -105,15 +105,15 @@ export const parseInput = (wire: JsonObject) => {
       : null;
 
   return {
-    atk: wire["atk"] === true,
-    ax: clamp1(num(wire["ax"])),
-    ay: clamp1(num(wire["ay"])),
-    casts: parseList(wire["casts"], parseCast),
+    atk: wire.atk === true,
+    ax: clamp1(num(wire.ax)),
+    ay: clamp1(num(wire.ay)),
+    casts: parseList(wire.casts, parseCast),
     dash: dashDir,
-    items: parseList(wire["items"], parseItem),
-    jump: wire["jump"] === true,
-    mx: clamp1(num(wire["mx"])),
-    my: clamp1(num(wire["my"])),
+    items: parseList(wire.items, parseItem),
+    jump: wire.jump === true,
+    mx: clamp1(num(wire.mx)),
+    my: clamp1(num(wire.my)),
     seq,
     tick,
   };

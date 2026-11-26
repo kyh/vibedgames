@@ -44,7 +44,7 @@ export const handlePlaytestDecide = async (
 
   const secret = decision?.tokenSecret;
 
-  if (!secret) {
+  if (secret === undefined || secret === "") {
     return fail(412, "PRECONDITION_FAILED", "Playtest tokens are not configured on the server.");
   }
 

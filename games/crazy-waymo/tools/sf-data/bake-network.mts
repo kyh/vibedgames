@@ -1254,16 +1254,16 @@ const thin = (road: Uint8Array<ArrayBuffer> | number[], sizeX: number, sizeZ: nu
     let arcs = 0;
 
     for (let i = 0; i < 8; i += 1) {
-      if (!ring[i]) {
+      if (ring[i] !== true) {
         all = false;
         continue;
       }
 
-      if (ring[(i + 7) % 8]) {
+      if (ring[(i + 7) % 8] === true) {
         continue;
       }
 
-      for (let j = i; ring[j % 8] && j < i + 8; j += 1) {
+      for (let j = i; ring[j % 8] === true && j < i + 8; j += 1) {
         if (j % 2 === 0) {
           arcs += 1;
           break;
@@ -1379,7 +1379,7 @@ const clipEdge = (
   const green = pts.map(([x, z]) => greenAtWorld(x, z));
 
   for (let i = 0; i < green.length;) {
-    if (!green[i]) {
+    if (green[i] !== true) {
       i += 1;
       continue;
     }
@@ -1387,7 +1387,7 @@ const clipEdge = (
     let j = i;
     let len = 0;
 
-    while (j < green.length && green[j]) {
+    while (j < green.length && green[j] === true) {
       const a = pts[j - 1];
       const b = pts[j];
 
@@ -1436,7 +1436,7 @@ const clipEdge = (
   };
 
   for (let i = 0; i < pts.length; i += 1) {
-    if (green[i]) {
+    if (green[i] === true) {
       flush(false);
     } else {
       if (run.length === 0) {
@@ -1559,6 +1559,7 @@ rasterizeEdges(grid, gridMajor, edges);
 const maskComponents = (g: Uint8Array<ArrayBuffer>) => {
   const at = (x: number, z: number) =>
     x >= 0 && z >= 0 && x < GRID_X && z < GRID_Z && g[x * GRID_Z + z] === 1;
+
   const seen = new Set();
   const sizes = [];
 
@@ -1775,7 +1776,7 @@ ${edgesOut}
   for (let gx = 0; gx < GRID_X; gx += 1) {
     for (let gz = 0; gz < GRID_Z; gz += 1) {
       if (onLandUV((gx + 0.5) / GRID_X, (gz + 0.5) / GRID_Z)) {
-        out += `<rect x="${gx * cell}" y="${gz * cell}" width="${cell}" height="${cell}" fill="${grid[gx * GRID_Z + gz] ? "#bbb" : "#e8e4d8"}"/>`;
+        out += `<rect x="${gx * cell}" y="${gz * cell}" width="${cell}" height="${cell}" fill="${(grid[gx * GRID_Z + gz] ?? 0) === 0 ? "#e8e4d8" : "#bbb"}"/>`;
       }
     }
   }

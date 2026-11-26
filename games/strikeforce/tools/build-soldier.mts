@@ -37,6 +37,7 @@ const MIRRORED: Readonly<Record<string, string>> = {
   "crouch-left": "crouch-right",
   "strafe-left": "strafe-right",
 };
+
 const ARMS = /^(?:Left|Right)(?:Shoulder|Arm|ForeArm|Hand)$/u;
 
 const GRIPS = [
@@ -194,7 +195,7 @@ for (const animation of root.listAnimations()) {
     const property = channel.getTargetPath();
     const posed = property === "rotation" || (property === "translation" && bone === hips);
 
-    if (!name || !bone || !posed || ARMS.test(bone.getName())) {
+    if (name === null || name === "" || !bone || !posed || ARMS.test(bone.getName())) {
       channel.getSampler()?.dispose();
       channel.dispose();
     } else if (property === "translation") {
@@ -206,7 +207,7 @@ for (const animation of root.listAnimations()) {
     }
   }
 
-  if (name) {
+  if (name !== null && name !== "") {
     animation.setName(name);
   } else {
     animation.dispose();
@@ -216,7 +217,7 @@ for (const animation of root.listAnimations()) {
 for (const animation of root.listAnimations()) {
   const name = MIRRORED[animation.getName()] ?? null;
 
-  if (!name) {
+  if (name === null || name === "") {
     continue;
   }
 

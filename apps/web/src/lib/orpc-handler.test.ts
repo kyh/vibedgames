@@ -53,14 +53,14 @@ const assertJsonError = async (response: Response, status: number, code: string)
   assert.strictEqual(body.code, code);
 };
 
-const post = (body = JSON.stringify({ json: {} }), headers: Record<string, string> = {}) => {
+const post = async (body = JSON.stringify({ json: {} }), headers: Record<string, string> = {}) => {
   const request = new Request("http://localhost:3000/api/orpc/auth/me", {
     body,
     headers: { "content-type": "application/json", ...headers },
     method: "POST",
   });
 
-  return handleRpcRequest(request, contextFor(request));
+  return await handleRpcRequest(request, contextFor(request));
 };
 
 const rpcError = z.object({ json: z.looseObject({ code: z.string() }) });
@@ -144,11 +144,11 @@ describe("rpc endpoint", () => {
 
     const client: ContractClient = createORPCClient(
       new RPCLink({
-        fetch: (url, init) => {
+        fetch: async (url, init) => {
           roundTrips += 1;
           const request = new Request(url, init);
 
-          return handleRpcRequest(request, contextFor(request));
+          return await handleRpcRequest(request, contextFor(request));
         },
         origin: "http://localhost:3000",
         plugins: [new BatchLinkPlugin({ groups: [{ condition: () => true, context: {} }] })],
@@ -166,10 +166,10 @@ describe("rpc endpoint", () => {
   });
 });
 
-const rest = (path: string, init: RequestInit = {}) => {
+const rest = async (path: string, init: RequestInit = {}) => {
   const request = new Request(`https://vibedgames.com/api/v1${path}`, init);
 
-  return handleRestRequest(request, contextFor(request));
+  return await handleRestRequest(request, contextFor(request));
 };
 
 const jsonPost = (headers: Record<string, string> = {}) => ({

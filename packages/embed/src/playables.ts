@@ -27,7 +27,7 @@ const sdk = () => {
 
   const { ytgame } = window;
 
-  return ytgame?.IN_PLAYABLES_ENV ? ytgame : null;
+  return ytgame?.IN_PLAYABLES_ENV === true ? ytgame : null;
 };
 
 /** True when the game is running inside YouTube Playables. */
@@ -82,8 +82,12 @@ const wirePause = (ytgame: YtGame) => {
   }
 
   pauseWired = true;
-  ytgame.system.onPause(() => setSystemPaused(true));
-  ytgame.system.onResume(() => setSystemPaused(false));
+  ytgame.system.onPause(() => {
+    setSystemPaused(true);
+  });
+  ytgame.system.onResume(() => {
+    setSystemPaused(false);
+  });
 };
 
 /** Whether YouTube has paused the game. While true, step and draw nothing. */

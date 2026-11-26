@@ -486,7 +486,10 @@ const v7Fire = PEERS * plasmaPerSec * firePlasma;
 const v7Down = worldAvg * WORLD_NET_HZ + PEERS * playerAvg * PLAYER_NET_HZ + v7Fire;
 const kib = (b: number) => `${(b / 1024).toFixed(0)} KiB/s`;
 const mbps = (b: number) => `${((b * 8) / 1e6).toFixed(2)} Mbps`;
-const row = (label: string, value: string) => console.log(`  ${label.padEnd(38)} ${value}`);
+
+const row = (label: string, value: string) => {
+  console.log(`  ${label.padEnd(38)} ${value}`);
+};
 
 console.log(`\n=== V6 — as shipped before (whole world + whole player state every send) ===`);
 

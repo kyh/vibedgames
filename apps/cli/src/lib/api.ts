@@ -13,7 +13,7 @@ const makeClient: (baseUrl: string) => ContractClient = (baseUrl) =>
       headers: async () => {
         const token = await getAccessToken();
 
-        return token
+        return token !== null && token !== ""
           ? { Authorization: `Bearer ${token}`, [CLI_VERSION_HEADER]: PACKAGE_VERSION }
           : { [CLI_VERSION_HEADER]: PACKAGE_VERSION };
       },
@@ -24,7 +24,7 @@ const makeClient: (baseUrl: string) => ContractClient = (baseUrl) =>
 
 /** Authenticated client — requires a saved login or `VG_TOKEN`. */
 export const createClient: () => ContractClient = () => {
-  if (!getToken()) {
+  if ((getToken() ?? "") === "") {
     throw new Error("Not logged in. Run `vg login` to authenticate.");
   }
 

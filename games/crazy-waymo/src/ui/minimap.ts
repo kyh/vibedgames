@@ -83,14 +83,14 @@ export const paintCity = (
 };
 
 export class Minimap {
-  private canvas: HTMLCanvasElement;
-  private ctx: CanvasRenderingContext2D | null;
-  private base: HTMLCanvasElement;
-  private size: number;
-  private dpr: number;
+  private readonly canvas: HTMLCanvasElement;
+  private readonly ctx: CanvasRenderingContext2D | null;
+  private readonly base: HTMLCanvasElement;
+  private readonly size: number;
+  private readonly dpr: number;
   private t = 0;
-  private baseScale: number;
-  private view: number;
+  private readonly baseScale: number;
+  private readonly view: number;
 
   constructor(plan: CityPlan, decks: readonly SurfaceDeck[]) {
     const node = document.querySelector("#minimap");
@@ -174,7 +174,7 @@ export class Minimap {
         continue;
       }
 
-      if (m.ring && !clamped) {
+      if (m.ring === true && !clamped) {
         const pulse = 4 + Math.sin(this.t * 5) * 1.4;
         ctx.strokeStyle = m.color;
         ctx.lineWidth = 1.8;

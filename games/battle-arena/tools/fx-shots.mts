@@ -119,7 +119,7 @@ const armFreeze = (
   evalJs(`(() => {
   const w = window;
   const test = (o) => { try { return (${shot.find}); } catch { return false; } };
-  const aim = ${shot.aim ? `(o) => (${shot.aim})` : "null"};
+  const aim = ${shot.aim !== undefined && shot.aim !== "" ? `(o) => (${shot.aim})` : "null"};
   const cam = ${JSON.stringify(shot.cam)};
   const view = w.__view;
   const scene = view.scene;
@@ -215,7 +215,7 @@ const main = async () => {
       console.log(`${hit ? "✓" : "✗"} ${shot.name}`, { ability, champ }, hit ?? "");
     }
   } finally {
-    if (!SHARED_SESSION) {
+    if (SHARED_SESSION === undefined || SHARED_SESSION === "") {
       try {
         ab("close");
       } catch (closeError) {

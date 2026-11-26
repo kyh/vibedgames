@@ -50,11 +50,12 @@ declare global {
 
 export const isTrailerMode = () => new URLSearchParams(window.location.search).has("trailer");
 
-const wait: (ms: number) => Promise<void> = (ms) =>
-  // oxlint-disable-next-line promise/avoid-new -- setTimeout is a callback API; this is the promisified wrapper.
-  new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
+const wait: (ms: number) => Promise<void> = async (ms) => {
+  const { promise, resolve } = Promise.withResolvers<void>();
+  setTimeout(resolve, ms);
+
+  await promise;
+};
 
 const el = (tag: string, cls: string, parent: Element) => {
   const node = document.createElement(tag);
@@ -176,36 +177,40 @@ export const runTrailer = (config: TrailerConfig) => {
     state.sceneIndex = index;
     state.t = 0;
 
-    // oxlint-disable-next-line promise/avoid-new -- requestAnimationFrame is a callback API; the loop resolves when the scene ends.
-    await new Promise<void>((resolve) => {
-      const start = performance.now();
-      let last = start;
+    const { promise, resolve } = Promise.withResolvers<void>();
+    const start = performance.now();
+    let last = start;
 
-      const frame = (now: number) => {
-        if (myGen !== generation) {
-          return resolve();
-        }
+    const frame = (now: number) => {
+      if (myGen !== generation) {
+        resolve();
 
-        const t = now - start;
-        state.t = t;
+        return;
+      }
 
-        try {
-          scene.run?.(t, now - last);
-        } catch (error) {
-          console.error(`[trailer] run failed for scene "${scene.id}"`, error);
-        }
+      const t = now - start;
+      state.t = t;
 
-        last = now;
+      try {
+        scene.run?.(t, now - last);
+      } catch (error) {
+        console.error(`[trailer] run failed for scene "${scene.id}"`, error);
+      }
 
-        if (t >= scene.duration) {
-          return resolve();
-        }
+      last = now;
 
-        requestAnimationFrame(frame);
-      };
+      if (t >= scene.duration) {
+        resolve();
+
+        return;
+      }
 
       requestAnimationFrame(frame);
-    });
+    };
+
+    requestAnimationFrame(frame);
+
+    await promise;
   };
 
   const playFrom = async (startIndex: number) => {

@@ -7,7 +7,7 @@ const pending: Promise<void>[] = [];
 /** Options: `wrap` for tiling erosion/noise maps; `srgb` for COLORED sprites
  *  (grayscale masks sample raw — sRGB would gamma-crush the erosion ramps). */
 export const fxTex = (name: string, opts: { wrap?: boolean; srgb?: boolean } = {}) => {
-  const key = `${name}|${opts.wrap ? "w" : ""}${opts.srgb ? "s" : ""}`;
+  const key = `${name}|${opts.wrap === true ? "w" : ""}${opts.srgb === true ? "s" : ""}`;
   const cached = cache.get(key);
 
   if (cached) {
@@ -29,12 +29,12 @@ export const fxTex = (name: string, opts: { wrap?: boolean; srgb?: boolean } = {
     () => settle?.(),
   );
 
-  if (opts.wrap) {
+  if (opts.wrap === true) {
     t.wrapS = THREE.RepeatWrapping;
     t.wrapT = THREE.RepeatWrapping;
   }
 
-  if (opts.srgb) {
+  if (opts.srgb === true) {
     t.colorSpace = THREE.SRGBColorSpace;
   }
 

@@ -243,21 +243,21 @@ const makeCoinMesh = () =>
   );
 
 export class WorldView {
-  private units = new Map<string, UnitView>();
-  private props = new Map<string, PropView>();
-  private propSpecs = destructibleProps();
-  private projectiles = new Map<string, THREE.Object3D>();
-  private coins = new Map<string, THREE.Object3D>();
-  private ownedCoins = new Set<THREE.Mesh>();
-  private deliveries = new Map<string, DeliveryView>();
+  private readonly units = new Map<string, UnitView>();
+  private readonly props = new Map<string, PropView>();
+  private readonly propSpecs = destructibleProps();
+  private readonly projectiles = new Map<string, THREE.Object3D>();
+  private readonly coins = new Map<string, THREE.Object3D>();
+  private readonly ownedCoins = new Set<THREE.Mesh>();
+  private readonly deliveries = new Map<string, DeliveryView>();
   private boss: AnimatedCharacter | null = null;
-  private seenCoins = new Set<string>();
-  private flyingCoins = new Set<string>();
-  private coinTrailAt = new Map<string, number>();
-  private coinSparkleAt = new Map<string, number>();
-  private deliveryEmitAt = new Map<string, number>();
-  private emberNext = new Map<string, number>();
-  private spinners = new Set<string>();
+  private readonly seenCoins = new Set<string>();
+  private readonly flyingCoins = new Set<string>();
+  private readonly coinTrailAt = new Map<string, number>();
+  private readonly coinSparkleAt = new Map<string, number>();
+  private readonly deliveryEmitAt = new Map<string, number>();
+  private readonly emberNext = new Map<string, number>();
+  private readonly spinners = new Set<string>();
   private bossReturnAt = 0;
   private bossNextTaunt = 6000;
   private lastBossLaunchAt = -Infinity;
@@ -270,8 +270,8 @@ export class WorldView {
    *  adds lag (and judder against the camera). */
   smoothUnits = true;
 
-  private scene: THREE.Scene;
-  private lib: ModelLibrary;
+  private readonly scene: THREE.Scene;
+  private readonly lib: ModelLibrary;
 
   constructor(scene: THREE.Scene, lib: ModelLibrary) {
     this.scene = scene;
@@ -415,7 +415,7 @@ export class WorldView {
     const isLocal = u.kind === "hero" && u.id === this.localId;
     const existing = this.units.get(u.id);
 
-    if (existing?.matches(u, isLocal)) {
+    if (existing?.matches(u, isLocal) === true) {
       return existing;
     }
 
@@ -520,9 +520,9 @@ export class WorldView {
       if (!this.seenCoins.has(c.id)) {
         this.seenCoins.add(c.id);
 
-        if (!c.loot && now < c.landAt && (!launched || c.landAt > launched.landAt)) {
+        if (c.loot !== true && now < c.landAt && (!launched || c.landAt > launched.landAt)) {
           launched = c;
-        } else if (c.loot) {
+        } else if (c.loot === true) {
           this.fx?.impactRing(c.x, c.y, 0xff_d2_4a, 1);
           this.fx?.sparks(c.x, 0.6, c.y, 0, 1, 5, 0xff_f2_b0);
           this.fx?.dust(c.x, c.y, 2);
@@ -537,7 +537,7 @@ export class WorldView {
         this.groundCoin(c, mesh, now);
       }
 
-      if (c.loot) {
+      if (c.loot === true) {
         mesh.rotation.y = now * 0.0022 + (hashId(c.id) % 7);
       } else {
         mesh.rotation.y = now * 0.005;
@@ -568,10 +568,10 @@ export class WorldView {
       return existing;
     }
 
-    const mesh = c.loot ? makeLootPickup(this.lib, c.id) : makeCoinMesh();
+    const mesh = c.loot === true ? makeLootPickup(this.lib, c.id) : makeCoinMesh();
     this.coins.set(c.id, mesh);
 
-    if (!c.loot && mesh instanceof THREE.Mesh) {
+    if (c.loot !== true && mesh instanceof THREE.Mesh) {
       this.ownedCoins.add(mesh);
     }
 
@@ -725,7 +725,7 @@ export class WorldView {
     for (const g of w.grounds) {
       fx.zoneAmbient(g, now);
 
-      if (!g.enemyDps) {
+      if (g.enemyDps === undefined || g.enemyDps === 0) {
         continue;
       }
 

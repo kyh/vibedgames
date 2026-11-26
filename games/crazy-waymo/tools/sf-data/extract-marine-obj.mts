@@ -5,7 +5,7 @@ import { GRID_X, GRID_Z, landFactor, plLen, rdp, ringArea, WORLD_H, WORLD_W } fr
 
 const [objPath, outPath] = process.argv.slice(2);
 
-if (!objPath || !outPath) {
+if (objPath === undefined || objPath === "" || outPath === undefined || outPath === "") {
   console.error("usage: node extract-marine-obj.mts <obj> <out.json>");
   process.exit(1);
 }
@@ -242,7 +242,7 @@ const pass2 = async () => {
     const c0 = l.codePointAt(0);
 
     if (c0 === CH_F && l.codePointAt(1) === CH_SPACE) {
-      if (!group) {
+      if (group === null || group === "") {
         continue;
       }
 
@@ -592,9 +592,9 @@ const readAuthoredLandmarks = () => {
     }
 
     const seg = ts.slice(i, i + 400);
-    const u = seg.match(/\bu:\s*(?<n>[-\d.]+)/u);
-    const v = seg.match(/\bv:\s*(?<n>[-\d.]+)/u);
-    const r = seg.match(/rotDeg:\s*(?<n>[-\d.]+)/u);
+    const u = /\bu:\s*(?<n>[-\d.]+)/u.exec(seg);
+    const v = /\bv:\s*(?<n>[-\d.]+)/u.exec(seg);
+    const r = /rotDeg:\s*(?<n>[-\d.]+)/u.exec(seg);
 
     return u && v
       ? { rotDeg: r ? Number(r.groups?.n) : 0, u: Number(u.groups?.n), v: Number(v.groups?.n) }
@@ -907,9 +907,11 @@ const shedFootprint = (b: {
   const base = b.faces.filter((f: { ids: any[] }) =>
     f.ids.every((id: string | number) => vy[id] * CAL_SY <= b.minY + 0.75),
   );
+
   const top = b.faces.filter((f: { ids: any[] }) =>
     f.ids.every((id: string | number) => vy[id] * CAL_SY >= b.maxY - 0.75),
   );
+
   let ring = base.length ? boundaryRing(base) : null;
 
   if (!ring || Math.abs(ringArea(ring)) < 0.45 * b.w * b.d) {
@@ -1119,6 +1121,7 @@ const sectionPierBuildings = (
     c: centroidOf(p.ring),
     ring: p.ring,
   }));
+
   const out = [];
 
   for (const [g, blobs] of blobsByGroup) {
@@ -1667,9 +1670,11 @@ const sectionOraclePark = (
   }
 
   const [bowl] = blobs;
+
   const base = bowl.faces.filter((f: { ids: any[] }) =>
     f.ids.every((id: string | number) => vy[id] * CAL_SY <= bowl.minY + 1.5),
   );
+
   let ring = base.length ? boundaryRing(base) : null;
   let ringFrom = "base";
 
@@ -1842,8 +1847,10 @@ const sectionWaterway = (blobsByGroup: Map<any, any>, footprints: (number | unde
   rings.sort((a, b) => b.area - a.area);
 
   const BOX = { uMax: 0.8, uMin: 0.71, vMax: 0.35, vMin: 0.29 };
+
   const inBox = (u: number, v: number) =>
     u > BOX.uMin && u < BOX.uMax && v > BOX.vMin && v < BOX.vMax;
+
   let culled = 0;
   let culledOnRealLand = 0;
   let tallestCulled = 0;
@@ -2072,7 +2079,9 @@ const main = async () => {
   for (const p of objPiers.slice(0, 8)) {
     console.log(
       `          A=${String(p.area).padStart(5)}u2 ${String(p.pts).padStart(3)}pts u=${p.u} v=${p.v} ` +
-        `${p.gameMatch ? `game#${p.gameMatch.index} d=${p.gameMatch.dist}u ratio=${p.gameMatch.areaRatio}` : "NO MATCH"}` +
+        (p.gameMatch
+          ? `game#${p.gameMatch.index} d=${p.gameMatch.dist}u ratio=${p.gameMatch.areaRatio}`
+          : "NO MATCH") +
         `  ~${p.osm?.name ?? "?"}`,
     );
   }
@@ -2086,7 +2095,9 @@ const main = async () => {
   for (const b of sheds.slice(0, 10)) {
     console.log(
       `          h=${String(b.h).padStart(5)}u A=${String(b.area).padStart(5)}u2 u=${b.u} v=${b.v} ` +
-        `${b.onGameDeck >= 0 ? `ON deck#${b.onGameDeck}` : `near deck#${b.nearestGameDeck.index}@${b.nearestGameDeck.dist}u`}` +
+        (b.onGameDeck >= 0
+          ? `ON deck#${b.onGameDeck}`
+          : `near deck#${b.nearestGameDeck.index}@${b.nearestGameDeck.dist}u`) +
         `  ~${b.osm?.name ?? "?"}`,
     );
   }

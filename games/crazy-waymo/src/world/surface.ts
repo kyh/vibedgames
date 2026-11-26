@@ -11,7 +11,7 @@ import { surfaceDeckHeight } from "./surface-decks";
 import { stowBasinOverlapsBox } from "./lake";
 
 export class DriveSurface {
-  private decks: SurfaceDeck[] = [];
+  private readonly decks: SurfaceDeck[] = [];
   private driveOffset: ((x: number, z: number) => number) | null = null;
   private driveOffsetNet: RoadNetwork | null = null;
   private terraces: Map<number, number> | null = null;

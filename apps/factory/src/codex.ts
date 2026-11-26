@@ -80,7 +80,9 @@ const oneLine = (s: string, max = 80) => {
 const startedActivity: (item: CodexItem) => Activity | null = (item) => {
   switch (item.type) {
     case "command_execution": {
-      return item.command ? { detail: oneLine(item.command), kind: "tool", name: "shell" } : null;
+      return item.command !== undefined && item.command !== ""
+        ? { detail: oneLine(item.command), kind: "tool", name: "shell" }
+        : null;
     }
 
     case "mcp_tool_call": {
@@ -93,7 +95,7 @@ const startedActivity: (item: CodexItem) => Activity | null = (item) => {
 
     case "web_search": {
       return {
-        detail: item.query ? oneLine(item.query) : undefined,
+        detail: item.query !== undefined && item.query !== "" ? oneLine(item.query) : undefined,
         kind: "tool",
         name: "web_search",
       };
@@ -108,7 +110,9 @@ const startedActivity: (item: CodexItem) => Activity | null = (item) => {
 const finishedActivity: (item: CodexItem) => Activity | null = (item) => {
   switch (item.type) {
     case "agent_message": {
-      return item.text?.trim() ? { kind: "text", text: item.text.trim() } : null;
+      const text = item.text?.trim() ?? "";
+
+      return text === "" ? null : { kind: "text", text };
     }
 
     case "file_change": {
@@ -121,7 +125,9 @@ const finishedActivity: (item: CodexItem) => Activity | null = (item) => {
     }
 
     case "error": {
-      return item.message ? { kind: "text", text: `⚠ ${oneLine(item.message, 160)}` } : null;
+      return item.message !== undefined && item.message !== ""
+        ? { kind: "text", text: `⚠ ${oneLine(item.message, 160)}` }
+        : null;
     }
 
     default: {
@@ -134,7 +140,7 @@ const itemActivity: (item: CodexItem | undefined, started: boolean) => Activity 
   item,
   started,
 ) => {
-  if (!item?.type) {
+  if (item === undefined || item.type === undefined || item.type === "") {
     return null;
   }
 
@@ -148,7 +154,7 @@ const itemActivity: (item: CodexItem | undefined, started: boolean) => Activity 
  * separate system-prompt channel, so the role prompt is prepended to the task;
  * it reports token usage but not dollar cost, so costUsd stays undefined.
  */
-export const runCodex: (opts: RunOptions) => Promise<RunResult> = (opts) => {
+export const runCodex: (opts: RunOptions) => Promise<RunResult> = async (opts) => {
   const args = ["exec", "--json", "--skip-git-repo-check", "--model", opts.model];
 
   if (opts.skipPermissions) {
@@ -164,7 +170,7 @@ export const runCodex: (opts: RunOptions) => Promise<RunResult> = (opts) => {
   args.push(`${opts.systemPrompt}\n\n---\n\nYOUR TASK:\n\n${opts.prompt}`);
 
   // oxlint-disable-next-line promise/avoid-new -- child_process.spawn is event-based
-  return new Promise((resolve) => {
+  return await new Promise((resolve) => {
     let child: ReturnType<typeof spawn> | undefined;
     let rl: ReturnType<typeof createInterface> | undefined;
     let sessionId: string | undefined;
@@ -336,7 +342,7 @@ export const runCodex: (opts: RunOptions) => Promise<RunResult> = (opts) => {
     });
 
     child.on("close", (code) => {
-      if (failure || code !== 0 || !turnCompleted) {
+      if ((failure !== undefined && failure !== "") || code !== 0 || !turnCompleted) {
         settle({
           error: failure ?? stderr.trim() ?? `codex exited with code ${code}`,
           ok: false,

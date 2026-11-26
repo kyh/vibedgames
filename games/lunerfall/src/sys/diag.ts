@@ -349,7 +349,9 @@ export const installTestHooks = (game: Phaser.Game) => {
   }
 
   publishTestHooks({
-    seed: (n) => restartSolo(game, n),
+    seed: (n) => {
+      restartSolo(game, n);
+    },
     setPausedForScreenshot: (paused) => {
       if (paused) {
         game.loop.sleep();

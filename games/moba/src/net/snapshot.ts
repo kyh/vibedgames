@@ -139,7 +139,7 @@ const isFiniteNumber = (x: SharedState[string] | undefined): x is number => Numb
 /** The server-clock stamp of the keyframe in `snap` (the step it was taken
  *  after), or null when shared state holds none. */
 export const sharedSnapAt = (state: SharedState) => {
-  const v = state["snapAt"];
+  const v = state.snapAt;
 
   return isFiniteNumber(v) ? v : null;
 };

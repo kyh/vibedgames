@@ -1,11 +1,11 @@
-import { Vector } from "#rapier";
+import type { Vector } from "#rapier";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { WheelSurface } from "../src/world/land-class";
-import { CarInput } from "../src/vehicle/car";
-import { WaterBody } from "../src/world/water";
-import { SurfaceDeck } from "../src/shared/types";
+import type { WheelSurface } from "../src/world/land-class";
+import type { CarInput } from "../src/vehicle/car";
+import type { WaterBody } from "../src/world/water";
+import type { SurfaceDeck } from "../src/shared/types";
 
 const url = process.argv[2] ?? "http://localhost:5193/?time=noon&offline=1";
 const out = path.resolve(process.argv[3] ?? "/private/tmp/waymo-water-review");
@@ -111,28 +111,28 @@ const evaluate = (
 
 const frames = (count: number) =>
   evaluate(async (n: number) => {
-    // oxlint-disable-next-line promise/avoid-new -- requestAnimationFrame is callback-only
-    await new Promise((resolve) => {
-      let i = 0;
-      let sampledAt = 0;
+    const { promise, resolve } = Promise.withResolvers<void>();
+    let i = 0;
+    let sampledAt = 0;
 
-      const step = (now: number) => {
-        if (now - sampledAt < 15) {
-          return requestAnimationFrame(step);
-        }
+    const step = (now: number) => {
+      if (now - sampledAt < 15) {
+        return requestAnimationFrame(step);
+      }
 
-        sampledAt = now;
-        i += 1;
+      sampledAt = now;
+      i += 1;
 
-        if (i >= n) {
-          resolve();
-        } else {
-          requestAnimationFrame(step);
-        }
-      };
+      if (i >= n) {
+        resolve();
+      } else {
+        requestAnimationFrame(step);
+      }
+    };
 
-      requestAnimationFrame(step);
-    });
+    requestAnimationFrame(step);
+
+    await promise;
   }, count);
 
 const report = { cases: [], checkedAt: new Date().toISOString(), checks: [], session, url };
@@ -169,7 +169,9 @@ const prepare = (spot: { x: any; yaw: any; z: any }) => {
     g.rig.snapTo(g.car);
   }, spot);
   frames(75);
-  evaluate(() => window.__taxi.game.rig.snapTo(window.__taxi.game.car));
+  evaluate(() => {
+    window.__taxi.game.rig.snapTo(window.__taxi.game.car);
+  });
 };
 
 const drive = (
@@ -192,6 +194,7 @@ const drive = (
       }
 
       g.input.setScripted(controls);
+
       const samples: {
         airborne: boolean;
         bodyY: number;
@@ -215,60 +218,61 @@ const drive = (
         y: number;
         z: number;
       }[] = [];
+
       let wetFrames = 0;
       let reached = false;
-      // oxlint-disable-next-line promise/avoid-new -- requestAnimationFrame is callback-only
-      await new Promise((resolve) => {
-        let n = 0;
-        let sampledAt = 0;
+      const { promise, resolve } = Promise.withResolvers<void>();
+      let n = 0;
+      let sampledAt = 0;
 
-        const step = (now: number) => {
-          if (now - sampledAt < 15) {
-            return requestAnimationFrame(step);
-          }
+      const step = (now: number) => {
+        if (now - sampledAt < 15) {
+          return requestAnimationFrame(step);
+        }
 
-          sampledAt = now;
-          const p = g.car.position;
-          const body = g.car.physicsVehicle.chassis.translation();
-          samples.push({
-            airborne: g.car.airborne,
-            bodyY: body.y,
-            drifting: g.car.isDrifting,
-            floor: g.city.heightAt(p.x, p.z),
-            heading: g.car.heading,
-            speed: g.car.speed,
-            surface: g.city.surfaceKindAt(p.x, p.z, p.y),
-            vx: g.car.velocity.x,
-            vz: g.car.velocity.y,
-            water: { ...g.car.waterContact },
-            x: p.x,
-            y: p.y,
-            z: p.z,
-          });
-          wetFrames = g.car.waterContact.kind === "floating" ? wetFrames + 1 : 0;
+        sampledAt = now;
+        const p = g.car.position;
+        const body = g.car.physicsVehicle.chassis.translation();
+        samples.push({
+          airborne: g.car.airborne,
+          bodyY: body.y,
+          drifting: g.car.isDrifting,
+          floor: g.city.heightAt(p.x, p.z),
+          heading: g.car.heading,
+          speed: g.car.speed,
+          surface: g.city.surfaceKindAt(p.x, p.z, p.y),
+          vx: g.car.velocity.x,
+          vz: g.car.velocity.y,
+          water: { ...g.car.waterContact },
+          x: p.x,
+          y: p.y,
+          z: p.z,
+        });
+        wetFrames = g.car.waterContact.kind === "floating" ? wetFrames + 1 : 0;
 
-          if (stop?.kind === "wet") {
-            reached = wetFrames >= 20;
-          } else if (stop?.kind === "dry") {
-            reached =
-              n > 20 &&
-              g.car.waterContact.kind === "dry" &&
-              Math.hypot(p.x - stop.x, p.z - stop.z) < 5;
-          } else {
-            reached = false;
-          }
+        if (stop?.kind === "wet") {
+          reached = wetFrames >= 20;
+        } else if (stop?.kind === "dry") {
+          reached =
+            n > 20 &&
+            g.car.waterContact.kind === "dry" &&
+            Math.hypot(p.x - stop.x, p.z - stop.z) < 5;
+        } else {
+          reached = false;
+        }
 
-          n += 1;
+        n += 1;
 
-          if (n >= frameCount || reached) {
-            resolve();
-          } else {
-            requestAnimationFrame(step);
-          }
-        };
+        if (n >= frameCount || reached) {
+          resolve();
+        } else {
+          requestAnimationFrame(step);
+        }
+      };
 
-        requestAnimationFrame(step);
-      });
+      requestAnimationFrame(step);
+
+      await promise;
       g.input.setScripted({ boost: false, brake: 1, steer: 0, throttle: 0 });
 
       return {
@@ -315,7 +319,7 @@ try {
   );
 
   const expectedRevision = Number(
-    revisionSource.match(/export const WORLD_REV = (?<revision>\d+);/u)?.groups?.revision,
+    /export const WORLD_REV = (?<revision>\d+);/u.exec(revisionSource)?.groups?.revision,
   );
 
   if (!Number.isSafeInteger(expectedRevision) || expectedRevision <= 0) {

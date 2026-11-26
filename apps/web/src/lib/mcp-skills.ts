@@ -56,7 +56,7 @@ const fileEntry = async (uri: string, content: string) => {
 
 const entries = new WeakMap<readonly Skill[], Promise<SkillEntry[]>>();
 
-const entriesOf = (skills: readonly Skill[]) => {
+const entriesOf = async (skills: readonly Skill[]) => {
   let cached = entries.get(skills);
 
   if (!cached) {
@@ -65,7 +65,9 @@ const entriesOf = (skills: readonly Skill[]) => {
         frontmatter: skill.frontmatter,
         resources: await Promise.all([
           fileEntry(skillUri(skill), skill.content),
-          ...skill.files.map((file) => fileEntry(skillUri(skill, file.path), file.content)),
+          ...skill.files.map(
+            async (file) => await fileEntry(skillUri(skill, file.path), file.content),
+          ),
         ]),
         uri: skillUri(skill),
       })),
@@ -73,7 +75,7 @@ const entriesOf = (skills: readonly Skill[]) => {
     entries.set(skills, cached);
   }
 
-  return cached;
+  return await cached;
 };
 
 /** Declares the extension and serves `skill://` resources, `skills/list` and `skills/get`. */

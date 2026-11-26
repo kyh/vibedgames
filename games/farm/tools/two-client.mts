@@ -23,6 +23,7 @@ const probe = async (url: string) => {
 
 const waitFor = async <T,>(read: () => Promise<T>, label: string, timeoutMs = 8000) => {
   let last: T | null = null;
+
   const found = await poll(
     async () => {
       last = await read();
@@ -40,8 +41,8 @@ const waitFor = async <T,>(read: () => Promise<T>, label: string, timeoutMs = 80
   return found;
 };
 
-const snapshot = (page: Page) =>
-  page.evaluate(() => {
+const snapshot = async (page: Page) =>
+  await page.evaluate(() => {
     const gs = window.__gs;
     const d = window.__GAME_DIAGNOSTICS__;
     const net = gs?.net;
@@ -64,16 +65,26 @@ const snapshot = (page: Page) =>
     };
   });
 
-const remoteCount = (page: Page) => page.evaluate(() => window.__gs?.remoteFarmers?.count() ?? -1);
-const isTilled = (page: Page, tile: number) =>
-  page.evaluate((i) => window.__gs?.world.tilled[i] === 1, tile);
-const hasObject = (page: Page, id: number) =>
-  page.evaluate((o) => window.__gs?.world.objects.some((obj) => obj.id === o) === true, id);
-const paused = (page: Page) => page.evaluate(() => window.__gs?.controlsPaused === true);
-const minePaused = (page: Page) => page.evaluate(() => window.__mine?.controlsPaused);
-const phase = (page: Page) => page.evaluate(() => window.__GAME_DIAGNOSTICS__?.phase);
-const frame = (page: Page) => page.evaluate(() => window.__GAME_DIAGNOSTICS__?.frame ?? 0);
-const energy = (page: Page) => page.evaluate(() => window.__GAME_DIAGNOSTICS__?.energy ?? 0);
+const remoteCount = async (page: Page) =>
+  await page.evaluate(() => window.__gs?.remoteFarmers?.count() ?? -1);
+
+const isTilled = async (page: Page, tile: number) =>
+  await page.evaluate((i) => window.__gs?.world.tilled[i] === 1, tile);
+
+const hasObject = async (page: Page, id: number) =>
+  await page.evaluate((o) => window.__gs?.world.objects.some((obj) => obj.id === o) === true, id);
+
+const paused = async (page: Page) =>
+  await page.evaluate(() => window.__gs?.controlsPaused === true);
+
+const minePaused = async (page: Page) => await page.evaluate(() => window.__mine?.controlsPaused);
+const phase = async (page: Page) => await page.evaluate(() => window.__GAME_DIAGNOSTICS__?.phase);
+
+const frame = async (page: Page) =>
+  await page.evaluate(() => window.__GAME_DIAGNOSTICS__?.frame ?? 0);
+
+const energy = async (page: Page) =>
+  await page.evaluate(() => window.__GAME_DIAGNOSTICS__?.energy ?? 0);
 
 const openClient = async (browser: Browser, url: string, errors: string[]) => {
   const context = await browser.newContext({ viewport: { height: 600, width: 900 } });
@@ -86,13 +97,13 @@ const openClient = async (browser: Browser, url: string, errors: string[]) => {
   });
   await page.goto(url);
   await waitFor(
-    () => page.evaluate(() => window.__game?.scene.isActive("Title")),
+    async () => await page.evaluate(() => window.__game?.scene.isActive("Title")),
     "title",
     20_000,
   );
   await page.keyboard.press("n");
   await waitFor(
-    () => page.evaluate(() => window.__gs?.net?.connectionStatus === "connected"),
+    async () => await page.evaluate(() => window.__gs?.net?.connectionStatus === "connected"),
     "connected",
     15_000,
   );
@@ -100,8 +111,8 @@ const openClient = async (browser: Browser, url: string, errors: string[]) => {
   return page;
 };
 
-const till = (page: Page) =>
-  page.evaluate(
+const till = async (page: Page) =>
+  await page.evaluate(
     ({ w, h }) => {
       const gs = window.__gs;
 
@@ -140,11 +151,11 @@ const till = (page: Page) =>
 
 type ClipSample = [key: string | undefined, index: number | undefined];
 
-const sampleRemoteClip = (page: Page) =>
-  page.evaluate(
-    () =>
+const sampleRemoteClip = async (page: Page) =>
+  await page.evaluate(
+    async () =>
       // oxlint-disable-next-line promise/avoid-new -- runs inside the page; resolves from a setInterval, which has no promise form in the browser
-      new Promise<{ samples: ClipSample[]; seeks: number }>((resolve, reject) => {
+      await new Promise<{ samples: ClipSample[]; seeks: number }>((resolve, reject) => {
         const [farmer] = window.__gs?.remoteFarmers?.farmers.values() ?? [];
 
         if (farmer === undefined) {
@@ -185,7 +196,11 @@ const swingAt = async (page: Page, tx: number, ty: number) => {
     },
     { x: tx, y: ty },
   );
-  await waitFor(() => page.evaluate(() => window.__gs?.acting === false), "swing done", 3000);
+  await waitFor(
+    async () => await page.evaluate(() => window.__gs?.acting === false),
+    "swing done",
+    3000,
+  );
 };
 
 const backwardSteps = (samples: ClipSample[]) =>
@@ -226,7 +241,7 @@ const main = async () => {
       "--disable-backgrounding-occluded-windows",
       "--disable-renderer-backgrounding",
     ],
-    ...(process.env.CHROME_PATH
+    ...(process.env.CHROME_PATH !== undefined && process.env.CHROME_PATH !== ""
       ? { executablePath: process.env.CHROME_PATH }
       : { channel: "chrome" }),
     headless: true,
@@ -255,15 +270,16 @@ const main = async () => {
     step("both see each other", h.players === 2 && g.players === 2 && !g.host);
 
     const guestTile = await till(guest);
-    await waitFor(() => isTilled(host, guestTile), "host adopts guest till", 5000);
+    await waitFor(async () => await isTilled(host, guestTile), "host adopts guest till", 5000);
     await waitFor(
-      () => guest.evaluate((i) => window.__gs?.net?.sharedState[`t${i}`] === 1, guestTile),
+      async () =>
+        await guest.evaluate((i) => window.__gs?.net?.sharedState[`t${i}`] === 1, guestTile),
       "room ledger",
       5000,
     );
     step("guest's till reaches the host world", true, `tile ${guestTile}`);
     const hostTile = await till(host);
-    await waitFor(() => isTilled(guest, hostTile), "guest adopts host till", 5000);
+    await waitFor(async () => await isTilled(guest, hostTile), "guest adopts host till", 5000);
     step("host's till reaches the guest world", true, `tile ${hostTile}`);
 
     const felled = await guest.evaluate(() => {
@@ -295,7 +311,9 @@ const main = async () => {
       return { hp: nearest.hp, id: nearest.id, tx: nearest.tx, ty: nearest.ty };
     });
 
-    await repeat(felled.hp, () => swingAt(guest, felled.tx, felled.ty));
+    await repeat(felled.hp, async () => {
+      await swingAt(guest, felled.tx, felled.ty);
+    });
 
     await waitFor(
       async () => !(await hasObject(host, felled.id)),
@@ -359,7 +377,7 @@ const main = async () => {
     step("back in range, the farmer is drawn again", true);
 
     await guest.keyboard.press("Escape");
-    await waitFor(() => paused(guest), "guest paused");
+    await waitFor(async () => await paused(guest), "guest paused");
     let before = await snapshot(guest);
     await wait(700);
     g = await snapshot(guest);
@@ -371,7 +389,7 @@ const main = async () => {
     await guest.keyboard.press("Escape");
     await waitFor(async () => !(await paused(guest)), "guest resumed");
     await host.keyboard.press("Escape");
-    await waitFor(() => paused(host), "host paused");
+    await waitFor(async () => await paused(host), "host paused");
     before = await snapshot(guest);
     await wait(700);
     g = await snapshot(guest);
@@ -428,7 +446,11 @@ const main = async () => {
     await host.evaluate(() => {
       window.__gs?.endDay();
     });
-    await waitFor(() => guest.evaluate(() => window.__gs?.day === 2), "guest sees day 2", 6000);
+    await waitFor(
+      async () => await guest.evaluate(() => window.__gs?.day === 2),
+      "guest sees day 2",
+      6000,
+    );
     step("host's day end reaches the guest", true);
     const rested = await energy(guest);
     step(
@@ -439,7 +461,7 @@ const main = async () => {
 
     await host.close();
     await waitFor(
-      () => guest.evaluate(() => window.__gs?.net?.isHost),
+      async () => await guest.evaluate(() => window.__gs?.net?.isHost),
       "guest promoted",
       15_000,
     );
@@ -453,8 +475,8 @@ const main = async () => {
     const late = await openClient(browser, url, errors.late);
     await waitFor(async () => (await remoteCount(late)) >= 1, "late sees host");
     await waitFor(
-      () =>
-        late.evaluate(
+      async () =>
+        await late.evaluate(
           (ids) => ids.every((i) => window.__gs?.world.tilled[i] === 1),
           [guestTile, hostTile],
         ),

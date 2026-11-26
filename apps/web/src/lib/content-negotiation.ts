@@ -67,7 +67,7 @@ const specificityOf = (type: string, subtype: string) => {
 
 /** Parse an `Accept` header into entries. Malformed entries are skipped. */
 export const parseAccept = (header: string | null | undefined) => {
-  if (!header) {
+  if (header === undefined || header === null || header === "") {
     return [];
   }
 
@@ -77,13 +77,13 @@ export const parseAccept = (header: string | null | undefined) => {
     const [mediaRange, ...params] = raw.split(";");
     const media = mediaRange?.trim().toLowerCase();
 
-    if (!media) {
+    if (media === undefined || media === "") {
       continue;
     }
 
     const [type, subtype] = media.split("/");
 
-    if (!(type && subtype)) {
+    if (!(type !== undefined && type !== "" && subtype !== undefined && subtype !== "")) {
       continue;
     }
 

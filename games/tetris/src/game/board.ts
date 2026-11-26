@@ -177,7 +177,7 @@ export class Board {
     const pillars = new Set<number>();
 
     for (let x = 0; x < this.width; x += 1) {
-      if (fullX[x]) {
+      if (fullX[x] === true) {
         for (let z = 0; z < this.depth; z += 1) {
           pillars.add(x * this.depth + z);
         }
@@ -185,7 +185,7 @@ export class Board {
     }
 
     for (let z = 0; z < this.depth; z += 1) {
-      if (fullZ[z]) {
+      if (fullZ[z] === true) {
         for (let x = 0; x < this.width; x += 1) {
           pillars.add(x * this.depth + z);
         }

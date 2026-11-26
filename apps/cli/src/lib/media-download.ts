@@ -75,9 +75,10 @@ const visit = (value: JsonValue, refs: MediaRef[], seen: Set<string>) => {
     const contentType = isJsonString(value.content_type) ? value.content_type.toLowerCase() : null;
     const filenameField = isJsonString(value.file_name) ? sanitizeFilename(value.file_name) : null;
 
-    const ext = filenameField
-      ? path.extname(filenameField).slice(1).toLowerCase()
-      : extFromUrl(url);
+    const ext =
+      filenameField !== null && filenameField !== ""
+        ? path.extname(filenameField).slice(1).toLowerCase()
+        : extFromUrl(url);
 
     const looksMedia =
       contentType === null ? MEDIA_EXT.has(ext) : /^(?:image|video|audio)\//u.test(contentType);
@@ -145,9 +146,12 @@ const mislabelOf = (target: string, ref: MediaRef) => {
     return null;
   }
 
-  const actual = ref.contentType ? EXT_FOR_CONTENT_TYPE.get(ref.contentType) : undefined;
+  const actual =
+    ref.contentType !== null && ref.contentType !== ""
+      ? EXT_FOR_CONTENT_TYPE.get(ref.contentType)
+      : undefined;
 
-  if (!actual || canonicalExt(actual) === asked) {
+  if (actual === undefined || actual === "" || canonicalExt(actual) === asked) {
     return null;
   }
 
@@ -204,8 +208,8 @@ const renderTemplate = (
     ? ref.filename.slice(0, -dotExt.length) || "output"
     : ref.filename || "output";
 
-  if (!template || !template.includes("{")) {
-    if (template && path.extname(template)) {
+  if (template === undefined || template === "" || !template.includes("{")) {
+    if (template !== undefined && template !== "" && path.extname(template)) {
       return path.resolve(template);
     }
 

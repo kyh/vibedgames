@@ -39,7 +39,7 @@ interface Wave {
  * and transparent coverage small; dormant cars keep no water draw alive. */
 export class WaterFx {
   readonly mesh: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
-  private waves: Wave[] = Array.from({ length: CAPACITY }, () => ({
+  private readonly waves: Wave[] = Array.from({ length: CAPACITY }, () => ({
     age: 0,
     alpha: 0,
     dx: 0,
@@ -52,8 +52,11 @@ export class WaterFx {
     y: 0,
     z: 0,
   }));
-  private positions = new THREE.BufferAttribute(new Float32Array(CAPACITY * VERTICES * 3), 3);
-  private colors = new THREE.BufferAttribute(new Float32Array(CAPACITY * VERTICES * 4), 4);
+  private readonly positions = new THREE.BufferAttribute(
+    new Float32Array(CAPACITY * VERTICES * 3),
+    3,
+  );
+  private readonly colors = new THREE.BufferAttribute(new Float32Array(CAPACITY * VERTICES * 4), 4);
   private cursor = 0;
   private wet = false;
   private wakeCarry = 0;

@@ -2,7 +2,7 @@
 import { deflateSync } from "node:zlib";
 
 class Writer {
-  private parts: Uint8Array[] = [];
+  private readonly parts: Uint8Array[] = [];
   length = 0;
 
   private push(bytes: Uint8Array) {
@@ -20,22 +20,34 @@ class Writer {
   }
 
   u8(v: number) {
-    return this.scalar(1, (d) => d.setUint8(0, v));
+    return this.scalar(1, (d) => {
+      d.setUint8(0, v);
+    });
   }
   u16(v: number) {
-    return this.scalar(2, (d) => d.setUint16(0, v, true));
+    return this.scalar(2, (d) => {
+      d.setUint16(0, v, true);
+    });
   }
   s16(v: number) {
-    return this.scalar(2, (d) => d.setInt16(0, v, true));
+    return this.scalar(2, (d) => {
+      d.setInt16(0, v, true);
+    });
   }
   u32(v: number) {
-    return this.scalar(4, (d) => d.setUint32(0, v, true));
+    return this.scalar(4, (d) => {
+      d.setUint32(0, v, true);
+    });
   }
   s32(v: number) {
-    return this.scalar(4, (d) => d.setInt32(0, v, true));
+    return this.scalar(4, (d) => {
+      d.setInt32(0, v, true);
+    });
   }
   f64(v: number) {
-    return this.scalar(8, (d) => d.setFloat64(0, v, true));
+    return this.scalar(8, (d) => {
+      d.setFloat64(0, v, true);
+    });
   }
   fixed(v: number) {
     return this.s32(Math.round(v * 65_536));

@@ -21,11 +21,11 @@ const orbitMenu = (game: Game, dt: number, fit: number) => {
 };
 
 const cameraSubject = (game: Game) => {
-  if (game.player?.alive) {
+  if (game.player?.alive === true) {
     return game.player;
   }
 
-  if (game.spectate?.alive) {
+  if (game.spectate?.alive === true) {
     return game.spectate;
   }
 

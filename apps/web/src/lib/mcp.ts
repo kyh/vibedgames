@@ -57,7 +57,7 @@ const unauthorized = (request: Request) => {
 
   const challenge = response.headers.get("www-authenticate");
 
-  if (challenge && request.headers.has("authorization")) {
+  if (challenge !== null && challenge !== "" && request.headers.has("authorization")) {
     response.headers.set("www-authenticate", `${challenge}, error="invalid_token"`);
   }
 
@@ -293,7 +293,7 @@ export const handleMcpRequest = async (
 
   const lacking = context.oauthScopes ? missingScope(required, context.oauthScopes) : null;
 
-  if (lacking && context.oauthScopes) {
+  if (lacking !== null && lacking !== "" && context.oauthScopes) {
     const scopes = [...new Set([...context.oauthScopes, lacking])];
 
     return challengeResponse(
@@ -311,5 +311,5 @@ export const handleMcpRequest = async (
     new Request(request.url, { body, headers, method: request.method }),
   );
 
-  return taskMode ? asTaskResult(response, { secret, userId }) : response;
+  return taskMode ? await asTaskResult(response, { secret, userId }) : response;
 };

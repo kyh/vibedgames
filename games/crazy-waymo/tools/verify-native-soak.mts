@@ -1,11 +1,12 @@
-import { ChildProcessByStdio, execFile, spawn } from "node:child_process";
+import type { ChildProcessByStdio } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { createWriteStream, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { setTimeout as sleep } from "node:timers/promises";
 import { promisify } from "node:util";
-import { Readable } from "node:stream";
+import type { Readable } from "node:stream";
 
 const run = promisify(execFile);
 
@@ -34,7 +35,7 @@ const revisionSource = readFileSync(
 );
 
 const expectedRevision = Number(
-  revisionSource.match(/export const WORLD_REV = (?<revision>\d+);/u)?.groups?.revision,
+  /export const WORLD_REV = (?<revision>\d+);/u.exec(revisionSource)?.groups?.revision,
 );
 
 if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 1) {
@@ -58,8 +59,9 @@ let sessionId: null = null;
 let endpoint = "";
 let cleaned: Promise<void> | null = null;
 
-const save = () =>
+const save = () => {
   writeFileSync(path.join(out, "report.json"), `${JSON.stringify(report, null, 2)}\n`);
+};
 
 const check = (
   name: string,
@@ -101,11 +103,11 @@ const states = async () => {
 
 const port = async () => {
   const server = createServer();
-  // oxlint-disable-next-line promise/avoid-new -- net.Server reports listen success only as an event
-  await new Promise((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", resolve);
-  });
+  const { promise, resolve, reject } = Promise.withResolvers<void>();
+  server.once("error", reject);
+  server.listen(0, "127.0.0.1", resolve);
+
+  await promise;
   const address = server.address();
 
   if (!Number.isSafeInteger(address?.port)) {
@@ -113,10 +115,10 @@ const port = async () => {
   }
 
   const result = address.port;
-  // oxlint-disable-next-line promise/avoid-new -- net.Server close reports only through a callback
-  await new Promise((resolve) => {
-    server.close(resolve);
-  });
+  const { promise: promise2, resolve } = Promise.withResolvers<void>();
+  server.close(resolve);
+
+  await promise2;
 
   return result;
 };
@@ -171,7 +173,7 @@ const http = async (
   return data.value;
 };
 
-const call = (
+const call = async (
   method: string,
   route: string,
   body:
@@ -222,10 +224,11 @@ const call = (
     throw new Error("Owned Safari session absent");
   }
 
-  return http(method, `/session/${sessionId}${route}`, body);
+  return await http(method, `/session/${sessionId}${route}`, body);
 };
 
-const evaluate = (script: string) => call("POST", "/execute/sync", { args: [], script });
+const evaluate = async (script: string) =>
+  await call("POST", "/execute/sync", { args: [], script });
 
 const until = async (script: string, timeout = 120_000) => {
   const start = Date.now();
@@ -241,8 +244,8 @@ const until = async (script: string, timeout = 120_000) => {
   throw new Error(`Timeout: ${script}`);
 };
 
-const startSnapshot = () =>
-  evaluate(`
+const startSnapshot = async () =>
+  await evaluate(`
     const cta=document.querySelector('#banner-cta'),banner=document.querySelector('#banner');
     const rect=cta?.getBoundingClientRect(),style=cta?getComputedStyle(cta):null,bs=banner?getComputedStyle(banner):null;
     const center=rect?{x:rect.x+rect.width/2,y:rect.y+rect.height/2}:null;
@@ -431,9 +434,11 @@ const screenshot = async (name: string) => {
   writeFileSync(path.join(out, `${name}.png`), Buffer.from(png, "base64"));
 };
 
-const cleanup = () => {
+const cleanup = async () => {
   if (cleaned) {
-    return cleaned;
+    await cleaned;
+
+    return;
   }
 
   cleaned = (async () => {
@@ -491,7 +496,7 @@ const cleanup = () => {
     save();
   })();
 
-  return cleaned;
+  await cleaned;
 };
 
 for (const signal of ["SIGINT", "SIGTERM"]) {

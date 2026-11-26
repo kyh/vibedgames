@@ -102,7 +102,7 @@ export class NightSky {
   private canvas: HTMLCanvasElement | null = null;
   private ctx: CanvasRenderingContext2D | null = null;
   private tex: THREE.CanvasTexture | null = null;
-  private bakedFor = new THREE.Color(-1, -1, -1);
+  private readonly bakedFor = new THREE.Color(-1, -1, -1);
 
   texture(fog: THREE.Color) {
     if (!this.canvas) {

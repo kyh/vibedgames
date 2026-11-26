@@ -7,12 +7,13 @@ import { getEndpointPricing } from "./endpoint-pricing";
 
 type Answer = () => Promise<PlatformAnswer>;
 
-const ok: (body: JsonValue) => Answer = (body) => () => Promise.resolve({ body, ok: true });
+const ok: (body: JsonValue) => Answer = (body) => async () =>
+  await Promise.resolve({ body, ok: true });
 
-const status: (code: number) => Answer = (code) => () =>
-  Promise.resolve({ ok: false, status: code });
+const status: (code: number) => Answer = (code) => async () =>
+  await Promise.resolve({ ok: false, status: code });
 
-const unreachable: Answer = () => Promise.reject(new TypeError("fetch failed"));
+const unreachable: Answer = async () => await Promise.reject(new TypeError("fetch failed"));
 
 const listing = (endpointId: string, usd: number) =>
   ok({ prices: [{ currency: "USD", endpoint_id: endpointId, unit: "image", unit_price: usd }] });
@@ -22,14 +23,14 @@ const estimate = (usd: number) => ok({ total_cost: usd });
 const platform = (answers: { price: Answer; estimate?: Answer }) => {
   const asked: string[] = [];
 
-  const call = (input: { method: "GET" | "POST"; path: string }) => {
+  const call = async (input: { method: "GET" | "POST"; path: string }) => {
     asked.push(`${input.method} ${input.path}`);
 
     if (input.method === "GET") {
-      return answers.price();
+      return await answers.price();
     }
 
-    return (answers.estimate ?? status(404))();
+    return await (answers.estimate ?? status(404))();
   };
 
   return { asked, call };

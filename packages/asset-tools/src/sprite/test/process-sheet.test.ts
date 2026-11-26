@@ -9,7 +9,9 @@ import { processSheet } from "../process-sheet.js";
 
 const dir = mkdtempSync(path.join(tmpdir(), "process-sheet-"));
 
-after(() => rmSync(dir, { force: true, recursive: true }));
+after(() => {
+  rmSync(dir, { force: true, recursive: true });
+});
 
 const CELL = 64;
 

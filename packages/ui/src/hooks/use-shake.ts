@@ -16,7 +16,7 @@ export const useShake = () => {
   const reduceMotion = useReducedMotion();
 
   const shake = () => {
-    if (reduceMotion || !scope.current) {
+    if (reduceMotion === true || !scope.current) {
       return;
     }
 

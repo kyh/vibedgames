@@ -28,7 +28,7 @@ export const TextFallback = ({ doc, note }: { doc: Doc; note?: string }) => (
     </div>
     <noscript>
       <div className="mx-auto max-w-2xl space-y-6 p-6 text-sm select-text">
-        {note && <p>{note}</p>}
+        {note !== undefined && note !== "" && <p>{note}</p>}
         {doc.sections.map((section) => (
           <section key={section.heading} className="space-y-3">
             <h2 className="font-medium">{section.heading}</h2>

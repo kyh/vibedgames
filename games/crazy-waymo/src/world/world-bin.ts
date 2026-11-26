@@ -253,10 +253,10 @@ const unpackYield = async () => {
     return;
   }
 
-  // oxlint-disable-next-line promise/avoid-new -- wraps setTimeout to yield a macrotask
-  await new Promise<void>((resolve) => {
-    setTimeout(resolve, 0);
-  });
+  const { promise, resolve } = Promise.withResolvers<void>();
+  setTimeout(resolve, 0);
+
+  await promise;
   lastUnpackYield = performance.now();
 };
 

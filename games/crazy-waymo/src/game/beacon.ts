@@ -43,11 +43,11 @@ const tagMaterial = (tier: FareTier) => {
 
 export class Beacon {
   readonly group = new THREE.Group();
-  private pillar: THREE.Mesh;
-  private ring: THREE.Mesh;
-  private mat: THREE.MeshBasicMaterial;
-  private ringMat: THREE.MeshBasicMaterial;
-  private tag: THREE.Sprite | null = null;
+  private readonly pillar: THREE.Mesh;
+  private readonly ring: THREE.Mesh;
+  private readonly mat: THREE.MeshBasicMaterial;
+  private readonly ringMat: THREE.MeshBasicMaterial;
+  private readonly tag: THREE.Sprite | null = null;
   private t = 0;
 
   constructor(color: number, tagTier?: FareTier) {

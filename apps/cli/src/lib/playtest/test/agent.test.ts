@@ -110,32 +110,33 @@ const makePage = (script: AnswerScript, reflexes: Record<string, Reflex> = {}) =
       caf: () => {
         frames = [];
       },
-      delay: (ms) =>
-        // oxlint-disable-next-line promise/avoid-new -- a fake timer has nothing to await but a promise it resolves itself
-        new Promise<void>((resolve) => {
-          timers.push({ at: now + ms, resolve });
-        }),
+      delay: async (ms) => {
+        const { promise, resolve } = Promise.withResolvers<void>();
+        timers.push({ at: now + ms, resolve });
+
+        await promise;
+      },
       dispatchKey: (type, init) => {
         page.dispatched.push({ code: init.code, kind: "key", type });
       },
       dispatchPointer: (pointer, type) => {
         page.dispatched.push({ kind: "pointer", pointer, type });
       },
-      fetch: (_url, init) => {
+      fetch: async (_url, init) => {
         page.requests.push(init);
         const reply = answer(init);
 
-        // oxlint-disable-next-line promise/avoid-new -- delivered by the next frame, like a real round trip
-        return new Promise((resolve) => {
-          inFlight.push(() => {
-            now += 40;
-            resolve({
-              ok: reply.ok,
-              status: reply.status,
-              text: () => Promise.resolve(reply.body),
-            });
+        const { promise, resolve } = Promise.withResolvers<void>();
+        inFlight.push(() => {
+          now += 40;
+          resolve({
+            ok: reply.ok,
+            status: reply.status,
+            text: async () => await Promise.resolve(reply.body),
           });
         });
+
+        return await promise;
       },
       live: () => ({ player: { x: page.sample.x, y: page.sample.y } }),
       now: () => now,
@@ -385,9 +386,9 @@ test("a parked pointer that has arrived is not a stuck player", async () => {
 
 test("gives up on a decision that never answers", async () => {
   const page = makePage({ pick: () => "right" });
-  page.env.fetch = () =>
+  page.env.fetch = async () =>
     // oxlint-disable-next-line promise/avoid-new -- a request that hangs forever
-    new Promise(() => {});
+    await new Promise(() => {});
   const result = inPageAgent(config({ decisionRetries: 0, ticks: 1 }), page.env);
 
   for (let i = 0; i < 10 && !result.done; i += 1) {

@@ -289,7 +289,7 @@ const blastBrawlers = (
     const d = Math.hypot(ox, oz);
     target.takeDamage(damage, owner);
 
-    if (attack.knockback) {
+    if (attack.knockback !== undefined && attack.knockback !== 0) {
       const force = attack.knockback * (1 - (d / (blast + 0.5)) * 0.5);
       const nx = d > 0.01 ? (target.x - x) / d : 1;
       const nz = d > 0.01 ? (target.z - z) / d : 0;
@@ -557,7 +557,7 @@ export class Combat {
     slot.busy = true;
     slot.group.visible = true;
     slot.group.position.set(sx, sy, sz);
-    slot.group.scale.setScalar(attack.big ? 1.75 : 1);
+    slot.group.scale.setScalar(attack.big === true ? 1.75 : 1);
     slot.ring.visible = true;
     slot.ring.position.set(tx, this.game.world.heightAt(tx, tz) + 0.05, tz);
     slot.ring.scale.set(attack.blast, 1, attack.blast);
@@ -655,11 +655,13 @@ export class Combat {
       }
     }
 
-    if (attack.breaksWalls) {
+    if (attack.breaksWalls === true) {
       this.breakWallsAround(x, z, blast);
     }
 
-    game.asActor(owner, () => this.showBlast(x, z, attack, owner, isSuper, slam));
+    game.asActor(owner, () => {
+      this.showBlast(x, z, attack, owner, isSuper, slam);
+    });
   }
 
   /** A blast's look, shake and sound without its damage — what a guest shows for its own. */

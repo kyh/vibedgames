@@ -18,12 +18,13 @@ class Node extends EventTarget {
 const win = new EventTarget();
 const removeWindowListener = win.removeEventListener.bind(win);
 
-win.removeEventListener = (type, listener, options) =>
+win.removeEventListener = (type, listener, options) => {
   removeWindowListener(
     type,
     listener,
     options === true || options === false ? { capture: options } : options,
   );
+};
 
 win.parent = win;
 

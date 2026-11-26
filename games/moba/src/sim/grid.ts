@@ -121,14 +121,14 @@ export class NavGrid {
   readonly rows: number;
   readonly cell: number;
   private walkable: Uint8Array;
-  private elevLvl: Int8Array;
-  private rampFlag: Uint8Array;
-  private gScore: Float64Array;
-  private fScore: Float64Array;
-  private came: Int32Array;
-  private closed: Uint8Array;
-  private inHeap: Uint8Array;
-  private heap: number[] = [];
+  private readonly elevLvl: Int8Array;
+  private readonly rampFlag: Uint8Array;
+  private readonly gScore: Float64Array;
+  private readonly fScore: Float64Array;
+  private readonly came: Int32Array;
+  private readonly closed: Uint8Array;
+  private readonly inHeap: Uint8Array;
+  private readonly heap: number[] = [];
 
   constructor(worldW: number, worldH: number, cell: number, blockers: Blocker[], meta?: ElevMeta) {
     this.cell = cell;
@@ -324,7 +324,7 @@ export class NavGrid {
         return this.reconstruct(came, cur);
       }
 
-      if (closed[cur]) {
+      if ((closed[cur] ?? 0) !== 0) {
         continue;
       }
 
@@ -374,7 +374,7 @@ export class NavGrid {
 
     const nIdx = nr * this.cols + nc;
 
-    if (closed[nIdx]) {
+    if ((closed[nIdx] ?? 0) !== 0) {
       return;
     }
 

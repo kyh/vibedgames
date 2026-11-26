@@ -21,10 +21,10 @@ interface Live {
 }
 
 export class AnimalManager {
-  private scene: GameScene;
-  private world: World;
-  private live: Live[] = [];
-  private pettedToday = new Set<number>();
+  private readonly scene: GameScene;
+  private readonly world: World;
+  private readonly live: Live[] = [];
+  private readonly pettedToday = new Set<number>();
 
   constructor(scene: GameScene, world: World) {
     this.scene = scene;
@@ -228,9 +228,9 @@ export class AnimalManager {
 
     if (counts.size > 0) {
       const parts = [...counts.entries()].map(([p, n]) => `${n} ${p}`);
-      this.scene.time.delayedCall(900, () =>
-        this.scene.toast(`Your animals gave you ${parts.join(", ")}.`, "#fff0c0"),
-      );
+      this.scene.time.delayedCall(900, () => {
+        this.scene.toast(`Your animals gave you ${parts.join(", ")}.`, "#fff0c0");
+      });
     }
   }
 }

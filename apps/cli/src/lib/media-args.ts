@@ -42,7 +42,7 @@ const parseValue = (raw: string) => {
     return null;
   }
 
-  if (raw.length > 0 && (raw[0] === "{" || raw[0] === "[")) {
+  if (raw.length > 0 && (raw.startsWith("{") || raw.startsWith("["))) {
     try {
       return JSON.parse(raw) as JsonValue;
     } catch {
@@ -78,7 +78,7 @@ export const parseRunInput = (argv: string[]) => {
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
 
-    if (!arg || !arg.startsWith("--")) {
+    if (arg === undefined || arg === "" || !arg.startsWith("--")) {
       continue;
     }
 
@@ -94,7 +94,7 @@ export const parseRunInput = (argv: string[]) => {
       if (name === "--download" && inlineValue === undefined) {
         const next = argv[i + 1];
 
-        if (next && !next.startsWith("--")) {
+        if (next !== undefined && next !== "" && !next.startsWith("--")) {
           i += 1;
         }
       }
@@ -223,7 +223,7 @@ export const parseDownloadFlag: (argv: string[]) => DownloadFlag = (argv) => {
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
 
-    if (!arg) {
+    if (arg === undefined || arg === "") {
       continue;
     }
 

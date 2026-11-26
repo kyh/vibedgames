@@ -153,8 +153,8 @@ const spinFor = (style: NumberStyle) => {
 };
 
 export class DamageNumbers {
-  private layer: HTMLDivElement;
-  private pool: Num[] = [];
+  private readonly layer: HTMLDivElement;
+  private readonly pool: Num[] = [];
   private combo = 0;
   private comboLastAt = 0;
 

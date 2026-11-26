@@ -90,7 +90,9 @@ export class Hud {
 
   constructor(onAction: () => void) {
     for (const eventName of ["pointerdown", "pointermove", "pointerup", "pointercancel"]) {
-      this.bannerEl.addEventListener(eventName, (e) => e.stopPropagation());
+      this.bannerEl.addEventListener(eventName, (e) => {
+        e.stopPropagation();
+      });
     }
 
     this.actionEl.addEventListener("click", onAction);

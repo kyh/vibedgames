@@ -159,7 +159,7 @@ const toScene: (gs: GameScene, beat: Beat) => TrailerScene = (gs, beat) => {
       const { script } = bits;
       gs.trailerSetInput(script ? () => script(clock.t) : null);
 
-      if (bits.ticks) {
+      if (bits.ticks !== undefined && bits.ticks !== 0) {
         gs.trailerTick(bits.ticks);
       }
 
@@ -199,7 +199,9 @@ const coldOpen: Beat = {
     const swing = repeater(220);
 
     return {
-      camera: () => followCam(gs, -46, 6),
+      camera: () => {
+        followCam(gs, -46, 6);
+      },
       script: (t) =>
         solo(
           inp({
@@ -253,7 +255,9 @@ const realmEmber: Beat = {
     const press = presser();
 
     return {
-      camera: () => followCam(gs, -30, 4),
+      camera: () => {
+        followCam(gs, -30, 4);
+      },
       script: (t) => {
         const casting = gs.trailerWorld().p1.body.specialActive;
 
@@ -291,8 +295,12 @@ const realmFrost: Beat = {
     const swing = repeater(220);
 
     return {
-      camera: () => followCam(gs, 50, 4),
-      onReveal: () => gs.trailerBanner("▼  FROSTVAULT  ▼", 900),
+      camera: () => {
+        followCam(gs, 50, 4);
+      },
+      onReveal: () => {
+        gs.trailerBanner("▼  FROSTVAULT  ▼", 900);
+      },
       script: (t) => {
         const dx = foeDx(gs);
 
@@ -325,7 +333,9 @@ const realmVoid: Beat = {
     const swing = repeater(240);
 
     return {
-      camera: () => followCam(gs, -18, 4),
+      camera: () => {
+        followCam(gs, -18, 4);
+      },
       script: (t) =>
         solo(
           inp({
@@ -367,7 +377,9 @@ const relicSpike: Beat = {
     const swing = repeater(240);
 
     return {
-      camera: () => followCam(gs, -42, 4),
+      camera: () => {
+        followCam(gs, -42, 4);
+      },
       script: (t) => {
         const { x } = gs.trailerWorld().p1;
 
@@ -401,8 +413,12 @@ const pathCache: Beat = {
     });
 
     return {
-      camera: () => lockCam(gs, 352, 200, WIDE),
-      onReveal: () => gs.trailerBanner("CACHE — pick a path", 1000),
+      camera: () => {
+        lockCam(gs, 352, 200, WIDE);
+      },
+      onReveal: () => {
+        gs.trailerBanner("CACHE — pick a path", 1000);
+      },
       script: (t) => solo(inp({ right: t >= 0 && gs.trailerWorld().p1.x < 520 })),
       ticks: 6,
     };
@@ -440,8 +456,12 @@ const eliteCrits: Beat = {
     const swing = repeater(220);
 
     return {
-      camera: () => followCam(gs, -24, 4),
-      onReveal: () => gs.trailerBanner("ELITE", 900),
+      camera: () => {
+        followCam(gs, -24, 4);
+      },
+      onReveal: () => {
+        gs.trailerBanner("ELITE", 900);
+      },
       script: (t) => {
         const dx = foeDx(gs);
 
@@ -476,7 +496,9 @@ const movementTech: Beat = {
     const press = presser();
 
     return {
-      camera: () => followCam(gs, -70, 8),
+      camera: () => {
+        followCam(gs, -70, 8);
+      },
       script: (t) => {
         const b = gs.trailerWorld().p1.body;
 
@@ -571,7 +593,9 @@ const coopRevive: Beat = {
     const swing = repeater(260);
 
     return {
-      camera: () => followCam(gs, -40, 0),
+      camera: () => {
+        followCam(gs, -40, 0);
+      },
       during: () => {
         const { p2 } = gs.trailerWorld();
 
@@ -623,7 +647,9 @@ const versusDuel: Beat = {
     const swing = repeater(300);
 
     return {
-      camera: () => lockCam(gs, 256, 205),
+      camera: () => {
+        lockCam(gs, 256, 205);
+      },
       script: (t) => {
         const w = gs.trailerWorld();
         const { p2 } = w;
@@ -683,7 +709,9 @@ const deathForge: Beat = {
     const swing = repeater(240);
 
     return {
-      camera: () => followCam(gs, 0, 0),
+      camera: () => {
+        followCam(gs, 0, 0);
+      },
       script: (t) => solo(inp({ attackPressed: swing(t, Math.abs(foeDx(gs)) < 30) })),
       ticks: 10,
     };
@@ -712,7 +740,9 @@ const deathRebirth: Beat = {
     const swing = repeater(240);
 
     return {
-      camera: () => followCam(gs, -56, 6),
+      camera: () => {
+        followCam(gs, -56, 6);
+      },
       script: (t) =>
         solo(
           inp({
@@ -766,7 +796,9 @@ const bossFan: Beat = {
     const cue = presser();
 
     return {
-      camera: () => lockCam(gs, 340, 300),
+      camera: () => {
+        lockCam(gs, 340, 300);
+      },
       during: (t) => {
         if (cue("wave", t >= 40)) {
           forceBoss(gs, "wave");
@@ -801,7 +833,9 @@ const bossPhase: Beat = {
     const swing = repeater(320);
 
     return {
-      camera: () => followCam(gs, -30, 0),
+      camera: () => {
+        followCam(gs, -30, 0);
+      },
       during: (t) => {
         const b = gs.trailerWorld().boss;
 
@@ -843,7 +877,9 @@ const bossCharge: Beat = {
     const cue = presser();
 
     return {
-      camera: () => followCam(gs, 30, -8),
+      camera: () => {
+        followCam(gs, 30, -8);
+      },
       during: (t) => {
         if (cue("charge", t >= 90)) {
           forceBoss(gs, "charge");
@@ -897,7 +933,9 @@ const bossKill: Beat = {
     const swing = repeater(300);
 
     return {
-      camera: () => followCam(gs, -36, -6),
+      camera: () => {
+        followCam(gs, -36, -6);
+      },
       during: (t) => {
         if (cue("slam", t >= 80)) {
           forceBoss(gs, "jump");

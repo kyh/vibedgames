@@ -112,11 +112,14 @@ interface Settings {
 }
 
 const settingsFrom = (args: ParsedArgs) => {
-  if (!args.url && !args.game) {
+  if (
+    (args.url === undefined || args.url === "") &&
+    (args.game === undefined || args.game === "")
+  ) {
     throw new HarnessError("Pass --url <url> or --game <slug>.");
   }
 
-  if (args.url && args.game) {
+  if (args.url !== undefined && args.url !== "" && args.game !== undefined && args.game !== "") {
     throw new HarnessError("Pass either --url or --game, not both.");
   }
 
@@ -146,7 +149,7 @@ const settingsFrom = (args: ParsedArgs) => {
     model: args.model,
     pinMove: args.pinMove ?? null,
     seed: numberArg(args.seed, "--seed", Number.isFinite, "a finite number"),
-    target: args.game ? `game:${args.game}` : (args.url ?? ""),
+    target: args.game !== undefined && args.game !== "" ? `game:${args.game}` : (args.url ?? ""),
     tickMs: numberArg(
       args.tickMs,
       "--tick-ms",
@@ -273,7 +276,7 @@ export const playtestRunCommand = defineCommand({
       process.exit(HARNESS_FAILURE);
     }
 
-    if (!getToken()) {
+    if ((getToken() ?? "") === "") {
       consola.warn("Not logged in. Run `vg login` to authenticate.");
       process.exit(1);
     }

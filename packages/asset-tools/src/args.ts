@@ -31,7 +31,7 @@ export interface ParseOptions {
 }
 
 const headerDoc = (entry: string | undefined) => {
-  if (!entry) {
+  if (entry === undefined || entry === "") {
     return null;
   }
 

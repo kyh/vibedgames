@@ -7,10 +7,10 @@ import { passwordResetEmail } from "./templates";
 const recorder = (response: Response) => {
   const calls: { url: string; init: RequestInit | undefined }[] = [];
 
-  const fetch = (input: RequestInfo | URL, init?: RequestInit) => {
+  const fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     calls.push({ init, url: String(input) });
 
-    return Promise.resolve(response);
+    return await Promise.resolve(response);
   };
 
   return { calls, fetch };

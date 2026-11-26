@@ -110,7 +110,7 @@ export const loadMeta: () => MetaState = () => {
   try {
     const raw = localStorage.getItem(KEY);
 
-    if (!raw) {
+    if (raw === null || raw === "") {
       return fresh();
     }
 

@@ -148,11 +148,12 @@ const FLOOR_LABELS = {
   worn: "worn rock",
 } satisfies Record<FloorType | "auto", string>;
 
-const nextFrame: () => Promise<void> = () =>
-  // oxlint-disable-next-line promise/avoid-new -- requestAnimationFrame has no promise form
-  new Promise((resolve) => {
-    requestAnimationFrame(() => resolve());
-  });
+const nextFrame: () => Promise<void> = () => {
+  const { promise, resolve } = Promise.withResolvers<void>();
+  requestAnimationFrame(() => resolve());
+
+  return promise;
+};
 
 const on = (id: string, fn: () => void) => {
   document.querySelector<HTMLElement>(`#${id}`)?.addEventListener("click", fn);

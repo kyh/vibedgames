@@ -53,7 +53,7 @@ export const loadLocalOverrides = () => {
   try {
     const raw = window.localStorage.getItem(MAP_OVERRIDES_KEY);
 
-    if (!raw) {
+    if (raw === null || raw === "") {
       return { add: [], floor: [], remove: [] };
     }
 
@@ -82,7 +82,7 @@ export const loadLocalOverrides = () => {
     };
 
     const floor: [number, number, FloorKind][] = [];
-    const fv = parsed["floor"];
+    const fv = parsed.floor;
 
     if (Array.isArray(fv)) {
       for (const c of fv) {

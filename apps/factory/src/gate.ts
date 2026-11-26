@@ -39,49 +39,54 @@ interface TimeoutCell {
   handle?: ReturnType<typeof setTimeout>;
 }
 
-const runScript: (workspace: string, script: string) => Promise<{ ok: boolean; tail: string }> = (
-  workspace,
-  script,
-) =>
-  // oxlint-disable-next-line promise/avoid-new -- child_process.spawn is event-based
-  new Promise((resolve) => {
-    const child = spawn("npm", ["run", script, "--silent"], {
-      cwd: workspace,
-      env: { ...process.env, CI: "1" },
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-
-    let out = "";
-    let done = false;
-    const timeout: TimeoutCell = {};
-
-    const finish = (ok: boolean) => {
-      if (done) {
-        return;
-      }
-
-      done = true;
-      clearTimeout(timeout.handle);
-      resolve({ ok, tail: out.slice(-OUTPUT_TAIL) });
-    };
-
-    timeout.handle = setTimeout(() => {
-      bestEffort(() => {
-        child.kill("SIGKILL");
-      });
-      out += `\n(timed out after ${STEP_TIMEOUT_MS / 60_000}m)`;
-      finish(false);
-    }, STEP_TIMEOUT_MS);
-    timeout.handle.unref?.();
-    child.stdout?.on("data", (d: Buffer) => {
-      out = (out + d.toString()).slice(-OUTPUT_TAIL * 2);
-    });
-    child.stderr?.on("data", (d: Buffer) => {
-      out = (out + d.toString()).slice(-OUTPUT_TAIL * 2);
-    });
-    child.on("error", () => finish(false));
-    child.on("close", (code) => finish(code === 0));
+const runScript: (
+  workspace: string,
+  script: string,
+) => Promise<{ ok: boolean; tail: string }> = async (workspace, script) => {
+  const { promise, resolve } = Promise.withResolvers<{ ok: boolean; tail: string }>();
+  const child = spawn("npm", ["run", script, "--silent"], {
+    cwd: workspace,
+    env: { ...process.env, CI: "1" },
+    stdio: ["ignore", "pipe", "pipe"],
   });
+
+  let out = "";
+  let done = false;
+  const timeout: TimeoutCell = {};
+
+  const finish = (ok: boolean) => {
+    if (done) {
+      return;
+    }
+
+    done = true;
+    clearTimeout(timeout.handle);
+    resolve({ ok, tail: out.slice(-OUTPUT_TAIL) });
+  };
+
+  timeout.handle = setTimeout(() => {
+    bestEffort(() => {
+      child.kill("SIGKILL");
+    });
+    out += `\n(timed out after ${STEP_TIMEOUT_MS / 60_000}m)`;
+    finish(false);
+  }, STEP_TIMEOUT_MS);
+  timeout.handle.unref?.();
+  child.stdout?.on("data", (d: Buffer) => {
+    out = (out + d.toString()).slice(-OUTPUT_TAIL * 2);
+  });
+  child.stderr?.on("data", (d: Buffer) => {
+    out = (out + d.toString()).slice(-OUTPUT_TAIL * 2);
+  });
+  child.on("error", () => {
+    finish(false);
+  });
+  child.on("close", (code) => {
+    finish(code === 0);
+  });
+
+  return await promise;
+};
 
 /** Run the workspace's typecheck + build (whichever exist), in that order. */
 export const runGate = async (workspace: string) => {

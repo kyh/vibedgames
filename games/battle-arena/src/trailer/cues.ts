@@ -1,6 +1,6 @@
 /** Fire-once cue registry, reset per scene replay. */
 export class Cues {
-  private fired = new Set<string>();
+  private readonly fired = new Set<string>();
   reset() {
     this.fired.clear();
   }

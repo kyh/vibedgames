@@ -61,7 +61,7 @@ const merged = (s: SharedState, patch: Partial<SharedState> | null) =>
 
 const collect = (s: SharedState, claims: PickupClaims, room: ClaimRoom) => {
   for (const fighter of Object.values(s.bots)) {
-    if (!s.deaths[fighter.id]) {
+    if ((s.deaths[fighter.id] ?? 0) === 0) {
       claims.reach(room, s, fighter.id, fighter);
     }
   }
@@ -146,7 +146,7 @@ const soak = (seed: number, ms: number) => {
     room: "bot-soak",
   });
 
-  for (let now = 1000; now <= 1000 + ms && !s.winner; now += TICK_MS) {
+  for (let now = 1000; now <= 1000 + ms && (s.winner === null || s.winner === ""); now += TICK_MS) {
     const { patch } = hostTick(s, [human], now, random);
 
     if (!patch) {
@@ -157,7 +157,7 @@ const soak = (seed: number, ms: number) => {
     s = collect(merged(s, patch), claims, room);
 
     for (const id of Object.keys(s.deaths)) {
-      if (before.deaths[id]) {
+      if ((before.deaths[id] ?? 0) !== 0) {
         continue;
       }
 

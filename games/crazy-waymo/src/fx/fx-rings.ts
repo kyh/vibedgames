@@ -53,15 +53,15 @@ const RING_FRAG = `
 
 export class FxRings {
   readonly mesh: THREE.Mesh;
-  private uTime = { value: 0 };
+  private readonly uTime = { value: 0 };
   private center: Float32Array;
   private profile: Float32Array;
   private color: Float32Array;
   private drift: Float32Array;
-  private centerAttr: THREE.InstancedBufferAttribute;
-  private profileAttr: THREE.InstancedBufferAttribute;
-  private colorAttr: THREE.InstancedBufferAttribute;
-  private driftAttr: THREE.InstancedBufferAttribute;
+  private readonly centerAttr: THREE.InstancedBufferAttribute;
+  private readonly profileAttr: THREE.InstancedBufferAttribute;
+  private readonly colorAttr: THREE.InstancedBufferAttribute;
+  private readonly driftAttr: THREE.InstancedBufferAttribute;
   private cursor = 0;
   private lastDeath = 0;
 

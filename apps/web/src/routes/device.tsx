@@ -17,7 +17,11 @@ const fetchDeviceRequest = createServerFn({ method: "GET" })
     const { auth } = getServerContext();
     const headers = new Headers(getRequestHeaders());
     const session = await auth.api.getSession({ headers });
-    const userCode = data.user_code ? normalizeUserCode(data.user_code) : "";
+
+    const userCode =
+      data.user_code !== undefined && data.user_code !== ""
+        ? normalizeUserCode(data.user_code)
+        : "";
 
     if (!session) {
       const back = userCode ? `/device?user_code=${userCode}` : "/device";
@@ -42,7 +46,11 @@ const fetchDeviceRequest = createServerFn({ method: "GET" })
       };
     }
 
-    if (request.status !== "pending" || !request.client_id) {
+    if (
+      request.status !== "pending" ||
+      request.client_id === undefined ||
+      request.client_id === ""
+    ) {
       return { state: "used" as const, userName: session.user.name };
     }
 
@@ -76,7 +84,7 @@ export const Route = createFileRoute("/device")({
   head: () => ({
     meta: [{ title: "Connect a device" }, { content: "noindex, nofollow", name: "robots" }],
   }),
-  loader: ({ deps }) => fetchDeviceRequest({ data: deps }),
+  loader: async ({ deps }) => await fetchDeviceRequest({ data: deps }),
   loaderDeps: ({ search }) => ({ user_code: search.user_code }),
   validateSearch: deviceSearchSchema,
 });

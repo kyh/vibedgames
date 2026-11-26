@@ -222,7 +222,9 @@ export class GameScene {
       styleId: "tetris-touch-controls-css",
     });
     document.body.classList.toggle("touch", this.coarse);
-    this.hud = new Hud(this.coarse, () => this.startIfIdle());
+    this.hud = new Hud(this.coarse, () => {
+      this.startIfIdle();
+    });
     renderLegend();
     this.showBanner("TETRIS", titleSubText());
     this.unwatchControls = watchControlContext(() => {
@@ -378,12 +380,22 @@ export class GameScene {
 
   private keyboardHandlers() {
     return {
-      hardDrop: () => this.onHardDrop(),
-      hold: () => this.doHold(),
+      hardDrop: () => {
+        this.onHardDrop();
+      },
+      hold: () => {
+        this.doHold();
+      },
       muteToggle: () => toggleMute(),
-      orbit: (dir) => this.doOrbit(dir),
-      pause: () => this.requestPause(),
-      power: () => this.doPower(),
+      orbit: (dir) => {
+        this.doOrbit(dir);
+      },
+      pause: () => {
+        this.requestPause();
+      },
+      power: () => {
+        this.doPower();
+      },
       recenter: () => this.poseControls?.recenter(),
       rotate: () => {
         this.doRotate();
@@ -394,23 +406,41 @@ export class GameScene {
       setHoriz: (dir) => {
         this.kbHoriz = dir;
       },
-      setSoftDrop: (on) => this.engine.setSoftDrop(on),
-      start: () => this.startIfIdle(),
+      setSoftDrop: (on) => {
+        this.engine.setSoftDrop(on);
+      },
+      start: () => {
+        this.startIfIdle();
+      },
     } satisfies KeyboardHandlers;
   }
 
   private touchHandlers() {
     return {
-      drop: () => this.onHardDrop(),
-      hold: () => this.doHold(),
-      orbit: (dir) => this.doOrbit(dir),
-      power: () => this.doPower(),
+      drop: () => {
+        this.onHardDrop();
+      },
+      hold: () => {
+        this.doHold();
+      },
+      orbit: (dir) => {
+        this.doOrbit(dir);
+      },
+      power: () => {
+        this.doPower();
+      },
       rotate: () => {
         this.doRotate();
       },
-      setSoftDrop: (on) => this.engine.setSoftDrop(on),
-      step: (dir, initial) => this.stepScreen(dir, initial),
-      tap: () => this.onFreeTap(),
+      setSoftDrop: (on) => {
+        this.engine.setSoftDrop(on);
+      },
+      step: (dir, initial) => {
+        this.stepScreen(dir, initial);
+      },
+      tap: () => {
+        this.onFreeTap();
+      },
     } satisfies TouchHandlers;
   }
 

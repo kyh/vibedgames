@@ -121,17 +121,17 @@ const check = (label: string, cond: boolean) => {
   const e = new Engine();
   e.startGame();
   const first = e.activePieceIndex();
-  check("engine: hold unspent on spawn", e.holdSpent === false);
+  check("engine: hold unspent on spawn", !e.holdSpent);
   const held1 = e.hold();
-  check("engine: hold succeeds", held1 === true);
+  check("engine: hold succeeds", held1);
   check("engine: held piece recorded", e.holdIndex === first);
-  check("engine: hold is one-per-piece", e.hold() === false);
-  check("engine: hold reads spent until the piece locks", e.holdSpent === true);
+  check("engine: hold is one-per-piece", !e.hold());
+  check("engine: hold reads spent until the piece locks", e.holdSpent);
   e.hardDrop();
-  check("engine: lock re-arms the hold", e.holdSpent === false && e.holdIndex === first);
+  check("engine: lock re-arms the hold", !e.holdSpent && e.holdIndex === first);
   e.hold();
   e.reset();
-  check("engine: reset clears the hold", e.holdSpent === false && e.holdIndex === null);
+  check("engine: reset clears the hold", !e.holdSpent && e.holdIndex === null);
 }
 
 {
@@ -160,12 +160,12 @@ const check = (label: string, cond: boolean) => {
 {
   const e = new Engine();
   e.startGame();
-  check("engine: not charged at start", e.canPower() === false);
+  check("engine: not charged at start", !e.canPower());
   e.charge = 1;
   e.board.lock([{ x: 0, y: 0, z: 0 }], 1);
   const removed = e.power();
   check("engine: power removed cubes", removed > 0);
-  check("engine: charge spent", e.canPower() === false);
+  check("engine: charge spent", !e.canPower());
 }
 
 {

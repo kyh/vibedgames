@@ -30,7 +30,7 @@ const parseArgs = (argv: string[]) => {
     }
   }
 
-  if (!email || !name) {
+  if (email === undefined || email === "" || name === undefined || name === "") {
     console.error("Missing required flags. Use --help for usage.");
     process.exit(1);
   }
@@ -41,7 +41,7 @@ const parseArgs = (argv: string[]) => {
 const readPassword = async () => {
   const fromEnv = process.env.ADMIN_PASSWORD;
 
-  if (fromEnv) {
+  if (fromEnv !== undefined && fromEnv !== "") {
     return fromEnv;
   }
 

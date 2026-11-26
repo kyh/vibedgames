@@ -77,7 +77,7 @@ const heroInfo = (def: HeroDef) => {
   const s = (k: Parameters<typeof heroStatAt>[1]) => Math.round(heroStatAt(def, k, 1));
 
   const lines = [
-    `${def.role}`,
+    def.role,
     `HP ${s("hp")}   MP ${s("mp")}   DMG ${s("damage")}`,
     `armor ${s("armor")}   range ${def.base.attackRange}   move ${s("moveSpeed")}`,
     "",
@@ -161,7 +161,9 @@ export class ShowcaseScene extends Scene {
 
     if (veil) {
       veil.classList.add("hidden");
-      setTimeout(() => veil.remove(), 400);
+      setTimeout(() => {
+        veil.remove();
+      }, 400);
     }
   }
 
@@ -337,7 +339,7 @@ export class ShowcaseScene extends Scene {
       steps += 1;
     }
 
-    if (sub?.alive && this.mode === "idle" && this.time.now >= this.busyUntil) {
+    if (sub?.alive === true && this.mode === "idle" && this.time.now >= this.busyUntil) {
       if (sub.order.type !== "hold") {
         sub.order = { type: "hold" };
       }
@@ -348,7 +350,7 @@ export class ShowcaseScene extends Scene {
       sub.vy = 0;
     }
 
-    if (dummy?.alive) {
+    if (dummy?.alive === true) {
       dummy.x = STAGE.x + DUMMY_DX;
       dummy.y = STAGE.y;
       dummy.vx = 0;
@@ -456,7 +458,9 @@ export class ShowcaseScene extends Scene {
         .setScrollFactor(0)
         .setDepth(1001);
       const idx = i;
-      box.on("pointerdown", () => this.select(idx));
+      box.on("pointerdown", () => {
+        this.select(idx);
+      });
       this.listButtons.push({ box, idx });
       y += 28;
     }
@@ -484,9 +488,24 @@ export class ShowcaseScene extends Scene {
     }
 
     const labels: { t: string; fn: () => void; hot?: boolean }[] = [
-      { fn: () => this.demoIdle(), t: "Idle" },
-      { fn: () => this.demoWalk(), t: "Walk" },
-      { fn: () => this.demoAttack(), t: "Attack" },
+      {
+        fn: () => {
+          this.demoIdle();
+        },
+        t: "Idle",
+      },
+      {
+        fn: () => {
+          this.demoWalk();
+        },
+        t: "Walk",
+      },
+      {
+        fn: () => {
+          this.demoAttack();
+        },
+        t: "Attack",
+      },
     ];
 
     if (e.type === "hero") {
@@ -499,11 +518,22 @@ export class ShowcaseScene extends Scene {
           continue;
         }
 
-        labels.push({ fn: () => this.demoCast(k), hot: true, t: `${k} · ${ab.name}` });
+        labels.push({
+          fn: () => {
+            this.demoCast(k);
+          },
+          hot: true,
+          t: `${k} · ${ab.name}`,
+        });
       }
     }
 
-    labels.push({ fn: () => this.demoDeath(), t: "Death" });
+    labels.push({
+      fn: () => {
+        this.demoDeath();
+      },
+      t: "Death",
+    });
 
     const W = this.scale.width;
     const barY = this.scale.height - 54;
@@ -513,16 +543,16 @@ export class ShowcaseScene extends Scene {
       const w = l.t.length > 10 ? 150 : 96;
 
       const box = this.add
-        .rectangle(x, barY, w, 36, l.hot ? 0x3a_2a_14 : 0x14_20_28, 0.92)
+        .rectangle(x, barY, w, 36, l.hot === true ? 0x3a_2a_14 : 0x14_20_28, 0.92)
         .setOrigin(0, 0.5)
-        .setStrokeStyle(2, l.hot ? 0xc9_94_1e : 0x3f_64_75)
+        .setStrokeStyle(2, l.hot === true ? 0xc9_94_1e : 0x3f_64_75)
         .setScrollFactor(0)
         .setDepth(1000)
         .setInteractive({ useHandCursor: true });
 
       const txt = this.add
         .text(x + w / 2, barY, l.t, {
-          color: l.hot ? "#ffe6a3" : "#dbe7ee",
+          color: l.hot === true ? "#ffe6a3" : "#dbe7ee",
           fontFamily: FONT,
           fontSize: "13px",
         })
@@ -530,8 +560,8 @@ export class ShowcaseScene extends Scene {
         .setScrollFactor(0)
         .setDepth(1001);
 
-      box.on("pointerover", () => box.setFillStyle(l.hot ? 0x5a_3f_1e : 0x1d_2f_3a, 1));
-      box.on("pointerout", () => box.setFillStyle(l.hot ? 0x3a_2a_14 : 0x14_20_28, 0.92));
+      box.on("pointerover", () => box.setFillStyle(l.hot === true ? 0x5a_3f_1e : 0x1d_2f_3a, 1));
+      box.on("pointerout", () => box.setFillStyle(l.hot === true ? 0x3a_2a_14 : 0x14_20_28, 0.92));
       box.on("pointerdown", l.fn);
       this.actionBar.push(box, txt);
       x += w + 10;

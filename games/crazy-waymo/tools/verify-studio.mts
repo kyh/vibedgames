@@ -2,7 +2,7 @@
 import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { Vector3 } from "three";
+import type { Vector3 } from "three";
 
 const url = process.argv[2] ?? "http://localhost:5193/?time=noon&offline=1";
 const output = path.resolve(process.argv[3] ?? "/private/tmp/waymo-studio-review");
@@ -172,8 +172,10 @@ const review = () => {
       { gx: taxi.game.city.gridX(first.x), gz: taxi.game.city.gridZ(first.z) },
       7,
     );
+
     const key = (type: string, value: any) =>
       window.dispatchEvent(new KeyboardEvent(type, { key: value }));
+
     let frames = 0;
     let peak = 0;
     let boosted = false;
@@ -191,27 +193,27 @@ const review = () => {
       const until = performance.now() + ms;
 
       try {
-        // oxlint-disable-next-line promise/avoid-new -- requestAnimationFrame is callback-only
-        await new Promise((resolve) => {
-          const tick = () => {
-            frames += 1;
-            const p = taxi.probe();
+        const { promise, resolve } = Promise.withResolvers<void>();
+        const tick = () => {
+          frames += 1;
+          const p = taxi.probe();
 
-            if (p) {
-              peak = Math.max(peak, p.speed);
-              boosted ||= p.boosting;
-              drifted ||= p.drifting;
-            }
+          if (p) {
+            peak = Math.max(peak, p.speed);
+            boosted ||= p.boosting;
+            drifted ||= p.drifting;
+          }
 
-            if (reached?.() || performance.now() >= until) {
-              resolve();
-            } else {
-              requestAnimationFrame(tick);
-            }
-          };
+          if (reached?.() === true || performance.now() >= until) {
+            resolve();
+          } else {
+            requestAnimationFrame(tick);
+          }
+        };
 
-          requestAnimationFrame(tick);
-        });
+        requestAnimationFrame(tick);
+
+        await promise;
       } finally {
         for (const held of keys) {
           key("keyup", held);
@@ -287,18 +289,18 @@ const review = () => {
 
     const until = async (predicate: { (): boolean | undefined; (): boolean; (): any }) => {
       const deadline = performance.now() + 5000;
-      // oxlint-disable-next-line promise/avoid-new -- requestAnimationFrame is callback-only
-      await new Promise((resolve) => {
-        const tick = () => {
-          if (predicate() || performance.now() > deadline) {
-            resolve();
-          } else {
-            requestAnimationFrame(tick);
-          }
-        };
+      const { promise, resolve } = Promise.withResolvers<void>();
+      const tick = () => {
+        if (predicate() === true || performance.now() > deadline) {
+          resolve();
+        } else {
+          requestAnimationFrame(tick);
+        }
+      };
 
-        requestAnimationFrame(tick);
-      });
+      requestAnimationFrame(tick);
+
+      await promise;
     };
 
     const objective = game.fares.objective();
@@ -343,10 +345,10 @@ const review = () => {
 
     taxi.game.requestPause();
     const before = taxi.probe();
-    // oxlint-disable-next-line promise/avoid-new -- page context has no timers/promises
-    await new Promise((resolve) => {
-      setTimeout(resolve, 300);
-    });
+    const { promise, resolve } = Promise.withResolvers<void>();
+    setTimeout(resolve, 300);
+
+    await promise;
     const after = taxi.probe();
     taxi.game.requestResume();
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "r" }));
@@ -378,15 +380,15 @@ const review = () => {
 
     taxi.teleport(0.437, 0.401);
     taxi.setPhase(0.25);
-    // oxlint-disable-next-line promise/avoid-new -- page context has no timers/promises
-    await new Promise((resolve) => {
-      setTimeout(resolve, 1500);
-    });
+    const { promise, resolve } = Promise.withResolvers<void>();
+    setTimeout(resolve, 1500);
+
+    await promise;
     const first = taxi.probe();
-    // oxlint-disable-next-line promise/avoid-new -- page context has no timers/promises
-    await new Promise((resolve) => {
-      setTimeout(resolve, 3000);
-    });
+    const { promise: promise2, resolve } = Promise.withResolvers<void>();
+    setTimeout(resolve, 3000);
+
+    await promise2;
     const last = taxi.probe();
     const camera = taxi.camera.position;
     const floor = taxi.game.city.cameraFloorAt(camera.x, camera.z, camera.y);
@@ -420,25 +422,25 @@ const review = () => {
       taxi.teleport(u, v);
       taxi.setPhase(phase);
       taxi.setFreecam(false);
-      // oxlint-disable-next-line promise/avoid-new -- requestAnimationFrame is callback-only
-      await new Promise((resolve) => {
-        let frames = 0;
+      const { promise, resolve } = Promise.withResolvers<void>();
+      let frames = 0;
 
-        const tick = () => {
-          frames += 1;
+      const tick = () => {
+        frames += 1;
 
-          if (frames >= 72) {
-            resolve();
-          } else {
-            requestAnimationFrame(tick);
-          }
-        };
+        if (frames >= 72) {
+          resolve();
+        } else {
+          requestAnimationFrame(tick);
+        }
+      };
 
-        requestAnimationFrame(tick);
-      });
+      requestAnimationFrame(tick);
+
+      await promise;
       await Promise.all(
-        (document.querySelector("#district")?.getAnimations() ?? []).map((animation) =>
-          animation.finished.catch(() => null),
+        (document.querySelector("#district")?.getAnimations() ?? []).map(
+          async (animation) => await animation.finished.catch(() => null),
         ),
       );
     }, view);

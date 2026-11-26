@@ -12,6 +12,7 @@ const DEV_PORT = 5308;
 
 const waitFor = async <T,>(read: () => Promise<T>, label: string, timeoutMs = 8000) => {
   let last: T | null = null;
+
   const found = await poll(
     async () => {
       last = await read();
@@ -29,8 +30,8 @@ const waitFor = async <T,>(read: () => Promise<T>, label: string, timeoutMs = 80
   return found;
 };
 
-const snapshot = (page: Page) =>
-  page.evaluate(() => {
+const snapshot = async (page: Page) =>
+  await page.evaluate(() => {
     const fb = window.__fb;
 
     if (fb === undefined) {
@@ -68,8 +69,8 @@ const oneClock = (a: Snapshot, b: Snapshot) =>
     `server − wall: ${a.clock?.toFixed(1)} vs ${b.clock?.toFixed(1)} ms`,
   ] as const;
 
-const fbOf = (page: Page) =>
-  page.evaluate(() => {
+const fbOf = async (page: Page) =>
+  await page.evaluate(() => {
     const fb = window.__fb;
 
     return fb === undefined
@@ -90,8 +91,8 @@ const fbOf = (page: Page) =>
 
 type Fb = NonNullable<Awaited<ReturnType<typeof fbOf>>>;
 
-const until = (page: Page, test: (fb: Fb) => boolean, label: string, timeoutMs = 8000) =>
-  waitFor(
+const until = async (page: Page, test: (fb: Fb) => boolean, label: string, timeoutMs = 8000) =>
+  await waitFor(
     async () => {
       const fb = await fbOf(page);
 
@@ -105,9 +106,7 @@ const phaseOf = async (page: Page) => (await fbOf(page))?.phase ?? null;
 
 const startFlying = async (page: Page) => {
   await page.keyboard.press("Enter");
-  await until(page, (fb) => fb.started && !fb.countingDown,
-    "countdown",
-  );
+  await until(page, (fb) => fb.started && !fb.countingDown, "countdown");
   await page.keyboard.press("Space");
   await until(page, (fb) => fb.phase === "playing", "playing");
 };
@@ -136,8 +135,8 @@ const blip = async (page: Page, watcher: Page) => {
   await page.evaluate(() => window.__fb?.net.client.dropConnection(4000));
   await until(page, (fb) => fb.status === "reconnecting", "blip drops");
   await waitFor(
-    () =>
-      watcher.evaluate(
+    async () =>
+      await watcher.evaluate(
         () =>
           document.querySelector("#board .row.away")?.textContent.includes("reconnecting") === true,
       ),
@@ -147,7 +146,7 @@ const blip = async (page: Page, watcher: Page) => {
   await page.evaluate(() => window.__fb?.net.client.redial());
   await until(page, (fb) => fb.status === "connected", "blip redials");
   await waitFor(
-    () => watcher.evaluate(() => document.querySelector("#board .row.away") === null),
+    async () => await watcher.evaluate(() => document.querySelector("#board .row.away") === null),
     "blip back on the board",
   );
 
@@ -168,11 +167,11 @@ const respawnAndFly = async (page: Page, label: string) => {
   await until(page, (fb) => fb.phase === "playing", `${label} flying`);
 };
 
-const worstScrollStep = (page: Page, ms: number) =>
-  page.evaluate(
-    (span) =>
+const worstScrollStep = async (page: Page, ms: number) =>
+  await page.evaluate(
+    async (span) =>
       // oxlint-disable-next-line promise/avoid-new -- requestAnimationFrame has no promise form
-      new Promise<number>((resolve, reject) => {
+      await new Promise<number>((resolve, reject) => {
         const scene = window.__fb?.scene;
 
         if (scene === undefined) {
@@ -241,7 +240,7 @@ const main = async () => {
       "--disable-renderer-backgrounding",
     ],
     headless: true,
-    ...(process.env.CHROME_PATH
+    ...(process.env.CHROME_PATH !== undefined && process.env.CHROME_PATH !== ""
       ? { executablePath: process.env.CHROME_PATH }
       : { channel: "chrome" }),
   });
@@ -265,9 +264,7 @@ const main = async () => {
     await crashOf(host, "host crash");
     await wait(400);
     await host.keyboard.press("Space");
-    await until(host, (fb) => fb.seed !== 0 && fb.phase === "ready",
-      "restart",
-    );
+    await until(host, (fb) => fb.seed !== 0 && fb.phase === "ready", "restart");
     const { seed: rerolled } = await snapshot(host);
     step("solo restart rerolls the seed", rerolled !== h.seed, `${h.seed} → ${rerolled}`);
     await until(host, (fb) => !fb.countingDown, "countdown");
@@ -300,26 +297,24 @@ const main = async () => {
     const worst = await worstScrollStep(guest, 1500);
     step("guest scroll never runs backwards", worst >= 0, `worst frame step ${worst}`);
     const newest = shared.at(-1);
+
     if (newest === undefined) {
       throw new Error("no shared pipe");
     }
 
-    const topOf = (page: Page) =>
-      page.evaluate((i) => window.__fb?.scene.pipes.get(i)?.topHeight ?? null, newest);
+    const topOf = async (page: Page) =>
+      await page.evaluate((i) => window.__fb?.scene.pipes.get(i)?.topHeight ?? null, newest);
+
     const hostTop = await topOf(host);
     const guestTop = await topOf(guest);
     step("same pipe geometry on both", hostTop === guestTop, `pipe ${newest} top ${hostTop}`);
     step("rival ghosts drawn on both", h.ghosts === 1 && g.ghosts === 1);
 
     await crashOf(host, "host crash");
-    await until(guest, (fb) => fb.other === false,
-      "guest sees crash",
-    );
+    await until(guest, (fb) => fb.other === false, "guest sees crash");
     step("crash reaches the other client", true);
     await respawnAndFly(host, "host respawn");
-    await until(guest, (fb) => fb.other === true,
-      "guest sees respawn",
-    );
+    await until(guest, (fb) => fb.other === true, "guest sees respawn");
     step("host respawns into the race", true);
     await crashOf(guest, "guest crash");
     await respawnAndFly(guest, "guest respawn");
@@ -359,18 +354,13 @@ const main = async () => {
     if (g.phase === "gameover") {
       await wait(400);
       await guest.keyboard.press("Space");
-      await until(guest, (fb) => fb.phase === "ready" && !fb.countingDown,
-        "solo restart",
-      );
+      await until(guest, (fb) => fb.phase === "ready" && !fb.countingDown, "solo restart");
       await guest.keyboard.press("Space");
     } else if (g.phase === "ready") {
       await guest.keyboard.press("Space");
     }
 
-    await until(guest, (fb) => fb.phase === "playing",
-      "promoted host playable",
-      4000,
-    );
+    await until(guest, (fb) => fb.phase === "playing", "promoted host playable", 4000);
     const { seed: running } = await snapshot(guest);
 
     const late = await openClient(browser, url, errors.late);

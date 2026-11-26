@@ -6,7 +6,7 @@ import { GRID_X, GRID_Z, rdp, ringArea, WORLD_H, WORLD_W } from "./lib.mts";
 
 const [objPath, outPath] = process.argv.slice(2);
 
-if (!objPath || !outPath) {
+if (objPath === undefined || objPath === "" || outPath === undefined || outPath === "") {
   console.error("usage: node extract-adjacency-obj.mts <obj> <out.json>");
   process.exit(1);
 }
@@ -52,7 +52,7 @@ rl.on("line", (l) => {
     vy.push(Number(l.slice(j + 1, k)));
     vz.push(Number(l.slice(k + 1)));
   } else if (c0 === 102) {
-    if (!curGroup || curMtl !== "building") {
+    if (curGroup === null || curGroup === "" || curMtl !== "building") {
       return;
     }
 
@@ -83,7 +83,9 @@ rl.on("line", (l) => {
   }
 });
 
-rl.on("close", () => main());
+rl.on("close", () => {
+  main();
+});
 
 const boundaryNext = (topFaces: any) => {
   const edgeCount = new Map();
@@ -1020,8 +1022,10 @@ const main = () => {
 
   const bboxIds = parcels.map((p, i) => (p.bboxFallback ? i : -1)).filter((i) => i >= 0);
   const realIds = parcels.map((p, i) => (p.bboxFallback ? -1 : i)).filter((i) => i >= 0);
+
   const attRate = (ids: number[]) =>
     ids.length ? ids.filter((i: string | number) => deg[i] > 0).length / ids.length : 0;
+
   console.log("");
   console.log(
     `FIDELITY: roof-loop rings ${realIds.length} (${(attRate(realIds) * 100).toFixed(1)}% attached) | ` +

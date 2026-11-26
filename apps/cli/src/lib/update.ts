@@ -111,13 +111,16 @@ export const fetchLatestVersion = async (packageName: string) => {
  * version. The foreground command pays no latency and prints nothing.
  */
 export const maybeScheduleAutoUpdate = () => {
-  if (process.env.CI || resolveSetting("update.auto").value === "false") {
+  if (
+    (process.env.CI !== undefined && process.env.CI !== "") ||
+    resolveSetting("update.auto").value === "false"
+  ) {
     return;
   }
 
   const [, script] = process.argv;
 
-  if (!script) {
+  if (script === undefined || script === "") {
     return;
   }
 

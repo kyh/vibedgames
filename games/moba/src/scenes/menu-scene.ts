@@ -80,13 +80,15 @@ export class MenuScene extends Scene {
 
     if (veil) {
       veil.classList.add("hidden");
-      setTimeout(() => veil.remove(), 600);
+      setTimeout(() => {
+        veil.remove();
+      }, 600);
     }
 
     const params = new URLSearchParams(window.location.search);
     const heroParam = params.get("hero");
 
-    if (heroParam && HEROES.some((h) => h.id === heroParam)) {
+    if (heroParam !== null && heroParam !== "" && HEROES.some((h) => h.id === heroParam)) {
       this.selected = heroParam;
     }
 
@@ -266,9 +268,15 @@ export class MenuScene extends Scene {
           })
           .setOrigin(0.5, 0),
       );
-      panel.on("pointerover", () => this.preview(h.id));
-      panel.on("pointerout", () => this.preview(this.selected));
-      panel.on("pointerdown", () => this.select(h.id));
+      panel.on("pointerover", () => {
+        this.preview(h.id);
+      });
+      panel.on("pointerout", () => {
+        this.preview(this.selected);
+      });
+      panel.on("pointerdown", () => {
+        this.select(h.id);
+      });
       this.cards.push({ id: h.id, ring });
     }
 
@@ -326,7 +334,9 @@ export class MenuScene extends Scene {
 
       const action = { button: b, color, label: t, online, ring };
       this.actions.push(action);
-      b.on("pointerdown", () => this.beginMatch(action));
+      b.on("pointerdown", () => {
+        this.beginMatch(action);
+      });
     };
 
     if (isOfflineRequested()) {

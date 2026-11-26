@@ -112,10 +112,10 @@ export class TouchControls {
   private jump = false;
   private dash = false;
   private jumpAttack = false;
-  private layer: HTMLDivElement;
-  private moveEl: StickHandle;
-  private aimEl: StickHandle;
-  private buttons = new Map<string, Btn>();
+  private readonly layer: HTMLDivElement;
+  private readonly moveEl: StickHandle;
+  private readonly aimEl: StickHandle;
+  private readonly buttons = new Map<string, Btn>();
   private champBound = "";
 
   constructor() {
@@ -177,8 +177,12 @@ export class TouchControls {
           this.queue.push(b.id);
         }
       });
-      el.addEventListener("pointerup", () => el.classList.remove("press"));
-      el.addEventListener("pointercancel", () => el.classList.remove("press"));
+      el.addEventListener("pointerup", () => {
+        el.classList.remove("press");
+      });
+      el.addEventListener("pointercancel", () => {
+        el.classList.remove("press");
+      });
       const state = document.createElement("span");
       state.className = "ba-tstate";
       el.append(state);
@@ -273,7 +277,7 @@ export class TouchControls {
     document.body.classList.add("ba-touch-on");
   }
 
-  private onDown = (e: PointerEvent) => {
+  private readonly onDown = (e: PointerEvent) => {
     if (e.pointerType !== "touch") {
       return;
     }
@@ -310,7 +314,7 @@ export class TouchControls {
     return this.aim?.id === pointerId ? this.aim : null;
   }
 
-  private onMove = (e: PointerEvent) => {
+  private readonly onMove = (e: PointerEvent) => {
     const s = this.stickFor(e.pointerId);
 
     if (!s) {
@@ -326,7 +330,7 @@ export class TouchControls {
     this.render();
   };
 
-  private onUp = (e: PointerEvent) => {
+  private readonly onUp = (e: PointerEvent) => {
     if (this.move?.id === e.pointerId) {
       this.move = null;
     }

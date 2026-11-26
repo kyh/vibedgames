@@ -60,8 +60,8 @@ const cloudTexture = (lobes: number, squash: number) => {
 
 export class SkyClouds {
   readonly group = new THREE.Group();
-  private high: CloudLayer;
-  private fog: CloudLayer;
+  private readonly high: CloudLayer;
+  private readonly fog: CloudLayer;
   private fogSpeed: Float32Array;
   private fogBase: Float32Array;
   private karlT = Math.random() * 900;
@@ -71,7 +71,7 @@ export class SkyClouds {
   private fogActive = FOG_COUNT;
   private nightF = 0;
   private sunRef: THREE.DirectionalLight | null = null;
-  private scrSunDir = new THREE.Vector3();
+  private readonly scrSunDir = new THREE.Vector3();
 
   constructor(discardLow = false) {
     this.high = new CloudLayer({

@@ -13,8 +13,8 @@ const loadGltf = async (url: string) => {
 };
 
 export class ModelLibrary {
-  private templates = new Map<string, THREE.Object3D>();
-  private clips = new Map<string, THREE.AnimationClip>();
+  private readonly templates = new Map<string, THREE.Object3D>();
+  private readonly clips = new Map<string, THREE.AnimationClip>();
 
   /** Load a character/prop GLB or gltf (no clips). `matte` kills the glossy
    *  KayKit default (roughness ~0.45 + full IBL = plastic sheen); `tint`
@@ -35,7 +35,7 @@ export class ModelLibrary {
 
           graded.add(m);
 
-          if (opts.matte) {
+          if (opts.matte === true) {
             m.roughness = Math.max(m.roughness, 0.82);
             m.envMapIntensity = 0.35;
           }

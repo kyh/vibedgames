@@ -76,7 +76,7 @@ export const pushOwnApart = (own: Brawler, others: readonly Brawler[]) => {
 };
 
 export const updateVisibility = (game: Game) => {
-  const player = game.player?.alive ? game.player : null;
+  const player = game.player?.alive === true ? game.player : null;
   const pushers = game.world.grassUniforms.uPushers.value;
   let slot = 0;
 

@@ -44,12 +44,12 @@ describe("decodeInlineFiles", () => {
 
 const serve = (body: Uint8Array, finalUrl?: string) => {
   const asked: string[] = [];
-  globalThis.fetch = (input) => {
+  globalThis.fetch = async (input) => {
     asked.push(String(input));
     const response = new Response(body);
     Object.defineProperty(response, "url", { value: finalUrl ?? String(input) });
 
-    return Promise.resolve(response);
+    return await Promise.resolve(response);
   };
 
   return asked;

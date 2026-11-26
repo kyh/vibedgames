@@ -103,19 +103,29 @@ export const useMultiplayerRoom = <TShared extends JsonRecord = JsonRecord>(
   );
 
   const sendEvent = useCallback(
-    (event: string, payload: JsonValue, options?: SendEventOptions) =>
-      client.sendEvent(event, payload, options),
+    (event: string, payload: JsonValue, options?: SendEventOptions) => {
+      client.sendEvent(event, payload, options);
+    },
     [client],
   );
 
   const sendToHost = useCallback(
-    (event: string, payload: JsonValue) => client.sendToHost(event, payload),
+    (event: string, payload: JsonValue) => {
+      client.sendToHost(event, payload);
+    },
     [client],
   );
 
-  const goOffline = useCallback(() => client.goOffline(), [client]);
+  const goOffline = useCallback(() => {
+    client.goOffline();
+  }, [client]);
 
-  const setRoomInfo = useCallback((info: Partial<RoomInfo>) => client.setRoomInfo(info), [client]);
+  const setRoomInfo = useCallback(
+    (info: Partial<RoomInfo>) => {
+      client.setRoomInfo(info);
+    },
+    [client],
+  );
 
   return useMemo(
     () => ({
@@ -179,15 +189,21 @@ export const usePlayerState = <TPlayerState extends JsonRecord = JsonRecord>(
   const seededForPlayer = useRef<string | null>(null);
 
   const playerState = useMemo(() => {
-    const state = room.playerId
-      ? (room.players[room.playerId]?.state as TPlayerState | undefined)
-      : undefined;
+    const state =
+      room.playerId !== null && room.playerId !== ""
+        ? (room.players[room.playerId]?.state as TPlayerState | undefined)
+        : undefined;
 
     return state ?? initialState ?? ({} as TPlayerState);
   }, [initialState, room.playerId, room.players]);
 
   useEffect(() => {
-    if (initialState && playerId && seededForPlayer.current !== playerId) {
+    if (
+      initialState &&
+      playerId !== null &&
+      playerId !== "" &&
+      seededForPlayer.current !== playerId
+    ) {
       seededForPlayer.current = playerId;
       updateMyState((prev) => ({ ...initialState, ...prev }));
     }

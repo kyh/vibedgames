@@ -192,7 +192,7 @@ export const handleStripeWebhook = async (
 
   const secret = opts.billing?.stripeWebhookSecret;
 
-  if (!secret) {
+  if (secret === undefined || secret === "") {
     return Response.json({ error: "Stripe webhooks are not configured." }, { status: 412 });
   }
 

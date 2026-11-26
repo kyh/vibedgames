@@ -167,7 +167,7 @@ export class GuestSync {
   step(dts: number, frameAt: number) {
     const sess = this.seat.session;
 
-    if (!sess?.live) {
+    if (sess?.live !== true) {
       return;
     }
 

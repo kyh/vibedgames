@@ -17,7 +17,7 @@ export class Collapse {
     world.gravity.set((Math.random() * 2 - 1) * 4, -14, (Math.random() * 2 - 1) * 4);
 
     const ground = new CANNON.Body({ mass: 0 });
-    ground["addShape"](new CANNON.Plane());
+    ground.addShape(new CANNON.Plane());
     ground.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2);
     ground.position.set(0, -0.5, 0);
     world.addBody(ground);
@@ -30,7 +30,7 @@ export class Collapse {
         position: new CANNON.Vec3(mesh.position.x, mesh.position.y, mesh.position.z),
       });
 
-      body["addShape"](new CANNON.Box(new CANNON.Vec3(half, half, half)));
+      body.addShape(new CANNON.Box(new CANNON.Vec3(half, half, half)));
       const lift = mesh.position.y / WELL_HEIGHT;
       body.angularVelocity.set(
         (Math.random() - 0.5) * 6,

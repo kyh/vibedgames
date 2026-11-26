@@ -26,6 +26,7 @@ const seconds = Number(flag("--seconds", "45"));
 const soak = Number(flag("--soak", "0"));
 const bots = flag("--bots", "normal");
 const move = flag("--move", "fight");
+
 const tuneSchema = z
   .object({
     cadence: z.number(),
@@ -37,10 +38,12 @@ const tuneSchema = z
     skill: z.tuple([z.number(), z.number()]),
   })
   .partial();
+
 const tune = parseJson(flag("--tune", "{}"), tuneSchema);
 const pages = Number(flag("--pages", "4"));
+
 const pilot = stripTypeScriptTypes(
-  readFileSync(path.join(gameDir, "tools/seed-pilot.mts"), "utf8"),
+  readFileSync(path.join(gameDir, "tools/seed-pilot.mts"), "utf-8"),
 );
 
 const vite: ChildProcess | null =
@@ -74,8 +77,8 @@ const openPage = async () => {
   return page;
 };
 
-const run = (page: Page, seed: number, ticks: number, untilEnded: boolean) =>
-  page.evaluate(
+const run = async (page: Page, seed: number, ticks: number, untilEnded: boolean) =>
+  await page.evaluate(
     (args) => {
       if (window.__seedPilot === undefined) {
         throw new Error("the seed pilot did not load");
@@ -107,21 +110,26 @@ try {
     };
 
     const seeds = Array.from({ length: soak }, (_, i) => FIRST_SOAK_SEED + i);
+
     const batches = Array.from({ length: Math.ceil(seeds.length / pages) }, (_, i) =>
       seeds.slice(i * pages, (i + 1) * pages),
     );
+
     const settled = await inSequence(batches, async (batch) => {
       const playing = await inSequence(batch, async (seed) => ({
         result: playSeed(seed, await openPage()),
       }));
 
-      return Promise.all(playing.map(({ result }) => result));
+      return await Promise.all(playing.map(async ({ result }) => await result));
     });
+
     const rows = settled.flat();
 
     console.table(rows, ["seed", "rank", "kills", "cubes", "survived", "ended"]);
+
     const mean = (key: "rank" | "kills" | "survived") =>
       (rows.reduce((sum, row) => sum + row[key], 0) / rows.length).toFixed(2);
+
     const wins = rows.filter((row) => row.rank === 1 && row.ended).length;
     console.log(
       `bots=${bots} tune=${JSON.stringify(tune)} move=${move} wins=${wins}/${rows.length} meanRank=${mean("rank")} meanKills=${mean("kills")} meanSurvived=${mean("survived")}s`,

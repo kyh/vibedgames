@@ -103,7 +103,12 @@ describe("legal pages", () => {
 
       test("ends with the General Legal credit, after a rule", () => {
         const [credit] = doc.endnote ?? [];
-        assert.ok(credit?.kind === "p" && CREDIT.test(credit.text));
+        assert.ok(
+          credit?.kind === "p" &&
+            credit.text.startsWith(
+              "This template was prepared and made publicly available by General Legal, PC",
+            ),
+        );
         assert.match(markdown, /\n---\n\nThis template was prepared/u);
       });
 

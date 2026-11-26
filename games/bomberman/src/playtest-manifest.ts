@@ -45,7 +45,7 @@ const pursue =
       return RELEASE;
     }
 
-    if (diag.inDanger) {
+    if (diag.inDanger === true) {
       return press(diag, plan.cover);
     }
 
@@ -61,7 +61,7 @@ const walk = (dir: Dir) => (diag: BombermanDiagnostics | null) => {
     return RELEASE;
   }
 
-  if (diag.inDanger) {
+  if (diag.inDanger === true) {
     return press(diag, diag.plan?.cover ?? "wait");
   }
 

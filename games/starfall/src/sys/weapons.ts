@@ -709,7 +709,7 @@ export class Weapons {
         continue;
       }
 
-      if (!st || !st.alive || st.invuln || st.shieldMod?.phased) {
+      if (!st || !st.alive || st.invuln || st.shieldMod?.phased === true) {
         continue;
       }
 
@@ -841,7 +841,7 @@ export class Weapons {
         continue;
       }
 
-      if (st && st.alive && !st.invuln && !st.shieldMod?.phased) {
+      if (st && st.alive && !st.invuln && st.shieldMod?.phased !== true) {
         out.push({ ref: { id, kind: "player" }, x: st.x, y: st.y });
       }
     }

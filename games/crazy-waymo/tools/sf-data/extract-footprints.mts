@@ -5,7 +5,7 @@ import { rdp, ringArea, WORLD_H, WORLD_W } from "./lib.mts";
 
 const [objPath] = process.argv.slice(2);
 
-if (!objPath) {
+if (objPath === undefined || objPath === "") {
   console.error("usage: node extract-footprints.mts <obj>");
   process.exit(1);
 }
@@ -40,7 +40,7 @@ rl.on("line", (l) => {
     vy.push(Number(l.slice(j + 1, k)));
     vz.push(Number(l.slice(k + 1)));
   } else if (c0 === 102) {
-    if (!curGroup) {
+    if (curGroup === null || curGroup === "") {
       return;
     }
 

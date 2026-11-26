@@ -124,7 +124,7 @@ const parseCodexRoles = (raw: string) => {
 const requireSlug = (raw: string) => {
   const slug = normalizeSlug(raw);
 
-  if (!slug) {
+  if (slug === null || slug === "") {
     consola.error(
       `Invalid slug: ${raw}\n  Use lowercase letters, digits, and hyphens (e.g. "asteroid-belt").`,
     );
@@ -279,27 +279,31 @@ const startCommand = defineCommand({
       skipPermissions: !args.guarded,
     };
 
-    const interactive =
-      !args["no-tui"] && process.stdout.isTTY === true && process.stdin.isTTY === true;
+    const interactive = !args["no-tui"] && process.stdout.isTTY && process.stdin.isTTY;
 
     if (interactive) {
-      const slug = args.slug ? requireSlug(args.slug) : undefined;
+      const slug = args.slug !== undefined && args.slug !== "" ? requireSlug(args.slug) : undefined;
       runTui({ ...knobs, dir: args.dir, slug });
 
       return;
     }
 
-    const explicit = args.slug ? requireSlug(args.slug) : undefined;
+    const explicit =
+      args.slug !== undefined && args.slug !== "" ? requireSlug(args.slug) : undefined;
+
     let slug = deriveSlug({ dir: args.dir, idea: knobs.idea || undefined, slug: explicit });
 
-    if (!slug) {
+    if (slug === null || slug === "") {
       consola.error(
         'Nothing identifies the game: pass a slug, --dir <folder>, or --idea "your one-line idea".',
       );
       process.exit(1);
     }
 
-    if (!explicit && !args.dir) {
+    if (
+      (explicit === undefined || explicit === "") &&
+      (args.dir === undefined || args.dir === "")
+    ) {
       slug = availableSlug(slug);
     }
 
@@ -307,7 +311,12 @@ const startCommand = defineCommand({
     const bb = blackboard(workspace);
     const fresh = !existsSync(bb.state);
 
-    if (fresh && !knobs.idea && !context && !hasExistingProject(workspace)) {
+    if (
+      fresh &&
+      !knobs.idea &&
+      (context === undefined || context === "") &&
+      !hasExistingProject(workspace)
+    ) {
       const contextAttempted = Boolean((args.context ?? "").trim());
       consola.error(
         contextAttempted
@@ -385,7 +394,9 @@ const statusCommand = defineCommand({
         `Cycles:     ${state.cycle}`,
         `Iterations: ${state.iteration}`,
         `Shipped:    ${state.shipped ? "yes" : "no"}`,
-        state.deployUrl ? `Live:       ${state.deployUrl}` : `Live:       —`,
+        state.deployUrl !== null && state.deployUrl !== ""
+          ? `Live:       ${state.deployUrl}`
+          : `Live:       —`,
         `Approval:   ${approvalPending(bb, state.lastApproval) ? "pending — deploys the current build shortly" : "none (run `pnpm approve <slug>` to publish)"}`,
         `Spend:      ~$${state.totalCostUsd.toFixed(2)}`,
         `Updated:    ${state.updatedAt}`,

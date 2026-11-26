@@ -55,7 +55,9 @@ const boundaryRatio = (geo: THREE.BufferGeometry) => {
 
 const hullOf = (geo: THREE.BufferGeometry) => {
   const key = parametricKey(geo);
-  const cached = hullGeometry.get(geo) ?? (key ? parametricHulls.get(key) : undefined);
+
+  const cached =
+    hullGeometry.get(geo) ?? (key !== null && key !== "" ? parametricHulls.get(key) : undefined);
 
   if (cached) {
     return cached;
@@ -83,7 +85,7 @@ const hullOf = (geo: THREE.BufferGeometry) => {
   welded.computeBoundingSphere();
   hullGeometry.set(geo, welded);
 
-  if (key) {
+  if (key !== null && key !== "") {
     parametricHulls.set(key, welded);
   }
 

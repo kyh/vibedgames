@@ -104,7 +104,7 @@ export const loadLocalProps = () => {
   try {
     const raw = localStorage.getItem(PROPS_KEY);
 
-    if (!raw) {
+    if (raw === null || raw === "") {
       return [];
     }
 

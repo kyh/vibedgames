@@ -139,8 +139,8 @@ test("the host claims for its bots through the room, and grants what it won to t
   const granted = host.claims.settle(host.room, state, "h");
   assert.ok(granted);
   assert.equal(granted.stats["bot-2"]?.bombs, 2, "the bot it claimed for gets it");
-  assert.equal(granted.stats["g"]?.range, BASE_RANGE + 1);
-  assert.equal(granted.stats["h"], undefined, "not the host's own body");
+  assert.equal(granted.stats.g?.range, BASE_RANGE + 1);
+  assert.equal(granted.stats.h, undefined, "not the host's own body");
   state = { ...state, ...granted };
   assert.deepEqual(state.powerups, {});
 });

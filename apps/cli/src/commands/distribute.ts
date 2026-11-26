@@ -34,7 +34,11 @@ const fail = (message: string): never => {
 };
 
 const narrator: (args: OutputArgs) => (message: string) => void = (args) =>
-  isJsonOutput(args) || Boolean(args.field) ? () => null : (message) => consola.info(message);
+  isJsonOutput(args) || Boolean(args.field)
+    ? () => null
+    : (message) => {
+        consola.info(message);
+      };
 
 const formatBytes = (bytes: number) =>
   bytes < 1024 * 1024

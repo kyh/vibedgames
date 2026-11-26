@@ -190,7 +190,9 @@ export const installDevHooks = (scene: SceneInternals) => {
       get hostSnapshotReady() {
         return scene.link.hostSnapshotReady;
       },
-      netSendEvent: (event, payload) => scene.link.toHost(event, payload),
+      netSendEvent: (event, payload) => {
+        scene.link.toHost(event, payload);
+      },
       get paused() {
         return scene.link.paused;
       },

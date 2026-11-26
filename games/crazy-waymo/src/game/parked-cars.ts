@@ -45,14 +45,14 @@ const cullDistSq = () => (CULL_DIST * reachScale()) ** 2;
 
 export class ParkedCars {
   readonly group = new THREE.Group();
-  private cars: Parked[] = [];
-  private tmp = new THREE.Quaternion();
-  private mat4 = new THREE.Matrix4();
-  private carMat4 = new THREE.Matrix4();
+  private readonly cars: Parked[] = [];
+  private readonly tmp = new THREE.Quaternion();
+  private readonly mat4 = new THREE.Matrix4();
+  private readonly carMat4 = new THREE.Matrix4();
   private visible: Uint8Array = new Uint8Array(0);
   private cullCursor = 0;
 
-  private physics: PhysicsWorld;
+  private readonly physics: PhysicsWorld;
   private readonly heightAt: (x: number, z: number) => number;
 
   constructor(

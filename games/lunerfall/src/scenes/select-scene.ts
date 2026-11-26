@@ -77,7 +77,7 @@ export class SelectScene extends Scene {
     this.code = code ?? "";
     this.net = "off";
 
-    if (code) {
+    if (code !== null && code !== "") {
       this.net = search.get("mode") === "vs" ? "vs" : "coop";
     }
 
@@ -104,13 +104,25 @@ export class SelectScene extends Scene {
       .setOrigin(0.5, HERO_ORIGIN_Y);
     this.view = new HubView(
       {
-        forge: () => this.toggleShop(),
-        go: () => this.go(),
-        hero: (index) => this.pickHero(index),
-        join: (room) => this.joinRoom(room),
+        forge: () => {
+          this.toggleShop();
+        },
+        go: () => {
+          this.go();
+        },
+        hero: (index) => {
+          this.pickHero(index);
+        },
+        join: (room) => {
+          this.joinRoom(room);
+        },
         layout: this.layout,
-        mode: (mode) => this.toggleNet(mode),
-        offer: (index) => this.pickUpgrade(index),
+        mode: (mode) => {
+          this.toggleNet(mode);
+        },
+        offer: (index) => {
+          this.pickUpgrade(index);
+        },
       },
       this.recap,
     );
@@ -118,7 +130,11 @@ export class SelectScene extends Scene {
     this.pad.update();
     const kb = this.input.keyboard;
     kb?.on("keydown", this.keyDown);
-    const unwatch = watchControlContext(() => this.refresh());
+
+    const unwatch = watchControlContext(() => {
+      this.refresh();
+    });
+
     window.addEventListener("resize", this.layout);
     this.events.once(Scenes.Events.SHUTDOWN, () => {
       window.removeEventListener("resize", this.layout);
@@ -208,35 +224,35 @@ export class SelectScene extends Scene {
   update() {
     this.pad?.update();
 
-    if (this.view?.blocksGameInput()) {
+    if (this.view?.blocksGameInput() === true) {
       return;
     }
 
-    if (this.pad?.justPressed("left")) {
+    if (this.pad?.justPressed("left") === true) {
       this.move(-1);
     }
 
-    if (this.pad?.justPressed("right")) {
+    if (this.pad?.justPressed("right") === true) {
       this.move(1);
     }
 
     if (this.shopOpen) {
-      if (this.pad?.justPressed("up")) {
+      if (this.pad?.justPressed("up") === true) {
         this.move(-1);
       }
 
-      if (this.pad?.justPressed("down")) {
+      if (this.pad?.justPressed("down") === true) {
         this.move(1);
       }
     }
 
-    if (this.pad?.justPressed("a")) {
+    if (this.pad?.justPressed("a") === true) {
       this.confirm();
     }
   }
 
   private readonly keyDown = (event: KeyboardEvent) => {
-    if (event.repeat || this.view?.blocksGameInput()) {
+    if (event.repeat || this.view?.blocksGameInput() === true) {
       return;
     }
 
@@ -258,26 +274,56 @@ export class SelectScene extends Scene {
 
   private readonly keyActions = new Map<string, () => void>(
     Object.entries({
-      ArrowDown: () => this.shopMove(1),
-      ArrowLeft: () => this.move(-1),
-      ArrowRight: () => this.move(1),
-      ArrowUp: () => this.shopMove(-1),
-      Enter: () => this.confirm(),
+      ArrowDown: () => {
+        this.shopMove(1);
+      },
+      ArrowLeft: () => {
+        this.move(-1);
+      },
+      ArrowRight: () => {
+        this.move(1);
+      },
+      ArrowUp: () => {
+        this.shopMove(-1);
+      },
+      Enter: () => {
+        this.confirm();
+      },
       Escape: () => {
         if (this.shopOpen) {
           this.toggleShop();
         }
       },
-      KeyA: () => this.move(-1),
-      KeyC: () => this.toggleNet("coop"),
-      KeyD: () => this.move(1),
-      KeyJ: () => this.confirm(),
-      KeyM: () => this.toggleShop(),
-      KeyS: () => this.shopMove(1),
-      KeyU: () => this.buyUnlock(),
-      KeyV: () => this.toggleNet("vs"),
-      KeyW: () => this.shopMove(-1),
-      Space: () => this.confirm(),
+      KeyA: () => {
+        this.move(-1);
+      },
+      KeyC: () => {
+        this.toggleNet("coop");
+      },
+      KeyD: () => {
+        this.move(1);
+      },
+      KeyJ: () => {
+        this.confirm();
+      },
+      KeyM: () => {
+        this.toggleShop();
+      },
+      KeyS: () => {
+        this.shopMove(1);
+      },
+      KeyU: () => {
+        this.buyUnlock();
+      },
+      KeyV: () => {
+        this.toggleNet("vs");
+      },
+      KeyW: () => {
+        this.shopMove(-1);
+      },
+      Space: () => {
+        this.confirm();
+      },
     }),
   );
 
@@ -432,7 +478,7 @@ export class SelectScene extends Scene {
 
     const code = parseRoomCode(value);
 
-    if (!code) {
+    if (code === null || code === "") {
       this.view?.announce("Enter a 4-character room code.");
 
       return;
@@ -459,7 +505,9 @@ export class SelectScene extends Scene {
 
   private confirm() {
     if (this.shopOpen) {
-      return this.buySelected();
+      this.buySelected();
+
+      return;
     }
 
     const hero = HERO_ORDER[this.index] ?? "axion";

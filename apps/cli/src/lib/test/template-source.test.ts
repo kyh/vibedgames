@@ -74,10 +74,10 @@ const githubTarball = async (files: Record<string, string>) => {
 
 const serving =
   (body: Buffer, requested: string[] = []) =>
-  (input) => {
+  async (input) => {
     requested.push(String(input));
 
-    return Promise.resolve(new Response(body));
+    return await Promise.resolve(new Response(body));
   };
 
 const listFiles = (dir: string, relative = "") =>
@@ -134,8 +134,11 @@ test("fetchTemplate says which directory a repo lacks", async () => {
 test("fetchTemplate names a repo or ref GitHub doesn't have", async () => {
   const target = makeTmpDir(cleanups, "vg-template-");
   await assert.rejects(
-    fetchTemplate(parseTemplateSpec("owner/repo#nope"), target, false, () =>
-      Promise.resolve(new Response("404: Not Found", { status: 404 })),
+    fetchTemplate(
+      parseTemplateSpec("owner/repo#nope"),
+      target,
+      false,
+      async () => await Promise.resolve(new Response("404: Not Found", { status: 404 })),
     ),
     /GitHub has no owner\/repo at nope/u,
   );

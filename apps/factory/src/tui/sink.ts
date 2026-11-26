@@ -17,7 +17,7 @@ const costNote = (c?: number) => (c === undefined ? "" : ` ($${c.toFixed(2)})`);
  * renderer, keyboard, and lifecycle.
  */
 export class TuiSink implements Reporter {
-  #store: TuiStore;
+  readonly #store: TuiStore;
 
   constructor(store: TuiStore) {
     this.#store = store;
@@ -59,7 +59,7 @@ export class TuiSink implements Reporter {
       case "tool": {
         this.#store.push(
           "tool",
-          `⚙ ${activity.name}${activity.detail ? ` · ${activity.detail}` : ""}`,
+          `⚙ ${activity.name}${activity.detail !== undefined && activity.detail !== "" ? ` · ${activity.detail}` : ""}`,
         );
         break;
       }
@@ -115,7 +115,7 @@ export class TuiSink implements Reporter {
       `■ agent stopped — ${summary.cycles} cycles · ${summary.iterations} iterations · ~$${summary.totalCostUsd.toFixed(2)}`,
     );
 
-    if (summary.deployUrl) {
+    if (summary.deployUrl !== null && summary.deployUrl !== "") {
       this.#store.push("info", `live at ${summary.deployUrl}`);
     }
   }

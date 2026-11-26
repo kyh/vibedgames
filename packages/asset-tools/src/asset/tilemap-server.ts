@@ -69,9 +69,9 @@ const sendJson = (res: ServerResponse, status: number, body: JsonValue) => {
   res.end(payload);
 };
 
-const readBody = (req: IncomingMessage, limitBytes = 8 * 1024 * 1024) =>
+const readBody = async (req: IncomingMessage, limitBytes = 8 * 1024 * 1024) =>
   // oxlint-disable-next-line promise/avoid-new -- wraps the stream's event callbacks
-  new Promise((resolve, reject) => {
+  await (new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
     let total = 0;
     req.on("data", (chunk: Buffer) => {
@@ -86,9 +86,11 @@ const readBody = (req: IncomingMessage, limitBytes = 8 * 1024 * 1024) =>
 
       chunks.push(chunk);
     });
-    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf-8")));
+    req.on("end", () => {
+      resolve(Buffer.concat(chunks).toString("utf-8"));
+    });
     req.on("error", reject);
-  }) satisfies Promise<string>;
+  }) satisfies Promise<string>);
 
 const tilesetSummary = (meta: TilesetMeta) => ({
   columns: meta.columns,
@@ -150,10 +152,18 @@ export const createTilemapEditor: (options: EditorOptions) => EditorHandle = (op
         }
 
         const selected =
-          options.tileset && names.includes(options.tileset) ? options.tileset : first;
+          options.tileset !== undefined &&
+          options.tileset !== null &&
+          options.tileset !== "" &&
+          names.includes(options.tileset)
+            ? options.tileset
+            : first;
 
         const map =
-          options.mapPath && existsSync(options.mapPath)
+          options.mapPath !== undefined &&
+          options.mapPath !== null &&
+          options.mapPath !== "" &&
+          existsSync(options.mapPath)
             ? parseTilemap(parseJsonText(readFileSync(options.mapPath, "utf-8")), {
                 height: DEFAULT_MAP_HEIGHT,
                 width: DEFAULT_MAP_WIDTH,
@@ -165,7 +175,10 @@ export const createTilemapEditor: (options: EditorOptions) => EditorHandle = (op
                 width: DEFAULT_MAP_WIDTH,
               };
 
-        const initial = map.tileset && names.includes(map.tileset) ? map.tileset : selected;
+        const initial =
+          map.tileset !== null && map.tileset !== "" && names.includes(map.tileset)
+            ? map.tileset
+            : selected;
 
         return {
           manifestPath,
@@ -183,7 +196,7 @@ export const createTilemapEditor: (options: EditorOptions) => EditorHandle = (op
       (url) => {
         const name = url.searchParams.get("name");
 
-        if (!name) {
+        if (name === null || name === "") {
           throw new Error("name is required");
         }
 
@@ -196,7 +209,7 @@ export const createTilemapEditor: (options: EditorOptions) => EditorHandle = (op
       (url) => {
         const rawPath = url.searchParams.get("path");
 
-        if (!rawPath) {
+        if (rawPath === null || rawPath === "") {
           throw new Error("path is required");
         }
 
@@ -227,7 +240,7 @@ export const createTilemapEditor: (options: EditorOptions) => EditorHandle = (op
 
         const raw = isJsonString(body.path) && body.path ? body.path : options.mapPath;
 
-        if (!raw) {
+        if (raw === undefined || raw === null || raw === "") {
           throw new Error("No path given and no --map to fall back on.");
         }
 
@@ -286,7 +299,7 @@ export const createTilemapEditor: (options: EditorOptions) => EditorHandle = (op
         try {
           const name = url.searchParams.get("name");
 
-          if (!name) {
+          if (name === null || name === "") {
             throw new Error("name is required");
           }
 

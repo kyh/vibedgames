@@ -8,12 +8,13 @@ import { plLen, projU, projV, rdp, WORLD_H, WORLD_W } from "./lib.mts";
 const [objPath, outArg] = process.argv.slice(2);
 const outPath = outArg ?? "transit.json";
 
-if (!objPath) {
+if (objPath === undefined || objPath === "") {
   console.error("usage: node extract-transit-obj.mts <obj> [out.json]");
   process.exit(1);
 }
 
 const CAL = { bx: 325.2, bz: -400.5, sx: 0.17829, sz: 0.17909 };
+
 const toWorld = (mx: string | number | undefined, mz: string | number | undefined) => [
   mx * CAL.sx + CAL.bx,
   mz * CAL.sz + CAL.bz,

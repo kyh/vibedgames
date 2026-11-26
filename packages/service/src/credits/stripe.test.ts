@@ -57,10 +57,10 @@ const deliver = async (payload: string, signature?: string) => {
       method: "POST",
     }),
     { billing: { stripeWebhookSecret: SECRET }, db },
-    (_db, input) => {
+    async (_db, input) => {
       credited.push(input);
 
-      return Promise.resolve(true);
+      return await Promise.resolve(true);
     },
   );
 

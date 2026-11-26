@@ -126,12 +126,7 @@ const parseProp = (v: JsonValue) => {
     return null;
   }
 
-  if (
-    !isJsonNumber(v["x"]) ||
-    !isJsonNumber(v["y"]) ||
-    !isJsonNumber(v["rot"]) ||
-    !isJsonNumber(v["scale"])
-  ) {
+  if (!isJsonNumber(v.x) || !isJsonNumber(v.y) || !isJsonNumber(v.rot) || !isJsonNumber(v.scale)) {
     return null;
   }
 
@@ -147,12 +142,12 @@ const parseProp = (v: JsonValue) => {
     return null;
   }
 
-  const pos = clampToArena(v["x"], v["y"], POS_MARGIN);
+  const pos = clampToArena(v.x, v.y, POS_MARGIN);
 
   const out: MapProp = {
     model,
-    rot: v["rot"],
-    scale: clampNum(v["scale"], 0.05, 10),
+    rot: v.rot,
+    scale: clampNum(v.scale, 0.05, 10),
     x: pos.x,
     y: pos.y,
   };
@@ -174,10 +169,10 @@ const parseCollider = (v: JsonValue) => {
   }
 
   if (
-    !isJsonNumber(v["x"]) ||
-    !isJsonNumber(v["y"]) ||
-    !isJsonNumber(v["radius"]) ||
-    !isJsonNumber(v["height"])
+    !isJsonNumber(v.x) ||
+    !isJsonNumber(v.y) ||
+    !isJsonNumber(v.radius) ||
+    !isJsonNumber(v.height)
   ) {
     return null;
   }
@@ -188,11 +183,11 @@ const parseCollider = (v: JsonValue) => {
     return null;
   }
 
-  const pos = clampToArena(v["x"], v["y"], POS_MARGIN);
+  const pos = clampToArena(v.x, v.y, POS_MARGIN);
 
   const out: MapCollider = {
-    height: clampNum(v["height"], 0.1, 30),
-    radius: clampNum(v["radius"], 0.05, 20),
+    height: clampNum(v.height, 0.1, 30),
+    radius: clampNum(v.radius, 0.05, 20),
     x: pos.x,
     y: pos.y,
   };
@@ -213,14 +208,14 @@ const parseFloorCell = (v: JsonValue) => {
     return null;
   }
 
-  if (!isJsonNumber(v["x"]) || !isJsonNumber(v["y"]) || !isFloorType(v["t"])) {
+  if (!isJsonNumber(v.x) || !isJsonNumber(v.y) || !isFloorType(v.t)) {
     return null;
   }
 
   return {
-    t: v["t"],
-    x: snapCell(clampNum(v["x"], -200, 200)),
-    y: snapCell(clampNum(v["y"], -200, 200)),
+    t: v.t,
+    x: snapCell(clampNum(v.x, -200, 200)),
+    y: snapCell(clampNum(v.y, -200, 200)),
   };
 };
 
@@ -233,12 +228,12 @@ export const parseMapData = (raw: JsonValue) => {
     return null;
   }
 
-  if (raw["version"] !== 1) {
+  if (raw.version !== 1) {
     return null;
   }
 
-  const rawProps = raw["props"];
-  const rawColliders = raw["colliders"];
+  const rawProps = raw.props;
+  const rawColliders = raw.colliders;
 
   if (!Array.isArray(rawProps) || !Array.isArray(rawColliders)) {
     return null;
@@ -275,7 +270,7 @@ export const parseMapData = (raw: JsonValue) => {
   }
 
   const out: MapData = { colliders, props, version: 1 };
-  const rawFloor = raw["floor"];
+  const rawFloor = raw.floor;
 
   if (rawFloor !== undefined) {
     if (!Array.isArray(rawFloor) || rawFloor.length > MAX_FLOOR_CELLS) {

@@ -37,38 +37,43 @@ interface TimeoutCell {
   handle?: ReturnType<typeof setTimeout>;
 }
 
-const runInit: (cwd: string, viaNpx: boolean) => Promise<boolean> = (cwd, viaNpx) =>
-  // oxlint-disable-next-line promise/avoid-new -- child_process.spawn is event-based
-  new Promise((resolve) => {
-    const initArgs = ["init", "-a", "claude-code,codex"];
+const runInit: (cwd: string, viaNpx: boolean) => Promise<boolean> = async (cwd, viaNpx) => {
+  const { promise, resolve } = Promise.withResolvers<boolean>();
+  const initArgs = ["init", "-a", "claude-code,codex"];
 
-    const child = viaNpx
-      ? spawn("npx", ["-y", "vibedgames", ...initArgs], { cwd, stdio: "ignore" })
-      : spawn("vg", initArgs, { cwd, stdio: "ignore" });
+  const child = viaNpx
+    ? spawn("npx", ["-y", "vibedgames", ...initArgs], { cwd, stdio: "ignore" })
+    : spawn("vg", initArgs, { cwd, stdio: "ignore" });
 
-    let settled = false;
-    const timeout: TimeoutCell = {};
+  let settled = false;
+  const timeout: TimeoutCell = {};
 
-    const settle = (ok: boolean) => {
-      if (settled) {
-        return;
-      }
+  const settle = (ok: boolean) => {
+    if (settled) {
+      return;
+    }
 
-      settled = true;
-      clearTimeout(timeout.handle);
-      resolve(ok);
-    };
+    settled = true;
+    clearTimeout(timeout.handle);
+    resolve(ok);
+  };
 
-    timeout.handle = setTimeout(() => {
-      bestEffort(() => {
-        child.kill("SIGKILL");
-      });
-      settle(false);
-    }, INIT_TIMEOUT_MS);
-    timeout.handle.unref?.();
-    child.on("error", () => settle(false));
-    child.on("close", (code) => settle(code === 0));
+  timeout.handle = setTimeout(() => {
+    bestEffort(() => {
+      child.kill("SIGKILL");
+    });
+    settle(false);
+  }, INIT_TIMEOUT_MS);
+  timeout.handle.unref?.();
+  child.on("error", () => {
+    settle(false);
   });
+  child.on("close", (code) => {
+    settle(code === 0);
+  });
+
+  return await promise;
+};
 
 /**
  * Verify the external tools the factory drives before a run, and — when

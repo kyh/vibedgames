@@ -37,22 +37,23 @@ const baseUrl = urlArg ?? `http://localhost:${PORT}`;
 const report = createReport();
 const { check } = report;
 
-const until = <T,>(page: Page, fn: () => T, timeoutMs: number) =>
-  poll(
-    () => page.evaluate(fn).catch(() => null),
+const until = async <T,>(page: Page, fn: () => T, timeoutMs: number) =>
+  await poll(
+    async () => await page.evaluate(fn).catch(() => null),
     (value) => Boolean(value),
     { timeoutMs },
   );
 
-const pong = (page: Page) =>
-  page.evaluate(() => {
+const pong = async (page: Page) => {
+  await page.evaluate(() => {
     if (window.__pong === undefined) {
       throw new Error("window.__pong is missing: run the game in dev mode");
     }
   });
+};
 
-const diag = (page: Page) =>
-  page.evaluate(() => {
+const diag = async (page: Page) =>
+  await page.evaluate(() => {
     const read: PongDiagnostics | undefined = window.__GAME_DIAGNOSTICS__;
 
     if (read === undefined) {
@@ -71,16 +72,21 @@ const match = async (page: Page, at?: number) => {
 
   return read;
 };
-const confirm = (page: Page) =>
-  page.evaluate(() => {
+
+const confirm = async (page: Page) => {
+  await page.evaluate(() => {
     window.__pong?.handleGestureConfirm();
   });
-const netInfo = (page: Page) =>
-  page.evaluate(() => document.querySelector("#netinfo")?.textContent ?? "");
-const isHost = (page: Page) => page.evaluate(() => window.__pong?.control.session.isHost ?? false);
+};
 
-const steer = (page: Page, mode: Steer | null) =>
-  page.evaluate((how) => {
+const netInfo = async (page: Page) =>
+  await page.evaluate(() => document.querySelector("#netinfo")?.textContent ?? "");
+
+const isHost = async (page: Page) =>
+  await page.evaluate(() => window.__pong?.control.session.isHost ?? false);
+
+const steer = async (page: Page, mode: Steer | null) => {
+  await page.evaluate((how) => {
     clearInterval(window.__steer);
 
     if (how === null) {
@@ -95,6 +101,7 @@ const steer = (page: Page, mode: Steer | null) =>
       }
     }, 16);
   }, mode);
+};
 
 const moving = async (page: Page, ms: number) => {
   const { ball: a } = await diag(page);
@@ -132,10 +139,10 @@ const agree = async (a: Page, b: Page) => {
 
     await wait(200);
 
-    return attempt(left - 1, reason);
+    return await attempt(left - 1, reason);
   };
 
-  return attempt(10, "never read both");
+  return await attempt(10, "never read both");
 };
 
 const open = async (browser: Browser, name: string, room: string, errors: string[]) => {
@@ -180,8 +187,10 @@ const pairUp = async (browser: Browser, room: string, errors: string[]) => {
   check(hostInfo.includes("RIVAL CAN JOIN"), "host HUD advertises the open seat");
 
   const guest = await open(browser, "guest", room, errors);
-  const seated = (page: Page) =>
-    until(page, () => window.__pong?.debugMatch().clock === "tick", 15_000);
+
+  const seated = async (page: Page) =>
+    await until(page, () => window.__pong?.debugMatch().clock === "tick", 15_000);
+
   const both = (await seated(host.page)) !== null && (await seated(guest.page)) !== null;
   check(both, "both seated in a tick-room match");
   const [mh, mg] = [await match(host.page), await match(guest.page)];
@@ -225,11 +234,13 @@ const powerAndPause = async (host: Page, guest: Page) => {
 
   await confirm(guest);
   const armed = await until(guest, () => window.__GAME_DIAGNOSTICS__?.charge.armed, 2000);
+
   const powered = await until(
     host,
     () => (window.__GAME_DIAGNOSTICS__?.powerShots ?? 0) >= 1,
     10_000,
   );
+
   check(
     ready !== null && armed !== null && powered !== null,
     `guest power shot: ready ${String(ready !== null)} → armed ${String(armed !== null)} → lands on the host ${String(powered !== null)}`,
@@ -249,8 +260,8 @@ const blip = async (host: Page, guest: Page, guestSlot: number) => {
   });
 
   const covered = await poll(
-    () =>
-      host
+    async () =>
+      await host
         .evaluate((slot) => {
           const scene = window.__pong;
 
@@ -300,13 +311,14 @@ const migrate = async (host: Page, guest: Page) => {
       return;
     }
 
-    const send = WebSocket.prototype.send;
+    const { send } = WebSocket.prototype;
     window.__send = send;
     WebSocket.prototype.send = function muted(data) {
       if (data !== '{"type":"heartbeat"}') {
         send.call(this, data);
       }
     };
+
     window.__frame = scene.update.bind(scene);
     scene.update = () => null;
   });

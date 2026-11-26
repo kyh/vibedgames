@@ -29,12 +29,12 @@ interface Chunk {
 }
 
 export class ChunkPool {
-  private mesh: THREE.InstancedMesh;
-  private free: number[] = [];
+  private readonly mesh: THREE.InstancedMesh;
+  private readonly free: number[] = [];
   private active: Chunk[] = [];
   private highWater = 0;
-  private dummy = new THREE.Object3D();
-  private color = new THREE.Color();
+  private readonly dummy = new THREE.Object3D();
+  private readonly color = new THREE.Color();
 
   constructor(scene: THREE.Scene) {
     const geo = createRockGeometry({

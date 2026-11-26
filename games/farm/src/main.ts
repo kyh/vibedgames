@@ -81,7 +81,9 @@ if (import.meta.env.DEV || isPlaytestRequested()) {
   const publishHooks = () => {
     publishTestHooks({
       seed: startSolo,
-      setPausedForScreenshot: (paused) => (paused ? game.loop.sleep() : game.loop.wake()),
+      setPausedForScreenshot: (paused) => {
+        paused ? game.loop.sleep() : game.loop.wake();
+      },
       setState: (name) => {
         if (name !== "active-play") {
           return { state: "unsupported" };
@@ -176,7 +178,7 @@ setPauseHandlers({
     Sound.setPaused(true);
     pauseOverlay.show();
 
-    if (!world?.isOnline()) {
+    if (world?.isOnline() !== true) {
       freeze();
     }
   },

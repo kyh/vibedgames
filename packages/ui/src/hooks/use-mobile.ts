@@ -7,7 +7,9 @@ const subscribe = (onChange: () => void) => {
   const mql = window.matchMedia(QUERY);
   mql.addEventListener("change", onChange);
 
-  return () => mql.removeEventListener("change", onChange);
+  return () => {
+    mql.removeEventListener("change", onChange);
+  };
 };
 
 export const useIsMobile = () =>

@@ -112,12 +112,12 @@ export const createTouchControls = (options: TouchControlsOptions = {}) => {
 
   injectCss(BASE_CSS, "vg-touch-controls-css");
 
-  if (options.css) {
+  if (options.css !== undefined && options.css !== "") {
     injectCss(options.css, options.styleId ?? "vg-touch-controls-game-css");
   }
 
   const root = document.createElement("div");
-  root.className = `vg-touch-controls${options.className ? ` ${options.className}` : ""}`;
+  root.className = `vg-touch-controls${options.className !== undefined && options.className !== "" ? ` ${options.className}` : ""}`;
   root.dataset.gamepadIgnore = "";
   sealPointerEvents(root);
 
@@ -137,7 +137,9 @@ export const createTouchControls = (options: TouchControlsOptions = {}) => {
     return el;
   };
 
-  const pauseEl = button("Pause", "⏸", () => pauseGame());
+  const pauseEl = button("Pause", "⏸", () => {
+    pauseGame();
+  });
 
   const drawPause = () => {
     pauseEl.hidden = !isPausable();

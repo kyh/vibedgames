@@ -193,7 +193,9 @@ export class Sfx {
       this.createLoop(ctx, name);
     }
 
-    void this.bank.load(ctx, () => this.upgradeLoops());
+    void this.bank.load(ctx, () => {
+      this.upgradeLoops();
+    });
     document.addEventListener("visibilitychange", () => {
       this.hidden = document.hidden;
 
@@ -207,7 +209,9 @@ export class Sfx {
 
       this.updateGates();
     });
-    this.ambientTimer = window.setInterval(() => this.tickAmbience(), 1000);
+    this.ambientTimer = window.setInterval(() => {
+      this.tickAmbience();
+    }, 1000);
     this.startMusicScheduler();
 
     if (this.hidden) {
@@ -610,7 +614,9 @@ export class Sfx {
     }
 
     this.nextNoteTime = this.ctx.currentTime + 0.05;
-    this.musicTimer = window.setInterval(() => this.scheduleMusic(), 25);
+    this.musicTimer = window.setInterval(() => {
+      this.scheduleMusic();
+    }, 25);
   }
   private scheduleMusic() {
     const { ctx } = this;
@@ -635,7 +641,12 @@ export class Sfx {
 
       const melody = MELODY[step % MELODY.length];
 
-      if (melody && Math.floor(step / 8) % 2 === 0) {
+      if (
+        melody !== undefined &&
+        melody !== null &&
+        melody !== 0 &&
+        Math.floor(step / 8) % 2 === 0
+      ) {
         this.tone(melody, t, 0.25, 0.08, out, "music");
       }
 

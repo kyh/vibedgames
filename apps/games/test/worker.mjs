@@ -61,8 +61,8 @@ await bucket.put("games/g1/depA/world/rest.bin", Buffer.alloc(4096, 7));
 
 const ACCEPT_GZIP = { "accept-encoding": "gzip, br" };
 
-const get = (pathname, headers = ACCEPT_GZIP) =>
-  mf.dispatchFetch(`https://verify.vibedgames.com${pathname}`, { headers });
+const get = async (pathname, headers = ACCEPT_GZIP) =>
+  await mf.dispatchFetch(`https://verify.vibedgames.com${pathname}`, { headers });
 
 const isGzip = (b) => b[0] === 0x1f && b[1] === 0x8b;
 const body = async (res) => Buffer.from(await res.arrayBuffer());

@@ -88,9 +88,9 @@ export class HudNotices {
   private pendingToasts: Toast[] = [];
   private confetti: ConfettiStage[] = [];
 
-  private fx: Fx;
-  private feedEl: HTMLElement;
-  private toastEl: HTMLElement;
+  private readonly fx: Fx;
+  private readonly feedEl: HTMLElement;
+  private readonly toastEl: HTMLElement;
 
   constructor(fx: Fx, feedEl: HTMLElement, toastEl: HTMLElement) {
     this.fx = fx;
@@ -305,7 +305,7 @@ export class HudNotices {
 
     for (const k of incoming) {
       const row = document.createElement("div");
-      row.className = `ba-kill${k.leader ? " leader" : ""}`;
+      row.className = `ba-kill${k.leader === true ? " leader" : ""}`;
       const ku = w.units.get(k.killer);
       const weapon = document.createElement("img");
       weapon.className = "ba-kw";

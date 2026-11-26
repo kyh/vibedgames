@@ -18,6 +18,7 @@ const waitForArg = async <R, A>(
   timeoutMs = 60_000,
 ) => {
   let last: R | null = null;
+
   const found = await poll(
     async () => {
       last = await page.evaluate(fn, arg);
@@ -35,12 +36,12 @@ const waitForArg = async <R, A>(
   return found;
 };
 
-const waitFor = <R,>(
+const waitFor = async <R,>(
   page: Page,
   fn: Parameters<typeof page.evaluate<R, null>>[0],
   label: string,
   timeoutMs = 60_000,
-) => waitForArg(page, fn, label, null, timeoutMs);
+) => await waitForArg(page, fn, label, null, timeoutMs);
 
 const startDev = async () => {
   const url = flagValue("--url", process.argv);
@@ -55,8 +56,8 @@ const startDev = async () => {
   return { base, stop: () => vite.kill() };
 };
 
-const launch = () =>
-  chromium.launch({
+const launch = async () =>
+  await chromium.launch({
     args: [
       "--disable-background-timer-throttling",
       "--disable-backgrounding-occluded-windows",
@@ -71,11 +72,17 @@ const launch = () =>
     headless: true,
   });
 
-const phase = (page: Page, want: string, label: string, timeoutMs = 90_000) =>
-  waitForArg(page, (p) => window.__strikeforce?.match.state?.phase === p, label, want, timeoutMs);
+const phase = async (page: Page, want: string, label: string, timeoutMs = 90_000) =>
+  await waitForArg(
+    page,
+    (p) => window.__strikeforce?.match.state?.phase === p,
+    label,
+    want,
+    timeoutMs,
+  );
 
-const probe = (page: Page) =>
-  page.evaluate(() => {
+const probe = async (page: Page) =>
+  await page.evaluate(() => {
     const G = window.__G;
     const m = window.__strikeforce?.match;
 
@@ -88,7 +95,7 @@ const probe = (page: Page) =>
 
     return {
       alive: G.player.alive,
-      host: m.guest === false,
+      host: !m.guest,
       kills: me?.kills ?? -1,
       life: me?.life ?? -1,
       phase: s?.phase ?? "",
@@ -96,8 +103,8 @@ const probe = (page: Page) =>
     };
   });
 
-const headshot = (page: Page) =>
-  page.evaluate(() => {
+const headshot = async (page: Page) =>
+  await page.evaluate(() => {
     const G = window.__G;
     const m = window.__strikeforce?.match;
 
@@ -194,6 +201,7 @@ const main = async () => {
     const barrel = await guest.evaluate(
       () => window.__G?.explosives.aliveMask().indexOf("1") ?? -1,
     );
+
     await guest.evaluate((i) => window.__strikeforce?.match.barrelHit(i, 999, null, null), barrel);
     const blown = (i: number) => window.__G?.explosives.aliveMask()[i] === "0";
     await waitForArg(host, blown, "host barrel blew", barrel);
@@ -220,7 +228,7 @@ const main = async () => {
       console.log(`\npage errors:\n${errors.slice(0, 20).join("\n")}`);
     }
 
-    await Promise.all(browsers.map((b) => b.close().catch(() => null)));
+    await Promise.all(browsers.map(async (b) => await b.close().catch(() => null)));
     dev.stop();
   }
 };

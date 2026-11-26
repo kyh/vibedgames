@@ -130,7 +130,7 @@ const drawText = (d: ShelterDraw, value: string, at: Vec3, pixel: number, yaw = 
     for (let row = 0; row < rows.length; row += 1) {
       const cells = rows[row];
 
-      if (!cells) {
+      if (cells === undefined || cells === "") {
         continue;
       }
 

@@ -20,7 +20,7 @@ export const parseIntent: (payload: JsonValue) => Intent | null = (payload) => {
     return null;
   }
 
-  if (payload["kind"] === "join") {
+  if (payload.kind === "join") {
     const { kit, name } = payload;
 
     if (!isJsonString(kit) || !isBrawlerId(kit) || !isJsonString(name)) {
@@ -36,7 +36,7 @@ export const parseIntent: (payload: JsonValue) => Intent | null = (payload) => {
     return null;
   }
 
-  switch (payload["kind"]) {
+  switch (payload.kind) {
     case "input": {
       return { ...parseInputState(payload), kind: "input", seq };
     }
@@ -54,12 +54,12 @@ export const parseIntent: (payload: JsonValue) => Intent | null = (payload) => {
     case "attack":
     case "super": {
       return {
-        dx: clamp1(num(payload["dx"])),
-        dz: clamp1(num(payload["dz"])),
-        kind: payload["kind"],
+        dx: clamp1(num(payload.dx)),
+        dz: clamp1(num(payload.dz)),
+        kind: payload.kind,
         seq,
-        x: clampCoord(num(payload["x"])),
-        z: clampCoord(num(payload["z"])),
+        x: clampCoord(num(payload.x)),
+        z: clampCoord(num(payload.z)),
       };
     }
 

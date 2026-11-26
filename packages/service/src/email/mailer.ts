@@ -35,8 +35,8 @@ export const resendMailer =
   };
 
 /** Local dev without a key: the message, link included, lands in the dev server's log. */
-export const consoleMailer: Mailer = (email) => {
+export const consoleMailer: Mailer = async (email) => {
   console.info(`[email] to ${email.to}: ${email.subject}\n${email.text}`);
 
-  return Promise.resolve();
+  await Promise.resolve();
 };

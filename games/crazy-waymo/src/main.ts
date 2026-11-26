@@ -58,11 +58,12 @@ const hideFatal = () => {
 
 const msaa = !(isCoarsePointer() && (window.devicePixelRatio || 1) >= 2);
 
-const sleep: (ms: number) => Promise<void> = (ms) =>
-  // oxlint-disable-next-line promise/avoid-new -- wraps the setTimeout callback API
-  new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
+const sleep: (ms: number) => Promise<void> = async (ms) => {
+  const { promise, resolve } = Promise.withResolvers<void>();
+  setTimeout(resolve, ms);
+
+  await promise;
+};
 
 const probeCanvas = () => {
   const canvas = document.createElement("canvas");
@@ -167,7 +168,9 @@ const pauseOverlay = createPauseOverlay({
       }
     },
   },
-  onRestart: () => game.restartRun(),
+  onRestart: () => {
+    game.restartRun();
+  },
 });
 
 const renderHeightPx = () => window.innerHeight * renderer.getPixelRatio();

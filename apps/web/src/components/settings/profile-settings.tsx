@@ -64,7 +64,9 @@ export const ProfileSettings = ({ user }: { user: ShellUser }) => {
                 required
                 maxLength={100}
                 value={name}
-                onChange={(e) => setName(e.target.value)}
+                onChange={(e) => {
+                  setName(e.target.value);
+                }}
               />
             </FieldContent>
           </Field>

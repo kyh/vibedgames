@@ -87,7 +87,7 @@ const syncLabels = (
   pin: ScreenSpaceTransform,
 ) => {
   for (const b of pad.getButtonLayout()) {
-    if (b.rest || !b.label) {
+    if (b.rest || b.label === undefined || b.label === "") {
       continue;
     }
 
@@ -218,7 +218,9 @@ export const attachVirtualGamepad: (
     }
   };
 
-  const onUp = (p: Phaser.Input.Pointer) => pad.pointerUp(p.id);
+  const onUp = (p: Phaser.Input.Pointer) => {
+    pad.pointerUp(p.id);
+  };
 
   scene.input.on(Input.Events.POINTER_DOWN, onDown);
   scene.input.on(Input.Events.POINTER_MOVE, onMove);

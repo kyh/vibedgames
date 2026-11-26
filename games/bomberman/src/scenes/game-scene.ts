@@ -316,7 +316,7 @@ const isJsonObject = (v: WireField): v is JsonRecord =>
 const isJsonNumber = (v: WireField): v is number => Number.isFinite(v);
 
 const isShared = (v: MultiplayerClient["sharedState"]): v is SharedState =>
-  isJsonObject(v) && Array.isArray(v["grid"]);
+  isJsonObject(v) && Array.isArray(v.grid);
 
 type PartialPS = Partial<PlayerState>;
 
@@ -357,15 +357,15 @@ export class GameScene extends Scene {
 
   private tileObjs: (Phaser.GameObjects.Container | null)[][] = [];
   private tileKind: (Cell["kind"] | null)[][] = [];
-  private bombSprites = new Map<string, BombObjs>();
-  private blastSprites = new Map<string, BlastObjs>();
-  private blastSeen = new Set<string>();
-  private powerupObjs = new Map<
+  private readonly bombSprites = new Map<string, BombObjs>();
+  private readonly blastSprites = new Map<string, BlastObjs>();
+  private readonly blastSeen = new Set<string>();
+  private readonly powerupObjs = new Map<
     string,
     { container: Phaser.GameObjects.Container; pickup: Powerup }
   >();
-  private players = new Map<string, PlayerObjs>();
-  private deathSeen = new Set<string>();
+  private readonly players = new Map<string, PlayerObjs>();
+  private readonly deathSeen = new Set<string>();
   private winnerAction: { id: string; at: number } | null = null;
   private characterTime = 0;
   private followStarted = false;
@@ -586,10 +586,14 @@ export class GameScene extends Scene {
     const restart = document.querySelector("#round-restart");
     this.restartButton = restart instanceof HTMLButtonElement ? restart : null;
     this.buildStartScreen();
-    this.restartButton?.addEventListener("click", () => this.requestRestart());
+    this.restartButton?.addEventListener("click", () => {
+      this.requestRestart();
+    });
 
     for (const type of ["pointerdown", "pointerup"]) {
-      this.bannerEl?.addEventListener(type, (event) => event.stopPropagation());
+      this.bannerEl?.addEventListener(type, (event) => {
+        event.stopPropagation();
+      });
     }
 
     for (const type of ["keydown", "keyup"]) {
@@ -643,8 +647,12 @@ export class GameScene extends Scene {
       limits: PLAYER_LIMITS,
       maxPlayers: MAX_PLAYERS,
       offline: isOfflineRequested() || SOLO_PLAYTEST,
-      onClaim: (key, owner) => this.onClaimHeard(key, owner),
-      onEvent: (event, payload, from) => this.handleEvent(event, payload, from),
+      onClaim: (key, owner) => {
+        this.onClaimHeard(key, owner);
+      },
+      onEvent: (event, payload, from) => {
+        this.handleEvent(event, payload, from);
+      },
       party: "vg-server",
       room: ROOM,
     });
@@ -676,7 +684,9 @@ export class GameScene extends Scene {
 
     if (import.meta.env.DEV || isPlaytestRequested()) {
       publishTestHooks({
-        seed: (seed) => this.reseed(seed),
+        seed: (seed) => {
+          this.reseed(seed);
+        },
         setPausedForScreenshot: (paused) => {
           if (!this.freezable) {
             throw new Error("Cannot freeze a shared arena");
@@ -771,7 +781,7 @@ export class GameScene extends Scene {
     const state = this.shared();
     const id = this.myId;
 
-    if (state && id) {
+    if (state && id !== null && id !== "") {
       this.playtestScore.observe(state, id);
     }
   }
@@ -813,12 +823,14 @@ export class GameScene extends Scene {
       kills: this.playtestScore.kills,
       phase,
       player: { x: this.myCol * TILE, y: this.myRow * TILE },
-      rivalsAlive: Object.values(state?.bots ?? {}).filter((bot) => !state?.deaths[bot.id]).length,
+      rivalsAlive: Object.values(state?.bots ?? {}).filter(
+        (bot) => (state?.deaths[bot.id] ?? 0) === 0,
+      ).length,
       score: this.playtestScore.points,
     };
 
     const value =
-      phase === "playing" && state && id
+      phase === "playing" && state && id !== null && id !== ""
         ? {
             ...base,
             ...playtestView({
@@ -884,7 +896,7 @@ export class GameScene extends Scene {
   private updateCamera(elapsed: number) {
     const id = this.myId;
 
-    if (!id) {
+    if (id === null || id === "") {
       return;
     }
 
@@ -975,9 +987,15 @@ export class GameScene extends Scene {
       return;
     }
 
-    k.on("keydown-SPACE", () => this.requestBomb());
-    k.on("keydown-B", () => this.requestBomb());
-    k.on("keydown-R", () => this.requestRestart());
+    k.on("keydown-SPACE", () => {
+      this.requestBomb();
+    });
+    k.on("keydown-B", () => {
+      this.requestBomb();
+    });
+    k.on("keydown-R", () => {
+      this.requestRestart();
+    });
     k.on("keydown-M", (event: KeyboardEvent) => {
       if (event.repeat) {
         return;
@@ -1101,7 +1119,15 @@ export class GameScene extends Scene {
     const state = this.shared();
     const pose = this.ownPose(performance.now());
 
-    if (this.controlsPaused || !this.live || !this.started || !id || !state || !pose) {
+    if (
+      this.controlsPaused ||
+      !this.live ||
+      !this.started ||
+      id === null ||
+      id === "" ||
+      !state ||
+      !pose
+    ) {
       return;
     }
 
@@ -1156,7 +1182,7 @@ export class GameScene extends Scene {
   private respawnSelf() {
     const id = this.myId;
 
-    if (!id) {
+    if (id === null || id === "") {
       return;
     }
 
@@ -1205,11 +1231,11 @@ export class GameScene extends Scene {
 
     if (event === "place_bomb") {
       const p = isJsonObject(payload) ? payload : null;
-      const col = p?.["col"];
-      const row = p?.["row"];
-      const localId = p?.["localId"];
-      const at = p?.["at"];
-      const current = p?.["round"] === this.shared()?.startedAt;
+      const col = p?.col;
+      const row = p?.row;
+      const localId = p?.localId;
+      const at = p?.at;
+      const current = p?.round === this.shared()?.startedAt;
 
       if (
         isJsonNumber(col) &&
@@ -1229,7 +1255,14 @@ export class GameScene extends Scene {
     const id = this.myId;
     const state = this.shared();
 
-    if (!id || !state || !this.started || !this.ownSpawned || !this.isAlive(id)) {
+    if (
+      id === null ||
+      id === "" ||
+      !state ||
+      !this.started ||
+      !this.ownSpawned ||
+      !this.isAlive(id)
+    ) {
       return;
     }
 
@@ -1247,7 +1280,7 @@ export class GameScene extends Scene {
     this.pulsePlayer(id, "pickup");
 
     if (this.statsEl) {
-      this.statsEl.dataset["pickup"] = kind;
+      this.statsEl.dataset.pickup = kind;
     }
 
     if (this.pickupNoteEl) {
@@ -1259,9 +1292,9 @@ export class GameScene extends Scene {
 
   private onClaimHeard(key: string, owner: string | null) {
     const id = this.myId;
-    const lost = id ? this.pickupClaims.heard(key, owner, id) : null;
+    const lost = id !== null && id !== "" ? this.pickupClaims.heard(key, owner, id) : null;
 
-    if (lost?.fighter === id && this.statsEl?.dataset["pickup"] === lost.pickup.kind) {
+    if (lost?.fighter === id && this.statsEl?.dataset.pickup === lost.pickup.kind) {
       this.clearPickupNote();
     }
 
@@ -1275,7 +1308,9 @@ export class GameScene extends Scene {
   private settlePickups() {
     const id = this.myId;
     const state = this.shared();
-    const granted = id && state ? this.pickupClaims.settle(this.client, state, id) : null;
+
+    const granted =
+      id !== null && id !== "" && state ? this.pickupClaims.settle(this.client, state, id) : null;
 
     if (granted) {
       this.netPatchShared(granted);
@@ -1285,7 +1320,7 @@ export class GameScene extends Scene {
   private hostRestart(payload: JsonValue) {
     const state = this.shared();
 
-    if (!state || !isJsonObject(payload) || payload["round"] !== state.startedAt) {
+    if (!state || !isJsonObject(payload) || payload.round !== state.startedAt) {
       return;
     }
 
@@ -1708,7 +1743,8 @@ export class GameScene extends Scene {
     const cam = this.cameras.main;
     const centerX = cam.scrollX + cam.width / 2;
     const centerY = cam.scrollY + cam.height / 2;
-    const local = this.myId ? this.players.get(this.myId)?.container : undefined;
+    const local =
+      this.myId === null || this.myId === "" ? undefined : this.players.get(this.myId)?.container;
     const listenerX = local?.x ?? centerX;
     const listenerY = local?.y ?? centerY;
     let nearest: { distance: number; x: number } | null = null;
@@ -2069,7 +2105,7 @@ export class GameScene extends Scene {
     const shared = this.shared();
     const id = this.myId;
 
-    if (!shared || !id) {
+    if (!shared || id === null || id === "") {
       return;
     }
 
@@ -2104,7 +2140,10 @@ export class GameScene extends Scene {
     }
 
     for (const bot of Object.values(world.bots)) {
-      if (!world.deaths[bot.id] && this.pickupClaims.reach(this.client, world, bot.id, bot)) {
+      if (
+        (world.deaths[bot.id] ?? 0) === 0 &&
+        this.pickupClaims.reach(this.client, world, bot.id, bot)
+      ) {
         this.netDirty = true;
       }
     }
@@ -2164,7 +2203,7 @@ export class GameScene extends Scene {
   }
 
   private pulsePlayer(id: string | null, kind: "place" | "pickup") {
-    const objs = id ? this.players.get(id) : undefined;
+    const objs = id !== null && id !== "" ? this.players.get(id) : undefined;
 
     if (!objs || !this.isAlive(id)) {
       return;
@@ -2298,7 +2337,7 @@ export class GameScene extends Scene {
     const id = this.myId;
     const s = this.shared();
 
-    return id && s ? this.pickupClaims.stats(s, id) : baseStats();
+    return id !== null && id !== "" && s ? this.pickupClaims.stats(s, id) : baseStats();
   }
 
   private playerView(state: SharedState, id: string) {
@@ -2312,7 +2351,7 @@ export class GameScene extends Scene {
   private ensureMySpawn() {
     const id = this.myId;
 
-    if (!id || this.ownSpawned) {
+    if (id === null || id === "" || this.ownSpawned) {
       return;
     }
 
@@ -2354,7 +2393,7 @@ export class GameScene extends Scene {
   }
 
   private isAlive(id: string | null) {
-    if (!id) {
+    if (id === null || id === "") {
       return false;
     }
 
@@ -2364,7 +2403,7 @@ export class GameScene extends Scene {
       return true;
     }
 
-    return !s.deaths[id];
+    return (s.deaths[id] ?? 0) === 0;
   }
 
   private writeShared(next: SharedState) {
@@ -2411,7 +2450,9 @@ export class GameScene extends Scene {
         this.beginPlay();
       }
     });
-    document.querySelector("#start-play")?.addEventListener("click", () => this.beginPlay());
+    document.querySelector("#start-play")?.addEventListener("click", () => {
+      this.beginPlay();
+    });
   }
 
   private onStartKeyUp(event: KeyboardEvent) {
@@ -2458,7 +2499,7 @@ export class GameScene extends Scene {
     const s = this.shared();
     const restart = TOUCH_UI ? "tap to restart" : "press R";
 
-    if (s?.winner) {
+    if (s !== null && s.winner !== undefined && s.winner !== null && s.winner !== "") {
       return `Round over — ${restart}`;
     }
 
@@ -2543,7 +2584,7 @@ export class GameScene extends Scene {
       this.winnerAction = { at: this.characterTime, id: winner };
     }
 
-    if (this.myId) {
+    if (this.myId !== null && this.myId !== "") {
       sfx.win(outcomeFor(winner, this.myId));
     }
   }
@@ -2552,11 +2593,11 @@ export class GameScene extends Scene {
     const s = this.shared();
     const id = this.myId;
 
-    if (!this.started || !this.live || !s || !id) {
+    if (!this.started || !this.live || !s || id === null || id === "") {
       return { kind: "hidden" } satisfies RoundPresentation;
     }
 
-    if (s.winner) {
+    if (s.winner !== null && s.winner !== "") {
       return {
         kind: outcomeFor(s.winner, id),
         winner: this.labelFor(s.winner),
@@ -2571,7 +2612,7 @@ export class GameScene extends Scene {
 
     return {
       kind: "eliminated",
-      remaining: ids.filter((fighter) => !s.deaths[fighter]).length,
+      remaining: ids.filter((fighter) => (s.deaths[fighter] ?? 0) === 0).length,
     } satisfies RoundPresentation;
   }
 

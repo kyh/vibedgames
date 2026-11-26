@@ -232,7 +232,7 @@ export class Pilot {
   private livePlayer() {
     const { player, state } = this.game;
 
-    if (!player?.alive || state !== "playing") {
+    if (player?.alive !== true || state !== "playing") {
       return null;
     }
 

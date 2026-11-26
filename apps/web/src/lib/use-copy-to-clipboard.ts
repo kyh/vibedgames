@@ -28,7 +28,9 @@ export const useCopyToClipboard = () => {
         clearTimeout(timerRef.current);
       }
 
-      timerRef.current = setTimeout(() => setCopied(false), RESET_MS);
+      timerRef.current = setTimeout(() => {
+        setCopied(false);
+      }, RESET_MS);
     } catch {
       toast.error(ERROR_TOAST);
     }

@@ -22,7 +22,7 @@ export const resumeOnPadPress = () => {
     let pad: Gamepad | null = null;
 
     for (const candidate of pads) {
-      if (candidate?.connected) {
+      if (candidate?.connected === true) {
         pad = candidate;
         break;
       }
@@ -46,7 +46,9 @@ export const resumeOnPadPress = () => {
 
   raf = requestAnimationFrame(poll);
 
-  return () => cancelAnimationFrame(raf);
+  return () => {
+    cancelAnimationFrame(raf);
+  };
 };
 
 export interface MuteAccessor {
@@ -274,7 +276,9 @@ export const createPauseShell = (options: PauseShellOptions) => {
 
     el.style.pointerEvents = "none";
     el.style.opacity = "0";
-    window.setTimeout(() => el.remove(), fade + 40);
+    window.setTimeout(() => {
+      el.remove();
+    }, fade + 40);
   };
 
   return { hide, show };

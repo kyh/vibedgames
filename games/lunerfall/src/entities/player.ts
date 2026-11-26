@@ -71,15 +71,15 @@ export interface PlayerHooks {
 export class Player {
   readonly body: PlayerBody;
   readonly sprite: Phaser.GameObjects.Sprite;
-  private baseScale = HERO_SCALE;
+  private readonly baseScale = HERO_SCALE;
   readonly name: HeroName;
   private lastSwing = -1;
   private lastSpecial = -1;
   private lastRunDust = 0;
   private lastEcho = -Infinity;
   private swingClip: string | null = null;
-  private scene: Phaser.Scene;
-  private hero: HeroDef;
+  private readonly scene: Phaser.Scene;
+  private readonly hero: HeroDef;
   private readonly hooks: PlayerHooks;
 
   constructor(
@@ -104,7 +104,9 @@ export class Player {
       onJump: hooks.onJump,
       onLand: hooks.onLand,
       onSpecial: hooks.onSpecial,
-      onSquash: (sx, sy, ms) => this.squash(sx, sy, ms),
+      onSquash: (sx, sy, ms) => {
+        this.squash(sx, sy, ms);
+      },
       onSwing: hooks.onSwing,
       onWallJump: hooks.onWallJump,
     });

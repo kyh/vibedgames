@@ -101,7 +101,7 @@ export const backgroundReachable = (
   const enqueue = (x: number, y: number) => {
     const index = y * width + x;
 
-    if (reachable[index] || !isFloodable(index)) {
+    if ((reachable[index] ?? 0) !== 0 || !isFloodable(index)) {
       return;
     }
 
@@ -160,7 +160,7 @@ const hasBackgroundNeighbor = (
         continue;
       }
 
-      if (reachable[ny * width + nx]) {
+      if ((reachable[ny * width + nx] ?? 0) !== 0) {
         return true;
       }
     }
@@ -181,7 +181,7 @@ export const keepLargestComponents = (image: Bitmap, minArea: number) => {
   const visit = (nx: number, ny: number) => {
     const n = ny * width + nx;
 
-    if (seen[n] || image.data[n * 4 + 3] === 0) {
+    if ((seen[n] ?? 0) !== 0 || image.data[n * 4 + 3] === 0) {
       return;
     }
 
@@ -194,7 +194,7 @@ export const keepLargestComponents = (image: Bitmap, minArea: number) => {
     for (let startX = 0; startX < width; startX += 1) {
       const start = startY * width + startX;
 
-      if (seen[start] || image.data[start * 4 + 3] === 0) {
+      if ((seen[start] ?? 0) !== 0 || image.data[start * 4 + 3] === 0) {
         continue;
       }
 
@@ -308,7 +308,7 @@ export const keyMatte = (
     const p = index * 4;
     const alpha = image.data[p + 3] ?? 0;
 
-    if (reachable[index]) {
+    if ((reachable[index] ?? 0) !== 0) {
       if (alpha !== 0) {
         removed += 1;
       }
@@ -445,7 +445,7 @@ const nearTransparentMask = (image: Bitmap, radius: number) => {
 
     for (let y = 0; y < height; y += 1) {
       for (let x = 0; x < width; x += 1) {
-        if (!near[y * width + x]) {
+        if ((near[y * width + x] ?? 0) === 0) {
           continue;
         }
 
@@ -513,7 +513,7 @@ export const despillChroma = (
       continue;
     }
 
-    if (near && !near[index]) {
+    if (near && (near[index] ?? 0) === 0) {
       continue;
     }
 

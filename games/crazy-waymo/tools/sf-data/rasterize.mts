@@ -1,4 +1,5 @@
-import { PathOrFileDescriptor, readFileSync, writeFileSync } from "node:fs";
+import type { PathOrFileDescriptor } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 
 const U_B = 765.2557;
 const U_M = 6.2462;
@@ -38,6 +39,7 @@ const landFactor = (u: any, v: any) => {
 const isLand = (u: number, v: number) => landFactor(u, v) > 0.5;
 
 const raw = JSON.parse(readFileSync(new URL("sf-streets.raw.json", import.meta.url)));
+
 const ways = raw.elements.filter(
   (e: { type: string; geometry: any }) => e.type === "way" && e.geometry,
 );
@@ -152,7 +154,7 @@ const connectedOnLand = (
 
       const idx = nx * GZ + nz;
 
-      if (seen[idx] || !grid[idx] || !onLand[idx]) {
+      if ((seen[idx] ?? 0) !== 0 || !grid[idx] || !onLand[idx]) {
         continue;
       }
 
@@ -392,7 +394,7 @@ const svgPreview = (
         fill = "#e8e4d8";
       }
 
-      if (fill) {
+      if (fill !== null && fill !== "") {
         rects += `<rect x="${gx * cell}" y="${gz * cell}" width="${cell}" height="${cell}" fill="${fill}"/>`;
       }
     }
@@ -421,7 +423,7 @@ if (arg.length === 2) {
     let bits = "";
 
     for (let gz = 0; gz < res.GZ; gz += 1) {
-      bits += res.grid[gx * res.GZ + gz] ? "1" : "0";
+      bits += (res.grid[gx * res.GZ + gz] ?? 0) === 0 ? "0" : "1";
     }
 
     let hex = "";

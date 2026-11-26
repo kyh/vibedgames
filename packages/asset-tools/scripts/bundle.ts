@@ -28,7 +28,7 @@ const importedNames = (scriptsDir: string) => {
           .split(/\s+as\s+/u)[0]
           ?.trim();
 
-        if (name) {
+        if (name !== undefined && name !== "") {
           names.add(name);
         }
       }

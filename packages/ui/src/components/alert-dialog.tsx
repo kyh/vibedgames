@@ -242,13 +242,19 @@ export const GlobalAlertDialog = () => {
           <AlertDialogDescription>{alertState.description}</AlertDialogDescription>
         )}
         <AlertDialogFooter>
-          {!alertState.action?.hidden && (
+          {alertState.action?.hidden !== true && (
             <Button onClick={onConfirm} loading={pendingAction}>
               {alertState.action?.label ?? "Confirm"}
             </Button>
           )}
-          {!alertState.cancel?.hidden && (
-            <Button variant="secondary" onClick={() => onOpenChange(false)} loading={pendingCancel}>
+          {alertState.cancel?.hidden !== true && (
+            <Button
+              variant="secondary"
+              onClick={() => {
+                onOpenChange(false);
+              }}
+              loading={pendingCancel}
+            >
               {alertState.cancel?.label ?? "Close"}
             </Button>
           )}

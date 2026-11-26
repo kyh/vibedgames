@@ -30,15 +30,15 @@ interface ConeState {
 
 export class SmashCones {
   readonly mesh: THREE.InstancedMesh;
-  private city: CityModel;
-  private physics: PhysicsWorld | null;
-  private cones: ConeState[] = [];
-  private homes: { x: number; y: number; z: number; yaw: number; live: boolean }[] = [];
-  private mat4 = new THREE.Matrix4();
-  private quat = new THREE.Quaternion();
-  private eul = new THREE.Euler();
-  private scl = new THREE.Vector3();
-  private posV = new THREE.Vector3();
+  private readonly city: CityModel;
+  private readonly physics: PhysicsWorld | null;
+  private readonly cones: ConeState[] = [];
+  private readonly homes: { x: number; y: number; z: number; yaw: number; live: boolean }[] = [];
+  private readonly mat4 = new THREE.Matrix4();
+  private readonly quat = new THREE.Quaternion();
+  private readonly eul = new THREE.Euler();
+  private readonly scl = new THREE.Vector3();
+  private readonly posV = new THREE.Vector3();
 
   constructor(cache: ModelCache, city: CityModel, rng: Rng, physics: PhysicsWorld | null = null) {
     this.city = city;

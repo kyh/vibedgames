@@ -26,7 +26,7 @@ const SIGNATURES: [PackageManager, RegExp][] = [
 ];
 
 const fromUserAgent = (userAgent: string | undefined) => {
-  if (!userAgent) {
+  if (userAgent === undefined || userAgent === "") {
     return null;
   }
 

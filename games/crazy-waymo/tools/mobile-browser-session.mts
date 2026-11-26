@@ -20,26 +20,29 @@ export const createMobileSession = async ({ sessionPrefix, output }) => {
     launched = true;
     browser("--headed", "open", "about:blank");
     socket = new WebSocket(browser("get", "cdp-url"));
-    // oxlint-disable-next-line promise/avoid-new -- wraps the WebSocket open/error events
-    await new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error("CDP connection timeout")), 15_000);
-      socket.addEventListener(
-        "open",
-        () => {
-          clearTimeout(timer);
-          resolve();
-        },
-        { once: true },
-      );
-      socket.addEventListener(
-        "error",
-        (error: any) => {
-          clearTimeout(timer);
-          reject(error);
-        },
-        { once: true },
-      );
-    });
+    const { promise, resolve, reject } = Promise.withResolvers<void>();
+    const timer = setTimeout(() => {
+      reject(new Error("CDP connection timeout"));
+    }, 15_000);
+
+    socket.addEventListener(
+      "open",
+      () => {
+        clearTimeout(timer);
+        resolve();
+      },
+      { once: true },
+    );
+    socket.addEventListener(
+      "error",
+      (error: any) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+      { once: true },
+    );
+
+    await promise;
     const pending = new Map();
     const pageErrors: any[] = [];
     let nextId = 1;
@@ -66,30 +69,31 @@ export const createMobileSession = async ({ sessionPrefix, output }) => {
       }
     });
 
-    const send = (
+    const send = async (
       method: string,
       params: { flatten: boolean; targetId: any } | undefined,
       sessionId: undefined,
-    ) =>
-      // oxlint-disable-next-line promise/avoid-new -- wraps the CDP request/response message pair
-      new Promise((resolve, reject) => {
-        const id = nextId;
-        nextId += 1;
+    ) => {
+      const { promise, resolve, reject } = Promise.withResolvers<void>();
+      const id = nextId;
+      nextId += 1;
 
-        const timer = setTimeout(() => {
-          pending.delete(id);
-          reject(new Error(`CDP timeout: ${method}`));
-        }, 90_000);
+      const timer = setTimeout(() => {
+        pending.delete(id);
+        reject(new Error(`CDP timeout: ${method}`));
+      }, 90_000);
 
-        pending.set(id, { reject, resolve, timer });
-        const message = { id, method, params: params ?? {} };
+      pending.set(id, { reject, resolve, timer });
+      const message = { id, method, params: params ?? {} };
 
-        if (sessionId) {
-          message.sessionId = sessionId;
-        }
+      if (sessionId) {
+        message.sessionId = sessionId;
+      }
 
-        socket.send(JSON.stringify(message));
-      });
+      socket.send(JSON.stringify(message));
+
+      return await promise;
+    };
 
     const { targetInfos } = await send("Target.getTargets");
 
@@ -107,7 +111,7 @@ export const createMobileSession = async ({ sessionPrefix, output }) => {
       targetId: target.targetId,
     });
 
-    const call = (
+    const call = async (
       method: string,
       params: {
         awaitPromise?: boolean;
@@ -120,7 +124,7 @@ export const createMobileSession = async ({ sessionPrefix, output }) => {
         windowsVirtualKeyCode?: number;
         format?: string;
       },
-    ) => send(method, params, sessionId);
+    ) => await send(method, params, sessionId);
 
     const evaluate = async (expression: string) => {
       const { result, exceptionDetails } = await call("Runtime.evaluate", {
@@ -166,8 +170,8 @@ export const createMobileSession = async ({ sessionPrefix, output }) => {
       await call("Input.dispatchKeyEvent", { ...key, type: "keyUp" });
     };
 
-    const touchPoint = (selector: any, id: number) =>
-      evaluate(
+    const touchPoint = async (selector: any, id: number) =>
+      await evaluate(
         `(()=>{const e=document.querySelector(${JSON.stringify(selector)});if(!e)throw new Error('Missing touch target');const r=e.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2,id:${id}}})()`,
       );
 

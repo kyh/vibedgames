@@ -134,7 +134,9 @@ test("placeCodexOutputs is a no-op copy when target equals source", () => {
   mkdirSync(dir, { recursive: true });
   const cwd = process.cwd();
   process.chdir(dir);
-  cleanups.push(() => process.chdir(cwd));
+  cleanups.push(() => {
+    process.chdir(cwd);
+  });
   const src = path.join(dir, "codex-image-abcd-0.png");
   writeFileSync(src, "X");
   const { downloaded, failed } = placeCodexOutputs([src], undefined, "abcd");

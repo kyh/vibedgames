@@ -149,9 +149,15 @@ const renderCameraState = () => {
 };
 
 const face = new FaceCamera({
-  onHeadTurnLeft: () => game.onHeadTurnLeft(),
-  onHeadTurnRight: () => game.onHeadTurnRight(),
-  onMouthChange: (open) => game.onMouthChange(open),
+  onHeadTurnLeft: () => {
+    game.onHeadTurnLeft();
+  },
+  onHeadTurnRight: () => {
+    game.onHeadTurnRight();
+  },
+  onMouthChange: (open) => {
+    game.onMouthChange(open);
+  },
   onState: (state) => {
     cameraState = state;
 
@@ -264,7 +270,9 @@ renderer.setAnimationLoop((time) => {
 if (import.meta.env.DEV || isPlaytestRequested()) {
   game.enableNavDiagnostics();
   publishTestHooks({
-    seed: (seed) => game.seed(seed),
+    seed: (seed) => {
+      game.seed(seed);
+    },
     setPausedForScreenshot: (next) => {
       paused = next;
       game.setPaused(next);
@@ -361,9 +369,15 @@ const devHooks = () => ({
   claimKey: pelletClaimKey,
   face,
   game,
-  mouth: (open: boolean) => game.onMouthChange(open),
-  turnLeft: () => game.onHeadTurnLeft(),
-  turnRight: () => game.onHeadTurnRight(),
+  mouth: (open: boolean) => {
+    game.onMouthChange(open);
+  },
+  turnLeft: () => {
+    game.onHeadTurnLeft();
+  },
+  turnRight: () => {
+    game.onHeadTurnRight();
+  },
 });
 
 declare global {

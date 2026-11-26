@@ -71,7 +71,7 @@ const checkResumableSteps = async (
     let slices = 0;
     let result = steps.next();
 
-    while (!result.done) {
+    while (result.done !== true) {
       slices += 1;
       result = steps.next();
     }
@@ -238,7 +238,9 @@ export const checkParcelStreaming = async (check: Check) => {
 if (process.argv.includes("--check")) {
   let failures = 0;
   await checkParcelStreaming((name, condition, detail) => {
-    console.log(`${condition ? "ok" : "FAIL"} ${name}${detail ? ` (${detail})` : ""}`);
+    console.log(
+      `${condition ? "ok" : "FAIL"} ${name}${detail !== undefined && detail !== "" ? ` (${detail})` : ""}`,
+    );
 
     if (!condition) {
       failures += 1;

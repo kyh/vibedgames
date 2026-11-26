@@ -119,7 +119,7 @@ const syncContext = () => {
   }
 
   if (!graph) {
-    if (window.navigator.userActivation?.isActive === false || !("AudioContext" in window)) {
+    if (!window.navigator.userActivation?.isActive || !("AudioContext" in window)) {
       return;
     }
 
@@ -176,7 +176,13 @@ export const resetRoundAudio = () => {
 const own = (source: AudioScheduledSourceNode, nodes: AudioNode[], role: Role) => {
   const voice: Voice = { nodes, role, source };
   voices.add(voice);
-  source.addEventListener("ended", () => release(voice), { once: true });
+  source.addEventListener(
+    "ended",
+    () => {
+      release(voice);
+    },
+    { once: true },
+  );
 };
 
 const ready = () => (!muted && !paused && graph?.context.state === "running" ? graph : null);

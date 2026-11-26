@@ -231,7 +231,12 @@ export const runTui = (launch: TuiLaunch) => {
       setDirective(bb, text);
       const directive = readDirective(bb);
       store.set({ directive });
-      store.push("marker", directive ? `⟶ directive: ${directive}` : "⟶ directive cleared");
+      store.push(
+        "marker",
+        directive !== null && directive !== ""
+          ? `⟶ directive: ${directive}`
+          : "⟶ directive cleared",
+      );
 
       if (store.getSnapshot().checkpoint) {
         controls?.continueNow();
@@ -266,7 +271,7 @@ export const runTui = (launch: TuiLaunch) => {
 
       const explicit = form.slug.trim();
 
-      if (explicit && !normalizeSlug(explicit)) {
+      if (explicit && (normalizeSlug(explicit) ?? "") === "") {
         store.set({
           setupError: 'Slug must be lowercase letters, digits, and hyphens (e.g. "neon-slasher").',
         });
@@ -278,7 +283,7 @@ export const runTui = (launch: TuiLaunch) => {
       const idea = form.idea.trim();
       let slug = deriveSlug({ dir, idea: idea || undefined, slug: explicit || undefined });
 
-      if (!slug) {
+      if (slug === null || slug === "") {
         store.set({
           setupError:
             "What kind of game? Describe it in INSTRUCTIONS — or point FOLDER at an existing project.",
@@ -287,14 +292,19 @@ export const runTui = (launch: TuiLaunch) => {
         return;
       }
 
-      if (!explicit && !dir) {
+      if (!explicit && (dir === undefined || dir === "")) {
         slug = availableSlug(slug);
       }
 
       const workspace = resolveWorkspace(slug, dir);
       const fresh = !existsSync(blackboard(workspace).state);
 
-      if (fresh && !idea && !launch.context && !hasExistingProject(workspace)) {
+      if (
+        fresh &&
+        !idea &&
+        (launch.context === undefined || launch.context === "") &&
+        !hasExistingProject(workspace)
+      ) {
         store.set({
           setupError:
             "That folder is empty — describe the game to build in INSTRUCTIONS, or point FOLDER at an existing project.",
@@ -349,7 +359,10 @@ export const runTui = (launch: TuiLaunch) => {
   );
   poller = setInterval(pollBacklog, 2000);
 
-  if (launch.slug || launch.dir) {
+  if (
+    (launch.slug !== undefined && launch.slug !== "") ||
+    (launch.dir !== undefined && launch.dir !== "")
+  ) {
     controller.submitSetup({
       dir: launch.dir ?? "",
       idea: launch.idea,

@@ -109,7 +109,10 @@ export const analyzeBaseline: (
 ) => BaselineReport = (path, frame, targetBottom, targetCenterX, outPath) => {
   const image = Bitmap.fromFile(path);
   const { columns, rows } = gridFor(path, image, frame);
-  const fixed = outPath ? Bitmap.create(image.width, image.height) : null;
+
+  const fixed =
+    outPath !== null && outPath !== "" ? Bitmap.create(image.width, image.height) : null;
+
   const frames: FrameBaseline[] = [];
 
   for (let row = 0; row < rows; row += 1) {
@@ -161,7 +164,7 @@ export const analyzeBaseline: (
     }
   }
 
-  if (fixed && outPath) {
+  if (fixed && outPath !== null && outPath !== "") {
     fixed.toFile(outPath);
   }
 

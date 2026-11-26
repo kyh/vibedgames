@@ -150,8 +150,8 @@ export class CloudLayer {
   readonly centers: Float32Array;
   readonly alphas: Float32Array;
   readonly sizeAttr: THREE.InstancedBufferAttribute;
-  private centerAttr: THREE.InstancedBufferAttribute;
-  private alphaAttr: THREE.InstancedBufferAttribute;
+  private readonly centerAttr: THREE.InstancedBufferAttribute;
+  private readonly alphaAttr: THREE.InstancedBufferAttribute;
 
   constructor(opts: LayerOpts) {
     const sculpted = opts.kind === "cumulus";
@@ -227,10 +227,10 @@ export class CloudLayer {
   readonly sunDirU = { value: new THREE.Vector3(0, 1, 0) };
   readonly sunColU = { value: new THREE.Color(0x00_00_00) };
   readonly sunWU = { value: 0 };
-  private tint: THREE.Color;
-  private dayColor: THREE.Color;
-  private nightColor: THREE.Color;
-  private nightDim: number;
+  private readonly tint: THREE.Color;
+  private readonly dayColor: THREE.Color;
+  private readonly nightColor: THREE.Color;
+  private readonly nightDim: number;
 
   /** `f` = 0 broad daylight .. 1 full night. */
   setNight(f: number) {

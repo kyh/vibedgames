@@ -56,7 +56,7 @@ const chassisOverlaps = (
   for (const [i, body] of bodies.entries()) {
     for (const solid of rest.solids) {
       if (
-        solid.noBody ||
+        solid.noBody === true ||
         Math.hypot((solid.minX + solid.maxX) / 2 - body.x, (solid.minZ + solid.maxZ) / 2 - body.z) >
           60
       ) {

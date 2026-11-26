@@ -108,7 +108,7 @@ const diffEntities = <T extends JsonObject>(cache: Map<string, Sent>, live: Map<
 
 const worldFields: (w: World) => [string, JsonValue, string | number | boolean | null][] = (w) => {
   const grounds = JSON.stringify(
-    w.groundEffects.map((g) => (g.followOwner ? { ...g, nextTick: 0, x: 0, y: 0 } : g)),
+    w.groundEffects.map((g) => (g.followOwner === true ? { ...g, nextTick: 0, x: 0, y: 0 } : g)),
     sigReplacer,
   );
 

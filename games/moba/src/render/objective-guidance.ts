@@ -31,7 +31,7 @@ const exposed = (world: World, team: Team, tier: StructTier, lane?: LaneId) => {
       unit.kind === "structure" &&
       unit.team === team &&
       unit.alive &&
-      structure?.attackable &&
+      structure?.attackable === true &&
       structure.tier === tier &&
       (lane === undefined || structure.lane === lane)
     ) {
@@ -72,7 +72,7 @@ const respawnTip = (world: World, player: Unit) => {
 const isAttackableStructureOf = (unit: Unit, team: Team) =>
   unit.kind === "structure" &&
   unit.team === team &&
-  !unit.neutral &&
+  unit.neutral !== true &&
   unit.alive &&
   Boolean(unit.structure?.attackable);
 
@@ -125,7 +125,7 @@ const objectiveText = (tier: StructTier, lane: LaneId | "base", baseTowers: numb
 
 /** Follow the sim's attackable flags; a lane breach can expose both base towers. */
 export const objectiveGuidance = (world: World, player: Unit | undefined) => {
-  if (world.phase !== "playing" || !player?.hero || player.neutral) {
+  if (world.phase !== "playing" || !player?.hero || player.neutral === true) {
     return null;
   }
 

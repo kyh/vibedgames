@@ -235,7 +235,7 @@ const scene: (
       stage.hold = false;
 
       for (const c of cues) {
-        if (!c.fired && t >= c.at) {
+        if (c.fired !== true && t >= c.at) {
           c.fired = true;
           c.fn();
         }
@@ -304,8 +304,18 @@ const buildConfig = (stage: TrailerStage) => {
 
       return {
         cues: [
-          { at: 300, fn: () => forceCast(w, storm, "Q", { point: { x: 2150, y: 620 } }) },
-          { at: 800, fn: () => forceCast(w, ember, "Q", { point: { x: dusk.x, y: dusk.y } }) },
+          {
+            at: 300,
+            fn: () => {
+              forceCast(w, storm, "Q", { point: { x: 2150, y: 620 } });
+            },
+          },
+          {
+            at: 800,
+            fn: () => {
+              forceCast(w, ember, "Q", { point: { x: dusk.x, y: dusk.y } });
+            },
+          },
           {
             at: 1250,
             fn: () => {
@@ -313,9 +323,19 @@ const buildConfig = (stage: TrailerStage) => {
               issueOrder(w, dusk, { targetId: ember.id, type: "attackUnit" });
             },
           },
-          { at: 1600, fn: () => forceCast(w, iron, "Q", { targetId: dusk.id }) },
+          {
+            at: 1600,
+            fn: () => {
+              forceCast(w, iron, "Q", { targetId: dusk.id });
+            },
+          },
           { at: 1900, fn: () => (iron.hp = Math.min(iron.hp, 55)) },
-          { at: 2400, fn: () => finish(w, dusk, w.units.get(iron.id)) },
+          {
+            at: 2400,
+            fn: () => {
+              finish(w, dusk, w.units.get(iron.id));
+            },
+          },
         ],
       };
     }),
@@ -396,10 +416,17 @@ const buildConfig = (stage: TrailerStage) => {
 
       return {
         cues: [
-          { at: 120, fn: () => dashHero(w, storm, -1, 0.02) },
+          {
+            at: 120,
+            fn: () => {
+              dashHero(w, storm, -1, 0.02);
+            },
+          },
           {
             at: 220,
-            fn: () => forceCast(w, caster, "Q", { point: { x: storm.x - 40, y: storm.y } }),
+            fn: () => {
+              forceCast(w, caster, "Q", { point: { x: storm.x - 40, y: storm.y } });
+            },
           },
           {
             at: 950,
@@ -410,7 +437,9 @@ const buildConfig = (stage: TrailerStage) => {
           },
           {
             at: 1050,
-            fn: () => issueOrder(w, storm, { to: { x: 2050, y: 2500 }, type: "attackMove" }),
+            fn: () => {
+              issueOrder(w, storm, { to: { x: 2050, y: 2500 }, type: "attackMove" });
+            },
           },
         ],
       };
@@ -453,10 +482,30 @@ const buildConfig = (stage: TrailerStage) => {
 
       return {
         cues: [
-          { at: 400, fn: () => forceCast(w, storm, "W", { targetId: foe.id }) },
-          { at: 800, fn: () => finish(w, storm, weakest(theirs)) },
-          { at: 1500, fn: () => finish(w, storm, weakest(theirs)) },
-          { at: 2100, fn: () => finish(w, storm, weakest(theirs)) },
+          {
+            at: 400,
+            fn: () => {
+              forceCast(w, storm, "W", { targetId: foe.id });
+            },
+          },
+          {
+            at: 800,
+            fn: () => {
+              finish(w, storm, weakest(theirs));
+            },
+          },
+          {
+            at: 1500,
+            fn: () => {
+              finish(w, storm, weakest(theirs));
+            },
+          },
+          {
+            at: 2100,
+            fn: () => {
+              finish(w, storm, weakest(theirs));
+            },
+          },
         ],
       };
     }),
@@ -487,7 +536,14 @@ const buildConfig = (stage: TrailerStage) => {
       s.glide(830, 1712, s.zb(2.25), 1400, easeOut);
 
       return {
-        cues: [{ at: 450, fn: () => forceCast(w, storm, "Q", { point: { x: 1440, y: 1624 } }) }],
+        cues: [
+          {
+            at: 450,
+            fn: () => {
+              forceCast(w, storm, "Q", { point: { x: 1440, y: 1624 } });
+            },
+          },
+        ],
       };
     }),
 
@@ -512,8 +568,18 @@ const buildConfig = (stage: TrailerStage) => {
 
       return {
         cues: [
-          { at: 220, fn: () => forceCast(w, dusk, "R", { targetId: vic.id }) },
-          { at: 520, fn: () => finish(w, dusk, w.units.get(vic.id), true) },
+          {
+            at: 220,
+            fn: () => {
+              forceCast(w, dusk, "R", { targetId: vic.id });
+            },
+          },
+          {
+            at: 520,
+            fn: () => {
+              finish(w, dusk, w.units.get(vic.id), true);
+            },
+          },
         ],
       };
     }),
@@ -535,23 +601,39 @@ const buildConfig = (stage: TrailerStage) => {
 
       return {
         cues: [
-          { at: 120, fn: () => forceCast(w, solo, "W", { point: { x: 1190, y: 2028 } }) },
-          { at: 200, fn: () => forceCast(w, solo, "W", { point: { x: 1262, y: 2016 } }) },
-          { at: 280, fn: () => forceCast(w, solo, "W", { point: { x: 1126, y: 2016 } }) },
+          {
+            at: 120,
+            fn: () => {
+              forceCast(w, solo, "W", { point: { x: 1190, y: 2028 } });
+            },
+          },
+          {
+            at: 200,
+            fn: () => {
+              forceCast(w, solo, "W", { point: { x: 1262, y: 2016 } });
+            },
+          },
+          {
+            at: 280,
+            fn: () => {
+              forceCast(w, solo, "W", { point: { x: 1126, y: 2016 } });
+            },
+          },
           {
             at: 600,
             fn: () => {
               forceCast(w, solo, "E");
 
-              if (gnoll?.alive) {
+              if (gnoll?.alive === true) {
                 issueOrder(w, solo, { targetId: gnoll.id, type: "attackUnit" });
               }
             },
           },
           {
             at: 1000,
-            fn: () =>
-              forceCast(w, solo, "Q", { point: { x: gnoll?.x ?? 1216, y: gnoll?.y ?? 2100 } }),
+            fn: () => {
+              forceCast(w, solo, "Q", { point: { x: gnoll?.x ?? 1216, y: gnoll?.y ?? 2100 } });
+            },
           },
         ],
       };
@@ -592,9 +674,24 @@ const buildConfig = (stage: TrailerStage) => {
 
       return {
         cues: [
-          { at: 120, fn: () => forceCast(w, storm, "E") },
-          { at: 700, fn: () => forceCast(w, storm, "R", { point: { x: 2330, y: 552 } }) },
-          { at: 3100, fn: () => finish(w, storm, w.units.get("d-top-t1")) },
+          {
+            at: 120,
+            fn: () => {
+              forceCast(w, storm, "E");
+            },
+          },
+          {
+            at: 700,
+            fn: () => {
+              forceCast(w, storm, "R", { point: { x: 2330, y: 552 } });
+            },
+          },
+          {
+            at: 3100,
+            fn: () => {
+              finish(w, storm, w.units.get("d-top-t1"));
+            },
+          },
         ],
       };
     }),
@@ -623,8 +720,18 @@ const buildConfig = (stage: TrailerStage) => {
               }
             },
           },
-          { at: 1150, fn: () => forceCast(w, dusk, "W", { point: { x: vic.x, y: vic.y } }) },
-          { at: 1350, fn: () => finish(w, dusk, w.units.get(vic.id), true) },
+          {
+            at: 1150,
+            fn: () => {
+              forceCast(w, dusk, "W", { point: { x: vic.x, y: vic.y } });
+            },
+          },
+          {
+            at: 1350,
+            fn: () => {
+              finish(w, dusk, w.units.get(vic.id), true);
+            },
+          },
         ],
       };
     }),
@@ -722,9 +829,24 @@ const buildConfig = (stage: TrailerStage) => {
 
       return {
         cues: [
-          { at: 400, fn: () => forceCast(w, iron, "W") },
-          { at: 1100, fn: () => forceCast(w, brew, "Q", { targetId: iron.id }) },
-          { at: 2200, fn: () => finish(w, storm, boss) },
+          {
+            at: 400,
+            fn: () => {
+              forceCast(w, iron, "W");
+            },
+          },
+          {
+            at: 1100,
+            fn: () => {
+              forceCast(w, brew, "Q", { targetId: iron.id });
+            },
+          },
+          {
+            at: 2200,
+            fn: () => {
+              finish(w, storm, boss);
+            },
+          },
         ],
       };
     }),
@@ -754,8 +876,18 @@ const buildConfig = (stage: TrailerStage) => {
 
       return {
         cues: [
-          { at: 0, fn: () => forceCast(w, iron, "W") },
-          { at: 380, fn: () => forceCast(w, iron, "R") },
+          {
+            at: 0,
+            fn: () => {
+              forceCast(w, iron, "W");
+            },
+          },
+          {
+            at: 380,
+            fn: () => {
+              forceCast(w, iron, "R");
+            },
+          },
         ],
       };
     }),
@@ -840,7 +972,12 @@ const buildConfig = (stage: TrailerStage) => {
               }
             },
           },
-          { at: 3600, fn: () => s.glide(2040, 1500, s.zb(2.15), 900, easeOut) },
+          {
+            at: 3600,
+            fn: () => {
+              s.glide(2040, 1500, s.zb(2.15), 900, easeOut);
+            },
+          },
         ],
         frame: (t) => {
           if (t < sweepAt) {
@@ -850,7 +987,7 @@ const buildConfig = (stage: TrailerStage) => {
           sweepAt = t + 400;
 
           for (const u of w.units.values()) {
-            if (u.kind !== "hero" || !u.hero?.isBot || !u.alive) {
+            if (u.kind !== "hero" || u.hero?.isBot !== true || !u.alive) {
               continue;
             }
 
@@ -912,10 +1049,30 @@ const buildConfig = (stage: TrailerStage) => {
 
       return {
         cues: [
-          { at: 150, fn: () => forceCast(w, brew, "R", { point: { x: brew.x, y: brew.y } }) },
-          { at: 700, fn: () => forceCast(w, brew, "E") },
-          { at: 1400, fn: () => forceCast(w, brew, "Q", { targetId: iron.id }) },
-          { at: 1700, fn: () => s.glide(1832, 2530, s.zb(1.95), 1000, easeOut) },
+          {
+            at: 150,
+            fn: () => {
+              forceCast(w, brew, "R", { point: { x: brew.x, y: brew.y } });
+            },
+          },
+          {
+            at: 700,
+            fn: () => {
+              forceCast(w, brew, "E");
+            },
+          },
+          {
+            at: 1400,
+            fn: () => {
+              forceCast(w, brew, "Q", { targetId: iron.id });
+            },
+          },
+          {
+            at: 1700,
+            fn: () => {
+              s.glide(1832, 2530, s.zb(1.95), 1000, easeOut);
+            },
+          },
         ],
       };
     }),
@@ -956,8 +1113,18 @@ const buildConfig = (stage: TrailerStage) => {
               s.glide(2560, 1430, s.zb(2.75), 260, easeOut);
             },
           },
-          { at: 760, fn: () => finish(w, boom, w.units.get(mark.id), true) },
-          { at: 1030, fn: () => finish(w, boom, siege) },
+          {
+            at: 760,
+            fn: () => {
+              finish(w, boom, w.units.get(mark.id), true);
+            },
+          },
+          {
+            at: 1030,
+            fn: () => {
+              finish(w, boom, siege);
+            },
+          },
         ],
       };
     }),
@@ -1017,7 +1184,12 @@ const buildConfig = (stage: TrailerStage) => {
 
       return {
         cues: [
-          { at: 400, fn: () => finish(w, iron, w.units.get("d-base-2")) },
+          {
+            at: 400,
+            fn: () => {
+              finish(w, iron, w.units.get("d-base-2"));
+            },
+          },
           {
             at: 520,
             fn: () => {
@@ -1026,8 +1198,18 @@ const buildConfig = (stage: TrailerStage) => {
               }
             },
           },
-          { at: 1900, fn: () => finish(w, dusk, w.units.get("d-ancient")) },
-          { at: 1960, fn: () => sfx.victory(true) },
+          {
+            at: 1900,
+            fn: () => {
+              finish(w, dusk, w.units.get("d-ancient"));
+            },
+          },
+          {
+            at: 1960,
+            fn: () => {
+              sfx.victory(true);
+            },
+          },
         ],
       };
     }),

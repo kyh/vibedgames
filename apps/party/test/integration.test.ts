@@ -251,12 +251,12 @@ class RawClient {
   readonly id: string;
   closed = false;
   closeCode: number | null = null;
-  private ws: WebSocket;
+  private readonly ws: WebSocket;
 
   constructor(room: string, params: Record<string, string>) {
     const id = params._pk;
 
-    if (!id) {
+    if (id === undefined || id === "") {
       throw new Error("RawClient requires an explicit _pk connection id");
     }
 

@@ -93,7 +93,7 @@ export const resolveTargets = (target: string, extension = ".png") => {
  * directory. Kept so bare invocations behave the way the skills document.
  */
 export const defaultRoot = (explicit?: string) => {
-  if (explicit) {
+  if (explicit !== undefined && explicit !== "") {
     return explicit;
   }
 

@@ -29,7 +29,12 @@ const InstallPrompt = () => {
         </span>
       </FadeInBlur>
       <FadeInBlur>
-        <Button onClick={() => copy(INSTALL_PROMPT)} aria-label="Copy prompt to install">
+        <Button
+          onClick={async () => {
+            await copy(INSTALL_PROMPT);
+          }}
+          aria-label="Copy prompt to install"
+        >
           <RollingLabel words={["Copy Prompt", "Paste in your agent"]} index={copied ? 1 : 0} />
           <motion.span
             key={copied ? "check" : "copy"}
@@ -206,7 +211,12 @@ const OfferingsDeckDesktop = () => {
               style={{ backgroundColor: card.color }}
               className="h-full w-full rounded-[0.6em] p-5 text-black shadow-[0_20px_40px_-20px_rgba(0,0,0,0.8)]"
             >
-              <CardContent card={card} onActivate={() => setActiveIdx(i)} />
+              <CardContent
+                card={card}
+                onActivate={() => {
+                  setActiveIdx(i);
+                }}
+              />
             </motion.div>
           </motion.div>
         );
@@ -286,7 +296,12 @@ const OfferingsDeckMobile = () => {
               style={{ backgroundColor: card.color }}
               className="h-full w-full rounded-xl p-4 text-black shadow-[0_20px_40px_-20px_rgba(0,0,0,0.8)]"
             >
-              <CardContent card={card} onActivate={() => setActiveIdx(i)} />
+              <CardContent
+                card={card}
+                onActivate={() => {
+                  setActiveIdx(i);
+                }}
+              />
             </motion.div>
           </motion.div>
         );

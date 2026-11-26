@@ -372,7 +372,9 @@ test("the preview serves the zip under a folder, with the portal's CSP and the S
 
   const port = 20_000 + Math.floor(Math.random() * 20_000);
   const preview = await startPreview({ port, portal: youtube, zip });
-  t.after(() => preview.close());
+  t.after(async () => {
+    await preview.close();
+  });
 
   const index = await fetch(preview.gameUrl);
   assert.equal(index.headers.get("content-security-policy"), YT_SDK.csp);

@@ -18,7 +18,7 @@ const VIGNETTE_STEPS = 8;
  * leaked Graphics on scene reuse (Phaser keeps scene instances around).
  */
 export class EnergyBarrier {
-  private frame: Phaser.GameObjects.Graphics;
+  private readonly frame: Phaser.GameObjects.Graphics;
   /** Screen-space dark frame. Public: the scene counter-transforms it against
    *  camera zoom/roll along with its other screen-fixed objects. */
   readonly vignette: Phaser.GameObjects.Graphics;

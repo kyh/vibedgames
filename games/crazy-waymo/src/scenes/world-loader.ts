@@ -157,80 +157,79 @@ interface ParcelResolved {
   readonly source: ParcelSource | null;
 }
 
-const runGenWorker: () => Promise<CityGenPayload | null> = () =>
-  // oxlint-disable-next-line promise/avoid-new -- wraps the gen worker's message/error callbacks
-  new Promise((resolve) => {
-    try {
-      const worker = new Worker(new URL("../world/gen-worker.ts", import.meta.url), {
-        type: "module",
-      });
+const runGenWorker: () => Promise<CityGenPayload | null> = async () => {
+  const { promise, resolve } = Promise.withResolvers<CityGenPayload | null>();
+  try {
+    const worker = new Worker(new URL("../world/gen-worker.ts", import.meta.url), {
+      type: "module",
+    });
 
-      const timeout = new URLSearchParams(window.location.search).has("bake") ? 900_000 : 90_000;
+    const timeout = new URLSearchParams(window.location.search).has("bake") ? 900_000 : 90_000;
 
-      const bail = setTimeout(() => {
-        worker.terminate();
-        resolve(null);
-      }, timeout);
-
-      worker.addEventListener("message", (ev: MessageEvent<CityGenPayload>) => {
-        clearTimeout(bail);
-        worker.terminate();
-        writeWorldCache(ev.data);
-        resolve(ev.data);
-      });
-      worker.addEventListener("error", () => {
-        clearTimeout(bail);
-        worker.terminate();
-        resolve(null);
-      });
-    } catch {
+    const bail = setTimeout(() => {
+      worker.terminate();
       resolve(null);
-    }
-  });
+    }, timeout);
 
-const startGenWorker: () => Promise<CityGenPayload | null> = () => {
-  if (cityEdited()) {
-    return Promise.resolve(null);
+    worker.addEventListener("message", (ev: MessageEvent<CityGenPayload>) => {
+      clearTimeout(bail);
+      worker.terminate();
+      writeWorldCache(ev.data);
+      resolve(ev.data);
+    });
+    worker.addEventListener("error", () => {
+      clearTimeout(bail);
+      worker.terminate();
+      resolve(null);
+    });
+  } catch {
+    resolve(null);
   }
 
-  return readWorldCache().then((cached) => {
-    if (cached) {
-      return cached;
-    }
-
-    return runGenWorker();
-  });
+  return await promise;
 };
 
-const runParcelWorker: (source: ArrayBuffer) => Promise<ParcelPlanResult | null> = (source) => {
+const startGenWorker: () => Promise<CityGenPayload | null> = async () => {
+  if (cityEdited()) {
+    return null;
+  }
+
+  return (await readWorldCache()) ?? (await runGenWorker());
+};
+
+const runParcelWorker: (source: ArrayBuffer) => Promise<ParcelPlanResult | null> = async (
+  source,
+) => {
   const bytes = source.byteLength;
 
-  // oxlint-disable-next-line promise/avoid-new -- wraps the parcel worker's message/error callbacks
-  return new Promise((resolve) => {
-    try {
-      const worker = new Worker(new URL("../world/parcel-worker.ts", import.meta.url), {
-        type: "module",
-      });
+  const { promise, resolve } = Promise.withResolvers<ParcelPlanResult | null>();
+  try {
+    const worker = new Worker(new URL("../world/parcel-worker.ts", import.meta.url), {
+      type: "module",
+    });
 
-      worker.addEventListener("message", (ev: MessageEvent<ParcelWorkerResponse>) => {
-        const r = ev.data;
-        console.log(`[parcel-worker] planned ${r.plans.length} parcels in ${r.ms}ms`);
-        runAfterLoad(() => writeParcelPlanCache(bytes, r));
-        resolve(fromWorker(r));
-        worker.terminate();
+    worker.addEventListener("message", (ev: MessageEvent<ParcelWorkerResponse>) => {
+      const r = ev.data;
+      console.log(`[parcel-worker] planned ${r.plans.length} parcels in ${r.ms}ms`);
+      runAfterLoad(() => {
+        writeParcelPlanCache(bytes, r);
       });
-      worker.addEventListener("error", (e) => {
-        console.log(`[parcel-worker] failed: ${e.message}`);
-        resolve(null);
-        worker.terminate();
-      });
-      const req: ParcelWorkerRequest = { source };
-      worker.postMessage(req, [source]);
-    } catch (error) {
-      console.log(`[parcel-worker] unavailable: ${error instanceof Error ? error.message : error}`);
+      resolve(fromWorker(r));
+      worker.terminate();
+    });
+    worker.addEventListener("error", (e) => {
+      console.log(`[parcel-worker] failed: ${e.message}`);
       resolve(null);
-    }
-  });
+      worker.terminate();
+    });
+    const req: ParcelWorkerRequest = { source };
+    worker.postMessage(req, [source]);
+  } catch (error) {
+    console.log(`[parcel-worker] unavailable: ${error instanceof Error ? error.message : error}`);
+    resolve(null);
+  }
+
+  return await promise;
 };
 
 const resolveParcels: (
@@ -271,7 +270,7 @@ const resolveParcels: (
 const resolveGen: (
   bakedWorldPromise: Promise<CityGenPayload | null>,
 ) => Promise<CityGenPayload | null> = async (bakedWorldPromise) =>
-  (await bakedWorldPromise) ?? startGenWorker();
+  await ((await bakedWorldPromise) ?? startGenWorker());
 
 const resolveRest: (
   metaPromise: Promise<CityRestMeta | null>,
@@ -286,11 +285,12 @@ const resolveRest: (
   return { meta: null, rest: edited ? null : await readRestCache() };
 };
 
-const paint: () => Promise<void> = () =>
-  // oxlint-disable-next-line promise/avoid-new -- wraps the requestAnimationFrame + setTimeout callbacks
-  new Promise((resolve) => {
-    requestAnimationFrame(() => setTimeout(resolve, 0));
-  });
+const paint: () => Promise<void> = async () => {
+  const { promise, resolve } = Promise.withResolvers<void>();
+  requestAnimationFrame(() => setTimeout(resolve, 0));
+
+  await promise;
+};
 
 const warmupShaders = async (deps: WorldLoaderDeps) => {
   const renderer = deps.getRenderer();
@@ -438,7 +438,9 @@ const finishLoad = async (
 
   if (city.restCapture && !meta) {
     const { restCapture } = city;
-    runWhenIdle(() => writeRestCache(restCapture));
+    runWhenIdle(() => {
+      writeRestCache(restCapture);
+    });
   }
 
   await paint();
@@ -526,7 +528,7 @@ const storageGet = (key: string) => {
 export const loadWorld = async (deps: WorldLoaderDeps) => {
   const mapUrl = new URLSearchParams(window.location.search).get("map");
 
-  if (mapUrl) {
+  if (mapUrl !== null && mapUrl !== "") {
     try {
       const res = await fetch(mapUrl);
       const parsed = parseMapFile(await res.json());
