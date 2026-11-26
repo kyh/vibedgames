@@ -440,12 +440,21 @@ importers:
       '@kyh/tsconfig':
         specifier: 'catalog:'
         version: 1.3.0
+      '@repo/contract':
+        specifier: workspace:^
+        version: link:../../packages/contract
+      '@types/node':
+        specifier: 'catalog:'
+        version: 26.6.6
       cf:
         specifier: 'catalog:'
         version: 1.0.0-beta.12(@types/node@26.6.6)
       miniflare:
         specifier: 4.20260730.0
         version: 4.20260730.0
+      tsx:
+        specifier: ^4.23.15
+        version: 4.23.15
       typescript:
         specifier: 'catalog:'
         version: 7.0.2

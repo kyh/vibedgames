@@ -1,4 +1,7 @@
 import { createDb } from "@repo/db/drizzle-client";
+import type { Db } from "@repo/db/drizzle-client";
+
+import { assetCacheKey } from "./cache-key";
 
 import { contentTypeForPath } from "./content-type";
 import { injectFreshness, VERSION_PATH, versionResponse } from "./freshness";
@@ -41,22 +44,6 @@ const fromCache = (hit: Response) => {
   headers.set("content-encoding", encoding);
 
   return new Response(hit.body, { encodeBody: "manual", headers });
-};
-
-const assetCacheKey = (
-  url: URL,
-  deploymentId: string,
-  requestedPath: string,
-  compressed: boolean,
-) => {
-  const key = new URL(url.toString());
-  key.pathname = `/__asset/${deploymentId}/${requestedPath}`;
-
-  if (compressed) {
-    key.searchParams.set("__enc", "gzip");
-  }
-
-  return new Request(key.toString(), { method: "GET" });
 };
 
 const extractSlug = (host: string) => {
@@ -135,6 +122,43 @@ const serveHtml = async (page: HtmlPage) => {
   return new Response(injected, { headers });
 };
 
+const liveGame = async (db: Db, slug: string) => {
+  const g = await db.query.game.findFirst({
+    columns: { currentDeploymentId: true, id: true, name: true },
+    where: { slug },
+  });
+
+  const deploymentId = g?.currentDeploymentId;
+
+  return g === undefined ||
+    deploymentId === undefined ||
+    deploymentId === null ||
+    deploymentId === ""
+    ? null
+    : { deploymentId, id: g.id, name: g.name };
+};
+
+const assetHeaders = (contentType: string, requestedPath: string, cacheStatus: string) => {
+  const headers = new Headers();
+  headers.set("content-type", contentType);
+
+  const stablePath =
+    requestedPath.endsWith("index.html") || OG_IMAGE_CANDIDATES.includes(requestedPath);
+
+  headers.set(
+    "cache-control",
+    stablePath ? "public, max-age=60" : "public, max-age=31536000, immutable",
+  );
+  headers.set(
+    "content-security-policy",
+    "frame-ancestors 'self' https://vibedgames.com https://*.vibedgames.com http://localhost:* https://localhost:*",
+  );
+  headers.set("x-content-type-options", "nosniff");
+  headers.set("x-vg-cache", cacheStatus);
+
+  return headers;
+};
+
 /**
  * Static host for user-uploaded games.
  *
@@ -167,26 +191,18 @@ export default {
 
     const db = createDb(env.DB);
 
-    const g = await db.query.game.findFirst({
-      columns: { currentDeploymentId: true, id: true, name: true },
-      where: { slug },
-    });
+    const g = await liveGame(db, slug);
 
-    if (
-      g === undefined ||
-      g.currentDeploymentId === undefined ||
-      g.currentDeploymentId === null ||
-      g.currentDeploymentId === ""
-    ) {
+    if (g === null) {
       return notFound("Game not found");
     }
 
     if (url.pathname === VERSION_PATH) {
-      return versionResponse(g.currentDeploymentId);
+      return versionResponse(g.deploymentId);
     }
 
     const requestedPath = normalizePath(url.pathname);
-    const r2Key = `games/${g.id}/${g.currentDeploymentId}/${requestedPath}`;
+    const r2Key = `games/${g.id}/${g.deploymentId}/${requestedPath}`;
 
     const contentType = contentTypeForPath(requestedPath);
 
@@ -194,7 +210,7 @@ export default {
     const compress = COMPRESSIBLE_TYPES.has(contentType) && acceptsGzip(request);
     const cacheable = !isHtml && request.method === "GET";
 
-    const cacheKey = assetCacheKey(url, g.currentDeploymentId, requestedPath, compress);
+    const cacheKey = assetCacheKey(url, g.deploymentId, requestedPath, compress);
 
     if (cacheable) {
       const hit = await caches.default.match(cacheKey);
@@ -212,27 +228,12 @@ export default {
       return notFound("File not found");
     }
 
-    const headers = new Headers();
-    headers.set("content-type", contentType);
-
-    const stablePath =
-      requestedPath.endsWith("index.html") || OG_IMAGE_CANDIDATES.includes(requestedPath);
-
-    headers.set(
-      "cache-control",
-      stablePath ? "public, max-age=60" : "public, max-age=31536000, immutable",
-    );
-    headers.set(
-      "content-security-policy",
-      "frame-ancestors 'self' https://vibedgames.com https://*.vibedgames.com http://localhost:* https://localhost:*",
-    );
-    headers.set("x-content-type-options", "nosniff");
-    headers.set("x-vg-cache", cacheStatus);
+    const headers = assetHeaders(contentType, requestedPath, cacheStatus);
 
     if (isHtml) {
       return await serveHtml({
         db,
-        deploymentId: g.currentDeploymentId,
+        deploymentId: g.deploymentId,
         headers,
         host,
         html: await obj.text(),
