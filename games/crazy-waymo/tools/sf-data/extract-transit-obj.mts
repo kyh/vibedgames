@@ -3,7 +3,9 @@ import { createReadStream, mkdirSync, readFileSync, writeFileSync } from "node:f
 import path from "node:path";
 import { createInterface } from "node:readline";
 
-import { plLen, projU, projV, rdp, WORLD_H, WORLD_W } from "./lib.mts";
+import { at, plLen, projU, projV, rdp, WORLD_H, WORLD_W } from "./lib.mts";
+import type { Point } from "./lib.mts";
+import { readOverpass } from "./osm.mts";
 
 const [objPath, outArg] = process.argv.slice(2);
 const outPath = outArg ?? "transit.json";
@@ -13,14 +15,107 @@ if (objPath === undefined || objPath === "") {
   process.exit(1);
 }
 
+type Quad = readonly [number, number, number, number];
+
+interface Rec {
+  kind: string;
+  quads: Quad[];
+  susp: boolean;
+  tris: number;
+}
+
+interface Hit<P> {
+  d: number;
+  payload: P;
+  x: number;
+  z: number;
+}
+
+interface SegIndex<P> {
+  add: (ax: number, az: number, bx: number, bz: number, payload: P) => void;
+  count: () => number;
+  nearest: (px: number, pz: number, maxD: number) => Hit<P> | null;
+}
+
+interface GameNetwork {
+  edgeLen: number[];
+  edges: number;
+  genId: string;
+  idx: SegIndex<number>;
+}
+
+interface NamedStreets {
+  byName: Map<string, Point[][]>;
+  idx: SegIndex<string>;
+  ways: number;
+}
+
+interface Adjacency {
+  adj: Map<number, Set<number>>;
+  pos: Point[];
+}
+
+interface Corridor {
+  edges: number[];
+  lengthU: number;
+  street: string;
+}
+
+interface UvBox {
+  u0: number;
+  u1: number;
+  v0: number;
+  v1: number;
+}
+
+interface Route {
+  kind: string;
+  lengthU: number;
+  name: string;
+  pts: Point[];
+  snapped: true;
+  street: string | null;
+  uv: UvBox;
+}
+
+interface FailedLine {
+  kind: string;
+  name: string;
+  ok: false;
+  why: string;
+}
+
+interface RecoveredLine {
+  kind: string;
+  lengthKm: number;
+  lengthU: number;
+  maxRdpDeviationU: number;
+  name: string;
+  ok: true;
+  pts: Point[];
+  snapped: true;
+  terminalErrU: [number, number];
+  uv: UvBox;
+  viaStreets: string[];
+}
+
+type NamedLine = FailedLine | RecoveredLine;
+
+interface Extent {
+  u01: [number, number];
+  uFull: [number, number];
+  v01: [number, number];
+  vFull: [number, number];
+}
+
 const CAL = { bx: 325.2, bz: -400.5, sx: 0.17829, sz: 0.17909 };
 
-const toWorld = (mx: string | number | undefined, mz: string | number | undefined) => [
+const toWorld: (mx: number, mz: number) => Point = (mx, mz) => [
   mx * CAL.sx + CAL.bx,
   mz * CAL.sz + CAL.bz,
 ];
 
-const ANCHORS = [
+const ANCHORS: readonly (readonly [string, number, number, number, number])[] = [
   ["Salesforce", 2458.4, -2088.9, 760, -770.1],
   ["Transamerica", 1809.9, -2842.1, 644.9, -907.7],
 ];
@@ -42,7 +137,7 @@ const UNDERGROUND_MODES = new Set(["light_rail", "railway"]);
 
 const EMITTED_MODES = ["cable", "tram", "light_rail", "trolleybus", "railway"];
 
-const KIND_RE = [
+const KIND_RE: readonly (readonly [RegExp, string])[] = [
   [/^route_cable(?:_|$)/u, "cable"],
   [/^route_tram(?:_|$)/u, "tram"],
   [/^route_light_rail(?:_|$)/u, "light_rail"],
@@ -76,24 +171,18 @@ const segDist = (px: number, pz: number, ax: number, az: number, bx: number, bz:
   const qx = ax + t * dx;
   const qz = az + t * dz;
 
-  return [Math.hypot(px - qx, pz - qz), qx, qz];
+  return [Math.hypot(px - qx, pz - qz), qx, qz] as const;
 };
 
 const cellKey = (i: number, j: number) => `${i},${j}`;
 const edgeKey = (a: number, b: number) => (a < b ? `${a},${b}` : `${b},${a}`);
 
-const makeSegIndex = (cell: number) => {
-  const buckets = new Map();
-  const segs: any[][] = [];
+const makeSegIndex = <P,>(cell: number) => {
+  const buckets = new Map<string, number[]>();
+  const segs: (readonly [number, number, number, number, P])[] = [];
 
-  return {
-    add(
-      ax: number | undefined,
-      az: number | undefined,
-      bx: number | undefined,
-      bz: number | undefined,
-      payload: number | undefined,
-    ) {
+  const index: SegIndex<P> = {
+    add(ax, az, bx, bz, payload) {
       const id = segs.push([ax, az, bx, bz, payload]) - 1;
       const i0 = Math.floor(Math.min(ax, bx) / cell);
       const i1 = Math.floor(Math.max(ax, bx) / cell);
@@ -105,7 +194,7 @@ const makeSegIndex = (cell: number) => {
           const k = cellKey(i, j);
           let b = buckets.get(k);
 
-          if (!b) {
+          if (b === undefined) {
             b = [];
             buckets.set(k, b);
           }
@@ -115,25 +204,25 @@ const makeSegIndex = (cell: number) => {
       }
     },
     count: () => segs.length,
-    nearest(px: number | undefined, pz: number | undefined, maxD: number) {
+    nearest(px, pz, maxD) {
       const r = Math.ceil(maxD / cell);
       const ci = Math.floor(px / cell);
       const cj = Math.floor(pz / cell);
-      let best = null;
+      let best: Hit<P> | null = null;
 
       for (let i = ci - r; i <= ci + r; i += 1) {
         for (let j = cj - r; j <= cj + r; j += 1) {
           const b = buckets.get(cellKey(i, j));
 
-          if (!b) {
+          if (b === undefined) {
             continue;
           }
 
           for (const id of b) {
-            const s = segs[id];
+            const s = at(segs, id);
             const [d, qx, qz] = segDist(px, pz, s[0], s[1], s[2], s[3]);
 
-            if (d <= maxD && (!best || d < best.d)) {
+            if (d <= maxD && (best === null || d < best.d)) {
               best = { d, payload: s[4], x: qx, z: qz };
             }
           }
@@ -143,19 +232,31 @@ const makeSegIndex = (cell: number) => {
       return best;
     },
   };
+
+  return index;
 };
 
-const pct = (arr: string | any[], t: number) => {
+const setOf = (adj: ReadonlyMap<number, Set<number>>, n: number) => {
+  const s = adj.get(n);
+
+  if (s === undefined) {
+    throw new Error(`node ${n} is not in the graph`);
+  }
+
+  return s;
+};
+
+const pct = (arr: readonly number[], t: number) => {
   if (arr.length === 0) {
     return Number.NaN;
   }
 
-  const s = [...arr].toSorted((a, b) => a - b);
+  const s = arr.toSorted((a, b) => a - b);
 
-  return s[Math.min(s.length - 1, Math.floor(s.length * t))];
+  return at(s, Math.min(s.length - 1, Math.floor(s.length * t)));
 };
 
-const r1 = (n: unknown) => Math.round(n * 10) / 10;
+const r1 = (n: number) => Math.round(n * 10) / 10;
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const uOf = (x: number) => x / WORLD_W + 0.5;
 const vOf = (z: number) => z / WORLD_H + 0.5;
@@ -176,13 +277,13 @@ const loadGameNetwork = () => {
   const src = readFileSync(new URL("../../src/world/sf-network.ts", import.meta.url), "utf-8");
   const stamp = /NETWORK_GEN_ID = "(?<id>[^"]+)"/u.exec(src);
 
-  if (!stamp) {
+  if (stamp === null) {
     console.error("sf-network.ts carries no NETWORK_GEN_ID — cannot stamp the emitted module");
     process.exit(1);
   }
 
-  const idx = makeSegIndex(24);
-  const edgeLen = [];
+  const idx = makeSegIndex<number>(24);
+  const edgeLen: number[] = [];
 
   for (const m of src.matchAll(/p:\s*\[(?<nums>[-\d.,\s]+)\]/gu)) {
     const nums = (m.groups?.nums ?? "").split(",").map(Number);
@@ -190,8 +291,12 @@ const loadGameNetwork = () => {
     let L = 0;
 
     for (let i = 2; i + 1 < nums.length; i += 2) {
-      idx.add(nums[i - 2], nums[i - 1], nums[i], nums[i + 1], e);
-      L += Math.hypot(nums[i] - nums[i - 2], nums[i + 1] - nums[i - 1]);
+      const ax = at(nums, i - 2);
+      const az = at(nums, i - 1);
+      const bx = at(nums, i);
+      const bz = at(nums, i + 1);
+      idx.add(ax, az, bx, bz, e);
+      L += Math.hypot(bx - ax, bz - az);
     }
 
     edgeLen.push(L);
@@ -202,31 +307,33 @@ const loadGameNetwork = () => {
     process.exit(1);
   }
 
-  return { edgeLen, edges: edgeLen.length, genId: stamp.groups?.id ?? "", idx };
+  const net: GameNetwork = {
+    edgeLen,
+    edges: edgeLen.length,
+    genId: stamp.groups?.id ?? "",
+    idx,
+  };
+
+  return net;
 };
 
 const loadNamedStreets = () => {
-  const raw = JSON.parse(readFileSync(new URL("sf-streets.raw.json", import.meta.url), "utf-8"));
-  const idx = makeSegIndex(24);
-  const byName = new Map();
+  const raw = readOverpass(new URL("sf-streets.raw.json", import.meta.url));
+  const idx = makeSegIndex<string>(24);
+  const byName = new Map<string, Point[][]>();
   let ways = 0;
 
   for (const el of raw.elements) {
-    const name = el?.tags?.name;
+    const name = el.tags?.name;
 
-    if (!name || !el.geometry) {
+    if (name === undefined || name === "" || el.geometry === undefined) {
       continue;
     }
 
-    const pl = [];
-
-    for (const g of el.geometry) {
-      if (!g) {
-        continue;
-      }
-
-      pl.push([(projU(g.lon) - 0.5) * WORLD_W, (projV(g.lat) - 0.5) * WORLD_H]);
-    }
+    const pl = el.geometry.map<Point>((g) => [
+      (projU(g.lon) - 0.5) * WORLD_W,
+      (projV(g.lat) - 0.5) * WORLD_H,
+    ]);
 
     if (pl.length < 2) {
       continue;
@@ -235,42 +342,45 @@ const loadNamedStreets = () => {
     ways += 1;
 
     for (let i = 1; i < pl.length; i += 1) {
-      idx.add(pl[i - 1][0], pl[i - 1][1], pl[i][0], pl[i][1], name);
+      const [ax, az] = at(pl, i - 1);
+      const [bx, bz] = at(pl, i);
+      idx.add(ax, az, bx, bz, name);
     }
 
     let l = byName.get(name);
 
-    if (!l) {
-      byName.set(name, (l = []));
+    if (l === undefined) {
+      l = [];
+      byName.set(name, l);
     }
 
     l.push(pl);
   }
 
-  return { byName, idx, ways };
+  const streets: NamedStreets = { byName, idx, ways };
+
+  return streets;
 };
 
-const streetIntersection = (
-  streets: { byName: { get: (arg0: any) => any } },
-  nameA: any,
-  nameB: any,
-) => {
+const streetIntersection = (streets: NamedStreets, nameA: string, nameB: string) => {
   const A = streets.byName.get(nameA);
   const B = streets.byName.get(nameB);
 
-  if (!A || !B) {
+  if (A === undefined || B === undefined) {
     return null;
   }
 
-  let best = null;
+  let best: { d: number; x: number; z: number } | null = null;
 
   for (const pb of B) {
     for (const [px, pz] of pb) {
       for (const pa of A) {
         for (let i = 1; i < pa.length; i += 1) {
-          const [d, qx, qz] = segDist(px, pz, pa[i - 1][0], pa[i - 1][1], pa[i][0], pa[i][1]);
+          const [ax, az] = at(pa, i - 1);
+          const [bx, bz] = at(pa, i);
+          const [d, qx, qz] = segDist(px, pz, ax, az, bx, bz);
 
-          if (!best || d < best.d) {
+          if (best === null || d < best.d) {
             best = { d, x: (px + qx) / 2, z: (pz + qz) / 2 };
           }
         }
@@ -278,18 +388,28 @@ const streetIntersection = (
     }
   }
 
-  return best && best.d < XSEC_MAX ? best : null;
+  return best !== null && best.d < XSEC_MAX ? best : null;
 };
 
 const vx: number[] = [];
 const vy: number[] = [];
 const vz: number[] = [];
-const groups = new Map();
-let cur = null;
-let curRec: { tris: number; quads: number[][] } | null = null;
+const groups = new Map<string, Rec>();
+let curRec: Rec | null = null;
 let emptyGroups = 0;
 
 const rl = createInterface({ crlfDelay: Infinity, input: createReadStream(objPath) });
+
+const vertexId = (part: string) => {
+  const s = part.includes("/") ? part.slice(0, part.indexOf("/")) : part;
+  let id = Number(s);
+
+  if (id < 0) {
+    id = vx.length + 1 + id;
+  }
+
+  return id - 1;
+};
 
 rl.on("line", (l) => {
   const c0 = l.codePointAt(0);
@@ -307,7 +427,7 @@ rl.on("line", (l) => {
     vy.push(Number(l.slice(j + 1, k)));
     vz.push(Number(l.slice(k + 1)));
   } else if (c0 === 102 && l.codePointAt(1) === 32) {
-    if (!curRec) {
+    if (curRec === null) {
       return;
     }
 
@@ -319,29 +439,21 @@ rl.on("line", (l) => {
       return;
     }
 
-    const ids = [];
-
-    for (const p of parts) {
-      const s = p.includes("/") ? p.slice(0, p.indexOf("/")) : p;
-      let id = Number(s);
-
-      if (id < 0) {
-        id = vx.length + 1 + id;
-      }
-
-      ids.push(id - 1);
-    }
-
-    curRec.quads.push(ids);
+    curRec.quads.push([
+      vertexId(at(parts, 0)),
+      vertexId(at(parts, 1)),
+      vertexId(at(parts, 2)),
+      vertexId(at(parts, 3)),
+    ]);
   } else if (l.startsWith("o ") || l.startsWith("g ")) {
-    cur = l.slice(2).trim();
+    const cur = l.slice(2).trim();
     const kind = classify(cur);
     curRec = null;
 
-    if (kind) {
+    if (kind !== null) {
       let rec = groups.get(cur);
 
-      if (!rec) {
+      if (rec === undefined) {
         rec = { kind, quads: [], susp: cur.includes("suspended"), tris: 0 };
         groups.set(cur, rec);
       }
@@ -361,9 +473,9 @@ rl.on("close", () => {
   main();
 });
 
-const components = (adj: Map<any, any>) => {
-  const seen = new Set();
-  const out = [];
+const components = (adj: ReadonlyMap<number, ReadonlySet<number>>) => {
+  const seen = new Set<number>();
+  const out: number[] = [];
 
   for (const start of adj.keys()) {
     if (seen.has(start)) {
@@ -374,11 +486,10 @@ const components = (adj: Map<any, any>) => {
     const stack = [start];
     seen.add(start);
 
-    while (stack.length) {
-      const u = stack.pop();
+    for (let u = stack.pop(); u !== undefined; u = stack.pop()) {
       n += 1;
 
-      for (const v of adj.get(u)) {
+      for (const v of adj.get(u) ?? []) {
         if (!seen.has(v)) {
           seen.add(v);
           stack.push(v);
@@ -392,40 +503,43 @@ const components = (adj: Map<any, any>) => {
   return out.toSorted((a, b) => b - a);
 };
 
-const quadUpness = (f: any[]) => {
+const quadUpness = (f: Quad) => {
   let nx = 0;
   let ny = 0;
   let nz = 0;
 
   for (let i = 0; i < 4; i += 1) {
-    const a = f[i];
-    const b = f[(i + 1) % 4];
-    nx += (vy[a] - vy[b]) * (vz[a] + vz[b]);
-    ny += (vz[a] - vz[b]) * (vx[a] + vx[b]);
-    nz += (vx[a] - vx[b]) * (vy[a] + vy[b]);
+    const a = at(f, i);
+    const b = at(f, (i + 1) % 4);
+    nx += (at(vy, a) - at(vy, b)) * (at(vz, a) + at(vz, b));
+    ny += (at(vz, a) - at(vz, b)) * (at(vx, a) + at(vx, b));
+    nz += (at(vx, a) - at(vx, b)) * (at(vy, a) + at(vy, b));
   }
 
   return ny / (Math.hypot(nx, ny, nz) || 1);
 };
 
-const crossEdgesOf = (f: [any, any, any, any], ecount: Map<any, any>) => {
+type Pairing = readonly (readonly [number, number])[];
+
+const crossEdgesOf = (f: Quad, ecount: ReadonlyMap<string, number>) => {
   const [a, b, c, d] = f;
 
-  const pair1 = [
+  const pair1: Pairing = [
     [a, b],
     [c, d],
   ];
 
-  const pair2 = [
+  const pair2: Pairing = [
     [b, c],
     [d, a],
   ];
 
-  const s1 = ecount.get(edgeKey(a, b)) + ecount.get(edgeKey(c, d));
-  const s2 = ecount.get(edgeKey(b, c)) + ecount.get(edgeKey(d, a));
+  const count = (p: number, q: number) => ecount.get(edgeKey(p, q)) ?? 0;
+  const s1 = count(a, b) + count(c, d);
+  const s2 = count(b, c) + count(d, a);
 
   if (s1 === s2) {
-    const L = (p: string | number, q: string | number) => Math.hypot(vx[p] - vx[q], vz[p] - vz[q]);
+    const L = (p: number, q: number) => Math.hypot(at(vx, p) - at(vx, q), at(vz, p) - at(vz, q));
 
     return { byLength: true, cross: L(a, b) + L(c, d) < L(b, c) + L(d, a) ? pair1 : pair2 };
   }
@@ -433,23 +547,23 @@ const crossEdgesOf = (f: [any, any, any, any], ecount: Map<any, any>) => {
   return { byLength: false, cross: s1 > s2 ? pair1 : pair2 };
 };
 
-const meanY = (fs: any[]) => {
+const meanY = (fs: readonly Quad[]) => {
   let s = 0;
   let n = 0;
 
   for (const f of fs) {
     for (const id of f) {
-      s += vy[id];
+      s += at(vy, id);
       n += 1;
     }
   }
 
-  return n ? s / n : -1e9;
+  return n > 0 ? s / n : -1e9;
 };
 
-const buildGraph = (recs: any[]) => {
-  const horizA = [];
-  const horizB = [];
+const buildGraph = (recs: readonly Rec[]) => {
+  const horizA: Quad[] = [];
+  const horizB: Quad[] = [];
   let nonHoriz = 0;
 
   for (const rec of recs) {
@@ -469,27 +583,27 @@ const buildGraph = (recs: any[]) => {
   const top = meanY(horizA) >= meanY(horizB) ? horizA : horizB;
   const bottom = top === horizA ? horizB : horizA;
 
-  const ecount = new Map();
+  const ecount = new Map<string, number>();
 
   for (const f of top) {
     for (let i = 0; i < 4; i += 1) {
-      ecount.set(edgeKey(f[i], f[(i + 1) % 4]), 0);
+      ecount.set(edgeKey(at(f, i), at(f, (i + 1) % 4)), 0);
     }
   }
 
   for (const f of top) {
     for (let i = 0; i < 4; i += 1) {
-      const k = edgeKey(f[i], f[(i + 1) % 4]);
-      ecount.set(k, ecount.get(k) + 1);
+      const k = edgeKey(at(f, i), at(f, (i + 1) % 4));
+      ecount.set(k, (ecount.get(k) ?? 0) + 1);
     }
   }
 
   let byTopology = 0;
   let byLength = 0;
 
-  const buckets = new Map();
-  const pos: any[][] = [];
-  const adj = new Map();
+  const buckets = new Map<string, number[]>();
+  const pos: Point[] = [];
+  const adj = new Map<number, Set<number>>();
 
   const nodeAt = (mx: number, mz: number) => {
     const bi = Math.floor(mx / MERGE_R);
@@ -499,12 +613,14 @@ const buildGraph = (recs: any[]) => {
       for (let j = bj - 1; j <= bj + 1; j += 1) {
         const b = buckets.get(`${i},${j}`);
 
-        if (!b) {
+        if (b === undefined) {
           continue;
         }
 
         for (const id of b) {
-          if (Math.hypot(pos[id][0] - mx, pos[id][1] - mz) <= MERGE_R) {
+          const [px, pz] = at(pos, id);
+
+          if (Math.hypot(px - mx, pz - mz) <= MERGE_R) {
             return id;
           }
         }
@@ -516,7 +632,7 @@ const buildGraph = (recs: any[]) => {
     const k = `${bi},${bj}`;
     let b = buckets.get(k);
 
-    if (!b) {
+    if (b === undefined) {
       b = [];
       buckets.set(k, b);
     }
@@ -526,13 +642,13 @@ const buildGraph = (recs: any[]) => {
     return id;
   };
 
-  const link = (a: any, b: any) => {
+  const link = (a: number, b: number) => {
     if (a === b) {
       return;
     }
 
-    adj.get(a).add(b);
-    adj.get(b).add(a);
+    setOf(adj, a).add(b);
+    setOf(adj, b).add(a);
   };
 
   const widths: number[] = [];
@@ -547,12 +663,12 @@ const buildGraph = (recs: any[]) => {
     }
 
     const mids = cross.map(([p, q]) => {
-      widths.push(Math.hypot(vx[p] - vx[q], vz[p] - vz[q]));
+      widths.push(Math.hypot(at(vx, p) - at(vx, q), at(vz, p) - at(vz, q)));
 
-      return nodeAt((vx[p] + vx[q]) / 2, (vz[p] + vz[q]) / 2);
+      return nodeAt((at(vx, p) + at(vx, q)) / 2, (at(vz, p) + at(vz, q)) / 2);
     });
 
-    link(mids[0], mids[1]);
+    link(at(mids, 0), at(mids, 1));
   }
 
   const compSizes = components(adj);
@@ -576,36 +692,32 @@ const buildGraph = (recs: any[]) => {
   };
 };
 
-const snapNodes = (
-  g: { pos: any },
-  net: {
-    idx: { nearest: (arg0: number | undefined, arg1: number | undefined, arg2: number) => any };
-  },
-  streets: { idx: { nearest: (arg0: any, arg1: any, arg2: number) => any } },
-) => {
-  const preD = [];
-  const placed = [];
-  const coveredEdges = new Set();
-  const edgeVotes = new Map();
+type ModelGraph = ReturnType<typeof buildGraph>;
+
+const snapNodes = (g: Readonly<Adjacency>, net: GameNetwork, streets: NamedStreets) => {
+  const preD: number[] = [];
+  const placed: Point[] = [];
+  const coveredEdges = new Set<number>();
+  const edgeVotes = new Map<number, Map<string, number>>();
   let snapped = 0;
 
   for (const [mx, mz] of g.pos) {
     const [x, z] = toWorld(mx, mz);
     const hit = net.idx.nearest(x, z, MEASURE_MAX);
-    preD.push(hit ? hit.d : MEASURE_MAX);
+    preD.push(hit === null ? MEASURE_MAX : hit.d);
 
-    if (hit && hit.d <= SNAP_MAX) {
+    if (hit !== null && hit.d <= SNAP_MAX) {
       placed.push([hit.x, hit.z]);
       coveredEdges.add(hit.payload);
       const nameHit = streets.idx.nearest(hit.x, hit.z, NAME_MAX);
       let votes = edgeVotes.get(hit.payload);
 
-      if (!votes) {
+      if (votes === undefined) {
         votes = new Map();
         edgeVotes.set(hit.payload, votes);
       }
 
-      const nm = nameHit ? nameHit.payload : "";
+      const nm = nameHit === null ? "" : nameHit.payload;
       votes.set(nm, (votes.get(nm) ?? 0) + 1);
       snapped += 1;
     } else {
@@ -616,38 +728,16 @@ const snapNodes = (
   return { coveredEdges, edgeVotes, placed, preD, snapped };
 };
 
-const consolidate = (
-  g: {
-    adj: any;
-    pos?: any[];
-    stats?: {
-      biggestComponents: number[];
-      bottomQuads: number;
-      components: number;
-      nodes: number;
-      nonHorizQuads: number;
-      pairedByLength: number;
-      pairedByTopology: number;
-      quads: number;
-      ribbonWidthModel: number;
-      ribbonWidthWorld: number;
-      topQuads: number;
-    };
-  },
-  net: any,
-  streets: any,
-) => {
+const consolidate = (g: ModelGraph, net: GameNetwork, streets: NamedStreets) => {
   const { coveredEdges, edgeVotes, placed, preD, snapped } = snapNodes(g, net, streets);
-  const buckets = new Map();
-  const pos = [];
+  const buckets = new Map<string, number[]>();
+  const pos: Point[] = [];
   const remap = new Int32Array(placed.length);
-
-  const order = [...placed.keys()].toSorted(
-    (a, b) => (preD[a] <= SNAP_MAX ? 0 : 1) - (preD[b] <= SNAP_MAX ? 0 : 1) || a - b,
-  );
+  const snapRank = (i: number) => (at(preD, i) <= SNAP_MAX ? 0 : 1);
+  const order = [...placed.keys()].toSorted((a, b) => snapRank(a) - snapRank(b) || a - b);
 
   for (const i of order) {
-    const [x, z] = placed[i];
+    const [x, z] = at(placed, i);
     const bi = Math.floor(x / MERGE_W);
     const bj = Math.floor(z / MERGE_W);
     let found = -1;
@@ -655,7 +745,9 @@ const consolidate = (
     for (let a = bi - 1; a <= bi + 1 && found < 0; a += 1) {
       for (let b = bj - 1; b <= bj + 1 && found < 0; b += 1) {
         for (const id of buckets.get(`${a},${b}`) ?? []) {
-          if (Math.hypot(pos[id][0] - x, pos[id][1] - z) <= MERGE_W) {
+          const [px, pz] = at(pos, id);
+
+          if (Math.hypot(px - x, pz - z) <= MERGE_W) {
             found = id;
             break;
           }
@@ -668,7 +760,7 @@ const consolidate = (
       const k = `${bi},${bj}`;
       let b = buckets.get(k);
 
-      if (!b) {
+      if (b === undefined) {
         b = [];
         buckets.set(k, b);
       }
@@ -679,7 +771,7 @@ const consolidate = (
     remap[i] = found;
   }
 
-  const adj = new Map();
+  const adj = new Map<number, Set<number>>();
 
   for (let i = 0; i < pos.length; i += 1) {
     adj.set(i, new Set());
@@ -687,15 +779,15 @@ const consolidate = (
 
   for (const [a, nbrs] of g.adj) {
     for (const b of nbrs) {
-      const ra = remap[a];
-      const rb = remap[b];
+      const ra = at(remap, a);
+      const rb = at(remap, b);
 
       if (ra === rb) {
         continue;
       }
 
-      adj.get(ra).add(rb);
-      adj.get(rb).add(ra);
+      setOf(adj, ra).add(rb);
+      setOf(adj, rb).add(ra);
     }
   }
 
@@ -711,8 +803,21 @@ const consolidate = (
   };
 };
 
-const buildCorridors = (edgeVotes: any, net: { edgeLen: { [x: string]: any } }) => {
-  const byStreet = new Map();
+type WorldGraph = ReturnType<typeof consolidate>;
+
+const byText = (a: string, b: string) => {
+  if (a < b) {
+    return -1;
+  }
+
+  return a > b ? 1 : 0;
+};
+
+const buildCorridors = (
+  edgeVotes: ReadonlyMap<number, ReadonlyMap<string, number>>,
+  net: GameNetwork,
+) => {
+  const byStreet = new Map<string, number[]>();
 
   for (const [edge, votes] of edgeVotes) {
     let street = "";
@@ -727,20 +832,21 @@ const buildCorridors = (edgeVotes: any, net: { edgeLen: { [x: string]: any } }) 
 
     let list = byStreet.get(street);
 
-    if (!list) {
-      byStreet.set(street, (list = []));
+    if (list === undefined) {
+      list = [];
+      byStreet.set(street, list);
     }
 
     list.push(edge);
   }
 
-  const out = [];
+  const out: Corridor[] = [];
 
   for (const [street, edges] of byStreet) {
-    edges.sort((a: number, b: number) => a - b);
+    edges.sort((a, b) => a - b);
     out.push({
       edges,
-      lengthU: r1(edges.reduce((s: any, e: string | number) => s + net.edgeLen[e], 0)),
+      lengthU: r1(edges.reduce((s, e) => s + at(net.edgeLen, e), 0)),
       street,
     });
   }
@@ -750,16 +856,11 @@ const buildCorridors = (edgeVotes: any, net: { edgeLen: { [x: string]: any } }) 
   return out;
 };
 
-const edgeLoad = (
-  recs: any[],
-  net: {
-    idx: { nearest: (arg0: number | undefined, arg1: number | undefined, arg2: number) => any };
-  },
-) => {
-  const load = new Map();
+const edgeLoad = (recs: readonly Rec[], net: GameNetwork) => {
+  const load = new Map<number, number>();
 
   for (const rec of recs) {
-    const ids = new Set();
+    const ids = new Set<number>();
 
     for (const f of rec.quads) {
       for (const id of f) {
@@ -767,13 +868,13 @@ const edgeLoad = (
       }
     }
 
-    const edges = new Set();
+    const edges = new Set<number>();
 
     for (const id of ids) {
-      const [x, z] = toWorld(vx[id], vz[id]);
+      const [x, z] = toWorld(at(vx, id), at(vz, id));
       const hit = net.idx.nearest(x, z, SNAP_MAX);
 
-      if (hit) {
+      if (hit !== null) {
         edges.add(hit.payload);
       }
     }
@@ -786,22 +887,12 @@ const edgeLoad = (
   return load;
 };
 
-const traceStrokes = (
-  g: {
-    adj: any;
-    coveredEdges?: Set<unknown>;
-    edgeVotes?: Map<any, any>;
-    merged?: number;
-    points?: number;
-    pos: any;
-    preD?: any[];
-    snapped?: number;
-  },
-  labelOf: { (a: any, b: any): any; (arg0: any, arg1: any): any },
-) => {
+type LabelOf = (a: number, b: number) => string | null;
+
+const traceStrokes = (g: Readonly<Adjacency>, labelOf: LabelOf) => {
   const { pos, adj } = g;
-  const used = new Set();
-  const edges = [];
+  const used = new Set<string>();
+  const edges: (readonly [number, number])[] = [];
 
   for (const [a, nbrs] of adj) {
     for (const b of nbrs) {
@@ -813,15 +904,17 @@ const traceStrokes = (
 
   edges.sort((p, q) => p[0] - q[0] || p[1] - q[1]);
 
-  const dirOf = (from: string | number, to: string | number) => {
-    const dx = pos[to][0] - pos[from][0];
-    const dz = pos[to][1] - pos[from][1];
+  const dirOf = (from: number, to: number) => {
+    const [tx, tz] = at(pos, to);
+    const [fx, fz] = at(pos, from);
+    const dx = tx - fx;
+    const dz = tz - fz;
     const l = Math.hypot(dx, dz) || 1;
 
-    return [dx / l, dz / l];
+    return [dx / l, dz / l] as const;
   };
 
-  const extend = (out: any[], from: any, start: any, label: any) => {
+  const extend = (out: number[], from: number, start: number, label: string | null) => {
     let prev = from;
     let node = start;
 
@@ -829,7 +922,7 @@ const traceStrokes = (
       const [dx, dz] = dirOf(prev, node);
       let best = -1;
       let bestDot = STROKE_TURN;
-      const cands = [...adj.get(node)].toSorted((a, b) => a - b);
+      const cands = [...(adj.get(node) ?? [])].toSorted((a, b) => a - b);
 
       for (const n of cands) {
         if (n === prev || used.has(edgeKey(node, n))) {
@@ -864,7 +957,7 @@ const traceStrokes = (
     }
   };
 
-  const strokes = [];
+  const strokes: { ids: number[]; label: string | null }[] = [];
 
   for (const [a, b] of edges) {
     if (used.has(edgeKey(a, b))) {
@@ -883,9 +976,9 @@ const traceStrokes = (
   return strokes;
 };
 
-const clipToWorld = (pts: any) => {
-  const out = [];
-  let run = [];
+const clipToWorld = (pts: readonly Point[]) => {
+  const out: Point[][] = [];
+  let run: Point[] = [];
 
   for (const p of pts) {
     if (Math.abs(p[0]) <= WORLD_W / 2 && Math.abs(p[1]) <= WORLD_H / 2) {
@@ -906,12 +999,14 @@ const clipToWorld = (pts: any) => {
   return out;
 };
 
-const rdpSafe = (pts: any[], eps: number) => {
+const rdpSafe = (pts: readonly Point[], eps: number) => {
   if (pts.length <= 2) {
-    return pts;
+    return [...pts];
   }
 
-  const chord = Math.hypot(pts[0][0] - pts.at(-1)[0], pts[0][1] - pts.at(-1)[1]);
+  const [x0, z0] = at(pts, 0);
+  const [xn, zn] = at(pts, pts.length - 1);
+  const chord = Math.hypot(x0 - xn, z0 - zn);
 
   if (chord > 0.05 * plLen(pts)) {
     return rdp(pts, eps);
@@ -921,7 +1016,8 @@ const rdpSafe = (pts: any[], eps: number) => {
   let fd = -1;
 
   for (let i = 1; i < pts.length; i += 1) {
-    const d = Math.hypot(pts[i][0] - pts[0][0], pts[i][1] - pts[0][1]);
+    const [x, z] = at(pts, i);
+    const d = Math.hypot(x - x0, z - z0);
 
     if (d > fd) {
       fd = d;
@@ -939,19 +1035,21 @@ const rdpSafe = (pts: any[], eps: number) => {
   return [...l.slice(0, -1), ...r];
 };
 
-const shortestPath = (
-  g: { adj: { get: (arg0: any) => any }; pos: { [x: string]: any } },
-  from: number,
-  to: unknown,
-) => {
+const shortestPath = (g: Readonly<Adjacency>, from: number, to: number) => {
   const dist = new Map([[from, 0]]);
-  const prev = new Map();
-  const seen = new Set();
-  const queue = [[0, from]];
+  const prev = new Map<number, number>();
+  const seen = new Set<number>();
+  const queue: (readonly [number, number])[] = [[0, from]];
 
-  while (queue.length) {
+  for (;;) {
     queue.sort((a, b) => a[0] - b[0]);
-    const [d, u] = queue.shift();
+    const head = queue.shift();
+
+    if (head === undefined) {
+      break;
+    }
+
+    const [d, u] = head;
 
     if (seen.has(u)) {
       continue;
@@ -963,13 +1061,15 @@ const shortestPath = (
       break;
     }
 
-    for (const v of g.adj.get(u)) {
+    const [ux, uz] = at(g.pos, u);
+
+    for (const v of g.adj.get(u) ?? []) {
       if (seen.has(v)) {
         continue;
       }
 
-      const w = Math.hypot(g.pos[u][0] - g.pos[v][0], g.pos[u][1] - g.pos[v][1]);
-      const nd = d + w;
+      const [vx2, vz2] = at(g.pos, v);
+      const nd = d + Math.hypot(ux - vx2, uz - vz2);
 
       if (nd < (dist.get(v) ?? Infinity)) {
         dist.set(v, nd);
@@ -983,10 +1083,10 @@ const shortestPath = (
     return null;
   }
 
-  const out = [];
+  const out: Point[] = [];
 
-  for (let c = to; c !== undefined; c = prev.get(c)) {
-    out.push(g.pos[c]);
+  for (let c: number | undefined = to; c !== undefined; c = prev.get(c)) {
+    out.push(at(g.pos, c));
 
     if (c === from) {
       break;
@@ -996,12 +1096,12 @@ const shortestPath = (
   return out.toReversed();
 };
 
-const nearestNode = (g: { pos: string | any[] }, x: number, z: number) => {
+const nearestNode = (g: Readonly<Pick<Adjacency, "pos">>, x: number, z: number) => {
   let best = -1;
   let bd = Infinity;
 
-  for (let i = 0; i < g.pos.length; i += 1) {
-    const d = Math.hypot(g.pos[i][0] - x, g.pos[i][1] - z);
+  for (const [i, [px, pz]] of g.pos.entries()) {
+    const d = Math.hypot(px - x, pz - z);
 
     if (d < bd) {
       bd = d;
@@ -1012,14 +1112,16 @@ const nearestNode = (g: { pos: string | any[] }, x: number, z: number) => {
   return { d: bd, id: best };
 };
 
-const maxDeviation = (src: any[], simp: string | any[]) => {
+const maxDeviation = (src: readonly Point[], simp: readonly Point[]) => {
   let worst = 0;
 
   for (const [px, pz] of src) {
     let d = Infinity;
 
     for (let i = 1; i < simp.length; i += 1) {
-      const [dd] = segDist(px, pz, simp[i - 1][0], simp[i - 1][1], simp[i][0], simp[i][1]);
+      const [ax, az] = at(simp, i - 1);
+      const [bx, bz] = at(simp, i);
+      const [dd] = segDist(px, pz, ax, az, bx, bz);
 
       if (dd < d) {
         d = dd;
@@ -1047,14 +1149,21 @@ const checkAnchors = () => {
   }
 };
 
+interface KindGroup {
+  graph: WorldGraph | null;
+  live: Rec[];
+  names: string[];
+  susp: Rec[];
+}
+
 const inventory = () => {
-  const byKind = new Map();
+  const byKind = new Map<string, KindGroup>();
 
   for (const [gname, rec] of groups) {
     let k = byKind.get(rec.kind);
 
-    if (!k) {
-      k = { live: [], names: [], susp: [] };
+    if (k === undefined) {
+      k = { graph: null, live: [], names: [], susp: [] };
       byKind.set(rec.kind, k);
     }
 
@@ -1066,7 +1175,7 @@ const inventory = () => {
   let totalQuads = 0;
   let totalTris = 0;
 
-  for (const [kind, k] of [...byKind].toSorted()) {
+  for (const [kind, k] of [...byKind].toSorted((a, b) => byText(a[0], b[0]))) {
     const q = [...k.live, ...k.susp].reduce((s, r) => s + r.quads.length, 0);
     const t = [...k.live, ...k.susp].reduce((s, r) => s + r.tris, 0);
     totalQuads += q;
@@ -1083,43 +1192,8 @@ const inventory = () => {
   return { byKind, totalQuads, totalTris };
 };
 
-const dedupeSuspended = (
-  gLive: {
-    adj: any;
-    pos: any;
-    stats?: {
-      biggestComponents: number[];
-      bottomQuads: number;
-      components: number;
-      nodes: number;
-      nonHorizQuads: number;
-      pairedByLength: number;
-      pairedByTopology: number;
-      quads: number;
-      ribbonWidthModel: number;
-      ribbonWidthWorld: number;
-      topQuads: number;
-    };
-  },
-  gSusp: {
-    adj?: Map<any, any>;
-    pos: any;
-    stats?: {
-      biggestComponents: number[];
-      bottomQuads: number;
-      components: number;
-      nodes: number;
-      nonHorizQuads: number;
-      pairedByLength: number;
-      pairedByTopology: number;
-      quads: number;
-      ribbonWidthModel: number;
-      ribbonWidthWorld: number;
-      topQuads: number;
-    };
-  },
-) => {
-  const liveIdx = makeSegIndex(24);
+const dedupeSuspended = (gLive: Readonly<Adjacency>, gSusp: Readonly<Adjacency>) => {
+  const liveIdx = makeSegIndex<undefined>(24);
 
   for (const [a, nbrs] of gLive.adj) {
     for (const b of nbrs) {
@@ -1127,9 +1201,9 @@ const dedupeSuspended = (
         continue;
       }
 
-      const [ax, az] = toWorld(...gLive.pos[a]);
-      const [bx, bz] = toWorld(...gLive.pos[b]);
-      liveIdx.add(ax, az, bx, bz);
+      const [ax, az] = toWorld(...at(gLive.pos, a));
+      const [bx, bz] = toWorld(...at(gLive.pos, b));
+      liveIdx.add(ax, az, bx, bz, undefined);
     }
   }
 
@@ -1140,17 +1214,22 @@ const dedupeSuspended = (
     const [x, z] = toWorld(p[0], p[1]);
     tot += 1;
 
-    if (liveIdx.nearest(x, z, DEDUPE_D)) {
+    if (liveIdx.nearest(x, z, DEDUPE_D) !== null) {
       hit += 1;
     }
   }
 
-  const frac = tot ? hit / tot : 0;
-  const dedupe = { radiusU: DEDUPE_D, suspendedPoints: tot, withinLive: r2(frac) };
+  const frac = tot > 0 ? hit / tot : 0;
   console.log(
     `  suspended-vs-live overlap: ${(frac * 100).toFixed(1)}% of suspended points sit within ${DEDUPE_D}u of live track`,
   );
-  dedupe.dropped = frac >= DEDUPE_FRAC;
+
+  const dedupe = {
+    radiusU: DEDUPE_D,
+    suspendedPoints: tot,
+    withinLive: r2(frac),
+    dropped: frac >= DEDUPE_FRAC,
+  };
 
   if (dedupe.dropped) {
     console.log(`  -> suspended variant DROPPED as a duplicate`);
@@ -1161,33 +1240,19 @@ const dedupeSuspended = (
   return dedupe;
 };
 
-const edgeLabeller = (
-  g: {
-    adj: any;
-    coveredEdges?: Set<unknown>;
-    edgeVotes?: Map<any, any>;
-    merged?: number;
-    points?: number;
-    pos: any;
-    preD?: any[];
-    snapped?: number;
-  },
-  streets: { idx: { nearest: (arg0: number, arg1: number, arg2: number) => any } },
-) => {
-  const labelCache = new Map();
+const edgeLabeller = (g: Readonly<Adjacency>, streets: NamedStreets) => {
+  const labelCache = new Map<string, string | null>();
 
-  const labelOf = (a: string | number, b: string | number) => {
+  const labelOf: LabelOf = (a, b) => {
     const key = edgeKey(a, b);
     let l = labelCache.get(key);
 
     if (l === undefined) {
-      const hit = streets.idx.nearest(
-        (g.pos[a][0] + g.pos[b][0]) / 2,
-        (g.pos[a][1] + g.pos[b][1]) / 2,
-        NAME_MAX,
-      );
+      const [ax, az] = at(g.pos, a);
+      const [bx, bz] = at(g.pos, b);
+      const hit = streets.idx.nearest((ax + bx) / 2, (az + bz) / 2, NAME_MAX);
 
-      l = hit ? hit.payload : null;
+      l = hit === null ? null : hit.payload;
       labelCache.set(key, l);
     }
 
@@ -1207,44 +1272,41 @@ const edgeLabeller = (
   return { labelOf, unlabelled };
 };
 
-const uvBox = (pts: any[]) => ({
-  u0: r2(uOf(Math.min(...pts.map((p: any[]) => p[0])))),
-  u1: r2(uOf(Math.max(...pts.map((p: any[]) => p[0])))),
-  v0: r2(vOf(Math.min(...pts.map((p: any[]) => p[1])))),
-  v1: r2(vOf(Math.max(...pts.map((p: any[]) => p[1])))),
-});
+const uvBox = (pts: readonly Point[]) => {
+  const box: UvBox = {
+    u0: r2(uOf(Math.min(...pts.map((p) => p[0])))),
+    u1: r2(uOf(Math.max(...pts.map((p) => p[0])))),
+    v0: r2(vOf(Math.min(...pts.map((p) => p[1])))),
+    v1: r2(vOf(Math.max(...pts.map((p) => p[1])))),
+  };
 
-const distStats = (ds: any[]) => ({
+  return box;
+};
+
+const distStats = (ds: readonly number[]) => ({
   max: r2(Math.max(...ds)),
   p50: r2(pct(ds, 0.5)),
   p90: r2(pct(ds, 0.9)),
   p99: r2(pct(ds, 0.99)),
 });
 
+const roundPts = (pts: readonly Point[]) => pts.map<Point>(([x, z]) => [r1(x), r1(z)]);
+
 const emitStrokes = (
-  kind: any,
-  strokes: { ids: any[]; label: any }[],
-  g: {
-    adj?: Map<any, any>;
-    coveredEdges?: Set<unknown>;
-    edgeVotes?: Map<any, any>;
-    merged?: number;
-    points?: number;
-    pos: any;
-    preD?: any[];
-    snapped?: number;
-  },
-  net: { idx: { nearest: (arg0: any, arg1: any, arg2: number) => any } },
+  kind: string,
+  strokes: readonly { ids: readonly number[]; label: string | null }[],
+  g: Readonly<Pick<Adjacency, "pos">>,
+  net: GameNetwork,
 ) => {
-  const emitted = [];
-  const postD = [];
+  const emitted: Route[] = [];
+  const postD: number[] = [];
   let rawPts = 0;
   let simpPts = 0;
   let worstDev = 0;
   let dropped = 0;
 
   for (const st of strokes) {
-    const world = st.ids.map((i: string | number) => g.pos[i]);
+    const world = st.ids.map((i) => at(g.pos, i));
 
     for (const pts of clipToWorld(world)) {
       if (plLen(pts) < MIN_CHAIN_U) {
@@ -1254,7 +1316,7 @@ const emitStrokes = (
 
       for (const [x, z] of pts) {
         const hit = net.idx.nearest(x, z, MEASURE_MAX);
-        postD.push(hit ? hit.d : MEASURE_MAX);
+        postD.push(hit === null ? MEASURE_MAX : hit.d);
       }
 
       rawPts += pts.length;
@@ -1264,8 +1326,8 @@ const emitStrokes = (
       emitted.push({
         kind,
         lengthU: r1(plLen(simp)),
-        name: st.label ? `${kind}: ${st.label}` : `${kind}: unnamed`,
-        pts: simp.map(([x, z]) => [r1(x), r1(z)]),
+        name: st.label !== null && st.label !== "" ? `${kind}: ${st.label}` : `${kind}: unnamed`,
+        pts: roundPts(simp),
         snapped: true,
         street: st.label,
         uv: uvBox(simp),
@@ -1276,21 +1338,11 @@ const emitStrokes = (
   return { dropped, emitted, postD, rawPts, simpPts, worstDev };
 };
 
-const topStreetsOf = (
-  emitted: {
-    kind: any;
-    lengthU: number;
-    name: string;
-    pts: any;
-    snapped: boolean;
-    street: any;
-    uv: { u0: number; u1: number; v0: number; v1: number };
-  }[],
-) => {
-  const topStreets = new Map();
+const topStreetsOf = (emitted: readonly Route[]) => {
+  const topStreets = new Map<string, number>();
 
   for (const e of emitted) {
-    if (e.street) {
+    if (e.street !== null && e.street !== "") {
       topStreets.set(e.street, (topStreets.get(e.street) ?? 0) + e.lengthU);
     }
   }
@@ -1298,20 +1350,7 @@ const topStreetsOf = (
   return [...topStreets].toSorted((a, b) => b[1] - a[1]).slice(0, 10);
 };
 
-const surfaceCorridors = (
-  kind: string,
-  g: {
-    adj?: Map<any, any>;
-    coveredEdges?: Set<unknown>;
-    edgeVotes: any;
-    merged?: number;
-    points?: number;
-    pos?: any[][];
-    preD?: any[];
-    snapped?: number;
-  },
-  net: any,
-) => {
+const surfaceCorridors = (kind: string, g: WorldGraph, net: GameNetwork) => {
   const all = buildCorridors(g.edgeVotes, net);
 
   const filt = UNDERGROUND_MODES.has(kind)
@@ -1329,19 +1368,10 @@ const surfaceCorridors = (
 };
 
 const tallyBusLoad = (
-  k: { live: any; susp: any },
-  g: {
-    adj?: Map<any, any>;
-    coveredEdges: any;
-    edgeVotes?: Map<any, any>;
-    merged?: number;
-    points?: number;
-    pos?: any[][];
-    preD?: any[];
-    snapped?: number;
-  },
-  net: any,
-  busLoad: { set: (arg0: any, arg1: any) => void; values: () => any; size: any },
+  k: KindGroup,
+  g: WorldGraph,
+  net: GameNetwork,
+  busLoad: Map<number, number>,
 ) => {
   const raw = edgeLoad([...k.live, ...k.susp], net);
 
@@ -1355,9 +1385,9 @@ const tallyBusLoad = (
   );
 };
 
-const worldGraphOf = (kind: any, k: { live: any[]; susp: any[] }) => {
-  const liveHas = k.live.some((r: { quads: string | any[] }) => r.quads.length > 0);
-  const suspHas = k.susp.some((r: { quads: string | any[] }) => r.quads.length > 0);
+const worldGraphOf = (kind: string, k: KindGroup) => {
+  const liveHas = k.live.some((r) => r.quads.length > 0);
+  const suspHas = k.susp.some((r) => r.quads.length > 0);
 
   if (!liveHas && !suspHas) {
     return null;
@@ -1367,57 +1397,78 @@ const worldGraphOf = (kind: any, k: { live: any[]; susp: any[] }) => {
   const gLive = liveHas ? buildGraph(k.live) : null;
   const gSusp = suspHas ? buildGraph(k.susp) : null;
 
-  if (gLive) {
+  if (gLive !== null) {
     console.log(`  live      : ${JSON.stringify(gLive.stats)}`);
   }
 
-  if (gSusp) {
+  if (gSusp !== null) {
     console.log(`  suspended : ${JSON.stringify(gSusp.stats)}`);
   }
 
-  const dedupe = gLive && gSusp ? dedupeSuspended(gLive, gSusp) : null;
+  const dedupe = gLive !== null && gSusp !== null ? dedupeSuspended(gLive, gSusp) : null;
   const keep = [...k.live];
 
-  if (gSusp && !dedupe?.dropped) {
+  if (gSusp !== null && dedupe?.dropped !== true) {
     keep.push(...k.susp);
   }
 
-  const gm = keep.length === k.live.length && gLive ? gLive : buildGraph(keep);
+  const gm = keep.length === k.live.length && gLive !== null ? gLive : buildGraph(keep);
 
   return { dedupe, gm };
 };
 
-const processKind = (
-  kind: string,
-  k: {
-    live: string | any[];
-    names: string | any[];
-    susp: string | any[];
-    graph: {
-      adj: Map<any, any>;
-      coveredEdges: Set<unknown>;
-      edgeVotes: Map<any, any>;
-      merged: number;
-      points: number;
-      pos: any[][];
-      preD: any[];
-      snapped: number;
-    };
-  },
-  ctx: {
-    busLoad?: any;
-    corridors?: any;
-    coverage?: any;
-    kindStats?: any;
-    net?: any;
-    routes?: any;
-    streets?: any;
-  },
-) => {
+type DistStats = ReturnType<typeof distStats>;
+
+interface KindStats {
+  biggestComponentsAfterConsolidation: number[];
+  componentsAfterConsolidation: number;
+  corridorKm: number;
+  corridorLengthU: number;
+  dedupe: ReturnType<typeof dedupeSuspended> | null;
+  distToAsphaltAfter: DistStats;
+  distToAsphaltBefore: DistStats;
+  droppedFragments: number;
+  gameEdgeLengthU: number;
+  gameEdgesCovered: number;
+  live: number;
+  maxRdpDeviationU: number;
+  mergeW: number;
+  nodesMergedByDirection: number;
+  nodesModel: number;
+  nodesWorld: number;
+  objects: number;
+  pointsRaw: number;
+  pointsSimplified: number;
+  rdpEps: number;
+  snapCapU: number;
+  snappedFrac: number;
+  strokes: number;
+  suspended: number;
+  topStreets: (readonly [string, number])[];
+  unlabelledEdges: number;
+  surfaceCorridors: number;
+  surfaceEdges: number;
+}
+
+interface SkippedKind {
+  note: string;
+}
+
+interface Ctx {
+  busLoad: Map<number, number>;
+  corridors: Record<string, Corridor[]>;
+  coverage: Record<string, number[]>;
+  kindStats: Record<string, KindStats | SkippedKind>;
+  net: GameNetwork;
+  routes: Route[];
+  streets: NamedStreets;
+}
+
+const processKind = (kind: string, k: KindGroup, ctx: Ctx) => {
   const { net, streets } = ctx;
   const graphs = worldGraphOf(kind, k);
 
-  if (!graphs) {
+  if (graphs === null) {
     console.log(`\n### ${kind}: declared but carries no geometry — skipped`);
     ctx.kindStats[kind] = { note: "declared in OBJ but carries no faces" };
 
@@ -1448,12 +1499,14 @@ const processKind = (
   console.log(
     `  distance to game asphalt AFTER  snap: p50 ${r2(pct(postD, 0.5))}u  p90 ${r2(pct(postD, 0.9))}u  p99 ${r2(pct(postD, 0.99))}u  max ${r2(Math.max(...postD))}u  (${((snappedPts / g.points) * 100).toFixed(1)}% of nodes snapped, cap ${SNAP_MAX}u)`,
   );
-  const covLen = [...g.coveredEdges].reduce((s2, e) => s2 + net.edgeLen[e], 0);
+  const covLen = [...g.coveredEdges].reduce((s2, e) => s2 + at(net.edgeLen, e), 0);
   console.log(
     `  lands on ${g.coveredEdges.size}/${net.edges} game street edges = ${r1(covLen)}u of our asphalt (${r1((covLen * 4.446) / 1000)} km) — draw the rails along THESE edges and alignment is exact by construction`,
   );
   const ts = topStreetsOf(emitted);
   console.log(`  top streets: ${ts.map(([n, l]) => `${n} ${r1(l)}u`).join(" · ")}`);
+
+  const filt = surfaceCorridors(kind, g, net);
 
   ctx.kindStats[kind] = {
     biggestComponentsAfterConsolidation: comps.slice(0, 6),
@@ -1466,7 +1519,6 @@ const processKind = (
     droppedFragments: dropped,
     gameEdgeLengthU: r1(covLen),
     gameEdgesCovered: g.coveredEdges.size,
-    graph: g.stats,
     live: k.live.length,
     maxRdpDeviationU: r2(worstDev),
     mergeW: MERGE_W,
@@ -1481,15 +1533,13 @@ const processKind = (
     snappedFrac: r2(snappedPts / g.points),
     strokes: emitted.length,
     suspended: k.susp.length,
-    topStreets: ts.map(([n, l]) => [n, r1(l)]),
+    topStreets: ts.map(([n, l]) => [n, r1(l)] as const),
     unlabelledEdges: unlabelled,
+    surfaceCorridors: filt.length,
+    surfaceEdges: filt.reduce((s, c) => s + c.edges.length, 0),
   };
   ctx.coverage[kind] = [...g.coveredEdges].toSorted((a, b) => a - b);
-
-  const filt = surfaceCorridors(kind, g, net);
   ctx.corridors[kind] = filt;
-  ctx.kindStats[kind].surfaceCorridors = filt.length;
-  ctx.kindStats[kind].surfaceEdges = filt.reduce((s, c) => s + c.edges.length, 0);
 
   if (kind === "bus") {
     tallyBusLoad(k, g, net, ctx.busLoad);
@@ -1502,7 +1552,9 @@ const processKind = (
   k.graph = g;
 };
 
-const NAMED = [
+type Terminal = readonly [string, string];
+
+const NAMED: readonly (readonly [string, string, Terminal, Terminal])[] = [
   ["cable", "Powell-Hyde", ["Powell Street", "Market Street"], ["Hyde Street", "Beach Street"]],
   ["cable", "Powell-Mason", ["Powell Street", "Market Street"], ["Taylor Street", "Bay Street"]],
   [
@@ -1521,13 +1573,13 @@ const NAMED = [
 ];
 
 const recoverLine = (
-  [kind, label, A, B]: (string | string[])[],
-  byKind: Map<any, any>,
-  streets: { byName?: Map<any, any>; idx: any; ways?: number },
+  [kind, label, A, B]: readonly [string, string, Terminal, Terminal],
+  byKind: ReadonlyMap<string, KindGroup>,
+  streets: NamedStreets,
 ) => {
-  const k = byKind.get(kind);
+  const graph = byKind.get(kind)?.graph ?? null;
 
-  if (!k?.graph) {
+  if (graph === null) {
     console.log(`  ${label}: no ${kind} graph`);
 
     return null;
@@ -1536,14 +1588,21 @@ const recoverLine = (
   const ia = streetIntersection(streets, A[0], A[1]);
   const ib = streetIntersection(streets, B[0], B[1]);
 
-  if (!ia || !ib) {
+  if (ia === null || ib === null) {
     console.log(`  ${label}: could not locate terminal (${A.join(" x ")} / ${B.join(" x ")})`);
 
-    return { kind, name: label, ok: false, why: "terminal intersection not found in OSM" };
+    const failed: NamedLine = {
+      kind,
+      name: label,
+      ok: false,
+      why: "terminal intersection not found in OSM",
+    };
+
+    return failed;
   }
 
-  const na = nearestNode(k.graph, ia.x, ia.z);
-  const nb = nearestNode(k.graph, ib.x, ib.z);
+  const na = nearestNode(graph, ia.x, ia.z);
+  const nb = nearestNode(graph, ib.x, ib.z);
   const daU = na.d;
   const dbU = nb.d;
 
@@ -1552,30 +1611,39 @@ const recoverLine = (
       `  ${label}: terminals located but track ends ${r1(daU)}u / ${r1(dbU)}u away — NOT this network`,
     );
 
-    return {
+    const failed: NamedLine = {
       kind,
       name: label,
       ok: false,
       why: `nearest track node ${r1(daU)}u / ${r1(dbU)}u from terminal`,
     };
+
+    return failed;
   }
 
-  const pathModel = shortestPath(k.graph, na.id, nb.id);
+  const pathModel = shortestPath(graph, na.id, nb.id);
 
-  if (!pathModel) {
+  if (pathModel === null) {
     console.log(`  ${label}: terminals matched but no connected path in the track graph`);
 
-    return { kind, name: label, ok: false, why: "terminals not connected in track graph" };
+    const failed: NamedLine = {
+      kind,
+      name: label,
+      ok: false,
+      why: "terminals not connected in track graph",
+    };
+
+    return failed;
   }
 
   const simp = rdpSafe(pathModel, RDP_EPS);
   const dev = maxDeviation(pathModel, simp);
   const lenU = plLen(simp);
-  const seq = [];
+  const seq: string[] = [];
 
   for (const [x, z] of simp) {
     const hit = streets.idx.nearest(x, z, NAME_MAX);
-    const n = hit ? hit.payload : "?";
+    const n = hit === null ? "?" : hit.payload;
 
     if (seq.at(-1) !== n) {
       seq.push(n);
@@ -1587,24 +1655,26 @@ const recoverLine = (
     `  ${label}: ${r1(lenU)}u (${r1((lenU * 4.446) / 1000)} km), ${simp.length} pts, dev ${r2(dev)}u · via ${cond.slice(0, 14).join(" > ")}`,
   );
 
-  return {
+  const line: NamedLine = {
     kind,
     lengthKm: r1((lenU * 4.446) / 1000),
     lengthU: r1(lenU),
     maxRdpDeviationU: r2(dev),
     name: label,
     ok: true,
-    pts: simp.map(([x, z]) => [r1(x), r1(z)]),
+    pts: roundPts(simp),
     snapped: true,
     terminalErrU: [r1(daU), r1(dbU)],
     uv: uvBox(simp),
     viaStreets: cond,
   };
+
+  return line;
 };
 
-const dataExtent = (routes: never[]) => {
-  const allU = [];
-  const allV = [];
+const dataExtent = (routes: readonly Route[]) => {
+  const allU: number[] = [];
+  const allV: number[] = [];
 
   for (const r of routes) {
     for (const [x, z] of r.pts) {
@@ -1613,12 +1683,14 @@ const dataExtent = (routes: never[]) => {
     }
   }
 
-  return {
+  const extent: Extent = {
     u01: [r2(pct(allU, 0.01)), r2(pct(allU, 0.99))],
     uFull: [r2(Math.min(...allU)), r2(Math.max(...allU))],
     v01: [r2(pct(allV, 0.01)), r2(pct(allV, 0.99))],
     vFull: [r2(Math.min(...allV)), r2(Math.max(...allV))],
   };
+
+  return extent;
 };
 
 const main = () => {
@@ -1631,7 +1703,7 @@ const main = () => {
 
   const { byKind, totalQuads, totalTris } = inventory();
 
-  const ctx = {
+  const ctx: Ctx = {
     busLoad: new Map(),
     corridors: {},
     coverage: {},
@@ -1641,7 +1713,7 @@ const main = () => {
     streets,
   };
 
-  for (const [kind, k] of [...byKind].toSorted()) {
+  for (const [kind, k] of [...byKind].toSorted((a, b) => byText(a[0], b[0]))) {
     if (k.live.length === 0 && k.susp.length === 0) {
       continue;
     }
@@ -1652,12 +1724,12 @@ const main = () => {
   const { busLoad, corridors, coverage, kindStats, routes } = ctx;
 
   console.log("\n--- named line recovery (Dijkstra between OSM street intersections) ---");
-  const named = [];
+  const named: NamedLine[] = [];
 
   for (const spec of NAMED) {
     const line = recoverLine(spec, byKind, streets);
 
-    if (line) {
+    if (line !== null) {
       named.push(line);
     }
   }
@@ -1708,7 +1780,7 @@ const main = () => {
   emitTransitModule(net, corridors, named, busLoad, extent);
 };
 
-const lineBlock = (n: { name: any; kind: any; lengthU: any; pts: any[] }) =>
+const lineBlock = (n: RecoveredLine) =>
   `  {\n` +
   `    name: ${JSON.stringify(n.name)},\n` +
   `    mode: ${JSON.stringify(n.kind)},\n` +
@@ -1717,28 +1789,20 @@ const lineBlock = (n: { name: any; kind: any; lengthU: any; pts: any[] }) =>
   `  },`;
 
 const emitTransitModule = (
-  net: {
-    edgeLen?: number[];
-    edges: any;
-    genId: any;
-    idx?: {
-      add(ax: any, az: any, bx: any, bz: any, payload: any): void;
-      count: () => number;
-      nearest(px: any, pz: any, maxD: any): { d: any; payload: any; x: any; z: any } | null;
-    };
-  },
-  corridors: { [x: string]: string | any[] },
-  named: any[],
-  busLoad: Map<any, any>,
-  extent: { u01?: number[]; uFull: any; v01?: number[]; vFull: any },
+  net: GameNetwork,
+  corridors: Readonly<Record<string, readonly Corridor[]>>,
+  named: readonly NamedLine[],
+  busLoad: ReadonlyMap<number, number>,
+  extent: Extent,
 ) => {
-  const modes = EMITTED_MODES.filter((m) => (corridors[m] ?? []).length > 0);
-  const lines = named.filter((n: { ok: any; kind: string }) => n.ok && n.kind !== "light_rail");
+  const corridorsOf = (m: string) => corridors[m] ?? [];
+  const modes = EMITTED_MODES.filter((m) => corridorsOf(m).length > 0);
+  const lines = named.filter((n): n is RecoveredLine => n.ok && n.kind !== "light_rail");
 
-  const modeBlock = (m: string | number) =>
-    `  ${m}: [\n${corridors[m]
+  const modeBlock = (m: string) =>
+    `  ${m}: [\n${corridorsOf(m)
       .map(
-        (c: { street: any; lengthU: any; edges: any }) =>
+        (c) =>
           `    { street: ${JSON.stringify(c.street)}, lengthU: ${c.lengthU}, edges: ${JSON.stringify(c.edges)} },`,
       )
       .join("\n")}\n  ],`;
@@ -1749,10 +1813,7 @@ const emitTransitModule = (
     .join(" ");
 
   const totals = modes
-    .map(
-      (m) =>
-        `${m} ${corridors[m].reduce((s: any, c: { edges: string | any[] }) => s + c.edges.length, 0)}`,
-    )
+    .map((m) => `${m} ${corridorsOf(m).reduce((s, c) => s + c.edges.length, 0)}`)
     .join(", ");
 
   const src = `// AUTO-GENERATED by tools/sf-data/extract-transit-obj.mts — do not edit by hand.
@@ -1870,6 +1931,6 @@ export const TRANSIT_EXTENT = {
   writeFileSync(out, src);
   oxfmt(out.pathname);
   console.log(
-    `wrote src/world/sf-transit.ts — ${modes.length} modes / ${modes.reduce((s, m) => s + corridors[m].length, 0)} corridors, ${lines.length} named lines, ${busLoad.size} bus-weighted edges, ${(src.length / 1024).toFixed(1)} KB, stamp ${net.genId}`,
+    `wrote src/world/sf-transit.ts — ${modes.length} modes / ${modes.reduce((s, m) => s + corridorsOf(m).length, 0)} corridors, ${lines.length} named lines, ${busLoad.size} bus-weighted edges, ${(src.length / 1024).toFixed(1)} KB, stamp ${net.genId}`,
   );
 };
