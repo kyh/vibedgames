@@ -7,7 +7,7 @@ import { defineConfig } from "vite";
 export default defineConfig({
   plugins: [
     cloudflare({
-      experimental: { newConfig: { cfBuildOutput: true } },
+      experimental: { newConfig: { cfBuildOutput: true, types: { includeRuntime: false } } },
       viteEnvironment: { name: "ssr" },
     }),
     tanstackStart(),
