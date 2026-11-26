@@ -1,6 +1,7 @@
 import path from "node:path";
 
-import { Mesh, Document, Mesh, NodeIO } from "@gltf-transform/core";
+import { NodeIO } from "@gltf-transform/core";
+import type { Document, Mesh, Node, vec3, vec4 } from "@gltf-transform/core";
 import { ALL_EXTENSIONS } from "@gltf-transform/extensions";
 import {
   dedup,
@@ -20,7 +21,7 @@ const CARBINE_TRIANGLES = 7000;
 const SIMPLIFY_ERROR = 0.01;
 const CARBINE_LENGTH = 0.78;
 
-const CLIPS = {
+const CLIPS: Readonly<Record<string, string>> = {
   "Armature|running|baselayer": "jog",
   "Armature|walking_man|baselayer": "walk",
   Cautious_Crouch_Walk_Forward_inplace: "crouch-walk",
@@ -32,13 +33,16 @@ const CLIPS = {
   Walk_Left_with_Gun_inplace: "strafe-left",
 };
 
-const MIRRORED = { "crouch-left": "crouch-right", "strafe-left": "strafe-right" };
+const MIRRORED: Readonly<Record<string, string>> = {
+  "crouch-left": "crouch-right",
+  "strafe-left": "strafe-right",
+};
 const ARMS = /^(?:Left|Right)(?:Shoulder|Arm|ForeArm|Hand)$/u;
 
 const GRIPS = [
   { bone: "LeftHand", creases: [0.132, 0.178], side: 1, turns: [0.9, 1.1] },
   { bone: "RightHand", creases: [0.132, 0.178], side: -1, turns: [1.15, 1.3] },
-];
+] as const;
 
 const CREASE_WIDTH = 0.014;
 
@@ -48,20 +52,57 @@ const smoothstep = (lo: number, hi: number, v: number) => {
   return t * t * (3 - 2 * t);
 };
 
-const multiply = ([ax, ay, az, aw], [bx, by, bz, bw]) => [
-  aw * bx + ax * bw + ay * bz - az * by,
-  aw * by - ax * bz + ay * bw + az * bx,
-  aw * bz + ax * by - ay * bx + az * bw,
-  aw * bw - ax * bx - ay * by - az * bz,
-];
+const need = <T,>(value: T | null | undefined, what: string) => {
+  if (value === null || value === undefined) {
+    throw new Error(`build-soldier: no ${what}`);
+  }
 
-const conjugate = ([x, y, z, w]) => [-x, -y, -z, w];
-const mirror = ([x, y, z, w]) => [x, -y, -z, w];
+  return value;
+};
+
+const quat = (values: readonly number[]) => {
+  const [x = 0, y = 0, z = 0, w = 1] = values;
+  const q: vec4 = [x, y, z, w];
+
+  return q;
+};
+
+const multiply = ([ax, ay, az, aw]: vec4, [bx, by, bz, bw]: vec4) => {
+  const q: vec4 = [
+    aw * bx + ax * bw + ay * bz - az * by,
+    aw * by - ax * bz + ay * bw + az * bx,
+    aw * bz + ax * by - ay * bx + az * bw,
+    aw * bw - ax * bx - ay * by - az * bz,
+  ];
+
+  return q;
+};
+
+const conjugate = ([x, y, z, w]: vec4) => {
+  const q: vec4 = [-x, -y, -z, w];
+
+  return q;
+};
+
+const mirror = ([x, y, z, w]: vec4) => {
+  const q: vec4 = [x, -y, -z, w];
+
+  return q;
+};
+
+const triple = (values: readonly number[]) => {
+  const [x = 0, y = 0, z = 0] = values;
+  const v: vec3 = [x, y, z];
+
+  return v;
+};
 
 const twin = (name: string) =>
   name.startsWith("Left") ? name.replace("Left", "Right") : name.replace(/^Right/u, "Left");
 
-const [source, packed] = process.argv.slice(2);
+const [sourceArg, packedArg] = process.argv.slice(2);
+const source = need(sourceArg, "source folder (argv 1)");
+const packed = need(packedArg, "output path (argv 2)");
 
 await MeshoptDecoder.ready;
 
@@ -75,8 +116,8 @@ const io = new NodeIO()
 
 const doc = await io.read(path.join(source, "rigged.glb"));
 const root = doc.getRoot();
-const [scene] = root.listScenes();
-const bones = new Map();
+const scene = need(root.listScenes()[0], "scene");
+const bones = new Map<string, Node>();
 
 scene.traverse((node) => bones.set(node.getName(), node));
 
@@ -84,19 +125,20 @@ for (const animation of root.listAnimations()) {
   animation.dispose();
 }
 
-const [body] = root.listMeshes();
+const body = need(root.listMeshes()[0], "soldier mesh");
 
 body.setName("soldier");
 
-root
-  .listNodes()
-  .find((node) => node.getMesh() === body)
-  .setName("soldier");
+need(
+  root.listNodes().find((node) => node.getMesh() === body),
+  "soldier node",
+).setName("soldier");
 
-root.listMaterials()[0].setName("soldier");
+need(root.listMaterials()[0], "soldier material").setName("soldier");
 
 const oneBuffer = () => {
-  const [buffer, ...spare] = root.listBuffers();
+  const [first, ...spare] = root.listBuffers();
+  const buffer = need(first, "buffer");
 
   for (const accessor of root.listAccessors()) {
     accessor.setBuffer(buffer);
@@ -141,11 +183,11 @@ for (const skin of root.listSkins().slice(1)) {
 
 oneBuffer();
 
-const hips = bones.get("Hips");
+const hips = need(bones.get("Hips"), "Hips bone");
 const rest = hips.getTranslation();
 
 for (const animation of root.listAnimations()) {
-  const name = CLIPS[animation.getName()];
+  const name = CLIPS[animation.getName()] ?? null;
 
   for (const channel of animation.listChannels()) {
     const bone = channel.getTargetNode();
@@ -156,10 +198,10 @@ for (const animation of root.listAnimations()) {
       channel.getSampler()?.dispose();
       channel.dispose();
     } else if (property === "translation") {
-      const output = channel.getSampler().getOutput();
+      const output = need(channel.getSampler()?.getOutput(), "translation output");
 
       for (let i = 0; i < output.getCount(); i += 1) {
-        output.setElement(i, [rest[0], output.getElement(i, [])[1], rest[2]]);
+        output.setElement(i, [rest[0], output.getElement(i, [])[1] ?? 0, rest[2]]);
       }
     }
   }
@@ -172,7 +214,7 @@ for (const animation of root.listAnimations()) {
 }
 
 for (const animation of root.listAnimations()) {
-  const name = MIRRORED[animation.getName()];
+  const name = MIRRORED[animation.getName()] ?? null;
 
   if (!name) {
     continue;
@@ -181,16 +223,16 @@ for (const animation of root.listAnimations()) {
   const flipped = doc.createAnimation(name);
 
   for (const channel of animation.listChannels()) {
-    const from = channel.getTargetNode();
+    const from = need(channel.getTargetNode(), "mirrored channel's bone");
     const to = bones.get(twin(from.getName())) ?? from;
-    const sampler = channel.getSampler();
-    const output = sampler.getOutput().clone();
+    const sampler = need(channel.getSampler(), "mirrored channel's sampler");
+    const output = need(sampler.getOutput(), "mirrored channel's output").clone();
 
     if (channel.getTargetPath() === "rotation") {
       const away = conjugate(from.getRotation());
 
       for (let i = 0; i < output.getCount(); i += 1) {
-        const turn = mirror(multiply(away, output.getElement(i, [])));
+        const turn = mirror(multiply(away, quat(output.getElement(i, []))));
         output.setElement(i, multiply(to.getRotation(), turn));
       }
     }
@@ -207,39 +249,44 @@ for (const animation of root.listAnimations()) {
         doc
           .createAnimationChannel()
           .setTargetNode(to)
-          .setTargetPath(channel.getTargetPath())
+          .setTargetPath(need(channel.getTargetPath(), "target path"))
           .setSampler(copy),
       );
   }
 }
 
-const faceted = (mesh: Mesh | undefined) => {
+const faceted = (mesh: Mesh) => {
   for (const part of mesh.listPrimitives()) {
     part.getAttribute("NORMAL")?.dispose();
     part.getAttribute("TANGENT")?.dispose();
   }
 };
 
-const smooth = (document: Document, mesh: Mesh | undefined) => {
+const smooth = (document: Document, mesh: Mesh) => {
   for (const part of mesh.listPrimitives()) {
-    const points = part.getAttribute("POSITION");
-    const indices = part.getIndices().getArray();
-    const sums = new Map();
-    const keys = [];
+    const points = need(part.getAttribute("POSITION"), "POSITION");
+    const indices = need(part.getIndices()?.getArray(), "indices");
+    const sums = new Map<string, vec3>();
+    const keys: string[] = [];
 
     for (let i = 0; i < points.getCount(); i += 1) {
       keys.push(points.getElement(i, []).join(","));
     }
 
     for (let f = 0; f < indices.length; f += 3) {
-      const [a, b, c] = [0, 1, 2].map((k) => points.getElement(indices[f + k], []));
-      const [ux, uy, uz] = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
-      const [vx, vy, vz] = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
-      const face = [uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx];
+      const corner = (k: number) => indices[f + k] ?? 0;
+      const [a, b, c] = [0, 1, 2].map((k) => triple(points.getElement(corner(k), [])));
+      const [ax, ay, az] = need(a, "corner a");
+      const [bx, by, bz] = need(b, "corner b");
+      const [cx, cy, cz] = need(c, "corner c");
+      const [ux, uy, uz] = [bx - ax, by - ay, bz - az];
+      const [vx, vy, vz] = [cx - ax, cy - ay, cz - az];
+      const face: vec3 = [uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx];
 
       for (let k = 0; k < 3; k += 1) {
-        const sum = sums.get(keys[indices[f + k]]) ?? [0, 0, 0];
-        sums.set(keys[indices[f + k]], [sum[0] + face[0], sum[1] + face[1], sum[2] + face[2]]);
+        const at = keys[corner(k)] ?? "";
+        const sum = sums.get(at) ?? [0, 0, 0];
+        sums.set(at, [sum[0] + face[0], sum[1] + face[1], sum[2] + face[2]]);
       }
     }
 
@@ -264,32 +311,34 @@ await doc.transform(
   weld(),
   simplify({
     error: SIMPLIFY_ERROR,
-    ratio: SOLDIER_TRIANGLES / (body.listPrimitives()[0].getIndices().getCount() / 3),
+    ratio:
+      SOLDIER_TRIANGLES /
+      (need(body.listPrimitives()[0]?.getIndices(), "soldier indices").getCount() / 3),
     simplifier: MeshoptSimplifier,
   }),
 );
 
 smooth(doc, body);
 
-const [primitive] = body.listPrimitives();
-const position = primitive.getAttribute("POSITION");
-const normal = primitive.getAttribute("NORMAL");
+const primitive = need(body.listPrimitives()[0], "soldier primitive");
+const position = need(primitive.getAttribute("POSITION"), "soldier POSITION");
+const normal = need(primitive.getAttribute("NORMAL"), "soldier NORMAL");
 
 for (const grip of GRIPS) {
-  const hand = bones.get(grip.bone);
+  const hand = need(bones.get(grip.bone), grip.bone);
   const wrist = hand.getWorldTranslation();
 
   for (let i = 0; i < position.getCount(); i += 1) {
-    const [px, py] = position.getElement(i, []);
+    const [px, py] = triple(position.getElement(i, []));
 
     if ((px - wrist[0]) * grip.side < 0.08 || Math.abs(py - wrist[1]) > 0.15) {
       continue;
     }
 
-    let p = position.getElement(i, []);
-    let n = normal.getElement(i, []);
+    let p = triple(position.getElement(i, []));
+    let n = triple(normal.getElement(i, []));
 
-    for (const k of [1, 0]) {
+    for (const k of [1, 0] as const) {
       const crease = grip.creases[k];
       const along = (p[0] - wrist[0]) * grip.side;
 
@@ -311,7 +360,9 @@ for (const grip of GRIPS) {
 
 const armory = await io.read(path.join(source, "carbine-raw.glb"));
 
-faceted(armory.getRoot().listMeshes()[0]);
+const carbineRaw = need(armory.getRoot().listMeshes()[0], "carbine mesh");
+
+faceted(carbineRaw);
 
 await armory.transform(
   weld(),
@@ -319,24 +370,30 @@ await armory.transform(
     error: SIMPLIFY_ERROR,
     ratio:
       CARBINE_TRIANGLES /
-      (armory.getRoot().listMeshes()[0].listPrimitives()[0].getIndices().getCount() / 3),
+      (need(carbineRaw.listPrimitives()[0]?.getIndices(), "carbine indices").getCount() / 3),
     simplifier: MeshoptSimplifier,
   }),
 );
 
-smooth(armory, armory.getRoot().listMeshes()[0]);
+smooth(armory, carbineRaw);
 
 mergeDocuments(doc, armory);
 
 oneBuffer();
 
-const carbine = root.listMeshes().find((mesh) => mesh !== body);
+const carbine = need(
+  root.listMeshes().find((mesh) => mesh !== body),
+  "merged carbine",
+);
 
 carbine.setName("carbine");
 
-carbine.listPrimitives()[0].getMaterial().setName("carbine");
+need(carbine.listPrimitives()[0]?.getMaterial(), "carbine material").setName("carbine");
 
-const holder = root.listNodes().find((node) => node.getMesh() === carbine);
+const holder = need(
+  root.listNodes().find((node) => node.getMesh() === carbine),
+  "carbine node",
+);
 
 holder.setName("carbine");
 
@@ -347,16 +404,16 @@ for (const extra of root.listScenes().slice(1)) {
 }
 
 {
-  const [part] = carbine.listPrimitives();
-  const points = part.getAttribute("POSITION");
-  const normals = part.getAttribute("NORMAL");
-  const [min, max] = [points.getMin([]), points.getMax([])];
+  const part = need(carbine.listPrimitives()[0], "carbine primitive");
+  const points = need(part.getAttribute("POSITION"), "carbine POSITION");
+  const normals = need(part.getAttribute("NORMAL"), "carbine NORMAL");
+  const [min, max] = [triple(points.getMin([])), triple(points.getMax([]))];
   const scale = CARBINE_LENGTH / (max[0] - min[0]);
   let bore = 0;
   let count = 0;
 
   for (let i = 0; i < points.getCount(); i += 1) {
-    const [x, y] = points.getElement(i, []);
+    const [x, y] = triple(points.getElement(i, []));
 
     if (x < min[0] + (max[0] - min[0]) * 0.03) {
       bore += y;
@@ -367,9 +424,9 @@ for (const extra of root.listScenes().slice(1)) {
   bore /= count;
 
   for (let i = 0; i < points.getCount(); i += 1) {
-    const [x, y, z] = points.getElement(i, []);
+    const [x, y, z] = triple(points.getElement(i, []));
     points.setElement(i, [-z * scale, (y - bore) * scale, (x - max[0]) * scale]);
-    const [nx, ny, nz] = normals.getElement(i, []);
+    const [nx, ny, nz] = triple(normals.getElement(i, []));
     normals.setElement(i, [-nz, ny, nx]);
   }
 }

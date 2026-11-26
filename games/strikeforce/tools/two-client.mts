@@ -1,60 +1,58 @@
-import { spawn } from "node:child_process";
 import path from "node:path";
-import { setTimeout as wait } from "node:timers/promises";
+
+import { flagValue, poll, reachable, startVite } from "@repo/smoke";
 import { chromium } from "playwright-core";
+import type { Browser, Page } from "playwright-core";
 
 const gameDir = path.resolve(import.meta.dirname, "..");
 
-const partyFlag = process.argv.indexOf("--party");
-const partyArg = partyFlag > 0 ? process.argv[partyFlag + 1] : "8787";
+const partyArg = flagValue("--party", process.argv) ?? "8787";
 const PARTY = /^\d+$/u.test(partyArg) ? `http://localhost:${partyArg}` : partyArg;
 const DEV_PORT = 5397;
 
-const waitFor = async (page, fn, label, { timeoutMs = 60_000, arg } = {}) => {
-  const deadline = Date.now() + timeoutMs;
-  let last;
+const waitForArg = async <R, A>(
+  page: Page,
+  fn: Parameters<typeof page.evaluate<R, A>>[0],
+  label: string,
+  arg: A,
+  timeoutMs = 60_000,
+) => {
+  let last: R | null = null;
+  const found = await poll(
+    async () => {
+      last = await page.evaluate(fn, arg);
 
-  while (Date.now() < deadline) {
-    last = await page.evaluate(fn, arg);
-
-    if (last) {
       return last;
-    }
+    },
+    (value) => Boolean(value),
+    { intervalMs: 250, timeoutMs },
+  );
 
-    await wait(250);
+  if (found === null) {
+    throw new Error(`timeout: ${label} (last=${JSON.stringify(last)})`);
   }
 
-  throw new Error(`timeout: ${label} (last=${JSON.stringify(last)})`);
+  return found;
 };
 
-const startVite = async () => {
-  const flag = process.argv.indexOf("--url");
+const waitFor = <R,>(
+  page: Page,
+  fn: Parameters<typeof page.evaluate<R, null>>[0],
+  label: string,
+  timeoutMs = 60_000,
+) => waitForArg(page, fn, label, null, timeoutMs);
 
-  if (flag > 0) {
-    return { base: process.argv[flag + 1], stop: () => null };
+const startDev = async () => {
+  const url = flagValue("--url", process.argv);
+
+  if (url !== null) {
+    return { base: url, stop: () => null };
   }
-
-  const vite = spawn("npx", ["vite", "--port", String(DEV_PORT), "--strictPort"], {
-    cwd: gameDir,
-    stdio: "ignore",
-  });
 
   const base = `http://localhost:${DEV_PORT}`;
+  const vite = await startVite({ gameDir, port: DEV_PORT, timeoutMs: 30_000 });
 
-  for (let i = 0; i < 60; i += 1) {
-    const up = await fetch(base)
-      .then((r) => r.ok)
-      .catch(() => false);
-
-    if (up) {
-      return { base, stop: () => vite.kill() };
-    }
-
-    await wait(500);
-  }
-
-  vite.kill();
-  throw new Error("vite did not start");
+  return { base, stop: () => vite.kill() };
 };
 
 const launch = () =>
@@ -67,22 +65,24 @@ const launch = () =>
       "--use-angle=swiftshader",
       "--enable-unsafe-swiftshader",
     ],
-    ...(process.env.SMOKE_BROWSER
-      ? { executablePath: process.env.SMOKE_BROWSER }
-      : { channel: "chrome" }),
+    ...(process.env.SMOKE_BROWSER === undefined || process.env.SMOKE_BROWSER === ""
+      ? { channel: "chrome" }
+      : { executablePath: process.env.SMOKE_BROWSER }),
     headless: true,
   });
 
-const phase = (page, want, label, timeoutMs = 90_000) =>
-  waitFor(page, (p) => window.__strikeforce.match.state?.phase === p, label, {
-    arg: want,
-    timeoutMs,
-  });
+const phase = (page: Page, want: string, label: string, timeoutMs = 90_000) =>
+  waitForArg(page, (p) => window.__strikeforce?.match.state?.phase === p, label, want, timeoutMs);
 
-const probe = (page) =>
+const probe = (page: Page) =>
   page.evaluate(() => {
     const G = window.__G;
-    const m = window.__strikeforce.match;
+    const m = window.__strikeforce?.match;
+
+    if (G === undefined || m === undefined) {
+      throw new Error("window.__G or window.__strikeforce is missing");
+    }
+
     const s = m.state;
     const me = s?.roster.get(m.me);
 
@@ -92,14 +92,19 @@ const probe = (page) =>
       kills: me?.kills ?? -1,
       life: me?.life ?? -1,
       phase: s?.phase ?? "",
-      pos: [G.player.pos.x, G.player.pos.z],
+      pos: [G.player.pos.x, G.player.pos.z] as const,
     };
   });
 
-const headshot = (page) =>
+const headshot = (page: Page) =>
   page.evaluate(() => {
     const G = window.__G;
-    const m = window.__strikeforce.match;
+    const m = window.__strikeforce?.match;
+
+    if (G === undefined || m === undefined) {
+      throw new Error("window.__G or window.__strikeforce is missing");
+    }
+
     const eye = G.player.eye.clone();
     const [other] = m.enemies();
 
@@ -107,30 +112,26 @@ const headshot = (page) =>
       return false;
     }
 
-    const target = new eye.constructor(other.x, other.y + 1.62, other.z);
+    const target = eye.clone().set(other.x, other.y + 1.62, other.z);
     const dir = target.sub(eye).normalize();
 
     return m.shoot(eye, dir, 500, 28) !== null;
   });
 
 const main = async () => {
-  const reachable = await fetch(PARTY)
-    .then(() => true)
-    .catch(() => false);
-
-  if (!reachable) {
+  if (!(await reachable(PARTY))) {
     throw new Error(`party server not reachable at ${PARTY} (pnpm dev:party)`);
   }
 
-  const dev = await startVite();
+  const dev = await startDev();
   const room = `t${process.pid}${Date.now().toString(36)}`;
   const base = `${dev.base}/?q=low&autostart=1&noaudio=1&norender=1&bots=0&party=${encodeURIComponent(PARTY)}`;
   const url = `${base}&room=${room}&mode=deathmatch`;
-  const browsers = [];
-  const results = [];
-  const errors = [];
+  const browsers: Browser[] = [];
+  const results: string[] = [];
+  const errors: string[] = [];
 
-  const step = (name, ok, note = "") => {
+  const step = (name: string, ok: boolean, note = "") => {
     results.push(`${ok ? "pass" : "FAIL"}  ${name}${note ? ` — ${note}` : ""}`);
 
     if (!ok) {
@@ -138,7 +139,7 @@ const main = async () => {
     }
   };
 
-  const open = async (label) => {
+  const open = async (label: string) => {
     const browser = await launch();
     browsers.push(browser);
     const page = await browser.newPage({ viewport: { height: 270, width: 480 } });
@@ -149,7 +150,7 @@ const main = async () => {
       }
     });
     await page.goto(url, { timeout: 180_000, waitUntil: "commit" });
-    await waitFor(page, () => window.__ready === true, `${label} boot`, { timeoutMs: 180_000 });
+    await waitFor(page, () => window.__ready === true, `${label} boot`, 180_000);
 
     return page;
   };
@@ -163,20 +164,25 @@ const main = async () => {
     await phase(host, "live", "match live");
     await phase(guest, "live", "match live (guest)");
     step("a second player starts the match", true);
-    await waitFor(guest, () => window.__strikeforce.match.enemies().length > 0, "guest sees host");
-    await waitFor(host, () => window.__strikeforce.match.enemies().length > 0, "host sees guest");
+    const seesEnemy = () => (window.__strikeforce?.match.enemies().length ?? 0) > 0;
+    await waitFor(guest, seesEnemy, "guest sees host");
+    await waitFor(host, seesEnemy, "host sees guest");
     step("each sees the other's avatar", true);
 
     const before = await probe(host);
     step("guest's shot meets the host's head hitbox", await headshot(guest));
-    await waitFor(host, () => !window.__G.player.alive, "host down");
+    await waitFor(host, () => window.__G?.player.alive === false, "host down");
     await waitFor(
       guest,
-      () => window.__strikeforce.match.state.roster.get(window.__strikeforce.match.me).kills === 1,
+      () => {
+        const m = window.__strikeforce?.match;
+
+        return m?.state?.roster.get(m.me)?.kills === 1;
+      },
       "guest credited",
     );
     step("the kill is credited", true);
-    await waitFor(host, () => window.__G.player.alive, "host back", { timeoutMs: 30_000 });
+    await waitFor(host, () => window.__G?.player.alive === true, "host back", 30_000);
     const back = await probe(host);
     const moved = Math.hypot(back.pos[0] - before.pos[0], back.pos[1] - before.pos[1]);
     step(
@@ -185,23 +191,22 @@ const main = async () => {
       `life ${before.life}→${back.life}, moved ${moved.toFixed(1)} m`,
     );
 
-    const barrel = await guest.evaluate(() => window.__G.explosives.aliveMask().indexOf("1"));
-    await guest.evaluate((i) => window.__strikeforce.match.barrelHit(i, 999, null, null), barrel);
-    await waitFor(host, (i) => window.__G.explosives.aliveMask()[i] === "0", "host barrel blew", {
-      arg: barrel,
-    });
-    await waitFor(
-      guest,
-      (i) => window.__G.explosives.aliveMask()[i] === "0",
-      "guest barrel synced",
-      { arg: barrel },
+    const barrel = await guest.evaluate(
+      () => window.__G?.explosives.aliveMask().indexOf("1") ?? -1,
     );
+    await guest.evaluate((i) => window.__strikeforce?.match.barrelHit(i, 999, null, null), barrel);
+    const blown = (i: number) => window.__G?.explosives.aliveMask()[i] === "0";
+    await waitForArg(host, blown, "host barrel blew", barrel);
+    await waitForArg(guest, blown, "guest barrel synced", barrel);
     step("guest barrel shot blows the host's barrel", true);
 
-    await host.context().browser().close();
-    await waitFor(guest, () => window.__strikeforce.match.guest === false, "guest promoted", {
-      timeoutMs: 90_000,
-    });
+    await host.context().browser()?.close();
+    await waitFor(
+      guest,
+      () => window.__strikeforce?.match.guest === false,
+      "guest promoted",
+      90_000,
+    );
     const after = await probe(guest);
     step(
       "guest inherits the match",
