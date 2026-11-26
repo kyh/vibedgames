@@ -16,11 +16,13 @@ export const useShake = () => {
   const reduceMotion = useReducedMotion();
 
   const shake = () => {
-    if (reduceMotion === true || !scope.current) {
+    const target: unknown = scope.current;
+
+    if (reduceMotion === true || !(target instanceof Element)) {
       return;
     }
 
-    animate(scope.current, SHAKE_KEYFRAMES, SHAKE_TRANSITION);
+    animate(target, SHAKE_KEYFRAMES, SHAKE_TRANSITION);
   };
 
   return [scope, shake] as const;

@@ -6,6 +6,7 @@ import { cva } from "class-variance-authority";
 import type { VariantProps } from "class-variance-authority";
 
 import { cn } from "cn";
+import { hasContent } from "@repo/ui/lib/has-content";
 import { Label } from "@repo/ui/components/label";
 import { Separator } from "@repo/ui/components/separator";
 
@@ -130,7 +131,7 @@ const FieldSeparator = ({
 }) => (
   <div
     data-slot="field-separator"
-    data-content={!!children}
+    data-content={hasContent(children)}
     className={cn(
       "relative -my-2 h-5 text-sm group-data-[variant=outline]/field-group:-mb-2",
       className,
@@ -138,7 +139,7 @@ const FieldSeparator = ({
     {...props}
   >
     <Separator className="absolute inset-0 top-1/2" />
-    {children && (
+    {hasContent(children) && (
       <span
         className="relative mx-auto block w-fit bg-background px-2 text-muted-foreground"
         data-slot="field-separator-content"
@@ -158,13 +159,14 @@ const FieldError = ({
   errors?: ({ message?: string } | undefined)[];
 }) => {
   const uniqueErrors = [
-    ...new Map((errors ?? []).map((error) => [error?.message, error])).values(),
+    ...new Map((errors ?? []).map((entry) => [entry?.message, entry])).values(),
   ];
-  const messages = uniqueErrors.flatMap((error) =>
-    error?.message === undefined || error.message === "" ? [] : [error.message],
+
+  const messages = uniqueErrors.flatMap((entry) =>
+    entry?.message === undefined || entry.message === "" ? [] : [entry.message],
   );
-  const hasChildren =
-    children !== undefined && children !== null && children !== false && children !== "";
+
+  const hasChildren = hasContent(children);
   const single = uniqueErrors.length === 1 ? uniqueErrors[0]?.message : undefined;
 
   if (
@@ -174,17 +176,18 @@ const FieldError = ({
     return null;
   }
 
-  const content = hasChildren ? (
-    children
-  ) : uniqueErrors.length === 1 ? (
-    single
-  ) : (
-    <ul className="ml-4 flex list-disc flex-col gap-1">
-      {messages.map((message) => (
-        <li key={message}>{message}</li>
-      ))}
-    </ul>
-  );
+  const listed =
+    uniqueErrors.length === 1 ? (
+      single
+    ) : (
+      <ul className="ml-4 flex list-disc flex-col gap-1">
+        {messages.map((message) => (
+          <li key={message}>{message}</li>
+        ))}
+      </ul>
+    );
+
+  const content = hasChildren ? children : listed;
 
   return (
     <div

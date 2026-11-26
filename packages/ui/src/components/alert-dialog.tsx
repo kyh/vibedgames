@@ -4,6 +4,7 @@ import * as React from "react";
 import { AlertDialog as AlertDialogPrimitive } from "@base-ui/react/alert-dialog";
 
 import { cn } from "cn";
+import { hasContent } from "@repo/ui/lib/has-content";
 import { Button } from "@repo/ui/components/button";
 
 const AlertDialog = ({ ...props }: AlertDialogPrimitive.Root.Props) => (
@@ -238,7 +239,7 @@ export const GlobalAlertDialog = () => {
         <AlertDialogHeader>
           <AlertDialogTitle>{alertState.title}</AlertDialogTitle>
         </AlertDialogHeader>
-        {alertState.description && (
+        {hasContent(alertState.description) && (
           <AlertDialogDescription>{alertState.description}</AlertDialogDescription>
         )}
         <AlertDialogFooter>

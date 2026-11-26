@@ -83,7 +83,7 @@ const Button = ({
       className={cn(buttonVariants({ className, loading, size, variant }))}
       disabled={loading === true || disabled}
       onClick={(event) => {
-        trigger(variant === "destructive" ? "warning" : "selection");
+        void trigger(variant === "destructive" ? "warning" : "selection");
         onClick?.(event);
       }}
       {...props}

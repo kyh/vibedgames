@@ -132,7 +132,7 @@ const createOverlay: (parent: HTMLElement, opts: DomGamepadRenderOptions) => Ove
       set(base, { display: stickOn ? "block" : "none" });
       set(knob, { display: stickOn ? "block" : "none" });
 
-      if (stickOn && geom) {
+      if (stickOn) {
         const clamped = Math.min(stick.distance, geom.radius);
 
         const kx =

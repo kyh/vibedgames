@@ -46,15 +46,22 @@ export const inSequence = async <T, R>(
   items: readonly T[],
   step: (item: T, index: number) => Promise<R>,
 ) => {
+  const iterator = items[Symbol.iterator]();
   const results: R[] = [];
 
-  await items.reduce<Promise<void>>(async (previous, item, index) => {
-    await previous.then(async () => {
-      results.push(await step(item, index));
-    });
-  }, Promise.resolve());
+  const advance: () => Promise<R[]> = async () => {
+    const current = iterator.next();
 
-  return results;
+    if (current.done === true) {
+      return results;
+    }
+
+    results.push(await step(current.value, results.length));
+
+    return await advance();
+  };
+
+  return await advance();
 };
 
 /** Run `step` `count` times in order. */

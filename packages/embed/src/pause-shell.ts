@@ -17,7 +17,7 @@ export const resumeOnPadPress = () => {
 
   const poll = () => {
     const pads =
-      typeof navigator !== "undefined" && navigator.getGamepads ? navigator.getGamepads() : [];
+      typeof navigator !== "undefined" && "getGamepads" in navigator ? navigator.getGamepads() : [];
 
     let pad: Gamepad | null = null;
 

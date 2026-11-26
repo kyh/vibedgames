@@ -204,19 +204,18 @@ const OTPInput = ({
   });
 
   useEffect(() => {
-    if (state !== "idle" || value.length !== length) {
-      return;
-    }
-
     let cancelled = false;
 
-    const timer = window.setTimeout(async () => {
-      const result = await runVerify(value);
+    const timer =
+      state === "idle" && value.length === length
+        ? window.setTimeout(async () => {
+            const result = await runVerify(value);
 
-      if (!cancelled) {
-        settle(result, value);
-      }
-    }, VERIFY_DELAY_MS);
+            if (!cancelled) {
+              settle(result, value);
+            }
+          }, VERIFY_DELAY_MS)
+        : undefined;
 
     return () => {
       cancelled = true;

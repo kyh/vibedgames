@@ -14,7 +14,13 @@ const px = (length: string) => Number.parseFloat(length) || 0;
  * viewport meta tag to report non-zero values on iOS.
  */
 export const safeAreaInset = () => {
-  if (typeof document === "undefined" || !document.body) {
+  if (typeof document === "undefined") {
+    return ZERO;
+  }
+
+  const body: HTMLElement | null = document.body;
+
+  if (body === null) {
     return ZERO;
   }
 
@@ -24,7 +30,7 @@ export const safeAreaInset = () => {
       "position:fixed;top:0;left:0;visibility:hidden;pointer-events:none;" +
       "padding:env(safe-area-inset-top) env(safe-area-inset-right) " +
       "env(safe-area-inset-bottom) env(safe-area-inset-left);";
-    document.body.append(probe);
+    body.append(probe);
   }
 
   const s = getComputedStyle(probe);
