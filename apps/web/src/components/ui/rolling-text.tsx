@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { animate, AnimatePresence, motion, useMotionValue, useReducedMotion } from "motion/react";
 import type { MotionValue, TargetAndTransition, ValueAnimationTransition } from "motion/react";
 import { cn } from "cn";
@@ -348,21 +348,21 @@ const LABEL_ROLL = { duration: 0.3, ease: EASE };
 export const RollingLabel = ({ words, index, fluid = true, className }: RollingLabelProps) => {
   const reduceMotion = useReducedMotion();
   const label = words[index] ?? words[0] ?? "";
-  const sizerRef = useRef<HTMLSpanElement>(null);
   const width = useMotionValue<number | "auto">("auto");
 
-  useEffect(() => {
-    const el = fluid ? sizerRef.current : null;
+  const measureSizer = useCallback(
+    (el: HTMLSpanElement) => {
+      const controls = settleWidth(width, el.getBoundingClientRect().width, {
+        duration: 0.3,
+        ease: "easeOut",
+      });
 
-    const controls = el
-      ? settleWidth(width, el.getBoundingClientRect().width, { duration: 0.3, ease: "easeOut" })
-      : null;
-
-    return () => {
-      controls?.stop();
-    };
-    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- `label` is the trigger, not a value read: a new label is what changes the sizer's width, and the effect measures the DOM afterwards
-  }, [fluid, label, width]);
+      return () => {
+        controls?.stop();
+      };
+    },
+    [width],
+  );
 
   if (reduceMotion === true) {
     return <span className={cn("inline-flex", className)}>{label}</span>;
@@ -398,7 +398,8 @@ export const RollingLabel = ({ words, index, fluid = true, className }: RollingL
       className={cn("relative -my-[0.2em] inline-grid py-[0.2em] [overflow:clip]", className)}
     >
       <span
-        ref={sizerRef}
+        key={label}
+        ref={measureSizer}
         aria-hidden
         className="invisible whitespace-nowrap"
         style={{ gridArea: "1 / 1", justifySelf: "start" }}
