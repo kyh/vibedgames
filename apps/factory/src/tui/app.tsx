@@ -371,13 +371,9 @@ const usePong = (width: number, height: number, solids: readonly Rect[]) => {
   });
 
   useEffect(() => {
-    if (!playable) {
-      return;
-    }
-
     let last = Date.now();
 
-    const id = setInterval(() => {
+    const tick = () => {
       const now = Date.now();
       const dt = Math.min(0.05, (now - last) / 1000);
       last = now;
@@ -441,7 +437,9 @@ const usePong = (width: number, height: number, solids: readonly Rect[]) => {
         leftY: Math.round(s.left.y),
         rightY: Math.round(s.right.y),
       });
-    }, 16);
+    };
+
+    const id = playable ? setInterval(tick, 16) : undefined;
 
     return () => {
       clearInterval(id);

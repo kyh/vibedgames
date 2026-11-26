@@ -13,6 +13,7 @@ import {
   resolveWorkspace,
 } from "../config.ts";
 import type { RoleName } from "../agents.ts";
+import { bestEffort } from "../best-effort.ts";
 import { runAgent } from "../orchestrator.ts";
 import type { AgentOptions, RunControls } from "../orchestrator.ts";
 import type { Runner } from "../runner.ts";
@@ -103,13 +104,9 @@ export const runTui = (launch: TuiLaunch) => {
       clearInterval(poller);
     }
 
-    try {
+    bestEffort(() => {
       instance?.unmount();
-
-      return true;
-    } catch {
-      return false;
-    }
+    });
   };
 
   const pollBacklog = () => {

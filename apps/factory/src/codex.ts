@@ -16,7 +16,7 @@ const parseCodexItem = (value: JsonValue | undefined) => {
   const item = asJsonObject(value);
 
   if (!item) {
-    return;
+    return null;
   }
 
   return {
@@ -29,7 +29,7 @@ const parseCodexItem = (value: JsonValue | undefined) => {
     server: asString(item.server),
     text: asString(item.text),
     tool: asString(item.tool),
-    type: asString(item.type),
+    type: asString(item.type) ?? "",
   };
 };
 
@@ -40,14 +40,16 @@ const parseCodexEvent: (text: string) => CodexEvent | null = (text) => {
     return null;
   }
 
-  switch (evt.type) {
+  const type = asString(evt.type) ?? "";
+
+  switch (type) {
     case "thread.started": {
       return { thread_id: asString(evt.thread_id), type: "thread.started" };
     }
 
     case "turn.started":
     case "turn.completed": {
-      return { type: evt.type };
+      return { type };
     }
 
     case "turn.failed": {
@@ -62,7 +64,7 @@ const parseCodexEvent: (text: string) => CodexEvent | null = (text) => {
 
     case "item.started":
     case "item.completed": {
-      return { item: parseCodexItem(evt.item), type: evt.type };
+      return { item: parseCodexItem(evt.item), type };
     }
 
     default: {
@@ -136,11 +138,11 @@ const finishedActivity: (item: CodexItem) => Activity | null = (item) => {
   }
 };
 
-const itemActivity: (item: CodexItem | undefined, started: boolean) => Activity | null = (
+const itemActivity: (item: CodexItem | null, started: boolean) => Activity | null = (
   item,
   started,
 ) => {
-  if (item === undefined || item.type === undefined || item.type === "") {
+  if (item === null || item.type === "") {
     return null;
   }
 
@@ -169,197 +171,203 @@ export const runCodex: (opts: RunOptions) => Promise<RunResult> = async (opts) =
 
   args.push(`${opts.systemPrompt}\n\n---\n\nYOUR TASK:\n\n${opts.prompt}`);
 
-  // oxlint-disable-next-line promise/avoid-new -- child_process.spawn is event-based
-  return await new Promise((resolve) => {
-    let child: ReturnType<typeof spawn> | undefined;
-    let rl: ReturnType<typeof createInterface> | undefined;
-    let sessionId: string | undefined;
-    let lastMessage = "";
-    let turnCompleted = false;
-    let failure: string | undefined;
-    let stderr = "";
-    let settled = false;
-    let idleTimer: ReturnType<typeof setTimeout> | undefined;
-    let sessionTimer: ReturnType<typeof setTimeout> | undefined;
+  const { promise, resolve } = Promise.withResolvers<RunResult>();
 
-    const settle = (res: RunResult) => {
-      if (settled) {
-        return;
-      }
+  let child: ReturnType<typeof spawn> | undefined;
+  let rl: ReturnType<typeof createInterface> | undefined;
+  let sessionId: string | undefined;
+  let lastMessage = "";
+  let turnCompleted = false;
+  let failure: string | undefined;
+  let stderr = "";
+  let settled = false;
+  let idleTimer: ReturnType<typeof setTimeout> | undefined;
+  let sessionTimer: ReturnType<typeof setTimeout> | undefined;
 
-      settled = true;
+  const settle = (res: RunResult) => {
+    if (settled) {
+      return;
+    }
 
-      if (idleTimer) {
-        clearTimeout(idleTimer);
-      }
+    settled = true;
 
-      if (sessionTimer) {
-        clearTimeout(sessionTimer);
-      }
+    if (idleTimer) {
+      clearTimeout(idleTimer);
+    }
 
+    if (sessionTimer) {
+      clearTimeout(sessionTimer);
+    }
+
+    bestEffort(() => {
+      rl?.close();
+    });
+    bestEffort(() => {
+      child?.stdout?.destroy();
+      child?.stderr?.destroy();
+      child?.unref();
+    });
+    resolve(res);
+  };
+
+  const pokeIdle = () => {
+    if (opts.idleTimeoutMs <= 0 || settled) {
+      return;
+    }
+
+    if (idleTimer) {
+      clearTimeout(idleTimer);
+    }
+
+    idleTimer = setTimeout(() => {
       bestEffort(() => {
-        rl?.close();
+        child?.kill("SIGKILL");
       });
-      bestEffort(() => {
-        child?.stdout?.destroy();
-        child?.stderr?.destroy();
-        child?.unref();
-      });
-      resolve(res);
-    };
-
-    const pokeIdle = () => {
-      if (opts.idleTimeoutMs <= 0 || settled) {
-        return;
-      }
-
-      if (idleTimer) {
-        clearTimeout(idleTimer);
-      }
-
-      idleTimer = setTimeout(() => {
-        bestEffort(() => {
-          child?.kill("SIGKILL");
-        });
-        settle({
-          error: `no output for ${fmtMs(opts.idleTimeoutMs)} — treating codex as hung`,
-          ok: false,
-          result: "",
-        });
-      }, opts.idleTimeoutMs);
-      idleTimer.unref?.();
-    };
-
-    try {
-      child = spawn(opts.bin, args, {
-        cwd: opts.cwd,
-        env: { ...process.env },
-        signal: opts.signal,
-        stdio: ["ignore", "pipe", "pipe"],
-      });
-    } catch (error) {
       settle({
-        error: `failed to spawn ${opts.bin}: ${error instanceof Error ? error.message : String(error)}`,
+        error: `no output for ${fmtMs(opts.idleTimeoutMs)} — treating codex as hung`,
         ok: false,
         result: "",
       });
+    }, opts.idleTimeoutMs);
+    idleTimer.unref?.();
+  };
 
-      return;
-    }
+  try {
+    child = spawn(opts.bin, args, {
+      cwd: opts.cwd,
+      env: { ...process.env },
+      signal: opts.signal,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+  } catch (error) {
+    settle({
+      error: `failed to spawn ${opts.bin}: ${error instanceof Error ? error.message : String(error)}`,
+      ok: false,
+      result: "",
+    });
 
+    return await promise;
+  }
+
+  pokeIdle();
+
+  if (opts.maxSessionMs > 0) {
+    sessionTimer = setTimeout(() => {
+      bestEffort(() => {
+        child?.kill("SIGKILL");
+      });
+      settle({
+        error: `exceeded the ${fmtMs(opts.maxSessionMs)} session limit — killed`,
+        ok: false,
+        result: "",
+      });
+    }, opts.maxSessionMs);
+    sessionTimer.unref?.();
+  }
+
+  if (child.stdout) {
+    rl = createInterface({ input: child.stdout });
+  }
+
+  if (!rl) {
+    settle({ error: "codex produced no stdout pipe", ok: false, result: "", sessionId });
+
+    return await promise;
+  }
+
+  rl.on("line", (line) => {
     pokeIdle();
+    const trimmed = line.trim();
 
-    if (opts.maxSessionMs > 0) {
-      sessionTimer = setTimeout(() => {
-        bestEffort(() => {
-          child?.kill("SIGKILL");
-        });
-        settle({
-          error: `exceeded the ${fmtMs(opts.maxSessionMs)} session limit — killed`,
-          ok: false,
-          result: "",
-        });
-      }, opts.maxSessionMs);
-      sessionTimer.unref?.();
+    if (!trimmed) {
+      return;
     }
 
-    if (child.stdout) {
-      rl = createInterface({ input: child.stdout });
+    const evt = parseCodexEvent(trimmed);
+
+    if (evt === null) {
+      return;
     }
 
-    if (!rl) {
-      settle({ error: "codex produced no stdout pipe", ok: false, result: "", sessionId });
+    switch (evt.type) {
+      case "thread.started": {
+        sessionId = evt.thread_id;
+        opts.onActivity({ kind: "init", model: opts.model });
+
+        return;
+      }
+
+      case "item.started":
+      case "item.completed": {
+        const activity = itemActivity(evt.item, evt.type === "item.started");
+
+        if (activity) {
+          opts.onActivity(activity);
+
+          if (evt.type === "item.completed" && evt.item?.type === "agent_message") {
+            lastMessage = evt.item.text ?? lastMessage;
+          }
+        }
+
+        return;
+      }
+
+      case "turn.completed": {
+        turnCompleted = true;
+
+        return;
+      }
+
+      case "turn.failed": {
+        failure = evt.error?.message ?? "codex turn failed";
+        break;
+      }
+
+      case "error": {
+        failure = evt.message ?? failure;
+        break;
+      }
+
+      case "turn.started": {
+        break;
+      }
+
+      default: {
+        const exhaustive: never = evt;
+        throw new Error(`unhandled codex event ${JSON.stringify(exhaustive)}`);
+      }
+    }
+  });
+
+  child.stderr?.on("data", (d: Buffer) => {
+    pokeIdle();
+    stderr = (stderr + d.toString()).slice(-STDERR_TAIL_MAX);
+  });
+
+  child.on("error", (err: Error) => {
+    settle({ error: `${opts.bin}: ${err.message}`, ok: false, result: "" });
+  });
+
+  child.on("close", (code) => {
+    if ((failure !== undefined && failure !== "") || code !== 0 || !turnCompleted) {
+      settle({
+        error: failure ?? stderr.trim() ?? `codex exited with code ${code}`,
+        ok: false,
+        result: lastMessage,
+        sessionId,
+      });
 
       return;
     }
 
-    rl.on("line", (line) => {
-      pokeIdle();
-      const trimmed = line.trim();
-
-      if (!trimmed) {
-        return;
-      }
-
-      const evt = parseCodexEvent(trimmed);
-
-      if (evt === null) {
-        return;
-      }
-
-      switch (evt.type) {
-        case "thread.started": {
-          sessionId = evt.thread_id;
-          opts.onActivity({ kind: "init", model: opts.model });
-
-          return;
-        }
-
-        case "item.started":
-        case "item.completed": {
-          const activity = itemActivity(evt.item, evt.type === "item.started");
-
-          if (activity) {
-            opts.onActivity(activity);
-
-            if (evt.type === "item.completed" && evt.item?.type === "agent_message") {
-              lastMessage = evt.item.text ?? lastMessage;
-            }
-          }
-
-          return;
-        }
-
-        case "turn.completed": {
-          turnCompleted = true;
-
-          return;
-        }
-
-        case "turn.failed": {
-          failure = evt.error?.message ?? "codex turn failed";
-          break;
-        }
-
-        case "error": {
-          failure = evt.message ?? failure;
-          break;
-        }
-
-        default: {
-          break;
-        }
-      }
-    });
-
-    child.stderr?.on("data", (d: Buffer) => {
-      pokeIdle();
-      stderr = (stderr + d.toString()).slice(-STDERR_TAIL_MAX);
-    });
-
-    child.on("error", (err: Error) => {
-      settle({ error: `${opts.bin}: ${err.message}`, ok: false, result: "" });
-    });
-
-    child.on("close", (code) => {
-      if ((failure !== undefined && failure !== "") || code !== 0 || !turnCompleted) {
-        settle({
-          error: failure ?? stderr.trim() ?? `codex exited with code ${code}`,
-          ok: false,
-          result: lastMessage,
-          sessionId,
-        });
-
-        return;
-      }
-
-      settle({ ok: true, result: lastMessage, sessionId });
-    });
+    settle({ ok: true, result: lastMessage, sessionId });
   });
+
+  return await promise;
 };
 
 interface CodexItem {
-  type?: string;
+  type: string;
   text?: string;
   message?: string;
   command?: string;
@@ -375,4 +383,4 @@ type CodexEvent =
   | { type: "turn.completed" }
   | { type: "turn.failed"; error?: { message?: string } }
   | { type: "error"; message?: string }
-  | { type: "item.started" | "item.completed"; item?: CodexItem };
+  | { type: "item.started" | "item.completed"; item: CodexItem | null };

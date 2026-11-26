@@ -66,8 +66,8 @@ export interface Reporter {
   info: (msg: string) => void;
   warn: (msg: string) => void;
   error: (msg: string) => void;
-  /** Refresh the header/status view. No-op for the console reporter. */
-  stateChanged: (state: AgentState, approvalPending: boolean) => void;
+  /** Refresh the header/status view. The console reporter has none. */
+  stateChanged?: (state: AgentState, approvalPending: boolean) => void;
   /** The agent flagged a good stopping point; auto-continues after waitMs. */
   checkpointStarted: (message: string, waitMs: number) => void;
   /** The checkpoint resolved (operator responded, or the countdown ran out). */
@@ -213,7 +213,6 @@ export const createConsoleReporter: () => Reporter = () => {
     },
     runEnded: summaryBanner,
     start: banner,
-    stateChanged: () => null,
     turnEnd,
     turnStart,
     warn: (msg) => {

@@ -50,13 +50,13 @@ const describeError = (
   return parts.join(" — ");
 };
 
-const parseMessage: (value: JsonValue | undefined) => { content: ContentBlock[] } | undefined = (
+const parseMessage: (value: JsonValue | undefined) => { content: ContentBlock[] } | null = (
   value,
 ) => {
   const message = asJsonObject(value);
 
   if (!message) {
-    return;
+    return null;
   }
 
   const content = Array.isArray(message.content) ? message.content : [];
@@ -89,7 +89,9 @@ const parseStreamEvent: (text: string) => StreamEvent | null = (text) => {
     return null;
   }
 
-  switch (evt.type) {
+  const type = asString(evt.type) ?? "";
+
+  switch (type) {
     case "system": {
       return {
         model: asString(evt.model),
@@ -102,7 +104,7 @@ const parseStreamEvent: (text: string) => StreamEvent | null = (text) => {
 
     case "assistant":
     case "user": {
-      return { message: parseMessage(evt.message), type: evt.type };
+      return { message: parseMessage(evt.message), type };
     }
 
     case "result": {
@@ -196,221 +198,222 @@ export const runClaude: (opts: RunOptions) => Promise<RunResult> = async (opts) 
     args.push("--add-dir", dir);
   }
 
-  // oxlint-disable-next-line promise/avoid-new -- child_process.spawn is event-based
-  return await new Promise((resolve) => {
-    let child: ReturnType<typeof spawn> | undefined;
-    let rl: ReturnType<typeof createInterface> | undefined;
-    let final: RunResult = { ok: false, result: "" };
-    let gotResult = false;
-    let stderr = "";
-    let settled = false;
-    let sessionId: string | undefined;
-    let lastText = "";
-    let graceTimer: ReturnType<typeof setTimeout> | undefined;
-    let idleTimer: ReturnType<typeof setTimeout> | undefined;
-    let sessionTimer: ReturnType<typeof setTimeout> | undefined;
+  const { promise, resolve } = Promise.withResolvers<RunResult>();
 
-    const settle = (res: RunResult) => {
-      if (settled) {
-        return;
-      }
+  let child: ReturnType<typeof spawn> | undefined;
+  let rl: ReturnType<typeof createInterface> | undefined;
+  let final: RunResult = { ok: false, result: "" };
+  let gotResult = false;
+  let stderr = "";
+  let settled = false;
+  let sessionId: string | undefined;
+  let lastText = "";
+  let graceTimer: ReturnType<typeof setTimeout> | undefined;
+  let idleTimer: ReturnType<typeof setTimeout> | undefined;
+  let sessionTimer: ReturnType<typeof setTimeout> | undefined;
 
-      settled = true;
-
-      if (graceTimer) {
-        clearTimeout(graceTimer);
-      }
-
-      if (idleTimer) {
-        clearTimeout(idleTimer);
-      }
-
-      if (sessionTimer) {
-        clearTimeout(sessionTimer);
-      }
-
-      bestEffort(() => {
-        rl?.close();
-      });
-      bestEffort(() => {
-        child?.stdout?.destroy();
-        child?.stderr?.destroy();
-        child?.unref();
-      });
-      resolve(res);
-    };
-
-    const pokeIdle = () => {
-      if (opts.idleTimeoutMs <= 0 || settled || gotResult) {
-        return;
-      }
-
-      if (idleTimer) {
-        clearTimeout(idleTimer);
-      }
-
-      idleTimer = setTimeout(() => {
-        bestEffort(() => {
-          child?.kill("SIGKILL");
-        });
-        settle({
-          error: `no output for ${fmtMs(opts.idleTimeoutMs)} — treating claude as hung`,
-          ok: false,
-          result: "",
-          sessionId,
-        });
-      }, opts.idleTimeoutMs);
-      idleTimer.unref?.();
-    };
-
-    const env: NodeJS.ProcessEnv = { ...process.env };
-    const isRoot = process.getuid?.() === 0;
-
-    if (opts.skipPermissions && isRoot && env.IS_SANDBOX !== "1") {
-      env.IS_SANDBOX = "1";
-    }
-
-    try {
-      child = spawn(opts.bin, args, {
-        cwd: opts.cwd,
-        env,
-        signal: opts.signal,
-        stdio: ["ignore", "pipe", "pipe"],
-      });
-    } catch (error) {
-      settle({
-        error: `failed to spawn ${opts.bin}: ${error instanceof Error ? error.message : String(error)}`,
-        ok: false,
-        result: "",
-      });
-
+  const settle = (res: RunResult) => {
+    if (settled) {
       return;
     }
 
-    pokeIdle();
+    settled = true;
 
-    if (opts.maxSessionMs > 0) {
-      sessionTimer = setTimeout(() => {
-        bestEffort(() => {
-          child?.kill("SIGKILL");
-        });
-        settle({
-          error: `exceeded the ${fmtMs(opts.maxSessionMs)} session limit — killed`,
-          ok: false,
-          result: "",
-          sessionId,
-        });
-      }, opts.maxSessionMs);
-      sessionTimer.unref?.();
+    if (graceTimer) {
+      clearTimeout(graceTimer);
     }
 
-    const onResult = (evt: ResultEvent) => {
-      gotResult = true;
-
-      if (idleTimer) {
-        clearTimeout(idleTimer);
-      }
-
-      if (sessionTimer) {
-        clearTimeout(sessionTimer);
-      }
-
-      final = {
-        costUsd: evt.total_cost_usd,
-        error: evt.is_error === true ? describeError(evt, lastText, stderr) : undefined,
-        numTurns: evt.num_turns,
-        ok: evt.subtype === "success" && evt.is_error !== true,
-        result: evt.result ?? "",
-        sessionId: evt.session_id ?? sessionId,
-      };
-
-      if (graceTimer) {
-        return;
-      }
-
-      graceTimer = setTimeout(() => {
-        bestEffort(() => {
-          child?.kill("SIGKILL");
-        });
-        settle(final);
-      }, RESULT_EXIT_GRACE_MS);
-      graceTimer.unref?.();
-    };
-
-    if (child.stdout) {
-      rl = createInterface({ input: child.stdout });
+    if (idleTimer) {
+      clearTimeout(idleTimer);
     }
 
-    if (!rl) {
-      settle({ error: "claude produced no stdout pipe", ok: false, result: "", sessionId });
+    if (sessionTimer) {
+      clearTimeout(sessionTimer);
+    }
 
+    bestEffort(() => {
+      rl?.close();
+    });
+    bestEffort(() => {
+      child?.stdout?.destroy();
+      child?.stderr?.destroy();
+      child?.unref();
+    });
+    resolve(res);
+  };
+
+  const pokeIdle = () => {
+    if (opts.idleTimeoutMs <= 0 || settled || gotResult) {
       return;
     }
 
-    rl.on("line", (line) => {
-      pokeIdle();
-      const trimmed = line.trim();
+    if (idleTimer) {
+      clearTimeout(idleTimer);
+    }
 
-      if (!trimmed) {
-        return;
-      }
-
-      const evt = parseStreamEvent(trimmed);
-
-      if (evt === null) {
-        return;
-      }
-
-      emitActivity(opts.onActivity, evt);
-
-      if (
-        evt.type === "system" &&
-        evt.subtype === "init" &&
-        evt.session_id !== undefined &&
-        evt.session_id !== ""
-      ) {
-        sessionId = evt.session_id;
-      }
-
-      if (evt.type === "assistant") {
-        for (const block of evt.message?.content ?? []) {
-          const text = block.type === "text" ? (block.text?.trim() ?? "") : "";
-
-          if (text !== "") {
-            lastText = text;
-          }
-        }
-      }
-
-      if (evt.type === "result") {
-        onResult(evt);
-      }
-    });
-
-    child.stderr?.on("data", (d: Buffer) => {
-      pokeIdle();
-      stderr = (stderr + d.toString()).slice(-STDERR_TAIL_MAX);
-    });
-
-    child.on("error", (err: Error) => {
-      settle({ error: `${opts.bin}: ${err.message}`, ok: false, result: "" });
-    });
-
-    child.on("close", (code) => {
-      if (gotResult) {
-        settle(final);
-
-        return;
-      }
-
+    idleTimer = setTimeout(() => {
+      bestEffort(() => {
+        child?.kill("SIGKILL");
+      });
       settle({
-        error: stderr.trim() || `claude exited with code ${code} without a result event`,
+        error: `no output for ${fmtMs(opts.idleTimeoutMs)} — treating claude as hung`,
         ok: false,
         result: "",
         sessionId,
       });
+    }, opts.idleTimeoutMs);
+    idleTimer.unref?.();
+  };
+
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  const isRoot = process.getuid?.() === 0;
+
+  if (opts.skipPermissions && isRoot && env.IS_SANDBOX !== "1") {
+    env.IS_SANDBOX = "1";
+  }
+
+  try {
+    child = spawn(opts.bin, args, {
+      cwd: opts.cwd,
+      env,
+      signal: opts.signal,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+  } catch (error) {
+    settle({
+      error: `failed to spawn ${opts.bin}: ${error instanceof Error ? error.message : String(error)}`,
+      ok: false,
+      result: "",
+    });
+
+    return await promise;
+  }
+
+  pokeIdle();
+
+  if (opts.maxSessionMs > 0) {
+    sessionTimer = setTimeout(() => {
+      bestEffort(() => {
+        child?.kill("SIGKILL");
+      });
+      settle({
+        error: `exceeded the ${fmtMs(opts.maxSessionMs)} session limit — killed`,
+        ok: false,
+        result: "",
+        sessionId,
+      });
+    }, opts.maxSessionMs);
+    sessionTimer.unref?.();
+  }
+
+  const onResult = (evt: ResultEvent) => {
+    gotResult = true;
+
+    if (idleTimer) {
+      clearTimeout(idleTimer);
+    }
+
+    if (sessionTimer) {
+      clearTimeout(sessionTimer);
+    }
+
+    final = {
+      costUsd: evt.total_cost_usd,
+      error: evt.is_error === true ? describeError(evt, lastText, stderr) : undefined,
+      numTurns: evt.num_turns,
+      ok: evt.subtype === "success" && evt.is_error !== true,
+      result: evt.result ?? "",
+      sessionId: evt.session_id ?? sessionId,
+    };
+
+    if (graceTimer) {
+      return;
+    }
+
+    graceTimer = setTimeout(() => {
+      bestEffort(() => {
+        child?.kill("SIGKILL");
+      });
+      settle(final);
+    }, RESULT_EXIT_GRACE_MS);
+    graceTimer.unref?.();
+  };
+
+  if (child.stdout) {
+    rl = createInterface({ input: child.stdout });
+  }
+
+  if (!rl) {
+    settle({ error: "claude produced no stdout pipe", ok: false, result: "", sessionId });
+
+    return await promise;
+  }
+
+  rl.on("line", (line) => {
+    pokeIdle();
+    const trimmed = line.trim();
+
+    if (!trimmed) {
+      return;
+    }
+
+    const evt = parseStreamEvent(trimmed);
+
+    if (evt === null) {
+      return;
+    }
+
+    emitActivity(opts.onActivity, evt);
+
+    if (
+      evt.type === "system" &&
+      evt.subtype === "init" &&
+      evt.session_id !== undefined &&
+      evt.session_id !== ""
+    ) {
+      sessionId = evt.session_id;
+    }
+
+    if (evt.type === "assistant") {
+      for (const block of evt.message?.content ?? []) {
+        const text = block.type === "text" ? (block.text?.trim() ?? "") : "";
+
+        if (text !== "") {
+          lastText = text;
+        }
+      }
+    }
+
+    if (evt.type === "result") {
+      onResult(evt);
+    }
+  });
+
+  child.stderr?.on("data", (d: Buffer) => {
+    pokeIdle();
+    stderr = (stderr + d.toString()).slice(-STDERR_TAIL_MAX);
+  });
+
+  child.on("error", (err: Error) => {
+    settle({ error: `${opts.bin}: ${err.message}`, ok: false, result: "" });
+  });
+
+  child.on("close", (code) => {
+    if (gotResult) {
+      settle(final);
+
+      return;
+    }
+
+    settle({
+      error: stderr.trim() || `claude exited with code ${code} without a result event`,
+      ok: false,
+      result: "",
+      sessionId,
     });
   });
+
+  return await promise;
 };
 
 interface ResultEvent {
@@ -425,8 +428,8 @@ interface ResultEvent {
 
 type StreamEvent =
   | { type: "system"; subtype?: string; model?: string; tools?: string[]; session_id?: string }
-  | { type: "assistant"; message?: { content: ContentBlock[] } }
-  | { type: "user"; message?: { content: ContentBlock[] } }
+  | { type: "assistant"; message: { content: ContentBlock[] } | null }
+  | { type: "user"; message: { content: ContentBlock[] } | null }
   | ResultEvent;
 
 type ContentBlock =

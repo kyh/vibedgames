@@ -2,22 +2,35 @@ import { cp, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { build } from "esbuild";
+import { z } from "zod";
 
 const packageRoot = path.resolve(import.meta.dirname, "..");
 const outDir = path.join(packageRoot, "dist", "npm", "factory");
 
-const readJson = async (file) => JSON.parse(await readFile(file, "utf-8"));
+const ownManifest = z.object({
+  dependencies: z.record(z.string(), z.string()),
+  engines: z.record(z.string(), z.string()).optional(),
+  version: z.string(),
+});
 
-const manifest = await readJson(path.join(packageRoot, "package.json"));
+const installedManifest = z.looseObject({ version: z.string() });
+
+const readJson = async <T>(file: string, schema: z.ZodType<T>) =>
+  schema.parse(JSON.parse(await readFile(file, "utf-8")));
+
+const manifest = await readJson(path.join(packageRoot, "package.json"), ownManifest);
 
 const dependencies = Object.fromEntries(
   await Promise.all(
     Object.keys(manifest.dependencies).map(async (name) => {
       const installed = await readJson(
         path.join(packageRoot, "node_modules", name, "package.json"),
+        installedManifest,
       );
 
-      return [name, `^${installed.version}`];
+      const entry: [string, string] = [name, `^${installed.version}`];
+
+      return entry;
     }),
   ),
 );

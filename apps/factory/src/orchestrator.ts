@@ -28,6 +28,7 @@ import {
   takeCheckpoint,
 } from "./state.ts";
 import type { AgentState, Blackboard, Phase } from "./state.ts";
+import { repeatWhile } from "./repeat-while.ts";
 import { appendSpan } from "./trace.ts";
 
 /** Handles the caller (TUI keys, signal handlers) uses to steer a running loop. */
@@ -230,15 +231,10 @@ const reconcileState = (
   state.idea = opts.idea || state.idea;
   state.model = opts.model;
   state.runner = opts.runner;
-  state.phaseFailures ??= 0;
-  state.existingProject = (state.existingProject ?? false) && hasExistingProject(opts.workspace);
-  state.built = (state.built ?? false) || state.shipped;
-  state.lastApproval ??= null;
-  state.lastPlaytestHead ??= null;
+  state.existingProject &&= hasExistingProject(opts.workspace);
+  state.built ||= state.shipped;
 
-  if (opts.context === undefined) {
-    state.contextDir ??= null;
-  } else {
+  if (opts.context !== undefined) {
     writeFileSync(bb.context, `${opts.context.trim()}\n`);
     state.contextDir = opts.contextDir ?? null;
   }
@@ -302,7 +298,7 @@ const qualityGate = async (
     (phase === "scaffold" || phase === "build" || (phase === "work" && role === "engineer"));
 
   if (!gated) {
-    return;
+    return null;
   }
 
   const gate = await runGate(workspace);
@@ -312,7 +308,7 @@ const qualityGate = async (
       reporter.info(`Quality gate passed (${gate.detail}).`);
     }
 
-    return;
+    return null;
   }
 
   reporter.warn("Quality gate FAILED — retrying the phase.");
@@ -325,7 +321,7 @@ interface TurnOutcome {
   role: Role;
   res: RunResult;
   resuming: string | undefined;
-  failure: string | undefined;
+  failure: string | null;
 }
 
 /**
@@ -354,7 +350,10 @@ export const runAgent = async (opts: AgentOptions, reporter: Reporter) => {
     return false;
   }
 
-  const onExit = () => releaseLock(bb);
+  const onExit = () => {
+    releaseLock(bb);
+  };
+
   process.on("exit", onExit);
 
   clearStop(bb);
@@ -443,18 +442,22 @@ export const runAgent = async (opts: AgentOptions, reporter: Reporter) => {
   });
 
   announceRun(bb, opts, state, repoRoot, reporter);
-  reporter.stateChanged(state, approvalPending(bb, state.lastApproval));
+  reporter.stateChanged?.(state, approvalPending(bb, state.lastApproval));
 
   const sleepUnlessStopping = async (ms: number) => {
     const step = 250;
 
-    for (let waited = 0; waited < ms; waited += step) {
-      if (stopping || stopRequested(bb)) {
-        return;
+    await repeatWhile(async (round) => {
+      const waited = round * step;
+
+      if (waited >= ms || stopping || stopRequested(bb)) {
+        return false;
       }
 
       await sleep(Math.min(step, ms - waited));
-    }
+
+      return true;
+    });
   };
 
   const maybeCheckpoint = async () => {
@@ -474,9 +477,11 @@ export const runAgent = async (opts: AgentOptions, reporter: Reporter) => {
     checkpointSkip = false;
     reporter.checkpointStarted(note, opts.checkpointWaitMs);
 
-    for (let waited = 0; waited < opts.checkpointWaitMs;) {
-      if (stopping || stopRequested(bb) || checkpointSkip) {
-        break;
+    let waited = 0;
+
+    await repeatWhile(async () => {
+      if (waited >= opts.checkpointWaitMs || stopping || stopRequested(bb) || checkpointSkip) {
+        return false;
       }
 
       await sleep(250);
@@ -484,7 +489,9 @@ export const runAgent = async (opts: AgentOptions, reporter: Reporter) => {
       if (!paused) {
         waited += 250;
       }
-    }
+
+      return true;
+    });
 
     reporter.checkpointEnded();
   };
@@ -498,7 +505,7 @@ export const runAgent = async (opts: AgentOptions, reporter: Reporter) => {
       reporter.info("--skip-ship set; skipping the ship phase.");
       advance(state);
       saveState(bb, state);
-      reporter.stateChanged(state, approvalPending(bb, state.lastApproval));
+      reporter.stateChanged?.(state, approvalPending(bb, state.lastApproval));
 
       return "skip";
     }
@@ -508,7 +515,7 @@ export const runAgent = async (opts: AgentOptions, reporter: Reporter) => {
       appendJournal(bb, "ship: skipped — no successful build recorded.");
       advance(state);
       saveState(bb, state);
-      reporter.stateChanged(state, approvalPending(bb, state.lastApproval));
+      reporter.stateChanged?.(state, approvalPending(bb, state.lastApproval));
 
       return "skip";
     }
@@ -520,7 +527,7 @@ export const runAgent = async (opts: AgentOptions, reporter: Reporter) => {
       appendJournal(bb, "ship: skipped — vg CLI not authenticated (run `vg login`).");
       advance(state);
       saveState(bb, state);
-      reporter.stateChanged(state, approvalPending(bb, state.lastApproval));
+      reporter.stateChanged?.(state, approvalPending(bb, state.lastApproval));
 
       return "skip";
     }
@@ -542,7 +549,7 @@ export const runAgent = async (opts: AgentOptions, reporter: Reporter) => {
 
       advance(state);
       saveState(bb, state);
-      reporter.stateChanged(state, approvalPending(bb, state.lastApproval));
+      reporter.stateChanged?.(state, approvalPending(bb, state.lastApproval));
 
       if (stopAtReleaseFlag) {
         reporter.info("Release point reached (build ready) — stopping as requested.");
@@ -559,10 +566,15 @@ export const runAgent = async (opts: AgentOptions, reporter: Reporter) => {
   };
 
   const beforeTurn = async () => {
-    // oxlint-disable-next-line no-unmodified-loop-condition
-    while (paused && !stopping && !stopRequested(bb)) {
+    await repeatWhile(async () => {
+      if (!paused || stopping || stopRequested(bb)) {
+        return false;
+      }
+
       await sleep(250);
-    }
+
+      return true;
+    });
 
     if (stopRequested(bb)) {
       reporter.warn("STOP sentinel found in .vgfactory/ — halting.");
@@ -581,7 +593,7 @@ export const runAgent = async (opts: AgentOptions, reporter: Reporter) => {
       state.phase = "ship";
       state.phaseFailures = 0;
       saveState(bb, state);
-      reporter.stateChanged(state, approvalPending(bb, state.lastApproval));
+      reporter.stateChanged?.(state, approvalPending(bb, state.lastApproval));
     }
 
     const approvedShipPending =
@@ -647,7 +659,7 @@ export const runAgent = async (opts: AgentOptions, reporter: Reporter) => {
     }
 
     saveState(bb, state);
-    reporter.stateChanged(state, approvalPending(bb, state.lastApproval));
+    reporter.stateChanged?.(state, approvalPending(bb, state.lastApproval));
 
     appendSpan(bb, {
       costUsd: res.costUsd,
@@ -736,7 +748,7 @@ export const runAgent = async (opts: AgentOptions, reporter: Reporter) => {
       state.phaseFailures = 0;
       advance(state);
       saveState(bb, state);
-      reporter.stateChanged(state, approvalPending(bb, state.lastApproval));
+      reporter.stateChanged?.(state, approvalPending(bb, state.lastApproval));
     } else {
       const backoff = Math.min(2 ** state.phaseFailures, 60);
       reporter.info(
@@ -768,7 +780,7 @@ export const runAgent = async (opts: AgentOptions, reporter: Reporter) => {
 
     advance(state);
     saveState(bb, state);
-    reporter.stateChanged(state, approvalPending(bb, state.lastApproval));
+    reporter.stateChanged?.(state, approvalPending(bb, state.lastApproval));
 
     commitPhase(opts.workspace, `factory: ${role.name} ${phase} (cycle ${state.cycle})`);
 
@@ -792,30 +804,32 @@ export const runAgent = async (opts: AgentOptions, reporter: Reporter) => {
     return false;
   };
 
-  // oxlint-disable-next-line no-unmodified-loop-condition
-  while (!stopping) {
+  await repeatWhile(async () => {
+    if (stopping) {
+      return false;
+    }
+
     const decision = await beforeTurn();
 
     if (decision === "stop") {
-      break;
+      return false;
     }
 
     if (decision === "skip") {
-      continue;
+      return true;
     }
 
     const outcome = await runTurn();
     const { failure } = outcome;
 
-    if (failure !== undefined && failure !== "") {
+    if (failure !== null && failure !== "") {
       await handleFailure(outcome, failure);
-      continue;
+
+      return true;
     }
 
-    if (await finishTurn(outcome)) {
-      break;
-    }
-  }
+    return !(await finishTurn(outcome));
+  });
 
   process.off("SIGINT", onSignal);
   process.off("SIGTERM", onSignal);

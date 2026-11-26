@@ -10,13 +10,14 @@
     "approve": "tsx src/index.ts approve",
     "clean": "rm -rf .turbo .cache node_modules .workspaces dist",
     "typecheck": "tsc --noEmit",
-    "build:npm": "node scripts/build.mjs"
+    "build:npm": "tsx scripts/build.ts"
   },
   "dependencies": {
     "citty": "^0.2.2",
     "consola": "^3.4.2",
     "ink": "^8.0.0",
-    "react": "catalog:"
+    "react": "catalog:",
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@kyh/tsconfig": "catalog:",

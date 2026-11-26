@@ -134,6 +134,8 @@ const requireSlug = (raw: string) => {
   return slug;
 };
 
+const isGiven = (value: string | undefined): value is string => value !== undefined && value !== "";
+
 const toInt = (v: string | undefined, fallback: number, min = 0) => {
   if (v === undefined) {
     return fallback;
@@ -261,7 +263,7 @@ const startCommand = defineCommand({
     const codexRoles = parseCodexRoles(args["codex-roles"]);
 
     const knobs = {
-      autoDeploy: Boolean(args["auto-deploy"]),
+      autoDeploy: args["auto-deploy"],
       checkpointWaitMs: toInt(args["checkpoint-wait"], 120) * 1000,
       codexModel: args["codex-model"].trim() || defaultModelFor("codex"),
       codexRoles,
@@ -274,22 +276,19 @@ const startCommand = defineCommand({
       maxSessionMs: toInt(args["session-timeout"], DEFAULT_SESSION_MINUTES) * 60_000,
       maxTurns: toInt(args["max-turns"], DEFAULT_MAX_TURNS, 1),
       model: args.model.trim() || defaultModelFor(runner),
-      noShip: Boolean(args["skip-ship"]),
+      noShip: args["skip-ship"],
       runner,
       skipPermissions: !args.guarded,
     };
 
     const interactive = !args["no-tui"] && process.stdout.isTTY && process.stdin.isTTY;
+    const explicit = isGiven(args.slug) ? requireSlug(args.slug) : undefined;
 
     if (interactive) {
-      const slug = args.slug !== undefined && args.slug !== "" ? requireSlug(args.slug) : undefined;
-      runTui({ ...knobs, dir: args.dir, slug });
+      runTui({ ...knobs, dir: args.dir, slug: explicit });
 
       return;
     }
-
-    const explicit =
-      args.slug !== undefined && args.slug !== "" ? requireSlug(args.slug) : undefined;
 
     let slug = deriveSlug({ dir: args.dir, idea: knobs.idea || undefined, slug: explicit });
 
@@ -300,10 +299,7 @@ const startCommand = defineCommand({
       process.exit(1);
     }
 
-    if (
-      (explicit === undefined || explicit === "") &&
-      (args.dir === undefined || args.dir === "")
-    ) {
+    if (!isGiven(explicit) && !isGiven(args.dir)) {
       slug = availableSlug(slug);
     }
 
@@ -311,12 +307,7 @@ const startCommand = defineCommand({
     const bb = blackboard(workspace);
     const fresh = !existsSync(bb.state);
 
-    if (
-      fresh &&
-      !knobs.idea &&
-      (context === undefined || context === "") &&
-      !hasExistingProject(workspace)
-    ) {
+    if (fresh && !knobs.idea && !isGiven(context) && !hasExistingProject(workspace)) {
       const contextAttempted = Boolean((args.context ?? "").trim());
       consola.error(
         contextAttempted
@@ -447,4 +438,4 @@ const main = defineCommand({
   },
 });
 
-runMain(main);
+await runMain(main);
