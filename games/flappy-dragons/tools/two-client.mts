@@ -19,7 +19,7 @@ const waitFor = async <T,>(read: () => Promise<T>, label: string, timeoutMs = 80
 
       return last;
     },
-    (value) => Boolean(value),
+    Boolean,
     { intervalMs: 100, timeoutMs },
   );
 
@@ -102,7 +102,11 @@ const until = async (page: Page, test: (fb: Fb) => boolean, label: string, timeo
     timeoutMs,
   );
 
-const phaseOf = async (page: Page) => (await fbOf(page))?.phase ?? null;
+const phaseOf = async (page: Page) => {
+  const fb = await fbOf(page);
+
+  return fb?.phase ?? null;
+};
 
 const startFlying = async (page: Page) => {
   await page.keyboard.press("Enter");
@@ -180,7 +184,7 @@ const worstScrollStep = async (page: Page, ms: number) =>
           return;
         }
 
-        const until = performance.now() + span;
+        const endAt = performance.now() + span;
         let prev = scene.worldX;
         let worst = Number.POSITIVE_INFINITY;
 
@@ -188,7 +192,7 @@ const worstScrollStep = async (page: Page, ms: number) =>
           worst = Math.min(worst, scene.worldX - prev);
           prev = scene.worldX;
 
-          if (performance.now() < until) {
+          if (performance.now() < endAt) {
             requestAnimationFrame(tick);
           } else {
             resolve(worst);
@@ -286,7 +290,7 @@ const main = async () => {
     step(
       "both render the same pipe window",
       shared.length >= 2,
-      `host ${h.pipes} guest ${g.pipes}`,
+      `host ${h.pipes.join(",")} guest ${g.pipes.join(",")}`,
     );
     step(
       "guest scroll tracks the host",

@@ -98,7 +98,8 @@ const GHOST_SCALE_MIN = 0.82;
 const GHOST_SCALE_MAX = 1.06;
 
 const TOUCH = isCoarsePointer();
-const ROOM = (import.meta.env.DEV && new URLSearchParams(location.search).get("room")) || MP_ROOM;
+const ROOM_PARAM = import.meta.env.DEV ? new URLSearchParams(location.search).get("room") : null;
+const ROOM = ROOM_PARAM === null || ROOM_PARAM === "" ? MP_ROOM : ROOM_PARAM;
 
 const HINT_FLAP = TOUCH ? "TAP TO FLAP" : "CLICK · SPACE — FLAP";
 const HINT_RESTART = TOUCH ? "TAP ANYWHERE TO RESTART" : "CLICK OR PRESS SPACE TO RESTART";
@@ -1161,12 +1162,7 @@ export class GameScene extends Scene {
     const iHigh = Math.floor((this.worldX + width - RUNWAY) / PIPE_SPAWN_DISTANCE);
 
     for (let i = iLow; i <= iHigh; i += 1) {
-      let pipe = this.pipes.get(i);
-
-      if (!pipe) {
-        pipe = this.spawnPipe(i);
-      }
-
+      const pipe = this.pipes.get(i) ?? this.spawnPipe(i);
       this.positionPipe(pipe);
     }
 
@@ -1828,7 +1824,7 @@ export class GameScene extends Scene {
     return this.scoreY() + 44;
   }
 
-  private layout() {
+  private readonly layout = () => {
     const zoom = this.viewZoom();
     const width = this.viewW();
     const top = this.viewTop();
@@ -1855,7 +1851,7 @@ export class GameScene extends Scene {
     }
 
     this.clearPipes();
-  }
+  };
 
   private applyParallax() {
     const px = this.worldX + this.readyDrift;
