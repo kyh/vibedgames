@@ -117,19 +117,16 @@ const SPRING = {
   type: "spring" as const,
 };
 
-// oxlint-disable-next-line unicorn/prefer-number-coercion -- positions are CSS percentages like "12%"; Number() gives NaN
-const pct = (length: string) => Number.parseFloat(length);
-
 const MOBILE_CARD_CQW = 55;
 const MOBILE_CARD_ASPECT = 0.8;
 const MOBILE_STEP_CQW = 23;
 
 const MOBILE_POSITIONS = [
-  { left: "2%", rotate: -7 },
-  { left: "42%", rotate: 5 },
-  { left: "8%", rotate: 8 },
-  { left: "40%", rotate: -4 },
-  { left: "0%", rotate: -3 },
+  { left: 2, rotate: -7 },
+  { left: 42, rotate: 5 },
+  { left: 8, rotate: 8 },
+  { left: 40, rotate: -4 },
+  { left: 0, rotate: -3 },
 ] as const;
 
 const MOBILE_STACK_CQW =
@@ -253,7 +250,7 @@ const OfferingsDeckMobile = () => {
       style={{ height: `${MOBILE_STACK_CQW}cqw` }}
     >
       {OFFERINGS.map((card, i) => {
-        const p = MOBILE_POSITIONS[i] ?? { left: "0%", rotate: 0 };
+        const p = MOBILE_POSITIONS[i] ?? { left: 0, rotate: 0 };
         const isActive = activeIdx === i;
         const activeP = activeIdx === null ? null : MOBILE_POSITIONS[activeIdx];
 
@@ -261,7 +258,7 @@ const OfferingsDeckMobile = () => {
         let innerY = "0%";
 
         if (activeP && activeIdx !== null && !isActive) {
-          innerX = `${Math.sign(pct(p.left) - pct(activeP.left)) * 40}%`;
+          innerX = `${Math.sign(p.left - activeP.left) * 40}%`;
           innerY = `${Math.sign(i - activeIdx) * 40}%`;
         }
 
@@ -282,7 +279,7 @@ const OfferingsDeckMobile = () => {
             transition={transition}
             style={{
               aspectRatio: MOBILE_CARD_ASPECT,
-              left: p.left,
+              left: `${p.left}%`,
               top: `${i * MOBILE_STEP_CQW}cqw`,
               transformOrigin: "center center",
               width: `${MOBILE_CARD_CQW}cqw`,
