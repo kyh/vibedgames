@@ -69,6 +69,29 @@ test("an emailed sign-in code signs a new address up, confirmed", async () => {
   });
 });
 
+test("a code's sign-in from another site is refused, and from this one goes through", async () => {
+  await withAuth(async (auth, sent) => {
+    await auth.api.sendVerificationOTP({ body: { email: EMAIL, type: "sign-in" } });
+    const otp = codeIn(sent[0]);
+    assert.ok(otp !== undefined);
+
+    const signInFrom = async (origin: string) =>
+      await auth.handler(
+        new Request("https://vibedgames.com/api/auth/sign-in/email-otp", {
+          body: JSON.stringify({ email: EMAIL, otp }),
+          headers: { "content-type": "application/json", origin },
+          method: "POST",
+        }),
+      );
+
+    const foreign = await signInFrom("https://attacker.example");
+    assert.equal(foreign.status, 403);
+
+    const own = await signInFrom("https://vibedgames.com");
+    assert.equal(own.status, 200);
+  });
+});
+
 test("password-reset codes are never sent", async () => {
   await withAuth(async (auth, sent) => {
     await auth.api.sendVerificationOTP({ body: { email: EMAIL, type: "forget-password" } });

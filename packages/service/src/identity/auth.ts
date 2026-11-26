@@ -13,7 +13,7 @@ import { CLI_OAUTH_CLIENT_ID, CLI_OAUTH_SCOPES } from "@repo/contract/cli";
 import { OAUTH_SCOPES } from "@repo/contract/auth/oauth-scopes";
 import type { BetterAuthPlugin } from "better-auth";
 import { betterAuth } from "better-auth";
-import { APIError, createAuthMiddleware } from "better-auth/api";
+import { APIError, createAuthMiddleware, formCsrfMiddleware } from "better-auth/api";
 import { admin, bearer, emailOTP, jwt, oAuthProxy } from "better-auth/plugins";
 import { z } from "zod";
 
@@ -95,7 +95,7 @@ export const createAuth = (opts: AuthOptions) => {
       provider: "sqlite",
     }),
     disabledPaths: ["/token"],
-    hooks: mailer ? undefined : { before: refuseCodesWithoutMail },
+    hooks: { before: guardSignInCodes(mailer !== undefined) },
     plugins: [
       oAuthProxy({
         currentURL: baseURL,
@@ -177,17 +177,22 @@ const codeSenderOf =
 
 const SEND_CODE_PATH = "/email-otp/send-verification-otp";
 
-// WARNING: better-auth logs what a sender throws and answers success, so a refusal must come before it.
-const refuseCodesWithoutMail = createAuthMiddleware(async (ctx) => {
-  if (ctx.path === SEND_CODE_PATH) {
-    throw APIError.from("SERVICE_UNAVAILABLE", {
-      code: "EMAIL_DISABLED",
-      message: "Sign-in by email is unavailable: this site sends no email.",
-    });
-  }
+const SIGN_IN_CODE_PATH = "/sign-in/email-otp";
 
-  await Promise.resolve();
-});
+// WARNING: better-auth checks no origin on a code's sign-in and answers success when its sender throws.
+const guardSignInCodes = (mails: boolean) =>
+  createAuthMiddleware(async (ctx) => {
+    if (ctx.path === SIGN_IN_CODE_PATH) {
+      await formCsrfMiddleware(ctx);
+    }
+
+    if (ctx.path === SEND_CODE_PATH && !mails) {
+      throw APIError.from("SERVICE_UNAVAILABLE", {
+        code: "EMAIL_DISABLED",
+        message: "Sign-in by email is unavailable: this site sends no email.",
+      });
+    }
+  });
 
 const LOOPBACK_REDIRECT = /^http:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?\//u;
 
