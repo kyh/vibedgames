@@ -1,30 +1,33 @@
-import { readFileSync, writeFileSync } from "node:fs";
-import { onLandUV, rdp, ringArea, projU, projV, WORLD_H, WORLD_W } from "./lib.mts";
+import { writeFileSync } from "node:fs";
 
-const waterAt = ([x, z]) => !onLandUV(x / WORLD_W + 0.5, z / WORLD_H + 0.5);
+import { at, onLandUV, rdp, ringArea, projU, projV, WORLD_H, WORLD_W } from "./lib.mts";
+import type { Point } from "./lib.mts";
+import { readOverpass } from "./osm.mts";
 
-const raw = JSON.parse(readFileSync(new URL("sf-piers.raw.json", import.meta.url)));
+const waterAt = ([x, z]: Point) => !onLandUV(x / WORLD_W + 0.5, z / WORLD_H + 0.5);
 
-const ways = raw.elements.filter(
-  (e: { type: string; geometry: any }) => e.type === "way" && e.geometry,
+const raw = readOverpass(new URL("sf-piers.raw.json", import.meta.url));
+
+const ways = raw.elements.flatMap((e) =>
+  e.type === "way" && e.geometry !== undefined ? [e.geometry] : [],
 );
 
 console.log(`pier ways: ${ways.length}`);
 
-const closed = [];
-const open = [];
+const closed: { area: number; p: number[] }[] = [];
+const open: { p: number[] }[] = [];
 let landDrop = 0;
 
-for (const w of ways) {
-  const g = w.geometry;
-
+for (const g of ways) {
   if (g.length < 2) {
     continue;
   }
 
-  const isClosed = g[0].lat === g.at(-1).lat && g[0].lon === g.at(-1).lon;
+  const first = at(g, 0);
+  const last = at(g, g.length - 1);
+  const isClosed = first.lat === last.lat && first.lon === last.lon;
 
-  let pts = (isClosed ? g.slice(0, -1) : g).map((q: { lon: any; lat: any }) => {
+  let pts = (isClosed ? g.slice(0, -1) : g).map<Point>((q) => {
     const u = projU(q.lon);
     const v = projV(q.lat);
 
@@ -49,8 +52,8 @@ for (const w of ways) {
 
     for (let i = 0; i < pts.length; i += 1) {
       for (let j = i + 1; j < pts.length; j += 1) {
-        const dx = (pts[j][0] ?? 0) - (pts[i][0] ?? 0);
-        const dz = (pts[j][1] ?? 0) - (pts[i][1] ?? 0);
+        const dx = at(pts, j)[0] - at(pts, i)[0];
+        const dz = at(pts, j)[1] - at(pts, i)[1];
         const d2 = dx * dx + dz * dz;
 
         if (d2 > bestD) {
@@ -80,7 +83,7 @@ for (const w of ways) {
 
     cx /= pts.length;
     cz /= pts.length;
-    let shift = null;
+    let shift: Point | null = null;
 
     for (let d = 4; d <= 220; d += 4) {
       if (waterAt([cx + ax * d, cz + az * d])) {
@@ -94,12 +97,13 @@ for (const w of ways) {
       }
     }
 
-    if (!shift) {
+    if (shift === null) {
       landDrop += 1;
       continue;
     }
 
-    pts = pts.map(([x, z]) => [x + shift[0], z + shift[1]]);
+    const [sx, sz] = shift;
+    pts = pts.map<Point>(([x, z]) => [x + sx, z + sz]);
 
     if (pts.some(([x, z]) => Math.abs(x) > WORLD_W / 2 || Math.abs(z) > WORLD_H / 2)) {
       landDrop += 1;
@@ -122,9 +126,9 @@ for (const w of ways) {
       continue;
     }
 
-    closed.push({ area, p: ring.flat().map((n: number) => Math.round(n * 10) / 10) });
+    closed.push({ area, p: ring.flat().map((n) => Math.round(n * 10) / 10) });
   } else if (!isClosed && pts.length >= 2) {
-    open.push({ p: pts.flat().map((n: number) => Math.round(n * 10) / 10) });
+    open.push({ p: pts.flat().map((n) => Math.round(n * 10) / 10) });
   }
 }
 

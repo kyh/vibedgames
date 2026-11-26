@@ -43,6 +43,7 @@
     "typescript": "catalog:",
     "vite": "catalog:",
     "vite-node": "^6.0.0",
-    "vite-plugin-wasm": "^3.6.0"
+    "vite-plugin-wasm": "^3.6.0",
+    "zod": "catalog:"
   }
 }

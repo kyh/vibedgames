@@ -1,3 +1,5 @@
+import { at } from "./lib.mts";
+
 const ANCHORS = [
   { lat: 37.7544, lon: -122.4477, name: "Twin Peaks", u: 0.42, v: 0.56 },
   // oxlint-disable-next-line oxc/approx-constant -- 0.693 is a map v coordinate, not ln 2
@@ -14,16 +16,16 @@ const ANCHORS = [
   { lat: 37.7787, lon: -122.4527, name: "Lone Mountain", u: 0.396, v: 0.295 },
 ];
 
-const fit = (xs: any[], ys: any[]) => {
+const fit = (xs: readonly number[], ys: readonly number[]) => {
   const n = xs.length;
-  const mx = xs.reduce((a: any, b: any) => a + b, 0) / n;
-  const my = ys.reduce((a: any, b: any) => a + b, 0) / n;
+  const mx = xs.reduce((a, b) => a + b, 0) / n;
+  const my = ys.reduce((a, b) => a + b, 0) / n;
   let sxx = 0;
   let sxy = 0;
 
   for (let i = 0; i < n; i += 1) {
-    sxy += (xs[i] - mx) * (ys[i] - my);
-    sxx += (xs[i] - mx) * (xs[i] - mx);
+    sxy += (at(xs, i) - mx) * (at(ys, i) - my);
+    sxx += (at(xs, i) - mx) * (at(xs, i) - mx);
   }
 
   const m = sxy / sxx;
@@ -32,9 +34,9 @@ const fit = (xs: any[], ys: any[]) => {
   let ssTot = 0;
 
   for (let i = 0; i < n; i += 1) {
-    const pred = m * xs[i] + b;
-    ssRes += (ys[i] - pred) ** 2;
-    ssTot += (ys[i] - my) ** 2;
+    const pred = m * at(xs, i) + b;
+    ssRes += (at(ys, i) - pred) ** 2;
+    ssTot += (at(ys, i) - my) ** 2;
   }
 
   return { b, m, r2: 1 - ssRes / ssTot };
