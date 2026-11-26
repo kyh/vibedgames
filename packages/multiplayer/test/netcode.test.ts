@@ -4,7 +4,6 @@ import { test } from "node:test";
 import { FixedRate } from "../src/fixed-rate.js";
 import { Interpolator, lerp, lerpAngle } from "../src/interpolation.js";
 import { netStats } from "../src/net-stats.js";
-import type { NetProbe } from "../src/net-stats.js";
 import { Reconciler } from "../src/prediction.js";
 import { RemoteClock } from "../src/remote-clock.js";
 import { ServerClock } from "../src/server-clock.js";
@@ -186,12 +185,7 @@ test("Interpolator counts the frames it draws past the newest update, for __VG_N
     { frames: 3, stalled: 1, starved: 2, updates: 2 },
   );
 
-  const probe: NetProbe | undefined = Object.getOwnPropertyDescriptor(
-    globalThis,
-    "__VG_NET__",
-  )?.value;
-
-  assert.deepEqual(probe?.stats(), after, "the page global reads the same totals");
+  assert.deepEqual(globalThis.__VG_NET__?.stats(), after, "the page global reads the same totals");
 });
 
 test("Interpolator renders jittery 20 Hz updates as steady motion", () => {

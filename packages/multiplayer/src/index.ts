@@ -34,6 +34,7 @@ export type {
   ClaimInfo,
   ClaimMap,
   ClientMessage,
+  FrameClock,
   InterestRule,
   JsonRecord,
   JsonValue,

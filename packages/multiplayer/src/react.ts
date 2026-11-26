@@ -87,8 +87,10 @@ export const useMultiplayerRoom = <TShared extends JsonRecord = JsonRecord>(
   const updateSharedState = useCallback(
     (updater: Partial<TShared> | SharedUpdaterFn<TShared>) => {
       if (isSharedUpdaterFn(updater)) {
+        // oxlint-disable-next-line typescript/no-unsafe-type-assertion, anti-slop/require-safety-comment-for-type-assertion -- the room holds JSON the server relays unchecked; TShared is the caller's claim about it, and the hook has no schema to check it with
         client.updateSharedState((prev) => (updater as (p: TShared) => TShared)(prev as TShared));
       } else {
+        // oxlint-disable-next-line typescript/no-unsafe-type-assertion, anti-slop/require-safety-comment-for-type-assertion -- the room holds JSON the server relays unchecked; TShared is the caller's claim about it, and the hook has no schema to check it with
         client.updateSharedState(updater as TShared);
       }
     },
@@ -134,6 +136,7 @@ export const useMultiplayerRoom = <TShared extends JsonRecord = JsonRecord>(
       sendEvent,
       sendToHost,
       setRoomInfo,
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion, anti-slop/require-safety-comment-for-type-assertion -- the room holds JSON the server relays unchecked; TShared is the caller's claim about it, and the hook has no schema to check it with
       sharedState: snapshot.sharedState as TShared,
       updateMyState,
       updateSharedState,
@@ -191,9 +194,11 @@ export const usePlayerState = <TPlayerState extends JsonRecord = JsonRecord>(
   const playerState = useMemo(() => {
     const state =
       room.playerId !== null && room.playerId !== ""
-        ? (room.players[room.playerId]?.state as TPlayerState | undefined)
+        ? // oxlint-disable-next-line typescript/no-unsafe-type-assertion, anti-slop/require-safety-comment-for-type-assertion -- the room holds JSON the server relays unchecked; TPlayerState is the caller's claim about it, and the hook has no schema to check it with
+          (room.players[room.playerId]?.state as TPlayerState | undefined)
         : undefined;
 
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion, anti-slop/require-safety-comment-for-type-assertion -- the room holds JSON the server relays unchecked; TPlayerState is the caller's claim about it, and the hook has no schema to check it with
     return state ?? initialState ?? ({} as TPlayerState);
   }, [initialState, room.playerId, room.players]);
 

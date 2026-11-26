@@ -2,6 +2,7 @@ import { PartySocket } from "partysocket";
 
 import type { JsonValue } from "./types.js";
 import { LOBBY_PARTY } from "./types.js";
+import { parseJson } from "./validation.js";
 
 /** Where a lobby lives: the party server's host, and the lobby's name. */
 export interface LobbyOptions {
@@ -13,6 +14,11 @@ const LOBBY_NAME = /^[\w-]{1,64}$/u;
 
 /** Whether `name` can name a lobby: letters, digits, `-` and `_`, up to 64. */
 export const isLobbyName = (name: string) => LOBBY_NAME.test(name);
+
+const isString = (value: JsonValue | undefined): value is string =>
+  value !== null && value !== undefined && !(value instanceof Object) && String(value) === value;
+
+const isCount = (value: JsonValue | undefined): value is number => Number.isSafeInteger(value);
 
 const asRecord = (value: JsonValue | undefined) =>
   value instanceof Object && !Array.isArray(value) ? value : null;
@@ -33,7 +39,7 @@ const ask = async (options: LobbyOptions, init?: RequestInit) => {
     throw new Error(`lobby "${options.lobby}" answered ${response.status}`);
   }
 
-  const body = asRecord(JSON.parse(await response.text()) as JsonValue);
+  const body = asRecord(parseJson(await response.text()));
 
   if (body === null) {
     throw new Error(`lobby "${options.lobby}" answered something other than an object`);
@@ -47,16 +53,18 @@ const readListing = (value: JsonValue) => {
   const room = entry?.room;
   const players = entry?.players;
 
-  if (!entry || String(room) !== room || !Number.isSafeInteger(players)) {
+  if (entry === null || !isString(room) || !isCount(players)) {
     return null;
   }
 
+  const { capacity } = entry;
+
   return {
-    capacity: Number.isSafeInteger(entry.capacity) ? Number(entry.capacity) : null,
+    capacity: isCount(capacity) ? capacity : null,
     locked: entry.locked === true,
     meta: asRecord(entry.meta) ?? {},
-    players: Number(players),
-    room: String(room),
+    players,
+    room,
   };
 };
 
@@ -90,9 +98,9 @@ export const quickMatch = async (options: LobbyOptions & { maxPlayers?: number }
     method: "POST",
   });
 
-  if (String(room) !== room) {
+  if (!isString(room)) {
     throw new TypeError(`lobby "${options.lobby}" answered without a room`);
   }
 
-  return String(room);
+  return room;
 };

@@ -6,6 +6,7 @@ import { ServerClock } from "./server-clock.js";
 import type {
   ClaimMap,
   ClientMessage,
+  FrameClock,
   JsonRecord,
   JsonValue,
   MultiplayerConnectionStatus,
@@ -31,15 +32,36 @@ import {
   TIME_PROBE_INTERVAL_MS,
 } from "./types.js";
 import type { MultiplayerSchemas, SchemaViolation } from "./validation.js";
-import { MAX_MESSAGE_BYTES } from "./validation.js";
+import { MAX_MESSAGE_BYTES, parseJson } from "./validation.js";
 
-const normalizeIds = (ids: string | string[] | undefined) => {
-  if (ids === undefined) {
-    return;
-  }
+const SERVER_MESSAGE_TYPES = {
+  claim: true,
+  claims_cleared: true,
+  event: true,
+  host: true,
+  ping: true,
+  player_connection: true,
+  player_joined: true,
+  player_left: true,
+  player_state: true,
+  player_visibility: true,
+  room_full: true,
+  room_info: true,
+  state_patch: true,
+  sync: true,
+  tick: true,
+  time: true,
+} satisfies Record<ServerMessage["type"], true>;
 
-  return Array.isArray(ids) ? ids : [ids];
-};
+const isServerMessage = (value: unknown): value is ServerMessage =>
+  value instanceof Object &&
+  "type" in value &&
+  String(value.type) === value.type &&
+  Object.hasOwn(SERVER_MESSAGE_TYPES, value.type) &&
+  (value.type === "ping" || "data" in value);
+
+const normalizeIds = (ids: string | string[] | undefined) =>
+  ids === undefined ? undefined : [ids].flat();
 
 type OutboxItem =
   | { kind: "shared" }
@@ -168,6 +190,13 @@ const rafHost: typeof globalThis & {
   cancelAnimationFrame?: (handle: number) => void;
 } = globalThis;
 
+const pageFrames = () => {
+  const request = rafHost.requestAnimationFrame?.bind(rafHost);
+  const cancel = rafHost.cancelAnimationFrame?.bind(rafHost);
+
+  return request === undefined || cancel === undefined ? null : { cancel, request };
+};
+
 const cryptoHost: typeof globalThis & {
   crypto?: { randomUUID?: () => string };
 } = globalThis;
@@ -230,6 +259,7 @@ export class MultiplayerClient {
   private cap: number | null;
   private readonly reconnectToken = generateReconnectToken();
   private heartbeatRaf: number | null = null;
+  private readonly frames: FrameClock | null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private lastHeartbeatAt = 0;
   private admitted = false;
@@ -266,6 +296,7 @@ export class MultiplayerClient {
 
   constructor(options: MultiplayerClientOptions) {
     this.options = options;
+    this.frames = options.frames ?? pageFrames();
     this._sharedState = options.initialState ?? {};
     this._onEvent = options.onEvent;
     this._onClaim = options.onClaim;
@@ -353,16 +384,9 @@ export class MultiplayerClient {
       }
     };
 
-    const raf = rafHost.requestAnimationFrame ? rafHost.requestAnimationFrame.bind(rafHost) : null;
+    const raf = this.frames?.request ?? null;
 
-    if (raf) {
-      const loop = (t: number) => {
-        this.heartbeatRaf = raf(loop);
-        ping(t);
-      };
-
-      this.heartbeatRaf = raf(loop);
-    } else {
+    if (raf === null) {
       this.heartbeatTimer = setInterval(() => {
         if (this._connectionStatus === "connected") {
           this.send({ type: "heartbeat" });
@@ -379,6 +403,13 @@ export class MultiplayerClient {
           }
         }, fallbackMs);
       }
+    } else {
+      const loop = (t: number) => {
+        this.heartbeatRaf = raf(loop);
+        ping(t);
+      };
+
+      this.heartbeatRaf = raf(loop);
     }
   }
 
@@ -406,7 +437,7 @@ export class MultiplayerClient {
     this.probeTimers = [];
 
     if (this.heartbeatRaf !== null) {
-      rafHost.cancelAnimationFrame?.(this.heartbeatRaf);
+      this.frames?.cancel(this.heartbeatRaf);
       this.heartbeatRaf = null;
     }
 
@@ -1356,9 +1387,9 @@ export class MultiplayerClient {
 
   private readonly handleMessage = (event: MessageEvent) => {
     try {
-      const message = JSON.parse(event.data) as ServerMessage;
+      const message = parseJson(String(event.data));
 
-      if (this.applyMessage(message)) {
+      if (isServerMessage(message) && this.applyMessage(message)) {
         this.notify();
       }
     } catch (error) {
