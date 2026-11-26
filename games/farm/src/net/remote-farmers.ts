@@ -36,7 +36,7 @@ const showDropped = (f: Farmer, id: string, dropped: boolean) => {
 };
 
 export class RemoteFarmers {
-  private farmers = new Map<string, Farmer>();
+  farmers = new Map<string, Farmer>();
 
   private readonly scene: Phaser.Scene;
 

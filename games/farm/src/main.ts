@@ -10,6 +10,7 @@ import {
 
 import { pauseOverlay } from "./pause-overlay";
 import { farmManifest, readDiagnostics } from "./playtest";
+import type { FarmDiagnostics } from "./playtest";
 import { BootScene } from "./scenes/boot-scene";
 import { TitleScene } from "./scenes/title-scene";
 import { GameScene } from "./scenes/game-scene";
@@ -35,6 +36,7 @@ declare global {
   interface Window {
     /** DEV-only hook for headless verification. */
     __game?: Game;
+    __GAME_DIAGNOSTICS__?: FarmDiagnostics;
   }
 }
 

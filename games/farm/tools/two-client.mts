@@ -1,7 +1,9 @@
-import { spawn } from "node:child_process";
 import path from "node:path";
 import { setTimeout as wait } from "node:timers/promises";
+
+import { flagValue, poll, repeat, startVite } from "@repo/smoke";
 import { chromium } from "playwright-core";
+import type { Browser, Page } from "playwright-core";
 
 const gameDir = path.resolve(import.meta.dirname, "..");
 
@@ -11,7 +13,7 @@ const HOST_STALE_MS = 9000;
 const MAP_W = 86;
 const MAP_H = 48;
 
-const probe = async (url) => {
+const probe = async (url: string) => {
   try {
     return await fetch(url);
   } catch {
@@ -19,43 +21,61 @@ const probe = async (url) => {
   }
 };
 
-const waitFor = async (page, fn, label, { timeoutMs = 8000, arg } = {}) => {
-  const deadline = Date.now() + timeoutMs;
-  let last;
+const waitFor = async <T,>(read: () => Promise<T>, label: string, timeoutMs = 8000) => {
+  let last: T | null = null;
+  const found = await poll(
+    async () => {
+      last = await read();
 
-  while (Date.now() < deadline) {
-    last = await page.evaluate(fn, arg);
-
-    if (last) {
       return last;
-    }
+    },
+    (value) => Boolean(value),
+    { intervalMs: 100, timeoutMs },
+  );
 
-    await wait(100);
+  if (found === null) {
+    throw new Error(`timeout: ${label} (last=${JSON.stringify(last)})`);
   }
 
-  throw new Error(`timeout: ${label} (last=${JSON.stringify(last)})`);
+  return found;
 };
 
-const snapshot = (page) =>
+const snapshot = (page: Page) =>
   page.evaluate(() => {
     const gs = window.__gs;
     const d = window.__GAME_DIAGNOSTICS__;
+    const net = gs?.net;
+
+    if (gs === undefined || d === undefined || net === undefined || net === null) {
+      throw new Error("window.__gs is missing: run the game in dev mode");
+    }
 
     return {
       day: gs.day,
       frame: d.frame,
-      host: gs.net.isHost,
-      hostId: gs.net.hostId,
+      host: net.isHost,
+      hostId: net.hostId,
       paused: gs.controlsPaused,
       phase: d.phase,
-      players: Object.keys(gs.net.players).length,
-      remote: gs.remoteFarmers.count(),
-      status: gs.net.connectionStatus,
+      players: Object.keys(net.players).length,
+      remote: gs.remoteFarmers?.count() ?? 0,
+      status: net.connectionStatus,
       time: gs.timeMin,
     };
   });
 
-const openClient = async (browser, url, errors) => {
+const remoteCount = (page: Page) => page.evaluate(() => window.__gs?.remoteFarmers?.count() ?? -1);
+const isTilled = (page: Page, tile: number) =>
+  page.evaluate((i) => window.__gs?.world.tilled[i] === 1, tile);
+const hasObject = (page: Page, id: number) =>
+  page.evaluate((o) => window.__gs?.world.objects.some((obj) => obj.id === o) === true, id);
+const paused = (page: Page) => page.evaluate(() => window.__gs?.controlsPaused === true);
+const minePaused = (page: Page) => page.evaluate(() => window.__mine?.controlsPaused);
+const phase = (page: Page) => page.evaluate(() => window.__GAME_DIAGNOSTICS__?.phase);
+const frame = (page: Page) => page.evaluate(() => window.__GAME_DIAGNOSTICS__?.frame ?? 0);
+const energy = (page: Page) => page.evaluate(() => window.__GAME_DIAGNOSTICS__?.energy ?? 0);
+
+const openClient = async (browser: Browser, url: string, errors: string[]) => {
   const context = await browser.newContext({ viewport: { height: 600, width: 900 } });
   const page = await context.newPage();
   page.on("pageerror", (e) => errors.push(String(e)));
@@ -65,23 +85,32 @@ const openClient = async (browser, url, errors) => {
     }
   });
   await page.goto(url);
-  await waitFor(page, () => window.__game?.scene.isActive("Title"), "title", {
-    timeoutMs: 20_000,
-  });
+  await waitFor(
+    () => page.evaluate(() => window.__game?.scene.isActive("Title")),
+    "title",
+    20_000,
+  );
   await page.keyboard.press("n");
-  await waitFor(page, () => window.__gs?.net?.connectionStatus === "connected", "connected", {
-    timeoutMs: 15_000,
-  });
+  await waitFor(
+    () => page.evaluate(() => window.__gs?.net?.connectionStatus === "connected"),
+    "connected",
+    15_000,
+  );
 
   return page;
 };
 
-const till = (page) =>
+const till = (page: Page) =>
   page.evaluate(
     ({ w, h }) => {
       const gs = window.__gs;
+
+      if (gs === undefined) {
+        throw new Error("window.__gs is missing");
+      }
+
       const f = gs.feetTile();
-      let best = null;
+      let best: { d: number; tx: number; ty: number } | null = null;
 
       for (let ty = 0; ty < h; ty += 1) {
         for (let tx = 0; tx < w; tx += 1) {
@@ -97,6 +126,10 @@ const till = (page) =>
         }
       }
 
+      if (best === null) {
+        throw new Error("no tillable tile");
+      }
+
       gs.inv.select(0);
       gs.tryAction({ tx: best.tx, ty: best.ty });
 
@@ -105,12 +138,21 @@ const till = (page) =>
     { h: MAP_H, w: MAP_W },
   );
 
-const sampleRemoteClip = (page) =>
+type ClipSample = [key: string | undefined, index: number | undefined];
+
+const sampleRemoteClip = (page: Page) =>
   page.evaluate(
     () =>
       // oxlint-disable-next-line promise/avoid-new -- runs inside the page; resolves from a setInterval, which has no promise form in the browser
-      new Promise((resolve) => {
-        const [farmer] = window.__gs.remoteFarmers.farmers.values();
+      new Promise<{ samples: ClipSample[]; seeks: number }>((resolve, reject) => {
+        const [farmer] = window.__gs?.remoteFarmers?.farmers.values() ?? [];
+
+        if (farmer === undefined) {
+          reject(new Error("no remote farmer"));
+
+          return;
+        }
+
         const { anims } = farmer.sprite;
         const { setCurrentFrame } = anims;
         let seeks = 0;
@@ -122,7 +164,7 @@ const sampleRemoteClip = (page) =>
           return setCurrentFrame.call(anims, frame);
         };
 
-        const samples = [];
+        const samples: ClipSample[] = [];
 
         const id = setInterval(() => {
           samples.push([anims.currentAnim?.key, anims.currentFrame?.index]);
@@ -136,54 +178,39 @@ const sampleRemoteClip = (page) =>
       }),
   );
 
-const swingAt = async (page, tx, ty) => {
-  await page.evaluate(({ x, y }) => window.__gs.tryAction({ tx: x, ty: y }), { x: tx, y: ty });
-  await waitFor(page, () => !window.__gs.acting, "swing done", { timeoutMs: 3000 });
-};
-
-const backwardSteps = (samples) => {
-  let steps = 0;
-
-  for (let i = 1; i < samples.length; i += 1) {
-    const [, prev] = samples[i - 1];
-    const [, cur] = samples[i];
-
-    if (cur < prev && cur !== 1) {
-      steps += 1;
-    }
-  }
-
-  return steps;
-};
-
-const startVite = async () => {
-  const child = spawn(
-    path.resolve(gameDir, "node_modules/.bin/vite"),
-    ["--port", String(DEV_PORT), "--strictPort"],
-    {
-      cwd: gameDir,
-      stdio: "ignore",
+const swingAt = async (page: Page, tx: number, ty: number) => {
+  await page.evaluate(
+    ({ x, y }) => {
+      window.__gs?.tryAction({ tx: x, ty: y });
     },
+    { x: tx, y: ty },
   );
+  await waitFor(() => page.evaluate(() => window.__gs?.acting === false), "swing done", 3000);
+};
+
+const backwardSteps = (samples: ClipSample[]) =>
+  samples.filter((sample, i) => {
+    const prev = samples[i - 1]?.[1];
+    const [, cur] = sample;
+
+    return i > 0 && prev !== undefined && cur !== undefined && cur < prev && cur !== 1;
+  }).length;
+
+const startDev = async () => {
+  const urlArg = flagValue("--url");
+
+  if (urlArg !== null) {
+    return { base: urlArg, child: null };
+  }
 
   const base = `http://localhost:${DEV_PORT}`;
+  const child = await startVite({ gameDir, port: DEV_PORT, timeoutMs: 20_000, url: base });
 
-  for (let i = 0; i < 100; i += 1) {
-    await wait(200);
-    const response = await probe(base);
-
-    if (response?.ok) {
-      return { base, child };
-    }
-  }
-
-  child.kill();
-  throw new Error("vite did not start");
+  return { base, child };
 };
 
 const main = async () => {
-  const urlArg = process.argv.indexOf("--url");
-  const dev = urlArg === -1 ? await startVite() : { base: process.argv[urlArg + 1], child: null };
+  const dev = await startDev();
 
   if (!(await probe(PARTY))) {
     throw new Error(`party server not reachable at ${PARTY} (pnpm dev:party)`);
@@ -191,7 +218,7 @@ const main = async () => {
 
   const room = `t${process.pid}-${Date.now().toString(36)}`;
   const url = `${dev.base}/?room=${room}`;
-  const errors = { guest: [], host: [], late: [] };
+  const errors: Record<"guest" | "host" | "late", string[]> = { guest: [], host: [], late: [] };
 
   const browser = await chromium.launch({
     args: [
@@ -205,9 +232,9 @@ const main = async () => {
     headless: true,
   });
 
-  const results = [];
+  const results: string[] = [];
 
-  const step = (name, ok, note = "") => {
+  const step = (name: string, ok: boolean, note = "") => {
     results.push(`${ok ? "pass" : "FAIL"}  ${name}${note ? ` — ${note}` : ""}`);
 
     if (!ok) {
@@ -221,31 +248,31 @@ const main = async () => {
     step("host joins as host", h.host && h.players === 1, JSON.stringify(h));
 
     const guest = await openClient(browser, url, errors.guest);
-    await waitFor(guest, () => window.__gs.remoteFarmers.count() === 1, "guest sees host");
-    await waitFor(host, () => window.__gs.remoteFarmers.count() === 1, "host sees guest");
+    await waitFor(async () => (await remoteCount(guest)) === 1, "guest sees host");
+    await waitFor(async () => (await remoteCount(host)) === 1, "host sees guest");
     h = await snapshot(host);
     let g = await snapshot(guest);
     step("both see each other", h.players === 2 && g.players === 2 && !g.host);
 
     const guestTile = await till(guest);
-    await waitFor(host, (i) => window.__gs.world.tilled[i] === 1, "host adopts guest till", {
-      arg: guestTile,
-      timeoutMs: 5000,
-    });
-    await waitFor(guest, (i) => window.__gs.net.sharedState?.[`t${i}`] === 1, "room ledger", {
-      arg: guestTile,
-      timeoutMs: 5000,
-    });
+    await waitFor(() => isTilled(host, guestTile), "host adopts guest till", 5000);
+    await waitFor(
+      () => guest.evaluate((i) => window.__gs?.net?.sharedState[`t${i}`] === 1, guestTile),
+      "room ledger",
+      5000,
+    );
     step("guest's till reaches the host world", true, `tile ${guestTile}`);
     const hostTile = await till(host);
-    await waitFor(guest, (i) => window.__gs.world.tilled[i] === 1, "guest adopts host till", {
-      arg: hostTile,
-      timeoutMs: 5000,
-    });
+    await waitFor(() => isTilled(guest, hostTile), "guest adopts host till", 5000);
     step("host's till reaches the guest world", true, `tile ${hostTile}`);
 
     const felled = await guest.evaluate(() => {
       const gs = window.__gs;
+
+      if (gs === undefined) {
+        throw new Error("window.__gs is missing");
+      }
+
       const f = gs.feetTile();
       const trees = gs.world.objects.filter((o) => o.type === "tree");
       trees.sort(
@@ -259,34 +286,41 @@ const main = async () => {
         gs.inv.slots.findIndex((s) => s?.item.kind === "tool" && s.item.tool === "axe"),
       );
 
-      return trees[0];
+      const [nearest] = trees;
+
+      if (nearest === undefined) {
+        throw new Error("no tree");
+      }
+
+      return { hp: nearest.hp, id: nearest.id, tx: nearest.tx, ty: nearest.ty };
     });
 
-    for (let hit = 0; hit < felled.hp; hit += 1) {
-      await swingAt(guest, felled.tx, felled.ty);
-    }
+    await repeat(felled.hp, () => swingAt(guest, felled.tx, felled.ty));
 
     await waitFor(
-      host,
-      (id) => !window.__gs.world.objects.some((o) => o.id === id),
+      async () => !(await hasObject(host, felled.id)),
       "host loses the felled tree",
-      { arg: felled.id, timeoutMs: 5000 },
+      5000,
     );
     step("guest's felled tree is gone on the host", true, `object ${felled.id}`);
 
     const picked = await host.evaluate(() => {
       const gs = window.__gs;
-      const mushroom = gs.world.objects.find((o) => o.type === "forage");
+      const mushroom = gs?.world.objects.find((o) => o.type === "forage");
+
+      if (gs === undefined || mushroom === undefined) {
+        throw new Error("no mushroom");
+      }
+
       gs.tryAction({ tx: mushroom.tx, ty: mushroom.ty });
 
       return mushroom.id;
     });
 
     await waitFor(
-      guest,
-      (id) => !window.__gs.world.objects.some((o) => o.id === id),
+      async () => !(await hasObject(guest, picked)),
       "guest loses the picked mushroom",
-      { arg: picked, timeoutMs: 5000 },
+      5000,
     );
     step("host's picked mushroom is gone on the guest", true, `object ${picked}`);
 
@@ -303,28 +337,29 @@ const main = async () => {
     );
 
     const home = await host.evaluate(() => {
-      const { player } = window.__gs;
+      const player = window.__gs?.player;
+
+      if (player === undefined) {
+        throw new Error("window.__gs is missing");
+      }
+
       const was = { x: player.x, y: player.y };
       player.setPosition(80 * 16 + 8, 20 * 16 + 12);
 
       return was;
     });
 
-    await waitFor(guest, () => window.__gs.remoteFarmers.count() === 0, "far host hidden", {
-      timeoutMs: 5000,
-    });
+    await waitFor(async () => (await remoteCount(guest)) === 0, "far host hidden", 5000);
     h = await snapshot(host);
     step("a far farmer leaves the guest's view; the host still sees everyone", h.remote === 1);
     await host.evaluate((p) => {
-      window.__gs.player.setPosition(p.x, p.y);
+      window.__gs?.player.setPosition(p.x, p.y);
     }, home);
-    await waitFor(guest, () => window.__gs.remoteFarmers.count() === 1, "host back in view", {
-      timeoutMs: 5000,
-    });
+    await waitFor(async () => (await remoteCount(guest)) === 1, "host back in view", 5000);
     step("back in range, the farmer is drawn again", true);
 
     await guest.keyboard.press("Escape");
-    await waitFor(guest, () => window.__gs.controlsPaused, "guest paused");
+    await waitFor(() => paused(guest), "guest paused");
     let before = await snapshot(guest);
     await wait(700);
     g = await snapshot(guest);
@@ -334,9 +369,9 @@ const main = async () => {
       `+${(g.time - before.time).toFixed(2)} min`,
     );
     await guest.keyboard.press("Escape");
-    await waitFor(guest, () => !window.__gs.controlsPaused, "guest resumed");
+    await waitFor(async () => !(await paused(guest)), "guest resumed");
     await host.keyboard.press("Escape");
-    await waitFor(host, () => window.__gs.controlsPaused, "host paused");
+    await waitFor(() => paused(host), "host paused");
     before = await snapshot(guest);
     await wait(700);
     g = await snapshot(guest);
@@ -346,22 +381,25 @@ const main = async () => {
       `+${(g.time - before.time).toFixed(2)} min`,
     );
     await host.keyboard.press("Escape");
-    await waitFor(host, () => !window.__gs.controlsPaused, "host resumed");
+    await waitFor(async () => !(await paused(host)), "host resumed");
 
     await host.evaluate(() => {
       const gs = window.__gs;
-      const cave = gs.world.objects.find((o) => o.type === "cave");
+      const cave = gs?.world.objects.find((o) => o.type === "cave");
+
+      if (gs === undefined || cave === undefined) {
+        throw new Error("no cave");
+      }
+
       gs.tryAction({ tx: cave.tx, ty: cave.ty });
     });
-    await waitFor(host, () => window.__GAME_DIAGNOSTICS__.phase === "mine", "host in mine", {
-      timeoutMs: 5000,
-    });
+    await waitFor(async () => (await phase(host)) === "mine", "host in mine", 5000);
     await host.keyboard.press("Escape");
-    await waitFor(host, () => window.__mine.controlsPaused === true, "mine paused");
+    await waitFor(async () => (await minePaused(host)) === true, "mine paused");
     const { hostId: hostIdBefore } = await snapshot(guest);
-    const frameBefore = await host.evaluate(() => window.__GAME_DIAGNOSTICS__.frame);
+    const frameBefore = await frame(host);
     await wait(HOST_STALE_MS);
-    const frameAfter = await host.evaluate(() => window.__GAME_DIAGNOSTICS__.frame);
+    const frameAfter = await frame(host);
     g = await snapshot(guest);
     step(
       "mine pause keeps the host loop alive",
@@ -374,21 +412,25 @@ const main = async () => {
       `after ${HOST_STALE_MS} ms`,
     );
     await host.keyboard.press("Escape");
-    await waitFor(host, () => window.__mine.controlsPaused === false, "mine resumed");
-    await host.evaluate(() => window.__mine.exitToFarm());
-    await waitFor(host, () => window.__GAME_DIAGNOSTICS__.phase === "farm", "host back on farm", {
-      timeoutMs: 5000,
+    await waitFor(async () => (await minePaused(host)) === false, "mine resumed");
+    await host.evaluate(() => {
+      window.__mine?.exitToFarm();
     });
+    await waitFor(async () => (await phase(host)) === "farm", "host back on farm", 5000);
 
-    await guest.evaluate(() => window.__gs.doSleep());
+    await guest.evaluate(() => {
+      window.__gs?.doSleep();
+    });
     await wait(300);
     const afterGuestSleep = await snapshot(guest);
     step("guest cannot end the day", afterGuestSleep.day === 1);
-    const tired = await guest.evaluate(() => window.__GAME_DIAGNOSTICS__.energy);
-    await host.evaluate(() => window.__gs.endDay());
-    await waitFor(guest, () => window.__gs.day === 2, "guest sees day 2", { timeoutMs: 6000 });
+    const tired = await energy(guest);
+    await host.evaluate(() => {
+      window.__gs?.endDay();
+    });
+    await waitFor(() => guest.evaluate(() => window.__gs?.day === 2), "guest sees day 2", 6000);
     step("host's day end reaches the guest", true);
-    const rested = await guest.evaluate(() => window.__GAME_DIAGNOSTICS__.energy);
+    const rested = await energy(guest);
     step(
       "the new day restores the guest's energy",
       tired < 100 && rested === 100,
@@ -396,7 +438,11 @@ const main = async () => {
     );
 
     await host.close();
-    await waitFor(guest, () => window.__gs.net.isHost, "guest promoted", { timeoutMs: 15_000 });
+    await waitFor(
+      () => guest.evaluate(() => window.__gs?.net?.isHost),
+      "guest promoted",
+      15_000,
+    );
     g = await snapshot(guest);
     step("guest promoted on host leave", g.host && g.phase === "farm", JSON.stringify(g));
     before = g;
@@ -405,15 +451,15 @@ const main = async () => {
     step("promoted host drives the clock", g.time > before.time && g.day === 2);
 
     const late = await openClient(browser, url, errors.late);
-    await waitFor(late, () => window.__gs.remoteFarmers.count() >= 1, "late sees host");
+    await waitFor(async () => (await remoteCount(late)) >= 1, "late sees host");
     await waitFor(
-      late,
-      (ids) => ids.every((i) => window.__gs.world.tilled[i] === 1),
+      () =>
+        late.evaluate(
+          (ids) => ids.every((i) => window.__gs?.world.tilled[i] === 1),
+          [guestTile, hostTile],
+        ),
       "late adopts farm",
-      {
-        arg: [guestTile, hostTile],
-        timeoutMs: 6000,
-      },
+      6000,
     );
     const l = await snapshot(late);
     step("late joiner adopts the promoted host's farm and day", !l.host && l.day === 2);

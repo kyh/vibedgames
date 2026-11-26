@@ -179,8 +179,8 @@ export class GameScene extends Scene {
   private farmReady = false;
   private farmPosition = { x: 0, y: 0 };
 
-  private net?: MultiplayerClient;
-  private remoteFarmers?: RemoteFarmers;
+  net?: MultiplayerClient;
+  remoteFarmers?: RemoteFarmers;
   private readonly farmerSender = new FarmerSender();
   private poseRevision = 0;
   private readonly farmSync = new FarmSync(

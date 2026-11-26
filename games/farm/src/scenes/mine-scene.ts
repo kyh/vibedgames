@@ -1135,7 +1135,7 @@ export class MineScene extends Scene {
     });
   }
 
-  private exitToFarm() {
+  exitToFarm() {
     if (this.transitioning) {
       return;
     }
