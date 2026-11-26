@@ -18,8 +18,7 @@
   "lint": "pass; existing repository warnings remain",
   "gameFormatting": "pass, 215 files checked after final reports were saved",
   "repositoryFormatting": {
-    "status": "unrelated existing failure",
-    "file": "apps/games/tests/worker.mjs",
+    "status": "unrelated existing failure in a repository test file since removed",
     "fileChanged": false
   },
   "productionBuild": "pass; Vite notes a large main chunk",

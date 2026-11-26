@@ -5,6 +5,14 @@ import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 export const isMesh = (object: THREE.Object3D): object is THREE.Mesh =>
   object instanceof THREE.Mesh;
 
+/** Narrows an object to an instanced mesh with three's default geometry and material types. */
+export const isInstancedMesh = (object: THREE.Object3D): object is THREE.InstancedMesh =>
+  object instanceof THREE.InstancedMesh;
+
+/** Narrows an object to points with three's default geometry and material types. */
+export const isPoints = (object: THREE.Object3D): object is THREE.Points =>
+  object instanceof THREE.Points;
+
 /** `mergeGeometries`, typed as it behaves: null when the geometries' layouts disagree. */
 export const mergeGeometriesOrNull: (
   geometries: THREE.BufferGeometry[],

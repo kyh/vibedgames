@@ -64,7 +64,7 @@ export class WaterFx {
   private lastX = 0;
   private lastZ = 0;
   private lastWaterY = 0;
-  private readonly spray: Spray;
+  readonly spray: Spray;
 
   constructor(spray: Spray) {
     this.spray = spray;

@@ -355,13 +355,13 @@ const LANDING_RING_IMPACT = 9;
 export class GameScene {
   readonly scene = new THREE.Scene();
   private readonly mobileUi = isCoarsePointer();
-  private readonly rig: ChaseCamera;
+  readonly rig: ChaseCamera;
   private readonly cache = new ModelCache();
-  private readonly input = new InputState();
+  readonly input = new InputState();
   private readonly hud = new Hud(this.mobileUi);
-  private readonly fx = new Fx();
+  readonly fx = new Fx();
   private readonly sfx = new Sfx();
-  private readonly state = new GameState();
+  readonly state = new GameState();
 
   private net: MultiplayerClient | null = null;
   private remoteCars: RemoteCars | null = null;
@@ -382,17 +382,17 @@ export class GameScene {
   private netAt = 0;
   private readonly netInfoEl = document.querySelector("#netinfo");
 
-  private city: CityModel | null = null;
-  private car: Car | null = null;
-  private fares: FareManager | null = null;
-  private traffic: Traffic | null = null;
+  city: CityModel | null = null;
+  car: Car | null = null;
+  fares: FareManager | null = null;
+  traffic: Traffic | null = null;
   private signalLights: SignalLights | null = null;
-  private skids: SkidMarks | null = null;
+  skids: SkidMarks | null = null;
   private debris: Debris | null = null;
   private readonly speedLines = this.mobileUi ? new SpeedLines() : null;
   private readonly clouds = new SkyClouds(this.mobileUi);
   private readonly marineSky = new MarineSky();
-  private trails: DriftTrails | null = null;
+  trails: DriftTrails | null = null;
   private readonly vehicleFx = new VehicleFxRig(
     this.fx,
     () => this.trails,
@@ -437,7 +437,7 @@ export class GameScene {
   private readonly scrSnapUp = new THREE.Vector3();
   private readonly scrSnapAnchor = new THREE.Vector3();
   private shadowExtent = 58;
-  private mode: GameMode = { kind: "loading", progress: 0 };
+  mode: GameMode = { kind: "loading", progress: 0 };
   ready: Promise<void> = Promise.resolve();
   private finishStage = "DOWNLOADING THE CITY…";
   get isReady() {
@@ -448,7 +448,7 @@ export class GameScene {
     return this.mode.kind;
   }
 
-  private paused = false;
+  paused = false;
   private frame = 0;
 
   /** Wrapper asked us to pause: freeze the sim (update() runs only the net
@@ -1736,7 +1736,7 @@ vec3 ocGerstner(vec2 p, float t) {
     }
   }
 
-  private handleStartPress() {
+  handleStartPress() {
     if (this.mode.kind !== "title") {
       return;
     }

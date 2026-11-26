@@ -28,7 +28,7 @@ import {
   shoreVisualEnvelopeMatches,
 } from "./water-barrier-audit.mts";
 import { materialFactory, matRecOf } from "../src/world/city";
-import type { CityRestPayload } from "../src/world/city";
+import type { CityRestPayload, MatRec } from "../src/world/city";
 import { compatiblePropBatch, InstancedProps } from "../src/world/instanced-props";
 import { packRest, serializeWorldBin } from "../src/world/world-bin-pack";
 import { deserializeWorldBin, unpackRest, WORLD_REV } from "../src/world/world-bin";
@@ -56,7 +56,7 @@ type ShoreMesh = ReturnType<typeof buildShoreline>[number];
 
 type ShoreGeometry = ShoreMesh["geometry"];
 
-type MatRecord = NonNullable<ReturnType<typeof matRecOf>>;
+type MatRecord = MatRec;
 
 type RestoreMaterial = ReturnType<typeof materialFactory>;
 
@@ -741,7 +741,9 @@ export const checkShorelinePhysics = async (check: Check) => {
  * crossed several streets. Fitting water and rim together must preserve it. */
 export const checkLandmarkWaterWalls = (check: Check, terrain: Terrain, network: RoadNetwork) => {
   const walls: Solid[] = [];
-  buildLandmarks(terrain, new ModelCache(), network, (wall) => walls.push(wall));
+  buildLandmarks(terrain, new ModelCache(), network, (wall) => {
+    walls.push(wall);
+  });
   check("Palace lagoon and all Sutro pools retain complete visible barriers", walls.length === 64);
   check(
     "authored water barriers stay clear of actual asphalt",

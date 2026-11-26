@@ -13,6 +13,7 @@ import { buildParcelGeometry, buildParcelGeometrySteps } from "../src/world/parc
 import { visibleParcelPlans } from "../src/world/parcel-visibility.ts";
 import { WORLD_HALF_X, WORLD_HALF_Z } from "../src/shared/constants.ts";
 import { buildAuditWorld, loadParcelSource } from "./geometry-audit.mts";
+import { inOrder, range } from "../src/shared/paced.ts";
 
 const world = buildAuditWorld();
 
@@ -61,8 +62,8 @@ if (process.argv.includes("--cost")) {
   const modes = ["direct", "generator", "clock-per-parcel"];
   const times = new Map<string, number[]>();
 
-  for (let round = 0; round < 6; round += 1) {
-    for (let index = 0; index < modes.length; index += 1) {
+  for await (const round of inOrder(range(6))) {
+    for await (const index of inOrder(range(modes.length))) {
       const mode = modes[(index + round) % modes.length];
 
       if (mode === undefined || mode === "") {
@@ -72,7 +73,7 @@ if (process.argv.includes("--cost")) {
       let vertices = 0;
       const started = performance.now();
 
-      for (const cell of cells) {
+      for await (const cell of inOrder(cells)) {
         if (mode === "direct") {
           const built = await buildParcelGeometry(cell.plans, cell.detail, undefined, cell.lots);
           vertices += built.stats.vertices;

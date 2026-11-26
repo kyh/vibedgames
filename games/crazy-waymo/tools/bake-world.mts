@@ -12,8 +12,12 @@ import {
 import { gunzipSync } from "node:zlib";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { chromium } from "playwright-core";
 import type { Readable } from "node:stream";
+import { setTimeout as sleep } from "node:timers/promises";
+
+import { chromium } from "playwright-core";
+import type { Download } from "playwright-core";
+import { z } from "zod";
 
 const root = path.resolve(import.meta.dirname, "..");
 const worldDir = path.join(root, "public/world");
@@ -27,6 +31,32 @@ if (!revMatch?.groups) {
 
 const codeRev = Number(revMatch.groups.rev);
 
+const readHeader = (bytes: Uint8Array) => {
+  const headerLen = new DataView(bytes.buffer, bytes.byteOffset, 4).getUint32(0, true);
+
+  return {
+    header: JSON.parse(new TextDecoder().decode(bytes.subarray(4, 4 + headerLen))),
+    headerLen,
+  };
+};
+
+const shippedHeaderSchema = z.object({
+  tree: z.object({ rev: z.number().optional() }).optional(),
+});
+
+const containerHeaderSchema = z.object({
+  buffers: z.array(z.object({ length: z.number() })),
+  tree: z.object({
+    files: z.array(z.object({ data: z.object({ $buf: z.number() }), name: z.string() })),
+  }),
+});
+
+const deadline = async () => {
+  await sleep(1_800_000);
+
+  throw new Error("bake download did not arrive in 30 minutes");
+};
+
 const shippedRev = () => {
   const binPath = path.join(worldDir, "world.bin");
 
@@ -35,19 +65,18 @@ const shippedRev = () => {
   }
 
   try {
-    const bytes = gunzipSync(readFileSync(binPath));
-    const headerLen = new DataView(bytes.buffer, bytes.byteOffset, 4).getUint32(0, true);
-    const header = JSON.parse(new TextDecoder().decode(bytes.subarray(4, 4 + headerLen)));
+    const { header } = readHeader(gunzipSync(readFileSync(binPath)));
 
-    return header.tree?.rev ?? null;
+    return shippedHeaderSchema.parse(header).tree?.rev ?? null;
   } catch {
     return null;
   }
 };
 
 const unpackContainer = (bytes: Buffer) => {
-  const headerLen = new DataView(bytes.buffer, bytes.byteOffset, 4).getUint32(0, true);
-  const header = JSON.parse(new TextDecoder().decode(bytes.subarray(4, 4 + headerLen)));
+  const read = readHeader(bytes);
+  const header = containerHeaderSchema.parse(read.header);
+  const { headerLen } = read;
   const offsets: number[] = [];
   let cursor = 4 + headerLen;
 
@@ -57,13 +86,16 @@ const unpackContainer = (bytes: Buffer) => {
     cursor += b.length;
   }
 
-  return header.tree.files.map((f: { data: { $buf: any }; name: any }) => {
+  return header.tree.files.map((f) => {
     const i = f.data.$buf;
+    const offset = offsets[i];
+    const buffer = header.buffers[i];
 
-    return {
-      data: bytes.subarray(offsets[i], offsets[i] + header.buffers[i].length),
-      name: f.name,
-    };
+    if (offset === undefined || buffer === undefined) {
+      throw new Error(`${f.name} names missing buffer ${i}`);
+    }
+
+    return { data: bytes.subarray(offset, offset + buffer.length), name: f.name };
   });
 };
 
@@ -92,29 +124,32 @@ let port = argPort;
 
 if (port === null || port === 0) {
   console.log("[bake] starting vite dev server…");
-  server = spawn("pnpm", ["dev"], {
+
+  const vite = spawn("pnpm", ["dev"], {
     cwd: root,
     detached: true,
     stdio: ["ignore", "pipe", "pipe"],
   });
-  // oxlint-disable-next-line promise/avoid-new -- wraps vite's stdout/exit events, which have no promise form
-  port = await new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      reject(new Error("vite did not report a port in 60s"));
-    }, 60_000);
 
-    server.stdout.on("data", (chunk: any) => {
-      const m = /localhost:(?<port>\d+)/u.exec(String(chunk));
+  server = vite;
+  const reported = Promise.withResolvers<number>();
 
-      if (m?.groups) {
-        clearTimeout(timer);
-        resolve(Number(m.groups.port));
-      }
-    });
-    server.on("exit", () => {
-      reject(new Error("vite exited before reporting a port"));
-    });
+  const timer = setTimeout(() => {
+    reported.reject(new Error("vite did not report a port in 60s"));
+  }, 60_000);
+
+  vite.stdout.on("data", (chunk: Buffer) => {
+    const m = /localhost:(?<port>\d+)/u.exec(String(chunk));
+
+    if (m?.groups) {
+      clearTimeout(timer);
+      reported.resolve(Number(m.groups.port));
+    }
   });
+  vite.on("exit", () => {
+    reported.reject(new Error("vite exited before reporting a port"));
+  });
+  port = await reported.promise;
 }
 
 console.log(`[bake] dev server on :${port}`);
@@ -128,20 +163,18 @@ const browser = await chromium.launch(
     : { channel: "chrome", headless: false },
 );
 
-let heartbeat;
+let heartbeat: ReturnType<typeof setInterval> | undefined;
 
 try {
   const page = await browser.newPage({ acceptDownloads: true });
 
-  const { promise, resolve: _resolve, reject } = Promise.withResolvers<void>();
+  const pageFailed = Promise.withResolvers<never>();
   page.on("pageerror", (error) => {
-    reject(new Error(`world page: ${error.message}`));
+    pageFailed.reject(new Error(`world page: ${error.message}`));
   });
   page.on("crash", () => {
-    reject(new Error("world page crashed"));
+    pageFailed.reject(new Error("world page crashed"));
   });
-
-  const pageFailed = promise;
 
   page.on("console", (msg) => {
     const t = msg.text();
@@ -157,12 +190,12 @@ try {
     }
   });
 
-  const { promise: promise2, resolve: _resolve, reject } = Promise.withResolvers<void>();
+  const restSkipped = Promise.withResolvers<never>();
   page.on("console", (msg) => {
     const t = msg.text();
 
     if (t.startsWith("[city] rest capture skipped")) {
-      reject(
+      restSkipped.reject(
         new Error(
           `${t} — the city could not serialize every batch item, so no rest.bin ` +
             `exists to bake. See the "[city] untagged batch items" / "untagged ` +
@@ -172,10 +205,9 @@ try {
     }
   });
 
-  const restSkipped = promise2;
+  const gotContainer = Promise.withResolvers<string>();
 
-  const { promise: promise3, resolve, reject } = Promise.withResolvers<void>();
-  page.on("download", async (d) => {
+  const save = async (d: Download) => {
     const name = d.suggestedFilename();
     const target = path.join(dl, name);
     console.log(`[bake] downloading ${name}…`);
@@ -183,44 +215,44 @@ try {
     if (name === "world-bake.bin") {
       try {
         await d.saveAs(target);
-        resolve(target);
+        gotContainer.resolve(target);
       } catch (error) {
-        reject(error);
+        gotContainer.reject(error);
       }
     }
-  });
+  };
 
-  const gotContainer = promise3;
+  page.on("download", (d) => {
+    void save(d);
+  });
 
   await page.goto(`http://localhost:${port}/?bake=1&offline=1`, { waitUntil: "domcontentloaded" });
   await page.bringToFront();
   let lastProgress = "";
-  heartbeat = setInterval(async () => {
+
+  const beat = async () => {
     try {
       const status = await page.evaluate(() => document.body.textContent.trim().slice(0, 320));
 
-      if (status && status !== lastProgress) {
+      if (status !== "" && status !== lastProgress) {
         lastProgress = status;
         console.log(`[bake] ${status.replaceAll(/\s+/gu, " ")}`);
       }
-
-      return true;
     } catch {
-      return false;
+      lastProgress = "";
     }
+  };
+
+  heartbeat = setInterval(() => {
+    void beat();
   }, 15_000);
   console.log("[bake] generating world (cold build — takes ~30-60s)…");
 
   const container = await Promise.race([
-    gotContainer,
-    restSkipped,
-    pageFailed,
-    // oxlint-disable-next-line promise/avoid-new -- a timeout arm for Promise.race has no promise form
-    new Promise((_resolve, reject) => {
-      setTimeout(() => {
-        reject(new Error("bake download did not arrive in 30 minutes"));
-      }, 1_800_000);
-    }),
+    gotContainer.promise,
+    restSkipped.promise,
+    pageFailed.promise,
+    deadline(),
   ]);
 
   const files = unpackContainer(readFileSync(container));
@@ -253,7 +285,7 @@ try {
   console.log(`[bake] installed rev ${codeRev} into public/world/ — commit the bins`);
 } catch (error) {
   failed = true;
-  console.error(`[bake] FAILED: ${error instanceof Error ? error.message : error}`);
+  console.error(`[bake] FAILED: ${error instanceof Error ? error.message : String(error)}`);
 } finally {
   clearInterval(heartbeat);
   await browser.close();

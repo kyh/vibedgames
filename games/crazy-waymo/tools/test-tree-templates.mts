@@ -1,6 +1,7 @@
 import * as THREE from "three";
 
 import { ModelCache } from "../src/assets/loader.ts";
+import { inOrder } from "../src/shared/paced.ts";
 
 type Check = (name: string, condition: boolean, detail?: string) => void;
 
@@ -13,7 +14,7 @@ export const checkTreeTemplates = async (check: Check) => {
     { height: 0.5670000314712524, url: "/models/props/tree-small.glb" },
   ];
 
-  for (const template of templates) {
+  for await (const template of inOrder(templates)) {
     await cache.ensure(template.url);
     const mesh = cache.srcMesh(template.url, 0);
     check(

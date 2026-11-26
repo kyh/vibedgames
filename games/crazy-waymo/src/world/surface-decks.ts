@@ -28,9 +28,11 @@ export const surfaceDeckPhysics = (decks: readonly SurfaceDeck[]) => {
   const xs = [...new Set(decks.flatMap((deck) => [deck.minX, deck.maxX]))].toSorted(
     (a, b) => a - b,
   );
+
   const zs = [...new Set(decks.flatMap((deck) => [deck.minZ, deck.maxZ]))].toSorted(
     (a, b) => a - b,
   );
+
   const vertices: number[] = [];
 
   for (let ix = 0; ix + 1 < xs.length; ix += 1) {

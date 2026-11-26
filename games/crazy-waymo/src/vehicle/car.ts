@@ -467,7 +467,7 @@ export class Car {
   private readonly wheels: { node: THREE.Object3D; front: boolean; restY: number; phys: number }[] =
     [];
   readonly position = new THREE.Vector3();
-  private readonly velocity = new THREE.Vector2();
+  readonly velocity = new THREE.Vector2();
   heading = 0;
   boostMeter: number = CAR.boostMax;
   private driftSustain = 0;

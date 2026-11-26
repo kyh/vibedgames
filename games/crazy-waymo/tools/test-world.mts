@@ -111,7 +111,7 @@ const withinEps = (a: number | undefined, b: number, eps: number) =>
   a !== undefined && Math.abs(a - b) <= eps;
 
 const quantizedPosAt = (t: PackedTile, i: number) =>
-  t.pos.min[i % 3] + ((t.pos.q[i] ?? 0) / 65_535) * t.pos.span[i % 3];
+  (t.pos.min[i % 3] ?? 0) + ((t.pos.q[i] ?? 0) / 65_535) * (t.pos.span[i % 3] ?? 0);
 
 const parcelPlanSignature = (r: ReturnType<typeof planParcels>) =>
   r.plans
@@ -713,7 +713,9 @@ await checkVehicleParking(check);
   });
   checkBakedShelterClearance(check, bakedRest, parcels.plans);
   const plantedWater: WaterBody[] = [];
-  buildLandmarks(terrain, new ModelCache(), network, undefined, (body) => plantedWater.push(body));
+  buildLandmarks(terrain, new ModelCache(), network, undefined, (body) => {
+    plantedWater.push(body);
+  });
   await checkBakedTreeClearance(check, bakedRest, parcels.plans, plantedWater);
   checkHistoricCorners(check, parcels.plans);
   const planMs = Math.round(performance.now() - parcelT0);
