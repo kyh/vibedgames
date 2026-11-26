@@ -329,7 +329,12 @@ const buildConfig = (stage: TrailerStage) => {
               forceCast(w, iron, "Q", { targetId: dusk.id });
             },
           },
-          { at: 1900, fn: () => (iron.hp = Math.min(iron.hp, 55)) },
+          {
+            at: 1900,
+            fn: () => {
+              iron.hp = Math.min(iron.hp, 55);
+            },
+          },
           {
             at: 2400,
             fn: () => {
@@ -1371,10 +1376,6 @@ class TrailerStage extends Scene {
   }
 
   override update(_t: number, deltaMs: number) {
-    if (!this.world) {
-      return;
-    }
-
     const dt = Math.min(0.05, deltaMs / 1000);
 
     if (!this.hold) {

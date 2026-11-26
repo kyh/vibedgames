@@ -350,7 +350,7 @@ export class MenuScene extends Scene {
     return btnY;
   }
 
-  private onMenuKeyDown(event: KeyboardEvent) {
+  private readonly onMenuKeyDown = (event: KeyboardEvent) => {
     if (this.starting) {
       return;
     }
@@ -368,13 +368,13 @@ export class MenuScene extends Scene {
         this.confirmFocus();
       }
     }
-  }
+  };
 
-  private onMenuKeyUp(event: KeyboardEvent) {
+  private readonly onMenuKeyUp = (event: KeyboardEvent) => {
     if (event.key === "Enter") {
       this.keyboardConfirmArmed = true;
     }
-  }
+  };
 
   override update() {
     if (this.starting || !this.pad) {
@@ -723,10 +723,10 @@ export class MenuScene extends Scene {
     this.detailLimitY = container.y + panelTop - 6;
   }
 
-  private queueRelayout() {
+  private readonly queueRelayout = () => {
     this.relayout?.remove();
     this.relayout = this.time.delayedCall(150, () => this.scene.restart());
-  }
+  };
 
   private preview(id: string) {
     const h = HEROES.find((x) => x.id === id);

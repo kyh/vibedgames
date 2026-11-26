@@ -270,7 +270,7 @@ export class WorldView {
    *  (falling back to the world's own x/y) — the game scene hands over sim
    *  positions blended between steps, or a guest's interpolated ones. Unset
    *  (showcase, trailer), bodies chase the sim position to hide its 30 Hz step. */
-  poseOf: ((id: string) => Vec2 | undefined) | null = null;
+  poseOf: ((id: string) => Vec2 | null) | null = null;
 
   private trauma = 0;
   shakeX = 0;
@@ -979,7 +979,9 @@ export class WorldView {
       s.tweens.add({
         duration: 6000 + rng2(p.x, p.y) * 6000,
         ease: "Sine.InOut",
-        onUpdate: () => sh.setDepth(sh.y),
+        onUpdate: () => {
+          sh.setDepth(sh.y);
+        },
         repeat: -1,
         targets: sh,
         x: p.x + (rng2(p.x, 2) - 0.5) * 160,
@@ -1115,9 +1117,7 @@ export class WorldView {
       return;
     }
 
-    if (!this.aimChevron) {
-      this.aimChevron = this.scene.add.image(0, 0, "fx-chevron").setTint(0xff_e1_4a).setAlpha(0.9);
-    }
+    this.aimChevron ??= this.scene.add.image(0, 0, "fx-chevron").setTint(0xff_e1_4a).setAlpha(0.9);
 
     const { x, y } = this.aimDir;
     this.aimChevron
@@ -1140,9 +1140,7 @@ export class WorldView {
 
     const { u, struct, v } = target;
 
-    if (!this.reticle) {
-      this.reticle = this.scene.add.image(0, 0, "cursor-target").setDepth(89_000);
-    }
+    this.reticle ??= this.scene.add.image(0, 0, "cursor-target").setDepth(89_000);
 
     const size = reticleSize(u, struct);
     const bx = struct ? u.x : (v?.dx ?? u.x);
@@ -1393,9 +1391,7 @@ export class WorldView {
 
       let v = this.units.get(u.id);
 
-      if (!v) {
-        v = this.createUnitView(u);
-      }
+      v ??= this.createUnitView(u);
 
       if (v.dead) {
         this.reviveUnitView(u, v);
@@ -1452,10 +1448,14 @@ export class WorldView {
       v.sprite.play(dkey);
       v.curAnim = dkey;
       v.sprite.once("animationcomplete", () => {
-        this.collapseSprite(v.sprite, () => v.container.setVisible(false));
+        this.collapseSprite(v.sprite, () => {
+          v.container.setVisible(false);
+        });
       });
     } else {
-      this.collapseSprite(v.sprite, () => v.container.setVisible(false));
+      this.collapseSprite(v.sprite, () => {
+        v.container.setVisible(false);
+      });
     }
   }
 
@@ -1640,9 +1640,7 @@ export class WorldView {
   }
 
   private syncHeroPlates(world: World) {
-    if (!this.plateLeaders) {
-      this.plateLeaders = this.scene.add.graphics().setDepth(DEPTH_UNIT_PLATE - 1);
-    }
+    this.plateLeaders ??= this.scene.add.graphics().setDepth(DEPTH_UNIT_PLATE - 1);
 
     this.plateLeaders.clear();
     const plates: HeroPlate[] = [];
@@ -2503,8 +2501,14 @@ export class WorldView {
         break;
       }
 
-      default: {
+      case "kill":
+      case "notify": {
         break;
+      }
+
+      default: {
+        const unhandled: never = fx;
+        throw new Error("unhandled fx", { cause: unhandled });
       }
     }
   }

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { ServerClock, netStats } from "@vibedgames/multiplayer";
+import { ServerClock, netStats, parseJson } from "@vibedgames/multiplayer";
 
 import { SIM_DT } from "../src/data/config.ts";
 import { restoreHostState } from "../src/net/host-state.ts";
@@ -154,9 +154,7 @@ const noise = (i: number) => {
   return s - Math.floor(s);
 };
 
-const wire = (v: JsonValue) =>
-  // oxlint-disable-next-line unicorn/prefer-structured-clone -- emulates the JSON wire, which drops what structuredClone keeps (undefined-valued keys)
-  JSON.parse(JSON.stringify(v));
+const wire = (v: JsonValue) => parseJson(JSON.stringify(v));
 
 const readServerClock = (lopsidedMs: number) => {
   const clock = new ServerClock();
@@ -627,7 +625,7 @@ test("the per-step stream is a small fraction of the world it replaces, and rebu
     const json = JSON.stringify(encoder.encode(host, i * STEP_MS, host.fx.splice(0), []));
     tickBytes += json.length;
     ticks += 1;
-    const tick = parseTick(JSON.parse(json));
+    const tick = parseTick(parseJson(json));
     assert.ok(tick);
     applyTick(replica, tick, false);
 

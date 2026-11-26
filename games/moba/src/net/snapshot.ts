@@ -1,6 +1,7 @@
 import type { MultiplayerClient } from "@vibedgames/multiplayer";
 
 import type { FxEvent, GroundEffect, Mine, Projectile, Unit, World } from "../sim/types";
+import { isSnapshot } from "./rows";
 import type { JsonObject, JsonValue } from "./json";
 
 export type Snapshot = {
@@ -127,11 +128,7 @@ type SharedState = MultiplayerClient["sharedState"];
 export const sharedSnapshot = (state: SharedState) => {
   const { snap } = state;
 
-  if (!(snap instanceof Object) || !("units" in snap) || !("gameTime" in snap)) {
-    return null;
-  }
-
-  return snap as Snapshot;
+  return isSnapshot(snap) ? snap : null;
 };
 
 const isFiniteNumber = (x: SharedState[string] | undefined): x is number => Number.isFinite(x);

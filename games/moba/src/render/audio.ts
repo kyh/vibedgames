@@ -154,9 +154,10 @@ const audio = () => {
   }
 
   if (!bus) {
-    const Ctor = window.AudioContext;
+    const scope: { AudioContext?: typeof AudioContext } = window;
+    const Ctor = scope.AudioContext;
 
-    if (!Ctor) {
+    if (Ctor === undefined) {
       return null;
     }
 

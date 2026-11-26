@@ -36,7 +36,9 @@ const config: Types.Core.GameConfig = {
 const fontReady = Promise.race([
   document.fonts.load('20px "Lilita One"'),
   // oxlint-disable-next-line no-promise-executor-return, promise/avoid-new -- setTimeout sleep has no promise form in the browser
-  new Promise((resolve) => setTimeout(resolve, 1500)),
+  new Promise((resolve) => {
+    setTimeout(resolve, 1500);
+  }),
 ]);
 
 declare global {
@@ -154,7 +156,9 @@ const boot = async () => {
 
   const refreshScale = () => {
     clearTimeout(settle);
-    settle = setTimeout(() => game.scale.refresh(), 150);
+    settle = setTimeout(() => {
+      game.scale.refresh();
+    }, 150);
   };
 
   window.addEventListener("resize", refreshScale);
