@@ -1,6 +1,6 @@
 import { mock } from "node:test";
 import { isDeepStrictEqual } from "node:util";
-import { Box3, Group, Mesh } from "three";
+import { Box3, Group } from "three";
 import { buildParcelGeometry, buildParcelGeometrySteps } from "../src/world/parcel-mesh.ts";
 import type { DetailLevel } from "../src/world/parcel-mesh.ts";
 import type { ParcelLot, ParcelPlan } from "../src/world/parcel-plan.ts";

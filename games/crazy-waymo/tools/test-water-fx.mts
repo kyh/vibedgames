@@ -70,6 +70,7 @@ const checkWakeCadence = (check: Check) => {
 const checkWakeDirection = (check: Check) => {
   for (const speed of [-20, 20]) {
     const sprays: WaterSprayKind[] = [];
+
     const direction = new WaterFx((_x, _y, _z, _strength, _vx, _vz, kind) => {
       sprays.push(kind);
     });

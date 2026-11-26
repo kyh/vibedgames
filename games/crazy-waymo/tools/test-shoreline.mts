@@ -644,9 +644,7 @@ export const checkShoreline = async (check: Check) => {
     geo.dispose();
   }
 
-  const materials = new Set(
-    allMeshes.flatMap((mesh) => (Array.isArray(mesh.material) ? mesh.material : [mesh.material])),
-  );
+  const materials = new Set(allMeshes.map((mesh) => mesh.material));
 
   for (const material of materials) {
     material.dispose();
