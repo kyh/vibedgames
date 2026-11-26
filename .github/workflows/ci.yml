@@ -40,3 +40,28 @@ jobs:
 
       - name: Test
         run: pnpm test
+
+  smoke:
+    runs-on: ubuntu-latest
+    env:
+      TURBO_TELEMETRY_DISABLED: 1
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: pnpm/setup@v2
+        with:
+          runtime: node@24
+          cache: true
+
+      - name: Bootstrap
+        run: pnpm bootstrap --yes
+
+      - name: Start the web app
+        run: pnpm -F @repo/web dev > "$RUNNER_TEMP/web.log" 2>&1 &
+
+      - name: Smoke
+        run: pnpm smoke
+
+      - name: Web app log
+        if: failure()
+        run: cat "$RUNNER_TEMP/web.log"
