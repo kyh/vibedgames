@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 /**
  * Short-lived, single-purpose tokens for the in-page playtester.
  *
@@ -16,6 +18,8 @@
 export const PLAYTEST_TOKEN_TTL_MS = 15 * 60_000;
 
 const PREFIX = "pt";
+
+const tokenClaims = z.object({ e: z.number(), u: z.string().min(1) });
 
 const base64url = (bytes: Uint8Array) =>
   btoa(String.fromCodePoint(...bytes))
@@ -113,19 +117,19 @@ export const verifyPlaytestToken = async (secret: string, token: string, now = D
     return null;
   }
 
-  let claims: { u?: string; e?: number };
+  let raw: unknown;
 
   try {
-    claims = JSON.parse(new TextDecoder().decode(bytes));
+    raw = JSON.parse(new TextDecoder().decode(bytes));
   } catch {
     return null;
   }
 
-  const { u, e } = claims;
+  const claims = tokenClaims.safeParse(raw);
 
-  if (String(u) !== u || u.length === 0 || !Number.isFinite(e) || Number(e) <= now) {
+  if (!claims.success || claims.data.e <= now) {
     return null;
   }
 
-  return { expiresAt: Number(e), userId: u };
+  return { expiresAt: claims.data.e, userId: claims.data.u };
 };

@@ -20,7 +20,7 @@ const entry = (name: string, type: string, data: Uint8Array = new Uint8Array(0))
   return [header, padded];
 };
 
-const gzip = async (parts: Uint8Array[]) => {
+const gzip = async (parts: Uint8Array<ArrayBuffer>[]) => {
   const tar = new Blob([...parts, new Uint8Array(1024)]);
   const zipped = tar.stream().pipeThrough(new CompressionStream("gzip"));
 

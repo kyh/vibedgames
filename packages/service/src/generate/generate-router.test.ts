@@ -1,114 +1,55 @@
+import { runInOrder } from "@repo/contract/run-in-order";
 import assert from "node:assert/strict";
 import { after, describe, test } from "node:test";
-import type { D1PreparedStatement, D1Result } from "@cloudflare/workers-types";
 import type { JsonValue } from "@repo/contract/json";
-import { createDb } from "@repo/db/drizzle-client";
+import { creditEntry, generation } from "@repo/db/drizzle-schema";
+import { user } from "@repo/db/drizzle-schema-auth";
 import { call } from "@orpc/server";
 
 import { createAuth } from "../identity/auth";
 import { MICRO_PER_USD } from "../credits/credit-ledger";
 import type { ORPCContext } from "../orpc";
+import { startD1 } from "../d1.test-utils";
 import { startUpstream } from "../upstream.test-utils";
 import type { UpstreamReply } from "../upstream.test-utils";
 import { forward, generateRouter } from "./generate-router";
 
-const unavailable = (): never => {
-  throw new Error("this test's database only reads the balance and batches writes");
+const d1 = await startD1();
+
+after(d1.close);
+
+const { db } = d1;
+
+const seedUser = async () => {
+  await db.delete(generation);
+  await db.delete(creditEntry);
+  await db.delete(user);
+  await db.insert(user).values({ email: "user@vibedgames.com", id: "user-1", name: "User" });
+  await db.insert(creditEntry).values({
+    deltaMicro: 20 * MICRO_PER_USD,
+    id: "grant:user-1",
+    kind: "admin_grant",
+    userId: "user-1",
+  });
 };
 
-const d1Result = <T>() =>
-  ({
-    meta: {
-      changed_db: false,
-      changes: 0,
-      duration: 0,
-      last_row_id: 0,
-      rows_read: 0,
-      rows_written: 0,
-      size_after: 0,
-    },
-    results: [],
-    success: true,
-  }) satisfies D1Result<T>;
+const heldGeneration = async () => {
+  const [held] = await db
+    .select({
+      holdMicro: generation.holdMicro,
+      unit: generation.unit,
+      unitPriceMicro: generation.unitPriceMicro,
+    })
+    .from(generation);
 
-function raw<T = unknown[]>(options: { columnNames: true }): Promise<[string[], ...T[]]>;
-function raw<T = unknown[]>(options?: { columnNames?: false }): Promise<T[]>;
-async function raw() {
-  return await Promise.resolve([[20 * MICRO_PER_USD]]);
-}
-
-interface Write {
-  query: string;
-  params: unknown[];
-}
-
-const writes: Write[] = [];
-const bound = new WeakMap<D1PreparedStatement, Write>();
-
-const prepare = (query: string, params: unknown[] = []) => {
-  const statement: D1PreparedStatement = {
-    all: async <T>() => await Promise.resolve(d1Result<T>()),
-    bind: (...values) => prepare(query, values),
-    first: async () => await Promise.resolve(null),
-    raw,
-    run: async <T>() => await Promise.resolve(d1Result<T>()),
-  };
-
-  bound.set(statement, { params, query });
-
-  return statement;
+  return held ?? null;
 };
 
-const db = createDb({
-  batch: async <T>(statements: D1PreparedStatement[]) => {
-    for (const statement of statements) {
-      const write = bound.get(statement);
+const ledgerWrites = async () => {
+  const generations = await db.select().from(generation);
+  const entries = await db.select().from(creditEntry);
 
-      if (write) {
-        writes.push(write);
-      }
-    }
-
-    return await Promise.resolve(statements.map(() => d1Result<T>()));
-  },
-  dump: unavailable,
-  exec: unavailable,
-  prepare,
-  withSession: unavailable,
-});
-
-const heldGeneration = () => {
-  const insert = writes.find(({ query }) => query.startsWith('insert into "generation"'));
-
-  const groups = /\((?<columns>[^)]*)\) values \((?<values>.*)\) on conflict/u.exec(
-    insert?.query ?? "",
-  )?.groups;
-
-  if (
-    !insert ||
-    groups === undefined ||
-    groups.columns === undefined ||
-    groups.columns === "" ||
-    groups.values === undefined ||
-    groups.values === ""
-  ) {
-    return null;
-  }
-
-  const params = [...insert.params];
-  const values = groups.values.split(", ");
-
-  const row = new Map(
-    groups.columns
-      .split(", ")
-      .map((column, i) => [column.slice(1, -1), values[i] === "?" ? params.shift() : null]),
-  );
-
-  return {
-    holdMicro: row.get("hold_micro"),
-    unit: row.get("unit"),
-    unitPriceMicro: row.get("unit_price_micro"),
-  };
+  return [...generations, ...entries.filter((entry) => entry.id !== "grant:user-1")];
 };
 
 const auth = createAuth({ baseURL: "http://localhost:3000", db, secret: "test-secret" });
@@ -204,14 +145,14 @@ const media = {
 
 const fetchedUrls = () => upstream.requests.map((request) => targetOf(request.url));
 
-const stubFal = ({
+const stubFal = async ({
   estimate = json(404, { error: { message: "Endpoint(s) not found", type: "not_found" } }),
   price = priceList,
 }: {
   estimate?: Upstream;
   price?: (endpointId: string) => UpstreamReply;
 } = {}) => {
-  writes.length = 0;
+  await seedUser();
   upstream.requests.length = 0;
   routes = { estimate, other: queued, price };
 };
@@ -237,11 +178,11 @@ describe("forward path", () => {
       "/fal-ai/flüx/dev",
     ];
 
-    for (const path of rewritten) {
-      stubFal();
+    await runInOrder(rewritten, async (path) => {
+      await stubFal();
       await assert.rejects(submit(path, "user"), { code: "BAD_REQUEST" }, JSON.stringify(path));
       assert.deepEqual(fetchedUrls(), [], JSON.stringify(path));
-    }
+    });
   });
 
   test("refuses a queue path fal would decode, case-fold or read past, and only a queue path", async () => {
@@ -261,15 +202,15 @@ describe("forward path", () => {
       { method: "POST", path: "/fal-ai/flux/dev+" },
     ];
 
-    for (const { method, path } of folded) {
-      stubFal();
+    await runInOrder(folded, async ({ method, path }) => {
+      await stubFal();
       await assert.rejects(
         forward(contextAs("user"), { method, path, target: "queue" }),
         { code: "BAD_REQUEST" },
         path,
       );
       assert.deepEqual(fetchedUrls(), [], path);
-    }
+    });
 
     const elsewhere: { path: string; target: "platform" | "storage" | "docs" }[] = [
       { path: "/v1/models/Fal%2Dai", target: "platform" },
@@ -278,15 +219,15 @@ describe("forward path", () => {
       { path: "/docs/MCP", target: "docs" },
     ];
 
-    for (const { path, target } of elsewhere) {
-      stubFal();
+    await runInOrder(elsewhere, async ({ path, target }) => {
+      await stubFal();
       await forward(contextAs("user"), { method: "GET", path, target });
       assert.deepEqual(
         fetchedUrls().map((url) => url.pathname),
         [path],
         target,
       );
-    }
+    });
   });
 
   test("prices the endpoint fal is asked to run", async () => {
@@ -297,8 +238,8 @@ describe("forward path", () => {
       "/fal-ai/flux/schnell/",
     ];
 
-    for (const path of accepted) {
-      stubFal();
+    await runInOrder(accepted, async (path) => {
+      await stubFal();
       await submit(path, "user");
 
       const priced = fetchedUrls().find(
@@ -312,7 +253,7 @@ describe("forward path", () => {
         ran.pathname.split("/").filter(Boolean).join("/"),
         path,
       );
-    }
+    });
   });
 });
 
@@ -326,8 +267,8 @@ describe("forward submit", () => {
       "an empty price list": json(200, { has_more: false, next_cursor: null, prices: [] }),
     };
 
-    for (const [answer, price] of Object.entries(unpriced)) {
-      stubFal({ price });
+    await runInOrder(Object.entries(unpriced), async ([answer, price]) => {
+      await stubFal({ price });
       await assert.rejects(
         submit("/fal-ai/flux/dex", "user"),
         {
@@ -337,8 +278,8 @@ describe("forward submit", () => {
         answer,
       );
       assert.ok(!ranOnQueue(), `ran on ${answer}`);
-      assert.deepEqual(writes, [], answer);
-    }
+      assert.deepEqual(await ledgerWrites(), [], answer);
+    });
   });
 
   test("bills every queue POST as a submit, whatever `requests` segment it holds", async () => {
@@ -348,8 +289,8 @@ describe("forward submit", () => {
       "/fal-ai/flux/requests/request-1/status",
     ];
 
-    for (const path of posts) {
-      stubFal();
+    await runInOrder(posts, async (path) => {
+      await stubFal();
       await submit(path, "user");
 
       const priced = fetchedUrls().find(
@@ -357,10 +298,10 @@ describe("forward submit", () => {
       );
 
       assert.equal(priced?.searchParams.get("endpoint_id"), path.slice(1), path);
-      assert.ok(heldGeneration(), `${path} was not held`);
-    }
+      assert.ok(await heldGeneration(), `${path} was not held`);
+    });
 
-    stubFal({
+    await stubFal({
       price: json(404, { error: { message: "Endpoint(s) not found", type: "not_found" } }),
     });
 
@@ -378,42 +319,46 @@ describe("forward submit", () => {
       "no answer": unreachable,
     };
 
-    for (const [answer, price] of Object.entries(down)) {
-      stubFal({ estimate: unreachable, price });
+    await runInOrder(Object.entries(down), async ([answer, price]) => {
+      await stubFal({ estimate: unreachable, price });
       await submit("/fal-ai/pricing-down/model", "user");
       assert.ok(ranOnQueue(), `did not run on ${answer}`);
       assert.deepEqual(
-        heldGeneration(),
+        await heldGeneration(),
         { holdMicro: 100_000, unit: null, unitPriceMicro: null },
         answer,
       );
-    }
+    });
   });
 
   test("lets an admin submit to an endpoint no price is published for, on the default hold", async () => {
-    stubFal({
+    await stubFal({
       price: json(404, { error: { message: "Endpoint(s) not found", type: "not_found" } }),
     });
 
     await submit("/fal-ai/unpriced/for-admin", "admin");
     assert.ok(ranOnQueue());
-    assert.deepEqual(heldGeneration(), { holdMicro: 100_000, unit: null, unitPriceMicro: null });
+    assert.deepEqual(await heldGeneration(), {
+      holdMicro: 100_000,
+      unit: null,
+      unitPriceMicro: null,
+    });
   });
 
   test("holds a priced endpoint at its estimate, else one unit, and keeps its unit price", async () => {
-    stubFal({ estimate: json(200, { total_cost: 0.05 }) });
+    await stubFal({ estimate: json(200, { total_cost: 0.05 }) });
     await submit("/fal-ai/priced/with-history", "user");
     assert.ok(ranOnQueue());
-    assert.deepEqual(heldGeneration(), {
+    assert.deepEqual(await heldGeneration(), {
       holdMicro: 50_000,
       unit: "image",
       unitPriceMicro: 25_000,
     });
 
-    stubFal();
+    await stubFal();
     await submit("/fal-ai/priced/first-run", "user");
     assert.ok(ranOnQueue());
-    assert.deepEqual(heldGeneration(), {
+    assert.deepEqual(await heldGeneration(), {
       holdMicro: 25_000,
       unit: "image",
       unitPriceMicro: 25_000,
@@ -425,7 +370,7 @@ describe("forward errors", () => {
   const BRAND = /\bfal\b(?!-)/iu;
 
   test("names no provider when an upstream call fails", async () => {
-    stubFal();
+    await stubFal();
     routes = { ...routes, other: json(500, { detail: "boom" }) };
     await assert.rejects(
       forward(contextAs("user"), {
@@ -461,7 +406,7 @@ describe("generate.upload", () => {
   const signing = { baseUrl: "https://vibedgames.com", secret: "test-secret" };
 
   test("opens a storage slot and hands back our signed URL for it", async () => {
-    stubFal();
+    await stubFal();
     routes = {
       ...routes,
       other: json(200, {
@@ -490,7 +435,7 @@ describe("generate.upload", () => {
   });
 
   test("refuses a slot that is not HTTPS", async () => {
-    stubFal();
+    await stubFal();
     routes = {
       ...routes,
       other: json(200, {
@@ -522,7 +467,7 @@ const onQueue = (replies: Record<string, JsonValue>) => (url: URL) => {
 
 describe("generate.run", () => {
   test("submits the full endpoint and fetches the output from its app once completed", async () => {
-    stubFal();
+    await stubFal();
     routes = {
       ...routes,
       other: onQueue({
@@ -544,11 +489,11 @@ describe("generate.run", () => {
       status: "COMPLETED",
     });
     assert.deepStrictEqual(queueHops(), ["/fal-ai/flux/dev", "/fal-ai/flux/requests/request-1"]);
-    assert.ok(heldGeneration(), "the submit was not held against the ledger");
+    assert.ok(await heldGeneration(), "the submit was not held against the ledger");
   });
 
   test("returns the request id without polling when it may not wait", async () => {
-    stubFal();
+    await stubFal();
     routes = {
       ...routes,
       other: onQueue({ "/fal-ai/flux/dev": { request_id: "request-1", status: "IN_QUEUE" } }),
@@ -570,7 +515,7 @@ describe("generate.run", () => {
   });
 
   test("holds an endpoint id to the queue path rules", async () => {
-    stubFal();
+    await stubFal();
     await assert.rejects(
       call(
         generateRouter.run,
@@ -585,7 +530,7 @@ describe("generate.run", () => {
 
 describe("generate.status", () => {
   test("reaches a job's status, with logs, and its output on the endpoint's app", async () => {
-    stubFal();
+    await stubFal();
     routes = {
       ...routes,
       other: onQueue({
@@ -610,7 +555,7 @@ describe("generate.status", () => {
 
 describe("generate.status cancel", () => {
   test("still polls the job, which refunds its hold, when the cancel itself is refused", async () => {
-    stubFal();
+    await stubFal();
     routes = {
       ...routes,
       other: onQueue({ "/fal-ai/flux/requests/request-1/status": { status: "FAILED" } }),
@@ -632,7 +577,7 @@ describe("generate.status cancel", () => {
 
 describe("generate catalog", () => {
   test("spells a model search as the platform's query", async () => {
-    stubFal();
+    await stubFal();
     routes = { ...routes, other: json(200, { models: [] }) };
 
     await call(
@@ -663,7 +608,7 @@ describe("generate catalog", () => {
   });
 
   test("asks for one model's OpenAPI document as its schema", async () => {
-    stubFal();
+    await stubFal();
     routes = { ...routes, other: json(200, { models: [] }) };
 
     await call(
@@ -682,7 +627,7 @@ describe("generate catalog", () => {
 
 describe("generate assets", () => {
   test("edits on the image model's edit endpoint, with the typed fields over the options", async () => {
-    stubFal();
+    await stubFal();
     routes = { ...routes, other: json(200, { request_id: "request-1", status: "IN_QUEUE" }) };
 
     await call(
@@ -709,7 +654,7 @@ describe("generate assets", () => {
   });
 
   test("refuses a video's last frame without its first, before anything is fetched", async () => {
-    stubFal();
+    await stubFal();
     await assert.rejects(
       call(
         generateRouter.video,

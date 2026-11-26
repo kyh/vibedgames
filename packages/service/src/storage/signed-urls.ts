@@ -205,9 +205,7 @@ export const verifyDownloadUrl: (
  * deployment when single-deploy mode overwrites an old release.
  */
 export const deletePrefix = async ({ r2, prefix }: { r2: R2Config; prefix: string }) => {
-  let cursor: string | undefined;
-
-  while (true) {
+  const deleteFrom: (cursor: string | undefined) => Promise<void> = async (cursor) => {
     const listed = await r2.bucket.list({ cursor, limit: 1000, prefix });
 
     if (listed.objects.length === 0) {
@@ -220,10 +218,10 @@ export const deletePrefix = async ({ r2, prefix }: { r2: R2Config; prefix: strin
       }),
     );
 
-    if (!listed.truncated) {
-      return;
+    if (listed.truncated) {
+      await deleteFrom(listed.cursor);
     }
+  };
 
-    ({ cursor } = listed);
-  }
+  await deleteFrom(undefined);
 };

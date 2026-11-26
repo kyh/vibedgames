@@ -125,13 +125,7 @@ const FAL_STATIC_HEADERS = {
   "x-app-fal-disable-fallback": "true",
 } as const;
 
-const serializeBody = (input: ForwardInput) => {
-  const { body } = input;
-
-  if (body === undefined) {
-    return;
-  }
-
+const serializeBody = (body: Exclude<ForwardInput["body"], undefined>) => {
   let serialized: string;
 
   try {
@@ -324,7 +318,7 @@ export const forward = async (context: ORPCContext, raw: ForwardCall) => {
     }
   }
 
-  const serialized = serializeBody(input);
+  const serialized = input.body === undefined ? undefined : serializeBody(input.body);
   const base = targetBase(input.target, config);
   const url = buildUrl(base, input.path, input.query);
   const headers = buildHeaders(apiKey, input.target, serialized);
@@ -403,18 +397,27 @@ const queueStatus = async (context: ORPCContext, endpointId: string, requestId: 
 const queueResult = async (context: ORPCContext, endpointId: string, requestId: string) =>
   await hop(context, { method: "GET", path: jobPath(endpointId, requestId, ""), target: "queue" });
 
-const confirmCancelled = async (context: ORPCContext, endpointId: string, requestId: string) => {
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    await sleep(1000);
+const confirmCancelled = async (
+  context: ORPCContext,
+  endpointId: string,
+  requestId: string,
+  attemptsLeft = 3,
+) => {
+  if (attemptsLeft === 0) {
+    return;
+  }
 
-    try {
-      if (TERMINAL_STATUSES.has(await queueStatus(context, endpointId, requestId))) {
-        return;
-      }
-    } catch {
+  await sleep(1000);
+
+  try {
+    if (TERMINAL_STATUSES.has(await queueStatus(context, endpointId, requestId))) {
       return;
     }
+  } catch {
+    return;
   }
+
+  await confirmCancelled(context, endpointId, requestId, attemptsLeft - 1);
 };
 
 const runModel = async (
@@ -438,12 +441,18 @@ const runModel = async (
 
   try {
     const deadline = Date.now() + input.wait_seconds * 1000;
-    let status = readQueueStatus(submission)?.toUpperCase() ?? "IN_QUEUE";
 
-    while (!TERMINAL_STATUSES.has(status) && Date.now() + POLL_MS <= deadline) {
+    const settle: (current: string) => Promise<string> = async (current) => {
+      if (TERMINAL_STATUSES.has(current) || Date.now() + POLL_MS > deadline) {
+        return current;
+      }
+
       await sleep(POLL_MS);
-      status = await queueStatus(context, endpointId, requestId);
-    }
+
+      return await settle(await queueStatus(context, endpointId, requestId));
+    };
+
+    const status = await settle(readQueueStatus(submission)?.toUpperCase() ?? "IN_QUEUE");
 
     const result =
       status === "COMPLETED" ? await queueResult(context, endpointId, requestId) : null;

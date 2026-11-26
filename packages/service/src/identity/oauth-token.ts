@@ -139,7 +139,7 @@ export const resolveOAuthSession: (
       userId: user.id,
     },
     user,
-  } as Session;
+  } satisfies Session;
 
   return { scopes: claims.scope.split(" ").filter(Boolean), session };
 };

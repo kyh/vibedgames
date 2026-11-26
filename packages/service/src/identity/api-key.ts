@@ -43,11 +43,17 @@ export const resolveApiKeySession = async (auth: Auth, db: Db, headers: Headers)
     return null;
   }
 
-  for (const key of candidates) {
+  const sessionFrom: (index: number) => Promise<Session | null> = async (index) => {
+    const key = candidates[index];
+
+    if (key === undefined) {
+      return null;
+    }
+
     const { valid, key: record } = await auth.api.verifyApiKey({ body: { key } });
 
     if (!valid || !record) {
-      continue;
+      return await sessionFrom(index + 1);
     }
 
     const rows = await db
@@ -59,11 +65,11 @@ export const resolveApiKeySession = async (auth: Auth, db: Db, headers: Headers)
     const [user] = rows;
 
     if (!user) {
-      continue;
+      return await sessionFrom(index + 1);
     }
 
     if (user.banned === true && (!user.banExpires || user.banExpires.getTime() > Date.now())) {
-      continue;
+      return await sessionFrom(index + 1);
     }
 
     const now = new Date();
@@ -80,8 +86,8 @@ export const resolveApiKeySession = async (auth: Auth, db: Db, headers: Headers)
         userId: user.id,
       },
       user,
-    } as Session;
-  }
+    } satisfies Session;
+  };
 
-  return null;
+  return await sessionFrom(0);
 };

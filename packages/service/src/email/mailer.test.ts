@@ -5,10 +5,10 @@ import { EMAIL_FROM, resendMailer } from "./mailer";
 import { passwordResetEmail } from "./templates";
 
 const recorder = (response: Response) => {
-  const calls: { url: string; init: RequestInit | undefined }[] = [];
+  const calls: Request[] = [];
 
-  const fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-    calls.push({ init, url: String(input) });
+  const fetch = async (input: Request | string | URL, init?: RequestInit) => {
+    calls.push(new Request(input, init));
 
     return await Promise.resolve(response);
   };
@@ -26,9 +26,11 @@ test("resendMailer posts one message from the verified sender", async () => {
   });
   assert.equal(calls.length, 1);
   const [call] = calls;
-  assert.equal(call?.url, "https://api.resend.com/emails");
-  assert.equal(new Headers(call?.init?.headers).get("authorization"), "Bearer re_test");
-  assert.deepEqual(JSON.parse(String(call?.init?.body)), {
+  assert.ok(call);
+  assert.equal(call.url, "https://api.resend.com/emails");
+  assert.equal(call.headers.get("authorization"), "Bearer re_test");
+  const body: unknown = await call.json();
+  assert.deepEqual(body, {
     from: EMAIL_FROM,
     html: "<p>hi</p>",
     subject: "Hi",

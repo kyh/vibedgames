@@ -1,6 +1,7 @@
 import { and, count, eq, inArray, sql, sum } from "@repo/db";
 import { deployment, deploymentFile, game } from "@repo/db/drizzle-schema";
 import type { PresignedFile } from "@repo/contract/deploy/deploy-schema";
+import { runInOrder } from "@repo/contract/run-in-order";
 import { contentTypeForPath } from "@repo/contract/deploy/content-types";
 import type { Db } from "@repo/db/drizzle-client";
 import {
@@ -185,11 +186,16 @@ const assertUploadBudget = (
 
 type FileRow = typeof deploymentFile.$inferInsert;
 
+const batchesOf = <T>(items: readonly T[], size: number) =>
+  Array.from({ length: Math.ceil(items.length / size) }, (_, i) =>
+    items.slice(i * size, (i + 1) * size),
+  );
+
 const upsertFileRows = async (db: Db, rows: FileRow[]) => {
-  for (let i = 0; i < rows.length; i += INSERT_BATCH_SIZE) {
+  await runInOrder(batchesOf(rows, INSERT_BATCH_SIZE), async (batch) => {
     await db
       .insert(deploymentFile)
-      .values(rows.slice(i, i + INSERT_BATCH_SIZE))
+      .values(batch)
       .onConflictDoUpdate({
         set: {
           contentType: sql`excluded.content_type`,
@@ -198,7 +204,7 @@ const upsertFileRows = async (db: Db, rows: FileRow[]) => {
         },
         target: [deploymentFile.deploymentId, deploymentFile.path],
       });
-  }
+  });
 };
 
 const writeUploadedFiles = async (
@@ -281,9 +287,8 @@ const assertFilesStored = async (
   { deploymentId, gameId }: { deploymentId: string; gameId: string },
 ) => {
   const stored = new Map<string, number>();
-  let cursor: string | undefined;
 
-  do {
+  const listFrom: (cursor: string | undefined) => Promise<void> = async (cursor) => {
     const listed = await r2.bucket.list({
       cursor,
       limit: 1000,
@@ -294,8 +299,12 @@ const assertFilesStored = async (
       stored.set(object.key, object.size);
     }
 
-    cursor = listed.truncated ? listed.cursor : undefined;
-  } while (cursor !== undefined);
+    if (listed.truncated && listed.cursor !== undefined) {
+      await listFrom(listed.cursor);
+    }
+  };
+
+  await listFrom(undefined);
 
   const rows = await db.query.deploymentFile.findMany({ where: { deploymentId } });
   const missing = rows.filter((row) => stored.get(row.r2Key) !== row.size).map((row) => row.path);
@@ -463,11 +472,11 @@ const publishDeployment = async (
     )
     .returning({ id: deployment.id });
 
-  for (const { id } of stale) {
+  await runInOrder(stale, async ({ id }) => {
     await deletePrefix({ prefix: `games/${gameId}/${id}/`, r2 });
     await deletePrefix({ prefix: `sources/${gameId}/${id}/`, r2 });
     await r2.bucket.delete(bundleKeyFor(gameId, id));
-  }
+  });
 };
 
 const authed = os.deploy.use(requireSession);
@@ -524,9 +533,9 @@ export const deployRouter = {
 
     const BATCH_SIZE = 10;
 
-    for (let i = 0; i < fileRows.length; i += BATCH_SIZE) {
-      await context.db.insert(deploymentFile).values(fileRows.slice(i, i + BATCH_SIZE));
-    }
+    await runInOrder(batchesOf(fileRows, BATCH_SIZE), async (batch) => {
+      await context.db.insert(deploymentFile).values(batch);
+    });
 
     const uploads = await Promise.all(
       fileRows.map(async (row) => ({

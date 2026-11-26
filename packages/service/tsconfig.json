@@ -2,7 +2,7 @@
   "extends": "@kyh/tsconfig/base.json",
   "compilerOptions": {
     "lib": ["ES2024"],
-    "types": ["node", "@cloudflare/workers-types"]
+    "types": ["node"]
   },
   "include": ["src", "scripts"],
   "exclude": ["node_modules"]

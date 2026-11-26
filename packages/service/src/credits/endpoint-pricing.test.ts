@@ -1,3 +1,4 @@
+import { runInOrder } from "@repo/contract/run-in-order";
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import type { JsonValue } from "@repo/contract/json";
@@ -79,14 +80,14 @@ describe("getEndpointPricing", () => {
       "only another endpoint's price": listing("test/unpriced/v2", 0.025),
     };
 
-    for (const [label, price] of Object.entries(answers)) {
+    await runInOrder(Object.entries(answers), async ([label, price]) => {
       const lookup = platform({ price });
       assert.deepEqual(
         await getEndpointPricing(id, lookup.call),
         { ...DEFAULT_HOLD, kind: "unknown" },
         label,
       );
-    }
+    });
 
     const joined = platform({
       price: ok({
@@ -115,14 +116,14 @@ describe("getEndpointPricing", () => {
       "no answer": unreachable,
     };
 
-    for (const [label, price] of Object.entries(answers)) {
+    await runInOrder(Object.entries(answers), async ([label, price]) => {
       const lookup = platform({ estimate: unreachable, price });
       assert.deepEqual(
         await getEndpointPricing(id, lookup.call),
         { ...DEFAULT_HOLD, kind: "unavailable" },
         label,
       );
-    }
+    });
 
     const withHistory = platform({ estimate: estimate(0.3), price: status(503) });
     assert.deepEqual(await getEndpointPricing(id, withHistory.call), {
@@ -141,11 +142,11 @@ describe("getEndpointPricing", () => {
       { kind: "unavailable", price: status(503) },
     ];
 
-    for (const { kind, price } of misses) {
+    await runInOrder(misses, async ({ kind, price }) => {
       const missed = platform({ estimate: estimate(0.05), price });
       const verdict = await getEndpointPricing(id, missed.call);
       assert.equal(verdict.kind, kind);
-    }
+    });
 
     const answered = platform({ price: listing(id, 0.025) });
     const found = await getEndpointPricing(id, answered.call);

@@ -29,7 +29,8 @@ const pickKey = (decision: DecisionProviderConfig | undefined) => {
     });
   }
 
-  const base = decision.typesafeBaseUrl?.trim() || DEFAULT_BASE_URL;
+  const configured = decision.typesafeBaseUrl?.trim() ?? "";
+  const base = configured === "" ? DEFAULT_BASE_URL : configured;
 
   return { apiKey: decision.typesafe, base: base.endsWith("/") ? base.slice(0, -1) : base };
 };

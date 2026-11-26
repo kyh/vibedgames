@@ -1,7 +1,8 @@
+import { runInOrder } from "@repo/contract/run-in-order";
 import assert from "node:assert/strict";
-import { describe, test } from "node:test";
-import type { Db } from "@repo/db/drizzle-client";
+import { after, describe, test } from "node:test";
 
+import { startD1 } from "../d1.test-utils";
 import type { PurchaseInput } from "./credit-ledger";
 import { handleStripeWebhook, purchasesEnabled, verifyStripeSignature } from "./stripe";
 
@@ -45,7 +46,11 @@ type Session = Omit<Partial<typeof paidSession>, "metadata"> & {
 const event = (type: string, object: Session = paidSession) =>
   JSON.stringify({ data: { object }, id: "evt_1", type });
 
-const db = {} as Db;
+const d1 = await startD1();
+
+after(d1.close);
+
+const { db } = d1;
 
 const deliver = async (payload: string, signature?: string) => {
   const credited: PurchaseInput[] = [];
@@ -120,11 +125,11 @@ describe("handleStripeWebhook", () => {
       event("checkout.session.completed", { ...paidSession, currency: "eur" }),
     ];
 
-    for (const payload of cases) {
+    await runInOrder(cases, async (payload) => {
       const { credited, status } = await deliver(payload);
       assert.equal(status, 200);
       assert.deepEqual(credited, []);
-    }
+    });
   });
 
   test("answers 412 when no webhook secret is configured", async () => {

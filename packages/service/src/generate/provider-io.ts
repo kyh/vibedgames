@@ -1,4 +1,5 @@
 import type { JsonValue } from "@repo/contract/json";
+import { parseJson } from "@repo/contract/json";
 import { ORPCError } from "@orpc/server";
 
 import { MAX_FAL_PLATFORM_JSON_BYTES } from "./limits";
@@ -38,25 +39,21 @@ export const readBytesBounded = async (response: Response, maxBytes: number, lab
     return bytes;
   }
 
-  const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
   let total = 0;
 
-  while (true) {
-    const next = await reader.read();
-
-    if (next.done) {
-      break;
+  for await (const chunk of response.body) {
+    if (!(chunk instanceof Uint8Array)) {
+      throw new TypeError(`${label} streamed a chunk that is not bytes.`);
     }
 
-    total += next.value.byteLength;
+    total += chunk.byteLength;
 
     if (total > maxBytes) {
-      await reader.cancel().catch(() => null);
       rejectOversize(label, maxBytes);
     }
 
-    chunks.push(next.value);
+    chunks.push(chunk);
   }
 
   const bytes = new Uint8Array(total);
@@ -88,7 +85,7 @@ export const readJsonBounded = async (
   const text = await readTextBounded(response, label, maxBytes);
 
   try {
-    return JSON.parse(text);
+    return parseJson(text);
   } catch {
     throw new ORPCError("BAD_GATEWAY", {
       message: `${label} was not valid JSON.`,
@@ -126,7 +123,7 @@ export const readSseJson = async (
 
   if (events.length === 0) {
     try {
-      return JSON.parse(text);
+      return parseJson(text);
     } catch {
       throw new ORPCError("BAD_GATEWAY", {
         message: `${label} had no SSE data payload.`,
@@ -139,7 +136,7 @@ export const readSseJson = async (
 
   for (const event of events) {
     try {
-      last = JSON.parse(event);
+      last = parseJson(event);
       parsedAny = true;
     } catch {
       continue;

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { z } from "zod";
 import { after, beforeEach, test } from "node:test";
 import type { JsonValue } from "@repo/contract/json";
 
@@ -51,12 +52,10 @@ const post = (init: { token?: string; body?: string; cookie?: string; origin?: s
   });
 };
 
-interface ErrorBody {
-  error?: { code?: string };
-}
+const ErrorBody = z.object({ error: z.object({ code: z.string().optional() }).optional() });
 
 const status: (response: Response) => Promise<[number, string]> = async (response) => {
-  const json: ErrorBody = await response.json();
+  const json = ErrorBody.parse(await response.json());
 
   return [response.status, json.error?.code ?? "ok"];
 };

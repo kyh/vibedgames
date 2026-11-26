@@ -65,14 +65,6 @@ export default defineConfig({
       files: jsonPayloadModules,
       rules: { "typescript/consistent-type-definitions": "off" },
     },
-    {
-      files: [
-        "packages/service/src/identity/cimd-fetch.test.ts",
-        "packages/service/src/deploy/inline-files.test.ts",
-        "packages/multiplayer/test/offline.test.ts",
-      ],
-      rules: { "landmines-testing/no-test-doubles": "off" },
-    },
   ],
   rules: {
     "typescript/no-floating-promises": [

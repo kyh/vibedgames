@@ -1,3 +1,4 @@
+import { runInOrder } from "@repo/contract/run-in-order";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
@@ -53,7 +54,10 @@ test("a tampered token is rejected", async () => {
     null,
   );
 
-  for (const bad of ["", "pt", "pt.a", `${token}.extra`, "nope.payload.sig", `vg_${token}`]) {
-    assert.equal(await verifyPlaytestToken(SECRET, bad), null, JSON.stringify(bad));
-  }
+  await runInOrder(
+    ["", "pt", "pt.a", `${token}.extra`, "nope.payload.sig", `vg_${token}`],
+    async (bad) => {
+      assert.equal(await verifyPlaytestToken(SECRET, bad), null, JSON.stringify(bad));
+    },
+  );
 });
