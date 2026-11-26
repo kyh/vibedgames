@@ -10,13 +10,14 @@ import {
   getString,
   main,
   parseArgs,
+  parseColor,
 } from "./_lib/asset-tools.mjs";
 
 const GAP = 8;
 const STRIP = 6;
-const BACKGROUND = [16, 16, 16, 255];
-const REF_INK = [220, 60, 60, 255];
-const GAME_INK = [60, 200, 90, 255];
+const BACKGROUND = parseColor("#101010");
+const REF_INK = parseColor("#dc3c3c");
+const GAME_INK = parseColor("#3cc85a");
 
 main(() => {
   const args = parseArgs(process.argv.slice(2), {
