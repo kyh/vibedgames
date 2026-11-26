@@ -1,3 +1,5 @@
+import assert from "node:assert/strict";
+
 import { TILE } from "../src/config.ts";
 import { ENEMIES } from "../src/data/enemies.ts";
 import { HEROES } from "../src/data/heroes.ts";
@@ -58,6 +60,7 @@ const check = (name: string, cond: boolean, detail = "") => {
 };
 
 const NEUTRAL: BodyInput = {
+  attackPressed: false,
   dashPressed: false,
   down: false,
   jumpHeld: false,
@@ -71,7 +74,11 @@ const NEUTRAL: BodyInput = {
 const inp = (o: Partial<BodyInput>) => ({ ...NEUTRAL, ...o });
 
 // oxlint-disable-next-line unicorn/prefer-structured-clone -- the JSON round trip IS the thing under test; structuredClone keeps what the wire drops
-const wire = <T,>(v: T) => JSON.parse(JSON.stringify(v));
+const wire = <T,>(v: T) => {
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(v)), v, "the value survives JSON as it is");
+
+  return structuredClone(v);
+};
 
 const spawn = (x = 240, y = FLOOR_Y, hero: keyof typeof HEROES = "axion") => {
   const b = new PlayerBody(Grid.test(), x, y, HEROES[hero].kit);
@@ -196,7 +203,7 @@ console.log("lunerfall physics sim\n");
 }
 
 {
-  const b = new PlayerBody(Grid.test(), (Grid.test().cols - 1) * TILE - 7, 60);
+  const b = new PlayerBody(Grid.test(), (Grid.test().cols - 1) * TILE - 7, 60, HEROES.axion.kit);
   let maxFall = 0;
 
   for (let f = 0; f < 40; f += 1) {
@@ -218,7 +225,7 @@ console.log("lunerfall physics sim\n");
 
 {
   const owY = 12 * TILE;
-  const b = new PlayerBody(Grid.test(), 5 * TILE, owY - 20);
+  const b = new PlayerBody(Grid.test(), 5 * TILE, owY - 20, HEROES.axion.kit);
   run(b, 30, {});
   check("lands on one-way", b.grounded && Math.abs(b.y - owY) < 1, `y=${b.y.toFixed(1)}`);
   run(b, 20, { down: true });
@@ -489,9 +496,9 @@ const inRoom = (r: { cols: number; rows: number }, s: { x: number; y: number }) 
       sawAttack = true;
     }
 
-    if (boss.pendingWave) {
+    if (boss.pendingWaves.length > 0) {
       sawWave = true;
-      boss.pendingWave = null;
+      boss.pendingWaves.length = 0;
     }
   }
 
@@ -1149,7 +1156,7 @@ const script = (f: number) => ({
     readCheckpoint(null).kind === "absent" && readCheckpoint({}).kind === "absent",
   );
 
-  const reject = (label: string, patch: Partial<ExpeditionCheckpoint>, r: NetRoom = room) =>
+  const reject = (label: string, patch: Readonly<Record<string, unknown>>, r: NetRoom = room) =>
     check(
       `validator rejects ${label}`,
       readCheckpoint(wire({ checkpoint: { ...checkpoint, ...patch }, room: r })).kind === "invalid",

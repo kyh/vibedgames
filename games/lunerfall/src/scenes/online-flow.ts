@@ -47,6 +47,34 @@ export interface OnlineFlowDeps {
   restartRequested: boolean;
 }
 
+
+/** What tools/two-client.mts reads of an online run, published each frame. */
+export interface OnlineProbe {
+  ax: number | null;
+  conn: NetSession["connectionStatus"];
+  dead: number;
+  downed: number;
+  entities: number;
+  hearts: number;
+  ls: boolean;
+  mode: SeatState["mode"];
+  paused: boolean;
+  players: number;
+  px: number;
+  rSwing: number | null;
+  role: SeatState["role"];
+  rx: number | null;
+  state: RunState["state"];
+  swing: number;
+  vs: RunState["matchNet"];
+}
+
+declare global {
+  interface Window {
+    __lf?: OnlineProbe;
+  }
+}
+
 export class OnlineFlow {
   private readonly scene: Scene;
   private readonly run: RunState;
@@ -143,7 +171,7 @@ export class OnlineFlow {
       ? (this.room.guest.players.find((p) => p.id !== myId)?.swingId ?? null)
       : (this.seat.remote?.body.swingId ?? null);
 
-    Reflect.set(globalThis, "__lf", {
+    window.__lf = {
       ax,
       conn: session.connectionStatus,
       dead: livePlayers(this.seat).filter((p) => p.body.dead).length,
@@ -161,7 +189,7 @@ export class OnlineFlow {
       state: this.run.state,
       swing: this.seat.player.body.swingId,
       vs: vsProbe,
-    });
+    };
   }
 
   private publishHero(session: NetSession) {
