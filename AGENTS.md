@@ -26,7 +26,7 @@ One file, two consumers. Everything lives in the repo-root `.env`; template is `
 
 **The declared secrets are the whole mechanism.** Declaring a name with `bindings.secret()` makes the dev server fold `process.env` into the Worker binding and filter it down to exactly the declared names — so a secret that is in `.env` but not declared silently never reaches the Worker. Adding one means editing two places: `.env.example` and `cloudflare.config.ts` (the `Env` type is generated from it).
 
-Keep `RESEND_API_KEY` empty in `.env`, as `.env.example` ships it (an empty value counts as unset, and every other optional key is read the same way): without it the dev server writes each email, password-reset link included, to its own log instead of sending it, so a reset can be followed headlessly and seeded addresses never receive mail.
+Keep `RESEND_API_KEY` empty in `.env`, as `.env.example` ships it (an empty value counts as unset, and every other optional key is read the same way): without it the dev server writes each email, password-reset link included, to its own log instead of sending it, so a reset can be followed headlessly and seeded addresses never receive mail. Only a request to `localhost` logs (`mailerOf` in `packages/service/src/email/mailer.ts`): a deployed Worker without the key sends and logs nothing, since a logged reset link is a live login, warns once per isolate that it sends no email, refuses a password reset up front and skips email verification.
 
 Do not reintroduce `apps/web/.dev.vars`. The dev server prefers it and stops reading `.env`/`process.env` the moment it exists, so the root file goes quietly dead. In production the same names are set with `cf workers secrets update`.
 

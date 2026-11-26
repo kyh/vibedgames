@@ -284,8 +284,13 @@ export const RequestPasswordResetForm = () => {
       email: data.email,
       fetchOptions: {
         onError: (ctx) => {
-          toast.error(ctx.error.message);
-          form.setError("root", { message: ctx.error.message });
+          const message =
+            ctx.error.code === "RESET_PASSWORD_DISABLED"
+              ? "This site can't send email right now, so a password can't be reset by email."
+              : ctx.error.message;
+
+          toast.error(message);
+          form.setError("root", { message });
         },
       },
       redirectTo: "/auth/password-update",

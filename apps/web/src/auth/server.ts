@@ -5,9 +5,8 @@ import type {
   R2Config,
   UrlSigning,
 } from "@repo/service/orpc";
-import type { Mailer } from "@repo/service/email/mailer";
 import { createAuth as initAuth } from "@repo/service/identity/auth";
-import { consoleMailer, resendMailer } from "@repo/service/email/mailer";
+import { mailerOf, NO_EMAIL_WARNING } from "@repo/service/email/mailer";
 import { oauthResources } from "@repo/service/identity/oauth-resources";
 import { createORPCContext } from "@repo/service/orpc";
 import { createDb } from "@repo/db/drizzle-client";
@@ -19,12 +18,14 @@ type Env = ReturnType<typeof getCloudflareEnv>;
 
 const authInstances = new WeakMap<Env, Map<string, ReturnType<typeof initAuth>>>();
 
+let warnedNoEmail = false;
+
 const authFor = (
   env: Env,
   db: ReturnType<typeof createDb>,
   baseUrl: string,
   productionUrl: string,
-  mailer: Mailer | undefined,
+  isLocalhost: boolean,
 ) => {
   let byOrigin = authInstances.get(env);
 
@@ -36,6 +37,13 @@ const authFor = (
   let auth = byOrigin.get(baseUrl);
 
   if (!auth) {
+    const mailer = mailerOf({ apiKey: env.RESEND_API_KEY, local: isLocalhost });
+
+    if (!mailer && !warnedNoEmail) {
+      warnedNoEmail = true;
+      console.warn(NO_EMAIL_WARNING);
+    }
+
     auth = initAuth({
       baseURL: baseUrl,
       db,
@@ -52,14 +60,6 @@ const authFor = (
   return auth;
 };
 
-const mailerFor = (env: Env, isLocalhost: boolean) => {
-  if (env.RESEND_API_KEY) {
-    return resendMailer({ apiKey: env.RESEND_API_KEY });
-  }
-
-  return isLocalhost ? consoleMailer : undefined;
-};
-
 export const getServerContext = () => {
   const env = getCloudflareEnv();
   const db = createDb(env.DB);
@@ -74,7 +74,7 @@ export const getServerContext = () => {
 
   const productionUrl = env.PRODUCTION_URL || baseUrl;
 
-  const auth = authFor(env, db, baseUrl, productionUrl, mailerFor(env, isLocalhost));
+  const auth = authFor(env, db, baseUrl, productionUrl, isLocalhost);
 
   const r2: R2Config | undefined = env.GAMES_BUCKET ? { bucket: env.GAMES_BUCKET } : undefined;
 

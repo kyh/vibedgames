@@ -40,3 +40,26 @@ export const consoleMailer: Mailer = (email) => {
 
   return Promise.resolve();
 };
+
+/** What a deployment without a key logs once, in place of every email it cannot send. */
+export const NO_EMAIL_WARNING =
+  "[email] RESEND_API_KEY is unset: this deployment sends no email, so password reset is refused and email verification is skipped.";
+
+interface MailerSettings {
+  apiKey: string | undefined;
+  /** A request to the local dev server, the only place an email may be logged. */
+  local: boolean;
+  fetch?: typeof fetch;
+}
+
+/**
+ * Resend when a key is set; without one, the log on the local dev server and
+ * nothing anywhere else, since a logged reset link is a live login.
+ */
+export const mailerOf = ({ apiKey, local, fetch: send }: MailerSettings) => {
+  if (apiKey) {
+    return resendMailer(send ? { apiKey, fetch: send } : { apiKey });
+  }
+
+  return local ? consoleMailer : undefined;
+};
