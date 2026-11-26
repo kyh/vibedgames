@@ -3,6 +3,7 @@ import { ORPCError } from "@orpc/server";
 const BLOCK = 512;
 const MAX_EXTENDED_HEADER = 64 * 1024;
 const decoder = new TextDecoder();
+const END = Symbol("end");
 
 export interface BundleFile {
   bytes: Uint8Array<ArrayBuffer>;
@@ -41,43 +42,14 @@ const paxPath = (data: Uint8Array) => {
   return path;
 };
 
+// WARNING: a recursive frame keeps its locals alive until the recursion unwinds; never hold bytes in one (128 MB Worker limit).
 const byteReader = (stream: ReadableStream<Uint8Array>) => {
   const reader = stream.getReader();
-  let buffer: Uint8Array = new Uint8Array(0);
+  const chunks: Uint8Array[] = [];
+  let buffered = 0;
   let done = false;
 
-  const skip: (left: number) => Promise<boolean> = async (left) => {
-    if (left <= 0) {
-      return true;
-    }
-
-    if (buffer.byteLength === 0) {
-      if (done) {
-        return false;
-      }
-
-      const next = await reader.read();
-
-      if (next.done) {
-        done = true;
-
-        return false;
-      }
-
-      buffer = next.value;
-    }
-
-    const used = Math.min(left, buffer.byteLength);
-    buffer = buffer.subarray(used);
-
-    return await skip(left - used);
-  };
-
-  const fill: (size: number) => Promise<void> = async (size) => {
-    if (buffer.byteLength >= size || done) {
-      return;
-    }
-
+  const pull = async () => {
     const next = await reader.read();
 
     if (next.done) {
@@ -86,22 +58,66 @@ const byteReader = (stream: ReadableStream<Uint8Array>) => {
       return;
     }
 
-    const merged = new Uint8Array(buffer.byteLength + next.value.byteLength);
-    merged.set(buffer);
-    merged.set(next.value, buffer.byteLength);
-    buffer = merged;
+    chunks.push(next.value);
+    buffered += next.value.byteLength;
+  };
+
+  const fill: (size: number) => Promise<void> = async (size) => {
+    if (buffered >= size || done) {
+      return;
+    }
+
+    await pull();
     await fill(size);
+  };
+
+  const consume = (size: number, into: Uint8Array | null) => {
+    let used = 0;
+
+    while (used < size) {
+      const head = chunks[0] ?? new Uint8Array(0);
+      const part = Math.min(size - used, head.byteLength);
+      into?.set(head.subarray(0, part), used);
+      used += part;
+
+      if (part === head.byteLength) {
+        chunks.shift();
+      } else {
+        chunks[0] = head.subarray(part);
+      }
+    }
+
+    buffered -= size;
+  };
+
+  const skip: (left: number) => Promise<boolean> = async (left) => {
+    if (left <= buffered) {
+      consume(left, null);
+
+      return true;
+    }
+
+    const held = buffered;
+    consume(held, null);
+
+    if (done) {
+      return false;
+    }
+
+    await pull();
+
+    return await skip(left - held);
   };
 
   const take = async (size: number) => {
     await fill(size);
 
-    if (buffer.byteLength < size) {
+    if (buffered < size) {
       return null;
     }
 
-    const out = new Uint8Array(buffer.subarray(0, size));
-    buffer = buffer.subarray(size);
+    const out = new Uint8Array(size);
+    consume(size, out);
 
     return out;
   };
@@ -151,15 +167,14 @@ export const forEachBundleFile = async (
   const body = async (size: number) =>
     (await reader.take(Math.ceil(size / BLOCK) * BLOCK)) ?? bad("the archive is truncated.");
 
-  const entry: (longName: string | null) => Promise<void> = async (longName) => {
+  const step = async (longName: string | null) => {
     const block = await readBlock(reader);
 
     if (block === null || block.every((byte) => byte === 0)) {
-      return;
+      return END;
     }
 
     const header = parseHeader(block, longName);
-    let nextName: string | null = null;
 
     if (header.type === "x" || header.type === "L") {
       if (header.size > MAX_EXTENDED_HEADER) {
@@ -168,8 +183,11 @@ export const forEachBundleFile = async (
 
       const padded = await body(header.size);
       const data = padded.subarray(0, header.size);
-      nextName = header.type === "L" ? field(data, 0, header.size) : paxPath(data);
-    } else if (!isRegularFile(header.type)) {
+
+      return { next: header.type === "L" ? field(data, 0, header.size) : paxPath(data) };
+    }
+
+    if (!isRegularFile(header.type)) {
       if (!(await reader.skip(Math.ceil(header.size / BLOCK) * BLOCK))) {
         bad("the archive is truncated.");
       }
@@ -180,12 +198,20 @@ export const forEachBundleFile = async (
       const path = deployPath(header.path);
 
       if (path !== null) {
-        await onFile({ bytes: new Uint8Array(data.subarray(0, header.size)), path });
+        await onFile({ bytes: data.subarray(0, header.size), path });
       }
     }
 
-    await entry(nextName);
+    return { next: null };
   };
 
-  await entry(null);
+  const entries: (longName: string | null) => Promise<void> = async (longName) => {
+    const result = await step(longName);
+
+    if (result !== END) {
+      await entries(result.next);
+    }
+  };
+
+  await entries(null);
 };
