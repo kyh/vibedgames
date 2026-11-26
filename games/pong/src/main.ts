@@ -181,7 +181,6 @@ declare global {
   interface Window {
     /** Dev-only hooks; __pongHand(x) drives the gesture→paddle path synthetically (x ∈ [0,1]). */
     __pong?: GameScene;
-    __GAME_DIAGNOSTICS__?: PongDiagnostics;
     __pongHand?: (x: number) => void;
     __pongCamera?: HandCamera;
   }
@@ -198,7 +197,11 @@ if (import.meta.env.DEV || isPlaytestRequested()) {
       game.seed(seed);
     },
     setPausedForScreenshot: (paused) => {
-      paused ? game.requestPause() : game.requestResume();
+      if (paused) {
+        game.requestPause();
+      } else {
+        game.requestResume();
+      }
     },
     setReducedMotion: (enabled) => {
       game.setReducedMotion(enabled);

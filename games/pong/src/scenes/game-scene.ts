@@ -97,7 +97,8 @@ import { newMatch, paddleOf, serveNow, simChecksum } from "../shared/sim";
 import type { Arc, HitEvent, SimEvent, SimState, Slot } from "../shared/sim";
 import { SPIN_TICKS } from "../shared/spin";
 
-const ROOM = (import.meta.env.DEV && new URLSearchParams(location.search).get("room")) || MP_ROOM;
+const ROOM_PARAM = import.meta.env.DEV ? new URLSearchParams(location.search).get("room") : null;
+const ROOM = ROOM_PARAM === null || ROOM_PARAM === "" ? MP_ROOM : ROOM_PARAM;
 
 const BALL_JUMP = 2;
 const SCAN_TICKS = 60;
@@ -220,7 +221,7 @@ const sampleAt = (engine: Rollback, at: number, rival: Slot) => {
   const now = engine.stateAt(tick);
 
   if (now === undefined) {
-    return;
+    return null;
   }
 
   const before = engine.stateAt(tick - 1) ?? now;
@@ -709,7 +710,7 @@ export class GameScene {
     } else {
       const again = sampleAt(engine, this.shownAt, rival);
 
-      if (again !== undefined) {
+      if (again !== null) {
         this.absorbCorrection(again);
       }
     }

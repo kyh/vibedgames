@@ -13,7 +13,9 @@ export const isJsonObject = (v: WireField): v is JsonRecord =>
   Object.prototype.toString.call(v) === "[object Object]";
 
 export const isJsonNumber = (v: WireField): v is number => Number.isFinite(v);
-export const isJsonString = (v: WireField): v is string => String(v) === v;
+
+export const isJsonString = (v: WireField): v is string =>
+  Object.prototype.toString.call(v) === "[object String]";
 
 export interface NetSessionOptions {
   room: string;
