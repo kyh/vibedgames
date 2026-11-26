@@ -432,9 +432,7 @@ test("a parked pointer that has arrived is not a stuck player", async () => {
 
 test("gives up on a decision that never answers", async () => {
   const page = makePage({ pick: () => "right" });
-  page.env.fetch = async () =>
-    // oxlint-disable-next-line promise/avoid-new -- a request that hangs forever
-    await new Promise(() => {});
+  page.env.fetch = async () => await Promise.withResolvers<never>().promise;
   const result = inPageAgent(config({ decisionRetries: 0, ticks: 1 }), page.env);
 
   await repeatRounds(
