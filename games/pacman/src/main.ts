@@ -53,7 +53,7 @@ renderer.toneMappingExposure = TONE_EXPOSURE;
 
 renderer.shadowMap.enabled = !IS_TOUCH;
 
-renderer.shadowMap.type = IS_TOUCH ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
+renderer.shadowMap.type = THREE.PCFShadowMap;
 
 container.append(renderer.domElement);
 
@@ -112,8 +112,13 @@ const cameraStatus = (state: FaceCameraState) => {
       return "Camera unavailable";
     }
 
-    default: {
+    case "idle": {
       return "Camera off";
+    }
+
+    default: {
+      const unhandled: never = state;
+      throw new Error("unknown camera state", { cause: unhandled });
     }
   }
 };
@@ -132,8 +137,13 @@ const cameraCue = (state: FaceCameraState) => {
       return state.tracking ? "📷 FACE READY" : "📷 FIND FACE";
     }
 
-    default: {
+    case "idle": {
       return "📷 CAMERA";
+    }
+
+    default: {
+      const unhandled: never = state;
+      throw new Error("unknown camera state", { cause: unhandled });
     }
   }
 };

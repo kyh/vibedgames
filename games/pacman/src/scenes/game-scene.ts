@@ -148,12 +148,15 @@ interface EatUndo {
   scaredBefore: number | null;
 }
 
+const isMesh = (o: THREE.Object3D): o is THREE.Mesh => o instanceof THREE.Mesh;
+
 const COMBO_SCALE: readonly number[] = [0, 2, 4, 7, 9, 12, 14, 16, 19];
 const COMBO_WINDOW_S = 0.9;
 
 const SWIPE_MIN_PX = 24;
 const EPS = 1e-4;
-const ROOM = (import.meta.env.DEV && new URLSearchParams(location.search).get("room")) || MP_ROOM;
+const ROOM_PARAM = import.meta.env.DEV ? new URLSearchParams(location.search).get("room") : null;
+const ROOM = ROOM_PARAM === null || ROOM_PARAM === "" ? MP_ROOM : ROOM_PARAM;
 const CAPTURE_ECHO_S = 0.28;
 const REAPPEAR_S = 0.24;
 const RESULT_REVEAL_S = 0.16;
@@ -685,7 +688,7 @@ export class GameScene {
     this.pacGroup = buildPacman();
     const mouth = this.pacGroup.getObjectByName("mouth");
 
-    if (!(mouth instanceof THREE.Mesh)) {
+    if (!mouth || !isMesh(mouth)) {
       throw new TypeError("pacman mouth missing");
     }
 
