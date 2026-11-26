@@ -1,0 +1,37 @@
+{
+  "compilerOptions": {
+    "target": "ES2024",
+    "lib": [
+      "ES2024",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "allowJs": true,
+    "checkJs": false,
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "types": [
+      "node"
+    ],
+    "paths": {
+      "playwright": [
+        "../../node_modules/playwright-core"
+      ],
+      "@repo/asset-tools": [
+        "../../packages/asset-tools/src/index.ts"
+      ]
+    },
+    "allowImportingTsExtensions": true
+  },
+  "include": [
+    "skills/**/*.mjs",
+    "skills/**/*.ts"
+  ],
+  "exclude": [
+    "skills/**/_lib/**"
+  ]
+}

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @ts-check
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 
 import { getFlag, MARKER, normalizeFactory, parseArgs } from "./_lib/asset-tools.mjs";

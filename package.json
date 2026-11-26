@@ -44,10 +44,12 @@
     "verify": "pnpm typecheck && pnpm lint && pnpm format && pnpm test"
   },
   "devDependencies": {
+    "@dimforge/rapier3d-compat": "^0.21.0",
     "@interfere/landmines": "^0.1.1",
     "@libsql/client": "^0.18.0",
     "@repo/contract": "workspace:*",
     "@types/node": "catalog:",
+    "@types/three": "^0.186.0",
     "better-auth": "1.7.2",
     "dotenv-cli": "^11.1.0",
     "oxfmt": "^0.73.0",

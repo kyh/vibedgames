@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @ts-check
 import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import {
