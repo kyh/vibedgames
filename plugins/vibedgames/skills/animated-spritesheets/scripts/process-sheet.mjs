@@ -16,72 +16,76 @@ import {
   toPythonJson,
 } from "./_lib/asset-tools.mjs";
 
-const readOptions = (args) => {
-  const [board] = args.positionals;
-
-  if (!board) {
-    failUsage("a pose board PNG is required");
-  }
-
-  if (!existsSync(board)) {
-    fail(`board not found: ${board}`);
-  }
-
-  const action = getString(args, "action");
-
-  if (!action) {
-    failUsage("--action is required");
-  }
-
-  const outDir = getString(args, "out-dir");
-
-  if (!outDir) {
-    failUsage("--out-dir is required");
-  }
-
-  const rows = getInt(args, "rows", 0);
-  const cols = getInt(args, "cols", 0);
-
-  if (rows <= 0 || cols <= 0) {
-    fail("--rows and --cols must be positive integers");
-  }
-
-  const charFill = getNumber(args, "char-fill", 0.5);
-
-  if (!(charFill > 0 && charFill <= 1)) {
-    fail("--char-fill must be in (0, 1]");
-  }
-
-  const snapKColors = getInt(args, "snap-k-colors", 16);
-
-  if (snapKColors <= 0) {
-    fail("--snap-k-colors must be a positive integer");
-  }
-
-  const requested = getString(args, "frames");
-
-  if (requested !== undefined && getInt(args, "frames", 0) <= 0) {
-    fail("--frames must be a positive integer");
-  }
-
-  const frames = requested === undefined ? undefined : getInt(args, "frames", 0);
-
-  return { action, board, charFill, cols, frames, outDir, rows, snapKColors };
-};
-
 main(() => {
   const args = parseArgs(process.argv.slice(2), {
     booleans: ["json", "no-pixel-snap", "no-qc", "recover"],
     values: ["action", "char-fill", "chroma", "cols", "frames", "out-dir", "rows", "snap-k-colors"],
   });
 
+  const readOptions = () => {
+    const [board = ""] = args.positionals;
+
+    if (board === "") {
+      failUsage("a pose board PNG is required");
+    }
+
+    if (!existsSync(board)) {
+      fail(`board not found: ${board}`);
+    }
+
+    const action = getString(args, "action") ?? "";
+
+    if (action === "") {
+      failUsage("--action is required");
+    }
+
+    const outDir = getString(args, "out-dir") ?? "";
+
+    if (outDir === "") {
+      failUsage("--out-dir is required");
+    }
+
+    const rows = getInt(args, "rows", 0);
+    const cols = getInt(args, "cols", 0);
+
+    if (rows <= 0 || cols <= 0) {
+      fail("--rows and --cols must be positive integers");
+    }
+
+    const charFill = getNumber(args, "char-fill", 0.5);
+
+    if (!(charFill > 0 && charFill <= 1)) {
+      fail("--char-fill must be in (0, 1]");
+    }
+
+    const snapKColors = getInt(args, "snap-k-colors", 16);
+
+    if (snapKColors <= 0) {
+      fail("--snap-k-colors must be a positive integer");
+    }
+
+    const requested = getString(args, "frames");
+
+    if (requested !== undefined && getInt(args, "frames", 0) <= 0) {
+      fail("--frames must be a positive integer");
+    }
+
+    const frames = requested === undefined ? undefined : getInt(args, "frames", 0);
+
+    return { action, board, charFill, cols, frames, outDir, rows, snapKColors };
+  };
+
+  const [chromaR, chromaG, chromaB] = parseColor(getString(args, "chroma") ?? "#00FF00");
+
   const result = processSheet({
-    ...readOptions(args),
-    chroma: parseColor(getString(args, "chroma") ?? "#00FF00").slice(0, 3),
+    ...readOptions(),
+    chroma: [chromaR, chromaG, chromaB],
     pixelSnap: !getFlag(args, "no-pixel-snap"),
     qc: !getFlag(args, "no-qc"),
     recover: getFlag(args, "recover"),
-    warn: (message) => process.stderr.write(`[process_sheet] warning: ${message}\n`),
+    warn: (message) => {
+      process.stderr.write(`[process_sheet] warning: ${message}\n`);
+    },
   });
 
   const { action, fps, frames, gif, qc, spritesheet } = result;
@@ -100,11 +104,7 @@ main(() => {
       spritesheet,
     };
 
-    if (qc) {
-      summary.qcChecks = qc.checks;
-    }
-
-    console.log(toPythonJson(summary));
+    console.log(toPythonJson(qc ? { ...summary, qcChecks: qc.checks } : summary));
 
     return;
   }
