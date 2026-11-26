@@ -25,7 +25,7 @@ const waitForArg = async <R, A>(
 
       return last;
     },
-    (value) => Boolean(value),
+    Boolean,
     { intervalMs: 250, timeoutMs },
   );
 
@@ -125,6 +125,10 @@ const headshot = async (page: Page) =>
     return m.shoot(eye, dir, 500, 28) !== null;
   });
 
+const seesEnemy = () => (window.__strikeforce?.match.enemies().length ?? 0) > 0;
+
+const blown = (i: number) => window.__G?.explosives.aliveMask()[i] === "0";
+
 const main = async () => {
   if (!(await reachable(PARTY))) {
     throw new Error(`party server not reachable at ${PARTY} (pnpm dev:party)`);
@@ -171,7 +175,6 @@ const main = async () => {
     await phase(host, "live", "match live");
     await phase(guest, "live", "match live (guest)");
     step("a second player starts the match", true);
-    const seesEnemy = () => (window.__strikeforce?.match.enemies().length ?? 0) > 0;
     await waitFor(guest, seesEnemy, "guest sees host");
     await waitFor(host, seesEnemy, "host sees guest");
     step("each sees the other's avatar", true);
@@ -203,7 +206,6 @@ const main = async () => {
     );
 
     await guest.evaluate((i) => window.__strikeforce?.match.barrelHit(i, 999, null, null), barrel);
-    const blown = (i: number) => window.__G?.explosives.aliveMask()[i] === "0";
     await waitForArg(host, blown, "host barrel blew", barrel);
     await waitForArg(guest, blown, "guest barrel synced", barrel);
     step("guest barrel shot blows the host's barrel", true);

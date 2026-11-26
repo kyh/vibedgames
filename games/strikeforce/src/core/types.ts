@@ -78,8 +78,8 @@ export interface Explosives {
 /** What the core's bus hands a weapon:fire listener. */
 export interface WeaponFire {
   origin: Vector3;
-  muzzle: Vector3;
-  end: Vector3;
+  muzzle?: Vector3;
+  end?: Vector3;
   weapon: string;
 }
 
