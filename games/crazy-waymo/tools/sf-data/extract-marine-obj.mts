@@ -1,7 +1,9 @@
 import { createReadStream, readFileSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 
-import { GRID_X, GRID_Z, landFactor, plLen, rdp, ringArea, WORLD_H, WORLD_W } from "./lib.mts";
+import { at, GRID_X, GRID_Z, landFactor, plLen, rdp, ringArea, WORLD_H, WORLD_W } from "./lib.mts";
+import type { Point } from "./lib.mts";
+import { readOverpass } from "./osm.mts";
 
 const [objPath, outPath] = process.argv.slice(2);
 
@@ -10,19 +12,101 @@ if (objPath === undefined || objPath === "" || outPath === undefined || outPath 
   process.exit(1);
 }
 
+type P3 = readonly [number, number, number];
+
+type Tri = readonly [Point, Point, Point];
+
+interface Face {
+  ids: number[];
+  mtl: string;
+}
+
+interface OsmName {
+  name: string;
+  x: number;
+  z: number;
+}
+
+interface GamePiers {
+  dockCount: number;
+  piers: { area: number; ring: Point[] }[];
+}
+
+interface GameMatch {
+  areaRatio: number;
+  dist: number;
+  gameArea: number;
+  gamePts: number;
+  index: number;
+  verdict: string;
+}
+
+interface PierEntry {
+  area: number;
+  cls: string;
+  cx: number;
+  cz: number;
+  d: number;
+  duplicateIn?: string[];
+  gameMatch?: GameMatch | null;
+  group: string;
+  nearestGameDist?: number | null;
+  osm: { dist: number; name: string } | null;
+  pts: number;
+  rawPts: number;
+  ring: number[];
+  u: number;
+  v: number;
+  w: number;
+  wet: number;
+}
+
+interface GameDeck {
+  area: number;
+  pts: number;
+  x: number;
+  z: number;
+}
+
+interface Axis {
+  ax: number;
+  az: number;
+  cx: number;
+  cz: number;
+}
+
+interface Bin {
+  maxY: number;
+  minY: number;
+  n: number;
+  pts: P3[];
+}
+
+interface ProfileRow {
+  maxY: number;
+  minY: number;
+  n: number;
+  ramp: boolean;
+  roadW: number | null;
+  roadY: number | null;
+  s: number;
+}
+
+type AlongAxis = (p: P3) => number;
+
 const CAL = { bx: 325.2, bz: -400.5, sx: 0.17829, sz: 0.17909 };
 const CAL_SY = 1 / (1.598 * 4.446);
 
-const ANCHORS = [
+const ANCHORS: readonly (readonly [string, number, number, number, number])[] = [
   ["Salesforce", 2458.4, -2088.9, 760, -770.1],
   ["Transamerica", 1809.9, -2842.1, 644.9, -907.7],
 ];
 
-const wxOf = (mx: string | number | undefined) => mx * CAL.sx + CAL.bx;
-const wzOf = (mz: string | number | undefined) => mz * CAL.sz + CAL.bz;
-const uOf = (wx: number | undefined) => wx / WORLD_W + 0.5;
-const vOf = (wz: number | undefined) => wz / WORLD_H + 0.5;
-const r1 = (n: number | undefined) => Math.round(n * 10) / 10;
+const wxOf = (mx: number) => mx * CAL.sx + CAL.bx;
+const wzOf = (mz: number) => mz * CAL.sz + CAL.bz;
+const uOf = (wx: number) => wx / WORLD_W + 0.5;
+const vOf = (wz: number) => wz / WORLD_H + 0.5;
+const r1 = (n: number) => Math.round(n * 10) / 10;
 const r4 = (n: number) => Math.round(n * 1e4) / 1e4;
 
 const KEEP_GROUPS = new Set([
@@ -49,10 +133,29 @@ const CH_SPACE = 32;
 const CH_F = 102;
 const CH_V = 118;
 
-const vx: any[] = [];
+const vx: number[] = [];
 const vy: number[] = [];
-const vz: any[] = [];
-const waterTris: number[][][] = [];
+const vz: number[] = [];
+const waterTris: Tri[] = [];
+
+const worldXZ: (id: number) => Point = (id) => [wxOf(at(vx, id)), wzOf(at(vz, id))];
+
+const faceIds = (l: string) => {
+  const ids: number[] = [];
+
+  for (const part of l.slice(2).trim().split(/\s+/u)) {
+    const s = part.includes("/") ? part.slice(0, part.indexOf("/")) : part;
+    let id = Number(s);
+
+    if (id < 0) {
+      id = vx.length + 1 + id;
+    }
+
+    ids.push(id - 1);
+  }
+
+  return ids;
+};
 
 const pass1 = async () => {
   let mtl = "";
@@ -77,7 +180,7 @@ const pass1 = async () => {
       const ids = faceIds(l);
 
       for (let i = 2; i < ids.length; i += 1) {
-        waterTris.push([ids[0], ids[i - 1], ids[i]].map((id) => [wxOf(vx[id]), wzOf(vz[id])]));
+        waterTris.push([worldXZ(at(ids, 0)), worldXZ(at(ids, i - 1)), worldXZ(at(ids, i))]);
       }
     } else if (l.startsWith("usemtl")) {
       mtl = l.slice(7).trim();
@@ -85,25 +188,18 @@ const pass1 = async () => {
   }
 };
 
-const faceIds = (l: string) => {
-  const ids = [];
+const pushTo = <K, V>(map: Map<K, V[]>, k: K, v: V) => {
+  const list = map.get(k);
 
-  for (const part of l.slice(2).trim().split(/\s+/u)) {
-    const s = part.includes("/") ? part.slice(0, part.indexOf("/")) : part;
-    let id = Number(s);
-
-    if (id < 0) {
-      id = vx.length + 1 + id;
-    }
-
-    ids.push(id - 1);
+  if (list === undefined) {
+    map.set(k, [v]);
+  } else {
+    list.push(v);
   }
-
-  return ids;
 };
 
 const WATER_CELL = 40;
-const waterGrid = new Map();
+const waterGrid = new Map<string, number[]>();
 
 const buildWaterIndex = () => {
   for (const [ti, t] of waterTris.entries()) {
@@ -114,15 +210,7 @@ const buildWaterIndex = () => {
 
     for (let a = Math.floor(x0 / WATER_CELL); a <= Math.floor(x1 / WATER_CELL); a += 1) {
       for (let b = Math.floor(z0 / WATER_CELL); b <= Math.floor(z1 / WATER_CELL); b += 1) {
-        const k = `${a}:${b}`;
-        let g = waterGrid.get(k);
-
-        if (!g) {
-          g = [];
-          waterGrid.set(k, g);
-        }
-
-        g.push(ti);
+        pushTo(waterGrid, `${a}:${b}`, ti);
       }
     }
   }
@@ -131,12 +219,12 @@ const buildWaterIndex = () => {
 const inWater = (x: number, z: number) => {
   const g = waterGrid.get(`${Math.floor(x / WATER_CELL)}:${Math.floor(z / WATER_CELL)}`);
 
-  if (!g) {
+  if (g === undefined) {
     return false;
   }
 
   for (const ti of g) {
-    const [A, B, C] = waterTris[ti];
+    const [A, B, C] = at(waterTris, ti);
     const den = (B[1] - C[1]) * (A[0] - C[0]) + (C[0] - B[0]) * (A[1] - C[1]);
 
     if (den === 0) {
@@ -155,10 +243,10 @@ const inWater = (x: number, z: number) => {
 };
 
 const DECK_CELL = 30;
-const deckGrid = new Map();
-const deckRings: any[] = [];
+const deckGrid = new Map<string, number[]>();
+const deckRings: (readonly Point[])[] = [];
 
-const buildDeckIndex = (rings: any[]) => {
+const buildDeckIndex = (rings: readonly (readonly Point[])[]) => {
   for (const [di, ring] of rings.entries()) {
     deckRings.push(ring);
     let x0 = 1e9;
@@ -186,35 +274,27 @@ const buildDeckIndex = (rings: any[]) => {
 
     for (let a = Math.floor(x0 / DECK_CELL); a <= Math.floor(x1 / DECK_CELL); a += 1) {
       for (let b = Math.floor(z0 / DECK_CELL); b <= Math.floor(z1 / DECK_CELL); b += 1) {
-        const k = `${a}:${b}`;
-        let g = deckGrid.get(k);
-
-        if (!g) {
-          g = [];
-          deckGrid.set(k, g);
-        }
-
-        g.push(di);
+        pushTo(deckGrid, `${a}:${b}`, di);
       }
     }
   }
 };
 
-const deckAt = (x: number | undefined, z: number | undefined) => {
+const deckAt = (x: number, z: number) => {
   const g = deckGrid.get(`${Math.floor(x / DECK_CELL)}:${Math.floor(z / DECK_CELL)}`);
 
-  if (!g) {
+  if (g === undefined) {
     return -1;
   }
 
   for (const di of g) {
-    const r = deckRings[di];
+    const r = at(deckRings, di);
     let inside = false;
     let j = r.length - 1;
 
     for (let i = 0; i < r.length; i += 1) {
-      const [xi, zi] = r[i];
-      const [xj, zj] = r[j];
+      const [xi, zi] = at(r, i);
+      const [xj, zj] = at(r, j);
 
       if (zi > z !== zj > z && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) {
         inside = !inside;
@@ -231,10 +311,10 @@ const deckAt = (x: number | undefined, z: number | undefined) => {
   return -1;
 };
 
-const groupFaces = new Map();
+const groupFaces = new Map<string, Face[]>();
 
 const pass2 = async () => {
-  let group = null;
+  let group: string | null = null;
   let mtl = "";
   const rl = createInterface({ crlfDelay: Infinity, input: createReadStream(objPath) });
 
@@ -251,8 +331,7 @@ const pass2 = async () => {
 
       if (!keep) {
         for (const id of ids) {
-          const x = wxOf(vx[id]);
-          const z = wzOf(vz[id]);
+          const [x, z] = worldXZ(id);
 
           if (inWater(x, z) || deckAt(x, z) >= 0) {
             keep = true;
@@ -265,14 +344,7 @@ const pass2 = async () => {
         continue;
       }
 
-      let a = groupFaces.get(group);
-
-      if (!a) {
-        a = [];
-        groupFaces.set(group, a);
-      }
-
-      a.push({ ids, mtl });
+      pushTo(groupFaces, group, { ids, mtl });
     } else if (l.startsWith("o ") || l.startsWith("g ")) {
       group = l.slice(2).trim();
     } else if (l.startsWith("usemtl")) {
@@ -281,70 +353,9 @@ const pass2 = async () => {
   }
 };
 
-const toBlobs = (faces: any) => {
-  const parent = new Map();
-
-  const find = (a: any) => {
-    let r = a;
-
-    while (parent.get(r) !== r) {
-      r = parent.get(r);
-    }
-
-    let walk = a;
-
-    while (parent.get(walk) !== r) {
-      const next = parent.get(walk);
-      parent.set(walk, r);
-      walk = next;
-    }
-
-    return r;
-  };
-
-  const union = (a: any, b: any) => {
-    if (!parent.has(a)) {
-      parent.set(a, a);
-    }
-
-    if (!parent.has(b)) {
-      parent.set(b, b);
-    }
-
-    const ra = find(a);
-    const rb = find(b);
-
-    if (ra !== rb) {
-      parent.set(ra, rb);
-    }
-  };
-
-  for (const f of faces) {
-    for (let i = 1; i < f.ids.length; i += 1) {
-      union(f.ids[0], f.ids[i]);
-    }
-  }
-
-  const comps = new Map();
-
-  for (const f of faces) {
-    const root = find(f.ids[0]);
-    let c = comps.get(root);
-
-    if (!c) {
-      c = [];
-      comps.set(root, c);
-    }
-
-    c.push(f);
-  }
-
-  return [...comps.values()].map(blobStats);
-};
-
-const blobStats = (faces: string | any[]) => {
-  const verts = new Set();
-  const mtls = new Set();
+const blobStats = (faces: Face[]) => {
+  const verts = new Set<number>();
+  const mtls = new Set<string>();
   let minX = 1e9;
   let maxX = -1e9;
   let minY = 1e9;
@@ -357,9 +368,8 @@ const blobStats = (faces: string | any[]) => {
 
     for (const id of f.ids) {
       verts.add(id);
-      const x = wxOf(vx[id]);
-      const y = vy[id] * CAL_SY;
-      const z = wzOf(vz[id]);
+      const [x, z] = worldXZ(id);
+      const y = at(vy, id) * CAL_SY;
 
       if (x < minX) {
         minX = x;
@@ -390,7 +400,7 @@ const blobStats = (faces: string | any[]) => {
   let wet = 0;
 
   for (const id of verts) {
-    if (inWater(wxOf(vx[id]), wzOf(vz[id]))) {
+    if (inWater(...worldXZ(id))) {
       wet += 1;
     }
   }
@@ -416,16 +426,72 @@ const blobStats = (faces: string | any[]) => {
   };
 };
 
-const undirectedBoundary = (faces: any) => {
-  const count = new Map();
-  const ends = new Map();
+type Blob = ReturnType<typeof blobStats>;
+
+const toBlobs = (faces: readonly Face[]) => {
+  const parent = new Map<number, number>();
+  const parentOf = (x: number) => parent.get(x) ?? x;
+
+  const find = (a: number) => {
+    let r = a;
+
+    while (parentOf(r) !== r) {
+      r = parentOf(r);
+    }
+
+    let walk = a;
+
+    while (parentOf(walk) !== r) {
+      const next = parentOf(walk);
+      parent.set(walk, r);
+      walk = next;
+    }
+
+    return r;
+  };
+
+  const union = (a: number, b: number) => {
+    if (!parent.has(a)) {
+      parent.set(a, a);
+    }
+
+    if (!parent.has(b)) {
+      parent.set(b, b);
+    }
+
+    const ra = find(a);
+    const rb = find(b);
+
+    if (ra !== rb) {
+      parent.set(ra, rb);
+    }
+  };
 
   for (const f of faces) {
-    const ids = f.ids ?? f;
+    for (let i = 1; i < f.ids.length; i += 1) {
+      union(at(f.ids, 0), at(f.ids, i));
+    }
+  }
+
+  const comps = new Map<number, Face[]>();
+
+  for (const f of faces) {
+    pushTo(comps, find(at(f.ids, 0)), f);
+  }
+
+  return [...comps.values()].map((c) => blobStats(c));
+};
+
+const undirectedBoundary = (faces: readonly Face[]) => {
+  const count = new Map<string, number>();
+  const ends = new Map<string, readonly [number, number]>();
+
+  for (const f of faces) {
+    const { ids } = f;
 
     for (let i = 0; i < ids.length; i += 1) {
-      const a = ids[i];
-      const b = ids[(i + 1) % ids.length];
+      const a = at(ids, i);
+      const b = at(ids, (i + 1) % ids.length);
 
       if (a === b) {
         continue;
@@ -440,15 +506,17 @@ const undirectedBoundary = (faces: any) => {
     }
   }
 
-  const adj = new Map();
+  const adj = new Map<number, number[]>();
   let edges = 0;
 
   for (const [k, n] of count) {
-    if (n !== 1) {
+    const e = ends.get(k);
+
+    if (n !== 1 || e === undefined) {
       continue;
     }
 
-    const [a, b] = ends.get(k);
+    const [a, b] = e;
 
     if (!adj.has(a)) {
       adj.set(a, []);
@@ -458,26 +526,26 @@ const undirectedBoundary = (faces: any) => {
       adj.set(b, []);
     }
 
-    adj.get(a).push(b);
-    adj.get(b).push(a);
+    pushTo(adj, a, b);
+    pushTo(adj, b, a);
     edges += 1;
   }
 
   return { adj, edges };
 };
 
-const walkLoop = (adj: Map<any, any>, start: any, visited: Set<unknown>) => {
+const walkLoop = (adj: ReadonlyMap<number, number[]>, start: number, visited: Set<number>) => {
   const loop = [start];
   visited.add(start);
   let prev = start;
-  let cur = adj.get(start).find((n: any) => !visited.has(n));
+  let cur = (adj.get(start) ?? []).find((n) => !visited.has(n));
 
   while (cur !== undefined && !visited.has(cur)) {
     visited.add(cur);
     loop.push(cur);
     const nbrs = adj.get(cur) ?? [];
     const from = prev;
-    const nxt = nbrs.find((n: any) => n !== from && !visited.has(n));
+    const nxt = nbrs.find((n) => n !== from && !visited.has(n));
     prev = cur;
     cur = nxt ?? (nbrs.includes(start) ? start : undefined);
 
@@ -489,15 +557,15 @@ const walkLoop = (adj: Map<any, any>, start: any, visited: Set<unknown>) => {
   return loop;
 };
 
-const boundaryRing = (faces: any) => {
+const boundaryRing = (faces: readonly Face[]) => {
   const { adj, edges } = undirectedBoundary(faces);
 
   if (edges < 3) {
     return null;
   }
 
-  const visited = new Set();
-  let best = null;
+  const visited = new Set<number>();
+  let best: Point[] | null = null;
   let bestA = -1;
 
   for (const start of adj.keys()) {
@@ -511,7 +579,7 @@ const boundaryRing = (faces: any) => {
       continue;
     }
 
-    const pts = loop.map((id) => [wxOf(vx[id]), wzOf(vz[id])]);
+    const pts = loop.map((id) => worldXZ(id));
     const a = Math.abs(ringArea(pts));
 
     if (a > bestA) {
@@ -520,23 +588,23 @@ const boundaryRing = (faces: any) => {
     }
   }
 
-  if (!best) {
+  if (best === null) {
     return null;
   }
 
   return ringArea(best) < 0 ? best.toReversed() : best;
 };
 
-const flat = (ring: [any, any][]) => ring.flatMap(([x, z]) => [r1(x), r1(z)]);
+const flat = (ring: readonly Point[]) => ring.flatMap(([x, z]) => [r1(x), r1(z)]);
 
-const centroidOf = (ring: string | any[]) => {
+const centroidOf = (ring: readonly Point[]) => {
   let a = 0;
   let x = 0;
   let z = 0;
 
   for (let i = 0; i < ring.length; i += 1) {
-    const p = ring[i];
-    const q = ring[(i + 1) % ring.length];
+    const p = at(ring, i);
+    const q = at(ring, (i + 1) % ring.length);
     const cr = p[0] * q[1] - q[0] * p[1];
     a += cr;
     x += (p[0] + q[0]) * cr;
@@ -552,25 +620,25 @@ const centroidOf = (ring: string | any[]) => {
       mz += p[1];
     }
 
-    return [mx / ring.length, mz / ring.length];
+    return [mx / ring.length, mz / ring.length] as const;
   }
 
-  return [x / (3 * a), z / (3 * a)];
+  return [x / (3 * a), z / (3 * a)] as const;
 };
 
-const srcUrl = (p: string | URL) => new URL(p, import.meta.url);
+const srcUrl = (p: string) => new URL(p, import.meta.url);
 
 const readGamePiers = () => {
   const ts = readFileSync(srcUrl("../../src/world/sf-piers.ts"), "utf-8");
   const body = ts.slice(ts.indexOf("export const SF_PIERS"), ts.indexOf("export const SF_DOCKS"));
-  const out = [];
+  const out: GamePiers["piers"] = [];
 
   for (const m of body.matchAll(/p:\s*\[(?<points>[^\]]*)\]\s*,\s*area:\s*(?<area>\d+)/gu)) {
     const nums = (m.groups?.points ?? "").split(",").map(Number);
-    const ring = [];
+    const ring: Point[] = [];
 
     for (let i = 0; i + 1 < nums.length; i += 2) {
-      ring.push([nums[i], nums[i + 1]]);
+      ring.push([at(nums, i), at(nums, i + 1)]);
     }
 
     out.push({ area: Number(m.groups?.area), ring });
@@ -578,7 +646,12 @@ const readGamePiers = () => {
 
   const dockBody = ts.slice(ts.indexOf("export const SF_DOCKS"));
 
-  return { dockCount: (dockBody.match(/\[[-\d.,\s]+\]/gu) ?? []).length, piers: out };
+  const piers: GamePiers = {
+    dockCount: (dockBody.match(/\[[-\d.,\s]+\]/gu) ?? []).length,
+    piers: out,
+  };
+
+  return piers;
 };
 
 const readAuthoredLandmarks = () => {
@@ -596,8 +669,12 @@ const readAuthoredLandmarks = () => {
     const v = /\bv:\s*(?<n>[-\d.]+)/u.exec(seg);
     const r = /rotDeg:\s*(?<n>[-\d.]+)/u.exec(seg);
 
-    return u && v
-      ? { rotDeg: r ? Number(r.groups?.n) : 0, u: Number(u.groups?.n), v: Number(v.groups?.n) }
+    return u !== null && v !== null
+      ? {
+          rotDeg: r === null ? 0 : Number(r.groups?.n),
+          u: Number(u.groups?.n),
+          v: Number(v.groups?.n),
+        }
       : null;
   };
 
@@ -605,15 +682,17 @@ const readAuthoredLandmarks = () => {
 };
 
 const readOsmPierNames = () => {
-  const raw = JSON.parse(readFileSync(srcUrl("./sf-piers.raw.json"), "utf-8"));
+  const raw = readOverpass(srcUrl("./sf-piers.raw.json"));
   const U_M = 6.2462;
   const U_B = 765.2557;
   const V_M = -9.6095;
   const V_B = 363.344;
-  const out = [];
+  const out: OsmName[] = [];
 
   for (const e of raw.elements) {
-    if (e.type !== "way" || !e.geometry || !e.tags?.name) {
+    const name = e.tags?.name;
+
+    if (e.type !== "way" || e.geometry === undefined || name === undefined || name === "") {
       continue;
     }
 
@@ -625,7 +704,7 @@ const readOsmPierNames = () => {
       z += (V_M * q.lat + V_B - 0.5) * WORLD_H;
     }
 
-    out.push({ name: e.tags.name, x: x / e.geometry.length, z: z / e.geometry.length });
+    out.push({ name, x: x / e.geometry.length, z: z / e.geometry.length });
   }
 
   return out;
@@ -639,7 +718,7 @@ const readFootprintCentroids = () => {
     ts.indexOf("export const SF_FOOTPRINTS_BOUNDS"),
   );
 
-  const out = [];
+  const out: P3[] = [];
 
   for (const m of body.matchAll(/\[(?<nums>[-\d.,\s]+)\]/gu)) {
     const n = (m.groups?.nums ?? "").split(",").map(Number);
@@ -648,21 +727,21 @@ const readFootprintCentroids = () => {
     let c = 0;
 
     for (let i = 1; i + 1 < n.length; i += 2) {
-      x += n[i];
-      z += n[i + 1];
+      x += at(n, i);
+      z += at(n, i + 1);
       c += 1;
     }
 
     if (c >= 3) {
-      out.push([x / c, z / c, n[0]]);
+      out.push([x / c, z / c, at(n, 0)]);
     }
   }
 
   return out;
 };
 
-const nearestName = (names: any, x: number | undefined, z: number | undefined) => {
-  let best = null;
+const nearestName = (names: readonly OsmName[], x: number, z: number) => {
+  let best: OsmName | null = null;
   let bestD = Infinity;
 
   for (const n of names) {
@@ -674,25 +753,25 @@ const nearestName = (names: any, x: number | undefined, z: number | undefined) =
     }
   }
 
-  return best ? { dist: r1(bestD), name: best.name } : null;
+  return best === null ? null : { dist: r1(bestD), name: best.name };
 };
 
 const WET_MIN = 0.4;
 const PIER_MIN_AREA = 60;
 
-const MARINE_CLASS = {
-  barrier: "seawall",
-  "landuse=po": "portApron",
-  man: "pier",
-  natural: "shorelineNatural",
-  park: "waterfrontPark",
-  way: "other",
-};
+const MARINE_CLASS = new Map([
+  ["barrier", "seawall"],
+  ["landuse=po", "portApron"],
+  ["man", "pier"],
+  ["natural", "shorelineNatural"],
+  ["park", "waterfrontPark"],
+  ["way", "other"],
+]);
 
-const pierEntryOf = (g: string, b: { faces: any; d: any; w: any; wet: any }, osmNames: any) => {
+const pierEntryOf = (g: string, cls: string, b: Blob, osmNames: readonly OsmName[]) => {
   const ring = boundaryRing(b.faces);
 
-  if (!ring || ring.length < 3) {
+  if (ring === null || ring.length < 3) {
     return null;
   }
 
@@ -710,9 +789,9 @@ const pierEntryOf = (g: string, b: { faces: any; d: any; w: any; wet: any }, osm
 
   const [cx, cz] = centroidOf(simple);
 
-  return {
+  const entry: PierEntry = {
     area: Math.round(area),
-    cls: MARINE_CLASS[g],
+    cls,
     cx: r1(cx),
     cz: r1(cz),
     d: r1(b.d),
@@ -726,34 +805,19 @@ const pierEntryOf = (g: string, b: { faces: any; d: any; w: any; wet: any }, osm
     w: r1(b.w),
     wet: r4(b.wet),
   };
+
+  return entry;
 };
 
-const dedupePiers = (
-  piers: {
-    area: number;
-    cls: any;
-    cx: number;
-    cz: number;
-    d: number;
-    group: any;
-    osm: { dist: number; name: any } | null;
-    pts: any;
-    rawPts: number;
-    ring: any;
-    u: number;
-    v: number;
-    w: number;
-    wet: number;
-  }[],
-) => {
-  const kept: any[] = [];
+const dedupePiers = (piers: readonly PierEntry[]) => {
+  const kept: PierEntry[] = [];
 
   for (const p of piers) {
     const twin = kept.find(
       (k) => Math.hypot(k.cx - p.cx, k.cz - p.cz) < 6 && Math.abs(k.area - p.area) / k.area < 0.25,
     );
 
-    if (twin) {
+    if (twin !== undefined) {
       twin.duplicateIn = [...(twin.duplicateIn ?? []), p.group];
       continue;
     }
@@ -764,12 +828,12 @@ const dedupePiers = (
   return kept;
 };
 
-const nearestGamePier = (gc: string | any[], p: { cx: number; cz: number }) => {
+const nearestGamePier = (gc: readonly GameDeck[], p: { cx: number; cz: number }) => {
   let bi = -1;
   let bd = Infinity;
 
-  for (let i = 0; i < gc.length; i += 1) {
-    const d = Math.hypot(gc[i].x - p.cx, gc[i].z - p.cz);
+  for (const [i, g] of gc.entries()) {
+    const d = Math.hypot(g.x - p.cx, g.z - p.cz);
 
     if (d < bd) {
       bd = d;
@@ -780,18 +844,23 @@ const nearestGamePier = (gc: string | any[], p: { cx: number; cz: number }) => {
   return { bd, bi };
 };
 
-const diffAgainstGamePiers = (objPiers: any[], gc: { pts: any }[], usedGame: Set<unknown>) => {
+const diffAgainstGamePiers = (
+  objPiers: readonly PierEntry[],
+  gc: readonly GameDeck[],
+  usedGame: Set<number>,
+) => {
   for (const p of objPiers) {
     const { bd, bi } = nearestGamePier(gc, p);
 
     if (bi >= 0 && bd <= 45) {
       usedGame.add(bi);
-      const ratio = p.area / Math.max(1, gc[bi].area);
+      const g = at(gc, bi);
+      const ratio = p.area / Math.max(1, g.area);
       p.gameMatch = {
         areaRatio: r4(ratio),
         dist: r1(bd),
-        gameArea: gc[bi].area,
-        gamePts: gc[bi].pts,
+        gameArea: g.area,
+        gamePts: g.pts,
         index: bi,
         verdict: ratio > 0.5 && ratio < 2 ? "same polygon" : "position only, shape differs",
       };
@@ -802,22 +871,24 @@ const diffAgainstGamePiers = (objPiers: any[], gc: { pts: any }[], usedGame: Set
   }
 };
 
-const sectionPiers = (
-  blobsByGroup: Map<any, any>,
-  gamePiers: { dockCount?: number; piers: any },
-  osmNames: { name: any; x: number; z: number }[],
-) => {
-  const piers = [];
+type BlobsByGroup = ReadonlyMap<string, readonly Blob[]>;
 
-  for (const g of Object.keys(MARINE_CLASS)) {
+const sectionPiers = (
+  blobsByGroup: BlobsByGroup,
+  gamePiers: GamePiers,
+  osmNames: readonly OsmName[],
+) => {
+  const piers: PierEntry[] = [];
+
+  for (const [g, cls] of MARINE_CLASS) {
     for (const b of blobsByGroup.get(g) ?? []) {
       if (b.wet < WET_MIN) {
         continue;
       }
 
-      const entry = pierEntryOf(g, b, osmNames);
+      const entry = pierEntryOf(g, cls, b, osmNames);
 
-      if (entry) {
+      if (entry !== null) {
         piers.push(entry);
       }
     }
@@ -830,17 +901,17 @@ const sectionPiers = (
   const objPiers = kept.filter((p) => p.cls === "pier");
   const context = kept.filter((p) => p.cls !== "pier");
 
-  const gc = gamePiers.piers.map((p: { ring: string | any[]; area: any }) => {
+  const gc = gamePiers.piers.map<GameDeck>((p) => {
     const [x, z] = centroidOf(p.ring);
 
     return { area: p.area, pts: p.ring.length, x, z };
   });
 
-  const usedGame = new Set();
+  const usedGame = new Set<number>();
   diffAgainstGamePiers(objPiers, gc, usedGame);
   const orphanGame = [];
 
-  for (let i = 0; i < gc.length; i += 1) {
+  for (const [i, g] of gc.entries()) {
     if (usedGame.has(i)) {
       continue;
     }
@@ -848,16 +919,16 @@ const sectionPiers = (
     let bd = Infinity;
 
     for (const p of objPiers) {
-      bd = Math.min(bd, Math.hypot(gc[i].x - p.cx, gc[i].z - p.cz));
+      bd = Math.min(bd, Math.hypot(g.x - p.cx, g.z - p.cz));
     }
 
     orphanGame.push({
-      area: gc[i].area,
+      area: g.area,
       distToNearestObj: Number.isFinite(bd) ? r1(bd) : null,
       index: i,
-      osm: nearestName(osmNames, gc[i].x, gc[i].z),
-      u: r4(uOf(gc[i].x)),
-      v: r4(vOf(gc[i].z)),
+      osm: nearestName(osmNames, g.x, g.z),
+      u: r4(uOf(g.x)),
+      v: r4(vOf(g.z)),
     });
   }
 
@@ -868,12 +939,8 @@ const sectionPiers = (
 
 const BRIDGE_CORRIDOR = 30;
 
-const onBridge = (
-  bridge: { present: any; centreline: any },
-  x: number | undefined,
-  z: number | undefined,
-) => {
-  if (!bridge?.present) {
+const onBridge = (bridge: BayBridge, x: number, z: number) => {
+  if (!bridge.present) {
     return false;
   }
 
@@ -881,8 +948,8 @@ const onBridge = (
   const c = bridge.centreline;
 
   for (let i = 1; i < c.length; i += 1) {
-    const [x0, z0] = c[i - 1];
-    const [x1, z1] = c[i];
+    const [x0, z0] = at(c, i - 1);
+    const [x1, z1] = at(c, i);
     const dx = x1 - x0;
     const dz = z1 - z0;
     const len2 = dx * dx + dz * dz || 1;
@@ -893,54 +960,45 @@ const onBridge = (
   return best < BRIDGE_CORRIDOR;
 };
 
-const shedFootprint = (b: {
-  faces: any[];
-  minY: number;
-  maxY: number;
-  w: number;
-  d: number;
-  minX: any;
-  minZ: any;
-  maxX: any;
-  maxZ: any;
-}) => {
-  const base = b.faces.filter((f: { ids: any[] }) =>
-    f.ids.every((id: string | number) => vy[id] * CAL_SY <= b.minY + 0.75),
-  );
+const yOf = (id: number) => at(vy, id) * CAL_SY;
 
-  const top = b.faces.filter((f: { ids: any[] }) =>
-    f.ids.every((id: string | number) => vy[id] * CAL_SY >= b.maxY - 0.75),
-  );
+const shedFootprint = (b: Blob) => {
+  const base = b.faces.filter((f) => f.ids.every((id) => yOf(id) <= b.minY + 0.75));
+  const top = b.faces.filter((f) => f.ids.every((id) => yOf(id) >= b.maxY - 0.75));
+  let ring = base.length > 0 ? boundaryRing(base) : null;
 
-  let ring = base.length ? boundaryRing(base) : null;
+  if (ring === null || Math.abs(ringArea(ring)) < 0.45 * b.w * b.d) {
+    ring = top.length > 0 ? boundaryRing(top) : null;
 
-  if (!ring || Math.abs(ringArea(ring)) < 0.45 * b.w * b.d) {
-    ring = top.length ? boundaryRing(top) : null;
-
-    if (ring && Math.abs(ringArea(ring)) >= 0.35 * b.w * b.d) {
+    if (ring !== null && Math.abs(ringArea(ring)) >= 0.35 * b.w * b.d) {
       return { ring, src: "roof" };
     }
 
-    return {
-      ring: [
-        [b.minX, b.minZ],
-        [b.maxX, b.minZ],
-        [b.maxX, b.maxZ],
-        [b.minX, b.maxZ],
-      ],
-      src: "bbox",
-    };
+    const box: Point[] = [
+      [b.minX, b.minZ],
+      [b.maxX, b.minZ],
+      [b.maxX, b.maxZ],
+      [b.minX, b.maxZ],
+    ];
+
+    return { ring: box, src: "bbox" };
   }
 
   return { ring, src: "base" };
 };
 
-const nearestGameDeck = (gc: string | any[], cx: number | undefined, cz: number | undefined) => {
-  let nearest = null;
+interface DeckCentre {
+  area: number;
+  c: readonly [number, number];
+  ring: Point[];
+}
+
+const nearestGameDeck = (gc: readonly DeckCentre[], cx: number, cz: number) => {
+  let nearest: number | null = null;
   let bd = Infinity;
 
-  for (let i = 0; i < gc.length; i += 1) {
-    const d = Math.hypot(gc[i].c[0] - cx, gc[i].c[1] - cz);
+  for (const [i, g] of gc.entries()) {
+    const d = Math.hypot(g.c[0] - cx, g.c[1] - cz);
 
     if (d < bd) {
       bd = d;
@@ -951,15 +1009,7 @@ const nearestGameDeck = (gc: string | any[], cx: number | undefined, cz: number 
   return { bd, nearest };
 };
 
-const isShedBlob = (b: {
-  mtls: string | string[];
-  wet: number;
-  cx: any;
-  cz: any;
-  h: number;
-  w: number;
-  d: number;
-}) => {
+const isShedBlob = (b: Blob) => {
   if (!b.mtls.includes("building")) {
     return false;
   }
@@ -975,7 +1025,13 @@ const isShedBlob = (b: {
   return b.w >= 3 && b.d >= 3 && b.w <= 400 && b.d <= 400;
 };
 
-const shedEntryOf = (g: any, b: { h: any; wet: any }, gc: any, osmNames: any, bridge: any) => {
+const shedEntryOf = (
+  g: string,
+  b: Blob,
+  gc: readonly DeckCentre[],
+  osmNames: readonly OsmName[],
+  bridge: BayBridge,
+) => {
   const { ring, src } = shedFootprint(b);
   const simple = rdp(ring, 0.35);
 
@@ -1018,105 +1074,12 @@ const shedEntryOf = (g: any, b: { h: any; wet: any }, gc: any, osmNames: any, br
 const NON_SHED_GROUPS = new Set(["man_stroke", "barrier", "builds", "builds_3"]);
 
 const sectionPierBuildings = (
-  blobsByGroup: Map<any, any>,
-  gamePiers: { dockCount?: number; piers: any },
-  osmNames: { name: any; x: number; z: number }[],
-  bridge:
-    | {
-        present: boolean;
-        approach?: undefined;
-        axis?: undefined;
-        blobs?: undefined;
-        cable?: undefined;
-        centreline?: undefined;
-        centrelineUV?: undefined;
-        chainage?: undefined;
-        deck?: undefined;
-        detachedTall?: undefined;
-        identity?: undefined;
-        landfallYerbaBuena?: undefined;
-        lengthM?: undefined;
-        lengthU?: undefined;
-        mainBlob?: undefined;
-        pooledVerts?: undefined;
-        shoreAnchorage?: undefined;
-        spans?: undefined;
-        towers?: undefined;
-        viaductWestEnd?: undefined;
-        vsAuthored?: undefined;
-      }
-    | {
-        approach: {
-          rampBins: number;
-          rampLengthU: number;
-          rampLowY: number | null;
-          suspendedBins: number;
-          suspendedLengthU: number;
-        };
-        axis: { ax: number; az: number; bearingDegFromNorth: number };
-        blobs: number;
-        cable: {
-          planeOffsetM: number | null;
-          planeOffsetU: number | null;
-          profile: { leftY: number | null; rightY: number | null; s: number }[];
-        };
-        centreline: any;
-        centrelineUV: any;
-        chainage: {
-          maxY: number;
-          minY: number;
-          n: any;
-          ramp: boolean;
-          roadW: number | null;
-          roadY: number | null;
-          s: number;
-        }[];
-        deck: { widthM: number | null; widthU: number | null; yM: number; yU: number };
-        detachedTall: {
-          d: number;
-          nv: any;
-          part: string;
-          s: number;
-          t: number;
-          topY: number;
-          u: number;
-          v: number;
-          w: number;
-        }[];
-        identity: string;
-        landfallYerbaBuena: { u: number; v: number; x: number; z: number };
-        lengthM: number;
-        lengthU: number;
-        mainBlob: { nf: any; nv: any };
-        pooledVerts: number;
-        present: boolean;
-        shoreAnchorage: { s: number | null; u: number; v: number; x: number; z: number };
-        spans: {
-          betweenTowers: number[];
-          midY: number;
-          sagBelowTowerTop: number;
-          spanM: number;
-          spanU: number;
-        }[];
-        towers: any;
-        viaductWestEnd: { u: number; v: number; x: number; z: number };
-        vsAuthored: {
-          anchorErrorToViaductEndU: number;
-          anchorErrorU: number;
-          authored: { rotDeg: number; u: number; v: number };
-          authoredBearingDegFromNorth: number;
-          authoredDeckY: number;
-          authoredTowerCount: number;
-          authoredTowerTopY: number;
-          bearingErrorDeg: number;
-          trueBearingDegFromNorth: number;
-          trueDeckY: number;
-          trueTowerCount: any;
-          trueTowerTopY: number | null;
-        } | null;
-      },
+  blobsByGroup: BlobsByGroup,
+  gamePiers: GamePiers,
+  osmNames: readonly OsmName[],
+  bridge: BayBridge,
 ) => {
-  const gc = gamePiers.piers.map((p: { area: any; ring: any }) => ({
+  const gc = gamePiers.piers.map<DeckCentre>((p) => ({
     area: p.area,
     c: centroidOf(p.ring),
     ring: p.ring,
@@ -1136,7 +1099,7 @@ const sectionPierBuildings = (
 
       const entry = shedEntryOf(g, b, gc, osmNames, bridge);
 
-      if (entry) {
+      if (entry !== null) {
         out.push(entry);
       }
     }
@@ -1149,7 +1112,7 @@ const sectionPierBuildings = (
 
 const BIN = 5;
 
-const principalAxis = (pts: string | any[]) => {
+const principalAxis = (pts: readonly P3[]) => {
   let cx = 0;
   let cz = 0;
 
@@ -1181,17 +1144,19 @@ const principalAxis = (pts: string | any[]) => {
     az = -az;
   }
 
-  return { ax, az, cx, cz };
+  const axis: Axis = { ax, az, cx, cz };
+
+  return axis;
 };
 
-const chainageBins = (pts: number[][], sOf: { (p: any): number; (arg0: any): number }) => {
-  const bins = new Map();
+const chainageBins = (pts: readonly P3[], sOf: AlongAxis) => {
+  const bins = new Map<number, Bin>();
 
   for (const p of pts) {
     const b = Math.round(sOf(p) / BIN);
     let e = bins.get(b);
 
-    if (!e) {
+    if (e === undefined) {
       e = { maxY: -1e9, minY: 1e9, n: 0, pts: [] };
       bins.set(b, e);
     }
@@ -1205,15 +1170,25 @@ const chainageBins = (pts: number[][], sOf: { (p: any): number; (arg0: any): num
   return bins;
 };
 
-const deckBand = (bins: Map<any, any>) => {
-  const yBand = new Map();
+const binAt = (bins: ReadonlyMap<number, Bin>, k: number) => {
+  const e = bins.get(k);
+
+  if (e === undefined) {
+    throw new Error(`no chainage bin ${k}`);
+  }
+
+  return e;
+};
+
+const deckBand = (bins: ReadonlyMap<number, Bin>) => {
+  const yBand = new Map<number, Set<number>>();
 
   for (const [b, e] of bins) {
     for (const p of e.pts) {
       const k = Math.round(p[1] * 2);
       let set = yBand.get(k);
 
-      if (!set) {
+      if (set === undefined) {
         set = new Set();
         yBand.set(k, set);
       }
@@ -1237,25 +1212,25 @@ const deckBand = (bins: Map<any, any>) => {
   return { deckHi: deckY + 2.5, deckLo: deckY - 0.6, deckY };
 };
 
-const roadwayOf = (e: { pts: any[] }, deckLo: number, deckHi: number) => {
-  const inBand = e.pts.filter((p: number[]) => p[1] >= deckLo && p[1] <= deckHi);
+const roadwayOf = (e: Bin, deckLo: number, deckHi: number) => {
+  const inBand = e.pts.filter((p) => p[1] >= deckLo && p[1] <= deckHi);
 
   if (inBand.length >= 4) {
     return { ramp: false, road: inBand };
   }
 
-  const top = Math.max(...e.pts.map((p: any[]) => p[1]));
+  const top = Math.max(...e.pts.map((p) => p[1]));
 
   if (top >= deckLo || top <= 0.3) {
     return { ramp: false, road: [] };
   }
 
-  const road = e.pts.filter((p: number[]) => p[1] >= top - 1.2);
+  const road = e.pts.filter((p) => p[1] >= top - 1.2);
 
   return road.length >= 4 ? { ramp: true, road } : { ramp: false, road: [] };
 };
 
-const roadSpanOf = (road: string | any[], tOf: (arg0: any) => any) => {
+const roadSpanOf = (road: readonly P3[], tOf: AlongAxis) => {
   let tmin = 1e9;
   let tmax = -1e9;
   let ys = 0;
@@ -1278,32 +1253,32 @@ const roadSpanOf = (road: string | any[], tOf: (arg0: any) => any) => {
 };
 
 const chainageProfile = (
-  bins: Map<any, any>,
-  keys: any[],
-  band: { deckHi: any; deckLo: any; deckY?: number },
-  axis: { ax: any; az: any; cx: any; cz: any },
-  tOf: (p: any) => number,
+  bins: ReadonlyMap<number, Bin>,
+  keys: readonly number[],
+  band: { deckHi: number; deckLo: number },
+  axis: Axis,
+  tOf: AlongAxis,
 ) => {
-  const centre = [];
-  const widths = [];
-  const profile = [];
+  const centre: Point[] = [];
+  const widths: number[] = [];
+  const profile: ProfileRow[] = [];
 
   for (const k of keys) {
-    const e = bins.get(k);
+    const e = binAt(bins, k);
     const { ramp, road } = roadwayOf(e, band.deckLo, band.deckHi);
-    let width = null;
-    let roadY = null;
+    let width: number | null = null;
+    let roadY: number | null = null;
 
     if (road.length >= 4) {
       const span = roadSpanOf(road, tOf);
       ({ roadY, width } = span);
 
-      if (width < 25) {
+      if (span.width < 25) {
         const tMid = (span.tmin + span.tmax) / 2;
         const s = k * BIN;
 
         if (!ramp) {
-          widths.push(width);
+          widths.push(span.width);
         }
 
         centre.push([
@@ -1329,12 +1304,15 @@ const chainageProfile = (
 
 const TOWER_CLEAR = 8;
 
-const findTowers = (profile: string | any[], deckY: number) => {
-  const towers = [];
+interface Tower {
+  s: number;
+  top: number;
+}
 
-  for (let i = 0; i < profile.length; i += 1) {
-    const p = profile[i];
+const findTowers = (profile: readonly ProfileRow[], deckY: number) => {
+  const towers: Tower[] = [];
 
+  for (const [i, p] of profile.entries()) {
     if (p.maxY < deckY + TOWER_CLEAR) {
       continue;
     }
@@ -1342,12 +1320,17 @@ const findTowers = (profile: string | any[], deckY: number) => {
     const prev = profile[i - 1];
     const nextP = profile[i + 1];
 
-    if ((prev && prev.maxY > p.maxY) || (nextP && nextP.maxY > p.maxY)) {
+    if (
+      (prev !== undefined && prev.maxY > p.maxY) ||
+      (nextP !== undefined && nextP.maxY > p.maxY)
+    ) {
       continue;
     }
 
-    if (towers.length && p.s - towers.at(-1).s < 40) {
-      if (p.maxY > towers.at(-1).top) {
+    const last = towers.at(-1);
+
+    if (last !== undefined && p.s - last.s < 40) {
+      if (p.maxY > last.top) {
         towers[towers.length - 1] = { s: p.s, top: p.maxY };
       }
 
@@ -1361,12 +1344,12 @@ const findTowers = (profile: string | any[], deckY: number) => {
 };
 
 const describeTowers = (
-  towers: any[],
-  bins: Map<any, any>,
-  axis: { ax: any; az: any; cx: any; cz: any },
-  tOf: { (p: any): number; (arg0: any): any },
+  towers: readonly Tower[],
+  bins: ReadonlyMap<number, Bin>,
+  axis: Axis,
+  tOf: AlongAxis,
 ) =>
-  towers.map((t: { s: number; top: number }) => {
+  towers.map((t) => {
     const x = axis.cx + axis.ax * t.s;
     const z = axis.cz + axis.az * t.s;
     const e = bins.get(Math.round(t.s / BIN));
@@ -1397,17 +1380,19 @@ const describeTowers = (
     };
   });
 
+type TowerOut = ReturnType<typeof describeTowers>[number];
+
 const cableProfile = (
-  bins: Map<any, any>,
-  keys: any[],
+  bins: ReadonlyMap<number, Bin>,
+  keys: readonly number[],
   deckHi: number,
-  tOf: { (p: any): number; (arg0: any): any },
+  tOf: AlongAxis,
 ) => {
-  const cable = [];
-  const offsets = [];
+  const cable: { leftY: number | null; rightY: number | null; s: number }[] = [];
+  const offsets: number[] = [];
 
   for (const k of keys) {
-    const e = bins.get(k);
+    const e = binAt(bins, k);
     let ly = -1e9;
     let ry = -1e9;
     let lt = 0;
@@ -1460,29 +1445,18 @@ const cableProfile = (
 
   return {
     cable,
-    cableOffset: offsets.length ? offsets[Math.floor(offsets.length / 2)] : null,
+    cableOffset: offsets.length > 0 ? at(offsets, Math.floor(offsets.length / 2)) : null,
   };
 };
 
-const cableSag = (
-  towerOut: string | any[],
-  profile:
-    | [any]
-    | {
-        maxY: number;
-        minY: number;
-        n: any;
-        ramp: boolean;
-        roadW: number | null;
-        roadY: number | null;
-        s: number;
-      }[],
-) => {
+const cableSag = (towerOut: readonly TowerOut[], profile: readonly ProfileRow[]) => {
   const sag = [];
 
   for (let i = 1; i < towerOut.length; i += 1) {
-    const mid = (towerOut[i - 1].s + towerOut[i].s) / 2;
-    let [nearest] = profile;
+    const a = at(towerOut, i - 1);
+    const b = at(towerOut, i);
+    const mid = (a.s + b.s) / 2;
+    let nearest = at(profile, 0);
 
     for (const p of profile) {
       if (Math.abs(p.s - mid) < Math.abs(nearest.s - mid)) {
@@ -1493,9 +1467,9 @@ const cableSag = (
     sag.push({
       betweenTowers: [i - 1, i],
       midY: r1(nearest.maxY),
-      sagBelowTowerTop: r1(towerOut[i].topY - nearest.maxY),
-      spanM: Math.round((towerOut[i].s - towerOut[i - 1].s) * 4.446),
-      spanU: r1(towerOut[i].s - towerOut[i - 1].s),
+      sagBelowTowerTop: r1(b.topY - nearest.maxY),
+      spanM: Math.round((b.s - a.s) * 4.446),
+      spanU: r1(b.s - a.s),
     });
   }
 
@@ -1505,13 +1479,13 @@ const cableSag = (
 const compareAuthoredBridge = (
   bearingDeg: number,
   deckY: number,
-  towers: any[],
-  sf: number[],
-  anchorPt: number[],
+  towers: readonly Tower[],
+  sf: Point,
+  anchorPt: Point,
 ) => {
   const authored = readAuthoredLandmarks().baybridge;
 
-  if (!authored) {
+  if (authored === null) {
     return null;
   }
 
@@ -1532,7 +1506,7 @@ const compareAuthoredBridge = (
     trueBearingDegFromNorth: r1(bearingDeg),
     trueDeckY: r1(deckY),
     trueTowerCount: towers.length,
-    trueTowerTopY: towers.length ? r1(Math.max(...towers.map((t: { top: any }) => t.top))) : null,
+    trueTowerTopY: towers.length > 0 ? r1(Math.max(...towers.map((t) => t.top))) : null,
   };
 };
 
@@ -1544,15 +1518,15 @@ const detachedPartOf = (t: number, w: number) => {
   return w > 6 ? "tower" : "saddle";
 };
 
-const sectionBayBridge = (blobsByGroup: Map<any, any>) => {
+const sectionBayBridge = (blobsByGroup: BlobsByGroup) => {
   const blobs = [...(blobsByGroup.get("builds") ?? [])].toSorted((a, b) => b.nv - a.nv);
 
-  if (!blobs.length) {
-    return { present: false };
+  if (blobs.length === 0) {
+    return { present: false as const };
   }
 
-  const [main] = blobs;
-  const allIds = new Set();
+  const main = at(blobs, 0);
+  const allIds = new Set<number>();
 
   for (const b of blobs) {
     for (const id of b.verts) {
@@ -1560,12 +1534,12 @@ const sectionBayBridge = (blobsByGroup: Map<any, any>) => {
     }
   }
 
-  const pts = [...allIds].map((id) => [wxOf(vx[id]), vy[id] * CAL_SY, wzOf(vz[id])]);
+  const pts = [...allIds].map<P3>((id) => [wxOf(at(vx, id)), yOf(id), wzOf(at(vz, id))]);
 
   const axis = principalAxis(pts);
   const { ax, az, cx, cz } = axis;
-  const sOf = (p: any[]) => (p[0] - cx) * ax + (p[2] - cz) * az;
-  const tOf = (p: any[]) => -(p[0] - cx) * az + (p[2] - cz) * ax;
+  const sOf: AlongAxis = (p) => (p[0] - cx) * ax + (p[2] - cz) * az;
+  const tOf: AlongAxis = (p) => -(p[0] - cx) * az + (p[2] - cz) * ax;
   const bearingDeg = (Math.atan2(ax, -az) * 180) / Math.PI;
 
   const bins = chainageBins(pts, sOf);
@@ -1574,7 +1548,7 @@ const sectionBayBridge = (blobsByGroup: Map<any, any>) => {
   const keys = [...bins.keys()].toSorted((a, b) => a - b);
   const { centre, profile, widths } = chainageProfile(bins, keys, band, axis, tOf);
   widths.sort((a, b) => a - b);
-  const medWidth = widths.length ? widths[Math.floor(widths.length / 2)] : null;
+  const medWidth = widths.length > 0 ? at(widths, Math.floor(widths.length / 2)) : null;
 
   const towers = findTowers(profile, deckY);
   const towerOut = describeTowers(towers, bins, axis, tOf);
@@ -1582,19 +1556,20 @@ const sectionBayBridge = (blobsByGroup: Map<any, any>) => {
   const sag = cableSag(towerOut, profile);
 
   const line = rdp(centre, 0.8);
-  const [sf] = line;
-  const yb = line.at(-1);
+  const sf = at(line, 0);
+  const yb = at(line, line.length - 1);
   const rampBins = profile.filter((p) => p.ramp);
   const suspended = profile.filter((p) => p.roadY !== null && !p.ramp);
-  const anchorS = suspended.length ? suspended[0].s : null;
-  const anchorPt = anchorS === null ? sf : [cx + ax * anchorS, cz + az * anchorS];
+  const anchorS = suspended.length > 0 ? at(suspended, 0).s : null;
+  const anchorPt: Point = anchorS === null ? sf : [cx + ax * anchorS, cz + az * anchorS];
   const vsAuthored = compareAuthoredBridge(bearingDeg, deckY, towers, sf, anchorPt);
+  const rampYs = rampBins.flatMap((p) => (p.roadY === null ? [] : [p.roadY]));
 
   return {
     approach: {
       rampBins: rampBins.length,
       rampLengthU: r1(rampBins.length * BIN),
-      rampLowY: rampBins.length ? r1(Math.min(...rampBins.map((p) => p.roadY))) : null,
+      rampLowY: rampBins.length > 0 ? r1(Math.min(...rampYs)) : null,
       suspendedBins: suspended.length,
       suspendedLengthU: r1(suspended.length * BIN),
     },
@@ -1605,8 +1580,8 @@ const sectionBayBridge = (blobsByGroup: Map<any, any>) => {
       planeOffsetU: cableOffset === null ? null : r1(cableOffset),
       profile: cable,
     },
-    centreline: line.map(([x, z]) => [r1(x), r1(z)]),
-    centrelineUV: line.map(([x, z]) => [r4(uOf(x)), r4(vOf(z))]),
+    centreline: line.map<Point>(([x, z]) => [r1(x), r1(z)]),
+    centrelineUV: line.map<Point>(([x, z]) => [r4(uOf(x)), r4(vOf(z))]),
     chainage: profile,
     deck: {
       widthM: medWidth === null ? null : Math.round(medWidth * 4.446),
@@ -1644,7 +1619,7 @@ const sectionBayBridge = (blobsByGroup: Map<any, any>) => {
     lengthU: r1(plLen(line)),
     mainBlob: { nf: main.nf, nv: main.nv },
     pooledVerts: allIds.size,
-    present: true,
+    present: true as const,
     shoreAnchorage: {
       s: anchorS,
       u: r4(uOf(anchorPt[0])),
@@ -1659,50 +1634,44 @@ const sectionBayBridge = (blobsByGroup: Map<any, any>) => {
   };
 };
 
-const sectionOraclePark = (
-  blobsByGroup: Map<any, any>,
-  osmNames: { name: any; x: number; z: number }[],
-) => {
+type BayBridge = ReturnType<typeof sectionBayBridge>;
+
+const sectionOraclePark = (blobsByGroup: BlobsByGroup, osmNames: readonly OsmName[]) => {
   const blobs = [...(blobsByGroup.get("builds_3") ?? [])].toSorted((a, b) => b.nv - a.nv);
 
-  if (!blobs.length) {
-    return { present: false };
+  if (blobs.length === 0) {
+    return { present: false as const };
   }
 
-  const [bowl] = blobs;
-
-  const base = bowl.faces.filter((f: { ids: any[] }) =>
-    f.ids.every((id: string | number) => vy[id] * CAL_SY <= bowl.minY + 1.5),
-  );
-
-  let ring = base.length ? boundaryRing(base) : null;
+  const bowl = at(blobs, 0);
+  const base = bowl.faces.filter((f) => f.ids.every((id) => yOf(id) <= bowl.minY + 1.5));
+  let ring = base.length > 0 ? boundaryRing(base) : null;
   let ringFrom = "base";
 
-  if (!ring || Math.abs(ringArea(ring)) < 0.3 * bowl.w * bowl.d) {
+  if (ring === null || Math.abs(ringArea(ring)) < 0.3 * bowl.w * bowl.d) {
     ring = boundaryRing(bowl.faces);
     ringFrom = "all-faces (outer rim, no closed base slab in the mesh)";
   }
 
-  const simple = ring ? rdp(ring, 0.5) : null;
-  const [cx, cz] = simple ? centroidOf(simple) : [bowl.cx, bowl.cz];
+  const simple = ring === null ? null : rdp(ring, 0.5);
+  const [cx, cz] = simple === null ? [bowl.cx, bowl.cz] : centroidOf(simple);
 
   const SECT = 24;
   const sect = Array.from({ length: SECT }, () => -1e9);
   const sectR = Array.from({ length: SECT }, () => 0);
 
   for (const id of bowl.verts) {
-    const x = wxOf(vx[id]);
-    const z = wzOf(vz[id]);
-    const y = vy[id] * CAL_SY;
+    const [x, z] = worldXZ(id);
+    const y = yOf(id);
     let a = Math.atan2(z - cz, x - cx) / (2 * Math.PI);
     a -= Math.floor(a);
     const k = Math.min(SECT - 1, Math.floor(a * SECT));
 
-    if (y > sect[k]) {
+    if (y > at(sect, k)) {
       sect[k] = y;
     }
 
-    sectR[k] = Math.max(sectR[k], Math.hypot(x - cx, z - cz));
+    sectR[k] = Math.max(at(sectR, k), Math.hypot(x - cx, z - cz));
   }
 
   const masts = blobs
@@ -1730,7 +1699,7 @@ const sectionOraclePark = (
   const authored = readAuthoredLandmarks().oraclepark;
   let vsAuthored = null;
 
-  if (authored) {
+  if (authored !== null) {
     const axu = (authored.u - 0.5) * WORLD_W;
     const azw = (authored.v - 0.5) * WORLD_H;
     vsAuthored = {
@@ -1747,7 +1716,7 @@ const sectionOraclePark = (
   }
 
   return {
-    present: true,
+    present: true as const,
     identity: "Oracle Park (OSM name node `AT_T_Park`)",
     blobs: blobs.length,
     bowl: { nf: bowl.nf, nv: bowl.nv },
@@ -1758,23 +1727,24 @@ const sectionOraclePark = (
     sizeM: { d: Math.round(bowl.d * 4.446), w: Math.round(bowl.w * 4.446) },
     heightU: { max: r1(bowl.maxY), min: r1(bowl.minY), rise: r1(bowl.h) },
     ringFrom,
-    ringPts: simple ? simple.length : 0,
-    ring: simple ? flat(simple) : [],
-    ringUV: simple ? simple.map(([x, z]) => [r4(uOf(x)), r4(vOf(z))]) : [],
-    sectorProfile: sect.map((y, i) => ({
-      degFromEastCCW: Math.round((i * 360) / SECT),
-      radius: sectR[i] === 0 ? null : r1(sectR[i]),
-      topY: y === -1e9 ? null : r1(y),
-    })),
+    ringPts: simple === null ? 0 : simple.length,
+    ring: simple === null ? [] : flat(simple),
+    ringUV: simple === null ? [] : simple.map<Point>(([x, z]) => [r4(uOf(x)), r4(vOf(z))]),
+    sectorProfile: sect.map((y, i) => {
+      const r = at(sectR, i);
+
+      return {
+        degFromEastCCW: Math.round((i * 360) / SECT),
+        radius: r === 0 ? null : r1(r),
+        topY: y === -1e9 ? null : r1(y),
+      };
+    }),
     masts,
     osm: nearestName(osmNames, cx, cz),
   };
 };
 
-const boxVsModelCells = (inBox: {
-  (u: any, v: any): boolean;
-  (arg0: number, arg1: number): any;
-}) => {
+const boxVsModelCells = (inBox: (u: number, v: number) => boolean) => {
   let boxCells = 0;
   let wetCells = 0;
   let boxButDry = 0;
@@ -1813,14 +1783,14 @@ const boxVsModelCells = (inBox: {
   return { boxButDry, boxCells, wetButNotBoxed, wetCells };
 };
 
-const sectionWaterway = (blobsByGroup: Map<any, any>, footprints: (number | undefined)[][]) => {
+const sectionWaterway = (blobsByGroup: BlobsByGroup, footprints: readonly P3[]) => {
   const wblobs = [...(blobsByGroup.get("waterway") ?? [])].toSorted((a, b) => b.nv - a.nv);
   const rings = [];
 
   for (const b of wblobs) {
     const ring = boundaryRing(b.faces);
 
-    if (!ring || ring.length < 4) {
+    if (ring === null || ring.length < 4) {
       continue;
     }
 
@@ -1889,17 +1859,18 @@ const sectionWaterway = (blobsByGroup: Map<any, any>, footprints: (number | unde
   return {
     chinaBasin: {
       boxedButDryInModel: boxButDry,
-      creekPolygon: creek
-        ? {
-            area: creek.area,
-            bboxU: creek.bboxU,
-            bboxV: creek.bboxV,
-            pts: creek.pts,
-            ring: creek.ring,
-            u: creek.u,
-            v: creek.v,
-          }
-        : null,
+      creekPolygon:
+        creek === null
+          ? null
+          : {
+              area: creek.area,
+              bboxU: creek.bboxU,
+              bboxV: creek.bboxV,
+              pts: creek.pts,
+              ring: creek.ring,
+              u: creek.u,
+              v: creek.v,
+            },
       culledThatAreOnModelLand: culledOnRealLand,
       footprintsCulledByBox: culled,
       gameBox: BOX,
@@ -1911,6 +1882,75 @@ const sectionWaterway = (blobsByGroup: Map<any, any>, footprints: (number | unde
     rings: rings.slice(0, 12),
     waterTriangles: waterTris.length,
   };
+};
+
+const logLandmarks = (
+  bayBridge: ReturnType<typeof sectionBayBridge>,
+  oraclePark: ReturnType<typeof sectionOraclePark>,
+) => {
+  if (bayBridge.present) {
+    console.log(
+      `BRIDGE  : ${bayBridge.lengthU}u (${bayBridge.lengthM} m) on bearing ` +
+        `${bayBridge.axis.bearingDegFromNorth} deg from north; deck y=${bayBridge.deck.yU}u ` +
+        `(${bayBridge.deck.yM} m), width ${bayBridge.deck.widthU}u (${bayBridge.deck.widthM} m)`,
+    );
+    console.log(
+      `          viaduct west end u=${bayBridge.viaductWestEnd.u} v=${bayBridge.viaductWestEnd.v} -> ` +
+        `shore anchorage u=${bayBridge.shoreAnchorage.u} v=${bayBridge.shoreAnchorage.v} -> ` +
+        `Yerba Buena u=${bayBridge.landfallYerbaBuena.u} v=${bayBridge.landfallYerbaBuena.v}`,
+    );
+    console.log(
+      `          approach ramp ${bayBridge.approach.rampLengthU}u (down to y=${bayBridge.approach.rampLowY}u), ` +
+        `level crossing ${bayBridge.approach.suspendedLengthU}u`,
+    );
+
+    for (const t of bayBridge.towers) {
+      console.log(
+        `          tower s=${String(t.s).padStart(5)} top=${t.topY}u (${t.topM} m) u=${t.u} v=${t.v} base=${t.baseW}u`,
+      );
+    }
+
+    for (const s of bayBridge.spans) {
+      console.log(
+        `          span ${s.betweenTowers.join("-")}: ${s.spanU}u (${s.spanM} m), cable dips ${s.sagBelowTowerTop}u`,
+      );
+    }
+
+    console.log(
+      `          cable plane at t=+/-${bayBridge.cable.planeOffsetU}u (${bayBridge.cable.planeOffsetM} m), ` +
+        `${bayBridge.cable.profile.length} sampled stations`,
+    );
+  }
+
+  if (bayBridge.present && bayBridge.vsAuthored !== null) {
+    const a = bayBridge.vsAuthored;
+    console.log(
+      `          vs landmarks.ts: authored at u=${a.authored.u} v=${a.authored.v} rot=${a.authored.rotDeg}deg ` +
+        `= bearing ${a.authoredBearingDegFromNorth}; TRUE bearing ${a.trueBearingDegFromNorth} ` +
+        `-> heading is ${Math.abs(a.bearingErrorDeg)} deg off, anchor is ${a.anchorErrorU}u off`,
+    );
+    console.log(
+      `          authored deck ${a.authoredDeckY}u / towers ${a.authoredTowerCount}@${a.authoredTowerTopY}u; ` +
+        `true deck ${a.trueDeckY}u / towers ${a.trueTowerCount}@${a.trueTowerTopY}u`,
+    );
+  }
+
+  if (oraclePark.present) {
+    console.log(
+      `BALLPARK: centre u=${oraclePark.centre.u} v=${oraclePark.centre.v}, ` +
+        `${oraclePark.sizeU.w}x${oraclePark.sizeU.d}u (${oraclePark.sizeM.w}x${oraclePark.sizeM.d} m), ` +
+        `rise ${oraclePark.heightU.rise}u, ${oraclePark.ringPts}-pt ring (${oraclePark.ringFrom}), ` +
+        `${oraclePark.masts.length} masts`,
+    );
+
+    if (oraclePark.vsAuthored !== null) {
+      const a = oraclePark.vsAuthored;
+      console.log(
+        `          vs landmarks.ts: authored u=${a.authored.u} v=${a.authored.v} -> ` +
+          `${a.errorDistU}u (${a.errorDistM} m) off; authored radius ${a.authoredOuterRadius}u vs true ${a.trueMeanRadius}u`,
+      );
+    }
+  }
 };
 
 const main = async () => {
@@ -1935,7 +1975,7 @@ const main = async () => {
   console.log(`decks: ${deckRings.length} shipped SF_PIERS polygons indexed`);
 
   await pass2();
-  const blobsByGroup = new Map();
+  const blobsByGroup = new Map<string, Blob[]>();
   let blobCount = 0;
 
   for (const [g, faces] of groupFaces) {
@@ -1960,8 +2000,8 @@ const main = async () => {
   const oraclePark = sectionOraclePark(blobsByGroup, osmNames);
   const waterway = sectionWaterway(blobsByGroup, footprints);
 
-  const matched = objPiers.filter((p) => p.gameMatch);
-  const same = matched.filter((p) => p.gameMatch.verdict === "same polygon");
+  const matched = objPiers.filter((p) => (p.gameMatch ?? null) !== null);
+  const same = matched.filter((p) => p.gameMatch?.verdict === "same polygon");
   const onDeck = pierBuildings.filter((b) => b.onGameDeck >= 0);
   const decksWithBuilding = new Set(onDeck.map((b) => b.onGameDeck));
   const sheds = pierBuildings.filter((b) => b.h >= 2 && b.area >= 100);
@@ -2077,12 +2117,11 @@ const main = async () => {
   );
 
   for (const p of objPiers.slice(0, 8)) {
+    const gm = p.gameMatch ?? null;
+    const match = gm === null ? "NO MATCH" : `game#${gm.index} d=${gm.dist}u ratio=${gm.areaRatio}`;
+
     console.log(
-      `          A=${String(p.area).padStart(5)}u2 ${String(p.pts).padStart(3)}pts u=${p.u} v=${p.v} ` +
-        (p.gameMatch
-          ? `game#${p.gameMatch.index} d=${p.gameMatch.dist}u ratio=${p.gameMatch.areaRatio}`
-          : "NO MATCH") +
-        `  ~${p.osm?.name ?? "?"}`,
+      `          A=${String(p.area).padStart(5)}u2 ${String(p.pts).padStart(3)}pts u=${p.u} v=${p.v} ${match}  ~${p.osm?.name ?? "?"}`,
     );
   }
 
@@ -2093,78 +2132,17 @@ const main = async () => {
   );
 
   for (const b of sheds.slice(0, 10)) {
+    const deck =
+      b.onGameDeck >= 0
+        ? `ON deck#${b.onGameDeck}`
+        : `near deck#${String(b.nearestGameDeck.index)}@${b.nearestGameDeck.dist}u`;
+
     console.log(
-      `          h=${String(b.h).padStart(5)}u A=${String(b.area).padStart(5)}u2 u=${b.u} v=${b.v} ` +
-        (b.onGameDeck >= 0
-          ? `ON deck#${b.onGameDeck}`
-          : `near deck#${b.nearestGameDeck.index}@${b.nearestGameDeck.dist}u`) +
-        `  ~${b.osm?.name ?? "?"}`,
+      `          h=${String(b.h).padStart(5)}u A=${String(b.area).padStart(5)}u2 u=${b.u} v=${b.v} ${deck}  ~${b.osm?.name ?? "?"}`,
     );
   }
 
-  if (bayBridge.present) {
-    console.log(
-      `BRIDGE  : ${bayBridge.lengthU}u (${bayBridge.lengthM} m) on bearing ` +
-        `${bayBridge.axis.bearingDegFromNorth} deg from north; deck y=${bayBridge.deck.yU}u ` +
-        `(${bayBridge.deck.yM} m), width ${bayBridge.deck.widthU}u (${bayBridge.deck.widthM} m)`,
-    );
-    console.log(
-      `          viaduct west end u=${bayBridge.viaductWestEnd.u} v=${bayBridge.viaductWestEnd.v} -> ` +
-        `shore anchorage u=${bayBridge.shoreAnchorage.u} v=${bayBridge.shoreAnchorage.v} -> ` +
-        `Yerba Buena u=${bayBridge.landfallYerbaBuena.u} v=${bayBridge.landfallYerbaBuena.v}`,
-    );
-    console.log(
-      `          approach ramp ${bayBridge.approach.rampLengthU}u (down to y=${bayBridge.approach.rampLowY}u), ` +
-        `level crossing ${bayBridge.approach.suspendedLengthU}u`,
-    );
-
-    for (const t of bayBridge.towers) {
-      console.log(
-        `          tower s=${String(t.s).padStart(5)} top=${t.topY}u (${t.topM} m) u=${t.u} v=${t.v} base=${t.baseW}u`,
-      );
-    }
-
-    for (const s of bayBridge.spans) {
-      console.log(
-        `          span ${s.betweenTowers.join("-")}: ${s.spanU}u (${s.spanM} m), cable dips ${s.sagBelowTowerTop}u`,
-      );
-    }
-
-    console.log(
-      `          cable plane at t=+/-${bayBridge.cable.planeOffsetU}u (${bayBridge.cable.planeOffsetM} m), ` +
-        `${bayBridge.cable.profile.length} sampled stations`,
-    );
-  }
-
-  if (bayBridge.vsAuthored) {
-    const a = bayBridge.vsAuthored;
-    console.log(
-      `          vs landmarks.ts: authored at u=${a.authored.u} v=${a.authored.v} rot=${a.authored.rotDeg}deg ` +
-        `= bearing ${a.authoredBearingDegFromNorth}; TRUE bearing ${a.trueBearingDegFromNorth} ` +
-        `-> heading is ${Math.abs(a.bearingErrorDeg)} deg off, anchor is ${a.anchorErrorU}u off`,
-    );
-    console.log(
-      `          authored deck ${a.authoredDeckY}u / towers ${a.authoredTowerCount}@${a.authoredTowerTopY}u; ` +
-        `true deck ${a.trueDeckY}u / towers ${a.trueTowerCount}@${a.trueTowerTopY}u`,
-    );
-  }
-
-  if (oraclePark.present) {
-    console.log(
-      `BALLPARK: centre u=${oraclePark.centre.u} v=${oraclePark.centre.v}, ` +
-        `${oraclePark.sizeU.w}x${oraclePark.sizeU.d}u (${oraclePark.sizeM.w}x${oraclePark.sizeM.d} m), ` +
-        `rise ${oraclePark.heightU.rise}u, ${oraclePark.ringPts}-pt ring (${oraclePark.ringFrom}), ` +
-        `${oraclePark.masts.length} masts`,
-    );
-
-    if (oraclePark.vsAuthored) {
-      const a = oraclePark.vsAuthored;
-      console.log(
-        `          vs landmarks.ts: authored u=${a.authored.u} v=${a.authored.v} -> ` +
-          `${a.errorDistU}u (${a.errorDistM} m) off; authored radius ${a.authoredOuterRadius}u vs true ${a.trueMeanRadius}u`,
-      );
-    }
-  }
+  logLandmarks(bayBridge, oraclePark);
 
   const cb = waterway.chinaBasin;
   console.log(
@@ -2173,7 +2151,7 @@ const main = async () => {
       `${cb.wetInModelButNotBoxed} genuinely wet cells fall outside it`,
   );
 
-  if (cb.creekPolygon) {
+  if (cb.creekPolygon !== null) {
     const c = cb.creekPolygon;
     console.log(
       `          real Mission Creek channel: ${c.pts}-pt polygon, ${c.area}u2, ` +
@@ -2188,4 +2166,4 @@ const main = async () => {
   console.log(`\nwrote ${outPath}`);
 };
 
-main();
+await main();
