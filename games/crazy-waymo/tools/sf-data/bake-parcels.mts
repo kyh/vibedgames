@@ -1,5 +1,5 @@
 import { gzipSync } from "node:zlib";
-import { readFileSync, writeFileSync, statSync } from "node:fs";
+import { writeFileSync, statSync } from "node:fs";
 import path from "node:path";
 
 import { onLandXZ, projU, projV, rdp, WORLD_H, WORLD_W } from "./lib.mts";
@@ -11,6 +11,8 @@ import {
   PARCEL_SOURCE_VERSION,
 } from "../../src/world/parcel-source.ts";
 import type { ParcelHint } from "../../src/world/parcel-source.ts";
+import { readOverpass } from "./osm.mts";
+import type { OsmGeom } from "./osm.mts";
 
 const HERE = import.meta.dirname;
 const RAW = path.join(HERE, "sf-buildings.raw.json");
@@ -53,7 +55,7 @@ const centroid = (ring: readonly number[]) => {
     cz += ring[i * 2 + 1] ?? 0;
   }
 
-  return [cx / n, cz / n];
+  return [cx / n, cz / n] as const;
 };
 
 const pointInRing = (ring: readonly number[], x: number, z: number) => {
@@ -180,24 +182,7 @@ const hintOf = (tags: Record<string, string>) => {
   return BUILDING_HINT.get(b) ?? "generic";
 };
 
-interface Geom {
-  readonly lat: number;
-  readonly lon: number;
-}
-
-interface Element {
-  readonly type: string;
-  readonly id: number;
-  readonly tags?: Record<string, string>;
-  readonly geometry?: readonly Geom[];
-  readonly members?: readonly {
-    readonly type: string;
-    readonly role: string;
-    readonly geometry?: readonly Geom[];
-  }[];
-}
-
-const toWorld = (g: readonly Geom[]) => {
+const toWorld = (g: readonly OsmGeom[]) => {
   const pts: [number, number][] = [];
 
   for (const p of g) {
@@ -246,11 +231,9 @@ const simplify = (flat: number[]) => {
     }
   }
 
-  const simplifyOpen = rdp as (pts: [number, number][], eps: number) => [number, number][];
-
   const run = (eps: number) => {
-    const a = simplifyOpen(pts.slice(0, far + 1), eps);
-    const b = simplifyOpen([...pts.slice(far), p0], eps);
+    const a = rdp(pts.slice(0, far + 1), eps);
+    const b = rdp([...pts.slice(far), p0], eps);
 
     return [...a.slice(0, -1), ...b.slice(0, -1)];
   };
@@ -347,7 +330,7 @@ const nearSurvey = (x: number, z: number) => {
   return false;
 };
 
-const raw = JSON.parse(readFileSync(RAW, "utf-8")) as { elements: Element[] };
+const raw = readOverpass(RAW);
 let ways = 0;
 let rels = 0;
 let offMap = 0;

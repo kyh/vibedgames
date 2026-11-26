@@ -27,6 +27,9 @@ export type OsmGeom = z.infer<typeof geomSchema>;
 /** One member of an Overpass relation, with its geometry when the query asked for it. */
 export type OsmMember = z.infer<typeof memberSchema>;
 
+/** An element's OSM tags. */
+export type OsmTags = Readonly<Record<string, string>>;
+
 /** One element (node, way or relation) of an Overpass JSON answer. */
 export type OsmElement = z.infer<typeof elementSchema>;
 

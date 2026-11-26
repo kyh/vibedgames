@@ -1,4 +1,8 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
+
+import { at } from "./lib.mts";
+import { readOverpass } from "./osm.mts";
+import type { OsmGeom, OsmMember, OsmTags } from "./osm.mts";
 
 const GRID_X = 244;
 const GRID_Z = 200;
@@ -33,26 +37,36 @@ const CLASSES = [
 
 const ID = new Map(CLASSES.map((c, i) => [c, i]));
 
-const WEIGHT = {
-  cemetery: 1.5,
-  court: 1.4,
-  garden: 1.5,
-  grass: 1.1,
-  industrial: 0.95,
-  institution: 0.9,
-  park: 1,
-  parking: 1.3,
-  plaza: 1,
-  port: 0.95,
-  railyard: 1.2,
-  retail: 0.85,
-  rock: 1.5,
-  sand: 1.6,
-  scrub: 1.2,
-  turf: 1.4,
-  water: 1.6,
-  wood: 1.2,
+const idOf = (c: string) => {
+  const id = ID.get(c);
+
+  if (id === undefined) {
+    throw new RangeError(`unknown ground class ${c}`);
+  }
+
+  return id;
 };
+
+const WEIGHT = new Map([
+  ["cemetery", 1.5],
+  ["court", 1.4],
+  ["garden", 1.5],
+  ["grass", 1.1],
+  ["industrial", 0.95],
+  ["institution", 0.9],
+  ["park", 1],
+  ["parking", 1.3],
+  ["plaza", 1],
+  ["port", 0.95],
+  ["railyard", 1.2],
+  ["retail", 0.85],
+  ["rock", 1.5],
+  ["sand", 1.6],
+  ["scrub", 1.2],
+  ["turf", 1.4],
+  ["water", 1.6],
+  ["wood", 1.2],
+]);
 
 const GREEN = ["park", "grass", "garden", "wood", "scrub", "cemetery", "turf"];
 const SAND = ["sand"];
@@ -146,7 +160,7 @@ const MAN_MADE_CLASS = new Map([
 
 const PITCH_LEISURE = new Set(["pitch", "playground", "track"]);
 
-const pitchClass = (t: { surface: string; leisure: string; sport: any }) => {
+const pitchClass = (t: OsmTags) => {
   const surface = t.surface ?? "";
 
   if (GRASS_SURFACE.has(surface)) {
@@ -164,9 +178,7 @@ const pitchClass = (t: { surface: string; leisure: string; sport: any }) => {
   return TURF_SPORT.has(t.sport ?? "") ? "turf" : "court";
 };
 
-const classOf = (tags: {}) => {
-  const t = tags ?? {};
-  const natural = NATURAL_CLASS.get(t.natural ?? "");
+const classOf = (t: OsmTags) => {  const natural = NATURAL_CLASS.get(t.natural ?? "");
 
   if (natural !== undefined && natural !== "") {
     return natural;
@@ -207,8 +219,8 @@ const classOf = (tags: {}) => {
   return null;
 };
 
-const toGrid = (geometry: any[]) => {
-  const ring = [];
+const toGrid = (geometry: readonly OsmGeom[]) => {
+  const ring: number[] = [];
 
   for (const g of geometry) {
     ring.push((U_M * g.lon + U_B) * GRID_X, (V_M * g.lat + V_B) * GRID_Z);
@@ -217,40 +229,44 @@ const toGrid = (geometry: any[]) => {
   return ring;
 };
 
-const key = (g: { lat: number; lon: number }) => `${g.lat.toFixed(7)},${g.lon.toFixed(7)}`;
-const isClosed = (g: string | any[]) => g.length > 3 && key(g[0]) === key(g.at(-1));
+const key = (g: OsmGeom) => `${g.lat.toFixed(7)},${g.lon.toFixed(7)}`;
+const first = (g: readonly OsmGeom[]) => at(g, 0);
+const last = (g: readonly OsmGeom[]) => at(g, g.length - 1);
+const isClosed = (g: readonly OsmGeom[]) => g.length > 3 && key(first(g)) === key(last(g));
 
-const stitch = (members: any[]) => {
-  const open = members
-    .map((m: { geometry: any }) => m.geometry)
-    .filter((g: string | any[]) => Array.isArray(g) && g.length > 1);
+const stitch = (members: readonly OsmMember[]) => {
+  const open = members.flatMap((m) =>
+    m.geometry !== undefined && m.geometry.length > 1 ? [m.geometry] : [],
+  );
 
-  const rings: any[][] = [];
-  const pending: any[] = [];
+  const rings: OsmGeom[][] = [];
+  const pending: OsmGeom[][] = [];
 
   for (const g of open) {
     (isClosed(g) ? rings : pending).push(g);
   }
 
-  while (pending.length > 0) {
-    const run = [...pending.pop()];
+  const takeNext = () => pending.pop();
+
+  for (let next = takeNext(); next !== undefined; next = takeNext()) {
+    const run = [...next];
     let grew = true;
 
     while (grew && !isClosed(run)) {
       grew = false;
 
       for (let i = 0; i < pending.length; i += 1) {
-        const c = pending[i];
-        const head = key(run[0]);
-        const tail = key(run.at(-1));
+        const c = at(pending, i);
+        const head = key(first(run));
+        const tail = key(last(run));
 
-        if (key(c[0]) === tail) {
+        if (key(first(c)) === tail) {
           run.push(...c.slice(1));
-        } else if (key(c.at(-1)) === tail) {
+        } else if (key(last(c)) === tail) {
           run.push(...c.slice(0, -1).toReversed());
-        } else if (key(c.at(-1)) === head) {
+        } else if (key(last(c)) === head) {
           run.unshift(...c.slice(0, -1));
-        } else if (key(c[0]) === head) {
+        } else if (key(first(c)) === head) {
           run.unshift(...c.slice(1).toReversed());
         } else {
           continue;
@@ -270,13 +286,13 @@ const stitch = (members: any[]) => {
   return rings;
 };
 
-const raw = JSON.parse(readFileSync(new URL("sf-landuse.raw.json", import.meta.url)));
-const rings = [];
+const raw = readOverpass(new URL("sf-landuse.raw.json", import.meta.url));
+const rings: { cls: string; inner: boolean; ring: number[] }[] = [];
 let skippedTags = 0;
 let relRings = 0;
 
-for (const e of raw.elements ?? []) {
-  const cls = classOf(e.tags);
+for (const e of raw.elements) {
+  const cls = classOf(e.tags ?? {});
 
   if (cls === null) {
     skippedTags += 1;
@@ -284,15 +300,15 @@ for (const e of raw.elements ?? []) {
   }
 
   if (e.type === "way") {
-    if (!Array.isArray(e.geometry) || e.geometry.length < 3) {
+    if (e.geometry === undefined || e.geometry.length < 3) {
       continue;
     }
 
     rings.push({ cls, inner: false, ring: toGrid(e.geometry) });
   } else if (e.type === "relation") {
-    const members = (e.members ?? []).filter((m: { type: string }) => m.type === "way");
-    const outers = stitch(members.filter((m: { role: string }) => m.role !== "inner"));
-    const inners = stitch(members.filter((m: { role: string }) => m.role === "inner"));
+    const members = (e.members ?? []).filter((m) => m.type === "way");
+    const outers = stitch(members.filter((m) => m.role !== "inner"));
+    const inners = stitch(members.filter((m) => m.role === "inner"));
 
     for (const g of outers) {
       rings.push({ cls, inner: false, ring: toGrid(g) });
@@ -312,19 +328,19 @@ console.log(
 
 const cover = CLASSES.map(() => new Float32Array(GRID_X * GRID_Z));
 
-const fill = (target: number[], ring: string | any[], sign: number) => {
+const fill = (target: Float32Array, ring: readonly number[], sign: number) => {
   const n = ring.length / 2;
   let minZ = Infinity;
   let maxZ = -Infinity;
 
   for (let i = 1; i < ring.length; i += 2) {
-    minZ = Math.min(minZ, ring[i]);
-    maxZ = Math.max(maxZ, ring[i]);
+    minZ = Math.min(minZ, at(ring, i));
+    maxZ = Math.max(maxZ, at(ring, i));
   }
 
   const gz0 = Math.max(0, Math.floor(minZ));
   const gz1 = Math.min(GRID_Z - 1, Math.ceil(maxZ));
-  const xs = [];
+  const xs: number[] = [];
 
   for (let gz = gz0; gz <= gz1; gz += 1) {
     for (let s = 0; s < SUB_ROWS; s += 1) {
@@ -333,15 +349,15 @@ const fill = (target: number[], ring: string | any[], sign: number) => {
 
       for (let i = 0; i < n; i += 1) {
         const j = (i + n - 1) % n;
-        const zi = ring[i * 2 + 1];
-        const zj = ring[j * 2 + 1];
+        const zi = at(ring, i * 2 + 1);
+        const zj = at(ring, j * 2 + 1);
 
         if (zi > pz === zj > pz) {
           continue;
         }
 
-        const xi = ring[i * 2];
-        const xj = ring[j * 2];
+        const xi = at(ring, i * 2);
+        const xj = at(ring, j * 2);
         xs.push(xi + ((xj - xi) * (pz - zi)) / (zj - zi));
       }
 
@@ -352,8 +368,8 @@ const fill = (target: number[], ring: string | any[], sign: number) => {
       xs.sort((a, b) => a - b);
 
       for (let k = 0; k + 1 < xs.length; k += 2) {
-        const x0 = Math.max(0, xs[k]);
-        const x1 = Math.min(GRID_X, xs[k + 1]);
+        const x0 = Math.max(0, at(xs, k));
+        const x1 = Math.min(GRID_X, at(xs, k + 1));
 
         if (x1 <= x0) {
           continue;
@@ -363,7 +379,8 @@ const fill = (target: number[], ring: string | any[], sign: number) => {
           const overlap = Math.min(x1, gx + 1) - Math.max(x0, gx);
 
           if (overlap > 0) {
-            target[gx * GRID_Z + gz] += (sign * overlap) / SUB_ROWS;
+            const cell = gx * GRID_Z + gz;
+            target[cell] = at(target, cell) + (sign * overlap) / SUB_ROWS;
           }
         }
       }
@@ -372,25 +389,25 @@ const fill = (target: number[], ring: string | any[], sign: number) => {
 };
 
 for (const r of rings) {
-  fill(cover[ID.get(r.cls)], r.ring, r.inner ? -1 : 1);
+  fill(at(cover, idOf(r.cls)), r.ring, r.inner ? -1 : 1);
 }
 
 const cls = new Uint8Array(GRID_X * GRID_Z);
 const counts = CLASSES.map(() => 0);
-const weightOf = CLASSES.map((c) => WEIGHT[c] ?? 1);
+const weightOf = CLASSES.map((c) => WEIGHT.get(c) ?? 1);
 
 for (let i = 0; i < cls.length; i += 1) {
   let best = 0;
   let bestScore = 0;
 
   for (let c = 1; c < CLASSES.length; c += 1) {
-    const v = cover[c][i];
+    const v = at(at(cover, c), i);
 
     if (v < MIN_COVER) {
       continue;
     }
 
-    const score = v * weightOf[c];
+    const score = v * at(weightOf, c);
 
     if (score > bestScore) {
       bestScore = score;
@@ -399,35 +416,35 @@ for (let i = 0; i < cls.length; i += 1) {
   }
 
   cls[i] = best;
-  counts[best] += 1;
+  counts[best] = at(counts, best) + 1;
 }
 
-const classified = cls.length - counts[0];
+const classified = cls.length - at(counts, 0);
 
 console.log(
   `classified ${classified}/${cls.length} cells (${((classified / cls.length) * 100).toFixed(1)}%)`,
 );
 
 for (let c = 1; c < CLASSES.length; c += 1) {
-  if (counts[c] > 0) {
-    console.log(`  ${CLASSES[c].padEnd(13)} ${counts[c]}`);
+  if (at(counts, c) > 0) {
+    console.log(`  ${at(CLASSES, c).padEnd(13)} ${at(counts, c)}`);
   }
 }
 
-const cols = [];
+const cols: string[] = [];
 
 for (let gx = 0; gx < GRID_X; gx += 1) {
   let hex = "";
 
   for (let gz = 0; gz < GRID_Z; gz += 1) {
-    hex += cls[gx * GRID_Z + gz].toString(16).padStart(2, "0");
+    hex += at(cls, gx * GRID_Z + gz).toString(16).padStart(2, "0");
   }
 
   cols.push(hex.replace(/(?:00)+$/u, ""));
 }
 
-const union = (names: any[]) => names.map((n: any) => JSON.stringify(n)).join(" | ");
-const list = (names: any[]) => names.map((n: any) => JSON.stringify(n)).join(", ");
+const union = (names: readonly string[]) => names.map((n) => JSON.stringify(n)).join(" | ");
+const list = (names: readonly string[]) => names.map((n) => JSON.stringify(n)).join(", ");
 
 const out = `// AUTO-GENERATED by tools/sf-data/bake-landuse.mts — do not edit by hand.
 // Real OSM ground classes per grid cell: what each 13u cell of San Francisco

@@ -2,7 +2,7 @@
 export type Point = readonly [number, number];
 
 /** Read item `i` of a list whose index the caller has already bounded. */
-export const at = <T,>(items: readonly T[], i: number) => {
+export const at = <T,>(items: ArrayLike<T>, i: number) => {
   const item = items[i];
 
   if (item === undefined) {
