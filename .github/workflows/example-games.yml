@@ -60,24 +60,23 @@ jobs:
           fi
 
       # A game may rely on what the party Worker's deploy of this commit adds (its host, a wire
-      # feature), so its Workers Build, a check run on this commit, finishes first. Skipped is
-      # fine; failed is not.
-      - name: Wait for the party Worker
+      # feature), so the Workers Builds of this commit, one check run each, finish first: every one
+      # of them, since a check run's name is Cloudflare's to choose. Skipped is fine; failed is not.
+      - name: Wait for the Workers Builds
         if: steps.changed.outputs.games != '' && steps.changed.outputs.party == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          query='[.check_runs[] | select(.app.slug == "cloudflare-workers-and-pages" and (.name | contains("vibedgames-party")))][0] | "\(.status) \(.conclusion)"'
+          query='[.check_runs[] | select(.app.slug == "cloudflare-workers-and-pages")]
+            | "\(length) \(map(select(.status != "completed")) | length) \(map(select(.status == "completed" and (.conclusion | IN("success", "skipped", "neutral") | not))) | length)"'
           for attempt in $(seq 120); do
-            state=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/check-runs" --jq "$query")
-            case "$state" in
-              "completed success" | "completed skipped" | "completed neutral") exit 0 ;;
-              completed*) echo "::error::the party Worker's build ended $state"; exit 1 ;;
-              "null null") [ "$attempt" -ge 18 ] && { echo "::warning::no Workers Build of vibedgames-party on this commit"; exit 0; } ;;
-            esac
+            read -r total pending failed < <(gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/check-runs?per_page=100" --jq "$query")
+            if [ "$failed" -gt 0 ]; then echo "::error::a Workers Build of this commit failed"; exit 1; fi
+            if [ "$total" -gt 0 ] && [ "$pending" -eq 0 ]; then exit 0; fi
+            if [ "$total" -eq 0 ] && [ "$attempt" -ge 18 ]; then echo "::warning::no Workers Build on this commit"; exit 0; fi
             sleep 10
           done
-          echo "::error::the party Worker's build did not finish in 20 minutes"
+          echo "::error::the Workers Builds did not finish in 20 minutes"
           exit 1
 
       - name: Build changed games and the CLI
