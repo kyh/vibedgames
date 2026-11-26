@@ -1,14 +1,122 @@
 import { spawnSync } from "node:child_process";
 import { createReadStream, readFileSync, writeFileSync } from "node:fs";
+import path from "node:path";
 import { createInterface } from "node:readline";
 
-import { GRID_X, GRID_Z, rdp, ringArea, WORLD_H, WORLD_W } from "./lib.mts";
+import { at, GRID_X, GRID_Z, rdp, ringArea, WORLD_H, WORLD_W } from "./lib.mts";
+import type { Point } from "./lib.mts";
 
 const [objPath, outPath] = process.argv.slice(2);
 
 if (objPath === undefined || objPath === "" || outPath === undefined || outPath === "") {
   console.error("usage: node extract-adjacency-obj.mts <obj> <out.json>");
   process.exit(1);
+}
+
+interface Comp {
+  faces: number[][];
+  maxX: number;
+  maxY: number;
+  maxZ: number;
+  minX: number;
+  minY: number;
+  minZ: number;
+}
+
+interface Building {
+  cx: number;
+  cz: number;
+  d: number;
+  h: number;
+  outline: Point[] | null;
+  w: number;
+}
+
+interface ParcelRec {
+  bboxFallback: boolean;
+  h: number;
+  raw: Point[];
+  rawToEmit: number[];
+  ring: Point[];
+}
+
+interface RingEdge {
+  dx: number;
+  dz: number;
+  i: number;
+  len: number;
+  p: number;
+  x0: number;
+  x1: number;
+  z0: number;
+  z1: number;
+}
+
+interface EdgeIndex {
+  cell: number;
+  edges: RingEdge[];
+  grid: Map<number, number[]>;
+}
+
+interface Pair {
+  ai: number;
+  anti: boolean;
+  bi: number;
+  ov: number;
+  sep: number;
+}
+
+interface Wall {
+  a: number;
+  b: number;
+  edgesA: Set<number>;
+  edgesB: Set<number>;
+  len: number;
+}
+
+interface Neighbour {
+  edges: number[];
+  len: number;
+  nx: number;
+  nz: number;
+  q: number;
+}
+
+interface DistrictBox {
+  character: string;
+  name: string;
+  uMax: number;
+  uMin: number;
+  vMax: number;
+  vMin: number;
+}
+
+interface Band {
+  p25: number;
+  p50: number;
+  p75: number;
+}
+
+interface DistrictStats {
+  attached: number;
+  inRun4: number;
+  lotWidth: Band;
+  medRunSize: number;
+  n: number;
+}
+
+interface AdjacencyOut {
+  meta: { span: { uMax: number; uMin: number; vMax: number; vMin: number } };
+  parcels: { bbox: number; id: number; nb: { e: number[]; l: number; q: number }[]; s: number }[];
+  stats: {
+    bboxFallbackRings: { n: number };
+    byDistrict: Readonly<Record<string, DistrictStats>>;
+    districtsWithNoParcels: readonly string[];
+    donorForUncovered: Readonly<Record<string, string>>;
+    lotWidth: Band;
+    pairs: number;
+    stackedParcels: number;
+  };
 }
 
 const EPS = 0.02;
@@ -20,19 +128,29 @@ const METERS_PER_UNIT = 4.446;
 const CAL = { bx: 325.2, bz: -400.5, sx: 0.17829, sz: 0.17909 };
 const CAL_SY = 1 / (1.598 * 4.446);
 
-const ANCHORS = [
+const ANCHORS: readonly (readonly [string, number, number, number, number])[] = [
   ["Salesforce", 2458.4, -2088.9, 760, -770.1],
   ["Transamerica", 1809.9, -2842.1, 644.9, -907.7],
 ];
 
-const toWorld = ([x, z]) => [x * CAL.sx + CAL.bx, z * CAL.sz + CAL.bz];
+const toWorld: (p: Point) => Point = ([x, z]) => [x * CAL.sx + CAL.bx, z * CAL.sz + CAL.bz];
+
+const pushTo = <K, V>(map: Map<K, V[]>, k: K, v: V) => {
+  const list = map.get(k);
+
+  if (list === undefined) {
+    map.set(k, [v]);
+  } else {
+    list.push(v);
+  }
+};
 
 const vx: number[] = [];
 const vy: number[] = [];
 const vz: number[] = [];
 let curGroup: string | null = null;
 let curMtl = "";
-const buildingGroups = new Map();
+const buildingGroups = new Map<string, number[][]>();
 
 const rl = createInterface({ crlfDelay: Infinity, input: createReadStream(objPath) });
 
@@ -56,7 +174,7 @@ rl.on("line", (l) => {
       return;
     }
 
-    const ids = [];
+    const ids: number[] = [];
 
     for (const part of l.slice(2).trim().split(/\s+/u)) {
       const s = part.includes("/") ? part.slice(0, part.indexOf("/")) : part;
@@ -69,13 +187,7 @@ rl.on("line", (l) => {
       ids.push(id - 1);
     }
 
-    let g = buildingGroups.get(curGroup);
-
-    if (!g) {
-      buildingGroups.set(curGroup, (g = []));
-    }
-
-    g.push(ids);
+    pushTo(buildingGroups, curGroup, ids);
   } else if (l.startsWith("g ") || l.startsWith("o ")) {
     curGroup = l.slice(2).trim();
   } else if (l.startsWith("usemtl")) {
@@ -87,14 +199,14 @@ rl.on("close", () => {
   main();
 });
 
-const boundaryNext = (topFaces: any) => {
-  const edgeCount = new Map();
-  const edgeDir = new Map();
+const boundaryNext = (topFaces: readonly (readonly number[])[]) => {
+  const edgeCount = new Map<string, number>();
+  const edgeDir = new Map<string, Point>();
 
   for (const f of topFaces) {
     for (let i = 0; i < f.length; i += 1) {
-      const a = f[i];
-      const b = f[(i + 1) % f.length];
+      const a = at(f, i);
+      const b = at(f, (i + 1) % f.length);
 
       if (a === b) {
         continue;
@@ -109,7 +221,7 @@ const boundaryNext = (topFaces: any) => {
     }
   }
 
-  const next = new Map();
+  const next = new Map<number, number>();
 
   for (const [k, n] of edgeCount) {
     if (n !== 1) {
@@ -118,7 +230,7 @@ const boundaryNext = (topFaces: any) => {
 
     const dir = edgeDir.get(k);
 
-    if (dir) {
+    if (dir !== undefined) {
       next.set(dir[0], dir[1]);
     }
   }
@@ -126,17 +238,8 @@ const boundaryNext = (topFaces: any) => {
   return next;
 };
 
-const roofOutline = (c: {
-  faces: any[];
-  maxY: number;
-  maxX: number;
-  minX: number;
-  maxZ: number;
-  minZ: number;
-}) => {
-  const topFaces = c.faces.filter((f: any[]) =>
-    f.every((id: string | number) => vy[id] >= c.maxY - 0.75),
-  );
+const roofOutline = (c: Comp) => {
+  const topFaces = c.faces.filter((f) => f.every((id) => at(vy, id) >= c.maxY - 0.75));
 
   if (topFaces.length === 0) {
     return null;
@@ -148,16 +251,16 @@ const roofOutline = (c: {
     return null;
   }
 
-  const seen = new Set();
-  let best = null;
+  const seen = new Set<number>();
+  let best: number[] | null = null;
 
   for (const start of next.keys()) {
     if (seen.has(start)) {
       continue;
     }
 
-    const loop = [];
-    let cur = start;
+    const loop: number[] = [];
+    let cur: number | undefined = start;
 
     while (cur !== undefined && !seen.has(cur)) {
       seen.add(cur);
@@ -165,16 +268,16 @@ const roofOutline = (c: {
       cur = next.get(cur);
     }
 
-    if (cur === start && loop.length >= 3 && (!best || loop.length > best.length)) {
+    if (cur === start && loop.length >= 3 && (best === null || loop.length > best.length)) {
       best = loop;
     }
   }
 
-  if (!best) {
+  if (best === null) {
     return null;
   }
 
-  const pts = best.map((id) => [vx[id], vz[id]]);
+  const pts = best.map<Point>((id) => [at(vx, id), at(vz, id)]);
 
   if (Math.abs(ringArea(pts)) < 0.45 * (c.maxX - c.minX) * (c.maxZ - c.minZ)) {
     return null;
@@ -184,22 +287,23 @@ const roofOutline = (c: {
 };
 
 const components = () => {
-  const buildings = [];
+  const buildings: Building[] = [];
 
   for (const [, faces] of buildingGroups) {
-    const parent = new Map();
+    const parent = new Map<number, number>();
+    const parentOf = (x: number) => parent.get(x) ?? x;
 
-    const find = (start: any) => {
+    const find = (start: number) => {
       let r = start;
 
-      while (parent.get(r) !== r) {
-        r = parent.get(r);
+      while (parentOf(r) !== r) {
+        r = parentOf(r);
       }
 
       let a = start;
 
-      while (parent.get(a) !== r) {
-        const next = parent.get(a);
+      while (parentOf(a) !== r) {
+        const next = parentOf(a);
         parent.set(a, r);
         a = next;
       }
@@ -207,7 +311,7 @@ const components = () => {
       return r;
     };
 
-    const union = (a: any, b: any) => {
+    const union = (a: number, b: number) => {
       if (!parent.has(a)) {
         parent.set(a, a);
       }
@@ -226,17 +330,17 @@ const components = () => {
 
     for (const f of faces) {
       for (let i = 1; i < f.length; i += 1) {
-        union(f[0], f[i]);
+        union(at(f, 0), at(f, i));
       }
     }
 
-    const comps = new Map();
+    const comps = new Map<number, Comp>();
 
     for (const f of faces) {
-      const root = find(f[0]);
+      const root = find(at(f, 0));
       let c = comps.get(root);
 
-      if (!c) {
+      if (c === undefined) {
         c = { faces: [], maxX: -1e9, maxY: -1e9, maxZ: -1e9, minX: 1e9, minY: 1e9, minZ: 1e9 };
         comps.set(root, c);
       }
@@ -244,9 +348,9 @@ const components = () => {
       c.faces.push(f);
 
       for (const id of f) {
-        const x = vx[id];
-        const y = vy[id];
-        const z = vz[id];
+        const x = at(vx, id);
+        const y = at(vy, id);
+        const z = at(vz, id);
 
         if (x < c.minX) {
           c.minX = x;
@@ -296,10 +400,8 @@ const components = () => {
   return buildings;
 };
 
-const buildParcels = (
-  buildings: { cx: number; cz: number; d: number; h: number; outline: any[][] | null; w: number }[],
-) => {
-  const parcels = [];
+const buildParcels = (buildings: readonly Building[]) => {
+  const parcels: ParcelRec[] = [];
 
   for (const b of buildings) {
     if (b.w > 900 || b.d > 900) {
@@ -312,12 +414,14 @@ const buildParcels = (
       continue;
     }
 
-    const modelRing = b.outline ?? [
+    const box: Point[] = [
       [b.cx - b.w / 2, b.cz - b.d / 2],
       [b.cx + b.w / 2, b.cz - b.d / 2],
       [b.cx + b.w / 2, b.cz + b.d / 2],
       [b.cx - b.w / 2, b.cz + b.d / 2],
     ];
+
+    const modelRing = b.outline ?? box;
 
     let raw = modelRing.map(toWorld);
 
@@ -331,7 +435,7 @@ const buildParcels = (
       continue;
     }
 
-    const world = simp.map(([x, z]) => [Math.round(x * 10) / 10, Math.round(z * 10) / 10]);
+    const world = simp.map<Point>(([x, z]) => [Math.round(x * 10) / 10, Math.round(z * 10) / 10]);
 
     if (Math.abs(ringArea(simp)) < 5) {
       continue;
@@ -349,13 +453,23 @@ const buildParcels = (
       continue;
     }
 
-    const at = new Map(raw.map((p: any, i: any) => [p, i]));
-    const keep = simp.map((p: unknown) => at.get(p));
+    const rawIndex = new Map(raw.map((p, i) => [p, i]));
+
+    const keep = simp.map((p) => {
+      const i = rawIndex.get(p);
+
+      if (i === undefined) {
+        throw new RangeError("simplified vertex is not a raw vertex");
+      }
+
+      return i;
+    });
+
     const rawToEmit = Array.from({ length: raw.length }, () => 0);
 
     for (let j = 0; j < keep.length; j += 1) {
-      const k0 = keep[j];
-      const k1 = j + 1 < keep.length ? keep[j + 1] : raw.length;
+      const k0 = at(keep, j);
+      const k1 = j + 1 < keep.length ? at(keep, j + 1) : raw.length;
 
       for (let i = k0; i < k1; i += 1) {
         rawToEmit[i] = j;
@@ -363,7 +477,7 @@ const buildParcels = (
     }
 
     parcels.push({
-      bboxFallback: !b.outline,
+      bboxFallback: b.outline === null,
       h: Math.round(h * 10) / 10,
       raw,
       rawToEmit,
@@ -376,7 +490,7 @@ const buildParcels = (
   return parcels;
 };
 
-const assertMatchesShipped = (parcels: string | any[]) => {
+const assertMatchesShipped = (parcels: readonly ParcelRec[]) => {
   const src = readFileSync(new URL("../../src/world/sf-footprints.ts", import.meta.url), "utf-8");
   const body = src.slice(src.indexOf("SF_FOOTPRINTS: readonly"));
 
@@ -391,9 +505,10 @@ const assertMatchesShipped = (parcels: string | any[]) => {
   let bad = rows.length === parcels.length ? 0 : 1;
 
   for (let i = 0; i < Math.min(rows.length, parcels.length) && bad === 0; i += 1) {
-    const mine = [parcels[i].h];
+    const parcel = at(parcels, i);
+    const mine = [parcel.h];
 
-    for (const [x, z] of parcels[i].ring) {
+    for (const [x, z] of parcel.ring) {
       mine.push(x, z);
     }
 
@@ -403,11 +518,11 @@ const assertMatchesShipped = (parcels: string | any[]) => {
   }
 
   console.log(
-    `id check vs src/world/sf-footprints.ts: ${bad ? "FAIL" : "PASS"} ` +
+    `id check vs src/world/sf-footprints.ts: ${bad === 0 ? "PASS" : "FAIL"} ` +
       `(${parcels.length} parcels vs ${rows.length} shipped rows)`,
   );
 
-  if (bad) {
+  if (bad !== 0) {
     console.error(
       "parcel ids would NOT index SF_FOOTPRINTS — re-run extract-footprints.mts first, " +
         "or reconcile the two filter chains before trusting this output.",
@@ -416,23 +531,23 @@ const assertMatchesShipped = (parcels: string | any[]) => {
   }
 };
 
+const DISTRICT_RE =
+  /\{\s*character:\s*"(?<character>[^"]+)",\s*color:\s*0x[\dA-Fa-f_]+,\s*name:\s*"(?<name>[^"]+)",\s*uMax:\s*(?<uMax>[-\d.]+),\s*uMin:\s*(?<uMin>[-\d.]+),\s*vMax:\s*(?<vMax>[-\d.]+),\s*vMin:\s*(?<vMin>[-\d.]+)/gu;
+
 const loadDistricts = () => {
   const src = readFileSync(new URL("../../src/world/sf-map.ts", import.meta.url), "utf-8");
 
   const block = src.slice(
     src.indexOf("const NEIGHBORHOODS"),
-    src.indexOf("export function districtAt"),
+    src.indexOf("export const districtAt"),
   );
 
-  const re =
-    /name:\s*"(?<name>[^"]+)",\s*character:\s*"(?<character>[^"]+)",\s*color:\s*0x[0-9a-fA-F]+,\s*uMin:\s*(?<uMin>[-\d.]+),\s*uMax:\s*(?<uMax>[-\d.]+),\s*vMin:\s*(?<vMin>[-\d.]+),\s*vMax:\s*(?<vMax>[-\d.]+)/gu;
-
-  const boxes = [...block.matchAll(re)].map((m) => {
+  const boxes = [...block.matchAll(DISTRICT_RE)].map<DistrictBox>((m) => {
     const g = m.groups ?? {};
 
     return {
-      character: g.character,
-      name: g.name,
+      character: g.character ?? "",
+      name: g.name ?? "",
       uMax: Number(g.uMax),
       uMin: Number(g.uMin),
       vMax: Number(g.vMax),
@@ -447,19 +562,8 @@ const loadDistricts = () => {
   return boxes;
 };
 
-const districtAtUV = (
-  boxes: {
-    character: string | undefined;
-    name: string | undefined;
-    uMax: number;
-    uMin: number;
-    vMax: number;
-    vMin: number;
-  }[],
-  u: number | undefined,
-  v: number | undefined,
-) => {
-  let best = null;
+const districtAtUV = (boxes: readonly DistrictBox[], u: number, v: number) => {
+  let best: DistrictBox | null = null;
   let bd = Infinity;
 
   for (const n of boxes) {
@@ -477,21 +581,25 @@ const districtAtUV = (
     }
   }
 
+  if (best === null) {
+    throw new RangeError("no districts to pick from");
+  }
+
   return best;
 };
 
 const cellKey = (gx: number, gz: number) => gx * 100_003 + gz;
 
-const buildEdgeIndex = (parcels: string | any[], cell: number) => {
-  const edges = [];
-  const grid = new Map();
+const buildEdgeIndex = (parcels: readonly ParcelRec[], cell: number) => {
+  const edges: RingEdge[] = [];
+  const grid = new Map<number, number[]>();
 
   for (let p = 0; p < parcels.length; p += 1) {
-    const r = parcels[p].raw;
+    const r = at(parcels, p).raw;
 
     for (let i = 0; i < r.length; i += 1) {
-      const [x0, z0] = r[i];
-      const [x1, z1] = r[(i + 1) % r.length];
+      const [x0, z0] = at(r, i);
+      const [x1, z1] = at(r, (i + 1) % r.length);
       const len = Math.hypot(x1 - x0, z1 - z0);
 
       if (len < 1e-9) {
@@ -507,26 +615,18 @@ const buildEdgeIndex = (parcels: string | any[], cell: number) => {
 
       for (let gx = gx0; gx <= gx1; gx += 1) {
         for (let gz = gz0; gz <= gz1; gz += 1) {
-          const k = cellKey(gx, gz);
-          let c = grid.get(k);
-
-          if (!c) {
-            grid.set(k, (c = []));
-          }
-
-          c.push(id);
+          pushTo(grid, cellKey(gx, gz), id);
         }
       }
     }
   }
 
-  return { cell, edges, grid };
+  const idx: EdgeIndex = { cell, edges, grid };
+
+  return idx;
 };
 
-const measure = (
-  a: { dx: number; dz: number; x0: number; z0: number; len: number },
-  b: { dz: number; dx: number; x0: any; z0: any; x1: any; z1: any },
-) => {
+const measure = (a: RingEdge, b: RingEdge) => {
   if (Math.abs(a.dx * b.dz - a.dz * b.dx) > MAX_CROSS) {
     return null;
   }
@@ -545,23 +645,23 @@ const measure = (
   return { ov, sep };
 };
 
-const candidatePairs = (idx: { cell: any; edges: any; grid: any }, maxSep: number) => {
+const candidatePairs = (idx: EdgeIndex, maxSep: number) => {
   const { edges, grid, cell } = idx;
-  const out = [];
+  const out: Pair[] = [];
 
   for (let ai = 0; ai < edges.length; ai += 1) {
-    const a = edges[ai];
+    const a = at(edges, ai);
     const gx0 = Math.floor((Math.min(a.x0, a.x1) - maxSep) / cell);
     const gx1 = Math.floor((Math.max(a.x0, a.x1) + maxSep) / cell);
     const gz0 = Math.floor((Math.min(a.z0, a.z1) - maxSep) / cell);
     const gz1 = Math.floor((Math.max(a.z0, a.z1) + maxSep) / cell);
-    const seen = new Set();
+    const seen = new Set<number>();
 
     for (let gx = gx0; gx <= gx1; gx += 1) {
       for (let gz = gz0; gz <= gz1; gz += 1) {
         const c = grid.get(cellKey(gx, gz));
 
-        if (!c) {
+        if (c === undefined) {
           continue;
         }
 
@@ -571,7 +671,7 @@ const candidatePairs = (idx: { cell: any; edges: any; grid: any }, maxSep: numbe
           }
 
           seen.add(bi);
-          const b = edges[bi];
+          const b = at(edges, bi);
 
           if (b.p === a.p) {
             continue;
@@ -579,7 +679,7 @@ const candidatePairs = (idx: { cell: any; edges: any; grid: any }, maxSep: numbe
 
           const m = measure(a, b);
 
-          if (!m || m.sep > maxSep || m.ov < MIN_OVERLAP) {
+          if (m === null || m.sep > maxSep || m.ov < MIN_OVERLAP) {
             continue;
           }
 
@@ -592,47 +692,42 @@ const candidatePairs = (idx: { cell: any; edges: any; grid: any }, maxSep: numbe
   return out;
 };
 
-const pct = (arr: string | any[], t: number) => {
+const pct = (arr: readonly number[], t: number) => {
   if (arr.length === 0) {
     return 0;
   }
 
-  const s = [...arr].toSorted((x, y) => x - y);
+  const s = arr.toSorted((x, y) => x - y);
 
-  return s[Math.min(s.length - 1, Math.floor(s.length * t))];
+  return at(s, Math.min(s.length - 1, Math.floor(s.length * t)));
 };
 
-const aggregateWalls = (
-  pairs: { ai: number; anti: boolean; bi: any; ov: number; sep: number }[],
-  idx: { cell?: any; edges: any; grid?: Map<any, any> },
-  parcels:
-    | { bboxFallback: boolean; h: number; raw: any; rawToEmit: number[]; ring: any }[]
-    | { rawToEmit: { [x: string]: any } }[],
-) => {
-  const walls = new Map();
+const aggregateWalls = (pairs: readonly Pair[], idx: EdgeIndex, parcels: readonly ParcelRec[]) => {
+  const walls = new Map<string, Wall>();
 
   for (const { ai, bi, ov } of pairs) {
-    const ea = idx.edges[ai];
-    const eb = idx.edges[bi];
+    const ea = at(idx.edges, ai);
+    const eb = at(idx.edges, bi);
     const lo = Math.min(ea.p, eb.p);
     const hi = Math.max(ea.p, eb.p);
     const k = `${lo},${hi}`;
     let w = walls.get(k);
 
-    if (!w) {
-      walls.set(k, (w = { a: lo, b: hi, edgesA: new Set(), edgesB: new Set(), len: 0 }));
+    if (w === undefined) {
+      w = { a: lo, b: hi, edgesA: new Set(), edgesB: new Set(), len: 0 };
+      walls.set(k, w);
     }
 
     w.len += ov;
     const [la, lb] = ea.p === lo ? [ea, eb] : [eb, ea];
-    w.edgesA.add(parcels[lo].rawToEmit[la.i]);
-    w.edgesB.add(parcels[hi].rawToEmit[lb.i]);
+    w.edgesA.add(at(at(parcels, lo).rawToEmit, la.i));
+    w.edgesB.add(at(at(parcels, hi).rawToEmit, lb.i));
   }
 
   return walls;
 };
 
-const centroidOf = (ring: string | any[]) => {
+const centroidOf = (ring: readonly Point[]) => {
   let x = 0;
   let z = 0;
 
@@ -641,54 +736,56 @@ const centroidOf = (ring: string | any[]) => {
     z += pz;
   }
 
-  return [x / ring.length, z / ring.length];
+  const c: Point = [x / ring.length, z / ring.length];
+
+  return c;
 };
 
-const edgeNormal = (ring: string | any[], i: number) => {
-  const [x0, z0] = ring[i];
-  const [x1, z1] = ring[(i + 1) % ring.length];
+const edgeNormal = (ring: readonly Point[], i: number) => {
+  const [x0, z0] = at(ring, i);
+  const [x1, z1] = at(ring, (i + 1) % ring.length);
   const dx = x1 - x0;
   const dz = z1 - z0;
   const L = Math.hypot(dx, dz) || 1;
+  const n: Point = [dz / L, -dx / L];
 
-  return [dz / L, -dx / L];
+  return n;
 };
 
-const buildNeighbours = (parcels: any[], walls: any[] | Map<any, any>) => {
-  const nb = parcels.map(() => []);
+const buildNeighbours = (parcels: readonly ParcelRec[], walls: ReadonlyMap<string, Wall>) => {
+  const nb = parcels.map<Neighbour[]>(() => []);
 
   for (const w of walls.values()) {
     const ea = [...w.edgesA].toSorted((x, y) => x - y);
     const eb = [...w.edgesB].toSorted((x, y) => x - y);
-    const na = edgeNormal(parcels[w.a].ring, ea[0]);
-    const nbn = edgeNormal(parcels[w.b].ring, eb[0]);
-    nb[w.a].push({ edges: ea, len: Math.round(w.len * 100) / 100, nx: na[0], nz: na[1], q: w.b });
-    nb[w.b].push({ edges: eb, len: Math.round(w.len * 100) / 100, nx: nbn[0], nz: nbn[1], q: w.a });
+    const na = edgeNormal(at(parcels, w.a).ring, at(ea, 0));
+    const nbn = edgeNormal(at(parcels, w.b).ring, at(eb, 0));
+    const len = Math.round(w.len * 100) / 100;
+    at(nb, w.a).push({ edges: ea, len, nx: na[0], nz: na[1], q: w.b });
+    at(nb, w.b).push({ edges: eb, len, nx: nbn[0], nz: nbn[1], q: w.a });
   }
 
   for (const list of nb) {
-    list.sort(
-      (x: { len: number; q: number }, y: { len: number; q: number }) => y.len - x.len || x.q - y.q,
-    );
+    list.sort((x, y) => y.len - x.len || x.q - y.q);
   }
 
   return nb;
 };
 
-const buildRuns = (parcels: string | any[], nb: any[][]) => {
+const buildRuns = (parcels: readonly ParcelRec[], nb: readonly (readonly Neighbour[])[]) => {
   const runOf = Array.from({ length: parcels.length }, () => -1);
-  const runs = [];
+  const runs: number[][] = [];
 
-  const extend = (from: number, dirX: number, dirZ: number, chain: any[], used: Set<number>) => {
+  const extend = (from: number, dirX: number, dirZ: number, chain: number[], used: Set<number>) => {
     let cur = from;
     let dx = dirX;
     let dz = dirZ;
 
     for (;;) {
-      let pick = null;
+      let pick: { d: number; n: Neighbour } | null = null;
 
-      for (const n of nb[cur]) {
-        if (runOf[n.q] !== -1 || used.has(n.q)) {
+      for (const n of at(nb, cur)) {
+        if (at(runOf, n.q) !== -1 || used.has(n.q)) {
           continue;
         }
 
@@ -698,12 +795,12 @@ const buildRuns = (parcels: string | any[], nb: any[][]) => {
           continue;
         }
 
-        if (!pick || n.len > pick.n.len) {
+        if (pick === null || n.len > pick.n.len) {
           pick = { d, n };
         }
       }
 
-      if (!pick) {
+      if (pick === null) {
         return;
       }
 
@@ -719,19 +816,19 @@ const buildRuns = (parcels: string | any[], nb: any[][]) => {
   };
 
   for (let p = 0; p < parcels.length; p += 1) {
-    if (runOf[p] !== -1) {
+    if (at(runOf, p) !== -1) {
       continue;
     }
 
-    const seed = nb[p].find((n: { q: string | number }) => runOf[n.q] === -1);
+    const seed = at(nb, p).find((n) => at(runOf, n.q) === -1);
 
-    if (!seed) {
+    if (seed === undefined) {
       continue;
     }
 
     const used = new Set([p]);
-    const fwd: never[] = [];
-    const back: any[] = [];
+    const fwd: number[] = [];
+    const back: number[] = [];
     extend(p, seed.nx, seed.nz, fwd, used);
     extend(p, -seed.nx, -seed.nz, back, used);
     const chain = [...back.toReversed(), p, ...fwd];
@@ -752,8 +849,9 @@ const buildRuns = (parcels: string | any[], nb: any[][]) => {
   return { runOf, runs };
 };
 
-const bucketByBBox = (parcels: any[], cell: number) => {
-  const buckets = new Map();
+const bucketByBBox = (parcels: readonly ParcelRec[], cell: number) => {
+  const buckets = new Map<number, number[]>();
+  const bbs: (readonly [number, number, number, number])[] = [];
 
   for (const [i, p] of parcels.entries()) {
     let x0 = Infinity;
@@ -779,32 +877,25 @@ const bucketByBBox = (parcels: any[], cell: number) => {
       }
     }
 
-    p.bb = [x0, z0, x1, z1];
+    bbs.push([x0, z0, x1, z1]);
 
     for (let gx = Math.floor(x0 / cell); gx <= Math.floor(x1 / cell); gx += 1) {
       for (let gz = Math.floor(z0 / cell); gz <= Math.floor(z1 / cell); gz += 1) {
-        const k = cellKey(gx, gz);
-        let c = buckets.get(k);
-
-        if (!c) {
-          buckets.set(k, (c = []));
-        }
-
-        c.push(i);
+        pushTo(buckets, cellKey(gx, gz), i);
       }
     }
   }
 
-  return buckets;
+  return { bbs, buckets };
 };
 
-const inside = (ring: string | any[], x: number, z: number) => {
+const inside = (ring: readonly Point[], x: number, z: number) => {
   let hit = false;
   let j = ring.length - 1;
 
   for (let i = 0; i < ring.length; i += 1) {
-    const [xi, zi] = ring[i];
-    const [xj, zj] = ring[j];
+    const [xi, zi] = at(ring, i);
+    const [xj, zj] = at(ring, j);
 
     if (zi > z !== zj > z && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) {
       hit = !hit;
@@ -816,16 +907,16 @@ const inside = (ring: string | any[], x: number, z: number) => {
   return hit;
 };
 
-const stackedFlags = (parcels: string | any[], cent: number[][] | [any, any][]) => {
+const stackedFlags = (parcels: readonly ParcelRec[], cent: readonly Point[]) => {
   const CB = 20;
-  const buckets = bucketByBBox(parcels, CB);
+  const { bbs, buckets } = bucketByBBox(parcels, CB);
   const stacked = Array.from({ length: parcels.length }, () => 0);
 
   for (let i = 0; i < parcels.length; i += 1) {
-    const [cxx, czz] = cent[i];
+    const [cxx, czz] = at(cent, i);
     const c = buckets.get(cellKey(Math.floor(cxx / CB), Math.floor(czz / CB)));
 
-    if (!c) {
+    if (c === undefined) {
       continue;
     }
 
@@ -834,13 +925,13 @@ const stackedFlags = (parcels: string | any[], cent: number[][] | [any, any][]) 
         continue;
       }
 
-      const { bb } = parcels[j];
+      const bb = at(bbs, j);
 
       if (cxx < bb[0] || cxx > bb[2] || czz < bb[1] || czz > bb[3]) {
         continue;
       }
 
-      if (inside(parcels[j].ring, cxx, czz)) {
+      if (inside(at(parcels, j).ring, cxx, czz)) {
         stacked[i] = 1;
         break;
       }
@@ -850,25 +941,23 @@ const stackedFlags = (parcels: string | any[], cent: number[][] | [any, any][]) 
   return stacked;
 };
 
-const histOf = (vals: number[], edges: any[]) => {
+const histOf = (vals: readonly number[], edges: readonly number[]) => {
   const h = Array.from({ length: edges.length + 1 }, () => 0);
 
   for (const v of vals) {
-    let k = edges.findIndex((t: number) => v <= t);
+    let k = edges.findIndex((t) => v <= t);
 
     if (k < 0) {
       k = edges.length;
     }
 
-    h[k] += 1;
+    h[k] = at(h, k) + 1;
   }
 
   return h;
 };
 
-const parcelSpan = (
-  parcels: { bboxFallback: boolean; h: number; raw: any; rawToEmit: number[]; ring: any }[],
-) => {
+const parcelSpan = (parcels: readonly ParcelRec[]) => {
   let uMin = 1;
   let uMax = 0;
   let vMin = 1;
@@ -899,6 +988,25 @@ const parcelSpan = (
 
   return { uMax, uMin, vMax, vMin };
 };
+
+interface RunData {
+  ax: number;
+  az: number;
+  id: number;
+  len: number;
+  p: number[];
+  w: number[];
+}
+
+interface DistrictAcc {
+  att: number;
+  n: number;
+  r4: number;
+  rs: number[];
+  w: number[];
+}
+
+type RhythmRow = [string, number, number, number, number, string];
 
 const main = () => {
   for (const [name, mx, mz, wx, wz] of ANCHORS) {
@@ -946,9 +1054,9 @@ const main = () => {
 
   const { runOf, runs } = buildRuns(parcels, nb);
 
-  const runData = runs.map((chain, rid) => {
-    const [x0, z0] = cent[chain[0]];
-    const [x1, z1] = cent[chain.at(-1)];
+  const runData = runs.map<RunData>((chain, rid) => {
+    const [x0, z0] = at(cent, at(chain, 0));
+    const [x1, z1] = at(cent, at(chain, chain.length - 1));
     let ax = x1 - x0;
     let az = z1 - z0;
     const L = Math.hypot(ax, az) || 1;
@@ -961,7 +1069,7 @@ const main = () => {
       let a = Infinity;
       let b = -Infinity;
 
-      for (const [px, pz] of parcels[q].ring) {
+      for (const [px, pz] of at(parcels, q).ring) {
         const t = px * ax + pz * az;
 
         if (t < a) {
@@ -995,7 +1103,12 @@ const main = () => {
   });
 
   const boxes = loadDistricts();
-  const uvOf = (p: number) => [cent[p][0] / WORLD_W + 0.5, cent[p][1] / WORLD_H + 0.5];
+
+  const uvOf = (p: number) => {
+    const [x, z] = at(cent, p);
+
+    return [x / WORLD_W + 0.5, z / WORLD_H + 0.5] as const;
+  };
 
   const district = parcels.map((_, p) => {
     const [u, v] = uvOf(p);
@@ -1003,8 +1116,8 @@ const main = () => {
     return districtAtUV(boxes, u, v).name;
   });
 
-  const deg = nb.map((l: string | any[]) => l.length);
-  const attached = deg.filter((d: number) => d > 0).length;
+  const deg = nb.map((l) => l.length);
+  const attached = deg.filter((d) => d > 0).length;
   const runLenOf = Array.from({ length: parcels.length }, () => 1);
 
   for (const r of runData) {
@@ -1023,8 +1136,8 @@ const main = () => {
   const bboxIds = parcels.map((p, i) => (p.bboxFallback ? i : -1)).filter((i) => i >= 0);
   const realIds = parcels.map((p, i) => (p.bboxFallback ? -1 : i)).filter((i) => i >= 0);
 
-  const attRate = (ids: number[]) =>
-    ids.length ? ids.filter((i: string | number) => deg[i] > 0).length / ids.length : 0;
+  const attRate = (ids: readonly number[]) =>
+    ids.length > 0 ? ids.filter((i) => at(deg, i) > 0).length / ids.length : 0;
 
   console.log("");
   console.log(
@@ -1039,7 +1152,7 @@ const main = () => {
   );
 
   const runSizes = runData.map((r) => r.p.length);
-  const runSizeHist = {};
+  const runSizeHist: Record<string, number> = {};
 
   for (let s = 2; s <= 7; s += 1) {
     runSizeHist[String(s)] = runSizes.filter((x) => x === s).length;
@@ -1053,8 +1166,9 @@ const main = () => {
   );
   const W_BINS = [1.5, 2, 2.5, 3, 4, 5, 7, 10];
   const wh = histOf(allWidths, W_BINS);
+  const wTop = at(W_BINS, W_BINS.length - 1);
   console.log(
-    `  lot width hist (u): ${W_BINS.map((t, i) => `<=${t}:${wh[i]}`).join("  ")}  >${W_BINS.at(-1)}:${wh[W_BINS.length]}`,
+    `  lot width hist (u): ${W_BINS.map((t, i) => `<=${t}:${at(wh, i)}`).join("  ")}  >${wTop}:${at(wh, W_BINS.length)}`,
   );
 
   console.log("");
@@ -1062,7 +1176,7 @@ const main = () => {
     `ATTACHMENT: ${attached}/${parcels.length} parcels (${((attached / parcels.length) * 100).toFixed(1)}%) share >=1 party wall`,
   );
   console.log(
-    `  degree distribution: ${[0, 1, 2, 3, 4].map((d) => `${d === 4 ? "4+" : d}:${deg.filter((x: number) => (d === 4 ? x >= 4 : x === d)).length}`).join("  ")}`,
+    `  degree distribution: ${[0, 1, 2, 3, 4].map((d) => `${d === 4 ? "4+" : d}:${deg.filter((x) => (d === 4 ? x >= 4 : x === d)).length}`).join("  ")}`,
   );
   console.log(
     `  runs: ${runData.length}   in run>=2: ${in2} (${((in2 / parcels.length) * 100).toFixed(1)}%)   >=4: ${in4} (${((in4 / parcels.length) * 100).toFixed(1)}%)   >=8: ${in8} (${((in8 / parcels.length) * 100).toFixed(1)}%)`,
@@ -1083,29 +1197,33 @@ const main = () => {
     `  RUN frontage length p25 ${fmtU(pct(runLens, 0.25))}  median ${fmtU(pct(runLens, 0.5))}  p75 ${fmtU(pct(runLens, 0.75))}  p95 ${fmtU(pct(runLens, 0.95))}`,
   );
 
-  const byDistrict = new Map();
+  const byDistrict = new Map<string, DistrictAcc>();
 
   for (let p = 0; p < parcels.length; p += 1) {
-    const d = district[p];
+    const d = at(district, p);
     let s = byDistrict.get(d);
 
-    if (!s) {
-      byDistrict.set(d, (s = { att: 0, n: 0, r4: 0, rs: [], w: [] }));
+    if (s === undefined) {
+      s = { att: 0, n: 0, r4: 0, rs: [], w: [] };
+      byDistrict.set(d, s);
     }
 
     s.n += 1;
 
-    if (deg[p] > 0) {
+    if (at(deg, p) > 0) {
       s.att += 1;
     }
 
-    if (runLenOf[p] >= 4) {
+    if (at(runLenOf, p) >= 4) {
       s.r4 += 1;
     }
 
-    if (runOf[p] !== -1) {
-      s.w.push(...runData[runOf[p]].w);
-      s.rs.push(runData[runOf[p]].p.length);
+    const run = at(runOf, p);
+
+    if (run !== -1) {
+      const r = at(runData, run);
+      s.w.push(...r.w);
+      s.rs.push(r.p.length);
     }
   }
 
@@ -1145,6 +1263,46 @@ const main = () => {
     `OBJ parcel span: u ${uMin.toFixed(3)}..${uMax.toFixed(3)}  v ${vMin.toFixed(3)}..${vMax.toFixed(3)}`,
   );
 
+  const donorFor = (name: string) => {
+    const b = boxes.find((x) => x.name === name);
+
+    if (b === undefined) {
+      throw new Error(`district ${name} has no box`);
+    }
+
+    const cu = (b.uMin + b.uMax) / 2;
+    const cv = (b.vMin + b.vMax) / 2;
+    let pick: string | null = null;
+    let pd = Infinity;
+
+    for (const [dn] of rows) {
+      const db = boxes.find((x) => x.name === dn);
+
+      if (db === undefined) {
+        continue;
+      }
+
+      const sameChar = db.character === b.character;
+
+      const d =
+        Math.hypot((db.uMin + db.uMax) / 2 - cu, (db.vMin + db.vMax) / 2 - cv) +
+        (sameChar ? 0 : 1.5);
+
+      if (d < pd) {
+        pd = d;
+        pick = dn;
+      }
+    }
+
+    return pick;
+  };
+
+  const donors = missing.flatMap((name) => {
+    const pick = donorFor(name);
+
+    return pick === null || pick === "" ? [] : [[name, pick] as const];
+  });
+
   const out = {
     meta: {
       cal: CAL,
@@ -1160,15 +1318,15 @@ const main = () => {
       world: { gridX: GRID_X, gridZ: GRID_Z, h: WORLD_H, w: WORLD_W },
     },
     parcels: parcels.map((p, i) => {
-      const flat = [];
+      const flat: number[] = [];
 
       for (const [x, z] of p.ring) {
         flat.push(x, z);
       }
 
-      const wallEdges = new Set();
+      const wallEdges = new Set<number>();
 
-      for (const n of nb[i]) {
+      for (const n of at(nb, i)) {
         for (const e of n.edges) {
           wallEdges.add(e);
         }
@@ -1182,8 +1340,8 @@ const main = () => {
           continue;
         }
 
-        const [x0, z0] = p.ring[e];
-        const [x1, z1] = p.ring[(e + 1) % p.ring.length];
+        const [x0, z0] = at(p.ring, e);
+        const [x1, z1] = at(p.ring, (e + 1) % p.ring.length);
         const L = Math.hypot(x1 - x0, z1 - z0);
 
         if (L > bestLen) {
@@ -1194,14 +1352,14 @@ const main = () => {
 
       return {
         bbox: p.bboxFallback ? 1 : 0,
-        d: district[i],
+        d: at(district, i),
         f: front,
         h: p.h,
         id: i,
-        nb: nb[i].map((n: { edges: any; len: any; q: any }) => ({ e: n.edges, l: n.len, q: n.q })),
+        nb: at(nb, i).map((n) => ({ e: n.edges, l: n.len, q: n.q })),
         r: flat,
-        run: runOf[i],
-        s: stacked[i],
+        run: at(runOf, i),
+        s: at(stacked, i),
       };
     }),
     runs: runData,
@@ -1228,63 +1386,38 @@ const main = () => {
       },
       runSizeHist,
       lotWidthHist: Object.fromEntries([
-        ...W_BINS.map((t, i) => [`<=${t}`, wh[i]]),
-        [`>${W_BINS.at(-1)}`, wh[W_BINS.length]],
+        ...W_BINS.map((t, i) => [`<=${t}`, at(wh, i)] as const),
+        [`>${wTop}`, at(wh, W_BINS.length)] as const,
       ]),
       wallLength: { p25: pct(wallLens, 0.25), p50: pct(wallLens, 0.5), p75: pct(wallLens, 0.75) },
       degreeHist: Object.fromEntries([
-        ...[0, 1, 2, 3].map((d) => [String(d), deg.filter((x: number) => x === d).length]),
-        ["4+", deg.filter((x: number) => x >= 4).length],
+        ...[0, 1, 2, 3].map((d) => [String(d), deg.filter((x) => x === d).length] as const),
+        ["4+", deg.filter((x) => x >= 4).length] as const,
       ]),
-      roofLoopRings: { attached: realIds.filter((i) => deg[i] > 0).length, n: realIds.length },
-      bboxFallbackRings: { attached: bboxIds.filter((i) => deg[i] > 0).length, n: bboxIds.length },
+      roofLoopRings: { attached: realIds.filter((i) => at(deg, i) > 0).length, n: realIds.length },
+      bboxFallbackRings: {
+        attached: bboxIds.filter((i) => at(deg, i) > 0).length,
+        n: bboxIds.length,
+      },
       stackedParcels: nStacked,
       unreachableDistrictBoxes: shadowed.map((b) => b.name),
       byDistrict: Object.fromEntries(
-        rows.map(([name, s]) => [
-          name,
-          {
-            attached: s.att,
-            inRun4: s.r4,
-            lotWidth: { p25: pct(s.w, 0.25), p50: pct(s.w, 0.5), p75: pct(s.w, 0.75) },
-            medRunSize: pct(s.rs, 0.5),
-            n: s.n,
-          },
-        ]),
+        rows.map(
+          ([name, s]) =>
+            [
+              name,
+              {
+                attached: s.att,
+                inRun4: s.r4,
+                lotWidth: { p25: pct(s.w, 0.25), p50: pct(s.w, 0.5), p75: pct(s.w, 0.75) },
+                medRunSize: pct(s.rs, 0.5),
+                n: s.n,
+              },
+            ] as const,
+        ),
       ),
       districtsWithNoParcels: missing,
-      donorForUncovered: Object.fromEntries(
-        missing
-          .map((name) => {
-            const b = boxes.find((x) => x.name === name);
-            const cu = (b.uMin + b.uMax) / 2;
-            const cv = (b.vMin + b.vMax) / 2;
-            let pick = null;
-            let pd = Infinity;
-
-            for (const [dn] of rows) {
-              const db = boxes.find((x) => x.name === dn);
-
-              if (!db) {
-                continue;
-              }
-
-              const sameChar = db.character === b.character;
-
-              const d =
-                Math.hypot((db.uMin + db.uMax) / 2 - cu, (db.vMin + db.vMax) / 2 - cv) +
-                (sameChar ? 0 : 1.5);
-
-              if (d < pd) {
-                pd = d;
-                pick = dn;
-              }
-            }
-
-            return [name, pick];
-          })
-          .filter(([, v]) => v),
-      ),
+      donorForUncovered: Object.fromEntries(donors),
     },
   };
 
@@ -1295,12 +1428,12 @@ const main = () => {
   emitAdjacencyModule(out);
 };
 
-const DONOR_OVERRIDE = {
-  Bayview: "Potrero Hill",
-  "Hunters Point": "Potrero Hill",
-  "the Richmond": "Potrero Hill",
-  "the Sunset": "Potrero Hill",
-};
+const DONOR_OVERRIDE = new Map([
+  ["Bayview", "Potrero Hill"],
+  ["Hunters Point", "Potrero Hill"],
+  ["the Richmond", "Potrero Hill"],
+  ["the Sunset", "Potrero Hill"],
+]);
 
 const b36 = (n: number, w: number) => {
   const s = n.toString(36);
@@ -1312,15 +1445,9 @@ const b36 = (n: number, w: number) => {
   return s.padStart(w, "0");
 };
 
-const usableRhythm = (s: unknown) =>
-  s !== undefined && Number.isFinite(s.lotWidth.p50) && s.lotWidth.p50 > 0;
+const usableRhythm = (s: DistrictStats) => Number.isFinite(s.lotWidth.p50) && s.lotWidth.p50 > 0;
 
-const emitAdjacencyModule = (out: {
-  meta: any;
-  parcels: any;
-  runs?: { ax: number; az: number; id: number; len: number; p: any[]; w: number[] }[];
-  stats: any;
-}) => {
+const emitAdjacencyModule = (out: AdjacencyOut) => {
   const N = out.parcels.length;
 
   let stream = "";
@@ -1333,7 +1460,7 @@ const emitAdjacencyModule = (out: {
     }
 
     // oxlint-disable-next-line no-bitwise -- the head is a real bitfield: count in the low 3 bits, flags at 8 and 16
-    stream += b36(p.nb.length | (p.s ? 8 : 0) | (p.bbox ? 16 : 0), 1);
+    stream += b36(p.nb.length | (p.s > 0 ? 8 : 0) | (p.bbox > 0 ? 16 : 0), 1);
 
     for (const n of p.nb) {
       stream += b36(n.q, 3) + b36(n.e.length, 1);
@@ -1348,15 +1475,15 @@ const emitAdjacencyModule = (out: {
   }
 
   const ROW = 240;
-  const rows = [];
+  const rows: string[] = [];
 
   for (let i = 0; i < stream.length; i += ROW) {
     rows.push(stream.slice(i, i + ROW));
   }
 
   const measured = out.stats.byDistrict;
-  const rhythm = [];
-  const unmeasured = [];
+  const rhythm: RhythmRow[] = [];
+  const unmeasured: string[] = [];
 
   for (const [name, s] of Object.entries(measured)) {
     if (!usableRhythm(s)) {
@@ -1368,10 +1495,10 @@ const emitAdjacencyModule = (out: {
   }
 
   for (const name of out.stats.districtsWithNoParcels) {
-    const donor = DONOR_OVERRIDE[name] ?? out.stats.donorForUncovered[name];
+    const donor = DONOR_OVERRIDE.get(name) ?? out.stats.donorForUncovered[name];
     const s = donor === undefined ? undefined : measured[donor];
 
-    if (!usableRhythm(s)) {
+    if (donor === undefined || s === undefined || !usableRhythm(s)) {
       unmeasured.push(`${name} (no usable donor)`);
       continue;
     }
@@ -1385,11 +1512,11 @@ const emitAdjacencyModule = (out: {
 
   rhythm.sort((a, b) => (a[0] < b[0] ? -1 : 1));
   const gw = out.stats.lotWidth;
-  const nMeasured = rhythm.filter((row) => row.at(-1) === "").length;
+  const nMeasured = rhythm.filter((row) => row[5] === "").length;
   const nBorrowed = rhythm.length - nMeasured;
   const { span } = out.meta;
 
-  const attached = out.parcels.filter((p: { nb: string | any[] }) => p.nb.length > 0).length;
+  const attached = out.parcels.filter((p) => p.nb.length > 0).length;
 
   const src = `// AUTO-GENERATED by tools/sf-data/extract-adjacency-obj.mts — do not edit by hand.
 // PARTY WALLS and LOT RHYTHM for the real downtown fabric. Parcel ids are
@@ -1577,11 +1704,14 @@ export function lotRhythmFor(district: string): LotRhythm {
 }
 `;
 
-  const path = new URL("../../src/world/sf-adjacency.ts", import.meta.url);
-  writeFileSync(path, src);
-  const bin = resolve(new URL("../../../../node_modules/.bin/oxfmt", import.meta.url).pathname);
+  const target = new URL("../../src/world/sf-adjacency.ts", import.meta.url);
+  writeFileSync(target, src);
 
-  if (spawnSync(bin, ["--write", path.pathname], { stdio: "ignore" }).status !== 0) {
+  const bin = path.resolve(
+    new URL("../../../../node_modules/.bin/oxfmt", import.meta.url).pathname,
+  );
+
+  if (spawnSync(bin, ["--write", target.pathname], { stdio: "ignore" }).status !== 0) {
     console.log("  (could not run oxfmt on sf-adjacency.ts — format it before committing)");
   }
 
