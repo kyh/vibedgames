@@ -136,7 +136,13 @@ const blip = (ac: AudioContext, now: number, { freq, end, dur, type, gain, at = 
   g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
   osc.connect(g).connect(ac.destination);
   live.add(osc);
-  osc.addEventListener("ended", () => live.delete(osc), { once: true });
+  osc.addEventListener(
+    "ended",
+    () => {
+      live.delete(osc);
+    },
+    { once: true },
+  );
   osc.start(t0);
   osc.stop(t0 + dur + 0.02);
 };
