@@ -35,6 +35,7 @@ const contextFor: (request: Request) => ORPCContext = (request) => ({
   productionURL: undefined,
   r2: undefined,
   session: null,
+  sendsEmail: false,
   signing: undefined,
 });
 

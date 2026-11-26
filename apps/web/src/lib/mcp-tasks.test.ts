@@ -108,6 +108,7 @@ const contextFor = (userId: string | null) => async (headers: Headers) =>
     productionURL: undefined,
     r2: undefined,
     session: userId === null ? null : sessionFor(userId),
+    sendsEmail: false,
     signing: { baseUrl: "https://vibedgames.com", secret: "test-secret" },
   });
 

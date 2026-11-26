@@ -20,6 +20,7 @@ import { SkeletonReveal } from "@/components/ui/skeleton-reveal";
 import { formatUsd, kindLabel } from "@/lib/credits-format";
 import { formatDate } from "@/lib/format";
 import { authClient } from "@/auth/client";
+import { codeErrorMessage, SIGN_IN_CODE_LENGTH } from "@/auth/sign-in-code";
 import { useORPC } from "@/lib/orpc";
 
 const REDEEMED_CLOSE_MS = 1200;
@@ -111,18 +112,20 @@ const RedeemCode = ({
 };
 
 const VerifyEmailToRedeem = ({ email }: { email: string }) => {
+  const orpc = useORPC();
+  const qc = useQueryClient();
   const [state, setState] = useState<"idle" | "sending" | "sent">("idle");
 
   const send = async () => {
     setState("sending");
 
-    const { error } = await authClient.sendVerificationEmail({
-      callbackURL: "/settings#credits",
+    const { error } = await authClient.emailOtp.sendVerificationOtp({
       email,
+      type: "email-verification",
     });
 
     if (error) {
-      toast.error(error.message ?? "Couldn't send the link. Try again.");
+      toast.error(codeErrorMessage(error));
       setState("idle");
 
       return;
@@ -131,27 +134,56 @@ const VerifyEmailToRedeem = ({ email }: { email: string }) => {
     setState("sent");
   };
 
+  if (state === "sent") {
+    return (
+      <div className="space-y-2">
+        <p className="text-muted-foreground text-xs">
+          Enter the code we sent to {email}, then redeem your code here.
+        </p>
+        <Field>
+          <FieldLabel className="sr-only" htmlFor="confirm-email-code">
+            Confirmation code
+          </FieldLabel>
+          <OTPInput
+            id="confirm-email-code"
+            data-test="confirm-email-code-input"
+            length={SIGN_IN_CODE_LENGTH}
+            group
+            verify={async (otp) => {
+              const { error } = await authClient.emailOtp.verifyEmail({ email, otp });
+
+              if (error) {
+                toast.error(codeErrorMessage(error));
+
+                return false;
+              }
+
+              return true;
+            }}
+            onSuccess={() => {
+              void qc.invalidateQueries({ queryKey: orpc.credits.me.queryKey() });
+            }}
+          />
+        </Field>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-1">
-      <p className="text-muted-foreground text-xs">
-        {state === "sent"
-          ? `Link sent to ${email}. Open it, then redeem your code here.`
-          : `Confirm ${email} to redeem a code.`}
-      </p>
-      {state !== "sent" && (
-        <Button
-          type="button"
-          variant="link"
-          size="sm"
-          className="h-auto px-0 text-xs"
-          loading={state === "sending"}
-          onClick={() => {
-            void send();
-          }}
-        >
-          Send confirmation link
-        </Button>
-      )}
+      <p className="text-muted-foreground text-xs">Confirm {email} to redeem a code.</p>
+      <Button
+        type="button"
+        variant="link"
+        size="sm"
+        className="h-auto px-0 text-xs"
+        loading={state === "sending"}
+        onClick={() => {
+          void send();
+        }}
+      >
+        Send a confirmation code
+      </Button>
     </div>
   );
 };

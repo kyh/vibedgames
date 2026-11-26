@@ -13,11 +13,12 @@ import { CLI_OAUTH_CLIENT_ID, CLI_OAUTH_SCOPES } from "@repo/contract/cli";
 import { OAUTH_SCOPES } from "@repo/contract/auth/oauth-scopes";
 import type { BetterAuthPlugin } from "better-auth";
 import { betterAuth } from "better-auth";
-import { admin, bearer, jwt, oAuthProxy } from "better-auth/plugins";
+import { APIError, createAuthMiddleware, formCsrfMiddleware } from "better-auth/api";
+import { admin, bearer, emailOTP, jwt, oAuthProxy } from "better-auth/plugins";
 import { z } from "zod";
 
 import type { Mailer } from "../email/mailer";
-import { passwordResetEmail, verifyEmail } from "../email/templates";
+import { confirmEmailCode, signInCodeEmail } from "../email/templates";
 import { fetchClientMetadataResource } from "./cimd-fetch";
 import { oauthResources } from "./oauth-resources";
 
@@ -38,7 +39,7 @@ export interface AuthOptions {
   trustedOrigins?: string[];
   github?: SocialProviderCredentials;
   google?: SocialProviderCredentials;
-  /** Sends password-reset links; without one, a reset request is refused. */
+  /** Sends sign-in and confirmation codes; without one, sending a code is refused. */
   mailer?: Mailer;
 }
 
@@ -94,24 +95,7 @@ export const createAuth = (opts: AuthOptions) => {
       provider: "sqlite",
     }),
     disabledPaths: ["/token"],
-    emailAndPassword: {
-      enabled: true,
-      revokeSessionsOnPasswordReset: true,
-      sendResetPassword: mailer
-        ? async ({ user, url }) => {
-            await mailer({ to: user.email, ...passwordResetEmail(url) });
-          }
-        : undefined,
-    },
-    emailVerification: mailer
-      ? {
-          autoSignInAfterVerification: true,
-          sendOnSignUp: true,
-          sendVerificationEmail: async ({ user, url }) => {
-            await mailer({ to: user.email, ...verifyEmail(url) });
-          },
-        }
-      : undefined,
+    hooks: { before: guardSignInCodes(mailer !== undefined) },
     plugins: [
       oAuthProxy({
         currentURL: baseURL,
@@ -121,6 +105,7 @@ export const createAuth = (opts: AuthOptions) => {
       bearer(),
       expo(),
       admin(),
+      emailOTP({ sendVerificationOTP: codeSenderOf(mailer) }),
       // WARNING: never enable the API-key plugin's session mocking; keys resolve only through verifyApiKey.
       apiKey({
         defaultPrefix: "vg_",
@@ -170,6 +155,44 @@ export const createAuth = (opts: AuthOptions) => {
 
   return auth;
 };
+
+type CodeType = "sign-in" | "email-verification" | "forget-password" | "change-email";
+
+const CODE_EMAILS = new Map([
+  ["sign-in", signInCodeEmail],
+  ["email-verification", confirmEmailCode],
+]);
+
+const codeSenderOf =
+  (mailer: Mailer | undefined) =>
+  async ({ email, otp, type }: { email: string; otp: string; type: CodeType }) => {
+    const message = CODE_EMAILS.get(type);
+
+    if (message === undefined || !mailer) {
+      return;
+    }
+
+    await mailer({ to: email, ...message(otp) });
+  };
+
+const SEND_CODE_PATH = "/email-otp/send-verification-otp";
+
+const SIGN_IN_CODE_PATH = "/sign-in/email-otp";
+
+// WARNING: better-auth checks no origin on a code's sign-in and answers success when its sender throws.
+const guardSignInCodes = (mails: boolean) =>
+  createAuthMiddleware(async (ctx) => {
+    if (ctx.path === SIGN_IN_CODE_PATH) {
+      await formCsrfMiddleware(ctx);
+    }
+
+    if (ctx.path === SEND_CODE_PATH && !mails) {
+      throw APIError.from("SERVICE_UNAVAILABLE", {
+        code: "EMAIL_DISABLED",
+        message: "Sign-in by email is unavailable: this site sends no email.",
+      });
+    }
+  });
 
 const LOOPBACK_REDIRECT = /^http:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?\//u;
 
@@ -308,9 +331,5 @@ const firstPartyCliClient = (apiResource: string) =>
   }) satisfies BetterAuthPlugin;
 
 export type Auth = ReturnType<typeof createAuth>;
-
-/** Whether this deployment can send a verification link, so an unverified address can be asked to confirm. */
-export const verifiesEmail = (auth: Auth) =>
-  auth.options.emailVerification?.sendVerificationEmail !== undefined;
 
 export type Session = Auth["$Infer"]["Session"];

@@ -4,6 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { Button } from "@repo/ui/components/button";
 import { Field, FieldContent, FieldError, FieldGroup, FieldLabel } from "@repo/ui/components/field";
 import { Input } from "@repo/ui/components/input";
+import { OTPInput } from "@repo/ui/components/otp-input";
 import { toast } from "@repo/ui/components/sonner";
 import { cn } from "cn";
 import { useShake } from "@repo/ui/hooks/use-shake";
@@ -11,6 +12,7 @@ import { Controller, useForm } from "react-hook-form";
 import { z } from "zod";
 
 import { authClient } from "@/auth/client";
+import { codeErrorMessage, SIGN_IN_CODE_LENGTH } from "@/auth/sign-in-code";
 
 const DEFAULT_NEXT_PATH = "/home";
 
@@ -22,14 +24,7 @@ const safeNextPath = (path?: string) =>
 const inOAuthFlow = () =>
   typeof window !== "undefined" && new URLSearchParams(window.location.search).has("sig");
 
-type StepFormProps = { callbackUrl?: string } & React.HTMLAttributes<HTMLDivElement>;
-
-interface Credentials {
-  email: string;
-  password: string;
-}
-
-type SubmitResult = { status: "ok" } | { status: "failed"; message: string };
+type AuthFormProps = { callbackUrl?: string } & React.HTMLAttributes<HTMLDivElement>;
 
 const HydratedForm = ({ children, ...props }: Omit<React.ComponentProps<"form">, "method">) => {
   const hydrated = useHydrated();
@@ -43,53 +38,33 @@ const HydratedForm = ({ children, ...props }: Omit<React.ComponentProps<"form">,
   );
 };
 
-const UNREPORTED: SubmitResult = {
-  message: "Something went wrong. Please try again.",
-  status: "failed",
+const sendSignInCode = async (email: string) => {
+  const { error } = await authClient.emailOtp.sendVerificationOtp({ email, type: "sign-in" });
+
+  if (error) {
+    toast.error(codeErrorMessage(error));
+  }
+
+  return error === null;
 };
 
-const CredentialsForm = ({
-  submit,
-  submitLabel,
-  passwordAutoComplete,
-  callbackUrl,
-}: {
-  submit: (credentials: Credentials) => Promise<SubmitResult>;
-  submitLabel: string;
-  passwordAutoComplete: "current-password" | "new-password";
-  callbackUrl?: string;
-}) => {
-  const router = useRouter();
-  const search = useSearch({ from: "/auth" });
-  const nextPath = safeNextPath(search.nextPath);
-  const [authError, setAuthError] = useState(false);
+const EmailStep = ({ onSent }: { onSent: (email: string) => void }) => {
+  const [sendError, setSendError] = useState(false);
   const [shakeScope, shake] = useShake();
 
   const form = useForm({
-    defaultValues: { email: "", password: "" },
-    resolver: zodResolver(
-      z.object({
-        email: z.email("Invalid email address"),
-        password: z.string().min(1, "Password is required"),
-      }),
-    ),
+    defaultValues: { email: "" },
+    resolver: zodResolver(z.object({ email: z.email("Invalid email address") })),
   });
 
-  const handleAuthWithPassword = form.handleSubmit(async (credentials) => {
-    const result = await submit(credentials);
-
-    if (result.status === "ok") {
-      if (inOAuthFlow()) {
-        return;
-      }
-
-      await router.navigate({ href: safeNextPath(callbackUrl ?? nextPath), replace: true });
+  const handleSendCode = form.handleSubmit(async ({ email }) => {
+    if (await sendSignInCode(email)) {
+      onSent(email);
 
       return;
     }
 
-    toast.error(result.message);
-    setAuthError(true);
+    setSendError(true);
     shake();
   });
 
@@ -98,7 +73,7 @@ const CredentialsForm = ({
       ref={shakeScope}
       className="grid gap-2"
       onSubmit={(event) => {
-        void handleAuthWithPassword(event);
+        void handleSendCode(event);
       }}
     >
       <FieldGroup className="gap-2">
@@ -106,7 +81,7 @@ const CredentialsForm = ({
           control={form.control}
           name="email"
           render={({ field, fieldState }) => (
-            <Field data-invalid={!!fieldState.error || authError} className="gap-1">
+            <Field data-invalid={!!fieldState.error || sendError} className="gap-1">
               <FieldLabel className="sr-only" htmlFor="email">
                 Email
               </FieldLabel>
@@ -114,7 +89,7 @@ const CredentialsForm = ({
                 <Input
                   id="email"
                   data-test="email-input"
-                  aria-invalid={!!fieldState.error || authError}
+                  aria-invalid={!!fieldState.error || sendError}
                   required
                   type="email"
                   placeholder="name@example.com"
@@ -124,38 +99,7 @@ const CredentialsForm = ({
                   variant="frosted"
                   {...field}
                   onChange={(e) => {
-                    setAuthError(false);
-                    field.onChange(e);
-                  }}
-                />
-              </FieldContent>
-              <FieldError>{fieldState.error?.message}</FieldError>
-            </Field>
-          )}
-        />
-        <Controller
-          control={form.control}
-          name="password"
-          render={({ field, fieldState }) => (
-            <Field data-invalid={!!fieldState.error || authError} className="gap-1">
-              <FieldLabel className="sr-only" htmlFor="password">
-                Password
-              </FieldLabel>
-              <FieldContent>
-                <Input
-                  id="password"
-                  data-test="password-input"
-                  aria-invalid={!!fieldState.error || authError}
-                  required
-                  type="password"
-                  placeholder="******"
-                  autoCapitalize="none"
-                  autoComplete={passwordAutoComplete}
-                  autoCorrect="off"
-                  variant="frosted"
-                  {...field}
-                  onChange={(e) => {
-                    setAuthError(false);
+                    setSendError(false);
                     field.onChange(e);
                   }}
                 />
@@ -166,9 +110,98 @@ const CredentialsForm = ({
         />
       </FieldGroup>
       <Button type="submit" loading={form.formState.isSubmitting}>
-        {submitLabel}
+        Continue with email
       </Button>
     </HydratedForm>
+  );
+};
+
+const CodeStep = ({
+  email,
+  callbackUrl,
+  onBack,
+}: {
+  email: string;
+  callbackUrl?: string;
+  onBack: () => void;
+}) => {
+  const router = useRouter();
+  const search = useSearch({ from: "/auth" });
+  const [resending, setResending] = useState(false);
+
+  const resend = async () => {
+    setResending(true);
+
+    if (await sendSignInCode(email)) {
+      toast.success(`Sent a new code to ${email}`);
+    }
+
+    setResending(false);
+  };
+
+  return (
+    <div className="grid gap-4">
+      <p className="text-muted-foreground text-center text-sm">
+        We sent a {SIGN_IN_CODE_LENGTH}-digit code to{" "}
+        <span className="text-foreground">{email}</span>.
+      </p>
+      <Field className="items-center">
+        <FieldLabel className="sr-only" htmlFor="code">
+          Sign-in code
+        </FieldLabel>
+        <OTPInput
+          id="code"
+          data-test="code-input"
+          length={SIGN_IN_CODE_LENGTH}
+          group
+          autoFocus
+          verify={async (otp) => {
+            const [emailPrefix] = email.split("@");
+
+            const { error } = await authClient.signIn.emailOtp({
+              email,
+              name: emailPrefix ?? "User",
+              otp,
+            });
+
+            if (error) {
+              toast.error(codeErrorMessage(error));
+
+              return false;
+            }
+
+            return true;
+          }}
+          onSuccess={() => {
+            if (inOAuthFlow()) {
+              return;
+            }
+
+            void router.navigate({
+              href: safeNextPath(callbackUrl ?? search.nextPath),
+              replace: true,
+            });
+          }}
+        />
+      </Field>
+      <div className="flex justify-between">
+        <Button variant="link" size="sm" type="button" className="px-0" onClick={onBack}>
+          Use a different email
+        </Button>
+        <Button
+          variant="link"
+          size="sm"
+          type="button"
+          className="px-0"
+          loading={resending}
+          onClick={() => {
+            void resend();
+          }}
+        >
+          Resend code
+        </Button>
+      </div>
+    </div>
   );
 };
 
@@ -228,247 +261,26 @@ export const creditCodeCallback = (code?: string) =>
     ? `/settings?code=${encodeURIComponent(code)}#credits`
     : undefined;
 
-export const RegisterForm = ({ className, callbackUrl, ...props }: StepFormProps) => (
-  <div className={cn("grid gap-6", className)} {...props}>
-    <SocialSignIn callbackUrl={callbackUrl} />
-    <CredentialsForm
-      submitLabel="Register"
-      passwordAutoComplete="new-password"
-      callbackUrl={callbackUrl}
-      submit={async (credentials) => {
-        const [emailPrefix] = credentials.email.split("@");
-        let result: SubmitResult = UNREPORTED;
-        await authClient.signUp.email({
-          callbackURL: "/settings#credits",
-          email: credentials.email,
-          fetchOptions: {
-            onError: (ctx) => {
-              result = { message: ctx.error.message, status: "failed" };
-            },
-            onSuccess: () => {
-              result = { status: "ok" };
-            },
-          },
-          name: emailPrefix ?? "User",
-          password: credentials.password,
-        });
-
-        return result;
-      }}
-    />
-  </div>
-);
-
-export const LoginForm = ({ className, callbackUrl, ...props }: StepFormProps) => (
-  <div className={cn("grid gap-6", className)} {...props}>
-    <SocialSignIn callbackUrl={callbackUrl} />
-    <CredentialsForm
-      submitLabel="Login"
-      passwordAutoComplete="current-password"
-      callbackUrl={callbackUrl}
-      submit={async (credentials) => {
-        let result: SubmitResult = UNREPORTED;
-        await authClient.signIn.email({
-          email: credentials.email,
-          fetchOptions: {
-            onError: (ctx) => {
-              result = { message: ctx.error.message, status: "failed" };
-            },
-            onSuccess: () => {
-              result = { status: "ok" };
-            },
-          },
-          password: credentials.password,
-        });
-
-        return result;
-      }}
-    />
-  </div>
-);
-
-export const RequestPasswordResetForm = () => {
-  const form = useForm({
-    defaultValues: {
-      email: "",
-    },
-    resolver: zodResolver(
-      z.object({
-        email: z.email("Invalid email address"),
-      }),
-    ),
-  });
-
-  const handlePasswordReset = form.handleSubmit(async (data) => {
-    await authClient.requestPasswordReset({
-      email: data.email,
-      fetchOptions: {
-        onError: (ctx) => {
-          const message =
-            ctx.error.code === "RESET_PASSWORD_DISABLED"
-              ? "This site can't send email right now, so a password can't be reset by email."
-              : ctx.error.message;
-
-          toast.error(message);
-          form.setError("root", { message });
-        },
-      },
-      redirectTo: "/auth/password-update",
-    });
-  });
-
-  if (form.formState.isSubmitSuccessful) {
-    return (
-      <div className="space-y-4 text-center">
-        <div className="rounded-md bg-green-900/20 p-4">
-          <p className="text-sm text-green-200">
-            If an account uses that address, a reset link is on its way. It expires in an hour.
-          </p>
-        </div>
-      </div>
-    );
-  }
+/** Signs in or up: a social provider, or an email address and the code sent to it. */
+export const AuthForm = ({ className, callbackUrl, ...props }: AuthFormProps) => {
+  const [email, setEmail] = useState<string>();
 
   return (
-    <HydratedForm
-      className="grid gap-4"
-      onSubmit={(event) => {
-        void handlePasswordReset(event);
-      }}
-    >
-      <FieldGroup className="gap-4">
-        <Controller
-          control={form.control}
-          name="email"
-          render={({ field, fieldState }) => (
-            <Field data-invalid={!!fieldState.error} className="gap-1">
-              <FieldLabel className="sr-only" htmlFor="reset-email">
-                Email
-              </FieldLabel>
-              <FieldContent>
-                <Input
-                  id="reset-email"
-                  aria-invalid={!!fieldState.error}
-                  required
-                  type="email"
-                  placeholder="name@example.com"
-                  autoCapitalize="none"
-                  autoComplete="email"
-                  autoCorrect="off"
-                  {...field}
-                />
-              </FieldContent>
-              {fieldState.error && <FieldError>{fieldState.error.message}</FieldError>}
-            </Field>
-          )}
+    <div className={cn("grid gap-6", className)} {...props}>
+      {email === undefined ? (
+        <>
+          <SocialSignIn callbackUrl={callbackUrl} />
+          <EmailStep onSent={setEmail} />
+        </>
+      ) : (
+        <CodeStep
+          email={email}
+          callbackUrl={callbackUrl}
+          onBack={() => {
+            setEmail(undefined);
+          }}
         />
-      </FieldGroup>
-      <Button type="submit" loading={form.formState.isSubmitting}>
-        Request Password Reset
-      </Button>
-    </HydratedForm>
-  );
-};
-
-export const UpdatePasswordForm = ({ token }: { token: string }) => {
-  const updateRouter = useRouter();
-
-  const form = useForm({
-    defaultValues: {
-      confirmPassword: "",
-      password: "",
-    },
-    resolver: zodResolver(
-      z
-        .object({
-          confirmPassword: z.string(),
-          password: z.string().min(8, "Password must be at least 8 characters"),
-        })
-        .refine((data) => data.password === data.confirmPassword, {
-          message: "Passwords don't match",
-          path: ["confirmPassword"],
-        }),
-    ),
-  });
-
-  const handleUpdatePassword = form.handleSubmit(async (data) => {
-    await authClient.resetPassword({
-      fetchOptions: {
-        onError: (ctx) => {
-          toast.error(ctx.error.message);
-        },
-        onSuccess: () => {
-          toast.success("Password updated. Sign in with the new one.");
-          void updateRouter.navigate({ to: "/auth/login" });
-        },
-      },
-      newPassword: data.password,
-      token,
-    });
-  });
-
-  return (
-    <HydratedForm
-      className="grid gap-4"
-      onSubmit={(event) => {
-        void handleUpdatePassword(event);
-      }}
-    >
-      <FieldGroup className="gap-4">
-        <Controller
-          control={form.control}
-          name="password"
-          render={({ field, fieldState }) => (
-            <Field data-invalid={!!fieldState.error} className="gap-1">
-              <FieldLabel className="sr-only" htmlFor="new-password">
-                New Password
-              </FieldLabel>
-              <FieldContent>
-                <Input
-                  id="new-password"
-                  aria-invalid={!!fieldState.error}
-                  required
-                  type="password"
-                  placeholder="Enter new password"
-                  autoCapitalize="none"
-                  autoComplete="new-password"
-                  autoCorrect="off"
-                  {...field}
-                />
-              </FieldContent>
-              {fieldState.error && <FieldError>{fieldState.error.message}</FieldError>}
-            </Field>
-          )}
-        />
-        <Controller
-          control={form.control}
-          name="confirmPassword"
-          render={({ field, fieldState }) => (
-            <Field data-invalid={!!fieldState.error} className="gap-1">
-              <FieldLabel className="sr-only" htmlFor="confirm-password">
-                Confirm New Password
-              </FieldLabel>
-              <FieldContent>
-                <Input
-                  id="confirm-password"
-                  aria-invalid={!!fieldState.error}
-                  required
-                  type="password"
-                  placeholder="Confirm new password"
-                  autoCapitalize="none"
-                  autoComplete="new-password"
-                  autoCorrect="off"
-                  {...field}
-                />
-              </FieldContent>
-              {fieldState.error && <FieldError>{fieldState.error.message}</FieldError>}
-            </Field>
-          )}
-        />
-      </FieldGroup>
-      <Button type="submit" loading={form.formState.isSubmitting}>
-        Update Password
-      </Button>
-    </HydratedForm>
+      )}
+    </div>
   );
 };

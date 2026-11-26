@@ -37,7 +37,7 @@ const sections: Section[] = [
       ),
       ul(
         "**Contact data**, such as your name and email address.",
-        "**Profile data**, such as the password that you set to establish an online account on the Service (we store only a hash of it), the invite code you signed up with if you joined before public launch, and the API keys you create for the CLI and CI and their names (we store only a hash of each key and its first few characters, so you can tell your keys apart).",
+        "**Profile data**, such as the invite code you signed up with if you joined before public launch, and the API keys you create for the CLI and CI and their names (we store only a hash of each key and its first few characters, so you can tell your keys apart).",
         "**Communications data** based on our exchanges with you, including when you email us, contact us through GitHub or social media, or otherwise.",
         "**Transactional data**, such as the history of your generation credit balance: the credits you buy, the codes you redeem, the credits granted to your account and, for each asset-generation request, the model used, the provider’s request identifier, its status and what it cost. This is how we keep your credit balance.",
         "**Payment data**, when you buy credits: Stripe, our payment processor, collects your card details on its own checkout page and we never receive them. We receive the purchase's identifier, amount and status, and Stripe may tell us your email address and billing country.",
@@ -145,6 +145,7 @@ const sections: Section[] = [
         "Account data stays until your account is deleted.",
         "Credit and generation records stay with your account.",
         "Signing out of the web app deletes that session’s record, including its IP address and user agent. A session also expires after at most seven days without use.",
+        "A sign-in or confirmation code expires five minutes after we send it, or after three wrong tries.",
         "The per-IP counters we keep to rate-limit sign-in and other account requests each cover a minute or less, and expired counters are deleted as new requests come in.",
         "Revoking an API key deletes it.",
         "Each game keeps only its current deployment: a new deploy replaces the old files and any source, and deleting a game deletes its files, its source and its records. Players’ browsers may keep copies of the files of games they have played.",
@@ -166,6 +167,7 @@ const sections: Section[] = [
       ul(
         "**Cloudflare**, which hosts the site, the games, the database, file storage and the multiplayer servers.",
         "**AI model providers**, which receive the prompts, inputs and game state described above, and only when you run a command that needs them.",
+        "**Resend**, which delivers the sign-in and confirmation codes we email to your address.",
       ),
       p(
         "**Third parties designated by you.** We may share your personal information with third parties where you have instructed us or provided your consent to do so.",
@@ -231,7 +233,7 @@ const sections: Section[] = [
         "We employ technical, organizational and physical safeguards designed to protect the personal information we collect. However, security risk is inherent in all internet and information technologies and we cannot guarantee the security of your personal information.",
       ),
       p(
-        "For example, we store passwords and API keys only as hashes, keep the sign-in cookie away from the game subdomains, and rate-limit sign-in attempts.",
+        "For example, we sign you in with single-use codes that expire in minutes, store API keys only as hashes, keep the sign-in cookie away from the game subdomains, and rate-limit sign-in attempts.",
       ),
     ],
     heading: H.security,

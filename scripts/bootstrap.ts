@@ -72,8 +72,8 @@ const devServerAnswers = async () => {
 
 const touchDatabase = async () => {
   try {
-    await fetch(`${DEV_URL}/api/auth/sign-in/email`, {
-      body: JSON.stringify({ email: "bootstrap@vibedgames.local", password: "bootstrap" }),
+    await fetch(`${DEV_URL}/api/auth/sign-in/email-otp`, {
+      body: JSON.stringify({ email: "bootstrap@vibedgames.local", otp: "000000" }),
       headers: { "content-type": "application/json", origin: DEV_URL },
       method: "POST",
       signal: AbortSignal.timeout(10_000),
@@ -186,7 +186,9 @@ const main = async () => {
   exec("pnpm db:push");
   ok("schema pushed to the local D1");
   exec("pnpm db:seed-local");
-  ok("seeded user@vibedgames.com and admin@vibedgames.com / password123");
+  ok(
+    "seeded user@vibedgames.com and admin@vibedgames.com (sign in with `pnpm sign-in-code <email>`)",
+  );
 
   console.log(
     `\n  ${styleText("green", "Ready.")} pnpm dev:web, then open ${DEV_URL}/auth/login\n`,

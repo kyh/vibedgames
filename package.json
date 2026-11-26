@@ -12,6 +12,7 @@
     "db:seed-local": "pnpm -F db exec tsx d1-execute.ts --file seed.sql",
     "db:local": "pnpm db:push && pnpm db:seed-local",
     "admin:create": "tsx scripts/create-admin.ts",
+    "sign-in-code": "pnpm --silent -F db exec tsx sign-in-code.ts",
     "bootstrap": "tsx scripts/bootstrap.ts",
     "dogfood": "tsx scripts/dogfood.ts",
     "dogfood:reset": "tsx scripts/dogfood-reset.ts",
