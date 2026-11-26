@@ -17,7 +17,7 @@ export const ProfileSettings = ({ user }: { user: ShellUser }) => {
   const trimmed = name.trim();
   const dirty = trimmed !== "" && trimmed !== user.name;
 
-  const save = async (e: React.FormEvent) => {
+  const save = async (e: React.SubmitEvent<HTMLFormElement>) => {
     e.preventDefault();
 
     if (!dirty) {

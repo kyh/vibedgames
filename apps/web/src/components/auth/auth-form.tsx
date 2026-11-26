@@ -71,7 +71,7 @@ const CredentialsForm = ({
         return;
       }
 
-      router.navigate({ href: safeNextPath(callbackUrl ?? nextPath), replace: true });
+      await router.navigate({ href: safeNextPath(callbackUrl ?? nextPath), replace: true });
 
       return;
     }
@@ -82,7 +82,14 @@ const CredentialsForm = ({
   });
 
   return (
-    <form ref={shakeScope} method="post" className="grid gap-2" onSubmit={handleAuthWithPassword}>
+    <form
+      ref={shakeScope}
+      method="post"
+      className="grid gap-2"
+      onSubmit={(event) => {
+        void handleAuthWithPassword(event);
+      }}
+    >
       <FieldGroup className="gap-2">
         <Controller
           control={form.control}
@@ -176,9 +183,9 @@ const SocialSignIn = ({ callbackUrl }: { callbackUrl?: string }) => {
           variant="outline"
           loading={pending === provider}
           disabled={pending !== null}
-          onClick={async () => {
+          onClick={() => {
             setPending(provider);
-            await authClient.signIn.social({
+            void authClient.signIn.social({
               callbackURL: safeNextPath(callbackUrl ?? search.nextPath),
               errorCallbackURL: `${window.location.pathname}${window.location.search}`,
               fetchOptions: {
@@ -307,7 +314,13 @@ export const RequestPasswordResetForm = () => {
   }
 
   return (
-    <form method="post" className="grid gap-4" onSubmit={handlePasswordReset}>
+    <form
+      method="post"
+      className="grid gap-4"
+      onSubmit={(event) => {
+        void handlePasswordReset(event);
+      }}
+    >
       <FieldGroup className="gap-4">
         <Controller
           control={form.control}
@@ -371,7 +384,7 @@ export const UpdatePasswordForm = ({ token }: { token: string }) => {
         },
         onSuccess: () => {
           toast.success("Password updated. Sign in with the new one.");
-          updateRouter.navigate({ to: "/auth/login" });
+          void updateRouter.navigate({ to: "/auth/login" });
         },
       },
       newPassword: data.password,
@@ -380,7 +393,13 @@ export const UpdatePasswordForm = ({ token }: { token: string }) => {
   });
 
   return (
-    <form method="post" className="grid gap-4" onSubmit={handleUpdatePassword}>
+    <form
+      method="post"
+      className="grid gap-4"
+      onSubmit={(event) => {
+        void handleUpdatePassword(event);
+      }}
+    >
       <FieldGroup className="gap-4">
         <Controller
           control={form.control}

@@ -222,23 +222,18 @@ export const withoutCookies = (headers: Headers) => {
   return bearerOnly;
 };
 
-const readCapped = async (stream: ReadableStream<Uint8Array>, limit: number) => {
-  const reader = stream.getReader();
+const readCapped = async (stream: ReadableStream<unknown>, limit: number) => {
   const chunks: Uint8Array[] = [];
   let size = 0;
 
-  for (;;) {
-    const { done, value } = await reader.read();
-
-    if (done) {
-      break;
+  for await (const value of stream) {
+    if (!(value instanceof Uint8Array)) {
+      return null;
     }
 
     size += value.byteLength;
 
     if (size > limit) {
-      await reader.cancel();
-
       return null;
     }
 

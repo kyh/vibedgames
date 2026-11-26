@@ -99,7 +99,7 @@ describe("serializeJsonLd", () => {
     const payload = "</script><script>alert(1)</script>";
     const serialized = serializeJsonLd({ x: payload });
     assert.doesNotMatch(serialized, /<\/script>/u);
-    assert.equal(JSON.parse(serialized).x, payload);
+    assert.deepEqual(JSON.parse(serialized), { x: payload });
   });
 
   test("the real graph is embeddable without breaking out of the tag", () => {

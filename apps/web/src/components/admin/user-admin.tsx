@@ -66,20 +66,22 @@ export const UserAdmin = () => {
 
   const create = useMutation(
     orpc.admin.users.create.mutationOptions({
-      onSuccess: () => {
-        qc.invalidateQueries({ queryKey: orpc.admin.users.list.queryKey() });
+      onSuccess: async () => {
         setForm(initialForm);
         toast.success("User created");
+
+        await qc.invalidateQueries({ queryKey: orpc.admin.users.list.queryKey() });
       },
     }),
   );
 
   const grant = useMutation(
     orpc.admin.credits.grant.mutationOptions({
-      onSuccess: ({ balanceMicro }) => {
-        qc.invalidateQueries({ queryKey: orpc.admin.credits.balances.queryKey() });
+      onSuccess: async ({ balanceMicro }) => {
         setGrantTarget(null);
         toast.success(`Credits updated — new balance ${formatUsd(balanceMicro)}`);
+
+        await qc.invalidateQueries({ queryKey: orpc.admin.credits.balances.queryKey() });
       },
     }),
   );

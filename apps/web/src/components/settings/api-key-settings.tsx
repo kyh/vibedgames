@@ -42,21 +42,23 @@ export const ApiKeySettings = () => {
 
   const create = useMutation(
     orpc.apiKeys.create.mutationOptions({
-      onSuccess: (data) => {
-        qc.invalidateQueries({ queryKey: orpc.apiKeys.list.queryKey() });
+      onSuccess: async (data) => {
         setNewKey(data.key);
         setName("");
         setExpiresInDays("");
         toast.success("API key created");
+
+        await qc.invalidateQueries({ queryKey: orpc.apiKeys.list.queryKey() });
       },
     }),
   );
 
   const revoke = useMutation(
     orpc.apiKeys.revoke.mutationOptions({
-      onSuccess: () => {
-        qc.invalidateQueries({ queryKey: orpc.apiKeys.list.queryKey() });
+      onSuccess: async () => {
         toast.success("Key revoked");
+
+        await qc.invalidateQueries({ queryKey: orpc.apiKeys.list.queryKey() });
       },
     }),
   );

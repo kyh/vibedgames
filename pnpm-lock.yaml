@@ -604,6 +604,9 @@ importers:
       cf:
         specifier: 'catalog:'
         version: 1.0.0-beta.12(@types/node@26.6.6)
+      playwright-core:
+        specifier: ^1.65.1
+        version: 1.65.1
       tailwindcss:
         specifier: 'catalog:'
         version: 4.3.5

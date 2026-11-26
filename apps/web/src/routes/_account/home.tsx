@@ -71,7 +71,7 @@ const NoGamesYet = () => {
             <button
               type="button"
               onClick={() => {
-                void copy(INSTALL_PROMPT);
+                copy(INSTALL_PROMPT);
               }}
               className="hover:text-foreground cursor-pointer rounded-sm underline underline-offset-2 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-white/30"
             >
@@ -114,9 +114,10 @@ const GamesPage = () => {
 
   const remove = useMutation(
     orpc.deploy.delete.mutationOptions({
-      onSuccess: () => {
-        qc.invalidateQueries({ queryKey: orpc.deploy.list.queryKey() });
+      onSuccess: async () => {
         toast.success("Game deleted");
+
+        await qc.invalidateQueries({ queryKey: orpc.deploy.list.queryKey() });
       },
     }),
   );

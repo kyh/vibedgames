@@ -38,7 +38,7 @@ export interface Skill {
  */
 export type McpContext = ORPCContext & { skills: readonly Skill[]; taskMode?: boolean };
 
-const asTool = <T extends AnyProcedure>(procedure: T, meta: McpToolMeta) =>
+const asTool = (procedure: AnyProcedure, meta: McpToolMeta) =>
   new DecoratedProcedure(procedure["~orpc"]).meta(mcp.tool(meta));
 
 const readOnly = { openWorldHint: false, readOnlyHint: true } as const;

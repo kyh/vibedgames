@@ -1,11 +1,14 @@
-import { execFile } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { mkdir, mkdtemp, rm, stat } from "node:fs/promises";
-import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { promisify } from "node:util";
+import { parseArgs } from "node:util";
+
+import { runInOrder } from "@repo/contract/run-in-order";
+import { chromium } from "playwright-core";
+import type { Browser } from "playwright-core";
 
 import type { Doc } from "@/lib/doc";
 import { featuredGames } from "@/components/game/data";
@@ -19,7 +22,7 @@ import { termsDoc } from "@/content/terms";
 import { PAGE_CARD_PATHS, pageImage, siteVideo } from "@/lib/og-media";
 import { siteConfig } from "@/lib/site-config";
 
-const exec = promisify(execFile);
+const exec = (file: string, args: string[]) => execFileSync(file, args, { encoding: "utf-8" });
 const WEB = path.resolve(import.meta.dirname, "..");
 const ROOT = path.resolve(WEB, "../..");
 const PUBLIC = path.join(WEB, "public");
@@ -40,63 +43,8 @@ const CARD_DOCS: Doc[] = [
   termsDoc,
 ];
 
-type Evaluated = boolean | number | string | null;
-
-interface Page {
-  evaluate: (expression: string) => Promise<Evaluated>;
-  goto: (url: string, options?: { timeout?: number; waitUntil?: string }) => Promise<void>;
-  screenshot: (options: {
-    clip?: { height: number; width: number; x: number; y: number };
-    path: string;
-    quality?: number;
-    type: "jpeg" | "png";
-  }) => Promise<void>;
-  setContent: (html: string, options?: { waitUntil?: string }) => Promise<void>;
-  waitForFunction: (
-    expression: string,
-    arg: undefined,
-    options?: { polling?: number; timeout?: number },
-  ) => Promise<void>;
-}
-
-interface Context {
-  close: () => Promise<void>;
-  newPage: () => Promise<Page>;
-}
-
-interface Browser {
-  close: () => Promise<void>;
-  newContext: (options: {
-    deviceScaleFactor: number;
-    viewport: { height: number; width: number };
-  }) => Promise<Context>;
-}
-
-interface Playwright {
-  chromium: { launch: () => Promise<Browser> };
-}
-
-const loadPlaywright = () => {
-  const candidates: [string, string][] = [
-    [path.join(WEB, "package.json"), "playwright"],
-    [path.join(ROOT, "games/crazy-waymo/package.json"), "playwright-core"],
-  ];
-
-  for (const [from, name] of candidates) {
-    try {
-      const loaded: Playwright = createRequire(from)(name);
-
-      return loaded;
-    } catch {
-      continue;
-    }
-  }
-
-  throw new Error("og-video: no playwright or playwright-core to drive Chromium with");
-};
-
-const ffprobe = async (file: string) => {
-  const { stdout } = await exec("ffprobe", [
+const ffprobe = (file: string) => {
+  const stdout = exec("ffprobe", [
     "-v",
     "error",
     "-select_streams",
@@ -166,14 +114,17 @@ const captureVideo = async (browser: Browser) => {
       );
     }
 
-    for (let frame = 0; frame < frameCount; frame += 1) {
-      await page.evaluate(`window.__render(${(frame * 1000) / FPS})`);
-      await page.screenshot({ path: path.join(scratch, frameName(frame)), type: "png" });
-    }
+    await runInOrder(
+      Array.from({ length: frameCount }, (_, frame) => frame),
+      async (frame) => {
+        await page.evaluate(`window.__render(${(frame * 1000) / FPS})`);
+        await page.screenshot({ path: path.join(scratch, frameName(frame)), type: "png" });
+      },
+    );
 
     const out = path.join(PUBLIC, siteVideo.path);
     await mkdir(path.dirname(out), { recursive: true });
-    await exec("ffmpeg", [
+    exec("ffmpeg", [
       "-y",
       "-loglevel",
       "error",
@@ -201,7 +152,7 @@ const captureVideo = async (browser: Browser) => {
     const still = path.join(scratch, "still.png");
     await page.evaluate("window.__still()");
     await page.screenshot({ path: still, type: "png" });
-    await exec("ffmpeg", [
+    exec("ffmpeg", [
       "-y",
       "-loglevel",
       "error",
@@ -214,7 +165,7 @@ const captureVideo = async (browser: Browser) => {
       path.join(PUBLIC, siteVideo.poster),
     ]);
     const { size } = await stat(out);
-    console.log(`og-video: ${path.relative(ROOT, out)} — ${await ffprobe(out)}`);
+    console.log(`og-video: ${path.relative(ROOT, out)} — ${ffprobe(out)}`);
 
     if (size > 2.5 * 1024 * 1024) {
       throw new Error(`og-video: ${size} bytes is over the 2.5 MB budget; raise -crf`);
@@ -274,7 +225,7 @@ const renderCards = async (browser: Browser) => {
   try {
     const page = await context.newPage();
 
-    for (const cardPath of PAGE_CARD_PATHS) {
+    await runInOrder(PAGE_CARD_PATHS, async (cardPath) => {
       const doc = CARD_DOCS.find((candidate) => candidate.path === cardPath);
 
       if (!doc) {
@@ -286,20 +237,16 @@ const renderCards = async (browser: Browser) => {
       await page.setContent(cardHtml(doc), { waitUntil: "load" });
       await page.screenshot({ path: out, quality: 86, type: "jpeg" });
       console.log(`og-video: ${path.relative(ROOT, out)}`);
-    }
+    });
   } finally {
     await context.close();
   }
 };
 
-const only = (() => {
-  const at = process.argv.indexOf("--only");
-
-  return at === -1 ? null : process.argv[at + 1];
-})();
+const { only } = parseArgs({ options: { only: { type: "string" } } }).values;
 
 const main = async () => {
-  const browser = await loadPlaywright().chromium.launch();
+  const browser = await chromium.launch();
 
   try {
     if (only !== "cards") {

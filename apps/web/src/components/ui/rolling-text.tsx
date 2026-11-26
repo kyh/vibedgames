@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { animate, AnimatePresence, motion, useMotionValue, useReducedMotion } from "motion/react";
-import type { TargetAndTransition } from "motion/react";
+import type { MotionValue, TargetAndTransition, ValueAnimationTransition } from "motion/react";
 import { cn } from "cn";
 
 const NBSP = "\u00A0";
@@ -12,6 +12,20 @@ const wobble = (i: number, salt: number) => {
   const n = Math.sin((i + 1) * 12.9898 + salt * 78.233) * 43_758.5453;
 
   return (n - Math.floor(n)) * 2 - 1;
+};
+
+const settleWidth = (
+  width: MotionValue<number | "auto">,
+  target: number,
+  transition: ValueAnimationTransition<number | "auto">,
+) => {
+  if (width.get() === "auto") {
+    width.set(target);
+
+    return null;
+  }
+
+  return animate(width, target, transition);
 };
 
 const measureChar = (els: Map<string, HTMLSpanElement>, char: string) => {
@@ -127,46 +141,36 @@ const RollingColumn = ({
   useEffect(() => {
     const target = measureChar(candidateEls.current, char);
 
-    if (target === null) {
-      return;
-    }
-
-    if (width.get() === "auto") {
-      width.set(target);
-
-      return;
-    }
-
-    const controls = animate(width, target, {
-      delay: delay + exitOffset,
-      duration,
-      ease: "easeOut",
-    });
+    const controls =
+      target === null
+        ? null
+        : settleWidth(width, target, { delay: delay + exitOffset, duration, ease: "easeOut" });
 
     return () => {
-      controls.stop();
+      controls?.stop();
     };
   }, [char, width, delay, exitOffset, duration]);
 
   useEffect(() => {
     const sizer = sizerRef.current;
 
-    if (!sizer || !("ResizeObserver" in window)) {
-      return;
+    const observer =
+      "ResizeObserver" in window
+        ? new ResizeObserver(() => {
+            const target = measureChar(candidateEls.current, char);
+
+            if (target !== null) {
+              width.set(target);
+            }
+          })
+        : null;
+
+    if (sizer) {
+      observer?.observe(sizer);
     }
 
-    const observer = new ResizeObserver(() => {
-      const target = measureChar(candidateEls.current, char);
-
-      if (target !== null) {
-        width.set(target);
-      }
-    });
-
-    observer.observe(sizer);
-
     return () => {
-      observer.disconnect();
+      observer?.disconnect();
     };
   }, [char, width]);
 
@@ -268,13 +272,12 @@ export const RollingText = ({
   const reduceMotion = useReducedMotion();
 
   useEffect(() => {
-    if (reduceMotion === true || words.length <= 1) {
-      return;
-    }
-
-    const id = setInterval(() => {
-      setIndex((i) => (i + 1) % words.length);
-    }, interval);
+    const id =
+      reduceMotion === true || words.length <= 1
+        ? undefined
+        : setInterval(() => {
+            setIndex((i) => (i + 1) % words.length);
+          }, interval);
 
     return () => {
       clearInterval(id);
@@ -349,28 +352,14 @@ export const RollingLabel = ({ words, index, fluid = true, className }: RollingL
   const width = useMotionValue<number | "auto">("auto");
 
   useEffect(() => {
-    if (!fluid) {
-      return;
-    }
+    const el = fluid ? sizerRef.current : null;
 
-    const el = sizerRef.current;
-
-    if (!el) {
-      return;
-    }
-
-    const target = el.getBoundingClientRect().width;
-
-    if (width.get() === "auto") {
-      width.set(target);
-
-      return;
-    }
-
-    const controls = animate(width, target, { duration: 0.3, ease: "easeOut" });
+    const controls = el
+      ? settleWidth(width, el.getBoundingClientRect().width, { duration: 0.3, ease: "easeOut" })
+      : null;
 
     return () => {
-      controls.stop();
+      controls?.stop();
     };
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- `label` is the trigger, not a value read: a new label is what changes the sizer's width, and the effect measures the DOM afterwards
   }, [fluid, label, width]);

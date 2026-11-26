@@ -1,10 +1,11 @@
 import { z } from "zod";
-import { createFileRoute, redirect } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import { APIError } from "better-auth/api";
 
 import { getServerContext } from "@/auth/server";
+import { leaveFor, signInHref } from "@/lib/leave-for";
 import { DeviceApproval } from "@/components/oauth/device-approval";
 
 const deviceSearchSchema = z.object({ user_code: z.string().optional() });
@@ -25,7 +26,7 @@ const fetchDeviceRequest = createServerFn({ method: "GET" })
 
     if (!session) {
       const back = userCode ? `/device?user_code=${userCode}` : "/device";
-      throw redirect({ search: { callbackUrl: back }, to: "/auth/login" });
+      leaveFor(signInHref(back));
     }
 
     if (!userCode) {

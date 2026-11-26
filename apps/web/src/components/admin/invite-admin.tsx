@@ -80,9 +80,10 @@ export const InviteAdmin = () => {
 
   const create = useMutation(
     orpc.auth.createInvites.mutationOptions({
-      onSuccess: () => {
-        qc.invalidateQueries({ queryKey: orpc.auth.listInvites.queryKey() });
+      onSuccess: async () => {
         toast.success("Credit codes created");
+
+        await qc.invalidateQueries({ queryKey: orpc.auth.listInvites.queryKey() });
       },
     }),
   );
@@ -97,13 +98,17 @@ export const InviteAdmin = () => {
 
   const update = useMutation(
     orpc.auth.updateInvite.mutationOptions({
-      onSuccess: (_data, variables) => {
-        qc.invalidateQueries({ queryKey: orpc.auth.listInvites.queryKey() });
+      onSuccess: async (_data, variables) => {
         toast.success(updateToast(variables.revoked));
         setEditing(null);
+
+        await qc.invalidateQueries({ queryKey: orpc.auth.listInvites.queryKey() });
       },
     }),
   );
+
+  const updatingRow = (id: string) =>
+    update.isPending && update.variables?.id === id ? update.variables : undefined;
 
   const trimmedCustomCode = customCode.trim();
 
@@ -289,11 +294,7 @@ export const InviteAdmin = () => {
                           type="submit"
                           variant="ghost"
                           size="sm"
-                          loading={
-                            update.isPending &&
-                            update.variables?.id === row.id &&
-                            update.variables?.maxUses !== undefined
-                          }
+                          loading={updatingRow(row.id)?.maxUses !== undefined}
                         >
                           Save
                         </Button>
@@ -347,11 +348,7 @@ export const InviteAdmin = () => {
                           type="button"
                           variant="ghost"
                           size="sm"
-                          loading={
-                            update.isPending &&
-                            update.variables?.id === row.id &&
-                            update.variables?.revoked === true
-                          }
+                          loading={updatingRow(row.id)?.revoked === true}
                           onClick={() => {
                             update.mutate({ id: row.id, revoked: true });
                           }}
@@ -364,11 +361,7 @@ export const InviteAdmin = () => {
                           type="button"
                           variant="ghost"
                           size="sm"
-                          loading={
-                            update.isPending &&
-                            update.variables?.id === row.id &&
-                            update.variables?.revoked === false
-                          }
+                          loading={updatingRow(row.id)?.revoked === false}
                           onClick={() => {
                             update.mutate({ id: row.id, revoked: false });
                           }}

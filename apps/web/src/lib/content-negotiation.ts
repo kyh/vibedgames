@@ -178,16 +178,29 @@ export const prefersMarkdown = (request: Request) => {
   return result.kind === "match" && result.type === MARKDOWN;
 };
 
+/** Response headers: `defaults`, each overridden by the same header in `overrides`. */
+export const mergeHeaders = (defaults: Record<string, string>, overrides?: HeadersInit) => {
+  const headers = new Headers(defaults);
+
+  for (const [key, value] of new Headers(overrides)) {
+    headers.set(key, value);
+  }
+
+  return headers;
+};
+
 export const markdownResponse = (body: string, init: ResponseInit = {}) =>
   new Response(body, {
     status: 200,
     ...init,
-    headers: {
-      "Cache-Control": "public, max-age=300",
-      "Content-Type": "text/markdown; charset=utf-8",
-      Vary: VARY,
-      ...init.headers,
-    },
+    headers: mergeHeaders(
+      {
+        "Cache-Control": "public, max-age=300",
+        "Content-Type": "text/markdown; charset=utf-8",
+        Vary: VARY,
+      },
+      init.headers,
+    ),
   });
 
 /**

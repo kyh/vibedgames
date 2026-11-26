@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
-import { describe, test } from "node:test";
+import { after, describe, test } from "node:test";
+import { startD1 } from "@repo/service/d1.test-utils";
 import type { ContractClient } from "@repo/contract";
 import type { ORPCContext } from "@repo/service/orpc";
 import { CLI_VERSION_HEADER } from "@repo/contract/cli";
 import { createAuth } from "@repo/service/identity/auth";
-import { createDb } from "@repo/db/drizzle-client";
 import { MAX_RPC_BODY_BYTES } from "@repo/service/generate/limits";
 import { createORPCClient, ORPCError, safe } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
@@ -14,17 +14,9 @@ import { BatchLinkPlugin } from "@orpc/client/plugins";
 import { apiNotFound } from "./json-error";
 import { handleRestRequest, handleRpcRequest } from "./orpc-handler";
 
-const unavailable = (): never => {
-  throw new Error("the database is not reachable in this test");
-};
+const { close, db } = await startD1();
 
-const db = createDb({
-  batch: unavailable,
-  dump: unavailable,
-  exec: unavailable,
-  prepare: unavailable,
-  withSession: unavailable,
-});
+after(close);
 
 const auth = createAuth({
   baseURL: "http://localhost:3000",
@@ -160,7 +152,7 @@ describe("rpc endpoint", () => {
 
     assert.strictEqual(roundTrips, 1);
     assert.deepStrictEqual(
-      results.map(([error]) => (error instanceof ORPCError ? error.code : error)),
+      results.map(([error]) => (error instanceof ORPCError ? String(error.code) : error)),
       ["UNAUTHORIZED", "UNAUTHORIZED"],
     );
   });

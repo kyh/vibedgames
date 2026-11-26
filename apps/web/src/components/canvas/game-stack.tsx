@@ -182,7 +182,9 @@ const GameCard = ({
         dragSnapToOrigin
         dragElastic={0.4}
         dragMomentum={false}
-        onPointerDownCapture={() => (swipedRef.current = false)}
+        onPointerDownCapture={() => {
+          swipedRef.current = false;
+        }}
         onDragEnd={handleDragEnd}
       >
         {children}

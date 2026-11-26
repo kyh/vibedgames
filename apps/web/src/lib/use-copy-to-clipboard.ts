@@ -18,8 +18,8 @@ export const useCopyToClipboard = () => {
     [],
   );
 
-  const copy = useCallback(async (text: string) => {
-    try {
+  const copy = useCallback((text: string) => {
+    const write = async () => {
       await navigator.clipboard.writeText(text);
       setCopied(true);
       toast.success(SUCCESS_TOAST);
@@ -31,9 +31,11 @@ export const useCopyToClipboard = () => {
       timerRef.current = setTimeout(() => {
         setCopied(false);
       }, RESET_MS);
-    } catch {
+    };
+
+    write().catch(() => {
       toast.error(ERROR_TOAST);
-    }
+    });
   }, []);
 
   return { copied, copy };

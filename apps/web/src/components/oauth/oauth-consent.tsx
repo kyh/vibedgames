@@ -72,8 +72,8 @@ export const OAuthConsent = ({
           variant="outline"
           loading={pending === "deny"}
           disabled={pending !== null}
-          onClick={async () => {
-            await answer(false);
+          onClick={() => {
+            void answer(false);
           }}
         >
           Deny
@@ -82,8 +82,8 @@ export const OAuthConsent = ({
           type="button"
           loading={pending === "allow"}
           disabled={pending !== null}
-          onClick={async () => {
-            await answer(true);
+          onClick={() => {
+            void answer(true);
           }}
         >
           Allow

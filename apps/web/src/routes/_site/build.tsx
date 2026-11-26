@@ -30,8 +30,8 @@ const InstallPrompt = () => {
       </FadeInBlur>
       <FadeInBlur>
         <Button
-          onClick={async () => {
-            await copy(INSTALL_PROMPT);
+          onClick={() => {
+            copy(INSTALL_PROMPT);
           }}
           aria-label="Copy prompt to install"
         >

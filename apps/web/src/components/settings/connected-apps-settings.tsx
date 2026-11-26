@@ -35,9 +35,10 @@ export const ConnectedAppsSettings = () => {
 
   const revoke = useMutation(
     orpc.connectedApps.revoke.mutationOptions({
-      onSuccess: () => {
-        qc.invalidateQueries({ queryKey: orpc.connectedApps.list.queryKey() });
+      onSuccess: async () => {
         toast.success("App disconnected");
+
+        await qc.invalidateQueries({ queryKey: orpc.connectedApps.list.queryKey() });
       },
     }),
   );

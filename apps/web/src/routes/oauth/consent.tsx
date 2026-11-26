@@ -1,9 +1,10 @@
 import { z } from "zod";
-import { createFileRoute, redirect } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 
 import { getServerContext } from "@/auth/server";
+import { leaveFor } from "@/lib/leave-for";
 import { OAuthConsent } from "@/components/oauth/oauth-consent";
 
 const consentSearchSchema = z.looseObject({
@@ -21,7 +22,7 @@ const fetchConsent = createServerFn({ method: "GET" })
     const session = await auth.api.getSession({ headers });
 
     if (!session) {
-      throw redirect({ href: `/auth/login${search}` });
+      leaveFor(`/auth/login${search}`);
     }
 
     if (clientId === null || clientId === "") {

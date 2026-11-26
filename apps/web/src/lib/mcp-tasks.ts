@@ -1,6 +1,10 @@
 import type { JsonValue } from "@repo/contract/json";
-import type { McpServer } from "@modelcontextprotocol/server";
-import { MissingRequiredClientCapabilityError, ProtocolError } from "@modelcontextprotocol/server";
+import type { McpServer, ServerContext } from "@modelcontextprotocol/server";
+import {
+  CLIENT_CAPABILITIES_META_KEY,
+  MissingRequiredClientCapabilityError,
+  ProtocolError,
+} from "@modelcontextprotocol/server";
 import { TERMINAL_STATUSES } from "@repo/contract/generate/queue-path";
 import { appRouter } from "@repo/service";
 import { call } from "@orpc/server";
@@ -31,8 +35,10 @@ const TTL_MS = 24 * 60 * 60 * 1000;
 const POLL_INTERVAL_MS = 3000;
 const PREFIX = "vgt";
 
-const clientExtensions = z.looseObject({
-  extensions: z.looseObject({ [TASKS_EXTENSION]: z.looseObject({}) }),
+const declaresTasks = z.looseObject({
+  [CLIENT_CAPABILITIES_META_KEY]: z.looseObject({
+    extensions: z.looseObject({ [TASKS_EXTENSION]: z.looseObject({}) }),
+  }),
 });
 
 const taskRef = z.object({
@@ -249,8 +255,8 @@ const taskParams = z.looseObject({ taskId: z.string() });
 export const registerTasks = (server: McpServer, context: McpContext) => {
   server.server.registerCapabilities({ extensions: { [TASKS_EXTENSION]: {} } });
 
-  const resolve = async (params: z.infer<typeof taskParams>) => {
-    if (!clientExtensions.safeParse(server.server.getClientCapabilities()).success) {
+  const resolve = async (params: z.infer<typeof taskParams>, ctx: ServerContext) => {
+    if (!declaresTasks.safeParse(ctx.mcpReq.envelope).success) {
       throw new MissingRequiredClientCapabilityError({
         requiredCapabilities: { extensions: { [TASKS_EXTENSION]: {} } },
       });
@@ -268,8 +274,8 @@ export const registerTasks = (server: McpServer, context: McpContext) => {
     return ref;
   };
 
-  server.server.setRequestHandler("tasks/get", { params: taskParams }, async (params) => {
-    const ref = await resolve(params);
+  server.server.setRequestHandler("tasks/get", { params: taskParams }, async (params, ctx) => {
+    const ref = await resolve(params, ctx);
     const status = await queueStatus(context, ref);
 
     if (status === "CANCELLED") {
@@ -295,14 +301,14 @@ export const registerTasks = (server: McpServer, context: McpContext) => {
     };
   });
 
-  server.server.setRequestHandler("tasks/update", { params: taskParams }, async (params) => {
-    await resolve(params);
+  server.server.setRequestHandler("tasks/update", { params: taskParams }, async (params, ctx) => {
+    await resolve(params, ctx);
 
     return {};
   });
 
-  server.server.setRequestHandler("tasks/cancel", { params: taskParams }, async (params) => {
-    const ref = await resolve(params);
+  server.server.setRequestHandler("tasks/cancel", { params: taskParams }, async (params, ctx) => {
+    const ref = await resolve(params, ctx);
 
     await follow(context, ref, "cancel").catch(() => null);
 

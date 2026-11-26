@@ -1,8 +1,9 @@
-import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";
+import { createFileRoute, Outlet } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 
 import { getServerContext } from "@/auth/server";
+import { leaveFor, signInHref } from "@/lib/leave-for";
 import { AccountShell } from "@/components/account/account-shell";
 
 const requireAuth = createServerFn({ method: "GET" })
@@ -13,7 +14,7 @@ const requireAuth = createServerFn({ method: "GET" })
     const session = await auth.api.getSession({ headers });
 
     if (!session) {
-      throw redirect({ search: { callbackUrl: redirectTo }, to: "/auth/login" });
+      leaveFor(signInHref(redirectTo));
     }
 
     return {

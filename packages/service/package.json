@@ -12,7 +12,8 @@
     "./storage/signed-urls": "./src/storage/signed-urls.ts",
     "./generate/limits": "./src/generate/limits.ts",
     "./orpc": "./src/orpc.ts",
-    "./playtest/decide-handler": "./src/playtest/decide-handler.ts"
+    "./playtest/decide-handler": "./src/playtest/decide-handler.ts",
+    "./d1.test-utils": "./src/d1.test-utils.ts"
   },
   "scripts": {
     "clean": "rm -rf .cache .turbo dist node_modules",

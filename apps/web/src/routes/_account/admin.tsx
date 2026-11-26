@@ -12,7 +12,7 @@ const requireAdmin = createServerFn({ method: "GET" }).handler(async () => {
   const session = await auth.api.getSession({ headers });
 
   if (session?.user.role !== "admin") {
-    throw redirect({ to: "/home" });
+    redirect({ throw: true, to: "/home" });
   }
 });
 

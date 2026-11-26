@@ -70,12 +70,10 @@ export const getServerContext = () => {
   const isLocalhost = hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]";
   const forwardedProto = headers.get("x-forwarded-proto")?.split(",")[0]?.trim();
 
+  const fallbackProtocol = isLocalhost ? "http" : "https";
+
   const protocol =
-    forwardedProto === undefined || forwardedProto === ""
-      ? isLocalhost
-        ? "http"
-        : "https"
-      : forwardedProto;
+    forwardedProto === undefined || forwardedProto === "" ? fallbackProtocol : forwardedProto;
 
   const baseUrl = host !== null && host !== "" ? `${protocol}://${host}` : "http://localhost:3000";
 
@@ -83,7 +81,7 @@ export const getServerContext = () => {
 
   const auth = authFor(env, db, baseUrl, productionUrl, mailerFor(env, isLocalhost));
 
-  const r2: R2Config | undefined = env.GAMES_BUCKET ? { bucket: env.GAMES_BUCKET } : undefined;
+  const r2: R2Config = { bucket: env.GAMES_BUCKET };
 
   const signing: UrlSigning | undefined = env.BETTER_AUTH_SECRET
     ? { baseUrl, secret: env.BETTER_AUTH_SECRET }

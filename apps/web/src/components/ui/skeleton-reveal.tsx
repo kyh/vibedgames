@@ -62,24 +62,21 @@ export const SkeletonReveal = ({
   useEffect(() => {
     if (!ready) {
       progress.set(-100);
-
-      return;
     }
 
-    if (retired) {
-      return;
-    }
-
-    const controls = animate(progress, 100, {
-      duration: WIPE_DURATION,
-      ease: "easeInOut",
-      onComplete: () => {
-        setWipeDone(true);
-      },
-    });
+    const controls =
+      ready && !retired
+        ? animate(progress, 100, {
+            duration: WIPE_DURATION,
+            ease: "easeInOut",
+            onComplete: () => {
+              setWipeDone(true);
+            },
+          })
+        : null;
 
     return () => {
-      controls.stop();
+      controls?.stop();
     };
   }, [ready, retired, progress]);
 

@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { describe, test } from "node:test";
+import { after, describe, test } from "node:test";
+import { startD1 } from "@repo/service/d1.test-utils";
 import type { JsonValue } from "@repo/contract/json";
 import { getRequiredScope } from "@repo/contract/base";
 import type { ORPCContext } from "@repo/service/orpc";
 import { createAuth } from "@repo/service/identity/auth";
-import { createDb } from "@repo/db/drizzle-client";
 import { MAX_RPC_BODY_BYTES } from "@repo/service/generate/limits";
 import { z } from "zod";
 
@@ -13,17 +13,9 @@ import { handleMcpRequest } from "./mcp";
 import type { Skill } from "./mcp-tools";
 import { MEDIA_MODELS, tools as mcpTools } from "./mcp-tools";
 
-const unavailable = (): never => {
-  throw new Error("the database is not reachable in this test");
-};
+const { close, db } = await startD1();
 
-const db = createDb({
-  batch: unavailable,
-  dump: unavailable,
-  exec: unavailable,
-  prepare: unavailable,
-  withSession: unavailable,
-});
+after(close);
 
 const auth = createAuth({ baseURL: "http://localhost:3000", db, secret: "test-secret" });
 
@@ -265,7 +257,7 @@ describe("mcp endpoint", () => {
       "io.modelcontextprotocol/skills": {},
       "io.modelcontextprotocol/tasks": {},
     });
-    assert.ok(result.capabilities.resources);
+    assert.ok(result.capabilities.resources !== undefined);
   });
 
   test("lists every skill with each of its files' digest and size", async () => {
@@ -356,10 +348,15 @@ describe("mcp endpoint", () => {
     const table = skill.split("## Defaults")[1]?.split("\n## ")[0] ?? "";
 
     const named = [...table.matchAll(/^\|[^|]+\|\s*`(?<id>[^`]+)`\s*\|$/gmu)].map(
-      (match) => match.groups?.id,
+      (match) => match.groups?.id ?? "",
     );
 
-    assert.deepStrictEqual(named.toSorted(), Object.values(MEDIA_MODELS).flat().toSorted());
+    assert.deepStrictEqual(
+      named.toSorted((a, b) => a.localeCompare(b)),
+      Object.values(MEDIA_MODELS)
+        .flat()
+        .toSorted((a, b) => a.localeCompare(b)),
+    );
   });
 
   test("never names the media provider in what an agent reads", async () => {
@@ -525,14 +522,19 @@ describe("mcp endpoint", () => {
   });
 
   test("answers every method but POST with 405", async () => {
-    for (const method of ["GET", "DELETE"]) {
-      const response = await handleMcpRequest(
-        new Request("https://vibedgames.com/mcp", { method }),
-        contextWith(signedIn),
-        skills,
-      );
+    const responses = await Promise.all(
+      ["GET", "DELETE"].map(
+        async (method) =>
+          await handleMcpRequest(
+            new Request("https://vibedgames.com/mcp", { method }),
+            contextWith(signedIn),
+            skills,
+          ),
+      ),
+    );
 
-      assert.strictEqual(response.status, 405, method);
+    for (const response of responses) {
+      assert.strictEqual(response.status, 405);
       assert.strictEqual(response.headers.get("allow"), "POST");
     }
   });
