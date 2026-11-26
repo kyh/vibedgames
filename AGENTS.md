@@ -140,6 +140,8 @@ Six flows cover all ten `useMutation` sites in the app: `/settings` (create + re
 | Example games | `pnpm dev:<game>`             | per-game vite port         | **Yes** — `vg playtest`; see the `playtest` skill    |
 | Factory       | `pnpm -F @repo/factory start` | terminal                   | No — interactive Ink app                             |
 
+`dev:party` pins its inspector to `:9230`, so it runs beside `dev:games` or `dev:web`, which both take the default `:9229` first.
+
 For the surfaces marked No, `pnpm typecheck` and `pnpm build` are the gate; a real check needs a human. Games are agent-verifiable for _correctness_ (loop alive, input alive, objective reachable, no errors) — whether one is **fun** still needs a human, and headless frame rates are meaningless.
 
 `pnpm dogfood` builds and `npm link`s the local CLI and re-syncs `.claude/skills/` against `plugins/*/skills/*`. The symlinks are committed, so a fresh clone already resolves skills — only the link step is per-machine. `pnpm dogfood:reset` undoes it.
