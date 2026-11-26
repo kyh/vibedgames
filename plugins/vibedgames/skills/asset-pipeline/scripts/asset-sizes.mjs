@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-// @ts-check
 import { existsSync } from "node:fs";
 
 import {

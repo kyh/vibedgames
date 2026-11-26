@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-// @ts-check
 
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";

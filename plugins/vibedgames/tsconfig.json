@@ -1,11 +1,7 @@
 {
   "compilerOptions": {
     "target": "ES2024",
-    "lib": [
-      "ES2024",
-      "DOM",
-      "DOM.Iterable"
-    ],
+    "lib": ["ES2024", "DOM", "DOM.Iterable"],
     "module": "Preserve",
     "moduleResolution": "Bundler",
     "allowJs": true,
@@ -14,25 +10,13 @@
     "noUncheckedIndexedAccess": true,
     "noEmit": true,
     "skipLibCheck": true,
-    "types": [
-      "node"
-    ],
+    "types": ["node"],
     "paths": {
-      "playwright": [
-        "../../node_modules/playwright-core"
-      ],
-      "@repo/asset-tools": [
-        "../../packages/asset-tools/src/index.ts"
-      ]
+      "playwright": ["../../node_modules/playwright-core"],
+      "@repo/asset-tools": ["../../packages/asset-tools/src/index.ts"]
     },
     "allowImportingTsExtensions": true
   },
-  "include": [
-    "skills/**/*.mjs",
-    "skills/**/*.ts",
-    "types/**/*.d.ts"
-  ],
-  "exclude": [
-    "skills/**/_lib/**"
-  ]
+  "include": ["skills/**/*.mjs", "skills/**/*.ts", "types/**/*.d.ts"],
+  "exclude": ["skills/**/_lib/**"]
 }

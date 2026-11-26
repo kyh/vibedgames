@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-// @ts-check
 import { readFileSync } from "node:fs";
 
 import {

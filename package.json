@@ -36,7 +36,7 @@
     "dev:cli": "turbo watch dev -F vibedgames...",
     "lint": "oxlint --report-unused-disable-directives",
     "r2:lifecycle": "pnpm -C apps/web exec wrangler r2 bucket lifecycle set vibedgames-games --file ./infra/r2/vibedgames-games.lifecycle.json --force",
-    "typecheck": "tsc --noEmit && turbo run typecheck",
+    "typecheck": "tsc --noEmit && tsc -p plugins/vibedgames && turbo run typecheck",
     "test": "turbo run test",
     "format": "oxfmt --check",
     "lint:fix": "oxlint --fix",

@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-// @ts-check
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
