@@ -43,9 +43,10 @@ export const buildMineWorld = (
       return;
     }
 
-    const tiles = map.createLayer(0, atlas, 0, 0);
+    const tiles: Phaser.Tilemaps.TilemapLayer | Phaser.Tilemaps.TilemapGPULayer | null =
+      map.createLayer(0, atlas, 0, 0);
 
-    if (!tiles) {
+    if (tiles === null) {
       map.destroy();
 
       return;

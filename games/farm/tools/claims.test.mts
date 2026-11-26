@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { MAX_CLAIM_KEY_LENGTH } from "@vibedgames/multiplayer";
+import { MAX_CLAIM_KEY_LENGTH, parseJson } from "@vibedgames/multiplayer";
 import { FARM_SEED } from "../src/config";
 import { CROPS } from "../src/data/crops";
 import type { Item } from "../src/data/items";
@@ -18,7 +18,7 @@ import type { World } from "../src/world/world";
 import { parseWorldMap } from "../src/world/worldmap";
 
 const map = parseWorldMap(
-  JSON.parse(readFileSync(new URL("../public/assets/map.json", import.meta.url), "utf-8")),
+  parseJson(readFileSync(new URL("../public/assets/map.json", import.meta.url), "utf-8")),
 );
 
 const partyServer = () => {
@@ -76,7 +76,9 @@ const farmer = (server: Server, playerId: string, world: World) => {
   const outbox: { key: string; ttlMs?: number }[] = [];
 
   const net: ClaimNet & { playerId: string } = {
-    claim: (key, options) => outbox.push({ key, ttlMs: options?.ttlMs }),
+    claim: (key, options) => {
+      outbox.push({ key, ttlMs: options?.ttlMs });
+    },
     ownerOf: (key) => claims.get(key) ?? null,
     playerId,
   };
@@ -140,7 +142,11 @@ const harvest = (f: Farmer, idx: number) => {
   f.world.crops.delete(idx);
   f.world.watered[idx] = 0;
   f.bag.add(parsnip, 1);
-  ticket.land({ lost: () => f.bag.remove(parsnip, 1) });
+  ticket.land({
+    lost: () => {
+      f.bag.remove(parsnip, 1);
+    },
+  });
 
   return ticket;
 };
@@ -332,7 +338,11 @@ test("a swing holds a tree for its farmer until the hold lapses", () => {
   });
   assert.equal(raced.lostTo, "a");
   let undone = false;
-  raced.land({ lost: () => (undone = true) });
+  raced.land({
+    lost: () => {
+      undone = true;
+    },
+  });
   assert.ok(undone, "an effect landing after the refusal is undone at once");
 
   server.advance(WORK_HOLD_MS);
@@ -346,7 +356,11 @@ test("a reconnect's claims settle by the room's sync, never by a stale player id
   const key = claimKey(EPOCH, { id: 5, kind: "clear" });
   const ticket = guest.book.ask(guest.net, key);
   let gaveBack = false;
-  ticket.land({ lost: () => (gaveBack = true) });
+  ticket.land({
+    lost: () => {
+      gaveBack = true;
+    },
+  });
   server.claim("new-id", key);
   guest.read();
   assert.equal(ticket.lostTo, null, "unheard while connecting");

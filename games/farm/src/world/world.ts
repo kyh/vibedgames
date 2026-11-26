@@ -5,6 +5,8 @@ import type { CropId } from "../data/crops";
 import { CELL, buildSemantics } from "./worldmap";
 import type { Cell, WorldMap } from "./worldmap";
 
+const isCell = (v: number): v is Cell => Number.isInteger(v) && v >= CELL.void && v <= CELL.solid;
+
 export const GROUND = { grass: 0, sand: 2, water: 1 } as const;
 
 export type Ground = (typeof GROUND)[keyof typeof GROUND];
@@ -89,11 +91,13 @@ export class World {
   cellKind(tx: number, ty: number) {
     const v = this.kind[tileIdx(tx, ty)] ?? CELL.void;
 
-    return v as Cell;
+    return isCell(v) ? v : CELL.void;
   }
 
   getGround(tx: number, ty: number) {
-    switch (this.cellKind(tx, ty)) {
+    const kind = this.cellKind(tx, ty);
+
+    switch (kind) {
       case CELL.grass: {
         return GROUND.grass;
       }
@@ -103,8 +107,15 @@ export class World {
         return GROUND.water;
       }
 
-      default: {
+      case CELL.sand:
+      case CELL.dirt:
+      case CELL.solid: {
         return GROUND.sand;
+      }
+
+      default: {
+        const unhandled: never = kind;
+        throw new Error("unhandled case", { cause: unhandled });
       }
     }
   }

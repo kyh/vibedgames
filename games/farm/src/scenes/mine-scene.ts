@@ -176,7 +176,10 @@ export class MineScene extends Scene {
       this.scale.off("resize", this.onResizeHandler);
     }
 
-    this.onResizeHandler = () => cam.setZoom(this.baseZoom());
+    this.onResizeHandler = () => {
+      cam.setZoom(this.baseZoom());
+    };
+
     this.scale.on("resize", this.onResizeHandler);
     this.events.once(Scenes.Events.SHUTDOWN, () => {
       if (this.onResizeHandler) {
@@ -1091,7 +1094,9 @@ export class MineScene extends Scene {
     this.tweens.add({
       alpha: 0.4,
       duration: 80,
-      onComplete: () => this.player.setAlpha(1),
+      onComplete: () => {
+        this.player.setAlpha(1);
+      },
       repeat: 3,
       targets: this.player,
       yoyo: true,

@@ -234,12 +234,10 @@ export class Fishing {
     const bx = Math.min(W / 2 + 200, W - 64 - safeAreaInset().right);
     const by = H / 2 - BAR_H / 2;
 
-    if (!this.g) {
-      this.g = this.scene.add
-        .graphics()
-        .setScrollFactor(0)
-        .setDepth(DEPTH.night + 10);
-    }
+    this.g ??= this.scene.add
+      .graphics()
+      .setScrollFactor(0)
+      .setDepth(DEPTH.night + 10);
 
     const { g } = this;
     g.clear();
@@ -254,13 +252,11 @@ export class Fishing {
     g.fillStyle(0xff_d3_4d, 1);
     g.fillRoundedRect(bx - 14, by + BAR_H * (1 - this.progress), 8, BAR_H * this.progress, 3);
 
-    if (!this.fishIcon) {
-      this.fishIcon = this.scene.add
-        .image(0, 0, "obj-fish")
-        .setScrollFactor(0)
-        .setDepth(DEPTH.night + 11)
-        .setScale(1.6);
-    }
+    this.fishIcon ??= this.scene.add
+      .image(0, 0, "obj-fish")
+      .setScrollFactor(0)
+      .setDepth(DEPTH.night + 11)
+      .setScale(1.6);
 
     this.fishIcon.setPosition(bx + 10, by + this.fishPos);
     this.unzoom(g, this.fishIcon, bx, by);

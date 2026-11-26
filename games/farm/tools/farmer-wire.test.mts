@@ -170,7 +170,7 @@ test("a new clip, or a pause, carries where the clip stands", () => {
   paused.anims.isPlaying = false;
   const held = sender.tick(paused, false, 1, 180);
   assert.equal(held?.p, false);
-  assert.ok(held && "k" in held, "a pause re-sends the frame it holds");
+  assert.ok("k" in held, "a pause re-sends the frame it holds");
   assert.deepEqual(sender.away(200), { h: true, t: 200 });
   assert.equal(sender.away(200).t, 201, "stamps never repeat");
 

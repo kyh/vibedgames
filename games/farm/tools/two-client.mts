@@ -30,7 +30,7 @@ const waitFor = async <T,>(read: () => Promise<T>, label: string, timeoutMs = 80
 
       return last;
     },
-    (value) => Boolean(value),
+    Boolean,
     { intervalMs: 100, timeoutMs },
   );
 
@@ -165,14 +165,14 @@ const sampleRemoteClip = async (page: Page) =>
         }
 
         const { anims } = farmer.sprite;
-        const { setCurrentFrame } = anims;
+        const setCurrentFrame = anims.setCurrentFrame.bind(anims);
         let seeks = 0;
-        anims.setCurrentFrame = (frame) => {
-          if (String(new Error("stack probe").stack).includes("seekClip")) {
+        anims.setCurrentFrame = (next) => {
+          if ((new Error("stack probe").stack ?? "").includes("seekClip")) {
             seeks += 1;
           }
 
-          return setCurrentFrame.call(anims, frame);
+          return setCurrentFrame(next);
         };
 
         const samples: ClipSample[] = [];

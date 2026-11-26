@@ -33,9 +33,7 @@ export class NpcManager {
     for (const id of NPC_IDS) {
       const def = NPCS[id];
 
-      if (store.npcFriendship[id] === undefined) {
-        store.npcFriendship[id] = 0;
-      }
+      store.npcFriendship[id] ??= 0;
 
       const x = def.homeTile.tx * TILE + 8;
       const y = def.homeTile.ty * TILE + 14;

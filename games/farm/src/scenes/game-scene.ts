@@ -66,7 +66,7 @@ import { seasonOfDay } from "../data/calendar";
 import { isWet, weatherForDay } from "../systems/weather";
 import type { Weather } from "../systems/weather";
 import { Fishing } from "../systems/fishing";
-import { makeGameKeys, NUM_KEY_NAMES } from "../systems/keys";
+import { allGameKeys, makeGameKeys, NUM_KEY_NAMES } from "../systems/keys";
 import type { GameKeys } from "../systems/keys";
 import { stickMove } from "../systems/stick";
 import { isTap } from "../systems/touch";
@@ -103,7 +103,8 @@ export const enableTrailerStaging = () => {
   trailerStaging = true;
 };
 
-const ROOM = (import.meta.env.DEV && new URLSearchParams(location.search).get("room")) || MP_ROOM;
+const ROOM_PARAM = import.meta.env.DEV ? new URLSearchParams(location.search).get("room") : null;
+const ROOM = ROOM_PARAM === null || ROOM_PARAM === "" ? MP_ROOM : ROOM_PARAM;
 
 const ACTION_TIMING = {
   axe: [16, 10, 7],
@@ -401,10 +402,10 @@ export class GameScene extends Scene {
     this.clockAnchor = null;
     const s = data.mode === "continue" ? loadSave() : null;
 
-    if (s) {
-      this.loadFrom(s);
-    } else {
+    if (s === null) {
       this.startNew(data.solo?.seed);
+    } else {
+      this.loadFrom(s);
     }
 
     this.shipping = { day: this.day, shipments: 0, shippedGold: 0 };
@@ -480,7 +481,7 @@ export class GameScene extends Scene {
     });
     this.keys = makeGameKeys(kb);
 
-    for (const k of Object.values(this.keys)) {
+    for (const k of allGameKeys(this.keys)) {
       k.removeAllListeners();
     }
 
@@ -489,7 +490,11 @@ export class GameScene extends Scene {
     });
 
     for (const [i, name] of NUM_KEY_NAMES.entries()) {
-      this.keys[name].on("down", () => !this.controlsPaused && !this.uiOpen && store.inv.select(i));
+      this.keys[name].on("down", () => {
+        if (!this.controlsPaused && !this.uiOpen) {
+          store.inv.select(i);
+        }
+      });
     }
 
     this.keys.SPACE.on("down", () => {
@@ -862,7 +867,7 @@ export class GameScene extends Scene {
     this.clickPath = [];
     this.pathStuck = 0;
 
-    for (const key of Object.values(this.keys)) {
+    for (const key of allGameKeys(this.keys)) {
       key.reset();
     }
 
@@ -1652,7 +1657,7 @@ export class GameScene extends Scene {
         this.toast("Face the water to fish.", "#9fd8ff");
       }
     } else if (tool === "sword") {
-      this.beginAction("doing", () => null);
+      this.beginAction("doing", null);
     }
   }
 
@@ -1715,7 +1720,7 @@ export class GameScene extends Scene {
 
   /** Swing `action`, landing `onImpact` on its impact frame. False when too
    *  tired to swing. */
-  beginAction(action: CharAction, onImpact: () => void) {
+  beginAction(action: CharAction, onImpact: (() => void) | null) {
     if (store.energy <= 0 && action !== "doing") {
       this.toast("Too tired… time to sleep.", "#c8b6ff");
 
@@ -1732,7 +1737,7 @@ export class GameScene extends Scene {
     }
 
     this.time.delayedCall((impactFrame / rate) * 1000, () => {
-      if (this.acting) {
+      if (this.acting && onImpact) {
         onImpact();
       }
     });
@@ -1758,7 +1763,11 @@ export class GameScene extends Scene {
     let hold = ClaimTicket.won();
 
     const hit = () => {
-      action === "axe" ? this.chop(obj, hold) : this.mineRock(obj, hold);
+      if (action === "axe") {
+        this.chop(obj, hold);
+      } else {
+        this.mineRock(obj, hold);
+      }
     };
 
     if (this.beginAction(action, hit)) {

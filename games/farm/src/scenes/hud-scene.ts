@@ -1173,7 +1173,10 @@ ${recap.shipments} ${recap.shipments === 1 ? "delivery" : "deliveries"} · +${re
         })
         .setOrigin(1, 0.5);
 
-      const buy = this.shopBtn(w / 2 - 48, "Buy", () => this.g.animals.buy(kind));
+      const buy = this.shopBtn(w / 2 - 48, "Buy", () => {
+        this.g.animals.buy(kind);
+      });
+
       row.add([spr, name, desc, price, buy]);
       c.add(row);
     }
