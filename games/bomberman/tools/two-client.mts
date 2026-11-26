@@ -4,7 +4,7 @@ import { setTimeout as wait } from "node:timers/promises";
 
 import { inSequence, poll, startVite } from "@repo/smoke";
 import { chromium } from "playwright-core";
-import type { Browser, Page } from "playwright-core";
+import type { Browser } from "playwright-core";
 
 import type { Powerup } from "../src/shared/constants.ts";
 
@@ -478,10 +478,9 @@ try {
 
       const now = simNow();
 
-      const parked = Object.values(state.bots).map((b) => [
-        b.id,
-        { ...b, moving: false, nextMoveAt: now + 60_000 },
-      ]);
+      const parked = Object.values(state.bots).map(
+        (b) => [b.id, { ...b, moving: false, nextMoveAt: now + 60_000 }] as const,
+      );
 
       scene.netPatchShared({
         bombs: {

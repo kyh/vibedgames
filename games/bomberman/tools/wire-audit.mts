@@ -1,5 +1,5 @@
 import { applyPatch, diffState, FixedRate, MultiplayerClient } from "@vibedgames/multiplayer";
-import type { JsonRecord } from "@vibedgames/multiplayer";
+import type { JsonRecord, JsonValue } from "@vibedgames/multiplayer";
 
 import { PickupClaims } from "../src/net/pickup-claims";
 import { createArena } from "../src/shared/arena";
@@ -12,7 +12,7 @@ const ROUNDS = 12;
 const ROUND_CAP_MS = 90_000;
 const CLOCK = { kind: "running", offset: 0 } as const;
 
-const bytes = <T,>(value: T) => Buffer.byteLength(JSON.stringify(value));
+const bytes = (value: JsonValue) => Buffer.byteLength(JSON.stringify(value));
 
 const encodeOpened = (base: Cell[][], current: Cell[][]) => {
   let out = "";
