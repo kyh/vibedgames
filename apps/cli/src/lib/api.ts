@@ -33,4 +33,4 @@ export const createClient: () => ContractClient = () => {
 
 /** The oRPC error code on a failed call, or null for non-oRPC failures. */
 export const authErrorCode: (cause: unknown) => string | null = (cause) =>
-  cause instanceof ORPCError ? cause.code : null;
+  cause instanceof ORPCError ? String(cause.code) : null;

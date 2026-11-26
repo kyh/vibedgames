@@ -111,17 +111,20 @@ interface Settings {
   url: string;
 }
 
-const settingsFrom = (args: ParsedArgs) => {
-  if (
-    (args.url === undefined || args.url === "") &&
-    (args.game === undefined || args.game === "")
-  ) {
+const isFilled = (value: string | undefined) => value !== undefined && value !== "";
+
+const assertOneTarget = (args: ParsedArgs) => {
+  if (!isFilled(args.url) && !isFilled(args.game)) {
     throw new HarnessError("Pass --url <url> or --game <slug>.");
   }
 
-  if (args.url !== undefined && args.url !== "" && args.game !== undefined && args.game !== "") {
+  if (isFilled(args.url) && isFilled(args.game)) {
     throw new HarnessError("Pass either --url or --game, not both.");
   }
+};
+
+const settingsFrom = (args: ParsedArgs) => {
+  assertOneTarget(args);
 
   if (args.goal !== undefined && args.goal.trim() === "") {
     throw new HarnessError("`--goal` must not be empty.");
@@ -149,7 +152,7 @@ const settingsFrom = (args: ParsedArgs) => {
     model: args.model,
     pinMove: args.pinMove ?? null,
     seed: numberArg(args.seed, "--seed", Number.isFinite, "a finite number"),
-    target: args.game !== undefined && args.game !== "" ? `game:${args.game}` : (args.url ?? ""),
+    target: isFilled(args.game) ? `game:${args.game ?? ""}` : (args.url ?? ""),
     tickMs: numberArg(
       args.tickMs,
       "--tick-ms",
@@ -167,14 +170,11 @@ const settingsFrom = (args: ParsedArgs) => {
 };
 
 const chooseControls = (settings: Settings, manifest: JsonValue | null) => {
-  let controls: Controls | null | undefined = settings.explicitControls;
-
-  if (!controls) {
-    controls =
-      manifest === null
-        ? PRESETS.get(DEFAULT_PRESET)
-        : parseControls(manifest, "window.__GAME_PLAYTEST__");
-  }
+  const controls: Controls | null | undefined =
+    settings.explicitControls ??
+    (manifest === null
+      ? PRESETS.get(DEFAULT_PRESET)
+      : parseControls(manifest, "window.__GAME_PLAYTEST__"));
 
   if (!controls) {
     throw new HarnessError("no control scheme available.");

@@ -504,23 +504,18 @@ const printModels = (data: JsonValue) => {
       continue;
     }
 
-    const id = String(m.endpoint_id ?? "?");
+    const id = isJsonString(m.endpoint_id) ? m.endpoint_id : "?";
     const meta: JsonObject = isJsonObject(m.metadata) ? m.metadata : {};
-    const tags: string[] = [];
 
-    if (meta.category) {
-      tags.push(String(meta.category));
-    }
-
-    if (meta.status) {
-      tags.push(String(meta.status));
-    }
+    const tags = [meta.category, meta.status].filter(
+      (tag): tag is string => isJsonString(tag) && tag !== "",
+    );
 
     consola.log(`${id}${tags.length > 0 ? `  [${tags.join(", ")}]` : ""}`);
   }
 
-  if (isJsonObject(data) && data.next_cursor) {
-    consola.log(`\nnext_cursor: ${String(data.next_cursor)}`);
+  if (isJsonObject(data) && isJsonString(data.next_cursor) && data.next_cursor !== "") {
+    consola.log(`\nnext_cursor: ${data.next_cursor}`);
   }
 };
 

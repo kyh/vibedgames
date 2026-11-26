@@ -148,7 +148,8 @@ const packForkableSource = async (dir: string, slug: string, say: Say) => {
     consola.error(
       `Source archive failed: ${error instanceof Error ? error.message : String(error)}`,
     );
-    process.exit(1);
+
+    return process.exit(1);
   }
 };
 
@@ -182,7 +183,8 @@ const publishDeployment: (
     return { url: published.url };
   } catch (error) {
     consola.error(error instanceof Error ? error.message : String(error));
-    process.exit(1);
+
+    return process.exit(1);
   }
 };
 

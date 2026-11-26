@@ -1,3 +1,4 @@
+import { parseJson } from "@repo/contract/json";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
@@ -9,7 +10,7 @@ const findPackage = (dir: string) => {
   const manifestPath = path.join(dir, "package.json");
 
   if (existsSync(manifestPath)) {
-    const manifest: JsonValue = JSON.parse(readFileSync(manifestPath, "utf-8"));
+    const manifest: JsonValue = parseJson(readFileSync(manifestPath, "utf-8"));
 
     if (isJsonObject(manifest) && manifest.name === PKG_NAME && isJsonString(manifest.version)) {
       return { root: dir, version: manifest.version };

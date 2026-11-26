@@ -1,3 +1,4 @@
+import { parseJson } from "@repo/contract/json";
 import {
   copyFileSync,
   existsSync,
@@ -83,7 +84,7 @@ const projectPackageManager = (root: string) => {
 };
 
 const readJsonObject = (file: string) => {
-  const parsed: JsonValue = JSON.parse(readFileSync(file, "utf-8"));
+  const parsed: JsonValue = parseJson(readFileSync(file, "utf-8"));
 
   if (!isJsonObject(parsed)) {
     throw new Error(`${file} must hold a JSON object.`);

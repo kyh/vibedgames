@@ -7,6 +7,7 @@ import { afterEach, test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { unzipSync } from "fflate";
+import { z } from "zod";
 
 import {
   mainActivitySource,
@@ -164,7 +165,11 @@ test("vg distribute itch packs the build with index.html at the zip root", () =>
 
   const first = vg(root, "itch", "--json");
   assert.equal(first.code, 0, first.stderr);
-  const result: { zip: string; files: number; ok: boolean } = JSON.parse(first.stdout);
+
+  const result = z
+    .object({ files: z.number(), ok: z.boolean(), zip: z.string() })
+    .parse(JSON.parse(first.stdout));
+
   assert.equal(result.ok, true);
   assert.equal(result.files, 2);
   assert.equal(result.zip, path.join(root, "distribute", "my-game-itch.zip"));
@@ -181,7 +186,11 @@ test("vg distribute web fails, and writes no zip, when the build would break", (
   writeFileSync(path.join(root, "main.js"), "");
   const res = vg(root, "web", "--json");
   assert.equal(res.code, 1);
-  const result: { zip: string | null; findings: { id: string }[] } = JSON.parse(res.stdout);
+
+  const result = z
+    .object({ findings: z.array(z.object({ id: z.string() })), zip: z.string().nullable() })
+    .parse(JSON.parse(res.stdout));
+
   assert.equal(result.zip, null);
   assert.deepEqual(ids(result.findings), ["root-relative-url"]);
   assert.equal(existsSync(path.join(root, "distribute")), false);
@@ -411,7 +420,10 @@ test("--preview packs, then serves the zip until stopped", async (t) => {
     }
   }
 
-  const result: { ok: boolean; preview: { url: string; game_url: string } } = JSON.parse(stdout);
+  const result = z
+    .object({ ok: z.boolean(), preview: z.object({ game_url: z.string(), url: z.string() }) })
+    .parse(JSON.parse(stdout));
+
   assert.equal(result.ok, true);
   const game = await fetch(result.preview.game_url);
   assert.match(await game.text(), /hi/u);

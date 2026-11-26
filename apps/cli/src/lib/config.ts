@@ -1,3 +1,4 @@
+import { parseJson } from "@repo/contract/json";
 import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
@@ -36,7 +37,7 @@ export const getConfig = () => {
   let raw: JsonValue;
 
   try {
-    raw = JSON.parse(readFileSync(file, "utf-8"));
+    raw = parseJson(readFileSync(file, "utf-8"));
   } catch {
     return null;
   }

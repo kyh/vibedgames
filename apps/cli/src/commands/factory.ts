@@ -1,3 +1,4 @@
+import { parseJson } from "@repo/contract/json";
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -65,7 +66,7 @@ export const installedFactoryVersion = () => {
   }
 
   try {
-    const manifest: JsonValue = JSON.parse(
+    const manifest: JsonValue = parseJson(
       readFileSync(path.join(root, FACTORY_PACKAGE, "package.json"), "utf-8"),
     );
 

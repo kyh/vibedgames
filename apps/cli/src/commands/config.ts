@@ -27,7 +27,8 @@ const requireKey = (key: string) => {
   }
 
   consola.error(`Unknown setting: ${key}. Settings: ${SETTING_KEYS.join(", ")}.`);
-  process.exit(1);
+
+  return process.exit(1);
 };
 
 const describeSource = (setting: ResolvedSetting) => {

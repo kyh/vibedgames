@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { afterEach, test } from "node:test";
+import { after, afterEach, before, test } from "node:test";
+
+import { http, HttpResponse } from "msw";
+import { setupServer } from "msw/node";
 
 import { create as tarCreate } from "tar";
 
@@ -10,7 +13,20 @@ import { makeCleanups, makeTmpDir } from "../../../test/_helpers.js";
 
 const { cleanups, drain } = makeCleanups();
 
-afterEach(drain);
+const network = setupServer();
+
+before(() => {
+  network.listen({ onUnhandledRequest: "error" });
+});
+
+afterEach(() => {
+  drain();
+  network.resetHandlers();
+});
+
+after(() => {
+  network.close();
+});
 
 test("parseTemplateSpec reads every GitHub spelling of a repo, path and ref", () => {
   const cases: [string, ReturnType<typeof parseTemplateSpec>][] = [
@@ -72,15 +88,17 @@ const githubTarball = async (files: Record<string, string>) => {
   return readFileSync(tarball);
 };
 
-const serving =
-  (body: Buffer, requested: string[] = []) =>
-  async (input) => {
-    requested.push(String(input));
+const serving = (body: Buffer, requested: string[] = []) => {
+  network.use(
+    http.get("https://codeload.github.com/*", ({ request }) => {
+      requested.push(request.url);
 
-    return await Promise.resolve(new Response(body));
-  };
+      return HttpResponse.arrayBuffer(new Uint8Array(body).buffer);
+    }),
+  );
+};
 
-const listFiles = (dir: string, relative = "") =>
+const listFiles: (dir: string, relative?: string) => string[] = (dir, relative = "") =>
   readdirSync(path.join(dir, relative), { withFileTypes: true }).flatMap((entry) => {
     const child = path.join(relative, entry.name);
 
@@ -97,49 +115,37 @@ const TEMPLATE_FILES = {
 test("fetchTemplate unpacks the repo's tree without GitHub's wrapper directory", async () => {
   const target = makeTmpDir(cleanups, "vg-template-");
   const requested: string[] = [];
-  await fetchTemplate(
-    parseTemplateSpec("owner/repo"),
-    target,
-    false,
-    serving(await githubTarball(TEMPLATE_FILES), requested),
-  );
+  serving(await githubTarball(TEMPLATE_FILES), requested);
+  await fetchTemplate(parseTemplateSpec("owner/repo"), target, false);
   assert.deepEqual(listFiles(target).toSorted(), Object.keys(TEMPLATE_FILES).toSorted());
   assert.deepEqual(requested, ["https://codeload.github.com/owner/repo/tar.gz/HEAD"]);
 });
 
 test("fetchTemplate scaffolds from a directory inside the repo", async () => {
   const target = makeTmpDir(cleanups, "vg-template-");
-  await fetchTemplate(
-    parseTemplateSpec("owner/repo/templates/game"),
-    target,
-    false,
-    serving(await githubTarball(TEMPLATE_FILES)),
-  );
+  serving(await githubTarball(TEMPLATE_FILES));
+  await fetchTemplate(parseTemplateSpec("owner/repo/templates/game"), target, false);
   assert.deepEqual(listFiles(target).toSorted(), ["index.html", path.join("src", "main.ts")]);
 });
 
 test("fetchTemplate says which directory a repo lacks", async () => {
   const target = makeTmpDir(cleanups, "vg-template-");
+  serving(await githubTarball(TEMPLATE_FILES));
   await assert.rejects(
-    fetchTemplate(
-      parseTemplateSpec("owner/repo/templates/nope"),
-      target,
-      false,
-      serving(await githubTarball(TEMPLATE_FILES)),
-    ),
+    fetchTemplate(parseTemplateSpec("owner/repo/templates/nope"), target, false),
     /owner\/repo has no directory templates\/nope at HEAD/u,
   );
 });
 
 test("fetchTemplate names a repo or ref GitHub doesn't have", async () => {
   const target = makeTmpDir(cleanups, "vg-template-");
-  await assert.rejects(
-    fetchTemplate(
-      parseTemplateSpec("owner/repo#nope"),
-      target,
-      false,
-      async () => await Promise.resolve(new Response("404: Not Found", { status: 404 })),
+  network.use(
+    http.get("https://codeload.github.com/*", () =>
+      HttpResponse.text("404: Not Found", { status: 404 }),
     ),
+  );
+  await assert.rejects(
+    fetchTemplate(parseTemplateSpec("owner/repo#nope"), target, false),
     /GitHub has no owner\/repo at nope/u,
   );
 });
@@ -147,11 +153,11 @@ test("fetchTemplate names a repo or ref GitHub doesn't have", async () => {
 test("fetchTemplate refuses a non-empty target unless forced, then overwrites", async () => {
   const target = makeTmpDir(cleanups, "vg-template-");
   writeFileSync(path.join(target, "README.md"), "mine\n");
-  const tarball = await githubTarball(TEMPLATE_FILES);
+  serving(await githubTarball(TEMPLATE_FILES));
   await assert.rejects(
-    fetchTemplate(parseTemplateSpec("owner/repo"), target, false, serving(tarball)),
+    fetchTemplate(parseTemplateSpec("owner/repo"), target, false),
     /is not empty\. Pass --force/u,
   );
-  await fetchTemplate(parseTemplateSpec("owner/repo"), target, true, serving(tarball));
+  await fetchTemplate(parseTemplateSpec("owner/repo"), target, true);
   assert.equal(readFileSync(path.join(target, "README.md"), "utf-8"), "# repo\n");
 });

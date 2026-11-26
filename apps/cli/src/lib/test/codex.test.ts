@@ -106,7 +106,7 @@ test("placeCodexOutputs copies raw files to rendered targets", () => {
   assert.equal(failed.length, 0);
   assert.deepEqual(downloaded, [path.join(dst, "zz99-0.png"), path.join(dst, "zz99-1.png")]);
   const [first, second] = downloaded;
-  assert.ok(first && second);
+  assert.ok(first !== undefined && second !== undefined);
   assert.equal(readFileSync(first, "utf-8"), "AAA");
   assert.equal(readFileSync(second, "utf-8"), "BBB");
 });
@@ -124,7 +124,7 @@ test("placeCodexOutputs disambiguates colliding targets instead of overwriting",
   assert.equal(failed.length, 0);
   assert.deepEqual(downloaded, [path.join(dst, "zz99.png"), path.join(dst, "zz99_1.png")]);
   const [first, second] = downloaded;
-  assert.ok(first && second);
+  assert.ok(first !== undefined && second !== undefined);
   assert.equal(readFileSync(first, "utf-8"), "AAA");
   assert.equal(readFileSync(second, "utf-8"), "BBB");
 });

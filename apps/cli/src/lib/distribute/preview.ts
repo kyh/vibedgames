@@ -1,3 +1,4 @@
+import { once } from "node:events";
 import { createServer } from "node:http";
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
 
@@ -79,23 +80,15 @@ const listen: (server: Server, port: number, host: string) => Promise<void> = as
   port,
   host,
 ) => {
-  const { promise, resolve, reject } = Promise.withResolvers<void>();
-  server.once("error", reject);
-  server.listen(port, host, () => {
-    resolve();
-  });
-
-  await promise;
+  server.listen(port, host);
+  await once(server, "listening");
 };
 
 const closeServer: (server: Server) => Promise<void> = async (server) => {
-  const { promise, resolve } = Promise.withResolvers<void>();
-  server.close(() => {
-    resolve();
-  });
+  const closed = once(server, "close");
+  server.close();
   server.closeAllConnections();
-
-  await promise;
+  await closed;
 };
 
 const send = (

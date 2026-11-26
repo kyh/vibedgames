@@ -115,7 +115,11 @@ test("VG_JSON_OUTPUT=1 turns on JSON without the flag", () => {
 
   try {
     assert.equal(isJsonOutput({}), true);
-    const out = captureStdout(() => writeStructured({ a: 1 }, {}));
+
+    const out = captureStdout(() => {
+      writeStructured({ a: 1 }, {});
+    });
+
     assert.equal(out, '{\n  "a": 1\n}\n');
   } finally {
     if (previous === undefined) {

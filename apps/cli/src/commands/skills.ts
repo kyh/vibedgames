@@ -1,3 +1,4 @@
+import { parseJson } from "@repo/contract/json";
 import { defineCommand } from "citty";
 import { consola } from "consola";
 
@@ -23,7 +24,8 @@ const fetchOrExit = async (url: URL, doing: string) => {
     return await fetch(url);
   } catch (error) {
     consola.error(`${doing}: ${error instanceof Error ? error.message : String(error)}`);
-    process.exit(1);
+
+    return process.exit(1);
   }
 };
 
@@ -51,7 +53,7 @@ const listSkills = async () => {
     process.exit(1);
   }
 
-  const index: JsonValue = JSON.parse(await res.text());
+  const index: JsonValue = parseJson(await res.text());
 
   return summaries(index);
 };

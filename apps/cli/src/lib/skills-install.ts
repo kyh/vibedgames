@@ -1,3 +1,4 @@
+import { parseJson } from "@repo/contract/json";
 import {
   cpSync,
   existsSync,
@@ -250,7 +251,7 @@ const readJson = (file: string) => {
   }
 
   try {
-    const value: JsonValue = JSON.parse(readFileSync(file, "utf-8"));
+    const value: JsonValue = parseJson(readFileSync(file, "utf-8"));
 
     return value;
   } catch {

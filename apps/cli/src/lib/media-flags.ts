@@ -1,3 +1,4 @@
+import { runInOrder } from "@repo/contract/run-in-order";
 import { z } from "zod";
 
 import { parseRunInput, readExplicitLocalFile } from "./media-args.js";
@@ -134,27 +135,24 @@ export const readMediaInput = async (
     return await upload(file);
   };
 
-  for (const [key, schema] of Object.entries(fields)) {
+  await runInOrder(Object.entries(fields), async ([key, schema]) => {
     const kind = kindOf(schema);
     const value = kind === "boolean" && raw[`no-${key}`] === true ? false : raw[key];
 
     if (value === undefined || key === "wait_seconds") {
-      continue;
+      return;
     }
 
     if (kind === "array") {
       const element = elementOf(schema);
-      const items: JsonValue[] = [];
 
-      for (const item of listOf(value)) {
-        items.push(coerce(element, await resolve(key, item)));
-      }
-
-      input[key] = items;
+      input[key] = await runInOrder(listOf(value), async (item) =>
+        coerce(element, await resolve(key, item)),
+      );
     } else {
       input[key] = coerce(kind, await resolve(key, value));
     }
-  }
+  });
 
   return input;
 };

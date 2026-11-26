@@ -28,7 +28,9 @@ const openBrowser = (url: string, baseUrl: string) => {
 
   const [cmd, args] = openers[process.platform] ?? ["xdg-open", [target.href]];
   const child = spawn(cmd, args, { detached: true, stdio: "ignore" });
-  child.on("error", () => null);
+  child.on("error", () => {
+    consola.debug("could not open a browser");
+  });
   child.unref();
 };
 
@@ -54,32 +56,43 @@ export const loginCommand = defineCommand({
 
     consola.start("Waiting for approval...");
 
-    let intervalMs = device.interval * 1000;
     const deadline = Date.now() + device.expiresIn * 1000;
 
-    while (Date.now() < deadline) {
+    const poll: (intervalMs: number) => Promise<boolean> = async (intervalMs) => {
+      if (Date.now() >= deadline) {
+        return false;
+      }
+
       await sleep(intervalMs);
 
       try {
         saveConfig(await pollDeviceToken(baseUrl, device.deviceCode));
         consola.success("Logged in successfully");
 
-        return;
+        return true;
       } catch (error) {
         if (!(error instanceof OAuthError)) {
           throw error;
         }
 
         if (error.code === "slow_down") {
-          intervalMs += SLOW_DOWN_STEP_MS;
-        } else if (error.code === "access_denied") {
+          return await poll(intervalMs + SLOW_DOWN_STEP_MS);
+        }
+
+        if (error.code === "access_denied") {
           fail("Login was denied in the browser.");
         } else if (error.code === "expired_token") {
           fail("Code expired. Run `vg login` to try again.");
         } else if (error.code !== "authorization_pending") {
           throw error;
         }
+
+        return await poll(intervalMs);
       }
+    };
+
+    if (await poll(device.interval * 1000)) {
+      return;
     }
 
     fail("Timed out waiting for approval. Run `vg login` to try again.");

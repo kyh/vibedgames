@@ -1,18 +1,60 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { setImmediate as nextTurn } from "node:timers/promises";
+import { runInNewContext, Script } from "node:vm";
+
+import { repeatWhile } from "@repo/contract/run-in-order";
+import { z } from "zod";
 
 import type {
   AgentConfig,
   AgentEnv,
   AgentPointer,
   AgentRequest,
+  AgentResponse,
   AgentResult,
   AgentSample,
   Reflex,
 } from "../agent.js";
 import { browserEnv, inPageAgent } from "../agent.js";
 import { keyInitsFor, keyTable } from "../keys.js";
+
+const repeatRounds = async (
+  rounds: number,
+  step: () => Promise<void>,
+  until: () => boolean = () => false,
+) => {
+  await repeatWhile(async (round) => {
+    if (round >= rounds || until()) {
+      return false;
+    }
+
+    await step();
+
+    return true;
+  });
+};
+
+const sentDecision = z.object({
+  model: z.string(),
+  questions: z.record(
+    z.string(),
+    z.looseObject({
+      criteria: z.union([z.array(z.string()), z.record(z.string(), z.string())]).optional(),
+      type: z.string(),
+    }),
+  ),
+  state: z.looseObject({
+    goal: z.string().nullable(),
+    recent: z.looseObject({ held: z.json() }),
+    tick: z.object({ index: z.number(), of: z.number() }),
+  }),
+});
+
+const readSent = (body: string) => sentDecision.parse(JSON.parse(body));
+
+const criteriaOf = (body: z.infer<typeof sentDecision>, key: string) =>
+  body.questions[key]?.criteria ?? [];
 
 interface Dispatched {
   kind: "key" | "pointer";
@@ -51,7 +93,7 @@ interface FakePage {
 const makePage = (script: AnswerScript, reflexes: Record<string, Reflex> = {}) => {
   let now = 1000;
   let frames: (() => void)[] = [];
-  const timers: { at: number; resolve: () => void }[] = [];
+  const timers: { at: number; resolve: (at: number) => void }[] = [];
   const inFlight: (() => void)[] = [];
   let failuresLeft = script.failTimes ?? 0;
 
@@ -60,7 +102,7 @@ const makePage = (script: AnswerScript, reflexes: Record<string, Reflex> = {}) =
 
     for (const timer of due) {
       timers.splice(timers.indexOf(timer), 1);
-      timer.resolve();
+      timer.resolve(timer.at);
     }
   };
 
@@ -75,8 +117,8 @@ const makePage = (script: AnswerScript, reflexes: Record<string, Reflex> = {}) =
       return { body: "nope", ok: false, status: script.status };
     }
 
-    const body = JSON.parse(init.body);
-    const offered = Object.keys(body.questions.move.criteria);
+    const body = readSent(init.body);
+    const offered = Object.keys(criteriaOf(body, "move"));
     const choice = script.pick(offered, body.state.tick.index);
 
     const answers = new Map<string, FakeAnswer>([
@@ -111,7 +153,7 @@ const makePage = (script: AnswerScript, reflexes: Record<string, Reflex> = {}) =
         frames = [];
       },
       delay: async (ms) => {
-        const { promise, resolve } = Promise.withResolvers<void>();
+        const { promise, resolve } = Promise.withResolvers<number>();
         timers.push({ at: now + ms, resolve });
 
         await promise;
@@ -126,7 +168,7 @@ const makePage = (script: AnswerScript, reflexes: Record<string, Reflex> = {}) =
         page.requests.push(init);
         const reply = answer(init);
 
-        const { promise, resolve } = Promise.withResolvers<void>();
+        const { promise, resolve } = Promise.withResolvers<AgentResponse>();
         inFlight.push(() => {
           now += 40;
           resolve({
@@ -175,10 +217,10 @@ const makePage = (script: AnswerScript, reflexes: Record<string, Reflex> = {}) =
     requests: [],
     sample: { complete: false, frame: 0, score: 0, x: 0, y: 0, z: 0 },
     settle: async () => {
-      for (let i = 0; i < 20; i += 1) {
+      await repeatRounds(20, async () => {
         fireDueTimers();
         await nextTurn();
-      }
+      });
     },
   };
 
@@ -218,11 +260,15 @@ const config = (overrides: Partial<AgentConfig> = {}) => ({
 const complete = async (page: FakePage, cfg: AgentConfig, movePerFrame = 1) => {
   const result = inPageAgent(cfg, page.env);
 
-  for (let i = 0; i < 200 && !result.done; i += 1) {
-    page.sample.x += movePerFrame;
-    page.frame();
-    await page.settle();
-  }
+  await repeatRounds(
+    200,
+    async () => {
+      page.sample.x += movePerFrame;
+      page.frame();
+      await page.settle();
+    },
+    () => result.done,
+  );
 
   assert.ok(result.done, "the agent should finish");
 
@@ -240,26 +286,26 @@ test("asks one choice for movement, a progress score, and one yes/no per action,
   const [first, second] = page.requests;
   assert.ok(first && second);
   assert.equal(first.headers.authorization, "Bearer pt.test");
-  const body = JSON.parse(first.body);
+  const body = readSent(first.body);
   assert.equal(body.model, "jev-latest");
   assert.deepEqual(Object.keys(body.questions), ["move", "progress", "act:jump"]);
-  assert.equal(body.questions.progress.type, "score");
-  assert.equal(body.questions.progress.criteria.length, 5);
+  assert.equal(body.questions.progress?.type, "score");
+  assert.equal(Object.keys(criteriaOf(body, "progress")).length, 5);
   assert.deepEqual(
     result.records.map((r) => r.progress),
     [0, 0.5],
   );
-  assert.deepEqual(Object.keys(body.questions.move.criteria).toSorted(), [
+  assert.deepEqual(Object.keys(criteriaOf(body, "move")).toSorted(), [
     "left",
     "none",
     "right",
     "track",
   ]);
-  assert.equal(body.questions["act:jump"].type, "noul");
+  assert.equal(body.questions["act:jump"]?.type, "noul");
   assert.equal(body.state.goal, "Go right.");
   assert.deepEqual(body.state.tick, { index: 0, of: 2 });
   assert.equal(body.state.recent.held, null);
-  assert.deepEqual(JSON.parse(second.body).state.recent.held, { actions: [], move: "right" });
+  assert.deepEqual(readSent(second.body).state.recent.held, { actions: [], move: "right" });
 });
 
 test("holds the chosen move, and presses a repeated action again on each decision", async () => {
@@ -391,10 +437,14 @@ test("gives up on a decision that never answers", async () => {
     await new Promise(() => {});
   const result = inPageAgent(config({ decisionRetries: 0, ticks: 1 }), page.env);
 
-  for (let i = 0; i < 10 && !result.done; i += 1) {
-    page.frame(500);
-    await page.settle();
-  }
+  await repeatRounds(
+    10,
+    async () => {
+      page.frame(500);
+      await page.settle();
+    },
+    () => result.done,
+  );
 
   assert.match(result.error ?? "", /no answer within 1000 ms/u);
 });
@@ -516,18 +566,22 @@ test("stop() ends the run and releases everything held", async () => {
   const page = makePage({ pick: () => "right" });
   const result = inPageAgent(config({ ticks: 50 }), page.env);
 
-  for (let i = 0; i < 3; i += 1) {
+  await repeatRounds(3, async () => {
     page.frame();
     await page.settle();
-  }
+  });
 
   assert.ok(keyEvents(page).includes("keydown:KeyD"), "something is held");
   result.stop();
 
-  for (let i = 0; i < 10 && !result.done; i += 1) {
-    page.frame();
-    await page.settle();
-  }
+  await repeatRounds(
+    10,
+    async () => {
+      page.frame();
+      await page.settle();
+    },
+    () => result.done,
+  );
 
   assert.ok(result.done);
   assert.equal(keyEvents(page).at(-1), "keyup:KeyD", "nothing stays held");
@@ -535,28 +589,31 @@ test("stop() ends the run and releases everything held", async () => {
 });
 
 test("both injected functions survive being stringified into a fresh scope", async () => {
-  const source = `(${inPageAgent.toString()})`;
-  // oxlint-disable-next-line no-new-func -- the point is a scope with no module bindings, which only Function gives
-  const factory = new Function("__name", "config", "env", `return ${source}(config, env);`);
-
-  const rebuilt = factory as (
-    keep: <T>(fn: T) => T,
-    cfg: AgentConfig,
-    env: AgentEnv,
-  ) => AgentResult;
-
   const page = makePage({ actionProbability: 0.9, pick: () => "right" });
-  const result = rebuilt((fn) => fn, config({ ticks: 2 }), page.env);
+  const started: AgentResult[] = [];
 
-  for (let i = 0; i < 100 && !result.done; i += 1) {
-    page.sample.x += 1;
-    page.frame();
-    await page.settle();
-  }
+  runInNewContext(`started.push((${inPageAgent.toString()})(config, env));`, {
+    __name: <T>(fn: T) => fn,
+    config: config({ ticks: 2 }),
+    env: page.env,
+    started,
+  });
+
+  const [result] = started;
+  assert.ok(result);
+
+  await repeatRounds(
+    100,
+    async () => {
+      page.sample.x += 1;
+      page.frame();
+      await page.settle();
+    },
+    () => result.done,
+  );
 
   assert.ok(result.done);
   assert.equal(result.error, null);
   assert.equal(result.records.length, 2);
-  // oxlint-disable-next-line no-new-func -- parse-only check of the stringified source
-  assert.doesNotThrow(() => new Function(`return (${browserEnv.toString()})`));
+  assert.doesNotThrow(() => new Script(`(${browserEnv.toString()})`));
 });

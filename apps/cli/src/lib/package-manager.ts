@@ -68,8 +68,13 @@ export const globalInstallArgs = (manager: PackageManager, pkg = PKG_NAME) => {
       return ["add", "-g", pkg];
     }
 
-    default: {
+    case "npm": {
       return ["install", "-g", pkg];
+    }
+
+    default: {
+      const exhaustive: never = manager;
+      throw new Error(`Unknown package manager: ${String(exhaustive)}`);
     }
   }
 };

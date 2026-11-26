@@ -1,3 +1,4 @@
+import { parseJson } from "@repo/contract/json";
 import { createHash } from "node:crypto";
 import {
   copyFileSync,
@@ -107,7 +108,7 @@ const collectFiles = (root: string, ignored: (rel: string) => boolean) => {
 
 const packageVersion = (manifest: string) => {
   try {
-    const pkg: JsonValue = JSON.parse(readFileSync(manifest, "utf-8"));
+    const pkg: JsonValue = parseJson(readFileSync(manifest, "utf-8"));
     const v = isJsonObject(pkg) ? pkg.version : undefined;
 
     return isJsonString(v) ? v : null;
@@ -174,7 +175,7 @@ const rewriteWorkspaceProtocols = (root: string) => {
   let pkg: JsonValue;
 
   try {
-    pkg = JSON.parse(readFileSync(path.join(root, "package.json"), "utf-8"));
+    pkg = parseJson(readFileSync(path.join(root, "package.json"), "utf-8"));
   } catch {
     return null;
   }

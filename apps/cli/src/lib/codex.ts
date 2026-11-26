@@ -353,6 +353,7 @@ const spawnCodex: (
     output: string;
     notFound: boolean;
   }>();
+
   const child = spawn(bin, args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
   let output = "";
   child.stdout?.on("data", (c: Buffer) => {

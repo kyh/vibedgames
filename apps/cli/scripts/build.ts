@@ -2,7 +2,9 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { chmod, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
+import type { BuildOptions, Metafile, Plugin } from "esbuild";
 import { build, context } from "esbuild";
+import { z } from "zod";
 
 const packageRoot = path.resolve(import.meta.dirname, "..");
 const distDir = path.join(packageRoot, "dist");
@@ -18,7 +20,7 @@ const NODE_ESM_BANNER = [
 
 const LICENSE_FILE = /^(?:licen[cs]e|copying|notice)(?:\.|$)/iu;
 
-const packageDirOf = (input) => {
+const packageDirOf = (input: string) => {
   const marker = "node_modules/";
   const at = input.lastIndexOf(marker);
 
@@ -34,12 +36,22 @@ const packageDirOf = (input) => {
 
 const RULE = "=".repeat(72);
 
-const writeNotices = async (metafile) => {
-  const dirs = [...new Set(Object.keys(metafile.inputs).map(packageDirOf))].filter(Boolean);
+const packageManifest = z.object({
+  license: z.string().optional(),
+  name: z.string(),
+  version: z.string(),
+});
+
+const writeNotices = async (metafile: Metafile) => {
+  const dirs = [...new Set(Object.keys(metafile.inputs).map(packageDirOf))].filter(
+    (dir) => dir !== null,
+  );
 
   const sections = dirs
     .map((dir) => {
-      const manifest = JSON.parse(readFileSync(path.join(dir, "package.json"), "utf-8"));
+      const manifest = packageManifest.parse(
+        JSON.parse(readFileSync(path.join(dir, "package.json"), "utf-8")),
+      );
 
       const texts = readdirSync(dir)
         .filter((file) => LICENSE_FILE.test(file))
@@ -49,9 +61,9 @@ const writeNotices = async (metafile) => {
       const body =
         texts.length > 0
           ? texts.join("\n\n")
-          : `Licensed ${manifest.license}; the package ships no licence file.`;
+          : `Licensed ${manifest.license ?? "with no licence named"}; the package ships no licence file.`;
 
-      return `${RULE}\n${manifest.name}@${manifest.version} (${manifest.license})\n${RULE}\n\n${body}\n`;
+      return `${RULE}\n${manifest.name}@${manifest.version} (${manifest.license ?? "unlicensed"})\n${RULE}\n\n${body}\n`;
     })
     .toSorted();
 
@@ -61,11 +73,11 @@ const writeNotices = async (metafile) => {
   );
 };
 
-const finishBuild = {
+const finishBuild: Plugin = {
   name: "finish-build",
   setup: (pluginBuild) => {
     pluginBuild.onEnd(async (result) => {
-      if (result.errors.length > 0 || !result.metafile) {
+      if (result.errors.length > 0 || result.metafile === undefined) {
         return;
       }
 
@@ -75,7 +87,7 @@ const finishBuild = {
   },
 };
 
-const options = {
+const options: BuildOptions = {
   absWorkingDir: packageRoot,
   banner: { js: NODE_ESM_BANNER },
   bundle: true,

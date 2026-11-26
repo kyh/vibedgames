@@ -1,3 +1,4 @@
+import { parseJson } from "@repo/contract/json";
 import { statSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
@@ -44,7 +45,7 @@ const parseValue = (raw: string) => {
 
   if (raw.length > 0 && (raw.startsWith("{") || raw.startsWith("["))) {
     try {
-      return JSON.parse(raw) as JsonValue;
+      return parseJson(raw);
     } catch {
       return raw;
     }

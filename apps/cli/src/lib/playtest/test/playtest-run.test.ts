@@ -2,11 +2,13 @@ import assert from "node:assert/strict";
 import { writeFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, test } from "node:test";
+import { Script } from "node:vm";
 
 import { makeCleanups, makeTmpDir } from "../../../../test/_helpers.js";
 import type { Window } from "../browser.js";
 import type { RunOptions, RunResult } from "../run.js";
 import type { JsonValue } from "../../types.js";
+import { isJsonString } from "../../types.js";
 import { PRESETS, parseControls, readControlsArg } from "../controls.js";
 import { HarnessError } from "../errors.js";
 import { keyFields, keyInitsFor, keyTable } from "../keys.js";
@@ -25,7 +27,7 @@ afterEach(drain);
 
 const file = (contents: JsonValue | string) => {
   const target = path.join(makeTmpDir(cleanups, "playtest-run-"), "controls.json");
-  writeFileSync(target, String(contents) === contents ? contents : JSON.stringify(contents));
+  writeFileSync(target, isJsonString(contents) ? contents : JSON.stringify(contents));
 
   return target;
 };
@@ -59,10 +61,14 @@ test("keyFields maps every documented key family and rejects the rest", () => {
   assert.deepEqual(keyFields("Digit3"), [51, "3"]);
   assert.deepEqual(keyFields("ArrowLeft"), [37, "ArrowLeft"]);
   assert.deepEqual(keyFields("Space"), [32, " "]);
-  rejects(() => keyFields("F13"), /unsupported key code "F13"/u);
+  rejects(() => {
+    keyFields("F13");
+  }, /unsupported key code "F13"/u);
 
   for (const bad of ["toString", "constructor", "__proto__", "hasOwnProperty"]) {
-    rejects(() => keyFields(bad), /unsupported key code/u);
+    rejects(() => {
+      keyFields(bad);
+    }, /unsupported key code/u);
   }
 });
 
@@ -122,11 +128,12 @@ test("presets resolve by name and files by path", () => {
 
 test("names a --controls value that is neither a preset nor a readable file", () => {
   const dir = makeTmpDir(cleanups, "playtest-run-");
-  rejects(
-    () => readControlsArg(path.join(dir, "absent.json")),
-    /couldn't read --controls .*arrows, wasd/u,
-  );
-  rejects(() => readControlsArg(file("{not json")), /isn't valid JSON/u);
+  rejects(() => {
+    readControlsArg(path.join(dir, "absent.json"));
+  }, /couldn't read --controls .*arrows, wasd/u);
+  rejects(() => {
+    readControlsArg(file("{not json"));
+  }, /isn't valid JSON/u);
 });
 
 test("rejects a scheme the playtester could not act on, naming the source", () => {
@@ -165,8 +172,12 @@ test("rejects a scheme the playtester could not act on, naming the source", () =
   ];
 
   for (const [raw, message] of cases) {
-    rejects(() => parseControls(raw, "window.__GAME_PLAYTEST__"), message);
-    rejects(() => parseControls(raw, "window.__GAME_PLAYTEST__"), /window\.__GAME_PLAYTEST__/u);
+    rejects(() => {
+      parseControls(raw, "window.__GAME_PLAYTEST__");
+    }, message);
+    rejects(() => {
+      parseControls(raw, "window.__GAME_PLAYTEST__");
+    }, /window\.__GAME_PLAYTEST__/u);
   }
 });
 
@@ -214,8 +225,7 @@ test("agentConfig resolves every key to an event init and carries the session", 
   assert.equal(cfg.ticks, 10);
   const source = agentSource(cfg);
   assert.match(source, /^\(.*\)\(\{.*\}, \(.*\)\(\)\)$/su);
-  // oxlint-disable-next-line no-new-func -- parse-only check of the page source
-  assert.doesNotThrow(() => new Function(`return ${source}`));
+  assert.doesNotThrow(() => new Script(source));
 });
 
 const window = (overrides: Partial<Window> = {}) => ({
@@ -288,12 +298,15 @@ test("resultFromAgent folds records into metrics, a timeline and usage", () => {
 });
 
 test("resultFromAgent surfaces the agent's own failure as a harness failure", () => {
-  rejects(
-    () => resultFromAgent(published([], { error: "decision failed (HTTP 401): nope" })),
-    /HTTP 401/u,
-  );
-  rejects(() => resultFromAgent(null), /lost the agent/u);
-  rejects(() => resultFromAgent(published(["not a record"])), /malformed record/u);
+  rejects(() => {
+    resultFromAgent(published([], { error: "decision failed (HTTP 401): nope" }));
+  }, /HTTP 401/u);
+  rejects(() => {
+    resultFromAgent(null);
+  }, /lost the agent/u);
+  rejects(() => {
+    resultFromAgent(published(["not a record"]));
+  }, /malformed record/u);
 });
 
 const runResult = (overrides: Partial<RunResult> = {}) => ({

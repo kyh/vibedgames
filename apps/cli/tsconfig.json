@@ -4,6 +4,5 @@
     "lib": ["ES2024"],
     "types": ["node"]
   },
-  "include": ["src"],
-  "exclude": ["src/**/test"]
+  "include": ["src", "test", "scripts"]
 }

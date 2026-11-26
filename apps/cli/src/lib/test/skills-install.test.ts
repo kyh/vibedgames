@@ -46,12 +46,13 @@ const makeSource = (names: string[]) => {
   return { origin: root, root };
 };
 
-const projectTarget = () => ({
-  cwd: makeTmpDir(cleanups, "vg-project-"),
-  env: {},
-  home: makeTmpDir(cleanups, "vg-home-"),
-  scope: "project",
-});
+const projectTarget = () =>
+  ({
+    cwd: makeTmpDir(cleanups, "vg-project-"),
+    env: {},
+    home: makeTmpDir(cleanups, "vg-home-"),
+    scope: "project",
+  }) satisfies InstallTarget;
 
 test("installs one copy per skill and links it for Claude Code", () => {
   const target = projectTarget();

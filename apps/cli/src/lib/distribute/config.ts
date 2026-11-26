@@ -1,3 +1,4 @@
+import { parseJson } from "@repo/contract/json";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
@@ -52,7 +53,7 @@ const isOrientation = (value: string): value is Orientation =>
   ORIENTATIONS.some((orientation) => orientation === value);
 
 const readJson = (file: string) => {
-  const parsed: JsonValue = JSON.parse(readFileSync(file, "utf-8"));
+  const parsed: JsonValue = parseJson(readFileSync(file, "utf-8"));
 
   if (!isJsonObject(parsed)) {
     throw new Error(`${file} must hold a JSON object.`);
@@ -65,7 +66,7 @@ const optionalString = (source: JsonObject, key: string, pattern: RegExp, expect
   const value = source[key];
 
   if (value === undefined) {
-    return;
+    return value;
   }
 
   if (!isJsonString(value) || !pattern.test(value)) {

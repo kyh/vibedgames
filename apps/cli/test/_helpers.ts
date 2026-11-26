@@ -60,11 +60,16 @@ export const makeTmpDir = (cleanups: (() => void)[], prefix = "vg-test-") => {
  */
 export const makeTestServer = async (
   cleanups: (() => void)[],
-  handler: (req: IncomingMessage, res: ServerResponse) => void,
+  handler: (req: IncomingMessage, res: ServerResponse) => Promise<void> | void,
 ) => {
-  const server = createServer(handler);
+  const server = createServer((req, res) => {
+    Promise.resolve(handler(req, res)).catch(() => {
+      res.statusCode = 500;
+      res.end();
+    });
+  });
 
-  const { promise, resolve } = Promise.withResolvers<void>();
+  const { promise, resolve } = Promise.withResolvers<number>();
   server.listen(0, () => {
     const addr = server.address();
     resolve(addr instanceof Object ? addr.port : 0);
@@ -72,7 +77,9 @@ export const makeTestServer = async (
 
   const port: number = await promise;
 
-  cleanups.push(() => server.close());
+  cleanups.push(() => {
+    server.close();
+  });
 
   return port;
 };

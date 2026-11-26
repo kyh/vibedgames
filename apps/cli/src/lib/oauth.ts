@@ -1,9 +1,10 @@
+import { parseJson } from "@repo/contract/json";
 import { CLI_OAUTH_CLIENT_ID, CLI_OAUTH_SCOPES } from "@repo/contract/cli";
 
 import { getConfig, saveConfig } from "./config.js";
 import type { Config } from "./config.js";
 import { isJsonNumber, isJsonObject, isJsonString } from "./types.js";
-import type { JsonObject, JsonValue } from "./types.js";
+import type { JsonObject } from "./types.js";
 
 /**
  * `vg login` as an OAuth client (RFC 8628 device authorization): the CLI
@@ -39,7 +40,10 @@ const postForm = async (url: string, body: Record<string, string>) => {
     method: "POST",
   });
 
-  const data = (await res.json().catch(() => null)) as JsonValue;
+  const data = await res
+    .text()
+    .then(parseJson)
+    .catch(() => null);
 
   if (!isJsonObject(data)) {
     throw new OAuthError("server_error", `HTTP ${res.status}`);
@@ -131,12 +135,11 @@ export const pollDeviceToken = async (baseUrl: string, deviceCode: string) =>
 
 /** Whether a saved login's access token needs refreshing before it is sent. */
 export const needsRefresh = (config: Config, now = Date.now()) =>
-  Boolean(
-    config.refreshToken !== undefined &&
-    config.refreshToken !== "" &&
-    config.expiresAt &&
-    config.expiresAt - EXPIRY_MARGIN_MS <= now,
-  );
+  config.refreshToken !== undefined &&
+  config.refreshToken !== "" &&
+  config.expiresAt !== undefined &&
+  config.expiresAt !== 0 &&
+  config.expiresAt - EXPIRY_MARGIN_MS <= now;
 
 const refresh = async (config: Config & { refreshToken: string }) => {
   const next = toConfig(

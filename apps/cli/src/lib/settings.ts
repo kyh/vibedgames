@@ -1,3 +1,4 @@
+import { parseJson } from "@repo/contract/json";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
@@ -68,7 +69,7 @@ const readFile = () => {
   }
 
   try {
-    const data: JsonValue = JSON.parse(readFileSync(file, "utf-8"));
+    const data: JsonValue = parseJson(readFileSync(file, "utf-8"));
 
     return isJsonObject(data) ? data : {};
   } catch {
