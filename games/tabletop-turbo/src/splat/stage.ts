@@ -6,6 +6,8 @@ import { RAMP, rampTexture } from "./palette";
 import { RESOLVE_FRAGMENT, RESOLVE_VERTEX, SPLAT_FRAGMENT, SPLAT_VERTEX } from "./shaders";
 import { SplatSet } from "./splat-set";
 
+const isMesh = (o: THREE.Object3D): o is THREE.Mesh => o instanceof THREE.Mesh;
+
 export interface StageView {
   /** Orthographic (a sliding diorama) or perspective (a chase camera). */
   ortho: boolean;
@@ -211,7 +213,7 @@ export class SplatStage {
   /** The static world, split into chunks the cameras can cull. */
   setWorld(set: SplatSet) {
     for (const child of this.world.children) {
-      if (child instanceof THREE.Mesh) {
+      if (isMesh(child)) {
         child.geometry.dispose();
       }
     }

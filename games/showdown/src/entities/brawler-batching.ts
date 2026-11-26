@@ -2,6 +2,11 @@ import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import type { BrawlerId } from "../config";
 
+const isMesh = (o: THREE.Object3D): o is THREE.Mesh => o instanceof THREE.Mesh;
+
+const isSingleMaterial = (m: THREE.Material | THREE.Material[]): m is THREE.Material =>
+  !Array.isArray(m);
+
 interface Part {
   mesh: THREE.Object3D;
   geometry: THREE.BufferGeometry;
@@ -47,11 +52,7 @@ export const batchBrawlerParts = (root: THREE.Group, id: BrawlerId) => {
     for (const [index, child] of parent.children.entries()) {
       if (child instanceof THREE.Group) {
         visit(child, `${path}/${index}`);
-      } else if (
-        child instanceof THREE.Mesh &&
-        child.geometry instanceof THREE.BufferGeometry &&
-        child.material instanceof THREE.Material
-      ) {
+      } else if (isMesh(child) && isSingleMaterial(child.material)) {
         child.updateMatrix();
         child.matrixAutoUpdate = false;
         const parts = batches.get(child.material) ?? [];
@@ -70,15 +71,17 @@ export const batchBrawlerParts = (root: THREE.Group, id: BrawlerId) => {
 
       if (!geometry) {
         const pieces = parts.map(bakePart);
-        geometry = mergeGeometries(pieces) ?? undefined;
+        const merged: THREE.BufferGeometry | null = mergeGeometries(pieces);
 
         for (const piece of pieces) {
           piece.dispose();
         }
 
-        if (!geometry) {
+        if (merged === null) {
           throw new Error(`Cannot batch champion ${id} at ${key}`);
         }
+
+        geometry = merged;
 
         geometry.computeBoundingSphere();
         cache.set(key, geometry);

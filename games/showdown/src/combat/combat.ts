@@ -258,7 +258,7 @@ export const setBombAppearance = (slot: BombSlot, style: LobStyle, color: THREE.
 
     default: {
       const unreachable: never = style;
-      throw new Error(`Unknown lob style: ${unreachable}`);
+      throw new Error("Unknown lob style", { cause: unreachable });
     }
   }
 };

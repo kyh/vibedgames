@@ -68,7 +68,9 @@ let settle: ReturnType<typeof setTimeout> | undefined;
 
 const refreshScale = () => {
   clearTimeout(settle);
-  settle = setTimeout(() => game.scale.refresh(), 150);
+  settle = setTimeout(() => {
+    game.scale.refresh();
+  }, 150);
 };
 
 window.addEventListener("resize", refreshScale);

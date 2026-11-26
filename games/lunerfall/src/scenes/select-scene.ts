@@ -6,8 +6,8 @@ import { sfx } from "../audio/sfx";
 import { BASE_H, BASE_W, HERO_ORIGIN_Y } from "../config";
 import { firstFrame } from "../data/animations";
 import { HERO_ORDER, HEROES } from "../data/heroes";
-import { readRunRecap } from "../data/run-recap";
-import type { RunRecap } from "../data/run-recap";
+import { isRecapCandidate, readRunRecap } from "../data/run-recap";
+import type { RecapCandidate, RunRecap } from "../data/run-recap";
 import {
   buyUpgrade,
   isUnlocked,
@@ -36,6 +36,11 @@ const randomCode = () => {
 /** Screen-space hub: the DOM (HubView) lays out and takes input, Phaser draws
  * the hero sprites over it. Only this scene resizes the game; the expedition
  * keeps its baked BASE_W/H camera. */
+interface SelectEntry {
+  recap?: RecapCandidate;
+  roomFull?: boolean;
+}
+
 export class SelectScene extends Scene {
   private index = 0;
   private sprites: Phaser.GameObjects.Sprite[] = [];
@@ -58,12 +63,11 @@ export class SelectScene extends Scene {
     super("select");
   }
 
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Phaser supplies untyped scene data; parse at this boundary.
-  init(data: unknown) {
-    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Untrusted scene-entry payload, not game-domain state.
-    const payload = typeof data === "object" && data !== null ? data : null;
-    this.recap = payload && "recap" in payload ? readRunRecap(payload.recap) : null;
-    this.roomFull = payload !== null && "roomFull" in payload && payload.roomFull === true;
+  init(data: SelectEntry | undefined) {
+    const payload = isRecapCandidate(data) ? data : null;
+    const recap = payload?.recap;
+    this.recap = isRecapCandidate(recap) ? readRunRecap(recap) : null;
+    this.roomFull = payload?.roomFull === true;
     this.sys.settings.data = {};
   }
 

@@ -109,7 +109,7 @@ export const wire = (...hops: Hop[]) => {
 
   return {
     delays,
-    send: (now: number, data: any) => {
+    send: (now: number, data: string) => {
       let at = now;
 
       for (const leg of hops) {

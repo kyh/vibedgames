@@ -81,13 +81,15 @@ export class TitleScene extends Scene {
 
     const saved = loadSave();
     this.canContinue = saved !== null;
-    contBtn.container.setAlpha(saved ? 1 : 0.35);
+    contBtn.container.setAlpha(saved === null ? 0.35 : 1);
 
     const saveDetail = this.add
       .text(
         0,
         15,
-        saved ? `Day ${saved.day} · ${seasonName(seasonOfDay(saved.day))}` : "No saved farm yet",
+        saved === null
+          ? "No saved farm yet"
+          : `Day ${saved.day} · ${seasonName(seasonOfDay(saved.day))}`,
         { color: "#e5f3ff", fontFamily: "ui-monospace, monospace", fontSize: "11px" },
       )
       .setOrigin(0.5);
@@ -101,7 +103,7 @@ export class TitleScene extends Scene {
       this.startNew();
     });
 
-    if (saved) {
+    if (saved !== null) {
       contBtn.zone.on("pointerdown", () => {
         Sound.resume();
         Sound.click();
@@ -112,11 +114,15 @@ export class TitleScene extends Scene {
     this.input.keyboard?.on("keydown-N", () => {
       this.startNew();
     });
-    this.input.keyboard?.on("keydown-ENTER", () =>
-      saved ? this.scene.start("Game", { mode: "continue" }) : this.startNew(),
-    );
+    this.input.keyboard?.on("keydown-ENTER", () => {
+      if (saved === null) {
+        this.startNew();
+      } else {
+        this.scene.start("Game", { mode: "continue" });
+      }
+    });
 
-    if (saved) {
+    if (saved !== null) {
       this.input.keyboard?.on("keydown-C", () => this.scene.start("Game", { mode: "continue" }));
     }
 

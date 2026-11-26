@@ -14,7 +14,7 @@ export const indexById = <T extends { id: string }>(list: readonly T[]) => {
 };
 
 /** Drop the entity with this id (a client claimed or consumed it). */
-export const removeById = <T extends { id: string }>(list: T[], id: string) => {
+export const removeById = (list: { id: string }[], id: string) => {
   const idx = list.findIndex((e) => e.id === id);
 
   if (idx !== -1) {

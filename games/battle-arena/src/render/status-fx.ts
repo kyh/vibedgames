@@ -404,8 +404,14 @@ export class StatusFx {
           break;
         }
 
-        default: {
+        case "unstoppable":
+        case "untargetable": {
           break;
+        }
+
+        default: {
+          const unhandled: never = s;
+          throw new Error("unhandled status kind", { cause: unhandled });
         }
       }
     }
@@ -698,8 +704,8 @@ export class StatusFx {
           uAlpha.value = this.runeAlpha;
         }
 
-        if (uColor && runeColor !== 0) {
-          (uColor.value as THREE.Color).setHex(runeColor);
+        if (uColor && runeColor !== 0 && uColor.value instanceof THREE.Color) {
+          uColor.value.setHex(runeColor);
         }
       }
     } else if (this.rune) {

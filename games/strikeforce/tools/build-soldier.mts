@@ -21,22 +21,26 @@ const CARBINE_TRIANGLES = 7000;
 const SIMPLIFY_ERROR = 0.01;
 const CARBINE_LENGTH = 0.78;
 
-const CLIPS: Readonly<Record<string, string>> = {
-  "Armature|running|baselayer": "jog",
-  "Armature|walking_man|baselayer": "walk",
-  Cautious_Crouch_Walk_Forward_inplace: "crouch-walk",
-  Crouch_Walk_Left_with_Gun_inplace: "crouch-left",
-  Hit_Reaction: "hit",
-  Rifle_Charge_inplace: "sprint",
-  Walk_Backward_with_Gun_1_inplace: "back",
-  Walk_Backward_with_Gun_inplace: "crouch-back",
-  Walk_Left_with_Gun_inplace: "strafe-left",
-};
+const CLIPS = new Map(
+  Object.entries({
+    "Armature|running|baselayer": "jog",
+    "Armature|walking_man|baselayer": "walk",
+    Cautious_Crouch_Walk_Forward_inplace: "crouch-walk",
+    Crouch_Walk_Left_with_Gun_inplace: "crouch-left",
+    Hit_Reaction: "hit",
+    Rifle_Charge_inplace: "sprint",
+    Walk_Backward_with_Gun_1_inplace: "back",
+    Walk_Backward_with_Gun_inplace: "crouch-back",
+    Walk_Left_with_Gun_inplace: "strafe-left",
+  }),
+);
 
-const MIRRORED: Readonly<Record<string, string>> = {
-  "crouch-left": "crouch-right",
-  "strafe-left": "strafe-right",
-};
+const MIRRORED = new Map(
+  Object.entries({
+    "crouch-left": "crouch-right",
+    "strafe-left": "strafe-right",
+  }),
+);
 
 const ARMS = /^(?:Left|Right)(?:Shoulder|Arm|ForeArm|Hand)$/u;
 
@@ -120,7 +124,9 @@ const root = doc.getRoot();
 const scene = need(root.listScenes()[0], "scene");
 const bones = new Map<string, Node>();
 
-scene.traverse((node) => bones.set(node.getName(), node));
+scene.traverse((node) => {
+  bones.set(node.getName(), node);
+});
 
 for (const animation of root.listAnimations()) {
   animation.dispose();
@@ -150,8 +156,14 @@ const oneBuffer = () => {
   }
 };
 
-for (const file of ["clips.glb", "walking-armature.glb", "running-armature.glb"]) {
-  mergeDocuments(doc, await io.read(path.join(source, file)));
+const sources = await Promise.all(
+  ["clips.glb", "walking-armature.glb", "running-armature.glb"].map(
+    async (file) => await io.read(path.join(source, file)),
+  ),
+);
+
+for (const other of sources) {
+  mergeDocuments(doc, other);
 }
 
 for (const animation of root.listAnimations()) {
@@ -188,7 +200,7 @@ const hips = need(bones.get("Hips"), "Hips bone");
 const rest = hips.getTranslation();
 
 for (const animation of root.listAnimations()) {
-  const name = CLIPS[animation.getName()] ?? null;
+  const name = CLIPS.get(animation.getName()) ?? null;
 
   for (const channel of animation.listChannels()) {
     const bone = channel.getTargetNode();
@@ -215,7 +227,7 @@ for (const animation of root.listAnimations()) {
 }
 
 for (const animation of root.listAnimations()) {
-  const name = MIRRORED[animation.getName()] ?? null;
+  const name = MIRRORED.get(animation.getName()) ?? null;
 
   if (name === null || name === "") {
     continue;

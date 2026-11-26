@@ -8,7 +8,8 @@ if (file === undefined || file === "") {
 
 const wantClips = process.argv.includes("--clips");
 const wantNodes = process.argv.includes("--nodes");
-const root = (await new NodeIO().read(file)).getRoot();
+const doc = await new NodeIO().read(file);
+const root = doc.getRoot();
 const nodes = root.listNodes();
 const meshes = root.listMeshes();
 const skins = root.listSkins();

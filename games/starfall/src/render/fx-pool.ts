@@ -6,8 +6,8 @@ import { BattleFx, REDUCED_MOTION } from "./battle-fx";
 
 export type FxImportance = "common" | "important";
 
-const admitFx = <T extends { importance: FxImportance }>(
-  entries: T[],
+const admitFx = (
+  entries: { importance: FxImportance }[],
   capacity: number,
   importance: FxImportance,
 ) => {

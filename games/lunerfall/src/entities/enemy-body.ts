@@ -353,7 +353,11 @@ export class EnemyBody {
         break;
       }
 
-      default: {
+      case "charge":
+      case "chase":
+      case "dead":
+      case "hurt":
+      case "spawn": {
         this.faceToward(dx);
 
         if (dist <= (k.attackRange ?? 22) && this.attackCd <= 0) {
@@ -361,13 +365,19 @@ export class EnemyBody {
         } else {
           this.walk(Math.sign(dx), k.speed, dt);
         }
+
+        break;
+      }
+
+      default: {
+        const unhandled: never = this.state;
+        throw new Error("unhandled case", { cause: unhandled });
       }
     }
   }
 
   private charger(dt: number, tx: number, ty: number) {
     const dx = tx - this.x;
-    const dist = Math.abs(dx);
     const k = this.kind;
 
     switch (this.state) {
@@ -403,21 +413,51 @@ export class EnemyBody {
         break;
       }
 
-      default: {
-        this.faceToward(dx);
-
-        if (dist <= (k.attackRange ?? 78) && Math.abs(ty - this.y) < 26 && this.attackCd <= 0) {
-          this.setState("windup");
-        } else {
-          this.walk(Math.sign(dx), k.speed, dt);
-        }
+      case "attack":
+      case "chase":
+      case "dead":
+      case "hurt":
+      case "spawn": {
+        this.chargerChase(dt, dx, ty);
+        break;
       }
+
+      default: {
+        const unhandled: never = this.state;
+        throw new Error("unhandled case", { cause: unhandled });
+      }
+    }
+  }
+
+  private chargerChase(dt: number, dx: number, ty: number) {
+    const k = this.kind;
+    this.faceToward(dx);
+
+    if (Math.abs(dx) <= (k.attackRange ?? 78) && Math.abs(ty - this.y) < 26 && this.attackCd <= 0) {
+      this.setState("windup");
+    } else {
+      this.walk(Math.sign(dx), k.speed, dt);
+    }
+  }
+
+  private archerKite(dt: number, dx: number, ty: number) {
+    const k = this.kind;
+    const dist = Math.abs(dx);
+    this.faceToward(dx);
+
+    if (dist < 58) {
+      this.walk(-Math.sign(dx), k.speed, dt);
+    } else if (dist <= (k.shootRange ?? 155) && Math.abs(ty - this.y) < 44 && this.attackCd <= 0) {
+      this.setState("windup");
+    } else if (dist > (k.shootRange ?? 155)) {
+      this.walk(Math.sign(dx), k.speed, dt);
+    } else {
+      this.vx = approach(this.vx, 0, 500 * dt);
     }
   }
 
   private archer(dt: number, tx: number, ty: number) {
     const dx = tx - this.x;
-    const dist = Math.abs(dx);
     const k = this.kind;
 
     switch (this.state) {
@@ -449,22 +489,19 @@ export class EnemyBody {
         break;
       }
 
-      default: {
-        this.faceToward(dx);
+      case "attack":
+      case "charge":
+      case "chase":
+      case "dead":
+      case "hurt":
+      case "spawn": {
+        this.archerKite(dt, dx, ty);
+        break;
+      }
 
-        if (dist < 58) {
-          this.walk(-Math.sign(dx), k.speed, dt);
-        } else if (
-          dist <= (k.shootRange ?? 155) &&
-          Math.abs(ty - this.y) < 44 &&
-          this.attackCd <= 0
-        ) {
-          this.setState("windup");
-        } else if (dist > (k.shootRange ?? 155)) {
-          this.walk(Math.sign(dx), k.speed, dt);
-        } else {
-          this.vx = approach(this.vx, 0, 500 * dt);
-        }
+      default: {
+        const unhandled: never = this.state;
+        throw new Error("unhandled case", { cause: unhandled });
       }
     }
   }

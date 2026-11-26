@@ -24,12 +24,11 @@ interface ResultPersonal {
   stats: { value: Phaser.GameObjects.Text; label: Phaser.GameObjects.Text }[];
 }
 
-const stopPointer = (
-  _p: Phaser.Input.Pointer,
-  _x: number,
-  _y: number,
-  event: Phaser.Types.Input.EventData,
-) => {
+interface PropagatingEvent {
+  stopPropagation: () => void;
+}
+
+const stopPointer = (_p: Phaser.Input.Pointer, _x: number, _y: number, event: PropagatingEvent) => {
   event.stopPropagation();
 };
 
@@ -195,7 +194,7 @@ export class ResultCard {
       );
       bg.on(
         "pointerdown",
-        (p: Phaser.Input.Pointer, x: number, y: number, event: Phaser.Types.Input.EventData) => {
+        (p: Phaser.Input.Pointer, x: number, y: number, event: PropagatingEvent) => {
           stopPointer(p, x, y, event);
 
           if (this.clicked) {

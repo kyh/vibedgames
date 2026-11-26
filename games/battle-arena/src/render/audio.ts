@@ -2,7 +2,7 @@ import type { DamageType } from "../data/config";
 import type { AbilityKey } from "../sim/types";
 import { Music } from "./music";
 import { VoicePool } from "./audio-voices";
-import type { VoiceGroup, VoicePriority } from "./audio-voices";
+import type { VoiceGroup, VoicePriority } from "./voice-group";
 
 type BusName = "sfx" | "ui" | "amb";
 
@@ -253,10 +253,12 @@ export class Audio {
       return;
     }
 
-    const scope: typeof globalThis & { webkitAudioContext?: typeof AudioContext } = globalThis;
+    const scope: { AudioContext?: typeof AudioContext; webkitAudioContext?: typeof AudioContext } =
+      globalThis;
+
     const Ctor = scope.AudioContext ?? scope.webkitAudioContext;
 
-    if (!Ctor) {
+    if (Ctor === undefined) {
       return;
     }
 

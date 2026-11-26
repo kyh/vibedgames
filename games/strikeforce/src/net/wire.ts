@@ -4,7 +4,9 @@ import { Vector3 } from "three";
 type WireField = JsonValue | undefined;
 
 export const isNum = (v: WireField): v is number => Number.isFinite(v);
-export const isStr = (v: WireField): v is string => String(v) === v;
+
+export const isStr = (v: WireField): v is string =>
+  Object.prototype.toString.call(v) === "[object String]";
 
 export const isRecord = (v: WireField): v is JsonRecord =>
   Object.prototype.toString.call(v) === "[object Object]";

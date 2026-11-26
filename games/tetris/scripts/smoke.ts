@@ -3,9 +3,38 @@ import { Engine } from "../src/game/engine";
 import { Piece } from "../src/game/piece";
 import { teachingExamples } from "../src/game/teaching-examples";
 import { PoseControls } from "../src/input/pose-control";
+import type { PoseActions } from "../src/input/pose-control";
 import { WELL_DEPTH, WELL_WIDTH } from "../src/shared/constants";
 
 let failures = 0;
+
+type PoseAction = keyof PoseActions;
+
+const heard: PoseAction[] = [];
+
+const recordingActions = (log: PoseAction[]) =>
+  ({
+    catchCollapse: () => {
+      log.push("catchCollapse");
+    },
+    hold: () => {
+      log.push("hold");
+    },
+    orbit: () => {
+      log.push("orbit");
+    },
+    power: () => {
+      log.push("power");
+    },
+    rotate: () => {
+      log.push("rotate");
+
+      return false;
+    },
+    steer: () => {
+      log.push("steer");
+    },
+  }) satisfies PoseActions;
 
 const check = (label: string, cond: boolean) => {
   if (cond) {
@@ -196,18 +225,7 @@ const check = (label: string, cond: boolean) => {
   });
 
   const feed = (circle: boolean) => {
-    let orbits = 0;
-
-    const controls = new PoseControls({
-      catchCollapse: () => null,
-      hold: () => null,
-      orbit: () => {
-        orbits += 1;
-      },
-      power: () => null,
-      rotate: () => false,
-      steer: () => null,
-    });
+    const controls = new PoseControls(recordingActions(heard));
 
     for (let i = 0; i < 24; i += 1) {
       controls.handlePose(makePose(390, 250), null);
@@ -222,7 +240,7 @@ const check = (label: string, cond: boolean) => {
       }
     }
 
-    return orbits;
+    return heard.splice(0).filter((action) => action === "orbit").length;
   };
 
   const circled = feed(true);
@@ -252,18 +270,9 @@ const check = (label: string, cond: boolean) => {
   const tPose = makePose({ x: 60, y: 250 }, { x: 600, y: 250 });
   const armsDown = makePose({ x: 250, y: 350 }, { x: 390, y: 350 });
 
-  let powers = 0;
-
-  const controls = new PoseControls({
-    catchCollapse: () => null,
-    hold: () => null,
-    orbit: () => null,
-    power: () => {
-      powers += 1;
-    },
-    rotate: () => false,
-    steer: () => null,
-  });
+  heard.length = 0;
+  const controls = new PoseControls(recordingActions(heard));
+  const powers = () => heard.filter((action) => action === "power").length;
 
   for (let i = 0; i < 24; i += 1) {
     controls.handlePose(armsDown, null);
@@ -276,14 +285,14 @@ const check = (label: string, cond: boolean) => {
     controls.handlePose(tPose, null);
   }
 
-  check("pose: T-pose held across resume does not re-fire power", powers === 0);
+  check("pose: T-pose held across resume does not re-fire power", powers() === 0);
 
   for (let i = 0; i < 4; i += 1) {
     controls.handlePose(armsDown, null);
   }
 
   controls.handlePose(tPose, null);
-  check("pose: power fires again after a real return to neutral", powers === 1);
+  check("pose: power fires again after a real return to neutral", powers() === 1);
 }
 
 if (failures > 0) {

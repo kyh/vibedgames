@@ -191,8 +191,13 @@ const targetsInRegion = (
       return aoeEnemies(w, c.team, point.x, point.y, region.radius);
     }
 
-    default: {
+    case "projectile": {
       return [];
+    }
+
+    default: {
+      const unhandled: never = region;
+      throw new Error("unhandled hit region", { cause: unhandled });
     }
   }
 };
@@ -666,7 +671,7 @@ const dispatchEffect = (
   dir: { x: number; y: number },
   point: { x: number; y: number },
 ) => {
-  const [champ] = def.effect.split(":");
+  const [champ = ""] = def.effect.split(":");
 
   switch (champ) {
     case "knight": {

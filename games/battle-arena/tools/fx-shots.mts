@@ -2,6 +2,8 @@ import { mkdirSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { setTimeout as sleep } from "node:timers/promises";
 
+import { inSequence } from "@repo/smoke";
+
 const URL = process.env.VG_URL ?? "http://localhost:5194/?viewer=1";
 const OUT = process.argv[2] ?? "fx-shots";
 const SHARED_SESSION = process.env.VG_SESSION;
@@ -92,18 +94,39 @@ const ab = (...args: string[]) =>
     stdio: ["ignore", "pipe", "pipe"],
   }).trim();
 
-const evalJs = (js: string) => {
-  const out = ab("eval", js)
+const evalRaw = (js: string) =>
+  ab("eval", js)
     .split("\n")
     .filter((line) => !line.startsWith("[agent-browser]"))
     .join("\n")
     .trim();
 
+const evalJs = (js: string) => {
+  const out = evalRaw(js);
+
   try {
-    return JSON.parse(out);
+    const parsed: unknown = JSON.parse(out);
+
+    return parsed;
   } catch {
     return out;
   }
+};
+
+const pollEval: (
+  js: string,
+  done: (out: string) => boolean,
+  attempts: number,
+) => Promise<string> = async (js, done, attempts) => {
+  const value = evalRaw(js);
+
+  if (done(value) || attempts <= 1) {
+    return value;
+  }
+
+  await sleep(500);
+
+  return await pollEval(js, done, attempts - 1);
 };
 
 const clickByText = (label: string) =>
@@ -159,61 +182,55 @@ const armFreeze = (
   return "armed";
 })()`);
 
+const openBrowser: (attempt: number) => Promise<void> = async (attempt) => {
+  try {
+    ab("open", URL, "--headed");
+    ab("set", "viewport", "1280", "800");
+  } catch (error) {
+    if (attempt === 2) {
+      throw error;
+    }
+
+    await sleep(2000);
+    await openBrowser(attempt + 1);
+  }
+};
+
+const shoot = async (shot: (typeof SHOTS)[number]) => {
+  ab("navigate", URL);
+
+  const booted = await pollEval("!!window.__view", (out) => out === "true", 60);
+
+  if (booted !== "true") {
+    console.log(`✗ ${shot.name} — viewer never published window.__view`);
+
+    return { frozen: false, reason: "no-boot", shot: shot.name };
+  }
+
+  await sleep(6000);
+
+  const champ = clickByText(shot.champ);
+  await sleep(600);
+  const ability = clickByText(shot.ability);
+  armFreeze(shot);
+  await sleep(500);
+
+  const hitOut = await pollEval("window.__hit ?? null", (out) => out !== "null", 50);
+  const hit = hitOut === "null" ? null : hitOut;
+
+  ab("screenshot", `${OUT}/${shot.name}.png`);
+  console.log(`${hit === null ? "✗" : "✓"} ${shot.name}`, { ability, champ }, hit ?? "");
+
+  return { frozen: hit !== null, reason: hit === null ? "no-freeze" : null, shot: shot.name };
+};
+
 const main = async () => {
   mkdirSync(OUT, { recursive: true });
-  const results = [];
+  let results: Awaited<ReturnType<typeof shoot>>[] = [];
 
   try {
-    for (let i = 0; ; i += 1) {
-      try {
-        ab("open", URL, "--headed");
-        ab("set", "viewport", "1280", "800");
-        break;
-      } catch (error) {
-        if (i === 2) {
-          throw error;
-        }
-
-        await sleep(2000);
-      }
-    }
-
-    for (const shot of SHOTS) {
-      ab("navigate", URL);
-      let booted = false;
-
-      for (let i = 0; i < 60 && !booted; i += 1) {
-        booted = evalJs("!!window.__view") === true;
-
-        if (!booted) {
-          await sleep(500);
-        }
-      }
-
-      if (!booted) {
-        results.push({ frozen: false, reason: "no-boot", shot: shot.name });
-        console.log(`✗ ${shot.name} — viewer never published window.__view`);
-        continue;
-      }
-
-      await sleep(6000);
-
-      const champ = clickByText(shot.champ);
-      await sleep(600);
-      const ability = clickByText(shot.ability);
-      armFreeze(shot);
-
-      let hit = null;
-
-      for (let i = 0; i < 50 && !hit; i += 1) {
-        await sleep(500);
-        hit = evalJs("window.__hit ?? null");
-      }
-
-      ab("screenshot", `${OUT}/${shot.name}.png`);
-      results.push({ frozen: !!hit, reason: hit ? null : "no-freeze", shot: shot.name });
-      console.log(`${hit ? "✓" : "✗"} ${shot.name}`, { ability, champ }, hit ?? "");
-    }
+    await openBrowser(0);
+    results = await inSequence(SHOTS, shoot);
   } finally {
     if (SHARED_SESSION === undefined || SHARED_SESSION === "") {
       try {
@@ -230,10 +247,10 @@ const main = async () => {
   for (const reason of ["no-boot", "no-freeze"]) {
     const hits = missed.flatMap((m) => (m.reason === reason ? [m.shot] : []));
 
-    if (hits.length) {
+    if (hits.length > 0) {
       console.log(`${reason}: ${hits.join(", ")}`);
     }
   }
 };
 
-main();
+await main();

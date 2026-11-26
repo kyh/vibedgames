@@ -386,7 +386,9 @@ export class GameScene {
       hold: () => {
         this.doHold();
       },
-      muteToggle: () => toggleMute(),
+      muteToggle: () => {
+        toggleMute();
+      },
       orbit: (dir) => {
         this.doOrbit(dir);
       },

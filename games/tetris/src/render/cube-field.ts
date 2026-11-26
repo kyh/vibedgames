@@ -1,5 +1,6 @@
 import {
   BoxGeometry,
+  Color,
   EdgesGeometry,
   Group,
   LineBasicMaterial,
@@ -123,10 +124,10 @@ export class CubeField {
       const colorHex = PIECES[pieceIndex]?.color ?? 0xff_ff_ff;
 
       for (const mat of this.activeMaterials) {
-        const u = mat.uniforms.uColor;
+        const value: unknown = mat.uniforms.uColor?.value;
 
-        if (u) {
-          u.value.set(colorHex);
+        if (value instanceof Color) {
+          value.set(colorHex);
         }
       }
 

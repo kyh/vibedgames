@@ -51,7 +51,7 @@ const until = async <T,>(read: () => Promise<T>, label: string, timeout = 20_000
 
       return last;
     },
-    (value) => Boolean(value),
+    Boolean,
     { intervalMs: 100, timeoutMs: timeout },
   );
 
@@ -100,16 +100,18 @@ const seesUnit = async (page: Page, id: string, label: string) =>
 
 const key = async (page: Page, type: string, name: string, keyCode: number, extra = {}) =>
   await page.evaluate(
-    (ev) =>
-      window.dispatchEvent(
-        new KeyboardEvent(ev.type, {
-          bubbles: true,
-          code: ev.key,
-          key: ev.key,
-          keyCode: ev.keyCode,
-          ...ev.extra,
-        }),
-      ),
+    (ev) => {
+      const event = new KeyboardEvent(ev.type, {
+        bubbles: true,
+        code: ev.key,
+        key: ev.key,
+        ...ev.extra,
+      });
+
+      Object.defineProperty(event, "keyCode", { value: ev.keyCode });
+
+      return window.dispatchEvent(event);
+    },
     { extra, key: name, keyCode, type },
   );
 
@@ -144,6 +146,9 @@ const isPaused = async (page: Page) =>
 
 const hasResult = async (page: Page) =>
   await page.evaluate(() => Boolean(window.__moba?.scene.matchResult));
+
+const rematched = async (page: Page) =>
+  !(await hasResult(page)) && (await phase(page)) === "playing";
 
 const isHost = async (page: Page) =>
   await page.evaluate(() => window.__moba?.online()?.isHost === true);
@@ -300,19 +305,31 @@ const run = async (base: string) => {
       await key(b.page, "keydown", "Q", 81, { shiftKey: true });
       await key(b.page, "keyup", "Q", 81, { shiftKey: true });
       await until(
-        async () => ((await qOf(a.page, bId))?.rank ?? 0) > 0,
+        async () => {
+          const q = await qOf(a.page, bId);
+
+          return (q?.rank ?? 0) > 0;
+        },
         "guest level-up reached host",
         10_000,
       );
       await key(b.page, "keydown", "Q", 81);
       await key(b.page, "keyup", "Q", 81);
       await until(
-        async () => ((await qOf(a.page, bId))?.readyAt ?? 0) > 0,
+        async () => {
+          const q = await qOf(a.page, bId);
+
+          return (q?.readyAt ?? 0) > 0;
+        },
         "guest Q cast reached host",
         10_000,
       );
       await until(
-        async () => ((await qOf(b.page, bId))?.readyAt ?? 0) > 0,
+        async () => {
+          const q = await qOf(b.page, bId);
+
+          return (q?.readyAt ?? 0) > 0;
+        },
         "cast echoed to guest",
         10_000,
       );
@@ -379,9 +396,6 @@ const run = async (base: string) => {
 
       assert.ok(again);
       await pressResult(a.page, "again");
-
-      const rematched = async (page: Page) =>
-        !(await hasResult(page)) && (await phase(page)) === "playing";
 
       await until(async () => await rematched(a.page), "host rematch started");
       await until(async () => await rematched(b.page), "guest joins the rematch");

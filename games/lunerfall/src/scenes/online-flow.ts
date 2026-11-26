@@ -418,6 +418,17 @@ export class OnlineFlow {
     const selfHero = parseHero(sess.players[myId]?.state?.hero) ?? this.seat.heroName;
     this.respawnBodies(selfHero, other && otherHero ? { hero: otherHero, id: other.id } : null);
 
+    this.buildOpeningRoom();
+    this.finishConnecting();
+    this.controls.reset();
+    this.seat.guestIn = NEUTRAL_INPUT;
+    this.restartRequested = false;
+    this.room.dirty = true;
+    this.hostNet.broadcast(0, true);
+    this.hooks.updateHud();
+  }
+
+  private buildOpeningRoom() {
     if (this.seat.mode === "versus") {
       this.run.match = new VersusMatch();
       this.rooms.buildVersus();
@@ -427,20 +438,14 @@ export class OnlineFlow {
       }
 
       this.versus.respawn();
-    } else {
-      this.run.match = null;
-      const param = new URLSearchParams(location.search).get("room");
-      const rt = param !== null && param !== "" ? parseRoomType(param) : null;
-      this.rooms.build(rt ? this.expedition.debugEnter(rt) : this.expedition.begin());
+
+      return;
     }
 
-    this.finishConnecting();
-    this.controls.reset();
-    this.seat.guestIn = NEUTRAL_INPUT;
-    this.restartRequested = false;
-    this.room.dirty = true;
-    this.hostNet.broadcast(0, true);
-    this.hooks.updateHud();
+    this.run.match = null;
+    const param = new URLSearchParams(location.search).get("room");
+    const rt = param !== null && param !== "" ? parseRoomType(param) : null;
+    this.rooms.build(rt ? this.expedition.debugEnter(rt) : this.expedition.begin());
   }
 
   private respawnBodies(selfHero: HeroName, other: { hero: HeroName; id: string } | null) {

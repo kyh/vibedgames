@@ -360,13 +360,13 @@ export const installTestHooks = (game: Phaser.Game) => {
       }
     },
     setState: (name) => {
-      if (name !== "active-play") {
-        return;
+      const applies = name === "active-play";
+
+      if (applies) {
+        restartSolo(game);
       }
 
-      restartSolo(game);
-
-      return { state: name };
+      return applies ? { state: name } : undefined;
     },
   });
   publishManifest();

@@ -49,6 +49,35 @@ export type NumKeyName = (typeof NUMS)[number];
 
 export const NUM_KEY_NAMES: readonly NumKeyName[] = NUMS;
 
+const GAME_KEY_NAMES = [
+  "W",
+  "A",
+  "S",
+  "D",
+  "UP",
+  "DOWN",
+  "LEFT",
+  "RIGHT",
+  "SPACE",
+  "E",
+  "SHIFT",
+  "I",
+  "M",
+  "ONE",
+  "TWO",
+  "THREE",
+  "FOUR",
+  "FIVE",
+  "SIX",
+  "SEVEN",
+  "EIGHT",
+  "NINE",
+  "ZERO",
+] as const satisfies readonly (keyof GameKeys)[];
+
+/** Every bound key, for a sweep that resets or unbinds them all. */
+export const allGameKeys = (keys: GameKeys) => GAME_KEY_NAMES.map((name) => keys[name]);
+
 export const makeGameKeys = (kb: Plugin) => {
   const a = (n: string) => kb.addKey(n, false);
 

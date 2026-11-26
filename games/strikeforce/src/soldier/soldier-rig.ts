@@ -18,6 +18,12 @@ import { clone as cloneSkinned } from "three/addons/utils/SkeletonUtils.js";
 import { kitMaterial } from "./soldier-kit";
 import type { Kit } from "./soldier-kit";
 
+const isMesh = (o: Object3D | undefined): o is Mesh => o instanceof Mesh;
+
+const isGroup = (o: Object3D): o is Group => o instanceof Group;
+
+const isSkinnedMesh = (o: Object3D | undefined): o is SkinnedMesh => o instanceof SkinnedMesh;
+
 export const CLIP_NAMES = [
   "walk",
   "jog",
@@ -112,7 +118,7 @@ const build = (scene: Object3D, animations: readonly AnimationClip[]) => {
   const body = scene.getObjectByName(BODY);
   const carbine = scene.getObjectByName(CARBINE);
 
-  if (!(body instanceof SkinnedMesh) || !(carbine instanceof Mesh)) {
+  if (!isSkinnedMesh(body) || !isMesh(carbine)) {
     throw new TypeError("soldier rig: no body or no carbine");
   }
 
@@ -196,7 +202,7 @@ export const soldierBody: (kit: Kit) => SoldierBody = (kit) => {
   const rig = cloneSkinned(loaded.template);
   const mesh = rig.getObjectByName(BODY);
 
-  if (!(rig instanceof Group) || !(mesh instanceof SkinnedMesh)) {
+  if (!isGroup(rig) || !isSkinnedMesh(mesh)) {
     throw new TypeError("soldier rig: clone lost its body");
   }
 
@@ -207,7 +213,7 @@ export const soldierBody: (kit: Kit) => SoldierBody = (kit) => {
   mesh.boundingSphere = new Sphere(new Vector3(0, 0.9 / unit, 0), 2.4 / unit);
   const hitboxes: Mesh[] = [];
   rig.traverse((o) => {
-    if (o instanceof Mesh && o.name.startsWith(HITBOX)) {
+    if (isMesh(o) && o.name.startsWith(HITBOX)) {
       hitboxes.push(o);
     }
   });

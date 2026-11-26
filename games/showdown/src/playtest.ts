@@ -31,19 +31,19 @@ export const installPlaytest = (game: Game) => {
       game.setPaused(paused);
     },
     setState: (name) => {
-      if (name !== "active-play") {
-        return;
+      const applies = name === "active-play";
+
+      if (applies) {
+        const live = game.state === "countdown" || game.state === "playing";
+
+        if (game.mode !== "solo" || !live) {
+          game.startSeeded(game.nextSeed);
+        }
+
+        game.skipCountdown();
       }
 
-      const live = game.state === "countdown" || game.state === "playing";
-
-      if (game.mode !== "solo" || !live) {
-        game.startSeeded(game.nextSeed);
-      }
-
-      game.skipCountdown();
-
-      return { state: name };
+      return applies ? { state: name } : undefined;
     },
   });
   publishPlaytest({

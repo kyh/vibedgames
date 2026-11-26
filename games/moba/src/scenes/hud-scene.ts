@@ -289,10 +289,26 @@ export class HudScene extends Scene {
       this.toggleShop();
     });
     this.input.keyboard?.on("keydown-G", () => this.guide?.toggleGuide());
-    this.input.keyboard?.on("keydown-UP", () => this.shopOpen && this.moveShopSel(-1));
-    this.input.keyboard?.on("keydown-DOWN", () => this.shopOpen && this.moveShopSel(1));
-    this.input.keyboard?.on("keydown-ENTER", () => this.shopOpen && this.buySelected());
-    this.input.keyboard?.on("keydown-SPACE", () => this.shopOpen && this.buySelected());
+    this.input.keyboard?.on("keydown-UP", () => {
+      if (this.shopOpen) {
+        this.moveShopSel(-1);
+      }
+    });
+    this.input.keyboard?.on("keydown-DOWN", () => {
+      if (this.shopOpen) {
+        this.moveShopSel(1);
+      }
+    });
+    this.input.keyboard?.on("keydown-ENTER", () => {
+      if (this.shopOpen) {
+        this.buySelected();
+      }
+    });
+    this.input.keyboard?.on("keydown-SPACE", () => {
+      if (this.shopOpen) {
+        this.buySelected();
+      }
+    });
     this.input.keyboard?.on("keydown-TAB", (e: KeyboardEvent) => {
       e.preventDefault?.();
       this.toggleBoard();
@@ -689,7 +705,7 @@ export class HudScene extends Scene {
 
     this.guidanceNextAt = this.time.now + 200;
     const world = this.gs.worldRef;
-    const guidance = world ? objectiveGuidance(world, this.gs.player) : null;
+    const guidance = objectiveGuidance(world, this.gs.player);
     this.objectiveText?.setText(guidance?.text ?? "");
     const tip = guidance?.respawnTip;
     this.respawnTipText
@@ -885,10 +901,6 @@ export class HudScene extends Scene {
   }
 
   private drawMapTerrain() {
-    if (!this.mapTerrain) {
-      return;
-    }
-
     const g = this.mapTerrain;
     const ox = this.mapX;
     const oy = this.mapY;
@@ -922,10 +934,6 @@ export class HudScene extends Scene {
 
   private updateMinimap() {
     const w = this.gs?.worldRef;
-
-    if (!w) {
-      return;
-    }
 
     if (this.time.now < this.mapNextRedrawAt) {
       return;
@@ -1085,10 +1093,6 @@ export class HudScene extends Scene {
   private renderBoard() {
     const w = this.gs?.worldRef;
 
-    if (!w) {
-      return;
-    }
-
     this.board.removeAll(true);
     const W = this.scale.width;
     const H = this.scale.height;
@@ -1097,7 +1101,7 @@ export class HudScene extends Scene {
     const colW = stacked ? panelW - 48 : panelW / 2 - 54;
     const rowH = 24;
 
-    const heroes = [...w.units.values()].filter((u) => u.kind === "hero" && u.hero);
+    const heroes = [...w.units.values()].filter((u) => u.kind === "hero" && u.hero !== undefined);
     const teams: Team[] = ["radiant", "dire"];
 
     const rosters = teams.map((team) => ({
@@ -1213,7 +1217,7 @@ export class HudScene extends Scene {
     );
   }
 
-  private layout() {
+  private readonly layout = () => {
     if (this.result) {
       this.result.layout();
 
@@ -1253,7 +1257,7 @@ export class HudScene extends Scene {
     this.layoutOverlays(ctx);
     this.banner.layout();
     this.layoutAbilityGuide();
-  }
+  };
 
   private layoutWidgetForms(compact: boolean) {
     for (const s of this.slots) {
@@ -1300,9 +1304,7 @@ export class HudScene extends Scene {
       s.icon.setDisplaySize(compact ? 26 : 30, compact ? 26 : 30);
     }
 
-    if (this.barPanel) {
-      this.barPanel.setVisible(true);
-    }
+    this.barPanel.setVisible(true);
   }
 
   private dashLabelText(compact: boolean) {
@@ -1332,15 +1334,11 @@ export class HudScene extends Scene {
       this.mapY = H - this.mapH - 22 - inset.bottom;
     }
 
-    if (this.mapHit) {
-      this.mapHit.setPosition(this.mapX, this.mapY).setScale(mapK);
-    }
+    this.mapHit.setPosition(this.mapX, this.mapY).setScale(mapK);
 
-    if (this.mapFrame) {
-      this.mapFrame
-        .setPosition(this.mapX - 12, this.mapY - 12)
-        .setSize(this.mapW + 24, this.mapH + 24);
-    }
+    this.mapFrame
+      .setPosition(this.mapX - 12, this.mapY - 12)
+      .setSize(this.mapW + 24, this.mapH + 24);
 
     this.drawMapTerrain();
     this.mapNextRedrawAt = 0;
@@ -1539,14 +1537,12 @@ export class HudScene extends Scene {
   }
 
   private placeDock({ dashPos, slotPos, itemPos }: DockLayout, compact: boolean) {
-    if (this.dashBox) {
-      this.dashPanel.setPosition(dashPos.x, dashPos.y);
-      this.dashBox.setPosition(dashPos.x, dashPos.y);
-      this.dashCircle.setPosition(dashPos.x, dashPos.y);
-      this.dashCdCircle.setPosition(dashPos.x, dashPos.y);
-      this.dashLabel.setPosition(dashPos.x, dashPos.y);
-      this.dashCd.setPosition(dashPos.x, dashPos.y + 29);
-    }
+    this.dashPanel.setPosition(dashPos.x, dashPos.y);
+    this.dashBox.setPosition(dashPos.x, dashPos.y);
+    this.dashCircle.setPosition(dashPos.x, dashPos.y);
+    this.dashCdCircle.setPosition(dashPos.x, dashPos.y);
+    this.dashLabel.setPosition(dashPos.x, dashPos.y);
+    this.dashCd.setPosition(dashPos.x, dashPos.y + 29);
 
     for (const [i, s] of this.slots.entries()) {
       const p = slotPos[i];
@@ -1585,10 +1581,8 @@ export class HudScene extends Scene {
   }
 
   private layoutOverlays({ W, H, cx, compact }: LayoutCtx) {
-    if (this.shop) {
-      this.shop.setPosition(cx, H / 2);
-      this.shop.setScale(Math.min(1, (W - 20) / 430, (H - 20) / Math.max(1, this.shopPanelH)));
-    }
+    this.shop.setPosition(cx, H / 2);
+    this.shop.setScale(Math.min(1, (W - 20) / 430, (H - 20) / Math.max(1, this.shopPanelH)));
 
     const respawnY = compact ? Math.max(H / 2 - 120, H * 0.45) : H / 2 - 120;
     this.respawnText.setPosition(cx, respawnY).setFontSize(compact ? 28 : 42);
@@ -1597,9 +1591,7 @@ export class HudScene extends Scene {
       .setFontSize(compact ? 13 : 15)
       .setWordWrapWidth(Math.min(480, W - 32));
 
-    if (this.danger) {
-      this.danger.setSize(W, H).setPosition(0, 0);
-    }
+    this.danger.setSize(W, H).setPosition(0, 0);
 
     if (this.vignette) {
       this.vignette.setDisplaySize(W, H).setPosition(0, 0);
@@ -1651,16 +1643,14 @@ export class HudScene extends Scene {
     const me = this.gs?.player;
     const world = this.gs?.worldRef;
 
-    if (!me || !world || !me.hero) {
+    if (!me?.hero) {
       return;
     }
 
     const h = me.hero;
     this.updateTopLeft(h, world);
 
-    if (this.dashCd) {
-      this.updateDash(me, h, world);
-    }
+    this.updateDash(me, h, world);
 
     this.updatePortraitAndBars(me, h);
     const def = HERO_BY_ID[h.defId];
@@ -1698,9 +1688,7 @@ export class HudScene extends Scene {
 
     const wRef = this.gs?.worldRef;
 
-    if (wRef && this.teamScore) {
-      this.updateTeamScore(wRef);
-    }
+    this.updateTeamScore(wRef);
 
     this.updateDangerPulse();
   }
@@ -1725,10 +1713,6 @@ export class HudScene extends Scene {
   }
 
   private updateDangerPulse() {
-    if (!this.danger) {
-      return;
-    }
-
     const p = this.gs?.player;
     const pct = p && p.alive && p.maxHp > 0 ? p.hp / p.maxHp : 1;
 

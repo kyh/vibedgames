@@ -681,9 +681,7 @@ export class GameScene extends Scene {
     );
 
     for (const id of ids) {
-      if (!this.assign[id]) {
-        this.assign[id] = this.seatNewcomer();
-      }
+      this.assign[id] ??= this.seatNewcomer();
     }
 
     for (const id of ids) {
@@ -919,12 +917,12 @@ export class GameScene extends Scene {
     return out;
   }
 
-  private applyZoom() {
+  private readonly applyZoom = () => {
     const standard = PhaserMath.Clamp(this.scale.height / 900, 0.55, 1.3);
     this.cam.setZoom(
       presentationSettings().view === "close" ? Math.max(0.82, standard * 1.15) : standard,
     );
-  }
+  };
 
   private bindInput() {
     this.input.mouse?.disableContextMenu();
@@ -950,9 +948,10 @@ export class GameScene extends Scene {
         return;
       }
 
-      const hud = this.scene.get("Hud");
+      const hud: Phaser.Scene | null = this.scene.get("Hud");
+      const hudInput: Phaser.Input.InputPlugin | null = hud?.input ?? null;
 
-      if (hud?.input && hud.input.hitTestPointer(p).length > 0) {
+      if (hudInput !== null && hudInput.hitTestPointer(p).length > 0) {
         return;
       }
 
@@ -1704,21 +1703,21 @@ export class GameScene extends Scene {
 
   private readonly poseOf = (id: string) => {
     if (!this.amHost) {
-      return;
+      return null;
     }
 
     const cur = this.world.units.get(id) ?? this.world.projectiles.get(id);
     const prev = this.prevPos.get(id);
 
     if (!cur || !prev) {
-      return;
+      return null;
     }
 
     const dx = cur.x - prev.x;
     const dy = cur.y - prev.y;
 
     if (dx * dx + dy * dy > TELEPORT_PX * TELEPORT_PX) {
-      return;
+      return null;
     }
 
     const k = PhaserMath.Clamp(this.acc / SIM_DT, 0, 1);

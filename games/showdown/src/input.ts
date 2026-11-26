@@ -35,6 +35,8 @@ export interface Sticks {
   super: Stick;
 }
 
+const allSticks = (sticks: Sticks) => [sticks.aim, sticks.move, sticks.super];
+
 export interface Axis {
   x: number;
   z: number;
@@ -60,7 +62,7 @@ const FALLBACK_KEY_CODES = new Map<string, string>([
 ]);
 
 export const keyCode = (e: KeyboardEvent) =>
-  e.code || FALLBACK_KEY_CODES.get((e.key || "").toLowerCase()) || "";
+  e.code === "" ? (FALLBACK_KEY_CODES.get(e.key.toLowerCase()) ?? "") : e.code;
 
 const makeStick: () => Stick = () => ({
   id: null,
@@ -149,7 +151,7 @@ export class Input {
     this.evadePressed = false;
     this.shots.length = 0;
 
-    for (const stick of Object.values(this.sticks)) {
+    for (const stick of allSticks(this.sticks)) {
       resetStick(stick);
     }
   }
@@ -302,9 +304,7 @@ export class Input {
   }
 
   private stickHeldBy(e: PointerEvent) {
-    return Object.values(this.sticks).find((stick) => stick.id === e.pointerId) satisfies
-      | Stick
-      | undefined;
+    return allSticks(this.sticks).find((stick) => stick.id === e.pointerId);
   }
 
   private beginTouch(e: PointerEvent, zone: "field" | "super") {
@@ -399,7 +399,7 @@ export class Input {
     this.fire = false;
 
     if (!on) {
-      for (const stick of Object.values(this.sticks)) {
+      for (const stick of allSticks(this.sticks)) {
         resetStick(stick);
       }
     }

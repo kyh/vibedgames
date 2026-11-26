@@ -1,5 +1,5 @@
 import { VoicePool } from "./audio-voices";
-import type { VoiceGroup } from "./audio-voices";
+import type { VoiceGroup } from "./voice-group";
 
 export type MusicIntensity = 0 | 1 | 2 | 3;
 

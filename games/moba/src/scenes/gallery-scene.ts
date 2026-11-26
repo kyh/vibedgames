@@ -139,7 +139,9 @@ export class GalleryScene extends Scene {
         angle: 78,
         duration: 520,
         ease: "Quad.easeIn",
-        onComplete: () => this.time.delayedCall(450, run),
+        onComplete: () => {
+          this.time.delayedCall(450, run);
+        },
         targets: sprite,
         y: baseY + 14,
       });

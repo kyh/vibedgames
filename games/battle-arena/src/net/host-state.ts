@@ -122,10 +122,8 @@ export const reconcileHostHeroes = (
       continue;
     }
 
-    // oxlint-disable-next-line typescript/no-dynamic-delete -- the caller keeps these records by reference; the departed owner must vanish from its own object
-    delete seats[ownerId];
-    // oxlint-disable-next-line typescript/no-dynamic-delete -- same shared-record contract as the seat above
-    delete picks[ownerId];
+    Reflect.deleteProperty(seats, ownerId);
+    Reflect.deleteProperty(picks, ownerId);
   }
 
   const used = new Set(Object.values(seats).map((seat) => seat.slot));

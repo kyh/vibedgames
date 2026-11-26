@@ -202,7 +202,7 @@ export class ExpeditionHud {
   }
 
   get inspecting() {
-    return this.build.open && !this.build.hidden;
+    return this.build.open && this.build.hidden === false;
   }
 
   /** Scene shutdown: the Phaser texts go with the display list, the DOM panel
@@ -330,7 +330,7 @@ export class ExpeditionHud {
       return;
     }
 
-    const split = this.build.open && !this.build.hidden;
+    const split = this.build.open && this.build.hidden === false;
     const missingGold = Math.max(0, offer.price - (this.state?.gold ?? 0));
     const key = [offer.name, offer.desc, offer.price, offer.kind, missingGold, split].join("|");
 

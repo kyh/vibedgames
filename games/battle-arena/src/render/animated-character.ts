@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import type { ModelLibrary } from "./models";
+import { isMesh } from "./mesh";
 
 const RIG_LARGE_FALLBACK = new Map<string, string>(
   Object.entries({
@@ -195,7 +196,7 @@ export class AnimatedCharacter {
     }
 
     obj.traverse((c) => {
-      if (c instanceof THREE.Mesh) {
+      if (isMesh(c)) {
         c.castShadow = true;
         c.frustumCulled = false;
       }

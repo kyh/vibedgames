@@ -1,3 +1,5 @@
+import { parseJson } from "@vibedgames/multiplayer";
+
 import { isJsonNumber, isJsonObject } from "../json";
 import type { World } from "../world/world";
 import type { Inventory } from "./inventory";
@@ -75,7 +77,7 @@ export const loadSave = () => {
       return null;
     }
 
-    const d: JsonValue = JSON.parse(raw);
+    const d = parseJson(raw);
 
     return isSaveData(d) ? d : null;
   } catch {
@@ -99,7 +101,7 @@ export const writeSave: (d: SaveData) => SaveOutcome = (d) => {
 
 export const clearSave = () => {
   if (savesDisabled) {
-    return;
+    return false;
   }
 
   try {

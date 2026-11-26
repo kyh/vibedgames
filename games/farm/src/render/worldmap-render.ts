@@ -231,9 +231,9 @@ const decorateLayer = (
         continue;
       }
 
-      const t = tl.getTileAt(x, y);
+      const t: Phaser.Tilemaps.Tile | null = tl.getTileAt(x, y);
 
-      if (!t) {
+      if (t === null) {
         continue;
       }
 

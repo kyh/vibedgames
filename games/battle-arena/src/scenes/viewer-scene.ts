@@ -19,6 +19,7 @@ import { AnimatedCharacter } from "../render/animated-character";
 import type { ModelLibrary } from "../render/models";
 import type { View } from "../render/view";
 import { WorldView } from "../render/world-view";
+import { isMesh } from "../render/mesh";
 
 type ViewerKeycaps = { [K in AbilityKey]?: string };
 
@@ -931,11 +932,6 @@ export class ViewerScene {
     }
 
     const def = champ.abilities[act];
-
-    if (!def) {
-      return [] satisfies DrawRegion[];
-    }
-
     const rank = Math.max(1, me.abilities[act]?.rank ?? def.maxRank);
 
     return abilityRegions(def, rank).flatMap((s) =>
@@ -1016,7 +1012,7 @@ export class ViewerScene {
       const g = this.hitVizGroup;
 
       for (const c of g.children) {
-        if (c instanceof THREE.Mesh) {
+        if (isMesh(c)) {
           c.geometry.dispose();
         }
       }
@@ -1053,7 +1049,7 @@ export class ViewerScene {
 
     const grp = this.hitVizGroup;
 
-    if (!grp || !me) {
+    if (!me) {
       return;
     }
 

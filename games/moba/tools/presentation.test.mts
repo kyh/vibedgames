@@ -201,7 +201,11 @@ test("an actual channel permits another spell and a dash that cancels it", () =>
   );
   assert.equal(actionAvailability(unit, world.now, { kind: "dash" }).kind, "available");
   assert.equal(castAbility(world, unit, { key: "Q", point }), true);
-  assert.ok(unit.hero.channel, "The simulation allows this spell without cancelling its channel");
+  assert.notEqual(
+    unit.hero.channel,
+    null,
+    "The simulation allows this spell without cancelling its channel",
+  );
   dashHero(world, unit, 1, 0);
   assert.equal(unit.hero.channel, null);
   assert.ok(unit.hero.dashUntil > world.now);
@@ -626,7 +630,11 @@ test("attack pose follows the real wind-up, strike, recovery and repeated snapsh
   const world = createWorld(718);
   world.gameTime = 300;
   step(world);
-  const attacker = [...world.units.values()].find((u) => u.neutral === true && u.creep?.boss);
+
+  const attacker = [...world.units.values()].find(
+    (u) => u.neutral === true && u.creep?.boss === true,
+  );
+
   assert.ok(attacker, "real neutral boss must exist");
   const victim = spawnHero(world, "ironvow", "radiant", "target", false, 0);
   victim.x = attacker.x + 40;

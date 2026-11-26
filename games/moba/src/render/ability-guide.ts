@@ -179,12 +179,12 @@ export class AbilityGuide {
   }
 
   get open() {
-    return !this.panel.hidden;
+    return this.panel.hidden === false;
   }
 
   /** The toggle's action, shared with its G key twin in the HUD scene. */
   toggleGuide() {
-    if (this.gs.matchResult || this.gs.controlsPaused || this.options.blocked()) {
+    if (this.gs.matchResult !== null || this.gs.controlsPaused || this.options.blocked()) {
       return;
     }
 

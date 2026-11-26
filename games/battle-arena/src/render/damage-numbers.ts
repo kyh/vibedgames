@@ -105,11 +105,16 @@ const lookFor = (style: NumberStyle, grow: number, beat: number) => {
       break;
     }
 
-    default: {
+    case "bystander": {
       size = 20;
       color = "#e6ddc8";
       stroke = "#1c1710";
       break;
+    }
+
+    default: {
+      const unhandled: never = style;
+      throw new Error("unhandled number style", { cause: unhandled });
     }
   }
 

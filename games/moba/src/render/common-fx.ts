@@ -267,12 +267,12 @@ export class CommonFx {
     slot.node.setActive(false);
   }
 
-  label(recipe: LabelFx) {
+  private freeLane(group: string | undefined) {
     const occupied = new Set<number>();
 
-    if (recipe.group !== undefined && recipe.group !== "") {
+    if (group !== undefined && group !== "") {
       for (const slot of this.labels) {
-        if (slot.live?.recipe.group === recipe.group) {
+        if (slot.live?.recipe.group === group) {
           occupied.add(slot.live.recipe.lane);
         }
       }
@@ -283,6 +283,12 @@ export class CommonFx {
     while (occupied.has(lane)) {
       lane += 1;
     }
+
+    return lane;
+  }
+
+  label(recipe: LabelFx) {
+    const lane = this.freeLane(recipe.group);
 
     const placed = {
       ...recipe,

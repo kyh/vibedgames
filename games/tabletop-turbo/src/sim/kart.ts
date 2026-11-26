@@ -246,8 +246,13 @@ const surfaceLimits = (kart: Kart) => {
       };
     }
 
-    default: {
+    case "road": {
       return { accel: ACCEL, grip: drifting ? GRIP_DRIFT : GRIP, top: MAX_SPEED };
+    }
+
+    default: {
+      const unhandled: never = kart.surface;
+      throw new Error("unknown surface", { cause: unhandled });
     }
   }
 };

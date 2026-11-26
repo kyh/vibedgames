@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 
+import { parseJson } from "@vibedgames/multiplayer";
+import type { JsonValue } from "@vibedgames/multiplayer";
+
 import { TILE } from "../src/config.ts";
 import { ENEMIES } from "../src/data/enemies.ts";
 import { HEROES } from "../src/data/heroes.ts";
@@ -73,9 +76,8 @@ const NEUTRAL: BodyInput = {
 
 const inp = (o: Partial<BodyInput>) => ({ ...NEUTRAL, ...o });
 
-// oxlint-disable-next-line unicorn/prefer-structured-clone -- the JSON round trip IS the thing under test; structuredClone keeps what the wire drops
 const wire = <T,>(v: T) => {
-  assert.deepStrictEqual(JSON.parse(JSON.stringify(v)), v, "the value survives JSON as it is");
+  assert.deepStrictEqual(parseJson(JSON.stringify(v)), v, "the value survives JSON as it is");
 
   return structuredClone(v);
 };
@@ -964,7 +966,7 @@ const script = (f: number) => ({
     check(
       `restored ${kind.name} replays identically`,
       JSON.stringify(copy.checkpoint()) === JSON.stringify(e.checkpoint()),
-      `${e.state}`,
+      e.state,
     );
   }
 
@@ -1153,7 +1155,7 @@ const script = (f: number) => ({
     readCheckpoint(null).kind === "absent" && readCheckpoint({}).kind === "absent",
   );
 
-  const reject = (label: string, patch: Readonly<Record<string, unknown>>, r: NetRoom = room) => {
+  const reject = (label: string, patch: Readonly<Record<string, JsonValue>>, r: NetRoom = room) => {
     check(
       `validator rejects ${label}`,
       readCheckpoint(wire({ checkpoint: { ...checkpoint, ...patch }, room: r })).kind === "invalid",

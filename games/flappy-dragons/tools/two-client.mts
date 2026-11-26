@@ -19,7 +19,7 @@ const waitFor = async <T,>(read: () => Promise<T>, label: string, timeoutMs = 80
 
       return last;
     },
-    (value) => Boolean(value),
+    Boolean,
     { intervalMs: 100, timeoutMs },
   );
 
@@ -102,7 +102,11 @@ const until = async (page: Page, test: (fb: Fb) => boolean, label: string, timeo
     timeoutMs,
   );
 
-const phaseOf = async (page: Page) => (await fbOf(page))?.phase ?? null;
+const phaseOf = async (page: Page) => {
+  const fb = await fbOf(page);
+
+  return fb?.phase ?? null;
+};
 
 const startFlying = async (page: Page) => {
   await page.keyboard.press("Enter");
@@ -168,37 +172,34 @@ const respawnAndFly = async (page: Page, label: string) => {
 };
 
 const worstScrollStep = async (page: Page, ms: number) =>
-  await page.evaluate(
-    async (span) =>
-      // oxlint-disable-next-line promise/avoid-new -- requestAnimationFrame has no promise form
-      await new Promise<number>((resolve, reject) => {
-        const scene = window.__fb?.scene;
+  await page.evaluate(async (span) => {
+    const { promise, resolve } = Promise.withResolvers<number>();
 
-        if (scene === undefined) {
-          reject(new Error("window.__fb is missing"));
+    const scene = window.__fb?.scene;
 
-          return;
-        }
+    if (scene === undefined) {
+      throw new Error("window.__fb is missing");
+    }
 
-        const until = performance.now() + span;
-        let prev = scene.worldX;
-        let worst = Number.POSITIVE_INFINITY;
+    const endAt = performance.now() + span;
+    let prev = scene.worldX;
+    let worst = Number.POSITIVE_INFINITY;
 
-        const tick = () => {
-          worst = Math.min(worst, scene.worldX - prev);
-          prev = scene.worldX;
+    const tick = () => {
+      worst = Math.min(worst, scene.worldX - prev);
+      prev = scene.worldX;
 
-          if (performance.now() < until) {
-            requestAnimationFrame(tick);
-          } else {
-            resolve(worst);
-          }
-        };
-
+      if (performance.now() < endAt) {
         requestAnimationFrame(tick);
-      }),
-    ms,
-  );
+      } else {
+        resolve(worst);
+      }
+    };
+
+    requestAnimationFrame(tick);
+
+    return await promise;
+  }, ms);
 
 const openClient = async (browser: Browser, url: string, errors: string[]) => {
   const page = await browser.newPage({ viewport: { height: 600, width: 900 } });
@@ -286,7 +287,7 @@ const main = async () => {
     step(
       "both render the same pipe window",
       shared.length >= 2,
-      `host ${h.pipes} guest ${g.pipes}`,
+      `host ${h.pipes.join(",")} guest ${g.pipes.join(",")}`,
     );
     step(
       "guest scroll tracks the host",

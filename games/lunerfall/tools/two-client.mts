@@ -109,6 +109,15 @@ const hold = async (page: Page, code: string, ms: number) => {
 const live = async (page: Page) =>
   await page.evaluate(() => window.__lf?.vs === null || window.__lf?.vs?.phase === "fighting");
 
+const hostHp = async (page: Page) => {
+  const s = await lf(page);
+
+  return s.vs?.hostHp ?? 0;
+};
+
+const rematch = async (page: Page) =>
+  await page.evaluate(() => window.__lf?.vs?.round === 1 && window.__lf.vs.phase !== "matchEnd");
+
 const vsPhase = async (page: Page) => await page.evaluate(() => window.__lf?.vs?.phase ?? null);
 
 const attackCrossesWire = async (guest: Client, host: Client) => {
@@ -200,8 +209,7 @@ const run = async (base: string, mode: string) => {
 
     if (mode === "vs") {
       await step("a real hit takes a heart", async () => {
-        const hostHp = async () => (await lf(host.page)).vs?.hostHp ?? 0;
-        const hp0 = await hostHp();
+        const hp0 = await hostHp(host.page);
 
         const hop: (left: number) => Promise<boolean> = async (left) => {
           if (left === 0) {
@@ -257,11 +265,6 @@ const run = async (base: string, mode: string) => {
         );
       },
     );
-
-    const rematch = async (page: Page) =>
-      await page.evaluate(
-        () => window.__lf?.vs?.round === 1 && window.__lf.vs.phase !== "matchEnd",
-      );
 
     const restart = async (first: Client, second: Client) => {
       if (mode === "vs") {

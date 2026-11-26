@@ -495,6 +495,18 @@ export class ShipView {
       return;
     }
 
+    this.drawShieldMod(x, y, angle, mod, now, opts);
+  }
+
+  private drawShieldMod(
+    x: number,
+    y: number,
+    angle: number,
+    mod: ShieldModNetState,
+    now: number,
+    opts: { regen: boolean; siphonPulse: boolean },
+  ) {
+    const g = this.layers.haloGfx;
     const { tint } = SHIELD_MOD_SPECS[mod.kind];
 
     switch (mod.kind) {
@@ -574,8 +586,14 @@ export class ShipView {
         break;
       }
 
-      default: {
+      case "bulwark":
+      case "leech": {
         break;
+      }
+
+      default: {
+        const unhandled: never = mod.kind;
+        throw new Error("unhandled case", { cause: unhandled });
       }
     }
   }

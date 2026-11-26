@@ -6,20 +6,24 @@ import { createReport, flagValue, poll, reachable, repeat, startVite } from "@re
 import { chromium } from "playwright-core";
 import type { Browser, Page } from "playwright-core";
 
-import type { PongDiagnostics } from "../src/main.ts";
 import type { GameScene } from "../src/scenes/game-scene.ts";
 
 declare global {
   interface Window {
     __steer?: ReturnType<typeof setInterval>;
     __frame?: GameScene["update"];
-    __send?: WebSocket["send"];
+    __sending?: PropertyDescriptor;
+    __heldFrames?: number;
   }
 }
 
 interface Steer {
   aim?: number;
   park?: number;
+}
+
+interface ViteHandle {
+  current: ChildProcess | null;
 }
 
 interface Client {
@@ -38,11 +42,7 @@ const report = createReport();
 const { check } = report;
 
 const until = async <T,>(page: Page, fn: () => T, timeoutMs: number) =>
-  await poll(
-    async () => await page.evaluate(fn).catch(() => null),
-    (value) => Boolean(value),
-    { timeoutMs },
-  );
+  await poll(async () => await page.evaluate(fn).catch(() => null), Boolean, { timeoutMs });
 
 const pong = async (page: Page) => {
   await page.evaluate(() => {
@@ -54,10 +54,10 @@ const pong = async (page: Page) => {
 
 const diag = async (page: Page) =>
   await page.evaluate(() => {
-    const read: PongDiagnostics | undefined = window.__GAME_DIAGNOSTICS__;
+    const read = window.__pong?.diagnostics();
 
     if (read === undefined) {
-      throw new Error("window.__GAME_DIAGNOSTICS__ is missing");
+      throw new Error("window.__pong is missing: run the game in dev mode");
     }
 
     return read;
@@ -180,7 +180,7 @@ const pairUp = async (browser: Browser, room: string, errors: string[]) => {
   check(admitted !== null, "host admitted");
   await pong(host.page);
   await confirm(host.page);
-  const solo = await until(host.page, () => window.__GAME_DIAGNOSTICS__?.phase === "rally", 3000);
+  const solo = await until(host.page, () => window.__pong?.diagnostics().phase === "rally", 3000);
   const { net } = await diag(host.page);
   check(solo !== null && net.clock === "local", "host serves a solo match vs the AI");
   const hostInfo = await netInfo(host.page);
@@ -207,7 +207,7 @@ const pairUp = async (browser: Browser, room: string, errors: string[]) => {
 const rallyInSync = async (host: Page, guest: Page) => {
   await steer(host, { aim: 0.25 });
   await steer(guest, { aim: -0.25 });
-  const rally = await until(host, () => (window.__GAME_DIAGNOSTICS__?.rallyHits ?? 0) >= 4, 20_000);
+  const rally = await until(host, () => (window.__pong?.diagnostics().rallyHits ?? 0) >= 4, 20_000);
   check(rally !== null, "both paddles return the ball");
 
   await repeat(3, async () => {
@@ -227,17 +227,17 @@ const powerAndPause = async (host: Page, guest: Page) => {
   const ready = await until(
     guest,
     () =>
-      window.__GAME_DIAGNOSTICS__?.charge.ready === true &&
-      window.__GAME_DIAGNOSTICS__.phase === "rally",
+      window.__pong?.diagnostics().charge.ready === true &&
+      window.__pong?.diagnostics().phase === "rally",
     30_000,
   );
 
   await confirm(guest);
-  const armed = await until(guest, () => window.__GAME_DIAGNOSTICS__?.charge.armed, 2000);
+  const armed = await until(guest, () => window.__pong?.diagnostics().charge.armed, 2000);
 
   const powered = await until(
     host,
-    () => (window.__GAME_DIAGNOSTICS__?.powerShots ?? 0) >= 1,
+    () => (window.__pong?.diagnostics().powerShots ?? 0) >= 1,
     10_000,
   );
 
@@ -285,8 +285,8 @@ const blip = async (host: Page, guest: Page, guestSlot: number) => {
 
 const winAndRematch = async (host: Page, guest: Page) => {
   await steer(guest, { park: 4.5 });
-  const won = await until(host, () => window.__GAME_DIAGNOSTICS__?.complete, 60_000);
-  const guestSees = await until(guest, () => window.__GAME_DIAGNOSTICS__?.complete, 3000);
+  const won = await until(host, () => window.__pong?.diagnostics().complete, 60_000);
+  const guestSees = await until(guest, () => window.__pong?.diagnostics().complete, 3000);
   const [dh, dg] = [await diag(host), await diag(guest)];
   check(
     won !== null && guestSees !== null && dh.points === dg.opponentScore && dh.points === 7,
@@ -294,7 +294,7 @@ const winAndRematch = async (host: Page, guest: Page) => {
   );
   await steer(guest, { aim: -0.25 });
   await confirm(guest);
-  const restarted = await until(host, () => window.__GAME_DIAGNOSTICS__?.phase === "rally", 3000);
+  const restarted = await until(host, () => window.__pong?.diagnostics().phase === "rally", 3000);
   const zero = await diag(host);
   check(
     restarted !== null && zero.points === 0 && zero.opponentScore === 0,
@@ -311,16 +311,25 @@ const migrate = async (host: Page, guest: Page) => {
       return;
     }
 
-    const { send } = WebSocket.prototype;
-    window.__send = send;
-    WebSocket.prototype.send = function muted(data) {
+    const sending = Object.getOwnPropertyDescriptor(WebSocket.prototype, "send");
+
+    if (sending === undefined) {
+      return;
+    }
+
+    const native: Partial<Pick<WebSocket, "send">> = Object.defineProperties({}, { send: sending });
+    window.__sending = sending;
+    WebSocket.prototype.send = function send(data) {
       if (data !== '{"type":"heartbeat"}') {
-        send.call(this, data);
+        native.send?.call(this, data);
       }
     };
 
     window.__frame = scene.update.bind(scene);
-    scene.update = () => null;
+    window.__heldFrames = 0;
+    scene.update = () => {
+      window.__heldFrames = (window.__heldFrames ?? 0) + 1;
+    };
   });
   const promoted = await until(guest, () => window.__pong?.control.session.isHost, 15_000);
   check(promoted !== null, "guest promoted after the host goes silent");
@@ -329,16 +338,22 @@ const migrate = async (host: Page, guest: Page) => {
   check(await moving(guest, 300), "the ball keeps moving for the promoted guest");
   const silent = await agree(host, guest);
   check(silent.ok, `the silent old host still confirms the same ticks (${silent.why})`);
-  await host.evaluate(() => {
+
+  const held = await host.evaluate(() => {
     const scene = window.__pong;
 
-    if (scene === undefined || window.__frame === undefined || window.__send === undefined) {
-      return;
+    if (scene === undefined || window.__frame === undefined || window.__sending === undefined) {
+      return 0;
     }
 
-    WebSocket.prototype.send = window.__send;
+    Object.defineProperty(WebSocket.prototype, "send", window.__sending);
     scene.update = window.__frame;
+
+    return window.__heldFrames ?? 0;
   });
+
+  check(held > 0, "the old host's frames were held while it was silent");
+
   const demoted = !(await isHost(host));
   check(demoted && (await moving(host, 300)), "the old host plays on as the guest");
 };
@@ -358,7 +373,7 @@ const rivalLeaves = async (host: Page, guest: Page) => {
   await steer(host, null);
 };
 
-const main = async (vite: { current: ChildProcess | null }) => {
+const main = async (vite: ViteHandle) => {
   if (!(await reachable(PARTY))) {
     throw new Error(`party server not reachable at ${PARTY}`);
   }
@@ -400,7 +415,7 @@ const main = async (vite: { current: ChildProcess | null }) => {
   );
 };
 
-const vite: { current: ChildProcess | null } = { current: null };
+const vite: ViteHandle = { current: null };
 
 try {
   await main(vite);

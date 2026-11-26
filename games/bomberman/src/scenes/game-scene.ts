@@ -173,7 +173,8 @@ const MULTIPLAYER_HOST = import.meta.env.DEV
   ? "http://localhost:8787"
   : "https://party.vibedgames.com";
 
-const ROOM = new URLSearchParams(location.search).get("room") || "bomberman-v4";
+const ROOM_PARAM = new URLSearchParams(location.search).get("room");
+const ROOM = ROOM_PARAM === null || ROOM_PARAM === "" ? "bomberman-v4" : ROOM_PARAM;
 const SOLO_PLAYTEST = isPlaytestRequested() && !new URLSearchParams(location.search).has("room");
 const BOMB_BUTTON_INSET = 84;
 const BOMB_BUTTON_RADIUS = 52;
@@ -278,8 +279,13 @@ const bannerDetail = (state: Exclude<RoundPresentation, { kind: "hidden" }>) => 
       return "No fighter left standing.";
     }
 
-    default: {
+    case "lost": {
       return `${state.winner} wins the round.`;
+    }
+
+    default: {
+      const unhandled: never = state;
+      throw new Error("unknown round presentation", { cause: unhandled });
     }
   }
 };
@@ -728,7 +734,7 @@ export class GameScene extends Scene {
     this.writeShared(next);
   }
 
-  private applyZoom() {
+  private readonly applyZoom = () => {
     const zoom = PhaserMath.Clamp(
       Math.min(this.scale.height / (9.5 * TILE), this.scale.width / (7.5 * TILE)),
       0.6,
@@ -736,7 +742,7 @@ export class GameScene extends Scene {
     );
 
     this.cameras.main.setZoom(zoom);
-  }
+  };
 
   override update(_time: number, delta: number) {
     const now = performance.now();
@@ -1096,7 +1102,7 @@ export class GameScene extends Scene {
 
   private ownPose(now: number) {
     if (!this.ownSpawned) {
-      return;
+      return null;
     }
 
     const from = this.stepFrom;
@@ -1743,8 +1749,10 @@ export class GameScene extends Scene {
     const cam = this.cameras.main;
     const centerX = cam.scrollX + cam.width / 2;
     const centerY = cam.scrollY + cam.height / 2;
+
     const local =
       this.myId === null || this.myId === "" ? undefined : this.players.get(this.myId)?.container;
+
     const listenerX = local?.x ?? centerX;
     const listenerY = local?.y ?? centerY;
     let nearest: { distance: number; x: number } | null = null;
@@ -2217,7 +2225,9 @@ export class GameScene extends Scene {
         ? { alpha: { from: 0.7, to: 1 }, duration: 180 }
         : { duration: 90, scaleX: 1.08, scaleY: 0.92, y: kind === "pickup" ? -5 : 2, yoyo: true }),
       ease: "Sine.InOut",
-      onComplete: () => objs.sprite.clearTint(),
+      onComplete: () => {
+        objs.sprite.clearTint();
+      },
     });
   }
 
@@ -2455,7 +2465,7 @@ export class GameScene extends Scene {
     });
   }
 
-  private onStartKeyUp(event: KeyboardEvent) {
+  private readonly onStartKeyUp = (event: KeyboardEvent) => {
     if (event.key === "Tab" || event.key === "Escape") {
       return;
     }
@@ -2465,7 +2475,7 @@ export class GameScene extends Scene {
     }
 
     this.beginPlay();
-  }
+  };
 
   private beginPlay() {
     if (this.started) {

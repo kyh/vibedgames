@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { parseJson } from "@vibedgames/multiplayer";
 import { test } from "node:test";
 import { isSellable } from "../src/data/items";
 import { Inventory } from "../src/systems/inventory";
@@ -34,7 +35,7 @@ test("selling everything keeps the seed stock and the tools", () => {
 
 test("the tile under a standing tree's crown tills only once the tree is felled", () => {
   const map = parseWorldMap(
-    JSON.parse(readFileSync(new URL("../public/assets/map.json", import.meta.url), "utf-8")),
+    parseJson(readFileSync(new URL("../public/assets/map.json", import.meta.url), "utf-8")),
   );
 
   const { world } = generateFarm(1, map);

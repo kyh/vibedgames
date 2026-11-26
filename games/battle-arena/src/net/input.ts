@@ -81,7 +81,7 @@ const parseList = <T>(v: JsonValue | undefined, parse: (item: JsonValue) => T | 
     for (const item of v.slice(0, MAX_ACTIONS)) {
       const parsed = parse(item);
 
-      if (parsed) {
+      if (parsed !== null) {
         out.push(parsed);
       }
     }

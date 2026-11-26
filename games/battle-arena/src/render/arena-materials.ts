@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { hash2 } from "../data/decor";
+import { isMesh } from "./mesh";
 
 export type ArenaSurface = "stone" | "floor" | "dirt" | "grate";
 
@@ -91,7 +92,7 @@ export class ArenaMaterials {
     }
 
     object.traverse((child) => {
-      if (!(child instanceof THREE.Mesh)) {
+      if (!isMesh(child)) {
         return;
       }
 

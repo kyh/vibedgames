@@ -82,7 +82,11 @@ if (import.meta.env.DEV || isPlaytestRequested()) {
     publishTestHooks({
       seed: startSolo,
       setPausedForScreenshot: (paused) => {
-        paused ? game.loop.sleep() : game.loop.wake();
+        if (paused) {
+          game.loop.sleep();
+        } else {
+          game.loop.wake();
+        }
       },
       setState: (name) => {
         if (name !== "active-play") {
@@ -113,7 +117,9 @@ let settle: ReturnType<typeof setTimeout> | undefined;
 
 const refreshScale = () => {
   clearTimeout(settle);
-  settle = setTimeout(() => game.scale.refresh(), 150);
+  settle = setTimeout(() => {
+    game.scale.refresh();
+  }, 150);
 };
 
 window.addEventListener("resize", refreshScale);

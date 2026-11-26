@@ -131,7 +131,7 @@ const findVsmBranch = (source: string) => {
   const branchAt = source.indexOf(VSM_BRANCH);
 
   if (branchAt === -1) {
-    return;
+    return null;
   }
 
   const DIRECTIVE = /#[ \t]*(?<word>ifdef|ifndef|if|elif|else|endif)\b/gu;
@@ -148,12 +148,12 @@ const findVsmBranch = (source: string) => {
     } else if (word === "endif") {
       if (depth === 0) {
         if (start === -1) {
-          return;
+          return null;
         }
 
         return source.slice(start, match.index).includes(GET_SHADOW_SIGNATURE)
           ? { end: match.index, start }
-          : undefined;
+          : null;
       }
 
       depth -= 1;
@@ -164,6 +164,8 @@ const findVsmBranch = (source: string) => {
 
     match = DIRECTIVE.exec(source);
   }
+
+  return null;
 };
 
 const patchSpotAttenuation = () => {

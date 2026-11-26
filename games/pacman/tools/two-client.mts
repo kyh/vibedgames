@@ -20,7 +20,7 @@ const waitFor = async <T,>(read: () => Promise<T>, label: string, timeoutMs = 80
 
       return last;
     },
-    (value) => Boolean(value),
+    Boolean,
     { intervalMs: 100, timeoutMs },
   );
 

@@ -281,6 +281,9 @@ const floodReachable = (tiles: Uint8Array, start: number) => {
   return { count, reached };
 };
 
+const isReached = (reached: Uint8Array, x: number, y: number) =>
+  (reached[gridIndex(x, y)] ?? 0) !== 0;
+
 const countOpen = (tiles: Uint8Array) => {
   let open = 0;
 
@@ -315,14 +318,14 @@ export const generateLayout = (rng: Rng, tiles: Uint8Array, styles: Uint8Array) 
 
   const connected =
     reach.count >= countOpen(tiles) * 0.93 &&
-    spawns.every(([x, y]) => reach.reached[gridIndex(x, y)]) &&
-    Boolean(reach.reached[gridIndex(GRID_HALF, GRID_HALF)]);
+    spawns.every(([x, y]) => isReached(reach.reached, x, y)) &&
+    isReached(reach.reached, GRID_HALF, GRID_HALF);
 
   if (!connected) {
     return { boxSpots, lampTiles, spawns, valid: false };
   }
 
-  const reachableSpots = boxSpots.filter(([x, y]) => reach.reached[gridIndex(x, y)]);
+  const reachableSpots = boxSpots.filter(([x, y]) => isReached(reach.reached, x, y));
 
   return { boxSpots: reachableSpots, lampTiles, spawns, valid: reachableSpots.length >= 10 };
 };

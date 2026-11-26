@@ -15,6 +15,7 @@ import { disposeMat } from "./instance-mats";
 import { PropView } from "./prop-view";
 import { UnitView } from "./unit-view";
 import type { ViewDef } from "./unit-view";
+import { isMesh } from "./mesh";
 
 const CREEP_VIEW = new Map<string, ViewDef>(
   Object.entries({
@@ -571,7 +572,7 @@ export class WorldView {
     const mesh = c.loot === true ? makeLootPickup(this.lib, c.id) : makeCoinMesh();
     this.coins.set(c.id, mesh);
 
-    if (c.loot !== true && mesh instanceof THREE.Mesh) {
+    if (c.loot !== true && isMesh(mesh)) {
       this.ownedCoins.add(mesh);
     }
 
@@ -693,7 +694,7 @@ export class WorldView {
   private removeCoin(object: THREE.Object3D) {
     this.scene.remove(object);
 
-    if (object instanceof THREE.Mesh && this.ownedCoins.delete(object)) {
+    if (isMesh(object) && this.ownedCoins.delete(object)) {
       object.geometry.dispose();
       disposeMat(object.material);
     }
@@ -703,7 +704,7 @@ export class WorldView {
     this.scene.remove(group);
 
     for (const child of group.children) {
-      if (!(child instanceof THREE.Mesh)) {
+      if (!isMesh(child)) {
         continue;
       }
 

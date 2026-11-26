@@ -181,11 +181,19 @@ const check = (name: string, cond: boolean, extra = "") => {
   emberHero.abilities.E.rank = 1;
   ember.mp = ember.maxMp;
   castAbility(w, ember, { key: "E", point: { x: ember.x, y: ember.y } });
-  const after1 = w.groundEffects.filter((g) => g.ownerId === ember.id && g.followOwner).length;
+
+  const after1 = w.groundEffects.filter(
+    (g) => g.ownerId === ember.id && g.followOwner === true,
+  ).length;
+
   ember.mp = ember.maxMp;
   emberHero.abilities.E.readyAt = 0;
   castAbility(w, ember, { key: "E", point: { x: ember.x, y: ember.y } });
-  const after2 = w.groundEffects.filter((g) => g.ownerId === ember.id && g.followOwner).length;
+
+  const after2 = w.groundEffects.filter(
+    (g) => g.ownerId === ember.id && g.followOwner === true,
+  ).length;
+
   check("Flashfire aura present after first cast", after1 === 1, `after1=${after1}`);
   check("recast replaces rather than stacking the aura", after2 === 1, `after2=${after2}`);
 }

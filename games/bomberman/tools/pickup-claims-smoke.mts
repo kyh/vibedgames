@@ -71,7 +71,9 @@ const server = () => {
         id,
         lost: [],
         room: {
-          claim: (key) => queue.push({ from: peer, key }),
+          claim: (key) => {
+            queue.push({ from: peer, key });
+          },
           clearClaims: (prefix) => {
             for (const key of [...owners.keys()].filter((k) => k.startsWith(prefix))) {
               owners.delete(key);
@@ -180,7 +182,9 @@ test("offline, the room grants a claim before claim() returns, and the host step
   const room = new MultiplayerClient({
     host: "http://127.0.0.1:9",
     offline: true,
-    onClaim: (key, owner) => heard.push([key, owner]),
+    onClaim: (key, owner) => {
+      heard.push([key, owner]);
+    },
     party: "vg-server",
     room: "pickup-claims-smoke",
   });

@@ -406,8 +406,9 @@ const expireProjectile = (w: World, p: Projectile) => {
 };
 
 export const stepProjectiles = (w: World, dt: number) => {
-  // oxlint-disable-next-line unicorn/no-useless-spread -- the loop deletes from w.projectiles, so the walk needs its own snapshot
-  for (const p of [...w.projectiles.values()]) {
+  const flying = [...w.projectiles.values()];
+
+  for (const p of flying) {
     if (p.targetId !== null && p.targetId !== "") {
       const t = w.units.get(p.targetId);
 

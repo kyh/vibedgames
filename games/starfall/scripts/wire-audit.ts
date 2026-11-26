@@ -1,4 +1,5 @@
 import { applyPatch, diffState } from "@vibedgames/multiplayer";
+import type { JsonValue } from "@vibedgames/multiplayer";
 
 import { FIRE_BASE, encodeFire } from "../src/net/fire-wire";
 import type { WireRecord } from "../src/net/wire-read";
@@ -43,7 +44,7 @@ const id = () => {
 
 const PEER_ID = "00000000-0000-4000-8000-000000007000";
 
-const bytes = <T>(v: T) => Buffer.byteLength(JSON.stringify(v));
+const bytes = (v: JsonValue) => Buffer.byteLength(JSON.stringify(v));
 
 const diffKeys = (prev: WireRecord, next: WireRecord) => {
   const out: WireRecord = {};
@@ -57,7 +58,7 @@ const diffKeys = (prev: WireRecord, next: WireRecord) => {
   return out;
 };
 
-const statePatchMsg = <T>(data: T) => bytes({ data, type: "state_patch" });
+const statePatchMsg = (data: JsonValue) => bytes({ data, type: "state_patch" });
 
 const playerStateMsg = (state: WireRecord) =>
   bytes({ data: { id: PEER_ID, state }, type: "player_state" });

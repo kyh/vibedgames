@@ -78,8 +78,15 @@ export const weaponLook = (weapon: Weapon) => {
       return "mine";
     }
 
-    default: {
+    case "pulse":
+    case "seek":
+    case "sentry": {
       return "bolt";
+    }
+
+    default: {
+      const unhandled: never = weapon.sfx;
+      throw new Error("unhandled case", { cause: unhandled });
     }
   }
 };

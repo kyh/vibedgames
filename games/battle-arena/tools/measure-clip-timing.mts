@@ -2,7 +2,7 @@ import { readdirSync } from "node:fs";
 import nodePath from "node:path";
 
 import { NodeIO } from "@gltf-transform/core";
-import type { Node, TypedArray } from "@gltf-transform/core";
+import type { Animation, Node, TypedArray } from "@gltf-transform/core";
 
 type Vec = number[];
 
@@ -128,8 +128,82 @@ const norm = (name: string) => name.replaceAll(/[^a-z0-9]/giu, "").toLowerCase()
 const isTrackPath = (path: string | null): path is keyof NodeTracks =>
   path === "translation" || path === "rotation" || path === "scale";
 
+const tracksOf = (anim: Animation) => {
+  const tracks = new Map<Node, NodeTracks>();
+  let dur = 0;
+
+  for (const ch of anim.listChannels()) {
+    const node = ch.getTargetNode();
+    const targetPath = ch.getTargetPath();
+    const sampler = ch.getSampler();
+    const times = sampler?.getInput()?.getArray() ?? null;
+    const values = sampler?.getOutput()?.getArray() ?? null;
+
+    if (node === null || !isTrackPath(targetPath) || times === null || values === null) {
+      continue;
+    }
+
+    dur = Math.max(dur, times.at(-1) ?? 0);
+    const nodeTracks = tracks.get(node) ?? {};
+    nodeTracks[targetPath] = { times, values };
+    tracks.set(node, nodeTracks);
+  }
+
+  return { dur, tracks };
+};
+
+const handPath = (hand: Node, tracks: Map<Node, NodeTracks>, dur: number) =>
+  Array.from({ length: STEPS + 1 }, (_, step) => {
+    const t = (step / STEPS) * dur;
+    const world = new Map<Node, Vec>();
+
+    const worldOf: (node: Node) => Vec = (node) => {
+      const known = world.get(node);
+
+      if (known !== undefined) {
+        return known;
+      }
+
+      const tr = tracks.get(node);
+
+      const T = tr?.translation ? sampleTrack(tr.translation, 3, t, false) : node.getTranslation();
+
+      const R = tr?.rotation ? sampleTrack(tr.rotation, 4, t, true) : node.getRotation();
+      const S = tr?.scale ? sampleTrack(tr.scale, 3, t, false) : node.getScale();
+      const local = composeMat(T, R, S);
+      const parent = node.getParentNode();
+      const m = parent === null ? local : mulMat(worldOf(parent), local);
+      world.set(node, m);
+
+      return m;
+    };
+
+    const m = worldOf(hand);
+
+    return [at(m, 12), at(m, 13), at(m, 14)];
+  });
+
+const peakOf = (handPos: number[][], dur: number) => {
+  let peakI = 0;
+  let peakV = 0;
+
+  for (let i = 1; i < handPos.length; i += 1) {
+    const [ax = 0, ay = 0, az = 0] = handPos[i - 1] ?? [];
+    const [bx = 0, by = 0, bz = 0] = handPos[i] ?? [];
+    const v = Math.hypot(bx - ax, by - ay, bz - az) * (STEPS / dur);
+
+    if (i > STEPS * 0.05 && i < STEPS * 0.97 && v > peakV) {
+      peakV = v;
+      peakI = i;
+    }
+  }
+
+  return { peakI, peakV };
+};
+
 const analyze = async (io: NodeIO, path: string) => {
-  const root = (await io.read(path)).getRoot();
+  const doc = await io.read(path);
+  const root = doc.getRoot();
   const hand = root.listNodes().find((n) => norm(n.getName()) === "handslotr");
   const results: Record<string, ClipTiming> = {};
 
@@ -138,75 +212,13 @@ const analyze = async (io: NodeIO, path: string) => {
   }
 
   for (const anim of root.listAnimations()) {
-    const tracks = new Map<Node, NodeTracks>();
-    let dur = 0;
-
-    for (const ch of anim.listChannels()) {
-      const node = ch.getTargetNode();
-      const targetPath = ch.getTargetPath();
-      const sampler = ch.getSampler();
-      const times = sampler?.getInput()?.getArray();
-      const values = sampler?.getOutput()?.getArray();
-
-      if (node === null || !isTrackPath(targetPath) || times == null || values == null) {
-        continue;
-      }
-
-      dur = Math.max(dur, times.at(-1) ?? 0);
-      const nodeTracks = tracks.get(node) ?? {};
-      nodeTracks[targetPath] = { times, values };
-      tracks.set(node, nodeTracks);
-    }
+    const { dur, tracks } = tracksOf(anim);
 
     if (dur === 0) {
       continue;
     }
 
-    const handPos = Array.from({ length: STEPS + 1 }, (_, step) => {
-      const t = (step / STEPS) * dur;
-      const world = new Map<Node, Vec>();
-
-      const worldOf: (node: Node) => Vec = (node) => {
-        const known = world.get(node);
-
-        if (known !== undefined) {
-          return known;
-        }
-
-        const tr = tracks.get(node);
-
-        const T = tr?.translation
-          ? sampleTrack(tr.translation, 3, t, false)
-          : node.getTranslation();
-
-        const R = tr?.rotation ? sampleTrack(tr.rotation, 4, t, true) : node.getRotation();
-        const S = tr?.scale ? sampleTrack(tr.scale, 3, t, false) : node.getScale();
-        const local = composeMat(T, R, S);
-        const parent = node.getParentNode();
-        const m = parent === null ? local : mulMat(worldOf(parent), local);
-        world.set(node, m);
-
-        return m;
-      };
-
-      const m = worldOf(hand);
-
-      return [at(m, 12), at(m, 13), at(m, 14)];
-    });
-
-    let peakI = 0;
-    let peakV = 0;
-
-    for (let i = 1; i < handPos.length; i += 1) {
-      const [ax = 0, ay = 0, az = 0] = handPos[i - 1] ?? [];
-      const [bx = 0, by = 0, bz = 0] = handPos[i] ?? [];
-      const v = Math.hypot(bx - ax, by - ay, bz - az) * (STEPS / dur);
-
-      if (i > STEPS * 0.05 && i < STEPS * 0.97 && v > peakV) {
-        peakV = v;
-        peakI = i;
-      }
-    }
+    const { peakI, peakV } = peakOf(handPath(hand, tracks, dur), dur);
 
     results[anim.getName()] = {
       contact: Math.round((peakI / STEPS) * 100) / 100,

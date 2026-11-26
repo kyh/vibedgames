@@ -309,7 +309,8 @@ export const installDevHooks = (scene: SceneInternals) => {
       isHost: scene.link.amHost,
       items: scene.world.items.map((it) => it.kind),
       level: scene.progress.level,
-      mines: scene.weapons.beams.filter((b) => b.mine && !b.exploding && !b.vanished).length,
+      mines: scene.weapons.beams.filter((b) => b.mine !== null && !b.exploding && !b.vanished)
+        .length,
       mod: scene.shield.shieldMod
         ? { kind: scene.shield.shieldMod, until: scene.shield.shieldModUntil }
         : null,

@@ -205,21 +205,8 @@ export class HostNet {
 
     const other = sess.otherPlayer();
 
-    if (
-      this.seat.seats.host !== null &&
-      this.seat.seats.host !== "" &&
-      !live(this.seat.seats.host)
-    ) {
-      this.seat.seats.host = null;
-    }
-
-    if (
-      this.seat.seats.guest !== null &&
-      this.seat.seats.guest !== "" &&
-      !live(this.seat.seats.guest)
-    ) {
-      this.seat.seats.guest = null;
-    }
+    this.vacateSeat("host", live);
+    this.vacateSeat("guest", live);
 
     this.claimSeat(myId);
 
@@ -236,6 +223,14 @@ export class HostNet {
 
       this.claimSeat(other.id);
       this.spawnRemote(other.id, hero);
+    }
+  }
+
+  private vacateSeat(seat: "host" | "guest", live: (id: string) => boolean) {
+    const id = this.seat.seats[seat];
+
+    if (id !== null && id !== "" && !live(id)) {
+      this.seat.seats[seat] = null;
     }
   }
 

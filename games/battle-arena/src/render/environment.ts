@@ -24,6 +24,7 @@ import type { ModelLibrary } from "./models";
 import { refreshStaticShadows } from "./view";
 import { teamColor } from "./palette";
 import { ArenaMaterials, floorVariation } from "./arena-materials";
+import { isMesh } from "./mesh";
 
 /** Standing-tall models scale-to-height (target × decor scale) so they match
  *  the arena pillars; everything else keeps native size × scale. (Exported for
@@ -358,7 +359,7 @@ export class Environment {
       const banner = this.place("banner_red", sp.x - ox, sp.y - oy, 3, sp.facing);
       const team = new THREE.Color(teamColor(`bot:${sp.slot}`));
       banner.traverse((o) => {
-        if (!(o instanceof THREE.Mesh)) {
+        if (!isMesh(o)) {
           return;
         }
 
@@ -420,7 +421,7 @@ export class Environment {
         const gltf = await loader.loadAsync(`./models/dungeon/${name}.gltf`);
         const graded = new Set<THREE.Material>();
         gltf.scene.traverse((o) => {
-          if (!(o instanceof THREE.Mesh)) {
+          if (!isMesh(o)) {
             return;
           }
 
@@ -447,7 +448,7 @@ export class Environment {
   private disposeExtras() {
     for (const tpl of this.extras.values()) {
       tpl.traverse((o) => {
-        if (!(o instanceof THREE.Mesh)) {
+        if (!isMesh(o)) {
           return;
         }
 
@@ -481,7 +482,7 @@ export class Environment {
     tpl.updateMatrixWorld(true);
     const meshes: THREE.Mesh[] = [];
     tpl.traverse((o) => {
-      if (o instanceof THREE.Mesh) {
+      if (isMesh(o)) {
         meshes.push(o);
       }
     });
@@ -528,7 +529,7 @@ export class Environment {
         const obj = this.templateOf(model);
         obj.applyMatrix4(m);
         obj.traverse((c) => {
-          if (c instanceof THREE.Mesh) {
+          if (isMesh(c)) {
             c.castShadow = shadows;
             c.receiveShadow = true;
           }
@@ -668,13 +669,13 @@ export class Environment {
       rings.push(g);
     }
 
-    const merged = mergeGeometries(rings);
+    const merged: THREE.BufferGeometry | null = mergeGeometries(rings);
 
     for (const g of rings) {
       g.dispose();
     }
 
-    if (!merged) {
+    if (merged === null) {
       return;
     }
 
@@ -715,13 +716,13 @@ export class Environment {
       cones.push(g);
     }
 
-    const merged = mergeGeometries(cones);
+    const merged: THREE.BufferGeometry | null = mergeGeometries(cones);
 
     for (const g of cones) {
       g.dispose();
     }
 
-    if (!merged) {
+    if (merged === null) {
       return;
     }
 
@@ -1375,7 +1376,7 @@ export class Environment {
     obj.position.set(x, terrainHeight(x, y) - box2.min.y, y);
     obj.rotation.y = rotY;
     obj.traverse((c) => {
-      if (c instanceof THREE.Mesh) {
+      if (isMesh(c)) {
         c.castShadow = true;
         c.receiveShadow = true;
       }
@@ -1464,7 +1465,7 @@ export class Environment {
     const box = new THREE.Box3().setFromObject(obj);
     obj.position.set(d.x, terrainHeight(d.x, d.y) - box.min.y + (d.h ?? 0), d.y);
     obj.traverse((c) => {
-      if (c instanceof THREE.Mesh) {
+      if (isMesh(c)) {
         c.castShadow = true;
         c.receiveShadow = true;
       }

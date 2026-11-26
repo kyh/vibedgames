@@ -168,11 +168,14 @@ const settingsPanel = () => {
 const renderPanel = (overlay: HTMLElement) => {
   root = overlay;
 
-  const syncMotion = () =>
+  const syncMotion = () => {
     overlay.classList.toggle("mp-reduced", presentationSettings().motion === "reduced");
+  };
 
   syncMotion();
-  stopSettings = watchPresentationSettings(syncMotion);
+  stopSettings = watchPresentationSettings(() => {
+    syncMotion();
+  });
   const coarse = window.matchMedia("(pointer: coarse)").matches;
 
   const panel = el("div", "mp-panel");

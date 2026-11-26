@@ -66,8 +66,13 @@ const objectHint = (c: HintContext, object: WorldObject) => {
       return c.energy > 0 ? "Break stone" : REST;
     }
 
-    default: {
+    case "ore": {
       return null;
+    }
+
+    default: {
+      const unhandled: never = object.type;
+      throw new Error("unhandled case", { cause: unhandled });
     }
   }
 };

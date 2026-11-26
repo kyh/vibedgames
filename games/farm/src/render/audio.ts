@@ -83,7 +83,9 @@ class SoundEngine {
     }
 
     try {
-      const Ctx = window.AudioContext || window.webkitAudioContext;
+      const Ctx = Object.hasOwn(window, "AudioContext")
+        ? window.AudioContext
+        : window.webkitAudioContext;
 
       if (!Ctx) {
         return null;

@@ -178,9 +178,10 @@ export class AimGuide {
         continue;
       }
 
-      const positions = mesh.geometry.getAttribute("position");
+      const positions: THREE.BufferAttribute | THREE.InterleavedBufferAttribute | undefined =
+        mesh.geometry.getAttribute("position");
 
-      if (!positions) {
+      if (positions === undefined) {
         continue;
       }
 
