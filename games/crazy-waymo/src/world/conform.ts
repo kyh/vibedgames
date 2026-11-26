@@ -10,7 +10,7 @@ const UP_DOT = 0.8;
 
 export const toFloat32Attributes = (geo: THREE.BufferGeometry) => {
   for (const name of ["position", "normal", "uv"]) {
-    const a = geo.getAttribute(name);
+    const a = geo.attributes[name];
 
     if (!a) {
       continue;
@@ -157,8 +157,8 @@ export const conformToTerrain = (
   const { maxDepth, minEdge } = quality ?? DEFAULT_DRAPE_QUALITY;
   const src = geo.index ? geo.toNonIndexed() : geo;
   const pos = src.getAttribute("position");
-  const nor = src.getAttribute("normal");
-  const uv = src.getAttribute("uv");
+  const nor = src.attributes.normal;
+  const { uv } = src.attributes;
 
   const outP: number[] = [];
   const outN: number[] = [];

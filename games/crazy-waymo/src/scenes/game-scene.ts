@@ -84,6 +84,8 @@ import { districtAt, landFactor } from "../world/sf-map";
 import { CeilingIndex, deckCeilings, harvestCeilingSpans, SolidIndex } from "../world/solid-index";
 import { loadWorld } from "./world-loader";
 import type { WorldCoreSystems, WorldSpawn } from "./world-loader";
+import { delay } from "../shared/wait";
+import { unreachable } from "../shared/unreachable";
 
 const HALF_PI = Math.PI / 2;
 
@@ -353,13 +355,13 @@ const LANDING_RING_IMPACT = 9;
 export class GameScene {
   readonly scene = new THREE.Scene();
   private readonly mobileUi = isCoarsePointer();
-  private readonly rig: ChaseCamera;
+  readonly rig: ChaseCamera;
   private readonly cache = new ModelCache();
-  private readonly input = new InputState();
+  readonly input = new InputState();
   private readonly hud = new Hud(this.mobileUi);
-  private readonly fx = new Fx();
+  readonly fx = new Fx();
   private readonly sfx = new Sfx();
-  private readonly state = new GameState();
+  readonly state = new GameState();
 
   private net: MultiplayerClient | null = null;
   private remoteCars: RemoteCars | null = null;
@@ -380,17 +382,17 @@ export class GameScene {
   private netAt = 0;
   private readonly netInfoEl = document.querySelector("#netinfo");
 
-  private city: CityModel | null = null;
-  private car: Car | null = null;
-  private fares: FareManager | null = null;
-  private traffic: Traffic | null = null;
+  city: CityModel | null = null;
+  car: Car | null = null;
+  fares: FareManager | null = null;
+  traffic: Traffic | null = null;
   private signalLights: SignalLights | null = null;
-  private skids: SkidMarks | null = null;
+  skids: SkidMarks | null = null;
   private debris: Debris | null = null;
   private readonly speedLines = this.mobileUi ? new SpeedLines() : null;
   private readonly clouds = new SkyClouds(this.mobileUi);
   private readonly marineSky = new MarineSky();
-  private trails: DriftTrails | null = null;
+  trails: DriftTrails | null = null;
   private readonly vehicleFx = new VehicleFxRig(
     this.fx,
     () => this.trails,
@@ -435,7 +437,7 @@ export class GameScene {
   private readonly scrSnapUp = new THREE.Vector3();
   private readonly scrSnapAnchor = new THREE.Vector3();
   private shadowExtent = 58;
-  private mode: GameMode = { kind: "loading", progress: 0 };
+  mode: GameMode = { kind: "loading", progress: 0 };
   ready: Promise<void> = Promise.resolve();
   private finishStage = "DOWNLOADING THE CITY…";
   get isReady() {
@@ -446,7 +448,7 @@ export class GameScene {
     return this.mode.kind;
   }
 
-  private paused = false;
+  paused = false;
   private frame = 0;
 
   /** Wrapper asked us to pause: freeze the sim (update() runs only the net
@@ -1173,10 +1175,7 @@ vec3 ocGerstner(vec2 p, float t) {
 
     try {
       const spans = await harvestCeilingSpans(city.group, city.terrain, city.network, async () => {
-        const { promise, resolve } = Promise.withResolvers<void>();
-        setTimeout(resolve, 0);
-
-        await promise;
+        await delay(0);
       });
 
       spans.push(...deckCeilings(city.getDecks()));
@@ -1497,7 +1496,7 @@ vec3 ocGerstner(vec2 p, float t) {
   }
 
   private async loadShowroom() {
-    this.showroomLoad ??= this.cache.preload(ROBOTAXI_SKINS.map(skinModelUrl), () => null);
+    this.showroomLoad ??= this.cache.preload(ROBOTAXI_SKINS.map(skinModelUrl));
 
     await this.showroomLoad;
   }
@@ -1737,7 +1736,7 @@ vec3 ocGerstner(vec2 p, float t) {
     }
   }
 
-  private handleStartPress() {
+  handleStartPress() {
     if (this.mode.kind !== "title") {
       return;
     }
@@ -2114,8 +2113,12 @@ vec3 ocGerstner(vec2 p, float t) {
         break;
       }
 
-      default: {
+      case "gameover": {
         break;
+      }
+
+      default: {
+        unreachable(this.mode);
       }
     }
 
@@ -2670,7 +2673,7 @@ vec3 ocGerstner(vec2 p, float t) {
         this.heckleCooldown = 7;
         const line = this.pickHeckle();
 
-        if (line !== undefined && line !== "") {
+        if (line !== null && line !== "") {
           this.bubbles.say(c.object3D, line, { accent: "#e05c2e", dur: 4.5, lift: 2.3 });
         }
       }
@@ -2805,13 +2808,13 @@ vec3 ocGerstner(vec2 p, float t) {
 
   private pickHeckle() {
     if (this.trailerMode) {
-      return;
+      return null;
     }
 
     const sk = skinById(this.skinId);
     const pool = sk.heckles.length > 0 && Math.random() < 0.45 ? sk.heckles : HECKLES;
 
-    return pool[Math.floor(Math.random() * pool.length)];
+    return pool[Math.floor(Math.random() * pool.length)] ?? null;
   }
 
   private sayRiderLine(kind: "pickup" | "dropoff") {
@@ -2866,7 +2869,7 @@ vec3 ocGerstner(vec2 p, float t) {
           this.heckleCooldown = 9;
           const line = this.pickHeckle();
 
-          if (line !== undefined && line !== "") {
+          if (line !== null && line !== "") {
             this.bubbles.say(c.object3D, line, { accent: "#e05c2e", dur: 4, lift: 2.3 });
           }
         }

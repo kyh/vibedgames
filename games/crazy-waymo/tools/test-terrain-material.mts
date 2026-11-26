@@ -11,24 +11,25 @@ import { CUSTOM_MAP } from "../src/world/custom-map.ts";
 import { groundBlendInto, makeGroundBlendAt, makeGroundColorAt } from "../src/world/ground.ts";
 import type { CityPlan } from "../src/world/grid.ts";
 import { makeLandClassAt, wheelSurface } from "../src/world/land-class.ts";
-import type { GroundCover, LandClassAt } from "../src/world/land-class.ts";
+import type { GroundCover, LandClass, LandClassAt } from "../src/world/land-class.ts";
 import { makeTerrain } from "../src/world/sf-map.ts";
 
 type Check = (name: string, condition: boolean, detail?: string) => void;
 
 const blend = () => ({ loose: 0, sand: 0, stone: 0, turf: 0 });
 
-const landFixture = (cover: GroundCover, under = cover, strength = 1) => ({
-  built: false,
-  cover,
-  fabric: { kind: "interior" },
-  flank: { kind: "lowland" },
-  landuse: "unclassified",
-  parkland: { kind: "none" },
-  shore: { kind: "inland" },
-  strength,
-  under,
-});
+const landFixture = (cover: GroundCover, under = cover, strength = 1) =>
+  ({
+    built: false,
+    cover,
+    fabric: { kind: "interior" },
+    flank: { kind: "lowland" },
+    landuse: "unclassified",
+    parkland: { kind: "none" },
+    shore: { kind: "inland" },
+    strength,
+    under,
+  }) satisfies LandClass;
 
 type Blend = ReturnType<typeof blend>;
 

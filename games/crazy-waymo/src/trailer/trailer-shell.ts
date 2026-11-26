@@ -1,3 +1,5 @@
+import { inOrder, range } from "../shared/paced";
+
 export interface TrailerScene {
   id: string;
   duration: number;
@@ -207,13 +209,13 @@ export const runTrailer = (config: TrailerConfig) => {
     token: number,
     body: (t: number, dt: number) => void,
   ) => Promise<void> = async (duration, token, body) => {
-    const { promise, resolve, reject } = Promise.withResolvers<void>();
+    const { promise, resolve, reject } = Promise.withResolvers<null>();
     const start = config.clock();
     let last = start;
 
     const frame = () => {
       if (generation !== token) {
-        resolve();
+        resolve(null);
 
         return;
       }
@@ -232,7 +234,7 @@ export const runTrailer = (config: TrailerConfig) => {
       last = now;
 
       if (t >= duration) {
-        resolve();
+        resolve(null);
       } else {
         requestAnimationFrame(frame);
       }
@@ -244,8 +246,11 @@ export const runTrailer = (config: TrailerConfig) => {
   };
 
   const awaitGate = async () => {
-    const { promise, resolve } = Promise.withResolvers<void>();
-    gate = resolve;
+    const { promise, resolve } = Promise.withResolvers<null>();
+
+    gate = () => {
+      resolve(null);
+    };
 
     await promise;
   };
@@ -274,7 +279,7 @@ export const runTrailer = (config: TrailerConfig) => {
     timeline = [];
     end.hidden = true;
 
-    for (let i = index; i < scenes.length; i += 1) {
+    for await (const i of inOrder(range(scenes.length, index))) {
       if (token !== generation) {
         return;
       }

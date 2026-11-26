@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
+import { mergeGeometriesOrNull } from "../shared/three-guards";
 
 const FLOOR_Y = 4;
 const FLOOR_TOP = 30;
@@ -60,7 +60,7 @@ const cumulusGeometry = () => {
     return geometry;
   });
 
-  const geometry = mergeGeometries(pieces);
+  const geometry = mergeGeometriesOrNull(pieces);
 
   for (const piece of pieces) {
     piece.dispose();

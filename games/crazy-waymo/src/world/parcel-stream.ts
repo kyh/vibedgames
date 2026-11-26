@@ -8,6 +8,7 @@ import type { DetailLevel, ParcelGeometry } from "./parcel-mesh";
 import type { ParcelLot, ParcelPlan } from "./parcel-plan";
 import { packedCentre, unpackLots, unpackPlans } from "./parcel-pack";
 import type { PackedLots, PackedPlans } from "./parcel-pack";
+import { isMesh } from "../shared/three-guards";
 
 export const STREAM_CELL = 80;
 const STREAM_PAD = 60;
@@ -400,7 +401,7 @@ export class ParcelStreamer {
     }
 
     for (const child of c.residence.group.children) {
-      if (child instanceof THREE.Mesh) {
+      if (isMesh(child)) {
         child.geometry.dispose();
       }
     }

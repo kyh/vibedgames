@@ -102,7 +102,9 @@ const chassisOverlaps = (
 
 export const checkWaterReservations = (check: Check, world: AuditWorld, rest?: CityRestPayload) => {
   const bodies: WaterBody[] = [];
-  buildLandmarks(world.terrain, new ModelCache(), world.network, undefined, (b) => bodies.push(b));
+  buildLandmarks(world.terrain, new ModelCache(), world.network, undefined, (b) => {
+    bodies.push(b);
+  });
   const reservations = landmarkProtection(world.plan, world.network).solids;
   const carved = carveWaterReservations(reservations, bodies);
 
@@ -166,7 +168,7 @@ export const checkWaterReservations = (check: Check, world: AuditWorld, rest?: C
   const rotated = new SolidIndex(pieces);
   check(
     "rotated pool subtraction retains monument corners while opening water",
-    !rotated.hitAt(0, 0) && !!rotated.hitAt(7, 3) && !!rotated.hitAt(-7, -3) && pieces.length < 200,
+    !rotated.hitAt(0, 0) && rotated.hitAt(7, 3) && rotated.hitAt(-7, -3) && pieces.length < 200,
   );
 
   if (!rest) {

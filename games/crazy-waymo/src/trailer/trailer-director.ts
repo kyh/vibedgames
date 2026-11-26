@@ -19,6 +19,7 @@ import type { Point } from "./street-path";
 import { StreetPath } from "./street-path";
 import { runTrailer } from "./trailer-shell";
 import type { TrailerScene } from "./trailer-shell";
+import { nextFrame } from "../shared/wait";
 
 const { clamp } = THREE.MathUtils;
 
@@ -328,9 +329,7 @@ class Director {
       }
 
       case "orbit": {
-        if (!this.lensAnchor) {
-          this.lensAnchor = new THREE.Vector3(car.heading, 0, 0);
-        }
+        this.lensAnchor ??= new THREE.Vector3(car.heading, 0, 0);
 
         const a = this.lensAnchor.x + lens.from + lens.rate * (t / 1000);
         eye.set(p.x + Math.sin(a) * lens.radius, p.y + lens.up, p.z + Math.cos(a) * lens.radius);
@@ -419,22 +418,22 @@ class Director {
         this.preparing = false;
         this.stage.setScriptedInput(NEUTRAL);
         const deadline = performance.now() + 30_000;
-        let stable = 0;
 
-        while (stable < 8) {
-          const { promise, resolve } = Promise.withResolvers<void>();
-          requestAnimationFrame(() => {
-            resolve();
-          });
+        const settle: (stable: number) => Promise<void> = async (stable) => {
+          if (stable >= 8) {
+            return;
+          }
 
-          await promise;
+          await nextFrame();
 
           if (performance.now() > deadline) {
             throw new Error(`Scenery did not settle for ${scene.id}`);
           }
 
-          stable = (this.stage.city.parcelStreamStats()?.pending ?? 0) === 0 ? stable + 1 : 0;
-        }
+          await settle((this.stage.city.parcelStreamStats()?.pending ?? 0) === 0 ? stable + 1 : 0);
+        };
+
+        await settle(0);
       },
       teardown: () => {
         this.pending = null;

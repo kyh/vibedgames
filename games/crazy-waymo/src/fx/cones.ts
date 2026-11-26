@@ -8,6 +8,7 @@ import { ROAD_TILE } from "../shared/constants";
 import type { Rng } from "../shared/rng";
 import type { CityModel } from "../world/city";
 import { toFloat32Attributes } from "../world/conform";
+import { isMesh } from "../shared/three-guards";
 
 const COUNT = 64;
 const HIT_RADIUS = 1.7;
@@ -50,11 +51,7 @@ export class SmashCones {
     let mat: THREE.Material = new THREE.MeshStandardMaterial({ color: 0xe0_64_28 });
     let nodeMatrix = new THREE.Matrix4();
     template.traverse((c) => {
-      if (
-        c instanceof THREE.Mesh &&
-        c.geometry instanceof THREE.BufferGeometry &&
-        !Array.isArray(c.material)
-      ) {
+      if (isMesh(c) && c.geometry instanceof THREE.BufferGeometry && !Array.isArray(c.material)) {
         geo = c.geometry;
         mat = c.material;
         nodeMatrix = c.matrixWorld.clone();

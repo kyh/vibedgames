@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
-import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import { mergeGeometriesOrNull } from "../shared/three-guards";
 
 export interface StreetKitPart {
   readonly geo: THREE.BufferGeometry;
@@ -384,7 +384,7 @@ const buildShelter = () => {
   const kit: StreetKitPart[] = [];
 
   for (const [key, geos] of grouped) {
-    const geo = mergeGeometries(geos, false);
+    const geo = mergeGeometriesOrNull(geos, false);
 
     if (!geo) {
       throw new Error("Muni shelter material geometry is incompatible");

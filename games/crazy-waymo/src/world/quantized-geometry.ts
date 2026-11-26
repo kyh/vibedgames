@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { indexArrayOf } from "../shared/three-guards";
 
 export type QPos = {
   q: Uint16Array;
@@ -208,22 +209,22 @@ const float32Of = (attr: THREE.BufferAttribute | THREE.InterleavedBufferAttribut
 /** Quantize a Float32 geometry's attributes. Normals are computed here when
  *  the geometry has none, so every packed record carries them. */
 export const packGeometry: (geo: THREE.BufferGeometry) => PackedGeometry = (geo) => {
-  const pos = geo.getAttribute("position");
+  const pos = geo.attributes.position;
 
   if (!pos) {
     throw new Error("packGeometry: geometry has no position attribute");
   }
 
-  if (!geo.getAttribute("normal")) {
+  if (!geo.attributes.normal) {
     geo.computeVertexNormals();
   }
 
   const nor = geo.getAttribute("normal");
-  const uv = geo.getAttribute("uv");
-  const col = geo.getAttribute("color");
+  const { uv } = geo.attributes;
+  const col = geo.attributes.color;
   const uvArr = uv ? float32Of(uv) : null;
   const idx = geo.index;
-  const index = idx ? (idx.array as Uint16Array | Uint32Array) : null;
+  const index = idx ? indexArrayOf(idx) : null;
 
   return {
     col: col ? qCol(float32Of(col)) : null,

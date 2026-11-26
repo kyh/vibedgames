@@ -146,7 +146,11 @@ export const installPlaytest = (game: GameScene) => {
       game.playtestSeed(seed);
     },
     setPausedForScreenshot: (paused) => {
-      paused ? game.requestPause() : game.requestResume();
+      if (paused) {
+        game.requestPause();
+      } else {
+        game.requestResume();
+      }
     },
     setState: (name) =>
       name === "active-play" && game.playtestStart() ? { state: name } : undefined,

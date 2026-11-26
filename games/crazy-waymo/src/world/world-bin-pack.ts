@@ -2,7 +2,7 @@ import * as THREE from "three";
 
 import type { CityRestPayload } from "./city";
 import type { CityGenPayload } from "./gen-worker";
-import { isTyped, typeTag } from "./world-bin";
+import { isBinArray, isBinRecord, isTyped, typeTag } from "./world-bin";
 import type { BinTree, BufRef, PackedRest, Typed, WorldBinPayload } from "./world-bin";
 import { packIndex, qNor, qPos } from "./quantized-geometry";
 
@@ -14,11 +14,11 @@ const strip: (value: BinTree, bufs: Typed[]) => BinTree = (value, bufs) => {
     return ref;
   }
 
-  if (Array.isArray(value)) {
+  if (isBinArray(value)) {
     return value.map((v) => strip(v, bufs));
   }
 
-  if (value instanceof Object) {
+  if (isBinRecord(value)) {
     const out: Record<string, BinTree> = {};
 
     for (const [k, v] of Object.entries(value)) {

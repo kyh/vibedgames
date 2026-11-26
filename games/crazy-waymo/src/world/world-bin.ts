@@ -4,6 +4,10 @@ import type { CityRestPayload, MatRec } from "./city";
 import type { PackedGeometry, QPos } from "./quantized-geometry";
 import type { PackedLots, PackedPlans } from "./parcel-pack";
 import type { CityGenPayload } from "./gen-worker";
+import { delay } from "../shared/wait";
+import { isFiniteJsonNumber, isJsonObject } from "../shared/json";
+import type { JsonValue } from "../shared/json";
+import { paced, range } from "../shared/paced";
 
 export const WORLD_REV = 98;
 
@@ -86,18 +90,35 @@ const CTOR = {
   u8: Uint8Array,
 } satisfies Record<BufRef["$type"], new (b: ArrayBuffer, o: number, l: number) => Typed>;
 
+/** A `$buf` reference standing in for a typed array on the wire. */
+export const isBufRef = (value: BinTree): value is BufRef =>
+  value instanceof Object && "$buf" in value && "$type" in value;
+
+export const isBinArray = (value: BinTree): value is readonly BinTree[] => Array.isArray(value);
+
+export const isBinRecord = (value: BinTree): value is { readonly [key: string]: BinTree } =>
+  value instanceof Object && !isTyped(value) && !Array.isArray(value);
+
+const BUF_TYPES = [
+  "f32",
+  "u16",
+  "i16",
+  "u32",
+  "i8",
+  "u8",
+  "i32",
+] as const satisfies readonly BufRef["$type"][];
+
 const hydrate: (value: BinTree, views: Typed[]) => BinTree = (value, views) => {
+  if (isBufRef(value)) {
+    return views[value.$buf];
+  }
+
+  if (isBinArray(value)) {
+    return value.map((v) => hydrate(v, views));
+  }
+
   if (value instanceof Object) {
-    if ("$buf" in value && "$type" in value) {
-      const ref = value as BufRef;
-
-      return views[ref.$buf];
-    }
-
-    if (Array.isArray(value)) {
-      return value.map((v) => hydrate(v, views));
-    }
-
     const out: Record<string, BinTree> = {};
 
     for (const [k, v] of Object.entries(value)) {
@@ -110,24 +131,40 @@ const hydrate: (value: BinTree, views: Typed[]) => BinTree = (value, views) => {
   return value;
 };
 
+const bufferSpecOf = (spec: JsonValue) => {
+  if (!isJsonObject(spec)) {
+    throw new Error("world bin: buffer spec is not an object");
+  }
+
+  const type = BUF_TYPES.find((t) => t === spec.type);
+  const { length } = spec;
+
+  if (type === undefined || !isFiniteJsonNumber(length)) {
+    throw new Error("world bin: buffer spec needs a known type and a length");
+  }
+
+  return { length, type };
+};
+
 export const deserializeWorldBin = (bytes: ArrayBuffer) => {
   const view = new DataView(bytes);
   const headerLen = view.getUint32(0, true);
+  const header = JSON.parse(new TextDecoder().decode(new Uint8Array(bytes, 4, headerLen)));
 
-  const header = JSON.parse(new TextDecoder().decode(new Uint8Array(bytes, 4, headerLen))) as {
-    tree: BinTree;
-    buffers: { type: BufRef["$type"]; length: number }[];
-  };
+  if (!isJsonObject(header) || !Array.isArray(header.buffers) || header.tree === undefined) {
+    throw new Error("world bin: header needs a tree and its buffers");
+  }
 
   const views: Typed[] = [];
   let cursor = 4 + headerLen;
 
-  for (const b of header.buffers) {
+  for (const b of header.buffers.map(bufferSpecOf)) {
     cursor = Math.ceil(cursor / 4) * 4;
     views.push(new CTOR[b.type](bytes, cursor, b.length));
     cursor += b.length * BYTES[b.type];
   }
 
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion, anti-slop/require-safety-comment-for-type-assertion -- the tree is this build's own serializeWorldBin output (callers drop any whose rev is not WORLD_REV); checking the multi-megabyte payload field by field would walk it a second time on every load
   return hydrate(header.tree, views) as WorldBinPayload;
 };
 
@@ -253,10 +290,7 @@ const unpackYield = async () => {
     return;
   }
 
-  const { promise, resolve } = Promise.withResolvers<void>();
-  setTimeout(resolve, 0);
-
-  await promise;
+  await delay(0);
   lastUnpackYield = performance.now();
 };
 
@@ -297,41 +331,39 @@ export const unpackBatchItems = async (p: PackedBatchItems) => {
   const q = new THREE.Quaternion();
   const batchItems: CityRestPayload["batchItems"] = [];
 
-  for (let i = 0; i < p.count; i += 1) {
-    if (i % 4096 === 0) {
-      await unpackYield();
+  for await (const start of paced(range(p.count, 0, 4096), unpackYield)) {
+    for (let i = start; i < Math.min(start + 4096, p.count); i += 1) {
+      const u = p.urlIdx[i] ?? -1;
+      const tintV = p.tints[i] ?? -1;
+      let m: Float32Array;
+
+      if ((p.trs[i * 5 + 4] ?? 0) === 1) {
+        const yaw = p.trs[i * 5 + 3] ?? 0;
+        q.setFromAxisAngle(UP_AXIS, yaw);
+        m4.compose(
+          new THREE.Vector3(p.trs[i * 5], p.trs[i * 5 + 1], p.trs[i * 5 + 2]),
+          q,
+          new THREE.Vector3(
+            ((p.scales[i * 3] ?? 0) / 65_535) * 16,
+            ((p.scales[i * 3 + 1] ?? 0) / 65_535) * 16,
+            ((p.scales[i * 3 + 2] ?? 0) / 65_535) * 16,
+          ),
+        );
+        m = new Float32Array(m4.elements);
+      } else {
+        const e = exactBy.get(i) ?? 0;
+        m = p.exactMats.slice(e * 16, e * 16 + 16);
+      }
+
+      batchItems.push({
+        big: false,
+        idx: u >= 0 ? u % 4096 : 0,
+        m,
+        raw: u >= 0 ? null : (p.rawIdx[i] ?? -1),
+        tint: tintV >= 0 ? tintV : null,
+        url: u >= 0 ? (p.urls[Math.floor(u / 4096)] ?? null) : null,
+      });
     }
-
-    const u = p.urlIdx[i] ?? -1;
-    const tintV = p.tints[i] ?? -1;
-    let m: Float32Array;
-
-    if ((p.trs[i * 5 + 4] ?? 0) === 1) {
-      const yaw = p.trs[i * 5 + 3] ?? 0;
-      q.setFromAxisAngle(UP_AXIS, yaw);
-      m4.compose(
-        new THREE.Vector3(p.trs[i * 5], p.trs[i * 5 + 1], p.trs[i * 5 + 2]),
-        q,
-        new THREE.Vector3(
-          ((p.scales[i * 3] ?? 0) / 65_535) * 16,
-          ((p.scales[i * 3 + 1] ?? 0) / 65_535) * 16,
-          ((p.scales[i * 3 + 2] ?? 0) / 65_535) * 16,
-        ),
-      );
-      m = new Float32Array(m4.elements);
-    } else {
-      const e = exactBy.get(i) ?? 0;
-      m = p.exactMats.slice(e * 16, e * 16 + 16);
-    }
-
-    batchItems.push({
-      big: false,
-      idx: u >= 0 ? u % 4096 : 0,
-      m,
-      raw: u >= 0 ? null : (p.rawIdx[i] ?? -1),
-      tint: tintV >= 0 ? tintV : null,
-      url: u >= 0 ? (p.urls[Math.floor(u / 4096)] ?? null) : null,
-    });
   }
 
   return batchItems;

@@ -12,6 +12,8 @@ import { installPlaytest } from "./playtest/install";
 import { GameScene } from "./scenes/game-scene";
 import { MAX_DT } from "./shared/constants";
 import { createPauseOverlay } from "./ui/pause-overlay";
+import { delay } from "./shared/wait";
+import { inOrder } from "./shared/paced";
 
 const container = document.querySelector("#game");
 
@@ -59,10 +61,7 @@ const hideFatal = () => {
 const msaa = !(isCoarsePointer() && (window.devicePixelRatio || 1) >= 2);
 
 const sleep: (ms: number) => Promise<void> = async (ms) => {
-  const { promise, resolve } = Promise.withResolvers<void>();
-  setTimeout(resolve, ms);
-
-  await promise;
+  await delay(ms);
 };
 
 const probeCanvas = () => {
@@ -87,7 +86,7 @@ const createRenderer = async () => {
   let reason = "";
   let lastError: unknown;
 
-  for (const [i, params] of attempts.entries()) {
+  for await (const [i, params] of inOrder(attempts.entries())) {
     const probe = probeCanvas();
 
     try {

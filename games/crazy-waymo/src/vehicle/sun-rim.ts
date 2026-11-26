@@ -1,7 +1,9 @@
 import * as THREE from "three";
 
 import type { ModelCache } from "../assets/loader";
+import { meshSourceOf } from "../assets/loader";
 import { modelUrl, POLICE_CAR, SERVICE_CARS, TRAFFIC_CARS } from "../assets/manifest";
+import { isMesh } from "../shared/three-guards";
 
 export const RIM_HERO = 0.72;
 export const RIM_TRAFFIC = 0.3;
@@ -36,7 +38,7 @@ export const applySunRim = (mat: THREE.MeshStandardMaterial, strength: number) =
 
   rimApplied.add(mat);
   const key = `waymo-sun-rim:${strength.toFixed(2)}`;
-  const prev = mat.onBeforeCompile;
+  const prev = mat.onBeforeCompile.bind(mat);
 
   const prevKey = Object.hasOwn(mat, "customProgramCacheKey")
     ? mat.customProgramCacheKey.bind(mat)
@@ -71,7 +73,7 @@ export const applyTrafficSunRim = (cache: ModelCache) => {
     const inst = cache.instance(modelUrl("cars", name));
     let loaded = false;
     inst.traverse((c) => {
-      if (!(c instanceof THREE.Mesh) || !("src" in c.userData)) {
+      if (!isMesh(c) || meshSourceOf(c) === null) {
         return;
       }
 

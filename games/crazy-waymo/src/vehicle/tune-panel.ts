@@ -99,7 +99,7 @@ export const mountTunePanel = (vehicle: RaycastVehicle) => {
     input.addEventListener("change", () => {
       vehicle.params[key] = input.checked;
     });
-    row.append(input, document.createTextNode(String(key)));
+    row.append(input, document.createTextNode(key));
     wrap.append(row);
   }
 

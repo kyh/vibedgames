@@ -1,10 +1,15 @@
-/* eslint-disable unicorn/consistent-function-scoping */
 import assert from "node:assert/strict";
 import { writeFileSync } from "node:fs";
 import path from "node:path";
-import { createMobileSession } from "./mobile-browser-session.mts";
 
-const installMetrics = () => {
+import { z } from "zod";
+import type { JsonValue } from "../src/shared/json.ts";
+import { inOrder } from "../src/shared/paced.ts";
+import { createMobileSession } from "./mobile-browser-session.mts";
+import { jsonObjectSchema, jsonSchema, probeSchema } from "./page-shapes.mts";
+import type { CheckEntry } from "./page-shapes.mts";
+
+const INSTALL_METRICS = String.raw`(() =>  {
   const { game } = window.__taxi;
   const renderer = window.__renderer;
 
@@ -18,7 +23,7 @@ const installMetrics = () => {
     let over100 = 0;
 
     return {
-      add(value: unknown) {
+      add(value) {
         if (!Number.isFinite(value) || value < 0) {
           return;
         }
@@ -41,7 +46,7 @@ const installMetrics = () => {
         }
       },
       summary() {
-        const percentile = (fraction: number) => {
+        const percentile = (fraction) => {
           if (!count) {
             return null;
           }
@@ -140,7 +145,7 @@ const installMetrics = () => {
     audit.contextLost = true;
   });
   const baseUpdate = game.update;
-  game.update = function update(dt: number, ...args: any[]) {
+  game.update = function update(dt, ...args) {
     const start = performance.now();
     const playing = !this.paused && this.mode.kind === "playing" && dt > 0;
     const result = baseUpdate.call(this, dt, ...args);
@@ -158,7 +163,7 @@ const installMetrics = () => {
   };
 
   const stream = game.city.updateStreaming;
-  game.city.updateStreaming = function updateStreaming(...args: any[]) {
+  game.city.updateStreaming = function updateStreaming(...args) {
     const start = performance.now();
     const result = stream.apply(this, args);
 
@@ -170,7 +175,7 @@ const installMetrics = () => {
   };
 
   const baseRender = renderer.render;
-  renderer.render = function render(scene: any, camera: any) {
+  renderer.render = function render(scene, camera) {
     const main = scene === game.scene && camera === game.camera && this.getRenderTarget() === null;
     const start = performance.now();
     const result = baseRender.call(this, scene, camera);
@@ -243,13 +248,13 @@ const installMetrics = () => {
       tasks.maxMs = Math.max(tasks.maxMs, entry.duration);
     }
   }).observe({ type: "longtask" });
-};
+})()`;
 
-const prepareRoute = () => {
+const PREPARE_ROUTE = String.raw`(() =>  {
   const { network } = window.__taxi.game.city;
-  const byId = new Map(network.edges.map((edge: { id: any }) => [edge.id, edge]));
+  const byId = new Map(network.edges.map((edge) => [edge.id, edge]));
 
-  const startsInSunset = (first: { len: number; half: number }) => {
+  const startsInSunset = (first) => {
     const midpoint = network.sample(first, first.len * 0.5);
 
     return (
@@ -261,11 +266,7 @@ const prepareRoute = () => {
     );
   };
 
-  const straightestContinuation = (
-    edge: { b: any; a: any; len: any },
-    dir: number,
-    seen: Set<unknown>,
-  ) => {
+  const straightestContinuation = (edge, dir, seen) => {
     const end = dir > 0 ? edge.b : edge.a;
     const tangent = network.sample(edge, dir > 0 ? edge.len : 0);
     let next = null;
@@ -291,7 +292,7 @@ const prepareRoute = () => {
     return next;
   };
 
-  const walk = (first: any, direction: number) => {
+  const walk = (first, direction) => {
     let edge = first;
     let dir = direction;
     let length = 0;
@@ -369,9 +370,9 @@ const prepareRoute = () => {
     v: window.__mobileSoakRoute.v,
     yaw: window.__mobileSoakRoute.yaw,
   };
-};
+})()`;
 
-const steering = () => {
+const STEERING = String.raw`(() =>  {
   const route = window.__mobileSoakRoute;
   const car = window.__taxi.probe();
 
@@ -404,9 +405,9 @@ const steering = () => {
     speed: car.speed,
     steer: Math.max(-0.8, Math.min(0.8, -error * 1.7)),
   };
-};
+})()`;
 
-const snapshot = () => {
+const SNAPSHOT = String.raw`(() =>  {
   const renderer = window.__renderer;
 
   return {
@@ -420,9 +421,9 @@ const snapshot = () => {
     tier: window.__perf.tier(),
     updates: window.__mobileSoak.updates,
   };
-};
+})()`;
 
-const captureDiagnostics = () => {
+const CAPTURE_DIAGNOSTICS = String.raw`(() =>  {
   const { city } = window.__taxi.game;
   const allBuffers = new Set();
   const fields = {};
@@ -477,59 +478,138 @@ const captureDiagnostics = () => {
       "Typed views and reachable backing buffers only; excludes JS object/string overhead. Shared backing bytes deduplicated across fields; may also be owned by live render geometry.",
     sharedBackingBytes: [...allBuffers].reduce((sum, buffer) => sum + buffer.byteLength, 0),
   };
-};
+})()`;
 
-const resourceGrowth = (samples: any[]) => {
-  const specs = [
-    ["geometries", (s: { memory: { geometries: any } }) => s.memory.geometries, 128, 0.5],
-    ["textures", (s: { memory: { textures: any } }) => s.memory.textures, 16, 0.35],
-    ["parcelBytes", (s: { stream: { bytes: any } }) => s.stream?.bytes ?? 0, 8 * 1024 * 1024, 0.35],
-    ["residentCells", (s: { stream: { resident: any } }) => s.stream?.resident ?? 0, 24, 0.25],
-    ["jsHeapUsed", (s: { heap: { usedSize: any } }) => s.heap.usedSize, 128 * 1024 * 1024, 0.75],
-  ];
+const DEVICE = String.raw`(() => {
+  const renderer = window.__renderer;
+  const gl = renderer.getContext();
+  const debug = gl.getExtension("WEBGL_debug_renderer_info");
 
-  const results = [];
-  const tiers = new Set(samples.map((s: { tier: any }) => s.tier));
+  return {
+    coarse: matchMedia("(pointer:coarse)").matches,
+    dpr: devicePixelRatio,
+    multiDraw: !!gl.getExtension("WEBGL_multi_draw"),
+    post: window.__post !== null,
+    renderer: debug
+      ? gl.getParameter(debug.UNMASKED_RENDERER_WEBGL)
+      : gl.getParameter(gl.RENDERER),
+    touch: navigator.maxTouchPoints,
+    userAgent: navigator.userAgent,
+  };
+})()`;
 
-  for (const tier of tiers) {
-    const stable = samples.filter((s: { tier: unknown }) => s.tier === tier).slice(2);
+const RESET_ROUTE = String.raw`(() => {
+  const taxi = window.__taxi;
+  const route = window.__mobileSoakRoute;
+  taxi.setTime(3600);
+  taxi.teleport(route.u, route.v, route.yaw);
+  route.index = 0;
+  const car = taxi.probe();
+  taxi.game.traffic.reset(
+    { gx: taxi.game.city.gridX(car.x), gz: taxi.game.city.gridZ(car.z) },
+    70,
+  );
+  taxi.game.traffic.setHoldRecycle(true);
+})()`;
+
+const growthSampleSchema = z.object({
+  heap: z.object({ usedSize: z.number() }),
+  memory: z.object({ geometries: z.number(), textures: z.number() }),
+  stream: z.object({ bytes: z.number(), resident: z.number() }).nullable(),
+  tier: z.number(),
+});
+
+type GrowthSample = z.infer<typeof growthSampleSchema>;
+
+const snapshotSchema = z.object({
+  browserMs: z.number(),
+  car: probeSchema.nullable(),
+  contextLost: z.boolean(),
+  memory: z.object({ geometries: z.number(), textures: z.number() }),
+  stream: z.object({ bytes: z.number(), resident: z.number() }).nullable(),
+  submitted: z.number(),
+  tier: z.number(),
+  updates: z.number(),
+});
+
+const resourceSchema = snapshotSchema.extend({ heap: z.object({ usedSize: z.number() }) });
+
+const deviceSchema = z.object({
+  coarse: z.boolean(),
+  dpr: z.number(),
+  multiDraw: z.boolean(),
+  post: z.boolean(),
+  renderer: jsonSchema,
+  touch: z.number(),
+  userAgent: z.string(),
+});
+
+const controlSchema = z.object({
+  distance: z.number(),
+  mode: z.string(),
+  nearEnd: z.boolean(),
+  speed: z.number(),
+  steer: z.number(),
+});
+
+const measuredSchema = z.object({
+  distance: z.number(),
+  frameMs: jsonSchema,
+  invalidMotionFrames: z.number(),
+  movingFrames: z.number(),
+  presentedFrames: z.number(),
+  steadyMs: z.number(),
+});
+
+const GROWTH_SPECS = [
+  ["geometries", (s: GrowthSample) => s.memory.geometries, 128, 0.5],
+  ["textures", (s: GrowthSample) => s.memory.textures, 16, 0.35],
+  ["parcelBytes", (s: GrowthSample) => s.stream?.bytes ?? 0, 8 * 1024 * 1024, 0.35],
+  ["residentCells", (s: GrowthSample) => s.stream?.resident ?? 0, 24, 0.25],
+  ["jsHeapUsed", (s: GrowthSample) => s.heap.usedSize, 128 * 1024 * 1024, 0.75],
+] as const;
+
+const resourceGrowth = (samples: readonly GrowthSample[]) => {
+  const tiers = new Set(samples.map((s) => s.tier));
+
+  return [...tiers].flatMap((tier) => {
+    const stable = samples.filter((s) => s.tier === tier).slice(2);
 
     if (stable.length < 6) {
-      continue;
+      return [];
     }
 
-    for (const [name, read, allowance, fraction] of specs) {
+    return GROWTH_SPECS.map(([name, read, allowance, fraction]) => {
       const first = stable.slice(0, 3).map(read);
       const last = stable.slice(-3).map(read);
       const baseline = Math.min(...first);
       const threshold = baseline + Math.max(allowance, baseline * fraction);
-      results.push({
+
+      return {
         baseline,
         last,
         name,
-        runaway: last.every((value: number) => value > threshold),
+        runaway: last.every((value) => value > threshold),
         threshold,
         tier,
-      });
-    }
-  }
-
-  return results;
+      };
+    });
+  });
 };
 
-const resourceVerdict = (growth: any[]) => {
+const resourceVerdict = (growth: readonly { runaway: boolean }[]) => {
   if (growth.length === 0) {
     return "insufficient-samples";
   }
 
-  return growth.some((entry: { runaway: any }) => entry.runaway) ? "runaway" : "stable";
+  return growth.some((entry) => entry.runaway) ? "runaway" : "stable";
 };
 
-const parseOptions = (args: string[]) => {
-  const positional = args.filter((value: string) => !value.startsWith("--"));
+const parseOptions = (args: readonly string[]) => {
+  const positional = args.filter((value) => !value.startsWith("--"));
 
   const option = (name: string, fallback: string | null) =>
-    args.find((value: string) => value.startsWith(`--${name}=`))?.split("=")[1] ?? fallback;
+    args.find((value) => value.startsWith(`--${name}=`))?.split("=")[1] ?? fallback;
 
   const minutes = Number(option("minutes", "5"));
   const cpu = Number(option("cpu", "4"));
@@ -561,6 +641,62 @@ const parseOptions = (args: string[]) => {
   };
 };
 
+interface ViewResult {
+  [key: string]: JsonValue;
+  growth: JsonValue[];
+  windows: JsonValue[];
+}
+
+interface SoakReport {
+  checkedAt: string;
+  checks: CheckEntry[];
+  cpuRate: number;
+  device?: JsonValue;
+  error?: string;
+  finalCityCapture?: JsonValue;
+  fixedTier: number | null;
+  initialCityCapture?: JsonValue;
+  kind: string;
+  limitations: string[];
+  metricStorage: { fixedHistogramBytes: number; maxWindows: number; rawFrameSamples: number };
+  noMultiDraw: boolean;
+  pageErrorCount?: number;
+  pageErrors?: JsonValue[];
+  passed?: boolean;
+  pauses: JsonValue[];
+  readyMs?: number;
+  requestedSteadyMs: number;
+  route?: JsonValue;
+  steadyMs?: number;
+  url: string;
+  views: ViewResult[];
+  wallMs?: number;
+  worldRevision?: JsonValue;
+}
+
+const VIEWS = [
+  { height: 844, name: "portrait-day", phase: 0.25, width: 390 },
+  { height: 390, name: "landscape-day", phase: 0.25, width: 844 },
+  { height: 844, name: "portrait-night", phase: 0.7, width: 390 },
+  { height: 390, name: "landscape-night", phase: 0.7, width: 844 },
+] as const;
+
+type SoakView = (typeof VIEWS)[number];
+
+const anchorSchema = z.object({ id: z.number(), x: z.number(), y: z.number() });
+
+type Anchor = z.infer<typeof anchorSchema>;
+
+const quietly = async (step: () => Promise<void>) => {
+  try {
+    await step();
+
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 const main = async () => {
   const args = process.argv.slice(2);
 
@@ -574,7 +710,7 @@ const main = async () => {
 
   const { cpu, durationMs, noMultiDraw, output, smoke, tier, url } = parseOptions(args);
 
-  const report = {
+  const report: SoakReport = {
     checkedAt: new Date().toISOString(),
     checks: [],
     cpuRate: cpu,
@@ -601,170 +737,13 @@ const main = async () => {
   };
 
   const session = await createMobileSession({ output, sessionPrefix: "crazy-waymo-mobile-soak" });
-  const { call, evaluate, pause, until, tap, sleep, screenshot, close, pageErrors } = session;
-
-  const run = async (
-    fn: {
-      (): {
-        browserMs: number;
-        car: {
-          x: number;
-          z: number;
-          y: number;
-          speed: number;
-          heading: number;
-          airborne: boolean;
-          drifting: boolean;
-          boosting: boolean;
-          carrying: boolean;
-          objective: { u: number; v: number } | null;
-          wreckedCount: number;
-          nearestTraffic: { dist: number; wrecked: boolean; y: number } | null;
-        } | null;
-        contextLost: any;
-        memory: any;
-        pixelRatio: any;
-        stream: {
-          builtMs: number;
-          bytes: number;
-          cells: number;
-          detailedCells: number;
-          pending: number;
-          resident: number;
-          verts: number;
-        } | null;
-        submitted: any;
-        tier: number;
-        updates: any;
-      };
-      (): {
-        browserMs: number;
-        car: {
-          x: number;
-          z: number;
-          y: number;
-          speed: number;
-          heading: number;
-          airborne: boolean;
-          drifting: boolean;
-          boosting: boolean;
-          carrying: boolean;
-          objective: { u: number; v: number } | null;
-          wreckedCount: number;
-          nearestTraffic: { dist: number; wrecked: boolean; y: number } | null;
-        } | null;
-        contextLost: any;
-        memory: any;
-        pixelRatio: any;
-        stream: {
-          builtMs: number;
-          bytes: number;
-          cells: number;
-          detailedCells: number;
-          pending: number;
-          resident: number;
-          verts: number;
-        } | null;
-        submitted: any;
-        tier: number;
-        updates: any;
-      };
-      (): {
-        browserMs: number;
-        car: {
-          x: number;
-          z: number;
-          y: number;
-          speed: number;
-          heading: number;
-          airborne: boolean;
-          drifting: boolean;
-          boosting: boolean;
-          carrying: boolean;
-          objective: { u: number; v: number } | null;
-          wreckedCount: number;
-          nearestTraffic: { dist: number; wrecked: boolean; y: number } | null;
-        } | null;
-        contextLost: any;
-        memory: any;
-        pixelRatio: any;
-        stream: {
-          builtMs: number;
-          bytes: number;
-          cells: number;
-          detailedCells: number;
-          pending: number;
-          resident: number;
-          verts: number;
-        } | null;
-        submitted: any;
-        tier: number;
-        updates: any;
-      };
-      (): {
-        browserMs: number;
-        car: {
-          x: number;
-          z: number;
-          y: number;
-          speed: number;
-          heading: number;
-          airborne: boolean;
-          drifting: boolean;
-          boosting: boolean;
-          carrying: boolean;
-          objective: { u: number; v: number } | null;
-          wreckedCount: number;
-          nearestTraffic: { dist: number; wrecked: boolean; y: number } | null;
-        } | null;
-        contextLost: any;
-        memory: any;
-        pixelRatio: any;
-        stream: {
-          builtMs: number;
-          bytes: number;
-          cells: number;
-          detailedCells: number;
-          pending: number;
-          resident: number;
-          verts: number;
-        } | null;
-        submitted: any;
-        tier: number;
-        updates: any;
-      };
-      (): {
-        coarse: boolean;
-        dpr: number;
-        multiDraw: boolean;
-        post: boolean;
-        renderer: any;
-        touch: number;
-        userAgent: string;
-      };
-      (): void;
-      (): { fields: {}; interpretation: string; sharedBackingBytes: unknown };
-      (): { length: number; u: any; v: any; yaw: any };
-      (phase: any): void;
-      (): void;
-      (): {
-        distance: number;
-        mode: "loading" | "title" | "countdown" | "playing" | "gameover";
-        nearEnd: boolean;
-        speed: number;
-        steer: number;
-      };
-      (): { fields: {}; interpretation: string; sharedBackingBytes: unknown };
-      toString?: any;
-    },
-    ...values: undefined[]
-  ) => await evaluate(`(${fn.toString()})(...${JSON.stringify(values)})`);
+  const { call, evaluate, read, pause, until, tap, sleep, screenshot, close, pageErrors } = session;
 
   const save = () => {
     writeFileSync(path.join(output, "report.json"), JSON.stringify(report, null, 2));
   };
 
-  const check = (name: string, passed: boolean, evidence: any[]) => {
+  const check = (name: string, passed: boolean, evidence: JsonValue) => {
     report.checks.push({ evidence, name, passed });
 
     if (!passed) {
@@ -772,21 +751,35 @@ const main = async () => {
     }
   };
 
-  const release = async () =>
+  const release = async () => {
     await call("Input.dispatchTouchEvent", { touchPoints: [], type: "touchEnd" });
+  };
 
-  const resources = async () => ({
-    ...(await run(snapshot)),
-    heap: await call("Runtime.getHeapUsage"),
-  });
+  const resources = async () => {
+    const raw = {
+      ...(await read(SNAPSHOT, jsonObjectSchema)),
+      heap: jsonSchema.parse(await call("Runtime.getHeapUsage")),
+    };
 
-  const pauseCheck = async (name: any) => {
+    return { raw, value: resourceSchema.parse(raw) };
+  };
+
+  const snapshot = async () => await read(SNAPSHOT, snapshotSchema);
+
+  const pauseCheck = async (name: string) => {
     await pause();
     await until("window.__taxi.game.paused === true");
     await sleep(300);
-    const before = await run(snapshot);
+
+    const before = await snapshot();
+
     await sleep(2000);
-    const after = await run(snapshot);
+
+    const after = await snapshot();
+
+    if (!before.car || !after.car) {
+      throw new Error("Missing taxi during pause check");
+    }
 
     const movement = Math.hypot(
       after.car.x - before.car.x,
@@ -811,12 +804,162 @@ const main = async () => {
     await tap("#waymo-pause .pcta");
     await until("window.__taxi.game.paused === false");
     await until(`window.__mobileSoak.submitted > ${after.submitted}`);
-    const resumed = await run(snapshot);
+
+    const resumed = await snapshot();
+
     check(`${name} resumes drawing`, true, { submitted: resumed.submitted });
   };
 
   let steadyMs = 0;
   const started = Date.now();
+
+  const steerLeg: (
+    anchor: Anchor,
+    driveStarted: number,
+    legMs: number,
+    worst: number,
+  ) => Promise<number> = async (anchor, driveStarted, legMs, worst) => {
+    if (Date.now() - driveStarted >= legMs) {
+      return worst;
+    }
+
+    const control = await read(STEERING, controlSchema);
+
+    if (!Number.isFinite(control.steer) || control.mode !== "playing") {
+      throw new Error("Nonfinite steering or run ended during soak");
+    }
+
+    const worstRoadDistance = Math.max(worst, control.distance);
+
+    if (control.nearEnd) {
+      return worstRoadDistance;
+    }
+
+    await call("Input.dispatchTouchEvent", {
+      touchPoints: [{ ...anchor, x: anchor.x + control.steer * 62 }],
+      type: "touchMove",
+    });
+    await sleep(100);
+
+    if (pageErrors.length > 0) {
+      throw new Error("Page exception during soak");
+    }
+
+    return await steerLeg(anchor, driveStarted, legMs, worstRoadDistance);
+  };
+
+  const soakWindows: (
+    view: SoakView,
+    result: ViewResult,
+    starts: GrowthSample[],
+    viewMs: number,
+  ) => Promise<void> = async (view, result, starts, viewMs) => {
+    if (viewMs >= durationMs / 4) {
+      return;
+    }
+
+    if (result.windows.length >= 32) {
+      throw new Error("Window budget exceeded");
+    }
+
+    const anchor = {
+      id: 1,
+      x: view.width === 390 ? 100 : 250,
+      y: view.height === 844 ? 520 : 200,
+    };
+
+    await evaluate(RESET_ROUTE);
+
+    const resetStarted = Date.now();
+
+    await sleep(1500);
+    await until("(window.__taxi.game.city.parcelStreamStats()?.pending ?? 0) === 0", 45_000);
+
+    const before = await resources();
+
+    starts.push(before.value);
+    await call("Input.dispatchTouchEvent", { touchPoints: [anchor], type: "touchStart" });
+    await sleep(500);
+    await evaluate("window.__mobileSoak.start()");
+
+    const driveStarted = Date.now();
+    const legMs = Math.min(7000, Math.max(1500, durationMs / 4 - viewMs));
+    const worstRoadDistance = await steerLeg(anchor, driveStarted, legMs, 0);
+    const measuredRaw = await read("window.__mobileSoak.stop()", jsonObjectSchema);
+    const measured = measuredSchema.parse(measuredRaw);
+
+    await release();
+
+    const after = await resources();
+    const index = result.windows.length;
+
+    result.windows.push({
+      before: before.raw,
+      excludedResetMs: driveStarted - resetStarted,
+      index,
+      ...measuredRaw,
+      after: after.raw,
+      worstRoadDistance,
+    });
+    steadyMs += measured.steadyMs;
+    report.steadyMs = steadyMs;
+    report.wallMs = Date.now() - started;
+    save();
+    check(
+      `${view.name} window ${index} keeps finite moving road frames`,
+      measured.invalidMotionFrames === 0 &&
+        measured.presentedFrames >= (measured.steadyMs / 1000) * 10 &&
+        measured.movingFrames >= measured.presentedFrames * 0.8 &&
+        measured.distance > (measured.steadyMs / 1000) * 5 &&
+        worstRoadDistance < 12 &&
+        !after.value.contextLost,
+      {
+        contextLost: after.value.contextLost,
+        distance: measured.distance,
+        moving: measured.movingFrames,
+        presented: measured.presentedFrames,
+        worstRoadDistance,
+      },
+    );
+    console.log(
+      `SOAK ${view.name} ${Math.round(steadyMs / 1000)}/${durationMs / 1000}s ${JSON.stringify({ frameMs: measured.frameMs, heapUsed: after.value.heap.usedSize, memory: after.value.memory, tier: after.value.tier })}`,
+    );
+    await soakWindows(view, result, starts, viewMs + measured.steadyMs);
+  };
+
+  const soakView = async (view: SoakView) => {
+    const result: ViewResult = { ...view, growth: [], windows: [] };
+
+    report.views.push(result);
+    await call("Emulation.setDeviceMetricsOverride", {
+      deviceScaleFactor: 3,
+      height: view.height,
+      mobile: true,
+      width: view.width,
+    });
+    await until(`innerWidth === ${view.width} && innerHeight === ${view.height}`);
+    await evaluate(`window.__taxi.setPhase(${JSON.stringify(view.phase)})`);
+
+    const starts: GrowthSample[] = [];
+
+    await soakWindows(view, result, starts, 0);
+
+    const growth = resourceGrowth(starts);
+    const verdict = resourceVerdict(growth);
+
+    result.growth = growth;
+    result.resourceVerdict = verdict;
+
+    if (verdict === "insufficient-samples") {
+      console.log(`SOAK ${view.name} resource gate inconclusive: fewer than 8 same-tier starts`);
+    } else {
+      check(`${view.name} has no sustained warmed resource runaway`, verdict === "stable", growth);
+    }
+
+    await screenshot(view.name);
+    await pauseCheck(view.name);
+    save();
+  };
 
   try {
     await call("Page.enable");
@@ -839,186 +982,35 @@ const main = async () => {
     await call("Page.navigate", { url });
     await until("window.__taxi?.game.isReady === true");
     report.readyMs = Date.now() - started;
-    report.device = await run(() => {
-      const renderer = window.__renderer;
-      const gl = renderer.getContext();
-      const debug = gl.getExtension("WEBGL_debug_renderer_info");
 
-      return {
-        coarse: matchMedia("(pointer:coarse)").matches,
-        dpr: devicePixelRatio,
-        multiDraw: !!gl.getExtension("WEBGL_multi_draw"),
-        post: window.__post !== null,
-        renderer: debug
-          ? gl.getParameter(debug.UNMASKED_RENDERER_WEBGL)
-          : gl.getParameter(gl.RENDERER),
-        touch: navigator.maxTouchPoints,
-        userAgent: navigator.userAgent,
-      };
-    });
+    const device = await read(DEVICE, deviceSchema);
+
+    report.device = device;
     check(
       "coarse DPR 3 single-pass game renderer",
-      report.device.coarse &&
-        report.device.dpr === 3 &&
-        report.device.touch > 0 &&
-        !report.device.post &&
-        (!noMultiDraw || !report.device.multiDraw),
-      report.device,
+      device.coarse &&
+        device.dpr === 3 &&
+        device.touch > 0 &&
+        !device.post &&
+        (!noMultiDraw || !device.multiDraw),
+      device,
     );
-    report.worldRevision = await evaluate(
+    report.worldRevision = await read(
       "import('/src/world/world-bin.ts').then(module=>module.WORLD_REV)",
+      jsonSchema,
     );
     await tap("#banner-cta");
     await until('window.__taxi.game.mode.kind === "playing"');
-    await run(installMetrics);
-    report.initialCityCapture = await run(captureDiagnostics);
-    report.route = await run(prepareRoute);
+    await evaluate(INSTALL_METRICS);
+    report.initialCityCapture = await read(CAPTURE_DIAGNOSTICS, jsonSchema);
+    report.route = await read(PREPARE_ROUTE, jsonSchema);
     await call("Emulation.setCPUThrottlingRate", { rate: cpu });
 
     if (tier !== null) {
       await evaluate(`window.__perf.pin(${tier})`);
     }
 
-    const views = [
-      { height: 844, name: "portrait-day", phase: 0.25, width: 390 },
-      { height: 390, name: "landscape-day", phase: 0.25, width: 844 },
-      { height: 844, name: "portrait-night", phase: 0.7, width: 390 },
-      { height: 390, name: "landscape-night", phase: 0.7, width: 844 },
-    ];
-
-    const soakView = async (view: { height: any; name: any; phase: any; width: any }) => {
-      const result = { ...view, growth: [], windows: [] };
-      report.views.push(result);
-      await call("Emulation.setDeviceMetricsOverride", {
-        deviceScaleFactor: 3,
-        height: view.height,
-        mobile: true,
-        width: view.width,
-      });
-      await until(`innerWidth === ${view.width} && innerHeight === ${view.height}`);
-      await run((phase: number) => {
-        window.__taxi.setPhase(phase);
-      }, view.phase);
-      let viewMs = 0;
-
-      const anchor = {
-        id: 1,
-        x: view.width === 390 ? 100 : 250,
-        y: view.height === 844 ? 520 : 200,
-      };
-
-      while (viewMs < durationMs / 4) {
-        if (result.windows.length >= 32) {
-          throw new Error("Window budget exceeded");
-        }
-
-        await run(() => {
-          const taxi = window.__taxi;
-          const route = window.__mobileSoakRoute;
-          taxi.setTime(3600);
-          taxi.teleport(route.u, route.v, route.yaw);
-          route.index = 0;
-          const car = taxi.probe();
-          taxi.game.traffic.reset(
-            { gx: taxi.game.city.gridX(car.x), gz: taxi.game.city.gridZ(car.z) },
-            70,
-          );
-          taxi.game.traffic.setHoldRecycle(true);
-        });
-        const resetStarted = Date.now();
-        await sleep(1500);
-        await until("(window.__taxi.game.city.parcelStreamStats()?.pending ?? 0) === 0", 45_000);
-        const before = await resources();
-        await call("Input.dispatchTouchEvent", { touchPoints: [anchor], type: "touchStart" });
-        await sleep(500);
-        await evaluate("window.__mobileSoak.start()");
-        const driveStarted = Date.now();
-        const legMs = Math.min(7000, Math.max(1500, durationMs / 4 - viewMs));
-        let worstRoadDistance = 0;
-
-        while (Date.now() - driveStarted < legMs) {
-          const control = await run(steering);
-
-          if (!Number.isFinite(control.steer) || control.mode !== "playing") {
-            throw new Error("Nonfinite steering or run ended during soak");
-          }
-
-          worstRoadDistance = Math.max(worstRoadDistance, control.distance);
-
-          if (control.nearEnd) {
-            break;
-          }
-
-          await call("Input.dispatchTouchEvent", {
-            touchPoints: [{ ...anchor, x: anchor.x + control.steer * 62 }],
-            type: "touchMove",
-          });
-          await sleep(100);
-
-          if (pageErrors.length) {
-            throw new Error("Page exception during soak");
-          }
-        }
-
-        const measured = await evaluate("window.__mobileSoak.stop()");
-        await release();
-        const after = await resources();
-
-        const entry = {
-          before,
-          excludedResetMs: driveStarted - resetStarted,
-          index: result.windows.length,
-          ...measured,
-          after,
-          worstRoadDistance,
-        };
-
-        result.windows.push(entry);
-        viewMs += measured.steadyMs;
-        steadyMs += measured.steadyMs;
-        report.steadyMs = steadyMs;
-        report.wallMs = Date.now() - started;
-        save();
-        check(
-          `${view.name} window ${entry.index} keeps finite moving road frames`,
-          measured.invalidMotionFrames === 0 &&
-            measured.presentedFrames >= (measured.steadyMs / 1000) * 10 &&
-            measured.movingFrames >= measured.presentedFrames * 0.8 &&
-            measured.distance > (measured.steadyMs / 1000) * 5 &&
-            worstRoadDistance < 12 &&
-            !after.contextLost,
-          {
-            contextLost: after.contextLost,
-            distance: measured.distance,
-            moving: measured.movingFrames,
-            presented: measured.presentedFrames,
-            worstRoadDistance,
-          },
-        );
-        console.log(
-          `SOAK ${view.name} ${Math.round(steadyMs / 1000)}/${durationMs / 1000}s ${JSON.stringify({ frameMs: measured.frameMs, heapUsed: after.heap.usedSize, memory: after.memory, tier: after.tier })}`,
-        );
-      }
-
-      result.growth = resourceGrowth(result.windows.map((entry: { before: any }) => entry.before));
-      result.resourceVerdict = resourceVerdict(result.growth);
-
-      if (result.resourceVerdict === "insufficient-samples") {
-        console.log(`SOAK ${view.name} resource gate inconclusive: fewer than 8 same-tier starts`);
-      } else {
-        check(
-          `${view.name} has no sustained warmed resource runaway`,
-          result.resourceVerdict === "stable",
-          result.growth,
-        );
-      }
-
-      await screenshot(view.name);
-      await pauseCheck(view.name);
-      save();
-    };
-
-    for (const view of views) {
+    for await (const view of inOrder(VIEWS)) {
       await soakView(view);
     }
 
@@ -1031,31 +1023,39 @@ const main = async () => {
     report.error = String(error);
     process.exitCode = 1;
     console.error(error);
-    await evaluate("if(window.__mobileSoak)window.__mobileSoak.active=false").catch(() => null);
-    await release().catch(() => null);
-    await screenshot("failure").catch(() => null);
+    await quietly(async () => {
+      await evaluate("if(window.__mobileSoak)window.__mobileSoak.active=false");
+    });
+    await quietly(release);
+    await quietly(async () => {
+      await screenshot("failure");
+    });
   } finally {
-    report.finalCityCapture = await run(captureDiagnostics).catch((error) => ({
-      unavailable: String(error),
-    }));
+    try {
+      report.finalCityCapture = await read(CAPTURE_DIAGNOSTICS, jsonSchema);
+    } catch (error) {
+      report.finalCityCapture = { unavailable: String(error) };
+    }
+
     report.wallMs = Date.now() - started;
     report.pageErrors = pageErrors.slice(0, 20);
     report.pageErrorCount = pageErrors.length;
-    report.passed = !report.error && report.checks.every((entry) => entry.passed);
+    report.passed = report.error === undefined && report.checks.every((entry) => entry.passed);
     save();
     close();
   }
 };
 
-const selfTest = () => {
-  const sample = (value: number) => ({
-    heap: { usedSize: 200_000_000 },
-    memory: { geometries: value, textures: 70 },
-    stream: { bytes: 34_000_000, resident: 205 },
-    tier: 4,
-  });
+const sample = (value: number) => ({
+  heap: { usedSize: 200_000_000 },
+  memory: { geometries: value, textures: 70 },
+  stream: { bytes: 34_000_000, resident: 205 },
+  tier: 4,
+});
 
+const selfTest = () => {
   const stable = Array.from({ length: 12 }, (_, index) => sample(600 + (index % 3)));
+
   assert.ok(resourceGrowth(stable).every((entry) => !entry.runaway));
   assert.ok(
     resourceGrowth([...stable.slice(0, 8), sample(1200), sample(1300), sample(1400)]).some(

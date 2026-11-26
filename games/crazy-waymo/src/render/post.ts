@@ -741,7 +741,7 @@ export class PostPipeline {
     }
 
     const u = this.dof.uniforms;
-    const texel = u.uTexel?.value;
+    const texel: unknown = u.uTexel?.value;
     const scale = texel instanceof THREE.Vector2 && texel.y > 0 ? 1 / texel.y / 1080 : 1;
 
     const set = (name: string, value: number) => {

@@ -3,6 +3,8 @@ import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { z } from "zod";
+
 const raw = process.argv.at(2);
 
 if (raw === undefined || raw === "") {
@@ -11,11 +13,28 @@ if (raw === undefined || raw === "") {
 
 const directory = fileURLToPath(new URL("../public/audio/cozy/", import.meta.url));
 const manifestPath = path.join(directory, "manifest.json");
-const manifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
+
+const soundSchema = z.looseObject({
+  loop: z.boolean().optional(),
+  name: z.string(),
+  processed: z.unknown().optional(),
+  source: z
+    .looseObject({
+      crossfade: z.string().optional(),
+      crossfade_seconds: z.number().optional(),
+      format: z.string().optional(),
+    })
+    .optional(),
+});
+
+const manifest = z
+  .looseObject({ sounds: z.array(soundSchema) })
+  .parse(JSON.parse(readFileSync(manifestPath, "utf-8")));
+
 const selected = new Set(process.argv.slice(3));
 
 const unknown = [...selected].filter(
-  (name) => !manifest.sounds.some((sound: { name: string }) => sound.name === name),
+  (name) => !manifest.sounds.some((sound) => sound.name === name),
 );
 
 if (unknown.length > 0) {
@@ -24,7 +43,7 @@ if (unknown.length > 0) {
 
 const sampleRate = 44_100;
 const channels = 2;
-const report = [];
+const report: { name: string; peakDb: number; rmsDb: number; seconds: number }[] = [];
 
 for (const sound of manifest.sounds) {
   if (selected.size > 0 && !selected.has(sound.name)) {
@@ -54,7 +73,7 @@ for (const sound of manifest.sounds) {
     pcm.readFloatLE(frame * 8 + 4),
   ]);
 
-  if (sound.loop) {
+  if (sound.loop === true) {
     const overlap = Math.round(sampleRate * (sound.source?.crossfade_seconds ?? 0.08));
 
     const join = frames.slice(-overlap).map((frame, i) => {
@@ -65,7 +84,9 @@ for (const sound of manifest.sounds) {
 
       const incoming = sound.source?.crossfade === "equal-power" ? Math.sin((t * Math.PI) / 2) : t;
 
-      return frame.map((sample, channel) => sample * outgoing + frames[i][channel] * incoming);
+      return frame.map(
+        (sample, channel) => sample * outgoing + (frames[i]?.[channel] ?? 0) * incoming,
+      );
     });
 
     frames = [...frames.slice(overlap, -overlap), ...join];
@@ -105,7 +126,7 @@ for (const sound of manifest.sounds) {
     throw new Error(`Empty audio: ${sound.name}`);
   }
 
-  const gain = Math.min((sound.loop ? 0.105 : 0.15) / rms, 0.75 / peak);
+  const gain = Math.min((sound.loop === true ? 0.105 : 0.15) / rms, 0.75 / peak);
   const output = Buffer.alloc(frames.length * 8);
 
   for (const [i, frame] of frames.entries()) {

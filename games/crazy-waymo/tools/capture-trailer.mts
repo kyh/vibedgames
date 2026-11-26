@@ -1,21 +1,78 @@
-import { spawn, execFile } from "node:child_process";
+import { spawn } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 import { mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
-import path from "node:path";
 import { tmpdir } from "node:os";
+import path from "node:path";
 import { setTimeout as wait } from "node:timers/promises";
-import { promisify } from "node:util";
-import { Browser, chromium } from "playwright-core";
-import { PathLike } from "node:fs";
-import { PathLike } from "node:fs";
-import { PathLike } from "node:fs";
 
-const exec = promisify(execFile);
+import { poll } from "@repo/smoke";
+import { chromium } from "playwright-core";
+import type { Browser, Page } from "playwright-core";
+import { z } from "zod";
+
+import { inOrder } from "../src/shared/paced.ts";
+import type { TrailerState } from "../src/trailer/trailer-shell.ts";
+import { execFileText as exec } from "./exec-file.mts";
+
+declare global {
+  interface Window {
+    captureAudio?: { start: () => number; stop: () => Promise<string> };
+  }
+}
+
+interface CaptureOptions {
+  clean: boolean;
+  out: string;
+  reencode: string | null;
+  scene: string | null;
+  url: string | null;
+}
+
+const timelineEntrySchema = z.object({ endMs: z.number(), id: z.string(), startMs: z.number() });
+
+const recordingSchema = z.object({
+  audioStartedAtMs: z.number(),
+  errors: z.array(z.string()),
+  markerEndedAtMs: z.number(),
+  timeline: z.array(timelineEntrySchema),
+  warnings: z.array(z.string()),
+});
+
+interface TrailerReport<Run> {
+  clean: Run | null;
+  publication: Run | null;
+  recorder: string;
+  startedAt: string;
+  viewport: typeof viewport;
+}
+
+type Recording = z.infer<typeof recordingSchema> & { audio: string; video: string };
+
+const sourceProbeSchema = z.object({
+  streams: z.array(z.object({ avg_frame_rate: z.string(), r_frame_rate: z.string() })),
+});
+
+const streamSchema = z.object({
+  avg_frame_rate: z.string().optional(),
+  codec_type: z.string(),
+  height: z.number().optional(),
+  nb_frames: z.string().optional(),
+  start_time: z.string().optional(),
+  width: z.number().optional(),
+});
+
+const mediaSchema = z.object({
+  format: z.object({ duration: z.string() }),
+  streams: z.array(streamSchema),
+});
+
+const keyframeSchema = z.object({ frames: z.array(z.object({ pts_time: z.string() })) });
 const gameDir = path.resolve(import.meta.dirname, "..");
 const repoDir = path.resolve(gameDir, "../..");
 const viewport = { height: 1080, width: 1920 };
 
-const options = (argv: string | any[]) => {
-  const result = {
+const options = (argv: readonly string[]) => {
+  const result: CaptureOptions = {
     clean: true,
     out: "/tmp/crazy-waymo-trailer",
     reencode: null,
@@ -24,7 +81,7 @@ const options = (argv: string | any[]) => {
   };
 
   for (let i = 0; i < argv.length; i += 1) {
-    const flag = argv[i];
+    const flag = argv[i] ?? "";
 
     if (flag === "--help") {
       console.log(
@@ -47,9 +104,10 @@ const options = (argv: string | any[]) => {
       throw new Error(`Unknown option ${flag}`);
     }
 
-    const value = argv[(i += 1)];
+    i += 1;
+    const value = argv[i];
 
-    if (!value || value.startsWith("--")) {
+    if (value === undefined || value === "" || value.startsWith("--")) {
       throw new Error(`Missing value for ${flag}`);
     }
 
@@ -74,60 +132,110 @@ const options = (argv: string | any[]) => {
 };
 
 const run = async (command: string, args: readonly string[], cwd: string) => {
-  const { promise, resolve, reject } = Promise.withResolvers<void>();
+  const { promise, resolve, reject } = Promise.withResolvers<null>();
   const child = spawn(command, args, { cwd, stdio: "inherit" });
   child.on("error", reject);
   child.on("exit", (code) => {
     if (code === 0) {
-      resolve();
+      resolve(null);
     } else {
-      reject(new Error(`${command} exited ${code}`));
+      reject(new Error(`${command} exited ${String(code)}`));
     }
   });
 
   return await promise;
 };
 
-const waitForServer = async (url: string | URL | Request | null) => {
-  const deadline = Date.now() + 60_000;
+const answers = async (url: string) => {
+  try {
+    const response = await fetch(url, { signal: AbortSignal.timeout(1500) });
 
-  while (Date.now() < deadline) {
-    const response = await fetch(url, { signal: AbortSignal.timeout(1500) }).catch(() => null);
-
-    if (response?.ok === true) {
-      return;
-    }
-
-    await wait(250);
+    return response.ok;
+  } catch {
+    return false;
   }
+};
 
-  throw new Error(`Preview did not start: ${url}`);
+const waitForServer = async (url: string) => {
+  const up = await poll(
+    async () => await answers(url),
+    (ok) => ok,
+    {
+      intervalMs: 250,
+      timeoutMs: 60_000,
+    },
+  );
+
+  if (up === null) {
+    throw new Error(`Preview did not start: ${url}`);
+  }
 };
 
 const installAudioCapture = () => {
-  const original = AudioNode.prototype.connect;
-  let capture: { context: any; sink: any } | null = null;
-  const tapped = new WeakSet();
-  AudioNode.prototype.connect = function connect(...args) {
-    const result = original.apply(this, args);
+  // oxlint-disable-next-line typescript/unbound-method -- the native connect is kept so the patched one can call it bound to each node
+  const nativeConnect: AudioNode["connect"] = AudioNode.prototype.connect;
 
-    if (args[0] instanceof AudioDestinationNode && this.context instanceof AudioContext) {
-      if (!capture) {
-        capture = { context: this.context, sink: this.context.createMediaStreamDestination() };
-      }
+  let capture: { context: AudioContext; sink: MediaStreamAudioDestinationNode } | null = null;
+  const tapped = new WeakSet<AudioNode>();
 
-      if (capture.context === this.context && !tapped.has(this)) {
-        original.call(this, capture.sink);
-        tapped.add(this);
-      }
+  const tap = (node: AudioNode) => {
+    if (!(node.context instanceof AudioContext)) {
+      return;
     }
 
-    return result;
+    capture ??= { context: node.context, sink: node.context.createMediaStreamDestination() };
+
+    if (capture.context === node.context && !tapped.has(node)) {
+      node.connect(capture.sink);
+      tapped.add(node);
+    }
   };
 
+  Object.defineProperty(AudioNode.prototype, "connect", {
+    configurable: true,
+    value(this: AudioNode, destination: AudioNode | AudioParam, output?: number, input?: number) {
+      const connect = nativeConnect.bind(this);
+      let result: AudioNode | undefined;
+
+      if (destination instanceof AudioParam) {
+        connect(destination, output);
+      } else {
+        result = connect(destination, output, input);
+
+        if (destination instanceof AudioDestinationNode) {
+          tap(this);
+        }
+      }
+
+      return result;
+    },
+    writable: true,
+  });
+
   let recorder: MediaRecorder | null = null;
-  let stopped: Promise<unknown> | null = null;
-  const chunks: any[] | undefined = [];
+  let stopped: Promise<string> | null = null;
+  const chunks: Blob[] = [];
+
+  const encodeChunks = async (mimeType: string) => {
+    const blob = new Blob(chunks, { type: mimeType });
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    let binary = "";
+
+    for (let i = 0; i < bytes.length; i += 32_768) {
+      binary += String.fromCodePoint(...bytes.subarray(i, i + 32_768));
+    }
+
+    return btoa(binary);
+  };
+
+  const settle = async (finished: PromiseWithResolvers<string>, mimeType: string) => {
+    try {
+      finished.resolve(await encodeChunks(mimeType));
+    } catch (error) {
+      finished.reject(error);
+    }
+  };
+
   window.captureAudio = {
     start() {
       if (!capture || capture.context.state !== "running") {
@@ -142,31 +250,27 @@ const installAudioCapture = () => {
         throw new Error("Chrome does not support WebM audio recording");
       }
 
-      recorder = new MediaRecorder(capture.sink.stream, { audioBitsPerSecond: 192_000, mimeType });
-      // oxlint-disable-next-line promise/avoid-new -- MediaRecorder reports completion only as events
-      stopped = new Promise((resolve, reject) => {
-        recorder.addEventListener("dataavailable", (event: { data: { size: number } }) => {
-          if (event.data.size > 0) {
-            chunks.push(event.data);
-          }
-        });
-        recorder.addEventListener("error", () => {
-          reject(new Error("Audio recorder failed"));
-        });
-        recorder.addEventListener("stop", async () => {
-          const blob = new Blob(chunks, { type: mimeType });
-          const bytes = new Uint8Array(await blob.arrayBuffer());
-          let binary = "";
-
-          for (let i = 0; i < bytes.length; i += 32_768) {
-            binary += String.fromCodePoint(...bytes.subarray(i, i + 32_768));
-          }
-
-          resolve(btoa(binary));
-        });
+      const active = new MediaRecorder(capture.sink.stream, {
+        audioBitsPerSecond: 192_000,
+        mimeType,
       });
+
+      const finished = Promise.withResolvers<string>();
+      active.addEventListener("dataavailable", (event) => {
+        if (event.data.size > 0) {
+          chunks.push(event.data);
+        }
+      });
+      active.addEventListener("error", () => {
+        finished.reject(new Error("Audio recorder failed"));
+      });
+      active.addEventListener("stop", () => {
+        void settle(finished, mimeType);
+      });
+      recorder = active;
+      stopped = finished.promise;
       const startedAtMs = performance.now();
-      recorder.start(1000);
+      active.start(1000);
 
       return startedAtMs;
     },
@@ -182,7 +286,10 @@ const installAudioCapture = () => {
   };
 };
 
-const captureUrl = (baseUrl: string | URL, { clean, scene }: { clean: any; scene: any }) => {
+const captureUrl = (
+  baseUrl: string,
+  { clean, scene }: { clean: boolean; scene: string | null },
+) => {
   const url = new URL(baseUrl);
   url.searchParams.set("trailer", "1");
   url.searchParams.set("manual", "1");
@@ -194,14 +301,14 @@ const captureUrl = (baseUrl: string | URL, { clean, scene }: { clean: any; scene
     url.searchParams.delete("clean");
   }
 
-  if (scene) {
+  if (scene !== null && scene !== "") {
     url.searchParams.set("scene", scene);
   }
 
   return url;
 };
 
-const recordedVideo = async (folder: PathLike) => {
+const recordedVideo = async (folder: string) => {
   const entries = await readdir(folder);
   const videos = entries.filter((name) => name.endsWith(".webm") && name !== "audio.webm");
 
@@ -209,14 +316,21 @@ const recordedVideo = async (folder: PathLike) => {
     throw new Error(`Expected one recorded video in ${folder}; found ${videos.length}`);
   }
 
-  const [video] = videos;
+  const [video = ""] = videos;
 
   return path.join(folder, video);
 };
 
-const flushAudio = async (page: { evaluate: (arg0: () => any) => any }, folder: string) => {
+const flushAudio = async (page: Page, folder: string) => {
   try {
-    const encoded = await page.evaluate(() => window.captureAudio.stop());
+    const encoded = await page.evaluate(async () => {
+      if (!window.captureAudio) {
+        throw new Error("Audio capture was not installed");
+      }
+
+      return await window.captureAudio.stop();
+    });
+
     await writeFile(path.join(folder, "audio.webm"), Buffer.from(encoded, "base64"));
 
     return null;
@@ -225,22 +339,19 @@ const flushAudio = async (page: { evaluate: (arg0: () => any) => any }, folder: 
   }
 };
 
+const readTrailer = async (page: Page) =>
+  await page.evaluate(() => ({ now: performance.now(), state: window.__trailer ?? null }));
+
 const capture = async (
-  browser: {
-    newContext: (arg0: {
-      deviceScaleFactor: number;
-      recordVideo: { dir: any; size: { height: number; width: number } };
-      viewport: { height: number; width: number };
-    }) => any;
-  },
-  baseUrl: never,
-  folder: PathLike,
-  { clean, scene }: { clean: any; scene: null },
+  browser: Browser,
+  baseUrl: string,
+  folder: string,
+  { clean, scene }: { clean: boolean; scene: string | null },
 ) => {
   await mkdir(folder, { recursive: true });
   const url = captureUrl(baseUrl, { clean, scene });
   const errors: string[] = [];
-  const warnings: any[] = [];
+  const warnings: string[] = [];
 
   const context = await browser.newContext({
     deviceScaleFactor: 1,
@@ -249,8 +360,10 @@ const capture = async (
   });
 
   const page = await context.newPage();
-  page.on("pageerror", (error: any) => errors.push(String(error)));
-  page.on("console", (message: { type: () => string; text: () => any }) => {
+  page.on("pageerror", (error) => {
+    errors.push(String(error));
+  });
+  page.on("console", (message) => {
     if (message.type() === "error") {
       errors.push(message.text());
     }
@@ -260,11 +373,11 @@ const capture = async (
     }
   });
   await page.addInitScript(installAudioCapture);
-  let result = { errors, warnings };
-  let audioStartedAtMs = null;
-  let markerEndedAtMs = null;
-  let captureFailure = null;
-  let audioFailure = null;
+  let state: (TrailerState & { finishedAtMs: number }) | null = null;
+  let audioStartedAtMs: number | null = null;
+  let markerEndedAtMs: number | null = null;
+  let captureFailure: string | null = null;
+  let audioFailure: string | null = null;
 
   try {
     console.log(`[capture] ${clean ? "clean references" : "publication"}: loading`);
@@ -275,9 +388,9 @@ const capture = async (
       null,
       { timeout: 240_000 },
     );
-    const ready = await page.evaluate(() => window.__trailer);
+    const ready = await page.evaluate(() => window.__trailer ?? null);
 
-    if (ready.phase === "error") {
+    if (ready === null || ready.phase === "error") {
       throw new Error(`Trailer failed while loading: ${JSON.stringify(ready)}`);
     }
 
@@ -290,7 +403,13 @@ const capture = async (
     });
     await page.mouse.click(960, 540);
     await wait(1500);
-    audioStartedAtMs = await page.evaluate(() => window.captureAudio.start());
+    audioStartedAtMs = await page.evaluate(() => {
+      if (!window.captureAudio) {
+        throw new Error("Audio capture was not installed");
+      }
+
+      return window.captureAudio.start();
+    });
     await wait(600);
     markerEndedAtMs = await page.evaluate(() => {
       if (!window.__trailerStart) {
@@ -306,25 +425,26 @@ const capture = async (
     let lastId = "";
     const deadline = Date.now() + 360_000;
 
-    for (;;) {
-      const state = await page.evaluate(() => ({
-        now: performance.now(),
-        state: window.__trailer,
-      }));
+    const follow: () => Promise<void> = async () => {
+      const read = await readTrailer(page);
 
-      result = { ...state.state, errors, finishedAtMs: state.now, warnings };
-
-      if (state.state.sceneId !== lastId) {
-        lastId = state.state.sceneId;
-        console.log(`[capture] ${lastId || state.state.phase}`);
+      if (read.state === null) {
+        throw new Error("Trailer state disappeared");
       }
 
-      if (state.state.phase === "error") {
-        throw new Error(`Trailer failed: ${JSON.stringify(state.state)}`);
+      state = { ...read.state, finishedAtMs: read.now };
+
+      if (read.state.sceneId !== lastId) {
+        lastId = read.state.sceneId;
+        console.log(`[capture] ${lastId === "" ? read.state.phase : lastId}`);
       }
 
-      if (state.state.done || state.state.phase === "done") {
-        break;
+      if (read.state.phase === "error") {
+        throw new Error(`Trailer failed: ${JSON.stringify(read.state)}`);
+      }
+
+      if (read.state.done) {
+        return;
       }
 
       if (Date.now() > deadline) {
@@ -332,7 +452,10 @@ const capture = async (
       }
 
       await wait(40);
-    }
+      await follow();
+    };
+
+    await follow();
 
     if (errors.length > 0) {
       throw new Error(`Capture has console errors:\n${errors.join("\n")}`);
@@ -347,12 +470,11 @@ const capture = async (
   } finally {
     if (captureFailure !== null && captureFailure !== "" && !page.isClosed()) {
       try {
-        const snapshot = await page.evaluate(() => ({
-          now: performance.now(),
-          state: window.__trailer,
-        }));
+        const snapshot = await readTrailer(page);
 
-        result = { ...result, ...snapshot.state, finishedAtMs: snapshot.now };
+        if (snapshot.state !== null) {
+          state = { ...snapshot.state, finishedAtMs: snapshot.now };
+        }
       } catch (snapshotError) {
         console.warn(`final trailer state unreadable: ${String(snapshotError)}`);
       }
@@ -362,8 +484,17 @@ const capture = async (
       audioFailure = await flushAudio(page, folder);
     }
 
-    result = { ...result, audioFailure, audioStartedAtMs, captureFailure, markerEndedAtMs };
-    await writeFile(path.join(folder, "capture.json"), `${JSON.stringify(result, null, 2)}\n`);
+    const saved = {
+      ...state,
+      audioFailure,
+      audioStartedAtMs,
+      captureFailure,
+      errors,
+      markerEndedAtMs,
+      warnings,
+    };
+
+    await writeFile(path.join(folder, "capture.json"), `${JSON.stringify(saved, null, 2)}\n`);
     await context.close();
   }
 
@@ -372,28 +503,24 @@ const capture = async (
   }
 
   return {
-    ...result,
+    ...recordingSchema.parse({ ...state, audioStartedAtMs, errors, markerEndedAtMs, warnings }),
     audio: path.join(folder, "audio.webm"),
     video: await recordedVideo(folder),
   };
 };
 
 const scanRecording = async (video: string) => {
-  const { stderr } = await exec(
-    "ffmpeg",
-    [
-      "-hide_banner",
-      "-i",
-      video,
-      "-vf",
-      "freezedetect=n=-60dB:d=0.24,negate,blackdetect=d=0.4:pic_th=0.999:pix_th=0.04",
-      "-an",
-      "-f",
-      "null",
-      "-",
-    ],
-    { maxBuffer: 8 * 1024 * 1024 },
-  );
+  const { stderr } = await exec("ffmpeg", [
+    "-hide_banner",
+    "-i",
+    video,
+    "-vf",
+    "freezedetect=n=-60dB:d=0.24,negate,blackdetect=d=0.4:pic_th=0.999:pix_th=0.04",
+    "-an",
+    "-f",
+    "null",
+    "-",
+  ]);
 
   const intervals = [
     ...stderr.matchAll(
@@ -407,8 +534,8 @@ const scanRecording = async (video: string) => {
     throw new Error("Video sync plate was not detected; refusing guessed alignment");
   }
 
-  const freezes = [];
-  let freezeStart = null;
+  const freezes: { end: number; start: number }[] = [];
+  let freezeStart: number | null = null;
 
   for (const match of stderr.matchAll(/freeze_(?<edge>start|end):\s*(?<seconds>[\d.]+)/gu)) {
     if (match.groups?.edge === "start") {
@@ -426,10 +553,10 @@ const scanRecording = async (video: string) => {
   return { freezes, syncEnd: Number(marker.groups?.end) };
 };
 
-const timelineOf = (recording: { timeline: any }) => {
+const timelineOf = (recording: Recording) => {
   const { timeline } = recording;
 
-  if (!Array.isArray(timeline) || timeline.length === 0) {
+  if (timeline.length === 0) {
     throw new Error("Trailer reported no scene timeline");
   }
 
@@ -447,17 +574,7 @@ const timelineOf = (recording: { timeline: any }) => {
   });
 };
 
-const encode = async (
-  recording: {
-    video: string;
-    markerEndedAtMs: number;
-    audioStartedAtMs: number;
-    audio: string;
-    errors: any;
-    warnings: any;
-  },
-  output: string,
-) => {
+const encode = async (recording: Recording, output: string) => {
   const timeline = timelineOf(recording);
   const { syncEnd, freezes } = await scanRecording(recording.video);
 
@@ -472,8 +589,16 @@ const encode = async (
     recording.video,
   ]);
 
-  const [source] = JSON.parse(sourceProbe).streams;
-  const [numerator, denominator] = source.avg_frame_rate.split("/").map(Number);
+  const [source] = sourceProbeSchema.parse(JSON.parse(sourceProbe)).streams;
+
+  if (!source) {
+    throw new Error("Capture video has no video stream");
+  }
+
+  const [numerator = Number.NaN, denominator = Number.NaN] = source.avg_frame_rate
+    .split("/")
+    .map(Number);
+
   const frameRate = numerator / denominator;
 
   if (
@@ -485,21 +610,24 @@ const encode = async (
   }
 
   let cursorFrames = 0;
+
   const segments: {
     audioStart: number;
     duration: number;
-    id: any;
+    id: string;
     start: number;
     videoEnd: number;
     videoStart: number;
   }[] = [];
+
   const removedStalls: {
     audioStart: number;
     duration: number;
-    id: any;
+    id: string;
     videoEnd: number;
     videoStart: number;
   }[] = [];
+
   const frameAt = (seconds: number) => Math.ceil(seconds * frameRate - 0.00001);
 
   const editedTimeline = timeline.map((entry) => {
@@ -585,49 +713,45 @@ const encode = async (
       .join("")}concat=n=${segments.length}:v=1:a=1[video][audio]`,
   ].join(";");
 
-  await exec(
-    "ffmpeg",
-    [
-      "-y",
-      "-hide_banner",
-      "-loglevel",
-      "error",
-      "-i",
-      recording.video,
-      "-i",
-      recording.audio,
-      "-filter_complex",
-      filter,
-      "-map",
-      "[video]",
-      "-map",
-      "[audio]",
-      "-c:v",
-      "libx264",
-      "-preset",
-      "slow",
-      "-crf",
-      "17",
-      "-pix_fmt",
-      "yuv420p",
-      "-bf",
-      "0",
-      "-forced-idr",
-      "1",
-      "-force_key_frames",
-      editedTimeline.map((shot) => shot.start.toFixed(6)).join(","),
-      "-c:a",
-      "aac",
-      "-b:a",
-      "192k",
-      "-ar",
-      "48000",
-      "-movflags",
-      "+faststart",
-      output,
-    ],
-    { maxBuffer: 4 * 1024 * 1024 },
-  );
+  await exec("ffmpeg", [
+    "-y",
+    "-hide_banner",
+    "-loglevel",
+    "error",
+    "-i",
+    recording.video,
+    "-i",
+    recording.audio,
+    "-filter_complex",
+    filter,
+    "-map",
+    "[video]",
+    "-map",
+    "[audio]",
+    "-c:v",
+    "libx264",
+    "-preset",
+    "slow",
+    "-crf",
+    "17",
+    "-pix_fmt",
+    "yuv420p",
+    "-bf",
+    "0",
+    "-forced-idr",
+    "1",
+    "-force_key_frames",
+    editedTimeline.map((shot) => shot.start.toFixed(6)).join(","),
+    "-c:a",
+    "aac",
+    "-b:a",
+    "192k",
+    "-ar",
+    "48000",
+    "-movflags",
+    "+faststart",
+    output,
+  ]);
 
   const { stdout } = await exec("ffprobe", [
     "-v",
@@ -639,20 +763,24 @@ const encode = async (
     output,
   ]);
 
-  const media = JSON.parse(stdout);
-  const video = media.streams.find(
-    (stream: { codec_type: string }) => stream.codec_type === "video",
-  );
-  const audio = media.streams.find(
-    (stream: { codec_type: string }) => stream.codec_type === "audio",
-  );
+  const media = mediaSchema.parse(JSON.parse(stdout));
+  const video = media.streams.find((stream) => stream.codec_type === "video");
+  const audio = media.streams.find((stream) => stream.codec_type === "audio");
 
-  if (!video || video.width !== 1920 || video.height !== 1080 || !audio) {
+  if (
+    !video ||
+    video.width !== 1920 ||
+    video.height !== 1080 ||
+    !audio ||
+    video.avg_frame_rate === undefined
+  ) {
     throw new Error("Encoded master must contain 1080p video and audio");
   }
 
   if (Number(video.nb_frames) !== cursorFrames) {
-    throw new Error(`Encoded master has ${video.nb_frames} frames; expected ${cursorFrames}`);
+    throw new Error(
+      `Encoded master has ${video.nb_frames ?? "no"} frames; expected ${cursorFrames}`,
+    );
   }
 
   const { stdout: keyframeProbe } = await exec("ffprobe", [
@@ -669,21 +797,27 @@ const encode = async (
     output,
   ]);
 
-  const keyframes = JSON.parse(keyframeProbe).frames.map((frame: { pts_time: any }) =>
-    Number(frame.pts_time),
-  );
+  const keyframes = keyframeSchema
+    .parse(JSON.parse(keyframeProbe))
+    .frames.map((frame) => Number(frame.pts_time));
 
   for (const shot of editedTimeline) {
-    if (!keyframes.some((time: number) => Math.abs(time - shot.start) < 0.001)) {
+    if (!keyframes.some((time) => Math.abs(time - shot.start) < 0.001)) {
       throw new Error(`Missing exact shot-start keyframe for ${shot.id}`);
     }
   }
 
-  const { stderr } = await exec(
-    "ffmpeg",
-    ["-hide_banner", "-i", output, "-af", "volumedetect", "-vn", "-f", "null", "-"],
-    { maxBuffer: 4 * 1024 * 1024 },
-  );
+  const { stderr } = await exec("ffmpeg", [
+    "-hide_banner",
+    "-i",
+    output,
+    "-af",
+    "volumedetect",
+    "-vn",
+    "-f",
+    "null",
+    "-",
+  ]);
 
   const peak = /max_volume:\s*(?<decibels>-?[\d.]+) dB/u.exec(stderr);
   const audioPeakDb = Number(peak?.groups?.decibels);
@@ -716,25 +850,19 @@ const encode = async (
   };
 };
 
-const extractShots = async (
-  master: {
-    timeline: string | any[];
-    file: string;
-    frameRate: {
-      split: (arg0: string) => {
-        (): any;
-        new (): any;
-        map: { (arg0: NumberConstructor): [any, any]; new (): any };
-      };
-    };
-  } | null,
-  output: PathLike,
-) => {
-  await mkdir(output, { recursive: true });
-  const shots = [];
+type Master = Awaited<ReturnType<typeof encode>>;
 
-  for (let i = 0; i < master.timeline.length; i += 1) {
-    const shot = master.timeline[i];
+const extractShots = async (master: Master, output: string) => {
+  await mkdir(output, { recursive: true });
+
+  const shots: (Master["timeline"][number] & {
+    copiedFrames: number;
+    file: string;
+    still: string | undefined;
+    stills: string[];
+  })[] = [];
+
+  for await (const [i, shot] of inOrder(master.timeline.entries())) {
     const name = `${String(i + 1).padStart(2, "0")}-${shot.id.replaceAll(/[^a-z0-9-]/giu, "-")}`;
     const clip = path.join(output, `${name}.mp4`);
     await exec("ffmpeg", [
@@ -768,10 +896,14 @@ const extractShots = async (
       clip,
     ]);
 
-    const { streams } = JSON.parse(clipProbe);
-    const video = streams.find((stream: { codec_type: string }) => stream.codec_type === "video");
-    const audio = streams.find((stream: { codec_type: string }) => stream.codec_type === "audio");
-    const [numerator, denominator] = master.frameRate.split("/").map(Number);
+    const { streams } = z.object({ streams: z.array(streamSchema) }).parse(JSON.parse(clipProbe));
+    const video = streams.find((stream) => stream.codec_type === "video");
+    const audio = streams.find((stream) => stream.codec_type === "audio");
+
+    const [numerator = Number.NaN, denominator = Number.NaN] = master.frameRate
+      .split("/")
+      .map(Number);
+
     const expectedFrames = Math.round((shot.duration * numerator) / denominator);
 
     if (
@@ -783,13 +915,15 @@ const extractShots = async (
       throw new Error(`Stream-copy boundaries failed for ${shot.id}`);
     }
 
-    const stills = [];
+    const stills: string[] = [];
 
-    for (const [label, fraction] of [
+    const marks = [
       ["start", 0.12],
       ["mid", 0.5],
       ["end", 0.88],
-    ]) {
+    ] as const;
+
+    for await (const [label, fraction] of inOrder(marks)) {
       const still = path.join(output, `${name}-${label}.jpg`);
       await exec("ffmpeg", [
         "-y",
@@ -819,24 +953,20 @@ const extractShots = async (
       .map((_, i) => `${(i % 4) * 486}_${Math.floor(i / 4) * 276}`)
       .join("|")}:fill=black[out]`;
 
-    await exec(
-      "ffmpeg",
-      [
-        "-y",
-        "-hide_banner",
-        "-loglevel",
-        "error",
-        ...shots.flatMap((shot) => ["-i", shot.still]),
-        "-filter_complex",
-        filter,
-        "-map",
-        "[out]",
-        "-frames:v",
-        "1",
-        path.join(output, "contact-sheet.jpg"),
-      ],
-      { maxBuffer: 4 * 1024 * 1024 },
-    );
+    await exec("ffmpeg", [
+      "-y",
+      "-hide_banner",
+      "-loglevel",
+      "error",
+      ...shots.flatMap((shot) => ["-i", shot.still ?? ""]),
+      "-filter_complex",
+      filter,
+      "-map",
+      "[out]",
+      "-frames:v",
+      "1",
+      path.join(output, "contact-sheet.jpg"),
+    ]);
   }
 
   return shots;
@@ -846,7 +976,7 @@ const loadRecording = async (folder: string) => {
   const saved = await readFile(path.join(folder, "capture.json"), "utf-8");
 
   return {
-    ...JSON.parse(saved),
+    ...recordingSchema.parse(JSON.parse(saved)),
     audio: path.join(folder, "audio.webm"),
     video: await recordedVideo(folder),
   };
@@ -864,15 +994,19 @@ const main = async () => {
   const output = path.resolve(config.out);
   await mkdir(output, { recursive: true });
 
-  const scratch = config.reencode
-    ? path.resolve(config.reencode)
-    : await mkdtemp(path.join(tmpdir(), "waymo-trailer-"));
+  const scratch =
+    config.reencode === null || config.reencode === ""
+      ? await mkdtemp(path.join(tmpdir(), "waymo-trailer-"))
+      : path.resolve(config.reencode);
 
-  let server = null;
+  const reencode = config.reencode !== null && config.reencode !== "";
+  let server: ChildProcess | null = null;
   let browser: Browser | null = null;
   let complete = false;
 
-  const report = {
+  type EncodedRun = Master & { shots: Awaited<ReturnType<typeof extractShots>> };
+
+  const report: TrailerReport<EncodedRun> = {
     clean: null,
     publication: null,
     recorder: "Playwright headed Chrome, native ~25fps video; captured game WebAudio",
@@ -883,7 +1017,7 @@ const main = async () => {
   try {
     let baseUrl = config.url;
 
-    if (!baseUrl && !config.reencode) {
+    if ((baseUrl === null || baseUrl === "") && !reencode) {
       await run("pnpm", ["--filter", "@repo/crazy-waymo", "build"], repoDir);
       const source = await readFile(path.join(gameDir, "vite.config.ts"), "utf-8");
       const match = /port:\s*(?<port>\d+)/u.exec(source);
@@ -897,37 +1031,49 @@ const main = async () => {
       await waitForServer(baseUrl);
     }
 
-    if (!config.reencode) {
+    if (!reencode) {
       browser = await chromium.launch({ channel: "chrome", headless: false });
     }
 
     const recordingFor = async (clean: boolean) => {
       const folder = path.join(scratch, clean ? "clean" : "publication");
 
-      if (config.reencode) {
+      if (reencode) {
         return await loadRecording(folder);
       }
 
-      if (!browser || !baseUrl) {
+      if (!browser || baseUrl === null || baseUrl === "") {
         throw new Error("Capture browser was not initialized");
       }
 
       return await capture(browser, baseUrl, folder, { clean, scene: config.scene });
     };
 
-    const publication = await recordingFor(false);
-    report.publication = await encode(publication, path.join(output, "crazy-waymo-trailer.mp4"));
-    report.publication.shots = await extractShots(report.publication, path.join(output, "review"));
+    const publication = await encode(
+      await recordingFor(false),
+      path.join(output, "crazy-waymo-trailer.mp4"),
+    );
+
+    report.publication = {
+      ...publication,
+      shots: await extractShots(publication, path.join(output, "review")),
+    };
 
     if (config.clean) {
-      const clean = await recordingFor(true);
-      report.clean = await encode(clean, path.join(output, "crazy-waymo-clean.mp4"));
-      report.clean.shots = await extractShots(report.clean, path.join(output, "clean-shots"));
+      const clean = await encode(
+        await recordingFor(true),
+        path.join(output, "crazy-waymo-clean.mp4"),
+      );
+
+      report.clean = {
+        ...clean,
+        shots: await extractShots(clean, path.join(output, "clean-shots")),
+      };
     }
 
     complete = true;
     console.log(
-      `[capture] Saved ${output}/crazy-waymo-trailer.mp4 (${report.publication.frameRate} fps, real audio)`,
+      `[capture] Saved ${output}/crazy-waymo-trailer.mp4 (${publication.frameRate} fps, real audio)`,
     );
   } finally {
     await browser?.close();

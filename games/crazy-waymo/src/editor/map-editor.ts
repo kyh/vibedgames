@@ -18,6 +18,7 @@ import type { FloorKind } from "../world/custom-map";
 import { ROAD_TILE, WORLD_H, WORLD_W } from "../shared/constants";
 import { CUSTOM_PROPS } from "../world/custom-props";
 import { loadLocalProps, parseMapFile, saveLocalProps } from "../world/map-file";
+import { isMesh } from "../shared/three-guards";
 
 interface Entry {
   model: string;
@@ -69,8 +70,6 @@ const MINIMAP_FILL = new Map<string, string>([
   ["water", "#3f6f9f"],
   ["road", "#9aa0a8"],
 ]);
-
-const noop = () => null;
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
@@ -165,7 +164,7 @@ export const startEditor = async (game: GameScene, renderer: THREE.WebGLRenderer
   }
 
   const cache = game.getCache();
-  await cache.preload(editorModelUrls(), () => null);
+  await cache.preload(editorModelUrls());
   const { camera } = game;
 
   game.freecam = true;
@@ -577,7 +576,7 @@ export const startEditor = async (game: GameScene, renderer: THREE.WebGLRenderer
     const url = modelUrl(cat, name);
     ghost = cache.instance(url);
     ghost.traverse((c) => {
-      if (c instanceof THREE.Mesh && c.material instanceof THREE.Material) {
+      if (isMesh(c) && c.material instanceof THREE.Material) {
         const m = c.material.clone();
         m.transparent = true;
         m.opacity = 0.65;
@@ -840,11 +839,7 @@ export const startEditor = async (game: GameScene, renderer: THREE.WebGLRenderer
       }
 
       o.traverse((c) => {
-        if (
-          c instanceof THREE.Mesh &&
-          c.geometry instanceof THREE.BufferGeometry &&
-          !seen.has(c.geometry)
-        ) {
+        if (isMesh(c) && c.geometry instanceof THREE.BufferGeometry && !seen.has(c.geometry)) {
           const col = c.geometry.getAttribute("color");
 
           if (col instanceof THREE.BufferAttribute && col.array instanceof Float32Array) {
@@ -935,7 +930,8 @@ export const startEditor = async (game: GameScene, renderer: THREE.WebGLRenderer
   $("ed-loadbtn").addEventListener("click", () => {
     $("ed-file").click();
   });
-  $("ed-file").addEventListener("change", async () => {
+
+  const loadMapFile = async () => {
     const input = $("ed-file");
 
     if (!(input instanceof HTMLInputElement) || !input.files?.[0]) {
@@ -960,6 +956,10 @@ export const startEditor = async (game: GameScene, renderer: THREE.WebGLRenderer
     } catch (error) {
       console.warn("[editor] map file not loaded", error);
     }
+  };
+
+  $("ed-file").addEventListener("change", () => {
+    void loadMapFile();
   });
   $("ed-clear-props").addEventListener("click", () => {
     for (const p of placed) {
@@ -1037,7 +1037,7 @@ export const startEditor = async (game: GameScene, renderer: THREE.WebGLRenderer
     return col !== undefined && col[gz] === "road";
   };
 
-  let refreshMinimapBase: () => void = noop;
+  let refreshMinimapBase: (() => void) | null = null;
   let streetTimer: number | undefined;
 
   const scheduleStreetRebuild = () => {
@@ -1052,7 +1052,7 @@ export const startEditor = async (game: GameScene, renderer: THREE.WebGLRenderer
         }
       }
 
-      refreshMinimapBase();
+      refreshMinimapBase?.();
       streetsDirty = false;
       refreshStatus();
     }, 900);

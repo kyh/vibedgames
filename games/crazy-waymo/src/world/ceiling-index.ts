@@ -6,6 +6,8 @@ import { BucketGrid } from "./bucket-grid";
 import type { RoadNetwork } from "./network";
 import { normalizedScale } from "./quantized-geometry";
 import type { Terrain } from "./terrain";
+import { isMesh } from "../shared/three-guards";
+import { inOrder } from "../shared/paced";
 
 /** A drawn slab overhead. `y` is the soffit at minZ, `y2` at maxZ (sloped). */
 export interface CeilingSpan {
@@ -259,6 +261,8 @@ const triangleSpan = (
   };
 };
 
+type Harvested = NonNullable<ReturnType<typeof harvestMesh>>;
+
 export const harvestCeilingSpans = async (
   root: THREE.Object3D,
   terrain: Terrain,
@@ -268,7 +272,7 @@ export const harvestCeilingSpans = async (
   root.updateMatrixWorld(true);
   const meshes: THREE.Mesh[] = [];
   root.traverse((o) => {
-    if (!(o instanceof THREE.Mesh)) {
+    if (!isMesh(o)) {
       return;
     }
 
@@ -284,20 +288,14 @@ export const harvestCeilingSpans = async (
   const pz = [0, 0, 0];
   let slice = performance.now();
 
-  for (const mesh of meshes) {
-    const h = harvestMesh(mesh);
-
-    if (!h) {
-      continue;
-    }
-
-    for (let i = 0; i + 2 < h.count; i += 3) {
+  const harvestRun = (h: Harvested, from: number, resumed: boolean) => {
+    for (let i = from; i + 2 < h.count; i += 3) {
       if (
+        !(resumed && i === from) &&
         i % (CEILING.harvestCheckTris * 3) === 0 &&
         performance.now() - slice > CEILING.harvestSliceMs
       ) {
-        await breathe();
-        slice = performance.now();
+        return i;
       }
 
       const [lo, hi] = triangleYRange(h, i);
@@ -312,6 +310,32 @@ export const harvestCeilingSpans = async (
       if (span) {
         spans.push(span);
       }
+    }
+
+    return h.count;
+  };
+
+  const harvestPaced: (h: Harvested, from: number, resumed: boolean) => Promise<void> = async (
+    h,
+    from,
+    resumed,
+  ) => {
+    const stop = harvestRun(h, from, resumed);
+
+    if (stop === h.count) {
+      return;
+    }
+
+    await breathe();
+    slice = performance.now();
+    await harvestPaced(h, stop, true);
+  };
+
+  for await (const mesh of inOrder(meshes)) {
+    const h = harvestMesh(mesh);
+
+    if (h) {
+      await harvestPaced(h, 0, false);
     }
   }
 

@@ -1,18 +1,57 @@
 import { writeFileSync } from "node:fs";
 import path from "node:path";
+import { z } from "zod";
+
+import type { JsonValue } from "../src/shared/json.ts";
 import { createMobileSession } from "./mobile-browser-session.mts";
+import { jsonSchema } from "./page-shapes.mts";
+import type { CheckEntry } from "./page-shapes.mts";
 
 const url = process.argv[2] ?? "http://localhost:5193/?time=noon&offline=1";
 const output = path.resolve(process.argv[3] ?? "/private/tmp/waymo-sfx");
 
-const { call, evaluate, until, sleep, screenshot, close, pageErrors } = await createMobileSession({
-  output,
-  sessionPrefix: "crazy-waymo-sfx",
+const { call, evaluate, read, until, sleep, screenshot, close, pageErrors } =
+  await createMobileSession({
+    output,
+    sessionPrefix: "crazy-waymo-sfx",
+  });
+
+const diagnosticsSchema = z.object({
+  activeOneShots: z.number(),
+  ambientScheduler: z.boolean(),
+  bank: z.object({ failed: z.array(z.string()), loaded: z.number(), total: z.number() }),
+  boostLoopOn: z.boolean(),
+  context: z.string(),
+  hidden: z.boolean(),
+  loops: z.array(
+    z.object({ level: z.number(), name: z.string(), rate: z.number(), sampled: z.boolean() }),
+  ),
+  muted: z.boolean(),
+  paused: z.boolean(),
 });
 
-const report = { checkedAt: new Date().toISOString(), checks: [], url };
+type AudioDiagnostics = z.infer<typeof diagnosticsSchema>;
 
-const check = (name: string | undefined, passed: boolean, evidence: any[]) => {
+const levelSchema = z.object({ peak: z.number(), rms: z.number() });
+const targetSchema = z.object({ targetId: z.string() });
+
+interface SfxReport {
+  checkedAt: string;
+  checks: CheckEntry[];
+  url: string;
+  assetFailures?: JsonValue;
+  restartAudio?: AudioDiagnostics;
+  events?: JsonValue;
+  finalAudio?: AudioDiagnostics;
+  failure?: string;
+  pageErrors?: JsonValue[];
+  finalAudioError?: string;
+  passed?: boolean;
+}
+
+const report: SfxReport = { checkedAt: new Date().toISOString(), checks: [], url };
+
+const check = (name: string, passed: boolean, evidence: JsonValue) => {
   report.checks.push({ evidence, name, passed });
   console.log(JSON.stringify({ evidence, name, passed }));
 
@@ -22,11 +61,15 @@ const check = (name: string | undefined, passed: boolean, evidence: any[]) => {
 };
 
 const count = async (method: string) =>
-  await evaluate(
+  await read(
     `window.__sfxEvents.filter(event => event.method === ${JSON.stringify(method)}).length`,
+    z.number(),
   );
 
-const diagnostics = async () => await evaluate("window.__taxi.game.sfx.diagnostics()");
+const diagnostics = async () =>
+  await read("window.__taxi.game.sfx.diagnostics()", diagnosticsSchema);
+
+const events = async (expression = "window.__sfxEvents") => await read(expression, jsonSchema);
 
 const key = async (name: string, code: string, virtualKey: number, hold = 80) => {
   const event = { code, key: name, windowsVirtualKeyCode: virtualKey };
@@ -40,8 +83,9 @@ const click = async (selector: string) => {
     `(()=>{const e=document.querySelector(${JSON.stringify(selector)});if(!e)return false;const r=e.getBoundingClientRect();return r.width>0&&r.height>0&&e.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2))})()`,
   );
 
-  const point = await evaluate(
+  const point = await read(
     `(()=>{const r=document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()`,
+    z.object({ x: z.number(), y: z.number() }),
   );
 
   await call("Input.dispatchMouseEvent", { type: "mouseMoved", ...point });
@@ -98,7 +142,7 @@ try {
     }
   })()`);
 
-  if (await evaluate("window.__taxi.game.sfx.muted")) {
+  if ((await evaluate("window.__taxi.game.sfx.muted")) === true) {
     await key("m", "KeyM", 77);
   }
 
@@ -110,7 +154,8 @@ try {
   const { bank } = await diagnostics();
 
   if (bank.failed.length > 0) {
-    report.assetFailures = await evaluate(`(async()=>{
+    report.assetFailures = await read(
+      `(async()=>{
       const ctx = new AudioContext();
       const failures = [];
       for (const name of window.__taxi.game.sfx.diagnostics().bank.failed) {
@@ -122,7 +167,9 @@ try {
       }
       await ctx.close();
       return failures;
-    })()`);
+    })()`,
+      jsonSchema,
+    );
   }
 
   check("complete sound bank loaded", bank.loaded === bank.total && bank.total > 0, bank);
@@ -149,13 +196,13 @@ try {
   const { loops: motion } = await diagnostics();
   check(
     "every motion layer uses a generated clip",
-    motion.length === 6 && motion.every((loop: { sampled: any }) => loop.sampled),
+    motion.length === 6 && motion.every((loop) => loop.sampled),
     motion,
   );
   check(
     "start countdown and GO cues",
     (await count("countdown")) === 3 && (await count("go")) === 1,
-    await evaluate("window.__sfxEvents"),
+    await events(),
   );
 
   await evaluate("window.__taxi.teleport(0.37, 0.39)");
@@ -166,7 +213,7 @@ try {
     windowsVirtualKeyCode: 87,
   });
   await until("window.__taxi.game.car.speed > 10");
-  const drivingSignal = await evaluate("window.__sfxLevel()");
+  const drivingSignal = await read("window.__sfxLevel()", levelSchema);
   check(
     "driving produces a bounded audio signal",
     drivingSignal.rms > 0.0001 && drivingSignal.peak < 1,
@@ -183,7 +230,7 @@ try {
   check(
     "boost ignition and release sound once",
     (await count("boost")) === 1 && (await count("boostEnd")) === 1,
-    await evaluate('window.__sfxEvents.filter(event => event.method.startsWith("boost"))'),
+    await events('window.__sfxEvents.filter(event => event.method.startsWith("boost"))'),
   );
   await evaluate("window.__taxi.game.car.boostMeter = 99.99");
   await until('window.__sfxEvents.some(event => event.method === "boostReady")');
@@ -197,9 +244,9 @@ try {
   await key("Escape", "Escape", 27);
   await until("window.__taxi.game.paused");
   const paused = await diagnostics();
-  check("pause mutes the soundscape", paused.paused === true, paused);
+  check("pause mutes the soundscape", paused.paused, paused);
   await sleep(1200);
-  const pauseSignal = await evaluate("window.__sfxLevel()");
+  const pauseSignal = await read("window.__sfxLevel()", levelSchema);
   check("paused output is silent after its UI cue", pauseSignal.rms < 0.0001, pauseSignal);
   await screenshot("paused");
   await key("Escape", "Escape", 27);
@@ -207,18 +254,18 @@ try {
   const resumed = await diagnostics();
   check(
     "resume restores audio",
-    resumed.paused === false && (await count("resume")) === 1,
+    !resumed.paused && (await count("resume")) === 1,
     await diagnostics(),
   );
   await key("r", "KeyR", 82);
   await until('window.__taxi.game.mode.kind === "countdown"');
-  report.restartAudio = await diagnostics();
-  check("restart uses its own cue", (await count("reset")) === 1, report.restartAudio);
+  const restartAudio = await diagnostics();
+  report.restartAudio = restartAudio;
+  check("restart uses its own cue", (await count("reset")) === 1, restartAudio);
   check(
     "countdown clears every motion layer",
-    !report.restartAudio.boostLoopOn &&
-      report.restartAudio.loops.every((loop: { level: number }) => loop.level === 0),
-    report.restartAudio,
+    !restartAudio.boostLoopOn && restartAudio.loops.every((loop) => loop.level === 0),
+    restartAudio,
   );
   await until('window.__taxi.game.mode.kind === "playing"');
 
@@ -270,8 +317,9 @@ try {
   await evaluate("window.__taxi.teleport(0.37, 0.39)");
   await until("!window.__taxi.game.garageOpen");
 
-  const ui = await evaluate(
+  const ui = await read(
     'window.__sfxEvents.filter(event => event.method === "ui").map(event => event.args[0])',
+    z.array(jsonSchema),
   );
 
   check(
@@ -279,24 +327,35 @@ try {
     ["open", "move", "select", "back"].every((cue) => ui.includes(cue)),
     ui,
   );
-  const { targetInfo } = await call("Target.getTargetInfo");
-  const { targetId: otherTab } = await call("Target.createTarget", { url: "about:blank" });
+
+  const { targetInfo } = z
+    .object({ targetInfo: targetSchema })
+    .parse(await call("Target.getTargetInfo"));
+
+  const { targetId: otherTab } = targetSchema.parse(
+    await call("Target.createTarget", { url: "about:blank" }),
+  );
+
   await call("Target.activateTarget", { targetId: otherTab });
   await until("document.hidden && window.__taxi.game.sfx.diagnostics().context === 'suspended'");
   const hidden = await diagnostics();
   check(
     "hidden page suspends audio",
-    hidden.hidden === true && hidden.context === "suspended",
+    hidden.hidden && hidden.context === "suspended",
     await diagnostics(),
   );
   await call("Target.activateTarget", { targetId: targetInfo.targetId });
   await call("Target.closeTarget", { targetId: otherTab });
   await until("!document.hidden && window.__taxi.game.sfx.diagnostics().context === 'running'");
   const visible = await diagnostics();
-  check("visible page restores audio", visible.hidden === false, await diagnostics());
+  check("visible page restores audio", !visible.hidden, await diagnostics());
   await key("Escape", "Escape", 27);
   await until("window.__taxi.game.paused");
-  const { targetId: pausedTab } = await call("Target.createTarget", { url: "about:blank" });
+
+  const { targetId: pausedTab } = targetSchema.parse(
+    await call("Target.createTarget", { url: "about:blank" }),
+  );
+
   await call("Target.activateTarget", { targetId: pausedTab });
   await until("document.hidden && window.__taxi.game.sfx.diagnostics().context === 'suspended'");
   await call("Target.activateTarget", { targetId: targetInfo.targetId });
@@ -307,14 +366,14 @@ try {
     "returning visible preserves wrapper pause",
     stillPaused.paused &&
       !stillPaused.hidden &&
-      stillPaused.loops.every((loop: { level: number }) => loop.level === 0),
+      stillPaused.loops.every((loop) => loop.level === 0),
     stillPaused,
   );
   await key("Escape", "Escape", 27);
   await until("!window.__taxi.game.paused");
   await screenshot("complete");
   check("no page errors", pageErrors.length === 0, pageErrors);
-  report.events = await evaluate("window.__sfxEvents");
+  report.events = await events();
   report.finalAudio = await diagnostics();
 } catch (error) {
   report.failure = String(error);
@@ -322,14 +381,14 @@ try {
 
   try {
     report.finalAudio = await diagnostics();
-    report.events = await evaluate("window.__sfxEvents");
+    report.events = await events();
   } catch (readError) {
     report.finalAudioError = String(readError);
   }
 
   await screenshot("failure").catch(() => null);
 } finally {
-  report.passed = !report.failure && report.checks.every((entry) => entry.passed);
+  report.passed = report.failure === undefined && report.checks.every((entry) => entry.passed);
   writeFileSync(path.join(output, "report.json"), `${JSON.stringify(report, null, 2)}\n`);
   close();
 }

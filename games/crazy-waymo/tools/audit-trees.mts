@@ -19,9 +19,9 @@ const parcels = planParcels({
 
 const water: WaterBody[] = [];
 
-buildLandmarks(world.terrain, new ModelCache(), world.network, undefined, (body) =>
-  water.push(body),
-);
+buildLandmarks(world.terrain, new ModelCache(), world.network, undefined, (body) => {
+  water.push(body);
+});
 
 const report = await auditTreeClearance(rest, parcels.plans, water);
 
