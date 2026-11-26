@@ -94,23 +94,10 @@ export const createCheckoutSession = async (
   return parsed.data.url;
 };
 
-const hex = (buffer: ArrayBuffer) =>
-  [...new Uint8Array(buffer)].map((b) => b.toString(16).padStart(2, "0")).join("");
+const SHA256_HEX = /^[0-9a-f]{64}$/u;
 
-const timingSafeEqual = (a: string, b: string) => {
-  if (a.length !== b.length) {
-    return false;
-  }
-
-  let diff = 0;
-
-  for (let i = 0; i < a.length; i += 1) {
-    // oxlint-disable-next-line no-bitwise -- constant-time compare folds every byte difference into one value
-    diff |= (a.codePointAt(i) ?? 0) ^ (b.codePointAt(i) ?? 0);
-  }
-
-  return diff === 0;
-};
+const hexBytes = (text: string) =>
+  Uint8Array.from(text.match(/../gu) ?? [], (pair) => Number.parseInt(pair, 16));
 
 /**
  * Verifies a `Stripe-Signature` header (`t=<unix>,v1=<hex>[,v1=…]`): an
@@ -141,14 +128,20 @@ export const verifyStripeSignature = async (
     new TextEncoder().encode(secret),
     { hash: "SHA-256", name: "HMAC" },
     false,
-    ["sign"],
+    ["verify"],
   );
 
-  const expected = hex(
-    await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`${timestamp}.${payload}`)),
+  const signed = new TextEncoder().encode(`${timestamp}.${payload}`);
+
+  const verdicts = await Promise.all(
+    signatures
+      .filter((signature) => SHA256_HEX.test(signature))
+      .map(
+        async (signature) => await crypto.subtle.verify("HMAC", key, hexBytes(signature), signed),
+      ),
   );
 
-  return signatures.some((signature) => timingSafeEqual(signature, expected));
+  return verdicts.includes(true);
 };
 
 const checkoutSession = z.object({

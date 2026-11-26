@@ -40,32 +40,27 @@ const fromBase64url = (text: string) => {
   }
 };
 
-const hmac = async (secret: string, message: string) => {
-  const key = await crypto.subtle.importKey(
+const hmacKey = async (secret: string) =>
+  await crypto.subtle.importKey(
     "raw",
     new TextEncoder().encode(secret),
     { hash: "SHA-256", name: "HMAC" },
     false,
-    ["sign"],
+    ["sign", "verify"],
   );
 
-  return new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(message)));
-};
+const hmac = async (secret: string, message: string) =>
+  new Uint8Array(
+    await crypto.subtle.sign("HMAC", await hmacKey(secret), new TextEncoder().encode(message)),
+  );
 
-const constantTimeEqual = (a: Uint8Array, b: Uint8Array) => {
-  if (a.length !== b.length) {
-    return false;
-  }
-
-  let mismatch = 0;
-
-  for (let i = 0; i < a.length; i += 1) {
-    // oxlint-disable-next-line no-bitwise -- accumulating XOR diffs is the point of a constant-time compare
-    mismatch |= (a[i] ?? 0) ^ (b[i] ?? 0);
-  }
-
-  return mismatch === 0;
-};
+const hmacMatches = async (secret: string, message: string, signature: Uint8Array<ArrayBuffer>) =>
+  await crypto.subtle.verify(
+    "HMAC",
+    await hmacKey(secret),
+    signature,
+    new TextEncoder().encode(message),
+  );
 
 export interface MintedToken {
   token: string;
@@ -107,7 +102,7 @@ export const verifyPlaytestToken = async (secret: string, token: string, now = D
 
   const given = fromBase64url(signature);
 
-  if (!given || !constantTimeEqual(given, await hmac(secret, `${PREFIX}.${payload}`))) {
+  if (!given || !(await hmacMatches(secret, `${PREFIX}.${payload}`, given))) {
     return null;
   }
 
