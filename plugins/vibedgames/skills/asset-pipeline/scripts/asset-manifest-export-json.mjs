@@ -19,14 +19,14 @@ main(() => {
     values: ["manifest", "out"],
   });
 
-  const manifest = getString(args, "manifest");
-  const out = getString(args, "out");
+  const manifest = getString(args, "manifest") ?? "";
+  const out = getString(args, "out") ?? "";
 
-  if (!manifest) {
+  if (manifest === "") {
     failUsage("--manifest is required (path to assets_index.lua or .json)");
   }
 
-  if (!out) {
+  if (out === "") {
     failUsage("--out is required (output JSON path)");
   }
 

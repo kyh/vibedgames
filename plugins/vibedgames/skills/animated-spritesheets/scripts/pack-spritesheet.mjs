@@ -15,10 +15,10 @@ main(() => {
     values: ["action", "columns", "fps", "glob", "input-dir", "json-out", "out"],
   });
 
-  const inputDir = getString(args, "input-dir");
-  const out = getString(args, "out");
+  const inputDir = getString(args, "input-dir") ?? "";
+  const out = getString(args, "out") ?? "";
 
-  if (!inputDir || !out) {
+  if (inputDir === "" || out === "") {
     failUsage("--input-dir and --out are required");
   }
 

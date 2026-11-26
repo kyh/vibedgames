@@ -19,10 +19,11 @@ main(() => {
     values: ["k-colors", "seed"],
   });
 
-  const [input, output] = args.positionals;
+  const usage = "Usage: node pixel-snapper.mjs input.png output.png [--k-colors N] [--seed N]";
+  const [input = "", output = ""] = args.positionals;
 
-  if (!input || !output) {
-    failUsage("Usage: node pixel-snapper.mjs input.png output.png [--k-colors N] [--seed N]");
+  if (input === "" || output === "") {
+    failUsage(usage);
   }
 
   const kColors = getInt(args, "k-colors", 16);
@@ -38,7 +39,7 @@ main(() => {
 
   const warning = snapWarning(Bitmap.fromFile(input), snapped, config);
 
-  if (warning) {
+  if (warning !== null && warning !== "") {
     console.error(`[pixel_snapper] warning: ${warning}`);
 
     if (getFlag(args, "strict")) {
