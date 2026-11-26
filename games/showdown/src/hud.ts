@@ -473,14 +473,13 @@ export class Hud {
     const { player, state } = this.game;
     const percent = player ? Math.round((1 - player.evadeCooldown / EVADE.cooldown) * 100) : 0;
 
-    const ready = Boolean(
+    const ready =
       player?.alive === true &&
       state === "playing" &&
       !player.airborne &&
       !player.evasion &&
       player.evadeCooldown <= 0 &&
-      !player.evadePending,
-    );
+      !player.evadePending;
 
     const status = `${percent}:${ready}`;
 

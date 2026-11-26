@@ -324,7 +324,7 @@ export class World {
 
   private buildWater() {
     if (!this.tiles.includes(TILE.WATER)) {
-      return;
+      return null;
     }
 
     const normal = makeWaterNormalTexture();

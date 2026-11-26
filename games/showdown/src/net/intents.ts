@@ -32,7 +32,7 @@ export const parseIntent: (payload: JsonValue) => Intent | null = (payload) => {
 
   const { seq } = payload;
 
-  if (!isSeq(seq)) {
+  if (!isSeq(seq) || !isJsonString(payload.kind)) {
     return null;
   }
 

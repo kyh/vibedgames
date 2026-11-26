@@ -173,8 +173,8 @@ export class PuppetTrack {
     if (since > 0) {
       b.vel.set((pos.x - fromX) / since, (pos.z - fromZ) / since);
       this.posedAt = now;
-    } else if (this.posedAt === null) {
-      this.posedAt = now;
+    } else {
+      this.posedAt ??= now;
     }
   }
 }

@@ -41,7 +41,9 @@ const buildDifficultySegment = (game: Game) => {
 /** Wire every control in the panel to the game's setters. Runs once. */
 export const buildSettingsPanel = (game: Game) => {
   const panel = mustGet("settings");
-  mustGet("gear").addEventListener("click", () => panel.classList.toggle("open"));
+  mustGet("gear").addEventListener("click", () => {
+    panel.classList.toggle("open");
+  });
   buildQualitySegment(game);
   buildDifficultySegment(game);
   const autoTime = mustGetInput("auto-time");

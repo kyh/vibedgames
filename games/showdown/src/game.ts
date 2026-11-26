@@ -244,7 +244,7 @@ export class Game {
       this.pipeline.toggles.bloom = false;
     }
 
-    const coarse = Boolean(window.matchMedia && window.matchMedia("(pointer: coarse)").matches);
+    const coarse = window.matchMedia("(pointer: coarse)").matches;
     const quality = resolveQuality(this.params.get("q"), saved, coarse);
     this.userPickedQuality = quality.userPicked;
     this.pipeline.superSample = clamp(numberParam(this.params, "ss") || 0, 0, 3);
@@ -449,7 +449,7 @@ export class Game {
     this.world.dispose();
 
     if (seed === null) {
-      this.nextSeed = this.fixedSeed === null ? randomSeed() : this.fixedSeed;
+      this.nextSeed = this.fixedSeed ?? randomSeed();
       this.fixedSeed = null;
     } else {
       this.nextSeed = seed;
@@ -718,10 +718,18 @@ export class Game {
     this.guest = null;
     this.combat.ghosts = null;
     this.mode = "host";
-    setRecorders(this.effects, this.hud, this.combat, (row) => this.netFx.push(row), {
-      actor: () => (this.fxActor ? this.brawlers.indexOf(this.fxActor) : -1),
-      indexOf: (b) => this.brawlers.indexOf(b),
-    });
+    setRecorders(
+      this.effects,
+      this.hud,
+      this.combat,
+      (row) => {
+        this.netFx.push(row);
+      },
+      {
+        actor: () => (this.fxActor ? this.brawlers.indexOf(this.fxActor) : -1),
+        indexOf: (b) => this.brawlers.indexOf(b),
+      },
+    );
     this.netFx = [];
     session.drainIntents();
     const world = session.readWorld();
@@ -1214,9 +1222,14 @@ export class Game {
         break;
       }
 
-      default: {
+      case "solo": {
         this.stepSim(dt);
         break;
+      }
+
+      default: {
+        const unhandled: never = this.mode;
+        throw new Error("unhandled case", { cause: unhandled });
       }
     }
   }

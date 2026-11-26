@@ -133,6 +133,10 @@ const isActorFxRow = (v: JsonObject) => isFxRow(v) && hasActor(v);
 const isActorSfxRow = (v: JsonObject) => isSfxRow(v) && hasActor(v);
 
 const rowGuard = (kind: JsonValue | undefined) => {
+  if (!isStr(kind)) {
+    return null;
+  }
+
   switch (kind) {
     case "fx": {
       return isActorFxRow;
@@ -304,8 +308,15 @@ export const replayBatch = (
         break;
       }
 
-      default: {
+      case "gone":
+      case "lob":
+      case "shot": {
         break;
+      }
+
+      default: {
+        const unhandled: never = row;
+        throw new Error("unhandled case", { cause: unhandled });
       }
     }
   }

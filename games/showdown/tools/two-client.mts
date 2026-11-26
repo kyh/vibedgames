@@ -3,7 +3,7 @@ import type { ChildProcess } from "node:child_process";
 import path from "node:path";
 import { setTimeout as wait } from "node:timers/promises";
 
-import { flagValue, inSequence, poll, startVite } from "@repo/smoke";
+import { flagValue, poll, startVite } from "@repo/smoke";
 import { chromium } from "playwright-core";
 import type { Browser, BrowserContext, Page } from "playwright-core";
 
@@ -89,11 +89,10 @@ const untilArg = async <R, A>(
   timeout: number,
   arg: A,
 ) => {
-  const found = await poll(
-    async () => await page.evaluate(predicate, arg),
-    (value) => Boolean(value),
-    { intervalMs: 150, timeoutMs: timeout },
-  );
+  const found = await poll(async () => await page.evaluate(predicate, arg), Boolean, {
+    intervalMs: 150,
+    timeoutMs: timeout,
+  });
 
   if (found === null) {
     throw new Error(`timeout: ${label} — ${JSON.stringify(await status(page))}`);
@@ -185,7 +184,7 @@ const restartFrom = async (authority: Client, watchers: Client[]) => {
 
       return (
         again instanceof HTMLElement &&
-        !again.hidden &&
+        again.hidden === false &&
         document.querySelector("#result.open") !== null
       );
     },
@@ -193,18 +192,21 @@ const restartFrom = async (authority: Client, watchers: Client[]) => {
   );
   await authority.page.click("#again");
 
-  for (const client of [authority, ...watchers]) {
-    await untilArg(
-      client.page,
-      (gen) =>
-        window.__game !== undefined &&
-        window.__game.generation > gen &&
-        window.__game.state !== "ended",
-      `${client.name} joins the next brawl`,
-      45_000,
-      before.generation,
-    );
-  }
+  await Promise.all(
+    [authority, ...watchers].map(
+      async (client) =>
+        await untilArg(
+          client.page,
+          (gen) =>
+            window.__game !== undefined &&
+            window.__game.generation > gen &&
+            window.__game.state !== "ended",
+          `${client.name} joins the next brawl`,
+          45_000,
+          before.generation,
+        ),
+    ),
+  );
 };
 
 const run = async (base: string) => {
@@ -287,7 +289,7 @@ const run = async (base: string) => {
         const spectating = await guest.page.evaluate(() => {
           const strip = document.querySelector("#spectate");
 
-          return strip instanceof HTMLElement && !strip.hidden;
+          return strip instanceof HTMLElement && strip.hidden === false;
         });
 
         assert.ok(spectating, "a mid-brawl arrival is told it is spectating");
@@ -410,7 +412,7 @@ const run = async (base: string) => {
           const b = g.brawlers.find((other) => other.netId === `p:${id}`);
 
           return (
-            (b && b.ammo < 3) ||
+            (b !== undefined && b.ammo < 3) ||
             g.combat.bullets.some((bullet) => bullet.owner.netId === `p:${id}`) ||
             g.combat.bombs.some((bomb) => bomb.owner.netId === `p:${id}`)
           );
@@ -625,7 +627,7 @@ const run = async (base: string) => {
         await late.page.evaluate(() => {
           const strip = document.querySelector("#spectate");
 
-          return strip instanceof HTMLElement && !strip.hidden;
+          return strip instanceof HTMLElement && strip.hidden === false;
         }),
         "late arrival sees the spectator strip",
       );

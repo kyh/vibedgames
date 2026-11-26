@@ -160,13 +160,13 @@ export const buildArrowGeometry = () => {
     new THREE.BoxGeometry(0.13, 1.2, 0.6).translate(0, 0, -0.95),
   ];
 
-  const geometry = mergeGeometries(parts);
+  const geometry: THREE.BufferGeometry | null = mergeGeometries(parts);
 
   for (const part of parts) {
     part.dispose();
   }
 
-  if (!geometry) {
+  if (geometry === null) {
     throw new Error("Arrow geometry could not be merged");
   }
 
@@ -212,7 +212,7 @@ export const drawProjectile = (
 
     default: {
       const unreachable: never = style;
-      throw new Error(`Unknown projectile style: ${unreachable}`);
+      throw new Error("Unknown projectile style", { cause: unreachable });
     }
   }
 

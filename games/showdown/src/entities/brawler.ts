@@ -1124,7 +1124,7 @@ export class Brawler {
 
       default: {
         const unreachable: never = style;
-        throw new Error(`Unknown evade style: ${unreachable}`);
+        throw new Error("Unknown evade style", { cause: unreachable });
       }
     }
 

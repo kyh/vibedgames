@@ -86,6 +86,19 @@ const summarise = (game: Game, samples: ReturnType<typeof sample>[], survived: n
   };
 };
 
+const decideByRules = (current: string) => {
+  const sense = window.__GAME_DIAGNOSTICS__;
+
+  if (!sense) {
+    return current;
+  }
+
+  const next = chooseMove(sense);
+  tapSuper(sense);
+
+  return next;
+};
+
 const playMatch = ({ hz, moveName, sampleEvery, seed, ticks, tune, untilEnded }: MatchOptions) => {
   const game = window.__game;
   const moves = window.__GAME_PLAYTEST__?.move;
@@ -106,12 +119,7 @@ const playMatch = ({ hz, moveName, sampleEvery, seed, ticks, tune, untilEnded }:
 
   for (let tick = 0; tick < ticks; tick += 1) {
     if (moveName === "rules" && tick % DECIDE_EVERY === 0 && game.player?.alive === true) {
-      const sense = window.__GAME_DIAGNOSTICS__;
-
-      if (sense) {
-        current = chooseMove(sense);
-        tapSuper(sense);
-      }
+      current = decideByRules(current);
     }
 
     applyInputs(input, moves[current]?.reflex?.(null) ?? {});
