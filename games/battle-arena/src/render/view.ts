@@ -251,7 +251,7 @@ export class View {
   private readonly introPos = new THREE.Vector3(0, 22, 14);
   private readonly introLook = new THREE.Vector3(0, 2, 0);
   private readonly introScratch = new THREE.Vector3();
-  readonly throneAura: THREE.Mesh;
+  readonly throneAura: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>;
   private throneColumn: THREE.Mesh<THREE.CylinderGeometry, THREE.MeshBasicMaterial> | null = null;
   /** TRAILER-ONLY bloom scale, read only by cinematic(). 1 = the game's bloom. */
   bloomScale = 1;
@@ -438,9 +438,9 @@ export class View {
       beaconGeos.push(cone);
     }
 
-    const beaconGeo = mergeGeometries(beaconGeos);
+    const beaconGeo: THREE.BufferGeometry | null = mergeGeometries(beaconGeos);
 
-    if (beaconGeo) {
+    if (beaconGeo !== null) {
       const beacons = new THREE.Mesh(
         beaconGeo,
         new THREE.MeshBasicMaterial({
@@ -750,7 +750,7 @@ export class View {
 
   /** Pulse the throne aura + glow column. */
   tickAura(t: number) {
-    const m = this.throneAura.material as THREE.MeshBasicMaterial;
+    const m = this.throneAura.material;
     m.opacity = this.reducedMotion?.matches ? 0.35 : 0.35 + Math.sin(t * 2) * 0.15;
 
     if (this.throneColumn) {
@@ -778,7 +778,7 @@ export class View {
       this.composer.addPass(new SMAAPass());
     } else {
       this.fxaa = new ShaderPass(FXAAShader);
-      this.fxaa.material.uniforms.resolution?.value.set(1 / (w * this.prNow), 1 / (h * this.prNow));
+      this.setFxaaResolution(1 / (w * this.prNow), 1 / (h * this.prNow));
       this.composer.addPass(this.fxaa);
     }
 
@@ -790,11 +790,14 @@ export class View {
     this.renderer.setPixelRatio(pr);
     this.composer?.setPixelRatio(pr);
 
-    if (this.fxaa) {
-      this.fxaa.material.uniforms.resolution?.value.set(
-        1 / (window.innerWidth * pr),
-        1 / (window.innerHeight * pr),
-      );
+    this.setFxaaResolution(1 / (window.innerWidth * pr), 1 / (window.innerHeight * pr));
+  }
+
+  private setFxaaResolution(x: number, y: number) {
+    const resolution: unknown = this.fxaa?.material.uniforms.resolution?.value;
+
+    if (resolution instanceof THREE.Vector2) {
+      resolution.set(x, y);
     }
   }
 
@@ -816,12 +819,10 @@ export class View {
     this.camera.updateProjectionMatrix();
     this.composer?.setSize(window.innerWidth, window.innerHeight);
 
-    if (this.fxaa) {
-      this.fxaa.material.uniforms.resolution?.value.set(
-        1 / (window.innerWidth * this.prNow),
-        1 / (window.innerHeight * this.prNow),
-      );
-    }
+    this.setFxaaResolution(
+      1 / (window.innerWidth * this.prNow),
+      1 / (window.innerHeight * this.prNow),
+    );
   }
 
   /** Sim-plane (x, y) at height `h` → screen px. `h` defaults to chest height;

@@ -52,7 +52,7 @@ const WANT = new Map([
 
 mkdirSync(OUT, { recursive: true });
 
-const found = new Map();
+const found = new Map<string, string>();
 
 for (const pack of PACKS) {
   const dir = nodePath.join(ROOT, pack);
@@ -82,14 +82,10 @@ for (const pack of PACKS) {
 
 let missing = 0;
 
-for (const [outName] of WANT.entries()) {
-  void outName;
-}
-
 for (const [suffix, outName] of WANT) {
   const src = found.get(outName);
 
-  if (!src) {
+  if (src === undefined) {
     console.error(`MISSING: ${suffix}`);
     missing += 1;
     continue;

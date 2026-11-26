@@ -61,7 +61,7 @@ export const whenFxTexturesReady = async () => {
  */
 export const uploadFxTextures = (renderer: THREE.WebGLRenderer) => {
   for (const t of cache.values()) {
-    if (t.image) {
+    if (t.image !== null && t.image !== undefined) {
       renderer.initTexture(t);
     }
   }

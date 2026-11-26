@@ -4,7 +4,8 @@ import { INTERP_DELAY_MS } from "../data/config";
 import { isJsonNumber, isJsonObject, isJsonString } from "../data/json";
 import type { JsonObject, JsonValue } from "../data/json";
 import { ALL_ABILITY_KEYS } from "../sim/types";
-import type { FxEvent, PendingStrike, Projectile, Unit, World } from "../sim/types";
+import type { PendingStrike, Projectile, Unit, World } from "../sim/types";
+import { isFxEvent } from "./fx-wire";
 import { applySnapshot, blankUnit } from "./snapshot";
 import type { Frame, Snapshot } from "./snapshot";
 
@@ -179,7 +180,7 @@ export const parseFrame = (payload: JsonValue) => {
   }
 
   if (Array.isArray(fx)) {
-    frame.fx = fx as FxEvent[];
+    frame.fx = fx.filter((e) => isFxEvent(e));
   }
 
   return frame;

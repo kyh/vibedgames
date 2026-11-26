@@ -29,8 +29,6 @@ interface MatchOptions {
 
 const OPEN_GROUND = { x: -6, y: 16 };
 
-const ignoreFrame = (_me: Unit | null) => null;
-
 const match = (opts: MatchOptions = {}) => {
   const world = createWorld(7);
 
@@ -103,7 +101,7 @@ const match = (opts: MatchOptions = {}) => {
   const guestDt = 1000 / (opts.guestFps ?? 60);
   let nextHost = now;
   let nextGuest = now;
-  let onGuestFrame: (me: Unit | null) => void = ignoreFrame;
+  let onGuestFrame: ((me: Unit | null) => void) | null = null;
 
   const guestFrame = () => {
     for (const message of toGuest.receive(now)) {
@@ -143,7 +141,7 @@ const match = (opts: MatchOptions = {}) => {
       predictor.render(me, guestWorld.units, held);
     }
 
-    onGuestFrame(me);
+    onGuestFrame?.(me);
   };
 
   const hostFrame = () => {
@@ -202,7 +200,7 @@ const match = (opts: MatchOptions = {}) => {
     get now() {
       return now;
     },
-    onGuestFrame: (fn: (me: Unit | null) => void) => {
+    onGuestFrame: (fn: ((me: Unit | null) => void) | null) => {
       onGuestFrame = fn;
     },
     predictor,
@@ -329,7 +327,7 @@ test("a respawn snaps the predicted hero home; knockback and blinks converge", (
   m.run(5000);
   assert.ok(respawnFrameGap >= 0, "the guest saw the respawn");
   assert.ok(respawnFrameGap < 0.3, `drawn at the spawn on the respawn frame (${respawnFrameGap})`);
-  m.onGuestFrame(ignoreFrame);
+  m.onGuestFrame(null);
 
   Object.assign(m.guestHero, { x: OPEN_GROUND.x, y: OPEN_GROUND.y });
   m.run(1500);
@@ -413,7 +411,11 @@ test("a host below 30 fps keeps real time; payload stays small", () => {
   const simMs = m.world.now - start;
   assert.ok(Math.abs(simMs - 30_000) < 100, `host sim kept wall-clock pace (${simMs} ms in 30 s)`);
   const gaps = new Set(m.frames.slice(1).map((f, i) => f.t - (m.frames[i]?.t ?? 0)));
-  assert.deepEqual([...gaps].toSorted(), [33, 34], `ticks stamped a tick apart (${[...gaps]})`);
+  assert.deepEqual(
+    [...gaps].toSorted((a, b) => a - b),
+    [33, 34],
+    `ticks stamped a tick apart (${[...gaps].join(",")})`,
+  );
 
   const oldBytes = JSON.stringify({
     ...m.world,

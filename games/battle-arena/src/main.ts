@@ -1,3 +1,4 @@
+import { parseJson } from "@vibedgames/multiplayer";
 import { readPreference } from "./data/preferences";
 import {
   createTouchControls,
@@ -135,7 +136,7 @@ const fetchBundledMap = async () => {
       return null;
     }
 
-    const parsed = parseMapData(await res.json());
+    const parsed = parseMapData(parseJson(await res.text()));
 
     if (!parsed) {
       console.warn("[map] maps/default.json is invalid — using the procedural arena");
@@ -155,7 +156,7 @@ const readLocalMapDraft = () => {
   }
 
   try {
-    const parsed = parseMapData(JSON.parse(raw));
+    const parsed = parseMapData(parseJson(raw));
 
     if (!parsed) {
       console.warn(`[map] localStorage ${MAP_STORAGE_KEY} is invalid — ignoring`);
@@ -348,7 +349,7 @@ const main = async () => {
   const timer = new THREE.Timer();
   let activeScene: GameScene | null = null;
   let frame = 0;
-  publishDiagnostics<BattleArenaDiagnostics>(() => ({
+  publishDiagnostics(() => ({
     frame,
     ...(activeScene?.diagnostics() ?? MENU_DIAGNOSTICS),
   }));
@@ -465,13 +466,11 @@ const main = async () => {
         view.renderer.setAnimationLoop(paused ? null : matchLoop);
       },
       setState: (name) => {
-        if (name !== "active-play" || activeScene?.isOffline === false) {
-          return;
-        }
+        const applies = name === "active-play" && activeScene?.isOffline !== false;
 
-        if (activeScene) {
+        if (applies && activeScene) {
           activeScene.restartSolo(seed ?? 0);
-        } else {
+        } else if (applies) {
           leaveLobby?.();
           launch({
             champId: chosenChamp(),
@@ -483,7 +482,7 @@ const main = async () => {
           });
         }
 
-        return { state: name };
+        return applies ? { state: name } : undefined;
       },
     });
     publishPlaytest<BattleDiagnostics>(buildPlaytestManifest(chosenChamp()));
@@ -553,13 +552,9 @@ const main = async () => {
     stage.select(initialChamp);
     const menuTimer = new THREE.Timer();
     view.renderer.setAnimationLoop((t) => {
-      if (!menu) {
-        return;
-      }
+      lobby.update();
 
-      menu.update();
-
-      if (!menu.active) {
+      if (!lobby.active) {
         return;
       }
 

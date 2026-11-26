@@ -207,7 +207,9 @@ test("creep loot does not retire the first boss-coin lesson; rematch keeps it le
 
   const hints = new Hints(
     () => false,
-    (message) => messages.push(message),
+    (message) => {
+      messages.push(message);
+    },
   );
 
   hints.update(world, me);
@@ -244,9 +246,13 @@ test("observing the economy never alters coin schedules or payouts", () => {
   const observed = soloFixture();
   const control = soloFixture();
 
+  const shown: string[] = [];
+
   const hints = new Hints(
     () => false,
-    () => null,
+    (text) => {
+      shown.push(text);
+    },
   );
 
   let lastCoin: string | null = null;

@@ -38,7 +38,7 @@ import { OwnHeroPredictor } from "../net/own-hero";
 import type { HeldInput } from "../net/own-hero";
 import type { Vec2 } from "../sim/math";
 import { isJsonNumber, isJsonObject, isJsonString } from "../data/json";
-import type { JsonValue } from "../data/json";
+import type { JsonObject, JsonValue } from "../data/json";
 import type { Controls } from "../input/controls";
 import type { TouchControls } from "../input/touch";
 import type { ModelLibrary } from "../render/models";
@@ -77,6 +77,8 @@ type Online =
   | { kind: "host"; id: string };
 
 type Seated = Extract<Online, { kind: "guest" | "host" }>;
+
+const intentKind = (payload: JsonObject) => (isJsonString(payload.kind) ? payload.kind : "");
 
 const sharedCounter = (value: JsonValue | undefined) =>
   isJsonNumber(value) && Number.isSafeInteger(value) && value >= 0 ? value : 0;
@@ -1217,7 +1219,7 @@ export class GameScene {
       return;
     }
 
-    switch (payload.kind) {
+    switch (intentKind(payload)) {
       case "join": {
         const { champId, name } = payload;
 

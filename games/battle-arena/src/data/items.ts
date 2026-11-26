@@ -12,6 +12,20 @@ export interface ItemStats {
   lifesteal?: number;
 }
 
+const STAT_KEYS = [
+  "abilityPower",
+  "armor",
+  "attackSpeed",
+  "damage",
+  "hp",
+  "hpRegen",
+  "lifesteal",
+  "magicResist",
+  "moveSpeed",
+  "mp",
+  "mpRegen",
+] as const satisfies readonly (keyof ItemStats)[];
+
 export type ActiveKind = "haste" | "heal" | "cleanse" | "blink" | "shield";
 
 export interface ItemDef {
@@ -178,7 +192,7 @@ export const sumItemStats = (items: string[]) => {
       continue;
     }
 
-    for (const k of Object.keys(acc) as (keyof ItemStats)[]) {
+    for (const k of STAT_KEYS) {
       acc[k] += it.stats[k] ?? 0;
     }
   }

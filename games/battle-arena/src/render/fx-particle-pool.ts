@@ -179,7 +179,7 @@ export class Pool {
     const freeIndex = this.free.pop();
     const idx = freeIndex ?? this.replaceable(priority);
 
-    if (idx === undefined) {
+    if (idx === null) {
       return;
     }
 
@@ -209,7 +209,7 @@ export class Pool {
   private replaceable(priority: ParticlePriority) {
     for (const rank of RANKED) {
       if (PRIORITY[rank] >= PRIORITY[priority]) {
-        return;
+        return null;
       }
 
       let candidate: number | undefined;
@@ -234,6 +234,8 @@ export class Pool {
         return candidate;
       }
     }
+
+    return null;
   }
 
   private link(idx: number, priority: ParticlePriority) {

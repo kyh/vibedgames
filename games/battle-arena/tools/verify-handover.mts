@@ -6,6 +6,7 @@ import { isJsonNumber, isJsonObject } from "../src/data/json.ts";
 import type { JsonObject, JsonValue } from "../src/data/json.ts";
 import { CAMPS, SPAWNS } from "../src/data/map.ts";
 import { HostNet } from "../src/net/host-net.ts";
+import type { HostLink } from "../src/net/host-net.ts";
 import { reconcileHostHeroes, takeOver } from "../src/net/host-state.ts";
 import type { HeroPick, OnlineSeat } from "../src/net/host-state.ts";
 import { inputWire, parseInput } from "../src/net/input.ts";
@@ -37,8 +38,6 @@ interface Host {
   readonly world: World;
   readonly net: HostNet;
 }
-
-const unwatched = () => null;
 
 const peer = (id: string, salt: number) => {
   const mirror = new NetMirror();
@@ -85,30 +84,31 @@ const room = () => {
   let picks: Record<string, HeroPick> = {};
   let seats: Record<string, OnlineSeat> = {};
   const players: PlayerMap = { p: { id: "p" }, q: { id: "q" } };
-  let watch: () => void = unwatched;
+  let watch: (() => void) | null = null;
 
   const guests = () => peers.filter((g) => g.id !== host?.id);
 
-  const link = (h: Host) => ({
-    inputHero: (owner: string) => {
-      const u = h.world.units.get(`h-${owner}`);
+  const link = (h: Host) =>
+    ({
+      inputHero: (owner: string) => {
+        const u = h.world.units.get(`h-${owner}`);
 
-      return owner !== h.id && u?.alive === true && h.world.phase === "playing" ? u : null;
-    },
-    now: () => now,
-    publish: (snap: any, t: any) => {
-      roomSnap = structuredClone(snap);
+        return owner !== h.id && u?.alive === true && h.world.phase === "playing" ? u : null;
+      },
+      now: () => now,
+      publish: (snap, t) => {
+        roomSnap = structuredClone(snap);
 
-      for (const g of guests()) {
-        g.down.send(now, { kind: "snap", snap, t });
-      }
-    },
-    sendFrame: (frame: any) => {
-      for (const g of guests()) {
-        g.down.send(now, { frame, kind: "frame" });
-      }
-    },
-  });
+        for (const g of guests()) {
+          g.down.send(now, { kind: "snap", snap, t });
+        }
+      },
+      sendFrame: (frame) => {
+        for (const g of guests()) {
+          g.down.send(now, { frame, kind: "frame" });
+        }
+      },
+    }) satisfies HostLink;
 
   const hostFrame = (h: Host) => {
     for (const g of guests()) {
@@ -223,10 +223,10 @@ const room = () => {
           guestFrame(g);
         }
 
-        watch();
+        watch?.();
       }
     },
-    watch: (fn: () => void) => {
+    watch: (fn: (() => void) | null) => {
       watch = fn;
     },
     world,
@@ -357,7 +357,7 @@ test("the host leaves: the promoted guest carries the match on from its mirror",
     last = qHero ? { x: qHero.x, y: qHero.y } : null;
   });
   r.run(600);
-  r.watch(() => null);
+  r.watch(null);
   steer(q, Math.PI / 2);
   r.run(700);
   steer(q, Math.PI / 2, false);

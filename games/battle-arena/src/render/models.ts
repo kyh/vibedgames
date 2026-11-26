@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { clone as cloneSkinned } from "three/addons/utils/SkeletonUtils.js";
+import { isMesh } from "./mesh";
 
 const loader = new GLTFLoader();
 
@@ -25,7 +26,7 @@ export class ModelLibrary {
     const { scene } = gltf;
     const graded = new Set<THREE.Material>();
     scene.traverse((o) => {
-      if (opts && o instanceof THREE.Mesh) {
+      if (opts && isMesh(o)) {
         const mats = Array.isArray(o.material) ? o.material : [o.material];
 
         for (const m of mats) {
@@ -46,7 +47,7 @@ export class ModelLibrary {
         }
       }
 
-      if (o instanceof THREE.Mesh) {
+      if (isMesh(o)) {
         o.castShadow = false;
         o.receiveShadow = true;
         const geo = o.geometry;

@@ -1396,7 +1396,11 @@ export class Hud {
     for (const id of PLATE_KEEP_OUT_IDS) {
       const element = document.querySelector<HTMLElement>(`#${id}`);
 
-      if (!element || element.hidden || (id === "ba-goal-banner" && w.gameTime >= 10)) {
+      if (
+        element === null ||
+        element.hidden !== false ||
+        (id === "ba-goal-banner" && w.gameTime >= 10)
+      ) {
         continue;
       }
 
@@ -2003,7 +2007,7 @@ export class Hud {
 
     const hits = this.fx.localHits;
 
-    if (hits && hits.length > 0) {
+    if (hits.length > 0) {
       let crit = false;
 
       for (const h of hits) {

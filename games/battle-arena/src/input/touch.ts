@@ -296,11 +296,9 @@ export class TouchControls {
     e.preventDefault();
 
     if (e.clientX < window.innerWidth / 2) {
-      if (!this.move) {
-        this.move = { baseX: e.clientX, baseY: e.clientY, dx: 0, dy: 0, id: e.pointerId };
-      }
-    } else if (!this.aim) {
-      this.aim = { baseX: e.clientX, baseY: e.clientY, dx: 0, dy: 0, id: e.pointerId };
+      this.move ??= { baseX: e.clientX, baseY: e.clientY, dx: 0, dy: 0, id: e.pointerId };
+    } else {
+      this.aim ??= { baseX: e.clientX, baseY: e.clientY, dx: 0, dy: 0, id: e.pointerId };
     }
 
     this.render();

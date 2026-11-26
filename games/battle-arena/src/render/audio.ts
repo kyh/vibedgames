@@ -253,10 +253,12 @@ export class Audio {
       return;
     }
 
-    const scope: typeof globalThis & { webkitAudioContext?: typeof AudioContext } = globalThis;
+    const scope: { AudioContext?: typeof AudioContext; webkitAudioContext?: typeof AudioContext } =
+      globalThis;
+
     const Ctor = scope.AudioContext ?? scope.webkitAudioContext;
 
-    if (!Ctor) {
+    if (Ctor === undefined) {
       return;
     }
 

@@ -59,7 +59,7 @@ const onlineOf = async (page: Page) => {
 };
 
 const until = async <T,>(read: () => Promise<T>, label: string, timeout = 20_000) => {
-  const value = await poll(read, (v) => Boolean(v), { intervalMs: 100, timeoutMs: timeout });
+  const value = await poll(read, Boolean, { intervalMs: 100, timeoutMs: timeout });
 
   if (value === null) {
     throw new Error(`timeout: ${label}`);
@@ -162,7 +162,11 @@ const showsStatus = async (page: Page, text: string, label: string) =>
     45_000,
   );
 
-const matchGeneration = async (page: Page) => (await onlineOf(page)).matchGeneration;
+const matchGeneration = async (page: Page) => {
+  const online = await onlineOf(page);
+
+  return online.matchGeneration;
+};
 
 const rematchStarted = async (page: Page, previous: number | null) =>
   await page.evaluate(
@@ -201,7 +205,8 @@ const run = async (base: string) => {
     let guestId = "";
     await step("join", async () => {
       [hostId, guestId] = await Promise.all([joined(host), joined(guest)]);
-      assert.equal((await onlineOf(host.page)).authority, true, "first player hosts");
+      const online = await onlineOf(host.page);
+      assert.equal(online.authority, true, "first player hosts");
     });
     await step("both see each other", async () => {
       await until(async () => await hasUnit(host.page, guestId), "host sees guest");

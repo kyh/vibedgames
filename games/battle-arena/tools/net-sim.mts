@@ -1,4 +1,4 @@
-import { applyPatch, diffState, readPatch } from "@vibedgames/multiplayer";
+import { applyPatch, diffState, parseJson, readPatch } from "@vibedgames/multiplayer";
 import type { JsonRecord } from "@vibedgames/multiplayer";
 import type { JsonValue } from "../src/data/json.ts";
 
@@ -48,7 +48,7 @@ export class Pipe {
       const next = this.queue.shift();
 
       if (next) {
-        out.push(JSON.parse(next.text));
+        out.push(parseJson(next.text));
       }
     }
 
@@ -78,8 +78,7 @@ export const sharedCopy = () => {
     },
     write: (patch: JsonRecord) => {
       const ops = diffState(state, { ...state, ...patch }, Object.keys(patch));
-      // oxlint-disable-next-line unicorn/prefer-structured-clone -- the copy holds what JSON carries: structuredClone would keep keys set to undefined, which the wire and the SDK drop
-      apply(JSON.parse(JSON.stringify(ops)));
+      apply(parseJson(JSON.stringify(ops)));
 
       return ops;
     },

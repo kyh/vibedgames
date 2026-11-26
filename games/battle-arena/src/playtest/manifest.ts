@@ -121,8 +121,14 @@ const castWindow = (def: AbilityDef) => {
       return `Lands ${lands} in front of you. Yes when ${ready} and ${d} is between ${Math.max(0, lands - 3)} and ${lands + 2}.`;
     }
 
-    default: {
+    case "passive":
+    case "self": {
       return `Centred on you. Yes when ${ready} and ${d} <= ${def.values.radius?.[0] ?? 4}.`;
+    }
+
+    default: {
+      const unhandled: never = def.targeting;
+      throw new Error("unhandled targeting", { cause: unhandled });
     }
   }
 };

@@ -362,7 +362,7 @@ export class Telegraphs {
   private acquire() {
     const idx = this.free.pop();
 
-    return idx === undefined ? -1 : idx;
+    return idx ?? -1;
   }
 
   private release(idx: number) {
