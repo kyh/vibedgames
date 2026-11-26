@@ -633,15 +633,23 @@ const readGamePiers = () => {
   const body = ts.slice(ts.indexOf("export const SF_PIERS"), ts.indexOf("export const SF_DOCKS"));
   const out: GamePiers["piers"] = [];
 
-  for (const m of body.matchAll(/p:\s*\[(?<points>[^\]]*)\]\s*,\s*area:\s*(?<area>\d+)/gu)) {
-    const nums = (m.groups?.points ?? "").split(",").map(Number);
+  for (const entry of body.matchAll(/\{(?<fields>[^{}]*)\}/gu)) {
+    const fields = entry.groups?.fields ?? "";
+    const points = /p:\s*\[(?<points>[^\]]*)\]/u.exec(fields)?.groups?.points;
+    const area = /area:\s*(?<area>\d+)/u.exec(fields)?.groups?.area;
+
+    if (points === undefined || area === undefined) {
+      continue;
+    }
+
+    const nums = points.split(",").map(Number);
     const ring: Point[] = [];
 
     for (let i = 0; i + 1 < nums.length; i += 2) {
       ring.push([at(nums, i), at(nums, i + 1)]);
     }
 
-    out.push({ area: Number(m.groups?.area), ring });
+    out.push({ area: Number(area), ring });
   }
 
   const dockBody = ts.slice(ts.indexOf("export const SF_DOCKS"));
