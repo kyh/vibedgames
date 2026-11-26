@@ -1,33 +1,43 @@
-import { spawn } from "node:child_process";
 import path from "node:path";
 import { setTimeout as wait } from "node:timers/promises";
+
+import { flagValue, poll, reachable, startVite } from "@repo/smoke";
 import { chromium } from "playwright-core";
+import type { Browser, Page } from "playwright-core";
 
 const gameDir = path.resolve(import.meta.dirname, "..");
 
 const PARTY = "http://localhost:8787";
 const DEV_PORT = 5308;
 
-const waitFor = async (page, fn, label, timeoutMs = 8000) => {
-  const deadline = Date.now() + timeoutMs;
-  let last;
+const waitFor = async <T,>(read: () => Promise<T>, label: string, timeoutMs = 8000) => {
+  let last: T | null = null;
+  const found = await poll(
+    async () => {
+      last = await read();
 
-  while (Date.now() < deadline) {
-    last = await page.evaluate(fn);
-
-    if (last) {
       return last;
-    }
+    },
+    (value) => Boolean(value),
+    { intervalMs: 100, timeoutMs },
+  );
 
-    await wait(100);
+  if (found === null) {
+    throw new Error(`timeout: ${label} (last=${JSON.stringify(last)})`);
   }
 
-  throw new Error(`timeout: ${label} (last=${JSON.stringify(last)})`);
+  return found;
 };
 
-const snapshot = (page) =>
+const snapshot = (page: Page) =>
   page.evaluate(() => {
-    const { scene, net } = window.__fb;
+    const fb = window.__fb;
+
+    if (fb === undefined) {
+      throw new Error("window.__fb is missing: run the game in dev mode");
+    }
+
+    const { scene, net } = fb;
     const server = net.serverNow(performance.now());
 
     return {
@@ -48,76 +58,129 @@ const snapshot = (page) =>
     };
   });
 
-const oneClock = (a, b) => [
-  a.clock !== null && b.clock !== null && Math.abs(a.clock - b.clock) < 60,
-  `server − wall: ${a.clock?.toFixed(1)} vs ${b.clock?.toFixed(1)} ms`,
-];
+interface Snapshot {
+  clock: number | null;
+}
 
-const startFlying = async (page) => {
+const oneClock = (a: Snapshot, b: Snapshot) =>
+  [
+    a.clock !== null && b.clock !== null && Math.abs(a.clock - b.clock) < 60,
+    `server − wall: ${a.clock?.toFixed(1)} vs ${b.clock?.toFixed(1)} ms`,
+  ] as const;
+
+const fbOf = (page: Page) =>
+  page.evaluate(() => {
+    const fb = window.__fb;
+
+    return fb === undefined
+      ? null
+      : {
+          countingDown: fb.scene.countingDown,
+          isHost: fb.net.isHost,
+          other: fb.net.otherPlayer()?.state?.live ?? null,
+          paused: fb.scene.presentationPaused,
+          phase: fb.scene.phase,
+          rivals: fb.scene.rivalIds.length,
+          seed: fb.scene.seed,
+          seesOther: fb.net.otherPlayer() !== null,
+          started: fb.scene.started,
+          status: fb.net.connectionStatus,
+        };
+  });
+
+type Fb = NonNullable<Awaited<ReturnType<typeof fbOf>>>;
+
+const until = (page: Page, test: (fb: Fb) => boolean, label: string, timeoutMs = 8000) =>
+  waitFor(
+    async () => {
+      const fb = await fbOf(page);
+
+      return fb !== null && test(fb);
+    },
+    label,
+    timeoutMs,
+  );
+
+const phaseOf = async (page: Page) => (await fbOf(page))?.phase ?? null;
+
+const startFlying = async (page: Page) => {
   await page.keyboard.press("Enter");
-  await waitFor(
-    page,
-    () => window.__fb.scene.started && !window.__fb.scene.countingDown,
+  await until(page, (fb) => fb.started && !fb.countingDown,
     "countdown",
   );
   await page.keyboard.press("Space");
-  await waitFor(page, () => window.__fb.scene.phase === "playing", "playing");
+  await until(page, (fb) => fb.phase === "playing", "playing");
 };
 
-const crashOf = async (page, label) => {
-  const deadline = Date.now() + 8000;
+const crashOf = async (page: Page, label: string) => {
+  const crashed = await poll(
+    async () => {
+      const current = await phaseOf(page);
 
-  while (Date.now() < deadline) {
-    const phase = await page.evaluate(() => window.__fb.scene.phase);
+      if (current === "ready") {
+        await page.keyboard.press("Space");
+      }
 
-    if (phase === "gameover") {
-      return;
-    }
+      return current;
+    },
+    (current) => current === "gameover",
+    { intervalMs: 100, timeoutMs: 8000 },
+  );
 
-    if (phase === "ready") {
-      await page.keyboard.press("Space");
-    }
-
-    await wait(100);
+  if (crashed === null) {
+    throw new Error(`timeout: ${label}`);
   }
-
-  throw new Error(`timeout: ${label}`);
 };
 
-const blip = async (page, watcher) => {
-  await page.evaluate(() => window.__fb.net.client.socket.close(4000));
-  await waitFor(page, () => window.__fb.net.connectionStatus === "reconnecting", "blip drops");
+const blip = async (page: Page, watcher: Page) => {
+  await page.evaluate(() => window.__fb?.net.client.dropConnection(4000));
+  await until(page, (fb) => fb.status === "reconnecting", "blip drops");
   await waitFor(
-    watcher,
-    () => document.querySelector("#board .row.away")?.textContent.includes("reconnecting"),
+    () =>
+      watcher.evaluate(
+        () =>
+          document.querySelector("#board .row.away")?.textContent.includes("reconnecting") === true,
+      ),
     "blip shows on the board",
   );
   const away = await snapshot(watcher);
-  await page.evaluate(() => window.__fb.net.client.socket.reconnect());
-  await waitFor(page, () => window.__fb.net.connectionStatus === "connected", "blip redials");
+  await page.evaluate(() => window.__fb?.net.client.redial());
+  await until(page, (fb) => fb.status === "connected", "blip redials");
   await waitFor(
-    watcher,
-    () => document.querySelector("#board .row.away") === null,
+    () => watcher.evaluate(() => document.querySelector("#board .row.away") === null),
     "blip back on the board",
   );
 
   return { away, back: await snapshot(watcher) };
 };
 
-const racesOne = (s, away) => s.rivals === 1 && s.ghosts === 1 && s.away === away;
+interface Race {
+  rivals: number;
+  ghosts: number;
+  away: number;
+}
 
-const respawnAndFly = async (page, label) => {
-  await waitFor(page, () => window.__fb.scene.phase === "ready", `${label} hover`, 3000);
+const racesOne = (s: Race, away: number) => s.rivals === 1 && s.ghosts === 1 && s.away === away;
+
+const respawnAndFly = async (page: Page, label: string) => {
+  await until(page, (fb) => fb.phase === "ready", `${label} hover`, 3000);
   await page.keyboard.press("Space");
-  await waitFor(page, () => window.__fb.scene.phase === "playing", `${label} flying`);
+  await until(page, (fb) => fb.phase === "playing", `${label} flying`);
 };
 
-const worstScrollStep = (page, ms) =>
+const worstScrollStep = (page: Page, ms: number) =>
   page.evaluate(
     (span) =>
       // oxlint-disable-next-line promise/avoid-new -- requestAnimationFrame has no promise form
-      new Promise((resolve) => {
-        const { scene } = window.__fb;
+      new Promise<number>((resolve, reject) => {
+        const scene = window.__fb?.scene;
+
+        if (scene === undefined) {
+          reject(new Error("window.__fb is missing"));
+
+          return;
+        }
+
         const until = performance.now() + span;
         let prev = scene.worldX;
         let worst = Number.POSITIVE_INFINITY;
@@ -138,7 +201,7 @@ const worstScrollStep = (page, ms) =>
     ms,
   );
 
-const openClient = async (browser, url, errors) => {
+const openClient = async (browser: Browser, url: string, errors: string[]) => {
   const page = await browser.newPage({ viewport: { height: 600, width: 900 } });
   page.on("pageerror", (e) => errors.push(String(e)));
   page.on("console", (m) => {
@@ -147,57 +210,29 @@ const openClient = async (browser, url, errors) => {
     }
   });
   await page.goto(url);
-  await waitFor(page, () => window.__fb?.net.connectionStatus === "connected", "connected");
+  await until(page, (fb) => fb.status === "connected", "connected");
 
   return page;
 };
 
-const reachable = async (url) => {
-  try {
-    const r = await fetch(url);
-
-    return r.ok;
-  } catch {
-    return false;
-  }
-};
-
-const startVite = async () => {
-  const child = spawn(
-    path.join(gameDir, "node_modules/.bin/vite"),
-    ["--port", String(DEV_PORT), "--strictPort"],
-    { cwd: gameDir, stdio: "ignore" },
-  );
-
+const startDev = async () => {
   const base = `http://localhost:${DEV_PORT}`;
+  const child = await startVite({ gameDir, port: DEV_PORT, timeoutMs: 20_000 });
 
-  for (let i = 0; i < 100; i += 1) {
-    await wait(200);
-
-    if (await reachable(base)) {
-      return { base, child };
-    }
-  }
-
-  child.kill();
-  throw new Error("vite did not start");
+  return { base, child };
 };
 
 const main = async () => {
-  const urlArg = process.argv.indexOf("--url");
-  const dev = urlArg === -1 ? await startVite() : { base: process.argv[urlArg + 1], child: null };
+  const urlFlag = flagValue("--url", process.argv);
+  const dev = urlFlag === null ? await startDev() : { base: urlFlag, child: null };
 
-  if (
-    !(await fetch(PARTY)
-      .then(() => true)
-      .catch(() => false))
-  ) {
+  if (!(await reachable(PARTY))) {
     throw new Error(`party server not reachable at ${PARTY} (pnpm dev:party)`);
   }
 
   const room = `t${process.pid}-${Date.now().toString(36)}`;
   const url = `${dev.base}/?room=${room}`;
-  const errors = { guest: [], host: [], late: [] };
+  const errors: Record<"guest" | "host" | "late", string[]> = { guest: [], host: [], late: [] };
 
   const browser = await chromium.launch({
     args: [
@@ -211,9 +246,9 @@ const main = async () => {
       : { channel: "chrome" }),
   });
 
-  const results = [];
+  const results: string[] = [];
 
-  const step = (name, ok, note = "") => {
+  const step = (name: string, ok: boolean, note = "") => {
     results.push(`${ok ? "pass" : "FAIL"}  ${name}${note ? ` — ${note}` : ""}`);
 
     if (!ok) {
@@ -230,21 +265,19 @@ const main = async () => {
     await crashOf(host, "host crash");
     await wait(400);
     await host.keyboard.press("Space");
-    await waitFor(
-      host,
-      () => window.__fb.scene.seed !== 0 && window.__fb.scene.phase === "ready",
+    await until(host, (fb) => fb.seed !== 0 && fb.phase === "ready",
       "restart",
     );
     const { seed: rerolled } = await snapshot(host);
     step("solo restart rerolls the seed", rerolled !== h.seed, `${h.seed} → ${rerolled}`);
-    await waitFor(host, () => !window.__fb.scene.countingDown, "countdown");
+    await until(host, (fb) => !fb.countingDown, "countdown");
     await host.keyboard.press("Space");
 
     const guest = await openClient(browser, url, errors.guest);
-    await waitFor(guest, () => window.__fb.net.otherPlayer() !== null, "guest sees host");
-    await waitFor(host, () => window.__fb.net.otherPlayer() !== null, "host sees guest");
+    await until(guest, (fb) => fb.seesOther, "guest sees host");
+    await until(host, (fb) => fb.seesOther, "host sees guest");
     await startFlying(guest);
-    await waitFor(guest, () => window.__fb.scene.seed !== 0, "guest seed");
+    await until(guest, (fb) => fb.seed !== 0, "guest seed");
     h = await snapshot(host);
     let g = await snapshot(guest);
     step("guest adopts the host's seed", g.seed === rerolled && h.seed === rerolled, `${g.seed}`);
@@ -267,22 +300,24 @@ const main = async () => {
     const worst = await worstScrollStep(guest, 1500);
     step("guest scroll never runs backwards", worst >= 0, `worst frame step ${worst}`);
     const newest = shared.at(-1);
-    const hostTop = await host.evaluate((i) => window.__fb.scene.pipes.get(i).topHeight, newest);
-    const guestTop = await guest.evaluate((i) => window.__fb.scene.pipes.get(i).topHeight, newest);
+    if (newest === undefined) {
+      throw new Error("no shared pipe");
+    }
+
+    const topOf = (page: Page) =>
+      page.evaluate((i) => window.__fb?.scene.pipes.get(i)?.topHeight ?? null, newest);
+    const hostTop = await topOf(host);
+    const guestTop = await topOf(guest);
     step("same pipe geometry on both", hostTop === guestTop, `pipe ${newest} top ${hostTop}`);
     step("rival ghosts drawn on both", h.ghosts === 1 && g.ghosts === 1);
 
     await crashOf(host, "host crash");
-    await waitFor(
-      guest,
-      () => window.__fb.net.otherPlayer()?.state?.live === false,
+    await until(guest, (fb) => fb.other === false,
       "guest sees crash",
     );
     step("crash reaches the other client", true);
     await respawnAndFly(host, "host respawn");
-    await waitFor(
-      guest,
-      () => window.__fb.net.otherPlayer()?.state?.live === true,
+    await until(guest, (fb) => fb.other === true,
       "guest sees respawn",
     );
     step("host respawns into the race", true);
@@ -291,7 +326,7 @@ const main = async () => {
     step("guest respawns into the race", true);
 
     await guest.keyboard.press("Escape");
-    await waitFor(guest, () => window.__fb.scene.presentationPaused, "guest paused");
+    await until(guest, (fb) => fb.paused, "guest paused");
     const { worldX: beforeH } = await snapshot(host);
     const { worldX: beforeG } = await snapshot(guest);
     await wait(600);
@@ -303,20 +338,20 @@ const main = async () => {
       `host +${(h.worldX - beforeH).toFixed(0)} guest +${(g.worldX - beforeG).toFixed(0)}`,
     );
     await guest.keyboard.press("Escape");
-    await waitFor(guest, () => !window.__fb.scene.presentationPaused, "guest resumed");
+    await until(guest, (fb) => !fb.paused, "guest resumed");
     await host.keyboard.press("Escape");
-    await waitFor(host, () => window.__fb.scene.presentationPaused, "host paused");
+    await until(host, (fb) => fb.paused, "host paused");
     const { worldX: beforeG2 } = await snapshot(guest);
     await wait(600);
     const { worldX: afterG2 } = await snapshot(guest);
     step("host pause does not freeze the guest", afterG2 - beforeG2 > 40);
     await host.keyboard.press("Escape");
-    await waitFor(host, () => !window.__fb.scene.presentationPaused, "host resumed");
+    await until(host, (fb) => !fb.paused, "host resumed");
 
     const { seed: seedBefore } = await snapshot(guest);
     await host.close();
-    await waitFor(guest, () => window.__fb.net.isHost, "guest promoted", 10_000);
-    await waitFor(guest, () => window.__fb.scene.rivalIds.length === 0, "departed host gone");
+    await until(guest, (fb) => fb.isHost, "guest promoted", 10_000);
+    await until(guest, (fb) => fb.rivals === 0, "departed host gone");
     g = await snapshot(guest);
     step("guest promoted to host on host leave", g.host && g.ghosts === 0, JSON.stringify(g));
     step("promoted host keeps the seed", g.seed === seedBefore, `${g.seed}`);
@@ -324,9 +359,7 @@ const main = async () => {
     if (g.phase === "gameover") {
       await wait(400);
       await guest.keyboard.press("Space");
-      await waitFor(
-        guest,
-        () => window.__fb.scene.phase === "ready" && !window.__fb.scene.countingDown,
+      await until(guest, (fb) => fb.phase === "ready" && !fb.countingDown,
         "solo restart",
       );
       await guest.keyboard.press("Space");
@@ -334,17 +367,15 @@ const main = async () => {
       await guest.keyboard.press("Space");
     }
 
-    await waitFor(
-      guest,
-      () => window.__fb.scene.phase === "playing",
+    await until(guest, (fb) => fb.phase === "playing",
       "promoted host playable",
       4000,
     );
     const { seed: running } = await snapshot(guest);
 
     const late = await openClient(browser, url, errors.late);
-    await waitFor(late, () => window.__fb.net.otherPlayer() !== null, "late sees host");
-    await waitFor(late, () => window.__fb.scene.seed !== 0, "late seed");
+    await until(late, (fb) => fb.seesOther, "late sees host");
+    await until(late, (fb) => fb.seed !== 0, "late seed");
     await startFlying(late);
     await wait(1500);
     g = await snapshot(guest);

@@ -146,7 +146,7 @@ test("a respawn or a jump no flight covers appears at once instead of gliding", 
   for (const [t, y] of [
     [0, 200],
     [50, 240],
-  ]) {
+  ] as const) {
     flight.push(T0 + t, 0, pose(y), t + 1000);
   }
 

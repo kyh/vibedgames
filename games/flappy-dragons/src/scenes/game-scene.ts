@@ -274,7 +274,7 @@ const renderStandings = (rows: readonly BoardRow[]) => {
 export class GameScene extends Scene {
   private net!: NetSession;
 
-  private phase: Phase = "ready";
+  phase: Phase = "ready";
   private birdY = BIRD_SPAWN_Y;
   private vy = 0;
   private score = 0;
@@ -283,16 +283,16 @@ export class GameScene extends Scene {
   private skin = 1;
   private gates = 0;
 
-  private worldX = 0;
+  worldX = 0;
   private readyDrift = 0;
-  private seed = 0;
+  seed = 0;
 
   private lastScoredIndex = -1;
   private collectedCoins = new Set<number>();
 
-  private pipes = new Map<number, Pipe>();
-  private ghosts = new Map<string, Ghost>();
-  private rivalIds: string[] = [];
+  pipes = new Map<number, Pipe>();
+  ghosts = new Map<string, Ghost>();
+  rivalIds: string[] = [];
   private rivalSource: PlayerMap | null = null;
   private bgLayers: BgLayer[] = [];
   private bird!: GameObjects.Sprite;
@@ -321,16 +321,16 @@ export class GameScene extends Scene {
   private resultLayoutKey = "";
   private resultLayoutAt = 0;
   private phraseTimer: Time.TimerEvent | null = null;
-  private presentationPaused = false;
+  presentationPaused = false;
   private boardEl: HTMLElement | null = null;
   private touchControls: TouchControls | null = null;
   private muted = true;
   private netInfoEl: HTMLElement | null = null;
   private startEl: HTMLElement | null = null;
-  private started = false;
+  started = false;
   private readonly pad = new PhysicalGamepad();
   private unwatchControls: (() => void) | null = null;
-  private countingDown = false;
+  countingDown = false;
   private countdownTimer: Time.TimerEvent | null = null;
   private goWord = "JUMP!";
 

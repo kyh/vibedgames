@@ -28,7 +28,7 @@ export interface NetSessionOptions {
 }
 
 export class NetSession {
-  private readonly client: MultiplayerClient;
+  readonly client: MultiplayerClient;
 
   constructor(opts: NetSessionOptions) {
     this.client = new MultiplayerClient({
