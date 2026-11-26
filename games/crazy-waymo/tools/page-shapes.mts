@@ -26,6 +26,9 @@ export const PROBE = "window.__taxi.probe()";
 /** Any JSON value, as a page answer kept whole for a report. */
 export const jsonSchema: z.ZodType<JsonValue> = z.json();
 
+/** Any JSON object, kept whole for a report while a narrower schema reads the fields a check needs. */
+export const jsonObjectSchema = z.record(z.string(), jsonSchema);
+
 /** One verdict a browser check records. */
 export interface CheckEntry {
   readonly evidence: JsonValue;

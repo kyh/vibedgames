@@ -1,11 +1,37 @@
 import { writeFileSync } from "node:fs";
 import path from "node:path";
+import { z } from "zod";
+
+import type { JsonValue } from "../src/shared/json.ts";
+import { inOrder } from "../src/shared/paced.ts";
 import { createMobileSession } from "./mobile-browser-session.mts";
+import { jsonObjectSchema, jsonSchema } from "./page-shapes.mts";
 
 const url = process.argv[2] ?? "http://localhost:5193/?time=noon&offline=1";
 const output = path.resolve(process.argv[3] ?? "/private/tmp/waymo-mobile-performance");
 
-const report = {
+interface PerformanceReport {
+  checkedAt: string;
+  environment: string;
+  runs: JsonValue[];
+  url: string;
+  readyMs?: number;
+  cold?: JsonValue;
+  device?: JsonValue;
+  route?: JsonValue;
+  pageErrors?: JsonValue[];
+  error?: string;
+}
+
+interface PerfRun {
+  [key: string]: JsonValue;
+  scenario: string;
+  rate: number;
+}
+
+const streamStatsSchema = z.object({ pending: z.number() }).nullable();
+
+const report: PerformanceReport = {
   checkedAt: new Date().toISOString(),
   environment:
     "Headed desktop Chrome; coarse pointer, DPR 3, CPU throttle stress proxy. Not a physical-phone measurement.",
@@ -45,7 +71,7 @@ if (ab && (rates.length !== 3 || new Set(rates).size !== 1)) {
   throw new Error("A/B requires three identical CPU rates");
 }
 
-const { call, evaluate, pause, sleep, until, tap, screenshot, close, pageErrors } =
+const { call, evaluate, read, pause, sleep, until, tap, screenshot, close, pageErrors } =
   await createMobileSession({ output, sessionPrefix: "crazy-waymo-mobile-performance" });
 
 const earlyMetrics = `(()=>{if(window.__mobileMetricsInstalled)return;window.__mobileMetricsInstalled=true;window.__mobileMph=0;const fillText=CanvasRenderingContext2D.prototype.fillText;CanvasRenderingContext2D.prototype.fillText=function(...args){const text=String(args[0]).trim(),value=Number(text);if(this.canvas.id==='dash-dial'&&text!==''&&Number.isFinite(value))window.__mobileMph=value;return fillText.apply(this,args);};window.__mobileCold={installedAt:performance.now(),longTasks:[]};new PerformanceObserver(list=>{for(const e of list.getEntries())window.__mobileCold.longTasks.push({start:e.startTime,duration:e.duration});}).observe({type:'longtask',buffered:true});})()`;
@@ -58,25 +84,27 @@ const productionSmoke = async (opened: number) => {
   report.readyMs = Date.now() - opened;
   await evaluate(earlyMetrics);
   await until("Number.isFinite(window.__mobileMph)");
-  report.cold = await evaluate("window.__mobileCold");
-  report.device = await evaluate(
+  report.cold = await read("window.__mobileCold", jsonSchema);
+
+  const device = await read(
     "({coarse:matchMedia('(pointer:coarse)').matches,dpr:devicePixelRatio,touch:navigator.maxTouchPoints,debugHooks:typeof window.__taxi})",
+    z.object({ coarse: z.boolean(), debugHooks: z.string(), dpr: z.number(), touch: z.number() }),
   );
 
-  if (
-    !report.device.coarse ||
-    report.device.dpr !== 3 ||
-    report.device.debugHooks !== "undefined"
-  ) {
+  report.device = device;
+
+  if (!device.coarse || device.dpr !== 3 || device.debugHooks !== "undefined") {
     throw new Error("Expected production coarse DPR3 renderer without development hooks");
   }
 
   await tap("#banner-cta");
 
-  for (const [name, width, height] of [
+  const orientations = [
     ["portrait", 390, 844],
     ["landscape", 844, 390],
-  ]) {
+  ] as const;
+
+  for await (const [name, width, height] of inOrder(orientations)) {
     if (name === "landscape") {
       await pause();
       await tap("#waymo-pause .prestart");
@@ -104,8 +132,21 @@ const productionSmoke = async (opened: number) => {
     await sleep(6000);
     await call("Input.dispatchTouchEvent", { touchPoints: [], type: "touchEnd" });
 
-    const result = await evaluate(
+    const result = await read(
       `(()=>{const m=window.__productionFrames;m.active=false;const a=m.frames.sort((a,b)=>a-b);return {median:a[Math.floor(a.length*.5)],p95:a[Math.floor(a.length*.95)],max:Math.max(...a),over50:a.filter(v=>v>50).length,frames:a.length,maxMph:Math.max(0,...m.mph),movingFrames:m.mph.filter(v=>v>5).length,width:innerWidth,height:innerHeight,overflow:document.documentElement.scrollWidth>innerWidth,coarse:matchMedia('(pointer:coarse)').matches}})()`,
+      z.object({
+        coarse: z.boolean(),
+        frames: z.number(),
+        height: z.number(),
+        max: z.number(),
+        maxMph: z.number(),
+        median: z.number().nullable(),
+        movingFrames: z.number(),
+        over50: z.number(),
+        overflow: z.boolean(),
+        p95: z.number().nullable(),
+        width: z.number(),
+      }),
     );
 
     report.runs.push({ name, rate: 2, ...result });
@@ -146,12 +187,27 @@ try {
   } else {
     await until("window.__taxi?.game.isReady === true");
     report.readyMs = Date.now() - opened;
-    report.cold = await evaluate("window.__mobileCold");
-    report.device = await evaluate(
+    report.cold = await read("window.__mobileCold", jsonSchema);
+
+    const device = await read(
       `(()=>{const r=window.__renderer,g=r.getContext(),d=g.getExtension('WEBGL_debug_renderer_info');return {coarse:matchMedia('(pointer:coarse)').matches,touch:navigator.maxTouchPoints,dpr:devicePixelRatio,width:innerWidth,height:innerHeight,renderer:d?g.getParameter(d.UNMASKED_RENDERER_WEBGL):g.getParameter(g.RENDERER),multiDraw:!!g.getExtension('WEBGL_multi_draw'),memory:r.info.memory,ratio:r.getPixelRatio(),post:window.__post!==null}})()`,
+      z.object({
+        coarse: z.boolean(),
+        dpr: z.number(),
+        height: z.number(),
+        memory: jsonSchema,
+        multiDraw: z.boolean(),
+        post: z.boolean(),
+        ratio: z.number(),
+        renderer: jsonSchema,
+        touch: z.number(),
+        width: z.number(),
+      }),
     );
 
-    if (!report.device.coarse || report.device.dpr !== 3 || report.device.post) {
+    report.device = device;
+
+    if (!device.coarse || device.dpr !== 3 || device.post) {
       throw new Error("Mobile render path not active");
     }
 
@@ -186,12 +242,13 @@ try {
     await evaluate(
       `(()=>{const net=window.__taxi.game.city.network;const byId=new Map(net.edges.map(e=>[e.id,e]));let best=null;for(const first of net.edges){const mid=net.sample(first,first.len*.5);if(mid.x < -1150||mid.x > -650||mid.z<100||mid.z>650||first.half<3.5)continue;for(const direction of [1,-1]){let edge=first,dir=direction,length=0;const steps=[],seen=new Set();for(let count=0;count<30;count++){if(seen.has(edge.id))break;seen.add(edge.id);steps.push({edge,dir});length+=edge.len;const end=dir>0?edge.b:edge.a;const tangent=net.sample(edge,dir>0?edge.len:0);let next=null,score=.985;for(const id of net.nodeEdges[end]??[]){const candidate=byId.get(id);if(!candidate||seen.has(id))continue;const d=candidate.a===end?1:-1,p=net.sample(candidate,d>0?0:candidate.len),dot=tangent.tx*dir*p.tx*d+tangent.tz*dir*p.tz*d;if(dot>score){next={edge:candidate,dir:d};score=dot;}}if(!next)break;edge=next.edge;dir=next.dir;}if(length>240&&(!best||length>best.length))best={steps,length};}}if(!best)throw new Error('No 240-unit Sunset centreline route');const points=[];for(const {edge,dir}of best.steps)for(let s=0;s<edge.len;s+=6){const p=net.sample(edge,dir>0?s:edge.len-s);points.push({x:p.x,z:p.z});}const a=points[2],b=points[3];window.__mobileRoute={u:a.x/3172+.5,v:a.z/2600+.5,yaw:Math.atan2(b.x-a.x,b.z-a.z),points:points.slice(2),index:0,length:best.length};})()`,
     );
-    report.route = await evaluate(
+    report.route = await read(
       "({u:window.__mobileRoute.u,v:window.__mobileRoute.v,yaw:window.__mobileRoute.yaw,length:window.__mobileRoute.length})",
+      jsonSchema,
     );
     console.log(`DEVICE ${JSON.stringify(report.device)} READY ${report.readyMs}ms`);
 
-    for (const rate of rates) {
+    for await (const rate of inOrder(rates)) {
       await call("Emulation.setCPUThrottlingRate", { rate });
       await evaluate(
         `(()=>{${keepQuality && iteration > 0 ? "" : "window.__perf.pin(3);window.__perf.pin(null);"}window.__taxi.setTime(300);window.__taxi.teleport(window.__mobileRoute.u,window.__mobileRoute.v,window.__mobileRoute.yaw);window.__mobileRoute.index=0;window.__taxi.setPhase(.25);const t=window.__taxi,p=t.probe();t.game.traffic.reset({gx:t.game.city.gridX(p.x),gz:t.game.city.gridZ(p.z)},70);t.game.traffic.setHoldRecycle(true)})()`,
@@ -214,8 +271,9 @@ try {
       await sleep(3500);
       await until("(window.__taxi.game.city.parcelStreamStats()?.pending ?? 0) === 0");
 
-      const before = await evaluate(
+      const before = await read(
         "({car:window.__taxi.probe(),tier:window.__perf.tier(),stream:window.__taxi.game.city.parcelStreamStats()})",
+        jsonSchema,
       );
 
       await evaluate(
@@ -235,14 +293,19 @@ try {
       const driveUntil = Date.now() + durationMs;
       let transitioned = false;
 
-      while (Date.now() < driveUntil) {
+      const drive: () => Promise<void> = async () => {
+        if (Date.now() >= driveUntil) {
+          return;
+        }
+
         if (transitionProbe && !transitioned && Date.now() > driveUntil - durationMs + 2500) {
           await evaluate("window.__perf.pin(4)");
           transitioned = true;
         }
 
-        const steer = await evaluate(
+        const steer = await read(
           `(()=>{const r=window.__mobileRoute,p=window.__taxi.probe();let index=r.index,distance=Infinity;for(let i=r.index;i<Math.min(r.index+20,r.points.length);i++){const q=r.points[i],d=Math.hypot(q.x-p.x,q.z-p.z);if(d<distance){distance=d;index=i;}}r.index=index;const q=r.points[Math.min(index+2,r.points.length-1)],want=Math.atan2(q.x-p.x,q.z-p.z),error=((want-p.heading+Math.PI*3)%(Math.PI*2))-Math.PI;return Math.max(-.8,Math.min(.8,-error*1.7));})()`,
+          z.number(),
         );
 
         await call("Input.dispatchTouchEvent", {
@@ -250,35 +313,48 @@ try {
           type: "touchMove",
         });
         await sleep(100);
-      }
+        await drive();
+      };
+
+      await drive();
 
       await call("Input.dispatchTouchEvent", { touchPoints: [], type: "touchEnd" });
 
       if (rate === 4 && profile) {
-        const stopped = await call("Profiler.stop");
+        const stopped = z.object({ profile: jsonSchema }).parse(await call("Profiler.stop"));
         writeFileSync(path.join(output, "cpu-4x.json"), JSON.stringify(stopped.profile));
       }
 
-      const result = await evaluate(
+      const kept = await read(
         `(()=>{const m=window.__mobilePerf;m.active=false;const summary=(values)=>{const a=[...values].sort((a,b)=>a-b);const p=q=>a[Math.min(a.length-1,Math.floor(a.length*q))]??0;return {count:a.length,median:p(.5),p95:p(.95),p99:p(.99),max:p(1),over33:a.filter(v=>v>33.4).length,over50:a.filter(v=>v>50).length,over100:a.filter(v=>v>100).length};};return {frames:summary(m.frames),movingFrames:summary(m.movingFrames),tiers:m.tiers,updateMs:summary(m.update),streamMs:summary(m.stream),renderMs:summary(m.render),calls:summary(m.calls),triangles:summary(m.triangles),longTasks:m.longTasks,trajectory:m.trajectory,after:{car:window.__taxi.probe(),tier:window.__perf.tier(),ratio:window.__renderer.getPixelRatio(),memory:window.__renderer.info.memory,stream:window.__taxi.game.city.parcelStreamStats()}}})()`,
+        jsonObjectSchema,
       );
+
+      const result = z
+        .object({
+          frames: z.object({ count: z.number(), max: z.number() }),
+          longTasks: z.array(z.object({ duration: z.number(), start: z.number() })),
+          movingFrames: z.object({ count: z.number() }),
+        })
+        .parse(kept);
 
       let scenario = "adaptive";
 
       if (ab) {
-        scenario = ["baseline", "static-world-matrices", "matrices-and-batch-cache"][iteration];
+        scenario =
+          ["baseline", "static-world-matrices", "matrices-and-batch-cache"][iteration] ?? scenario;
       } else if (transitionProbe) {
         scenario = "first-shadowless-transition";
       }
 
-      const run = {
+      const run: PerfRun = {
         before,
         fixedTier,
         noMultiDraw,
         rate,
         scenario,
         traffic: "isolated route: fleet relocated, recycler held",
-        ...result,
+        ...kept,
       };
 
       iteration += 1;
@@ -293,42 +369,55 @@ try {
       }
 
       console.log(
-        `DRIVE ${rate}x ${JSON.stringify({ ...run, longTasks: run.longTasks.map((x: { duration: number }) => Math.round(x.duration)), trajectory: undefined })}`,
+        `DRIVE ${rate}x ${JSON.stringify({ ...run, longTasks: result.longTasks.map((x) => Math.round(x.duration)), trajectory: undefined })}`,
       );
-      await screenshot(`drive-${rate}x-${run.scenario}`);
+      await screenshot(`drive-${rate}x-${scenario}`);
 
-      const change = await evaluate(
+      const change = await read(
         `(()=>{const m=window.__mobilePerf;m.active=true;m.frames=[];m.stream=[];m.update=[];m.render=[];m.previousRender=performance.now();const t=performance.now();window.__taxi.teleport(.738,.19);return {syncMs:performance.now()-t};})()`,
+        z.object({ syncMs: z.number() }),
       );
 
       const fillStarted = Date.now();
-      const fill = [];
+      const fill: Record<string, JsonValue>[] = [];
 
-      do {
+      const settle: () => Promise<void> = async () => {
         await sleep(100);
-        const state = await evaluate("window.__taxi.game.city.parcelStreamStats()");
+
+        const state = await read(
+          "window.__taxi.game.city.parcelStreamStats()",
+          jsonObjectSchema.nullable(),
+        );
+
         fill.push({ elapsedMs: Date.now() - fillStarted, ...state });
 
-        if ((state?.pending ?? 0) === 0) {
-          break;
+        if ((streamStatsSchema.parse(state)?.pending ?? 0) === 0) {
+          return;
         }
-      } while (Date.now() - fillStarted < 90_000);
 
-      if ((fill.at(-1)?.pending ?? 0) !== 0) {
+        if (Date.now() - fillStarted < 90_000) {
+          await settle();
+        }
+      };
+
+      await settle();
+
+      if ((streamStatsSchema.parse(fill.at(-1) ?? null)?.pending ?? 0) !== 0) {
         throw new Error("Neighborhood failed to converge");
       }
 
       await sleep(500);
 
-      const transition = await evaluate(
+      const transition = await read(
         `(()=>{const m=window.__mobilePerf;m.active=false;return {frameMax:Math.max(0,...m.frames),streamMax:Math.max(0,...m.stream),updateMax:Math.max(0,...m.update),renderMax:Math.max(0,...m.render),longFrames:m.frames.filter(v=>v>50).length,stream:window.__taxi.game.city.parcelStreamStats()}})()`,
+        jsonObjectSchema,
       );
 
       run.transition = { ...change, ...transition, fill };
 
       if (memoryAudit) {
         await call("HeapProfiler.collectGarbage");
-        run.retainedHeap = await call("Runtime.getHeapUsage");
+        run.retainedHeap = jsonSchema.parse(await call("Runtime.getHeapUsage"));
       }
 
       console.log(
@@ -339,7 +428,7 @@ try {
 
   report.pageErrors = pageErrors;
 
-  if (pageErrors.length) {
+  if (pageErrors.length > 0) {
     process.exitCode = 1;
   }
 } catch (error) {
