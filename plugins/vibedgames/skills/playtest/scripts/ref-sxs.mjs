@@ -18,55 +18,14 @@ const BACKGROUND = [16, 16, 16, 255];
 const REF_INK = [220, 60, 60, 255];
 const GAME_INK = [60, 200, 90, 255];
 
-const load = (file, role) => {
-  if (!file) {
-    failUsage(`--${role} is required (a PNG path)`);
-  }
-
-  if (!existsSync(file)) {
-    fail(`${role} not found: ${file}`);
-  }
-
-  return Bitmap.fromFile(file).flatten([0, 0, 0]);
-};
-
-const fitHeight = (image, height) =>
-  image.resize(Math.max(1, Math.round((image.width * height) / image.height)), height, "bilinear");
-
-const soften = (image, factor) =>
-  image
-    .resize(
-      Math.max(1, Math.round(image.width / factor)),
-      Math.max(1, Math.round(image.height / factor)),
-      "bilinear",
-    )
-    .resize(image.width, image.height, "bilinear");
-
-const strip = (width, ink) => Bitmap.create(width, STRIP, ink);
-
-const compose = (left, right) => {
-  const out = Bitmap.create(
-    left.width + GAP + right.width,
-    STRIP + Math.max(left.height, right.height),
-    BACKGROUND,
-  );
-
-  out.paste(strip(left.width, REF_INK), 0, 0);
-  out.paste(strip(right.width, GAME_INK), left.width + GAP, 0);
-  out.paste(left, 0, STRIP);
-  out.paste(right, left.width + GAP, STRIP);
-
-  return out;
-};
-
 main(() => {
   const args = parseArgs(process.argv.slice(2), {
     values: ["blur", "game", "height", "out", "ref"],
   });
 
-  const out = getString(args, "out");
+  const out = getString(args, "out") ?? "";
 
-  if (!out?.endsWith(".png")) {
+  if (!out.endsWith(".png")) {
     failUsage("--out is required and must end in .png");
   }
 
@@ -77,19 +36,68 @@ main(() => {
     failUsage("--height must be ≥ 64 and --blur ≥ 2");
   }
 
-  const ref = fitHeight(load(getString(args, "ref"), "ref"), height);
-  const game = fitHeight(load(getString(args, "game"), "game"), height);
+  const sides = [
+    { ink: REF_INK, role: "ref" },
+    { ink: GAME_INK, role: "game" },
+  ].map(({ ink, role }) => {
+    const file = getString(args, role) ?? "";
 
-  const sharp = compose(ref, game);
-  sharp.toFile(out);
+    if (file === "") {
+      failUsage(`--${role} is required (a PNG path)`);
+    }
 
-  const blurred = compose(soften(ref, blur), soften(game, blur));
+    if (!existsSync(file)) {
+      fail(`${role} not found: ${file}`);
+    }
+
+    const image = Bitmap.fromFile(file).flatten([0, 0, 0]);
+
+    const sharp = image.resize(
+      Math.max(1, Math.round((image.width * height) / image.height)),
+      height,
+      "bilinear",
+    );
+
+    const soft = sharp
+      .resize(
+        Math.max(1, Math.round(sharp.width / blur)),
+        Math.max(1, Math.round(sharp.height / blur)),
+        "bilinear",
+      )
+      .resize(sharp.width, sharp.height, "bilinear");
+
+    return { ink, sharp, soft };
+  });
+
+  const compose = (images = sides.map((side) => side.sharp)) => {
+    const composed = Bitmap.create(
+      images.reduce((width, image) => width + image.width, 0) + GAP * (images.length - 1),
+      STRIP + Math.max(...images.map((image) => image.height)),
+      BACKGROUND,
+    );
+
+    let x = 0;
+
+    for (const [i, image] of images.entries()) {
+      composed.paste(Bitmap.create(image.width, STRIP, sides[i]?.ink ?? BACKGROUND), x, 0);
+      composed.paste(image, x, STRIP);
+      x += image.width + GAP;
+    }
+
+    return composed;
+  };
+
+  const [ref, game] = sides.map((side) => side.sharp);
+
+  compose().toFile(out);
+
+  const blurred = compose(sides.map((side) => side.soft));
   const blurOut = out.replace(/\.png$/u, "-blur.png");
   blurred
     .resize(Math.round(blurred.width / 2), Math.round(blurred.height / 2), "bilinear")
     .toFile(blurOut);
 
   console.log(
-    JSON.stringify({ blur: blurOut, game: game.width, height, ref: ref.width, sxs: out }),
+    JSON.stringify({ blur: blurOut, game: game?.width, height, ref: ref?.width, sxs: out }),
   );
 });
