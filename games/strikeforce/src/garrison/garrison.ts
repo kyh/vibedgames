@@ -50,7 +50,9 @@ export class Garrison implements Enemies {
     ceaseFire: (brain) => {
       this.firing.delete(brain.id);
     },
-    fire: (shot) => this.fire(shot),
+    fire: (shot) => {
+      this.fire(shot);
+    },
     mayOpenFire: (brain) => this.grant(brain.id),
     wander: (brain) => {
       const post = this.byId.get(brain.id)?.home ?? brain.pos;

@@ -2,11 +2,11 @@
 
 A scene that builds but renders black, or runs at 12fps on a phone, is the most common Three.js failure. This is the triage order and the fixes.
 
-**Verify objectively, not by eyeballing.** Use [`../scripts/check-canvas.mjs`](../scripts/check-canvas.mjs) to confirm a running build actually draws non-blank pixels — it loads the page in headless Chromium, screenshots the canvas, and reports pixel variance. A green check beats "looks fine to me," and it catches black-screen regressions in CI / before `vg deploy`.
+**Verify objectively, not by eyeballing.** Use [`../scripts/check-canvas.ts`](../scripts/check-canvas.ts) to confirm a running build actually draws non-blank pixels — it loads the page in headless Chromium, screenshots the canvas, and reports pixel variance. A green check beats "looks fine to me," and it catches black-screen regressions in CI / before `vg deploy`.
 
 ```bash
 # run from the threejs skill directory (the script lives in scripts/)
-node scripts/check-canvas.mjs http://localhost:5173 --out /tmp/frame.png
+node scripts/check-canvas.ts http://localhost:5173 --out /tmp/frame.png
 # exit 0 = rendered; 1 = blank/solid or uncaught page error; 2 = error
 ```
 
@@ -46,7 +46,7 @@ console.log(renderer.info.memory); // { geometries, textures }
 
 ### Render budget starting points
 
-Measure the **worst active-play view**, not the menu. These are starting contracts, not hard limits — overrun deliberately, but know you did. `check-canvas.mjs` compares these numbers automatically when the page exposes diagnostics (see below).
+Measure the **worst active-play view**, not the menu. These are starting contracts, not hard limits — overrun deliberately, but know you did. `check-canvas.ts` compares these numbers automatically when the page exposes diagnostics (see below).
 
 | Metric (worst active-play view)       | Desktop | Mobile |
 | ------------------------------------- | ------- | ------ |
@@ -167,7 +167,7 @@ vg playtest screenshot /tmp/first.png
 
 Capture the first stable frame, then capture again after moving the camera and interacting: several rows below only fail at a grazing angle or after a transition. With no browser available, check the causes from source and label each finding **inferred, not observed** — reading code and guessing is how you "fix" a defect that was never there.
 
-**Use a real GPU.** SwiftShader — Playwright's bundled headless shell, any headless run without a GPU — renders every lit `MeshStandardMaterial` black and only unlit/additive shows, so a software-rendered frame proves nothing about a lit scene. Launch `channel: "chrome"`, or headed with `--enable-gpu --use-angle=metal --ignore-gpu-blocklist`; `check-canvas.mjs` prints the renderer in its `gpu` block and flags `SOFTWARE`. Under Vite HMR a hot-reloaded module spawns a second scene instance in the page and debug hooks point at the stale one — reload before probing.
+**Use a real GPU.** SwiftShader — Playwright's bundled headless shell, any headless run without a GPU — renders every lit `MeshStandardMaterial` black and only unlit/additive shows, so a software-rendered frame proves nothing about a lit scene. Launch `channel: "chrome"`, or headed with `--enable-gpu --use-angle=metal --ignore-gpu-blocklist`; `check-canvas.ts` prints the renderer in its `gpu` block and flags `SOFTWARE`. Under Vite HMR a hot-reloaded module spawns a second scene instance in the page and debug hooks point at the stale one — reload before probing.
 
 A row fails only when the evidence shows the failure condition.
 
@@ -243,7 +243,7 @@ console.log({
 
 | Problem                                            | First thing to check                                                                          |
 | -------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| Black screen                                       | scene.add → light → camera position (`check-canvas.mjs` to confirm objectively)               |
+| Black screen                                       | scene.add → light → camera position (`check-canvas.ts` to confirm objectively)                |
 | Low FPS                                            | `renderer.info.render.calls`, then DPR cap                                                    |
 | FPS drops over time                                | allocation in the loop, then undisposed resources                                             |
 | Bad on mobile only                                 | DPR cap, then resize handling                                                                 |

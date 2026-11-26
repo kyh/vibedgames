@@ -219,10 +219,7 @@ export const contourSegments = (
       }
     }
 
-    const values = [...points];
-
-    // oxlint-disable-next-line unicorn/no-array-sort
-    return values.sort((a, b) => a - b);
+    return [...points].toSorted((a, b) => a - b);
   };
 
   const xs = axis(

@@ -22,7 +22,9 @@ export const startUpstream = async (reply: (request: UpstreamRequest) => Upstrea
 
   const server = createServer((req, res) => {
     const chunks: Buffer[] = [];
-    req.on("data", (chunk: Buffer) => chunks.push(chunk));
+    req.on("data", (chunk: Buffer) => {
+      chunks.push(chunk);
+    });
     req.on("end", () => {
       const request: UpstreamRequest = {
         body: Buffer.concat(chunks).toString("utf-8"),
@@ -34,7 +36,7 @@ export const startUpstream = async (reply: (request: UpstreamRequest) => Upstrea
       requests.push(request);
       const answer = reply(request);
 
-      if (answer.drop) {
+      if (answer.drop === true) {
         req.socket.destroy();
 
         return;

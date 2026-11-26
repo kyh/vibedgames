@@ -239,9 +239,9 @@ const kiteGeometry = () => {
 
 export class AmbientLife {
   readonly group = new THREE.Group();
-  private time = { value: 0 };
-  private gullDay = { value: 1 };
-  private kiteDay = { value: 1 };
+  private readonly time = { value: 0 };
+  private readonly gullDay = { value: 1 };
+  private readonly kiteDay = { value: 1 };
 
   constructor(fog: THREE.Fog, heightAt: (x: number, z: number) => number, rng: () => number) {
     const gullGeo = new THREE.InstancedBufferGeometry();
@@ -345,8 +345,8 @@ export class AmbientLife {
     this.rng = rng;
   }
 
-  private gullFogUniforms: Record<string, THREE.IUniform>;
-  private kiteFogUniforms: Record<string, THREE.IUniform>;
+  private readonly gullFogUniforms: Record<string, THREE.IUniform>;
+  private readonly kiteFogUniforms: Record<string, THREE.IUniform>;
   private perchFogUniforms: Record<string, THREE.IUniform> | null = null;
   private perched: PerchedFlock | null = null;
   private readonly fog: THREE.Fog;

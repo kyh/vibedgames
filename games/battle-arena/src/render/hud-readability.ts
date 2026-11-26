@@ -29,8 +29,7 @@ export const readablePlates = (candidates: PlateCandidate[], keepOut: readonly S
   const accepted: PlateCandidate[] = [];
   const occupied: ScreenBox[] = [...keepOut];
 
-  // oxlint-disable-next-line unicorn/no-array-sort -- ES2022 target; sort only the copy.
-  for (const candidate of [...candidates].sort(
+  for (const candidate of candidates.toSorted(
     (a, b) => a.priority - b.priority || a.distance - b.distance || a.id.localeCompare(b.id),
   )) {
     const half = candidate.compact ? 17 : 56;

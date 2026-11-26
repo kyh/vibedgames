@@ -6,7 +6,6 @@
     "noEmit": true
   },
   "include": [".", ".cloudflare/types/index.d.ts"],
-  // test/ is plain JS and imports the bundled worker out of the build output, which drags it
-  // back into the program.
+  // test/ runs under Node, a project of its own (test/tsconfig.json)
   "exclude": ["node_modules", "dist", "test"]
 }

@@ -3,8 +3,8 @@
  * asset-pipeline skills.
  *
  * This package exists so that logic can be written once, typed, and covered by
- * tests, while the skills still ship plain `node` scripts the way
- * `check-canvas.mjs` always has. `pnpm build` bundles this entry point into a
+ * tests, while the skills still ship scripts plain `node` runs as they are.
+ * `pnpm build` bundles this entry point into a
  * dependency-free `scripts/_lib/asset-tools.mjs` inside each skill that needs
  * it, so a skill directory stays self-contained and copyable — no
  * `node_modules`, no Python, no `uv`.
@@ -61,6 +61,15 @@ export {
   type PropertyValue,
   type UserData,
 } from "./asset/aseprite.js";
+
+export {
+  isFiniteJsonNumber,
+  isJsonObject,
+  isJsonString,
+  type JsonObject,
+  type JsonValue,
+  parseJsonText,
+} from "./asset/json.js";
 
 export { LuaParseError, type LuaValue, parseLua } from "./asset/lua.js";
 

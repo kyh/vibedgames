@@ -6,7 +6,7 @@ import { auth } from "@/auth/server";
 export const Route = createFileRoute("/.well-known/oauth-protected-resource/mcp")({
   server: {
     handlers: {
-      GET: ({ request }) => auth.handler(request),
+      GET: async ({ request }) => await auth.handler(request),
     },
   },
 });

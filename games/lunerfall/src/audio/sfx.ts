@@ -101,9 +101,9 @@ class Sfx {
   private step = 0;
   private muteIntent = false;
   private paused = false;
-  private voices = new Set<Voice>();
-  private phrases: Phrase[] = [];
-  private noiseBuffers = new Map<number, AudioBuffer>();
+  private readonly voices = new Set<Voice>();
+  private readonly phrases: Phrase[] = [];
+  private readonly noiseBuffers = new Map<number, AudioBuffer>();
 
   get muted() {
     return this.muteIntent;
@@ -150,11 +150,11 @@ class Sfx {
     }
 
     if (!this.bus) {
-      const AC = window.AudioContext;
-
-      if (!AC) {
+      if (!("AudioContext" in window)) {
         return null;
       }
+
+      const AC = window.AudioContext;
 
       try {
         const ctx = new AC();
@@ -199,7 +199,7 @@ class Sfx {
       return;
     }
 
-    if (shouldRun && !this.hasRun && window.navigator?.userActivation?.isActive === false) {
+    if (shouldRun && !this.hasRun && !window.navigator?.userActivation?.isActive) {
       return;
     }
 
@@ -346,7 +346,7 @@ class Sfx {
       osc.type = note.type;
       osc.frequency.setValueAtTime(note.freq, t);
 
-      if (note.slideTo) {
+      if (note.slideTo !== undefined && note.slideTo !== 0) {
         osc.frequency.exponentialRampToValueAtTime(Math.max(1, note.slideTo), t + note.dur);
       }
 
@@ -376,7 +376,7 @@ class Sfx {
       filter.type = "bandpass";
       filter.frequency.setValueAtTime(note.filt, t);
 
-      if (note.sweepTo) {
+      if (note.sweepTo !== undefined && note.sweepTo !== 0) {
         filter.frequency.exponentialRampToValueAtTime(note.sweepTo, t + note.dur);
       }
 
@@ -391,7 +391,9 @@ class Sfx {
 
     const voice: Voice = {
       nodes,
-      onEnded: () => this.release(voice, "ended"),
+      onEnded: () => {
+        this.release(voice, "ended");
+      },
       phrase,
       source,
       startsAt: t,

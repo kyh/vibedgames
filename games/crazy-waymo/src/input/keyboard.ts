@@ -5,7 +5,7 @@ import type { CarInput } from "../vehicle/car";
 const THREE_clamp = (v: number) => Math.max(-1, Math.min(1, v));
 
 export class InputState {
-  private keys = new Set<string>();
+  private readonly keys = new Set<string>();
   private readonly pad = new PhysicalGamepad({ stickDeadZone: 0.12 });
   private touch = { boost: false, brake: false, gas: false, stickBrake: false };
   private touchSteer = 0;
@@ -18,10 +18,12 @@ export class InputState {
   constructor() {
     window.addEventListener("keydown", this.onKeyDown);
     window.addEventListener("keyup", this.onKeyUp);
-    window.addEventListener("blur", () => this.keys.clear());
+    window.addEventListener("blur", () => {
+      this.keys.clear();
+    });
   }
 
-  private onKeyDown = (e: KeyboardEvent) => {
+  private readonly onKeyDown = (e: KeyboardEvent) => {
     if (this.typing) {
       return;
     }
@@ -50,7 +52,7 @@ export class InputState {
 
     this.keys.add(k);
   };
-  private onKeyUp = (e: KeyboardEvent) => {
+  private readonly onKeyUp = (e: KeyboardEvent) => {
     this.keys.delete(e.key.toLowerCase());
   };
 

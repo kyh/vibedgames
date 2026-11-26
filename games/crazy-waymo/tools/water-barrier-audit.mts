@@ -48,7 +48,7 @@ const nearbyEntries = <T extends Expected>(entries: readonly T[]) => {
     }
   }
 
-  return (x, z) => {
+  return (x: number, z: number) => {
     const result: T[] = [];
 
     for (const dx of [-4, 0, 4]) {
@@ -250,13 +250,13 @@ export const hasSupportedRoadThrough = (
   supported: (x: number, z: number) => boolean,
   distance = 16,
 ) => {
-  const walk = (
+  const walk: (
     edge: NetEdge,
     s: number,
     direction: -1 | 1,
     remaining: number,
     visited: ReadonlySet<number>,
-  ) => {
+  ) => boolean = (edge, s, direction, remaining, visited) => {
     const available = direction === 1 ? edge.len - s : s;
     const travel = Math.min(available, remaining);
     const steps = Math.max(1, Math.ceil(travel / 2));
@@ -349,9 +349,9 @@ export const auditWaterBarriers = (
   );
   const expected: Expected[] = shore.map(({ solid }) => ({ solid }));
   const visualBoxes = shore.flatMap(shoreBarrierVisuals);
-  buildLandmarks(world.terrain, new ModelCache(), world.network, (solid) =>
-    expected.push({ solid }),
-  );
+  buildLandmarks(world.terrain, new ModelCache(), world.network, (solid) => {
+    expected.push({ solid });
+  });
   const near = nearbyEntries(expected);
   const nearVisual = nearbyEntries(visualBoxes);
   const solids = new Set<Solid>();

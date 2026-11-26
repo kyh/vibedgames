@@ -49,7 +49,7 @@ export class BattleBeatDirector {
   bossDefeated(now: number, epoch: number) {
     const p = this.previous;
 
-    if (!p?.presenting || p.epoch !== epoch || now < p.now || now - p.now > GAP_MS) {
+    if (p?.presenting !== true || p.epoch !== epoch || now < p.now || now - p.now > GAP_MS) {
       return;
     }
 

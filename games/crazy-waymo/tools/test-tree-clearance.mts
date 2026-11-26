@@ -25,6 +25,7 @@ import {
   WORLD_HALF_Z,
 } from "../src/shared/constants.ts";
 import type { PropInstance } from "./geometry-audit.mts";
+import { inOrder } from "../src/shared/paced.ts";
 
 type Check = (name: string, condition: boolean, detail?: string) => void;
 
@@ -57,7 +58,7 @@ const loadTreeSources = async () => {
 
   await MeshoptDecoder.ready;
 
-  for (const path of SOURCES) {
+  for await (const path of inOrder(SOURCES)) {
     const url = `/models/${path}`;
     const kind = treeSourceKind(url);
 
@@ -167,7 +168,7 @@ export const treeRootSeatSamples = async (
   for (const [i, item] of rest.batchItems.entries()) {
     const prop = props[i];
 
-    if (!prop || !item.url) {
+    if (!prop || item.url === null || item.url === "") {
       continue;
     }
 
@@ -343,7 +344,7 @@ const embeddedTreeSolids = (rest: CityRestPayload) => {
 
   for (const solid of rest.solids) {
     if (
-      !solid.noBody ||
+      solid.noBody !== true ||
       Math.abs(solid.maxX - solid.minX - 1.1) > 0.01 ||
       Math.abs(solid.maxZ - solid.minZ - 1.1) > 0.01
     ) {
@@ -420,7 +421,7 @@ const blockingParcel = (
   return null;
 };
 
-const instanceTransform = (m: readonly number[], node: THREE.Matrix4) => {
+const instanceTransform = (m: ArrayLike<number>, node: THREE.Matrix4) => {
   const instance = new THREE.Matrix4().fromArray(m).multiply(node.clone().invert());
   const e = instance.elements;
 
@@ -458,7 +459,7 @@ export const auditTreeClearance = async (
   for (const item of rest.batchItems) {
     const { url } = item;
 
-    if (!url) {
+    if (url === null || url === "") {
       continue;
     }
 

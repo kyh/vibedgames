@@ -31,9 +31,7 @@ export const clipGameMs = (hero: HeroDef, clip: string) => {
     return DASH_DUR * 1000;
   }
 
-  if (clip === "run") {
-    return RUN_MS;
-  }
+  return clip === "run" ? RUN_MS : null;
 };
 
 const iframeAlpha = (iframes: number, dead: boolean) => {
@@ -71,15 +69,15 @@ export interface PlayerHooks {
 export class Player {
   readonly body: PlayerBody;
   readonly sprite: Phaser.GameObjects.Sprite;
-  private baseScale = HERO_SCALE;
+  private readonly baseScale = HERO_SCALE;
   readonly name: HeroName;
   private lastSwing = -1;
   private lastSpecial = -1;
   private lastRunDust = 0;
   private lastEcho = -Infinity;
   private swingClip: string | null = null;
-  private scene: Phaser.Scene;
-  private hero: HeroDef;
+  private readonly scene: Phaser.Scene;
+  private readonly hero: HeroDef;
   private readonly hooks: PlayerHooks;
 
   constructor(
@@ -104,7 +102,9 @@ export class Player {
       onJump: hooks.onJump,
       onLand: hooks.onLand,
       onSpecial: hooks.onSpecial,
-      onSquash: (sx, sy, ms) => this.squash(sx, sy, ms),
+      onSquash: (sx, sy, ms) => {
+        this.squash(sx, sy, ms);
+      },
       onSwing: hooks.onSwing,
       onWallJump: hooks.onWallJump,
     });
@@ -173,7 +173,7 @@ export class Player {
     this.sprite.play(this.clipKey(clip), loop);
     const ms = clipGameMs(this.hero, clip);
     const authored = this.sprite.anims.currentAnim?.duration ?? 0;
-    this.sprite.anims.timeScale = ms !== undefined && ms > 0 && authored > 0 ? authored / ms : 1;
+    this.sprite.anims.timeScale = ms !== null && ms > 0 && authored > 0 ? authored / ms : 1;
   }
 
   private clipKey(clip: string) {

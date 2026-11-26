@@ -263,7 +263,7 @@ export const skinById = (id: string | undefined | null) => {
     throw new Error("no skins");
   }
 
-  if (!id) {
+  if (id === undefined || id === null || id === "") {
     return first;
   }
 
@@ -381,7 +381,7 @@ export const buildSkinBody = (cache: ModelCache, skin: RobotaxiSkin) => {
     body.add(buildWaymoSensors());
   }
 
-  if (skin.mustache) {
+  if (skin.mustache === true) {
     body.add(buildCarstache());
   }
 
@@ -464,9 +464,10 @@ const pitchFor = (input: CarInput, vForward: number) => {
 export class Car {
   readonly object3D: THREE.Group;
   private body: THREE.Object3D;
-  private wheels: { node: THREE.Object3D; front: boolean; restY: number; phys: number }[] = [];
+  private readonly wheels: { node: THREE.Object3D; front: boolean; restY: number; phys: number }[] =
+    [];
   readonly position = new THREE.Vector3();
-  private velocity = new THREE.Vector2();
+  readonly velocity = new THREE.Vector2();
   heading = 0;
   boostMeter: number = CAR.boostMax;
   private driftSustain = 0;
@@ -493,25 +494,25 @@ export class Car {
   private steerSmoothed = 0;
   private wheelSpin = 0;
   private surface: Surface | null = null;
-  private scratchN = new THREE.Vector3();
-  private targetQuat = new THREE.Quaternion();
-  private pitchQuat = new THREE.Quaternion();
+  private readonly scratchN = new THREE.Vector3();
+  private readonly targetQuat = new THREE.Quaternion();
+  private readonly pitchQuat = new THREE.Quaternion();
 
-  private nightRig: NightRig;
+  private readonly nightRig: NightRig;
   private nightFactor = -1;
-  private contactShadow: ContactShadow;
+  private readonly contactShadow: ContactShadow;
   private trafficRimDone = false;
   private trafficRimTimer = 0;
   private vehicle: RaycastVehicle | null = null;
-  private prevVelP = new THREE.Vector3();
+  private readonly prevVelP = new THREE.Vector3();
   private wasAirborne = false;
-  private v3a = new THREE.Vector3();
-  private v3b = new THREE.Vector3();
-  private q3a = new THREE.Quaternion();
-  private prevPos = new THREE.Vector3();
-  private prevQuat = new THREE.Quaternion();
-  private simPos = new THREE.Vector3();
-  private simQuat = new THREE.Quaternion();
+  private readonly v3a = new THREE.Vector3();
+  private readonly v3b = new THREE.Vector3();
+  private readonly q3a = new THREE.Quaternion();
+  private readonly prevPos = new THREE.Vector3();
+  private readonly prevQuat = new THREE.Quaternion();
+  private readonly simPos = new THREE.Vector3();
+  private readonly simQuat = new THREE.Quaternion();
   private poseSeeded = false;
 
   private readonly cache: ModelCache;
@@ -589,11 +590,11 @@ export class Car {
     const { surface } = this;
     const sample = surface?.waterHeightAt;
     this.vehicle?.setWaterSampler(
-      sample && surface
-        ? {
+      surface === null || sample === undefined
+        ? null
+        : {
             waterHeightAt: (x, z) => sample.call(surface, x, z),
-          }
-        : null,
+          },
     );
   }
 
@@ -741,7 +742,7 @@ export class Car {
   private readonly noBodyBounce = (s: Solid) => {
     const veh = this.vehicle;
 
-    if (!veh || !s.noBody) {
+    if (!veh || s.noBody !== true) {
       return;
     }
 

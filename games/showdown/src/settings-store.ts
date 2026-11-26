@@ -17,7 +17,9 @@ export interface SavedSettings {
 
 const readStored: () => JsonValue = () => {
   try {
-    return parseJson(localStorage.getItem(SETTINGS_KEY) || "{}");
+    const stored = localStorage.getItem(SETTINGS_KEY);
+
+    return parseJson(stored === null || stored === "" ? "{}" : stored);
   } catch {
     return {};
   }
@@ -63,16 +65,19 @@ export const resolveQuality = (
   saved: SavedSettings,
   coarsePointer: boolean,
 ) => {
-  const requested = param || saved.quality || (coarsePointer ? "medium" : "high");
+  const chosen = param === null || param === "" ? saved.quality : param;
+
+  const fallback = coarsePointer ? "medium" : "high";
+  const requested = chosen === undefined || chosen === "" ? fallback : chosen;
 
   return {
     name: isQualityName(requested) ? requested : "high",
-    userPicked: Boolean(param || saved.quality),
+    userPicked: Boolean(param === null || param === "" ? saved.quality : param),
   };
 };
 
 export const resolveDifficulty = (param: string | null, saved: SavedSettings) => {
-  const requested = param || saved.difficulty || "";
+  const requested = (param === null || param === "" ? saved.difficulty : param) ?? "";
 
   return isDifficultyName(requested) ? requested : "normal";
 };

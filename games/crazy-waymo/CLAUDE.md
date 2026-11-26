@@ -18,16 +18,16 @@ pnpm bake:map       # re-bake the OSM vector network + street mask (only after t
                     # → it writes sf-network/sf-streets/sf-freeways UNFORMATTED. Run
                     #   node_modules/.bin/oxfmt --write on those three NEXT (never the repo-root
                     #   `pnpm format:fix`, which rewrites every package).
-                    # → then ALWAYS re-run tools/sf-data/extract-transit-obj.mjs: SF_TRANSIT
+                    # → then ALWAYS re-run tools/sf-data/extract-transit-obj.mts: SF_TRANSIT
                     #   stores indices INTO SF_EDGES, so a re-numbered network invalidates
                     #   every corridor. `pnpm test` fails on the stamp mismatch if you forget.
 pnpm lint:streets   # street-mask sanity report
 pnpm typecheck
-node tools/verify-studio.mjs 'http://localhost:5193/?offline=1' /tmp/waymo-desktop
-node tools/verify-mobile.mjs 'http://localhost:5193/?offline=1' /tmp/waymo-mobile
-node tools/verify-water.mjs 'http://localhost:5193/?offline=1' /tmp/waymo-water
-node tools/verify-water-fx.mjs 'http://localhost:5193/?offline=1' /tmp/waymo-water-fx
-node tools/verify-menu-keyboard.mjs 'http://localhost:5193/?offline=1' /tmp/waymo-menu
+node tools/verify-studio.mts 'http://localhost:5193/?offline=1' /tmp/waymo-desktop
+node tools/verify-mobile.mts 'http://localhost:5193/?offline=1' /tmp/waymo-mobile
+node tools/verify-water.mts 'http://localhost:5193/?offline=1' /tmp/waymo-water
+node tools/verify-water-fx.mts 'http://localhost:5193/?offline=1' /tmp/waymo-water-fx
+node tools/verify-menu-keyboard.mts 'http://localhost:5193/?offline=1' /tmp/waymo-menu
 ```
 
 Browser checks use separate owned sessions. Run them serially: changing browser
@@ -227,14 +227,14 @@ Commit the regenerated bins.
 
 ## Verifying in an owned browser
 
-`node tools/verify-studio.mjs 'http://localhost:5193/?time=noon&offline=1' /tmp/waymo-review`
+`node tools/verify-studio.mts 'http://localhost:5193/?time=noon&offline=1' /tmp/waymo-review`
 runs keyboard acceleration, braking, boost, drift, staged fare pickup/delivery,
 pause/restart, hill parking and camera clearance. It saves seven neighborhood
 screenshots and a JSON report. Requires agent-browser and a running dev server.
 Fare positions are staged; this checks the real fare lifecycle, not route AI.
 
-`node tools/verify-mobile.mjs` checks coarse-pointer touch controls and both
-orientations. `node tools/verify-mobile-performance.mjs <dev-url> <output-dir> '2,4' 8000`
+`node tools/verify-mobile.mts` checks coarse-pointer touch controls and both
+orientations. `node tools/verify-mobile-performance.mts <dev-url> <output-dir> '2,4' 8000`
 measures actual presented gameplay frames during a native DPR 3 touch drive.
 Add `--no-multi-draw --tier=3` for a fixed fallback comparison. Repeated rates
 with `--keep-quality --memory` audit adaptation and retained allocations; forced
@@ -247,18 +247,18 @@ and baked sky at every tier. These are desktop stress proxies, not physical-phon
 GPU benchmarks. Keep
 other browsers and build/test processes idle during timing runs.
 
-`node tools/verify-mobile-soak.mjs <dev-url> <output-dir> --minutes=5 --cpu=4`
+`node tools/verify-mobile-soak.mts <dev-url> <output-dir> --minutes=5 --cpu=4`
 adds sustained repeated road drives across portrait/landscape and day/night.
 It records completed main-scene render submissions, bounded timing histograms,
 natural heap samples, stream residency and pause/resume checks. Default is the
 driver path without multi-draw; `--smoke` validates the harness in 28 timed seconds.
 Resets and collection overhead stay outside timing. An insufficient resource
 sample count is reported explicitly, never as proof of stable memory.
-`node tools/verify-native-soak.mjs <dev-url> <output-dir> 240` checks native
+`node tools/verify-native-soak.mts <dev-url> <output-dir> 240` checks native
 Safari with one owned iPhone simulator; see `--help` for Appium setup. Run these
 serially. Neither simulator nor desktop throttling measures phone thermals.
 
-**Lag check.** Point the multiplayer skill's `scripts/net-check.mjs` at
+**Lag check.** Point the multiplayer skill's `scripts/net-check.ts` at
 `http://localhost:5193/?online`: on the dev server `?online&room=<id>` skips
 the title into a run in that room, every such client from the same street, so
 the check's two clients meet and drive at once. Without a GPU two

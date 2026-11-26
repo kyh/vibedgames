@@ -1,5 +1,5 @@
 import { applyPatch, diffState, FixedRate, MultiplayerClient } from "@vibedgames/multiplayer";
-import type { JsonRecord } from "@vibedgames/multiplayer";
+import type { JsonRecord, JsonValue } from "@vibedgames/multiplayer";
 
 import { PickupClaims } from "../src/net/pickup-claims";
 import { createArena } from "../src/shared/arena";
@@ -12,7 +12,7 @@ const ROUNDS = 12;
 const ROUND_CAP_MS = 90_000;
 const CLOCK = { kind: "running", offset: 0 } as const;
 
-const bytes = <T,>(value: T) => Buffer.byteLength(JSON.stringify(value));
+const bytes = (value: JsonValue) => Buffer.byteLength(JSON.stringify(value));
 
 const encodeOpened = (base: Cell[][], current: Cell[][]) => {
   let out = "";
@@ -48,18 +48,19 @@ class Wire {
   }
 }
 
-const emptyWorld = (random: () => number, startedAt: number) => ({
-  arena: "classic",
-  blasts: {},
-  bombs: {},
-  bots: {},
-  deaths: {},
-  grid: createArena("classic", random),
-  powerups: {},
-  startedAt,
-  stats: {},
-  winner: null,
-});
+const emptyWorld = (random: () => number, startedAt: number) =>
+  ({
+    arena: "classic",
+    blasts: {},
+    bombs: {},
+    bots: {},
+    deaths: {},
+    grid: createArena("classic", random),
+    powerups: {},
+    startedAt,
+    stats: {},
+    winner: null,
+  }) satisfies SharedState;
 
 const opened = new Wire();
 const board = new Wire();
@@ -81,7 +82,7 @@ const lateJoin = { board: 0, opened: 0 };
 for (let round = 0; round < ROUNDS; round += 1) {
   const random = seededRandom(round + 1);
   const t0 = 1_000_000 + round * ROUND_CAP_MS * 2;
-  let s = emptyWorld(random, t0);
+  let s: SharedState = emptyWorld(random, t0);
   const layout = s.grid;
   const sentBefore = { board: board.sent, opened: opened.sent };
   opened.write({ ...s, clock: CLOCK, opened: "" });
@@ -90,13 +91,13 @@ for (let round = 0; round < ROUNDS; round += 1) {
   claims.clear();
   let now = t0;
 
-  for (; now <= t0 + ROUND_CAP_MS && !s.winner; now += HOST_STEP_MS) {
+  for (; now <= t0 + ROUND_CAP_MS && (s.winner === null || s.winner === ""); now += HOST_STEP_MS) {
     const { patch } = hostTick(s, [human], now, random);
     let merged: Partial<SharedState> = patch ?? {};
     s = patch ? { ...s, ...patch } : s;
 
     for (const bot of Object.values(s.bots)) {
-      if (!s.deaths[bot.id]) {
+      if ((s.deaths[bot.id] ?? 0) === 0) {
         claims.reach(room, s, bot.id, bot);
       }
     }
@@ -180,7 +181,7 @@ const playerStream = (beats: boolean) => {
     }
 
     if (beat.due(FRAME_MS) && beats) {
-      write["h"] = Math.round(EPOCH + now);
+      write.h = Math.round(EPOCH + now);
     }
 
     const delta = changed(held, write);

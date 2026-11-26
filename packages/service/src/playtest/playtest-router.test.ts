@@ -8,6 +8,7 @@ import {
   decideInput,
 } from "@repo/contract/playtest/playtest-schema";
 import { ORPCError } from "@orpc/server";
+import { z } from "zod";
 
 import type { DecisionProviderConfig } from "../orpc";
 import { startUpstream } from "../upstream.test-utils";
@@ -67,7 +68,10 @@ test("forwards a System One request with the server's key and returns the answer
 test("defaults to the public host and honours an explicit model", async () => {
   assert.equal(DEFAULT_BASE_URL, "https://api.typesafe.ai");
   await forwardDecision(configured, { ...validInput, model: "jev-1.13.0" });
-  assert.equal(JSON.parse(upstream.requests[0]?.body ?? "null").model, "jev-1.13.0");
+  assert.deepEqual(
+    z.object({ model: z.string() }).parse(JSON.parse(upstream.requests[0]?.body ?? "null")),
+    { model: "jev-1.13.0" },
+  );
 });
 
 const codeOf = async (promise: Promise<JsonValue>) => {
@@ -75,7 +79,7 @@ const codeOf = async (promise: Promise<JsonValue>) => {
     await promise;
   } catch (error) {
     if (error instanceof ORPCError) {
-      return error.code;
+      return String(error.code);
     }
 
     throw error;

@@ -130,7 +130,7 @@ const tickSkeleton = (w: World, u: Unit) => {
 const pickTarget = (w: World, u: Unit) => {
   let target = nearestEnemy(w, u);
 
-  if (w.leaderId && w.leaderId !== u.team) {
+  if (w.leaderId !== null && w.leaderId !== "" && w.leaderId !== u.team) {
     const leader = [...w.units.values()].find(
       (x) => x.kind === "hero" && x.team === w.leaderId && x.alive,
     );

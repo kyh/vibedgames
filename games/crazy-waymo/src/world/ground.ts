@@ -11,6 +11,7 @@ import type { GroundCover, LandClass, LandClassAt } from "./land-class";
 import type { NetEdge, RoadNetwork } from "./network";
 import { SIDEWALK_W, walkFor } from "./roads";
 import type { Terrain } from "./terrain";
+import { unreachable } from "../shared/unreachable";
 
 const COVER_COLOR = {
   cemetery: new THREE.Color(0x84_90_60),
@@ -47,27 +48,31 @@ const PAINTED_FLOOR = {
   sand: COVER_COLOR.sand,
 } satisfies Readonly<Record<FloorKind, THREE.Color>>;
 
-const patchTreatment: (cover: GroundCover) => "turf" | "dry" | "none" = (cover) => {
-  switch (cover) {
-    case "lawn":
-    case "meadow":
-    case "grove":
-    case "conifer":
-    case "woodland":
-    case "cemetery": {
-      return "turf";
-    }
+const PATCH_TREATMENT = {
+  cemetery: "turf",
+  conifer: "turf",
+  court: "none",
+  dune: "dry",
+  grassland: "dry",
+  grove: "turf",
+  industrial: "none",
+  lawn: "turf",
+  meadow: "turf",
+  parking: "none",
+  path: "none",
+  pavement: "none",
+  plaza: "none",
+  quay: "none",
+  railyard: "none",
+  rearYard: "none",
+  rock: "none",
+  sand: "none",
+  water: "none",
+  woodland: "turf",
+  yard: "none",
+} as const satisfies Record<GroundCover, "turf" | "dry" | "none">;
 
-    case "grassland":
-    case "dune": {
-      return "dry";
-    }
-
-    default: {
-      return "none";
-    }
-  }
-};
+const patchTreatment = (cover: GroundCover) => PATCH_TREATMENT[cover];
 
 const meadowPatch = (x: number, z: number) => {
   const a = Math.sin(x * 0.043 + Math.sin(z * 0.051) * 1.9);
@@ -211,7 +216,9 @@ export const makeGroundColorAt: (
 
     const patch = meadowPatch(x, z);
 
-    switch (patchTreatment(dominantCover(land))) {
+    const treatment = patchTreatment(dominantCover(land));
+
+    switch (treatment) {
       case "turf": {
         into.lerp(TURF_SUN, patch * 0.32);
         break;
@@ -223,8 +230,12 @@ export const makeGroundColorAt: (
         break;
       }
 
-      default: {
+      case "none": {
         break;
+      }
+
+      default: {
+        unreachable(treatment);
       }
     }
   };
@@ -610,10 +621,6 @@ export const makeGroundOffset = (network: RoadNetwork, terrain?: Terrain) => {
   }
 
   const ceilings = function* ceilings() {
-    if (!terrain) {
-      return;
-    }
-
     for (const edge of network.edges) {
       const half = edge.half + walkFor(edge.half);
       const along = Math.max(1, Math.ceil(edge.len / 1.5));

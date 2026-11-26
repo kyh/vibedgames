@@ -17,10 +17,10 @@ export interface PelletCell {
 const f = (n: number) => (Number.isInteger(n) ? `${n}.0` : String(n));
 
 export class PelletField {
-  private mesh: THREE.InstancedMesh;
+  private readonly mesh: THREE.InstancedMesh;
   private live: PelletCell[] = [];
-  private index = new Map<string, number>();
-  private dummy = new THREE.Object3D();
+  private readonly index = new Map<string, number>();
+  private readonly dummy = new THREE.Object3D();
   private readonly phase: THREE.InstancedBufferAttribute;
   private readonly time = { value: 0 };
 

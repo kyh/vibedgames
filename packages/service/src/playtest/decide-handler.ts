@@ -44,7 +44,7 @@ export const handlePlaytestDecide = async (
 
   const secret = decision?.tokenSecret;
 
-  if (!secret) {
+  if (secret === undefined || secret === "") {
     return fail(412, "PRECONDITION_FAILED", "Playtest tokens are not configured on the server.");
   }
 
@@ -99,7 +99,9 @@ export const handlePlaytestDecide = async (
     return respond(200, await forwardDecision(decision, parsed.data));
   } catch (error) {
     if (error instanceof ORPCError) {
-      return fail(ERROR_STATUS.get(error.code) ?? 500, error.code, error.message);
+      const code = String(error.code);
+
+      return fail(ERROR_STATUS.get(code) ?? 500, code, error.message);
     }
 
     return fail(500, "INTERNAL_SERVER_ERROR", "decision failed.");

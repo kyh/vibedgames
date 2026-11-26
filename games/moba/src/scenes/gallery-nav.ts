@@ -61,7 +61,9 @@ export const buildGalleryNav = (scene: Phaser.Scene, current: string, y = 26) =>
       box.on("pointerout", () => box.setFillStyle(0x16_30_2e, 0.95));
     }
 
-    box.on("pointerdown", () => go(t.id));
+    box.on("pointerdown", () => {
+      go(t.id);
+    });
     x += TAB_W + GAP;
   }
 };

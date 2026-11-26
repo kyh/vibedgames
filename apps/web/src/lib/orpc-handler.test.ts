@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
-import { describe, test } from "node:test";
+import { after, describe, test } from "node:test";
+import { startD1 } from "@repo/service/d1.test-utils";
 import type { ContractClient } from "@repo/contract";
 import type { ORPCContext } from "@repo/service/orpc";
 import { CLI_VERSION_HEADER } from "@repo/contract/cli";
 import { createAuth } from "@repo/service/identity/auth";
-import { createDb } from "@repo/db/drizzle-client";
 import { MAX_RPC_BODY_BYTES } from "@repo/service/generate/limits";
 import { createORPCClient, ORPCError, safe } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
@@ -14,17 +14,9 @@ import { BatchLinkPlugin } from "@orpc/client/plugins";
 import { apiNotFound } from "./json-error";
 import { handleRestRequest, handleRpcRequest } from "./orpc-handler";
 
-const unavailable = (): never => {
-  throw new Error("the database is not reachable in this test");
-};
+const { close, db } = await startD1();
 
-const db = createDb({
-  batch: unavailable,
-  dump: unavailable,
-  exec: unavailable,
-  prepare: unavailable,
-  withSession: unavailable,
-});
+after(close);
 
 const auth = createAuth({
   baseURL: "http://localhost:3000",
@@ -53,14 +45,14 @@ const assertJsonError = async (response: Response, status: number, code: string)
   assert.strictEqual(body.code, code);
 };
 
-const post = (body = JSON.stringify({ json: {} }), headers: Record<string, string> = {}) => {
+const post = async (body = JSON.stringify({ json: {} }), headers: Record<string, string> = {}) => {
   const request = new Request("http://localhost:3000/api/orpc/auth/me", {
     body,
     headers: { "content-type": "application/json", ...headers },
     method: "POST",
   });
 
-  return handleRpcRequest(request, contextFor(request));
+  return await handleRpcRequest(request, contextFor(request));
 };
 
 const rpcError = z.object({ json: z.looseObject({ code: z.string() }) });
@@ -144,11 +136,11 @@ describe("rpc endpoint", () => {
 
     const client: ContractClient = createORPCClient(
       new RPCLink({
-        fetch: (url, init) => {
+        fetch: async (url, init) => {
           roundTrips += 1;
           const request = new Request(url, init);
 
-          return handleRpcRequest(request, contextFor(request));
+          return await handleRpcRequest(request, contextFor(request));
         },
         origin: "http://localhost:3000",
         plugins: [new BatchLinkPlugin({ groups: [{ condition: () => true, context: {} }] })],
@@ -160,16 +152,16 @@ describe("rpc endpoint", () => {
 
     assert.strictEqual(roundTrips, 1);
     assert.deepStrictEqual(
-      results.map(([error]) => (error instanceof ORPCError ? error.code : error)),
+      results.map(([error]) => (error instanceof ORPCError ? String(error.code) : error)),
       ["UNAUTHORIZED", "UNAUTHORIZED"],
     );
   });
 });
 
-const rest = (path: string, init: RequestInit = {}) => {
+const rest = async (path: string, init: RequestInit = {}) => {
   const request = new Request(`https://vibedgames.com/api/v1${path}`, init);
 
-  return handleRestRequest(request, contextFor(request));
+  return await handleRestRequest(request, contextFor(request));
 };
 
 const jsonPost = (headers: Record<string, string> = {}) => ({

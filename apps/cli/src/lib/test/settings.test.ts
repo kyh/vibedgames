@@ -10,13 +10,14 @@ const { cleanups, drain } = makeCleanups();
 
 afterEach(drain);
 
-const isolate = () =>
+const isolate = () => {
   stubEnv(cleanups, {
     VG_CODEX_BIN: undefined,
     VG_GENERATE_PROVIDER: undefined,
     VG_NO_AUTO_UPDATE: undefined,
     XDG_CONFIG_HOME: makeTmpDir(cleanups),
   });
+};
 
 test("a setting resolves from its env var, else the saved value, else the default", () => {
   isolate();

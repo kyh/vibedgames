@@ -5,7 +5,7 @@ const RING_LIFE = 0.38;
 
 export class Shockwaves {
   readonly group = new THREE.Group();
-  private rings: { mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial; age: number }[] = [];
+  private readonly rings: { mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial; age: number }[] = [];
 
   constructor() {
     const geo = new THREE.RingGeometry(0.82, 1, 40);

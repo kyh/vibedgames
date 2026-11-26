@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
+import { isMesh, mergeGeometriesOrNull } from "../shared/three-guards";
 
 /** The whole landmark palette. Anything drawn with one of these is packable. */
 export const MAT = {
@@ -209,7 +209,7 @@ export const packLandmark = (src: THREE.Group, extra?: Iterable<THREE.Material>)
   const buckets = new Map<THREE.Material, THREE.BufferGeometry[]>();
   const packed: THREE.Mesh[] = [];
   src.traverse((o) => {
-    if (!(o instanceof THREE.Mesh)) {
+    if (!isMesh(o)) {
       return;
     }
 
@@ -246,7 +246,7 @@ export const packLandmark = (src: THREE.Group, extra?: Iterable<THREE.Material>)
       ? list
       : list.map((g) => (g.index === null ? g : g.toNonIndexed()));
 
-    const merged = geos.length === 1 ? first : mergeGeometries(geos, false);
+    const merged = geos.length === 1 ? first : mergeGeometriesOrNull(geos, false);
 
     if (!merged) {
       for (const g of geos) {

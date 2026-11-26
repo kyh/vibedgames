@@ -42,6 +42,7 @@ const jsonPayloadModules = [
 export default defineConfig({
   extends: [core, react, antiSlop, landmines],
   jsPlugins: landmines.jsPlugins,
+  options: { typeAware: true },
   ignorePatterns: [
     ...(core.ignorePatterns ?? []),
     "*.generated.ts",
@@ -64,22 +65,20 @@ export default defineConfig({
       files: jsonPayloadModules,
       rules: { "typescript/consistent-type-definitions": "off" },
     },
-    {
-      files: [
-        "packages/service/src/identity/cimd-fetch.test.ts",
-        "packages/service/src/deploy/inline-files.test.ts",
-        "packages/multiplayer/test/offline.test.ts",
-      ],
-      rules: { "landmines-testing/no-test-doubles": "off" },
-    },
   ],
   rules: {
-    "anti-slop/require-safety-comment-for-type-assertion": "off",
+    "typescript/no-floating-promises": [
+      "error",
+      {
+        allowForKnownSafeCalls: [
+          { from: "package", package: "node:test", name: ["describe", "it", "suite", "test"] },
+        ],
+      },
+    ],
     "landmines-testing/no-fixed-sleep": [
       "error",
-      { allow: { "apps/party/test/integration.test.ts": 2 } },
+      { allow: { "apps/party/test/integration.test.ts": 1 } },
     ],
-    "no-await-in-loop": "off",
     "no-use-before-define": ["error", { functions: false, variables: false }],
   },
 });

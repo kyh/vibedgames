@@ -190,7 +190,9 @@ export const installDevHooks = (scene: SceneInternals) => {
       get hostSnapshotReady() {
         return scene.link.hostSnapshotReady;
       },
-      netSendEvent: (event, payload) => scene.link.toHost(event, payload),
+      netSendEvent: (event, payload) => {
+        scene.link.toHost(event, payload);
+      },
       get paused() {
         return scene.link.paused;
       },
@@ -307,7 +309,8 @@ export const installDevHooks = (scene: SceneInternals) => {
       isHost: scene.link.amHost,
       items: scene.world.items.map((it) => it.kind),
       level: scene.progress.level,
-      mines: scene.weapons.beams.filter((b) => b.mine && !b.exploding && !b.vanished).length,
+      mines: scene.weapons.beams.filter((b) => b.mine !== null && !b.exploding && !b.vanished)
+        .length,
       mod: scene.shield.shieldMod
         ? { kind: scene.shield.shieldMod, until: scene.shield.shieldModUntil }
         : null,

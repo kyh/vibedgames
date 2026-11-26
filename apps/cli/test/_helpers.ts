@@ -46,7 +46,9 @@ export const stubEnv = (cleanups: (() => void)[], vars: Record<string, string | 
 
 export const makeTmpDir = (cleanups: (() => void)[], prefix = "vg-test-") => {
   const dir = realpathSync(mkdtempSync(path.join(tmpdir(), prefix)));
-  cleanups.push(() => rmSync(dir, { force: true, recursive: true }));
+  cleanups.push(() => {
+    rmSync(dir, { force: true, recursive: true });
+  });
 
   return dir;
 };
@@ -58,19 +60,26 @@ export const makeTmpDir = (cleanups: (() => void)[], prefix = "vg-test-") => {
  */
 export const makeTestServer = async (
   cleanups: (() => void)[],
-  handler: (req: IncomingMessage, res: ServerResponse) => void,
+  handler: (req: IncomingMessage, res: ServerResponse) => Promise<void> | void,
 ) => {
-  const server = createServer(handler);
-
-  // oxlint-disable-next-line promise/avoid-new -- server.listen is callback-only
-  const port: number = await new Promise((resolve) => {
-    server.listen(0, () => {
-      const addr = server.address();
-      resolve(addr instanceof Object ? addr.port : 0);
+  const server = createServer((req, res) => {
+    Promise.resolve(handler(req, res)).catch(() => {
+      res.statusCode = 500;
+      res.end();
     });
   });
 
-  cleanups.push(() => server.close());
+  const { promise, resolve } = Promise.withResolvers<number>();
+  server.listen(0, () => {
+    const addr = server.address();
+    resolve(addr instanceof Object ? addr.port : 0);
+  });
+
+  const port: number = await promise;
+
+  cleanups.push(() => {
+    server.close();
+  });
 
   return port;
 };

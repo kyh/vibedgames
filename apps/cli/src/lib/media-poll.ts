@@ -47,9 +47,8 @@ export const waitForCompletion = async (
 ) => {
   const job = { endpoint_id, request_id };
   const deadline = Date.now() + POLL_TIMEOUT_MS;
-  let lastStatus: string | undefined;
 
-  while (true) {
+  const poll: (lastStatus: string | undefined) => Promise<void> = async (lastStatus) => {
     if (Date.now() > deadline) {
       throw new Error(
         `Job did not complete within ${POLL_TIMEOUT_MS}ms ` +
@@ -64,8 +63,6 @@ export const waitForCompletion = async (
     const upper = status.toUpperCase();
 
     if (!opts.quiet && upper !== lastStatus) {
-      lastStatus = upper;
-
       const queuePos =
         isJsonObject(raw) && isJsonNumber(raw.queue_position) ? raw.queue_position : null;
 
@@ -76,18 +73,23 @@ export const waitForCompletion = async (
     }
 
     if (upper === "COMPLETED") {
-      break;
+      return;
     }
 
     if (upper === "FAILED" || upper === "CANCELLED") {
       const reason = pickErrorReason(raw);
       throw new Error(
-        reason ? `Job ${upper.toLowerCase()}: ${reason}` : `Job ${upper.toLowerCase()}`,
+        reason !== null && reason !== ""
+          ? `Job ${upper.toLowerCase()}: ${reason}`
+          : `Job ${upper.toLowerCase()}`,
       );
     }
 
     await sleep(POLL_INTERVAL_MS);
-  }
+    await poll(upper);
+  };
+
+  await poll(undefined);
 
   const result = await client.generate.status({ ...job, action: "result" });
 

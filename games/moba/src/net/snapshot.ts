@@ -1,6 +1,8 @@
 import type { MultiplayerClient } from "@vibedgames/multiplayer";
 
 import type { FxEvent, GroundEffect, Mine, Projectile, Unit, World } from "../sim/types";
+import { isSnapshot } from "./rows";
+import { isJsonNumber, isJsonString } from "./json";
 import type { JsonObject, JsonValue } from "./json";
 
 export type Snapshot = {
@@ -127,11 +129,7 @@ type SharedState = MultiplayerClient["sharedState"];
 export const sharedSnapshot = (state: SharedState) => {
   const { snap } = state;
 
-  if (!(snap instanceof Object) || !("units" in snap) || !("gameTime" in snap)) {
-    return null;
-  }
-
-  return snap as Snapshot;
+  return isSnapshot(snap) ? snap : null;
 };
 
 const isFiniteNumber = (x: SharedState[string] | undefined): x is number => Number.isFinite(x);
@@ -139,7 +137,7 @@ const isFiniteNumber = (x: SharedState[string] | undefined): x is number => Numb
 /** The server-clock stamp of the keyframe in `snap` (the step it was taken
  *  after), or null when shared state holds none. */
 export const sharedSnapAt = (state: SharedState) => {
-  const v = state["snapAt"];
+  const v = state.snapAt;
 
   return isFiniteNumber(v) ? v : null;
 };
@@ -166,13 +164,11 @@ const castActor = (value: JsonValue | undefined) => {
 
   const { unitId, at } = value;
 
-  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- protocol boundary
-  if (typeof unitId !== "string" || !unitId || unitId.length > 128) {
+  if (!isJsonString(unitId) || unitId === "" || unitId.length > 128) {
     return null;
   }
 
-  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- protocol boundary
-  if (typeof at !== "number" || !Number.isFinite(at) || at < 0) {
+  if (!isJsonNumber(at) || at < 0) {
     return null;
   }
 

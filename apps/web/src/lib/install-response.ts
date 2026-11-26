@@ -1,3 +1,4 @@
+import { mergeHeaders } from "@/lib/content-negotiation";
 import installMd from "@/lib/install.md?raw";
 
 /**
@@ -8,9 +9,8 @@ import installMd from "@/lib/install.md?raw";
 export const installResponse = (init: ResponseInit = {}) =>
   new Response(installMd, {
     ...init,
-    headers: {
-      "Cache-Control": "public, max-age=300",
-      "Content-Type": "text/markdown; charset=utf-8",
-      ...init.headers,
-    },
+    headers: mergeHeaders(
+      { "Cache-Control": "public, max-age=300", "Content-Type": "text/markdown; charset=utf-8" },
+      init.headers,
+    ),
   });

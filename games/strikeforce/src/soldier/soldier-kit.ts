@@ -19,7 +19,7 @@ export const kitMaterial = (kit: Kit, base: MeshStandardMaterial) => {
   const material = base.clone();
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uCloth = { value: new Color(dye.cloth ?? "#808080") };
-    shader.uniforms.uDye = { value: dye.cloth ? 1 : 0 };
+    shader.uniforms.uDye = { value: dye.cloth !== null && dye.cloth !== "" ? 1 : 0 };
     shader.uniforms.uBand = { value: new Color(dye.band) };
     shader.vertexShader = shader.vertexShader
       .replace(

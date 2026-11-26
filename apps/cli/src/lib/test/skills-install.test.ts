@@ -46,12 +46,13 @@ const makeSource = (names: string[]) => {
   return { origin: root, root };
 };
 
-const projectTarget = () => ({
-  cwd: makeTmpDir(cleanups, "vg-project-"),
-  env: {},
-  home: makeTmpDir(cleanups, "vg-home-"),
-  scope: "project",
-});
+const projectTarget = () =>
+  ({
+    cwd: makeTmpDir(cleanups, "vg-project-"),
+    env: {},
+    home: makeTmpDir(cleanups, "vg-home-"),
+    scope: "project",
+  }) satisfies InstallTarget;
 
 test("installs one copy per skill and links it for Claude Code", () => {
   const target = projectTarget();
@@ -66,7 +67,9 @@ test("installs one copy per skill and links it for Claude Code", () => {
   assert.deepEqual(report.removed, []);
   const canonical = path.join(target.cwd, ".agents", "skills", "deploy");
   assert.ok(statSync(path.join(canonical, "SKILL.md")).isFile());
-  assert.doesNotThrow(() => accessSync(path.join(canonical, "scripts", "run.mjs"), constants.X_OK));
+  assert.doesNotThrow(() => {
+    accessSync(path.join(canonical, "scripts", "run.mjs"), constants.X_OK);
+  });
 
   const link = path.join(target.cwd, ".claude", "skills", "deploy");
   assert.ok(lstatSync(link).isSymbolicLink());

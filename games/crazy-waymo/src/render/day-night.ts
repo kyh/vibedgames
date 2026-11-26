@@ -265,13 +265,13 @@ export class DayNight {
   private renderer: THREE.WebGLRenderer | null = null;
   private prevShadowsActive = true;
   private baked: THREE.Texture | null = null;
-  private nightSky = new NightSky();
-  private scrSun = new THREE.Vector3();
-  private scrLight = new THREE.Vector3();
-  private scrColor = new THREE.Color();
-  private scrBg = new THREE.Color();
+  private readonly nightSky = new NightSky();
+  private readonly scrSun = new THREE.Vector3();
+  private readonly scrLight = new THREE.Vector3();
+  private readonly scrColor = new THREE.Color();
+  private readonly scrBg = new THREE.Color();
 
-  private refs: DayNightRefs;
+  private readonly refs: DayNightRefs;
 
   constructor(refs: DayNightRefs) {
     this.refs = refs;

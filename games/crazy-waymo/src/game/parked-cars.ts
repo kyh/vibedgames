@@ -7,6 +7,7 @@ import type { ModelCache } from "../assets/loader";
 import { modelUrl } from "../assets/manifest";
 import type { PhysicsWorld } from "../physics/physics-world";
 import type { ParkedSpec } from "../world/furniture";
+import { isMesh } from "../shared/three-guards";
 
 const BODY_LIFT = 0.8;
 const HIT_RADIUS = 2.6;
@@ -45,14 +46,14 @@ const cullDistSq = () => (CULL_DIST * reachScale()) ** 2;
 
 export class ParkedCars {
   readonly group = new THREE.Group();
-  private cars: Parked[] = [];
-  private tmp = new THREE.Quaternion();
-  private mat4 = new THREE.Matrix4();
-  private carMat4 = new THREE.Matrix4();
+  private readonly cars: Parked[] = [];
+  private readonly tmp = new THREE.Quaternion();
+  private readonly mat4 = new THREE.Matrix4();
+  private readonly carMat4 = new THREE.Matrix4();
   private visible: Uint8Array = new Uint8Array(0);
   private cullCursor = 0;
 
-  private physics: PhysicsWorld;
+  private readonly physics: PhysicsWorld;
   private readonly heightAt: (x: number, z: number) => number;
 
   constructor(
@@ -76,11 +77,7 @@ export class ParkedCars {
       const node = cache.instance(modelUrl("cars", model));
       node.updateMatrixWorld(true);
       node.traverse((c) => {
-        if (
-          c instanceof THREE.Mesh &&
-          c.geometry instanceof THREE.BufferGeometry &&
-          !Array.isArray(c.material)
-        ) {
+        if (isMesh(c) && c.geometry instanceof THREE.BufferGeometry && !Array.isArray(c.material)) {
           parts?.push({ geo: c.geometry, local: c.matrixWorld.clone(), mat: c.material });
         }
       });

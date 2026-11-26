@@ -253,16 +253,51 @@ export const browserEnv: () => AgentEnv = () => {
 
   let lastPointer: { x: number; y: number } | null = null;
 
+  const isJson: (value: unknown) => value is Json = (value): value is Json => {
+    if (value === null || Number.isFinite(value)) {
+      return true;
+    }
+
+    if (Array.isArray(value)) {
+      return value.every((item) => isJson(item));
+    }
+
+    const tag = Object.prototype.toString.call(value);
+
+    return (
+      tag === "[object String]" ||
+      tag === "[object Boolean]" ||
+      (tag === "[object Object]" &&
+        value instanceof Object &&
+        Object.values(value).every((item) => isJson(item)))
+    );
+  };
+
+  const readJson = (text: string) => {
+    const value: unknown = JSON.parse(text);
+
+    if (!isJson(value)) {
+      throw new TypeError("not JSON");
+    }
+
+    return value;
+  };
+
   const isFunction = (value: Reflex | undefined): value is Reflex =>
     Object.prototype.toString.call(value) === "[object Function]";
 
   return {
-    caf: (id) => window.cancelAnimationFrame(id),
-    delay: (ms) =>
-      // oxlint-disable-next-line promise/avoid-new -- the page has no timers/promises; wrapping setTimeout is the only way to await a delay there
-      new Promise((resolve) => {
-        window.setTimeout(resolve, ms);
-      }),
+    caf: (id) => {
+      window.cancelAnimationFrame(id);
+    },
+    delay: async (ms) => {
+      const { promise, resolve } = Promise.withResolvers<number>();
+      window.setTimeout(() => {
+        resolve(ms);
+      }, ms);
+
+      await promise;
+    },
     dispatchKey: (type, init) => {
       const target = document.activeElement ?? document.body ?? window;
       target.dispatchEvent(new KeyboardEvent(type, init));
@@ -300,7 +335,7 @@ export const browserEnv: () => AgentEnv = () => {
       target.dispatchEvent(new PointerEvent(type, init));
       target.dispatchEvent(new MouseEvent(mouseType(type), init));
     },
-    fetch: (url, init) => window.fetch(url, init),
+    fetch: async (url, init) => await window.fetch(url, init),
     live: () => window.__GAME_DIAGNOSTICS__ ?? null,
     now: () => Date.now(),
     publish: (result) => {
@@ -315,8 +350,7 @@ export const browserEnv: () => AgentEnv = () => {
     },
     snapshot: () => {
       try {
-        // oxlint-disable-next-line unicorn/prefer-structured-clone -- structuredClone throws on a function-valued field; JSON drops it, and the contract is JSON anyway
-        return JSON.parse(JSON.stringify(window.__GAME_DIAGNOSTICS__ ?? null));
+        return readJson(JSON.stringify(window.__GAME_DIAGNOSTICS__ ?? null));
       } catch {
         return null;
       }
@@ -332,6 +366,39 @@ export const browserEnv: () => AgentEnv = () => {
 export const inPageAgent = (config: AgentConfig, env: AgentEnv) => {
   const isObject = (value: Json | undefined): value is { [key: string]: Json } =>
     Object(value) === value && !Array.isArray(value);
+
+  const isText = (value: Json | undefined): value is string =>
+    Object.prototype.toString.call(value) === "[object String]";
+
+  const isJson: (value: unknown) => value is Json = (value): value is Json => {
+    if (value === null || Number.isFinite(value)) {
+      return true;
+    }
+
+    if (Array.isArray(value)) {
+      return value.every((item) => isJson(item));
+    }
+
+    const tag = Object.prototype.toString.call(value);
+
+    return (
+      tag === "[object String]" ||
+      tag === "[object Boolean]" ||
+      (tag === "[object Object]" &&
+        value instanceof Object &&
+        Object.values(value).every((item) => isJson(item)))
+    );
+  };
+
+  const readJson = (text: string) => {
+    const value: unknown = JSON.parse(text);
+
+    if (!isJson(value)) {
+      throw new TypeError("not JSON");
+    }
+
+    return value;
+  };
 
   const round = (value: number) => Number(value.toFixed(2));
   const started = env.now();
@@ -591,7 +658,7 @@ export const inPageAgent = (config: AgentConfig, env: AgentEnv) => {
     let body: Json;
 
     try {
-      body = JSON.parse(text);
+      body = readJson(text);
     } catch {
       throw new Error(`decision response was not JSON: ${text.slice(0, 200)}`);
     }
@@ -603,7 +670,7 @@ export const inPageAgent = (config: AgentConfig, env: AgentEnv) => {
     }
 
     const move = answerFor(answers, "move");
-    const choice = String(move.choice ?? "");
+    const choice = isText(move.choice) ? move.choice : "";
 
     if (!Object.hasOwn(offered, choice)) {
       throw new Error(`decision model answered \`move\` outside the offered options: ${choice}`);
@@ -668,7 +735,7 @@ export const inPageAgent = (config: AgentConfig, env: AgentEnv) => {
     const offered = offeredMoves(state.tick.index);
     const body = JSON.stringify({ model: config.model, questions: questions(offered), state });
 
-    for (let attempt = 0; ; attempt += 1) {
+    const ask: (attempt: number) => Promise<ReturnType<typeof parseDecision>> = async (attempt) => {
       let response: AgentResponse | null = null;
       let failure = "";
 
@@ -688,7 +755,7 @@ export const inPageAgent = (config: AgentConfig, env: AgentEnv) => {
         failure = error instanceof Error ? error.message : String(error);
       }
 
-      if (response?.ok) {
+      if (response?.ok === true) {
         const text = await response.text();
 
         return parseDecision(text, offered);
@@ -706,7 +773,11 @@ export const inPageAgent = (config: AgentConfig, env: AgentEnv) => {
       }
 
       await env.delay(500 * 2 ** attempt);
-    }
+
+      return await ask(attempt + 1);
+    };
+
+    return await ask(0);
   };
 
   const pointerFrom = (input: ReflexInputs["pointer"]) => {
@@ -714,8 +785,7 @@ export const inPageAgent = (config: AgentConfig, env: AgentEnv) => {
       return null;
     }
 
-    const x = Number(input.x);
-    const y = Number(input.y);
+    const { x, y } = input;
 
     if (!Number.isFinite(x) || !Number.isFinite(y)) {
       return null;
@@ -903,11 +973,10 @@ export const inPageAgent = (config: AgentConfig, env: AgentEnv) => {
 
   const run = async () => {
     rafId = env.raf(frame);
-    let game = env.snapshot();
 
-    for (let tick = 0; tick < config.ticks; tick += 1) {
-      if (stopped) {
-        break;
+    const play: (tick: number, game: Json) => Promise<void> = async (tick, game) => {
+      if (tick >= config.ticks || stopped) {
+        return;
       }
 
       const t0 = env.now();
@@ -916,7 +985,7 @@ export const inPageAgent = (config: AgentConfig, env: AgentEnv) => {
       record(decision, decisionMs);
 
       if (stopped) {
-        break;
+        return;
       }
 
       if (pending) {
@@ -949,14 +1018,18 @@ export const inPageAgent = (config: AgentConfig, env: AgentEnv) => {
         reflexStuck: false,
         tick,
       };
-      game = env.snapshot();
 
       if (measured.complete) {
         result.completedAtTick = Math.max(0, tick - 1);
         pending = null;
-        break;
+
+        return;
       }
-    }
+
+      await play(tick + 1, env.snapshot());
+    };
+
+    await play(0, env.snapshot());
 
     if (pending && !stopped) {
       await env.delay(Math.max(config.tickMs, config.finalHoldMs));

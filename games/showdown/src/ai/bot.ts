@@ -301,7 +301,7 @@ export class Bot {
 
     this.reactT = Math.max(0, this.reactT - dt);
     this.shootT -= dt;
-    const target = this.target?.alive ? this.target : null;
+    const target = this.target?.alive === true ? this.target : null;
     const steered = this.steer(dt, target);
     const [ax, az] = this.unstick(dt, steered[0], steered[1]);
     const mag = Math.hypot(ax, az);

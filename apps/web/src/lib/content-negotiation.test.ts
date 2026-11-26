@@ -107,7 +107,10 @@ describe("parseAccept", () => {
 });
 
 const request = (accept?: string) =>
-  new Request("https://vibedgames.com/about", accept ? { headers: { accept } } : undefined);
+  new Request(
+    "https://vibedgames.com/about",
+    accept !== undefined && accept !== "" ? { headers: { accept } } : undefined,
+  );
 
 describe("prefersMarkdown", () => {
   test("true only when markdown actually wins", () => {

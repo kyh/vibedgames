@@ -99,7 +99,7 @@ export class Enemy {
       }
 
       default: {
-        break;
+        return null;
       }
     }
   }
@@ -117,7 +117,7 @@ export class Enemy {
     this.sprite.play(key, true);
     const ms = this.clipMs(suffix);
     const authored = this.sprite.anims.currentAnim?.duration ?? 0;
-    this.sprite.anims.timeScale = ms !== undefined && ms > 0 && authored > 0 ? authored / ms : 1;
+    this.sprite.anims.timeScale = ms !== null && ms > 0 && authored > 0 ? authored / ms : 1;
   }
 
   action() {

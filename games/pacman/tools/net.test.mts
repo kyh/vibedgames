@@ -95,7 +95,7 @@ test("pellet claims are round-scoped and name only pellet cells", () => {
   assert.equal(PELLET_CELLS.length, pellets);
   assert.equal(pelletClaimKey(3, "1,1"), "pellet:3:0");
   assert.equal(pelletClaimKey(3, "0,0"), null);
-  assert.ok(pelletClaimKey(3, "1,1")?.startsWith(PELLET_CLAIM_PREFIX));
+  assert.ok(pelletClaimKey(3, "1,1")?.startsWith(PELLET_CLAIM_PREFIX) === true);
 
   for (const cell of PELLET_CELLS) {
     assert.equal(claimedCell(pelletClaimKey(7, cell) ?? "", 7), cell);

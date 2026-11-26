@@ -58,11 +58,11 @@ export class VehicleFxRig {
   private jetCarry = 0;
   private jetSide = 1;
   private pulseClock = 0;
-  private leftTire = new TireEmissionClock();
-  private rightTire = new TireEmissionClock();
-  private leftContact = new THREE.Vector3();
-  private rightContact = new THREE.Vector3();
-  private throwDirection = { x: 0, y: 0, z: 0 };
+  private readonly leftTire = new TireEmissionClock();
+  private readonly rightTire = new TireEmissionClock();
+  private readonly leftContact = new THREE.Vector3();
+  private readonly rightContact = new THREE.Vector3();
+  private readonly throwDirection = { x: 0, y: 0, z: 0 };
   private prevTier: FxTier = 0;
   private prevBoosting = false;
   private igniteCooldown = 0;
@@ -75,14 +75,14 @@ export class VehicleFxRig {
   private px = 0;
   private py = 0;
   private pz = 0;
-  private forward = new THREE.Vector3();
-  private left = new THREE.Vector3();
-  private up = new THREE.Vector3();
-  private tmpColor = new THREE.Color();
-  private tmpHot = new THREE.Color();
-  private tmpScorch = new THREE.Color();
-  private cone = { x: 0, y: 0, z: -1 };
-  private dir = { speed: 0, x: 0, z: 0 };
+  private readonly forward = new THREE.Vector3();
+  private readonly left = new THREE.Vector3();
+  private readonly up = new THREE.Vector3();
+  private readonly tmpColor = new THREE.Color();
+  private readonly tmpHot = new THREE.Color();
+  private readonly tmpScorch = new THREE.Color();
+  private readonly cone = { x: 0, y: 0, z: -1 };
+  private readonly dir = { speed: 0, x: 0, z: 0 };
   private readonly contacts: RearContacts = {
     grounded: false,
     left: null,

@@ -38,7 +38,7 @@ const handler = async (request: Request) => {
 export const Route = createFileRoute("/api/download")({
   server: {
     handlers: {
-      GET: ({ request }) => handler(request),
+      GET: async ({ request }) => await handler(request),
     },
   },
 });

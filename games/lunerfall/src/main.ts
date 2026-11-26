@@ -10,6 +10,12 @@ import { installTestHooks } from "./sys/diag";
 import { GameScene } from "./scenes/game-scene";
 import { SelectScene } from "./scenes/select-scene";
 
+declare global {
+  interface Window {
+    __game?: Game;
+  }
+}
+
 const config: Types.Core.GameConfig = {
   backgroundColor: "#05070b",
   parent: "game",
@@ -42,7 +48,7 @@ game.canvas.addEventListener("webglcontextlost", () => {
   );
 });
 
-Reflect.set(globalThis, "__game", game);
+window.__game = game;
 
 installTestHooks(game);
 
@@ -75,7 +81,7 @@ setPauseHandlers({
     activeGame()?.setControlsPaused(true);
     pauseOverlay.show();
 
-    if (activeGame()?.isOnline()) {
+    if (activeGame()?.isOnline() === true) {
       return;
     }
 

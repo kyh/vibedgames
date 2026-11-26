@@ -30,8 +30,8 @@ const colorForId = (id: string) => {
 
 export class RemotePacs {
   readonly group = new THREE.Group();
-  private pacs = new Map<string, RemotePac>();
-  private geo = new THREE.SphereGeometry(0.42, 20, 16);
+  pacs = new Map<string, RemotePac>();
+  private readonly geo = new THREE.SphereGeometry(0.42, 20, 16);
   private pass = 0;
 
   constructor(scene: THREE.Scene) {

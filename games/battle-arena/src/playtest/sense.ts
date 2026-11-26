@@ -244,7 +244,7 @@ const senseIncoming: (w: World, me: Unit, enemies: Unit[]) => IncomingSense | nu
 
   for (const g of w.grounds) {
     if (
-      g.telegraph &&
+      g.telegraph === true &&
       g.detonateAt !== undefined &&
       g.team !== me.team &&
       Math.hypot(g.x - me.x, g.y - me.y) <= g.radius + me.radius

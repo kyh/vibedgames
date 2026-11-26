@@ -80,7 +80,7 @@ export class PlayerNet {
   }
 
   pushMyState(now: number) {
-    if (!this.link.myId) {
+    if (this.link.myId === null || this.link.myId === "") {
       return;
     }
 
@@ -122,7 +122,7 @@ export class PlayerNet {
     }
 
     if (event === "player_killed") {
-      if (asWireRecord(payload)?.["killerId"] === this.link.myId) {
+      if (asWireRecord(payload)?.killerId === this.link.myId) {
         this.progress.registerKill(XP.PLAYER_KILL, simNow(), "player");
       }
 

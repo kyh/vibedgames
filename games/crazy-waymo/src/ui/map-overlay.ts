@@ -179,7 +179,9 @@ export class MapOverlay {
       }
     }
 
-    close.addEventListener("click", () => this.close());
+    close.addEventListener("click", () => {
+      this.close();
+    });
     this.canvas.addEventListener("pointerdown", this.onDown);
     this.canvas.addEventListener("pointermove", this.onMove);
     this.canvas.addEventListener("pointerup", this.onUp);
@@ -295,7 +297,7 @@ export class MapOverlay {
     return { x: e.clientX - r.left, y: e.clientY - r.top };
   }
 
-  private onDown = (e: PointerEvent) => {
+  private readonly onDown = (e: PointerEvent) => {
     this.canvas.setPointerCapture(e.pointerId);
     this.pointers.set(e.pointerId, this.local(e));
 
@@ -307,7 +309,7 @@ export class MapOverlay {
     }
   };
 
-  private onMove = (e: PointerEvent) => {
+  private readonly onMove = (e: PointerEvent) => {
     const p = this.local(e);
     const prev = this.pointers.get(e.pointerId);
 
@@ -353,7 +355,7 @@ export class MapOverlay {
     this.hover = null;
   };
 
-  private onUp = (e: PointerEvent) => {
+  private readonly onUp = (e: PointerEvent) => {
     const p = this.local(e);
     const tap = this.pointers.size === 1 && !this.dragged;
     this.pointers.delete(e.pointerId);
@@ -375,12 +377,12 @@ export class MapOverlay {
     this.close();
   };
 
-  private onCancel = (e: PointerEvent) => {
+  private readonly onCancel = (e: PointerEvent) => {
     this.pointers.delete(e.pointerId);
     this.canvas.classList.remove("drag");
   };
 
-  private onWheel = (e: WheelEvent) => {
+  private readonly onWheel = (e: WheelEvent) => {
     e.preventDefault();
     const p = this.local(e);
     this.zoomAt(p.x, p.y, Math.exp(-e.deltaY * 0.0015));
@@ -450,7 +452,7 @@ export class MapOverlay {
       ctx.fill();
       ctx.stroke();
 
-      if (m.ring) {
+      if (m.ring === true) {
         ctx.strokeStyle = m.color;
         ctx.lineWidth = 2.5;
         ctx.beginPath();

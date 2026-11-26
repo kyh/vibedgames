@@ -129,7 +129,7 @@ export class Match implements NetHooks {
     const out: Point[] = [];
 
     for (const p of this.players?.all.values() ?? []) {
-      if (p.pose && this.view?.roster.get(p.id)?.alive) {
+      if (p.pose && this.view?.roster.get(p.id)?.alive === true) {
         out.push(p.pose);
       }
     }
@@ -154,7 +154,10 @@ export class Match implements NetHooks {
 
     this.joining = true;
     const client = await this.connector();
-    client.onEvent = (event, payload, from) => this.onEvent(event, payload, from);
+    client.onEvent = (event, payload, from) => {
+      this.onEvent(event, payload, from);
+    };
+
     this.client = client;
   }
 
@@ -169,14 +172,20 @@ export class Match implements NetHooks {
   attach(game: StrikeforceGame) {
     this.game = game;
     this.players = new Players(game, {
-      joined: (p) => this.feed(`<b>${escapeHtml(p.callsign)}</b> joined`),
-      left: (p) => this.feed(`<b>${escapeHtml(p.callsign)}</b> left`),
+      joined: (p) => {
+        this.feed(`<b>${escapeHtml(p.callsign)}</b> joined`);
+      },
+      left: (p) => {
+        this.feed(`<b>${escapeHtml(p.callsign)}</b> left`);
+      },
     });
     this.spawns = arenaSpawns(game);
     this.bots = new Bots(game, this.spawns);
     this.hud.mount();
     this.radar.mount();
-    game.events.on("weapon:fire", (shot) => this.sendShot(shot));
+    game.events.on("weapon:fire", (shot) => {
+      this.sendShot(shot);
+    });
     this.seenState = game.game.state;
     this.stateListener?.(game.game.state, game);
   }
@@ -229,7 +238,7 @@ export class Match implements NetHooks {
   shoot(origin: Vector3, dir: Vector3, maxDist: number, damage: number) {
     const roster = this.view?.roster;
 
-    if (!this.players || !this.client || !roster?.get(this.me)?.alive || !this.game) {
+    if (!this.players || !this.client || roster?.get(this.me)?.alive !== true || !this.game) {
       return null satisfies ShotHit | null;
     }
 
@@ -323,7 +332,9 @@ export class Match implements NetHooks {
       this.peopleStanding(game, rules),
       (id) => this.players?.all.get(id)?.reported ?? undefined,
       rules.phase === "live",
-      (shot) => this.botShot(client, game, shot),
+      (shot) => {
+        this.botShot(client, game, shot);
+      },
     );
     const raw = this.bots.encode(client.serverNow());
     this.botRaw = raw;
@@ -337,7 +348,7 @@ export class Match implements NetHooks {
     const out: Combatant[] = [];
     const { player } = game;
 
-    if (inMatch(game) && player.alive && rules.roster.get(this.me)?.alive) {
+    if (inMatch(game) && player.alive && rules.roster.get(this.me)?.alive === true) {
       out.push({
         crouch: player.crouching,
         id: this.me,
@@ -347,7 +358,7 @@ export class Match implements NetHooks {
     }
 
     for (const p of this.players?.all.values() ?? []) {
-      if (!isBot(p.id) && p.reported && rules.roster.get(p.id)?.alive) {
+      if (!isBot(p.id) && p.reported && rules.roster.get(p.id)?.alive === true) {
         out.push({ crouch: (p.pose?.crouch ?? 0) > 0.5, id: p.id, moving: true, pos: p.reported });
       }
     }
@@ -366,7 +377,7 @@ export class Match implements NetHooks {
 
     const { rules } = this;
 
-    if (!rules || !shot.victim) {
+    if (!rules || shot.victim === null || shot.victim === "") {
       return;
     }
 
@@ -626,7 +637,7 @@ export class Match implements NetHooks {
     const dmg = nv[0] ?? 0;
     const hp = nv[4] ?? 0;
 
-    if (!game?.player.alive) {
+    if (game?.player.alive !== true) {
       return;
     }
 

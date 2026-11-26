@@ -107,6 +107,31 @@ const feedName = (role: "k" | "v", name: string, isYou: boolean) => {
   return el;
 };
 
+const showResultScreen = (
+  won: boolean,
+  rank: number,
+  total: number,
+  kills: number,
+  cubes: number,
+  verdict?: RunVerdict,
+) => {
+  const title = mustGet("result-title");
+  title.textContent = resultTitle(won, rank);
+  title.classList.toggle("lose", !won);
+  mustGet("result-rank").textContent = `RANK #${rank} of ${total}`;
+  mustGet("result-stats").textContent =
+    `${kills} takedown${kills === 1 ? "" : "s"}  ·  ${cubes} power cube${cubes === 1 ? "" : "s"}`;
+  const best = mustGet("result-best");
+  best.textContent = verdict?.line ?? "";
+  best.hidden = verdict === undefined || verdict.line === undefined || verdict.line === "";
+  best.classList.toggle("record", verdict?.record === true);
+  mustGet("result").classList.add("open");
+};
+
+const hideResultScreen = () => {
+  mustGet("result").classList.remove("open");
+};
+
 export class Hud {
   readonly game: Game;
   readonly root: HTMLElement;
@@ -180,8 +205,12 @@ export class Hud {
       this.game.audio.unlock();
       this.game.startMatch(this.selected);
     });
-    mustGet("again").addEventListener("click", () => this.game.playAgain());
-    mustGet("to-menu").addEventListener("click", () => this.game.toMenu());
+    mustGet("again").addEventListener("click", () => {
+      this.game.playAgain();
+    });
+    mustGet("to-menu").addEventListener("click", () => {
+      this.game.toMenu();
+    });
   }
 
   select(id: BrawlerId) {
@@ -201,32 +230,9 @@ export class Hud {
     this.root.classList.toggle("hidden", open);
   }
 
-  // oxlint-disable-next-line class-methods-use-this -- part of the Hud facade; callers hold the instance, not the class
-  showResult(
-    won: boolean,
-    rank: number,
-    total: number,
-    kills: number,
-    cubes: number,
-    verdict?: RunVerdict,
-  ) {
-    const title = mustGet("result-title");
-    title.textContent = resultTitle(won, rank);
-    title.classList.toggle("lose", !won);
-    mustGet("result-rank").textContent = `RANK #${rank} of ${total}`;
-    mustGet("result-stats").textContent =
-      `${kills} takedown${kills === 1 ? "" : "s"}  ·  ${cubes} power cube${cubes === 1 ? "" : "s"}`;
-    const best = mustGet("result-best");
-    best.textContent = verdict?.line ?? "";
-    best.hidden = !verdict?.line;
-    best.classList.toggle("record", verdict?.record === true);
-    mustGet("result").classList.add("open");
-  }
+  showResult = showResultScreen;
 
-  // oxlint-disable-next-line class-methods-use-this -- instance API, see showResult
-  hideResult() {
-    mustGet("result").classList.remove("open");
-  }
+  hideResult = hideResultScreen;
 
   syncSettings() {
     syncSettingsPanel(this.game);
@@ -237,7 +243,9 @@ export class Hud {
     el.textContent = message;
     el.classList.add("show");
     clearTimeout(this.toastTimer);
-    this.toastTimer = setTimeout(() => el.classList.remove("show"), TOAST_MS);
+    this.toastTimer = setTimeout(() => {
+      el.classList.remove("show");
+    }, TOAST_MS);
   }
 
   reset() {
@@ -287,7 +295,9 @@ export class Hud {
       feed.firstChild?.remove();
     }
 
-    setTimeout(() => line.remove(), FEED_MS);
+    setTimeout(() => {
+      line.remove();
+    }, FEED_MS);
   }
 
   /** One kill-feed line; `*IsYou` highlights the local player's own name. */
@@ -465,14 +475,13 @@ export class Hud {
     const { player, state } = this.game;
     const percent = player ? Math.round((1 - player.evadeCooldown / EVADE.cooldown) * 100) : 0;
 
-    const ready = Boolean(
-      player?.alive &&
+    const ready =
+      player?.alive === true &&
       state === "playing" &&
       !player.airborne &&
       !player.evasion &&
       player.evadeCooldown <= 0 &&
-      !player.evadePending,
-    );
+      !player.evadePending;
 
     const status = `${percent}:${ready}`;
 

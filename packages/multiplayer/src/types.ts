@@ -39,6 +39,11 @@ export interface MultiplayerOptions {
    */
   fallbackMs?: number;
   /**
+   * The frame clock the heartbeat and `fallbackMs` count on. Defaults to the
+   * page's `requestAnimationFrame`; without one the client falls back to timers.
+   */
+  frames?: FrameClock;
+  /**
    * Maximum number of players allowed in a single room instance. When a room
    * is at capacity, additional players overflow into a sibling room
    * (`{room}~2`, `{room}~3`, …) automatically — the SDK transparently
@@ -235,6 +240,12 @@ export const RECONNECT_TOKEN_QUERY_PARAM = "_reconnectToken";
  * after it lapses does the player actually leave the room.
  */
 export const RECONNECT_GRACE_MS = 30_000;
+
+/** A frame clock: `requestAnimationFrame` and `cancelAnimationFrame`, or a stand-in for them. */
+export interface FrameClock {
+  request: (draw: (time: number) => void) => number;
+  cancel: (handle: number) => void;
+}
 
 /**
  * Where this client stands with its room:

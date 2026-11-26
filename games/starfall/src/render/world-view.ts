@@ -634,7 +634,7 @@ export class WorldView {
     g.fillStyle(0xff_ff_ff, 0.85);
     g.fillCircle(b.x, b.y, 5);
 
-    if (b.controllerId && !b.contested && Math.random() < 0.3) {
+    if (b.controllerId !== null && b.controllerId !== "" && !b.contested && Math.random() < 0.3) {
       const c = this.host.playerPos(b.controllerId);
 
       if (c) {

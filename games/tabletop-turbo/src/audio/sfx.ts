@@ -234,7 +234,9 @@ export const sfx = {
   },
   box: () => {
     for (const [i, hz] of [660, 880, 1175].entries()) {
-      window.setTimeout(() => tone(hz, 0.1, 0.1, "square"), i * 70);
+      window.setTimeout(() => {
+        tone(hz, 0.1, 0.1, "square");
+      }, i * 70);
     }
   },
   bump: () => {
@@ -245,7 +247,9 @@ export const sfx = {
   },
   finish: () => {
     for (const [i, hz] of [523, 659, 784, 1047].entries()) {
-      window.setTimeout(() => tone(hz, 0.22, 0.14, "triangle"), i * 110);
+      window.setTimeout(() => {
+        tone(hz, 0.22, 0.14, "triangle");
+      }, i * 110);
     }
   },
   lap: () => {

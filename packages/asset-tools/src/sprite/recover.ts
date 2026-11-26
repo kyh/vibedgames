@@ -83,7 +83,7 @@ export const findComponents = (
   let tail = 0;
 
   const visit = (n: number) => {
-    if (seen[n] || !mask[n]) {
+    if ((seen[n] ?? 0) !== 0 || (mask[n] ?? 0) === 0) {
       return;
     }
 
@@ -96,7 +96,7 @@ export const findComponents = (
     for (let startX = 0; startX < width; startX += 1) {
       const start = startY * width + startX;
 
-      if (seen[start] || !mask[start]) {
+      if ((seen[start] ?? 0) !== 0 || (mask[start] ?? 0) === 0) {
         continue;
       }
 

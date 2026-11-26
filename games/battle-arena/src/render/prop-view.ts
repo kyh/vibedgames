@@ -11,8 +11,8 @@ import type { ModelLibrary } from "./models";
  *  body on break (the shatter itself is the propBreak fx event). */
 export class PropView {
   readonly group = new THREE.Group();
-  private mats: THREE.MeshStandardMaterial[];
-  private baseScale: number;
+  private readonly mats: THREE.MeshStandardMaterial[];
+  private readonly baseScale: number;
   private wasAlive = true;
   private squash = 0;
   private lastHitShown = -1;

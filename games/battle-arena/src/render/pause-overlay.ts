@@ -222,7 +222,9 @@ export const createPauseOverlay = (opts: PauseOverlayOpts = {}) => {
     css: CSS,
     fadeMs: 220,
     mute: opts.mute,
-    render: (root) => renderPanel(root, opts),
+    render: (root) => {
+      renderPanel(root, opts);
+    },
     styleId: "ba-pause-style",
   });
 

@@ -7,6 +7,7 @@ import {
   SALESFORCE_RADIUS,
   setSalesforceNight,
 } from "../src/world/sf-salesforce.ts";
+import { isMesh } from "../src/shared/three-guards.ts";
 
 type Check = (name: string, condition: boolean, detail?: string) => void;
 
@@ -93,7 +94,7 @@ export const checkSalesforce = (check: Check) => {
     "Salesforce translucent crown does not cast an opaque shadow",
     a.children.every(
       (node) =>
-        !(node instanceof THREE.Mesh) ||
+        !isMesh(node) ||
         Array.isArray(node.material) ||
         !node.material.transparent ||
         !node.castShadow,

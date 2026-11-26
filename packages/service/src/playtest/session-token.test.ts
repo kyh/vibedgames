@@ -1,3 +1,4 @@
+import { runInOrder } from "@repo/contract/run-in-order";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
@@ -33,7 +34,14 @@ test("two mints differ, and each verifies only under its own secret", async () =
 test("a tampered token is rejected", async () => {
   const { token } = await mintPlaytestToken(SECRET, "user-1");
   const [prefix, payload, signature] = token.split(".");
-  assert.ok(prefix && payload && signature);
+  assert.ok(
+    prefix !== undefined &&
+      prefix !== "" &&
+      payload !== undefined &&
+      payload !== "" &&
+      signature !== undefined &&
+      signature !== "",
+  );
 
   const forgedPayload = Buffer.from(
     JSON.stringify({ e: Date.now() + 60_000, n: "x", u: "user-2" }),
@@ -46,7 +54,10 @@ test("a tampered token is rejected", async () => {
     null,
   );
 
-  for (const bad of ["", "pt", "pt.a", `${token}.extra`, "nope.payload.sig", `vg_${token}`]) {
-    assert.equal(await verifyPlaytestToken(SECRET, bad), null, JSON.stringify(bad));
-  }
+  await runInOrder(
+    ["", "pt", "pt.a", `${token}.extra`, "nope.payload.sig", `vg_${token}`],
+    async (bad) => {
+      assert.equal(await verifyPlaytestToken(SECRET, bad), null, JSON.stringify(bad));
+    },
+  );
 });

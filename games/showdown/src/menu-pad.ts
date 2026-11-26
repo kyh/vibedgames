@@ -40,7 +40,7 @@ export class MenuPad {
 
     if (
       isOpen(this.result) &&
-      !this.again.hidden &&
+      this.again.hidden === false &&
       (input.padJustPressed("a") || input.padJustPressed("start"))
     ) {
       this.again.click();

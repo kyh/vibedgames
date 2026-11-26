@@ -168,16 +168,12 @@ export class LastStand {
       return;
     }
 
-    if (!this.g) {
-      this.g = this.scene.add.graphics().setDepth(66);
-    }
+    this.g ??= this.scene.add.graphics().setDepth(66);
 
-    if (!this.label) {
-      this.label = this.scene.add
-        .text(0, 0, "", { color: "#34e5c8", fontFamily: "monospace", fontSize: "8px" })
-        .setOrigin(0.5, 1)
-        .setDepth(66);
-    }
+    this.label ??= this.scene.add
+      .text(0, 0, "", { color: "#34e5c8", fontFamily: "monospace", fontSize: "8px" })
+      .setOrigin(0.5, 1)
+      .setDepth(66);
 
     const { x } = downed.sprite;
     const { y } = downed.sprite;

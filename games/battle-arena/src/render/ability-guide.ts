@@ -73,7 +73,9 @@ export class AbilityGuide {
     header.className = "ba-kit-header";
     this.closeButton.type = "button";
     this.closeButton.textContent = "Close";
-    this.closeButton.addEventListener("click", () => this.close());
+    this.closeButton.addEventListener("click", () => {
+      this.close();
+    });
     header.append(this.title, this.closeButton);
     this.tabs.className = "ba-kit-tabs";
     this.copy.className = "ba-kit-copy";
@@ -81,7 +83,9 @@ export class AbilityGuide {
     for (const key of ALL_ABILITY_KEYS) {
       const button = document.createElement("button");
       button.type = "button";
-      button.addEventListener("click", () => this.select(key));
+      button.addEventListener("click", () => {
+        this.select(key);
+      });
       this.buttons.set(key, button);
       this.tabs.append(button);
     }
@@ -89,7 +93,9 @@ export class AbilityGuide {
     this.dialog.append(header, this.tabs, this.copy);
 
     for (const name of ["pointerdown", "pointermove", "pointerup", "pointercancel"]) {
-      this.dialog.addEventListener(name, (event) => event.stopPropagation());
+      this.dialog.addEventListener(name, (event) => {
+        event.stopPropagation();
+      });
     }
 
     this.dialog.addEventListener("cancel", (event) => {
@@ -247,7 +253,7 @@ export class AbilityGuide {
     this.dialog.close();
     this.onChange(false);
 
-    if (this.returnFocus?.isConnected) {
+    if (this.returnFocus?.isConnected === true) {
       this.returnFocus.focus({ preventScroll: true });
     }
   }

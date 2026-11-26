@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { once } from "node:events";
 
+import { WebSocketServer } from "ws";
+
 import { MultiplayerClient } from "../src/client.js";
 import { OFFLINE_PLAYER_ID } from "../src/types.js";
-import type { JsonValue } from "../src/types.js";
+import type { FrameClock, JsonValue } from "../src/types.js";
 
 const UNREACHABLE = "http://127.0.0.1:9";
 
@@ -21,7 +23,9 @@ const offlineClient = (
       claims.push([key, owner]);
       claimEvents.dispatchEvent(new CustomEvent("claim", { detail: [key, owner] }));
     },
-    onEvent: (event, payload, from) => heard.push([event, payload, from]),
+    onEvent: (event, payload, from) => {
+      heard.push([event, payload, from]);
+    },
     party: "vg-server",
     room: "offline-test",
   });
@@ -90,8 +94,9 @@ test("offline claims are granted at once, lapse on their TTL, and release or cle
 
     client.claim("door", { ttlMs: 30 });
     assert.equal(client.ownerOf("door"), OFFLINE_PLAYER_ID);
-    const released = once(claimEvents, "claim");
-    const [lapse] = await released;
+    const { promise: released, resolve: onLapse } = Promise.withResolvers<Event>();
+    claimEvents.addEventListener("claim", onLapse, { once: true });
+    const lapse = await released;
     assert.ok(lapse instanceof CustomEvent);
     assert.deepEqual(lapse.detail, ["door", null]);
     assert.equal(client.ownerOf("door"), null, "the TTL ran out");
@@ -115,23 +120,20 @@ test("offline claims are granted at once, lapse on their TTL, and release or cle
   }
 });
 
-const stubFrames = () => {
-  const host: {
-    requestAnimationFrame?: (draw: (time: number) => void) => number;
-    cancelAnimationFrame?: (handle: number) => void;
-  } = globalThis;
-
+const testFrames = () => {
   const pending = new Map<number, (time: number) => void>();
   let handles = 0;
-  host.requestAnimationFrame = (draw) => {
-    handles += 1;
-    pending.set(handles, draw);
 
-    return handles;
-  };
+  const clock: FrameClock = {
+    cancel: (handle) => {
+      pending.delete(handle);
+    },
+    request: (draw) => {
+      handles += 1;
+      pending.set(handles, draw);
 
-  host.cancelAnimationFrame = (handle) => {
-    pending.delete(handle);
+      return handles;
+    },
   };
 
   const run = (from: number, to: number) => {
@@ -145,25 +147,21 @@ const stubFrames = () => {
     }
   };
 
-  const restore = () => {
-    delete host.requestAnimationFrame;
-    delete host.cancelAnimationFrame;
-  };
-
-  return { pending, restore, run };
+  return { clock, pending, run };
 };
 
-const dialing = () =>
+const dialing = (frames: FrameClock) =>
   new MultiplayerClient({
     fallbackMs: 4000,
+    frames,
     host: UNREACHABLE,
     party: "vg-server",
     room: "fallback-test",
   });
 
 test("fallbackMs counts rendered frames: no room in time, and the client goes offline", () => {
-  const frames = stubFrames();
-  const client = dialing();
+  const frames = testFrames();
+  const client = dialing(frames.clock);
   let notified = 0;
   client.subscribe(() => {
     notified += 1;
@@ -182,29 +180,57 @@ test("fallbackMs counts rendered frames: no room in time, and the client goes of
     assert.equal(frames.pending.size, 0, "the heartbeat stopped");
   } finally {
     client.destroy();
-    frames.restore();
   }
 });
 
-test("a client a room admitted never falls back, even redirected to an overflow room", () => {
-  const frames = stubFrames();
-  const client = dialing();
+test("a client a room admitted never falls back, even redirected to an overflow room", async () => {
+  const server = new WebSocketServer({ host: "127.0.0.1", port: 0 });
+  await once(server, "listening");
+  const address = server.address();
+  assert.ok(address instanceof Object, "the server listens on a port");
+  const sync = { claims: {}, hostId: "host", players: {}, state: {}, tick: null, time: 0 };
+  let dials = 0;
+
+  server.on("connection", (socket) => {
+    dials += 1;
+
+    if (dials === 1) {
+      socket.send(JSON.stringify({ data: sync, type: "sync" }));
+      socket.send(
+        JSON.stringify({ data: { capacity: 2, room: "fallback-test~2" }, type: "room_full" }),
+      );
+    }
+  });
+
+  const frames = testFrames();
+
+  const client = new MultiplayerClient({
+    fallbackMs: 4000,
+    frames: frames.clock,
+    host: `127.0.0.1:${address.port}`,
+    party: "vg-server",
+    room: "fallback-test",
+  });
+
+  const statuses: string[] = [];
+  const reconnecting = new EventTarget();
+
+  client.subscribe(() => {
+    statuses.push(client.connectionStatus);
+
+    if (client.connectionStatus === "reconnecting") {
+      reconnecting.dispatchEvent(new Event("reconnecting"));
+    }
+  });
 
   try {
-    // oxlint-disable-next-line anti-slop/no-reflect-get -- a test feeding server messages to the SDK's private handler, with no server to send them
-    const deliver: (event: { data: string }) => void = Reflect.get(client, "handleMessage");
-    const sync = { claims: {}, hostId: "host", players: {}, state: {}, tick: null, time: 0 };
-    deliver({ data: JSON.stringify({ data: sync, type: "sync" }) });
-    assert.equal(client.connectionStatus, "connected");
-    deliver({
-      data: JSON.stringify({ data: { capacity: 2, room: "fallback-test~2" }, type: "room_full" }),
-    });
-    assert.equal(client.connectionStatus, "reconnecting", "admitted before, so not connecting");
+    await once(reconnecting, "reconnecting");
+    assert.ok(statuses.includes("connected"), "the room admitted it first");
     frames.run(0, 10_000);
     assert.equal(client.connectionStatus, "reconnecting", "and it never falls back");
   } finally {
     client.destroy();
-    frames.restore();
+    server.close();
   }
 });
 

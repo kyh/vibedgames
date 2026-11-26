@@ -35,8 +35,13 @@ export const scoreLeadIn = (beat: BattleBeat) => {
       return 0.65;
     }
 
-    default: {
+    case "aftermath": {
       return 1.1;
+    }
+
+    default: {
+      const unhandled: never = beat;
+      throw new Error("unhandled case", { cause: unhandled });
     }
   }
 };
@@ -89,7 +94,7 @@ export const battlePhrase: (mode: MusicScore, beat: BattleBeat, step: number) =>
       };
     }
 
-    default: {
+    case "aftermath": {
       return step === 0
         ? {
             notes: [
@@ -99,6 +104,11 @@ export const battlePhrase: (mode: MusicScore, beat: BattleBeat, step: number) =>
             waitSeconds: 12,
           }
         : { notes: [], waitSeconds: 12 };
+    }
+
+    default: {
+      const unhandled: never = beat;
+      throw new Error("unhandled case", { cause: unhandled });
     }
   }
 };

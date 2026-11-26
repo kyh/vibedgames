@@ -62,10 +62,10 @@ void main() {
 
 export class ContactShadow {
   readonly mesh: THREE.Mesh;
-  private uBodyK = { value: SHADOW_BODY };
-  private uBodyRadii = { value: new THREE.Vector2(1, 1) };
-  private uHalf = { value: new THREE.Vector2(1, 1) };
-  private uLobe = {
+  private readonly uBodyK = { value: SHADOW_BODY };
+  private readonly uBodyRadii = { value: new THREE.Vector2(1, 1) };
+  private readonly uHalf = { value: new THREE.Vector2(1, 1) };
+  private readonly uLobe = {
     value: [new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4()],
   };
   private travels = [0, 0, 0, 0];

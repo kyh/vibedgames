@@ -1,11 +1,12 @@
 import * as THREE from "three";
+import { isMesh } from "./mesh";
 
 /** Clone every mesh material under `root` per-instance (optionally tinting),
  *  returning the standard-material list for emissive/opacity writes. */
 export const cloneMats = (root: THREE.Object3D, tint: THREE.Color | null) => {
   const out: THREE.MeshStandardMaterial[] = [];
   root.traverse((o) => {
-    if (!(o instanceof THREE.Mesh)) {
+    if (!isMesh(o)) {
       return;
     }
 

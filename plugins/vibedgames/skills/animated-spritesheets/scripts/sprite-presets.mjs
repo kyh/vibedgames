@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @ts-check
 import {
   ACTIONS,
   actionFacts,
@@ -10,38 +11,8 @@ import {
   getString,
   main,
   parseArgs,
-  PROFILES,
   resolveProfile,
 } from "./_lib/asset-tools.mjs";
-
-const isPlainObject = (v) => Object.prototype.toString.call(v) === "[object Object]";
-const isString = (v) => String(v) === v;
-
-const emit = (value, asJson) => {
-  if (asJson) {
-    console.log(JSON.stringify(value, null, 2));
-
-    return;
-  }
-
-  if (Array.isArray(value)) {
-    for (const row of value) {
-      console.log(isString(row) ? row : JSON.stringify(row));
-    }
-
-    return;
-  }
-
-  if (isPlainObject(value)) {
-    for (const [key, nested] of Object.entries(value)) {
-      console.log(`${key}: ${formatPythonValue(nested)}`);
-    }
-
-    return;
-  }
-
-  console.log(String(value));
-};
 
 main(() => {
   const args = parseArgs(process.argv.slice(2), {
@@ -51,26 +22,43 @@ main(() => {
 
   const asJson = getFlag(args, "json");
 
+  const emit = (json = "", lines = [""]) => {
+    if (asJson) {
+      console.log(json);
+
+      return;
+    }
+
+    for (const line of lines) {
+      console.log(line);
+    }
+  };
+
   if (getFlag(args, "list-profiles")) {
+    const rows = canonicalProfiles().map((key) => {
+      const entry = resolveProfile(key);
+
+      return {
+        actions: [...entry.actions],
+        description: entry.description,
+        direction: entry.direction,
+        profile: entry.profile,
+      };
+    });
+
     emit(
-      canonicalProfiles().map((key) => ({
-        actions: [...PROFILES[key].actions],
-        description: PROFILES[key].description,
-        direction: PROFILES[key].direction,
-        profile: PROFILES[key].profile,
-      })),
-      asJson,
+      JSON.stringify(rows, null, 2),
+      rows.map((row) => JSON.stringify(row)),
     );
 
     return;
   }
 
-  const profileId = getString(args, "profile");
-  const profile = profileId ? resolveProfile(profileId) : null;
+  const profileId = getString(args, "profile") ?? "";
+  const profile = profileId === "" ? null : resolveProfile(profileId);
+  const actionId = getString(args, "action") ?? "";
 
-  const actionId = getString(args, "action");
-
-  if (actionId) {
+  if (actionId !== "") {
     const facts = actionFacts(actionId, profile);
 
     if (getString(args, "coerce-frames") !== undefined) {
@@ -79,21 +67,26 @@ main(() => {
       facts.requestedFrames = requested;
       facts.coercedFrames = frames;
 
-      if (warning) {
+      if (warning !== null && warning !== "") {
         facts.frameWarning = warning;
       }
     }
 
-    emit(facts, asJson);
+    emit(
+      JSON.stringify(facts, null, 2),
+      Object.entries({ ...facts }).map(([key, nested]) => `${key}: ${formatPythonValue(nested)}`),
+    );
 
     return;
   }
 
   if (getFlag(args, "list")) {
-    const ids = profile ? profile.actions : Object.keys(ACTIONS);
+    const ids = profile === null ? Object.keys(ACTIONS) : profile.actions;
+    const rows = ids.map((id) => actionFacts(id, profile));
+
     emit(
-      ids.map((id) => actionFacts(id, profile)),
-      asJson,
+      JSON.stringify(rows, null, 2),
+      rows.map((row) => JSON.stringify(row)),
     );
 
     return;

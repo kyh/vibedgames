@@ -45,7 +45,7 @@ export interface Binary {
 export const resolveBinary = () => {
   const override = process.env.VG_AGENT_BROWSER_BIN;
 
-  if (override) {
+  if (override !== undefined && override !== "") {
     return existsSync(override) ? { bin: override, version: UNKNOWN_VERSION } : null;
   }
 
@@ -307,7 +307,7 @@ export const withScopedSession = (args: string[], sessionId: () => string) => {
     return args;
   }
 
-  if (process.env.AGENT_BROWSER_SESSION) {
+  if (process.env.AGENT_BROWSER_SESSION !== undefined && process.env.AGENT_BROWSER_SESSION !== "") {
     return args;
   }
 

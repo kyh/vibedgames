@@ -462,7 +462,12 @@ export const pauseOverlay = createPauseShell({
   css: CSS,
   fadeMs: 220,
   modalOpen: () => helpModal !== null,
-  mute: { get: () => Sound.muted, set: (next) => Sound.setMuted(next) },
+  mute: {
+    get: () => Sound.muted,
+    set: (next) => {
+      Sound.setMuted(next);
+    },
+  },
   onHide: closeHelp,
   render: renderSign,
   styleId: STYLE_ID,

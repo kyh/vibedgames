@@ -80,13 +80,15 @@ export class MenuScene extends Scene {
 
     if (veil) {
       veil.classList.add("hidden");
-      setTimeout(() => veil.remove(), 600);
+      setTimeout(() => {
+        veil.remove();
+      }, 600);
     }
 
     const params = new URLSearchParams(window.location.search);
     const heroParam = params.get("hero");
 
-    if (heroParam && HEROES.some((h) => h.id === heroParam)) {
+    if (heroParam !== null && heroParam !== "" && HEROES.some((h) => h.id === heroParam)) {
       this.selected = heroParam;
     }
 
@@ -266,9 +268,15 @@ export class MenuScene extends Scene {
           })
           .setOrigin(0.5, 0),
       );
-      panel.on("pointerover", () => this.preview(h.id));
-      panel.on("pointerout", () => this.preview(this.selected));
-      panel.on("pointerdown", () => this.select(h.id));
+      panel.on("pointerover", () => {
+        this.preview(h.id);
+      });
+      panel.on("pointerout", () => {
+        this.preview(this.selected);
+      });
+      panel.on("pointerdown", () => {
+        this.select(h.id);
+      });
       this.cards.push({ id: h.id, ring });
     }
 
@@ -326,7 +334,9 @@ export class MenuScene extends Scene {
 
       const action = { button: b, color, label: t, online, ring };
       this.actions.push(action);
-      b.on("pointerdown", () => this.beginMatch(action));
+      b.on("pointerdown", () => {
+        this.beginMatch(action);
+      });
     };
 
     if (isOfflineRequested()) {
@@ -340,7 +350,7 @@ export class MenuScene extends Scene {
     return btnY;
   }
 
-  private onMenuKeyDown(event: KeyboardEvent) {
+  private readonly onMenuKeyDown = (event: KeyboardEvent) => {
     if (this.starting) {
       return;
     }
@@ -358,13 +368,13 @@ export class MenuScene extends Scene {
         this.confirmFocus();
       }
     }
-  }
+  };
 
-  private onMenuKeyUp(event: KeyboardEvent) {
+  private readonly onMenuKeyUp = (event: KeyboardEvent) => {
     if (event.key === "Enter") {
       this.keyboardConfirmArmed = true;
     }
-  }
+  };
 
   override update() {
     if (this.starting || !this.pad) {
@@ -713,10 +723,10 @@ export class MenuScene extends Scene {
     this.detailLimitY = container.y + panelTop - 6;
   }
 
-  private queueRelayout() {
+  private readonly queueRelayout = () => {
     this.relayout?.remove();
     this.relayout = this.time.delayedCall(150, () => this.scene.restart());
-  }
+  };
 
   private preview(id: string) {
     const h = HEROES.find((x) => x.id === id);

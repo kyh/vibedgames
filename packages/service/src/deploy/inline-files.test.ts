@@ -1,5 +1,8 @@
+import { runInOrder } from "@repo/contract/run-in-order";
 import assert from "node:assert/strict";
-import { afterEach, describe, test } from "node:test";
+import { after, afterEach, before, describe, test } from "node:test";
+import { http, HttpResponse } from "msw";
+import { setupServer } from "msw/node";
 import { uploadInput } from "@repo/contract/deploy/deploy-schema";
 
 import { decodeInlineFiles, MAX_FETCHED_BYTES, sha256Hex } from "./inline-files";
@@ -42,15 +45,22 @@ describe("decodeInlineFiles", () => {
   });
 });
 
-const serve = (body: Uint8Array, finalUrl?: string) => {
-  const asked: string[] = [];
-  globalThis.fetch = (input) => {
-    asked.push(String(input));
-    const response = new Response(body);
-    Object.defineProperty(response, "url", { value: finalUrl ?? String(input) });
+const network = setupServer();
 
-    return Promise.resolve(response);
-  };
+const serve = (body: Uint8Array<ArrayBuffer>, redirectTo?: string) => {
+  const asked: string[] = [];
+
+  network.use(
+    http.all("*", ({ request }) => {
+      asked.push(request.url);
+
+      if (redirectTo !== undefined && request.url !== redirectTo) {
+        return HttpResponse.redirect(redirectTo, 302);
+      }
+
+      return HttpResponse.arrayBuffer(body.buffer);
+    }),
+  );
 
   return asked;
 };
@@ -59,9 +69,16 @@ const urlFile = (content: string, path = "art/hero.png") =>
   parse([{ content, encoding: "url", path }]);
 
 describe("decodeInlineFiles with url files", () => {
-  const realFetch = globalThis.fetch;
+  before(() => {
+    network.listen({ onUnhandledRequest: "error" });
+  });
+
   afterEach(() => {
-    globalThis.fetch = realFetch;
+    network.resetHandlers();
+  });
+
+  after(() => {
+    network.close();
   });
 
   test("fetches a generated asset and types it by its path", async () => {
@@ -73,17 +90,20 @@ describe("decodeInlineFiles with url files", () => {
   });
 
   test("refuses any other host before fetching anything", async () => {
-    for (const url of [
-      "https://example.com/hero.png",
-      "http://v3.fal.media/files/a/hero.png",
-      "https://fal.media.example.com/hero.png",
-      "https://v3.fal.media@example.com/hero.png",
-      "not a url",
-    ]) {
-      const asked = serve(new Uint8Array([1]));
-      await assert.rejects(decodeInlineFiles(urlFile(url)), isBadRequest, url);
-      assert.deepStrictEqual(asked, [], url);
-    }
+    await runInOrder(
+      [
+        "https://example.com/hero.png",
+        "http://v3.fal.media/files/a/hero.png",
+        "https://fal.media.example.com/hero.png",
+        "https://v3.fal.media@example.com/hero.png",
+        "not a url",
+      ],
+      async (url) => {
+        const asked = serve(new Uint8Array([1]));
+        await assert.rejects(decodeInlineFiles(urlFile(url)), isBadRequest, url);
+        assert.deepStrictEqual(asked, [], url);
+      },
+    );
   });
 
   test("refuses a redirect off the media hosts", async () => {

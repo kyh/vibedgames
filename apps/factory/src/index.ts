@@ -124,7 +124,7 @@ const parseCodexRoles = (raw: string) => {
 const requireSlug = (raw: string) => {
   const slug = normalizeSlug(raw);
 
-  if (!slug) {
+  if (slug === null || slug === "") {
     consola.error(
       `Invalid slug: ${raw}\n  Use lowercase letters, digits, and hyphens (e.g. "asteroid-belt").`,
     );
@@ -133,6 +133,8 @@ const requireSlug = (raw: string) => {
 
   return slug;
 };
+
+const isGiven = (value: string | undefined): value is string => value !== undefined && value !== "";
 
 const toInt = (v: string | undefined, fallback: number, min = 0) => {
   if (v === undefined) {
@@ -261,7 +263,7 @@ const startCommand = defineCommand({
     const codexRoles = parseCodexRoles(args["codex-roles"]);
 
     const knobs = {
-      autoDeploy: Boolean(args["auto-deploy"]),
+      autoDeploy: args["auto-deploy"],
       checkpointWaitMs: toInt(args["checkpoint-wait"], 120) * 1000,
       codexModel: args["codex-model"].trim() || defaultModelFor("codex"),
       codexRoles,
@@ -274,32 +276,30 @@ const startCommand = defineCommand({
       maxSessionMs: toInt(args["session-timeout"], DEFAULT_SESSION_MINUTES) * 60_000,
       maxTurns: toInt(args["max-turns"], DEFAULT_MAX_TURNS, 1),
       model: args.model.trim() || defaultModelFor(runner),
-      noShip: Boolean(args["skip-ship"]),
+      noShip: args["skip-ship"],
       runner,
       skipPermissions: !args.guarded,
     };
 
-    const interactive =
-      !args["no-tui"] && process.stdout.isTTY === true && process.stdin.isTTY === true;
+    const interactive = !args["no-tui"] && process.stdout.isTTY && process.stdin.isTTY;
+    const explicit = isGiven(args.slug) ? requireSlug(args.slug) : undefined;
 
     if (interactive) {
-      const slug = args.slug ? requireSlug(args.slug) : undefined;
-      runTui({ ...knobs, dir: args.dir, slug });
+      runTui({ ...knobs, dir: args.dir, slug: explicit });
 
       return;
     }
 
-    const explicit = args.slug ? requireSlug(args.slug) : undefined;
     let slug = deriveSlug({ dir: args.dir, idea: knobs.idea || undefined, slug: explicit });
 
-    if (!slug) {
+    if (slug === null || slug === "") {
       consola.error(
         'Nothing identifies the game: pass a slug, --dir <folder>, or --idea "your one-line idea".',
       );
       process.exit(1);
     }
 
-    if (!explicit && !args.dir) {
+    if (!isGiven(explicit) && !isGiven(args.dir)) {
       slug = availableSlug(slug);
     }
 
@@ -307,7 +307,7 @@ const startCommand = defineCommand({
     const bb = blackboard(workspace);
     const fresh = !existsSync(bb.state);
 
-    if (fresh && !knobs.idea && !context && !hasExistingProject(workspace)) {
+    if (fresh && !knobs.idea && !isGiven(context) && !hasExistingProject(workspace)) {
       const contextAttempted = Boolean((args.context ?? "").trim());
       consola.error(
         contextAttempted
@@ -385,7 +385,9 @@ const statusCommand = defineCommand({
         `Cycles:     ${state.cycle}`,
         `Iterations: ${state.iteration}`,
         `Shipped:    ${state.shipped ? "yes" : "no"}`,
-        state.deployUrl ? `Live:       ${state.deployUrl}` : `Live:       —`,
+        state.deployUrl !== null && state.deployUrl !== ""
+          ? `Live:       ${state.deployUrl}`
+          : `Live:       —`,
         `Approval:   ${approvalPending(bb, state.lastApproval) ? "pending — deploys the current build shortly" : "none (run `pnpm approve <slug>` to publish)"}`,
         `Spend:      ~$${state.totalCostUsd.toFixed(2)}`,
         `Updated:    ${state.updatedAt}`,
@@ -436,4 +438,4 @@ const main = defineCommand({
   },
 });
 
-runMain(main);
+await runMain(main);

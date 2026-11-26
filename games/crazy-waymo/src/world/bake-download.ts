@@ -13,6 +13,7 @@ import type {
 } from "./world-bin";
 import { packRest, packSolids, packWorld, serializeWorldBin } from "./world-bin-pack";
 import type { Solid } from "../shared/types";
+import { inOrder } from "../shared/paced";
 
 const NX = Math.ceil(WORLD_W / CHUNK);
 const NZ = Math.ceil(WORLD_H / CHUNK);
@@ -92,7 +93,9 @@ export const downloadWorldArtifacts = async (
 
   const refs: WorldTileRef[] = [];
 
-  for (const d of [...drafts.values()].toSorted((a, b) => a.iz - b.iz || a.ix - b.ix)) {
+  for await (const d of inOrder(
+    [...drafts.values()].toSorted((a, b) => a.iz - b.iz || a.ix - b.ix),
+  )) {
     const tile: PackedWorldTile = {
       cx: (d.ix + 0.5) * CHUNK - WORLD_HALF_X,
       cz: (d.iz + 0.5) * CHUNK - WORLD_HALF_Z,
@@ -141,6 +144,6 @@ export const downloadWorldArtifacts = async (
   a.download = "world-bake.bin";
   a.click();
   console.log(
-    "[bake] artifacts downloaded — tools/bake-world.mjs installs them into public/world/",
+    "[bake] artifacts downloaded — tools/bake-world.mts installs them into public/world/",
   );
 };

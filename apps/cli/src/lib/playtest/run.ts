@@ -317,7 +317,7 @@ export const runInPage = async (browser: GameBrowser, opts: RunOptions, session:
   browser.inject(agentSource(agentConfig(opts, session)));
   const deadline = Date.now() + budgetMs(opts);
 
-  for (;;) {
+  const waitForAgent: () => Promise<void> = async () => {
     const status = browser.agentStatus();
 
     if (!status) {
@@ -325,7 +325,7 @@ export const runInPage = async (browser: GameBrowser, opts: RunOptions, session:
     }
 
     if (status.done) {
-      break;
+      return;
     }
 
     if (Date.now() > deadline) {
@@ -336,7 +336,10 @@ export const runInPage = async (browser: GameBrowser, opts: RunOptions, session:
     }
 
     await delay(POLL_MS);
-  }
+    await waitForAgent();
+  };
+
+  await waitForAgent();
 
   return resultFromAgent(browser.agentResult(), motionEpsilon(opts.controls));
 };

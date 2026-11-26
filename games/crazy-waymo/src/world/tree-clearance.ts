@@ -74,7 +74,7 @@ const weldRoot = (parents: readonly number[], start: number) => {
 const weldMeshWood = (set: WeldSet, mesh: THREE.Mesh, kind: TreeSourceKind) => {
   mesh.updateWorldMatrix(true, false);
   const positions = mesh.geometry.getAttribute("position");
-  const uv = mesh.geometry.getAttribute("uv");
+  const { uv } = mesh.geometry.attributes;
 
   if (!uv) {
     return;

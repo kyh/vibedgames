@@ -94,7 +94,7 @@ export class Prediction {
     this.clearing = false;
     advanceTick(body, bits);
 
-    if (stomps?.(body)) {
+    if (stomps?.(body) === true) {
       body.applyEdge({ kind: "bounce" });
       bits += STOMP;
     }
@@ -179,7 +179,9 @@ export class Prediction {
       });
       this.ticks.length = 0;
     } else {
-      body.silently(() => this.rewrite(body, from, ordered));
+      body.silently(() => {
+        this.rewrite(body, from, ordered);
+      });
 
       for (const t of this.ticks) {
         this.reconciler.step(t.state.x, t.state.y, 0, t.seq * STEP_MS);

@@ -1,3 +1,4 @@
+import { parseJson } from "@repo/contract/json";
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -41,13 +42,13 @@ const npmGlobalRoot = () => {
 const findEntry = () => {
   const override = process.env.VG_FACTORY_BIN;
 
-  if (override) {
+  if (override !== undefined && override !== "") {
     return existsSync(override) ? override : null;
   }
 
   const root = npmGlobalRoot();
 
-  if (!root) {
+  if (root === null || root === "") {
     return null;
   }
 
@@ -60,12 +61,12 @@ const findEntry = () => {
 export const installedFactoryVersion = () => {
   const root = npmGlobalRoot();
 
-  if (!root) {
+  if (root === null || root === "") {
     return null;
   }
 
   try {
-    const manifest: JsonValue = JSON.parse(
+    const manifest: JsonValue = parseJson(
       readFileSync(path.join(root, FACTORY_PACKAGE, "package.json"), "utf-8"),
     );
 
@@ -75,14 +76,14 @@ export const installedFactoryVersion = () => {
   }
 };
 
-export const updateFactory: () => Promise<RunResult> = () =>
-  run("npm", ["install", "-g", `${FACTORY_PACKAGE}@latest`]);
+export const updateFactory: () => Promise<RunResult> = async () =>
+  await run("npm", ["install", "-g", `${FACTORY_PACKAGE}@latest`]);
 
 /** Resolve (installing on first use) and exec the factory. Never returns. */
 export const runFactory = (args: string[]): never => {
   let entry = findEntry();
 
-  if (!entry) {
+  if (entry === null || entry === "") {
     consola.start(`Installing the factory (${FACTORY_PACKAGE})…`);
     const install = spawnSync("npm", ["install", "-g", FACTORY_PACKAGE], { stdio: "inherit" });
 
@@ -95,7 +96,7 @@ export const runFactory = (args: string[]): never => {
 
     entry = findEntry();
 
-    if (!entry) {
+    if (entry === null || entry === "") {
       consola.error(
         `Installed ${FACTORY_PACKAGE} but couldn't find its entry under npm's global root. Check \`npm root -g\`.`,
       );

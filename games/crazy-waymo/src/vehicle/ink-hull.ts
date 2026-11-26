@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { mergeVertices } from "three/addons/utils/BufferGeometryUtils.js";
+import { isMesh } from "../shared/three-guards";
 
 export const HULL_PX_HERO = 3.2;
 const HULL_PX_FLEET = 2.2;
@@ -15,7 +16,9 @@ const res = new THREE.Vector2(1920, 1080);
 const parametricKey = (geo: THREE.BufferGeometry) => {
   const params: unknown = "parameters" in geo ? geo.parameters : null;
 
-  return params && geo.type !== "BufferGeometry" ? `${geo.type}:${JSON.stringify(params)}` : null;
+  return params !== null && params !== undefined && geo.type !== "BufferGeometry"
+    ? `${geo.type}:${JSON.stringify(params)}`
+    : null;
 };
 
 const boundaryRatio = (geo: THREE.BufferGeometry) => {
@@ -55,7 +58,9 @@ const boundaryRatio = (geo: THREE.BufferGeometry) => {
 
 const hullOf = (geo: THREE.BufferGeometry) => {
   const key = parametricKey(geo);
-  const cached = hullGeometry.get(geo) ?? (key ? parametricHulls.get(key) : undefined);
+
+  const cached =
+    hullGeometry.get(geo) ?? (key !== null && key !== "" ? parametricHulls.get(key) : undefined);
 
   if (cached) {
     return cached;
@@ -83,7 +88,7 @@ const hullOf = (geo: THREE.BufferGeometry) => {
   welded.computeBoundingSphere();
   hullGeometry.set(geo, welded);
 
-  if (key) {
+  if (key !== null && key !== "") {
     parametricHulls.set(key, welded);
   }
 
@@ -182,7 +187,7 @@ export const addInkHulls = (root: THREE.Object3D, widthPx = HULL_PX_HERO) => {
   const targets: THREE.Mesh[] = [];
   root.traverse((c) => {
     if (
-      c instanceof THREE.Mesh &&
+      isMesh(c) &&
       c.name !== HULL_NAME &&
       !(c instanceof THREE.SkinnedMesh) &&
       !Array.isArray(c.material) &&

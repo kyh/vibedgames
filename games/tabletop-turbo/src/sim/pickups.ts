@@ -107,7 +107,7 @@ export class Field {
       }
 
       for (const box of this.boxes) {
-        if (!kart.holding && time >= box.until && near(box, kart, PICKUP_RADIUS)) {
+        if (kart.holding !== true && time >= box.until && near(box, kart, PICKUP_RADIUS)) {
           box.until = time + BOX_RESPAWN;
           of(kart.key).box = true;
         }

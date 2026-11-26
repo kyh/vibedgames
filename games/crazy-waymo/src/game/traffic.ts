@@ -14,6 +14,7 @@ import type { DistrictChar } from "../world/sf-map";
 import { createHullBatch, placeHulls } from "../vehicle/ink-hull";
 import { BODY_LIFT, TrafficCar } from "./traffic-car";
 import type { FleetPart, VehicleKind } from "./traffic-car";
+import { isMesh } from "../shared/three-guards";
 
 const RECYCLE_DIST = ROAD_TILE * 20;
 const RESPAWN_MIN = ROAD_TILE * 6;
@@ -120,16 +121,16 @@ export interface TrafficOpts {
 export class Traffic {
   readonly group = new THREE.Group();
   readonly cars: TrafficCar[] = [];
-  private rng: Rng;
+  private readonly rng: Rng;
   private simTime = 0;
   private readonly nodeClaims = new Map<number, { car: TrafficCar; t: number }>();
   /** Traffic sim clock — feeds the signal-lamp FX so lights match behavior. */
   get time() {
     return this.simTime;
   }
-  private city: CityModel;
-  private network: RoadNetwork;
-  private physics: PhysicsWorld | null;
+  private readonly city: CityModel;
+  private readonly network: RoadNetwork;
+  private readonly physics: PhysicsWorld | null;
   private readonly fleetBatches: THREE.BatchedMesh[] = [];
   private readonly weightedEdges: NetEdge[] = [];
   private activeCount = -1;
@@ -248,11 +249,7 @@ export class Traffic {
       const node = cache.instance(modelUrl("cars", model));
       node.updateMatrixWorld(true);
       node.traverse((c) => {
-        if (
-          c instanceof THREE.Mesh &&
-          c.geometry instanceof THREE.BufferGeometry &&
-          !Array.isArray(c.material)
-        ) {
+        if (isMesh(c) && c.geometry instanceof THREE.BufferGeometry && !Array.isArray(c.material)) {
           parts?.push({ geo: c.geometry, local: c.matrixWorld.clone(), mat: c.material });
         }
       });

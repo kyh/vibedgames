@@ -36,7 +36,7 @@ if (!webgl.ok) {
 
 const params = new URLSearchParams(location.search);
 const auto = params.get("auto");
-const autoKit = auto && isBrawlerId(auto) ? auto : undefined;
+const autoKit = auto !== null && auto !== "" && isBrawlerId(auto) ? auto : undefined;
 
 const updateLoading = (progress: number, label: string) => {
   const percent = Math.round(Math.max(0, Math.min(1, progress)) * 100);
@@ -89,7 +89,12 @@ launch();
 
 const pauseOverlay = createShowdownPauseOverlay({
   isLive: () => game.mode !== "solo",
-  mute: { get: () => game.audio.muted, set: (muted) => game.setMuted(muted) },
+  mute: {
+    get: () => game.audio.muted,
+    set: (muted) => {
+      game.setMuted(muted);
+    },
+  },
 });
 
 setPauseHandlers({

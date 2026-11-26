@@ -48,7 +48,7 @@ const isAbilityKey = (v: JsonValue | undefined): v is AbilityKey =>
   v === "Q" || v === "W" || v === "E" || v === "R";
 
 const parseOrder: (v: JsonValue | undefined) => Order | null = (v) => {
-  if (!isJsonObject(v)) {
+  if (!isJsonObject(v) || !isJsonString(v.type)) {
     return null;
   }
 
@@ -133,6 +133,10 @@ const isSeq = (v: JsonValue | undefined): v is number =>
   isJsonNumber(v) && Number.isSafeInteger(v) && v >= 0;
 
 const parseIntentBody: (v: JsonObject) => Intent | null = (v) => {
+  if (!isJsonString(v.kind)) {
+    return null;
+  }
+
   switch (v.kind) {
     case "join": {
       return isJsonString(v.defId) ? { defId: v.defId, kind: "join" } : null;

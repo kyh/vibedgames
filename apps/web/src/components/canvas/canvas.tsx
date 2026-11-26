@@ -37,11 +37,11 @@ export const Canvas = () => {
           activeSlug={game}
           mode={mode}
           onPreviewClick={(g) => {
-            trigger("selection");
+            void trigger("selection");
             void navigate({ search: { game: g.slug }, to: "/" });
           }}
           onSwipe={(g) => {
-            trigger("selection");
+            void trigger("selection");
             void navigate({ replace: true, search: { game: g.slug }, to: "/discover" });
           }}
         />

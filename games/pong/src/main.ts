@@ -123,12 +123,22 @@ window.addEventListener("keydown", (e) => {
 const handCamera = isPlayables()
   ? null
   : createHandCamera(
-      (x) => game.handleHandPosition(x),
-      () => game.handleGestureConfirm(),
+      (x) => {
+        game.handleHandPosition(x);
+      },
+      () => {
+        game.handleGestureConfirm();
+      },
     );
 
 if (handCamera !== null && !COARSE_INPUT && !isPlaytestRequested() && !navigator.webdriver) {
-  window.addEventListener("load", () => handCamera.enable(), { once: true });
+  window.addEventListener(
+    "load",
+    () => {
+      handCamera.enable();
+    },
+    { once: true },
+  );
 }
 
 watchSystemPause((paused) => {
@@ -163,7 +173,7 @@ renderer.setAnimationLoop((time) => {
   markGameReady();
 });
 
-type PongDiagnostics = ReturnType<GameScene["diagnostics"]> & {
+export type PongDiagnostics = ReturnType<GameScene["diagnostics"]> & {
   renderer: { calls: number; triangles: number };
 };
 
@@ -183,9 +193,19 @@ publishDiagnostics(() => ({
 
 if (import.meta.env.DEV || isPlaytestRequested()) {
   publishTestHooks({
-    seed: (seed) => game.seed(seed),
-    setPausedForScreenshot: (paused) => (paused ? game.requestPause() : game.requestResume()),
-    setReducedMotion: (enabled) => game.setReducedMotion(enabled),
+    seed: (seed) => {
+      game.seed(seed);
+    },
+    setPausedForScreenshot: (paused) => {
+      if (paused) {
+        game.requestPause();
+      } else {
+        game.requestResume();
+      }
+    },
+    setReducedMotion: (enabled) => {
+      game.setReducedMotion(enabled);
+    },
     setState: (name) => {
       game.setTestState(name);
 
@@ -248,6 +268,8 @@ if (import.meta.env.DEV) {
   Object.assign(window, {
     __pong: game,
     __pongCamera: handCamera,
-    __pongHand: (x: number) => game.handleHandPosition(x),
+    __pongHand: (x: number) => {
+      game.handleHandPosition(x);
+    },
   });
 }

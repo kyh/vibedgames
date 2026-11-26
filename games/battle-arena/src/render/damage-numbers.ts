@@ -105,11 +105,16 @@ const lookFor = (style: NumberStyle, grow: number, beat: number) => {
       break;
     }
 
-    default: {
+    case "bystander": {
       size = 20;
       color = "#e6ddc8";
       stroke = "#1c1710";
       break;
+    }
+
+    default: {
+      const unhandled: never = style;
+      throw new Error("unhandled number style", { cause: unhandled });
     }
   }
 
@@ -153,8 +158,8 @@ const spinFor = (style: NumberStyle) => {
 };
 
 export class DamageNumbers {
-  private layer: HTMLDivElement;
-  private pool: Num[] = [];
+  private readonly layer: HTMLDivElement;
+  private readonly pool: Num[] = [];
   private combo = 0;
   private comboLastAt = 0;
 

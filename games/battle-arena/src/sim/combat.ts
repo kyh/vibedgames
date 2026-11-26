@@ -110,7 +110,9 @@ export const handleDeath = (w: World, victim: Unit, killerId: string | null) => 
 };
 
 const mercyScale = (w: World, attacker: Unit | null, victim: Unit) =>
-  w.soloMercy && attacker?.isBot && !victim.isBot && victim.mercy > 0 ? 1 - 0.07 * victim.mercy : 1;
+  w.soloMercy === true && attacker?.isBot === true && !victim.isBot && victim.mercy > 0
+    ? 1 - 0.07 * victim.mercy
+    : 1;
 
 const creditAttacker = (
   w: World,
@@ -121,7 +123,7 @@ const creditAttacker = (
 ) => {
   victim.recentDamageFrom[attacker.ownerId] = w.now;
 
-  if (isAttack && attacker.lifesteal > 0 && attacker.alive && victim.kind !== "prop") {
+  if (isAttack === true && attacker.lifesteal > 0 && attacker.alive && victim.kind !== "prop") {
     attacker.hp = Math.min(attacker.maxHp, attacker.hp + dealt * attacker.lifesteal);
   }
 };
@@ -155,7 +157,7 @@ export const dealDamage = (
   victim.lastHitDx = dir.x;
   victim.lastHitDy = dir.y;
 
-  if (!opts.silentFx) {
+  if (opts.silentFx !== true) {
     w.fx.push({
       amount: Math.round(final),
       by: attacker?.id ?? "",
@@ -188,7 +190,7 @@ const breakProp = (w: World, prop: Unit, killerId: string | null) => {
     y: prop.y,
   });
 
-  if (spec?.explosive) {
+  if (spec?.explosive === true) {
     const breaker =
       killerId === null
         ? null
@@ -396,7 +398,7 @@ const expireProjectile = (w: World, p: Projectile) => {
     p.y -= (p.vy / p.speed) * over;
   }
 
-  if (p.burstAtEnd && p.radius > 0) {
+  if (p.burstAtEnd === true && p.radius > 0) {
     burstProjectile(w, p);
   } else {
     w.fx.push({ kind: p.kind, t: "fizzle", x: p.x, y: p.y });
@@ -404,9 +406,10 @@ const expireProjectile = (w: World, p: Projectile) => {
 };
 
 export const stepProjectiles = (w: World, dt: number) => {
-  // oxlint-disable-next-line unicorn/no-useless-spread -- the loop deletes from w.projectiles, so the walk needs its own snapshot
-  for (const p of [...w.projectiles.values()]) {
-    if (p.targetId) {
+  const flying = [...w.projectiles.values()];
+
+  for (const p of flying) {
+    if (p.targetId !== null && p.targetId !== "") {
       const t = w.units.get(p.targetId);
 
       if (t && t.alive && !isUntargetable(t)) {
@@ -600,7 +603,7 @@ const doAttackHit = (w: World, u: Unit) => {
     step,
   };
 
-  if (step.aoe && step.aoe > 0) {
+  if (step.aoe !== undefined && step.aoe !== 0 && step.aoe > 0) {
     doSpinHit(w, u, swing, step.aoe);
 
     return;

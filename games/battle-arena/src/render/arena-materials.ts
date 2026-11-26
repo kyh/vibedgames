@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { hash2 } from "../data/decor";
+import { isMesh } from "./mesh";
 
 export type ArenaSurface = "stone" | "floor" | "dirt" | "grate";
 
@@ -46,7 +47,10 @@ export const arenaSurface = (model: string) => {
 /** One clone per source/surface per Environment. Rebuilds reuse the same
  * owned grade; library templates and authored texture maps stay untouched. */
 export class ArenaMaterials {
-  private grades = new Map<THREE.Material, Map<ArenaSurface, THREE.MeshStandardMaterial>>();
+  private readonly grades = new Map<
+    THREE.Material,
+    Map<ArenaSurface, THREE.MeshStandardMaterial>
+  >();
 
   grade(source: THREE.Material, surface: ArenaSurface) {
     if (!(source instanceof THREE.MeshStandardMaterial)) {
@@ -88,7 +92,7 @@ export class ArenaMaterials {
     }
 
     object.traverse((child) => {
-      if (!(child instanceof THREE.Mesh)) {
+      if (!isMesh(child)) {
         return;
       }
 

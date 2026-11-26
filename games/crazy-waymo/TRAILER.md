@@ -32,10 +32,10 @@ HUD and speech bubbles for video-model input while retaining the same camera vie
 
 ```sh
 # From the repo root. Builds, starts preview, records footage and clean references.
-node games/crazy-waymo/tools/capture-trailer.mjs --out /tmp/crazy-waymo-trailer
+node games/crazy-waymo/tools/capture-trailer.mts --out /tmp/crazy-waymo-trailer
 
 # Reuse a running dev server.
-node games/crazy-waymo/tools/capture-trailer.mjs \
+node games/crazy-waymo/tools/capture-trailer.mts \
   --url http://localhost:5194 --out /tmp/crazy-waymo-trailer
 ```
 

@@ -6,7 +6,7 @@ import type { ClaimRoom } from "../src/net/pickup-claims";
 import { hostTick } from "../src/sim/host-sim";
 import { createArena } from "../src/shared/arena";
 import { FUSE_MS, HOST_STEP_MS, newGrid } from "../src/shared/constants";
-import type { Cell, SharedState } from "../src/shared/constants";
+import type { Bot, Cell, SharedState } from "../src/shared/constants";
 import { seededRandom } from "../src/util/seeded-random";
 
 const TICK_MS = HOST_STEP_MS;
@@ -25,7 +25,7 @@ const world = (grid: Cell[][], patch: Partial<SharedState> = {}) => ({
 });
 
 const openGrid = (crates: [col: number, row: number][]) => {
-  const grid = newGrid().map((row) =>
+  const grid: Cell[][] = newGrid().map((row) =>
     row.map((cell) => (cell.kind === "crate" ? { kind: "empty" as const } : cell)),
   );
 
@@ -33,22 +33,23 @@ const openGrid = (crates: [col: number, row: number][]) => {
     const line = grid[row];
 
     if (line) {
-      line[col] = { kind: "crate" };
+      line[col] = { kind: "crate" as const };
     }
   }
 
   return grid;
 };
 
-const bot = (id: string, col: number, row: number) => ({
-  col,
-  colorIdx: 1,
-  dir: "down",
-  id,
-  moving: false,
-  nextMoveAt: 0,
-  row,
-});
+const bot = (id: string, col: number, row: number) =>
+  ({
+    col,
+    colorIdx: 1,
+    dir: "down",
+    id,
+    moving: false,
+    nextMoveAt: 0,
+    row,
+  }) satisfies Bot;
 
 const bystanders = [
   { id: "h", pos: null },
@@ -60,7 +61,7 @@ const merged = (s: SharedState, patch: Partial<SharedState> | null) =>
 
 const collect = (s: SharedState, claims: PickupClaims, room: ClaimRoom) => {
   for (const fighter of Object.values(s.bots)) {
-    if (!s.deaths[fighter.id]) {
+    if ((s.deaths[fighter.id] ?? 0) === 0) {
       claims.reach(room, s, fighter.id, fighter);
     }
   }
@@ -145,7 +146,7 @@ const soak = (seed: number, ms: number) => {
     room: "bot-soak",
   });
 
-  for (let now = 1000; now <= 1000 + ms && !s.winner; now += TICK_MS) {
+  for (let now = 1000; now <= 1000 + ms && (s.winner === null || s.winner === ""); now += TICK_MS) {
     const { patch } = hostTick(s, [human], now, random);
 
     if (!patch) {
@@ -156,7 +157,7 @@ const soak = (seed: number, ms: number) => {
     s = collect(merged(s, patch), claims, room);
 
     for (const id of Object.keys(s.deaths)) {
-      if (before.deaths[id]) {
+      if ((before.deaths[id] ?? 0) !== 0) {
         continue;
       }
 

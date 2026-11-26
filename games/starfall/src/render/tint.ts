@@ -56,7 +56,7 @@ export const hslToInt = (h: number, s: number, l: number) => {
 
 /** Server player colors are `hsl(h, s%, l%)` strings; Graphics wants ints. */
 export const cssToInt = (css: string | undefined) => {
-  if (!css) {
+  if (css === undefined || css === "") {
     return 0xff_ff_ff;
   }
 
@@ -65,25 +65,19 @@ export const cssToInt = (css: string | undefined) => {
   )?.groups;
 
   if (hsl) {
-    return hslToInt(
-      Number(hsl["h"] ?? 0),
-      Number(hsl["s"] ?? 0) / 100,
-      Number(hsl["l"] ?? 100) / 100,
-    );
+    return hslToInt(Number(hsl.h ?? 0), Number(hsl.s ?? 0) / 100, Number(hsl.l ?? 100) / 100);
   }
 
   const rgb = /rgb\(\s*(?<r>\d+)\s*,\s*(?<g>\d+)\s*,\s*(?<b>\d+)\s*\)/u.exec(css)?.groups;
 
   if (rgb) {
-    return (
-      (Number(rgb["r"] ?? 255) << 16) | (Number(rgb["g"] ?? 255) << 8) | Number(rgb["b"] ?? 255)
-    );
+    return (Number(rgb.r ?? 255) << 16) | (Number(rgb.g ?? 255) << 8) | Number(rgb.b ?? 255);
   }
 
   const hex = /^#(?<hex>[0-9a-f]{6})$/iu.exec(css)?.groups;
 
   if (hex) {
-    return Number.parseInt(hex["hex"] ?? "ffffff", 16);
+    return Number.parseInt(hex.hex ?? "ffffff", 16);
   }
 
   return 0xff_ff_ff;

@@ -6,6 +6,8 @@ import { createInterface } from "node:readline/promises";
 import { setTimeout as sleep } from "node:timers/promises";
 import { styleText } from "node:util";
 
+import { repeatWhile } from "@repo/contract/run-in-order";
+
 const ROOT_DIR = path.resolve(import.meta.dirname, "..");
 const ENV_PATH = path.join(ROOT_DIR, ".env");
 const ENV_EXAMPLE_PATH = path.join(ROOT_DIR, ".env.example");
@@ -15,10 +17,13 @@ const DEV_URL = "http://localhost:5173";
 const DEV_BOOT_BUDGET_MS = 180_000;
 
 const ASSUME_YES = process.argv.includes("--yes") || process.argv.includes("-y");
-const INTERACTIVE = Boolean(process.stdin.isTTY && process.stdout.isTTY) && !ASSUME_YES;
+const INTERACTIVE = process.stdin.isTTY && process.stdout.isTTY && !ASSUME_YES;
 
 const dim = (text: string) => styleText("dim", text);
-const ok = (text: string) => console.log(`  ${styleText("green", "✓")} ${text}`);
+
+const ok = (text: string) => {
+  console.log(`  ${styleText("green", "✓")} ${text}`);
+};
 
 const exec = (command: string) => {
   execSync(command, { cwd: ROOT_DIR, stdio: "inherit" });
@@ -82,16 +87,25 @@ const touchDatabase = async () => {
 
 const waitFor = async (check: () => Promise<boolean>, budgetMs: number) => {
   const startedAt = performance.now();
+  let passed = false;
 
-  while (performance.now() - startedAt < budgetMs) {
-    if (await check()) {
-      return true;
+  await repeatWhile(async () => {
+    if (performance.now() - startedAt >= budgetMs) {
+      return false;
+    }
+
+    passed = await check();
+
+    if (passed) {
+      return false;
     }
 
     await sleep(500);
-  }
 
-  return false;
+    return true;
+  });
+
+  return passed;
 };
 
 const stopDevServer = async (pid: number) => {

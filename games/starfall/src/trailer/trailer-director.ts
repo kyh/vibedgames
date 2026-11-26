@@ -187,7 +187,7 @@ const direct = (scene: GameScene) => {
     let bestD = maxD;
 
     for (const e of api.enemies()) {
-      if (exclude?.(e)) {
+      if (exclude?.(e) === true) {
         continue;
       }
 
@@ -610,11 +610,11 @@ const direct = (scene: GameScene) => {
           y: bolt.y,
         })),
       );
-      b.state["x"] = b.x;
-      b.state["y"] = b.y;
-      b.state["angle"] = b.angle;
-      b.state["vx"] = vx;
-      b.state["vy"] = vy;
+      b.state.x = b.x;
+      b.state.y = b.y;
+      b.state.angle = b.angle;
+      b.state.vx = vx;
+      b.state.vy = vy;
     }
   };
 
@@ -1544,12 +1544,12 @@ const direct = (scene: GameScene) => {
 
         if (t > 400) {
           s14.rivalHp = Math.max(0, s14.rivalHp - (dt / 1000) * 105);
-          rival.state["shieldHp"] = s14.rivalHp;
+          rival.state.shieldHp = s14.rivalHp;
         }
 
         if (s14.rivalHp <= 0 || t > 1400) {
           s14.dead = true;
-          rival.state["alive"] = false;
+          rival.state.alive = false;
           api.stagePeerBolts(rival.player.id, null);
         }
       } else {
@@ -2139,16 +2139,18 @@ const direct = (scene: GameScene) => {
 
     const wrapped: TrailerScene = {
       ...s,
-      setup: () => {
+      setup: async () => {
         pending = null;
 
-        return setup();
+        await setup();
       },
     };
 
     if (body) {
       wrapped.run = (t: number, dt: number) => {
-        pending = () => body(t, dt);
+        pending = () => {
+          body(t, dt);
+        };
       };
     }
 
@@ -2156,7 +2158,9 @@ const direct = (scene: GameScene) => {
   };
 
   runTrailer({
-    onGesture: () => sfx.unlock(),
+    onGesture: () => {
+      sfx.unlock();
+    },
     scenes: [
       supernovaOpen,
       calmOpen,

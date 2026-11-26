@@ -42,7 +42,7 @@ const parseAgentFile = (raw: string) => {
     const kv = /^(?<key>[A-Za-z][\w-]*)\s*:\s*(?<value>.*)$/u.exec(line.trim());
     const value = kv?.groups?.value?.trim();
 
-    if (kv?.groups?.key === "emoji" && value) {
+    if (kv?.groups?.key === "emoji" && value !== undefined && value !== "") {
       meta.emoji = value;
     }
   }

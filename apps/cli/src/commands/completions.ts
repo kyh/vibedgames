@@ -171,7 +171,7 @@ export const completionsCommand = defineCommand({
     name: "completions",
   },
   run: ({ args }) => {
-    const shell = String(args.shell ?? "");
+    const shell = args.shell ?? "";
 
     if (!isShell(shell)) {
       process.stderr.write(

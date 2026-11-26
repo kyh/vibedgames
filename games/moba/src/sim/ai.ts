@@ -140,7 +140,7 @@ const nearestEnemyCreep = (w: World, u: Unit, near: Vec2, range: number) => {
   let bestScore = Infinity;
 
   for (const e of w.units.values()) {
-    if (e.kind !== "creep" || e.neutral || e.team === u.team || !e.alive) {
+    if (e.kind !== "creep" || e.neutral === true || e.team === u.team || !e.alive) {
       continue;
     }
 
@@ -177,7 +177,7 @@ const nearestEnemyStructure = (w: World, u: Unit, lane: LaneId, near: Vec2, rang
 
     const su = w.units.get(t.id);
 
-    if (!su || !su.alive || !su.structure?.attackable) {
+    if (!su || !su.alive || su.structure?.attackable !== true) {
       continue;
     }
 
@@ -194,7 +194,7 @@ const nearestEnemyStructure = (w: World, u: Unit, lane: LaneId, near: Vec2, rang
 
   const anc = w.units.get(enemy === "radiant" ? "r-ancient" : "d-ancient");
 
-  if (anc && anc.alive && anc.structure?.attackable && dist(u, anc) < range + 200) {
+  if (anc && anc.alive && anc.structure?.attackable === true && dist(u, anc) < range + 200) {
     best = anc;
   }
 
@@ -207,7 +207,7 @@ const countAlliedCreepsNear = (w: World, struct: Unit, r: number) => {
   const allyTeam = enemyOf(struct.team);
 
   for (const c of w.units.values()) {
-    if (c.kind !== "creep" || c.neutral || c.team !== allyTeam || !c.alive) {
+    if (c.kind !== "creep" || c.neutral === true || c.team !== allyTeam || !c.alive) {
       continue;
     }
 
@@ -282,7 +282,7 @@ export const laneObjective = (w: World, u: Unit, lane: LaneId) => {
 
     if (
       c.kind !== "creep" ||
-      c.neutral ||
+      c.neutral === true ||
       c.team !== u.team ||
       !c.alive ||
       !cs ||
@@ -463,7 +463,7 @@ const decide = (w: World, u: Unit) => {
 
 export const tickBots = (w: World, _dt: number) => {
   for (const u of w.units.values()) {
-    if (u.kind !== "hero" || !u.hero?.isBot) {
+    if (u.kind !== "hero" || u.hero?.isBot !== true) {
       continue;
     }
 

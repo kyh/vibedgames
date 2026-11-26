@@ -1521,7 +1521,7 @@ export const buildJunctionMap = (network: RoadNetwork) => {
 
   return {
     arms: nodeArms,
-    near(x: number, z: number, margin: number) {
+    near: (x: number, z: number, margin: number) => {
       const bx = Math.floor(x / NB);
       const bz = Math.floor(z / NB);
       const reach = maxPatchR + Math.max(margin, 0);
@@ -2183,7 +2183,7 @@ export const buildRoadParts = (network: RoadNetwork, terrain: DrapeField) => {
       let canLeft = false;
 
       for (const o of arms) {
-        if (!o || o === a) {
+        if (o === a) {
           continue;
         }
 

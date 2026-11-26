@@ -23,13 +23,14 @@ const decideResponse = z.looseObject({
 });
 
 const pickKey = (decision: DecisionProviderConfig | undefined) => {
-  if (!decision?.typesafe) {
+  if (decision === undefined || decision.typesafe === undefined || decision.typesafe === "") {
     throw new ORPCError("PRECONDITION_FAILED", {
       message: "The decision model is not configured on the server (TYPESAFE_API_KEY missing).",
     });
   }
 
-  const base = decision.typesafeBaseUrl?.trim() || DEFAULT_BASE_URL;
+  const configured = decision.typesafeBaseUrl?.trim() ?? "";
+  const base = configured === "" ? DEFAULT_BASE_URL : configured;
 
   return { apiKey: decision.typesafe, base: base.endsWith("/") ? base.slice(0, -1) : base };
 };
@@ -145,7 +146,7 @@ export const playtestRouter = {
   session: authed.session.handler(async ({ context }) => {
     const secret = context.decision?.tokenSecret;
 
-    if (!secret) {
+    if (secret === undefined || secret === "") {
       throw new ORPCError("PRECONDITION_FAILED", {
         message: "Playtest tokens are not configured on the server.",
       });

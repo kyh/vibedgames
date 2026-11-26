@@ -47,7 +47,7 @@ export class PortBuilder {
   /** Transformed copy of `src` in one flat colour. */
   addGeometry(src: THREE.BufferGeometry, color: number, m: THREE.Matrix4) {
     const position = src.getAttribute("position");
-    const normal = src.getAttribute("normal");
+    const { normal } = src.attributes;
     const index = src.getIndex();
     const count = index ? index.count : position.count;
     this.nmat.getNormalMatrix(m);

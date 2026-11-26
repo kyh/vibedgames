@@ -20,19 +20,20 @@ export const SUPER_RING_GEOMETRY = new THREE.RingGeometry(0.7, 0.8, 44).rotateX(
 const standardMaterial = (color: number, extra: THREE.MeshStandardMaterialParameters = {}) =>
   new THREE.MeshStandardMaterial({ color, metalness: 0, roughness: 0.78, ...extra });
 
-interface ModelMaterials {
-  accent: THREE.MeshStandardMaterial;
-  black: THREE.MeshStandardMaterial;
-  body: THREE.MeshStandardMaterial;
-  dark: THREE.MeshStandardMaterial;
-  gold: THREE.MeshStandardMaterial;
-  hair: THREE.MeshStandardMaterial;
-  metal: THREE.MeshStandardMaterial;
-  skin: THREE.MeshStandardMaterial;
-  skinShade: THREE.MeshStandardMaterial;
-  white: THREE.MeshStandardMaterial;
-  wood: THREE.MeshStandardMaterial;
-}
+type MaterialName =
+  | "accent"
+  | "black"
+  | "body"
+  | "dark"
+  | "gold"
+  | "hair"
+  | "metal"
+  | "skin"
+  | "skinShade"
+  | "white"
+  | "wood";
+
+type ModelMaterials = Record<MaterialName, THREE.MeshStandardMaterial>;
 
 export type ArmRest = [rotationX: number, rotationZ: number];
 

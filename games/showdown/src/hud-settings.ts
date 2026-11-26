@@ -13,7 +13,9 @@ const buildQualitySegment = (game: Game) => {
     const button = document.createElement("button");
     button.textContent = quality.label;
     button.dataset.q = name;
-    button.addEventListener("click", () => game.setQuality(name, true));
+    button.addEventListener("click", () => {
+      game.setQuality(name, true);
+    });
     seg.append(button);
   }
 };
@@ -29,7 +31,9 @@ const buildDifficultySegment = (game: Game) => {
     const button = document.createElement("button");
     button.textContent = difficulty.label;
     button.dataset.d = name;
-    button.addEventListener("click", () => game.setDifficulty(name));
+    button.addEventListener("click", () => {
+      game.setDifficulty(name);
+    });
     seg.append(button);
   }
 };
@@ -37,22 +41,32 @@ const buildDifficultySegment = (game: Game) => {
 /** Wire every control in the panel to the game's setters. Runs once. */
 export const buildSettingsPanel = (game: Game) => {
   const panel = mustGet("settings");
-  mustGet("gear").addEventListener("click", () => panel.classList.toggle("open"));
+  mustGet("gear").addEventListener("click", () => {
+    panel.classList.toggle("open");
+  });
   buildQualitySegment(game);
   buildDifficultySegment(game);
   const autoTime = mustGetInput("auto-time");
-  autoTime.addEventListener("change", () => game.setAutoTime(autoTime.checked));
+  autoTime.addEventListener("change", () => {
+    game.setAutoTime(autoTime.checked);
+  });
   const slider = mustGetInput("time-slider");
   slider.addEventListener("input", () => {
     game.setAutoTime(false);
     game.lighting.setTime(Number(slider.value));
   });
   const ao = mustGetInput("tog-ao");
-  ao.addEventListener("change", () => game.setToggle("ao", ao.checked));
+  ao.addEventListener("change", () => {
+    game.setToggle("ao", ao.checked);
+  });
   const bloom = mustGetInput("tog-bloom");
-  bloom.addEventListener("change", () => game.setToggle("bloom", bloom.checked));
+  bloom.addEventListener("change", () => {
+    game.setToggle("bloom", bloom.checked);
+  });
   const mute = mustGetInput("tog-mute");
-  mute.addEventListener("change", () => game.setMuted(mute.checked));
+  mute.addEventListener("change", () => {
+    game.setMuted(mute.checked);
+  });
 };
 
 /** Push the game's current settings into the panel's controls. */
@@ -84,7 +98,9 @@ export const renderStats = (game: Game, fps: number) => {
 
   const poolLit = lighting.pool.filter((light) => light.intensity > 0).length;
   const shadowKind = pipeline.usingPCSS ? "PCSS" : "PCF";
-  const bench = game.perf.benchMs ? game.perf.benchMs.toFixed(1) : "?";
+
+  const bench =
+    game.perf.benchMs !== undefined && game.perf.benchMs !== 0 ? game.perf.benchMs.toFixed(1) : "?";
 
   const qualityLine = game.userPickedQuality
     ? "quality: your choice"

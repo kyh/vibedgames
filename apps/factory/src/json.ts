@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 /**
  * Boundary parsing for external JSON (runner CLI stream events, blackboard
  * files, package manifests). `JSON.parse` returns `any`, so every reader
@@ -16,12 +18,14 @@ export interface JsonObject {
   [key: string]: JsonValue;
 }
 
+const jsonValue = z.json();
+
 /** Parse text as JSON, or undefined when malformed (JSON never encodes undefined). */
 export const parseJson = (text: string) => {
   let value: JsonValue | undefined;
 
   try {
-    value = JSON.parse(text);
+    value = jsonValue.parse(JSON.parse(text));
   } catch {
     value = undefined;
   }
@@ -30,7 +34,7 @@ export const parseJson = (text: string) => {
 };
 
 export const isJsonString = (value: JsonValue | undefined): value is string =>
-  String(value) === value;
+  Object.prototype.toString.call(value) === "[object String]";
 
 export const isJsonNumber = (value: JsonValue | undefined): value is number =>
   Number(value) === value;

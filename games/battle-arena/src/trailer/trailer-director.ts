@@ -478,7 +478,9 @@ class Director {
       duration: 3000,
       id: "cold-open-clash",
       run: (t) => {
-        cues.at(t >= 320, "q", () => this.cast(this.knight, "Q", 16.5, -5.5));
+        cues.at(t >= 320, "q", () => {
+          this.cast(this.knight, "Q", 16.5, -5.5);
+        });
         const w3 = this.warriors.at(2);
 
         if (t >= 600 && w3 && w3.alive) {
@@ -532,7 +534,9 @@ class Director {
       duration: 3400,
       id: "hall-reveal",
       run: (t) => {
-        cues.at(t >= 150, "coin", () => this.throwCoin(COIN.x, COIN.y, 300));
+        cues.at(t >= 150, "coin", () => {
+          this.throwCoin(COIN.x, COIN.y, 300);
+        });
 
         for (const h of this.heroes) {
           const d = norm(-h.x, -h.y);
@@ -574,7 +578,9 @@ class Director {
       duration: 2200,
       id: "signature-clean",
       run: (t) => {
-        cues.at(t >= 300, "r", () => this.cast(this.bk, "R", this.bk.x, this.bk.y));
+        cues.at(t >= 300, "r", () => {
+          this.cast(this.bk, "R", this.bk.x, this.bk.y);
+        });
         const k = ramp(t, 0, 2200);
         const az = lerp(2.238, 1.885, k);
         this.camPos.set(-16 + Math.cos(az) * 6.8, lerp(2.7, 2.3, k), -14 + Math.sin(az) * 6.8);
@@ -609,7 +615,9 @@ class Director {
       id: "players-eye",
       run: (t) => {
         const k = this.knight;
-        cues.at(t >= 620, "hop", () => tryJump(this.world, k));
+        cues.at(t >= 620, "hop", () => {
+          tryJump(this.world, k);
+        });
         const target = nearestAlive(this.warriors, k);
 
         if (t < 1700 || !target) {
@@ -663,7 +671,9 @@ class Director {
       duration: 950,
       id: "roster-1",
       run: (t) => {
-        cues.at(t >= 0, "q", () => this.cast(this.rogue, "Q", 22.6, 9.4));
+        cues.at(t >= 0, "q", () => {
+          this.cast(this.rogue, "Q", 22.6, 9.4);
+        });
         const k = ramp(t, 150, 700);
         this.camLook.set(lerp(22, 22.9, k), lerp(1.05, 1.15, k), lerp(9.3, 9, k));
       },
@@ -739,7 +749,9 @@ class Director {
       duration: 1200,
       id: "roster-5",
       run: (t) => {
-        cues.at(t >= 60, "r", () => this.cast(this.witch, "R", 15.4, -19.2));
+        cues.at(t >= 60, "r", () => {
+          this.cast(this.witch, "R", 15.4, -19.2);
+        });
         const k = ramp(t, 550, 1050);
         this.camPos.set(lerp(8.4, 10, k), lerp(3.2, 1.6, k), lerp(-24.4, -23, k));
       },
@@ -810,7 +822,9 @@ class Director {
       duration: 2050,
       id: "destruction",
       run: (t) => {
-        cues.at(t >= 120, "r", () => this.cast(this.knight, "R", this.knight.x - 1, this.knight.y));
+        cues.at(t >= 120, "r", () => {
+          this.cast(this.knight, "R", this.knight.x - 1, this.knight.y);
+        });
 
         if (t < 1100) {
           setHeroInput(this.knight, -1, 0.12, -1, 0.12, false);
@@ -858,7 +872,9 @@ class Director {
             this.cast(this.ranger, "DASH", c.x, c.y);
           }
         });
-        cues.at(t >= 1250, "lvl", () => grantXp(this.world, this.ranger, 400));
+        cues.at(t >= 1250, "lvl", () => {
+          grantXp(this.world, this.ranger, 400);
+        });
 
         if (t >= 700) {
           const k = ramp(t, 700, 1200);
@@ -1003,14 +1019,22 @@ class Director {
           setHeroInput(m, -d.y * sway, d.x * sway, d.x, d.y, false);
         }
 
-        cues.at(t >= 100, "e", () => this.cast(m, "E", -4, -23.5));
+        cues.at(t >= 100, "e", () => {
+          this.cast(m, "E", -4, -23.5);
+        });
         cues.at(t >= 800, "q1", () => {
           const at = nearestAlive(this.warriors, m);
           this.cast(m, "Q", at ? at.x : -4.5, at ? at.y : -24);
         });
-        cues.at(t >= 1800, "w", () => this.cast(m, "W", -3, -22));
-        cues.at(t >= BLINK_MS, "blink", () => this.cast(m, "DASH", m.x - 8, m.y + 1.5));
-        cues.at(t >= JUMP_MS, "jump", () => this.cast(m, "JUMP", m.x, m.y - 4));
+        cues.at(t >= 1800, "w", () => {
+          this.cast(m, "W", -3, -22);
+        });
+        cues.at(t >= BLINK_MS, "blink", () => {
+          this.cast(m, "DASH", m.x - 8, m.y + 1.5);
+        });
+        cues.at(t >= JUMP_MS, "jump", () => {
+          this.cast(m, "JUMP", m.x, m.y - 4);
+        });
         cues.at(t >= 3900, "q2", () => {
           const at = nearestAlive(horde, m);
           this.cast(m, "Q", at ? at.x : m.x, at ? at.y : m.y - 6);
@@ -1089,7 +1113,9 @@ class Director {
         const mg = this.mage;
         const vp = this.rogue;
 
-        cues.at(t >= 0, "volley", () => this.cast(rv, "Q", a.x, a.y));
+        cues.at(t >= 0, "volley", () => {
+          this.cast(rv, "Q", a.x, a.y);
+        });
 
         if (t < 700) {
           aimAt(rv, a, -Math.SQRT1_2, -Math.SQRT1_2, false);
@@ -1097,40 +1123,54 @@ class Director {
           aimAt(rv, a, 0, 0, false);
         }
 
-        cues.at(t >= 350, "bastion", () => this.cast(a, "E", a.x, a.y));
+        cues.at(t >= 350, "bastion", () => {
+          this.cast(a, "E", a.x, a.y);
+        });
         const stepOut = t >= 1600 && t < 1900;
 
         if (t < 2400) {
           aimAt(a, rv, stepOut ? Math.SQRT1_2 : 0, stepOut ? Math.SQRT1_2 : 0, false);
         }
 
-        cues.at(t >= 900, "blink", () => this.cast(mg, "DASH", 11.5, 12.5));
-        cues.at(t >= 1400, "nova", () => this.cast(mg, "W", rv.x, rv.y));
+        cues.at(t >= 900, "blink", () => {
+          this.cast(mg, "DASH", 11.5, 12.5);
+        });
+        cues.at(t >= 1400, "nova", () => {
+          this.cast(mg, "W", rv.x, rv.y);
+        });
 
         if (t >= 1000) {
           aimAt(mg, rv, 0, 0, false);
         }
 
-        cues.at(t >= 1900, "smoke", () => this.cast(vp, "E", vp.x, vp.y));
+        cues.at(t >= 1900, "smoke", () => {
+          this.cast(vp, "E", vp.x, vp.y);
+        });
 
         cues.at(t >= 2400, "brace", () => {
           rv.hp = rv.maxHp;
         });
-        cues.at(t >= 2500, "slam", () => this.cast(a, "R", a.x, a.y));
+        cues.at(t >= 2500, "slam", () => {
+          this.cast(a, "R", a.x, a.y);
+        });
 
         if (t >= 2600 && t < 3100) {
           const d = norm(rv.x - vp.x, rv.y - vp.y);
           setHeroInput(vp, d.x, d.y, d.x, d.y, false);
         }
 
-        cues.at(t >= 3050, "focus", () => this.focus(vp));
+        cues.at(t >= 3050, "focus", () => {
+          this.focus(vp);
+        });
         cues.at(t >= 3100, "execute", () => {
           rv.hp = 60;
           setHeroInput(vp, 0, 0, vp.aimX, vp.aimY, false);
           aimAt(vp, rv, 0, 0, false);
           this.cast(vp, "R", rv.x, rv.y);
         });
-        cues.at(t >= 3350, "reveal", () => breakStealth(vp));
+        cues.at(t >= 3350, "reveal", () => {
+          breakStealth(vp);
+        });
 
         const p = 0.34 * ramp(t, 0, 1400) + 0.14 * ramp(t, 1400, 2400) + 0.52 * ramp(t, 2400, 4300);
         const az = lerp(-0.904, -0.175, p);

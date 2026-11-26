@@ -67,7 +67,7 @@ const handler = async (request: Request) => {
 export const Route = createFileRoute("/api/upload")({
   server: {
     handlers: {
-      PUT: ({ request }) => handler(request),
+      PUT: async ({ request }) => await handler(request),
     },
   },
 });

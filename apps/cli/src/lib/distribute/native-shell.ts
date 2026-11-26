@@ -1,3 +1,4 @@
+import { parseJson } from "@repo/contract/json";
 import {
   copyFileSync,
   existsSync,
@@ -83,7 +84,7 @@ const projectPackageManager = (root: string) => {
 };
 
 const readJsonObject = (file: string) => {
-  const parsed: JsonValue = JSON.parse(readFileSync(file, "utf-8"));
+  const parsed: JsonValue = parseJson(readFileSync(file, "utf-8"));
 
   if (!isJsonObject(parsed)) {
     throw new Error(`${file} must hold a JSON object.`);
@@ -171,8 +172,8 @@ const writeCapacitorConfig = ({ project, native, buildDir }: ShellInput) => {
   writeFileSync(file, `${JSON.stringify(config, null, 2)}\n`);
 };
 
-const cap: (root: string, args: string[]) => Promise<RunResult> = (root, args) =>
-  run("npx", ["--no-install", "cap", ...args], root);
+const cap: (root: string, args: string[]) => Promise<RunResult> = async (root, args) =>
+  await run("npx", ["--no-install", "cap", ...args], root);
 
 const rewrite = (file: string, transform: (text: string) => string) => {
   if (!existsSync(file)) {

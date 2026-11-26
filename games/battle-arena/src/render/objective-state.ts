@@ -28,7 +28,7 @@ const nearest = <T extends { id: string; x: number; y: number }>(
 };
 
 export const liveBossCoins = (w: World) =>
-  w.coins.filter((coin) => !coin.loot && coin.expireAt > w.now);
+  w.coins.filter((coin) => coin.loot !== true && coin.expireAt > w.now);
 
 export const coinObjective = (w: World, me: Unit | null, previousId: string | null = null) => {
   const target = nearest(liveBossCoins(w), me, previousId);

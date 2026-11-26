@@ -17,7 +17,7 @@ export const ProfileSettings = ({ user }: { user: ShellUser }) => {
   const trimmed = name.trim();
   const dirty = trimmed !== "" && trimmed !== user.name;
 
-  const save = async (e: React.FormEvent) => {
+  const save = async (e: React.SubmitEvent<HTMLFormElement>) => {
     e.preventDefault();
 
     if (!dirty) {
@@ -64,7 +64,9 @@ export const ProfileSettings = ({ user }: { user: ShellUser }) => {
                 required
                 maxLength={100}
                 value={name}
-                onChange={(e) => setName(e.target.value)}
+                onChange={(e) => {
+                  setName(e.target.value);
+                }}
               />
             </FieldContent>
           </Field>

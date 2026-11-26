@@ -38,7 +38,7 @@ export const evadeStyle: (id: BrawlerId) => EvadeStyle = (id) => {
 
     default: {
       const unreachable: never = id;
-      throw new Error(`Unknown evade style: ${unreachable}`);
+      throw new Error("Unknown evade style", { cause: unreachable });
     }
   }
 };

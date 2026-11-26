@@ -35,10 +35,10 @@ export const resendMailer =
   };
 
 /** Local dev without a key: the message, link included, lands in the dev server's log. */
-export const consoleMailer: Mailer = (email) => {
+export const consoleMailer: Mailer = async (email) => {
   console.info(`[email] to ${email.to}: ${email.subject}\n${email.text}`);
 
-  return Promise.resolve();
+  await Promise.resolve();
 };
 
 /** What a deployment without a key logs once, in place of every email it cannot send. */
@@ -57,8 +57,8 @@ interface MailerSettings {
  * nothing anywhere else, since a logged reset link is a live login.
  */
 export const mailerOf = ({ apiKey, local, fetch: send }: MailerSettings) => {
-  if (apiKey) {
-    return resendMailer(send ? { apiKey, fetch: send } : { apiKey });
+  if (apiKey !== undefined && apiKey !== "") {
+    return resendMailer(send === undefined ? { apiKey } : { apiKey, fetch: send });
   }
 
   return local ? consoleMailer : undefined;

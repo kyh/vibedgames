@@ -56,11 +56,11 @@ const dilate = (mask: Uint8Array, w: number, h: number, r: number) => {
 };
 
 const cellAlpha = (open: number | undefined, near: number | undefined) => {
-  if (open) {
+  if (open !== undefined && open !== 0) {
     return 26;
   }
 
-  return near ? 120 : 0;
+  return near !== undefined && near !== 0 ? 120 : 0;
 };
 
 const bake = (game: StrikeforceGame) => {

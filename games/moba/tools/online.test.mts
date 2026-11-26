@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { ServerClock, netStats } from "@vibedgames/multiplayer";
+import { ServerClock, netStats, parseJson } from "@vibedgames/multiplayer";
 
 import { SIM_DT } from "../src/data/config.ts";
 import { restoreHostState } from "../src/net/host-state.ts";
@@ -154,9 +154,7 @@ const noise = (i: number) => {
   return s - Math.floor(s);
 };
 
-const wire = (v: JsonValue) =>
-  // oxlint-disable-next-line unicorn/prefer-structured-clone -- emulates the JSON wire, which drops what structuredClone keeps (undefined-valued keys)
-  JSON.parse(JSON.stringify(v));
+const wire = (v: JsonValue) => parseJson(JSON.stringify(v));
 
 const readServerClock = (lopsidedMs: number) => {
   const clock = new ServerClock();
@@ -178,7 +176,7 @@ const link = (latencyMs: number, jitterMs: number) => {
   let lastAt = 0;
 
   return {
-    receive: (now) => {
+    receive: (now: number) => {
       const out: JsonValue[] = [];
       let [next] = queue;
 
@@ -190,7 +188,10 @@ const link = (latencyMs: number, jitterMs: number) => {
 
       return out;
     },
-    send: (now, payload) => {
+    send: (
+      now: number,
+      payload: string | number | boolean | JsonValue[] | { [key: string]: JsonValue } | null,
+    ) => {
       sent += 1;
       lastAt = Math.max(lastAt, now + latencyMs + noise(sent) * jitterMs);
       queue.push({ at: lastAt, payload: wire(payload) });
@@ -216,7 +217,7 @@ const streamHost = (world: World, clock: ServerClock) => {
 
   return {
     acks,
-    frame: (now) => {
+    frame: (now: number) => {
       acc += FRAME_MS;
       const stampNow = clock.now(now);
 
@@ -224,7 +225,11 @@ const streamHost = (world: World, clock: ServerClock) => {
         acc -= STEP_MS;
         step(world, SIM_DT);
 
-        const rows = [...acks].map(([id, a]) => [id, a.seq, Math.round(world.now - a.at)]);
+        const rows = [...acks].map<[string, number, number]>(([id, a]) => [
+          id,
+          a.seq,
+          Math.round(world.now - a.at),
+        ]);
 
         const t = Math.round(stampNow - acc);
         stamps.push(t);
@@ -236,7 +241,7 @@ const streamHost = (world: World, clock: ServerClock) => {
       }
     },
     guests,
-    keyframe: (now) => {
+    keyframe: (now: number) => {
       const snapAt = Math.round(clock.now(now));
       encoder.reset(world);
 
@@ -298,7 +303,7 @@ const streamGuest = (heroId: string, down: Link) => {
 
       return { x: u.x, y: u.y };
     },
-    frame: (now) => {
+    frame: (now: number) => {
       for (const payload of down.receive(now)) {
         take(payload, now);
       }
@@ -620,7 +625,7 @@ test("the per-step stream is a small fraction of the world it replaces, and rebu
     const json = JSON.stringify(encoder.encode(host, i * STEP_MS, host.fx.splice(0), []));
     tickBytes += json.length;
     ticks += 1;
-    const tick = parseTick(JSON.parse(json));
+    const tick = parseTick(parseJson(json));
     assert.ok(tick);
     applyTick(replica, tick, false);
 
@@ -757,7 +762,14 @@ test("through a host migration the others play straight on: one clock, no reset,
   assert.ok(promoted && host && start && prev);
   const [resumedAt] = host.stamps;
   const leftAt = a.stamps.at(-1);
-  assert.ok(resumedAt && leftAt && resumedAt > leftAt, "B stamps on where A stopped");
+  assert.ok(
+    resumedAt !== undefined &&
+      resumedAt !== 0 &&
+      leftAt !== undefined &&
+      leftAt !== 0 &&
+      resumedAt > leftAt,
+    "B stamps on where A stopped",
+  );
   assert.ok(prev.x - start.x > travel * 160, `C saw the runner run on (${prev.x - start.x} px)`);
   assert.ok(worstCorrection < DEAD_ZONE_PX, `C's own hero ran through it (${worstCorrection} px)`);
 
@@ -837,7 +849,9 @@ test("a guest back from a drop by a slower route keeps its delay in hand", () =>
 
   const down: Link = {
     receive: (now) => route.receive(now),
-    send: (now, payload) => route.send(now, payload),
+    send: (now, payload) => {
+      route.send(now, payload);
+    },
   };
 
   const c = streamGuest(watcher.id, down);

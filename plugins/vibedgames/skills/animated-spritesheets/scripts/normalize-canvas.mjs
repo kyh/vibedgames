@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @ts-check
 import {
   fail,
   failUsage,
@@ -11,15 +12,15 @@ import {
   parseArgs,
 } from "./_lib/asset-tools.mjs";
 
-const parseSize = (text) => {
+const parseSize = (text = "256x256") => {
   const match = /^(?<w>\d+)\s*x\s*(?<h>\d+)$/iu.exec(text.trim());
 
   if (!match) {
     fail(`--canvas must be WxH, e.g. 256x256 (got "${text}")`);
   }
 
-  const width = Number(match.groups?.w);
-  const height = Number(match.groups?.h);
+  const width = Number(match?.groups?.w);
+  const height = Number(match?.groups?.h);
 
   if (width <= 0 || height <= 0) {
     fail(`--canvas dimensions must be positive, got: "${text}"`);
@@ -34,10 +35,10 @@ main(() => {
     values: ["canvas", "char-fill", "glob", "input-dir", "out-dir", "pad", "target-height"],
   });
 
-  const inputDir = getString(args, "input-dir");
-  const outDir = getString(args, "out-dir");
+  const inputDir = getString(args, "input-dir") ?? "";
+  const outDir = getString(args, "out-dir") ?? "";
 
-  if (!inputDir || !outDir) {
+  if (inputDir === "" || outDir === "") {
     failUsage("--input-dir and --out-dir are required");
   }
 
@@ -62,7 +63,7 @@ main(() => {
 
   const written = normalizeCanvas(inputDir, outDir, {
     allowUpscale: !getFlag(args, "no-upscale"),
-    canvas: parseSize(getString(args, "canvas") ?? "256x256"),
+    canvas: parseSize(getString(args, "canvas")),
     charFill,
     glob: getString(args, "glob") ?? "frame-*.png",
     pad,

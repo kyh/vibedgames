@@ -11,12 +11,14 @@ export default defineConfig({
   plugins: [
     wasm(),
     {
-      handleHotUpdate({ file, server }) {
+      handleHotUpdate({ file, modules, server }) {
         if (/\/src\/(?:world|vehicle|physics|scenes|game|fx|render|net)\//u.test(file)) {
           server.ws.send({ type: "full-reload" });
 
           return [];
         }
+
+        return modules;
       },
       name: "full-reload-sim",
     },

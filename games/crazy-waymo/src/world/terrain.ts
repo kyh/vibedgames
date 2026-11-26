@@ -73,11 +73,11 @@ const worldToU = (x: number) => x / WORLD_W + 0.5;
 const worldToV = (z: number) => z / WORLD_H + 0.5;
 
 export class Terrain {
-  private field: Float32Array;
-  private nx: number;
-  private nz: number;
-  private minX: number;
-  private minZ: number;
+  private readonly field: Float32Array;
+  private readonly nx: number;
+  private readonly nz: number;
+  private readonly minX: number;
+  private readonly minZ: number;
   private readonly hillTable: readonly {
     readonly x: number;
     readonly z: number;
@@ -86,8 +86,8 @@ export class Terrain {
     readonly cull2: number;
   }[];
 
-  private hills: readonly Hill[];
-  private land: LandFactor;
+  private readonly hills: readonly Hill[];
+  private readonly land: LandFactor;
   private readonly heightPatch?: (x: number, z: number, height: number) => number;
 
   constructor(

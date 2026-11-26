@@ -97,7 +97,7 @@ export const playtestView: (input: PlaytestViewInput) => PlaytestView = (input) 
   const burns = burnWindows(state, liveBombs);
   const here = tileKey(col, row);
   const inDanger = burns.has(here);
-  const bots = Object.values(state.bots).filter((bot) => !state.deaths[bot.id]);
+  const bots = Object.values(state.bots).filter((bot) => (state.deaths[bot.id] ?? 0) === 0);
   const botTiles = new Set(bots.map((bot) => tileKey(bot.col, bot.row)));
   const activeBombs = liveBombs.filter((bomb) => bomb.ownerId === myId).length;
   const bombReady = activeBombs < stats.bombs && !bombOn(state.bombs, col, row);

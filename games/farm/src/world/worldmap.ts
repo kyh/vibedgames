@@ -145,10 +145,10 @@ export const parseWorldMap = (v: JsonValue) => {
     throw new Error("map.json: bad size");
   }
 
-  const tileLayers = parseTileLayers(o["tileLayers"], w, h);
-  const sprites = parseSprites(o["sprites"]);
-  const deco = parseDeco(o["deco"]);
-  const animations = Array.isArray(o["animations"]) ? o["animations"].filter(isNumberArray) : [];
+  const tileLayers = parseTileLayers(o.tileLayers, w, h);
+  const sprites = parseSprites(o.sprites);
+  const deco = parseDeco(o.deco);
+  const animations = Array.isArray(o.animations) ? o.animations.filter(isNumberArray) : [];
 
   return {
     animationFps: isJsonNumber(animationFps) ? animationFps : 5,

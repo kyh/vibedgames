@@ -11,7 +11,7 @@ import { isJsonObject } from "../src/asset/json.js";
 import type { JsonValue } from "../src/asset/json.js";
 import { LuaParseError, parseLua } from "../src/asset/lua.js";
 import { checkManifest, exportManifest } from "../src/asset/manifest.js";
-import { parseFrame, prettyPath, walkFiles } from "../src/asset/paths.js";
+import { parseFrame, prettyPath, toPythonJson, walkFiles } from "../src/asset/paths.js";
 import { analyzeBaseline, probeSheet } from "../src/asset/sheet.js";
 import { collectSizes, sizesToCsv } from "../src/asset/sizes.js";
 import { Bitmap } from "../src/image/raster.js";
@@ -615,7 +615,9 @@ test("every skill script loads and reports a usage error, not a crash", (t) => {
 
   assert.ok(scripts.length >= 20, `expected the skill scripts, found ${scripts.length}`);
   const cwd = workspace();
-  t.after(() => rmSync(cwd, { force: true, recursive: true }));
+  t.after(() => {
+    rmSync(cwd, { force: true, recursive: true });
+  });
 
   const offenders: string[] = [];
 
@@ -761,4 +763,8 @@ test("every skill script imports the library names it calls", () => {
   }
 
   assert.deepEqual(offenders, []);
+});
+
+test("toPythonJson escapes non-ASCII as Python does, astral characters as surrogate pairs", () => {
+  assert.equal(toPythonJson(["é—😀"]), '[\n  "\\u00e9\\u2014\\ud83d\\ude00"\n]');
 });

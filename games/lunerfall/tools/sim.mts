@@ -1,3 +1,8 @@
+import assert from "node:assert/strict";
+
+import { parseJson } from "@vibedgames/multiplayer";
+import type { JsonValue } from "@vibedgames/multiplayer";
+
 import { TILE } from "../src/config.ts";
 import { ENEMIES } from "../src/data/enemies.ts";
 import { HEROES } from "../src/data/heroes.ts";
@@ -58,6 +63,7 @@ const check = (name: string, cond: boolean, detail = "") => {
 };
 
 const NEUTRAL: BodyInput = {
+  attackPressed: false,
   dashPressed: false,
   down: false,
   jumpHeld: false,
@@ -70,8 +76,11 @@ const NEUTRAL: BodyInput = {
 
 const inp = (o: Partial<BodyInput>) => ({ ...NEUTRAL, ...o });
 
-// oxlint-disable-next-line unicorn/prefer-structured-clone -- the JSON round trip IS the thing under test; structuredClone keeps what the wire drops
-const wire = <T,>(v: T) => JSON.parse(JSON.stringify(v));
+const wire = <T,>(v: T) => {
+  assert.deepStrictEqual(parseJson(JSON.stringify(v)), v, "the value survives JSON as it is");
+
+  return structuredClone(v);
+};
 
 const spawn = (x = 240, y = FLOOR_Y, hero: keyof typeof HEROES = "axion") => {
   const b = new PlayerBody(Grid.test(), x, y, HEROES[hero].kit);
@@ -163,7 +172,7 @@ console.log("lunerfall physics sim\n");
   let jumpedUp = false;
 
   for (let f = 0; f < 30; f += 1) {
-    if (b.grounded === false && airborneAt < 0) {
+    if (!b.grounded && airborneAt < 0) {
       airborneAt = f;
     }
 
@@ -196,7 +205,7 @@ console.log("lunerfall physics sim\n");
 }
 
 {
-  const b = new PlayerBody(Grid.test(), (Grid.test().cols - 1) * TILE - 7, 60);
+  const b = new PlayerBody(Grid.test(), (Grid.test().cols - 1) * TILE - 7, 60, HEROES.axion.kit);
   let maxFall = 0;
 
   for (let f = 0; f < 40; f += 1) {
@@ -218,7 +227,7 @@ console.log("lunerfall physics sim\n");
 
 {
   const owY = 12 * TILE;
-  const b = new PlayerBody(Grid.test(), 5 * TILE, owY - 20);
+  const b = new PlayerBody(Grid.test(), 5 * TILE, owY - 20, HEROES.axion.kit);
   run(b, 30, {});
   check("lands on one-way", b.grounded && Math.abs(b.y - owY) < 1, `y=${b.y.toFixed(1)}`);
   run(b, 20, { down: true });
@@ -267,7 +276,7 @@ console.log("lunerfall physics sim\n");
   const b = spawn();
   const first = b.applyHurt(1);
   const second = b.applyHurt(1);
-  check("hurt lands once, then invuln", first === true && second === false);
+  check("hurt lands once, then invuln", first && !second);
 }
 
 {
@@ -291,7 +300,7 @@ console.log("lunerfall physics sim\n");
     Math.abs(b.x - x0) < 1 && b.attackStep === 0,
     `dx=${(b.x - x0).toFixed(1)}`,
   );
-  check("downed body is invulnerable", b.applyHurt(1) === false);
+  check("downed body is invulnerable", !b.applyHurt(1));
   const air = new PlayerBody(Grid.test(), 240, FLOOR_Y - 60, HEROES.axion.kit);
   air.down();
 
@@ -489,9 +498,9 @@ const inRoom = (r: { cols: number; rows: number }, s: { x: number; y: number }) 
       sawAttack = true;
     }
 
-    if (boss.pendingWave) {
+    if (boss.pendingWaves.length > 0) {
       sawWave = true;
-      boss.pendingWave = null;
+      boss.pendingWaves.length = 0;
     }
   }
 
@@ -585,10 +594,7 @@ const inRoom = (r: { cols: number; rows: number }, s: { x: number; y: number }) 
     "round 1 opens as a frozen countdown",
     m.phase === "countdown" && m.round === 1 && m.frozen,
   );
-  check(
-    "no damage lands during the countdown",
-    m.damage("guest", 2) === false && m.hp.guest === VS_HEARTS,
-  );
+  check("no damage lands during the countdown", !m.damage("guest", 2) && m.hp.guest === VS_HEARTS);
   let t: string | null = null;
 
   for (let f = 0; f < 180 && t !== "fight"; f += 1) {
@@ -598,11 +604,11 @@ const inRoom = (r: { cols: number; rows: number }, s: { x: number; y: number }) 
   check("countdown releases into fighting", t === "fight" && m.phase === "fighting" && !m.frozen);
   check(
     "a hit takes the victim's OWN hearts",
-    m.damage("guest", 1) === false && m.hp.guest === VS_HEARTS - 1 && m.hp.host === VS_HEARTS,
+    !m.damage("guest", 1) && m.hp.guest === VS_HEARTS - 1 && m.hp.host === VS_HEARTS,
   );
   check(
     "per-hit damage is capped",
-    m.damage("guest", 99) === false && m.hp.guest === VS_HEARTS - 1 - VS_HIT_CAP,
+    !m.damage("guest", 99) && m.hp.guest === VS_HEARTS - 1 - VS_HIT_CAP,
   );
   let ended = false;
 
@@ -648,7 +654,7 @@ const inRoom = (r: { cols: number; rows: number }, s: { x: number; y: number }) 
     "first to 3 rounds takes the match",
     sawEnd === "matchEnd" && m.winner === "host" && m.score.host === VS_WIN_SCORE,
   );
-  check("rematch waits out the end hold", m.canRematch === false);
+  check("rematch waits out the end hold", !m.canRematch);
 
   for (let f = 0; f < 180; f += 1) {
     m.step(STEP);
@@ -960,7 +966,7 @@ const script = (f: number) => ({
     check(
       `restored ${kind.name} replays identically`,
       JSON.stringify(copy.checkpoint()) === JSON.stringify(e.checkpoint()),
-      `${e.state}`,
+      e.state,
     );
   }
 
@@ -1149,11 +1155,12 @@ const script = (f: number) => ({
     readCheckpoint(null).kind === "absent" && readCheckpoint({}).kind === "absent",
   );
 
-  const reject = (label: string, patch: Partial<ExpeditionCheckpoint>, r: NetRoom = room) =>
+  const reject = (label: string, patch: Readonly<Record<string, JsonValue>>, r: NetRoom = room) => {
     check(
       `validator rejects ${label}`,
       readCheckpoint(wire({ checkpoint: { ...checkpoint, ...patch }, room: r })).kind === "invalid",
     );
+  };
 
   reject("a room seq mismatch", { room: 4 });
   const [first] = checkpoint.players;

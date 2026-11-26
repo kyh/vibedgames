@@ -36,7 +36,7 @@ export const basicAttackRegion: (
         width: RANGED_BASIC_HIT_RADIUS,
       };
 
-const aimedRegions: (def: AbilityDef, v: (f: string) => number) => HitRegion[] | undefined = (
+const aimedRegions: (def: AbilityDef, v: (f: string) => number) => HitRegion[] | null = (
   def,
   v,
 ) => {
@@ -84,7 +84,7 @@ const aimedRegions: (def: AbilityDef, v: (f: string) => number) => HitRegion[] |
     }
 
     default: {
-      break;
+      return null;
     }
   }
 };

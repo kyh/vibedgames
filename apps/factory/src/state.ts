@@ -10,8 +10,9 @@ import {
 } from "node:fs";
 import path from "node:path";
 
-import { asJsonObject, asNumber } from "./json.ts";
-import type { JsonValue } from "./json.ts";
+import { z } from "zod";
+
+import { asJsonObject, asNumber, parseJson } from "./json.ts";
 import { bestEffort } from "./best-effort.ts";
 
 /**
@@ -23,15 +24,18 @@ import { bestEffort } from "./best-effort.ts";
  * content, polish — until the operator stops it. Every turn is checkpointed to
  * disk, so the agent survives restarts and individual context windows.
  */
-export type Phase =
-  | "spec"
-  | "scaffold"
-  | "assets"
-  | "build"
-  | "playtest"
-  | "ship"
-  | "plan"
-  | "work";
+export const PHASES = [
+  "spec",
+  "scaffold",
+  "assets",
+  "build",
+  "playtest",
+  "ship",
+  "plan",
+  "work",
+] as const;
+
+export type Phase = (typeof PHASES)[number];
 
 export interface AgentState {
   slug: string;
@@ -170,8 +174,29 @@ export const migrateLegacyLayout = (workspace: string) => {
   });
 };
 
+const agentStateSchema: z.ZodType<AgentState> = z.object({
+  built: z.boolean().default(false),
+  contextDir: z.string().nullable().default(null),
+  createdAt: z.string(),
+  cycle: z.number(),
+  deployUrl: z.string().nullable(),
+  existingProject: z.boolean().default(false),
+  idea: z.string(),
+  iteration: z.number(),
+  lastApproval: z.string().nullable().default(null),
+  lastPlaytestHead: z.string().nullable().default(null),
+  model: z.string(),
+  phase: z.enum(PHASES),
+  phaseFailures: z.number().default(0),
+  runner: z.string(),
+  shipped: z.boolean(),
+  slug: z.string(),
+  totalCostUsd: z.number(),
+  updatedAt: z.string(),
+});
+
 export const loadState = (bb: Blackboard) =>
-  JSON.parse(readFileSync(bb.state, "utf-8")) as AgentState;
+  agentStateSchema.parse(JSON.parse(readFileSync(bb.state, "utf-8")));
 
 export const saveState = (bb: Blackboard, state: AgentState) => {
   state.updatedAt = new Date().toISOString();
@@ -332,17 +357,16 @@ type LockStatus =
 
 const errnoCode = (cause: unknown) => {
   if (!(cause instanceof Error) || !("code" in cause)) {
-    return;
+    return null;
   }
 
   const { code } = cause;
 
-  return String(code) === code ? code : undefined;
+  return String(code) === code ? code : null;
 };
 
 const lockOwnerPid = (raw: string) => {
-  const parsed: JsonValue = JSON.parse(raw);
-  const pid = asNumber(asJsonObject(parsed)?.pid);
+  const pid = asNumber(asJsonObject(parseJson(raw))?.pid);
 
   return pid !== undefined && Number.isFinite(pid) ? pid : undefined;
 };

@@ -47,6 +47,33 @@ export interface OnlineFlowDeps {
   restartRequested: boolean;
 }
 
+/** What tools/two-client.mts reads of an online run, published each frame. */
+export interface OnlineProbe {
+  ax: number | null;
+  conn: NetSession["connectionStatus"];
+  dead: number;
+  downed: number;
+  entities: number;
+  hearts: number;
+  ls: boolean;
+  mode: SeatState["mode"];
+  paused: boolean;
+  players: number;
+  px: number;
+  rSwing: number | null;
+  role: SeatState["role"];
+  rx: number | null;
+  state: RunState["state"];
+  swing: number;
+  vs: RunState["matchNet"];
+}
+
+declare global {
+  interface Window {
+    __lf?: OnlineProbe;
+  }
+}
+
 export class OnlineFlow {
   private readonly scene: Scene;
   private readonly run: RunState;
@@ -95,8 +122,12 @@ export class OnlineFlow {
     this.seat.session = new NetSession({
       fallbackMs: 6000,
       maxPlayers: 2,
-      onEvent: (event, payload, from) => this.hostNet.receive(event, payload, from),
-      onShared: (state) => this.guest.receive(state),
+      onEvent: (event, payload, from) => {
+        this.hostNet.receive(event, payload, from);
+      },
+      onShared: (state) => {
+        this.guest.receive(state);
+      },
       room: `lunerfall-v${WIRE_VERSION}-${this.seat.mode === "versus" ? "vs" : "coop"}-${party}`,
     });
   }
@@ -143,7 +174,7 @@ export class OnlineFlow {
       ? (this.room.guest.players.find((p) => p.id !== myId)?.swingId ?? null)
       : (this.seat.remote?.body.swingId ?? null);
 
-    Reflect.set(globalThis, "__lf", {
+    window.__lf = {
       ax,
       conn: session.connectionStatus,
       dead: livePlayers(this.seat).filter((p) => p.body.dead).length,
@@ -161,7 +192,7 @@ export class OnlineFlow {
       state: this.run.state,
       swing: this.seat.player.body.swingId,
       vs: vsProbe,
-    });
+    };
   }
 
   private publishHero(session: NetSession) {
@@ -365,7 +396,7 @@ export class OnlineFlow {
     const sess = this.seat.session;
     const myId = sess?.playerId;
 
-    if (!sess?.isHost || !myId) {
+    if (sess?.isHost !== true || myId === undefined || myId === null || myId === "") {
       return;
     }
 
@@ -387,6 +418,17 @@ export class OnlineFlow {
     const selfHero = parseHero(sess.players[myId]?.state?.hero) ?? this.seat.heroName;
     this.respawnBodies(selfHero, other && otherHero ? { hero: otherHero, id: other.id } : null);
 
+    this.buildOpeningRoom();
+    this.finishConnecting();
+    this.controls.reset();
+    this.seat.guestIn = NEUTRAL_INPUT;
+    this.restartRequested = false;
+    this.room.dirty = true;
+    this.hostNet.broadcast(0, true);
+    this.hooks.updateHud();
+  }
+
+  private buildOpeningRoom() {
     if (this.seat.mode === "versus") {
       this.run.match = new VersusMatch();
       this.rooms.buildVersus();
@@ -396,20 +438,14 @@ export class OnlineFlow {
       }
 
       this.versus.respawn();
-    } else {
-      this.run.match = null;
-      const param = new URLSearchParams(location.search).get("room");
-      const rt = param ? parseRoomType(param) : null;
-      this.rooms.build(rt ? this.expedition.debugEnter(rt) : this.expedition.begin());
+
+      return;
     }
 
-    this.finishConnecting();
-    this.controls.reset();
-    this.seat.guestIn = NEUTRAL_INPUT;
-    this.restartRequested = false;
-    this.room.dirty = true;
-    this.hostNet.broadcast(0, true);
-    this.hooks.updateHud();
+    this.run.match = null;
+    const param = new URLSearchParams(location.search).get("room");
+    const rt = param !== null && param !== "" ? parseRoomType(param) : null;
+    this.rooms.build(rt ? this.expedition.debugEnter(rt) : this.expedition.begin());
   }
 
   private respawnBodies(selfHero: HeroName, other: { hero: HeroName; id: string } | null) {
@@ -462,7 +498,7 @@ export class OnlineFlow {
     const sess = this.seat.session;
     const auth = this.seat.authority;
 
-    if (!sess?.live || auth.kind !== "ready" || this.seat.mode !== "coop") {
+    if (sess?.live !== true || auth.kind !== "ready" || this.seat.mode !== "coop") {
       return;
     }
 

@@ -27,10 +27,12 @@ const ITEM_BY_CODE = new Map<string, number>([
   ["Digit0", 5],
 ]);
 
-const swallowEvent = (e: Event) => e.preventDefault();
+const swallowEvent = (e: Event) => {
+  e.preventDefault();
+};
 
 export class Controls {
-  private keys = new Set<string>();
+  private readonly keys = new Set<string>();
   private abilityQueue: AbilityKey[] = [];
   private itemQueue: number[] = [];
   private buyPressed = false;
@@ -43,14 +45,14 @@ export class Controls {
   private lmb = false;
   private lmbEdge = false;
   private hadInput = false;
-  private pad = new PhysicalGamepad();
+  private readonly pad = new PhysicalGamepad();
   private padFwd = 0;
   private padStrafe = 0;
   private padAttack = false;
   private uiMode = false;
 
-  private canvas: HTMLElement;
-  private absoluteAim: boolean;
+  private readonly canvas: HTMLElement;
+  private readonly absoluteAim: boolean;
 
   /** `absoluteAim` is how the playtest harness steers: its synthetic mouse
    *  events carry a position but no movementX, so a relative look never turns.
@@ -205,7 +207,7 @@ export class Controls {
     }
   }
 
-  private onKeyDown = (e: KeyboardEvent) => {
+  private readonly onKeyDown = (e: KeyboardEvent) => {
     if (e.repeat) {
       return;
     }
@@ -235,11 +237,11 @@ export class Controls {
     }
   };
 
-  private onKeyUp = (e: KeyboardEvent) => {
+  private readonly onKeyUp = (e: KeyboardEvent) => {
     this.keys.delete(e.code);
   };
 
-  private onMouseMove = (e: MouseEvent) => {
+  private readonly onMouseMove = (e: MouseEvent) => {
     if (this.uiMode) {
       return;
     }
@@ -256,7 +258,7 @@ export class Controls {
     this.hadInput = true;
   };
 
-  private onMouseDown = (e: MouseEvent) => {
+  private readonly onMouseDown = (e: MouseEvent) => {
     if (this.uiMode) {
       return;
     }
@@ -270,13 +272,13 @@ export class Controls {
     }
   };
 
-  private onMouseUp = (e: MouseEvent) => {
+  private readonly onMouseUp = (e: MouseEvent) => {
     if (e.button === 0) {
       this.lmb = false;
     }
   };
 
-  private onBlur = () => {
+  private readonly onBlur = () => {
     this.keys.clear();
     this.lmb = false;
     this.lmbEdge = false;

@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { compatiblePropBatch, InstancedProps } from "../src/world/instanced-props.ts";
 import type { PropBatch, PropInstance } from "../src/world/instanced-props.ts";
+import { isInstancedMesh } from "../src/shared/three-guards.ts";
 
 type Check = (name: string, passed: boolean, detail?: string) => void;
 
@@ -208,7 +209,7 @@ export const checkInstancedProps = (check: Check) => {
   );
   let boundsValid = true;
   hidden.traverse((node) => {
-    if (!(node instanceof THREE.InstancedMesh)) {
+    if (!isInstancedMesh(node)) {
       return;
     }
 

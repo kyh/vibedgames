@@ -4,7 +4,6 @@ import { test } from "node:test";
 import { FixedRate } from "../src/fixed-rate.js";
 import { Interpolator, lerp, lerpAngle } from "../src/interpolation.js";
 import { netStats } from "../src/net-stats.js";
-import type { NetProbe } from "../src/net-stats.js";
 import { Reconciler } from "../src/prediction.js";
 import { RemoteClock } from "../src/remote-clock.js";
 import { ServerClock } from "../src/server-clock.js";
@@ -186,12 +185,7 @@ test("Interpolator counts the frames it draws past the newest update, for __VG_N
     { frames: 3, stalled: 1, starved: 2, updates: 2 },
   );
 
-  const probe: NetProbe | undefined = Object.getOwnPropertyDescriptor(
-    globalThis,
-    "__VG_NET__",
-  )?.value;
-
-  assert.deepEqual(probe?.stats(), after, "the page global reads the same totals");
+  assert.deepEqual(globalThis.__VG_NET__?.stats(), after, "the page global reads the same totals");
 });
 
 test("Interpolator renders jittery 20 Hz updates as steady motion", () => {
@@ -361,7 +355,13 @@ test("Interpolator renders a jittery stream at the hold it needs, where a fixed 
 
   const fixed = starvedShare(
     new Interpolator<Pose>({
-      clock: { now: (t) => route.now(t), observe: (a, b) => route.observe(a, b), synced: true },
+      clock: {
+        now: (t) => route.now(t),
+        observe: (a, b) => {
+          route.observe(a, b);
+        },
+        synced: true,
+      },
       lerp: lerpPose,
     }),
     arrivals,
@@ -508,7 +508,7 @@ const run = (options: {
     if (i % 3 === 0) {
       const hostAt = at - options.lagMs;
       const hostX = pathAt(hostAt) + (options.hostOffset ?? 0);
-      options.reconciler.reconcile(hostX, 0, options.aligned ? hostAt : undefined);
+      options.reconciler.reconcile(hostX, 0, options.aligned === true ? hostAt : undefined);
     }
 
     const fix = options.reconciler.step(x, 0, frame, at);

@@ -46,47 +46,55 @@ const byteReader = (stream: ReadableStream<Uint8Array>) => {
   let buffer: Uint8Array = new Uint8Array(0);
   let done = false;
 
-  const skip = async (size: number) => {
-    let left = size;
-
-    while (left > 0) {
-      if (buffer.byteLength === 0) {
-        if (done) {
-          return false;
-        }
-
-        const next = await reader.read();
-
-        if (next.done) {
-          done = true;
-
-          return false;
-        }
-
-        buffer = next.value;
-      }
-
-      const used = Math.min(left, buffer.byteLength);
-      buffer = buffer.subarray(used);
-      left -= used;
+  const skip: (left: number) => Promise<boolean> = async (left) => {
+    if (left <= 0) {
+      return true;
     }
 
-    return true;
-  };
+    if (buffer.byteLength === 0) {
+      if (done) {
+        return false;
+      }
 
-  const take = async (size: number) => {
-    while (buffer.byteLength < size && !done) {
       const next = await reader.read();
 
       if (next.done) {
         done = true;
-      } else {
-        const merged = new Uint8Array(buffer.byteLength + next.value.byteLength);
-        merged.set(buffer);
-        merged.set(next.value, buffer.byteLength);
-        buffer = merged;
+
+        return false;
       }
+
+      buffer = next.value;
     }
+
+    const used = Math.min(left, buffer.byteLength);
+    buffer = buffer.subarray(used);
+
+    return await skip(left - used);
+  };
+
+  const fill: (size: number) => Promise<void> = async (size) => {
+    if (buffer.byteLength >= size || done) {
+      return;
+    }
+
+    const next = await reader.read();
+
+    if (next.done) {
+      done = true;
+
+      return;
+    }
+
+    const merged = new Uint8Array(buffer.byteLength + next.value.byteLength);
+    merged.set(buffer);
+    merged.set(next.value, buffer.byteLength);
+    buffer = merged;
+    await fill(size);
+  };
+
+  const take = async (size: number) => {
+    await fill(size);
 
     if (buffer.byteLength < size) {
       return null;
@@ -143,9 +151,7 @@ export const forEachBundleFile = async (
   const body = async (size: number) =>
     (await reader.take(Math.ceil(size / BLOCK) * BLOCK)) ?? bad("the archive is truncated.");
 
-  let longName: string | null = null;
-
-  for (;;) {
+  const entry: (longName: string | null) => Promise<void> = async (longName) => {
     const block = await readBlock(reader);
 
     if (block === null || block.every((byte) => byte === 0)) {
@@ -153,7 +159,7 @@ export const forEachBundleFile = async (
     }
 
     const header = parseHeader(block, longName);
-    longName = null;
+    let nextName: string | null = null;
 
     if (header.type === "x" || header.type === "L") {
       if (header.size > MAX_EXTENDED_HEADER) {
@@ -162,7 +168,7 @@ export const forEachBundleFile = async (
 
       const padded = await body(header.size);
       const data = padded.subarray(0, header.size);
-      longName = header.type === "L" ? field(data, 0, header.size) : paxPath(data);
+      nextName = header.type === "L" ? field(data, 0, header.size) : paxPath(data);
     } else if (!isRegularFile(header.type)) {
       if (!(await reader.skip(Math.ceil(header.size / BLOCK) * BLOCK))) {
         bad("the archive is truncated.");
@@ -177,5 +183,9 @@ export const forEachBundleFile = async (
         await onFile({ bytes: new Uint8Array(data.subarray(0, header.size)), path });
       }
     }
-  }
+
+    await entry(nextName);
+  };
+
+  await entry(null);
 };

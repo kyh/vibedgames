@@ -162,7 +162,10 @@ export class FaceCamera {
       this.stream = stream;
       const { video } = this.opts;
       const tracks = stream.getTracks();
-      const onEnded = () => this.fail(attempt);
+
+      const onEnded = () => {
+        this.fail(attempt);
+      };
 
       const onVideoError = () => {
         if (video.srcObject === stream && video.error) {
@@ -354,7 +357,9 @@ export class FaceCamera {
     }
 
     if (this.attempt === attempt) {
-      this.raf = window.requestAnimationFrame(() => this.predict(attempt));
+      this.raf = window.requestAnimationFrame(() => {
+        this.predict(attempt);
+      });
     }
   }
 

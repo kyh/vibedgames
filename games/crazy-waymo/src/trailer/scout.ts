@@ -1308,13 +1308,13 @@ export const scoutFreeway = (ctx: ScoutCtx) => {
     const ok = markStageable(r, walls);
 
     for (let i = 0; i < ok.length; i += 1) {
-      if (!ok[i]) {
+      if (ok[i] !== true) {
         continue;
       }
 
       let j = i;
 
-      while (j + 1 < ok.length && ok[j + 1]) {
+      while (j + 1 < ok.length && ok[j + 1] === true) {
         j += 1;
       }
 
@@ -1402,19 +1402,11 @@ export const scoutParkedRow = (specs: readonly ParkedRowSpec[], minCars = 6) => 
   let best: ParkedRow | null = null;
 
   for (const s of specs) {
-    if (!s) {
-      continue;
-    }
-
     const tx = Math.sin(s.yaw);
     const tz = Math.cos(s.yaw);
     const row: { spec: ParkedRowSpec; along: number }[] = [];
 
     for (const o of specs) {
-      if (!o) {
-        continue;
-      }
-
       const dx = o.x - s.x;
       const dz = o.z - s.z;
       const along = dx * tx + dz * tz;

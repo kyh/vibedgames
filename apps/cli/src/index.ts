@@ -29,38 +29,42 @@ const main = defineCommand({
     version: PACKAGE_VERSION,
   },
   subCommands: {
-    completions: lazy(() => import("./commands/completions.js"), "completionsCommand"),
-    config: lazy(() => import("./commands/config.js"), "configCommand"),
-    credits: lazy(() => import("./commands/credits.js"), "creditsCommand"),
-    deploy: lazy(() => import("./commands/deploy.js"), "deployCommand"),
-    deployments: lazy(() => import("./commands/deployments.js"), "deploymentsCommand"),
-    distribute: lazy(() => import("./commands/distribute.js"), "distributeCommand"),
-    factory: lazy(() => import("./commands/factory.js"), "factoryCommand"),
-    fork: lazy(() => import("./commands/fork.js"), "forkCommand"),
-    generate: lazy(() => import("./commands/generate.js"), "generateCommand"),
-    init: lazy(() => import("./commands/init.js"), "initCommand"),
-    login: lazy(() => import("./commands/login.js"), "loginCommand"),
-    logout: lazy(() => import("./commands/logout.js"), "logoutCommand"),
-    new: lazy(() => import("./commands/new.js"), "newCommand"),
+    completions: lazy(async () => await import("./commands/completions.js"), "completionsCommand"),
+    config: lazy(async () => await import("./commands/config.js"), "configCommand"),
+    credits: lazy(async () => await import("./commands/credits.js"), "creditsCommand"),
+    deploy: lazy(async () => await import("./commands/deploy.js"), "deployCommand"),
+    deployments: lazy(async () => await import("./commands/deployments.js"), "deploymentsCommand"),
+    distribute: lazy(async () => await import("./commands/distribute.js"), "distributeCommand"),
+    factory: lazy(async () => await import("./commands/factory.js"), "factoryCommand"),
+    fork: lazy(async () => await import("./commands/fork.js"), "forkCommand"),
+    generate: lazy(async () => await import("./commands/generate.js"), "generateCommand"),
+    init: lazy(async () => await import("./commands/init.js"), "initCommand"),
+    login: lazy(async () => await import("./commands/login.js"), "loginCommand"),
+    logout: lazy(async () => await import("./commands/logout.js"), "logoutCommand"),
+    new: lazy(async () => await import("./commands/new.js"), "newCommand"),
     playtest: async () => {
       const { playtestCommand } = await import("./commands/playtest.js");
 
       return defineCommand({
         meta: playtestCommand.meta,
         subCommands: {
-          run: lazy(() => import("./commands/playtest-run.js"), "playtestRunCommand"),
+          run: lazy(async () => await import("./commands/playtest-run.js"), "playtestRunCommand"),
         },
       });
     },
-    skills: lazy(() => import("./commands/skills.js"), "skillsCommand"),
-    update: lazy(() => import("./commands/update.js"), "updateCommand"),
-    whoami: lazy(() => import("./commands/whoami.js"), "whoamiCommand"),
+    skills: lazy(async () => await import("./commands/skills.js"), "skillsCommand"),
+    update: lazy(async () => await import("./commands/update.js"), "updateCommand"),
+    whoami: lazy(async () => await import("./commands/whoami.js"), "whoamiCommand"),
   },
 });
 
 const subcommand = process.argv.at(2);
 
-if (subcommand && !["update", "init", "completions"].includes(subcommand)) {
+if (
+  subcommand !== undefined &&
+  subcommand !== "" &&
+  !["update", "init", "completions"].includes(subcommand)
+) {
   const { maybeScheduleAutoUpdate } = await import("./lib/update.js");
   maybeScheduleAutoUpdate();
 }

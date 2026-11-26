@@ -43,5 +43,5 @@ const STATUS_ICONS = new Map<string, string>([
 export const statusIcon = (kind: string) => {
   const name = STATUS_ICONS.get(kind);
 
-  return name ? iconUrl(name) : null;
+  return name !== undefined && name !== "" ? iconUrl(name) : null;
 };

@@ -210,8 +210,8 @@ export interface RibbonPalette {
 
 /** Pooled projectile wakes, keyed by the projectile they follow. */
 export class RibbonPool {
-  private ribbons: Ribbon[] = [];
-  private geo = createStripGeometry();
+  private readonly ribbons: Ribbon[] = [];
+  private readonly geo = createStripGeometry();
   private readonly scene: THREE.Scene;
 
   constructor(scene: THREE.Scene, clock: { value: number }) {

@@ -1,3 +1,4 @@
+import { runInOrder } from "@repo/contract/run-in-order";
 import type { InlineFile } from "@repo/contract/deploy/deploy-schema";
 import { contentTypeForPath } from "@repo/contract/deploy/content-types";
 import { MAX_FILE_SIZE } from "@repo/contract/deploy/deploy-schema";
@@ -64,10 +65,9 @@ const fetchMediaFile = async (path: string, url: string, budget: number) => {
  */
 export const decodeInlineFiles = async (files: InlineFile[]) => {
   const seen = new Set<string>();
-  const decoded: DecodedFile[] = [];
   let budget = MAX_FETCHED_BYTES;
 
-  for (const file of files) {
+  return await runInOrder(files, async (file) => {
     if (seen.has(file.path)) {
       throw new ORPCError("BAD_REQUEST", { message: `Duplicate path "${file.path}" in upload.` });
     }
@@ -82,14 +82,12 @@ export const decodeInlineFiles = async (files: InlineFile[]) => {
       bytes = new Uint8Array(new TextEncoder().encode(file.content));
     }
 
-    decoded.push({
+    return {
       bytes,
       contentType: file.contentType ?? contentTypeForPath(file.path),
       path: file.path,
-    });
-  }
-
-  return decoded;
+    } satisfies DecodedFile;
+  });
 };
 
 export const sha256Hex = async (bytes: Uint8Array<ArrayBuffer>) => {

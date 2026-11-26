@@ -1,3 +1,5 @@
+import { inOrder, range } from "../shared/paced";
+
 export interface TrailerScene {
   id: string;
   duration: number;
@@ -80,7 +82,12 @@ export const runTrailer = (config: TrailerConfig) => {
   const params = new URLSearchParams(window.location.search);
   const clean = params.has("clean");
   const selected = params.get("scene");
-  const scenes = selected ? config.scenes.filter((scene) => scene.id === selected) : config.scenes;
+
+  const scenes =
+    selected !== null && selected !== ""
+      ? config.scenes.filter((scene) => scene.id === selected)
+      : config.scenes;
+
   const style = document.createElement("style");
   style.textContent = CSS;
   document.head.append(style);
@@ -125,7 +132,7 @@ export const runTrailer = (config: TrailerConfig) => {
   let sceneIndex = -1;
 
   const publish = (status: PlaybackStatus, t = 0) => {
-    window["__trailer"] = { ...status, sceneId, sceneIndex, t, timeline };
+    window.__trailer = { ...status, sceneId, sceneIndex, t, timeline };
   };
 
   const freeze = () => {
@@ -176,13 +183,13 @@ export const runTrailer = (config: TrailerConfig) => {
 
   window.addEventListener("pointerdown", unlock);
   window.addEventListener("keydown", unlock);
-  window["__trailerStart"] = () => {
+  window.__trailerStart = () => {
     started = true;
     gate?.();
     gate = null;
   };
 
-  play.addEventListener("click", () => window["__trailerStart"]?.());
+  play.addEventListener("click", () => window.__trailerStart?.());
   window.addEventListener("keydown", (event) => {
     if (event.key !== "Escape") {
       return;
@@ -201,53 +208,60 @@ export const runTrailer = (config: TrailerConfig) => {
     duration: number,
     token: number,
     body: (t: number, dt: number) => void,
-  ) => Promise<void> = (duration, token, body) =>
-    // oxlint-disable-next-line promise/avoid-new -- rAF has no promise form in the browser
-    new Promise((resolve, reject) => {
-      const start = config.clock();
-      let last = start;
+  ) => Promise<void> = async (duration, token, body) => {
+    const { promise, resolve, reject } = Promise.withResolvers<null>();
+    const start = config.clock();
+    let last = start;
 
-      const frame = () => {
-        if (generation !== token) {
-          return resolve();
-        }
+    const frame = () => {
+      if (generation !== token) {
+        resolve(null);
 
-        const now = config.clock();
-        const t = Math.min(duration, now - start);
+        return;
+      }
 
-        try {
-          body(t, now - last);
-        } catch (error) {
-          reject(error);
+      const now = config.clock();
+      const t = Math.min(duration, now - start);
 
-          return;
-        }
+      try {
+        body(t, now - last);
+      } catch (error) {
+        reject(error);
 
-        last = now;
+        return;
+      }
 
-        if (t >= duration) {
-          resolve();
-        } else {
-          requestAnimationFrame(frame);
-        }
-      };
+      last = now;
 
-      requestAnimationFrame(frame);
-    });
+      if (t >= duration) {
+        resolve(null);
+      } else {
+        requestAnimationFrame(frame);
+      }
+    };
 
-  const awaitGate = () =>
-    // oxlint-disable-next-line promise/avoid-new -- the manual-start click has no promise form
-    new Promise<void>((resolve) => {
-      gate = resolve;
-    });
+    requestAnimationFrame(frame);
+
+    await promise;
+  };
+
+  const awaitGate = async () => {
+    const { promise, resolve } = Promise.withResolvers<null>();
+
+    gate = () => {
+      resolve(null);
+    };
+
+    await promise;
+  };
 
   const finish = async (token: number) => {
     freeze();
     active?.teardown?.();
     active = null;
-    caption.dataset["visible"] = "false";
+    caption.dataset.visible = "false";
 
-    if (clean || selected || !branding) {
+    if (clean || (selected !== null && selected !== "") || !branding) {
       return;
     }
 
@@ -255,9 +269,9 @@ export const runTrailer = (config: TrailerConfig) => {
     sceneId = "end-card";
     const entry = { endMs: 0, id: sceneId, startMs: performance.now() };
     timeline.push(entry);
-    await runFrames(branding.durationMs, token, (t) =>
-      publish({ done: false, phase: "end-card" }, t),
-    );
+    await runFrames(branding.durationMs, token, (t) => {
+      publish({ done: false, phase: "end-card" }, t);
+    });
     entry.endMs = performance.now();
   };
 
@@ -265,7 +279,7 @@ export const runTrailer = (config: TrailerConfig) => {
     timeline = [];
     end.hidden = true;
 
-    for (let i = index; i < scenes.length; i += 1) {
+    for await (const i of inOrder(range(scenes.length, index))) {
       if (token !== generation) {
         return;
       }
@@ -276,7 +290,7 @@ export const runTrailer = (config: TrailerConfig) => {
         return;
       }
 
-      caption.dataset["visible"] = "false";
+      caption.dataset.visible = "false";
 
       if (active) {
         freeze();
@@ -313,7 +327,7 @@ export const runTrailer = (config: TrailerConfig) => {
       timeline.push(entry);
       await runFrames(scene.duration, token, (t, dt) => {
         scene.run?.(t, dt);
-        caption.dataset["visible"] = String(
+        caption.dataset.visible = String(
           !clean && Boolean(scene.caption) && t > 250 && t < scene.duration - 300,
         );
         publish({ done: false, phase: "playing" }, t);
@@ -334,7 +348,7 @@ export const runTrailer = (config: TrailerConfig) => {
     publish({ done: true, phase: "done" });
 
     if (params.has("loop")) {
-      window.setTimeout(() => window["__trailerJump"]?.(0), 900);
+      window.setTimeout(() => window.__trailerJump?.(0), 900);
     }
   };
 
@@ -354,7 +368,7 @@ export const runTrailer = (config: TrailerConfig) => {
     })();
   };
 
-  window["__trailerJump"] = (index) => {
+  window.__trailerJump = (index) => {
     if (!Number.isFinite(index)) {
       return;
     }

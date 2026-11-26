@@ -547,7 +547,10 @@ const rowOf = (room: WireRecord, key: string, id: string) => asWireRecord(room[k
   const rock = readAsteroidRow("rock0001", rowOf(room, ASTEROIDS_KEY, "rock0001"), hostEpoch);
   assert.equal(rock?.at, T0, "a row's position holds at its arena time");
   assert.ok(
-    rock && Math.abs(rock.e.x - 1200.4) <= 0.5 && rock.e.vx === 12.3 && rock.e.radius === 41.3,
+    rock !== null &&
+      Math.abs(rock.e.x - 1200.4) <= 0.5 &&
+      rock.e.vx === 12.3 &&
+      rock.e.radius === 41.3,
   );
   const firstShot = readShotRow("shot0001", rowOf(room, SHOTS_KEY, "shot0001"), hostEpoch);
   assert.equal(firstShot?.e.diesAt, T0 + 3000, "deadlines ride as arena time");
@@ -701,9 +704,15 @@ const rowOf = (room: WireRecord, key: string, id: string) => asWireRecord(room[k
 
   const grants: [string, string | null][] = [];
 
+  const soloInbox: string[] = [];
+
   const soloLink = new Link({
-    inbox: () => null,
-    onClaim: (key, owner) => grants.push([key, owner]),
+    inbox: (event) => {
+      soloInbox.push(event);
+    },
+    onClaim: (key, owner) => {
+      grants.push([key, owner]);
+    },
   });
 
   soloLink.connect(SOLO);

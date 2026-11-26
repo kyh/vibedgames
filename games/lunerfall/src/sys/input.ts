@@ -34,8 +34,8 @@ const STICK_Y = 0.55;
 
 export class Input {
   private keys: Record<string, Phaser.Input.Keyboard.Key> = {};
-  private pad?: PhaserGamepad;
-  private phys = new PhysicalGamepad();
+  private readonly pad?: PhaserGamepad;
+  private readonly phys = new PhysicalGamepad();
 
   constructor(scene: Phaser.Scene, pad?: PhaserGamepad) {
     this.pad = pad;

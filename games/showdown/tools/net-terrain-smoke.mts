@@ -8,7 +8,7 @@ import type { JsonValue } from "../src/json.ts";
 import { spawnFromNet } from "../src/net/host.ts";
 import { applyPuppetRow, PuppetTrack } from "../src/net/interpolation.ts";
 import { OwnPrediction } from "../src/net/prediction.ts";
-import type { OwnRow } from "../src/net/prediction.ts";
+import type { OwnBody, OwnRow } from "../src/net/prediction.ts";
 import {
   decodeFrame,
   encodeFrame,
@@ -287,14 +287,18 @@ test("a promoted host finishes an inherited leap and roll from where they stood"
   assert.ok(Math.abs(roller.z - EVADE.distance / 2) < 1e-9, "only the remaining half is rolled");
 });
 
-const ownBody = () => ({
-  alive: true,
-  evadeCooldown: 0,
-  evadePending: false,
-  evasion: null,
-  knock: new Vector2(),
-  leap: null,
-});
+const ownBody = () => {
+  const own: OwnBody = {
+    alive: true,
+    evadeCooldown: 0,
+    evadePending: false,
+    evasion: null,
+    knock: new Vector2(),
+    leap: null,
+  };
+
+  return own;
+};
 
 const ownRow = (overrides: Partial<OwnRow>) => ({
   ack: 0,

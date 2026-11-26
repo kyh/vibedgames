@@ -1,3 +1,4 @@
+import { parseJson } from "@repo/contract/json";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
@@ -43,18 +44,18 @@ const findConfigPath = (dir: string) => {
 export const findProjectRoot = (dir: string) => {
   const found = findConfigPath(dir);
 
-  return found ? path.dirname(found) : null;
+  return found !== null && found !== "" ? path.dirname(found) : null;
 };
 
 export const readProjectConfig = (dir: string) => {
   const file = findConfigPath(dir);
 
-  if (!file) {
+  if (file === null || file === "") {
     return null;
   }
 
   const raw = readFileSync(file, "utf-8");
-  const parsed: JsonValue = JSON.parse(raw);
+  const parsed: JsonValue = parseJson(raw);
 
   if (!isJsonObject(parsed) || !isJsonString(parsed.slug)) {
     throw new Error(`${FILENAME} is malformed — missing "slug".`);

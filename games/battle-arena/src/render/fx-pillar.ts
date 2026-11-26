@@ -478,12 +478,12 @@ const syncPillar = (p: Pillar) => {
 
 /** Pooled columns of light. Four draw calls each: shaft, star, two rings. */
 export class PillarPool {
-  private pillars: Pillar[] = [];
-  private columnGeo = parameterGrid(CLIMB_ROWS, AROUND_COLS);
-  private starGeo = new THREE.PlaneGeometry(1, 1);
-  private haloGeo = new THREE.RingGeometry(0.52, 1, 72, 1);
+  private readonly pillars: Pillar[] = [];
+  private readonly columnGeo = parameterGrid(CLIMB_ROWS, AROUND_COLS);
+  private readonly starGeo = new THREE.PlaneGeometry(1, 1);
+  private readonly haloGeo = new THREE.RingGeometry(0.52, 1, 72, 1);
 
-  private scene: THREE.Scene;
+  private readonly scene: THREE.Scene;
 
   constructor(scene: THREE.Scene, clock: { value: number }) {
     this.scene = scene;

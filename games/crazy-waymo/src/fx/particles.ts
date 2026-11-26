@@ -80,10 +80,10 @@ export const TIER_FX = [
 const NIGHT_FX_SCALE = 0.55;
 
 export class Fx {
-  private smokeSun = { value: new THREE.Color(0.78, 0.72, 0.6) };
-  private smokeAmbient = { value: new THREE.Color(0.55, 0.6, 0.65) };
-  private fxGain = { value: 1 };
-  private tierCol = { value: new THREE.Color(GRIND_COLOR) };
+  private readonly smokeSun = { value: new THREE.Color(0.78, 0.72, 0.6) };
+  private readonly smokeAmbient = { value: new THREE.Color(0.55, 0.6, 0.65) };
+  private readonly fxGain = { value: 1 };
+  private readonly tierCol = { value: new THREE.Color(GRIND_COLOR) };
   readonly smoke = new ParticleField(420, THREE.NormalBlending, true, FRAG_SMOKE, {
     uAmbient: this.smokeAmbient,
     uSunTint: this.smokeSun,
@@ -95,14 +95,14 @@ export class Fx {
   });
   readonly plume = new BoostPlume(this.fxGain);
   readonly rings = new FxRings(this.fxGain);
-  readonly water = new WaterFx((x, y, z, strength, velX, velZ, kind) =>
-    this.waterSpray(x, y, z, strength, velX, velZ, kind),
-  );
-  private tmp = new THREE.Color();
-  private white = new THREE.Color(1, 1, 1);
-  private tmpDir = { x: 0, y: 0, z: 0 };
-  private waterDirection = { x: 0, y: 0, z: 0 };
-  private waterSprayOptions: EmitOpts = {
+  readonly water = new WaterFx((x, y, z, strength, velX, velZ, kind) => {
+    this.waterSpray(x, y, z, strength, velX, velZ, kind);
+  });
+  private readonly tmp = new THREE.Color();
+  private readonly white = new THREE.Color(1, 1, 1);
+  private readonly tmpDir = { x: 0, y: 0, z: 0 };
+  private readonly waterDirection = { x: 0, y: 0, z: 0 };
+  private readonly waterSprayOptions: EmitOpts = {
     color: new THREE.Color(0.84, 0.94, 1),
     count: 0,
     dir: this.waterDirection,

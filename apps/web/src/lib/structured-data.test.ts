@@ -27,7 +27,11 @@ describe("siteGraph", () => {
     const [contactPoint] = organization.contactPoint;
     assert.ok(contactPoint, "Organization has no contactPoint");
     assert.ok(contactPoint.contactType.length > 0);
-    assert.ok(contactPoint.url || contactPoint.email || contactPoint.telephone);
+    assert.ok(
+      contactPoint.url ||
+        (contactPoint.email !== undefined && contactPoint.email !== "") ||
+        (contactPoint.telephone !== undefined && contactPoint.telephone !== ""),
+    );
   });
 
   test("Organization lists only verifiable sameAs profiles", () => {
@@ -95,7 +99,7 @@ describe("serializeJsonLd", () => {
     const payload = "</script><script>alert(1)</script>";
     const serialized = serializeJsonLd({ x: payload });
     assert.doesNotMatch(serialized, /<\/script>/u);
-    assert.equal(JSON.parse(serialized).x, payload);
+    assert.deepEqual(JSON.parse(serialized), { x: payload });
   });
 
   test("the real graph is embeddable without breaking out of the tag", () => {

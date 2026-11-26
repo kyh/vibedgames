@@ -25,10 +25,14 @@ export const surfaceDeckAt = (decks: readonly SurfaceDeck[], x: number, z: numbe
  * An actual collision floor prevents rail impacts ejecting a chassis through
  * the coarse heightfield's interpolated deck edge. */
 export const surfaceDeckPhysics = (decks: readonly SurfaceDeck[]) => {
-  // oxlint-disable-next-line unicorn/no-array-sort
-  const xs = [...new Set(decks.flatMap((deck) => [deck.minX, deck.maxX]))].sort((a, b) => a - b);
-  // oxlint-disable-next-line unicorn/no-array-sort
-  const zs = [...new Set(decks.flatMap((deck) => [deck.minZ, deck.maxZ]))].sort((a, b) => a - b);
+  const xs = [...new Set(decks.flatMap((deck) => [deck.minX, deck.maxX]))].toSorted(
+    (a, b) => a - b,
+  );
+
+  const zs = [...new Set(decks.flatMap((deck) => [deck.minZ, deck.maxZ]))].toSorted(
+    (a, b) => a - b,
+  );
+
   const vertices: number[] = [];
 
   for (let ix = 0; ix + 1 < xs.length; ix += 1) {

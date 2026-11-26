@@ -12,14 +12,18 @@ const extractApiKeys = (headers: Headers) => {
 
   const direct = headers.get("x-api-key");
 
-  if (direct?.startsWith(API_KEY_PREFIX)) {
+  if (direct?.startsWith(API_KEY_PREFIX) === true) {
     candidates.push(direct);
   }
 
   const auth = headers.get("authorization");
-  const token = auth ? /^Bearer\s+(?<token>.+)$/iu.exec(auth)?.groups?.token?.trim() : undefined;
 
-  if (token?.startsWith(API_KEY_PREFIX)) {
+  const token =
+    auth !== null && auth !== ""
+      ? /^Bearer\s+(?<token>.+)$/iu.exec(auth)?.groups?.token?.trim()
+      : undefined;
+
+  if (token?.startsWith(API_KEY_PREFIX) === true) {
     candidates.push(token);
   }
 
@@ -39,11 +43,17 @@ export const resolveApiKeySession = async (auth: Auth, db: Db, headers: Headers)
     return null;
   }
 
-  for (const key of candidates) {
+  const sessionFrom: (index: number) => Promise<Session | null> = async (index) => {
+    const key = candidates[index];
+
+    if (key === undefined) {
+      return null;
+    }
+
     const { valid, key: record } = await auth.api.verifyApiKey({ body: { key } });
 
     if (!valid || !record) {
-      continue;
+      return await sessionFrom(index + 1);
     }
 
     const rows = await db
@@ -55,11 +65,11 @@ export const resolveApiKeySession = async (auth: Auth, db: Db, headers: Headers)
     const [user] = rows;
 
     if (!user) {
-      continue;
+      return await sessionFrom(index + 1);
     }
 
-    if (user.banned && (!user.banExpires || user.banExpires.getTime() > Date.now())) {
-      continue;
+    if (user.banned === true && (!user.banExpires || user.banExpires.getTime() > Date.now())) {
+      return await sessionFrom(index + 1);
     }
 
     const now = new Date();
@@ -76,8 +86,8 @@ export const resolveApiKeySession = async (auth: Auth, db: Db, headers: Headers)
         userId: user.id,
       },
       user,
-    } as Session;
-  }
+    } satisfies Session;
+  };
 
-  return null;
+  return await sessionFrom(0);
 };

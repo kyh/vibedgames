@@ -56,7 +56,9 @@ const client = joinRoom({
   fallbackMs: FALLBACK_MS,
   maxPlayers: MAX_PLAYERS,
   offline: playtest,
-  onEvent: (event, payload, from) => game.onRoomEvent(event, payload, from),
+  onEvent: (event, payload, from) => {
+    game.onRoomEvent(event, payload, from);
+  },
   room: ROOM_ID,
 });
 
@@ -65,8 +67,12 @@ const input = new Input(LOCAL_COLOR);
 input.setTouchVisible(false);
 
 const hud = new Hud({
-  onChassis: (index) => game.setChassis(index),
-  onItem: () => input.queueItem(),
+  onChassis: (index) => {
+    game.setChassis(index);
+  },
+  onItem: () => {
+    input.queueItem();
+  },
   onStart: () => {
     unlockAudio();
     game.start();
@@ -195,7 +201,9 @@ renderer.setAnimationLoop((time) => {
 
 if (import.meta.env.DEV || playtest) {
   publishTestHooks({
-    seed: () => game.restart(),
+    seed: () => {
+      game.restart();
+    },
     setState: (name) => (game.setTestState(name) ? { state: name } : undefined),
   });
 

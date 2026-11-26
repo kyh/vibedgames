@@ -44,27 +44,23 @@ export interface UrlSigning {
   secret: string;
 }
 
-const constantTimeEqual = (a: string, b: string) => {
-  let mismatch = 0;
+const SHA256_HEX = /^[0-9a-f]{64}$/u;
 
-  for (let i = 0; i < a.length; i += 1) {
-    // oxlint-disable-next-line no-bitwise -- accumulating XOR diffs is the point of a constant-time compare
-    mismatch |= (a.codePointAt(i) ?? 0) ^ (b.codePointAt(i) ?? 0);
-  }
-
-  return mismatch === 0;
-};
-
-const hmacSha256Hex = async (secret: string, message: string) => {
-  const key = await crypto.subtle.importKey(
+const hmacKey = async (secret: string) =>
+  await crypto.subtle.importKey(
     "raw",
     new TextEncoder().encode(secret),
     { hash: "SHA-256", name: "HMAC" },
     false,
-    ["sign"],
+    ["sign", "verify"],
   );
 
-  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(message));
+const hmacSha256Hex = async (secret: string, message: string) => {
+  const sig = await crypto.subtle.sign(
+    "HMAC",
+    await hmacKey(secret),
+    new TextEncoder().encode(message),
+  );
 
   return [...new Uint8Array(sig)].map((b) => b.toString(16).padStart(2, "0")).join("");
 };
@@ -74,11 +70,16 @@ const verify = async (secret: string, message: string, exp: number, sig: string)
     return "expired";
   }
 
-  const expected = await hmacSha256Hex(secret, message);
+  const matches =
+    SHA256_HEX.test(sig) &&
+    (await crypto.subtle.verify(
+      "HMAC",
+      await hmacKey(secret),
+      Uint8Array.from(sig.match(/../gu) ?? [], (pair) => Number.parseInt(pair, 16)),
+      new TextEncoder().encode(message),
+    ));
 
-  return expected.length === sig.length && constantTimeEqual(expected, sig)
-    ? null
-    : "bad signature";
+  return matches ? null : "bad signature";
 };
 
 /** Where an upload lands: an R2 key, or one external URL the server minted. */
@@ -139,7 +140,15 @@ export const verifyUploadUrl: (
   const exp = params.get("exp");
   const sig = params.get("sig");
 
-  if ((key === null) === (to === null) || !contentType || !exp || !sig) {
+  if (
+    (key === null) === (to === null) ||
+    contentType === null ||
+    contentType === "" ||
+    exp === null ||
+    exp === "" ||
+    sig === null ||
+    sig === ""
+  ) {
     return { error: "missing query params (key or to, ct, exp, sig)" };
   }
 
@@ -183,7 +192,7 @@ export const verifyDownloadUrl: (
   const exp = params.get("exp");
   const sig = params.get("sig");
 
-  if (!key || !exp || !sig) {
+  if (key === null || key === "" || exp === null || exp === "" || sig === null || sig === "") {
     return { error: "missing query params (key, exp, sig)" };
   }
 
@@ -197,21 +206,23 @@ export const verifyDownloadUrl: (
  * deployment when single-deploy mode overwrites an old release.
  */
 export const deletePrefix = async ({ r2, prefix }: { r2: R2Config; prefix: string }) => {
-  let cursor: string | undefined;
-
-  while (true) {
+  const deleteFrom: (cursor: string | undefined) => Promise<void> = async (cursor) => {
     const listed = await r2.bucket.list({ cursor, limit: 1000, prefix });
 
     if (listed.objects.length === 0) {
       return;
     }
 
-    await Promise.all(listed.objects.map((o) => r2.bucket.delete(o.key)));
+    await Promise.all(
+      listed.objects.map(async (o) => {
+        await r2.bucket.delete(o.key);
+      }),
+    );
 
-    if (!listed.truncated) {
-      return;
+    if (listed.truncated) {
+      await deleteFrom(listed.cursor);
     }
+  };
 
-    ({ cursor } = listed);
-  }
+  await deleteFrom(undefined);
 };

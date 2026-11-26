@@ -172,9 +172,9 @@ export class GalleryScene extends Scene {
         })
         .setOrigin(0.5, 0);
       img.setInteractive();
-      img.on("pointerdown", () =>
-        this.pin(`${layerName} idx ${idx} — ${label}, used ${counts.get(idx) ?? 0}×`),
-      );
+      img.on("pointerdown", () => {
+        this.pin(`${layerName} idx ${idx} — ${label}, used ${counts.get(idx) ?? 0}×`);
+      });
     }
 
     this.cursorY += Math.ceil(indices.length / cols) * cellH + 12;
@@ -227,12 +227,12 @@ export class GalleryScene extends Scene {
         })
         .setOrigin(0.5, 0);
       spr.setInteractive();
-      spr.on("pointerdown", () =>
+      spr.on("pointerdown", () => {
         this.pin(
           `${name} — ${def.fw}x${def.fh}, origin (${def.ox},${def.oy}), ` +
             `${def.frames} frames @${def.fps}fps, placed ${placed.get(name) ?? 0}×`,
-        ),
-      );
+        );
+      });
     }
 
     this.cursorY += Math.ceil(names.length / cols) * cellH + 12;
@@ -243,16 +243,66 @@ export class GalleryScene extends Scene {
     const y0 = this.cursorY + 60;
 
     const entries: { label: string; make: (x: number, y: number) => void }[] = [
-      { label: "player idle", make: (x, y) => this.anim(x, y, "p-idle", 2) },
-      { label: "player walk", make: (x, y) => this.anim(x, y, "p-walk", 2) },
-      { label: "player axe", make: (x, y) => this.anim(x, y, "p-axe", 2) },
-      { label: "skeleton", make: (x, y) => this.anim(x, y, "e-skel-walk", 2) },
-      { label: "chicken", make: (x, y) => this.anim(x, y, "chicken-walk", 2) },
-      { label: "cow", make: (x, y) => this.anim(x, y, "cow-idle", 2) },
-      { label: "pig", make: (x, y) => this.anim(x, y, "pig-idle", 2) },
-      { label: "sheep", make: (x, y) => this.anim(x, y, "sheep-idle", 2) },
-      { label: "duck", make: (x, y) => this.anim(x, y, "duck-walk", 3) },
-      { label: "mushroom", make: (x, y) => this.anim(x, y, "mushroom-red-bob", 3) },
+      {
+        label: "player idle",
+        make: (x, y) => {
+          this.anim(x, y, "p-idle", 2);
+        },
+      },
+      {
+        label: "player walk",
+        make: (x, y) => {
+          this.anim(x, y, "p-walk", 2);
+        },
+      },
+      {
+        label: "player axe",
+        make: (x, y) => {
+          this.anim(x, y, "p-axe", 2);
+        },
+      },
+      {
+        label: "skeleton",
+        make: (x, y) => {
+          this.anim(x, y, "e-skel-walk", 2);
+        },
+      },
+      {
+        label: "chicken",
+        make: (x, y) => {
+          this.anim(x, y, "chicken-walk", 2);
+        },
+      },
+      {
+        label: "cow",
+        make: (x, y) => {
+          this.anim(x, y, "cow-idle", 2);
+        },
+      },
+      {
+        label: "pig",
+        make: (x, y) => {
+          this.anim(x, y, "pig-idle", 2);
+        },
+      },
+      {
+        label: "sheep",
+        make: (x, y) => {
+          this.anim(x, y, "sheep-idle", 2);
+        },
+      },
+      {
+        label: "duck",
+        make: (x, y) => {
+          this.anim(x, y, "duck-walk", 3);
+        },
+      },
+      {
+        label: "mushroom",
+        make: (x, y) => {
+          this.anim(x, y, "mushroom-red-bob", 3);
+        },
+      },
     ];
 
     const cellW = 110;

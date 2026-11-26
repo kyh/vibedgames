@@ -1,3 +1,4 @@
+import { parseJson } from "@repo/contract/json";
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 
@@ -20,7 +21,7 @@ const getLastCheckedAt = () => {
   }
 
   try {
-    const data: JsonValue = JSON.parse(readFileSync(cache, "utf-8"));
+    const data: JsonValue = parseJson(readFileSync(cache, "utf-8"));
 
     if (isJsonObject(data)) {
       const ts = data.lastCheckedAt;
@@ -88,7 +89,7 @@ export const fetchLatestVersion = async (packageName: string) => {
       return null;
     }
 
-    const data = (await res.json()) as JsonValue;
+    const data = parseJson(await res.text());
 
     if (isJsonObject(data)) {
       const { version } = data;
@@ -111,18 +112,21 @@ export const fetchLatestVersion = async (packageName: string) => {
  * version. The foreground command pays no latency and prints nothing.
  */
 export const maybeScheduleAutoUpdate = () => {
-  if (process.env.CI || resolveSetting("update.auto").value === "false") {
-    return;
+  if (
+    (process.env.CI !== undefined && process.env.CI !== "") ||
+    resolveSetting("update.auto").value === "false"
+  ) {
+    return false;
   }
 
   const [, script] = process.argv;
 
-  if (!script) {
-    return;
+  if (script === undefined || script === "") {
+    return false;
   }
 
   if (Date.now() - getLastCheckedAt() < CHECK_INTERVAL_MS) {
-    return;
+    return false;
   }
 
   markUpdateChecked();

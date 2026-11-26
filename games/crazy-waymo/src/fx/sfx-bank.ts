@@ -41,10 +41,10 @@ export class SoundBank {
   private readonly failed = new Set<string>();
   private loading: Promise<void> | null = null;
 
-  load(ctx: AudioContext, onDecoded: () => void) {
+  async load(ctx: AudioContext, onDecoded: () => void) {
     this.loading ??= this.decodeAll(ctx, onDecoded);
 
-    return this.loading;
+    await this.loading;
   }
 
   private async decodeAll(ctx: AudioContext, onDecoded: () => void) {

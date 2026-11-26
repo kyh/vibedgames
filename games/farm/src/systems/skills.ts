@@ -108,7 +108,7 @@ export class Skills {
     };
   }
 
-  static fromJSON(d: SkillsJSON) {
+  static fromJSON(d: Partial<SkillsJSON>) {
     const sk = new Skills();
 
     for (const id of SKILL_IDS) {

@@ -220,7 +220,9 @@ export const effectColor = (effect: string) => {
 };
 
 /** Existing hero palette at contact; neutral sources retain the damage-type cue. */
-export const hitColor = (hero: string | undefined, magic: boolean) => {
+export const hitColor = (source: string | undefined, magic: boolean) => {
+  const hero = source ?? "";
+
   switch (hero) {
     case "ironvow":
     case "duskblade":

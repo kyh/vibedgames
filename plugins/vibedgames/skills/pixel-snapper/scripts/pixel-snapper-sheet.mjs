@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @ts-check
 import {
   Bitmap,
   DEFAULT_SNAP_CONFIG,
@@ -15,9 +16,9 @@ main(() => {
     values: ["cols", "k-colors", "rows", "seed"],
   });
 
-  const [input, output] = args.positionals;
+  const [input = "", output = ""] = args.positionals;
 
-  if (!input || !output) {
+  if (input === "" || output === "") {
     failUsage("Usage: node pixel-snapper-sheet.mjs input.png output.png --cols N --rows N");
   }
 

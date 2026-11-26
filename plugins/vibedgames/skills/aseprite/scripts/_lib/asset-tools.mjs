@@ -6,7 +6,7 @@
 // src/args.ts
 import { readFileSync } from "node:fs";
 var headerDoc = (entry) => {
-  if (!entry) {
+  if (entry === void 0 || entry === "") {
     return null;
   }
   let source;
@@ -294,7 +294,7 @@ var inferBoundsFromPixels = (raw, width, height, colorDepthBpp, indexedTranspare
     for (let y = 0; y < height; y += 1) {
       const rowOff = y * width * 4;
       for (let x = 0; x < width; x += 1) {
-        if (raw[rowOff + x * 4 + 3]) {
+        if ((raw[rowOff + x * 4 + 3] ?? 0) !== 0) {
           mark(x, y);
         }
       }
@@ -303,7 +303,7 @@ var inferBoundsFromPixels = (raw, width, height, colorDepthBpp, indexedTranspare
     for (let y = 0; y < height; y += 1) {
       const rowOff = y * width * 2;
       for (let x = 0; x < width; x += 1) {
-        if (raw[rowOff + x * 2 + 1]) {
+        if ((raw[rowOff + x * 2 + 1] ?? 0) !== 0) {
           mark(x, y);
         }
       }
@@ -786,6 +786,7 @@ var parseChunk = (state, frameOut, frameIndex, chunkType, chunkSize, r) => {
     }
     default: {
       state.unknownChunks.push({ size: chunkSize, type: chunkType });
+      return null;
     }
   }
 };
@@ -923,7 +924,7 @@ var inspectAseprite = (path, bytes, options = {}) => {
       const r = new Reader(readExact(chunkSize - 6));
       const chunkSummary = { size: chunkSize, type: chunkType };
       const parsed = parseChunk(state, frameOut, frameIndex, chunkType, chunkSize, r);
-      if (parsed !== void 0) {
+      if (parsed !== null) {
         chunkSummary.parsed = parsed;
       }
       (frameOut.chunkSummaries ??= []).push(chunkSummary);

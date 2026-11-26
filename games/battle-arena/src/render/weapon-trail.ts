@@ -107,18 +107,18 @@ const crCentripetal = (
 export class WeaponTrail {
   /** Add/remove THIS from the scene — holds the depth prepass + color pass. */
   readonly mesh: THREE.Group;
-  private matPre: THREE.ShaderMaterial;
-  private matColor: THREE.ShaderMaterial;
-  private geom: THREE.BufferGeometry;
-  private posAttr: THREE.BufferAttribute;
-  private ageAttr: THREE.BufferAttribute;
-  private acrossAttr: THREE.BufferAttribute;
-  private alongAttr: THREE.BufferAttribute;
+  private readonly matPre: THREE.ShaderMaterial;
+  private readonly matColor: THREE.ShaderMaterial;
+  private readonly geom: THREE.BufferGeometry;
+  private readonly posAttr: THREE.BufferAttribute;
+  private readonly ageAttr: THREE.BufferAttribute;
+  private readonly acrossAttr: THREE.BufferAttribute;
+  private readonly alongAttr: THREE.BufferAttribute;
   private readonly posArr = new Float32Array(MAX_ROWS * 2 * 3);
   private readonly ageArr = new Float32Array(MAX_ROWS * 2);
   private readonly acrossArr = new Float32Array(MAX_ROWS * 2);
   private readonly alongArr = new Float32Array(MAX_ROWS * 2);
-  private segs: {
+  private readonly segs: {
     bx: number;
     by: number;
     bz: number;
@@ -221,7 +221,7 @@ export class WeaponTrail {
     this.weapon = weapon;
   }
 
-  private weapon: THREE.Object3D;
+  private readonly weapon: THREE.Object3D;
 
   /** Begin trailing for the next `durMs` of animation. */
   emit(durMs: number) {

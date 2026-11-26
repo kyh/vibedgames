@@ -1,6 +1,6 @@
 import type Phaser from "phaser";
 
-import { isJsonObject } from "../net/json";
+import { isJsonObject, isJsonValue } from "../net/json";
 import type { JsonValue } from "../net/json";
 
 export const HERO_NAMES = ["axion", "reaper", "riven", "mooni", "salamander"] as const;
@@ -77,8 +77,14 @@ const isAseData = (v: JsonValue): v is AseData => {
   return Array.isArray(meta.frameTags);
 };
 
+const cachedJson = (scene: Phaser.Scene, key: string) => {
+  const raw: unknown = scene.cache.json.get(key);
+
+  return isJsonValue(raw) ? raw : null;
+};
+
 export const buildAnimsFromAseprite = (scene: Phaser.Scene, key: string) => {
-  const data: JsonValue = scene.cache.json.get(key);
+  const data = cachedJson(scene, key);
 
   if (!isAseData(data)) {
     return;
@@ -162,7 +168,7 @@ export const buildAnimsFromAseprite = (scene: Phaser.Scene, key: string) => {
 };
 
 export const firstFrame = (scene: Phaser.Scene, key: string) => {
-  const data: JsonValue = scene.cache.json.get(key);
+  const data = cachedJson(scene, key);
 
   return isAseData(data) ? data.frames[1]?.filename : undefined;
 };
@@ -175,7 +181,7 @@ export interface ClipInfo {
 }
 
 export const clipsFor = (scene: Phaser.Scene, key: string) => {
-  const data: JsonValue = scene.cache.json.get(key);
+  const data = cachedJson(scene, key);
 
   if (!isAseData(data)) {
     return [];

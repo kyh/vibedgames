@@ -1,3 +1,4 @@
+import { parseJson } from "@repo/contract/json";
 import {
   cpSync,
   existsSync,
@@ -142,7 +143,7 @@ export interface SkillsSource {
 export const fetchSkillsSource = async (env: NodeJS.ProcessEnv = process.env) => {
   const override = env.VG_SKILLS_SOURCE?.trim();
 
-  if (override && !/^https?:\/\//iu.test(override)) {
+  if (override !== undefined && override !== "" && !/^https?:\/\//iu.test(override)) {
     const root = path.resolve(override);
 
     if (!existsSync(path.join(root, "plugins"))) {
@@ -152,9 +153,12 @@ export const fetchSkillsSource = async (env: NodeJS.ProcessEnv = process.env) =>
     return { origin: root, root };
   }
 
-  const url = override || SKILLS_TARBALL;
+  const url = override === undefined || override === "" ? SKILLS_TARBALL : override;
   const work = mkdtempSync(path.join(tmpdir(), "vg-skills-"));
-  const cleanup = () => rmSync(work, { force: true, recursive: true });
+
+  const cleanup = () => {
+    rmSync(work, { force: true, recursive: true });
+  };
 
   try {
     let res: Response;
@@ -247,7 +251,7 @@ const readJson = (file: string) => {
   }
 
   try {
-    const value: JsonValue = JSON.parse(readFileSync(file, "utf-8"));
+    const value: JsonValue = parseJson(readFileSync(file, "utf-8"));
 
     return value;
   } catch {

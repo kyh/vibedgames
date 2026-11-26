@@ -97,7 +97,8 @@ import { newMatch, paddleOf, serveNow, simChecksum } from "../shared/sim";
 import type { Arc, HitEvent, SimEvent, SimState, Slot } from "../shared/sim";
 import { SPIN_TICKS } from "../shared/spin";
 
-const ROOM = (import.meta.env.DEV && new URLSearchParams(location.search).get("room")) || MP_ROOM;
+const ROOM_PARAM = import.meta.env.DEV ? new URLSearchParams(location.search).get("room") : null;
+const ROOM = ROOM_PARAM === null || ROOM_PARAM === "" ? MP_ROOM : ROOM_PARAM;
 
 const BALL_JUMP = 2;
 const SCAN_TICKS = 60;
@@ -220,7 +221,7 @@ const sampleAt = (engine: Rollback, at: number, rival: Slot) => {
   const now = engine.stateAt(tick);
 
   if (now === undefined) {
-    return;
+    return null;
   }
 
   const before = engine.stateAt(tick - 1) ?? now;
@@ -255,8 +256,10 @@ export class GameScene {
   readonly scene = new THREE.Scene();
   readonly camera: THREE.PerspectiveCamera;
 
-  private readonly control: MatchControl;
-  private shown: SimState;
+  /** Public for the two-client harness, which reads the match through it. */
+  readonly control: MatchControl;
+  /** Public for the two-client harness, which aims from the ball it shows. */
+  shown: SimState;
   private settled: SimState;
   private shownAt = 0;
   private horizonAt = 0;
@@ -276,7 +279,8 @@ export class GameScene {
   private frame = 0;
   private testSeed = 1 + Math.floor(Math.random() * 1_000_000);
 
-  private localX = 0;
+  /** Public for the two-client harness, which steers the paddle directly. */
+  localX = 0;
   private presses = 0;
   private cancels = 0;
 
@@ -326,7 +330,9 @@ export class GameScene {
   private readonly downAt = { x: 0, y: 0 };
   private readonly camDrag = new THREE.Vector3(0, CAM_START_OFFSET_Y, 0);
 
-  private readonly hud = new Hud(() => this.bannerAction());
+  private readonly hud = new Hud(() => {
+    this.bannerAction();
+  });
 
   constructor() {
     this.control = new MatchControl(ROOM, this.localInput());
@@ -429,7 +435,9 @@ export class GameScene {
     window.addEventListener("pointerdown", this.onPointerDown);
     window.addEventListener("pointerup", this.onPointerUp);
     window.addEventListener("pointercancel", this.onPointerUp);
-    this.motionQuery.addEventListener("change", (e) => this.setReducedMotion(e.matches));
+    this.motionQuery.addEventListener("change", (e) => {
+      this.setReducedMotion(e.matches);
+    });
     this.setReducedMotion(this.reducedMotion);
     this.syncHud();
   }
@@ -702,7 +710,7 @@ export class GameScene {
     } else {
       const again = sampleAt(engine, this.shownAt, rival);
 
-      if (again !== undefined) {
+      if (again !== null) {
         this.absorbCorrection(again);
       }
     }

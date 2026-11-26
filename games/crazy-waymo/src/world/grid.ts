@@ -64,7 +64,7 @@ export const generateCity = () => {
   if (SF_STREET_MASK.gx !== GRID_X || SF_STREET_MASK.gz !== GRID_Z) {
     throw new Error(
       `SF street mask is ${SF_STREET_MASK.gx}x${SF_STREET_MASK.gz} but grid is ${GRID_X}x${GRID_Z}; ` +
-        `regenerate: node tools/sf-data/rasterize.mjs ${GRID_X} ${GRID_Z}`,
+        `regenerate: node tools/sf-data/rasterize.mts ${GRID_X} ${GRID_Z}`,
     );
   }
 

@@ -1,6 +1,14 @@
-import type { FxEvent, GroundEffect, Mine, Projectile, Unit, World } from "../sim/types";
+import type { FxEvent, World } from "../sim/types";
 import { isJsonNumber, isJsonObject, isJsonString } from "./json";
 import type { JsonObject, JsonValue } from "./json";
+import {
+  isGroundRow,
+  isMineRow,
+  isNumberRecord,
+  isProjectileRow,
+  isRowRecord,
+  isUnitRow,
+} from "./rows";
 import { parseFxBatch, rebuildMap } from "./snapshot";
 import type { Tick } from "./snapshot";
 
@@ -108,7 +116,7 @@ const diffEntities = <T extends JsonObject>(cache: Map<string, Sent>, live: Map<
 
 const worldFields: (w: World) => [string, JsonValue, string | number | boolean | null][] = (w) => {
   const grounds = JSON.stringify(
-    w.groundEffects.map((g) => (g.followOwner ? { ...g, nextTick: 0, x: 0, y: 0 } : g)),
+    w.groundEffects.map((g) => (g.followOwner === true ? { ...g, nextTick: 0, x: 0, y: 0 } : g)),
     sigReplacer,
   );
 
@@ -315,16 +323,16 @@ const applyWorldPatch = (w: World, patch: JsonObject) => {
     w.rngState = rngState;
   }
 
-  if (isJsonObject(campRespawnAt)) {
-    w.campRespawnAt = campRespawnAt as Record<string, number>;
+  if (isNumberRecord(campRespawnAt)) {
+    w.campRespawnAt = campRespawnAt;
   }
 
-  if (isJsonObject(mines)) {
-    rebuildMap(w.mines, mines as Record<string, Mine>);
+  if (isRowRecord(mines, isMineRow)) {
+    rebuildMap(w.mines, mines);
   }
 
   if (Array.isArray(grounds)) {
-    w.groundEffects = grounds as GroundEffect[];
+    w.groundEffects = grounds.filter((g) => isGroundRow(g));
   }
 };
 
@@ -343,8 +351,7 @@ export const applyTick = (w: World, tick: Tick, fx: boolean) => {
     applyWorldPatch(w, tick.w);
   }
 
-  for (const rec of tick.un ?? []) {
-    const unit = rec as Unit;
+  for (const unit of (tick.un ?? []).filter((rec) => isUnitRow(rec))) {
     w.units.set(unit.id, unit);
   }
 
@@ -360,8 +367,7 @@ export const applyTick = (w: World, tick: Tick, fx: boolean) => {
     w.units.delete(id);
   }
 
-  for (const rec of tick.pn ?? []) {
-    const projectile = rec as Projectile;
+  for (const projectile of (tick.pn ?? []).filter((rec) => isProjectileRow(rec))) {
     w.projectiles.set(projectile.id, projectile);
   }
 

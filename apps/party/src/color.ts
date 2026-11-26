@@ -43,7 +43,7 @@ const colorValues = Object.values(colors);
 const hashCode = (string?: string, mod?: number) => {
   let hash = 0;
 
-  if (!string || string.length === 0) {
+  if (string === undefined || string === "" || string.length === 0) {
     return hash;
   }
 
@@ -53,7 +53,7 @@ const hashCode = (string?: string, mod?: number) => {
     hash |= 0;
   }
 
-  if (mod) {
+  if (mod !== undefined && mod !== 0) {
     return Math.abs(hash % mod);
   }
 

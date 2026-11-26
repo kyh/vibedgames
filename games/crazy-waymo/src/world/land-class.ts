@@ -15,6 +15,7 @@ import { inLake } from "./lake";
 import { parkPathMaskAt } from "./sf-streets";
 import { makeFlank } from "./terrain";
 import type { Flank, Terrain } from "./terrain";
+import { unreachable } from "../shared/unreachable";
 
 export { GGP_LAKE, inLake } from "./lake";
 
@@ -196,8 +197,28 @@ const canopyForClass: (c: LanduseClass) => ParkCanopy = (c) => {
       return "chaparral";
     }
 
-    default: {
+    case "cemetery":
+    case "court":
+    case "garden":
+    case "grass":
+    case "industrial":
+    case "institution":
+    case "park":
+    case "parking":
+    case "plaza":
+    case "port":
+    case "railyard":
+    case "retail":
+    case "rock":
+    case "sand":
+    case "turf":
+    case "unclassified":
+    case "water": {
       return "lawn";
+    }
+
+    default: {
+      return unreachable(c);
     }
   }
 };
@@ -728,6 +749,30 @@ export const dominantCover = (land: LandClass) =>
 
 const LOOSE_UNDERFOOT = 0.22;
 
+const WHEEL_SURFACE = {
+  cemetery: "grass",
+  conifer: "grass",
+  court: "concrete",
+  dune: "sand",
+  grassland: "grass",
+  grove: "grass",
+  industrial: "dirt",
+  lawn: "grass",
+  meadow: "grass",
+  parking: "concrete",
+  path: "gravel",
+  pavement: "concrete",
+  plaza: "concrete",
+  quay: "concrete",
+  railyard: "gravel",
+  rearYard: "concrete",
+  rock: "rock",
+  sand: "sand",
+  water: "concrete",
+  woodland: "grass",
+  yard: "concrete",
+} as const satisfies Record<GroundCover, WheelSurface>;
+
 export const wheelSurface: (land: LandClass) => WheelSurface = (land) => {
   if (land.fabric.kind === "street") {
     return "road";
@@ -741,39 +786,5 @@ export const wheelSurface: (land: LandClass) => WheelSurface = (land) => {
     return "sand";
   }
 
-  const c = dominantCover(land);
-
-  switch (c) {
-    case "sand":
-    case "dune": {
-      return "sand";
-    }
-
-    case "lawn":
-    case "meadow":
-    case "grove":
-    case "conifer":
-    case "woodland":
-    case "grassland":
-    case "cemetery": {
-      return "grass";
-    }
-
-    case "path":
-    case "railyard": {
-      return "gravel";
-    }
-
-    case "industrial": {
-      return "dirt";
-    }
-
-    case "rock": {
-      return "rock";
-    }
-
-    default: {
-      return "concrete";
-    }
-  }
+  return WHEEL_SURFACE[dominantCover(land)];
 };

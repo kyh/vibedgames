@@ -34,7 +34,11 @@ const fail = (message: string): never => {
 };
 
 const narrator: (args: OutputArgs) => (message: string) => void = (args) =>
-  isJsonOutput(args) || Boolean(args.field) ? () => null : (message) => consola.info(message);
+  isJsonOutput(args) || Boolean(args.field)
+    ? () => null
+    : (message) => {
+        consola.info(message);
+      };
 
 const formatBytes = (bytes: number) =>
   bytes < 1024 * 1024
@@ -251,8 +255,12 @@ const servePreview = async (portal: Portal, zip: string, port: number) => {
     process.exit(0);
   };
 
-  process.once("SIGINT", stop);
-  process.once("SIGTERM", stop);
+  process.once("SIGINT", () => {
+    void stop();
+  });
+  process.once("SIGTERM", () => {
+    void stop();
+  });
 
   return { game_url: preview.gameUrl, sdk_stub: portal.integration !== null, url: preview.url };
 };
@@ -355,6 +363,14 @@ const requireNative = (dir: string, appId: string | undefined) => {
   }
 };
 
+const shellOrFail = async (input: Parameters<typeof prepareShell>[0]) => {
+  try {
+    return await prepareShell(input);
+  } catch (error) {
+    return fail(error instanceof Error ? error.message : String(error));
+  }
+};
+
 const nativeCommand = (platform: Platform, store: string) =>
   defineCommand({
     args: nativeArgs,
@@ -369,13 +385,7 @@ const nativeCommand = (platform: Platform, store: string) =>
       const { project, native } = requireNative(dir, args["app-id"]);
       const buildDir = requireBuild(project.root);
 
-      let shell;
-
-      try {
-        shell = await prepareShell({ buildDir, native, platform, project, say });
-      } catch (error) {
-        return fail(error instanceof Error ? error.message : String(error));
-      }
+      const shell = await shellOrFail({ buildDir, native, platform, project, say });
 
       const toolchain = await checkToolchain(platform);
 
@@ -390,23 +400,21 @@ const nativeCommand = (platform: Platform, store: string) =>
         version: native.version,
       };
 
-      if (writeStructured(result, args)) {
-        return;
+      if (!writeStructured(result, args)) {
+        consola.success(`${result.project} — ${native.appId} ${native.version} (${native.build})`);
+
+        if (!shell.icon) {
+          consola.warn(
+            "Still the placeholder icon, which no store accepts. Add a square 1024px icon.png to the project (or set distribute.icon) and run this again.",
+          );
+        }
+
+        for (const missing of result.toolchain_missing) {
+          consola.warn(missing);
+        }
+
+        consola.info(`Next:\n  ${result.next.join("\n  ")}`);
       }
-
-      consola.success(`${result.project} — ${native.appId} ${native.version} (${native.build})`);
-
-      if (!shell.icon) {
-        consola.warn(
-          "Still the placeholder icon, which no store accepts. Add a square 1024px icon.png to the project (or set distribute.icon) and run this again.",
-        );
-      }
-
-      for (const missing of result.toolchain_missing) {
-        consola.warn(missing);
-      }
-
-      consola.info(`Next:\n  ${result.next.join("\n  ")}`);
     },
   });
 

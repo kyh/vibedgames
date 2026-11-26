@@ -80,9 +80,10 @@ export const InviteAdmin = () => {
 
   const create = useMutation(
     orpc.auth.createInvites.mutationOptions({
-      onSuccess: () => {
-        qc.invalidateQueries({ queryKey: orpc.auth.listInvites.queryKey() });
+      onSuccess: async () => {
         toast.success("Credit codes created");
+
+        await qc.invalidateQueries({ queryKey: orpc.auth.listInvites.queryKey() });
       },
     }),
   );
@@ -97,13 +98,17 @@ export const InviteAdmin = () => {
 
   const update = useMutation(
     orpc.auth.updateInvite.mutationOptions({
-      onSuccess: (_data, variables) => {
-        qc.invalidateQueries({ queryKey: orpc.auth.listInvites.queryKey() });
+      onSuccess: async (_data, variables) => {
         toast.success(updateToast(variables.revoked));
         setEditing(null);
+
+        await qc.invalidateQueries({ queryKey: orpc.auth.listInvites.queryKey() });
       },
     }),
   );
+
+  const updatingRow = (id: string) =>
+    update.isPending && update.variables?.id === id ? update.variables : undefined;
 
   const trimmedCustomCode = customCode.trim();
 
@@ -117,7 +122,9 @@ export const InviteAdmin = () => {
     }
 
     setCopied(code);
-    setTimeout(() => setCopied((c) => (c === code ? null : c)), 1500);
+    setTimeout(() => {
+      setCopied((c) => (c === code ? null : c));
+    }, 1500);
   };
 
   return (
@@ -159,7 +166,9 @@ export const InviteAdmin = () => {
                   max={100}
                   disabled={trimmedCustomCode !== ""}
                   value={count}
-                  onChange={(e) => setCount(Number(e.target.value) || 1)}
+                  onChange={(e) => {
+                    setCount(Number(e.target.value) || 1);
+                  }}
                 />
               </FieldContent>
             </Field>
@@ -173,7 +182,9 @@ export const InviteAdmin = () => {
                   max={1000}
                   step={0.01}
                   value={creditUsd}
-                  onChange={(e) => setCreditUsd(Number(e.target.value) || 0)}
+                  onChange={(e) => {
+                    setCreditUsd(Number(e.target.value) || 0);
+                  }}
                 />
               </FieldContent>
             </Field>
@@ -185,9 +196,9 @@ export const InviteAdmin = () => {
                   type="number"
                   min={1}
                   value={maxUses}
-                  onChange={(e) =>
-                    setMaxUses(e.target.value === "" ? "" : Number(e.target.value) || 1)
-                  }
+                  onChange={(e) => {
+                    setMaxUses(e.target.value === "" ? "" : Number(e.target.value) || 1);
+                  }}
                 />
               </FieldContent>
             </Field>
@@ -201,7 +212,9 @@ export const InviteAdmin = () => {
                   placeholder="e.g. LAUNCH — 6 chars, replaces count"
                   className="font-mono uppercase"
                   value={customCode}
-                  onChange={(e) => setCustomCode(e.target.value.toUpperCase())}
+                  onChange={(e) => {
+                    setCustomCode(e.target.value.toUpperCase());
+                  }}
                 />
               </FieldContent>
             </Field>
@@ -213,7 +226,9 @@ export const InviteAdmin = () => {
                   type="text"
                   placeholder="e.g. twitter giveaway"
                   value={note}
-                  onChange={(e) => setNote(e.target.value)}
+                  onChange={(e) => {
+                    setNote(e.target.value);
+                  }}
                 />
               </FieldContent>
             </Field>
@@ -268,22 +283,18 @@ export const InviteAdmin = () => {
                           placeholder="∞"
                           className="h-7 w-16"
                           value={editing.maxUses}
-                          onChange={(e) =>
+                          onChange={(e) => {
                             setEditing({
                               id: row.id,
                               maxUses: e.target.value === "" ? "" : Number(e.target.value) || 1,
-                            })
-                          }
+                            });
+                          }}
                         />
                         <Button
                           type="submit"
                           variant="ghost"
                           size="sm"
-                          loading={
-                            update.isPending &&
-                            update.variables?.id === row.id &&
-                            update.variables?.maxUses !== undefined
-                          }
+                          loading={updatingRow(row.id)?.maxUses !== undefined}
                         >
                           Save
                         </Button>
@@ -291,7 +302,9 @@ export const InviteAdmin = () => {
                           type="button"
                           variant="ghost"
                           size="sm"
-                          onClick={() => setEditing(null)}
+                          onClick={() => {
+                            setEditing(null);
+                          }}
                         >
                           Cancel
                         </Button>
@@ -301,13 +314,15 @@ export const InviteAdmin = () => {
                         type="button"
                         title="Edit max uses"
                         className="text-muted-foreground hover:text-foreground inline-flex shrink-0 items-center gap-1"
-                        onClick={() => setEditing({ id: row.id, maxUses: row.maxUses ?? "" })}
+                        onClick={() => {
+                          setEditing({ id: row.id, maxUses: row.maxUses ?? "" });
+                        }}
                       >
                         {row.usedCount}/{row.maxUses ?? "∞"} uses
                         <PencilIcon className="size-3" />
                       </button>
                     )}
-                    {row.note && (
+                    {row.note !== null && row.note !== "" && (
                       <span className="text-muted-foreground min-w-0 truncate italic">
                         {row.note}
                       </span>
@@ -333,12 +348,10 @@ export const InviteAdmin = () => {
                           type="button"
                           variant="ghost"
                           size="sm"
-                          loading={
-                            update.isPending &&
-                            update.variables?.id === row.id &&
-                            update.variables?.revoked === true
-                          }
-                          onClick={() => update.mutate({ id: row.id, revoked: true })}
+                          loading={updatingRow(row.id)?.revoked === true}
+                          onClick={() => {
+                            update.mutate({ id: row.id, revoked: true });
+                          }}
                         >
                           Revoke
                         </Button>
@@ -348,12 +361,10 @@ export const InviteAdmin = () => {
                           type="button"
                           variant="ghost"
                           size="sm"
-                          loading={
-                            update.isPending &&
-                            update.variables?.id === row.id &&
-                            update.variables?.revoked === false
-                          }
-                          onClick={() => update.mutate({ id: row.id, revoked: false })}
+                          loading={updatingRow(row.id)?.revoked === false}
+                          onClick={() => {
+                            update.mutate({ id: row.id, revoked: false });
+                          }}
                         >
                           Unrevoke
                         </Button>

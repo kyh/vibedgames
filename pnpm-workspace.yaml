@@ -48,6 +48,7 @@ allowBuilds:
   "@tailwindcss/oxide": true
   core-js: true
   esbuild: true
+  msw: false
   sharp: true
   workerd: true
 
@@ -57,7 +58,7 @@ overrides:
   # second, issuer-less 1.7.5 instance beside better-auth's own.
   "@better-auth/core": 1.7.2
 
-# apps/games/tests/worker.mjs drives Miniflare through the top-level single-worker
+# apps/games/test/worker.test.ts drives Miniflare through the top-level single-worker
 # options that 5.x replaces with a per-worker `config` object. npm's `latest` tag
 # already points at a 5.x alpha, so `pnpm up --latest` reaches it unless told not to.
 updateConfig:

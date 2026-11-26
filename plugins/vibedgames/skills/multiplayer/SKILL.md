@@ -175,7 +175,7 @@ setSpawn(SPAWNS[idx]);
    [ -d "$SKILL" ] || for d in .agents/skills .claude/skills ~/.agents/skills ~/.claude/skills; do
      [ -d "$d/multiplayer" ] && SKILL=$d/multiplayer && break
    done
-   node "$SKILL/scripts/net-check.mjs" http://localhost:5173 --json
+   node "$SKILL/scripts/net-check.ts" http://localhost:5173 --json
    ```
 
    Exit 0 is smooth; 1 is choppy, stalling or never connected; 3 means it couldn't judge (remotes not drawn through `Interpolator`, or the machine ran a page under 20 fps; with no GPU, as in most containers, add `--no-draw` for a WebGL game: its draws become no-ops and everything else runs). It needs `playwright` in the game project, a `?room=` query param (rename with `--room-param`), and keys from your `window.__GAME_PLAYTEST__` moves (else arrows + WASD). By hand, the same pass is DevTools → Network → a custom ~200 ms latency profile (it applies to WebSockets) in one of two tabs. Localhost's ~0 ms round trip hides jitter, rubber-banding and event/state races; this is where they show.

@@ -44,7 +44,7 @@ const playingFixture = () => {
   world.gameTime = 61;
   world.nextCoinAt = 64;
   world.nextDeliveryAt = 76;
-  world.campRespawnAt["held"] = 93;
+  world.campRespawnAt.held = 93;
   world.seq = 122;
 
   return world;
@@ -207,7 +207,9 @@ test("creep loot does not retire the first boss-coin lesson; rematch keeps it le
 
   const hints = new Hints(
     () => false,
-    (message) => messages.push(message),
+    (message) => {
+      messages.push(message);
+    },
   );
 
   hints.update(world, me);
@@ -244,9 +246,13 @@ test("observing the economy never alters coin schedules or payouts", () => {
   const observed = soloFixture();
   const control = soloFixture();
 
+  const shown: string[] = [];
+
   const hints = new Hints(
     () => false,
-    () => null,
+    (text) => {
+      shown.push(text);
+    },
   );
 
   let lastCoin: string | null = null;
@@ -310,8 +316,12 @@ test("all six kits: HUD availability agrees with the sim's cast admission gates"
         me.abilities[key].readyAt = world.now + (gate === "cooldown" ? 1 : 0);
         me.alive = gate !== "dead";
 
-        if (["stun", "silence", "hex", "root"].includes(gate)) {
-          me.statuses.push({ id: "gate", kind: gate, until: world.now + 1000 });
+        const until = world.now + 1000;
+
+        if (gate === "hex") {
+          me.statuses.push({ id: "gate", kind: gate, pct: 0, until });
+        } else if (gate === "stun" || gate === "silence" || gate === "root") {
+          me.statuses.push({ id: "gate", kind: gate, until });
         }
 
         const before = structuredClone(me);

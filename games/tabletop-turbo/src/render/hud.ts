@@ -127,7 +127,7 @@ const statRow = (label: string, lit: number, color: string) => {
 
   for (let i = 0; i < 6; i += 1) {
     const pip = document.createElement("i");
-    pip.dataset["on"] = i < lit ? "1" : "0";
+    pip.dataset.on = i < lit ? "1" : "0";
     bar.append(pip);
   }
 
@@ -209,11 +209,11 @@ export class Hud {
   }
 
   showTitle(on: boolean) {
-    this.title.dataset["on"] = on ? "1" : "0";
+    this.title.dataset.on = on ? "1" : "0";
   }
 
   showHud(on: boolean) {
-    this.hud.dataset["on"] = on ? "1" : "0";
+    this.hud.dataset.on = on ? "1" : "0";
   }
 
   setTrack(track: Track) {
@@ -253,7 +253,7 @@ export class Hud {
     setText(this.kmh, String(readout.kmh));
     const label = SURFACE_LABEL[readout.surface];
     setText(this.surface, label);
-    this.surface.dataset["kind"] = label === "" ? "" : readout.surface;
+    this.surface.dataset.kind = label === "" ? "" : readout.surface;
     this.setItem(readout.item);
 
     const share = Math.min(1, readout.kmh / DIAL_MAX);
@@ -271,7 +271,7 @@ export class Hud {
       from = need;
     }
 
-    this.gap.dataset["on"] = readout.gap > 0 ? "1" : "0";
+    this.gap.dataset.on = readout.gap > 0 ? "1" : "0";
 
     if (readout.gap > 0) {
       setText(this.gap, `AHEAD +${readout.gap.toFixed(1)}s`);
@@ -299,7 +299,7 @@ export class Hud {
         const i = first + offset;
         const line = document.createElement("li");
         line.className = "plate skew";
-        line.dataset["me"] = row.me ? "1" : "0";
+        line.dataset.me = row.me ? "1" : "0";
         line.style.setProperty("--chip", row.color);
         const rank = document.createElement("b");
         rank.className = "num";
@@ -329,8 +329,8 @@ export class Hud {
       this.calloutNode.append(small);
     }
 
-    this.calloutNode.dataset["tone"] = tone;
-    this.calloutNode.dataset["on"] = "1";
+    this.calloutNode.dataset.tone = tone;
+    this.calloutNode.dataset.on = "1";
     this.calloutUntil = performance.now() + ms;
   }
 
@@ -346,14 +346,16 @@ export class Hud {
     node.style.left = `${Math.round(x)}px`;
     node.style.top = `${Math.round(y)}px`;
     node.style.color = css;
-    node.addEventListener("animationend", () => node.remove());
+    node.addEventListener("animationend", () => {
+      node.remove();
+    });
     this.pops.append(node);
   }
 
   /** Every frame: retire the callout when its time is up. */
   tick() {
     if (this.calloutUntil !== 0 && performance.now() > this.calloutUntil) {
-      this.calloutNode.dataset["on"] = "0";
+      this.calloutNode.dataset.on = "0";
       this.calloutUntil = 0;
     }
   }
@@ -398,13 +400,13 @@ export class Hud {
   /** Show the standings sheet, or hide it with `null`. */
   showResults(rows: readonly ResultRow[] | null, heading = "", sub = "") {
     if (rows === null) {
-      this.results.dataset["on"] = "0";
+      this.results.dataset.on = "0";
       this.resultsKey = "";
 
       return;
     }
 
-    this.results.dataset["on"] = "1";
+    this.results.dataset.on = "1";
     setText(this.resultsTitle, heading);
     setText(this.resultsSub, sub);
 
@@ -421,7 +423,7 @@ export class Hud {
       ...rows.map((row) => {
         const line = document.createElement("div");
         line.className = "row skew";
-        line.dataset["me"] = row.me ? "1" : "0";
+        line.dataset.me = row.me ? "1" : "0";
         const place = document.createElement("b");
         place.textContent = ordinal(row.place);
         const chip = document.createElement("i");
@@ -456,7 +458,7 @@ export class Hud {
     }
 
     this.itemKind = next;
-    this.item.dataset["kind"] = next;
+    this.item.dataset.kind = next;
     this.item.setAttribute("aria-label", kind ? `Use item: ${ITEM_NAMES[kind]}` : "No item");
     this.itemIcon.innerHTML = ITEM_ICONS[kind ?? "none"];
   }

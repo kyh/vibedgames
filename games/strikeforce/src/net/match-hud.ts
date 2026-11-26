@@ -134,7 +134,7 @@ export class MatchHud {
     }
 
     this.drawnBar = key;
-    bar.classList.toggle("on", !view.title && Boolean(m || status));
+    bar.classList.toggle("on", !view.title && (m !== null || status !== ""));
     bar.replaceChildren();
 
     if (!m) {

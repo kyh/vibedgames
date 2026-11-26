@@ -176,7 +176,10 @@ export class MineScene extends Scene {
       this.scale.off("resize", this.onResizeHandler);
     }
 
-    this.onResizeHandler = () => cam.setZoom(this.baseZoom());
+    this.onResizeHandler = () => {
+      cam.setZoom(this.baseZoom());
+    };
+
     this.scale.on("resize", this.onResizeHandler);
     this.events.once(Scenes.Events.SHUTDOWN, () => {
       if (this.onResizeHandler) {
@@ -253,7 +256,9 @@ export class MineScene extends Scene {
     };
 
     motion.addEventListener("change", changed);
-    this.events.once(Scenes.Events.SHUTDOWN, () => motion.removeEventListener("change", changed));
+    this.events.once(Scenes.Events.SHUTDOWN, () => {
+      motion.removeEventListener("change", changed);
+    });
   }
 
   private isWall(tx: number, ty: number) {
@@ -526,7 +531,9 @@ export class MineScene extends Scene {
 
     this.input.removeAllListeners();
     kb.removeAllListeners();
-    kb.on("keydown", () => Sound.resume());
+    kb.on("keydown", () => {
+      Sound.resume();
+    });
     this.keys = makeGameKeys(kb);
 
     for (const k of Object.values(this.keys)) {
@@ -534,11 +541,17 @@ export class MineScene extends Scene {
     }
 
     for (const [i, name] of NUM_KEY_NAMES.entries()) {
-      this.keys[name].on("down", () => store.inv.select(i));
+      this.keys[name].on("down", () => {
+        store.inv.select(i);
+      });
     }
 
-    this.keys.SPACE.on("down", () => this.tryAction());
-    this.keys.E.on("down", () => this.tryAction());
+    this.keys.SPACE.on("down", () => {
+      this.tryAction();
+    });
+    this.keys.E.on("down", () => {
+      this.tryAction();
+    });
     this.input.on("pointerdown", (p: Phaser.Input.Pointer) => {
       if (p.button !== 0) {
         return;
@@ -883,7 +896,9 @@ export class MineScene extends Scene {
       alpha: 0,
       delay: 500,
       duration: 300,
-      onComplete: () => e.spr.destroy(),
+      onComplete: () => {
+        e.spr.destroy();
+      },
       targets: e.spr,
     });
   }
@@ -1079,7 +1094,9 @@ export class MineScene extends Scene {
     this.tweens.add({
       alpha: 0.4,
       duration: 80,
-      onComplete: () => this.player.setAlpha(1),
+      onComplete: () => {
+        this.player.setAlpha(1);
+      },
       repeat: 3,
       targets: this.player,
       yoyo: true,
@@ -1135,7 +1152,7 @@ export class MineScene extends Scene {
     });
   }
 
-  private exitToFarm() {
+  exitToFarm() {
     if (this.transitioning) {
       return;
     }

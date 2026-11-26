@@ -101,7 +101,7 @@ const castWindow = (def: AbilityDef) => {
   const d = "game.fight.bestTarget.dist";
 
   if (def.key === "JUMP") {
-    return def.values["air"]
+    return def.values.air
       ? `Yes when ${ready} and ${d} <= 6.`
       : `Leaps ${def.castRange} forward then slams. Yes when ${ready} and ${d} is between 2 and ${def.castRange + 2}.`;
   }
@@ -121,8 +121,14 @@ const castWindow = (def: AbilityDef) => {
       return `Lands ${lands} in front of you. Yes when ${ready} and ${d} is between ${Math.max(0, lands - 3)} and ${lands + 2}.`;
     }
 
+    case "passive":
+    case "self": {
+      return `Centred on you. Yes when ${ready} and ${d} <= ${def.values.radius?.[0] ?? 4}.`;
+    }
+
     default: {
-      return `Centred on you. Yes when ${ready} and ${d} <= ${def.values["radius"]?.[0] ?? 4}.`;
+      const unhandled: never = def.targeting;
+      throw new Error("unhandled targeting", { cause: unhandled });
     }
   }
 };

@@ -48,7 +48,7 @@ const describeAttack = (attack: AttackDef) => {
 
 const describeBrawler = (def: BrawlerDef) =>
   `${def.name} (${def.role}, ${def.hp} HP): ${def.blurb} Attack is ${describeAttack(def.attack)}; ` +
-  `the super is ${describeAttack(def.super)}${def.super.breaksWalls ? " and breaks walls" : ""}.`;
+  `the super is ${describeAttack(def.super)}${def.super.breaksWalls === true ? " and breaks walls" : ""}.`;
 
 const HELP: readonly HelpSection[] = [
   {

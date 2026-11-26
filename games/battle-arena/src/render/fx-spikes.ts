@@ -37,12 +37,12 @@ interface Spike {
 }
 
 export class SpikePool {
-  private blades: Bank;
-  private shards: Bank;
-  private material: THREE.Material;
+  private readonly blades: Bank;
+  private readonly shards: Bank;
+  private readonly material: THREE.Material;
   private active: Spike[] = [];
-  private dummy = new THREE.Object3D();
-  private color = new THREE.Color();
+  private readonly dummy = new THREE.Object3D();
+  private readonly color = new THREE.Color();
 
   constructor(scene: THREE.Scene) {
     this.material = createCrystalMaterial(fxClock);

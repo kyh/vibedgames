@@ -20,8 +20,12 @@ import { loadSoldierRig } from "./soldier/soldier-rig";
 
 declare global {
   interface Window {
-    /** Dev-only handle for tools/two-client.mjs. */
+    /** Dev-only handle for tools/two-client.mts. */
     __strikeforce?: { match: Match };
+    /** The core's game object, which strikeforce-core.js publishes as it boots. */
+    __G?: StrikeforceGame;
+    /** True once the core has drawn its first two frames. */
+    __ready?: boolean;
   }
 }
 
@@ -39,7 +43,7 @@ const botFill = isPlaytestRequested()
   ? 0
   : Math.max(0, Math.min(16, Number(params.get("bots") ?? BOTS.fill) || 0));
 
-const match = new Match(() => openRoom(params, { solo }), { botFill });
+const match = new Match(async () => await openRoom(params, { solo }), { botFill });
 
 if (import.meta.env.DEV) {
   window.__strikeforce = { match };

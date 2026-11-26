@@ -16,15 +16,60 @@ export interface KeyboardHandlers {
 }
 
 const ONE_SHOT = new Map<string, (h: KeyboardHandlers) => void>([
-  [" ", (h) => h.hardDrop()],
-  ["Enter", (h) => h.start()],
-  ["c", (h) => h.hold()],
-  ["e", (h) => h.orbit(1)],
-  ["f", (h) => h.power()],
-  ["m", (h) => h.muteToggle()],
-  ["q", (h) => h.orbit(-1)],
-  ["r", (h) => h.rotate()],
-  ["v", (h) => h.recenter()],
+  [
+    " ",
+    (h) => {
+      h.hardDrop();
+    },
+  ],
+  [
+    "Enter",
+    (h) => {
+      h.start();
+    },
+  ],
+  [
+    "c",
+    (h) => {
+      h.hold();
+    },
+  ],
+  [
+    "e",
+    (h) => {
+      h.orbit(1);
+    },
+  ],
+  [
+    "f",
+    (h) => {
+      h.power();
+    },
+  ],
+  [
+    "m",
+    (h) => {
+      h.muteToggle();
+    },
+  ],
+  [
+    "q",
+    (h) => {
+      h.orbit(-1);
+    },
+  ],
+  [
+    "r",
+    (h) => {
+      h.rotate();
+    },
+  ],
+  [
+    "v",
+    (h) => {
+      h.recenter();
+    },
+  ],
 ]);
 
 const activatesControl = (e: KeyboardEvent) =>
@@ -117,7 +162,7 @@ export class Keyboard {
     }
   }
 
-  private onKeyDown = (e: KeyboardEvent) => {
+  private readonly onKeyDown = (e: KeyboardEvent) => {
     if (e.repeat || activatesControl(e)) {
       return;
     }
@@ -148,7 +193,7 @@ export class Keyboard {
     ONE_SHOT.get(k.length === 1 ? k.toLowerCase() : k)?.(this.handlers);
   };
 
-  private onKeyUp = (e: KeyboardEvent) => {
+  private readonly onKeyUp = (e: KeyboardEvent) => {
     const k = e.key;
 
     if (this.axisKey(k, false)) {
@@ -163,7 +208,7 @@ export class Keyboard {
     }
   };
 
-  private onBlur = () => {
+  private readonly onBlur = () => {
     this.left = false;
     this.right = false;
     this.away = false;

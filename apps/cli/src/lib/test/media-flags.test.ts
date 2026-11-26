@@ -11,7 +11,7 @@ const { cleanups, drain } = makeCleanups();
 
 afterEach(drain);
 
-const noUpload = () => Promise.reject(new Error("nothing here is a local file"));
+const noUpload = async () => await Promise.reject(new Error("nothing here is a local file"));
 
 test("offers one flag per typed field, not the model's catch-all or the wait", () => {
   const args = mediaFlagArgs(imageInput.shape);
@@ -60,10 +60,10 @@ test("uploads a local path given to a url field, and only there", async () => {
   const input = await readMediaInput(
     imageInput.shape,
     ["--image_urls", file, "--image_urls", "https://media.example/b.png", "--prompt", file],
-    (local) => {
+    async (local) => {
       uploaded.push(local.filename);
 
-      return Promise.resolve("https://media.example/ref.png");
+      return await Promise.resolve("https://media.example/ref.png");
     },
   );
 

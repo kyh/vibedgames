@@ -9,7 +9,7 @@ const devPartyHost = () => {
 
   const p = new URLSearchParams(location.search).get("party");
 
-  if (!p) {
+  if (p === null || p === "") {
     return fallback;
   }
 

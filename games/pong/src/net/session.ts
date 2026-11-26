@@ -13,7 +13,9 @@ export const isJsonObject = (v: WireField): v is JsonRecord =>
   Object.prototype.toString.call(v) === "[object Object]";
 
 export const isJsonNumber = (v: WireField): v is number => Number.isFinite(v);
-export const isJsonString = (v: WireField): v is string => String(v) === v;
+
+export const isJsonString = (v: WireField): v is string =>
+  Object.prototype.toString.call(v) === "[object String]";
 
 export interface NetSessionOptions {
   room: string;
@@ -29,7 +31,7 @@ export interface NetSessionOptions {
 
 export class NetSession {
   /** The room. Public for its own verbs, and for the two-client harness
-   *  (tools/two-client.mjs), which drops and redials its socket. */
+   *  (tools/two-client.mts), which drops and redials its socket. */
   readonly client: MultiplayerClient;
   private otherScanned: PlayerMap | null = null;
   private other: Player | null = null;

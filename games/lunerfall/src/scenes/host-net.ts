@@ -187,7 +187,13 @@ export class HostNet {
     const sess = this.seat.session;
     const myId = sess?.playerId;
 
-    if (!sess?.isHost || !myId || this.run.state === "dead") {
+    if (
+      sess?.isHost !== true ||
+      myId === undefined ||
+      myId === null ||
+      myId === "" ||
+      this.run.state === "dead"
+    ) {
       return;
     }
 
@@ -199,13 +205,8 @@ export class HostNet {
 
     const other = sess.otherPlayer();
 
-    if (this.seat.seats.host && !live(this.seat.seats.host)) {
-      this.seat.seats.host = null;
-    }
-
-    if (this.seat.seats.guest && !live(this.seat.seats.guest)) {
-      this.seat.seats.guest = null;
-    }
+    this.vacateSeat("host", live);
+    this.vacateSeat("guest", live);
 
     this.claimSeat(myId);
 
@@ -222,6 +223,14 @@ export class HostNet {
 
       this.claimSeat(other.id);
       this.spawnRemote(other.id, hero);
+    }
+  }
+
+  private vacateSeat(seat: "host" | "guest", live: (id: string) => boolean) {
+    const id = this.seat.seats[seat];
+
+    if (id !== null && id !== "" && !live(id)) {
+      this.seat.seats[seat] = null;
     }
   }
 
@@ -272,7 +281,7 @@ export class HostNet {
     const sess = this.seat.session;
 
     if (
-      !sess?.isHost ||
+      sess?.isHost !== true ||
       sess.offline ||
       this.seat.role !== "host" ||
       this.seat.authority.kind !== "ready"
@@ -343,7 +352,7 @@ export class HostNet {
     const { remote } = this.seat;
     const copy = this.guestCopy();
 
-    if (remote && this.seat.remoteId) {
+    if (remote && this.seat.remoteId !== null && this.seat.remoteId !== "") {
       players.push(encodePlayer(remote.body));
 
       if (copy) {
@@ -422,7 +431,7 @@ export class HostNet {
       [this.seat.session?.playerId ?? "host", this.seat.player.name],
     ];
 
-    if (this.seat.remote && this.seat.remoteId) {
+    if (this.seat.remote && this.seat.remoteId !== null && this.seat.remoteId !== "") {
       players.push([this.seat.remoteId, this.seat.remote.name]);
     }
 

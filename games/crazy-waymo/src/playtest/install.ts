@@ -142,8 +142,16 @@ export const installPlaytest = (game: GameScene) => {
   }
 
   publishTestHooks({
-    seed: (seed) => game.playtestSeed(seed),
-    setPausedForScreenshot: (paused) => (paused ? game.requestPause() : game.requestResume()),
+    seed: (seed) => {
+      game.playtestSeed(seed);
+    },
+    setPausedForScreenshot: (paused) => {
+      if (paused) {
+        game.requestPause();
+      } else {
+        game.requestResume();
+      }
+    },
     setState: (name) =>
       name === "active-play" && game.playtestStart() ? { state: name } : undefined,
   });

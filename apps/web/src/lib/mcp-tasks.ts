@@ -1,6 +1,10 @@
 import type { JsonValue } from "@repo/contract/json";
-import type { McpServer } from "@modelcontextprotocol/server";
-import { MissingRequiredClientCapabilityError, ProtocolError } from "@modelcontextprotocol/server";
+import type { McpServer, ServerContext } from "@modelcontextprotocol/server";
+import {
+  CLIENT_CAPABILITIES_META_KEY,
+  MissingRequiredClientCapabilityError,
+  ProtocolError,
+} from "@modelcontextprotocol/server";
 import { TERMINAL_STATUSES } from "@repo/contract/generate/queue-path";
 import { appRouter } from "@repo/service";
 import { call } from "@orpc/server";
@@ -31,8 +35,10 @@ const TTL_MS = 24 * 60 * 60 * 1000;
 const POLL_INTERVAL_MS = 3000;
 const PREFIX = "vgt";
 
-const clientExtensions = z.looseObject({
-  extensions: z.looseObject({ [TASKS_EXTENSION]: z.looseObject({}) }),
+const declaresTasks = z.looseObject({
+  [CLIENT_CAPABILITIES_META_KEY]: z.looseObject({
+    extensions: z.looseObject({ [TASKS_EXTENSION]: z.looseObject({}) }),
+  }),
 });
 
 const taskRef = z.object({
@@ -63,8 +69,8 @@ const fromBase64url = (text: string) => {
   }
 };
 
-const hmacKey = (secret: string) =>
-  crypto.subtle.importKey(
+const hmacKey = async (secret: string) =>
+  await crypto.subtle.importKey(
     "raw",
     new TextEncoder().encode(`mcp-task:${secret}`),
     { hash: "SHA-256", name: "HMAC" },
@@ -86,9 +92,17 @@ const mintTaskId = async (secret: string, ref: TaskRef) => {
 
 const readTaskId = async (secret: string, taskId: string, userId: string) => {
   const [prefix, payload, signature, ...rest] = taskId.split(".");
-  const signatureBytes = signature ? fromBase64url(signature) : null;
 
-  if (prefix !== PREFIX || !payload || !signatureBytes || rest.length > 0) {
+  const signatureBytes =
+    signature !== undefined && signature !== "" ? fromBase64url(signature) : null;
+
+  if (
+    prefix !== PREFIX ||
+    payload === undefined ||
+    payload === "" ||
+    !signatureBytes ||
+    rest.length > 0
+  ) {
     return null;
   }
 
@@ -161,13 +175,14 @@ const toolResponse = z.looseObject({
 });
 
 const messageOf = (text: string, contentType: string | null) => {
-  const json = contentType?.includes("text/event-stream")
-    ? text
-        .split("\n")
-        .filter((line) => line.startsWith("data:"))
-        .map((line) => line.slice("data:".length))
-        .join("")
-    : text;
+  const json =
+    contentType?.includes("text/event-stream") === true
+      ? text
+          .split("\n")
+          .filter((line) => line.startsWith("data:"))
+          .map((line) => line.slice("data:".length))
+          .join("")
+      : text;
 
   try {
     return toolResponse.safeParse(JSON.parse(json));
@@ -189,7 +204,7 @@ export const asTaskResult = async (
   const passThrough = new Response(text, response);
   const parsed = messageOf(text, response.headers.get("content-type"));
 
-  if (!parsed?.success || parsed.data.result.isError) {
+  if (parsed?.success !== true || parsed.data.result.isError === true) {
     return passThrough;
   }
 
@@ -219,8 +234,8 @@ const toolResult = (ref: TaskRef, status: string, result: JsonValue) => {
   };
 };
 
-const follow = (context: McpContext, ref: TaskRef, action: "status" | "result" | "cancel") =>
-  call(
+const follow = async (context: McpContext, ref: TaskRef, action: "status" | "result" | "cancel") =>
+  await call(
     appRouter.generate.status,
     { action, endpoint_id: ref.e, logs: false, request_id: ref.r },
     { context },
@@ -240,8 +255,8 @@ const taskParams = z.looseObject({ taskId: z.string() });
 export const registerTasks = (server: McpServer, context: McpContext) => {
   server.server.registerCapabilities({ extensions: { [TASKS_EXTENSION]: {} } });
 
-  const resolve = async (params: z.infer<typeof taskParams>) => {
-    if (!clientExtensions.safeParse(server.server.getClientCapabilities()).success) {
+  const resolve = async (params: z.infer<typeof taskParams>, ctx: ServerContext) => {
+    if (!declaresTasks.safeParse(ctx.mcpReq.envelope).success) {
       throw new MissingRequiredClientCapabilityError({
         requiredCapabilities: { extensions: { [TASKS_EXTENSION]: {} } },
       });
@@ -259,8 +274,8 @@ export const registerTasks = (server: McpServer, context: McpContext) => {
     return ref;
   };
 
-  server.server.setRequestHandler("tasks/get", { params: taskParams }, async (params) => {
-    const ref = await resolve(params);
+  server.server.setRequestHandler("tasks/get", { params: taskParams }, async (params, ctx) => {
+    const ref = await resolve(params, ctx);
     const status = await queueStatus(context, ref);
 
     if (status === "CANCELLED") {
@@ -286,14 +301,14 @@ export const registerTasks = (server: McpServer, context: McpContext) => {
     };
   });
 
-  server.server.setRequestHandler("tasks/update", { params: taskParams }, async (params) => {
-    await resolve(params);
+  server.server.setRequestHandler("tasks/update", { params: taskParams }, async (params, ctx) => {
+    await resolve(params, ctx);
 
     return {};
   });
 
-  server.server.setRequestHandler("tasks/cancel", { params: taskParams }, async (params) => {
-    const ref = await resolve(params);
+  server.server.setRequestHandler("tasks/cancel", { params: taskParams }, async (params, ctx) => {
+    const ref = await resolve(params, ctx);
 
     await follow(context, ref, "cancel").catch(() => null);
 

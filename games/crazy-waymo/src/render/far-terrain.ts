@@ -222,14 +222,14 @@ const reliefAt = (ridges: readonly Ridge[], bearing: number, top: number) => {
 
 export class FarTerrain {
   readonly mesh: THREE.Mesh;
-  private uFog = { value: new THREE.Color(0xbf_dc_f2) };
-  private uNight = { value: 0 };
-  private uSunAzim = { value: new THREE.Vector2(0, -1) };
-  private uSunWarm = { value: new THREE.Color(0xff_d9_a8) };
-  private uCool = { value: new THREE.Color(COOL_AWAY) };
-  private uDay = { value: 0 };
+  private readonly uFog = { value: new THREE.Color(0xbf_dc_f2) };
+  private readonly uNight = { value: 0 };
+  private readonly uSunAzim = { value: new THREE.Vector2(0, -1) };
+  private readonly uSunWarm = { value: new THREE.Color(0xff_d9_a8) };
+  private readonly uCool = { value: new THREE.Color(COOL_AWAY) };
+  private readonly uDay = { value: 0 };
   private sunRef: THREE.DirectionalLight | null = null;
-  private scrSun = new THREE.Vector3();
+  private readonly scrSun = new THREE.Vector3();
 
   constructor() {
     const rings = BANDS.map(bearings);

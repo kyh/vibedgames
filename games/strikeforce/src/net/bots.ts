@@ -149,7 +149,7 @@ export class Bots {
     const out: Combatant[] = [];
 
     for (const [id, { brain }] of this.brains) {
-      if (roster.get(id)?.alive) {
+      if (roster.get(id)?.alive === true) {
         out.push({ crouch: false, id, moving: true, pos: brain.pos });
       }
     }

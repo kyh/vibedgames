@@ -302,12 +302,12 @@ export class HostDirector {
     const board: WireValue[] = [];
     const { myId } = this.link;
 
-    if (myId && this.pilot.spawned) {
+    if (myId !== null && myId !== "" && this.pilot.spawned) {
       board.push(myId, Math.round(this.progress.sectorScore));
     }
 
     for (const [id, st] of this.link.peerStates) {
-      if (id !== myId && st?.present) {
+      if (id !== myId && st?.present === true) {
         board.push(id, Math.round(st.sectorScore));
       }
     }
@@ -326,7 +326,8 @@ export class HostDirector {
     const { myId } = this.link;
 
     if (
-      myId &&
+      myId !== null &&
+      myId !== "" &&
       this.pilot.alive &&
       this.pilot.spawned &&
       Math.hypot(this.pilot.shipX - cx, this.pilot.shipY - cy) <= BEACON_RADIUS
@@ -573,7 +574,7 @@ export class HostDirector {
     const t = performance.now();
 
     for (const [id, st] of this.link.peerStates) {
-      if (id === myId || !st || !st.alive || st.shieldMod?.phased) {
+      if (id === myId || !st || !st.alive || st.shieldMod?.phased === true) {
         continue;
       }
 

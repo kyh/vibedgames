@@ -19,7 +19,7 @@ const cells = (footprint: number[][]) => {
     const row = footprint[r] ?? [];
 
     for (let c = 0; c < row.length; c += 1) {
-      if (row[c]) {
+      if ((row[c] ?? 0) !== 0) {
         out.push({ c, r });
       }
     }

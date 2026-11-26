@@ -15,7 +15,7 @@
     "dev": "vite",
     "bake:map": "vite-node tools/sf-data/bake-network.mts",
     "bake:parcels": "vite-node tools/sf-data/bake-parcels.mts",
-    "bake:world": "node tools/bake-world.mjs",
+    "bake:world": "node tools/bake-world.mts",
     "lint:streets": "vite-node tools/street-lint.ts",
     "test": "vite-node tools/test-world.mts",
     "preview": "vite preview",
@@ -36,12 +36,14 @@
     "@gltf-transform/core": "^4.5.1",
     "@gltf-transform/extensions": "^4.5.1",
     "@kyh/tsconfig": "catalog:",
+    "@repo/smoke": "workspace:*",
     "@types/node": "catalog:",
     "@types/three": "^0.186.0",
     "playwright-core": "^1.65.1",
     "typescript": "catalog:",
     "vite": "catalog:",
     "vite-node": "^6.0.0",
-    "vite-plugin-wasm": "^3.6.0"
+    "vite-plugin-wasm": "^3.6.0",
+    "zod": "catalog:"
   }
 }

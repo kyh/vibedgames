@@ -1,24 +1,14 @@
 import assert from "node:assert/strict";
-import { describe, test } from "node:test";
-import { createDb } from "@repo/db/drizzle-client";
+import { after, describe, test } from "node:test";
+import { startD1 } from "../d1.test-utils";
 
 import { createAuth } from "./auth";
 
-const unavailable = (): never => {
-  throw new Error("the database is not reachable in this test");
-};
+const d1 = await startD1();
 
-const auth = createAuth({
-  baseURL: "https://vibedgames.com",
-  db: createDb({
-    batch: unavailable,
-    dump: unavailable,
-    exec: unavailable,
-    prepare: unavailable,
-    withSession: unavailable,
-  }),
-  secret: "test-secret",
-});
+after(d1.close);
+
+const auth = createAuth({ baseURL: "https://vibedgames.com", db: d1.db, secret: "test-secret" });
 
 describe("session cookie", () => {
   test("is SameSite Lax or Strict, never None", async () => {

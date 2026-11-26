@@ -3,9 +3,38 @@ import { Engine } from "../src/game/engine";
 import { Piece } from "../src/game/piece";
 import { teachingExamples } from "../src/game/teaching-examples";
 import { PoseControls } from "../src/input/pose-control";
+import type { PoseActions } from "../src/input/pose-control";
 import { WELL_DEPTH, WELL_WIDTH } from "../src/shared/constants";
 
 let failures = 0;
+
+type PoseAction = keyof PoseActions;
+
+const heard: PoseAction[] = [];
+
+const recordingActions = (log: PoseAction[]) =>
+  ({
+    catchCollapse: () => {
+      log.push("catchCollapse");
+    },
+    hold: () => {
+      log.push("hold");
+    },
+    orbit: () => {
+      log.push("orbit");
+    },
+    power: () => {
+      log.push("power");
+    },
+    rotate: () => {
+      log.push("rotate");
+
+      return false;
+    },
+    steer: () => {
+      log.push("steer");
+    },
+  }) satisfies PoseActions;
 
 const check = (label: string, cond: boolean) => {
   if (cond) {
@@ -121,17 +150,17 @@ const check = (label: string, cond: boolean) => {
   const e = new Engine();
   e.startGame();
   const first = e.activePieceIndex();
-  check("engine: hold unspent on spawn", e.holdSpent === false);
+  check("engine: hold unspent on spawn", !e.holdSpent);
   const held1 = e.hold();
-  check("engine: hold succeeds", held1 === true);
+  check("engine: hold succeeds", held1);
   check("engine: held piece recorded", e.holdIndex === first);
-  check("engine: hold is one-per-piece", e.hold() === false);
-  check("engine: hold reads spent until the piece locks", e.holdSpent === true);
+  check("engine: hold is one-per-piece", !e.hold());
+  check("engine: hold reads spent until the piece locks", e.holdSpent);
   e.hardDrop();
-  check("engine: lock re-arms the hold", e.holdSpent === false && e.holdIndex === first);
+  check("engine: lock re-arms the hold", !e.holdSpent && e.holdIndex === first);
   e.hold();
   e.reset();
-  check("engine: reset clears the hold", e.holdSpent === false && e.holdIndex === null);
+  check("engine: reset clears the hold", !e.holdSpent && e.holdIndex === null);
 }
 
 {
@@ -160,12 +189,12 @@ const check = (label: string, cond: boolean) => {
 {
   const e = new Engine();
   e.startGame();
-  check("engine: not charged at start", e.canPower() === false);
+  check("engine: not charged at start", !e.canPower());
   e.charge = 1;
   e.board.lock([{ x: 0, y: 0, z: 0 }], 1);
   const removed = e.power();
   check("engine: power removed cubes", removed > 0);
-  check("engine: charge spent", e.canPower() === false);
+  check("engine: charge spent", !e.canPower());
 }
 
 {
@@ -196,18 +225,7 @@ const check = (label: string, cond: boolean) => {
   });
 
   const feed = (circle: boolean) => {
-    let orbits = 0;
-
-    const controls = new PoseControls({
-      catchCollapse: () => null,
-      hold: () => null,
-      orbit: () => {
-        orbits += 1;
-      },
-      power: () => null,
-      rotate: () => false,
-      steer: () => null,
-    });
+    const controls = new PoseControls(recordingActions(heard));
 
     for (let i = 0; i < 24; i += 1) {
       controls.handlePose(makePose(390, 250), null);
@@ -222,7 +240,7 @@ const check = (label: string, cond: boolean) => {
       }
     }
 
-    return orbits;
+    return heard.splice(0).filter((action) => action === "orbit").length;
   };
 
   const circled = feed(true);
@@ -252,18 +270,9 @@ const check = (label: string, cond: boolean) => {
   const tPose = makePose({ x: 60, y: 250 }, { x: 600, y: 250 });
   const armsDown = makePose({ x: 250, y: 350 }, { x: 390, y: 350 });
 
-  let powers = 0;
-
-  const controls = new PoseControls({
-    catchCollapse: () => null,
-    hold: () => null,
-    orbit: () => null,
-    power: () => {
-      powers += 1;
-    },
-    rotate: () => false,
-    steer: () => null,
-  });
+  heard.length = 0;
+  const controls = new PoseControls(recordingActions(heard));
+  const powers = () => heard.filter((action) => action === "power").length;
 
   for (let i = 0; i < 24; i += 1) {
     controls.handlePose(armsDown, null);
@@ -276,14 +285,14 @@ const check = (label: string, cond: boolean) => {
     controls.handlePose(tPose, null);
   }
 
-  check("pose: T-pose held across resume does not re-fire power", powers === 0);
+  check("pose: T-pose held across resume does not re-fire power", powers() === 0);
 
   for (let i = 0; i < 4; i += 1) {
     controls.handlePose(armsDown, null);
   }
 
   controls.handlePose(tPose, null);
-  check("pose: power fires again after a real return to neutral", powers === 1);
+  check("pose: power fires again after a real return to neutral", powers() === 1);
 }
 
 if (failures > 0) {

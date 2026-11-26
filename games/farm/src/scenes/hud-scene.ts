@@ -276,7 +276,10 @@ export class HudScene extends Scene {
       this.scale.off("resize", this.onResize);
     }
 
-    this.onResize = () => this.layout();
+    this.onResize = () => {
+      this.layout();
+    };
+
     this.scale.on("resize", this.onResize);
     this.events.once(Scenes.Events.SHUTDOWN, () => {
       if (this.onResize) {
@@ -284,28 +287,43 @@ export class HudScene extends Scene {
       }
     });
 
-    this.g.events.on("toast", (text: string, color: string) => this.toast(text, color));
+    this.g.events.on("toast", (text: string, color: string) => {
+      this.toast(text, color);
+    });
     this.g.events.on(
       "daybanner",
-      (day: number, season: Season, weather: Weather, recap?: DayRecap) =>
-        this.dayBanner(day, season, weather, recap),
+      (day: number, season: Season, weather: Weather, recap?: DayRecap) => {
+        this.dayBanner(day, season, weather, recap);
+      },
     );
-    this.g.events.on("open-shop", () => this.openShop());
-    this.g.events.on("open-animal-shop", (b: BuildingKind) => this.openAnimalShop(b));
-    this.g.events.on("confirm-sleep", () => this.openSleep());
-    this.g.events.on("levelup", (skill: SkillId, level: number) =>
+    this.g.events.on("open-shop", () => {
+      this.openShop();
+    });
+    this.g.events.on("open-animal-shop", (b: BuildingKind) => {
+      this.openAnimalShop(b);
+    });
+    this.g.events.on("confirm-sleep", () => {
+      this.openSleep();
+    });
+    this.g.events.on("levelup", (skill: SkillId, level: number) => {
       this.toast(
         `${SKILL_NAMES[skill]} reached Level ${level}!\n${skillPerk(store.skills, skill)}`,
         "#ffe27a",
-      ),
-    );
+      );
+    });
     this.g.events.on(
       "dialogue",
-      (d: { name: string; role: string; text: string; hearts: number }) => this.showDialogue(d),
+      (d: { name: string; role: string; text: string; hearts: number }) => {
+        this.showDialogue(d);
+      },
     );
 
-    this.input.keyboard?.on("keydown-ESC", () => this.closeModal());
-    this.input.keyboard?.on("keydown", (ev: KeyboardEvent) => this.onModalKey(ev));
+    this.input.keyboard?.on("keydown-ESC", () => {
+      this.closeModal();
+    });
+    this.input.keyboard?.on("keydown", (ev: KeyboardEvent) => {
+      this.onModalKey(ev);
+    });
     this.pad.update();
   }
 
@@ -382,7 +400,9 @@ export class HudScene extends Scene {
       return t;
     };
 
-    mk("🎒", () => this.g.toggleInventory());
+    mk("🎒", () => {
+      this.g.toggleInventory();
+    });
   }
 
   private slotPos(i: number, W: number, H: number) {
@@ -792,7 +812,7 @@ ${recap.shipments} ${recap.shipments === 1 ? "delivery" : "deliveries"} · +${re
     g.strokeRoundedRect(-w / 2, -h / 2, w, h, 12);
 
     const name = this.add
-      .text(-w / 2 + 16, -h / 2 + 12, `${d.name}`, {
+      .text(-w / 2 + 16, -h / 2 + 12, d.name, {
         color: "#7a4a18",
         fontFamily: FONT,
         fontSize: "16px",
@@ -961,7 +981,9 @@ ${recap.shipments} ${recap.shipments === 1 ? "delivery" : "deliveries"} · +${re
     const zone = this.add.zone(0, 0, w, h).setInteractive({ useHandCursor: true });
     const index = this.modalButtons.push({ node, press, ring }) - 1;
     zone.on("pointerdown", press);
-    zone.on("pointerover", () => this.focusModalButton(index));
+    zone.on("pointerover", () => {
+      this.focusModalButton(index);
+    });
     ring.setVisible(index === 0);
 
     if (index === 0) {
@@ -980,7 +1002,9 @@ ${recap.shipments} ${recap.shipments === 1 ? "delivery" : "deliveries"} · +${re
       .rectangle(0, 0, this.scale.width * 3, this.scale.height * 3, 0x00_00_00, 0.45)
       .setInteractive();
 
-    dim.on("pointerdown", () => this.closeModal());
+    dim.on("pointerdown", () => {
+      this.closeModal();
+    });
     const panel = this.add.graphics();
     panel.fillStyle(0x00_00_00, 0.25);
     panel.fillRoundedRect(-w / 2 + 4, -h / 2 + 6, w, h, 16);
@@ -1012,7 +1036,9 @@ ${recap.shipments} ${recap.shipments === 1 ? "delivery" : "deliveries"} · +${re
       .zone(w / 2 - 22, -h / 2 + MODAL_TITLE_H / 2, 44, 44)
       .setInteractive({ useHandCursor: true });
 
-    closeTarget.on("pointerdown", () => this.closeModal());
+    closeTarget.on("pointerdown", () => {
+      this.closeModal();
+    });
     c.add([dim, panel, titleT, close, closeTarget]);
     this.modal = c;
     this.modalKind = kind;
@@ -1147,7 +1173,10 @@ ${recap.shipments} ${recap.shipments === 1 ? "delivery" : "deliveries"} · +${re
         })
         .setOrigin(1, 0.5);
 
-      const buy = this.shopBtn(w / 2 - 48, "Buy", () => this.g.animals.buy(kind));
+      const buy = this.shopBtn(w / 2 - 48, "Buy", () => {
+        this.g.animals.buy(kind);
+      });
+
       row.add([spr, name, desc, price, buy]);
       c.add(row);
     }
@@ -1216,7 +1245,10 @@ ${recap.shipments} ${recap.shipments === 1 ? "delivery" : "deliveries"} · +${re
       this.g.doSleep();
     });
 
-    const no = this.bigBtn(80, btnY, "Not yet", 0xb0_5a_3a, () => this.closeModal());
+    const no = this.bigBtn(80, btnY, "Not yet", 0xb0_5a_3a, () => {
+      this.closeModal();
+    });
+
     c.add([body, yes, no]);
   }
 

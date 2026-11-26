@@ -10,8 +10,8 @@ const generator = new OpenAPIGenerator({
   converters: [new ZodToJsonSchemaConverter()],
 });
 
-export const generateOpenAPISpec = () =>
-  generator.generate(appRouter, {
+export const generateOpenAPISpec = async () =>
+  await generator.generate(appRouter, {
     base: {
       components: openAPIComponents,
       externalDocs: { description: "Developer docs", url: `${siteConfig.url}/docs` },

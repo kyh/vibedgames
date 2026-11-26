@@ -88,7 +88,7 @@ const runViaCodex = async (opts: {
 }) => {
   const { args, finalInput, downloadFlag, endpoint_id } = opts;
 
-  if (args.async) {
+  if (args.async === true) {
     consola.error("--async is not supported with --provider codex (Codex runs synchronously).");
     process.exit(1);
   }
@@ -196,7 +196,11 @@ const reportRun = (
     warnMislabeled(downloaded.mislabeled);
   }
 
-  if (!downloaded?.downloaded.length) {
+  if (
+    downloaded === undefined ||
+    downloaded.downloaded.length === undefined ||
+    downloaded.downloaded.length === 0
+  ) {
     for (const url of extractMediaUrls(completed.result)) {
       consola.log(`  ${url}`);
     }
@@ -222,7 +226,7 @@ const finishRun = async (
   const { endpoint_id } = submission;
   const requestId = submission.request_id;
 
-  if (args.async) {
+  if (args.async === true) {
     const payload = {
       endpoint_id,
       hint: `Check status: vg generate status ${endpoint_id} ${requestId}`,
@@ -303,7 +307,7 @@ const runCommand = defineCommand({
       input: finalInput,
     });
 
-    if (choice.note) {
+    if (choice.note !== undefined && choice.note !== "") {
       process.stderr.write(`${choice.note}\n`);
     }
 
@@ -378,7 +382,12 @@ const reportStatus = (
     warnMislabeled(downloaded.mislabeled);
   }
 
-  if (action === "result" && !downloaded?.downloaded.length) {
+  if (
+    action === "result" &&
+    (downloaded === undefined ||
+      downloaded.downloaded.length === undefined ||
+      downloaded.downloaded.length === 0)
+  ) {
     for (const url of extractMediaUrls(data)) {
       consola.log(`  ${url}`);
     }
@@ -403,16 +412,16 @@ const statusCommand = defineCommand({
     name: "status",
   },
   run: async ({ args, rawArgs }) => {
-    if (args.result && args.cancel) {
+    if (args.result === true && args.cancel === true) {
       consola.error("Pick one of --result or --cancel.");
       process.exit(1);
     }
 
     const downloadFlag = parseDownloadFlag(rawArgs);
-    const wantResult = args.result || downloadFlag.mode === "on";
+    const wantResult = args.result === true || downloadFlag.mode === "on";
     let action: "status" | "result" | "cancel" = "status";
 
-    if (args.cancel) {
+    if (args.cancel === true) {
       action = "cancel";
     } else if (wantResult) {
       action = "result";
@@ -477,7 +486,7 @@ interface StatusPayload extends ActionFields {
 }
 
 const splitList = (value: string | undefined) => {
-  if (!value) {
+  if (value === undefined || value === "") {
     return [];
   }
 
@@ -495,23 +504,18 @@ const printModels = (data: JsonValue) => {
       continue;
     }
 
-    const id = String(m.endpoint_id ?? "?");
+    const id = isJsonString(m.endpoint_id) ? m.endpoint_id : "?";
     const meta: JsonObject = isJsonObject(m.metadata) ? m.metadata : {};
-    const tags: string[] = [];
 
-    if (meta.category) {
-      tags.push(String(meta.category));
-    }
-
-    if (meta.status) {
-      tags.push(String(meta.status));
-    }
+    const tags = [meta.category, meta.status].filter(
+      (tag): tag is string => isJsonString(tag) && tag !== "",
+    );
 
     consola.log(`${id}${tags.length > 0 ? `  [${tags.join(", ")}]` : ""}`);
   }
 
-  if (isJsonObject(data) && data.next_cursor) {
-    consola.log(`\nnext_cursor: ${String(data.next_cursor)}`);
+  if (isJsonObject(data) && isJsonString(data.next_cursor) && data.next_cursor !== "") {
+    consola.log(`\nnext_cursor: ${data.next_cursor}`);
   }
 };
 
@@ -522,7 +526,7 @@ const MODEL_EXPANSIONS = ["openapi-3.0", "enterprise_status"] as const;
 const pickOne = <T extends string>(allowed: readonly T[], value: string, flag: string) => {
   const found = allowed.find((option) => option === value);
 
-  if (!found) {
+  if (found === undefined || found === "") {
     consola.error(`--${flag} takes ${allowed.join(" | ")}, not "${value}".`);
     process.exit(1);
   }
@@ -553,13 +557,16 @@ const modelsCommand = defineCommand({
     const expand = splitList(args.expand).map((e) => pickOne(MODEL_EXPANSIONS, e, "expand"));
 
     const data = await createClient().generate.models({
-      category: args.category || undefined,
-      cursor: args.cursor || undefined,
+      category: args.category === undefined || args.category === "" ? undefined : args.category,
+      cursor: args.cursor === undefined || args.cursor === "" ? undefined : args.cursor,
       endpoint_id: endpointIds.length > 0 ? endpointIds : undefined,
       expand: expand.length > 0 ? expand : undefined,
-      limit: args.limit ? Number(args.limit) : 20,
-      query: args.query || undefined,
-      status: args.status ? pickOne(MODEL_STATUSES, args.status, "status") : undefined,
+      limit: args.limit !== undefined && args.limit !== "" ? Number(args.limit) : 20,
+      query: args.query === undefined || args.query === "" ? undefined : args.query,
+      status:
+        args.status !== undefined && args.status !== ""
+          ? pickOne(MODEL_STATUSES, args.status, "status")
+          : undefined,
     });
 
     if (!writeStructured(data, args)) {
@@ -674,7 +681,13 @@ const mediaCommand = <S extends z.ZodObject>(
     run: async ({ args, rawArgs }) => {
       const client = createClient();
       const downloadFlag = parseDownloadFlag(rawArgs);
-      const input = await readMediaInput(schema.shape, rawArgs, (file) => uploadFile(client, file));
+
+      const input = await readMediaInput(
+        schema.shape,
+        rawArgs,
+        async (file) => await uploadFile(client, file),
+      );
+
       const parsed = schema.safeParse({ ...input, wait_seconds: 0 });
 
       if (!parsed.success) {
@@ -698,43 +711,49 @@ const mediaCommands = {
     "3d",
     "Generate a textured 3D model (GLB) from a prompt or an image.",
     model3dInput,
-    (client, body) => client.generate.model3d(body),
+    async (client, body) => await client.generate.model3d(body),
   ),
   "animate-3d": mediaCommand(
     "animate-3d",
     "Rig a humanoid GLB and bake animation clips onto it.",
     animate3dInput,
-    (client, body) => client.generate.animate3d(body),
+    async (client, body) => await client.generate.animate3d(body),
   ),
   image: mediaCommand(
     "image",
     "Generate images from a prompt, or edit and combine reference images.",
     imageInput,
-    (client, body) => client.generate.image(body),
+    async (client, body) => await client.generate.image(body),
   ),
-  music: mediaCommand("music", "Compose music from a prompt.", musicInput, (client, body) =>
-    client.generate.music(body),
+  music: mediaCommand(
+    "music",
+    "Compose music from a prompt.",
+    musicInput,
+    async (client, body) => await client.generate.music(body),
   ),
   "remove-background": mediaCommand(
     "remove-background",
     "Cut an image's subject out onto a transparent background.",
     removeBackgroundInput,
-    (client, body) => client.generate.removeBackground(body),
+    async (client, body) => await client.generate.removeBackground(body),
   ),
   sound: mediaCommand(
     "sound",
     "Generate a sound effect from a description.",
     soundInput,
-    (client, body) => client.generate.sound(body),
+    async (client, body) => await client.generate.sound(body),
   ),
-  speech: mediaCommand("speech", "Speak a line of text.", speechInput, (client, body) =>
-    client.generate.speech(body),
+  speech: mediaCommand(
+    "speech",
+    "Speak a line of text.",
+    speechInput,
+    async (client, body) => await client.generate.speech(body),
   ),
   video: mediaCommand(
     "video",
     "Generate a video clip from a prompt, or animate an image.",
     videoInput,
-    (client, body) => client.generate.video(body),
+    async (client, body) => await client.generate.video(body),
   ),
 };
 

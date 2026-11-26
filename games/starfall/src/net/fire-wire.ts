@@ -49,31 +49,31 @@ export const encodeFire = (spec: FireSpec) => {
   };
 
   if (spec.kind !== "volley") {
-    out["k"] = KIND_CODES.indexOf(spec.kind);
+    out.k = KIND_CODES.indexOf(spec.kind);
   }
 
   if (spec.code >= 0 || spec.code === FIRE_BASE) {
-    out["l"] = spec.level;
+    out.l = spec.level;
   }
 
   if (spec.weapon.jitterDeg > 0 || spec.weapon.sfx === "plasma") {
-    out["s"] = spec.seed;
+    out.s = spec.seed;
   }
 
   if (spec.twin !== null) {
-    out["tw"] = q3(spec.twin);
+    out.tw = q3(spec.twin);
   }
 
   if (spec.lock) {
-    out["h"] = encodeTarget(spec.lock);
+    out.h = encodeTarget(spec.lock);
   }
 
   if (spec.twinLock) {
-    out["ht"] = encodeTarget(spec.twinLock);
+    out.ht = encodeTarget(spec.twinLock);
   }
 
   if (spec.chain) {
-    out["c"] = spec.chain.flatMap((p) => [q1(p.x), q1(p.y)]);
+    out.c = spec.chain.flatMap((p) => [q1(p.x), q1(p.y)]);
   }
 
   return out;
@@ -112,25 +112,25 @@ export const decodeFire: (payload: WireValue) => FireSpec | null = (payload) => 
     return null;
   }
 
-  const t = wireNum(p["t"]);
-  const code = wireNum(p["w"]);
-  const x = wireNum(p["x"]);
-  const y = wireNum(p["y"]);
-  const angle = wireNum(p["a"]);
-  const kind = KIND_CODES[wireNum(p["k"]) ?? 0];
+  const t = wireNum(p.t);
+  const code = wireNum(p.w);
+  const x = wireNum(p.x);
+  const y = wireNum(p.y);
+  const angle = wireNum(p.a);
+  const kind = KIND_CODES[wireNum(p.k) ?? 0];
 
   if (t === null || code === null || x === null || y === null || angle === null || !kind) {
     return null;
   }
 
-  const level = wireNum(p["l"]) ?? 1;
+  const level = wireNum(p.l) ?? 1;
   const weapon = fireWeapon(code, level);
 
   if (!weapon) {
     return null;
   }
 
-  const chain = readChain(p["c"]);
+  const chain = readChain(p.c);
 
   if (kind === "chain" && !chain) {
     return null;
@@ -142,11 +142,11 @@ export const decodeFire: (payload: WireValue) => FireSpec | null = (payload) => 
     code,
     kind,
     level,
-    lock: readLock(p["h"]),
-    seed: wireNum(p["s"]) ?? 0,
+    lock: readLock(p.h),
+    seed: wireNum(p.s) ?? 0,
     t,
-    twin: wireNum(p["tw"]),
-    twinLock: readLock(p["ht"]),
+    twin: wireNum(p.tw),
+    twinLock: readLock(p.ht),
     weapon,
     x,
     y,

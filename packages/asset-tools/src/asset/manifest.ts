@@ -24,7 +24,9 @@ const resolveManifestPath = (raw: string, manifestDir: string, root: string | nu
     return path.resolve(raw);
   }
 
-  return root ? path.resolve(manifestDir, root, raw) : path.resolve(manifestDir, raw);
+  return root !== null && root !== ""
+    ? path.resolve(manifestDir, root, raw)
+    : path.resolve(manifestDir, raw);
 };
 
 const metaRootOf = (payload: JsonValue) => {
@@ -229,7 +231,10 @@ export const exportManifest = (manifestPath: string, packRelative: boolean, outP
   if (packRelative) {
     const manifestDir = path.resolve(path.dirname(manifestPath));
     const sourceRoot = path.resolve(manifestDir, metaRootOf(normalized) ?? ".");
-    const base = outPath ? path.resolve(path.dirname(outPath)) : manifestDir;
+
+    const base =
+      outPath !== undefined && outPath !== "" ? path.resolve(path.dirname(outPath)) : manifestDir;
+
     normalized = rewriteTablePaths(base, sourceRoot, normalized);
     const { meta } = normalized;
 

@@ -13,7 +13,8 @@ export interface JsonObject {
 export const isFiniteNumber = (value: JsonValue | undefined): value is number =>
   Number.isFinite(value);
 
-export const isString = (value: JsonValue | undefined): value is string => String(value) === value;
+export const isString = (value: JsonValue | undefined): value is string =>
+  Object.prototype.toString.call(value) === "[object String]";
 
 export const isJsonObject = (value: JsonValue | undefined): value is JsonObject =>
   Object(value) === value && !Array.isArray(value);

@@ -70,11 +70,11 @@ test("formatField falls back to JSON for structural values", () => {
 const captureStdout = (body: () => void) => {
   const original = process.stdout.write.bind(process.stdout);
   let captured = "";
-  process.stdout.write = ((chunk: string | Uint8Array) => {
+  process.stdout.write = (chunk: string | Uint8Array) => {
     captured += chunk instanceof Uint8Array ? Buffer.from(chunk).toString("utf-8") : chunk;
 
     return true;
-  }) as typeof process.stdout.write;
+  };
 
   try {
     body();
@@ -115,7 +115,11 @@ test("VG_JSON_OUTPUT=1 turns on JSON without the flag", () => {
 
   try {
     assert.equal(isJsonOutput({}), true);
-    const out = captureStdout(() => writeStructured({ a: 1 }, {}));
+
+    const out = captureStdout(() => {
+      writeStructured({ a: 1 }, {});
+    });
+
     assert.equal(out, '{\n  "a": 1\n}\n');
   } finally {
     if (previous === undefined) {

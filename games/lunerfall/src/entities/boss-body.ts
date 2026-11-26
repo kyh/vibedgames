@@ -119,7 +119,7 @@ export class BossBody {
     this.pendingAdds = structuredClone(state.pendingAdds);
   }
 
-  private grid: Grid;
+  private readonly grid: Grid;
 
   constructor(grid: Grid, x: number, y: number, biome: number) {
     this.grid = grid;

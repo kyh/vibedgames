@@ -6,7 +6,8 @@ type Container = JsonRecord | JsonValue[];
 const isRecord = (value: JsonValue | undefined): value is JsonRecord =>
   value instanceof Object && !Array.isArray(value);
 
-const isString = (value: JsonValue | undefined): value is string => String(value) === value;
+const isString = (value: JsonValue | undefined): value is string =>
+  value !== null && value !== undefined && !(value instanceof Object) && String(value) === value;
 
 const isIndex = (value: JsonValue | undefined): value is number =>
   Number.isSafeInteger(value) && Number(value) >= 0;
@@ -132,12 +133,27 @@ export const diffState = (prev: JsonRecord, next: JsonRecord, keys?: Iterable<st
   return ops;
 };
 
-const writable = <T extends Container>(value: T, fresh: Set<Container>) => {
+const writableRecord = (value: JsonRecord, fresh: Set<Container>) => {
   if (fresh.has(value)) {
     return value;
   }
 
-  const copy = (Array.isArray(value) ? [...value] : { ...value }) as T;
+  const copy: JsonRecord = { ...value };
+  fresh.add(copy);
+
+  return copy;
+};
+
+const writable = (value: Container, fresh: Set<Container>) => {
+  if (!Array.isArray(value)) {
+    return writableRecord(value, fresh);
+  }
+
+  if (fresh.has(value)) {
+    return value;
+  }
+
+  const copy = [...value];
   fresh.add(copy);
 
   return copy;
@@ -163,7 +179,7 @@ const applyOp = (root: JsonRecord, op: PatchOp, fresh: Set<Container>) => {
     return root;
   }
 
-  const top = writable(root, fresh);
+  const top = writableRecord(root, fresh);
   let container: Container = top;
 
   for (let i = 0; i < path.length - 1; i += 1) {

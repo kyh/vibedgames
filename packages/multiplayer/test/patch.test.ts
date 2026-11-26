@@ -3,7 +3,7 @@ import { test } from "node:test";
 
 import { applyPatch, cloneJson, diffState, readPatch } from "../src/patch.js";
 import type { JsonRecord, JsonValue, PatchOp, PatchSegment } from "../src/types.js";
-import { findStructuralIssue, MAX_STATE_DEPTH } from "../src/validation.js";
+import { findStructuralIssue, MAX_STATE_DEPTH, parseJson } from "../src/validation.js";
 
 const random = (seed: number) => {
   let state = seed;
@@ -119,7 +119,8 @@ test("a diff applied to the old state gives the new one, for any edit", () => {
     assert.equal(JSON.stringify(prev), prevJson, "the old state is not modified");
     assert.equal(JSON.stringify(after), afterJson, "the new state is not modified");
     const raw = JSON.stringify(ops);
-    const wire: PatchOp[] = JSON.parse(raw);
+    const wire = readPatch(parseJson(raw));
+    assert.ok(Array.isArray(wire), "the ops read back");
     assert.deepEqual(applyPatch(asRecord(cloneJson(prev)), wire), after);
   }
 });

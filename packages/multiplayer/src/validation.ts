@@ -38,6 +38,40 @@ export const MAX_MESSAGE_BYTES = 1_048_576;
  */
 export const MAX_STATE_DEPTH = 32;
 
+/** Whether `value` is plain JSON: what `JSON.parse` can hand back. */
+export const isJsonValue = (value: unknown): value is JsonValue => {
+  if (value === null || Number.isFinite(value)) {
+    return true;
+  }
+
+  if (Array.isArray(value)) {
+    return value.every((item) => isJsonValue(item));
+  }
+
+  const tag = Object.prototype.toString.call(value);
+
+  if (tag === "[object String]" || tag === "[object Boolean]") {
+    return true;
+  }
+
+  return (
+    tag === "[object Object]" &&
+    value instanceof Object &&
+    Object.values(value).every((item) => isJsonValue(item))
+  );
+};
+
+/** Parses `text` as JSON, refusing anything `JSON.parse` would not give back as plain JSON. */
+export const parseJson = (text: string) => {
+  const parsed: unknown = JSON.parse(text);
+
+  if (!isJsonValue(parsed)) {
+    throw new TypeError("not JSON");
+  }
+
+  return parsed;
+};
+
 /** Keys that could poison prototypes when patches are merged downstream. */
 export const FORBIDDEN_KEYS: ReadonlySet<string> = new Set([
   "__proto__",
@@ -71,7 +105,7 @@ export const findNestingIssue: (value: JsonValue, depth: number) => string | nul
 
       const issue = findNestingIssue(item, depth + 1);
 
-      if (issue) {
+      if (issue !== null && issue !== "") {
         return issue;
       }
     }
@@ -97,7 +131,7 @@ export const findNestingIssue: (value: JsonValue, depth: number) => string | nul
 
       const issue = findNestingIssue(child, depth + 1);
 
-      if (issue) {
+      if (issue !== null && issue !== "") {
         return issue;
       }
     }

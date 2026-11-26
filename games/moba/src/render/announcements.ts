@@ -31,7 +31,7 @@ interface Announcement extends Shown {
 
 export class AnnouncementBanner {
   private readonly ribbon: Phaser.GameObjects.NineSlice;
-  private readonly text: Phaser.GameObjects.Text;
+  readonly text: Phaser.GameObjects.Text;
   private active: Announcement | null = null;
   private pending: Announcement[] = [];
   private status: Shown | null = null;

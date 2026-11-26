@@ -37,7 +37,9 @@ export const PlayView = () => {
       clearTimeout(timerRef.current);
     }
 
-    timerRef.current = setTimeout(() => setLoading(false), 1500);
+    timerRef.current = setTimeout(() => {
+      setLoading(false);
+    }, 1500);
     const src = new URL(iframe.src);
     src.searchParams.set("t", Date.now().toString());
     iframe.src = src.toString();
@@ -80,7 +82,9 @@ export const PlayView = () => {
             <InputGroupInput
               type="text"
               className="py-2.5 font-mono text-xs sm:text-xs"
-              onClick={(event) => event.currentTarget.select()}
+              onClick={(event) => {
+                event.currentTarget.select();
+              }}
               value={url}
               readOnly
             />

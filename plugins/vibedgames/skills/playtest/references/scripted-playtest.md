@@ -53,9 +53,9 @@ done
 ```
 
 ```sh
-node $SKILL/scripts/scripted-playtest.mjs --url http://localhost:5173
-node $SKILL/scripts/scripted-playtest.mjs --game my-game --seed 42      # a deployed game
-node $SKILL/scripts/scripted-playtest.mjs --url http://localhost:5173 --script ./sweep.json
+node $SKILL/scripts/scripted-playtest.ts --url http://localhost:5173
+node $SKILL/scripts/scripted-playtest.ts --game my-game --seed 42      # a deployed game
+node $SKILL/scripts/scripted-playtest.ts --url http://localhost:5173 --script ./sweep.json
 ```
 
 | Flag                    | Meaning                                                                          |
@@ -109,15 +109,15 @@ Key names are [KeyboardEvent codes](https://developer.mozilla.org/en-US/docs/Web
 
 When raw keys can't express the verb — placing a tower, choosing a card, triggering a wave — add a game-specific hook (`forceWave()`, `placeTower(x, y)`) to `__GAME_TEST_HOOKS__` and call it via `vg playtest eval`. A bot that can't perform the core verb measures nothing.
 
-A script is a fixed sweep. For a playtester that chooses its inputs from the game state as it plays — and so can tell you whether the objective is findable, not just reachable — see [autonomous-playtest.md](autonomous-playtest.md) (`vg playtest run`). It drives keys and pointer, tracks motion and boots the game the same way this script does; `scripts/lib/harness.mjs` is this script's copy of that plumbing.
+A script is a fixed sweep. For a playtester that chooses its inputs from the game state as it plays — and so can tell you whether the objective is findable, not just reachable — see [autonomous-playtest.md](autonomous-playtest.md) (`vg playtest run`). It drives keys and pointer, tracks motion and boots the game the same way this script does; `scripts/lib/harness.ts` is this script's copy of that plumbing.
 
 ## Difficulty and Fairness Runs
 
 For games with fail states, run the bot twice and compare:
 
 ```sh
-node $SKILL/scripts/scripted-playtest.mjs --url http://localhost:5173 --reaction-delay 0
-node $SKILL/scripts/scripted-playtest.mjs --url http://localhost:5173 --reaction-delay 300
+node $SKILL/scripts/scripted-playtest.ts --url http://localhost:5173 --reaction-delay 0
+node $SKILL/scripts/scripted-playtest.ts --url http://localhost:5173 --reaction-delay 300
 ```
 
 - Delayed bot does as well as the fast one → difficulty pressure is decorative.
@@ -151,7 +151,7 @@ vg playtest errors
 
 The only way to hold a properly-formed key is to dispatch the event yourself — the sequence shown under [Manual Bot Steps](#manual-bot-steps) above.
 
-`scripts/scripted-playtest.mjs` does exactly this, including the `code` → `keyCode` mapping. The one tradeoff is `isTrusted: false`, which matters only for games that explicitly check it.
+`scripts/scripted-playtest.ts` does exactly this, including the `code` → `keyCode` mapping. The one tradeoff is `isTrusted: false`, which matters only for games that explicitly check it.
 
 Always release what you hold — a dangling keydown stays stuck in the game and poisons the next run against the same daemon.
 

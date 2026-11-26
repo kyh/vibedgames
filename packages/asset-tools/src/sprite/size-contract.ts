@@ -216,7 +216,7 @@ type LiveMeasurement = Measurement & {
 };
 
 const isLiveMeasurement = (m: Measurement): m is LiveMeasurement =>
-  !m.empty &&
+  m.empty !== true &&
   m.visibleWidth !== undefined &&
   m.visibleHeight !== undefined &&
   m.visibleBottomY !== undefined &&
@@ -294,7 +294,7 @@ export const promptGuidanceForContract = (contract: SizeContract) => {
     "Keep the first and final frames close to the same scale and placement so the result can be packed into a game spritesheet.",
   ];
 
-  if (targetHeight) {
+  if (targetHeight !== null && targetHeight !== 0) {
     guidance.push(
       `After processing, the sprite should remain about ${targetHeight}px tall inside a ${runtimeCell[0]}x${runtimeCell[1]} runtime cell; treat this as scale guidance, not visible text.`,
     );
@@ -353,7 +353,13 @@ export const contractChecks: (summary: Summary, contract: SizeContract) => Check
   const medianHeight = optionalNumber(summary.medianVisibleHeight);
   const maxHeightDrift = optionalNumber(tolerances.maxTargetHeightDriftPct);
 
-  if (targetHeight && medianHeight && maxHeightDrift !== null) {
+  if (
+    targetHeight !== null &&
+    targetHeight !== 0 &&
+    medianHeight !== null &&
+    medianHeight !== 0 &&
+    maxHeightDrift !== null
+  ) {
     const range = summary.visibleHeightRange;
 
     const drift =
@@ -408,7 +414,7 @@ export const contractChecks: (summary: Summary, contract: SizeContract) => Check
   const maxWidth = optionalNumber(contract.maxVisibleWidth);
   const maxWidthOverflow = optionalNumber(tolerances.maxWidthOverflowPct);
 
-  if (maxWidth && maxWidthOverflow !== null) {
+  if (maxWidth !== null && maxWidth !== 0 && maxWidthOverflow !== null) {
     const observedMax = optionalNumber(summary.maxVisibleWidth);
     const overflow = Math.max(0, ((observedMax ?? 0) - maxWidth) / maxWidth);
     checks.push(
@@ -459,8 +465,8 @@ const BRIEF_KEYS: readonly (keyof SizeContract)[] = [
 ];
 
 const copyBriefKey = <K extends keyof SizeContract>(
-  contract: SizeContract,
-  out: SizeContract,
+  contract: Pick<SizeContract, K>,
+  out: Partial<Pick<SizeContract, K>>,
   key: K,
 ) => {
   if (key in contract) {

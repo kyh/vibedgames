@@ -109,7 +109,7 @@ const count = (w: World, at: Vec2, radius: number, want: (u: Unit) => boolean) =
   return n;
 };
 
-const isLaneCreep = (u: Unit) => u.kind === "creep" && !u.neutral && targetable(u);
+const isLaneCreep = (u: Unit) => u.kind === "creep" && u.neutral !== true && targetable(u);
 const isHero = (u: Unit) => u.kind === "hero" && targetable(u);
 
 const abilityUsable = (def: AbilityDef, me: Unit, hero: Unit | null, creep: Unit | null) => {
@@ -168,7 +168,7 @@ const nearestEnemyTower = (w: World, me: Unit) => {
   for (const spec of TOWERS) {
     const t = spec.team === enemyTeam ? w.units.get(spec.id) : undefined;
 
-    if (t?.alive && dist(me, t) < towerD) {
+    if (t?.alive === true && dist(me, t) < towerD) {
       towerD = dist(me, t);
       tower = t;
     }

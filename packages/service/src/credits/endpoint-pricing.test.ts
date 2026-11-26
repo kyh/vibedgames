@@ -1,3 +1,4 @@
+import { runInOrder } from "@repo/contract/run-in-order";
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import type { JsonValue } from "@repo/contract/json";
@@ -7,12 +8,13 @@ import { getEndpointPricing } from "./endpoint-pricing";
 
 type Answer = () => Promise<PlatformAnswer>;
 
-const ok: (body: JsonValue) => Answer = (body) => () => Promise.resolve({ body, ok: true });
+const ok: (body: JsonValue) => Answer = (body) => async () =>
+  await Promise.resolve({ body, ok: true });
 
-const status: (code: number) => Answer = (code) => () =>
-  Promise.resolve({ ok: false, status: code });
+const status: (code: number) => Answer = (code) => async () =>
+  await Promise.resolve({ ok: false, status: code });
 
-const unreachable: Answer = () => Promise.reject(new TypeError("fetch failed"));
+const unreachable: Answer = async () => await Promise.reject(new TypeError("fetch failed"));
 
 const listing = (endpointId: string, usd: number) =>
   ok({ prices: [{ currency: "USD", endpoint_id: endpointId, unit: "image", unit_price: usd }] });
@@ -22,14 +24,14 @@ const estimate = (usd: number) => ok({ total_cost: usd });
 const platform = (answers: { price: Answer; estimate?: Answer }) => {
   const asked: string[] = [];
 
-  const call = (input: { method: "GET" | "POST"; path: string }) => {
+  const call = async (input: { method: "GET" | "POST"; path: string }) => {
     asked.push(`${input.method} ${input.path}`);
 
     if (input.method === "GET") {
-      return answers.price();
+      return await answers.price();
     }
 
-    return (answers.estimate ?? status(404))();
+    return await (answers.estimate ?? status(404))();
   };
 
   return { asked, call };
@@ -78,14 +80,14 @@ describe("getEndpointPricing", () => {
       "only another endpoint's price": listing("test/unpriced/v2", 0.025),
     };
 
-    for (const [label, price] of Object.entries(answers)) {
+    await runInOrder(Object.entries(answers), async ([label, price]) => {
       const lookup = platform({ price });
       assert.deepEqual(
         await getEndpointPricing(id, lookup.call),
         { ...DEFAULT_HOLD, kind: "unknown" },
         label,
       );
-    }
+    });
 
     const joined = platform({
       price: ok({
@@ -114,14 +116,14 @@ describe("getEndpointPricing", () => {
       "no answer": unreachable,
     };
 
-    for (const [label, price] of Object.entries(answers)) {
+    await runInOrder(Object.entries(answers), async ([label, price]) => {
       const lookup = platform({ estimate: unreachable, price });
       assert.deepEqual(
         await getEndpointPricing(id, lookup.call),
         { ...DEFAULT_HOLD, kind: "unavailable" },
         label,
       );
-    }
+    });
 
     const withHistory = platform({ estimate: estimate(0.3), price: status(503) });
     assert.deepEqual(await getEndpointPricing(id, withHistory.call), {
@@ -140,11 +142,11 @@ describe("getEndpointPricing", () => {
       { kind: "unavailable", price: status(503) },
     ];
 
-    for (const { kind, price } of misses) {
+    await runInOrder(misses, async ({ kind, price }) => {
       const missed = platform({ estimate: estimate(0.05), price });
       const verdict = await getEndpointPricing(id, missed.call);
       assert.equal(verdict.kind, kind);
-    }
+    });
 
     const answered = platform({ price: listing(id, 0.025) });
     const found = await getEndpointPricing(id, answered.call);

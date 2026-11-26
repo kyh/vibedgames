@@ -13,28 +13,29 @@ import { visualHeight } from "../src/world/parcel-style.ts";
 
 type Check = (name: string, condition: boolean, detail?: string) => void;
 
-const houseFixture = () => ({
-  blind: new Uint8Array([0, 1, 0, 1]),
-  blockHash: 4,
-  character: "victorian",
-  district: "the Haight",
-  footY: 0,
-  front: 0,
-  height: visualHeight(2),
-  hero: false,
-  hint: "house",
-  id: 0,
-  kind: "rowhouse",
-  n: 4,
-  obb: { cx: 2, cz: 3, ex: 1, ez: 0, halfA: 2, halfB: 3 },
-  rect: true,
-  ring: new Float32Array([0, 0, 4, 0, 4, 6, 0, 6]),
-  seatY: 0,
-  seed: 27,
-  solids: [],
-  storeys: 2,
-  units: 1,
-});
+const houseFixture = () =>
+  ({
+    blind: new Uint8Array([0, 1, 0, 1]),
+    blockHash: 4,
+    character: "victorian",
+    district: "the Haight",
+    footY: 0,
+    front: 0,
+    height: visualHeight(2),
+    hero: false,
+    hint: "house",
+    id: 0,
+    kind: "rowhouse",
+    n: 4,
+    obb: { cx: 2, cz: 3, ex: 1, ez: 0, halfA: 2, halfB: 3 },
+    rect: true,
+    ring: new Float32Array([0, 0, 4, 0, 4, 6, 0, 6]),
+    seatY: 0,
+    seed: 27,
+    solids: [],
+    storeys: 2,
+    units: 1,
+  }) satisfies ParcelPlan;
 
 const checkHouseFacades = (check: Check, house: ParcelPlan) => {
   const close = buildParcelGeometrySync([house], 2);
@@ -112,9 +113,10 @@ const checkTowerFacades = (check: Check, house: ParcelPlan) => {
   check(
     "near tower ribbons do not stack over a second shader window grid",
     towerWalls.length > 0 &&
-      towerWalls.every((geo) =>
-        // oxlint-disable-next-line no-bitwise -- facade2 packs window flags as bits
-        geo.facade2?.every((value, i) => i % 3 !== 2 || (value & 8) !== 0),
+      towerWalls.every(
+        (geo) =>
+          // oxlint-disable-next-line no-bitwise -- facade2 packs window flags as bits
+          geo.facade2?.every((value, i) => i % 3 !== 2 || (value & 8) !== 0) === true,
       ),
   );
 

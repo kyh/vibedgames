@@ -20,10 +20,10 @@ interface Live {
 }
 
 export class NpcManager {
-  private scene: GameScene;
-  private live: Live[] = [];
-  private talkedToday = new Set<NpcId>();
-  private giftedToday = new Set<NpcId>();
+  private readonly scene: GameScene;
+  private readonly live: Live[] = [];
+  private readonly talkedToday = new Set<NpcId>();
+  private readonly giftedToday = new Set<NpcId>();
 
   constructor(scene: GameScene) {
     this.scene = scene;
@@ -33,9 +33,7 @@ export class NpcManager {
     for (const id of NPC_IDS) {
       const def = NPCS[id];
 
-      if (store.npcFriendship[id] === undefined) {
-        store.npcFriendship[id] = 0;
-      }
+      store.npcFriendship[id] ??= 0;
 
       const x = def.homeTile.tx * TILE + 8;
       const y = def.homeTile.ty * TILE + 14;

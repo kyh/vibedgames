@@ -42,27 +42,29 @@ export const ApiKeySettings = () => {
 
   const create = useMutation(
     orpc.apiKeys.create.mutationOptions({
-      onSuccess: (data) => {
-        qc.invalidateQueries({ queryKey: orpc.apiKeys.list.queryKey() });
+      onSuccess: async (data) => {
         setNewKey(data.key);
         setName("");
         setExpiresInDays("");
         toast.success("API key created");
+
+        await qc.invalidateQueries({ queryKey: orpc.apiKeys.list.queryKey() });
       },
     }),
   );
 
   const revoke = useMutation(
     orpc.apiKeys.revoke.mutationOptions({
-      onSuccess: () => {
-        qc.invalidateQueries({ queryKey: orpc.apiKeys.list.queryKey() });
+      onSuccess: async () => {
         toast.success("Key revoked");
+
+        await qc.invalidateQueries({ queryKey: orpc.apiKeys.list.queryKey() });
       },
     }),
   );
 
   const copyKey = async () => {
-    if (!newKey) {
+    if (newKey === null || newKey === "") {
       return;
     }
 
@@ -75,7 +77,9 @@ export const ApiKeySettings = () => {
     }
 
     setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
+    setTimeout(() => {
+      setCopied(false);
+    }, 1500);
   };
 
   return (
@@ -92,7 +96,7 @@ export const ApiKeySettings = () => {
       </header>
 
       <div className="space-y-6 md:col-span-2">
-        {newKey && (
+        {newKey !== null && newKey !== "" && (
           <div className="space-y-2 rounded-md border border-green-500/30 bg-green-900/20 p-4">
             <p className="text-sm font-medium text-green-200">
               Copy your key now — it won&apos;t be shown again.
@@ -138,7 +142,9 @@ export const ApiKeySettings = () => {
               placeholder="Key name — e.g. github-actions"
               value={name}
               maxLength={100}
-              onChange={(e) => setName(e.target.value)}
+              onChange={(e) => {
+                setName(e.target.value);
+              }}
             />
             <InputGroupInput
               type="number"
@@ -148,9 +154,9 @@ export const ApiKeySettings = () => {
               min={1}
               max={3650}
               value={expiresInDays}
-              onChange={(e) =>
-                setExpiresInDays(e.target.value === "" ? "" : Number(e.target.value) || 1)
-              }
+              onChange={(e) => {
+                setExpiresInDays(e.target.value === "" ? "" : Number(e.target.value) || 1);
+              }}
             />
           </InputGroup>
           <p className="text-muted-foreground text-xs">
@@ -205,7 +211,9 @@ export const ApiKeySettings = () => {
                         size="sm"
                         className="ml-auto"
                         loading={revoke.isPending && revoke.variables?.id === k.id}
-                        onClick={() => revoke.mutate({ id: k.id })}
+                        onClick={() => {
+                          revoke.mutate({ id: k.id });
+                        }}
                       >
                         Revoke
                       </Button>

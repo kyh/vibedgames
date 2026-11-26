@@ -374,7 +374,7 @@ export const parseFrame = (v: JsonValue | undefined) => {
   }
 
   const { b, c, g, p, q, s, t } = v;
-  const rosterVersion = v["v"];
+  const rosterVersion = v.v;
 
   if (
     !isNum(t) ||
@@ -425,7 +425,7 @@ export const parseMatch = (v: JsonValue | undefined) => {
   }
 
   const { b, g, seed, w } = v;
-  const rosterVersion = v["v"];
+  const rosterVersion = v.v;
 
   if (
     !isCount(g) ||
@@ -709,12 +709,12 @@ export const parseBroken = (v: JsonValue | undefined) =>
 
 /** The room's shared state as one adoptable world, or null when any part is missing or malformed. */
 export const assembleWorld = (state: JsonObject) => {
-  const match = parseMatch(state["m"]);
-  const wire = parseFrame(state["f"]);
+  const match = parseMatch(state.m);
+  const wire = parseFrame(state.f);
   const frame = match && wire ? decodeFrame(wire, match) : null;
-  const boxes = parseBoxes(state["bx"] ?? []);
-  const cubes = parseCubes(state["cu"] ?? []);
-  const broken = parseBroken(state["br"] ?? []);
+  const boxes = parseBoxes(state.bx ?? []);
+  const cubes = parseCubes(state.cu ?? []);
+  const broken = parseBroken(state.br ?? []);
 
   if (!match || !frame || !boxes || !cubes || !broken) {
     return null;

@@ -109,7 +109,9 @@ const settingsPanel = () => {
       resumeGame();
     }
   });
-  section.addEventListener("keyup", (event) => event.stopPropagation());
+  section.addEventListener("keyup", (event) => {
+    event.stopPropagation();
+  });
 
   const option = (
     title: string,
@@ -122,7 +124,9 @@ const settingsPanel = () => {
     input.type = "checkbox";
     input.checked = checked;
     input.setAttribute("aria-label", title);
-    input.addEventListener("change", () => change(input.checked));
+    input.addEventListener("change", () => {
+      change(input.checked);
+    });
     const copy = el("span", "");
     copy.append(el("strong", "", title), el("small", "", description));
     label.append(input, copy);
@@ -134,25 +138,28 @@ const settingsPanel = () => {
     "Focused effects",
     "Fewer particles and clouds. All threats stay visible.",
     settings.effects === "focused",
-    (focused) =>
-      setPresentationSettings({ ...presentationSettings(), effects: focused ? "focused" : "full" }),
+    (focused) => {
+      setPresentationSettings({ ...presentationSettings(), effects: focused ? "focused" : "full" });
+    },
   );
   option(
     "Reduced motion",
     "Steady camera and status effects. Also follows your device preference.",
     settings.motion === "reduced",
-    (reduced) =>
+    (reduced) => {
       setPresentationSettings({
         ...presentationSettings(),
         motion: reduced ? "reduced" : "system",
-      }),
+      });
+    },
   );
   option(
     "Closer camera",
     "Larger heroes; less of the battlefield visible.",
     settings.view === "close",
-    (close) =>
-      setPresentationSettings({ ...presentationSettings(), view: close ? "close" : "standard" }),
+    (close) => {
+      setPresentationSettings({ ...presentationSettings(), view: close ? "close" : "standard" });
+    },
   );
 
   return section;
@@ -161,11 +168,14 @@ const settingsPanel = () => {
 const renderPanel = (overlay: HTMLElement) => {
   root = overlay;
 
-  const syncMotion = () =>
+  const syncMotion = () => {
     overlay.classList.toggle("mp-reduced", presentationSettings().motion === "reduced");
+  };
 
   syncMotion();
-  stopSettings = watchPresentationSettings(syncMotion);
+  stopSettings = watchPresentationSettings(() => {
+    syncMotion();
+  });
   const coarse = window.matchMedia("(pointer: coarse)").matches;
 
   const panel = el("div", "mp-panel");
@@ -222,7 +232,9 @@ const renderPanel = (overlay: HTMLElement) => {
   );
   overlay.append(panel);
 
-  requestAnimationFrame(() => overlay.classList.add("mp-in"));
+  requestAnimationFrame(() => {
+    overlay.classList.add("mp-in");
+  });
 };
 
 const shell = createPauseShell({

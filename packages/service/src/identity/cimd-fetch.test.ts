@@ -1,26 +1,38 @@
 import assert from "node:assert/strict";
-import { afterEach, describe, test } from "node:test";
+import { after, afterEach, before, describe, test } from "node:test";
+import { http } from "msw";
+import { setupServer } from "msw/node";
 
 import { fetchClientMetadataResource } from "./cimd-fetch";
 
-const realFetch = globalThis.fetch;
-const seen: { redirect: string | undefined; url: string }[] = [];
+const network = setupServer();
+const seen: { redirect: string; url: string }[] = [];
+
+before(() => {
+  network.listen({ onUnhandledRequest: "error" });
+});
+
+afterEach(() => {
+  network.resetHandlers();
+  seen.length = 0;
+});
+
+after(() => {
+  network.close();
+});
 
 const fetchMetadata = async (url: string, init?: RequestInit) =>
   await fetchClientMetadataResource(url, init);
 
 const answerWith = (response: Response) => {
-  globalThis.fetch = (input, init) => {
-    seen.push({ redirect: init?.redirect, url: String(input) });
+  network.use(
+    http.all("*", ({ request }) => {
+      seen.push({ redirect: request.redirect, url: request.url });
 
-    return Promise.resolve(response);
-  };
+      return response;
+    }),
+  );
 };
-
-afterEach(() => {
-  globalThis.fetch = realFetch;
-  seen.length = 0;
-});
 
 describe("fetchClientMetadataResource", () => {
   test("reads a document over HTTPS without following redirects", async () => {

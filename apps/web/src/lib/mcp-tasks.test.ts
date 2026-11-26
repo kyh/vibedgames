@@ -2,26 +2,18 @@ import assert from "node:assert/strict";
 import { once } from "node:events";
 import { createServer } from "node:http";
 import { after, beforeEach, describe, test } from "node:test";
+import { startD1 } from "@repo/service/d1.test-utils";
 import type { JsonValue } from "@repo/contract/json";
 import type { ORPCContext } from "@repo/service/orpc";
 import { createAuth } from "@repo/service/identity/auth";
-import { createDb } from "@repo/db/drizzle-client";
 import { z } from "zod";
 
 import { handleMcpRequest } from "./mcp";
 import { GENERATION_META, TASKS_EXTENSION } from "./mcp-tasks";
 
-const unavailable = (): never => {
-  throw new Error("the database is not reachable in this test");
-};
+const { close, db } = await startD1();
 
-const db = createDb({
-  batch: unavailable,
-  dump: unavailable,
-  exec: unavailable,
-  prepare: unavailable,
-  withSession: unavailable,
-});
+after(close);
 
 const auth = createAuth({ baseURL: "http://localhost:3000", db, secret: "test-secret" });
 
@@ -98,8 +90,8 @@ const sessionFor = (userId: string) =>
     },
   }) satisfies Session;
 
-const contextFor = (userId: string | null) => (headers: Headers) =>
-  Promise.resolve<ORPCContext>({
+const contextFor = (userId: string | null) => async (headers: Headers) =>
+  await Promise.resolve<ORPCContext>({
     auth,
     billing: undefined,
     db,
@@ -319,12 +311,16 @@ describe("mcp tasks", () => {
     const taskId = await startTask();
     const [prefix, payload] = taskId.split(".");
 
-    for (const [id, userId] of [
-      [taskId, "user_2"],
-      [`${prefix}.${payload}.AAAA`, "user_1"],
-    ] as const) {
-      const body = await rpc("tasks/get", { taskId: id }, { userId });
+    const bodies = await Promise.all(
+      (
+        [
+          [taskId, "user_2"],
+          [`${prefix}.${payload}.AAAA`, "user_1"],
+        ] as const
+      ).map(async ([id, userId]) => await rpc("tasks/get", { taskId: id }, { userId })),
+    );
 
+    for (const body of bodies) {
       assert.strictEqual(taskError.parse(body).error.code, -32_602);
     }
   });

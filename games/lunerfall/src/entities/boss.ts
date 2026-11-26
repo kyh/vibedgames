@@ -52,8 +52,15 @@ const bossClip = (state: BossState, moving: boolean) => {
       return "hit";
     }
 
-    default: {
+    case "idle":
+    case "intro":
+    case "phase": {
       return moving ? "run" : "idle";
+    }
+
+    default: {
+      const unhandled: never = state;
+      throw new Error("unhandled case", { cause: unhandled });
     }
   }
 };

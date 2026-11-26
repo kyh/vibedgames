@@ -19,16 +19,16 @@ const registerGates = (scene: Phaser.Scene) => {
 };
 
 export class Door {
-  private scene: Phaser.Scene;
+  private readonly scene: Phaser.Scene;
   readonly x: number;
   readonly y: number;
   readonly type: RoomType;
   readonly index: number;
-  private root: Phaser.GameObjects.Container;
-  private glow: Phaser.GameObjects.Ellipse;
-  private gate: Phaser.GameObjects.Image;
-  private label: Phaser.GameObjects.Text;
-  private color: number;
+  private readonly root: Phaser.GameObjects.Container;
+  private readonly glow: Phaser.GameObjects.Ellipse;
+  private readonly gate: Phaser.GameObjects.Image;
+  private readonly label: Phaser.GameObjects.Text;
+  private readonly color: number;
   private renderedActive: boolean | null = null;
   active = false;
 

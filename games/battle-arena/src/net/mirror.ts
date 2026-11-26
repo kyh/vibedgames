@@ -4,7 +4,8 @@ import { INTERP_DELAY_MS } from "../data/config";
 import { isJsonNumber, isJsonObject, isJsonString } from "../data/json";
 import type { JsonObject, JsonValue } from "../data/json";
 import { ALL_ABILITY_KEYS } from "../sim/types";
-import type { FxEvent, PendingStrike, Projectile, Unit, World } from "../sim/types";
+import type { PendingStrike, Projectile, Unit, World } from "../sim/types";
+import { isFxEvent } from "./fx-wire";
 import { applySnapshot, blankUnit } from "./snapshot";
 import type { Frame, Snapshot } from "./snapshot";
 
@@ -164,11 +165,11 @@ export const parseFrame = (payload: JsonValue) => {
     frame.d = d;
   }
 
-  frame.ug = idList(payload["ug"]);
-  frame.pg = idList(payload["pg"]);
-  frame.gg = idList(payload["gg"]);
-  frame.cg = idList(payload["cg"]);
-  frame.dg = idList(payload["dg"]);
+  frame.ug = idList(payload.ug);
+  frame.pg = idList(payload.pg);
+  frame.gg = idList(payload.gg);
+  frame.cg = idList(payload.cg);
+  frame.dg = idList(payload.dg);
 
   if (isJsonObject(w)) {
     frame.w = w;
@@ -179,7 +180,7 @@ export const parseFrame = (payload: JsonValue) => {
   }
 
   if (Array.isArray(fx)) {
-    frame.fx = fx as FxEvent[];
+    frame.fx = fx.filter((e) => isFxEvent(e));
   }
 
   return frame;
@@ -384,8 +385,8 @@ const applyScalars = (world: World, frame: Frame) => {
       world.nextCoinAt = nextCoinAt;
     }
 
-    if (isJsonNumber(row["nextDeliveryAt"])) {
-      world.nextDeliveryAt = row["nextDeliveryAt"];
+    if (isJsonNumber(row.nextDeliveryAt)) {
+      world.nextDeliveryAt = row.nextDeliveryAt;
     }
 
     applyBookkeeping(world, row);
@@ -644,7 +645,7 @@ export class NetMirror {
       const created = !u;
 
       if (!u) {
-        if (!isJsonString(row["kind"])) {
+        if (!isJsonString(row.kind)) {
           continue;
         }
 
@@ -658,7 +659,7 @@ export class NetMirror {
       if (id === this.ownId) {
         assignRow(fields, row, UNIT_TEMPLATE, created ? NO_SKIP : OWN_SKIP);
         this.updateOwn(u, row);
-      } else if (u.kind === "prop" || row["kind"] === "prop") {
+      } else if (u.kind === "prop" || row.kind === "prop") {
         assignRow(fields, row, UNIT_TEMPLATE, NO_SKIP);
       } else {
         assignRow(fields, row, UNIT_TEMPLATE, REMOTE_SKIP);
@@ -677,7 +678,7 @@ export class NetMirror {
       let p = world.projectiles.get(id);
 
       if (!p) {
-        if (!isJsonString(row["kind"])) {
+        if (!isJsonString(row.kind)) {
           continue;
         }
 
@@ -692,7 +693,7 @@ export class NetMirror {
       const fields: JsonObject = p;
       assignRow(fields, row, PROJECTILE_TEMPLATE, NO_SKIP);
 
-      if (row["x"] !== undefined || row["y"] !== undefined) {
+      if (row.x !== undefined || row.y !== undefined) {
         this.shots.set(id, { n: frame.n, x: p.x, y: p.y });
       } else {
         this.shots.set(id, base);

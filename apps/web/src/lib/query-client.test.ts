@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
+import { z } from "zod";
 
 import { createQueryClient } from "./query-client";
 
@@ -17,9 +18,16 @@ describe("dehydrate/hydrate", () => {
       url: new URL("https://example.com/path?q=1"),
     };
 
-    const revived: typeof data = hydrate.deserializeData(dehydrate.serializeData(data));
+    const revived = z
+      .object({
+        at: z.date(),
+        big: z.bigint(),
+        lookup: z.map(z.number(), z.string()),
+        tags: z.set(z.string()),
+        url: z.instanceof(URL),
+      })
+      .parse(hydrate.deserializeData(dehydrate.serializeData(data)));
 
-    assert.deepStrictEqual({ ...revived }, { ...data });
-    assert.strictEqual(revived.url.href, data.url.href);
+    assert.deepStrictEqual({ ...revived, url: revived.url.href }, { ...data, url: data.url.href });
   });
 });

@@ -1,10 +1,10 @@
 {
   "extends": "@kyh/tsconfig/base.json",
   "compilerOptions": {
-    "lib": ["ES2023"],
+    "lib": ["ES2024"],
     "types": ["node"],
     "jsx": "react-jsx",
     "allowImportingTsExtensions": true
   },
-  "include": ["src"]
+  "include": ["src", "scripts"]
 }

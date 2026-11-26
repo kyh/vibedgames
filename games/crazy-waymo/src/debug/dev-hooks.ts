@@ -2,6 +2,7 @@ import * as THREE from "three";
 
 import type { PerfGovernor } from "../render/perf-governor";
 import type { GameScene } from "../scenes/game-scene";
+import { isMesh } from "../shared/three-guards";
 
 export interface TaxiDebugApi {
   readonly game: GameScene;
@@ -76,7 +77,7 @@ export const installDevHooks = (game: GameScene, governor: PerfGovernor) => {
         o = o.parent;
       }
 
-      const mesh = hit.object instanceof THREE.Mesh ? hit.object : null;
+      const mesh = isMesh(hit.object) ? hit.object : null;
 
       const mat =
         mesh && mesh.material instanceof THREE.MeshStandardMaterial ? mesh.material : null;

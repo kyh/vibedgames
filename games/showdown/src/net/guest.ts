@@ -151,7 +151,7 @@ export class GuestView implements GhostSink {
 
   /** Where this guest last drew its own body — newer than any frame, for a promotion. */
   get ownPose() {
-    return this.own?.alive ? { x: this.own.x, z: this.own.z } : null;
+    return this.own?.alive === true ? { x: this.own.x, z: this.own.z } : null;
   }
 
   /** Fold in one message from the host. A new generation or seed rebuilds everything first. */
@@ -207,7 +207,7 @@ export class GuestView implements GhostSink {
   settle(dt: number) {
     const b = this.own;
 
-    if (!b?.alive) {
+    if (b?.alive !== true) {
       return;
     }
 
@@ -554,7 +554,7 @@ export class GuestView implements GhostSink {
 
     const decided = phase === "ended" && previous !== null && previous !== "ended";
 
-    if (decided && this.ownAlive && game.player?.alive) {
+    if (decided && this.ownAlive && game.player?.alive === true) {
       game.localWin();
     }
 
@@ -597,7 +597,7 @@ export class GuestView implements GhostSink {
     const previous = this.lastAliveCount;
     this.lastAliveCount = alive;
 
-    if (previous > 2 && alive === 2 && game.player?.alive && game.state === "playing") {
+    if (previous > 2 && alive === 2 && game.player?.alive === true && game.state === "playing") {
       game.hud.banner("SHOWDOWN!", 1.5, true);
     }
   }
@@ -854,7 +854,7 @@ export class GuestView implements GhostSink {
 
       if (world.blocksShots(world.toTile(g.x), world.toTile(g.z))) {
         this.endBullet(g, g.x - g.dx * 0.12, g.z - g.dz * 0.12, WALL_IMPACT);
-      } else if (g.own && !g.attack.pierce && this.strikesBody(g)) {
+      } else if (g.own && g.attack.pierce !== true && this.strikesBody(g)) {
         g.alive = false;
       } else if (g.travel >= g.attack.range) {
         this.endBullet(g, g.x, g.z, SPENT_IMPACT);
@@ -952,7 +952,7 @@ export class GuestView implements GhostSink {
     setBombAppearance(slot, a.style, color);
     slot.busy = true;
     slot.group.visible = true;
-    slot.group.scale.setScalar(a.big ? 1.75 : 1);
+    slot.group.scale.setScalar(a.big === true ? 1.75 : 1);
     slot.ring.visible = true;
     slot.ring.position.set(tx, world.heightAt(tx, tz) + 0.05, tz);
     slot.ring.scale.set(a.blast, 1, a.blast);
@@ -1036,7 +1036,7 @@ export class GuestView implements GhostSink {
       slot.ring.material.opacity = 0.55 + pulse * 0.35;
       slot.fillDisc.material.opacity = 0.1 + urgency * 0.22;
       const p = slot.group.position;
-      effects.trail(p.x, p.y, p.z, bomb.color, a.big ? 0.46 : 0.26);
+      effects.trail(p.x, p.y, p.z, bomb.color, a.big === true ? 0.46 : 0.26);
       lighting.addLight(p.x, p.y + 0.3, p.z, bomb.color, 2.2 + pulse * 2.5, 4);
 
       if (Math.random() < dt * 40) {

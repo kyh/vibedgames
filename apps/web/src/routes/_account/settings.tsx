@@ -23,7 +23,7 @@ const SettingsPage = () => {
           email={user.email}
           purchase={purchase === "success"}
           onCodeRedeemed={() => {
-            if (code) {
+            if (code !== undefined && code !== "") {
               void navigate({ replace: true, search: (prev) => ({ ...prev, code: undefined }) });
             }
           }}

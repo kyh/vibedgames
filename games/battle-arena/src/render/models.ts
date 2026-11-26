@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { clone as cloneSkinned } from "three/addons/utils/SkeletonUtils.js";
+import { isMesh } from "./mesh";
 
 const loader = new GLTFLoader();
 
@@ -13,8 +14,8 @@ const loadGltf = async (url: string) => {
 };
 
 export class ModelLibrary {
-  private templates = new Map<string, THREE.Object3D>();
-  private clips = new Map<string, THREE.AnimationClip>();
+  private readonly templates = new Map<string, THREE.Object3D>();
+  private readonly clips = new Map<string, THREE.AnimationClip>();
 
   /** Load a character/prop GLB or gltf (no clips). `matte` kills the glossy
    *  KayKit default (roughness ~0.45 + full IBL = plastic sheen); `tint`
@@ -25,7 +26,7 @@ export class ModelLibrary {
     const { scene } = gltf;
     const graded = new Set<THREE.Material>();
     scene.traverse((o) => {
-      if (opts && o instanceof THREE.Mesh) {
+      if (opts && isMesh(o)) {
         const mats = Array.isArray(o.material) ? o.material : [o.material];
 
         for (const m of mats) {
@@ -35,7 +36,7 @@ export class ModelLibrary {
 
           graded.add(m);
 
-          if (opts.matte) {
+          if (opts.matte === true) {
             m.roughness = Math.max(m.roughness, 0.82);
             m.envMapIntensity = 0.35;
           }
@@ -46,7 +47,7 @@ export class ModelLibrary {
         }
       }
 
-      if (o instanceof THREE.Mesh) {
+      if (isMesh(o)) {
         o.castShadow = false;
         o.receiveShadow = true;
         const geo = o.geometry;

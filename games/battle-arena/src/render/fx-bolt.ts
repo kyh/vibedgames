@@ -276,8 +276,8 @@ const WHITE = new THREE.Color(0xff_ff_ff);
 
 /** Pooled lightning bolts. Two draw calls each: a hot core and a wide halo. */
 export class BoltPool {
-  private bolts: Bolt[] = [];
-  private geo = createBoltGeometry();
+  private readonly bolts: Bolt[] = [];
+  private readonly geo = createBoltGeometry();
 
   constructor(scene: THREE.Scene, clock: { value: number }) {
     for (let i = 0; i < POOL; i += 1) {

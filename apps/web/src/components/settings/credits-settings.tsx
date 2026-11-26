@@ -47,11 +47,14 @@ const RedeemCode = ({
 
   const redeem = useMutation(
     orpc.credits.redeem.mutationOptions({
-      onSuccess: (data) => {
-        qc.invalidateQueries({ queryKey: orpc.credits.me.queryKey() });
+      onSuccess: async (data) => {
         toast.success(`Added ${formatUsd(data.creditedMicro)} of credit`);
         onRedeemed();
-        setTimeout(() => setOpen(false), REDEEMED_CLOSE_MS);
+        setTimeout(() => {
+          setOpen(false);
+        }, REDEEMED_CLOSE_MS);
+
+        await qc.invalidateQueries({ queryKey: orpc.credits.me.queryKey() });
       },
     }),
   );
@@ -142,7 +145,9 @@ const VerifyEmailToRedeem = ({ email }: { email: string }) => {
           size="sm"
           className="h-auto px-0 text-xs"
           loading={state === "sending"}
-          onClick={send}
+          onClick={() => {
+            void send();
+          }}
         >
           Send confirmation link
         </Button>
@@ -174,7 +179,9 @@ const BuyCredits = ({ children }: { children: React.ReactNode }) => {
             size="sm"
             disabled={checkout.isPending && checkout.variables?.amountUsd !== amountUsd}
             loading={checkout.isPending && checkout.variables?.amountUsd === amountUsd}
-            onClick={() => checkout.mutate({ amountUsd })}
+            onClick={() => {
+              checkout.mutate({ amountUsd });
+            }}
           >
             ${amountUsd}
           </Button>
@@ -258,17 +265,20 @@ export const CreditsSettings = ({
   }, [purchaseLanded]);
 
   useEffect(() => {
-    if (watchingSince === null) {
-      return;
-    }
+    const timer =
+      watchingSince === null
+        ? undefined
+        : setTimeout(() => {
+            setWatchingSince(null);
+          }, PURCHASE_WATCH_MS);
 
-    const timer = setTimeout(() => setWatchingSince(null), PURCHASE_WATCH_MS);
-
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+    };
   }, [watchingSince]);
 
   useEffect(() => {
-    if (code || purchase) {
+    if ((code !== undefined && code !== "") || purchase) {
       sectionRef.current?.scrollIntoView({ block: "start" });
     }
   }, [code, purchase]);

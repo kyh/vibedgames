@@ -53,7 +53,11 @@ interface SocialProviders {
 }
 
 const configured = (credentials: SocialProviderCredentials | undefined) =>
-  credentials?.clientId && credentials.clientSecret
+  credentials !== undefined &&
+  credentials.clientId !== undefined &&
+  credentials.clientId !== "" &&
+  credentials.clientSecret !== undefined &&
+  credentials.clientSecret !== ""
     ? { clientId: credentials.clientId, clientSecret: credentials.clientSecret }
     : undefined;
 
@@ -94,14 +98,18 @@ export const createAuth = (opts: AuthOptions) => {
       enabled: true,
       revokeSessionsOnPasswordReset: true,
       sendResetPassword: mailer
-        ? ({ user, url }) => mailer({ to: user.email, ...passwordResetEmail(url) })
+        ? async ({ user, url }) => {
+            await mailer({ to: user.email, ...passwordResetEmail(url) });
+          }
         : undefined,
     },
     emailVerification: mailer
       ? {
           autoSignInAfterVerification: true,
           sendOnSignUp: true,
-          sendVerificationEmail: ({ user, url }) => mailer({ to: user.email, ...verifyEmail(url) }),
+          sendVerificationEmail: async ({ user, url }) => {
+            await mailer({ to: user.email, ...verifyEmail(url) });
+          },
         }
       : undefined,
     plugins: [
@@ -170,41 +178,50 @@ const untypedRegistration = z.looseObject({
   redirect_uris: z.array(z.string()).min(1),
 });
 
+const loopbackRegistration = async (request: Request) => {
+  if (request.method !== "POST" || !new URL(request.url).pathname.endsWith("/oauth2/register")) {
+    return null;
+  }
+
+  const registration = untypedRegistration.safeParse(
+    await request
+      .clone()
+      .json()
+      .catch(() => null),
+  );
+
+  if (
+    !registration.success ||
+    !registration.data.redirect_uris.every((uri) => LOOPBACK_REDIRECT.test(uri))
+  ) {
+    return null;
+  }
+
+  return registration.data;
+};
+
+const withoutContentLength = (source: Headers) => {
+  const headers = new Headers(source);
+  headers.delete("content-length");
+
+  return headers;
+};
+
 const nativeLoopbackClients = () =>
   ({
     id: "native-loopback-clients",
     onRequest: async (request: Request) => {
-      if (
-        request.method !== "POST" ||
-        !new URL(request.url).pathname.endsWith("/oauth2/register")
-      ) {
-        return;
-      }
+      const registration = await loopbackRegistration(request);
 
-      const registration = untypedRegistration.safeParse(
-        await request
-          .clone()
-          .json()
-          .catch(() => null),
-      );
-
-      if (
-        !registration.success ||
-        !registration.data.redirect_uris.every((uri) => LOOPBACK_REDIRECT.test(uri))
-      ) {
-        return;
-      }
-
-      const headers = new Headers(request.headers);
-      headers.delete("content-length");
-
-      return {
-        request: new Request(request.url, {
-          body: JSON.stringify({ ...registration.data, application_type: "native" }),
-          headers,
-          method: "POST",
-        }),
-      };
+      return registration === null
+        ? undefined
+        : {
+            request: new Request(request.url, {
+              body: JSON.stringify({ ...registration, application_type: "native" }),
+              headers: withoutContentLength(request.headers),
+              method: "POST",
+            }),
+          };
     },
   }) satisfies BetterAuthPlugin;
 
@@ -273,7 +290,7 @@ const firstPartyCliClient = (apiResource: string) =>
         });
       }
 
-      const bound = await ctx.adapter.findOne({
+      const bound = await ctx.adapter.findOne<{ id: string }>({
         model: "oauthClientResource",
         where: [
           { field: "clientId", value: CLI_OAUTH_CLIENT_ID },

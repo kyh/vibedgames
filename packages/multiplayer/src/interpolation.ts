@@ -153,7 +153,7 @@ export class Interpolator<T> {
     const last = samples.at(-1);
 
     if (last === undefined) {
-      return;
+      return last;
     }
 
     const renderAt = this.renderTime(localNow);

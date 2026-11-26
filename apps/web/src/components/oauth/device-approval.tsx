@@ -39,7 +39,7 @@ const EnterCode = ({ notice }: { notice?: string }) => {
         <h1 className="text-lg font-light">Connect a device</h1>
         <p className="text-muted-foreground text-sm">Enter the code your terminal shows.</p>
       </div>
-      {notice && <p className="text-sm text-red-400">{notice}</p>}
+      {notice !== undefined && notice !== "" && <p className="text-sm text-red-400">{notice}</p>}
       <Input
         aria-label="Device code"
         autoCapitalize="characters"
@@ -48,7 +48,9 @@ const EnterCode = ({ notice }: { notice?: string }) => {
         placeholder="ABCD2345"
         value={code}
         variant="frosted"
-        onChange={(event) => setCode(event.target.value)}
+        onChange={(event) => {
+          setCode(event.target.value);
+        }}
       />
       <Button type="submit" disabled={!code.trim()}>
         Continue

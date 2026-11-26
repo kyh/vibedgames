@@ -10,7 +10,7 @@ const RegisterPage = () => {
       <div className="space-y-6">
         <div className="grid text-center">
           <h1 className="text-lg font-light">Create an account</h1>
-          {invite && (
+          {invite !== undefined && invite !== "" && (
             <p className="text-muted-foreground text-sm">
               Code <span className="text-foreground font-mono">{invite.toUpperCase()}</span> is
               redeemed for credits once you sign up.
