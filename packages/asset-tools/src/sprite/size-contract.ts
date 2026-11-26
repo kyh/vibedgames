@@ -465,8 +465,8 @@ const BRIEF_KEYS: readonly (keyof SizeContract)[] = [
 ];
 
 const copyBriefKey = <K extends keyof SizeContract>(
-  contract: SizeContract,
-  out: SizeContract,
+  contract: Pick<SizeContract, K>,
+  out: Partial<Pick<SizeContract, K>>,
   key: K,
 ) => {
   if (key in contract) {

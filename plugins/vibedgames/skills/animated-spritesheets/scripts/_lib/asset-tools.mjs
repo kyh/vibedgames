@@ -6,7 +6,7 @@
 // src/args.ts
 import { readFileSync } from "node:fs";
 var headerDoc = (entry) => {
-  if (!entry) {
+  if (entry === void 0 || entry === "") {
     return null;
   }
   let source;
@@ -1164,9 +1164,9 @@ var quantize = (pixels, maxColors) => {
 };
 var nearest = (palette, r, g, b) => {
   const key = r * 65536 + g * 256 + b;
-  const cached = palette.lookup.get(key);
-  if (cached !== void 0) {
-    return cached;
+  const cached2 = palette.lookup.get(key);
+  if (cached2 !== void 0) {
+    return cached2;
   }
   let best = 0;
   let bestDist = Infinity;
@@ -1331,12 +1331,1180 @@ var encodeGif = (frames, loop = 0) => {
   return Buffer.concat(parts);
 };
 
+// ../../node_modules/.pnpm/zod@4.6.7/node_modules/zod/v4/core/util.js
+function jsonStringifyReplacer(_, value) {
+  if (typeof value === "bigint")
+    return value.toString();
+  return value;
+}
+function cleanRegex(source) {
+  const start = source.startsWith("^") ? 1 : 0;
+  const end = source.endsWith("$") ? source.length - 1 : source.length;
+  return source.slice(start, end);
+}
+var EVALUATING = /* @__PURE__ */ Symbol("evaluating");
+function defineLazy(object, key, getter) {
+  let value = void 0;
+  Object.defineProperty(object, key, {
+    get() {
+      if (value === EVALUATING) {
+        return void 0;
+      }
+      if (value === void 0) {
+        value = EVALUATING;
+        value = getter();
+      }
+      return value;
+    },
+    set(v) {
+      Object.defineProperty(object, key, {
+        value: v
+        // configurable: true,
+      });
+    },
+    configurable: true
+  });
+}
+var captureStackTrace = "captureStackTrace" in Error ? Error.captureStackTrace : (..._args) => {
+};
+function isObject(data) {
+  return typeof data === "object" && data !== null && !Array.isArray(data);
+}
+function isPlainObject(o) {
+  if (isObject(o) === false)
+    return false;
+  const ctor = o.constructor;
+  if (ctor === void 0)
+    return true;
+  if (typeof ctor !== "function")
+    return true;
+  const prot = ctor.prototype;
+  if (isObject(prot) === false)
+    return false;
+  if (Object.prototype.hasOwnProperty.call(prot, "isPrototypeOf") === false) {
+    return false;
+  }
+  return true;
+}
+function clone(inst, def, params) {
+  const cl = new inst._zod.constr(def ?? inst._zod.def);
+  if (!def || params?.parent)
+    cl._zod.parent = inst;
+  return cl;
+}
+function normalizeParams(_params) {
+  const params = _params;
+  if (!params)
+    return {};
+  if (typeof params === "string")
+    return { error: () => params };
+  if (params?.message !== void 0) {
+    if (params?.error !== void 0)
+      throw new Error("Cannot specify both `message` and `error` params");
+    params.error = params.message;
+  }
+  delete params.message;
+  if (typeof params.error === "string")
+    return { ...params, error: () => params.error };
+  return params;
+}
+function aborted(x, startIndex = 0) {
+  if (x.aborted === true)
+    return true;
+  for (let i = startIndex; i < x.issues.length; i++) {
+    if (x.issues[i]?.continue !== true) {
+      return true;
+    }
+  }
+  return false;
+}
+function explicitlyAborted(x, startIndex = 0) {
+  if (x.aborted === true)
+    return true;
+  for (let i = startIndex; i < x.issues.length; i++) {
+    if (x.issues[i]?.continue === false) {
+      return true;
+    }
+  }
+  return false;
+}
+function prefixIssues(path8, issues) {
+  return issues.map((iss) => {
+    var _a2;
+    (_a2 = iss).path ?? (_a2.path = []);
+    iss.path.unshift(path8);
+    return iss;
+  });
+}
+function unwrapMessage(message) {
+  return typeof message === "string" ? message : message?.message;
+}
+function sizeCaps(defChecks) {
+  const caps = [];
+  for (const ch of defChecks ?? []) {
+    const d = ch._zod.def;
+    if (!/_(length|size)$|_equals$/.test(d.check))
+      break;
+    const max = d.maximum ?? d.length ?? d.size;
+    if (max >= 0)
+      caps.push([max, ch]);
+  }
+  return caps;
+}
+function attachSchema(issues, start, inst) {
+  var _a2;
+  for (let i = start; i < issues.length; i++) {
+    (_a2 = issues[i]).schema ?? (_a2.schema = inst);
+  }
+}
+function finalizeIssue(iss, ctx, config2) {
+  var _a2;
+  const traits = iss.inst?._zod?.traits;
+  if (traits?.has("$ZodType")) {
+    if (traits.has("$ZodCheck"))
+      (_a2 = iss).schema ?? (_a2.schema = iss.inst);
+    else
+      iss.schema = iss.inst;
+  }
+  const schemaError = iss.schema !== iss.inst ? iss.schema?._zod.def?.error : void 0;
+  const message = iss.message ? iss.message : unwrapMessage(iss.inst?._zod.def?.error?.(iss)) ?? unwrapMessage(schemaError?.(iss)) ?? unwrapMessage(ctx?.error?.(iss)) ?? unwrapMessage(config2.customError?.(iss)) ?? unwrapMessage(config2.localeError?.(iss)) ?? "Invalid input";
+  const full = {};
+  for (const k of Object.keys(iss)) {
+    if (k === "inst" || k === "schema" || k === "continue" || k === "input" || k === "__proto__")
+      continue;
+    full[k] = iss[k];
+  }
+  full.path ?? (full.path = []);
+  full.message = message;
+  if (ctx?.reportInput) {
+    full.input = iss.input;
+  }
+  return full;
+}
+function members(proto, table) {
+  for (const key in table) {
+    const desc = Object.getOwnPropertyDescriptor(table, key);
+    if (desc.get)
+      Object.defineProperty(proto, key, { ...desc, enumerable: false });
+    else
+      defineBound(proto, key, desc.value);
+  }
+}
+function own(inst, key, value, enumerable = true) {
+  Object.defineProperty(inst, key, { configurable: true, writable: true, enumerable, value });
+  return value;
+}
+function hide(inst, key, value) {
+  return own(inst, key, value, false);
+}
+function defineBound(proto, key, fn) {
+  Object.defineProperty(proto, key, {
+    configurable: true,
+    get() {
+      return this == null ? fn : own(this, key, fn.bind(this));
+    },
+    set(value) {
+      own(this, key, value);
+    }
+  });
+}
+var installing;
+var broke = false;
+var breaker = {
+  configurable: true,
+  get() {
+    broke = true;
+    return void 0;
+  }
+};
+function defineLazyInternal(inst, key, compute) {
+  const proto = Object.getPrototypeOf(inst._zod);
+  if (key in proto && installing !== inst._zod) {
+    installing = void 0;
+    return;
+  }
+  installing = inst._zod;
+  Object.defineProperty(proto, key, {
+    configurable: true,
+    get() {
+      Object.defineProperty(this, key, breaker);
+      const outer = broke;
+      broke = false;
+      try {
+        const value = compute(this);
+        if (broke)
+          delete this[key];
+        else
+          Object.defineProperty(this, key, { configurable: true, writable: true, value });
+        broke = broke || outer;
+        return value;
+      } catch (err) {
+        delete this[key];
+        broke = broke || outer;
+        throw err;
+      }
+    },
+    set(value) {
+      Object.defineProperty(this, key, { configurable: true, writable: true, value });
+    }
+  });
+}
+
+// ../../node_modules/.pnpm/zod@4.6.7/node_modules/zod/v4/core/core.js
+var _a;
+var _zodDesc = { value: void 0, enumerable: false };
+var _E = "captureStackTrace" in Error ? Error : null;
+function newError(Definition) {
+  const E = _E;
+  if (E) {
+    const saved = E.stackTraceLimit;
+    if (typeof saved === "number") {
+      try {
+        E.stackTraceLimit = 0;
+      } catch {
+        _E = null;
+        return new Definition();
+      }
+      try {
+        return new Definition();
+      } finally {
+        E.stackTraceLimit = saved;
+      }
+    }
+  }
+  return new Definition();
+}
+// @__NO_SIDE_EFFECTS__
+function $constructor(name, initializer2, proto, params) {
+  const zodProto = {};
+  function Internals(def) {
+    this.def = def;
+    this.constr = _;
+    this.traits = /* @__PURE__ */ new Set();
+  }
+  Internals.prototype = zodProto;
+  const protoMembers = proto;
+  const initialized = protoMembers && /* @__PURE__ */ new WeakSet();
+  function init(inst, def) {
+    if (!inst._zod) {
+      _zodDesc.value = new Internals(def);
+      try {
+        Object.defineProperty(inst, "_zod", _zodDesc);
+      } finally {
+        _zodDesc.value = void 0;
+      }
+    } else if (inst._zod.traits.has(name)) {
+      return;
+    }
+    inst._zod.traits.add(name);
+    initializer2(inst, def);
+    if (initialized) {
+      const own2 = Object.getPrototypeOf(inst);
+      const ctorProto = inst._zod.constr.prototype;
+      let up = own2;
+      while (up && up !== ctorProto)
+        up = Object.getPrototypeOf(up);
+      const target = up ?? own2;
+      if (!initialized.has(target)) {
+        initialized.add(target);
+        members(target, protoMembers);
+      }
+    }
+    const proto2 = _.prototype;
+    for (const k in proto2) {
+      if (!Object.prototype.hasOwnProperty.call(proto2, k))
+        continue;
+      if (!(k in inst)) {
+        inst[k] = proto2[k].bind(inst);
+      }
+    }
+  }
+  const Parent = params?.Parent ?? Object;
+  class Definition extends Parent {
+  }
+  Object.defineProperty(Definition, "name", { value: name });
+  function _(def) {
+    const inst = params?.Parent ? newError(Definition) : this;
+    init(inst, def);
+    const deferred = inst._zod.deferred;
+    if (deferred) {
+      for (const fn of deferred) {
+        fn();
+      }
+      inst._zod.deferred = void 0;
+    }
+    const pp = globalThis.__zod_globalConfig?.postProcessor;
+    if (pp)
+      pp(inst);
+    return inst;
+  }
+  Object.defineProperty(_, "init", { value: init });
+  Object.defineProperty(_, Symbol.hasInstance, {
+    value: (inst) => {
+      if (params?.Parent && inst instanceof params.Parent)
+        return true;
+      return inst?._zod?.traits?.has(name);
+    }
+  });
+  Object.defineProperty(_, "name", { value: name });
+  return _;
+}
+var $ZodAsyncError = class extends Error {
+  constructor() {
+    super(`Encountered Promise during synchronous parse. Use .parseAsync() instead.`);
+  }
+};
+(_a = globalThis).__zod_globalConfig ?? (_a.__zod_globalConfig = {});
+var globalConfig = globalThis.__zod_globalConfig;
+function config(newConfig) {
+  if (newConfig)
+    Object.assign(globalConfig, newConfig);
+  return globalConfig;
+}
+
+// ../../node_modules/.pnpm/zod@4.6.7/node_modules/zod/v4/core/errors.js
+function _getMessage() {
+  const internals = this._zod;
+  internals.message ?? (internals.message = JSON.stringify(internals.def, jsonStringifyReplacer, 2));
+  return internals.message;
+}
+function _setMessage(value) {
+  this._zod.message = value;
+}
+var _messageDesc = {
+  get: _getMessage,
+  set: _setMessage,
+  enumerable: true,
+  configurable: true
+};
+var _issuesDesc = { value: void 0, enumerable: false };
+var _installedToString = /* @__PURE__ */ new WeakSet([Object.prototype, Error.prototype]);
+var initializer = (inst, def) => {
+  inst.name = "$ZodError";
+  _issuesDesc.value = def;
+  Object.defineProperty(inst, "issues", _issuesDesc);
+  _issuesDesc.value = void 0;
+  Object.defineProperty(inst, "message", _messageDesc);
+  const proto = Object.getPrototypeOf(inst);
+  if (!_installedToString.has(proto)) {
+    _installedToString.add(proto);
+    Object.defineProperty(proto, "toString", {
+      configurable: true,
+      enumerable: false,
+      get() {
+        const value = () => this.message;
+        Object.defineProperty(this, "toString", { value, configurable: true, writable: true });
+        return value;
+      },
+      set(value) {
+        Object.defineProperty(this, "toString", { value, configurable: true, writable: true });
+      }
+    });
+  }
+};
+var $ZodError = $constructor("$ZodError", initializer);
+var $ZodRealError = $constructor("$ZodError", initializer, void 0, {
+  Parent: Error
+});
+
+// ../../node_modules/.pnpm/zod@4.6.7/node_modules/zod/v4/core/parse.js
+var _parse = (_Err) => {
+  const fn = (schema, value, _ctx, _params) => {
+    const ctx = _ctx ? { ..._ctx, async: false } : { async: false };
+    const result = schema._zod.run({ value, issues: [] }, ctx);
+    if (result instanceof Promise) {
+      throw new $ZodAsyncError();
+    }
+    if (result.issues.length) {
+      const e = new (_params?.Err ?? _Err)(result.issues.map((iss) => finalizeIssue(iss, ctx, config())));
+      captureStackTrace(e, _params?.callee ?? fn);
+      throw e;
+    }
+    return result.value;
+  };
+  return fn;
+};
+var parse = /* @__PURE__ */ _parse($ZodRealError);
+var _parseAsync = (_Err) => {
+  const fn = async (schema, value, _ctx, params) => {
+    const ctx = _ctx ? { ..._ctx, async: true } : { async: true };
+    let result = schema._zod.run({ value, issues: [] }, ctx);
+    if (result instanceof Promise)
+      result = await result;
+    if (result.issues.length) {
+      const e = new (params?.Err ?? _Err)(result.issues.map((iss) => finalizeIssue(iss, ctx, config())));
+      captureStackTrace(e, params?.callee ?? fn);
+      throw e;
+    }
+    return result.value;
+  };
+  return fn;
+};
+var parseAsync = /* @__PURE__ */ _parseAsync($ZodRealError);
+var _safeParse = (_Err) => (schema, value, _ctx) => {
+  const ctx = _ctx ? { ..._ctx, async: false } : { async: false };
+  const result = schema._zod.run({ value, issues: [] }, ctx);
+  if (result instanceof Promise) {
+    throw new $ZodAsyncError();
+  }
+  return result.issues.length ? failure(_Err, result.issues, ctx) : { success: true, data: result.value };
+};
+var safeParse = /* @__PURE__ */ _safeParse($ZodRealError);
+function failure(Err, issues, ctx) {
+  let error;
+  return {
+    success: false,
+    get error() {
+      if (!error) {
+        error = new Err(issues.map((iss) => finalizeIssue(iss, ctx, config())));
+        issues = void 0;
+        ctx = void 0;
+      }
+      return error;
+    },
+    set error(e) {
+      error = e;
+      issues = void 0;
+      ctx = void 0;
+    }
+  };
+}
+var _safeParseAsync = (_Err) => async (schema, value, _ctx) => {
+  const ctx = _ctx ? { ..._ctx, async: true } : { async: true };
+  let result = schema._zod.run({ value, issues: [] }, ctx);
+  if (result instanceof Promise)
+    result = await result;
+  return result.issues.length ? failure(_Err, result.issues, ctx) : { success: true, data: result.value };
+};
+var safeParseAsync = /* @__PURE__ */ _safeParseAsync($ZodRealError);
+
+// ../../node_modules/.pnpm/zod@4.6.7/node_modules/zod/v4/core/regexes.js
+var anyString = /^[\s\S]{0,}$/;
+var number = /^-?\d+(?:\.\d+)?$/;
+var boolean = /^(?:true|false)$/i;
+var _null = /^null$/i;
+
+// ../../node_modules/.pnpm/zod@4.6.7/node_modules/zod/v4/core/versions.js
+var version = {
+  major: 4,
+  minor: 6,
+  patch: 7
+};
+
+// ../../node_modules/.pnpm/zod@4.6.7/node_modules/zod/v4/core/schemas.js
+var $ZodType = /* @__PURE__ */ $constructor("$ZodType", (inst, def) => {
+  var _a2;
+  inst ?? (inst = {});
+  inst._zod.def = def;
+  inst._zod.bag = inst._zod.bag || {};
+  inst._zod.version = version;
+  const defChecks = inst._zod.def.checks;
+  const checks = inst._zod.traits.has("$ZodCheck") ? [inst, ...defChecks ?? []] : defChecks?.length ? [...defChecks] : [];
+  for (const ch of checks) {
+    for (const fn of ch._zod.onattach) {
+      fn(inst);
+    }
+  }
+  if (checks.length === 0) {
+    (_a2 = inst._zod).deferred ?? (_a2.deferred = []);
+    inst._zod.deferred?.push(() => {
+      inst._zod.run = inst._zod.parse;
+    });
+  } else {
+    const runChecks = (payload, checks2, ctx) => {
+      if (payload.memo)
+        return payload;
+      let isAborted = aborted(payload);
+      let asyncResult;
+      for (const ch of checks2) {
+        if (ch._zod.def.when) {
+          if (explicitlyAborted(payload))
+            continue;
+          const shouldRun = ch._zod.def.when(payload);
+          if (!shouldRun)
+            continue;
+        } else if (isAborted) {
+          continue;
+        }
+        const currLen = payload.issues.length;
+        const _ = ch._zod.check(payload);
+        if (_ instanceof Promise && ctx?.async === false) {
+          throw new $ZodAsyncError();
+        }
+        if (asyncResult || _ instanceof Promise) {
+          asyncResult = (asyncResult ?? Promise.resolve()).then(async () => {
+            await _;
+            const nextLen = payload.issues.length;
+            if (nextLen === currLen)
+              return;
+            attachSchema(payload.issues, currLen, inst);
+            if (!isAborted)
+              isAborted = aborted(payload, currLen);
+          });
+        } else {
+          const nextLen = payload.issues.length;
+          if (nextLen === currLen)
+            continue;
+          attachSchema(payload.issues, currLen, inst);
+          if (!isAborted)
+            isAborted = aborted(payload, currLen);
+        }
+      }
+      if (asyncResult) {
+        return asyncResult.then(() => {
+          return payload;
+        });
+      }
+      return payload;
+    };
+    const handleCanaryResult = (canary, payload, ctx) => {
+      if (aborted(canary)) {
+        canary.aborted = true;
+        return canary;
+      }
+      const checkResult = runChecks(payload, checks, ctx);
+      if (checkResult instanceof Promise) {
+        if (ctx.async === false)
+          throw new $ZodAsyncError();
+        return checkResult.then((checkResult2) => inst._zod.parse(checkResult2, ctx));
+      }
+      return inst._zod.parse(checkResult, ctx);
+    };
+    inst._zod.run = (payload, ctx) => {
+      if (ctx.skipChecks) {
+        return inst._zod.parse(payload, ctx);
+      }
+      if (ctx.direction === "backward") {
+        const canary = inst._zod.parse({ value: payload.value, issues: [] }, { ...ctx, skipChecks: true });
+        if (canary instanceof Promise) {
+          return canary.then((canary2) => {
+            return handleCanaryResult(canary2, payload, ctx);
+          });
+        }
+        return handleCanaryResult(canary, payload, ctx);
+      }
+      const result = inst._zod.parse(payload, ctx);
+      if (result instanceof Promise) {
+        if (ctx.async === false)
+          throw new $ZodAsyncError();
+        return result.then((result2) => runChecks(result2, checks, ctx));
+      }
+      return runChecks(result, checks, ctx);
+    };
+  }
+}, {
+  // Wrappers extend this by installing a richer factory over it; reading it eagerly would defeat the laziness.
+  get "~standard"() {
+    return hide(this, "~standard", standardProps(this));
+  },
+  set "~standard"(value) {
+    own(this, "~standard", value);
+  }
+});
+var toStandardResult = (r, ctx) => r.issues.length ? { issues: r.issues.map((iss) => finalizeIssue(iss, ctx, config())) } : { value: r.value };
+async function validateAsync(inst, value) {
+  const ctx = { async: true };
+  return toStandardResult(await inst._zod.run({ value, issues: [] }, ctx), ctx);
+}
+function standardProps(inst) {
+  return {
+    validate: (value) => {
+      const ctx = { async: false };
+      try {
+        const r = inst._zod.run({ value, issues: [] }, ctx);
+        if (!(r instanceof Promise))
+          return toStandardResult(r, ctx);
+      } catch (_) {
+      }
+      return validateAsync(inst, value);
+    },
+    vendor: "zod",
+    version: 1
+  };
+}
+var $ZodString = /* @__PURE__ */ $constructor("$ZodString", (inst, def) => {
+  $ZodType.init(inst, def);
+  inst._zod.pattern = def.pattern ?? anyString;
+  inst._zod.parse = (payload, _) => {
+    if (def.coerce)
+      try {
+        payload.value = String(payload.value);
+      } catch (_2) {
+      }
+    if (typeof payload.value === "string")
+      return payload;
+    payload.issues.push({
+      expected: "string",
+      code: "invalid_type",
+      input: payload.value,
+      inst
+    });
+    return payload;
+  };
+});
+var $ZodNumber = /* @__PURE__ */ $constructor("$ZodNumber", (inst, def) => {
+  $ZodType.init(inst, def);
+  inst._zod.pattern = number;
+  inst._zod.parse = (payload, _ctx) => {
+    if (def.coerce)
+      try {
+        payload.value = Number(payload.value);
+      } catch (_) {
+      }
+    const input = payload.value;
+    if (typeof input === "number" && !Number.isNaN(input) && Number.isFinite(input)) {
+      return payload;
+    }
+    const received = typeof input === "number" ? Number.isNaN(input) ? "NaN" : !Number.isFinite(input) ? String(input) : void 0 : void 0;
+    payload.issues.push({
+      expected: "number",
+      code: "invalid_type",
+      input,
+      inst,
+      ...received ? { received } : {}
+    });
+    return payload;
+  };
+});
+var $ZodBoolean = /* @__PURE__ */ $constructor("$ZodBoolean", (inst, def) => {
+  $ZodType.init(inst, def);
+  inst._zod.pattern = boolean;
+  inst._zod.parse = (payload, _ctx) => {
+    if (def.coerce)
+      try {
+        payload.value = Boolean(payload.value);
+      } catch (_) {
+      }
+    const input = payload.value;
+    if (typeof input === "boolean")
+      return payload;
+    payload.issues.push({
+      expected: "boolean",
+      code: "invalid_type",
+      input,
+      inst
+    });
+    return payload;
+  };
+});
+var $ZodNull = /* @__PURE__ */ $constructor("$ZodNull", (inst, def) => {
+  $ZodType.init(inst, def);
+  inst._zod.pattern = _null;
+  inst._zod.values = /* @__PURE__ */ new Set([null]);
+  inst._zod.parse = (payload, _ctx) => {
+    const input = payload.value;
+    if (input === null)
+      return payload;
+    payload.issues.push({
+      expected: "null",
+      code: "invalid_type",
+      input,
+      inst
+    });
+    return payload;
+  };
+});
+function capSize(inst, size) {
+  const caps = sizeCaps(inst._zod.def.checks);
+  if (!caps.length)
+    return;
+  const cap = Math.min(...caps.map((c) => c[0]));
+  const parse2 = inst._zod.parse;
+  inst._zod.parse = (payload, ctx) => {
+    const n = size(payload.value);
+    if (n > cap && !ctx?.skipChecks && ctx?.direction !== "backward") {
+      for (const [max, ch] of sizeCaps(inst._zod.def.checks)) {
+        if (n > max && ch._zod.def.when(payload)) {
+          const start = payload.issues.length;
+          ch._zod.check(payload);
+          payload.issues[start].continue = false;
+          attachSchema(payload.issues, start, inst);
+          return payload;
+        }
+      }
+    }
+    return parse2(payload, ctx);
+  };
+}
+var arraySize = (input) => Array.isArray(input) ? input.length : -1;
+function handleArrayResult(result, final, index) {
+  if (result.issues.length) {
+    final.issues.push(...prefixIssues(index, result.issues));
+  }
+  final.value[index] = result.value;
+}
+var $ZodArray = /* @__PURE__ */ $constructor("$ZodArray", (inst, def) => {
+  $ZodType.init(inst, def);
+  const memo = globalConfig.memoizer;
+  memo?.attach(inst);
+  inst._zod.parse = (payload, ctx) => {
+    const input = payload.value;
+    if (!Array.isArray(input)) {
+      payload.issues.push({
+        expected: "array",
+        code: "invalid_type",
+        input,
+        inst
+      });
+      return payload;
+    }
+    payload.value = memo ? memo.alloc(inst, payload, Array(input.length), ctx) : Array(input.length);
+    const proms = [];
+    const abortEarly = ctx?.abortEarly;
+    for (let i = 0; i < input.length; i++) {
+      const item = input[i];
+      const result = def.element._zod.run({
+        value: item,
+        issues: []
+      }, ctx);
+      if (result instanceof Promise) {
+        proms.push(result.then((result2) => handleArrayResult(result2, payload, i)));
+      } else {
+        handleArrayResult(result, payload, i);
+        if (abortEarly && result.issues.length !== 0 && aborted(result))
+          break;
+      }
+    }
+    if (proms.length) {
+      return Promise.all(proms).then(() => payload);
+    }
+    return payload;
+  };
+  capSize(inst, arraySize);
+});
+function handleUnionResults(results, final, inst, ctx) {
+  for (const result of results) {
+    if (result.issues.length === 0) {
+      final.value = result.value;
+      return final;
+    }
+  }
+  const nonaborted = results.filter((r) => !aborted(r));
+  if (nonaborted.length === 1) {
+    final.value = nonaborted[0].value;
+    return nonaborted[0];
+  }
+  final.issues.push({
+    code: "invalid_union",
+    input: final.value,
+    inst,
+    errors: results.map((result) => result.issues.map((iss) => finalizeIssue(iss, ctx, config())))
+  });
+  return final;
+}
+var $ZodUnion = /* @__PURE__ */ $constructor("$ZodUnion", (inst, def) => {
+  $ZodType.init(inst, def);
+  defineLazyInternal(inst, "optin", (zod) => zod.def.options.some((o) => o._zod.optin === "defaulted") ? "defaulted" : zod.def.options.some((o) => o._zod.optin !== void 0) ? "optional" : void 0);
+  defineLazyInternal(inst, "optout", (zod) => zod.def.options.some((o) => o._zod.optout === "optional") ? "optional" : void 0);
+  defineLazyInternal(inst, "values", (zod) => {
+    if (zod.def.options.every((o) => o._zod.values)) {
+      return new Set(zod.def.options.flatMap((option) => Array.from(option._zod.values)));
+    }
+    return void 0;
+  });
+  defineLazyInternal(inst, "pattern", (zod) => {
+    if (zod.def.options.every((o) => o._zod.pattern)) {
+      const patterns = zod.def.options.map((o) => o._zod.pattern);
+      return new RegExp(`^(${patterns.map((p) => cleanRegex(p.source)).join("|")})$`);
+    }
+    return void 0;
+  });
+  const first = def.options.length === 1 ? def.options[0]._zod.run : null;
+  inst._zod.parse = (payload, ctx) => {
+    if (first) {
+      return first(payload, ctx);
+    }
+    let async = false;
+    const results = [];
+    for (const option of def.options) {
+      const result = option._zod.run({
+        value: payload.value,
+        issues: []
+      }, ctx);
+      if (result instanceof Promise) {
+        results.push(result);
+        async = true;
+      } else {
+        if (result.issues.length === 0)
+          return result;
+        results.push(result);
+      }
+    }
+    if (!async)
+      return handleUnionResults(results, payload, inst, ctx);
+    return Promise.all(results).then((results2) => {
+      return handleUnionResults(results2, payload, inst, ctx);
+    });
+  };
+});
+var $ZodRecord = /* @__PURE__ */ $constructor("$ZodRecord", (inst, def) => {
+  $ZodType.init(inst, def);
+  const memo = globalConfig.memoizer;
+  memo?.attach(inst);
+  inst._zod.parse = (payload, ctx) => {
+    const input = payload.value;
+    if (!isPlainObject(input)) {
+      payload.issues.push({
+        expected: "record",
+        code: "invalid_type",
+        input,
+        inst
+      });
+      return payload;
+    }
+    const proms = [];
+    const values = def.keyType._zod.values;
+    if (values && !def.partial) {
+      payload.value = memo ? memo.alloc(inst, payload, {}, ctx) : {};
+      const recordKeys = /* @__PURE__ */ new Set();
+      for (const key of values) {
+        if (typeof key === "string" || typeof key === "number" || typeof key === "symbol") {
+          recordKeys.add(typeof key === "number" ? key.toString() : key);
+          if (key === "__proto__")
+            continue;
+          const keyResult = def.keyType._zod.run({ value: key, issues: [] }, ctx);
+          if (keyResult instanceof Promise) {
+            throw new Error("Async schemas not supported in object keys currently");
+          }
+          if (keyResult.issues.length) {
+            payload.issues.push({
+              code: "invalid_key",
+              origin: "record",
+              issues: keyResult.issues.map((iss) => finalizeIssue(iss, ctx, config())),
+              input: key,
+              path: [key],
+              inst
+            });
+            continue;
+          }
+          const outKey = keyResult.value;
+          if (outKey === "__proto__")
+            continue;
+          const result = def.valueType._zod.run({ value: input[key], issues: [] }, ctx);
+          if (result instanceof Promise) {
+            proms.push(result.then((result2) => {
+              if (result2.issues.length) {
+                payload.issues.push(...prefixIssues(key, result2.issues));
+              }
+              payload.value[outKey] = result2.value;
+            }));
+          } else {
+            if (result.issues.length) {
+              payload.issues.push(...prefixIssues(key, result.issues));
+            }
+            payload.value[outKey] = result.value;
+          }
+        }
+      }
+      let unrecognized;
+      for (const key in input) {
+        if (!recordKeys.has(key)) {
+          if (def.mode === "loose") {
+            if (key === "__proto__")
+              continue;
+            payload.value[key] = input[key];
+          } else {
+            unrecognized = unrecognized ?? [];
+            unrecognized.push(key);
+          }
+        }
+      }
+      if (unrecognized && unrecognized.length > 0) {
+        payload.issues.push({
+          code: "unrecognized_keys",
+          input,
+          inst,
+          keys: unrecognized,
+          continue: true
+        });
+      }
+    } else {
+      payload.value = memo ? memo.alloc(inst, payload, {}, ctx) : {};
+      let unrecognized;
+      for (const key of Reflect.ownKeys(input)) {
+        if (key === "__proto__")
+          continue;
+        if (!Object.prototype.propertyIsEnumerable.call(input, key))
+          continue;
+        let keyResult = def.keyType._zod.run({ value: key, issues: [] }, ctx);
+        if (keyResult instanceof Promise) {
+          throw new Error("Async schemas not supported in object keys currently");
+        }
+        const checkNumericKey = typeof key === "string" && number.test(key) && keyResult.issues.length;
+        if (checkNumericKey) {
+          const retryResult = def.keyType._zod.run({ value: Number(key), issues: [] }, ctx);
+          if (retryResult instanceof Promise) {
+            throw new Error("Async schemas not supported in object keys currently");
+          }
+          if (retryResult.issues.length === 0) {
+            keyResult = retryResult;
+          }
+        }
+        if (keyResult.issues.length) {
+          if (def.mode === "loose") {
+            payload.value[key] = input[key];
+          } else if (values) {
+            unrecognized = unrecognized ?? [];
+            unrecognized.push(key);
+          } else {
+            payload.issues.push({
+              code: "invalid_key",
+              origin: "record",
+              issues: keyResult.issues.map((iss) => finalizeIssue(iss, ctx, config())),
+              input: key,
+              path: [key],
+              inst
+            });
+          }
+          continue;
+        }
+        const outKey = keyResult.value;
+        if (outKey === "__proto__")
+          continue;
+        const result = def.valueType._zod.run({ value: input[key], issues: [] }, ctx);
+        if (result instanceof Promise) {
+          proms.push(result.then((result2) => {
+            if (result2.issues.length) {
+              payload.issues.push(...prefixIssues(key, result2.issues));
+            }
+            payload.value[outKey] = result2.value;
+          }));
+        } else {
+          if (result.issues.length) {
+            payload.issues.push(...prefixIssues(key, result.issues));
+          }
+          payload.value[outKey] = result.value;
+        }
+      }
+      if (unrecognized && unrecognized.length > 0) {
+        payload.issues.push({
+          code: "unrecognized_keys",
+          input,
+          inst,
+          keys: unrecognized,
+          continue: true
+        });
+      }
+    }
+    if (proms.length) {
+      return Promise.all(proms).then(() => payload);
+    }
+    return payload;
+  };
+});
+var $ZodLazy = /* @__PURE__ */ $constructor("$ZodLazy", (inst, def) => {
+  $ZodType.init(inst, def);
+  defineLazy(inst._zod, "innerType", () => {
+    const d = def;
+    if (!d._cachedInner)
+      d._cachedInner = def.getter();
+    return d._cachedInner;
+  });
+  defineLazyInternal(inst, "pattern", (zod) => zod.innerType?._zod?.pattern);
+  defineLazyInternal(inst, "propValues", (zod) => zod.innerType?._zod?.propValues);
+  defineLazyInternal(inst, "optin", (zod) => zod.innerType?._zod?.optin ?? void 0);
+  defineLazyInternal(inst, "optout", (zod) => zod.innerType?._zod?.optout ?? void 0);
+  inst._zod.parse = (payload, ctx) => {
+    const inner = inst._zod.innerType;
+    return inner._zod.run(payload, ctx);
+  };
+});
+
+// ../../node_modules/.pnpm/zod@4.6.7/node_modules/zod/v4/core/api.js
+function snapshotChecks(def) {
+  if (def.checks)
+    def.checks = [...def.checks];
+  return def;
+}
+// @__NO_SIDE_EFFECTS__
+function _string(Class, params) {
+  return new Class(snapshotChecks({ type: "string", ...normalizeParams(params) }));
+}
+// @__NO_SIDE_EFFECTS__
+function _number(Class, params) {
+  return new Class(snapshotChecks({ type: "number", checks: [], ...normalizeParams(params) }));
+}
+// @__NO_SIDE_EFFECTS__
+function _boolean(Class, params) {
+  return new Class({
+    type: "boolean",
+    ...normalizeParams(params)
+  });
+}
+// @__NO_SIDE_EFFECTS__
+function _null2(Class, params) {
+  return new Class({
+    type: "null",
+    ...normalizeParams(params)
+  });
+}
+
+// ../../node_modules/.pnpm/zod@4.6.7/node_modules/zod/v4/mini/schemas.js
+var ZodMiniType = /* @__PURE__ */ $constructor("ZodMiniType", (inst, def) => {
+  if (!inst._zod)
+    throw new Error("Uninitialized schema in ZodMiniType.");
+  $ZodType.init(inst, def);
+  inst.def = def;
+  inst.type = def.type;
+}, {
+  // `with` is an alias for `check`: the same function object, not a wrapper.
+  get with() {
+    return this.check;
+  },
+  set with(value) {
+    own(this, "with", value);
+  },
+  parse(data, params) {
+    return parse(this, data, params, { callee: this.parse });
+  },
+  parseAsync(data, params) {
+    return parseAsync(this, data, params, { callee: this.parseAsync });
+  },
+  safeParse(data, params) {
+    return safeParse(this, data, params);
+  },
+  safeParseAsync(data, params) {
+    return safeParseAsync(this, data, params);
+  },
+  check(...checks) {
+    const def = this.def;
+    return this.clone({
+      ...def,
+      checks: [
+        ...def.checks ?? [],
+        ...checks.map((ch) => typeof ch === "function" ? { _zod: { check: ch, def: { check: "custom" }, onattach: [] } } : ch)
+      ]
+    }, { parent: true });
+  },
+  clone(_def, params) {
+    return clone(this, _def, params);
+  },
+  brand() {
+    return this;
+  },
+  register(reg, meta2) {
+    reg.add(this, meta2);
+    return this;
+  },
+  apply(fn, ...args) {
+    return args.length === 0 ? fn(this) : fn(this, ...args);
+  }
+});
+var ZodMiniString = /* @__PURE__ */ $constructor("ZodMiniString", (inst, def) => {
+  $ZodString.init(inst, def);
+  ZodMiniType.init(inst, def);
+});
+// @__NO_SIDE_EFFECTS__
+function string2(params) {
+  return _string(ZodMiniString, params);
+}
+var ZodMiniNumber = /* @__PURE__ */ $constructor("ZodMiniNumber", (inst, def) => {
+  $ZodNumber.init(inst, def);
+  ZodMiniType.init(inst, def);
+});
+// @__NO_SIDE_EFFECTS__
+function number2(params) {
+  return _number(ZodMiniNumber, params);
+}
+var ZodMiniBoolean = /* @__PURE__ */ $constructor("ZodMiniBoolean", (inst, def) => {
+  $ZodBoolean.init(inst, def);
+  ZodMiniType.init(inst, def);
+});
+// @__NO_SIDE_EFFECTS__
+function boolean2(params) {
+  return _boolean(ZodMiniBoolean, params);
+}
+var ZodMiniNull = /* @__PURE__ */ $constructor("ZodMiniNull", (inst, def) => {
+  $ZodNull.init(inst, def);
+  ZodMiniType.init(inst, def);
+});
+// @__NO_SIDE_EFFECTS__
+function _null3(params) {
+  return _null2(ZodMiniNull, params);
+}
+var ZodMiniArray = /* @__PURE__ */ $constructor("ZodMiniArray", (inst, def) => {
+  $ZodArray.init(inst, def);
+  ZodMiniType.init(inst, def);
+});
+// @__NO_SIDE_EFFECTS__
+function array(element, params) {
+  return new ZodMiniArray({
+    type: "array",
+    element,
+    ...normalizeParams(params)
+  });
+}
+var ZodMiniUnion = /* @__PURE__ */ $constructor("ZodMiniUnion", (inst, def) => {
+  $ZodUnion.init(inst, def);
+  ZodMiniType.init(inst, def);
+});
+// @__NO_SIDE_EFFECTS__
+function union(options, params) {
+  return new ZodMiniUnion({
+    type: "union",
+    options,
+    ...normalizeParams(params)
+  });
+}
+var ZodMiniRecord = /* @__PURE__ */ $constructor("ZodMiniRecord", (inst, def) => {
+  $ZodRecord.init(inst, def);
+  ZodMiniType.init(inst, def);
+});
+// @__NO_SIDE_EFFECTS__
+function record(keyType, valueType, params) {
+  if (!valueType || !valueType._zod) {
+    return new ZodMiniRecord({
+      type: "record",
+      keyType: /* @__PURE__ */ string2(),
+      valueType: keyType,
+      ...normalizeParams(valueType)
+    });
+  }
+  return new ZodMiniRecord({
+    type: "record",
+    keyType,
+    valueType,
+    ...normalizeParams(params)
+  });
+}
+var ZodMiniLazy = /* @__PURE__ */ $constructor("ZodMiniLazy", (inst, def) => {
+  $ZodLazy.init(inst, def);
+  ZodMiniType.init(inst, def);
+});
+// @__NO_SIDE_EFFECTS__
+function _lazy(getter) {
+  return new ZodMiniLazy({
+    type: "lazy",
+    getter
+  });
+}
+// @__NO_SIDE_EFFECTS__
+function json() {
+  const jsonSchema = /* @__PURE__ */ _lazy(() => {
+    return /* @__PURE__ */ union([/* @__PURE__ */ string2(), /* @__PURE__ */ number2(), /* @__PURE__ */ boolean2(), /* @__PURE__ */ _null3(), /* @__PURE__ */ array(jsonSchema), /* @__PURE__ */ record(/* @__PURE__ */ string2(), jsonSchema)]);
+  });
+  return jsonSchema;
+}
+
+// src/asset/json.ts
+var parseJsonText = (text) => {
+  const value = json().parse(JSON.parse(text));
+  return value;
+};
+
 // src/asset/paths.ts
 import { existsSync, mkdirSync as mkdirSync2, readdirSync, statSync, writeFileSync as writeFileSync2 } from "node:fs";
 import path2 from "node:path";
+var utf16UnitsOf = (codePoint) => {
+  if (codePoint <= 65535) {
+    return [codePoint];
+  }
+  const offset = codePoint - 65536;
+  return [55296 + Math.floor(offset / 1024), 56320 + offset % 1024];
+};
 var toPythonJson = (payload) => JSON.stringify(payload, null, 2).replaceAll(
   /[\u007F-\u{10FFFF}]/gu,
-  (ch) => [...ch].map((unit) => `\\u${(unit.codePointAt(0) ?? 0).toString(16).padStart(4, "0")}`).join("")
+  (ch) => utf16UnitsOf(ch.codePointAt(0) ?? 0).map((unit) => `\\u${unit.toString(16).padStart(4, "0")}`).join("")
 );
 var writeJsonFile = (target, payload) => {
   mkdirSync2(path2.dirname(path2.resolve(target)), { recursive: true });
@@ -1445,7 +2613,7 @@ var backgroundReachable = (width, height, isFloodable) => {
   let tail = 0;
   const enqueue = (x, y) => {
     const index = y * width + x;
-    if (reachable[index] || !isFloodable(index)) {
+    if ((reachable[index] ?? 0) !== 0 || !isFloodable(index)) {
       return;
     }
     reachable[index] = 1;
@@ -1486,7 +2654,7 @@ var hasBackgroundNeighbor = (reachable, x, y, width, height, radius) => {
       if (nx === x && ny === y) {
         continue;
       }
-      if (reachable[ny * width + nx]) {
+      if ((reachable[ny * width + nx] ?? 0) !== 0) {
         return true;
       }
     }
@@ -1502,7 +2670,7 @@ var keepLargestComponents = (image, minArea) => {
   let tail = 0;
   const visit = (nx, ny) => {
     const n = ny * width + nx;
-    if (seen[n] || image.data[n * 4 + 3] === 0) {
+    if ((seen[n] ?? 0) !== 0 || image.data[n * 4 + 3] === 0) {
       return;
     }
     seen[n] = 1;
@@ -1512,7 +2680,7 @@ var keepLargestComponents = (image, minArea) => {
   for (let startY = 0; startY < height; startY += 1) {
     for (let startX = 0; startX < width; startX += 1) {
       const start = startY * width + startX;
-      if (seen[start] || image.data[start * 4 + 3] === 0) {
+      if ((seen[start] ?? 0) !== 0 || image.data[start * 4 + 3] === 0) {
         continue;
       }
       head = 0;
@@ -1581,7 +2749,7 @@ var keyMatte = (image, options) => {
   for (let index = 0; index < candidate.length; index += 1) {
     const p = index * 4;
     const alpha = image.data[p + 3] ?? 0;
-    if (reachable[index]) {
+    if ((reachable[index] ?? 0) !== 0) {
       if (alpha !== 0) {
         removed += 1;
       }
@@ -1667,7 +2835,7 @@ var nearTransparentMask = (image, radius) => {
     const grown = Uint8Array.from(near);
     for (let y = 0; y < height; y += 1) {
       for (let x = 0; x < width; x += 1) {
-        if (!near[y * width + x]) {
+        if ((near[y * width + x] ?? 0) === 0) {
           continue;
         }
         if (y + 1 < height) {
@@ -1700,7 +2868,7 @@ var despillChroma = (image, options) => {
     if (image.data[p + 3] === 0) {
       continue;
     }
-    if (near && !near[index]) {
+    if (near && (near[index] ?? 0) === 0) {
       continue;
     }
     const high = Math.max(...suppressed.map((i) => image.data[p + i] ?? 0));
@@ -1821,7 +2989,7 @@ var normalizeCanvas = (inputDir, outDir, options = {}) => {
 
 // src/sprite/json.ts
 var isFiniteNumber = (value) => Number.isFinite(value);
-var isString = (value) => String(value) === value;
+var isString = (value) => Object.prototype.toString.call(value) === "[object String]";
 var isJsonObject2 = (value) => Object(value) === value && !Array.isArray(value);
 var isJsonComposite = (value) => Object(value) === value;
 var lookup = (table, key) => table[key];
@@ -2028,7 +3196,7 @@ var findComponents = (image, background, threshold) => {
   let head = 0;
   let tail = 0;
   const visit = (n) => {
-    if (seen[n] || !mask[n]) {
+    if ((seen[n] ?? 0) !== 0 || (mask[n] ?? 0) === 0) {
       return;
     }
     seen[n] = 1;
@@ -2038,7 +3206,7 @@ var findComponents = (image, background, threshold) => {
   for (let startY = 0; startY < height; startY += 1) {
     for (let startX = 0; startX < width; startX += 1) {
       const start = startY * width + startX;
-      if (seen[start] || !mask[start]) {
+      if ((seen[start] ?? 0) !== 0 || (mask[start] ?? 0) === 0) {
         continue;
       }
       head = 0;
@@ -2117,14 +3285,14 @@ var recoverFrames = (sheetPath, options) => {
       assigned[index] = component;
     }
   }
-  const required = frames === null ? wanted : Math.min(frames, wanted);
-  const missing = assigned.slice(0, required).flatMap((item, i) => item === null ? [i + 1] : []);
+  const required2 = frames === null ? wanted : Math.min(frames, wanted);
+  const missing = assigned.slice(0, required2).flatMap((item, i) => item === null ? [i + 1] : []);
   if (missing.length > 0) {
     throw new Error(
-      `Recovery found ${components.length} distinct pose(s) but ${required} frame(s) were requested; grid slots ${missing.join(", ")} came up empty. The model likely merged poses across cells or laid out fewer than ${required}. Re-run without --recover to slice the grid uniformly instead.`
+      `Recovery found ${components.length} distinct pose(s) but ${required2} frame(s) were requested; grid slots ${missing.join(", ")} came up empty. The model likely merged poses across cells or laid out fewer than ${required2}. Re-run without --recover to slice the grid uniformly instead.`
     );
   }
-  const emitted = frames === null ? assigned : assigned.slice(0, required);
+  const emitted = frames === null ? assigned : assigned.slice(0, required2);
   const result = {
     bg_rgb: background,
     cols,
@@ -2134,7 +3302,7 @@ var recoverFrames = (sheetPath, options) => {
     threshold
   };
   if (frames !== null) {
-    result.requested_frames = required;
+    result.requested_frames = required2;
   }
   const crops = emitted.map((component, i) => {
     if (!component) {
@@ -2210,16 +3378,16 @@ var frameGeometry = (sheet, sheetPath, frameWidth, frameHeight) => {
   }
   const manifestPath = sheetPath.replace(/\.[^./\\]+$/u, ".json");
   if (existsSync2(manifestPath)) {
-    const parsed = JSON.parse(readFileSync3(manifestPath, "utf-8"));
+    const parsed = parseJsonText(readFileSync3(manifestPath, "utf-8"));
     if (!isJsonObject2(parsed)) {
       throw new Error(`${manifestPath}: expected an object`);
     }
     const m = parsed;
-    const required = (key) => {
+    const required2 = (key) => {
       const value = m[key];
       if (!isFiniteNumber(value) || value <= 0) {
         throw new Error(
-          `${manifestPath}: "${key}" must be a positive number, got ${String(value)}`
+          `${manifestPath}: "${key}" must be a positive number, got ${JSON.stringify(value)}`
         );
       }
       return Math.trunc(value);
@@ -2231,17 +3399,17 @@ var frameGeometry = (sheet, sheetPath, frameWidth, frameHeight) => {
       }
       if (!isFiniteNumber(value) || value <= 0) {
         throw new Error(
-          `${manifestPath}: "${key}" must be a positive number, got ${String(value)}`
+          `${manifestPath}: "${key}" must be a positive number, got ${JSON.stringify(value)}`
         );
       }
       return Math.trunc(value);
     };
-    const count = required("frameCount");
+    const count = required2("frameCount");
     return {
       columns: optional("columns", count),
       count,
-      frameHeight: required("frameHeight"),
-      frameWidth: required("frameWidth"),
+      frameHeight: required2("frameHeight"),
+      frameWidth: required2("frameWidth"),
       rows: optional("rows", 1)
     };
   }
@@ -2552,7 +3720,7 @@ var updateCenters = (image, opaque, labels, centers) => {
     let sumR = 0;
     let sumG = 0;
     let sumB = 0;
-    let members = 0;
+    let members2 = 0;
     for (let n = 0; n < opaque.length; n += 1) {
       if (labels[n] !== c) {
         continue;
@@ -2561,12 +3729,12 @@ var updateCenters = (image, opaque, labels, centers) => {
       sumR += r;
       sumG += g;
       sumB += b;
-      members += 1;
+      members2 += 1;
     }
-    if (members === 0) {
+    if (members2 === 0) {
       continue;
     }
-    const next = [sumR / members, sumG / members, sumB / members];
+    const next = [sumR / members2, sumG / members2, sumB / members2];
     if (Math.abs(next[0] - center[0]) > 0.5 || Math.abs(next[1] - center[1]) > 0.5 || Math.abs(next[2] - center[2]) > 0.5) {
       moved = true;
     }
@@ -2574,7 +3742,7 @@ var updateCenters = (image, opaque, labels, centers) => {
   }
   return moved;
 };
-var quantize2 = (image, config) => {
+var quantize2 = (image, config2) => {
   const opaque = [];
   for (let i = 0; i < image.data.length; i += 4) {
     if ((image.data[i + 3] ?? 0) > 0) {
@@ -2584,12 +3752,12 @@ var quantize2 = (image, config) => {
   if (opaque.length === 0) {
     return image.copy();
   }
-  const k = Math.min(config.kColors, opaque.length);
-  const centers = sampleWithoutReplacement(opaque.length, k, config.kSeed).map(
+  const k = Math.min(config2.kColors, opaque.length);
+  const centers = sampleWithoutReplacement(opaque.length, k, config2.kSeed).map(
     (index) => rgbAt(image.data, opaque[index] ?? 0)
   );
   const labels = new Int32Array(opaque.length);
-  for (let iteration = 0; iteration < config.maxKmeansIterations; iteration += 1) {
+  for (let iteration = 0; iteration < config2.maxKmeansIterations; iteration += 1) {
     for (let n = 0; n < opaque.length; n += 1) {
       labels[n] = nearestCenter(rgbAt(image.data, opaque[n] ?? 0), centers);
     }
@@ -2647,7 +3815,7 @@ var medianOf = (values) => {
   const upper = sorted[mid] ?? 0;
   return sorted.length % 2 === 1 ? upper : ((sorted[mid - 1] ?? 0) + upper) / 2;
 };
-var estimateStepSize = (profile, config) => {
+var estimateStepSize = (profile, config2) => {
   if (profile.length === 0) {
     return null;
   }
@@ -2660,7 +3828,7 @@ var estimateStepSize = (profile, config) => {
   if (max === 0) {
     return null;
   }
-  const threshold = max * config.peakThresholdMultiplier;
+  const threshold = max * config2.peakThresholdMultiplier;
   const peaks = [];
   for (let i = 1; i < profile.length - 1; i += 1) {
     const value = profile[i] ?? 0;
@@ -2674,7 +3842,7 @@ var estimateStepSize = (profile, config) => {
   const clean = [];
   for (const peak of peaks) {
     const last = clean.at(-1);
-    if (last === void 0 || peak - last > config.peakDistanceFilter - 1) {
+    if (last === void 0 || peak - last > config2.peakDistanceFilter - 1) {
       clean.push(peak);
     }
   }
@@ -2684,10 +3852,10 @@ var estimateStepSize = (profile, config) => {
   const diffs = clean.slice(1).map((value, i) => value - (clean[i] ?? 0));
   return medianOf(diffs);
 };
-var resolveStepSizes = (sx, sy, width, height, config) => {
+var resolveStepSizes = (sx, sy, width, height, config2) => {
   if (sx !== null && sy !== null) {
     const ratio = Math.max(sx, sy) / Math.min(sx, sy);
-    if (ratio > config.maxStepRatio) {
+    if (ratio > config2.maxStepRatio) {
       const smaller = Math.min(sx, sy);
       return [smaller, smaller];
     }
@@ -2700,16 +3868,16 @@ var resolveStepSizes = (sx, sy, width, height, config) => {
   if (sy !== null) {
     return [sy, sy];
   }
-  const fallback = Math.max(Math.min(width, height) / config.fallbackTargetSegments, 1);
+  const fallback = Math.max(Math.min(width, height) / config2.fallbackTargetSegments, 1);
   return [fallback, fallback];
 };
-var walk = (profile, stepSize, limit, config) => {
+var walk = (profile, stepSize, limit, config2) => {
   if (profile.length === 0) {
     throw new Error("Empty profile");
   }
   const cuts = [0];
   let pos = 0;
-  const window = Math.max(stepSize * config.walkerSearchWindowRatio, config.walkerMinSearchWindow);
+  const window = Math.max(stepSize * config2.walkerSearchWindowRatio, config2.walkerMinSearchWindow);
   const mean = profile.reduce((sum, v) => sum + v, 0) / profile.length;
   while (pos < limit) {
     const target = pos + stepSize;
@@ -2732,7 +3900,7 @@ var walk = (profile, stepSize, limit, config) => {
         localIndex = i;
       }
     }
-    if (localMax > mean * config.walkerStrengthThreshold) {
+    if (localMax > mean * config2.walkerStrengthThreshold) {
       cuts.push(localIndex);
       pos = localIndex;
     } else {
@@ -2805,27 +3973,27 @@ var resample = (image, colCuts, rowCuts) => {
   }
   return out;
 };
-var snapImage = (inputPath, config) => {
+var snapImage = (inputPath, config2) => {
   const image = Bitmap.fromFile(inputPath);
-  const quantized = quantize2(image, config);
+  const quantized = quantize2(image, config2);
   const { columns, rows } = computeProfiles(quantized);
   const [stepX, stepY] = resolveStepSizes(
-    estimateStepSize(columns, config),
-    estimateStepSize(rows, config),
+    estimateStepSize(columns, config2),
+    estimateStepSize(rows, config2),
     image.width,
     image.height,
-    config
+    config2
   );
-  const colCuts = sanitizeCuts(walk(columns, stepX, image.width, config), image.width);
-  const rowCuts = sanitizeCuts(walk(rows, stepY, image.height, config), image.height);
+  const colCuts = sanitizeCuts(walk(columns, stepX, image.width, config2), image.width);
+  const rowCuts = sanitizeCuts(walk(rows, stepY, image.height, config2), image.height);
   return resample(quantized, colCuts, rowCuts);
 };
 var DEGENERATE_SIDE = 8;
-var snapWarning = (input, output, config) => {
+var snapWarning = (input, output, config2) => {
   if (output.width < DEGENERATE_SIDE || output.height < DEGENERATE_SIDE) {
     return `recovered grid collapsed to ${output.width}x${output.height} from ${input.width}x${input.height} \u2014 there was no pixel grid to find. Key the background out first (a flat matte hides the grid), or the source is not upscaled pixel art at all`;
   }
-  const fallback = config.fallbackTargetSegments;
+  const fallback = config2.fallbackTargetSegments;
   if (output.width === fallback && output.height === fallback) {
     return `output is exactly ${fallback}x${fallback}: step detection found no structure and fell back to a fixed segment count, so these are not the source's own pixels`;
   }
@@ -2859,18 +4027,18 @@ var optionalNumber = (value) => {
 };
 var measureBitmap = (image, label, source, frameSize) => {
   const bbox = image.getBBox();
-  const record = { frame: label, frameSize, source };
+  const record2 = { frame: label, frameSize, source };
   if (!bbox) {
-    record.empty = true;
-    return record;
+    record2.empty = true;
+    return record2;
   }
-  record.empty = false;
-  record.alphaBBox = [bbox.left, bbox.top, bbox.right, bbox.bottom];
-  record.visibleWidth = bbox.right - bbox.left;
-  record.visibleHeight = bbox.bottom - bbox.top;
-  record.visibleCenterX = (bbox.left + bbox.right - 1) / 2;
-  record.visibleBottomY = bbox.bottom - 1;
-  return record;
+  record2.empty = false;
+  record2.alphaBBox = [bbox.left, bbox.top, bbox.right, bbox.bottom];
+  record2.visibleWidth = bbox.right - bbox.left;
+  record2.visibleHeight = bbox.bottom - bbox.top;
+  record2.visibleCenterX = (bbox.left + bbox.right - 1) / 2;
+  record2.visibleBottomY = bbox.bottom - 1;
+  return record2;
 };
 var measureSource = (source, cellSize, frameGlob = "frame-*.png") => {
   if (existsSync3(source) && statSync2(source).isDirectory()) {
@@ -2906,7 +4074,7 @@ var measureSource = (source, cellSize, frameGlob = "frame-*.png") => {
   }
   return [measureBitmap(image, path5.basename(source), source, [image.width, image.height])];
 };
-var isLiveMeasurement = (m) => !m.empty && m.visibleWidth !== void 0 && m.visibleHeight !== void 0 && m.visibleBottomY !== void 0 && m.visibleCenterX !== void 0;
+var isLiveMeasurement = (m) => m.empty !== true && m.visibleWidth !== void 0 && m.visibleHeight !== void 0 && m.visibleBottomY !== void 0 && m.visibleCenterX !== void 0;
 var summarizeMeasurements = (measurements) => {
   const live = measurements.filter(isLiveMeasurement);
   if (live.length === 0) {
@@ -2962,7 +4130,7 @@ var promptGuidanceForContract = (contract) => {
     `Keep the sprite's ${pivot} fixed; motion should come from the action, not from sliding the whole sprite around the frame.`,
     "Keep the first and final frames close to the same scale and placement so the result can be packed into a game spritesheet."
   ];
-  if (targetHeight) {
+  if (targetHeight !== null && targetHeight !== 0) {
     guidance.push(
       `After processing, the sprite should remain about ${targetHeight}px tall inside a ${runtimeCell[0]}x${runtimeCell[1]} runtime cell; treat this as scale guidance, not visible text.`
     );
@@ -2995,7 +4163,7 @@ var contractChecks = (summary, contract) => {
   const targetHeight = optionalNumber(contract.targetVisibleHeight);
   const medianHeight = optionalNumber(summary.medianVisibleHeight);
   const maxHeightDrift = optionalNumber(tolerances.maxTargetHeightDriftPct);
-  if (targetHeight && medianHeight && maxHeightDrift !== null) {
+  if (targetHeight !== null && targetHeight !== 0 && medianHeight !== null && medianHeight !== 0 && maxHeightDrift !== null) {
     const range = summary.visibleHeightRange;
     const drift = Math.max(Math.abs(range[0] - targetHeight), Math.abs(range[1] - targetHeight)) / targetHeight;
     checks.push(
@@ -3041,7 +4209,7 @@ var contractChecks = (summary, contract) => {
   }
   const maxWidth = optionalNumber(contract.maxVisibleWidth);
   const maxWidthOverflow = optionalNumber(tolerances.maxWidthOverflowPct);
-  if (maxWidth && maxWidthOverflow !== null) {
+  if (maxWidth !== null && maxWidth !== 0 && maxWidthOverflow !== null) {
     const observedMax = optionalNumber(summary.maxVisibleWidth);
     const overflow = Math.max(0, ((observedMax ?? 0) - maxWidth) / maxWidth);
     checks.push(
@@ -3292,7 +4460,7 @@ var VIEW_ALIASES = {
   "warcraft-rts": "rts-oblique"
 };
 var resolveAnchorGameView = (gameView) => {
-  let resolved = (gameView || "platformer").trim().toLowerCase();
+  let resolved = (gameView === null || gameView === "" ? "platformer" : gameView).trim().toLowerCase();
   resolved = lookup(VIEW_ALIASES, resolved) ?? resolved;
   if (!(resolved in ANCHOR_GAME_VIEWS)) {
     const known = Object.keys(ANCHOR_GAME_VIEWS).toSorted().join(", ");
@@ -3301,7 +4469,7 @@ var resolveAnchorGameView = (gameView) => {
   return resolved;
 };
 var resolveAnchorRole = (anchorRole) => {
-  const resolved = (anchorRole || "character").trim().toLowerCase();
+  const resolved = (anchorRole === null || anchorRole === "" ? "character" : anchorRole).trim().toLowerCase();
   if (!(resolved in ANCHOR_ROLES)) {
     const known = Object.keys(ANCHOR_ROLES).toSorted().join(", ");
     throw new Error(`unknown anchor role '${anchorRole}'; expected one of: ${known}`);
@@ -3510,7 +4678,7 @@ var anchorRoleGuidance = (anchorRole) => {
 - Do not add or remove major anatomy.`;
 };
 var anchorContextGuidance = (anchorContext) => {
-  const context = (anchorContext || "").trim();
+  const context = (anchorContext === null || anchorContext === "" ? "" : anchorContext).trim();
   return context ? `Additional game context: ${context}` : "Additional game context: none supplied.";
 };
 var renderAnchorPrompt = (direction, options = {}) => {
@@ -3576,7 +4744,7 @@ var cellWidth = (p) => Math.floor(p.width / p.columns);
 var cellHeight = (p) => Math.floor(p.height / p.rows);
 var totalCells = (p) => p.columns * p.rows;
 var resolvePoseBoardPreset = (presetId) => {
-  const resolved = presetId || "standard";
+  const resolved = presetId === null || presetId === "" ? "standard" : presetId;
   const preset = lookup(POSE_BOARD_PRESETS, resolved);
   if (!preset) {
     const known = Object.keys(POSE_BOARD_PRESETS).toSorted().join(", ");

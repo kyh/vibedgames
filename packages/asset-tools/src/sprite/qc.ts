@@ -3,8 +3,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { Bitmap } from "../image/raster.js";
 import { roundHalfToEven } from "../pymath.js";
 import { median } from "./frames.js";
+import { parseJsonText } from "../asset/json.js";
 import { isFiniteNumber, isJsonObject } from "./json.js";
-import type { JsonValue } from "./json.js";
 
 const ALPHA_ON = 16;
 
@@ -100,7 +100,7 @@ export const frameGeometry = (
   const manifestPath = sheetPath.replace(/\.[^./\\]+$/u, ".json");
 
   if (existsSync(manifestPath)) {
-    const parsed: JsonValue = JSON.parse(readFileSync(manifestPath, "utf-8"));
+    const parsed = parseJsonText(readFileSync(manifestPath, "utf-8"));
 
     if (!isJsonObject(parsed)) {
       throw new Error(`${manifestPath}: expected an object`);
@@ -113,7 +113,7 @@ export const frameGeometry = (
 
       if (!isFiniteNumber(value) || value <= 0) {
         throw new Error(
-          `${manifestPath}: "${key}" must be a positive number, got ${String(value)}`,
+          `${manifestPath}: "${key}" must be a positive number, got ${JSON.stringify(value)}`,
         );
       }
 
@@ -129,7 +129,7 @@ export const frameGeometry = (
 
       if (!isFiniteNumber(value) || value <= 0) {
         throw new Error(
-          `${manifestPath}: "${key}" must be a positive number, got ${String(value)}`,
+          `${manifestPath}: "${key}" must be a positive number, got ${JSON.stringify(value)}`,
         );
       }
 

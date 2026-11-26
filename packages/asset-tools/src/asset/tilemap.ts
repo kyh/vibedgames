@@ -119,7 +119,7 @@ export const tilesetMetaFromManifest = (
   const assetPath = resolveAssetPath(manifestPath, manifest, entry.path);
 
   if (!existsSync(assetPath)) {
-    throw new Error(`Tileset file not found: ${path}`);
+    throw new Error(`Tileset file not found: ${assetPath}`);
   }
 
   const tileW = asInt(entry.tileWidth ?? entry.tileW, 16);

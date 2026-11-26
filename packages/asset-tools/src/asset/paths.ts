@@ -107,6 +107,16 @@ export const prettyPath = (target: string) => {
   return rel && !rel.startsWith(`..${path.sep}`) && rel !== ".." ? rel : path.resolve(target);
 };
 
+const utf16UnitsOf = (codePoint: number) => {
+  if (codePoint <= 0xff_ff) {
+    return [codePoint];
+  }
+
+  const offset = codePoint - 0x1_00_00;
+
+  return [0xd8_00 + Math.floor(offset / 0x4_00), 0xdc_00 + (offset % 0x4_00)];
+};
+
 /**
  * Serialize the way Python's `json.dumps(..., indent=2)` does, including its
  * default `ensure_ascii=True`: any non-ASCII character is escaped as `\uXXXX`.
@@ -116,8 +126,8 @@ export const prettyPath = (target: string) => {
  */
 export const toPythonJson = (payload: JsonValue) =>
   JSON.stringify(payload, null, 2).replaceAll(/[\u007F-\u{10FFFF}]/gu, (ch) =>
-    [...ch]
-      .map((unit) => `\\u${(unit.codePointAt(0) ?? 0).toString(16).padStart(4, "0")}`)
+    utf16UnitsOf(ch.codePointAt(0) ?? 0)
+      .map((unit) => `\\u${unit.toString(16).padStart(4, "0")}`)
       .join(""),
   );
 

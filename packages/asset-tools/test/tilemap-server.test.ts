@@ -6,6 +6,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, before, test } from "node:test";
 
+import { z } from "zod";
+
 import { Bitmap } from "../src/image/raster.js";
 import { createTilemapEditor, isInside } from "../src/asset/tilemap-server.js";
 
@@ -100,43 +102,65 @@ after(() => {
   rmSync(root, { force: true, recursive: true });
 });
 
-const get = async (route: string, init: RequestInit = {}) =>
-  await fetch(`${base}${route}`, {
-    ...init,
-    headers: { ...init.headers, "x-editor-token": token },
-  });
+const get = async (route: string, init: RequestInit = {}) => {
+  const headers = new Headers(init.headers);
+  headers.set("x-editor-token", token);
 
-interface TilesetSummary {
-  name: string;
-  tileWidth: number;
-  tileHeight: number;
-  columns: number;
-  rows: number;
-  margin: number;
-  spacing: number;
-}
+  return await fetch(`${base}${route}`, { ...init, headers });
+};
 
-interface StateBody {
-  manifestPath: string;
-  mapPath: string | null;
-  tilesetNames: string[];
-  tileset: TilesetSummary;
-  map: { width: number; height: number; data: number[][]; tileset: string | null };
-}
+const tilesetSummary = z.object({
+  columns: z.number(),
+  margin: z.number(),
+  name: z.string(),
+  rows: z.number(),
+  spacing: z.number(),
+  tileHeight: z.number(),
+  tileWidth: z.number(),
+});
 
-interface MapBody {
-  path: string;
-  width: number;
-  height: number;
-  data: number[][];
-  tileset: string | null;
-}
+const grid = z.array(z.array(z.number()));
 
-interface ErrorBody {
-  error: string;
-}
+const stateBody = z.object({
+  manifestPath: z.string(),
+  map: z.object({
+    data: grid,
+    height: z.number(),
+    tileset: z.string().nullable(),
+    width: z.number(),
+  }),
+  mapPath: z.string().nullable(),
+  tileset: tilesetSummary,
+  tilesetNames: z.array(z.string()),
+});
 
-const body = async <T>(response: Response) => (await response.json()) as T;
+const mapBody = z.object({
+  data: grid,
+  height: z.number(),
+  path: z.string(),
+  tileset: z.string().nullable(),
+  width: z.number(),
+});
+
+const errorBody = z.object({ error: z.string() });
+
+const savedMap = z.object({
+  data: grid,
+  meta: z.strictObject({
+    height: z.number(),
+    tileHeight: z.number(),
+    tileWidth: z.number(),
+    tileset: z.string().nullable(),
+    version: z.number(),
+    width: z.number(),
+  }),
+});
+
+const readSaved = (name: string) =>
+  savedMap.parse(JSON.parse(readFileSync(path.join(root, "maps", name), "utf-8")));
+
+const body = async <T>(response: Response, schema: z.ZodType<T>) =>
+  schema.parse(await response.json());
 
 test("isInside accepts the root and its descendants only", () => {
   assert.equal(isInside("/srv/project", "/srv/project"), true);
@@ -148,10 +172,12 @@ test("isInside accepts the root and its descendants only", () => {
 });
 
 test("every route refuses a request without the token", async () => {
-  for (const route of ["/", "/api/state", "/api/sheet?name=terrain"]) {
-    const response = await fetch(`${base}${route}`);
-    assert.equal(response.status, 403, route);
-  }
+  await Promise.all(
+    ["/", "/api/state", "/api/sheet?name=terrain"].map(async (route) => {
+      const response = await fetch(`${base}${route}`);
+      assert.equal(response.status, 403, route);
+    }),
+  );
 });
 
 test("the page is served at the root", async () => {
@@ -162,7 +188,7 @@ test("the page is served at the root", async () => {
 });
 
 test("initial state describes the manifest, tilesets and an empty map", async () => {
-  const state = await body<StateBody>(await get("/api/state"));
+  const state = await body(await get("/api/state"), stateBody);
   assert.deepEqual(state.tilesetNames, ["alt", "terrain"]);
   assert.equal(state.tileset.name, "alt");
   assert.deepEqual(
@@ -171,9 +197,7 @@ test("initial state describes the manifest, tilesets and an empty map", async ()
   );
   assert.deepEqual([state.map.width, state.map.height], [64, 36]);
   assert.equal(state.map.data.length, 36);
-  assert.ok(
-    state.map.data.every((row: number[]) => row.length === 64 && row.every((v) => v === 0)),
-  );
+  assert.ok(state.map.data.every((row) => row.length === 64 && row.every((v) => v === 0)));
 });
 
 test("the sheet is served as image bytes", async () => {
@@ -187,7 +211,7 @@ test("the sheet is served as image bytes", async () => {
 test("an unknown tileset is a 400 with a message, not a crash", async () => {
   const response = await get("/api/tileset?name=nope");
   assert.equal(response.status, 400);
-  const { error } = await body<ErrorBody>(response);
+  const { error } = await body(response, errorBody);
   assert.equal(error, "No such tileset: nope");
 });
 
@@ -204,7 +228,7 @@ test("saving writes the map and creates missing directories", async () => {
 
   assert.equal(response.status, 200);
 
-  const written = JSON.parse(readFileSync(path.join(root, "maps", "level1.json"), "utf-8"));
+  const written = readSaved("level1.json");
   assert.deepEqual(written.meta, {
     height: 3,
     tileHeight: 8,
@@ -217,8 +241,9 @@ test("saving writes the map and creates missing directories", async () => {
 });
 
 test("a saved map loads back with its tileset", async () => {
-  const loaded = await body<MapBody>(
+  const loaded = await body(
     await get(`/api/load?path=${encodeURIComponent("maps/level1.json")}`),
+    mapBody,
   );
 
   assert.deepEqual([loaded.width, loaded.height], [4, 3]);
@@ -227,7 +252,7 @@ test("a saved map loads back with its tileset", async () => {
 });
 
 test("state follows the map file's own tileset once it exists", async () => {
-  const state = await body<StateBody>(await get("/api/state"));
+  const state = await body(await get("/api/state"), stateBody);
   assert.equal(state.tileset.name, "terrain");
   assert.deepEqual([state.map.width, state.map.height], [4, 3]);
 });
@@ -244,7 +269,7 @@ test("a ragged or oversized payload is squared off rather than written through",
     headers: { "content-type": "application/json" },
     method: "POST",
   });
-  const written = JSON.parse(readFileSync(path.join(root, "maps", "ragged.json"), "utf-8"));
+  const written = readSaved("ragged.json");
   assert.equal(written.meta.width, 3);
   assert.equal(written.meta.height, 3);
   assert.deepEqual(written.data, [
@@ -266,33 +291,35 @@ test("dimensions are clamped to the supported range", async () => {
     headers: { "content-type": "application/json" },
     method: "POST",
   });
-  const written = JSON.parse(readFileSync(path.join(root, "maps", "huge.json"), "utf-8"));
+  const written = readSaved("huge.json");
   assert.deepEqual([written.meta.width, written.meta.height], [512, 1]);
   assert.equal(written.data.length, 1);
-  assert.equal(written.data[0].length, 512);
+  assert.equal(written.data[0]?.length, 512);
 });
 
 test("writes and reads outside the root are refused", async () => {
-  for (const route of ["../escape.json", "/etc/passwd", "maps/../../escape.json"]) {
-    const save = await get("/api/save", {
-      body: JSON.stringify({ data: [[1]], height: 1, path: route, tileset: "terrain", width: 1 }),
-      headers: { "content-type": "application/json" },
-      method: "POST",
-    });
+  await Promise.all(
+    ["../escape.json", "/etc/passwd", "maps/../../escape.json"].map(async (route) => {
+      const save = await get("/api/save", {
+        body: JSON.stringify({ data: [[1]], height: 1, path: route, tileset: "terrain", width: 1 }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      });
 
-    assert.equal(save.status, 400, `save ${route}`);
-    const { error } = await body<ErrorBody>(save);
-    assert.match(error, /Refusing to touch a path outside/u);
+      assert.equal(save.status, 400, `save ${route}`);
+      const { error } = await body(save, errorBody);
+      assert.match(error, /Refusing to touch a path outside/u);
 
-    const load = await get(`/api/load?path=${encodeURIComponent(route)}`);
-    assert.equal(load.status, 400, `load ${route}`);
-  }
+      const load = await get(`/api/load?path=${encodeURIComponent(route)}`);
+      assert.equal(load.status, 400, `load ${route}`);
+    }),
+  );
 });
 
 test("an unknown endpoint is a 404 with a message", async () => {
   const response = await get("/api/nope");
   assert.equal(response.status, 404);
-  const { error } = await body<ErrorBody>(response);
+  const { error } = await body(response, errorBody);
   assert.match(error, /No such endpoint/u);
 });
 

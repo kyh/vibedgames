@@ -73,40 +73,46 @@ if (CONSUMERS.length === 0) {
 
 pruneOrphans(new Set(CONSUMERS));
 
+const bundles = await Promise.all(
+  CONSUMERS.map(async (consumer) => {
+    const scriptsDir = path.join(PLUGINS_ROOT, consumer, "scripts");
+    const names = importedNames(scriptsDir);
+
+    const result = await build({
+      banner: { js: BANNER },
+      bundle: true,
+      format: "esm",
+      legalComments: "none",
+      platform: "node",
+      stdin: {
+        contents: `export { ${names.join(", ")} } from "./src/index.ts";`,
+        loader: "ts",
+        resolveDir: PACKAGE_ROOT,
+        sourcefile: `${consumer}-entry.ts`,
+      },
+      target: "node22",
+      write: false,
+    });
+
+    const output = result.outputFiles?.[0];
+
+    if (!output) {
+      throw new Error(`esbuild produced no output for ${consumer}`);
+    }
+
+    return { consumer, names, scriptsDir, text: output.text };
+  }),
+);
+
 let total = 0;
 
-for (const consumer of CONSUMERS) {
-  const scriptsDir = path.join(PLUGINS_ROOT, consumer, "scripts");
-  const names = importedNames(scriptsDir);
-
-  const result = await build({
-    banner: { js: BANNER },
-    bundle: true,
-    format: "esm",
-    legalComments: "none",
-    platform: "node",
-    stdin: {
-      contents: `export { ${names.join(", ")} } from "./src/index.ts";`,
-      loader: "ts",
-      resolveDir: PACKAGE_ROOT,
-      sourcefile: `${consumer}-entry.ts`,
-    },
-    target: "node22",
-    write: false,
-  });
-
-  const output = result.outputFiles?.[0];
-
-  if (!output) {
-    throw new Error(`esbuild produced no output for ${consumer}`);
-  }
-
+for (const { consumer, names, scriptsDir, text } of bundles) {
   const dir = path.join(scriptsDir, "_lib");
   mkdirSync(dir, { recursive: true });
-  writeFileSync(path.join(dir, "asset-tools.mjs"), output.text);
-  total += output.text.length;
+  writeFileSync(path.join(dir, "asset-tools.mjs"), text);
+  total += text.length;
 
-  const kb = (output.text.length / 1024).toFixed(1).padStart(6);
+  const kb = (text.length / 1024).toFixed(1).padStart(6);
   console.log(`${kb} kB  ${String(names.length).padStart(2)} exports  ${consumer}`);
 }
 

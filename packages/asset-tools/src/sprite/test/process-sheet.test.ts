@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, test } from "node:test";
 
+import { z } from "zod";
+
 import { Bitmap } from "../../image/raster.js";
 import { processSheet } from "../process-sheet.js";
 
@@ -61,7 +63,9 @@ test("turns a pose board into a sheet, manifest, review gif and QC verdict", () 
     assert.ok(existsSync(file), file);
   }
 
-  const manifest = JSON.parse(readFileSync(result.manifest, "utf-8"));
+  const manifest = z
+    .looseObject({ fps: z.number() })
+    .parse(JSON.parse(readFileSync(result.manifest, "utf-8")));
 
   assert.equal(manifest.fps, result.fps);
   assert.ok(result.qc, "QC runs by default");
@@ -93,7 +97,9 @@ test("reports a board that does not divide into its grid", () => {
     outDir: path.join(dir, "out-uneven"),
     qc: false,
     rows: 2,
-    warn: (message) => warnings.push(message),
+    warn: (message) => {
+      warnings.push(message);
+    },
   });
 
   assert.equal(warnings.length, 1);

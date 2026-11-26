@@ -1085,6 +1085,8 @@ const parseChunk = (
 
     default: {
       state.unknownChunks.push({ size: chunkSize, type: chunkType });
+
+      return null;
     }
   }
 };
@@ -1251,7 +1253,7 @@ export const inspectAseprite = (path: string, bytes: Uint8Array, options: Inspec
       const chunkSummary: ChunkSummary = { size: chunkSize, type: chunkType };
       const parsed = parseChunk(state, frameOut, frameIndex, chunkType, chunkSize, r);
 
-      if (parsed !== undefined) {
+      if (parsed !== null) {
         chunkSummary.parsed = parsed;
       }
 

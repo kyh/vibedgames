@@ -6,7 +6,7 @@
 // src/args.ts
 import { readFileSync } from "node:fs";
 var headerDoc = (entry) => {
-  if (!entry) {
+  if (entry === void 0 || entry === "") {
     return null;
   }
   let source;
