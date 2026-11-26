@@ -49,6 +49,10 @@
             "type": "command",
             "command": "[ \"$CLAUDE_CODE_REMOTE\" = \"true\" ] && cd \"$CLAUDE_PROJECT_DIR\" && { [ ! -x /opt/node24/bin/node ] || { export PATH=\"/opt/node24/bin:$PATH\"; [ -z \"$CLAUDE_ENV_FILE\" ] || echo 'export PATH=\"/opt/node24/bin:$PATH\"' >> \"$CLAUDE_ENV_FILE\"; }; } && pnpm install || true",
             "timeout": 600
+          },
+          {
+            "type": "command",
+            "command": "sid=$(sed -n 's/.*\"session_id\" *: *\"\\([^\"]*\\)\".*/\\1/p' | cut -c1-8); [ -z \"$CLAUDE_ENV_FILE\" ] || echo \"export AGENT_BROWSER_SESSION=${sid:-$$}\" >> \"$CLAUDE_ENV_FILE\""
           }
         ]
       }
