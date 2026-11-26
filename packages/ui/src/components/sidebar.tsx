@@ -81,7 +81,7 @@ const SidebarProvider = ({
         setOpenState(next);
       }
 
-      // oxlint-disable-next-line unicorn/no-document-cookie -- cookieStore is Chromium-only
+      // oxlint-disable-next-line unicorn/no-document-cookie -- cookieStore is missing before Safari 18.4, and this setter must write the cookie synchronously
       document.cookie = `${SIDEBAR_COOKIE_NAME}=${next}; path=/; max-age=${SIDEBAR_COOKIE_MAX_AGE}`;
     },
     [setOpenProp, open],
