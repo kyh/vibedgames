@@ -1,5 +1,9 @@
 import type { PathOrFileDescriptor } from "node:fs";
-import { readFileSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
+
+import { at } from "./lib.mts";
+import type { Point } from "./lib.mts";
+import { readOverpass } from "./osm.mts";
 
 const U_B = 765.2557;
 const U_M = 6.2462;
@@ -14,7 +18,7 @@ const smooth = (x: number, a: number, b: number) => {
   return t * t * (3 - 2 * t);
 };
 
-const box = (u: any, v: any, uMin: number, uMax: number, vMin: number, vMax: number) => {
+const box = (u: number, v: number, uMin: number, uMax: number, vMin: number, vMax: number) => {
   const fu = Math.min(smooth(u, uMin - 0.02, uMin + 0.01), 1 - smooth(u, uMax - 0.01, uMax + 0.02));
   const fv = Math.min(smooth(v, vMin - 0.02, vMin + 0.01), 1 - smooth(v, vMax - 0.01, vMax + 0.02));
 
@@ -24,7 +28,7 @@ const box = (u: any, v: any, uMin: number, uMax: number, vMin: number, vMax: num
 const lineSide = (u: number, v: number, ax: number, ay: number, bx: number, by: number) =>
   (bx - ax) * (v - ay) - (by - ay) * (u - ax);
 
-const landFactor = (u: any, v: any) => {
+const landFactor = (u: number, v: number) => {
   let land = Math.min(smooth(u, 0.025, 0.06), 1 - smooth(u, 0.78, 0.85), smooth(v, 0.025, 0.07));
   land = Math.min(land, smooth(lineSide(u, v, 0.03, 0.26, 0.25, 0.03), -0.015, 0.02));
   land = Math.max(land, box(u, v, 0.82, 0.99, 0.7, 0.84));
@@ -38,10 +42,17 @@ const landFactor = (u: any, v: any) => {
 
 const isLand = (u: number, v: number) => landFactor(u, v) > 0.5;
 
-const raw = JSON.parse(readFileSync(new URL("sf-streets.raw.json", import.meta.url)));
+const STEPS: readonly Point[] = [
+  [1, 0],
+  [-1, 0],
+  [0, 1],
+  [0, -1],
+];
 
-const ways = raw.elements.filter(
-  (e: { type: string; geometry: any }) => e.type === "way" && e.geometry,
+const raw = readOverpass(new URL("sf-streets.raw.json", import.meta.url));
+
+const ways = raw.elements.flatMap((e) =>
+  e.type === "way" && e.geometry !== undefined ? [{ geometry: e.geometry, tags: e.tags }] : [],
 );
 
 const MAJOR = new Set([
@@ -57,20 +68,20 @@ const MAJOR = new Set([
   "tertiary_link",
 ]);
 
-const polylines = ways.map((w: { tags: { highway: string }; geometry: any[] }) => ({
-  major: MAJOR.has(w.tags?.highway),
-  pts: w.geometry.map((g: { lon: any; lat: any }) => [projU(g.lon), projV(g.lat)]),
+const polylines = ways.map((w) => ({
+  major: MAJOR.has(w.tags?.highway ?? ""),
+  pts: w.geometry.map<Point>((g) => [projU(g.lon), projV(g.lat)]),
 }));
 
-const majorCount = polylines.filter((p: { major: any }) => p.major).length;
+const majorCount = polylines.filter((p) => p.major).length;
 
 console.log(
   `Loaded ${ways.length} ways (${majorCount} major / ${ways.length - majorCount} minor), ` +
-    `${polylines.reduce((n: any, p: { pts: string | any[] }) => n + p.pts.length, 0)} vertices.`,
+    `${polylines.reduce((n, p) => n + p.pts.length, 0)} vertices.`,
 );
 
 const rasterizeSeg = (
-  grid: Uint8Array<ArrayBuffer>,
+  grid: Uint8Array,
   gx0: number,
   gz0: number,
   gx1: number,
@@ -118,33 +129,30 @@ const rasterizeSeg = (
   }
 };
 
+const isSet = (cells: Uint8Array, i: number) => (cells[i] ?? 0) !== 0;
+
 const connectedOnLand = (
-  grid: { [x: string]: any },
-  onLand: { [x: string]: any },
+  grid: Uint8Array,
+  onLand: Uint8Array,
   GX: number,
   GZ: number,
   ax: number,
   az: number,
-  bx: any,
-  bz: any,
+  bx: number,
+  bz: number,
 ) => {
   const seen = new Uint8Array(GX * GZ);
-  const stack = [[ax, az]];
+  const stack: Point[] = [[ax, az]];
   seen[ax * GZ + az] = 1;
 
-  while (stack.length) {
-    const [x, z] = stack.pop();
+  for (let top = stack.pop(); top !== undefined; top = stack.pop()) {
+    const [x, z] = top;
 
     if (x === bx && z === bz) {
       return true;
     }
 
-    for (const [dx, dz] of [
-      [1, 0],
-      [-1, 0],
-      [0, 1],
-      [0, -1],
-    ]) {
+    for (const [dx, dz] of STEPS) {
       const nx = x + dx;
       const nz = z + dz;
 
@@ -154,7 +162,7 @@ const connectedOnLand = (
 
       const idx = nx * GZ + nz;
 
-      if ((seen[idx] ?? 0) !== 0 || !grid[idx] || !onLand[idx]) {
+      if (isSet(seen, idx) || !isSet(grid, idx) || !isSet(onLand, idx)) {
         continue;
       }
 
@@ -179,26 +187,35 @@ const landMask = (GX: number, GZ: number) => {
 };
 
 const removalKeepsNetwork = (
-  grid: { [x: string]: any },
-  onLandCache: { [x: string]: any },
+  grid: Uint8Array,
+  onLandCache: Uint8Array,
   GX: number,
   GZ: number,
   rx: number,
   rz: number,
 ) => {
-  const nbrs = [
+  const around: Point[] = [
     [rx + 1, rz],
     [rx - 1, rz],
     [rx, rz + 1],
     [rx, rz - 1],
-  ].filter(
-    ([x, z]) => x >= 0 && z >= 0 && x < GX && z < GZ && grid[x * GZ + z] && onLandCache[x * GZ + z],
+  ];
+
+  const nbrs = around.filter(
+    ([x, z]) =>
+      x >= 0 &&
+      z >= 0 &&
+      x < GX &&
+      z < GZ &&
+      isSet(grid, x * GZ + z) &&
+      isSet(onLandCache, x * GZ + z),
   );
 
   for (let i = 1; i < nbrs.length; i += 1) {
-    if (
-      !connectedOnLand(grid, onLandCache, GX, GZ, nbrs[0][0], nbrs[0][1], nbrs[i][0], nbrs[i][1])
-    ) {
+    const [x0, z0] = at(nbrs, 0);
+    const [xi, zi] = at(nbrs, i);
+
+    if (!connectedOnLand(grid, onLandCache, GX, GZ, x0, z0, xi, zi)) {
       return false;
     }
   }
@@ -206,29 +223,35 @@ const removalKeepsNetwork = (
   return true;
 };
 
-const thinPass = (grid: any[], major: any[], onLandCache: any[], GX: number, GZ: number) => {
+const thinPass = (
+  grid: Uint8Array,
+  major: Uint8Array,
+  onLandCache: Uint8Array,
+  GX: number,
+  GZ: number,
+) => {
   let removed = 0;
 
   for (let gx = 0; gx + 1 < GX; gx += 1) {
     for (let gz = 0; gz + 1 < GZ; gz += 1) {
-      const cells = [
+      const cells: Point[] = [
         [gx, gz],
         [gx + 1, gz],
         [gx, gz + 1],
         [gx + 1, gz + 1],
       ];
 
-      if (!cells.every(([x, z]) => grid[x * GZ + z] && onLandCache[x * GZ + z])) {
+      if (!cells.every(([x, z]) => isSet(grid, x * GZ + z) && isSet(onLandCache, x * GZ + z))) {
         continue;
       }
 
-      const cand = cells.filter(([x, z]) => !major[x * GZ + z]);
+      const cand = cells.filter(([x, z]) => !isSet(major, x * GZ + z));
 
-      if (!cand.length) {
+      if (cand.length === 0) {
         continue;
       }
 
-      const [[rx, rz]] = cand;
+      const [rx, rz] = at(cand, 0);
       grid[rx * GZ + rz] = 0;
 
       if (removalKeepsNetwork(grid, onLandCache, GX, GZ, rx, rz)) {
@@ -243,11 +266,11 @@ const thinPass = (grid: any[], major: any[], onLandCache: any[], GX: number, GZ:
 };
 
 const thinBlocks = (
-  grid: Uint8Array<ArrayBuffer>,
-  major: Uint8Array<ArrayBuffer>,
-  onLandCache: Uint8Array<ArrayBuffer>,
-  GX: any,
-  GZ: any,
+  grid: Uint8Array,
+  major: Uint8Array,
+  onLandCache: Uint8Array,
+  GX: number,
+  GZ: number,
 ) => {
   let removedTotal = 0;
 
@@ -255,7 +278,7 @@ const thinBlocks = (
     const removed = thinPass(grid, major, onLandCache, GX, GZ);
     removedTotal += removed;
 
-    if (!removed) {
+    if (removed === 0) {
       break;
     }
   }
@@ -263,25 +286,20 @@ const thinBlocks = (
   return removedTotal;
 };
 
-const gridStats = (
-  grid: any[] | Uint8Array<ArrayBuffer>,
-  onLandCache: any[] | Uint8Array<ArrayBuffer>,
-  GX: number,
-  GZ: number,
-) => {
+const gridStats = (grid: Uint8Array, onLandCache: Uint8Array, GX: number, GZ: number) => {
   let land = 0;
   let road = 0;
   let roadOffLand = 0;
 
   for (let gx = 0; gx < GX; gx += 1) {
     for (let gz = 0; gz < GZ; gz += 1) {
-      const onLand = onLandCache[gx * GZ + gz];
+      const onLand = isSet(onLandCache, gx * GZ + gz);
 
       if (onLand) {
         land += 1;
       }
 
-      if (grid[gx * GZ + gz]) {
+      if (isSet(grid, gx * GZ + gz)) {
         if (onLand) {
           road += 1;
         } else {
@@ -306,14 +324,14 @@ const densityNote = (pct: number) => {
   return "sparse";
 };
 
-const bake = (GX: number | undefined, GZ: number | undefined) => {
+const bake = (GX: number, GZ: number) => {
   const grid = new Uint8Array(GX * GZ);
   const major = new Uint8Array(GX * GZ);
 
-  const draw = (pts: string | any[], majorFlag: boolean) => {
+  const draw = (pts: readonly Point[], majorFlag: boolean) => {
     for (let i = 0; i + 1 < pts.length; i += 1) {
-      const a = pts[i];
-      const b = pts[i + 1];
+      const a = at(pts, i);
+      const b = at(pts, i + 1);
       rasterizeSeg(
         grid,
         Math.floor(a[0] * GX),
@@ -360,16 +378,7 @@ const bake = (GX: number | undefined, GZ: number | undefined) => {
 };
 
 const svgPreview = (
-  res: {
-    GX: any;
-    GZ: any;
-    grid: any;
-    land?: number;
-    major?: Uint8Array<ArrayBuffer>;
-    removedTotal?: number;
-    road?: number;
-    roadOffLand?: number;
-  },
+  res: { readonly GX: number; readonly GZ: number; readonly grid: Uint8Array },
   path: PathOrFileDescriptor,
 ) => {
   const { grid, GX, GZ } = res;
@@ -383,8 +392,8 @@ const svgPreview = (
       const u = (gx + 0.5) / GX;
       const v = (gz + 0.5) / GZ;
       const onLand = isLand(u, v);
-      const isR = grid[gx * GZ + gz];
-      let fill = null;
+      const isR = isSet(grid, gx * GZ + gz);
+      let fill: string | null = null;
 
       if (isR && onLand) {
         fill = "#222";
@@ -412,12 +421,12 @@ const arg = process.argv
   .map(Number);
 
 if (arg.length === 2) {
-  const res = bake(arg[0], arg[1]);
+  const res = bake(at(arg, 0), at(arg, 1));
   console.log(
     `\n${res.GX}x${res.GZ}: ${res.road} road cells over ${res.land} land cells ` +
       `(${((100 * res.road) / res.land).toFixed(1)}% streets), ${res.roadOffLand} clipped to water.`,
   );
-  const cols = [];
+  const cols: string[] = [];
 
   for (let gx = 0; gx < res.GX; gx += 1) {
     let bits = "";
@@ -462,7 +471,7 @@ export function streetMaskAt(gx: number, gz: number): boolean {
   console.log("\nSize sweep (aspect 1.219:1, square real cells):");
   console.log("  GX x GZ    cell(m)   cells    road cells   street%   note");
 
-  const targets = [
+  const targets: Point[] = [
     [94, 77],
     [110, 90],
     [128, 105],
