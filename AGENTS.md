@@ -120,6 +120,8 @@ vg playtest click @e12                        # "Create key" — the list should
 vg playtest screenshot /tmp/after.png
 ```
 
+Give each agent its own browser with `AGENT_BROWSER_SESSION=<repo>-<task>` (or `--session`): the default one is shared. Locate by `snapshot -i` refs or `find role … --name`, never `find text`, which can match a hidden duplicate label. A background tab gets no animation frames, so menus won't open: `vg playtest tab keep live` fixes it.
+
 The auth form uses react-hook-form, so prefer the `data-test` attributes over positional refs for the two credential fields; everything else is reliable off `snapshot`.
 
 Six flows cover all ten `useMutation` sites in the app: `/settings` (create + revoke an API key), `/admin` → Credit codes (create + revoke a code), `/admin` → Users (create a user, grant credits, then re-check `/settings`), `/home` (delete a game), `/settings` again (click "Have a code? Redeem it" and type `DEV123` into the dialog — that is the `credits.redeem` mutation; a second redeem by the same account answers 409; the buy buttons, which fire `credits.checkout`, render only when both `STRIPE_*` keys are set — without them `credits.me` reports `purchasesEnabled: false` and the section offers a code button instead), `/settings` → Connected apps (Disconnect an app, after `vg login` against the dev server has connected the CLI). `/device` is not a `useMutation` site: `vg login` against the dev server prints a code, and its page approves or denies it through the auth client.
