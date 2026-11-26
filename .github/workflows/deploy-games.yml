@@ -1,8 +1,8 @@
 # The bundled example games deploy to vibedgames itself, through `vg deploy`. The platform's
 # Workers (web, party, games) deploy from Cloudflare Workers Builds, not from here: AGENTS.md →
-# Deploys has their settings. Run it by hand (Actions → Example games → Run workflow) to retry a
+# Deploys has their settings. Run it by hand (Actions → Deploy games → Run workflow) to retry a
 # failed deploy or redeploy games a push did not touch.
-name: Example games
+name: Deploy games
 
 on:
   push:
@@ -14,7 +14,7 @@ on:
       - pnpm-lock.yaml
       - pnpm-workspace.yaml
       - turbo.json
-      - .github/workflows/example-games.yml
+      - .github/workflows/deploy-games.yml
   workflow_dispatch:
     inputs:
       games:
@@ -23,7 +23,7 @@ on:
         default: ""
 
 concurrency:
-  group: example-games-${{ github.ref }}
+  group: deploy-games-${{ github.ref }}
 
 permissions:
   contents: read
