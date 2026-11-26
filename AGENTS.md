@@ -42,11 +42,11 @@ Do not reintroduce `apps/web/.dev.vars`. The dev server prefers it and stops rea
 | Identity                               | Use                                                                       |
 | -------------------------------------- | ------------------------------------------------------------------------- |
 | `user@vibedgames.com` / `password123`  | browser login, regular user                                               |
-| `admin@vibedgames.com` / `password123` | browser login, admin (`/admin/users`, `/admin/invites`)                   |
+| `admin@vibedgames.com` / `password123` | browser login, admin (`/admin`: users and credit codes)                   |
 | `dev-local-session-token-0000000000`   | long-lived bearer token for the CLI and raw HTTP                          |
 | `DEV123`                               | credit code, $20, unlimited uses — redeem once per account in `/settings` |
 
-Five sample games are seeded onto the admin account, so `/home` is non-empty when signed in as `admin@vibedgames.com`, and they show up in `/admin/users`. (The games themselves are served from the live prod subdomains; only the D1 rows are local.) `/` and `/discover` never read D1 — they render the hardcoded `featuredGames` array in `apps/web/src/components/game/data.ts`, so re-seeding cannot change them.
+Five sample games are seeded onto the admin account, so `/home` is non-empty when signed in as `admin@vibedgames.com`, and they show up under Users in `/admin`. (The games themselves are served from the live prod subdomains; only the D1 rows are local.) `/` and `/discover` never read D1 — they render the hardcoded `featuredGames` array in `apps/web/src/components/game/data.ts`, so re-seeding cannot change them.
 
 Headless auth without a browser:
 
@@ -127,7 +127,7 @@ vg playtest screenshot /tmp/after.png
 
 The auth form uses react-hook-form, so prefer the `data-test` attributes over positional refs for the two credential fields; everything else is reliable off `snapshot`.
 
-Six flows cover all ten `useMutation` sites in the app: `/settings` (create + revoke an API key), `/admin/invites` (create + revoke a code), `/admin/users` (create a user, grant credits, then re-check `/settings`), `/home` (delete a game), `/settings` again (click "Have a code? Redeem it" and type `DEV123` into the dialog — that is the `credits.redeem` mutation; a second redeem by the same account answers 409; the buy buttons, which fire `credits.checkout`, render only when both `STRIPE_*` keys are set — without them `credits.me` reports `purchasesEnabled: false` and the section offers a code button instead), `/settings` → Connected apps (Disconnect an app, after `vg login` against the dev server has connected the CLI). `/device` is not a `useMutation` site: `vg login` against the dev server prints a code, and its page approves or denies it through the auth client.
+Six flows cover all ten `useMutation` sites in the app: `/settings` (create + revoke an API key), `/admin` → Credit codes (create + revoke a code), `/admin` → Users (create a user, grant credits, then re-check `/settings`), `/home` (delete a game), `/settings` again (click "Have a code? Redeem it" and type `DEV123` into the dialog — that is the `credits.redeem` mutation; a second redeem by the same account answers 409; the buy buttons, which fire `credits.checkout`, render only when both `STRIPE_*` keys are set — without them `credits.me` reports `purchasesEnabled: false` and the section offers a code button instead), `/settings` → Connected apps (Disconnect an app, after `vg login` against the dev server has connected the CLI). `/device` is not a `useMutation` site: `vg login` against the dev server prints a code, and its page approves or denies it through the auth client.
 
 ## Platform matrix
 

@@ -28,7 +28,7 @@ Edit schema → `pnpm db:push` → restart `dev:web` if the change doesn't show.
 - `dev@vibedgames.local` — bearer-token identity (role `admin`)
 - long-lived session token `dev-local-session-token-0000000000`
 - invite code `DEV123`, unlimited uses
-- five sample games on the admin account so `/home` and `/admin/users` aren't empty
+- five sample games on the admin account so `/home` and the users list in `/admin` aren't empty
 
 Re-running the seed replaces rows, which invalidates existing browser sessions —
 sign in again after seeding. `/` and `/discover` never read D1; they render the
