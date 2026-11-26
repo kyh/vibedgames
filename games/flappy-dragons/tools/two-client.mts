@@ -172,37 +172,34 @@ const respawnAndFly = async (page: Page, label: string) => {
 };
 
 const worstScrollStep = async (page: Page, ms: number) =>
-  await page.evaluate(
-    async (span) =>
-      // oxlint-disable-next-line promise/avoid-new -- requestAnimationFrame has no promise form
-      await new Promise<number>((resolve, reject) => {
-        const scene = window.__fb?.scene;
+  await page.evaluate(async (span) => {
+    const { promise, resolve } = Promise.withResolvers<number>();
 
-        if (scene === undefined) {
-          reject(new Error("window.__fb is missing"));
+    const scene = window.__fb?.scene;
 
-          return;
-        }
+    if (scene === undefined) {
+      throw new Error("window.__fb is missing");
+    }
 
-        const endAt = performance.now() + span;
-        let prev = scene.worldX;
-        let worst = Number.POSITIVE_INFINITY;
+    const endAt = performance.now() + span;
+    let prev = scene.worldX;
+    let worst = Number.POSITIVE_INFINITY;
 
-        const tick = () => {
-          worst = Math.min(worst, scene.worldX - prev);
-          prev = scene.worldX;
+    const tick = () => {
+      worst = Math.min(worst, scene.worldX - prev);
+      prev = scene.worldX;
 
-          if (performance.now() < endAt) {
-            requestAnimationFrame(tick);
-          } else {
-            resolve(worst);
-          }
-        };
-
+      if (performance.now() < endAt) {
         requestAnimationFrame(tick);
-      }),
-    ms,
-  );
+      } else {
+        resolve(worst);
+      }
+    };
+
+    requestAnimationFrame(tick);
+
+    return await promise;
+  }, ms);
 
 const openClient = async (browser: Browser, url: string, errors: string[]) => {
   const page = await browser.newPage({ viewport: { height: 600, width: 900 } });
