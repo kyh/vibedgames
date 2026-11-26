@@ -1,7 +1,9 @@
-import { spawn } from "node:child_process";
 import path from "node:path";
 import { setTimeout as wait } from "node:timers/promises";
+
+import { flagValue, poll, reachable, startVite } from "@repo/smoke";
 import { chromium } from "playwright-core";
+import type { Browser, Page } from "playwright-core";
 
 const gameDir = path.resolve(import.meta.dirname, "..");
 
@@ -9,26 +11,59 @@ const PARTY = "http://localhost:8787";
 const DEV_PORT = 5309;
 const SCORE_PELLET = 10;
 
-const waitFor = async (page, fn, label, { timeoutMs = 8000, arg } = {}) => {
-  const deadline = Date.now() + timeoutMs;
-  let last;
+const waitFor = async <T,>(read: () => Promise<T>, label: string, timeoutMs = 8000) => {
+  let last: T | null = null;
+  const found = await poll(
+    async () => {
+      last = await read();
 
-  while (Date.now() < deadline) {
-    last = await page.evaluate(fn, arg);
-
-    if (last) {
       return last;
-    }
+    },
+    (value) => Boolean(value),
+    { intervalMs: 100, timeoutMs },
+  );
 
-    await wait(100);
+  if (found === null) {
+    throw new Error(`timeout: ${label} (last=${JSON.stringify(last)})`);
   }
 
-  throw new Error(`timeout: ${label} (last=${JSON.stringify(last)})`);
+  return found;
 };
 
-const snapshot = (page) =>
+const gameOf = (page: Page) =>
   page.evaluate(() => {
-    const { game } = window.__pacman;
+    const game = window.__pacman?.game;
+
+    return game === undefined
+      ? null
+      : {
+          paused: game.paused,
+          phase: game.phase,
+          rivals: game.rivalIds.length,
+          round: game.boardRound,
+        };
+  });
+
+type GameView = NonNullable<Awaited<ReturnType<typeof gameOf>>>;
+
+const until = (page: Page, test: (game: GameView) => boolean, label: string, timeoutMs = 8000) =>
+  waitFor(
+    async () => {
+      const game = await gameOf(page);
+
+      return game !== null && test(game);
+    },
+    label,
+    timeoutMs,
+  );
+
+const snapshot = (page: Page) =>
+  page.evaluate(() => {
+    const game = window.__pacman?.game;
+
+    if (game === undefined) {
+      throw new Error("window.__pacman is missing: run the game in dev mode");
+    }
 
     return {
       applied: game.appliedEaten.size,
@@ -47,72 +82,110 @@ const snapshot = (page) =>
     };
   });
 
-const chompFrom = (page, col, row) =>
+const chompFrom = (page: Page, col: number, row: number) =>
   page.evaluate(
     ([x, z]) => {
-      const { game } = window.__pacman;
-      Object.assign(game.pac, {
+      const hooks = window.__pacman;
+
+      if (hooks === undefined) {
+        throw new Error("window.__pacman is missing");
+      }
+
+      Object.assign(hooks.game.pac, {
         dir: "right",
         isMoving: false,
         target: { x, z },
         x,
         z,
       });
-      window.__pacman.chomp();
+      hooks.chomp();
     },
-    [col, row],
+    [col, row] as const,
   );
 
-const eaten = (page, key) =>
-  waitFor(page, (k) => window.__pacman.game.appliedEaten.has(k), `eaten ${key}`, {
-    arg: key,
-    timeoutMs: 4000,
-  });
+const eaten = (page: Page, key: string) =>
+  waitFor(
+    () => page.evaluate((k) => window.__pacman?.game.appliedEaten.has(k) === true, key),
+    `eaten ${key}`,
+    4000,
+  );
 
-const ownerOf = (page, cell) =>
-  page.evaluate(async (c) => {
-    const { pelletClaimKey } = await import("/src/net/pellet-claims.ts");
-    const { game } = window.__pacman;
+const ownerOf = (page: Page, cell: string) =>
+  page.evaluate((c) => {
+    const hooks = window.__pacman;
 
-    return game.net.claims[pelletClaimKey(game.boardRound, c)]?.owner ?? null;
+    if (hooks === undefined) {
+      return null;
+    }
+
+    const { game } = hooks;
+
+    const claim = hooks.claimKey(game.boardRound, c);
+
+    return claim === null ? null : (game.net.claims[claim]?.owner ?? null);
   }, cell);
 
-const idOf = (page) => page.evaluate(() => window.__pacman.game.net.playerId);
+const idOf = (page: Page) => page.evaluate(() => window.__pacman?.game.net.playerId ?? null);
 
-const drawsRivalAt = (page, col, row) =>
+const drawsRivalAt = (page: Page, col: number, row: number) =>
   waitFor(
-    page,
-    ([x, z]) => {
-      const pacs = [...window.__pacman.game.remotePacs.pacs.values()];
-      const at = pacs[0]?.group.position;
+    () =>
+      page.evaluate(
+        ([x, z]) => {
+          const pacs = [...(window.__pacman?.game.remotePacs.pacs.values() ?? [])];
+          const at = pacs[0]?.group.position;
 
-      return pacs.length === 1 && Math.abs(at.x - x) < 0.01 && Math.abs(at.z - z) < 0.01;
-    },
+          return (
+            pacs.length === 1 &&
+            at !== undefined &&
+            Math.abs(at.x - x) < 0.01 &&
+            Math.abs(at.z - z) < 0.01
+          );
+        },
+        [col, row] as const,
+      ),
     `rival drawn at ${col},${row}`,
-    { arg: [col, row], timeoutMs: 4000 },
+    4000,
   );
 
-const startPlaying = async (page) => {
+const startPlaying = async (page: Page) => {
   await page.keyboard.press("Enter");
-  await waitFor(page, () => window.__pacman.game.phase === "playing", "playing");
+  await until(page, (game) => game.phase === "playing", "playing");
 };
 
 const hideScene = () => {
-  let hooks;
+  let hooks: Window["__pacman"];
   Object.defineProperty(window, "__pacman", {
     configurable: true,
     get: () => hooks,
-    set: (value) => {
+    set: (value: NonNullable<Window["__pacman"]>) => {
       hooks = value;
       value.game.scene.visible = false;
     },
   });
 };
 
-const openClient = async (browser, url, errors) => {
+type Errors = Record<"guest" | "host" | "idle" | "late" | "solo", string[]>;
+type Step = (name: string, ok: boolean, note?: string) => void;
+
+interface Pair {
+  guest: Page;
+  host: Page;
+  step: Step;
+}
+
+interface Room {
+  browser: Browser;
+  errors: Errors;
+  fullMaze: number;
+  step: Step;
+  url: string;
+}
+
+const openClient = async (browser: Browser, url: string, errors: string[]) => {
   const page = await browser.newPage({ viewport: { height: 600, width: 900 } });
 
-  if (process.env.SMOKE_NO_RENDER) {
+  if (process.env.SMOKE_NO_RENDER !== undefined && process.env.SMOKE_NO_RENDER !== "") {
     await page.addInitScript(hideScene);
   }
 
@@ -124,51 +197,26 @@ const openClient = async (browser, url, errors) => {
   });
   await page.goto(url);
   await waitFor(
-    page,
-    () => window.__pacman?.game.net.connectionStatus === "connected",
+    () => page.evaluate(() => window.__pacman?.game.net.connectionStatus === "connected"),
     "connected",
   );
 
   return page;
 };
 
-const reachable = async (url) => {
-  try {
-    const r = await fetch(url);
-
-    return r.ok;
-  } catch {
-    return false;
-  }
-};
-
-const startVite = async () => {
-  const child = spawn(
-    path.join(gameDir, "node_modules/.bin/vite"),
-    ["--port", String(DEV_PORT), "--strictPort"],
-    {
-      cwd: gameDir,
-      stdio: "ignore",
-    },
-  );
-
+const startDev = async () => {
   const base = `http://localhost:${DEV_PORT}`;
+  const child = await startVite({ gameDir, port: DEV_PORT, timeoutMs: 20_000 });
 
-  for (let i = 0; i < 100; i += 1) {
-    await wait(200);
-
-    if (await reachable(base)) {
-      return { base, child };
-    }
-  }
-
-  child.kill();
-  throw new Error("vite did not start");
+  return { base, child };
 };
 
-const contestOwners = async (page) => [await ownerOf(page, "13,1"), await ownerOf(page, "14,1")];
+const contestOwners = async (page: Page) => [
+  await ownerOf(page, "13,1"),
+  await ownerOf(page, "14,1"),
+];
 
-const contest = async ({ guest, host, step }) => {
+const contest = async ({ guest, host, step }: Pair) => {
   const [hostId, guestId] = [await idOf(host), await idOf(guest)];
   let h = await snapshot(host);
   let g = await snapshot(guest);
@@ -200,14 +248,24 @@ const contest = async ({ guest, host, step }) => {
   );
 };
 
-const handOver = async ({ browser, errors, fullMaze, guest, host, step, url }) => {
+const handOver = async ({
+  browser,
+  errors,
+  fullMaze,
+  guest,
+  host,
+  step,
+  url,
+}: Room & Pair) => {
   await chompFrom(host, 1, 1);
   await eaten(guest, "2,1");
   await host.close();
-  await waitFor(guest, () => window.__pacman.game.net.isHost, "guest promoted", {
-    timeoutMs: 10_000,
-  });
-  await waitFor(guest, () => window.__pacman.game.rivalIds.length === 0, "held seat ignored");
+  await waitFor(
+    () => guest.evaluate(() => window.__pacman?.game.net.isHost === true),
+    "guest promoted",
+    10_000,
+  );
+  await until(guest, (game) => game.rivals === 0, "held seat ignored");
   let g = await snapshot(guest);
   step(
     "guest promoted to host on host leave, its maze still the claims",
@@ -219,7 +277,7 @@ const handOver = async ({ browser, errors, fullMaze, guest, host, step, url }) =
   step("promoted host keeps playing", true);
 
   const late = await openClient(browser, url, errors.late);
-  await waitFor(late, () => window.__pacman.game.rivalIds.length === 1, "late sees host");
+  await until(late, (game) => game.rivals === 1, "late sees host");
   await startPlaying(late);
   await eaten(late, "4,1");
   g = await snapshot(guest);
@@ -236,7 +294,7 @@ const handOver = async ({ browser, errors, fullMaze, guest, host, step, url }) =
   await late.close();
 };
 
-const soloGuestRestart = async ({ browser, errors, fullMaze, step, url }) => {
+const soloGuestRestart = async ({ browser, errors, fullMaze, step, url }: Room) => {
   const idle = await openClient(browser, url, errors.idle);
   const solo = await openClient(browser, url, errors.solo);
   await startPlaying(solo);
@@ -251,10 +309,8 @@ const soloGuestRestart = async ({ browser, errors, fullMaze, step, url }) => {
     JSON.stringify(s),
   );
   await solo.keyboard.press("r");
-  await waitFor(solo, (round) => window.__pacman.game.boardRound > round, "fresh maze granted", {
-    arg: roundBefore,
-  });
-  await waitFor(solo, () => window.__pacman.game.phase === "playing", "solo restarted");
+  await until(solo, (game) => game.round > roundBefore, "fresh maze granted");
+  await until(solo, (game) => game.phase === "playing", "solo restarted");
   s = await snapshot(solo);
   const i = await snapshot(idle);
   step(
@@ -271,20 +327,16 @@ const soloGuestRestart = async ({ browser, errors, fullMaze, step, url }) => {
 };
 
 const main = async () => {
-  const urlArg = process.argv.indexOf("--url");
-  const dev = urlArg === -1 ? await startVite() : { base: process.argv[urlArg + 1], child: null };
+  const urlFlag = flagValue("--url", process.argv);
+  const dev = urlFlag === null ? await startDev() : { base: urlFlag, child: null };
 
-  if (
-    !(await fetch(PARTY)
-      .then(() => true)
-      .catch(() => false))
-  ) {
+  if (!(await reachable(PARTY))) {
     throw new Error(`party server not reachable at ${PARTY} (pnpm dev:party)`);
   }
 
   const room = `t${process.pid}-${Date.now().toString(36)}`;
   const url = `${dev.base}/?room=${room}`;
-  const errors = { guest: [], host: [], idle: [], late: [], solo: [] };
+  const errors: Errors = { guest: [], host: [], idle: [], late: [], solo: [] };
 
   const browser = await chromium.launch({
     args: [
@@ -292,15 +344,15 @@ const main = async () => {
       "--disable-backgrounding-occluded-windows",
       "--disable-renderer-backgrounding",
     ],
-    ...(process.env.SMOKE_BROWSER
-      ? { executablePath: process.env.SMOKE_BROWSER }
-      : { channel: "chrome" }),
+    ...(process.env.SMOKE_BROWSER === undefined || process.env.SMOKE_BROWSER === ""
+      ? { channel: "chrome" }
+      : { executablePath: process.env.SMOKE_BROWSER }),
     headless: true,
   });
 
-  const results = [];
+  const results: string[] = [];
 
-  const step = (name, ok, note = "") => {
+  const step: Step = (name, ok, note = "") => {
     results.push(`${ok ? "pass" : "FAIL"}  ${name}${note ? ` — ${note}` : ""}`);
 
     if (!ok) {
@@ -316,12 +368,12 @@ const main = async () => {
     const fullMaze = h.left;
 
     const guest = await openClient(browser, url, errors.guest);
-    await waitFor(guest, () => window.__pacman.game.rivalIds.length === 1, "guest sees host");
+    await until(guest, (game) => game.rivals === 1, "guest sees host");
     await wait(400);
     h = await snapshot(host);
     step("an idle guest is no rival", h.rivals === 0, JSON.stringify(h));
     await startPlaying(guest);
-    await waitFor(host, () => window.__pacman.game.rivalIds.length === 1, "host sees guest");
+    await until(host, (game) => game.rivals === 1, "host sees guest");
     let g = await snapshot(guest);
     step(
       "both see each other",
@@ -359,18 +411,25 @@ const main = async () => {
     await contest({ guest, host, step });
 
     await host.keyboard.press("Escape");
-    await waitFor(host, () => window.__pacman.game.paused, "host paused");
+    await until(host, (game) => game.paused, "host paused");
     const { t: gt } = await snapshot(guest);
     await chompFrom(guest, 3, 1);
     await eaten(guest, "4,1");
     await waitFor(
-      guest,
-      async () => {
-        const { pelletClaimKey } = await import("/src/net/pellet-claims.ts");
-        const { game } = window.__pacman;
+      () =>
+        guest.evaluate(() => {
+          const hooks = window.__pacman;
 
-        return game.net.claims[pelletClaimKey(game.boardRound, "4,1")]?.owner === game.net.playerId;
-      },
+          if (hooks === undefined) {
+            return false;
+          }
+
+          const { game } = hooks;
+
+          const claim = hooks.claimKey(game.boardRound, "4,1");
+
+          return claim !== null && game.net.claims[claim]?.owner === game.net.playerId;
+        }),
       "claim granted while the host is paused",
     );
     g = await snapshot(guest);
@@ -380,24 +439,29 @@ const main = async () => {
       `guest +${(g.t - gt).toFixed(2)}s`,
     );
     await host.keyboard.press("Escape");
-    await waitFor(host, () => !window.__pacman.game.paused, "host resumed");
+    await until(host, (game) => !game.paused, "host resumed");
     await eaten(host, "4,1");
     const resumed = await snapshot(host);
     step("resumed host catches up", resumed.left === g.left, `${g.left} left`);
     await guest.keyboard.press("Escape");
-    await waitFor(guest, () => window.__pacman.game.paused, "guest paused");
+    await until(guest, (game) => game.paused, "guest paused");
     await chompFrom(host, 5, 1);
     await eaten(host, "6,1");
     step("guest pause does not freeze the host", true);
     await guest.keyboard.press("Escape");
-    await waitFor(guest, () => !window.__pacman.game.paused, "guest resumed");
+    await until(guest, (game) => !game.paused, "guest resumed");
     await eaten(guest, "6,1");
 
-    await host.evaluate(async () => {
-      const { PELLET_CELLS } = await import("/src/net/pellet-claims.ts");
-      const { game } = window.__pacman;
+    await host.evaluate(() => {
+      const hooks = window.__pacman;
 
-      for (const cell of PELLET_CELLS) {
+      if (hooks === undefined) {
+        throw new Error("window.__pacman is missing");
+      }
+
+      const { game } = hooks;
+
+      for (const cell of hooks.cells) {
         if (game.appliedEaten.has(cell)) {
           continue;
         }
@@ -407,16 +471,16 @@ const main = async () => {
         game.collectPellet();
       }
     });
-    await waitFor(host, () => window.__pacman.game.phase === "win", "host win");
-    await waitFor(guest, () => window.__pacman.game.phase === "win", "guest win");
+    await until(host, (game) => game.phase === "win", "host win");
+    await until(guest, (game) => game.phase === "win", "guest win");
     step("shared maze empties into a win on both", true);
     await guest.keyboard.press("r");
     await wait(400);
     const waiting = await snapshot(guest);
     step("guest R waits for the host", waiting.phase === "win");
     await host.keyboard.press("r");
-    await waitFor(host, () => window.__pacman.game.phase === "playing", "host rematch");
-    await waitFor(guest, () => window.__pacman.game.phase === "playing", "guest rematch");
+    await until(host, (game) => game.phase === "playing", "host rematch");
+    await until(guest, (game) => game.phase === "playing", "guest rematch");
     h = await snapshot(host);
     g = await snapshot(guest);
     step(

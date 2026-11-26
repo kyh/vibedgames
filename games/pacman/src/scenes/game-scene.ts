@@ -538,12 +538,12 @@ const scaredTint = (scared: boolean, blinkOut: boolean, own: number) => {
 };
 
 export class GameScene {
-  private paused = false;
+  paused = false;
   readonly scene = new THREE.Scene();
   readonly camera: THREE.PerspectiveCamera;
 
-  private phase: Phase = "title";
-  private pac: PacBody = {
+  phase: Phase = "title";
+  pac: PacBody = {
     dir: "right",
     isMoving: false,
     target: { x: PACMAN_SPAWN.col, z: PACMAN_SPAWN.row },
@@ -555,11 +555,11 @@ export class GameScene {
   private navDiagnostics = false;
   private pelletField: PelletField;
   private hearts = new Map<string, Heart>();
-  private score = 0;
+  score = 0;
   private best = 0;
   private ghostsChomped = 0;
 
-  private readonly net = joinRoom({
+  readonly net = joinRoom({
     fallbackMs: OFFLINE_FALLBACK_MS,
     limits: PAC_LIMITS,
     maxPlayers: MP_MAX_PLAYERS,
@@ -567,15 +567,15 @@ export class GameScene {
     onEvent: (event, payload, from) => this.handleNetEvent(event, payload, from),
     room: ROOM,
   });
-  private remotePacs: RemotePacs;
+  remotePacs: RemotePacs;
   private ownDrop = false;
-  private rivalIds: string[] = [];
+  rivalIds: string[] = [];
   private readonly netRate = new FixedRate(NET_TICK_HZ);
   private spawnCount = 0;
-  private boardRound = 0;
+  boardRound = 0;
   private boardSig = "";
-  private appliedEaten = new Set<string>();
-  private pellets = new PelletClaims<EatUndo>();
+  appliedEaten = new Set<string>();
+  pellets = new PelletClaims<EatUndo>();
   private claimsSeen: ClaimMap | null = null;
   private boardStale = true;
   private scaredBy: string | null = null;
@@ -617,7 +617,7 @@ export class GameScene {
   private fx: FxPool;
   private powerHalo: PowerHalo;
   private shaker = new TraumaCamera();
-  private t = 0;
+  t = 0;
   private fovKick = 0;
   private baseFov = BASE_FOV;
   private squashKick = 0;
@@ -637,7 +637,7 @@ export class GameScene {
 
   private scoreEl = el("score");
   private bestEl = el("best");
-  private statsEl = el("stats");
+  statsEl = el("stats");
   private chainEl = el("chain");
   private chainText = "";
   private bannerEl = el("banner");
@@ -1371,7 +1371,7 @@ export class GameScene {
     this.pelletField.reset(pearls);
   }
 
-  private pelletsLeft() {
+  pelletsLeft() {
     return this.pelletField.count + this.hearts.size;
   }
 
@@ -1722,7 +1722,7 @@ export class GameScene {
     return true;
   }
 
-  private collectPellet() {
+  collectPellet() {
     const col = Math.round(this.pac.x);
     const row = Math.round(this.pac.z);
     const cell = cellKey(col, row);

@@ -12,6 +12,7 @@ import { setAudioPaused, unlockAudio } from "./audio/sfx";
 import { FaceCamera } from "./input/face-camera";
 import type { FaceCameraState } from "./input/face-camera";
 import { IS_TOUCH } from "./input/input-mode";
+import { PELLET_CELLS, pelletClaimKey } from "./net/pellet-claims";
 import { pauseOverlay } from "./pause-overlay";
 import { GameScene } from "./scenes/game-scene";
 import type { GameDiagnostics } from "./scenes/game-scene";
@@ -351,18 +352,27 @@ if (import.meta.env.DEV || isPlaytestRequested()) {
   });
 }
 
+const devHooks = () => ({
+  cells: PELLET_CELLS,
+  chomp: () => {
+    game.onMouthChange(true);
+    game.onMouthChange(false);
+  },
+  claimKey: pelletClaimKey,
+  face,
+  game,
+  mouth: (open: boolean) => game.onMouthChange(open),
+  turnLeft: () => game.onHeadTurnLeft(),
+  turnRight: () => game.onHeadTurnRight(),
+});
+
+declare global {
+  interface Window {
+    /** DEV-only hooks tools/two-client.mts drives. */
+    __pacman?: ReturnType<typeof devHooks>;
+  }
+}
+
 if (import.meta.env.DEV) {
-  Object.assign(window, {
-    __pacman: {
-      chomp: () => {
-        game.onMouthChange(true);
-        game.onMouthChange(false);
-      },
-      face,
-      game,
-      mouth: (open: boolean) => game.onMouthChange(open),
-      turnLeft: () => game.onHeadTurnLeft(),
-      turnRight: () => game.onHeadTurnRight(),
-    },
-  });
+  window.__pacman = devHooks();
 }
