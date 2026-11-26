@@ -49,7 +49,11 @@
             "type": "command",
             "command": "[ \"$CLAUDE_CODE_REMOTE\" = \"true\" ] && cd \"$CLAUDE_PROJECT_DIR\" && { [ ! -x /opt/node24/bin/node ] || { export PATH=\"/opt/node24/bin:$PATH\"; [ -z \"$CLAUDE_ENV_FILE\" ] || echo 'export PATH=\"/opt/node24/bin:$PATH\"' >> \"$CLAUDE_ENV_FILE\"; }; } && pnpm install || true",
             "timeout": 600
-          },
+          }
+        ]
+      },
+      {
+        "hooks": [
           {
             "type": "command",
             "command": "sid=$(sed -n 's/.*\"session_id\" *: *\"\\([^\"]*\\)\".*/\\1/p' | cut -c1-8); [ -z \"$CLAUDE_ENV_FILE\" ] || echo \"export AGENT_BROWSER_SESSION=${sid:-$$}\" >> \"$CLAUDE_ENV_FILE\""
@@ -64,6 +68,16 @@
           {
             "type": "command",
             "command": "cd \"$(git rev-parse --show-toplevel)\" && pnpm exec ultracite fix --hook"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sid=$(sed -n 's/.*\"session_id\" *: *\"\\([^\"]*\\)\".*/\\1/p' | cut -c1-8); [ -z \"$sid\" ] || ! command -v agent-browser >/dev/null || agent-browser --session \"$sid\" close >/dev/null 2>&1 || true"
           }
         ]
       }
