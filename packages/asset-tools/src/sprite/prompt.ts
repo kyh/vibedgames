@@ -525,7 +525,6 @@ export const cellHeight = (p: PoseBoardPreset) => Math.floor(p.height / p.rows);
 export const totalCells = (p: PoseBoardPreset) => p.columns * p.rows;
 
 export const resolvePoseBoardPreset = (presetId: string | null) => {
-  // oxlint-disable-next-line unicorn/prefer-default-parameters -- null and "" both mean the default; a default parameter only covers undefined
   const resolved = presetId === null || presetId === "" ? "standard" : presetId;
   const preset = lookup(POSE_BOARD_PRESETS, resolved);
 

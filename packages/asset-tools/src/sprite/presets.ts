@@ -165,9 +165,7 @@ const presetOf = (actionId: string) => {
 export const canonicalProfiles = () =>
   Object.keys(PROFILES).filter((key) => !PROFILE_ALIASES.has(key));
 
-export const resolveProfile = (profileId: string | null) => {
-  // oxlint-disable-next-line unicorn/prefer-default-parameters -- null is a legal argument; a default parameter only covers undefined
-  const key = profileId ?? "platformer";
+export const resolveProfile = (key = "platformer") => {
   const profile = lookup(PROFILES, key);
 
   if (!profile) {
