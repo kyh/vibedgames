@@ -83,7 +83,7 @@ packages/
   asset-tools/ # Image + sprite-sheet logic bundled into the skills' scripts (@repo/asset-tools)
   recipes/     # ffmpeg / Blender / image-to-threejs recipes, run by the CLI and the media container (@repo/recipes)
   ui/          # Shared UI components (@repo/ui)
-plugins/       # The vibedgames Claude Code plugin (plugins/vibedgames/skills/*, one plugin, 42 skills)
+plugins/       # The vibedgames Claude Code plugin (plugins/vibedgames/skills/*, one plugin, 43 skills)
                # skills/* symlinked into .claude/skills/ for dogfooding
 ```
 
@@ -146,7 +146,7 @@ Skill docs resolve their scripts through a `SKILL` variable. Under Claude Code i
 ln -s "$PWD/plugins/vibedgames/skills/<name>" ~/.claude/skills/<name>
 ```
 
-Linked so far: `image-to-threejs`, `generate`. Do **not** bulk-link all 42 — `~/.claude/skills/` is the global namespace shared with `~/.agents/skills`, and a link shadows any same-named skill already there. Scripts still need their own runtime deps in the target project (`image-to-threejs` also wants `three`, `vite` and `playwright` there).
+Linked so far: `image-to-threejs`, `generate`. Do **not** bulk-link all 43 — `~/.claude/skills/` is the global namespace shared with `~/.agents/skills`, and a link shadows any same-named skill already there. Scripts still need their own runtime deps in the target project (`image-to-threejs` also wants `three`, `vite` and `playwright` there).
 
 ## Claude Code on the web (remote sessions)
 

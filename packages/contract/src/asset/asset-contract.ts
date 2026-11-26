@@ -112,7 +112,7 @@ export const assetContract = {
 
   optimize: asset(
     "Normalize, simplify and compress a 3D model",
-    `Makes a GLB game-ready in one pass: turns a z-up model y-up and yaws it to face +z, scales it to a height or size in metres, moves its pivot to its feet or centre, simplifies it to a triangle budget, removes duplicate and unused data, and quantizes and meshopt-compresses it (\`compress\`). \`strip_meshes\` keeps only the skeleton and animations, for clip files. Textures pass through unchanged. ${free} Backs \`vg asset optimize\`.`,
+    `Makes a GLB game-ready in one pass: turns a z-up model y-up and yaws it to face +z, scales it to a height or size in metres, moves its pivot to its feet or centre, simplifies it to a triangle budget, removes duplicate and unused data, and quantizes and meshopt-compresses it (\`compress\`). \`strip_meshes\` keeps only the skeleton and animations, for clip files. Textures pass through unchanged (\`asset texture-compress\` shrinks them). Run it on every model \`generate 3d\` or \`asset add-animations\` returns before the game loads it. ${free} Backs \`vg asset optimize\`.`,
   )
     .input(optimizeInput)
     .output(processed),

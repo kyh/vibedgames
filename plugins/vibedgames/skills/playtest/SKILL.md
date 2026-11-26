@@ -218,6 +218,7 @@ A diff catches a change; it can't tell you the frame was wrong to begin with. Fo
 - [ ] Deployed build playtested with `vg playtest --game <slug>`, not just localhost
 - [ ] Evidence is fresh: a new run id / output dir whenever code or assets changed — never relabel an old report as current evidence
 - [ ] Expected viewport/state pairs declared before capturing; a required capture that failed is listed as failed, not dropped
+- [ ] For a build anyone will see: `game-review`'s adversarial panel has run on it. These checks prove it plays; that skill decides whether it is good
 
 ## Bundled Resources
 

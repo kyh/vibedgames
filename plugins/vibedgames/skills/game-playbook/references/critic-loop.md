@@ -24,7 +24,9 @@ Fixes change every frame, so re-capture everything; partial sets are rejected.
 2. **Manifest** — `captures/MANIFEST.md`: file, commit, resolution, scene, matched ref.
 3. **Motion frames** — record video across a real run (boot/title, core loop,
    a hit, a win or fail, every HUD state), then slice 8–12 evenly spaced frames
-   to `captures/motion-NN.png` (e.g. `ffmpeg -i run.webm -vf fps=N`). Not live
+   to `captures/motion-NN.png` (`vg asset video-probe --video_url run.webm
+   --frames 0,90,180,... --out captures/motion`, which also reports the frame
+   count to space them by). Not live
    screenshots: a capture stalls the renderer while the clock runs, so it can
    hide flicker and popping (`playtest` → `references/canvas-determinism.md`;
    the recording command is in `vg playtest skills get core`).

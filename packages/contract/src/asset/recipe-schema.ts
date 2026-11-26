@@ -365,7 +365,7 @@ interface RecipeDefinition {
 export const RECIPES = {
   "add-animations": {
     description:
-      "Adds animations to a rigged character GLB. Clips of the same rig (e.g. one animate-3d run) are copied joint by joint; clips on another humanoid skeleton (Mixamo, SMPL, UE5, Meshy names, or a motion generator's FBX) are retargeted in Blender and baked. Returns the character with every animation in one file.",
+      "Adds animations to a rigged character GLB. Clips of the same rig (e.g. one animate-3d run) are copied joint by joint; clips on another humanoid skeleton (Mixamo, SMPL, UE5, Meshy names, or a motion generator's FBX) are retargeted in Blender and baked. Returns the character with every animation in one file. Takes the clips `generate animate-3d` returns, or a motion generator's FBX; follow with `asset optimize`.",
     title: "Add animations to a character",
     capSeconds: 300,
     image: "blender",
@@ -374,7 +374,7 @@ export const RECIPES = {
   },
   "audio-master": {
     description:
-      "Trims silence, fades the ends, normalises to a loudness target in two passes (integrated LUFS and true peak) and encodes Opus, MP3, AAC or WAV. Returns the input and output loudness.",
+      "Trims silence, fades the ends, normalises to a loudness target in two passes (integrated LUFS and true peak) and encodes Opus, MP3, AAC or WAV. Returns the input and output loudness. Run it on every take `generate sound`, `generate music` or `generate speech` returns before it ships, so one family plays at one level.",
     title: "Master an audio take",
     capSeconds: 30,
     image: "tools",
@@ -383,7 +383,7 @@ export const RECIPES = {
   },
   bake: {
     description:
-      "Bakes a normal map (and optionally ambient occlusion) from a high-poly GLB onto a low-poly GLB with UVs, in Blender, and returns the low-poly GLB with the maps applied.",
+      "Bakes a normal map (and optionally ambient occlusion) from a high-poly GLB onto a low-poly GLB with UVs, in Blender, and returns the low-poly GLB with the maps applied. Keeps a detailed `generate 3d` mesh's surface on a simplified copy (`asset optimize --target_triangles`); follow with `asset texture-compress`.",
     title: "Bake maps from a detailed model onto a game-ready one",
     capSeconds: 300,
     image: "blender",
@@ -392,7 +392,7 @@ export const RECIPES = {
   },
   "fbx-to-glb": {
     description:
-      "Imports an FBX or OBJ in Blender, armature and animations included, and exports a GLB.",
+      "Imports an FBX or OBJ in Blender, armature and animations included, and exports a GLB, for `asset inspect` and `asset optimize`. To put an FBX's animation on a character, give it to `asset add-animations` instead.",
     title: "Convert FBX or OBJ to GLB",
     capSeconds: 60,
     image: "blender",
@@ -401,7 +401,7 @@ export const RECIPES = {
   },
   "frames-to-video": {
     description:
-      "Encodes a tar of PNG or JPEG frames, in file-name order, as an H.264 MP4 at a fixed frame rate, with an optional audio track. For frame-stepped game captures.",
+      "Encodes a tar of PNG or JPEG frames, in file-name order, as an H.264 MP4 at a fixed frame rate, with an optional audio track. For frame-stepped game captures (the trailer skill's capture hooks); its MP4 feeds `asset trailer-render`.",
     title: "Encode a frame sequence as video",
     capSeconds: 120,
     image: "tools",
@@ -410,7 +410,7 @@ export const RECIPES = {
   },
   "image-to-threejs": {
     description:
-      "Runs one script of the image-to-threejs pipeline (pinned upstream version) on the files given, with the arguments given, and returns every file it wrote plus its output. The browser render step stays with the caller.",
+      "Runs one script of the image-to-threejs pipeline (pinned upstream version) on the files given, with the arguments given, and returns every file it wrote plus its output. The browser render step stays with the caller. The image-to-threejs skill gives the order of steps, starting from a `generate image` reference.",
     title: "Run an image-to-threejs pipeline step",
     capSeconds: 300,
     image: "blender",
@@ -419,7 +419,7 @@ export const RECIPES = {
   },
   render: {
     description:
-      "Renders a GLB in Blender from a preset camera, as a PNG still or a turntable MP4, framed by its bounds.",
+      "Renders a GLB in Blender from a preset camera, as a PNG still or a turntable MP4, framed by its bounds: look at a generated or optimized model before placing it, or make a store or thumbnail shot.",
     title: "Render a 3D model",
     capSeconds: 300,
     image: "blender",
@@ -429,7 +429,7 @@ export const RECIPES = {
 
   "texture-compress": {
     description:
-      "Resizes every texture of a GLB to fit a size and recompresses it as WebP, KTX2 (Basis), PNG or JPEG.",
+      "Resizes every texture of a GLB to fit a size and recompresses it as WebP, KTX2 (Basis), PNG or JPEG. Use it when `asset inspect` shows textures carry the bytes, or a model is over `asset optimize`'s size limit; then `asset optimize`.",
     title: "Resize and recompress a model's textures",
     capSeconds: 120,
     image: "tools",
@@ -438,7 +438,7 @@ export const RECIPES = {
   },
   "trailer-render": {
     description:
-      "Cuts clips from source videos into one edit with optional crossfades and a colour LUT, scales to one size and frame rate, lays a music bed under it, normalises loudness, and encodes H.264.",
+      "Cuts clips from source videos into one edit with optional crossfades and a colour LUT, scales to one size and frame rate, lays a music bed under it, normalises loudness, and encodes H.264. Clips come from game captures (`asset frames-to-video`) or `generate video`, the bed from `generate music`; `asset video-probe` finds the in and out points.",
     title: "Cut and mix a trailer",
     capSeconds: 300,
     image: "tools",
@@ -447,7 +447,7 @@ export const RECIPES = {
   },
   "video-probe": {
     description:
-      "Reports a video's (or an audio file's) duration, frame rate, frame count and size, its scene cuts, silences, duplicated frames and loudness, and exports chosen frames by index as PNG.",
+      "Reports a video's (or an audio file's) duration, frame rate, frame count and size, its scene cuts, silences, duplicated frames and loudness, and exports chosen frames by index as PNG. Check a `generate video` result or a capture with it before cutting a sheet or a trailer from it.",
     title: "Probe a video frame-accurately",
     capSeconds: 60,
     image: "tools",
@@ -456,7 +456,7 @@ export const RECIPES = {
   },
   "video-to-sheet": {
     description:
-      "Samples a video at a frame rate between two times and tiles the frames into one PNG sheet, with the cell size and count.",
+      "Samples a video at a frame rate between two times and tiles the frames into one PNG sheet, with the cell size and count. Takes an animation or effect `generate video` made (on black for additive effects, or on a flat background to remove); load the sheet with the cell size it reports.",
     title: "Turn a video into a sprite sheet",
     capSeconds: 30,
     image: "tools",
