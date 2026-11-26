@@ -108,6 +108,14 @@ pnpm verify   # typecheck · lint · format · test
 
 `pnpm test` runs each workspace's own suite: the `vg` CLI's units, the sims and smoke checks in all fourteen example games, `apps/web`'s content-negotiation / structured-data / page-content / OpenAPI / oRPC-handler units, the games and party workers under workerd, and the packages' units. Nothing in `verify` renders a web route, drives a browser or runs a procedure against a database (`packages/service`'s suites stop at middleware, auth config, and the generate and playtest proxies against a local stand-in upstream) — so a green `verify` is a floor, not proof. Drive the change: `vg playtest` for games (see the `playtest` skill), the recipe below for the web app.
 
+Runtime smoke — with `pnpm dev:web` running on a bootstrapped D1:
+
+```sh
+pnpm smoke    # sign-in by a code (and a foreign origin's refused), auth.me, credits.me, the seeded token, /mcp, sign-out
+```
+
+CI's `smoke` job runs the same against `pnpm -F @repo/web dev` on a fresh `pnpm bootstrap --yes`. `SMOKE_URL` points it elsewhere, but its code is minted in the local D1, so the signed-in steps run locally only.
+
 Runtime — the web app and the example games are both browser-reachable. `vg playtest` is the one browser driver (a passthrough to agent-browser; it installs itself and its browser on first use, so there is nothing to set up beyond `pnpm dogfood`). With `pnpm dev:web` running:
 
 ```sh

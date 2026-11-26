@@ -112,6 +112,7 @@ pnpm bootstrap        # .env from .env.example, init local D1 once, db:push + db
 pnpm dogfood          # Link local vg CLI + sync plugin skills into .claude/skills/
 pnpm dogfood:reset    # Unlink local vg CLI
 pnpm verify           # typecheck + lint + format + test (run before every commit)
+pnpm smoke            # Drive a running dev:web end to end: code sign-in, auth.me, credits, token, /mcp (CI runs it)
 ```
 
 ## Environment

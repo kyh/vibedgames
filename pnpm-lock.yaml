@@ -288,6 +288,9 @@ importers:
       '@libsql/client':
         specifier: ^0.18.0
         version: 0.18.0
+      '@orpc/client':
+        specifier: 'catalog:'
+        version: 2.0.0-beta.45
       '@repo/contract':
         specifier: workspace:*
         version: link:packages/contract
