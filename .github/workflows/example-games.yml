@@ -1,0 +1,107 @@
+# The bundled example games deploy to vibedgames itself, through `vg deploy`. The platform's
+# Workers (web, party, games) deploy from Cloudflare Workers Builds, not from here: AGENTS.md →
+# Deploys has their settings.
+name: Example games
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - games/**
+      - packages/**
+      - package.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - turbo.json
+      - .github/workflows/example-games.yml
+
+concurrency:
+  group: example-games-${{ github.ref }}
+
+permissions:
+  contents: read
+  checks: read
+
+env:
+  TURBO_TELEMETRY_DISABLED: 1
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/setup@v2
+        with:
+          runtime: node@24
+          cache: true
+
+      # Example games plus anything downstream of a changed package (@repo/embed,
+      # @vibedgames/gamepad, ...), as space-separated dirs; and whether the party Worker changed
+      - name: Detect changed games
+        id: changed
+        env:
+          BASE: ${{ github.event.before }}
+        run: |
+          if [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+            echo "games=$(ls -d games/*/ | tr '\n' ' ')" >> "$GITHUB_OUTPUT"
+            echo "party=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          games=$(pnpm turbo ls --filter="...[${BASE}]" | awk '$2 ~ /^games\// { printf "%s/ ", $2 }')
+          echo "games=${games}" >> "$GITHUB_OUTPUT"
+          if ! output=$(pnpm turbo ls --filter="@repo/party...[${BASE}]") || echo "$output" | grep -q "@repo/"; then
+            echo "party=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "party=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # A game may rely on what the party Worker's deploy of this commit adds (its host, a wire
+      # feature), so its Workers Build, a check run on this commit, finishes first. Skipped is
+      # fine; failed is not.
+      - name: Wait for the party Worker
+        if: steps.changed.outputs.games != '' && steps.changed.outputs.party == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          query='[.check_runs[] | select(.app.slug == "cloudflare-workers-and-pages" and (.name | contains("vibedgames-party")))][0] | "\(.status) \(.conclusion)"'
+          for attempt in $(seq 120); do
+            state=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/check-runs" --jq "$query")
+            case "$state" in
+              "completed success" | "completed skipped" | "completed neutral") exit 0 ;;
+              completed*) echo "::error::the party Worker's build ended $state"; exit 1 ;;
+              "null null") [ "$attempt" -ge 18 ] && { echo "::warning::no Workers Build of vibedgames-party on this commit"; exit 0; } ;;
+            esac
+            sleep 10
+          done
+          echo "::error::the party Worker's build did not finish in 20 minutes"
+          exit 1
+
+      - name: Build changed games and the CLI
+        if: steps.changed.outputs.games != ''
+        env:
+          GAMES: ${{ steps.changed.outputs.games }}
+        run: |
+          filters=""
+          for d in $GAMES; do
+            filters="$filters --filter=./$d"
+          done
+          pnpm turbo run build --filter=vibedgames $filters
+
+      - name: Deploy changed games
+        if: steps.changed.outputs.games != ''
+        env:
+          GAMES: ${{ steps.changed.outputs.games }}
+          VG_TOKEN: ${{ secrets.VG_TOKEN }}
+        run: |
+          failed=""
+          for d in $GAMES; do
+            node apps/cli/dist/index.js deploy "$d" || failed="$failed $d"
+          done
+          if [ -n "$failed" ]; then
+            echo "::error::deploy failed for:$failed"
+            exit 1
+          fi

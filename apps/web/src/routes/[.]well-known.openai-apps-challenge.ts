@@ -8,7 +8,7 @@ export const Route = createFileRoute("/.well-known/openai-apps-challenge")({
       GET: () => {
         const token = getCloudflareEnv().OPENAI_APPS_CHALLENGE;
 
-        if (!token) {
+        if (token === undefined || token === "") {
           return new Response("Not found", { status: 404 });
         }
 
