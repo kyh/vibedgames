@@ -534,6 +534,10 @@ export class Weapons {
       });
     }
 
+    this.muzzleSparks(w, nose, now, glow);
+  }
+
+  private muzzleSparks(w: Weapon, nose: Vec, now: number, glow: number) {
     const aimDeg = this.pilot.shipAngle / DEG;
 
     switch (w.sfx) {
@@ -641,7 +645,12 @@ export class Weapons {
         break;
       }
 
-      default: {
+      case "boom":
+      case "plasma":
+      case "pulse":
+      case "rapid":
+      case "scatter":
+      case "sentry": {
         this.fx.sparks(nose.x, nose.y, 3, w.tint, {
           angleMax: aimDeg + 15,
           angleMin: aimDeg - 15,
@@ -662,6 +671,11 @@ export class Weapons {
         });
         this.kick(2);
         break;
+      }
+
+      default: {
+        const unhandled: never = w.sfx;
+        throw new Error("unhandled case", { cause: unhandled });
       }
     }
   }

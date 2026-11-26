@@ -50,9 +50,11 @@ declare global {
 
 export const isTrailerMode = () => new URLSearchParams(window.location.search).has("trailer");
 
-const wait: (ms: number) => Promise<void> = async (ms) => {
-  const { promise, resolve } = Promise.withResolvers<void>();
-  setTimeout(resolve, ms);
+const wait = async (ms: number) => {
+  const { promise, resolve } = Promise.withResolvers<number>();
+  setTimeout(() => {
+    resolve(ms);
+  }, ms);
 
   await promise;
 };
@@ -177,13 +179,13 @@ export const runTrailer = (config: TrailerConfig) => {
     state.sceneIndex = index;
     state.t = 0;
 
-    const { promise, resolve } = Promise.withResolvers<void>();
+    const { promise, resolve } = Promise.withResolvers<"cut" | "done">();
     const start = performance.now();
     let last = start;
 
     const frame = (now: number) => {
       if (myGen !== generation) {
-        resolve();
+        resolve("cut");
 
         return;
       }
@@ -200,7 +202,7 @@ export const runTrailer = (config: TrailerConfig) => {
       last = now;
 
       if (t >= scene.duration) {
-        resolve();
+        resolve("done");
 
         return;
       }
@@ -213,24 +215,25 @@ export const runTrailer = (config: TrailerConfig) => {
     await promise;
   };
 
+  const playScenes: (index: number, myGen: number) => Promise<void> = async (index, myGen) => {
+    const scene = config.scenes[index];
+
+    if (scene === undefined) {
+      return;
+    }
+
+    await playScene(scene, index, myGen);
+
+    if (myGen === generation) {
+      await playScenes(index + 1, myGen);
+    }
+  };
+
   const playFrom = async (startIndex: number) => {
     generation += 1;
     const myGen = generation;
     state.done = false;
-
-    for (let i = startIndex; i < config.scenes.length; i += 1) {
-      const scene = config.scenes[i];
-
-      if (scene === undefined) {
-        break;
-      }
-
-      await playScene(scene, i, myGen);
-
-      if (myGen !== generation) {
-        return;
-      }
-    }
+    await playScenes(startIndex, myGen);
 
     if (myGen !== generation) {
       return;

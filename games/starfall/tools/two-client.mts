@@ -25,11 +25,10 @@ const untilArg = async <R, A>(
   arg: A,
   timeoutMs = 15_000,
 ) => {
-  const found = await poll(
-    async () => await page.evaluate(fn, arg),
-    (value) => Boolean(value),
-    { intervalMs: 100, timeoutMs },
-  );
+  const found = await poll(async () => await page.evaluate(fn, arg), Boolean, {
+    intervalMs: 100,
+    timeoutMs,
+  });
 
   if (found === null) {
     throw new Error(`timeout: ${label}`);
@@ -247,7 +246,7 @@ try {
     () => {
       const el = document.querySelector("#weapon-mastery");
 
-      return el instanceof HTMLElement && !el.hidden ? el.textContent : null;
+      return el instanceof HTMLElement && el.hidden === false ? el.textContent : null;
     },
     "guest mastery HUD",
   );

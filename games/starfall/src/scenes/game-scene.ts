@@ -91,8 +91,8 @@ const MULTIPLAYER_HOST = import.meta.env.DEV
 
 const ROOM_DEFAULT = "starfall-arena-v9";
 
-const ROOM =
-  (import.meta.env.DEV && new URLSearchParams(location.search).get("room")) || ROOM_DEFAULT;
+const ROOM_PARAM = import.meta.env.DEV ? new URLSearchParams(location.search).get("room") : null;
+const ROOM = ROOM_PARAM === null || ROOM_PARAM === "" ? ROOM_DEFAULT : ROOM_PARAM;
 
 const STARFALL_MAX_PLAYERS = 32;
 
@@ -198,7 +198,11 @@ export class GameScene extends Scene {
         this.restartSolo(seed);
       },
       setPaused: (paused) => {
-        paused ? this.freezeSim() : this.unfreezeSim();
+        if (paused) {
+          this.freezeSim();
+        } else {
+          this.unfreezeSim();
+        }
       },
     });
     this.starfield = new Starfield(this);
@@ -289,7 +293,9 @@ export class GameScene extends Scene {
 
     const pauseOverlay = createStarfallPauseOverlay({
       get: () => sfx.muted,
-      set: (next) => sfx.setMuted(next),
+      set: (next) => {
+        sfx.setMuted(next);
+      },
     });
 
     setPauseHandlers({
@@ -635,7 +641,7 @@ export class GameScene extends Scene {
     this.publishDiag();
   }
 
-  private onViewportChange() {
+  private readonly onViewportChange = () => {
     this.layers.safeInset = safeAreaInset();
 
     if (this.link.trailer) {
@@ -644,7 +650,7 @@ export class GameScene extends Scene {
 
     const zoom = PhaserMath.Clamp(this.scale.width / CAMERA_REF_WIDTH, CAMERA_MIN_ZOOM, 1);
     this.cameras.main.setZoom(zoom);
-  }
+  };
 
   private buildStartScreen() {
     this.startEl = document.querySelector("#start");

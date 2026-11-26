@@ -331,9 +331,7 @@ export class HostCombat {
       return;
     }
 
-    if (!cls) {
-      cls = rollLootClass();
-    }
+    cls ??= rollLootClass();
 
     if (feedPity) {
       for (const c of LOOT_CLASSES) {

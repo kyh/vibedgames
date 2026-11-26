@@ -124,11 +124,13 @@ export const installTestHooks = (hooks: {
       hooks.setPaused(paused);
     },
     setState(name: string) {
-      if (name === "active-play") {
-        hooks.activePlay();
+      const applies = name === "active-play";
 
-        return { state: name };
+      if (applies) {
+        hooks.activePlay();
       }
+
+      return applies ? { state: name } : undefined;
     },
   });
 };

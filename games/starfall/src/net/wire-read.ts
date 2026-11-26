@@ -22,11 +22,10 @@ export const wireNum = (v: WireValue | undefined) => {
   return n === v ? n : null;
 };
 
-export const wireStr = (v: WireValue | undefined) => {
-  const s = String(v);
+const isWireStr = (v: WireValue | undefined): v is string =>
+  Object.prototype.toString.call(v) === "[object String]";
 
-  return s === v ? s : null;
-};
+export const wireStr = (v: WireValue | undefined) => (isWireStr(v) ? v : null);
 
 const readShieldMod = (s: WireRecord) => {
   const kind = SHIELD_MOD_KINDS.find((k) => k === s.mod);
