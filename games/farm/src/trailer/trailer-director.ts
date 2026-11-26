@@ -235,8 +235,9 @@ const selectTool = (match: (item: Item) => boolean) => {
 };
 
 const clearFieldObjects = (gs: GameScene) => {
-  // oxlint-disable-next-line unicorn/no-useless-spread -- removeObject splices gs.world.objects, so the walk needs its own snapshot
-  for (const o of [...gs.world.objects]) {
+  const standing = [...gs.world.objects];
+
+  for (const o of standing) {
     if (o.type !== "tree" && o.type !== "rock" && o.type !== "forage") {
       continue;
     }

@@ -152,42 +152,40 @@ const till = async (page: Page) =>
 type ClipSample = [key: string | undefined, index: number | undefined];
 
 const sampleRemoteClip = async (page: Page) =>
-  await page.evaluate(
-    async () =>
-      // oxlint-disable-next-line promise/avoid-new -- runs inside the page; resolves from a setInterval, which has no promise form in the browser
-      await new Promise<{ samples: ClipSample[]; seeks: number }>((resolve, reject) => {
-        const [farmer] = window.__gs?.remoteFarmers?.farmers.values() ?? [];
+  await page.evaluate(async () => {
+    const { promise, resolve } = Promise.withResolvers<{ samples: ClipSample[]; seeks: number }>();
 
-        if (farmer === undefined) {
-          reject(new Error("no remote farmer"));
+    const [farmer] = window.__gs?.remoteFarmers?.farmers.values() ?? [];
 
-          return;
-        }
+    if (farmer === undefined) {
+      throw new Error("no remote farmer");
+    }
 
-        const { anims } = farmer.sprite;
-        const setCurrentFrame = anims.setCurrentFrame.bind(anims);
-        let seeks = 0;
-        anims.setCurrentFrame = (next) => {
-          if ((new Error("stack probe").stack ?? "").includes("seekClip")) {
-            seeks += 1;
-          }
+    const { anims } = farmer.sprite;
+    const setCurrentFrame = anims.setCurrentFrame.bind(anims);
+    let seeks = 0;
+    anims.setCurrentFrame = (next) => {
+      if ((new Error("stack probe").stack ?? "").includes("seekClip")) {
+        seeks += 1;
+      }
 
-          return setCurrentFrame(next);
-        };
+      return setCurrentFrame(next);
+    };
 
-        const samples: ClipSample[] = [];
+    const samples: ClipSample[] = [];
 
-        const id = setInterval(() => {
-          samples.push([anims.currentAnim?.key, anims.currentFrame?.index]);
+    const id = setInterval(() => {
+      samples.push([anims.currentAnim?.key, anims.currentFrame?.index]);
 
-          if (samples.length >= 45) {
-            clearInterval(id);
-            anims.setCurrentFrame = setCurrentFrame;
-            resolve({ samples, seeks });
-          }
-        }, 33);
-      }),
-  );
+      if (samples.length >= 45) {
+        clearInterval(id);
+        anims.setCurrentFrame = setCurrentFrame;
+        resolve({ samples, seeks });
+      }
+    }, 33);
+
+    return await promise;
+  });
 
 const swingAt = async (page: Page, tx: number, ty: number) => {
   await page.evaluate(
