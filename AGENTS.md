@@ -120,7 +120,7 @@ vg playtest click @e12                        # "Create key" — the list should
 vg playtest screenshot /tmp/after.png
 ```
 
-Each session gets its own browser: the SessionStart hook sets `AGENT_BROWSER_SESSION` to the session's id, and the SessionEnd hook closes every browser named after it. Subagents share that browser, so one driving a browser beside another passes `--session "$AGENT_BROWSER_SESSION-<task>"`. Locate by `snapshot -i` refs or `find role … --name`, never `find text`, which can match a hidden duplicate label. A background tab gets no animation frames, so menus won't open: `vg playtest tab keep live` fixes it.
+Each session gets its own browser: the SessionStart hook sets `AGENT_BROWSER_SESSION` to the session's id, and the SessionEnd hook closes every browser named after it. The SubagentStart hook tells each subagent a `--session` of its own, named after the session's, so SessionEnd closes those too. Locate by `snapshot -i` refs or `find role … --name`, never `find text`, which can match a hidden duplicate label. A background tab gets no animation frames, so menus won't open: `vg playtest tab keep live` fixes it.
 
 The auth form uses react-hook-form, so prefer the `data-test` attributes over positional refs for the two credential fields; everything else is reliable off `snapshot`.
 

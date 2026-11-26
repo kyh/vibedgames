@@ -77,7 +77,18 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sid=$(sed -n 's/.*\"session_id\" *: *\"\\([^\"]*\\)\".*/\\1/p' | cut -c1-8); [ -n \"$sid\" ] && command -v agent-browser >/dev/null && agent-browser session list 2>/dev/null | sed -n \"s/^ *\\($sid[^ ]*\\) *$/\\1/p\" | while read -r s; do agent-browser --session \"$s\" close >/dev/null 2>&1; done; true"
+            "command": "sid=$(sed -n 's/.*\"session_id\" *: *\"\\([^\"]*\\)\".*/\\1/p' | cut -c1-8); [ -n \"$sid\" ] && command -v agent-browser >/dev/null && agent-browser session list 2>/dev/null | sed -n \"s/^ *\\($sid[^ ]*\\) *$/\\1/p\" | while read -r s; do agent-browser --session \"$s\" close >/dev/null 2>&1; done; true",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "in=$(cat); sid=$(printf '%s' \"$in\" | sed -n 's/.*\"session_id\" *: *\"\\([^\"]*\\)\".*/\\1/p' | cut -c1-8); aid=$(printf '%s' \"$in\" | sed -n 's/.*\"agent_id\" *: *\"\\([^\"]*\\)\".*/\\1/p' | sed 's/^agent-//' | cut -c1-6); [ -z \"$sid\" ] || [ -z \"$aid\" ] || printf '{\"hookSpecificOutput\":{\"hookEventName\":\"SubagentStart\",\"additionalContext\":\"If you drive a browser, pass --session %s-%s to every agent-browser command, so you get a browser of your own.\"}}' \"$sid\" \"$aid\"; true"
           }
         ]
       }
