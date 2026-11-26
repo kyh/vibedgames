@@ -6,8 +6,8 @@
       "DOM",
       "DOM.Iterable"
     ],
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
+    "module": "Preserve",
+    "moduleResolution": "Bundler",
     "allowJs": true,
     "checkJs": false,
     "strict": true,
@@ -29,7 +29,8 @@
   },
   "include": [
     "skills/**/*.mjs",
-    "skills/**/*.ts"
+    "skills/**/*.ts",
+    "types/**/*.d.ts"
   ],
   "exclude": [
     "skills/**/_lib/**"
