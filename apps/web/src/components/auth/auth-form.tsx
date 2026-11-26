@@ -82,7 +82,7 @@ const CredentialsForm = ({
   });
 
   return (
-    <form ref={shakeScope} className="grid gap-2" onSubmit={handleAuthWithPassword}>
+    <form ref={shakeScope} method="post" className="grid gap-2" onSubmit={handleAuthWithPassword}>
       <FieldGroup className="gap-2">
         <Controller
           control={form.control}
@@ -305,7 +305,7 @@ export const RequestPasswordResetForm = () => {
   }
 
   return (
-    <form className="grid gap-4" onSubmit={handlePasswordReset}>
+    <form method="post" className="grid gap-4" onSubmit={handlePasswordReset}>
       <FieldGroup className="gap-4">
         <Controller
           control={form.control}
@@ -378,7 +378,7 @@ export const UpdatePasswordForm = ({ token }: { token: string }) => {
   });
 
   return (
-    <form className="grid gap-4" onSubmit={handleUpdatePassword}>
+    <form method="post" className="grid gap-4" onSubmit={handleUpdatePassword}>
       <FieldGroup className="gap-4">
         <Controller
           control={form.control}
