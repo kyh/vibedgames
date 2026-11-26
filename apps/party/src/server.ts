@@ -342,8 +342,7 @@ const readRoomCap = (ctx: ConnectionContext) => {
     return null;
   }
 
-  // oxlint-disable-next-line unicorn/prefer-number-coercion -- query string may carry trailing garbage; parseInt reads the leading digits, Number would give NaN
-  const parsed = Number.parseInt(raw, 10);
+  const parsed = Number(/^\s*\+?\d+/u.exec(raw)?.[0]);
 
   if (!Number.isFinite(parsed) || parsed <= 0) {
     return null;

@@ -951,6 +951,13 @@ export class MultiplayerClient {
     this._onTick = fn;
   }
 
+  /** Replace all three callbacks at once; a callback left out is cleared. */
+  setCallbacks(callbacks: Pick<MultiplayerOptions, "onClaim" | "onEvent" | "onTick">) {
+    this._onClaim = callbacks.onClaim;
+    this._onEvent = callbacks.onEvent;
+    this._onTick = callbacks.onTick;
+  }
+
   /**
    * Leave the room, if in one, and carry on as a local room of one — what
    * `fallbackMs` does when no room answers, and what a "play solo" button

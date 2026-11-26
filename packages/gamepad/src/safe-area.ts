@@ -4,8 +4,7 @@ const ZERO: Inset = { bottom: 0, left: 0, right: 0, top: 0 };
 
 let probe: HTMLElement | null = null;
 
-// oxlint-disable-next-line unicorn/prefer-number-coercion -- computed style is a CSS length like "34px"; Number() gives NaN
-const px = (length: string) => Number.parseFloat(length) || 0;
+const px = (length: string) => Number(length.replace(/px$/u, "")) || 0;
 
 /**
  * Read the device safe-area insets (`env(safe-area-inset-*)`) via a hidden

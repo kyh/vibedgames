@@ -69,28 +69,29 @@ const sendJson = (res: ServerResponse, status: number, body: JsonValue) => {
   res.end(payload);
 };
 
-const readBody = async (req: IncomingMessage, limitBytes = 8 * 1024 * 1024) =>
-  // oxlint-disable-next-line promise/avoid-new -- wraps the stream's event callbacks
-  await (new Promise((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    let total = 0;
-    req.on("data", (chunk: Buffer) => {
-      total += chunk.length;
+const readBody = async (req: IncomingMessage, limitBytes = 8 * 1024 * 1024) => {
+  const { promise, reject, resolve } = Promise.withResolvers<string>();
+  const chunks: Buffer[] = [];
+  let total = 0;
+  req.on("data", (chunk: Buffer) => {
+    total += chunk.length;
 
-      if (total > limitBytes) {
-        reject(new Error("Request body too large."));
-        req.destroy();
+    if (total > limitBytes) {
+      reject(new Error("Request body too large."));
+      req.destroy();
 
-        return;
-      }
+      return;
+    }
 
-      chunks.push(chunk);
-    });
-    req.on("end", () => {
-      resolve(Buffer.concat(chunks).toString("utf-8"));
-    });
-    req.on("error", reject);
-  }) satisfies Promise<string>);
+    chunks.push(chunk);
+  });
+  req.on("end", () => {
+    resolve(Buffer.concat(chunks).toString("utf-8"));
+  });
+  req.on("error", reject);
+
+  return await promise;
+};
 
 const tilesetSummary = (meta: TilesetMeta) => ({
   columns: meta.columns,

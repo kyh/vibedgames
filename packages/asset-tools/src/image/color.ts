@@ -75,22 +75,22 @@ export const parseColor: (input: string) => RGBA = (input) => {
       throw new Error(`Unrecognised colour: ${input}`);
     }
 
-    const channel = (raw: string) => {
-      // oxlint-disable-next-line unicorn/prefer-number-coercion -- CSS channels carry a `%` suffix, which Number() rejects
-      const n = raw.endsWith("%") ? (Number.parseFloat(raw) * 255) / 100 : Number.parseFloat(raw);
+    const scaled = (raw: string, whole: number) => {
+      const n = raw.endsWith("%") ? (Number(raw.slice(0, -1)) * whole) / 100 : Number(raw);
 
       if (Number.isNaN(n)) {
         throw new TypeError(`Unrecognised colour: ${input}`);
       }
 
-      return Math.max(0, Math.min(255, Math.round(n)));
+      return n;
     };
+
+    const channel = (raw: string) => Math.max(0, Math.min(255, Math.round(scaled(raw, 255))));
 
     const alpha =
       rawAlpha === undefined
         ? 255
-        : // oxlint-disable-next-line unicorn/prefer-number-coercion -- CSS alpha may carry a `%` suffix, which Number() rejects
-          Math.max(0, Math.min(255, Math.round(Number.parseFloat(rawAlpha) * 255)));
+        : Math.max(0, Math.min(255, Math.round(scaled(rawAlpha, 1) * 255)));
 
     return [channel(r), channel(g), channel(b), alpha];
   }

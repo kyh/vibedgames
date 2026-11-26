@@ -73,11 +73,7 @@ export const useMultiplayerRoom = <TShared extends JsonRecord = JsonRecord>(
 
   const { onClaim, onEvent, onTick } = config;
   useEffect(() => {
-    /* oxlint-disable react/immutability -- the client is a socket wrapper held in state only for its identity; reassigning its callback slots is the intended API */
-    client.onEvent = onEvent;
-    client.onClaim = onClaim;
-    client.onTick = onTick;
-    /* oxlint-enable react/immutability */
+    client.setCallbacks({ onClaim, onEvent, onTick });
   }, [client, onClaim, onEvent, onTick]);
 
   const subscribe = useCallback((listener: () => void) => client.subscribe(listener), [client]);
