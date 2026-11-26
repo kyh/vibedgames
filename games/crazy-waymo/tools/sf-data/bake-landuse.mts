@@ -178,7 +178,8 @@ const pitchClass = (t: OsmTags) => {
   return TURF_SPORT.has(t.sport ?? "") ? "turf" : "court";
 };
 
-const classOf = (t: OsmTags) => {  const natural = NATURAL_CLASS.get(t.natural ?? "");
+const classOf = (t: OsmTags) => {
+  const natural = NATURAL_CLASS.get(t.natural ?? "");
 
   if (natural !== undefined && natural !== "") {
     return natural;
@@ -437,7 +438,9 @@ for (let gx = 0; gx < GRID_X; gx += 1) {
   let hex = "";
 
   for (let gz = 0; gz < GRID_Z; gz += 1) {
-    hex += at(cls, gx * GRID_Z + gz).toString(16).padStart(2, "0");
+    hex += at(cls, gx * GRID_Z + gz)
+      .toString(16)
+      .padStart(2, "0");
   }
 
   cols.push(hex.replace(/(?:00)+$/u, ""));

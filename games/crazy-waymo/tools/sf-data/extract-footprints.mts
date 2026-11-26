@@ -1,7 +1,8 @@
 import { createReadStream, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 
-import { rdp, ringArea, WORLD_H, WORLD_W } from "./lib.mts";
+import { at, rdp, ringArea, WORLD_H, WORLD_W } from "./lib.mts";
+import type { Point } from "./lib.mts";
 
 const [objPath] = process.argv.slice(2);
 
@@ -13,13 +14,32 @@ if (objPath === undefined || objPath === "") {
 const ROAD_RE =
   /^highway_(?:motorway|trunk|primary|secondary|tertiary|residential|unclassified)(?:_link)?(?:_|$)/u;
 
-const vx: any[] = [];
+interface Comp {
+  faces: number[][];
+  maxX: number;
+  maxY: number;
+  maxZ: number;
+  minX: number;
+  minY: number;
+  minZ: number;
+}
+
+interface Building {
+  cx: number;
+  cz: number;
+  d: number;
+  h: number;
+  outline: Point[] | null;
+  w: number;
+}
+
+const vx: number[] = [];
 const vy: number[] = [];
-const vz: any[] = [];
+const vz: number[] = [];
 let curGroup: string | null = null;
 let curMtl = "";
-const buildingGroups = new Map();
-const roadVerts = [];
+const buildingGroups = new Map<string, number[][]>();
+const roadVerts: Point[] = [];
 let roadVertBudget = 0;
 
 const rl = createInterface({ crlfDelay: Infinity, input: createReadStream(objPath) });
@@ -51,7 +71,7 @@ rl.on("line", (l) => {
       return;
     }
 
-    const ids = [];
+    const ids: number[] = [];
 
     for (const part of l.slice(2).trim().split(/\s+/u)) {
       const s = part.includes("/") ? part.slice(0, part.indexOf("/")) : part;
@@ -67,7 +87,7 @@ rl.on("line", (l) => {
     if (isBuilding) {
       let g = buildingGroups.get(curGroup);
 
-      if (!g) {
+      if (g === undefined) {
         g = [];
         buildingGroups.set(curGroup, g);
       }
@@ -79,7 +99,7 @@ rl.on("line", (l) => {
 
       if (keep) {
         for (const id of ids) {
-          roadVerts.push([vx[id], vz[id]]);
+          roadVerts.push([at(vx, id), at(vz, id)]);
         }
       }
     }
@@ -91,22 +111,23 @@ rl.on("line", (l) => {
 });
 
 rl.on("close", () => {
-  const buildings = [];
+  const buildings: Building[] = [];
 
   for (const [, faces] of buildingGroups) {
-    const parent = new Map();
+    const parent = new Map<number, number>();
+    const parentOf = (x: number) => parent.get(x) ?? x;
 
-    const find = (start: any) => {
+    const find = (start: number) => {
       let r = start;
 
-      while (parent.get(r) !== r) {
-        r = parent.get(r);
+      while (parentOf(r) !== r) {
+        r = parentOf(r);
       }
 
       let a = start;
 
-      while (parent.get(a) !== r) {
-        const next = parent.get(a);
+      while (parentOf(a) !== r) {
+        const next = parentOf(a);
         parent.set(a, r);
         a = next;
       }
@@ -114,7 +135,7 @@ rl.on("close", () => {
       return r;
     };
 
-    const union = (a: any, b: any) => {
+    const union = (a: number, b: number) => {
       if (!parent.has(a)) {
         parent.set(a, a);
       }
@@ -133,17 +154,17 @@ rl.on("close", () => {
 
     for (const f of faces) {
       for (let i = 1; i < f.length; i += 1) {
-        union(f[0], f[i]);
+        union(at(f, 0), at(f, i));
       }
     }
 
-    const comps = new Map();
+    const comps = new Map<number, Comp>();
 
     for (const f of faces) {
-      const root = find(f[0]);
+      const root = find(at(f, 0));
       let c = comps.get(root);
 
-      if (!c) {
+      if (c === undefined) {
         c = {
           faces: [],
           maxX: -1e9,
@@ -159,9 +180,9 @@ rl.on("close", () => {
       c.faces.push(f);
 
       for (const id of f) {
-        const x = vx[id];
-        const y = vy[id];
-        const z = vz[id];
+        const x = at(vx, id);
+        const y = at(vy, id);
+        const z = at(vz, id);
 
         if (x < c.minX) {
           c.minX = x;
@@ -209,7 +230,7 @@ rl.on("close", () => {
   }
 
   console.log(`components: ${buildings.length} (${buildingGroups.size} tag groups)`);
-  const withOutline = buildings.filter((b) => b.outline).length;
+  const withOutline = buildings.filter((b) => b.outline !== null).length;
   console.log(
     `roof outlines recovered: ${withOutline} (${((withOutline / buildings.length) * 100).toFixed(1)}%)`,
   );
@@ -217,14 +238,14 @@ rl.on("close", () => {
   calibrateAndEmit(buildings);
 });
 
-const boundaryNext = (faces: any) => {
-  const edgeCount = new Map();
-  const edgeDir = new Map();
+const boundaryNext = (faces: readonly (readonly number[])[]) => {
+  const edgeCount = new Map<string, number>();
+  const edgeDir = new Map<string, Point>();
 
   for (const f of faces) {
     for (let i = 0; i < f.length; i += 1) {
-      const a = f[i];
-      const b = f[(i + 1) % f.length];
+      const a = at(f, i);
+      const b = at(f, (i + 1) % f.length);
 
       if (a === b) {
         continue;
@@ -239,7 +260,7 @@ const boundaryNext = (faces: any) => {
     }
   }
 
-  const next = new Map();
+  const next = new Map<number, number>();
 
   for (const [k, n] of edgeCount) {
     if (n !== 1) {
@@ -248,7 +269,7 @@ const boundaryNext = (faces: any) => {
 
     const dir = edgeDir.get(k);
 
-    if (dir) {
+    if (dir !== undefined) {
       next.set(dir[0], dir[1]);
     }
   }
@@ -256,17 +277,17 @@ const boundaryNext = (faces: any) => {
   return next;
 };
 
-const largestLoop = (next: Map<any, any>) => {
-  const seen = new Set();
-  let best = null;
+const largestLoop = (next: ReadonlyMap<number, number>) => {
+  const seen = new Set<number>();
+  let best: number[] | null = null;
 
   for (const start of next.keys()) {
     if (seen.has(start)) {
       continue;
     }
 
-    const loop = [];
-    let cur = start;
+    const loop: number[] = [];
+    let cur: number | undefined = start;
 
     while (cur !== undefined && !seen.has(cur)) {
       seen.add(cur);
@@ -274,7 +295,7 @@ const largestLoop = (next: Map<any, any>) => {
       cur = next.get(cur);
     }
 
-    if (cur === start && loop.length >= 3 && (!best || loop.length > best.length)) {
+    if (cur === start && loop.length >= 3 && (best === null || loop.length > best.length)) {
       best = loop;
     }
   }
@@ -282,17 +303,8 @@ const largestLoop = (next: Map<any, any>) => {
   return best;
 };
 
-const roofOutline = (c: {
-  faces: any[];
-  maxY: number;
-  maxX: number;
-  minX: number;
-  maxZ: number;
-  minZ: number;
-}) => {
-  const topFaces = c.faces.filter((f: any[]) =>
-    f.every((id: string | number) => vy[id] >= c.maxY - 0.75),
-  );
+const roofOutline = (c: Comp) => {
+  const topFaces = c.faces.filter((f) => f.every((id) => at(vy, id) >= c.maxY - 0.75));
 
   if (topFaces.length === 0) {
     return null;
@@ -306,11 +318,11 @@ const roofOutline = (c: {
 
   const best = largestLoop(next);
 
-  if (!best) {
+  if (best === null) {
     return null;
   }
 
-  const pts = best.map((id) => [vx[id], vz[id]]);
+  const pts = best.map<Point>((id) => [at(vx, id), at(vz, id)]);
   const area = Math.abs(ringArea(pts));
 
   if (area < 0.45 * (c.maxX - c.minX) * (c.maxZ - c.minZ)) {
@@ -323,21 +335,21 @@ const roofOutline = (c: {
 const CAL = { bx: 325.2, bz: -400.5, sx: 0.17829, sz: 0.17909 };
 const CAL_SY = 1 / (1.598 * 4.446);
 
-const ANCHORS = [
+const ANCHORS: readonly (readonly [string, number, number, number, number])[] = [
   ["Salesforce", 2458.4, -2088.9, 760, -770.1],
   ["Transamerica", 1809.9, -2842.1, 644.9, -907.7],
 ];
 
-const toWorld = ([x, z]) => [x * CAL.sx + CAL.bx, z * CAL.sz + CAL.bz];
+const toWorld: (p: Point) => Point = ([x, z]) => [x * CAL.sx + CAL.bx, z * CAL.sz + CAL.bz];
 
-const bboxRing = (b: { cx: number; w: number; cz: number; d: number }) => [
+const bboxRing: (b: Building) => Point[] = (b) => [
   [b.cx - b.w / 2, b.cz - b.d / 2],
   [b.cx + b.w / 2, b.cz - b.d / 2],
   [b.cx + b.w / 2, b.cz + b.d / 2],
   [b.cx - b.w / 2, b.cz + b.d / 2],
 ];
 
-const worldRing = (ring: [any, any][]) => {
+const worldRing = (ring: readonly Point[]) => {
   let world = ring.map(toWorld);
 
   if (ringArea(world) < 0) {
@@ -363,12 +375,13 @@ const worldRing = (ring: [any, any][]) => {
   return world;
 };
 
-const percentile = (arr: string | any[], t: number) =>
-  [...arr].toSorted((a, b) => a - b)[Math.floor(arr.length * t)];
+const percentile = (arr: readonly number[], t: number) =>
+  at(
+    arr.toSorted((a, b) => a - b),
+    Math.floor(arr.length * t),
+  );
 
-const calibrateAndEmit = (
-  buildings: { cx: number; cz: number; d: number; h: number; outline: any[][] | null; w: number }[],
-) => {
+const calibrateAndEmit = (buildings: readonly Building[]) => {
   for (const [name, mx, mz, wx, wz] of ANCHORS) {
     const [ax, az] = toWorld([mx, mz]);
     const err = Math.hypot(ax - wx, az - wz);
@@ -382,7 +395,7 @@ const calibrateAndEmit = (
     }
   }
 
-  const out = [];
+  const out: number[][] = [];
   let fromBbox = 0;
 
   for (const b of buildings) {
@@ -396,13 +409,13 @@ const calibrateAndEmit = (
       continue;
     }
 
-    if (!b.outline) {
+    if (b.outline === null) {
       fromBbox += 1;
     }
 
     const world = worldRing(b.outline ?? bboxRing(b));
 
-    if (!world) {
+    if (world === null) {
       continue;
     }
 
@@ -415,16 +428,16 @@ const calibrateAndEmit = (
     out.push(flat);
   }
 
-  out.sort((a, b) => b[0] - a[0]);
+  out.sort((a, b) => at(b, 0) - at(a, 0));
   console.log(`emitting ${out.length} footprints (${fromBbox} bbox fallbacks pre-filter)`);
 
-  const xs = [];
-  const zs = [];
+  const xs: number[] = [];
+  const zs: number[] = [];
 
   for (const f of out) {
     for (let i = 1; i < f.length; i += 2) {
-      xs.push(f[i]);
-      zs.push(f[i + 1]);
+      xs.push(at(f, i));
+      zs.push(at(f, i + 1));
     }
   }
 
