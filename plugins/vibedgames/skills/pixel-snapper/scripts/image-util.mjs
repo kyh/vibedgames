@@ -11,15 +11,15 @@ import {
   readImageSize,
 } from "./_lib/asset-tools.mjs";
 
-const parseSize = (text) => {
+const parseSize = (text = "") => {
   const match = /^(?<w>\d+)\s*x\s*(?<h>\d+)$/iu.exec(text.trim());
 
   if (!match) {
     failUsage(`--size must be WxH, e.g. 128x128 (got "${text}")`);
   }
 
-  const width = Number(match.groups?.w);
-  const height = Number(match.groups?.h);
+  const width = Number(match?.groups?.w);
+  const height = Number(match?.groups?.h);
 
   if (width < 1 || height < 1) {
     failUsage(`--size must be at least 1x1 (got "${text}")`);
@@ -28,27 +28,30 @@ const parseSize = (text) => {
   return { height, width };
 };
 
-const COMMANDS = {
-  resize(args) {
-    const [, input, output] = args.positionals;
+main(() => {
+  const args = parseArgs(process.argv.slice(2), {
+    values: ["factor", "size"],
+  });
 
-    if (!input || !output) {
+  const resize = () => {
+    const [, input = "", output = ""] = args.positionals;
+
+    if (input === "" || output === "") {
       failUsage("Usage: node image-util.mjs resize <in.png> <out.png> --size WxH");
     }
 
-    const spec = getString(args, "size");
+    const spec = getString(args, "size") ?? "";
 
-    if (!spec) {
+    if (spec === "") {
       failUsage("--size is required, e.g. --size 128x128");
     }
 
     const { width, height } = parseSize(spec);
-
     Bitmap.fromFile(input).resize(width, height, "lanczos").toFile(output);
     console.log(`${input} -> ${output} (${width}x${height}, lanczos)`);
-  },
+  };
 
-  size(args) {
+  const size = () => {
     const paths = args.positionals.slice(1);
 
     if (paths.length === 0) {
@@ -56,24 +59,20 @@ const COMMANDS = {
     }
 
     for (const path of paths) {
-      const size = readImageSize(path);
-
-      if (!size) {
-        fail(`could not read image dimensions: ${path}`);
-      }
+      const dims = readImageSize(path) ?? fail(`could not read image dimensions: ${path}`);
 
       console.log(
         paths.length === 1
-          ? `${size.width}x${size.height}`
-          : `${size.width}x${size.height}\t${path}`,
+          ? `${dims.width}x${dims.height}`
+          : `${dims.width}x${dims.height}\t${path}`,
       );
     }
-  },
+  };
 
-  upscale(args) {
-    const [, input, output] = args.positionals;
+  const upscale = () => {
+    const [, input = "", output = ""] = args.positionals;
 
-    if (!input || !output) {
+    if (input === "" || output === "") {
       failUsage("Usage: node image-util.mjs upscale <in.png> <out.png> --factor 8");
     }
 
@@ -88,19 +87,17 @@ const COMMANDS = {
     console.log(
       `${input} -> ${output} (${image.width * factor}x${image.height * factor}, x${factor} nearest)`,
     );
-  },
-};
+  };
 
-main(() => {
-  const args = parseArgs(process.argv.slice(2), {
-    values: ["factor", "size"],
-  });
+  const run = new Map([
+    ["resize", resize],
+    ["size", size],
+    ["upscale", upscale],
+  ]).get(args.positionals[0] ?? "");
 
-  const run = COMMANDS[args.positionals[0]];
-
-  if (!run) {
+  if (run === undefined) {
     failUsage("Usage: node image-util.mjs <size|upscale|resize> ...");
   }
 
-  run(args);
+  run?.();
 });

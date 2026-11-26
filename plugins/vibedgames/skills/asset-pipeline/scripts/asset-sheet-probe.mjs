@@ -12,23 +12,21 @@ import {
   writeJsonFile,
 } from "./_lib/asset-tools.mjs";
 
-const format = (pairs) => `[${pairs.map(([c, r]) => `(${c}, ${r})`).join(", ")}]`;
-
 main(() => {
   const args = parseArgs(process.argv.slice(2), {
     booleans: ["list", "show-empty"],
     values: ["frame", "json"],
   });
 
-  const [target] = args.positionals;
+  const [target = ""] = args.positionals;
 
-  if (!target) {
+  if (target === "") {
     failUsage("A PNG file or folder path is required.");
   }
 
-  const frameSpec = getString(args, "frame");
+  const frameSpec = getString(args, "frame") ?? "";
 
-  if (!frameSpec) {
+  if (frameSpec === "") {
     failUsage("--frame is required, e.g. --frame 32x32");
   }
 
@@ -44,17 +42,17 @@ main(() => {
     );
 
     if (getFlag(args, "list")) {
-      console.log(`  non_empty=${format(result.non_empty)}`);
+      console.log(`  non_empty=[${result.non_empty.map(([c, r]) => `(${c}, ${r})`).join(", ")}]`);
     }
 
     if (showEmpty) {
-      console.log(`  empty=${format(result.empty ?? [])}`);
+      console.log(`  empty=[${(result.empty ?? []).map(([c, r]) => `(${c}, ${r})`).join(", ")}]`);
     }
   }
 
-  const json = getString(args, "json");
+  const json = getString(args, "json") ?? "";
 
-  if (json) {
+  if (json !== "") {
     writeJsonFile(json, results);
   }
 });

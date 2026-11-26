@@ -4,7 +4,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 
 import { getFlag, MARKER, normalizeFactory, parseArgs } from "./_lib/asset-tools.mjs";
 
-const oneDecimal = (value) => {
+const oneDecimal = (value = 0) => {
   const scaled = value * 10;
   const floor = Math.floor(scaled);
   const diff = scaled - floor;
@@ -17,7 +17,7 @@ const oneDecimal = (value) => {
   return (rounded / 10).toFixed(1);
 };
 
-const assert = (condition, message) => {
+const assert = (condition = false, message = "") => {
   if (!condition) {
     process.stderr.write(`${message}\n`);
     process.exit(1);
