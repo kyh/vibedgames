@@ -20,7 +20,7 @@ Liveness: `curl -s -o /dev/null -w '%{http_code}' localhost:5173/auth/login` →
 One file, two consumers. Everything lives in the repo-root `.env`; template is `.env.example`.
 
 | Consumer | Reaches it via | Holds |
-| ------------------------------------------------ | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- | ------------------------------ |
+| ------------------------------------------------ | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- | ------------------------------ | ------------------------------ |
 | drizzle-kit, the cf CLI | `process.env`, loaded by each package's `with-env` (dotenv-cli) | `CLOUDFLARE_ACCOUNT_ID` / `_DATABASE_ID` / `_D1_TOKEN` / `_API_TOKEN` |
 | the dev Worker, via the Cloudflare `env` binding | `bindings.secret()` in `apps/web/cloudflare.config.ts` | `BETTER_AUTH_SECRET`, `FAL_API_KEY`, `TYPESAFE_API_KEY`, `STRIPE_*`, `GITHUB_*`, `GOOGLE_*`, `RESEND_API_KEY` |
 
@@ -35,7 +35,7 @@ Do not reintroduce `apps/web/.dev.vars`. The dev server prefers it and stops rea
 `pnpm db:seed-local` applies `packages/db/seed.sql` to the local D1. It creates:
 
 | Identity | Use |
-| ------------------------------------ | ------------------------------------------------------------------------- | ------------------------------ |
+| ------------------------------------ | ------------------------------------------------------------------------- | ------------------------------ | ------------------------------ |
 | `user@vibedgames.com` | browser login, regular user |
 | `admin@vibedgames.com` | browser login, admin (`/admin`: users and credit codes) |
 | `dev-local-session-token-0000000000` | long-lived bearer token for the CLI and raw HTTP |
@@ -139,7 +139,7 @@ Six flows cover all ten `useMutation` sites in the app: `/settings` (create + re
 ## Platform matrix
 
 | Surface | Dev command | Where | Agent-verifiable at runtime? |
-| ------------- | ----------------------------- | -------------------------- | ---------------------------------------------------- | ------------------------------ |
+| ------------- | ----------------------------- | -------------------------- | ---------------------------------------------------- | ------------------------------ | ------------------------------ |
 | Web app | `pnpm dev:web` | `:5173` | **Yes** — `vg playtest`, or curl for the API routes |
 | `vg` CLI | `pnpm dogfood` | `vg` on PATH | **Yes** — `VG_API_URL` + `VG_TOKEN`, `--json` output |
 | Party (DO) | `pnpm dev:party` | `:8787` (`cf dev` default) | Partly — WebSocket protocol, no UI |
@@ -165,14 +165,14 @@ For the surfaces marked No, `pnpm typecheck` and `pnpm build` are the gate; a re
 
 ## Deploys
 
-Each platform Worker is connected to this repo with Cloudflare Workers Builds (the Worker → **Settings** → **Builds**). A push to `main` builds and deploys production; a push to any other branch builds a Worker Preview named for the branch, whose URLs Cloudflare posts on the PR, beside a check run per Worker. web and party are on Worker Previews (Cloudflare's one-way switch from the old branch builds is done for both). Nothing deploys a Worker from GitHub Actions. Production runs package scripts; the Preview command must invoke `npx cf previews deploy` or `npx wrangler preview` itself, so it spells out what the `deploy:preview` scripts run (the default `npx wrangler preview` needs a Wrangler file, which this repo has none of). Keep the two in step. The dashboard holds only these:
+Each platform Worker is connected to this repo with Cloudflare Workers Builds (the Worker → **Settings** → **Builds**). A push to `main` builds and deploys production; a push to any other branch builds a Worker Preview of web, named for the branch, whose URLs Cloudflare posts on the PR beside its check run. Only web builds Previews. web and party are on Worker Previews (Cloudflare's one-way switch from the old branch builds is done for both), but party's preview builds are off: web never connects to party and every game hardcodes `https://party.vibedgames.com`, so nothing would reach a party Preview; its integration tests in CI cover it. Nothing deploys a Worker from GitHub Actions. Production runs package scripts; the Preview command must invoke `npx cf previews deploy` or `npx wrangler preview` itself, so it spells out what web's `deploy:preview` script runs (the default `npx wrangler preview` needs a Wrangler file, which this repo has none of). Keep the two in step. The dashboard holds only these:
 
 | Setting                     | `vibedgames-web`                                                                                                | `vibedgames-party`                                              | `vibedgames-games`                                                                         | `vibedgames-media`                                          |
 | --------------------------- | --------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------ | ----------------------------------------------------------- |
 | Root directory              | `/`                                                                                                             | `/`                                                             | `/`                                                                                        | `/`                                                         |
 | Build command               | `pnpm turbo run build --filter=@repo/web^...`                                                                   | `pnpm turbo run build --filter=@repo/party^...`                 | `pnpm turbo run build --filter=@repo/games^...`                                            | `pnpm turbo run build --filter=@repo/media...`              |
 | Deploy command              | `pnpm -F @repo/web run deploy`                                                                                  | `pnpm -F @repo/party run deploy`                                | `pnpm -F @repo/games run deploy`                                                           | `pnpm -F @repo/media run deploy`                            |
-| Preview command             | `pnpm -F @repo/db push:preview && cd apps/web && npx cf previews deploy`                                        | `cd apps/party && npx cf previews deploy`                       | off: it routes by `{slug}.vibedgames.com`, so a Preview URL has no slug and serves nothing | off: web's Previews have no `MEDIA_JOBS` binding            |
+| Preview command             | `pnpm -F @repo/db push:preview && cd apps/web && npx cf previews deploy`                                        | off: nothing connects to a party Preview (see above)            | off: it routes by `{slug}.vibedgames.com`, so a Preview URL has no slug and serves nothing | off: web's Previews have no `MEDIA_JOBS` binding            |
 | Build watch paths (include) | `apps/web/*`, `packages/contract/*`, `packages/db/*`, `packages/embed/*`, `packages/service/*`, `packages/ui/*` | `apps/party/*`, `packages/contract/*`, `packages/multiplayer/*` | `apps/games/*`, `packages/contract/*`, `packages/db/*`                                     | `apps/media/*`, `packages/contract/*`, `packages/recipes/*` |
 
 Every Worker also watches `package.json`, `pnpm-lock.yaml`, `pnpm-workspace.yaml` and `turbo.json`: the watch paths are each Worker's workspace dependencies (`pnpm turbo ls --filter=@repo/<app>...`), so a package added to one is added there too. `run` matters: `pnpm deploy` is pnpm's own command. The build command builds the workspace packages only; `cf deploy` and `cf previews deploy` build the Worker itself (a Preview with `isPreview`, which binds `vibedgames-preview` and `vibedgames-games-preview`). Node and pnpm come from `engines` and `packageManager`.
