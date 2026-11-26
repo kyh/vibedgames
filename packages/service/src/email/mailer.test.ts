@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { consoleMailer, EMAIL_FROM, mailerOf, resendMailer } from "./mailer";
-import { passwordResetEmail } from "./templates";
+import { confirmEmailCode, signInCodeEmail } from "./templates";
 
 const recorder = (response: Response) => {
   const calls: Request[] = [];
@@ -47,12 +47,12 @@ test("resendMailer throws Resend's refusal so the request fails loudly", async (
   );
 });
 
-test("the reset email carries the link, escaped in HTML", () => {
-  const url = "https://vibedgames.com/api/auth/reset-password/tok?callbackURL=/a&b=<x>";
-  const email = passwordResetEmail(url);
-  assert.ok(email.text.includes(url));
-  assert.ok(email.html.includes("callbackURL=/a&amp;b=&lt;x&gt;"));
-  assert.ok(!email.html.includes("<x>"));
+test("the code emails carry the code in the subject and both bodies", () => {
+  for (const email of [signInCodeEmail("482913"), confirmEmailCode("482913")]) {
+    assert.ok(email.subject.startsWith("482913 "));
+    assert.ok(email.text.includes("482913"));
+    assert.ok(email.html.includes("482913"));
+  }
 });
 
 test("mailerOf sends through Resend whenever a key is set, local or not", async () => {

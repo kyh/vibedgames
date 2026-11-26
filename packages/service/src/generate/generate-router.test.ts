@@ -89,6 +89,7 @@ const contextAs: (role: string) => ORPCContext = (role) => ({
       updatedAt: now,
     },
   },
+  sendsEmail: false,
   signing: undefined,
 });
 

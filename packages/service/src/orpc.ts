@@ -71,6 +71,8 @@ export interface CreateORPCContextOptions {
   billing?: BillingConfig;
   /** The media Worker's service binding that runs hosted recipe jobs; unset where there is none (Previews). */
   mediaJobs?: MediaJobs;
+  /** Whether this deployment delivers email, so an unconfirmed address can be asked to confirm with a code. */
+  sendsEmail?: boolean;
   /**
    * The protected resource this request is for (`oauth-resources.ts`): an
    * OAuth access token is accepted only when it was issued for it. Unset, no
@@ -93,6 +95,7 @@ export const createORPCContext = async (opts: CreateORPCContextOptions) => {
     oauthScopes,
     productionURL: opts.productionURL,
     r2: opts.r2,
+    sendsEmail: opts.sendsEmail ?? false,
     session,
     signing: opts.signing,
   };

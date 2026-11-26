@@ -64,6 +64,7 @@ const contextAs: (
   productionURL: undefined,
   r2: undefined,
   session,
+  sendsEmail: false,
   signing: undefined,
 });
 

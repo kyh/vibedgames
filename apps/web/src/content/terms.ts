@@ -33,7 +33,7 @@ export const termsDoc: Doc = {
           `1.1 **Creating an Account.** Some features of the Site may require you to register for an account. When you register, you agree to provide accurate and complete information and to keep that information current. You can delete your account at any time by emailing us at ${mail} from the email address on your account. We may suspend or terminate your account as described in Section 8.`,
         ),
         p(
-          "1.2 **Account Security.** You are responsible for keeping your login credentials confidential and for all activity that occurs under your account. Your login credentials include your password, the login the `vg` CLI saves on your computer and any API keys you create; revoke a key as soon as you think it has leaked. If you believe your account has been accessed without your authorization, please notify us immediately. We are not liable for any losses resulting from your failure to keep your credentials secure.",
+          "1.2 **Account Security.** You are responsible for keeping your login credentials confidential and for all activity that occurs under your account. Your login credentials include the email account that receives your sign-in codes, the login the `vg` CLI saves on your computer and any API keys you create; revoke a key as soon as you think it has leaked. If you believe your account has been accessed without your authorization, please notify us immediately. We are not liable for any losses resulting from your failure to keep your credentials secure.",
         ),
       ],
       heading: "1. Accounts",

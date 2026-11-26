@@ -74,7 +74,7 @@ pnpm dev                               # http://localhost:5173
 
 `pnpm bootstrap` copies `.env.example` to `.env` if missing, boots the dev Worker
 once to create the local Miniflare D1 if it doesn't exist, then runs `db:push` and
-`db:seed-local`. It is local-only and idempotent. Seeded login: `user@vibedgames.com` / `password123`.
+`db:seed-local`. It is local-only and idempotent. Seeded login: `user@vibedgames.com`, with a code from `pnpm sign-in-code`.
 Full agent-oriented guide, including headless auth: [AGENTS.md](./AGENTS.md).
 
 ## Common commands

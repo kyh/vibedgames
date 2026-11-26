@@ -34,7 +34,7 @@ export const resendMailer =
     }
   };
 
-/** Local dev without a key: the message, link included, lands in the dev server's log. */
+/** Local dev without a key: the message, code included, lands in the dev server's log. */
 export const consoleMailer: Mailer = async (email) => {
   console.info(`[email] to ${email.to}: ${email.subject}\n${email.text}`);
 
@@ -43,7 +43,7 @@ export const consoleMailer: Mailer = async (email) => {
 
 /** What a deployment without a key logs once, in place of every email it cannot send. */
 export const NO_EMAIL_WARNING =
-  "[email] RESEND_API_KEY is unset: this deployment sends no email, so password reset is refused and email verification is skipped.";
+  "[email] RESEND_API_KEY is unset: this deployment sends no email, so sign-in by email code is refused and confirming an address is skipped.";
 
 interface MailerSettings {
   apiKey: string | undefined;
@@ -54,7 +54,7 @@ interface MailerSettings {
 
 /**
  * Resend when a key is set; without one, the log on the local dev server and
- * nothing anywhere else, since a logged reset link is a live login.
+ * nothing anywhere else, since a logged sign-in code is a live login.
  */
 export const mailerOf = ({ apiKey, local, fetch: send }: MailerSettings) => {
   if (apiKey !== undefined && apiKey !== "") {

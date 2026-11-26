@@ -115,6 +115,7 @@ const contextAs = (userId: string, withMedia = true) => {
     oauthScopes: null,
     productionURL: undefined,
     r2: undefined,
+    sendsEmail: false,
     session: {
       session: {
         createdAt: now,

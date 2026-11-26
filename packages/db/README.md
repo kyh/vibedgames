@@ -23,8 +23,8 @@ Edit schema → `pnpm db:push` → restart `dev:web` if the change doesn't show.
 
 ## Seed data (`seed.sql`)
 
-- `user@vibedgames.com` / `password123` — regular user (browser login)
-- `admin@vibedgames.com` / `password123` — admin, owns the sample games
+- `user@vibedgames.com` — regular user (browser login: `pnpm sign-in-code` prints a code)
+- `admin@vibedgames.com` — admin, owns the sample games (`pnpm sign-in-code admin@vibedgames.com`)
 - `dev@vibedgames.local` — bearer-token identity (role `admin`)
 - long-lived session token `dev-local-session-token-0000000000`
 - invite code `DEV123`, unlimited uses

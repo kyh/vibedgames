@@ -19,6 +19,5 @@ export const grantCreditsInput = z.object({
 export const createUserInput = z.object({
   email: z.email(),
   name: z.string().trim().min(1).max(100),
-  password: z.string().min(8),
   role: z.enum(["user", "admin"]).default("user"),
 });
