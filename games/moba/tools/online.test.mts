@@ -219,7 +219,7 @@ const streamHost = (world: World, clock: ServerClock) => {
 
   return {
     acks,
-    frame: (now: number | undefined) => {
+    frame: (now: number) => {
       acc += FRAME_MS;
       const stampNow = clock.now(now);
 
@@ -227,7 +227,11 @@ const streamHost = (world: World, clock: ServerClock) => {
         acc -= STEP_MS;
         step(world, SIM_DT);
 
-        const rows = [...acks].map(([id, a]) => [id, a.seq, Math.round(world.now - a.at)]);
+        const rows = [...acks].map<[string, number, number]>(([id, a]) => [
+          id,
+          a.seq,
+          Math.round(world.now - a.at),
+        ]);
 
         const t = Math.round(stampNow - acc);
         stamps.push(t);
@@ -239,7 +243,7 @@ const streamHost = (world: World, clock: ServerClock) => {
       }
     },
     guests,
-    keyframe: (now: number | undefined) => {
+    keyframe: (now: number) => {
       const snapAt = Math.round(clock.now(now));
       encoder.reset(world);
 

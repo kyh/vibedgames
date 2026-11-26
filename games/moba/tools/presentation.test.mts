@@ -425,7 +425,7 @@ test("route selection is stable across snapshot order and ignores protected/neut
   }
 
   assert.notEqual(objectiveGuidance(world, player)?.targetId, ancient.id);
-  assert.equal(objectiveGuidance(world), null);
+  assert.equal(objectiveGuidance(world, undefined), null);
   assert.equal(objectiveGuidance(world, ancient), null, "unassigned spectator is not a hero");
 });
 
@@ -707,7 +707,13 @@ test("malformed cast actors from older or hostile peers are stripped, valid ones
 
   assert.equal(batch.length, 5);
   assert.deepEqual(
-    batch.map((event) => (event.t === "cast" ? (event.actor ?? null) : event.t)),
+    batch.map((event) => {
+      if (event.t !== "cast") {
+        return event.t;
+      }
+
+      return "actor" in event ? event.actor : null;
+    }),
     [{ at: 1234, unitId: "h-a" }, null, null, null, null],
   );
 });

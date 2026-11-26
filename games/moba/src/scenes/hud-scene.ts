@@ -150,8 +150,8 @@ export class HudScene extends Scene {
   private xpFill: Phaser.GameObjects.Rectangle | null = null;
   private xpText: Phaser.GameObjects.Text | null = null;
   private guide: AbilityGuide | null = null;
-  private banner!: AnnouncementBanner;
-  private result: ResultCard | null = null;
+  banner!: AnnouncementBanner;
+  result: ResultCard | null = null;
   private objectiveText: Phaser.GameObjects.Text | null = null;
   private respawnTipText: Phaser.GameObjects.Text | null = null;
   private guidanceNextAt = 0;

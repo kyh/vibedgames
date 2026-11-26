@@ -189,7 +189,7 @@ export class GameScene extends Scene {
 
   private online = false;
   private unreachable = false;
-  private net: MultiplayerClient | null = null;
+  net: MultiplayerClient | null = null;
   private picks: Record<string, string> = {};
   private assign: Record<string, OnlineSeat> = {};
   private joinedSelf = false;
@@ -2055,66 +2055,76 @@ export class GameScene extends Scene {
     };
   }
 
-  private installDebug() {
-    Object.assign(window, {
-      __moba: {
-        cast: (key: AbilityKey, point?: { x: number; y: number }, targetId?: string) => {
-          const me = this.player;
+  /** The handle tools/two-client.mts drives as `window.__moba`. */
+  debugHandle() {
+    return {
+      cast: (key: AbilityKey, point?: { x: number; y: number }, targetId?: string) => {
+        const me = this.player;
 
-          if (me) {
-            castAbility(this.world, me, { key, point, targetId });
-          }
-        },
-        encode: () => encodeWorld(this.world),
-        kill: (id: string) => {
-          const u = this.world.units.get(id);
-
-          if (!u) {
-            return;
-          }
-
-          if (u.structure) {
-            u.structure.attackable = true;
-          }
-
-          dealDamage(this.world, this.player ?? null, u, 1e9, "pure", {});
-        },
-        netcode: () => ({
-          correction: this.predictor?.correction ?? null,
-          predicted: this.predictor?.hero
-            ? { x: this.predictor.hero.x, y: this.predictor.hero.y }
-            : null,
-          synced: this.net?.serverClock.synced ?? false,
-        }),
-        online: () => {
-          const { net } = this;
-
-          return net
-            ? {
-                hostId: net.hostId,
-                id: net.playerId,
-                isHost: net.isHost,
-                players: Object.keys(net.players),
-                status: net.connectionStatus,
-              }
-            : null;
-        },
-        order: (o: Order) => {
-          const me = this.player;
-
-          if (me) {
-            issueOrder(this.world, me, o);
-          }
-        },
-        player: () => this.player,
-        scene: this,
-        step: (n: number) => {
-          for (let i = 0; i < n; i += 1) {
-            step(this.world, SIM_DT);
-          }
-        },
-        world: this.world,
+        if (me) {
+          castAbility(this.world, me, { key, point, targetId });
+        }
       },
-    });
+      encode: () => encodeWorld(this.world),
+      kill: (id: string) => {
+        const u = this.world.units.get(id);
+
+        if (!u) {
+          return;
+        }
+
+        if (u.structure) {
+          u.structure.attackable = true;
+        }
+
+        dealDamage(this.world, this.player ?? null, u, 1e9, "pure", {});
+      },
+      netcode: () => ({
+        correction: this.predictor?.correction ?? null,
+        predicted: this.predictor?.hero
+          ? { x: this.predictor.hero.x, y: this.predictor.hero.y }
+          : null,
+        synced: this.net?.serverClock.synced ?? false,
+      }),
+      online: () => {
+        const { net } = this;
+
+        return net
+          ? {
+              hostId: net.hostId,
+              id: net.playerId,
+              isHost: net.isHost,
+              players: Object.keys(net.players),
+              status: net.connectionStatus,
+            }
+          : null;
+      },
+      order: (o: Order) => {
+        const me = this.player;
+
+        if (me) {
+          issueOrder(this.world, me, o);
+        }
+      },
+      player: () => this.player,
+      scene: this,
+      step: (n: number) => {
+        for (let i = 0; i < n; i += 1) {
+          step(this.world, SIM_DT);
+        }
+      },
+      world: this.world,
+    };
+  }
+
+  private installDebug() {
+    window.__moba = this.debugHandle();
+  }
+}
+
+declare global {
+  interface Window {
+    /** DEV-only hook for headless verification. */
+    __moba?: ReturnType<GameScene["debugHandle"]>;
   }
 }

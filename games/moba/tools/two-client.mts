@@ -1,44 +1,33 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
 import path from "node:path";
+import { setTimeout as wait } from "node:timers/promises";
+
+import { flagValue, poll, startVite } from "@repo/smoke";
+import { EVICTION_TIMEOUT_MS, RECONNECT_GRACE_MS } from "@vibedgames/multiplayer";
 import { chromium } from "playwright-core";
+import type { Browser, BrowserContext, Page } from "playwright-core";
+
+import type { HudScene } from "../src/scenes/hud-scene.ts";
 
 const gameDir = path.resolve(import.meta.dirname, "..");
-const { EVICTION_TIMEOUT_MS, RECONNECT_GRACE_MS } = await import("@vibedgames/multiplayer");
 
-const wait = (ms) =>
-  // oxlint-disable-next-line no-promise-executor-return, promise/avoid-new -- setTimeout sleep has no promise form in the browser
-  new Promise((resolve) => setTimeout(resolve, ms));
-
-const urlArg = process.argv.indexOf("--url");
 const PORT = 5302;
 const room = `tc${process.pid.toString(36)}${Date.now().toString(36).slice(-4)}`;
-const errors = [];
+const errors: string[] = [];
 
-const startVite = async () => {
-  const child = spawn(
-    path.resolve(gameDir, "node_modules/.bin/vite"),
-    ["--port", String(PORT), "--strictPort"],
-    {
-      cwd: gameDir,
-      stdio: ["ignore", "pipe", "inherit"],
-    },
-  );
+interface Client {
+  context: BrowserContext;
+  name: string;
+  page: Page;
+}
 
-  // oxlint-disable-next-line promise/avoid-new -- wraps an event callback
-  await new Promise((resolve, reject) => {
-    child.stdout.on("data", (chunk) => {
-      if (String(chunk).includes("Local:")) {
-        resolve();
-      }
-    });
-    child.on("exit", (code) => reject(new Error(`vite exited ${code}`)));
-  });
-
-  return child;
-};
-
-const openClient = async (browser, base, name, hero, prepare) => {
+const openClient = async (
+  browser: Browser,
+  base: string,
+  name: string,
+  hero: string,
+  prepare?: (page: Page) => Promise<void>,
+) => {
   const context = await browser.newContext({ viewport: { height: 720, width: 1280 } });
   const page = await context.newPage();
   page.on("pageerror", (e) => errors.push(`${name}: ${e.message}`));
@@ -50,51 +39,64 @@ const openClient = async (browser, base, name, hero, prepare) => {
   await prepare?.(page);
   await page.goto(`${base}/?auto=1&online=1&room=${room}&hero=${hero}`);
 
-  return { context, name, page };
+  return { context, name, page } satisfies Client;
 };
 
-const until = async (page, predicate, label, { arg, timeout = 20_000 } = {}) => {
-  const started = Date.now();
-  let last;
+const until = async <T,>(read: () => Promise<T>, label: string, timeout = 20_000) => {
+  let last: T | null = null;
+  const found = await poll(
+    async () => {
+      last = await read();
 
-  while (Date.now() - started < timeout) {
-    last = await page.evaluate(predicate, arg);
-
-    if (last) {
       return last;
-    }
-
-    await wait(100);
-  }
-
-  throw new Error(`timeout: ${label} (last=${JSON.stringify(last)})`);
-};
-
-const online = (page) => page.evaluate(() => window.__moba.online());
-
-const joined = (client) =>
-  until(
-    client.page,
-    () => {
-      const o = window.__moba?.online();
-
-      return o?.status === "connected" && window.__moba.player() ? o.id : null;
     },
-    `${client.name} joined`,
-    { timeout: 45_000 },
+    (value) => Boolean(value),
+    { intervalMs: 100, timeoutMs: timeout },
   );
 
-const unitOf = (page, id) =>
-  page.evaluate((heroId) => {
-    const u = window.__moba.world.units.get(`h-${heroId}`);
+  if (found === null) {
+    throw new Error(`timeout: ${label} (last=${JSON.stringify(last)})`);
+  }
 
-    return u ? { alive: u.alive, hp: u.hp, q: u.hero.abilities.Q, x: u.x, y: u.y } : null;
+  return found;
+};
+
+const online = async (page: Page) => {
+  const o = await page.evaluate(() => window.__moba?.online() ?? null);
+
+  if (o === null) {
+    throw new Error("window.__moba is not online");
+  }
+
+  return o;
+};
+
+const joined = (client: Client) =>
+  until(
+    () =>
+      client.page.evaluate(() => {
+        const o = window.__moba?.online();
+
+        return o?.status === "connected" && window.__moba?.player() ? o.id : null;
+      }),
+    `${client.name} joined`,
+    45_000,
+  );
+
+const unitOf = (page: Page, id: string) =>
+  page.evaluate((heroId) => {
+    const u = window.__moba?.world.units.get(`h-${heroId}`);
+
+    return u ? { alive: u.alive, hp: u.hp, q: u.hero?.abilities.Q, x: u.x, y: u.y } : null;
   }, id);
 
-const seesUnit = (page, id, label) =>
-  until(page, (heroId) => !!window.__moba.world.units.get(`h-${heroId}`), label, { arg: id });
+const seesUnit = (page: Page, id: string, label: string) =>
+  until(
+    () => page.evaluate((heroId) => window.__moba?.world.units.has(`h-${heroId}`) === true, id),
+    label,
+  );
 
-const key = (page, type, name, keyCode, extra = {}) =>
+const key = (page: Page, type: string, name: string, keyCode: number, extra = {}) =>
   page.evaluate(
     (ev) =>
       window.dispatchEvent(
@@ -109,37 +111,50 @@ const key = (page, type, name, keyCode, extra = {}) =>
     { extra, key: name, keyCode, type },
   );
 
-const blip = async (client) => {
-  await client.page.evaluate(() => window.__moba.scene.net.socket.close(4000));
+const blip = async (client: Client) => {
+  await client.page.evaluate(() => window.__moba?.scene.net?.dropConnection(4000));
   await until(
-    client.page,
-    () => window.__moba.scene.connectionNotice?.text === "RECONNECTING…",
+    () =>
+      client.page.evaluate(() => window.__moba?.scene.connectionNotice?.text === "RECONNECTING…"),
     `${client.name} shows reconnecting`,
   );
 };
 
-const reconnect = async (client) => {
-  await client.page.evaluate(() => window.__moba.scene.net.socket.reconnect());
-  await until(
-    client.page,
-    () => window.__moba.online().status === "connected" && !window.__moba.scene.connectionNotice,
-    `${client.name} back, notice cleared`,
+const connected = (page: Page) =>
+  page.evaluate(
+    () =>
+      window.__moba?.online()?.status === "connected" && !window.__moba.scene.connectionNotice,
   );
+
+const reconnect = async (client: Client) => {
+  await client.page.evaluate(() => window.__moba?.scene.net?.redial());
+  await until(() => connected(client.page), `${client.name} back, notice cleared`);
 };
 
-const gameTime = (page) => page.evaluate(() => window.__moba.world.gameTime);
-const phase = (page) => page.evaluate(() => window.__moba.world.phase);
-const isPaused = (page) => page.evaluate(() => window.__moba.scene.controlsPaused);
-const hasResult = (page) => page.evaluate(() => !!window.__moba.scene.matchResult);
+const gameTime = (page: Page) => page.evaluate(() => window.__moba?.world.gameTime ?? 0);
+const phase = (page: Page) => page.evaluate(() => window.__moba?.world.phase);
+const isPaused = (page: Page) => page.evaluate(() => window.__moba?.scene.controlsPaused);
+const hasResult = (page: Page) => page.evaluate(() => Boolean(window.__moba?.scene.matchResult));
+const isHost = (page: Page) => page.evaluate(() => window.__moba?.online()?.isHost === true);
+const qOf = (page: Page, id: string) =>
+  page.evaluate(
+    (heroId) => window.__moba?.world.units.get(`h-${heroId}`)?.hero?.abilities.Q ?? null,
+    id,
+  );
 
-const clockAdvances = async (page, label) => {
+const clockAdvances = async (page: Page, label: string) => {
   const t0 = await gameTime(page);
   await wait(3000);
   const t1 = await gameTime(page);
   assert.ok(t1 - t0 > 1.5, label);
 };
 
-const movesOnArrow = async (page, id, sim = page, [arrow, keyCode] = ["ArrowRight", 39]) => {
+const movesOnArrow = async (
+  page: Page,
+  id: string,
+  sim = page,
+  [arrow, keyCode]: readonly [string, number] = ["ArrowRight", 39],
+) => {
   const before = await unitOf(sim, id);
   await key(page, "keydown", arrow, keyCode);
   await wait(700);
@@ -149,63 +164,68 @@ const movesOnArrow = async (page, id, sim = page, [arrow, keyCode] = ["ArrowRigh
   assert.ok(Math.hypot(after.x - before.x, after.y - before.y) > 0.5, `moved on ${arrow}`);
 };
 
-const pauseDoesNotFreeze = async (pauser, other) => {
+const pauseDoesNotFreeze = async (pauser: Client, other: Client) => {
   await key(pauser.page, "keydown", "Escape", 27);
-  await until(pauser.page, () => window.__moba.scene.controlsPaused, `${pauser.name} paused`);
+  await until(async () => (await isPaused(pauser.page)) === true, `${pauser.name} paused`);
   await clockAdvances(other.page, `${other.name} clock runs while ${pauser.name} pauses`);
   await clockAdvances(pauser.page, `${pauser.name} keeps spectating while paused`);
   await key(pauser.page, "keydown", "Escape", 27);
-  await until(pauser.page, () => !window.__moba.scene.controlsPaused, `${pauser.name} resumed`);
+  await until(async () => (await isPaused(pauser.page)) === false, `${pauser.name} resumed`);
   assert.equal(await isPaused(pauser.page), false);
 };
 
-const promoted = async (client, follower) => {
-  await until(client.page, () => window.__moba.online().isHost, `${client.name} promoted`, {
-    timeout: 30_000,
-  });
+const promoted = async (client: Client, follower: Client) => {
+  await until(() => isHost(client.page), `${client.name} promoted`, 30_000);
   await clockAdvances(client.page, `${client.name} simulates`);
   const clientOnline = await online(client.page);
   await until(
-    follower.page,
-    (id) => {
-      const o = window.__moba.online();
+    () =>
+      follower.page.evaluate((id) => {
+        const o = window.__moba?.online();
 
-      return o.status === "connected" && o.hostId === id && !o.isHost;
-    },
+        return o?.status === "connected" && o.hostId === id && !o.isHost;
+      }, clientOnline.id),
     `${follower.name} follows ${client.name}`,
-    { arg: clientOnline.id, timeout: 30_000 },
+    30_000,
   );
   await clockAdvances(follower.page, `${follower.name} renders the new host's clock`);
 };
 
-const resultButton = (page, action) =>
+const resultButton = (page: Page, action: string) =>
   page.evaluate((wanted) => {
-    const hud = window.__moba.scene.scene.get("Hud");
-    const b = hud.result?.buttons.find((button) => button.action === wanted);
+    const result = window.__moba?.scene.scene.get<HudScene>("Hud").result;
+    const b = result?.buttons.find((button) => button.action === wanted);
 
-    if (!b) {
+    if (result === null || result === undefined || b === undefined) {
       return null;
     }
 
-    const { root } = hud.result;
+    const { root } = result;
 
     return { x: root.x + b.bg.x * root.scaleX, y: root.y + b.bg.y * root.scaleY };
   }, action);
 
-const pressResult = async (page, action) => {
-  for (let attempt = 0; attempt < 5; attempt += 1) {
-    const at = await resultButton(page, action);
-
-    if (!at) {
-      return;
-    }
-
-    await page.mouse.click(at.x, at.y);
-    await wait(400);
+const pressResult: (page: Page, action: string, attempts?: number) => Promise<void> = async (
+  page,
+  action,
+  attempts = 5,
+) => {
+  if (attempts === 0) {
+    return;
   }
+
+  const at = await resultButton(page, action);
+
+  if (!at) {
+    return;
+  }
+
+  await page.mouse.click(at.x, at.y);
+  await wait(400);
+  await pressResult(page, action, attempts - 1);
 };
 
-const run = async (base) => {
+const run = async (base: string) => {
   const browser = await chromium.launch({
     args: [
       "--use-angle=metal",
@@ -219,9 +239,9 @@ const run = async (base) => {
     headless: true,
   });
 
-  const results = [];
+  const results: string[] = [];
 
-  const step = async (label, body) => {
+  const step = async (label: string, body: () => Promise<void>) => {
     const started = Date.now();
     await body();
     results.push(`${label}: pass (${((Date.now() - started) / 1000).toFixed(1)}s)`);
@@ -230,10 +250,8 @@ const run = async (base) => {
   try {
     const a = await openClient(browser, base, "A", "ironvow");
     const b = await openClient(browser, base, "B", "duskblade");
-    let aId;
-    let bId;
+    const [aId, bId] = await Promise.all([joined(a), joined(b)]);
     await step("join", async () => {
-      [aId, bId] = await Promise.all([joined(a), joined(b)]);
       const [aOnline, bOnline] = await Promise.all([online(a.page), online(b.page)]);
       assert.equal(aOnline.isHost, true, "first player hosts");
       assert.equal(bOnline.isHost, false);
@@ -250,6 +268,7 @@ const run = async (base) => {
       await wait(700);
       await key(b.page, "keyup", "ArrowRight", 39);
       const held = await unitOf(a.page, bId);
+      assert.ok(held && away, "unit present");
       assert.ok(Math.hypot(held.x - away.x, held.y - away.y) < 0.5, "no input while reconnecting");
       await reconnect(b);
       await clockAdvances(b.page, "guest renders the host's clock again");
@@ -269,35 +288,33 @@ const run = async (base) => {
       await key(b.page, "keydown", "Q", 81, { shiftKey: true });
       await key(b.page, "keyup", "Q", 81, { shiftKey: true });
       await until(
-        a.page,
-        (id) => window.__moba.world.units.get(`h-${id}`)?.hero.abilities.Q.rank > 0,
+        async () => ((await qOf(a.page, bId))?.rank ?? 0) > 0,
         "guest level-up reached host",
-        { arg: bId, timeout: 10_000 },
+        10_000,
       );
       await key(b.page, "keydown", "Q", 81);
       await key(b.page, "keyup", "Q", 81);
       await until(
-        a.page,
-        (id) => window.__moba.world.units.get(`h-${id}`)?.hero.abilities.Q.readyAt > 0,
+        async () => ((await qOf(a.page, bId))?.readyAt ?? 0) > 0,
         "guest Q cast reached host",
-        { arg: bId, timeout: 10_000 },
+        10_000,
       );
       await until(
-        b.page,
-        (id) => window.__moba.world.units.get(`h-${id}`)?.hero.abilities.Q.readyAt > 0,
+        async () => ((await qOf(b.page, bId))?.readyAt ?? 0) > 0,
         "cast echoed to guest",
-        { arg: bId, timeout: 10_000 },
+        10_000,
       );
     });
     await step("guest pause does not freeze the host", () => pauseDoesNotFreeze(b, a));
     await step("host pause does not freeze the guest", () => pauseDoesNotFreeze(a, b));
     await step("host transport drop: guest promoted, host reconnects as guest", async () => {
-      await a.page.evaluate(() => window.__moba.scene.net.socket.close());
-      await until(a.page, () => window.__moba.online().status !== "connected", "host dropped");
-      await until(b.page, () => window.__moba.online().isHost, "guest promoted", {
-        timeout: 30_000,
-      });
-      await a.page.evaluate(() => window.__moba.scene.net.socket.reconnect());
+      await a.page.evaluate(() => window.__moba?.scene.net?.dropConnection(1000));
+      await until(
+        () => a.page.evaluate(() => window.__moba?.online()?.status !== "connected"),
+        "host dropped",
+      );
+      await until(() => isHost(b.page), "guest promoted", 30_000);
+      await a.page.evaluate(() => window.__moba?.scene.net?.redial());
       await promoted(b, a);
       const [ta, tb] = await Promise.all([gameTime(a.page), gameTime(b.page)]);
       assert.ok(
@@ -328,40 +345,34 @@ const run = async (base) => {
       assert.ok(Math.abs(ta - tb) < 1.5, `stalled host follows the live clock (${ta} vs ${tb})`);
     });
     await step("match end reaches both, rematch from the host", async () => {
-      await a.page.evaluate(() => window.__moba.kill("d-ancient"));
-      await until(a.page, () => !!window.__moba.scene.matchResult, "host sees the result");
-      await until(b.page, () => !!window.__moba.scene.matchResult, "guest sees the result");
+      await a.page.evaluate(() => window.__moba?.kill("d-ancient"));
+      await until(() => hasResult(a.page), "host sees the result");
+      await until(() => hasResult(b.page), "guest sees the result");
       assert.equal(await resultButton(b.page, "again"), null, "guest cannot rematch");
 
       const again = await until(
-        a.page,
         () =>
-          !!window.__moba.scene.scene
-            .get("Hud")
-            .result?.buttons.some((button) => button.action === "again"),
+          a.page.evaluate(
+            () =>
+              window.__moba?.scene.scene
+                .get<HudScene>("Hud")
+                .result?.buttons.some((button) => button.action === "again") === true,
+          ),
         "host may rematch",
       );
 
       assert.ok(again);
       await pressResult(a.page, "again");
-      await until(
-        a.page,
-        () => !window.__moba.scene.matchResult && window.__moba.world.phase === "playing",
-        "host rematch started",
-      );
-      await until(
-        b.page,
-        () => !window.__moba.scene.matchResult && window.__moba.world.phase === "playing",
-        "guest joins the rematch",
-      );
+      const rematched = async (page: Page) =>
+        !(await hasResult(page)) && (await phase(page)) === "playing";
+      await until(() => rematched(a.page), "host rematch started");
+      await until(() => rematched(b.page), "guest joins the rematch");
       await seesUnit(b.page, bId, "guest keeps a seat");
       assert.ok((await gameTime(a.page)) < 30, "fresh clock");
     });
-    let c;
-    let cId;
+    const c = await openClient(browser, base, "C", "emberhex");
+    const cId = await joined(c);
     await step("late join into the running match", async () => {
-      c = await openClient(browser, base, "C", "emberhex");
-      cId = await joined(c);
       await seesUnit(c.page, aId, "late sees the host");
       await seesUnit(a.page, cId, "host sees late");
       assert.ok((await gameTime(c.page)) > 1, "late joiner lands in a live clock");
@@ -370,14 +381,13 @@ const run = async (base) => {
     await step("host leaves: a remaining player is promoted and plays on", async () => {
       await a.context.close();
       const bOnline = await online(b.page);
-      const next = bOnline.id < cId ? b : c;
+      const next = (bOnline.id ?? "") < cId ? b : c;
       const other = next === b ? c : b;
       await promoted(next, other);
       await until(
-        next.page,
-        (id) => !window.__moba.world.units.get(`h-${id}`),
+        () => next.page.evaluate((id) => window.__moba?.world.units.has(`h-${id}`) === false, aId),
         "departed host removed",
-        { arg: aId, timeout: RECONNECT_GRACE_MS + EVICTION_TIMEOUT_MS },
+        RECONNECT_GRACE_MS + EVICTION_TIMEOUT_MS,
       );
       await movesOnArrow(next.page, next === b ? bId : cId);
       await movesOnArrow(other.page, other === b ? bId : cId, next.page);
@@ -390,18 +400,22 @@ const run = async (base) => {
       );
 
       await until(
-        d.page,
-        () => window.__moba?.scene.connectionNotice?.text === "CONNECTING…",
+        () =>
+          d.page.evaluate(() => window.__moba?.scene.connectionNotice?.text === "CONNECTING…"),
         "connecting notice",
-        { timeout: 45_000 },
+        45_000,
       );
       await until(
-        d.page,
         () =>
-          !window.__moba.scene.isOnline() &&
-          window.__moba.scene.scene.get("Hud").banner?.text.text.startsWith("SERVER UNREACHABLE"),
+          d.page.evaluate(
+            () =>
+              window.__moba?.scene.isOnline() === false &&
+              window.__moba.scene.scene
+                .get<HudScene>("Hud")
+                .banner.text.text.startsWith("SERVER UNREACHABLE"),
+          ),
         "fell back to a bot match, and says so",
-        { timeout: 60_000 },
+        60_000,
       );
       await movesOnArrow(d.page, "you");
       await d.context.close();
@@ -413,15 +427,16 @@ const run = async (base) => {
     await browser.close();
   }
 
-  if (errors.length) {
+  if (errors.length > 0) {
     throw new Error(`console errors:\n${errors.join("\n")}`);
   }
 };
 
-const vite = urlArg === -1 ? await startVite() : null;
+const urlFlag = flagValue("--url", process.argv);
+const vite = urlFlag === null ? await startVite({ gameDir, port: PORT, timeoutMs: 60_000 }) : null;
 
 try {
-  await run(urlArg === -1 ? `http://localhost:${PORT}` : process.argv[urlArg + 1]);
+  await run(urlFlag ?? `http://localhost:${PORT}`);
   console.log("two-client: ok");
 } catch (error) {
   console.error(error);
