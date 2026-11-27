@@ -9,7 +9,7 @@ claude plugin install vibedgames@vibedgames
 ```
 
 The plugin bundles the skills and connects the vibedgames MCP server
-(`https://vibedgames.com/mcp`), which signs in with OAuth on first use. Skills
+(`https://www.vibedgames.com/mcp`), which signs in with OAuth on first use. Skills
 that run commands use the `vg` CLI when a shell is available
 (`npx -y vibedgames@latest` when it isn't installed). Without a shell, the MCP
 tools cover the commands that reach vibedgames (`deploy`, `generate`, …);

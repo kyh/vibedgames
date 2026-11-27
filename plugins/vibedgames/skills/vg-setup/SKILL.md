@@ -13,7 +13,7 @@ a build later.
 
 ## 0. MCP tools instead of the CLI
 
-The plugin also connects the vibedgames MCP server (`https://vibedgames.com/mcp`).
+The plugin also connects the vibedgames MCP server (`https://www.vibedgames.com/mcp`).
 Its tools match the CLI's server commands: `whoami`, `credits`, `deploy`,
 `deployments`, `fork`, `generate`, `generate_image`, `generate_video`, `skills`
 and more. The skills (`skills` tool) work without an account. A tool that needs

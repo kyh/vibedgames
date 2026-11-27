@@ -1,0 +1,30 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "com.vibedgames/platform",
+  "title": "vibedgames",
+  "description": "A game studio for coding agents: skills, asset generation, and one-step deploys of browser games.",
+  "version": "1.0.0",
+  "websiteUrl": "https://vibedgames.com",
+  "icons": [
+    {
+      "src": "https://vibedgames.com/favicon/favicon.svg",
+      "mimeType": "image/svg+xml",
+      "sizes": ["any"]
+    },
+    {
+      "src": "https://vibedgames.com/favicon/web-app-manifest-512x512.png",
+      "mimeType": "image/png",
+      "sizes": ["512x512"]
+    }
+  ],
+  "repository": {
+    "url": "https://github.com/kyh/vibedgames",
+    "source": "github"
+  },
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://www.vibedgames.com/mcp"
+    }
+  ]
+}
