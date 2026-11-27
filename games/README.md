@@ -11,7 +11,7 @@ and playable, and each has its own README with routes, options and controls.
 | [Crazy Waymo](./crazy-waymo)       | Three.js + Rapier | shared room    | `pnpm dev:crazy-waymo`    | `crazy-waymo.vibedgames.com`    |
 | [Farm](./farm)                     | Phaser 4          | shared farm    | `pnpm dev:farm`           | `farm.vibedgames.com`           |
 | [Flappy Dragons](./flappy-dragons) | Phaser 4          | shared room    | `pnpm dev:flappy-dragons` | `flappy-dragons.vibedgames.com` |
-| [Tabletop Turbo](./tabletop-turbo) | Three.js          | 8p race        | `pnpm dev:tabletop-turbo` | `tabletop-turbo.vibedgames.com` |
+| [Tabletop Turbo](./tabletop-turbo) | Three.js          | 8p car battle  | `pnpm dev:tabletop-turbo` | `tabletop-turbo.vibedgames.com` |
 | [Lunerfall](./lunerfall)           | Phaser 4          | co-op + versus | `pnpm dev:lunerfall`      | `lunerfall.vibedgames.com`      |
 | [Ancients of Eldermoor](./moba)    | Phaser 4          | online match   | `pnpm dev:moba`           | `moba.vibedgames.com`           |
 | [Pacman](./pacman)                 | Three.js          | shared room    | `pnpm dev:pacman`         | `pacman.vibedgames.com`         |

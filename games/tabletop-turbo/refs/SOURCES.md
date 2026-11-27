@@ -9,3 +9,7 @@ resolution, a 2x2 vote, self-coloured ink, a camera snapped to the art grid) fol
 That repository has no licence file, so nothing from it is copied here: no code, shaders, palettes,
 models or images. The implementation in `src/splat/` is written for three.js from the description
 of the technique.
+
+The game itself took direction from gameplay footage and two screenshots of top-down car brawlers
+(bumper punches, knock-offs, a lamp-lit board at night). They set the genre and the mood only: the
+board, hazards, cars, items, names, HUD and sounds here are this repo's own.
