@@ -1,19 +1,14 @@
 import type { ControlsManifest } from "@repo/embed";
 
 export const CONTROLS: ControlsManifest = [
-  { action: "accelerate", input: "W / ↑", method: "keys" },
-  { action: "steer", input: "A D / ← →", method: "keys" },
-  { action: "brake / reverse", input: "S / ↓", method: "keys" },
-  { action: "drift (hold, release to boost)", input: "SPACE / SHIFT", method: "keys" },
-  { action: "use item", input: "E / X", method: "keys" },
+  { action: "drive (the way you point)", input: "W A S D / ARROWS", method: "keys" },
+  { action: "fire the bumper", input: "SPACE / J", method: "keys" },
+  { action: "boost (hold)", input: "SHIFT / K", method: "keys" },
   { action: "mute", input: "M", method: "keys" },
-  { action: "steer (the kart drives itself)", input: "DRAG", method: "touch" },
-  { action: "drift (hold, release to boost)", input: "DRIFT", method: "touch" },
-  { action: "brake", input: "BRAKE", method: "touch" },
-  { action: "use item", input: "TAP THE ITEM", method: "touch" },
-  { action: "accelerate", input: "RT / A", method: "controller" },
-  { action: "steer", input: "STICK", method: "controller" },
-  { action: "brake / reverse", input: "LT / B", method: "controller" },
-  { action: "drift (hold, release to boost)", input: "RB / X", method: "controller" },
-  { action: "use item", input: "Y / LB", method: "controller" },
+  { action: "drive (the way you point)", input: "DRAG", method: "touch" },
+  { action: "fire the bumper", input: "PUNCH", method: "touch" },
+  { action: "boost (hold)", input: "BOOST", method: "touch" },
+  { action: "drive (the way you point)", input: "STICK", method: "controller" },
+  { action: "fire the bumper", input: "A / X / RT", method: "controller" },
+  { action: "boost (hold)", input: "B / RB / LT", method: "controller" },
 ];

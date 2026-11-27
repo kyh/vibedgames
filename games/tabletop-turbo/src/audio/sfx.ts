@@ -1,5 +1,3 @@
-import type { ItemKind } from "../shared/constants";
-
 const SOUND_KEY = "tabletop-turbo:sound";
 
 const storageGet = () => {
@@ -20,21 +18,26 @@ const storageSet = (value: string) => {
   }
 };
 
+type Bus = "mine" | "world" | "ui";
+
 interface Rig {
   ctx: AudioContext;
   master: GainNode;
+  buses: Record<Bus, GainNode>;
   engineA: OscillatorNode;
   engineB: OscillatorNode;
   engineGain: GainNode;
   engineFilter: BiquadFilterNode;
-  hissGain: GainNode;
-  hissFilter: BiquadFilterNode;
   noise: AudioBuffer;
 }
+
+const VOICE_CAP = 14;
+const MASTER = 0.6;
 
 let muted = storageGet() === "0";
 let paused = false;
 let rig: Rig | null = null;
+let voices = 0;
 
 export const isMuted = () => muted;
 
@@ -55,10 +58,33 @@ const build = () => {
   }
 
   const ctx = new AudioContext();
+  const limiter = ctx.createDynamicsCompressor();
+  limiter.threshold.value = -3;
+  limiter.knee.value = 0;
+  limiter.ratio.value = 20;
+  limiter.attack.value = 0.002;
+  limiter.release.value = 0.12;
+  limiter.connect(ctx.destination);
+  const glue = ctx.createDynamicsCompressor();
+  glue.threshold.value = -20;
+  glue.knee.value = 12;
+  glue.ratio.value = 4;
+  glue.attack.value = 0.006;
+  glue.release.value = 0.2;
+  glue.connect(limiter);
   const master = ctx.createGain();
-  master.gain.value = 0.5;
-  master.connect(ctx.destination);
+  master.gain.value = MASTER;
+  master.connect(glue);
 
+  const bus = (level: number) => {
+    const gain = ctx.createGain();
+    gain.gain.value = level;
+    gain.connect(master);
+
+    return gain;
+  };
+
+  const buses = { mine: bus(1), ui: bus(0.7), world: bus(0.5) };
   const engineFilter = ctx.createBiquadFilter();
   engineFilter.type = "lowpass";
   engineFilter.frequency.value = 500;
@@ -74,20 +100,16 @@ const build = () => {
   engineA.start();
   engineB.start();
 
-  const noise = noiseBuffer(ctx);
-  const hiss = ctx.createBufferSource();
-  hiss.buffer = noise;
-  hiss.loop = true;
-  const hissFilter = ctx.createBiquadFilter();
-  hissFilter.type = "bandpass";
-  hissFilter.frequency.value = 1800;
-  hissFilter.Q.value = 1.4;
-  const hissGain = ctx.createGain();
-  hissGain.gain.value = 0;
-  hiss.connect(hissFilter).connect(hissGain).connect(master);
-  hiss.start();
-
-  return { ctx, engineA, engineB, engineFilter, engineGain, hissFilter, hissGain, master, noise };
+  return {
+    buses,
+    ctx,
+    engineA,
+    engineB,
+    engineFilter,
+    engineGain,
+    master,
+    noise: noiseBuffer(ctx),
+  };
 };
 
 const live = () => {
@@ -100,7 +122,7 @@ const live = () => {
 
 const applyMaster = () => {
   if (rig) {
-    rig.master.gain.value = muted || paused ? 0 : 0.5;
+    rig.master.gain.value = muted || paused ? 0 : MASTER;
   }
 };
 
@@ -133,8 +155,8 @@ export const setAudioPaused = (next: boolean) => {
   applyMaster();
 };
 
-/** Every frame: `speed` 0–1 of top speed, `drift` 0 (none) … 1 (fully charged). */
-export const driveAudio = (speed: number, drift: number, boosting: boolean) => {
+/** Every frame: `speed` 0–1 of top speed. */
+export const driveAudio = (speed: number, boosting: boolean) => {
   const r = live();
 
   if (!r) {
@@ -142,134 +164,218 @@ export const driveAudio = (speed: number, drift: number, boosting: boolean) => {
   }
 
   const now = r.ctx.currentTime;
-  const hz = 52 + speed * 120 + (boosting ? 30 : 0);
+  const hz = 48 + speed * 86 + (boosting ? 46 : 0);
   r.engineA.frequency.setTargetAtTime(hz, now, 0.05);
   r.engineB.frequency.setTargetAtTime(hz * 0.502, now, 0.05);
-  r.engineFilter.frequency.setTargetAtTime(380 + speed * 1500, now, 0.08);
-  r.engineGain.gain.setTargetAtTime(0.05 + speed * 0.07, now, 0.08);
-  r.hissGain.gain.setTargetAtTime(drift > 0 ? 0.1 + drift * 0.12 : 0, now, 0.04);
-  r.hissFilter.frequency.setTargetAtTime(1400 + drift * 2600, now, 0.05);
+  r.engineFilter.frequency.setTargetAtTime(320 + speed * 1100 + (boosting ? 900 : 0), now, 0.08);
+  r.engineGain.gain.setTargetAtTime(0.025 + speed * 0.04 + (boosting ? 0.03 : 0), now, 0.08);
 };
 
-/** Silence the continuous voices (title screen, results). */
+/** Silence the engine (title screen, results, out of the round). */
 export const idleAudio = () => {
   const r = live();
 
   if (r) {
     r.engineGain.gain.setTargetAtTime(0, r.ctx.currentTime, 0.1);
-    r.hissGain.gain.setTargetAtTime(0, r.ctx.currentTime, 0.05);
   }
 };
 
-const tone = (
-  hz: number,
-  seconds: number,
-  volume: number,
-  type: OscillatorType = "square",
-  slideTo = hz,
-) => {
+const admit = (bus: Bus) => {
   const r = live();
+
+  if (!r || (voices >= VOICE_CAP && bus === "world")) {
+    return null;
+  }
+
+  voices += 1;
+
+  return r;
+};
+
+const release = (node: AudioScheduledSourceNode) => {
+  node.addEventListener("ended", () => {
+    voices = Math.max(0, voices - 1);
+  });
+};
+
+const take = () => 0.94 + Math.random() * 0.12;
+
+interface ToneShot {
+  hz: number;
+  to?: number;
+  seconds: number;
+  volume: number;
+  type?: OscillatorType;
+  delay?: number;
+}
+
+const tone = (bus: Bus, shot: ToneShot) => {
+  const r = admit(bus);
 
   if (!r) {
     return;
   }
 
-  const now = r.ctx.currentTime;
+  const at = r.ctx.currentTime + (shot.delay ?? 0);
+  const pitch = take();
   const osc = r.ctx.createOscillator();
-  osc.type = type;
-  osc.frequency.setValueAtTime(hz, now);
-  osc.frequency.exponentialRampToValueAtTime(Math.max(20, slideTo), now + seconds);
+  osc.type = shot.type ?? "square";
+  osc.frequency.setValueAtTime(shot.hz * pitch, at);
+  osc.frequency.exponentialRampToValueAtTime(
+    Math.max(20, (shot.to ?? shot.hz) * pitch),
+    at + shot.seconds,
+  );
   const gain = r.ctx.createGain();
-  gain.gain.setValueAtTime(volume, now);
-  gain.gain.exponentialRampToValueAtTime(0.0001, now + seconds);
-  osc.connect(gain).connect(r.master);
-  osc.start(now);
-  osc.stop(now + seconds + 0.02);
+  gain.gain.setValueAtTime(0.0001, at);
+  gain.gain.exponentialRampToValueAtTime(shot.volume, at + 0.004);
+  gain.gain.exponentialRampToValueAtTime(0.0001, at + shot.seconds);
+  osc.connect(gain).connect(r.buses[bus]);
+  release(osc);
+  osc.start(at);
+  osc.stop(at + shot.seconds + 0.02);
 };
 
-const burst = (seconds: number, volume: number, from: number, to: number) => {
-  const r = live();
+interface NoiseShot {
+  from: number;
+  to: number;
+  seconds: number;
+  volume: number;
+  q?: number;
+  delay?: number;
+}
+
+const noise = (bus: Bus, shot: NoiseShot) => {
+  const r = admit(bus);
 
   if (!r) {
     return;
   }
 
-  const now = r.ctx.currentTime;
+  const at = r.ctx.currentTime + (shot.delay ?? 0);
   const source = r.ctx.createBufferSource();
   source.buffer = r.noise;
   const filter = r.ctx.createBiquadFilter();
   filter.type = "bandpass";
-  filter.frequency.setValueAtTime(from, now);
-  filter.frequency.exponentialRampToValueAtTime(to, now + seconds);
+  filter.Q.value = shot.q ?? 0.9;
+  filter.frequency.setValueAtTime(shot.from, at);
+  filter.frequency.exponentialRampToValueAtTime(shot.to, at + shot.seconds);
   const gain = r.ctx.createGain();
-  gain.gain.setValueAtTime(volume, now);
-  gain.gain.exponentialRampToValueAtTime(0.0001, now + seconds);
-  source.connect(filter).connect(gain).connect(r.master);
-  source.start(now);
-  source.stop(now + seconds + 0.02);
+  gain.gain.setValueAtTime(shot.volume, at);
+  gain.gain.exponentialRampToValueAtTime(0.0001, at + shot.seconds);
+  source.connect(filter).connect(gain).connect(r.buses[bus]);
+  release(source);
+  source.start(at, Math.random() * 0.5);
+  source.stop(at + shot.seconds + 0.02);
 };
 
-const USE_NOTES = {
-  blot: () => {
-    tone(160, 0.22, 0.14, "sine", 70);
-  },
-  bomb: () => {
-    tone(300, 0.5, 0.12, "triangle", 900);
-    burst(0.3, 0.2, 600, 2400);
-  },
-  solvent: () => {
-    burst(0.6, 0.3, 4200, 500);
-    tone(880, 0.4, 0.08, "sine", 220);
-  },
-  turbo: () => {
-    burst(0.7, 0.36, 400, 6000);
-    tone(330, 0.4, 0.14, "sawtooth", 1320);
-  },
-} satisfies Record<ItemKind, () => void>;
+const side = (mine: boolean) => (mine ? "mine" : "world") satisfies Bus;
 
 export const sfx = {
-  boost: (tier: number) => {
-    burst(0.45 + tier * 0.12, 0.35, 500, 5200);
-    tone(220 * tier, 0.3, 0.12, "sawtooth", 660 * tier);
+  boost: () => {
+    noise("mine", { from: 500, seconds: 0.4, to: 4800, volume: 0.22 });
+    tone("mine", { hz: 180, seconds: 0.3, to: 520, type: "sawtooth", volume: 0.1 });
   },
-  box: () => {
-    for (const [i, hz] of [660, 880, 1175].entries()) {
-      window.setTimeout(() => {
-        tone(hz, 0.1, 0.1, "square");
-      }, i * 70);
-    }
+  /** A pop bumper. */
+  bounce: (mine: boolean) => {
+    tone(side(mine), { hz: 520, seconds: 0.16, to: 1040, type: "triangle", volume: 0.2 });
+    tone(side(mine), { delay: 0.03, hz: 1560, seconds: 0.1, type: "sine", volume: 0.08 });
   },
-  bump: () => {
-    burst(0.12, 0.3, 900, 200);
+  clash: () => {
+    tone("mine", { hz: 1480, seconds: 0.28, to: 1320, type: "triangle", volume: 0.2 });
+    tone("mine", { hz: 2210, seconds: 0.2, type: "sine", volume: 0.1 });
+    noise("mine", { from: 5200, q: 2, seconds: 0.08, to: 2600, volume: 0.25 });
   },
   countdown: (go: boolean) => {
-    tone(go ? 880 : 440, go ? 0.5 : 0.16, 0.16, "square");
+    tone("ui", { hz: go ? 880 : 440, seconds: go ? 0.5 : 0.16, volume: 0.16 });
   },
-  finish: () => {
-    for (const [i, hz] of [523, 659, 784, 1047].entries()) {
-      window.setTimeout(() => {
-        tone(hz, 0.22, 0.14, "triangle");
-      }, i * 110);
+  crate: () => {
+    tone("ui", { hz: 300, seconds: 0.14, to: 150, type: "triangle", volume: 0.16 });
+    noise("ui", { from: 900, seconds: 0.1, to: 300, volume: 0.14 });
+  },
+  /** The ends of the board letting go. */
+  drop: () => {
+    noise("ui", { from: 300, seconds: 1.1, to: 60, volume: 0.4 });
+    tone("ui", { hz: 110, seconds: 0.9, to: 38, type: "sawtooth", volume: 0.2 });
+  },
+  /** Someone going over the edge. */
+  fall: (mine: boolean) => {
+    tone(side(mine), { hz: 1250, seconds: 0.62, to: 240, type: "sine", volume: mine ? 0.2 : 0.12 });
+  },
+  /** A bumper landing. `power` 0–1 is how far the car will fly. */
+  hit: (power: number, mine: boolean) => {
+    const bus = side(mine);
+    tone(bus, {
+      hz: 190 + power * 40,
+      seconds: 0.2 + power * 0.14,
+      to: 44,
+      type: "sine",
+      volume: 0.5,
+    });
+    noise(bus, { from: 2600, seconds: 0.09 + power * 0.07, to: 320, volume: 0.42 });
+    tone(bus, { hz: 880, seconds: 0.07, to: 220, type: "square", volume: 0.12 });
+  },
+  knockedOut: () => {
+    for (const [i, hz] of [392, 311, 233].entries()) {
+      tone("ui", { delay: i * 0.11, hz, seconds: 0.2, type: "triangle", volume: 0.16 });
     }
   },
-  lap: () => {
-    tone(660, 0.12, 0.12, "triangle", 990);
+  /** A point for the player. */
+  knockOff: () => {
+    for (const [i, hz] of [659, 880, 1319].entries()) {
+      tone("ui", { delay: i * 0.07, hz, seconds: 0.16, type: "square", volume: 0.13 });
+    }
   },
-  orb: () => {
-    tone(1320, 0.09, 0.07, "triangle", 1980);
+  land: (mine: boolean) => {
+    tone(side(mine), { hz: 130, seconds: 0.12, to: 55, type: "sine", volume: 0.3 });
+    noise(side(mine), { from: 700, seconds: 0.07, to: 200, volume: 0.16 });
   },
-  spin: () => {
-    tone(700, 0.6, 0.16, "sawtooth", 90);
-    burst(0.4, 0.25, 1800, 300);
+  out: () => {
+    noise("world", { from: 1400, seconds: 0.22, to: 180, volume: 0.22 });
   },
-  splat: () => {
-    burst(0.3, 0.3, 2400, 300);
-    tone(180, 0.25, 0.14, "sine", 60);
+  pickup: () => {
+    for (const [i, hz] of [660, 880, 1175].entries()) {
+      tone("ui", { delay: i * 0.06, hz, seconds: 0.1, volume: 0.12 });
+    }
   },
-  tier: (tier: number) => {
-    tone(500 + tier * 220, 0.09, 0.08, "triangle");
+  piston: () => {
+    noise("world", { from: 240, seconds: 0.2, to: 1800, volume: 0.5 });
+    tone("world", { hz: 90, seconds: 0.22, to: 50, type: "sawtooth", volume: 0.34 });
   },
-  use: (kind: ItemKind) => {
-    USE_NOTES[kind]();
+  /** The bumper firing. */
+  punch: (mine: boolean) => {
+    noise(side(mine), { from: 600, q: 0.6, seconds: 0.11, to: 3400, volume: mine ? 0.3 : 0.16 });
+    tone(side(mine), {
+      hz: 150,
+      seconds: 0.08,
+      to: 300,
+      type: "triangle",
+      volume: mine ? 0.16 : 0.08,
+    });
+  },
+  ram: (mine: boolean) => {
+    noise(side(mine), { from: 1200, seconds: 0.09, to: 260, volume: 0.3 });
+    tone(side(mine), { hz: 140, seconds: 0.1, to: 70, type: "sine", volume: 0.22 });
+  },
+  /** The bumper is back. */
+  ready: () => {
+    tone("ui", { hz: 1320, seconds: 0.05, type: "triangle", volume: 0.07 });
+  },
+  results: (won: boolean) => {
+    for (const [i, hz] of (won ? [523, 659, 784, 1047] : [523, 494, 440]).entries()) {
+      tone("ui", { delay: i * 0.12, hz, seconds: 0.24, type: "triangle", volume: 0.15 });
+    }
+  },
+  /** The sweeper's arm catching a car. */
+  sweep: (mine: boolean) => {
+    tone(side(mine), { hz: 240, seconds: 0.26, to: 60, type: "sawtooth", volume: 0.3 });
+    noise(side(mine), { from: 1800, seconds: 0.14, to: 300, volume: 0.34 });
+  },
+  /** The ends are about to go. */
+  warn: () => {
+    tone("ui", { hz: 740, seconds: 0.12, volume: 0.13 });
+    tone("ui", { delay: 0.16, hz: 740, seconds: 0.12, volume: 0.13 });
+  },
+  whiff: () => {
+    noise("mine", { from: 2400, q: 0.5, seconds: 0.14, to: 500, volume: 0.1 });
   },
 };

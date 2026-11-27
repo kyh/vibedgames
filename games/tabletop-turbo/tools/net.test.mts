@@ -1,105 +1,138 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { BotField, botKey } from "../src/net/bot-field.ts";
-import { encodePose, readPose } from "../src/net/pose.ts";
-import { spawnKart, stepKart } from "../src/sim/kart.ts";
-import { TRACKS } from "../src/sim/track.ts";
+import type { JsonValue } from "@vibedgames/multiplayer";
 
-const DT = 1 / 60;
-const NOBODY = () => false;
-const [track] = TRACKS;
+import { adoptCar, encodeCar, ghostOf, readPose, viewOf } from "../src/net/pose.ts";
+import { PUNCH_THROW, STEP } from "../src/shared/constants.ts";
+import { ARENAS, buildArena } from "../src/sim/arena.ts";
+import { giveItem, gridCar, makeCar } from "../src/sim/car.ts";
+import type { CarInput, Hit } from "../src/sim/car.ts";
+import { deliver, makeField, stepField } from "../src/sim/field.ts";
+import type { Field, FieldEvent } from "../src/sim/field.ts";
 
-assert.ok(track);
+const [first] = ARENAS;
 
-const frame = (count: number, now: number) => ({
-  count,
-  dt: DT,
-  leaderProg: null,
-  now,
-  others: new Map(),
-  ownerAt: () => 0,
-  racing: true,
-  slotOf: () => 2,
-  time: now / 1000,
-  track,
-});
+assert.ok(first);
 
-test("a pose survives the wire, and junk rows are refused", () => {
-  const kart = spawnKart(track, 2);
+const OPEN = buildArena({ ...first, hazards: [], holes: [] });
+const PUNCH: CarInput = { boost: false, mx: 0, mz: 0, punch: true };
 
-  for (let i = 0; i < 120; i += 1) {
-    stepKart(kart, { brake: 0, drift: false, steer: 0.2, throttle: 1 }, track, DT, 0, 1);
+const place = (field: Field, key: string, x: number, z: number, a: number) => {
+  const car = makeCar(key, false);
+  gridCar(car, { a, x, z });
+  field.cars.set(key, car);
+
+  return car;
+};
+
+const run = (field: Field, seconds: number, inputs: Record<string, CarInput> = {}) => {
+  const events: FieldEvent[] = [];
+  const map = new Map(Object.entries(inputs));
+
+  for (let t = 0; t < seconds; t += STEP) {
+    stepField(field, map, STEP);
+    events.push(...field.events);
+    field.events.length = 0;
   }
 
-  const report = readPose(encodePose(kart, 12_345.6, 7));
+  return events;
+};
+
+const overWire = (row: JsonValue) => readPose(structuredClone(row));
+
+test("a car survives the wire, and junk rows are refused", () => {
+  const field = makeField(OPEN);
+  const car = place(field, "p1", 4.25, -3.5, 1.2);
+  place(field, "p2", 4.25 + Math.cos(1.2) * 3, -3.5 + Math.sin(1.2) * 3, 0);
+  giveItem(car, "mega");
+  giveItem(car, "turbo");
+  run(field, 0.3, { p1: { boost: true, mx: 0.4, mz: 1, punch: true } });
+  const report = overWire(encodeCar(car, 1234.4, 7));
+  const view = viewOf(car);
   assert.ok(report);
-  assert.equal(report.t, 12_346);
+  assert.equal(report.t, 1234);
   assert.equal(report.round, 7);
-  assert.ok(Math.abs(report.x - kart.x) < 0.01);
-  assert.ok(Math.abs(report.z - kart.z) < 0.01);
-  assert.ok(Math.abs(report.prog - kart.prog) < 0.01);
-  assert.equal(readPose(null), null);
-  assert.equal(readPose({ t: 1, x: 2 }), null);
-  assert.equal(readPose({ a: "0", t: 1, x: 2, z: 3 }), null);
+
+  for (const key of ["mode", "bumper", "mod", "punches", "launches", "falls", "dent"] as const) {
+    assert.equal(report[key], view[key], key);
+  }
+
+  for (const key of ["x", "y", "z", "a", "vx", "vz", "meter", "cooldown"] as const) {
+    assert.ok(Math.abs(report[key] - view[key]) < 0.06, `${key}: ${report[key]} / ${view[key]}`);
+  }
+
+  assert.equal(report.boosting, view.boosting);
+  assert.equal(report.ready, false);
+  assert.equal(report.bumper, "mega");
+  assert.equal(report.mod, "turbo");
+  assert.equal(overWire({}), null);
+  assert.equal(overWire(null), null);
+  assert.equal(overWire({ a: 0, t: "now", x: 1, z: 2 }), null);
+  assert.equal(overWire({ a: 0, t: 5, x: 1 }), null);
+  const bare = overWire({ a: 0, t: 5, x: 1, z: 2 });
+  assert.ok(bare);
+  assert.equal(bare.mode, "drive");
+  assert.equal(bare.hitId, "");
 });
 
-test("the host's bots advance, and only the first `count` of them", () => {
-  const field = new BotField();
-  field.reset(track, 1);
+test("a punch on somebody else's car is sent, and lands on the client that owns it", () => {
+  const mine = makeField(OPEN);
+  const theirs = makeField(OPEN);
+  place(mine, "p1", 0, 0, 0);
+  const target = place(theirs, "p2", 3, 0, 0);
+  mine.ghosts.set("p2", ghostOf("p2", viewOf(target)));
+  const events = run(mine, 0.3, { p1: PUNCH });
+  const send = events.find((event) => event.kind === "send");
+  assert.ok(send && send.kind === "send");
+  assert.equal(send.to, "p2");
+  assert.equal(events.filter((event) => event.kind === "send").length, 1);
+  const hit: Hit = structuredClone(send.hit);
+  assert.equal(deliver(theirs, target, hit), true);
+  assert.equal(target.hitId, hit.id);
+  assert.equal(target.lastBy, "p1");
+  assert.equal(target.launches, 1);
+  assert.equal(deliver(theirs, target, hit), false, "the same blow twice lands once");
+  run(theirs, 1.5);
+  assert.ok(Math.abs(target.x - 3 - PUNCH_THROW) < PUNCH_THROW * 0.2);
+  const view = viewOf(target);
+  assert.equal(view.hitId, hit.id);
+});
 
-  for (let i = 0; i < 300; i += 1) {
-    field.step(frame(3, i * DT * 1000));
-  }
-
-  const poses = new Map(field.poses(true, undefined, 5, 1, NOBODY));
-  assert.equal(poses.size, 5);
-
-  for (let index = 0; index < 5; index += 1) {
-    const pose = poses.get(botKey(index));
-    assert.ok(pose);
-    assert.equal(pose.prog > 60, index < 3, `bot ${index} at ${pose.prog}`);
+test("a ghost that is shielded or off the board is not punched", () => {
+  for (const patch of [{ safe: 1 }, { mode: "out" as const }]) {
+    const mine = makeField(OPEN);
+    place(mine, "p1", 0, 0, 0);
+    const target = makeCar("p2", false);
+    gridCar(target, { a: 0, x: 3, z: 0 });
+    Object.assign(target, patch);
+    mine.ghosts.set("p2", ghostOf("p2", viewOf(target)));
+    const events = run(mine, 0.3, { p1: PUNCH });
+    assert.equal(
+      events.some((event) => event.kind === "send"),
+      false,
+    );
   }
 });
 
-test("a new host carries the bots on from the last rows", () => {
-  const old = new BotField();
-  old.reset(track, 1);
-
-  for (let i = 0; i < 600; i += 1) {
-    old.step(frame(5, i * DT * 1000));
-  }
-
-  for (const index of [0, 3]) {
-    const kart = old.kart(botKey(index));
-    assert.ok(kart);
-    kart.orbs = 4 + index;
-  }
-
-  const rows = old.rows(5, 10_000, 1, NOBODY);
-  const before = new Map(old.poses(true, undefined, 5, 1, NOBODY));
-
-  const next = new BotField();
-  next.adopt(track, rows, 1);
-  const adopted = new Map(next.poses(true, undefined, 5, 1, NOBODY));
-
-  for (const [key, pose] of before) {
-    const mine = adopted.get(key);
-    assert.ok(mine);
-    assert.ok(Math.hypot(mine.x - pose.x, mine.z - pose.z) < 0.02, `${key} moved on handover`);
-    assert.ok(Math.abs(mine.prog - pose.prog) < 0.02);
-    assert.ok(Math.abs(mine.speed - pose.speed) < 0.05);
-    assert.equal(mine.drift, pose.drift, `${key} lost its drift on handover`);
-    assert.equal(mine.boosting, pose.boosting, `${key} lost its boost on handover`);
-    assert.ok(Math.abs(mine.charge - pose.charge) < 0.01);
-    assert.equal(mine.orbs, pose.orbs, `${key} lost its orbs on handover`);
-  }
-
-  for (let i = 0; i < 120; i += 1) {
-    next.step(frame(5, 10_000 + i * DT * 1000));
-  }
-
-  for (const [key, pose] of next.poses(true, undefined, 5, 1, NOBODY)) {
-    assert.ok(pose.prog > (before.get(key)?.prog ?? 0) + 20, `${key} stalled after handover`);
-  }
+test("a new host picks a bot up where its last report left it", () => {
+  const field = makeField(OPEN);
+  const bot = place(field, "b0", -6, 2, 0.4);
+  giveItem(bot, "giant");
+  run(field, 0.5, { b0: { boost: false, mx: 1, mz: 0.3, punch: true } });
+  Object.assign(bot, { falls: 2, lastBy: "p1" });
+  const report = overWire(encodeCar(bot, 900, 3));
+  assert.ok(report);
+  const heir = makeCar("b0", true);
+  adoptCar(heir, report);
+  assert.equal(heir.mode, "drive");
+  assert.equal(heir.falls, 2);
+  assert.equal(heir.punches, bot.punches);
+  assert.equal(heir.mod, "giant");
+  assert.ok(heir.cooldown > 0);
+  assert.ok(Math.hypot(heir.x - bot.x, heir.z - bot.z) < 0.02);
+  const next = makeField(OPEN);
+  next.cars.set("b0", heir);
+  run(next, 0.5, { b0: { boost: false, mx: 1, mz: 0.3, punch: false } });
+  assert.ok(heir.x > bot.x + 3, "drives on");
 });

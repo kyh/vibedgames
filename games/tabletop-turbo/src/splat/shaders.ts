@@ -23,7 +23,9 @@ uniform sampler2D uShadowMap;
 // On, depth bias, normal offset.
 uniform vec4 uShadow;
 uniform sampler2D uPaint;
-uniform float uPaintSpan;
+uniform sampler2D uLight;
+// World units the paint and light maps span, centred on the origin.
+uniform float uFloorSpan;
 uniform float uSlotRamp[32];
 flat out vec3 vTone;
 #endif
@@ -37,6 +39,7 @@ const int PAINTABLE = 4;
 const int NO_SHADOW = 8;
 const int ROUND = 16;
 const int PULSE = 32;
+const int BRIGHT = 64;
 
 vec2 hash2(vec3 p) {
   float a = fract(sin(dot(p, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
@@ -90,19 +93,29 @@ void main() {
   vec2 noise = hash2(aCenter);
   bool unlit = (flags & UNLIT) != 0;
 
+  vec2 floorUv = aCenter.xz / uFloorSpan + 0.5;
+  // How lit this spot is: the light map in whole levels, dithered across the middle of each band.
+  float lit = texture(uLight, floorUv).r * 3.0;
+  float level = floor(lit) + (noise.x < clamp((fract(lit) - 0.5) / 0.3 + 0.5, 0.0, 1.0) ? 1.0 : 0.0);
+  if ((flags & BRIGHT) != 0) { level = 2.0; }
+
   if ((flags & PAINTABLE) != 0) {
-    vec2 uv = aCenter.xz / uPaintSpan + 0.5;
-    vec2 coat = texture(uPaint, uv).rg;
+    vec2 coat = texture(uPaint, floorUv).rg;
     int slot = int(coat.r * 255.0 + 0.5);
-    // Old paint wears through in speckles before it is gone.
-    if (slot > 0 && slot < 32 && coat.g > noise.x * 0.3) {
+    // A glow trail wears through in speckles before it is gone.
+    if (slot > 0 && slot < 31 && coat.g > noise.y * 0.45) {
       ramp = uSlotRamp[slot];
-      base = coat.g > 0.9 ? 3.0 : 2.0;
-      // Wet paint glints: a few dabs flash to the top of the ramp, eight times a second.
-      float glint = fract(noise.x * 7.31 + floor(uSplat.w * 8.0) * 0.137);
-      if (glint > 0.965) { base = 4.0; }
+      base = coat.g > 0.7 ? 3.0 : 2.0;
+      level = max(level, coat.g > 0.4 ? 3.0 : 2.0);
+    } else if (slot == 31 && coat.g > noise.y * 0.6) {
+      // Tyre marks: the floor's own colour, one step down.
+      base = max(base - 1.0, 0.0);
     }
   }
+  if (unlit) { level = 3.0; }
+  // Off the table the room swallows everything, a level at a time.
+  if (aCenter.y < -1.5) { level = max(0.0, level - floor(-aCenter.y / 3.5)); }
+  level = clamp(level, 0.0, 3.0);
 
   if ((flags & PULSE) != 0) {
     // A band of light running across the surface, in steps.
@@ -132,7 +145,7 @@ void main() {
   float lo = floor(offset);
   float t = clamp((fract(offset) - 0.5) / uShade.z + 0.5, 0.0, 1.0);
   float step_ = clamp(base + lo + (noise.y < t ? 1.0 : 0.0), 0.0, 4.0);
-  vTone = vec3(ramp, step_, float(flags));
+  vTone = vec3(ramp, step_, level);
 #endif
 }
 `;
@@ -154,7 +167,7 @@ void main() {
 #ifdef SHADOW
   outColor = vec4(1.0);
 #else
-  outColor = vec4(vTone.x / 255.0, vTone.y / 255.0, 0.0, 1.0);
+  outColor = vec4(vTone.x / 255.0, vTone.y / 255.0, vTone.z / 255.0, 1.0);
 #endif
 }
 `;
@@ -176,8 +189,6 @@ uniform sampler2D uDepth;
 uniform sampler2D uRamps;
 // Near, far, 1 when orthographic, depth step that counts as an edge.
 uniform vec4 uDepthInfo;
-// Fog start, fog end, most fog, fog step on the room ramp.
-uniform vec4 uFog;
 // Sky ramp, top step, bottom step, horizon as a share of the height.
 uniform vec4 uSky;
 uniform float uRows;
@@ -210,8 +221,8 @@ vec2 reach(ivec2 p) {
   return vec2(cover, metres(nearest));
 }
 
-vec3 tone(float ramp, float step_) {
-  return texelFetch(uRamps, ivec2(int(step_ + 0.5), int(ramp + 0.5)), 0).rgb;
+vec3 tone(float ramp, float step_, float level) {
+  return texelFetch(uRamps, ivec2(int(level + 0.5) * 5 + int(step_ + 0.5), int(ramp + 0.5)), 0).rgb;
 }
 
 void main() {
@@ -222,7 +233,9 @@ void main() {
   for (int i = 0; i < 4; i += 1) {
     ivec2 q = p * 2 + ivec2(i & 1, i >> 1);
     vec4 s = texelFetch(uTones, q, 0);
-    keys[i] = s.a > 0.5 ? floor(s.r * 255.0 + 0.5) * 8.0 + floor(s.g * 255.0 + 0.5) : -1.0;
+    keys[i] = s.a > 0.5
+      ? floor(s.r * 255.0 + 0.5) * 64.0 + floor(s.b * 255.0 + 0.5) * 8.0 + floor(s.g * 255.0 + 0.5)
+      : -1.0;
     depths[i] = s.a > 0.5 ? texelFetch(uDepth, q, 0).r : 2.0;
     cover += s.a > 0.5 ? 1.0 : 0.0;
   }
@@ -230,7 +243,7 @@ void main() {
   float height = float(p.y) / uRows;
   if (cover < 2.0) {
     float band = (height - (1.0 - uSky.w)) / 0.12 + 0.5;
-    outColor = vec4(tone(uSky.x, bayer(p) < band ? uSky.y : uSky.z), 1.0);
+    outColor = vec4(tone(uSky.x, bayer(p) < band ? uSky.y : uSky.z, 0.0), 1.0);
     return;
   }
 
@@ -251,8 +264,9 @@ void main() {
       }
     }
   }
-  float ramp = floor(best / 8.0);
-  float step_ = best - ramp * 8.0;
+  float ramp = floor(best / 64.0);
+  float level = floor((best - ramp * 64.0) / 8.0);
+  float step_ = best - ramp * 64.0 - level * 8.0;
   float here = metres(bestDepth);
 
   // Ink: a rim one step down, in the material's own colour.
@@ -264,9 +278,6 @@ void main() {
   }
   if (edge) { step_ = max(step_ - 1.0, 0.0); }
 
-  vec3 color = tone(ramp, step_);
-  float fog = clamp((here - uFog.x) / max(uFog.y - uFog.x, 0.001), 0.0, 1.0) * uFog.z;
-  if (bayer(p) < fog) { color = tone(uSky.x, uFog.w); }
-  outColor = vec4(color, 1.0);
+  outColor = vec4(tone(ramp, step_, level), 1.0);
 }
 `;

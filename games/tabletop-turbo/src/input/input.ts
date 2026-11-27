@@ -6,30 +6,28 @@ export const IS_TOUCH = isCoarsePointer();
 
 const LEFT = ["KeyA", "ArrowLeft"];
 const RIGHT = ["KeyD", "ArrowRight"];
-const GAS = ["KeyW", "ArrowUp"];
-const BRAKE = ["KeyS", "ArrowDown"];
-const DRIFT = ["Space", "ShiftLeft", "ShiftRight"];
-const ITEM = new Set(["KeyE", "KeyX"]);
-const DRIVING_KEYS = new Set([...LEFT, ...RIGHT, ...GAS, ...BRAKE, ...DRIFT]);
-
-const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+const UP = ["KeyW", "ArrowUp"];
+const DOWN = ["KeyS", "ArrowDown"];
+const PUNCH = new Set(["Space", "KeyJ", "KeyX"]);
+const BOOST = ["ShiftLeft", "ShiftRight", "KeyK", "KeyZ"];
+const GAME_KEYS = new Set([...LEFT, ...RIGHT, ...UP, ...DOWN, ...PUNCH, ...BOOST]);
 
 export class Input {
   private readonly keys = new Set<string>();
   private readonly touch: DomGamepad;
   private readonly pad = new PhysicalGamepad({
-    bindings: { brake: ["b"], drift: ["x", "rb"], gas: ["a"], item: ["y", "lb"] },
+    bindings: { boost: ["b", "rb", "lt"], punch: ["a", "x", "rt"] },
   });
-  private itemQueued = false;
+  private punchQueued = false;
 
   constructor(tint: string) {
     window.addEventListener("keydown", (event) => {
-      if (DRIVING_KEYS.has(event.code)) {
+      if (GAME_KEYS.has(event.code)) {
         event.preventDefault();
       }
 
-      if (ITEM.has(event.code) && !event.repeat) {
-        this.itemQueued = true;
+      if (PUNCH.has(event.code) && !event.repeat) {
+        this.punchQueued = true;
       }
 
       this.keys.add(event.code);
@@ -43,23 +41,23 @@ export class Input {
     this.touch = attachDomGamepad({
       buttons: [
         {
-          id: "drift",
-          label: "DRIFT",
-          position: (v) => ({ x: v.width - 84 - v.inset.right, y: v.height - 92 - v.inset.bottom }),
-          radius: 52,
+          id: "punch",
+          label: "PUNCH",
+          position: (v) => ({ x: v.width - 88 - v.inset.right, y: v.height - 96 - v.inset.bottom }),
+          radius: 54,
         },
         {
-          id: "brake",
-          label: "BRAKE",
+          id: "boost",
+          label: "BOOST",
           position: (v) => ({
-            x: v.width - 190 - v.inset.right,
+            x: v.width - 196 - v.inset.right,
             y: v.height - 62 - v.inset.bottom,
           }),
-          radius: 36,
+          radius: 38,
         },
       ],
       render: { tint },
-      stick: { deadZone: 6, radius: 56, region: (point, v) => point.x < v.width * 0.6 },
+      stick: { deadZone: 6, radius: 56, region: (point, v) => point.x < v.width * 0.55 },
       visible: "coarse",
     });
   }
@@ -75,68 +73,44 @@ export class Input {
     this.touch.setVisible(visible);
   }
 
-  /** True on the frame any "go" input is down — starts the race from the title. */
+  /** True on the frame a pad asks to start from the title. */
   anyStart() {
-    return this.pad.justPressed("gas") || this.pad.justPressed("start");
-  }
-
-  /** True once per press of an item key or button. */
-  itemPressed() {
-    const pressed = this.itemQueued || this.pad.justPressed("item");
-    this.itemQueued = false;
-
-    return pressed;
-  }
-
-  /** The item button on the HUD was tapped. */
-  queueItem() {
-    this.itemQueued = true;
+    return this.pad.justPressed("punch") || this.pad.justPressed("start");
   }
 
   /**
-   * Is the driver on the gas under the start lights? A touch kart drives
-   * itself, so there the drift button stands in for the pedal.
+   * The stick as a direction on the screen (x right, z down, length 0–1), the
+   * punch as one press, and boost while held.
    */
-  launchHeld() {
-    if (this.touch.isTouch) {
-      return this.touch.isButtonDown("drift");
-    }
-
-    const keyed = GAS.some((code) => this.keys.has(code));
-
-    return keyed || this.pad.isButtonDown("gas") || this.pad.buttonValue("rt") > 0.4;
-  }
-
   read() {
     const down = (codes: readonly string[]) => codes.some((code) => this.keys.has(code));
-    let steer = (down(RIGHT) ? 1 : 0) - (down(LEFT) ? 1 : 0);
-    let throttle = down(GAS) ? 1 : 0;
-    let brake = down(BRAKE) ? 1 : 0;
-    let drift = down(DRIFT);
+    let mx = (down(RIGHT) ? 1 : 0) - (down(LEFT) ? 1 : 0);
+    let mz = (down(DOWN) ? 1 : 0) - (down(UP) ? 1 : 0);
+    const keyed = Math.hypot(mx, mz);
 
-    const stick = this.touch.getStick();
+    if (keyed > 1) {
+      mx /= keyed;
+      mz /= keyed;
+    }
 
-    if (this.touch.isTouch) {
-      throttle = 1;
-
+    for (const stick of [this.touch.getStick(), this.pad.getStick()]) {
       if (stick.active && !stick.inDeadZone) {
-        steer = clamp(Math.cos(stick.angle) * stick.magnitude * 1.25, -1, 1);
+        const size = Math.min(1, stick.magnitude * 1.15);
+        mx = Math.cos(stick.angle) * size;
+        mz = Math.sin(stick.angle) * size;
       }
-
-      brake = Math.max(brake, this.touch.isButtonDown("brake") ? 1 : 0);
-      drift ||= this.touch.isButtonDown("drift");
     }
 
-    const padStick = this.pad.getStick();
+    const punch =
+      this.punchQueued || this.pad.justPressed("punch") || this.touch.justPressed("punch");
 
-    if (padStick.active && !padStick.inDeadZone) {
-      steer = clamp(Math.cos(padStick.angle) * padStick.magnitude, -1, 1);
-    }
+    this.punchQueued = false;
 
-    throttle = Math.max(throttle, this.pad.buttonValue("rt"), this.pad.isButtonDown("gas") ? 1 : 0);
-    brake = Math.max(brake, this.pad.buttonValue("lt"), this.pad.isButtonDown("brake") ? 1 : 0);
-    drift ||= this.pad.isButtonDown("drift");
-
-    return { brake, drift, steer, throttle: brake > 0 ? 0 : throttle };
+    return {
+      boost: down(BOOST) || this.pad.isButtonDown("boost") || this.touch.isButtonDown("boost"),
+      mx,
+      mz,
+      punch,
+    };
   }
 }

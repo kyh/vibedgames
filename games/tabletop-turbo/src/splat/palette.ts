@@ -3,7 +3,11 @@ import * as THREE from "three";
 export const STEPS = 5;
 
 const TABLE = [
-  ["track", "#7a2a12", "#bf4416", "#f26a1b", "#ff9a3c", "#ffd08a"],
+  ["orange", "#7a2a12", "#bf4416", "#f26a1b", "#ff9a3c", "#ffd08a"],
+  ["board", "#39406b", "#4b558a", "#5f6ba6", "#7a86bf", "#a3aedb"],
+  ["felt", "#1f4a44", "#2b6a5c", "#3a8a72", "#58aa88", "#8fd0aa"],
+  ["cream", "#8a6a4a", "#c9a877", "#f0d9a8", "#fff0c8", "#fffbe8"],
+  ["hazard", "#6b4a00", "#b88400", "#f2c200", "#ffe14a", "#fff6b0"],
   ["wood", "#3d2416", "#6b4226", "#96623a", "#b98454", "#d9ab7c"],
   ["carpet", "#1c2040", "#2a3360", "#3d4a80", "#5a6aa6", "#8c9acc"],
   ["tile", "#5f6078", "#9a98a8", "#cfc8c4", "#efe6d6", "#ffffff"],
@@ -32,20 +36,24 @@ const indexOf = (name: RampName) => TABLE.findIndex((row) => row[0] === name);
 export const RAMP = {
   black: indexOf("black"),
   blue: indexOf("blue"),
+  board: indexOf("board"),
   carpet: indexOf("carpet"),
+  cream: indexOf("cream"),
   cyan: indexOf("cyan"),
   green: indexOf("green"),
   lilac: indexOf("lilac"),
   lime: indexOf("lime"),
   mint: indexOf("mint"),
+  felt: indexOf("felt"),
+  hazard: indexOf("hazard"),
   navy: indexOf("navy"),
+  orange: indexOf("orange"),
   peach: indexOf("peach"),
   pink: indexOf("pink"),
   purple: indexOf("purple"),
   red: indexOf("red"),
   room: indexOf("room"),
   tile: indexOf("tile"),
-  track: indexOf("track"),
   white: indexOf("white"),
   wood: indexOf("wood"),
   yellow: indexOf("yellow"),
@@ -56,17 +64,20 @@ export const RAMP_COUNT = TABLE.length;
 /** A template's stand-in for "this kart's colour", swapped for a real ramp when drawn. */
 export const TEAM_RAMP = 31;
 
-/** The ramps a kart can wear: eight that differ in value as well as hue, none an orange. */
-export const KART_RAMPS = [
+/** The ramps a car can wear: eight that stay apart on a dark board under warm light. */
+export const CAR_RAMPS = [
   RAMP.cyan,
   RAMP.pink,
   RAMP.lime,
   RAMP.purple,
-  RAMP.blue,
+  RAMP.orange,
   RAMP.white,
   RAMP.yellow,
-  RAMP.black,
+  RAMP.red,
 ] as const;
+
+/** How lit a surface is, from the dark of the room to full lamp light. */
+export const LEVELS = 4;
 
 export const rampCss = (ramp: number, step: number) => {
   const row = TABLE[ramp] ?? TABLE[0];
@@ -84,13 +95,13 @@ const hueOf = (css: string) => {
   return { h: HSL.h, l: HSL.l, s: HSL.s };
 };
 
-/** The kart ramp closest in hue to any colour, skipping ramps already `taken`. */
-export const kartRampFor = (css: string, taken: ReadonlySet<number>) => {
+/** The car ramp closest in hue to any colour, skipping ramps already `taken`. */
+export const carRampFor = (css: string, taken: ReadonlySet<number>) => {
   const want = hueOf(css);
-  let best: number = KART_RAMPS[0];
+  let best: number = CAR_RAMPS[0];
   let bestGap = Number.POSITIVE_INFINITY;
 
-  for (const ramp of KART_RAMPS) {
+  for (const ramp of CAR_RAMPS) {
     if (!taken.has(ramp)) {
       const have = hueOf(rampCss(ramp, 2));
       const turn = Math.abs(want.h - have.h);
@@ -110,23 +121,56 @@ export const kartRampFor = (css: string, taken: ReadonlySet<number>) => {
   return best;
 };
 
-/** Every tone as a texture: x is the step, y the ramp. Bytes go to the screen untouched. */
+const NIGHT = new THREE.Color("#070a24");
+const WARM = new THREE.Color(0.2, 0.16, 0.05);
+const LIT = new THREE.Color();
+
+const DIM = [
+  { cool: new THREE.Color(0.3, 0.33, 0.6), sink: 0.34 },
+  { cool: new THREE.Color(0.6, 0.64, 0.9), sink: 0.14 },
+] as const;
+
+const shade = (hex: string, level: number) => {
+  LIT.set(hex);
+  const dim = DIM[level];
+
+  if (dim) {
+    return SCRATCH.copy(LIT).multiply(dim.cool).lerp(NIGHT, dim.sink);
+  }
+
+  if (level >= LEVELS - 1) {
+    return SCRATCH.copy(LIT).add(WARM);
+  }
+
+  return SCRATCH.copy(LIT);
+};
+
+/** A tone as the page sees it: `level` 0 is the dark of the room, the top level full light. */
+export const litCss = (ramp: number, step: number, level: number) =>
+  `#${shade(rampCss(ramp, step), level).getHexString(THREE.SRGBColorSpace)}`;
+
+/**
+ * Every tone at every light level as a texture: x is `level * STEPS + step`, y
+ * the ramp. Bytes go to the screen untouched.
+ */
 export const rampTexture = () => {
-  const data = new Uint8Array(STEPS * RAMP_COUNT * 4);
+  const wide = STEPS * LEVELS;
+  const data = new Uint8Array(wide * RAMP_COUNT * 4);
 
   for (const [ramp, row] of TABLE.entries()) {
-    for (let step = 0; step < STEPS; step += 1) {
-      SCRATCH.set(row[step + 1] ?? "#000000");
-      const hex = SCRATCH.getHex(THREE.SRGBColorSpace);
-      const o = (ramp * STEPS + step) * 4;
-      data[o] = Math.floor(hex / 65_536) % 256;
-      data[o + 1] = Math.floor(hex / 256) % 256;
-      data[o + 2] = hex % 256;
-      data[o + 3] = 255;
+    for (let level = 0; level < LEVELS; level += 1) {
+      for (let step = 0; step < STEPS; step += 1) {
+        const hex = shade(row[step + 1] ?? "#000000", level).getHex(THREE.SRGBColorSpace);
+        const o = (ramp * wide + level * STEPS + step) * 4;
+        data[o] = Math.floor(hex / 65_536) % 256;
+        data[o + 1] = Math.floor(hex / 256) % 256;
+        data[o + 2] = hex % 256;
+        data[o + 3] = 255;
+      }
     }
   }
 
-  const texture = new THREE.DataTexture(data, STEPS, RAMP_COUNT, THREE.RGBAFormat);
+  const texture = new THREE.DataTexture(data, wide, RAMP_COUNT, THREE.RGBAFormat);
   texture.colorSpace = THREE.NoColorSpace;
   texture.magFilter = THREE.NearestFilter;
   texture.minFilter = THREE.NearestFilter;

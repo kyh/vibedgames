@@ -67,12 +67,6 @@ const input = new Input(LOCAL_COLOR);
 input.setTouchVisible(false);
 
 const hud = new Hud({
-  onChassis: (index) => {
-    game.setChassis(index);
-  },
-  onItem: () => {
-    input.queueItem();
-  },
   onStart: () => {
     unlockAudio();
     game.start();
@@ -80,8 +74,7 @@ const hud = new Hud({
 });
 
 const sunParam = new URLSearchParams(window.location.search).get("sun");
-const sunLate = sunParam === "late";
-const sunSize = sunParam === null || sunLate ? 1024 : Number(sunParam) || 0;
+const sunSize = sunParam === null ? 1024 : Number(sunParam) || 0;
 
 const game = new GameScene(
   client,
@@ -90,10 +83,6 @@ const game = new GameScene(
   renderer,
   IS_TOUCH ? Math.min(512, sunSize) : sunSize,
 );
-
-if (sunLate) {
-  game.setTestState("sun-off");
-}
 
 game.resize(window.innerWidth, window.innerHeight);
 
@@ -112,8 +101,6 @@ window.addEventListener("keydown", (event) => {
 
   if (event.code === "KeyM") {
     setMuted(!isMuted());
-  } else if (event.code === "KeyC") {
-    game.toggleCamera();
   } else if (event.code === "Enter" || event.code === "Space") {
     game.start();
   }
@@ -141,53 +128,67 @@ setPauseHandlers({
 type Diagnostics = GameDiagnostics & { paused: boolean };
 
 const diag: Diagnostics = {
-  bendAhead: 0,
-  boosting: false,
+  boost: 1,
+  centre: { dx: 0, dy: 0 },
   complete: false,
-  driftTier: 0,
-  drifting: false,
+  edge: 9,
   entities: 0,
+  falls: 0,
   frame: 0,
   item: "",
-  lane: 0,
-  lap: 1,
-  orbs: 0,
+  knockOffs: 0,
   paused: false,
   phase: "title",
   place: 1,
   player: { x: 0, y: 0 },
+  punchReady: true,
+  rival: { distance: 99, dx: 0, dy: 0, edge: 9 },
   score: 0,
-  speed: 0,
-  steerError: 0,
-  surface: "road",
-  tooFast: false,
-  wrongWay: false,
+  threat: 0,
+  timeLeft: 90,
 };
 
 publishDiagnostics(() => diag);
 
-const driveKeys = (d: Diagnostics, lane: number, drift: boolean) => {
-  const error = d.steerError + (lane - d.lane) * 0.35;
-  const keys = [d.tooFast ? "ArrowDown" : "ArrowUp"];
+const towards = (dx: number, dy: number) => {
+  const size = Math.hypot(dx, dy) || 1;
+  const keys: string[] = [];
 
-  if (error > 0.06) {
+  if (dx / size > 0.38) {
     keys.push("ArrowRight");
-  } else if (error < -0.06) {
+  } else if (dx / size < -0.38) {
     keys.push("ArrowLeft");
   }
 
-  const intoBend = Math.sign(d.bendAhead) === Math.sign(error) && Math.abs(d.bendAhead) > 0.03;
-
-  if (drift && intoBend && d.surface !== "shoulder" && d.driftTier < 3) {
-    keys.push("Space");
-  }
-
-  if (d.item !== "" && d.frame % 2 === 0) {
-    keys.push("KeyE");
+  if (dy / size > 0.38) {
+    keys.push("ArrowDown");
+  } else if (dy / size < -0.38) {
+    keys.push("ArrowUp");
   }
 
   return keys;
 };
+
+const fightKeys = (d: Diagnostics, boost: boolean) => {
+  if (d.edge < 2.4 || d.threat > 0.5) {
+    return towards(d.centre.dx, d.centre.dy);
+  }
+
+  const keys = towards(d.rival.dx, d.rival.dy);
+
+  if (d.rival.distance < 4.6 && d.punchReady && d.frame % 3 === 0) {
+    keys.push("Space");
+  }
+
+  if (boost && d.rival.distance > 7 && d.boost > 0.4) {
+    keys.push("ShiftLeft");
+  }
+
+  return keys;
+};
+
+const fight: (boost: boolean) => Reflex<Diagnostics> = (boost) => (d) =>
+  d && d.phase === "play" ? { keys: fightKeys(d, boost) } : undefined;
 
 const timer = new THREE.Timer();
 
@@ -207,34 +208,27 @@ if (import.meta.env.DEV || playtest) {
     setState: (name) => (game.setTestState(name) ? { state: name } : undefined),
   });
 
-  const drive: (lane: number, drift: boolean) => Reflex<Diagnostics> = (lane, drift) => (d) =>
-    d && d.phase !== "title" && d.phase !== "results"
-      ? { keys: driveKeys(d, lane, drift) }
-      : undefined;
-
   publishPlaytest<Diagnostics>({
     goal: [
-      "A three-lap kart race against seven rivals; finish as high as you can (game.place, 1 is first; game.complete is true once you cross the line).",
-      "Every kart paints the road behind it. game.surface says what you are on: 'own' (your paint: faster), 'rival' (someone else's: slippery and slower), 'road' (bare), 'shoulder' (off the road: very slow, get back on).",
-      "game.lane is where you are across the road, -1 left edge to 1 right edge. game.bendAhead is the sharpest bend coming, + for a right-hander. Every move brakes by itself when game.tooFast is true. Default to race_centre. Switch lanes when game.surface has been 'rival' for a while. Use drift_corner when |game.bendAhead| is above 0.03: it slides the bend and releases a boost. game.orbs (0-10) raises your top speed: drive through the gold rings. game.item names the item in hand; every move plays it by itself.",
+      "Car sumo on a board with no walls: eight cars, 90 seconds. Knock rivals over the edge or into a hole with your bumper; each knock-off is a point (game.score, game.knockOffs). Falling off on your own costs one (game.falls counts every fall).",
+      "The car drives the way you point: arrows are screen directions. game.rival is the nearest rival you can hit (dx right, dy down, distance in car units; rival.edge is how close THEY are to an edge). game.edge is how close YOU are to an edge or hole: under 2.5 is danger. game.threat above 0.5 means something on the board is about to hit you.",
+      "Default to chase. Use chase_boost when the rival is far (distance above 8) and game.boost is above 0.4. Use retreat when game.edge is under 3 or after being hit. Every move punches by itself when a rival is in reach and game.punchReady is true.",
     ].join(" "),
     minDisplacement: 1,
     move: {
-      drift_corner: {
-        description: "Hold the gas and drift through the coming bend, boosting out of it",
-        reflex: drive(0, true),
+      chase: {
+        description: "Drive at the nearest rival and punch when in reach",
+        reflex: fight(false),
       },
-      race_centre: {
-        description: "Hold the gas and follow the middle of the road",
-        reflex: drive(0, false),
+      chase_boost: {
+        description:
+          "Boost at the nearest rival and punch when in reach: a faster hit throws further",
+        reflex: fight(true),
       },
-      race_left: {
-        description: "Hold the gas and run the left side of the road",
-        reflex: drive(-0.55, false),
-      },
-      race_right: {
-        description: "Hold the gas and run the right side of the road",
-        reflex: drive(0.55, false),
+      retreat: {
+        description: "Drive back to the middle of the board",
+        reflex: (d) =>
+          d && d.phase === "play" ? { keys: towards(d.centre.dx, d.centre.dy) } : undefined,
       },
     },
   });

@@ -1,4 +1,5 @@
 export const FLAG = {
+  bright: 64,
   noShadow: 8,
   paintable: 4,
   pulse: 32,

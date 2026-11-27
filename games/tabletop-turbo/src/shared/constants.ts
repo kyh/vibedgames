@@ -1,157 +1,156 @@
-/** Laps in one race. */
-export const LAPS = 3;
-
-/** Karts on the grid: humans first, bots fill the rest. */
+/** Cars on the board: humans first, bots fill the rest. */
 export const GRID_SIZE = 8;
 
 /** Humans one room holds; the SDK overflows the rest into a sibling room. */
 export const MAX_PLAYERS = 8;
-export const ROOM_ID = "tabletop-turbo-v1";
+export const ROOM_ID = "tabletop-turbo-v2";
 
-export const MAX_SPEED = 34;
-export const REVERSE_SPEED = 9;
-export const ACCEL = 30;
-export const BRAKE = 46;
-
-/** Speed bled per second with no throttle, as a fraction of current speed. */
-export const COAST_DRAG = 0.55;
-export const TURN_RATE = 2.3;
-
-/** Speed at which steering reaches full authority. */
-export const STEER_FULL_SPEED = 9;
-
-/** How much top-speed steering tightens: 0 none, 1 no steering at top speed. */
-export const STEER_SPEED_FALLOFF = 0.32;
-
-/** Lateral velocity killed per second (higher = more grip). */
-export const GRIP = 9.5;
-export const GRIP_DRIFT = 2.1;
-export const GRIP_SLICK = 3.1;
-export const GRIP_SHOULDER = 6;
-
-/** Seconds the steering input takes to follow the stick. */
-export const STEER_SMOOTH = 0.09;
-
-export const DRIFT_MIN_SPEED = 13;
-export const DRIFT_MIN_STEER = 0.2;
-
-/** While drifting the kart always turns into the slide: base + steer * range. */
-export const DRIFT_BASE_TURN = 0.72;
-export const DRIFT_STEER_RANGE = 0.62;
-
-/** Seconds of drift that earn each boost tier. */
-export const BOOST_TIERS = [0.55, 1.3, 2.3] as const;
-
-/** Seconds each tier's boost lasts. */
-export const BOOST_SECONDS = [0.7, 1.15, 1.8] as const;
-export const BOOST_SPEED = 11;
-export const BOOST_ACCEL = 60;
-
-/** Paint grid: PAINT_SIZE cells a side, PAINT_CELL world units each, centred on the origin. */
-export const PAINT_SIZE = 512;
-export const PAINT_CELL = 0.5;
-
-/** Seconds a stamp glows before it is gone. */
-export const PAINT_LIFE = 22;
-
-/** Below this strength paint no longer boosts or slicks anyone. */
-export const PAINT_ACTIVE = 0.12;
-export const PAINT_RADIUS = 0.8;
-export const PAINT_RADIUS_DRIFT = 1.45;
-export const PAINT_RADIUS_BOOST = 1.1;
-
-/** Minimum speed to lay paint: a parked kart does not flood its grid slot. */
-export const PAINT_MIN_SPEED = 5;
-
-/** Top-speed multiplier on your own paint. */
-export const OWN_PAINT_SPEED = 1.16;
-export const OWN_PAINT_ACCEL = 1.35;
-
-/** Top-speed multiplier on a rival's paint. */
-export const RIVAL_PAINT_SPEED = 0.96;
-
-/** Seconds a splat pad rests after firing. */
-export const PAD_COOLDOWN = 7;
-
-/** World units between centreline samples. */
-export const TRACK_STEP = 1;
-
-/** Extra width beyond the road edge before the rail. */
-export const SHOULDER = 3.2;
-export const SHOULDER_SPEED = 0.6;
-
-/** Speed kept when scraping the rail. */
-export const RAIL_SCRUB = 0.985;
-export const KART_RADIUS = 1.15;
-
-export const COUNTDOWN_MS = 5000;
+export const ROUND_MS = 90_000;
+export const COUNTDOWN_MS = 4000;
 export const RESULTS_MS = 9000;
 
-/** After the first finisher, everyone else gets this long. */
-export const FINISH_GRACE_MS = 30_000;
+/** The ends of the board start blinking this long before the round ends, then drop. */
+export const SHRINK_MS = 25_000;
+export const SHRINK_WARN_MS = 3000;
+
+/** The sim's fixed step, and the most steps one frame may run. */
+export const STEP = 1 / 60;
+export const MAX_STEPS = 4;
+
+export const MAX_SPEED = 14.4;
+export const ACCEL = 30;
+
+/** Speed bled per second with no stick: a car left alone stops in under half a second. */
+export const COAST_DRAG = 5.5;
+
+/** Radians per second the nose swings towards the stick. */
+export const TURN_RATE = 5.4;
+
+/** Lateral velocity killed per second (higher = more grip). */
+export const GRIP = 11;
+
+export const BOOST_SPEED = 21.6;
+export const BOOST_ACCEL = 70;
+
+/** Seconds a full meter lasts, seconds to refill it, and the wait before it starts refilling. */
+export const BOOST_SECONDS = 1;
+export const BOOST_REFILL = 5;
+export const BOOST_REST = 0.5;
+
+/** The meter has to be this full to start a boost, and a knock-off gives this much back. */
+export const BOOST_MIN = 0.2;
+export const BOOST_REWARD = 0.5;
+
+/** Collision radius of a car, and its nose from its centre. */
+export const CAR_RADIUS = 1.2;
+export const CAR_NOSE = 1.3;
+
+export const GRAVITY = 46;
+
+/** Seconds a car falls before it is out. */
+export const FALL_SECONDS = 0.7;
+
+/** The punch: a press is remembered this long, then wind-up, strike, hold and retract. */
+export const PUNCH_BUFFER = 0.15;
+export const PUNCH_WINDUP = 0.055;
+export const BOT_WINDUP = 0.27;
+export const PUNCH_STRIKE = 0.1;
+export const PUNCH_HOLD = 0.12;
+export const PUNCH_RETRACT = 0.2;
+export const PUNCH_COOLDOWN = 2.2;
+export const PUNCH_WHIFF_COOLDOWN = 3;
+
+/** How far past the nose the bumper reaches, and the half width it sweeps. */
+export const PUNCH_REACH = 2.5;
+export const PUNCH_HALF_WIDTH = 1.45;
+
+/** How far a standing punch throws a car, and the extra per unit of the attacker's speed. */
+export const PUNCH_THROW = 6.3;
+export const PUNCH_SPEED_THROW = 0.25;
+
+/** A thrown car covers its distance on this time constant, and leaves the floor this high. */
+export const KNOCK_TAU = 0.18;
+export const KNOCK_HOP = 1.4;
+
+/** Seconds a thrown car has no steering, then seconds for it to come back. */
+export const STAGGER = 0.45;
+export const STAGGER_EASE = 0.2;
+
+/** The attacker is pushed back this far as the bumper lands, and lunges this far on a boosted punch. */
+export const PUNCH_RECOIL = 1;
+export const PUNCH_LUNGE = 2.4;
+
+/** Two bumpers meeting throw both cars back this far. */
+export const CLASH_THROW = 2.2;
+
+/** Dents: each punch taken adds one, up to the last multiplier; one heals after this long unhit. */
+export const DENT_GAIN = [1, 1.3, 1.6] as const;
+export const DENT_HEAL = 8;
+
+/** A ram needs this closing speed to count; it throws this far, or further off a boost. */
+export const RAM_MIN = 12;
+export const RAM_THROW = 2.4;
+export const RAM_BOOST_THROW = 4.3;
+
+/** What the board's own toys throw a car: pop bumper, sweeper arm, piston. */
+export const BUMPER_THROW = 3.6;
+export const SWEEPER_THROW = 7.2;
+export const PISTON_THROW = 9.6;
+
+/** Seconds a piston's lane is lit before it fires, and seconds its head stays out. */
+export const PISTON_WARN = 0.9;
+export const PISTON_OUT = 0.45;
+
+/** Seconds a hit stays yours: a fall within it is your knock-off. */
+export const CREDIT_SECONDS = 3;
+
+export const RESPAWN_SECONDS = 1.5;
+export const SAFE_SECONDS = 1.5;
+
+/** Height a respawning car drops from. */
+export const DROP_HEIGHT = 12;
+
+/** The same attacker cannot land twice inside the first window, nor anyone inside the second. */
+export const HIT_LOCK_SAME = 0.4;
+export const HIT_LOCK_ANY = 0.12;
+
+/** Seconds into the round before the first crate, the gap between crates, and the beam before each lands. */
+export const ITEMS_AT = 10;
+export const CRATE_EVERY = 9;
+export const CRATE_BEAM = 2;
+export const PICKUP_RADIUS = 2;
+
+export const ITEM_KINDS = ["mega", "spring", "giant", "turbo"] as const;
+
+export type ItemKind = (typeof ITEM_KINDS)[number];
+
+/** Punches a bumper mod lasts, and seconds a car mod lasts. */
+export const ITEM_PUNCHES = 2;
+export const ITEM_SECONDS = 6;
+
+export const MEGA_FORCE = 1.5;
+export const MEGA_WIDTH = 1.5;
+export const SPRING_REACH = 2;
+export const GIANT_SCALE = 1.5;
+export const GIANT_TAKEN = 0.7;
+export const GIANT_SLOW = 0.85;
 
 export const SEND_HZ = 20;
-export const BOT_SEND_HZ = 15;
+export const BOT_SEND_HZ = 20;
 export const FALLBACK_MS = 5000;
 
-/** Longest frame the sim will swallow in one step (seconds). */
-export const MAX_DT = 1 / 20;
+/** Longest frame the sim will swallow (seconds). */
+export const MAX_DT = 1 / 15;
 
-/** Bot identities: name + paint colour. Humans take the SDK's player colour. */
+/** Bot identities: name + colour. Humans take the SDK's player colour. */
 export const BOTS = [
   { color: "#ee3fa8", name: "Mirage" },
   { color: "#a4d81c", name: "Zest" },
   { color: "#8f3fe0", name: "Onyx" },
-  { color: "#3a9cf0", name: "Flux" },
+  { color: "#f26a1b", name: "Rusty" },
   { color: "#c9cede", name: "Chalk" },
   { color: "#f7c820", name: "Kiko" },
-  { color: "#2e2b3d", name: "Ember" },
+  { color: "#e02a2f", name: "Ember" },
 ] as const;
-
-/** Three karts, three trade-offs. Multipliers on top speed, acceleration and grip. */
-export const CHASSIS = [
-  { accel: 1, grip: 1, name: "Dart", speed: 1, tag: "All-rounder" },
-  { accel: 0.86, grip: 0.93, name: "Anvil", speed: 1.045, tag: "Top speed" },
-  { accel: 1.2, grip: 1.12, name: "Wisp", speed: 0.965, tag: "Corners" },
-] as const;
-
-/** Glow orbs a kart can carry; each adds ORB_SPEED to its top speed. */
-export const ORB_MAX = 10;
-export const ORB_SPEED = 0.011;
-
-/** Orbs lost on a spin-out. */
-export const ORB_LOSS = 3;
-export const ORB_RESPAWN = 14;
-export const PICKUP_RADIUS = 1.9;
-
-export const ITEM_KINDS = ["turbo", "bomb", "solvent", "blot"] as const;
-
-export type ItemKind = (typeof ITEM_KINDS)[number];
-
-export const BOX_RESPAWN = 4.5;
-export const TURBO_SECONDS = 1.7;
-
-/** Paint bomb: how far ahead it lands (samples), flight time, splat and blast radius. */
-export const BOMB_REACH = 30;
-export const BOMB_FLIGHT = 0.8;
-export const BOMB_SPLAT = 7.5;
-export const BOMB_BLAST = 6;
-
-/** Solvent: radius wiped of rival paint, and seconds of immunity to slick. */
-export const SOLVENT_RADIUS = 18;
-export const SOLVENT_SECONDS = 4;
-
-/** Blot: a puddle dropped behind; radius, lifetime, and the grace before it arms. */
-export const BLOT_RADIUS = 2.3;
-export const BLOT_SECONDS = 16;
-export const BLOT_ARM = 0.6;
-
-/** Seconds a spun-out kart is out of the driver's hands. */
-export const SPIN_SECONDS = 1.15;
-
-/** Gas pressed this long (seconds) before the green earns a launch boost. */
-export const LAUNCH_MIN = 0.08;
-export const LAUNCH_MAX = 0.75;
-export const LAUNCH_SECONDS = 1.1;
 
 export const LOCAL_COLOR = "#18bfb4";

@@ -1,211 +1,109 @@
-import { controlHints } from "@repo/embed";
+import { isPadConnected } from "@vibedgames/gamepad/dom";
 
-import { CONTROLS } from "../controls";
-import { BOOST_TIERS, CHASSIS, LAPS, ORB_MAX } from "../shared/constants";
 import type { ItemKind } from "../shared/constants";
-import type { Surface } from "../sim/kart";
-import { formatTime, ordinal } from "../sim/race";
-import type { Track } from "../sim/track";
 
-export interface RaceReadout {
-  place: number;
-  total: number;
-  lap: number;
-  clockMs: number;
-  /** Seconds of drift held. */
-  charge: number;
-  surface: Surface;
-  kmh: number;
-  boosting: boolean;
-  orbs: number;
-  item: ItemKind | null;
-  /** Seconds to the kart ahead, 0 when leading. */
-  gap: number;
-}
-
-export interface MapDot {
-  x: number;
-  z: number;
-  color: string;
-  me: boolean;
-}
-
-export interface BoardRow {
+export interface HudRow {
+  key: string;
   name: string;
-  color: string;
+  css: string;
+  score: number;
   me: boolean;
+  /** Off the board right now. */
+  out: boolean;
 }
 
-export interface ResultRow {
-  place: number;
-  name: string;
-  color: string;
-  /** Race time in ms, or 0 for a kart that did not finish. */
-  timeMs: number;
-  /** Share of the painted road this kart holds, 0–1. */
-  paint: number;
-  /** Cup points so far, this race included. */
-  points: number;
-  me: boolean;
-}
-
-export interface HudActions {
+export interface HudCallbacks {
   onStart: () => void;
-  onChassis: (index: number) => void;
-  onItem: () => void;
 }
 
-const el = <T extends Element>(id: string, ctor: new () => T) => {
-  const node = document.querySelector(`#${id}`);
+export type BannerTone = "good" | "bad" | "warn" | "plain";
 
-  if (!(node instanceof ctor)) {
-    throw new TypeError(`missing #${id}`);
+const ITEM_NAMES = {
+  giant: "GIANT",
+  mega: "MEGA BUMPER",
+  spring: "LONG SPRING",
+  turbo: "TURBO",
+} as const satisfies Record<ItemKind, string>;
+
+export const itemName = (kind: ItemKind) => ITEM_NAMES[kind];
+
+const ORDINALS = ["1ST", "2ND", "3RD", "4TH", "5TH", "6TH", "7TH", "8TH"] as const;
+
+const el = (id: string) => {
+  const node = document.querySelector<HTMLElement>(`#${id}`);
+
+  if (!node) {
+    throw new Error(`missing #${id}`);
   }
 
   return node;
 };
 
-const setText = (node: Element, text: string) => {
-  if (node.textContent !== text) {
-    node.textContent = text;
+const clockText = (ms: number) => {
+  const seconds = Math.max(0, Math.ceil(ms / 1000));
+
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+};
+
+const rowNode = (row: HudRow, rank: number | null) => {
+  const node = document.createElement("div");
+  node.dataset.me = row.me ? "1" : "0";
+  node.dataset.out = row.out ? "1" : "0";
+
+  if (rank !== null) {
+    const place = document.createElement("em");
+    place.textContent = String(rank);
+    node.append(place);
   }
-};
 
-const SURFACE_LABEL: Record<Surface, string> = {
-  own: "YOUR PAINT",
-  rival: "SLICK",
-  road: "",
-  shoulder: "",
-};
-
-const ITEM_ICONS: Record<ItemKind | "none", string> = {
-  blot: '<path d="M32 10c10 0 20 8 20 20 0 6-4 9-2 15 2 7-6 11-12 8-5-3-9-2-14 0-7 2-13-4-11-11 2-6-2-9-1-15 2-10 10-17 20-17z" fill="currentColor" stroke="none"/><circle cx="14" cy="50" r="4" fill="currentColor" stroke="none"/>',
-  bomb: '<circle cx="28" cy="38" r="17"/><path d="M40 26l8-8"/><path d="M50 8v6M56 14h-6M54 10l-4 4"/>',
-  none: '<path d="M22 24a10 10 0 1 1 14 9c-3 2-4 4-4 8"/><path d="M32 51v1"/>',
-  solvent:
-    '<path d="M32 8c10 13 16 21 16 30a16 16 0 0 1-32 0c0-9 6-17 16-30z"/><path d="M24 38a8 8 0 0 0 8 8"/>',
-  turbo: '<path d="M10 14l20 18-20 18"/><path d="M32 14l20 18-20 18"/>',
-};
-
-const WHEELS = '<circle cx="13" cy="26" r="7"/><circle cx="45" cy="26" r="6"/>';
-
-const CHASSIS_ICONS = [
-  `${WHEELS}<path d="M6 22h40l8 3v2H6z"/><path d="M22 22l3-8h8l3 8z"/><path d="M2 6h14v3H10v10H7V9H2z"/>`,
-  `${WHEELS}<path d="M6 22h42l6 3v2H6z"/><path d="M4 8h18v14H4z"/><path d="M22 22V8h14l4 14h-3l-3-11h-9v11z"/>`,
-  `${WHEELS}<path d="M8 22h36l12 4v1H8z"/><path d="M22 22l3-7h7l3 7z"/><path d="M4 8l12 6v8h-4z"/><path d="M44 18h10v2H44z"/>`,
-] as const;
-
-const ITEM_NAMES: Record<ItemKind, string> = {
-  blot: "Blot",
-  bomb: "Paint bomb",
-  solvent: "Solvent",
-  turbo: "Turbo",
-};
-
-const MAP_PX = 300;
-const MAP_PAD = 34;
-const SWEEP = 135;
-const DIAL_MAX = 220;
-const SVG = "http://www.w3.org/2000/svg";
-
-/** The player's paint colour, as the CSS accent every HUD surface keys off. */
-export const setAccent = (color: string) => {
-  document.documentElement.style.setProperty("--me", color);
-};
-
-const pips = (value: number, spread: number) =>
-  Math.min(6, Math.max(1, Math.round(3 + (value - 1) * spread)));
-
-const statRow = (label: string, lit: number, color: string) => {
-  const row = document.createElement("div");
-  row.className = "stat";
+  const swatch = document.createElement("i");
+  swatch.style.background = row.css;
   const name = document.createElement("span");
-  name.textContent = label;
-  const bar = document.createElement("span");
-  bar.className = "pips";
-  bar.style.setProperty("--pip", color);
+  name.textContent = row.name;
+  const score = document.createElement("b");
+  score.textContent = String(row.score);
+  node.append(swatch, name, score);
 
-  for (let i = 0; i < 6; i += 1) {
-    const pip = document.createElement("i");
-    pip.dataset.on = i < lit ? "1" : "0";
-    bar.append(pip);
-  }
-
-  row.append(name, bar);
-
-  return row;
+  return node;
 };
 
-const buildDial = () => {
-  const ticks = el("ticks", SVGGElement);
-
-  for (let i = 0; i <= 10; i += 1) {
-    const angle = ((-SWEEP + (i / 10) * SWEEP * 2 - 90) * Math.PI) / 180;
-    const inner = i % 5 === 0 ? 50 : 55;
-    const tick = document.createElementNS(SVG, "line");
-    tick.setAttribute("x1", (80 + Math.cos(angle) * inner).toFixed(1));
-    tick.setAttribute("y1", (80 + Math.sin(angle) * inner).toFixed(1));
-    tick.setAttribute("x2", (80 + Math.cos(angle) * 59).toFixed(1));
-    tick.setAttribute("y2", (80 + Math.sin(angle) * 59).toFixed(1));
-    ticks.append(tick);
-  }
-};
-
+/** The page around the canvas: everything here is DOM, laid over the art. */
 export class Hud {
-  private readonly hud = el("hud", HTMLElement);
-  private readonly placeNum = el("place-num", HTMLElement);
-  private readonly placeSuffix = el("place-suffix", HTMLElement);
-  private readonly lapNum = el("lap-num", HTMLElement);
-  private readonly clock = el("clock", HTMLElement);
-  private readonly surface = el("surface", HTMLElement);
-  private readonly charge = [...el("charge", HTMLElement).querySelectorAll("i")];
-  private readonly net = el("net", HTMLElement);
-  private readonly trackName = el("track-name", HTMLElement);
-  private readonly calloutNode = el("callout", HTMLElement);
-  private readonly pops = el("pops", HTMLElement);
-  private readonly title = el("title", HTMLElement);
-  private readonly results = el("results", HTMLElement);
-  private readonly resultsTitle = el("results-title", HTMLElement);
-  private readonly resultsSub = el("results-sub", HTMLElement);
-  private readonly resultsRows = el("results-rows", HTMLElement);
-  private readonly resultsNext = el("results-next", HTMLElement);
-  private readonly board = el("board", HTMLElement);
-  private readonly item = el("item", HTMLButtonElement);
-  private readonly itemIcon = el("item-icon", SVGSVGElement);
-  private readonly orbCount = el("orb-count", HTMLElement);
-  private readonly kmh = el("kmh-num", HTMLElement);
-  private readonly needle = el("needle", SVGGElement);
-  private readonly arc = el("arc", SVGPathElement);
-  private readonly gap = el("gap", HTMLElement);
-  private readonly cards: HTMLButtonElement[] = [];
-  private readonly map = el("minimap", HTMLCanvasElement);
-  private readonly mapCtx = this.map.getContext("2d");
-  private mapPath: Path2D | null = null;
-  private mapScale = 1;
-  private mapAccent = "#fff";
-  private calloutUntil = 0;
-  private resultsKey = "";
+  private readonly hud = el("hud");
+  private readonly title = el("title");
+  private readonly results = el("results");
+  private readonly score = el("score");
+  private readonly place = el("place");
+  private readonly time = el("time");
+  private readonly round = el("round");
+  private readonly clock = el("clock");
+  private readonly board = el("board");
+  private readonly feedBox = el("feed");
+  private readonly bannerBox = el("banner");
+  private readonly countBox = el("count");
+  private readonly punch = el("punch");
+  private readonly boost = el("boost");
+  private readonly item = el("item");
+  private readonly itemName = el("item-name");
+  private readonly net = el("net");
+  private readonly pops = el("pops");
+  private readonly controls = el("controls");
+  private readonly punchBar: HTMLElement | null;
+  private readonly boostBar: HTMLElement | null;
   private boardKey = "";
-  private itemKind = "?";
-  private dial = 0;
+  private lastScore = -1;
+  private lastCount = "";
+  private bannerUntil = 0;
+  private clockKey = "";
+  private padSeen = false;
 
-  constructor(actions: HudActions) {
-    el("lap-total", HTMLElement).textContent = String(LAPS);
-    const controls = el("controls", HTMLElement);
-
-    for (const [input, action] of controlHints(CONTROLS)) {
-      const key = document.createElement("kbd");
-      key.textContent = input;
-      const what = document.createElement("span");
-      what.textContent = action;
-      controls.append(key, what);
-    }
-
-    el("start", HTMLButtonElement).addEventListener("click", actions.onStart);
-    this.item.addEventListener("click", actions.onItem);
-    buildDial();
-    this.buildCards(actions.onChassis);
-    this.setItem(null);
+  constructor(callbacks: HudCallbacks) {
+    this.punchBar = this.punch.querySelector("i");
+    this.boostBar = this.boost.querySelector("i");
+    el("start").addEventListener("click", () => {
+      callbacks.onStart();
+    });
+    this.writeControls();
   }
 
   showTitle(on: boolean) {
@@ -216,288 +114,203 @@ export class Hud {
     this.hud.dataset.on = on ? "1" : "0";
   }
 
-  setTrack(track: Track) {
-    setText(this.trackName, track.def.name);
-    this.mapAccent = track.def.palette.accent;
-    let reach = 1;
+  /** The player's colour, as the HUD wears it. */
+  setTint(css: string) {
+    this.hud.ownerDocument.documentElement.style.setProperty("--me", css);
+  }
 
-    for (let i = 0; i < track.n; i += 1) {
-      reach = Math.max(reach, Math.abs(track.xs[i] ?? 0), Math.abs(track.zs[i] ?? 0));
+  setClock(msLeft: number, round: number, urgent: boolean) {
+    const text = clockText(msLeft);
+    const key = `${text}:${round}:${urgent ? 1 : 0}`;
+
+    if (key !== this.clockKey) {
+      this.clockKey = key;
+      this.time.textContent = text;
+      this.round.textContent = `Round ${round}`;
+      this.clock.dataset.urgent = urgent ? "1" : "0";
     }
+  }
 
-    this.mapScale = (MAP_PX / 2 - MAP_PAD) / reach;
-    const path = new Path2D();
+  setScore(score: number, place: number) {
+    if (score !== this.lastScore) {
+      this.score.textContent = String(score);
+      this.score.dataset.bump = "0";
 
-    for (let i = 0; i <= track.n; i += 4) {
-      const k = i % track.n;
-      const x = MAP_PX / 2 + (track.xs[k] ?? 0) * this.mapScale;
-      const y = MAP_PX / 2 + (track.zs[k] ?? 0) * this.mapScale;
-
-      if (i === 0) {
-        path.moveTo(x, y);
-      } else {
-        path.lineTo(x, y);
+      if (score > this.lastScore && this.lastScore >= 0) {
+        requestAnimationFrame(() => {
+          this.score.dataset.bump = "1";
+        });
       }
+
+      this.lastScore = score;
     }
 
-    path.closePath();
-    this.mapPath = path;
+    this.place.textContent = ORDINALS[place - 1] ?? "";
   }
 
-  setRace(readout: RaceReadout) {
-    setText(this.placeNum, String(readout.place));
-    setText(this.placeSuffix, ordinal(readout.place).slice(String(readout.place).length));
-    setText(this.lapNum, String(readout.lap));
-    setText(this.clock, formatTime(readout.clockMs));
-    setText(this.orbCount, String(Math.min(ORB_MAX, readout.orbs)));
-    setText(this.kmh, String(readout.kmh));
-    const label = SURFACE_LABEL[readout.surface];
-    setText(this.surface, label);
-    this.surface.dataset.kind = label === "" ? "" : readout.surface;
-    this.setItem(readout.item);
+  /** The scoreboard, best first. Rebuilt only when something on it changed. */
+  setBoard(rows: readonly HudRow[]) {
+    const key = rows
+      .map((row) => `${row.key}:${row.score}:${row.out ? 1 : 0}:${row.name}`)
+      .join("|");
 
-    const share = Math.min(1, readout.kmh / DIAL_MAX);
-    this.dial += (share - this.dial) * 0.35;
-    this.needle.style.transform = `rotate(${(-SWEEP + this.dial * SWEEP * 2).toFixed(1)}deg)`;
-    this.arc.setAttribute("stroke-dasharray", `${(this.dial * 100).toFixed(1)} 100`);
-    this.arc.setAttribute("stroke", readout.boosting ? "#ffffff" : "var(--me)");
-
-    let from = 0;
-
-    for (const [i, bar] of this.charge.entries()) {
-      const need = BOOST_TIERS[i] ?? 1;
-      const fill = Math.min(1, Math.max(0, (readout.charge - from) / (need - from)));
-      bar.style.setProperty("--fill", fill.toFixed(2));
-      from = need;
-    }
-
-    this.gap.dataset.on = readout.gap > 0 ? "1" : "0";
-
-    if (readout.gap > 0) {
-      setText(this.gap, `AHEAD +${readout.gap.toFixed(1)}s`);
+    if (key !== this.boardKey) {
+      this.boardKey = key;
+      this.board.replaceChildren(...rows.map((row) => rowNode(row, null)));
     }
   }
 
-  /** The standings board: one row per kart, leader first. */
-  setStandings(rows: readonly BoardRow[]) {
-    const key = rows.map((row) => `${row.name}${row.color}${row.me ? 1 : 0}`).join("|");
+  /** One line of the knock-off feed: who, and whom. `by` null is a car that fell on its own. */
+  feed(by: HudRow | null, victim: HudRow) {
+    const line = document.createElement("div");
 
-    if (key === this.boardKey) {
-      return;
+    const add = (row: HudRow) => {
+      const swatch = document.createElement("i");
+      swatch.style.background = row.css;
+      line.append(swatch, row.name);
+    };
+
+    if (by) {
+      add(by);
+      const verb = document.createElement("em");
+      verb.textContent = "knocked off";
+      line.append(verb);
+      add(victim);
+    } else {
+      add(victim);
+      const verb = document.createElement("em");
+      verb.textContent = "fell off";
+      line.append(verb);
     }
 
-    this.boardKey = key;
+    this.feedBox.append(line);
+    line.addEventListener("animationend", () => {
+      line.remove();
+    });
 
-    const mine = Math.max(
-      0,
-      rows.findIndex((row) => row.me),
-    );
-
-    const first = Math.min(Math.max(0, mine - 1), Math.max(0, rows.length - 3));
-    this.board.replaceChildren(
-      ...rows.slice(first, first + 3).map((row, offset) => {
-        const i = first + offset;
-        const line = document.createElement("li");
-        line.className = "plate skew";
-        line.dataset.me = row.me ? "1" : "0";
-        line.style.setProperty("--chip", row.color);
-        const rank = document.createElement("b");
-        rank.className = "num";
-        rank.textContent = String(i + 1);
-        const chip = document.createElement("i");
-        const name = document.createElement("span");
-        name.textContent = row.name;
-        line.append(rank, chip, name);
-
-        return line;
-      }),
-    );
+    while (this.feedBox.children.length > 4) {
+      this.feedBox.firstElementChild?.remove();
+    }
   }
 
-  setNet(text: string) {
-    setText(this.net, text);
-    this.net.hidden = text === "solo";
-  }
-
-  /** Flash the centre callout for `ms`; `detail` is the small line under it. */
-  callout(text: string, ms: number, tone: "go" | "warn" = "go", detail = "") {
-    this.calloutNode.textContent = text;
-
-    if (detail !== "") {
-      const small = document.createElement("small");
-      small.textContent = detail;
-      this.calloutNode.append(small);
+  /** `punch` and `boost` 0–1; `item` is what the car is wearing. */
+  setDash(punch: number, boost: number, canBoost: boolean, item: ItemKind | "") {
+    if (this.punchBar) {
+      this.punchBar.style.width = `${Math.round(punch * 100)}%`;
     }
 
-    this.calloutNode.dataset.tone = tone;
-    this.calloutNode.dataset.on = "1";
-    this.calloutUntil = performance.now() + ms;
+    this.punch.dataset.ready = punch >= 1 ? "1" : "0";
+
+    if (this.boostBar) {
+      this.boostBar.style.width = `${Math.round(boost * 100)}%`;
+    }
+
+    this.boost.dataset.low = canBoost ? "0" : "1";
+
+    if (this.item.dataset.kind !== item) {
+      this.item.dataset.kind = item;
+      this.itemName.textContent = item === "" ? "" : ITEM_NAMES[item];
+    }
   }
 
-  /** A word at (x, y) on the page that rises in steps and goes. */
+  banner(text: string, tone: BannerTone, ms = 1600) {
+    this.bannerBox.textContent = text;
+    this.bannerBox.dataset.tone = tone;
+    this.bannerBox.dataset.on = "0";
+    this.bannerUntil = performance.now() + ms;
+    requestAnimationFrame(() => {
+      this.bannerBox.dataset.on = "1";
+    });
+  }
+
+  /** Call every frame: takes the banner down when its time is up. */
+  tick() {
+    if (this.bannerUntil > 0 && performance.now() > this.bannerUntil) {
+      this.bannerUntil = 0;
+      this.bannerBox.dataset.on = "0";
+    }
+
+    if (!this.padSeen && isPadConnected()) {
+      this.padSeen = true;
+      this.writeControls();
+    }
+  }
+
+  /** The start count: "3", "2", "1", "GO", or "" for nothing. */
+  count(text: string) {
+    if (text !== this.lastCount) {
+      this.lastCount = text;
+      this.countBox.dataset.go = text === "GO" ? "1" : "0";
+      const digit = document.createElement("b");
+      digit.textContent = text;
+      this.countBox.replaceChildren(digit);
+    }
+  }
+
+  /** Words that rise off a point on the page and fade. */
   pop(text: string, x: number, y: number, css: string) {
-    if (text === "" || this.pops.childElementCount > 12) {
-      return;
-    }
-
     const node = document.createElement("span");
-    node.className = "pop";
     node.textContent = text;
     node.style.left = `${Math.round(x)}px`;
     node.style.top = `${Math.round(y)}px`;
     node.style.color = css;
+    this.pops.append(node);
     node.addEventListener("animationend", () => {
       node.remove();
     });
-    this.pops.append(node);
   }
 
-  /** Every frame: retire the callout when its time is up. */
-  tick() {
-    if (this.calloutUntil !== 0 && performance.now() > this.calloutUntil) {
-      this.calloutNode.dataset.on = "0";
-      this.calloutUntil = 0;
+  setNet(text: string) {
+    if (this.net.textContent !== text) {
+      this.net.textContent = text;
     }
   }
 
-  drawMap(dots: readonly MapDot[]) {
-    const ctx = this.mapCtx;
-
-    if (!ctx || !this.mapPath) {
-      return;
-    }
-
-    ctx.clearRect(0, 0, MAP_PX, MAP_PX);
-    ctx.lineJoin = "round";
-    ctx.strokeStyle = "#0c0d14";
-    ctx.lineWidth = 30;
-    ctx.stroke(this.mapPath);
-    ctx.strokeStyle = "#e9e6df";
-    ctx.lineWidth = 20;
-    ctx.stroke(this.mapPath);
-    ctx.strokeStyle = "#3a3d4c";
-    ctx.lineWidth = 13;
-    ctx.stroke(this.mapPath);
-    ctx.strokeStyle = this.mapAccent;
-    ctx.lineWidth = 2.5;
-    ctx.setLineDash([6, 8]);
-    ctx.stroke(this.mapPath);
-    ctx.setLineDash([]);
-
-    for (const dot of dots) {
-      const x = MAP_PX / 2 + dot.x * this.mapScale;
-      const y = MAP_PX / 2 + dot.z * this.mapScale;
-      ctx.beginPath();
-      ctx.arc(x, y, dot.me ? 12 : 8, 0, Math.PI * 2);
-      ctx.fillStyle = dot.color;
-      ctx.fill();
-      ctx.lineWidth = dot.me ? 5 : 3;
-      ctx.strokeStyle = dot.me ? "#ffffff" : "#0c0d14";
-      ctx.stroke();
-    }
-  }
-
-  /** Show the standings sheet, or hide it with `null`. */
-  showResults(rows: readonly ResultRow[] | null, heading = "", sub = "") {
-    if (rows === null) {
+  showResults(on: boolean, rows: readonly HudRow[] = [], won = false, next = "") {
+    if (!on) {
       this.results.dataset.on = "0";
-      this.resultsKey = "";
 
       return;
     }
 
-    this.results.dataset.on = "1";
-    setText(this.resultsTitle, heading);
-    setText(this.resultsSub, sub);
-
-    const key = rows
-      .map((row) => `${row.name}:${row.timeMs}:${row.paint.toFixed(2)}:${row.points}`)
-      .join("|");
-
-    if (key === this.resultsKey) {
-      return;
+    if (this.results.dataset.on !== "1") {
+      this.results.dataset.on = "1";
+      const heading = el("results-title");
+      heading.textContent = won ? "YOU WIN" : "ROUND OVER";
+      heading.dataset.won = won ? "1" : "0";
+      el("results-rows").replaceChildren(...rows.map((row, i) => rowNode(row, i + 1)));
     }
 
-    this.resultsKey = key;
-    this.resultsRows.replaceChildren(
-      ...rows.map((row) => {
-        const line = document.createElement("div");
-        line.className = "row skew";
-        line.dataset.me = row.me ? "1" : "0";
-        const place = document.createElement("b");
-        place.textContent = ordinal(row.place);
-        const chip = document.createElement("i");
-        chip.style.background = row.color;
-        const name = document.createElement("span");
-        name.textContent = row.name;
-        const paint = document.createElement("span");
-        paint.className = "paint";
-        paint.textContent = `${Math.round(row.paint * 100)}% PAINT`;
-        const time = document.createElement("span");
-        time.className = "time";
-        time.textContent = row.timeMs > 0 ? formatTime(row.timeMs) : "—";
-        const points = document.createElement("b");
-        points.className = "pts";
-        points.textContent = `${row.points} PTS`;
-        line.append(place, chip, name, paint, time, points);
+    el("results-next").textContent = next;
+  }
 
-        return line;
+  private writeControls() {
+    const touch = document.body.classList.contains("touch");
+
+    const rows: (readonly [string, string])[] = touch
+      ? [
+          ["DRAG", "drive"],
+          ["PUNCH", "fire the bumper"],
+          ["BOOST", "hold"],
+        ]
+      : [
+          ["WASD / ARROWS", "drive"],
+          ["SPACE", "fire the bumper"],
+          ["SHIFT", "boost"],
+        ];
+
+    if (this.padSeen) {
+      rows.push(["PAD", "stick, A to punch, B to boost"]);
+    }
+
+    this.controls.replaceChildren(
+      ...rows.flatMap(([key, what], i) => {
+        const strong = document.createElement("b");
+        strong.textContent = key;
+        const gap = i < rows.length - 1 ? "   ·   " : "";
+
+        return [strong, ` ${what}${gap}`];
       }),
     );
-  }
-
-  setResultsNext(text: string) {
-    setText(this.resultsNext, text);
-  }
-
-  private setItem(kind: ItemKind | null) {
-    const next = kind ?? "";
-
-    if (next === this.itemKind) {
-      return;
-    }
-
-    this.itemKind = next;
-    this.item.dataset.kind = next;
-    this.item.setAttribute("aria-label", kind ? `Use item: ${ITEM_NAMES[kind]}` : "No item");
-    this.itemIcon.innerHTML = ITEM_ICONS[kind ?? "none"];
-  }
-
-  private buildCards(onChassis: (index: number) => void) {
-    const host = el("chassis", HTMLElement);
-
-    for (const [index, chassis] of CHASSIS.entries()) {
-      const card = document.createElement("button");
-      card.type = "button";
-      card.className = "card plate";
-      card.setAttribute("aria-pressed", index === 0 ? "true" : "false");
-      const name = document.createElement("strong");
-      name.className = "skew";
-      name.textContent = chassis.name;
-      const tag = document.createElement("span");
-      tag.className = "label";
-      tag.textContent = chassis.tag;
-      const icon = document.createElementNS(SVG, "svg");
-      icon.setAttribute("viewBox", "0 0 58 34");
-      icon.setAttribute("aria-hidden", "true");
-      icon.innerHTML = CHASSIS_ICONS[index] ?? "";
-      card.append(
-        name,
-        icon,
-        tag,
-        statRow("SPEED", pips(chassis.speed, 25), "#ff4d6a"),
-        statRow("ACCEL", pips(chassis.accel, 14), "#3d9bff"),
-        statRow("GRIP", pips(chassis.grip, 20), "#4fe07a"),
-      );
-      card.addEventListener("click", () => {
-        for (const [i, other] of this.cards.entries()) {
-          other.setAttribute("aria-pressed", i === index ? "true" : "false");
-        }
-
-        onChassis(index);
-      });
-      this.cards.push(card);
-      host.append(card);
-    }
   }
 }

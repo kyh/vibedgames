@@ -7,32 +7,32 @@ export const pauseOverlay = createPauseOverlay({
   controls: CONTROLS,
   help: [
     {
-      body: "Every kart lays a stripe of its own colour as it drives. Paint lasts about half a minute, and the newest coat always wins.",
-      title: "Paint the road",
+      body: "Eight cars on a board with no walls. Knock the others over the edge, or into a hole. Every knock-off is a point; most points when the clock runs out wins.",
+      title: "Knock them off",
     },
     {
-      body: "On your own colour you accelerate harder and top out faster. On anyone else's you lose grip and speed. Lap one lays your line; later laps are about riding it and wrecking theirs.",
-      title: "Your glow, their slick",
+      body: "Your bumper fires on a short cooldown and throws whatever is in front of it. It hits harder the faster you are going, so boost into a punch. Miss and the cooldown is longer.",
+      title: "The bumper",
     },
     {
-      body: "Hold drift into a corner to slide and paint a wide stripe. The bar fills through three tiers; let go to cash the tier in as a boost.",
-      title: "Drift to boost",
+      body: "Each punch a car takes dents it: a dented car smokes, then sparks, and flies further. Dents wear off after a few seconds of not being hit, and a fall clears them.",
+      title: "Dents",
     },
     {
-      body: "The chevron pads across the road lay three fat stripes of your colour for whoever hits them first, then rest for a few seconds.",
-      title: "Splat pads",
+      body: "The arm in the middle sweeps cars away, the pistons fire down their lit lanes, the pink bumpers bounce. Punch someone into one and the knock-off is still yours.",
+      title: "The board fights too",
     },
     {
-      body: "Each glow orb adds a little top speed, up to ten. A spin-out costs you three.",
-      title: "Orbs",
+      body: "A beam of light says where the next crate lands. Mega bumper is wider and harder, long spring reaches twice as far, giant is heavy and hard to throw, turbo is boost that does not run out.",
+      title: "Crates",
     },
     {
-      body: "Boxes hold one item. Turbo is a long boost. The paint bomb lands ahead, splats your colour and spins whoever is under it. Solvent strips rival paint around you and makes you immune to slick for a few seconds. The blot is a puddle you leave behind. The further back you are, the better the roll.",
-      title: "Items",
+      body: "With 25 seconds left the two ends of the board blink, then fall away. Be in the middle.",
+      title: "The ends drop",
     },
     {
-      body: "Press the gas in the last beat before the lights go green for a rocket start. On touch, hold DRIFT instead.",
-      title: "Rocket start",
+      body: "Drive off on your own and you lose a point. If someone hit you in the last three seconds, it is theirs instead.",
+      title: "Falling",
     },
   ],
   mute: { get: isMuted, set: setMuted },
