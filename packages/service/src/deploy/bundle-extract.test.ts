@@ -84,6 +84,29 @@ describe("forEachBundleFile", () => {
     ]);
   });
 
+  test("reassembles files that span many decompressed chunks", async () => {
+    const big = new Uint8Array(3 * 1024 * 1024).map((_, i) => (i * 31 + Math.floor(i / 512)) % 251);
+
+    const bundle = await gzip([
+      ...entry("assets/big.bin", "0", big),
+      ...entry("index.html", "0", encoder.encode("after")),
+    ]);
+
+    const files: BundleFile[] = [];
+    await forEachBundleFile(streamOf(bundle), { maxFileBytes: big.byteLength }, async (file) => {
+      files.push(file);
+
+      await Promise.resolve();
+    });
+
+    assert.deepStrictEqual(
+      files.map((file) => file.path),
+      ["assets/big.bin", "index.html"],
+    );
+    assert.ok(Buffer.from(files[0]?.bytes ?? []).equals(Buffer.from(big)));
+    assert.strictEqual(text(files[1]?.bytes ?? new Uint8Array(0)), "after");
+  });
+
   test("passes over a non-file entry's claimed size without holding it", async () => {
     const [header] = entry("huge/", "5");
     header?.set(

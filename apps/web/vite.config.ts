@@ -11,7 +11,7 @@ export default defineConfig({
   plugins: [
     meshoptWasm(),
     cloudflare({
-      experimental: { newConfig: { cfBuildOutput: true } },
+      experimental: { newConfig: { cfBuildOutput: true, types: { includeRuntime: false } } },
       viteEnvironment: { name: "ssr" },
     }),
     tanstackStart(),
