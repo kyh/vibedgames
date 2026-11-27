@@ -222,6 +222,15 @@
         align-items: stretch;
         gap: 6px;
       }
+      .touch #board {
+        right: calc(64px + var(--right));
+      }
+      @media (max-width: 520px) {
+        .touch #board {
+          top: calc(62px + var(--top));
+          right: calc(10px + var(--right));
+        }
+      }
       .touch #dash {
         bottom: auto;
         top: calc(62px + var(--top));
