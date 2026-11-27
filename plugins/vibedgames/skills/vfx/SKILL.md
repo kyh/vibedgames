@@ -1,6 +1,6 @@
 ---
 name: vfx
-description: "Build real-time 2D effects in-engine — explosions, hit sparks, trails, smoke, pickups, shockwaves, weather — with particle recipes, readability rules and mobile budgets."
+description: "Build real-time effects in-engine, 2D (Phaser) or 3D (three.js) — explosions, hit sparks, trails, smoke, pickups, shockwaves, spells, shields, lightning, weather — with timing, readability rules and mobile budgets."
 ---
 
 # Real-time VFX
@@ -26,8 +26,13 @@ richer.
   treatment, grass, sand and water get theirs.
 - **Generated spell/ability boards**: `pixel-art` Recipe 6 — 12-frame 4×3
   board → 128px strip; energy on black, matter on chroma.
-- **3D weapon trails/ribbons**: `threejs/references/game-patterns.md`,
-  "Weapon trails".
+- **3D (three.js)**: [references/threejs.md](references/threejs.md) — five
+  beats, a shape family per effect instead of spinning rings, soft particles
+  from a depth prepass, NaN-safe shaders under bloom, camera-facing strips
+  and lightning, one screen-space shockwave pass, budgets and tiers. Helpers
+  in `threejs/modules/vfx.ts`; weapon trails in
+  `threejs/references/game-patterns.md` → "Weapon trails". The recipe book
+  below is Phaser-flavoured; its numbers carry over.
 
 ## Anatomy of an explosion (layered)
 
