@@ -68,6 +68,12 @@ export class Input {
     this.pad.update();
   }
 
+  /** Forget what is held: a pause swallows the key-up. */
+  clear() {
+    this.keys.clear();
+    this.punchQueued = false;
+  }
+
   /** Hide the touch overlay behind the title and results cards. */
   setTouchVisible(visible: boolean) {
     this.touch.setVisible(visible);

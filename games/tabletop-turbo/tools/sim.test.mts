@@ -19,18 +19,21 @@ import {
   PUNCH_REACH,
   PUNCH_THROW,
   PUNCH_WHIFF_COOLDOWN,
+  RAM_MIN,
   RESPAWN_SECONDS,
   ROUND_MS,
   SAFE_SECONDS,
   SHRINK_MS,
   SHRINK_WARN_MS,
+  SPRING_FORCE,
   SPRING_REACH,
   STEP,
 } from "../src/shared/constants.ts";
 import { ARENAS, arenaFor, buildArena, edgeDistance, onBoard } from "../src/sim/arena.ts";
-import { giveItem, gridCar, heldItem, makeCar, punchReady } from "../src/sim/car.ts";
-import type { Car, CarInput } from "../src/sim/car.ts";
-import { grant, makeField, stepField } from "../src/sim/field.ts";
+import { makeBrain } from "../src/sim/bot.ts";
+import { carRadius, giveItem, gridCar, heldItem, makeCar, punchReady } from "../src/sim/car.ts";
+import type { Car, CarInput, Hit } from "../src/sim/car.ts";
+import { deliver, grant, makeField, stepField } from "../src/sim/field.ts";
 import type { Field, FieldEvent } from "../src/sim/field.ts";
 import { hazardHit, pistonAt, shrinkAt, sweeperAngle } from "../src/sim/hazards.ts";
 import { crateAt, crateOf } from "../src/sim/items.ts";
@@ -83,6 +86,9 @@ const thrown = (field: Field, striker: Car, target: Car) => {
 
   return target.x - from;
 };
+
+const punchFrom = (by: string) =>
+  ({ by, dx: 1, dz: 0, how: "punch", id: `${by}:0:1`, reach: PUNCH_THROW }) satisfies Hit;
 
 test("the board holds every start, drop and crate, and the drops survive the shrink", () => {
   for (const def of ARENAS) {
@@ -207,6 +213,10 @@ test("the mega bumper hits harder and the long spring reaches further", () => {
   giveItem(mega.striker, "mega");
   const far = thrown(mega.field, mega.striker, mega.target);
   assert.ok(Math.abs(far / base - MEGA_FORCE) < 0.2, `mega ${far} against ${base}`);
+  const sprung = duel();
+  giveItem(sprung.striker, "spring");
+  const flung = thrown(sprung.field, sprung.striker, sprung.target);
+  assert.ok(Math.abs(flung / base - SPRING_FORCE) < 0.15, `spring ${flung} against ${base}`);
   const gap = 1.3 + PUNCH_REACH * SPRING_REACH;
   const short = duel(gap);
   run(short.field, 0.5, { p1: PUNCH });
@@ -236,20 +246,113 @@ test("a bumper item lasts two punches, a car item a few seconds", () => {
   assert.equal(striker.mod, "");
 });
 
+test("only a boosted car rams, and a ram never eats the punch behind it", () => {
+  const slow = duel(8);
+  run(slow.field, 1.2, { p1: EAST });
+  assert.ok(MAX_SPEED < RAM_MIN && BOOST_SPEED > RAM_MIN);
+  assert.equal(slow.target.launches, 0, "top speed only pushes");
+  assert.ok(slow.target.x > 8, "pushed along");
+  const fast = duel(10);
+  const events: FieldEvent[] = [];
+
+  for (let t = 0; t < 1.2 && fast.target.launches === 0; t += STEP) {
+    events.push(...run(fast.field, STEP, { p1: { ...EAST, boost: true } }));
+  }
+
+  const rammed = events.find((event) => event.kind === "hit");
+  assert.ok(rammed && rammed.kind === "hit");
+  assert.equal(rammed.hit.how, "ram");
+  assert.equal(fast.target.dent, 0, "a ram never dents");
+  assert.equal(fast.target.lastBy, "p1");
+  assert.equal(
+    deliver(fast.field, fast.target, punchFrom("p3")),
+    true,
+    "a punch lands on a rammed car",
+  );
+  assert.equal(fast.target.dent, 1);
+  assert.equal(
+    deliver(fast.field, fast.target, punchFrom("p4")),
+    false,
+    "but not a second one at once",
+  );
+});
+
+test("a shield drops when its car drives into another", () => {
+  const { field, striker, target } = duel(4);
+  striker.safe = SAFE_SECONDS;
+  run(field, 0.1, { p1: EAST });
+  assert.ok(striker.safe > 0, "still shielded before it touches");
+  run(field, 0.6, { p1: EAST });
+  assert.equal(striker.safe, 0);
+  striker.cooldown = 0;
+  Object.assign(target, { a: Math.PI, cooldown: 0 });
+  run(field, 0.4, { p2: PUNCH });
+  assert.equal(striker.launches, 1, "and it can be hit again");
+});
+
+test("two cars on the same spot come apart", () => {
+  const field = makeField(OPEN);
+  const one = place(field, "p1", 2, 1, 0);
+  const two = place(field, "p2", 2, 1, 0);
+  run(field, 0.3);
+  const gap = Math.hypot(one.x - two.x, one.z - two.z);
+  assert.ok(Number.isFinite(gap));
+  assert.ok(gap >= carRadius(one) + carRadius(two) - 0.01, `apart by ${gap}`);
+});
+
+test("a held car stands still for the step, and can still be hit", () => {
+  const field = makeField(OPEN);
+  const held = place(field, "p1", 3, 0, 0);
+  place(field, "p2", 0, 0, 0);
+
+  const inputs = new Map([
+    ["p1", EAST],
+    ["p2", PUNCH],
+  ]);
+
+  for (let t = 0; t < 0.15; t += STEP) {
+    stepField(field, inputs, STEP, "p1");
+  }
+
+  assert.equal(held.launches, 1);
+  assert.equal(held.x, 3);
+  assert.equal(held.vx, 0);
+  run(field, 1, { p1: IDLE });
+  assert.ok(held.x > 3 + PUNCH_THROW * 0.8, "thrown once it is let go");
+});
+
+test("a bot starts thinking at once however old the room is", () => {
+  for (const round of [1, 40, 4000]) {
+    for (let slot = 0; slot < 8; slot += 1) {
+      assert.equal(makeBrain(slot, round).thinkT, makeBrain(slot, 1).thinkT);
+      assert.ok(makeBrain(slot, round).thinkT < 0.5);
+    }
+  }
+
+  assert.notEqual(makeBrain(2, 1).seed, makeBrain(2, 2).seed);
+});
+
 test("a car knocked over the edge falls, scores for whoever hit it, and drops back in shielded", () => {
   const field = makeField(OPEN);
   const edge = OPEN.halfX;
   const striker = place(field, "p1", edge - 5, 0, 0);
   const target = place(field, "p2", edge - 2, 0, 0);
+  giveItem(target, "mega");
+  giveItem(target, "giant");
   const events = run(field, 1.5, { p1: PUNCH });
   const out = events.find((event) => event.kind === "out");
   assert.ok(events.some((event) => event.kind === "fall" && event.key === "p2"));
   assert.deepEqual(out, { by: "p1", key: "p2", kind: "out" });
   assert.equal(target.falls, 1);
   assert.equal(target.mode, "out");
+  assert.equal(target.outBy, "p1");
   assert.equal(striker.mode, "drive");
   run(field, RESPAWN_SECONDS + 0.1);
   assert.equal(target.mode, "drop");
+  assert.equal(target.lastBy, "");
+  assert.equal(target.outBy, "p1", "who knocked it off outlives the fall");
+  assert.equal(target.bumper, "mega", "a bumper item is kept through a fall");
+  assert.equal(target.mod, "");
   const landing = run(field, 1.2);
   assert.ok(landing.some((event) => event.kind === "land" && event.drop));
   assert.equal(target.mode, "drive");
@@ -376,6 +479,10 @@ test("crates come on a clock every client can work out, one at a time", () => {
   assert.deepEqual(crateAt(PINBALL, 3, ITEMS_AT + 1), firstCrate);
   assert.equal(crateAt(PINBALL, 3, ITEMS_AT + CRATE_EVERY)?.index, 1);
   assert.equal(crateAt(PINBALL, 3, ROUND_MS / 1000 + 1), null);
+  const end = ROUND_MS / 1000;
+  const last = Math.ceil((end - ITEMS_AT) / CRATE_EVERY) - 1;
+  assert.ok(ITEMS_AT + (last + 1) * CRATE_EVERY - CRATE_BEAM < end, "a beam would show");
+  assert.equal(crateAt(PINBALL, 3, end - 0.5)?.index, last, "no crate is called it cannot land");
   const kinds = new Set<string>();
 
   for (let round = 0; round < 12; round += 1) {
@@ -409,7 +516,7 @@ test("a car that reaches a landed crate is offered it, and takes it once granted
 });
 
 test("a full round of bots is a fight: punches land, cars fall, crates go, nobody breaks", () => {
-  for (const round of [1, 2]) {
+  for (const round of [1, 2, 4000]) {
     const log = playMatch(round);
 
     const count = (kind: FieldEvent["kind"]) =>

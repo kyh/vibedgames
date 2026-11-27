@@ -36,6 +36,8 @@ export interface BotBrain {
   recoverT: number;
   carelessT: number;
   boost: boolean;
+  /** Which way it last went round something: 1 or -1. It tries that way first. */
+  side: number;
 }
 
 /** What the host shares between its bots so they do not all pile on one car. */
@@ -48,7 +50,7 @@ export interface Director {
 
 export const makeDirector: () => Director = () => ({ chasing: new Map(), swungAt: new Map() });
 
-export const makeBrain: (index: number) => BotBrain = (index) => ({
+export const makeBrain: (slot: number, salt: number) => BotBrain = (slot, salt) => ({
   aimOff: 0,
   boost: false,
   carelessT: 0,
@@ -57,12 +59,13 @@ export const makeBrain: (index: number) => BotBrain = (index) => ({
   holdT: 0,
   reactT: -1,
   recoverT: 0,
-  seed: (index * 0.618034 + 0.137) % 1,
+  seed: ((slot + salt * 7) * 0.618034 + 0.137) % 1,
+  side: slot % 2 === 0 ? 1 : -1,
   target: "",
-  thinkT: index * 0.03,
+  thinkT: slot * 0.03,
 });
 
-const HUMAN_SWING_GAP = 2.5;
+const HUMAN_SWING_GAP = 1.5;
 const THINK = 1 / 6;
 const FEELERS = [0, 0.5, -0.5, 1, -1, 1.5, -1.5, 2.2, -2.2] as const;
 
@@ -72,7 +75,8 @@ const roll = (brain: BotBrain) => {
   return brain.seed;
 };
 
-const release = (director: Director, bot: string) => {
+/** A bot that is off the board or gone stops counting towards anyone's crowd. */
+export const releaseBot = (director: Director, bot: string) => {
   for (const set of director.chasing.values()) {
     set.delete(bot);
   }
@@ -104,7 +108,7 @@ const pickTarget = (
     }
   }
 
-  release(director, car.key);
+  releaseBot(director, car.key);
 
   if (best !== "") {
     const set = director.chasing.get(best) ?? new Set<string>();
@@ -193,32 +197,99 @@ const think = (brain: BotBrain, car: Car, see: Sight) => {
   }
 };
 
+const lookAhead = (car: Car) => 2.2 + Math.hypot(car.vx, car.vz) * 0.28;
+
+const nearestSpawn = (car: Car, arena: Arena) => {
+  let best = { x: 0, z: 0 };
+  let bestGap = Number.POSITIVE_INFINITY;
+
+  for (const spawn of arena.def.spawns) {
+    const gap = Math.hypot(spawn.x - car.x, spawn.z - car.z);
+
+    if (gap < bestGap) {
+      bestGap = gap;
+      best = spawn;
+    }
+  }
+
+  return best;
+};
+
+const feel = (
+  brain: BotBrain,
+  car: Car,
+  see: Sight,
+  late: boolean,
+  want: number,
+  margin: number,
+) => {
+  const look = lookAhead(car);
+
+  for (const base of FEELERS) {
+    const offset = base * brain.side;
+
+    if (pathClear(car, see.arena, late, see.time, want + offset, look, margin)) {
+      brain.side = offset < 0 ? -brain.side : brain.side;
+
+      return want + offset;
+    }
+  }
+
+  return null;
+};
+
+const onBoardWay = (car: Car, see: Sight, want: number, margin: number) => {
+  const look = lookAhead(car);
+
+  for (const offset of FEELERS) {
+    const a = want + offset;
+    const x = car.x + Math.cos(a) * look;
+    const z = car.z + Math.sin(a) * look;
+
+    if (edgeDistance(see.arena, x, z, see.late) > margin) {
+      return a;
+    }
+  }
+
+  return null;
+};
+
+const flee = (brain: BotBrain, car: Car, see: Sight) => {
+  const spawn = nearestSpawn(car, see.arena);
+  const want = Math.atan2(spawn.z - car.z, spawn.x - car.x);
+
+  return { blocked: true, heading: feel(brain, car, see, false, want, 0.8) ?? want, rush: true };
+};
+
 const route = (brain: BotBrain, car: Car, see: Sight, here: number, margin: number) => {
   const { arena, late, time } = see;
+
+  if (here <= 0) {
+    return flee(brain, car, see);
+  }
+
   const safe = inward(arena, car.x, car.z, late);
   const home = brain.recoverT > 0 || here < margin;
   const want = home ? Math.atan2(safe.z, safe.x) : Math.atan2(brain.gz - car.z, brain.gx - car.x);
   const escape = brain.carelessT > 0 ? null : hazardEscape(arena, time, car.x, car.z);
 
   if (escape && here > margin) {
-    return { blocked: true, heading: Math.atan2(escape.z, escape.x) };
+    const away = Math.atan2(escape.z, escape.x);
+
+    return { blocked: true, heading: onBoardWay(car, see, away, margin) ?? away, rush: false };
   }
 
-  const look = 2.2 + Math.hypot(car.vx, car.vz) * 0.28;
+  const open = escape ? null : feel(brain, car, see, late, want, margin);
 
-  for (const offset of FEELERS) {
-    if (!escape && pathClear(car, arena, late, time, want + offset, look, margin)) {
-      return { blocked: false, heading: want + offset };
-    }
-  }
-
-  return { blocked: true, heading: Math.atan2(safe.z, safe.x) };
+  return open === null
+    ? { blocked: true, heading: Math.atan2(safe.z, safe.x), rush: false }
+    : { blocked: false, heading: open, rush: false };
 };
 
 const swing = (brain: BotBrain, car: Car, target: BotView, see: Sight, dt: number) => {
   const lead = 0.42;
-  const tx = target.x + target.vx * lead - (car.x + car.vx * lead);
-  const tz = target.z + target.vz * lead - (car.z + car.vz * lead);
+  const tx = target.x + target.vx * lead - car.x;
+  const tz = target.z + target.vz * lead - car.z;
   const gap = Math.hypot(tx, tz);
   const reach = CAR_NOSE + PUNCH_REACH * (car.bumper === "spring" ? SPRING_REACH : 1) + 0.6;
   const off = Math.abs(wrapAngle(Math.atan2(tz, tx) + brain.aimOff - car.a));
@@ -258,6 +329,9 @@ const tick = (brain: BotBrain, car: Car, dt: number) => {
   }
 };
 
+const wary = (brain: BotBrain, here: number, rush: boolean) =>
+  here < 2.6 && brain.carelessT <= 0 && !rush;
+
 /** A bot's stick and buttons for this step. `time` is seconds into the round. */
 export const botInput: (
   brain: BotBrain,
@@ -272,6 +346,7 @@ export const botInput: (
   if (car.mode !== "drive") {
     brain.reactT = -1;
     brain.recoverT = 0.4;
+    releaseBot(director, car.key);
 
     return { boost: false, mx: 0, mz: 0, punch: false };
   }
@@ -291,12 +366,18 @@ export const botInput: (
   const target = views.find((view) => view.key === brain.target);
   const armed = car.cooldown <= 0 && car.phase === "idle" && brain.recoverT <= 0;
   const lined = target && armed ? swing(brain, car, target, see, dt) : null;
-  const closing = lined !== null && !path.blocked;
+  const open = !path.blocked && here > margin;
+
+  const closing =
+    lined !== null &&
+    open &&
+    pathClear(car, arena, see.late, time, lined.aim, lookAhead(car), margin);
+
   const heading = closing ? lined.aim : path.heading;
-  const calm = (here < 2.6 && brain.carelessT <= 0 ? 0.7 : 1) * (closing ? 0.55 : 1);
+  const calm = (wary(brain, here, path.rush) ? 0.7 : 1) * (closing ? 0.55 : 1);
 
   return {
-    boost: brain.boost && !path.blocked && here > 4 && brain.recoverT <= 0,
+    boost: path.rush || (brain.boost && open && here > 4 && brain.recoverT <= 0),
     mx: Math.cos(heading) * calm,
     mz: Math.sin(heading) * calm,
     punch: lined?.fire === true,

@@ -191,6 +191,24 @@ const fight: (boost: boolean) => Reflex<Diagnostics> = (boost) => (d) =>
   d && d.phase === "play" ? { keys: fightKeys(d, boost) } : undefined;
 
 const timer = new THREE.Timer();
+let beatAt = performance.now();
+
+// WARNING: a hidden tab gets no animation frames, and a host that stops stepping freezes every bot in the room.
+setInterval(() => {
+  const now = performance.now();
+  const gap = Math.min(1.5, (now - beatAt) / 1000);
+  beatAt = now;
+
+  if (document.hidden && client.isHost && client.connectionStatus === "connected") {
+    for (let left = gap; left > 0; left -= MAX_DT) {
+      game.update(Math.min(left, MAX_DT));
+    }
+  }
+}, 250);
+
+document.addEventListener("visibilitychange", () => {
+  setAudioPaused(document.hidden || paused);
+});
 
 renderer.setAnimationLoop((time) => {
   timer.update(time);

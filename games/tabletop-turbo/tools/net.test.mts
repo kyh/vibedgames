@@ -6,7 +6,7 @@ import type { JsonValue } from "@vibedgames/multiplayer";
 import { adoptCar, encodeCar, ghostOf, readPose, viewOf } from "../src/net/pose.ts";
 import { PUNCH_THROW, STEP } from "../src/shared/constants.ts";
 import { ARENAS, buildArena } from "../src/sim/arena.ts";
-import { giveItem, gridCar, makeCar } from "../src/sim/car.ts";
+import { dropCar, giveItem, gridCar, makeCar } from "../src/sim/car.ts";
 import type { CarInput, Hit } from "../src/sim/car.ts";
 import { deliver, makeField, stepField } from "../src/sim/field.ts";
 import type { Field, FieldEvent } from "../src/sim/field.ts";
@@ -115,18 +115,41 @@ test("a ghost that is shielded or off the board is not punched", () => {
   }
 });
 
+test("a car that drops in shoves somebody else's car out of the way", () => {
+  const mine = makeField(OPEN);
+  const car = place(mine, "p1", 0, 0, 0);
+  const near = makeCar("p2", false);
+  gridCar(near, { a: 0, x: 2, z: 0 });
+  mine.ghosts.set("p2", ghostOf("p2", viewOf(near)));
+  dropCar(car, { a: 0, x: 0, z: 0 });
+  const events = run(mine, 1.5);
+  const sends = events.filter((event) => event.kind === "send");
+  assert.equal(sends.length, 1);
+  const [send] = sends;
+  assert.ok(send && send.kind === "send");
+  assert.equal(send.to, "p2");
+  assert.equal(send.hit.how, "land");
+  assert.equal(send.hit.by, "");
+  assert.ok(send.hit.dx > 0.9);
+  const theirs = makeField(OPEN);
+  theirs.cars.set("p2", near);
+  assert.equal(deliver(theirs, near, structuredClone(send.hit)), true);
+  assert.equal(near.lastBy, "", "nobody's point");
+});
+
 test("a new host picks a bot up where its last report left it", () => {
   const field = makeField(OPEN);
   const bot = place(field, "b0", -6, 2, 0.4);
   giveItem(bot, "giant");
   run(field, 0.5, { b0: { boost: false, mx: 1, mz: 0.3, punch: true } });
-  Object.assign(bot, { falls: 2, lastBy: "p1" });
+  Object.assign(bot, { falls: 2, lastBy: "p1", outBy: "p3" });
   const report = overWire(encodeCar(bot, 900, 3));
   assert.ok(report);
   const heir = makeCar("b0", true);
   adoptCar(heir, report);
   assert.equal(heir.mode, "drive");
   assert.equal(heir.falls, 2);
+  assert.equal(heir.outBy, "p3");
   assert.equal(heir.punches, bot.punches);
   assert.equal(heir.mod, "giant");
   assert.ok(heir.cooldown > 0);

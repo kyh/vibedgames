@@ -6,7 +6,7 @@ import * as THREE from "three";
 import { driveAudio, idleAudio, sfx } from "../audio/sfx";
 import type { Input } from "../input/input";
 import { RemoteTrack, adoptCar, drawnOf, encodeCar, ghostOf, readPose, viewOf } from "../net/pose";
-import type { CarView } from "../net/pose";
+import type { CarView, PoseReport } from "../net/pose";
 import { isJsonNumber, isJsonObject, isJsonString, numberOr } from "../net/wire";
 import type { WireField } from "../net/wire";
 import { Board } from "../render/board";
@@ -39,8 +39,10 @@ import {
   RESPAWN_SECONDS,
   RESULTS_MS,
   ROUND_MS,
+  SHRINK_MS,
   SEND_HZ,
   SPRING_REACH,
+  SQUEEZE_POINTS,
   STEP,
   SWEEPER_THROW,
   KNOCK_TAU,
@@ -48,7 +50,7 @@ import {
 import type { ItemKind } from "../shared/constants";
 import { arenaFor, edgeDistance } from "../sim/arena";
 import type { Arena } from "../sim/arena";
-import { botInput, makeBrain, makeDirector } from "../sim/bot";
+import { botInput, makeBrain, makeDirector, releaseBot } from "../sim/bot";
 import type { BotBrain, BotView } from "../sim/bot";
 import { clash, gridCar, heldItem, makeCar, punchReady } from "../sim/car";
 import type { Car, CarInput, CarMode, Hit, HitHow } from "../sim/car";
@@ -84,6 +86,7 @@ interface Racer {
   track: RemoteTrack | null;
   view: CarView;
   seen: boolean;
+  fresh: boolean;
   launches: number;
   punches: number;
   mode: CarMode;
@@ -160,6 +163,9 @@ const THROWS = {
   ram: RAM_THROW,
   sweeper: SWEEPER_THROW,
 } as const satisfies Record<HitHow, number>;
+
+const AWAY_MS = 2500;
+const LATE_FALL_MS = 1200;
 
 const TEST_SKIPS = new Map([
   ["active-play", 0],
@@ -250,7 +256,7 @@ const readHit: (value: WireField) => Hit | null = (value) => {
   }
 
   const { by, dx, dz, how, id, reach } = value;
-  const known = how === "punch" || how === "ram";
+  const known = how === "punch" || how === "ram" || how === "land";
 
   if (!isJsonString(id) || !isJsonString(by) || !known) {
     return null;
@@ -303,6 +309,7 @@ export class GameScene {
   private firstRound = 0;
   private paused = false;
   private pausedAt = 0;
+  private lastNow = 0;
   private clock = 0;
   private frame = 0;
   private acc = 0;
@@ -403,6 +410,8 @@ export class GameScene {
 
     if (paused) {
       this.pausedAt = this.client.serverNow();
+      this.input.clear();
+      this.punchQueued = false;
       idleAudio();
     } else if (solo) {
       const held = this.client.serverNow() - this.pausedAt;
@@ -468,19 +477,24 @@ export class GameScene {
 
     const now = this.client.serverNow();
     this.rekey();
+    this.wake(now);
     this.syncRoom(now);
-    const seconds = (now - this.state.startAt) / 1000;
-    this.gather(dt);
+    const known = this.state.round > 0;
+    const seconds = known ? (now - this.state.startAt) / 1000 : -COUNTDOWN_MS / 1000;
+    this.gather(dt, now);
 
-    if (this.client.isHost) {
-      this.staffBots();
+    if (this.hosting()) {
+      this.staffBots(seconds, now);
     }
 
-    this.simulate(dt, seconds);
+    if (known) {
+      this.simulate(dt, seconds);
+    }
+
     this.settleClaims(seconds);
     this.publish(dt, now);
 
-    if (this.client.isHost) {
+    if (this.hosting()) {
       this.hostTick(now);
     }
 
@@ -549,12 +563,57 @@ export class GameScene {
       this.field.cars.delete(me.key);
       this.racers.delete(me.key);
       me.key = key;
+      me.falls = 0;
       this.field.cars.set(key, me);
     }
   }
 
+  private hosting() {
+    const { client } = this;
+
+    return client.isHost && (client.connectionStatus === "offline" || client.serverClock.synced);
+  }
+
+  private wake(now: number) {
+    const { me } = this;
+
+    if (me && this.lastNow > 0 && now - this.lastNow > AWAY_MS) {
+      Object.assign(me, {
+        kx: 0,
+        kz: 0,
+        lockAny: 0,
+        stagger: 0,
+        vx: 0,
+        vz: 0,
+      } satisfies Partial<Car>);
+    }
+
+    this.lastNow = now;
+  }
+
+  private humans(now: number) {
+    const { client } = this;
+    const ids: string[] = [];
+
+    for (const player of Object.values(client.players)) {
+      if (player.id === client.playerId) {
+        if (this.started) {
+          ids.push(player.id);
+        }
+      } else if (player.connected !== false) {
+        const report = readPose(player.state);
+
+        if (report && now - report.t < AWAY_MS) {
+          ids.push(player.id);
+        }
+      }
+    }
+
+    return ids.toSorted();
+  }
+
   private mySlot() {
-    const ids = Object.keys(this.client.players).toSorted();
+    const ids = this.humans(this.client.serverNow());
 
     return Math.max(0, ids.indexOf(this.client.playerId ?? "")) % GRID_SIZE;
   }
@@ -584,7 +643,7 @@ export class GameScene {
     const next = readRound(client.sharedState);
 
     if (!next) {
-      if (client.isHost) {
+      if (this.hosting()) {
         this.newRound(1);
       }
 
@@ -642,18 +701,23 @@ export class GameScene {
 
     if (me) {
       gridCar(me, grid[this.mySlot()] ?? { a: 0, x: 0, z: 0 });
+
+      if (this.client.serverNow() >= next.startAt) {
+        Object.assign(me, { mode: "out", modeT: RESPAWN_SECONDS } satisfies Partial<Car>);
+      }
     }
 
     for (const [key, car] of field.cars) {
       if (car.bot) {
         const index = Number(key.slice(1));
         gridCar(car, grid[GRID_SIZE - 1 - index] ?? { a: 0, x: 0, z: 0 });
-        this.brains.set(key, makeBrain(index + next.round * 7));
+        this.brains.set(key, makeBrain(index, next.round));
       }
     }
 
     for (const racer of this.racers.values()) {
       Object.assign(racer, { launches: 0, predicted: null, punches: 0 });
+      racer.view = { ...racer.view, falls: 0, lastBy: "", launches: 0, outBy: "", punches: 0 };
     }
   }
 
@@ -671,7 +735,7 @@ export class GameScene {
         const car = makeCar(key, true);
         adoptCar(car, report);
         this.field.cars.set(key, car);
-        this.brains.set(key, makeBrain(Number(key.slice(1)) + this.state.round * 7));
+        this.brains.set(key, makeBrain(Number(key.slice(1)), this.state.round));
       }
     }
   }
@@ -682,16 +746,12 @@ export class GameScene {
         this.field.cars.delete(key);
       }
     }
+
+    this.director = makeDirector();
   }
 
-  private staffBots() {
-    let humans = this.started ? 1 : 0;
-
-    for (const racer of this.racers.values()) {
-      humans += racer.kind === "human" ? 1 : 0;
-    }
-
-    const count = Math.min(BOTS.length, GRID_SIZE - humans);
+  private staffBots(seconds: number, now: number) {
+    const count = Math.min(BOTS.length, GRID_SIZE - this.humans(now).length);
 
     for (const [index] of BOTS.entries()) {
       const key = botKey(index);
@@ -701,14 +761,15 @@ export class GameScene {
         const fresh = makeCar(key, true);
         fresh.modeT = RESPAWN_SECONDS;
 
-        if (this.field.time < 0) {
+        if (seconds < 0) {
           gridCar(fresh, this.arena.def.grid[GRID_SIZE - 1 - index] ?? { a: 0, x: 0, z: 0 });
         }
 
         this.field.cars.set(key, fresh);
-        this.brains.set(key, makeBrain(index + this.state.round * 7));
+        this.brains.set(key, makeBrain(index, this.state.round));
       } else if (index >= count && car) {
         this.field.cars.delete(key);
+        releaseBot(this.director, key);
       }
     }
   }
@@ -717,6 +778,10 @@ export class GameScene {
     const { state } = this;
 
     if (state.phase === "results") {
+      if (now < state.startAt + ROUND_MS + LATE_FALL_MS) {
+        this.scoreFalls(true);
+      }
+
       if (now >= state.nextAt) {
         this.newRound(state.round + 1);
       }
@@ -724,42 +789,64 @@ export class GameScene {
       return;
     }
 
-    this.scoreFalls(now < state.startAt + ROUND_MS + 400);
+    this.scoreFalls(false);
 
     if (now >= state.startAt + ROUND_MS) {
       this.client.updateSharedState({ nextAt: Math.round(now + RESULTS_MS), phase: "results" });
     }
   }
 
-  private scoreFalls(open: boolean) {
+  private tallies() {
+    const rows: { key: string; falls: number; outBy: string }[] = [];
+
+    for (const car of this.field.cars.values()) {
+      rows.push({ falls: car.falls, key: car.key, outBy: car.outBy });
+    }
+
+    for (const racer of this.racers.values()) {
+      if (racer.track && racer.seen && !this.field.cars.has(racer.key)) {
+        rows.push({ falls: racer.view.falls, key: racer.key, outBy: racer.view.outBy });
+      }
+    }
+
+    return rows;
+  }
+
+  private scoreFalls(creditedOnly: boolean) {
     const shared = this.client.sharedState;
     const counted: JsonRecord = isJsonObject(shared.counted) ? { ...shared.counted } : {};
     const scores: JsonRecord = isJsonObject(shared.scores) ? { ...shared.scores } : {};
     let changed = false;
 
-    for (const racer of this.racers.values()) {
-      const seen = numberOr(counted[racer.key], 0);
+    for (const row of this.tallies()) {
+      const seen = numberOr(counted[row.key], 0);
 
-      if (racer.view.falls > seen) {
-        counted[racer.key] = racer.view.falls;
+      if (row.falls !== seen) {
+        counted[row.key] = row.falls;
         changed = true;
-        const by = racer.view.lastBy;
-        const credited = by !== "" && by !== racer.key && this.racers.has(by);
+      }
 
-        if (open) {
-          if (credited) {
-            scores[by] = numberOr(scores[by], 0) + 1;
-          } else {
-            scores[racer.key] = Math.max(0, numberOr(scores[racer.key], 0) - 1);
-          }
-
-          this.client.sendEvent(KO_EVENT, { b: credited ? by : "", v: racer.key });
-        }
+      if (row.falls > seen) {
+        this.scoreFall(row.key, row.outBy, scores, creditedOnly);
       }
     }
 
     if (changed) {
       this.client.updateSharedState({ counted, scores });
+    }
+  }
+
+  private scoreFall(key: string, by: string, scores: JsonRecord, creditedOnly: boolean) {
+    const alone = by === "" || by === key;
+    const since = this.client.serverNow() - this.state.startAt;
+    const worth = since >= ROUND_MS - SHRINK_MS ? SQUEEZE_POINTS : 1;
+
+    if (alone && !creditedOnly) {
+      scores[key] = Math.max(0, numberOr(scores[key], 0) - 1);
+      this.client.sendEvent(KO_EVENT, { b: "", n: 1, v: key });
+    } else if (!alone && this.racers.has(by)) {
+      scores[by] = numberOr(scores[by], 0) + worth;
+      this.client.sendEvent(KO_EVENT, { b: by, n: worth, v: key });
     }
   }
 
@@ -771,6 +858,7 @@ export class GameScene {
     const victim = this.racers.get(payload.v);
     const by = this.racers.get(payload.b) ?? null;
     const mine = this.myKey();
+    const worth = clamp(numberOr(payload.n, 1), 1, SQUEEZE_POINTS);
 
     if (victim) {
       this.hud.feed(by ? this.rowOf(by) : null, this.rowOf(victim));
@@ -779,12 +867,12 @@ export class GameScene {
     if (by) {
       reward(this.field, by.key);
       const spot = this.stage.project(by.x, 2.5, by.z);
-      this.hud.pop("+1", spot.x, spot.y, by.css);
+      this.hud.pop(`+${worth}`, spot.x, spot.y, by.css);
     }
 
     if (by?.key === mine) {
       this.knockOffs += 1;
-      this.hud.banner(`KNOCK-OFF  +1`, "good", 1300);
+      this.hud.banner(`KNOCK-OFF  +${worth}`, "good", 1300);
       sfx.knockOff();
     } else if (victim?.key === mine) {
       this.hud.banner(by ? `KNOCKED OFF BY ${by.name}` : "YOU FELL OFF  -1", "bad", 1500);
@@ -812,14 +900,16 @@ export class GameScene {
 
     const car = this.field.cars.get(payload.a);
     const { dx, dz } = payload;
+    const out = car?.mode === "drive" && (car.phase === "strike" || car.phase === "hold");
 
-    if (car && isJsonNumber(dx) && isJsonNumber(dz) && car.mode === "drive") {
-      clash(car, dx, dz);
-      this.clashFx(car.x - dx, car.z - dz, car.key === this.myKey());
+    if (car && out && isJsonNumber(dx) && isJsonNumber(dz)) {
+      const length = Math.hypot(dx, dz) || 1;
+      clash(car, dx / length, dz / length);
+      this.clashFx(car.x - dx / length, car.z - dz / length, car.key === this.myKey());
     }
   }
 
-  private gather(dt: number) {
+  private gather(dt: number, now: number) {
     const { client, field } = this;
 
     for (const racer of this.racers.values()) {
@@ -829,36 +919,21 @@ export class GameScene {
     field.ghosts.clear();
 
     for (const player of Object.values(client.players)) {
-      const report = player.id === client.playerId ? null : readPose(player.state);
+      const away = player.id === client.playerId || player.connected === false;
+      const report = away ? null : readPose(player.state);
 
-      if (report && report.round === this.state.round) {
-        const racer = this.ensure(player.id, "human");
-        racer.track?.push(report);
-        const view = racer.track?.sample();
-
-        if (view) {
-          racer.view = view;
-          racer.seen = true;
-        }
+      if (report && now - report.t < AWAY_MS) {
+        this.hear(player.id, "human", report);
       }
     }
 
-    const rows = client.sharedState.bots;
+    const rows = client.isHost ? null : client.sharedState.bots;
 
-    if (!client.isHost && isJsonObject(rows)) {
-      for (const [key, row] of Object.entries(rows)) {
-        const report = readPose(row);
+    for (const [key, row] of Object.entries(isJsonObject(rows) ? rows : {})) {
+      const report = readPose(row);
 
-        if (report && report.round === this.state.round) {
-          const racer = this.ensure(key, "bot");
-          racer.track?.push(report);
-          const view = racer.track?.sample();
-
-          if (view) {
-            racer.view = view;
-            racer.seen = true;
-          }
-        }
+      if (report) {
+        this.hear(key, "bot", report);
       }
     }
 
@@ -870,6 +945,21 @@ export class GameScene {
         ghost.z += predicted.z;
         field.ghosts.set(racer.key, ghost);
       }
+    }
+  }
+
+  private hear(key: string, kind: RacerKind, report: PoseReport) {
+    if (report.round !== this.state.round) {
+      return;
+    }
+
+    const racer = this.ensure(key, kind);
+    racer.track?.push(report);
+    const view = racer.track?.sample();
+
+    if (view) {
+      racer.view = view;
+      racer.seen = true;
     }
   }
 
@@ -905,15 +995,22 @@ export class GameScene {
 
   private simulate(dt: number, seconds: number) {
     const { field } = this;
-    const pressed = this.started ? this.input.read() : null;
+    const pressed = this.started && !this.paused ? this.input.read() : null;
     this.punchQueued ||= pressed?.punch === true;
+    const shared = this.client.isHost && field.ghosts.size > 0;
+    let held = "";
 
     if (this.hitstop > 0) {
       this.hitstop -= dt;
-      this.acc = 0;
-      field.time = seconds;
 
-      return;
+      if (!shared) {
+        this.acc = 0;
+        field.time = seconds;
+
+        return;
+      }
+
+      held = this.me?.key ?? "";
     }
 
     this.acc += dt;
@@ -924,7 +1021,7 @@ export class GameScene {
     for (let i = 0; i < steps; i += 1) {
       this.inputs.clear();
 
-      if (this.me && pressed) {
+      if (this.me && pressed && held === "") {
         this.inputs.set(this.me.key, { ...pressed, punch: this.punchQueued });
         this.punchQueued = false;
       }
@@ -933,7 +1030,7 @@ export class GameScene {
         this.thinkBots();
       }
 
-      stepField(field, this.inputs, STEP);
+      stepField(field, this.inputs, STEP, held);
 
       for (const event of field.events) {
         this.onFieldEvent(event);
@@ -1111,6 +1208,7 @@ export class GameScene {
       bumperOut: 0,
       css: rampCss(ramp, 3),
       flash: 0,
+      fresh: true,
       item: "",
       key,
       kind,
@@ -1258,6 +1356,18 @@ export class GameScene {
     racer.z = view.z + offset.z;
     racer.flash = Math.max(0, racer.flash - dt);
     const mine = racer.kind === "me";
+
+    if (racer.fresh) {
+      Object.assign(racer, {
+        air: view.y > 0.15 && view.mode === "drive",
+        fresh: false,
+        item: view.bumper === "plain" ? view.mod : view.bumper,
+        launches: view.launches,
+        mode: view.mode,
+        punches: view.punches,
+      });
+    }
+
     this.followBlows(racer);
 
     if (racer.track) {
@@ -1472,7 +1582,7 @@ export class GameScene {
     if (shrink.warn && !this.warned) {
       this.warned = true;
       sfx.warn();
-      this.hud.banner("THE ENDS ARE DROPPING", "warn", 2600);
+      this.hud.banner("ENDS DROPPING  ·  DOUBLE POINTS", "warn", 2800);
     }
 
     if (shrink.late && !this.dropped) {

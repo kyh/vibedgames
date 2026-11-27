@@ -56,9 +56,11 @@ export const crateOf: (arena: Arena, round: number, index: number) => Crate = (
  * next one's beam comes on.
  */
 export const crateAt = (arena: Arena, round: number, time: number) => {
-  const index = Math.floor((time - ITEMS_AT + CRATE_BEAM) / CRATE_EVERY);
+  const end = ROUND_MS / 1000;
+  const due = Math.floor((time - ITEMS_AT + CRATE_BEAM) / CRATE_EVERY);
+  const index = ITEMS_AT + due * CRATE_EVERY < end ? due : due - 1;
 
-  if (index < 0 || time >= ROUND_MS / 1000) {
+  if (index < 0 || time >= end) {
     return null;
   }
 

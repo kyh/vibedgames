@@ -1,4 +1,4 @@
-import { ROUND_MS, STEP } from "../src/shared/constants.ts";
+import { ROUND_MS, SHRINK_MS, SQUEEZE_POINTS, STEP } from "../src/shared/constants.ts";
 import { arenaFor } from "../src/sim/arena.ts";
 import type { Arena } from "../src/sim/arena.ts";
 import { botInput, makeBrain, makeDirector } from "../src/sim/bot.ts";
@@ -39,7 +39,7 @@ const settle = (field: Field, log: MatchLog, event: FieldEvent) => {
     bump(log.scores, event.key, -1);
   } else {
     bump(log.causes, "car", 1);
-    bump(log.scores, event.by, 1);
+    bump(log.scores, event.by, field.time * 1000 >= ROUND_MS - SHRINK_MS ? SQUEEZE_POINTS : 1);
     reward(field, event.by);
   }
 };
@@ -63,7 +63,7 @@ export const playMatch: (round: number, count?: number, arena?: Arena) => MatchL
     if (spawn) {
       gridCar(car, spawn);
       field.cars.set(car.key, car);
-      brains.set(car.key, makeBrain(i + round * 11));
+      brains.set(car.key, makeBrain(i, round));
     }
   }
 

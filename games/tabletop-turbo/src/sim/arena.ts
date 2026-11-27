@@ -151,8 +151,8 @@ const INNER = [
 export const ARENAS: readonly ArenaDef[] = [
   {
     carPads: [
-      [0, -4.75 * CL],
-      [0, 4.75 * CL],
+      [-6 * CL, -4.25 * CL],
+      [6 * CL, 4.25 * CL],
     ],
     core: [box(0, 0, 7.25 * CL, 6.5 * CL, 2.4)],
     grid: [
@@ -163,7 +163,7 @@ export const ARENAS: readonly ArenaDef[] = [
       facing(-9 * CL, 4 * CL),
     ],
     hazards: [
-      { kind: "sweeper", length: 3 * CL, phase: 0.6, rate: (Math.PI * 2) / 8, x: 0, z: 0 },
+      { kind: "sweeper", length: 2.5 * CL, phase: 0.6, rate: (Math.PI * 2) / 8, x: 0, z: 0 },
       { kind: "bumper", r: 1.5, x: -6 * CL, z: 4 * CL },
       { kind: "bumper", r: 1.5, x: 6 * CL, z: -4 * CL },
       {

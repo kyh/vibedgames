@@ -1,6 +1,6 @@
 # Tabletop Turbo
 
-A car battle on a table top, in pixel-art splats. Eight cube cars, each with a spring-loaded bumper on its nose: fire it to punch whatever is in front of you, and knock the others off the board. The board fights too (a sweeper arm, pistons, pop bumpers, two holes), crates change your bumper or your car, and for the last stretch of a round both ends of the board drop away. Free-for-all, 90 second rounds, respawns. Online through `@vibedgames/multiplayer` with bots filling the board. Deployed at `tabletop-turbo.vibedgames.com`.
+A car battle on a table top, in pixel-art splats. Eight cube cars, each with a spring-loaded bumper on its nose: fire it to punch whatever is in front of you, and knock the others off the board. The board fights too (a sweeper arm, pistons, pop bumpers, two holes), crates change your bumper or your car, and for the last stretch of a round both ends of the board drop away and every knock-off counts double. Free-for-all, 90 second rounds, respawns. Online through `@vibedgames/multiplayer` with bots filling the board. Deployed at `tabletop-turbo.vibedgames.com`.
 
 ## Develop
 
@@ -36,20 +36,20 @@ The stick is the screen's: up is up the board whichever way the car faces. There
 
 ## How it plays
 
-- **The bumper.** One button. It winds back for a blink, fires, and throws any car in its reach about two and a half car lengths, a little more if you were moving. Then it reloads: 2.2 s after a hit, 3 s after a miss. The ring under your car fills as it reloads.
+- **The bumper.** One button. It winds back for a blink, fires, and throws any car in its reach about two and a third car lengths, a touch more if you were moving. Then it reloads: 2.2 s after a hit, 3 s after a miss. The ring under your car fills as it reloads.
 - **Dents.** A car that takes a punch is dented, and a dented car flies further: 1.3 times after one punch, 1.6 after two. Dents pop back out after 8 s without a punch. A dented car smokes.
-- **Knock-offs.** Over the edge or into a hole is a fall. Whoever hit the car in the last three seconds scores a point and gets half a boost meter back. A car that falls on its own loses a point (never below zero).
+- **Knock-offs.** Over the edge or into a hole is a fall. Whoever hit the car in the last three seconds scores a point (two during the squeeze) and gets half a boost meter back. A car that falls on its own loses a point (never below zero).
 - **Clash.** Two bumpers that meet nose to nose cancel: both cars bounce back and nobody is thrown.
-- **Boost.** A second of 1.5 times speed, five seconds to refill. A boosted car rams harder, and a punch thrown mid-boost lunges.
-- **Ramming.** A car driven into another at speed shoves it a car length and passes on the credit. It never dents.
-- **Back in.** A fallen car drops back onto the middle of the board after 1.5 s, shielded for 1.5 s. Firing the bumper drops the shield.
+- **Boost.** A second of 1.5 times speed, five seconds to refill. A punch thrown mid-boost lunges.
+- **Ramming.** Only a boosted car rams: it shoves what it drives into nearly two car lengths and takes the credit. A ram never dents, and never blocks the punch that follows it. Without boost, cars just push.
+- **Back in.** A fallen car drops back onto the middle of the board after a second, shielded for 1.5 s, and shoves aside whatever it lands on. Firing the bumper or driving into a car drops the shield. A bumper crate is kept through a fall; a car crate is not.
 - **Hazards.** The sweeper turns in the middle and bats what it touches along its swing. Pistons blink their lane for 0.9 s, then fire across it. Pop bumpers kick cars straight back out. A hazard's hit keeps the credit of whoever knocked the car into it.
-- **Crates.** One at a time, every 9 s from 0:10, under a beam that shows where it will land. First car to reach it takes it.
+- **Crates.** One at a time, every 9 s from 0:10, under a beam that shows where it will land. First car to reach it takes it. Bumper crates land on the ends until the squeeze; car crates, and every late crate, land in a piston lane.
   - _Mega bumper_: half as wide again and half as hard again, for two punches.
-  - _Long spring_: twice the reach, for two punches.
+  - _Long spring_: twice the reach and a quarter harder, for two punches.
   - _Giant_: a bigger, heavier car for 6 s: thrown less, slightly slower.
   - _Turbo_: 6 s of boost that does not run down.
-- **The squeeze.** With 25 s left the two ends of the board blink for three seconds and drop off the table. Everything left is in reach of the sweeper.
+- **The squeeze.** With 25 s left the two ends of the board blink for three seconds and drop off the table, and from the first blink a knock-off is worth two.
 
 ## Multiplayer
 
@@ -57,9 +57,10 @@ Auto-joins the shared `tabletop-turbo-v2` room (8 players, overflow into sibling
 
 - Every player simulates their own car and reports it 20 times a second, stamped in server time; everyone else's plays back through an `Interpolator` on a clock per sender. The host simulates the bots the same way, and owns the round clock and the scores in shared state.
 - Hits are the attacker's call. The client whose bumper connected sends the blow to the room; the client that owns the car that was hit applies it (or refuses it: shielded, already hit by that blow, a clash). The attacker shows the throw at once and blends into the reports when they arrive.
-- A fall is counted where it happens: each car carries a count of its own falls and who hit it last, and the host turns a count that went up into a point.
+- A fall is counted where it happens: each car carries a count of its own falls and who knocked it off, and the host turns a count that went up into a point. Knock-offs still in the air at the horn count for a moment after it.
 - Hazards, crates and the squeeze are functions of the round clock, so every client sees the same board. A crate is a first-come claim on the server.
 - A new host adopts the bots from their last reports and carries on. Joining mid-round drops you onto the board of the round in progress.
+- A host whose tab is hidden keeps the round and its bots going on a timer, and a player who stops reporting has their seat filled by a bot until they are back.
 
 ## Look
 

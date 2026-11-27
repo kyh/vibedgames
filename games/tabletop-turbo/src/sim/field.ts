@@ -4,7 +4,6 @@ import {
   GIANT_SCALE,
   PICKUP_RADIUS,
   PUNCH_RECOIL,
-  RAM_BOOST_THROW,
   RAM_MIN,
   RAM_THROW,
   RESPAWN_SECONDS,
@@ -200,7 +199,7 @@ const ram = (field: Field, car: Car, body: Body, nx: number, nz: number, closing
     dz: -nz,
     how: "ram",
     id: nextId(field, car.key),
-    reach: car.boosting ? RAM_BOOST_THROW : RAM_THROW,
+    reach: RAM_THROW,
   };
 
   const landed = body.car ? deliver(field, body.car, hit) : !body.safe;
@@ -217,8 +216,10 @@ const ram = (field: Field, car: Car, body: Body, nx: number, nz: number, closing
 };
 
 const touch = (field: Field, car: Car, body: Body, gap: number, reach: number) => {
-  const nx = (car.x - body.x) / gap;
-  const nz = (car.z - body.z) / gap;
+  const stacked = gap <= 0.001;
+  const side = car.key < body.key ? 1 : -1;
+  const nx = stacked ? side : (car.x - body.x) / gap;
+  const nz = stacked ? 0 : (car.z - body.z) / gap;
   const heavy = car.mod === "giant" ? 0.25 : 0.5;
   const share = body.car?.mod === "giant" && car.mod !== "giant" ? 0.75 : heavy;
   car.x += nx * (reach - gap) * share;
@@ -227,9 +228,11 @@ const touch = (field: Field, car: Car, body: Body, gap: number, reach: number) =
   const theirs = body.vx * nx + body.vz * nz;
   const free = car.stagger <= 0 && (car.locks.get(`ram:${body.key}`) ?? 0) <= 0;
 
-  if (closing >= RAM_MIN && closing > theirs && free && !body.safe) {
+  if (car.safe > 0 && closing > 3) {
+    car.safe = 0;
+  } else if (closing >= RAM_MIN && closing > theirs && free && !body.safe) {
     ram(field, car, body, nx, nz, closing);
-  } else if (theirs > 3 && (car.lastBy === "" || car.lastBy === body.key)) {
+  } else if (theirs > 3 && !body.safe && (car.lastBy === "" || car.lastBy === body.key)) {
     car.lastBy = body.key;
     car.lastByT = Math.min(car.lastByT, CREDIT_SECONDS - 1);
   }
@@ -244,7 +247,7 @@ const contacts = (field: Field, all: readonly Body[]) => {
       const gap = Math.hypot(car.x - body.x, car.z - body.z);
       const reach = radius + body.radius;
 
-      if (body.key !== car.key && body.alive && body.y < 0.7 && gap < reach && gap > 0.001) {
+      if (body.key !== car.key && body.alive && body.y < 0.7 && gap < reach) {
         touch(field, car, body, gap, reach);
       }
     }
@@ -273,23 +276,27 @@ const spawnFor = (field: Field, car: Car, all: readonly Body[]) => {
   return best;
 };
 
-const shove = (field: Field, car: Car) => {
-  for (const other of field.cars.values()) {
-    const dx = other.x - car.x;
-    const dz = other.z - car.z;
+const shove = (field: Field, car: Car, all: readonly Body[]) => {
+  for (const body of all) {
+    const dx = body.x - car.x;
+    const dz = body.z - car.z;
     const gap = Math.hypot(dx, dz);
 
-    if (other !== car && other.mode === "drive" && gap < 3.4) {
+    if (body.key !== car.key && body.alive && !body.safe && gap < 3.4) {
       const hit: Hit = {
         by: "",
-        dx: dx / (gap || 1),
-        dz: dz / (gap || 1),
+        dx: gap > 0.001 ? dx / gap : 1,
+        dz: gap > 0.001 ? dz / gap : 0,
         how: "land",
         id: nextId(field, car.key),
         reach: 2.6,
       };
 
-      deliver(field, other, hit);
+      if (body.car) {
+        deliver(field, body.car, hit);
+      } else {
+        field.events.push({ hit, kind: "send", to: body.key, x: body.x, z: body.z });
+      }
     }
   }
 };
@@ -323,12 +330,7 @@ const report = (field: Field, car: Car, events: CarEvents) => {
   }
 
   if (events.landed) {
-    const drop = car.safe > 0;
-    field.events.push({ drop, key: car.key, kind: "land" });
-
-    if (drop) {
-      shove(field, car);
-    }
+    field.events.push({ drop: car.safe > 0, key: car.key, kind: "land" });
   }
 
   if (events.fell) {
@@ -366,21 +368,49 @@ const reaches = (field: Field, car: Car, crate: Crate | null) => {
   }
 };
 
+const respawn = (field: Field, car: Car, all: readonly Body[]) => {
+  dropCar(car, spawnFor(field, car, all));
+  const body = all.find((other) => other.key === car.key);
+
+  if (body) {
+    Object.assign(body, { x: car.x, y: car.y, z: car.z });
+  }
+};
+
 /**
  * Advance every car simulated here by `dt`, and settle what they did to each
- * other, to the ghosts and to the board. `inputs` is by car key.
+ * other, to the ghosts and to the board. `inputs` is by car key. A car named
+ * by `held` stands still for the step (its owner is in a hit-stop) but can
+ * still be hit.
  */
-export const stepField = (field: Field, inputs: ReadonlyMap<string, CarInput>, dt: number) => {
+export const stepField = (
+  field: Field,
+  inputs: ReadonlyMap<string, CarInput>,
+  dt: number,
+  held = "",
+) => {
   const { arena } = field;
   const live = field.time >= 0 && field.time * 1000 < ROUND_MS;
   const { late } = shrinkAt(field.time * 1000);
+  const dropped: Car[] = [];
 
   for (const car of field.cars.values()) {
-    const input = live ? (inputs.get(car.key) ?? NO_INPUT) : NO_INPUT;
-    report(field, car, stepCar(car, input, arena, late, dt));
+    if (car.key !== held) {
+      const input = live ? (inputs.get(car.key) ?? NO_INPUT) : NO_INPUT;
+      const events = stepCar(car, input, arena, late, dt);
+      report(field, car, events);
+
+      if (events.landed && car.safe > 0) {
+        dropped.push(car);
+      }
+    }
   }
 
   const all = bodies(field);
+
+  for (const car of dropped) {
+    shove(field, car, all);
+  }
 
   if (live) {
     hazards(field);
@@ -392,7 +422,7 @@ export const stepField = (field: Field, inputs: ReadonlyMap<string, CarInput>, d
 
   for (const car of field.cars.values()) {
     if (car.mode === "out" && car.modeT >= RESPAWN_SECONDS && live) {
-      dropCar(car, spawnFor(field, car, all));
+      respawn(field, car, all);
     }
 
     reaches(field, car, crate);

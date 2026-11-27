@@ -24,6 +24,8 @@ export interface CarView {
   dent: number;
   falls: number;
   lastBy: string;
+  /** Who its last fall belongs to: what the host scores from. */
+  outBy: string;
   launches: number;
   hitId: string;
   hitHow: HitHow;
@@ -72,6 +74,7 @@ export const viewOf: (car: Car) => CarView = (car) => ({
   meter: car.meter,
   mod: car.mod,
   mode: car.mode,
+  outBy: car.outBy,
   punches: car.punches,
   ready: car.cooldown <= 0,
   safe: car.safe > 0,
@@ -99,6 +102,7 @@ export const encodeCar: (car: Car, t: number, round: number) => JsonRecord = (ca
   l: car.launches,
   m: MODES.indexOf(car.mode),
   n: HOWS.indexOf(car.hitHow),
+  o: car.outBy,
   p: car.punches,
   r: round,
   s: car.safe > 0 ? 1 : 0,
@@ -138,6 +142,7 @@ export const readPose: (row: WireField) => PoseReport | null = (row) => {
     meter: numberOr(row.e, 1),
     mod: MODS[numberOr(row.j, 0)] ?? "",
     mode: MODES[numberOr(row.m, 0)] ?? "drive",
+    outBy: isJsonString(row.o) ? row.o : "",
     punches: numberOr(row.p, 0),
     ready: cooldown <= 0,
     round: numberOr(row.r, 0),
@@ -170,6 +175,7 @@ export const adoptCar = (car: Car, report: PoseReport) => {
     modT: report.mod === "" ? 0 : 3,
     mode: report.mode,
     modeT: 0,
+    outBy: report.outBy,
     punches: report.punches,
     safe: report.safe ? 1 : 0,
     vx: report.staggered ? 0 : report.vx,

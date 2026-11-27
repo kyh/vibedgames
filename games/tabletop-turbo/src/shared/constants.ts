@@ -13,6 +13,9 @@ export const RESULTS_MS = 9000;
 export const SHRINK_MS = 25_000;
 export const SHRINK_WARN_MS = 3000;
 
+/** What a knock-off is worth once the ends start to blink. */
+export const SQUEEZE_POINTS = 2;
+
 /** The sim's fixed step, and the most steps one frame may run. */
 export const STEP = 1 / 60;
 export const MAX_STEPS = 4;
@@ -53,7 +56,7 @@ export const FALL_SECONDS = 0.7;
 /** The punch: a press is remembered this long, then wind-up, strike, hold and retract. */
 export const PUNCH_BUFFER = 0.15;
 export const PUNCH_WINDUP = 0.055;
-export const BOT_WINDUP = 0.27;
+export const BOT_WINDUP = 0.2;
 export const PUNCH_STRIKE = 0.1;
 export const PUNCH_HOLD = 0.12;
 export const PUNCH_RETRACT = 0.2;
@@ -65,8 +68,8 @@ export const PUNCH_REACH = 2.5;
 export const PUNCH_HALF_WIDTH = 1.45;
 
 /** How far a standing punch throws a car, and the extra per unit of the attacker's speed. */
-export const PUNCH_THROW = 6.3;
-export const PUNCH_SPEED_THROW = 0.25;
+export const PUNCH_THROW = 5.5;
+export const PUNCH_SPEED_THROW = 0.1;
 
 /** A thrown car covers its distance on this time constant, and leaves the floor this high. */
 export const KNOCK_TAU = 0.18;
@@ -78,7 +81,7 @@ export const STAGGER_EASE = 0.2;
 
 /** The attacker is pushed back this far as the bumper lands, and lunges this far on a boosted punch. */
 export const PUNCH_RECOIL = 1;
-export const PUNCH_LUNGE = 2.4;
+export const PUNCH_LUNGE = 1.2;
 
 /** Two bumpers meeting throw both cars back this far. */
 export const CLASH_THROW = 2.2;
@@ -87,10 +90,9 @@ export const CLASH_THROW = 2.2;
 export const DENT_GAIN = [1, 1.3, 1.6] as const;
 export const DENT_HEAL = 8;
 
-/** A ram needs this closing speed to count; it throws this far, or further off a boost. */
-export const RAM_MIN = 12;
-export const RAM_THROW = 2.4;
-export const RAM_BOOST_THROW = 4.3;
+/** A ram needs this closing speed, which only a boost reaches, and throws this far. */
+export const RAM_MIN = 16;
+export const RAM_THROW = 4.3;
 
 /** What the board's own toys throw a car: pop bumper, sweeper arm, piston. */
 export const BUMPER_THROW = 3.6;
@@ -104,7 +106,7 @@ export const PISTON_OUT = 0.45;
 /** Seconds a hit stays yours: a fall within it is your knock-off. */
 export const CREDIT_SECONDS = 3;
 
-export const RESPAWN_SECONDS = 1.5;
+export const RESPAWN_SECONDS = 1;
 export const SAFE_SECONDS = 1.5;
 
 /** Height a respawning car drops from. */
@@ -131,6 +133,7 @@ export const ITEM_SECONDS = 6;
 export const MEGA_FORCE = 1.5;
 export const MEGA_WIDTH = 1.5;
 export const SPRING_REACH = 2;
+export const SPRING_FORCE = 1.25;
 export const GIANT_SCALE = 1.5;
 export const GIANT_TAKEN = 0.7;
 export const GIANT_SLOW = 0.85;

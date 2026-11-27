@@ -38,10 +38,12 @@ import {
   PUNCH_REACH,
   PUNCH_RETRACT,
   PUNCH_STRIKE,
+  PUNCH_SPEED_THROW,
   PUNCH_THROW,
   PUNCH_WHIFF_COOLDOWN,
   PUNCH_WINDUP,
   SAFE_SECONDS,
+  SPRING_FORCE,
   SPRING_REACH,
   STAGGER,
   STAGGER_EASE,
@@ -128,6 +130,8 @@ export interface Car {
   /** Who gets the next fall, and seconds since they earned it. */
   lastBy: string;
   lastByT: number;
+  /** Who got the last fall: "" if it fell on its own. Kept until the next one. */
+  outBy: string;
   /** Times this car has been thrown this round, and the last blow it took. */
   launches: number;
   hitId: string;
@@ -184,6 +188,7 @@ export const makeCar: (key: string, bot: boolean) => Car = (key, bot) => ({
   mod: "",
   modT: 0,
   mode: "out",
+  outBy: "",
   modeT: 0,
   phase: "idle",
   phaseT: 0,
@@ -208,8 +213,6 @@ const clearMotion = (car: Car, spawn: Spawn) => {
     a: spawn.a,
     boosting: false,
     buffer: 0,
-    bumper: "plain",
-    bumperUses: 0,
     dent: 0,
     dentT: 0,
     kx: 0,
@@ -239,12 +242,15 @@ const clearMotion = (car: Car, spawn: Spawn) => {
 export const gridCar = (car: Car, spawn: Spawn) => {
   clearMotion(car, spawn);
   Object.assign(car, {
+    bumper: "plain",
+    bumperUses: 0,
     cooldown: 0,
     falls: 0,
     hitId: "",
     launches: 0,
     meter: 1,
     mode: "drive",
+    outBy: "",
     punches: 0,
     safe: 0,
     y: 0,
@@ -319,6 +325,14 @@ export const inPunch = (car: Car, x: number, z: number, radius: number) => {
   );
 };
 
+const bumperForce = (car: Car) => {
+  if (car.bumper === "mega") {
+    return MEGA_FORCE;
+  }
+
+  return car.bumper === "spring" ? SPRING_FORCE : 1;
+};
+
 /** The blow this car's bumper deals to something at (x, z). */
 export const punchHit = (car: Car, x: number, z: number, id: string) => {
   const cos = Math.cos(car.a);
@@ -335,7 +349,7 @@ export const punchHit = (car: Car, x: number, z: number, id: string) => {
     dz: dz / length,
     how: "punch",
     id,
-    reach: (PUNCH_THROW + speed * 0.25) * (car.bumper === "mega" ? MEGA_FORCE : 1),
+    reach: (PUNCH_THROW + speed * PUNCH_SPEED_THROW) * bumperForce(car),
   } satisfies Hit;
 };
 
@@ -365,6 +379,8 @@ export const wouldClash = (car: Car, hit: Hit) =>
   (car.phase === "strike" || car.phase === "hold") &&
   Math.cos(car.a) * hit.dx + Math.sin(car.a) * hit.dz < -0.5;
 
+const lockOf = (hit: Hit) => (hit.how === "ram" ? `ram:${hit.by}` : hit.by || hit.how);
+
 /** Can this blow land at all: on the board, not shielded, not just hit by the same car. */
 export const canHit = (car: Car, hit: Hit) => {
   if (car.mode !== "drive" || car.safe > 0 || car.hitId === hit.id) {
@@ -375,7 +391,10 @@ export const canHit = (car: Car, hit: Hit) => {
     return true;
   }
 
-  return car.lockAny <= 0 && (car.locks.get(hit.by || hit.how) ?? 0) <= 0;
+  const shoved = car.hitHow === "ram" || car.hitHow === "land";
+  const open = car.lockAny <= 0 || (hit.how === "punch" && shoved);
+
+  return open && (car.locks.get(lockOf(hit)) ?? 0) <= 0;
 };
 
 /** Throw the car. Returns how far it will travel, or 0 if the blow did not land. */
@@ -417,7 +436,7 @@ export const takeHit = (car: Car, hit: Hit) => {
     vy: Math.sqrt(2 * GRAVITY * KNOCK_HOP * Math.min(1.3, Math.max(0.3, reach / PUNCH_THROW))),
     vz: 0,
   } satisfies Partial<Car>);
-  car.locks.set(hit.by || hit.how, HIT_LOCK_SAME);
+  car.locks.set(lockOf(hit), HIT_LOCK_SAME);
 
   return reach;
 };
@@ -614,7 +633,7 @@ export const stepCar = (car: Car, input: CarInput, arena: Arena, late: boolean, 
     car.tumble += dt * 9;
 
     if (car.modeT >= FALL_SECONDS) {
-      Object.assign(car, { falls: car.falls + 1, mode: "out", modeT: 0 });
+      Object.assign(car, { falls: car.falls + 1, mode: "out", modeT: 0, outBy: car.lastBy });
       events.out = true;
     }
 
