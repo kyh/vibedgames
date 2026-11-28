@@ -46,7 +46,7 @@ describe("OpenAPI spec", async () => {
   test("serves every procedure as a POST under the /api/v1 server", () => {
     assert.deepEqual(
       spec.servers.map((server) => server.url),
-      ["https://vibedgames.com/api/v1"],
+      ["https://www.vibedgames.com/api/v1"],
     );
     assert.ok(operations.length >= 23, `expected >= 23 operations, got ${operations.length}`);
     assert.ok(operations.every(({ method }) => method === "post"));

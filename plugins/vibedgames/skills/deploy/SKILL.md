@@ -64,13 +64,13 @@ vg login
 
 Run it in the background: it waits up to 10 minutes for approval. It
 prints an 8-character code and the approval URL
-(`https://vibedgames.com/device?user_code=…`), and tries to open a
+(`https://www.vibedgames.com/device?user_code=…`), and tries to open a
 browser. Tell the user: "Approve code `XXXXXXXX` at <the URL it
 printed>". Always pass on the URL, because the browser won't open in a
 remote or headless shell. Wait for the CLI to print `Logged in
 successfully` before continuing. With no human to approve (CI, a headless
 agent), the user sets `VG_TOKEN` to an API key from
-https://vibedgames.com/settings instead; see the `vg-setup` skill.
+https://www.vibedgames.com/settings instead; see the `vg-setup` skill.
 
 Only skip this step if `whoami` succeeded with a `name (email)` line.
 

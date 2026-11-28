@@ -5,6 +5,7 @@ import path from "node:path";
 import { defineCommand } from "citty";
 import { consola } from "consola";
 import spawn from "cross-spawn";
+import { gameOrigin } from "@repo/contract/deploy/game-origin";
 
 import { getBaseUrl, getConfigDir } from "../lib/config.js";
 import { isNewerVersion } from "../lib/update.js";
@@ -195,7 +196,7 @@ export const resolveGameUrl = (slug: string | null) => {
     process.exit(1);
   }
 
-  return `${base.protocol}//${resolved}.${base.host}`;
+  return gameOrigin(base, resolved);
 };
 
 /**

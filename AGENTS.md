@@ -161,7 +161,7 @@ For the surfaces marked No, `pnpm typecheck` and `pnpm build` are the gate; a re
 - **Every mutation invalidates exactly the query keys it touches**, in its own `onSuccess`. There is no blanket invalidation in the query client; if a write should refresh a list, say so at the call site.
 - **No `any`, no non-null `!`, no `as` casts. Kebab-case filenames.** Make illegal states unrepresentable.
 - **Render dates through `apps/web/src/lib/format.ts`.** The Worker renders in UTC and the browser doesn't; an unpinned `toLocaleDateString()` is a hydration mismatch.
-- **Games are untrusted user code.** Session cookies stay scoped to the apex domain. Never weaken that boundary — see `CLAUDE.md`.
+- **Games are untrusted user code.** Session cookies stay host-only on the web host. Never weaken that boundary — see `CLAUDE.md`.
 
 ## Deploys
 

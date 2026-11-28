@@ -59,5 +59,5 @@ export const siteConfig = {
   summary:
     "Vibedgames is an agent-native platform for building, hosting and shipping browser games: a coding agent installs the vg CLI and the bundled game-studio skills, generates art and audio, adds real-time multiplayer, and deploys the game to its own {slug}.vibedgames.com subdomain.",
   twitter: "@kaiyuhsu",
-  url: "https://vibedgames.com",
+  url: "https://www.vibedgames.com",
 };
