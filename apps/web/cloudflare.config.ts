@@ -23,11 +23,22 @@ const openaiSecrets = {
   OPENAI_APPS_CHALLENGE: bindings.secret(),
 };
 
+const reviewerSecrets = {
+  REVIEWER_CODE: bindings.secret(),
+  REVIEWER_EMAIL: bindings.secret(),
+};
+
 const emailSecrets = {
   RESEND_API_KEY: bindings.secret(),
 };
 
-const optionalSecrets = { ...stripeSecrets, ...socialSecrets, ...openaiSecrets, ...emailSecrets };
+const optionalSecrets = {
+  ...stripeSecrets,
+  ...socialSecrets,
+  ...openaiSecrets,
+  ...reviewerSecrets,
+  ...emailSecrets,
+};
 
 // WARNING: a Preview binds only preview D1/R2; never let it reach the prod database or bucket.
 const previewEnv = {
