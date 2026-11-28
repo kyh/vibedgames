@@ -9,14 +9,14 @@ import { RemoteTrack, adoptCar, drawnOf, encodeCar, ghostOf, readPose, viewOf } 
 import type { CarView, PoseReport } from "../net/pose";
 import { isJsonNumber, isJsonObject, isJsonString, numberOr } from "../net/wire";
 import type { WireField } from "../net/wire";
-import { Board } from "../render/board";
+import { Board, TABLE_Y } from "../render/board";
 import { CarMesh } from "../render/car-mesh";
 import { GlowGrid, SKID_SLOT } from "../render/glow-grid";
 import { LightMap } from "../render/light-map";
 import { Sparks } from "../render/fx";
 import { itemName } from "../render/hud";
 import type { Hud, HudRow } from "../render/hud";
-import { ITEM_RAMP, Props, drawCrate } from "../render/props";
+import { BEAM, ITEM_RAMP, Props, drawCrate } from "../render/props";
 import {
   BOOST_MIN,
   BOTS,
@@ -58,11 +58,9 @@ import { deliver, grant, makeField, reward, stepField } from "../sim/field";
 import type { Field, FieldEvent } from "../sim/field";
 import { hazardThreat, pistonAt, shrinkAt } from "../sim/hazards";
 import { crateAt } from "../sim/items";
-import { CAR_RAMPS, RAMP, carRampFor, rampCss } from "../splat/palette";
-import { FLAG, tone } from "../splat/splat-set";
-import type { SplatSet } from "../splat/splat-set";
-import { PX_PER_UNIT, SplatStage } from "../splat/stage";
-import type { StageView } from "../splat/stage";
+import { BASE, CAR_RAMPS, RAMP, carRampFor, rampCss, tone } from "../pixel/palette";
+import { PX_PER_UNIT, PixelStage } from "../pixel/stage";
+import type { StageView } from "../pixel/stage";
 
 type RacerKind = "me" | "bot" | "human";
 
@@ -148,12 +146,11 @@ const FRESH_START = "fresh-start";
 const HIT_EVENT = "hit";
 const CLASH_EVENT = "clash";
 const KO_EVENT = "ko";
-const GLOW = FLAG.unlit + FLAG.round + FLAG.noShadow;
 const PARTY = [RAMP.yellow, RAMP.pink, RAMP.cyan, RAMP.lime, RAMP.white] as const;
+const MIN_ZOOM = 9;
 const PITCH = (55 * Math.PI) / 180;
 const VIEW_DIR = new THREE.Vector3(0, Math.sin(PITCH), Math.cos(PITCH));
 const EYE_DISTANCE = 200;
-const QUERY = new URLSearchParams(globalThis.location.search);
 
 const THROWS = {
   bumper: BUMPER_THROW,
@@ -278,7 +275,7 @@ export class GameScene {
   private readonly client: MultiplayerClient;
   private readonly input: Input;
   private readonly hud: Hud;
-  private readonly stage: SplatStage;
+  private readonly stage: PixelStage;
   private readonly lights = new LightMap();
   private readonly glow = new GlowGrid();
   private readonly sparks = new Sparks(900);
@@ -341,12 +338,12 @@ export class GameScene {
     this.client = client;
     this.input = input;
     this.hud = hud;
-    this.stage = new SplatStage(renderer, shadows, this.lights.bytes);
+    this.stage = new PixelStage(renderer, shadows, this.lights.bytes);
     this.board = new Board(this.arena);
     this.props = new Props(this.arena);
     this.field = makeField(this.arena);
-    this.stage.setWorld(this.board.set);
-    this.lights.bake(Number(QUERY.get("amb") ?? 0.3), this.arena.def.lamps, 12);
+    this.stage.setWorld(this.board.solids);
+    this.stage.setBoard(this.board.map);
   }
 
   resize(width: number, height: number) {
@@ -1206,7 +1203,7 @@ export class GameScene {
     const racer: Racer = {
       air: false,
       bumperOut: 0,
-      css: rampCss(ramp, 3),
+      css: rampCss(ramp, BASE + 1),
       flash: 0,
       fresh: true,
       item: "",
@@ -1272,17 +1269,13 @@ export class GameScene {
 
     const shrink = shrinkAt(seconds * 1000);
     this.shrinkFx(shrink);
-    this.board.drawEnds(
-      stage.dynamic,
-      shrink.drop,
-      shrink.warn && Math.floor(this.clock * 7) % 2 === 0,
-    );
-    this.props.draw(stage.dynamic, this.lights, seconds, this.clock, dt);
+    this.board.drawEnds(stage, shrink.drop, shrink.warn && Math.floor(this.clock * 7) % 2 === 0);
+    this.props.draw(stage, this.lights, seconds, this.clock, dt);
     this.pistonFx(seconds, dt);
     this.showCrate(seconds);
     this.showFlashes(dt);
     this.sparks.update(dt);
-    this.sparks.draw(stage.dynamic);
+    this.sparks.draw(stage.dabs);
     this.glow.decay(dt, 7);
 
     if (this.frame % 2 === 0) {
@@ -1323,14 +1316,14 @@ export class GameScene {
       return;
     }
 
-    drawCrate(stage.dynamic, this.lights, crate, seconds, this.clock);
+    drawCrate(stage, this.lights, crate, seconds, this.clock);
 
     if (crate.index !== this.lastCrate && seconds >= crate.landAt) {
       this.lastCrate = crate.index;
       sfx.crate();
       this.sparks.ring(crate.x, crate.z, ITEM_RAMP[crate.kind], 7, 16);
       const spot = stage.project(crate.x, 3, crate.z);
-      this.hud.pop(itemName(crate.kind), spot.x, spot.y, rampCss(ITEM_RAMP[crate.kind], 3));
+      this.hud.pop(itemName(crate.kind), spot.x, spot.y, rampCss(ITEM_RAMP[crate.kind], BASE + 1));
     }
   }
 
@@ -1457,7 +1450,7 @@ export class GameScene {
           racer.x + Math.cos(a) * 1.2,
           0.3,
           racer.z + Math.sin(a) * 1.2,
-          RAMP.board,
+          RAMP.tile,
           0.4,
         );
       }
@@ -1626,7 +1619,7 @@ export class GameScene {
 
   private drawRacer(racer: Racer, dt: number, seconds: number) {
     const { view } = racer;
-    const out = this.stage.dynamic;
+    const { stage } = this;
 
     if (view.mode === "out") {
       return;
@@ -1649,23 +1642,27 @@ export class GameScene {
         pitch: falling ? racer.tumble * 0.4 : 0,
         ready: view.ready,
         roll: Math.round((racer.tumble / (Math.PI / 4)) % 8) * (Math.PI / 4),
-        size:
-          (view.mod === "giant" ? GIANT_SCALE : 1) * (falling ? clamp(1 + view.y / 16, 0.3, 1) : 1),
+        size: view.mod === "giant" ? GIANT_SCALE : 1,
         steer: racer.steer,
         x: racer.x,
-        y: view.y,
+        y: Math.max(view.y, TABLE_Y),
         z: racer.z,
       },
       dt,
     );
-    racer.mesh.draw(out);
+    racer.mesh.draw(stage);
 
     if (view.mode === "drop") {
-      for (let y = 0.5; y < 14; y += 0.7) {
-        out.push(racer.x, y, racer.z, 0, 1, 0, 0.2, tone(racer.ramp, 3), GLOW);
-      }
+      stage.draw(BEAM, {
+        ramp: racer.ramp,
+        sheer: true,
+        x: racer.x,
+        y: 0,
+        yaw: 0,
+        z: racer.z,
+      });
 
-      this.lights.pool(racer.x, racer.z, 4, 0.8);
+      this.lights.pool(racer.x, racer.z, 3.4, 0.6);
 
       return;
     }
@@ -1674,11 +1671,8 @@ export class GameScene {
       return;
     }
 
-    this.lights.cone(racer.x + cos * 1.2, racer.z + sin * 1.2, cos, sin, 10, 0.88, 0.8);
-    this.lights.pool(racer.x, racer.z, 2.8, 0.35);
-
     if (racer.kind === "me") {
-      this.drawMarker(out, racer, view);
+      this.drawMarker(racer, view);
     }
 
     this.drawTrail(racer, dt, cos, sin);
@@ -1688,10 +1682,22 @@ export class GameScene {
     const { view } = racer;
     racer.smokeT -= dt;
 
-    if (view.y < 0.1 && view.boosting) {
-      this.glow.stamp(racer.x - cos * 1.1, racer.z - sin * 1.1, 0.55, racer.slot, 1);
-    } else if (view.y < 0.1 && (view.staggered || Math.hypot(view.vx, view.vz) > MAX_SPEED * 1.2)) {
-      this.glow.stamp(racer.x, racer.z, 0.6, SKID_SLOT, 0.9);
+    const skid = view.staggered || Math.hypot(view.vx, view.vz) > MAX_SPEED * 1.2;
+
+    if (view.y < 0.1 && (view.boosting || skid)) {
+      const slot = view.boosting ? racer.slot : SKID_SLOT;
+
+      for (const side of [-0.8, 0.8]) {
+        for (const along of [-0.85, 0.85]) {
+          this.glow.stamp(
+            racer.x + cos * along - sin * side,
+            racer.z + sin * along + cos * side,
+            0.2,
+            slot,
+            view.boosting ? 1 : 0.9,
+          );
+        }
+      }
     }
 
     if (racer.smokeT > 0) {
@@ -1717,32 +1723,36 @@ export class GameScene {
     }
   }
 
-  private drawMarker(out: SplatSet, racer: Racer, view: CarView) {
+  private drawMarker(racer: Racer, view: CarView) {
     const car = this.me;
     const ready = car ? punchReady(car) : 1;
     const lit = Math.round(ready * 16);
-    const radius = 1.95 * (view.mod === "giant" ? 1.3 : 1);
+    const radius = 2.05 * (view.mod === "giant" ? 1.3 : 1);
 
     for (let i = 0; i < 16; i += 1) {
       const a = view.a + Math.PI + (i / 16) * Math.PI * 2;
       const on = i < lit;
-      out.push(
+      const full = tone(racer.ramp, BASE + 2);
+      this.stage.dabs.push(
         racer.x + Math.cos(a) * radius,
         0.07,
         racer.z + Math.sin(a) * radius,
-        0,
-        1,
-        0,
-        on ? 0.2 : 0.12,
-        ready >= 1 ? tone(RAMP.cream, 4) : tone(on ? RAMP.white : RAMP.board, on ? 3 : 4),
-        GLOW,
+        on ? 0.2 : 0.1,
+        ready >= 1 ? full : tone(on ? racer.ramp : RAMP.iron, on ? BASE : BASE + 1),
+        true,
       );
     }
   }
 
   private updateCamera(dt: number) {
     const { arena, me, stage, view } = this;
-    const zoom = clamp(Math.floor(stage.columns / 30), 6, PX_PER_UNIT);
+
+    const fit = Math.min(
+      stage.columns / (arena.halfX * 2 + 6),
+      stage.rows / ((arena.halfZ * 2 + 9) * Math.sin(PITCH)),
+    );
+
+    const zoom = clamp(Math.floor(fit), MIN_ZOOM, PX_PER_UNIT);
     const wide = stage.columns / zoom;
     const deep = stage.rows / zoom / Math.sin(PITCH);
     const spanX = Math.max(0, arena.halfX + 3 - wide / 2);

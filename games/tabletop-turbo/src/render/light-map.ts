@@ -1,4 +1,4 @@
-import { FLOOR_SIZE, FLOOR_SPAN } from "../splat/stage";
+import { FLOOR_SIZE, FLOOR_SPAN } from "../pixel/stage";
 
 const CELL = FLOOR_SPAN / FLOOR_SIZE;
 const HALF = FLOOR_SPAN / 2;
@@ -6,28 +6,15 @@ const HALF = FLOOR_SPAN / 2;
 const clampCell = (v: number) => Math.min(FLOOR_SIZE - 1, Math.max(0, v));
 
 /**
- * How lit each patch of floor is: the lamps, baked once, plus whatever shines
- * this frame (headlights, flashes). One byte a cell.
+ * Light thrown on the floor this frame: a hit, a landing, a lane about to
+ * fire. One byte a cell; the floor steps up its ramp under it.
  */
 export class LightMap {
   readonly bytes = new Uint8Array(FLOOR_SIZE * FLOOR_SIZE);
-  private readonly base = new Uint8Array(FLOOR_SIZE * FLOOR_SIZE);
 
-  /** Bake the standing light: `ambient` everywhere (0–1), then a pool per lamp. */
-  bake(ambient: number, lamps: readonly (readonly [number, number])[], radius: number) {
-    this.base.fill(Math.round(ambient * 255));
-    this.bytes.set(this.base);
-
-    for (const [x, z] of lamps) {
-      this.pool(x, z, radius, 0.62);
-    }
-
-    this.base.set(this.bytes);
-  }
-
-  /** Start a frame from the standing light. */
+  /** Start a frame with the floor in plain daylight. */
   reset() {
-    this.bytes.set(this.base);
+    this.bytes.fill(0);
   }
 
   /** A round pool of light, brightest in the middle. */

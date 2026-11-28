@@ -1,5 +1,5 @@
-import { FLAG, tone } from "../splat/splat-set";
-import type { SplatSet } from "../splat/splat-set";
+import type { DabSet } from "../pixel/dab-set";
+import { tone } from "../pixel/palette";
 
 interface Spark {
   x: number;
@@ -32,7 +32,6 @@ export interface SparkOptions {
   hot?: number;
 }
 
-const FLAGS = FLAG.unlit + FLAG.round + FLAG.noShadow;
 const FLOOR = 0.3;
 
 export class Sparks {
@@ -45,7 +44,7 @@ export class Sparks {
         age: 1,
         gravity: 0,
         grow: 0.4,
-        hot: 4,
+        hot: 7,
         life: 1,
         ramp: 0,
         size: 0,
@@ -68,7 +67,7 @@ export class Sparks {
         age: 0,
         gravity: options.gravity ?? 0,
         grow: options.grow ?? 0.4,
-        hot: options.hot ?? 4,
+        hot: options.hot ?? 7,
       });
     }
   }
@@ -116,7 +115,7 @@ export class Sparks {
   puff(x: number, y: number, z: number, ramp: number, size: number) {
     this.emit({
       grow: 0.2,
-      hot: 4,
+      hot: 6,
       life: 0.22 + Math.random() * 0.12,
       ramp,
       size,
@@ -137,7 +136,7 @@ export class Sparks {
       this.emit({
         gravity: 7,
         grow: 1,
-        hot: 3,
+        hot: 5,
         life: 1.1 + Math.random() * 0.9,
         ramp: ramps[i % ramps.length] ?? 0,
         size: 0.22 + Math.random() * 0.12,
@@ -163,21 +162,17 @@ export class Sparks {
     }
   }
 
-  draw(out: SplatSet) {
+  draw(out: DabSet) {
     for (const spark of this.pool) {
       if (spark.age < spark.life) {
         const k = spark.age / spark.life;
-        const step = Math.max(0, spark.hot - Math.floor(k * 3));
+        const step = Math.max(1, spark.hot - Math.floor(k * 4));
         out.push(
           spark.x,
           spark.y,
           spark.z,
-          0,
-          1,
-          0,
           spark.size * (1 + (spark.grow - 1) * k),
           tone(spark.ramp, step),
-          FLAGS,
         );
       }
     }

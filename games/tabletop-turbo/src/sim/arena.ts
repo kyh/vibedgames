@@ -55,8 +55,6 @@ export interface ArenaDef {
   knockerPads: readonly (readonly [number, number])[];
   carPads: readonly (readonly [number, number])[];
   hazards: readonly HazardDef[];
-  /** Lamp posts: pools of light on the board. */
-  lamps: readonly (readonly [number, number])[];
 }
 
 export interface Arena {
@@ -190,12 +188,6 @@ export const ARENAS: readonly ArenaDef[] = [
     knockerPads: [
       [-9.5 * CL, 0],
       [9.5 * CL, 0],
-    ],
-    lamps: [
-      [-9.5 * CL, -4.6 * CL],
-      [9.5 * CL, 4.6 * CL],
-      [-2 * CL, 5 * CL],
-      [2 * CL, -5 * CL],
     ],
     name: "Pinball",
     room: "bedroom",

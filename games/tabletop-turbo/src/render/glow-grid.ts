@@ -1,4 +1,4 @@
-import { FLOOR_SIZE, FLOOR_SPAN } from "../splat/stage";
+import { FLOOR_SIZE, FLOOR_SPAN } from "../pixel/stage";
 
 const CELL = FLOOR_SPAN / FLOOR_SIZE;
 const HALF = FLOOR_SPAN / 2;

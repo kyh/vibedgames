@@ -1,6 +1,6 @@
 # Tabletop Turbo
 
-A car battle on a table top, in pixel-art splats. Eight cube cars, each with a spring-loaded bumper on its nose: fire it to punch whatever is in front of you, and knock the others off the board. The board fights too (a sweeper arm, pistons, pop bumpers, two holes), crates change your bumper or your car, and for the last stretch of a round both ends of the board drop away and every knock-off counts double. Free-for-all, 90 second rounds, respawns. Online through `@vibedgames/multiplayer` with bots filling the board. Deployed at `tabletop-turbo.vibedgames.com`.
+A car battle on a table top, in 16-bit pixel art. Eight cube cars, each with a spring-loaded bumper on its nose: fire it to punch whatever is in front of you, and knock the others off the board. The board fights too (a sweeper arm, pistons, pop bumpers, two holes), crates change your bumper or your car, and for the last stretch of a round both ends of the board drop away and every knock-off counts double. Free-for-all, 90 second rounds, respawns. Online through `@vibedgames/multiplayer` with bots filling the board. Deployed at `tabletop-turbo.vibedgames.com`.
 
 ## Develop
 
@@ -64,9 +64,9 @@ Auto-joins the shared `tabletop-turbo-v2` room (8 players, overflow into sibling
 
 ## Look
 
-Night on a table top: a card board lit by lamps and by the cars' own headlights, drawn as pixel-art splats. `art/LOOK.md` has the rules.
+A game board on a sunlit desk, drawn the way a 16-bit console would: crisp solids, dark ink outlines, eight-tone ramps, dithered shading and checker shadows. `art/LOOK.md` has the rules.
 
-There are no meshes or image files. Every solid is sampled into small opaque discs (`src/splat/builder.ts`), each carrying a palette ramp and a step on it. The stage (`src/splat/stage.ts`) draws them as hard-edged gaussian blobs into a G-buffer at twice the art resolution, from the lamp for shadows and from the camera for the picture; a resolve pass takes a 2x2 vote per art pixel, picks a light level from a light map painted each frame (lamps, headlights, flashes), inks a rim one step darker in the material's own colour, and writes palette tones to a canvas about 330 rows tall, which the browser scales up by a whole number. The technique follows the pixel-art gaussian splat write-up credited in `refs/SOURCES.md`; the code here is this repo's own.
+There are no model or image files. Every solid is built in code from boxes, wedges, cylinders and balls (`src/pixel/mesh-builder.ts`), each face carrying a palette ramp and a step on it, with stripes, windows and panel lines picked per face cell. The stage (`src/pixel/stage.ts`) renders them at art resolution (450 rows) into a G-buffer of ramp, step, part id, normal and depth, once from the sun for shadows and once from the camera. A resolve pass then inks an outline wherever the part or the depth changes, highlights lit creases, turns ground shadows into a checker, and looks every pixel up in the ramp table (`src/pixel/palette.ts`, grown from seed colours in OKLCH). The browser scales the result up by a whole number. The style follows the references credited in `refs/SOURCES.md`; the code is this repo's own.
 
 One camera: fixed, from the south, tipped 55 degrees. It never turns, and it slides in whole art pixels so nothing shimmers. On a narrow screen it follows your car; on a wide one it shows the whole board.
 
@@ -75,8 +75,8 @@ One camera: fixed, from the south, tipped 55 degrees. It never turns, and it sli
 ```
 src/sim/       the fight, no three.js: board, car, bumper, hazards, crates, field (hits, falls, credit), bots
 src/net/       room session, car wire format, playback of cars simulated elsewhere
-src/splat/     the renderer: palette, splat baker, shaders, stage
-src/render/    what is drawn: board, cars, hazards and crates, sparks, light map, glow, DOM HUD
+src/pixel/     the renderer: palette, mesh builder, shaders, stage
+src/render/    what is drawn: board and desk, cars, hazards and crates, sparks, flashes, glow, DOM HUD
 src/scenes/    game-scene.ts: rounds, host duties, hit relay, camera, effects, HUD wiring
 tools/         headless bot rounds and the tests
 art/           the look

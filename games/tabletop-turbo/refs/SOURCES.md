@@ -1,15 +1,15 @@
 # Sources
 
-The rendering technique (splats baked from solids, a palette-index G-buffer at twice the art
-resolution, a 2x2 vote, self-coloured ink, a camera snapped to the art grid) follows:
+The look (crisp low-resolution solids, dark ink outlines, eight-tone ramps, ordered dither, checker
+shadows, a warm daylight palette) took direction from:
 
-- alois-rive/rive_pixelart_gaussian_splat on GitHub: its `pixel-splat-scene` skill, in particular
-  `references/renderer.md`, `references/style.md` and `references/games.md`.
+- danielwh2/sprite-stacking on GitHub, and a short clip of a sprite-stacked scene in the same style.
 
-That repository has no licence file, so nothing from it is copied here: no code, shaders, palettes,
-models or images. The implementation in `src/splat/` is written for three.js from the description
-of the technique.
+They set the style only. Nothing from them is copied here: no code, sprites, palettes, models or
+images, and this game does not stack sprites. The renderer in `src/pixel/` draws real solids at art
+resolution into a palette-index G-buffer and inks, shades and dithers them in a resolve pass; it is
+this repo's own, written for three.js.
 
 The game itself took direction from gameplay footage and two screenshots of top-down car brawlers
-(bumper punches, knock-offs, a lamp-lit board at night). They set the genre and the mood only: the
-board, hazards, cars, items, names, HUD and sounds here are this repo's own.
+(bumper punches, knock-offs). They set the genre only: the board, hazards, cars, items, names, HUD
+and sounds here are this repo's own.
