@@ -8,6 +8,7 @@ const int NO_SHADOW = 4;
 const int PULSE = 8;
 const int NO_OUTLINE = 16;
 const int SOFT = 32;
+const int FLAT = 64;
 
 float bayer(vec2 at) {
   ivec2 p = ivec2(mod(at, 4.0));
@@ -149,8 +150,12 @@ void main() {
     // A face square to the sun gains a step; one turned away loses up to uSun.w.
     offset = facing > 0.55 ? (facing - 0.55) / 0.45 : -uSun.w * (0.55 - facing) / 1.1;
     float shade = facing > 0.0 ? shadowAt(vWorld, normal) : 0.0;
-    if (ground) {
-      inked = dither < shade * 0.56;
+    if (floor_) {
+      // The board: a clean checker.
+      inked = dither < shade * 0.5;
+    } else if (ground) {
+      // The desk: big shadows go down the ramp, with a dithered edge.
+      offset -= shade * 2.0;
     } else {
       offset -= shade * 1.6;
       // Walls darken towards the ground they stand on.
@@ -158,8 +163,9 @@ void main() {
     }
   }
 
-  if (ground) {
-    offset += (cloud(vWorld.xz * 0.07) + cloud(vWorld.xz * 0.19 + 7.3) - 1.0) * 0.9;
+  if (ground && (flags & FLAT) == 0) {
+    float wash = floor_ ? 0.6 : 0.9;
+    offset += (cloud(vWorld.xz * 0.07) + cloud(vWorld.xz * 0.19 + 7.3) - 1.0) * wash;
   }
   if (!floor_ && ground) {
     // The desk: a seam every so often and a tint a plank.
@@ -190,9 +196,11 @@ void main() {
     if (band < 0.3) { base += 1.0; }
   }
 
+  // Ground blends between tones with a dither band; everything else is flat clusters of tone.
   float low = floor(offset);
-  float t = clamp((offset - low - 0.5) / 0.4 + 0.5, 0.0, 1.0);
-  float step_ = clamp(base + low + (dither < t ? 1.0 : 0.0), 0.0, 7.0);
+  float t = clamp((offset - low - 0.5) / (floor_ ? 0.14 : 0.4) + 0.5, 0.0, 1.0);
+  float lift = ground ? low + (dither < t ? 1.0 : 0.0) : floor(offset + 0.5);
+  float step_ = clamp(base + lift, 0.0, 7.0);
   float id = mod(part + uObject.z, 250.0) + 1.0;
   float marks = (unlit ? 8.0 : 0.0) + (inked ? 4.0 : 0.0) + (ground ? 2.0 : 0.0)
     + ((flags & NO_OUTLINE) != 0 || uObject.w > 0.5 ? 1.0 : 0.0);
@@ -247,7 +255,9 @@ void main() {
   // A ball of two tones: a darker rim once it is big enough to carry one.
   float step_ = vData.z - (vRadius > 2.6 && d > 0.72 ? 1.0 : 0.0);
   outTone = vec4(vData.y / 255.0, max(step_, 0.0) / 255.0, 0.0, 1.0);
-  outSurface = vec4(0.5, 1.0, 0.5, 9.0 / 255.0);
+  // A rimmed disc big enough to carry a line is inked like any solid.
+  bool rimmed = (int(vData.w + 0.5) & SOFT) != 0 && vRadius > 2.6;
+  outSurface = vec4(0.5, 1.0, 0.5, (rimmed ? 8.0 : 9.0) / 255.0);
 }
 `;
 

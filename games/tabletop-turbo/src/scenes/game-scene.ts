@@ -16,7 +16,7 @@ import { LightMap } from "../render/light-map";
 import { Sparks } from "../render/fx";
 import { itemName } from "../render/hud";
 import type { Hud, HudRow } from "../render/hud";
-import { BEAM, ITEM_RAMP, Props, drawCrate } from "../render/props";
+import { ARROW, BEAM, ITEM_RAMP, Props, drawCrate } from "../render/props";
 import {
   BOOST_MIN,
   BOTS,
@@ -148,7 +148,7 @@ const CLASH_EVENT = "clash";
 const KO_EVENT = "ko";
 const PARTY = [RAMP.yellow, RAMP.pink, RAMP.cyan, RAMP.lime, RAMP.white] as const;
 const MIN_ZOOM = 9;
-const PITCH = (55 * Math.PI) / 180;
+const PITCH = (50 * Math.PI) / 180;
 const VIEW_DIR = new THREE.Vector3(0, Math.sin(PITCH), Math.cos(PITCH));
 const EYE_DISTANCE = 200;
 
@@ -1725,6 +1725,15 @@ export class GameScene {
 
   private drawMarker(racer: Racer, view: CarView) {
     const car = this.me;
+    const bob = Math.floor(this.clock * 4) % 2 === 0 ? 0 : 0.25;
+    this.stage.draw(ARROW, {
+      aloft: true,
+      ramp: racer.ramp,
+      x: racer.x,
+      y: (view.mod === "giant" ? 4.6 : 3.5) + bob,
+      yaw: 0,
+      z: racer.z,
+    });
     const ready = car ? punchReady(car) : 1;
     const lit = Math.round(ready * 16);
     const radius = 2.05 * (view.mod === "giant" ? 1.3 : 1);
@@ -1748,8 +1757,8 @@ export class GameScene {
     const { arena, me, stage, view } = this;
 
     const fit = Math.min(
-      stage.columns / (arena.halfX * 2 + 6),
-      stage.rows / ((arena.halfZ * 2 + 9) * Math.sin(PITCH)),
+      stage.columns / (arena.halfX * 2 + 3),
+      stage.rows / (arena.halfZ * 2 * Math.sin(PITCH) - TABLE_Y * Math.cos(PITCH) + 2.5),
     );
 
     const zoom = clamp(Math.floor(fit), MIN_ZOOM, PX_PER_UNIT);
@@ -1759,11 +1768,11 @@ export class GameScene {
     const spanZ = Math.max(0, arena.halfZ + 4 - deep / 2);
     const lead = me && this.started && me.mode !== "out" ? me : null;
     const fx = clamp(lead ? lead.x : view.target.x, -spanX, spanX);
-    const fz = clamp(lead ? lead.z : view.target.z - 1, -spanZ, spanZ);
+    const fz = clamp(lead ? lead.z : view.target.z, -spanZ, spanZ);
     const ease = Math.min(1, dt * 5);
     view.zoom = zoom;
     view.target.x += (fx - view.target.x) * ease;
-    view.target.z += (fz + 1 - view.target.z) * ease;
+    view.target.z += (fz - view.target.z) * ease;
     this.shake = Math.max(0, this.shake - dt * 4);
     const jolt = this.shake * this.shake * 0.5;
     view.eye

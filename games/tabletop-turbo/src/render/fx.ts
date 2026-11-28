@@ -15,6 +15,7 @@ interface Spark {
   gravity: number;
   grow: number;
   hot: number;
+  rim: boolean;
 }
 
 export interface SparkOptions {
@@ -30,6 +31,8 @@ export interface SparkOptions {
   gravity?: number;
   grow?: number;
   hot?: number;
+  /** Smoke and dust: drawn with an ink edge. */
+  rim?: boolean;
 }
 
 const FLOOR = 0.3;
@@ -47,6 +50,7 @@ export class Sparks {
         hot: 7,
         life: 1,
         ramp: 0,
+        rim: false,
         size: 0,
         vx: 0,
         vy: 0,
@@ -68,6 +72,7 @@ export class Sparks {
         gravity: options.gravity ?? 0,
         grow: options.grow ?? 0.4,
         hot: options.hot ?? 7,
+        rim: options.rim ?? false,
       });
     }
   }
@@ -97,10 +102,10 @@ export class Sparks {
     for (let i = 0; i < count; i += 1) {
       const a = (i / count) * Math.PI * 2;
       this.emit({
-        grow: 1.6,
+        grow: 1,
         life: 0.42,
         ramp,
-        size: 0.26,
+        size: 0.2,
         vx: Math.cos(a) * speed,
         vy: 0,
         vz: Math.sin(a) * speed,
@@ -118,6 +123,7 @@ export class Sparks {
       hot: 6,
       life: 0.22 + Math.random() * 0.12,
       ramp,
+      rim: true,
       size,
       vx: (Math.random() - 0.5) * 1.5,
       vy: 1.2 + Math.random(),
@@ -173,6 +179,8 @@ export class Sparks {
           spark.z,
           spark.size * (1 + (spark.grow - 1) * k),
           tone(spark.ramp, step),
+          false,
+          spark.rim,
         );
       }
     }

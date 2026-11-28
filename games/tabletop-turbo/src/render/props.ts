@@ -89,6 +89,13 @@ export const BEAM = bake((b) => {
   });
 });
 
+/** The arrow that hangs over your own car: a plate that faces the camera. */
+export const ARROW = bake((b) => {
+  const cream = { flags: FLAG.unlit + FLAG.noShadow, tone: tone(RAMP.cream, 7) };
+  b.part();
+  b.patch([-0.7, 1.5, 0], [0.7, 1.5, 0], [0, 0, 0], [0, 0, 0], [0, 0, 1], cream);
+});
+
 /** The ramp each item wears: its crate, its beam, its name on the HUD. */
 export const ITEM_RAMP = {
   giant: RAMP.green,
@@ -175,7 +182,7 @@ const drawPiston = (
     const blink = Math.floor(clock * (6 + state.warn * 10)) % 2 === 0;
 
     for (let along = 2.6; along < hazard.reach + 1.2; along += 1.3) {
-      lights.pool(hazard.x + fx * along, hazard.z + fz * along, 2.2, 0.2 + state.warn * 0.45);
+      lights.pool(hazard.x + fx * along, hazard.z + fz * along, 2.2, 0.1 + state.warn * 0.2);
 
       if (blink) {
         for (const side of [-1.9, 1.9]) {

@@ -3,14 +3,14 @@ import type * as THREE from "three";
 import { MeshBuilder, FLAG, TEXTURED } from "../pixel/mesh-builder";
 import { BASE, RAMP, tone } from "../pixel/palette";
 import type { BoardMap, PixelStage } from "../pixel/stage";
-import { CL, edgeDistance } from "../sim/arena";
+import { CL, edgeDistance, holeDistance } from "../sim/arena";
 import type { Arena, HazardDef } from "../sim/arena";
 
 const TEXELS = 16;
 const MARGIN = 0.5;
 
 /** The desk the board stands on: how far a car falls before it is gone. */
-export const TABLE_Y = -6;
+export const TABLE_Y = -4.5;
 const BORDER = 0.95;
 const CELL = 0.2;
 
@@ -105,9 +105,9 @@ const BANDS = [
   { from: 0, step: BASE + 2, to: 0.28 },
   { from: 0.28, step: BASE, to: 1.6 },
   { from: 1.6, step: BASE - 2, to: 1.74 },
-  { from: 1.74, step: BASE - 1, to: 3.6 },
-  { from: 3.6, step: BASE - 3, to: 3.74 },
-  { from: 3.74, step: BASE - 2, to: -TABLE_Y },
+  { from: 1.74, step: BASE - 1, to: 3.3 },
+  { from: 3.3, step: BASE - 3, to: 3.44 },
+  { from: 3.44, step: BASE - 2, to: -TABLE_Y },
 ] as const;
 
 const wall = (b: MeshBuilder, field: Field, halfX: number, halfZ: number) => {
@@ -147,8 +147,7 @@ const die = (b: MeshBuilder, x: number, z: number, yaw: number, pips: number) =>
 
 const cone = (b: MeshBuilder, x: number, z: number) => {
   b.at(x, TABLE_Y, z).part();
-  b.box(0, 0.08, 0, 1.5, 0.16, 1.5, { tone: tone(RAMP.iron, BASE) });
-  b.part();
+  b.box(0, 0.08, 0, 1.5, 0.16, 1.5, { tone: tone(RAMP.orange, BASE - 1) });
   b.cone(0, 0.5, 0, 0.58, 0.4, 0.7, { tone: tone(RAMP.orange, BASE) });
   b.cone(0, 1.05, 0, 0.4, 0.28, 0.4, { tone: tone(RAMP.cream, BASE + 2) });
   b.cone(0, 1.55, 0, 0.28, 0.12, 0.6, { tone: tone(RAMP.orange, BASE) });
@@ -234,6 +233,7 @@ export class Board {
       halfX,
       halfZ,
     );
+    this.floorPits(sides);
     this.endsSides = sides.build();
     this.solids = [core.build(), this.room()];
   }
@@ -297,7 +297,7 @@ export class Board {
 
     const fleck = hash(Math.floor(x * 5), Math.floor(z * 5));
 
-    return tone(ramp, BASE + (dropping ? 0 : 1) - (fleck > 0.985 ? 1 : 0));
+    return tone(ramp, BASE + (dropping ? 0 : 1) - (fleck > 0.996 ? 1 : 0));
   }
 
   private texelAt(x: number, z: number, d: number) {
@@ -308,11 +308,15 @@ export class Board {
     }
 
     if (d < BORDER) {
+      if (holeDistance(this.arena, x, z) > d + 0.01) {
+        return tone(RAMP.iron, d < BORDER - 0.2 ? BASE + 1 : BASE - 1);
+      }
+
       return wrap(x + z, 1.5) < 0.75 ? tone(RAMP.hazard, BASE) : tone(RAMP.iron, BASE);
     }
 
     if (d < BORDER + 0.1) {
-      return tone(RAMP.iron, BASE + 1);
+      return tone(RAMP.iron, BASE - 1);
     }
 
     if (late > 0 && late < 0.36) {
@@ -339,15 +343,33 @@ export class Board {
         if (d > 0) {
           const picked = this.texelAt(x, z, d);
           const o = (j * width + i) * 4;
-          bytes[o] = Math.floor(picked / 8);
+          const ramp = Math.floor(picked / 8);
+          const plain = ramp === RAMP.tile || ramp === RAMP.stone;
+          bytes[o] = ramp;
           bytes[o + 1] = picked % 8;
-          bytes[o + 2] = FLAG.floor;
+          bytes[o + 2] = plain ? FLAG.floor : FLAG.floor + FLAG.flat;
           bytes[o + 3] = edgeDistance(arena, x, z, true) > 0 ? CORE : END;
         }
       }
     }
 
     return { bytes, height, scale: TEXELS, width, x: x0, z: z0 } satisfies BoardMap;
+  }
+
+  private floorPits(b: MeshBuilder) {
+    b.part();
+
+    for (const hole of this.arena.def.holes) {
+      const hx = hole.kind === "box" ? hole.hx : hole.r;
+      const hz = hole.kind === "box" ? hole.hz : hole.r;
+      b.quad(
+        [hole.x - hx, TABLE_Y + 0.04, hole.z - hz],
+        [0, 0, hz * 2],
+        [hx * 2, 0, 0],
+        [0, 1, 0],
+        { flags: FLAG.unlit + FLAG.noOutline, tone: tone(RAMP.iron, 0) },
+      );
+    }
   }
 
   private housePistons(b: MeshBuilder) {

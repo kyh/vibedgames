@@ -2,7 +2,7 @@ import type * as THREE from "three";
 
 import { FLAG, MeshBuilder } from "../pixel/mesh-builder";
 import type { Coat } from "../pixel/mesh-builder";
-import { BASE, RAMP, TEAM_RAMP, tone } from "../pixel/palette";
+import { BASE, CAR_RAMPS, RAMP, TEAM_RAMP, tone } from "../pixel/palette";
 import type { PixelStage, Placement } from "../pixel/stage";
 
 /** Which bumper a car carries on its nose. */
@@ -41,55 +41,66 @@ const team = (step: number) => tone(TEAM_RAMP, step);
 const GLASS = tone(RAMP.glass, BASE - 1);
 const GLINT = tone(RAMP.glass, BASE + 3);
 
-const shell: Coat = {
-  at: (x, y, z) => {
-    if (y > 1.1) {
-      return Math.abs(z) < 0.2 ? tone(RAMP.cream, BASE + 1) : -1;
-    }
+const LIVERIES = [
+  (_x: number, z: number) => Math.abs(z) < 0.2,
+  (_x: number, z: number) => Math.abs(z) > 0.24 && Math.abs(z) < 0.46,
+  (x: number, _z: number) => Math.abs(x + 0.24) < 0.2 || (x > 0.62 && x < 0.86),
+  (x: number, z: number) => Math.abs(z) < 0.42 && Math.abs(x + 0.24) < 0.42,
+] as const;
 
-    if (x > 1.15 && Math.abs(z) < 0.42 && y > 0.62 && y < 0.92) {
-      return tone(RAMP.black, wrap(z, 0.2) < 0.1 ? BASE - 1 : BASE - 2);
-    }
+type Livery = (typeof LIVERIES)[number];
 
-    if (y < 0.66) {
-      return team(BASE - 1);
-    }
+const CREAM = tone(RAMP.cream, BASE + 1);
 
-    return Math.abs(y - 0.88) < 0.05 && Math.abs(x) < 1.1 && Math.abs(z) > 0.7
-      ? tone(RAMP.cream, BASE + 1)
-      : -1;
-  },
-  tone: team(BASE),
-};
+const shellOf = (livery: Livery) =>
+  ({
+    at: (x, y, z) => {
+      if (y > 1.1) {
+        return livery(x, z) ? CREAM : -1;
+      }
 
-const cabin: Coat = {
-  at: (x, y, z) => {
-    if (y > 1.7) {
-      return Math.abs(z) < 0.2 ? tone(RAMP.cream, BASE + 1) : -1;
-    }
+      if (x > 1.15 && Math.abs(z) < 0.42 && y > 0.62 && y < 0.92) {
+        return tone(RAMP.black, wrap(z, 0.2) < 0.1 ? BASE - 1 : BASE - 2);
+      }
 
-    if (y < 1.24 || y > 1.64) {
-      return -1;
-    }
+      if (y < 0.66) {
+        return team(BASE - 1);
+      }
 
-    const side = Math.abs(z) > 0.6 && x > -0.82 && x < 0.34 && Math.abs(x + 0.24) > 0.07;
-    const end = Math.abs(z) < 0.52 && (x > 0.3 || x < -0.76);
+      return Math.abs(y - 0.88) < 0.05 && Math.abs(x) < 1.1 && Math.abs(z) > 0.7 ? CREAM : -1;
+    },
+    tone: team(BASE),
+  }) satisfies Coat;
 
-    if (!side && !end) {
-      return -1;
-    }
+const cabinOf = (livery: Livery) =>
+  ({
+    at: (x, y, z) => {
+      if (y > 1.7) {
+        return livery(x, z) ? CREAM : -1;
+      }
 
-    return wrap(x + y * 0.9 + Math.abs(z) * 0.4, 1.3) < 0.2 ? GLINT : GLASS;
-  },
-  tone: team(BASE + 1),
-};
+      if (y < 1.24 || y > 1.64) {
+        return -1;
+      }
+
+      const side = Math.abs(z) > 0.6 && x > -0.82 && x < 0.34 && Math.abs(x + 0.24) > 0.07;
+      const end = Math.abs(z) < 0.52 && (x > 0.3 || x < -0.76);
+
+      if (!side && !end) {
+        return -1;
+      }
+
+      return wrap(x + y * 0.9 + Math.abs(z) * 0.4, 1.3) < 0.2 ? GLINT : GLASS;
+    },
+    tone: team(BASE + 1),
+  }) satisfies Coat;
 
 const TYRE: Coat = { tone: tone(RAMP.black, BASE - 1) };
 const HUB: Coat = { tone: tone(RAMP.steel, BASE + 1) };
 const LAMP: Coat = { flags: FLAG.unlit, tone: tone(RAMP.cream, 7) };
 const TAIL: Coat = { flags: FLAG.unlit, tone: tone(RAMP.red, BASE + 2) };
 
-const cube = (b: MeshBuilder) => {
+const cube = (livery: Livery) => (b: MeshBuilder) => {
   for (const [x, side] of [
     [0.76, 1],
     [0.76, -1],
@@ -104,9 +115,9 @@ const cube = (b: MeshBuilder) => {
   b.part();
   b.box(0, 0.4, 0, 2.2, 0.3, 1.36, { flags: FLAG.noShadow, tone: tone(RAMP.black, BASE - 2) });
   b.part();
-  b.taper(0, 0.8, 0, 2.4, 0.62, 1.66, 0.07, 0.07, shell);
+  b.taper(0, 0.8, 0, 2.4, 0.62, 1.66, 0.07, 0.07, shellOf(livery));
   b.part();
-  b.taper(-0.24, 1.42, 0, 1.52, 0.62, 1.48, 0.2, 0.13, cabin);
+  b.taper(-0.24, 1.42, 0, 1.52, 0.62, 1.48, 0.2, 0.13, cabinOf(livery));
   b.part();
   b.box(1.19, 0.92, 0.56, 0.1, 0.2, 0.34, LAMP);
   b.box(1.19, 0.92, -0.56, 0.1, 0.2, 0.34, LAMP);
@@ -153,7 +164,7 @@ const bake = (build: (b: MeshBuilder) => void) => {
   return builder.build();
 };
 
-const BODY = bake(cube);
+const BODIES = LIVERIES.map((livery) => bake(cube(livery)));
 const COIL_LINK = bake(coil);
 
 const BUMPERS: Record<BumperLook, { armed: THREE.BufferGeometry; spent: THREE.BufferGeometry }> = {
@@ -173,7 +184,8 @@ const BUMPERS: Record<BumperLook, { armed: THREE.BufferGeometry; spent: THREE.Bu
 
 const BLOB = tone(RAMP.iron, 1);
 const YAW_STEPS = 64;
-const DRAWN = 1.12;
+const DRAWN = 1.22;
+const TALL = 1.2;
 
 const snapYaw = (yaw: number) =>
   (Math.round((yaw / (Math.PI * 2)) * YAW_STEPS) / YAW_STEPS) * Math.PI * 2;
@@ -181,12 +193,15 @@ const snapYaw = (yaw: number) =>
 export class CarMesh {
   visible = true;
   private readonly ramp: number;
+  private readonly body: THREE.BufferGeometry | undefined;
   private look: CarLook | null = null;
   private lean = 0;
   private squash = 0;
+  private age = 0;
 
   constructor(ramp: number) {
     this.ramp = ramp;
+    this.body = BODIES[Math.max(0, CAR_RAMPS.indexOf(ramp)) % BODIES.length];
   }
 
   /** A hit or a landing: squash down and spring back. */
@@ -196,14 +211,15 @@ export class CarMesh {
 
   update(look: CarLook, dt: number) {
     this.look = look;
+    this.age += dt;
     this.lean += (look.steer * 0.1 - this.lean) * Math.min(1, dt * 10);
     this.squash = Math.max(0, this.squash - dt * 5);
   }
 
   draw(stage: PixelStage) {
-    const { look } = this;
+    const { body, look } = this;
 
-    if (!look || !this.visible) {
+    if (!look || !body || !this.visible) {
       return;
     }
 
@@ -231,21 +247,21 @@ export class CarMesh {
     const white = look.flash > 0 && Math.floor(look.flash * 30) % 2 === 0;
 
     const place: Placement = {
-      aloft: look.y > 1.8,
+      aloft: look.y > 1.8 || look.ghost,
       mono: white,
       pitch: look.pitch + (look.boosting ? 0.06 : 0),
       ramp: white ? RAMP.white : this.ramp,
       roll: look.roll + this.lean,
       scale: size,
-      sheer: look.ghost,
-      squash: 1 - Math.sin(this.squash * Math.PI) * 0.22,
+      sheer: look.ghost && Math.floor(this.age * 10) % 2 === 0,
+      squash: TALL * (1 - Math.sin(this.squash * Math.PI) * 0.22),
       x: look.x,
       y: look.y + 0.05,
       yaw,
       z: look.z,
     };
 
-    stage.draw(BODY, place);
+    stage.draw(body, place);
     const set = BUMPERS[look.bumperLook];
     const reach = (1.36 + look.bumper) * size;
 

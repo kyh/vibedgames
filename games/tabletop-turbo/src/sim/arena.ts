@@ -95,6 +95,17 @@ export const edgeDistance = (arena: Arena, x: number, z: number, late = false) =
   return d;
 };
 
+/** Distance from (x, z) to the nearest hole's edge: positive outside every hole. */
+export const holeDistance = (arena: Arena, x: number, z: number) => {
+  let d = Number.POSITIVE_INFINITY;
+
+  for (const hole of arena.def.holes) {
+    d = Math.min(d, -inside(hole, x, z));
+  }
+
+  return d;
+};
+
 export const onBoard = (arena: Arena, x: number, z: number, late = false) =>
   edgeDistance(arena, x, z, late) > 0;
 

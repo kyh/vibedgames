@@ -63,7 +63,7 @@ export const PX_PER_UNIT = 16;
 
 const SUN_REACH = 46;
 const SUN_FAR = 400;
-const ROWS = 450;
+const ROWS = 360;
 const LAYER_DABS = 1;
 const LAYER_ALOFT = 2;
 

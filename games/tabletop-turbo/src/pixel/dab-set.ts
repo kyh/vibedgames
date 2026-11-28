@@ -17,8 +17,11 @@ export class DabSet {
     this.count = 0;
   }
 
-  /** One disc at (x, y, z), `size` world units across its middle. `flat` lays it on the floor. */
-  push(x: number, y: number, z: number, size: number, tone: number, flat = false) {
+  /**
+   * One disc at (x, y, z), `size` world units across its middle. `flat` lays it
+   * on the floor; `rim` inks its edge once it is big enough to carry a line.
+   */
+  push(x: number, y: number, z: number, size: number, tone: number, flat = false, rim = false) {
     if (this.count >= this.capacity) {
       return;
     }
@@ -30,7 +33,7 @@ export class DabSet {
     this.data[i * 4] = Math.min(255, Math.round(size * 100));
     this.data[i * 4 + 1] = Math.floor(tone / 8);
     this.data[i * 4 + 2] = tone % 8;
-    this.data[i * 4 + 3] = flat ? 2 : 0;
+    this.data[i * 4 + 3] = (flat ? 2 : 0) + (rim ? 32 : 0);
     this.count += 1;
   }
 }

@@ -11,7 +11,7 @@ const COLUMNS = STEPS + 2;
 
 const SEEDS = [
   ["sand", "#d8bd92"],
-  ["tile", "#d6d0c4"],
+  ["tile", "#ddd2bf"],
   ["stone", "#b3a48c"],
   ["wood", "#a9764c"],
   ["cream", "#ecdcb4"],
@@ -21,16 +21,16 @@ const SEEDS = [
   ["white", "#dcdde4"],
   ["black", "#3f3d4c"],
   ["glass", "#44597a"],
-  ["red", "#cf4339"],
-  ["orange", "#e57c2e"],
-  ["yellow", "#e8be3c"],
+  ["red", "#c63a44"],
+  ["orange", "#e08a3a"],
+  ["yellow", "#ecd64a"],
   ["lime", "#93bd3f"],
   ["green", "#4fa858"],
   ["cyan", "#2faea6"],
   ["blue", "#4a88d8"],
   ["purple", "#8a58cc"],
-  ["pink", "#dc5a9c"],
-  ["chalk", "#c3c8d6"],
+  ["pink", "#d9679c"],
+  ["chalk", "#a9b8d0"],
 ] as const;
 
 export type RampName = (typeof SEEDS)[number][0];
@@ -144,7 +144,7 @@ const grow = (seed: Lch, step: number) => {
   const reach = off < 0 ? Math.min(0.085, room / BASE) : Math.min(0.07, room / (STEPS - 1 - BASE));
 
   return {
-    c: seed.c * (1 + down * 0.05 - up * 0.2) * (step === 0 ? 0.85 : 1),
+    c: seed.c * (1 - down * 0.06 - up * 0.2),
     h: towards(seed.h, off < 0 ? COOL : WARM, off < 0 ? down * 0.07 : up * 0.1),
     l: seed.l + off * reach,
   } satisfies Lch;
@@ -161,9 +161,9 @@ const inkOf = (seed: Lch) =>
 
 const shadeOf = (seed: Lch) =>
   ({
-    c: Math.min(0.05, seed.c * 0.6),
+    c: Math.min(0.04, seed.c * 0.5),
     h: towards(seed.h, COOL, 0.7),
-    l: Math.max(0.3, seed.l * 0.5),
+    l: Math.min(0.34, Math.max(0.26, seed.l * 0.38)),
   }) satisfies Lch;
 
 const TABLE = SEEDS.map(([, hex]) => {

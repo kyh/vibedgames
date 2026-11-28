@@ -10,6 +10,7 @@ export interface Coat {
 }
 
 export const FLAG = {
+  flat: 64,
   floor: 2,
   noOutline: 16,
   noShadow: 4,
