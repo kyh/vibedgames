@@ -11,3 +11,9 @@ declare namespace Cloudflare {
     STRIPE_API_BASE_URL?: string;
   }
 }
+
+declare module "virtual:mcp-apps" {
+  import type { McpApps } from "@/lib/mcp-gallery";
+
+  export const mcpApps: McpApps;
+}

@@ -539,6 +539,36 @@ loader.load("model.gltf", (gltf) => {
 });
 ```
 
+### ❌ Clips from another rig (character face-down or spinning)
+
+**Problem**: A clip from a different file (a Mixamo FBX, another GLB) plays on your character and it lies face-down, spins, or twists through crossfades.
+
+**Cause**: the rigs disagree about the root's bind rotation. A rig exported from Blender (Z-up) usually carries a +90° X rotation on the armature that the `Hips` bone's bind quaternion cancels (about `[-0.707, 0, 0, 0.707]`), while a Y-up clip's `Hips.quaternion` track assumes an identity bind. Copied raw, every key is off by that rotation.
+
+**Solution**: premultiply the clip's `Hips` rotation keys by the target's bind rotation once, at load:
+
+```javascript
+const bind = targetHips.quaternion.clone(); // read before any clip plays
+const key = new THREE.Quaternion();
+for (const track of clip.tracks) {
+  if (!track.name.endsWith("Hips.quaternion")) continue;
+  const v = track.values;
+  for (let i = 0; i < v.length; i += 4) {
+    key.fromArray(v, i).premultiply(bind).toArray(v, i);
+  }
+}
+```
+
+Bone names must match too (strip `mixamorig:` prefixes); anything beyond the root is a real retarget, checked joint by joint (`action-3d` → `references/characters.md`). Clips made for this model by `vg generate animate-3d` share its rig and need none of this.
+
+### ❌ One submesh renders pitch black
+
+**Problem**: A cloak, skirt or other detached part is black under lit materials while the rest of the model is fine.
+
+**Cause**: the export carried a `COLOR_0` attribute that was really a weight or pin mask, mostly black, and the loader turned on `vertexColors` for it.
+
+**Solution**: on load, for meshes whose `geometry.attributes.color` is not real paint, set `material.vertexColors = false; material.needsUpdate = true;`.
+
 ### ❌ Slow Loading - Large Models Block Scene
 
 **Problem**: Page freezes while loading

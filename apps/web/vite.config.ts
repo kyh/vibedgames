@@ -5,6 +5,7 @@ import viteReact from "@vitejs/plugin-react";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 
+import { mcpApps } from "./mcp-apps/vite-plugin";
 import { meshoptWasm } from "./vite/meshopt-wasm";
 
 export default defineConfig({
@@ -17,6 +18,7 @@ export default defineConfig({
     tanstackStart(),
     viteReact(),
     tailwindcss(),
+    mcpApps(),
   ],
   resolve: {
     alias: [

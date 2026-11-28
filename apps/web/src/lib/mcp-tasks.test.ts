@@ -160,7 +160,7 @@ const rpc = async (
     method: "POST",
   });
 
-  const response = await handleMcpRequest(request, contextFor(userId), []);
+  const response = await handleMcpRequest(request, contextFor(userId), [], { gallery: "" });
   const text = await response.text();
 
   if (response.status === 401) {

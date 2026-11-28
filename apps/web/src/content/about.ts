@@ -35,7 +35,7 @@ export const aboutDoc: Doc = {
       blocks: [
         {
           kind: "p",
-          text: "The web app is a TanStack Start (React 19, Vite SSR) application running on Cloudflare Workers, with oRPC and Drizzle over a Cloudflare D1 database, better-auth for identity, PartyServer on Durable Objects for multiplayer, and R2 for deployed game bundles. Deployed games are treated as untrusted code: they run on their own subdomain, and session cookies are scoped to the apex domain so a game can never read them.",
+          text: "The web app is a TanStack Start (React 19, Vite SSR) application running on Cloudflare Workers, with oRPC and Drizzle over a Cloudflare D1 database, better-auth for identity, PartyServer on Durable Objects for multiplayer, and R2 for deployed game bundles. Deployed games are treated as untrusted code: they run on their own subdomain, and session cookies are host-only on the web app's own host so a game can never read them.",
         },
         {
           kind: "p",

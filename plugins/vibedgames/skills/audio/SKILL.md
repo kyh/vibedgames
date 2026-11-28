@@ -86,7 +86,10 @@ source → voice gain → bus (music | ambience | sfx | weapons | voice | ui)
   under the next shot; they are not cut by it.
 - **Sound follows the animation.** A sound tied to a visible action lands on
   the frame of contact. Keep each action's beat times in one data table that
-  both animation and audio read.
+  both animation and audio read. Multi-beat effects (charge, launch, impact,
+  tail) fire their cues from the effect's own clock, never `setTimeout`, and
+  fire nothing on a pause, reset or scrub (`crossedCues` in
+  `threejs/modules/vfx.ts`; `vfx` → `references/threejs.md` §10).
 
 ## Files
 

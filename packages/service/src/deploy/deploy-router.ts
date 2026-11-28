@@ -3,6 +3,7 @@ import { deployment, deploymentFile, game } from "@repo/db/drizzle-schema";
 import type { PresignedFile } from "@repo/contract/deploy/deploy-schema";
 import { runInOrder } from "@repo/contract/run-in-order";
 import { contentTypeForPath } from "@repo/contract/deploy/content-types";
+import { gameOrigin } from "@repo/contract/deploy/game-origin";
 import type { Db } from "@repo/db/drizzle-client";
 import {
   fileSchema,
@@ -83,8 +84,8 @@ const validateManifest = (files: z.infer<typeof fileSchema>[]) => {
 
 const INSERT_BATCH_SIZE = 10;
 
-const productionHost = (productionURL: string | undefined) =>
-  new URL(productionURL ?? "https://vibedgames.com");
+const publicGameUrl = (productionURL: string | undefined, slug: string) =>
+  gameOrigin(productionURL ?? "https://www.vibedgames.com", slug);
 
 const claimGame = async (
   db: Db,
@@ -626,12 +627,7 @@ export const deployRouter = {
 
     await context.db.update(game).set({ currentDeploymentId: dep.id }).where(eq(game.id, g.id));
 
-    const base = new URL(context.productionURL ?? "https://vibedgames.com");
-
-    return {
-      slug: g.slug,
-      url: `${base.protocol}//${g.slug}.${base.host}`,
-    };
+    return { slug: g.slug, url: publicGameUrl(context.productionURL, g.slug) };
   }),
 
   /**
@@ -802,8 +798,7 @@ export const deployRouter = {
     }
 
     await publishDeployment(context.db, r2, { deploymentId, gameId, source: input.source });
-    const base = productionHost(context.productionURL);
 
-    return { ...summary, published: true, url: `${base.protocol}//${input.slug}.${base.host}` };
+    return { ...summary, published: true, url: publicGameUrl(context.productionURL, input.slug) };
   }),
 };

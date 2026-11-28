@@ -39,7 +39,7 @@ const previewEnv = {
   ...secrets,
   DB: bindings.d1({ name: "vibedgames-preview" }),
   GAMES_BUCKET: bindings.r2({ name: "vibedgames-games-preview" }),
-  OAUTH_PROXY_URL: bindings.text("https://vibedgames.com"),
+  OAUTH_PROXY_URL: bindings.text("https://www.vibedgames.com"),
   PRODUCTION_URL: bindings.text(""),
 };
 
@@ -47,8 +47,8 @@ const productionEnv = {
   ...secrets,
   DB: bindings.d1({ id: "8aba7674-bee1-4532-b5f0-36243172cf81", name: "vibedgames" }),
   GAMES_BUCKET: bindings.r2({ name: "vibedgames-games" }),
-  OAUTH_PROXY_URL: bindings.text("https://vibedgames.com"),
-  PRODUCTION_URL: bindings.text("https://vibedgames.com"),
+  OAUTH_PROXY_URL: bindings.text("https://www.vibedgames.com"),
+  PRODUCTION_URL: bindings.text("https://www.vibedgames.com"),
 };
 
 export default defineConfig(({ isPreview, mode }) => {

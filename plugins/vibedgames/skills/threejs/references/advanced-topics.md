@@ -51,15 +51,17 @@ import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 
 renderer.toneMapping = THREE.ACESFilmicToneMapping; // OutputPass applies this
 
+// The default target is already HalfFloatType (HDR survives to bloom). Pass your own
+// only to add MSAA: new EffectComposer(renderer, new THREE.WebGLRenderTarget(w, h, { type: THREE.HalfFloatType, samples: 4 }))
 const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
 
 // UnrealBloomPass(resolution, strength, radius, threshold)
 const bloom = new UnrealBloomPass(
   new THREE.Vector2(window.innerWidth, window.innerHeight),
-  0.45, // strength: 0.35–0.6
-  0.3, // radius: 0.2–0.4
-  0.85, // threshold: only pixels brighter than this bloom
+  0.35, // strength: 0.25–0.5
+  0.28, // radius: 0.2–0.35, tight so graphic edges stay crisp
+  1.0, // threshold: linear HDR, so only emissive > 1 blooms, never a lit wall
 );
 composer.addPass(bloom);
 composer.addPass(new OutputPass()); // ALWAYS last: tone mapping + sRGB
@@ -70,9 +72,9 @@ renderer.setAnimationLoop(() => {
 // resize: composer.setSize(w, h) alongside renderer.setSize(w, h)
 ```
 
-**Bloom discipline:** threshold `0.85` keeps mid-bright materials out, so only authored emissives (`emissiveIntensity > 1`) bloom. Bloom sells a glow you designed; it must never be the main source of detail — if a shape only reads because it glows, the geometry is missing.
+**Bloom discipline:** bloom runs on the linear HDR buffer before `OutputPass`, so a threshold of `1.0` or a little above keeps every lit surface out and lets only authored emissives (`emissiveIntensity > 1`) and effect cores bloom; below ~0.9 a sunlit white wall starts to glow. Bloom sells a glow you designed; it must never be the main source of detail — if a shape only reads because it glows, the geometry is missing.
 
-Two more gates. The composer's HalfFloat targets clip at 65,504: a `Sky` sun disc is ~322,000 linear, which lands as +Inf, and bloom smears a half-degree disc over a third of the frame — bound the disc radiance at the source (or draw the sun as a bounded quad) before touching `threshold`. For particle FX, steady-state emitter gain must sit **under** the day threshold; only one-frame moments (ignition, promotion) cross it. Gain must be a per-emit attribute, not a material uniform — a held drift or trail piles seconds of additive emission into a few m², and a shared gain fuses the pile into one fireball. Grep for a legacy emitter before tuning the new one, and A/B by hiding meshes bucketed by `material.blending` one bucket at a time with a screenshot each.
+Custom shaders feeding bloom must be NaN-safe: one NaN or Inf fragment spreads through the blur into a black (or white) screen, often at one camera angle only — guard `pow`, `normalize` and divides (`vfx` skill → `references/threejs.md` §6). Two more gates. The composer's HalfFloat targets clip at 65,504: a `Sky` sun disc is ~322,000 linear, which lands as +Inf, and bloom smears a half-degree disc over a third of the frame — bound the disc radiance at the source (or draw the sun as a bounded quad) before touching `threshold`. For particle FX, steady-state emitter gain must sit **under** the day threshold; only one-frame moments (ignition, promotion) cross it. Gain must be a per-emit attribute, not a material uniform — a held drift or trail piles seconds of additive emission into a few m², and a shared gain fuses the pile into one fireball. Grep for a legacy emitter before tuning the new one, and A/B by hiding meshes bucketed by `material.blending` one bucket at a time with a screenshot each.
 
 **Vignette** — a compact ShaderPass, added before `OutputPass`:
 

@@ -24,7 +24,9 @@ Work top-down; each is more common than the one below it.
 6. **Render loop never runs / renders once before assets load** — confirm `renderer.setAnimationLoop` is set; GLTF loads async, so a one-shot `render()` fires before the model arrives.
 7. **Color space / tone mapping crushing everything to black** — extreme exposure or an HDR environment with `toneMappingExposure: 0`. Reset `renderer.toneMappingExposure = 1`.
 8. **NaN environment map** — every lit `MeshStandardMaterial` pure black while unlit/additive/`MeshBasicMaterial` things draw fine (GLES/SwiftShader/Android): a PMREM-baked sky whose sun disc exceeded HalfFloat (65,504) poisoned `scene.environment`. Set `scene.environment = null` first to confirm; fix in `advanced-topics.md` § Environment Maps.
-9. **WebGL context failed** — check the console for `WebGL context lost` / creation failure (headless without GPU, too-large textures). `renderer.getContext()` is null on failure.
+9. **Black only with bloom on, or only at one angle** — a custom shader wrote NaN/Inf and bloom's blur spread it across the frame. Set `bloomPass.enabled = false` to confirm, then guard every `pow`/`normalize`/divide in the shaders on screen (`vfx` skill → `references/threejs.md` §6).
+10. **Black frame + `GL_INVALID_OPERATION: Feedback loop`** — a material sampling a depth or colour texture stayed visible while that texture was the render target (a soft-particle depth prepass is the usual one). Hide the sampling meshes for that pass (`createDepthPrepass` in `modules/vfx.ts` does).
+11. **WebGL context failed** — check the console for `WebGL context lost` / creation failure (headless without GPU, too-large textures). `renderer.getContext()` is null on failure.
 
 ---
 
@@ -241,13 +243,16 @@ console.log({
 
 ## Quick reference: what to check first
 
-| Problem                                            | First thing to check                                                                          |
-| -------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| Black screen                                       | scene.add → light → camera position (`check-canvas.ts` to confirm objectively)                |
-| Low FPS                                            | `renderer.info.render.calls`, then DPR cap                                                    |
-| FPS drops over time                                | allocation in the loop, then undisposed resources                                             |
-| Bad on mobile only                                 | DPR cap, then resize handling                                                                 |
-| Stretched after rotate                             | resize handler updating aspect + setSize                                                      |
-| Clipping through walls / falling through platforms | collider-vs-mesh match, then CCD / kinematic body updates                                     |
-| Surfaces flash/flicker as the camera moves         | z-fighting — coplanar meshes or `near` too small; fixes in `graphics-recipes.md` § Z-Fighting |
-| Lit materials black, unlit fine                    | `scene.environment = null` (NaN env map), then real GPU vs SwiftShader                        |
+| Problem                                            | First thing to check                                                                                                          |
+| -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| Black screen                                       | scene.add → light → camera position (`check-canvas.ts` to confirm objectively)                                                |
+| Low FPS                                            | `renderer.info.render.calls`, then DPR cap                                                                                    |
+| FPS drops over time                                | allocation in the loop, then undisposed resources                                                                             |
+| Bad on mobile only                                 | DPR cap, then resize handling                                                                                                 |
+| Stretched after rotate                             | resize handler updating aspect + setSize                                                                                      |
+| Clipping through walls / falling through platforms | collider-vs-mesh match, then CCD / kinematic body updates                                                                     |
+| Surfaces flash/flicker as the camera moves         | z-fighting — coplanar meshes or `near` too small; fixes in `graphics-recipes.md` § Z-Fighting                                 |
+| Lit materials black, unlit fine                    | `scene.environment = null` (NaN env map), then real GPU vs SwiftShader                                                        |
+| One submesh of an imported model pitch black       | `geometry.attributes.color`: a DCC weight/pin mask in `COLOR_0` turned on `vertexColors`; set `material.vertexColors = false` |
+| Character face-down or spinning on a borrowed clip | Hips bind mismatch between rig and clip — `gltf-loading-guide.md` § Clips from another rig                                    |
+| Orbit / aim drag dead over part of the canvas      | a full-screen HUD wrapper takes pointer events; `pointer-events: none` on it, `auto` on its buttons                           |

@@ -70,7 +70,7 @@ const sections: Section[] = [
         "**Cookies and other technologies.** Some of our automatic data collection is facilitated by cookies and other technologies. The Service uses these:",
       ),
       ul(
-        "**Essential.** One first-party cookie, set by us on vibedgames.com, keeps you signed in to the web app. It is never sent to the game subdomains, so games cannot read it, and it expires when you sign out or after at most seven days without use. Our hosting provider, Cloudflare, may also set its own security cookies on vibedgames.com, for example when you pass one of its security checks. Similarly, the `vg` CLI saves your login in a file on your computer (`~/.config/vg/auth.json`), which `vg logout` deletes.",
+        "**Essential.** One first-party cookie, set by us on the web app's own host (www.vibedgames.com, or vibedgames.com for a sign-in that started there), keeps you signed in to the web app. It is never sent to the game subdomains, so games cannot read it, and it expires when you sign out or after at most seven days without use. Our hosting provider, Cloudflare, may also set its own security cookies on vibedgames.com, for example when you pass one of its security checks. Similarly, the `vg` CLI saves your login in a file on your computer (`~/.config/vg/auth.json`), which `vg logout` deletes.",
         "**Functionality / performance.** Some games save data in your browser’s web storage on their own subdomain: for example, the example games we publish remember your best score and your sound settings there. That data stays in your browser, and we do not receive it.",
       ),
       p(

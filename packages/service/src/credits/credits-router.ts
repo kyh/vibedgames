@@ -25,7 +25,7 @@ export const creditsRouter = {
       });
     }
 
-    const settings = new URL("/settings", context.productionURL ?? "https://vibedgames.com");
+    const settings = new URL("/settings", context.productionURL ?? "https://www.vibedgames.com");
     settings.hash = "credits";
     const success = new URL(settings);
     success.searchParams.set("purchase", "success");

@@ -21,6 +21,9 @@ import type { AnyProcedure } from "@orpc/server";
 import { call, DecoratedProcedure, ORPCError, os } from "@orpc/server";
 import { z } from "zod";
 
+import { browseGames } from "@/lib/mcp-gallery";
+import { browseInput, browseOutput, GALLERY_URI } from "@/lib/mcp-gallery-schema";
+
 export { MEDIA_MODELS } from "@repo/contract/generate/media-schema";
 
 /** A skill as `agent-skills.ts` bundles it: its SKILL.md, frontmatter and other files. */
@@ -42,7 +45,7 @@ export type McpContext = ORPCContext & { skills: readonly Skill[]; taskMode?: bo
 const asTool = (procedure: AnyProcedure, meta: McpToolMeta) =>
   new DecoratedProcedure(procedure["~orpc"]).meta(mcp.tool(meta));
 
-const readOnly = { openWorldHint: false, readOnlyHint: true } as const;
+const readOnly = { destructiveHint: false, openWorldHint: false, readOnlyHint: true } as const;
 const mutates = { destructiveHint: false, readOnlyHint: false } as const;
 const external = { ...mutates, openWorldHint: true } as const;
 
@@ -328,7 +331,7 @@ export const tools = {
     title: "Redeem a credit code",
   }),
   deploy: asTool(appRouter.deploy.upload, {
-    annotations: { ...mutates, openWorldHint: false },
+    annotations: { ...mutates, destructiveHint: true, openWorldHint: false },
     name: "deploy",
     title: "Deploy a game",
   }),
@@ -368,6 +371,23 @@ export const tools = {
     title: "Follow an asset recipe job",
   }),
   ...recipeTools,
+  games_browse: tool
+    .meta(
+      mcp.tool({
+        _meta: {
+          ui: { resourceUri: GALLERY_URI, visibility: ["model", "app"] },
+          "ui/resourceUri": GALLERY_URI,
+        },
+        annotations: readOnly,
+        description:
+          "Browses the games on vibedgames, as the site's gallery shows them: each with its description, tags (`3d`, `camera` for webcam control, `multiplayer`), cover image and the URL it plays at. `query` matches words in a name, description or tag; `tag` keeps only games with it. Hosts with MCP Apps render it as a gallery to play from.",
+        name: "games_browse",
+        title: "Browse games",
+      }),
+    )
+    .input(browseInput)
+    .output(browseOutput)
+    .handler(({ input }) => browseGames(input)),
   ...generateTools,
   ...mediaTools,
   skills: tool

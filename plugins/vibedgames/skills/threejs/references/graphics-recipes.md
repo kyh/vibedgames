@@ -136,7 +136,7 @@ material.onBeforeCompile = (shader) => {
     shader.fragmentShader.replace(
       "#include <emissivemap_fragment>",
       `#include <emissivemap_fragment>
-       float fres = pow(1.0 - saturate(dot(normalize(vNormal), normalize(vViewPosition))), uRimPower);
+       float fres = pow(max(1e-4, 1.0 - saturate(dot(normalize(vNormal), normalize(vViewPosition)))), uRimPower);
        totalEmissiveRadiance += uRimColor * fres * uRimStrength;`,
     );
 };

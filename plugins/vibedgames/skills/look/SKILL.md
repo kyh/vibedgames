@@ -78,6 +78,10 @@ Run these over the whole game before touching a single level's grade:
   light.
 - **Dark materials get dark through sheen and light, not albedo.** Keep albedo
   above its family's floor; never lower albedo to fight auto-exposure.
+- **Shared material roles, not a colour per mesh.** Hazard, reward, trim,
+  signal and ground-contact materials are each one shared material, and the
+  world's signal colours are the HUD's (`threejs` →
+  `references/procedural-art.md` → "Material roles").
 - **Materials first, then dressing.** Hero surfaces hold up at standing
   distance with real normal and roughness and no visible repeat (break tiling
   with a second, differently-scaled sample or triplanar blend) before any
