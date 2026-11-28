@@ -1,4 +1,4 @@
-const SOUND_KEY = "tabletop-turbo:sound";
+const SOUND_KEY = "knockabout:sound";
 
 const storageGet = () => {
   try {

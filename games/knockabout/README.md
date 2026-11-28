@@ -1,14 +1,14 @@
-# Tabletop Turbo
+# Knockabout
 
-A car battle on a table top, in 16-bit pixel art. Pick one of six toy cars, each with its own attack, and knock the others off a big card board full of holes. Every blow adds damage, and a damaged car flies further. Power cubes hand out one of twelve specials, one at a time. The board fights too (a sweeper arm, pistons, pop bumpers), and for the last stretch of a round its rim drops away. Free-for-all, two minute rounds, respawns. Online through `@vibedgames/multiplayer`, with bots that fill the board and step out as players join. Deployed at `tabletop-turbo.vibedgames.com`.
+A car battle on a table top, in 16-bit pixel art. Pick one of six toy cars, each with its own attack, and knock the others off a big card board full of holes. Every blow adds damage, and a damaged car flies further. Power cubes hand out one of twelve specials, one at a time. The board fights too (a sweeper arm, pistons, pop bumpers), and for the last stretch of a round its rim drops away. Free-for-all, two minute rounds, respawns. Online through `@vibedgames/multiplayer`, with bots that fill the board and step out as players join. Deployed at `knockabout.vibedgames.com`.
 
 ## Develop
 
 ```bash
-pnpm dev:tabletop-turbo                        # http://localhost:5197
-pnpm --filter @repo/tabletop-turbo test        # headless: board, driving, every attack and special, falls, hazards, cubes, bot rounds, balance, wire format
-pnpm --filter @repo/tabletop-turbo typecheck
-pnpm --filter @repo/tabletop-turbo build
+pnpm dev:knockabout                        # http://localhost:5197
+pnpm --filter @repo/knockabout test        # headless: board, driving, every attack and special, falls, hazards, cubes, bot rounds, balance, wire format
+pnpm --filter @repo/knockabout typecheck
+pnpm --filter @repo/knockabout build
 node --import tsx tools/balance.mts 60         # in the game folder: bot rounds, a line of numbers per car
 ```
 
@@ -79,7 +79,7 @@ Balance is measured, not guessed: `tools/balance.mts` plays bot rounds with ever
 
 ## Multiplayer
 
-Auto-joins the shared `tabletop-turbo-v3` room (8 players, overflow into sibling rooms), solo fallback when the party server is unreachable. Bots make the board up to eight, and each player who joins takes a bot's seat: the bot steps out in a puff of confetti, mid-round if need be.
+Auto-joins the shared `knockabout-v1` room (8 players, overflow into sibling rooms), solo fallback when the party server is unreachable. Bots make the board up to eight, and each player who joins takes a bot's seat: the bot steps out in a puff of confetti, mid-round if need be.
 
 - Every player simulates their own car and reports it 20 times a second, stamped in server time; everyone else's plays back through an `Interpolator` on a clock per sender. The host simulates the bots the same way, and owns the round clock and the scores in shared state.
 - Hits are the attacker's call. The client whose attack or shot connected sends the blow to the room; the client that owns the car that was hit applies it (or refuses it: just back in, shielded, already hit by that blow, a clash). The attacker shows the throw at once and blends into the reports when they arrive. A blow off the wire is only taken from the client that simulates the car that dealt it (the host, for a bot), and is held to what the hardest real blow of its kind could carry.

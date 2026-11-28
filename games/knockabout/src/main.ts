@@ -21,7 +21,7 @@ import { FALLBACK_MS, MAX_DT, MAX_PLAYERS, ROOM_ID } from "./shared/constants";
 import { CAR_KINDS } from "./sim/kinds";
 import type { CarKind } from "./sim/kinds";
 
-const CAR_KEY = "tabletop-turbo:car";
+const CAR_KEY = "knockabout:car";
 const COLOURS = 8;
 
 const isKind = (value: unknown): value is CarKind => CAR_KINDS.some((kind) => kind === value);
@@ -330,5 +330,5 @@ if (import.meta.env.DEV || playtest) {
 }
 
 if (import.meta.env.DEV) {
-  Object.assign(window, { __tabletopTurbo: { client, game } });
+  Object.assign(window, { __knockabout: { client, game } });
 }

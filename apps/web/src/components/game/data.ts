@@ -32,6 +32,13 @@ export const featuredGames: FeaturedGame[] = [
     slug: "showdown",
   },
   {
+    colorScheme: "light",
+    name: "Knockabout",
+    preview: "/covers/knockabout.webp",
+    previewPortrait: "/covers/knockabout-portrait.webp",
+    slug: "knockabout",
+  },
+  {
     colorScheme: "dark",
     name: "Strikeforce",
     preview: "/covers/strikeforce.webp",
@@ -93,13 +100,6 @@ export const featuredGames: FeaturedGame[] = [
     preview: "/covers/bomberman.webp",
     previewPortrait: "/covers/bomberman-portrait.webp",
     slug: "bomberman",
-  },
-  {
-    colorScheme: "light",
-    name: "Tabletop Turbo",
-    preview: "/covers/tabletop-turbo.webp",
-    previewPortrait: "/covers/tabletop-turbo-portrait.webp",
-    slug: "tabletop-turbo",
   },
   {
     colorScheme: "light",
