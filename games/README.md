@@ -8,8 +8,8 @@ and playable, and each has its own README with routes, options and controls.
 | ---------------------------------- | ----------------- | -------------- | ------------------------- | ------------------------------- |
 | [Battle Arena](./battle-arena)     | Three.js          | online PvP     | `pnpm dev:battle-arena`   | `battle-arena.vibedgames.com`   |
 | [Bomberman](./bomberman)           | Phaser 4          | shared room    | `pnpm dev:bomberman`      | `bomberman.vibedgames.com`      |
+| [Bonk Derby](./bonk-derby)         | Three.js          | 8p car battle  | `pnpm dev:bonk-derby`     | `bonk-derby.vibedgames.com`     |
 | [Crazy Waymo](./crazy-waymo)       | Three.js + Rapier | shared room    | `pnpm dev:crazy-waymo`    | `crazy-waymo.vibedgames.com`    |
-| [Dodgem](./dodgem)                 | Three.js          | 8p car battle  | `pnpm dev:dodgem`         | `dodgem.vibedgames.com`         |
 | [Farm](./farm)                     | Phaser 4          | shared farm    | `pnpm dev:farm`           | `farm.vibedgames.com`           |
 | [Flappy Dragons](./flappy-dragons) | Phaser 4          | shared room    | `pnpm dev:flappy-dragons` | `flappy-dragons.vibedgames.com` |
 | [Lunerfall](./lunerfall)           | Phaser 4          | co-op + versus | `pnpm dev:lunerfall`      | `lunerfall.vibedgames.com`      |

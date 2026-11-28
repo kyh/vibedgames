@@ -1,4 +1,4 @@
-const SOUND_KEY = "dodgem:sound";
+const SOUND_KEY = "bonk-derby:sound";
 
 const storageGet = () => {
   try {

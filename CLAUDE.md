@@ -67,7 +67,7 @@ apps/
   cli/         # CLI tool (vibedgames — published to npm)
   factory/     # Autonomous agent that builds and runs a game (@repo/factory)
 games/         # Bundled example games, one @repo/<name> package each (not platform code):
-               # battle-arena, bomberman, crazy-waymo, dodgem, farm, flappy-dragons, lunerfall,
+               # battle-arena, bomberman, bonk-derby, crazy-waymo, farm, flappy-dragons, lunerfall,
                # moba, pacman, pong, showdown, starfall, strikeforce, tetris
 packages/
   contract/    # oRPC contract: zod inputs, outputs, OpenAPI meta (@repo/contract)

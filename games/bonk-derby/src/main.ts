@@ -21,7 +21,7 @@ import { FALLBACK_MS, MAX_DT, MAX_PLAYERS, ROOM_ID } from "./shared/constants";
 import { CAR_KINDS } from "./sim/kinds";
 import type { CarKind } from "./sim/kinds";
 
-const CAR_KEY = "dodgem:car";
+const CAR_KEY = "bonk-derby:car";
 const COLOURS = 8;
 
 const isKind = (value: unknown): value is CarKind => CAR_KINDS.some((kind) => kind === value);
@@ -330,5 +330,5 @@ if (import.meta.env.DEV || playtest) {
 }
 
 if (import.meta.env.DEV) {
-  Object.assign(window, { __dodgem: { client, game } });
+  Object.assign(window, { __bonkDerby: { client, game } });
 }

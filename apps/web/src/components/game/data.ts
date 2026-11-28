@@ -47,10 +47,10 @@ export const featuredGames: FeaturedGame[] = [
     colorScheme: "light",
     description:
       "A toy-car battle on a table with no walls: pick one of six cars, grab a power cube and knock the other seven off the edge.",
-    name: "Dodgem",
-    preview: "/covers/dodgem.webp",
-    previewPortrait: "/covers/dodgem-portrait.webp",
-    slug: "dodgem",
+    name: "Bonk Derby",
+    preview: "/covers/bonk-derby.webp",
+    previewPortrait: "/covers/bonk-derby-portrait.webp",
+    slug: "bonk-derby",
     tags: ["multiplayer"],
   },
   {

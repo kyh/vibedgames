@@ -26,7 +26,7 @@
     "dev:tetris": "turbo watch dev -F @repo/tetris...",
     "dev:starfall": "turbo watch dev -F @repo/starfall...",
     "dev:pong": "turbo watch dev -F @repo/pong...",
-    "dev:dodgem": "turbo watch dev -F @repo/dodgem...",
+    "dev:bonk-derby": "turbo watch dev -F @repo/bonk-derby...",
     "dev:bomberman": "turbo watch dev -F @repo/bomberman...",
     "dev:farm": "turbo watch dev -F @repo/farm...",
     "dev:moba": "turbo watch dev -F @repo/moba...",
