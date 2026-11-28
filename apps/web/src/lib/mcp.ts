@@ -22,7 +22,7 @@ import { isCrossOrigin, reportFaults } from "@/lib/orpc-handler";
 const converters = [new ZodToJsonSchemaConverter()];
 
 const API_KEY_HINT =
-  "Connect with OAuth, or send an API key as `Authorization: Bearer vg_…`; create one at vibedgames.com/settings.";
+  "Connect with OAuth, or send an API key as `Authorization: Bearer vg_…`; create one at www.vibedgames.com/settings.";
 
 const CHALLENGE_SCOPES = ["profile", "offline_access", ...Object.keys(OAUTH_SCOPES)];
 
@@ -158,28 +158,28 @@ const serverInfo = {
     {
       mimeType: "image/svg+xml",
       sizes: ["any"],
-      src: "https://vibedgames.com/favicon/favicon.svg",
+      src: "https://www.vibedgames.com/favicon/favicon.svg",
     },
     {
       mimeType: "image/png",
       sizes: ["96x96"],
-      src: "https://vibedgames.com/favicon/favicon-96x96.png",
+      src: "https://www.vibedgames.com/favicon/favicon-96x96.png",
     },
     {
       mimeType: "image/png",
       sizes: ["192x192"],
-      src: "https://vibedgames.com/favicon/web-app-manifest-192x192.png",
+      src: "https://www.vibedgames.com/favicon/web-app-manifest-192x192.png",
     },
     {
       mimeType: "image/png",
       sizes: ["512x512"],
-      src: "https://vibedgames.com/favicon/web-app-manifest-512x512.png",
+      src: "https://www.vibedgames.com/favicon/web-app-manifest-512x512.png",
     },
   ],
   name: "vibedgames",
   title: "vibedgames",
   version: "1.0.0",
-  websiteUrl: "https://vibedgames.com",
+  websiteUrl: "https://www.vibedgames.com",
 };
 
 const instructions = [

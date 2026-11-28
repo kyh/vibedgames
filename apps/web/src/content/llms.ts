@@ -65,5 +65,5 @@ Then work from the skills. Common entry points: \`vg new <slug>\` to scaffold, \
 - [Multiplayer package](https://www.npmjs.com/package/@vibedgames/multiplayer): the npm package a game imports for shared state.
 - [Gamepad package](https://www.npmjs.com/package/@vibedgames/gamepad): on-screen and physical controller input.
 - [CLI package](${siteConfig.npm}): the \`vg\` binary on npm.
-- [Sitemap](${url}/sitemap.xml): every crawlable page on the apex domain.
+- [Sitemap](${url}/sitemap.xml): every crawlable page on the web host.
 `;

@@ -46,7 +46,7 @@ export const varyHeaders =
   () => ({ Vary: vary });
 
 /**
- * Absolute canonical URL for a pathname: no trailing slash, and the apex has
+ * Absolute canonical URL for a pathname: no trailing slash, and the root has
  * no path at all. The search string is never part of it, so the `?game=`
  * variants of `/` all consolidate onto one URL.
  */

@@ -3,16 +3,16 @@
   "name": "com.vibedgames/platform",
   "title": "vibedgames",
   "description": "A game studio for coding agents: skills, asset generation, and one-step deploys of browser games.",
-  "version": "1.0.0",
-  "websiteUrl": "https://vibedgames.com",
+  "version": "1.0.1",
+  "websiteUrl": "https://www.vibedgames.com",
   "icons": [
     {
-      "src": "https://vibedgames.com/favicon/favicon.svg",
+      "src": "https://www.vibedgames.com/favicon/favicon.svg",
       "mimeType": "image/svg+xml",
       "sizes": ["any"]
     },
     {
-      "src": "https://vibedgames.com/favicon/web-app-manifest-512x512.png",
+      "src": "https://www.vibedgames.com/favicon/web-app-manifest-512x512.png",
       "mimeType": "image/png",
       "sizes": ["512x512"]
     }

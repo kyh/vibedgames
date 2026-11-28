@@ -114,7 +114,7 @@ const serveHtml = async (page: HtmlPage) => {
 
   const injected = injectShareMeta(html, {
     description: extractDescription(html) ?? `Play ${title} on vibedgames.`,
-    imageUrl: image ? `https://${host}/${image.path}` : "https://vibedgames.com/og.jpg",
+    imageUrl: image ? `https://${host}/${image.path}` : "https://www.vibedgames.com/og.jpg",
     title,
     url: `https://${host}${pathname}`,
   });

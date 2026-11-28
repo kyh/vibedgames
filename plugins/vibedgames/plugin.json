@@ -5,9 +5,9 @@
   "description": "Seed your coding agent with a game studio: design, scaffold, generate art and audio, add multiplayer, tune feel, and ship browser games with the vg CLI.",
   "author": {
     "name": "vibedgames",
-    "url": "https://vibedgames.com"
+    "url": "https://www.vibedgames.com"
   },
-  "homepage": "https://vibedgames.com",
+  "homepage": "https://www.vibedgames.com",
   "repository": "https://github.com/kyh/vibedgames",
   "license": "MIT",
   "keywords": [
@@ -31,10 +31,10 @@
         "developerName": "vibedgames",
         "category": "Developer Tools",
         "capabilities": ["Read", "Write"],
-        "websiteURL": "https://vibedgames.com",
+        "websiteURL": "https://www.vibedgames.com",
         "supportURL": "https://github.com/kyh/vibedgames/issues",
-        "privacyPolicyURL": "https://vibedgames.com/privacy",
-        "termsOfServiceURL": "https://vibedgames.com/terms",
+        "privacyPolicyURL": "https://www.vibedgames.com/privacy",
+        "termsOfServiceURL": "https://www.vibedgames.com/terms",
         "defaultPrompt": [
           "Build me a bomberman game and deploy it.",
           "Make a pixel-art knight sprite sheet with walk and attack animations.",

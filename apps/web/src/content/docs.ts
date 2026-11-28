@@ -73,7 +73,7 @@ export const docsDoc: Doc = {
       blocks: [
         {
           kind: "p",
-          text: 'The platform API is one [oRPC](https://orpc.unnoq.com) router served two ways. `POST https://vibedgames.com/api/v1/<router>/<procedure>` takes and returns plain JSON and is described by the OpenAPI 3.1 document at [/openapi.json](/openapi.json) — every operation with its input, response and error schemas and the credentials it needs. `POST /api/orpc/<router>/<procedure>` is oRPC\'s own wire format (body wrapped as `{"json": …}`), used by the CLI and the web app. Both are POST-only. Errors are JSON with a stable `code` (`UNAUTHORIZED`, `BAD_REQUEST`, …) and a `message`. The routers are `auth`, `apiKeys`, `waitlist`, `deploy`, `generate`, `playtest`, `credits` and `admin`.',
+          text: 'The platform API is one [oRPC](https://orpc.unnoq.com) router served two ways. `POST https://www.vibedgames.com/api/v1/<router>/<procedure>` takes and returns plain JSON and is described by the OpenAPI 3.1 document at [/openapi.json](/openapi.json) — every operation with its input, response and error schemas and the credentials it needs. `POST /api/orpc/<router>/<procedure>` is oRPC\'s own wire format (body wrapped as `{"json": …}`), used by the CLI and the web app. Both are POST-only. Errors are JSON with a stable `code` (`UNAUTHORIZED`, `BAD_REQUEST`, …) and a `message`. The routers are `auth`, `apiKeys`, `waitlist`, `deploy`, `generate`, `playtest`, `credits` and `admin`.',
         },
         {
           kind: "p",
@@ -81,7 +81,7 @@ export const docsDoc: Doc = {
         },
         {
           code: [
-            "curl -s -X POST https://vibedgames.com/api/v1/deploy/list \\",
+            "curl -s -X POST https://www.vibedgames.com/api/v1/deploy/list \\",
             '  -H "Authorization: Bearer $VG_TOKEN"',
           ].join("\n"),
           kind: "code",
@@ -157,7 +157,7 @@ export const docsDoc: Doc = {
             "[/.well-known/api-catalog](/.well-known/api-catalog) — the API catalog (RFC 9727) pointing at the OpenAPI document and these docs.",
             "[/install](/install) — the install instructions, served as markdown.",
             "[/docs](/docs) — this page; also available as markdown via `Accept: text/markdown`.",
-            "[/sitemap.xml](/sitemap.xml) — every crawlable page on the apex domain.",
+            "[/sitemap.xml](/sitemap.xml) — every crawlable page on the web host.",
             "[/robots.txt](/robots.txt) — crawler policy: open to every crawler, AI included.",
             "[/.well-known/agent-skills/index.json](/.well-known/agent-skills/index.json) — the skill index.",
           ],
@@ -168,7 +168,7 @@ export const docsDoc: Doc = {
           text: "Every prose page on this domain also answers `Accept: text/markdown` with a markdown representation of the same content, per the [acceptmarkdown.com](https://acceptmarkdown.com) convention:",
         },
         {
-          code: 'curl -s -H "Accept: text/markdown" https://vibedgames.com/docs',
+          code: 'curl -s -H "Accept: text/markdown" https://www.vibedgames.com/docs',
           kind: "code",
           lang: "sh",
         },

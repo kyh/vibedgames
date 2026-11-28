@@ -81,6 +81,6 @@ export const clearConfig = () => {
 };
 
 export const getBaseUrl = () =>
-  process.env.VG_API_URL ?? getConfig()?.baseUrl ?? "https://vibedgames.com";
+  process.env.VG_API_URL ?? getConfig()?.baseUrl ?? "https://www.vibedgames.com";
 
 export const getToken = () => process.env.VG_TOKEN ?? getConfig()?.token ?? null;

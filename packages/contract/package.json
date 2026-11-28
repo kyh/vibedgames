@@ -12,6 +12,7 @@
     "./credits/credits-limits": "./src/credits/credits-limits.ts",
     "./deploy/content-types": "./src/deploy/content-types.ts",
     "./deploy/deploy-schema": "./src/deploy/deploy-schema.ts",
+    "./deploy/game-origin": "./src/deploy/game-origin.ts",
     "./generate/generate-schema": "./src/generate/generate-schema.ts",
     "./generate/media-hosts": "./src/generate/media-hosts.ts",
     "./generate/media-schema": "./src/generate/media-schema.ts",

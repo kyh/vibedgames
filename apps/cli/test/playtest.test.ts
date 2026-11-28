@@ -1,8 +1,18 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { afterEach, test } from "node:test";
 
-import { bareTokens, expandGameFlag, withScopedSession } from "../src/commands/playtest.js";
+import {
+  bareTokens,
+  expandGameFlag,
+  resolveGameUrl,
+  withScopedSession,
+} from "../src/commands/playtest.js";
 import { SLUG_RE } from "../src/lib/config-file.js";
+import { makeCleanups, stubEnv } from "./_helpers.js";
+
+const { cleanups, drain } = makeCleanups();
+
+afterEach(drain);
 
 const url = (slug: string | null) => `https://${slug ?? "from-project-config"}.vibedgames.com`;
 
@@ -188,4 +198,14 @@ test("withScopedSession leaves machine-wide commands alone", () => {
   assert.deepEqual(withScopedSession(["session", "list"], SESSION), ["session", "list"]);
   assert.deepEqual(withScopedSession(["install"], SESSION), ["install"]);
   assert.deepEqual(withScopedSession(["--help"], SESSION), ["--help"]);
+});
+
+test("resolveGameUrl serves a game beside the www web host, not under it", () => {
+  stubEnv(cleanups, { VG_API_URL: "https://www.vibedgames.com" });
+  assert.equal(resolveGameUrl("my-game"), "https://my-game.vibedgames.com");
+});
+
+test("resolveGameUrl still resolves from an apex API URL saved by an older login", () => {
+  stubEnv(cleanups, { VG_API_URL: "https://vibedgames.com" });
+  assert.equal(resolveGameUrl("my-game"), "https://my-game.vibedgames.com");
 });
