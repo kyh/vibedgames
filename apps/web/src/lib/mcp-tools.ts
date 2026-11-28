@@ -307,11 +307,6 @@ export const tools = {
     name: "credits",
     title: "Credit balance",
   }),
-  credits_buy: asTool(appRouter.credits.checkout, {
-    annotations: external,
-    name: "credits_buy",
-    title: "Buy credits",
-  }),
   credits_redeem: asTool(appRouter.credits.redeem, {
     annotations: { ...mutates, idempotentHint: true, openWorldHint: false },
     name: "credits_redeem",

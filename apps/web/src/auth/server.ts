@@ -8,6 +8,7 @@ import type {
 import { createAuth as initAuth } from "@repo/service/identity/auth";
 import { mailerOf, NO_EMAIL_WARNING } from "@repo/service/email/mailer";
 import { oauthResources } from "@repo/service/identity/oauth-resources";
+import { reviewerSignInOf } from "@repo/service/identity/reviewer-sign-in";
 import { createORPCContext } from "@repo/service/orpc";
 import { createDb } from "@repo/db/drizzle-client";
 import { getRequestHeaders } from "@tanstack/react-start/server";
@@ -50,6 +51,7 @@ const authFor = (
       mailer,
       oauthProxySecret: env.OAUTH_PROXY_SECRET === "" ? undefined : env.OAUTH_PROXY_SECRET,
       productionURL: env.OAUTH_PROXY_URL ?? productionUrl,
+      reviewer: reviewerSignInOf(env.REVIEWER_EMAIL, env.REVIEWER_CODE),
       secret: env.BETTER_AUTH_SECRET,
     });
     byOrigin.set(baseUrl, auth);

@@ -27,7 +27,7 @@
       "interface": {
         "displayName": "vibedgames",
         "shortDescription": "Build and ship browser games",
-        "longDescription": "A game studio for your agent. Skills cover the whole build: game design, Phaser and Three.js, pixel art, sprites, 3D models, music and sound, game feel, level design, online multiplayer and playtesting. The vibedgames tools generate assets and deploy a game to its own vibedgames.com URL. Generation uses account credit; deploys and hosting are free.",
+        "longDescription": "A game studio for your agent. Skills cover the whole build: game design, Phaser and Three.js, pixel art, sprites, 3D models, music and sound, game feel, level design, online multiplayer and playtesting. The vibedgames tools generate assets and deploy a game to its own vibedgames.com URL.",
         "developerName": "vibedgames",
         "category": "Developer Tools",
         "capabilities": ["Read", "Write"],
@@ -95,8 +95,10 @@
             }
           ]
         },
-        "commerce": true,
-        "commerce_description": "Generation credit is bought on vibedgames.com through Stripe Checkout. The plugin can return a checkout link, but the user pays in the browser; the plugin never takes payment details."
+        "commerce": false
+      },
+      "publication": {
+        "release_notes": "First release: game-studio skills, game-art and 3D asset generation, a games gallery, and one-step deploys to vibedgames.com."
       }
     }
   }

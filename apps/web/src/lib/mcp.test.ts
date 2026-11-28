@@ -189,7 +189,6 @@ describe("mcp endpoint", () => {
       names,
       [
         "credits",
-        "credits_buy",
         "credits_redeem",
         "deploy",
         "deployments",
