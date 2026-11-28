@@ -10,14 +10,46 @@ import "@fontsource/silkscreen/400.css";
 import "@fontsource/silkscreen/700.css";
 import * as THREE from "three";
 
-import { isMuted, setAudioPaused, setMuted, unlockAudio } from "./audio/sfx";
+import { isMuted, setAudioPaused, setMuted, setWorldLevel, unlockAudio } from "./audio/sfx";
 import { IS_TOUCH, Input } from "./input/input";
 import { joinRoom } from "./net/session";
 import { pauseOverlay } from "./pause-overlay";
 import { Hud } from "./render/hud";
 import { GameScene } from "./scenes/game-scene";
 import type { GameDiagnostics } from "./scenes/game-scene";
-import { FALLBACK_MS, LOCAL_COLOR, MAX_DT, MAX_PLAYERS, ROOM_ID } from "./shared/constants";
+import { FALLBACK_MS, MAX_DT, MAX_PLAYERS, ROOM_ID } from "./shared/constants";
+import { CAR_KINDS } from "./sim/kinds";
+import type { CarKind } from "./sim/kinds";
+
+const CAR_KEY = "tabletop-turbo:car";
+const COLOURS = 8;
+
+const isKind = (value: unknown): value is CarKind => CAR_KINDS.some((kind) => kind === value);
+
+const savedCar = () => {
+  const fresh = { colour: Math.floor(Math.random() * COLOURS), kind: CAR_KINDS[0] };
+
+  try {
+    const [kind, colour] = (window.localStorage.getItem(CAR_KEY) ?? "").split(":");
+    const index = Number(colour);
+
+    return isKind(kind) && Number.isInteger(index) && index >= 0 && index < COLOURS
+      ? { colour: index, kind }
+      : fresh;
+  } catch {
+    return fresh;
+  }
+};
+
+const saveCar = (kind: CarKind, colour: number) => {
+  try {
+    window.localStorage.setItem(CAR_KEY, `${kind}:${colour}`);
+
+    return true;
+  } catch {
+    return false;
+  }
+};
 
 const container = document.querySelector("#game");
 
@@ -62,11 +94,18 @@ const client = joinRoom({
   room: ROOM_ID,
 });
 
-const input = new Input(LOCAL_COLOR);
+const input = new Input("#18bfb4");
 
 input.setTouchVisible(false);
 
 const hud = new Hud({
+  onGarage: () => {
+    game.leave();
+  },
+  onPick: (kind, colour) => {
+    game.setLoadout(kind, colour);
+    saveCar(kind, colour);
+  },
   onStart: () => {
     unlockAudio();
     game.start();
@@ -84,13 +123,36 @@ const game = new GameScene(
   IS_TOUCH ? Math.min(512, sunSize) : sunSize,
 );
 
+const car = savedCar();
+
+game.setLoadout(car.kind, car.colour);
+
+hud.setPick(car.kind, car.colour, false);
+
 game.resize(window.innerWidth, window.innerHeight);
 
 window.addEventListener("resize", () => {
   game.resize(window.innerWidth, window.innerHeight);
 });
 
-window.addEventListener("pointerdown", unlockAudio);
+window.addEventListener("pointerdown", () => {
+  unlockAudio();
+
+  if (!game.playing) {
+    setWorldLevel(0.25);
+  }
+});
+
+const PICKS = new Map<string, readonly [number, number]>([
+  ["ArrowDown", [0, 1]],
+  ["ArrowLeft", [-1, 0]],
+  ["ArrowRight", [1, 0]],
+  ["ArrowUp", [0, -1]],
+  ["KeyA", [-1, 0]],
+  ["KeyD", [1, 0]],
+  ["KeyS", [0, 1]],
+  ["KeyW", [0, -1]],
+]);
 
 window.addEventListener("keydown", (event) => {
   unlockAudio();
@@ -99,10 +161,14 @@ window.addEventListener("keydown", (event) => {
     return;
   }
 
+  const pick = game.playing ? undefined : PICKS.get(event.code);
+
   if (event.code === "KeyM") {
     setMuted(!isMuted());
   } else if (event.code === "Enter" || event.code === "Space") {
     game.start();
+  } else if (pick) {
+    hud.nudgePick(pick[0], pick[1]);
   }
 });
 
@@ -128,42 +194,40 @@ setPauseHandlers({
 type Diagnostics = GameDiagnostics & { paused: boolean };
 
 const diag: Diagnostics = {
+  attackReady: true,
   boost: 1,
-  centre: { dx: 0, dy: 0 },
+  car: "bumper",
+  centre: { ahead: 0, side: 0 },
   complete: false,
+  cube: { ahead: 0, distance: 99, side: 0 },
+  damage: 0,
   edge: 9,
   entities: 0,
   falls: 0,
   frame: 0,
-  item: "",
   knockOffs: 0,
   paused: false,
   phase: "title",
   place: 1,
   player: { x: 0, y: 0 },
-  punchReady: true,
-  rival: { distance: 99, dx: 0, dy: 0, edge: 9 },
+  range: 4.6,
+  rival: { ahead: 0, damage: 0, distance: 99, edge: 9, side: 0 },
   score: 0,
+  special: "",
   threat: 0,
-  timeLeft: 90,
+  timeLeft: 120,
 };
 
 publishDiagnostics(() => diag);
 
-const towards = (dx: number, dy: number) => {
-  const size = Math.hypot(dx, dy) || 1;
-  const keys: string[] = [];
+const towards = (ahead: number, side: number) => {
+  const size = Math.hypot(ahead, side) || 1;
+  const keys = ["ArrowUp"];
 
-  if (dx / size > 0.38) {
+  if (side / size > 0.2 || (ahead < 0 && side >= 0)) {
     keys.push("ArrowRight");
-  } else if (dx / size < -0.38) {
+  } else if (side / size < -0.2 || ahead < 0) {
     keys.push("ArrowLeft");
-  }
-
-  if (dy / size > 0.38) {
-    keys.push("ArrowDown");
-  } else if (dy / size < -0.38) {
-    keys.push("ArrowUp");
   }
 
   return keys;
@@ -171,16 +235,22 @@ const towards = (dx: number, dy: number) => {
 
 const fightKeys = (d: Diagnostics, boost: boolean) => {
   if (d.edge < 2.4 || d.threat > 0.5) {
-    return towards(d.centre.dx, d.centre.dy);
+    return towards(d.centre.ahead, d.centre.side);
   }
 
-  const keys = towards(d.rival.dx, d.rival.dy);
+  const keys = towards(d.rival.ahead, d.rival.side);
+  const lined = d.rival.ahead > 0 && Math.abs(d.rival.side) < Math.max(1.6, d.rival.distance * 0.3);
+  const close = d.rival.distance < d.range && (lined || d.range < 4);
 
-  if (d.rival.distance < 4.6 && d.punchReady && d.frame % 3 === 0) {
+  if (close && d.attackReady && d.frame % 3 === 0) {
     keys.push("Space");
   }
 
-  if (boost && d.rival.distance > 7 && d.boost > 0.4) {
+  if (d.special !== "" && d.rival.distance < 9 && d.frame % 20 === 0) {
+    keys.push("KeyE");
+  }
+
+  if (boost && d.rival.distance > 9 && d.boost > 0.4) {
     keys.push("ShiftLeft");
   }
 
@@ -228,25 +298,30 @@ if (import.meta.env.DEV || playtest) {
 
   publishPlaytest<Diagnostics>({
     goal: [
-      "Car sumo on a board with no walls: eight cars, 90 seconds. Knock rivals over the edge or into a hole with your bumper; each knock-off is a point (game.score, game.knockOffs). Falling off on your own costs one (game.falls counts every fall).",
-      "The car drives the way you point: arrows are screen directions. game.rival is the nearest rival you can hit (dx right, dy down, distance in car units; rival.edge is how close THEY are to an edge). game.edge is how close YOU are to an edge or hole: under 2.5 is danger. game.threat above 0.5 means something on the board is about to hit you.",
-      "Default to chase. Use chase_boost when the rival is far (distance above 8) and game.boost is above 0.4. Use retreat when game.edge is under 3 or after being hit. Every move punches by itself when a rival is in reach and game.punchReady is true.",
+      "Car sumo on a big board with no walls: eight cars, two minutes. Knock rivals over the edge or into a hole; each knock-off is a point (game.score, game.knockOffs). Falling off on your own costs one (game.falls counts every fall). Every hit adds damage (game.damage, game.rival.damage): the more a car carries, the further the next hit throws it.",
+      "The camera sits behind your car. ArrowUp drives ahead, ArrowLeft and ArrowRight steer, ArrowDown backs up. game.rival is the nearest rival you can hit as you see it: ahead of your nose (negative: behind you), side to your right (negative: left), distance in car units; rival.edge is how close THEY are to an edge. game.edge is how close YOU are to an edge or hole: under 2.5 is danger. game.threat above 0.5 means something on the board is about to hit you. game.cube is the nearest power cube: drive over it to pick up a special (game.special), and every move uses it when a rival is close.",
+      "Default to chase. Use chase_boost when the rival is far (distance above 9) and game.boost is above 0.4. Use retreat when game.edge is under 3 or after being hit. Use grab when game.special is empty and game.cube.distance is under 20. Every move attacks by itself when a rival is in reach and game.attackReady is true.",
     ].join(" "),
     minDisplacement: 1,
     move: {
       chase: {
-        description: "Drive at the nearest rival and punch when in reach",
+        description: "Drive at the nearest rival and attack when in reach",
         reflex: fight(false),
       },
       chase_boost: {
         description:
-          "Boost at the nearest rival and punch when in reach: a faster hit throws further",
+          "Boost at the nearest rival and attack when in reach: a faster hit throws further",
         reflex: fight(true),
+      },
+      grab: {
+        description: "Drive to the nearest power cube",
+        reflex: (d) =>
+          d && d.phase === "play" ? { keys: towards(d.cube.ahead, d.cube.side) } : undefined,
       },
       retreat: {
         description: "Drive back to the middle of the board",
         reflex: (d) =>
-          d && d.phase === "play" ? { keys: towards(d.centre.dx, d.centre.dy) } : undefined,
+          d && d.phase === "play" ? { keys: towards(d.centre.ahead, d.centre.side) } : undefined,
       },
     },
   });

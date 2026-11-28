@@ -4,39 +4,56 @@ import { test } from "node:test";
 import {
   BOOST_SECONDS,
   BOOST_SPEED,
-  CRATE_BEAM,
-  CRATE_EVERY,
   CREDIT_SECONDS,
-  DENT_GAIN,
-  DENT_HEAL,
-  ITEMS_AT,
-  ITEM_PUNCHES,
-  ITEM_SECONDS,
+  CUBES_AT,
+  CUBE_BEAM,
+  CUBE_EVERY,
+  DAMAGE_GAIN,
+  DAMAGE_MAX,
   MAX_SPEED,
-  MEGA_FORCE,
   PISTON_WARN,
-  PUNCH_COOLDOWN,
-  PUNCH_REACH,
-  PUNCH_THROW,
-  PUNCH_WHIFF_COOLDOWN,
-  RAM_MIN,
+  RAM_THROW,
   RESPAWN_SECONDS,
+  REVERSE,
   ROUND_MS,
   SAFE_SECONDS,
   SHRINK_MS,
   SHRINK_WARN_MS,
-  SPRING_FORCE,
-  SPRING_REACH,
   STEP,
+  TURN_RATE,
 } from "../src/shared/constants.ts";
 import { ARENAS, arenaFor, buildArena, edgeDistance, onBoard } from "../src/sim/arena.ts";
-import { makeBrain } from "../src/sim/bot.ts";
-import { carRadius, giveItem, gridCar, heldItem, makeCar, punchReady } from "../src/sim/car.ts";
-import type { Car, CarInput, Hit } from "../src/sim/car.ts";
-import { deliver, grant, makeField, stepField } from "../src/sim/field.ts";
+import {
+  NO_INPUT,
+  carRadius,
+  carWeight,
+  gridCar,
+  launchOf,
+  makeCar,
+  stickInput,
+} from "../src/sim/car.ts";
+import type { CarInput, Hit } from "../src/sim/car.ts";
+import { cubesAt } from "../src/sim/cubes.ts";
+import { deliver, makeField } from "../src/sim/field.ts";
 import type { Field, FieldEvent } from "../src/sim/field.ts";
-import { hazardHit, pistonAt, shrinkAt, sweeperAngle } from "../src/sim/hazards.ts";
-import { crateAt, crateOf } from "../src/sim/items.ts";
+import { hazardGone, hazardHit, pistonAt, shrinkAt, sweeperAngle } from "../src/sim/hazards.ts";
+import { CAR_KINDS, DASH_REACH, KINDS, PUCK_RANGE, SLAM_RADIUS } from "../src/sim/kinds.ts";
+import type { CarKind } from "../src/sim/kinds.ts";
+import {
+  GIANT_RADIUS,
+  GIANT_WEIGHT,
+  MAGNET_STOP,
+  MOD_SECONDS,
+  OIL_DAMAGE,
+  ROCKET_THROW,
+  SPECIALS,
+  SPRING_HEIGHT,
+  ZAP_DAMAGE,
+  ZAP_STUN,
+  specialFor,
+} from "../src/sim/specials.ts";
+import type { SpecialKind } from "../src/sim/specials.ts";
+import { grant, stepField } from "../src/sim/step.ts";
 import { playMatch } from "./match.mts";
 
 const [first] = ARENAS;
@@ -45,24 +62,31 @@ assert.ok(first);
 
 const OPEN = buildArena({ ...first, hazards: [], holes: [] });
 const PINBALL = arenaFor(0);
-const EAST: CarInput = { boost: false, mx: 1, mz: 0, punch: false };
-const IDLE: CarInput = { boost: false, mx: 0, mz: 0, punch: false };
-const PUNCH: CarInput = { boost: false, mx: 0, mz: 0, punch: true };
+const AHEAD: CarInput = { ...NO_INPUT, gas: 1 };
+const ATTACK: CarInput = { ...NO_INPUT, attack: true };
+const SPECIAL: CarInput = { ...NO_INPUT, special: true };
 
-const place = (field: Field, key: string, x: number, z: number, a: number) => {
-  const car = makeCar(key, false);
+const place = (
+  field: Field,
+  key: string,
+  x: number,
+  z: number,
+  a: number,
+  kind: CarKind = "bumper",
+) => {
+  const car = makeCar(key, false, kind);
   gridCar(car, { a, x, z });
   field.cars.set(key, car);
 
   return car;
 };
 
-const run = (field: Field, seconds: number, inputs: Record<string, CarInput> = {}) => {
+const run = (field: Field, seconds: number, inputs: Record<string, CarInput> = {}, held = "") => {
   const events: FieldEvent[] = [];
   const map = new Map(Object.entries(inputs));
 
-  for (let t = 0; t < seconds; t += STEP) {
-    stepField(field, map, STEP);
+  for (let t = 0; t < seconds - STEP / 2; t += STEP) {
+    stepField(field, map, STEP, held);
     events.push(...field.events);
     field.events.length = 0;
   }
@@ -70,27 +94,51 @@ const run = (field: Field, seconds: number, inputs: Record<string, CarInput> = {
   return events;
 };
 
-const duel = (gap = 3) => {
+const tap = (field: Field, key: string, input: CarInput) => run(field, STEP, { [key]: input });
+
+const duel = (kind: CarKind = "bumper", gap = 3) => {
   const field = makeField(OPEN);
-  const striker = place(field, "p1", 0, 0, 0);
+  const striker = place(field, "p1", 0, 0, 0, kind);
   const target = place(field, "p2", gap, 0, 0);
 
   return { field, striker, target };
 };
 
-const thrown = (field: Field, striker: Car, target: Car) => {
-  const from = target.x;
-  striker.cooldown = 0;
-  run(field, STEP * 2, { p1: PUNCH });
-  run(field, 1.6);
+const hitsOn = (events: readonly FieldEvent[], key: string) => {
+  const out: Hit[] = [];
 
-  return target.x - from;
+  for (const event of events) {
+    if (event.kind === "hit" && event.to === key) {
+      out.push(event.hit);
+    }
+  }
+
+  return out;
 };
 
-const punchFrom = (by: string) =>
-  ({ by, dx: 1, dz: 0, how: "punch", id: `${by}:0:1`, reach: PUNCH_THROW }) satisfies Hit;
+const armed = (kind: SpecialKind, other: readonly [number, number] = [6, 0]) => {
+  const field = makeField(OPEN);
+  const car = place(field, "p1", 0, 0, 0);
+  const target = place(field, "p2", other[0], other[1], 0);
+  car.special = kind;
 
-test("the board holds every start, drop and crate, and the drops survive the shrink", () => {
+  return { car, field, target };
+};
+
+const punchFrom = (by: string, reach = 5) =>
+  ({
+    by,
+    damage: 14,
+    dx: 1,
+    dz: 0,
+    how: "punch",
+    id: `${by}:0:1`,
+    lift: 1,
+    reach,
+    stun: 0,
+  }) satisfies Hit;
+
+test("the board holds every start, drop and pad, and the drops survive the shrink", () => {
   for (const def of ARENAS) {
     const arena = buildArena(def);
 
@@ -102,357 +150,584 @@ test("the board holds every start, drop and crate, and the drops survive the shr
       assert.ok(edgeDistance(arena, spot.x, spot.z, true) > 2, `${def.id} drop on the core`);
     }
 
-    for (const [x, z] of [...def.knockerPads, ...def.carPads]) {
+    for (const [x, z] of def.pads) {
       assert.ok(edgeDistance(arena, x, z) > 2, `${def.id} pad on the board`);
     }
 
-    for (const [x, z] of def.carPads) {
-      assert.ok(edgeDistance(arena, x, z, true) > 2, `${def.id} late pad on the core`);
-    }
-
-    for (const [x, z] of def.knockerPads) {
-      assert.ok(!onBoard(arena, x, z, true), `${def.id} end pad drops with its end`);
-    }
-
+    const late = def.pads.filter(([x, z]) => onBoard(arena, x, z, true));
+    assert.ok(late.length >= 6, `${def.id} keeps pads once the rim is gone`);
     assert.ok(def.grid.length >= 8);
+    assert.ok(def.pads.length >= 12);
+    assert.ok(arena.halfX > 45 && arena.halfZ > 28, "a board a car has to drive across");
   }
 });
 
-test("a car gets to top speed, holds it, and stops when the stick lets go", () => {
-  const field = makeField(OPEN);
-  const car = place(field, "p1", -10, 0, 0);
-  run(field, 1, { p1: EAST });
-  const speed = Math.hypot(car.vx, car.vz);
-  assert.ok(speed > MAX_SPEED * 0.97 && speed <= MAX_SPEED + 0.01, `top speed, got ${speed}`);
-  const from = car.x;
-  run(field, 1, { p1: IDLE });
-  assert.ok(Math.hypot(car.vx, car.vz) < 0.2, "stopped");
-  assert.ok(car.x - from < 4, `short stop, rolled ${car.x - from}`);
+test("every car reaches its own top speed, and stops when the pedal lets go", () => {
+  for (const kind of CAR_KINDS) {
+    const field = makeField(OPEN);
+    const car = place(field, "p1", -30, 0, 0, kind);
+    run(field, 1.5, { p1: AHEAD });
+    const top = MAX_SPEED * KINDS[kind].speed;
+    const speed = Math.hypot(car.vx, car.vz);
+    assert.ok(speed > top * 0.97 && speed <= top + 0.01, `${kind} top speed, got ${speed}`);
+    const from = car.x;
+    run(field, 1);
+    assert.ok(Math.hypot(car.vx, car.vz) < 0.2, `${kind} stopped`);
+    assert.ok(car.x - from < 4.5, `${kind} short stop, rolled ${car.x - from}`);
+  }
 });
 
-test("the stick points the car: it turns to face where it is pushed", () => {
+test("the wheel turns the nose, and the pedal backs the car up", () => {
   const field = makeField(OPEN);
   const car = place(field, "p1", 0, 0, 0);
-  run(field, 0.8, { p1: { boost: false, mx: 0, mz: 1, punch: false } });
-  assert.ok(Math.abs(car.a - Math.PI / 2) < 0.05, `faces south, got ${car.a}`);
-  assert.ok(car.vz > MAX_SPEED * 0.8);
+  run(field, 0.5, { p1: { ...AHEAD, steer: 1 } });
+  assert.ok(Math.abs(car.a - TURN_RATE * 0.5) < 0.05, `turned ${car.a}`);
+  car.a = 0;
+  Object.assign(car, { vx: 0, vz: 0 });
+  run(field, 1.2, { p1: { ...NO_INPUT, gas: -1 } });
+  assert.ok(Math.abs(car.vx + MAX_SPEED * REVERSE) < 0.2, `reverse ${car.vx}`);
+  const quick = place(field, "p2", 0, 20, 0, "twister");
+  const slow = place(field, "p3", 0, -20, 0, "brick");
+  run(field, 0.4, { p2: { ...AHEAD, steer: 1 }, p3: { ...AHEAD, steer: 1 } });
+  assert.ok(quick.a > slow.a + 0.2, "a twister out-turns a brick");
+});
+
+test("a stick drives by the screen: up is the pedal, across is the wheel", () => {
+  assert.deepEqual(stickInput(0, 0.1), { gas: 0, steer: 0 });
+  assert.deepEqual(stickInput(0, 1), { gas: 1, steer: 0 });
+  const right = stickInput(1, 0);
+  assert.ok(right.steer === 1 && right.gas > 0.2 && right.gas < 0.4);
+  assert.ok(stickInput(-1, 0).steer === -1);
+  const back = stickInput(0, -1);
+  assert.ok(back.gas === -1 && Math.abs(back.steer) < 0.01);
+  const backRight = stickInput(0.5, -0.9);
+  assert.ok(backRight.gas < -0.9 && backRight.steer < -0.5, "backing up swings the tail");
+  const soft = stickInput(0, 0.5);
+  assert.ok(soft.gas === 0.5);
 });
 
 test("boost is faster, runs dry in a second, and comes back", () => {
   const field = makeField(OPEN);
-  const car = place(field, "p1", -20, 0, 0);
-  const boost = { ...EAST, boost: true };
+  const car = place(field, "p1", -40, 0, 0);
+  const boost = { ...AHEAD, boost: true };
   run(field, 0.6, { p1: boost });
   assert.ok(Math.hypot(car.vx, car.vz) > BOOST_SPEED * 0.95);
   run(field, BOOST_SECONDS, { p1: boost });
   assert.equal(car.boosting, false);
   assert.ok(car.meter < 0.05);
-  run(field, 7, { p1: IDLE });
+  run(field, 7);
   assert.equal(car.meter, 1);
 });
 
-test("a punch throws the car in front about the same distance every time", () => {
+test("a punch throws the car in front its own distance, and nobody beside or behind", () => {
   const { field, striker, target } = duel();
-  const events = run(field, STEP * 2, { p1: PUNCH });
-  run(field, 0.2);
-  assert.ok(target.launches === 1 && target.lastBy === "p1");
-  assert.equal(striker.punches, 1);
-  events.push(...run(field, 1.4));
-  const distance = target.x - 3;
-  assert.ok(
-    Math.abs(distance - PUNCH_THROW) < PUNCH_THROW * 0.2,
-    `thrown ${distance}, wanted about ${PUNCH_THROW}`,
+  const beside = place(field, "p3", 0, 5, 0);
+  const behind = place(field, "p4", -4, 0, 0);
+  const events = [...tap(field, "p1", ATTACK), ...run(field, 1.6)];
+  assert.equal(striker.attacks, 1);
+  assert.equal(target.launches, 1);
+  assert.equal(target.lastBy, "p1");
+  assert.equal(target.hitHow, "punch");
+  assert.equal(target.damage, KINDS.bumper.damage);
+  assert.ok(Math.abs(target.x - 3 - KINDS.bumper.throw) < 0.6, `thrown to ${target.x}`);
+  assert.ok(Math.abs(target.z) < 0.5);
+  assert.equal(beside.launches + behind.launches, 0);
+  assert.ok(striker.x < -0.5, "the punch kicks back");
+  assert.equal(events.filter((event) => event.kind === "attack").length, 1);
+  assert.equal(events.filter((event) => event.kind === "hit").length, 1);
+  assert.equal(
+    events.some((event) => event.kind === "whiff"),
+    false,
   );
-  assert.ok(Math.hypot(target.vx, target.vz) < 0.5, "at rest again");
 });
 
-test("each punch that lands dents the car and the next one throws it further", () => {
-  const { field, striker, target } = duel();
-  const one = thrown(field, striker, target);
-  assert.equal(target.dent, 1);
-  striker.x = target.x - 3;
-  const two = thrown(field, striker, target);
-  assert.equal(target.dent, 2);
-  striker.x = target.x - 3;
-  const three = thrown(field, striker, target);
-  assert.equal(target.dent, 2);
-  assert.ok(two > one * 1.2, `second ${two} beats first ${one}`);
-  assert.ok(three > two * 1.1, `third ${three} beats second ${two}`);
-  assert.ok(Math.abs(three / one - (DENT_GAIN[2] ?? 0)) < 0.25);
-  run(field, DENT_HEAL * 2 + 0.5);
-  assert.equal(target.dent, 0);
+test("a dash carries the dart through whoever is ahead", () => {
+  const { field, striker, target } = duel("dart", 5);
+  const events = [...tap(field, "p1", ATTACK), ...run(field, 1.4)];
+  const [hit] = hitsOn(events, "p2");
+  assert.ok(hit);
+  assert.equal(hit.how, "dash");
+  assert.ok(hit.dx > 0.9);
+  assert.ok(striker.x > 3.5, `the dart went ${striker.x}`);
+  assert.ok(target.x > 8, `the target went ${target.x}`);
+  const alone = makeField(OPEN);
+  const dart = place(alone, "p1", 0, 0, 0, "dart");
+  tap(alone, "p1", ATTACK);
+  run(alone, 1);
+  assert.ok(Math.abs(dart.x - DASH_REACH) < 0.8, `a clear dash goes ${dart.x}`);
 });
 
-test("a punch that lands cools down faster than one that misses", () => {
-  const hit = duel();
-  run(hit.field, 0.6, { p1: PUNCH });
-  const miss = duel(12);
-  const events = run(miss.field, 0.6, { p1: PUNCH });
+test("a slam throws everyone round the brick outwards, the near ones furthest", () => {
+  const field = makeField(OPEN);
+  const brick = place(field, "p1", 0, 0, 0, "brick");
+  const near = place(field, "p2", 2.8, 0, 0);
+  const back = place(field, "p3", -3.8, 0, 0);
+  const far = place(field, "p4", 0, SLAM_RADIUS + 2, 0);
+  const events = [...tap(field, "p1", ATTACK)];
+  run(field, 0.15);
+  assert.ok(brick.y > 0.3, "it hops first");
+  events.push(...run(field, 1.6));
+  const [hitNear] = hitsOn(events, "p2");
+  const [hitBack] = hitsOn(events, "p3");
+  assert.ok(hitNear && hitBack);
+  assert.equal(hitNear.how, "slam");
+  assert.ok(hitNear.dx > 0.95 && hitBack.dx < -0.95);
+  assert.ok(hitNear.reach > hitBack.reach);
+  assert.ok(near.x > 6 && back.x < -6.5);
+  assert.equal(far.launches, 0);
+});
+
+test("a pop shot flies down the board and stops at its range", () => {
+  const { field, target } = duel("popper", 12);
+  const beyond = place(field, "p3", 0, PUCK_RANGE + 6, 0);
+  const events = [...tap(field, "p1", ATTACK), ...run(field, 1.2)];
+  const [hit] = hitsOn(events, "p2");
+  assert.ok(hit);
+  assert.equal(hit.how, "shot");
+  assert.equal(hit.by, "p1");
+  assert.ok(hit.dx > 0.95);
+  assert.ok(Math.abs(target.x - 12 - KINDS.popper.throw * KINDS.popper.power) < 0.7);
+  assert.equal(field.shots.length, 0);
+  const popper = field.cars.get("p1");
+  assert.ok(popper);
+  Object.assign(popper, { a: Math.PI / 2, cooldown: 0 });
+  const second = [...tap(field, "p1", ATTACK), ...run(field, 1.2)];
+  assert.equal(beyond.launches, 0);
+  assert.ok(second.some((event) => event.kind === "pop" && !event.burst));
+});
+
+test("a scoop tosses the car in front over its own roof", () => {
+  const { field, striker, target } = duel("scoop");
+  const events = [...tap(field, "p1", ATTACK), ...run(field, 0.3)];
+  assert.ok(target.y > 1.5, `tossed high, got ${target.y}`);
+  events.push(...run(field, 1.8));
+  const [hit] = hitsOn(events, "p2");
+  assert.ok(hit);
+  assert.equal(hit.how, "scoop");
+  assert.ok(hit.dx < -0.95);
+  assert.ok(target.x < striker.x - 4, `lands behind, at ${target.x}`);
+});
+
+test("a whirl bats away everything close, round and outwards", () => {
+  const field = makeField(OPEN);
+  place(field, "p1", 0, 0, 0, "twister");
+  const east = place(field, "p2", 2.8, 0, 0);
+  const north = place(field, "p3", 0, -2.8, 0);
+  const far = place(field, "p4", 6, 0, 0);
+  const events = [...tap(field, "p1", ATTACK), ...run(field, 1.4)];
+  const [hit] = hitsOn(events, "p2");
+  assert.ok(hit);
+  assert.equal(hit.how, "spin");
+  assert.ok(hit.dx > 0.6 && Math.abs(hit.dz) > 0.3, "out and round");
+  assert.equal(east.launches, 1);
+  assert.equal(north.launches, 1);
+  assert.equal(far.launches, 0);
+});
+
+test("a damaged car flies further, and a heavy one less far", () => {
+  assert.equal(launchOf(5, 0, 1), 5);
+  assert.ok(Math.abs(launchOf(5, 100, 1) - 5 * (1 + 100 * DAMAGE_GAIN)) < 1e-9);
+  assert.ok(launchOf(5, 100, 1) > 10, "twice as far at 100");
+  const fresh = duel();
+  tap(fresh.field, "p1", ATTACK);
+  run(fresh.field, 2);
+  const hurt = duel();
+  hurt.target.damage = 100;
+  tap(hurt.field, "p1", ATTACK);
+  run(hurt.field, 2);
+  const ratio = (hurt.target.x - 3) / (fresh.target.x - 3);
+  assert.ok(Math.abs(ratio - (1 + 100 * DAMAGE_GAIN)) < 0.15, `ratio ${ratio}`);
+  const reach: number[] = [];
+
+  for (const kind of ["dart", "bumper", "brick"] as const) {
+    const field = makeField(OPEN);
+    place(field, "p1", 0, 0, 0);
+    const target = place(field, "p2", 3, 0, 0, kind);
+    tap(field, "p1", ATTACK);
+    run(field, 2);
+    reach.push(target.x - 3);
+    assert.ok(Math.abs(target.x - 3 - KINDS.bumper.throw / KINDS[kind].weight) < 0.6, kind);
+  }
+
+  assert.ok((reach[0] ?? 0) > (reach[1] ?? 0) && (reach[1] ?? 0) > (reach[2] ?? 0));
+});
+
+test("damage adds up blow by blow, stops at its cap and is gone after a fall", () => {
+  const field = makeField(OPEN);
+  const car = place(field, "p1", 0, 0, 0);
+  deliver(field, car, { ...punchFrom("p8", 0.5), id: "a" });
+  run(field, 0.6);
+  deliver(field, car, { ...punchFrom("p9", 0.5), id: "b" });
+  assert.equal(car.damage, 28);
+  run(field, 0.6);
+  car.damage = DAMAGE_MAX - 5;
+  deliver(field, car, { ...punchFrom("p8", 0.5), id: "c" });
+  assert.equal(car.damage, DAMAGE_MAX);
+  Object.assign(car, { x: OPEN.halfX + 3 });
+  run(field, RESPAWN_SECONDS + 2.5);
+  assert.equal(car.falls, 1);
+  assert.equal(car.mode, "drive");
+  assert.equal(car.damage, 0);
+});
+
+test("an attack that lands is ready sooner than one that hits nothing", () => {
+  const { field, striker } = duel();
+  tap(field, "p1", ATTACK);
+  run(field, 0.5);
+  assert.equal(striker.cooldownOf, KINDS.bumper.cooldown);
+  run(field, 0.5, { p1: ATTACK });
+  assert.equal(striker.attacks, 1, "not while it cools");
+  run(field, KINDS.bumper.cooldown);
+  tap(field, "p1", ATTACK);
+  run(field, 0.3);
+  assert.equal(striker.attacks, 2);
+  const alone = makeField(OPEN);
+  const lone = place(alone, "p1", 0, 0, 0);
+  const events = [...tap(alone, "p1", ATTACK), ...run(alone, 0.5)];
+  assert.equal(lone.cooldownOf, KINDS.bumper.whiff);
   assert.ok(events.some((event) => event.kind === "whiff"));
-  assert.equal(miss.target.launches, 0);
-  assert.ok(miss.striker.cooldown > hit.striker.cooldown + 0.5);
-  assert.ok(Math.abs(hit.striker.cooldown + 0.6 - PUNCH_COOLDOWN) < 0.1);
-  assert.ok(Math.abs(miss.striker.cooldown + 0.6 - PUNCH_WHIFF_COOLDOWN) < 0.1);
-  assert.ok(punchReady(miss.striker) < punchReady(hit.striker));
+  assert.ok(lone.cooldown > KINDS.bumper.cooldown);
 });
 
-test("two bumpers that meet clash: both bounce back and neither is thrown", () => {
+test("two bumpers that meet head on bounce off, and nobody is thrown", () => {
   const field = makeField(OPEN);
   const left = place(field, "p1", 0, 0, 0);
   const right = place(field, "p2", 3.2, 0, Math.PI);
-  const events = run(field, 0.5, { p1: PUNCH, p2: PUNCH });
-  assert.ok(events.some((event) => event.kind === "clash"));
+  const events = run(field, 0.4, { p1: ATTACK, p2: ATTACK });
+  assert.equal(events.filter((event) => event.kind === "clash").length, 1);
   assert.equal(left.launches + right.launches, 0);
-  assert.ok(left.x < 0 && right.x > 3.2, "pushed apart");
+  assert.equal(left.damage + right.damage, 0);
+  run(field, 0.6);
+  assert.ok(left.x < -1 && right.x > 4.2, "both thrown back");
 });
 
-test("the mega bumper hits harder and the long spring reaches further", () => {
-  const plain = duel();
-  const base = thrown(plain.field, plain.striker, plain.target);
-  const mega = duel();
-  giveItem(mega.striker, "mega");
-  const far = thrown(mega.field, mega.striker, mega.target);
-  assert.ok(Math.abs(far / base - MEGA_FORCE) < 0.2, `mega ${far} against ${base}`);
-  const sprung = duel();
-  giveItem(sprung.striker, "spring");
-  const flung = thrown(sprung.field, sprung.striker, sprung.target);
-  assert.ok(Math.abs(flung / base - SPRING_FORCE) < 0.15, `spring ${flung} against ${base}`);
-  const gap = 1.3 + PUNCH_REACH * SPRING_REACH;
-  const short = duel(gap);
-  run(short.field, 0.5, { p1: PUNCH });
-  assert.equal(short.target.launches, 0);
-  const long = duel(gap);
-  giveItem(long.striker, "spring");
-  run(long.field, 0.5, { p1: PUNCH });
-  assert.equal(long.target.launches, 1);
-});
-
-test("a bumper item lasts two punches, a car item a few seconds", () => {
-  const { field, striker } = duel(12);
-  giveItem(striker, "spring");
-  assert.equal(heldItem(striker), "spring");
-
-  for (let i = 0; i < ITEM_PUNCHES; i += 1) {
-    assert.equal(striker.bumper, "spring");
-    striker.cooldown = 0;
-    run(field, 0.8, { p1: PUNCH });
-  }
-
-  assert.equal(striker.bumper, "plain");
-  giveItem(striker, "giant");
-  run(field, ITEM_SECONDS - 0.5);
-  assert.equal(striker.mod, "giant");
-  run(field, 1);
-  assert.equal(striker.mod, "");
-});
-
-test("only a boosted car rams, and a ram never eats the punch behind it", () => {
-  const slow = duel(8);
-  run(slow.field, 1.2, { p1: EAST });
-  assert.ok(MAX_SPEED < RAM_MIN && BOOST_SPEED > RAM_MIN);
-  assert.equal(slow.target.launches, 0, "top speed only pushes");
-  assert.ok(slow.target.x > 8, "pushed along");
-  const fast = duel(10);
-  const events: FieldEvent[] = [];
-
-  for (let t = 0; t < 1.2 && fast.target.launches === 0; t += STEP) {
-    events.push(...run(fast.field, STEP, { p1: { ...EAST, boost: true } }));
-  }
-
-  const rammed = events.find((event) => event.kind === "hit");
-  assert.ok(rammed && rammed.kind === "hit");
-  assert.equal(rammed.hit.how, "ram");
-  assert.equal(fast.target.dent, 0, "a ram never dents");
-  assert.equal(fast.target.lastBy, "p1");
+test("a car holds one special, and a cube it cannot take is still gone", () => {
+  const { car, field } = armed("rocket");
+  const [pad] = OPEN.def.pads;
+  assert.ok(pad);
+  Object.assign(car, { x: pad[0], z: pad[1] });
+  field.time = CUBES_AT + CUBE_EVERY;
+  const events = run(field, 0.3);
   assert.equal(
-    deliver(fast.field, fast.target, punchFrom("p3")),
-    true,
-    "a punch lands on a rammed car",
-  );
-  assert.equal(fast.target.dent, 1);
-  assert.equal(
-    deliver(fast.field, fast.target, punchFrom("p4")),
+    events.some((event) => event.kind === "reach"),
     false,
-    "but not a second one at once",
+    "a full car is not offered a cube",
   );
+  grant(field, "p1", 0, "mine");
+  assert.equal(car.special, "rocket");
+  assert.ok(field.taken.has(0));
+  car.stagger = 1;
+  tap(field, "p1", SPECIAL);
+  assert.equal(car.special, "rocket", "not while it is being thrown");
+  car.stagger = 0;
+  const used = tap(field, "p1", SPECIAL);
+  assert.equal(car.special, "");
+  assert.equal(car.uses, 1);
+  assert.equal(car.usedKind, "rocket");
+  assert.ok(used.some((event) => event.kind === "use" && event.special === "rocket"));
 });
 
-test("a shield drops when its car drives into another", () => {
-  const { field, striker, target } = duel(4);
-  striker.safe = SAFE_SECONDS;
-  run(field, 0.1, { p1: EAST });
-  assert.ok(striker.safe > 0, "still shielded before it touches");
-  run(field, 0.6, { p1: EAST });
-  assert.equal(striker.safe, 0);
-  striker.cooldown = 0;
-  Object.assign(target, { a: Math.PI, cooldown: 0 });
-  run(field, 0.4, { p2: PUNCH });
-  assert.equal(striker.launches, 1, "and it can be hit again");
+test("a rocket bursts on the first car down its line and splashes the one beside it", () => {
+  const { field, target } = armed("rocket", [20, 0]);
+  const beside = place(field, "p3", 20, 2.8, 0);
+  const events = [...tap(field, "p1", SPECIAL), ...run(field, 1.6)];
+  const [direct] = hitsOn(events, "p2");
+  const [splash] = hitsOn(events, "p3");
+  assert.ok(direct && splash);
+  assert.equal(direct.how, "rocket");
+  assert.equal(direct.by, "p1");
+  assert.equal(direct.reach, ROCKET_THROW);
+  assert.ok(splash.reach < direct.reach && splash.dz > 0.5);
+  assert.ok(target.x > 25);
+  assert.ok(beside.z > 4);
+  assert.ok(events.some((event) => event.kind === "pop" && event.burst));
+  assert.equal(field.shots.length, 0);
 });
 
-test("two cars on the same spot come apart", () => {
-  const field = makeField(OPEN);
-  const one = place(field, "p1", 2, 1, 0);
-  const two = place(field, "p2", 2, 1, 0);
-  run(field, 0.3);
-  const gap = Math.hypot(one.x - two.x, one.z - two.z);
-  assert.ok(Number.isFinite(gap));
-  assert.ok(gap >= carRadius(one) + carRadius(two) - 0.01, `apart by ${gap}`);
+test("a seeker turns after a car that is not straight ahead", () => {
+  const { field, target } = armed("seeker", [10, 12]);
+  const events = [...tap(field, "p1", SPECIAL)];
+  const [shot] = field.shots;
+  assert.ok(shot);
+  assert.equal(shot.target, "p2");
+  events.push(...run(field, 3));
+  const [hit] = hitsOn(events, "p2");
+  assert.ok(hit, "it got there");
+  assert.equal(hit.how, "seeker");
+  assert.equal(target.launches, 1);
 });
 
-test("a held car stands still for the step, and can still be hit", () => {
-  const field = makeField(OPEN);
-  const held = place(field, "p1", 3, 0, 0);
-  place(field, "p2", 0, 0, 0);
+test("a mine waits behind the car, arms, and goes off under the next one", () => {
+  const { car, field, target } = armed("mine", [-3.4, 0.3]);
+  tap(field, "p1", SPECIAL);
+  const [mine] = field.shots;
+  assert.ok(mine && mine.x < -2.5, "dropped behind");
+  assert.equal(hitsOn(run(field, 0.5), "p2").length, 0, "not armed yet");
+  const [hit] = hitsOn(run(field, 0.5), "p2");
+  assert.ok(hit);
+  assert.equal(hit.how, "mine");
+  assert.equal(hit.by, "p1");
+  assert.equal(car.launches, 0, "never its owner");
+  assert.equal(target.launches, 1);
+  assert.equal(field.shots.length, 0);
+});
 
-  const inputs = new Map([
-    ["p1", EAST],
-    ["p2", PUNCH],
-  ]);
+test("oil takes the wheel away from whoever crosses it, and the slick is its owner's", () => {
+  const { field } = armed("oil", [30, 0]);
+  tap(field, "p1", SPECIAL);
+  const [slick] = field.shots;
+  assert.ok(slick);
+  const victim = place(field, "p3", slick.x - 6, slick.z, 0);
+  const events = run(field, 0.7, { p3: AHEAD });
+  assert.ok(events.some((event) => event.kind === "slip" && event.key === "p3"));
+  assert.ok(victim.slip > 0);
+  assert.equal(victim.damage, OIL_DAMAGE);
+  assert.equal(victim.lastBy, "p1");
+  const heading = victim.a;
+  run(field, 0.2, { p3: { ...AHEAD, steer: 1 } });
+  assert.equal(victim.a, heading, "no steering on oil");
+  run(field, 2, { p3: AHEAD });
+  assert.equal(victim.slip, 0);
+});
 
-  for (let t = 0; t < 0.15; t += STEP) {
-    stepField(field, inputs, STEP, "p1");
+test("a shock throws everyone in reach outwards", () => {
+  const { field, target } = armed("shock", [5, 0]);
+  const north = place(field, "p3", 0, -6, 0);
+  const far = place(field, "p4", 12, 0, 0);
+  const events = [...tap(field, "p1", SPECIAL), ...run(field, 1.5)];
+  const [hit] = hitsOn(events, "p2");
+  assert.ok(hit);
+  assert.equal(hit.how, "shock");
+  assert.ok(target.x > 8 && north.z < -8.5);
+  assert.equal(far.launches, 0);
+});
+
+test("a magnet yanks cars to the nose without sending them flying", () => {
+  const { car, field, target } = armed("magnet", [10, 4]);
+  target.damage = 150;
+  tap(field, "p1", SPECIAL);
+  run(field, 1.5);
+  assert.equal(target.hitHow, "magnet");
+  assert.ok(
+    Math.hypot(target.x - MAGNET_STOP, target.z) < 1.2,
+    `pulled to ${target.x}, ${target.z}`,
+  );
+  assert.equal(car.launches, 0);
+});
+
+test("a zap stalls everyone in reach where they stand", () => {
+  const { field, target } = armed("zap", [6, 0]);
+  tap(field, "p1", SPECIAL);
+  assert.ok(target.stagger >= ZAP_STUN - STEP);
+  assert.equal(target.damage, ZAP_DAMAGE);
+  const from = target.x;
+  run(field, 1, { p2: AHEAD });
+  assert.ok(Math.abs(target.x - from) < 0.3, "it goes nowhere");
+  run(field, 1, { p2: AHEAD });
+  assert.ok(target.x > from + 4, "then drives off");
+});
+
+test("a shield takes one blow and is gone", () => {
+  const { car, field } = armed("shield", [-3, 0]);
+  tap(field, "p1", SPECIAL);
+  assert.equal(car.mod, "shield");
+  const blocked = [...tap(field, "p2", ATTACK), ...run(field, 0.5)];
+  assert.ok(blocked.some((event) => event.kind === "block" && event.key === "p1"));
+  assert.equal(car.launches, 0);
+  assert.equal(car.damage, 0);
+  assert.equal(car.mod, "");
+  const striker = field.cars.get("p2");
+  assert.ok(striker);
+  assert.equal(striker.cooldownOf, KINDS.bumper.whiff, "a blocked punch is a miss");
+  run(field, KINDS.bumper.whiff);
+  tap(field, "p2", ATTACK);
+  run(field, 0.5);
+  assert.equal(car.launches, 1);
+});
+
+test("a giant is bigger and far harder to throw, for a while", () => {
+  const { car, field } = armed("giant", [30, 0]);
+  tap(field, "p1", SPECIAL);
+  assert.equal(car.mod, "giant");
+  assert.ok(Math.abs(carRadius(car) / carRadius(makeCar("x", false)) - GIANT_RADIUS) < 1e-9);
+  assert.ok(Math.abs(carWeight(car) - GIANT_WEIGHT) < 1e-9);
+  run(field, MOD_SECONDS.giant + 0.1);
+  assert.equal(car.mod, "");
+});
+
+test("turbo is a free boost for as long as it lasts", () => {
+  const { car, field } = armed("turbo", [0, 30]);
+  Object.assign(car, { meter: 0, x: -45 });
+  tap(field, "p1", SPECIAL);
+  run(field, 1, { p1: AHEAD });
+  assert.ok(Math.hypot(car.vx, car.vz) > BOOST_SPEED, `turbo speed ${car.vx}`);
+  run(field, MOD_SECONDS.turbo, { p1: { ...AHEAD, steer: 1 } });
+  assert.equal(car.mod, "");
+});
+
+test("a wrench mends all the damage", () => {
+  const { car, field } = armed("wrench");
+  car.damage = 137;
+  tap(field, "p1", SPECIAL);
+  assert.equal(car.damage, 0);
+});
+
+test("a spring hops the car clear, and it stomps where it lands", () => {
+  const { car, field, target } = armed("spring", [3.5, 0]);
+  tap(field, "p1", SPECIAL);
+  let top = 0;
+
+  for (let t = 0; t < 0.4; t += STEP) {
+    run(field, STEP);
+    top = Math.max(top, car.y);
   }
 
-  assert.equal(held.launches, 1);
-  assert.equal(held.x, 3);
-  assert.equal(held.vx, 0);
-  run(field, 1, { p1: IDLE });
-  assert.ok(held.x > 3 + PUNCH_THROW * 0.8, "thrown once it is let go");
+  assert.ok(Math.abs(top - SPRING_HEIGHT) < 0.3, `peak ${top}`);
+  const striker = place(field, "p3", -3, 0, 0);
+  tap(field, "p3", ATTACK);
+  run(field, 0.2);
+  assert.equal(striker.attacks, 1);
+  assert.equal(car.launches, 0, "a punch passes under it");
+  const events = run(field, 0.8);
+  const [hit] = hitsOn(events, "p2");
+  assert.ok(hit);
+  assert.equal(hit.how, "stomp");
+  assert.ok(hit.dx > 0.9);
+  assert.equal(target.launches, 1);
+  assert.equal(car.y, 0);
 });
 
-test("a bot starts thinking at once however old the room is", () => {
-  for (const round of [1, 40, 4000]) {
-    for (let slot = 0; slot < 8; slot += 1) {
-      assert.equal(makeBrain(slot, round).thinkT, makeBrain(slot, 1).thinkT);
-      assert.ok(makeBrain(slot, round).thinkT < 0.5);
-    }
-  }
-
-  assert.notEqual(makeBrain(2, 1).seed, makeBrain(2, 2).seed);
+test("a boosted car rams; a car at its own speed only shoves", () => {
+  const field = makeField(OPEN);
+  place(field, "p1", -14, 0, 0);
+  const target = place(field, "p2", 0, 0, 0);
+  const events = run(field, 1, { p1: { ...AHEAD, boost: true } });
+  const [hit] = hitsOn(events, "p2");
+  assert.ok(hit);
+  assert.equal(hit.how, "ram");
+  assert.equal(hit.reach, RAM_THROW);
+  assert.equal(target.lastBy, "p1");
+  const slow = makeField(OPEN);
+  place(slow, "p1", -14, 0, 0);
+  const other = place(slow, "p2", 0, 0, 0);
+  const none = run(slow, 1.2, { p1: AHEAD });
+  assert.equal(hitsOn(none, "p2").length, 0);
+  assert.ok(other.x > 0.5, "pushed along all the same");
 });
 
-test("a car knocked over the edge falls, scores for whoever hit it, and drops back in shielded", () => {
+test("two cars on one spot come apart", () => {
+  const field = makeField(OPEN);
+  const one = place(field, "p1", 4, 4, 0);
+  const two = place(field, "p2", 4, 4, 0);
+  run(field, 0.2);
+  assert.ok(Math.hypot(one.x - two.x, one.z - two.z) > carRadius(one) * 1.9);
+});
+
+test("a car held in a hit-stop stands still but can still be hit", () => {
+  const { field, striker, target } = duel();
+  run(field, 0.2, { p2: AHEAD }, "p2");
+  assert.equal(target.x, 3);
+  tap(field, "p1", ATTACK);
+  run(field, 0.3, {}, "p2");
+  assert.equal(target.launches, 1);
+  assert.equal(striker.attacks, 1);
+  assert.equal(target.x, 3);
+  run(field, 1);
+  assert.ok(target.x > 6);
+});
+
+test("a car thrown off the edge is its thrower's point, and comes back untouchable", () => {
   const field = makeField(OPEN);
   const edge = OPEN.halfX;
-  const striker = place(field, "p1", edge - 5, 0, 0);
-  const target = place(field, "p2", edge - 2, 0, 0);
-  giveItem(target, "mega");
-  giveItem(target, "giant");
-  const events = run(field, 1.5, { p1: PUNCH });
-  const out = events.find((event) => event.kind === "out");
+  place(field, "p1", edge - 5.5, 0, 0);
+  const target = place(field, "p2", edge - 2.5, 0, 0);
+  target.damage = 60;
+  const events = [...tap(field, "p1", ATTACK), ...run(field, 1.4)];
   assert.ok(events.some((event) => event.kind === "fall" && event.key === "p2"));
-  assert.deepEqual(out, { by: "p1", key: "p2", kind: "out" });
-  assert.equal(target.falls, 1);
-  assert.equal(target.mode, "out");
+  const out = events.find((event) => event.kind === "out");
+  assert.ok(out && out.kind === "out");
+  assert.equal(out.by, "p1");
   assert.equal(target.outBy, "p1");
-  assert.equal(striker.mode, "drive");
-  run(field, RESPAWN_SECONDS + 0.1);
+  assert.equal(target.falls, 1);
+  run(field, RESPAWN_SECONDS);
   assert.equal(target.mode, "drop");
-  assert.equal(target.lastBy, "");
-  assert.equal(target.outBy, "p1", "who knocked it off outlives the fall");
-  assert.equal(target.bumper, "mega", "a bumper item is kept through a fall");
-  assert.equal(target.mod, "");
-  const landing = run(field, 1.2);
-  assert.ok(landing.some((event) => event.kind === "land" && event.drop));
+  run(field, 1);
   assert.equal(target.mode, "drive");
   assert.ok(target.safe > 0 && target.safe <= SAFE_SECONDS);
-  assert.ok(edgeDistance(OPEN, target.x, target.z, true) > 2, "dropped on the core");
-  Object.assign(striker, { a: 0, cooldown: 0, x: target.x - 3, z: target.z });
-  run(field, 0.4, { p1: PUNCH });
-  assert.equal(target.launches, 1, "shielded cars cannot be hit");
+  assert.ok(OPEN.def.spawns.some((spot) => Math.hypot(spot.x - target.x, spot.z - target.z) < 0.1));
+  assert.equal(deliver(field, target, { ...punchFrom("p1"), id: "late" }), false);
+  run(field, SAFE_SECONDS);
+  assert.equal(deliver(field, target, { ...punchFrom("p1"), id: "later" }), true);
 });
 
-test("driving off on your own is nobody's point, and credit for a hit runs out", () => {
+test("a car that drives off alone is nobody's point, and a hit stops counting", () => {
   const field = makeField(OPEN);
-  const striker = place(field, "p1", 0, 0, 0);
-  const target = place(field, "p2", 3, 0, 0);
-  run(field, 0.4, { p1: PUNCH });
-  assert.equal(target.lastBy, "p1");
-  striker.x = -15;
-  run(field, CREDIT_SECONDS + 0.2);
-  assert.equal(target.lastBy, "");
-  const events = run(field, 4, { p2: EAST });
-  assert.deepEqual(
-    events.find((event) => event.kind === "out"),
-    { by: "", key: "p2", kind: "out" },
-  );
+  const car = place(field, "p1", OPEN.halfX - 4, 0, 0);
+  const events = run(field, 2, { p1: AHEAD });
+  const out = events.find((event) => event.kind === "out");
+  assert.ok(out && out.kind === "out");
+  assert.equal(out.by, "");
+  const later = makeField(OPEN);
+  const hit = place(later, "p1", 0, 0, 0);
+  deliver(later, hit, punchFrom("p9", 1));
+  assert.equal(hit.lastBy, "p9");
+  run(later, CREDIT_SECONDS + 0.1);
+  assert.equal(hit.lastBy, "");
+  assert.equal(car.falls, 1);
 });
 
-test("nothing is hit before GO or after the horn", () => {
-  const before = duel();
-  before.field.time = -2;
-  run(before.field, 1, { p1: PUNCH });
-  assert.equal(before.striker.punches, 0);
-  const after = duel();
-  after.field.time = ROUND_MS / 1000 + 0.1;
-  run(after.field, 1, { p1: PUNCH });
-  assert.equal(after.target.launches, 0);
-});
-
-test("the sweeper bats cars the way its arm is turning", () => {
-  const sweeper = PINBALL.def.hazards.find((hazard) => hazard.kind === "sweeper");
-  assert.ok(sweeper);
-  const time = 3;
-  const angle = sweeperAngle(sweeper, time);
-  const reach = sweeper.length * 0.7;
-  const ahead = angle + 0.12 * Math.sign(sweeper.rate);
-  const x = sweeper.x + Math.cos(ahead) * reach;
-  const z = sweeper.z + Math.sin(ahead) * reach;
-  const hit = hazardHit(PINBALL, time, x, z, 1.2);
-  assert.ok(hit);
-  assert.equal(hit.how, "sweeper");
-  assert.equal(hit.by, "");
-  const spin = Math.sign(sweeper.rate);
-  const along = -Math.sin(angle) * spin * hit.dx + Math.cos(angle) * spin * hit.dz;
-  assert.ok(along > 0.5, `thrown with the arm, got ${along}`);
-  const clear = angle + Math.PI / 2;
-
-  const far = hazardHit(
-    PINBALL,
-    time,
-    sweeper.x + Math.cos(clear) * reach,
-    sweeper.z + Math.sin(clear) * reach,
-    1.2,
-  );
-
-  assert.equal(far, null);
-});
-
-test("a piston warns before it fires and hits only while it shoots", () => {
-  const piston = PINBALL.def.hazards.find((hazard) => hazard.kind === "piston");
-  assert.ok(piston);
-  const fireAt = piston.period - piston.phase;
-  const before = pistonAt(piston, fireAt - PISTON_WARN / 2);
-  assert.ok(!before.firing && before.warn > 0.3 && before.out === 0);
-  assert.equal(pistonAt(piston, fireAt - PISTON_WARN - 0.5).warn, 0);
-  const during = pistonAt(piston, fireAt + 0.03);
-  assert.ok(during.firing && during.out > 0);
-  const lane = piston.reach * 0.5;
-  const x = piston.x + Math.cos(piston.a) * lane;
-  const z = piston.z + Math.sin(piston.a) * lane;
-  assert.equal(hazardHit(PINBALL, fireAt - 0.3, x, z, 1.2), null);
-  let hit = null;
-
-  for (let t = fireAt; t < fireAt + 0.3 && !hit; t += STEP) {
-    hit = hazardHit(PINBALL, t, x, z, 1.2);
+test("nothing lands before GO or after the horn", () => {
+  for (const time of [-1, ROUND_MS / 1000 + 0.1]) {
+    const { field, striker, target } = duel();
+    field.time = time;
+    striker.special = "shock";
+    const events = run(field, 0.5, { p1: { ...ATTACK, gas: 1, special: true } });
+    assert.deepEqual(events, []);
+    assert.equal(striker.attacks, 0);
+    assert.equal(striker.special, "shock");
+    assert.equal(target.launches, 0);
+    assert.ok(Math.abs(striker.x) < 0.01);
   }
-
-  assert.ok(hit);
-  assert.equal(hit.how, "piston");
-  assert.ok(hit.dx * Math.cos(piston.a) + hit.dz * Math.sin(piston.a) > 0.8);
 });
 
-test("pop bumpers kick cars straight back out", () => {
+test("the sweeper, the pistons and the pop bumpers all throw cars", () => {
+  const sweeper = PINBALL.def.hazards.find((hazard) => hazard.kind === "sweeper");
+  const piston = PINBALL.def.hazards.find((hazard) => hazard.kind === "piston");
   const bumper = PINBALL.def.hazards.find((hazard) => hazard.kind === "bumper");
-  assert.ok(bumper);
-  const hit = hazardHit(PINBALL, 5, bumper.x + bumper.r + 1, bumper.z, 1.2);
-  assert.ok(hit);
-  assert.equal(hit.how, "bumper");
-  assert.ok(hit.dx > 0.9);
+  assert.ok(sweeper && piston && bumper);
+  const angle = sweeperAngle(sweeper, 3);
+  const swept = hazardHit(PINBALL, 3, Math.cos(angle) * 4, Math.sin(angle) * 4, 1.2);
+  assert.ok(swept);
+  assert.equal(swept.how, "sweeper");
+  assert.equal(swept.by, "");
+  assert.equal(
+    hazardHit(PINBALL, 3, Math.cos(angle + 1.5) * 4, Math.sin(angle + 1.5) * 4, 1.2),
+    null,
+  );
+  const fires = piston.period - piston.phase;
+  assert.ok(pistonAt(piston, fires - PISTON_WARN / 2).warn > 0.4);
+  assert.equal(pistonAt(piston, fires + 0.05).firing, true);
+  const laneX = piston.x + Math.cos(piston.a) * 3;
+  const laneZ = piston.z + Math.sin(piston.a) * 3;
+  assert.equal(hazardHit(PINBALL, fires - 0.5, laneX, laneZ, 1.2), null);
+  const shot = hazardHit(PINBALL, fires + 0.1, laneX, laneZ, 1.2);
+  assert.ok(shot);
+  assert.equal(shot.how, "piston");
+  assert.ok(shot.dx * Math.cos(piston.a) + shot.dz * Math.sin(piston.a) > 0.8);
+  const popped = hazardHit(PINBALL, 5, bumper.x + bumper.r + 1, bumper.z, 1.2);
+  assert.ok(popped);
+  assert.equal(popped.how, "bumper");
+  assert.ok(popped.dx > 0.9);
+  const field = makeField(PINBALL);
+  const ahead = sweeperAngle(sweeper, 0) + 0.5 * Math.sign(sweeper.rate);
+  const car = place(field, "p1", Math.cos(ahead) * 4, Math.sin(ahead) * 4, 0);
+  const events = run(field, 1.5);
+  assert.equal(hitsOn(events, "p1")[0]?.how, "sweeper");
+  assert.equal(car.launches, 1);
+  assert.ok(car.damage > 0);
 });
 
-test("the ends blink, then drop, for the last stretch of the round", () => {
+test("the rim blinks, then drops, and takes its cars, toys and pads with it", () => {
   const start = ROUND_MS - SHRINK_MS;
   assert.deepEqual(shrinkAt(start - 100), { drop: 0, late: false, warn: false });
   assert.equal(shrinkAt(start + 100).warn, true);
@@ -460,81 +735,140 @@ test("the ends blink, then drop, for the last stretch of the round", () => {
   const gone = shrinkAt(start + SHRINK_WARN_MS + 500);
   assert.ok(gone.late && !gone.warn && gone.drop > 0);
   const end = PINBALL.halfX - 3;
-  assert.ok(onBoard(PINBALL, end, 0));
-  assert.ok(!onBoard(PINBALL, end, 0, true));
+  assert.ok(onBoard(PINBALL, end, 12));
+  assert.ok(!onBoard(PINBALL, end, 12, true));
   const field = makeField(PINBALL);
   field.time = (start + SHRINK_WARN_MS) / 1000 - 0.2;
-  const car = place(field, "p1", end, 0, 0);
+  const car = place(field, "p1", end, 12, 0);
   const events = run(field, 1.5);
   assert.ok(events.some((event) => event.kind === "out" && event.by === ""));
   assert.equal(car.falls, 1);
+  const rimToys = PINBALL.def.hazards.filter((hazard) => hazardGone(PINBALL, hazard, true));
+  assert.ok(rimToys.length >= 4, "the pistons go with the rim");
+  assert.ok(rimToys.every((hazard) => !hazardGone(PINBALL, hazard, false)));
+  const sweeper = PINBALL.def.hazards.find((hazard) => hazard.kind === "sweeper");
+  assert.ok(sweeper && !hazardGone(PINBALL, sweeper, true));
+  const before = cubesAt(PINBALL, 30, false);
+  const after = cubesAt(PINBALL, 30, true);
+  assert.equal(before.length, PINBALL.def.pads.length);
+  assert.ok(after.length >= 6 && after.length < before.length);
+  assert.ok(after.every((cube) => onBoard(PINBALL, cube.x, cube.z, true)));
 });
 
-test("crates come on a clock every client can work out, one at a time", () => {
-  assert.equal(crateAt(PINBALL, 3, ITEMS_AT - CRATE_BEAM - 0.1), null);
-  const firstCrate = crateAt(PINBALL, 3, ITEMS_AT - CRATE_BEAM + 0.1);
-  assert.ok(firstCrate);
-  assert.equal(firstCrate.index, 0);
-  assert.equal(firstCrate.landAt, ITEMS_AT);
-  assert.deepEqual(crateAt(PINBALL, 3, ITEMS_AT + 1), firstCrate);
-  assert.equal(crateAt(PINBALL, 3, ITEMS_AT + CRATE_EVERY)?.index, 1);
-  assert.equal(crateAt(PINBALL, 3, ROUND_MS / 1000 + 1), null);
-  const end = ROUND_MS / 1000;
-  const last = Math.ceil((end - ITEMS_AT) / CRATE_EVERY) - 1;
-  assert.ok(ITEMS_AT + (last + 1) * CRATE_EVERY - CRATE_BEAM < end, "a beam would show");
-  assert.equal(crateAt(PINBALL, 3, end - 0.5)?.index, last, "no crate is called it cannot land");
-  const kinds = new Set<string>();
-
-  for (let round = 0; round < 12; round += 1) {
-    for (let index = 0; index < 9; index += 1) {
-      const crate = crateOf(PINBALL, round, index);
-      kinds.add(crate.kind);
-      const bumper = crate.kind === "mega" || crate.kind === "spring";
-      assert.equal(bumper, index % 2 === 0);
-      assert.ok(onBoard(PINBALL, crate.x, crate.z));
-      const { late } = shrinkAt((crate.landAt + CRATE_EVERY) * 1000);
-      assert.ok(!late || onBoard(PINBALL, crate.x, crate.z, true), "never on a dropped end");
-    }
-  }
-
-  assert.equal(kinds.size, 4);
+test("cubes come on a clock every client can work out, one a pad", () => {
+  const onPad = (time: number) => cubesAt(PINBALL, time, false).find((cube) => cube.id < 100);
+  assert.equal(onPad(CUBES_AT - CUBE_BEAM - 0.1), undefined);
+  const firstCube = onPad(CUBES_AT - CUBE_BEAM + 0.1);
+  assert.ok(firstCube);
+  assert.equal(firstCube.id, 0);
+  assert.equal(firstCube.landAt, CUBES_AT);
+  assert.deepEqual(onPad(CUBES_AT + 1), firstCube);
+  assert.equal(onPad(CUBES_AT + CUBE_EVERY)?.id, 1);
+  assert.deepEqual(cubesAt(PINBALL, ROUND_MS / 1000 + 1, false), []);
+  const all = cubesAt(PINBALL, 40, false);
+  assert.equal(new Set(all.map((cube) => cube.id)).size, all.length);
+  const lands = new Set(all.map((cube) => Math.round((cube.landAt % CUBE_EVERY) * 10)));
+  assert.ok(lands.size > PINBALL.def.pads.length / 2, "the pads do not all land together");
 });
 
-test("a car that reaches a landed crate is offered it, and takes it once granted", () => {
+test("a car that reaches a landed cube is offered it, and takes it once granted", () => {
   const field = makeField(PINBALL);
-  const crate = crateOf(PINBALL, 0, 0);
-  field.time = crate.landAt - 0.5;
-  const car = place(field, "p1", crate.x, crate.z, 0);
+  const [pad] = PINBALL.def.pads;
+  assert.ok(pad);
+  field.time = CUBES_AT - 0.5;
+  const car = place(field, "p1", pad[0], pad[1], 0);
   assert.deepEqual(run(field, 0.3), []);
   const events = run(field, 0.4);
   const reach = events.find((event) => event.kind === "reach");
   assert.ok(reach && reach.kind === "reach");
-  assert.equal(reach.crate, 0);
-  grant(field, "p1", reach.crate, reach.item);
-  assert.equal(heldItem(car), crate.kind);
+  assert.equal(reach.cube, 0);
+  grant(field, "p1", reach.cube, "spring");
+  assert.equal(car.special, "spring");
   assert.deepEqual(run(field, 0.3), []);
+  car.x = pad[0] + 8;
+  place(field, "p2", pad[0], pad[1], 0);
+  assert.equal(
+    run(field, 0.3).some((event) => event.kind === "reach"),
+    false,
+    "a taken cube is gone",
+  );
 });
 
-test("a full round of bots is a fight: punches land, cars fall, crates go, nobody breaks", () => {
+test("what a cube holds is the same everywhere, and kinder to the back of the field", () => {
+  const seen = new Set<SpecialKind>();
+  let frontHeavy = 0;
+  let backHeavy = 0;
+
+  for (let round = 1; round <= 40; round += 1) {
+    for (let cube = 0; cube < 60; cube += 1) {
+      const front = specialFor(round, cube, 1, 8);
+      const back = specialFor(round, cube, 8, 8);
+      assert.equal(front, specialFor(round, cube, 1, 8));
+      seen.add(front);
+      frontHeavy += front === "seeker" || front === "zap" || front === "giant" ? 1 : 0;
+      backHeavy += back === "seeker" || back === "zap" || back === "giant" ? 1 : 0;
+    }
+  }
+
+  assert.equal(seen.size, SPECIALS.length);
+  assert.ok(backHeavy > frontHeavy * 1.5, `${backHeavy} against ${frontHeavy}`);
+});
+
+test("a full round of bots is a fight: every attack and special is used, and nobody breaks", () => {
+  const attacks = new Set<string>();
+  const specials = new Set<string>();
+
   for (const round of [1, 2, 4000]) {
     const log = playMatch(round);
 
     const count = (kind: FieldEvent["kind"]) =>
       log.events.filter((event) => event.kind === kind).length;
 
-    const falls = [...log.falls.values()].reduce((sum, n) => sum + n, 0);
-    const byCar = log.causes.get("car") ?? 0;
-    assert.ok(count("punch") > 40, `punches: ${count("punch")}`);
-    assert.ok(count("whiff") < count("punch") * 0.5, "most punches land");
-    assert.ok(falls >= 12 && falls <= 64, `falls: ${falls}`);
-    assert.ok(byCar > falls * 0.6, `${byCar} of ${falls} falls were somebody's doing`);
-    assert.ok(count("reach") >= 4, `pickups: ${count("reach")}`);
-    assert.ok(Math.max(...log.scores.values()) >= 3);
+    const falls = log.outs.length;
+    const byCar = log.outs.filter((out) => out.by !== "").length;
+    assert.ok(count("attack") > 60, `attacks: ${count("attack")}`);
+    assert.ok(falls >= 16 && falls <= 60, `falls: ${falls}`);
+    assert.ok(byCar > falls * 0.7, `${byCar} of ${falls} falls were somebody's doing`);
+    assert.ok(count("use") >= 20, `specials: ${count("use")}`);
+    assert.ok(Math.max(...log.scores.values()) >= 4);
 
     for (const event of log.events) {
       if (event.kind === "hit") {
         assert.ok(Number.isFinite(event.x + event.z + event.reach));
+        attacks.add(event.hit.how);
+      } else if (event.kind === "use") {
+        specials.add(event.special);
       }
     }
+  }
+
+  for (const kind of CAR_KINDS) {
+    assert.ok(attacks.has(KINDS[kind].attack), `${kind} landed its attack`);
+  }
+
+  assert.equal(specials.size, SPECIALS.length);
+});
+
+test("no car is a must-pick: over a dozen bot rounds every kind scores in one band", () => {
+  const score = new Map<CarKind, number>();
+  const seats = new Map<CarKind, number>();
+
+  for (let round = 1; round <= 12; round += 1) {
+    const log = playMatch(round);
+
+    for (const [key, kind] of log.kinds) {
+      score.set(kind, (score.get(kind) ?? 0) + (log.scores.get(key) ?? 0));
+      seats.set(kind, (seats.get(kind) ?? 0) + 1);
+    }
+  }
+
+  const each = CAR_KINDS.map((kind) => (score.get(kind) ?? 0) / (seats.get(kind) ?? 1));
+  const mean = each.reduce((sum, value) => sum + value, 0) / each.length;
+
+  for (const [index, value] of each.entries()) {
+    assert.ok(
+      value > mean * 0.6 && value < mean * 1.4,
+      `${CAR_KINDS[index]} scores ${value.toFixed(2)} against a mean of ${mean.toFixed(2)}`,
+    );
   }
 });

@@ -10,12 +10,12 @@
     <title>Tabletop Turbo</title>
     <meta
       name="description"
-      content="Eight toy cars on a table with no walls. Fire your bumper, knock the others off."
+      content="Eight toy cars on a table with no walls. Six cars, twelve specials. Knock the others off."
     />
     <meta property="og:title" content="Tabletop Turbo" />
     <meta
       property="og:description"
-      content="Car sumo on a tabletop. Punch with your bumper, knock them over the edge."
+      content="Car sumo on a tabletop. Pick a car, grab a power cube, knock them over the edge."
     />
     <style>
       :root {
@@ -148,11 +148,16 @@
       #feed {
         position: absolute;
         top: calc(64px + var(--top));
-        left: calc(10px + var(--left));
+        left: 50%;
+        transform: translateX(-50%);
         display: flex;
         flex-direction: column;
+        align-items: center;
         gap: 3px;
         font-size: 11px;
+      }
+      .touch #feed {
+        top: calc(118px + var(--top));
       }
       #feed div {
         padding: 2px 6px;
@@ -230,7 +235,7 @@
       }
       @media (max-width: 520px) {
         .touch #board {
-          top: calc(62px + var(--top));
+          top: calc(112px + var(--top));
           right: calc(10px + var(--right));
         }
       }
@@ -254,11 +259,26 @@
         width: 0;
         background: var(--ink);
       }
-      #punch[data-ready="1"] .bar i {
+      #attack[data-ready="1"] .bar i {
         background: var(--hazard);
       }
-      #punch[data-ready="1"] {
+      #attack[data-ready="1"] {
         border-color: var(--hazard);
+      }
+      #hurt-box {
+        padding: 2px 10px 4px;
+        min-width: 84px;
+        text-align: center;
+        border-color: var(--me);
+      }
+      #hurt {
+        display: block;
+        font-size: 26px;
+        line-height: 1;
+        font-weight: 700;
+      }
+      #hurt[data-bump="1"] {
+        animation: bump 0.3s steps(4);
       }
       #boost .bar i {
         background: var(--me);
@@ -267,17 +287,64 @@
         background: var(--dim);
       }
       #item {
-        padding: 4px 10px 6px;
-        min-width: 92px;
-        text-align: center;
+        padding: 4px 10px 6px 6px;
+        min-width: 118px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
       }
       #item[data-kind=""] {
-        display: none;
+        opacity: 0.55;
+      }
+      #item:not([data-kind=""]) {
+        border-color: var(--ink);
+      }
+      #item-icon {
+        width: 24px;
+        height: 24px;
+        flex: none;
+        background: #1e1d2d center / 100% no-repeat;
+        border: var(--u) solid var(--edge);
+        image-rendering: pixelated;
       }
       #item b {
         display: block;
-        font-size: 13px;
+        font-size: 12px;
         font-weight: 700;
+        white-space: nowrap;
+      }
+
+      #radar {
+        position: absolute;
+        left: calc(10px + var(--left));
+        top: calc(60px + var(--top));
+        width: 96px;
+        height: 96px;
+        image-rendering: pixelated;
+        border-radius: 50%;
+        border: var(--u) solid var(--edge);
+        box-shadow: 0 calc(var(--u) * 2) 0 rgba(30, 29, 45, 0.4);
+      }
+
+      #tags {
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        overflow: hidden;
+      }
+      #tags span {
+        position: absolute;
+        left: 0;
+        top: 0;
+        font-size: 10px;
+        font-weight: 700;
+        white-space: nowrap;
+        text-shadow:
+          1px 0 0 #1e1d2d,
+          -1px 0 0 #1e1d2d,
+          0 1px 0 #1e1d2d,
+          0 -1px 0 #1e1d2d;
+        will-change: transform;
       }
 
       #banner {
@@ -295,6 +362,9 @@
           inset 0 var(--u) 0 var(--lip),
           0 calc(var(--u) * 2) 0 rgba(30, 29, 45, 0.4);
         display: none;
+      }
+      .touch #banner {
+        top: max(27%, calc(150px + var(--top)));
       }
       #banner[data-on="1"] {
         display: block;
@@ -441,19 +511,36 @@
       #results-next {
         text-align: center;
       }
+      #garage {
+        display: block;
+        margin: 10px auto 0;
+        pointer-events: auto;
+        cursor: pointer;
+        padding: 4px 14px 6px;
+        font-size: 12px;
+        background: var(--edge);
+        border: var(--u) solid var(--lip);
+      }
+      #garage:active {
+        transform: translateY(2px);
+      }
 
       #title {
         display: flex;
         flex-direction: column;
         align-items: center;
-        justify-content: center;
-        gap: 14px;
-        padding: calc(16px + var(--top)) 16px calc(16px + var(--bottom));
-        background: linear-gradient(rgba(30, 29, 45, 0.1), rgba(30, 29, 45, 0.6));
+        gap: 10px;
+        padding: calc(14px + var(--top)) 14px calc(12px + var(--bottom));
+        background: linear-gradient(
+          rgba(30, 29, 45, 0.55),
+          rgba(30, 29, 45, 0) 30%,
+          rgba(30, 29, 45, 0) 52%,
+          rgba(30, 29, 45, 0.7)
+        );
       }
       #title h1 {
         margin: 0;
-        font-size: clamp(34px, 9vw, 76px);
+        font-size: clamp(30px, 7.4vw, 60px);
         line-height: 0.9;
         text-align: center;
         font-weight: 700;
@@ -466,33 +553,116 @@
           0 10px 0 rgba(0, 0, 0, 0.55);
       }
       #title h1 em {
-        display: block;
         font-style: normal;
         color: var(--hazard);
+        margin-left: 0.3em;
       }
       #tag {
-        font-size: clamp(12px, 2.6vw, 18px);
-        padding: 4px 12px 6px;
+        font-size: clamp(10px, 2.2vw, 14px);
+        padding: 3px 12px 5px;
       }
-      #rules {
-        list-style: none;
-        margin: 0;
-        padding: 8px 14px;
-        font-size: clamp(10px, 2vw, 13px);
+      #showcase {
+        flex: 1;
+        min-height: 110px;
+        width: 100%;
+      }
+      #picker {
+        pointer-events: auto;
+        width: min(430px, 100%);
+        padding: 8px 10px 10px;
         display: grid;
-        gap: 4px;
-        max-width: 520px;
+        gap: 8px;
       }
-      #rules b {
-        color: var(--hazard);
-        margin-right: 8px;
+      #kind-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      #kind-row button {
+        cursor: pointer;
+        width: 40px;
+        height: 40px;
+        flex: none;
+        font-size: 20px;
         font-weight: 700;
+        background: var(--edge);
+        border: var(--u) solid var(--lip);
+      }
+      #kind-row button:active {
+        transform: translateY(2px);
+      }
+      #kind-card {
+        flex: 1;
+        text-align: center;
+        min-width: 0;
+      }
+      #kind-name {
+        display: block;
+        font-size: clamp(18px, 4.6vw, 26px);
+        line-height: 1;
+        font-weight: 700;
+        color: var(--me);
+      }
+      #kind-attack {
+        color: var(--hazard);
+      }
+      #kind-body {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 4px 12px;
+        align-items: center;
+      }
+      #kind-stats {
+        display: grid;
+        gap: 3px;
+        font-size: 10px;
+      }
+      #kind-stats div {
+        display: flex;
+        align-items: center;
+        gap: 3px;
+      }
+      #kind-stats span {
+        width: 46px;
+        color: var(--dim);
+      }
+      #kind-stats i {
+        width: 9px;
+        height: 9px;
+        background: #1e1d2d;
+        border: 1px solid var(--edge);
+      }
+      #kind-stats i[data-on="1"] {
+        background: var(--ink);
+      }
+      #kind-blurb {
+        font-size: clamp(10px, 2vw, 12px);
+        line-height: 1.35;
+        color: var(--ink);
+        min-height: 3.9em;
+      }
+      #swatches {
+        display: flex;
+        justify-content: center;
+        gap: 6px;
+      }
+      #swatches button {
+        cursor: pointer;
+        width: 30px;
+        height: 24px;
+        padding: 0;
+        border: var(--u) solid var(--edge);
+      }
+      #swatches button[data-on="1"] {
+        border-color: var(--ink);
+        transform: translateY(-3px);
+        box-shadow: 0 3px 0 var(--edge);
       }
       #start {
         pointer-events: auto;
         cursor: pointer;
-        padding: 8px 34px 12px;
-        font-size: clamp(22px, 5vw, 34px);
+        padding: 6px 40px 10px;
+        font-size: clamp(22px, 5vw, 32px);
         font-weight: 700;
         color: #1e1d2d;
         background: var(--hazard);
@@ -504,11 +674,12 @@
         box-shadow: 0 2px 0 #6b4a00;
       }
       #controls {
-        padding: 6px 12px 8px;
-        font-size: clamp(10px, 2vw, 12px);
+        padding: 4px 12px 6px;
+        font-size: clamp(9px, 1.8vw, 11px);
         color: var(--dim);
         text-align: center;
         line-height: 1.6;
+        max-width: 100%;
       }
       #controls b {
         color: var(--ink);
@@ -543,20 +714,91 @@
           font-size: 64px;
         }
         .meter {
-          min-width: 76px;
+          min-width: 66px;
+        }
+        #hurt-box {
+          min-width: 62px;
+        }
+        #hurt {
+          font-size: 20px;
+        }
+        #item {
+          min-width: 0;
+        }
+        #item b {
+          font-size: 10px;
+        }
+        #radar {
+          width: 72px;
+          height: 72px;
+          top: calc(50px + var(--top));
+        }
+        #dash {
+          gap: 4px;
         }
       }
-      @media (max-height: 430px) {
-        #title {
-          gap: 6px;
+      @media (max-width: 520px) {
+        #banner {
+          max-width: calc(100vw - 20px);
+          white-space: normal;
+          text-align: center;
         }
-        #rules {
+        .touch #radar {
+          top: calc(110px + var(--top));
+        }
+        #item .label {
           display: none;
+        }
+      }
+      @media (max-height: 520px) and (min-width: 600px) {
+        #title {
+          display: grid;
+          grid-template-columns: 1fr minmax(280px, 400px);
+          grid-template-rows: auto 1fr auto;
+          column-gap: 16px;
+          row-gap: 6px;
+          justify-items: center;
+          background: linear-gradient(
+            90deg,
+            rgba(30, 29, 45, 0.1),
+            rgba(30, 29, 45, 0) 40%,
+            rgba(30, 29, 45, 0.7)
+          );
+        }
+        #title h1 {
+          grid-column: 1;
+          grid-row: 1;
+          font-size: clamp(22px, 5vw, 36px);
+        }
+        #tag,
+        #controls {
+          display: none;
+        }
+        #showcase {
+          grid-column: 1;
+          grid-row: 2 / 4;
+          min-height: 0;
+        }
+        #picker {
+          grid-column: 2;
+          grid-row: 1 / 3;
+          align-self: center;
+          gap: 5px;
+        }
+        #start {
+          grid-column: 2;
+          grid-row: 3;
+          padding: 2px 30px 6px;
+          font-size: 20px;
+        }
+        #kind-blurb {
+          min-height: 0;
         }
       }
       @media (prefers-reduced-motion: reduce) {
         #banner[data-on="1"],
         #count b,
+        #hurt[data-bump="1"],
         #me b[data-bump="1"] {
           animation: none;
         }
@@ -566,22 +808,28 @@
   <body>
     <div id="game"></div>
 
+    <div id="tags" aria-hidden="true"></div>
     <div id="hud" data-on="0">
       <div id="me" class="panel">
         <b id="score">0</b>
         <span id="place">1ST</span>
       </div>
+      <canvas id="radar" aria-hidden="true"></canvas>
       <div id="feed" aria-hidden="true"></div>
       <div id="clock" class="panel" data-urgent="0">
         <span id="round" class="label">Round 1</span>
-        <b id="time">1:30</b>
+        <b id="time">2:00</b>
       </div>
       <div id="board" class="panel" aria-label="Scores"></div>
       <div id="banner" role="status" data-on="0"></div>
       <div id="count" aria-live="assertive"></div>
       <div id="dash">
-        <div id="punch" class="panel meter" data-ready="1">
-          <span class="label">Bumper</span>
+        <div id="hurt-box" class="panel">
+          <span class="label">Damage</span>
+          <b id="hurt">0%</b>
+        </div>
+        <div id="attack" class="panel meter" data-ready="1">
+          <span id="attack-name" class="label">Punch</span>
           <div class="bar"><i></i></div>
         </div>
         <div id="boost" class="panel meter">
@@ -589,8 +837,11 @@
           <div class="bar"><i></i></div>
         </div>
         <div id="item" class="panel" data-kind="">
-          <span class="label">Crate</span>
-          <b id="item-name"></b>
+          <i id="item-icon"></i>
+          <div>
+            <span class="label">Special</span>
+            <b id="item-name">EMPTY</b>
+          </div>
         </div>
       </div>
       <div id="net"></div>
@@ -603,17 +854,29 @@
         <h2 id="results-title">ROUND OVER</h2>
         <div id="results-rows"></div>
         <div id="results-next" class="label"></div>
+        <button id="garage" type="button">CHANGE CAR</button>
       </div>
     </div>
 
     <div id="title" data-on="1">
       <h1>TABLETOP<em>TURBO</em></h1>
       <span id="tag" class="panel">Knock them off the table</span>
-      <ul id="rules" class="panel">
-        <li><b>1</b>Fire your bumper to punch whoever is in front of you.</li>
-        <li><b>2</b>Over the edge or into a hole is a point for you.</li>
-        <li><b>3</b>Crates change your bumper. The board hits back.</li>
-      </ul>
+      <div id="showcase"></div>
+      <div id="picker" class="panel">
+        <div id="kind-row">
+          <button id="kind-prev" type="button" aria-label="Previous car">&lt;</button>
+          <div id="kind-card">
+            <b id="kind-name">BUMPER</b>
+            <span class="label">Attack: <span id="kind-attack">PUNCH</span></span>
+          </div>
+          <button id="kind-next" type="button" aria-label="Next car">&gt;</button>
+        </div>
+        <div id="kind-body">
+          <div id="kind-stats"></div>
+          <div id="kind-blurb"></div>
+        </div>
+        <div id="swatches" aria-label="Car colour"></div>
+      </div>
       <button id="start" type="button">PLAY</button>
       <div id="controls" class="panel"></div>
     </div>

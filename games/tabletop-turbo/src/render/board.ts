@@ -5,6 +5,7 @@ import { BASE, RAMP, tone } from "../pixel/palette";
 import type { BoardMap, PixelStage } from "../pixel/stage";
 import { CL, edgeDistance, holeDistance } from "../sim/arena";
 import type { Arena, HazardDef } from "../sim/arena";
+import { hazardGone } from "../sim/hazards";
 
 const TEXELS = 16;
 const MARGIN = 0.5;
@@ -219,13 +220,13 @@ export class Board {
 
   constructor(arena: Arena) {
     this.arena = arena;
-    this.pads = [...arena.def.knockerPads, ...arena.def.carPads];
+    this.pads = arena.def.pads;
     this.map = this.paint();
     const { halfX, halfZ } = arena;
     const core = new MeshBuilder();
     this.top(core, CORE);
     wall(core, (x, z) => edgeDistance(arena, x, z, true), halfX, halfZ);
-    this.housePistons(core);
+    this.housePistons(core, false);
     const ends = new MeshBuilder();
     this.top(ends, END);
     this.endsTop = ends.build();
@@ -237,6 +238,7 @@ export class Board {
       halfZ,
     );
     this.floorPits(sides);
+    this.housePistons(sides, true);
     this.endsSides = sides.build();
     this.solids = [core.build(), this.room()];
   }
@@ -374,9 +376,9 @@ export class Board {
     }
   }
 
-  private housePistons(b: MeshBuilder) {
+  private housePistons(b: MeshBuilder, rim: boolean) {
     for (const hazard of this.arena.def.hazards) {
-      if (hazard.kind === "piston") {
+      if (hazard.kind === "piston" && hazardGone(this.arena, hazard, true) === rim) {
         b.at(hazard.x, 0, hazard.z, hazard.a).part();
         b.box(-0.6, 0.2, 0, 4.4, 3.2, 4.4, {
           at: (_x, y, z) => {
@@ -404,7 +406,7 @@ export class Board {
   private room() {
     const b = new MeshBuilder();
     b.part();
-    b.quad([-110, TABLE_Y, -90], [0, 0, 190], [220, 0, 0], [0, 1, 0], {
+    b.quad([-260, TABLE_Y, -240], [0, 0, 480], [520, 0, 0], [0, 1, 0], {
       flags: FLAG.soft + FLAG.noShadow,
       tone: tone(RAMP.sand, BASE),
     });

@@ -3,82 +3,122 @@ import { FixedRate, RemoteClock } from "@vibedgames/multiplayer";
 import type { JsonRecord, JsonValue, MultiplayerClient } from "@vibedgames/multiplayer";
 import * as THREE from "three";
 
-import { driveAudio, idleAudio, sfx } from "../audio/sfx";
+import { driveAudio, idleAudio, setWorldLevel, sfx } from "../audio/sfx";
 import type { Input } from "../input/input";
-import { RemoteTrack, adoptCar, drawnOf, encodeCar, ghostOf, readPose, viewOf } from "../net/pose";
+import { encodeHit, readHit } from "../net/blow";
+import {
+  RemoteTrack,
+  adoptCar,
+  drawnOf,
+  encodeCar,
+  ghostOf,
+  readPose,
+  shotOf,
+  viewOf,
+} from "../net/pose";
 import type { CarView, PoseReport } from "../net/pose";
 import { isJsonNumber, isJsonObject, isJsonString, numberOr } from "../net/wire";
-import type { WireField } from "../net/wire";
+import { BASE, CAR_RAMPS, RAMP, rampCss, tone } from "../pixel/palette";
+import { PX_PER_UNIT, PixelStage } from "../pixel/stage";
+import type { StageView } from "../pixel/stage";
 import { Board, TABLE_Y } from "../render/board";
 import { CarMesh } from "../render/car-mesh";
 import { GlowGrid, SKID_SLOT } from "../render/glow-grid";
+import { specialName } from "../render/hud";
+import type { Hud, HudRow, HudTag } from "../render/hud";
 import { LightMap } from "../render/light-map";
-import { Sparks } from "../render/fx";
-import { itemName } from "../render/hud";
-import type { Hud, HudRow } from "../render/hud";
-import { ARROW, BEAM, ITEM_RAMP, Props, drawCrate } from "../render/props";
+import {
+  ARROW,
+  BEAM,
+  OIL_SLOT,
+  PODIUM,
+  Props,
+  SPECIAL_RAMP,
+  drawCube,
+  drawShot,
+} from "../render/props";
+import type { Blip } from "../render/radar";
 import {
   BOOST_MIN,
   BOTS,
   BOT_SEND_HZ,
   BUMPER_THROW,
   COUNTDOWN_MS,
-  DENT_GAIN,
-  GIANT_SCALE,
+  DAMAGE_GAIN,
   GRID_SIZE,
-  LOCAL_COLOR,
   MAX_SPEED,
   MAX_STEPS,
   PISTON_THROW,
-  PUNCH_HOLD,
-  PUNCH_REACH,
-  PUNCH_RETRACT,
-  PUNCH_STRIKE,
-  PUNCH_THROW,
   RAM_THROW,
   RESPAWN_SECONDS,
   RESULTS_MS,
   ROUND_MS,
-  SHRINK_MS,
   SEND_HZ,
-  SPRING_REACH,
+  SHRINK_MS,
   SQUEEZE_POINTS,
   STEP,
   SWEEPER_THROW,
-  KNOCK_TAU,
 } from "../shared/constants";
-import type { ItemKind } from "../shared/constants";
 import { arenaFor, edgeDistance } from "../sim/arena";
 import type { Arena } from "../sim/arena";
 import { botInput, makeBrain, makeDirector, releaseBot } from "../sim/bot";
 import type { BotBrain, BotView } from "../sim/bot";
-import { clash, gridCar, heldItem, makeCar, punchReady } from "../sim/car";
+import {
+  attackReady,
+  clash,
+  flightOf,
+  gridCar,
+  launchOf,
+  makeCar,
+  stickInput,
+  swingAt,
+  wrapAngle,
+} from "../sim/car";
 import type { Car, CarInput, CarMode, Hit, HitHow } from "../sim/car";
-import { deliver, grant, makeField, reward, stepField } from "../sim/field";
+import { cubesAt } from "../sim/cubes";
+import { deliver, makeField } from "../sim/field";
 import type { Field, FieldEvent } from "../sim/field";
-import { hazardThreat, pistonAt, shrinkAt } from "../sim/hazards";
-import { crateAt } from "../sim/items";
-import { BASE, CAR_RAMPS, RAMP, carRampFor, rampCss, tone } from "../pixel/palette";
-import { PX_PER_UNIT, PixelStage } from "../pixel/stage";
-import type { StageView } from "../pixel/stage";
+import { hazardGone, hazardThreat, pistonAt, shrinkAt } from "../sim/hazards";
+import { CAR_KINDS, KINDS } from "../sim/kinds";
+import type { CarKind } from "../sim/kinds";
+import { shotLife } from "../sim/shots";
+import type { Shot } from "../sim/shots";
+import {
+  GIANT_SCALE,
+  GIANT_WEIGHT,
+  MINE_THROW,
+  ROCKET_THROW,
+  SEEKER_SPEED,
+  SEEKER_THROW,
+  SHOCK_THROW,
+  STOMP_THROW,
+  ZAP_RADIUS,
+  specialFor,
+} from "../sim/specials";
+import type { ModKind, SpecialKind } from "../sim/specials";
+import { grant, reward, stepField } from "../sim/step";
+import { Effects } from "./effects";
 
-type RacerKind = "me" | "bot" | "human";
+type Who = "me" | "bot" | "human";
 
 interface Predicted {
   id: string;
   dx: number;
   dz: number;
   reach: number;
+  tau: number;
   t0: number;
   t1: number;
 }
 
 interface Racer {
   key: string;
-  kind: RacerKind;
+  who: Who;
   name: string;
   css: string;
+  rgb: number;
   ramp: number;
+  colour: number;
   slot: number;
   mesh: CarMesh;
   track: RemoteTrack | null;
@@ -86,15 +126,18 @@ interface Racer {
   seen: boolean;
   fresh: boolean;
   launches: number;
-  punches: number;
+  attacks: number;
+  uses: number;
   mode: CarMode;
+  mod: ModKind;
+  special: SpecialKind | "";
+  slipping: boolean;
   air: boolean;
-  item: string;
-  punchT: number;
+  attackT: number;
   flash: number;
   tumble: number;
   smokeT: number;
-  bumperOut: number;
+  swing: number;
   steer: number;
   x: number;
   z: number;
@@ -106,15 +149,6 @@ interface RoundState {
   startAt: number;
   phase: "play" | "results";
   nextAt: number;
-}
-
-interface Flash {
-  x: number;
-  z: number;
-  radius: number;
-  power: number;
-  age: number;
-  life: number;
 }
 
 export interface GameDiagnostics {
@@ -131,15 +165,26 @@ export interface GameDiagnostics {
   edge: number;
   /** 0–1: something on the board is about to hit where the car stands. */
   threat: number;
-  punchReady: boolean;
+  attackReady: boolean;
+  /** How far the car's own attack reaches. */
+  range: number;
   boost: number;
-  item: string;
-  /** The nearest rival that can be hit: offset on screen (x right, y down) and distance. */
-  rival: { dx: number; dy: number; distance: number; edge: number };
-  /** The way to the middle of the board, on screen. */
-  centre: { dx: number; dy: number };
+  /** The special in hand, or "". */
+  special: string;
+  /** Damage on the car: the more, the further a blow throws it. */
+  damage: number;
+  /**
+   * The nearest rival that can be hit, as the driver sees it: `ahead` of the
+   * nose (negative: behind), `side` to the right (negative: left).
+   */
+  rival: { ahead: number; side: number; distance: number; edge: number; damage: number };
+  /** The way to the middle of the board, the same way. */
+  centre: { ahead: number; side: number };
+  /** The nearest power cube on its pad, the same way: distance 99 if there is none. */
+  cube: { ahead: number; side: number; distance: number };
   falls: number;
   knockOffs: number;
+  car: string;
 }
 
 const FRESH_START = "fresh-start";
@@ -149,30 +194,67 @@ const KO_EVENT = "ko";
 const PARTY = [RAMP.yellow, RAMP.pink, RAMP.cyan, RAMP.lime, RAMP.white] as const;
 const MIN_ZOOM = 9;
 const PITCH = (50 * Math.PI) / 180;
-const VIEW_DIR = new THREE.Vector3(0, Math.sin(PITCH), Math.cos(PITCH));
 const EYE_DISTANCE = 200;
-
-const THROWS = {
-  bumper: BUMPER_THROW,
-  land: 2.6,
-  piston: PISTON_THROW,
-  punch: PUNCH_THROW,
-  ram: RAM_THROW,
-  sweeper: SWEEPER_THROW,
-} as const satisfies Record<HitHow, number>;
-
+const NORTH = -Math.PI / 2;
+const CAM_TURN = 4.2;
+const CAM_LEAD = 5;
+const SHOW_SCALE = 1.7;
 const AWAY_MS = 2500;
 const LATE_FALL_MS = 1200;
 
+const REACH_GUESS = {
+  bumper: BUMPER_THROW,
+  dash: KINDS.dart.throw,
+  land: 2.6,
+  magnet: 5,
+  mine: MINE_THROW,
+  piston: PISTON_THROW,
+  punch: KINDS.bumper.throw,
+  ram: RAM_THROW,
+  rocket: ROCKET_THROW,
+  scoop: KINDS.scoop.throw,
+  seeker: SEEKER_THROW,
+  shock: SHOCK_THROW,
+  shot: KINDS.popper.throw,
+  slam: KINDS.brick.throw,
+  spin: KINDS.twister.throw,
+  stomp: STOMP_THROW,
+  sweeper: SWEEPER_THROW,
+  zap: 0.5,
+} as const satisfies Record<HitHow, number>;
+
+const FIXED = new Set<HitHow>(["land", "magnet", "zap"]);
+
 const TEST_SKIPS = new Map([
   ["active-play", 0],
-  ["crate", 9500],
+  ["cubes", 9500],
   ["finale", ROUND_MS - 6000],
-  ["shrink", ROUND_MS - 26_500],
+  ["shrink", ROUND_MS - SHRINK_MS - 1500],
 ]);
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 const isBotKey = (key: string) => /^b\d$/u.test(key);
+const botKey = (index: number) => `b${index}`;
+const cubeKey = (round: number, id: number) => `cube:${round}:${id}`;
+const rampOf = (colour: number) => CAR_RAMPS[colour % CAR_RAMPS.length] ?? CAR_RAMPS[0];
+const round1 = (v: number) => Math.round(v * 10) / 10;
+
+const botKind = (index: number, round: number) =>
+  CAR_KINDS[(index + Math.max(0, round)) % CAR_KINDS.length] ?? "bumper";
+
+const reachOf = (kind: CarKind) => {
+  const { attack } = KINDS[kind];
+
+  if (attack === "shot") {
+    return 16;
+  }
+
+  if (attack === "dash") {
+    return 7;
+  }
+
+  return attack === "punch" ? 4.6 : 3.4;
+};
 
 const phaseOf = (playing: boolean, ms: number, mode: CarMode) => {
   if (!playing) {
@@ -206,16 +288,14 @@ const countText = (seconds: number, left: number) => {
   return left > 0 && left <= 5000 ? String(Math.ceil(left / 1000)) : "";
 };
 
-const hitSound = (how: HitHow, power: number, involved: boolean) => {
-  if (how === "punch") {
-    sfx.hit(power, involved);
-  } else if (how === "ram" || how === "land") {
-    sfx.ram(involved);
-  } else if (how === "bumper") {
-    sfx.bounce(involved);
-  } else {
-    sfx.sweep(involved);
+const throwOf = (view: CarView, hit: Hit) => {
+  if (FIXED.has(hit.how)) {
+    return hit.reach;
   }
+
+  const weight = KINDS[view.kind].weight * (view.mod === "giant" ? GIANT_WEIGHT : 1);
+
+  return launchOf(hit.reach, view.damage, weight);
 };
 
 /* oxlint-disable no-bitwise, unicorn/prefer-code-point -- FNV-1a is defined over
@@ -247,30 +327,6 @@ const readRound: (shared: JsonRecord) => RoundState | null = (shared) => {
   };
 };
 
-const readHit: (value: WireField) => Hit | null = (value) => {
-  if (!isJsonObject(value)) {
-    return null;
-  }
-
-  const { by, dx, dz, how, id, reach } = value;
-  const known = how === "punch" || how === "ram" || how === "land";
-
-  if (!isJsonString(id) || !isJsonString(by) || !known) {
-    return null;
-  }
-
-  if (!isJsonNumber(dx) || !isJsonNumber(dz) || !isJsonNumber(reach)) {
-    return null;
-  }
-
-  const length = Math.hypot(dx, dz) || 1;
-
-  return { by, dx: dx / length, dz: dz / length, how, id, reach: clamp(reach, 0, 22) };
-};
-
-const botKey = (index: number) => `b${index}`;
-const crateKey = (round: number, index: number) => `crate:${round}:${index}`;
-
 export class GameScene {
   private readonly client: MultiplayerClient;
   private readonly input: Input;
@@ -278,10 +334,10 @@ export class GameScene {
   private readonly stage: PixelStage;
   private readonly lights = new LightMap();
   private readonly glow = new GlowGrid();
-  private readonly sparks = new Sparks(900);
   private readonly arena: Arena = arenaFor(0);
   private readonly board: Board;
   private readonly props: Props;
+  private readonly fx: Effects;
   private readonly field: Field;
   private readonly brains = new Map<string, BotBrain>();
   private director = makeDirector();
@@ -291,9 +347,17 @@ export class GameScene {
   private readonly sendClock = new FixedRate(SEND_HZ);
   private readonly botSend = new FixedRate(BOT_SEND_HZ);
   private readonly inputs = new Map<string, CarInput>();
-  private readonly pending = new Map<number, { key: string; item: ItemKind; at: number }>();
+  private readonly pending = new Map<number, { key: string; at: number }>();
   private readonly foretold = new Set<string>();
-  private readonly flashes: Flash[] = [];
+  private readonly heard = new Map<string, PoseReport>();
+  private readonly steered = new Map<string, number>();
+  private readonly landed = new Set<number>();
+  private readonly shown = new Map<number, { x: number; z: number }>();
+  private readonly botColours: number[] = [];
+  private readonly tags: HudTag[] = [];
+  private readonly blips: Blip[] = [];
+  private readonly showcars = new Map<CarKind, CarMesh>();
+  private readonly aim = new THREE.Vector3();
   private readonly view: StageView = {
     eye: new THREE.Vector3(),
     target: new THREE.Vector3(0, 0, 1),
@@ -302,6 +366,8 @@ export class GameScene {
 
   private state: RoundState = { nextAt: 0, phase: "play", round: 0, startAt: 0 };
   private me: Car | null = null;
+  private kind: CarKind = "bumper";
+  private colour = 0;
   private started = false;
   private firstRound = 0;
   private paused = false;
@@ -310,9 +376,9 @@ export class GameScene {
   private clock = 0;
   private frame = 0;
   private acc = 0;
-  private hitstop = 0;
-  private shake = 0;
-  private punchQueued = false;
+  private yaw = NORTH;
+  private attackQueued = false;
+  private specialQueued = false;
   private wasHost = false;
   private lastHostId: string | null = null;
   private lastStatus = "";
@@ -321,13 +387,9 @@ export class GameScene {
   private dropped = false;
   private wasReady = true;
   private wasBoosting = false;
-  private readonly aim = new THREE.Vector3();
   private resultsShown = false;
-  private lastCrate = -1;
   private knockOffs = 0;
   private myPlace = 1;
-  private width = 1;
-  private height = 1;
 
   constructor(
     client: MultiplayerClient,
@@ -342,19 +404,32 @@ export class GameScene {
     this.stage = new PixelStage(renderer, shadows, this.lights.bytes);
     this.board = new Board(this.arena);
     this.props = new Props(this.arena);
+    this.fx = new Effects(this.stage, hud, this.lights, this.props);
     this.field = makeField(this.arena);
     this.stage.setWorld(this.board.solids);
     this.stage.setBoard(this.board.map);
+    this.stage.setSlotRamp(OIL_SLOT, RAMP.purple);
+  }
+
+  /** Whether the player is off the title and on the board. */
+  get playing() {
+    return this.started;
   }
 
   resize(width: number, height: number) {
-    this.width = width;
-    this.height = height;
     this.stage.resize(width, height);
   }
 
   render() {
     this.stage.render(this.view);
+    this.tagCars();
+  }
+
+  /** The car the player will drive, and which of the car colours it wears. */
+  setLoadout(kind: CarKind, colour: number) {
+    this.kind = kind;
+    this.colour = ((colour % CAR_RAMPS.length) + CAR_RAMPS.length) % CAR_RAMPS.length;
+    this.input.setTint(rampCss(rampOf(this.colour), BASE + 1));
   }
 
   /** Off the title and onto the board. */
@@ -368,12 +443,38 @@ export class GameScene {
     this.hud.showTitle(false);
     this.hud.showHud(true);
     this.input.setTouchVisible(true);
+    setWorldLevel(1);
     notifyGameStarted();
-    const car = makeCar(this.myKey(), false);
+    const car = makeCar(this.myKey(), false, this.kind);
     car.modeT = RESPAWN_SECONDS;
     this.me = car;
     this.field.cars.set(car.key, car);
+    this.yaw = NORTH;
     this.client.sendToHost(FRESH_START, null);
+  }
+
+  /** Back to the title to pick another car. The room plays on without this one. */
+  leave() {
+    const { me } = this;
+
+    if (!this.started || !me) {
+      return;
+    }
+
+    this.started = false;
+    this.me = null;
+    this.field.cars.delete(me.key);
+    this.racers.delete(me.key);
+    this.client.updateMyState({ t: 0 });
+    this.resultsShown = false;
+    this.hud.showResults(false);
+    this.hud.showHud(false);
+    this.hud.showTitle(true);
+    this.hud.setTags([]);
+    this.input.setTouchVisible(false);
+    this.input.clear();
+    setWorldLevel(0.25);
+    idleAudio();
   }
 
   /** Room events. The host's own intents loop back here too. */
@@ -388,7 +489,7 @@ export class GameScene {
       const asker = from === this.client.playerId ? this.myKey() : from;
 
       const others = [...this.racers.values()].some(
-        (racer) => racer.kind !== "bot" && racer.key !== asker,
+        (racer) => racer.who !== "bot" && racer.key !== asker,
       );
 
       if (!others) {
@@ -409,7 +510,8 @@ export class GameScene {
     if (paused) {
       this.pausedAt = this.client.serverNow();
       this.input.clear();
-      this.punchQueued = false;
+      this.attackQueued = false;
+      this.specialQueued = false;
       idleAudio();
     } else if (solo) {
       const held = this.client.serverNow() - this.pausedAt;
@@ -427,7 +529,7 @@ export class GameScene {
     }
   }
 
-  /** Playtest hook: jump to a named moment of a round. */
+  /** Playtest hook: jump to a named moment of a round, or hand the car a special. */
   setTestState(name: string) {
     if (name === "title") {
       return !this.started;
@@ -435,6 +537,14 @@ export class GameScene {
 
     if (name === "sun" || name === "sun-off") {
       this.stage.setSun(name === "sun");
+
+      return true;
+    }
+
+    const special = name.startsWith("special-") ? name.slice(8) : "";
+
+    if (special in SPECIAL_RAMP && this.me) {
+      Object.assign(this.me, { special });
 
       return true;
     }
@@ -469,8 +579,13 @@ export class GameScene {
     this.input.update();
     this.hud.tick();
 
-    if (!this.started && this.input.anyStart()) {
-      this.start();
+    if (!this.started) {
+      const pick = this.input.pick();
+      this.hud.nudgePick(pick.across, pick.down);
+
+      if (this.input.anyStart()) {
+        this.start();
+      }
     }
 
     const now = this.client.serverNow();
@@ -512,6 +627,7 @@ export class GameScene {
     out.score = this.scoreOf(this.myKey());
     out.place = this.myPlace;
     out.knockOffs = this.knockOffs;
+    out.car = this.kind;
 
     if (!this.started || !me) {
       out.phase = "title";
@@ -523,28 +639,48 @@ export class GameScene {
     const spot = this.stage.project(me.x, 0, me.z);
     out.player.x = Math.round(spot.x);
     out.player.y = Math.round(spot.y);
-    const late = shrinkAt(ms).late || shrinkAt(ms).warn;
-    out.edge = Math.round(edgeDistance(this.arena, me.x, me.z, late) * 10) / 10;
-    out.threat = Math.round(hazardThreat(this.arena, ms / 1000, me.x, me.z) * 10) / 10;
-    out.punchReady = me.cooldown <= 0 && me.mode === "drive";
-    out.boost = Math.round(me.meter * 10) / 10;
-    out.item = heldItem(me);
+    const shrink = shrinkAt(ms);
+    const late = shrink.late || shrink.warn;
+    out.edge = round1(edgeDistance(this.arena, me.x, me.z, late));
+    out.threat = round1(hazardThreat(this.arena, ms / 1000, me.x, me.z, shrink.late));
+    out.attackReady = me.cooldown <= 0 && me.mode === "drive";
+    out.range = reachOf(me.kind);
+    out.boost = round1(me.meter);
+    out.special = me.special;
+    out.damage = Math.round(me.damage);
     out.falls = me.falls;
-    out.centre.dx = Math.round(-me.x);
-    out.centre.dy = Math.round(-me.z);
+    const cos = Math.cos(me.a);
+    const sin = Math.sin(me.a);
+
+    const seen = (x: number, z: number) => ({
+      ahead: round1((x - me.x) * cos + (z - me.z) * sin),
+      side: round1(-(x - me.x) * sin + (z - me.z) * cos),
+    });
+
+    Object.assign(out.centre, seen(0, 0));
     let best = Number.POSITIVE_INFINITY;
     out.rival.distance = 99;
 
     for (const racer of this.racers.values()) {
       const gap = Math.hypot(racer.view.x - me.x, racer.view.z - me.z);
 
-      if (racer.kind !== "me" && racer.view.mode === "drive" && !racer.view.safe && gap < best) {
+      if (racer.who !== "me" && racer.view.mode === "drive" && !racer.view.safe && gap < best) {
         best = gap;
-        out.rival.dx = Math.round((racer.view.x - me.x) * 10) / 10;
-        out.rival.dy = Math.round((racer.view.z - me.z) * 10) / 10;
-        out.rival.distance = Math.round(gap * 10) / 10;
-        out.rival.edge =
-          Math.round(edgeDistance(this.arena, racer.view.x, racer.view.z, late) * 10) / 10;
+        Object.assign(out.rival, seen(racer.view.x, racer.view.z), {
+          damage: Math.round(racer.view.damage),
+          distance: round1(gap),
+          edge: round1(edgeDistance(this.arena, racer.view.x, racer.view.z, late)),
+        });
+      }
+    }
+
+    out.cube.distance = 99;
+
+    for (const cube of this.shown.values()) {
+      const gap = Math.hypot(cube.x - me.x, cube.z - me.z);
+
+      if (gap < out.cube.distance) {
+        Object.assign(out.cube, seen(cube.x, cube.z), { distance: round1(gap) });
       }
     }
   }
@@ -623,7 +759,7 @@ export class GameScene {
   }
 
   private newRound(round: number) {
-    this.client.clearClaims("crate:");
+    this.client.clearClaims("cube:");
     this.client.updateSharedState({
       bots: {},
       counted: {},
@@ -684,15 +820,18 @@ export class GameScene {
     field.round = next.round;
     field.seq = 0;
     field.taken.clear();
+    field.shots.length = 0;
     field.events.length = 0;
     this.pending.clear();
     this.foretold.clear();
+    this.steered.clear();
+    this.landed.clear();
+    this.shown.clear();
     this.glow.clear();
     this.director = makeDirector();
     this.warned = false;
     this.dropped = false;
     this.resultsShown = false;
-    this.lastCrate = -1;
     this.knockOffs = 0;
     this.hud.showResults(false);
     const { grid } = this.arena.def;
@@ -708,14 +847,24 @@ export class GameScene {
     for (const [key, car] of field.cars) {
       if (car.bot) {
         const index = Number(key.slice(1));
+        car.kind = botKind(index, next.round);
+        car.cooldownOf = KINDS[car.kind].cooldown;
         gridCar(car, grid[GRID_SIZE - 1 - index] ?? { a: 0, x: 0, z: 0 });
         this.brains.set(key, makeBrain(index, next.round));
       }
     }
 
     for (const racer of this.racers.values()) {
-      Object.assign(racer, { launches: 0, predicted: null, punches: 0 });
-      racer.view = { ...racer.view, falls: 0, lastBy: "", launches: 0, outBy: "", punches: 0 };
+      Object.assign(racer, { attacks: 0, launches: 0, predicted: null, uses: 0 });
+      racer.view = {
+        ...racer.view,
+        attacks: 0,
+        falls: 0,
+        lastBy: "",
+        launches: 0,
+        outBy: "",
+        uses: 0,
+      };
     }
   }
 
@@ -730,7 +879,7 @@ export class GameScene {
       const report = readPose(row);
 
       if (report && report.round === this.state.round && !this.field.cars.has(key)) {
-        const car = makeCar(key, true);
+        const car = makeCar(key, true, report.kind);
         adoptCar(car, report);
         this.field.cars.set(key, car);
         this.brains.set(key, makeBrain(Number(key.slice(1)), this.state.round));
@@ -745,18 +894,20 @@ export class GameScene {
       }
     }
 
+    this.field.shots.length = 0;
     this.director = makeDirector();
   }
 
   private staffBots(seconds: number, now: number) {
     const count = Math.min(BOTS.length, GRID_SIZE - this.humans(now).length);
+    this.paintBots();
 
     for (const [index] of BOTS.entries()) {
       const key = botKey(index);
       const car = this.field.cars.get(key);
 
       if (index < count && !car) {
-        const fresh = makeCar(key, true);
+        const fresh = makeCar(key, true, botKind(index, this.state.round));
         fresh.modeT = RESPAWN_SECONDS;
 
         if (seconds < 0) {
@@ -769,6 +920,26 @@ export class GameScene {
         this.field.cars.delete(key);
         releaseBot(this.director, key);
       }
+    }
+  }
+
+  private paintBots() {
+    const taken = new Set<number>();
+
+    if (this.started) {
+      taken.add(this.colour);
+    }
+
+    for (const racer of this.racers.values()) {
+      if (racer.who === "human") {
+        taken.add(racer.colour);
+      }
+    }
+
+    const free = CAR_RAMPS.map((_ramp, index) => index).filter((index) => !taken.has(index));
+
+    for (const [index] of BOTS.entries()) {
+      this.botColours[index] = free[index % Math.max(1, free.length)] ?? index % CAR_RAMPS.length;
     }
   }
 
@@ -858,14 +1029,16 @@ export class GameScene {
     const mine = this.myKey();
     const worth = clamp(numberOr(payload.n, 1), 1, SQUEEZE_POINTS);
 
-    if (victim) {
+    if (victim && this.started) {
       this.hud.feed(by ? this.rowOf(by) : null, this.rowOf(victim));
     }
 
     if (by) {
       reward(this.field, by.key);
-      const spot = this.stage.project(by.x, 2.5, by.z);
-      this.hud.pop(`+${worth}`, spot.x, spot.y, by.css);
+
+      if (this.started) {
+        this.fx.say(`+${worth}`, by.x, 2.5, by.z, by.css);
+      }
     }
 
     if (by?.key === mine) {
@@ -903,7 +1076,7 @@ export class GameScene {
     if (car && out && isJsonNumber(dx) && isJsonNumber(dz)) {
       const length = Math.hypot(dx, dz) || 1;
       clash(car, dx / length, dz / length);
-      this.clashFx(car.x - dx / length, car.z - dz / length, car.key === this.myKey());
+      this.fx.clash(car.x - dx / length, car.z - dz / length, car.key === this.myKey());
     }
   }
 
@@ -915,6 +1088,7 @@ export class GameScene {
     }
 
     field.ghosts.clear();
+    this.heard.clear();
 
     for (const player of Object.values(client.players)) {
       const away = player.id === client.playerId || player.connected === false;
@@ -935,6 +1109,9 @@ export class GameScene {
       }
     }
 
+    this.hearShots(now);
+    this.dropShots();
+
     for (const racer of this.racers.values()) {
       if (racer.seen && racer.track) {
         const predicted = this.predict(racer, dt);
@@ -946,19 +1123,71 @@ export class GameScene {
     }
   }
 
-  private hear(key: string, kind: RacerKind, report: PoseReport) {
-    if (report.round !== this.state.round) {
+  private hear(key: string, who: Who, report: PoseReport) {
+    if (report.round !== this.state.round || this.field.cars.has(key)) {
       return;
     }
 
-    const racer = this.ensure(key, kind);
+    const racer = this.ensure(key, who, report.colour);
+    this.paint(racer, report.colour);
     racer.track?.push(report);
     const view = racer.track?.sample();
 
     if (view) {
       racer.view = view;
       racer.seen = true;
+      this.heard.set(key, report);
     }
+  }
+
+  private hearShots(now: number) {
+    const { shots } = this.field;
+
+    for (const [owner, report] of this.heard) {
+      const lag = clamp((now - report.t) / 1000, 0, 0.4);
+
+      for (const row of report.shots) {
+        const id = `${owner}:${report.round}:${row.seq}`;
+        let shot = shots.find((other) => other.id === id);
+
+        if (!shot) {
+          shot = shotOf(owner, report.round, row);
+          shots.push(shot);
+        }
+
+        if (row.kind === "seeker" && this.steered.get(id) !== report.t) {
+          this.steered.set(id, report.t);
+          const x = row.x + Math.cos(row.a) * SEEKER_SPEED * lag;
+          const z = row.z + Math.sin(row.a) * SEEKER_SPEED * lag;
+          shot.x += (x - shot.x) * 0.5;
+          shot.z += (z - shot.z) * 0.5;
+          shot.a = row.a;
+          shot.target = row.target;
+        }
+      }
+    }
+  }
+
+  private dropShots() {
+    const { shots } = this.field;
+
+    for (let i = shots.length - 1; i >= 0; i -= 1) {
+      const shot = shots[i];
+      const report = shot ? this.heard.get(shot.by) : undefined;
+      const seq = shot ? Number(shot.id.slice(shot.id.lastIndexOf(":") + 1)) : 0;
+
+      if (shot && !shot.own && report?.shots.some((row) => row.seq === seq) !== true) {
+        shots.splice(i, 1);
+        this.steered.delete(shot.id);
+        const early = this.field.time - shot.t0 < shotLife(shot.kind) - 0.05;
+        this.popShot(shot, early || shot.kind === "rocket");
+      }
+    }
+  }
+
+  private popShot(shot: Shot, burst: boolean) {
+    const owner = this.racers.get(shot.by);
+    this.fx.pop(shot, burst, owner?.ramp ?? RAMP.white, shot.by === this.myKey());
   }
 
   private predict(racer: Racer, dt: number) {
@@ -973,7 +1202,7 @@ export class GameScene {
     }
 
     const travelled = (since: number) =>
-      guess.reach * (1 - Math.exp(-Math.max(0, since) / KNOCK_TAU));
+      guess.reach * (1 - Math.exp(-Math.max(0, since) / guess.tau));
 
     const age = this.clock - guess.t0;
     let offset = travelled(age);
@@ -984,7 +1213,7 @@ export class GameScene {
       offset *= Math.max(0, 1 - (age - 0.5) / 0.2);
     }
 
-    if ((guess.t1 >= 0 && this.clock - guess.t1 > 1) || (guess.t1 < 0 && age > 0.7 + dt)) {
+    if ((guess.t1 >= 0 && this.clock - guess.t1 > 1.4) || (guess.t1 < 0 && age > 0.7 + dt)) {
       racer.predicted = null;
     }
 
@@ -992,14 +1221,15 @@ export class GameScene {
   }
 
   private simulate(dt: number, seconds: number) {
-    const { field } = this;
+    const { field, fx } = this;
     const pressed = this.started && !this.paused ? this.input.read() : null;
-    this.punchQueued ||= pressed?.punch === true;
+    this.attackQueued ||= pressed?.attack === true;
+    this.specialQueued ||= pressed?.special === true;
     const shared = this.client.isHost && field.ghosts.size > 0;
     let held = "";
 
-    if (this.hitstop > 0) {
-      this.hitstop -= dt;
+    if (fx.hitstop > 0) {
+      fx.hitstop -= dt;
 
       if (!shared) {
         this.acc = 0;
@@ -1020,8 +1250,14 @@ export class GameScene {
       this.inputs.clear();
 
       if (this.me && pressed && held === "") {
-        this.inputs.set(this.me.key, { ...pressed, punch: this.punchQueued });
-        this.punchQueued = false;
+        this.inputs.set(this.me.key, {
+          ...stickInput(pressed.sx, pressed.sy),
+          attack: this.attackQueued,
+          boost: pressed.boost,
+          special: this.specialQueued,
+        });
+        this.attackQueued = false;
+        this.specialQueued = false;
       }
 
       if (this.brains.size > 0 && this.client.isHost) {
@@ -1045,6 +1281,7 @@ export class GameScene {
     for (const car of field.cars.values()) {
       views.push({
         alive: car.mode === "drive",
+        damage: car.damage,
         human: !car.bot,
         key: car.key,
         safe: car.safe > 0,
@@ -1056,11 +1293,15 @@ export class GameScene {
     }
 
     for (const ghost of field.ghosts.values()) {
-      views.push({ ...ghost, human: !isBotKey(ghost.key) });
+      views.push({
+        ...ghost,
+        damage: this.racers.get(ghost.key)?.view.damage ?? 0,
+        human: !isBotKey(ghost.key),
+      });
     }
 
-    const crate = crateAt(this.arena, field.round, field.time);
-    const open = crate && !field.taken.has(crate.index) ? crate : null;
+    const { late } = shrinkAt(field.time * 1000);
+    const cubes = cubesAt(this.arena, field.time, late).filter((cube) => !field.taken.has(cube.id));
 
     for (const car of field.cars.values()) {
       const brain = car.bot ? this.brains.get(car.key) : null;
@@ -1068,7 +1309,7 @@ export class GameScene {
       if (brain) {
         this.inputs.set(
           car.key,
-          botInput(brain, car, this.arena, field.time, views, open, this.director, STEP),
+          botInput(brain, car, this.arena, field.time, views, cubes, this.director, STEP),
         );
       }
     }
@@ -1078,83 +1319,126 @@ export class GameScene {
     const mine = this.myKey();
 
     if (event.kind === "send") {
-      this.client.sendEvent(HIT_EVENT, { h: { ...event.hit }, to: event.to });
+      this.sendHit(event.to, event.hit);
+    } else if (event.kind === "hit") {
       const racer = this.racers.get(event.to);
 
       if (racer) {
-        const gain = (DENT_GAIN[racer.view.dent] ?? 1) * (racer.view.mod === "giant" ? 0.7 : 1);
-        const reach = event.hit.reach * gain;
-        racer.predicted = {
-          dx: event.hit.dx,
-          dz: event.hit.dz,
-          id: event.hit.id,
-          reach,
-          t0: this.clock,
-          t1: -1,
-        };
         this.foretold.add(event.hit.id);
-        this.impact(racer, event.hit.how, event.hit.by, reach, event.hit.dx, event.hit.dz);
+        this.impact(racer, event.hit.how, event.hit.by, event.reach, event.hit.dx, event.hit.dz);
       }
+    } else if (event.kind === "block") {
+      this.fx.block(event.x, event.z, event.key === mine);
     } else if (event.kind === "clash") {
-      this.clashFx(event.x, event.z, event.a === mine || event.b === mine);
-
-      if (event.remote) {
-        const car = this.field.cars.get(event.b);
-        const other = this.racers.get(event.a);
-
-        if (car && other) {
-          const gap = Math.hypot(car.x - other.x, car.z - other.z) || 1;
-          this.client.sendEvent(CLASH_EVENT, {
-            a: event.a,
-            dx: (other.x - car.x) / gap,
-            dz: (other.z - car.z) / gap,
-          });
-        }
-      }
+      this.onClashEvent(event.a, event.b, event.x, event.z, event.remote);
     } else if (event.kind === "whiff" && event.key === mine) {
       sfx.whiff();
     } else if (event.kind === "reach") {
-      this.reachCrate(event.key, event.crate, event.item);
+      this.reachCube(event.key, event.cube);
+    } else if (event.kind === "pop") {
+      this.popShot(event.shot, event.burst);
     }
   }
 
-  private reachCrate(key: string, crate: number, item: ItemKind) {
-    const name = crateKey(this.field.round, crate);
-    const waiting = this.pending.get(crate);
+  private sendHit(to: string, hit: Hit) {
+    this.client.sendEvent(HIT_EVENT, { h: encodeHit(hit), to });
+    const racer = this.racers.get(to);
+
+    if (!racer) {
+      return;
+    }
+
+    if (racer.view.mod === "shield" && hit.how !== "land") {
+      this.fx.block(racer.x, racer.z, hit.by === this.myKey());
+
+      return;
+    }
+
+    const reach = throwOf(racer.view, hit);
+    racer.predicted = {
+      dx: hit.dx,
+      dz: hit.dz,
+      id: hit.id,
+      reach,
+      t0: this.clock,
+      t1: -1,
+      tau: flightOf(reach).tau,
+    };
+    this.foretold.add(hit.id);
+    this.impact(racer, hit.how, hit.by, reach, hit.dx, hit.dz);
+  }
+
+  private onClashEvent(a: string, b: string, x: number, z: number, remote: boolean) {
+    const mine = this.myKey();
+    this.fx.clash(x, z, a === mine || b === mine);
+
+    if (remote) {
+      const car = this.field.cars.get(b);
+      const other = this.racers.get(a);
+
+      if (car && other) {
+        const gap = Math.hypot(car.x - other.x, car.z - other.z) || 1;
+        this.client.sendEvent(CLASH_EVENT, {
+          a,
+          dx: (other.x - car.x) / gap,
+          dz: (other.z - car.z) / gap,
+        });
+      }
+    }
+  }
+
+  private reachCube(key: string, cube: number) {
+    const name = cubeKey(this.field.round, cube);
+    const waiting = this.pending.get(cube);
 
     if (this.client.ownerOf(name) === null && (!waiting || this.clock - waiting.at > 1)) {
-      this.pending.set(crate, { at: this.clock, item, key });
+      this.pending.set(cube, { at: this.clock, key });
       this.client.claim(name);
     }
+  }
+
+  private placeOf(key: string) {
+    const mine = this.scoreOf(key);
+    let place = 1;
+
+    for (const racer of this.racers.values()) {
+      if (racer.key !== key && this.scoreOf(racer.key) > mine) {
+        place += 1;
+      }
+    }
+
+    return place;
   }
 
   private settleClaims(seconds: number) {
     const { client, field } = this;
 
-    for (const [crate, want] of this.pending) {
-      const owner = client.ownerOf(crateKey(field.round, crate));
+    for (const [cube, want] of this.pending) {
+      const owner = client.ownerOf(cubeKey(field.round, cube));
 
       if (owner !== null) {
-        this.pending.delete(crate);
+        this.pending.delete(cube);
 
         if (owner === client.playerId) {
-          grant(field, want.key, crate, want.item);
+          const special = specialFor(field.round, cube, this.placeOf(want.key), this.racers.size);
+          grant(field, want.key, cube, special);
         }
       }
     }
 
-    const current = crateAt(this.arena, field.round, seconds);
-
-    if (current && client.ownerOf(crateKey(field.round, current.index)) !== null) {
-      field.taken.add(current.index);
+    for (const cube of cubesAt(this.arena, seconds, false)) {
+      if (client.ownerOf(cubeKey(field.round, cube.id)) !== null) {
+        field.taken.add(cube.id);
+      }
     }
   }
 
   private publish(dt: number, now: number) {
     const { client, field, me } = this;
+    const { round } = this.state;
 
     if (me && this.sendClock.due(dt * 1000)) {
-      client.updateMyState(encodeCar(me, now, this.state.round));
+      client.updateMyState(encodeCar(me, now, round, this.colour, field.shots));
     }
 
     if (client.isHost && this.botSend.due(dt * 1000)) {
@@ -1162,7 +1446,8 @@ export class GameScene {
 
       for (const car of field.cars.values()) {
         if (car.bot) {
-          rows[car.key] = encodeCar(car, now, this.state.round);
+          const colour = this.botColours[Number(car.key.slice(1))] ?? 0;
+          rows[car.key] = encodeCar(car, now, round, colour, field.shots);
         }
       }
 
@@ -1174,75 +1459,83 @@ export class GameScene {
     let slot = this.slots.get(key);
 
     if (slot === undefined) {
-      slot = (this.slots.size % 30) + 1;
+      slot = (this.slots.size % (OIL_SLOT - 1)) + 1;
       this.slots.set(key, slot);
     }
 
     return slot;
   }
 
-  private ensure(key: string, kind: RacerKind) {
+  private ensure(key: string, who: Who, colour: number) {
     const known = this.racers.get(key);
 
     if (known) {
       return known;
     }
 
-    const taken = new Set<number>();
-
-    for (const racer of this.racers.values()) {
-      taken.add(racer.ramp);
-    }
-
-    const bot = kind === "bot" ? BOTS[Number(key.slice(1))] : null;
-    const style = bot?.color ?? this.client.players[key]?.color ?? LOCAL_COLOR;
-    const free = taken.size >= CAR_RAMPS.length ? new Set<number>() : taken;
-    const ramp = carRampFor(style, free);
+    const bot = who === "bot" ? BOTS[Number(key.slice(1))] : null;
+    const ramp = rampOf(colour);
     const slot = this.slotFor(key);
+    const css = rampCss(ramp, BASE + 1);
     this.stage.setSlotRamp(slot, ramp);
+    const view = viewOf(makeCar(key, who === "bot"));
 
     const racer: Racer = {
       air: false,
-      bumperOut: 0,
-      css: rampCss(ramp, BASE + 1),
+      attackT: 9,
+      attacks: 0,
+      colour,
+      css,
       flash: 0,
       fresh: true,
-      item: "",
       key,
-      kind,
       launches: 0,
-      mesh: new CarMesh(ramp),
+      mesh: new CarMesh(view.kind),
+      mod: "",
       mode: "out",
-      name: bot?.name ?? (kind === "me" ? "YOU" : `P-${tagFor(key)}`),
+      name: bot ?? (who === "me" ? "YOU" : `P-${tagFor(key)}`),
       predicted: null,
-      punchT: 9,
-      punches: 0,
       ramp,
+      rgb: Number.parseInt(css.slice(1), 16),
       seen: true,
+      slipping: false,
       slot,
       smokeT: 0,
+      special: "",
       steer: 0,
-      track: kind === "me" ? null : new RemoteTrack(kind === "bot" ? this.botClock : undefined),
+      swing: 0,
+      track: who === "me" ? null : new RemoteTrack(who === "bot" ? this.botClock : undefined),
       tumble: 0,
-      view: viewOf(makeCar(key, kind === "bot")),
+      uses: 0,
+      view,
+      who,
       x: 0,
       z: 0,
     };
 
     this.racers.set(key, racer);
 
-    if (kind === "me") {
-      this.hud.setTint(racer.css);
+    if (who === "human" && this.started) {
+      this.hud.banner(`${racer.name} JOINED`, "plain", 1400);
     }
 
     return racer;
+  }
+
+  private paint(racer: Racer, colour: number) {
+    if (racer.colour !== colour) {
+      const ramp = rampOf(colour);
+      const css = rampCss(ramp, BASE + 1);
+      Object.assign(racer, { colour, css, ramp, rgb: Number.parseInt(css.slice(1), 16) });
+      this.stage.setSlotRamp(racer.slot, ramp);
+    }
   }
 
   private rowOf(racer: Racer) {
     return {
       css: racer.css,
       key: racer.key,
-      me: racer.kind === "me",
+      me: racer.who === "me",
       name: racer.name,
       out: racer.view.mode !== "drive",
       score: this.scoreOf(racer.key),
@@ -1250,33 +1543,44 @@ export class GameScene {
   }
 
   private present(dt: number, seconds: number) {
-    const { field, stage } = this;
+    const { field, fx, stage } = this;
     stage.begin();
     this.lights.reset();
     this.showOwn();
+    const shrink = shrinkAt(seconds * 1000);
+    const live = this.state.phase === "play" && seconds > 0.5;
 
     for (const [key, racer] of this.racers) {
       if (racer.seen) {
         if (!field.cars.has(key) && !racer.track) {
-          racer.track = new RemoteTrack(racer.kind === "bot" ? this.botClock : undefined);
+          racer.track = new RemoteTrack(racer.who === "bot" ? this.botClock : undefined);
         }
 
         this.follow(racer, dt);
-        this.drawRacer(racer, dt, seconds);
+        this.drawRacer(racer, dt, shrink.late);
       } else {
         this.racers.delete(key);
+
+        if (live && racer.mode === "drive") {
+          fx.poof(racer.x, racer.z, racer.ramp);
+        }
       }
     }
 
-    const shrink = shrinkAt(seconds * 1000);
     this.shrinkFx(shrink);
     this.board.drawEnds(stage, shrink.drop, shrink.warn && Math.floor(this.clock * 7) % 2 === 0);
-    this.props.draw(stage, this.lights, seconds, this.clock, dt);
-    this.pistonFx(seconds, dt);
-    this.showCrate(seconds);
-    this.showFlashes(dt);
-    this.sparks.update(dt);
-    this.sparks.draw(stage.dabs);
+    this.props.draw(stage, this.lights, seconds, this.clock, dt, shrink.drop);
+    this.pistonFx(seconds, dt, shrink.late);
+    this.showCubes(seconds, shrink.late);
+
+    for (const shot of field.shots) {
+      const ramp = this.racers.get(shot.by)?.ramp ?? RAMP.white;
+      drawShot(stage, this.lights, this.glow, shot, seconds, this.clock, ramp);
+    }
+
+    this.updateCamera(dt);
+    this.showroom(dt);
+    fx.draw(dt);
     this.glow.decay(dt, 7);
 
     if (this.frame % 2 === 0) {
@@ -1287,7 +1591,7 @@ export class GameScene {
       stage.uploadLight();
     }
 
-    this.updateCamera(dt);
+    this.sweepRadar(shrink);
     this.drive();
   }
 
@@ -1295,7 +1599,10 @@ export class GameScene {
     const mine = this.myKey();
 
     for (const car of this.field.cars.values()) {
-      const racer = this.ensure(car.key, car.key === mine ? "me" : "bot");
+      const isMine = car.key === mine;
+      const colour = isMine ? this.colour : (this.botColours[Number(car.key.slice(1))] ?? 0);
+      const racer = this.ensure(car.key, isMine ? "me" : "bot", colour);
+      this.paint(racer, colour);
 
       if (racer.track && car.bot) {
         racer.track = null;
@@ -1304,45 +1611,43 @@ export class GameScene {
       racer.view = viewOf(car);
       racer.seen = true;
       const drawn = drawnOf(car);
-      Object.assign(racer, {
-        bumperOut: drawn.bumperOut,
-        steer: drawn.steer,
-        tumble: drawn.tumble,
-      });
+      Object.assign(racer, { steer: drawn.steer, swing: drawn.swing, tumble: drawn.tumble });
     }
   }
 
-  private showCrate(seconds: number) {
-    const { field, stage } = this;
-    const crate = crateAt(this.arena, field.round, seconds);
+  private showCubes(seconds: number, late: boolean) {
+    const { field, fx, stage } = this;
+    const playing = this.state.phase === "play";
+    const cubes = playing ? cubesAt(this.arena, seconds, late) : [];
+    const before = new Map(this.shown);
+    this.shown.clear();
 
-    if (!crate || field.taken.has(crate.index) || this.state.phase !== "play") {
-      return;
-    }
+    for (const cube of cubes) {
+      if (!field.taken.has(cube.id)) {
+        drawCube(stage, this.lights, cube, seconds, this.clock);
 
-    drawCrate(stage, this.lights, crate, seconds, this.clock);
+        if (seconds >= cube.landAt) {
+          this.shown.set(cube.id, cube);
+        }
 
-    if (crate.index !== this.lastCrate && seconds >= crate.landAt) {
-      this.lastCrate = crate.index;
-      sfx.crate();
-      this.sparks.ring(crate.x, crate.z, ITEM_RAMP[crate.kind], 7, 16);
-      const spot = stage.project(crate.x, 3, crate.z);
-      this.hud.pop(itemName(crate.kind), spot.x, spot.y, rampCss(ITEM_RAMP[crate.kind], BASE + 1));
-    }
-  }
+        if (seconds >= cube.landAt && !this.landed.has(cube.id)) {
+          this.landed.add(cube.id);
 
-  private showFlashes(dt: number) {
-    for (const flash of this.flashes) {
-      flash.age += dt;
-      const k = 1 - flash.age / flash.life;
+          if (seconds - cube.landAt < 0.5) {
+            fx.sparks.ring(cube.x, cube.z, RAMP.yellow, 7, 16);
 
-      if (k > 0) {
-        this.lights.pool(flash.x, flash.z, flash.radius * (1.2 - k * 0.4), flash.power * k);
+            if (fx.hears(cube.x, cube.z)) {
+              sfx.cube();
+            }
+          }
+        }
       }
     }
 
-    while (this.flashes.length > 0 && (this.flashes[0]?.age ?? 0) >= (this.flashes[0]?.life ?? 0)) {
-      this.flashes.shift();
+    for (const [id, at] of before) {
+      if (field.taken.has(id)) {
+        fx.sparkle(at.x, at.z, RAMP.yellow);
+      }
     }
   }
 
@@ -1352,30 +1657,31 @@ export class GameScene {
     racer.x = view.x + offset.x;
     racer.z = view.z + offset.z;
     racer.flash = Math.max(0, racer.flash - dt);
-    const mine = racer.kind === "me";
+
+    if (racer.mesh.kind !== view.kind) {
+      racer.mesh = new CarMesh(view.kind);
+    }
 
     if (racer.fresh) {
       Object.assign(racer, {
         air: view.y > 0.15 && view.mode === "drive",
+        attacks: view.attacks,
         fresh: false,
-        item: view.bumper === "plain" ? view.mod : view.bumper,
         launches: view.launches,
+        mod: view.mod,
         mode: view.mode,
-        punches: view.punches,
+        slipping: view.slipping,
+        special: view.special,
+        uses: view.uses,
       });
     }
 
     this.followBlows(racer);
+    this.followActs(racer);
 
     if (racer.track) {
-      racer.punchT += dt;
-      const reach = PUNCH_REACH * (view.bumper === "spring" ? SPRING_REACH : 1);
-      const t = racer.punchT;
-
-      racer.bumperOut =
-        t < PUNCH_STRIKE + PUNCH_HOLD
-          ? reach * Math.min(1, t / (PUNCH_STRIKE * 0.5))
-          : reach * Math.max(0, 1 - (t - PUNCH_STRIKE - PUNCH_HOLD) / PUNCH_RETRACT);
+      racer.attackT += dt;
+      racer.swing = swingAt(view.kind, racer.attackT);
       racer.tumble = view.y > 0.1 && view.staggered ? racer.tumble + dt * 13 : 0;
       racer.steer = 0;
     }
@@ -1386,19 +1692,7 @@ export class GameScene {
     }
 
     this.followAir(racer);
-    const item = view.bumper === "plain" ? view.mod : view.bumper;
-
-    if (item !== "" && item !== racer.item) {
-      this.sparks.ring(racer.x, racer.z, ITEM_RAMP[item], 9, 18);
-      this.sparks.burst(racer.x, 1.4, racer.z, ITEM_RAMP[item], 14, 8);
-
-      if (mine) {
-        sfx.pickup();
-        this.hud.banner(itemName(item), "warn", 1200);
-      }
-    }
-
-    racer.item = item;
+    this.followGear(racer);
   }
 
   private followBlows(racer: Racer) {
@@ -1406,51 +1700,93 @@ export class GameScene {
 
     if (view.launches > racer.launches && !this.foretold.delete(view.hitId)) {
       const speed = Math.hypot(view.vx, view.vz) || 1;
-      const gain = DENT_GAIN[Math.max(0, view.dent - (view.hitHow === "punch" ? 1 : 0))] ?? 1;
       const by = view.hitId.startsWith("hz-") ? "" : (view.hitId.split(":")[0] ?? "");
+      const gain = FIXED.has(view.hitHow) ? 1 : 1 + view.damage * DAMAGE_GAIN;
       this.impact(
         racer,
         view.hitHow,
         by,
-        THROWS[view.hitHow] * gain,
+        REACH_GUESS[view.hitHow] * gain,
         view.vx / speed,
         view.vz / speed,
       );
     }
 
     racer.launches = view.launches;
+  }
 
-    if (view.punches > racer.punches) {
-      racer.punchT = 0;
-      sfx.punch(racer.kind === "me");
-      const cos = Math.cos(view.a);
-      const sin = Math.sin(view.a);
+  private followActs(racer: Racer) {
+    const { view } = racer;
+    const mine = racer.who === "me";
+    const spot = { a: view.a, ramp: racer.ramp, x: racer.x, z: racer.z };
 
-      for (let i = 0; i < 5; i += 1) {
-        this.sparks.puff(
-          racer.x + cos * (2 + i * 0.5),
-          0.7,
-          racer.z + sin * (2 + i * 0.5),
-          RAMP.white,
-          0.3,
-        );
+    if (view.attacks > racer.attacks) {
+      racer.attackT = 0;
+      this.fx.swing(KINDS[view.kind].attack, spot, mine);
+    }
+
+    racer.attacks = view.attacks;
+
+    if (view.uses > racer.uses && view.usedKind !== "") {
+      this.fx.use(view.usedKind, spot, mine);
+
+      if (view.usedKind === "zap") {
+        this.zapFrom(racer);
       }
     }
 
-    racer.punches = view.punches;
+    racer.uses = view.uses;
+  }
+
+  private zapFrom(racer: Racer) {
+    for (const other of this.racers.values()) {
+      const gap = Math.hypot(other.x - racer.x, other.z - racer.z);
+
+      if (other !== racer && other.view.mode === "drive" && !other.view.safe && gap < ZAP_RADIUS) {
+        this.fx.bolt(racer.x, racer.z, other.x, other.z);
+      }
+    }
+  }
+
+  private followGear(racer: Racer) {
+    const { view } = racer;
+    const mine = racer.who === "me";
+    const spot = { a: view.a, ramp: racer.ramp, x: racer.x, z: racer.z };
+
+    if (view.special !== "" && view.special !== racer.special) {
+      this.fx.sparkle(racer.x, racer.z, SPECIAL_RAMP[view.special]);
+
+      if (mine) {
+        sfx.pickup();
+        this.hud.banner(specialName(view.special), "warn", 1100);
+      }
+    }
+
+    racer.special = view.special;
+
+    if (view.slipping && !racer.slipping) {
+      this.fx.slip(spot, mine);
+    }
+
+    racer.slipping = view.slipping;
+    racer.mod = view.mod;
   }
 
   private followAir(racer: Racer) {
     const { view } = racer;
     const air = view.y > 0.15 && view.mode === "drive";
+    const mine = racer.who === "me";
 
     if (racer.air && !air && view.mode === "drive") {
       racer.mesh.thump();
-      sfx.land(racer.kind === "me");
+
+      if (mine || this.fx.hears(racer.x, racer.z)) {
+        sfx.land(mine);
+      }
 
       for (let i = 0; i < 6; i += 1) {
         const a = (i / 6) * Math.PI * 2;
-        this.sparks.puff(
+        this.fx.sparks.puff(
           racer.x + Math.cos(a) * 1.2,
           0.3,
           racer.z + Math.sin(a) * 1.2,
@@ -1464,13 +1800,17 @@ export class GameScene {
   }
 
   private onMode(racer: Racer, from: CarMode, to: CarMode) {
-    const mine = racer.kind === "me";
+    const mine = racer.who === "me";
+    const { fx } = this;
+    const near = mine || fx.hears(racer.x, racer.z);
 
     if (to === "fall") {
-      sfx.fall(mine);
+      if (near) {
+        sfx.fall(mine);
+      }
 
       for (let i = 0; i < 10; i += 1) {
-        this.sparks.puff(
+        fx.sparks.puff(
           racer.x + (Math.random() - 0.5) * 2,
           0.3,
           racer.z + (Math.random() - 0.5) * 2,
@@ -1479,95 +1819,46 @@ export class GameScene {
         );
       }
     } else if (to === "out" && from === "fall") {
-      sfx.out();
-      this.sparks.confetti(racer.x, 0.5, racer.z, [racer.ramp, RAMP.white], 22);
-      this.flashes.push({ age: 0, life: 0.3, power: 0.8, radius: 6, x: racer.x, z: racer.z });
+      if (near) {
+        sfx.out();
+      }
+
+      fx.sparks.confetti(racer.x, 0.5, racer.z, [racer.ramp, RAMP.white], 22);
+      fx.flash(racer.x, racer.z, 6, 0.8, 0.3);
     } else if (to === "drive" && from === "drop") {
       racer.mesh.thump();
-      sfx.land(mine);
-      this.sparks.ring(racer.x, racer.z, RAMP.cream, 10, 22);
-      this.flashes.push({ age: 0, life: 0.3, power: 0.7, radius: 6, x: racer.x, z: racer.z });
-      this.shake = Math.max(this.shake, mine ? 0.5 : 0.15);
+
+      if (near) {
+        sfx.land(mine);
+      }
+
+      fx.sparks.ring(racer.x, racer.z, RAMP.cream, 10, 22);
+      fx.flash(racer.x, racer.z, 6, 0.7, 0.3);
+      fx.shake = Math.max(fx.shake, mine ? 0.5 : 0);
     }
   }
 
   private impact(racer: Racer, how: HitHow, by: string, reach: number, dx: number, dz: number) {
     const mine = this.myKey();
-    const involved = racer.key === mine || by === mine;
-    const power = clamp(reach / 13, 0.15, 1);
     const attacker = this.racers.get(by);
-    const ramp = attacker?.ramp ?? (how === "bumper" ? RAMP.pink : RAMP.hazard);
+    const power = clamp(reach / 14, 0.15, 1);
     racer.flash = 0.2 + power * 0.12;
     racer.mesh.thump();
-    this.flashes.push({
-      age: 0,
-      life: 0.22,
-      power: 1,
-      radius: 4 + power * 5,
+    this.fx.impact({
+      dx,
+      dz,
+      how,
+      involved: racer.key === mine || by === mine,
+      mine: by === mine,
+      ramp: attacker?.ramp ?? (how === "bumper" ? RAMP.pink : RAMP.hazard),
+      reach,
       x: racer.x,
       z: racer.z,
     });
 
-    if (how !== "land") {
-      this.sparks.ring(
-        racer.x - dx,
-        racer.z - dz,
-        RAMP.white,
-        8 + power * 10,
-        14 + Math.round(power * 14),
-      );
-    }
-
-    const count = Math.round(8 + power * 22);
-
-    for (let i = 0; i < count; i += 1) {
-      const spread = (Math.random() - 0.5) * 1.5;
-      const speed = (6 + Math.random() * 16) * (0.5 + power);
-      const a = Math.atan2(dz, dx) + spread;
-      this.sparks.emit({
-        gravity: 16,
-        life: 0.25 + Math.random() * 0.4,
-        ramp: i % 3 === 0 ? RAMP.white : ramp,
-        size: 0.18 + Math.random() * 0.22,
-        vx: Math.cos(a) * speed,
-        vy: 2 + Math.random() * 7,
-        vz: Math.sin(a) * speed,
-        x: racer.x - dx * 0.8,
-        y: 0.9,
-        z: racer.z - dz * 0.8,
-      });
-    }
-
-    hitSound(how, power, involved);
-
-    if (how === "bumper") {
-      this.props.ring(racer.x, racer.z);
-    }
-
-    if (involved) {
-      const heavy = how === "punch" || how === "sweeper" || how === "piston";
-      const stop = power > 0.7 ? 0.133 : 0.083;
-      this.hitstop = Math.max(this.hitstop, heavy ? stop : 0.04);
-      this.shake = Math.max(this.shake, heavy ? 0.5 + power * 0.7 : 0.3);
-    }
-
-    if (by === mine && how === "punch") {
-      const spot = this.stage.project(racer.x, 2.4, racer.z);
-      this.hud.pop(power > 0.75 ? "SMASH!" : "POW!", spot.x, spot.y, "#fff0c8");
-    }
-  }
-
-  private clashFx(x: number, z: number, involved: boolean) {
-    this.sparks.ring(x, z, RAMP.hazard, 14, 24);
-    this.sparks.burst(x, 1, z, RAMP.white, 18, 12);
-    this.flashes.push({ age: 0, life: 0.25, power: 1, radius: 7, x, z });
-
-    if (involved) {
-      sfx.clash();
-      this.hitstop = Math.max(this.hitstop, 0.07);
-      this.shake = Math.max(this.shake, 0.6);
-      const spot = this.stage.project(x, 2.4, z);
-      this.hud.pop("CLASH!", spot.x, spot.y, "#f2c200");
+    if (how === "stomp" && attacker) {
+      const spot = { a: 0, ramp: attacker.ramp, x: attacker.x, z: attacker.z };
+      this.fx.stomp(spot, by === mine);
     }
   }
 
@@ -1578,50 +1869,59 @@ export class GameScene {
 
     if (shrink.warn && !this.warned) {
       this.warned = true;
-      sfx.warn();
-      this.hud.banner("ENDS DROPPING  ·  DOUBLE POINTS", "warn", 2800);
+
+      if (this.started) {
+        sfx.warn();
+        this.hud.banner("THE RIM DROPS  ·  DOUBLE POINTS", "warn", 2800);
+      }
     }
 
     if (shrink.late && !this.dropped) {
       this.dropped = true;
-      sfx.drop();
-      this.shake = Math.max(this.shake, 1);
-      const edge = this.arena.halfX * 0.66;
 
-      for (let i = 0; i < 40; i += 1) {
-        const side = i % 2 === 0 ? 1 : -1;
-        const z = (Math.random() - 0.5) * this.arena.halfZ * 2;
-        this.sparks.puff(side * edge, 0.4, z, RAMP.cream, 0.6);
+      if (this.started) {
+        sfx.drop();
+        this.fx.shake = Math.max(this.fx.shake, 1);
       }
-    }
-  }
 
-  private pistonFx(seconds: number, dt: number) {
-    if (seconds < 0 || this.state.phase !== "play") {
-      return;
-    }
+      const { halfX, halfZ } = this.arena;
 
-    for (const hazard of this.arena.def.hazards) {
-      if (hazard.kind === "piston") {
-        const before = pistonAt(hazard, seconds - dt);
-        const state = pistonAt(hazard, seconds);
+      for (let i = 0; i < 70; i += 1) {
+        const x = (Math.random() - 0.5) * halfX * 2;
+        const z = (Math.random() - 0.5) * halfZ * 2;
+        const rim = edgeDistance(this.arena, x, z, true);
 
-        if (state.firing && !before.firing) {
-          sfx.piston();
-          this.flashes.push({
-            age: 0,
-            life: 0.3,
-            power: 0.9,
-            radius: 8,
-            x: hazard.x + Math.cos(hazard.a) * 4,
-            z: hazard.z + Math.sin(hazard.a) * 4,
-          });
+        if (rim < 0 && rim > -5 && edgeDistance(this.arena, x, z) > 0) {
+          this.fx.sparks.puff(x, 0.4, z, RAMP.cream, 0.7);
         }
       }
     }
   }
 
-  private drawRacer(racer: Racer, dt: number, seconds: number) {
+  private pistonFx(seconds: number, dt: number, late: boolean) {
+    if (seconds < 0 || this.state.phase !== "play") {
+      return;
+    }
+
+    for (const hazard of this.arena.def.hazards) {
+      if (hazard.kind === "piston" && !hazardGone(this.arena, hazard, late)) {
+        const before = pistonAt(hazard, seconds - dt);
+        const state = pistonAt(hazard, seconds);
+
+        if (state.firing && !before.firing) {
+          const x = hazard.x + Math.cos(hazard.a) * 4;
+          const z = hazard.z + Math.sin(hazard.a) * 4;
+          this.fx.flash(x, z, 8, 0.9, 0.3);
+
+          if (this.fx.hears(x, z)) {
+            sfx.piston();
+          }
+        }
+      }
+    }
+  }
+
+  private drawRacer(racer: Racer, dt: number, late: boolean) {
     const { view } = racer;
     const { stage } = this;
 
@@ -1629,16 +1929,11 @@ export class GameScene {
       return;
     }
 
-    const cos = Math.cos(view.a);
-    const sin = Math.sin(view.a);
-    const { late } = shrinkAt(seconds * 1000);
     const grounded = edgeDistance(this.arena, racer.x, racer.z, late) > 0;
     const falling = view.mode === "fall";
     racer.mesh.update(
       {
         boosting: view.boosting,
-        bumper: racer.bumperOut,
-        bumperLook: view.bumper,
         flash: racer.flash,
         ghost: view.safe && view.mode === "drive",
         grounded,
@@ -1646,26 +1941,21 @@ export class GameScene {
         pitch: falling ? racer.tumble * 0.4 : 0,
         ready: view.ready,
         roll: Math.round((racer.tumble / (Math.PI / 4)) % 8) * (Math.PI / 4),
+        shield: view.mod === "shield",
         size: view.mod === "giant" ? GIANT_SCALE : 1,
+        slipping: view.slipping,
         steer: racer.steer,
+        swing: racer.swing,
         x: racer.x,
         y: Math.max(view.y, TABLE_Y),
         z: racer.z,
       },
       dt,
     );
-    racer.mesh.draw(stage);
+    racer.mesh.draw(stage, racer.ramp);
 
     if (view.mode === "drop") {
-      stage.draw(BEAM, {
-        ramp: racer.ramp,
-        sheer: true,
-        x: racer.x,
-        y: 0,
-        yaw: 0,
-        z: racer.z,
-      });
-
+      stage.draw(BEAM, { ramp: racer.ramp, sheer: true, x: racer.x, y: 0, yaw: 0, z: racer.z });
       this.lights.pool(racer.x, racer.z, 3.4, 0.6);
 
       return;
@@ -1675,18 +1965,20 @@ export class GameScene {
       return;
     }
 
-    if (racer.kind === "me") {
+    if (racer.who === "me") {
       this.drawMarker(racer, view);
     }
 
-    this.drawTrail(racer, dt, cos, sin);
+    this.drawTrail(racer, dt);
   }
 
-  private drawTrail(racer: Racer, dt: number, cos: number, sin: number) {
+  private drawTrail(racer: Racer, dt: number) {
     const { view } = racer;
+    const { sparks } = this.fx;
+    const cos = Math.cos(view.a);
+    const sin = Math.sin(view.a);
     racer.smokeT -= dt;
-
-    const skid = view.staggered || Math.hypot(view.vx, view.vz) > MAX_SPEED * 1.2;
+    const skid = view.staggered || view.slipping || Math.hypot(view.vx, view.vz) > MAX_SPEED * 1.25;
 
     if (view.y < 0.1 && (view.boosting || skid)) {
       const slot = view.boosting ? racer.slot : SKID_SLOT;
@@ -1711,36 +2003,34 @@ export class GameScene {
     racer.smokeT = 0.09;
 
     if (view.boosting) {
-      this.sparks.puff(racer.x - cos * 1.4, 0.6, racer.z - sin * 1.4, racer.ramp, 0.45);
+      const ramp = view.mod === "turbo" ? RAMP.yellow : racer.ramp;
+      sparks.puff(racer.x - cos * 1.4, 0.6, racer.z - sin * 1.4, ramp, 0.45);
     }
 
-    if (view.dent > 0) {
-      this.sparks.puff(racer.x, 1.6, racer.z, view.dent > 1 ? RAMP.black : RAMP.white, 0.4);
+    if (view.damage >= 60) {
+      sparks.puff(racer.x, 1.6, racer.z, view.damage >= 120 ? RAMP.black : RAMP.white, 0.4);
     }
 
-    if (view.dent > 1 && Math.random() < 0.5) {
-      this.sparks.burst(racer.x, 1.3, racer.z, RAMP.hazard, 2, 5);
-    }
-
-    if (view.mod === "turbo") {
-      this.sparks.puff(racer.x - cos * 1.6, 0.8, racer.z - sin * 1.6, RAMP.yellow, 0.5);
+    if (view.damage >= 120 && Math.random() < 0.5) {
+      sparks.burst(racer.x, 1.3, racer.z, RAMP.hazard, 2, 5);
     }
   }
 
   private drawMarker(racer: Racer, view: CarView) {
     const car = this.me;
     const bob = Math.floor(this.clock * 4) % 2 === 0 ? 0 : 0.25;
+    const big = view.mod === "giant";
     this.stage.draw(ARROW, {
       aloft: true,
       ramp: racer.ramp,
       x: racer.x,
-      y: (view.mod === "giant" ? 4.6 : 3.5) + bob,
-      yaw: 0,
+      y: Math.max(0, view.y) + (big ? 4.8 : 3.6) + bob,
+      yaw: this.yaw + Math.PI / 2,
       z: racer.z,
     });
-    const ready = car ? punchReady(car) : 1;
+    const ready = car ? attackReady(car) : 1;
     const lit = Math.round(ready * 16);
-    const radius = 2.05 * (view.mod === "giant" ? 1.3 : 1);
+    const radius = 2.05 * (big ? 1.3 : 1);
 
     for (let i = 0; i < 16; i += 1) {
       const a = view.a + Math.PI + (i / 16) * Math.PI * 2;
@@ -1757,32 +2047,161 @@ export class GameScene {
     }
   }
 
-  private updateCamera(dt: number) {
-    const { arena, me, stage, view } = this;
+  private showroom(dt: number) {
+    if (this.started) {
+      return;
+    }
 
-    const fit = Math.min(
-      stage.columns / (arena.halfX * 2 + 3),
-      stage.rows / (arena.halfZ * 2 * Math.sin(PITCH) - TABLE_Y * Math.cos(PITCH) + 2.5),
+    const { stage } = this;
+    const z = this.arena.halfZ + 12;
+    let mesh = this.showcars.get(this.kind);
+
+    if (!mesh) {
+      mesh = new CarMesh(this.kind);
+      this.showcars.set(this.kind, mesh);
+    }
+
+    const beat = (this.clock % 3.2) - 2.2;
+    const swing = swingAt(this.kind, beat);
+    stage.draw(PODIUM, { x: 0, y: TABLE_Y, yaw: this.clock * 0.6, z });
+    mesh.update(
+      {
+        boosting: false,
+        flash: 0,
+        ghost: false,
+        grounded: false,
+        heading: this.clock * 0.6 + 0.6,
+        pitch: 0,
+        ready: beat < 0,
+        roll: 0,
+        shield: false,
+        size: SHOW_SCALE,
+        slipping: false,
+        steer: 0,
+        swing,
+        x: 0,
+        y: TABLE_Y + 0.8,
+        z,
+      },
+      dt,
     );
+    mesh.draw(stage, rampOf(this.colour));
+    this.lights.pool(0, z, 8, 0.2);
+  }
 
-    const zoom = clamp(Math.floor(fit), MIN_ZOOM, PX_PER_UNIT);
-    const wide = stage.columns / zoom;
-    const deep = stage.rows / zoom / Math.sin(PITCH);
-    const spanX = Math.max(0, arena.halfX + 3 - wide / 2);
-    const spanZ = Math.max(0, arena.halfZ + 4 - deep / 2);
-    const lead = me && this.started && me.mode !== "out" ? me : null;
-    const { aim } = this;
-    const fx = clamp(lead ? lead.x : aim.x, -spanX, spanX);
-    const fz = clamp(lead ? lead.z : aim.z, -spanZ, spanZ);
-    const ease = Math.min(1, dt * 5);
-    view.zoom = zoom;
-    aim.x += (fx - aim.x) * ease;
-    aim.z += (fz - aim.z) * ease;
-    this.shake = Math.max(0, this.shake - dt * 4);
-    const jolt = this.shake * this.shake * 0.5;
-    const kick = () => Math.round((Math.random() - 0.5) * jolt * zoom) / zoom;
-    view.target.set(aim.x + kick(), 0, aim.z + kick());
-    view.eye.copy(view.target).addScaledVector(VIEW_DIR, EYE_DISTANCE);
+  private zoomFor() {
+    const { stage } = this;
+
+    return clamp(Math.round(Math.sqrt((stage.columns * stage.rows) / 1250)), MIN_ZOOM, PX_PER_UNIT);
+  }
+
+  private showCamera() {
+    const { aim, stage, view } = this;
+    const at = this.hud.showcaseAt();
+    const right = (at.x - 0.5) * stage.columns;
+    const up = (0.5 - at.y) * stage.rows;
+    this.yaw = NORTH;
+    view.zoom = PX_PER_UNIT;
+    aim.set(
+      -right / view.zoom,
+      TABLE_Y + 2.4,
+      this.arena.halfZ + 12 + up / view.zoom / Math.sin(PITCH),
+    );
+    this.fx.listen(0, 0);
+  }
+
+  private chaseCamera(dt: number) {
+    const { aim, me, view } = this;
+    const lead = me && me.mode !== "out" ? me : null;
+    const steady = lead?.mode === "drive" && lead.stagger <= 0 && lead.slip <= 0;
+
+    if (lead && steady) {
+      const turn = wrapAngle(lead.a - this.yaw);
+      this.yaw = wrapAngle(this.yaw + turn * Math.min(1, dt * CAM_TURN));
+    }
+
+    const x = lead ? lead.x + Math.cos(this.yaw) * CAM_LEAD : aim.x;
+    const z = lead ? lead.z + Math.sin(this.yaw) * CAM_LEAD : aim.z;
+    const ease = Math.min(1, dt * 6);
+    view.zoom = this.zoomFor();
+    aim.set(aim.x + (x - aim.x) * ease, aim.y * (1 - ease), aim.z + (z - aim.z) * ease);
+    this.fx.listen(aim.x, aim.z);
+  }
+
+  private updateCamera(dt: number) {
+    const { aim, fx, view } = this;
+    fx.shake = Math.max(0, fx.shake - dt * 4);
+
+    if (this.started) {
+      this.chaseCamera(dt);
+    } else {
+      this.showCamera();
+    }
+
+    const jolt = this.started ? fx.shake * fx.shake * 0.5 : 0;
+    const kick = () => Math.round((Math.random() - 0.5) * jolt * view.zoom) / view.zoom;
+    const flat = Math.cos(PITCH);
+    view.target.set(aim.x + kick(), aim.y, aim.z + kick());
+    view.eye.set(
+      view.target.x - Math.cos(this.yaw) * flat * EYE_DISTANCE,
+      view.target.y + Math.sin(PITCH) * EYE_DISTANCE,
+      view.target.z - Math.sin(this.yaw) * flat * EYE_DISTANCE,
+    );
+  }
+
+  private tagCars() {
+    const { tags } = this;
+    tags.length = 0;
+
+    if (!this.started) {
+      return;
+    }
+
+    const wide = window.innerWidth;
+    const high = window.innerHeight;
+
+    for (const racer of this.racers.values()) {
+      const { view } = racer;
+
+      if (racer.who !== "me" && racer.seen && view.mode === "drive" && tags.length < 8) {
+        const lift = (view.mod === "giant" ? 4 : 2.9) + Math.max(0, view.y);
+        const spot = this.stage.project(racer.x, lift, racer.z);
+
+        if (spot.x > 0 && spot.x < wide && spot.y > 0 && spot.y < high) {
+          tags.push({
+            damage: view.damage,
+            name: racer.who === "human" ? racer.name : "",
+            x: spot.x,
+            y: spot.y,
+          });
+        }
+      }
+    }
+
+    this.hud.setTags(tags);
+  }
+
+  private sweepRadar(shrink: { warn: boolean; late: boolean }) {
+    const { blips, me } = this;
+
+    if (!this.started || !me) {
+      return;
+    }
+
+    blips.length = 0;
+
+    for (const cube of this.shown.values()) {
+      blips.push({ big: false, rgb: 0xff_e0_66, x: cube.x, z: cube.z });
+    }
+
+    for (const racer of this.racers.values()) {
+      if (racer.who !== "me" && racer.seen && racer.view.mode === "drive") {
+        blips.push({ big: true, rgb: racer.rgb, x: racer.x, z: racer.z });
+      }
+    }
+
+    const at = me.mode === "out" ? this.aim : me;
+    this.hud.radar.draw(this.arena, at, this.yaw, shrink.late, shrink.warn, blips);
   }
 
   private drive() {
@@ -1831,12 +2250,18 @@ export class GameScene {
 
     const left = ROUND_MS - seconds * 1000;
     const round = Math.max(1, state.round - this.firstRound);
-    hud.setClock(clamp(left, 0, ROUND_MS), round, left < 25_500 && state.phase === "play");
+    hud.setClock(clamp(left, 0, ROUND_MS), round, left < SHRINK_MS && state.phase === "play");
     hud.setScore(this.scoreOf(mine), this.myPlace);
     hud.setBoard(rows);
 
     if (me) {
-      hud.setDash(punchReady(me), me.meter, me.meter >= BOOST_MIN || me.boosting, heldItem(me));
+      hud.setDash(
+        attackReady(me),
+        me.meter,
+        me.meter >= BOOST_MIN || me.boosting,
+        me.special,
+        me.mode === "drive" ? me.damage : 0,
+      );
     }
 
     const count = state.phase === "play" ? countText(seconds, left) : "";
@@ -1874,7 +2299,7 @@ export class GameScene {
       this.input.setTouchVisible(false);
 
       for (const racer of won ? this.racers.values() : []) {
-        this.sparks.confetti(racer.x, 2, racer.z, PARTY, 18);
+        this.fx.sparks.confetti(racer.x, 2, racer.z, PARTY, 18);
       }
     }
 

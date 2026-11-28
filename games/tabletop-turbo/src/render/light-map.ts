@@ -1,16 +1,16 @@
-import { FLOOR_SIZE, FLOOR_SPAN } from "../pixel/stage";
+import { FLOOR_CELLS, FLOOR_COLS, FLOOR_ROWS } from "../pixel/stage";
 
-const CELL = FLOOR_SPAN / FLOOR_SIZE;
-const HALF = FLOOR_SPAN / 2;
+const HALF_X = FLOOR_COLS / FLOOR_CELLS / 2;
+const HALF_Z = FLOOR_ROWS / FLOOR_CELLS / 2;
 
-const clampCell = (v: number) => Math.min(FLOOR_SIZE - 1, Math.max(0, v));
+const clampCell = (v: number, cells: number) => Math.min(cells - 1, Math.max(0, v));
 
 /**
  * Light thrown on the floor this frame: a hit, a landing, a lane about to
  * fire. One byte a cell; the floor steps up its ramp under it.
  */
 export class LightMap {
-  readonly bytes = new Uint8Array(FLOOR_SIZE * FLOOR_SIZE);
+  readonly bytes = new Uint8Array(FLOOR_COLS * FLOOR_ROWS);
   private lit = false;
   private wasLit = false;
 
@@ -31,13 +31,13 @@ export class LightMap {
 
   /** A round pool of light at (x, z), brightest in the middle. */
   pool(x: number, z: number, radius: number, power: number) {
-    const cx = (x + HALF) / CELL;
-    const cz = (z + HALF) / CELL;
-    const r = radius / CELL;
-    const x0 = clampCell(Math.floor(cx - r));
-    const x1 = clampCell(Math.ceil(cx + r));
-    const z0 = clampCell(Math.floor(cz - r));
-    const z1 = clampCell(Math.ceil(cz + r));
+    const cx = (x + HALF_X) * FLOOR_CELLS;
+    const cz = (z + HALF_Z) * FLOOR_CELLS;
+    const r = radius * FLOOR_CELLS;
+    const x0 = clampCell(Math.floor(cx - r), FLOOR_COLS);
+    const x1 = clampCell(Math.ceil(cx + r), FLOOR_COLS);
+    const z0 = clampCell(Math.floor(cz - r), FLOOR_ROWS);
+    const z1 = clampCell(Math.ceil(cz + r), FLOOR_ROWS);
     this.lit = true;
 
     for (let j = z0; j <= z1; j += 1) {
@@ -46,7 +46,7 @@ export class LightMap {
 
         if (d < r) {
           const fall = 1 - d / r;
-          const cell = j * FLOOR_SIZE + i;
+          const cell = j * FLOOR_COLS + i;
           const add = power * fall * (2 - fall) * 255;
           this.bytes[cell] = Math.min(255, (this.bytes[cell] ?? 0) + add);
         }

@@ -1,12 +1,12 @@
-import { FLOOR_SIZE, FLOOR_SPAN } from "../pixel/stage";
+import { FLOOR_CELLS, FLOOR_COLS, FLOOR_ROWS } from "../pixel/stage";
 
-const CELL = FLOOR_SPAN / FLOOR_SIZE;
-const HALF = FLOOR_SPAN / 2;
+const HALF_X = FLOOR_COLS / FLOOR_CELLS / 2;
+const HALF_Z = FLOOR_ROWS / FLOOR_CELLS / 2;
 
 /** The slot tyre marks are laid in: the floor's own colour, a step down. */
 export const SKID_SLOT = 31;
 
-const clampCell = (v: number) => Math.min(FLOOR_SIZE - 1, Math.max(0, v));
+const clampCell = (v: number, cells: number) => Math.min(cells - 1, Math.max(0, v));
 
 /**
  * What cars leave on the floor: glow trails in their own colour and tyre
@@ -14,9 +14,9 @@ const clampCell = (v: number) => Math.min(FLOOR_SIZE - 1, Math.max(0, v));
  */
 export class GlowGrid {
   /** 0 = bare floor, otherwise the slot that marked it. */
-  readonly owner = new Uint8Array(FLOOR_SIZE * FLOOR_SIZE);
+  readonly owner = new Uint8Array(FLOOR_COLS * FLOOR_ROWS);
   /** 1 fresh → 0 gone. */
-  readonly strength = new Float32Array(FLOOR_SIZE * FLOOR_SIZE);
+  readonly strength = new Float32Array(FLOOR_COLS * FLOOR_ROWS);
 
   clear() {
     this.owner.fill(0);
@@ -25,17 +25,17 @@ export class GlowGrid {
 
   /** Mark a disc of `radius` world units at (x, z) for `slot`, as strong as `strength`. */
   stamp(x: number, z: number, radius: number, slot: number, strength = 1) {
-    const cx = (x + HALF) / CELL;
-    const cz = (z + HALF) / CELL;
-    const r = radius / CELL;
-    const x0 = clampCell(Math.floor(cx - r));
-    const x1 = clampCell(Math.ceil(cx + r));
-    const z0 = clampCell(Math.floor(cz - r));
-    const z1 = clampCell(Math.ceil(cz + r));
+    const cx = (x + HALF_X) * FLOOR_CELLS;
+    const cz = (z + HALF_Z) * FLOOR_CELLS;
+    const r = radius * FLOOR_CELLS;
+    const x0 = clampCell(Math.floor(cx - r), FLOOR_COLS);
+    const x1 = clampCell(Math.ceil(cx + r), FLOOR_COLS);
+    const z0 = clampCell(Math.floor(cz - r), FLOOR_ROWS);
+    const z1 = clampCell(Math.ceil(cz + r), FLOOR_ROWS);
 
     for (let j = z0; j <= z1; j += 1) {
       for (let i = x0; i <= x1; i += 1) {
-        const cell = j * FLOOR_SIZE + i;
+        const cell = j * FLOOR_COLS + i;
         const inside = (i + 0.5 - cx) ** 2 + (j + 0.5 - cz) ** 2 <= r * r;
         const had = this.owner[cell] ?? 0;
         const left = this.strength[cell] ?? 0;

@@ -1,13 +1,17 @@
 import {
+  BUMPER_DAMAGE,
   BUMPER_THROW,
+  PISTON_DAMAGE,
   PISTON_OUT,
   PISTON_THROW,
   PISTON_WARN,
   ROUND_MS,
   SHRINK_MS,
   SHRINK_WARN_MS,
+  SWEEPER_DAMAGE,
   SWEEPER_THROW,
 } from "../shared/constants";
+import { edgeDistance } from "./arena";
 import type { Arena, HazardDef } from "./arena";
 import type { Hit } from "./car";
 
@@ -50,7 +54,24 @@ export const pistonAt = (hazard: Piston, time: number) => {
   return { firing: false, out: 0, warn: until < PISTON_WARN ? 1 - until / PISTON_WARN : 0 };
 };
 
-/** The board's ends at `ms` into the round: blinking, gone, and how far they have dropped. */
+/**
+ * Has this toy gone with the rim? A piston stands just off the edge it fires
+ * across, so it is judged by the board a little way down its lane.
+ */
+export const hazardGone = (arena: Arena, hazard: HazardDef, late: boolean) => {
+  if (!late) {
+    return false;
+  }
+
+  const reach = hazard.kind === "piston" ? 3 : 0;
+  const a = hazard.kind === "piston" ? hazard.a : 0;
+
+  return (
+    edgeDistance(arena, hazard.x + Math.cos(a) * reach, hazard.z + Math.sin(a) * reach, true) < 0
+  );
+};
+
+/** The board's rim at `ms` into the round: blinking, gone, and how far it has dropped. */
 export const shrinkAt = (ms: number) => {
   const since = ms - (ROUND_MS - SHRINK_MS);
 
@@ -93,11 +114,14 @@ const sweeperHit = (
 
   return {
     by: "",
+    damage: SWEEPER_DAMAGE,
     dx: dx / length,
     dz: dz / length,
     how: "sweeper",
     id: `hz-s${index}:${Math.floor(time * 4)}`,
+    lift: 1,
     reach: SWEEPER_THROW,
+    stun: 0,
   } satisfies Hit;
 };
 
@@ -126,11 +150,14 @@ const pistonHit = (
 
   return {
     by: "",
+    damage: PISTON_DAMAGE,
     dx: fx,
     dz: fz,
     how: "piston",
     id: `hz-p${index}:${Math.floor((time + hazard.phase) / hazard.period)}`,
+    lift: 1,
     reach: PISTON_THROW,
+    stun: 0,
   } satisfies Hit;
 };
 
@@ -141,8 +168,13 @@ export const hazardHit: (
   x: number,
   z: number,
   r: number,
-) => Hit | null = (arena, time, x, z, r) => {
+  late?: boolean,
+) => Hit | null = (arena, time, x, z, r, late = false) => {
   for (const [index, hazard] of arena.def.hazards.entries()) {
+    if (hazardGone(arena, hazard, late)) {
+      continue;
+    }
+
     if (hazard.kind === "bumper") {
       const dx = x - hazard.x;
       const dz = z - hazard.z;
@@ -151,11 +183,14 @@ export const hazardHit: (
       if (gap < hazard.r + r) {
         return {
           by: "",
+          damage: BUMPER_DAMAGE,
           dx: dx / (gap || 1),
           dz: dz / (gap || 1),
           how: "bumper",
           id: `hz-b${index}:${Math.floor(time * 4)}`,
+          lift: 1,
           reach: BUMPER_THROW,
+          stun: 0,
         };
       }
     } else {
@@ -186,10 +221,14 @@ const sweeperEta = (hazard: Sweeper, time: number, ox: number, oz: number) => {
  * How unsafe (x, z) is about to be, 0–1: inside the sweep of an arm that is
  * coming, or in the lane of a piston about to fire. Bots steer by it.
  */
-export const hazardThreat = (arena: Arena, time: number, x: number, z: number) => {
+export const hazardThreat = (arena: Arena, time: number, x: number, z: number, late = false) => {
   let worst = 0;
 
   for (const hazard of arena.def.hazards) {
+    if (hazardGone(arena, hazard, late)) {
+      continue;
+    }
+
     if (hazard.kind === "bumper") {
       const gap = Math.hypot(x - hazard.x, z - hazard.z) - hazard.r;
       worst = Math.max(worst, gap < 1.6 ? 0.7 : 0);
@@ -223,8 +262,12 @@ export const hazardThreat = (arena: Arena, time: number, x: number, z: number) =
  * The way out of whatever is about to hit (x, z): a unit vector, or null when
  * nothing is coming.
  */
-export const hazardEscape = (arena: Arena, time: number, x: number, z: number) => {
+export const hazardEscape = (arena: Arena, time: number, x: number, z: number, late = false) => {
   for (const hazard of arena.def.hazards) {
+    if (hazardGone(arena, hazard, late)) {
+      continue;
+    }
+
     const ox = x - hazard.x;
     const oz = z - hazard.z;
     const far = Math.hypot(ox, oz) || 1;

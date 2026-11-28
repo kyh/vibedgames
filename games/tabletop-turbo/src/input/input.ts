@@ -8,17 +8,19 @@ const LEFT = ["KeyA", "ArrowLeft"];
 const RIGHT = ["KeyD", "ArrowRight"];
 const UP = ["KeyW", "ArrowUp"];
 const DOWN = ["KeyS", "ArrowDown"];
-const PUNCH = new Set(["Space", "KeyJ", "KeyX"]);
+const ATTACK = new Set(["Space", "KeyJ", "KeyX"]);
+const SPECIAL = new Set(["KeyE", "KeyL", "KeyC"]);
 const BOOST = ["ShiftLeft", "ShiftRight", "KeyK", "KeyZ"];
-const GAME_KEYS = new Set([...LEFT, ...RIGHT, ...UP, ...DOWN, ...PUNCH, ...BOOST]);
+const GAME_KEYS = new Set([...LEFT, ...RIGHT, ...UP, ...DOWN, ...ATTACK, ...SPECIAL, ...BOOST]);
 
 export class Input {
   private readonly keys = new Set<string>();
   private readonly touch: DomGamepad;
   private readonly pad = new PhysicalGamepad({
-    bindings: { boost: ["b", "rb", "lt"], punch: ["a", "x", "rt"] },
+    bindings: { attack: ["a", "x", "rt"], boost: ["b", "rb", "lt"], special: ["y", "lb"] },
   });
-  private punchQueued = false;
+  private attackQueued = false;
+  private specialQueued = false;
 
   constructor(tint: string) {
     window.addEventListener("keydown", (event) => {
@@ -26,8 +28,12 @@ export class Input {
         event.preventDefault();
       }
 
-      if (PUNCH.has(event.code) && !event.repeat) {
-        this.punchQueued = true;
+      if (ATTACK.has(event.code) && !event.repeat) {
+        this.attackQueued = true;
+      }
+
+      if (SPECIAL.has(event.code) && !event.repeat) {
+        this.specialQueued = true;
       }
 
       this.keys.add(event.code);
@@ -41,8 +47,8 @@ export class Input {
     this.touch = attachDomGamepad({
       buttons: [
         {
-          id: "punch",
-          label: "PUNCH",
+          id: "attack",
+          label: "HIT",
           position: (v) => ({ x: v.width - 88 - v.inset.right, y: v.height - 96 - v.inset.bottom }),
           radius: 54,
         },
@@ -52,6 +58,15 @@ export class Input {
           position: (v) => ({
             x: v.width - 196 - v.inset.right,
             y: v.height - 62 - v.inset.bottom,
+          }),
+          radius: 38,
+        },
+        {
+          id: "special",
+          label: "ITEM",
+          position: (v) => ({
+            x: v.width - 172 - v.inset.right,
+            y: v.height - 160 - v.inset.bottom,
           }),
           radius: 38,
         },
@@ -71,7 +86,13 @@ export class Input {
   /** Forget what is held: a pause swallows the key-up. */
   clear() {
     this.keys.clear();
-    this.punchQueued = false;
+    this.attackQueued = false;
+    this.specialQueued = false;
+  }
+
+  /** The touch overlay in the player's colour. */
+  setTint(css: string) {
+    this.touch.setTint(css);
   }
 
   /** Hide the touch overlay behind the title and results cards. */
@@ -81,42 +102,57 @@ export class Input {
 
   /** True on the frame a pad asks to start from the title. */
   anyStart() {
-    return this.pad.justPressed("punch") || this.pad.justPressed("start");
+    return this.pad.justPressed("attack") || this.pad.justPressed("start");
+  }
+
+  /** The title's picker on a pad: -1, 0 or 1 across (car type) and down (colour), once a press. */
+  pick() {
+    const { pad } = this;
+    const across = (pad.justPressed("right") ? 1 : 0) - (pad.justPressed("left") ? 1 : 0);
+    const down = (pad.justPressed("down") ? 1 : 0) - (pad.justPressed("up") ? 1 : 0);
+
+    return { across, down };
   }
 
   /**
-   * The stick as a direction on the screen (x right, z down, length 0–1), the
-   * punch as one press, and boost while held.
+   * The stick as the driver sees it, the car's nose up the screen (`sx` right,
+   * `sy` ahead, length 0–1), the attack and the special as one press each, and
+   * boost while held.
    */
   read() {
     const down = (codes: readonly string[]) => codes.some((code) => this.keys.has(code));
-    let mx = (down(RIGHT) ? 1 : 0) - (down(LEFT) ? 1 : 0);
-    let mz = (down(DOWN) ? 1 : 0) - (down(UP) ? 1 : 0);
-    const keyed = Math.hypot(mx, mz);
+    let sx = (down(RIGHT) ? 1 : 0) - (down(LEFT) ? 1 : 0);
+    let sy = (down(UP) ? 1 : 0) - (down(DOWN) ? 1 : 0);
+    const keyed = Math.hypot(sx, sy);
 
     if (keyed > 1) {
-      mx /= keyed;
-      mz /= keyed;
+      sx /= keyed;
+      sy /= keyed;
     }
 
     for (const stick of [this.touch.getStick(), this.pad.getStick()]) {
       if (stick.active && !stick.inDeadZone) {
         const size = Math.min(1, stick.magnitude * 1.15);
-        mx = Math.cos(stick.angle) * size;
-        mz = Math.sin(stick.angle) * size;
+        sx = Math.cos(stick.angle) * size;
+        sy = -Math.sin(stick.angle) * size;
       }
     }
 
-    const punch =
-      this.punchQueued || this.pad.justPressed("punch") || this.touch.justPressed("punch");
+    const attack =
+      this.attackQueued || this.pad.justPressed("attack") || this.touch.justPressed("attack");
 
-    this.punchQueued = false;
+    const special =
+      this.specialQueued || this.pad.justPressed("special") || this.touch.justPressed("special");
+
+    this.attackQueued = false;
+    this.specialQueued = false;
 
     return {
+      attack,
       boost: down(BOOST) || this.pad.isButtonDown("boost") || this.touch.isButtonDown("boost"),
-      mx,
-      mz,
-      punch,
+      special,
+      sx,
+      sy,
     };
   }
 }

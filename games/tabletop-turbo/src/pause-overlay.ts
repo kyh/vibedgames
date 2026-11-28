@@ -11,27 +11,27 @@ export const pauseOverlay = createPauseOverlay({
       title: "Knock them off",
     },
     {
-      body: "Your bumper fires on a short cooldown and throws whatever is in front of it. It hits harder the faster you are going, so boost into a punch. Miss and the cooldown is longer.",
-      title: "The bumper",
+      body: "Six cars, six attacks. Bumper punches ahead, Dart lunges through, Brick hops and slams, Popper fires a puck, Scoop flips cars over its roof, Twister bats away everything near. Fast cars are light and fly far; heavy ones hit hard and turn slow.",
+      title: "Your car",
     },
     {
-      body: "Each punch a car takes dents it: a dented car smokes, then sparks, and flies further. Dents wear off after a few seconds of not being hit, and a fall clears them.",
-      title: "Dents",
+      body: "Every hit adds to a car's damage, and the more it carries the further the next hit throws it. A car at 100% is one good hit from the edge. A fall puts it back to zero.",
+      title: "Damage",
     },
     {
-      body: "The arm in the middle sweeps cars away, the pistons fire down their lit lanes, the pink bumpers bounce. Punch someone into one and the knock-off is still yours.",
+      body: "Drive over a power cube to take a special. You carry one at a time: use it to pick up another. Rockets, seekers, mines, oil, a shockwave, a magnet, a zap, a shield, giant, turbo, a wrench that clears your damage, a spring that stomps.",
+      title: "Power cubes",
+    },
+    {
+      body: "The arm in the middle sweeps cars away, the pistons fire down their lit lanes, the pink bumpers bounce. Knock someone into one and the knock-off is still yours.",
       title: "The board fights too",
     },
     {
-      body: "A beam of light says where the next crate lands. Mega bumper is wider and harder, long spring reaches twice as far, giant is heavy and hard to throw, turbo is boost that does not run out.",
-      title: "Crates",
+      body: "With 35 seconds left the rim of the board blinks, then falls away, and every knock-off is worth two. Be in the middle.",
+      title: "The rim drops",
     },
     {
-      body: "With 25 seconds left the two ends of the board blink, then fall away. Be in the middle.",
-      title: "The ends drop",
-    },
-    {
-      body: "Drive off on your own and you lose a point. If someone hit you in the last three seconds, it is theirs instead.",
+      body: "Drive off on your own and you lose a point. If someone hit you in the last few seconds, it is theirs instead.",
       title: "Falling",
     },
   ],

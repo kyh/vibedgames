@@ -54,9 +54,10 @@ export interface BoardMap {
   scale: number;
 }
 
-/** Cells a side in the paint and light maps, and the world units they span, centred on the origin. */
-export const FLOOR_SIZE = 512;
-export const FLOOR_SPAN = 64;
+/** The paint and light maps: cells across and down, and cells per world unit. Centred on the origin. */
+export const FLOOR_COLS = 672;
+export const FLOOR_ROWS = 432;
+export const FLOOR_CELLS = 6;
 
 /** Art pixels per world unit at the closest zoom. */
 export const PX_PER_UNIT = 16;
@@ -149,7 +150,7 @@ export class PixelStage {
   private readonly resolveScene = new THREE.Scene();
   private readonly gbuffer: THREE.WebGLRenderTarget;
   private readonly sunMap: THREE.WebGLRenderTarget | null;
-  private readonly paintBytes = new Uint8Array(FLOOR_SIZE * FLOOR_SIZE * 2);
+  private readonly paintBytes = new Uint8Array(FLOOR_COLS * FLOOR_ROWS * 2);
   private readonly paint: THREE.DataTexture;
   private readonly light: THREE.DataTexture;
   private readonly slotRamp = new Float32Array(32);
@@ -173,8 +174,8 @@ export class PixelStage {
     this.renderer = renderer;
     this.sunSize = sunSize;
     this.shadow = new THREE.Vector4(1, 0.12 / SUN_FAR, 0.1, 1 / Math.max(1, sunSize));
-    this.paint = dataTexture(this.paintBytes, FLOOR_SIZE, FLOOR_SIZE, THREE.RGFormat);
-    this.light = dataTexture(lightBytes, FLOOR_SIZE, FLOOR_SIZE, THREE.RedFormat);
+    this.paint = dataTexture(this.paintBytes, FLOOR_COLS, FLOOR_ROWS, THREE.RGFormat);
+    this.light = dataTexture(lightBytes, FLOOR_COLS, FLOOR_ROWS, THREE.RedFormat);
     this.light.magFilter = THREE.LinearFilter;
     this.light.minFilter = THREE.LinearFilter;
 
@@ -203,7 +204,9 @@ export class PixelStage {
       uniforms: {
         uBoard: { value: null },
         uBoardMap: { value: this.boardMap },
-        uFloorSpan: { value: FLOOR_SPAN },
+        uFloorSpan: {
+          value: new THREE.Vector2(FLOOR_COLS / FLOOR_CELLS, FLOOR_ROWS / FLOOR_CELLS),
+        },
         uLight: { value: this.light },
         uLightVP: { value: this.lightVP },
         uObject: { value: new THREE.Vector4() },

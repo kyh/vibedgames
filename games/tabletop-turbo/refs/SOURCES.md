@@ -11,5 +11,6 @@ resolution into a palette-index G-buffer and inks, shades and dithers them in a 
 this repo's own, written for three.js.
 
 The game itself took direction from gameplay footage and two screenshots of top-down car brawlers
-(bumper punches, knock-offs). They set the genre only: the board, hazards, cars, items, names, HUD
-and sounds here are this repo's own.
+(bumper punches, knock-offs), and from two ideas common to a whole genre each: damage that makes a
+fighter fly further, and item boxes that hand out one pickup at a time. They set the genre only: the
+board, hazards, cars, attacks, specials, names, HUD and sounds here are this repo's own.

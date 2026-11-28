@@ -84,7 +84,7 @@ uniform sampler2D uBoard;
 // Board texture: origin x, origin z, texels per world unit.
 uniform vec3 uBoardMap;
 // World units the paint and light maps span, centred on the origin.
-uniform float uFloorSpan;
+uniform vec2 uFloorSpan;
 uniform float uSlotRamp[32];
 // This object's colour ramp, 1 to wear it all over, its id among everything on stage, 1 to draw every other pixel.
 uniform vec4 uObject;

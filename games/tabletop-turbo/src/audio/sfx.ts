@@ -270,7 +270,32 @@ const noise = (bus: Bus, shot: NoiseShot) => {
 
 const side = (mine: boolean) => (mine ? "mine" : "world") satisfies Bus;
 
+/** How loud the board itself is: turned down behind the title. */
+export const setWorldLevel = (level: number) => {
+  if (rig) {
+    rig.buses.world.gain.value = 0.5 * level;
+  }
+};
+
 export const sfx = {
+  /** A shield taking a blow. */
+  block: (mine: boolean) => {
+    tone(side(mine), { hz: 1760, seconds: 0.22, to: 880, type: "triangle", volume: 0.2 });
+    noise(side(mine), { from: 6000, q: 3, seconds: 0.12, to: 3000, volume: 0.2 });
+  },
+  /** A rocket, a mine or a shockwave going off. `power` 0–1. */
+  boom: (power: number, mine: boolean) => {
+    const bus = side(mine);
+    tone(bus, {
+      hz: 120 + power * 30,
+      seconds: 0.4 + power * 0.2,
+      to: 32,
+      type: "sine",
+      volume: 0.55,
+    });
+    noise(bus, { from: 1800, seconds: 0.3 + power * 0.2, to: 90, volume: 0.5 });
+    noise(bus, { from: 5200, q: 0.4, seconds: 0.06, to: 2400, volume: 0.3 });
+  },
   boost: () => {
     noise("mine", { from: 500, seconds: 0.4, to: 4800, volume: 0.22 });
     tone("mine", { hz: 180, seconds: 0.3, to: 520, type: "sawtooth", volume: 0.1 });
@@ -288,9 +313,21 @@ export const sfx = {
   countdown: (go: boolean) => {
     tone("ui", { hz: go ? 880 : 440, seconds: go ? 0.5 : 0.16, volume: 0.16 });
   },
-  crate: () => {
-    tone("ui", { hz: 300, seconds: 0.14, to: 150, type: "triangle", volume: 0.16 });
-    noise("ui", { from: 900, seconds: 0.1, to: 300, volume: 0.14 });
+  /** A power cube landing on its pad. */
+  cube: () => {
+    tone("world", { hz: 300, seconds: 0.14, to: 150, type: "triangle", volume: 0.2 });
+    tone("world", { delay: 0.05, hz: 1320, seconds: 0.12, type: "sine", volume: 0.1 });
+  },
+  /** The dart leaving. */
+  dash: (mine: boolean) => {
+    noise(side(mine), { from: 400, q: 0.7, seconds: 0.24, to: 5200, volume: mine ? 0.34 : 0.18 });
+    tone(side(mine), {
+      hz: 220,
+      seconds: 0.2,
+      to: 660,
+      type: "sawtooth",
+      volume: mine ? 0.12 : 0.06,
+    });
   },
   /** The ends of the board letting go. */
   drop: () => {
@@ -329,6 +366,27 @@ export const sfx = {
     tone(side(mine), { hz: 130, seconds: 0.12, to: 55, type: "sine", volume: 0.3 });
     noise(side(mine), { from: 700, seconds: 0.07, to: 200, volume: 0.16 });
   },
+  /** A rocket or a seeker leaving its car. */
+  launch: (mine: boolean) => {
+    noise(side(mine), { from: 300, q: 0.8, seconds: 0.4, to: 3800, volume: mine ? 0.34 : 0.2 });
+    tone(side(mine), {
+      hz: 140,
+      seconds: 0.34,
+      to: 420,
+      type: "sawtooth",
+      volume: mine ? 0.14 : 0.08,
+    });
+  },
+  magnet: (mine: boolean) => {
+    tone(side(mine), { hz: 90, seconds: 0.5, to: 540, type: "sawtooth", volume: 0.2 });
+    tone(side(mine), { hz: 180, seconds: 0.5, to: 1080, type: "sine", volume: 0.12 });
+  },
+  /** Growing, or a shield going up. */
+  morph: (mine: boolean) => {
+    for (const [i, hz] of [262, 330, 392, 523].entries()) {
+      tone(side(mine), { delay: i * 0.05, hz, seconds: 0.14, type: "square", volume: 0.1 });
+    }
+  },
   out: () => {
     noise("world", { from: 1400, seconds: 0.22, to: 180, volume: 0.22 });
   },
@@ -336,6 +394,11 @@ export const sfx = {
     for (const [i, hz] of [660, 880, 1175].entries()) {
       tone("ui", { delay: i * 0.06, hz, seconds: 0.1, volume: 0.12 });
     }
+  },
+  /** The popper's puck leaving. */
+  pop: (mine: boolean) => {
+    tone(side(mine), { hz: 720, seconds: 0.09, to: 180, type: "square", volume: mine ? 0.2 : 0.1 });
+    noise(side(mine), { from: 3200, seconds: 0.05, to: 900, volume: mine ? 0.2 : 0.1 });
   },
   piston: () => {
     noise("world", { from: 240, seconds: 0.2, to: 1800, volume: 0.5 });
@@ -356,7 +419,12 @@ export const sfx = {
     noise(side(mine), { from: 1200, seconds: 0.09, to: 260, volume: 0.3 });
     tone(side(mine), { hz: 140, seconds: 0.1, to: 70, type: "sine", volume: 0.22 });
   },
-  /** The bumper is back. */
+  repair: () => {
+    for (const [i, hz] of [523, 784, 1047, 1568].entries()) {
+      tone("mine", { delay: i * 0.06, hz, seconds: 0.12, type: "triangle", volume: 0.14 });
+    }
+  },
+  /** The attack is back. */
   ready: () => {
     tone("ui", { hz: 1320, seconds: 0.05, type: "triangle", volume: 0.07 });
   },
@@ -364,6 +432,26 @@ export const sfx = {
     for (const [i, hz] of (won ? [523, 659, 784, 1047] : [523, 494, 440]).entries()) {
       tone("ui", { delay: i * 0.12, hz, seconds: 0.24, type: "triangle", volume: 0.15 });
     }
+  },
+  /** A mine or a slick set down. */
+  set: (mine: boolean) => {
+    tone(side(mine), { hz: 260, seconds: 0.1, to: 130, type: "square", volume: 0.14 });
+    noise(side(mine), { from: 700, seconds: 0.08, to: 240, volume: 0.14 });
+  },
+  /** The brick coming down. */
+  slam: (mine: boolean) => {
+    tone(side(mine), { hz: 110, seconds: 0.34, to: 30, type: "sine", volume: 0.55 });
+    noise(side(mine), { from: 900, seconds: 0.22, to: 80, volume: 0.4 });
+  },
+  /** Wheels on oil. */
+  slip: (mine: boolean) => {
+    tone(side(mine), { hz: 900, seconds: 0.5, to: 300, type: "sine", volume: 0.14 });
+    noise(side(mine), { from: 2400, q: 2, seconds: 0.4, to: 700, volume: 0.14 });
+  },
+  /** Off a spring. */
+  spring: (mine: boolean) => {
+    tone(side(mine), { hz: 180, seconds: 0.3, to: 900, type: "triangle", volume: 0.2 });
+    tone(side(mine), { delay: 0.04, hz: 360, seconds: 0.22, to: 1400, type: "sine", volume: 0.1 });
   },
   /** The sweeper's arm catching a car. */
   sweep: (mine: boolean) => {
@@ -375,7 +463,22 @@ export const sfx = {
     tone("ui", { hz: 740, seconds: 0.12, volume: 0.13 });
     tone("ui", { delay: 0.16, hz: 740, seconds: 0.12, volume: 0.13 });
   },
+  /** The twister going round. */
+  whirl: (mine: boolean) => {
+    noise(side(mine), { from: 500, q: 1.4, seconds: 0.36, to: 2600, volume: mine ? 0.26 : 0.14 });
+    tone(side(mine), {
+      hz: 300,
+      seconds: 0.34,
+      to: 520,
+      type: "triangle",
+      volume: mine ? 0.12 : 0.06,
+    });
+  },
   whiff: () => {
     noise("mine", { from: 2400, q: 0.5, seconds: 0.14, to: 500, volume: 0.1 });
+  },
+  zap: (mine: boolean) => {
+    tone(side(mine), { hz: 2400, seconds: 0.3, to: 140, type: "sawtooth", volume: 0.18 });
+    noise(side(mine), { from: 7000, q: 3, seconds: 0.26, to: 1200, volume: 0.26 });
   },
 };
