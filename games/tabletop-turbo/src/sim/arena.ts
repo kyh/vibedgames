@@ -35,13 +35,9 @@ export type HazardDef =
       phase: number;
     };
 
-/** Which room the table stands in: sets the board's colours and the toys on it. */
-export type Room = "bedroom" | "kitchen" | "playroom";
-
 export interface ArenaDef {
   id: string;
   name: string;
-  room: Room;
   /** The board is the union of these, less the holes. */
   solids: readonly Slab[];
   /** What is left of the board once the ends have dropped away. */
@@ -201,7 +197,6 @@ export const ARENAS: readonly ArenaDef[] = [
       [9.5 * CL, 0],
     ],
     name: "Pinball",
-    room: "bedroom",
     solids: [box(0, 0, 11 * CL, 6.5 * CL, 4.8)],
     spawns: INNER,
   },

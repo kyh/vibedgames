@@ -321,6 +321,7 @@ export class GameScene {
   private dropped = false;
   private wasReady = true;
   private wasBoosting = false;
+  private readonly aim = new THREE.Vector3();
   private resultsShown = false;
   private lastCrate = -1;
   private knockOffs = 0;
@@ -1250,7 +1251,7 @@ export class GameScene {
 
   private present(dt: number, seconds: number) {
     const { field, stage } = this;
-    stage.begin(dt);
+    stage.begin();
     this.lights.reset();
     this.showOwn();
 
@@ -1282,7 +1283,10 @@ export class GameScene {
       stage.uploadPaint(this.glow.owner, this.glow.strength);
     }
 
-    stage.uploadLight();
+    if (this.lights.changed) {
+      stage.uploadLight();
+    }
+
     this.updateCamera(dt);
     this.drive();
   }
@@ -1767,18 +1771,18 @@ export class GameScene {
     const spanX = Math.max(0, arena.halfX + 3 - wide / 2);
     const spanZ = Math.max(0, arena.halfZ + 4 - deep / 2);
     const lead = me && this.started && me.mode !== "out" ? me : null;
-    const fx = clamp(lead ? lead.x : view.target.x, -spanX, spanX);
-    const fz = clamp(lead ? lead.z : view.target.z, -spanZ, spanZ);
+    const { aim } = this;
+    const fx = clamp(lead ? lead.x : aim.x, -spanX, spanX);
+    const fz = clamp(lead ? lead.z : aim.z, -spanZ, spanZ);
     const ease = Math.min(1, dt * 5);
     view.zoom = zoom;
-    view.target.x += (fx - view.target.x) * ease;
-    view.target.z += (fz - view.target.z) * ease;
+    aim.x += (fx - aim.x) * ease;
+    aim.z += (fz - aim.z) * ease;
     this.shake = Math.max(0, this.shake - dt * 4);
     const jolt = this.shake * this.shake * 0.5;
-    view.eye
-      .copy(view.target)
-      .addScaledVector(VIEW_DIR, EYE_DISTANCE)
-      .add({ x: (Math.random() - 0.5) * jolt, y: 0, z: (Math.random() - 0.5) * jolt });
+    const kick = () => Math.round((Math.random() - 0.5) * jolt * zoom) / zoom;
+    view.target.set(aim.x + kick(), 0, aim.z + kick());
+    view.eye.copy(view.target).addScaledVector(VIEW_DIR, EYE_DISTANCE);
   }
 
   private drive() {

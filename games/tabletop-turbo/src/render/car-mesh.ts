@@ -182,16 +182,16 @@ const BUMPERS: Record<BumperLook, { armed: THREE.BufferGeometry; spent: THREE.Bu
   },
 };
 
-const BLOB = tone(RAMP.iron, 1);
+const BLOB = tone(RAMP.tile, 1);
 const YAW_STEPS = 64;
 const DRAWN = 1.22;
 const TALL = 1.2;
+const SHADOW_SLIP = 0.35;
 
 const snapYaw = (yaw: number) =>
   (Math.round((yaw / (Math.PI * 2)) * YAW_STEPS) / YAW_STEPS) * Math.PI * 2;
 
 export class CarMesh {
-  visible = true;
   private readonly ramp: number;
   private readonly body: THREE.BufferGeometry | undefined;
   private look: CarLook | null = null;
@@ -219,7 +219,7 @@ export class CarMesh {
   draw(stage: PixelStage) {
     const { body, look } = this;
 
-    if (!look || !body || !this.visible) {
+    if (!look || !body) {
       return;
     }
 
@@ -232,12 +232,12 @@ export class CarMesh {
     if (!stage.shadows && look.grounded && look.y > -0.5) {
       const spread = Math.max(0.35, 1 - lifted * 0.3) * look.size;
 
-      for (const along of [-0.6, 0, 0.6]) {
+      for (const along of [-0.7, 0, 0.7]) {
         stage.dabs.push(
-          look.x + cos * along * spread,
+          look.x + cos * along * spread - SHADOW_SLIP,
           0.06,
-          look.z + sin * along * spread,
-          1.1 * spread,
+          look.z + sin * along * spread + SHADOW_SLIP,
+          0.95 * spread,
           BLOB,
           true,
         );

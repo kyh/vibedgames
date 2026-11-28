@@ -66,6 +66,9 @@ const SUN_FAR = 400;
 const ROWS = 360;
 const LAYER_DABS = 1;
 const LAYER_ALOFT = 2;
+const WORLD_IDS = 16;
+const NEAR = 1;
+const FAR = 600;
 
 const RIGHT = new THREE.Vector3();
 const UP = new THREE.Vector3();
@@ -130,7 +133,7 @@ export class PixelStage {
   private readonly world = new THREE.Group();
   private readonly actors = new THREE.Group();
   private readonly pools = new Map<THREE.BufferGeometry, Pool>();
-  private readonly orthoCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 1, 600);
+  private readonly orthoCam = new THREE.OrthographicCamera(-1, 1, 1, -1, NEAR, FAR);
   private readonly sunCam = new THREE.OrthographicCamera(
     -SUN_REACH,
     SUN_REACH,
@@ -153,15 +156,16 @@ export class PixelStage {
   private readonly dabMesh: THREE.InstancedBufferGeometry;
   private readonly sunSize: number;
   private readonly grid = new THREE.Vector4();
-  private readonly pan = new THREE.Vector3();
+  private readonly pan = new THREE.Vector2();
   private readonly lightVP = new THREE.Matrix4();
   private readonly boardMap = new THREE.Vector3(0, 0, 1);
   private readonly shadow: THREE.Vector4;
-  private time = 0;
   private worldSolids: THREE.BufferGeometry[] = [];
+  private boardTexture: THREE.DataTexture | null = null;
   private drawn = 0;
   private sunOn = true;
   private pixel = 3;
+  private dpr = 1;
   private wide = 2;
   private tall = 2;
 
@@ -222,7 +226,7 @@ export class PixelStage {
     this.dab = new THREE.RawShaderMaterial({
       ...base,
       fragmentShader: DAB_FRAGMENT,
-      uniforms: { uGrid: { value: this.grid } },
+      uniforms: { uDepthPerUnit: { value: 2 / (FAR - NEAR) }, uGrid: { value: this.grid } },
       vertexShader: DAB_VERTEX,
     });
     this.resolve = new THREE.RawShaderMaterial({
@@ -232,7 +236,7 @@ export class PixelStage {
       glslVersion: THREE.GLSL3,
       uniforms: {
         uDepth: { value: this.gbuffer.depthTexture },
-        uDepthInfo: { value: new THREE.Vector4(1, 600, 0.5, 0.07) },
+        uDepthInfo: { value: new THREE.Vector4(NEAR, FAR, 0.5, 0.07) },
         uRamps: { value: rampTexture() },
         uSun: { value: this.sun },
         uSurface: { value: this.gbuffer.textures[1] ?? null },
@@ -285,7 +289,7 @@ export class PixelStage {
     this.worldSolids = [...geometries];
 
     for (const [index, geometry] of geometries.entries()) {
-      const params = new THREE.Vector4(0, 0, 200 + index * 11, 0);
+      const params = new THREE.Vector4(0, 0, index + 1, 0);
       this.world.add(this.bind(new THREE.Mesh(geometry, this.solid), params));
     }
   }
@@ -293,6 +297,8 @@ export class PixelStage {
   /** The painted top of the board, read by every face built with the textured ramp. */
   setBoard(map: BoardMap) {
     const texture = dataTexture(map.bytes, map.width, map.height, THREE.RGBAFormat);
+    this.boardTexture?.dispose();
+    this.boardTexture = texture;
 
     for (const material of [this.solid, this.shade]) {
       const uniform = material.uniforms.uBoard;
@@ -346,7 +352,7 @@ export class PixelStage {
       params.set(
         place.ramp ?? 0,
         place.mono === true ? 1 : 0,
-        (this.drawn * 37) % 250,
+        WORLD_IDS + (this.drawn % (255 - WORLD_IDS)),
         place.sheer === true ? 1 : 0,
       );
     }
@@ -400,7 +406,9 @@ export class PixelStage {
 
   /** Fit the art grid to a window `width` by `height` CSS pixels. */
   resize(width: number, height: number) {
-    this.pixel = Math.max(1, Math.round(height / ROWS));
+    const dpr = globalThis.devicePixelRatio || 1;
+    this.dpr = dpr;
+    this.pixel = Math.max(1, Math.round((height * dpr) / ROWS)) / dpr;
     this.wide = Math.ceil(width / this.pixel) + 2;
     this.tall = Math.ceil(height / this.pixel) + 2;
     this.renderer.setPixelRatio(1);
@@ -409,13 +417,12 @@ export class PixelStage {
     const { style } = this.renderer.domElement;
     style.width = `${this.wide * this.pixel}px`;
     style.height = `${this.tall * this.pixel}px`;
-    style.left = `${Math.round((width - this.wide * this.pixel) / 2)}px`;
-    style.top = `${Math.round((height - this.tall * this.pixel) / 2)}px`;
+    style.left = `${Math.round(((width - this.wide * this.pixel) / 2) * dpr) / dpr}px`;
+    style.top = `${Math.round(((height - this.tall * this.pixel) / 2) * dpr) / dpr}px`;
   }
 
   /** Start a frame: nothing that moves is on stage yet. */
-  begin(dt: number) {
-    this.time += dt;
+  begin() {
     this.dabs.clear();
     this.drawn = 0;
 
@@ -466,7 +473,6 @@ export class PixelStage {
 
     if (!mesh) {
       mesh = this.bind(new THREE.Mesh(model, this.solid), new THREE.Vector4());
-      mesh.frustumCulled = false;
       pool.meshes.push(mesh);
       this.actors.add(mesh);
     }
@@ -499,6 +505,10 @@ export class PixelStage {
   private upload() {
     const { dabMesh, dabs } = this;
     dabMesh.instanceCount = dabs.count;
+
+    if (dabs.count === 0) {
+      return;
+    }
 
     for (const name of ["aCenter", "aData"]) {
       const attribute = dabMesh.getAttribute(name);
@@ -533,9 +543,11 @@ export class PixelStage {
     camera.updateProjectionMatrix();
     camera.updateMatrixWorld();
     this.grid.set(this.wide, this.tall, view.zoom, -AHEAD.y);
-    this.pan.set(Math.round(a / texel), Math.round(b / texel), this.time);
-    const { pixel } = this;
-    this.renderer.domElement.style.transform = `translate(${((-dx / texel) * pixel).toFixed(2)}px, ${((dy / texel) * pixel).toFixed(2)}px)`;
+    this.pan.set(Math.round(a / texel), Math.round(b / texel));
+    const { dpr, pixel } = this;
+    const slideX = Math.round((-dx / texel) * pixel * dpr) / dpr;
+    const slideY = Math.round((dy / texel) * pixel * dpr) / dpr;
+    this.renderer.domElement.style.transform = `translate(${slideX}px, ${slideY}px)`;
 
     return camera;
   }

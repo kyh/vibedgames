@@ -5,7 +5,6 @@ precision highp int;
 const int UNLIT = 1;
 const int FLOOR = 2;
 const int NO_SHADOW = 4;
-const int PULSE = 8;
 const int NO_OUTLINE = 16;
 const int SOFT = 32;
 const int FLAT = 64;
@@ -45,7 +44,8 @@ void main() {
   vPick = aTone.xy;
 #else
   vWorld = world.xyz;
-  vNormal = mat3(modelMatrix) * normal;
+  // Cars are stretched upwards, so a normal needs the inverse transpose to stay square to its face.
+  vNormal = transpose(inverse(mat3(modelMatrix))) * normal;
   vTone = aTone;
 #endif
 }
@@ -86,10 +86,10 @@ uniform vec3 uBoardMap;
 // World units the paint and light maps span, centred on the origin.
 uniform float uFloorSpan;
 uniform float uSlotRamp[32];
-// This object's colour ramp, 1 to wear it all over, an id to tell it from its neighbours, 1 to draw every other pixel.
+// This object's colour ramp, 1 to wear it all over, its id among everything on stage, 1 to draw every other pixel.
 uniform vec4 uObject;
-// The camera's place on the art grid, and the clock.
-uniform vec3 uPan;
+// The camera's place on the art grid.
+uniform vec2 uPan;
 
 layout(location = 0) out vec4 outTone;
 layout(location = 1) out vec4 outSurface;
@@ -119,7 +119,7 @@ float shadowAt(vec3 world, vec3 normal) {
 }
 
 void main() {
-  vec2 pixel = floor(gl_FragCoord.xy) + uPan.xy;
+  vec2 pixel = floor(gl_FragCoord.xy) + uPan;
   float dither = bayer(pixel);
   if (uObject.w > 0.5 && mod(pixel.x + pixel.y, 2.0) < 0.5) { discard; }
 
@@ -149,7 +149,8 @@ void main() {
     float facing = dot(normal, uSun.xyz);
     // A face square to the sun gains a step; one turned away loses up to uSun.w.
     offset = facing > 0.55 ? (facing - 0.55) / 0.45 : -uSun.w * (0.55 - facing) / 1.1;
-    float shade = facing > 0.0 ? shadowAt(vWorld, normal) : 0.0;
+    // A face that barely catches the sun is left to its own shading: the map is too coarse to say.
+    float shade = facing > 0.15 ? shadowAt(vWorld, normal) : 0.0;
     if (floor_) {
       // The board: a clean checker.
       inked = dither < shade * 0.5;
@@ -191,21 +192,15 @@ void main() {
     offset += texture(uLight, uv).r * 3.0;
   }
 
-  if ((flags & PULSE) != 0) {
-    float band = fract(floor(uPan.z * 10.0) * 0.1 - dot(vWorld, vec3(0.09, 0.21, 0.06)));
-    if (band < 0.3) { base += 1.0; }
-  }
-
   // Ground blends between tones with a dither band; everything else is flat clusters of tone.
   float low = floor(offset);
   float t = clamp((offset - low - 0.5) / (floor_ ? 0.14 : 0.4) + 0.5, 0.0, 1.0);
   float lift = ground ? low + (dither < t ? 1.0 : 0.0) : floor(offset + 0.5);
   float step_ = clamp(base + lift, 0.0, 7.0);
-  float id = mod(part + uObject.z, 250.0) + 1.0;
   float marks = (unlit ? 8.0 : 0.0) + (inked ? 4.0 : 0.0) + (ground ? 2.0 : 0.0)
     + ((flags & NO_OUTLINE) != 0 || uObject.w > 0.5 ? 1.0 : 0.0);
 
-  outTone = vec4(ramp / 255.0, step_ / 255.0, id / 255.0, 1.0);
+  outTone = vec4(ramp / 255.0, step_ / 255.0, uObject.z / 255.0, part / 255.0);
   outSurface = vec4(normal * 0.5 + 0.5, marks / 255.0);
 }
 `;
@@ -219,6 +214,8 @@ uniform mat4 viewMatrix;
 uniform mat4 projectionMatrix;
 // Target width and height, art pixels per world unit, how much a disc lying flat is squashed.
 uniform vec4 uGrid;
+// Clip-space depth per world unit along the view.
+uniform float uDepthPerUnit;
 
 out vec2 vAt;
 flat out vec4 vData;
@@ -237,7 +234,9 @@ void main() {
   vData = aData;
   vRadius = radius;
   vec2 at = centre + position * radius * squash;
-  gl_Position = vec4(at / uGrid.xy * 2.0 - 1.0, clip.z - 0.0005, 1.0);
+  // A disc lying on the floor runs away from the camera as it runs up the screen.
+  float tilt = (flags & FLOOR) != 0 ? position.y * radius / uGrid.z * sqrt(1.0 - uGrid.w * uGrid.w) * uDepthPerUnit : 0.0;
+  gl_Position = vec4(at / uGrid.xy * 2.0 - 1.0, clip.z - 0.0005 + tilt, 1.0);
 }
 `;
 
@@ -299,7 +298,7 @@ void main() {
   ivec2 p = ivec2(gl_FragCoord.xy);
   ivec2 size = textureSize(uTones, 0);
   vec4 here = texelFetch(uTones, p, 0);
-  if (here.a < 0.5) {
+  if (here.a * 255.0 < 0.5) {
     outColor = vec4(colour(uVoid.x, uVoid.y), 1.0);
     return;
   }
@@ -307,7 +306,7 @@ void main() {
   vec4 surface = texelFetch(uSurface, p, 0);
   float ramp = floor(here.r * 255.0 + 0.5);
   float step_ = floor(here.g * 255.0 + 0.5);
-  float id = floor(here.b * 255.0 + 0.5);
+  vec2 id = floor(here.ba * 255.0 + 0.5);
   int marks = int(surface.a * 255.0 + 0.5);
   bool plain = (marks & 1) != 0;
   bool floor_ = (marks & 2) != 0;
@@ -323,17 +322,18 @@ void main() {
   for (int i = 0; i < 4; i += 1) {
     ivec2 q = clamp(p + around[i], ivec2(0), size - 1);
     vec4 there = texelFetch(uTones, q, 0);
-    if (there.a < 0.5) { line = 2.0; continue; }
+    if (there.a * 255.0 < 0.5) { line = 2.0; continue; }
     vec4 other = texelFetch(uSurface, q, 0);
     int theirs = int(other.a * 255.0 + 0.5);
     if ((theirs & 1) != 0) { continue; }
     float gap = metres(q) - depth;
-    bool same = floor(there.b * 255.0 + 0.5) == id;
+    bool same = floor(there.ba * 255.0 + 0.5) == id;
+    bool flatSeam = floor_ && (theirs & 2) != 0;
     if (!same && gap > uDepthInfo.z) {
       line = 2.0;
     } else if (!same && !floor_ && (theirs & 2) != 0 && gap > -uDepthInfo.z) {
       line = 2.0;
-    } else if (!same && gap > uDepthInfo.w) {
+    } else if (!same && !flatSeam && gap > uDepthInfo.w) {
       line = max(line, 1.0);
     } else if (abs(gap) < uDepthInfo.z) {
       vec3 theirNormal = other.xyz * 2.0 - 1.0;

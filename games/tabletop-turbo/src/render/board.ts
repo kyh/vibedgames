@@ -12,6 +12,8 @@ const MARGIN = 0.5;
 /** The desk the board stands on: how far a car falls before it is gone. */
 export const TABLE_Y = -4.5;
 const BORDER = 0.95;
+
+const LINE = 0.16;
 const CELL = 0.2;
 
 const CORE = 1;
@@ -178,10 +180,9 @@ const cards = (b: MeshBuilder, x: number, z: number, yaw: number) => {
 
 const pot = (b: MeshBuilder, x: number, z: number, ramp: number) => {
   b.at(x, TABLE_Y, z).part();
-  b.cylinder(0, 0.8, 0, 1.2, 1.6, {
-    at: (_x, y) => (Math.abs(y - 0.8) < 0.3 ? tone(ramp, BASE) : -1),
-    tone: tone(RAMP.steel, BASE + 1),
-  });
+  b.cylinder(0, 0.25, 0, 1.2, 0.5, { tone: tone(RAMP.steel, BASE + 1) });
+  b.cylinder(0, 0.8, 0, 1.2, 0.6, { tone: tone(ramp, BASE) });
+  b.cylinder(0, 1.35, 0, 1.2, 0.5, { tone: tone(RAMP.steel, BASE + 1) });
   b.part();
   b.cylinder(0, 1.64, 0, 1.28, 0.12, { tone: tone(RAMP.steel, BASE + 2) });
   b.cylinder(0, 1.72, 0, 1.02, 0.06, { tone: tone(ramp, BASE + 1) });
@@ -214,9 +215,11 @@ export class Board {
   private readonly endsTop: THREE.BufferGeometry;
   private readonly endsSides: THREE.BufferGeometry;
   private readonly arena: Arena;
+  private readonly pads: readonly (readonly [number, number])[];
 
   constructor(arena: Arena) {
     this.arena = arena;
+    this.pads = [...arena.def.knockerPads, ...arena.def.carPads];
     this.map = this.paint();
     const { halfX, halfZ } = arena;
     const core = new MeshBuilder();
@@ -281,17 +284,17 @@ export class Board {
       }
     }
 
-    for (const [px, pz] of [...arena.def.knockerPads, ...arena.def.carPads]) {
+    for (const [px, pz] of this.pads) {
       const ax = Math.abs(x - px);
       const az = Math.abs(z - pz);
       const corner = Math.max(ax, az) < 2 && Math.max(ax, az) > 1.78 && Math.min(ax, az) > 1;
 
-      if (corner || (ax < 0.1 && az < 0.5) || (az < 0.1 && ax < 0.5)) {
+      if (corner || (ax < LINE / 2 && az < 0.5) || (az < LINE / 2 && ax < 0.5)) {
         return tone(RAMP.iron, BASE + 2);
       }
     }
 
-    if (wrap(x, CL) < 0.09 || wrap(z, CL) < 0.09) {
+    if (wrap(x, CL) < LINE || wrap(z, CL) < LINE) {
       return tone(ramp, BASE - 1);
     }
 
@@ -300,10 +303,8 @@ export class Board {
     return tone(ramp, BASE + (dropping ? 0 : 1) - (fleck > 0.996 ? 1 : 0));
   }
 
-  private texelAt(x: number, z: number, d: number) {
-    const late = edgeDistance(this.arena, x, z, true);
-
-    if (d < 0.1) {
+  private texelAt(x: number, z: number, d: number, late: number) {
+    if (d < LINE) {
       return tone(RAMP.cream, BASE + 2);
     }
 
@@ -315,7 +316,7 @@ export class Board {
       return wrap(x + z, 1.5) < 0.75 ? tone(RAMP.hazard, BASE) : tone(RAMP.iron, BASE);
     }
 
-    if (d < BORDER + 0.1) {
+    if (d < BORDER + LINE) {
       return tone(RAMP.iron, BASE - 1);
     }
 
@@ -341,14 +342,15 @@ export class Board {
         const d = edgeDistance(arena, x, z);
 
         if (d > 0) {
-          const picked = this.texelAt(x, z, d);
+          const late = edgeDistance(arena, x, z, true);
+          const picked = this.texelAt(x, z, d, late);
           const o = (j * width + i) * 4;
           const ramp = Math.floor(picked / 8);
           const plain = ramp === RAMP.tile || ramp === RAMP.stone;
           bytes[o] = ramp;
           bytes[o + 1] = picked % 8;
           bytes[o + 2] = plain ? FLAG.floor : FLAG.floor + FLAG.flat;
-          bytes[o + 3] = edgeDistance(arena, x, z, true) > 0 ? CORE : END;
+          bytes[o + 3] = late > 0 ? CORE : END;
         }
       }
     }

@@ -4,9 +4,6 @@ import * as THREE from "three";
 export const STEPS = 8;
 export const BASE = 4;
 
-/** Past the tones, every ramp carries its outline colour and its checker-shadow colour. */
-export const INK_COLUMN = STEPS;
-export const SHADE_COLUMN = STEPS + 1;
 const COLUMNS = STEPS + 2;
 
 const SEEDS = [
@@ -33,7 +30,7 @@ const SEEDS = [
   ["chalk", "#a9b8d0"],
 ] as const;
 
-export type RampName = (typeof SEEDS)[number][0];
+type RampName = (typeof SEEDS)[number][0];
 
 const indexOf = (name: RampName) => SEEDS.findIndex((row) => row[0] === name);
 
@@ -188,13 +185,6 @@ export const rampCss = (ramp: number, step: number) => {
 
   return `#${hex2(r)}${hex2(g)}${hex2(b)}`;
 };
-
-/** The outline colour everything shares when it has no ramp of its own. */
-export const INK_CSS = (() => {
-  const [r, g, b] = rgbOf(INK);
-
-  return `#${hex2(r)}${hex2(g)}${hex2(b)}`;
-})();
 
 const SCRATCH = new THREE.Color();
 const HSL = { h: 0, l: 0, s: 0 };

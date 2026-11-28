@@ -1,7 +1,7 @@
 import * as THREE from "three";
 
 /** Picks a tone from a point in the solid's own space; a negative keeps the coat's. */
-export type ToneAt = (x: number, y: number, z: number) => number;
+type ToneAt = (x: number, y: number, z: number) => number;
 
 export interface Coat {
   tone: number;
@@ -14,7 +14,6 @@ export const FLAG = {
   floor: 2,
   noOutline: 16,
   noShadow: 4,
-  pulse: 8,
   soft: 32,
   unlit: 1,
 } as const;
@@ -33,6 +32,49 @@ const gap = (a: Vec, b: Vec) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]
 
 const mix = (a: Vec, b: Vec, t: number) =>
   [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t] as const;
+
+const TAKEN = -1;
+
+const merged = (picks: Int16Array, nu: number, nv: number) => {
+  const runs: { i: number; j: number; w: number; h: number; tone: number }[] = [];
+
+  const same = (i: number, j: number, w: number, tone: number) => {
+    for (let k = i; k < i + w; k += 1) {
+      if (picks[j * nu + k] !== tone) {
+        return false;
+      }
+    }
+
+    return true;
+  };
+
+  for (let j = 0; j < nv; j += 1) {
+    for (let i = 0; i < nu; i += 1) {
+      const tone = picks[j * nu + i] ?? TAKEN;
+
+      if (tone !== TAKEN) {
+        let w = 1;
+        let h = 1;
+
+        while (i + w < nu && picks[j * nu + i + w] === tone) {
+          w += 1;
+        }
+
+        while (j + h < nv && same(i, j + h, w, tone)) {
+          h += 1;
+        }
+
+        for (let row = j; row < j + h; row += 1) {
+          picks.fill(TAKEN, row * nu + i, row * nu + i + w);
+        }
+
+        runs.push({ h, i, j, tone, w });
+      }
+    }
+  }
+
+  return runs;
+};
 
 export class MeshBuilder {
   /** World units across one cell of a patterned face. */
@@ -104,23 +146,29 @@ export class MeshBuilder {
       return mix(low, high, t);
     };
 
-    for (let i = 0; i < nu; i += 1) {
-      for (let j = 0; j < nv; j += 1) {
+    const picks = new Int16Array(nu * nv);
+
+    for (let j = 0; j < nv; j += 1) {
+      for (let i = 0; i < nu; i += 1) {
         const middle = spot((i + 0.5) / nu, (j + 0.5) / nv);
         const picked = at(middle[0], middle[1], middle[2]);
-        this.fan(
-          ORIGIN,
-          [
-            spot(i / nu, j / nv),
-            spot((i + 1) / nu, j / nv),
-            spot((i + 1) / nu, (j + 1) / nv),
-            spot(i / nu, (j + 1) / nv),
-          ],
-          [n, n, n, n],
-          picked < 0 ? coat.tone : picked,
-          flags,
-        );
+        picks[j * nu + i] = picked < 0 ? coat.tone : picked;
       }
+    }
+
+    for (const run of merged(picks, nu, nv)) {
+      this.fan(
+        ORIGIN,
+        [
+          spot(run.i / nu, run.j / nv),
+          spot((run.i + run.w) / nu, run.j / nv),
+          spot((run.i + run.w) / nu, (run.j + run.h) / nv),
+          spot(run.i / nu, (run.j + run.h) / nv),
+        ],
+        [n, n, n, n],
+        run.tone,
+        flags,
+      );
     }
   }
 
@@ -209,7 +257,11 @@ export class MeshBuilder {
     coat: Coat,
     axis: Axis = "y",
   ) {
-    const sides = Math.max(8, Math.min(24, Math.round((Math.max(r0, r1) * 6) / this.detail / 4)));
+    const sides = Math.max(
+      8,
+      Math.min(24, Math.round((Math.max(r0, r1) * 1.5) / this.detail / 4) * 4),
+    );
+
     const lean = Math.atan2(r0 - r1, h);
     const up = Math.sin(lean);
     const out = Math.cos(lean);
