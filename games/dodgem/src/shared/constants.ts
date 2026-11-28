@@ -3,7 +3,7 @@ export const GRID_SIZE = 8;
 
 /** Humans one room holds; the SDK overflows the rest into a sibling room. */
 export const MAX_PLAYERS = 8;
-export const ROOM_ID = "knockabout-v1";
+export const ROOM_ID = "dodgem-v1";
 
 export const ROUND_MS = 120_000;
 export const COUNTDOWN_MS = 4000;

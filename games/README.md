@@ -9,9 +9,9 @@ and playable, and each has its own README with routes, options and controls.
 | [Battle Arena](./battle-arena)     | Three.js          | online PvP     | `pnpm dev:battle-arena`   | `battle-arena.vibedgames.com`   |
 | [Bomberman](./bomberman)           | Phaser 4          | shared room    | `pnpm dev:bomberman`      | `bomberman.vibedgames.com`      |
 | [Crazy Waymo](./crazy-waymo)       | Three.js + Rapier | shared room    | `pnpm dev:crazy-waymo`    | `crazy-waymo.vibedgames.com`    |
+| [Dodgem](./dodgem)                 | Three.js          | 8p car battle  | `pnpm dev:dodgem`         | `dodgem.vibedgames.com`         |
 | [Farm](./farm)                     | Phaser 4          | shared farm    | `pnpm dev:farm`           | `farm.vibedgames.com`           |
 | [Flappy Dragons](./flappy-dragons) | Phaser 4          | shared room    | `pnpm dev:flappy-dragons` | `flappy-dragons.vibedgames.com` |
-| [Knockabout](./knockabout)         | Three.js          | 8p car battle  | `pnpm dev:knockabout`     | `knockabout.vibedgames.com`     |
 | [Lunerfall](./lunerfall)           | Phaser 4          | co-op + versus | `pnpm dev:lunerfall`      | `lunerfall.vibedgames.com`      |
 | [Ancients of Eldermoor](./moba)    | Phaser 4          | online match   | `pnpm dev:moba`           | `moba.vibedgames.com`           |
 | [Pacman](./pacman)                 | Three.js          | shared room    | `pnpm dev:pacman`         | `pacman.vibedgames.com`         |
