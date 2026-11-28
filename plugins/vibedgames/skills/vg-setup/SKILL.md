@@ -13,7 +13,7 @@ a build later.
 
 ## 0. MCP tools instead of the CLI
 
-The plugin also connects the vibedgames MCP server (`https://vibedgames.com/mcp`).
+The plugin also connects the vibedgames MCP server (`https://www.vibedgames.com/mcp`).
 Its tools match the CLI's server commands: `whoami`, `credits`, `deploy`,
 `deployments`, `fork`, `generate`, `generate_image`, `generate_video`, `skills`
 and more. The skills (`skills` tool) work without an account. A tool that needs
@@ -60,11 +60,11 @@ vg whoami --json   # {"email","id","name"} when signed in; exits 1 when not
 Choose one:
 
 - **API key (best for headless or CI):** the user creates a key at
-  https://vibedgames.com/settings and sets `VG_TOKEN` in the environment.
+  https://www.vibedgames.com/settings and sets `VG_TOKEN` in the environment.
   `VG_TOKEN` overrides any saved login. You can't create the key for them.
 - **Device code:** run `vg login` **in the background**, since it waits up to
   10 minutes for approval. It prints an 8-character code and an approval URL
-  (`https://vibedgames.com/device?user_code=…`), and tries to open a browser.
+  (`https://www.vibedgames.com/device?user_code=…`), and tries to open a browser.
   Give the user the code and that URL; the browser won't open in a remote or
   headless shell. Continue once it prints `Logged in successfully`. If it says
   `Code expired`, run it again. `Login was denied` means the user said no, so

@@ -1,5 +1,5 @@
 /**
- * Public, crawlable apex pages, in sitemap order, each with the day its
+ * Public, crawlable web-host pages, in sitemap order, each with the day its
  * content last changed (`<lastmod>`, and `dateModified` in the page's
  * JSON-LD). User games live on `{slug}.vibedgames.com` subdomains served by a
  * separate worker and are not listed here.

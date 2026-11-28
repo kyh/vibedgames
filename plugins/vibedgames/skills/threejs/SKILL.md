@@ -19,7 +19,7 @@ Build performant 3D browser apps and games with Three.js using modern ES module 
 
 ## Prebuilt Modules — copy the hard parts, generate the rest
 
-`modules/` holds a small set of TypeScript files for the parts of a 3D game that are hard to get right and the same across games: framerate-independent smoothing + a deterministic PRNG (`math.ts`), Y-up orientation-frame helpers + a grounded character controller (`character-movement.ts`), and a Rapier kinematic character-collision resolver (`kinematic-resolver.ts`). Copy these into the project rather than re-deriving them — inverted axes, framerate-dependent smoothing, and mis-wired Rapier controllers are the classic ways this goes wrong.
+`modules/` holds a small set of TypeScript files for the parts of a 3D game that are hard to get right and the same across games: framerate-independent smoothing + a deterministic PRNG (`math.ts`), Y-up orientation-frame helpers + a grounded character controller (`character-movement.ts`), a Rapier kinematic character-collision resolver (`kinematic-resolver.ts`), and effect plumbing — beat envelope, timeline cues, depth prepass for soft particles, camera-facing strips, lightning, a shockwave pass (`vfx.ts`). Copy these into the project rather than re-deriving them — inverted axes, framerate-dependent smoothing, and mis-wired Rapier controllers are the classic ways this goes wrong.
 
 Everything else — camera rigs, enemy waves, pathfinding, steering, minimaps, input schemes — is **not** prebuilt on purpose: it differs per game and is cheap to write, so generate it live against the references below. Read `modules/summary.md` before pulling anything in.
 
@@ -36,6 +36,8 @@ Scene setup is inline below. Read the relevant reference before working on that 
 | Loading/caching/normalizing GLTF/GLB models                                                                  | `references/gltf-loading-guide.md`      |
 | Game loop, state machine, object pooling, screen effects, attack timing, weapon trails                       | `references/game-patterns.md`           |
 | Dropping generated GLB models / SFX into a running scene                                                     | `references/generated-assets.md`        |
+| Building props, hazards, pickups and world kits from code (silhouette, factories, material roles, layers)    | `references/procedural-art.md`          |
+| Spells, explosions, shields, beams, lightning, soft particles, shockwaves                                    | `vfx` skill → `references/threejs.md`   |
 | Post-processing, shaders, instancing, env maps, color management                                             | `references/advanced-topics.md`         |
 | Material values, shader injection (onBeforeCompile), sky, cheap tricks, pixel-look post, z-fighting, shadows | `references/graphics-recipes.md`        |
 | Black screen, low FPS, mobile issues, memory leaks, physics debugging                                        | `references/debugging-and-profiling.md` |
@@ -212,7 +214,7 @@ In a game, add a rim/back light behind the player (opposite the camera) — it s
 
 ```javascript
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.type = THREE.PCFShadowMap; // r184+ coerces PCFSoftShadowMap to this with a warning
 
 mainLight.castShadow = true;
 mainLight.shadow.mapSize.width = 2048;

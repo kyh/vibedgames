@@ -3,7 +3,7 @@
   "mcpServers": {
     "vibedgames": {
       "type": "streamable-http",
-      "url": "https://vibedgames.com/mcp"
+      "url": "https://www.vibedgames.com/mcp"
     }
   }
 }

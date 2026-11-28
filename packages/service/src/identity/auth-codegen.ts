@@ -7,7 +7,7 @@ import { memoryAdapter } from "better-auth/adapters/memory";
 import { admin, bearer, jwt, oAuthProxy } from "better-auth/plugins";
 
 export const auth = betterAuth({
-  baseURL: "https://vibedgames.com",
+  baseURL: "https://www.vibedgames.com",
   database: memoryAdapter({ oauthResource: [] }),
   emailAndPassword: { enabled: true },
   plugins: [
@@ -20,7 +20,7 @@ export const auth = betterAuth({
     mcp({
       consentPage: "/oauth/consent",
       loginPage: "/auth/login",
-      resource: "https://vibedgames.com/mcp",
+      resource: "https://www.vibedgames.com/mcp",
     }),
     oauthDeviceAuthorization(),
   ],

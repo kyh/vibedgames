@@ -230,9 +230,9 @@ const requirePositiveBalance = async (db: Db, userId: string, canBuy: boolean) =
   const addCredit = canBuy
     ? "`vg credits buy <usd>` prints a checkout link for a person to pay, " +
       "`vg credits redeem <code>` applies a credit code, " +
-      "or buy at https://vibedgames.com/settings#credits."
+      "or buy at https://www.vibedgames.com/settings#credits."
     : "`vg credits redeem <code>` applies a credit code, " +
-      "or redeem one at https://vibedgames.com/settings#credits.";
+      "or redeem one at https://www.vibedgames.com/settings#credits.";
 
   throw new ORPCError("FORBIDDEN", {
     message:

@@ -28,6 +28,10 @@ at glance-speed mid-dodge; a card is not.
   indicators, damage numbers, prompts anchored to the thing itself.
 - Keep all UI out of the play path — away from the player, threats, pickups,
   and the next decision.
+- **The HUD layer never eats the canvas's input.** A full-screen HUD or
+  overlay wrapper gets `pointer-events: none`; only its buttons and controls
+  opt back in with `pointer-events: auto`. Otherwise drag-to-aim, orbit or
+  touch steering dies over the HUD's empty margins.
 - **No control instructions during play.** "M to mute", "WASD to move" and
   standing hint bars belong on the initial screen only. Allowed in play:
   pause/game-over/match-end modals (keep "P to resume"), just-in-time prompts
@@ -59,7 +63,9 @@ channels (color + shape/motion/sound) — never color alone.
   actions (settings, quit) smaller.
 - Buttons have stable dimensions plus hover/pressed/focus/disabled states.
 - Overlays pause underneath, act in one input, and never look like a landing
-  page. Debug/tuning UI gates behind a dev flag or query param — it never
+  page. Animate the overlay's content in, not a `<dialog>` that carries a
+  `backdrop-filter` blur: over a WebGL canvas Chromium flickers its text
+  mid-transition. Keep any blur layer static, or use an opaque dark scrim. Debug/tuning UI gates behind a dev flag or query param — it never
   ships as player UI.
 - UI reads from the game state (single source of truth) and dispatches
   intents; check for stale values after restart.
