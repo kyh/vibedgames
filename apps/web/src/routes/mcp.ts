@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { mcpApps } from "virtual:mcp-apps";
 
 import { createRpcContext } from "@/auth/server";
 import { agentSkills } from "@/lib/agent-skills";
@@ -9,6 +10,7 @@ const handler = async ({ request }: { request: Request }) =>
     request,
     async (headers) => await createRpcContext(headers, "mcp"),
     agentSkills,
+    mcpApps,
   );
 
 export const Route = createFileRoute("/mcp")({

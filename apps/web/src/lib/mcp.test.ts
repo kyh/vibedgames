@@ -10,6 +10,8 @@ import { MAX_RPC_BODY_BYTES } from "@repo/service/generate/limits";
 import { z } from "zod";
 
 import { handleMcpRequest } from "./mcp";
+import type { McpApps } from "./mcp-gallery";
+import { GALLERY_URI } from "./mcp-gallery-schema";
 import type { Skill } from "./mcp-tools";
 import { MEDIA_MODELS, tools as mcpTools } from "./mcp-tools";
 
@@ -84,6 +86,8 @@ const skills: Skill[] = [
   },
 ];
 
+const apps: McpApps = { gallery: "<!doctype html><title>gallery</title>" };
+
 const oauthSession: Session = {
   ...signedIn,
   session: { ...signedIn.session, token: "oauth:token-1" },
@@ -114,7 +118,13 @@ const rpc = async (
     method: "POST",
   });
 
-  const response = await handleMcpRequest(request, contextWith(session, seen, oauthScopes), skills);
+  const response = await handleMcpRequest(
+    request,
+    contextWith(session, seen, oauthScopes),
+    skills,
+    apps,
+  );
+
   const text = await response.text();
 
   const json = text.startsWith("{")
@@ -185,6 +195,7 @@ describe("mcp endpoint", () => {
         "deployments",
         "deployments_delete",
         "fork",
+        "games_browse",
         "generate_docs",
         "generate_models",
         "generate_pricing",
@@ -210,7 +221,15 @@ describe("mcp endpoint", () => {
     const tools = await listTools();
     const byName = new Map(tools.map((tool) => [tool.name, tool]));
 
-    for (const name of ["whoami", "credits", "deployments", "fork", "skills", "generate_models"]) {
+    for (const name of [
+      "whoami",
+      "credits",
+      "deployments",
+      "fork",
+      "games_browse",
+      "skills",
+      "generate_models",
+    ]) {
       assert.strictEqual(byName.get(name)?.annotations?.readOnlyHint, true, name);
     }
 
@@ -219,6 +238,82 @@ describe("mcp endpoint", () => {
     for (const name of ["generate", "generate_image", "deploy", "credits_redeem"]) {
       assert.strictEqual(byName.get(name)?.annotations?.readOnlyHint, false, name);
     }
+  });
+
+  test("gives every tool a title and explicit read-only, destructive and open-world hints", async () => {
+    for (const tool of await listTools()) {
+      assert.ok(tool.title !== undefined && tool.title !== "", `${tool.name} has no title`);
+
+      const hints = z
+        .object({
+          destructiveHint: z.boolean(),
+          openWorldHint: z.boolean(),
+          readOnlyHint: z.boolean(),
+        })
+        .safeParse(tool.annotations);
+
+      assert.ok(
+        hints.success,
+        `${tool.name} lacks an explicit hint: ${JSON.stringify(tool.annotations)}`,
+      );
+    }
+  });
+
+  test("points games_browse at the gallery view, for the model and the view alike", async () => {
+    const tools = z
+      .array(z.looseObject({ _meta: z.looseObject({}).optional(), name: z.string() }))
+      .parse(await listTools());
+
+    const meta = tools.find((tool) => tool.name === "games_browse")?._meta;
+    assert.deepStrictEqual(meta?.ui, { resourceUri: GALLERY_URI, visibility: ["model", "app"] });
+    assert.strictEqual(meta?.["ui/resourceUri"], GALLERY_URI);
+  });
+
+  test("serves the gallery view as an MCP App resource", async () => {
+    const { body } = await rpc("resources/read", { uri: GALLERY_URI }, { session: null });
+
+    const [content, ...rest] = z
+      .object({ result: z.object({ contents: z.array(z.looseObject({})) }) })
+      .parse(body).result.contents;
+
+    assert.deepStrictEqual(rest, []);
+    assert.deepStrictEqual(content, {
+      _meta: {
+        ui: {
+          csp: {
+            connectDomains: [],
+            frameDomains: [],
+            resourceDomains: ["https://www.vibedgames.com"],
+          },
+          prefersBorder: true,
+        },
+      },
+      mimeType: "text/html;profile=mcp-app",
+      text: apps.gallery,
+      uri: GALLERY_URI,
+    });
+  });
+
+  test("browses games anonymously, as text for the model and structured content for the view", async () => {
+    const { body } = await rpc(
+      "tools/call",
+      { arguments: { tag: "camera" }, name: "games_browse" },
+      { session: null },
+    );
+
+    const { result } = callResult.parse(body);
+    assert.notStrictEqual(result.isError, true);
+
+    const { games } = z
+      .object({ games: z.array(z.object({ playUrl: z.string(), slug: z.string() })) })
+      .parse(result.structuredContent);
+
+    assert.deepStrictEqual(
+      games.map((game) => game.slug),
+      ["flappy-dragons", "pacman", "pong"],
+    );
+    assert.strictEqual(games[0]?.playUrl, "https://flappy-dragons.vibedgames.com");
+    assert.match(result.content[0]?.text ?? "", /flappy-dragons/u);
   });
 
   test("lists the skills, and serves one by name", async () => {
@@ -310,7 +405,12 @@ describe("mcp endpoint", () => {
 
     assert.deepStrictEqual(
       result.resources.map((resource) => resource.uri),
-      ["skill://phaser/SKILL.md", "skill://phaser/references/scenes.md", "skill://deploy/SKILL.md"],
+      [
+        "skill://phaser/SKILL.md",
+        "skill://phaser/references/scenes.md",
+        "skill://deploy/SKILL.md",
+        GALLERY_URI,
+      ],
     );
     const read = await rpc("resources/read", { uri: "skill://phaser/references/scenes.md" });
 
@@ -401,6 +501,7 @@ describe("mcp endpoint", () => {
 
     const schemes = new Map(tools.map((tool) => [tool.name, tool._meta.securitySchemes]));
     assert.deepStrictEqual(schemes.get("skills"), [{ type: "noauth" }]);
+    assert.deepStrictEqual(schemes.get("games_browse"), [{ type: "noauth" }]);
     assert.deepStrictEqual(schemes.get("deployments"), [
       { scopes: ["games:read"], type: "oauth2" },
     ]);
@@ -450,7 +551,7 @@ describe("mcp endpoint", () => {
       method: "POST",
     });
 
-    const response = await handleMcpRequest(request, contextWith(null), skills);
+    const response = await handleMcpRequest(request, contextWith(null), skills, apps);
     assert.strictEqual(response.status, 401);
   });
 
@@ -482,7 +583,7 @@ describe("mcp endpoint", () => {
       .filter(([, tool]) => getRequiredScope(tool) === undefined)
       .map(([name]) => name);
 
-    assert.deepStrictEqual(unscoped, ["skills"]);
+    assert.deepStrictEqual(unscoped, ["games_browse", "skills"]);
   });
 
   test("runs a tool inside the token's scopes", async () => {
@@ -530,6 +631,7 @@ describe("mcp endpoint", () => {
             new Request("https://vibedgames.com/mcp", { method }),
             contextWith(signedIn),
             skills,
+            apps,
           ),
       ),
     );
@@ -571,7 +673,7 @@ describe("mcp endpoint", () => {
       method: "POST",
     });
 
-    const response = await handleMcpRequest(request, contextWith(null), skills);
+    const response = await handleMcpRequest(request, contextWith(null), skills, apps);
     assert.strictEqual(response.status, 413);
     assert.ok(pulled <= MAX_RPC_BODY_BYTES / chunk.byteLength + 2, `pulled ${pulled} MiB`);
   });
@@ -583,7 +685,7 @@ describe("mcp endpoint", () => {
       method: "POST",
     });
 
-    const response = await handleMcpRequest(request, contextWith(null), skills);
+    const response = await handleMcpRequest(request, contextWith(null), skills, apps);
     assert.strictEqual(response.status, 413);
   });
 });
