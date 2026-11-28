@@ -48,6 +48,9 @@ Every spec number lives in that file and nowhere else.
 - **A round ends in a build the person can open.** `vg deploy` from a clean
   tree, then open the URL yourself, play through the real menu, capture, and
   only then report. "Done" means seen in that build.
+- **The builder never grades the round.** Before reporting a round as done,
+  run `game-review`: a fresh adversarial panel plays the deployed build and
+  its findings, with evidence, are what the update reports.
 - **One latest address.** The game's `{slug}.vibedgames.com` URL is always
   the newest promoted build. If a round needs a separate address to compare,
   deploy it under a second slug.

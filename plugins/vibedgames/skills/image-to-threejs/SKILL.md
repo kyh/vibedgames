@@ -7,12 +7,13 @@ metadata:
 
 # Image to Three.js
 
-> **Prerequisites — read before starting.** This skill is not Node-only. Its
-> generator is an external Python program, so it needs `uv` and Python 3.12 on
-> the machine plus a one-time `git clone` (see [Setup](#setup)). Every other
-> asset-pipeline skill runs on `node` alone; this one does not. If `uv` is not
-> available and cannot be installed, stop here and pick a different approach
-> rather than starting the pipeline — the wall arrives several steps in.
+> **Prerequisites — read before starting.** The generator is an external
+> Python program. With `uv` (or Python 3.10+) and a one-time `git clone` (see
+> [Setup](#setup)) it runs on this machine. Without them, every `run` step
+> below runs hosted through `vg asset image-to-threejs` instead (see
+> [No Python here](#no-python-here)); only `render_model.py` and
+> `align_framing.py`, which drive this project's own Vite and browser, need
+> Python locally.
 
 Rebuild an object as **procedural Three.js code** driven by one generated
 reference image. The output is a TypeScript factory — primitives, procedural
@@ -66,6 +67,30 @@ SKILL="${CLAUDE_SKILL_DIR}"
   [ -d "$d/image-to-threejs" ] && SKILL=$d/image-to-threejs && break
 done
 ```
+
+### No Python here
+
+`vg asset image-to-threejs` runs one pipeline script by its file name: on
+this machine when the checkout above and Python are present, else hosted
+(billed by the second, from $0.01). List each file the script reads under
+`--file_urls` (its path in the project → the local file), pass its
+arguments as a JSON array, and `--out .` writes every file it creates or
+changes back at the same path:
+
+```bash
+run() {
+  local script; script=$(basename "$1"); shift
+  local files="{}"
+  for f in "$@"; do [ -f "$f" ] && files=$(node -e 'const [m,f]=process.argv.slice(1);const o=JSON.parse(m);o[f]=f;console.log(JSON.stringify(o))' "$files" "$f"); done
+  vg asset image-to-threejs --script "$script" \
+    --args "$(node -e 'console.log(JSON.stringify(process.argv.slice(1)))' "$@")" \
+    --file_urls "$files" --out . --field result.stdout
+}
+```
+
+This `run` stages only the files named in the arguments. A script that also
+reads files it is not given (a pass folder under `runs/`) needs them added to
+`--file_urls` by hand.
 
 The target project needs `three`, `vite` **and `playwright`** installed —
 `render_model.py` drives a real browser and resolves playwright by walking up

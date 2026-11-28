@@ -19,10 +19,10 @@ Liveness: `curl -s -o /dev/null -w '%{http_code}' localhost:5173/auth/login` →
 
 One file, two consumers. Everything lives in the repo-root `.env`; template is `.env.example`.
 
-| Consumer                                         | Reaches it via                                                  | Holds                                                                                                         |
-| ------------------------------------------------ | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| drizzle-kit, the cf CLI                          | `process.env`, loaded by each package's `with-env` (dotenv-cli) | `CLOUDFLARE_ACCOUNT_ID` / `_DATABASE_ID` / `_D1_TOKEN` / `_API_TOKEN`                                         |
-| the dev Worker, via the Cloudflare `env` binding | `bindings.secret()` in `apps/web/cloudflare.config.ts`          | `BETTER_AUTH_SECRET`, `FAL_API_KEY`, `TYPESAFE_API_KEY`, `STRIPE_*`, `GITHUB_*`, `GOOGLE_*`, `RESEND_API_KEY` |
+| Consumer | Reaches it via | Holds |
+| ------------------------------------------------ | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- | ------------------------------ | ------------------------------ |
+| drizzle-kit, the cf CLI | `process.env`, loaded by each package's `with-env` (dotenv-cli) | `CLOUDFLARE_ACCOUNT_ID` / `_DATABASE_ID` / `_D1_TOKEN` / `_API_TOKEN` |
+| the dev Worker, via the Cloudflare `env` binding | `bindings.secret()` in `apps/web/cloudflare.config.ts` | `BETTER_AUTH_SECRET`, `FAL_API_KEY`, `TYPESAFE_API_KEY`, `STRIPE_*`, `GITHUB_*`, `GOOGLE_*`, `RESEND_API_KEY` |
 
 **The declared secrets are the whole mechanism.** Declaring a name with `bindings.secret()` makes the dev server fold `process.env` into the Worker binding and filter it down to exactly the declared names — so a secret that is in `.env` but not declared silently never reaches the Worker. Adding one means editing two places: `.env.example` and `cloudflare.config.ts` (the `Env` type is generated from it).
 
@@ -34,12 +34,12 @@ Do not reintroduce `apps/web/.dev.vars`. The dev server prefers it and stops rea
 
 `pnpm db:seed-local` applies `packages/db/seed.sql` to the local D1. It creates:
 
-| Identity                             | Use                                                                       |
-| ------------------------------------ | ------------------------------------------------------------------------- |
-| `user@vibedgames.com`                | browser login, regular user                                               |
-| `admin@vibedgames.com`               | browser login, admin (`/admin`: users and credit codes)                   |
-| `dev-local-session-token-0000000000` | long-lived bearer token for the CLI and raw HTTP                          |
-| `DEV123`                             | credit code, $20, unlimited uses — redeem once per account in `/settings` |
+| Identity | Use |
+| ------------------------------------ | ------------------------------------------------------------------------- | ------------------------------ | ------------------------------ |
+| `user@vibedgames.com` | browser login, regular user |
+| `admin@vibedgames.com` | browser login, admin (`/admin`: users and credit codes) |
+| `dev-local-session-token-0000000000` | long-lived bearer token for the CLI and raw HTTP |
+| `DEV123` | credit code, $20, unlimited uses — redeem once per account in `/settings` |
 
 Sign-in is a six-digit code emailed to the address (better-auth `emailOTP`), never a password, and the same form signs a new address up. `pnpm sign-in-code [email]` (default `user@vibedgames.com`) writes a fresh code for it into the local D1 and prints it, so no inbox or log is needed; it never touches a remote database.
 
@@ -138,14 +138,14 @@ Six flows cover all ten `useMutation` sites in the app: `/settings` (create + re
 
 ## Platform matrix
 
-| Surface       | Dev command                   | Where                      | Agent-verifiable at runtime?                         |
-| ------------- | ----------------------------- | -------------------------- | ---------------------------------------------------- |
-| Web app       | `pnpm dev:web`                | `:5173`                    | **Yes** — `vg playtest`, or curl for the API routes  |
-| `vg` CLI      | `pnpm dogfood`                | `vg` on PATH               | **Yes** — `VG_API_URL` + `VG_TOKEN`, `--json` output |
-| Party (DO)    | `pnpm dev:party`              | `:8787` (`cf dev` default) | Partly — WebSocket protocol, no UI                   |
-| Games worker  | `pnpm dev:games`              | `:3002`                    | Partly — curl; serves R2 bundles, no local fixtures  |
-| Example games | `pnpm dev:<game>`             | per-game vite port         | **Yes** — `vg playtest`; see the `playtest` skill    |
-| Factory       | `pnpm -F @repo/factory start` | terminal                   | No — interactive Ink app                             |
+| Surface | Dev command | Where | Agent-verifiable at runtime? |
+| ------------- | ----------------------------- | -------------------------- | ---------------------------------------------------- | ------------------------------ | ------------------------------ |
+| Web app | `pnpm dev:web` | `:5173` | **Yes** — `vg playtest`, or curl for the API routes |
+| `vg` CLI | `pnpm dogfood` | `vg` on PATH | **Yes** — `VG_API_URL` + `VG_TOKEN`, `--json` output |
+| Party (DO) | `pnpm dev:party` | `:8787` (`cf dev` default) | Partly — WebSocket protocol, no UI |
+| Games worker | `pnpm dev:games` | `:3002` | Partly — curl; serves R2 bundles, no local fixtures |
+| Example games | `pnpm dev:<game>` | per-game vite port | **Yes** — `vg playtest`; see the `playtest` skill |
+| Factory | `pnpm -F @repo/factory start` | terminal | No — interactive Ink app |
 
 `dev:party` pins its inspector to `:9230`, so it runs beside `dev:games` or `dev:web`, which both take the default `:9229` first.
 
@@ -167,19 +167,20 @@ For the surfaces marked No, `pnpm typecheck` and `pnpm build` are the gate; a re
 
 Each platform Worker is connected to this repo with Cloudflare Workers Builds (the Worker → **Settings** → **Builds**). A push to `main` builds and deploys production; a push to any other branch builds a Worker Preview of web, named for the branch, whose URLs Cloudflare posts on the PR beside its check run. Only web builds Previews. web and party are on Worker Previews (Cloudflare's one-way switch from the old branch builds is done for both), but party's preview builds are off: web never connects to party and every game hardcodes `https://party.vibedgames.com`, so nothing would reach a party Preview; its integration tests in CI cover it. Nothing deploys a Worker from GitHub Actions. Production runs package scripts; the Preview command must invoke `npx cf previews deploy` or `npx wrangler preview` itself, so it spells out what web's `deploy:preview` script runs (the default `npx wrangler preview` needs a Wrangler file, which this repo has none of). Keep the two in step. The dashboard holds only these:
 
-| Setting                     | `vibedgames-web`                                                                                                | `vibedgames-party`                                              | `vibedgames-games`                                                                         |
-| --------------------------- | --------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| Root directory              | `/`                                                                                                             | `/`                                                             | `/`                                                                                        |
-| Build command               | `pnpm turbo run build --filter=@repo/web^...`                                                                   | `pnpm turbo run build --filter=@repo/party^...`                 | `pnpm turbo run build --filter=@repo/games^...`                                            |
-| Deploy command              | `pnpm -F @repo/web run deploy`                                                                                  | `pnpm -F @repo/party run deploy`                                | `pnpm -F @repo/games run deploy`                                                           |
-| Preview command             | `pnpm -F @repo/db push:preview && cd apps/web && npx cf previews deploy`                                        | off: nothing connects to a party Preview (see above)            | off: it routes by `{slug}.vibedgames.com`, so a Preview URL has no slug and serves nothing |
-| Build watch paths (include) | `apps/web/*`, `packages/contract/*`, `packages/db/*`, `packages/embed/*`, `packages/service/*`, `packages/ui/*` | `apps/party/*`, `packages/contract/*`, `packages/multiplayer/*` | `apps/games/*`, `packages/contract/*`, `packages/db/*`                                     |
+| Setting                     | `vibedgames-web`                                                                                                | `vibedgames-party`                                              | `vibedgames-games`                                                                         | `vibedgames-media`                                          |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------ | ----------------------------------------------------------- |
+| Root directory              | `/`                                                                                                             | `/`                                                             | `/`                                                                                        | `/`                                                         |
+| Build command               | `pnpm turbo run build --filter=@repo/web^...`                                                                   | `pnpm turbo run build --filter=@repo/party^...`                 | `pnpm turbo run build --filter=@repo/games^...`                                            | `pnpm turbo run build --filter=@repo/media...`              |
+| Deploy command              | `pnpm -F @repo/web run deploy`                                                                                  | `pnpm -F @repo/party run deploy`                                | `pnpm -F @repo/games run deploy`                                                           | `pnpm -F @repo/media run deploy`                            |
+| Preview command             | `pnpm -F @repo/db push:preview && cd apps/web && npx cf previews deploy`                                        | off: nothing connects to a party Preview (see above)            | off: it routes by `{slug}.vibedgames.com`, so a Preview URL has no slug and serves nothing | off: web's Previews have no `MEDIA_JOBS` binding            |
+| Build watch paths (include) | `apps/web/*`, `packages/contract/*`, `packages/db/*`, `packages/embed/*`, `packages/service/*`, `packages/ui/*` | `apps/party/*`, `packages/contract/*`, `packages/multiplayer/*` | `apps/games/*`, `packages/contract/*`, `packages/db/*`                                     | `apps/media/*`, `packages/contract/*`, `packages/recipes/*` |
 
 Every Worker also watches `package.json`, `pnpm-lock.yaml`, `pnpm-workspace.yaml` and `turbo.json`: the watch paths are each Worker's workspace dependencies (`pnpm turbo ls --filter=@repo/<app>...`), so a package added to one is added there too. `run` matters: `pnpm deploy` is pnpm's own command. The build command builds the workspace packages only; `cf deploy` and `cf previews deploy` build the Worker itself (a Preview with `isPreview`, which binds `vibedgames-preview` and `vibedgames-games-preview`). Node and pnpm come from `engines` and `packageManager`.
 
-- **API token**: all three use the account token `Workers Builds - 2026-04-11`, which needs Workers Scripts, Workers Routes, D1 and Workers R2 Storage, each Edit: a Preview binds its database and bucket by name. A token Workers Builds generates fresh may lack D1.
+- **API token**: all four use the account token `Workers Builds - 2026-04-11`, which needs Workers Scripts, Workers Routes, D1 and Workers R2 Storage, each Edit: a Preview binds its database and bucket by name. A token Workers Builds generates fresh may lack D1.
 - **Build variables, web's Previews only** (Builds → **Previews Base**): `CLOUDFLARE_ACCOUNT_ID` (a variable) and `CLOUDFLARE_D1_TOKEN` (an encrypted secret, D1 Edit), for `pnpm -F @repo/db push:preview`, which pushes the branch's schema to `vibedgames-preview` with `--force` before the Preview deploys. Production needs none: its schema is `pnpm db:push-remote`'s, by hand.
 - **Runtime secrets** stay on each Worker, not in Builds: production's in **Settings** → **Variables & Secrets** (or `cf workers secrets update`), every name web's `cloudflare.config.ts` declares with `bindings.secret()`; a Preview's in the Previews base config (`pnpm -F @repo/web exec wrangler preview base-config secret put <NAME> --worker-name vibedgames-web`), the same names, with `OAUTH_PROXY_SECRET` equal to production's.
+- **Media builds its two container images with Docker** inside `cf deploy` (the build command bundles only the container's server), and web's production binds it as `MEDIA_JOBS`, so connect and deploy `vibedgames-media` before web's first deploy that carries the binding. Its build command keeps the trailing `...` without `^`: `@repo/media`'s own `build` writes the container server the images copy.
 - **Web's production deploy also applies the R2 lifecycle** (`apps/web/infra/r2/vibedgames-games.lifecycle.json`) after `cf deploy`: it replaces the bucket's rules whole, so applying it every deploy is applying it when it changes.
 - **A Preview goes with its branch** once GitHub deletes the merged head branch (the repo's "Automatically delete head branches"), and it builds on every push, red or green: it never reaches the production database or bucket.
 

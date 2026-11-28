@@ -2,6 +2,7 @@ import type { JsonValue } from "@repo/contract/json";
 import type { ORPCContext } from "@repo/service/orpc";
 import { requiresScope } from "@repo/contract/base";
 import { runInput } from "@repo/contract/generate/generate-schema";
+import { RECIPE_PROCEDURES } from "@repo/contract/asset/recipe-schema";
 import {
   animate3dInput,
   imageInput,
@@ -52,6 +53,21 @@ const mutates = { destructiveHint: false, readOnlyHint: false } as const;
 const external = { ...mutates, openWorldHint: true } as const;
 
 const tool = os.$context<McpContext>();
+
+const recipeTools = Object.fromEntries(
+  Object.entries(RECIPE_PROCEDURES).map(([recipe, procedure]) => {
+    const name = `asset_${recipe.replaceAll("-", "_")}`;
+
+    return [
+      name,
+      asTool(appRouter.asset[procedure], {
+        annotations: external,
+        name,
+        title: `Run the ${recipe} recipe`,
+      }),
+    ];
+  }),
+);
 
 const generateTool = tool.meta(requiresScope("generate"));
 
@@ -152,7 +168,7 @@ const mediaTools = {
     .meta(
       titledTool({
         annotations: external,
-        description: `Rigs a humanoid character GLB, e.g. one generate_3d made, and bakes animation clips onto that one skeleton: a GLB per \`animation_action_ids\` entry from Meshy's animation library, plus walking and running (Meshy rigging: \`${MEDIA_MODELS.animate3d[0]}\`). The 3d reference of the model-catalog skill lists the clip ids games use. ${billed}`,
+        description: `Rigs a humanoid character GLB, e.g. one generate_3d made, and bakes animation clips onto that one skeleton: a GLB per \`animation_action_ids\` entry from Meshy's animation library, plus walking and running (Meshy rigging: \`${MEDIA_MODELS.animate3d[0]}\`). The 3d reference of the model-catalog skill lists the clip ids games use. Next: asset_add_animations merges the clips onto \`rigged_character_glb\` as one file (free), then asset_optimize. ${billed}`,
         name: "generate_animate_3d",
         title: "Rig and animate a 3D character",
       }),
@@ -171,7 +187,7 @@ const mediaTools = {
     .meta(
       titledTool({
         annotations: external,
-        description: `Generates a textured 3D model (GLB) from a prompt, or from an image when \`image_url\` is given (Meshy 7.1: \`${MEDIA_MODELS.model3d.join("`, `")}\`); a low \`target_polycount\` suits games. To animate a character, model it with \`pose_mode\` and pass its \`model_glb\` to generate_animate_3d. ${billed}`,
+        description: `Generates a textured 3D model (GLB) from a prompt, or from an image when \`image_url\` is given (Meshy 7.1: \`${MEDIA_MODELS.model3d.join("`, `")}\`); a low \`target_polycount\` suits games. To animate a character, model it with \`pose_mode\` and pass its \`model_glb\` to generate_animate_3d. Next: asset_optimize scales it, sets its pivot and triangle budget and compresses it for loading; asset_inspect checks the result. ${billed}`,
         name: "generate_3d",
         title: "Generate a 3D model",
       }),
@@ -190,7 +206,7 @@ const mediaTools = {
     .meta(
       titledTool({
         annotations: external,
-        description: `Generates images from a prompt, or edits and combines reference images when \`image_urls\` is given (GPT Image 2.5: \`${MEDIA_MODELS.image.join("`, `")}\`). \`background: transparent\` makes sprites and props with no background to remove. ${billed}`,
+        description: `Generates images from a prompt, or edits and combines reference images when \`image_urls\` is given (GPT Image 2.5: \`${MEDIA_MODELS.image.join("`, `")}\`). \`background: transparent\` makes sprites and props with no background to remove. Next: generate_remove_background cuts out an opaque image, generate_video with \`image_url\` animates it, generate_3d with \`image_url\` makes it a model. ${billed}`,
         name: "generate_image",
         title: "Generate an image",
       }),
@@ -209,7 +225,7 @@ const mediaTools = {
     .meta(
       titledTool({
         annotations: external,
-        description: `Composes music from a prompt: genre, mood, instruments, structure (ElevenLabs Music v2.5: \`${MEDIA_MODELS.music[0]}\`). ${billed}`,
+        description: `Composes music from a prompt: genre, mood, instruments, structure (ElevenLabs Music v2.5: \`${MEDIA_MODELS.music[0]}\`). Next: asset_audio_master trims and normalises it to the game's loudness. ${billed}`,
         name: "generate_music",
         title: "Generate music",
       }),
@@ -228,7 +244,7 @@ const mediaTools = {
     .meta(
       titledTool({
         annotations: external,
-        description: `Generates a sound effect from a description: a jump, a hit, an explosion, ambience (ElevenLabs Sound Effects: \`${MEDIA_MODELS.sound[0]}\`). ${billed}`,
+        description: `Generates a sound effect from a description: a jump, a hit, an explosion, ambience (ElevenLabs Sound Effects: \`${MEDIA_MODELS.sound[0]}\`). Next: asset_audio_master trims, fades and normalises it to the game's loudness. ${billed}`,
         name: "generate_sound",
         title: "Generate a sound effect",
       }),
@@ -247,7 +263,7 @@ const mediaTools = {
     .meta(
       titledTool({
         annotations: external,
-        description: `Speaks a line of text: dialogue, narration, an announcer (ElevenLabs v4, which takes audio tags for delivery: \`${MEDIA_MODELS.speech[0]}\`). ${billed}`,
+        description: `Speaks a line of text: dialogue, narration, an announcer (ElevenLabs v4, which takes audio tags for delivery: \`${MEDIA_MODELS.speech[0]}\`). Next: asset_audio_master trims and normalises the take. ${billed}`,
         name: "generate_speech",
         title: "Generate speech",
       }),
@@ -266,7 +282,7 @@ const mediaTools = {
     .meta(
       titledTool({
         annotations: external,
-        description: `Generates a video clip with sound from a prompt, or animates an image when \`image_url\` is given (Seedance 2.5: \`${MEDIA_MODELS.video.join("`, `")}\`). Video takes minutes: expect a \`request_id\` to follow with generate_status. ${billed}`,
+        description: `Generates a video clip with sound from a prompt, or animates an image when \`image_url\` is given (Seedance 2.5: \`${MEDIA_MODELS.video.join("`, `")}\`). Video takes minutes: expect a \`request_id\` to follow with generate_status. Next: asset_video_to_sheet tiles an animation or effect into a sprite sheet, asset_video_probe exports chosen frames, asset_trailer_render cuts clips into a trailer. ${billed}`,
         name: "generate_video",
         title: "Generate a video",
       }),
@@ -285,7 +301,7 @@ const mediaTools = {
     .meta(
       titledTool({
         annotations: external,
-        description: `Cuts the subject out of an image onto a transparent background, for sprites and props; \`prompt\` names what to keep when the cut is ambiguous (Bria Guided Remove Background: \`${MEDIA_MODELS.removeBackground[0]}\`). ${billed}`,
+        description: `Cuts the subject out of an image onto a transparent background, for sprites and props; \`prompt\` names what to keep when the cut is ambiguous (Bria Guided Remove Background: \`${MEDIA_MODELS.removeBackground[0]}\`). The cutout loads as a sprite, or goes to generate_video or generate_3d as \`image_url\`. ${billed}`,
         name: "generate_remove_background",
         title: "Remove an image's background",
       }),
@@ -337,6 +353,22 @@ export const tools = {
     name: "fork",
     title: "Fork a game's source",
   }),
+  asset_inspect: asTool(appRouter.asset.inspect, {
+    annotations: { ...readOnly, openWorldHint: true },
+    name: "asset_inspect",
+    title: "Inspect a 3D model",
+  }),
+  asset_optimize: asTool(appRouter.asset.optimize, {
+    annotations: external,
+    name: "asset_optimize",
+    title: "Optimize a 3D model",
+  }),
+  asset_status: asTool(appRouter.asset.status, {
+    annotations: { ...readOnly, openWorldHint: true },
+    name: "asset_status",
+    title: "Follow an asset recipe job",
+  }),
+  ...recipeTools,
   games_browse: tool
     .meta(
       titledTool({

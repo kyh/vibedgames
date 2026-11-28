@@ -54,6 +54,24 @@ ship before the craft pass.
    - repeated set dressing → primitives/instances or a kit GLB, never a
      fresh generation per copy.
 
+   **Sound (both engines)** — `vg generate sound|music|speech`, then
+   `vg asset audio-master` on every take so each family plays at one level
+   (see `audio`).
+
+   **The chain.** Every step returns a URL the next one takes, so assets flow
+   without downloads in between:
+   - 2D sprite: `generate image --background transparent` (or
+     `generate remove-background`) → `generate video --image_url` →
+     `asset video-to-sheet` → `load.spritesheet` with the cell size it reports.
+   - 3D character: `generate 3d --pose_mode` → `generate animate-3d` →
+     `asset add-animations` (one file, free) → `asset optimize`.
+   - 3D prop: `generate 3d` → `asset optimize` (`asset texture-compress` first
+     when `asset inspect` shows heavy textures; `asset render` to look at it).
+   - Sound: `generate sound|music|speech` → `asset audio-master`.
+     Each is `vg <command>` in a shell or the same name with `_` as an MCP tool
+     (`asset_video_to_sheet`). `vg asset` runs locally when the tool is
+     installed, else hosted; a hosted job returns a `job_id` for `asset status`.
+
 3. **Core loop with the proven shell** (see `phaser`): full-screen
    `Scale.RESIZE`, a **zoom-aware follow camera** (clamp the centre yourself —
    Phaser's `setBounds` reveals void), directional `applyAnim(dir, moving)`,
@@ -67,7 +85,11 @@ ship before the craft pass.
    With a visual bar locked, run the critic loop before shipping: capture,
    a fresh critic subagent scores against the refs, fix the punch list, repeat
    until every criterion passes — `references/critic-loop.md`.
-6. **Ship.** Run the `ship-ready` gate (frame-time tails, cold load, a real
+   Then the adversarial gate: `game-review` spawns fresh reviewer agents (a
+   breaker, a cold player, feel, taste, sound and release critics) against a
+   preview deploy. You never grade your own game; their findings are the
+   punch list.
+6. **Ship.** Once `game-review` finds no blocker or major, run the `ship-ready` gate (frame-time tails, cold load, a real
    phone, crashes, accessibility), then `vg deploy ./dist` (see `deploy`); `add multiplayer` / `add touch
    controls` / `make it forkable` are one prompt each (see `multiplayer`,
    `gamepad`, `fork`). Link-shared games get opened on phones — if the game is
@@ -168,6 +190,8 @@ This playbook is the index; when a step needs real depth, load the module:
   accessibility. The release gate.
 - `production` — long builds and many agents: the ask register, rounds that
   end in a deployed build, streams that own their paths.
+- `game-review` — the adversarial gate before shipping: fresh reviewer
+  agents break it, play it cold and judge feel, look, sound and release.
 - `trailer` — make the game filmable, then plan, capture, cut and gate a
   trailer or montage.
 

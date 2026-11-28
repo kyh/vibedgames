@@ -262,45 +262,16 @@ VIDEO_URL=$(vg generate status bytedance/seedance-2.0/fast/text-to-video "$REQ" 
 
 2. **Extract a frame strip.** Sample the active window (skip the empty lead-in, include the decay tail so it fades out), scale each frame to a power-of-two, and tile into one horizontal sheet. Pin exact dims so Phaser's `load.spritesheet` math is unambiguous — 16 frames at 128² makes a 2048×128 strip.
 
-   Decoding video is the one step in this whole skill that Node can't do, so
-   extract the frames **remotely**, from the URL you already have — no local
-   install, and nothing to upload since the clip is already hosted. Find the
-   utility endpoint the same way you find any other:
+   One command samples the window, scales each frame and tiles the strip. It
+   runs on this machine when ffmpeg is installed, else hosted from the URL
+   you already have (billed by the second, from $0.01):
 
 ```bash
-vg generate models "extract frames" --category video-to-video --json
-```
-
-Then run it against `$VIDEO_URL` with your chosen frame rate and window,
-download the frames into one directory, and pack them locally:
-
-```bash
-# These scripts ship with the pixel-snapper and animated-spritesheets skills.
-# Load each skill to get its resolved directory (SNAP / SHEETS), or find them
-# where `vg init` put them:
-for d in .agents/skills .claude/skills ~/.agents/skills ~/.claude/skills; do
-  [ -d "$d/pixel-snapper" ] && SNAP=$d/pixel-snapper && SHEETS=$d/animated-spritesheets && break
-done
-```
-
-```bash
-# scale each frame to the cell size (Lanczos, same filter ffmpeg would use)
-for f in ./fx-frames/frame-*.png; do
-  node $SNAP/scripts/image-util.mjs resize "$f" "$f" --size 128x128
-done
-
-# tile into a single-row strip + a manifest with the frame box
-node $SHEETS/scripts/pack-spritesheet.mjs \
-  --input-dir ./fx-frames --out ./game-assets/<slug>/fx/explosion.png \
-  --fps 32 --action explode --json-out ./game-assets/<slug>/fx/explosion.json
-```
-
-If you already have `ffmpeg` locally, it does the same job in one line and is
-faster — it just isn't a dependency this skill assumes:
-
-```bash
-# 16 frames over the burst→decay window, each 128², into a 2048×128 strip
-ffmpeg -y -ss 0.5 -to 3.05 -i explosion.mp4 -vf "fps=6.3,scale=128:128:flags=lanczos,tile=16x1" -frames:v 1 explosion.png
+# 16 frames over the burst→decay window, each 128 wide, into a 2048×128 strip
+vg asset video-to-sheet --video_url "$VIDEO_URL" --start_seconds 0.5 --end_seconds 3.05 \
+  --fps 6.3 --cell_width 128 --columns 16 --max_frames 16 \
+  --out ./game-assets/<slug>/fx --json
+# writes sheet.png; result.cell_width / cell_height / frames are the frame box for load.spritesheet
 ```
 
 3. **Render additively** — black reads as transparent, flames glow, frames can overlap/jitter without looking wrong:

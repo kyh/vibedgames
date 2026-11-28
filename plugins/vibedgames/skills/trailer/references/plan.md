@@ -21,8 +21,10 @@ read-time grid (one every 2–4 bars) so each lands before the next.
   own or licensed, then generated (`elevenlabs/music/v2.5`; give it a
   structured prompt per section: intro, build, drop, break, outro, with
   durations that match your edit).
-- Measure it fully: BPM, the bar map, drops, holes, the ending. Onsets with
-  ffmpeg or a beat tracker; write `grid.json` and verify by mixing a click on
+- Measure it fully: BPM, the bar map, drops, holes, the ending. A generated
+  track's tempo and sections are what its prompt asked for; for any other
+  track, find onsets in the page (decode it with `decodeAudioData` and look
+  for jumps in 10 ms RMS). Write `grid.json` and verify by mixing a click on
   every beat and checking it against the song.
 - Edit only on downbeats at phrase boundaries. Take a ring-out from the song
   if it ends abruptly.

@@ -17,6 +17,7 @@ const SUBCOMMANDS = [
   "factory",
   "fork",
   "generate",
+  "asset",
   "credits",
   "skills",
   "config",

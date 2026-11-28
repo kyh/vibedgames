@@ -37,8 +37,9 @@ All packaged into a single static HTML page with a Three.js scene. ~25–35 MB o
 6. fal-ai/patina/material/extract on the character image
    → basecolor + normal + roughness + metalness for the floor
 7. Video from an image → 8 s background loop (default image-to-video model)
-8. gltf-transform → resize 1024 → webp q80 → draco
-   (typically 95–96% size reduction, ~400–800 KB final)
+8. vg asset optimize → --target_triangles 20000 --height 1.8 --origin feet
+   (meshopt by default; geometry and clips shrink most, textures pass through,
+   so ask the 3D model for a smaller texture when they dominate the file)
 9. Three.js scene → MeshStandardMaterial floor with alphaMap circular cutout,
    mirrored reflection (refl.y = root.y, scale.y = -1),
    breathing animation on companions,
@@ -69,7 +70,7 @@ Everything else (character image, 3D, rig and clips, companion edit, background 
 - **Reflection**: clone of the root with `scale.y = -1`, `BackSide`, `depthWrite = false`, `renderOrder = -1`. For characters whose origin is at the feet, `refl.position.y = root.position.y` produces a visible mirror; the floor's `transparent = true; opacity ≈ 0.5` lets it bleed through.
 - **Breathing**: per-frame `scale.setScalar(base * (1 + sin(t*1.3)*0.025))` + a small Y bob on companions. The reflection mirrors the bob so the mirror stays consistent.
 - **Palette swap**: `:root.style.setProperty('--c1', hex)` etc. Every UI element (sparklines, pulses, bars, model pills, edge map dots) derives its color from `var(--c1)` / `var(--c2)`.
-- **Normalisation**: Meshy vehicles/props come back facing ±X — yaw −π/2, scale by the length axis (not height), ground at y=0. Do it as a runtime `fit` per skin, not a bake, so a regenerated model drops in unchanged. Compress with `gltf-transform optimize in.glb out.glb --texture-compress webp --texture-size 1024`.
+- **Normalisation**: Meshy vehicles/props come back facing ±X — yaw −π/2, scale by the length axis (not height), ground at y=0. Do it as a runtime `fit` per skin, not a bake, so a regenerated model drops in unchanged. Compress with `vg asset optimize --model_url in.glb --out public/models/out.glb`, which meshopt-compresses geometry and clips on vibedgames' servers and leaves textures as they are.
 - **Floor swap**: `texLoader.load()` 4 PBR maps from `assets/floor/{charId}/`, dispose old textures, set `floorMat.color` back to white (since the basecolor is already char-themed).
 - **Transition**: 9 diagonal lines sweep across the viewport (`@keyframes tfx-sweep`) on character click + a radial flash; bg video crossfades between two `<video>` elements; character GLB slides out and the new one slides in.
 

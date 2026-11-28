@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { writeFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, test } from "node:test";
+import { imageToThreejsInput } from "@repo/contract/asset/recipe-schema";
 import { animate3dInput, imageInput, videoInput } from "@repo/contract/generate/media-schema";
 
 import { mediaFlagArgs, readMediaInput } from "../media-flags.js";
@@ -73,6 +74,28 @@ test("uploads a local path given to a url field, and only there", async () => {
     "https://media.example/b.png",
   ]);
   assert.equal(input.prompt, file);
+});
+
+test("uploads each local path in a url map, keeping its key", async () => {
+  const dir = makeTmpDir(cleanups);
+  const file = path.join(dir, "crate.jpg");
+  writeFileSync(file, "jpg");
+
+  const input = await readMediaInput(
+    imageToThreejsInput.shape,
+    [
+      "--script",
+      "probe_image.py",
+      "--file_urls",
+      JSON.stringify({ "ref/crate.jpg": file, "spec.json": "https://media.example/spec.json" }),
+    ],
+    () => "https://media.example/crate.jpg",
+  );
+
+  assert.deepEqual(input.file_urls, {
+    "ref/crate.jpg": "https://media.example/crate.jpg",
+    "spec.json": "https://media.example/spec.json",
+  });
 });
 
 test("reads --no-<flag> as false for a boolean field", async () => {

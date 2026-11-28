@@ -29,6 +29,7 @@ const main = defineCommand({
     version: PACKAGE_VERSION,
   },
   subCommands: {
+    asset: lazy(async () => await import("./commands/asset.js"), "assetCommand"),
     completions: lazy(async () => await import("./commands/completions.js"), "completionsCommand"),
     config: lazy(async () => await import("./commands/config.js"), "configCommand"),
     credits: lazy(async () => await import("./commands/credits.js"), "creditsCommand"),

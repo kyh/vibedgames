@@ -58,6 +58,7 @@ const contextWith =
       billing: undefined,
       db,
       decision: undefined,
+      mediaJobs: undefined,
       headers,
       media: undefined,
       oauthScopes,
@@ -188,6 +189,20 @@ describe("mcp endpoint", () => {
     assert.deepStrictEqual(
       names,
       [
+        "asset_add_animations",
+        "asset_audio_master",
+        "asset_bake",
+        "asset_fbx_to_glb",
+        "asset_frames_to_video",
+        "asset_image_to_threejs",
+        "asset_inspect",
+        "asset_optimize",
+        "asset_render",
+        "asset_status",
+        "asset_texture_compress",
+        "asset_trailer_render",
+        "asset_video_probe",
+        "asset_video_to_sheet",
         "credits",
         "credits_redeem",
         "deploy",
@@ -228,6 +243,8 @@ describe("mcp endpoint", () => {
       "games_browse",
       "skills",
       "generate_models",
+      "asset_inspect",
+      "asset_status",
     ]) {
       assert.strictEqual(byName.get(name)?.annotations?.readOnlyHint, true, name);
     }
@@ -235,7 +252,14 @@ describe("mcp endpoint", () => {
     assert.strictEqual(byName.get("deployments_delete")?.annotations?.destructiveHint, true);
     assert.strictEqual(byName.get("deploy")?.annotations?.destructiveHint, true);
 
-    for (const name of ["generate", "generate_image", "deploy", "credits_redeem"]) {
+    for (const name of [
+      "generate",
+      "generate_image",
+      "deploy",
+      "credits_redeem",
+      "asset_optimize",
+      "asset_add_animations",
+    ]) {
       assert.strictEqual(byName.get(name)?.annotations?.readOnlyHint, false, name);
     }
   });

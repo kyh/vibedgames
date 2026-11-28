@@ -1,6 +1,7 @@
 import type {
   BillingConfig,
   DecisionProviderConfig,
+  MediaJobs,
   MediaProviderConfig,
   R2Config,
   UrlSigning,
@@ -108,6 +109,13 @@ export const getServerContext = () => {
     stripeWebhookSecret: env.STRIPE_WEBHOOK_SECRET,
   };
 
+  const recipeService: MediaJobs | undefined = env.MEDIA_JOBS;
+
+  const mediaJobs: MediaJobs | undefined =
+    recipeService === undefined
+      ? undefined
+      : { fetch: async (request) => await recipeService.fetch(request) };
+
   return {
     auth,
     baseUrl,
@@ -115,6 +123,7 @@ export const getServerContext = () => {
     db,
     decision,
     media,
+    mediaJobs,
     productionUrl,
     r2,
     sendsEmail: mailer !== undefined,
@@ -151,6 +160,7 @@ export const createRpcContext = async (headers: Headers, surface: OAuthSurface =
     productionUrl,
     r2,
     media,
+    mediaJobs,
     decision,
     sendsEmail,
     signing,
@@ -163,6 +173,7 @@ export const createRpcContext = async (headers: Headers, surface: OAuthSurface =
     decision,
     headers,
     media,
+    mediaJobs,
     oauthResource: oauthResources(baseUrl)[surface],
     productionURL: productionUrl,
     r2,

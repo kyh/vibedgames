@@ -96,6 +96,7 @@ const contextFor = (userId: string | null) => async (headers: Headers) =>
     billing: undefined,
     db,
     decision: undefined,
+    mediaJobs: undefined,
     headers,
     media: {
       fal: "fal-test-key",

@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { parseRunInput, readExplicitLocalFile } from "./media-args.js";
 import type { LocalFile } from "./media-args.js";
-import { isJsonNumber, isJsonString } from "./types.js";
+import { isJsonNumber, isJsonObject, isJsonString } from "./types.js";
 import type { JsonObject, JsonValue } from "./types.js";
 
 type Schema = z.core.$ZodType;
@@ -112,7 +112,7 @@ const listOf = (value: JsonValue) => {
 export const readMediaInput = async (
   fields: Fields,
   argv: string[],
-  upload: (file: LocalFile) => Promise<string>,
+  upload: (file: LocalFile) => Promise<string> | string,
 ) => {
   const raw = parseRunInput(argv);
   const input: JsonObject = {};
@@ -149,6 +149,13 @@ export const readMediaInput = async (
       input[key] = await runInOrder(listOf(value), async (item) =>
         coerce(element, await resolve(key, item)),
       );
+    } else if (kind === "record" && isLocalFileField(key) && isJsonObject(value)) {
+      const entries = await runInOrder(
+        Object.entries(value),
+        async ([name, item]) => [name, await resolve(key, item)] as const,
+      );
+
+      input[key] = Object.fromEntries(entries);
     } else {
       input[key] = coerce(kind, await resolve(key, value));
     }

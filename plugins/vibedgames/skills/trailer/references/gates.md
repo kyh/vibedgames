@@ -24,7 +24,7 @@ montage drops the silence and equal-length rules.
 ## Motion
 
 - [ ] ≥ 6 legible, eased speed ramps; at most one long slow-motion beat.
-- [ ] 0% duplicated frames (`ffmpeg -vf mpdecimate` drops nothing).
+- [ ] 0% duplicated frames (no two equal frame hashes in a row at capture).
 - [ ] Every frame moves ≥ 1 px/frame at 1080p unless a hold pays off within
       0.3 s; the first frame after every cut moves too.
 - [ ] Hero inside 12–85% of frame height on every follow frame (from the
@@ -59,16 +59,26 @@ montage drops the silence and equal-length rules.
 
 ## Measuring
 
+One command, on this machine when ffmpeg is installed, else hosted with
+nothing to install:
+
 ```bash
-# loudness and true peak on the delivered file
-ffmpeg -i master.mp4 -af ebur128=peak=true -f null - 2>&1 | tail -12
-# scene cuts with timestamps
-ffmpeg -i master.mp4 -vf "select='gt(scene,0.3)',showinfo" -f null - 2>&1 | grep pts_time
-# audio onsets: use a beat/onset tracker on the mix, or the silencedetect filter for holes
-ffmpeg -i master.mp4 -af silencedetect=noise=-40dB:d=0.3 -f null - 2>&1 | grep silence_
-# duplicated frames: frames kept by mpdecimate vs total (equal means none dropped)
-ffprobe -v error -count_frames -select_streams v:0 -show_entries stream=nb_read_frames -of csv=p=0 master.mp4
-ffmpeg -i master.mp4 -vf mpdecimate -f null - 2>&1 | grep -oE "frame= *[0-9]+" | tail -1
-# frame by index for a still check
-ffmpeg -i master.mp4 -vf "select=eq(n\,1548)" -vframes 1 f1548.png
+# frame count, fps, duration, size, scene cuts, silences, duplicated frames,
+# loudness and true peak, plus the frames you name saved as PNG
+vg asset video-probe --video_url master.mp4 --frames 0,1548 --out ./trailer/checks --json
 ```
+
+`result.cuts` are scene-change times, `result.silences` the holes below
+`--silence_db`, `result.duplicate_frames` the frames identical to the one
+before (a capture at a lower rate than delivery shows here), and
+`result.loudness` the delivered mix in LUFS and dBTP.
+
+From the capture itself, which already holds every frame:
+
+- **Duplicated frames**: hash each PNG buffer in `capture-take.mjs` as it is
+  written (`crypto.createHash("sha1")`) and fail the take on two equal
+  hashes in a row.
+- **Cut times** are `shots.json`'s; measure sync against `grid.json`, not
+  against a scene detector.
+- **Holes and onsets**: measure the mix where it is built, the way the
+  `audio` skill measures a run (`references/qa-without-ears.md`).

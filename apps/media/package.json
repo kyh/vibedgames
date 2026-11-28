@@ -1,0 +1,27 @@
+{
+  "name": "@repo/media",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build-container.mjs",
+    "build:cloudflare": "cf build",
+    "clean": "rm -rf .cache .cloudflare .turbo .wrangler dist container/dist node_modules",
+    "deploy": "cf deploy",
+    "typecheck": "cf workers types && tsc --noEmit"
+  },
+  "dependencies": {
+    "@cloudflare/containers": "0.3.7",
+    "@repo/contract": "workspace:^",
+    "@repo/recipes": "workspace:^",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@kyh/tsconfig": "catalog:",
+    "@types/node": "catalog:",
+    "cf": "catalog:",
+    "esbuild": "^0.28.2",
+    "typescript": "catalog:",
+    "wrangler": "catalog:"
+  }
+}

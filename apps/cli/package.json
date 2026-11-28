@@ -23,6 +23,7 @@
     "@react-three/drei": "^10.7.9",
     "@react-three/fiber": "^9.8.2",
     "@repo/contract": "workspace:^",
+    "@repo/recipes": "workspace:^",
     "@types/cross-spawn": "^6.0.6",
     "@types/node": "catalog:",
     "@types/react": "catalog:",
