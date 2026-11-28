@@ -41,8 +41,11 @@ export interface Skill {
  */
 export type McpContext = ORPCContext & { skills: readonly Skill[]; taskMode?: boolean };
 
-const asTool = (procedure: AnyProcedure, meta: McpToolMeta) =>
-  new DecoratedProcedure(procedure["~orpc"]).meta(mcp.tool(meta));
+const titledTool = (meta: McpToolMeta & { title: string }) =>
+  mcp.tool({ ...meta, annotations: { ...meta.annotations, title: meta.title } });
+
+const asTool = (procedure: AnyProcedure, meta: McpToolMeta & { title: string }) =>
+  new DecoratedProcedure(procedure["~orpc"]).meta(titledTool(meta));
 
 const readOnly = { destructiveHint: false, openWorldHint: false, readOnlyHint: true } as const;
 const mutates = { destructiveHint: false, readOnlyHint: false } as const;
@@ -64,7 +67,7 @@ const runModel = async (context: McpContext, endpoint: string, body: ModelInput,
 const generateTools = {
   generate: generateTool
     .meta(
-      mcp.tool({
+      titledTool({
         annotations: external,
         description:
           "Runs a model to generate an image, video, audio clip, 3D model or text, billed against your credits. Pass the endpoint id and the model's input (see generate_schema). Waits up to `wait_seconds` for the result; a job still running by then returns its `request_id` and status, to follow with generate_status. Needs a positive credit balance (403 `insufficient_credits`) and a priced model (400 `unknown_endpoint`).",
@@ -147,7 +150,7 @@ const billed =
 const mediaTools = {
   generate_animate_3d: generateTool
     .meta(
-      mcp.tool({
+      titledTool({
         annotations: external,
         description: `Rigs a humanoid character GLB, e.g. one generate_3d made, and bakes animation clips onto that one skeleton: a GLB per \`animation_action_ids\` entry from Meshy's animation library, plus walking and running (Meshy rigging: \`${MEDIA_MODELS.animate3d[0]}\`). The 3d reference of the model-catalog skill lists the clip ids games use. ${billed}`,
         name: "generate_animate_3d",
@@ -166,7 +169,7 @@ const mediaTools = {
 
   generate_3d: generateTool
     .meta(
-      mcp.tool({
+      titledTool({
         annotations: external,
         description: `Generates a textured 3D model (GLB) from a prompt, or from an image when \`image_url\` is given (Meshy 7.1: \`${MEDIA_MODELS.model3d.join("`, `")}\`); a low \`target_polycount\` suits games. To animate a character, model it with \`pose_mode\` and pass its \`model_glb\` to generate_animate_3d. ${billed}`,
         name: "generate_3d",
@@ -185,7 +188,7 @@ const mediaTools = {
 
   generate_image: generateTool
     .meta(
-      mcp.tool({
+      titledTool({
         annotations: external,
         description: `Generates images from a prompt, or edits and combines reference images when \`image_urls\` is given (GPT Image 2.5: \`${MEDIA_MODELS.image.join("`, `")}\`). \`background: transparent\` makes sprites and props with no background to remove. ${billed}`,
         name: "generate_image",
@@ -204,7 +207,7 @@ const mediaTools = {
 
   generate_music: generateTool
     .meta(
-      mcp.tool({
+      titledTool({
         annotations: external,
         description: `Composes music from a prompt: genre, mood, instruments, structure (ElevenLabs Music v2.5: \`${MEDIA_MODELS.music[0]}\`). ${billed}`,
         name: "generate_music",
@@ -223,7 +226,7 @@ const mediaTools = {
 
   generate_sound: generateTool
     .meta(
-      mcp.tool({
+      titledTool({
         annotations: external,
         description: `Generates a sound effect from a description: a jump, a hit, an explosion, ambience (ElevenLabs Sound Effects: \`${MEDIA_MODELS.sound[0]}\`). ${billed}`,
         name: "generate_sound",
@@ -242,7 +245,7 @@ const mediaTools = {
 
   generate_speech: generateTool
     .meta(
-      mcp.tool({
+      titledTool({
         annotations: external,
         description: `Speaks a line of text: dialogue, narration, an announcer (ElevenLabs v4, which takes audio tags for delivery: \`${MEDIA_MODELS.speech[0]}\`). ${billed}`,
         name: "generate_speech",
@@ -261,7 +264,7 @@ const mediaTools = {
 
   generate_video: generateTool
     .meta(
-      mcp.tool({
+      titledTool({
         annotations: external,
         description: `Generates a video clip with sound from a prompt, or animates an image when \`image_url\` is given (Seedance 2.5: \`${MEDIA_MODELS.video.join("`, `")}\`). Video takes minutes: expect a \`request_id\` to follow with generate_status. ${billed}`,
         name: "generate_video",
@@ -280,7 +283,7 @@ const mediaTools = {
 
   generate_remove_background: generateTool
     .meta(
-      mcp.tool({
+      titledTool({
         annotations: external,
         description: `Cuts the subject out of an image onto a transparent background, for sprites and props; \`prompt\` names what to keep when the cut is ambiguous (Bria Guided Remove Background: \`${MEDIA_MODELS.removeBackground[0]}\`). ${billed}`,
         name: "generate_remove_background",
@@ -341,7 +344,7 @@ export const tools = {
   }),
   games_browse: tool
     .meta(
-      mcp.tool({
+      titledTool({
         _meta: {
           ui: { resourceUri: GALLERY_URI, visibility: ["model", "app"] },
           "ui/resourceUri": GALLERY_URI,
@@ -360,7 +363,7 @@ export const tools = {
   ...mediaTools,
   skills: tool
     .meta(
-      mcp.tool({
+      titledTool({
         annotations: readOnly,
         description:
           "The vibedgames game-studio skills: without `name`, every skill and what it is for; with one, its full SKILL.md — how to build, art-direct, add multiplayer to, balance and ship a browser game.",
