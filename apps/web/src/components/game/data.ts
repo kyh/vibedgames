@@ -44,6 +44,16 @@ export const featuredGames: FeaturedGame[] = [
     tags: ["3d", "multiplayer"],
   },
   {
+    colorScheme: "light",
+    description:
+      "A toy-car battle on a table with no walls: pick one of six cars, grab a power cube and knock the other seven off the edge.",
+    name: "Bonk Derby",
+    preview: "/covers/bonk-derby.webp",
+    previewPortrait: "/covers/bonk-derby-portrait.webp",
+    slug: "bonk-derby",
+    tags: ["multiplayer"],
+  },
+  {
     colorScheme: "dark",
     description:
       "A first-person shooter on a rain-soaked container dock at dusk, online deathmatch topped up with bots.",
@@ -130,16 +140,6 @@ export const featuredGames: FeaturedGame[] = [
     preview: "/covers/bomberman.webp",
     previewPortrait: "/covers/bomberman-portrait.webp",
     slug: "bomberman",
-    tags: ["multiplayer"],
-  },
-  {
-    colorScheme: "light",
-    description:
-      "A toy-car racer where every kart paints the track: your colour is a fast lane, anyone else's is slick.",
-    name: "Tabletop Turbo",
-    preview: "/covers/tabletop-turbo.webp",
-    previewPortrait: "/covers/tabletop-turbo-portrait.webp",
-    slug: "tabletop-turbo",
     tags: ["multiplayer"],
   },
   {

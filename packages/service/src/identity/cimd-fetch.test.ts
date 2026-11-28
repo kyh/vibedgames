@@ -44,6 +44,21 @@ describe("fetchClientMetadataResource", () => {
     ]);
   });
 
+  test("takes the caller's init as better-auth passes it", async () => {
+    answerWith(Response.json({ client_name: "Claude" }));
+
+    const response = await fetchMetadata("https://claude.ai/oauth/client.json", {
+      headers: { Accept: "application/json" },
+      redirect: "error",
+      signal: new AbortController().signal,
+    });
+
+    assert.strictEqual(response.status, 200);
+    assert.deepStrictEqual(seen, [
+      { redirect: "manual", url: "https://claude.ai/oauth/client.json" },
+    ]);
+  });
+
   test("refuses a redirect", async () => {
     answerWith(new Response(null, { headers: { location: "http://10.0.0.1/" }, status: 302 }));
     await assert.rejects(fetchMetadata("https://claude.ai/oauth/client.json"), {

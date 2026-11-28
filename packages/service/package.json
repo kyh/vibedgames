@@ -7,6 +7,7 @@
     ".": "./src/index.ts",
     "./identity/auth": "./src/identity/auth.ts",
     "./identity/oauth-resources": "./src/identity/oauth-resources.ts",
+    "./identity/reviewer-sign-in": "./src/identity/reviewer-sign-in.ts",
     "./credits/stripe": "./src/credits/stripe.ts",
     "./email/mailer": "./src/email/mailer.ts",
     "./storage/signed-urls": "./src/storage/signed-urls.ts",

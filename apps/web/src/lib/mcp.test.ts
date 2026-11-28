@@ -204,7 +204,6 @@ describe("mcp endpoint", () => {
         "asset_video_probe",
         "asset_video_to_sheet",
         "credits",
-        "credits_buy",
         "credits_redeem",
         "deploy",
         "deployments",
@@ -265,7 +264,7 @@ describe("mcp endpoint", () => {
     }
   });
 
-  test("gives every tool a title and explicit read-only, destructive and open-world hints", async () => {
+  test("gives every tool a title, in its annotations too, and explicit read-only, destructive and open-world hints", async () => {
     for (const tool of await listTools()) {
       assert.ok(tool.title !== undefined && tool.title !== "", `${tool.name} has no title`);
 
@@ -274,6 +273,7 @@ describe("mcp endpoint", () => {
           destructiveHint: z.boolean(),
           openWorldHint: z.boolean(),
           readOnlyHint: z.boolean(),
+          title: z.literal(tool.title),
         })
         .safeParse(tool.annotations);
 

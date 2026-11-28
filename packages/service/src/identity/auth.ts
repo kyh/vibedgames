@@ -21,6 +21,8 @@ import type { Mailer } from "../email/mailer";
 import { confirmEmailCode, signInCodeEmail } from "../email/templates";
 import { fetchClientMetadataResource } from "./cimd-fetch";
 import { oauthResources } from "./oauth-resources";
+import type { ReviewerSignIn } from "./reviewer-sign-in";
+import { isReviewer, reviewerCodeOf } from "./reviewer-sign-in";
 
 /** An OAuth app a person signs in with; either is on only when both halves are set. */
 export interface SocialProviderCredentials {
@@ -41,6 +43,8 @@ export interface AuthOptions {
   google?: SocialProviderCredentials;
   /** Sends sign-in and confirmation codes; without one, sending a code is refused. */
   mailer?: Mailer;
+  /** One address that signs in with a fixed code and is never emailed. */
+  reviewer?: ReviewerSignIn;
 }
 
 interface SocialProviderConfig {
@@ -63,7 +67,7 @@ const configured = (credentials: SocialProviderCredentials | undefined) =>
     : undefined;
 
 export const createAuth = (opts: AuthOptions) => {
-  const { db, baseURL, mailer, secret, productionURL = baseURL } = opts;
+  const { db, baseURL, mailer, reviewer, secret, productionURL = baseURL } = opts;
   const resources = oauthResources(baseURL);
   const socialProviders: SocialProviders = {};
   const github = configured(opts.github);
@@ -105,7 +109,10 @@ export const createAuth = (opts: AuthOptions) => {
       bearer(),
       expo(),
       admin(),
-      emailOTP({ sendVerificationOTP: codeSenderOf(mailer) }),
+      emailOTP({
+        generateOTP: reviewerCodeOf(reviewer),
+        sendVerificationOTP: codeSenderOf(mailer, reviewer),
+      }),
       // WARNING: never enable the API-key plugin's session mocking; keys resolve only through verifyApiKey.
       apiKey({
         defaultPrefix: "vg_",
@@ -164,11 +171,11 @@ const CODE_EMAILS = new Map([
 ]);
 
 const codeSenderOf =
-  (mailer: Mailer | undefined) =>
+  (mailer: Mailer | undefined, reviewer: ReviewerSignIn | undefined) =>
   async ({ email, otp, type }: { email: string; otp: string; type: CodeType }) => {
     const message = CODE_EMAILS.get(type);
 
-    if (message === undefined || !mailer) {
+    if (message === undefined || !mailer || isReviewer(reviewer, email)) {
       return;
     }
 

@@ -3,7 +3,17 @@
   "mcpServers": {
     "vibedgames": {
       "type": "streamable-http",
-      "url": "https://www.vibedgames.com/mcp"
+      "url": "https://www.vibedgames.com/mcp",
+      "extensions": {
+        "com.openai": {
+          "auth": {
+            "type": "mixed",
+            "client": {
+              "mode": "cimd"
+            }
+          }
+        }
+      }
     }
   }
 }
