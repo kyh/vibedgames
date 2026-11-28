@@ -138,8 +138,6 @@ const box = (x: number, z: number, hx: number, hz: number, round: number) =>
 
 const disc = (x: number, z: number, r: number) => ({ kind: "disc", r, x, z }) satisfies Slab;
 
-const facing = (x: number, z: number) => ({ a: Math.atan2(-z, -x), x, z }) satisfies Spawn;
-
 /** One car length: the unit the boards are laid out in. */
 export const CL = 2.4;
 
@@ -151,11 +149,19 @@ const quad = (x: number, z: number) =>
     [-x, z],
   ] as const;
 
+const lanes = (x: number, z: number, a: number) =>
+  quad(x, z).map(
+    ([px, pz]) =>
+      ({
+        a: Math.atan2(Math.sin(a) * Math.sign(pz / z), Math.cos(a) * Math.sign(px / x)),
+        x: px,
+        z: pz,
+      }) satisfies Spawn,
+  );
+
 const piston = (x: number, z: number, a: number, phase: number) =>
   ({ a, kind: "piston", period: 6, phase, reach: 4 * CL, x, z }) satisfies HazardDef;
 
-const INNER = quad(3 * CL, 3.5 * CL).map(([x, z]) => facing(x, z));
-const OUTER = quad(8.5 * CL, 6.5 * CL).map(([x, z]) => facing(x, z));
 const NORTH = -Math.PI / 2;
 const SOUTH = Math.PI / 2;
 
@@ -167,7 +173,7 @@ const SOUTH = Math.PI / 2;
 export const ARENAS: readonly ArenaDef[] = [
   {
     core: [box(0, 0, 12 * CL, 9 * CL, 4)],
-    grid: [...INNER, ...quad(16.5 * CL, 7 * CL).map(([x, z]) => facing(x, z))],
+    grid: [...lanes(17, 13, 3.338), ...lanes(33, 15, 2.945)],
     hazards: [
       { kind: "sweeper", length: 2.5 * CL, phase: 0.6, rate: (Math.PI * 2) / 8, x: 0, z: 0 },
       ...quad(10.5 * CL, 4.5 * CL).map(([x, z]) => ({ kind: "bumper", r: 1.5, x, z }) as const),
@@ -203,7 +209,7 @@ export const ARENAS: readonly ArenaDef[] = [
       box(-15 * CL, 0, 6.5 * CL, 10 * CL, 5),
       box(15 * CL, 0, 6.5 * CL, 10 * CL, 5),
     ],
-    spawns: [...INNER, ...OUTER],
+    spawns: [...lanes(22, 14, 3.338), ...lanes(8, 11, 3.338)],
   },
 ];
 

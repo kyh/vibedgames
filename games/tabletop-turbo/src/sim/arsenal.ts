@@ -1,4 +1,5 @@
-import { CAR_NOSE } from "../shared/constants";
+import { CAR_NOSE, DAMAGE_MAX } from "../shared/constants";
+import { edgeDistance } from "./arena";
 import { carScale } from "./car";
 import type { Car, Hit, HitHow } from "./car";
 import { blow, nextId } from "./field";
@@ -228,21 +229,40 @@ const direct = (shot: Shot, body: Body, how: HitHow, reach: number, damage: numb
   } satisfies Hit;
 };
 
-const touching = (shot: Shot, all: readonly Body[], reach: number) => {
-  for (const body of all) {
-    const gap = Math.hypot(body.x - shot.x, body.z - shot.z);
+interface Spot {
+  x: number;
+  z: number;
+}
 
-    if (open(body, shot.by) && body.y < 2.2 && gap < body.radius + reach) {
-      return body;
+const touching = (shot: Shot, all: readonly Body[], reach: number, from: Spot) => {
+  const sx = shot.x - from.x;
+  const sz = shot.z - from.z;
+  const span = sx * sx + sz * sz;
+  let best: Body | null = null;
+  let first = 2;
+
+  for (const body of all) {
+    const along = ((body.x - from.x) * sx + (body.z - from.z) * sz) / (span || 1);
+    const part = span > 0 ? Math.min(1, Math.max(0, along)) : 1;
+    const gap = Math.hypot(body.x - from.x - sx * part, body.z - from.z - sz * part);
+
+    if (open(body, shot.by) && body.y < 2.2 && gap < body.radius + reach && part < first) {
+      first = part;
+      best = body;
     }
   }
 
-  return null;
+  if (best) {
+    shot.x = from.x + sx * first;
+    shot.z = from.z + sz * first;
+  }
+
+  return best;
 };
 
-const strike = (field: Field, shot: Shot, all: readonly Body[], age: number) => {
+const strike = (field: Field, shot: Shot, all: readonly Body[], age: number, from: Spot) => {
   if (shot.kind === "mine") {
-    if (age > MINE_ARM && touching(shot, all, MINE_TRIGGER - 1.2)) {
+    if (age > MINE_ARM && touching(shot, all, MINE_TRIGGER - 1.2, shot)) {
       blast(field, all, {
         by: shot.by,
         damage: MINE_DAMAGE,
@@ -260,7 +280,8 @@ const strike = (field: Field, shot: Shot, all: readonly Body[], age: number) => 
     return;
   }
 
-  const body = shot.kind === "oil" ? null : touching(shot, all, shot.kind === "puck" ? 0.55 : 0.7);
+  const reach = shot.kind === "puck" ? 0.55 : 0.7;
+  const body = shot.kind === "oil" ? null : touching(shot, all, reach, from);
 
   if (!body) {
     return;
@@ -297,27 +318,18 @@ const slicks = (field: Field) => {
 
     for (const shot of ready ? field.shots : []) {
       const age = field.time - shot.t0;
-      const mine = shot.by === car.key;
       const lock = `oil:${shot.id}`;
       const on = Math.hypot(car.x - shot.x, car.z - shot.z) < OIL_RADIUS + 0.3;
+      const live = shot.kind === "oil" && !shot.dead && shot.by !== car.key && age > 0.2;
 
-      if (
-        shot.kind === "oil" &&
-        !shot.dead &&
-        on &&
-        age > (mine ? 1.2 : 0.2) &&
-        !car.locks.has(lock)
-      ) {
+      if (live && on && !car.locks.has(lock)) {
         car.slip = OIL_SLIP;
         car.boosting = false;
-        car.damage += OIL_DAMAGE;
+        car.damage = Math.min(DAMAGE_MAX, car.damage + OIL_DAMAGE);
+        car.hitHow = "oil";
+        car.lastBy = shot.by;
+        car.lastByT = 0;
         car.locks.set(lock, 2.5);
-
-        if (!mine) {
-          car.lastBy = shot.by;
-          car.lastByT = 0;
-        }
-
         field.events.push({ key: car.key, kind: "slip" });
       }
     }
@@ -326,20 +338,27 @@ const slicks = (field: Field) => {
 
 /**
  * Move everything let go on the board, and settle what this client's own shots
- * hit. Somebody else's shot only moves here: its owner says what it did.
+ * hit along the way they came. Somebody else's shot only moves here: its owner
+ * says what it did.
  */
-export const stepShots = (field: Field, all: readonly Body[], dt: number) => {
+export const stepShots = (field: Field, all: readonly Body[], late: boolean, dt: number) => {
   for (const shot of field.shots) {
     const prey =
       shot.kind === "seeker"
         ? (all.find((body) => body.key === shot.target && body.alive) ?? null)
         : null;
 
+    const from = { x: shot.x, z: shot.z };
     const age = moveShot(shot, field.time, dt, prey);
     const life = shotLife(shot.kind);
 
+    const laid = shot.kind === "mine" || shot.kind === "oil";
+    const gone = laid && late && edgeDistance(field.arena, shot.x, shot.z, true) < 0;
+
     if (!shot.own) {
       shot.dead ||= age > life + 1;
+    } else if (gone) {
+      end(field, shot, false);
     } else if (age >= life) {
       end(field, shot, shot.kind === "rocket");
     } else {
@@ -347,7 +366,7 @@ export const stepShots = (field: Field, all: readonly Body[], dt: number) => {
         shot.target = nearest(all, shot.by, shot.x, shot.z, 40)?.key ?? "";
       }
 
-      strike(field, shot, all, age);
+      strike(field, shot, all, age, from);
     }
   }
 

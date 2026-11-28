@@ -128,23 +128,27 @@ const sweeperHit = (
 const pistonHit = (
   hazard: Piston,
   index: number,
-  time: number,
+  at: { time: number; skipped: number },
   x: number,
   z: number,
   r: number,
 ) => {
+  const { skipped, time } = at;
   const state = pistonAt(hazard, time);
+  const missed = wrap(time + hazard.phase, hazard.period) - skipped < PISTON_SHOOT;
 
-  if (!state.firing) {
+  if (!state.firing && !missed) {
     return null;
   }
+
+  const out = state.firing ? state.out : 1;
 
   const fx = Math.cos(hazard.a);
   const fz = Math.sin(hazard.a);
   const along = (x - hazard.x) * fx + (z - hazard.z) * fz;
   const across = Math.abs(-(x - hazard.x) * fz + (z - hazard.z) * fx);
 
-  if (across > HEAD_HALF + r * 0.6 || along < 0 || along > state.out * hazard.reach + 1.2 + r) {
+  if (across > HEAD_HALF + r * 0.6 || along < 0 || along > out * hazard.reach + 1.2 + r) {
     return null;
   }
 
@@ -161,7 +165,11 @@ const pistonHit = (
   } satisfies Hit;
 };
 
-/** The blow, if any, the board's toys deal a body of radius `r` at (x, z) right now. */
+/**
+ * The blow, if any, the board's toys deal a body of radius `r` at (x, z) right
+ * now. `skipped` is how many seconds the clock jumped to get here: a piston
+ * that fired inside the jump still hits.
+ */
 export const hazardHit: (
   arena: Arena,
   time: number,
@@ -169,7 +177,8 @@ export const hazardHit: (
   z: number,
   r: number,
   late?: boolean,
-) => Hit | null = (arena, time, x, z, r, late = false) => {
+  skipped?: number,
+) => Hit | null = (arena, time, x, z, r, late = false, skipped = 0) => {
   for (const [index, hazard] of arena.def.hazards.entries()) {
     if (hazardGone(arena, hazard, late)) {
       continue;
@@ -197,7 +206,7 @@ export const hazardHit: (
       const hit =
         hazard.kind === "sweeper"
           ? sweeperHit(hazard, index, time, x, z, r)
-          : pistonHit(hazard, index, time, x, z, r);
+          : pistonHit(hazard, index, { skipped, time }, x, z, r);
 
       if (hit) {
         return hit;

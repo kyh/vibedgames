@@ -65,12 +65,18 @@ export interface Impact {
 }
 
 const EARSHOT = 34;
+const LAID_BACK = 3.2;
 const RING_LIFE = 0.42;
 const HEAVY = new Set<HitHow>(["mine", "piston", "rocket", "shock", "slam", "sweeper"]);
 const BLUNT = new Set<HitHow>(["land", "ram"]);
 const SILENT = new Set<HitHow>(["magnet", "zap"]);
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+
+const behind = (car: Spot) => ({
+  x: car.x - Math.cos(car.a) * LAID_BACK,
+  z: car.z - Math.sin(car.a) * LAID_BACK,
+});
 
 const hitSound = (how: HitHow, power: number, involved: boolean) => {
   if (BLUNT.has(how)) {
@@ -110,12 +116,22 @@ export class Effects {
     magnet: (car, mine, near) => {
       this.magnet(car, mine, near);
     },
-    mine: (_car, mine, near) => {
+    mine: (car, mine, near) => {
+      const at = behind(car);
+      this.sparks.ring(at.x, at.z, RAMP.hazard, 6, 12);
+
       if (near) {
         sfx.set(mine);
       }
     },
-    oil: (_car, mine, near) => {
+    oil: (car, mine, near) => {
+      const at = behind(car);
+
+      for (let i = 0; i < 8; i += 1) {
+        const a = (i / 8) * Math.PI * 2;
+        this.sparks.puff(at.x + Math.cos(a) * 1.4, 0.3, at.z + Math.sin(a) * 1.4, RAMP.purple, 0.5);
+      }
+
       if (near) {
         sfx.set(mine);
       }
@@ -193,6 +209,12 @@ export class Effects {
     spin: (car, mine) => {
       sfx.whirl(mine);
       this.sparks.ring(car.x, car.z, car.ramp, SPIN_RADIUS / RING_LIFE, 22);
+
+      for (let i = 0; i < 10; i += 1) {
+        const a = car.a + (i / 10) * Math.PI * 2;
+        const r = SPIN_RADIUS * 0.8;
+        this.sparks.puff(car.x + Math.cos(a) * r, 0.9, car.z + Math.sin(a) * r, RAMP.white, 0.3);
+      }
     },
   };
 
@@ -332,6 +354,41 @@ export class Effects {
   bolt(x0: number, z0: number, x1: number, z1: number) {
     this.bolts.push({ age: 0, x0, x1, z0, z1 });
     this.sparks.burst(x1, 1.2, z1, RAMP.yellow, 10, 8);
+  }
+
+  /** What a shot in flight leaves behind it: call a few dozen times a second. */
+  trail(shot: Shot, ramp: number) {
+    const back = { x: shot.x - Math.cos(shot.a) * 1.1, z: shot.z - Math.sin(shot.a) * 1.1 };
+
+    if (shot.kind === "rocket") {
+      this.flame(back.x, back.z, Math.cos(shot.a), Math.sin(shot.a));
+      this.sparks.puff(back.x, 1, back.z, RAMP.cream, 0.4);
+    } else if (shot.kind === "seeker") {
+      this.sparks.puff(back.x, 1, back.z, ramp, 0.34);
+    } else if (shot.kind === "puck") {
+      this.sparks.puff(back.x, 0.8, back.z, RAMP.white, 0.2);
+    }
+  }
+
+  /** A lick of flame out of the back of something pointing along (cos, sin). */
+  flame(x: number, z: number, cos: number, sin: number) {
+    for (const ramp of [RAMP.yellow, RAMP.orange]) {
+      const speed = 5 + Math.random() * 6;
+      const side = (Math.random() - 0.5) * 3;
+      this.sparks.emit({
+        grow: 0.2,
+        hot: 4,
+        life: 0.14 + Math.random() * 0.12,
+        ramp,
+        size: 0.3 + Math.random() * 0.14,
+        vx: -cos * speed - sin * side,
+        vy: 0.6,
+        vz: -sin * speed + cos * side,
+        x,
+        y: 0.9,
+        z,
+      });
+    }
   }
 
   /** A shot ending: `burst` if it went off, not if it only ran out. */
@@ -521,9 +578,9 @@ export class Effects {
       const a = (i / 6) * Math.PI * 2;
       this.sparks.emit({
         grow: 1.6,
-        hot: 3,
+        hot: 6,
         life: 0.7 + Math.random() * 0.3,
-        ramp: RAMP.iron,
+        ramp: RAMP.steel,
         rim: true,
         size: 0.6,
         vx: Math.cos(a) * 2,

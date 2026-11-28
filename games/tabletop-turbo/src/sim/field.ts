@@ -44,6 +44,8 @@ export interface Field {
   round: number;
   /** Seconds into the round: negative under the countdown. */
   time: number;
+  /** The round time the last step ran at: a step sweeps from there to `time`. */
+  stepped: number;
   /** Cars simulated here: this player's, and the bots' on the host. */
   cars: Map<string, Car>;
   ghosts: Map<string, Ghost>;
@@ -63,6 +65,7 @@ export const makeField: (arena: Arena) => Field = (arena) => ({
   round: 0,
   seq: 0,
   shots: [],
+  stepped: 0,
   taken: new Set<number>(),
   time: 0,
 });

@@ -24,7 +24,7 @@ export interface CarLook {
   /** Radians of tumble, about the car's length and across it. */
   roll: number;
   pitch: number;
-  /** Seconds left of flashing white after a hit. */
+  /** Seconds left of flashing pale after a hit. */
   flash: number;
   /** Just dropped in: drawn see-through. */
   ghost: boolean;
@@ -439,15 +439,14 @@ export class CarMesh {
     const lifted = Math.max(0, look.y);
     const size = this.size * DRAWN * (1 + Math.min(lifted, 4.5) * 0.07);
     this.shade(stage, look, cos, sin, lifted);
-    const white = look.flash > 0 && Math.floor(look.flash * 30) % 2 === 0;
+    const lit = look.flash > 0 && Math.floor(look.flash * 30) % 2 === 0;
     const flat = attack === "slam" ? swing * 0.3 : 0;
     const kick = attack === "shot" ? swing * 0.12 : 0;
 
     const place: Placement = {
       aloft: look.y > 1.8 || look.ghost,
-      mono: white,
       pitch: look.pitch + (look.boosting ? 0.06 : 0) + kick,
-      ramp: white ? RAMP.white : ramp,
+      ramp: lit ? RAMP.cream : ramp,
       roll: look.roll + this.lean,
       scale: size,
       sheer: look.ghost && Math.floor(this.age * 10) % 2 === 0,

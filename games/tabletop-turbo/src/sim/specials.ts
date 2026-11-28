@@ -32,14 +32,14 @@ export const TURBO_SPEED = 1.12;
 export const ROCKET_SPEED = 46;
 export const ROCKET_RANGE = 42;
 export const ROCKET_BLAST = 3.4;
-export const ROCKET_THROW = 7;
+export const ROCKET_THROW = 5.6;
 export const ROCKET_DAMAGE = 18;
 
 /** Seeker: slower, turns after the car it was let go at. */
 export const SEEKER_SPEED = 21;
 export const SEEKER_TURN = 2.8;
 export const SEEKER_LIFE = 4.5;
-export const SEEKER_THROW = 5.8;
+export const SEEKER_THROW = 4.6;
 export const SEEKER_DAMAGE = 14;
 
 /** Mine: arms after a moment, then goes off under the first car near it. */
@@ -47,34 +47,40 @@ export const MINE_ARM = 0.7;
 export const MINE_LIFE = 25;
 export const MINE_TRIGGER = 2.3;
 export const MINE_BLAST = 4.6;
-export const MINE_THROW = 7.4;
+export const MINE_THROW = 6;
 export const MINE_DAMAGE = 20;
 
 /** Oil: a slick a car slides straight across with no wheel. */
 export const OIL_LIFE = 10;
 export const OIL_RADIUS = 2.9;
-export const OIL_SLIP = 1.1;
+export const OIL_SLIP = 0.8;
 export const OIL_DAMAGE = 4;
 
 /** Shock: everyone round the car is thrown outwards. */
 export const SHOCK_RADIUS = 7.5;
-export const SHOCK_THROW = 6.4;
+export const SHOCK_THROW = 5;
 export const SHOCK_DAMAGE = 14;
 
-/** Magnet: everyone in reach is yanked to the car's nose. */
-export const MAGNET_RADIUS = 13;
+/**
+ * Magnet: everyone in reach is yanked to the car's nose. They have their wheel
+ * back in `MAGNET_STAGGER`, and the car that pulled them cannot land a blow on
+ * them for `MAGNET_LOCK`: the pull sets a fight up, it does not finish one.
+ */
+export const MAGNET_RADIUS = 9;
 export const MAGNET_STOP = 3.2;
 export const MAGNET_DAMAGE = 3;
+export const MAGNET_STAGGER = 0.3;
+export const MAGNET_LOCK = 0.45;
 
 /** Zap: everyone in reach stalls. */
-export const ZAP_RADIUS = 12;
-export const ZAP_STUN = 1.4;
+export const ZAP_RADIUS = 9;
+export const ZAP_STUN = 0.8;
 export const ZAP_DAMAGE = 8;
 
 /** Spring: a hop over anything, and a stomp where it comes down. */
 export const SPRING_HEIGHT = 4.2;
 export const STOMP_RADIUS = 4;
-export const STOMP_THROW = 4.6;
+export const STOMP_THROW = 3.8;
 export const STOMP_DAMAGE = 10;
 
 const WEIGHTS: Record<SpecialKind, readonly [front: number, back: number]> = {

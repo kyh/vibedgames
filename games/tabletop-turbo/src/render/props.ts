@@ -94,9 +94,9 @@ export const BEAM = bake((b) => {
 
 /** The arrow that hangs over your own car: a plate that faces the camera. */
 export const ARROW = bake((b) => {
-  const cream = { flags: FLAG.unlit + FLAG.noShadow, tone: tone(RAMP.cream, 7) };
+  const team = { flags: FLAG.unlit + FLAG.noShadow, tone: tone(TEAM_RAMP, BASE + 2) };
   b.part();
-  b.patch([-0.7, 1.5, 0], [0.7, 1.5, 0], [0, 0, 0], [0, 0, 0], [0, 0, 1], cream);
+  b.patch([-1, 1.9, 0], [1, 1.9, 0], [0, 0, 0], [0, 0, 0], [0, 0, 1], team);
 });
 
 /** The turntable the title shows a car on. */

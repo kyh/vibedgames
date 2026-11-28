@@ -13,9 +13,6 @@ export const RESULTS_MS = 9000;
 export const SHRINK_MS = 35_000;
 export const SHRINK_WARN_MS = 3000;
 
-/** What a knock-off is worth once the rim starts to blink. */
-export const SQUEEZE_POINTS = 2;
-
 /** The sim's fixed step, and the most steps one frame may run. */
 export const STEP = 1 / 60;
 export const MAX_STEPS = 4;
@@ -57,18 +54,19 @@ export const GRAVITY = 46;
 /** Seconds a car falls before it is out. */
 export const FALL_SECONDS = 0.7;
 
-/** A press of the attack button is remembered this long; a bot winds up at least this long. */
+/** A press of the attack button, and of the special's, is remembered this long. */
 export const ATTACK_BUFFER = 0.15;
-export const BOT_WINDUP = 0.2;
+export const SPECIAL_BUFFER = 0.3;
 
 /** Extra throw per unit of the attacker's speed along the blow. */
 export const SPEED_THROW = 0.1;
 
 /**
  * Damage: every blow adds to it, and a car flies this much further per point.
- * At 100 a blow throws a little over twice as far as it does a fresh car.
+ * A fresh car is shoved; at 100 the same blow throws it over two and a half
+ * times as far.
  */
-export const DAMAGE_GAIN = 0.0115;
+export const DAMAGE_GAIN = 0.016;
 export const DAMAGE_MAX = 300;
 
 /** A thrown car covers its distance on this time constant, stretched for long throws. */
@@ -87,14 +85,14 @@ export const PUNCH_LUNGE = 1.2;
 export const CLASH_THROW = 2.2;
 
 /** A ram needs this closing speed, which only a boost reaches. */
-export const RAM_MIN = 16;
-export const RAM_THROW = 3.4;
+export const RAM_MIN = 17;
+export const RAM_THROW = 2.8;
 export const RAM_DAMAGE = 5;
 
 /** What the board's own toys throw a fresh car, and the damage they do. */
-export const BUMPER_THROW = 3.2;
-export const SWEEPER_THROW = 5.6;
-export const PISTON_THROW = 7;
+export const BUMPER_THROW = 2.6;
+export const SWEEPER_THROW = 4.4;
+export const PISTON_THROW = 5.6;
 export const BUMPER_DAMAGE = 5;
 export const SWEEPER_DAMAGE = 10;
 export const PISTON_DAMAGE = 12;

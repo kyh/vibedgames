@@ -23,6 +23,8 @@ export interface HudTag {
   y: number;
   name: string;
   damage: number;
+  /** The car's colour. */
+  css: string;
 }
 
 export interface HudCallbacks {
@@ -51,6 +53,28 @@ const SPECIAL_NAMES = {
 } as const satisfies Record<SpecialKind, string>;
 
 export const specialName = (kind: SpecialKind) => SPECIAL_NAMES[kind];
+
+const SPECIAL_HINTS = {
+  giant: "GROW HUGE AND HARD TO THROW",
+  magnet: "YANKS CARS TO YOUR NOSE",
+  mine: "DROPS BEHIND YOU",
+  oil: "A SLICK BEHIND YOU",
+  rocket: "FIRES STRAIGHT AHEAD",
+  seeker: "HUNTS THE CAR AHEAD",
+  shield: "BLOCKS ONE BLOW",
+  shock: "THROWS EVERYONE NEAR YOU",
+  spring: "JUMP, AND STOMP WHERE YOU LAND",
+  turbo: "A FREE BOOST",
+  wrench: "MENDS ALL YOUR DAMAGE",
+  zap: "STALLS EVERYONE NEAR YOU",
+} as const satisfies Record<SpecialKind, string>;
+
+/** One line on what a special does, led by the button that lets it go. */
+export const specialHint = (kind: SpecialKind) => {
+  const key = document.body.classList.contains("touch") ? "ITEM" : "E";
+
+  return `${key}: ${SPECIAL_HINTS[kind]}`;
+};
 
 const ICONS = {
   giant: [
@@ -178,6 +202,12 @@ const ICONS = {
 const ORDINALS = ["1ST", "2ND", "3RD", "4TH", "5TH", "6TH", "7TH", "8TH"] as const;
 const PIPS = 5;
 const TAGS = 8;
+const FEED_LINES = 3;
+const SMALL_COLS = 350;
+const SMALL_ROWS = 215;
+const STACK_COLS = 380;
+const FLAT_ROWS = 260;
+const FLAT_COLS = 300;
 
 const el = (id: string) => {
   const node = document.querySelector<HTMLElement>(`#${id}`);
@@ -230,6 +260,16 @@ const iconUrl = (rows: readonly string[], css: string) => {
 
   return `url(${canvas.toDataURL()})`;
 };
+
+const percent = () => {
+  const sign = document.createElement("span");
+  sign.className = "pct";
+
+  return sign;
+};
+
+const rowsKey = (rows: readonly HudRow[]) =>
+  rows.map((row) => `${row.key}:${row.score}:${row.out ? 1 : 0}:${row.name}:${row.css}`).join("|");
 
 const rowNode = (row: HudRow, rank: number | null) => {
   const node = document.createElement("div");
@@ -300,7 +340,9 @@ export class Hud {
   private readonly kindBlurb = el("kind-blurb");
   private readonly swatches: HTMLElement[] = [];
   private readonly stats: Record<"speed" | "power" | "endurance" | "reach", HTMLElement[]>;
-  private readonly tags: HTMLElement[] = [];
+  private readonly tags: { node: HTMLElement; pip: HTMLElement; text: Text; key: string }[] = [];
+  private readonly tagBox = el("tags");
+  private readonly hurtText = document.createTextNode("0");
   private readonly icons = new Map<SpecialKind, string>();
   private readonly attackBar: HTMLElement | null;
   private readonly boostBar: HTMLElement | null;
@@ -308,6 +350,7 @@ export class Hud {
   private kind: CarKind = "bumper";
   private colour = 0;
   private boardKey = "";
+  private resultsKey = "";
   private lastScore = -1;
   private lastCount = "";
   private lastHurt = -1;
@@ -364,14 +407,17 @@ export class Hud {
       row.append(swatch);
     }
 
-    const tagBox = el("tags");
-
     for (let i = 0; i < TAGS; i += 1) {
-      const tag = document.createElement("span");
-      tag.hidden = true;
-      this.tags.push(tag);
-      tagBox.append(tag);
+      const node = document.createElement("span");
+      const pip = document.createElement("i");
+      const text = document.createTextNode("");
+      node.hidden = true;
+      node.append(pip, text, percent());
+      this.tags.push({ key: "", node, pip, text });
+      this.tagBox.append(node);
     }
+
+    this.hurt.append(this.hurtText, percent());
 
     this.writeControls();
     this.setPick(this.kind, this.colour, false);
@@ -383,6 +429,20 @@ export class Hud {
 
   showHud(on: boolean) {
     this.hud.dataset.on = on ? "1" : "0";
+  }
+
+  /**
+   * Size the page to the art: `unit` is one art pixel in page pixels, and every
+   * length on the page is a count of those.
+   */
+  fit(unit: number, width: number, height: number) {
+    const root = this.hud.ownerDocument.documentElement;
+    const cols = width / unit;
+    const rows = height / unit;
+    root.style.setProperty("--u", `${unit}px`);
+    root.classList.toggle("small", cols <= SMALL_COLS || rows <= SMALL_ROWS);
+    root.classList.toggle("stack", cols <= STACK_COLS);
+    root.classList.toggle("flat", rows <= FLAT_ROWS && cols >= FLAT_COLS);
   }
 
   /** The player's colour, as the HUD wears it. */
@@ -443,15 +503,17 @@ export class Hud {
     return { x: (box.left + box.width / 2) / wide, y: (box.top + box.height / 2) / high };
   }
 
-  setClock(msLeft: number, round: number, urgent: boolean) {
+  /** `urgent` is the rim gone; `last` the final seconds, which the clock counts out. */
+  setClock(msLeft: number, round: number, urgent: boolean, last: boolean) {
     const text = clockText(msLeft);
-    const key = `${text}:${round}:${urgent ? 1 : 0}`;
+    const key = `${text}:${round}:${urgent ? 1 : 0}:${last ? 1 : 0}`;
 
     if (key !== this.clockKey) {
       this.clockKey = key;
       this.time.textContent = text;
       this.round.textContent = `Round ${round}`;
       this.clock.dataset.urgent = urgent ? "1" : "0";
+      this.clock.dataset.last = last ? "1" : "0";
     }
   }
 
@@ -474,9 +536,7 @@ export class Hud {
 
   /** The scoreboard, best first. Rebuilt only when something on it changed. */
   setBoard(rows: readonly HudRow[]) {
-    const key = rows
-      .map((row) => `${row.key}:${row.score}:${row.out ? 1 : 0}:${row.name}:${row.css}`)
-      .join("|");
+    const key = rowsKey(rows);
 
     if (key !== this.boardKey) {
       this.boardKey = key;
@@ -494,16 +554,15 @@ export class Hud {
       line.append(swatch, row.name);
     };
 
+    const verb = document.createElement("em");
+    verb.textContent = by ? "KO" : "FELL";
+
     if (by) {
       add(by);
-      const verb = document.createElement("em");
-      verb.textContent = "knocked off";
       line.append(verb);
       add(victim);
     } else {
       add(victim);
-      const verb = document.createElement("em");
-      verb.textContent = "fell off";
       line.append(verb);
     }
 
@@ -512,7 +571,7 @@ export class Hud {
       line.remove();
     });
 
-    while (this.feedBox.children.length > 4) {
+    while (this.feedBox.children.length > FEED_LINES) {
       this.feedBox.firstElementChild?.remove();
     }
   }
@@ -546,7 +605,7 @@ export class Hud {
     const whole = Math.round(damage);
 
     if (whole !== this.lastHurt) {
-      this.hurt.textContent = `${whole}%`;
+      this.hurtText.data = String(whole);
       this.hurt.style.color = damageCss(whole);
       this.hurt.dataset.bump = "0";
 
@@ -562,14 +621,18 @@ export class Hud {
 
   /** The labels over the cars this frame, in page pixels. Any left over are hidden. */
   setTags(tags: readonly HudTag[]) {
-    for (const [i, node] of this.tags.entries()) {
+    for (const [i, slot] of this.tags.entries()) {
       const tag = tags[i];
+      const { node } = slot;
 
       if (tag) {
-        const text = `${tag.name === "" ? "" : `${tag.name} `}${Math.round(tag.damage)}%`;
+        const text = `${tag.name === "" ? "" : `${tag.name} `}${Math.round(tag.damage)}`;
+        const key = `${text}:${tag.css}`;
 
-        if (node.textContent !== text) {
-          node.textContent = text;
+        if (slot.key !== key) {
+          slot.key = key;
+          slot.text.data = text;
+          slot.pip.style.background = tag.css;
           node.style.color = damageCss(tag.damage);
         }
 
@@ -580,8 +643,11 @@ export class Hud {
     }
   }
 
-  banner(text: string, tone: BannerTone, ms = 1600) {
-    this.bannerBox.textContent = text;
+  /** A line across the board for `ms`, with a smaller one under it if `sub` is given. */
+  banner(text: string, tone: BannerTone, ms = 1600, sub = "") {
+    const small = document.createElement("small");
+    small.textContent = sub;
+    this.bannerBox.replaceChildren(text, ...(sub === "" ? [] : [small]));
     this.bannerBox.dataset.tone = tone;
     this.bannerBox.dataset.on = "0";
     this.bannerUntil = performance.now() + ms;
@@ -616,10 +682,19 @@ export class Hud {
 
   /** Words that rise off a point on the page and fade. */
   pop(text: string, x: number, y: number, css: string) {
+    if (x < 0 || x > window.innerWidth || y < 0 || y > window.innerHeight) {
+      return;
+    }
+
     const node = document.createElement("span");
+    const root = this.pops.ownerDocument.documentElement;
+    const rem = Number(getComputedStyle(root).fontSize.replace("px", ""));
+    const side = Math.min(window.innerWidth / 2, (text.length * 0.4 + 0.5) * rem);
+    const left = Math.min(window.innerWidth - side, Math.max(side, x));
+    const top = Math.min(window.innerHeight - rem, Math.max(rem * 4, y));
     node.textContent = text;
-    node.style.left = `${Math.round(x)}px`;
-    node.style.top = `${Math.round(y)}px`;
+    node.style.left = `${Math.round(left)}px`;
+    node.style.top = `${Math.round(top)}px`;
     node.style.color = css;
     this.pops.append(node);
     node.addEventListener("animationend", () => {
@@ -634,14 +709,21 @@ export class Hud {
   }
 
   showResults(on: boolean, rows: readonly HudRow[] = [], won = false, next = "") {
+    const rest = on ? "1" : "0";
+    this.hud.dataset.rest = rest;
+    this.tagBox.dataset.rest = rest;
+    this.results.dataset.on = rest;
+
     if (!on) {
-      this.results.dataset.on = "0";
+      this.resultsKey = "";
 
       return;
     }
 
-    if (this.results.dataset.on !== "1") {
-      this.results.dataset.on = "1";
+    const key = `${won ? 1 : 0}|${rowsKey(rows)}`;
+
+    if (this.resultsKey !== key) {
+      this.resultsKey = key;
       const heading = el("results-title");
       heading.textContent = won ? "YOU WIN" : "ROUND OVER";
       heading.dataset.won = won ? "1" : "0";
@@ -673,6 +755,7 @@ export class Hud {
           ["BOOST", "hold"],
         ]
       : [
+          ["ARROWS", "pick a car and a colour"],
           ["W S", "go and back up"],
           ["A D", "steer"],
           ["SPACE", "attack"],

@@ -30,19 +30,20 @@ Toy cars fighting on a game board on a sunlit desk, drawn the way a 16-bit conso
 
 ## Motion and effects
 
-- The camera follows your car and eases round to sit behind it, looking a little ahead. It holds still while you are thrown or sliding, and jolts on a hit. Solids turn in 64 steps so their edges land on the same pixels each time.
+- The camera follows your car and swings round to sit behind it, looking a little way down its nose. It holds still while you are thrown or sliding, and jolts on a hit. Solids turn in 64 steps so their edges land on the same pixels each time.
 - Effects are pixel discs in ramp tones that step down the ramp as they age: nothing fades. Smoke and dust carry an ink edge; sparks and confetti do not.
-- A hit is a white ring where the blow met the car, sparks in the attacker's colour thrown along the blow, a flash on the floor, a few frames of freeze and a camera jolt if you were part of it. The car that was hit goes white for a moment and tumbles.
+- A hit is a white ring where the blow met the car, sparks in the attacker's colour thrown along the blow, a flash on the floor, a few frames of freeze and a camera jolt if you were part of it. The car that was hit blinks cream for a moment, shaded like any other car so it keeps its shape, and tumbles.
 - Always on: tyre tracks in the car's colour while it boosts, dark skid marks under a thrown car, smoke off a badly damaged one.
 - On events: a ring and a thump on landing, puffs along an attack's stroke, a column of light over a car dropping back in, confetti in the car's colour when it is out or when a bot steps out for a player, the rim of the board blinking before it falls.
-- Every attack and every special has its own mark at the moment it goes off: a ring that grows for a slam or a shockwave, an arc for a whirl, a streak for a dash, a bolt for a zap, lines drawn in for a magnet.
+- Every attack and every special has its own mark at the moment it goes off: a ring that grows for a slam or a shockwave, an arc for a whirl, a streak for a dash, a bolt for a zap, lines drawn in for a magnet, a ring where a mine is set and a splat where a slick is laid.
+- What flies leaves something behind it: flame and pale smoke off a rocket, puffs in its owner's colour off a seeker, a thin white line off a puck, flame out of the back of a car on turbo.
 - A shielded car flickers between solid and every other pixel, and casts no shadow.
 - Words pop where things happen: POW!, SMASH!, BLOCKED, the name of a special as it is used.
 - Sounds from the board are only heard near where the camera is looking.
 
 ## HUD
 
-Small ink panels with a one-pixel lip, pixel type, palette tones. Your score and place top left with the radar under them, the clock top centre with the knock-off feed under it, the standings top right, and the dash bottom centre: your damage, the attack and boost meters, and the special you hold with its icon. Every other car carries its damage over its roof, going from cream to red as it climbs. On a phone the dash moves up under the clock, out of the way of the thumbs.
+Small ink panels with a one-pixel lip, pixel type, palette tones, all sized in art pixels: one HUD pixel is one pixel of the scene (and never fewer than two of the screen), so nothing on it is blurred or off the grid. Your score and place top left with the radar under them, the clock top centre with the knock-off feed under it, the standings top right, and the dash bottom centre: your damage, the attack and boost meters, and the special you hold with its icon, each tile with its key on a cap. A triangle in your colour hangs over your own car. Every other car carries its damage over its roof, going from cream to red as it climbs. Words that would pop off screen are not shown. The clock pulses through the last five seconds. On a phone the dash moves up under the clock, out of the way of the thumbs, the labels and key caps go, and the standings keep the top three and you.
 
 ## Not yet
 

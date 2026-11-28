@@ -1,4 +1,4 @@
-import { ROUND_MS, SHRINK_MS, SQUEEZE_POINTS, STEP } from "../src/shared/constants.ts";
+import { ROUND_MS, STEP } from "../src/shared/constants.ts";
 import { arenaFor } from "../src/sim/arena.ts";
 import type { Arena } from "../src/sim/arena.ts";
 import { botInput, makeBrain, makeDirector } from "../src/sim/bot.ts";
@@ -21,7 +21,7 @@ export interface MatchLog {
   events: FieldEvent[];
   causes: Map<string, number>;
   /** Every fall: who, who is credited, and the blow that did it. */
-  outs: { key: string; by: string; how: string }[];
+  outs: { key: string; by: string; how: string; damage: number; time: number }[];
 }
 
 const bump = (tally: Map<string, number>, key: string, by: number) => {
@@ -55,14 +55,20 @@ const settle = (field: Field, log: MatchLog, event: FieldEvent) => {
 
   bump(log.falls, event.key, 1);
   const car = field.cars.get(event.key);
-  log.outs.push({ by: event.by, how: car?.hitHow ?? "", key: event.key });
+  log.outs.push({
+    by: event.by,
+    damage: car?.damage ?? 0,
+    how: car?.hitHow ?? "",
+    key: event.key,
+    time: field.time,
+  });
 
   if (event.by === "") {
     bump(log.causes, `self:${car?.hitHow ?? ""}`, 1);
     bump(log.scores, event.key, -1);
   } else {
     bump(log.causes, `car:${car?.hitHow ?? ""}`, 1);
-    bump(log.scores, event.by, field.time * 1000 >= ROUND_MS - SHRINK_MS ? SQUEEZE_POINTS : 1);
+    bump(log.scores, event.by, 1);
     reward(field, event.by);
   }
 };

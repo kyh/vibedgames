@@ -407,11 +407,16 @@ export class PixelStage {
     this.light.needsUpdate = true;
   }
 
+  /** One art pixel, in page pixels. */
+  get unit() {
+    return this.pixel;
+  }
+
   /** Fit the art grid to a window `width` by `height` CSS pixels. */
   resize(width: number, height: number) {
     const dpr = globalThis.devicePixelRatio || 1;
     this.dpr = dpr;
-    this.pixel = Math.max(1, Math.round((height * dpr) / ROWS)) / dpr;
+    this.pixel = Math.max(Math.ceil(2 * dpr), Math.round((height * dpr) / ROWS)) / dpr;
     this.wide = Math.ceil(width / this.pixel) + 2;
     this.tall = Math.ceil(height / this.pixel) + 2;
     this.renderer.setPixelRatio(1);

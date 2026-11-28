@@ -1,7 +1,7 @@
 import { Interpolator, RemoteClock, lerp, lerpAngle } from "@vibedgames/multiplayer";
 import type { JsonRecord, JsonValue } from "@vibedgames/multiplayer";
 
-import { CAR_RADIUS } from "../shared/constants";
+import { CAR_RADIUS, KNOCK_TAU, STAGGER } from "../shared/constants";
 import { attackClock, carRadius, swingAt } from "../sim/car";
 import type { Car, CarMode, HitHow } from "../sim/car";
 import type { Ghost } from "../sim/field";
@@ -95,6 +95,7 @@ export const HOWS = [
   "magnet",
   "zap",
   "stomp",
+  "oil",
 ] as const satisfies readonly HitHow[];
 
 const round1 = (v: number) => Math.round(v * 10) / 10;
@@ -217,10 +218,12 @@ const readShot: (row: JsonValue) => ShotRow | null = (row) => {
   };
 };
 
+const SHOT_ROWS = 10;
+
 const readShots = (value: WireField) => {
   const out: ShotRow[] = [];
 
-  for (const row of Array.isArray(value) ? value.slice(0, 24) : []) {
+  for (const row of Array.isArray(value) ? value.slice(0, SHOT_ROWS) : []) {
     const shot = readShot(row);
 
     if (shot) {
@@ -293,6 +296,9 @@ export const adoptCar = (car: Car, report: PoseReport) => {
     falls: report.falls,
     hitId: report.hitId,
     kind: report.kind,
+    ktau: KNOCK_TAU,
+    kx: report.staggered ? report.vx : 0,
+    kz: report.staggered ? report.vz : 0,
     lastBy: report.lastBy,
     lastByT: 0,
     launches: report.launches,
@@ -304,6 +310,7 @@ export const adoptCar = (car: Car, report: PoseReport) => {
     outBy: report.outBy,
     safe: report.safe ? 1 : 0,
     special: report.special,
+    stagger: report.staggered ? STAGGER : 0,
     usedKind: report.usedKind,
     uses: report.uses,
     vx: report.staggered ? 0 : report.vx,

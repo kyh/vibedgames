@@ -197,7 +197,6 @@ const diag: Diagnostics = {
   attackReady: true,
   boost: 1,
   car: "bumper",
-  centre: { ahead: 0, side: 0 },
   complete: false,
   cube: { ahead: 0, distance: 99, side: 0 },
   damage: 0,
@@ -205,6 +204,7 @@ const diag: Diagnostics = {
   entities: 0,
   falls: 0,
   frame: 0,
+  home: { ahead: 0, side: 0 },
   knockOffs: 0,
   paused: false,
   phase: "title",
@@ -235,7 +235,7 @@ const towards = (ahead: number, side: number) => {
 
 const fightKeys = (d: Diagnostics, boost: boolean) => {
   if (d.edge < 2.4 || d.threat > 0.5) {
-    return towards(d.centre.ahead, d.centre.side);
+    return towards(d.home.ahead, d.home.side);
   }
 
   const keys = towards(d.rival.ahead, d.rival.side);
@@ -316,12 +316,14 @@ if (import.meta.env.DEV || playtest) {
       grab: {
         description: "Drive to the nearest power cube",
         reflex: (d) =>
-          d && d.phase === "play" ? { keys: towards(d.cube.ahead, d.cube.side) } : undefined,
+          d && d.phase === "play" && d.cube.distance < 99
+            ? { keys: towards(d.cube.ahead, d.cube.side) }
+            : undefined,
       },
       retreat: {
-        description: "Drive back to the middle of the board",
+        description: "Drive to the nearest safe ground, away from the edges and the board's toys",
         reflex: (d) =>
-          d && d.phase === "play" ? { keys: towards(d.centre.ahead, d.centre.side) } : undefined,
+          d && d.phase === "play" ? { keys: towards(d.home.ahead, d.home.side) } : undefined,
       },
     },
   });

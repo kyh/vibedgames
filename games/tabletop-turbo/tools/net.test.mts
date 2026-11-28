@@ -4,7 +4,7 @@ import { test } from "node:test";
 import type { JsonValue } from "@vibedgames/multiplayer";
 
 import { encodeHit, readHit } from "../src/net/blow.ts";
-import { adoptCar, encodeCar, ghostOf, readPose, shotOf, viewOf } from "../src/net/pose.ts";
+import { HOWS, adoptCar, encodeCar, ghostOf, readPose, shotOf, viewOf } from "../src/net/pose.ts";
 import { STEP } from "../src/shared/constants.ts";
 import { ARENAS, buildArena } from "../src/sim/arena.ts";
 import { NO_INPUT, dropCar, gridCar, makeCar } from "../src/sim/car.ts";
@@ -14,6 +14,7 @@ import type { Field, FieldEvent } from "../src/sim/field.ts";
 import { KINDS } from "../src/sim/kinds.ts";
 import type { CarKind } from "../src/sim/kinds.ts";
 import { moveShot } from "../src/sim/shots.ts";
+import { MAGNET_RADIUS, MAGNET_STOP, ZAP_DAMAGE, ZAP_STUN } from "../src/sim/specials.ts";
 import { stepField } from "../src/sim/step.ts";
 
 const [first] = ARENAS;
@@ -176,9 +177,19 @@ test("a blow survives the wire, and one no car could deal is cut down or refused
   const low = readHit({ ...encodeHit(hit), d: -5, r: -3 });
   assert.ok(low && low.damage === 0 && low.reach === 0);
 
-  for (const how of ["bumper", "sweeper", "piston"] as const) {
+  for (const how of ["bumper", "sweeper", "piston", "oil"] as const) {
     assert.equal(readHit(encodeHit({ ...hit, how })), null, `${how} is the board's own`);
   }
+
+  const forged = { ...encodeHit(hit), d: 9000, l: 50, r: 900, s: 60 };
+  const zap = readHit({ ...forged, n: HOWS.indexOf("zap") });
+  assert.ok(zap && zap.reach === 0 && zap.stun <= ZAP_STUN && zap.damage <= ZAP_DAMAGE * 1.1);
+  const land = readHit({ ...forged, n: HOWS.indexOf("land") });
+  assert.ok(land && land.damage === 0 && land.reach < 3 && land.stun === 0);
+  const pull = readHit({ ...forged, n: HOWS.indexOf("magnet") });
+  assert.ok(pull && pull.reach < MAGNET_RADIUS + MAGNET_STOP + 1 && pull.stun === 0);
+  const punch = readHit({ ...forged, n: HOWS.indexOf("punch") });
+  assert.ok(punch && punch.reach < wild.reach && punch.lift === 1, "a punch is no flip");
 
   assert.equal(readHit(null), null);
   assert.equal(readHit({}), null);

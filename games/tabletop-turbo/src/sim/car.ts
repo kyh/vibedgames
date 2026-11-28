@@ -7,7 +7,6 @@ import {
   BOOST_REST,
   BOOST_SECONDS,
   BOOST_SPEED,
-  BOT_WINDUP,
   CAR_NOSE,
   CAR_RADIUS,
   CLASH_THROW,
@@ -27,6 +26,7 @@ import {
   PUNCH_LUNGE,
   REVERSE,
   SAFE_SECONDS,
+  SPECIAL_BUFFER,
   SPEED_THROW,
   STAGGER,
   STAGGER_EASE,
@@ -51,6 +51,8 @@ import {
   GIANT_SCALE,
   GIANT_SLOW,
   GIANT_WEIGHT,
+  MAGNET_LOCK,
+  MAGNET_STAGGER,
   MOD_SECONDS,
   SPRING_HEIGHT,
   TURBO_SPEED,
@@ -96,7 +98,8 @@ export type HitHow =
   | "shock"
   | "magnet"
   | "zap"
-  | "stomp";
+  | "stomp"
+  | "oil";
 
 export interface Hit {
   /** Unique per blow, so one sent twice lands once. */
@@ -146,6 +149,8 @@ export interface Car {
   phase: AttackPhase;
   phaseT: number;
   buffer: number;
+  /** Seconds the special's button is still remembered. */
+  wish: number;
   cooldown: number;
   /** The length of the cooldown now running, for the ring. */
   cooldownOf: number;
@@ -252,6 +257,7 @@ export const makeCar: (key: string, bot: boolean, kind?: CarKind) => Car = (
   vx: 0,
   vy: 0,
   vz: 0,
+  wish: 0,
   x: 0,
   y: 0,
   z: 0,
@@ -282,6 +288,7 @@ const clearMotion = (car: Car, spawn: Spawn) => {
     vx: 0,
     vy: 0,
     vz: 0,
+    wish: 0,
     x: spawn.x,
     z: spawn.z,
   } satisfies Partial<Car>);
@@ -341,11 +348,7 @@ export const flightOf = (reach: number) => {
   return { stagger: STAGGER * (1 + long * 0.8), tau: KNOCK_TAU * (1 + long * 0.9) };
 };
 
-const windupOf = (car: Car) => {
-  const { windup } = KINDS[car.kind];
-
-  return car.bot ? Math.max(BOT_WINDUP, windup) : windup;
-};
+const windupOf = (car: Car) => KINDS[car.kind].windup;
 
 /** Seconds since this car's attack went off: negative while it winds up, large when idle. */
 export const attackClock = (car: Car) => {
@@ -415,12 +418,16 @@ export const wrapAngle = (a: number) => {
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
+const STICK_BACK = 1.92;
+const STICK_BLEND = 0.52;
+
 /**
  * A stick as the driver sees it, the car's nose up the screen: `sx` right,
  * `sy` ahead. Ahead is the pedal, across is the wheel, and pulling back past
  * the side backs the car up with the wheel turned over.
  */
 export const stickInput = (sx: number, sy: number) => {
+  // WARNING: forward and reverse blend across STICK_BLEND; a hard switch makes a thumb held back-and-sideways flip the car between them.
   const size = Math.min(1, Math.hypot(sx, sy));
 
   if (size < 0.15) {
@@ -428,16 +435,14 @@ export const stickInput = (sx: number, sy: number) => {
   }
 
   const off = Math.atan2(sx, sy);
-
-  if (Math.abs(off) > 2.2) {
-    const back = Math.PI - Math.abs(off);
-
-    return { gas: -size, steer: -Math.sign(off) * clamp(back / 0.6, 0, 1) };
-  }
+  const back = clamp((Math.abs(off) - STICK_BACK) / STICK_BLEND, 0, 1);
+  const ahead = size * Math.min(1, 0.3 + Math.max(0, Math.cos(off)));
+  const wheel = clamp(off / 0.7, -1, 1) * Math.min(1, size * 1.2);
+  const reversed = -Math.sign(off) * clamp((Math.PI - Math.abs(off)) / 0.6, 0, 1);
 
   return {
-    gas: size * (0.25 + 0.75 * Math.max(0, Math.cos(off))),
-    steer: clamp(off / 0.7, -1, 1) * Math.min(1, size * 1.2),
+    gas: ahead + (-size - ahead) * back,
+    steer: wheel + (reversed - wheel) * back,
   };
 };
 
@@ -587,7 +592,9 @@ export const takeHit = (car: Car, hit: Hit) => {
   }
 
   const soft = hit.how === "ram" || hit.how === "land";
+  const pulled = hit.how === "magnet";
   const flight = flightOf(reach);
+  const thrown = (soft ? STAGGER * 0.5 : flight.stagger) + STAGGER_EASE;
   const hop = KNOCK_HOP * clamp(reach / 5, 0.3, 2.4) * hit.lift;
   Object.assign(car, {
     boosting: false,
@@ -603,13 +610,13 @@ export const takeHit = (car: Car, hit: Hit) => {
     phase: "idle",
     phaseT: 0,
     spin: Math.sin(car.a) * hit.dx - Math.cos(car.a) * hit.dz >= 0 ? 1 : -1,
-    stagger: Math.max(hit.stun, (soft ? STAGGER * 0.5 : flight.stagger) + STAGGER_EASE),
+    stagger: Math.max(hit.stun, pulled ? MAGNET_STAGGER : thrown),
     tumble: 0,
     vx: 0,
     vy: Math.sqrt(2 * GRAVITY * hop),
     vz: 0,
   } satisfies Partial<Car>);
-  car.locks.set(lockOf(hit), HIT_LOCK_SAME);
+  car.locks.set(lockOf(hit), pulled ? MAGNET_LOCK : HIT_LOCK_SAME);
 
   return reach;
 };
@@ -877,8 +884,11 @@ export const stepCar = (car: Car, input: CarInput, arena: Arena, late: boolean, 
   stepTimers(car, dt);
   stepAttack(car, input, dt, events);
 
-  if (input.special) {
+  car.wish = input.special ? SPECIAL_BUFFER : Math.max(0, car.wish - dt);
+
+  if (car.wish > 0) {
     events.used = letGo(car);
+    car.wish = events.used === "" ? car.wish : 0;
   }
 
   stepDrive(car, input, dt);

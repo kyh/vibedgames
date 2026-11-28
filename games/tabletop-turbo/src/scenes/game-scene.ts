@@ -16,7 +16,7 @@ import {
   shotOf,
   viewOf,
 } from "../net/pose";
-import type { CarView, PoseReport } from "../net/pose";
+import type { CarView, PoseReport, ShotRow } from "../net/pose";
 import { isJsonNumber, isJsonObject, isJsonString, numberOr } from "../net/wire";
 import { BASE, CAR_RAMPS, RAMP, rampCss, tone } from "../pixel/palette";
 import { PX_PER_UNIT, PixelStage } from "../pixel/stage";
@@ -24,7 +24,7 @@ import type { StageView } from "../pixel/stage";
 import { Board, TABLE_Y } from "../render/board";
 import { CarMesh } from "../render/car-mesh";
 import { GlowGrid, SKID_SLOT } from "../render/glow-grid";
-import { specialName } from "../render/hud";
+import { specialHint, specialName } from "../render/hud";
 import type { Hud, HudRow, HudTag } from "../render/hud";
 import { LightMap } from "../render/light-map";
 import {
@@ -53,9 +53,9 @@ import {
   RESPAWN_SECONDS,
   RESULTS_MS,
   ROUND_MS,
+  SAFE_SECONDS,
   SEND_HZ,
   SHRINK_MS,
-  SQUEEZE_POINTS,
   STEP,
   SWEEPER_THROW,
 } from "../shared/constants";
@@ -142,6 +142,8 @@ interface Racer {
   x: number;
   z: number;
   predicted: Predicted | null;
+  safeUntil: number;
+  laidAt: number;
 }
 
 interface RoundState {
@@ -178,8 +180,8 @@ export interface GameDiagnostics {
    * nose (negative: behind), `side` to the right (negative: left).
    */
   rival: { ahead: number; side: number; distance: number; edge: number; damage: number };
-  /** The way to the middle of the board, the same way. */
-  centre: { ahead: number; side: number };
+  /** The way to the nearest safe ground (a spot cars drop back in on), the same way. */
+  home: { ahead: number; side: number };
   /** The nearest power cube on its pad, the same way: distance 99 if there is none. */
   cube: { ahead: number; side: number; distance: number };
   falls: number;
@@ -196,11 +198,18 @@ const MIN_ZOOM = 9;
 const PITCH = (50 * Math.PI) / 180;
 const EYE_DISTANCE = 200;
 const NORTH = -Math.PI / 2;
-const CAM_TURN = 4.2;
+const CAM_TURN = 7;
+const TRAIL_EVERY = 0.03;
 const CAM_LEAD = 5;
 const SHOW_SCALE = 1.7;
 const AWAY_MS = 2500;
 const LATE_FALL_MS = 1200;
+const FALL_GAP = 2;
+const SHOVE_GAP = 1;
+const LAID_GAP = 2.5;
+const LAID_REACH = 9;
+const SAFE_SLACK = 0.4;
+const LAST_MS = 5000;
 
 const REACH_GUESS = {
   bumper: BUMPER_THROW,
@@ -208,6 +217,7 @@ const REACH_GUESS = {
   land: 2.6,
   magnet: 5,
   mine: MINE_THROW,
+  oil: 0,
   piston: PISTON_THROW,
   punch: KINDS.bumper.throw,
   ram: RAM_THROW,
@@ -276,7 +286,7 @@ const netText = (status: string, humans: number) => {
   return status === "connected" ? `ONLINE ${humans}` : "...";
 };
 
-const countText = (seconds: number, left: number) => {
+const countText = (seconds: number) => {
   if (seconds < 0) {
     return String(Math.min(3, Math.ceil(-seconds)));
   }
@@ -285,7 +295,7 @@ const countText = (seconds: number, left: number) => {
     return "GO";
   }
 
-  return left > 0 && left <= 5000 ? String(Math.ceil(left / 1000)) : "";
+  return "";
 };
 
 const throwOf = (view: CarView, hit: Hit) => {
@@ -349,11 +359,15 @@ export class GameScene {
   private readonly inputs = new Map<string, CarInput>();
   private readonly pending = new Map<number, { key: string; at: number }>();
   private readonly foretold = new Set<string>();
+  private readonly shoved = new Map<string, number>();
+  private readonly fellAt = new Map<string, number>();
   private readonly heard = new Map<string, PoseReport>();
   private readonly steered = new Map<string, number>();
   private readonly landed = new Set<number>();
   private readonly shown = new Map<number, { x: number; z: number }>();
   private readonly botColours: number[] = [];
+  private readonly worn = new Map<string, number>();
+  private wearing = 0;
   private readonly tags: HudTag[] = [];
   private readonly blips: Blip[] = [];
   private readonly showcars = new Map<CarKind, CarMesh>();
@@ -383,7 +397,10 @@ export class GameScene {
   private lastHostId: string | null = null;
   private lastStatus = "";
   private lastCount = "";
+  private lastTick = 0;
   private warned = false;
+  private taught = false;
+  private trailT = 0;
   private dropped = false;
   private wasReady = true;
   private wasBoosting = false;
@@ -418,6 +435,7 @@ export class GameScene {
 
   resize(width: number, height: number) {
     this.stage.resize(width, height);
+    this.hud.fit(this.stage.unit, width, height);
   }
 
   render() {
@@ -429,6 +447,7 @@ export class GameScene {
   setLoadout(kind: CarKind, colour: number) {
     this.kind = kind;
     this.colour = ((colour % CAR_RAMPS.length) + CAR_RAMPS.length) % CAR_RAMPS.length;
+    this.wearing = this.colour;
     this.input.setTint(rampCss(rampOf(this.colour), BASE + 1));
   }
 
@@ -439,7 +458,8 @@ export class GameScene {
     }
 
     this.started = true;
-    this.firstRound = this.state.round;
+    const others = [...this.racers.values()].some((racer) => racer.who === "human");
+    this.firstRound = this.state.round - (others ? 1 : 0);
     this.hud.showTitle(false);
     this.hud.showHud(true);
     this.input.setTouchVisible(true);
@@ -515,6 +535,7 @@ export class GameScene {
       idleAudio();
     } else if (solo) {
       const held = this.client.serverNow() - this.pausedAt;
+      this.lastNow = this.client.serverNow();
       this.client.updateSharedState({
         nextAt: this.state.nextAt > 0 ? this.state.nextAt + held : 0,
         startAt: this.state.startAt + held,
@@ -543,7 +564,7 @@ export class GameScene {
 
     const special = name.startsWith("special-") ? name.slice(8) : "";
 
-    if (special in SPECIAL_RAMP && this.me) {
+    if (Object.hasOwn(SPECIAL_RAMP, special) && this.me) {
       Object.assign(this.me, { special });
 
       return true;
@@ -657,7 +678,17 @@ export class GameScene {
       side: round1(-(x - me.x) * sin + (z - me.z) * cos),
     });
 
-    Object.assign(out.centre, seen(0, 0));
+    let near = Number.POSITIVE_INFINITY;
+
+    for (const spawn of this.arena.def.spawns) {
+      const gap = Math.hypot(spawn.x - me.x, spawn.z - me.z);
+
+      if (gap < near) {
+        near = gap;
+        Object.assign(out.home, seen(spawn.x, spawn.z));
+      }
+    }
+
     let best = Number.POSITIVE_INFINITY;
     out.rival.distance = 99;
 
@@ -761,7 +792,6 @@ export class GameScene {
   private newRound(round: number) {
     this.client.clearClaims("cube:");
     this.client.updateSharedState({
-      bots: {},
       counted: {},
       nextAt: 0,
       phase: "play",
@@ -823,6 +853,8 @@ export class GameScene {
     field.shots.length = 0;
     field.events.length = 0;
     this.pending.clear();
+    this.fellAt.clear();
+    this.shoved.clear();
     this.foretold.clear();
     this.steered.clear();
     this.landed.clear();
@@ -885,6 +917,10 @@ export class GameScene {
         this.brains.set(key, makeBrain(Number(key.slice(1)), this.state.round));
       }
     }
+
+    for (const shot of this.field.shots) {
+      shot.own ||= this.field.cars.get(shot.by)?.bot === true;
+    }
   }
 
   private dropBots() {
@@ -894,8 +930,20 @@ export class GameScene {
       }
     }
 
-    this.field.shots.length = 0;
+    this.dropShotsOf((shot) => isBotKey(shot.by));
     this.director = makeDirector();
+  }
+
+  private dropShotsOf(gone: (shot: Shot) => boolean) {
+    const { shots } = this.field;
+
+    for (let i = shots.length - 1; i >= 0; i -= 1) {
+      const shot = shots[i];
+
+      if (shot && gone(shot)) {
+        shots.splice(i, 1);
+      }
+    }
   }
 
   private staffBots(seconds: number, now: number) {
@@ -919,27 +967,58 @@ export class GameScene {
       } else if (index >= count && car) {
         this.field.cars.delete(key);
         releaseBot(this.director, key);
+        this.dropShotsOf((shot) => shot.by === key);
       }
     }
   }
 
   private paintBots() {
-    const taken = new Set<number>();
+    const taken = new Set<number>(this.worn.values());
 
-    if (this.started) {
-      taken.add(this.colour);
-    }
+    for (const [index] of BOTS.entries()) {
+      const worn = this.botColours[index];
 
-    for (const racer of this.racers.values()) {
-      if (racer.who === "human") {
-        taken.add(racer.colour);
+      if (worn !== undefined && !taken.has(worn)) {
+        taken.add(worn);
+      } else {
+        this.botColours[index] = -1;
       }
     }
 
     const free = CAR_RAMPS.map((_ramp, index) => index).filter((index) => !taken.has(index));
 
     for (const [index] of BOTS.entries()) {
-      this.botColours[index] = free[index % Math.max(1, free.length)] ?? index % CAR_RAMPS.length;
+      if (this.botColours[index] === -1) {
+        this.botColours[index] = free.shift() ?? index % CAR_RAMPS.length;
+      }
+    }
+  }
+
+  private dress(now: number) {
+    const { client, worn } = this;
+    const taken = new Set<number>();
+    worn.clear();
+
+    for (const id of this.humans(now)) {
+      const mine = id === client.playerId;
+      const pick = mine ? this.colour : (readPose(client.players[id]?.state)?.colour ?? 0);
+      let colour = pick % CAR_RAMPS.length;
+
+      while (taken.has(colour) && taken.size < CAR_RAMPS.length) {
+        colour = (colour + 1) % CAR_RAMPS.length;
+      }
+
+      taken.add(colour);
+      worn.set(id, colour);
+    }
+
+    const wearing = worn.get(client.playerId ?? "") ?? this.colour;
+
+    if (wearing !== this.wearing) {
+      this.wearing = wearing;
+      const css = rampCss(rampOf(wearing), BASE + 1);
+      this.input.setTint(css);
+      this.hud.setTint(css);
     }
   }
 
@@ -973,8 +1052,10 @@ export class GameScene {
     }
 
     for (const racer of this.racers.values()) {
-      if (racer.track && racer.seen && !this.field.cars.has(racer.key)) {
-        rows.push({ falls: racer.view.falls, key: racer.key, outBy: racer.view.outBy });
+      const said = this.heard.get(racer.key);
+
+      if (said && !this.field.cars.has(racer.key)) {
+        rows.push({ falls: said.falls, key: racer.key, outBy: said.outBy });
       }
     }
 
@@ -989,13 +1070,15 @@ export class GameScene {
 
     for (const row of this.tallies()) {
       const seen = numberOr(counted[row.key], 0);
+      const last = this.fellAt.get(row.key) ?? -FALL_GAP;
 
-      if (row.falls !== seen) {
-        counted[row.key] = row.falls;
+      if (row.falls === 0 && seen !== 0) {
+        counted[row.key] = 0;
         changed = true;
-      }
-
-      if (row.falls > seen) {
+      } else if (row.falls > seen && this.clock - last >= FALL_GAP) {
+        counted[row.key] = seen + 1;
+        changed = true;
+        this.fellAt.set(row.key, this.clock);
         this.scoreFall(row.key, row.outBy, scores, creditedOnly);
       }
     }
@@ -1007,15 +1090,14 @@ export class GameScene {
 
   private scoreFall(key: string, by: string, scores: JsonRecord, creditedOnly: boolean) {
     const alone = by === "" || by === key;
-    const since = this.client.serverNow() - this.state.startAt;
-    const worth = since >= ROUND_MS - SHRINK_MS ? SQUEEZE_POINTS : 1;
 
     if (alone && !creditedOnly) {
-      scores[key] = Math.max(0, numberOr(scores[key], 0) - 1);
-      this.client.sendEvent(KO_EVENT, { b: "", n: 1, v: key });
+      const had = numberOr(scores[key], 0);
+      scores[key] = Math.max(0, had - 1);
+      this.client.sendEvent(KO_EVENT, { b: "", n: Math.min(1, had), v: key });
     } else if (!alone && this.racers.has(by)) {
-      scores[by] = numberOr(scores[by], 0) + worth;
-      this.client.sendEvent(KO_EVENT, { b: by, n: worth, v: key });
+      scores[by] = numberOr(scores[by], 0) + 1;
+      this.client.sendEvent(KO_EVENT, { b: by, n: 1, v: key });
     }
   }
 
@@ -1027,7 +1109,7 @@ export class GameScene {
     const victim = this.racers.get(payload.v);
     const by = this.racers.get(payload.b) ?? null;
     const mine = this.myKey();
-    const worth = clamp(numberOr(payload.n, 1), 1, SQUEEZE_POINTS);
+    const lost = numberOr(payload.n, 0) > 0;
 
     if (victim && this.started) {
       this.hud.feed(by ? this.rowOf(by) : null, this.rowOf(victim));
@@ -1037,16 +1119,17 @@ export class GameScene {
       reward(this.field, by.key);
 
       if (this.started) {
-        this.fx.say(`+${worth}`, by.x, 2.5, by.z, by.css);
+        this.fx.say("+1", by.x, 2.5, by.z, by.css);
       }
     }
 
     if (by?.key === mine) {
       this.knockOffs += 1;
-      this.hud.banner(`KNOCK-OFF  +${worth}`, "good", 1300);
+      this.hud.banner("KNOCK-OFF  +1", "good", 1300);
       sfx.knockOff();
     } else if (victim?.key === mine) {
-      this.hud.banner(by ? `KNOCKED OFF BY ${by.name}` : "YOU FELL OFF  -1", "bad", 1500);
+      const fell = lost ? "YOU FELL OFF  -1" : "YOU FELL OFF";
+      this.hud.banner(by ? `KNOCKED OFF BY ${by.name}` : fell, "bad", 1500);
       sfx.knockedOut();
     }
   }
@@ -1059,9 +1142,34 @@ export class GameScene {
     const hit = readHit(payload.h);
     const car = this.field.cars.get(payload.to);
 
-    if (hit && car && !this.field.cars.has(hit.by)) {
-      deliver(this.field, car, hit);
+    if (!hit || !car || this.field.cars.has(hit.by) || !this.vouched(hit, from, car.key)) {
+      return;
     }
+
+    deliver(this.field, car, hit);
+
+    for (const event of this.field.events) {
+      this.onFieldEvent(event);
+    }
+
+    this.field.events.length = 0;
+  }
+
+  private vouched(hit: Hit, from: string, to: string) {
+    if (hit.how !== "land") {
+      return hit.by === from || (isBotKey(hit.by) && from === this.client.hostId);
+    }
+
+    const pair = `${from}>${to}`;
+    const last = this.shoved.get(pair) ?? -SHOVE_GAP;
+
+    if (hit.by !== "" || this.clock - last < SHOVE_GAP) {
+      return false;
+    }
+
+    this.shoved.set(pair, this.clock);
+
+    return true;
   }
 
   private onClash(payload: JsonValue) {
@@ -1089,6 +1197,7 @@ export class GameScene {
 
     field.ghosts.clear();
     this.heard.clear();
+    this.dress(now);
 
     for (const player of Object.values(client.players)) {
       const away = player.id === client.playerId || player.connected === false;
@@ -1116,6 +1225,7 @@ export class GameScene {
       if (racer.seen && racer.track) {
         const predicted = this.predict(racer, dt);
         const ghost = ghostOf(racer.key, racer.view);
+        ghost.safe &&= this.clock < racer.safeUntil;
         ghost.x += predicted.x;
         ghost.z += predicted.z;
         field.ghosts.set(racer.key, ghost);
@@ -1124,12 +1234,23 @@ export class GameScene {
   }
 
   private hear(key: string, who: Who, report: PoseReport) {
-    if (report.round !== this.state.round || this.field.cars.has(key)) {
+    if (this.field.cars.has(key)) {
       return;
     }
 
-    const racer = this.ensure(key, who, report.colour);
-    this.paint(racer, report.colour);
+    const known = this.racers.get(key);
+
+    if (report.round !== this.state.round) {
+      if (known) {
+        known.seen = true;
+      }
+
+      return;
+    }
+
+    const colour = who === "human" ? (this.worn.get(key) ?? report.colour) : report.colour;
+    const racer = this.ensure(key, who, colour);
+    this.paint(racer, colour);
     racer.track?.push(report);
     const view = racer.track?.sample();
 
@@ -1150,12 +1271,12 @@ export class GameScene {
         const id = `${owner}:${report.round}:${row.seq}`;
         let shot = shots.find((other) => other.id === id);
 
-        if (!shot) {
+        if (!shot && this.believed(owner, row)) {
           shot = shotOf(owner, report.round, row);
           shots.push(shot);
         }
 
-        if (row.kind === "seeker" && this.steered.get(id) !== report.t) {
+        if (shot && row.kind === "seeker" && this.steered.get(id) !== report.t) {
           this.steered.set(id, report.t);
           const x = row.x + Math.cos(row.a) * SEEKER_SPEED * lag;
           const z = row.z + Math.sin(row.a) * SEEKER_SPEED * lag;
@@ -1166,6 +1287,24 @@ export class GameScene {
         }
       }
     }
+  }
+
+  private believed(owner: string, row: ShotRow) {
+    const racer = this.racers.get(owner);
+
+    if (row.kind !== "mine" && row.kind !== "oil") {
+      return true;
+    }
+
+    const near = racer && Math.hypot(row.x - racer.x, row.z - racer.z) < LAID_REACH;
+
+    if (!racer || near !== true || this.clock - racer.laidAt < LAID_GAP) {
+      return false;
+    }
+
+    racer.laidAt = this.clock;
+
+    return true;
   }
 
   private dropShots() {
@@ -1326,6 +1465,11 @@ export class GameScene {
       if (racer) {
         this.foretold.add(event.hit.id);
         this.impact(racer, event.hit.how, event.hit.by, event.reach, event.hit.dx, event.hit.dz);
+      }
+
+      if (event.to === mine && event.hit.damage > 0 && !this.taught && this.started) {
+        this.taught = true;
+        this.hud.banner("DAMAGE UP", "bad", 2600, "THE MORE DAMAGE, THE FURTHER YOU FLY");
       }
     } else if (event.kind === "block") {
       this.fx.block(event.x, event.z, event.key === mine);
@@ -1507,6 +1651,8 @@ export class GameScene {
       track: who === "me" ? null : new RemoteTrack(who === "bot" ? this.botClock : undefined),
       tumble: 0,
       uses: 0,
+      laidAt: -LAID_GAP,
+      safeUntil: this.clock + SAFE_SECONDS + SAFE_SLACK,
       view,
       who,
       x: 0,
@@ -1573,10 +1719,18 @@ export class GameScene {
     this.pistonFx(seconds, dt, shrink.late);
     this.showCubes(seconds, shrink.late);
 
+    this.trailT -= dt;
+
     for (const shot of field.shots) {
       const ramp = this.racers.get(shot.by)?.ramp ?? RAMP.white;
       drawShot(stage, this.lights, this.glow, shot, seconds, this.clock, ramp);
+
+      if (this.trailT <= 0) {
+        fx.trail(shot, ramp);
+      }
     }
+
+    this.trailT = this.trailT <= 0 ? TRAIL_EVERY : this.trailT;
 
     this.updateCamera(dt);
     this.showroom(dt);
@@ -1600,7 +1754,7 @@ export class GameScene {
 
     for (const car of this.field.cars.values()) {
       const isMine = car.key === mine;
-      const colour = isMine ? this.colour : (this.botColours[Number(car.key.slice(1))] ?? 0);
+      const colour = isMine ? this.wearing : (this.botColours[Number(car.key.slice(1))] ?? 0);
       const racer = this.ensure(car.key, isMine ? "me" : "bot", colour);
       this.paint(racer, colour);
 
@@ -1758,7 +1912,7 @@ export class GameScene {
 
       if (mine) {
         sfx.pickup();
-        this.hud.banner(specialName(view.special), "warn", 1100);
+        this.hud.banner(specialName(view.special), "warn", 1800, specialHint(view.special));
       }
     }
 
@@ -1827,6 +1981,7 @@ export class GameScene {
       fx.flash(racer.x, racer.z, 6, 0.8, 0.3);
     } else if (to === "drive" && from === "drop") {
       racer.mesh.thump();
+      racer.safeUntil = this.clock + SAFE_SECONDS + SAFE_SLACK;
 
       if (near) {
         sfx.land(mine);
@@ -1872,7 +2027,7 @@ export class GameScene {
 
       if (this.started) {
         sfx.warn();
-        this.hud.banner("THE RIM DROPS  ·  DOUBLE POINTS", "warn", 2800);
+        this.hud.banner("THE RIM DROPS", "warn", 2800);
       }
     }
 
@@ -2007,6 +2162,10 @@ export class GameScene {
       sparks.puff(racer.x - cos * 1.4, 0.6, racer.z - sin * 1.4, ramp, 0.45);
     }
 
+    if (view.mod === "turbo") {
+      this.fx.flame(racer.x - cos * 1.5, racer.z - sin * 1.5, cos, sin);
+    }
+
     if (view.damage >= 60) {
       sparks.puff(racer.x, 1.6, racer.z, view.damage >= 120 ? RAMP.black : RAMP.white, 0.4);
     }
@@ -2113,15 +2272,17 @@ export class GameScene {
   private chaseCamera(dt: number) {
     const { aim, me, view } = this;
     const lead = me && me.mode !== "out" ? me : null;
-    const steady = lead?.mode === "drive" && lead.stagger <= 0 && lead.slip <= 0;
+    const driving = lead?.mode === "drive" && lead.stagger <= 0 && lead.slip <= 0;
+    const steady = driving || lead?.mode === "drop";
 
     if (lead && steady) {
       const turn = wrapAngle(lead.a - this.yaw);
       this.yaw = wrapAngle(this.yaw + turn * Math.min(1, dt * CAM_TURN));
     }
 
-    const x = lead ? lead.x + Math.cos(this.yaw) * CAM_LEAD : aim.x;
-    const z = lead ? lead.z + Math.sin(this.yaw) * CAM_LEAD : aim.z;
+    const ahead = lead && steady ? lead.a : this.yaw;
+    const x = lead ? lead.x + Math.cos(ahead) * CAM_LEAD : aim.x;
+    const z = lead ? lead.z + Math.sin(ahead) * CAM_LEAD : aim.z;
     const ease = Math.min(1, dt * 6);
     view.zoom = this.zoomFor();
     aim.set(aim.x + (x - aim.x) * ease, aim.y * (1 - ease), aim.z + (z - aim.z) * ease);
@@ -2164,11 +2325,13 @@ export class GameScene {
       const { view } = racer;
 
       if (racer.who !== "me" && racer.seen && view.mode === "drive" && tags.length < 8) {
-        const lift = (view.mod === "giant" ? 4 : 2.9) + Math.max(0, view.y);
+        const lift = (view.mod === "giant" ? 5 : 3.7) + Math.max(0, view.y);
         const spot = this.stage.project(racer.x, lift, racer.z);
+        const worth = racer.who === "human" || view.damage >= 0.5;
 
-        if (spot.x > 0 && spot.x < wide && spot.y > 0 && spot.y < high) {
+        if (worth && spot.x > 0 && spot.x < wide && spot.y > 0 && spot.y < high) {
           tags.push({
+            css: racer.css,
             damage: view.damage,
             name: racer.who === "human" ? racer.name : "",
             x: spot.x,
@@ -2250,7 +2413,9 @@ export class GameScene {
 
     const left = ROUND_MS - seconds * 1000;
     const round = Math.max(1, state.round - this.firstRound);
-    hud.setClock(clamp(left, 0, ROUND_MS), round, left < SHRINK_MS && state.phase === "play");
+    const playing = state.phase === "play";
+    const last = playing && left > 0 && left <= LAST_MS ? Math.ceil(left / 1000) : 0;
+    hud.setClock(clamp(left, 0, ROUND_MS), round, left < SHRINK_MS && playing, last > 0);
     hud.setScore(this.scoreOf(mine), this.myPlace);
     hud.setBoard(rows);
 
@@ -2264,7 +2429,7 @@ export class GameScene {
       );
     }
 
-    const count = state.phase === "play" ? countText(seconds, left) : "";
+    const count = playing ? countText(seconds) : "";
 
     if (count !== this.lastCount) {
       this.lastCount = count;
@@ -2272,6 +2437,14 @@ export class GameScene {
 
       if (count !== "") {
         sfx.countdown(count === "GO");
+      }
+    }
+
+    if (last !== this.lastTick) {
+      this.lastTick = last;
+
+      if (last > 0) {
+        sfx.countdown(false);
       }
     }
 

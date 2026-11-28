@@ -19,6 +19,8 @@ import {
   SAFE_SECONDS,
   SHRINK_MS,
   SHRINK_WARN_MS,
+  SPECIAL_BUFFER,
+  STAGGER_EASE,
   STEP,
   TURN_RATE,
 } from "../src/shared/constants.ts";
@@ -42,6 +44,7 @@ import type { CarKind } from "../src/sim/kinds.ts";
 import {
   GIANT_RADIUS,
   GIANT_WEIGHT,
+  MAGNET_LOCK,
   MAGNET_STOP,
   MOD_SECONDS,
   OIL_DAMAGE,
@@ -264,8 +267,8 @@ test("a slam throws everyone round the brick outwards, the near ones furthest", 
   const back = place(field, "p3", -3.8, 0, 0);
   const far = place(field, "p4", 0, SLAM_RADIUS + 2, 0);
   const events = [...tap(field, "p1", ATTACK)];
-  run(field, 0.15);
-  assert.ok(brick.y > 0.3, "it hops first");
+  run(field, 0.1);
+  assert.ok(brick.y > 0.2, `it hops first, got ${brick.y}`);
   events.push(...run(field, 1.6));
   const [hitNear] = hitsOn(events, "p2");
   const [hitBack] = hitsOn(events, "p3");
@@ -273,7 +276,7 @@ test("a slam throws everyone round the brick outwards, the near ones furthest", 
   assert.equal(hitNear.how, "slam");
   assert.ok(hitNear.dx > 0.95 && hitBack.dx < -0.95);
   assert.ok(hitNear.reach > hitBack.reach);
-  assert.ok(near.x > 6 && back.x < -6.5);
+  assert.ok(near.x > 6 && back.x < -6.5, `near ${near.x}, back ${back.x}`);
   assert.equal(far.launches, 0);
 });
 
@@ -305,7 +308,7 @@ test("a scoop tosses the car in front over its own roof", () => {
   assert.ok(hit);
   assert.equal(hit.how, "scoop");
   assert.ok(hit.dx < -0.95);
-  assert.ok(target.x < striker.x - 4, `lands behind, at ${target.x}`);
+  assert.ok(target.x < striker.x - 3, `lands behind, at ${target.x}`);
 });
 
 test("a whirl bats away everything close, round and outwards", () => {
@@ -488,6 +491,12 @@ test("oil takes the wheel away from whoever crosses it, and the slick is its own
   assert.equal(victim.a, heading, "no steering on oil");
   run(field, 2, { p3: AHEAD });
   assert.equal(victim.slip, 0);
+  const owner = field.cars.get("p1");
+  assert.ok(owner);
+  Object.assign(owner, { x: slick.x, z: slick.z });
+  run(field, 0.3);
+  assert.equal(owner.slip, 0, "never its owner");
+  assert.equal(owner.damage, 0);
 });
 
 test("a shock throws everyone in reach outwards", () => {
@@ -503,7 +512,7 @@ test("a shock throws everyone in reach outwards", () => {
 });
 
 test("a magnet yanks cars to the nose without sending them flying", () => {
-  const { car, field, target } = armed("magnet", [10, 4]);
+  const { car, field, target } = armed("magnet", [7, 3]);
   target.damage = 150;
   tap(field, "p1", SPECIAL);
   run(field, 1.5);
@@ -513,6 +522,42 @@ test("a magnet yanks cars to the nose without sending them flying", () => {
     `pulled to ${target.x}, ${target.z}`,
   );
   assert.equal(car.launches, 0);
+  const again = armed("magnet", [7, 0]);
+  tap(again.field, "p1", SPECIAL);
+  const events = [...tap(again.field, "p1", ATTACK), ...run(again.field, MAGNET_LOCK - 0.1)];
+  assert.equal(again.car.attacks, 1);
+  assert.deepEqual(hitsOn(events, "p2"), [], "the pull is not a free punch");
+});
+
+test("a special pressed a moment too early still goes off", () => {
+  const { car, field } = armed("shock", [30, 0]);
+  car.stagger = STAGGER_EASE + SPECIAL_BUFFER - 0.1;
+  assert.deepEqual(tap(field, "p1", SPECIAL), []);
+  assert.equal(car.special, "shock");
+  const events = run(field, SPECIAL_BUFFER);
+  assert.ok(events.some((event) => event.kind === "use" && event.special === "shock"));
+  const late = armed("shock", [30, 0]);
+  late.car.stagger = STAGGER_EASE + SPECIAL_BUFFER + 0.2;
+  tap(late.field, "p1", SPECIAL);
+  run(late.field, 1);
+  assert.equal(late.car.special, "shock", "a press too far ahead is forgotten");
+});
+
+test("a puck the clock carries past a car still hits it", () => {
+  const { field, target } = duel("popper", 9);
+  tap(field, "p1", ATTACK);
+
+  for (let i = 0; i < 30 && field.shots.length === 0; i += 1) {
+    run(field, STEP);
+  }
+
+  assert.equal(field.shots.length, 1);
+  field.time += 0.3;
+  const [hit] = hitsOn(run(field, STEP), "p2");
+  assert.ok(hit, "swept along the way it came");
+  assert.equal(hit.how, "shot");
+  assert.ok(hit.dx > 0.9);
+  assert.equal(target.launches, 1);
 });
 
 test("a zap stalls everyone in reach where they stand", () => {
@@ -521,9 +566,9 @@ test("a zap stalls everyone in reach where they stand", () => {
   assert.ok(target.stagger >= ZAP_STUN - STEP);
   assert.equal(target.damage, ZAP_DAMAGE);
   const from = target.x;
-  run(field, 1, { p2: AHEAD });
+  run(field, ZAP_STUN - 0.25, { p2: AHEAD });
   assert.ok(Math.abs(target.x - from) < 0.3, "it goes nowhere");
-  run(field, 1, { p2: AHEAD });
+  run(field, 1.2, { p2: AHEAD });
   assert.ok(target.x > from + 4, "then drives off");
 });
 
@@ -714,6 +759,15 @@ test("the sweeper, the pistons and the pop bumpers all throw cars", () => {
   assert.ok(shot);
   assert.equal(shot.how, "piston");
   assert.ok(shot.dx * Math.cos(piston.a) + shot.dz * Math.sin(piston.a) > 0.8);
+  assert.equal(hazardHit(PINBALL, fires + 0.4, laneX, laneZ, 1.2), null);
+  assert.equal(hazardHit(PINBALL, fires + 0.4, laneX, laneZ, 1.2, false, 0.35)?.how, "piston");
+  const jumped = makeField(PINBALL);
+  jumped.time = fires - 0.05;
+  const stood = place(jumped, "p1", laneX, laneZ, 0);
+  run(jumped, STEP);
+  jumped.time = fires + 0.3;
+  assert.equal(hitsOn(run(jumped, STEP), "p1")[0]?.how, "piston", "a jump of the clock");
+  assert.equal(stood.launches, 1);
   const popped = hazardHit(PINBALL, 5, bumper.x + bumper.r + 1, bumper.z, 1.2);
   assert.ok(popped);
   assert.equal(popped.how, "bumper");
@@ -753,6 +807,38 @@ test("the rim blinks, then drops, and takes its cars, toys and pads with it", ()
   assert.equal(before.length, PINBALL.def.pads.length);
   assert.ok(after.length >= 6 && after.length < before.length);
   assert.ok(after.every((cube) => onBoard(PINBALL, cube.x, cube.z, true)));
+});
+
+test("a mine or a slick left on the rim goes with it", () => {
+  const drops = (ROUND_MS - SHRINK_MS + SHRINK_WARN_MS) / 1000;
+
+  for (const kind of ["mine", "oil"] as const) {
+    const field = makeField(PINBALL);
+    field.time = drops - 1;
+    const car = place(field, "p1", PINBALL.halfX - 3, 12, Math.PI / 2);
+    car.special = kind;
+    tap(field, "p1", SPECIAL);
+    const [laid] = field.shots;
+    assert.ok(laid && onBoard(PINBALL, laid.x, laid.z));
+    assert.ok(!onBoard(PINBALL, laid.x, laid.z, true), "on the rim");
+    const events = run(field, 1.2);
+    assert.ok(
+      events.some((event) => event.kind === "pop" && !event.burst),
+      `${kind} is gone`,
+    );
+    assert.equal(field.shots.length, 0);
+  }
+});
+
+test("every start has a clear road: a car that only holds the pedal is not hit or dropped", () => {
+  for (const spot of PINBALL.def.grid) {
+    const field = makeField(PINBALL);
+    const car = place(field, "p1", spot.x, spot.z, spot.a);
+    const events = run(field, 2.4, { p1: AHEAD });
+    assert.deepEqual(hitsOn(events, "p1"), [], `from ${spot.x}, ${spot.z}`);
+    assert.equal(car.falls, 0);
+    assert.equal(car.mode, "drive");
+  }
 });
 
 test("cubes come on a clock every client can work out, one a pad", () => {

@@ -38,7 +38,7 @@ export const KINDS: Record<CarKind, KindDef> = {
     attack: "slam",
     attackName: "SLAM",
     blurb: "Hops and comes down hard: everyone around it flies.",
-    cooldown: 4.2,
+    cooldown: 3.8,
     damage: 16,
     hold: 0.1,
     name: "BRICK",
@@ -46,11 +46,11 @@ export const KINDS: Record<CarKind, KindDef> = {
     retract: 0.25,
     speed: 0.86,
     strike: 0.08,
-    throw: 5.2,
+    throw: 4.2,
     turn: 0.88,
     weight: 1.26,
-    whiff: 4.6,
-    windup: 0.36,
+    whiff: 4.2,
+    windup: 0.26,
   },
   bumper: {
     accel: 1,
@@ -65,11 +65,11 @@ export const KINDS: Record<CarKind, KindDef> = {
     retract: 0.2,
     speed: 1,
     strike: 0.1,
-    throw: 5,
+    throw: 3.9,
     turn: 1,
     weight: 1,
     whiff: 3,
-    windup: 0.055,
+    windup: 0.12,
   },
   dart: {
     accel: 1.15,
@@ -84,11 +84,11 @@ export const KINDS: Record<CarKind, KindDef> = {
     retract: 0.15,
     speed: 1.14,
     strike: 0.26,
-    throw: 5.2,
+    throw: 4.2,
     turn: 1.08,
     weight: 0.86,
     whiff: 2.8,
-    windup: 0.08,
+    windup: 0.12,
   },
   popper: {
     accel: 1,
@@ -103,30 +103,30 @@ export const KINDS: Record<CarKind, KindDef> = {
     retract: 0.15,
     speed: 0.97,
     strike: 0.05,
-    throw: 6,
+    throw: 4.6,
     turn: 1,
     weight: 0.9,
     whiff: 1.7,
-    windup: 0.05,
+    windup: 0.08,
   },
   scoop: {
     accel: 1,
     attack: "scoop",
     attackName: "FLIP",
     blurb: "Scoops the car in front and tosses it over its roof.",
-    cooldown: 1.8,
-    damage: 15,
+    cooldown: 1.6,
+    damage: 18,
     hold: 0.12,
     name: "SCOOP",
     power: 1.1,
     retract: 0.2,
     speed: 0.98,
     strike: 0.1,
-    throw: 9.5,
+    throw: 6.5,
     turn: 0.95,
     weight: 1.18,
-    whiff: 2.6,
-    windup: 0.07,
+    whiff: 2.2,
+    windup: 0.14,
   },
   twister: {
     accel: 1.05,
@@ -141,11 +141,11 @@ export const KINDS: Record<CarKind, KindDef> = {
     retract: 0.12,
     speed: 1.02,
     strike: 0.3,
-    throw: 4,
+    throw: 3.3,
     turn: 1.12,
     weight: 0.9,
     whiff: 4.1,
-    windup: 0.04,
+    windup: 0.1,
   },
 };
 
@@ -159,7 +159,7 @@ export const SCOOP_HALF_WIDTH = 1.9;
 export const SCOOP_LIFT = 1.7;
 
 /** How far a dash carries its car, and how close a body has to be to be caught by it. */
-export const DASH_REACH = 7;
+export const DASH_REACH = 5.6;
 export const DASH_CATCH = 0.9;
 
 /** Centre-to-centre reach of the two attacks that hit all round. */
@@ -211,7 +211,7 @@ export const kindPips = (kind: CarKind) => {
 
   return {
     endurance: pips(def.weight, 0.86, 1.26),
-    power: pips(def.power * def.throw, 3.6, 6.5),
+    power: pips(def.power * def.throw, 3, 5.9),
     reach: REACH_PIPS[def.attack],
     speed: pips(def.speed + (def.turn - 1) * 0.5, 0.86, 1.14),
   };

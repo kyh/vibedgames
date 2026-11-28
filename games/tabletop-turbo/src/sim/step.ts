@@ -207,10 +207,13 @@ const report = (field: Field, car: Car, events: CarEvents) => {
   }
 };
 
-const hazards = (field: Field, late: boolean) => {
+const SWEEP_MOST = 0.5;
+
+const hazards = (field: Field, late: boolean, skipped: number) => {
   for (const car of field.cars.values()) {
     if (car.mode === "drive" && car.y < 1.2) {
-      const hit = hazardHit(field.arena, field.time, car.x, car.z, carRadius(car), late);
+      const at = [car.x, car.z, carRadius(car)] as const;
+      const hit = hazardHit(field.arena, field.time, ...at, late, skipped);
 
       if (hit) {
         deliver(field, car, hit);
@@ -270,7 +273,8 @@ const act = (acts: Acts, car: Car, events: CarEvents) => {
 };
 
 const settle = (field: Field, acts: Acts, all: readonly Body[], late: boolean, dt: number) => {
-  hazards(field, late);
+  const skipped = Math.min(SWEEP_MOST, Math.max(0, field.time - field.stepped - dt));
+  hazards(field, late, skipped);
   attacks(field, all);
 
   for (const car of acts.fired) {
@@ -285,7 +289,7 @@ const settle = (field: Field, acts: Acts, all: readonly Body[], late: boolean, d
     stomp(field, car, all);
   }
 
-  stepShots(field, all, dt);
+  stepShots(field, all, late, dt);
 };
 
 /**
@@ -335,5 +339,6 @@ export const stepField = (
     reaches(field, car, cubes);
   }
 
+  field.stepped = field.time;
   field.time += dt;
 };
