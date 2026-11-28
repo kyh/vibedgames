@@ -13,6 +13,8 @@ import { createInsufficientScopeError } from "better-auth/oauth2";
 import { z } from "zod";
 
 import { jsonError } from "@/lib/json-error";
+import type { McpApps } from "@/lib/mcp-gallery";
+import { registerApps } from "@/lib/mcp-gallery";
 import { registerSkills } from "@/lib/mcp-skills";
 import { asTaskResult, registerTasks, TASK_METHODS, TASKS_EXTENSION } from "@/lib/mcp-tasks";
 import type { McpContext, Skill } from "@/lib/mcp-tools";
@@ -189,12 +191,13 @@ const instructions = [
   "To deploy with the tool: call `deploy` with `bundle: true`, PUT the built game as one gzipped tar (`tar -czf game.tgz -C dist .`, index.html at its root) to `bundleUpload` (`curl -T game.tgz -H 'Content-Type: application/gzip' \"$url\"`), then call `deploy` with the `deploymentId` and `publish: true`. With no shell, send text files in `files` and generated assets as `encoding: url`, which the server fetches, rather than downloading them.",
   "Big bytes never ride a tool call: uploads go to URLs on this server (generate_upload for a model input), and fork returns a URL to download source from.",
   'A client with the io.modelcontextprotocol/tasks extension gets a generation back as a task as soon as it is queued, to follow with tasks/get. A task\'s `taskId` is only for tasks/get and tasks/cancel; its `_meta["com.vibedgames/generation"]` names the `endpoint_id` and `request_id` that generate_status and `vg generate status <endpoint_id> <request_id>` take.',
+  "`games_browse` lists the games already on vibedgames, for inspiration or to play; hosts with MCP Apps show it as a gallery.",
   "The skills are also `skill://` resources (the io.modelcontextprotocol/skills extension: skills/list, skills/get), supporting files included.",
   API_KEY_HINT,
 ].join(" ");
 
 /** Builds a fresh server per request: the handler is stateless, so nothing outlives a call. */
-export const createVibedgamesMcpHandler = (context: McpContext) =>
+export const createVibedgamesMcpHandler = (context: McpContext, apps: McpApps) =>
   createMcpHandler(async () => {
     const server = new McpServer(serverInfo, { instructions });
     const { tools: registered } = await registrar.register(server, { context });
@@ -204,6 +207,7 @@ export const createVibedgamesMcpHandler = (context: McpContext) =>
     }
 
     registerSkills(server, context.skills);
+    registerApps(server, apps);
     registerTasks(server, context);
 
     return server;
@@ -257,6 +261,7 @@ export const handleMcpRequest = async (
   request: Request,
   createContext: (headers: Headers) => Promise<ORPCContext>,
   skills: readonly Skill[],
+  apps: McpApps,
 ) => {
   if (request.method !== "POST") {
     return new Response(null, { headers: { allow: "POST" }, status: 405 });
@@ -300,7 +305,7 @@ export const handleMcpRequest = async (
   const secret = context.signing?.secret;
   const userId = context.session?.user.id;
   const taskMode = secret !== undefined && userId !== undefined && isTaskCall(messages);
-  const handler = createVibedgamesMcpHandler({ ...context, skills, taskMode });
+  const handler = createVibedgamesMcpHandler({ ...context, skills, taskMode }, apps);
 
   const response = await handler.fetch(
     new Request(request.url, { body, headers, method: request.method }),

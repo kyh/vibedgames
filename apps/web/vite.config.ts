@@ -4,6 +4,8 @@ import { cloudflare } from "@cloudflare/vite-plugin";
 import viteReact from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
+import { mcpApps } from "./mcp-apps/vite-plugin";
+
 export default defineConfig({
   plugins: [
     cloudflare({
@@ -13,6 +15,7 @@ export default defineConfig({
     tanstackStart(),
     viteReact(),
     tailwindcss(),
+    mcpApps(),
   ],
   resolve: {
     tsconfigPaths: true,
