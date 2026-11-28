@@ -315,7 +315,7 @@ export const tools = {
     title: "Redeem a credit code",
   }),
   deploy: asTool(appRouter.deploy.upload, {
-    annotations: { ...mutates, openWorldHint: false },
+    annotations: { ...mutates, destructiveHint: true, openWorldHint: false },
     name: "deploy",
     title: "Deploy a game",
   }),

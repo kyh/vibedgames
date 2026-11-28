@@ -234,6 +234,7 @@ describe("mcp endpoint", () => {
     }
 
     assert.strictEqual(byName.get("deployments_delete")?.annotations?.destructiveHint, true);
+    assert.strictEqual(byName.get("deploy")?.annotations?.destructiveHint, true);
 
     for (const name of ["generate", "generate_image", "deploy", "credits_redeem"]) {
       assert.strictEqual(byName.get(name)?.annotations?.readOnlyHint, false, name);
